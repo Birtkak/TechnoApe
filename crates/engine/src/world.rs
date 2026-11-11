@@ -1,5 +1,7 @@
 //! Terrain: bodies on the equi-angular cube-sphere grid (ADR 0003), generated from the seed, plus a sparse
 //! edit map. A block is (face, column i, column j, layer); layers are geometric shells, so blocks stay cubic.
+use crate::bake::Map;
+use crate::biomes::{REACH, ROWS, SPACING, TALLEST};
 use crate::blocks::{AIR, BLOCKS};
 use crate::bodies::{Generator, BODIES};
 use crate::liquid::{Col, Ground, Liquids, OPEN, U};
@@ -21,8 +23,19 @@ pub const CS: i32 = 32; // cells per chunk edge
 pub const P: usize = 34; // padded edge
 /// Gravity at a body's surface, m/s^2 (ADR 0007, 0024).
 pub const G: f64 = 9.81;
-/// No generated surface lies farther than this from a body's radius (m).
-pub const AMP: f64 = 80.0;
+/// No generated surface lies farther than this from a body's radius (m), plants included: a baked planet's
+/// 120 m peaks (ADR 0042) and its tallest tree.
+pub const AMP: f64 = 140.0;
+/// The noise land's bound (ADR 0021), AMP before ADR 0043.
+const NOISE_AMP: f64 = 80.0;
+/// The deepest a baked sea floor lies under the sea level, metres: the bake's 60 m would reach `r0`.
+const FLOOR: f64 = CRUST - SEA_DEPTH - 4.0;
+/// The ground of a baked planet is this rough over its map's smooth 8 m cells, metres (ADR 0043).
+const DETAIL_M: f64 = 1.0;
+/// Biome borders and ground patches wander by about this many columns (ADR 0043).
+const JITTER: f64 = 6.0;
+/// A ground patch is about this many columns across.
+const PATCH: f64 = 3.0;
 /// The relief of a body without continents (the moon): +-30 m of hills.
 const HILLS: f64 = 30.0;
 pub const CRUST: f64 = 64.0;
@@ -125,12 +138,59 @@ pub struct Body {
     pub ground: [u8; 3],
     /// The column heights of chunk footprints, shared by every consumer (ADR 0025, E).
     tiles: HeightCache,
+    /// A baked planet's map and the noise over it (ADR 0043); None: the noise land of ADR 0021.
+    baked: Option<Box<Baked>>,
+}
+
+struct Baked {
+    map: Arc<Map>,
+    /// `candidate` by (face, cx, cy), for lookups without a cached tile (the server's physics builds none);
+    /// past `SPOTS` it is emptied.
+    spots: std::sync::Mutex<FxMap<(u8, i32, i32), Option<Foot>>>,
+    detail: FastNoiseLite,
+    jitter: FastNoiseLite,
+    seed: u64,
+}
+
+/// No plant block stands higher than this over the ground of its own column, metres: the tallest plant on
+/// ground up to 8 m higher a column out, which the map's 8 m spline never makes (the test checks the margin).
+/// shortcut: a margin, not a bound; a cliff steeper than 8 under a crown would lose its leaves to physics.
+pub const PLANT_TOP: f64 = (TALLEST + 2 + 8 * REACH) as f64;
+
+/// Plant spots kept per body for lookups without a tile: about 2 MB.
+const SPOTS: usize = 65536;
+
+/// A plant's place (ADR 0043): its kind (`biomes::ROWS.plants`), height in blocks, trunk column and the layer
+/// of its foot, the first air over the ground there.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Foot {
+    pub plant: usize,
+    pub h: i32,
+    pub i: i32,
+    pub j: i32,
+    pub z: i32,
+}
+
+fn mix(mut x: u64) -> u64 {
+    x = (x ^ (x >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94d049bb133111eb);
+    x ^ (x >> 31)
+}
+
+/// A number in 0..1 from a hash.
+fn unit(h: u64) -> f32 {
+    (h >> 40) as f32 / (1u64 << 24) as f32
 }
 
 /// The surface radius of every column of a chunk's footprint with its padding (`generate`'s P x P), a pure
 /// function of (face, level, x, y): the chunks stacked over it, its remeshes and its sea share one.
 pub struct HeightTile {
     pub h: [f64; P * P],
+    /// Each column's ground (`material`): the top, the band, the rock.
+    pub g: [[u8; 3]; P * P],
+    /// Plant blocks over the ground (level 0 of a baked planet only): (column, layer, block), by column then
+    /// layer. They stand where the generated ground is air; an edit wins over them.
+    pub plants: Vec<(u16, i32, u8)>,
     /// Of the heights as `f32`, as `generate` compares them.
     pub min: f32,
     pub max: f32,
@@ -236,7 +296,8 @@ impl Land {
             }
             h
         };
-        (h * self.relief).clamp(SEA_DEPTH - AMP + 2.0, AMP - SEA_DEPTH - 2.0)
+        // the bound before the bake raised AMP: old worlds keep their heights to the bit
+        (h * self.relief).clamp(SEA_DEPTH - NOISE_AMP + 2.0, NOISE_AMP - SEA_DEPTH - 2.0)
     }
 }
 
@@ -255,7 +316,180 @@ impl Body {
         let r0 = radius - CRUST.min(radius * 0.5); // small bodies keep half their radius
         let lnq = (1.0 + BLOCK / radius).ln();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None, land: None, spawn: DVec3::Y, ground: *GEN, tiles: HeightCache::default() }
+        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None, land: None, spawn: DVec3::Y, ground: *GEN, tiles: HeightCache::default(), baked: None }
+    }
+    /// The body on a baked map (ADR 0043): its heights, biomes, ground and plants, and its spawn.
+    pub fn with_map(mut self, map: Arc<Map>) -> Self {
+        assert_eq!(map.n, self.n, "a map of another planet size");
+        let mut detail = FastNoiseLite::with_seed(map.seed ^ 0x6e7a);
+        detail.set_noise_type(Some(NoiseType::OpenSimplex2));
+        detail.set_fractal_type(Some(FractalType::FBm));
+        detail.set_fractal_octaves(Some(2));
+        detail.set_frequency(Some(1.0 / 12.0));
+        let mut jitter = FastNoiseLite::with_seed(map.seed ^ 0x1f7e);
+        jitter.set_noise_type(Some(NoiseType::OpenSimplex2));
+        jitter.set_frequency(Some(1.0 / 24.0));
+        let spawn = DVec3::from_array(map.spawn);
+        self.baked = Some(Box::new(Baked { seed: map.seed as u32 as u64, map, detail, jitter, spots: Default::default() }));
+        self.sea = Some(self.layer_of(self.radius - SEA_DEPTH).floor() + 0.875);
+        // the scored spawn, moved to the nearest column with no plant within a step
+        let (f, x, y) = self.locate(spawn);
+        let (i0, j0) = (x as i32, y as i32);
+        let clear = |i: i32, j: i32| (-1..=1).all(|a| (-1..=1).all(|b| self.col_plants(f as u8, i + a, j + b).is_empty()));
+        let at = (0..=12).flat_map(|r| (-r..=r).flat_map(move |a| (-r..=r).map(move |b| (a, b))).filter(move |(a, b): &(i32, i32)| a.abs().max(b.abs()) == r)).find(|(a, b)| clear(i0 + a, j0 + b));
+        let (a, b) = at.unwrap_or((0, 0));
+        self.spawn = self.dir(f, (i0 + a) as f64 + 0.5, (j0 + b) as f64 + 0.5);
+        self
+    }
+    /// The map it was baked from, if it was.
+    pub fn map(&self) -> Option<&Arc<Map>> {
+        self.baked.as_ref().map(|b| &b.map)
+    }
+    /// The face of direction d and its point there in columns (i = 3.5 is the middle of column 3).
+    pub fn locate(&self, d: DVec3) -> (usize, f64, f64) {
+        let a = d.abs();
+        let f = if a.x >= a.y && a.x >= a.z { (d.x < 0.0) as usize } else if a.y >= a.z { 2 + (d.y < 0.0) as usize } else { 4 + (d.z < 0.0) as usize };
+        let [nn, s, t] = AX[f].map(|v| v.as_dvec3());
+        let dn = d.dot(nn);
+        let col = |w: f64| ((w / dn).atan() / FRAC_PI_2 * 2.0 + 1.0) * 0.5 * self.n as f64;
+        (f, col(d.dot(s)), col(d.dot(t)))
+    }
+    /// The surface radius at face point (i, j) in columns, d its direction, for chunks of `level`: from the
+    /// map's mip whose cells are about as wide as the columns, plus the detail; or the noise land.
+    fn height_at(&self, face: usize, i: f64, j: f64, d: DVec3, level: u8) -> f64 {
+        let Some(b) = &self.baked else { return self.height(d) };
+        let s = b.map.m as f64 / self.n as f64;
+        let k = (level as i32 - (1.0 / s).log2().round() as i32).max(0) as usize;
+        let p = d * self.radius;
+        let h = b.map.height(face, i * s, j * s, k) as f64 + DETAIL_M * b.detail.get_noise_3d(p.x as f32, p.y as f32, p.z as f32) as f64;
+        self.radius - SEA_DEPTH + h.clamp(-FLOOR, AMP - SEA_DEPTH - 2.0 - TALLEST as f64)
+    }
+    /// Face point (i, j) moved by the jitter noise at d, in columns: biome borders and patches wander.
+    fn jittered(&self, b: &Baked, i: f64, j: f64, d: DVec3) -> (f64, f64) {
+        let p = d * self.radius;
+        let (x, y, z) = (p.x as f32, p.y as f32, p.z as f32);
+        (i + JITTER * b.jitter.get_noise_3d(x, y, z) as f64, j + JITTER * b.jitter.get_noise_3d(x + 517.0, y - 311.0, z + 97.0) as f64)
+    }
+    /// The biome at face point (i, j) in columns (its direction d), None on a planet with no map.
+    pub fn biome_at(&self, face: usize, i: f64, j: f64, d: DVec3) -> Option<u8> {
+        let b = self.baked.as_ref()?;
+        let (x, y) = self.jittered(b, i, j, d);
+        let s = b.map.m as f64 / self.n as f64;
+        Some(b.map.biome(face, x * s, y * s))
+    }
+    /// The ground (`material`) at face point (i, j) in columns, d its direction, `h` its surface radius.
+    fn ground_at(&self, face: usize, i: f64, j: f64, d: DVec3, h: f64) -> [u8; 3] {
+        let Some(b) = &self.baked else { return self.ground };
+        let (x, y) = self.jittered(b, i, j, d);
+        let s = b.map.m as f64 / self.n as f64;
+        let row = &ROWS.biomes[b.map.biome(face, x * s, y * s) as usize];
+        let cell = ((x / PATCH).floor() as i64 as u64) ^ ((y / PATCH).floor() as i64 as u64).wrapping_mul(0x9e3779b97f4a7c15);
+        let roll = unit(mix(b.seed ^ cell ^ (face as u64) << 56));
+        [row.top(roll, (h - (self.radius - SEA_DEPTH)) as f32), row.ground[1], row.ground[2]]
+    }
+    /// The plant at candidate spot (cx, cy) of a face (one each `SPACING` x `SPACING` columns), if one grows
+    /// there: on a baked planet, over the sea, at least `REACH` columns inside the face.
+    pub fn candidate(&self, face: usize, cx: i32, cy: i32) -> Option<Foot> {
+        let b = self.baked.as_ref()?;
+        let r = mix(b.seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (face as u64) << 58 ^ (cx as u32 as u64) << 29 ^ cy as u32 as u64);
+        let (i, j) = (cx * SPACING + (r % SPACING as u64) as i32, cy * SPACING + ((r >> 8) % SPACING as u64) as i32);
+        if i < REACH || j < REACH || i >= self.n - REACH || j >= self.n - REACH {
+            return None;
+        }
+        let d = self.dir(face, i as f64 + 0.5, j as f64 + 0.5);
+        let row = &ROWS.biomes[self.biome_at(face, i as f64 + 0.5, j as f64 + 0.5, d)? as usize];
+        let plant = row.plant(unit(mix(r ^ 0x5eed)))?;
+        let h = self.height_at(face, i as f64 + 0.5, j as f64 + 0.5, d, 0);
+        let z = self.first_air(h);
+        if z as f64 <= self.sea? {
+            return None;
+        }
+        let [lo, hi] = ROWS.plants[plant].height;
+        Some(Foot { plant, h: lo + ((r >> 16) % (hi - lo + 1) as u64) as i32, i, j, z })
+    }
+    /// The first generated air layer over a surface at radius h: `material`'s own test.
+    fn first_air(&self, h: f64) -> i32 {
+        let mut z = ((self.layer_of(h) - 0.5).floor() as i32 + 1).max(0);
+        while z > 0 && material(h - self.layer_r(z as f64 - 0.5), &self.ground) == AIR {
+            z -= 1;
+        }
+        while material(h - self.layer_r(z as f64 + 0.5), &self.ground) != AIR {
+            z += 1;
+        }
+        z
+    }
+    /// The plant blocks over level-0 column (i, j), (layer, block) by layer, from the candidate spots of its face
+    /// `cand` gives (`candidate`, or a cache of it): the one function the mesher, physics and the water read
+    /// plants through (ADR 0043). Where two plants meet, the first in spot order wins, wood over leaves.
+    pub fn plants_with(&self, i: i32, j: i32, cand: &mut impl FnMut(i32, i32) -> Option<Foot>) -> Vec<(i32, u8)> {
+        let mut out: Vec<(i32, u8, bool)> = Vec::new();
+        if self.baked.is_none() {
+            return Vec::new();
+        }
+        for cy in (j - REACH).div_euclid(SPACING)..=(j + REACH).div_euclid(SPACING) {
+            for cx in (i - REACH).div_euclid(SPACING)..=(i + REACH).div_euclid(SPACING) {
+                let Some(f) = cand(cx, cy) else { continue };
+                let p = &ROWS.plants[f.plant];
+                let (dx, dz) = (i - f.i, j - f.j);
+                if dx.abs() > p.radius || dz.abs() > p.radius {
+                    continue;
+                }
+                for z in 0..=f.h {
+                    let Some((m, wood)) = p.block(f.h, dx, dz, z) else { continue };
+                    match out.iter_mut().find(|o| o.0 == f.z + z) {
+                        Some(o) => {
+                            if wood && !o.2 {
+                                *o = (f.z + z, m, wood);
+                            }
+                        }
+                        None => out.push((f.z + z, m, wood)),
+                    }
+                }
+            }
+        }
+        out.sort_unstable_by_key(|o| o.0);
+        out.into_iter().map(|o| (o.0, o.1)).collect()
+    }
+    /// `plants_with` over level-0 column (i, j): from its cached tile, else computed.
+    pub fn col_plants(&self, face: u8, i: i32, j: i32) -> Vec<(i32, u8)> {
+        if self.baked.is_none() {
+            return Vec::new();
+        }
+        let (x, y) = (i.div_euclid(CS), j.div_euclid(CS));
+        if let Some(e) = self.tiles.map.lock().unwrap().get(&(face, 0, x, y)) {
+            let k = ((i - x * CS + 1) as usize + (j - y * CS + 1) as usize * P) as u16;
+            let p = &e.0.plants;
+            let from = p.partition_point(|q| q.0 < k);
+            return p[from..].iter().take_while(|q| q.0 == k).map(|q| (q.1, q.2)).collect();
+        }
+        let spots = &self.baked.as_ref().unwrap().spots;
+        self.plants_with(i, j, &mut |cx, cy| {
+            if let Some(f) = spots.lock().unwrap().get(&(face, cx, cy)) {
+                return *f;
+            }
+            // looked at outside the lock; two threads may both, to the same result
+            let f = self.candidate(face as usize, cx, cy);
+            let mut m = spots.lock().unwrap();
+            if m.len() >= SPOTS {
+                m.clear();
+            }
+            m.insert((face, cx, cy), f);
+            f
+        })
+    }
+    /// The ground (`material`) of level-0 column (i, j) of a face: from its cached tile, else computed.
+    /// `height`: the column's surface radius when the caller has it (`col_height`'s, to the bit).
+    pub fn col_ground(&self, face: u8, i: i32, j: i32, height: Option<f64>) -> [u8; 3] {
+        if self.baked.is_none() {
+            return self.ground;
+        }
+        let (x, y) = (i.div_euclid(CS), j.div_euclid(CS));
+        if let Some(e) = self.tiles.map.lock().unwrap().get(&(face, 0, x, y)) {
+            return e.0.g[(i - x * CS + 1) as usize + (j - y * CS + 1) as usize * P];
+        }
+        let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
+        let d = self.dir(face as usize, ci, cj);
+        self.ground_at(face as usize, ci, cj, d, height.unwrap_or_else(|| self.height_at(face as usize, ci, cj, d, 0)))
     }
     /// The body with continents, oceans and a sea (ADR 0020, 0021), and its spawn on land.
     pub fn with_continents(mut self, seed: i32) -> Self {
@@ -358,17 +592,29 @@ impl Body {
         let (c0x, c0y) = (x * CS - 1, y * CS - 1);
         let ta: [f64; P] = std::array::from_fn(|k| self.col_tan(((c0x + k as i32) as f64 + 0.5) * s));
         let tb: [f64; P] = std::array::from_fn(|k| self.col_tan(((c0y + k as i32) as f64 + 0.5) * s));
-        let mut t = HeightTile { h: [0.0; P * P], min: f32::MAX, max: f32::MIN };
+        let mut t = HeightTile { h: [0.0; P * P], g: [self.ground; P * P], plants: Vec::new(), min: f32::MAX, max: f32::MIN };
+        // the candidate spots the footprint's plants come from, each looked at once
+        let mut spots: FxMap<(usize, i32, i32), Option<Foot>> = FxMap::default();
         for v in 0..P {
             for u in 0..P {
                 let (ci, cj) = (c0x + u as i32, c0y + v as i32);
                 // columns past a seam belong to the neighbouring face
                 let (f, fi, fj) = fold(face, ci, cj, nl);
                 let d = if (f, fi, fj) == (face, ci, cj) { self.dir_tan(face, ta[u], tb[v]) } else { self.dir(f, (fi as f64 + 0.5) * s, (fj as f64 + 0.5) * s) };
-                let hv = self.height(d);
+                let (pi, pj) = ((fi as f64 + 0.5) * s, (fj as f64 + 0.5) * s);
+                let hv = self.height_at(f, pi, pj, d, level);
                 t.min = t.min.min(hv as f32);
                 t.max = t.max.max(hv as f32);
                 t.h[u + v * P] = hv;
+                if self.baked.is_some() {
+                    t.g[u + v * P] = self.ground_at(f, pi, pj, d, hv);
+                    if level == 0 {
+                        for (z, m) in self.plants_with(fi, fj, &mut |cx, cy| *spots.entry((f, cx, cy)).or_insert_with(|| self.candidate(f, cx, cy))) {
+                            t.max = t.max.max(self.layer_r(z as f64 + 1.0) as f32);
+                            t.plants.push(((u + v * P) as u16, z, m));
+                        }
+                    }
+                }
             }
         }
         t
@@ -380,10 +626,15 @@ impl Body {
         if let Some(e) = self.tiles.map.lock().unwrap().get(&(face, 0, x, y)) {
             return e.0.h[(i - x * CS + 1) as usize + (j - y * CS + 1) as usize * P];
         }
-        self.height(self.dir(face as usize, i as f64 + 0.5, j as f64 + 0.5))
+        let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
+        self.height_at(face as usize, ci, cj, self.dir(face as usize, ci, cj), 0)
     }
     /// Surface radius along unit direction d.
     pub fn height(&self, d: DVec3) -> f64 {
+        if self.baked.is_some() {
+            let (f, i, j) = self.locate(d);
+            return self.height_at(f, i, j, d, 0);
+        }
         let p = d * self.radius;
         if let Some(l) = &self.land {
             return l.sea_r + l.over_sea(p);
@@ -417,16 +668,8 @@ impl Solid<'_> {
     /// The first generated air layer of column c.
     fn gen_floor(&self, c: Col) -> i32 {
         let b = &self.bodies[c.body() as usize];
-        let h = b.col_height(c.face(), c.i(), c.j());
-        let mut z = ((b.layer_of(h) - 0.5).floor() as i32 + 1).max(0);
         // the same test as `generated_under`, so the two never disagree by a layer
-        while z > 0 && material(h - b.layer_r(z as f64 - 0.5), &b.ground) == AIR {
-            z -= 1;
-        }
-        while material(h - b.layer_r(z as f64 + 0.5), &b.ground) != AIR {
-            z += 1;
-        }
-        z
+        b.first_air(b.col_height(c.face(), c.i(), c.j()))
     }
 }
 
@@ -446,6 +689,14 @@ impl Ground for Solid<'_> {
                 }
             }
         }
+        // the plants over the ground, as solid as edits, where no edit is (ADR 0043)
+        let n_edits = edits.len();
+        for (z, m) in b.col_plants(c.face(), i, j) {
+            if z >= zs && !edits[..n_edits].iter().any(|e| e.0 == z) {
+                edits.push((z, BLOCKS.solid(m)));
+            }
+        }
+        edits.sort_unstable_by_key(|e| e.0);
         let lo = edits.first().map_or(zs, |e| e.0.min(zs)).max(0);
         let hi = edits.last().map_or(zs, |e| (e.0 + 1).max(zs));
         let solid = |z: i32| edits.iter().find(|e| e.0 == z).map_or(z < zs, |e| e.1);
@@ -517,10 +768,15 @@ impl Block {
 }
 
 /// The moon's grid lies here in the shared coordinates, far from the planet's, so a position names its frame by
-/// where it is (ADR 0022). The moon really orbits much nearer: `sky::Sky::moon_orbit`.
-pub const MOON_AT: DVec3 = DVec3::new(1.0e6, 0.0, 0.0);
-/// The inertial frame's origin (the sun's centre) in the shared coordinates.
-pub const INERTIAL_AT: DVec3 = DVec3::new(0.0, 0.0, -1.0e6);
+/// where it is (ADR 0022). The moon really orbits elsewhere: `sky::Sky::moon_orbit`. 10,000 km: past the
+/// planet's frame on the largest planet (1.5 x 0.6 of a 60 radii orbit, 920 km at 24576 columns; ADR 0041,
+/// it was 1,000 km before Luna moved out to 60 radii).
+pub const MOON_AT: DVec3 = DVec3::new(1.0e7, 0.0, 0.0);
+/// Where MOON_AT was before ADR 0041: a save's players there are moved (server `from_save`).
+pub const OLD_MOON_AT: DVec3 = DVec3::new(1.0e6, 0.0, 0.0);
+/// The inertial frame's origin (the sun's centre) in the shared coordinates: far enough that the sun's
+/// surroundings (/goto sun, some million km out at 23,500 planet radii) never fall in a body's frame.
+pub const INERTIAL_AT: DVec3 = DVec3::new(0.0, 0.0, -1.0e10);
 /// The inertial frame's index; the bodies' frames are their indices.
 pub const INERTIAL: usize = usize::MAX;
 
@@ -545,6 +801,14 @@ pub struct World {
 impl World {
     /// The bodies of `data/bodies.toml` (Terra and Luna), with `planet_n` and `moon_n` columns per face edge.
     pub fn new(planet_n: i32, moon_n: i32, seed: i32) -> Self {
+        World::with_map(planet_n, moon_n, seed, None)
+    }
+    /// The world of a new game: the planet baked (ADR 0043), from memory, the disk or baked now.
+    pub fn baked(planet_n: i32, moon_n: i32, seed: i32) -> Self {
+        World::with_map(planet_n, moon_n, seed, Some(crate::bake::get(seed, planet_n)))
+    }
+    /// The planet on `map` when one is given (its seed and size must be these), else on the noise land.
+    pub fn with_map(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>) -> Self {
         assert_eq!(BODIES.len(), 2, "the sky (sky.rs) poses a planet and one moon");
         let bodies: Vec<Body> = BODIES
             .iter()
@@ -552,12 +816,19 @@ impl World {
             .map(|(i, row)| {
                 let mut b = Body::new(if i == 0 { DVec3::ZERO } else { MOON_AT }, [planet_n, moon_n][i], seed + i as i32);
                 (b.name, b.air, b.ground) = (row.name.clone(), row.air, row.ground);
-                if row.generator == Generator::Continents { b.with_continents(seed + i as i32) } else { b }
+                match (&map, row.generator) {
+                    (Some(m), Generator::Continents) if i == 0 => b.with_map(m.clone()),
+                    (_, Generator::Continents) => b.with_continents(seed + i as i32),
+                    _ => b,
+                }
             })
             .collect();
-        // Luna circles Terra `orbit` radii out (2.83, as from the 1 km planet), never nearer than orbit_min
+        // Luna circles Terra `orbit` radii out (60, the Moon's), never nearer than orbit_min; the sun is `sun`
+        // radii away and as big as Luna lets a total eclipse be perfect (ADR 0041)
         let (k, min) = BODIES[1].orbit.expect("the second body has an orbit");
-        let sky = Sky { planet_radius: bodies[0].radius, moon_radius: bodies[1].radius, moon_orbit: (bodies[0].radius * k).max(min) };
+        let r0 = bodies[0].radius;
+        let sun = BODIES[0].sun.expect("the first body has the sun's distance");
+        let sky = Sky::new(r0, bodies[1].radius, (r0 * k).max(min) / r0, sun);
         World {
             bodies: Arc::new(bodies),
             sky,
@@ -655,7 +926,7 @@ impl World {
     /// body to the other and fades out in deep space. At its radius a body pulls with `surface_g`; deeper in
     /// a little more, up to 1.25 times at 0.9 of its radius and no more.
     /// Near a moon its own fall around the planet cancels the planet's pull, so only the tide is left (Terra
-    /// pulls about 1.2 m/s^2 at Luna, more than half of Luna's own); that fades out by the edge of the moon's
+    /// pulls only G/3600 at Luna, 60 of its radii out, ADR 0041); that fades out by the edge of the moon's
     /// sphere of influence, so gravity stays the same across the hand-over between frames.
     pub fn gravity(&self, p: DVec3) -> DVec3 {
         let f = self.frame_at(p);
@@ -679,10 +950,11 @@ impl World {
         let k = 1.0 - smooth01(((p - self.nominal(f)).length() / self.soi(f) - 0.5) / 0.47);
         g - pull_at(self.nominal(f)) * k
     }
-    /// Body i's pull at its radius (ADR 0037): G on the first (Terra) whatever its size, and on another the
-    /// square root of its radius over the first's, so Luna pulls about a fifth as hard.
+    /// Body i's pull at its radius (ADR 0037): G on the first (Terra) whatever its size, and on another
+    /// its radius over the first's (one density, as the developer asked in ADR 0041), so Luna, 3.7 times smaller,
+    /// pulls 3.7 times less and a jump there is about 4.6 m.
     pub fn surface_g(&self, i: usize) -> f64 {
-        G * (self.bodies[i].radius / self.bodies[0].radius).sqrt()
+        G * self.bodies[i].radius / self.bodies[0].radius
     }
     /// Up at a position: away from the body whose frame it is in; in deep space, away from the nearest body.
     pub fn up_at(&self, p: DVec3) -> DVec3 {
@@ -753,10 +1025,19 @@ impl World {
     /// The generated material of block b under a surface at radius `height` (its `column_height`).
     pub fn generated_under(&self, b: Block, height: f64) -> u8 {
         let body = &self.bodies[b.body as usize];
-        if b.pos.z < 0 {
-            return body.ground[2];
+        let depth = height - body.layer_r(b.pos.z as f64 + 0.5);
+        if depth < 0.0 {
+            // over the ground: a plant's block, or air (a crown can hang over lower ground: `PLANT_TOP`)
+            if body.baked.is_none() || -depth > PLANT_TOP {
+                return AIR;
+            }
+            return body.col_plants(b.face, b.pos.x, b.pos.y).iter().find(|p| p.0 == b.pos.z).map_or(AIR, |p| p.1);
         }
-        material(height - body.layer_r(b.pos.z as f64 + 0.5), &body.ground)
+        let ground = body.col_ground(b.face, b.pos.x, b.pos.y, Some(height));
+        if b.pos.z < 0 {
+            return ground[2];
+        }
+        material(depth, &ground)
     }
     /// The column that holds block b.
     pub fn col(b: Block) -> Col {
@@ -1061,7 +1342,8 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
         let core = l < 0.0;
         for (i, hv) in h.iter().enumerate() {
             let d = hv - r;
-            let mut m = if core || d >= dirt { body.ground[2] } else if d >= grass { body.ground[1] } else if d >= 0.0 { body.ground[0] } else { 0 };
+            let g = &tile.g[i];
+            let mut m = if core || d >= dirt { g[2] } else if d >= grass { g[1] } else if d >= 0.0 { g[0] } else { 0 };
             if z == P - 1 && z_air >= 0 && *hv < r_air {
                 // the skirt rule for the top padding, which has no cells above it here (ADR 0018). shortcut:
                 // from the generated height alone, edits over the chunk do not count; a dug hole there could
@@ -1071,6 +1353,14 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
             any_air |= m == 0;
             any_solid |= m != 0;
             cells[z * P * P + i] = m;
+        }
+    }
+    // plants stand where the ground left air (the same rule as `generated_under`, `Solid::gaps`)
+    for &(col, z, m) in &tile.plants {
+        let zl = z - c0.z;
+        if (0..P as i32).contains(&zl) && cells[zl as usize * P * P + col as usize] == 0 {
+            cells[zl as usize * P * P + col as usize] = m;
+            any_solid = true;
         }
     }
     for (i, m) in edits {
@@ -1103,6 +1393,31 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
 
 #[cfg(test)]
 mod tests {
+    /// The developer's rule for Terra and Luna (ADR 0041): Luna is 3.7 times smaller than Terra and 30 Terra
+    /// diameters away, centre to centre, on every planet size; and from the ground under Luna at a new moon on
+    /// the ecliptic, Luna covers the sun, a little bigger as the Moon on a total eclipse: totality a few
+    /// hundredths of Luna's radius wide (some 60 m on the 4 km Terra, about 2 s), and a sun Luna's size would
+    /// not be total.
+    #[test]
+    fn luna_is_a_fixed_part_of_terra_and_just_covers_the_sun() {
+        for n in [1536, 3072, 6144, 12288, 24576] {
+            let w = World::new(n, crate::bodies::columns(1, n), 1);
+            let (big, small) = (w.bodies[0].radius, w.bodies[1].radius);
+            assert!((big / small / 3.7 - 1.0).abs() < 0.01, "planet {n}: Terra over Luna is {:.3}", big / small);
+            assert!((w.sky.moon_orbit / big - 60.0).abs() < 1e-9, "planet {n}");
+            // a new moon on the ecliptic: Luna between Terra and the sun, the ground point under it
+            let s = w.sky;
+            let t = 0.0;
+            let p = s.planet(t).centre;
+            let to_sun = (s.sun(t) - p).normalize();
+            let (moon, ground) = (p + to_sun * s.moon_orbit, p + to_sun * big);
+            let off = to_sun.any_orthonormal_vector() * 0.03 * small;
+            assert_eq!(s.covered(t, ground + off, moon, small), 1.0, "planet {n}: not total 3 % of Luna off the middle");
+            let bigger = Sky { sun_radius: s.sun_radius / crate::sky::SUN_UNDER_MOON * 1.01, ..s };
+            assert!(bigger.covered(t, ground, moon, small) < 1.0, "planet {n}: a sun Luna's size is still covered");
+        }
+    }
+
     #[test]
     fn height_tiles_match_the_direct_heights_to_the_bit() {
         // ADR 0025, E: the cache must not move a height by one bit, padding past a seam included
@@ -1387,7 +1702,7 @@ mod frame_tests {
         let spin = std::f64::consts::TAU * (1.0 / crate::sky::DAY + 1.0 / crate::sky::YEAR) * up.length();
         // the planet's own motion around the sun, taken out to see the spin
         let pv = w.sky.planet(w.time + 0.5).centre - w.sky.planet(w.time - 0.5).centre;
-        assert!((pv.length() - std::f64::consts::TAU * crate::sky::SUN_DIST / crate::sky::YEAR).abs() < 0.01);
+        assert!((pv.length() - std::f64::consts::TAU * w.sky.sun_dist / crate::sky::YEAR).abs() < 0.01);
         assert!(((vel - pv).length() - spin).abs() < 0.01 * spin, "{} against {spin}", (vel - pv).length());
         // and back into the planet's frame at rest
         let back = DVec3::Y * (w.soi(0) * 0.9);
@@ -1419,5 +1734,95 @@ mod lattice_tests {
             assert!(l.windows(2).all(|w| w[1] <= w[0]) && l.iter().all(|x| x.is_power_of_two() && CS as u32 % x == 0), "{l:?}");
             assert!(l[12] < 8, "planet {n}: {l:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod baked_tests {
+    use super::*;
+    use std::sync::LazyLock;
+
+    /// One small baked planet for these tests (a few seconds).
+    static MAP: LazyLock<Arc<Map>> = LazyLock::new(|| Arc::new(Map::bake(5, 512)));
+
+    fn world() -> World {
+        World::with_map(512, 32, 5, Some(MAP.clone()))
+    }
+
+    /// Plants of every reader agree (ADR 0043): the block physics sees (`World::generated_block`), the chunk
+    /// the mesher draws (`generate`) and what the water flows around (`Solid::gaps`), from a cached tile and
+    /// computed without one.
+    #[test]
+    fn the_mesher_physics_and_water_see_the_same_plants() {
+        let w = world();
+        let b = &w.bodies[0];
+        let feet: Vec<Foot> = (0..6).flat_map(|f| (0..b.n / SPACING).flat_map(move |cx| (0..b.n / SPACING).map(move |cy| (f, cx, cy)))).filter_map(|(f, cx, cy)| b.candidate(f, cx, cy).map(|p| (f, p))).map(|(_, p)| p).collect();
+        let kinds: std::collections::BTreeSet<usize> = feet.iter().map(|f| f.plant).collect();
+        assert!(feet.len() > 20 && kinds.len() >= 3, "{} plants of {} kinds", feet.len(), kinds.len());
+        // the spots of face 0 with a plant, and every column a crown reaches
+        // the 40 spots of face 0 whose plant's top stands highest over the ground under its crown: tall trees,
+        // leaves over a slope (the reviewer's case)
+        let over = |fc: usize, f: &Foot| {
+            let r = ROWS.plants[f.plant].radius;
+            (-r..=r).flat_map(|a| (-r..=r).map(move |c| (a, c))).map(|(a, c)| f.z + f.h - b.first_air(b.col_height(fc as u8, f.i + a, f.j + c))).max().unwrap()
+        };
+        let mut spots: Vec<(i32, (usize, i32, i32))> = (0..6).flat_map(|fc| (0..b.n / SPACING).flat_map(move |cx| (0..b.n / SPACING).map(move |cy| (fc, cx, cy)))).filter_map(|(fc, cx, cy)| b.candidate(fc, cx, cy).map(|f| (over(fc, &f), (fc, cx, cy)))).collect();
+        spots.sort_by_key(|s| std::cmp::Reverse(s.0));
+        assert!(spots.len() > 40 && spots[39].0 >= 10, "tall crowns: {:?}", &spots[..3]);
+        assert!((spots[0].0 as f64) < PLANT_TOP - 8.0, "the highest crown {:?} near `PLANT_TOP`", spots[0]);
+        let spots: Vec<(usize, i32, i32)> = spots.into_iter().take(40).map(|s| s.1).collect();
+        let mut checked = 0;
+        for pass in 0..2 {
+            for &(fc, cx, cy) in &spots {
+                let f = b.candidate(fc, cx, cy).unwrap();
+                let fu = fc as u8;
+                for (di, dj) in (-REACH..=REACH).flat_map(|a| (-REACH..=REACH).map(move |c| (a, c))) {
+                    let (i, j) = (f.i + di, f.j + dj);
+                    let c = Col::new(0, fu, i, j);
+                    let gaps = w.ground().gaps(c);
+                    let key = |z: i32| Key { body: 0, face: fu, level: 0, pos: IVec3::new(i.div_euclid(CS), j.div_euclid(CS), z.div_euclid(CS)) };
+                    for z in f.z - 3..=f.z + f.h + 2 {
+                        let blk = Block { body: 0, face: fu, pos: IVec3::new(i, j, z) };
+                        let phys = w.generated_block(blk);
+                        let k = key(z);
+                        let mesh = match generate(b, k, &[]) {
+                            Gen::Cells(cells) => cells[pidx((i - k.pos.x * CS + 1) as usize, (j - k.pos.y * CS + 1) as usize, (z - k.pos.z * CS + 1) as usize)],
+                            Gen::Solid => u8::MAX,
+                            Gen::Empty => AIR,
+                        };
+                        assert!(mesh == phys || (mesh == u8::MAX && phys != AIR), "pass {pass} ({i}, {j}, {z}): mesh {mesh}, physics {phys}");
+                        let open = gaps.iter().any(|&(lo, hi)| (lo..hi).contains(&z));
+                        assert_eq!(open, !BLOCKS.solid(phys), "pass {pass} ({i}, {j}, {z}): water {gaps:?}, physics {phys}");
+                        checked += (phys != AIR && z >= f.z) as usize;
+                    }
+                }
+            }
+            // the second pass reads the tiles the first one's chunks cached
+        }
+        assert!(checked > 100, "{checked} plant blocks checked");
+    }
+
+    /// A baked planet's cached heights and ground are the computed ones to the bit (ADR 0025, E), and every
+    /// biome's ground is generated somewhere.
+    #[test]
+    fn baked_tiles_match_the_direct_columns() {
+        let w = world();
+        let b = &w.bodies[0];
+        let last = b.n / CS - 1;
+        for (face, x, y) in [(2u8, 5, 9), (0, 0, 3), (4, last, 0), (1, 2, last)] {
+            let t = b.tile(face, 0, x, y);
+            for v in 0..P {
+                for u in 0..P {
+                    let (f, ci, cj) = fold(face as usize, x * CS - 1 + u as i32, y * CS - 1 + v as i32, b.n);
+                    let (pi, pj) = (ci as f64 + 0.5, cj as f64 + 0.5);
+                    let d = b.dir(f, pi, pj);
+                    assert_eq!(t.h[u + v * P].to_bits(), b.height_at(f, pi, pj, d, 0).to_bits(), "face {face} at {u},{v}");
+                    assert_eq!(t.g[u + v * P], b.ground_at(f, pi, pj, d, t.h[u + v * P]));
+                }
+            }
+        }
+        let sea = b.layer_r(b.sea.unwrap());
+        assert!(b.height(b.spawn) > sea + 1.0, "the spawn is on land");
+        assert!(b.col_height(2, 3, 4) - b.radius < AMP && b.radius - b.col_height(2, 3, 4) < AMP);
     }
 }

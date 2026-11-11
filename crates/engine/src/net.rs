@@ -40,13 +40,20 @@ pub enum ToServer {
     /// The server counts the time held on it (`edit::Hold`) and takes the dig's `Edit` only once it has had
     /// its `edit::dig_time`; a shape left keeps its time for `edit::DIG_KEEP_S`.
     Dig(Option<Shape>),
+    /// Send the baked map (ADR 0043): `Welcome` named one this client has neither in memory nor on disk.
+    /// Answered by `Map` pieces.
+    Map,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum ToClient {
     /// First message: the world is rebuilt from these numbers, then `Edits` brings what changed. `blocks` is
     /// the block registry's hash (`BLOCKS.hash`): a client from a build with other blocks refuses to play.
-    Welcome { id: u32, seed: i32, planet_n: i32, moon_n: i32, blocks: u64 },
+    /// `map`: the hash of the baked map the planet stands on (ADR 0043), None for the noise land; a client
+    /// that lacks it asks for it (`fetch_map`).
+    Welcome { id: u32, seed: i32, planet_n: i32, moon_n: i32, blocks: u64, map: Option<u64> },
+    /// A piece of the baked map's bytes (`Map::to_bytes`), in order, `pieces` in all.
+    Map { piece: u32, pieces: u32, bytes: Vec<u8> },
     Edits(Vec<(Block, u8)>),
     Players(Vec<Player>),
     /// The answer to the `Edit` with this `seq`: applied, or refused whole (reach, size, inventory).
@@ -81,6 +88,52 @@ pub struct Player {
     pub pos: [f64; 3],
     pub fwd: [f32; 3],
     pub pitch: f32,
+}
+
+/// The baked map as `ToClient::Map` pieces of a MiB each.
+pub fn map_pieces(map: &crate::bake::Map) -> Vec<ToClient> {
+    let bytes = map.to_bytes();
+    let pieces = bytes.len().div_ceil(1 << 20) as u32;
+    bytes.chunks(1 << 20).enumerate().map(|(k, b)| ToClient::Map { piece: k as u32, pieces, bytes: b.to_vec() }).collect()
+}
+
+/// The baked map `Welcome` named: from memory or the disk, else asked of the server and kept. What the server
+/// sends meanwhile is put back ahead of the rest, so the client reads it as if nothing happened.
+pub fn fetch_map(link: &mut Link<ToServer, ToClient>, seed: i32, planet_n: i32, hash: u64) -> Result<std::sync::Arc<crate::bake::Map>, String> {
+    if let Some(m) = crate::bake::find(seed, planet_n, Some(hash)) {
+        return Ok(m);
+    }
+    link.send(ToServer::Map);
+    let (mut bytes, mut held) = (Vec::new(), Vec::new());
+    loop {
+        match link.rx.recv_timeout(std::time::Duration::from_secs(120)) {
+            Ok(ToClient::Map { piece, pieces, bytes: b }) => {
+                bytes.extend_from_slice(&b);
+                if piece + 1 >= pieces {
+                    break;
+                }
+            }
+            Ok(m) => held.push(m),
+            Err(e) => return Err(format!("the server's map did not come: {e}")),
+        }
+    }
+    let map = crate::bake::Map::from_bytes(&bytes)?;
+    if map.hash != hash {
+        return Err("the server's map is not the one it named".into());
+    }
+    let (tx, rx) = channel();
+    for m in held {
+        let _ = tx.send(m);
+    }
+    let old = std::mem::replace(&mut link.rx, rx);
+    std::thread::spawn(move || {
+        for m in old {
+            if tx.send(m).is_err() {
+                break;
+            }
+        }
+    });
+    Ok(crate::bake::keep(map))
 }
 
 /// One end of a connection: `O` goes out, `I` comes in.
@@ -218,10 +271,38 @@ mod tests {
         client.send(e.clone());
         assert_eq!(server.rx.recv().unwrap(), ToServer::Hello { name: "bot".into() });
         assert_eq!(server.rx.recv().unwrap(), e);
-        server.send(ToClient::Welcome { id: 1, seed: 7, planet_n: 1536, moon_n: 512, blocks: 9 });
-        assert_eq!(client.rx.recv().unwrap(), ToClient::Welcome { id: 1, seed: 7, planet_n: 1536, moon_n: 512, blocks: 9 });
+        server.send(ToClient::Welcome { id: 1, seed: 7, planet_n: 1536, moon_n: 512, blocks: 9, map: Some(42) });
+        assert_eq!(client.rx.recv().unwrap(), ToClient::Welcome { id: 1, seed: 7, planet_n: 1536, moon_n: 512, blocks: 9, map: Some(42) });
         drop(server);
         assert!(client.rx.recv().is_err(), "a dropped peer closes the link");
+    }
+
+    /// A client that lacks the map gets it in pieces, and what the server sent meanwhile still comes, in order.
+    #[test]
+    fn a_missing_map_comes_in_pieces() {
+        let cells = 6 * 384 * 384;
+        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12345, n: 3072, m: 384, h: (0..cells).map(|c| c as f32).collect(), biome: vec![4; cells], spawn: [0.0, 1.0, 0.0], mips: Vec::new(), hash: 0 }.to_bytes();
+        let map = crate::bake::Map::from_bytes(&bytes).unwrap();
+        // a run before this one kept it: this client must not have it yet
+        let _ = std::fs::remove_file(crate::bake::file(-12345, 3072));
+        let (mut client, server) = local::<ToServer, ToClient>();
+        let hash = map.hash;
+        let t = std::thread::spawn(move || {
+            assert_eq!(server.rx.recv().unwrap(), ToServer::Map);
+            server.send(ToClient::Chat("before".into()));
+            let pieces = map_pieces(&map);
+            assert!(pieces.len() > 2);
+            for p in pieces {
+                server.send(p);
+            }
+            server.send(ToClient::Chat("after".into()));
+        });
+        let got = fetch_map(&mut client, -12345, 3072, hash).unwrap();
+        t.join().unwrap();
+        assert_eq!((got.hash, got.h[1000]), (hash, 1000.0));
+        assert_eq!(client.rx.recv().unwrap(), ToClient::Chat("before".into()));
+        assert_eq!(client.rx.recv().unwrap(), ToClient::Chat("after".into()));
+        assert!(crate::bake::find(-12345, 3072, Some(hash)).is_some(), "kept");
     }
 
     #[test]

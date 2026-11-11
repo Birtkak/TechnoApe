@@ -112,7 +112,7 @@ impl Rng {
     }
 }
 
-fn noise(seed: i32, octaves: i32) -> FastNoiseLite {
+pub fn noise(seed: i32, octaves: i32) -> FastNoiseLite {
     let mut n = FastNoiseLite::with_seed(seed);
     n.set_noise_type(Some(NoiseType::OpenSimplex2));
     n.set_fractal_type(Some(FractalType::FBm));
@@ -120,7 +120,7 @@ fn noise(seed: i32, octaves: i32) -> FastNoiseLite {
     n.set_frequency(Some(1.0));
     n
 }
-fn at(n: &FastNoiseLite, d: DVec3, freq: f64) -> f32 {
+pub fn at(n: &FastNoiseLite, d: DVec3, freq: f64) -> f32 {
     let p = d * freq;
     n.get_noise_3d(p.x as f32, p.y as f32, p.z as f32)
 }
@@ -724,7 +724,7 @@ pub fn erode(g: &Grid, h: &mut [f32], u: &[f32], p: &Params, iters: usize, dt: f
 /// The coarse field at each fine cell: a tent filter over the coarse cell the fine cell lies in and its
 /// neighbours, by true distance, so it is as smooth across a seam as inside a face. (Bilinear inside each
 /// face, clamped at its border, made the seams steps 3 to 4 times steeper than anywhere else: measured.)
-fn upsample(gc: &Grid, gf: &Grid, v: &[f32]) -> Vec<f32> {
+pub fn upsample(gc: &Grid, gf: &Grid, v: &[f32]) -> Vec<f32> {
     let s = (gc.r * std::f64::consts::FRAC_PI_2 / gc.m as f64) as f32 * 1.3;
     (0..gf.n() as u32)
         .into_par_iter()
@@ -780,6 +780,8 @@ pub struct Bake {
     pub converged: (f32, f32),
     /// metres per model metre: (land, sea)
     pub scale: (f32, f32),
+    /// stages 5 to 8 (`life.rs`), once run
+    pub life: Option<crate::life::Life>,
 }
 
 impl Bake {
@@ -898,7 +900,7 @@ pub fn bake(planet_n: u32, seed: u64, p: &Params) -> Bake {
     }
     lap("rivers and lakes", &mut times);
     let (recv, area, ocean) = (d.recv, d.area, d.ocean);
-    Bake { g: gf, h: hm, w: wm, lvl: lm, recv, area, ocean, plate, boundary, continental, rivers, lakes, times, converged: (conv_c, conv_f), scale }
+    Bake { g: gf, h: hm, w: wm, lvl: lm, recv, area, ocean, plate, boundary, continental, rivers, lakes, times, converged: (conv_c, conv_f), scale, life: None }
 }
 
 /// Mean height step between neighbours (inside a face, across a seam): a seam that shows has a larger one.
@@ -934,7 +936,7 @@ impl Bake {
             h = fnv(h, &l.cells.to_le_bytes());
             h = fnv(h, &l.level.to_bits().to_le_bytes());
         }
-        h
+        self.life.as_ref().map_or(h, |l| l.hash(h))
     }
 }
 

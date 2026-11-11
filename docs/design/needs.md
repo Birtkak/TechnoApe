@@ -46,7 +46,7 @@ days: `open-questions.md`'s "thirst twice, food once", with hunger's built rates
 - Food items have `feeds` (points) and a day they spoil (`items.md`). Raw plants and meat feed little;
   the same thing cooked feeds about twice as much, so fire pays at once.
 - Spoiled food is not gone: it is compost (elements are conserved), which the farm wants.
-- **Four food groups** (the developer's call, ADR 0043): **protein** (meat, fish, eggs, nuts, beans),
+- **Four food groups** (the developer's call, ADR 0047): **protein** (meat, fish, eggs, nuts, beans),
   **vegetables and fruit** as one, **dairy**, and **carbohydrates** (grain, roots, bread). A food's row
   names its group; a cooked dish of several foods counts for each.
 - How they act is a *proposal*, to tune in play:
@@ -70,7 +70,7 @@ days: `open-questions.md`'s "thirst twice, food once", with hunger's built rates
 - The ape has a **comfortable band**, bare about 10° to 30°. Clothes widen it: hides for the cold side,
   later a suit that carries its own band anywhere. Outside the band the ape pays in hunger or thirst
   first, and in health only when it is far outside (below about -5° or above 45° bare) or stays out long.
-- **The night must be a reason to build, not a wall.** The developer's call (ADR 0043): a bare ape on a
+- **The night must be a reason to build, not a wall.** The developer's call (ADR 0047): a bare ape on a
   temperate plain survives one night in the open, arriving at dawn hungry and hurt; a fire or a cave
   makes the night cost nothing; the poles and high mountains kill a bare ape in minutes at any hour.
   The air spike's question 6 (how strong the day's swing is) is tuned against this sentence.
@@ -102,7 +102,7 @@ days: `open-questions.md`'s "thirst twice, food once", with hunger's built rates
 | under water | no breath | 30 seconds; later tanks |
 | Luna and orbit | no air, heat and cold with no air between them, radiation | the suit, then living under rock |
 
-## What death costs (decided, ADR 0043)
+## What death costs (decided, ADR 0047)
 - The ape's things become **a pile where it died** (`items.md`: nothing despawns), and a waypoint named
   for the death is dropped there by the game, in the death's own colour (ADR 0030 has the waypoints). It
   is removed when the pile is empty.
@@ -132,8 +132,8 @@ days: `open-questions.md`'s "thirst twice, food once", with hunger's built rates
 - Each need: its rates in `Vitals::step` as unit tests seen failing first, as hunger's are.
 - **The balance is a test, not a feeling.** Scripted bots on a fixed seed play fixed lives, and the gate
   holds the day each dies or its state at dawn:
-  - an ape that never acts dies of thirst late on the first day (thirst is empty at 800 s, health at
-    1,000 s), not sooner;
+  - an ape that never acts dies of thirst late on the first day (of 30 minutes, ADR 0041: thirst is empty at 1,200 s, health at
+    1,400 s), not sooner;
   - an ape that only drinks lives through the first night hurt, and starves early on the second day;
   - an ape that drinks, forages and lights a fire reaches the second dawn with full health;
   - an ape fed from all four groups for two days has 22 health at its top and outlasts the plain ape's

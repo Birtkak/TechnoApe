@@ -7,7 +7,7 @@ pub(crate) const TITLE_ARGS: [&str; 5] = ["run=play", "onscreen=1", "title=1", "
 pub(crate) const WORLDS_SHOWN: usize = 20;
 
 /// The planets a new world offers: columns per face edge (3 * 2^k, so every level of detail halves evenly)
-/// and the radius that gives. Luna is a 24th of it (256 under the 4 km Terra).
+/// and the radius that gives. Luna is 3.7 times smaller (`engine::bodies::columns`: 1664 under the 4 km Terra, ADR 0041).
 pub(crate) const SIZES: [(i32, &str); 5] = [(1536, "1 km"), (3072, "2 km"), (6144, "4 km"), (12288, "8 km"), (24576, "16 km")];
 
 /// The new world page's rows: headings between them (`NW_HEADS`), so the choices stand in groups.
@@ -58,7 +58,7 @@ pub(crate) fn new_world_args(w: &NewWorld, clock: i32, taken: impl Fn(&str) -> b
     let name = Some(safe_name(&w.name)).filter(|n| !n.is_empty()).unwrap_or("world".into());
     let save = (1..).map(|n| if n == 1 { format!("saves/{name}.sav") } else { format!("saves/{name}-{n}.sav") }).find(|p| !taken(p)).unwrap();
     let n = SIZES[w.size.min(SIZES.len() - 1)].0;
-    let mut a = vec![format!("save={save}"), format!("seed={}", seed_of(&w.seed).unwrap_or(clock)), format!("planet={n}"), format!("moon={}", n / 24)];
+    let mut a = vec![format!("save={save}"), format!("seed={}", seed_of(&w.seed).unwrap_or(clock)), format!("planet={n}"), format!("moon={}", engine::bodies::columns(1, n))];
     if w.creative {
         a.push("mode=creative".into());
     }
@@ -72,8 +72,8 @@ fn a_new_world_starts_as_its_page_says() {
     let (a, b) = (seed_of("ape planet").unwrap(), seed_of("2147483647").unwrap());
     assert!(a > 0 && b > 0 && b < 0x4000_0000 && seed_of("ape planet") == Some(a) && seed_of("ape planer") != Some(a), "words and the ends of i32 are hashed: {a} {b}");
     let w = NewWorld { name: " my/world: 1 ".into(), seed: "5".into(), size: 3, creative: true };
-    assert_eq!(new_world_args(&w, 99, |p| p == "saves/myworld 1.sav"), ["save=saves/myworld 1-2.sav", "seed=5", "planet=12288", "moon=512", "mode=creative"]);
-    assert_eq!(new_world_args(&NewWorld::default(), 99, |_| false), ["save=saves/world.sav", "seed=99", "planet=6144", "moon=256"]);
+    assert_eq!(new_world_args(&w, 99, |p| p == "saves/myworld 1.sav"), ["save=saves/myworld 1-2.sav", "seed=5", "planet=12288", "moon=3328", "mode=creative"]);
+    assert_eq!(new_world_args(&NewWorld::default(), 99, |_| false), ["save=saves/world.sav", "seed=99", "planet=6144", "moon=1664"]);
     assert!(SIZES.iter().all(|(n, _)| n % 768 == 0 && (n / 768).count_ones() == 1), "3 * 2^k columns");
 }
 

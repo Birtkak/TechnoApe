@@ -65,6 +65,8 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   `run=stand|fly|orbit|edit|sim|fx` (`fx` keeps `fx_n=` particles alive, ADR 0031), `quick=1` (quarter length, a smoke check in seconds), `planet=6144|12288|768`
   (columns per face edge: the standard 4 km planet, the huge 8 km one, a small one; ADR 0021), `seed=`, `out=file.jsonl`, `connect=host[:7777]` to join a running server
   (`technoape-server listen=0.0.0.0:7777 planet= seed=` prints a JSON line every 5 s).
+- A new world's planet is baked (ADR 0043: about 25 s for the 4 km planet, once per seed and planet; kept in
+  `saves/bakes/`); `World::new` is the old noise land (tests, saves from before the bake), `World::baked` the map.
 - Saves (ADR 0016): `run=play` keeps `saves/seed-<seed>-planet-<n>.sav`, the server `saves/server.sav`; both
   carry on from it. `save=file` names another, `save=0` keeps none.
 - Bots: `technoape-bot connect=host n=50 script="wait 1; dig 0.25 -0.5 0.25; block 0.25 -0.5 0.25; report"`
@@ -102,7 +104,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   same view, the F3 state, the chat), `screen.png`, and `world.sav` when there was a save. When asked to look
   at bugs, read those first.
 - To look at something: `run=stand at=x,y,z yaw=deg pitch=deg eye=m` stands anywhere on the planet, `time=s`
-  sets the sky's clock (0 is 9 am at the spawn, a day is 1200 s; ADR 0022), `place=di:dj:dl:block,...` puts
+  sets the sky's clock (0 is 9 am at the spawn, a day is 1800 s; ADR 0022, 0041), `place=di:dj:dl:block,...` puts
   blocks (lamps, copper; `_` for a space) around the stand point; effects play only in `run=play` unless
   `fx=1` (ADR 0031; `fx_cap=` the pool, the Particles setting few/normal/many), and
   `fxedit=t:di:dj:dl:block,...` (`air` to dig) edits cells at t seconds to film a break or a place;

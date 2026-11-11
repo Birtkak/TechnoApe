@@ -48,7 +48,7 @@ away, as every need is, not a second game).
 | Question | Options | Recommended |
 |---|---|---|
 | **How hands craft** | in the world (place things, strike, pour) / a crafting grid in the inventory / both by age | in the world through the stone age, a workbench surface after; no grid. It is the same rule as learning by seeing. |
-| **How fast needs drain** | per day (drink twice, eat once) / faster / slower | per 20 minute day: thirst twice, food once, so a day's routine exists; tuned in the first playtest |
+| **How fast needs drain** | per day (drink twice, eat once) / faster / slower | per 30 minute day: thirst twice, food once, so a day's routine exists; tuned in the first playtest |
 | **The AI troop** | other apes who gather and build beside you / only later / never | later: after the starter content, as a use of the bots' protocol |
 | **The exotic resource's rule** | decays unless kept cold / unstable near power / needs constant flow | with the corners' story: decide them together |
 | **How hard pollution and radiation punish** | permanent damage / slow natural recovery | recovery, slow alone and fast with a cleanup factory (progression's proposal) |
@@ -60,7 +60,7 @@ away, as every need is, not a second game).
 |---|---|---|
 | **What the food groups do** (the four groups are decided) | reward variety only / also punish a group long missed | reward only (`needs.md`): dairy cannot exist in the first hours |
 
-Decided the same day (ADR 0043): the ape carries in the hotbar's 9 slots and rows earned by packs; death
+Decided the same day (ADR 0047): the ape carries in the hotbar's 9 slots and rows earned by packs; death
 drops a pile and a waypoint where the ape died, and it wakes at its sleeping place with full needs; the
 first night in the open hurts and does not kill; each ape has its own journal; a dug block falls to the
 ground and is walked over; a worn-out tool leaves nothing; food has four groups (protein, vegetables and
@@ -72,5 +72,5 @@ From `worldgen.md`; each stage of `worldgen-plan.md` stops for its own:
 land 20 m on seed 1), and the bake's file size matters less than its speed; how deep the ground goes; the
 ~~look of the default Terra~~ decided 2026-11-11: seed 5 of the sheet of 12 in
 `prototypes/world-bake/images/` (the engine's default seed moves to it in W2); the wait when a
-world is made (Terra bakes in about 18 s, the huge planet in about 105 s: is that fine?); the tilt and how strong seasons are; the tide's height; the biome list and looks; Luna's
+world is made (Terra bakes in about 18 s, the huge planet in about 105 s: is that fine?); the tilt and how strong seasons are; the tide's height; ~~the biome list~~ decided 2026-11-11, the design's 15 (ADR 0042), each biome's look still open; Luna's
 ice; how much the player is told (map, compass, rock names).

@@ -1,4 +1,4 @@
-# 0043 – Nine slots and packs, death drops a pile, a night that hurts, a journal per ape
+# 0047 – Nine slots and packs, death drops a pile, a night that hurts, a journal per ape
 
 - **Status:** accepted
 - **Date:** 2026-11-11 (developer's calls in a design session; nothing built yet)
@@ -6,7 +6,7 @@
 ## Context
 Three designs written the same day (`docs/design/items.md`, `needs.md`, `journal.md`) each turned on a
 taste call: how the ape carries, what dying costs, how deadly the first night is, and whose the journal
-is. Numbers 0041 and 0042 are taken by ADRs on branches not yet merged.
+is. Numbers 0041 and 0042 are taken by ADRs on branches not yet merged. (This was written as 0043; the bake took that number on its branch, so it became 0047 when the day's branches merged.)
 
 ## Options considered
 Each was put to the developer with a recommendation; the tables are in the three designs.

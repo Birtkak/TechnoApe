@@ -97,9 +97,11 @@ impl Bot {
     pub fn receive(&mut self) -> bool {
         loop {
             match self.link.try_recv() {
-                Recv::Msg(ToClient::Welcome { id, seed, planet_n, moon_n, blocks }) => {
+                Recv::Msg(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, map }) => {
                     assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
-                    let w = World::new(planet_n, moon_n, seed);
+                    // the baked map (ADR 0043): shared with a server in this process, from the disk, or fetched
+                    let map = map.map(|h| engine::net::fetch_map(&mut self.link, seed, planet_n, h).unwrap_or_else(|e| panic!("{e}")));
+                    let w = World::with_map(planet_n, moon_n, seed, map);
                     self.id = id;
                     // the server spawns players just over the +y pole; an empty input makes this one a
                     // walker, so it lands there
@@ -124,7 +126,7 @@ impl Bot {
                     }
                 }
                 Recv::Msg(ToClient::Done { ok, .. }) => self.refused += !ok as u64,
-                Recv::Msg(ToClient::Inventory { .. } | ToClient::You { .. } | ToClient::Vitals { dead: None, .. } | ToClient::Digging { .. }) => {}
+                Recv::Msg(ToClient::Inventory { .. } | ToClient::You { .. } | ToClient::Vitals { dead: None, .. } | ToClient::Digging { .. } | ToClient::Map { .. }) => {}
                 // a bot that dies respawns at once (ADR 0040); it builds in creative, so only a switch to
                 // survival can get it there
                 Recv::Msg(ToClient::Vitals { dead: Some(_), .. }) => self.link.send(ToServer::Respawn),

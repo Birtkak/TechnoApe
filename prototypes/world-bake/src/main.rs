@@ -1,6 +1,7 @@
 //! World bake spike (worldgen W1): `world-bake mode=bake seed=1 planet=17376`. See README.md.
 mod bake;
 mod grid;
+mod life;
 mod render;
 
 use bake::{Bake, Params};
@@ -35,7 +36,11 @@ fn main() {
     match args.get("mode").map_or("bake", String::as_str) {
         "bake" => {
             let seed = num("seed", DEFAULT_SEED as f64) as u64;
-            let b = bake::bake(planet, seed, &p);
+            let mut b = bake::bake(planet, seed, &p);
+            let climate = args.get("climate").is_none_or(|v| v != "0");
+            if climate {
+                b.life = Some(life::life(&b, seed, &life::LifeParams::default()));
+            }
             let dir = out.join(format!("seed-{seed}-planet-{planet}"));
             std::fs::create_dir_all(&dir).unwrap();
             let disk = save(&b, &dir.join("bake.bin.gz"));
@@ -43,6 +48,11 @@ fn main() {
             if args.get("draw").is_none_or(|v| v != "0") {
                 sheet(&b).save(&dir.join("sheet.png"));
                 globe(&b, DVec3::new(0.35, 1.0, 0.55), 1000).save(&dir.join("orbit.png"));
+                if climate {
+                    climate_sheet(&b, seed).save(&dir.join("climate.png"));
+                    let at = DVec3::new(0.35, 1.0, 0.55);
+                    draw(&b, &Globe { at, up: DVec3::Y }, Layer::Biome, 1000, 1000, sun_for(at), 4.0).save(&dir.join("orbit-biome.png"));
+                }
             }
         }
         "seeds" => {
@@ -51,11 +61,19 @@ fn main() {
             let cols = 4;
             let mut img = Img::new(tw * cols, th * seeds.len().div_ceil(cols), [0, 0, 0]);
             for (k, &seed) in seeds.iter().enumerate() {
-                let b = bake::bake(planet, seed, &p);
+                let mut b = bake::bake(planet, seed, &p);
+                let layer = if args.get("climate").is_some_and(|v| v == "1") {
+                    b.life = Some(life::life(&b, seed, &life::LifeParams::default()));
+                    Layer::Biome
+                } else {
+                    Layer::Height
+                };
                 report(&b, seed, planet, &p, 0);
                 let (x, y) = ((k % cols) * tw, (k / cols) * th);
-                img.blit(&globe(&b, DVec3::new(0.35, 1.0, 0.55), 400), x, y);
-                img.blit(&draw(&b, &Cross, Layer::Height, 400, 300, sun_for(DVec3::Y), 3.0), x, y + 400);
+                let at = DVec3::new(0.35, 1.0, 0.55);
+                img.blit(&draw(&b, &Globe { at, up: DVec3::Y }, layer, 400, 400, sun_for(at), 4.0), x, y);
+                img.blit(&draw(&b, &Cross, layer, 400, 300, sun_for(DVec3::Y), 3.0), x, y + 400);
+                img.text(x + 8, y + 8, &format!("SEED {seed}"), 3, [255, 255, 255]);
             }
             img.save(&out.join(format!("seeds-planet-{planet}.png")));
         }
@@ -161,6 +179,35 @@ fn sheet(b: &Bake) -> Img {
     img
 }
 
+/// The climate and biomes of one bake: the cube unfolded (mean temperature, rain with the rivers, biome),
+/// the globe from its six sides (biome), the legend with each biome's share, and the soil.
+fn climate_sheet(b: &Bake, seed: u64) -> Img {
+    let l = b.life.as_ref().unwrap();
+    let mut img = Img::new(2400, 1650, [12, 12, 16]);
+    let sun = sun_for(DVec3::new(0.3, 1.0, 0.4));
+    for (k, (layer, name)) in [(Layer::Temp, "MEAN TEMPERATURE"), (Layer::Rain, "RAIN (LOG), RIVERS"), (Layer::Biome, "BIOME")].into_iter().enumerate() {
+        img.blit(&draw(b, &Cross, layer, 800, 600, sun, 3.0), k * 800, 0);
+        img.text(k * 800 + 10, 10, name, 3, [255, 255, 255]);
+    }
+    let sides = [(DVec3::X, "+X"), (-DVec3::X, "-X"), (DVec3::Y, "+Y"), (-DVec3::Y, "-Y"), (DVec3::Z, "+Z NORTH"), (-DVec3::Z, "-Z SOUTH")];
+    for (k, (at, name)) in sides.into_iter().enumerate() {
+        let up = if at.z.abs() > 0.5 { DVec3::Y } else { DVec3::Z };
+        img.blit(&draw(b, &Globe { at, up }, Layer::Biome, 400, 400, sun_for(at), 4.0), k * 400, 600);
+        img.text(k * 400 + 8, 608, name, 3, [255, 255, 255]);
+    }
+    let sh = life::shares(b, l);
+    img.text(20, 1020, &format!("SEED {seed}   SHARE OF LAND (LAKES OUT) OR OF SEA"), 4, [255, 255, 255]);
+    for (k, (name, c)) in life::BIOMES.iter().enumerate() {
+        let (x, y) = (20 + (k / 8) * 780, 1070 + (k % 8) * 64);
+        img.rect(x, y, 48, 48, *c);
+        let tag = if k < life::LAND_BIOMES as usize { "LAND" } else { "SEA" };
+        img.text(x + 64, y + 12, &format!("{name} {:.1}% OF {tag}", sh[k] * 100.0), 4, if sh[k] > 0.0 { [230, 230, 230] } else { [255, 80, 80] });
+    }
+    img.blit(&draw(b, &Cross, Layer::Soil, 800, 600, sun, 3.0), 1600, 1050);
+    img.text(1610, 1060, "SOIL: SAND LOAM CLAY GRAVEL PEAT ROCK", 3, [255, 255, 255]);
+    img
+}
+
 /// The result as it would be kept: heights in decimetres, plates, the rivers. Returns bytes on disk.
 fn save(b: &Bake, path: &Path) -> u64 {
     let f = std::fs::File::create(path).unwrap();
@@ -212,13 +259,31 @@ fn report(b: &Bake, seed: u64, planet: u32, p: &Params, disk: u64) {
     let all: f64 = (0..b.h.len()).map(|c| b.g.area(c as u32) as f64).sum();
     let total: f64 = b.times.iter().map(|t| t.1).sum();
     let (ws, commit) = peak_mb();
-    let times: Vec<String> = b.times.iter().map(|(k, v)| format!("\"{k}\":{v:.2}")).collect();
+    let mut times: Vec<String> = b.times.iter().map(|(k, v)| format!("\"{k}\":{v:.2}")).collect();
+    let mut total = total;
+    let mut extra = String::new();
+    if let Some(l) = &b.life {
+        times.extend(l.times.iter().map(|(k, v)| format!("\"{k}\":{v:.2}")));
+        let lt: f64 = l.times.iter().map(|t| t.1).sum();
+        total += lt;
+        let sh = life::shares(b, l);
+        let s: Vec<String> = life::BIOMES.iter().zip(sh).map(|((n, _), v)| format!("\"{n}\":{:.4}", v)).collect();
+        extra = format!(
+            ",\"climate_s\":{lt:.2},\"air_columns\":{},\"air_days\":{},\"air_last_change\":[{:.4},{:.4}],\"shares\":{{{}}},\"all_15\":{}",
+            l.air_columns,
+            l.air_days,
+            l.air_change.0,
+            l.air_change.1,
+            s.join(","),
+            sh.iter().all(|&v| v > 0.0)
+        );
+    }
     let lake_cells: u32 = b.lakes.iter().map(|l| l.cells).sum();
     let mut lh: Vec<f32> = (0..b.h.len()).filter(|&c| b.land(c)).map(|c| b.h[c].max(0.0)).collect();
     lh.sort_by(f32::total_cmp);
     let q = |f: f64| lh.get(((lh.len().max(1) - 1) as f64 * f) as usize).copied().unwrap_or(0.0);
     println!(
-        "{{\"seed\":{seed},\"planet\":{planet},\"radius_m\":{:.0},\"cells\":{},\"cell_m\":{},\"seconds\":{{{}}},\"total_s\":{total:.2},\"peak_ws_mb\":{ws:.0},\"peak_commit_mb\":{commit:.0},\"disk_bytes\":{disk},\"hash\":\"{:016x}\",\"land_share\":{:.3},\"top_m\":{:.1},\"deep_m\":{:.1},\"plates\":{},\"rivers\":{},\"lakes\":{},\"lake_cells\":{lake_cells},\"land_p50_p90_p99_m\":[{:.1},{:.1},{:.1}],\"last_change_m\":[{:.4},{:.4}],\"drains\":{}}}",
+        "{{\"seed\":{seed},\"planet\":{planet},\"radius_m\":{:.0},\"cells\":{},\"cell_m\":{},\"seconds\":{{{}}},\"total_s\":{total:.2},\"peak_ws_mb\":{ws:.0},\"peak_commit_mb\":{commit:.0},\"disk_bytes\":{disk},\"hash\":\"{:016x}\",\"land_share\":{:.3},\"top_m\":{:.1},\"deep_m\":{:.1},\"plates\":{},\"rivers\":{},\"lakes\":{},\"lake_cells\":{lake_cells},\"land_p50_p90_p99_m\":[{:.1},{:.1},{:.1}],\"last_change_m\":[{:.4},{:.4}],\"drains\":{}{extra}}}",
         b.g.r,
         b.h.len(),
         p.cell_m,
@@ -318,5 +383,66 @@ mod tests {
         let p = Params::default();
         assert!((b.h.iter().fold(0f32, |a, &v| a.max(v)) - p.mountain_m).abs() < 0.01);
         assert!((b.h.iter().fold(0f32, |a, &v| a.min(v)) + p.sea_depth_m).abs() < 0.01);
+    }
+
+    fn with_life(seed: u64) -> Bake {
+        let mut b = bake::bake(1536, seed, &Params::default());
+        b.life = Some(life::life(&b, seed, &life::LifeParams::default()));
+        b
+    }
+
+    /// Stages 5 to 8: the same seed gives the same climate, soil and biomes, and they enter the hash.
+    #[test]
+    fn the_climate_and_biomes_bake_the_same_twice() {
+        let (a, b) = (with_life(3), with_life(3));
+        assert_eq!(a.hash(), b.hash());
+        let mut c = with_life(3);
+        c.life.as_mut().unwrap().biome[1234] ^= 1;
+        assert_ne!(a.hash(), c.hash(), "the biomes are in the hash");
+    }
+
+    /// Water only gathers downstream: every land cell passes at least its own runoff on to its receiver.
+    #[test]
+    fn rivers_grow_downstream() {
+        let b = with_life(2);
+        let l = b.life.as_ref().unwrap();
+        for c in 0..b.h.len() {
+            let r = b.recv[c];
+            if b.land(c) && r != NONE && b.land(r as usize) {
+                assert!(l.flow[r as usize] >= l.flow[c], "cell {c}: {} m3/s, its receiver {} has {}", l.flow[c], r, l.flow[r as usize]);
+            }
+        }
+        let most = l.flow.iter().fold(0f32, |a, &v| a.max(v));
+        assert!(most > 100.0 * l.flow.iter().filter(|&&v| v > 0.0).fold(f32::MAX, |a, &v| a.min(v)), "a river gathers: {most}");
+    }
+
+    /// The Whittaker order: by mean temperature ice < tundra < cold forest < temperate forest < rain
+    /// forest, and by mean rain desert < dry scrub < savanna < rain forest (each over several seeds).
+    #[test]
+    fn biomes_follow_temperature_and_rain() {
+        let (mut t, mut r, mut k) = ([0f64; 15], [0f64; 15], [0f64; 15]);
+        for seed in [1, 2, 5] {
+            let b = with_life(seed);
+            let l = b.life.as_ref().unwrap();
+            for c in 0..b.h.len() {
+                let x = l.biome[c] as usize;
+                t[x] += l.temp[c] as f64;
+                r[x] += l.rain[c] as f64;
+                k[x] += 1.0;
+            }
+        }
+        let m = |v: &[f64; 15], x: u8| v[x as usize] / k[x as usize].max(1.0);
+        use life::*;
+        // only the biomes that occur on these small planets (ice may not)
+        let here = |v: &[u8]| -> Vec<u8> { v.iter().copied().filter(|&x| k[x as usize] > 100.0).collect() };
+        let by_t = here(&[ICE, TUNDRA, COLD_FOREST, TEMPERATE_FOREST, RAIN_FOREST]);
+        let by_r = here(&[DESERT, DRY_SCRUB, SAVANNA, RAIN_FOREST]);
+        assert!(by_t.len() >= 4 && by_r.len() == 4, "{by_t:?} {by_r:?}");
+        for w in by_t.windows(2) {
+            assert!(m(&t, w[0]) < m(&t, w[1]), "{} {:.1} C, {} {:.1} C", BIOMES[w[0] as usize].0, m(&t, w[0]), BIOMES[w[1] as usize].0, m(&t, w[1]));
+        }
+        for w in by_r.windows(2) {
+            assert!(m(&r, w[0]) < m(&r, w[1]), "{} {:.2} mm, {} {:.2} mm", BIOMES[w[0] as usize].0, m(&r, w[0]), BIOMES[w[1] as usize].0, m(&r, w[1]));
+        }
     }
 }

@@ -1,4 +1,4 @@
-//! The dedicated server: `technoape-server listen=0.0.0.0:7777 planet=6144 moon=256 seed=1337`.
+//! The dedicated server: `technoape-server listen=0.0.0.0:7777 planet=6144 seed=1337` (moon= overrides Luna's size, `bodies::columns`).
 //! Prints one JSON line every 5 s: tick, players, edits. It records the session to `out/rec/server-<unix s>.rec`
 //! (`record=file` elsewhere, `record=0` not at all). It saves every 30 s to `saves/server.sav` (`save=file`,
 //! `save=0` not at all) and carries on from that save when it exists.
@@ -40,7 +40,10 @@ fn main() {
             eprintln!("[technoape-server] carrying on from {save} ({} edited cells)", s.edits.len());
             Server::from_save(s, rx)
         }
-        None => Server::new(num("planet", engine::bodies::BODIES[0].n), num("moon", engine::bodies::BODIES[1].n), num("seed", 1337), rx),
+        None => {
+            let planet = num("planet", engine::bodies::BODIES[0].n);
+            Server::baked(planet, num("moon", engine::bodies::columns(1, planet)), num("seed", 1337), rx)
+        }
     };
     server.autosave = (save != "0").then(|| (save.clone().into(), 30 * TICK_HZ as u64));
     let unix = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());

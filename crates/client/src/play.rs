@@ -8,7 +8,7 @@ use super::*;
 pub(crate) const PLAYTEST: &[(&str, &[&str], &str)] = &[
     ("Eclipse of the sun: Luna in front of Sol", &["eclipse:sun"], ""),
     ("Eclipse of Luna: in Terra's shadow", &["eclipse:luna"], ""),
-    ("On Luna: a fifth of the gravity, Terra overhead", &["/playmode creative", "/goto luna"], "A jump is about 6 m here. Terra's night side should fade in, with no hard line."),
+    ("On Luna: 3.7 times less gravity, Terra overhead", &["/playmode creative", "/goto luna"], "A jump is about 4.6 m here. Terra's night side should fade in, with no hard line."),
     ("Fast flight: 1000 m/s over Terra", &["/playmode creative", "/goto terra", "fly:1000"], "Fly low and turn hard: the ground should never vanish."),
     ("Midnight: the moon grey, not red", &["/goto terra", "/time set midnight"], "Find Luna: grey-white, unless an eclipse is on."),
     ("Sunset: the light fading out", &["/goto terra", "/time set sunset"], "The sunlight on the ground should dim smoothly as Sol sets."),

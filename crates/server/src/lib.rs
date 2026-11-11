@@ -33,7 +33,8 @@ const CHECK_EVERY: u64 = 20;
 /// of ticks done when the hash was taken.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Ev {
-    Start { planet_n: i32, moon_n: i32, seed: i32, dt: f64 },
+    /// `map`: the baked map's hash (ADR 0043), None for the noise land.
+    Start { planet_n: i32, moon_n: i32, seed: i32, dt: f64, map: Option<u64> },
     /// Right after `Start` when the server began from a save: the save itself, so a replay starts there too.
     Loaded(Save),
     Join { tick: u64, id: u32 },
@@ -142,12 +143,31 @@ pub struct Server {
     tiles: FxMap<Col, (u64, DVec3)>,
     /// When set, `run` adds every tick's length in ms (ADR 0025, S: the benchmark line's tick numbers).
     pub tick_ms: Option<std::sync::Arc<std::sync::Mutex<Vec<f32>>>>,
+    /// The baked map as `ToClient::Map` pieces, made on the first request (18 MB for the 4 km planet).
+    map_pieces: Option<Vec<ToClient>>,
 }
 
 impl Server {
+    /// A server on the noise land (tests, saves from before the bake).
     pub fn new(planet_n: i32, moon_n: i32, seed: i32, accept: Receiver<ServerLink>) -> Server {
+        Server::with_world(World::new(planet_n, moon_n, seed), seed, accept)
+    }
+    /// A new game's server: its planet baked (ADR 0043), from memory, the disk or baked now.
+    pub fn baked(planet_n: i32, moon_n: i32, seed: i32, accept: Receiver<ServerLink>) -> Server {
+        Server::with_world(World::baked(planet_n, moon_n, seed), seed, accept)
+    }
+    /// A server on the map of this hash (None: the noise land); the bake is redone if it is not kept. A map that
+    /// comes out other than the hash stops the game, as a save this build cannot read does: its edits belong
+    /// to other ground, and the next autosave would write over the old map's name.
+    pub fn on_map(planet_n: i32, moon_n: i32, seed: i32, map: Option<u64>, accept: Receiver<ServerLink>) -> Server {
+        let Some(h) = map else { return Server::new(planet_n, moon_n, seed, accept) };
+        let m = engine::bake::find(seed, planet_n, Some(h)).unwrap_or_else(|| engine::bake::keep(engine::bake::Map::bake(seed, planet_n)));
+        assert_eq!(m.hash, h, "this world was played on another map of seed {seed} (map version {}): it cannot be carried on", engine::bake::VERSION);
+        Server::with_world(World::with_map(planet_n, moon_n, seed, Some(m)), seed, accept)
+    }
+    fn with_world(world: World, seed: i32, accept: Receiver<ServerLink>) -> Server {
         Server {
-            world: World::new(planet_n, moon_n, seed),
+            world,
             seed,
             accept,
             clients: Vec::new(),
@@ -167,12 +187,13 @@ impl Server {
             water_bytes: 0,
             tiles: FxMap::default(),
             tick_ms: None,
+            map_pieces: None,
         }
     }
 
     /// A server that carries on from `save` (its seed and planet win over any given elsewhere).
     pub fn from_save(save: Save, accept: Receiver<ServerLink>) -> Server {
-        let mut s = Server::new(save.planet_n, save.moon_n, save.seed, accept);
+        let mut s = Server::on_map(save.planet_n, save.moon_n, save.seed, save.map, accept);
         for (b, m) in &save.edits {
             s.world.set_block(*b, *m);
         }
@@ -182,7 +203,21 @@ impl Server {
         s.tick0 = save.tick;
         let cols: Vec<Col> = save.water.iter().map(|w| w.0).collect();
         s.water_changed(&cols);
-        s.absent = save.players.iter().map(|p| (p.name.clone(), p.clone())).collect();
+        // a save from before Luna's grid and the inertial frame moved in the shared coordinates (ADR 0041,
+        // version 5 and older): a player on Luna is moved with it; one in space (past the old Terra frame, at
+        // most 43 km out, and not on Luna), whose place around the old sun means nothing now, goes to the spawn
+        let (old, spawn) = (save.version < 6, s.spawn());
+        let moved = |p: &save::Saved| {
+            let mut p = p.clone();
+            let at = DVec3::from(p.pos);
+            if old && (at - engine::world::OLD_MOON_AT).length() < 2.0e5 {
+                p.pos = (at - engine::world::OLD_MOON_AT + engine::world::MOON_AT).to_array();
+            } else if old && at.length() > 2.0e5 {
+                p.pos = spawn.to_array();
+            }
+            p
+        };
+        s.absent = save.players.iter().map(|p| (p.name.clone(), moved(p))).collect();
         s.loaded = Some(save);
         s
     }
@@ -210,7 +245,13 @@ impl Server {
             removed: self.removed,
             sea_extra: self.world.water.sea_extra,
             tick: self.tick0.wrapping_add(self.tick),
+            map: self.map_hash(),
         }
+    }
+
+    /// The hash of the baked map the planet stands on, None for the noise land.
+    pub fn map_hash(&self) -> Option<u64> {
+        self.world.bodies[0].map().map(|m| m.hash)
     }
 
     pub fn players(&self) -> usize {
@@ -327,7 +368,7 @@ impl Server {
         self.world.time = self.tick0.wrapping_add(self.tick) as f64 / TICK_HZ;
         if self.tick == 0 {
             let [b0, b1] = [&self.world.bodies[0], &self.world.bodies[1]];
-            let start = Ev::Start { planet_n: b0.n, moon_n: b1.n, seed: self.seed, dt: self.dt };
+            let start = Ev::Start { planet_n: b0.n, moon_n: b1.n, seed: self.seed, dt: self.dt, map: self.map_hash() };
             self.log(start);
             if let Some(save) = self.loaded.take() {
                 self.log(Ev::Loaded(save));
@@ -338,7 +379,7 @@ impl Server {
             self.next_id += 1;
             self.log(Ev::Join { tick: self.tick, id });
             let [p, m] = [self.world.bodies[0].n, self.world.bodies[1].n];
-            link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m, blocks: BLOCKS.hash });
+            link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m, blocks: BLOCKS.hash, map: self.map_hash() });
             let all: Vec<(Block, u8)> = self
                 .world
                 .edits
@@ -448,6 +489,14 @@ impl Server {
                         }
                     }
                     Recv::Msg(ToServer::Dig(at)) => self.dig(i, at),
+                    Recv::Msg(ToServer::Map) => {
+                        if let Some(m) = self.world.bodies[0].map() {
+                            // shortcut: any client may ask again; a limit per client when servers go public
+                            for p in self.map_pieces.get_or_insert_with(|| engine::net::map_pieces(m)) {
+                                self.clients[i].link.send(p.clone());
+                            }
+                        }
+                    }
                     Recv::Empty => break,
                     Recv::Closed => {
                         open = false;
@@ -596,7 +645,7 @@ impl Server {
                 let (sun, planet) = (w.sky.sun(w.time), w.sky.planet(w.time).centre);
                 // beside the sun as seen from the planet: up there is away from the planet, the sun level
                 let side = (planet - sun).normalize().cross(DVec3::Z).normalize();
-                let x = sun + side * sky::SUN_RADIUS * SUN_VIEW;
+                let x = sun + side * self.world.sky.sun_radius * SUN_VIEW;
                 let (pos, f) = w.locate(x);
                 Some((pos, w.pose(f, w.time).rot.inverse() * (sun - x)))
             }
@@ -1071,16 +1120,16 @@ pub fn read_recording(path: &Path) -> std::io::Result<Vec<Ev>> {
 /// disagrees.
 pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
     let evs = read_recording(path)?;
-    let Some(Ev::Start { planet_n, moon_n, seed, dt }) = evs.first() else {
+    let Some(Ev::Start { planet_n, moon_n, seed, dt, map }) = evs.first() else {
         return Err(std::io::Error::other("not a recording: no Start"));
     };
     let (tx, rx) = channel();
     let (mut s, rest) = match evs.get(1) {
         // (a recording carries no version of its own; one that starts from an older save is from before
         // 1 m blocks, ADR 0033. shortcut: one that starts from the seed alone is not told apart)
-        Some(Ev::Loaded(save)) if save.version != save::VERSION => return Err(std::io::Error::other("a recording of an older world (0.5 m blocks, ADR 0033)")),
+        Some(Ev::Loaded(save)) if save.version < 4 => return Err(std::io::Error::other("a recording of an older world (0.5 m blocks, ADR 0033)")),
         Some(Ev::Loaded(save)) => (Server::from_save(save.clone(), rx), &evs[2..]),
-        _ => (Server::new(*planet_n, *moon_n, *seed, rx), &evs[1..]),
+        _ => (Server::on_map(*planet_n, *moon_n, *seed, *map, rx), &evs[1..]),
     };
     s.dt = *dt;
     let mut links: HashMap<u32, Link<ToServer, ToClient>> = HashMap::new();
@@ -1392,6 +1441,28 @@ mod tests {
         assert!(drain(&links[0]).contains(&ToClient::Digging { id, at: None }));
     }
 
+    /// A save from before ADR 0041 moved Luna's grid and the inertial frame in the shared coordinates (version 5
+    /// and older): a player on Luna is moved with it, one in space goes to the spawn, keeping what it held; in a
+    /// save of this version the same places are left alone.
+    #[test]
+    fn players_of_a_save_before_the_frames_moved_are_moved_with_them() {
+        let (s, _links) = server_with(0);
+        let mut save = s.snapshot();
+        let player = |name: &str, at: DVec3| save::Saved {
+            name: name.into(), pos: at.to_array(), fwd: [1.0, 0.0, 0.0], creative: false, inv: vec![(2, 5)], water: 0, vitals: Default::default(),
+        };
+        let on_luna = engine::world::OLD_MOON_AT + DVec3::Y * 30.0;
+        let in_space = DVec3::new(500.0, 0.0, -1.0e6);
+        save.players = vec![player("luna", on_luna), player("space", in_space)];
+        let at = |sv: &Server, name: &str| DVec3::from(sv.absent[name].pos);
+        let now = Server::from_save(save.clone(), channel().1);
+        assert_eq!((at(&now, "luna"), at(&now, "space")), (on_luna, in_space), "this version's save is left alone");
+        save.version = 5;
+        let old = Server::from_save(save, channel().1);
+        assert_eq!(at(&old, "luna"), on_luna - engine::world::OLD_MOON_AT + engine::world::MOON_AT);
+        assert_eq!((at(&old, "space"), &old.absent["space"].inv), (old.spawn(), &vec![(2, 5)]));
+    }
+
     #[test]
     fn a_saved_player_comes_back_with_what_it_held() {
         let (mut s, links) = server_with(1);
@@ -1551,7 +1622,8 @@ mod tests {
         s.tick();
         let w = &s.world;
         let (pc, mc) = (w.sky.planet(w.time).centre, w.sky.moon(w.time).centre);
-        let (pos, f) = w.locate(pc + (pc - mc).normalize() * 2500.0);
+        // (past Terra's frame: as far out as Luna, on the other side; ADR 0041 moved Luna to 60 radii)
+        let (pos, f) = w.locate(pc + (pc - mc).normalize() * w.sky.moon_orbit);
         assert_eq!(f, engine::world::INERTIAL);
         l.send(ToServer::Move { pos: pos.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
         s.tick();
@@ -1607,7 +1679,7 @@ mod tests {
         links[0].send(ToServer::Chat("/time".into()));
         s.tick();
         let a = chat(&links[0]);
-        assert!(a.iter().any(|l| l.starts_with("it is day 1, 09:12")), "{a:?}");
+        assert!(a.iter().any(|l| l.starts_with("it is day 1, 09:08")), "{a:?}");
         s.tick();
         assert!((s.world.time - 10.0).abs() < 0.2, "a time before the session's start: {}", s.world.time);
     }
@@ -1677,7 +1749,7 @@ mod tests {
         links[0].send(ToServer::Chat("/goto sun".into()));
         s.tick();
         let x = s.world.to_inertial(me(&s));
-        let d = (x - s.world.sky.sun(s.world.time)).length() / sky::SUN_RADIUS;
+        let d = (x - s.world.sky.sun(s.world.time)).length() / s.world.sky.sun_radius;
         assert!((d - SUN_VIEW).abs() < 0.1, "{d} sun radii away");
         let got: Vec<ToClient> = drain(&links[0]);
         for line in ["gone to the sun", "gone to Luna", "gone to Terra"] {

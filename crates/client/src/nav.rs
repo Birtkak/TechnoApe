@@ -139,8 +139,9 @@ pub fn next_eclipse(sky: &engine::sky::Sky, from: f64, lunar: bool) -> Option<f6
         if (along > 0.0) != lunar { (m - s * along).length() } else { f64::MAX }
     };
     let near = if lunar { sky.planet_radius - 2.0 * sky.moon_radius } else { 0.8 * sky.planet_radius };
-    // a line-up lasts over a thousand seconds (Luna moves a few metres a second), so a minute's step finds it
-    const STEP: f64 = 60.0;
+    // Luna moves some 80 m/s at 60 radii out (ADR 0041), so a 10 s step (under a kilometre) cannot jump past a
+    // line-up; a whole cycle is then some 50,000 looks, a few milliseconds
+    const STEP: f64 = 10.0;
     // (`closing`: Luna was seen coming nearer the line, so a search begun just past one eclipse's middle
     // finds the next one)
     let (mut t, mut prev, mut closing) = (from, off(from), false);

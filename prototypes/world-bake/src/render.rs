@@ -41,6 +41,65 @@ pub enum Layer {
     Height,
     Plates,
     Rivers,
+    Temp,
+    Rain,
+    Biome,
+    Soil,
+}
+
+/// A 3 x 5 pixel font for the sheets' legends: rows of 3 bits.
+fn glyph(ch: char) -> [u8; 5] {
+    match ch.to_ascii_uppercase() {
+        'A' => [2, 5, 7, 5, 5], 'B' => [6, 5, 6, 5, 6], 'C' => [3, 4, 4, 4, 3], 'D' => [6, 5, 5, 5, 6],
+        'E' => [7, 4, 6, 4, 7], 'F' => [7, 4, 6, 4, 4], 'G' => [3, 4, 5, 5, 3], 'H' => [5, 5, 7, 5, 5],
+        'I' => [7, 2, 2, 2, 7], 'J' => [1, 1, 1, 5, 2], 'K' => [5, 5, 6, 5, 5], 'L' => [4, 4, 4, 4, 7],
+        'M' => [5, 7, 7, 5, 5], 'N' => [6, 5, 5, 5, 5], 'O' => [2, 5, 5, 5, 2], 'P' => [6, 5, 6, 4, 4],
+        'Q' => [2, 5, 5, 6, 3], 'R' => [6, 5, 6, 5, 5], 'S' => [3, 4, 2, 1, 6], 'T' => [7, 2, 2, 2, 2],
+        'U' => [5, 5, 5, 5, 7], 'V' => [5, 5, 5, 5, 2], 'W' => [5, 5, 7, 7, 5], 'X' => [5, 5, 2, 5, 5],
+        'Y' => [5, 5, 2, 2, 2], 'Z' => [7, 1, 2, 4, 7], '0' => [7, 5, 5, 5, 7], '1' => [2, 6, 2, 2, 7],
+        '2' => [6, 1, 2, 4, 7], '3' => [6, 1, 2, 1, 6], '4' => [5, 5, 7, 1, 1], '5' => [7, 4, 6, 1, 6],
+        '6' => [3, 4, 7, 5, 7], '7' => [7, 1, 2, 2, 2], '8' => [7, 5, 7, 5, 7], '9' => [7, 5, 7, 1, 6],
+        '.' => [0, 0, 0, 0, 2], '%' => [5, 1, 2, 4, 5], '-' => [0, 0, 7, 0, 0], ':' => [0, 2, 0, 2, 0],
+        ',' => [0, 0, 0, 2, 4], '(' => [1, 2, 2, 2, 1], ')' => [4, 2, 2, 2, 4], '/' => [1, 1, 2, 4, 4],
+        '+' => [0, 2, 7, 2, 0], '=' => [0, 7, 0, 7, 0],
+        _ => [0; 5],
+    }
+}
+
+impl Img {
+    /// Text at (x, y), each font pixel `s` pixels.
+    pub fn text(&mut self, x: usize, y: usize, t: &str, s: usize, c: [u8; 3]) {
+        for (k, ch) in t.chars().enumerate() {
+            let g = glyph(ch);
+            for (row, bits) in g.iter().enumerate() {
+                for col in 0..3 {
+                    if bits >> (2 - col) & 1 == 1 {
+                        for dy in 0..s {
+                            for dx in 0..s {
+                                self.put((x + (k * 4 + col) * s + dx) as i64, (y + row * s + dy) as i64, c);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    pub fn rect(&mut self, x: usize, y: usize, w: usize, h: usize, c: [u8; 3]) {
+        for yy in y..y + h {
+            for xx in x..x + w {
+                self.put(xx as i64, yy as i64, c);
+            }
+        }
+    }
+}
+
+pub fn temp_colour(t: f32) -> [f32; 3] {
+    lerp(&[(-25.0, [70., 40., 150.]), (-10.0, [90., 150., 250.]), (0.0, [235., 240., 250.]), (8.0, [120., 210., 110.]), (16.0, [250., 215., 80.]), (26.0, [210., 50., 30.])], t)
+}
+
+/// Rain on a log scale, mm a day.
+pub fn rain_colour(r: f32) -> [f32; 3] {
+    lerp(&[(-1.3, [200., 150., 80.]), (-0.8, [240., 225., 150.]), (-0.4, [110., 200., 100.]), (0.0, [30., 140., 200.]), (0.5, [30., 40., 140.])], r.max(0.01).log10())
 }
 
 fn lerp(stops: &[(f32, [f32; 3])], v: f32) -> [f32; 3] {
@@ -115,6 +174,32 @@ pub fn colour(b: &Bake, c: u32, layer: Layer, sun: DVec3, ex: f64) -> [u8; 3] {
                 2 => [40., 120., 255.],
                 3 => [240., 220., 60.],
                 _ => k.map(|v| (v * m).min(255.0) * if land { s } else { 1.0 }),
+            }
+        }
+        Layer::Temp | Layer::Rain | Layer::Biome | Layer::Soil => {
+            let l = b.life.as_ref().expect("the climate stages ran");
+            match layer {
+                Layer::Temp => temp_colour(l.temp[i]).map(|v| v * if land { s } else { 0.85 }),
+                Layer::Rain => {
+                    if b.lake(i) {
+                        [90., 150., 205.]
+                    } else {
+                        let k = rain_colour(l.rain[i]);
+                        let k = if land && l.flow[i] > 0.05 { [40., 90., 200.] } else { k };
+                        k.map(|v| v * if land { s } else { 0.7 })
+                    }
+                }
+                Layer::Biome => {
+                    if b.lake(i) {
+                        [90., 150., 205.]
+                    } else {
+                        crate::life::BIOMES[l.biome[i] as usize].1.map(|v| v as f32 * if land { s } else { 1.0 })
+                    }
+                }
+                _ => {
+                    const SOIL: [[f32; 3]; 6] = [[230., 210., 150.], [120., 90., 60.], [170., 110., 80.], [150., 150., 140.], [50., 40., 30.], [90., 90., 95.]];
+                    if b.lake(i) { [90., 150., 205.] } else { SOIL[l.soil[i] as usize].map(|v| v * if land { s } else { 0.6 }) }
+                }
             }
         }
         Layer::Rivers => {

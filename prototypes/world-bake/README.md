@@ -72,6 +72,77 @@ under 10 MB on disk, under 100 MB of server RAM. The answers are measured below.
 
 Throwaway code: its own cargo project, nothing depends on it, no engine code changed.
 
+## Climate, water on land, soil and biomes (stages 5 to 8, W3; ADR 0042)
+
+**Question.** Run the air model of `prototypes/air` on the bake's heights until its day repeats, keep mean
+temperature and rain per cell, route the rain down the drainage, give a soil, then a biome from a Whittaker
+table plus soil, height and distance to water. Is it deterministic, what does it add to the bake, and do
+all 15 biomes of worldgen.md occur?
+
+**Answer.** Yes, on every seed tried. Measured on 8 threads of 12 (the developer's cap; `out/.lock` held):
+
+| planet, seed 5 | land stages | + climate stages | of which the air model | peak RAM | air columns | days to a repeating day |
+|---|---|---|---|---|---|---|
+| **4 km (N 6144), the game's** | 17.0 s | **+5.4 s** (22.5 s) | 4.2 s | 213 to 349 MB | 13,824 | 26 |
+| 12 km (N 17376), the prototype's default | 167 s | +66 s (233 s) | 56 s | 2.7 GB | 110,976 | 45, the cap: not settled (last change 0.003 K, 1.8 % of rain) |
+
+- **Deterministic:** the same seed bakes the same hash twice (seeds 1, 5, 9 run twice: `b2c3e7cf89a695c8`
+  for seed 5 at 4 km); the climate, soil and biomes are in the hash (test).
+- **All 15 occur** on seeds 1, 2, 3, 5, 7, 9, 11 and 12 at 4 km, and on seed 5 at 12 km.
+- **Memory:** five f32 and two u8 per cell: 136 MB more at 4 km. The 12 km bake needs 2.7 GB at its peak.
+- **The 12 km planet** needs a longer settle or a coarser air grid in the bake: open with the planet-size
+  question (the game is 4 km; ADR 0042).
+
+Biome shares, % of land (lakes left out) for the 12 land biomes, % of sea for the 3 sea biomes (4 km):
+
+| seed | ice | tundra | cold forest | temp. forest | grassland | dry scrub | desert | savanna | rain forest | wetland | alpine | beach | shelf | deep | reef |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **5** | 6.3 | 8.2 | 3.2 | 9.1 | 7.0 | 8.2 | 26.0 | 7.4 | 14.2 | 0.8 | 5.8 | 3.7 | 7.0 | 90.7 | 2.3 |
+| 1 | 4.2 | 8.3 | 4.2 | 6.5 | 7.1 | 10.3 | 34.1 | 6.5 | 12.0 | 1.2 | 0.6 | 5.0 | 8.5 | 90.0 | 1.5 |
+| 2 | 5.3 | 9.3 | 4.3 | 7.3 | 6.8 | 8.2 | 30.5 | 6.9 | 14.8 | 1.0 | 1.1 | 4.5 | 8.3 | 89.4 | 2.3 |
+| 3 | 15.4 | 11.1 | 3.4 | 7.8 | 5.8 | 5.7 | 21.9 | 5.9 | 13.5 | 0.7 | 4.4 | 4.4 | 6.5 | 90.9 | 2.6 |
+| 7 | 7.9 | 6.7 | 2.4 | 4.2 | 7.1 | 11.6 | 27.9 | 8.9 | 15.4 | 1.7 | 0.4 | 5.8 | 8.9 | 89.0 | 2.1 |
+| 9 | 0.2 | 2.5 | 2.4 | 8.0 | 7.1 | 10.0 | 41.6 | 8.9 | 12.7 | 0.8 | 1.9 | 4.0 | 6.9 | 92.1 | 1.1 |
+| 11 | 9.3 | 8.3 | 3.9 | 8.9 | 6.2 | 7.6 | 26.0 | 5.9 | 13.4 | 0.7 | 7.2 | 2.5 | 6.9 | 91.4 | 1.7 |
+| 12 | 2.4 | 5.5 | 3.3 | 8.9 | 7.7 | 9.0 | 33.6 | 7.6 | 13.1 | 0.7 | 4.6 | 3.5 | 7.2 | 90.9 | 1.9 |
+| 5, 12 km | 9.7 | 5.1 | 4.1 | 11.5 | 7.6 | 8.6 | 19.5 | 9.0 | 17.3 | 2.1 | 2.8 | 2.7 | 5.7 | 91.9 | 2.4 |
+
+**What I see:** rain forest on the wet equatorial coasts and windward slopes; desert in the dry belts, the
+interiors and behind ranges (the largest biome: a quarter to two fifths of the land); grassland, scrub and
+savanna between; temperate and cold forest poleward; tundra and ice at the poles, alpine along the high
+ranges; warm reefs in tropical shallows. **Wetland is rare** (about 1 %): at the 24 m scale the land is
+hilly (median slope 0.125), and a marsh needs flat, fed, humid ground. **Desert is large**: the air
+model leaves the lee of ranges nearly rainless. Both are thresholds in `LifeParams` if the developer wants
+them otherwise.
+
+### How (`src/life.rs`)
+| # | Stage | Method |
+|---|---|---|
+| 5 | climate | air columns of 128 m (`air_cell_m`) take the mean land height and water share of their 8 m cells; `air::Air::settle` runs 10 s steps until a day's means change under 0.005 K and 1 % of rain (15 to 45 days); the means come to the cells by the bake's seam-folding tent filter, then the lapse (0.1 K/m) by each cell's own height |
+| 6 | water on land | rain less evaporation (0.02 mm a day per C) runs down the receivers in upstream-first order: discharge in m^3/s. A wetland is flat (smoothed slope under 0.045), fed (0.003 m^3/s, or a lake within 40 m, or a low coast within 64 m), humid (rain over evaporation) and not frozen |
+| 7 | soil | slope over 24 m (heights smoothed twice): rock over 0.6, gravel over 0.35 or high and steep; sand on the low coast and where it is arid; peat in cold wetlands, clay in warm ones, in lakes and floodplains; loam elsewhere. Sea floor: sand on the shelf near land, clay (mud) further out |
+| 8 | biome | ice under -13 C, alpine over 58 m, tundra under -7 C, beach (sand within 24 m of the sea, under 3.5 m), wetland, then Whittaker by temperature band (cold under 5 C, warm from 15 C) and rain. Sea: deep over 22 m, warm reef under 12 m deep and over 21 C on sand, else shelf. **Borders blend:** temperature and rain are jittered by noise 40 m across (1.2 K, 25 % of rain), so neighbouring biomes interfinger over tens of metres |
+
+- **A fault found by measuring:** slope as the steepest drop between 8 m cells is the bake's fine detail
+  (median 0.47, 0.1 % of land flat), so 66 % of the soil was rock or gravel and no wetland existed. It is now
+  the slope of the heights smoothed over about 24 m.
+- **A fault found by a test:** cold dry land up to 5 C was tundra, so tundra was warmer on average than
+  cold forest; over 0 C it is now cold desert, as in Whittaker's table.
+- **Tests:** `the_climate_and_biomes_bake_the_same_twice` (failed with the biomes left out of the hash),
+  `rivers_grow_downstream` (failed with half the water passed on), `biomes_follow_temperature_and_rain`
+  (failed on the tundra fault above).
+- `LIFEDBG=1` prints the wetland conditions, slope and flow percentiles, the land's rain by temperature
+  band, and the soil shares.
+
+### Sheets
+- `images/climate-seed-5.png` (and `-seed-1`, `-seed-9`, `-seed-5-12km`): the cube unfolded three times
+  (mean temperature; rain on a log scale with the rivers; biome), the globe from its six sides (biome),
+  the legend with each biome's share, and the soil.
+- `images/orbit-biome-seed-5.png`: seed 5 from orbit, 1000 px.
+- `images/biomes-seeds-planet-6144.png`: 8 seeds, a globe and the unfolded cube each.
+- Run: `target/release/world-bake.exe seed=5 planet=6144` (climate on by default, `climate=0` without);
+  `mode=seeds planet=6144 climate=1 seeds=1,2,3`.
+
 ## Run it
 ```
 cd prototypes/world-bake

@@ -1,0 +1,29 @@
+[package]
+name = "air"
+version = "0.1.0"
+edition = "2021"
+description = "Throwaway spike: the planet's coarse air grid (ADR 0010, docs/design/air.md). The bake prototype uses it as a library."
+
+# its own workspace: not a member of the game's
+[workspace]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "air"
+path = "src/main.rs"
+
+[dependencies]
+glam = "0.34"
+rayon = "1"
+png = "0.18"
+flate2 = "1"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+[profile.test]
+opt-level = 3
