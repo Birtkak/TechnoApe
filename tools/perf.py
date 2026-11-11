@@ -12,22 +12,23 @@ overlay; the GPU 27-41 % busy without the game) the frame's p50 rose 12-17 % whi
   work_ms      the frame thread's stages at p50, less the driver's waits (acquire, present, between)
   gpu_ms_p50   the GPU stages' total at p50
   job_us_avg   a mesh job's time on a worker
-  vram_mb
+  gpu_alloc_mb what wgpu holds (not vram_mb: the driver counts in 256 MB blocks, and a run near a block's
+               edge read 817 or 1073 on the same build, 2026-11-12)
   tick_ms_p99  the server's tick (run=sim only)
 A number fails past its baseline plus the larger of a share and an amount: about twice the spread of ten quick
 `stand` runs and three to five of each other (GPU total 1-4 %, `stand` 15 % in its two modes; work 0.25-0.5 ms
-spread 0.1-0.18 ms; jobs up to 8 %; VRAM 0.2 %; tick p99 30 %). A 0.5 ms stall in the frame thread fails it.
+spread 0.1-0.18 ms; jobs up to 8 %; wgpu's memory 0 %; tick p99 30 %). A 0.5 ms stall in the frame thread fails it.
 """
 import json, pathlib, statistics, sys
 
 BASE = pathlib.Path(__file__).resolve().parent.parent / "tests/perf/baseline.json"
 # per number: (share, amount) over the baseline that still passes
-TOL = {"work_ms": (0.30, 0.25), "gpu_ms_p50": (0.15, 0.15), "job_us_avg": (0.20, 50.0), "vram_mb": (0.10, 64.0), "tick_ms_p99": (0.60, 1.0)}
+TOL = {"work_ms": (0.30, 0.25), "gpu_ms_p50": (0.15, 0.15), "job_us_avg": (0.20, 50.0), "gpu_alloc_mb": (0.10, 64.0), "tick_ms_p99": (0.60, 1.0)}
 DRIVER = {"acquire", "present", "between"}
 
 
 def measure(d):
-    m = {k: d[k] for k in ("gpu_ms_p50", "job_us_avg", "vram_mb", "tick_ms_p99") if k in d}
+    m = {k: d[k] for k in ("gpu_ms_p50", "job_us_avg", "gpu_alloc_mb", "tick_ms_p99") if k in d}
     if "cpu_p50" in d:
         m["work_ms"] = round(sum(v for k, v in d["cpu_p50"].items() if k not in DRIVER), 3)
     return m
@@ -94,9 +95,9 @@ if __name__ == "__main__":
         BASE.write_text(json.dumps(base, indent=2) + "\n")
         print(json.dumps(base))
     elif sys.argv[1] == "test":
-        line = lambda gpu, work, **k: json.dumps({"gpu_ms_p50": gpu, "job_us_avg": 400, "vram_mb": 800, "cpu_p50": {"encode": work, "acquire": 9.0}, **k})
+        line = lambda gpu, work, **k: json.dumps({"gpu_ms_p50": gpu, "job_us_avg": 400, "gpu_alloc_mb": 800, "cpu_p50": {"encode": work, "acquire": 9.0}, **k})
         base = numbers("stand", [line(1.5, 0.4)])
-        assert base == {"work_ms": 0.4, "gpu_ms_p50": 1.5, "job_us_avg": 400, "vram_mb": 800}, base
+        assert base == {"work_ms": 0.4, "gpu_ms_p50": 1.5, "job_us_avg": 400, "gpu_alloc_mb": 800}, base
         # the driver's wait and the tick (outside sim) are not held; a little slower passes
         assert not worse(base, numbers("stand", [line(1.6, 0.6, tick_ms_p99=50)]))
         # a 0.5 ms stall in the frame thread fails, on the median of three

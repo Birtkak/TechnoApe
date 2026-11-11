@@ -83,3 +83,7 @@ Keep each package whose row says keep; the reverted ones stay written down with 
 
 ## Consequences
 - The stage breakdown is in every benchmark line, so a later regression names its stage.
+- 2026-11-12, K amended: the guard holds `gpu_alloc_mb` (what wgpu itself holds) instead of `vram_mb`. The
+  driver counts a process's VRAM in 256 MB blocks; after the baked Terra (ADR 0043) wgpu holds 653-830 MB, near
+  a block's edge, and the same `stand` build read 817 or 1073 MB from run to run with the same 653 MB held.
+  `vram_mb` stays in every line and in `budget_ok` (ADR 0004).
