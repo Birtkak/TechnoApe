@@ -3,6 +3,19 @@
 The shared benchmark of `docs/plans/roadmap.md`, measured as ADR 0004 says. Newest first.
 Run it: `bash tools/bench.sh`, then `python -I tools/summarize.py`.
 
+## 2026-11-11: the air grid spike (ADR 0010, `prototypes/air`)
+
+Reference machine, release build, `air mode=cost` (300 live steps of 1 s after 100 to warm up; `out/.lock`
+held). A step runs once a second of world time, spread over the 20 ticks.
+
+| planet | columns | state MB | step ms, 1 thread | per tick, 1 thread | step ms, 12 threads | per tick, 12 threads | target |
+|---|---|---|---|---|---|---|---|
+| Terra 4 km (N 6144) | 13,824 | 1.6 | 4.59 | 0.229 | 1.43 | 0.072 | 0.5 ms: ok |
+| 8 km (N 12288) | 55,296 | 6.3 | 19.0 | 0.951 | 5.41 | 0.270 | over on 1 thread |
+| 12 km (N 17376) | 110,976 | 12.7 | 37.7 | 1.887 | 9.53 | 0.476 | over on 1 thread |
+
+The bake's climate (30 days of 10 s steps) on Terra: 5.4 s on all threads.
+
 ## 2026-11-11: `run=fx`, the effects' benchmark (ADR 0031)
 
 Reference machine, release build, 1920x1080 off-screen, `run=fx quick=1` three times on the 4 km planet (not
