@@ -487,7 +487,7 @@ impl App {
             bodies: bytemuck::Zeroable::zeroed(),
             inv_vp: vp.inverse().to_cols_array_2d(),
             sun_pos: [sun_at.x as f32, sun_at.y as f32, sun_at.z as f32, engine::sky::SUN_RADIUS as f32],
-            sun_col: [sun_light.x, sun_light.y, sun_light.z, 0.0],
+            sun_col: [sun_light.x, sun_light.y, sun_light.z, cf.min(255) as f32],
             moon_col: [moon.x, moon.y, moon.z, 1.0],
             sky: [sky_c.x, sky_c.y, sky_c.z, day * air],
             n_lamps: [0; 4],

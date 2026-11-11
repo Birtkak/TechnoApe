@@ -37,3 +37,22 @@ Tidal lock: Luna already keeps its body -x to Terra (`sky::Sky::moon`, test
 `the_moon_keeps_its_face_and_its_orbit`); nothing changed.
 
 Client and server step the same `phys::step`, so they agree.
+
+## B. The red moon (bug 2026-11-11_13-17-26)
+
+Cause: the sunlight colour the shader lights every surface with (`sun_col`) is the sun as seen through the
+air at the camera. At night the camera's sun is under the horizon, so that colour is a deep sunset red, and
+the moon, lit by it, was red every night. Eclipses were never the cause: `a_blood_moon_is_rare` counts the
+midnights over the sky's whole 432-day period with the moon more than half in Terra's shadow: 16 of 432
+(3.7 %), in 11 eclipses, one about every 39 days. That frequency comes from the 40-degree tilt of Luna's
+orbit (ADR 0022) and is kept; even a polar orbit would only bring it to about a quarter of full moons,
+because Luna orbits so close that Terra's shadow is 41 degrees wide, so an eclipse also lasts about one and
+a half nights.
+
+**Chosen:** the shader lights a body other than the camera's with white sunlight (`sun_on`; the camera's
+body index rides in `sun_col.w`). In an eclipse, what a body with air hides of the sun comes back as `COPPER`
+(0.23, 0.07, 0.02), without terrain shadows, so the whole moon glows evenly copper red, about a third as
+bright as the sun's red channel. Measured in the report's view (`run=stand ... time=124231.8`, a 64 % moon):
+the moon's pixels were red over blue 2.4, now 0.9 (grey). An eclipse (`at=0.2046,0.96321,-0.17425 pitch=89
+time=4350 seed=1337`): an even copper disc, red over blue 3.5. Cost: one compare and one max per light()
+call, nothing on the CPU.

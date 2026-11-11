@@ -209,6 +209,22 @@ mod tests {
         assert!(total > 0, "no total eclipse in 10 years");
     }
 
+    /// Bug 2026-11-11_13-17-26 (ADR 0037): a blood moon, the moon in the planet's shadow, is an event: over
+    /// the sky's whole period, few midnights have it, and they come in short runs (one eclipse each).
+    #[test]
+    fn a_blood_moon_is_rare() {
+        let s = sky();
+        let (mut nights, mut red, mut runs, mut was) = (0, 0, 0, false);
+        let mut t = next_hour(0.0, 0.0);
+        while t < PERIOD {
+            let dark = s.covered(t, s.moon(t).centre, s.planet(t).centre, s.planet_radius) > 0.5;
+            (nights, red, runs, was) = (nights + 1, red + dark as i32, runs + (dark && !was) as i32, dark);
+            t += DAY;
+        }
+        eprintln!("{nights} midnights: the moon in the shadow at {red}, in {runs} eclipses");
+        assert!(red * 20 <= nights && runs * 30 <= nights && runs > 0, "{red} of {nights} in {runs}");
+    }
+
     #[test]
     fn the_spawn_clock_has_the_sun_overhead_at_noon() {
         assert_eq!(clock(0.0), (1, 9.0));

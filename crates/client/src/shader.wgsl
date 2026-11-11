@@ -19,7 +19,7 @@ struct Body {
     ctr: vec4f,    // the body's centre from the camera, in the camera's frame; w its radius, 0 for no body
 };
 // sun: the direction to the sun, w the water's clock in s; sun_pos: the sun's centre from the camera, w its
-// radius; sun_col: its light; moon_col: the moon's light (rgb, w its body index); sky: the sky's colour here
+// radius; sun_col: its light through the air here, w the camera's body (`sun_on`); moon_col: the moon's light (rgb, w its body index); sky: the sky's colour here
 struct Globals {
     view_proj: mat4x4f,
     sun: vec4f,
@@ -290,13 +290,27 @@ fn lamp_light(lp: Lamp, d2: f32) -> vec3f {
     return lp.col.rgb * x * x * 1.5 / (1.0 + d2);
 }
 
+// the sunlight on body `body`: through the air as the camera sees the sun on its own body; white on
+// another, which has its own sky (bug 2026-11-11_13-17-26: the moon took the camera's sunset red every night)
+fn sun_on(body: u32) -> vec3f {
+    return select(vec3f(0.65), g.sun_col.rgb, body == u32(g.sun_col.w));
+}
+// the sunlight left in a planet's full shadow, bent round it through its air: dim copper, even over the moon
+const COPPER: vec3f = vec3f(0.65, 0.2, 0.06) * 0.35;
+
 fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
     let up = normalize(p - g.bodies[body].ctr.xyz);
     let sd = normalize(g.sun_pos.xyz - p);
-    // eclipses: every other body's sphere over the sun's disc
+    // eclipses: every other body's sphere over the sun's disc; what a body with air hides of it comes round
+    // its rim bent and reddened (a lunar eclipse: the whole moon copper, ADR 0037)
     var ecl = 1.0;
+    var copper = 0.0;
     for (var i = 0u; i < 4u; i++) {
-        if (i != body && ((g.n_lamps.z >> i) & 1u) == 1u) { ecl *= left_by(i, p, g.sun_pos.xyz, g.sun_pos.w); }
+        if (i != body && ((g.n_lamps.z >> i) & 1u) == 1u) {
+            let l = left_by(i, p, g.sun_pos.xyz, g.sun_pos.w);
+            ecl *= l;
+            if (g.bodies[i].sea >= 0.0) { copper = max(copper, 1.0 - l); }
+        }
     }
     var o: Light;
     o.day = smoothstep(-0.2, 0.15, dot(up, sd)) * ecl;
@@ -311,8 +325,9 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
         var to_sun = sd;
         if ((g.opt.x & 1u) == 0u) { to_sun = in_disc(sd, ar, px); }
         o.sun = vis * ray(p, n, to_sun, body, 1e5);
-        o.l += g.sun_col.rgb * ndl * o.sun;
+        o.l += sun_on(body) * ndl * o.sun;
     }
+    if (ndl > 0.0 && copper > 0.0) { o.l += COPPER * ndl * copper; }
     // the moon's light where the sun's is weak, through the same terrain
     if (o.day < 0.5 && max(moon.r, moon.b) > 0.001) {
         let mc = g.bodies[mi].ctr;
