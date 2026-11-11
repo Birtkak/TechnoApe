@@ -1,6 +1,6 @@
 # 0041 – The evening play-test batch of 2026-11-11
 
-- **Status:** accepted (review and fast gate still to run, see the end)
+- **Status:** accepted (the gate is run by the overseer after the merge)
 - **Date:** 2026-11-11
 
 Seven F9 reports, `bugs/2026-11-11_17-37-12` to `17-48-16`. The earlier 12:xx and 13:xx reports were all
@@ -22,5 +22,66 @@ Cost: on the GPU a few more lamp-lit cells per pixel (still 3 shadow rays); on t
 lamp in up to 343 cells instead of 125 each frame (nothing without lamps). Not yet measured against
 `tests/perf/baseline.json`.
 
-Still to do before handover: `bash tools/check.sh fast`, the fixed views (expected to move a little: the 1 mm
-overlap, the night sky, lamps), and a fresh reviewer on the diff. The usage limit stopped this session first.
+Review (a fresh reviewer on the batch's diff): the 1 mm grow also moved the texture coordinates, so textures
+slid at block edges; fixed, `o.local` keeps the exact corner. The fog's horizon colour (frame.rs `haze`) lacked
+the night glow, so far hills stood out against a glowing horizon; fixed, it adds the same glow. The lamp grid's
+longer lists were noted as a cost, above.
+
+## Luna: a fixed part of Terra, and perfect eclipses
+
+The developer (2026-11-11): Luna always 3.7 times smaller than Terra, 30 Terra diameters away centre to
+centre, as the Moon to the Earth, so that a total eclipse on Terra is a perfect one; dynamic with the planet's
+size; only Terra needs it.
+
+- **Data.** `data/bodies.toml`: Luna has `size = 3.7` and `orbit = 60.0` instead of `n` and `orbit_min`;
+  Terra has `sun = 23500.0`, the sun's distance in its radii (1 AU over the Earth's radius).
+  `engine::bodies::columns(i, n)` gives a body's columns from the first body's: n / 3.7 to the next 32, so
+  1664 under the standard 6144 (ratio 3.692), 416 / 832 / 3328 / 6656 under 1536 / 3072 / 12288 / 24576. The
+  client, the server, the new world page (`moon=`) and the system checks all take it; `moon=` still
+  overrides it, and a save keeps the `moon_n` it was made with.
+- **The sun.** `Sky::new` derives the sun's radius: seen from the ground right under Luna at a new moon, the
+  sun is `SUN_UNDER_MOON` (0.995) of Luna's size. On the 4 km Terra: Luna 1150 m across 255 km, the sun
+  456 km across 99.7 Mm. Test `luna_is_a_fixed_part_of_terra_and_just_covers_the_sun` over the five sizes
+  (red first: the old sun was not covered on the 1 km planet): the ratio within 1 %, the orbit 60 radii,
+  total under Luna, and a sun 1 % bigger not total.
+- **Where Luna's grid lies.** `MOON_AT` moved from 1,000 km to 10,000 km and the inertial origin to
+  -10^10 m, so no body's frame (1.5 x its sphere of influence) reaches another's at any size. Saves are
+  version 6: in an older one a player on Luna is moved with its grid, and one in space (whose place round the
+  old sun means nothing now) goes to the spawn, keeping what it held (test
+  `players_of_a_save_before_the_frames_moved_are_moved_with_them`, red first: the guess by distance moved a
+  player of this version too). A recording begun from an older save still replays.
+- **Tilt.** With 40° and a 54 day year, totals would come once in about 8 years. Measured by tilt (per year,
+  somewhere on Terra): 40° 0.12 solar, 0.12 total; 5.1° 0.62 / 0.38; 3° 1.12 / 0.63; 2° 1.88 / 1.12;
+  1° 3.38 / 2.62. The developer chose 2°. The sky tests now count, over 10 years, 19 solar eclipses of
+  34 new moons (9 total somewhere) and 14 lunar; over 8 years 9 blood moons, about 75 s each (Luna crosses
+  Terra's shadow at some 80 m/s).
+- **Gravity.** By ADR 0037's square-root rule the bigger Luna would pull half as hard as Terra. The developer
+  reasoned that a 3.7 times smaller Luna gives a 4 to 6 m jump; `surface_g` is now G times the radius over
+  Terra's (one density): Luna pulls 3.7 times less, a jump there is 4.66 m (test
+  `a_jump_is_a_block_and_a_quarter_on_terra_and_higher_on_luna`, now at the real Luna size). Terra stays G
+  on every size, so a jump on Terra is 1.25 m whatever the planet. F10's row says so.
+- **F10.** The eclipse finder steps 10 s instead of 60 s, as Luna now moves 80 m/s rather than a few.
+
+Known, for the developer: totality is narrow. With the sun at 0.995 of Luna, the full shadow on the ground is
+some 10 m across and passes in well under a second; the partial phase lasts about 40 s. The Moon's totals are
+1.03 to 1.06 times the sun; a smaller `SUN_UNDER_MOON` widens totality (0.95: about 115 m, 2 s). A taste
+call, left as asked.
+
+Review of the Luna part (a fresh reviewer on the diff):
+1. Luna's chunk tree. Its roots come from the power of two in its columns: 1664 is 13 x 128, so 13 x 13 roots a
+   face, and under the 1 km Terra (416) level 0 roots that never coarsen. Measured, `run=orbit quick=1`: on the
+   4 km planet the frame thread's p99 3.5 ms with the old Luna (`moon=256`) and 3.9 to 4.0 ms with the new,
+   draws 41 against 422; on the 1 km planet p99 3.7 ms, 641 draws. Inside the budget; one run in four had a
+   24 ms frame that did not come back. Answer: kept, as no column count near 3.7 has a small odd part (1536 is
+   4.0, 1792 3.43); a root grid that can coarsen past the power of two is a follow-up.
+2. Older saves' players in space were lost: fixed by the save version (above).
+3. Totality a fraction of a second: as noted above, for the developer.
+4. An older save keeps its small Luna, so its sun, sized from it, is small too: as asked (a save keeps its
+   `moon_n`).
+5. The `orbit` run means something else now: noted, the baseline is for the gate to judge.
+6. On the 768 planet (`bench.sh base`) Luna is 192 columns, 4.0 times smaller: the rounding to 32 columns.
+7. `Sky::new` asserts the moon clears the planet's ground, as a bad row would make the sun's size NaN.
+8. Two stale comments: fixed.
+
+Still to do: the fixed views with Luna in them, the benchmark baseline (`orbit` now flies 250 km between the
+bodies in its 10 s leg), the gate.

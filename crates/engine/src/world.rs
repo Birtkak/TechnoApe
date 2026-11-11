@@ -517,10 +517,15 @@ impl Block {
 }
 
 /// The moon's grid lies here in the shared coordinates, far from the planet's, so a position names its frame by
-/// where it is (ADR 0022). The moon really orbits much nearer: `sky::Sky::moon_orbit`.
-pub const MOON_AT: DVec3 = DVec3::new(1.0e6, 0.0, 0.0);
-/// The inertial frame's origin (the sun's centre) in the shared coordinates.
-pub const INERTIAL_AT: DVec3 = DVec3::new(0.0, 0.0, -1.0e6);
+/// where it is (ADR 0022). The moon really orbits elsewhere: `sky::Sky::moon_orbit`. 10,000 km: past the
+/// planet's frame on the largest planet (1.5 x 0.6 of a 60 radii orbit, 920 km at 24576 columns; ADR 0041,
+/// it was 1,000 km before Luna moved out to 60 radii).
+pub const MOON_AT: DVec3 = DVec3::new(1.0e7, 0.0, 0.0);
+/// Where MOON_AT was before ADR 0041: a save's players there are moved (server `from_save`).
+pub const OLD_MOON_AT: DVec3 = DVec3::new(1.0e6, 0.0, 0.0);
+/// The inertial frame's origin (the sun's centre) in the shared coordinates: far enough that the sun's
+/// surroundings (/goto sun, some million km out at 23,500 planet radii) never fall in a body's frame.
+pub const INERTIAL_AT: DVec3 = DVec3::new(0.0, 0.0, -1.0e10);
 /// The inertial frame's index; the bodies' frames are their indices.
 pub const INERTIAL: usize = usize::MAX;
 
@@ -553,9 +558,12 @@ impl World {
                 if row.generator == Generator::Continents { b.with_continents(seed + i as i32) } else { b }
             })
             .collect();
-        // Luna circles Terra `orbit` radii out (2.83, as from the 1 km planet), never nearer than orbit_min
+        // Luna circles Terra `orbit` radii out (60, the Moon's), never nearer than orbit_min; the sun is `sun`
+        // radii away and as big as Luna lets a total eclipse be perfect (ADR 0041)
         let (k, min) = BODIES[1].orbit.expect("the second body has an orbit");
-        let sky = Sky { planet_radius: bodies[0].radius, moon_radius: bodies[1].radius, moon_orbit: (bodies[0].radius * k).max(min) };
+        let r0 = bodies[0].radius;
+        let sun = BODIES[0].sun.expect("the first body has the sun's distance");
+        let sky = Sky::new(r0, bodies[1].radius, (r0 * k).max(min) / r0, sun);
         World {
             bodies: Arc::new(bodies),
             sky,
@@ -652,7 +660,7 @@ impl World {
     /// body to the other and fades out in deep space. At its radius a body pulls with `surface_g`; deeper in
     /// a little more, up to 1.25 times at 0.9 of its radius and no more.
     /// Near a moon its own fall around the planet cancels the planet's pull, so only the tide is left (Terra
-    /// pulls about 1.2 m/s^2 at Luna, more than half of Luna's own); that fades out by the edge of the moon's
+    /// pulls only G/3600 at Luna, 60 of its radii out, ADR 0041); that fades out by the edge of the moon's
     /// sphere of influence, so gravity stays the same across the hand-over between frames.
     pub fn gravity(&self, p: DVec3) -> DVec3 {
         let f = self.frame_at(p);
@@ -676,10 +684,11 @@ impl World {
         let k = 1.0 - smooth01(((p - self.nominal(f)).length() / self.soi(f) - 0.5) / 0.47);
         g - pull_at(self.nominal(f)) * k
     }
-    /// Body i's pull at its radius (ADR 0037): G on the first (Terra) whatever its size, and on another the
-    /// square root of its radius over the first's, so Luna pulls about a fifth as hard.
+    /// Body i's pull at its radius (ADR 0037): G on the first (Terra) whatever its size, and on another
+    /// its radius over the first's (one density, as the developer asked in ADR 0041), so Luna, 3.7 times smaller,
+    /// pulls 3.7 times less and a jump there is about 4.6 m.
     pub fn surface_g(&self, i: usize) -> f64 {
-        G * (self.bodies[i].radius / self.bodies[0].radius).sqrt()
+        G * self.bodies[i].radius / self.bodies[0].radius
     }
     /// Up at a position: away from the body whose frame it is in; in deep space, away from the nearest body.
     pub fn up_at(&self, p: DVec3) -> DVec3 {
@@ -1094,6 +1103,28 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
 
 #[cfg(test)]
 mod tests {
+    /// The developer's rule for Terra and Luna (ADR 0041): Luna is 3.7 times smaller than Terra and 30 Terra
+    /// diameters away, centre to centre, on every planet size; and from the ground under Luna at a new moon on
+    /// the ecliptic, Luna just covers the sun: a total eclipse, which a sun 1 % bigger would not be.
+    #[test]
+    fn luna_is_a_fixed_part_of_terra_and_just_covers_the_sun() {
+        for n in [1536, 3072, 6144, 12288, 24576] {
+            let w = World::new(n, crate::bodies::columns(1, n), 1);
+            let (big, small) = (w.bodies[0].radius, w.bodies[1].radius);
+            assert!((big / small / 3.7 - 1.0).abs() < 0.01, "planet {n}: Terra over Luna is {:.3}", big / small);
+            assert!((w.sky.moon_orbit / big - 60.0).abs() < 1e-9, "planet {n}");
+            // a new moon on the ecliptic: Luna between Terra and the sun, the ground point under it
+            let s = w.sky;
+            let t = 0.0;
+            let p = s.planet(t).centre;
+            let to_sun = (s.sun(t) - p).normalize();
+            let (moon, ground) = (p + to_sun * s.moon_orbit, p + to_sun * big);
+            assert_eq!(s.covered(t, ground, moon, small), 1.0, "planet {n}: not total");
+            let bigger = Sky { sun_radius: s.sun_radius * 1.01, ..s };
+            assert!(bigger.covered(t, ground, moon, small) < 1.0, "planet {n}: a 1 % bigger sun is still covered");
+        }
+    }
+
     #[test]
     fn height_tiles_match_the_direct_heights_to_the_bit() {
         // ADR 0025, E: the cache must not move a height by one bit, padding past a seam included
@@ -1378,7 +1409,7 @@ mod frame_tests {
         let spin = std::f64::consts::TAU * (1.0 / crate::sky::DAY + 1.0 / crate::sky::YEAR) * up.length();
         // the planet's own motion around the sun, taken out to see the spin
         let pv = w.sky.planet(w.time + 0.5).centre - w.sky.planet(w.time - 0.5).centre;
-        assert!((pv.length() - std::f64::consts::TAU * crate::sky::SUN_DIST / crate::sky::YEAR).abs() < 0.01);
+        assert!((pv.length() - std::f64::consts::TAU * w.sky.sun_dist / crate::sky::YEAR).abs() < 0.01);
         assert!(((vel - pv).length() - spin).abs() < 0.01 * spin, "{} against {spin}", (vel - pv).length());
         // and back into the planet's frame at rest
         let back = DVec3::Y * (w.soi(0) * 0.9);

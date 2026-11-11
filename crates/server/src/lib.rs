@@ -182,7 +182,21 @@ impl Server {
         s.tick0 = save.tick;
         let cols: Vec<Col> = save.water.iter().map(|w| w.0).collect();
         s.water_changed(&cols);
-        s.absent = save.players.iter().map(|p| (p.name.clone(), p.clone())).collect();
+        // a save from before Luna's grid and the inertial frame moved in the shared coordinates (ADR 0041,
+        // version 5 and older): a player on Luna is moved with it; one in space (past the old Terra frame, at
+        // most 43 km out, and not on Luna), whose place around the old sun means nothing now, goes to the spawn
+        let (old, spawn) = (save.version < 6, s.spawn());
+        let moved = |p: &save::Saved| {
+            let mut p = p.clone();
+            let at = DVec3::from(p.pos);
+            if old && (at - engine::world::OLD_MOON_AT).length() < 2.0e5 {
+                p.pos = (at - engine::world::OLD_MOON_AT + engine::world::MOON_AT).to_array();
+            } else if old && at.length() > 2.0e5 {
+                p.pos = spawn.to_array();
+            }
+            p
+        };
+        s.absent = save.players.iter().map(|p| (p.name.clone(), moved(p))).collect();
         s.loaded = Some(save);
         s
     }
@@ -596,7 +610,7 @@ impl Server {
                 let (sun, planet) = (w.sky.sun(w.time), w.sky.planet(w.time).centre);
                 // beside the sun as seen from the planet: up there is away from the planet, the sun level
                 let side = (planet - sun).normalize().cross(DVec3::Z).normalize();
-                let x = sun + side * sky::SUN_RADIUS * SUN_VIEW;
+                let x = sun + side * self.world.sky.sun_radius * SUN_VIEW;
                 let (pos, f) = w.locate(x);
                 Some((pos, w.pose(f, w.time).rot.inverse() * (sun - x)))
             }
@@ -1078,7 +1092,7 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
     let (mut s, rest) = match evs.get(1) {
         // (a recording carries no version of its own; one that starts from an older save is from before
         // 1 m blocks, ADR 0033. shortcut: one that starts from the seed alone is not told apart)
-        Some(Ev::Loaded(save)) if save.version != save::VERSION => return Err(std::io::Error::other("a recording of an older world (0.5 m blocks, ADR 0033)")),
+        Some(Ev::Loaded(save)) if save.version < 4 => return Err(std::io::Error::other("a recording of an older world (0.5 m blocks, ADR 0033)")),
         Some(Ev::Loaded(save)) => (Server::from_save(save.clone(), rx), &evs[2..]),
         _ => (Server::new(*planet_n, *moon_n, *seed, rx), &evs[1..]),
     };
@@ -1392,6 +1406,28 @@ mod tests {
         assert!(drain(&links[0]).contains(&ToClient::Digging { id, at: None }));
     }
 
+    /// A save from before ADR 0041 moved Luna's grid and the inertial frame in the shared coordinates (version 5
+    /// and older): a player on Luna is moved with it, one in space goes to the spawn, keeping what it held; in a
+    /// save of this version the same places are left alone.
+    #[test]
+    fn players_of_a_save_before_the_frames_moved_are_moved_with_them() {
+        let (s, _links) = server_with(0);
+        let mut save = s.snapshot();
+        let player = |name: &str, at: DVec3| save::Saved {
+            name: name.into(), pos: at.to_array(), fwd: [1.0, 0.0, 0.0], creative: false, inv: vec![(2, 5)], water: 0, vitals: Default::default(),
+        };
+        let on_luna = engine::world::OLD_MOON_AT + DVec3::Y * 30.0;
+        let in_space = DVec3::new(500.0, 0.0, -1.0e6);
+        save.players = vec![player("luna", on_luna), player("space", in_space)];
+        let at = |sv: &Server, name: &str| DVec3::from(sv.absent[name].pos);
+        let now = Server::from_save(save.clone(), channel().1);
+        assert_eq!((at(&now, "luna"), at(&now, "space")), (on_luna, in_space), "this version's save is left alone");
+        save.version = 5;
+        let old = Server::from_save(save, channel().1);
+        assert_eq!(at(&old, "luna"), on_luna - engine::world::OLD_MOON_AT + engine::world::MOON_AT);
+        assert_eq!((at(&old, "space"), &old.absent["space"].inv), (old.spawn(), &vec![(2, 5)]));
+    }
+
     #[test]
     fn a_saved_player_comes_back_with_what_it_held() {
         let (mut s, links) = server_with(1);
@@ -1551,7 +1587,8 @@ mod tests {
         s.tick();
         let w = &s.world;
         let (pc, mc) = (w.sky.planet(w.time).centre, w.sky.moon(w.time).centre);
-        let (pos, f) = w.locate(pc + (pc - mc).normalize() * 2500.0);
+        // (past Terra's frame: as far out as Luna, on the other side; ADR 0041 moved Luna to 60 radii)
+        let (pos, f) = w.locate(pc + (pc - mc).normalize() * w.sky.moon_orbit);
         assert_eq!(f, engine::world::INERTIAL);
         l.send(ToServer::Move { pos: pos.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
         s.tick();
@@ -1677,7 +1714,7 @@ mod tests {
         links[0].send(ToServer::Chat("/goto sun".into()));
         s.tick();
         let x = s.world.to_inertial(me(&s));
-        let d = (x - s.world.sky.sun(s.world.time)).length() / sky::SUN_RADIUS;
+        let d = (x - s.world.sky.sun(s.world.time)).length() / s.world.sky.sun_radius;
         assert!((d - SUN_VIEW).abs() < 0.1, "{d} sun radii away");
         let got: Vec<ToClient> = drain(&links[0]);
         for line in ["gone to the sun", "gone to Luna", "gone to Terra"] {

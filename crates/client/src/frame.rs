@@ -571,7 +571,10 @@ impl App {
         // the air: the horizon's colour (as `sky_colour` in shader.wgsl makes it) for far ground to fade
         // into, a third of the way by 1 km; and the bounce drawn half again as strong in the air, so a
         // shadow under the open sky keeps its colour while a cave stays dark
-        let haze = sky_c + Vec3::new(0.55, 0.60, 0.62) * day * air * 0.45;
+        // (with the night's glow at the horizon, NIGHT_GLOW in shader.wgsl `sky_colour`)
+        let x = (day * air / 0.15).clamp(0.0, 1.0);
+        let night = 1.0 - x * x * (3.0 - 2.0 * x);
+        let haze = sky_c + Vec3::new(0.55, 0.60, 0.62) * day * air * 0.45 + Vec3::new(0.02, 0.03, 0.07) * air * night * 1.5;
         let tune = (
             self.settings.on(S::Bounce),
             [fill.x, fill.y, fill.z, self.settings.get(S::Brightness) as f32],
@@ -593,7 +596,7 @@ impl App {
             sun: [sun.x, sun.y, sun.z, clock],
             bodies: bytemuck::Zeroable::zeroed(),
             inv_vp: vp.inverse().to_cols_array_2d(),
-            sun_pos: [sun_at.x as f32, sun_at.y as f32, sun_at.z as f32, engine::sky::SUN_RADIUS as f32],
+            sun_pos: [sun_at.x as f32, sun_at.y as f32, sun_at.z as f32, self.world.sky.sun_radius as f32],
             sun_col: [sun_light.x, sun_light.y, sun_light.z, cf.min(255) as f32],
             moon_col: [moon.x, moon.y, moon.z, 1.0],
             sky: [sky_c.x, sky_c.y, sky_c.z, day * air],

@@ -14,14 +14,15 @@ pub const MONTH: f64 = 16.0 * DAY;
 /// Once around the sun: the planet's orbit, which carries the sun along the ecliptic. Not a whole number of months, so the new
 /// moons meet the eclipse seasons at different places each year.
 pub const YEAR: f64 = 54.0 * DAY;
-/// The moon's orbit against the ecliptic: steep, so only about a third of new moons eclipse the sun.
-pub const INCLINATION: f64 = 40.0 * TAU / 360.0;
+/// The moon's orbit against the ecliptic: 2 degrees, so about one total eclipse of the sun and one blood moon a
+/// year come somewhere (the developer, ADR 0041; 40 degrees made them years apart once Luna moved out to 60 radii).
+pub const INCLINATION: f64 = 2.0 * TAU / 360.0;
 /// The sky repeats after this: 432 days are 27 months and 8 years, and the spin's sidereal turns are whole too.
 /// The poses take the time modulo it, so a world billions of seconds old keeps its angles to the nanoradian.
 pub const PERIOD: f64 = 432.0 * DAY;
-/// The planet's orbit around the sun, and the sun's size: 0.53 degrees across, as Earth's.
-pub const SUN_DIST: f64 = 1.0e6;
-pub const SUN_RADIUS: f64 = 4625.0;
+/// How much smaller the sun looks than the moon from the ground right under the moon: a hair, so a total eclipse
+/// just covers it and shows the corona's edge (ADR 0041).
+pub const SUN_UNDER_MOON: f64 = 0.995;
 /// Where the planet's spin starts: the spawn (near body +y) has the sun 45 degrees up in the morning.
 const SPIN0: f64 = -0.375 * TAU;
 /// Where the moon starts on its orbit, from its ascending node: a first quarter in the evening sky.
@@ -46,6 +47,10 @@ pub struct Sky {
     pub moon_radius: f64,
     /// The moon's orbit radius: its nominal centre's distance from the planet's (`world::World::new`).
     pub moon_orbit: f64,
+    /// The planet's orbit around the sun.
+    pub sun_dist: f64,
+    /// The sun's radius: from the moon's size, so that a total eclipse is a perfect one (`Sky::new`).
+    pub sun_radius: f64,
 }
 
 /// Where a body is and how it is turned at a moment: its frame to the inertial frame.
@@ -66,6 +71,16 @@ impl Pose {
 }
 
 impl Sky {
+    /// The sky of a planet and its moon, the moon `orbit` and the sun `sun` planet radii away, centre to centre.
+    /// The sun's size follows (the developer's rule, ADR 0041): seen from the ground right under the moon at a
+    /// new moon, the sun is SUN_UNDER_MOON of the moon's size, so every total eclipse just covers it.
+    pub fn new(planet_radius: f64, moon_radius: f64, orbit: f64, sun: f64) -> Sky {
+        let (moon_orbit, sun_dist) = (planet_radius * orbit, planet_radius * sun);
+        assert!(moon_radius < moon_orbit - planet_radius, "the moon touches or holds the planet's ground");
+        let moon_seen = (moon_radius / (moon_orbit - planet_radius)).asin();
+        let sun_radius = (sun_dist - planet_radius) * (SUN_UNDER_MOON * moon_seen).sin();
+        Sky { planet_radius, moon_radius, moon_orbit, sun_dist, sun_radius }
+    }
     /// The sun's centre: the inertial origin.
     pub fn sun(&self, _t: f64) -> DVec3 {
         DVec3::ZERO
@@ -75,7 +90,7 @@ impl Sky {
         let t = t.rem_euclid(PERIOD);
         let a = TAU * t / YEAR;
         let spin = SPIN0 + TAU * t * (1.0 / DAY + 1.0 / YEAR);
-        Pose { centre: -DVec3::new(a.cos(), a.sin(), 0.0) * SUN_DIST, rot: DQuat::from_rotation_z(spin) }
+        Pose { centre: -DVec3::new(a.cos(), a.sin(), 0.0) * self.sun_dist, rot: DQuat::from_rotation_z(spin) }
     }
     /// The moon: on its inclined circle once a sidereal month, the same face (its body -x) to the planet.
     pub fn moon(&self, t: f64) -> Pose {
@@ -95,7 +110,7 @@ impl Sky {
     /// over the planet (`eclipse`), or the planet over the moon (a lunar eclipse, which dims the moonlight).
     pub fn covered(&self, t: f64, p: DVec3, c: DVec3, r: f64) -> f64 {
         let (s, m) = (self.sun(t) - p, c - p);
-        let (rs, rm) = ((SUN_RADIUS / s.length()).asin(), (r / m.length()).min(1.0).asin());
+        let (rs, rm) = ((self.sun_radius / s.length()).asin(), (r / m.length()).min(1.0).asin());
         let d = s.cross(m).length().atan2(s.dot(m));
         if d >= rs + rm {
             return 0.0;
@@ -118,8 +133,8 @@ mod tests {
     use super::*;
 
     fn sky() -> Sky {
-        // the standard planet (ADR 0021) and the moon of `World::new`
-        Sky { planet_radius: 4244.0, moon_radius: 177.0, moon_orbit: 4244.0 * 2.83 }
+        // the standard planet (ADR 0021) and the moon of `World::new`, by data/bodies.toml's rule
+        Sky::new(4244.0, 4244.0 / 3.7, 60.0, 23500.0)
     }
 
     /// The sun and the moon from the planet's centre.
@@ -181,7 +196,7 @@ mod tests {
             let (sn, mn) = (sun(&s, tn), moon(&s, tn));
             // the moon's distance from the sun-planet line, against the penumbra's reach
             let off = (mn - sn.normalize() * mn.dot(sn.normalize())).length();
-            let reach = s.planet_radius + s.moon_radius + mn.length() * (SUN_RADIUS / SUN_DIST);
+            let reach = s.planet_radius + s.moon_radius + mn.length() * (s.sun_radius / s.sun_dist);
             if off < reach {
                 solar += 1;
                 // the centre of the shadow on the ground, if it falls on the planet: total there?
@@ -210,19 +225,23 @@ mod tests {
     }
 
     /// Bug 2026-11-11_13-17-26 (ADR 0037): a blood moon, the moon in the planet's shadow, is an event: over
-    /// the sky's whole period, few midnights have it, and they come in short runs (one eclipse each).
+    /// the sky's whole period (8 years) it comes about once a year (ADR 0041: Luna's tilt is 2 degrees), each
+    /// a few minutes long, as the Moon's are a few hours of a month.
     #[test]
     fn a_blood_moon_is_rare() {
         let s = sky();
-        let (mut nights, mut red, mut runs, mut was) = (0, 0, 0, false);
-        let mut t = next_hour(0.0, 0.0);
+        let (mut dark_s, mut runs, mut was) = (0.0, 0, false);
+        let mut t = 0.0;
         while t < PERIOD {
             let dark = s.covered(t, s.moon(t).centre, s.planet(t).centre, s.planet_radius) > 0.5;
-            (nights, red, runs, was) = (nights + 1, red + dark as i32, runs + (dark && !was) as i32, dark);
-            t += DAY;
+            (dark_s, runs, was) = (dark_s + 10.0 * dark as i32 as f64, runs + (dark && !was) as i32, dark);
+            t += 10.0;
         }
-        eprintln!("{nights} midnights: the moon in the shadow at {red}, in {runs} eclipses");
-        assert!(red * 20 <= nights && runs * 30 <= nights && runs > 0, "{red} of {nights} in {runs}");
+        let years = PERIOD / YEAR;
+        eprintln!("{years} years: {runs} blood moons, {dark_s} s in all");
+        assert!(runs as f64 >= years / 2.0 && runs as f64 <= years * 3.0, "{runs} in {years} years");
+        let each = dark_s / runs as f64;
+        assert!(each > 30.0 && each < DAY / 4.0, "{dark_s} s in {runs}");
     }
 
     #[test]
@@ -249,15 +268,16 @@ mod tests {
         let t = 0.0;
         // straight behind the moon, as seen from the sun: total; far to the side: none
         let (sn, mn) = (sun(&s, t), moon(&s, t));
-        // 4 km behind, as far as the ground: totality to 158 m off the centre line, partial to 196 m
-        let behind = mn + (mn - sn).normalize() * 4000.0;
+        // behind, as far as the ground: the sun just fits behind the moon (ADR 0041), so totality is a few
+        // metres wide there, and the partial shadow about the moon's diameter
+        let behind = mn + (mn - sn).normalize() * (s.moon_orbit - s.planet_radius);
         assert_eq!(s.eclipse(t, behind + s.planet(t).centre), 1.0);
         assert_eq!(s.eclipse(t, mn + DVec3::Z * 5000.0 - sn.normalize() * 1000.0 + s.planet(t).centre), 0.0);
         // a little off the centre line: partial, and less the farther off
         let side = (mn - sn).normalize().any_orthonormal_vector();
-        let a = s.eclipse(t, behind + side * 170.0 + s.planet(t).centre);
-        let b = s.eclipse(t, behind + side * 185.0 + s.planet(t).centre);
-        assert!(a > b && b > 0.0 && a < 1.0, "{a} {b}");
+        let at = |x: f64| s.eclipse(t, behind + side * x * s.moon_radius + s.planet(t).centre);
+        let (a, b) = (at(0.3), at(1.3));
+        assert!(a > b && b > 0.0 && a < 1.0 && at(2.2) == 0.0, "{a} {b}");
     }
 
     #[test]
@@ -277,9 +297,9 @@ mod tests {
 
     #[test]
     fn the_planet_circles_the_sun_once_a_year() {
-        let s = Sky { planet_radius: 4244.0, moon_radius: 177.0, moon_orbit: 4244.0 * 2.83 };
+        let s = sky();
         for t in [0.0, 777.0, YEAR / 3.0] {
-            assert!((s.planet(t).centre.length() - SUN_DIST).abs() < 1e-6);
+            assert!((s.planet(t).centre.length() - s.sun_dist).abs() < 1e-6);
         }
         assert!(s.planet(YEAR).centre.distance(s.planet(0.0).centre) < 1e-6);
         assert!(s.planet(YEAR / 2.0).centre.distance(-s.planet(0.0).centre) < 1e-6);

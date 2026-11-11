@@ -155,7 +155,9 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
     o.clip = g.view_proj * vec4f(rel, 1.0);
     o.rel = rel;
     o.ao = 1.0 - 0.2 * f32(occl);
-    o.local = local;
+    // the texture and the cell from the quad's own corner: in the grown lip, fract() would wrap to the far edge
+    // (a dirt line along every grass top edge) and floor() name the neighbour
+    o.local = quad_corner(q, k, 0.0);
     o.dir = dir;
     o.mat = q.y;
     o.ci = ii;
@@ -925,7 +927,8 @@ fn sky_colour(d: vec3f) -> vec3f {
     let el = clamp(dot(d, normalize(-ctr)), 0.0, 1.0);
     c = c * mix(1.0, 0.8, el * air) + vec3f(0.55, 0.60, 0.62) * g.sky.w * pow(1.0 - el, 5.0) * 0.45;
     // a night in the air is never black: airglow and starlight, a faint blue, brighter towards the horizon,
-    // for the nights neither Sol nor Luna is up (the developer's call on bug 2026-11-11_17-47-11, ADR 0041)
+    // on every night, so one with neither Sol nor Luna up is not black either (the developer's call on bug
+    // 2026-11-11_17-47-11, ADR 0041); frame.rs `haze` takes its horizon value, so far ground fades into it
     c += NIGHT_GLOW * air * (1.0 - smoothstep(0.0, 0.15, g.sky.w)) * (0.5 + pow(1.0 - el, 3.0));
     let glow = exp(-ang * 12.0) * 0.35 + exp(-ang * 80.0) * 0.6;
     c += g.sun_col.rgb * tint * vec3f(1.0, 0.9, 0.75) * glow * g.sky.w;

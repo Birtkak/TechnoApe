@@ -290,7 +290,9 @@ fn main() {
         }
         None => {
             let (accept_tx, accept_rx) = std::sync::mpsc::channel();
-            let (planet, moon, seed) = (args.get("planet", BODIES[0].n), args.get("moon", BODIES[1].n), args.get("seed", 1337));
+            let planet = args.get("planet", BODIES[0].n);
+            // Luna follows Terra's size (ADR 0041); moon= still overrides it, for tests
+            let (moon, seed) = (args.get("moon", engine::bodies::columns(1, planet)), args.get("seed", 1337));
             // the flight recorder (ADR 0011): on for play on screen, or wherever record= says
             let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
             let rec = args.0.get("record").cloned().or((args.get("onscreen", 0) == 1).then(|| format!("out/rec/play-{unix}.rec")));
