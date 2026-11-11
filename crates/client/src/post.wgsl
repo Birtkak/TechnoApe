@@ -14,10 +14,26 @@ struct Post {
 
 @group(0) @binding(0) var<uniform> u: Post;
 @group(0) @binding(1) var src: texture_2d<f32>;
-@group(0) @binding(2) var gbuf: texture_2d<f32>;
-@group(0) @binding(3) var gbuf_prev: texture_2d<f32>;
+@group(0) @binding(2) var gbuf: texture_2d<u32>;
+@group(0) @binding(3) var gbuf_prev: texture_2d<u32>;
 @group(0) @binding(4) var hist_prev: texture_2d<f32>;
 @group(0) @binding(5) var dst: texture_storage_2d<rgba16float, write>;
+
+// the G-buffer's normal, folded onto an octahedron as two 16-bit numbers (ADR 0025, J2; `gb_pack` in shader.wgsl)
+fn gb_normal(e: u32) -> vec3f {
+    let o = unpack2x16snorm(e);
+    var n = vec3f(o, 1.0 - abs(o.x) - abs(o.y));
+    let t = max(-n.z, 0.0);
+    n.x += select(t, -t, n.x >= 0.0);
+    n.y += select(t, -t, n.y >= 0.0);
+    return normalize(n);
+}
+
+// a G-buffer pixel as normal (xyz) and distance (w, 0 for the sky)
+fn gload(t: texture_2d<u32>, q: vec2i) -> vec4f {
+    let e = textureLoad(t, q, 0).xy;
+    return vec4f(gb_normal(e.x), bitcast<f32>(e.y));
+}
 
 // the point a full-resolution pixel shows, from the camera: the view ray is affine across the screen
 fn point_at(px: vec2i, dist: f32) -> vec3f {
@@ -45,7 +61,7 @@ fn temporal(@builtin(global_invocation_id) id: vec3u) {
     let hp = vec2i(id.xy);
     if (hp.x >= hs.x || hp.y >= hs.y) { return; }
     let s = guide(hp);
-    let gb = textureLoad(gbuf, s, 0);
+    let gb = gload(gbuf, s);
     if (gb.w <= 0.0) {
         textureStore(dst, hp, vec4f(0.0));
         return;
@@ -62,7 +78,7 @@ fn temporal(@builtin(global_invocation_id) id: vec3u) {
         let uv = c.xy / c.w;
         let q = vec2i(vec2f((uv.x + 1.0) * 0.5, (1.0 - uv.y) * 0.5) * vec2f(size));
         if (all(q >= vec2i(0)) && all(q < size)) {
-            let pg = textureLoad(gbuf_prev, q, 0);
+            let pg = gload(gbuf_prev, q);
             let same = abs(pg.w - length(was)) < 0.04 * pg.w + 0.05 && dot(pg.xyz, gb.xyz) > 0.9;
             if (same) {
                 let h = textureLoad(hist_prev, min(q / 2, hs - 1), 0);
@@ -85,7 +101,7 @@ fn atrous(@builtin(global_invocation_id) id: vec3u) {
     let hp = vec2i(id.xy);
     if (hp.x >= hs.x || hp.y >= hs.y) { return; }
     let s0 = guide(hp);
-    let g0 = textureLoad(gbuf, s0, 0);
+    let g0 = gload(gbuf, s0);
     let c0 = textureLoad(src, hp, 0);
     if (g0.w <= 0.0) {
         textureStore(dst, hp, c0);
@@ -103,7 +119,7 @@ fn atrous(@builtin(global_invocation_id) id: vec3u) {
         for (var x = -1; x <= 1; x++) {
             let hq = clamp(hp + vec2i(x, y) * step, vec2i(0), hs - 1);
             let q = guide(hq);
-            let gq = textureLoad(gbuf, q, 0);
+            let gq = gload(gbuf, q);
             if (gq.w <= 0.0) { continue; }
             let cq = textureLoad(src, hq, 0);
             let wl = exp(-abs(dot(cq.rgb, vec3f(0.3, 0.5, 0.2)) - l0) / (sl * (l0 + 0.02)));
@@ -130,7 +146,7 @@ fn vs_composite(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
 fn fs_composite(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     let px = vec2i(pos.xy);
     var c = textureLoad(direct_t, px, 0).rgb;
-    let gb = textureLoad(gbuf, px, 0);
+    let gb = gload(gbuf, px);
     if (gb.w > 0.0) {
         // the four half-resolution values around this pixel, bilinear and by normal and plane against it; the
         // nearest one where none fits
@@ -145,7 +161,7 @@ fn fs_composite(@builtin(position) pos: vec4f) -> @location(0) vec4f {
             let o = vec2i(k & 1, k >> 1u);
             let hq = clamp(h0 + o, vec2i(0), hs - 1);
             let q = guide(hq);
-            let gq = textureLoad(gbuf, q, 0);
+            let gq = gload(gbuf, q);
             if (gq.w <= 0.0) { continue; }
             let bl = select(1.0 - t.x, t.x, o.x == 1) * select(1.0 - t.y, t.y, o.y == 1);
             let w = bl * edge_w(gb.xyz, p0, gb.w, q, gq);

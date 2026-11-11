@@ -538,7 +538,7 @@ impl Gpu {
             info.name
         );
         let want = wgpu::Features::INDIRECT_FIRST_INSTANCE | wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
-        let feats = (af & want) | wgpu::Features::EXPERIMENTAL_RAY_QUERY;
+        let feats = (af & want) | wgpu::Features::EXPERIMENTAL_RAY_QUERY | wgpu::Features::RG11B10UFLOAT_RENDERABLE;
         let mut limits = wgpu::Limits::default().using_minimum_supported_acceleration_structure_values();
         let al = adapter.limits();
         limits.max_storage_buffer_binding_size = al.max_storage_buffer_binding_size;

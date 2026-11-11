@@ -416,7 +416,7 @@ fn seen(p: vec3f, d: vec3f, body: u32, px: vec2u, bounce: bool, tmax: f32) -> ve
 // One cosine-weighted ray per 2x2 pixels, from one of them in turn over four frames (BOUNCE_AT); what it
 // sees is that pixel's light from around, noisy.
 // post.wgsl gathers it over frames and smooths it, and the composite multiplies it by the albedo.
-@group(1) @binding(0) var gb_t: texture_2d<f32>;
+@group(1) @binding(0) var gb_t: texture_2d<u32>;
 @group(1) @binding(1) var albedo_t: texture_2d<f32>;
 @group(1) @binding(2) var noisy: texture_storage_2d<rgba16float, write>;
 
@@ -427,7 +427,8 @@ fn gi_trace(@builtin(global_invocation_id) id: vec3u) {
     let size = textureDimensions(gb_t);
     var at = array<vec2u, 4>(vec2u(0u, 0u), vec2u(1u, 1u), vec2u(1u, 0u), vec2u(0u, 1u));
     let q = min(id.xy * 2u + at[g.n_lamps.y % 4u], size - 1u);
-    let gb = textureLoad(gb_t, q, 0);
+    let ge = textureLoad(gb_t, q, 0).xy;
+    let gb = vec4f(gb_normal(ge.x), bitcast<f32>(ge.y));
     if (gb.w <= 0.0) {
         textureStore(noisy, id.xy, vec4f(0.0));
         return;
@@ -498,7 +499,7 @@ fn fs(i: VOut) -> GOut {
     let n = normalize(i.normal);
     let body = (c.info >> 8u) & 255u;
     var o: GOut;
-    o.gbuf = vec4f(n, length(i.rel));
+    o.gbuf = gb_pack(n, length(i.rel));
     if ((look.info >> 24u) == 1u) {
         // it gives light: it shows its own, and takes none from around
         o.direct = vec4f(col * 1.15, 1.0);
@@ -527,12 +528,30 @@ fn fs(i: VOut) -> GOut {
 }
 
 // the G-buffer: direct light; albedo, a the body / 3; normal (camera frame) and distance from the camera,
-// 0 for the sky
+// 0 for the sky, packed by `gb_pack`
 struct GOut {
     @location(0) direct: vec4f,
     @location(1) albedo: vec4f,
-    @location(2) gbuf: vec4f,
+    @location(2) gbuf: vec2u,
 };
+
+// the normal folded onto an octahedron as two 16-bit numbers, and the distance's f32 bits: 8 bytes a pixel
+// instead of 16 (ADR 0025, J2)
+fn gb_pack(n: vec3f, d: f32) -> vec2u {
+    var o = n.xy / (abs(n.x) + abs(n.y) + abs(n.z));
+    if (n.z < 0.0) { o = (1.0 - abs(o.yx)) * select(vec2f(-1.0), vec2f(1.0), o >= vec2f(0.0)); }
+    return vec2u(pack2x16snorm(o), bitcast<u32>(d));
+}
+
+// the G-buffer's normal, folded onto an octahedron as two 16-bit numbers (ADR 0025, J2; `gb_pack` in shader.wgsl)
+fn gb_normal(e: u32) -> vec3f {
+    let o = unpack2x16snorm(e);
+    var n = vec3f(o, 1.0 - abs(o.x) - abs(o.y));
+    let t = max(-n.z, 0.0);
+    n.x += select(t, -t, n.x >= 0.0);
+    n.y += select(t, -t, n.y >= 0.0);
+    return normalize(n);
+}
 
 // bright light rolls off above 0.8 instead of clipping; everything under it is left as it is
 fn shoulder(c: vec3f) -> vec3f {
@@ -731,7 +750,7 @@ fn fs_sky(i: SkyOut) -> GOut {
     var o: GOut;
     o.direct = vec4f(sky_colour(d) + stars(d, px), 1.0);
     o.albedo = vec4f(0.0);
-    o.gbuf = vec4f(0.0);
+    o.gbuf = vec2u(0u);
     return o;
 }
 

@@ -3,8 +3,9 @@
 use glam::{DVec3, Mat4};
 
 /// The G-buffer's formats, in the terrain pass's target order: direct light, albedo (body in a), normal and
-/// distance (f32: a bounce ray starts from the point it rebuilds).
-pub const TARGETS: [wgpu::TextureFormat; 3] = [wgpu::TextureFormat::Rgba16Float, wgpu::TextureFormat::Rgba8Unorm, wgpu::TextureFormat::Rgba32Float];
+/// distance (the normal as two 16-bit octahedral numbers, the distance's f32 bits: a bounce ray starts from
+/// the point it rebuilds). 16 bytes a pixel, 28 before ADR 0025's J2.
+pub const TARGETS: [wgpu::TextureFormat; 3] = [wgpu::TextureFormat::Rg11b10Ufloat, wgpu::TextureFormat::Rgba8Unorm, wgpu::TextureFormat::Rg32Uint];
 /// A history holds this many frames at most while the camera moves: older light fades within about a
 /// third of a second at 60 fps. A still shot averages without a limit, so it settles on the same picture.
 const HISTORY: u32 = 24;
@@ -130,6 +131,12 @@ impl Gi {
             },
             count: None,
         };
+        let utexture = |binding, visibility| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility,
+            ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Uint, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+            count: None,
+        };
         let cs = wgpu::ShaderStages::COMPUTE;
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("post"),
@@ -141,8 +148,8 @@ impl Gi {
                     count: None,
                 },
                 texture(1, cs),
-                texture(2, cs),
-                texture(3, cs),
+                utexture(2, cs),
+                utexture(3, cs),
                 texture(4, cs),
                 wgpu::BindGroupLayoutEntry {
                     binding: 5,
@@ -214,7 +221,7 @@ impl Gi {
                     ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
                     count: None,
                 },
-                texture(2, fs),
+                utexture(2, fs),
                 texture(6, fs),
                 texture(7, fs),
                 texture(8, fs),
