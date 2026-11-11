@@ -121,7 +121,7 @@ One row per action, grouped as the play line in CLAUDE.md groups them: moving, d
 | Names over players | always / when aimed at / never | always | with player models |
 | Units | metric; a 24 hour or 12 hour clock | 24 hour | *now* for the clock |
 | Tips while learning | on / off | on | with the journal (crafting) |
-| Compass and position | off / compass / with coordinates | compass | with the first tool that gives one: knowing where you are is earned (learning by seeing) |
+| Compass and position | off / compass / with coordinates | compass | in survival with the first tool that gives one (knowing where you are is earned); always there in creative |
 | Language | the game's languages | the system's | when text leaves ASCII (ADR 0023's shortcut) |
 
 ### Game (this player's own comfort; nothing here changes the world's rules)
@@ -212,9 +212,11 @@ Each is an existing argument or overlay given a row; a tester should not need th
 6. **World** as the New world screen once the world generation gives it something to choose (W2 on).
 7. Sound, Server and the rest arrive with their systems; each system's design names its rows here.
 
-## For the developer to decide
-- The default preset and whether High is what ADR 0004 means, or Medium.
-- Whether a compass and coordinates are earned in play (proposed) or always there.
-- Sound in space: true silence as the default is a strong choice; it is proposed because it is the kind of
-  thing this game is about.
-- Which world rows a world's owner may change after the first day.
+## Decided by the developer, 2026-11-11
+- **High is the default preset and what ADR 0004 is measured at.**
+- **A compass and coordinates are earned in survival and always shown in creative.**
+- **Sound in space is true by default:** only what you touch and your suit carry it.
+- **A world's owner may change most world rows at any time, for now.** It is for playtesting and is looked
+  at again later; the rows marked "no" stay fixed because the bake or the sky hangs on them.
+- **Built first, in one piece:** Display, Graphics, Controls, Keys and Accessibility, the rows whose
+  systems exist.
