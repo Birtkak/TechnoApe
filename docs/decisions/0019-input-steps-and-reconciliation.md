@@ -57,3 +57,16 @@ Option 2.
   dedicated server.
 - The server trusts the input values (any look, any move in -1..1), not positions, so a modified client
   can only walk as a player could.
+- **Fixed 2026-11-11 (db30c50):** the client timed its step messages from when the world had loaded, but the
+  player steps from its spawn before that. The first message then held about 98 steps, the server's queue
+  (60) dropped the rest, and the gate's played run at detail 8 showed one 3-6 m correction at t = 0.9 s. The
+  sending now runs by the wall clock. The bug predated ADR 0025's optimisation pass; detail 8 only made the
+  load long enough to show it.
+- **Open: a placement flake.** About 1 run in 4, also before ADR 0025, the played run below shows
+  corrections of 0.1-0.7 m at t = 5.6 or 8.1 s, right after a placement, and the click count sometimes drops
+  from 6 to 3-5. A likely cause: the client applies its own placement only when the server's echo comes
+  back (against ADR 0008 and 0015), so for a few ticks its replayed steps meet a different world than the
+  server's. Repro (Git Bash, `MSYS_NO_PATHCONV=1`, run it four times):
+  `target/release/technoape.exe run=play save=0 seconds=10 autowalk=1 acts="0.5:m:0:250,1:say:/playmode creative,2:L,2.1:l,3:R,3.1:r,4:L,4.1:l,5:h,5.2:R,5.3:m:-100:0,5.6:r,7:L,7.1:l,8:R,8.1:r" settings=tests/gate-settings.txt`.
+  The fix starts with a test that fails first, for example a bot that places a block under its own feet and
+  steps in the same tick, expecting 0 corrections.

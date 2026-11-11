@@ -29,7 +29,8 @@ struct Globals {
     sun_col: vec4f,
     moon_col: vec4f,
     sky: vec4f,
-    n_lamps: vec4u, // x: lamps in `lamps`, y: the frame number (the bounce rays' seed)
+    n_lamps: vec4u, // x: lamps in `lamps`, y: the frame number (the bounce rays' seed); z, w: the bodies that
+                    // can cover the sun's and the moon's discs, a bit each (`eclipse_masks` in main.rs)
     // the camera's frame turned into the inertial one (the stars'), as columns; x.w the air around the
     // camera (0 in space .. 1), y.w the sun's height over the horizon (sine)
     stars: array<vec4f, 3>,
@@ -290,7 +291,7 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
     // eclipses: every other body's sphere over the sun's disc
     var ecl = 1.0;
     for (var i = 0u; i < 4u; i++) {
-        if (i != body) { ecl *= left_by(i, p, g.sun_pos.xyz, g.sun_pos.w); }
+        if (i != body && ((g.n_lamps.z >> i) & 1u) == 1u) { ecl *= left_by(i, p, g.sun_pos.xyz, g.sun_pos.w); }
     }
     var o: Light;
     o.day = smoothstep(-0.2, 0.15, dot(up, sd)) * ecl;
@@ -312,7 +313,7 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
         if (ndm > 0.0) {
             var mv = 1.0;
             for (var i = 0u; i < 4u; i++) {
-                if (i != mi) { mv *= left_by(i, p, mc.xyz, mc.w); }
+                if (i != mi && ((g.n_lamps.w >> i) & 1u) == 1u) { mv *= left_by(i, p, mc.xyz, mc.w); }
             }
             if (mv > 0.0) { o.l += moon * ndm * mv * ray(p, n, md, body, 1e5); }
         }

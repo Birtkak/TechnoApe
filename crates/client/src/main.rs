@@ -151,6 +151,52 @@ fn lamp_grid(lamps: &[LampGpu]) -> Vec<u32> {
 }
 
 #[cfg(test)]
+mod eclipse_tests {
+    use super::*;
+    // a body is in the mask whenever, from some point of another body's surface, its disc and the light's
+    // overlap: sampled points against the masks, with the moon passing between the planet and the sun
+    #[test]
+    fn the_masks_hold_every_body_that_can_cover_a_light() {
+        let mut g: Globals = bytemuck::Zeroable::zeroed();
+        g.moon_col[3] = 1.0;
+        g.sun_pos = [1.0e8, 0.0, 0.0, 7.0e5];
+        g.bodies[0].ctr = [0.0, -4000.0, 0.0, 3900.0];
+        let mut overlaps_seen = [0, 0];
+        for k in 0..400 {
+            let a = k as f64 / 400.0 * std::f64::consts::TAU;
+            let m = DVec3::new(a.cos(), a.sin(), 0.3 * a.sin()) * 60_000.0 + DVec3::new(0.0, -4000.0, 0.0);
+            g.bodies[1].ctr = [m.x as f32, m.y as f32, m.z as f32, 1000.0];
+            let masks = eclipse_masks(&g);
+            let v = |a: [f32; 4]| (DVec3::new(a[0] as f64, a[1] as f64, a[2] as f64), a[3] as f64);
+            let lights = [v(g.sun_pos), v(g.bodies[1].ctr)];
+            for (li, &(l, lr)) in lights.iter().enumerate() {
+                for i in 0..2 {
+                    if li == 1 && i == 1 {
+                        continue;
+                    }
+                    let (c, r) = v(g.bodies[i].ctr);
+                    let (cj, rj) = v(g.bodies[1 - i].ctr);
+                    // points over the other body's surface, up to AMP above it
+                    for s in 0..200 {
+                        let (u, w) = (s as f64 * 0.618_034 % 1.0, s as f64 / 200.0);
+                        let (th, z) = (u * std::f64::consts::TAU, 2.0 * w - 1.0);
+                        let d = DVec3::new((1.0 - z * z).sqrt() * th.cos(), (1.0 - z * z).sqrt() * th.sin(), z);
+                        let p = cj + d * (rj + engine::world::AMP * w);
+                        let (ld, bv) = (l - p, c - p);
+                        let sep = ld.angle_between(bv);
+                        if sep < (lr / ld.length()).min(1.0).asin() + (r / bv.length()).min(1.0).asin() {
+                            overlaps_seen[li] += 1;
+                            assert_eq!(masks[li] >> i & 1, 1, "light {li} body {i} at step {k}");
+                        }
+                    }
+                }
+            }
+        }
+        assert!(overlaps_seen[0] > 0 && overlaps_seen[1] > 0, "the test saw no eclipse: {overlaps_seen:?}");
+    }
+}
+
+#[cfg(test)]
 mod lamp_grid_tests {
     use super::*;
     // every lamp is listed in exactly the cells within its reach, checked against the cells' corners directly
@@ -174,6 +220,37 @@ mod lamp_grid_tests {
         }
         assert!(grid.len() <= LAMP_GRID_LEN);
     }
+}
+
+/// Which bodies can cover the sun's disc (bit i of the first) and the moon's (of the second) from some point of
+/// another body's surface this frame (ADR 0025, J): `light()` runs `left_by` only for those, and where none can,
+/// `left_by` would return exactly 1. Conservative: from anywhere within `AMP` and a margin of a body's radius,
+/// the two directions are at least their angle from its centre less how far that ball turns each.
+fn eclipse_masks(g: &Globals) -> [u32; 2] {
+    let v = |a: [f32; 4]| (DVec3::new(a[0] as f64, a[1] as f64, a[2] as f64), a[3] as f64);
+    let bodies: Vec<(DVec3, f64)> = g.bodies.iter().map(|b| v(b.ctr)).collect();
+    let mi = g.moon_col[3] as usize;
+    let lights = [v(g.sun_pos), bodies[mi]];
+    let mut out = [0u32; 2];
+    for (li, &(l, lr)) in lights.iter().enumerate() {
+        for (i, &(c, r)) in bodies.iter().enumerate() {
+            if r <= 0.0 || (li == 1 && i == mi) {
+                continue;
+            }
+            let can = bodies.iter().enumerate().filter(|&(j, b)| j != i && b.1 > 0.0).any(|(_, &(cj, rj))| {
+                let rho = rj + engine::world::AMP + 100.0;
+                let (dl, dc) = (l - cj, c - cj);
+                let (nl, nc) = (dl.length(), dc.length());
+                if nl <= rho + lr || nc <= rho + r {
+                    return true;
+                }
+                let apart = dl.angle_between(dc) - (rho / nl).asin() - (rho / nc).asin();
+                apart < (lr / (nl - rho)).min(1.0).asin() + (r / (nc - rho)).min(1.0).asin()
+            });
+            out[li] |= (can as u32) << i;
+        }
+    }
+    out
 }
 
 struct Args(HashMap<String, String>);
@@ -2383,6 +2460,7 @@ impl App {
             gpu.queue.write_buffer(&gpu.lamps, 0, bytemuck::cast_slice(&lamps));
             gpu.queue.write_buffer(&gpu.lamp_cells, 0, bytemuck::cast_slice(&lamp_grid(&lamps)));
         }
+        [g.n_lamps[2], g.n_lamps[3]] = eclipse_masks(&g);
         gpu.queue.write_buffer(&gpu.globals, 0, bytemuck::bytes_of(&g));
         self.slots.sweep(frame_no);
         for (ci, c) in &table {
