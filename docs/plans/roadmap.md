@@ -55,7 +55,7 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
      particles, the bucket and swimming. The 12.5 cm splash cells come with the fine cells, basin lakes
      with the biomes;
    - **lighting and the sky's mechanics** (the developer's calls, 2026-11-10; spike in `prototypes/lighting/`):
-     ray-traced light with the sun as the only source, a real sphere. The planet rotates (the 20 minute day
+     ray-traced light with the sun as the only source, a real sphere. The planet rotates (the 30 minute day
      comes from its spin) and Luna orbits on a tilted orbit, so its phases and moonlight follow from
      where it is. Eclipses are a real blockage of the light, each place on the planet getting its own share
      of totality. Soft but fairly sharp shadows, ambient occlusion, smooth coloured block light, and

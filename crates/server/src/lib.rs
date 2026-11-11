@@ -1644,7 +1644,7 @@ mod tests {
         links[0].send(ToServer::Chat("/time".into()));
         s.tick();
         let a = chat(&links[0]);
-        assert!(a.iter().any(|l| l.starts_with("it is day 1, 09:12")), "{a:?}");
+        assert!(a.iter().any(|l| l.starts_with("it is day 1, 09:08")), "{a:?}");
         s.tick();
         assert!((s.world.time - 10.0).abs() < 0.2, "a time before the session's start: {}", s.world.time);
     }

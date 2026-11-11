@@ -166,7 +166,7 @@ to its neighbours. It is not a real weather model; the rules are picked for play
 
 - **Water goes round.** Steam that is let out goes into the air and comes back as rain, so ponds and lakes
   refill by themselves. Open water also evaporates in the sun. Rain falls where wet air cools: at dusk (which
-  circles the planet every 20 minutes) and on high ground. It lands on the surface and runs downhill with the
+  circles the planet every 30 minutes) and on high ground. It lands on the surface and runs downhill with the
   ordinary water simulation. The water is **counted, not fixed:** none appears or vanishes by itself, but you
   can take it out of the cycle (see "Eating a planet").
 - **Weather** is what the air cells show: clouds where the air is wet, rain and snow where it cools, wind

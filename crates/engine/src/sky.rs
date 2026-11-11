@@ -7,8 +7,8 @@
 use glam::{DQuat, DVec3};
 use std::f64::consts::TAU;
 
-/// The solar day (ADR 0008).
-pub const DAY: f64 = 1200.0;
+/// The solar day (ADR 0008): 30 minutes (ADR 0041; was 20).
+pub const DAY: f64 = 1800.0;
 /// From new moon to new moon.
 pub const MONTH: f64 = 16.0 * DAY;
 /// Once around the sun: the planet's orbit, which carries the sun along the ecliptic. Not a whole number of months, so the new
@@ -20,9 +20,9 @@ pub const INCLINATION: f64 = 2.0 * TAU / 360.0;
 /// The sky repeats after this: 432 days are 27 months and 8 years, and the spin's sidereal turns are whole too.
 /// The poses take the time modulo it, so a world billions of seconds old keeps its angles to the nanoradian.
 pub const PERIOD: f64 = 432.0 * DAY;
-/// How much smaller the sun looks than the moon from the ground right under the moon: a hair, so a total eclipse
-/// just covers it and shows the corona's edge (ADR 0041).
-pub const SUN_UNDER_MOON: f64 = 0.995;
+/// How much smaller the sun looks than the moon from the ground right under the moon: 5 %, as the Moon on a total
+/// eclipse is 3 to 6 % bigger than the Sun, so totality lasts about 2 s on the 4 km Terra (ADR 0041; 0.995 gave 0.2 s).
+pub const SUN_UNDER_MOON: f64 = 0.95;
 /// Where the planet's spin starts: the spawn (near body +y) has the sun 45 degrees up in the morning.
 const SPIN0: f64 = -0.375 * TAU;
 /// Where the moon starts on its orbit, from its ascending node: a first quarter in the evening sky.
@@ -152,7 +152,9 @@ mod tests {
     }
 
     #[test]
-    fn a_day_is_twenty_minutes_and_starts_in_the_morning() {
+    fn a_day_is_thirty_minutes_and_starts_in_the_morning() {
+        // the developer, 2026-11-11 (ADR 0041): 30 minutes, was 20
+        assert_eq!(DAY, 1800.0);
         let s = sky();
         let e0 = elevation(&s, 0.0, DVec3::Y);
         assert!((e0 - 45.0).abs() < 0.5, "{e0}");

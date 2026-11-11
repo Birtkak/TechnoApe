@@ -46,7 +46,7 @@ dig into it, build factories on it, and fly up to orbit and over to its moon wit
 - Budget: p99 <= 8.3 ms, no frame > 16.7 ms, RAM <= 8 GB, VRAM <= 6 GB on the dev PC (ADR 0004).
 - Platforms: Windows client, Linux server in Docker on the home server over Tailscale, automatic updates
   (ADR 0005).
-- Day about 20 minutes; saves hold only what changed (ADR 0002).
+- Day about 30 minutes (20 until ADR 0041); saves hold only what changed (ADR 0002).
 - Feel and rules (ADR 0008, detail in `fundamentals.md`):
   - **Tools are brushes:** a dig or place covers 1 m (2 x 2 x 2 blocks), single blocks on a held key; building
     drags out lines, walls and floors.

@@ -49,7 +49,7 @@ away, as every need is, not a second game).
 |---|---|---|
 | **How hands craft** | in the world (place things, strike, pour) / a crafting grid in the inventory / both by age | in the world through the stone age, a workbench surface after; no grid. It is the same rule as learning by seeing. |
 | **What death costs** | drop what you carry where you died and wake at Home / keep everything, wake weak and far / one life | drop and wake at Home, with the body's place marked; the walk back at night is the cost |
-| **How fast needs drain** | per day (drink twice, eat once) / faster / slower | per 20 minute day: thirst twice, food once, so a day's routine exists; tuned in the first playtest |
+| **How fast needs drain** | per day (drink twice, eat once) / faster / slower | per 30 minute day: thirst twice, food once, so a day's routine exists; tuned in the first playtest |
 | **The AI troop** | other apes who gather and build beside you / only later / never | later: after the starter content, as a use of the bots' protocol |
 | **The exotic resource's rule** | decays unless kept cold / unstable near power / needs constant flow | with the corners' story: decide them together |
 | **How hard pollution and radiation punish** | permanent damage / slow natural recovery | recovery, slow alone and fast with a cleanup factory (progression's proposal) |

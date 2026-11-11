@@ -40,10 +40,11 @@ size; only Terra needs it.
   client, the server, the new world page (`moon=`) and the system checks all take it; `moon=` still
   overrides it, and a save keeps the `moon_n` it was made with.
 - **The sun.** `Sky::new` derives the sun's radius: seen from the ground right under Luna at a new moon, the
-  sun is `SUN_UNDER_MOON` (0.995) of Luna's size. On the 4 km Terra: Luna 1150 m across 255 km, the sun
-  456 km across 99.7 Mm. Test `luna_is_a_fixed_part_of_terra_and_just_covers_the_sun` over the five sizes
-  (red first: the old sun was not covered on the 1 km planet): the ratio within 1 %, the orbit 60 radii,
-  total under Luna, and a sun 1 % bigger not total.
+  sun is `SUN_UNDER_MOON` (0.95) of Luna's size, as the Moon on a total eclipse is 3 to 6 % bigger than the
+  Sun. On the 4 km Terra: Luna 1150 m in radius 255 km out, the sun some 435 km in radius 99.7 Mm out. Test `luna_is_a_fixed_part_of_terra_and_just_covers_the_sun` over the five sizes
+  (red first: the old sun was not covered on the 1 km planet; red again at 0.995, whose totality was too
+  narrow): the ratio within 1 %, the orbit 60 radii, total 3 % of Luna's radius off the middle of the
+  shadow, and a sun Luna's size not total.
 - **Where Luna's grid lies.** `MOON_AT` moved from 1,000 km to 10,000 km and the inertial origin to
   -10^10 m, so no body's frame (1.5 x its sphere of influence) reaches another's at any size. Saves are
   version 6: in an older one a player on Luna is moved with its grid, and one in space (whose place round the
@@ -62,10 +63,20 @@ size; only Terra needs it.
   on every size, so a jump on Terra is 1.25 m whatever the planet. F10's row says so.
 - **F10.** The eclipse finder steps 10 s instead of 60 s, as Luna now moves 80 m/s rather than a few.
 
-Known, for the developer: totality is narrow. With the sun at 0.995 of Luna, the full shadow on the ground is
-some 10 m across and passes in well under a second; the partial phase lasts about 40 s. The Moon's totals are
-1.03 to 1.06 times the sun; a smaller `SUN_UNDER_MOON` widens totality (0.95: about 115 m, 2 s). A taste
-call, left as asked.
+Totality: at first the sun was 0.995 of Luna, so the full shadow was some 10 m across and passed in 0.2 s.
+The developer chose to widen it: at 0.95 it is some 115 m across, a few seconds at any spot; the partial
+phase lasts about a minute.
+
+## A 30 minute day
+
+The developer (2026-11-11): time a bit slower, a 30 minute day. `sky::DAY` is 1800 s (was 1200). The month
+(16 days), the year (54 days) and the sky's period (432 days) are counted in days, so they stretch with it:
+a month is 8 hours of play, a year 27. A full stomach still lasts a day (ADR 0040), so hunger drains a third
+slower in real time. The clock's hours, `/time set` and F10 follow from `DAY`. Red first:
+`a_day_is_thirty_minutes_and_starts_in_the_morning`; the chat test's `/time set 10` now reads 09:08. The
+fixed views stand at time 0, 9 am either way. vision.md, air.md, progression.md, open-questions.md, the
+roadmap and CLAUDE.md say 30 minutes. Over 10 years now: 19 solar eclipses, 11 total somewhere; over 8, nine
+blood moons of about two minutes.
 
 Review of the Luna part (a fresh reviewer on the diff):
 1. Luna's chunk tree. Its roots come from the power of two in its columns: 1664 is 13 x 128, so 13 x 13 roots a
@@ -75,7 +86,7 @@ Review of the Luna part (a fresh reviewer on the diff):
    24 ms frame that did not come back. Answer: kept, as no column count near 3.7 has a small odd part (1536 is
    4.0, 1792 3.43); a root grid that can coarsen past the power of two is a follow-up.
 2. Older saves' players in space were lost: fixed by the save version (above).
-3. Totality a fraction of a second: as noted above, for the developer.
+3. Totality a fraction of a second: widened, the developer's call (above).
 4. An older save keeps its small Luna, so its sun, sized from it, is small too: as asked (a save keeps its
    `moon_n`).
 5. The `orbit` run means something else now: noted, the baseline is for the gate to judge.

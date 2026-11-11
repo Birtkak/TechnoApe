@@ -1105,7 +1105,9 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
 mod tests {
     /// The developer's rule for Terra and Luna (ADR 0041): Luna is 3.7 times smaller than Terra and 30 Terra
     /// diameters away, centre to centre, on every planet size; and from the ground under Luna at a new moon on
-    /// the ecliptic, Luna just covers the sun: a total eclipse, which a sun 1 % bigger would not be.
+    /// the ecliptic, Luna covers the sun, a little bigger as the Moon on a total eclipse: totality a few
+    /// hundredths of Luna's radius wide (some 60 m on the 4 km Terra, about 2 s), and a sun Luna's size would
+    /// not be total.
     #[test]
     fn luna_is_a_fixed_part_of_terra_and_just_covers_the_sun() {
         for n in [1536, 3072, 6144, 12288, 24576] {
@@ -1119,9 +1121,10 @@ mod tests {
             let p = s.planet(t).centre;
             let to_sun = (s.sun(t) - p).normalize();
             let (moon, ground) = (p + to_sun * s.moon_orbit, p + to_sun * big);
-            assert_eq!(s.covered(t, ground, moon, small), 1.0, "planet {n}: not total");
-            let bigger = Sky { sun_radius: s.sun_radius * 1.01, ..s };
-            assert!(bigger.covered(t, ground, moon, small) < 1.0, "planet {n}: a 1 % bigger sun is still covered");
+            let off = to_sun.any_orthonormal_vector() * 0.03 * small;
+            assert_eq!(s.covered(t, ground + off, moon, small), 1.0, "planet {n}: not total 3 % of Luna off the middle");
+            let bigger = Sky { sun_radius: s.sun_radius / crate::sky::SUN_UNDER_MOON * 1.01, ..s };
+            assert!(bigger.covered(t, ground, moon, small) < 1.0, "planet {n}: a sun Luna's size is still covered");
         }
     }
 
