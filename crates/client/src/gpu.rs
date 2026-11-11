@@ -65,11 +65,11 @@ pub(crate) const MAX_LAMPS: usize = 1024;
 pub(crate) const LAMP_REACH: f64 = 48.0;
 /// The lamp grid (ADR 0025, H): LAMP_G^3 cells of LAMP_CELL metres in the camera's frame, the camera in the
 /// middle, each a range into a list of the lamps that reach it: LAMP_R (as in shader.wgsl) or nearer, so a lamp
-/// is listed in at most 5^3 cells.
+/// is listed in at most 7^3 cells.
 pub(crate) const LAMP_G: usize = 32;
 pub(crate) const LAMP_CELL: f32 = 4.0;
-pub(crate) const LAMP_R: f32 = 8.0;
-pub(crate) const LAMP_GRID_LEN: usize = LAMP_G * LAMP_G * LAMP_G + 1 + MAX_LAMPS * 125;
+pub(crate) const LAMP_R: f32 = 12.0;
+pub(crate) const LAMP_GRID_LEN: usize = LAMP_G * LAMP_G * LAMP_G + 1 + MAX_LAMPS * 343;
 
 /// The blocks that give light within LAMP_REACH of the camera, nearest first: (body, middle, light).
 /// `cams` is the camera in each body's coordinates.

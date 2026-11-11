@@ -290,7 +290,9 @@ fn main() {
         }
         None => {
             let (accept_tx, accept_rx) = std::sync::mpsc::channel();
-            let (planet, moon, seed) = (args.get("planet", BODIES[0].n), args.get("moon", BODIES[1].n), args.get("seed", 1337));
+            let planet = args.get("planet", BODIES[0].n);
+            // Luna follows Terra's size (ADR 0041); moon= still overrides it, for tests
+            let (moon, seed) = (args.get("moon", engine::bodies::columns(1, planet)), args.get("seed", 1337));
             // the flight recorder (ADR 0011): on for play on screen, or wherever record= says
             let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
             let rec = args.0.get("record").cloned().or((args.get("onscreen", 0) == 1).then(|| format!("out/rec/play-{unix}.rec")));
@@ -373,9 +375,10 @@ fn main() {
         // the soonest last, whatever order they came in
         fx_edits.sort_by(|a: &(f64, Block, u8), b| b.0.total_cmp(&a.0));
     }
-    // play's settings (ADR 0023); every other run keeps the defaults
+    // play's settings (ADR 0023); every other run keeps the defaults unless settings= names a file (a shot at
+    // another screen size)
     let settings_file = args.s("settings", "settings.txt");
-    let settings = if run == "play" { Settings::parse(&std::fs::read_to_string(&settings_file).unwrap_or_default()) } else { Settings::default() };
+    let settings = if run == "play" || args.0.contains_key("settings") { Settings::parse(&std::fs::read_to_string(&settings_file).unwrap_or_default()) } else { Settings::default() };
     // sounds=1: every sound in numbers, as one JSON line, and nothing else
     if args.get("sounds", 0) == 1 {
         println!("{}", audio::report());

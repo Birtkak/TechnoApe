@@ -568,7 +568,7 @@ mod tests {
     /// smaller body, with less gravity, goes higher.
     #[test]
     fn a_jump_is_a_block_and_a_quarter_on_terra_and_higher_on_luna() {
-        let w = World::new(6144, 256, 1337);
+        let w = World::new(6144, crate::bodies::columns(1, 6144), 1337);
         let (h, g) = peak(&w, 0);
         // at the spawn the ground is a little off sea level, so the pull is a little off G
         let want = 1.25 * G / g;
@@ -578,7 +578,7 @@ mod tests {
         assert!(gl < G / 3.0 && hl > 4.0 && (hl * gl / (h * g) - 1.0).abs() < 0.03, "Luna: {hl} m at {gl}");
     }
 
-    /// Gravity (ADR 0037): G at Terra's sea level whatever its size, the square root of its radius over
+    /// Gravity (ADR 0037, 0041): G at Terra's sea level whatever its size, its radius over
     /// Terra's on another body, a little stronger deeper in (bounded), and the square of the distance less out.
     #[test]
     fn gravity_scales_with_the_body_and_grows_a_little_towards_the_core() {
@@ -587,7 +587,7 @@ mod tests {
             let (t, l) = (&w.bodies[0], &w.bodies[1]);
             let at = |b: &crate::world::Body, r: f64| w.gravity(b.centre + DVec3::Y * r).length();
             assert!((at(t, t.radius) - G).abs() < 1e-3, "{}", at(t, t.radius));
-            let gl = G * (l.radius / t.radius).sqrt();
+            let gl = G * l.radius / t.radius;
             assert!((at(l, l.radius) - gl).abs() < 0.02 * gl, "{} against {gl}", at(l, l.radius));
             for b in [t, l] {
                 let s = at(b, b.radius);

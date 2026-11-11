@@ -4,8 +4,12 @@
 # `n` again: (planet= and moon= on the command line override it; ADR 0021).
 # `generator`: continents (ADR 0021's land and sea) or hills (noise only). `ground`: the top, the band under
 # it and the rock below, by block name. `air`: the sky's colour and the air's thinning (ADR 0022).
-# `orbit`: how far out it circles the first body, in that body's radii, and never nearer than `orbit_min`
-# metres; the first body has none (it circles the sun, sky.rs). `words`: what /goto also accepts.
+# `orbit`: how far out it circles the first body, centre to centre in that body's radii, and never nearer than
+# `orbit_min` metres; the first body has none (it circles the sun, sky.rs). `words`: what /goto also accepts.
+# `size` (not the first body): the first body's radius over this one's, which sets its columns from the
+# first body's (`bodies::columns`), instead of `n`. `sun` (the first body only): the sun's distance in its
+# radii. The sun's size follows from the second body: seen from the first body's ground under it, it just
+# covers the sun, so every total eclipse is a perfect one (sky.rs `Sky::new`, ADR 0041).
 
 [[body]]
 name = "Terra"
@@ -14,12 +18,14 @@ n = 6144
 generator = "continents"
 ground = ["grass", "dirt", "stone"]
 air = true
+# Earth's: 1 AU is about 23,500 Earth radii
+sun = 23500.0
 
 [[body]]
 name = "Luna"
-n = 256
 generator = "hills"
 ground = ["regolith", "regolith", "stone"]
 air = false
-orbit = 2.83
-orbit_min = 3000.0
+# the Moon's to the Earth: 3.7 times smaller, 30 Earth diameters away (the developer, 2026-11-11)
+size = 3.7
+orbit = 60.0

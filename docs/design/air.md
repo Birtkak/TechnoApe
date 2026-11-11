@@ -41,8 +41,8 @@ In this order, each a sweep in fixed order:
 | 7 | Land | rain goes to soil water; what the soil cannot hold runs off to the column's river reaches (`rivers-and-tides.md`); snow lies and melts later; soil water feeds plants and seeps to the reaches |
 | 8 | Events | storms where wind and wet are both high; lightning on the tallest block of a seeded column; fog in a cold wet surface layer |
 
-**The 20 minute day drives it.** Sunset crosses the ground at 22 m/s, so a column's whole heating and
-cooling cycle is 20 minutes: rain at dusk, a breeze off the sea by day, frost before dawn. The seasons
+**The 30 minute day drives it.** Sunset crosses the ground at 15 m/s, so a column's whole heating and
+cooling cycle is 30 minutes: rain at dusk, a breeze off the sea by day, frost before dawn. The seasons
 (54 days) and Luna's month only shift those.
 
 ## How the rest of the game touches it

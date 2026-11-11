@@ -102,7 +102,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   same view, the F3 state, the chat), `screen.png`, and `world.sav` when there was a save. When asked to look
   at bugs, read those first.
 - To look at something: `run=stand at=x,y,z yaw=deg pitch=deg eye=m` stands anywhere on the planet, `time=s`
-  sets the sky's clock (0 is 9 am at the spawn, a day is 1200 s; ADR 0022), `place=di:dj:dl:block,...` puts
+  sets the sky's clock (0 is 9 am at the spawn, a day is 1800 s; ADR 0022, 0041), `place=di:dj:dl:block,...` puts
   blocks (lamps, copper; `_` for a space) around the stand point; effects play only in `run=play` unless
   `fx=1` (ADR 0031; `fx_cap=` the pool, the Particles setting few/normal/many), and
   `fxedit=t:di:dj:dl:block,...` (`air` to dig) edits cells at t seconds to film a break or a place;

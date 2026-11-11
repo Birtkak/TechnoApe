@@ -13,8 +13,23 @@ struct Body {
     rot0: vec4f,
     rot1: vec4f,
     rot2: vec4f,
+    ctr: vec4f,
 };
-struct Globals { view_proj: mat4x4f, sun: vec4f, bodies: array<Body, 4> };
+// shader.wgsl's Globals to `opt`, field for field (without `ctr` the bodies after the first were misread)
+struct Globals {
+    view_proj: mat4x4f,
+    sun: vec4f,
+    bodies: array<Body, 4>,
+    inv_vp: mat4x4f,
+    sun_pos: vec4f,
+    sun_col: vec4f,
+    moon_col: vec4f,
+    sky: vec4f,
+    n_lamps: vec4u,
+    stars: array<vec4f, 3>,
+    // z, w: the frame's width and height in pixels
+    opt: vec4u,
+};
 @group(0) @binding(0) var<uniform> g: Globals;
 
 // The ghost: lines along every edge of the shape's outer cells, positioned relative to their body's centre
@@ -31,9 +46,11 @@ fn ghost_vs(@builtin(instance_index) inst: u32, @location(0) pos: vec3f, @locati
     let b = g.bodies[body];
     var o: GhostOut;
     o.clip = g.view_proj * vec4f(mat3x3f(b.rot0.xyz, b.rot1.xyz, b.rot2.xyz) * ((pos - b.cam_hi) - b.cam_lo), 1.0);
-    // a line is one pixel wide: drawn nine times, a pixel apart in a 3 x 3 square, it is three (a pixel of
-    // a 1080 line high screen; shortcut: not read from the real size, so nearer four on a 1440 line one)
-    o.clip += vec4f(f32(inst % 3u) - 1.0, f32(inst / 3u) - 1.0, 0.0, 0.0) * vec4f(1.0 / 960.0, 1.0 / 540.0, 0.0, 0.0) * o.clip.w;
+    // a line is one pixel wide: drawn nine times, a pixel apart in a 3 x 3 square, it is three (on the real
+    // size: spaced for 1080 lines, a 1440 line screen showed gaps down the middle of each line, bug
+    // 2026-11-11_17-38-47)
+    let px = 2.0 / vec2f(f32(g.opt.z), f32(g.opt.w));
+    o.clip += vec4f((f32(inst % 3u) - 1.0) * px.x, (f32(inst / 3u) - 1.0) * px.y, 0.0, 0.0) * o.clip.w;
     o.colour = colour;
     o.along = dot(pos, vec3f(0.31, 0.37, 0.43));
     return o;
@@ -41,12 +58,14 @@ fn ghost_vs(@builtin(instance_index) inst: u32, @location(0) pos: vec3f, @locati
 
 @fragment
 fn ghost_fs(i: GhostOut) -> @location(0) vec4f {
-    // the outline of what is aimed at (white from the client, play.rs) turns slowly through the colours, a
-    // turn every 12 s, the hues running along its edges; a held dig stays red and a held place green
+    // the outline of what is aimed at (white from the client, play.rs) is a keyboard's rainbow wave: the hues
+    // run along its edges, a whole turn of the wheel every metre, and flow along them a turn every 3 s (it
+    // was 12 s and paler, which read as standing still: bug 2026-11-11_17-38-47); a held dig stays red and a
+    // held place green
     if (i.colour.a < 0.7 && min(i.colour.r, min(i.colour.g, i.colour.b)) > 0.99) {
-        let h = fract(g.sun.w / 12.0 + i.along);
+        let h = fract(i.along - g.sun.w / 3.0);
         let rgb = clamp(abs(fract(vec3f(h) + vec3f(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, vec3f(0.0), vec3f(1.0));
-        return vec4f(mix(vec3f(1.0), rgb, 0.8), 0.95);
+        return vec4f(mix(vec3f(1.0), rgb, 0.92), 0.95);
     }
     return i.colour;
 }
