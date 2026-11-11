@@ -87,3 +87,9 @@ block's two side normals as if they were square, which they are not near a face'
 coordinates), and that the copper glow skipped the body's own horizon and terrain (fixed: it shares the
 sunlight's ray); gravity's centres were worked out twice per step in a moon's frame (fixed). `FREE_G` 2 to 1
 is deliberate (part A).
+
+## Added 2026-11-11: the developer's answers
+- Luna's gravity at about a fifth of Terra's: "luna gravity at 1/5 is good".
+- An eclipse about every 39 days, each about a night and a half: kept, "common eclipses too cuz they are
+  cool".
+- Luna's day of one month (8 Terra days of sun, 8 of night, 16 to the month): "perfect".
