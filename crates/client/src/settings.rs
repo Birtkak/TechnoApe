@@ -68,6 +68,7 @@ settings! {
     FlyTap "fly_tap" "Double tap to fly" Kind::Slider { lo: 0.15, hi: 0.6, step: 0.05, max: 0.6, unit: Unit::Secs }, 0.3;
     UiScale "interface_scale" "Interface scale" Kind::Steps { list: &[0.75, 1.0, 1.25, 1.5, 2.0], lo: 0.5, hi: 3.0 }, 1.0;
     Contrast "high_contrast" "High contrast interface" Kind::Choice(OFF_ON), 0.0;
+    Marks "waypoints_shown" "Waypoints shown" Kind::Choice(OFF_ON), 1.0;
     Volume "volume" "Master volume" VOLUME, 100.0;
     VolWorld "volume_world" "World" VOLUME, 100.0;
     VolSteps "volume_footsteps" "Footsteps" VOLUME, 100.0;
@@ -176,6 +177,8 @@ acts! {
     WarpUp "warp_up" "Time warp faster" k(KeyCode::Period), "warp+" "";
     WarpDown "warp_down" "Time warp slower" k(KeyCode::Comma), "warp-" "";
     Waypoint "waypoint" "Drop a waypoint" k(KeyCode::KeyN), "waypoint" "";
+    Marks "waypoint_overlay" "Show or hide waypoints" k(KeyCode::KeyK), "waypoints" "";
+    Playtest "playtest" "Playtest menu" k(KeyCode::F10), "f10" "";
     Slot1 "slot1" "Hotbar 1" k(KeyCode::Digit1), "1" "";
     Slot2 "slot2" "Hotbar 2" k(KeyCode::Digit2), "2" "";
     Slot3 "slot3" "Hotbar 3" k(KeyCode::Digit3), "3" "";
@@ -198,7 +201,20 @@ pub enum Row {
     Key(Act),
     /// All bindings back to the defaults.
     KeyDefaults,
+    /// The keys page's search: what is typed keeps the actions with a word or a key that match.
+    Search,
+    /// A heading over a group of key rows; pressing it does nothing.
+    Group(&'static str),
 }
+
+/// The keys page's groups, in order (bugs/2026-11-11_13-13-42); every action is in one.
+const KEY_GROUPS: &[(&str, &[Act])] = &[
+    ("Moving", &[Act::Forward, Act::Back, Act::Left, Act::Right, Act::Jump, Act::Down, Act::RollLeft, Act::RollRight]),
+    ("Hands and tools", &[Act::Dig, Act::Place, Act::Hammer, Act::Shape, Act::Bucket]),
+    ("Hotbar", &[Act::Slot1, Act::Slot2, Act::Slot3, Act::Slot4, Act::Slot5, Act::Slot6, Act::Slot7, Act::Slot8, Act::Slot9]),
+    ("Looking and finding", &[Act::Zoom, Act::Waypoint, Act::Marks, Act::Overlay]),
+    ("Chat, time and testing", &[Act::Chat, Act::Command, Act::WarpUp, Act::WarpDown, Act::Bug, Act::Playtest]),
+];
 
 /// The settings' pages in the menu's order, each with its hint.
 pub const PAGES: &[(&str, &str)] = &[
@@ -216,9 +232,9 @@ pub fn page_rows(page: usize) -> Vec<Row> {
         0 => vec![Row::Resolution, Set(S::Monitor), Set(S::Display), Set(S::FrameCap), Set(S::BackCap), Set(S::Vsync), Set(S::Fov), Set(S::Brightness)],
         1 => vec![Row::Preset, Set(S::Detail), Set(S::Shadows), Set(S::Bounce), Set(S::Reflections), Set(S::Lamps), Set(S::Textures), Set(S::Stars)],
         2 => vec![Set(S::Sensitivity), Set(S::ZoomSens), Set(S::InvertY), Set(S::ZoomMode), Set(S::AutoJump), Set(S::FlyTap)],
-        3 => ALL_ACTS.iter().map(|a| Row::Key(*a)).chain([Row::KeyDefaults]).collect(),
+        3 => Settings::default().key_rows(""),
         4 => vec![Set(S::Volume), Set(S::VolWorld), Set(S::VolSteps), Set(S::VolUi), Set(S::VolMusic), Set(S::MuteBack), Set(S::SpaceSound)],
-        _ => vec![Set(S::UiScale), Set(S::Contrast), Set(S::ZoomMode), Set(S::AutoJump), Set(S::Textures), Set(S::Brightness)],
+        _ => vec![Set(S::UiScale), Set(S::Contrast), Set(S::Marks), Set(S::ZoomMode), Set(S::AutoJump), Set(S::Textures), Set(S::Brightness)],
     }
 }
 
@@ -335,13 +351,37 @@ impl Settings {
     pub fn acts_of(&self, b: Bind) -> impl Iterator<Item = Act> + '_ {
         ALL_ACTS.iter().copied().filter(move |a| self.binds[*a as usize].contains(&Some(b)))
     }
-    /// A key row's text: its keys, and the other action a key of its is also bound to.
+    /// A key row's text: the action and its two keys in columns (the font is fixed-width), and the other
+    /// action a key of its is also bound to.
     pub fn key_text(&self, a: Act) -> String {
         let b = self.binds[a as usize];
         let name = |x: Option<Bind>| x.map_or("-".to_string(), |x| x.label());
         let clash = b.iter().flatten().find_map(|x| self.acts_of(*x).find(|o| *o != a));
         let also = clash.map_or(String::new(), |o| format!("  (also {})", ACTS[o as usize].label));
-        format!("{}: {} / {}{also}", ACTS[a as usize].label, name(b[0]), name(b[1]))
+        format!("{:<23}{:<13}{}{also}", ACTS[a as usize].label, name(b[0]), name(b[1]))
+    }
+    /// A key of `a` is also another action's: the menu shows its row in red.
+    pub fn clashes(&self, a: Act) -> bool {
+        self.binds[a as usize].iter().flatten().any(|x| self.acts_of(*x).any(|o| o != a))
+    }
+    /// The keys page: the search, each group's heading and the actions under it that match `query` (a word of
+    /// the action that starts with it, or a key named by it; all when it is empty), the defaults.
+    pub fn key_rows(&self, query: &str) -> Vec<Row> {
+        let q = query.trim().to_lowercase();
+        let hit = |a: Act| {
+            let words = ACTS[a as usize].label.to_lowercase();
+            q.is_empty() || words.split(|c: char| !c.is_alphanumeric()).any(|w| w.starts_with(&q)) || self.binds[a as usize].iter().flatten().any(|b| b.label().to_lowercase() == q)
+        };
+        let mut rows = vec![Row::Search];
+        for (name, acts) in KEY_GROUPS {
+            let found: Vec<Row> = acts.iter().filter(|a| hit(**a)).map(|a| Row::Key(*a)).collect();
+            if !found.is_empty() {
+                rows.push(Row::Group(name));
+                rows.extend(found);
+            }
+        }
+        rows.push(Row::KeyDefaults);
+        rows
     }
     /// A key or button of `a` is down.
     pub fn held(&self, keys: &std::collections::HashSet<Bind>, a: Act) -> bool {
@@ -501,10 +541,34 @@ mod tests {
         s.binds[Act::Back as usize][0] = Some(Bind::Key(KeyCode::KeyW));
         assert!(s.key_text(Act::Back).contains("(also Forward)"), "{}", s.key_text(Act::Back));
         assert_eq!(s.acts_of(Bind::Key(KeyCode::KeyW)).count(), 2);
+        // the row reads as a table: the action, then each key in its own column
+        let s = Settings::default();
+        assert_eq!(s.key_text(Act::Zoom).find('C'), s.key_text(Act::Forward).find('W'), "{}|{}", s.key_text(Act::Zoom), s.key_text(Act::Forward));
         // every setting is on a page, but for width and height, which the resolution row holds
         let on_pages: Vec<Row> = (0..PAGES.len()).flat_map(page_rows).collect();
         for (i, d) in DEFS.iter().enumerate() {
             assert!(i < 2 || on_pages.iter().any(|r| matches!(r, Row::Set(s) if *s as usize == i)), "{} is on no page", d.key);
         }
+    }
+
+    #[test]
+    fn the_keys_page_groups_finds_and_marks_clashes() {
+        // bugs/2026-11-11_13-13-42: groups under headings, a search by action or key, clashes marked
+        let mut s = Settings::default();
+        let rows = s.key_rows("");
+        assert_eq!((rows[0], rows.last().copied()), (Row::Search, Some(Row::KeyDefaults)));
+        assert!(matches!(rows[1], Row::Group(_)));
+        for a in ALL_ACTS {
+            assert_eq!(rows.iter().filter(|r| **r == Row::Key(*a)).count(), 1, "{a:?} once, under a heading");
+        }
+        let keys = |rows: Vec<Row>| rows.into_iter().filter_map(|r| if let Row::Key(a) = r { Some(a) } else { None }).collect::<Vec<_>>();
+        assert_eq!(keys(s.key_rows("zoo")), [Act::Zoom], "by a word of the action");
+        assert_eq!(keys(s.key_rows("F10")), [Act::Playtest], "by its key");
+        assert_eq!(keys(s.key_rows("k")), [Act::Marks]);
+        assert!(s.key_rows("nothing like it").len() == 2, "the search and the defaults stay");
+        assert!(ALL_ACTS.iter().all(|a| !s.clashes(*a)), "the default keys do not clash");
+        s.binds[Act::Back as usize][0] = Some(Bind::Key(KeyCode::KeyQ));
+        assert!(s.clashes(Act::Back) && s.clashes(Act::RollLeft) && !s.clashes(Act::Forward));
+        assert_eq!(keys(s.key_rows("q")), [Act::Back, Act::RollLeft], "a key's search shows who shares it");
     }
 }

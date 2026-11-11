@@ -496,7 +496,8 @@ fn planet(p: &mut Paint, x: f32, y: f32, r: f32) {
 /// solid cyan box in corner brackets.
 /// `first` is the number of rows above the ones shown (the page scrolled). `ease` is how far the page has
 /// come in and how far the lit row has slid out, each 0 to 1 over about a tenth of a second.
-pub fn menu(p: &mut Paint, title: &str, items: &[String], sliders: &[Slider], hint: &str, hover: Option<usize>, caret: bool, first: usize, ease: (f32, f32)) {
+/// `tones` marks rows: 1 a warning (a key two actions share), drawn red; 2 a heading, drawn as plain text.
+pub fn menu(p: &mut Paint, title: &str, items: &[String], sliders: &[Slider], tones: &[u8], hint: &str, hover: Option<usize>, caret: bool, first: usize, ease: (f32, f32)) {
     // the world a little darker under any menu but the title's, whose backdrop is the picture
     if title != GAME_NAME {
         p.rect(0.0, 0.0, p.w, p.h, [0.0, 0.01, 0.03, 0.35], 0);
@@ -528,11 +529,18 @@ pub fn menu(p: &mut Paint, title: &str, items: &[String], sliders: &[Slider], hi
         // the rows come in from the left one after another; the lit one stands out a little to the right
         let dx = -36.0 * (1.0 - smooth(ease.0 * (1.0 + 0.12 * items.len() as f32) - 0.12 * k as f32)) + if lit { 8.0 * smooth(ease.1) } else { 0.0 };
         let b = &[b[0] + dx, b[1], b[2], b[3]];
+        let ty = b[1] + (b[3] - 7.0 * lp) / 2.0;
+        let tone = tones.get(k).copied().unwrap_or(0);
+        if tone == 2 {
+            p.text_px(b[0] + 4.0, ty + 6.0, &label.to_uppercase(), CYAN, PX * 1.25);
+            continue;
+        }
+        let red = [1.0, 0.42, 0.38, 1.0];
         if !lit {
             cut(p, b[0], b[1], b[2], b[3], [PANEL[0], PANEL[1], PANEL[2], 0.5]);
-            p.rect(b[0], b[1] + 2.0, 3.0, b[3] - 4.0, [CYAN[0], CYAN[1], CYAN[2], 0.4], 0);
+            let bar = if tone == 1 { red } else { [CYAN[0], CYAN[1], CYAN[2], 0.4] };
+            p.rect(b[0], b[1] + 2.0, 3.0, b[3] - 4.0, bar, 0);
         }
-        let ty = b[1] + (b[3] - 7.0 * lp) / 2.0;
         let tw = b[2];
         if lit {
             // the lit row glows as the slot in hand does
@@ -549,7 +557,7 @@ pub fn menu(p: &mut Paint, title: &str, items: &[String], sliders: &[Slider], hi
             p.text_flat(lx, ty, label, ink, lp);
         } else {
             p.text_px(b[0] + 20.0, ty, &n, [0.44, 0.83, 1.0, if contrast { 1.0 } else { 0.6 }], lp);
-            p.text_px(lx, ty, label, [0.92, 0.95, 0.98, 0.95], lp);
+            p.text_px(lx, ty, label, if tone == 1 { red } else { [0.92, 0.95, 0.98, 0.95] }, lp);
         }
         if let Some(Some((at, value, typing))) = sliders.get(k) {
             let (t, n) = slider_parts(*b, label);
@@ -646,7 +654,7 @@ pub fn ghost(world: &World, s: &Shape, colour: [u8; 4]) -> Vec<GhostVert> {
 /// accent marks straight ahead. `marks` are waypoints at their bearings in their colours, held dim at the
 /// strip's end when further round. Under it the heading in degrees and `text` (where the player is).
 /// Returns where it ends.
-pub fn compass(p: &mut Paint, heading: f64, marks: &[(f64, [f32; 3])], text: &str) -> f32 {
+pub fn compass(p: &mut Paint, heading: f64, marks: &[(f64, [f32; 3], usize)], text: &str) -> f32 {
     let (w, h, y) = (560.0, 40.0, 10.0);
     let (x, mid) = ((p.w - w) / 2.0, p.w / 2.0);
     glass(p, x, y, w, h);
@@ -679,15 +687,13 @@ pub fn compass(p: &mut Paint, heading: f64, marks: &[(f64, [f32; 3])], text: &st
             _ => {}
         }
     }
-    for (b, c) in marks {
+    for (b, c, kind) in marks {
         let d = at(*b);
         let tx = mid + d.clamp(-60.0, 60.0) / 60.0 * (w / 2.0 - 8.0);
         let a = if d.abs() > 60.0 { 0.5 } else { 1.0 };
-        // a hairline up the strip and a diamond on its floor
+        // a hairline up the strip and its icon on its floor
         p.rect(tx - 0.5, y + 4.0, 1.0, h - 8.0, [c[0], c[1], c[2], 0.35 * a], 0);
-        for (hw, hh) in [(5.0, 2.0), (3.0, 4.0), (1.0, 5.0)] {
-            p.rect(tx - hw, y + h - 2.0 - hh, 2.0 * hw, 2.0 * hh, [c[0], c[1], c[2], a], 0);
-        }
+        icon(p, tx, y + h - 2.0, 5.0, *kind, [c[0], c[1], c[2], a]);
     }
     // straight ahead: a pointer down from the top edge and a faint line under it
     for (k, hw) in [5.0, 4.0, 3.0, 2.0, 1.0].into_iter().enumerate() {
@@ -706,8 +712,8 @@ pub fn compass(p: &mut Paint, heading: f64, marks: &[(f64, [f32; 3])], text: &st
 }
 
 /// A waypoint seen in the world: a beam of its colour from where it stands (`base`, on the screen) up to
-/// `top`, fading as it rises, and at the top a tag: a diamond, its name and how far.
-pub fn marker(p: &mut Paint, base: (f32, f32), top: (f32, f32), colour: [f32; 3], name: &str, far: &str) {
+/// `top`, fading as it rises, and at the top a tag: its icon (`nav::ICONS`), its name and how far.
+pub fn marker(p: &mut Paint, base: (f32, f32), top: (f32, f32), colour: [f32; 3], kind: usize, name: &str, far: &str) {
     const STEPS: usize = 14;
     for k in 0..STEPS {
         let (t0, t1) = (k as f32 / STEPS as f32, (k + 1) as f32 / STEPS as f32);
@@ -727,12 +733,23 @@ pub fn marker(p: &mut Paint, base: (f32, f32), top: (f32, f32), colour: [f32; 3]
     let y = top.1 - h - 4.0;
     glass(p, x, y, w, h);
     p.rect(x, y + 2.0, 3.0, h - 4.0, [colour[0], colour[1], colour[2], 1.0], 0);
-    let (cx, cy) = (x + 15.0, y + h / 2.0);
-    for (hw, hh) in [(6.0, 2.0), (4.0, 4.0), (2.0, 6.0)] {
-        p.rect(cx - hw, cy - hh, 2.0 * hw, 2.0 * hh, [colour[0], colour[1], colour[2], 1.0], 0);
-    }
+    icon(p, x + 15.0, y + h / 2.0, 6.0, kind, [colour[0], colour[1], colour[2], 1.0]);
     p.text_px(x + 26.0, y + 5.0, name, [0.96, 0.97, 1.0, 1.0], px);
     p.text_px(x + 26.0 + chars(name) + 12.0, y + 5.0, far, [0.62, 0.72, 0.82, 1.0], px);
+}
+
+/// A waypoint's icon `r` pixels from its middle (cx, cy) to its edge: a diamond, a square, a plus or a ring
+/// (`nav::ICONS`), as bars: each its middle's offset and its half width and height, in shares of `r`.
+pub fn icon(p: &mut Paint, cx: f32, cy: f32, r: f32, kind: usize, c: [f32; 4]) {
+    let bars: &[(f32, f32, f32, f32)] = match kind % 4 {
+        1 => &[(0.0, 0.0, 0.8, 0.8)],
+        2 => &[(0.0, 0.0, 1.0, 1.0 / 3.0), (0.0, 0.0, 1.0 / 3.0, 1.0)],
+        3 => &[(0.0, -2.0 / 3.0, 0.9, 0.25), (0.0, 2.0 / 3.0, 0.9, 0.25), (-2.0 / 3.0, 0.0, 0.25, 0.9), (2.0 / 3.0, 0.0, 0.25, 0.9)],
+        _ => &[(0.0, 0.0, 1.0, 1.0 / 3.0), (0.0, 0.0, 2.0 / 3.0, 2.0 / 3.0), (0.0, 0.0, 1.0 / 3.0, 1.0)],
+    };
+    for (ox, oy, hw, hh) in bars {
+        p.rect(cx + (ox - hw) * r, cy + (oy - hh) * r, 2.0 * hw * r, 2.0 * hh * r, c, 0);
+    }
 }
 
 /// Sparks of a block's colour flying from the middle of the screen after a dig or a place: `age` seconds
@@ -918,13 +935,13 @@ mod tests {
         // facing north: N in the middle, E and W out of the strip's 60 degrees, a waypoint 30 degrees east
         // a quarter of the strip to the right
         let mut p = Paint::new(1920.0, 1080.0);
-        compass(&mut p, 0.0, &[(30.0, [1.0, 0.0, 1.0])], "");
+        compass(&mut p, 0.0, &[(30.0, [1.0, 0.0, 1.0], 0)], "");
         assert!(glyph_x(&p, 'N').unwrap().abs() < 2.0, "{:?}", glyph_x(&p, 'N'));
         assert!(glyph_x(&p, 'S').is_none() && glyph_x(&p, 'W').is_none());
         assert!((mark_x(&p).0 - 136.0).abs() < 2.0 && mark_x(&p).1 == 1.0, "{:?}", mark_x(&p));
         // facing east: E in the middle; a waypoint 160 degrees round to the right sits dim at the right end
         let mut p = Paint::new(1920.0, 1080.0);
-        compass(&mut p, 90.0, &[(250.0, [1.0, 0.0, 1.0])], "");
+        compass(&mut p, 90.0, &[(250.0, [1.0, 0.0, 1.0], 0)], "");
         assert!(glyph_x(&p, 'E').unwrap().abs() < 2.0);
         assert!(mark_x(&p).0 > 200.0 && mark_x(&p).1 < 1.0, "{:?}", mark_x(&p));
         // across north the strip does not jump: facing 350, north is 10 degrees to the right
@@ -934,12 +951,21 @@ mod tests {
         // the heading under it, three digits, and a waypoint's beam from the ground up to its tag
         assert!(p.out.iter().any(|r| r.glyph == '3' as u32) && p.out.iter().any(|r| r.glyph == '5' as u32));
         let mut p = Paint::new(1920.0, 1080.0);
-        marker(&mut p, (960.0, 800.0), (960.0, 500.0), [1.0, 0.0, 1.0], "Home", "120 m");
+        marker(&mut p, (960.0, 800.0), (960.0, 500.0), [1.0, 0.0, 1.0], 0, "Home", "120 m");
         let beam: Vec<&Rect> = p.out.iter().filter(|r| r.colour[..3] == [1.0, 0.0, 1.0] && r.glyph == 0).collect();
         let (lo, hi) = beam.iter().fold((1f32, -1f32), |a, r| (a.0.min(r.xy[1]), a.1.max(r.xy[3])));
         let y = |v: f32| (1.0 - v) / 2.0 * 1080.0;
         assert!(y(lo) >= 799.0 && y(lo) <= 802.0 && y(hi) < 500.0, "from {} up to {}", y(lo), y(hi));
         assert_eq!(p.out.iter().filter(|r| r.glyph != 0).count(), 2 * ("Home".len() + "120m".len()));
+        // each icon its own shape (bugs/2026-11-11_13-15-26): a diamond, a square, a plus, a ring
+        let bars: Vec<usize> = (0..4)
+            .map(|k| {
+                let mut p = Paint::new(1920.0, 1080.0);
+                icon(&mut p, 100.0, 100.0, 6.0, k, [1.0; 4]);
+                p.out.len()
+            })
+            .collect();
+        assert_eq!(bars, [3, 1, 2, 4]);
     }
 
     #[test]

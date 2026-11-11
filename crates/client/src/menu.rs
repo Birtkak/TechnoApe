@@ -118,8 +118,12 @@ pub(crate) enum Menu {
     /// The question before world k of the list is removed.
     Remove(usize),
     Pause,
-    /// The places the player marked (the pause menu's): a right click or Delete takes one away.
+    /// The places the player marked (the pause menu's): a click opens one, a right click or Delete takes one away.
     Waypoints,
+    /// Waypoint k's own page: its name, colour, icon and where it shows (bugs/2026-11-11_13-15-26).
+    Waypoint(usize),
+    /// F10: set-ups to look at without typing commands (bugs/2026-11-11_13-12-42).
+    Playtest,
     /// The list of the settings' pages, one of them (`settings::PAGES`), and the question after a display
     /// change: keep it?
     Settings,
@@ -188,9 +192,25 @@ impl App {
     /// Row `k` of the open settings page.
     pub(crate) fn page_row(&self, k: usize) -> Option<Row> {
         match self.menu {
-            Some(Menu::Page(p)) => settings::page_rows(p).get(k).copied(),
+            Some(Menu::Page(p)) => self.page_rows(p).get(k).copied(),
             _ => None,
         }
+    }
+    /// A settings page's rows: the keys page's as its search leaves them.
+    pub(crate) fn page_rows(&self, p: usize) -> Vec<Row> {
+        if p == 3 { self.settings.key_rows(&self.key_query) } else { settings::page_rows(p) }
+    }
+    /// The open page's rows' tones for `hud::menu`: a key another action shares red, a heading plain.
+    pub(crate) fn menu_tones(&self) -> Vec<u8> {
+        let Some(Menu::Page(p)) = self.menu else { return Vec::new() };
+        self.page_rows(p)
+            .into_iter()
+            .map(|r| match r {
+                Row::Key(a) if self.settings.clashes(a) => 1,
+                Row::Group(_) => 2,
+                _ => 0,
+            })
+            .collect()
     }
 
     /// The menu's buttons on its open page, all of them: the menu shows as many as fit, from `scroll` on.
@@ -222,12 +242,26 @@ impl App {
                 });
                 rows.chain(["Back".into()]).collect()
             }
+            Some(Menu::Waypoint(k)) => {
+                let Some(p) = self.waypoints.get(k) else { return vec!["Back".into()] };
+                let name = self.edit.as_ref().map_or(p.name.clone(), |e| format!("{}_", e.1));
+                vec![
+                    format!("Name: {name}"),
+                    format!("Colour: {}", nav::COLOUR_NAMES[p.colour % nav::COLOURS.len()]),
+                    format!("Icon: {}", nav::ICONS[p.icon % nav::ICONS.len()]),
+                    format!("Shown: {}", p.view.text()),
+                    "Remove this waypoint".into(),
+                    "Back".into(),
+                ]
+            }
+            Some(Menu::Playtest) => vec!["Eclipse of the sun: Luna in front of Sol".into(), "Eclipse of Luna: in Terra's shadow".into(), "Back to game".into()],
             Some(Menu::Settings) => settings::PAGES.iter().map(|p| p.0.to_string()).chain(["Done".into()]).collect(),
             Some(Menu::Confirm) => {
                 let left = self.revert.as_ref().map_or(0, |r| r.1.saturating_duration_since(Instant::now()).as_secs() + 1);
                 vec!["Keep these display settings".into(), format!("Go back ({left} s)")]
             }
-            Some(Menu::Page(p)) => settings::page_rows(p)
+            Some(Menu::Page(p)) => self
+                .page_rows(p)
                 .into_iter()
                 .map(|r| match r {
                     Row::Resolution if s.name(S::Display) == "windowed fullscreen" => format!("Resolution: {}x{} (native)", w(), h()),
@@ -241,6 +275,10 @@ impl App {
                     Row::Key(a) if self.rebind.map(|r| r.0) == Some(a) => format!("{}: press a key or a button", settings::ACTS[a as usize].label),
                     Row::Key(a) => s.key_text(a),
                     Row::KeyDefaults => "Back to the default keys".into(),
+                    Row::Search if self.edit.is_some() => format!("Search: {}_", self.key_query),
+                    Row::Search if self.key_query.is_empty() => "Search: click, then type an action or a key".into(),
+                    Row::Search => format!("Search: {}", self.key_query),
+                    Row::Group(name) => name.into(),
                 })
                 .chain(["Back".into()])
                 .collect(),
@@ -346,9 +384,32 @@ impl App {
             (Some(Menu::Waypoints), k) if k < self.waypoints.len() => {
                 if back {
                     self.remove_waypoint(k);
+                } else {
+                    self.set_menu(Some(Menu::Waypoint(k)));
                 }
             }
             (Some(Menu::Waypoints), _) => self.set_menu(Some(Menu::Pause)),
+            // a waypoint's page: the name is typed (Enter keeps it), the other rows step on (back: the one before)
+            (Some(Menu::Waypoint(j)), row) if j < self.waypoints.len() && row < 4 => {
+                let w = &mut self.waypoints[j];
+                match row {
+                    0 => self.edit = Some((0, w.name.clone())),
+                    1 => w.colour = cycle(&[0, 1, 2, 3, 4, 5], w.colour % nav::COLOURS.len(), back),
+                    2 => w.icon = cycle(&[0, 1, 2, 3], w.icon % nav::ICONS.len(), back),
+                    _ => w.view = cycle(&nav::VIEWS, w.view, back),
+                }
+                self.save_waypoints();
+            }
+            (Some(Menu::Waypoint(j)), 4) => {
+                self.remove_waypoint(j);
+                self.set_menu(Some(Menu::Waypoints));
+            }
+            (Some(Menu::Waypoint(_)), _) => self.set_menu(Some(Menu::Waypoints)),
+            (Some(Menu::Playtest), k) if k < 2 => {
+                self.eclipse(k == 1);
+                self.set_menu(None);
+            }
+            (Some(Menu::Playtest), _) => self.set_menu(None),
             // the right button on a world asks whether to remove it
             (Some(Menu::Worlds), k) if k < self.worlds.len() && back => self.set_menu(Some(Menu::Remove(k))),
             (Some(Menu::Remove(k)), row) if row == remove_row(k) && !back => {
@@ -433,6 +494,12 @@ impl App {
                 return;
             }
             Row::KeyDefaults => self.settings.default_binds(),
+            // the search row (always the first) takes what is typed; the rows under it follow each key
+            Row::Search => {
+                self.edit = Some((0, self.key_query.clone()));
+                return;
+            }
+            Row::Group(_) => return,
         }
         self.apply_settings(&before);
     }
@@ -599,6 +666,8 @@ impl App {
         if m != self.menu {
             self.scroll = 0;
             self.menu_since = Instant::now();
+            self.key_query.clear();
+            self.edit = None;
         }
         (self.sel, self.rebind) = (None, None);
         self.menu = m;

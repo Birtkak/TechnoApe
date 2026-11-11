@@ -9,7 +9,7 @@
 
 [[body]]
 name = "Terra"
-words = ["planet", "home", "spawn"]
+words = ["home", "spawn"]
 n = 6144
 generator = "continents"
 ground = ["grass", "dirt", "stone"]
@@ -17,7 +17,6 @@ air = true
 
 [[body]]
 name = "Luna"
-words = ["moon"]
 n = 256
 generator = "hills"
 ground = ["regolith", "regolith", "stone"]

@@ -23,15 +23,18 @@ grid's own numbers (face, column, layer) stay in F3 for finding bugs.
 - **The compass** is a strip top middle: 60° either side of where you look, a tick every 15°, the four
   winds by letter, north in the accent colour.
 - **A waypoint** is a name at a place on a body. N drops one where you stand; the pause menu's Waypoints
-  page lists them and a right click or Delete takes one away. It shows in the world as a diamond with its
+  page lists them and a right click or Delete takes one away. It shows in the world as its icon with its
   name and distance (the nearest sixteen), and on the compass at its bearing, held at the strip's end
   when it is further round. Kept beside the save, as the player's own notes.
+- **A waypoint's page** (ADR 0036): click one in the list to type its name, step its colour (six), its icon
+  (diamond, square, plus, ring) and where it shows: on its own body (the default), always (from Luna or
+  space too), or within 0.5 to 100 km of it. K (rebindable) switches all the marks off and on; the
+  setting "Waypoints shown" on Accessibility holds it.
 - **Earned, not given** (the developer, 2026-11-11): in survival the compass, the coordinates and the
   waypoints come with the first tool that gives them; creative has them always. That tool does not exist
   yet, so today they are creative's.
 
-Still to do here: naming and recolouring a waypoint, a "Home" mark set by the first bed or base, waypoints
-on another body shown as a mark on that body in the sky, sharing a waypoint in chat, and the tool itself
+Still to do here: a "Home" mark set by the first bed or base, sharing a waypoint in chat, and the tool itself
 (crafting: a lodestone needle in the stone age is the obvious first).
 
 ## 3. The globe (proposal; after the bake, `worldgen-plan.md` W2)
