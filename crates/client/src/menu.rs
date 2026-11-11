@@ -10,6 +10,16 @@ pub(crate) const WORLDS_SHOWN: usize = 20;
 /// and the radius that gives. Luna is a 24th of it (256 under the 4 km Terra).
 pub(crate) const SIZES: [(i32, &str); 5] = [(1536, "1 km"), (3072, "2 km"), (6144, "4 km"), (12288, "8 km"), (24576, "16 km")];
 
+/// The new world page's rows: headings between them (`NW_HEADS`), so the choices stand in groups.
+pub(crate) const NW_NAME: usize = 1;
+pub(crate) const NW_SEED: usize = 2;
+pub(crate) const NW_SIZE: usize = 4;
+pub(crate) const NW_MODE: usize = 6;
+pub(crate) const NW_CREATE: usize = 8;
+const NW_HEADS: [usize; 4] = [0, 3, 5, 7];
+/// What a size is called, and its colour (`hud::TINTS`): the larger, the warmer.
+const SIZE_WORDS: [(&str, u8); 5] = [("tiny", 3), ("small", 4), ("medium", 5), ("large", 6), ("huge", 7)];
+
 /// The new world page's choices.
 pub(crate) struct NewWorld {
     pub name: String,
@@ -265,6 +275,20 @@ impl App {
     }
     /// The open page's rows' tones for `hud::menu`: a key another action shares red, a heading plain.
     pub(crate) fn menu_tones(&self) -> Vec<u8> {
+        if self.menu == Some(Menu::NewWorld) {
+            // a colour per kind of value: the name white, a typed seed yellow, the size by how large, the mode
+            let n = &self.new_world;
+            return (0..NW_CREATE + 1)
+                .map(|k| match k {
+                    k if NW_HEADS.contains(&k) => 2,
+                    NW_NAME => 3,
+                    NW_SEED => if n.seed.trim().is_empty() && self.edit.as_ref().is_none_or(|e| e.0 != NW_SEED) { 4 } else { 5 },
+                    NW_SIZE => 3 + SIZE_WORDS[n.size].1,
+                    NW_MODE => if n.creative { 6 } else { 9 },
+                    _ => hud::ACTION,
+                })
+                .collect();
+        }
         let Some(Menu::Page(p)) = self.menu else { return Vec::new() };
         self.page_rows(p)
             .into_iter()
@@ -299,10 +323,14 @@ impl App {
                 };
                 let (cols, km) = SIZES[n.size];
                 vec![
-                    format!("Name: {}", typed(0, &n.name, "")),
-                    format!("Seed: {}", typed(1, &seed, "a new one (click to type a number or words)")),
-                    format!("Planet: Terra, {km} radius, {} km around ({cols} blocks a face)", cols * 4 / 1000),
-                    format!("Mode: {}", if n.creative { "creative" } else { "survival" }),
+                    "World".into(),
+                    format!("Name:  {}", typed(NW_NAME, &n.name, "")),
+                    format!("Seed:  {}", typed(NW_SEED, &seed, "random (click to type a number or words)")),
+                    "Planet".into(),
+                    format!("Size:  {}, {km} radius, {} km around", SIZE_WORDS[n.size].0, cols * 4 / 1000),
+                    "Rules".into(),
+                    format!("Mode:  {}", if n.creative { "creative: fly, every block, no health or hunger" } else { "survival: health, hunger, digging takes time" }),
+                    String::new(),
                     "Create world".into(),
                     "Back".into(),
                 ]
@@ -520,11 +548,12 @@ impl App {
                 self.submit(); // a row still typed into is kept, Enter or not
                 let n = &mut self.new_world;
                 match row {
-                    0 => self.edit = Some((0, n.name.clone())),
-                    1 => self.edit = Some((1, n.seed.clone())),
-                    2 => n.size = cycle(&[0, 1, 2, 3, 4], n.size, back),
-                    3 => n.creative = !n.creative,
-                    4 => {
+                    NW_NAME => self.edit = Some((NW_NAME, n.name.clone())),
+                    NW_SEED => self.edit = Some((NW_SEED, n.seed.clone())),
+                    NW_SIZE => n.size = cycle(&[0, 1, 2, 3, 4], n.size, back),
+                    NW_MODE => n.creative = !n.creative,
+                    k if NW_HEADS.contains(&k) => {}
+                    NW_CREATE => {
                         // the server makes the file; a seed from the clock when none was typed
                         let clock = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos() as i32 & 0x3fff_ffff);
                         let args = new_world_args(&self.new_world, clock, |p| std::path::Path::new(p).exists());

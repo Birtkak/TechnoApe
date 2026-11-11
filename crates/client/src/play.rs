@@ -457,8 +457,8 @@ impl App {
         if let (Some((k, t)), Some(Menu::NewWorld)) = (&self.edit, self.menu) {
             // a new world's name (an empty one keeps the old) or its seed (an empty one is a new seed)
             match (*k, menu::safe_name(t)) {
-                (0, name) if !name.is_empty() => self.new_world.name = name,
-                (1, _) => self.new_world.seed = t.trim().to_string(),
+                (menu::NW_NAME, name) if !name.is_empty() => self.new_world.name = name,
+                (menu::NW_SEED, _) => self.new_world.seed = t.trim().to_string(),
                 _ => {}
             }
             self.edit = None;
@@ -1102,7 +1102,7 @@ impl App {
                 Menu::Dead => ("You died", cause.as_str()),
                 Menu::Title => ("TechnoApe", "Pillars of Simulation Engine"),
                 Menu::Worlds => ("Singleplayer", "A world carries on from its save. Right click or Delete removes one."),
-                Menu::NewWorld => ("New world", "Click the name or the seed to type it. The same seed and size make the same world."),
+                Menu::NewWorld => ("New world", "The same seed and size always make the same world. Click a row to change it."),
                 Menu::Remove(_) => ("Remove world", "It moves to saves/removed/ and can be put back by hand."),
                 Menu::Waypoints => ("Waypoints", "N drops one where you stand. Click one to change it; right click or Delete takes it away."),
                 Menu::Waypoint(_) => ("Waypoint", "Click the name to type a new one. Click a row for its next value, right click the one before."),
