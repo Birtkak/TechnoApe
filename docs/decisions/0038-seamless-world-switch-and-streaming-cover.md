@@ -35,3 +35,36 @@ starts (the old local server stops first). `sys::wait_shown` holds the wait and 
 For up to the new process's start-up (usually under a second) two processes hold the GPU. If the new
 process fails, the old window stays 5 s longer, frozen. Option 1 stays the real fix if the seam still shows;
 option 3 can follow if the new window's first moment flashes.
+
+## B. The ground vanishes in fast flight (report 2026-11-11_13-02-00)
+
+### Context
+"flying quickly now make it so everything goes invisible, it quickly loads again": creative flight at
+1000 m/s, 200 m up. The screenshot shows the near ground and the far rings, and a band between them with
+nothing drawn. The LOD walk (ADR 0025 F) lets a coarse chunk cover its children while they load, but it
+counted a child that splits as done ("a child that splits too is no child to wait for", so that a chunk
+meshed from far away does not cover forever once the camera is back). At 1000 m/s the camera nears a
+child before its mesh is made; it splits, never gets a mesh of its own (only leaves do), the coarse chunk
+stopped covering, and the grandchildren, still loading, were holes. The same happened behind and to the
+side: a chunk that becomes a leaf again could stand in only by its children, not by finer chunks further
+down. The look-ahead (0.5 s along the velocity) hides it in a straight flight; turning defeats it.
+
+### Options considered
+1. **Count a splitting child as done only when its own children are** (recursively), and let a stand-in
+   draw as deep as the finer chunks go – a few lines in `select`; the recursion stops at the first chunk
+   with a mesh, and split chunks keep their old meshes while seen, so it goes deep only where a fast camera
+   split chunks that were never meshed.
+2. **Keep a coarse shell always drawn under everything** (a whole-planet low-detail mesh) – a new
+   draw path, z-fighting with the real ground, more VRAM: a redesign.
+3. **A longer look-ahead** – costs work for flights that turn, and turning is the case that fails.
+
+### Decision
+Option 1 (`Streamer::complete`, `kids_below`, `emit_below`). The test
+`a_fast_flight_never_leaves_a_hole_where_a_coarse_chunk_was_drawn` flies 6 s at 1000 m/s, 200 m up, with
+meshing slower than the flight: 96 holes in a frame before, none after. `run=fly speed=1000 alt=200
+prefetch=0 quick=1` (no look-ahead, as in a turn), five runs each: holes_max 0/148/0/0/124 before, 0 in all
+five after.
+
+### Consequences
+While its children load, a coarse chunk stays drawn a little longer than before (coarse ground for a moment
+instead of none). The walk's cost grows only where chunks were split unmeshed; it is per walk, not per frame.

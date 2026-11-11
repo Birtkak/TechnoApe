@@ -300,6 +300,36 @@ impl Streamer {
         k.level > 0 && ((bd.c - view.cam_in(k.body)).length() - bd.rad).max(0.0) < kk * k.edge()
     }
 
+    /// Chunk `k` draws without its parent's cover: it has a mesh (or is empty), or it splits and all its
+    /// children do. Stops at the first chunk with a mesh, so it goes deep only where a fast camera split chunks
+    /// that were never meshed (ADR 0038 B).
+    fn complete(&self, world: &World, view: &View, k: &Key, kk: f64) -> bool {
+        self.resolved(k)
+            || (self.splits(world, view, k, kk)
+                && (0..8).all(|i| {
+                    let c = k.child(i);
+                    !Self::in_band(world, c) || self.complete(world, view, &c, kk)
+                }))
+    }
+
+    /// Every in-band child of `k` has a mesh, or has children that all do, down to the finest level.
+    fn kids_below(&self, world: &World, k: &Key) -> bool {
+        (0..8).all(|i| {
+            let c = k.child(i);
+            !Self::in_band(world, c) || self.resolved(&c) || (c.level > 0 && self.kids_below(world, &c))
+        })
+    }
+
+    /// Draws `k`'s children, or where a child has no mesh, its own children (a stand-in, `kids_below`).
+    fn emit_below(&mut self, world: &World, view: &View, k: Key, out: &mut Vec<DrawChunk>) {
+        for i in 0..8 {
+            let c = k.child(i);
+            if Self::in_band(world, c) && !self.emit(view, c, None, out) && c.level > 0 {
+                self.emit_below(world, view, c, out);
+            }
+        }
+    }
+
     fn hidden(&self, view: &View, body: u8, b: &Bounds) -> bool {
         let v = view.rel(body, b.c);
         !view.in_frustum(body, b) || (self.opts.horizon && view.hz.iter().any(|h| horizon_hidden(v, h, b)))
@@ -371,10 +401,11 @@ impl Streamer {
                     }
                 }
                 let kids = &kids[..nk];
-                // a child that splits too is no child to wait for: only leaves get meshes, so it never has one,
-                // and its own children decide what covers what (a chunk meshed as a leaf from far away would
-                // otherwise cover forever once the camera is back)
-                let all = kids.iter().all(|c| self.resolved(c) || self.splits(world, view, c, kk));
+                // a child that splits too never gets a mesh of its own (only leaves do): it counts as done once its
+                // own children are, so this chunk covers until then and never forever (a chunk meshed as a leaf
+                // from far away would otherwise cover forever once the camera is back), and a camera that nears
+                // the children before they are meshed leaves no hole (ADR 0038 B)
+                let all = covered || kids.iter().all(|c| self.complete(world, view, c, kk));
                 let mut cov = covered;
                 if !all && !covered && draw && self.emit(view, k, None, out) {
                     cov = true;
@@ -386,11 +417,8 @@ impl Streamer {
             }
             // wanted leaf
             let hidden = self.hidden(view, k.body, &bd);
-            // stand-in from finer chunks left over from before
-            let stand_in = pending
-                && !covered
-                && k.level > 0
-                && (0..8).all(|i| { let c = k.child(i); !Self::in_band(world, c) || self.resolved(&c) });
+            // stand-in from finer chunks left over from before, as deep as a fast camera left them (ADR 0038 B)
+            let stand_in = pending && !covered && k.level > 0 && self.kids_below(world, &k);
             if needs_job {
                 // metres, not edges: in edges every level's leaves rank alike, so far and near work interleaved
                 // at random; in metres the work radiates out from the camera, holes (nothing drawn) first. The
@@ -410,9 +438,7 @@ impl Streamer {
                     st.missing += 1;
                     if !covered {
                         if stand_in {
-                            for i in 0..8 {
-                                self.emit(view, k.child(i), None, out);
-                            }
+                            self.emit_below(world, view, k, out);
                         } else {
                             st.holes += 1;
                         }
@@ -654,6 +680,41 @@ mod tests {
         assert_eq!(fine(&settle(&mut s, &w, ground)), 0);
         assert!(fine(&settle(&mut s, &w, w.bodies[0].spawn * w.bodies[0].radius * 4.0)) > 0, "far away: coarse");
         assert_eq!(fine(&settle(&mut s, &w, ground)), 0, "the finest level drawn on the ground once back");
+    }
+
+    #[test]
+    fn a_fast_flight_never_leaves_a_hole_where_a_coarse_chunk_was_drawn() {
+        // F9 report 2026-11-11_13-02-00: at 1000 m/s, 200 m up, the ground ahead vanished for a moment. A chunk
+        // drawn from far away splits as the camera nears; if the camera nears its children before they are
+        // meshed, they split too, never get meshes of their own, and the coarse chunk stopped covering them
+        let w = World::new(1536, 64, 1337);
+        let opts = Opts { k: 4.0, greedy: false, horizon: true, prefetch_s: 0.0, max_inflight: 8 };
+        let mut s = Streamer::new(&w, 1 << 23, opts);
+        let b = &w.bodies[0];
+        let side = b.spawn.any_orthonormal_vector();
+        let at = |m: f64| {
+            let d = (b.spawn + side * (m / b.radius)).normalize();
+            d * (b.top(d) + 200.0)
+        };
+        settle(&mut s, &w, at(0.0));
+        let mut worst = 0;
+        // 6 s of flight at 1000 m/s, a frame each 1/180 s, 8 jobs done a frame (meshing slower than the flight)
+        for f in 1..=1080 {
+            let view = View::new(at(f as f64 * 1000.0 / 180.0), [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], &w);
+            let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+            while !s.idle() {
+                std::thread::sleep(std::time::Duration::from_micros(200));
+                s.apply(usize::MAX, &mut st, |_, _| {});
+            }
+            s.frame += 1;
+            s.select(&w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+            s.dispatch(&w, &mut reqs);
+            if s.frame % 30 == 0 {
+                s.evict(120);
+            }
+            worst = worst.max(st.holes);
+        }
+        assert_eq!(worst, 0, "holes in the ground during the flight");
     }
 
     #[test]
