@@ -87,6 +87,31 @@ pub struct Paint {
     pub out: Vec<Rect>,
 }
 
+/// The places and the colours their names are written in: Terra green, Luna a light grey, Sol yellow.
+/// shortcut: a table here; a colour per row of data/bodies.toml when there are more bodies than these.
+pub const PLACES: [(&str, [f32; 3]); 3] = [("Terra", [0.42, 0.86, 0.45]), ("Luna", [0.82, 0.84, 0.88]), ("Sol", [1.0, 0.85, 0.25])];
+
+/// For each character of `s`, the colour of the place whose name it is part of: whole words, any case
+/// ("Terra's" and "LUNA" count, "solid" does not).
+pub fn place_colours(s: &str) -> Vec<Option<[f32; 3]>> {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = vec![None; chars.len()];
+    let mut k = 0;
+    while k < chars.len() {
+        if !chars[k].is_ascii_alphabetic() {
+            k += 1;
+            continue;
+        }
+        let end = (k..chars.len()).find(|j| !chars[*j].is_ascii_alphabetic()).unwrap_or(chars.len());
+        let word: String = chars[k..end].iter().collect();
+        if let Some((_, c)) = PLACES.iter().find(|p| p.0.eq_ignore_ascii_case(&word)) {
+            out[k..end].fill(Some(*c));
+        }
+        k = end;
+    }
+    out
+}
+
 /// Screen pixels per font pixel, and the height of a line of text.
 pub const PX: f32 = 2.0;
 pub const LINE: f32 = 10.0 * PX + 2.0;
@@ -120,7 +145,14 @@ impl Paint {
 
     fn glyphs(&mut self, x: f32, y: f32, s: &str, colour: [f32; 4], px: f32, shadow: bool) {
         let size = 8.0 * px;
+        // a place's name is written in the place's own colour wherever it stands (the developer, 2026-11-11);
+        // not in dark text on a lit button, where the ink is the contrast
+        let places = if shadow { place_colours(s) } else { Vec::new() };
         for (k, ch) in s.chars().enumerate() {
+            let colour = match places.get(k) {
+                Some(Some(c)) => [c[0], c[1], c[2], colour[3]],
+                _ => colour,
+            };
             let g = if (' '..='~').contains(&ch) { ch as u32 } else { '?' as u32 };
             if g == ' ' as u32 {
                 continue;
@@ -254,8 +286,8 @@ pub fn panels(p: &mut Paint, left: &[Section], right: &[Section]) {
         for s in list {
             let (_, h, label_w) = section_size(s, px);
             let x = if side == 0 { 6.0 } else { p.w - w - 6.0 };
-            p.rect(x, y, w, h, PANEL, 0);
-            p.rect(x, y, 3.0, h, CYAN, 0);
+            glass(p, x, y, w, h);
+            p.rect(x, y + 2.0, 3.0, h - 4.0, CYAN, 0);
             p.text_px(x + 10.0, y + 5.0, &s.title.to_uppercase(), CYAN, px);
             for (k, (label, value, tone)) in s.rows.iter().enumerate() {
                 let ry = y + 5.0 + (k + 1) as f32 * line;
@@ -596,60 +628,98 @@ pub fn ghost(world: &World, s: &Shape, colour: [u8; 4]) -> Vec<GhostVert> {
 
 /// One hotbar slot: the block's colour and, in survival, how many are held.
 /// The compass (docs/design/navigation.md): a strip top middle showing 60 degrees either side of `heading`
-/// (degrees east of north), a tick every 15, the four winds by their letters, north in the accent; `marks`
-/// are waypoints at their bearings in their colours, held at the strip's end when further round; `text`
-/// (where the player is) under it. Returns the height it took.
+/// (degrees east of north). The four winds by their letters, north in the accent, the four between them
+/// small, a number every 30 degrees elsewhere, a tick every 15; all fade towards the ends. A pointer in the
+/// accent marks straight ahead. `marks` are waypoints at their bearings in their colours, held dim at the
+/// strip's end when further round. Under it the heading in degrees and `text` (where the player is).
+/// Returns where it ends.
 pub fn compass(p: &mut Paint, heading: f64, marks: &[(f64, [f32; 3])], text: &str) -> f32 {
-    let (w, h, y) = (440.0, 28.0, 8.0);
+    let (w, h, y) = (560.0, 40.0, 10.0);
     let (x, mid) = ((p.w - w) / 2.0, p.w / 2.0);
     glass(p, x, y, w, h);
-    // ticks and letters fade towards the strip's ends
-    let fade = |d: f32| 1.0 - (d.abs() / 60.0).powi(2) * 0.85;
-    brackets(p, [x - 4.0, y - 4.0, w + 8.0, h + 8.0], 8.0, false, CYAN);
-    // a bearing's place on the strip, when it is within its 60 degrees
+    // a bearing's place on the strip in degrees from straight ahead, and how strongly it shows there
     let at = |b: f64| ((b - heading + 540.0).rem_euclid(360.0) - 180.0) as f32;
+    let fade = |d: f32| 1.0 - (d.abs() / 60.0).powi(2) * 0.9;
+    let dim = [0.62, 0.72, 0.82];
     for k in 0..24 {
         let d = at(k as f64 * 15.0);
-        if d.abs() > 58.0 {
+        if d.abs() > 57.0 {
             continue;
         }
-        let tx = mid + d / 60.0 * (w / 2.0);
+        let (tx, a) = (mid + d / 60.0 * (w / 2.0), fade(d));
+        // the tick along the strip's floor, longer under a letter or a number
+        let tall = if k % 2 == 0 { 7.0 } else { 4.0 };
+        p.rect(tx - 1.0, y + h - 3.0 - tall, 2.0, tall, [dim[0], dim[1], dim[2], 0.85 * a], 0);
         match k {
             0 | 6 | 12 | 18 => {
-                let (l, c) = [("N", CYAN), ("E", [0.95; 4]), ("S", [0.95; 4]), ("W", [0.95; 4])][k / 6];
-                p.text(tx - 8.0, y + 6.0, l, [c[0], c[1], c[2], fade(d)]);
+                let c = if k == 0 { CYAN } else { [0.96, 0.97, 1.0, 1.0] };
+                p.text(tx - 8.0, y + 6.0, ["N", "E", "S", "W"][k / 6], [c[0], c[1], c[2], a]);
             }
-            _ => p.rect(tx - 1.0, y + if k % 3 == 0 { 8.0 } else { 12.0 }, 2.0, if k % 3 == 0 { 12.0 } else { 4.0 }, [0.62, 0.72, 0.82, 0.9 * fade(d)], 0),
+            3 | 9 | 15 | 21 => {
+                let px = PX * 0.75;
+                p.text_px(tx - 8.0 * px, y + 9.0, ["NE", "SE", "SW", "NW"][k / 6], [dim[0], dim[1], dim[2], a], px);
+            }
+            _ if k % 2 == 0 => {
+                let (px, t) = (PX * 0.5, format!("{}", k * 15));
+                p.text_px(tx - t.len() as f32 * 4.0 * px, y + 12.0, &t, [dim[0], dim[1], dim[2], 0.8 * a], px);
+            }
+            _ => {}
         }
     }
     for (b, c) in marks {
         let d = at(*b);
-        let tx = mid + d.clamp(-60.0, 60.0) / 60.0 * (w / 2.0 - 6.0);
-        p.rect(tx - 4.0, y + h - 7.0, 8.0, 8.0, [c[0], c[1], c[2], if d.abs() > 60.0 { 0.55 } else { 1.0 }], 0);
+        let tx = mid + d.clamp(-60.0, 60.0) / 60.0 * (w / 2.0 - 8.0);
+        let a = if d.abs() > 60.0 { 0.5 } else { 1.0 };
+        // a hairline up the strip and a diamond on its floor
+        p.rect(tx - 0.5, y + 4.0, 1.0, h - 8.0, [c[0], c[1], c[2], 0.35 * a], 0);
+        for (hw, hh) in [(5.0, 2.0), (3.0, 4.0), (1.0, 5.0)] {
+            p.rect(tx - hw, y + h - 2.0 - hh, 2.0 * hw, 2.0 * hh, [c[0], c[1], c[2], a], 0);
+        }
     }
-    // the needle: what is straight ahead
-    p.rect(mid - 1.0, y - 3.0, 2.0, 8.0, [1.0, 1.0, 1.0, 0.95], 0);
-    let px = PX * 0.75;
-    let tw = text.chars().count() as f32 * 8.0 * px;
-    glass(p, mid - tw / 2.0 - 8.0, y + h + 6.0, tw + 16.0, 10.0 * px + 6.0);
-    p.text_px(mid - tw / 2.0, y + h + 9.0, text, [0.85, 0.9, 0.95, 1.0], px);
-    y + h + 6.0 + 10.0 * px + 6.0
+    // straight ahead: a pointer down from the top edge and a faint line under it
+    for (k, hw) in [5.0, 4.0, 3.0, 2.0, 1.0].into_iter().enumerate() {
+        p.rect(mid - hw, y - 3.0 + k as f32 * 2.0, 2.0 * hw, 2.0, CYAN, 0);
+    }
+    p.rect(mid - 0.5, y + 7.0, 1.0, h - 9.0, [CYAN[0], CYAN[1], CYAN[2], 0.35], 0);
+    // under it: the heading in the accent, then where the player is
+    let (px, deg) = (PX * 0.75, format!("{:03.0}", heading.round().rem_euclid(360.0)));
+    let chars = |t: &str| t.chars().count() as f32 * 8.0 * px;
+    let tw = chars(&deg) + if text.is_empty() { 0.0 } else { 16.0 + chars(text) };
+    let (bx, by, bh) = (mid - tw / 2.0, y + h + 7.0, 10.0 * px + 8.0);
+    glass(p, bx - 10.0, by, tw + 20.0, bh);
+    p.text_px(bx, by + 4.0, &deg, CYAN, px);
+    p.text_px(bx + chars(&deg) + 16.0, by + 4.0, text, [0.85, 0.9, 0.95, 1.0], px);
+    by + bh
 }
 
-/// A waypoint seen in the world, at (x, y) on the screen: a diamond in its colour, its name and how far.
-pub fn marker(p: &mut Paint, x: f32, y: f32, colour: [f32; 3], name: &str, far: &str) {
-    let c = [colour[0], colour[1], colour[2], 1.0];
-    for (hw, hh) in [(8.0, 3.0), (5.0, 6.0), (3.0, 8.0)] {
-        p.rect(x - hw - 1.0, y - hh - 1.0, 2.0 * hw + 2.0, 2.0 * hh + 2.0, [0.0, 0.0, 0.0, 0.5], 0);
+/// A waypoint seen in the world: a beam of its colour from where it stands (`base`, on the screen) up to
+/// `top`, fading as it rises, and at the top a tag: a diamond, its name and how far.
+pub fn marker(p: &mut Paint, base: (f32, f32), top: (f32, f32), colour: [f32; 3], name: &str, far: &str) {
+    const STEPS: usize = 14;
+    for k in 0..STEPS {
+        let (t0, t1) = (k as f32 / STEPS as f32, (k + 1) as f32 / STEPS as f32);
+        let (x, y0, y1) = (base.0 + (top.0 - base.0) * (t0 + t1) / 2.0, base.1 + (top.1 - base.1) * t0, base.1 + (top.1 - base.1) * t1);
+        // a soft wide one under a bright narrow one
+        let a = 0.85 - 0.6 * t0;
+        p.rect(x - 3.0, y0.min(y1), 6.0, (y1 - y0).abs().max(1.0), [colour[0], colour[1], colour[2], 0.22 * a], 0);
+        p.rect(x - 1.0, y0.min(y1), 2.0, (y1 - y0).abs().max(1.0), [colour[0], colour[1], colour[2], a], 0);
     }
-    for (hw, hh) in [(8.0, 3.0), (5.0, 6.0), (3.0, 8.0)] {
-        p.rect(x - hw, y - hh, 2.0 * hw, 2.0 * hh, c, 0);
-    }
+    // where it stands: a short bar on the ground
+    p.rect(base.0 - 6.0, base.1 - 1.0, 12.0, 2.0, [colour[0], colour[1], colour[2], 0.9], 0);
+    // the tag, centred over the beam's top
     let px = PX * 0.75;
-    for (k, (t, col)) in [(name, [0.95, 0.95, 0.95, 1.0]), (far, [0.62, 0.72, 0.82, 1.0])].into_iter().enumerate() {
-        let tw = t.chars().count() as f32 * 8.0 * px;
-        p.text_px(x - tw / 2.0, y + 13.0 + k as f32 * (10.0 * px + 2.0), t, col, px);
+    let chars = |t: &str| t.chars().count() as f32 * 8.0 * px;
+    let w = 26.0 + chars(name) + 12.0 + chars(far) + 10.0;
+    let (h, x) = (10.0 * px + 10.0, top.0 - w / 2.0);
+    let y = top.1 - h - 4.0;
+    glass(p, x, y, w, h);
+    p.rect(x, y + 2.0, 3.0, h - 4.0, [colour[0], colour[1], colour[2], 1.0], 0);
+    let (cx, cy) = (x + 15.0, y + h / 2.0);
+    for (hw, hh) in [(6.0, 2.0), (4.0, 4.0), (2.0, 6.0)] {
+        p.rect(cx - hw, cy - hh, 2.0 * hw, 2.0 * hh, [colour[0], colour[1], colour[2], 1.0], 0);
     }
+    p.text_px(x + 26.0, y + 5.0, name, [0.96, 0.97, 1.0, 1.0], px);
+    p.text_px(x + 26.0 + chars(name) + 12.0, y + 5.0, far, [0.62, 0.72, 0.82, 1.0], px);
 }
 
 /// A little cube of a block, seen from above a corner, in the square at (x, y): its top in `top`, the two
@@ -684,12 +754,21 @@ pub struct Slot {
     pub count: Option<u32>,
 }
 
-/// A pane of the HUD's glass at (x, y): a soft shadow down and right of it, the glass, a faint light along
-/// its top edge. What every floating part of the HUD stands on.
+/// A pane of the HUD's glass at (x, y), what every floating part of the HUD stands on: a soft shadow down
+/// and right of it, corners cut by two pixels, the glass a shade lighter in its upper half, a hairline of the
+/// accent round it and a light along its top.
 pub fn glass(p: &mut Paint, x: f32, y: f32, w: f32, h: f32) {
-    p.rect(x + 3.0, y + 4.0, w, h, [0.0, 0.0, 0.0, 0.22], 0);
-    p.rect(x, y, w, h, PANEL, 0);
-    p.rect(x, y, w, 1.0, [1.0, 1.0, 1.0, 0.12], 0);
+    // the three boxes of a shape with its corners cut: full width less the corners, and the two steps in
+    let cut = |p: &mut Paint, x: f32, y: f32, w: f32, h: f32, c: [f32; 4]| {
+        p.rect(x + 2.0, y, w - 4.0, h, c, 0);
+        p.rect(x, y + 2.0, 2.0, h - 4.0, c, 0);
+        p.rect(x + w - 2.0, y + 2.0, 2.0, h - 4.0, c, 0);
+    };
+    cut(p, x + 3.0, y + 4.0, w, h, [0.0, 0.0, 0.0, 0.2]);
+    cut(p, x - 1.0, y - 1.0, w + 2.0, h + 2.0, [CYAN[0], CYAN[1], CYAN[2], 0.28]);
+    cut(p, x, y, w, h, [PANEL[0], PANEL[1], PANEL[2], 0.86]);
+    p.rect(x + 2.0, y, w - 4.0, (h / 2.0).floor(), [1.0, 1.0, 1.0, 0.035], 0);
+    p.rect(x + 2.0, y, w - 4.0, 1.0, [1.0, 1.0, 1.0, 0.16], 0);
 }
 
 /// Crosshair and hotbar for a `w` x `h` pixel screen. `tool_height` shows beside the hotbar for cylinders
@@ -770,15 +849,16 @@ mod tests {
 
     #[test]
     fn the_compass_puts_north_in_the_middle_when_facing_it_and_a_waypoint_at_its_bearing() {
-        let glyph_x = |p: &Paint, g: char| p.out.iter().filter(|r| r.glyph == g as u32).map(|r| (r.xy[0] + r.xy[2]) / 2.0 * 960.0).last();
-        let mark_x = |p: &Paint| p.out.iter().find(|r| r.colour[..3] == [1.0, 0.0, 1.0]).map(|r| ((r.xy[0] + r.xy[2]) / 2.0 * 960.0, r.colour[3])).unwrap();
+        // a wind's letter: the full-size glyph (the winds between them and the numbers are smaller)
+        let glyph_x = |p: &Paint, g: char| p.out.iter().filter(|r| r.glyph == g as u32 && (r.xy[2] - r.xy[0]) * 960.0 > 15.0).map(|r| (r.xy[0] + r.xy[2]) / 2.0 * 960.0).last();
+        let mark_x = |p: &Paint| p.out.iter().filter(|r| r.colour[..3] == [1.0, 0.0, 1.0]).last().map(|r| ((r.xy[0] + r.xy[2]) / 2.0 * 960.0, r.colour[3])).unwrap();
         // facing north: N in the middle, E and W out of the strip's 60 degrees, a waypoint 30 degrees east
         // a quarter of the strip to the right
         let mut p = Paint::new(1920.0, 1080.0);
         compass(&mut p, 0.0, &[(30.0, [1.0, 0.0, 1.0])], "");
         assert!(glyph_x(&p, 'N').unwrap().abs() < 2.0, "{:?}", glyph_x(&p, 'N'));
         assert!(glyph_x(&p, 'S').is_none() && glyph_x(&p, 'W').is_none());
-        assert!((mark_x(&p).0 - 107.0).abs() < 2.0 && mark_x(&p).1 == 1.0, "{:?}", mark_x(&p));
+        assert!((mark_x(&p).0 - 136.0).abs() < 2.0 && mark_x(&p).1 == 1.0, "{:?}", mark_x(&p));
         // facing east: E in the middle; a waypoint 160 degrees round to the right sits dim at the right end
         let mut p = Paint::new(1920.0, 1080.0);
         compass(&mut p, 90.0, &[(250.0, [1.0, 0.0, 1.0])], "");
@@ -787,7 +867,16 @@ mod tests {
         // across north the strip does not jump: facing 350, north is 10 degrees to the right
         let mut p = Paint::new(1920.0, 1080.0);
         compass(&mut p, 350.0, &[], "");
-        assert!((glyph_x(&p, 'N').unwrap() - 220.0 / 6.0).abs() < 2.0, "{:?}", glyph_x(&p, 'N'));
+        assert!((glyph_x(&p, 'N').unwrap() - 280.0 / 6.0).abs() < 2.0, "{:?}", glyph_x(&p, 'N'));
+        // the heading under it, three digits, and a waypoint's beam from the ground up to its tag
+        assert!(p.out.iter().any(|r| r.glyph == '3' as u32) && p.out.iter().any(|r| r.glyph == '5' as u32));
+        let mut p = Paint::new(1920.0, 1080.0);
+        marker(&mut p, (960.0, 800.0), (960.0, 500.0), [1.0, 0.0, 1.0], "Home", "120 m");
+        let beam: Vec<&Rect> = p.out.iter().filter(|r| r.colour[..3] == [1.0, 0.0, 1.0] && r.glyph == 0).collect();
+        let (lo, hi) = beam.iter().fold((1f32, -1f32), |a, r| (a.0.min(r.xy[1]), a.1.max(r.xy[3])));
+        let y = |v: f32| (1.0 - v) / 2.0 * 1080.0;
+        assert!(y(lo) >= 799.0 && y(lo) <= 802.0 && y(hi) < 500.0, "from {} up to {}", y(lo), y(hi));
+        assert_eq!(p.out.iter().filter(|r| r.glyph != 0).count(), 2 * ("Home".len() + "120m".len()));
     }
 
     #[test]
@@ -802,6 +891,32 @@ mod tests {
         assert!(p.out.iter().all(|r| px(r.xy[0]) >= 9.99 && px(r.xy[2]) <= 42.01));
         let (l, r) = p.out.iter().fold((f32::MAX, f32::MIN), |a, q| (a.0.min(px(q.xy[0])), a.1.max(px(q.xy[2]))));
         assert!(r - l >= 27.9, "{l} to {r}");
+    }
+
+    #[test]
+    fn a_place_s_name_is_written_in_its_colour_and_nothing_else_is() {
+        let tint = place_colours("on Terra's far side, LUNA and Sol; solid terrain");
+        let of = |w: &str| PLACES.iter().find(|p| p.0 == w).unwrap().1;
+        let text: Vec<char> = "on Terra's far side, LUNA and Sol; solid terrain".chars().collect();
+        for (k, c) in text.iter().enumerate() {
+            let want = match k {
+                3..=7 => Some(of("Terra")),
+                21..=24 => Some(of("Luna")),
+                30..=32 => Some(of("Sol")),
+                _ => None,
+            };
+            assert_eq!(tint[k], want, "{k}: {c:?}");
+        }
+        // drawn: the name's glyphs in the place's colour at the text's own strength, its shadow still dark
+        let mut p = Paint::new(1920.0, 1080.0);
+        p.text(0.0, 0.0, "to Luna", [1.0, 1.0, 1.0, 0.5]);
+        let l = of("Luna");
+        assert_eq!(p.out.iter().filter(|r| r.colour == [l[0], l[1], l[2], 0.5]).count(), 4);
+        assert_eq!(p.out.iter().filter(|r| r.colour == [1.0, 1.0, 1.0, 0.5]).count(), 2);
+        // dark ink on a lit button keeps its ink
+        let mut p = Paint::new(1920.0, 1080.0);
+        p.text_flat(0.0, 0.0, "Luna", [0.0, 0.0, 0.0, 1.0], PX);
+        assert!(p.out.iter().all(|r| r.colour == [0.0, 0.0, 0.0, 1.0]));
     }
 
     #[test]

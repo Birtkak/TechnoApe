@@ -392,7 +392,7 @@ impl App {
                 vec![
                     ("On", if space { "nothing: in space".into() } else { body.to_string() }, 0),
                     if space {
-                        ("Away", format!("{:.1} km from the sun's centre, {:.1} km from {}'s", to_sun / 1000.0, to_planet / 1000.0, w.bodies[0].name), 0)
+                        ("Away", format!("{:.1} km from Sol's centre, {:.1} km from {}'s", to_sun / 1000.0, to_planet / 1000.0, w.bodies[0].name), 0)
                     } else {
                         ("XYZ", format!("{:.2} / {:.2} / {:.2} from the centre", rel.x, rel.y, rel.z), 0)
                     },
@@ -407,7 +407,7 @@ impl App {
                 "World",
                 vec![
                     ("Time", format!("day {day}, {:02}:{:02} at the spawn, {:.0} s", m / 60, m % 60, w.time), 0),
-                    ("Sun", format!("{:.1} degrees over the horizon", d.sun_deg), 0),
+                    ("Sol", format!("{:.1} degrees over the horizon", d.sun_deg), 0),
                     ("Moon", format!("{} {:.0}% lit", w.bodies.get(1).map_or("none", |b| b.name.as_str()), d.moon_lit * 100.0), 0),
                     ("Seed", format!("{}", self.seed), 0),
                     ("Size", w.bodies.iter().map(|b| format!("{} {}", b.name, b.n)).collect::<Vec<_>>().join(", ") + " columns a face", 0),
@@ -665,7 +665,7 @@ impl App {
             let here: Vec<(usize, &nav::Waypoint)> = self.waypoints.iter().enumerate().filter(|w| w.1.body == on).collect();
             let marks: Vec<(f64, [f32; 3])> = here.iter().map(|(k, w)| (nav::bearing(up, w.rel - rel), nav::COLOURS[k % nav::COLOURS.len()])).collect();
             let heading = nav::bearing(up, fwd);
-            let text = format!("{:03.0}  {}  {}  {:.0} m up", heading.round() % 360.0, b.name, nav::geo_text(nav::geo(rel, self.meridian(on))), rel.length() - b.radius);
+            let text = format!("{}  {}  {:.0} m up", b.name, nav::geo_text(nav::geo(rel, self.meridian(on))), rel.length() - b.radius);
             label_y = hud::compass(&mut paint, heading, &marks, &text) + 10.0;
             // this frame's view, as `frame` makes it after this: from the camera, the up kept off the look
             let cam_up = if fwd.cross(p.up).length() < 1e-4 { DVec3::Z } else { p.up };
@@ -676,14 +676,27 @@ impl App {
             here.sort_by(|a, b| (a.1.rel - rel).length_squared().total_cmp(&(b.1.rel - rel).length_squared()));
             here.truncate(16);
             for (k, w) in here {
-                // a metre and a half over the mark, where a head would be
-                let d = w.rel + w.rel.normalize() * 1.5 - rel;
-                let clip = vp * d.as_vec3().extend(1.0);
-                if clip.w > 0.01 && clip.x.abs() < clip.w && clip.y.abs() < clip.w {
-                    let (sx, sy) = ((clip.x / clip.w * 0.5 + 0.5) * lw, (0.5 - clip.y / clip.w * 0.5) * lh);
-                    let far = d.length();
-                    let far = if far >= 1000.0 { format!("{:.1} km", far / 1000.0) } else { format!("{far:.0} m") };
-                    hud::marker(&mut paint, sx, sy, nav::COLOURS[k % nav::COLOURS.len()], &w.name, &far);
+                // a beam from where it stands to a height that grows with how far it is, so the tag stays
+                // over the ground between: 3 m up close by, 60 m from 400 m on
+                let far = (w.rel - rel).length();
+                let rise = (far * 0.15).clamp(3.0, 60.0);
+                let screen = |d: DVec3| {
+                    let clip = vp * d.as_vec3().extend(1.0);
+                    (clip.w > 0.01).then(|| ((clip.x / clip.w * 0.5 + 0.5) * lw, (0.5 - clip.y / clip.w * 0.5) * lh))
+                };
+                if let (Some(base), Some(top)) = (screen(w.rel - rel), screen(w.rel + w.rel.normalize() * rise - rel)) {
+                    // a beam that would run up past the compass ends under it, its tag there
+                    let roof = label_y + 60.0;
+                    let top = if top.1 < roof && base.1 > roof {
+                        let t = (base.1 - roof) / (base.1 - top.1);
+                        (base.0 + (top.0 - base.0) * t, roof)
+                    } else {
+                        top
+                    };
+                    if top.0 > -200.0 && top.0 < lw + 200.0 && top.1 >= roof - 0.5 && top.1 < lh + 100.0 {
+                        let far = if far >= 1000.0 { format!("{:.1} km", far / 1000.0) } else { format!("{far:.0} m") };
+                        hud::marker(&mut paint, base, top, nav::COLOURS[k % nav::COLOURS.len()], &w.name, &far);
+                    }
                 }
             }
         }
