@@ -16,4 +16,9 @@ for name in ['workbench.html']:
     a, b = page.index('/*DATA*/'), page.index('/*END*/')
     out = os.path.join(root, 'out/review', name)
     open(out, 'w', encoding='utf-8', newline='\n').write(page[:a] + data.replace('</', '<' + chr(92) + '/') + page[b + 7:])
+    filled = open(out, encoding='utf-8').read()
+    # (the published page gets its head from the host; this copy brings its own, to open from disk)
+    open(out.replace('.html', '.local.html'), 'w', encoding='utf-8', newline='\n').write(
+        '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
+        '<style>body{margin:0;font:14px system-ui}[hidden]{display:none!important}img{max-width:100%}</style></head><body>' + filled + '</body></html>')
     print(out, len(page))

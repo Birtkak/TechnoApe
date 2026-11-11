@@ -63,8 +63,8 @@ h2 { font: 600 13px var(--display); letter-spacing: .1em; text-transform: upperc
 .chip { font: 500 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; color: var(--muted); white-space: nowrap }
 .chip.warm { color: var(--warm); border-color: var(--warm) }
 .dot { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--line); flex: none }
-.dot.good { background: var(--good); border-color: var(--good) } .dot.tweak { background: var(--warm); border-color: var(--warm) }
-.dot.redo { background: var(--bad); border-color: var(--bad) } .dot.other { background: var(--alt); border-color: var(--alt) }
+.dot.accept { background: var(--good); border-color: var(--good) } .dot.change { background: var(--warm); border-color: var(--warm) }
+.dot.reject { background: var(--bad); border-color: var(--bad) }
 .title { display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
 .title input { font: 500 16px var(--mono); flex: 1 1 150px }
 .title .nm { font: 500 16px var(--mono); flex: 1 1 150px; overflow-wrap: anywhere }
@@ -78,9 +78,25 @@ h2 { font: 600 13px var(--display); letter-spacing: .1em; text-transform: upperc
 code { font: 11px var(--mono); color: var(--muted) }
 .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center }
 .sep { border-top: 1px solid var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 8px }
-.verdict { display: flex; gap: 4px; flex-wrap: wrap }
-.verdict button { font-size: 12px; padding: 3px 9px; display: flex; gap: 6px; align-items: center }
-.verdict button[aria-pressed="true"] { border-color: var(--ink); background: var(--panel) }
+.verdict { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px }
+.verdict button { padding: 9px 6px; font-weight: 600; display: flex; gap: 7px; align-items: center; justify-content: center; border-width: 2px }
+.verdict button b, .qv { font: 600 14px/1 var(--mono) }
+.verdict .accept, .qv.accept { color: var(--good) } .verdict .change, .qv.change { color: var(--warm) } .verdict .reject, .qv.reject { color: var(--bad) }
+.verdict .accept[aria-pressed="true"], .qv.accept[aria-pressed="true"] { background: var(--good); border-color: var(--good); color: var(--bg) }
+.verdict .change[aria-pressed="true"], .qv.change[aria-pressed="true"] { background: var(--warm); border-color: var(--warm); color: var(--bg) }
+.verdict .reject[aria-pressed="true"], .qv.reject[aria-pressed="true"] { background: var(--bad); border-color: var(--bad); color: var(--bg) }
+.judge { background: var(--raised); border: 1px solid var(--line); border-radius: 5px; padding: 10px; display: flex; flex-direction: column; gap: 8px }
+.qv { width: 28px; height: 28px; padding: 0; background: none }
+.steps { list-style: none; margin: 0 0 16px; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 22px; color: var(--muted) }
+.steps li { display: flex; gap: 8px; align-items: center }
+.steps li b { font: 600 12px var(--mono); color: var(--accent); border: 1px solid var(--accent); border-radius: 50%; width: 20px; height: 20px; display: grid; place-items: center; flex: none }
+.steps li span b { all: unset; color: var(--ink); font-weight: 500 }
+.back { display: none; margin: 10px 14px }
+details.adv > summary { cursor: pointer; padding: 9px 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--raised); font-weight: 500; list-style-position: inside }
+details.adv[open] > summary { margin-bottom: 12px }
+details.adv > div { display: flex; flex-direction: column; gap: 12px }
+#toast { color: var(--warm); font-size: 12px }
+button:disabled { opacity: .45; cursor: default } button:disabled:hover { border-color: var(--line) }
 .note { width: 100% }
 .hint { color: var(--muted); font-size: 12px; margin: 0 }
 
@@ -119,7 +135,7 @@ code { font: 11px var(--mono); color: var(--muted) }
 .srow .pl { width: 30px; height: 28px; padding: 0; font-size: 11px }
 .srow .sn { font: 500 13px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: none; border: 0; padding: 0; text-align: left }
 .srow canvas { width: 100%; height: 28px; display: block }
-.srow .marks { display: flex; gap: 5px; align-items: center; min-width: 34px; justify-content: flex-end }
+.srow .marks { display: flex; gap: 3px; align-items: center; justify-content: flex-end }
 #view-sounds .bench { grid-template-columns: minmax(0, 1fr) minmax(0, 590px) }
 .big { width: 100%; height: 150px; display: block; background: var(--raised); border-radius: 4px 4px 0 0; cursor: pointer }
 .takes { display: flex; gap: 2px }
@@ -137,8 +153,16 @@ td input[type=number] { width: 50px; padding: 4px 3px } td button { padding: 3px
 #out .wrap { padding-block: 12px calc(12px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 8px }
 #out textarea { width: 100%; height: 230px; font: 12px/1.4 var(--mono); resize: vertical }
 #out .h { display: flex; gap: 10px; align-items: center }
-@media (max-width: 900px) { .bench { grid-template-columns: minmax(0, 1fr) } .insp { position: relative; top: 0; max-height: none; order: -1 } }
-@media (max-width: 480px) { .stage { grid-template-columns: minmax(0, 1fr) } .srow { grid-template-columns: 30px minmax(0, 1fr) auto } .srow canvas { display: none } }
+@media (max-width: 900px) {
+  .bench, #view-sounds .bench { grid-template-columns: minmax(0, 1fr) }
+  .insp { position: relative; top: 0; max-height: none; overflow: visible }
+  body:not(.open) .insp, body.open .bench > :first-child, body.open .steps, body.open .lede { display: none }
+  .back { display: inline-flex }
+  button, select, input[type=text] { min-height: 36px } .qv, .srow .pl { min-height: 0; width: 34px; height: 34px } .takes button { min-width: 34px }
+  header .wrap { gap: 8px 10px } .brand { font-size: 17px } #tally, .ctl.vol { display: none }
+  .srow { grid-template-columns: 34px minmax(0, 1fr) auto } .srow canvas { display: none }
+}
+@media (max-width: 480px) { .stage { grid-template-columns: minmax(0, 1fr) 104px } .gallery { grid-template-columns: repeat(4, minmax(0, 1fr)) } }
 @media (prefers-reduced-motion: no-preference) { .tile, .srow, button { transition: border-color .12s } }
 </style>
 
@@ -149,16 +173,23 @@ td input[type=number] { width: 50px; padding: 4px 3px } td button { padding: 3px
     <a href="#sounds" id="tab-sounds">Sounds <b id="n-sounds"></b></a>
   </nav>
   <span class="grow"></span>
+  <span class="ctl" id="toast" role="status"></span>
   <span class="ctl" id="tally"></span>
-  <label class="ctl">Volume <input id="vol" type="range" min="0" max="100" value="70"></label>
+  <label class="ctl vol">Volume <input id="vol" type="range" min="0" max="100" value="70"></label>
   <button id="stop">Stop sound</button>
+  <button id="undo" title="Take back the last change (Ctrl+Z)" disabled>Undo</button>
+  <button id="reset" title="Every block and sound back to the game's own; your verdicts stay">Reset all</button>
   <button id="copy" class="primary">Copy my review</button>
 </div></header>
 
 <main class="wrap">
+  <ol class="steps">
+    <li><b>1</b><span><b>Pick</b> a block or a sound</span></li>
+    <li><b>2</b><span>Try it, change it, then <b>Accept</b>, <b>Needs change</b> or <b>Reject</b></span></li>
+    <li><b>3</b><span><b>Copy my review</b> and paste it to Claude</span></li>
+  </ol>
   <section id="view-blocks">
-    <p class="lede">Every block in <b>data/blocks.toml</b>, drawn texel for texel by the game's own recipe. Pick one, then go through the patterns, colours and sliders,
-    or take one of the ideas under them. Patterns marked <b>new</b> are proposals: the game draws them once you have picked what is good. <b>Copy my review</b> collects everything from both benches to paste to Claude; nothing here changes the game by itself.</p>
+    <p class="lede">Every block the game has, drawn texel for texel by the game's own recipe. Patterns marked <b>new</b> are proposals the game does not draw yet. Nothing here changes the game by itself.</p>
     <div class="bench">
       <div><div class="shelf" id="shelf"></div>
         <p class="modelnote"><b>Models.</b> Every block is a full cube today and the game has no other models yet: no player body, tools, machines or creatures.
@@ -168,8 +199,7 @@ td input[type=number] { width: 50px; padding: 4px 3px } td button { padding: 3px
     </div>
   </section>
   <section id="view-sounds" hidden>
-    <p class="lede">Every sound in <b>data/sounds.toml</b>, made here by the same recipe the game uses, sample for sample. The triangle plays take 1;
-    pick a sound to hear its other takes, hear it <b>as in the game</b> (a random take, a little louder or softer, higher or lower), and change its layers.</p>
+    <p class="lede">Every sound the game has, made here by the game's own recipe. The triangle plays a sound; the three marks beside it are Accept, Needs change and Reject.</p>
     <div class="bench">
       <div id="slist"></div>
       <aside class="insp" id="sinsp" aria-label="The sound picked"></aside>
@@ -193,10 +223,21 @@ try {
   if (s.built === DATA.built) { if (s.rows) rows = rows.map(r => s.rows[r.name] || r); if (s.blocks) blocks = s.blocks; }
   if (s.review) review = Object.assign(review, s.review);
 } catch (e) {}
+// (verdicts had other names before)
+const OLDV = { good: 'accept', tweak: 'change', redo: 'reject', 'needs a real texture': 'change', 'replace with a recording': 'change' };
+for (const k of ['b', 's']) for (const rv of Object.values(review[k])) rv.v = OLDV[rv.v] || rv.v;
 const origB = b => ORIG_B.find(o => o.id === b.id);
 const changedB = b => JSON.stringify(b) !== JSON.stringify(origB(b) || null);
 const changedS = i => JSON.stringify(rows[i]) !== JSON.stringify(ORIG_S[i]);
-function save() {
+// Undo: every change goes through `save`, which keeps what was there before; changes that follow each other
+// within 0.7 s (a slider dragged, a word typed) are one step.
+const snapshot = () => JSON.stringify({ rows, blocks, review });
+let before = snapshot(), hist = [], lastPush = 0;
+function save(keep = true) {
+  const now = snapshot();
+  if (keep && now !== before) { const t = Date.now(); if (t - lastPush > 700) { hist.push(before); if (hist.length > 100) hist.shift(); } lastPush = t; }
+  before = now;
+  if (document.getElementById('undo')) document.getElementById('undo').disabled = !hist.length;
   try {
     const ch = {}; rows.forEach((r, i) => { if (changedS(i)) ch[r.name] = r; });
     localStorage.setItem('workbench', JSON.stringify({ built: DATA.built, rows: ch, blocks, review }));
@@ -211,14 +252,16 @@ const $ = id => document.getElementById(id);
 const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 // rebuilding a panel must not take the keyboard away from the control being used
 function keepFocus(fn) { const id = document.activeElement && document.activeElement.id; fn(); if (id && $(id)) $(id).focus(); }
-const VERDICTS = { b: ['good', 'tweak', 'redo', 'needs a real texture'], s: ['good', 'tweak', 'redo', 'replace with a recording'] };
-const dotClass = v => !v ? '' : ['good', 'tweak', 'redo'].includes(v) ? v : 'other';
+const VERDICTS = [['accept', 'Accept', '\u2713'], ['change', 'Needs change', '\u270e\ufe0e'], ['reject', 'Reject', '\u2715']];
+const dotClass = v => v || '';
+const verdictName = v => (VERDICTS.find(x => x[0] === v) || [, 'no verdict'])[1];
+function setVerdict(kind, key, v) { const rv = review[kind][key] || (review[kind][key] = { v: '', n: '' }); rv.v = rv.v === v ? '' : v; save(); tally(); }
 function verdictBox(kind, key, after) {
   const rv = review[kind][key] || (review[kind][key] = { v: '', n: '' });
   const box = el('div', { class: 'verdict', role: 'group', 'aria-label': 'Verdict' });
-  VERDICTS[kind].forEach((v, k) => box.append(el('button', { id: `vd-${kind}-${k}`, 'aria-pressed': String(rv.v === v), onclick: () => { rv.v = rv.v === v ? '' : v; save(); tally(); keepFocus(after); } }, el('span', { class: 'dot ' + dotClass(v) }), v)));
-  return [el('h2', {}, 'Your verdict'), box,
-    el('input', { class: 'note', id: `vn-${kind}`, type: 'text', placeholder: 'What should change? (optional)', value: rv.n, 'aria-label': 'Note', oninput: e => { rv.n = e.target.value; save(); } })];
+  VERDICTS.forEach(([v, label, icon]) => box.append(el('button', { class: v, id: `vd-${kind}-${v}`, 'aria-pressed': String(rv.v === v), onclick: () => { setVerdict(kind, key, v); keepFocus(after); } }, el('b', { 'aria-hidden': 'true' }, icon), label)));
+  return el('div', { class: 'judge' }, el('h2', {}, 'Your verdict'), box,
+    el('input', { class: 'note', id: `vn-${kind}`, type: 'text', placeholder: 'What should change? (optional)', value: rv.n, 'aria-label': 'Note', oninput: e => { rv.n = e.target.value; save(); } }));
 }
 
 // ================= the game's recipes =================
@@ -410,11 +453,14 @@ const hex = c => '#' + c.map(v => Math.round(Math.max(0, Math.min(1, v)) * 255).
 const unhex = h => [1, 3, 5].map(i => +(parseInt(h.slice(i, i + 2), 16) / 255).toFixed(2));
 const FAMS = [...new Set(DATA.sounds.filter(s => s.name.startsWith('step.')).map(s => s.name.slice(5)))];
 const realBlocks = () => blocks.filter(b => b.id);
+const narrow = () => matchMedia('(max-width: 900px)').matches;
+function openInsp() { document.body.classList.add('open'); if (narrow()) scrollTo(0, 0); }
+let wantOpen = false;
 function tile(b) {
   const v = (review.b[b.id] || {}).v;
-  return el('button', { class: 'tile', id: 'tile' + b.id, 'aria-pressed': String(b.id === selB), onclick: () => { selB = b.id; keepFocus(buildBlocks); } },
+  return el('button', { class: 'tile', id: 'tile' + b.id, 'aria-pressed': String(b.id === selB), onclick: () => { selB = b.id; openInsp(); keepFocus(buildBlocks); } },
     el('span', { class: 'st' }, el('canvas', { role: 'img', 'aria-label': b.name })),
-    el('span', { class: 'lb' }, el('span', {}, b.name), changedB(b) ? el('span', { class: 'chip warm' }, origB(b) ? 'changed' : 'new') : [], el('span', { class: 'dot ' + dotClass(v), title: v || 'no verdict' })));
+    el('span', { class: 'lb' }, el('span', {}, b.name), changedB(b) ? el('span', { class: 'chip warm' }, origB(b) ? 'changed' : 'new') : [], el('span', { class: 'dot ' + dotClass(v), title: verdictName(v) })));
 }
 function paintBlock(b) {
   const t = $('tile' + b.id); if (t) drawCube(t.querySelector('canvas'), b);
@@ -449,13 +495,15 @@ function blockInspector(b) {
   f.append(el('label', { for: 'bf-so' }, 'Sounds like'), el('div', {}, el('select', { id: 'bf-so', onchange: e => { if (e.target.value === 'stone') delete b.sound; else b.sound = e.target.value; touchB(b, true); } }, FAMS.map(s => el('option', { selected: fam === s }, s)))));
   const hear = el('div', { class: 'row' }, ['dig', 'place', 'step'].map(w => { const i = rowIndex(`${w}.${fam}`); return i < 0 ? [] : el('button', { id: 'bh-' + w, onclick: () => asInGame(i) }, w[0].toUpperCase() + w.slice(1)); }),
     rowIndex('step.' + fam) >= 0 ? el('button', { id: 'bh-walk', class: walks.has(rowIndex('step.' + fam)) ? 'on' : '', onclick: e => toggleWalk(rowIndex('step.' + fam), e.currentTarget) }, 'Walk on it') : [],
-    el('button', { id: 'bh-open', onclick: () => { selS = Math.max(0, rowIndex('step.' + fam)); location.hash = 'sounds'; } }, 'Open its sounds'));
+    el('button', { id: 'bh-open', onclick: () => { selS = Math.max(0, rowIndex('step.' + fam)); wantOpen = true; location.hash = 'sounds'; } }, 'Open its sounds'));
   return el('div', {},
+      el('button', { class: 'back', id: 'back-b', onclick: () => { document.body.classList.remove('open'); route(true); } }, '\u2039 All blocks'),
     el('div', { class: 'stage' }, el('canvas', { class: 'cube', id: 'bcube', role: 'img', 'aria-label': b.name + ' as a cube' }),
       el('div', { class: 'flat' }, el('canvas', { id: 'btop' }), el('canvas', { id: 'bside' }), el('span', {}, 'top'), el('span', {}, 'side'), el('canvas', { class: 'wall', id: 'bwall' }), el('span', { style: 'grid-column:1/-1' }, 'three blocks of wall'))),
     el('div', { class: 'pad' },
       el('div', { class: 'title' }, el('input', { type: 'text', id: 'bf-n', value: b.name, 'aria-label': 'Name', oninput: e => { const was = b.name; b.name = e.target.value; blocks.forEach(o => { if (o.side === was) o.side = b.name; }); save(); $('tile' + b.id).querySelector('.lb span').textContent = b.name; } }),
         el('span', { class: 'chip' }, 'id ' + b.id), el('span', { class: 'chip' + (changedB(b) ? ' warm' : ''), id: 'bstate' }, !origB(b) ? 'new' : changedB(b) ? 'changed' : 'as shipped')),
+      verdictBox('b', b.id, buildBlocks),
       el('div', { class: 'sep', style: 'border:0;padding:0' }, el('h2', {}, 'Pattern'), el('div', { class: 'gallery', role: 'group', 'aria-label': 'Pattern' }, Object.entries(PATTERNS).map(([name, q]) =>
         el('button', { class: 'pat', id: 'bp-' + name, 'aria-pressed': String(name === (b.pattern || 'plain')), title: q.note + (q.game ? '' : ' (not in the game yet)'), onclick: () => setPattern(b, name) },
           el('canvas', { 'data-pat': name }), el('span', {}, name), q.game ? [] : el('i', {}, 'new'))))),
@@ -464,11 +512,10 @@ function blockInspector(b) {
         el('div', { class: 'row' }, el('button', { id: 'id-same', onclick: () => { rollIdeas(b, false); showIdeas(b); } }, 'More like this'), el('button', { id: 'id-any', onclick: () => { rollIdeas(b, true); showIdeas(b); } }, 'Surprise me'),
           el('span', { class: 'hint' }, 'Click one to take its look.'))),
       el('div', { class: 'sep' }, el('h2', {}, 'Hear it'), hear),
-      el('div', { class: 'sep' }, verdictBox('b', b.id, buildBlocks)),
       el('div', { class: 'sep' }, el('div', { class: 'row' },
         el('label', { class: 'ctl' }, 'Texels a block', el('select', { id: 'bf-tx', onchange: e => { N = +e.target.value; keepFocus(buildBlocks); } }, [16, 32].map(n => el('option', { selected: n === N }, n)))),
         el('span', { class: 'grow' }),
-        origB(b) ? el('button', { id: 'bf-back', onclick: () => { const o = clone(origB(b)); Object.keys(b).forEach(k => delete b[k]); Object.assign(b, o); touchB(b, true); } }, 'Put back the game\'s')
+        origB(b) ? el('button', { id: 'bf-back', onclick: () => { const o = clone(origB(b)); Object.keys(b).forEach(k => delete b[k]); Object.assign(b, o); touchB(b, true); } }, 'Reset this block')
                  : el('button', { id: 'bf-rm', onclick: () => { blocks.splice(blocks.indexOf(b), 1); delete review.b[b.id]; selB = realBlocks()[0].id; save(); tally(); buildBlocks(); } }, 'Remove'),
         el('button', { id: 'bf-toml', onclick: () => show('This block, for data/blocks.toml', tomlB(b)) }, 'Show as TOML')))));
 }
@@ -482,6 +529,7 @@ function setPattern(b, name) {
   if (q.parts >= 3 && !b.colour3) b.colour3 = lighter(b.colour);
   if (!(q.parts >= 2)) delete b.colour2;
   if (!(q.parts >= 3)) delete b.colour3;
+  ideas = { id: -1, list: [] };
   touchB(b, true);
 }
 // a colour moved a little round the wheel, lighter or darker, more or less vivid
@@ -561,12 +609,13 @@ function drawWave(cv, d, zoom, axis) {
 const zoomOf = i => 0.92 / Math.max(0.01, rows[i].gain ?? 1);
 function srow(i) {
   const r = rows[i], v = (review.s[r.name] || {}).v, loop = r.loop > 0;
-  const pick = () => { selS = i; keepFocus(buildSounds); };
+  const pick = () => { selS = i; openInsp(); keepFocus(buildSounds); };
   return el('div', { class: 'srow', id: 'srow' + i, role: 'option', 'aria-selected': String(i === selS), onclick: pick },
     el('button', { class: 'pl' + (loopsOn.has(i) ? ' on' : ''), id: 'pl' + i, title: loop ? 'Play round, or stop' : 'Play take 1', 'aria-label': 'Play ' + r.name, onclick: e => { e.stopPropagation(); loop ? toggleLoop(i, e.currentTarget) : play(i, 0); } }, '▶'),
     el('button', { class: 'sn', id: 'sn' + i, onclick: e => { e.stopPropagation(); pick(); } }, r.name),
     el('canvas', { id: 'mini' + i, 'aria-hidden': 'true' }),
-    el('span', { class: 'marks' }, changedS(i) ? el('span', { class: 'chip warm' }, 'changed') : [], el('span', { class: 'dot ' + dotClass(v), title: v || 'no verdict' })));
+    el('span', { class: 'marks' }, changedS(i) ? el('span', { class: 'chip warm' }, 'changed') : [],
+      VERDICTS.map(([name, label, icon]) => el('button', { class: 'qv ' + name, id: `qv${i}-${name}`, 'aria-pressed': String(v === name), title: label, 'aria-label': `${label}: ${r.name}`, onclick: e => { e.stopPropagation(); setVerdict('s', r.name, name); keepFocus(buildSounds); } }, icon))));
 }
 let queue = [];
 function pump() {   // the waveforms are drawn one at a time, so the page is there before the long ones are made
@@ -575,7 +624,7 @@ function pump() {   // the waveforms are drawn one at a time, so the page is the
   if (queue.length) setTimeout(pump, 0);
 }
 const num = (id, v, on, a = {}) => el('input', Object.assign({ type: 'number', step: 'any', id, value: v, oninput: e => { const x = parseFloat(e.target.value); if (isFinite(x)) on(x); } }, a));
-let soundTimer = 0;
+let soundTimer = 0, advOpen = false;
 function touchS(i, rebuild) {
   for (const k of [...cache.keys()]) if (k.startsWith(i + ':')) cache.delete(k);
   save(); tally();
@@ -613,13 +662,16 @@ function soundInspector(i) {
       el('td', {}, r.layer.length > 1 ? el('button', { id: `sl${k}-rm`, title: 'Remove this layer', 'aria-label': 'Remove layer', onclick: () => { r.layer.splice(k, 1); touchS(i, true); } }, '✕') : [])));
   });
   return el('div', {},
+      el('button', { class: 'back', id: 'back-s', onclick: () => { document.body.classList.remove('open'); route(true); } }, '\u2039 All sounds'),
     el('canvas', { class: 'big', id: 'sbig', title: loop ? '' : 'Click to play take 1', onclick: () => loop ? null : play(i, 0) }),
     el('div', { class: 'pad' },
       el('div', { class: 'title' }, el('span', { class: 'nm' }, r.name), el('span', { class: 'chip' }, r.bus), el('span', { class: 'chip', id: 'sstate' }, '')),
       el('div', { class: 'eyebrow', id: 'smeta' }, ''),
       tr,
-      used.length && !FAM_NOTE[fam] ? el('div', { class: 'row' }, el('span', { class: 'eyebrow' }, 'Used by'), used.map(b => el('button', { id: 'su' + b.id, onclick: () => { selB = b.id; location.hash = 'blocks'; } }, b.name))) : el('p', { class: 'hint' }, FAM_NOTE[fam] || 'No block uses this family yet.'),
-      el('div', { class: 'sep' }, el('h2', {}, 'The whole sound'), el('div', { class: 'params' },
+      used.length && !FAM_NOTE[fam] ? el('div', { class: 'row' }, el('span', { class: 'eyebrow' }, 'Used by'), used.map(b => el('button', { id: 'su' + b.id, onclick: () => { selB = b.id; wantOpen = true; location.hash = 'blocks'; } }, b.name))) : el('p', { class: 'hint' }, FAM_NOTE[fam] || 'No block uses this family yet.'),
+      verdictBox('s', r.name, buildSounds),
+      el('details', Object.assign({ class: 'adv', id: 'sadv', ontoggle: e => { advOpen = e.target.open; } }, advOpen ? { open: true } : {}), el('summary', {}, `Change how it sounds (${r.layer.length} layer${r.layer.length > 1 ? 's' : ''})`), el('div', {},
+      el('div', { class: 'sep', style: 'border:0;padding:0' }, el('h2', {}, 'The whole sound'), el('div', { class: 'params' },
         el('label', {}, 'gain (peak)', num('sp-g', r.gain ?? 1, x => { r.gain = x; touchS(i); }, { min: 0, max: 2 })),
         loop ? [] : el('label', {}, 'takes', el('input', { type: 'number', id: 'sp-v', min: 1, max: 8, step: 1, value: r.variants ?? 1, onchange: e => { r.variants = Math.max(1, Math.min(8, Math.round(+e.target.value || 1))); touchS(i, true); } })),
         el('label', {}, 'pitch varies ±', num('sp-p', r.pitch ?? 0, x => { r.pitch = x; touchS(i); }, { min: 0, max: 0.5 })),
@@ -629,9 +681,9 @@ function soundInspector(i) {
         el('div', { class: 'scroll' }, el('table', {}, el('thead', {}, el('tr', {}, ['wave', 'Hz start', 'Hz end', 'q', 'attack s', 'decay s', 'gain', 'delay s', '', ''].map(h => el('th', {}, h)))), tb)),
         el('p', { class: 'hint' }, loop ? 'In a loop, a layer with a decay is a note that starts at its delay; without a decay it sounds all the way round.' : 'A layer slides from its first Hz to its last while it decays. Noise goes through a band-pass filter at that Hz; a higher q makes it narrower and more tonal.'),
         el('div', { class: 'row' }, el('button', { id: 'sl-add', onclick: () => { r.layer.push(loop ? { wave: 'sine', freq: [220, 220], attack: 2, decay: 6, gain: 0.5 } : { wave: 'noise', freq: [800, 400], decay: 0.05, gain: 0.5 }); touchS(i, true); } }, 'Add a layer'))),
-      el('div', { class: 'sep' }, verdictBox('s', r.name, buildSounds)),
+      )),
       el('div', { class: 'sep' }, el('div', { class: 'row' }, el('span', { class: 'grow' }),
-        el('button', { id: 'sp-back', onclick: () => { rows[i] = clone(ORIG_S[i]); touchS(i, true); } }, 'Put back the game\'s'),
+        el('button', { id: 'sp-back', onclick: () => { rows[i] = clone(ORIG_S[i]); touchS(i, true); } }, 'Reset this sound'),
         el('button', { id: 'sp-toml', onclick: () => show('This row, for data/sounds.toml', tomlS(rows[i])) }, 'Show as TOML')))));
 }
 function buildSounds() {
@@ -685,7 +737,7 @@ function reviewText() {
   const o = ['TechnoApe Workbench review (data of ' + DATA.built + ')', '', '## Blocks'];
   const vb = realBlocks().filter(b => review.b[b.id] && (review.b[b.id].v || review.b[b.id].n));
   o.push(vb.length ? 'Verdicts:' : 'No verdicts given.');
-  vb.forEach(b => o.push(`- ${b.name}: ${review.b[b.id].v || 'note'}${review.b[b.id].n ? ' - ' + review.b[b.id].n : ''}`));
+  vb.forEach(b => o.push(`- ${b.name}: ${verdictName(review.b[b.id].v)}${review.b[b.id].n ? ' - ' + review.b[b.id].n : ''}`));
   const cb = realBlocks().filter(changedB);
   o.push(cb.length ? '\nChanged or new rows for data/blocks.toml:' : 'No rows changed.');
   const fresh = [...new Set(cb.filter(b => !PATTERNS[b.pattern || 'plain'].game || b.contrast != null || (b.side && b.pattern !== 'grass')).map(b => b.pattern || 'plain'))];
@@ -694,7 +746,7 @@ function reviewText() {
   o.push('', '## Sounds');
   const vs = rows.filter(r => review.s[r.name] && (review.s[r.name].v || review.s[r.name].n));
   o.push(vs.length ? 'Verdicts:' : 'No verdicts given.');
-  vs.forEach(r => o.push(`- ${r.name}: ${review.s[r.name].v || 'note'}${review.s[r.name].n ? ' - ' + review.s[r.name].n : ''}`));
+  vs.forEach(r => o.push(`- ${r.name}: ${verdictName(review.s[r.name].v)}${review.s[r.name].n ? ' - ' + review.s[r.name].n : ''}`));
   const cs = rows.filter((_, i) => changedS(i));
   o.push(cs.length ? '\nChanged rows, to replace the ones of the same name in data/sounds.toml:' : 'No rows changed.');
   cs.forEach(r => o.push('', tomlS(r)));
@@ -706,7 +758,19 @@ function tally() {
   $('n-blocks').textContent = nb; $('n-sounds').textContent = rows.length;
   $('tally').textContent = `${v} of ${nb + rows.length} judged · ${c} changed`;
 }
-function route() {
+function toast(t) { $('toast').textContent = t; clearTimeout(toast.t); toast.t = setTimeout(() => { $('toast').textContent = ''; }, 5000); }
+function undo() {
+  if (!hist.length) return;
+  const st = JSON.parse(hist.pop()); rows = st.rows; blocks = st.blocks; review = st.review;
+  cache.clear(); ideas = { id: -1, list: [] }; lastPush = 0; save(false); tally(); route(true); toast('Taken back.');
+}
+function resetAll() {
+  rows = clone(ORIG_S); blocks = clone(ORIG_B); cache.clear(); ideas = { id: -1, list: [] }; stopAll(); lastPush = 0; save(); tally(); route(true);
+  toast('Every block and sound is the game\'s own again. Undo brings your changes back.');
+}
+// `keep`: the same view drawn again (a resize, an undo), so a phone stays on the thing it has open
+function route(keep) {
+  if (keep !== true) { document.body.classList.toggle('open', wantOpen); wantOpen = false; }
   const v = location.hash === '#sounds' ? 'sounds' : 'blocks';
   $('view-blocks').hidden = v !== 'blocks'; $('view-sounds').hidden = v !== 'sounds';
   ['blocks', 'sounds'].forEach(n => { if (n === v) $('tab-' + n).setAttribute('aria-current', 'page'); else $('tab-' + n).removeAttribute('aria-current'); });
@@ -716,9 +780,13 @@ $('copy').onclick = () => show('Your review', reviewText());
 $('outclose').onclick = () => { $('out').hidden = true; };
 $('stop').onclick = stopAll;
 $('vol').oninput = setVol;
-addEventListener('hashchange', route);
-let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(route, 150); });
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', route);
-new MutationObserver(route).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+$('undo').onclick = undo;
+$('reset').onclick = resetAll;
+addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) { e.preventDefault(); undo(); } });
+addEventListener('hashchange', () => route());
+// (a phone's address bar sliding away is a resize too: only a change of width draws again)
+let rz, lastW = innerWidth; addEventListener('resize', () => { if (innerWidth === lastW) return; lastW = innerWidth; clearTimeout(rz); rz = setTimeout(() => route(true), 150); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => route(true));
+new MutationObserver(() => route(true)).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 tally(); route();
 </script>
