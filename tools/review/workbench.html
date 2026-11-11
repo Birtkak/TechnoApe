@@ -158,7 +158,7 @@ td input[type=number] { width: 50px; padding: 4px 3px } td button { padding: 3px
 <main class="wrap">
   <section id="view-blocks">
     <p class="lede">Every block in <b>data/blocks.toml</b>, drawn texel for texel by the game's own recipe. Pick one, then go through the patterns, colours and sliders,
-    or take one of the ideas under them. Patterns marked <b>new</b> are proposals: the game draws them once you have picked what is good. <b>Copy my review</b> collects everything from both benches to paste to Claude; nothing here changes the game by itself.</p>
+    or take one of the ideas under them. Patterns marked <b>new</b> are proposals the game does not draw yet. <b>Copy my review</b> collects everything from both benches to paste to Claude; nothing here changes the game by itself.</p>
     <div class="bench">
       <div><div class="shelf" id="shelf"></div>
         <p class="modelnote"><b>Models.</b> Every block is a full cube today and the game has no other models yet: no player body, tools, machines or creatures.
@@ -277,22 +277,22 @@ function hash(x, y, z) {
   h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
   return (h & 1023) / 1023;
 }
-// The patterns. plain, grass and stone are the game's today; the others are proposals drawn here first, on a
-// 16 x 16 grid, each from whole numbers and `hash` only so the shader can take them over as they are.
+// The patterns, on a 16 x 16 grid, each from whole numbers and `hash` only so the shader takes them over as they
+// are; `game: true` once crates/client/src/shader.wgsl draws one (`part`, ADR 0039).
 // A pattern paints up to three parts: the block's colour, a second and a third. `size` is in texels,
 // `amount` 0..1; `[size, amount, uses a second colour, uses a third]`.
 const PATTERNS = {
   plain: { note: 'three tones of noise', game: true },
   grass: { note: 'a bright top, a fringe on the sides', game: true },
   stone: { note: 'dark crack texels', game: true },
-  pebbles: { note: 'single texels of the other colours', def: [1, 0.5], parts: 3 },
-  speckle: { note: 'blobs with bright cores, like ore', def: [5, 0.6], parts: 3 },
-  frame: { note: 'a rim, fading to the middle', def: [2, 0.8], parts: 3 },
-  weave: { note: 'short dashes in rows, like cloth', def: [4, 0.35], parts: 2 },
-  planks: { note: 'boards with seams', def: [4, 0.5], parts: 2 },
-  tiles: { note: 'squares with grout and flecks', def: [8, 0.3], parts: 3 },
-  bricks: { note: 'rows of bricks in mortar', def: [4, 0.5], parts: 3 },
-  rings: { note: 'squares inside squares', def: [2, 0.5], parts: 2 },
+  pebbles: { note: 'single texels of the other colours', def: [1, 0.5], parts: 3, game: true },
+  speckle: { note: 'blobs with bright cores, like ore', def: [5, 0.6], parts: 3, game: true },
+  frame: { note: 'a rim, fading to the middle', def: [2, 0.8], parts: 3, game: true },
+  weave: { note: 'short dashes in rows, like cloth', def: [4, 0.35], parts: 2, game: true },
+  planks: { note: 'boards with seams', def: [4, 0.5], parts: 2, game: true },
+  tiles: { note: 'squares with grout and flecks', def: [8, 0.3], parts: 3, game: true },
+  bricks: { note: 'rows of bricks in mortar', def: [4, 0.5], parts: 3, game: true },
+  rings: { note: 'squares inside squares', def: [2, 0.5], parts: 2, game: true },
 };
 const darker = c => c.map(v => +(v * 0.55).toFixed(2)), lighter = c => c.map(v => +Math.min(1, v * 1.25 + 0.2).toFixed(2));
 // which part a texel is: [part, part to blend towards, how far 0..1, shade]
@@ -330,7 +330,7 @@ function texel(b, dir, cell, tx, ty, row) {   // dir 4 is the top; `row` counts 
   if ((b.pattern || 'plain') === 'grass' && dir !== 4) {
     const fringe = 2 + Math.floor(hash(cell[0] * N + tx, cell[1] * N + 7, cell[2] * N + dir) * 3);
     if (row < N - fringe) m = blocks.find(o => o.name === b.side) || b;
-  } else if (b.side && dir !== 4) m = blocks.find(o => o.name === b.side && o !== b) || b;   // (a proposal: any block may take another's sides)
+  } else if (b.side && dir !== 4) m = blocks.find(o => o.name === b.side && o !== b) || b;   // any block may take another's look on its sides (ADR 0039)
   const p = m.pattern || 'plain', c1 = m.colour || [0.5, 0.5, 0.5];
   let k = 1 + (m.contrast ?? 1) * (0.82 + 0.12 * Math.floor(h * 3) - 1), col = c1;
   if (p === 'stone' && h > 0.94) k *= 0.6;
@@ -688,8 +688,8 @@ function reviewText() {
   vb.forEach(b => o.push(`- ${b.name}: ${review.b[b.id].v || 'note'}${review.b[b.id].n ? ' - ' + review.b[b.id].n : ''}`));
   const cb = realBlocks().filter(changedB);
   o.push(cb.length ? '\nChanged or new rows for data/blocks.toml:' : 'No rows changed.');
-  const fresh = [...new Set(cb.filter(b => !PATTERNS[b.pattern || 'plain'].game || b.contrast != null || (b.side && b.pattern !== 'grass')).map(b => b.pattern || 'plain'))];
-  if (fresh.length) o.push('(These use looks the game does not draw yet: the patterns ' + fresh.join(', ') + ', with colour2, colour3, size, amount, contrast, or sides on a block that is not grass. The recipe is `part` and `texel` in tools/review/workbench.html.)');
+  const fresh = [...new Set(cb.filter(b => !PATTERNS[b.pattern || 'plain'].game).map(b => b.pattern || 'plain'))];
+  if (fresh.length) o.push('(These use patterns the game does not draw yet: ' + fresh.join(', ') + '. The recipe is `part` and `texel` in tools/review/workbench.html.)');
   cb.forEach(b => o.push('', tomlB(b)));
   o.push('', '## Sounds');
   const vs = rows.filter(r => review.s[r.name] && (review.s[r.name].v || review.s[r.name].n));

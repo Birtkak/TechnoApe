@@ -48,7 +48,8 @@ struct Chunk { base: vec3i, info: u32, off: u32 };
 @group(0) @binding(2) var<storage, read> chunks: array<Chunk>;
 // a block's look from data/blocks.toml (ADR 0013): info = pattern | side << 8 | metal (0..255) << 16 | gives light
 // << 24; patterns 0 plain, 1 grass, 2 stone
-struct Look { colour: vec3f, info: u32 };
+// (ADR 0039) and a pattern's second and third colours, its size in texels, amount and grain contrast
+struct Look { colour: vec3f, info: u32, colour2: vec3f, size: u32, colour3: vec3f, amount: f32, contrast: f32 };
 @group(0) @binding(3) var<storage, read> looks: array<Look, 256>;
 // every chunk's terrain near and far, drawn or not, one instance each with mask 1 << body (ADR 0022), in its
 // body's frame relative to its centre: the instances carry no transform, a ray is turned into that frame here
@@ -473,8 +474,75 @@ const PLAIN: u32 = 0u;
 const GRASS: u32 = 1u;
 const STONE: u32 = 2u;
 
+// The patterns with parts (ADR 0039), the port of `part` in tools/review/workbench.html: which part texel
+// (x, y) of a 16 x 16 face is (0 the colour, 1 colour2, 2 colour3), the part it blends towards, how far, and a
+// shade. y counts down from a side's top edge, as on the page. Whole numbers and `hash` only.
+fn part(look: Look, pattern: u32, dir: u32, cell: vec3i, x: i32, y: i32) -> vec4f {
+    let s = i32(look.size);
+    let amt = look.amount;
+    let cz = cell.x * 7 + cell.y * 13 + cell.z * 5 + i32(dir);
+    let e = min(min(x, y), min(15 - x, 15 - y));
+    switch (pattern) {
+        case 3u: { // pebbles
+            let h = hash(vec3i(x + cz * 16, y, 31));
+            if (h < amt * 0.25) { return vec4f(1.0, 1.0, 0.0, 1.0); }
+            if (h > 1.0 - amt * 0.1) { return vec4f(2.0, 2.0, 0.0, 1.0); }
+        }
+        case 4u: { // speckle
+            let cx = x / s;
+            let cy = y / s;
+            if (hash(vec3i(cx + cz, cy, 91)) < amt) {
+                let ox = cx * s + i32(floor(hash(vec3i(cx + cz, cy, 17)) * f32(s)));
+                let oy = cy * s + i32(floor(hash(vec3i(cx + cz, cy, 23)) * f32(s)));
+                let ax = f32(abs(x - ox));
+                let ay = f32(abs(y - oy));
+                let dist = max(ax, ay) + min(ax, ay) / 2.0;
+                let r = f32(s) * 0.42;
+                if (dist <= r * 0.4) { return vec4f(2.0, 2.0, 0.0, 1.0); }
+                if (dist <= r) { return vec4f(1.0, 1.0, 0.0, 1.0); }
+            }
+        }
+        case 5u: { // frame
+            if (e < s) { return vec4f(1.0, 1.0, 0.0, 1.0); }
+            let t = min(1.0, f32(e - s) / f32(max(1, 7 - s)));
+            // floor(v + 0.5): the page's Math.round, not WGSL's round half to even
+            return vec4f(0.0, 2.0, floor(t * amt * 4.0 + 0.5) / 4.0, 1.0);
+        }
+        case 6u: { // weave
+            let off = i32(floor(hash(vec3i(cz, y, 5)) * f32(s)));
+            if (hash(vec3i((x + off) / s + cz * 3, y, 9)) < amt) { return vec4f(1.0, 1.0, 0.0, 1.0); }
+        }
+        case 7u: { // planks
+            let board = x / s + cz;
+            if (x % s == 0 || y == i32(floor(hash(vec3i(board, 0, 3)) * 16.0))) { return vec4f(1.0, 1.0, 0.0, 1.0); }
+            return vec4f(0.0, 1.0, select(0.0, 0.35, hash(vec3i(board, y, 4)) < amt * 0.3), 0.92 + 0.16 * hash(vec3i(board, 1, 4)));
+        }
+        case 8u: { // tiles
+            if (x % s == 0 || y % s == 0) { return vec4f(1.0, 1.0, 0.0, 1.0); }
+            if (hash(vec3i(x + cz * 16, y, 41)) < amt * 0.3) { return vec4f(2.0, 2.0, 0.0, 1.0); }
+        }
+        case 9u: { // bricks
+            let h = max(2, s);
+            let row = y / h;
+            let xo = x + (row % 2) * h;
+            if (y % h == 0 || xo % (2 * h) == 0) { return vec4f(1.0, 1.0, 0.0, 1.0); }
+            return vec4f(0.0, 2.0, select(0.0, amt, y % h == 1), 0.94 + 0.12 * hash(vec3i(xo / (2 * h) + cz, row, 6)));
+        }
+        case 10u: { // rings
+            if ((e / s) % 2 == 1) { return vec4f(1.0, 1.0, 0.0, 1.0); }
+        }
+        default: {}
+    }
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+}
+
+fn part_colour(look: Look, i: f32) -> vec3f {
+    return select(select(look.colour, look.colour2, i > 0.5), look.colour3, i > 1.5);
+}
+
 // a pixel-art texel on an N x N grid per block face: 3 tones of noise, grass tops, a grass fringe on the
-// upper rows of a grass block's sides, dark crack texels in stone
+// upper rows of a grass block's sides, dark crack texels in stone, the patterns with parts; a block with a
+// `side` takes that block's look on its sides and foot
 fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32) -> vec3f {
     let n = TEXELS;
     let ti = vec2i(floor(t * n));
@@ -484,13 +552,30 @@ fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32) -> vec3f {
     if ((looks[m].info & 255u) == GRASS && dir != 4u) {
         // a side of a grass block takes its side block's look, with 2-4 rows of grass over the top edge
         let fringe = 2.0 + floor(hash(cell * i32(n) + vec3i(ti.x, 7, i32(dir))) * 3.0);
-        if (floor(hgt * n) < n - fringe) { m = looks[m].info >> 8u; }
+        if (floor(hgt * n) < n - fringe) { m = (looks[m].info >> 8u) & 255u; }
+    } else if (dir != 4u) {
+        // any other block's side is its own id unless it names one (the mask drops metal and light)
+        m = (looks[m].info >> 8u) & 255u;
     }
     let look = looks[m];
     let pattern = look.info & 255u;
-    var c = look.colour * tone;
+    // contrast 1 is exactly the look before ADR 0039
+    let k = select(1.0 + look.contrast * (tone - 1.0), tone, look.contrast == 1.0);
+    var c = look.colour * k;
     if (pattern == STONE && h > 0.94) { c *= 0.6; }
     if (pattern == GRASS && h > 0.9) { c *= 1.15; }
+    if (pattern > STONE) {
+        // on a side, x runs along it and y down from its top edge (t is (y, z) on an x face, (z, x) on a y face)
+        var x = ti.x;
+        var y = ti.y;
+        if (dir < 4u) {
+            let on_y = dir / 2u == 1u;
+            x = select(ti.x, ti.y, on_y);
+            y = 15 - select(ti.y, ti.x, on_y);
+        }
+        let q = part(look, pattern, dir, cell, x, y);
+        c = mix(part_colour(look, q.x), part_colour(look, q.y), q.z) * (k * q.w);
+    }
     return c;
 }
 

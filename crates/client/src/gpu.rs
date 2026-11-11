@@ -435,17 +435,25 @@ impl Gpu {
         // the terrain's draws, then the sea's at MAX_CHUNKS * 16
         let indirect = buf("indirect", (MAX_CHUNKS * 32) as u64, U::INDIRECT | U::COPY_DST);
         let wquads = buf("wquads", (MAX_WQUADS * std::mem::size_of::<water::WQuad>()) as u64, U::STORAGE | U::COPY_DST);
-        // every block's look from the registry (ADR 0013): colour rgb, then pattern | side << 8, 16 bytes each
-        let looks = buf("looks", 256 * 16, U::STORAGE | U::COPY_DST);
-        let look: Vec<[u32; 4]> = (0..=255u8)
-            .map(|id| match engine::blocks::BLOCKS.get(id) {
-                Some(d) => {
-                    let [r, g, b] = d.colour.map(f32::to_bits);
-                    let shine = (d.metal * 255.0).round() as u32;
-                    let gives = (d.light != [0.0; 3]) as u32;
-                    [r, g, b, d.pattern as u32 | (d.side as u32) << 8 | shine << 16 | gives << 24]
+        // every block's look from the registry (ADR 0013, 0039), shader.wgsl `Look`, 64 bytes each: colour rgb,
+        // pattern | side << 8 | metal << 16 | gives light << 24; colour2, size; colour3, amount; contrast
+        let looks = buf("looks", 256 * 64, U::STORAGE | U::COPY_DST);
+        let look: Vec<[u32; 16]> = (0..=255u8)
+            .map(|id| {
+                let f = f32::to_bits;
+                match engine::blocks::BLOCKS.get(id) {
+                    Some(d) => {
+                        let ([r, g, b], [r2, g2, b2], [r3, g3, b3]) = (d.colour.map(f), d.colour2.map(f), d.colour3.map(f));
+                        let shine = (d.metal * 255.0).round() as u32;
+                        let gives = (d.light != [0.0; 3]) as u32;
+                        let info = d.pattern as u32 | (d.side as u32) << 8 | shine << 16 | gives << 24;
+                        [r, g, b, info, r2, g2, b2, d.size as u32, r3, g3, b3, f(d.amount), f(d.contrast), 0, 0, 0]
+                    }
+                    None => {
+                        let h = f(0.5);
+                        [h, h, h, (id as u32) << 8, h, h, h, 0, h, h, h, 0, f(1.0), 0, 0, 0]
+                    }
                 }
-                None => [0.5f32.to_bits(), 0.5f32.to_bits(), 0.5f32.to_bits(), (id as u32) << 8],
             })
             .collect();
         queue.write_buffer(&looks, 0, bytemuck::cast_slice(&look));
