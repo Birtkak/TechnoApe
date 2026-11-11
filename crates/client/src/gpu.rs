@@ -177,6 +177,31 @@ mod eclipse_tests {
 }
 
 #[cfg(test)]
+mod texture_layer_tests {
+    use super::*;
+    use engine::textures::{Face, Painted};
+    fn face(c: u8, variants: usize) -> Face {
+        Face { variants: (0..variants).map(|v| [[c, v as u8, 0, 255]; 256]).collect(), mean: [0.0; 3] }
+    }
+    // a face that falls back to the block's every-face file shares that file's layers
+    #[test]
+    fn faces_of_one_file_share_their_layers() {
+        let all = face(1, 4);
+        let blocks: Vec<(u8, Painted)> = (1..=200u8).map(|id| (id, Painted { faces: [Some(all.clone()), Some(all.clone()), Some(all.clone())] })).collect();
+        let (placed, layers, refused) = place(blocks, TEX_LAYERS);
+        assert_eq!((placed.len(), layers.len(), refused.len()), (200, 800, 0), "4 layers a block, not 12");
+        assert!(placed.iter().all(|(_, _, at)| at[0] == at[1] && at[1] == at[2]));
+        // a top of its own takes its own layers; side and bottom still share
+        let (placed, layers, _) = place(vec![(1, Painted { faces: [Some(face(2, 1)), Some(all.clone()), Some(all.clone())] })], TEX_LAYERS);
+        assert_eq!((placed[0].2, layers.len()), ([0, 1, 1], 5));
+        assert_eq!((layers[0][0], layers[1][0], layers[4][0]), ([2, 0, 0, 255], [1, 0, 0, 255], [1, 3, 0, 255]));
+        // the cap counts the layers taken, and a block past it is refused whole
+        let (placed, layers, refused) = place(vec![(1, Painted { faces: [Some(all.clone()), Some(all.clone()), None] }), (2, Painted { faces: [Some(face(3, 2)), None, None] })], 5);
+        assert_eq!((placed.len(), layers.len(), refused), (1, 4, vec![2]));
+    }
+}
+
+#[cfg(test)]
 mod lamp_grid_tests {
     use super::*;
     // every lamp is listed in exactly the cells within its reach, checked against the cells' corners directly
@@ -357,11 +382,128 @@ pub(crate) struct Gpu {
     /// The terrain's shader and the block looks: the bounce light is built again from them on a resize.
     pub(crate) shader: wgpu::ShaderModule,
     pub(crate) looks: wgpu::Buffer,
+    /// The painted block faces (ADR 0045) and the watcher's newest set of them.
+    pub(crate) tex: wgpu::Buffer,
+    pub(crate) tex_rx: std::sync::mpsc::Receiver<engine::textures::Set>,
     pub(crate) ts: Option<(wgpu::QuerySet, wgpu::Buffer, Vec<(wgpu::Buffer, Arc<AtomicBool>, bool)>)>,
     pub(crate) ts_period: f32,
     pub(crate) capture: Option<wgpu::Buffer>,
     pub(crate) adapter_name: String,
     pub(crate) backend: String,
+}
+
+/// The painted faces' 16 x 16 layers (2 MB); a block past them keeps its pattern.
+const TEX_LAYERS: u32 = 2048;
+
+/// What the hotbar and the "looking at" cube show of a painted block: its top's mean and its side's.
+pub(crate) static SHOWN: std::sync::RwLock<[Option<[[f32; 3]; 2]>; 256]> = std::sync::RwLock::new([None; 256]);
+
+/// A block as the hotbar's cubes draw it: top colour, side colour, pattern; a painted block in its faces' means
+/// with plain noise (ADR 0045), any other in its colours (a grass block's sides are its `side` block's).
+pub(crate) fn shown(d: &engine::blocks::Def) -> ([f32; 3], [f32; 3], u8) {
+    match SHOWN.read().unwrap()[d.id as usize] {
+        Some([top, side]) => (top, side, 0),
+        None => (d.colour, engine::blocks::BLOCKS.get(d.side).map_or(d.colour, |s| s.colour), d.pattern as u8),
+    }
+}
+
+/// Every block's look from the registry (ADR 0013, 0039, 0045), shader.wgsl `Look`, 64 bytes each: colour rgb,
+/// pattern | side << 8 | metal << 16 | gives light << 24; colour2, size; colour3, amount; contrast; the painted
+/// faces (16 bits a face: layer | variants - 1 << 12 | painted << 15; top and side in `tex`, the bottom in
+/// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24).
+fn looks_of(painted: &[(u8, engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 16]> {
+    (0..=255u8)
+            .map(|id| {
+                let f = f32::to_bits;
+                match engine::blocks::BLOCKS.get(id) {
+                    Some(d) => {
+                        let ([r, g, b], [r2, g2, b2], [r3, g3, b3]) = (d.colour.map(f), d.colour2.map(f), d.colour3.map(f));
+                        let shine = (d.metal * 255.0).round() as u32;
+                        let gives = (d.light != [0.0; 3]) as u32;
+                        let info = d.pattern as u32 | (d.side as u32) << 8 | shine << 16 | gives << 24;
+                        let (mut tex, mut mean) = (0u64, 0);
+                        if let Some((_, p, at)) = painted.iter().find(|(b, _, _)| *b == id) {
+                            for (k, face) in p.faces.iter().enumerate() {
+                                if let Some(face) = face {
+                                    tex |= ((at[k] | (face.variants.len() as u32 - 1) << 12 | 1 << 15) as u64) << (16 * k);
+                                }
+                            }
+                            let [mr, mg, mb] = p.colour().unwrap_or(d.colour).map(|c| (c * 255.0).round() as u32);
+                            mean = mr | mg << 8 | mb << 16 | 1 << 24;
+                        }
+                        [r, g, b, info, r2, g2, b2, d.size as u32, r3, g3, b3, f(d.amount), f(d.contrast), tex as u32, mean, (tex >> 32) as u32]
+                    }
+                    None => {
+                        let h = f(0.5);
+                        [h, h, h, (id as u32) << 8, h, h, h, 0, h, h, h, 0, f(1.0), 0, 0, 0]
+                    }
+                }
+            })
+        .collect()
+}
+
+/// Where the painted faces go among `cap` layers: per block its first layer for top, side and bottom, the
+/// layers in order, and the blocks that did not fit (they keep their patterns).
+fn place(blocks: Vec<(u8, engine::textures::Painted)>, cap: u32) -> (Vec<(u8, engine::textures::Painted, [u32; 3])>, Vec<engine::textures::Pixels>, Vec<u8>) {
+    let (mut placed, mut layers, mut refused) = (vec![], vec![], vec![]);
+    for (id, p) in blocks {
+        // a face the same as an earlier one of its block (a `<block>.png` they fall back to) takes its layers
+        let first = |k: usize| (0..k).find(|&e| p.faces[e].is_some() && p.faces[e] == p.faces[k]);
+        let n: u32 = (0..3).filter(|&k| first(k).is_none()).filter_map(|k| p.faces[k].as_ref()).map(|f| f.variants.len() as u32).sum();
+        if layers.len() as u32 + n > cap {
+            refused.push(id);
+            continue;
+        }
+        let mut at = [0; 3];
+        for k in 0..3 {
+            match (first(k), &p.faces[k]) {
+                (Some(e), _) => at[k] = at[e],
+                (None, Some(f)) => {
+                    at[k] = layers.len() as u32;
+                    layers.extend_from_slice(&f.variants);
+                }
+                (None, None) => {}
+            }
+        }
+        placed.push((id, p, at));
+    }
+    (placed, layers, refused)
+}
+
+/// The watcher (ADR 0045): a thread that reads `dir`'s textures at the start and again within a second of a
+/// file there changing, appearing or going, so decoding never runs on the frame thread. A refused file is
+/// logged by name.
+fn watch_textures(dir: std::path::PathBuf) -> std::sync::mpsc::Receiver<engine::textures::Set> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("textures".into())
+        .spawn(move || {
+            let mut seen = None;
+            loop {
+                let now: Vec<_> = std::fs::read_dir(&dir)
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .filter_map(|e| Some((e.file_name(), e.metadata().ok()?.modified().ok()?, e.metadata().ok()?.len())))
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect();
+                if seen.as_ref() != Some(&now) {
+                    let set = engine::textures::load(&dir, &engine::blocks::BLOCKS);
+                    for why in &set.refused {
+                        eprintln!("[technoape] textures: {why}; that block keeps its pattern");
+                    }
+                    // the first look at an empty folder changes nothing: send it only when there is something
+                    if (seen.is_some() || !set.blocks.is_empty()) && tx.send(set).is_err() {
+                        return;
+                    }
+                    seen = Some(now);
+                }
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        })
+        .expect("the textures thread");
+    rx
 }
 
 impl Gpu {
@@ -444,25 +586,10 @@ impl Gpu {
         // every block's look from the registry (ADR 0013, 0039), shader.wgsl `Look`, 64 bytes each: colour rgb,
         // pattern | side << 8 | metal << 16 | gives light << 24; colour2, size; colour3, amount; contrast
         let looks = buf("looks", 256 * 64, U::STORAGE | U::COPY_DST);
-        let look: Vec<[u32; 16]> = (0..=255u8)
-            .map(|id| {
-                let f = f32::to_bits;
-                match engine::blocks::BLOCKS.get(id) {
-                    Some(d) => {
-                        let ([r, g, b], [r2, g2, b2], [r3, g3, b3]) = (d.colour.map(f), d.colour2.map(f), d.colour3.map(f));
-                        let shine = (d.metal * 255.0).round() as u32;
-                        let gives = (d.light != [0.0; 3]) as u32;
-                        let info = d.pattern as u32 | (d.side as u32) << 8 | shine << 16 | gives << 24;
-                        [r, g, b, info, r2, g2, b2, d.size as u32, r3, g3, b3, f(d.amount), f(d.contrast), 0, 0, 0]
-                    }
-                    None => {
-                        let h = f(0.5);
-                        [h, h, h, (id as u32) << 8, h, h, h, 0, h, h, h, 0, f(1.0), 0, 0, 0]
-                    }
-                }
-            })
-            .collect();
-        queue.write_buffer(&looks, 0, bytemuck::cast_slice(&look));
+        queue.write_buffer(&looks, 0, bytemuck::cast_slice(&looks_of(&[])));
+        // the painted faces (ADR 0045): 16 x 16 layers, filled by `take_textures` from the watcher's thread
+        let tex = buf("block textures", TEX_LAYERS as u64 * 1024, U::STORAGE | U::COPY_DST);
+        let tex_rx = watch_textures(std::path::PathBuf::from(a.get("textures", String::from("data/textures"))));
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
@@ -503,6 +630,7 @@ impl Gpu {
                     ty: wgpu::BindingType::AccelerationStructure { vertex_return: false },
                     count: None,
                 },
+                storage(11),
             ],
         });
         let rt = rt::Rt::new(&device, &shader, &globals, &quads, MAX_CHUNKS as u32);
@@ -519,6 +647,7 @@ impl Gpu {
                 wgpu::BindGroupEntry { binding: 8, resource: lamps.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 9, resource: lamp_cells.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 10, resource: fx_buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 11, resource: tex.as_entire_binding() },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -734,12 +863,38 @@ impl Gpu {
             depth,
             shader: shader.clone(),
             looks: looks.clone(),
+            tex,
+            tex_rx,
             ts,
             capture,
             adapter_name: info.name.clone(),
             backend: format!("{:?}", info.backend),
         };
         (gpu, rt, gi)
+    }
+
+    /// Swaps in the watcher's newest textures, if it sent any: the layers, the looks, the hotbar's colours.
+    pub(crate) fn take_textures(&self) {
+        let Some(set) = self.tex_rx.try_iter().last() else { return };
+        let (placed, layers, refused) = place(set.blocks, TEX_LAYERS);
+        for id in refused {
+            let name = &engine::blocks::BLOCKS.get(id).unwrap().name;
+            eprintln!("[technoape] textures: {name} refused, more than {TEX_LAYERS} faces and variants in all");
+        }
+        if !layers.is_empty() {
+            self.queue.write_buffer(&self.tex, 0, bytemuck::cast_slice(&layers));
+        }
+        let mut shown = [None; 256];
+        for (id, p, _) in &placed {
+            let d = engine::blocks::BLOCKS.get(*id).unwrap();
+            let side = engine::blocks::BLOCKS.get(d.side).map_or(d.colour, |s| s.colour);
+            if p.colour().is_some() {
+                shown[*id as usize] = Some([p.faces[0].as_ref().map_or(d.colour, |f| f.mean), p.faces[1].as_ref().map_or(side, |f| f.mean)]);
+            }
+        }
+        eprintln!("[technoape] textures: {} blocks painted, {} layers", placed.len(), layers.len());
+        self.queue.write_buffer(&self.looks, 0, bytemuck::cast_slice(&looks_of(&placed)));
+        *SHOWN.write().unwrap() = shown;
     }
 
     pub(crate) fn upload(&self, off: u32, q: &[[u32; 2]]) {

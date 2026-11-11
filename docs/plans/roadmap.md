@@ -117,6 +117,11 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
    Content target after that (ADR 0009, `docs/design/progression.md`): the starter to HV, which is one
    planet, the planet's air up to pollution, and three networks (pipes, shafts, wires) on one network engine.
 
+   **Beside all of the above, the Studio** (ADR 0044, `docs/design/studio.md`): our own program in which the
+   developer makes the game's textures and voxel models by hand, later effects, trees and structures. Its
+   seven steps are in the design doc; the first is a measured spike of painted 16 x 16 textures against
+   ADR 0039's patterns, the second lets a PNG in `data/textures/` replace a block's pattern.
+
 ## The shared benchmark
 The engine keeps the spikes' benchmark as its performance check, so numbers stay comparable over time.
 

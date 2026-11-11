@@ -48,9 +48,18 @@ struct Chunk { base: vec3i, info: u32, off: u32 };
 @group(0) @binding(2) var<storage, read> chunks: array<Chunk>;
 // a block's look from data/blocks.toml (ADR 0013): info = pattern | side << 8 | metal (0..255) << 16 | gives light
 // << 24; patterns 0 plain, 1 grass, 2 stone
-// (ADR 0039) and a pattern's second and third colours, its size in texels, amount and grain contrast
-struct Look { colour: vec3f, info: u32, colour2: vec3f, size: u32, colour3: vec3f, amount: f32, contrast: f32 };
+// (ADR 0039) and a pattern's second and third colours, its size in texels, amount and grain contrast; the
+// painted faces (ADR 0045, gpu.rs `looks_of`: 16 bits a face, layer | variants - 1 << 12 | painted << 15; top
+// and side in `tex`, the bottom in `tex2`) and a painted block's one colour, unorm 8-bit, painted << 24
+struct Look { colour: vec3f, info: u32, colour2: vec3f, size: u32, colour3: vec3f, amount: f32, contrast: f32, tex: u32, mean: u32, tex2: u32 };
 @group(0) @binding(3) var<storage, read> looks: array<Look, 256>;
+// the painted faces' 16 x 16 layers, RGBA8 a u32, rows from the top, read with no filter and no mips: one texel
+// as the patterns hash one (a buffer, not a texture array: an image took a new 256 MB block of VRAM, ADR 0045)
+@group(0) @binding(11) var<storage, read> tex: array<u32>;
+// the colour a ray that meets block m sees: its own, or a painted block's mean
+fn seen_colour(m: u32) -> vec3f {
+    return select(looks[m].colour, unpack4x8unorm(looks[m].mean).rgb, (looks[m].mean >> 24u) != 0u);
+}
 // every chunk's terrain near and far, drawn or not, one instance each with mask 1 << body (ADR 0022), in its
 // body's frame relative to its centre: the instances carry no transform, a ray is turned into that frame here
 // (ADR 0025, B)
@@ -469,10 +478,10 @@ fn seen(p: vec3f, d: vec3f, body: u32, px: vec2u, bounce: bool, tmax: f32) -> ve
     if (a == 1u) { hn = normalize(f.t - f.n * f.tb); }
     if ((dir & 1u) == 1u) { hn = -hn; }
     let m = q.y & 255u;
-    if ((looks[m].info >> 24u) == 1u) { return select(looks[m].colour, vec3f(0.0), bounce); }
+    if ((looks[m].info >> 24u) == 1u) { return select(seen_colour(m), vec3f(0.0), bounce); }
     let l = light(p + d * h.t, brot(b, hn), body, px);
     // the light from around at the hit: a flat share, the second bounce
-    return looks[m].colour * (l.l + ambient(l.day) * select(1.0, 0.35, bounce));
+    return seen_colour(m) * (l.l + ambient(l.day) * select(1.0, 0.35, bounce));
 }
 
 // ---- the bounce (ADR 0022) ----
@@ -603,13 +612,32 @@ fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32) -> vec3f {
     let h = hash(cell * i32(n) + vec3i(ti.x, ti.y, i32(dir)));
     let tone = 0.82 + 0.12 * floor(h * 3.0);
     var m = mat & 255u;
-    if ((looks[m].info & 255u) == GRASS && dir != 4u) {
+    // a painted face: its own file, else the block its side and foot take (ADR 0045)
+    let sh = select(0u, 16u, dir < 4u);
+    var painted = (select(looks[m].tex, looks[m].tex2, dir == 5u) >> sh) & 65535u;
+    if (painted == 0u && (looks[m].info & 255u) == GRASS && dir != 4u) {
         // a side of a grass block takes its side block's look, with 2-4 rows of grass over the top edge
         let fringe = 2.0 + floor(hash(cell * i32(n) + vec3i(ti.x, 7, i32(dir))) * 3.0);
         if (floor(hgt * n) < n - fringe) { m = (looks[m].info >> 8u) & 255u; }
-    } else if (dir != 4u) {
+    } else if (painted == 0u && dir != 4u) {
         // any other block's side is its own id unless it names one (the mask drops metal and light)
         m = (looks[m].info >> 8u) & 255u;
+    }
+    painted = (select(looks[m].tex, looks[m].tex2, dir == 5u) >> sh) & 65535u;
+    // on a side, x runs along it and y down from its top edge (t is (y, z) on an x face, (z, x) on a y face)
+    var x = ti.x;
+    var y = ti.y;
+    if (dir < 4u) {
+        let on_y = dir / 2u == 1u;
+        x = select(ti.x, ti.y, on_y);
+        y = 15 - select(ti.y, ti.x, on_y);
+    }
+    if (painted != 0u) {
+        // one of its variants by the cell's hash, the same on every face of the block
+        let nv = ((painted >> 12u) & 3u) + 1u;
+        let v = min(u32(hash(cell + vec3i(0, 0, 4099)) * f32(nv)), nv - 1u);
+        let p = vec2u(clamp(vec2i(x, y), vec2i(0), vec2i(15)));
+        return unpack4x8unorm(tex[((painted & 4095u) + v) * 256u + p.y * 16u + p.x]).rgb;
     }
     let look = looks[m];
     let pattern = look.info & 255u;
@@ -619,14 +647,6 @@ fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32) -> vec3f {
     if (pattern == STONE && h > 0.94) { c *= 0.6; }
     if (pattern == GRASS && h > 0.9) { c *= 1.15; }
     if (pattern > STONE) {
-        // on a side, x runs along it and y down from its top edge (t is (y, z) on an x face, (z, x) on a y face)
-        var x = ti.x;
-        var y = ti.y;
-        if (dir < 4u) {
-            let on_y = dir / 2u == 1u;
-            x = select(ti.x, ti.y, on_y);
-            y = 15 - select(ti.y, ti.x, on_y);
-        }
         let q = part(look, pattern, dir, cell, x, y);
         c = mix(part_colour(look, q.x), part_colour(look, q.y), q.z) * (k * q.w);
     }

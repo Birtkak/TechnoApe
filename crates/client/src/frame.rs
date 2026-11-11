@@ -629,6 +629,7 @@ impl App {
             };
             cams[bi] = (c + b.centre, m.as_dmat3());
         }
+        gpu.take_textures();
         // the lamps: gathered again when they change or every 10 frames, placed and gridded every frame
         let ec = self.world.lights_rev;
         if self.lamps_at.1 != ec || self.streamer.frame >= self.lamps_at.0 + 10 {

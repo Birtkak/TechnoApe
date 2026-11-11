@@ -956,9 +956,8 @@ impl App {
             .filter_map(|k| self.slot_block(k))
             .map(|m| {
                 let d = BLOCKS.get(m).unwrap();
-                // a grass block's sides are another block's (blocks.toml `side`)
-                let side = BLOCKS.get(d.side).map_or(d.colour, |s| s.colour);
-                hud::Slot { colour: d.colour, side, pattern: d.pattern as u8, count: (!self.creative).then(|| self.held_count(m)) }
+                let (colour, side, pattern) = crate::gpu::shown(d);
+                hud::Slot { colour, side, pattern, count: (!self.creative).then(|| self.held_count(m)) }
             })
             .collect();
         let height = (self.hammer && self.tool.kind != Kind::Box).then_some(self.tool.height);
@@ -1071,8 +1070,8 @@ impl App {
                     (false, true) => "metal",
                     _ => "",
                 };
-                let side = BLOCKS.get(d.side).map_or(d.colour, |s| s.colour);
-                hud::looking_at(&mut paint, &d.name, d.colour, side, d.pattern as u8, note, label_y);
+                let (colour, side, pattern) = crate::gpu::shown(d);
+                hud::looking_at(&mut paint, &d.name, colour, side, pattern, note, label_y);
             }
         }
         // the block in hand, large at the lower right, on its tracks (ADR 0031): the dip when it digs or places,
@@ -1082,9 +1081,9 @@ impl App {
                 let [dx, dy] = self.dip.at(self.start.elapsed().as_secs_f64());
                 let pace = if self.me.on_ground { (self.me.vel.length() / 4.0).min(1.0) as f32 } else { 0.0 };
                 let [bx, by] = BOB.at(self.walked).map(|v| v * pace);
-                let side = BLOCKS.get(d.side).map_or(d.colour, |s| s.colour);
+                let (colour, side, pattern) = crate::gpu::shown(d);
                 let (x, y) = (lw - 250.0 + dx + bx, lh - 236.0 + dy + by);
-                hud::cube(&mut |x, y, w, h, c, g| paint.rect(x, y, w, h, c, g), x, y, 176.0, d.colour, side, d.pattern as u8, 1.0);
+                hud::cube(&mut |x, y, w, h, c, g| paint.rect(x, y, w, h, c, g), x, y, 176.0, colour, side, pattern, 1.0);
             }
         }
         if self.flying && !title {

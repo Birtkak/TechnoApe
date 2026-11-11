@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds for the developer to double-click (ADR 0023): `bash tools/playtest.sh build` copies a release build to
+# Builds for the developer to double-click (ADR 0023; the Studio beside it as TechnoApeStudio.exe, ADR 0046):
+# `bash tools/playtest.sh build` copies a release build to
 # build/TechnoApe.exe, the newest one; `bash tools/playtest.sh` (or `playtest`) to playtest/TechnoApe.exe, the one
 # handed over to play-test, which changes only then. Started without arguments either opens the title menu with
 # the repository's saves/ and bugs/. target/ stays Claude's own.
@@ -11,4 +12,5 @@ export PATH="$HOME/Tools/rust/cargo/bin:$PATH" CARGO_HOME="$HOME/Tools/rust/carg
 cargo build --release
 mkdir -p "$to"
 cp target/release/technoape.exe "$to/TechnoApe.exe" || { echo "$to/TechnoApe.exe is in use: close the game first" >&2; exit 1; }
+cp target/release/technoape-studio.exe "$to/TechnoApeStudio.exe" || { echo "$to/TechnoApeStudio.exe is in use: close the Studio first" >&2; exit 1; }
 echo "$to/TechnoApe.exe ($(git rev-parse --short HEAD)$(git diff --quiet HEAD -- || echo '+changes'))"

@@ -1,0 +1,87 @@
+# The one palette every texture and model is painted from (docs/design/studio.md; schema in
+# crates/engine/src/palette.rs). `name`: unique, lower case. `rgb`: "#rrggbb", sRGB, the bytes a PNG holds.
+# The order here is the order on the Studio's Palette page. Written by the Studio: comments are not kept.
+
+[[colour]]
+name = "grass dark"
+rgb = "#2a511c"
+
+[[colour]]
+name = "grass"
+rgb = "#4c9433"
+
+[[colour]]
+name = "grass light"
+rgb = "#93ec73"
+
+[[colour]]
+name = "dirt dark"
+rgb = "#422e1c"
+
+[[colour]]
+name = "dirt"
+rgb = "#785433"
+
+[[colour]]
+name = "dirt light"
+rgb = "#c99c73"
+
+[[colour]]
+name = "stone dark"
+rgb = "#464649"
+
+[[colour]]
+name = "stone"
+rgb = "#808085"
+
+[[colour]]
+name = "stone light"
+rgb = "#d2d2d9"
+
+[[colour]]
+name = "copper dark"
+rgb = "#77492d"
+
+[[colour]]
+name = "copper"
+rgb = "#d98552"
+
+[[colour]]
+name = "copper light"
+rgb = "#ffd999"
+
+[[colour]]
+name = "lamp dark"
+rgb = "#8c7957"
+
+[[colour]]
+name = "lamp"
+rgb = "#ffdb9e"
+
+[[colour]]
+name = "lamp light"
+rgb = "#fffff9"
+
+[[colour]]
+name = "blue lamp dark"
+rgb = "#57738c"
+
+[[colour]]
+name = "blue lamp"
+rgb = "#9ed1ff"
+
+[[colour]]
+name = "blue lamp light"
+rgb = "#f9ffff"
+
+[[colour]]
+name = "regolith dark"
+rgb = "#797976"
+
+[[colour]]
+name = "regolith"
+rgb = "#dbdbd6"
+
+[[colour]]
+name = "regolith light"
+rgb = "#ffffff"

@@ -79,7 +79,8 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   /place <block> [face i j layer], /goto terra|luna|sun, /timewarp (. and , step it), /heal, /feed [n], /hurt <points>
   (survival's health and hunger, ADR 0040: impacts hurt, hunger drains, the bars over the hotbar are
   survival's; at 0 health the death screen's `click:0` respawns), /help; /sound <name> plays a row of `data/sounds.toml` (ADR 0032:
-  a recording `data/sounds/<name>.wav` replaces the code-made one; `sounds=1` prints every sound in numbers;
+  a recording `data/sounds/<name>.wav` replaces the code-made one; a painting `data/textures/<block>[_top|_side|_bottom].png`
+  replaces a block's pattern, live within a second, a refused file named on stderr (ADR 0045; `textures=dir` reads another folder); `sounds=1` prints every sound in numbers;
   off-screen runs are silent unless `sound=1`, and a play run's JSON counts what it played under `audio`); Tab completes a command, the arrows pick, else the up arrow
   recalls the last line; in creative (/playmode creative) space twice flies, the wheel its speed (not the hotbar) up to
   1 km/s; F3 the overlay of
@@ -93,6 +94,10 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   folder, saves/ and bugs/: Singleplayer lists the saves and makes new worlds): `bash tools/playtest.sh build` refreshes `build/TechnoApe.exe` after every change
   that can be run; `bash tools/playtest.sh` refreshes `playtest/TechnoApe.exe` only when handing a version over
   to play-test. `target/` is Claude's own.
+- **The Studio** (`technoape-studio`, `crates/studio`, ADR 0044 and 0046; handed over as `build/TechnoApeStudio.exe`):
+  paints `data/textures/*.png` from `data/palette.toml`. Headless, one JSON line: `check=1` (palette and every
+  texture; exit 1 names file and pixel), `drafts=1` (`data/drafts.txt`), `render=<png> sheet=out/x.png` (3 x 3),
+  `shot=out/x.png [open=<block>] [page=palette]` (one frame of the window off-screen; read it, never open the window).
 - **Bug reports:** F9 writes `bugs/<UTC time>/`: `report.md` (the developer's words, a run=stand line for the
   same view, the F3 state, the chat), `screen.png`, and `world.sav` when there was a save. When asked to look
   at bugs, read those first.
