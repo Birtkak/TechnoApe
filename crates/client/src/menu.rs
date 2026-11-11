@@ -4,7 +4,70 @@ use super::*;
 /// What a start without arguments runs: the title menu over a throwaway world, seen from orbit.
 pub(crate) const TITLE_ARGS: [&str; 5] = ["run=play", "onscreen=1", "title=1", "save=0", "record=0"];
 /// shortcut: the title lists the newest six saves; a scrolling list when there are more.
-pub(crate) const WORLDS_SHOWN: usize = 6;
+pub(crate) const WORLDS_SHOWN: usize = 20;
+
+/// The planets a new world offers: columns per face edge (3 * 2^k, so every level of detail halves evenly)
+/// and the radius that gives. Luna is a 24th of it (256 under the 4 km Terra).
+pub(crate) const SIZES: [(i32, &str); 5] = [(1536, "1 km"), (3072, "2 km"), (6144, "4 km"), (12288, "8 km"), (24576, "16 km")];
+
+/// The new world page's choices.
+pub(crate) struct NewWorld {
+    pub name: String,
+    /// As typed: a number is the seed itself, words are hashed to one, nothing takes one from the clock.
+    pub seed: String,
+    pub size: usize,
+    pub creative: bool,
+}
+
+impl Default for NewWorld {
+    fn default() -> Self {
+        NewWorld { name: String::new(), seed: String::new(), size: 2, creative: false }
+    }
+}
+
+/// The seed a typed text means, None for none typed. (Luna's is the seed + 1, so the ends of i32 are hashed too.)
+pub(crate) fn seed_of(text: &str) -> Option<i32> {
+    let t = text.trim();
+    if t.is_empty() {
+        return None;
+    }
+    Some(t.parse::<i32>().ok().filter(|n| n.unsigned_abs() < 2_000_000_000).unwrap_or_else(|| {
+        // FNV-1a: the same words give the same world on every machine
+        (t.bytes().fold(0x811c_9dc5u32, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193)) & 0x3fff_ffff) as i32
+    }))
+}
+
+/// A world's name as a file's: letters, digits, spaces, - and _ only.
+pub(crate) fn safe_name(text: &str) -> String {
+    text.trim().chars().filter(|c| c.is_alphanumeric() || " -_".contains(*c)).take(32).collect()
+}
+
+/// The arguments that start the new world `w`: its save under the first free name (`taken` says which are
+/// not, so a world is never carried on from by mistake), its seed (`clock` when none was typed), its sizes.
+pub(crate) fn new_world_args(w: &NewWorld, clock: i32, taken: impl Fn(&str) -> bool) -> Vec<String> {
+    let name = Some(safe_name(&w.name)).filter(|n| !n.is_empty()).unwrap_or("world".into());
+    let save = (1..).map(|n| if n == 1 { format!("saves/{name}.sav") } else { format!("saves/{name}-{n}.sav") }).find(|p| !taken(p)).unwrap();
+    let n = SIZES[w.size.min(SIZES.len() - 1)].0;
+    let mut a = vec![format!("save={save}"), format!("seed={}", seed_of(&w.seed).unwrap_or(clock)), format!("planet={n}"), format!("moon={}", n / 24)];
+    if w.creative {
+        // shortcut: the mode is the server's and has no start argument, so the command is typed for the
+        // player a second in; a mode in the save's header when worlds get more rules of their own
+        a.push("acts=1:say:/playmode creative".into());
+    }
+    a
+}
+
+#[test]
+fn a_new_world_starts_as_its_page_says() {
+    assert_eq!(seed_of("  "), None);
+    assert_eq!((seed_of("5"), seed_of(" -12 ")), (Some(5), Some(-12)));
+    let (a, b) = (seed_of("ape planet").unwrap(), seed_of("2147483647").unwrap());
+    assert!(a > 0 && b > 0 && b < 0x4000_0000 && seed_of("ape planet") == Some(a) && seed_of("ape planer") != Some(a), "words and the ends of i32 are hashed: {a} {b}");
+    let w = NewWorld { name: " my/world: 1 ".into(), seed: "5".into(), size: 3, creative: true };
+    assert_eq!(new_world_args(&w, 99, |p| p == "saves/myworld 1.sav"), ["save=saves/myworld 1-2.sav", "seed=5", "planet=12288", "moon=512", "acts=1:say:/playmode creative"]);
+    assert_eq!(new_world_args(&NewWorld::default(), 99, |_| false), ["save=saves/world.sav", "seed=99", "planet=6144", "moon=256"]);
+    assert!(SIZES.iter().all(|(n, _)| n % 768 == 0 && (n / 768).count_ones() == 1), "3 * 2^k columns");
+}
 
 /// The saves under saves/, newest first.
 pub(crate) fn list_worlds() -> Vec<String> {
@@ -79,11 +142,7 @@ pub(crate) fn world_note(path: &str) -> String {
     let played = std::fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).map_or(String::new(), |d| format!(", played {}", ago(d.as_secs())));
     match server::save::Save::read(std::path::Path::new(path)) {
         Ok(s) => {
-            let size = match s.planet_n {
-                6144 => "4 km".to_string(),
-                12288 => "8 km".to_string(),
-                n => format!("{n} columns"),
-            };
+            let size = SIZES.iter().find(|z| z.0 == s.planet_n).map_or(format!("{} columns", s.planet_n), |z| z.1.to_string());
             format!("seed {}, {size}{played}", s.seed)
         }
         Err(_) => format!("{OLD_WORLD}{played}"),
@@ -115,6 +174,8 @@ fn the_removing_row_is_not_under_the_click_that_asked() {
 pub(crate) enum Menu {
     Title,
     Worlds,
+    /// A new world's name, seed, planet and mode, before it is made.
+    NewWorld,
     /// The question before world k of the list is removed.
     Remove(usize),
     Pause,
@@ -223,7 +284,28 @@ impl App {
             Some(Menu::Title) => vec!["Singleplayer".into(), "Settings".into(), "Quit game".into()],
             Some(Menu::Worlds) => {
                 let names = self.worlds.iter().zip(&self.world_notes).map(|(p, n)| format!("{}   {n}", p.trim_start_matches("saves/").trim_end_matches(".sav")));
-                names.chain(["New world: Terra, 4 km, a seed of its own".into(), "Back".into()]).collect()
+                names.chain(["New world".into(), "Back".into()]).collect()
+            }
+            Some(Menu::NewWorld) => {
+                let n = &self.new_world;
+                let typed = |row: usize, text: &str, none: &str| match &self.edit {
+                    Some((k, t)) if *k == row => format!("{t}_"),
+                    _ if text.is_empty() => none.to_string(),
+                    _ => text.to_string(),
+                };
+                let seed = match seed_of(&n.seed) {
+                    Some(v) if n.seed.trim() != v.to_string() => format!("{} ({v})", n.seed.trim()),
+                    _ => n.seed.clone(),
+                };
+                let (cols, km) = SIZES[n.size];
+                vec![
+                    format!("Name: {}", typed(0, &n.name, "")),
+                    format!("Seed: {}", typed(1, &seed, "a new one (click to type a number or words)")),
+                    format!("Planet: Terra, {km} radius, {} km around ({cols} blocks a face)", cols * 4 / 1000),
+                    format!("Mode: {}", if n.creative { "creative" } else { "survival" }),
+                    "Create world".into(),
+                    "Back".into(),
+                ]
             }
             Some(Menu::Remove(k)) => {
                 let name = self.worlds.get(k).map_or("", |p| p.trim_start_matches("saves/").trim_end_matches(".sav"));
@@ -428,10 +510,28 @@ impl App {
             (Some(Menu::Worlds), k) if self.world_notes.get(k).is_some_and(|n| n.starts_with(OLD_WORLD)) => {}
             (Some(Menu::Worlds), k) if k < self.worlds.len() => self.start_again(vec![format!("save={}", self.worlds[k])]),
             (Some(Menu::Worlds), k) if k == self.worlds.len() => {
-                // a new world: the first free saves/world-N.sav, a seed from the clock; the server makes the file
-                let n = (1..).find(|n| !std::path::Path::new(&format!("saves/world-{n}.sav")).exists()).unwrap();
-                let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos() as i32 & 0x7fff_ffff);
-                self.start_again(vec![format!("save=saves/world-{n}.sav"), format!("seed={seed}")]);
+                if self.new_world.name.is_empty() {
+                    let n = (1..).find(|n| !std::path::Path::new(&format!("saves/world-{n}.sav")).exists()).unwrap();
+                    self.new_world.name = format!("world-{n}");
+                }
+                self.set_menu(Some(Menu::NewWorld));
+            }
+            (Some(Menu::NewWorld), row) => {
+                self.submit(); // a row still typed into is kept, Enter or not
+                let n = &mut self.new_world;
+                match row {
+                    0 => self.edit = Some((0, n.name.clone())),
+                    1 => self.edit = Some((1, n.seed.clone())),
+                    2 => n.size = cycle(&[0, 1, 2, 3, 4], n.size, back),
+                    3 => n.creative = !n.creative,
+                    4 => {
+                        // the server makes the file; a seed from the clock when none was typed
+                        let clock = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos() as i32 & 0x3fff_ffff);
+                        let args = new_world_args(&self.new_world, clock, |p| std::path::Path::new(p).exists());
+                        self.start_again(args);
+                    }
+                    _ => self.set_menu(Some(Menu::Worlds)),
+                }
             }
             (Some(Menu::Worlds), _) => self.set_menu(Some(Menu::Title)),
             (Some(Menu::Pause), 0) => self.set_menu(None),

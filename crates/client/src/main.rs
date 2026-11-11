@@ -473,6 +473,7 @@ fn main() {
         digs: Vec::new(),
         fx_edits,
         world_notes: Vec::new(),
+        new_world: Default::default(),
         creative,
         inv: Vec::new(),
         bucket_water: 0,

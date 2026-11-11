@@ -219,7 +219,7 @@ impl App {
                 Some(Menu::Settings) => Some(self.home()),
                 Some(Menu::Page(_)) => Some(Menu::Settings),
                 Some(Menu::Title | Menu::Worlds) => Some(Menu::Title),
-                Some(Menu::Remove(_)) => Some(Menu::Worlds),
+                Some(Menu::Remove(_) | Menu::NewWorld) => Some(Menu::Worlds),
                 Some(Menu::Waypoints) => Some(Menu::Pause),
                 Some(Menu::Waypoint(_)) => Some(Menu::Waypoints),
                 Some(Menu::Playtest) => None,
@@ -285,7 +285,7 @@ impl App {
             }
             // a slider's number takes digits and a point only; the keys' search and a waypoint's name take words
             a if a.starts_with("type:") && self.edit.is_some() => {
-                let words = matches!(self.menu, Some(Menu::Waypoint(_))) || self.page_row(0) == Some(Row::Search);
+                let words = matches!(self.menu, Some(Menu::Waypoint(_) | Menu::NewWorld)) || self.page_row(0) == Some(Row::Search);
                 let t = &mut self.edit.as_mut().unwrap().1;
                 let room = (if words { 32usize } else { 6 }).saturating_sub(t.chars().count());
                 t.extend(a[5..].chars().filter(|c| if words { !c.is_control() } else { c.is_ascii_digit() || *c == '.' }).take(room));
@@ -452,6 +452,16 @@ impl App {
                 w.name = name;
                 self.save_waypoints();
             }
+            return;
+        }
+        if let (Some((k, t)), Some(Menu::NewWorld)) = (&self.edit, self.menu) {
+            // a new world's name (an empty one keeps the old) or its seed (an empty one is a new seed)
+            match (*k, menu::safe_name(t)) {
+                (0, name) if !name.is_empty() => self.new_world.name = name,
+                (1, _) => self.new_world.seed = t.trim().to_string(),
+                _ => {}
+            }
+            self.edit = None;
             return;
         }
         if let Some((k, t)) = self.edit.take() {
@@ -1092,6 +1102,7 @@ impl App {
                 Menu::Dead => ("You died", cause.as_str()),
                 Menu::Title => ("TechnoApe", "Pillars of Simulation Engine"),
                 Menu::Worlds => ("Singleplayer", "A world carries on from its save. Right click or Delete removes one."),
+                Menu::NewWorld => ("New world", "Click the name or the seed to type it. The same seed and size make the same world."),
                 Menu::Remove(_) => ("Remove world", "It moves to saves/removed/ and can be put back by hand."),
                 Menu::Waypoints => ("Waypoints", "N drops one where you stand. Click one to change it; right click or Delete takes it away."),
                 Menu::Waypoint(_) => ("Waypoint", "Click the name to type a new one. Click a row for its next value, right click the one before."),

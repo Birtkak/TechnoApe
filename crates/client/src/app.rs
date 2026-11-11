@@ -110,6 +110,7 @@ pub(crate) struct App {
     pub(crate) fx_edits: Vec<(f64, Block, u8)>,
     /// What each world of the Singleplayer list is (seed, size, last played), beside `worlds`.
     pub(crate) world_notes: Vec<String>,
+    pub(crate) new_world: menu::NewWorld,
     /// The slot whose block's name shows over the hotbar, and since when.
     pub(crate) held_name: (usize, Instant),
     pub(crate) creative: bool,
