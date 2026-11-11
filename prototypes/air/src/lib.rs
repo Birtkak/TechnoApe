@@ -671,6 +671,68 @@ impl Air {
     }
 }
 
+/// The last day's means per column once the day repeats (worldgen stage 5).
+pub struct Means {
+    /// the surface air's potential temperature (at sea level), C
+    pub theta: Vec<f32>,
+    /// the surface air's day swing, K
+    pub swing: Vec<f32>,
+    /// rain and snow, mm a day
+    pub rain: Vec<f32>,
+    /// days run, and the last day's change: mean |dT| per column, K, and the rain map's L1 share
+    pub days: usize,
+    pub last_change: (f32, f32),
+}
+
+impl Air {
+    /// Runs days of `dt` steps until a day's means change by under `dt_k` K a column and `dr` of the rain
+    /// (at least `min_days`, at most `max_days`), and returns the last day's.
+    pub fn settle(&mut self, dt: f32, min_days: usize, max_days: usize, dt_k: f32, dr: f32) -> Means {
+        let per_day = (DAY / dt as f64).round() as usize;
+        let n = self.n;
+        let (mut prev_t, mut prev_r) = (vec![0f64; n], vec![0f64; n]);
+        let mut change = (f32::INFINITY, f32::INFINITY);
+        for day in 0..max_days {
+            let (mut th, mut rain, mut lo, mut hi) = (vec![0f64; n], vec![0f64; n], vec![f32::MAX; n], vec![f32::MIN; n]);
+            for _ in 0..per_day {
+                self.step(dt);
+                for c in 0..n {
+                    th[c] += self.theta[c * LAYERS] as f64;
+                    rain[c] += self.fell[c] as f64;
+                    let t = self.surface_t(c);
+                    lo[c] = lo[c].min(t);
+                    hi[c] = hi[c].max(t);
+                }
+            }
+            th.iter_mut().for_each(|v| *v /= per_day as f64);
+            let tot: f64 = rain.iter().sum::<f64>().max(1.0);
+            change = (
+                ((0..n).map(|c| (th[c] - prev_t[c]).abs()).sum::<f64>() / n as f64) as f32,
+                ((0..n).map(|c| (rain[c] - prev_r[c]).abs()).sum::<f64>() / tot) as f32,
+            );
+            prev_t = th;
+            prev_r = rain;
+            if day + 1 >= min_days && change.0 < dt_k && change.1 < dr {
+                return self.means(prev_t, prev_r, lo, hi, day + 1, change);
+            }
+            if day + 1 == max_days {
+                return self.means(prev_t, prev_r, lo, hi, day + 1, change);
+            }
+        }
+        unreachable!("max_days is at least 1: {change:?}")
+    }
+
+    fn means(&self, th: Vec<f64>, rain: Vec<f64>, lo: Vec<f32>, hi: Vec<f32>, days: usize, last_change: (f32, f32)) -> Means {
+        Means {
+            theta: th.iter().map(|&v| v as f32).collect(),
+            swing: (0..self.n).map(|c| hi[c] - lo[c]).collect(),
+            rain: (0..self.n).map(|c| (rain[c] / 4096.0 / self.area[c] as f64 * 1000.0) as f32).collect(),
+            days,
+            last_change,
+        }
+    }
+}
+
 /// Move share `f` of layer `from`'s water and dirt to layer `to`, and mix in its heat by volume.
 #[allow(clippy::too_many_arguments)]
 fn exchange(th: &mut [f32], v: &mut [u32], cl: &mut [u32], di: &mut [u32], vl: &[f32], from: usize, to: usize, f: f32, vol_moved: f32) {

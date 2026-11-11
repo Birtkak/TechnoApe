@@ -16,6 +16,9 @@ held). A step runs once a second of world time, spread over the 20 ticks.
 
 The bake's climate (30 days of 10 s steps) on Terra: 5.4 s on all threads.
 
+The bake's stages 5 to 8 (ADR 0042; `world-bake`, 8 threads of 12, seed 5): Terra 4 km 17.0 s to 22.5 s
+(+5.4 s, of which the air model 4.2 s; peak 349 MB, +136 MB); 12 km 167 s to 233 s (+66 s, air 56 s; 2.7 GB).
+
 ## 2026-11-11: `run=fx`, the effects' benchmark (ADR 0031)
 
 Reference machine, release build, 1920x1080 off-screen, `run=fx quick=1` three times on the 4 km planet (not
