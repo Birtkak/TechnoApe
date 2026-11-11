@@ -92,7 +92,8 @@ code { font: 11px var(--mono); color: var(--muted) }
 .tile .st { display: grid; place-items: center; padding: 8px 0 4px }
 .tile canvas { width: 104px; height: 104px }
 .tile .lb { padding: 7px 9px 8px; display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--line) }
-.tile .lb span:first-child { font: 500 13px var(--mono); flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.tile .lb { flex-wrap: wrap; row-gap: 3px; justify-content: space-between }
+.tile .lb span:first-child { font: 500 13px var(--mono); flex: 1 1 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
 .tile.add { align-items: center; justify-content: center; min-height: 150px; color: var(--muted); border-style: dashed; background: none; text-align: center }
 .stage { display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 12px; padding: 14px; align-items: center; border-radius: 4px 4px 0 0 }
 .stage .cube { width: 100%; max-width: 230px; aspect-ratio: 1; justify-self: center }
@@ -100,6 +101,11 @@ code { font: 11px var(--mono); color: var(--muted) }
 .flat canvas { width: 100%; aspect-ratio: 1; image-rendering: pixelated; border: 1px solid var(--line) }
 .flat canvas.wall { grid-column: 1 / -1; aspect-ratio: 3 / 1 }
 .flat span { font: 400 10px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; text-align: center }
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px }
+.pat { display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 4px 4px 3px; position: relative; font: 400 11px var(--mono); text-align: center }
+.pat canvas { width: 100%; aspect-ratio: 1; image-rendering: pixelated; display: block }
+.pat[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) }
+.pat i { position: absolute; top: 2px; right: 2px; font: 500 9px var(--mono); font-style: normal; text-transform: uppercase; letter-spacing: .05em; background: var(--warm); color: var(--bg); padding: 0 4px; border-radius: 2px }
 .modelnote { margin-top: 18px; border: 1px dashed var(--line); border-radius: 5px; padding: 12px 14px; color: var(--muted); max-width: 78ch }
 .modelnote b { color: var(--ink); font-weight: 500 }
 
@@ -151,8 +157,8 @@ td input[type=number] { width: 50px; padding: 4px 3px } td button { padding: 3px
 
 <main class="wrap">
   <section id="view-blocks">
-    <p class="lede">Every block in <b>data/blocks.toml</b>, drawn texel for texel by the game's own recipe. Pick one, change its look or its sound,
-    hear it, and give it a verdict. <b>Copy my review</b> collects everything from both benches to paste to Claude; nothing here changes the game by itself.</p>
+    <p class="lede">Every block in <b>data/blocks.toml</b>, drawn texel for texel by the game's own recipe. Pick one, then go through the patterns, colours and sliders,
+    or take one of the ideas under them. Patterns marked <b>new</b> are proposals: the game draws them once you have picked what is good. <b>Copy my review</b> collects everything from both benches to paste to Claude; nothing here changes the game by itself.</p>
     <div class="bench">
       <div><div class="shelf" id="shelf"></div>
         <p class="modelnote"><b>Models.</b> Every block is a full cube today and the game has no other models yet: no player body, tools, machines or creatures.
@@ -271,18 +277,68 @@ function hash(x, y, z) {
   h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
   return (h & 1023) / 1023;
 }
+// The patterns. plain, grass and stone are the game's today; the others are proposals drawn here first, on a
+// 16 x 16 grid, each from whole numbers and `hash` only so the shader can take them over as they are.
+// A pattern paints up to three parts: the block's colour, a second and a third. `size` is in texels,
+// `amount` 0..1; `[size, amount, uses a second colour, uses a third]`.
+const PATTERNS = {
+  plain: { note: 'three tones of noise', game: true },
+  grass: { note: 'a bright top, a fringe on the sides', game: true },
+  stone: { note: 'dark crack texels', game: true },
+  pebbles: { note: 'single texels of the other colours', def: [1, 0.5], parts: 3 },
+  speckle: { note: 'blobs with bright cores, like ore', def: [5, 0.6], parts: 3 },
+  frame: { note: 'a rim, fading to the middle', def: [2, 0.8], parts: 3 },
+  weave: { note: 'short dashes in rows, like cloth', def: [4, 0.35], parts: 2 },
+  planks: { note: 'boards with seams', def: [4, 0.5], parts: 2 },
+  tiles: { note: 'squares with grout and flecks', def: [8, 0.3], parts: 3 },
+  bricks: { note: 'rows of bricks in mortar', def: [4, 0.5], parts: 3 },
+  rings: { note: 'squares inside squares', def: [2, 0.5], parts: 2 },
+};
+const darker = c => c.map(v => +(v * 0.55).toFixed(2)), lighter = c => c.map(v => +Math.min(1, v * 1.25 + 0.2).toFixed(2));
+// which part a texel is: [part, part to blend towards, how far 0..1, shade]
+function part(m, dir, cell, x, y) {
+  const d = PATTERNS[m.pattern].def, s = Math.max(1, Math.min(8, Math.round(m.size ?? d[0]))), amt = m.amount ?? d[1];
+  const cz = cell[0] * 7 + cell[1] * 13 + cell[2] * 5 + dir, e = Math.min(x, y, 15 - x, 15 - y);
+  switch (m.pattern) {
+    case 'pebbles': { const h = hash(x + cz * 16, y, 31); return h < amt * 0.25 ? [1, 1, 0, 1] : h > 1 - amt * 0.1 ? [2, 2, 0, 1] : [0, 0, 0, 1]; }
+    case 'speckle': {
+      const cx = Math.floor(x / s), cy = Math.floor(y / s);
+      if (hash(cx + cz, cy, 91) >= amt) return [0, 0, 0, 1];
+      const ox = cx * s + Math.floor(hash(cx + cz, cy, 17) * s), oy = cy * s + Math.floor(hash(cx + cz, cy, 23) * s);
+      const ax = Math.abs(x - ox), ay = Math.abs(y - oy), dist = Math.max(ax, ay) + Math.min(ax, ay) / 2, r = s * 0.42;
+      return dist <= r * 0.4 ? [2, 2, 0, 1] : dist <= r ? [1, 1, 0, 1] : [0, 0, 0, 1];
+    }
+    case 'frame': { if (e < s) return [1, 1, 0, 1]; const t = Math.min(1, (e - s) / Math.max(1, 7 - s)); return [0, 2, Math.round(t * amt * 4) / 4, 1]; }
+    case 'weave': { const off = Math.floor(hash(cz, y, 5) * s), dash = Math.floor((x + off) / s); return hash(dash + cz * 3, y, 9) < amt ? [1, 1, 0, 1] : [0, 0, 0, 1]; }
+    case 'planks': {
+      const board = Math.floor(x / s), end = Math.floor(hash(board + cz, 0, 3) * 16);
+      return x % s === 0 || y === end ? [1, 1, 0, 1] : [0, 1, hash(board + cz, y, 4) < amt * 0.3 ? 0.35 : 0, 0.92 + 0.16 * hash(board + cz, 1, 4)];
+    }
+    case 'tiles': return x % s === 0 || y % s === 0 ? [1, 1, 0, 1] : hash(x + cz * 16, y, 41) < amt * 0.3 ? [2, 2, 0, 1] : [0, 0, 0, 1];
+    case 'bricks': {
+      const h = Math.max(2, s), rowN = Math.floor(y / h);
+      if (y % h === 0 || (x + (rowN % 2) * h) % (2 * h) === 0) return [1, 1, 0, 1];
+      return [0, 2, y % h === 1 ? amt : 0, 0.94 + 0.12 * hash(Math.floor((x + (rowN % 2) * h) / (2 * h)) + cz, rowN, 6)];
+    }
+    case 'rings': return Math.floor(e / s) % 2 === 1 ? [1, 1, 0, 1] : [0, 0, 0, 1];
+  }
+  return [0, 0, 0, 1];
+}
 function texel(b, dir, cell, tx, ty, row) {   // dir 4 is the top; `row` counts texels up from the block's foot
   const h = hash(cell[0] * N + tx, cell[1] * N + ty, cell[2] * N + dir);
-  const tone = 0.82 + 0.12 * Math.floor(h * 3);
   let m = b;
   if ((b.pattern || 'plain') === 'grass' && dir !== 4) {
     const fringe = 2 + Math.floor(hash(cell[0] * N + tx, cell[1] * N + 7, cell[2] * N + dir) * 3);
     if (row < N - fringe) m = blocks.find(o => o.name === b.side) || b;
-  }
-  const p = m.pattern || 'plain', col = m.colour || [0.5, 0.5, 0.5];
-  let k = tone;
+  } else if (b.side && dir !== 4) m = blocks.find(o => o.name === b.side && o !== b) || b;   // (a proposal: any block may take another's sides)
+  const p = m.pattern || 'plain', c1 = m.colour || [0.5, 0.5, 0.5];
+  let k = 1 + (m.contrast ?? 1) * (0.82 + 0.12 * Math.floor(h * 3) - 1), col = c1;
   if (p === 'stone' && h > 0.94) k *= 0.6;
   if (p === 'grass' && h > 0.9) k *= 1.15;
+  if (PATTERNS[p] && PATTERNS[p].def) {
+    const [a, to, t, shade] = part(m, dir, cell, Math.floor(tx * 16 / N), Math.floor(ty * 16 / N)), cs = [c1, m.colour2 || darker(c1), m.colour3 || lighter(c1)];
+    col = cs[a].map((v, i) => v + (cs[to][i] - v) * t); k *= shade;
+  }
   return col.map(c => c * k);
 }
 
@@ -362,7 +418,7 @@ function tile(b) {
 }
 function paintBlock(b) {
   const t = $('tile' + b.id); if (t) drawCube(t.querySelector('canvas'), b);
-  if (b.id === selB && $('bcube')) { drawCube($('bcube'), b); drawFlat($('btop'), b, 4, 1); drawFlat($('bside'), b, 0, 1); drawFlat($('bwall'), b, 0, 3); }
+  if (b.id === selB && $('bcube')) { drawCube($('bcube'), b); drawFlat($('btop'), b, 4, 1); drawFlat($('bside'), b, 0, 1); drawFlat($('bwall'), b, 0, 3); paintGallery(b); }
 }
 function touchB(b, rebuild) {
   save(); tally();
@@ -378,9 +434,14 @@ function colourField(b, key, label, id) {
 function blockInspector(b) {
   const f = el('div', { class: 'fields' }), fam = b.sound || 'stone';
   f.append(...colourField(b, 'colour', 'Colour', 'bf-c'));
-  f.append(el('label', { for: 'bf-p' }, 'Pattern'), el('div', {}, el('select', { id: 'bf-p', onchange: e => { if (e.target.value === 'plain') delete b.pattern; else b.pattern = e.target.value; if (b.pattern === 'grass' && !b.side) b.side = 'dirt'; if (b.pattern !== 'grass') delete b.side; touchB(b, true); } },
-    [['plain', 'plain: three tones'], ['grass', 'grass: bright top, a fringe on the sides'], ['stone', 'stone: dark crack texels']].map(([v, t]) => el('option', { value: v, selected: (b.pattern || 'plain') === v }, t)))));
-  if (b.pattern === 'grass') f.append(el('label', { for: 'bf-s' }, 'Its sides'), el('div', {}, el('select', { id: 'bf-s', onchange: e => { b.side = e.target.value; touchB(b); } }, realBlocks().filter(o => o !== b).map(o => el('option', { selected: o.name === b.side }, o.name)))));
+  const pat = b.pattern || 'plain', P = PATTERNS[pat];
+  if (P.parts >= 2) f.append(...colourField(b, 'colour2', 'Second colour', 'bf-c2'));
+  if (P.parts >= 3) f.append(...colourField(b, 'colour3', 'Third colour', 'bf-c3'));
+  const slider = (key, label, min, max, step, def) => { const v = el('code', {}, String(b[key] ?? def)); f.append(el('label', { for: 'bf-' + key }, label), el('div', {}, el('input', { type: 'range', id: 'bf-' + key, min, max, step, value: b[key] ?? def, oninput: e => { b[key] = +e.target.value; v.textContent = e.target.value; touchB(b); } }), v)); };
+  if (P.def) { slider('size', 'Size', 1, 8, 1, P.def[0]); slider('amount', 'Amount', 0, 1, 0.05, P.def[1]); }
+  slider('contrast', 'Grain', 0, 2, 0.1, 1);
+  f.append(el('label', { for: 'bf-s' }, 'Its sides'), el('div', {}, el('select', { id: 'bf-s', onchange: e => { if (e.target.value) b.side = e.target.value; else delete b.side; touchB(b); } },
+    pat === 'grass' ? [] : el('option', { value: '', selected: !b.side }, 'the same as its top'), realBlocks().filter(o => o !== b).map(o => el('option', { value: o.name, selected: o.name === b.side }, 'like ' + o.name)))));
   const mv = el('code', {}, (b.metal || 0).toFixed(2));
   f.append(el('label', { for: 'bf-m' }, 'Metal'), el('div', {}, el('input', { type: 'range', id: 'bf-m', min: 0, max: 1, step: 0.05, value: b.metal || 0, oninput: e => { const x = +e.target.value; if (x) b.metal = x; else delete b.metal; mv.textContent = x.toFixed(2); touchB(b); } }), mv));
   f.append(el('label', { for: 'bf-lo' }, 'Gives light'), el('div', {}, el('input', { type: 'checkbox', id: 'bf-lo', checked: !!b.light, onchange: e => { if (e.target.checked) b.light = [1, 0.72, 0.42]; else delete b.light; touchB(b, true); } })));
@@ -395,7 +456,13 @@ function blockInspector(b) {
     el('div', { class: 'pad' },
       el('div', { class: 'title' }, el('input', { type: 'text', id: 'bf-n', value: b.name, 'aria-label': 'Name', oninput: e => { const was = b.name; b.name = e.target.value; blocks.forEach(o => { if (o.side === was) o.side = b.name; }); save(); $('tile' + b.id).querySelector('.lb span').textContent = b.name; } }),
         el('span', { class: 'chip' }, 'id ' + b.id), el('span', { class: 'chip' + (changedB(b) ? ' warm' : ''), id: 'bstate' }, !origB(b) ? 'new' : changedB(b) ? 'changed' : 'as shipped')),
+      el('div', { class: 'sep', style: 'border:0;padding:0' }, el('h2', {}, 'Pattern'), el('div', { class: 'gallery', role: 'group', 'aria-label': 'Pattern' }, Object.entries(PATTERNS).map(([name, q]) =>
+        el('button', { class: 'pat', id: 'bp-' + name, 'aria-pressed': String(name === (b.pattern || 'plain')), title: q.note + (q.game ? '' : ' (not in the game yet)'), onclick: () => setPattern(b, name) },
+          el('canvas', { 'data-pat': name }), el('span', {}, name), q.game ? [] : el('i', {}, 'new'))))),
       f,
+      el('div', { class: 'sep' }, el('h2', {}, 'Ideas'), el('div', { class: 'gallery', id: 'ideas' }),
+        el('div', { class: 'row' }, el('button', { id: 'id-same', onclick: () => { rollIdeas(b, false); showIdeas(b); } }, 'More like this'), el('button', { id: 'id-any', onclick: () => { rollIdeas(b, true); showIdeas(b); } }, 'Surprise me'),
+          el('span', { class: 'hint' }, 'Click one to take its look.'))),
       el('div', { class: 'sep' }, el('h2', {}, 'Hear it'), hear),
       el('div', { class: 'sep' }, verdictBox('b', b.id, buildBlocks)),
       el('div', { class: 'sep' }, el('div', { class: 'row' },
@@ -405,13 +472,63 @@ function blockInspector(b) {
                  : el('button', { id: 'bf-rm', onclick: () => { blocks.splice(blocks.indexOf(b), 1); delete review.b[b.id]; selB = realBlocks()[0].id; save(); tally(); buildBlocks(); } }, 'Remove'),
         el('button', { id: 'bf-toml', onclick: () => show('This block, for data/blocks.toml', tomlB(b)) }, 'Show as TOML')))));
 }
+const LOOK = ['colour', 'colour2', 'colour3', 'pattern', 'size', 'amount', 'contrast', 'side'];
+function setPattern(b, name) {
+  if (name === 'plain') delete b.pattern; else b.pattern = name;
+  const q = PATTERNS[name];
+  if (name === 'grass' && !b.side) b.side = 'dirt';
+  if (q.def) { b.size = q.def[0]; b.amount = q.def[1]; } else { delete b.size; delete b.amount; }
+  if (q.parts >= 2 && !b.colour2) b.colour2 = darker(b.colour);
+  if (q.parts >= 3 && !b.colour3) b.colour3 = lighter(b.colour);
+  if (!(q.parts >= 2)) delete b.colour2;
+  if (!(q.parts >= 3)) delete b.colour3;
+  touchB(b, true);
+}
+// a colour moved a little round the wheel, lighter or darker, more or less vivid
+function nudge(c, amt) {
+  const mx = Math.max(...c), mn = Math.min(...c), l = (mx + mn) / 2, d = mx - mn;
+  let h = 0, sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1) || 1);
+  if (d) h = mx === c[0] ? ((c[1] - c[2]) / d + 6) % 6 : mx === c[1] ? (c[2] - c[0]) / d + 2 : (c[0] - c[1]) / d + 4;
+  h = (h + (Math.random() - 0.5) * 6 * amt + 6) % 6; sat = Math.max(0, Math.min(1, sat + (Math.random() - 0.5) * amt)); const l2 = Math.max(0.08, Math.min(0.92, l + (Math.random() - 0.5) * amt * 0.6));
+  const ch = (1 - Math.abs(2 * l2 - 1)) * sat, x = ch * (1 - Math.abs(h % 2 - 1)), m0 = l2 - ch / 2;
+  const [r, g, bl] = h < 1 ? [ch, x, 0] : h < 2 ? [x, ch, 0] : h < 3 ? [0, ch, x] : h < 4 ? [0, x, ch] : h < 5 ? [x, 0, ch] : [ch, 0, x];
+  return [r, g, bl].map(v => +(v + m0).toFixed(2));
+}
+let ideas = { id: -1, list: [] };
+function rollIdeas(b, anyPattern) {
+  const names = Object.keys(PATTERNS).filter(n => n !== 'grass');
+  ideas = { id: b.id, list: Array.from({ length: 8 }, () => {
+    const o = clone(b), name = anyPattern ? names[Math.floor(Math.random() * names.length)] : (b.pattern || 'plain'), q = PATTERNS[name];
+    if (name === 'plain') delete o.pattern; else o.pattern = name;
+    if (name !== 'grass' && (b.pattern || 'plain') === 'grass') delete o.side;
+    o.colour = nudge(b.colour, anyPattern ? 0.5 : 0.25);
+    if (q.parts >= 2) o.colour2 = nudge(b.colour2 || darker(o.colour), 0.4); else delete o.colour2;
+    if (q.parts >= 3) o.colour3 = nudge(b.colour3 || lighter(o.colour), 0.4); else delete o.colour3;
+    if (q.def) { o.size = Math.max(1, Math.min(8, Math.round((anyPattern ? q.def[0] : (b.size ?? q.def[0])) + (Math.random() - 0.5) * 3))); o.amount = +Math.max(0.05, Math.min(1, (anyPattern ? q.def[1] : (b.amount ?? q.def[1])) + (Math.random() - 0.5) * 0.5)).toFixed(2); } else { delete o.size; delete o.amount; }
+    o.contrast = +(0.6 + Math.random() * 0.9).toFixed(1);
+    return o;
+  }) };
+}
+function showIdeas(b) {
+  const box = $('ideas'); if (!box) return;
+  if (ideas.id !== b.id) rollIdeas(b, false);
+  box.replaceChildren(...ideas.list.map((o, k) => { const cv = el('canvas'); const btn = el('button', { class: 'pat', id: 'idea' + k, title: (o.pattern || 'plain'), onclick: () => { LOOK.forEach(key => { if (o[key] === undefined) delete b[key]; else b[key] = clone(o[key]); }); touchB(b, true); } }, cv, el('span', {}, o.pattern || 'plain')); drawFlat(cv, o, 4, 1); return btn; }));
+}
+function paintGallery(b) {
+  document.querySelectorAll('#binsp canvas[data-pat]').forEach(cv => {
+    const name = cv.dataset.pat, q = PATTERNS[name], o = clone(b);
+    if (name === 'plain') delete o.pattern; else o.pattern = name;
+    if (name !== (b.pattern || 'plain')) { if (q.def) { o.size = q.def[0]; o.amount = q.def[1]; } delete o.side; }
+    drawFlat(cv, o, 4, 1);
+  });
+}
 function buildBlocks() {
   const shelf = $('shelf'); shelf.textContent = '';
   realBlocks().forEach(b => shelf.append(tile(b)));
   shelf.append(el('button', { class: 'tile add', id: 'addblock', onclick: () => { const id = Math.max(...blocks.map(b => b.id), ...ORIG_B.map(b => b.id)) + 1; blocks.push({ id, name: 'new block ' + id, colour: [0.6, 0.55, 0.5] }); selB = id; save(); tally(); buildBlocks(); } }, '+ Add a block'));
   const b = blocks.find(o => o.id === selB) || realBlocks()[0]; selB = b.id;
   $('binsp').replaceChildren(blockInspector(b));
-  realBlocks().forEach(paintBlock);
+  realBlocks().forEach(paintBlock); showIdeas(b);
 }
 
 // ================= sounds bench =================
@@ -548,8 +665,13 @@ function tomlB(b) {
   if (b.sound) o.push(`sound = "${b.sound}"`);
   if (b.was) o.push('was = [' + b.was.map(w => `"${w}"`).join(', ') + ']');
   if (b.colour) o.push('colour = ' + arr(b.colour));
+  if (b.colour2) o.push('colour2 = ' + arr(b.colour2));
+  if (b.colour3) o.push('colour3 = ' + arr(b.colour3));
   if (b.pattern) o.push(`pattern = "${b.pattern}"`);
-  if (b.pattern === 'grass' && b.side) o.push(`side = "${b.side}"`);
+  if (b.size != null) o.push('size = ' + b.size);
+  if (b.amount != null) o.push('amount = ' + fmt(b.amount, 2));
+  if (b.contrast != null && b.contrast !== 1) o.push('contrast = ' + fmt(b.contrast, 2));
+  if (b.side) o.push(`side = "${b.side}"`);
   if (b.metal) o.push('metal = ' + fmt(b.metal, 3));
   if (b.light) o.push('light = ' + arr(b.light));
   return o.join('\n');
@@ -566,6 +688,8 @@ function reviewText() {
   vb.forEach(b => o.push(`- ${b.name}: ${review.b[b.id].v || 'note'}${review.b[b.id].n ? ' - ' + review.b[b.id].n : ''}`));
   const cb = realBlocks().filter(changedB);
   o.push(cb.length ? '\nChanged or new rows for data/blocks.toml:' : 'No rows changed.');
+  const fresh = [...new Set(cb.filter(b => !PATTERNS[b.pattern || 'plain'].game || b.contrast != null || (b.side && b.pattern !== 'grass')).map(b => b.pattern || 'plain'))];
+  if (fresh.length) o.push('(These use looks the game does not draw yet: the patterns ' + fresh.join(', ') + ', with colour2, colour3, size, amount, contrast, or sides on a block that is not grass. The recipe is `part` and `texel` in tools/review/workbench.html.)');
   cb.forEach(b => o.push('', tomlB(b)));
   o.push('', '## Sounds');
   const vs = rows.filter(r => review.s[r.name] && (review.s[r.name].v || review.s[r.name].n));
