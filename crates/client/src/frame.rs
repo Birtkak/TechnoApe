@@ -33,7 +33,14 @@ impl App {
         if !measuring || self.run == "play" {
             self.streamer.job_times.clear();
             if let Some(v) = &self.tick_log {
-                v.lock().unwrap().clear();
+                let mut v = v.lock().unwrap();
+                if self.run == "play" {
+                    // F3's graph: the last ten seconds of ticks
+                    self.ticks.extend(v.drain(..).map(|ms| (now, ms)));
+                    let over = self.ticks.len().saturating_sub(10 * TICK_HZ as usize);
+                    self.ticks.drain(..over);
+                }
+                v.clear();
             }
         }
         let len = if self.run == "play" { a.get("seconds", f64::INFINITY) } else { run_len(&self.run, warm, q) };
@@ -659,7 +666,7 @@ impl App {
             if self.ghost_n > 0 {
                 rp.set_pipeline(&gpu.ghost_pipeline);
                 rp.set_vertex_buffer(0, gpu.ghost_buf.slice(..));
-                rp.draw(0..self.ghost_n, 0..1);
+                rp.draw(0..self.ghost_n, 0..4); // four times, a pixel apart: overlay.wgsl ghost_vs
             }
             if self.ui_n > 0 {
                 rp.set_pipeline(&gpu.ui_pipeline);

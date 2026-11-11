@@ -133,6 +133,8 @@ pub(crate) struct App {
     /// what the last frame drew.
     pub(crate) f3: bool,
     pub(crate) recent: VecDeque<f32>,
+    /// Play: the local server's last ticks, when each was seen and how long it took (ms), for F3's graph.
+    pub(crate) ticks: VecDeque<(Instant, f32)>,
     pub(crate) gpu_last: f64,
     /// ADR 0025: the frame number each timestamp slot was written in, the GPU's end of the last frame read
     /// back (ticks), and the last frame's CPU stretches, which the next frame's interval is made of.

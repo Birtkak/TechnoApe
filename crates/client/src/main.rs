@@ -139,6 +139,7 @@ impl ApplicationHandler for App {
                             KeyCode::ArrowRight => self.act("nudge+"),
                             KeyCode::ArrowLeft => self.act("nudge-"),
                             KeyCode::Enter | KeyCode::NumpadEnter => self.act("go"),
+                            KeyCode::Delete => self.act("remove"),
                             _ => {}
                         }
                     }
@@ -306,11 +307,10 @@ fn main() {
             }
             let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let st = stop.clone();
-            if run != "play" {
-                let v = Arc::new(std::sync::Mutex::new(Vec::new()));
-                server.tick_ms = Some(v.clone());
-                tick_log = Some(v);
-            }
+            // every tick's time: the benchmark's numbers (ADR 0025, S) and F3's graph in play
+            let v = Arc::new(std::sync::Mutex::new(Vec::new()));
+            server.tick_ms = Some(v.clone());
+            tick_log = Some(v);
             local_server = Some((stop, std::thread::spawn(move || server.run(TICK_HZ, &st))));
             let (c, s) = net::local();
             accept_tx.send(s).unwrap();
@@ -457,6 +457,7 @@ fn main() {
         clock: None,
         f3: false,
         recent: VecDeque::new(),
+        ticks: VecDeque::new(),
         gpu_last: 0.0,
         ts_frames: [0; TS_RING],
         gpu_end: None,

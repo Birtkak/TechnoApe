@@ -235,23 +235,92 @@ pub fn chat(p: &mut Paint, lines: &[(f32, &str)], typing: Option<&str>, caret: b
 }
 
 /// The F3 overlay: lines down the left and, right-aligned, down the right, each on a grey band.
-pub fn columns(p: &mut Paint, left: &[String], right: &[String]) {
-    for (k, l) in left.iter().enumerate() {
-        let y = 4.0 + k as f32 * LINE;
-        if !l.is_empty() {
-            p.rect(2.0, y, text_width(l) + 6.0, LINE, [0.1, 0.1, 0.1, 0.55], 0);
-            p.text(4.0, y + 2.0, l, [0.95, 0.95, 0.95, 1.0]);
-        }
-    }
-    for (k, l) in right.iter().enumerate() {
-        let y = 4.0 + k as f32 * LINE;
-        let x = p.w - text_width(l) - 6.0;
-        if !l.is_empty() {
-            p.rect(x - 2.0, y, text_width(l) + 6.0, LINE, [0.1, 0.1, 0.1, 0.55], 0);
-            p.text(x, y + 2.0, l, [0.95, 0.95, 0.95, 1.0]);
+pub fn panels(p: &mut Paint, left: &[Section], right: &[Section]) {
+    // the text as large as lets the two columns stand side by side and on the screen: 2, 1.5 or 1 pixels a dot
+    let px = [PX, PX * 0.75, PX * 0.5].into_iter().find(|px| {
+        let (l, r) = (panels_size(left, *px), panels_size(right, *px));
+        // side by side, the left column clear of the chat under it
+        l.0 + r.0 + 24.0 <= p.w && l.1 + CHAT_LINES as f32 * LINE + 60.0 <= p.h && r.1 + 6.0 <= p.h
+    });
+    let px = px.unwrap_or(PX * 0.5);
+    let line = 10.0 * px + 2.0;
+    for (side, list) in [left, right].into_iter().enumerate() {
+        let mut y = 6.0;
+        // every panel of a column as wide as its widest, so the column has one edge
+        let w = panels_size(list, px).0;
+        for s in list {
+            let (_, h, label_w) = section_size(s, px);
+            let x = if side == 0 { 6.0 } else { p.w - w - 6.0 };
+            p.rect(x, y, w, h, [0.03, 0.05, 0.08, 0.72], 0);
+            p.rect(x, y, 3.0, h, CYAN, 0);
+            p.text_px(x + 10.0, y + 5.0, &s.title.to_uppercase(), CYAN, px);
+            for (k, (label, value, tone)) in s.rows.iter().enumerate() {
+                let ry = y + 5.0 + (k + 1) as f32 * line;
+                p.text_px(x + 10.0, ry, label, [0.62, 0.72, 0.82, 1.0], px);
+                p.text_px(x + 10.0 + label_w, ry, value, TONES[(*tone as usize).min(3)], px);
+            }
+            if let Some((bars, mark)) = &s.graph {
+                let top = y + 5.0 + (s.rows.len() + 1) as f32 * line + 4.0;
+                let (base, graph_w) = (top + GRAPH_H, bars.len() as f32 * BAR);
+                p.rect(x + 10.0, top, graph_w, GRAPH_H, [1.0, 1.0, 1.0, 0.06], 0);
+                for (i, b) in bars.iter().enumerate() {
+                    let tone = if *b > 1.0 { 3 } else if b > mark { 2 } else { 1 };
+                    let bh = (b.clamp(0.0, 1.0) * GRAPH_H).max(1.0);
+                    p.rect(x + 10.0 + i as f32 * BAR, base - bh, BAR, bh, TONES[tone], 0);
+                }
+                p.rect(x + 10.0, base - mark * GRAPH_H, graph_w, 1.0, [1.0, 1.0, 1.0, 0.55], 0);
+            }
+            y += h + 8.0;
         }
     }
 }
+
+/// A section's width and height at `px` pixels a dot, and where its values start after the labels: in one
+/// column, two characters after the longest label.
+fn section_size(s: &Section, px: f32) -> (f32, f32, f32) {
+    let (glyph, line) = (8.0 * px, 10.0 * px + 2.0);
+    let chars = |t: &str| t.chars().count() as f32 * glyph;
+    let label_w = (s.rows.iter().map(|r| r.0.len()).max().unwrap_or(0) + 2) as f32 * glyph;
+    let rows_w = s.rows.iter().map(|r| label_w + chars(&r.1)).fold(chars(s.title), f32::max);
+    let graph = s.graph.as_ref().map_or((0.0, 0.0), |g| (g.0.len() as f32 * BAR, GRAPH_H + 10.0));
+    (rows_w.max(graph.0) + 20.0, (s.rows.len() + 1) as f32 * line + graph.1 + 10.0, label_w)
+}
+
+/// A column of sections: its width and its height with the gaps between them.
+fn panels_size(list: &[Section], px: f32) -> (f32, f32) {
+    list.iter().map(|s| section_size(s, px)).fold((0.0, 6.0), |a, s| (a.0.max(s.0), a.1 + s.1 + 8.0))
+}
+
+/// What the crosshair is on, top middle: a swatch of the block's colour, its name, and under it what is
+/// worth knowing about it (empty for most blocks).
+pub fn looking_at(p: &mut Paint, name: &str, colour: [f32; 3], note: &str) {
+    let w = text_width(name).max(text_width(note)) + 34.0 + 20.0;
+    let h = if note.is_empty() { LINE + 12.0 } else { 2.0 * LINE + 12.0 };
+    let (x, y) = ((p.w - w) / 2.0, 10.0);
+    p.rect(x, y, w, h, [0.03, 0.05, 0.08, 0.72], 0);
+    brackets(p, [x - 4.0, y - 4.0, w + 8.0, h + 8.0], 8.0, false, CYAN);
+    p.rect(x + 10.0, y + 6.0, 20.0, 20.0, [colour[0], colour[1], colour[2], 1.0], 0);
+    p.text(x + 10.0 + 34.0, y + 7.0, name, [0.95, 0.95, 0.95, 1.0]);
+    if !note.is_empty() {
+        p.text(x + 10.0 + 34.0, y + 7.0 + LINE, note, [0.62, 0.72, 0.82, 1.0]);
+    }
+}
+
+/// A group of F3's numbers: a heading, rows of label and value, and a bar graph under them.
+pub struct Section {
+    pub title: &'static str,
+    /// Label, value, and how the value stands: 0 plain, 1 good, 2 near its limit, 3 over it.
+    pub rows: Vec<(&'static str, String, u8)>,
+    /// Bars, the newest last, each a share of the graph's height (over 1 is cut off and red), and the height
+    /// of the line across it (what a bar should stay under).
+    pub graph: Option<(Vec<f32>, f32)>,
+}
+
+/// A value's colour by how it stands (`Section::rows`): plain, good, near its limit, over it.
+const TONES: [[f32; 4]; 4] = [[0.95, 0.95, 0.95, 1.0], [0.5, 0.9, 0.55, 1.0], [1.0, 0.8, 0.35, 1.0], [1.0, 0.42, 0.38, 1.0]];
+/// A graph's height and one bar's width, in pixels.
+const GRAPH_H: f32 = 48.0;
+const BAR: f32 = 2.0;
 
 /// The HUD's accent colour (the menus' look, ADR 0023: HUD brackets).
 pub const CYAN: [f32; 4] = [0.44, 0.83, 1.0, 1.0];
@@ -563,6 +632,57 @@ mod tests {
     use super::*;
     use engine::edit::Kind;
     use engine::world::Block;
+
+    #[test]
+    fn the_looked_at_block_is_named_in_the_middle_with_its_colour() {
+        let mut p = Paint::new(1920.0, 1080.0);
+        looking_at(&mut p, "Copper", [0.8, 0.5, 0.2], "metal");
+        let swatch = p.out.iter().find(|r| r.colour == [0.8, 0.5, 0.2, 1.0]).expect("the block's colour");
+        assert!(swatch.xy[0] < 0.0 && swatch.xy[3] > 0.9, "left of the middle, at the top");
+        // the name and the note, a glyph and its shadow per letter
+        let glyphs = p.out.iter().filter(|r| r.glyph != 0).count();
+        assert_eq!(glyphs, 2 * ("Copper".len() + "metal".len()));
+        let (l, r) = p.out.iter().fold((1f32, -1f32), |a, q| (a.0.min(q.xy[0]), a.1.max(q.xy[2])));
+        assert!((l + r).abs() < 0.01, "centred: {l} {r}");
+    }
+
+    #[test]
+    fn a_section_draws_its_rows_in_their_colours_and_a_bar_per_tick() {
+        let s = Section { title: "Simulation", rows: vec![("Tick", "3.0 ms".into(), 1), ("Speed", "20.0".into(), 3)], graph: Some((vec![0.1, 0.6, 1.4], 0.5)) };
+        let mut p = Paint::new(1920.0, 1080.0);
+        panels(&mut p, &[s], &[]);
+        let has = |c: [f32; 4], n: usize| p.out.iter().filter(|r| r.colour == c).count() >= n;
+        // the heading and the bar down the side in the accent; a good and a bad value; a bar of each tone
+        assert!(has(CYAN, "SIMULATION".len() + 1));
+        assert!(has(TONES[1], "3.0ms".len() + 1), "a good value and the bar under the line");
+        assert!(has(TONES[2], 1), "the bar over the line");
+        assert!(has(TONES[3], "20.0".len() + 1), "a value over its limit and the bar off the top");
+        // every bar stands on the graph's floor and none is taller than the graph
+        let bars: Vec<&Rect> = p.out.iter().filter(|r| r.glyph == 0 && TONES[1..].contains(&r.colour)).collect();
+        assert_eq!(bars.len(), 3);
+        let px = |r: &Rect| (r.xy[3] - r.xy[1]) / 2.0 * 1080.0;
+        assert!(bars.iter().all(|r| px(r) <= GRAPH_H + 0.01 && (r.xy[1] - bars[0].xy[1]).abs() < 1e-6));
+        assert!((px(bars[2]) - GRAPH_H).abs() < 0.01 && (px(bars[0]) - 0.1 * GRAPH_H).abs() < 0.01);
+    }
+
+    #[test]
+    fn the_columns_shrink_their_text_before_they_overlap() {
+        let wide = || Section { title: "Position", rows: vec![("Looking at", "x".repeat(40), 0)], graph: None };
+        let reach = |w: f32| {
+            let mut p = Paint::new(w, 720.0);
+            panels(&mut p, &[wide()], &[wide()]);
+            // the left column's right edge and the right column's left edge, in pixels
+            let mid = |r: &&Rect| r.xy[0] < 0.0;
+            let l = p.out.iter().filter(mid).map(|r| r.xy[2]).fold(-1f32, f32::max);
+            let r = p.out.iter().filter(|r| !mid(r)).map(|r| r.xy[0]).fold(1f32, f32::min);
+            ((l + 1.0) / 2.0 * w, (r + 1.0) / 2.0 * w)
+        };
+        // 52 characters a column: side by side at full size on 1920, only smaller on 1280 and on 900
+        for w in [1920.0, 1280.0, 900.0] {
+            let (l, r) = reach(w);
+            assert!(l <= r, "{w}: the left column ends at {l}, the right starts at {r}");
+        }
+    }
 
     #[test]
     fn the_font_draws_every_printable_character() {

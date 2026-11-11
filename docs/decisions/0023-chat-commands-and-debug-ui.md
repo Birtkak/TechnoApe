@@ -115,3 +115,28 @@ having been there. The HUD so far drew rectangles and a 3 x 5 digit font only.
   is within two real seconds of its own clock (`phys::step_at`), and the client's corrections replay each
   step at its own time. Out of a body's frame up and the frame change follow where the bodies are, so with
   each side on its own clock a flight at 1 km/s drifted 7 m a second and was corrected all the way.
+
+## Addendum 2026-11-11: F3 in groups, the tick graph, the looked-at label, removing a world
+- **F3** is eight titled panels (`hud::Section`, `hud::panels`, `App::debug_sections`): Performance,
+  Simulation, Position, World, Player on the left; Drawn, Machine, Session on the right. Labels are dim,
+  values white, and a value with a limit is green, amber from three quarters of it, red over it (ADR 0004:
+  the frame's worst 1 % against 8.3 ms, RAM and VRAM). The text shrinks (2, 1.5, 1 pixels a dot) before the
+  two columns would meet or the left one reach the chat. The bug report's F3 lines are the same rows as
+  `[Group]` and `label: value`.
+- **Simulation speed:** a local server's ticks are timed in play too (`Server::tick_ms`, drained every frame
+  into `App::ticks`, ten seconds of them). The panel shows the typical and worst tick against the 50 ms a
+  tick has, the ticks a second reached of 20, and a bar per tick with a line at half a tick (ADR 0004's
+  budget for the tick): green under the line, amber over it, red over a whole tick. A remote server's times
+  stay there. A played run's JSON line carries no tick numbers.
+- **What the crosshair is on** is named top middle with a swatch of its colour, and "gives light" or "metal"
+  under it where that holds (`hud::looking_at`); hidden under F3, the menus and the title.
+- **The outline of the aimed block** turns slowly through the colours (a turn in 12 s, the hues running
+  along its edges) and is two pixels wide (the ghost drawn four times a pixel apart, `overlay.wgsl`); a held
+  dig stays red, a held place green.
+- **Removing a world:** right click or Delete on a world of the Singleplayer list asks first; the row that
+  removes is never the one under the pointer that asked. The save moves to `saves/removed/` under the
+  first free name (`menu::remove_world`): nothing is deleted or written over, and putting it back is moving
+  the file. Scripted: `rclick:k`, then `click:` the removing row; `remove` is the Delete key.
+- Left and right arrows change values on the settings' pages only; elsewhere Enter presses.
+- shortcut: no setting yet to hide the looked-at label or to pick the outline's look; they go on the
+  Interface page of `docs/design/settings.md` when it is built.

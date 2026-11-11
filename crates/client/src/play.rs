@@ -50,6 +50,14 @@ impl App {
             // the menu by keys: next and prev move along the rows, go presses one (a slider: types its number),
             // nudge+ and nudge- change a value; scroll:n moves the window of rows; bind:name gives a waiting
             // key row its key (bind:none clears it)
+            // remove: the world under the keyboard's row, asked about first (the Delete key)
+            "remove" => {
+                let (x, y) = self.pointer;
+                let under = self.menu_boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]).map(|v| v + self.scroll);
+                if let (Some(Menu::Worlds), Some(k)) = (self.menu, self.sel.or(under).filter(|k| *k < self.worlds.len())) {
+                    self.set_menu(Some(Menu::Remove(k)));
+                }
+            }
             "next" => self.select(1),
             "prev" => self.select(-1),
             "go" => {
@@ -121,6 +129,7 @@ impl App {
                 Some(Menu::Settings) => Some(self.home()),
                 Some(Menu::Page(_)) => Some(Menu::Settings),
                 Some(Menu::Title | Menu::Worlds) => Some(Menu::Title),
+                Some(Menu::Remove(_)) => Some(Menu::Worlds),
             }),
             // point:x:y puts the pointer there (pixels), to see a button lit
             a if a.starts_with("point:") => {
@@ -267,6 +276,18 @@ impl App {
 
     /// The F3 overlay's lines (ADR 0023), left and right column; a bug report carries them too.
     pub(crate) fn debug_lines(&self) -> (Vec<String>, Vec<String>) {
+        // F3's groups as plain lines, for the bug report
+        let text = |v: Vec<hud::Section>| -> Vec<String> {
+            v.into_iter().flat_map(|s| std::iter::once(format!("[{}]", s.title)).chain(s.rows.into_iter().map(|r| format!("{}: {}", r.0, r.1)))).collect()
+        };
+        let (l, r) = self.debug_sections();
+        (text(l), text(r))
+    }
+
+    /// F3's numbers in groups (ADR 0023; regrouped 2026-11-11): what the game costs, how the simulation
+    /// keeps up, where the player is, the world, the player; then what is drawn, the machine, the session.
+    /// A value is coloured by how it stands against its limit (ADR 0004).
+    pub(crate) fn debug_sections(&self) -> (Vec<hud::Section>, Vec<hud::Section>) {
         let (pos, fwd, _) = self.cam;
         let w = &self.world;
         let space = w.frame_at(pos) == engine::world::INERTIAL;
@@ -283,18 +304,18 @@ impl App {
         let p99 = pct(&mut ms, 0.99);
         let (day, h) = engine::sky::clock(w.time);
         let m = (h * 60.0).round() as u32 % (24 * 60);
-        let body = ["planet", "moon"].get(bi).copied().unwrap_or("body");
+        let body = ["Terra", "Luna"].get(bi).copied().unwrap_or("a body");
         let sea = b.sea.map_or(String::new(), |s| format!(", {:.1} m over the sea", r - s));
         let look = match self.aim {
             Some((hit, _)) => format!(
-                "Looking at: {} (face {}, {} {}, layer {})",
+                "{} (face {}, {} {}, layer {})",
                 BLOCKS.get(w.block(hit)).map_or("?", |d| d.name.as_str()),
                 hit.face,
                 hit.pos.x,
                 hit.pos.y,
                 hit.pos.z
             ),
-            None => "Looking at: nothing in reach".into(),
+            None => "nothing in reach".into(),
         };
         let (yaw, pitch) = stand_angles(w.up_at(pos), fwd);
         let tool = if self.bucket { "bucket" } else if self.hammer { "build hammer" } else { "hands" };
@@ -302,47 +323,112 @@ impl App {
         let block = self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)).map_or("-", |d| d.name.as_str());
         let d = &self.drawn;
         let gpu = self.gpu.as_ref().unwrap();
+        // good, near the limit (three quarters of it), over it
+        let tone = |v: f64, limit: f64| if v > limit { 3 } else if v > limit * 0.75 { 2 } else { 1 };
+        let section = |title, rows| hud::Section { title, rows, graph: None };
+        // the server's last ticks (a local server's; a remote one's times stay there)
+        let tick_ms = 1000.0 / TICK_HZ;
+        let mut ticks: Vec<f32> = self.ticks.iter().map(|t| t.1).collect();
+        let bars: Vec<f32> = ticks.iter().map(|ms| ms / tick_ms as f32).collect();
+        let since = Instant::now() - Duration::from_secs(2);
+        let rate = self.ticks.iter().filter(|t| t.0 >= since).count() as f64 / 2.0;
+        let simulation = if self.tick_log.is_none() {
+            vec![("Tick", "the server is remote: its times stay there".into(), 0)]
+        } else if ticks.is_empty() {
+            vec![("Tick", "no tick yet".into(), 0)]
+        } else {
+            let worst = ticks.iter().copied().fold(0.0, f32::max) as f64;
+            let p50 = pct(&mut ticks, 0.5);
+            vec![
+                // ADR 0004: a tick's p99 within half its time; the line across the graph is that half
+                ("Tick", format!("{p50:.1} ms typical, {worst:.1} ms worst, of {tick_ms:.0}"), if worst > tick_ms { 3 } else if worst > tick_ms / 2.0 { 2 } else { 1 }),
+                ("Speed", format!("{rate:.1} of {TICK_HZ:.0} ticks a second"), if (ticks.len() as f64) < 2.0 * TICK_HZ { 0 } else if rate < TICK_HZ * 0.75 { 3 } else if rate < TICK_HZ - 1.0 { 2 } else { 1 }),
+            ]
+        };
         let left = vec![
-            format!("TechnoApe {BUILD} ({}), Pillars of Simulation Engine", if cfg!(debug_assertions) { "debug" } else { "release" }),
-            format!("{:.0} fps, frame {avg:.2} ms average, {p99:.2} ms p99, GPU {:.2} ms", 1000.0 / avg.max(0.01), self.gpu_last),
-            if space {
-                format!("In space: {:.1} km from the sun's centre, {:.1} km from the planet's", to_sun / 1000.0, to_planet / 1000.0)
-            } else {
-                format!("XYZ: {:.2} / {:.2} / {:.2} from the {body}'s centre", rel.x, rel.y, rel.z)
-            },
-            if space { "Height: no ground under you".into() } else { format!("Height: {r:.1} m from the centre, {:.1} m over the ground{sea}", r - b.top(up)) },
-            if space {
-                "Feet in block: none".into()
-            } else {
-                format!("Feet in block: {body} face {} at {} {}, layer {}", blk.face, blk.pos.x, blk.pos.y, blk.pos.z)
-            },
-            format!("Facing: yaw {yaw:.1}, pitch {pitch:.1}"),
-            look,
-            format!(
-                "Time: day {day}, {:02}:{:02} at the spawn, world time {:.0} s{}",
-                m / 60,
-                m % 60,
-                w.time,
-                self.clock.filter(|c| c.1 > 1.0).map_or(String::new(), |c| format!(", warp {}x", c.1))
+            section(
+                "Performance",
+                vec![
+                    ("Frame", format!("{:.0} fps, {avg:.2} ms average", 1000.0 / avg.max(0.01)), 0),
+                    ("Worst 1%", format!("{p99:.2} ms of 8.3"), tone(p99 as f64, 8.3)),
+                    ("GPU", format!("{:.2} ms", self.gpu_last), 0),
+                    ("Memory", format!("RAM {:.0} MB, VRAM {:.0} MB", self.mem.0, self.mem.1), tone(self.mem.0 as f64, 8000.0).max(tone(self.mem.1 as f64, 6000.0))),
+                ],
             ),
-            format!("Sun {:.1} degrees over the horizon, the moon {:.0}% lit", d.sun_deg, d.moon_lit * 100.0),
-            format!("Mode: {}, {tool}, slot {}: {block}", if self.creative { "creative" } else { "survival" }, self.slot + 1),
-            format!("Chunks: {} drawn of {} kept, {} quads, {} traced builds waiting", d.chunks, self.streamer.slot_count(), d.quads, d.rt_pending),
-            format!("Streaming: {} missing, {} holes, {} requests, {} jobs running", d.streaming.0, d.streaming.1, d.streaming.2, d.streaming.3),
-            format!("Lamps near: {}, water quads: {}, edits applied: {}", self.lamps.len(), self.wquad_n, self.edits_applied),
-            format!("Players: {}, corrections: {}", self.players, self.snaps),
-            String::new(),
-            "F3 hides this. T chats, / runs a command (/help), F9 reports a bug".into(),
+            hud::Section {
+                title: "Simulation",
+                rows: simulation
+                    .into_iter()
+                    .chain([
+                        ("Players", format!("{}", self.players), 0),
+                        ("Corrections", format!("{}", self.snaps), 0),
+                        ("Warp", self.clock.map_or("1x".into(), |c| format!("{}x", c.1)), 0),
+                    ])
+                    .collect(),
+                graph: (!bars.is_empty()).then_some((bars, 0.5)),
+            },
+            section(
+                "Position",
+                vec![
+                    ("On", if space { "nothing: in space".into() } else { body.to_string() }, 0),
+                    if space {
+                        ("Away", format!("{:.1} km from the sun's centre, {:.1} km from Terra's", to_sun / 1000.0, to_planet / 1000.0), 0)
+                    } else {
+                        ("XYZ", format!("{:.2} / {:.2} / {:.2} from the centre", rel.x, rel.y, rel.z), 0)
+                    },
+                    ("Height", if space { "no ground under you".into() } else { format!("{:.1} m over the ground{sea}", r - b.top(up)) }, 0),
+                    ("Feet in", if space { "no block".into() } else { format!("face {} at {} {}, layer {}", blk.face, blk.pos.x, blk.pos.y, blk.pos.z) }, 0),
+                    ("Facing", format!("yaw {yaw:.1}, pitch {pitch:.1}"), 0),
+                    ("Looking at", look, 0),
+                ],
+            ),
+            section(
+                "World",
+                vec![
+                    ("Time", format!("day {day}, {:02}:{:02} at the spawn, {:.0} s", m / 60, m % 60, w.time), 0),
+                    ("Sun", format!("{:.1} degrees over the horizon", d.sun_deg), 0),
+                    ("Luna", format!("{:.0}% lit", d.moon_lit * 100.0), 0),
+                    ("Seed", format!("{}", self.seed), 0),
+                    ("Size", format!("Terra {} and Luna {} columns a face", w.bodies[0].n, w.bodies.get(1).map_or(0, |b| b.n)), 0),
+                ],
+            ),
+            section(
+                "Player",
+                vec![("Mode", if self.creative { "creative" } else { "survival" }.into(), 0), ("Tool", tool, 0), ("Slot", format!("{}: {block}", self.slot + 1), 0)],
+            ),
         ];
         let right = vec![
-            format!("GPU: {}", gpu.adapter_name),
-            format!("{} with ray queries, {}x{}", gpu.backend, gpu.config.width, gpu.config.height),
-            format!("RAM {:.0} MB, VRAM {:.0} MB", self.mem.0, self.mem.1),
-            format!("CPU: {} workers", rayon::current_num_threads()),
-            format!("World: seed {}, planet {} and moon {} columns a face", self.seed, w.bodies[0].n, w.bodies.get(1).map_or(0, |b| b.n)),
-            format!("Server: {}", self.server_at),
-            format!("Save: {}", self.save_path.as_deref().unwrap_or("none")),
-            format!("Recording: {}", self.rec_path.as_deref().unwrap_or("none")),
+            section(
+                "Drawn",
+                vec![
+                    ("Chunks", format!("{} of {} kept", d.chunks, self.streamer.slot_count()), 0),
+                    ("Quads", format!("{}", d.quads), 0),
+                    ("Traced", format!("{} builds waiting", d.rt_pending), 0),
+                    ("Missing", format!("{} chunks, {} holes", d.streaming.0, d.streaming.1), if d.streaming.1 > 0 { 2 } else { 0 }),
+                    ("Loading", format!("{} requests, {} jobs running", d.streaming.2, d.streaming.3), 0),
+                    ("Lamps", format!("{} near", self.lamps.len()), 0),
+                    ("Water", format!("{} quads", self.wquad_n), 0),
+                    ("Edits", format!("{} applied", self.edits_applied), 0),
+                ],
+            ),
+            section(
+                "Machine",
+                vec![
+                    ("GPU", gpu.adapter_name.clone(), 0),
+                    ("Backend", format!("{} with ray queries", gpu.backend), 0),
+                    ("Screen", format!("{}x{}", gpu.config.width, gpu.config.height), 0),
+                    ("CPU", format!("{} workers", rayon::current_num_threads()), 0),
+                    ("Build", format!("{BUILD} ({})", if cfg!(debug_assertions) { "debug" } else { "release" }), 0),
+                ],
+            ),
+            section(
+                "Session",
+                vec![
+                    ("Server", self.server_at.clone(), 0),
+                    ("Save", self.save_path.clone().unwrap_or("none".into()), 0),
+                    ("Recording", self.rec_path.clone().unwrap_or("none".into()), 0),
+                ],
+            ),
         ];
         (left, right)
     }
@@ -526,14 +612,27 @@ impl App {
         // the text over it (ADR 0023): F3's numbers, the chat, the bug report's form
         let mut paint = hud::Paint::new(lw, lh);
         if self.f3 {
-            let (l, r) = self.debug_lines();
-            hud::columns(&mut paint, &l, &r);
+            let (l, r) = self.debug_sections();
+            hud::panels(&mut paint, &l, &r);
         }
         let lines: Vec<(f32, &str)> = self.chat.iter().map(|(at, l)| (at.elapsed().as_secs_f32(), l.as_str())).collect();
         let caret = self.start.elapsed().as_millis() / 400 % 2 == 0;
         let (at, hints) = engine::net::complete(self.typing.as_deref().unwrap_or(""));
         if !title {
             hud::chat(&mut paint, &lines, self.typing.as_deref(), caret, at, &hints, self.pick);
+        }
+        // what the crosshair is on (the developer, 2026-11-11), when no menu or overlay is over the top
+        if let (Some((hit, _)), None, false) = (self.aim, self.menu, self.f3 || title) {
+            if let Some(d) = BLOCKS.get(self.world.block(hit)) {
+                let lit = d.light.iter().any(|c| *c > 0.0);
+                let note = match (lit, d.metal > 0.0) {
+                    (true, true) => "gives light, metal",
+                    (true, false) => "gives light",
+                    (false, true) => "metal",
+                    _ => "",
+                };
+                hud::looking_at(&mut paint, &d.name, d.colour, note);
+            }
         }
         if self.flying {
             let s = format!("Flying {:.0} m/s", self.fly_speed);
@@ -543,7 +642,8 @@ impl App {
         if let Some(m) = self.menu {
             let (title, hint) = match m {
                 Menu::Title => ("TechnoApe", "Pillars of Simulation Engine"),
-                Menu::Worlds => ("Singleplayer", "A world carries on from its save; a new one gets its own."),
+                Menu::Worlds => ("Singleplayer", "A world carries on from its save. Right click or Delete removes one."),
+                Menu::Remove(_) => ("Remove world", "It moves to saves/removed/ and can be put back by hand."),
                 Menu::Pause => ("Paused", "The world runs on. Esc goes back to the game."),
                 Menu::Settings => ("Settings", "Click or Enter: the next value. Right click: the one before. Arrows move."),
                 Menu::Page(p) => settings::PAGES[p],

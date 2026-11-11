@@ -354,7 +354,8 @@ impl App {
         }
         stages += &format!("\"job_us_after_load\":{job_us_after:.0},\"jobs_after_load\":{later},\"walks\":{},\"tlas_builds\":{},", self.streamer.walks, self.rt.as_ref().map_or(0, |r| r.tlas_builds));
         // ADR 0025, S: the server's ticks, the workers' jobs and what each holds of the cores over the measured time
-        if let Some(v) = &self.tick_log {
+        // play drains the ticks for F3, so its line carries no tick numbers
+        if let Some(v) = self.tick_log.as_ref().filter(|_| self.run != "play") {
             let mut v = v.lock().unwrap().clone();
             let busy = v.iter().map(|x| *x as f64).sum::<f64>() / 1000.0;
             stages += &format!(
