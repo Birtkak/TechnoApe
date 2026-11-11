@@ -429,6 +429,7 @@ fn main() {
         aim: None,
         held: None,
         slot: 0,
+        held_name: (usize::MAX, Instant::now()),
         creative,
         inv: Vec::new(),
         bucket_water: 0,

@@ -630,7 +630,13 @@ impl App {
         // the title menu shows the orbit view and itself only
         let title = self.home() == Menu::Title;
         let (lw, lh) = self.ui_size();
-        let mut rects = if title { Vec::new() } else { hud::layer(lw, lh, &slots, self.slot, self.creative, height) };
+        // the block in hand by name over the hotbar: full for two seconds after a change of slot, then gone in half
+        if self.held_name.0 != self.slot {
+            self.held_name = (self.slot, Instant::now());
+        }
+        let shown = (2.5 - self.held_name.1.elapsed().as_secs_f32()).clamp(0.0, 0.5) * 2.0;
+        let held = self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)).map(|d| (d.name.clone(), shown));
+        let mut rects = if title { Vec::new() } else { hud::layer(lw, lh, &slots, self.slot, self.creative, height, held.as_ref().map(|h| (h.0.as_str(), h.1))) };
         if self.world.water_surface(p.pos).is_some() {
             // under water: a blue veil first, under the HUD. shortcut: a veil, not fog, until the sky has fog
             rects.insert(0, hud::Rect { xy: [-1.0, -1.0, 1.0, 1.0], colour: [0.05, 0.25, 0.4, 0.55], glyph: 0 });
@@ -658,8 +664,9 @@ impl App {
             let up = rel.normalize();
             let here: Vec<(usize, &nav::Waypoint)> = self.waypoints.iter().enumerate().filter(|w| w.1.body == on).collect();
             let marks: Vec<(f64, [f32; 3])> = here.iter().map(|(k, w)| (nav::bearing(up, w.rel - rel), nav::COLOURS[k % nav::COLOURS.len()])).collect();
-            let text = format!("{}  {}  {:.0} m up", b.name, nav::geo_text(nav::geo(rel, self.meridian(on))), rel.length() - b.radius);
-            label_y = hud::compass(&mut paint, nav::bearing(up, fwd), &marks, &text) + 10.0;
+            let heading = nav::bearing(up, fwd);
+            let text = format!("{:03.0}  {}  {}  {:.0} m up", heading.round() % 360.0, b.name, nav::geo_text(nav::geo(rel, self.meridian(on))), rel.length() - b.radius);
+            label_y = hud::compass(&mut paint, heading, &marks, &text) + 10.0;
             // this frame's view, as `frame` makes it after this: from the camera, the up kept off the look
             let cam_up = if fwd.cross(p.up).length() < 1e-4 { DVec3::Z } else { p.up };
             let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse((self.fov() as f32).to_radians(), w() as f32 / h() as f32, 0.1);

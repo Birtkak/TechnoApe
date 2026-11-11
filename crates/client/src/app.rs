@@ -79,6 +79,8 @@ pub(crate) struct App {
     pub(crate) aim: Option<(Block, Block)>,
     pub(crate) held: Option<(bool, Block, Block)>,
     pub(crate) slot: usize,
+    /// The slot whose block's name shows over the hotbar, and since when.
+    pub(crate) held_name: (usize, Instant),
     pub(crate) creative: bool,
     pub(crate) inv: Vec<(u8, u32)>,
     /// Units of water in the bucket (ADR 0020).

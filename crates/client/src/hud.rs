@@ -203,7 +203,7 @@ pub fn chat(p: &mut Paint, lines: &[(f32, &str)], typing: Option<&str>, caret: b
     let keep = if typing.is_some() { CHAT_LINES * 2 } else { CHAT_LINES };
     let rows = &rows[rows.len().saturating_sub(keep)..];
     let width = CHAT_COLS as f32 * 8.0 * PX + 8.0;
-    let bottom = p.h - 84.0;
+    let bottom = p.h - 128.0;
     for (k, (a, c, r)) in rows.iter().rev().enumerate() {
         let y = bottom - (k + 1) as f32 * LINE;
         p.rect(4.0, y, width, LINE, [PANEL[0], PANEL[1], PANEL[2], PANEL[3] * a], 0);
@@ -300,7 +300,7 @@ pub fn looking_at(p: &mut Paint, name: &str, colour: [f32; 3], note: &str, y: f3
     let w = text_width(name).max(text_width(note)) + 34.0 + 20.0;
     let h = if note.is_empty() { LINE + 12.0 } else { 2.0 * LINE + 12.0 };
     let x = (p.w - w) / 2.0;
-    p.rect(x, y, w, h, PANEL, 0);
+    glass(p, x, y, w, h);
     brackets(p, [x - 4.0, y - 4.0, w + 8.0, h + 8.0], 8.0, false, CYAN);
     p.rect(x + 10.0, y + 6.0, 20.0, 20.0, [colour[0], colour[1], colour[2], 1.0], 0);
     p.text(x + 10.0 + 34.0, y + 7.0, name, [0.95, 0.95, 0.95, 1.0]);
@@ -602,7 +602,9 @@ pub fn ghost(world: &World, s: &Shape, colour: [u8; 4]) -> Vec<GhostVert> {
 pub fn compass(p: &mut Paint, heading: f64, marks: &[(f64, [f32; 3])], text: &str) -> f32 {
     let (w, h, y) = (440.0, 28.0, 8.0);
     let (x, mid) = ((p.w - w) / 2.0, p.w / 2.0);
-    p.rect(x, y, w, h, PANEL, 0);
+    glass(p, x, y, w, h);
+    // ticks and letters fade towards the strip's ends
+    let fade = |d: f32| 1.0 - (d.abs() / 60.0).powi(2) * 0.85;
     brackets(p, [x - 4.0, y - 4.0, w + 8.0, h + 8.0], 8.0, false, CYAN);
     // a bearing's place on the strip, when it is within its 60 degrees
     let at = |b: f64| ((b - heading + 540.0).rem_euclid(360.0) - 180.0) as f32;
@@ -615,9 +617,9 @@ pub fn compass(p: &mut Paint, heading: f64, marks: &[(f64, [f32; 3])], text: &st
         match k {
             0 | 6 | 12 | 18 => {
                 let (l, c) = [("N", CYAN), ("E", [0.95; 4]), ("S", [0.95; 4]), ("W", [0.95; 4])][k / 6];
-                p.text(tx - 8.0, y + 6.0, l, c);
+                p.text(tx - 8.0, y + 6.0, l, [c[0], c[1], c[2], fade(d)]);
             }
-            _ => p.rect(tx - 1.0, y + if k % 3 == 0 { 8.0 } else { 12.0 }, 2.0, if k % 3 == 0 { 12.0 } else { 4.0 }, [0.62, 0.72, 0.82, 0.9], 0),
+            _ => p.rect(tx - 1.0, y + if k % 3 == 0 { 8.0 } else { 12.0 }, 2.0, if k % 3 == 0 { 12.0 } else { 4.0 }, [0.62, 0.72, 0.82, 0.9 * fade(d)], 0),
         }
     }
     for (b, c) in marks {
@@ -629,7 +631,7 @@ pub fn compass(p: &mut Paint, heading: f64, marks: &[(f64, [f32; 3])], text: &st
     p.rect(mid - 1.0, y - 3.0, 2.0, 8.0, [1.0, 1.0, 1.0, 0.95], 0);
     let px = PX * 0.75;
     let tw = text.chars().count() as f32 * 8.0 * px;
-    p.rect(mid - tw / 2.0 - 8.0, y + h + 6.0, tw + 16.0, 10.0 * px + 6.0, PANEL, 0);
+    glass(p, mid - tw / 2.0 - 8.0, y + h + 6.0, tw + 16.0, 10.0 * px + 6.0);
     p.text_px(mid - tw / 2.0, y + h + 9.0, text, [0.85, 0.9, 0.95, 1.0], px);
     y + h + 6.0 + 10.0 * px + 6.0
 }
@@ -660,14 +662,16 @@ pub fn cube(rect: &mut dyn FnMut(f32, f32, f32, f32, [f32; 4], u32), x: f32, y: 
         let yy = r + 1.0;
         // the top: a rhombus as wide as the square, half as high
         let half = hw * (1.0 - (yy - q).abs() / q);
+        let odd = (r as i32 / 2) % 2 == 1;
         if half > 0.0 {
-            rect(x + hw - half, y + r, 2.0 * half, 2.0, shade(top, 1.0), 0);
+            rect(x + hw - half, y + r, half, 2.0, shade(top, if odd { 1.0 } else { 0.92 }), 0);
+            rect(x + hw, y + r, half, 2.0, shade(top, if odd { 0.92 } else { 1.0 }), 0);
         }
         // the sides: under the rhombus's lower edges, `tall` high
         let (lo, hi) = (((yy - q - tall) / q * hw).clamp(0.0, hw), ((yy - q) / q * hw).clamp(0.0, hw));
         if hi > lo {
-            rect(x + lo, y + r, hi - lo, 2.0, shade(side, 0.78), 0);
-            rect(x + size - hi, y + r, hi - lo, 2.0, shade(side, 0.56), 0);
+            rect(x + lo, y + r, hi - lo, 2.0, shade(side, if odd { 0.78 } else { 0.72 }), 0);
+            rect(x + size - hi, y + r, hi - lo, 2.0, shade(side, if odd { 0.52 } else { 0.56 }), 0);
         }
         r += 2.0;
     }
@@ -680,53 +684,80 @@ pub struct Slot {
     pub count: Option<u32>,
 }
 
-/// Crosshair and hotbar for a `w` x `h` pixel screen. `tool_height` shows beside the hotbar for cylinders
-/// and cones.
-pub fn layer(w: f32, h: f32, slots: &[Slot], selected: usize, creative: bool, tool_height: Option<i32>) -> Vec<Rect> {
-    let mut p = Paint::new(w, h);
-    let mut rect = |x: f32, y: f32, rw: f32, rh: f32, colour: [f32; 4], glyph: u32| p.rect(x, y, rw, rh, colour, glyph);
-    let (cx, cy) = (w / 2.0, h / 2.0);
-    let white = [1.0, 1.0, 1.0, 0.85];
-    rect(cx - 8.0, cy - 1.0, 16.0, 2.0, white, 0);
-    rect(cx - 1.0, cy - 8.0, 2.0, 16.0, white, 0);
+/// A pane of the HUD's glass at (x, y): a soft shadow down and right of it, the glass, a faint light along
+/// its top edge. What every floating part of the HUD stands on.
+pub fn glass(p: &mut Paint, x: f32, y: f32, w: f32, h: f32) {
+    p.rect(x + 3.0, y + 4.0, w, h, [0.0, 0.0, 0.0, 0.22], 0);
+    p.rect(x, y, w, h, PANEL, 0);
+    p.rect(x, y, w, 1.0, [1.0, 1.0, 1.0, 0.12], 0);
+}
 
-    let (size, gap) = (44.0, 6.0);
+/// Crosshair and hotbar for a `w` x `h` pixel screen. `tool_height` shows beside the hotbar for cylinders
+/// and cones; `held` is the name of the block in hand and how strongly it shows (it fades after a change).
+pub fn layer(w: f32, h: f32, slots: &[Slot], selected: usize, creative: bool, tool_height: Option<i32>, held: Option<(&str, f32)>) -> Vec<Rect> {
+    let mut p = Paint::new(w, h);
+    let (cx, cy) = (w / 2.0, h / 2.0);
+    // the crosshair: four short arms round a gap and a dot, each on a dark edge so it shows on snow and in
+    // a cave alike
+    for pass in 0..2 {
+        let (grow, colour) = if pass == 0 { (1.0, [0.0, 0.0, 0.0, 0.45]) } else { (0.0, [1.0, 1.0, 1.0, 0.92]) };
+        for (dx, dy, aw, ah) in [(-11.0, -1.0, 7.0, 2.0), (4.0, -1.0, 7.0, 2.0), (-1.0, -11.0, 2.0, 7.0), (-1.0, 4.0, 2.0, 7.0), (-1.0, -1.0, 2.0, 2.0)] {
+            p.rect(cx + dx - grow, cy + dy - grow, aw + 2.0 * grow, ah + 2.0 * grow, colour, 0);
+        }
+    }
+
+    // the hotbar: nine slots on one pane of glass, the one in hand lifted, lit and framed in the accent
+    let (size, gap, pad, lift) = (52.0, 6.0, 10.0, 6.0);
     let n = 9.0;
-    let x0 = cx - (n * size + (n - 1.0) * gap) / 2.0;
-    let y0 = h - size - 16.0;
-    // a strip over the hotbar: gold in creative, grey in survival
-    let mode = if creative { [0.95, 0.75, 0.2, 0.9] } else { [0.6, 0.6, 0.6, 0.6] };
-    rect(x0, y0 - 10.0, n * size + (n - 1.0) * gap, 4.0, mode, 0);
-    let digits = |x_right: f32, y_bottom: f32, value: u32, px: f32, rect: &mut dyn FnMut(f32, f32, f32, f32, [f32; 4], u32)| {
+    let wide = n * size + (n - 1.0) * gap;
+    let x0 = cx - wide / 2.0;
+    let y0 = h - size - 22.0;
+    glass(&mut p, x0 - pad, y0 - pad, wide + 2.0 * pad, size + 2.0 * pad);
+    brackets(&mut p, [x0 - pad - 4.0, y0 - pad - 4.0, wide + 2.0 * pad + 8.0, size + 2.0 * pad + 8.0], 10.0, false, CYAN);
+    let digits = |p: &mut Paint, x_right: f32, y_bottom: f32, value: u32, px: f32, colour: [f32; 4]| {
         let s = value.to_string();
         for (k, ch) in s.chars().rev().enumerate() {
             let x = x_right - (k as f32 + 1.0) * px * 4.0;
             let g = ch.to_digit(10).unwrap() + 1;
-            rect(x + 1.0, y_bottom - px * 5.0 + 1.0, px * 3.0, px * 5.0, [0.0, 0.0, 0.0, 0.8], g);
-            rect(x, y_bottom - px * 5.0, px * 3.0, px * 5.0, [1.0, 1.0, 1.0, 1.0], g);
+            p.rect(x + 1.0, y_bottom - px * 5.0 + 1.0, px * 3.0, px * 5.0, [0.0, 0.0, 0.0, 0.8 * colour[3]], g);
+            p.rect(x, y_bottom - px * 5.0, px * 3.0, px * 5.0, colour, g);
         }
     };
     for k in 0..9 {
-        let x = x0 + k as f32 * (size + gap);
-        if k == selected {
-            rect(x - 3.0, y0 - 3.0, size + 6.0, size + 6.0, CYAN, 0);
-        }
-        rect(x, y0, size, size, [PANEL[0], PANEL[1], PANEL[2], if k == selected { 0.95 } else { PANEL[3] }], 0);
-        match slots.get(k) {
-            Some(sl) => {
-                let dim = if sl.count == Some(0) { 0.35 } else { 1.0 };
-                cube(&mut rect, x + 6.0, y0 + 6.0, size - 12.0, sl.colour, sl.side, dim);
-                if let Some(c) = sl.count {
-                    digits(x + size - 3.0, y0 + size - 3.0, c, 2.0, &mut rect);
-                }
+        let on = k == selected;
+        let (x, y) = (x0 + k as f32 * (size + gap), if on { y0 - lift } else { y0 });
+        if on {
+            // a glow of the accent, wider and fainter three times, then the frame
+            for (grow, a) in [(9.0, 0.08), (6.0, 0.14), (4.0, 0.22)] {
+                p.rect(x - grow, y - grow, size + 2.0 * grow, size + 2.0 * grow, [CYAN[0], CYAN[1], CYAN[2], a], 0);
             }
-            None => {}
+            p.rect(x - 2.0, y - 2.0, size + 4.0, size + 4.0, CYAN, 0);
+        }
+        p.rect(x, y, size, size, if on { [0.07, 0.11, 0.17, 1.0] } else { [0.09, 0.12, 0.17, 0.85] }, 0);
+        p.rect(x, y, size, 1.0, [1.0, 1.0, 1.0, 0.1], 0);
+        // the key that takes it, small in the corner
+        digits(&mut p, x + 4.0 + 6.0, y + 4.0 + 7.5, k as u32 + 1, 1.5, if on { CYAN } else { [0.62, 0.72, 0.82, 0.7] });
+        if let Some(sl) = slots.get(k) {
+            let dim = if sl.count == Some(0) { 0.35 } else { 1.0 };
+            cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x + 9.0, y + 10.0, size - 18.0, sl.colour, sl.side, dim);
+            if let Some(c) = sl.count {
+                digits(&mut p, x + size - 3.0, y + size - 3.0, c, 2.0, [1.0, 1.0, 1.0, 1.0]);
+            }
         }
     }
+    // what is in hand by name, over the bar, and the mode as a small word at its left end
+    if let Some((name, a)) = held.filter(|h| h.1 > 0.0) {
+        let tw = text_width(name);
+        p.rect(cx - tw / 2.0 - 10.0, y0 - pad - 34.0, tw + 20.0, LINE + 6.0, [PANEL[0], PANEL[1], PANEL[2], PANEL[3] * a], 0);
+        p.text(cx - tw / 2.0, y0 - pad - 30.0, name, [0.95, 0.95, 0.95, a]);
+    }
+    let (word, colour) = if creative { ("CREATIVE", [0.98, 0.8, 0.3, 0.95]) } else { ("SURVIVAL", [0.62, 0.72, 0.82, 0.8]) };
+    p.text_px(x0 - pad, y0 - pad - 16.0, word, colour, PX * 0.75);
     if let Some(hgt) = tool_height {
-        let x = x0 - size - gap - 6.0;
-        rect(x, y0, size, size, [0.15, 0.2, 0.3, 0.8], 0);
-        digits(x + size - 6.0, y0 + size - 8.0, hgt.max(0) as u32, 4.0, &mut rect);
+        let x = x0 - pad - size - 14.0;
+        glass(&mut p, x, y0, size, size);
+        p.rect(x, y0, 3.0, size, CYAN, 0);
+        digits(&mut p, x + size - 6.0, y0 + size - 8.0, hgt.max(0) as u32, 4.0, [1.0, 1.0, 1.0, 1.0]);
     }
     p.out
 }
@@ -765,11 +796,12 @@ mod tests {
         let mut rect = |x: f32, y: f32, w: f32, h: f32, c: [f32; 4], g: u32| p.rect(x, y, w, h, c, g);
         cube(&mut rect, 10.0, 10.0, 32.0, [0.2, 0.8, 0.2], [0.5, 0.3, 0.1], 1.0);
         let shades: std::collections::HashSet<[u32; 3]> = p.out.iter().map(|r| [r.colour[0], r.colour[1], r.colour[2]].map(|c| (c * 1000.0) as u32)).collect();
-        assert_eq!(shades.len(), 3, "the top and the two sides");
+        assert_eq!(shades.len(), 6, "the top and the two sides, each in two near shades");
         // inside the square, and as wide as it where the top is widest
         let px = |v: f32| (v + 1.0) / 2.0 * 100.0;
         assert!(p.out.iter().all(|r| px(r.xy[0]) >= 9.99 && px(r.xy[2]) <= 42.01));
-        assert!(p.out.iter().any(|r| px(r.xy[2]) - px(r.xy[0]) >= 27.9));
+        let (l, r) = p.out.iter().fold((f32::MAX, f32::MIN), |a, q| (a.0.min(px(q.xy[0])), a.1.max(px(q.xy[2]))));
+        assert!(r - l >= 27.9, "{l} to {r}");
     }
 
     #[test]
@@ -884,7 +916,7 @@ mod tests {
     #[test]
     fn the_layer_has_a_crosshair_and_nine_slots() {
         let slots = [Slot { colour: [0.5; 3], side: [0.4; 3], count: Some(12) }];
-        let r = layer(1280.0, 720.0, &slots, 0, false, None);
+        let r = layer(1280.0, 720.0, &slots, 0, false, None, Some(("Grass", 1.0)));
         assert!(r.len() >= 2 + 1 + 9 * 2 + 4, "{}", r.len());
         assert!(r.iter().all(|r| r.xy[0] < r.xy[2] && r.xy[1] < r.xy[3] && r.xy.iter().all(|v| (-1.0..=1.0).contains(v))));
         assert!(r.iter().any(|r| r.glyph == 2) && r.iter().any(|r| r.glyph == 3), "the count 12 as digits");
