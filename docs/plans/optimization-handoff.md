@@ -207,6 +207,70 @@ taste call) is the reserve.
   half resolution with the same history, or the bounce at a third. Show stills first; the developer may
   prefer 600 fps with today's picture.
 
+## Change of direction (the developer, 2026-11-11)
+The game ahead is heavy on CPU simulation, so the pass ends where the GPU work stops paying for it.
+- **The idle gap is closed, not fixed.** It is the same at 640 x 360 as at 1080p and unmoved by three
+  swapchain images, Mailbox and an early submit: a fixed cost inside the driver's windowed acquire. A third
+  of what is left at 800 fps, about 5 % of a frame at 120 fps; a second frame in flight would cost a frame
+  of input delay. Record it in ADR 0025 and leave it.
+- **From J, do the thinner G-buffer and the eclipse test off the pixel** (same picture, every resolution
+  gains). D's step 2 stays "later": measure it when trees and water raise overdraw.
+- **800 fps is no longer a hard target.** Record where `stand` ends; expect roughly 550 to 650 fps.
+
+### S. A run with simulation in it (before the final bench series)
+None of the four runs ticks anything; `stand` measures a world at rest. The air grid, rivers, plants,
+creatures and networks will run on the server's tick and the shared workers, in singleplayer on the same
+6 cores as the renderer. The risk is not average fps but long frames when the tick, the meshing and the
+frame thread want the same cores.
+- `run=sim` (the name and the load are the coder's to shape): the client renders `stand`'s view while the
+  in-process server carries about 50 bots walking and editing and a body of moving water near the camera.
+- The JSON line gains the server tick's p50, p99 and max in ms and the workers' queue wait, beside the
+  frame's numbers.
+- Questions the ADR row answers: how much of the 50 ms tick is used today; whether frame p99 or max moves
+  against plain `stand`; what the frame thread, the tick thread and the rayon workers each get of the
+  cores; whether `run=play` caps the frame rate (uncapped, the frame thread holds a core for nothing).
+- Proposal for a tick budget, to go in ADR 0004 once measured: the tick's p99 under half its 50 ms, and no
+  frame over 16.7 ms because of it.
+- Every later system (air, water, networks, plants, creatures) adds its load to this run and its row to
+  `docs/benchmarks.md`.
+
+## Keeping it (the developer, 2026-11-11; after the final bench series)
+
+### K. A guard on speed, so the pass's result cannot leak away
+The gate only asks `budget_ok` (8.3 ms). With `stand` near 2 ms, a change that triples the frame still
+passes. Make the gate compare against what the pass reached.
+- `tests/perf/baseline.json`: per run (`stand`, `fly`, `orbit`, `edit`) the quick run's `frame_p50_ms`,
+  `job_us_avg` and `vram_mb`, as measured on the dev PC at the pass's last commit. Like the viewpoints'
+  baselines, it is in the repo and changes only on purpose.
+- `tools/check.sh` (both tiers; `fast` runs `stand` and `fly` only) fails a run whose number is worse than
+  its baseline by more than a tolerance, and prints both numbers and the repro line.
+- **Measure the tolerance first:** ten quick `stand` runs back to back, the spread of p50. The tolerance is
+  about twice that spread; if it comes out above 15 %, use the median of three runs instead of one. p50,
+  not p99 and not fps: p99 of a quarter-length run is too noisy to gate on.
+- `bash tools/check.sh accept-perf` writes the numbers just measured as the new baseline, for a change
+  that is slower on purpose (a new feature) or faster. The commit that changes the file says why.
+- Not a benchmark: `docs/benchmarks.md` and `tools/bench.sh` stay the honest numbers. This only catches
+  a regression on the day it is made.
+- Done when: a deliberate `sleep` of 0.5 ms in the frame fails the fast gate, and ten clean runs in a row
+  pass it.
+
+### L. Split `crates/client/src/main.rs` (3,367 lines, a quarter of the code)
+Every client change reads and edits this one file, and two sessions in the shared checkout meet in it.
+Last package of the pass, in its own commit, when nothing else has the file open.
+- **Moves only.** No behaviour, no renames beyond what a module boundary needs, no clean-ups on the way.
+  The diff should read as cut and paste; anything else waits for its own commit.
+- Find the seams by reading it first; these are the ones expected: the arguments and the run's set-up;
+  the benchmark runs and their JSON line (`run=stand|fly|orbit|edit`, the timing rows from package A);
+  play mode (input, chat and commands, the hammer and bucket, the menu); the frame itself (the passes'
+  order, uploads, the swap of finished meshes); the scripted `acts=` input. `main.rs` keeps `main` and the
+  event loop, and should end under about 500 lines; no new file over about 800.
+- State that everything touches goes in one struct passed by reference, not in new globals.
+- Checks: `cargo test`; the four quick runs within K's tolerance of the baseline (inlining across
+  modules is the same under fat LTO, so the numbers must not move); `tools/views.sh` with 0 pixels
+  differing; the soak's hash for seed 1 unchanged; the feel report unchanged.
+- Afterwards, the "Codebase map" a session starts from names the new files; update CLAUDE.md's workspace
+  line if it lists what lives in `crates/client`.
+
 ## Rules for the whole pass
 - One package, one commit, one ADR row with before and after from the same quick runs.
 - Anything that changes pixels goes through `tools/views.sh` and a filmstrip you read yourself.
