@@ -7,6 +7,7 @@ mod gpu;
 mod hud;
 mod menu;
 mod play;
+mod nav;
 mod rt;
 mod settings;
 mod sim;
@@ -332,6 +333,8 @@ fn main() {
         }
         other => panic!("no welcome from the server: {other:?}"),
     };
+    // the waypoints live beside the save (shortcut: none without one, and none per remote server yet)
+    let waypoint_file = save_path.as_ref().map(|s| format!("{s}.waypoints"));
     // the server spawns players on the +y pole; the client starts its prediction there too
     let spawn = world.bodies[0].spawn_point();
     assert!(world.bodies.len() <= MAX_BODIES);
@@ -458,6 +461,10 @@ fn main() {
         clock: None,
         f3: false,
         recent: VecDeque::new(),
+        waypoints: waypoint_file.as_deref().and_then(|f| std::fs::read_to_string(f).ok()).map_or(Vec::new(), |t| nav::parse(&t)),
+        waypoint_file,
+        menu_since: Instant::now(),
+        lit: (None, Instant::now()),
         ticks: VecDeque::new(),
         gpu_last: 0.0,
         ts_frames: [0; TS_RING],

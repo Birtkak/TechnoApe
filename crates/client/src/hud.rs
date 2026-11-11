@@ -61,7 +61,8 @@ pub fn font_cells(text: &str) -> Result<Vec<[u8; 8]>, String> {
             match rows.len() {
                 7 => cell[..7].copy_from_slice(&rows),
                 5 => cell[2..7].copy_from_slice(&rows),
-                n => return Err(format!("{c:?} has {n} rows, not 7 (or 5 for a small letter)")),
+                8 => cell.copy_from_slice(&rows),
+                n => return Err(format!("{c:?} has {n} rows, not 7 (5 for a small letter, 8 for one with a tail)")),
             }
             Ok(cell)
         })
@@ -205,29 +206,31 @@ pub fn chat(p: &mut Paint, lines: &[(f32, &str)], typing: Option<&str>, caret: b
     let bottom = p.h - 84.0;
     for (k, (a, c, r)) in rows.iter().rev().enumerate() {
         let y = bottom - (k + 1) as f32 * LINE;
-        p.rect(4.0, y, width, LINE, [0.0, 0.0, 0.0, 0.45 * a], 0);
-        p.text(8.0, y + 2.0, r, [c[0], c[1], c[2], *a]);
+        p.rect(4.0, y, width, LINE, [PANEL[0], PANEL[1], PANEL[2], PANEL[3] * a], 0);
+        p.rect(4.0, y, 3.0, LINE, [CYAN[0], CYAN[1], CYAN[2], 0.8 * a], 0);
+        p.text(12.0, y + 2.0, r, [c[0], c[1], c[2], *a]);
     }
     if let Some(t) = typing {
         // the end of a long line shows
         let cols = ((p.w - 24.0) / (8.0 * PX)) as usize - 1;
         let shown: String = t.chars().skip(t.chars().count().saturating_sub(cols)).collect();
         let y = p.h - LINE - 8.0;
-        p.rect(4.0, y, p.w - 8.0, LINE, [0.0, 0.0, 0.0, 0.6], 0);
-        p.text(8.0, y + 2.0, &shown, [1.0, 1.0, 1.0, 1.0]);
+        p.rect(4.0, y - 2.0, p.w - 8.0, LINE + 4.0, [PANEL[0], PANEL[1], PANEL[2], 0.9], 0);
+        p.rect(4.0, y - 2.0, 3.0, LINE + 4.0, CYAN, 0);
+        p.text(12.0, y + 2.0, &shown, [1.0, 1.0, 1.0, 1.0]);
         if caret {
-            p.text(8.0 + text_width(&shown), y + 2.0, "_", [1.0, 1.0, 1.0, 1.0]);
+            p.text(12.0 + text_width(&shown), y + 2.0, "_", [1.0, 1.0, 1.0, 1.0]);
         }
         // the completions over the bar, under the word they complete, the picked one yellow
         if let (Some(k), false) = (pick, hints.is_empty()) {
             const SHOW: usize = 10;
             let first = k.saturating_sub(SHOW - 1).min(hints.len().saturating_sub(SHOW));
             let list = &hints[first..(first + SHOW).min(hints.len())];
-            let x = 8.0 + if shown.len() == t.len() { text_width(&t[..at.min(t.len())]) } else { 0.0 };
+            let x = 12.0 + if shown.len() == t.len() { text_width(&t[..at.min(t.len())]) } else { 0.0 };
             let wide = list.iter().map(|h| text_width(h)).fold(0.0, f32::max) + 8.0;
             for (r, h) in list.iter().enumerate() {
                 let hy = y - (list.len() - r) as f32 * LINE;
-                p.rect(x - 4.0, hy, wide, LINE, [0.0, 0.0, 0.0, 0.8], 0);
+                p.rect(x - 4.0, hy, wide, LINE, [PANEL[0], PANEL[1], PANEL[2], 0.92], 0);
                 p.text(x, hy + 2.0, h, if first + r == k { [1.0, 0.9, 0.3, 1.0] } else { [0.75, 0.75, 0.75, 1.0] });
             }
         }
@@ -251,7 +254,7 @@ pub fn panels(p: &mut Paint, left: &[Section], right: &[Section]) {
         for s in list {
             let (_, h, label_w) = section_size(s, px);
             let x = if side == 0 { 6.0 } else { p.w - w - 6.0 };
-            p.rect(x, y, w, h, [0.03, 0.05, 0.08, 0.72], 0);
+            p.rect(x, y, w, h, PANEL, 0);
             p.rect(x, y, 3.0, h, CYAN, 0);
             p.text_px(x + 10.0, y + 5.0, &s.title.to_uppercase(), CYAN, px);
             for (k, (label, value, tone)) in s.rows.iter().enumerate() {
@@ -293,11 +296,11 @@ fn panels_size(list: &[Section], px: f32) -> (f32, f32) {
 
 /// What the crosshair is on, top middle: a swatch of the block's colour, its name, and under it what is
 /// worth knowing about it (empty for most blocks).
-pub fn looking_at(p: &mut Paint, name: &str, colour: [f32; 3], note: &str) {
+pub fn looking_at(p: &mut Paint, name: &str, colour: [f32; 3], note: &str, y: f32) {
     let w = text_width(name).max(text_width(note)) + 34.0 + 20.0;
     let h = if note.is_empty() { LINE + 12.0 } else { 2.0 * LINE + 12.0 };
-    let (x, y) = ((p.w - w) / 2.0, 10.0);
-    p.rect(x, y, w, h, [0.03, 0.05, 0.08, 0.72], 0);
+    let x = (p.w - w) / 2.0;
+    p.rect(x, y, w, h, PANEL, 0);
     brackets(p, [x - 4.0, y - 4.0, w + 8.0, h + 8.0], 8.0, false, CYAN);
     p.rect(x + 10.0, y + 6.0, 20.0, 20.0, [colour[0], colour[1], colour[2], 1.0], 0);
     p.text(x + 10.0 + 34.0, y + 7.0, name, [0.95, 0.95, 0.95, 1.0]);
@@ -321,6 +324,9 @@ const TONES: [[f32; 4]; 4] = [[0.95, 0.95, 0.95, 1.0], [0.5, 0.9, 0.55, 1.0], [1
 /// A graph's height and one bar's width, in pixels.
 const GRAPH_H: f32 = 48.0;
 const BAR: f32 = 2.0;
+
+/// The dark glass every panel of the HUD is made of: F3's groups, the chat, the hotbar, the labels.
+pub const PANEL: [f32; 4] = [0.03, 0.05, 0.08, 0.72];
 
 /// The HUD's accent colour (the menus' look, ADR 0023: HUD brackets).
 pub const CYAN: [f32; 4] = [0.44, 0.83, 1.0, 1.0];
@@ -447,8 +453,17 @@ fn planet(p: &mut Paint, x: f32, y: f32, r: f32) {
 /// The menu (the title's and Esc's): a shade fading out from the left, the page's title large with a
 /// readout under it (the title page's is the logo), and a numbered list; the button under the pointer a
 /// solid cyan box in corner brackets.
-/// `first` is the number of rows above the ones shown (the page scrolled).
-pub fn menu(p: &mut Paint, title: &str, items: &[String], sliders: &[Slider], hint: &str, hover: Option<usize>, caret: bool, first: usize) {
+/// `first` is the number of rows above the ones shown (the page scrolled). `ease` is how far the page has
+/// come in and how far the lit row has slid out, each 0 to 1 over about a tenth of a second.
+pub fn menu(p: &mut Paint, title: &str, items: &[String], sliders: &[Slider], hint: &str, hover: Option<usize>, caret: bool, first: usize, ease: (f32, f32)) {
+    // the world a little darker under any menu but the title's, whose backdrop is the picture
+    if title != GAME_NAME {
+        p.rect(0.0, 0.0, p.w, p.h, [0.0, 0.01, 0.03, 0.35], 0);
+    }
+    let smooth = |t: f32| {
+        let t = t.clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
     let contrast = CONTRAST.load(std::sync::atomic::Ordering::Relaxed);
     let dark = if contrast { 0.94 } else { 0.45 };
     let boxes = menu_boxes(p.h, items, sliders);
@@ -469,6 +484,13 @@ pub fn menu(p: &mut Paint, title: &str, items: &[String], sliders: &[Slider], hi
     let lp = MENU_PX;
     for (k, (b, label)) in boxes.iter().zip(items).enumerate() {
         let lit = hover == Some(k);
+        // the rows come in from the left one after another; the lit one stands out a little to the right
+        let dx = -36.0 * (1.0 - smooth(ease.0 * (1.0 + 0.12 * items.len() as f32) - 0.12 * k as f32)) + if lit { 8.0 * smooth(ease.1) } else { 0.0 };
+        let b = &[b[0] + dx, b[1], b[2], b[3]];
+        if !lit {
+            p.rect(b[0], b[1], b[2], b[3], [PANEL[0], PANEL[1], PANEL[2], 0.4], 0);
+            p.rect(b[0], b[1], 3.0, b[3], [CYAN[0], CYAN[1], CYAN[2], 0.35], 0);
+        }
         let ty = b[1] + (b[3] - 7.0 * lp) / 2.0;
         let tw = b[2];
         if lit {
@@ -573,8 +595,88 @@ pub fn ghost(world: &World, s: &Shape, colour: [u8; 4]) -> Vec<GhostVert> {
 }
 
 /// One hotbar slot: the block's colour and, in survival, how many are held.
+/// The compass (docs/design/navigation.md): a strip top middle showing 60 degrees either side of `heading`
+/// (degrees east of north), a tick every 15, the four winds by their letters, north in the accent; `marks`
+/// are waypoints at their bearings in their colours, held at the strip's end when further round; `text`
+/// (where the player is) under it. Returns the height it took.
+pub fn compass(p: &mut Paint, heading: f64, marks: &[(f64, [f32; 3])], text: &str) -> f32 {
+    let (w, h, y) = (440.0, 28.0, 8.0);
+    let (x, mid) = ((p.w - w) / 2.0, p.w / 2.0);
+    p.rect(x, y, w, h, PANEL, 0);
+    brackets(p, [x - 4.0, y - 4.0, w + 8.0, h + 8.0], 8.0, false, CYAN);
+    // a bearing's place on the strip, when it is within its 60 degrees
+    let at = |b: f64| ((b - heading + 540.0).rem_euclid(360.0) - 180.0) as f32;
+    for k in 0..24 {
+        let d = at(k as f64 * 15.0);
+        if d.abs() > 58.0 {
+            continue;
+        }
+        let tx = mid + d / 60.0 * (w / 2.0);
+        match k {
+            0 | 6 | 12 | 18 => {
+                let (l, c) = [("N", CYAN), ("E", [0.95; 4]), ("S", [0.95; 4]), ("W", [0.95; 4])][k / 6];
+                p.text(tx - 8.0, y + 6.0, l, c);
+            }
+            _ => p.rect(tx - 1.0, y + if k % 3 == 0 { 8.0 } else { 12.0 }, 2.0, if k % 3 == 0 { 12.0 } else { 4.0 }, [0.62, 0.72, 0.82, 0.9], 0),
+        }
+    }
+    for (b, c) in marks {
+        let d = at(*b);
+        let tx = mid + d.clamp(-60.0, 60.0) / 60.0 * (w / 2.0 - 6.0);
+        p.rect(tx - 4.0, y + h - 7.0, 8.0, 8.0, [c[0], c[1], c[2], if d.abs() > 60.0 { 0.55 } else { 1.0 }], 0);
+    }
+    // the needle: what is straight ahead
+    p.rect(mid - 1.0, y - 3.0, 2.0, 8.0, [1.0, 1.0, 1.0, 0.95], 0);
+    let px = PX * 0.75;
+    let tw = text.chars().count() as f32 * 8.0 * px;
+    p.rect(mid - tw / 2.0 - 8.0, y + h + 6.0, tw + 16.0, 10.0 * px + 6.0, PANEL, 0);
+    p.text_px(mid - tw / 2.0, y + h + 9.0, text, [0.85, 0.9, 0.95, 1.0], px);
+    y + h + 6.0 + 10.0 * px + 6.0
+}
+
+/// A waypoint seen in the world, at (x, y) on the screen: a diamond in its colour, its name and how far.
+pub fn marker(p: &mut Paint, x: f32, y: f32, colour: [f32; 3], name: &str, far: &str) {
+    let c = [colour[0], colour[1], colour[2], 1.0];
+    for (hw, hh) in [(8.0, 3.0), (5.0, 6.0), (3.0, 8.0)] {
+        p.rect(x - hw - 1.0, y - hh - 1.0, 2.0 * hw + 2.0, 2.0 * hh + 2.0, [0.0, 0.0, 0.0, 0.5], 0);
+    }
+    for (hw, hh) in [(8.0, 3.0), (5.0, 6.0), (3.0, 8.0)] {
+        p.rect(x - hw, y - hh, 2.0 * hw, 2.0 * hh, c, 0);
+    }
+    let px = PX * 0.75;
+    for (k, (t, col)) in [(name, [0.95, 0.95, 0.95, 1.0]), (far, [0.62, 0.72, 0.82, 1.0])].into_iter().enumerate() {
+        let tw = t.chars().count() as f32 * 8.0 * px;
+        p.text_px(x - tw / 2.0, y + 13.0 + k as f32 * (10.0 * px + 2.0), t, col, px);
+    }
+}
+
+/// A little cube of a block, seen from above a corner, in the square at (x, y): its top in `top`, the two
+/// sides it shows in `side`, the right one in shade. Rows of rectangles two pixels high.
+pub fn cube(rect: &mut dyn FnMut(f32, f32, f32, f32, [f32; 4], u32), x: f32, y: f32, size: f32, top: [f32; 3], side: [f32; 3], dim: f32) {
+    let (hw, q, tall) = (size / 2.0, size / 4.0, size / 2.0);
+    let shade = |c: [f32; 3], k: f32| [c[0] * k * dim, c[1] * k * dim, c[2] * k * dim, 1.0];
+    let mut r = 0.0;
+    while r < size {
+        let yy = r + 1.0;
+        // the top: a rhombus as wide as the square, half as high
+        let half = hw * (1.0 - (yy - q).abs() / q);
+        if half > 0.0 {
+            rect(x + hw - half, y + r, 2.0 * half, 2.0, shade(top, 1.0), 0);
+        }
+        // the sides: under the rhombus's lower edges, `tall` high
+        let (lo, hi) = (((yy - q - tall) / q * hw).clamp(0.0, hw), ((yy - q) / q * hw).clamp(0.0, hw));
+        if hi > lo {
+            rect(x + lo, y + r, hi - lo, 2.0, shade(side, 0.78), 0);
+            rect(x + size - hi, y + r, hi - lo, 2.0, shade(side, 0.56), 0);
+        }
+        r += 2.0;
+    }
+}
+
 pub struct Slot {
     pub colour: [f32; 3],
+    /// The colour of its sides (a grass block's are another block's).
+    pub side: [f32; 3],
     pub count: Option<u32>,
 }
 
@@ -606,17 +708,19 @@ pub fn layer(w: f32, h: f32, slots: &[Slot], selected: usize, creative: bool, to
     };
     for k in 0..9 {
         let x = x0 + k as f32 * (size + gap);
-        let frame = if k == selected { [1.0, 1.0, 1.0, 0.95] } else { [0.0, 0.0, 0.0, 0.5] };
-        rect(x - 3.0, y0 - 3.0, size + 6.0, size + 6.0, frame, 0);
+        if k == selected {
+            rect(x - 3.0, y0 - 3.0, size + 6.0, size + 6.0, CYAN, 0);
+        }
+        rect(x, y0, size, size, [PANEL[0], PANEL[1], PANEL[2], if k == selected { 0.95 } else { PANEL[3] }], 0);
         match slots.get(k) {
             Some(sl) => {
                 let dim = if sl.count == Some(0) { 0.35 } else { 1.0 };
-                rect(x, y0, size, size, [sl.colour[0] * dim, sl.colour[1] * dim, sl.colour[2] * dim, 1.0], 0);
+                cube(&mut rect, x + 6.0, y0 + 6.0, size - 12.0, sl.colour, sl.side, dim);
                 if let Some(c) = sl.count {
                     digits(x + size - 3.0, y0 + size - 3.0, c, 2.0, &mut rect);
                 }
             }
-            None => rect(x, y0, size, size, [0.1, 0.1, 0.1, 0.4], 0),
+            None => {}
         }
     }
     if let Some(hgt) = tool_height {
@@ -634,9 +738,44 @@ mod tests {
     use engine::world::Block;
 
     #[test]
+    fn the_compass_puts_north_in_the_middle_when_facing_it_and_a_waypoint_at_its_bearing() {
+        let glyph_x = |p: &Paint, g: char| p.out.iter().filter(|r| r.glyph == g as u32).map(|r| (r.xy[0] + r.xy[2]) / 2.0 * 960.0).last();
+        let mark_x = |p: &Paint| p.out.iter().find(|r| r.colour[..3] == [1.0, 0.0, 1.0]).map(|r| ((r.xy[0] + r.xy[2]) / 2.0 * 960.0, r.colour[3])).unwrap();
+        // facing north: N in the middle, E and W out of the strip's 60 degrees, a waypoint 30 degrees east
+        // a quarter of the strip to the right
+        let mut p = Paint::new(1920.0, 1080.0);
+        compass(&mut p, 0.0, &[(30.0, [1.0, 0.0, 1.0])], "");
+        assert!(glyph_x(&p, 'N').unwrap().abs() < 2.0, "{:?}", glyph_x(&p, 'N'));
+        assert!(glyph_x(&p, 'S').is_none() && glyph_x(&p, 'W').is_none());
+        assert!((mark_x(&p).0 - 107.0).abs() < 2.0 && mark_x(&p).1 == 1.0, "{:?}", mark_x(&p));
+        // facing east: E in the middle; a waypoint 160 degrees round to the right sits dim at the right end
+        let mut p = Paint::new(1920.0, 1080.0);
+        compass(&mut p, 90.0, &[(250.0, [1.0, 0.0, 1.0])], "");
+        assert!(glyph_x(&p, 'E').unwrap().abs() < 2.0);
+        assert!(mark_x(&p).0 > 200.0 && mark_x(&p).1 < 1.0, "{:?}", mark_x(&p));
+        // across north the strip does not jump: facing 350, north is 10 degrees to the right
+        let mut p = Paint::new(1920.0, 1080.0);
+        compass(&mut p, 350.0, &[], "");
+        assert!((glyph_x(&p, 'N').unwrap() - 220.0 / 6.0).abs() < 2.0, "{:?}", glyph_x(&p, 'N'));
+    }
+
+    #[test]
+    fn a_block_s_cube_fills_its_square_in_three_shades() {
+        let mut p = Paint::new(100.0, 100.0);
+        let mut rect = |x: f32, y: f32, w: f32, h: f32, c: [f32; 4], g: u32| p.rect(x, y, w, h, c, g);
+        cube(&mut rect, 10.0, 10.0, 32.0, [0.2, 0.8, 0.2], [0.5, 0.3, 0.1], 1.0);
+        let shades: std::collections::HashSet<[u32; 3]> = p.out.iter().map(|r| [r.colour[0], r.colour[1], r.colour[2]].map(|c| (c * 1000.0) as u32)).collect();
+        assert_eq!(shades.len(), 3, "the top and the two sides");
+        // inside the square, and as wide as it where the top is widest
+        let px = |v: f32| (v + 1.0) / 2.0 * 100.0;
+        assert!(p.out.iter().all(|r| px(r.xy[0]) >= 9.99 && px(r.xy[2]) <= 42.01));
+        assert!(p.out.iter().any(|r| px(r.xy[2]) - px(r.xy[0]) >= 27.9));
+    }
+
+    #[test]
     fn the_looked_at_block_is_named_in_the_middle_with_its_colour() {
         let mut p = Paint::new(1920.0, 1080.0);
-        looking_at(&mut p, "Copper", [0.8, 0.5, 0.2], "metal");
+        looking_at(&mut p, "Copper", [0.8, 0.5, 0.2], "metal", 10.0);
         let swatch = p.out.iter().find(|r| r.colour == [0.8, 0.5, 0.2, 1.0]).expect("the block's colour");
         assert!(swatch.xy[0] < 0.0 && swatch.xy[3] > 0.9, "left of the middle, at the top");
         // the name and the note, a glyph and its shadow per letter
@@ -691,9 +830,15 @@ mod tests {
         let at = |c: char| cells[c as usize - 32];
         assert_eq!(at(' '), [0; 8]);
         assert!((b'!'..=b'~').all(|c| at(c as char) != [0; 8]), "a character with no pixels");
-        // a small capital is the capital on the baseline, two rows shorter
-        assert_eq!(at('a')[..2], [0, 0]);
-        assert_eq!((at('a')[2], at('a')[6]), (at('A')[0], at('A')[6]));
+        // the small letters are drawn: a low one on the baseline under two empty rows, a tall one from the
+        // top, one with a tail down into the eighth row; none is its capital shrunk
+        assert_eq!((at('a')[..2].to_vec(), at('a')[7]), (vec![0, 0], 0));
+        assert!(at('b')[0] != 0 && at('b')[7] == 0);
+        assert!(at('g')[7] != 0 && at('y')[7] != 0 && at('p')[7] != 0);
+        assert!(('a'..='z').all(|c| at(c) != at(c.to_ascii_uppercase())));
+        // a letter the file does not draw is still its capital without rows 1 and 4
+        let small = font_cells("A\n.###.\n#...#\n#...#\n#####\n#...#\n#...#\n#...#\n");
+        assert!(small.is_err(), "the other characters are missing, so the file as a whole is refused");
         assert!(font_cells("A\n#..#..#\n").is_err() && font_cells("A\n#\n").is_err());
     }
 
@@ -738,7 +883,7 @@ mod tests {
 
     #[test]
     fn the_layer_has_a_crosshair_and_nine_slots() {
-        let slots = [Slot { colour: [0.5; 3], count: Some(12) }];
+        let slots = [Slot { colour: [0.5; 3], side: [0.4; 3], count: Some(12) }];
         let r = layer(1280.0, 720.0, &slots, 0, false, None);
         assert!(r.len() >= 2 + 1 + 9 * 2 + 4, "{}", r.len());
         assert!(r.iter().all(|r| r.xy[0] < r.xy[2] && r.xy[1] < r.xy[3] && r.xy.iter().all(|v| (-1.0..=1.0).contains(v))));

@@ -133,6 +133,12 @@ pub(crate) struct App {
     /// what the last frame drew.
     pub(crate) f3: bool,
     pub(crate) recent: VecDeque<f32>,
+    /// The places the player marked and the file they are kept in (beside the save; none without one).
+    pub(crate) waypoints: Vec<nav::Waypoint>,
+    pub(crate) waypoint_file: Option<String>,
+    /// When the open menu page came up, and the row lit and since when: the menu's short motion.
+    pub(crate) menu_since: Instant,
+    pub(crate) lit: (Option<usize>, Instant),
     /// Play: the local server's last ticks, when each was seen and how long it took (ms), for F3's graph.
     pub(crate) ticks: VecDeque<(Instant, f32)>,
     pub(crate) gpu_last: f64,

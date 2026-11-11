@@ -28,6 +28,11 @@ pub(crate) fn remove_world(save: &str) -> std::io::Result<std::path::PathBuf> {
     let stem = from.file_stem().and_then(|s| s.to_str()).unwrap_or("world");
     let to = (1..).map(|n| dir.join(if n == 1 { format!("{stem}.sav") } else { format!("{stem}-{n}.sav") })).find(|p| !p.exists()).unwrap();
     std::fs::rename(from, &to)?;
+    // its waypoints go with it, so the next world of that name starts with none and this one keeps its own
+    let marks = format!("{save}.waypoints");
+    if std::path::Path::new(&marks).exists() {
+        std::fs::rename(&marks, format!("{}.waypoints", to.display()))?;
+    }
     Ok(to)
 }
 
@@ -37,11 +42,14 @@ fn a_removed_world_moves_aside_and_never_over_another() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let save = dir.join("world-1.sav");
+    let marks = dir.join("world-1.sav.waypoints");
     for text in ["first", "second"] {
         std::fs::write(&save, text).unwrap();
+        std::fs::write(&marks, text).unwrap();
         remove_world(save.to_str().unwrap()).unwrap();
-        assert!(!save.exists());
+        assert!(!save.exists() && !marks.exists(), "the save and its waypoints both go");
     }
+    assert_eq!(std::fs::read_to_string(dir.join("removed/world-1-2.sav.waypoints")).unwrap(), "second");
     assert_eq!(std::fs::read_to_string(dir.join("removed/world-1.sav")).unwrap(), "first");
     assert_eq!(std::fs::read_to_string(dir.join("removed/world-1-2.sav")).unwrap(), "second");
     assert!(remove_world(save.to_str().unwrap()).is_err(), "a save that is not there");
@@ -69,6 +77,8 @@ pub(crate) enum Menu {
     /// The question before world k of the list is removed.
     Remove(usize),
     Pause,
+    /// The places the player marked (the pause menu's): a right click or Delete takes one away.
+    Waypoints,
     /// The list of the settings' pages, one of them (`settings::PAGES`), and the question after a display
     /// change: keep it?
     Settings,
@@ -160,7 +170,17 @@ impl App {
                 }
                 rows
             }
-            Some(Menu::Pause) => vec!["Back to game".into(), "Settings".into(), "Main menu".into(), "Quit game".into()],
+            Some(Menu::Pause) => vec!["Back to game".into(), "Settings".into(), "Waypoints".into(), "Main menu".into(), "Quit game".into()],
+            Some(Menu::Waypoints) => {
+                let w = &self.world;
+                let me = self.me.pos;
+                let rows = self.waypoints.iter().map(|p| {
+                    let b = &w.bodies[p.body.min(w.bodies.len() - 1)];
+                    let far = if w.frame_at(me) == p.body { format!("{:.0} m away", (b.centre + p.rel - me).length()) } else { "on another body".into() };
+                    if self.creative { format!("{}: {} {}, {far}", p.name, b.name, nav::geo_text(nav::geo(p.rel, self.meridian(p.body)))) } else { p.name.clone() }
+                });
+                rows.chain(["Back".into()]).collect()
+            }
             Some(Menu::Settings) => settings::PAGES.iter().map(|p| p.0.to_string()).chain(["Done".into()]).collect(),
             Some(Menu::Confirm) => {
                 let left = self.revert.as_ref().map_or(0, |r| r.1.saturating_duration_since(Instant::now()).as_secs() + 1);
@@ -279,7 +299,14 @@ impl App {
         match (self.menu, k) {
             (Some(Menu::Title), 0) => self.set_menu(Some(Menu::Worlds)),
             (Some(Menu::Title) | Some(Menu::Pause), 1) => self.set_menu(Some(Menu::Settings)),
-            (Some(Menu::Title), 2) | (Some(Menu::Pause), 3) => self.finish(),
+            (Some(Menu::Title), 2) | (Some(Menu::Pause), 4) => self.finish(),
+            (Some(Menu::Pause), 2) => self.set_menu(Some(Menu::Waypoints)),
+            (Some(Menu::Waypoints), k) if k < self.waypoints.len() => {
+                if back {
+                    self.remove_waypoint(k);
+                }
+            }
+            (Some(Menu::Waypoints), _) => self.set_menu(Some(Menu::Pause)),
             // the right button on a world asks whether to remove it
             (Some(Menu::Worlds), k) if k < self.worlds.len() && back => self.set_menu(Some(Menu::Remove(k))),
             (Some(Menu::Remove(k)), row) if row == remove_row(k) && !back => {
@@ -301,7 +328,7 @@ impl App {
             }
             (Some(Menu::Worlds), _) => self.set_menu(Some(Menu::Title)),
             (Some(Menu::Pause), 0) => self.set_menu(None),
-            (Some(Menu::Pause), 2) => self.start_again(TITLE_ARGS[2..].iter().map(|s| s.to_string()).collect()),
+            (Some(Menu::Pause), 3) => self.start_again(TITLE_ARGS[2..].iter().map(|s| s.to_string()).collect()),
             (Some(Menu::Settings), k) if k < settings::PAGES.len() => self.set_menu(Some(Menu::Page(k))),
             (Some(Menu::Settings), _) => self.set_menu(Some(self.home())),
             (Some(Menu::Confirm), 0) => {
@@ -408,6 +435,29 @@ impl App {
         self.set_menu(Some(Menu::Page(0)));
     }
 
+    /// The meridian a body's longitudes count from: the spawn's on the first body, on a moon the middle of
+    /// the face it keeps turned to its planet (its -x, `engine::sky`).
+    pub(crate) fn meridian(&self, body: usize) -> DVec3 {
+        if body == 0 { self.world.bodies[0].spawn_point() - self.world.bodies[0].centre } else { -DVec3::X }
+    }
+
+    /// Keeps the waypoints in their file, when the world has one.
+    pub(crate) fn save_waypoints(&mut self) {
+        if let Some(f) = self.waypoint_file.clone() {
+            if let Err(e) = std::fs::write(&f, nav::text(&self.waypoints)) {
+                self.note(format!("the waypoints could not be saved to {f}: {e}"));
+            }
+        }
+    }
+
+    pub(crate) fn remove_waypoint(&mut self, k: usize) {
+        if k < self.waypoints.len() {
+            let w = self.waypoints.remove(k);
+            self.note(format!("{} removed", w.name));
+            self.save_waypoints();
+        }
+    }
+
     /// The key or button for the key row that waits for one; None clears it.
     pub(crate) fn bind_to(&mut self, b: Option<Bind>) {
         if let Some((a, slot)) = self.rebind.take() {
@@ -504,6 +554,7 @@ impl App {
         }
         if m != self.menu {
             self.scroll = 0;
+            self.menu_since = Instant::now();
         }
         (self.sel, self.rebind) = (None, None);
         self.menu = m;
