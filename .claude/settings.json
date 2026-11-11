@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/tools/stop-check.sh\"",
+            "shell": "bash",
+            "timeout": 300,
+            "statusMessage": "cargo test before stopping"
+          }
+        ]
+      }
+    ]
+  }
+}

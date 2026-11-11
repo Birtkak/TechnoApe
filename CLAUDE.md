@@ -22,7 +22,10 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 3. **Ask the developer only for taste, scope and direction calls.** Routine technical calls: a sensible
    default, recorded.
 4. **Give yourself a check to run** before asking the developer to look: `cargo test` for logic, the headless
-   run for behaviour and numbers, a filmstrip for visuals. Show the evidence.
+   run for behaviour and numbers, a filmstrip for visuals. Show the evidence. **Red, then green:** for a bug
+   (F9 reports too) or new logic, write the test first and watch it fail for the right reason, then make it
+   pass; a test never seen failing proves nothing. An optimisation keeps the slow path as its test's reference.
+   A Stop hook (`tools/stop-check.sh`) runs `cargo test` when a session that edited `crates/` ends its turn.
 5. **The design doc wins over code** when they disagree; fix one of them explicitly.
 6. **Data-driven content:** items, recipes, machines, materials and biomes are data files with a schema and
    tests.
@@ -37,6 +40,9 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
     live. Never judge motion from one screenshot.
 11. **Token budget.** Offload with the `free-offload` skill before reading big files, searching widely or
     writing boilerplate; keep design, engine work and final verification.
+12. **The author does not review.** Before a commit that changes engine, server or shader code, a fresh
+    reviewer that did not write it reads the diff (`/code-review`, or a subagent given the diff and the task,
+    not the author's summary). Fix or answer each finding; the ADR row says what the review found.
 
 ## Stack
 
