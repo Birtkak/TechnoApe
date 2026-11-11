@@ -20,38 +20,38 @@ pub const OPEN: i32 = i32::MAX;
 const UB: u32 = 12;
 /// Velocity is stored in 1/2^VF blocks per step.
 const VF: u32 = 20;
-/// g dt^2 / dx in 1/2^VF blocks per step per block of head, for dt = 1/60 s and 0.5 m blocks.
-const CG: i64 = (9.81 / 3600.0 / 0.5 * (1u64 << VF) as f64) as i64;
-/// Fastest flow: half a block per step (15 m/s).
+/// g dt^2 / dx in 1/2^VF blocks per step per block of head, for dt = 1/60 s.
+const CG: i64 = (9.81 / 3600.0 / crate::world::BLOCK * (1u64 << VF) as f64) as i64;
+/// Fastest flow: half a block per step (30 m/s).
 const VMAX: i64 = 1 << (VF - 1);
 /// The deepest water that still speeds a link up; deeper water flows as if it were this deep. It keeps a
-/// step of 1/60 s stable in deep water (waves there run at sqrt(g 8 m) instead of sqrt(g depth)).
+/// step of 1/60 s stable in deep water (waves there run at sqrt(g 16 m) instead of sqrt(g depth)).
 const ACAP: i64 = 16 * U;
 /// Water shallower than this does not spread over level ground (surface tension; puddles stay puddles).
 pub const MIN: i64 = U / 32;
 /// Friction: a link loses 1/2^FRICTION of its speed a step, and up to 1/THIN more in water under a block deep.
 const FRICTION: u32 = 9;
 const THIN: i64 = 128;
-/// A link slower than this (0.1 mm/s) stops, and a height difference too small to speed a link past it
-/// (0.4 mm) moves nothing and keeps nothing awake. Small, because a slow fill leaves its slope behind: a
+/// A link slower than this (0.2 mm/s) stops, and a height difference too small to speed a link past it
+/// (1.6 mm) moves nothing and keeps nothing awake. Small, because a slow fill leaves its slope behind: a
 /// lake filled from one end ends tilted by up to this per column.
 const VSTOP: i64 = 1 << 2;
-/// Flow slower than this (6 cm/s) is calm (`settle`).
+/// Flow slower than this (12 cm/s) is calm (`settle`).
 const VSLOW: i64 = 1 << 11;
 /// Every SETTLE_EVERY steps, a body of water whose flow is all slower than VSLOW and whose level varies by
-/// less than SETTLE_DH (1.5 cm) is laid flat (`settle`). Bodies over SETTLE_MAX nodes are left to friction.
+/// less than SETTLE_DH (3 cm) is laid flat (`settle`). Bodies over SETTLE_MAX nodes are left to friction.
 const SETTLE_EVERY: u64 = 15;
 const SETTLE_DH: i64 = U / 32;
 /// Stored water next to open sea that is not stored, and this close to sea level, trades with the sea
-/// instead of storing it: the edge of the stored region is open water, and a wave smaller than this (1.5 cm)
+/// instead of storing it: the edge of the stored region is open water, and a wave smaller than this (3 cm)
 /// leaves through it.
 const SEA_DH: i64 = U / 32;
 const SETTLE_MAX: usize = 200_000;
 
 /// Units a step that fall through one block of opening under `h` units of head: sqrt(2 g h) dt / dx.
 fn fall_cap(h: i64) -> i64 {
-    let m = h.max(U / 8) as f64 / U as f64 * 0.5;
-    ((2.0 * 9.81 * m).sqrt() / 60.0 / 0.5 * U as f64) as i64
+    let m = h.max(U / 8) as f64 / U as f64 * crate::world::BLOCK;
+    ((2.0 * 9.81 * m).sqrt() / 60.0 / crate::world::BLOCK * U as f64) as i64
 }
 
 fn moves(dh: i64) -> bool {
@@ -1022,8 +1022,8 @@ mod tests {
         assert!((0..8).all(|x| level(&w, x, 3) == 5.0));
     }
 
-    /// A dam breaks in a 60 m channel: 2 m of water rushes onto a dry floor. Ritter's solution gives a front
-    /// at 2 sqrt(g h) = 8.9 m/s; a grid model is slower at the very tip. Then it all settles level and asleep
+    /// A dam breaks in a 120 m channel: 4 m of water rushes onto a dry floor. Ritter's solution gives a front
+    /// at 2 sqrt(g h) = 12.5 m/s; a grid model is slower at the very tip. Then it all settles level and asleep
     /// within 150 s (a real one sloshes for a minute or two).
     #[test]
     fn a_dam_break_runs_at_real_speed_and_settles() {
@@ -1039,8 +1039,8 @@ mod tests {
             w.step(&g);
         }
         // metres the front ran in one second
-        let ran = (front(&w) - 39) as f64 * 0.5;
-        assert!((4.0..10.0).contains(&ran), "the front ran {ran} m in 1 s");
+        let ran = (front(&w) - 39) as f64 * crate::world::BLOCK;
+        assert!((6.0..14.0).contains(&ran), "the front ran {ran} m in 1 s");
         // the bore runs to the far wall, comes back and dies down
         for _ in 0..60 * 150 {
             w.step(&g);
@@ -1169,7 +1169,8 @@ mod tests {
             w.pour(&g, col(0, 1), 1, U / 8);
             w.step(&g);
         }
-        for _ in 0..60 * 60 {
+        // (80 m of basin: a wave crosses it in about 20 s)
+        for _ in 0..60 * 180 {
             w.step(&g);
         }
         let (lo, hi) = (0..80).map(|x| level(&w, x, 1)).fold((f64::MAX, f64::MIN), |(a, b), l| (a.min(l), b.max(l)));
@@ -1177,7 +1178,7 @@ mod tests {
         assert_eq!(w.awake(), 0);
     }
 
-    /// A tank 4 m deep empties through a hole in its floor about as fast as Torricelli says
+    /// A tank 8 m deep empties through a hole in its floor about as fast as Torricelli says
     /// (v = sqrt(2 g h)), slowing as it empties.
     #[test]
     fn a_tank_drains_through_its_floor() {
@@ -1202,10 +1203,11 @@ mod tests {
         for _ in 0..60 {
             w.step(&g);
         }
-        // a 0.5 m hole under 4 m of water passes about 0.25 m^2 x 8.9 m/s; in blocks per second:
+        // a 1 m hole under 8 m of water passes about 1 m^2 x 12.5 m/s; in blocks per second:
         let rate = (start - tank(&w)) as f64 / U as f64;
         assert!((10.0..80.0).contains(&rate), "{rate} blocks in the first second");
-        for _ in 0..60 * 30 {
+        // (Torricelli empties these 200 m^3 in about 32 s)
+        for _ in 0..60 * 60 {
             w.step(&g);
         }
         assert_eq!(w.total(), t);

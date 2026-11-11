@@ -71,18 +71,22 @@ pub(crate) fn ago(secs: u64) -> String {
 /// cannot read says so, and is still listed.
 /// shortcut: reads the whole save for two numbers, on the frame thread, when the page opens; a header of
 /// its own in the save format when saves grow past a few megabytes.
+/// What the list says of a save this build cannot read (one of 0.5 m blocks, ADR 0033); a click on it
+/// starts nothing.
+pub(crate) const OLD_WORLD: &str = "an older world, cannot be played";
+
 pub(crate) fn world_note(path: &str) -> String {
     let played = std::fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).map_or(String::new(), |d| format!(", played {}", ago(d.as_secs())));
     match server::save::Save::read(std::path::Path::new(path)) {
         Ok(s) => {
             let size = match s.planet_n {
-                12288 => "4 km".to_string(),
-                24576 => "8 km".to_string(),
+                6144 => "4 km".to_string(),
+                12288 => "8 km".to_string(),
                 n => format!("{n} columns"),
             };
             format!("seed {}, {size}{played}", s.seed)
         }
-        Err(_) => format!("not readable by this build{played}"),
+        Err(_) => format!("{OLD_WORLD}{played}"),
     }
 }
 
@@ -90,7 +94,7 @@ pub(crate) fn world_note(path: &str) -> String {
 fn a_world_s_age_is_told_in_the_largest_unit_that_fits() {
     let told: Vec<String> = [0, 59, 60, 3599, 3600, 86_399, 86_400, 172_800, 30 * 86_400].into_iter().map(ago).collect();
     assert_eq!(told, ["just now", "just now", "1 min ago", "59 min ago", "1 h ago", "23 h ago", "yesterday", "2 days ago", "30 days ago"]);
-    assert!(world_note("no/such/file.sav").starts_with("not readable"));
+    assert!(world_note("no/such/file.sav").starts_with(OLD_WORLD));
 }
 
 /// The row of the "remove world k?" page that removes: never row k itself, where the pointer still is from
@@ -333,6 +337,7 @@ impl App {
 
     /// Button `k` of the open page pressed (`back`: with the right button, a value goes the other way).
     pub(crate) fn menu_press(&mut self, k: usize, back: bool) {
+        self.audio.play("ui.click", None, 1.0, 1.0, false);
         match (self.menu, k) {
             (Some(Menu::Title), 0) => self.set_menu(Some(Menu::Worlds)),
             (Some(Menu::Title) | Some(Menu::Pause), 1) => self.set_menu(Some(Menu::Settings)),
@@ -356,6 +361,7 @@ impl App {
                 self.set_menu(Some(Menu::Worlds));
             }
             (Some(Menu::Remove(_)), _) => self.set_menu(Some(Menu::Worlds)),
+            (Some(Menu::Worlds), k) if self.world_notes.get(k).is_some_and(|n| n.starts_with(OLD_WORLD)) => {}
             (Some(Menu::Worlds), k) if k < self.worlds.len() => self.start_again(vec![format!("save={}", self.worlds[k])]),
             (Some(Menu::Worlds), k) if k == self.worlds.len() => {
                 // a new world: the first free saves/world-N.sav, a seed from the clock; the server makes the file

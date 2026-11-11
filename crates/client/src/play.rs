@@ -223,6 +223,9 @@ impl App {
             a if a.starts_with("say:") => self.link.send(ToServer::Chat(a[4..].to_string())),
             _ => {
                 if let Ok(d) = a.parse::<usize>() {
+                    if self.slot != d.clamp(1, 9) - 1 {
+                        self.audio.play("ui.tick", None, 1.0, 1.0, false);
+                    }
                     self.slot = d.clamp(1, 9) - 1;
                 } else if let Some((x, y)) = a.strip_prefix("m:").and_then(|r| r.split_once(':')) {
                     self.mouse.0 += x.parse().unwrap_or(0.0);
@@ -281,6 +284,16 @@ impl App {
             }
             if line.starts_with('/') {
                 self.chat_line(format!("> {line}"));
+            }
+            // /sound <name> plays a row of data/sounds.toml here, for the developer's ears
+            if let Some(n) = line.strip_prefix("/sound") {
+                let n = n.trim();
+                if self.audio.has(n) {
+                    self.audio.play(n, None, 1.0, 1.0, true);
+                } else {
+                    self.note(format!("No sound '{n}'. Try dig.stone, step.grass, place.metal, ui.click."));
+                }
+                return;
             }
             // nothing stands under the sun: a creative player flies there
             if line.eq_ignore_ascii_case("/goto sun") && self.creative {
@@ -572,11 +585,16 @@ impl App {
         // what the player sees of it at once (ADR 0031): the hand dips, the cells break or place with their effects
         let now = self.start.elapsed().as_secs_f64();
         self.dip = fx::Track { tween: fx::Tween::new(now, 0.18, fx::Curve::Pulse), from: [0.0; 2], to: [-46.0, 60.0] };
+        // the cells' deltas, as the server's are (frame.rs): each its effect, the first its sound, heard the
+        // frame of the click (fundamentals.md)
         let me = &self.me;
-        let olds = if self.fx.on { edit::changes(&self.world, s, m, |c| phys::holds(&self.world, me, c)) } else { Vec::new() };
+        let olds = edit::changes(&self.world, s, m, |c| phys::holds(&self.world, me, c));
         let (seq, cells) = self.pred.edit(&mut self.world, s, m, |w, c| phys::holds(w, me, c));
         for &(b, was) in &olds {
             fx::changed(&mut self.fx, &self.world, b, was, self.world.block(b));
+        }
+        if let Some(&(b, was)) = olds.first() {
+            self.heard(b, was, self.world.block(b), true);
         }
         if self.fx.on && !dig && cells.len() == 1 {
             // the effect draws it this frame, so the click shows at once
@@ -591,6 +609,16 @@ impl App {
             }
         }
         self.link.send(ToServer::Edit { seq, shape: *s, material: m });
+    }
+
+    /// A cell's delta heard (docs/design/sound.md): a dig in the sound of what was there, a place in the new
+    /// block's; whether it played.
+    pub(crate) fn heard(&mut self, b: Block, was: u8, now: u8, touch: bool) -> bool {
+        let (what, id) = if now == AIR { ("dig", was) } else { ("place", now) };
+        match BLOCKS.get(id).filter(|_| was != now) {
+            Some(d) => self.audio.play(&format!("{what}.{}", d.sound), Some(self.world.block_centre(b)), 1.0, 1.0, touch),
+            None => false,
+        }
     }
 
     /// One placed block grows into place over its cell (ADR 0031); its own mesh waits until the grow is done
@@ -783,6 +811,9 @@ impl App {
             let now = Instant::now();
             if self.lit.0 != hover {
                 self.lit = (hover, now);
+                if hover.is_some() {
+                    self.audio.play("ui.hover", None, 1.0, 1.0, false);
+                }
             }
             // (off screen the rows stand still, so a scripted run's pictures repeat; motion=1 shows it there)
             let moving = self.onscreen || self.args.get("motion", 0) == 1;

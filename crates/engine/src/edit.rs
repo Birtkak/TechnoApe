@@ -1,4 +1,4 @@
-//! Edits as shapes (ADR 0008, 0014): a box of cells on one face of one body. The 1 m brush, a single block and
+//! Edits as shapes (ADR 0008, 0014): a box of cells on one face of one body. A single block, the soak's brush and
 //! a dragged line, wall or floor are all boxes. `changes` is the one rule for what a box does, so the server
 //! applies it and the client predicts with it.
 use crate::blocks::{AIR, BLOCKS};
@@ -7,9 +7,9 @@ use glam::{DVec3, IVec3};
 use serde::{Deserialize, Serialize};
 
 /// The longest side of a shape, in blocks: 16 m, the reach.
-pub const MAX_SIDE: i32 = 32;
-/// The most cells one shape may cover: a full 32 x 32 wall or floor, two blocks thick.
-pub const MAX_CELLS: i32 = 2048;
+pub const MAX_SIDE: i32 = 16;
+/// The most cells one shape may cover: a full 16 x 16 wall or floor, two blocks thick.
+pub const MAX_CELLS: i32 = 512;
 
 /// What part of its box a shape covers (ADR 0017). Cylinders and cones stand on the layers, so they stay
 /// upright on the planet.
@@ -97,7 +97,8 @@ pub fn changes(world: &World, shape: &Shape, m: u8, keep_clear: impl Fn(Block) -
         .collect()
 }
 
-/// The plain dig and place (ADR 0008): the 2 x 2 x 2 blocks of the 1 m grid around `b`, kept on its face.
+/// A group of 2 x 2 x 2 blocks around `b`, kept on its face. It was the plain dig and place on 0.5 m
+/// blocks (ADR 0008); since ADR 0033 that is one block, and only the soak's bots still use this.
 pub fn brush(world: &World, b: Block) -> Shape {
     let body = &world.bodies[b.body as usize];
     let min = b.pos.div_euclid(IVec3::splat(2)) * 2;

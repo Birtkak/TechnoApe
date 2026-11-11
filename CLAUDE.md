@@ -1,6 +1,6 @@
 # CLAUDE.md – TechnoApe
 
-First-person survival and automation game on small spherical planets of 0.5 m blocks, with a seamless climb
+First-person survival and automation game on small spherical planets of 1 m blocks (ADR 0033), with a seamless climb
 to orbit and over to Luna. Our own engine, the Pillars of Simulation Engine, in Rust + wgpu; multiplayer
 from day one (a dedicated Linux server on the home server over Tailscale, singleplayer is a local server). Solo developer; Claude Code does
 most implementation, the developer steers, plays and decides.
@@ -62,7 +62,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 - `cargo test` (engine logic), `cargo build --release` (the binary lands in `target/release/technoape.exe`).
 - A run is `technoape.exe key=value ...`, off-screen unless `onscreen=1`. It prints one JSON line (ADR 0004:
   frame times, RAM, VRAM, `budget_ok`, a `spikes` list) and exits:
-  `run=stand|fly|orbit|edit|sim|fx` (`fx` keeps `fx_n=` particles alive, ADR 0031), `quick=1` (quarter length, a smoke check in seconds), `planet=12288|24576|1536`
+  `run=stand|fly|orbit|edit|sim|fx` (`fx` keeps `fx_n=` particles alive, ADR 0031), `quick=1` (quarter length, a smoke check in seconds), `planet=6144|12288|768`
   (columns per face edge: the standard 4 km planet, the huge 8 km one, a small one; ADR 0021), `seed=`, `out=file.jsonl`, `connect=host[:7777]` to join a running server
   (`technoape-server listen=0.0.0.0:7777 planet= seed=` prints a JSON line every 5 s).
 - Saves (ADR 0016): `run=play` keeps `saves/seed-<seed>-planet-<n>.sav`, the server `saves/server.sav`; both
@@ -76,10 +76,12 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   in space the mouse pitches you freely and Q/E roll, gravity rights you as it pulls (ADR 0024); C held zooms 3x;
   1-9 the hotbar; N drops a waypoint and creative shows the compass, where you are and the waypoints
   (ADR 0030; Esc, Waypoints lists them); space swims up in water, ADR 0020; T chats, / runs a command: /time, /playmode, /give,
-  /goto, /timewarp (. and , step it), /help; Tab completes a command, the arrows pick, else the up arrow
+  /goto, /timewarp (. and , step it), /help; /sound <name> plays a row of `data/sounds.toml` (ADR 0032:
+  a recording `data/sounds/<name>.wav` replaces the code-made one; `sounds=1` prints every sound in numbers;
+  off-screen runs are silent unless `sound=1`, and a play run's JSON counts what it played under `audio`); Tab completes a command, the arrows pick, else the up arrow
   recalls the last line; in creative (/playmode creative) space twice flies, the wheel its speed up to
   1 km/s; F3 the overlay of
-  numbers; F9 a bug report; Esc the menu: settings in pages (Display, Graphics, Controls, Keys,
+  numbers; F9 a bug report; Esc the menu: settings in pages (Display, Graphics, Controls, Keys, Sound,
   Accessibility), every key rebindable, kept in `settings.txt`, ADR 0023 and 0028; `dump=1` prints a
   settings file's meaning as JSON). `acts="t:action,..."`
   scripts those inputs off-screen (ADR 0017; `say:/time set noon`, `f3`, `f9`, `type:text`, `tab`, `enter`, `esc`, `click:1`, `point:x:y`, `C`/`c` the zoom, `next`/`prev`/`go`/`nudge+` the menu by keys, `bind:KeyW`, `key+:KeyW`/`key-:KeyW` a real key through the bindings;

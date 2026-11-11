@@ -1,4 +1,4 @@
-//! The dedicated server: `technoape-server listen=0.0.0.0:7777 planet=12288 moon=512 seed=1337`.
+//! The dedicated server: `technoape-server listen=0.0.0.0:7777 planet=6144 moon=256 seed=1337`.
 //! Prints one JSON line every 5 s: tick, players, edits. It records the session to `out/rec/server-<unix s>.rec`
 //! (`record=file` elsewhere, `record=0` not at all). It saves every 30 s to `saves/server.sav` (`save=file`,
 //! `save=0` not at all) and carries on from that save when it exists.

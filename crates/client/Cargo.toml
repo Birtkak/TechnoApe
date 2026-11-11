@@ -17,8 +17,10 @@ rayon.workspace = true
 wgpu = "30"
 winit = "0.30"
 pollster = "1"
+bytemuck = { version = "1", features = ["derive"] }
 serde.workspace = true
 toml = "0.8"
-bytemuck = { version = "1", features = ["derive"] }
+cpal = "0.15"
+hound = "3"
 image = { version = "0.25", default-features = false, features = ["png"] }
 windows = { version = "0.61", features = ["Win32_Graphics_Dxgi", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_Foundation"] }

@@ -38,11 +38,11 @@ go() { # label run extra-args...
 steps=${*:-small strips}
 for s in $steps; do case $s in
 base) # the benchmark planet (500 m class), comparable over time
-  for i in 1 2 3; do for r in stand fly orbit edit; do go base $r planet=1536; done; done ;;
+  for i in 1 2 3; do for r in stand fly orbit edit; do go base $r planet=768; done; done ;;
 small) # the standard 4 km planet (ADR 0021) must hold the budget; sim is stand with 50 players at work (ADR 0025, S)
-  for i in 1 2 3; do for r in stand fly orbit edit sim fx; do go small $r planet=12288; done; done ;;
+  for i in 1 2 3; do for r in stand fly orbit edit sim fx; do go small $r planet=6144; done; done ;;
 huge) # the huge 8 km planet (ADR 0021)
-  for i in 1 2 3; do for r in stand fly orbit edit; do go huge $r planet=24576; done; done ;;
+  for i in 1 2 3; do for r in stand fly orbit edit; do go huge $r planet=12288; done; done ;;
 strips)
   go strip fly capture_ms=2500 sheet=out/fly_strip.png
   go strip orbit capture_ms=2500 sheet=out/orbit_strip.png ;;

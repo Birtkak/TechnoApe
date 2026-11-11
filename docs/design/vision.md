@@ -4,7 +4,7 @@
   planets game (ADR 0001-0005); nothing of the earlier flat-world game applies.
 
 ## One-liner
-A first-person survival and automation game on small spherical planets of 0.5 m blocks: walk around a planet,
+A first-person survival and automation game on small spherical planets of 1 m blocks: walk around a planet,
 dig into it, build factories on it, and fly up to orbit and over to its moon without a loading screen.
 
 ## The idea
@@ -29,7 +29,7 @@ dig into it, build factories on it, and fly up to orbit and over to its moon wit
    machines and processes that matter. Depth over recipe count.
 3. **Exploration pays.** Biomes, depth and other bodies hold different materials, so going farther and deeper
    opens new routes.
-4. **One clean look.** Every block, item and model sits on one pixel grid of 16 px per 0.5 m block, with
+4. **One clean look.** Every block, item and model sits on one pixel grid of 16 px per 1 m block, with
    16x16 pixel textures, so nothing is ever the wrong size. Far terrain is honestly coarser.
    Real-time shadows, a sun that circles the planet, dark nights and caves, rich 3D sound.
 5. **Runs perfectly on the dev PC.** The frame budget of ADR 0004 holds in every run, and no system may stall
@@ -38,7 +38,9 @@ dig into it, build factories on it, and fly up to orbit and over to its moon wit
    JSON state and filmstrips back, without anyone at the keyboard.
 
 ## Fixed decisions
-- Perspective: first person. Blocks 0.5 m, fine cells 12.5 cm only where needed (ADR 0001).
+- Perspective: first person. Blocks 1 m, the player one block wide and two tall (ADR 0033); fine cells of 12.5 cm, eight to a
+  block's edge, only where needed: gases and finer simulation, crafting in the world, chiselling and
+  intricate building.
 - Engine: our own, the Pillars of Simulation Engine (`crates/engine`), Rust + wgpu; gameplay in Rust, content as data files (ADR 0002).
 - Grid: equi-angular cube-sphere (ADR 0003).
 - Budget: p99 <= 8.3 ms, no frame > 16.7 ms, RAM <= 8 GB, VRAM <= 6 GB on the dev PC (ADR 0004).

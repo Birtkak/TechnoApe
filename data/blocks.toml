@@ -2,6 +2,7 @@
 # `id` goes on the wire and into saves: never change or reuse one. 0 is air.
 # `pattern`: plain (three tones of noise), grass (a bright top; its sides are `side` with a grass fringe),
 # stone (dark crack texels). `light`: the light it gives, a colour times its strength (0..4, ADR 0022).
+# `sound`: its material's sound, a family of rows in data/sounds.toml (stone when it names none).
 # `metal`: how much it reflects like a metal (0..1). `was`: names it had before, so old saves still load.
 
 [[block]]
@@ -12,6 +13,7 @@ solid = false
 [[block]]
 id = 1
 name = "grass"
+sound = "grass"
 colour = [0.30, 0.58, 0.20]
 pattern = "grass"
 side = "dirt"
@@ -19,6 +21,7 @@ side = "dirt"
 [[block]]
 id = 2
 name = "dirt"
+sound = "dirt"
 colour = [0.47, 0.33, 0.20]
 
 [[block]]
@@ -30,18 +33,21 @@ pattern = "stone"
 [[block]]
 id = 4
 name = "copper"
+sound = "metal"
 colour = [0.85, 0.52, 0.32]
 metal = 0.6
 
 [[block]]
 id = 5
 name = "lamp"
+sound = "glass"
 colour = [1.0, 0.86, 0.62]
 light = [1.0, 0.72, 0.42]
 
 [[block]]
 id = 6
 name = "blue lamp"
+sound = "glass"
 colour = [0.62, 0.82, 1.0]
 light = [0.35, 0.6, 1.0]
 
@@ -49,5 +55,6 @@ light = [0.35, 0.6, 1.0]
 [[block]]
 id = 7
 name = "regolith"
+sound = "dust"
 was = ["moon dust"]
 colour = [0.86, 0.86, 0.84]

@@ -552,14 +552,16 @@ pub fn changed(fx: &mut Fx, world: &World, b: Block, was: u8, now: u8) {
 }
 
 /// A cell from the server's `Edits` through the prediction (`Predictor::server`): the effect plays when the
-/// world shows the change, so a cell this client already changed itself plays nothing twice.
-pub fn server_edit(fx: &mut Fx, pred: &mut Predictor, world: &mut World, b: Block, m: u8) -> bool {
-    let was = world.block(b);
+/// world shows the change, so a cell this client already changed itself plays nothing twice. Whether it
+/// shows, and what the cell was when that was read: with effects on, or `hear` (its sound, frame.rs); a
+/// block read costs the terrain's noise, so a batch of hundreds reads only what it needs (ADR 0032).
+pub fn server_edit(fx: &mut Fx, pred: &mut Predictor, world: &mut World, b: Block, m: u8, hear: bool) -> (bool, Option<u8>) {
+    let was = (fx.on || hear).then(|| world.block(b));
     let shows = pred.server(world, b, m);
-    if shows {
+    if let (true, Some(was)) = (shows, was) {
         changed(fx, world, b, was, m);
     }
-    shows
+    (shows, was)
 }
 
 // ---- motion ----
@@ -658,13 +660,16 @@ mod tests {
     use engine::blocks::AIR;
 
     fn world() -> World {
-        World::new(1536, 512, 1)
+        World::new(768, 256, 1)
     }
 
     /// A solid cell on the planet's surface at the spawn and the radius of its top.
     fn surface(w: &World) -> Block {
         let b = &w.bodies[0];
-        let mut c = w.block_at(b.spawn * (b.height(b.spawn) - 0.1));
+        let mut c = w.block_at(b.spawn * (b.height(b.spawn) + 1.0));
+        while !BLOCKS.solid(w.block(c)) {
+            c.pos.z -= 1;
+        }
         while BLOCKS.solid(w.block(Block { pos: c.pos + IVec3::Z, ..c })) {
             c.pos.z += 1;
         }
@@ -854,20 +859,27 @@ mod tests {
         changed(&mut fx, &w, mine, was, AIR);
         assert_eq!(fx.played, 1);
         // the server's delta for it, and its Done: nothing more
-        assert!(!server_edit(&mut fx, &mut pred, &mut w, mine, AIR));
+        assert!(!server_edit(&mut fx, &mut pred, &mut w, mine, AIR, false).0);
         pred.done(&mut w, seq);
         assert_eq!(fx.played, 1);
         // another player's dig arrives as a delta: one break
-        assert!(server_edit(&mut fx, &mut pred, &mut w, theirs, AIR));
+        let their_was = w.block(theirs);
+        assert_eq!(server_edit(&mut fx, &mut pred, &mut w, theirs, AIR, false), (true, Some(their_was)));
         assert_eq!(fx.played, 2);
         assert_eq!(fx.live(), 24);
         // the same delta again changes nothing and plays nothing
-        server_edit(&mut fx, &mut pred, &mut w, theirs, AIR);
+        server_edit(&mut fx, &mut pred, &mut w, theirs, AIR, false);
         assert_eq!(fx.played, 2);
         // effects off (benchmarks, views): nothing
         let mut off = Fx::new(false, 4096, 1.0, 1);
-        server_edit(&mut off, &mut pred, &mut w, Block { pos: theirs.pos - IVec3::Z, ..theirs }, AIR);
+        let deeper = Block { pos: theirs.pos - IVec3::Z, ..theirs };
+        assert_eq!(server_edit(&mut off, &mut pred, &mut w, deeper, AIR, false), (true, None));
         assert_eq!((off.played, off.live()), (0, 0));
+        // heard with effects off: the old block is read for its sound, still no effect
+        let deepest = Block { pos: deeper.pos - IVec3::Z, ..deeper };
+        let was = w.block(deepest);
+        assert_eq!(server_edit(&mut off, &mut pred, &mut w, deepest, AIR, true), (true, Some(was)));
+        assert_eq!(off.played, 0);
     }
 
     #[test]
@@ -895,12 +907,13 @@ mod tests {
         for _ in 0..30 {
             fx.step(&w, 1.0 / 60.0);
         }
-        // the first burst's debris over the hole fell on to the new floor; nothing lies inside a block
+        // the first burst's debris over the hole falls on to the new floor (a block of 1 m takes it longer than 0.5 s to
+        // settle); nothing lies inside a block
         let col = At::cell(&w, under, 0).col;
         let over: Vec<&P> = fx.pool.iter().filter(|p| p.tag == 1 && col.holds(p.p, p.p.length())).collect();
         assert!(!over.is_empty());
         for p in over {
-            assert!(p.p.length() - p.size * 0.5 < r + 0.02, "{} over {r}", p.p.length());
+            assert!((p.floor - r).abs() < 1e-3 && p.p.length() - p.size * 0.5 < r + 0.6, "{} over {r}, floor {}", p.p.length(), p.floor);
         }
         for b in fx.resting(&w) {
             assert!(!BLOCKS.solid(w.block(b)), "debris at rest inside a block at {b:?}");

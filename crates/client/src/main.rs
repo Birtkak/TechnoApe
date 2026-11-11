@@ -1,5 +1,6 @@
 //! The TechnoApe client: window, renderer and the benchmark runs (docs/plans/roadmap.md, "The shared benchmark").
 mod app;
+mod audio;
 mod bench;
 mod frame;
 mod fx;
@@ -58,6 +59,10 @@ impl ApplicationHandler for App {
         }
         let onscreen = self.args.get("onscreen", 0) == 1;
         self.onscreen = onscreen;
+        // sound where someone listens: play on screen (sound=0 keeps it quiet, sound=1 opens the card anywhere)
+        if self.args.get("sound", (onscreen && self.run == "play") as i32) == 1 {
+            self.audio.open();
+        }
         // play on screen as the settings say (ADR 0023): a window with a title bar, or fullscreen
         let play = onscreen && self.run == "play";
         let mon = self.settings.at(S::Monitor).checked_sub(1).and_then(|k| el.available_monitors().nth(k)).or_else(|| el.primary_monitor());
@@ -272,8 +277,8 @@ fn main() {
         return;
     }
     // the world comes from the server: a remote one (connect=host[:port]) or a local one on its own thread
-    // (planet= and moon= are columns per face edge: 12288 is the 4 km planet, the standard; 24576 the 8 km huge
-    // one; 1536 the benchmark's 500 m class)
+    // (planet= and moon= are columns per face edge, 1 m each, ADR 0033: 6144 is the 4 km planet, the standard;
+    // 12288 the 8 km huge one; 768 the benchmark's 500 m class)
     let mut local_server = None;
     let mut tick_log = None;
     let (mut save_path, mut rec_path) = (None, None);
@@ -369,6 +374,11 @@ fn main() {
     // play's settings (ADR 0023); every other run keeps the defaults
     let settings_file = args.s("settings", "settings.txt");
     let settings = if run == "play" { Settings::parse(&std::fs::read_to_string(&settings_file).unwrap_or_default()) } else { Settings::default() };
+    // sounds=1: every sound in numbers, as one JSON line, and nothing else
+    if args.get("sounds", 0) == 1 {
+        println!("{}", audio::report());
+        return;
+    }
     // dump=1: what the file means, every row and key as one JSON line, and nothing else
     if args.get("dump", 0) == 1 {
         println!("{}", settings.json());
@@ -445,7 +455,7 @@ fn main() {
         rng: 0x9E3779B97F4A7C15,
         edits_done: 0,
         pred: Predictor::default(),
-        tool: Tool { kind: Kind::Box, single: true, height: 8 },
+        tool: Tool { kind: Kind::Box, single: true, height: 4 },
         hammer: false,
         bucket: false,
         aim: None,
@@ -455,7 +465,6 @@ fn main() {
         fx,
         fx_n: 0,
         dip: fx::Track { tween: fx::Tween::new(-10.0, 0.18, fx::Curve::Pulse), from: [0.0; 2], to: [0.0; 2] },
-        walked: 0.0,
         growing: Vec::new(),
         fx_edits,
         world_notes: Vec::new(),
@@ -520,6 +529,8 @@ fn main() {
         revert: None,
         zoomed: false,
         focused: true,
+        audio: audio::Audio::new(),
+        walked: 0.0,
         next_frame: Instant::now(),
         onscreen: false,
         flying: false,

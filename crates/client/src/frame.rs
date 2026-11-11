@@ -94,7 +94,8 @@ impl App {
             let auto = a.get("autowalk", 0) == 1;
             let mut inp = Input {
                 mv: [if auto { 1.0 } else { k(Act::Forward) - k(Act::Back) }, k(Act::Right) - k(Act::Left)],
-                jump: auto || self.settings.held(&self.keys, Act::Jump),
+                // (auto jump, the settings: a ledge one block high in the way of the walk is jumped)
+                jump: auto || self.settings.held(&self.keys, Act::Jump) || (self.settings.on(S::AutoJump) && !self.flying && phys::ledge_ahead(&self.world, &self.me)),
                 pitch: self.pitch as f32,
                 fly: if self.flying { self.fly_speed as f32 } else { 0.0 },
                 down: self.flying && self.settings.held(&self.keys, Act::Down),
@@ -108,7 +109,23 @@ impl App {
                 inp.turn = std::mem::take(&mut self.turn) as f32;
                 (inp.tilt, inp.roll) = (std::mem::take(&mut self.tilt) as f32, std::mem::take(&mut self.roll) as f32);
                 let f0 = self.world.frame_at(self.me.pos);
+                let (in_air, fall) = (!self.me.on_ground, -self.me.vel.dot(phys::up(&self.world, self.me.pos)));
                 phys::step(&self.world, &mut self.me, &inp, phys::DT);
+                if self.loaded_at.is_some() && self.me.on_ground && !self.flying {
+                    // a footstep every STEP_M walked and a landing after a fall, in the sound of the block
+                    // underfoot; the landing is the step, lower and louder with the speed
+                    let land = in_air && fall > 4.0;
+                    self.walked += (self.me.pos - self.prev).length();
+                    if land || self.walked >= STEP_M {
+                        self.walked = 0.0;
+                        let feet = self.me.pos;
+                        let under = self.world.block(self.world.block_at(feet - phys::up(&self.world, feet) * 0.25));
+                        if let Some(d) = BLOCKS.get(under).filter(|d| d.solid) {
+                            let (gain, pitch) = if land { ((fall as f32 / 5.0).clamp(1.0, 2.5), 0.75) } else { (1.0, 1.0) };
+                            self.audio.play(&format!("step.{}", d.sound), Some(feet), gain, pitch, true);
+                        }
+                    }
+                }
                 let f1 = self.world.frame_at(self.me.pos);
                 if f0 != f1 {
                     // a step into another frame: the drawn path and what is left of a correction go along, or the
@@ -150,11 +167,6 @@ impl App {
             pose(&self.run, t, &self.world, speed, alt, warm, q, a)
         };
         if self.run == "play" && self.loaded_at.is_some() {
-            // metres walked, for the bob of the block in hand
-            if self.me.on_ground {
-                let up = self.world.up_at(self.me.pos);
-                self.walked += (self.me.vel - up * self.me.vel.dot(up)).length() * dt.min(0.1);
-            }
             self.build(&p, t);
         }
         let p = if self.home() == Menu::Title { self.title_view(t) } else { p };
@@ -166,9 +178,17 @@ impl App {
         loop {
             match self.link.try_recv() {
                 Recv::Msg(ToClient::Edits(v)) => {
+                    let mut heard = 0;
                     for (b, m) in v {
-                        if fx::server_edit(&mut self.fx, &mut self.pred, &mut self.world, b, m) {
+                        // the cell's delta: its effect and, for up to three cells of an edit, its sound (another
+                        // player's digging and building; this player's own were seen and heard at the click)
+                        let hear = heard < 3 && self.loaded_at.is_some();
+                        let (shows, was) = fx::server_edit(&mut self.fx, &mut self.pred, &mut self.world, b, m, hear);
+                        if shows {
                             self.streamer.touch_block(&self.world, b);
+                            if let Some(was) = was.filter(|_| hear) {
+                                heard += self.heard(b, was, m, false) as u32;
+                            }
                         }
                         self.edits_applied += 1;
                         if measuring {
@@ -493,6 +513,17 @@ impl App {
             .map(|i| (x - self.world.pose(i, wt).centre).length() - self.world.bodies[i].radius)
             .fold(f64::MAX, f64::min);
         let air = (1.0 - over_air.max(0.0) / 1500.0).clamp(0.0, 1.0) as f32;
+        // what the head hears (docs/design/sound.md): where it is, how much the air here carries (the
+        // settings' "Sound in space"), dull under water; the volumes; and the wind, with height and speed
+        self.audio.ear = [p.pos, p.fwd.cross(p.up).normalize_or_zero(), p.up, p.fwd];
+        self.audio.carry = [air, air.max(0.4), 1.0][self.settings.at(S::SpaceSound).min(2)];
+        self.audio.dull = if self.world.water_surface(p.pos).is_some() { 0.8 } else { 0.0 };
+        let vol = |s: S| (self.settings.get(s) / 100.0) as f32;
+        let listening = self.focused || !self.onscreen || !self.settings.on(S::MuteBack);
+        self.audio.levels(if listening { vol(S::Volume) } else { 0.0 }, [vol(S::VolWorld), vol(S::VolSteps), vol(S::VolUi)]);
+        // (the title's camera circles high and fast: a breeze there, not a gale)
+        let wind = if self.home() == Menu::Title { 0.15 } else { (0.05 + over_air.clamp(0.0, 400.0) / 400.0 * 0.3 + self.me.vel.length() / 50.0).min(1.0) as f32 * air };
+        self.audio.hold("wind", wind);
         let sky_c = Vec3::new(0.45, 0.65, 0.95) * day * air + Vec3::new(0.01, 0.012, 0.025);
         // the bounce light on or off (off: a flat fill from the sky), and the screen's brightness
         let fill = sky_c * 0.35 + Vec3::splat(0.01);

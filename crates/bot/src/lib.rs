@@ -156,7 +156,7 @@ impl Bot {
                 self.target = None;
                 self.link.send(ToServer::Input(Input::default()));
             } else {
-                // jump when the last tick brought it no closer: something higher than the step-up is in the way
+                // jump when the last tick brought it no closer: a ledge is in the way
                 let jump = dist > self.last_dist - 0.02;
                 self.link.send(ToServer::Input(Input { mv: [1.0, 0.0], jump, fwd: (d / dist).as_vec3().to_array(), pitch: 0.0, ..Default::default() }));
             }
@@ -279,11 +279,11 @@ mod tests {
         let w = std::thread::spawn(move || {
             let mut watcher = watcher;
             let mut out = Vec::new();
-            watcher.run(parse_script(&format!("spawn 2 {h} 0; wait 0.5; block -1.75 -0.5 0.25; block -1.75 -1.0 0.25; report")).unwrap(), None, |l| out.push(l));
+            watcher.run(parse_script(&format!("spawn 2 {h} 0; wait 0.5; block -1.75 -0.5 0.25; block -1.75 -1.5 0.25; report")).unwrap(), None, |l| out.push(l));
             out
         });
         let mut dout = Vec::new();
-        digger.run(parse_script(&format!("spawn 0 {h} 0; wait 0.2; dig 0.25 -0.5 0.25; dig 0.25 -1.0 0.25; wait 0.2; block 0.25 -0.5 0.25; report; wait 1")).unwrap(), None, |l| dout.push(l));
+        digger.run(parse_script(&format!("spawn 0 {h} 0; wait 0.2; dig 0.25 -0.5 0.25; dig 0.25 -1.5 0.25; wait 0.2; block 0.25 -0.5 0.25; report; wait 1")).unwrap(), None, |l| dout.push(l));
         let (wchat, wout): (Vec<String>, Vec<String>) = w.join().unwrap().into_iter().partition(|l| l.contains("\"chat\""));
         let dout: Vec<String> = dout.into_iter().filter(|l| !l.contains("\"chat\"")).collect();
         assert!(wchat.iter().any(|l| l.contains("digger joined")), "{wchat:?}");

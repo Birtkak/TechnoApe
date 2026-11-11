@@ -89,7 +89,7 @@ Water is not a block: it lives in the gaps (ADR 0020). Machines are a block plus
 - The grid's columns narrow with depth: 1.5 % at today's 64 m crust, 4.5 % at the 192 m proposed in
   `worldgen.md`. Fine.
 - Deeper needs **shells**: below a set radius a new shell starts with half the columns per face edge, so
-  blocks stay near 0.5 m. An address gains a shell number. Nothing above may assume shell 0 is the only
+  blocks stay near 1 m. An address gains a shell number. Nothing above may assume shell 0 is the only
   one; that is the whole constraint for now (ADR 0009).
 
 ## Order of building

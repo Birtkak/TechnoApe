@@ -52,7 +52,7 @@ edits as well as one's own. Until now the water had its own droplets in its draw
   `fx_cap=` sets the pool; `fxedit=t:di:dj:dl:block,...` scripts edits at times for filmstrips. It is in
   `tests/perf/baseline.json`, the full gate and the benchmark's small series.
 
-## Measured (release, dev PC, `run=fx quick=1`, 4,096 live, three runs)
+## Measured (release, dev PC, `run=fx quick=1`, 4,096 live, three runs; 0.5 m blocks, see below for 1 m)
 - **Frame thread `fx`:** p50 0.060-0.067 ms, p99 0.12-0.13 ms. **Misses the proposal of 0.05 ms.** `step`
   alone is 0.052 ms after the review's fixes (one terrain height a crossing instead of two); it was 0.030
   before the per-column floor.
@@ -60,13 +60,36 @@ edits as well as one's own. Until now the water had its own droplets in its draw
 - Frame p50 2.10-2.19 ms, `budget_ok` in every run; VRAM 813 MB; no allocation per frame.
 - At 16,384 ("many"): frame thread 0.21 ms p50 / 0.36 p99, GPU 0.16 / 0.19.
 
+## After one-metre blocks (ADR 0033) and sound (ADR 0032)
+Main was merged in before this branch landed.
+- **What meant blocks:** a debris cube shows 2 x 2 of the block's texels, and the look keeps 16 texels to a
+  block, so the break's debris and the place's specks doubled in size (`break` 0.1-0.18 m, `place`
+  0.04-0.07 m); the dozen a block stays. The grow is a share of its cell and the water's drops have their
+  own size: unchanged. Speeds, the floor lookup (8 cells, now 8 m) and `run=fx`'s distances are in metres or
+  cells and stay. The tests' planet is the small one (n 768) and find the surface by walking down to it.
+- **The hand's bob** follows the footsteps' own count (`walked`, reset at each footstep; `BOB` is `STEP_M`
+  long), not a second one.
+- **Sounds start from the cell events,** as ADR 0032 asked: the player's own dig or place is heard from the
+  first cell it changes (`edit::changes`, now worked out always), another player's from the server's delta
+  through `fx::server_edit`, which reads a cell's old block only with effects on or for the three cells of a
+  batch that are heard (ADR 0032's review kept that read off the rest). A hammer's sound is now the first
+  changed cell's block rather than the aimed one. Steps, landings and the menu keep their own call sites:
+  they are not cell events.
+- **Measured** (`run=fx quick=1`, three runs, while another session's world bake ran beside it):
+  frame thread `fx` p50 0.058-0.069 ms, p99 0.09-0.13; **GPU `fx` p50 0.147 ms, p99 0.166-0.167**: the cubes
+  have four times the pixels, each lit per fragment, so the GPU sits at the 0.15 budget at p50 and over it at
+  p99. Frame p50 about 2.05 ms, `budget_ok` in every run, VRAM 811 MB. `tests/perf/baseline.json`'s `fx` row
+  is still the 0.5 m one; main re-measures the baseline on a quiet machine.
+
 ## Checks
 Tests in `fx.rs`: the rows read and check; the same burst for the same seed, it lands and is gone, nothing
 rests inside a block; a spray drop dies on its floor and splashes there; a full pool drops the oldest and never
 grows; exactly one break per solid-to-air delta, another player's too; debris falls on when the block under it
-breaks; the curves. Filmstrips of a break and a place, close and from 20 m (`prototypes/effects/close.png`,
+breaks; the curves. Filmstrips of a break and a place, close and from 20 m, with 1 m blocks (`prototypes/effects/close.png`,
 `far.png`):
-`technoape.exe run=stand fx=1 time=150 length=0.05 warmup=0.5 pitch=-40 capture_ms=100 capture_w=1280 sheet=out/fx-close.png "fxedit=0.2:5:-1:-1:air,0.2:5:-2:-1:air,1.0:3:-1:0:stone"`.
+`technoape.exe run=stand fx=1 time=150 length=0.05 warmup=0.5 pitch=-40 capture_ms=100 capture_w=1280 sheet=out/fx-close.png "place=3:-1:1:stone,3:-2:1:stone" "fxedit=0.2:3:-1:1:air,0.2:3:-2:1:air,1.0:2:-1:1:stone"`;
+from 20 m: two stone pillars `place=20:-4:-3..2:stone,20:-2:-3..1:stone` (each cell named), `pitch=-3`,
+`capture_w=1920`, `fxedit=0.2:20:-4:2:air,0.2:20:-4:1:air,1.0:20:-2:2:stone`.
 `tools/check.sh fast`.
 
 A reviewer who did not write it read the diff and found no blocking bug; of its ten findings, fixed:
@@ -86,6 +109,9 @@ from higher up, so debris on a block over a void of 9 or more did not fall when 
 ## Consequences
 - shortcut: the frame thread's `fx` is 0.06 ms against the 0.05 proposed; when it matters, step on a worker
   with a double buffer, or move the motion to the GPU.
+- With 1 m blocks the GPU's `fx` is at its 0.15 ms budget (4,096 live). Levers, none taken: one sun
+  visibility per particle (the spike's 20 %, losing lamps, the moon and the soft edge), fewer debris a block,
+  or a lower cap at "normal".
 - shortcut: debris collides only with the floor of its column and the side of the next; it does not hit
   overhangs or the player.
 - shortcut: a hammer's batch from the server is applied cell by cell, so a burst early in it can take a

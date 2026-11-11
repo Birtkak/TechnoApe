@@ -7,11 +7,14 @@ pub(crate) const CORRECT_S: f64 = 0.1;
 /// How much C held magnifies.
 pub(crate) const ZOOM: f64 = 3.0;
 pub(crate) const AIM_REACH: f64 = 8.0;
+/// Metres between two footsteps: one every 0.42 s at a walk.
+pub(crate) const STEP_M: f64 = 1.8;
 /// A placed block grows into place this long (data/effects.toml's grow: its `grow` share of its life).
 pub(crate) const GROW_S: f64 = 0.1;
-/// The block in hand's bob with the steps (ADR 0031): left and down by its pixels once a step, by metres walked.
+/// The block in hand's bob with the steps (ADR 0031): left and down by its pixels once a footstep, by the
+/// metres walked since the last one (`walked`, which the footsteps' sound keeps).
 pub(crate) const BOB: fx::Track<[f32; 2]> =
-    fx::Track { tween: fx::Tween { start: 0.0, len: 0.9, curve: fx::Curve::Pulse, repeat: true }, from: [0.0, 0.0], to: [-4.0, 9.0] };
+    fx::Track { tween: fx::Tween { start: 0.0, len: STEP_M, curve: fx::Curve::Pulse, repeat: true }, from: [0.0, 0.0], to: [-4.0, 9.0] };
 /// Two presses of space this close (seconds) take off or land.
 
 pub(crate) struct App {
@@ -85,11 +88,10 @@ pub(crate) struct App {
     pub(crate) held: Option<(bool, Block, Block)>,
     pub(crate) slot: usize,
     /// The effects (ADR 0031): the particle pool and the particles drawn this frame; the block in hand's dip
-    /// (a track, from the clock `start`) and the metres walked that bob it.
+    /// (a track, from the clock `start`); `walked` bobs it.
     pub(crate) fx: fx::Fx,
     pub(crate) fx_n: u32,
     pub(crate) dip: fx::Track<[f32; 2]>,
-    pub(crate) walked: f64,
     /// Blocks this player placed, growing into place: when their mesh may show (the clock `start`), the cell,
     /// the block, the grow's tag, and whether the mesh was asked for (play.rs `apply`).
     pub(crate) growing: Vec<(f64, Block, u8, u32, bool)>,
@@ -197,6 +199,9 @@ pub(crate) struct App {
     /// The zoom is on; the window has the keyboard; when the frame cap lets the next frame start.
     pub(crate) zoomed: bool,
     pub(crate) focused: bool,
+    /// Sound (docs/design/sound.md), and the metres walked since the last footstep.
+    pub(crate) audio: audio::Audio,
+    pub(crate) walked: f64,
     pub(crate) next_frame: Instant,
     pub(crate) onscreen: bool,
     /// Creative flight (ADR 0023): on or not, its speed (the wheel), and when space was last pressed.

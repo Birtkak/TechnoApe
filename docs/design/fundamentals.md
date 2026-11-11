@@ -7,7 +7,7 @@
 
 ## 0. The numbers the planet gives us
 
-| | standard 4 km planet (N = 12288) | huge 8 km planet (N = 24576) | Luna (N = 512) |
+| | standard 4 km planet (N = 6144) | huge 8 km planet (N = 12288) | Luna (N = 256) |
 |---|---|---|---|
 | radius | 4244 m | 8488 m | 177 m |
 | walk around at 4.3 m/s | 103 min | 207 min | 4 min |
@@ -39,14 +39,14 @@ in a `feel` report (section 4) next to the frame times.
 **Feet (movement polish, all *proposals* to tune in the first playtest)**
 - Coyote time and a jump buffer of about 100 ms each; sprint about 6.5 m/s with a slight FOV widening;
   crouch never walks off an edge (building on a sphere needs it).
-- Step-up eases the camera over about 80 ms so 0.5 m stairs do not jitter; a small landing dip.
+- Step-up eases the camera over about 80 ms so stairs of half blocks (when the fine cells bring them) do not jitter; a small landing dip.
 - Per-body gravity is data: Luna is floaty. Changing bodies rolls "up" over at least a second.
 - Measured by camera jerk (the third derivative of the camera path) in a walk-over-hills run: steps, seams
   and corrections show up as spikes with a tick number.
 
 **Tools (ADR 0008: brush + drag-build)**
-- A dig or place action covers a 1 m group (2 x 2 x 2 blocks) by default; a held key gives single 0.5 m
-  blocks; better tools carry bigger brushes. A tunnel is then 2 actions per metre, as in Minecraft.
+- A dig or place action is one 1 m block (ADR 0033); better tools carry bigger brushes. A tunnel is 2
+  actions per metre, as in Minecraft.
 - Building drags out lines, walls and floors in one action; the ghost shows the footprint and any seam it
   crosses before the player commits (ADR 0003).
 - Protocol consequence: an edit message carries a shape (box of blocks), not one block. The server checks
@@ -114,7 +114,7 @@ ADR 0004 budgets the frame. The rest of the game needs budgets too (*proposals*,
 | Start to first playable frame | <= 3 s | client JSON line |
 | Teleport: time until no chunk is missing | <= 500 ms | `run=stand at=` |
 | Frame-thread allocations in steady state | 0 | counter, asserted |
-| Huge planet (N = 24576) | ADR 0004 holds | a `huge` benchmark row |
+| Huge planet (N = 12288) | ADR 0004 holds | a `huge` benchmark row |
 
 **Where Rust's speed comes from, and what we still leave on the table**
 
