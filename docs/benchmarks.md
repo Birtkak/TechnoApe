@@ -51,8 +51,7 @@ digging and placing and water running (ADR 0025, S).
   - It depends on how video memory happens to be laid out, not on J2's code: J2 with the quad buffer at 12, 20
     or 24 MB (`quad_cap_m=`) instead of 16 has none, and standing still at that spot shows none either.
   - Which allocation triggers it is open; see ADR 0025's J2 row.
-- **`orbit`'s missing chunks** went up, at most 214 against 162 before: with the far levels loading on the same
-  workers but more of them asked for in time, this was not looked into.
+- **`orbit`'s missing chunks** went up, at most 214 against 162 before; not looked into.
 - **`sim`:** 51 players cost the frame p99 0.6 ms against `stand` (3.04 against 2.46). The tick takes 3.2 ms of
   its 50 at p50 (0.07 of a core), and the meshing workers are nearly idle. The frame thread holds 0.93 of a
   core in every run: nothing caps the frame rate, and the driver's wait for the screen keeps it busy.
