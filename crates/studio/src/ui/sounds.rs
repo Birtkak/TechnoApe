@@ -997,6 +997,29 @@ impl Page for Sounds {
             .on_hover_text("A new row made from a base: then its chain");
         });
         ui.separator();
+        if let Some(s) = self.doc().map(|d| d.s.clone()) {
+            look::section(ui, "Row");
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("bus").small());
+                for b in crate::sound::BUSES {
+                    if look::tip(look::chip(ui, s.bus() == b, b), "Whose volume slider it follows in the game's Sound settings", "").clicked() {
+                        self.edit("Bus", |s| s.set_bus(b));
+                    }
+                }
+            });
+            for (i, (key, _, min, max, help)) in crate::sound::SCALARS.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(*key).small());
+                    ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(60.0);
+                    let mut v = s.scalar(i);
+                    let r = ui.add(egui::Slider::new(&mut v, *min..=*max).fixed_decimals(if *max > 10.0 { 0 } else { 2 }).suffix(if *key == "reach" { " m" } else { "" }));
+                    if look::tip(r, help, "").changed() {
+                        self.edit_merged(key, |s| s.set_scalar(i, v));
+                    }
+                });
+            }
+            ui.separator();
+        }
         look::section(ui, "In place");
         ui.horizontal(|ui| {
             ui.label(RichText::new("distance").small());

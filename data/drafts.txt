@@ -34,3 +34,5 @@ data/creatures.toml#ape
 data/creatures.toml#boar
 data/models/boar.toml
 data/models/ape.toml
+data/creatures.toml#snake
+data/models/snake.toml

@@ -81,6 +81,18 @@ pub fn spread_max(step: usize, number: usize) -> f32 {
     }
 }
 
+/// A row's own numbers beside its chain: the key, the game's default (not written), least, most
+/// (`client::audio`'s check) and what it is.
+pub const SCALARS: [(&str, f32, f32, f32, &str); 3] = [
+    ("gain", 1.0, 0.0, 2.0, "Its loudest sample: how loud the sound is at the ear"),
+    ("reach", 24.0, 1.0, 200.0, "Metres at which it is gone"),
+    ("pitch", 0.0, 0.0, 0.5, "The share each play's pitch strays by, on top of the takes"),
+];
+/// Whose volume slider a row follows.
+pub const BUSES: [&str; 4] = ["world", "steps", "ui", "music"];
+/// The keys a row's numbers sit with: a new one goes after the last of these.
+const HEAD: [&str; 7] = ["name", "bus", "reach", "gain", "variants", "pitch", "loop"];
+
 fn f(v: &toml::Value) -> Option<f32> {
     v.as_float().map(|f| f as f32).or(v.as_integer().map(|i| i as f32))
 }
@@ -100,6 +112,27 @@ impl Sound {
     }
     pub fn is_loop(&self) -> bool {
         self.keys.get("loop").and_then(|v| v.parse::<f32>().ok()).is_some_and(|v| v > 0.0)
+    }
+    /// One of [`SCALARS`]: the row's number, or the game's default.
+    pub fn scalar(&self, i: usize) -> f32 {
+        self.keys.get(SCALARS[i].0).and_then(|v| v.parse().ok()).unwrap_or(SCALARS[i].1)
+    }
+    /// Kept in the game's range; a default is not written.
+    pub fn set_scalar(&mut self, i: usize, v: f32) -> bool {
+        let (key, default, min, max, _) = SCALARS[i];
+        let v = v.clamp(min, max);
+        self.keys.set_after(key, (v != default).then(|| num(v)), &HEAD);
+        true
+    }
+    pub fn bus(&self) -> &str {
+        self.keys.get("bus").map_or("world", |b| b.trim_matches('"'))
+    }
+    pub fn set_bus(&mut self, bus: &str) -> bool {
+        let ok = BUSES.contains(&bus);
+        if ok {
+            self.keys.set_after("bus", Some(format!("\"{bus}\"")), &HEAD);
+        }
+        ok
     }
     pub fn variants(&self) -> u32 {
         self.keys.get("variants").and_then(|v| v.parse().ok()).unwrap_or(1)
@@ -316,6 +349,24 @@ mod tests {
         assert_eq!(Sound::parse(&s.write()).unwrap(), s);
         let rows = client::audio::parse(&s.write()).unwrap();
         assert_eq!(rows[0].chain.len(), 3);
+    }
+
+    #[test]
+    fn a_rows_own_numbers_and_bus_are_set_in_range_beside_the_bus_and_the_game_takes_them() {
+        let mut s = Sound::parse(CLANK).unwrap();
+        let i = |n: &str| SCALARS.iter().position(|d| d.0 == n).unwrap();
+        assert_eq!((s.scalar(i("gain")), s.scalar(i("reach")), s.scalar(i("pitch")), s.bus()), (1.0, 24.0, 0.0, "world"), "the game's defaults");
+        s.set_scalar(i("gain"), 0.6);
+        s.set_scalar(i("reach"), 900.0);
+        s.set_bus("steps");
+        assert!(!s.set_bus("loud"), "no such bus");
+        assert_eq!((s.scalar(i("gain")), s.scalar(i("reach")), s.bus()), (0.6, 200.0, "steps"));
+        let text = s.write();
+        assert!(text.contains("bus = \"steps\"\nvariants = 4\ngain = 0.6\nreach = 200\nfrom"), "new keys sit with the row's other numbers, before its bases:\n{text}");
+        let rows = client::audio::parse(&text).unwrap();
+        assert_eq!((rows[0].gain, rows[0].reach, rows[0].bus), (0.6, 200.0, client::audio::Bus::Steps));
+        s.set_scalar(i("gain"), 1.0);
+        assert!(!s.write().contains("gain = 1"), "a default is not written");
     }
 
     #[test]

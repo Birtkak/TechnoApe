@@ -74,8 +74,8 @@ The delay is one or two egui frames: orbiting feels attached, not instant.
 - The view needs a built game (`cargo build --release` or `build/TechnoApe.exe`). Without one it stays 2D.
 - A frame goes through a pipe and a texture upload (about 1.8 MB at 774x588). The overlay (grid, pivots,
   selection) is drawn by egui and can lag the 3D image by a frame while the camera moves.
-- Not built: a Luna regolith scene; watching model files for changes made outside the Studio; naming points
-  (they get automatic names and can be dragged). A palette change shows in the view only once the model is next
+- Not built: a Luna regolith scene. (Built since: the watch on model files changed outside the Studio, and
+  naming points in the inspector.) A palette change shows in the view only once the model is next
   written. If the Textures page has not yet written its folder, the world shows the code-made patterns.
 - If option 1 is needed later (for less delay, or to drop the copy), the protocol shows exactly what the client
   must offer: a camera, a clock, model and texture folders, placed cells, and a frame.

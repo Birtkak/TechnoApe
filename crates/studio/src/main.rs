@@ -171,17 +171,19 @@ fn shot(studio: &mut ui::Studio, path: &str, w: u32, h: u32, pointer: Option<egu
             .forget_lifetime();
         r.render(&mut rp, &jobs, &sd);
     }
-    let buf = device.create_buffer(&wgpu::BufferDescriptor { label: None, size: (w * h * 4) as u64, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false });
+    // wgpu wants a copied row's length a multiple of 256 bytes: padded here, cut off below
+    let row = (w * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+    let buf = device.create_buffer(&wgpu::BufferDescriptor { label: None, size: (row * h) as u64, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false });
     enc.copy_texture_to_buffer(
         tex.as_image_copy(),
-        wgpu::TexelCopyBufferInfo { buffer: &buf, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(w * 4), rows_per_image: Some(h) } },
+        wgpu::TexelCopyBufferInfo { buffer: &buf, layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(h) } },
         size,
     );
     cmds.push(enc.finish());
     queue.submit(cmds);
     buf.slice(..).map_async(wgpu::MapMode::Read, |_| {});
     let _ = device.poll(wgpu::PollType::wait_indefinitely());
-    let px = buf.slice(..).get_mapped_range().map_err(|e| e.to_string())?.to_vec();
+    let px: Vec<u8> = buf.slice(..).get_mapped_range().map_err(|e| e.to_string())?.chunks(row as usize).flat_map(|r| r[..(w * 4) as usize].to_vec()).collect();
     write_rgba(path, w, h, &px)?;
     Ok(format!("{{\"shot\":{},\"width\":{w},\"height\":{h},\"adapter\":{},\"view\":{}{extra}}}", js(path), js(&adapter.get_info().name), studio.view_report()))
 }

@@ -253,8 +253,14 @@ impl Viewport {
     }
     /// `show_model` drawn at `scale` (a creature's row, ADR 0053).
     pub fn show_model_at(&mut self, name: Option<&str>, clip: Option<&str>, t: f32, scale: f32) {
+        self.show_model_placed(name, clip, t, scale, None);
+    }
+    /// `show_model_at`, standing `place` from the stand cell: metres along the cell's x and z, then its turn in
+    /// radians about its floor centre (the Fauna page's walk in a circle).
+    pub fn show_model_placed(&mut self, name: Option<&str>, clip: Option<&str>, t: f32, scale: f32, place: Option<([f32; 2], f32)>) {
+        let at = place.map_or(String::new(), |(p, yaw)| format!(" @{:.4},{:.4},{:.4}", p[0], p[1], yaw));
         let line = match name {
-            Some(n) => format!("model {n} {}{t:.4}{}", clip.map_or(String::new(), |c| format!("{c} ")), if scale == 1.0 { String::new() } else { format!(" x{scale}") }),
+            Some(n) => format!("model {n} {}{t:.4}{}{at}", clip.map_or(String::new(), |c| format!("{c} ")), if scale == 1.0 { String::new() } else { format!(" x{scale}") }),
             None => "model -".into(),
         };
         self.say("model", line.clone(), line);

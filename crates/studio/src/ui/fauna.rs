@@ -1,5 +1,5 @@
 //! The Fauna page (docs/design/studio-tools.md "Fauna", ADR 0053): the rows of `data/creatures.toml`. The game's
-//! renderer shows the creature walking in place with the walk its row makes (`engine::creatures::walk`, sent as the
+//! renderer shows the creature walking a circle (or in place) with the walk its row makes (`engine::creatures::walk`, sent as the
 //! model's clip the way the Models page sends an unsaved model); a speed slider runs it from standing through
 //! walking to running. The inspector holds the row: its model, plan and part roles as pick lists, its numbers as
 //! sliders in groups, its sounds, and a wall of six gaits. Save rewrites only that row of the file.
@@ -41,9 +41,38 @@ pub struct Fauna {
     wall: Option<Wall<Creature>>,
     walls: u64,
     gen: u64,
-    written: Option<(Creature, u32)>,
+    written: Option<(Creature, u32, Option<&'static str>)>,
+    /// One of `creatures::ACTS` shown in place of the walk (turn, eat, hurt).
+    act: Option<&'static str>,
     aimed: Option<String>,
     start: std::time::Instant,
+    /// It walks a circle on a flat pad at its real speed (else in place), and how far it has come, in metres.
+    circle: bool,
+    dist: f32,
+    last: std::time::Instant,
+}
+
+/// The circle's radius in metres, and the flat grass pad it is walked on (half its side, in blocks).
+const RADIUS: f32 = 2.5;
+const PAD: i32 = 4;
+
+/// Where a creature `dist` metres along the circle stands from the centre, and its turn: its front (the
+/// model's +z) along its way.
+fn on_circle(dist: f32) -> ([f32; 2], f32) {
+    let a = dist / RADIUS;
+    ([RADIUS * a.cos(), RADIUS * a.sin()], -a)
+}
+
+/// The pad: grass under the stand cell's layer and air over it.
+fn pad() -> String {
+    let mut v = vec![];
+    for di in -PAD..=PAD {
+        for dj in -PAD..=PAD {
+            v.push(format!("{di}:{dj}:-1:grass"));
+            v.extend((0..3).map(|dl| format!("{di}:{dj}:{dl}:_")));
+        }
+    }
+    v.join(",")
 }
 
 /// A candidate of the wall: the gait's numbers moved by `spread`.
@@ -90,7 +119,7 @@ fn sketch(p: &egui::Painter, r: Rect, m: &Model, c: &Creature) {
 
 impl Fauna {
     pub fn new(app: &App) -> Fauna {
-        let mut f = Fauna { docs: BTreeMap::new(), open: None, refused: None, models: BTreeMap::new(), sounds: Vec::new(), speed: 1.0, merging: None, wall: None, walls: 0, gen: GEN0, written: None, aimed: None, start: std::time::Instant::now() };
+        let mut f = Fauna { docs: BTreeMap::new(), open: None, refused: None, models: BTreeMap::new(), sounds: Vec::new(), speed: 1.0, merging: None, wall: None, walls: 0, gen: GEN0, written: None, act: None, aimed: None, start: std::time::Instant::now(), circle: true, dist: 0.0, last: std::time::Instant::now() };
         f.read_disk(app);
         f.open = f.docs.keys().find(|n| n.as_str() == "boar").or(f.docs.keys().next()).cloned();
         f.speed = f.doc().map_or(1.0, |d| d.c.walk_speed);
@@ -176,8 +205,8 @@ impl Fauna {
         let d = self.doc()?;
         let m = self.models.get(&d.c.model)?;
         let c = d.c.clone();
-        let (text, clip) = shown(m, &c, self.speed);
-        let now = Some((c.clone(), self.speed.to_bits()));
+        let (text, clip) = shown(m, &c, self.speed, self.act);
+        let now = Some((c.clone(), self.speed.to_bits(), self.act));
         if self.written != now {
             let dir = format!("{DIR}/models");
             let _ = std::fs::create_dir_all(&dir);
@@ -187,8 +216,13 @@ impl Fauna {
             }
         }
         app.view.models(self.gen);
-        let t = self.start.elapsed().as_secs_f32();
-        app.view.show_model_at(Some("creature"), Some(&clip.name), t, c.scale);
+        // a clip that ends (hurt) plays again after a rest
+        let t = self.start.elapsed().as_secs_f32() % if clip.looping { f32::MAX } else { clip.length + 0.8 };
+        // the way grows by the speed, so a change of speed carries on from where it is; an act stands
+        let speed = if self.act.is_some() { 0.0 } else { self.speed };
+        self.dist = (self.dist + speed * self.last.elapsed().as_secs_f32().min(0.1)) % (RADIUS * std::f32::consts::TAU);
+        self.last = std::time::Instant::now();
+        app.view.show_model_placed(Some("creature"), Some(&clip.name), t, c.scale, self.circle.then(|| on_circle(self.dist)));
         app.view.show_state(None);
         app.view.live = true;
         Some(format!("{}: one cycle {:.2} s", clip.name, clip.length))
@@ -196,8 +230,8 @@ impl Fauna {
 
     fn aim(&self, app: &mut App) {
         app.view.orbit.target = Vec3::new(0.5, 0.4, 0.5);
-        app.view.orbit.dist = 3.0;
-        app.view.orbit.pitch = 0.2;
+        app.view.orbit.dist = if self.circle { 5.5 } else { 3.0 };
+        app.view.orbit.pitch = if self.circle { 0.45 } else { 0.2 };
     }
 
     /// A pick list of the model's parts ("none" first) for one role; true when it changed.
@@ -222,20 +256,22 @@ impl Fauna {
 
 /// The names of a plan's leg slots.
 /// The model file the view reads for a creature at `speed`: its model with the walk (or idle) clip, and that clip.
-fn shown(m: &Model, c: &Creature, speed: f32) -> (String, engine::models::Clip) {
-    let clip = creatures::walk(m, c, speed);
+fn shown(m: &Model, c: &Creature, speed: f32, act: Option<&str>) -> (String, engine::models::Clip) {
+    let clip = act.map_or_else(|| creatures::walk(m, c, speed), |a| creatures::act(m, c, a));
     let mut shown = m.clone();
     shown.clips.retain(|k| k.name != clip.name);
     shown.clips.push(clip.clone());
     // its footfalls as the clip's events, so they sound in the view as in the game (`creature=`)
-    let life = engine::models::Life { events: vec![(clip.name.clone(), creatures::steps(c, speed))], ..Default::default() };
+    let steps = if act.is_none() { creatures::steps(c, speed) } else { Vec::new() };
+    let life = engine::models::Life { events: vec![(clip.name.clone(), steps)], ..Default::default() };
     (engine::models::write_life(&shown, &life), clip)
 }
 
 fn leg_names(plan: Plan) -> &'static [&'static str] {
     match plan {
         Plan::Quadruped => &["front left leg", "front right leg", "back left leg", "back right leg"],
-        Plan::Fish => &[],
+        Plan::Hexapod => &["front left leg", "front right leg", "middle left leg", "middle right leg", "back left leg", "back right leg"],
+        Plan::Fish | Plan::Snake => &[],
         _ => &["left leg", "right leg"],
     }
 }
@@ -285,6 +321,7 @@ impl Page for Fauna {
             Cmd::new("walk", "Walk", "the speed to its walking speed").key(Modifiers::NONE, Key::Num1),
             Cmd::new("run", "Run", "the speed to its running speed").key(Modifiers::NONE, Key::Num2),
             Cmd::new("vary", "Variations", "a wall of six gaits of this creature").key(Modifiers::NONE, Key::V),
+            Cmd::new("circle", "Circle or in place", "walk a circle on a flat pad at its real speed (sliding feet show), or in place for a close look").key(Modifiers::NONE, Key::C),
         ]
     }
 
@@ -292,7 +329,8 @@ impl Page for Fauna {
         // with an argument (the command box and shot=): speed:<m/s>, take:<wall item>, hour:<h>
         if let Some((cmd, arg)) = id.split_once(':') {
             match cmd {
-                "speed" => self.speed = arg.parse().unwrap_or(self.speed),
+                "speed" => self.speed = arg.parse().ok().filter(|v: &f32| v.is_finite()).unwrap_or(self.speed),
+                "act" => self.act = creatures::ACTS.iter().copied().find(|a| *a == arg),
                 "take" => {
                     if let Some(c) = self.wall.as_ref().and_then(|w| w.items.get(arg.parse::<usize>().unwrap_or(99)).cloned()) {
                         self.merging = None;
@@ -311,6 +349,10 @@ impl Page for Fauna {
                 if let Some(d) = self.open.as_ref().and_then(|n| self.docs.get_mut(n)) {
                     let _ = if id == "undo" { d.hist.undo(&mut d.c) } else { d.hist.redo(&mut d.c) };
                 }
+            }
+            "circle" => {
+                self.circle = !self.circle;
+                self.aim(app);
             }
             "stand" => self.speed = 0.0,
             "walk" => self.speed = row.map_or(1.0, |c| c.walk_speed),
@@ -342,12 +384,12 @@ impl Page for Fauna {
             self.aim(app);
             self.aimed = self.open.clone();
         }
-        app.view.place = String::new();
+        app.view.place = if self.circle { pad() } else { String::new() };
         let info = self.feed_view(app);
         let c = self.docs[&name].c.clone();
         ui.horizontal(|ui| {
             ui.label(RichText::new(&name).strong());
-            look::weak(ui, format!("{} on model {}; {}; walking in place", c.plan.name(), c.model, info.unwrap_or_else(|| "no model to show".into())));
+            look::weak(ui, format!("{} on model {}; {}; {}", c.plan.name(), c.model, info.unwrap_or_else(|| "no model to show".into()), if self.circle { "on a 5 m circle at its real speed" } else { "walking in place" }));
         });
         ui.horizontal(|ui| {
             ui.label(RichText::new("Speed").small());
@@ -362,6 +404,14 @@ impl Page for Fauna {
                 "run"
             };
             look::weak(ui, what);
+            for a in creatures::ACTS {
+                if look::tip(look::chip(ui, self.act == Some(a), a), "Show this clip in place of the walk (made from the row, as the walk is); again for the walk", "").clicked() {
+                    self.act = (self.act != Some(a)).then_some(a);
+                }
+            }
+            if look::tip(look::chip(ui, self.circle, "Circle"), "Walk a circle on a flat pad at its real speed, so sliding feet are seen; off walks in place", "C").clicked() {
+                self.run(app, "circle");
+            }
         });
         let total = ui.available_height();
         let m = self.models.get(&c.model).cloned();
@@ -520,7 +570,7 @@ impl Page for Fauna {
     }
 
     fn help(&self) -> String {
-        "The creature walks in place with the walk its row makes; 0 stands, 1 walks, 2 runs; V a wall of six gaits; Ctrl+S saves its row".into()
+        "The creature walks a circle with the walk its row makes; C in place, 0 stands, 1 walks, 2 runs; V a wall of six gaits; Ctrl+S saves its row".into()
     }
 
     fn history(&self, _app: &App) -> Option<(Vec<String>, Vec<String>)> {
@@ -560,6 +610,17 @@ impl Page for Fauna {
 mod tests {
     use engine::creatures;
 
+    #[test]
+    fn on_the_circle_the_front_points_along_the_way() {
+        for d in [0.0f32, 1.3, 7.0, 14.0] {
+            let ((a, yaw), (b, _)) = (super::on_circle(d), super::on_circle(d + 0.01));
+            // a turn about y takes the model's +z to (sin, cos) in x and z
+            let (front, way) = ([yaw.sin(), yaw.cos()], [(b[0] - a[0]) / 0.01, (b[1] - a[1]) / 0.01]);
+            assert!((front[0] - way[0]).abs() < 0.01 && (front[1] - way[1]).abs() < 0.01, "at {d} m: front {front:?}, way {way:?}");
+            assert!((a[0].hypot(a[1]) - super::RADIUS).abs() < 1e-4);
+        }
+    }
+
     /// The walk the view is given carries the row's footfalls as its events, so its steps sound as in the game.
     #[test]
     fn the_shown_walk_steps_on_its_footfalls() {
@@ -568,7 +629,7 @@ mod tests {
         let model = |n: &str| std::fs::read_to_string(data.join(format!("models/{n}.toml"))).ok().and_then(|t| engine::models::Model::parse(n, &t, &pal).ok());
         let rows = creatures::parse("c", &std::fs::read_to_string(data.join("creatures.toml")).unwrap().replace("\r\n", "\n"), &model, &|_| true).unwrap();
         let boar = rows.iter().find(|c| c.name == "boar").unwrap();
-        let (text, clip) = super::shown(&model(&boar.model).unwrap(), boar, boar.walk_speed);
+        let (text, clip) = super::shown(&model(&boar.model).unwrap(), boar, boar.walk_speed, None);
         let (_, life) = engine::models::parse_life("creature.toml", &text, &pal, &|_| true, &|_| true).unwrap();
         let want = creatures::steps(boar, boar.walk_speed);
         assert!(!want.is_empty());

@@ -48,13 +48,23 @@ Option 2.
 - Drafts: `data/models/boar.toml` (quadruped) and `data/models/ape.toml` (biped), small and from palette colours.
 
 ## Consequences
-- Left out: spawning, AI, anything on the server or the protocol; turning, jumping, eating, hurt and attack
-  clips; walking in a circle on the ground at real speed (the page walks in place: sliding feet are judged from
-  the cycle formula, not seen); six legs and snakes; `scale` is kept but the renderer does not scale models yet;
-  "freeze" of a generated walk to hand keys; foot planting (no IK: the feet swing on arcs and the body dip only
-  approximates the lift); the step and voice sounds are not played by the walk.
-- The Studio does not yet watch `data/creatures.toml` for outside changes (the frame's watch list is shared code);
-  the page reads it on the frame's refresh.
+- Left out: spawning, AI, anything on the server or the protocol; jumping and attack clips; "freeze" of a
+  generated walk to hand keys; foot planting (no IK: the feet swing on arcs and the body dip only approximates
+  the lift); the voice is not played.
+- Added 2026-11-12:
+  - **Two plans.** `hexapod`: six legs (front, middle, back; left then right) as two tripods in opposite phase.
+    `snake`: no legs and no new key; a wave runs down the model's longest chain of parts (each the child of the
+    one before), each joint a third of a cycle behind the last and never past `swing`. The chain's first part
+    stays still, and the row's head and tail do not sway on their own when they are in the chain.
+  - **Three more clips from the row**, `creatures::act` by name (`ACTS`): `turn` (the walk's legs at 0.4 of the
+    swing, no dip: whoever plays it turns the creature), `eat` (the head down and nodding over 1.6 s, the body
+    for one without a head), `hurt` (a 0.35 s flinch that ends at rest and does not go round).
+  - **The page walks a circle** of 2.5 m radius at the slider's real speed on a flat grass pad (`C` or the
+    Circle chip: in place for a close look), so sliding feet are seen. The view's `model` line takes a last word
+    `@x,z,yaw` (metres from the stand cell, radians; `Models::show_place`), tested against the cell's frame.
+    Chips show turn, eat and hurt in place of the walk.
+  - Draft: `data/models/snake.toml` with its row. There is no six-legged draft: the hexapod is tested on a
+    stand-in model only.
 - A change to `data/creatures.toml` alone reaches a running game at the next change of its models folder.
 - Review: none yet (the author does not review; a fresh reviewer should read the diff before a commit).
 

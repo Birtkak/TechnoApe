@@ -683,6 +683,82 @@ pub fn new_model(pal: &Palette) -> Model {
     m
 }
 
+/// The small plants grown as models (docs/design/studio-tools.md "Structures and flora": tufts and flowers
+/// are models, trees are structures).
+pub const PLANTS: [&str; 3] = ["tuft", "flower", "mushroom"];
+
+/// A small plant of a kind from a seed: an ordinary one-part model in a block's box, to finish by hand.
+/// The colours are the palette's by name; one the palette lacks falls to its first.
+pub fn plant(pal: &Palette, kind: &str, seed: u64) -> Model {
+    let mut r = crate::wall::Rng::new(seed ^ 0x9e37_79b9_7f4a_7c15);
+    let mut colours: Vec<String> = vec![];
+    let mut cells = vec![0u8; 512];
+    let mut col = |name: &str| -> u8 {
+        let name = pal.colours.iter().find(|c| c.name == name).or(pal.colours.first()).map_or(name.to_string(), |c| c.name.clone());
+        (colours.iter().position(|c| *c == name).unwrap_or_else(|| {
+            colours.push(name);
+            colours.len() - 1
+        }) + 1) as u8
+    };
+    let mut put = |x: i32, y: i32, z: i32, c: u8| {
+        if [x, y, z].iter().all(|v| (0..8).contains(v)) {
+            cells[(x + 8 * (z + 8 * y)) as usize] = c;
+        }
+    };
+    match kind {
+        "flower" => {
+            let (stem, leaf) = (col("grass"), col("grass dark"));
+            let h = 3 + r.below(3) as i32;
+            for y in 0..h {
+                put(4, y, 4, stem);
+            }
+            let side = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+            let (dx, dz) = side[r.below(4)];
+            put(4 + dx, 1, 4 + dz, leaf);
+            let petals = ["regolith light", "blue lamp light", "copper light", "lamp light"][r.below(4)];
+            let (petal, heart) = (col(petals), col(if petals == "lamp light" { "copper" } else { "lamp" }));
+            put(4, h, 4, heart);
+            for (dx, dz) in side {
+                put(4 + dx, h, 4 + dz, petal);
+            }
+        }
+        "mushroom" => {
+            let stem = col("regolith light");
+            let cap = col(["copper", "dirt", "lamp dark"][r.below(3)]);
+            let (h, wide) = (2 + r.below(2) as i32, r.below(2) as i32);
+            for y in 0..h {
+                put(4, y, 4, stem);
+            }
+            for dx in -1 - wide..=1 + wide {
+                for dz in -1 - wide..=1 + wide {
+                    // a wide cap has its corners off and a smaller crown on top
+                    if wide == 0 || dx.abs() + dz.abs() < 4 {
+                        put(4 + dx, h, 4 + dz, cap);
+                    }
+                    if wide == 1 && dx.abs() < 2 && dz.abs() < 2 {
+                        put(4 + dx, h + 1, 4 + dz, cap);
+                    }
+                }
+            }
+        }
+        // a tuft: blades of grass, darker at the foot, the taller ones leaning out at the tip
+        _ => {
+            let shades = [col("grass dark"), col("grass"), col("grass light")];
+            for _ in 0..5 + r.below(4) {
+                let (x, z, h) = (1 + r.below(6) as i32, 1 + r.below(6) as i32, 2 + r.below(5) as i32);
+                let lean = [(1, 0), (-1, 0), (0, 1), (0, -1), (0, 0)][r.below(5)];
+                for y in 0..h {
+                    let out = (y * 2 > h + 1) as i32;
+                    put(x + lean.0 * out, y, z + lean.1 * out, shades[(y * 3 / h) as usize]);
+                }
+            }
+        }
+    }
+    let mut m = Model { colours, parts: vec![Part { name: "plant".into(), parent: String::new(), at: [0; 3], pivot: [4.0, 0.0, 4.0], size: [8, 8, 8], voxels: String::new(), cells }], points: vec![], clips: vec![], rgb: vec![], up: vec![] };
+    m = Model::parse(kind, &text(&m), pal).unwrap_or(m);
+    m
+}
+
 /// The files column's picture: the model at rest seen from the front (+z), 16 x 16.
 pub fn thumb(m: &Model) -> Img {
     let bg = [26, 28, 32];
@@ -979,6 +1055,28 @@ mod tests {
         assert_eq!(solid(&s.parts[0]), vec![IVec3::ZERO]);
         assert_eq!(solid(&s.parts[1]), vec![IVec3::ZERO]);
         assert_eq!(solid(&sliced(&m, &m.pose(None, 0.0), 2.0).parts[0]).len(), 2);
+    }
+
+    #[test]
+    fn a_small_plant_grows_from_its_seed_on_the_floor_and_reads_back() {
+        let p = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        for kind in PLANTS {
+            let grown: Vec<Model> = (1..=12).map(|seed| plant(&p, kind, seed)).collect();
+            for (m, seed) in grown.iter().zip(1u64..) {
+                let part = &m.parts[0];
+                assert_eq!(part.cells, plant(&p, kind, seed).parts[0].cells, "{kind} {seed}: the same from the same seed");
+                assert!(part.cells[..64].iter().any(|c| *c != 0), "{kind} {seed}: it stands on the floor");
+                assert!(part.cells[64..].iter().any(|c| *c != 0), "{kind} {seed}: it rises from it");
+                assert!(m.colours.len() >= 2 && m.colours.iter().all(|c| p.colours.iter().any(|k| k.name == *c)), "{kind} {seed}: palette colours, {:?}", m.colours);
+                let again = Model::parse("plant.toml", &text(m), &p).unwrap();
+                assert_eq!((again.parts[0].cells.clone(), again.rgb.len()), (part.cells.clone(), m.colours.len()), "{kind} {seed}");
+            }
+            let mut shapes: Vec<&Vec<u8>> = grown.iter().map(|m| &m.parts[0].cells).collect();
+            shapes.sort();
+            shapes.dedup();
+            assert!(shapes.len() >= 4, "{kind}: seeds differ, {} shapes of 12", shapes.len());
+        }
+        assert!(plant(&p, "flower", 1).colours.len() >= 4, "a flower: stem, leaf, heart, petals");
     }
 
     #[test]

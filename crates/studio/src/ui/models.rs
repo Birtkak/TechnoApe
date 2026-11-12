@@ -297,9 +297,12 @@ impl Models {
         }
     }
 
-    fn new_model(&mut self, app: &App) {
-        let name = (1..).map(|k| if k == 1 { "model".to_string() } else { format!("model {k}") }).find(|n| !self.docs.contains_key(n) && !std::path::Path::new(&format!("{MODELS}/{n}.toml")).exists()).unwrap();
-        self.docs.insert(name.clone(), MDoc { m: voxel::new_model(&app.pal), life: Life::default(), hist: History::default(), saved: None, rev: 0, old: String::new() });
+    /// A new model, or a small plant of a kind grown from a seed (its name's number: "tuft 3" is seed 3).
+    fn new_model(&mut self, app: &App, plant: Option<&str>) {
+        let base = plant.unwrap_or("model");
+        let (k, name) = (1u64..).map(|k| (k, if k == 1 { base.to_string() } else { format!("{base} {k}") })).find(|(_, n)| !self.docs.contains_key(n) && !std::path::Path::new(&format!("{MODELS}/{n}.toml")).exists()).unwrap();
+        let m = plant.map_or_else(|| voxel::new_model(&app.pal), |kind| voxel::plant(&app.pal, kind, k));
+        self.docs.insert(name.clone(), MDoc { m, life: Life::default(), hist: History::default(), saved: None, rev: 0, old: String::new() });
         self.open = Some(name);
         self.part = 0;
         self.opened();
@@ -939,6 +942,16 @@ impl Models {
                 if look::tip(ui.small_button("New model"), "A new model: one part, a block's size", "Ctrl+N").clicked() {
                     self.run(app, "new");
                 }
+                ui.menu_button(RichText::new("Plant…").small(), |ui| {
+                    for kind in voxel::PLANTS {
+                        if ui.button(kind).clicked() {
+                            self.run(app, &format!("plant:{kind}"));
+                            ui.close();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text("A small plant grown as a new model, to finish by hand; again grows another");
             });
         });
         let Some(m) = self.m().cloned() else {
@@ -1020,6 +1033,9 @@ impl Page for Models {
         v.push(Cmd::new("redo", "Redo", "redo what was undone").key(Modifiers::COMMAND, Key::Y));
         v.push(Cmd::new("save", "Save the model", "write it (checked by the game's reader first) and take it off the drafts list").key(Modifiers::COMMAND, Key::S));
         v.push(Cmd::new("new", "New model", "one part, a block's size, its floor laid").key(Modifiers::COMMAND, Key::N));
+        for kind in voxel::PLANTS {
+            v.push(Cmd::new(format!("plant:{kind}"), format!("New {kind}"), "a small plant grown as a new model, to finish by hand; again grows another"));
+        }
         v.push(Cmd::new("play", "Play or pause", "the clip in the view").key(Modifiers::NONE, Key::Space));
         v.push(Cmd::new("shade", "Shade by light", "every voxel along its ramp by how open it is: open sides lighter, crevices and undersides darker"));
         v.push(Cmd::new("clip.new", "New clip", "a new clip of one second, looping"));
@@ -1095,6 +1111,7 @@ impl Page for Models {
                         self.sel = Some((IVec3::new(a, b, c), IVec3::new(d, e, f)));
                     }
                 }
+                "plant" if voxel::PLANTS.contains(&arg) => self.new_model(app, Some(arg)),
                 "scene" => app.view.scene = if arg == "cave" { super::viewport::Scene::Cave } else { super::viewport::Scene::Grass },
                 "hour" => app.view.hour = arg.parse().unwrap_or(app.view.hour),
                 "cam" => {
@@ -1118,7 +1135,7 @@ impl Page for Models {
             "mirror.z" => self.mirror.1 = !self.mirror.1,
             "play" => self.playing = !self.playing && self.clip.is_some(),
             "save" => self.save(app),
-            "new" => self.new_model(app),
+            "new" => self.new_model(app, None),
             "undo" | "redo" => {
                 if let Some(d) = self.open.as_ref().and_then(|n| self.docs.get_mut(n)) {
                     let done = d.step(|h, now| if id == "undo" { h.undo(now) } else { h.redo(now) });

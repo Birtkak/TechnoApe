@@ -19,16 +19,22 @@ pub enum Plan {
     Bird,
     /// No legs: the tail and the head carry the motion.
     Fish,
+    /// Six legs (front left, front right, middle left, middle right, back left, back right) as two tripods:
+    /// front and back of one side with the middle of the other.
+    Hexapod,
+    /// No legs: a wave runs down the model's longest chain of parts (`spine`), each turning on the one before.
+    Snake,
 }
 
 impl Plan {
-    pub const ALL: [(Plan, &'static str); 4] = [(Plan::Biped, "biped"), (Plan::Quadruped, "quadruped"), (Plan::Bird, "bird"), (Plan::Fish, "fish")];
+    pub const ALL: [(Plan, &'static str); 6] = [(Plan::Biped, "biped"), (Plan::Quadruped, "quadruped"), (Plan::Bird, "bird"), (Plan::Fish, "fish"), (Plan::Hexapod, "hexapod"), (Plan::Snake, "snake")];
     /// How many legs the plan takes.
     pub fn legs(self) -> usize {
         match self {
             Plan::Biped | Plan::Bird => 2,
             Plan::Quadruped => 4,
-            Plan::Fish => 0,
+            Plan::Hexapod => 6,
+            Plan::Fish | Plan::Snake => 0,
         }
     }
     pub fn name(self) -> &'static str {
@@ -219,8 +225,16 @@ pub fn walk(m: &Model, c: &Creature, speed: f32) -> Clip {
             // the diagonal pairs: front left with back right, front right with back left
             swings.extend([(legs[0], 0.0, 0, amp), (legs[3], 0.0, 0, amp), (legs[1], 0.5, 0, amp), (legs[2], 0.5, 0, amp)]);
         }
-        Plan::Fish => {}
+        Plan::Hexapod => {
+            // two tripods: front and back of one side with the middle of the other
+            swings.extend([0, 3, 4].map(|i| (legs[i], 0.0, 0, amp)));
+            swings.extend([1, 2, 5].map(|i| (legs[i], 0.5, 0, amp)));
+        }
+        Plan::Fish | Plan::Snake => {}
     }
+    // a snake: each part of its spine turns on the one before, a third of a cycle behind it, so a wave runs down
+    let chain = if c.plan == Plan::Snake { spine(m) } else { Vec::new() };
+    let wave_parts: Vec<(&str, f32)> = chain.iter().skip(1).enumerate().map(|(k, p)| (*p, -(k as f32) / 3.0)).collect();
     if c.arms.len() == 2 {
         swings.extend([(c.arms[0].as_str(), 0.5, 0, amp * 0.8), (c.arms[1].as_str(), 0.0, 0, amp * 0.8)]);
     }
@@ -243,14 +257,19 @@ pub fn walk(m: &Model, c: &Creature, speed: f32) -> Clip {
             let beats = if axis == 2 { 2.0 } else { 1.0 };
             turn(p, axis, a * wave(phase, beats), &mut key);
         }
-        if !c.head.is_empty() {
+        for &(p, phase) in &wave_parts {
+            turn(p, 1, amp.min(c.swing) * wave(phase, 1.0), &mut key);
+        }
+        // the head and the tail of a snake are its spine's: the wave has them
+        let free = |p: &String| !p.is_empty() && !chain.contains(&p.as_str());
+        if free(&c.head) {
             turn(&c.head, 1, c.sway * wave(0.25, 1.0), &mut key);
         }
-        if !c.tail.is_empty() {
+        if free(&c.tail) {
             turn(&c.tail, 1, c.wag * wave(0.75, 1.0), &mut key);
         }
         // the body lowest where the legs reach furthest (a quarter and three quarters in), so the feet stay down
-        if let Some(b) = body(m).filter(|b| !swings.iter().any(|s| s.0 == *b)) {
+        if let Some(b) = body(m).filter(|b| !swings.iter().any(|s| s.0 == *b) && c.plan != Plan::Snake) {
             let dip = -c.bob * 0.5 * (1.0 - (f * 2.0 * std::f32::consts::TAU).cos());
             key.push(Key { part: b.into(), t, shift: [0.0, dip, 0.0], turn: [0.0; 3], ease: Ease::Linear });
         }
@@ -272,6 +291,69 @@ pub fn steps(c: &Creature, speed: f32) -> Vec<Event> {
 /// A walk cycle's length at `speed`, None for the idle (see `walk`).
 fn cycle(c: &Creature, speed: f32) -> Option<f32> {
     (speed >= 0.01 && c.step > 0.0).then(|| 2.0 * c.step / speed.min(25.0))
+}
+
+/// The clips a creature has beside its walk and idle, made from its row as they are.
+pub const ACTS: [&str; 3] = ["turn", "eat", "hurt"];
+
+/// One of [`ACTS`] by name (any other name: the idle). `turn`: stepping on the spot, the walk's legs at walking
+/// pace with a smaller swing and no dip (whoever plays it turns the creature). `eat`: the head down and
+/// nodding (the body, for one without a head), over 1.6 s, going round. `hurt`: a flinch of 0.35 s, the body
+/// up and back and the head thrown back, ending at rest; it does not go round.
+pub fn act(m: &Model, c: &Creature, name: &str) -> Clip {
+    let tau = std::f32::consts::TAU;
+    let body = body(m).filter(|b| !c.legs.iter().any(|l| l == b));
+    let part = |head: bool| if head && !c.head.is_empty() { Some(c.head.as_str()) } else { body };
+    let mut key = Vec::new();
+    let (length, looping) = match name {
+        "turn" => {
+            let mut w = walk(m, &Creature { swing: c.swing * 0.4, bob: 0.0, sway: 0.0, ..c.clone() }, c.walk_speed);
+            w.name = "turn".into();
+            return w;
+        }
+        "eat" => {
+            for i in 0..=KEYS {
+                let f = i as f32 / KEYS as f32;
+                // down for the whole clip but its ends, three nods while down
+                let down = (1.0 - (f * tau).cos()) * 0.5;
+                if let Some(p) = part(true) {
+                    key.push(Key { part: p.into(), t: f * 1.6, shift: [0.0; 3], turn: [down * (35.0 + 8.0 * (f * 3.0 * tau).sin()), 0.0, 0.0], ease: Ease::Linear });
+                }
+            }
+            (1.6, true)
+        }
+        "hurt" => {
+            for (f, a) in [(0.0, 0.0), (0.25, 1.0), (0.6, 0.35), (1.0, 0.0)] {
+                if let Some(p) = body {
+                    key.push(Key { part: p.into(), t: f * 0.35, shift: [0.0, a * 0.6, -a * 0.8], turn: [0.0; 3], ease: Ease::Smooth });
+                }
+                // a head that is the body (a snake's first part) has its key already
+                if !c.head.is_empty() && Some(c.head.as_str()) != body {
+                    key.push(Key { part: c.head.clone(), t: f * 0.35, shift: [0.0; 3], turn: [-a * 25.0, 0.0, 0.0], ease: Ease::Smooth });
+                }
+            }
+            (0.35, false)
+        }
+        _ => return idle(m, c),
+    };
+    snap(&mut key, length);
+    Clip { name: name.into(), length, looping, key }
+}
+
+/// A snake's spine: the longest chain of parts from a root down, each the child of the one before (the first
+/// such chain in the file's order when two are as long).
+fn spine(m: &Model) -> Vec<&str> {
+    let depth = |mut i: usize| {
+        let mut chain = vec![m.parts[i].name.as_str()];
+        // a parent comes before its child in a checked model; the count ends a file that loops
+        while let Some(p) = m.parts.iter().position(|q| q.name == m.parts[i].parent).filter(|_| !m.parts[i].parent.is_empty() && chain.len() <= m.parts.len()) {
+            chain.push(m.parts[p].name.as_str());
+            i = p;
+        }
+        chain.reverse();
+        chain
+    };
+    (0..m.parts.len()).map(depth).fold(Vec::new(), |best, c| if c.len() > best.len() { c } else { best })
 }
 
 /// Standing: the body breathes, the head looks about and the tail moves a little, over 3 s; the legs rest.
@@ -309,6 +391,7 @@ mod tests {
     use super::*;
     use crate::models::sample;
     use crate::palette::Palette;
+    use glam::Vec3;
 
     fn palette() -> Palette {
         Palette::parse("[[colour]]\nname = \"stone\"\nrgb = \"#808080\"\n").unwrap()
@@ -394,6 +477,83 @@ mod tests {
             moved = moved.max(x("fl").abs());
         }
         assert!(moved > 20.0, "the legs swing ({moved} deg)");
+    }
+
+    #[test]
+    fn a_hexapods_legs_walk_as_two_tripods() {
+        let m = model(&[("body", ""), ("l1", "body"), ("r1", "body"), ("l2", "body"), ("r2", "body"), ("l3", "body"), ("r3", "body")]);
+        let six = "\"l1\", \"r1\", \"l2\", \"r2\", \"l3\", \"r3\"";
+        let read = |legs: &str| parse("c.toml", &row("hexapod", legs, ""), &|_| Some(m.clone()), &|_| true);
+        assert!(read("\"l1\", \"r1\"").unwrap_err().contains("a hexapod has 6 legs"));
+        let c = read(six).unwrap().remove(0);
+        let w = walk(&m, &c, 1.2);
+        let mut moved = 0.0f32;
+        for i in 0..40 {
+            let t = i as f32 / 40.0 * w.length;
+            let x = |p: &str| sample(&w, p, t).1.x;
+            assert!((x("l1") - x("r2")).abs() < 1e-4 && (x("l1") - x("l3")).abs() < 1e-4, "one tripod together at {t}");
+            assert!((x("r1") - x("l2")).abs() < 1e-4 && (x("r1") - x("r3")).abs() < 1e-4, "the other together at {t}");
+            assert!((x("l1") + x("r1")).abs() < 1e-4, "the tripods against each other at {t}");
+            moved = moved.max(x("l1").abs());
+        }
+        assert!(moved > 20.0, "the legs swing ({moved} deg)");
+        assert_eq!(steps(&c, 1.2).len(), 2, "a footfall a tripod");
+    }
+
+    #[test]
+    fn a_snakes_wave_runs_down_its_longest_chain_of_parts() {
+        let m = model(&[("s0", ""), ("tongue", "s0"), ("s1", "s0"), ("s2", "s1"), ("s3", "s2")]);
+        let c = parse("c.toml", &row("snake", "", ""), &|_| Some(m.clone()), &|_| true).unwrap().remove(0);
+        let w = walk(&m, &c, 1.2);
+        assert!((w.length - 2.0 * c.step / 1.2).abs() < 1e-6 && w.looping);
+        let y = |p: &str, f: f32| sample(&w, p, f * w.length).1.y;
+        let (mut most, mut apart) = ([0.0f32; 3], 0.0f32);
+        for i in 0..=40 {
+            let f = i as f32 / 40.0;
+            for (k, p) in ["s1", "s2", "s3"].iter().enumerate() {
+                most[k] = most[k].max(y(p, f).abs());
+            }
+            apart = apart.max((y("s1", f) - y("s3", f)).abs());
+            assert_eq!((y("tongue", f), y("s0", f)), (0.0, 0.0), "only the chain below its first part bends");
+        }
+        assert!(most.iter().all(|a| *a > 10.0 && *a <= c.swing + 1e-3), "each joint bends, never past the swing: {most:?}");
+        assert!(apart > 10.0, "the joints are not in step: a wave, not a wag ({apart} deg)");
+        for p in ["s1", "s2", "s3"] {
+            assert!((y(p, 0.0) - y(p, 1.0)).abs() < 1e-3, "{p} goes round without a jump");
+        }
+        let mut m2 = m.clone();
+        m2.clips.push(w);
+        Model::parse("t.toml", &m2.write(), &palette()).unwrap();
+    }
+
+    #[test]
+    fn the_acts_are_clips_of_their_name_that_the_model_takes() {
+        let (mut m, c) = quad();
+        for name in ACTS {
+            let clip = act(&m, &c, name);
+            assert_eq!(clip.name, name);
+            let moved = clip.key.iter().map(|k| Vec3::from(k.turn).length().max(Vec3::from(k.shift).length())).fold(0.0f32, f32::max);
+            assert!(moved > 0.5, "{name} moves something ({moved})");
+            for p in ["body", "head", "fl", "tail"] {
+                let (a, b) = (sample(&clip, p, 0.0), sample(&clip, p, clip.length));
+                assert!((a.0 - b.0).length() < 1e-3 && (a.1 - b.1).length() < 1e-3, "{name}: {p} ends where it began");
+            }
+            m.clips.push(clip);
+        }
+        let again = Model::parse("t.toml", &m.write(), &palette()).unwrap();
+        let by = |n: &str| again.clips.iter().find(|c| c.name == n).unwrap();
+        assert!(!by("hurt").looping && by("hurt").length < 0.6, "a flinch is short and ends");
+        assert!(by("eat").looping && sample(by("eat"), "head", by("eat").length * 0.5).1.x.abs() > 15.0, "eating, the head is down");
+        assert!(sample(by("hurt"), "body", 0.0).0.length() < 1e-4 && sample(by("hurt"), "body", by("hurt").length).0.length() < 1e-4, "hurt starts and ends at rest");
+        let (t, w) = (by("turn"), walk(&m, &c, c.walk_speed));
+        let top = |c: &Clip| (0..32).map(|i| sample(c, "fl", i as f32 / 32.0 * c.length).1.x.abs()).fold(0.0f32, f32::max);
+        assert!(top(t) > 5.0 && top(t) < top(&w) * 0.6, "turning, the legs step smaller than walking");
+        // a head that is the body itself (a snake's first part) flinches as one part: one key a moment
+        let one = act(&m, &Creature { head: "body".into(), ..c.clone() }, "hurt");
+        assert!(one.key.iter().enumerate().all(|(i, k)| !one.key[..i].iter().any(|j| j.part == k.part && j.t == k.t)), "two keys for a part at one time");
+        // a creature with no head eats with its body
+        let headless = Creature { head: String::new(), ..c.clone() };
+        assert!(act(&m, &headless, "eat").key.iter().all(|k| k.part == "body"));
     }
 
     #[test]

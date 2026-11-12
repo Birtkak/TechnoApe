@@ -37,3 +37,23 @@ swing = 30.0
 bob = 0.3
 sway = 8.0
 wag = 25.0
+
+[[creature]]
+name = "snake"
+model = "snake"
+plan = "snake"
+scale = 1.0
+walk_speed = 0.8
+run_speed = 3.0
+step = 0.3
+legs = []
+arms = []
+head = ""
+tail = ""
+wings = []
+step_sound = ""
+voice = "base.hiss"
+swing = 25.0
+bob = 0.0
+sway = 0.0
+wag = 0.0

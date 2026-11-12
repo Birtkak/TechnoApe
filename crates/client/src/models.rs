@@ -157,6 +157,8 @@ pub struct Models {
     spec_state: Option<String>,
     /// The Studio's view: the shown model's scale (a creature's, ADR 0053), else its own.
     spec_scale: Option<f32>,
+    /// The Studio's view: where the shown model stands from its cell and how it is turned (`show_place`).
+    spec_place: Mat4,
     /// The state "" a clip with events plays in without a state: that clip and nothing else.
     clip_state: State,
     /// Placed model cells asked into a state (`set_state`), and the states playing.
@@ -206,6 +208,7 @@ impl Models {
             spec: (n > 0).then_some((name, clip, n)),
             spec_state: state,
             spec_scale: None,
+            spec_place: Mat4::IDENTITY,
             states: Default::default(),
             runs: Default::default(),
             held: Vec::new(),
@@ -231,6 +234,12 @@ impl Models {
         self.spec_scale = Some(scale);
     }
 
+    /// The Studio's view: the shown model stands `at` metres from its cell along the cell's x and z, turned by
+    /// `yaw` about its floor centre (set after `show`; the Fauna page's walk in a circle).
+    pub fn show_place(&mut self, at: [f32; 2], yaw: f32) {
+        self.spec_place = Mat4::from_translation(Vec3::new(at[0], 0.0, at[1]) + FLOOR) * Mat4::from_rotation_y(yaw) * Mat4::from_translation(-FLOOR);
+    }
+
     /// The Studio's view: the shown model's state (None: its clip or `idle`).
     pub fn show_state(&mut self, state: Option<&str>) {
         self.spec_state = state.map(str::to_string);
@@ -251,6 +260,7 @@ impl Models {
     /// The Studio's view: one model (and its clip) in `cell`, or none.
     pub fn show(&mut self, spec: Option<(String, Option<String>)>, cell: Block) {
         self.spec_scale = None;
+        self.spec_place = Mat4::IDENTITY;
         self.clip_state.clip = spec.as_ref().and_then(|s| s.1.clone());
         self.spec = spec.map(|(n, c)| (n, c, 1));
         self.cells = vec![cell];
@@ -437,7 +447,7 @@ impl Models {
                 let c = clip.as_deref().and_then(|c| self.list[m].0.model.clips.iter().position(|k| k.name == c)).or_else(|| idle(m)).or((!self.list[m].0.model.clips.is_empty()).then_some(0));
                 for (k, b) in self.cells.iter().enumerate() {
                     let (c, t) = posed.get(b).copied().unwrap_or((c, t + k as f64 * 0.37));
-                    inst[m].push((c, t, cell_frame(world, cams, *b), b.body as u32, self.spec_scale.unwrap_or(self.list[m].0.scale)));
+                    inst[m].push((c, t, cell_frame(world, cams, *b) * self.spec_place, b.body as u32, self.spec_scale.unwrap_or(self.list[m].0.scale)));
                 }
             }
         }
@@ -581,18 +591,20 @@ mod tests {
     /// The boar of `data/` walking as `creature=boar` with its row's scale times `scale`, `model=boar:walk`
     /// on the planet for 2 s: the first piece's transform and how often its step sound played.
     fn boar_walking(scale: f32) -> (Piece, u32) {
-        let (p, n) = boar_drawn(scale, None, false);
+        let (p, n) = boar_drawn(scale, None, false, None);
         (p[0], n)
     }
 
     /// As `boar_walking`, the Studio's view scale `view` given after `show`, and the boar in hand too: the first
     /// part's pieces (in its cell, then in hand) and the step sounds played.
-    fn boar_drawn(scale: f32, view: Option<f32>, in_hand: bool) -> (Vec<Piece>, u32) {
+    fn boar_drawn(scale: f32, view: Option<f32>, in_hand: bool, place: Option<([f32; 2], f32)>) -> (Vec<Piece>, u32) {
         let p = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
         let (model, life) = parse_life("boar.toml", include_str!("../../../data/models/boar.toml"), &p, &|_| true, &|_| true).unwrap();
         let mut list = vec![Loaded { name: "boar".into(), quads: vec![Vec::new(); model.parts.len()], model, life, scale: 1.0 }];
         let text = include_str!("../../../data/creatures.toml").replace("\r\n", "\n");
+        // the boar's row alone: the rows after it name models this test does not load
         let row = &text[text.find("[[creature]]\nname = \"boar\"").unwrap()..];
+        let row = &row[..row[1..].find("[[creature]]").map_or(row.len(), |i| i + 1)];
         creature_walk(&mut list, "boar", &row.replace("scale = 1.0", &format!("scale = {scale:?}")));
         let w = World::new(768, 256, 1);
         let b = &w.bodies[0];
@@ -603,6 +615,9 @@ mod tests {
         m.show(Some(("boar".into(), Some("walk".into()))), cell);
         if let Some(s) = view {
             m.show_scale(s);
+        }
+        if let Some((at, yaw)) = place {
+            m.show_place(at, yaw);
         }
         let (mut fx, mut audio) = (crate::fx::Fx::new(true, 64, 1.0, 1), crate::audio::Audio::new());
         let eye = (b.centre + b.spawn * (b.height(b.spawn) + 2.0), DVec3::X, b.spawn);
@@ -624,7 +639,7 @@ mod tests {
     /// A creature's scale is its cells' only: the same model in hand is drawn as any block in hand.
     #[test]
     fn a_creatures_scale_never_reaches_the_model_in_hand() {
-        let ((one, _), (two, _)) = (boar_drawn(1.0, None, true), boar_drawn(2.0, None, true));
+        let ((one, _), (two, _)) = (boar_drawn(1.0, None, true, None), boar_drawn(2.0, None, true, None));
         assert_eq!((one.len(), two.len()), (2, 2), "in its cell and in hand");
         for r in 0..3 {
             assert!((axis_len(&two[0], r) / axis_len(&one[0], r) - 2.0).abs() < 1e-3, "the cell's axis {r}");
@@ -632,10 +647,27 @@ mod tests {
         }
     }
 
+    /// The Studio's view walks a creature about: the shown model stands `at` metres from its cell along the
+    /// cell's x and z, turned by `yaw` about its floor centre, and is otherwise drawn as it was.
+    #[test]
+    fn the_view_draws_the_shown_model_where_and_turned_as_given() {
+        let (at, yaw) = ([2.0, -1.0], 0.7f32);
+        let ((was, _), (now, _)) = (boar_drawn(1.0, None, false, None), boar_drawn(1.0, None, false, Some((at, yaw))));
+        let w = World::new(768, 256, 1);
+        let b = &w.bodies[0];
+        let x = cell_frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], w.block_at(b.spawn * (b.height(b.spawn) + 0.1)));
+        let mat = |p: &Piece| Mat4::from_cols_array_2d(&[p.x[0], p.x[1], p.x[2], [0.0, 0.0, 0.0, 1.0]]).transpose();
+        let want = x * Mat4::from_translation(Vec3::new(at[0], 0.0, at[1]) + FLOOR) * Mat4::from_rotation_y(yaw) * Mat4::from_translation(-FLOOR) * x.inverse() * mat(&was[0]);
+        let got = mat(&now[0]);
+        assert!(got.abs_diff_eq(want, 1e-2), "got {got:?}
+want {want:?}");
+        assert!(!got.abs_diff_eq(mat(&was[0]), 0.5), "it moved");
+    }
+
     /// The Studio's view draws the shown model at the scale it was given (the Fauna page: the row's `scale`).
     #[test]
     fn the_view_draws_the_shown_model_at_its_given_scale() {
-        let ((one, _), (three, _)) = (boar_drawn(1.0, None, false), boar_drawn(1.0, Some(3.0), false));
+        let ((one, _), (three, _)) = (boar_drawn(1.0, None, false, None), boar_drawn(1.0, Some(3.0), false, None));
         for r in 0..3 {
             assert!((axis_len(&three[0], r) / axis_len(&one[0], r) - 3.0).abs() < 1e-3, "axis {r}: {} then {}", axis_len(&one[0], r), axis_len(&three[0], r));
         }

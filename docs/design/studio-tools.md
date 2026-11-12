@@ -210,7 +210,8 @@ clips are its walk, idle, eat and hurt, its sounds, how fast it walks. **Rig by 
 (two legs, four legs, six legs, wings, fish, snake); the page makes the parts and a walk, idle and turn that
 fit the plan and the leg length, as ordinary parts and keys to change. A preview walks it in a circle on the
 game's ground at its real speed so sliding feet are seen. The game does not spawn creatures yet; the page
-makes what the game will take.
+makes what the game will take. Built (ADR 0053): biped, quadruped, bird, fish, hexapod and snake; the walk,
+idle, turn, eat and hurt are made from the row, never keyed; wings as a plan of their own are the bird's.
 
 ## The variations wall (every wave uses it)
 One shared piece of the interface: a grid of six to twelve previews made from the current thing by a

@@ -165,6 +165,15 @@ impl Keys {
             (None, None) => {}
         }
     }
+    /// `set`, but a new key goes after the last of `after` the row has (so a number sits with the numbers).
+    pub fn set_after(&mut self, key: &str, value: Option<String>, after: &[&str]) {
+        let at = self.get(key).is_none().then(|| self.keys.iter().rposition(|(k, _)| after.contains(&k.as_str()))).flatten();
+        self.set(key, value.clone());
+        if let (Some(i), Some(_)) = (at, value) {
+            let k = self.keys.pop().unwrap();
+            self.keys.insert(i + 1, k);
+        }
+    }
     pub fn text(&self) -> String {
         let mut s = format!("[[{}]]\n", self.header);
         for (k, v) in &self.keys {

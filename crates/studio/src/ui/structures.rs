@@ -23,14 +23,54 @@ enum Tool {
     Clear,
     Box,
     Fill,
+    Select,
 }
-const TOOLS: [(Tool, &str, &str, &str); 5] = [
+const TOOLS: [(Tool, &str, &str, &str); 6] = [
     (Tool::Add, "Add", "Left click or drag places the chosen block; right click leaves the world's block", "A"),
     (Tool::Keep, "Remove", "Click or drag removes the cell from the structure: the world's block stays", "R"),
     (Tool::Clear, "Air", "Click or drag clears the cell to air: it digs the world's block where the structure stands", "X"),
     (Tool::Box, "Box", "Drag a rectangle on the layer: filled with the chosen block", "B"),
     (Tool::Fill, "Fill", "Click: the joined cells of the same kind on this layer take the chosen block", "G"),
+    (Tool::Select, "Select", "Drag a rectangle on the layer to copy (Ctrl+C); Ctrl+V pastes under the pointer, on any layer or structure; right click lets go", "S"),
 ];
+
+/// A copied rectangle of a layer: `w` cells across, each KEEP, CLEAR or a block's name (so it pastes into a
+/// structure with other letters).
+#[derive(Clone, PartialEq, Debug)]
+struct Piece {
+    w: u32,
+    cells: Vec<String>,
+}
+
+fn copy(s: &Structure, y: u32, a: (u32, u32), b: (u32, u32)) -> Piece {
+    let mut cells = vec![];
+    for z in a.1.min(b.1)..=a.1.max(b.1) {
+        for x in a.0.min(b.0)..=a.0.max(b.0) {
+            let l = s.cells[s.at(x, y, z)];
+            cells.push(s.key.get(&(l as char).to_string()).cloned().unwrap_or_else(|| (if l == CLEAR { "_" } else { "." }).into()));
+        }
+    }
+    Piece { w: a.0.abs_diff(b.0) + 1, cells }
+}
+
+/// The piece with its corner at x, z of layer y; what falls outside the box is dropped.
+fn paste(s: &mut Structure, p: &Piece, x: u32, y: u32, z: u32) {
+    for (i, c) in p.cells.iter().enumerate() {
+        let (px, pz) = (x + i as u32 % p.w, z + i as u32 / p.w);
+        if px >= s.size[0] || pz >= s.size[2] {
+            continue;
+        }
+        let l = match c.as_str() {
+            "." => Some(KEEP),
+            "_" => Some(CLEAR),
+            name => s.letter(name),
+        };
+        if let Some(l) = l {
+            let k = s.at(px, y, pz);
+            s.cells[k] = l;
+        }
+    }
+}
 
 struct SDoc {
     s: Structure,
@@ -53,6 +93,10 @@ pub struct Structures {
     block: String,
     layer: u32,
     drag: Option<(u32, u32)>,
+    /// The selected rectangle (two corners, x and z), what was copied, and the slice cell under the pointer.
+    sel: Option<((u32, u32), (u32, u32))>,
+    clip: Option<Piece>,
+    hover: Option<(u32, u32)>,
     stroke: bool,
     merging: Option<String>,
     wall: Option<Wall<Recipe>>,
@@ -97,7 +141,7 @@ fn sketch(p: &egui::Painter, r: Rect, s: &Structure, cols: &BTreeMap<u8, Color32
 
 impl Structures {
     pub fn new(app: &App) -> Structures {
-        let mut s = Structures { docs: BTreeMap::new(), open: None, refused: BTreeMap::new(), tool: Tool::Add, block: "stone".into(), layer: 0, drag: None, stroke: false, merging: None, wall: None, walls: 0, placed: None, aimed: None };
+        let mut s = Structures { docs: BTreeMap::new(), open: None, refused: BTreeMap::new(), tool: Tool::Add, block: "stone".into(), layer: 0, drag: None, sel: None, clip: None, hover: None, stroke: false, merging: None, wall: None, walls: 0, placed: None, aimed: None };
         s.read_disk(app);
         s.open = s.docs.keys().find(|n| n.as_str() == "oak").or(s.docs.keys().next()).cloned();
         s
@@ -358,6 +402,13 @@ impl Structures {
             let v = (pos - rect.min) / k;
             (v.x >= 0.0 && v.y >= 0.0 && (v.x as u32) < s.size[0] && (v.y as u32) < s.size[2]).then(|| (v.x as u32, v.y as u32))
         };
+        self.hover = resp.hover_pos().and_then(cell);
+        // the selection, held to the box (a smaller structure may be open than it was made on)
+        self.sel = self.sel.filter(|(a, b)| a.0.max(b.0) < s.size[0] && a.1.max(b.1) < s.size[2]);
+        let frame = |a: (u32, u32), b: (u32, u32)| Rect::from_two_pos(rect.min + Vec2::new(a.0.min(b.0) as f32, a.1.min(b.1) as f32) * k, rect.min + Vec2::new(a.0.max(b.0) as f32 + 1.0, a.1.max(b.1) as f32 + 1.0) * k);
+        if let Some((a, b)) = self.sel {
+            p.rect_stroke(frame(a, b), 0.0, Stroke::new(2.0, Color32::WHITE), egui::StrokeKind::Inside);
+        }
         if let Some(c) = resp.hover_pos().and_then(cell) {
             let l = s.cells[s.at(c.0, y, c.1)];
             let what = match l {
@@ -379,24 +430,32 @@ impl Structures {
             let v = (pos - rect.min) / k;
             ((v.x.max(0.0) as u32).min(s.size[0] - 1), (v.y.max(0.0) as u32).min(s.size[2] - 1))
         };
-        if self.tool == Tool::Box && !right {
+        let select = self.tool == Tool::Select;
+        if select && right {
+            self.sel = None;
+            return;
+        }
+        if (self.tool == Tool::Box || select) && !right {
+            let mut done = None;
             if resp.drag_started() {
                 self.drag = origin;
             }
             if let (Some(a), Some(b)) = (self.drag, pos.map(held)) {
-                let r0 = Rect::from_two_pos(rect.min + Vec2::new(a.0.min(b.0) as f32, a.1.min(b.1) as f32) * k, rect.min + Vec2::new(a.0.max(b.0) as f32 + 1.0, a.1.max(b.1) as f32 + 1.0) * k);
-                p.rect_stroke(r0, 0.0, Stroke::new(2.0, look::ACCENT), egui::StrokeKind::Inside);
+                p.rect_stroke(frame(a, b), 0.0, Stroke::new(2.0, look::ACCENT), egui::StrokeKind::Inside);
                 if resp.drag_stopped() {
-                    self.fill_box(a, b);
+                    done = Some((a, b));
                 }
             }
             if resp.drag_stopped() {
                 self.drag = None;
             }
             if resp.clicked() {
-                if let Some(c) = pos.and_then(cell) {
-                    self.fill_box(c, c);
-                }
+                done = pos.and_then(cell).map(|c| (c, c));
+            }
+            match done {
+                Some((a, b)) if select => self.sel = Some((a, b)),
+                Some((a, b)) => self.fill_box(a, b),
+                None => {}
             }
             return;
         }
@@ -441,7 +500,7 @@ impl Page for Structures {
     fn open(&mut self, app: &mut App, id: &str) {
         if self.docs.contains_key(id) {
             self.open = Some(id.into());
-            (self.wall, self.drag, self.layer) = (None, None, 0);
+            (self.wall, self.drag, self.sel, self.layer) = (None, None, None, 0);
         } else if let Some(e) = self.refused.get(id) {
             app.refuse(e.clone());
         }
@@ -455,6 +514,8 @@ impl Page for Structures {
             Cmd::new("new", "New structure", "an empty box of 5 by 3 by 5 blocks to build by hand"),
             Cmd::new("mirror", "Mirror", "the structure mirrored left to right").key(Modifiers::NONE, Key::M),
             Cmd::new("copyup", "Copy the layer up", "this layer's cells into the layer above").key(Modifiers::NONE, Key::C),
+            Cmd::new("copy", "Copy the selection", "the selected rectangle of this layer, to paste on any layer or structure").key(Modifiers::COMMAND, Key::C),
+            Cmd::new("paste", "Paste", "what was copied, its corner under the pointer (else at the selection's corner) on this layer").key(Modifiers::COMMAND, Key::V),
             Cmd::new("up", "Layer up", "the slice one layer higher").key(Modifiers::NONE, Key::PageUp),
             Cmd::new("down", "Layer down", "the slice one layer lower").key(Modifiers::NONE, Key::PageDown),
             Cmd::new("freeze", "Freeze", "a grown structure as plain layers, to edit by hand (the recipe is dropped)"),
@@ -468,6 +529,7 @@ impl Page for Structures {
                 Tool::Clear => Key::X,
                 Tool::Box => Key::B,
                 Tool::Fill => Key::G,
+                Tool::Select => Key::S,
             };
             let _ = key;
             v.push(Cmd::new(format!("tool:{name}"), format!("{name} tool"), help).key(Modifiers::NONE, k));
@@ -501,6 +563,22 @@ impl Page for Structures {
                     if if id == "undo" { d.hist.undo(&mut d.s) } else { d.hist.redo(&mut d.s) } {}
                 }
             }
+            // the selection and the layer are held to the box here too: a command can come before the slice is drawn
+            "copy" => match (self.sel, self.doc()) {
+                (Some((a, b)), Some(d)) if a.0.max(b.0) < d.s.size[0] && a.1.max(b.1) < d.s.size[2] => {
+                    let p = copy(&d.s, self.layer.min(d.s.size[1] - 1), a, b);
+                    app.toast(format!("Copied {} x {} cells: Ctrl+V pastes under the pointer", p.w, p.cells.len() as u32 / p.w));
+                    self.clip = Some(p);
+                }
+                _ => app.toast("Nothing selected: drag a rectangle with Select (S)".to_string()),
+            },
+            "paste" if grown.is_none() => match self.clip.clone() {
+                Some(p) => {
+                    let (at, y) = (self.hover.or(self.sel.map(|(a, b)| (a.0.min(b.0), a.1.min(b.1)))).unwrap_or((0, 0)), self.layer);
+                    self.edit("Paste", |s| paste(s, &p, at.0, y.min(s.size[1] - 1), at.1));
+                }
+                None => app.toast("Nothing copied yet".to_string()),
+            },
             "up" => self.layer += 1,
             "down" => self.layer = self.layer.saturating_sub(1),
             "mirror" if grown.is_none() => self.edit("Mirror", |s| {
@@ -609,6 +687,8 @@ impl Page for Structures {
             ui.horizontal_wrapped(|ui| {
                 button(ui, self, app, "mirror", "Mirror");
                 button(ui, self, app, "copyup", "Copy layer up");
+                button(ui, self, app, "copy", "Copy");
+                button(ui, self, app, "paste", "Paste");
             });
             ui.separator();
             look::section(ui, "Box");
@@ -803,5 +883,33 @@ impl Page for Structures {
 
     fn settle(&mut self, ctx: &egui::Context, app: &mut App) {
         app.view.settle(ctx, std::time::Duration::from_secs(90));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_copied_rectangle_pastes_into_another_structure_by_block_name_and_stops_at_the_box() {
+        let mut a = Structure::empty([4, 2, 3]);
+        let (st, lg) = (a.letter("stone").unwrap(), a.letter("log").unwrap());
+        for (x, z, v) in [(1, 0, st), (2, 0, lg), (1, 1, CLEAR)] {
+            let k = a.at(x, 1, z);
+            a.cells[k] = v;
+        }
+        let p = copy(&a, 1, (2, 1), (1, 0));
+        assert_eq!(p, Piece { w: 2, cells: ["stone", "log", "_", "."].map(String::from).to_vec() }, "either corner first");
+        // another structure, where log already has the first letter
+        let mut b = Structure::empty([3, 1, 3]);
+        let lg_b = b.letter("log").unwrap();
+        let k = b.at(2, 0, 2);
+        b.cells[k] = lg_b;
+        paste(&mut b, &p, 2, 0, 1);
+        let st_b = b.letter("stone").unwrap();
+        assert_ne!(st_b, lg_b);
+        assert_eq!(b.cells[b.at(2, 0, 1)], st_b);
+        assert_eq!(b.cells[b.at(2, 0, 2)], CLEAR, "a copied cell replaces what was there, air too");
+        assert_eq!(b.cells.iter().filter(|c| **c != KEEP).count(), 2, "the column past the box is dropped");
     }
 }

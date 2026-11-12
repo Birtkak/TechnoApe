@@ -33,8 +33,10 @@ into `data/`.
   saved in it. The wall's previews are small closed-form sketches, not the game's renderer.
 
 ## Consequences
-- Not built: States on the Models page (part 3); a sound row's own scalar keys (`gain`, `reach`, `bus`) as
-  controls.
+- Not built: nothing of this ADR is left. States on the Models page came with ADR 0050; a sound row's own
+  keys came on 2026-11-12 as the inspector's "Row" section: `bus` as chips, `gain`, `reach` and `pitch` as
+  sliders held to the game's ranges (`sound::SCALARS`), a default not written, a new key written beside the
+  row's other numbers.
 - Added 2026-11-12: `colour` (three sliders, for a square or texture without a gradient; "one colour" turns a
   gradient into its first stop's colour), a cone's `dir` (three sliders that never reach a length of 0), `then`
   (a pick of the file's saved rows) and `look = "model"`/`"texture"` with a pick of `data/models/*.toml` or the

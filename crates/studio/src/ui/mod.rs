@@ -736,10 +736,12 @@ impl Studio {
                 let x = thumb.max.x + GAP;
                 let label = row.label.clone();
                 let text_col = if row.flags.made || on { ui.visuals().strong_text_color() } else { ui.visuals().text_color() };
-                let g = p.layout_no_wrap(label, egui::FontId::proportional(look::BODY), text_col);
-                let clip = Rect::from_min_max(Pos2::new(x, rect.min.y), Pos2::new(right - 2.0, rect.max.y));
+                // a name too long for its row ends in "…", not under the badge
+                let mut job = egui::text::LayoutJob::simple_singleline(label, egui::FontId::proportional(look::BODY), text_col);
+                job.wrap = egui::text::TextWrapping::truncate_at_width((right - 2.0 - x).max(0.0));
+                let g = p.layout_job(job);
                 let end = x + g.size().x;
-                p.with_clip_rect(clip).galley(Pos2::new(x, rect.center().y - g.size().y / 2.0), g, text_col);
+                p.galley(Pos2::new(x, rect.center().y - g.size().y / 2.0), g, text_col);
                 if row.flags.dirty {
                     p.circle_filled(Pos2::new((end + 9.0).min(right - 6.0), rect.center().y), 3.5, look::DRAFT);
                 }

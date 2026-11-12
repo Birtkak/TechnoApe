@@ -122,6 +122,9 @@ impl App {
                 Some("time") => self.time0 = num(1),
                 Some("frame") => v.want = Some(num(1) as u64),
                 Some("model") => {
+                    // a last word `@x,z,yaw`: it stands that far from its cell (metres), turned (radians); the walk in a circle
+                    let place: Option<Vec<f32>> = f.last().and_then(|w| w.strip_prefix('@')).and_then(|s| s.split(',').map(|n| n.parse().ok().filter(|v: &f32| v.is_finite())).collect()).filter(|p: &Vec<f32>| p.len() == 3);
+                    let f = &f[..f.len() - place.is_some() as usize];
                     // a last word `x<scale>`: drawn at that scale (a creature's, ADR 0053)
                     let scale = f.last().and_then(|w| w.strip_prefix('x')).and_then(|s| s.parse::<f32>().ok()).filter(|s| s.is_finite() && *s > 0.0);
                     let f = &f[..f.len() - scale.is_some() as usize];
@@ -133,6 +136,9 @@ impl App {
                             self.models.show(Some((n.to_string(), clip)), v.feet);
                             if let Some(s) = scale {
                                 self.models.show_scale(s);
+                            }
+                            if let Some(p) = place {
+                                self.models.show_place([p[0], p[1]], p[2]);
                             }
                         }
                     }

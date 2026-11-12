@@ -39,8 +39,16 @@ and bushes grown from a few numbers and a seed, then frozen for hand work, each 
 ## Consequences
 - Left out: placing structures on the planet (world generation and the bake are untouched: later work, when
   the generator grows plants; a row will then say its biome and how many per hectare), lean and root flare,
-  small plants as models, copy and paste of regions, placing and digging in the 3D view itself (the slice does
-  the editing), the `kind` field of the design's plant row.
+  placing and digging in the 3D view itself (the slice does the editing), the `kind` field of the design's
+  plant row.
+- Added 2026-11-12:
+  - **Copy and paste.** The Select tool (S) drags a rectangle on the layer; Ctrl+C copies it by block name,
+    Ctrl+V pastes it with its corner under the pointer on any layer or structure (what falls outside the box is
+    dropped; a copied "world's block" or air cell replaces what was there). One layer at a time: a region of
+    several layers is copied layer by layer.
+  - **Small plants as models.** `voxel::plant(kind, seed)` grows a tuft, a flower or a mushroom as an ordinary
+    one-part model in a block's box, from palette colours; the Models page's "Plant…" makes one ("tuft 3" is
+    seed 3) to finish by hand. No recipe is kept in the model file: asking again grows another.
 - The stand run stands at the default point (at sea since the baked planet) unless `at=` names land, and its
   camera stands in the structure's anchor cell; a look at one needs `at=`/`yaw=` or the Studio's view.
 - Review: not yet reviewed by a fresh reviewer (rule 12) at the time of writing.
