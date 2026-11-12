@@ -64,7 +64,15 @@ the tide's mean over the actual ocean is then exactly 0 (tested on a lopsided oc
   without `retide` it never moved); `world::the_tidal_band_is_wet_at_high_water_and_meshed_for_it` (with the mean's
   quads it found none over the band). `the_sea_is_generated_where_the_ground_is_low` and
   `rivers_and_lakes_hold_generated_water` now expect the sea at its tide.
-- The soak across five tides with bots digging and damming: see the table.
+- The soak across many tides: `technoape-server soak=1 planet=1536 bots=4 ticks=3000 seed=7 warp=60` (the clock 60
+  times faster, a new `warp=` of the soak): 150 minutes of world time, about 9 tides, 18 dams built and 17 broken,
+  the ledger exact every tick, the same hash twice, 30 s a run. Unwarped, 5 minutes with 8 bots: 142 s against
+  main's 157 s, the same water awake.
+- The gate (`tools/check.sh`, once): tests, soak and replay pass. The views `high` (5.1 %) and `orbit` (1.4 %)
+  differ by the tide: at the views' time the sea stands high there and the beaches on the band's layer are under
+  water; not accepted, the developer's to see. The perf rows failed while another session's mesh benchmark ran on
+  the PC (sim's tick 268 ms in the gate, 2.0 to 2.3 ms in quick runs alone right after; 12 alternated runs on a
+  quiet PC matched main): to repeat on a quiet PC before merging.
 - Filmstrips: `out/tides/day.png` (a spring day, a frame a minute), `high-low.png`, `month.png` (each day's daylight
   high and low over a month: springs on days 4-5 and 11-13). The script: `prototypes/tides/film.py`.
 - Review: a fresh reviewer read the diff. It found the ledger, the GPU layout and Luna sound, and seven points:

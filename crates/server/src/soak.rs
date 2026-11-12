@@ -241,10 +241,17 @@ pub struct WaterStats {
 /// Runs `ticks` ticks with the bots `which` (numbers into the seed's endless list of bots) on a planet of
 /// `planet_n` columns per face edge. `Ok` holds the final state hash and what the water did.
 pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&Path>) -> Result<(u64, WaterStats), Fail> {
+    run_warp(seed, which, ticks, planet_n, record, 1)
+}
+
+/// `run` with the clock `warp` times faster (/timewarp): the tide (ADR 0067) runs through many cycles in a short
+/// soak. shortcut: the warp is not in the recording, so such a run's replay parts from it at once.
+pub fn run_warp(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&Path>, warp: u64) -> Result<(u64, WaterStats), Fail> {
     let mut ws = WaterStats::default();
     let (tx, rx) = channel();
     // the planet baked (ADR 0043), as a new game's: the bots share its map, as a local client does
     let mut s = Server::baked(planet_n, MOON_N, seed as i32, rx);
+    s.warp = warp;
     let (map, luna) = (s.world.bodies[0].map().cloned(), s.world.bodies[1].map().cloned());
     if let Some(p) = record {
         s.record(p).map_err(|e| Fail { tick: 0, what: format!("cannot record to {}: {e}", p.display()) })?;
