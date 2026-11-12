@@ -124,6 +124,9 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
    developer makes the game's textures and voxel models by hand, later effects, trees and structures. Its
    seven steps are in the design doc; the first is a measured spike of painted 16 x 16 textures against
    ADR 0039's patterns, the second lets a PNG in `data/textures/` replace a block's pattern.
+   **Next for the Studio: the usability round** (2026-11-12, the design doc's section of that name): the block
+   always in view, a pattern panel, variants that explain themselves, the model view's camera and placing,
+   and sounds from outside files. Five steps, in that order.
 
 ## The shared benchmark
 The engine keeps the spikes' benchmark as its performance check, so numbers stay comparable over time.
