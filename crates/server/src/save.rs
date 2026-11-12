@@ -145,7 +145,11 @@ impl Save {
             std::fs::create_dir_all(d)?;
         }
         let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, self.to_bytes())?;
+        // on the disk before the rename, so a crash leaves the old save or the new one, never half of one
+        let mut f = std::fs::File::create(&tmp)?;
+        std::io::Write::write_all(&mut f, &self.to_bytes())?;
+        f.sync_all()?;
+        drop(f);
         std::fs::rename(&tmp, path)
     }
 

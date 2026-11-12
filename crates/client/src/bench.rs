@@ -112,6 +112,13 @@ pub(crate) fn orbit_start(w: &World) -> f64 {
 
 pub(crate) static LOW_WORKERS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Whether a run keeps every frame's numbers for its JSON line: an open-ended play session (no `seconds=`)
+/// keeps none, or they grow every frame for as long as it is played; a play run with `seconds=` (the gate's
+/// feel report) and the benchmark runs do.
+pub(crate) fn keeps_frames(run: &str, a: &Args) -> bool {
+    run != "play" || a.0.contains_key("seconds")
+}
+
 pub(crate) fn run_len(run: &str, warm: f64, q: f64) -> f64 {
     warm + q * match run {
         "fly" => 60.0,
@@ -424,5 +431,18 @@ impl App {
             big.save(&path).unwrap();
             eprintln!("[technoape] filmstrip {} ({} frames)", path, self.sheet.len());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_open_ended_play_session_keeps_no_frame_numbers() {
+        let args = |kv: &[(&str, &str)]| Args(kv.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect());
+        assert!(!keeps_frames("play", &args(&[])), "a session played until it is closed");
+        assert!(keeps_frames("play", &args(&[("seconds", "20")])), "the gate's feel report");
+        assert!(keeps_frames("stand", &args(&[])), "a benchmark run");
     }
 }

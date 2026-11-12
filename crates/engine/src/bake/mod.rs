@@ -160,6 +160,11 @@ impl Map {
             }
             v => return Err(format!("a map of version {v} that does not read")),
         };
+        // a planet the engine can make (`Body::new`), its cells' indices within u32: the largest real planet,
+        // 12288 columns, has m = 1536
+        if !(1..=4096).contains(&m.m) || !(1..=32768).contains(&m.n) || m.n % crate::world::CS != 0 {
+            return Err(format!("a map of {} columns and {} cells per face edge", m.n, m.m));
+        }
         let cells = 6 * m.m as usize * m.m as usize;
         if let Some(c) = &m.climate {
             c.check()?;
@@ -611,6 +616,18 @@ mod tests {
         assert_eq!(old.to_bytes(), v2, "the bytes it came in");
         m.lakes = vec![(9999, 1.0)];
         assert!(Map::from_bytes(&m.to_bytes()).is_err(), "a lake cell off the map");
+    }
+
+    /// A map's size from a server is refused, not a panic, when nothing can be built on it: no cells, so many
+    /// that a cell's index overflows, a planet the engine cannot make.
+    #[test]
+    fn a_map_of_an_impossible_size_is_refused() {
+        let river = vec![Reach { cell: 9, to: 10, area: 2e5, flow: 0.0 }];
+        for (n, mm) in [(64, 65536), (64, 0), (64, 4097), (0, 8), (-64, 8), (65, 8), (1 << 20, 8)] {
+            let m = Map { n, m: mm, rivers: river.clone(), ..small() };
+            assert!(Map::from_bytes(&m.to_bytes()).is_err(), "n {n}, m {mm}");
+        }
+        assert!(Map::from_bytes(&Map { rivers: river, ..small() }.to_bytes()).is_ok());
     }
 
     /// The map keeps each cell's baked temperature (W3): the climate it holds gives back the bake's own
