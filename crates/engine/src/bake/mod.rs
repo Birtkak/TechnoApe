@@ -55,6 +55,10 @@ pub struct Map {
     /// The heights halved again and again (2 x 2 means), for chunks whose columns are wider than a cell.
     #[serde(skip)]
     pub mips: Vec<Vec<f32>>,
+    /// How rough each cell's ground is, metres of detail (`rough`, ADR 00XX); empty on a map of version 1,
+    /// whose ground keeps the uniform detail of ADR 0043.
+    #[serde(skip)]
+    pub rough: Vec<f32>,
     /// FNV of the bytes it was read from or would be written as.
     #[serde(skip)]
     pub hash: u64,
@@ -76,7 +80,7 @@ impl Map {
         b.life = Some(l);
         let biome = std::mem::take(&mut b.life.as_mut().unwrap().biome);
         let rivers = b.rivers.iter().filter(|r| b.land(r.cell as usize)).map(|r| Reach { cell: r.cell, to: r.to, area: r.area }).collect();
-        let mut map = Map { version: VERSION, seed, n, m: b.g.m as u32, h, biome, spawn, rivers, lines: Lines::default(), mips: Vec::new(), hash: 0 };
+        let mut map = Map { version: VERSION, seed, n, m: b.g.m as u32, h, biome, spawn, rivers, lines: Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 };
         map.finish(&map.to_bytes());
         eprintln!("[bake] seed {seed} planet {n}: {:.1} s", t.elapsed().as_secs_f64());
         map
@@ -97,7 +101,7 @@ impl Map {
                 if v.version != 1 {
                     return Err(format!("a map of version {} that does not read", v.version));
                 }
-                Map { version: v.version, seed: v.seed, n: v.n, m: v.m, h: v.h, biome: v.biome, spawn: v.spawn, rivers: Vec::new(), lines: Lines::default(), mips: Vec::new(), hash: 0 }
+                Map { version: v.version, seed: v.seed, n: v.n, m: v.m, h: v.h, biome: v.biome, spawn: v.spawn, rivers: Vec::new(), lines: Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 }
             }
         };
         let cells = 6 * m.m as usize * m.m as usize;
@@ -136,6 +140,23 @@ impl Map {
             m = h;
         }
         self.lines = Lines::new(self);
+        self.rough = if self.version == 1 { Vec::new() } else { self.roughs() };
+    }
+    /// Every cell's `rough`, its slope from its four neighbours (across the seams too).
+    fn roughs(&self) -> Vec<f32> {
+        let m = self.m as i32;
+        let cell = self.n as f32 / m as f32;
+        let at = |f: usize, i: i32, j: i32| {
+            let (f, i, j) = fold(f, i, j, m);
+            self.h[(f * m as usize + j as usize) * m as usize + i as usize]
+        };
+        (0..self.h.len())
+            .map(|c| {
+                let (f, i, j) = (c / (m * m) as usize, c as i32 % m, (c as i32 / m) % m);
+                let slope = (at(f, i + 1, j) - at(f, i - 1, j)).hypot(at(f, i, j + 1) - at(f, i, j - 1)) / (2.0 * cell);
+                rough(slope, self.biome[c], self.h[c])
+            })
+            .collect()
     }
     /// The heights of mip `k` (0 the cells themselves) and its cells per face edge.
     fn level(&self, k: usize) -> (&[f32], i32) {
@@ -145,22 +166,36 @@ impl Map {
     /// Metres over the sea at face point (x, y) in cells of mip `k` (x = 0.5 the middle of cell 0), a
     /// Catmull-Rom spline through the 4 x 4 cells around it; cells past the face fold over its seam.
     pub fn height(&self, face: usize, x: f64, y: f64, k: usize) -> f32 {
+        self.spline::<false>(face, x, y, k).0
+    }
+    /// `height` at mip 0 with the ground's roughness there (`rough`), on the same spline: no step at a cell's
+    /// border. Only on a map with `rough` (version 2 on).
+    pub fn height_rough(&self, face: usize, x: f64, y: f64) -> (f32, f32) {
+        self.spline::<true>(face, x, y, 0)
+    }
+    fn spline<const R: bool>(&self, face: usize, x: f64, y: f64, k: usize) -> (f32, f32) {
         let (h, m) = self.level(k);
         let (x, y) = (x / (1u32 << k.min(self.mips.len())) as f64 - 0.5, y / (1u32 << k.min(self.mips.len())) as f64 - 0.5);
         let (i0, j0) = (x.floor() as i32, y.floor() as i32);
         let (tx, ty) = ((x - i0 as f64) as f32, (y - j0 as f64) as f32);
         let w = |t: f32| [((-0.5 * t + 1.0) * t - 0.5) * t, (1.5 * t - 2.5) * t * t + 1.0, ((-1.5 * t + 2.0) * t + 0.5) * t, (0.5 * t - 0.5) * t * t];
         let (wx, wy) = (w(tx), w(ty));
-        let mut s = 0.0;
+        let (mut s, mut r) = (0.0, 0.0);
         for (b, wb) in wy.iter().enumerate() {
-            let mut row = 0.0;
+            let (mut row, mut rr) = (0.0, 0.0);
             for (a, wa) in wx.iter().enumerate() {
                 let (f, i, j) = fold(face, i0 - 1 + a as i32, j0 - 1 + b as i32, m);
-                row += wa * h[(f * m as usize + j as usize) * m as usize + i as usize];
+                let c = (f * m as usize + j as usize) * m as usize + i as usize;
+                row += wa * h[c];
+                if R {
+                    rr += wa * self.rough[c];
+                }
             }
             s += wb * row;
+            r += wb * rr;
         }
-        s
+        // the spline overshoots a little next to a calm cell
+        (s, r.max(0.0))
     }
     /// The biome of the cell that holds face point (x, y), in cells.
     pub fn biome(&self, face: usize, x: f64, y: f64) -> u8 {
@@ -168,6 +203,34 @@ impl Map {
         let (f, i, j) = fold(face, x.floor() as i32, y.floor() as i32, m);
         self.biome[(f * m as usize + j as usize) * m as usize + i as usize]
     }
+}
+
+/// How rough the ground of a cell is, metres of detail over the map's spline (ADR 00XX): by its slope (m/m),
+/// its biome and its height over the sea (`h`, m). Plains and beaches are smooth, steep ground rough; the
+/// sea floor by the coast is calm, and a lake's flat (no slope at all) has none. Until rock provinces exist,
+/// height and biome stand in for rock. W4 hands this function the cell's rock as one more argument: hard rock
+/// raises it (and so the crags of `World::height_at`), soft rock lowers it, in place of the `high` factor.
+pub fn rough(slope: f32, biome: u8, h: f32) -> f32 {
+    if slope == 0.0 {
+        return 0.0;
+    }
+    let s = |x: f32| {
+        let x = x.clamp(0.0, 1.0);
+        x * x * (3.0 - 2.0 * x)
+    };
+    let by_slope = 0.1 + 0.4 * s(slope / 0.2) + 2.5 * s((slope - 0.25) / 0.6);
+    let high = 1.0 + 0.5 * s((h - 50.0) / 50.0);
+    let calm = if h < 0.0 { 0.1 + 0.9 * s((-h - 4.0) / 12.0) } else { 1.0 };
+    let kind = match biome {
+        life::BEACH => 0.3,
+        life::WETLAND => 0.4,
+        life::DESERT => 0.6,
+        life::GRASSLAND | life::SAVANNA => 0.8,
+        life::ICE | life::TUNDRA => 1.1,
+        life::ALPINE => 1.3,
+        _ => 1.0,
+    };
+    (by_slope * high * calm * kind).min(3.0)
 }
 
 /// Where players start (worldgen.md, "spawn by score"): gentle ground in grassland or temperate forest,
@@ -329,7 +392,7 @@ pub fn for_hash(seed: i32, n: i32, hash: u64) -> Option<Arc<Map>> {
         return Some(m);
     }
     let b = Map::bake(seed, n);
-    let v1 = Map::from_bytes(&Map { version: 1, seed, n, m: b.m, h: b.h.clone(), biome: b.biome.clone(), spawn: b.spawn, rivers: Vec::new(), lines: Lines::default(), mips: Vec::new(), hash: 0 }.to_bytes()).ok();
+    let v1 = Map::from_bytes(&Map { version: 1, seed, n, m: b.m, h: b.h.clone(), biome: b.biome.clone(), spawn: b.spawn, rivers: Vec::new(), lines: Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 }.to_bytes()).ok();
     let b = keep(b);
     if b.hash == hash {
         return Some(b);
@@ -347,7 +410,7 @@ mod tests {
     use super::*;
 
     fn small() -> Map {
-        let mut m = Map { version: VERSION, seed: 1, n: 64, m: 8, h: (0..384).map(|c| (c % 8) as f32).collect(), biome: vec![3; 384], spawn: [0.0, 1.0, 0.0], rivers: Vec::new(), lines: Lines::default(), mips: Vec::new(), hash: 0 };
+        let mut m = Map { version: VERSION, seed: 1, n: 64, m: 8, h: (0..384).map(|c| (c % 8) as f32).collect(), biome: vec![3; 384], spawn: [0.0, 1.0, 0.0], rivers: Vec::new(), lines: Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 };
         m.finish(&m.to_bytes());
         m
     }

@@ -336,6 +336,47 @@ mod tests {
         assert!(climbs == 0 && steps_up == 0, "{climbs} climbs in {walked:.0} m of rivers, the worst {worst:.3} m; {steps_up} blocks up");
     }
 
+    /// The detail follows the slope (ADR 00XX): on the game's own heights, steep ground is several times
+    /// rougher than a plain, and the sea floor by the coast stays calm under its water. Measured as the RMS
+    /// of the ground over the map's spline, away from the river beds.
+    #[test]
+    fn steep_ground_is_rougher_than_flat() {
+        let map = MAP.clone();
+        let w = World::with_map(map.n, 32, map.seed, Some(map.clone()));
+        let b = &w.bodies[0];
+        let s = map.m as f64 / b.n as f64;
+        let cell = b.n as f64 / map.m as f64;
+        let (mut flat, mut steep, mut coast) = ([0.0f64; 2], [0.0f64; 2], [0.0f64; 2]);
+        for face in 0..6 {
+            for j in (0..b.n).step_by(5) {
+                for i in (0..b.n).step_by(5) {
+                    let d = b.dir(face, i as f64 + 0.5, j as f64 + 0.5);
+                    let (f, pi, pj) = b.locate(d);
+                    let (x, y) = (pi * s, pj * s);
+                    let base = map.height(f, x, y, 0) as f64;
+                    if map.river(f, x, y, d, 1.0).is_some() || !(-40.0..100.0).contains(&base) {
+                        continue;
+                    }
+                    let slope = |x: f64, y: f64| ((map.height(f, x + 0.5, y, 0) - map.height(f, x - 0.5, y, 0)) as f64).hypot((map.height(f, x, y + 0.5, 0) - map.height(f, x, y - 0.5, 0)) as f64) / cell;
+                    let g = slope(x, y);
+                    // a plain: flat a cell around too (a hilltop's flat spot is rough from its sides), and not
+                    // a lake's flat (calm by design, it would flatter the ratio)
+                    let plain = (0.005..0.1).contains(&g) && [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)].iter().all(|(a, c)| slope(x + a, y + c) < 0.1);
+                    let dev = b.height(d) - (b.radius - crate::world::SEA_DEPTH + base);
+                    let bin = if base > 3.0 && plain { &mut flat } else if g > 0.5 { &mut steep } else if (-8.0..-1.0).contains(&base) { &mut coast } else { continue };
+                    bin[0] += dev * dev;
+                    bin[1] += 1.0;
+                }
+            }
+        }
+        let rms = |a: [f64; 2]| (a[0] / a[1]).sqrt();
+        let (f, st, c) = (rms(flat), rms(steep), rms(coast));
+        println!("rms: plain {f:.3} m ({} cols), steep {st:.3} m ({}), coast floor {c:.3} m ({}); steep / plain {:.1}", flat[1], steep[1], coast[1], st / f);
+        assert!(flat[1] > 100.0 && steep[1] > 100.0 && coast[1] > 100.0, "too few columns to measure");
+        assert!(st > 4.0 * f, "steep {st:.3} m is not 4 x plain {f:.3} m");
+        assert!(c < 0.15, "the coast's sea floor is {c:.3} m rough");
+    }
+
     /// The bed: on its line the ground is the bed, the flat bottom is wider than a column, and a bank's cut
     /// ends where its reach does.
     #[test]
