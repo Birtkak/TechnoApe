@@ -245,23 +245,27 @@ pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&
 }
 
 /// `run` with the clock `warp` times faster (/timewarp): the tide (ADR 0067) runs through many cycles in a short
-/// soak. shortcut: the warp is not in the recording, so such a run's replay parts from it at once.
+/// soak. The first bot of `which` asks for it in chat as it joins, so the recording carries it and a replay, or a
+/// repro with `only=` any subset, warps the same.
 pub fn run_warp(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&Path>, warp: u64) -> Result<(u64, WaterStats), Fail> {
     let mut ws = WaterStats::default();
     let (tx, rx) = channel();
     // the planet baked (ADR 0043), as a new game's: the bots share its map, as a local client does
     let mut s = Server::baked(planet_n, MOON_N, seed as i32, rx);
-    s.warp = warp;
     let (map, luna) = (s.world.bodies[0].map().cloned(), s.world.bodies[1].map().cloned());
     if let Some(p) = record {
         s.record(p).map_err(|e| Fail { tick: 0, what: format!("cannot record to {}: {e}", p.display()) })?;
     }
     let mut bots: Vec<Bot> = which
         .iter()
-        .map(|&k| {
+        .enumerate()
+        .map(|(i, &k)| {
             let (c, sv) = local();
             tx.send(sv).unwrap();
             c.send(ToServer::Hello { name: format!("bot{k}") }); // named, so the save keeps it
+            if i == 0 && warp > 1 {
+                c.send(ToServer::Chat(format!("/timewarp {warp}")));
+            }
             // an empty input makes it a walker, as in the bot crate
             c.send(ToServer::Input(Input::default()));
             Bot { rng: Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (k as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)), link: c, world: World::with_maps(planet_n, MOON_N, seed as i32, map.clone(), luna.clone()), pred: Predictor::default(), digging: None, dam: None, dams: 0, broken: 0 }
@@ -335,12 +339,12 @@ pub fn run_warp(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Opt
 }
 
 /// Drops bots one at a time while the run still fails, by tick `fail.tick` at the latest.
-pub fn shrink(seed: u64, mut which: Vec<u32>, mut fail: Fail, planet_n: i32) -> (Vec<u32>, Fail) {
+pub fn shrink(seed: u64, mut which: Vec<u32>, mut fail: Fail, planet_n: i32, warp: u64) -> (Vec<u32>, Fail) {
     let mut i = 0;
     while i < which.len() && which.len() > 1 {
         let mut fewer = which.clone();
         fewer.remove(i);
-        match run(seed, &fewer, fail.tick + 1, planet_n, None) {
+        match run_warp(seed, &fewer, fail.tick + 1, planet_n, None, warp) {
             Err(f) => (which, fail) = (fewer, f),
             Ok(_) => i += 1,
         }
@@ -359,7 +363,7 @@ mod tests {
         let bots: Vec<u32> = (0..8).collect();
         match run(7, &bots, 600, N, None) {
             Err(f) => {
-                let (keep, f) = shrink(7, bots, f, N);
+                let (keep, f) = shrink(7, bots, f, N, 1);
                 panic!("tick {}: {} (bots {keep:?})", f.tick, f.what);
             }
             Ok(_) => {}
@@ -393,6 +397,25 @@ mod tests {
         assert_eq!(r.diverged, None);
         assert_eq!(r.checks, 15, "a checkpoint per second of 300 ticks");
         assert_eq!(r.server.hash(), end.0, "the replay ends in the soak's state");
+    }
+
+    /// A soak under time warp (`warp=`): the clock runs that many times as far, the invariants hold, and the
+    /// warp is in the recording, so its replay ends in the soak's state with no argument of its own; also when
+    /// the run is a subset of bots without bot 0 (a repro's `only=`).
+    #[test]
+    fn a_warped_soak_runs_the_clock_faster_and_its_replay_follows() {
+        let path = |w| std::env::temp_dir().join(format!("technoape-warp-test-{w}-{}.rec", std::process::id()));
+        let mut time = Vec::new();
+        for (w, bots) in [(1, vec![0, 1, 2, 3]), (30, vec![0, 1, 2, 3]), (30, vec![2, 3])] {
+            let end = run_warp(5, &bots, 301, N, Some(&path(w)), w).unwrap_or_else(|f| panic!("warp {w}, tick {}: {}", f.tick, f.what));
+            let r = crate::replay(&path(w), Some(301)).expect("replay");
+            let _ = std::fs::remove_file(path(w));
+            assert_eq!((r.diverged, r.server.hash()), (None, end.0), "warp {w}, bots {bots:?}: the replay ends in the soak's state");
+            time.push(r.server.world.time);
+        }
+        for k in [time[1] / time[0], time[2] / time[0]] {
+            assert!((29.0..=30.0).contains(&k), "the clock ran {k} times as far: {time:?}");
+        }
     }
 
     #[test]
