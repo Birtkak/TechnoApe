@@ -494,11 +494,10 @@ impl Liquids {
             for (k, &(f, cl)) in gaps.iter().enumerate() {
                 let gl = f as i64 * U;
                 let part = (hi.min(gl) - lo.max(below)).max(0);
-                if glo < ghi && gl >= ghi && g.river(c).is_none() {
-                    self.book(g.reach(c), part);
-                } else {
-                    water[k] += part;
-                }
+                // (only what lay under generation's level: water standing over it, poured or carried, still rises)
+                let sunk = if glo < ghi && gl >= ghi && g.river(c).is_none() { (hi.min(gl).min(ghi) - lo.max(below)).max(0) } else { 0 };
+                self.book(g.reach(c), sunk);
+                water[k] += part - sunk;
                 below = if cl == OPEN { i64::MAX } else { cl as i64 * U };
             }
         }
@@ -774,17 +773,19 @@ impl Liquids {
                 // a closed gap's head rises K times as fast as the water it takes in: unbounded, a full gap under
                 // a block set into the sea took in a wave, shot it out again at K times the height, and swung
                 // on, pumping water out over the block and leaving the gap half empty (ADR 0071). Into or out of
-                // a closed gap, a link passes at most what would level the two heads, shared over its links.
+                // a closed gap, a link passes at most what would level the two heads, shared over its links: half
+                // the difference between two open surfaces, a (K + 1)-th of it against a full gap's pressure.
                 if v > 0 && (n.ceil != OPEN || b.ceil != OPEN) {
                     let dh = (ha - b.head().max(lo)).max(0);
                     let mut most = i64::MAX;
                     if b.ceil != OPEN {
                         let room = (b.cap() - b.water).max(0);
-                        most = most.min((room + dh / K) / b.links.len().max(1) as i64);
+                        let level = if 2 * room >= dh { dh / 2 } else { room + (dh - 2 * room) / (K + 1) };
+                        most = most.min(level / b.links.len().max(1) as i64);
                     }
                     if n.ceil != OPEN {
                         let over = (wa - n.cap()).max(0);
-                        most = most.min((over + (sa - b.head().max(lo)).max(0)) / n.links.len().max(1) as i64);
+                        most = most.min((over + (sa - b.head().max(lo)).max(0) / 2) / n.links.len().max(1) as i64);
                     }
                     flow = flow.min(most.max(0) << VF);
                 }
