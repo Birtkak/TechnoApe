@@ -61,6 +61,10 @@ const WATER_BYTES: usize = 16 * 1024;
 /// Cells in one `ToClient::Edits`: about 1 MB, far under the TCP frame limit (16 MB, about 1.7 M cells).
 const EDITS_PART: usize = 100_000;
 
+/// Messages taken from one client in one tick; the rest wait for the next, so no client keeps a tick from
+/// ending. (A walking client sends a few a tick; a map request or a burst of edits catches up in a few ticks.)
+const MSGS_PER_TICK: usize = 64;
+
 /// How far /goto sun stands from the sun's centre, in sun radii: it fills about 23 degrees.
 const SUN_VIEW: f64 = 5.0;
 
@@ -446,7 +450,8 @@ impl Server {
         let mut i = 0;
         while i < self.clients.len() {
             let mut open = true;
-            loop {
+            // the recorder logs what is handled, at the tick it is handled, so a replay meets the same cap
+            for _ in 0..MSGS_PER_TICK {
                 let r = self.clients[i].link.try_recv();
                 let (tick, id) = (self.tick, self.clients[i].player.id);
                 match &r {
@@ -1883,7 +1888,9 @@ mod tests {
         for l in &full {
             links[0].send(ToServer::Chat(l.clone()));
         }
-        s.tick();
+        for _ in 0..full.len().div_ceil(MSGS_PER_TICK) {
+            s.tick();
+        }
         let answers: Vec<String> = drain(&links[0]).into_iter().filter_map(|m| if let ToClient::Chat(t) = m { Some(t) } else { None }).collect();
         assert_eq!(answers.len(), full.len(), "{answers:?}");
         for (l, a) in full.iter().zip(&answers) {
@@ -2253,6 +2260,28 @@ mod tests {
         s.tick();
         s.tick();
         assert_eq!(lists(&links[0]), [1], "a leave");
+    }
+
+    /// A client that floods the server gets MSGS_PER_TICK messages handled a tick, the rest on later ticks in
+    /// order; its leave is still seen once they are done.
+    #[test]
+    fn a_flood_of_messages_is_handled_a_part_a_tick_in_order() {
+        let (mut s, mut links) = server_with(2);
+        for k in 0..1000 {
+            links[0].send(ToServer::Chat(format!("{k}")));
+        }
+        drop(links.remove(0));
+        drain(&links[0]);
+        s.tick();
+        let mut got = chats(&drain(&links[0]));
+        assert_eq!(got.len(), MSGS_PER_TICK);
+        while s.players() == 2 {
+            s.tick();
+        }
+        got.extend(chats(&drain(&links[0])));
+        let want: Vec<String> = (0..1000).map(|k| format!("<?> {k}")).collect();
+        assert_eq!(got, want);
+        assert_eq!(s.tick, 1 + 1000_u64.div_ceil(MSGS_PER_TICK as u64));
     }
 
     #[test]
