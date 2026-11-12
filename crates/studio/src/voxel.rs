@@ -1328,6 +1328,44 @@ mod tests {
         assert!(plant(&p, "flower", 1).colours.len() >= 4, "a flower: stem, leaf, heart, petals");
     }
 
+    /// A click lands on the voxel drawn under the pointer: the snake's tail (a child of a child, `at` and pivot
+    /// not 0) bent by a clip, picked through the middle of each of its voxels as the renderer draws them (the
+    /// same `Model::pose`, every voxel's own corners).
+    #[test]
+    fn a_click_lands_on_the_posed_voxel_of_a_child_part() {
+        let p = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        let bend = r#"
+[[clip]]
+name = "bend"
+length = 1.0
+key = [
+  { part = "neck", t = 0.0, turn = [0, 40, 0] },
+  { part = "middle", t = 0.0, turn = [0, -30, 10] },
+  { part = "tail", t = 0.0, turn = [20, 50, 0] },
+]
+"#;
+        let m = Model::parse("snake", &(include_str!("../../../data/models/snake.toml").replace("\r\n", "\n") + bend), &p).unwrap();
+        let tail = m.parts.iter().position(|q| q.name == "tail").unwrap();
+        assert!(m.parts[tail].at != [0; 3] && m.parts[tail].pivot != [0.0; 3]);
+        let poses = m.pose(Some("bend"), 0.0);
+        assert!(!poses[tail].abs_diff_eq(m.pose(None, 0.0)[tail], 1e-3), "the clip moves the tail");
+        let eye = Vec3::new(0.4, 1.6, -0.9);
+        let q = &m.parts[tail];
+        let mut seen = 0;
+        for c in (0..q.cells.len() as i32).map(|k| IVec3::new(k % q.size[0] as i32, k / q.size[0] as i32 % q.size[1] as i32, k / (q.size[0] * q.size[1]) as i32)).filter(|c| get(q, *c) != 0) {
+            let mid = poses[tail].transform_point3(c.as_vec3() + 0.5);
+            let h = pick(&m, &poses, None, eye, (mid - eye).normalize()).expect("a hit");
+            // the voxel under the pointer, or one drawn in front of it on the same line
+            if h.part == tail && h.cell == c {
+                seen += 1;
+            } else {
+                let front = poses[h.part].transform_point3(h.cell.as_vec3() + 0.5);
+                assert!(front.distance(eye) < mid.distance(eye), "{c} picked as {} {} behind it", m.parts[h.part].name, h.cell);
+            }
+        }
+        assert!(seen > 0, "no voxel of the tail seen from the eye");
+    }
+
     #[test]
     fn every_starter_shape_is_a_valid_model_standing_in_its_block() {
         let p = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();

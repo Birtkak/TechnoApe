@@ -63,6 +63,26 @@ an undo step (it changes nothing that was there; the new file is unsaved until s
 act on the open model while the starter list shows (harmless); a starter that failed to read would open nothing
 without a word (every starter is read by a test).
 
+**Fix after the play-test (2026-11-12): the box and the edges off the voxels.** The developer saw the selected
+part's box and the Edges lines a voxel off the drawn model, more so down the snake's chain and on a grown leaf.
+Cause: the renderer stood its camera and the shown model in the stand cell's own axes (`cell_axes`), which on the
+cube-sphere are skewed and about 1.11 m at a face's middle, while the overlay and the click's ray count square
+metres. The two agree only along the eye's line to the look-at point and drift apart away from it (about a tenth
+of the distance). Fixed once in the shared frame: `models::view_axes` is the cell's axes made square (1 m, at right
+angles, up the cell's up, the floor's middle kept), and the view's camera (`view::cam_pose`), the shown model and
+its states' effect points use it. Placed block models keep their cell's axes and still fill their cell.
+Tests: `the_view_shows_a_model_point_where_the_studio_projects_it` (seen red on the old frame: 0.227 against
+0.244 across), `the_view_frame_is_square_metres`, and `a_click_lands_on_the_posed_voxel_of_a_child_part` (the
+snake's tail, a child of a child with `at` and pivot, bent by a clip; it passed before the fix too, a regression
+check of picking). Shots of the snake with the tail selected, before and after, and the leaf at rest and grown into
+-x were read: the lines follow the voxels.
+Review (a fresh subagent): the frame, its handedness and origin are right, and the camera and the shown model
+both use it. Answered, not changed: while a **state plays** the renderer poses its clip on its own clock and the
+overlay the page's clip at its time, so the box, the edges and the clicks follow the page's clip (stop the state to
+edit); the state's effect points ignore the Fauna page's walk placement and scale (both from before this fix, a
+follow-up); the 1 m stone block beside the model, and a block model as placed in the game, fill a skewed cell
+about a tenth larger than the model drawn here.
+
 ## Consequences
 - The Models page is usable without the manual's keys: every new control has a word, a tip and a button.
 - A renderer exe older than the `zoom` command ignores it (a line on its stderr) and the flat view shows the
