@@ -240,6 +240,7 @@ impl App {
                     }
                 }
                 Recv::Msg(ToClient::Done { seq, .. }) => {
+                    self.items_pending.retain(|s| *s != seq);
                     for b in self.pred.done(&mut self.world, seq) {
                         self.streamer.touch_block(&self.world, b);
                     }
@@ -262,7 +263,22 @@ impl App {
                     self.reconcile(step, me, t)
                 }
                 Recv::Msg(ToClient::You { .. }) => {}
-                Recv::Msg(ToClient::Inventory { creative, counts, water }) => (self.creative, self.inv, self.bucket_water) = (creative, counts, water),
+                Recv::Msg(ToClient::Inventory { creative, slots, water }) => {
+                    (self.creative, self.bucket_water) = (creative, water);
+                    // the slots once every move sent is answered: until then the prediction stands
+                    if self.items_pending.is_empty() && slots.len() == engine::items::APE_SLOTS {
+                        self.inv = slots;
+                    }
+                }
+                Recv::Msg(ToClient::Piles(v)) => {
+                    for (b, s) in v {
+                        if s.is_empty() {
+                            self.piles.remove(&b);
+                        } else {
+                            self.piles.insert(b, s);
+                        }
+                    }
+                }
                 Recv::Msg(ToClient::Vitals { health, hunger, dead }) => self.vitals_in(health, hunger, dead),
                 Recv::Msg(ToClient::Water(v)) => {
                     let mut ts = Vec::with_capacity(v.len());

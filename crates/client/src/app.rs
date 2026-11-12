@@ -120,7 +120,20 @@ pub(crate) struct App {
     /// The slot whose block's name shows over the hotbar, and since when.
     pub(crate) held_name: (usize, Instant),
     pub(crate) creative: bool,
-    pub(crate) inv: Vec<(u16, u32)>,
+    /// The ape's slots as the server last sent them, with this client's moves predicted on them (ADR 0074).
+    pub(crate) inv: Vec<engine::items::Slot>,
+    /// `Items` moves sent and not answered yet: the server's slots wait for them, so a prediction is not
+    /// undone by an older `Inventory` on its way.
+    pub(crate) items_pending: Vec<u32>,
+    /// Every pile the server told of, by cell (ADR 0074).
+    pub(crate) piles: FxMap<Block, Vec<engine::items::Slot>>,
+    /// The inventory screen (ADR 0075): the stack lifted (holder, slot, how many), creative's tab, search and
+    /// scroll, and whether shift is held.
+    pub(crate) lifted: Option<(engine::items::Holder, u16, u16)>,
+    pub(crate) inv_tab: usize,
+    pub(crate) inv_query: String,
+    pub(crate) inv_scroll: usize,
+    pub(crate) shift: bool,
     /// Units of water in the bucket (ADR 0020).
     pub(crate) bucket_water: u32,
     /// The live air where the player stands, as the server last sent it (W3); None on an older map.
