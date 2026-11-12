@@ -47,7 +47,7 @@ this file says what is done, what is in work and what comes next, in order.
   engine's core and the client's frame, all fixed with tests.
 
 ## In work (2026-11-12)
-- **Tides** (W5, second half): 1 m at springs, following Luna, on `claude/w5-tides`.
+- **Tides** (W5, second half, ADR 0067): 1 m at springs, following Luna, on `claude/w5-tides-3fb3e0`; ready to merge.
 
 ## Next
 In this order unless the developer says otherwise.

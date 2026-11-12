@@ -43,6 +43,9 @@ pub struct WaterMesh {
     pub cut_told: bool,
     /// The spray's numbers (ADR 0020, its droplets ADR 0031).
     rng: u32,
+    /// The world time, in 4 s, the wet tiles were last queued for the tide at, and the queue (`retide`).
+    tide_at: i64,
+    tide_todo: Vec<Col>,
 }
 
 impl WaterMesh {
@@ -102,6 +105,21 @@ impl WaterMesh {
                 self.all.extend_from_slice(q);
             }
             self.changed = true;
+        }
+    }
+
+    /// The tide moves the generated sea (ADR 0067) at most 13 mm in 4 s: every 4 s the wet tiles are meshed again,
+    /// so their columns that are not stored follow it (the chunks' sea follows it in the shader, every frame). One
+    /// tile a frame, so a large flood never stalls the frame thread.
+    pub fn retide(&mut self, world: &World, now: f32) {
+        let at = (world.time / 4.0).floor() as i64;
+        if std::mem::replace(&mut self.tide_at, at) != at && self.tide_todo.is_empty() {
+            self.tide_todo = self.tiles.keys().copied().collect();
+        }
+        if let Some(t) = self.tide_todo.pop() {
+            if self.tiles.contains_key(&t) {
+                self.update(world, &[t], now);
+            }
         }
     }
 

@@ -252,8 +252,11 @@ impl Server {
         for (b, m) in &save.edits {
             s.world.set_block(*b, *m);
         }
-        let World { bodies, edits, water, .. } = &mut s.world;
-        water.restore(&engine::world::Solid { bodies, edits }, &save.water);
+        // the clock of the save's last step first (a save's tick is one past it): its water is restored at that
+        // step's tide, and the next step retides exactly when the running world's did (ADR 0067)
+        s.world.time = save.tick.saturating_sub(1) as f64 / TICK_HZ;
+        let World { bodies, edits, water, sky, time, .. } = &mut s.world;
+        water.restore(&engine::world::Solid::at(bodies, edits, sky, *time), &save.water);
         (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
         water.rained = save.reaches.0;
         water.reach_extra = save.reaches.1.iter().copied().collect();
@@ -1240,8 +1243,8 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         }
         let col = World::col(at);
         let c = &mut self.clients[i];
-        let World { bodies, edits, water, .. } = &mut self.world;
-        let g = engine::world::Solid { bodies, edits };
+        let World { bodies, edits, water, sky, time, .. } = &mut self.world;
+        let g = engine::world::Solid::at(bodies, edits, sky, *time);
         let ok = match (fill, c.creative) {
             (true, false) => {
                 let took = water.scoop(&g, col, at.pos.z, U - c.water as i64);

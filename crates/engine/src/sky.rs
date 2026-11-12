@@ -5,7 +5,7 @@
 //! once a year, and spins about its body +z, which leans TILT from the ecliptic's +z toward the sun's place at
 //! a quarter year (ADR 0055, seasons): world time 0 is the northern spring equinox. The moon circles the planet. A body's pose maps its own frame (its grid at its nominal centre, as
 //! `world::Body` has it) to the inertial frame.
-use glam::{DQuat, DVec3};
+use glam::{DMat3, DQuat, DVec3};
 use std::f64::consts::TAU;
 
 /// The solar day (ADR 0008): 30 minutes (ADR 0041; was 20).
@@ -155,6 +155,54 @@ impl Sky {
         let lens = |a: f64, b: f64| a * a * ((d * d + a * a - b * b) / (2.0 * d * a)).clamp(-1.0, 1.0).acos();
         let k = ((-d + rs + rm) * (d + rs - rm) * (d - rs + rm) * (d + rs + rm)).max(0.0).sqrt() * 0.5;
         ((lens(rs, rm) + lens(rm, rs) - k) / (std::f64::consts::PI * rs * rs)).clamp(0.0, 1.0)
+    }
+}
+
+/// Luna's pull on the sea, metres: the bulge under Luna stands 1.5 * TIDE_LUNA over the ring 90 degrees off it.
+/// With the sun's a third of it (docs/design/rivers-and-tides.md), low to high at springs is 1.5 * (TIDE_LUNA +
+/// TIDE_SUN) = 1 m (the developer, 2026-11-12), at neaps half that.
+pub const TIDE_LUNA: f64 = 0.5;
+pub const TIDE_SUN: f64 = TIDE_LUNA / 3.0;
+/// The highest the tide stands over the mean sea anywhere, metres: both bulges at once (2/3 m with the ocean
+/// all around), and the most a lopsided ocean's `Tide::base` adds. What the sea's quads are meshed for
+/// (`world::sea_quads`), so they are never meshed again for the tide.
+pub const TIDE_HIGH: f64 = 1.0;
+
+/// The sea's tide at one moment (ADR 0067): Luna's and the sun's directions in the planet's body frame and the
+/// level that keeps the ocean's volume. `at` is a dozen multiplications, so the physics, the water and the
+/// shader (`vs_sea`, its port) all ask it per place.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Tide {
+    pub luna: DVec3,
+    pub sun: DVec3,
+    /// Metres everywhere: minus the bulges' mean over the ocean, so the sea moves water and makes none.
+    pub base: f64,
+}
+
+impl Tide {
+    /// No tide: the sea at its mean everywhere.
+    pub const NONE: Tide = Tide { luna: DVec3::ZERO, sun: DVec3::ZERO, base: 0.0 };
+    /// The sea's height over its mean, metres, at body-frame direction `up` (a unit vector): the classic bulge
+    /// (3 cos^2 a - 1) / 2 under and opposite Luna and the sun; its -1/2 is in `base`, with the ocean's.
+    pub fn at(&self, up: DVec3) -> f64 {
+        let (l, s) = (up.dot(self.luna), up.dot(self.sun));
+        1.5 * (TIDE_LUNA * l * l + TIDE_SUN * s * s) + self.base
+    }
+}
+
+impl Sky {
+    /// The direction to the moon in the planet's body frame.
+    pub fn moon_dir(&self, t: f64) -> DVec3 {
+        let p = self.planet(t);
+        p.rot.inverse() * (self.moon(t).centre - p.centre).normalize()
+    }
+    /// The tide at world time t over an ocean whose area's second moment is `ocean` (the mean of d d^T over
+    /// the sea's directions d, trace 1; a third of the identity for a sea all around): its mean over the ocean is
+    /// then exactly 0, so the rise under Luna is water from the low ring, not water made.
+    pub fn tide(&self, t: f64, ocean: &DMat3) -> Tide {
+        let (luna, sun) = (self.moon_dir(t), self.sun_dir(t));
+        let base = -1.5 * (TIDE_LUNA * luna.dot(*ocean * luna) + TIDE_SUN * sun.dot(*ocean * sun));
+        Tide { luna, sun, base }
     }
 }
 
@@ -544,5 +592,77 @@ mod tests {
         let noon = next_hour(0.0, 12.0);
         assert!(s.hour_angle(noon, up).abs() < 0.05, "{}", s.hour_angle(noon, up));
         assert!((s.hour_angle(next_hour(0.0, 18.0), up) - TAU / 4.0).abs() < 0.05);
+    }
+
+    /// A sea all around, for the tide tests.
+    const ROUND: DMat3 = DMat3::from_diagonal(DVec3::splat(1.0 / 3.0));
+
+    /// The world times nearest a new moon and the first quarter after it, from t0: Luna nearest the sun, then
+    /// nearest a right angle to it.
+    fn phases(s: &Sky, t0: f64) -> (f64, f64) {
+        let ts = (0..4000).map(|k| t0 + MONTH * k as f64 / 4000.0);
+        let cos = |t: f64| s.moon_dir(t).dot(s.sun_dir(t));
+        let new = ts.clone().max_by(|&a, &b| cos(a).total_cmp(&cos(b))).unwrap();
+        let quarter = ts.filter(|&t| t > new && t < new + MONTH / 2.0).min_by(|&a, &b| cos(a).abs().total_cmp(&cos(b).abs())).unwrap();
+        (new, quarter)
+    }
+
+    /// The tide's lowest and highest at `up` over a lunar day from t, and how many highs it has.
+    fn tide_day(s: &Sky, t: f64, up: DVec3) -> (f64, f64, usize) {
+        let lunar_day = 1.0 / (1.0 / DAY - 1.0 / MONTH);
+        let h: Vec<f64> = (0..=960).map(|k| s.tide(t + lunar_day * k as f64 / 960.0, &ROUND).at(up)).collect();
+        let highs = (1..h.len() - 1).filter(|&k| h[k] > h[k - 1] && h[k] >= h[k + 1]).count();
+        (h.iter().copied().fold(f64::MAX, f64::min), h.iter().copied().fold(f64::MIN, f64::max), highs)
+    }
+
+    #[test]
+    fn the_tide_is_a_metre_at_springs_half_at_neaps_and_twice_a_lunar_day() {
+        let s = sky();
+        let (new, quarter) = phases(&s, 3.0 * DAY);
+        // on the equator: Luna's declination is at most the tilt and its inclination, so near the full bulge
+        let up = DVec3::X;
+        let (lo, hi, highs) = tide_day(&s, new - 0.5 * DAY, up);
+        assert!((0.8..=1.0).contains(&(hi - lo)), "springs: {lo:.3} to {hi:.3} m");
+        assert_eq!(highs, 2, "two high tides a lunar day");
+        let (nlo, nhi, _) = tide_day(&s, quarter - 0.5 * DAY, up);
+        assert!((0.4..=0.6).contains(&(nhi - nlo)), "neaps: {nlo:.3} to {nhi:.3} m");
+        // never over TIDE_HIGH, anywhere, at springs
+        for k in 0..200 {
+            let t = new + k as f64 * 37.0;
+            for d in [DVec3::X, DVec3::Y, DVec3::Z, DVec3::new(1.0, 1.0, 0.3).normalize()] {
+                assert!(s.tide(t, &ROUND).at(d) <= TIDE_HIGH);
+            }
+        }
+        // a pure function of the time: the same bits again, and the same a sky's period later
+        assert_eq!(s.tide(new, &ROUND), s.tide(new, &ROUND));
+        assert!((s.tide(new, &ROUND).at(up) - s.tide(new + PERIOD, &ROUND).at(up)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn the_tide_moves_water_and_makes_none() {
+        let s = sky();
+        // a Fibonacci sphere: even directions
+        let dirs: Vec<DVec3> = (0..20000)
+            .map(|k| {
+                let z = 1.0 - (k as f64 + 0.5) / 10000.0;
+                let a = k as f64 * 2.399963229728653;
+                let r = (1.0 - z * z).sqrt();
+                DVec3::new(r * a.cos(), r * a.sin(), z)
+            })
+            .collect();
+        // and a lopsided ocean on about two thirds of it
+        let ocean: Vec<DVec3> = dirs.iter().copied().filter(|d| d.z < 0.3 || d.x > 0.8).collect();
+        let m = ocean.iter().fold(DMat3::ZERO, |m, d| m + DMat3::from_cols(*d * d.x, *d * d.y, *d * d.z)) * (1.0 / ocean.len() as f64);
+        for k in 0..50 {
+            let t = k as f64 * 431.0;
+            let round = dirs.iter().map(|&d| s.tide(t, &ROUND).at(d)).sum::<f64>() / dirs.len() as f64;
+            let own = ocean.iter().map(|&d| s.tide(t, &m).at(d)).sum::<f64>() / ocean.len() as f64;
+            assert!(round.abs() < 1e-4 && own.abs() < 1e-9, "mean level {round} and {own} m at {t}");
+            // and the bulges still move: the range at springs is not taken out
+            let h: Vec<f64> = ocean.iter().map(|&d| s.tide(t, &m).at(d)).collect();
+            let range = h.iter().copied().fold(f64::MIN, f64::max) - h.iter().copied().fold(f64::MAX, f64::min);
+            assert!(range > 0.4, "{range} m across the ocean");
+            assert!(h.iter().all(|&v| v <= TIDE_HIGH));
+        }
     }
 }
