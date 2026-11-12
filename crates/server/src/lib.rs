@@ -58,6 +58,9 @@ const WATER_BUDGET: usize = 60_000;
 const WATER_RANGE: f64 = 128.0;
 const WATER_BYTES: usize = 16 * 1024;
 
+/// Cells in one `ToClient::Edits`: about 1 MB, far under the TCP frame limit (16 MB, about 1.7 M cells).
+const EDITS_PART: usize = 100_000;
+
 /// How far /goto sun stands from the sun's centre, in sun radii: it fills about 23 degrees.
 const SUN_VIEW: f64 = 5.0;
 
@@ -412,8 +415,8 @@ impl Server {
                 .iter()
                 .flat_map(|(k, cells)| cells.iter().map(move |(pos, m)| (Block { body: k.body, face: k.face, pos: *pos }, *m)))
                 .collect();
-            if !all.is_empty() {
-                link.send(ToClient::Edits(all));
+            for part in all.chunks(EDITS_PART) {
+                link.send(ToClient::Edits(part.to_vec()));
             }
             let spawn = self.spawn();
             self.clients.push(Client {
@@ -613,9 +616,9 @@ impl Server {
         for _ in 0..wsteps {
             self.world.step_water();
         }
-        if !changed.is_empty() {
+        for part in changed.chunks(EDITS_PART) {
             for c in &self.clients {
-                c.link.send(ToClient::Edits(changed.clone()));
+                c.link.send(ToClient::Edits(part.to_vec()));
             }
         }
         let cols: Vec<Col> = self.world.water.take_changes().into_iter().map(|w| w.0).collect();
@@ -2206,6 +2209,23 @@ mod tests {
             assert!(Save::read(&path).is_ok());
         }
         std::fs::remove_file(&path).unwrap();
+    }
+
+    /// A world of more edited cells than one `Edits` part carries reaches a joining client whole, in parts
+    /// that each stay under the TCP frame limit.
+    #[test]
+    fn a_join_to_a_world_of_many_edits_receives_them_all_in_parts() {
+        let (tx, rx) = channel();
+        let mut s = Server::new(256, 32, 1, rx);
+        for k in 0..EDITS_PART as i32 + 5 {
+            s.world.set_block(Block { body: 0, face: 0, pos: glam::IVec3::new(k % 256, (k / 256) % 256, 200 + k / 65536) }, BLOCKS.id("stone"));
+        }
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
+        s.tick();
+        let parts: Vec<usize> = drain(&c).into_iter().filter_map(|m| if let ToClient::Edits(v) = m { Some(v.len()) } else { None }).collect();
+        assert!(parts.len() > 1 && parts.iter().all(|n| *n <= EDITS_PART), "{parts:?}");
+        assert_eq!(parts.iter().sum::<usize>(), s.world.edit_count);
     }
 
     #[test]
