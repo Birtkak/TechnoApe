@@ -335,6 +335,17 @@ fn sun_on(body: u32) -> vec3f {
 }
 // the sunlight left in a planet's full shadow, bent round it through its air: dim copper, even over the moon
 const COPPER: vec3f = vec3f(0.65, 0.2, 0.06) * 0.35;
+// how much brighter the moon is drawn in the night sky of a body with air (ADR 0070, the developer's to tune):
+// the eye adapts to the night, and the moon, lit by the full sun, is far the brightest thing in it; drawn at
+// the ground's exposure it read grey. 1 draws it as it is.
+const MOON_NIGHT_GAIN: f32 = 2.6;
+// the gain on the sunlight on `body` as the camera sees it: MOON_NIGHT_GAIN on the moon from inside another
+// body's air at night, faded in with the dusk; 1 elsewhere (by day, from space, standing on the moon)
+fn moon_gain(body: u32) -> f32 {
+    if (body != u32(g.moon_col.w) || body == u32(g.sun_col.w)) { return 1.0; }
+    let night = 1.0 - smoothstep(-0.1, 0.05, g.stars[1].w);
+    return mix(1.0, MOON_NIGHT_GAIN, night * g.stars[0].w);
+}
 
 // where a shadow ray from o aims at lamp lp: the point of its block nearest o, 2 cm out from the faces o is
 // beyond (out along the others too, or in, would put a flat ray's end inside the blocks beside it). Aimed at
@@ -393,7 +404,7 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
         if ((g.opt.x & 1u) == 0u) { to_sun = in_disc(sd, ar, px); }
         let seen = occ * ray(p, n, to_sun, body, 1e5);
         o.sun = ecl * seen;
-        o.l += (sun_on(body) * ecl + COPPER * copper) * ndl * seen;
+        o.l += (sun_on(body) * ecl + COPPER * copper) * ndl * seen * moon_gain(body);
     }
     // the moon's light where the sun's is weak, through the same terrain
     if (o.day < 0.5 && max(moon.r, moon.b) > 0.001) {

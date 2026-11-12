@@ -511,29 +511,35 @@ pub fn keep(map: Map) -> Arc<Map> {
     m
 }
 
-/// The map a save names by `hash`: from memory or disk, else baked now (a version 2 map is this bake without
-/// its climate, a version 1 without its rivers too; neither comes back from a bake of another climate); None if
-/// the bake makes another map.
+/// The map a save names by `hash`: from memory or disk, else baked now (a version 4 map is this bake without its
+/// rock, a 3 without its lakes and flows, a 2 without its climate too, a 1 without its rivers; none comes back
+/// from a bake of another climate); None if the bake makes another map.
 pub fn for_hash(seed: i32, n: i32, hash: u64) -> Option<Arc<Map>> {
     if let Some(m) = find(seed, n, Some(hash)) {
         return Some(m);
     }
-    let b = Map::bake(seed, n);
-    // the older layouts of this bake: a lake a flat at its level, no lakes or flows (3); no climate (2); no rivers (1)
+    let b = keep(Map::bake(seed, n));
+    if b.hash == hash {
+        return Some(b);
+    }
+    // the older layouts of this bake, one at a time: no rock provinces (4); a lake a flat at its level, no lakes
+    // or flows (3); no climate (2); no rivers (1)
     let mut flat = b.h.clone();
     for &(c, l) in &b.lakes {
         flat[c as usize] = l;
     }
-    let rivers: Vec<Reach> = b.rivers.iter().map(|r| Reach { flow: 0.0, ..*r }).collect();
-    let old = |version: u32, rivers: Vec<Reach>, climate: Option<Climate>| {
-        Map::from_bytes(&Map { version, seed, n, m: b.m, h: flat.clone(), biome: b.biome.clone(), spawn: b.spawn, rivers, climate, ..Map::empty() }.to_bytes()).ok()
+    let flowless = || b.rivers.iter().map(|r| Reach { flow: 0.0, ..*r }).collect::<Vec<Reach>>();
+    let layout = |version: u32| {
+        let old = Map { version, seed, n, m: b.m, h: flat.clone(), biome: b.biome.clone(), spawn: b.spawn, ..Map::empty() };
+        let old = match version {
+            4 => Map { h: b.h.clone(), rivers: b.rivers.clone(), lakes: b.lakes.clone(), climate: b.climate.clone(), ..old },
+            3 => Map { rivers: flowless(), climate: b.climate.clone(), ..old },
+            2 => Map { rivers: flowless(), ..old },
+            _ => old,
+        };
+        Map::from_bytes(&old.to_bytes()).ok().filter(|m| m.hash == hash)
     };
-    let older = [old(3, rivers.clone(), b.climate.clone()), old(2, rivers, None), old(1, Vec::new(), None)];
-    let b = keep(b);
-    if b.hash == hash {
-        return Some(b);
-    }
-    older.into_iter().flatten().find(|m| m.hash == hash).map(keep)
+    [4, 3, 2, 1].into_iter().find_map(layout).map(keep)
 }
 
 /// The map of (seed, n): from memory, from disk, else baked now and kept.
@@ -639,6 +645,43 @@ mod tests {
         assert_eq!(for_hash(-77, 256, h).map(|m| (m.version, m.hash)), Some((1, h)), "baked back for its save");
         assert_eq!(for_hash(-77, 256, h ^ 1).map(|m| m.hash), None, "another map's hash");
         let _ = (std::fs::remove_file(file(-77, 256)), std::fs::remove_file(file_v(-77, 256, 1)));
+    }
+
+    /// Every map a save can still name (5, 4, 3, 2, 1, and Luna's) is baked back by its hash when its file is gone.
+    #[test]
+    fn every_version_a_save_names_is_baked_back_without_its_file() {
+        let (seed, n) = (-79, 256);
+        let gone = || {
+            for v in [1, 2, 3, 4, VERSION, luna::VERSION] {
+                let _ = std::fs::remove_file(file_v(seed, n, v));
+                LOADED.lock().unwrap().remove(&(seed, n, v));
+            }
+        };
+        let b = Map::bake(seed, n);
+        let mut flat = b.h.clone();
+        for &(c, l) in &b.lakes {
+            flat[c as usize] = l;
+        }
+        let rivers = || b.rivers.iter().map(|r| (r.cell, r.to, r.area)).collect::<Vec<_>>();
+        let layouts = [
+            (VERSION, b.to_bytes()),
+            (4, postcard::to_stdvec(&(4u32, seed, n, b.m, &b.h, &b.biome, b.spawn, &b.rivers, &b.lakes, &b.climate)).unwrap()),
+            (3, postcard::to_stdvec(&(3u32, seed, n, b.m, &flat, &b.biome, b.spawn, rivers(), &b.climate)).unwrap()),
+            (2, postcard::to_stdvec(&(2u32, seed, n, b.m, &flat, &b.biome, b.spawn, rivers())).unwrap()),
+            (1, postcard::to_stdvec(&(1u32, seed, n, b.m, &flat, &b.biome, b.spawn)).unwrap()),
+        ];
+        assert!(!b.rock.is_empty(), "the bake has what 5 adds");
+        for (v, bytes) in layouts {
+            let h = Map::from_bytes(&bytes).unwrap().hash;
+            gone();
+            assert_eq!(for_hash(seed, n, h).map(|m| (m.version, m.hash)), Some((v, h)), "version {v}");
+        }
+        let l = luna::bake(seed, 64).hash;
+        let _ = std::fs::remove_file(file_v(seed, 64, luna::VERSION));
+        LOADED.lock().unwrap().remove(&(seed, 64, luna::VERSION));
+        assert_eq!(luna::for_hash(seed, 64, l).map(|m| (m.version, m.hash)), Some((luna::VERSION, l)), "Luna's");
+        gone();
+        let _ = std::fs::remove_file(file_v(seed, 64, luna::VERSION));
     }
 
     /// Bytes from a server are checked before anything is built from them.
