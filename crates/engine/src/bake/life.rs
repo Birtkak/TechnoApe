@@ -58,9 +58,8 @@ pub struct LifeParams {
     pub air_cell_m: f64,
     /// the air model's step for the bake, and when its day counts as repeating
     pub air_dt: f32,
-    pub air_days: (usize, usize),
-    pub settle_k: f32,
-    pub settle_rain: f32,
+    /// days the air settles at the spring equinox before the year it is measured over (`Air::year`)
+    pub air_spin: usize,
     /// mm a day that evaporates per C over 0 (what rain must beat to run off or wet the ground)
     pub pet_per_c: f32,
     /// a wetland: ground flatter than this, water at least this many m^3/s through it, a lake within
@@ -100,9 +99,7 @@ impl Default for LifeParams {
         LifeParams {
             air_cell_m: 128.0,
             air_dt: 10.0,
-            air_days: (15, 45),
-            settle_k: 0.005,
-            settle_rain: 0.01,
+            air_spin: 10,
             pet_per_c: 0.02,
             wet_slope: 0.045,
             wet_flow: 0.003,
@@ -141,9 +138,8 @@ pub struct Life {
     pub soil: Vec<u8>,
     pub biome: Vec<u8>,
     /// the air model: days to a repeating day, its last change, columns
-    pub air_days: usize,
-    pub air_change: (f32, f32),
-    pub air_columns: usize,
+    /// the air columns, their year's means and the grid's state at its end (the map keeps it)
+    pub climate: super::climate::Climate,
     pub times: Vec<(&'static str, f64)>,
 }
 
@@ -240,8 +236,8 @@ pub fn life(b: &Bake, seed: u64, p: &LifeParams) -> Life {
     }
     let ground: Vec<f32> = (0..ga.n()).map(|a| if land[a] > 0 { (sum[a] / land[a] as f64) as f32 } else { 0.0 }).collect();
     let water: Vec<f32> = (0..ga.n()).map(|a| 1.0 - land[a] as f32 / all[a].max(1) as f32).collect();
-    let mut air = super::air::Air::new(ma, g.r, ground, water, super::air::Params::default());
-    let m = air.settle(p.air_dt, p.air_days.0, p.air_days.1, p.settle_k, p.settle_rain);
+    let mut air = super::air::Air::new(ma, g.r, ground.clone(), water.clone(), super::air::Params::default());
+    let m = air.year(p.air_dt, p.air_spin);
     lap("climate (air model)", &mut times);
     // to the fine cells: smooth, then the lapse by the cell's own height
     let theta = upsample(&ga, g, &m.theta);
@@ -392,7 +388,8 @@ pub fn life(b: &Bake, seed: u64, p: &LifeParams) -> Life {
         })
         .collect();
     lap("biomes", &mut times);
-    Life { temp, swing, rain, flow, wet, soil, biome, air_days: m.days, air_change: m.last_change, air_columns: ga.n(), times }
+    let climate = super::climate::Climate { m: ma as u32, r: g.r, ground, water, theta: m.theta, swing: m.swing, rain: m.rain, state: air.state() };
+    Life { temp, swing, rain, flow, wet, soil, biome, climate, times }
 }
 
 /// Each biome's share: of the land (lakes left out) for the land biomes, of the sea for the sea's.

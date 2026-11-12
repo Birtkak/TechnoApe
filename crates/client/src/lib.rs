@@ -530,6 +530,7 @@ pub fn main() {
         creative,
         inv: Vec::new(),
         bucket_water: 0,
+        air: None,
         vitals: (engine::vitals::MAX, engine::vitals::MAX),
         health_min: engine::vitals::MAX,
         flash: [(Instant::now() - Duration::from_secs(10), 0); 2],

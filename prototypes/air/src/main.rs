@@ -1,6 +1,7 @@
 //! Air grid spike (ADR 0010, air.md): `air mode=cost` times a step on three planet sizes;
 //! `air mode=climate bake=<world-bake out dir>/bake.bin.gz planet=6144` runs the model on baked heights
 //! to a steady day and draws it. See README.md.
+mod tick;
 use air::{cube, Air, Params, DAY, LAYERS};
 use glam::DVec3;
 use std::collections::HashMap;
@@ -68,7 +69,9 @@ fn main() {
             let l1 = (0..n).map(|c| (rx[c] - ry[c]).abs() as f64).sum::<f64>() / n as f64 / mx.max(1e-9);
             println!("{{\"mean_abs_dT\":{dt:.3},\"rain_mean_a\":{mx:.3},\"rain_mean_b\":{my:.3},\"rain_correlation\":{:.3},\"rain_l1_share\":{l1:.3}}}", cov / (vx * vy).sqrt());
         }
-        m => panic!("mode={m}: cost, climate or compare"),
+        "tick" => tick::tick(num("dt", 5.0) as f32),
+        "year" => tick::year(num("planet", 6144.0) as u32, num("dt", 10.0) as f32, num("spin", 20.0) as usize, num("held", 3.0) as usize, num("years", 1.0) as usize),
+        m => panic!("mode={m}: cost, climate, compare, tick or year"),
     }
 }
 

@@ -1,6 +1,7 @@
 //! The planet's coarse air grid (ADR 0010, `docs/design/air.md`): columns on the cube-sphere, four layers
 //! each, one step = sun and ground, wind, carry, lift, water and land. Moved from `prototypes/air`; the bake
-//! runs it to a steady day for its climate (worldgen stage 5).
+//! runs it over a year for its climate (worldgen stage 5) and the server runs it live (`crate::weather`, W3).
+//! The sun is the sky's own (`crate::sky`: its tilt, day and year), so the bake's year is the live one.
 //!
 //! - **Water is integer** (units of 1/4096 of a block, ADR 0020) and only ever moved, so the ledger
 //!   (vapour + cloud + soil + snow + `sea`) is exactly constant. Pollutant (`dirt`) the same.
@@ -12,14 +13,12 @@ use super::grid as cube;
 
 use glam::DVec3;
 use rayon::prelude::*;
-use std::f64::consts::TAU;
+use serde::{Deserialize, Serialize};
 
 pub const LAYERS: usize = 4;
 /// grams of water in one unit (1/4096 of a 1 m block)
 const G_PER_UNIT: f64 = 1.0e6 / 4096.0;
-pub const DAY: f64 = 1200.0;
-/// the sky's spin at time 0 (`engine::sky::SPIN0`): the sun's place in the body frame follows from it
-const SPIN0: f64 = -0.375 * TAU;
+pub const DAY: f64 = crate::sky::DAY;
 
 /// Every constant of the model (air.md: tuning, later `data/air.toml`). Rates are per second.
 #[derive(Clone, Debug)]
@@ -185,6 +184,26 @@ pub struct Air {
     pub runoff: Vec<u32>,
     /// volume each cell-layer gained by convergence in this step's carry, m^3
     conv: Vec<f32>,
+    /// the spin axis's lean (`sky::TILT`), and a held point of the year: Some(y) keeps the sun on the day at
+    /// world time y (its declination) while the hour still turns with `t` (the bake's spin-up)
+    pub tilt: f64,
+    pub hold: Option<f64>,
+}
+
+/// What a running grid is beyond its ground: the state a save, and the map for a new world, keep.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct State {
+    pub t: f64,
+    pub theta: Vec<f32>,
+    pub vap: Vec<u32>,
+    pub cloud: Vec<u32>,
+    pub dirt: Vec<u32>,
+    pub wind: Vec<f32>,
+    pub tg: Vec<f32>,
+    pub soil: Vec<u32>,
+    pub snow: Vec<u32>,
+    pub dirt_down: Vec<u32>,
+    pub sea: i64,
 }
 
 fn sat_g(p: &Params, t: f32) -> f32 {
@@ -339,7 +358,56 @@ impl Air {
             fell: vec![0; n],
             runoff: vec![0; n],
             conv: vec![0.0; n * LAYERS],
+            tilt: crate::sky::TILT,
+            hold: None,
         }
+    }
+
+    /// The state to keep (`restore` takes it back).
+    pub fn state(&self) -> State {
+        State {
+            t: self.t,
+            theta: self.theta.clone(),
+            vap: self.vap.clone(),
+            cloud: self.cloud.clone(),
+            dirt: self.dirt.clone(),
+            wind: self.wind.clone(),
+            tg: self.tg.clone(),
+            soil: self.soil.clone(),
+            snow: self.snow.clone(),
+            dirt_down: self.dirt_down.clone(),
+            sea: self.sea,
+        }
+    }
+
+    /// Takes a kept state back; one of another grid's size, or with a value that is not a number, is refused
+    /// (it comes from a file or a server).
+    pub fn restore(&mut self, s: &State) -> Result<(), String> {
+        let (c, k, e) = (self.n, self.n * LAYERS, self.wind.len());
+        let sizes = [s.theta.len(), s.vap.len(), s.cloud.len(), s.dirt.len(), s.wind.len(), s.tg.len(), s.soil.len(), s.snow.len(), s.dirt_down.len()];
+        if sizes != [k, k, k, k, e, c, c, c, c] {
+            return Err(format!("an air state of sizes {sizes:?} for a grid of {c} columns and {e} edge layers"));
+        }
+        if !s.t.is_finite() || !s.theta.iter().chain(&s.wind).chain(&s.tg).all(|v| v.is_finite()) {
+            return Err("an air state with a value that is not a number".into());
+        }
+        // water and dirt a cell holds, units: what a step's sums of a column and its neighbours keep in a u32
+        // (a column of Terra's soil holds some 13 million)
+        if s.vap.iter().chain(&s.cloud).chain(&s.dirt).chain(&s.soil).chain(&s.snow).chain(&s.dirt_down).any(|&x| x > 1 << 28) {
+            return Err("an air state holding more water or dirt than a cell can".into());
+        }
+        self.t = s.t;
+        self.theta.clone_from(&s.theta);
+        self.vap.clone_from(&s.vap);
+        self.cloud.clone_from(&s.cloud);
+        self.dirt.clone_from(&s.dirt);
+        self.wind.clone_from(&s.wind);
+        self.tg.clone_from(&s.tg);
+        self.soil.clone_from(&s.soil);
+        self.snow.clone_from(&s.snow);
+        self.dirt_down.clone_from(&s.dirt_down);
+        self.sea = s.sea;
+        Ok(())
     }
 
     /// Zonal means per 10 degrees of latitude and layer: relative humidity, cloud g/m^3, convergence
@@ -372,11 +440,11 @@ impl Air {
         self.edges.len()
     }
 
-    /// The sun's direction in the body frame at time t: no tilt (ADR 0022), so the subsolar point runs
-    /// round the equator once a day.
-    pub fn sun(t: f64) -> DVec3 {
-        let a = -SPIN0 - TAU * t / DAY;
-        DVec3::new(a.cos(), a.sin(), 0.0)
+    /// The sun's direction in the body frame now: the sky's (`Sky::sun_dir`, its tilt and seasons), at the
+    /// held day of the year while `hold` is set.
+    pub fn sun_now(&self) -> DVec3 {
+        let sky = crate::sky::Sky { planet_radius: 1.0, moon_radius: 0.0, moon_orbit: 0.0, sun_dist: 1.0, sun_radius: 0.0, tilt: self.tilt };
+        sky.sun_dir(self.hold.map_or(self.t, |y| y + self.t.rem_euclid(DAY)))
     }
 
     /// The surface air's temperature at the column's mean ground, C.
@@ -421,7 +489,7 @@ impl Air {
     /// Passes 1 and 2: sunlight by the sun's height less cloud and reflection; the ground's balance; the
     /// ground warms the surface air; the upper layers relax toward a stable column.
     fn sun_ground(&mut self, dt: f32) {
-        let sun = Air::sun(self.t);
+        let sun = self.sun_now();
         let p = &self.p;
         let (dir, water, area, snow, cloud, thick, re) = (&self.dir, &self.water, &self.area, &self.snow, &self.cloud, &self.thick, &self.theta_ref);
         self.tg.par_iter_mut().zip(self.theta.par_chunks_mut(LAYERS)).enumerate().for_each(|(c, (tg, th))| {
@@ -670,30 +738,36 @@ impl Air {
     }
 }
 
-/// The last day's means per column once the day repeats (worldgen stage 5).
+/// A year's means per column (worldgen stage 5).
 pub struct Means {
     /// the surface air's potential temperature (at sea level), C
     pub theta: Vec<f32>,
-    /// the surface air's day swing, K
+    /// the surface air's day swing (warmest to coldest), K, the mean over the year's days
     pub swing: Vec<f32>,
     /// rain and snow, mm a day
     pub rain: Vec<f32>,
-    /// days run, and the last day's change: mean |dT| per column, K, and the rain map's L1 share
-    pub days: usize,
-    pub last_change: (f32, f32),
 }
 
 impl Air {
-    /// Runs days of `dt` steps until a day's means change by under `dt_k` K a column and `dr` of the rain
-    /// (at least `min_days`, at most `max_days`), and returns the last day's.
-    pub fn settle(&mut self, dt: f32, min_days: usize, max_days: usize, dt_k: f32, dr: f32) -> Means {
+    /// The bake's climate (W3, `prototypes/air` README "The live grid's tick"): `spin` days at the spring
+    /// equinox from the first guess, then one year of `dt` steps from world time 0, whose means it returns. It
+    /// ends at the year's turn, so its state is the live grid's at world time 0.
+    pub fn year(&mut self, dt: f32, spin: usize) -> Means {
         let per_day = (DAY / dt as f64).round() as usize;
+        let days = (crate::sky::YEAR / DAY).round() as usize;
         let n = self.n;
-        let (mut prev_t, mut prev_r) = (vec![0f64; n], vec![0f64; n]);
-        let mut change = (f32::INFINITY, f32::INFINITY);
-        for day in 0..max_days {
-            super::within((day as f32 / min_days.max(1) as f32).min(1.0));
-            let (mut th, mut rain, mut lo, mut hi) = (vec![0f64; n], vec![0f64; n], vec![f32::MAX; n], vec![f32::MIN; n]);
+        self.hold = Some(0.0);
+        for d in 0..spin {
+            super::within(d as f32 / (spin + days) as f32);
+            for _ in 0..per_day {
+                self.step(dt);
+            }
+        }
+        (self.hold, self.t) = (None, 0.0);
+        let (mut th, mut rain, mut swing) = (vec![0f64; n], vec![0f64; n], vec![0f64; n]);
+        for d in 0..days {
+            super::within((spin + d) as f32 / (spin + days) as f32);
+            let (mut lo, mut hi) = (vec![f32::MAX; n], vec![f32::MIN; n]);
             for _ in 0..per_day {
                 self.step(dt);
                 for c in 0..n {
@@ -704,31 +778,14 @@ impl Air {
                     hi[c] = hi[c].max(t);
                 }
             }
-            th.iter_mut().for_each(|v| *v /= per_day as f64);
-            let tot: f64 = rain.iter().sum::<f64>().max(1.0);
-            change = (
-                ((0..n).map(|c| (th[c] - prev_t[c]).abs()).sum::<f64>() / n as f64) as f32,
-                ((0..n).map(|c| (rain[c] - prev_r[c]).abs()).sum::<f64>() / tot) as f32,
-            );
-            prev_t = th;
-            prev_r = rain;
-            if day + 1 >= min_days && change.0 < dt_k && change.1 < dr {
-                return self.means(prev_t, prev_r, lo, hi, day + 1, change);
-            }
-            if day + 1 == max_days {
-                return self.means(prev_t, prev_r, lo, hi, day + 1, change);
+            for c in 0..n {
+                swing[c] += (hi[c] - lo[c]) as f64;
             }
         }
-        unreachable!("max_days is at least 1: {change:?}")
-    }
-
-    fn means(&self, th: Vec<f64>, rain: Vec<f64>, lo: Vec<f32>, hi: Vec<f32>, days: usize, last_change: (f32, f32)) -> Means {
         Means {
-            theta: th.iter().map(|&v| v as f32).collect(),
-            swing: (0..self.n).map(|c| hi[c] - lo[c]).collect(),
-            rain: (0..self.n).map(|c| (rain[c] / 4096.0 / self.area[c] as f64 * 1000.0) as f32).collect(),
-            days,
-            last_change,
+            theta: th.iter().map(|&v| (v / (per_day * days) as f64) as f32).collect(),
+            swing: swing.iter().map(|&v| (v / days as f64) as f32).collect(),
+            rain: (0..n).map(|c| (rain[c] / days as f64 / 4096.0 / self.area[c] as f64 * 1000.0) as f32).collect(),
         }
     }
 }

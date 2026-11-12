@@ -151,3 +151,45 @@ dangerous is the developer's taste call when survival's cold is built, and does 
 - Lakes and rivers: rain on land seeps and runs off to one sea ledger; the bake routes it (stage 6).
 - A second-order carry (question 3).
 - Data file: `Params` becomes `data/air.toml` when the grid moves into the engine.
+
+## The live grid's tick (W3, 2026-11-12)
+
+**Question** (ADR 0010, plan W3): what does the live grid cost the server's tick on Terra and the huge planet,
+target under 0.5 ms, once it has the sky's seasons (ADR 0055: 20 degree tilt, 30 minute day, 54-day year)? And
+can the bake keep a cheap tilt-free climate, or must it run a year?
+
+**Answer:** the step runs on a worker; the server's own thread pays **under 10 microseconds** per hand-over,
+so the tick's cost is the hand-over, not the step. The CPU the step takes elsewhere, averaged per tick, is far
+under the target on both planets at the live step of 5 s. **The bake must run a year:** a tilt-free bake is off
+by 15 to 20 % of rain at 50 to 70 degrees, a year repeats the next within 1 %.
+
+`target/release/air.exe mode=tick [dt=5]` (the test world, tilt 20 degrees, a 1,800 s day):
+
+| planet | columns | step, 1 / 4 / 12 threads | CPU per tick at dt 5 s, 1 thread | at dt 1 s | hand-over on the server's thread (send, take, worst) | state |
+|---|---|---|---|---|---|---|
+| Terra, 4 km | 13,824 | 4.43 / 1.47 / 1.27 ms | **0.044 ms** | 0.214 ms | 3.5, 0.5, 13 us | 1.6 MB |
+| huge, 8 km | 55,296 | 17.5 / 5.6 / 4.4 ms | **0.175 ms** | 0.862 ms | 3.7, 0.5, 13 us | 6.3 MB |
+
+- The worker steps the state, then builds a view (the surface air, rain and runoff per column): 1.6 ms on Terra
+  with all threads, under the 1 s the server waits before taking it back.
+- At dt 1 s the huge planet's step is 0.86 ms of CPU a tick on one thread, over the target as a share of a
+  core; at 5 s it is 0.18. The spike's earlier finding holds: 10 s steps give the 1 s climate (0.08 K, rain
+  correlation 0.993), so the live step is **5 s** (once per 100 ticks) and the bake's 10 s.
+
+`target/release/air.exe mode=year [spin=20] [held=n] [years=2]` (Terra's test world, dt 10 s):
+
+| bake's year | cost (12 threads) | mean abs dT per column | rain over the planet | rain correlation | worst band |
+|---|---|---|---|---|---|
+| one continuous year, after 20 days at the equinox | 12.7 s + 4.9 s | (the reference) | 0.593 mm/day | | |
+| the next year after it (`years=2`) | 13.6 s | 0.10 K | 0.5930 / 0.5936 | 1.000 | 0.6 % |
+| only 5 days' spin-up, then year 1 against year 2 | 1.5 s + 13.4 s | 0.12 K | 0.5835 / 0.5936 | 1.000 | 3 % |
+| four held days of the year (1/16, 3/16, 9/16, 11/16), 12 days each | 11.5 s | 0.10 K | 0.5965 | 0.999 | 3 % |
+| the same, 4 days each | 3.8 s | 0.32 K | 0.5871 | 0.998 | 1.5 K, 6 % at 50-60 degrees |
+| the same, 2 days each | 1.9 s | 0.55 K | 0.5858 | 0.995 | 1.7 K, 14 % |
+| one held day at the equinox: the bake without seasons | 0.5 s | 0.67 K | 0.5971 | 0.992 | **18 % less rain at 60-70 degrees, 1.4 K** |
+
+- The seasons move rain poleward in summer; the high latitudes keep snow and soil water across seasons, so
+  a held day needs about 12 days to settle there, and four of them cost what the real year costs.
+- So the bake runs **10 days at the equinox, then one continuous year** at 10 s (about 16 s on 12 threads, from
+  5 s for the old tilt-free day). The year ends at the spring equinox, world time 0, so the live grid starts
+  from the bake's last state with nothing to settle.

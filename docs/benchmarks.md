@@ -3,6 +3,26 @@
 The shared benchmark of `docs/plans/roadmap.md`, measured as ADR 0004 says. Newest first.
 Run it: `bash tools/bench.sh`, then `python -I tools/summarize.py`.
 
+## 2026-11-12: the live air grid and the bake's year (ADR 0060, W3)
+
+Reference machine, release build, `out/.lock` held; the 4 km planet, seed 1337.
+
+| what | number | before |
+|---|---|---|
+| bake, 8 of 12 threads | **35.9 s** (the air runs 10 days and a year of 10 s steps) | 25.0 s |
+| map file | 19.2 MB (climate and air state +1.3 MB) | 17.8 MB |
+| live air job on its worker, all threads (`technoape-server` line, `air.job_ms`) | **1.4 ms** every 10 s of world time (one step) | - |
+| that as CPU a tick, 1 thread (`prototypes/air` `mode=tick`: 4.43 ms a step) | **0.022 ms** of 0.5 target | - |
+| the server's own thread: handing a job over and taking it back | under 10 us (thread start, channel) | - |
+| `stand` quick, p99 / max ms (reruns) | 2.36 / 2.58, 2.34 / 3.10 | 2.69 / 3.03 |
+| `fly` quick, p99 / max ms (reruns) | 3.68 / 5.97, 4.00 / 6.36 | 4.01 / 4.92 |
+| `sim` quick, tick p99 ms (baseline 1.41) | 1.74, 1.28 (one first run 4.95) | 1.88 |
+| soak, 50 bots, 1 min, seed 1 | `eca98f7116931379` twice | |
+
+The full gate (`tools/check.sh`) passed tests, soak and replay (`b774f156722fc5ac`, 180 checks agree); its
+`stand` and `fly` each had one frame of 35 to 38 ms while its soak ran beside them, none on reruns alone. A
+quick `sim` is 150 ticks, under the 200 of one air step, so its tick does not include a job.
+
 ## 2026-11-11: the bake in the engine (ADR 0043, biomes and still plants)
 
 Reference machine, release build, `quick=1`, `out/.lock` held; the 4 km planet baked from seed 1337 (25.0 s on

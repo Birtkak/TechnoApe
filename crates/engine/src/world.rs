@@ -400,6 +400,13 @@ impl Body {
         let s = b.map.m as f64 / self.n as f64;
         Some(b.map.biome(face, x * s, y * s))
     }
+    /// The baked year's climate at face point (i, j) in columns (`bake::Map::climate_at`): potential
+    /// temperature C, day swing K, rain mm a day; None without a map that keeps one.
+    pub fn climate_at(&self, face: usize, i: f64, j: f64) -> Option<(f32, f32, f32)> {
+        let b = self.baked.as_ref()?;
+        let s = b.map.m as f64 / self.n as f64;
+        b.map.climate_at(face, i * s, j * s)
+    }
     /// The ground (`material`) at face point (i, j) in columns, d its direction, `h` its surface radius.
     fn ground_at(&self, face: usize, i: f64, j: f64, d: DVec3, h: f64) -> [u8; 3] {
         let Some(b) = &self.baked else { return self.ground };

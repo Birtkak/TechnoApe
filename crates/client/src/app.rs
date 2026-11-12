@@ -121,6 +121,8 @@ pub(crate) struct App {
     pub(crate) inv: Vec<(u8, u32)>,
     /// Units of water in the bucket (ADR 0020).
     pub(crate) bucket_water: u32,
+    /// The live air where the player stands, as the server last sent it (W3); None on an older map.
+    pub(crate) air: Option<engine::weather::Here>,
     /// Health and hunger as the server last told them (ADR 0040), the lowest health seen, when each last fell
     /// and from what (the lost cells flash), and how this player died while it is dead.
     pub(crate) vitals: (u8, u8),
