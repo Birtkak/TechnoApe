@@ -426,7 +426,9 @@ impl Streamer {
                 // own children are, so this chunk covers until then and never forever (a chunk meshed as a leaf
                 // from far away would otherwise cover forever once the camera is back), and a camera that nears
                 // the children before they are meshed leaves no hole (ADR 0038 B)
-                let all = covered || kids.iter().all(|c| self.complete(world, view, c, kk));
+                // a child wholly out of view does not hold it either: it would cover the visible children that are in,
+                // over their finer ground, until the hidden ones came last in the queue (bug 2026-11-12_21-00-30)
+                let all = covered || kids.iter().all(|c| self.complete(world, view, c, kk) || (draw && self.hidden(view, c.body, &self.slots.get(c).map_or_else(|| world.bodies[c.body as usize].bounds(*c), |s| s.bounds))));
                 let mut cov = covered;
                 if !all && !covered && draw && self.emit(view, k, None, out) {
                     cov = true;
@@ -892,6 +894,37 @@ mod tests {
         let bad: Vec<(Key, f32)> = out.iter().filter(|d| !d.hidden && s.splits(&w, &view, &d.key, 4.0)).map(|d| (d.key, d.dist)).collect();
         assert_eq!(s.too_coarse(&w, &view, &out) as usize, bad.len());
         assert!(bad.is_empty(), "{} chunks drawn coarser than their level a second after stopping, e.g. {:?}", bad.len(), &bad[..bad.len().min(5)]);
+    }
+
+    #[test]
+    fn a_coarse_chunk_does_not_cover_once_its_visible_children_are_in() {
+        // F9 report 2026-11-12_21-00-30: a huge coarse chunk drawn over the near ground. A chunk covers while a
+        // child is not meshed; children out of view rank last, so once every visible child was in, the coarse
+        // chunk still covered (and stood over the fine ground) until the hidden ones came, long after
+        let w = World::new(1536, 64, 1337);
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 4 };
+        let mut s = Streamer::new(&w, 1 << 23, opts);
+        let b = &w.bodies[0];
+        settle(&mut s, &w, b.spawn * b.radius * 1.6);
+        // on the ground, looking one way: everything behind the camera is out of view
+        let cam = b.spawn * (b.top(b.spawn) + 2.0);
+        let look = b.spawn.any_orthonormal_vector();
+        let mut planes = [Vec4::new(0.0, 0.0, 0.0, 1.0); 6];
+        planes[0] = Vec4::new(look.x as f32, look.y as f32, look.z as f32, 0.0);
+        let view = View::new(cam, planes, &w);
+        for f in 0..20000 {
+            let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+            std::thread::sleep(std::time::Duration::from_micros(200));
+            s.apply(usize::MAX, &mut st, |_, _| {});
+            s.frame += 1;
+            s.select(&w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+            s.dispatch(&w, &mut reqs);
+            if st.missing == 0 && f > 0 {
+                assert_eq!(s.too_coarse(&w, &view, &out), 0, "every visible child is in, yet coarse chunks are drawn over them (frame {f}, {} still in flight)", s.inflight);
+                return;
+            }
+        }
+        panic!("the visible chunks never came in");
     }
 
     #[test]
