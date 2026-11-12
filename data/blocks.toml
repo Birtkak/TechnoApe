@@ -346,3 +346,306 @@ colour = [0.27, 0.47, 0.18]
 colour = [0.41, 0.46, 0.19]
 [block.winter]
 colour = [0.41, 0.41, 0.24]
+
+# The rocks (W4, ADR 0063): each is the rock of a province's layer (data/rocks.toml). Their looks are
+# drafts until the developer has seen the look sheet; the palette has a ramp per rock.
+
+[[block]]
+id = 30
+name = "granite"
+hardness = 9.0
+colour = [0.66, 0.58, 0.55]
+pattern = "speckle"
+colour2 = [0.24, 0.22, 0.23]
+colour3 = [0.88, 0.84, 0.82]
+size = 2
+amount = 0.45
+
+[[block]]
+id = 31
+name = "gneiss"
+hardness = 9.0
+colour = [0.52, 0.50, 0.50]
+pattern = "stone"
+colour2 = [0.30, 0.29, 0.30]
+colour3 = [0.74, 0.72, 0.70]
+contrast = 1.4
+
+[[block]]
+id = 32
+name = "sandstone"
+hardness = 5.0
+colour = [0.80, 0.66, 0.46]
+pattern = "plain"
+colour2 = [0.62, 0.48, 0.32]
+colour3 = [0.90, 0.80, 0.62]
+contrast = 0.6
+
+[[block]]
+id = 33
+name = "shale"
+hardness = 4.0
+colour = [0.34, 0.34, 0.37]
+pattern = "plain"
+colour2 = [0.22, 0.22, 0.25]
+colour3 = [0.46, 0.46, 0.49]
+contrast = 0.8
+
+[[block]]
+id = 34
+name = "limestone"
+hardness = 6.0
+colour = [0.80, 0.78, 0.70]
+pattern = "plain"
+colour2 = [0.62, 0.60, 0.53]
+colour3 = [0.92, 0.91, 0.85]
+contrast = 0.7
+
+[[block]]
+id = 35
+name = "slate"
+hardness = 7.0
+colour = [0.29, 0.32, 0.37]
+pattern = "tiles"
+colour2 = [0.17, 0.19, 0.23]
+colour3 = [0.42, 0.45, 0.50]
+size = 8
+amount = 0.25
+
+[[block]]
+id = 36
+name = "marble"
+hardness = 7.0
+colour = [0.90, 0.89, 0.87]
+pattern = "stone"
+colour2 = [0.62, 0.62, 0.64]
+colour3 = [0.97, 0.97, 0.96]
+contrast = 0.7
+
+[[block]]
+id = 37
+name = "quartzite"
+hardness = 10.0
+colour = [0.85, 0.80, 0.76]
+pattern = "speckle"
+colour2 = [0.66, 0.60, 0.56]
+colour3 = [0.95, 0.93, 0.91]
+size = 1
+amount = 0.3
+
+[[block]]
+id = 38
+name = "schist"
+hardness = 7.0
+colour = [0.46, 0.46, 0.41]
+pattern = "speckle"
+colour2 = [0.30, 0.30, 0.27]
+colour3 = [0.74, 0.74, 0.70]
+size = 1
+amount = 0.5
+metal = 0.15
+
+[[block]]
+id = 39
+name = "tuff"
+hardness = 4.0
+colour = [0.70, 0.62, 0.52]
+pattern = "pebbles"
+colour2 = [0.52, 0.45, 0.37]
+colour3 = [0.82, 0.76, 0.68]
+
+[[block]]
+id = 40
+name = "andesite"
+hardness = 8.5
+colour = [0.44, 0.43, 0.42]
+pattern = "speckle"
+colour2 = [0.28, 0.27, 0.27]
+colour3 = [0.62, 0.61, 0.60]
+size = 2
+amount = 0.35
+
+[[block]]
+id = 41
+name = "basalt"
+hardness = 9.0
+colour = [0.20, 0.20, 0.21]
+pattern = "plain"
+colour2 = [0.12, 0.12, 0.13]
+colour3 = [0.32, 0.32, 0.33]
+
+[[block]]
+id = 42
+name = "gabbro"
+hardness = 9.5
+colour = [0.22, 0.24, 0.22]
+pattern = "speckle"
+colour2 = [0.12, 0.13, 0.12]
+colour3 = [0.40, 0.44, 0.40]
+size = 2
+amount = 0.4
+
+# The ores and the signs over them (W4, ADR 0063; data/minerals.toml places them). Looks are drafts too.
+
+[[block]]
+id = 43
+name = "copper gravel"
+hardness = 1.0
+loose = true
+sound = "stone"
+colour = [0.55, 0.53, 0.50]
+pattern = "pebbles"
+colour2 = [0.78, 0.45, 0.25]
+colour3 = [0.70, 0.68, 0.64]
+
+[[block]]
+id = 44
+name = "malachite"
+hardness = 6.0
+sound = "stone"
+colour = [0.18, 0.55, 0.38]
+pattern = "speckle"
+colour2 = [0.08, 0.32, 0.20]
+colour3 = [0.45, 0.80, 0.60]
+size = 2
+amount = 0.5
+
+[[block]]
+id = 45
+name = "chalcopyrite"
+hardness = 8.0
+sound = "stone"
+colour = [0.42, 0.40, 0.36]
+pattern = "speckle"
+colour2 = [0.25, 0.24, 0.22]
+colour3 = [0.85, 0.72, 0.30]
+size = 1
+amount = 0.45
+
+[[block]]
+id = 46
+name = "cassiterite"
+hardness = 9.0
+sound = "stone"
+colour = [0.55, 0.52, 0.50]
+pattern = "speckle"
+colour2 = [0.22, 0.16, 0.12]
+colour3 = [0.75, 0.73, 0.70]
+size = 2
+amount = 0.4
+
+[[block]]
+id = 47
+name = "tin gravel"
+hardness = 1.0
+loose = true
+sound = "stone"
+colour = [0.55, 0.53, 0.50]
+pattern = "pebbles"
+colour2 = [0.25, 0.19, 0.15]
+colour3 = [0.70, 0.68, 0.64]
+
+[[block]]
+id = 48
+name = "bog iron"
+hardness = 1.2
+loose = true
+sound = "dirt"
+colour = [0.48, 0.20, 0.09]
+pattern = "pebbles"
+colour2 = [0.29, 0.12, 0.05]
+colour3 = [0.66, 0.34, 0.16]
+
+[[block]]
+id = 49
+name = "hematite"
+hardness = 9.0
+sound = "stone"
+colour = [0.38, 0.22, 0.20]
+pattern = "tiles"
+colour2 = [0.22, 0.12, 0.11]
+colour3 = [0.55, 0.50, 0.50]
+size = 8
+amount = 0.3
+
+[[block]]
+id = 50
+name = "coal"
+hardness = 4.0
+sound = "stone"
+colour = [0.10, 0.10, 0.11]
+pattern = "speckle"
+colour2 = [0.05, 0.05, 0.06]
+colour3 = [0.25, 0.25, 0.27]
+size = 1
+amount = 0.3
+
+[[block]]
+id = 51
+name = "bauxite"
+hardness = 1.2
+loose = true
+sound = "dirt"
+colour = [0.68, 0.38, 0.24]
+pattern = "pebbles"
+colour2 = [0.50, 0.26, 0.16]
+colour3 = [0.80, 0.55, 0.40]
+
+[[block]]
+id = 52
+name = "galena"
+hardness = 7.0
+sound = "stone"
+colour = [0.62, 0.62, 0.64]
+pattern = "speckle"
+colour2 = [0.30, 0.30, 0.32]
+colour3 = [0.85, 0.86, 0.88]
+size = 2
+amount = 0.45
+
+[[block]]
+id = 53
+name = "gold quartz"
+hardness = 9.0
+sound = "stone"
+colour = [0.88, 0.86, 0.82]
+pattern = "speckle"
+colour2 = [0.75, 0.73, 0.70]
+colour3 = [0.95, 0.78, 0.25]
+size = 1
+amount = 0.25
+
+[[block]]
+id = 54
+name = "gold gravel"
+hardness = 1.0
+loose = true
+sound = "stone"
+colour = [0.55, 0.53, 0.50]
+pattern = "pebbles"
+colour2 = [0.92, 0.75, 0.25]
+colour3 = [0.70, 0.68, 0.64]
+
+[[block]]
+id = 55
+name = "pitchblende"
+hardness = 9.0
+sound = "stone"
+colour = [0.16, 0.16, 0.14]
+pattern = "speckle"
+colour2 = [0.08, 0.08, 0.07]
+colour3 = [0.40, 0.42, 0.28]
+size = 2
+amount = 0.35
+
+[[block]]
+id = 56
+name = "gossan"
+hardness = 1.5
+loose = true
+sound = "dirt"
+colour = [0.55, 0.30, 0.15]
+pattern = "plain"
+colour2 = [0.38, 0.18, 0.08]
+colour3 = [0.72, 0.45, 0.22]
+contrast = 1.3

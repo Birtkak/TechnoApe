@@ -979,10 +979,6 @@ impl Page for Textures {
             });
             self.tool_options(ui, app);
         }
-        if let Some(mut sec) = look::section(ui, "Colours") {
-            let ui = &mut *sec;
-            self.palette(ui, app);
-        }
         if let Some(mut sec) = look::section(ui, "Start from") {
             let ui = &mut *sec;
             ui.horizontal_wrapped(|ui| {
@@ -1046,6 +1042,10 @@ impl Page for Textures {
                     }
                 });
             }
+        }
+        if let Some(mut sec) = look::section(ui, "Colours") {
+            let ui = &mut *sec;
+            self.palette(ui, app);
         }
         if let Some(mut sec) = look::section(ui, "Preview") {
             let ui = &mut *sec;

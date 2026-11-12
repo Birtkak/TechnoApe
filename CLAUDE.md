@@ -127,6 +127,8 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   (`mkdir`, `rmdir` after) around runs whose numbers you keep while another session shares the PC. Soak alone: `technoape-server soak=1 bots=50 minutes=10
   seed=1` (a failure prints its repro line and writes `out/soak-fail.rec`). Sessions record to `out/rec/`;
   `technoape-server replay=file until=tick` replays one headless and dumps the players.
+  `technoape-server report=1 seed= planet=` prints what the ground holds (ADR 0063): provinces, caves, heat, every
+  mineral's bodies, blocks, ingots against `ore-budget.md`, nearest distance and depth, and `made_hash`.
 - Viewpoints: `bash tools/views.sh` renders `tests/views/views.txt` and compares by number (cracks, pixels);
   after a deliberate visual change, look at `out/views/*.png`, then `bash tools/views.sh accept`.
 - Full benchmark: `bash tools/bench.sh` (about 8 min for the 4 km planet and filmstrips; add `base` or `huge` for

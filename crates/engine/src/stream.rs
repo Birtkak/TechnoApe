@@ -689,6 +689,25 @@ mod tests {
         panic!("never settled");
     }
 
+    /// A player in a cave deep under the ground (W4): the chunks around it are fine ones, meshed with the
+    /// cave's walls, though the surface is far above (ADR 0062's open question).
+    #[test]
+    fn a_cave_deep_under_the_ground_streams_in_around_the_player() {
+        let mut w = World::new(1536, 64, 1337);
+        let top = w.air_over_ground(0, w.bodies[0].spawn);
+        let at = DVec3::new(top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5, top.pos.z as f64 - 40.0);
+        std::sync::Arc::get_mut(&mut w.bodies).unwrap()[0].set_caves(vec![crate::world::Cave { face: top.face, at, r: 4.0 }]);
+        let b = &w.bodies[0];
+        let cam = b.centre + b.dir(top.face as usize, at.x, at.y) * b.layer_r(at.z);
+        let opts = Opts { k: 4.0, greedy: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
+        let mut s = Streamer::new(&w, 1 << 22, opts);
+        let out = settle(&mut s, &w, cam);
+        let cell = crate::world::Block { body: 0, face: top.face, pos: glam::IVec3::new(at.x as i32, at.y as i32, at.z as i32) };
+        let k = Key { body: 0, face: top.face, level: 0, pos: cell.pos.div_euclid(glam::IVec3::splat(CS)) };
+        let d = out.iter().find(|d| d.key == k).unwrap_or_else(|| panic!("the cave's chunk {k:?} is not drawn; finest drawn level {:?}", out.iter().map(|d| d.key.level).min()));
+        assert!(d.len > 0 && !d.hidden, "the cave's chunk is drawn with its walls: {} quads, hidden {}", d.len, d.hidden);
+    }
+
     #[test]
     fn coming_back_from_far_away_draws_the_fine_chunks_again() {
         // far away the near chunks' coarse ancestors are the leaves and get meshes; back on the ground those

@@ -7,6 +7,7 @@
 //! - `soak=1 bots=50 minutes=10 seed=1 planet=256` fast-forwards seeded random bots and checks invariants every
 //!   tick; `only=3,7` runs just those bots, `ticks=` overrides `minutes=`, `record=` keeps the run's recording.
 //!   A failure is shrunk to the fewest bots, recorded to `out/soak-fail.rec` and printed with its repro line.
+//! - `report=1 seed=1337 planet=6144` prints what the ground holds (`report.rs`).
 //! - `replay=file until=tick` runs a recording again and reports the first checkpoint that disagrees.
 use engine::net::{tcp, DEFAULT_PORT, TICK_HZ};
 use server::{soak, Server};
@@ -23,6 +24,14 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 fn main() {
     let args: HashMap<String, String> = std::env::args().skip(1).filter_map(|a| a.split_once('=').map(|(k, v)| (k.to_string(), v.to_string()))).collect();
     let num = |k: &str, d: i32| args.get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
+    if args.contains_key("report") {
+        let planet = num("planet", 6144);
+        let t = Instant::now();
+        let w = engine::world::World::baked(planet, engine::bodies::columns(1, planet), num("seed", 1337));
+        eprintln!("[report] world in {:.1} s", t.elapsed().as_secs_f64());
+        println!("{}", server::report::report(&w));
+        return;
+    }
     if args.contains_key("soak") {
         return run_soak(&args);
     }

@@ -10,6 +10,7 @@ pub mod grid;
 pub mod land;
 pub mod life;
 pub mod rivers;
+pub mod rock;
 
 pub use climate::Climate;
 pub use rivers::{Lines, Reach};
@@ -24,8 +25,8 @@ use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 /// Changes whenever the bake's code or parameters change what it makes: a map of another version is baked
 /// anew, and a save names the map it was played on (by hash). 3 keeps the climate (W3) and bakes it over a
-/// year with the sky's seasons.
-pub const VERSION: u32 = 3;
+/// year with the sky's seasons. 4 keeps each cell's rock province (W4, ADR 0063).
+pub const VERSION: u32 = 4;
 
 /// How far in longitude from the +y meridian the spawn may lie, radians (about 26 degrees: 9 am at world
 /// time 0 is then between 7 and 11 am at the spawn). shortcut: until the sky's clock takes the spawn's own
@@ -56,6 +57,9 @@ pub struct Map {
     /// The air columns, the year's climate and the air's state at world time 0 (since version 3, W3); None on
     /// a map of an older version.
     pub climate: Option<Climate>,
+    /// Each cell's rock province (`rock::SHIELD` .. `rock::OCEAN`, the rows of `data/rocks.toml`; since
+    /// version 4); empty on an older map, whose rock is the biomes' plain stone.
+    pub rock: Vec<u8>,
     /// The climate's air columns (`Climate::grid`), built on load.
     #[serde(skip)]
     pub air: Option<grid::Grid>,
@@ -91,20 +95,22 @@ impl Map {
         let biome = std::mem::take(&mut b.life.as_mut().unwrap().biome);
         let climate = Some(b.life.as_ref().unwrap().climate.clone());
         let rivers = b.rivers.iter().filter(|r| b.land(r.cell as usize)).map(|r| Reach { cell: r.cell, to: r.to, area: r.area }).collect();
-        let mut map = Map { version: VERSION, seed, n, m: b.g.m as u32, h, biome, spawn, rivers, climate, ..Map::empty() };
+        let rock = std::mem::take(&mut b.rock);
+        let mut map = Map { version: VERSION, seed, n, m: b.g.m as u32, h, biome, spawn, rivers, climate, rock, ..Map::empty() };
         map.finish(&map.to_bytes());
         eprintln!("[bake] seed {seed} planet {n}: {:.1} s", t.elapsed().as_secs_f64());
         map
     }
     /// A map with nothing in it, for `..Map::empty()`.
     pub fn empty() -> Map {
-        Map { version: VERSION, seed: 0, n: 0, m: 0, h: Vec::new(), biome: Vec::new(), spawn: [0.0, 1.0, 0.0], rivers: Vec::new(), climate: None, air: None, lines: Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 }
+        Map { version: VERSION, seed: 0, n: 0, m: 0, h: Vec::new(), biome: Vec::new(), spawn: [0.0, 1.0, 0.0], rivers: Vec::new(), climate: None, rock: Vec::new(), air: None, lines: Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 }
     }
     /// Its bytes in the layout of its version (an older map as it was read, so its hash holds).
     pub fn to_bytes(&self) -> Vec<u8> {
         match self.version {
             1 => postcard::to_stdvec(&(1u32, self.seed, self.n, self.m, &self.h, &self.biome, self.spawn)),
             2 => postcard::to_stdvec(&(2u32, self.seed, self.n, self.m, &self.h, &self.biome, self.spawn, &self.rivers)),
+            3 => postcard::to_stdvec(&(3u32, self.seed, self.n, self.m, &self.h, &self.biome, self.spawn, &self.rivers, &self.climate)),
             _ => postcard::to_stdvec(self),
         }
         .expect("a map serialises")
@@ -112,8 +118,13 @@ impl Map {
     /// A map of this version, or of version 2 (no climate) or 1 (no rivers either): old saves carry on on the
     /// ground they were played on.
     pub fn from_bytes(b: &[u8]) -> Result<Map, String> {
+        type V3 = (u32, i32, i32, u32, Vec<f32>, Vec<u8>, [f64; 3], Vec<Reach>, Option<Climate>);
         let mut m: Map = match postcard::from_bytes::<Map>(b) {
             Ok(m) if m.version == VERSION => m,
+            _ if postcard::from_bytes::<V3>(b).is_ok_and(|v| v.0 == 3) => {
+                let (version, seed, n, m, h, biome, spawn, rivers, climate) = postcard::from_bytes::<V3>(b).unwrap();
+                Map { version, seed, n, m, h, biome, spawn, rivers, climate, ..Map::empty() }
+            }
             _ => match postcard::from_bytes::<V2>(b) {
                 Ok(v) if v.version == 2 => Map { version: 2, seed: v.seed, n: v.n, m: v.m, h: v.h, biome: v.biome, spawn: v.spawn, rivers: v.rivers, ..Map::empty() },
                 _ => {
@@ -129,7 +140,7 @@ impl Map {
         if let Some(c) = &m.climate {
             c.check()?;
         }
-        let known = m.version == VERSION || m.version == 2 || (m.version == 1 && m.rivers.is_empty());
+        let known = m.version == VERSION || m.version == 3 || m.version == 2 || (m.version == 1 && m.rivers.is_empty());
         // a river drains into a neighbouring cell (bytes from a server: a far one would build a huge index)
         let mm = m.m as i32;
         let next_to = |r: &Reach| {
@@ -140,7 +151,8 @@ impl Map {
             }))
         };
         let bad = m.rivers.iter().any(|r| r.cell as usize >= cells || r.to as usize >= cells || !(r.area.is_finite() && r.area > 0.0) || !next_to(r));
-        if !known || bad || m.h.len() != cells || m.biome.len() != cells {
+        let rocks = if m.version >= 4 { m.rock.len() == cells && m.rock.iter().all(|&r| (r as usize) < rock::NAMES.len()) } else { m.rock.is_empty() };
+        if !known || bad || !rocks || m.h.len() != cells || m.biome.len() != cells {
             return Err(format!("a map of version {} with {} cells, not {VERSION} and {cells}", m.version, m.h.len()));
         }
         m.finish(b);
@@ -239,6 +251,15 @@ impl Map {
         (s, r.max(0.0))
     }
     /// The biome of the cell that holds face point (x, y), in cells.
+    /// The rock province of the cell that holds face point (x, y), in cells; None on a map from before the rock.
+    pub fn rock(&self, face: usize, x: f64, y: f64) -> Option<u8> {
+        if self.rock.is_empty() {
+            return None;
+        }
+        let m = self.m as i32;
+        let (f, i, j) = fold(face, x.floor() as i32, y.floor() as i32, m);
+        Some(self.rock[(f * m as usize + j as usize) * m as usize + i as usize])
+    }
     pub fn biome(&self, face: usize, x: f64, y: f64) -> u8 {
         let m = self.m as i32;
         let (f, i, j) = fold(face, x.floor() as i32, y.floor() as i32, m);
@@ -399,7 +420,7 @@ fn file_v(seed: i32, n: i32, v: u32) -> PathBuf {
 /// None; a save that names one of version 1 gets that too).
 pub fn find(seed: i32, n: i32, hash: Option<u64>) -> Option<Arc<Map>> {
     let ok = |m: &Map| hash.map_or(m.version == VERSION, |h| h == m.hash);
-    let versions: &[u32] = if hash.is_some() { &[VERSION, 2, 1] } else { &[VERSION] };
+    let versions: &[u32] = if hash.is_some() { &[VERSION, 3, 2, 1] } else { &[VERSION] };
     for &v in versions {
         if let Some(m) = LOADED.lock().unwrap().get(&(seed, n, v)).and_then(Weak::upgrade).filter(|m| ok(m)) {
             return Some(m);
@@ -453,7 +474,7 @@ mod tests {
     use super::*;
 
     fn small() -> Map {
-        let mut m = Map { seed: 1, n: 64, m: 8, h: (0..384).map(|c| (c % 8) as f32).collect(), biome: vec![3; 384], ..Map::empty() };
+        let mut m = Map { seed: 1, n: 64, m: 8, h: (0..384).map(|c| (c % 8) as f32).collect(), biome: vec![3; 384], rock: vec![1; 384], ..Map::empty() };
         m.finish(&m.to_bytes());
         m
     }
@@ -530,6 +551,22 @@ mod tests {
         assert_eq!(for_hash(-77, 256, h).map(|m| (m.version, m.hash)), Some((1, h)), "baked back for its save");
         assert_eq!(for_hash(-77, 256, h ^ 1).map(|m| m.hash), None, "another map's hash");
         let _ = (std::fs::remove_file(file(-77, 256)), std::fs::remove_file(file_v(-77, 256, 1)));
+    }
+
+    /// A map keeps its rock provinces (version 4, ADR 0063); a province past the list is refused, and a map
+    /// of version 3 reads with none, so a world played on one keeps its plain stone.
+    #[test]
+    fn a_map_keeps_its_rock_and_an_older_one_has_none() {
+        let mut m = small();
+        let back = Map::from_bytes(&m.to_bytes()).unwrap();
+        assert_eq!((back.version, back.rock(0, 0.5, 0.5)), (VERSION, Some(1)));
+        m.rock[5] = rock::NAMES.len() as u8;
+        assert!(Map::from_bytes(&m.to_bytes()).is_err(), "a province past the list");
+        m.rock.clear();
+        m.version = 3;
+        let v3 = Map::from_bytes(&m.to_bytes()).unwrap();
+        assert_eq!((v3.version, v3.rock(0, 0.5, 0.5)), (3, None));
+        assert_eq!(v3.hash, crate::world::fnv(crate::world::FNV0, &m.to_bytes()), "an old map's hash holds");
     }
 
     /// Bytes from a server are checked before anything is built from them.

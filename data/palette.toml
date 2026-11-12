@@ -107,3 +107,408 @@ ramp = "regolith"
 name = "regolith light"
 rgb = "#ffffff"
 ramp = "regolith"
+
+[[colour]]
+name = "granite dark"
+rgb = "#3d383b"
+ramp = "granite"
+
+[[colour]]
+name = "granite"
+rgb = "#a8948c"
+ramp = "granite"
+
+[[colour]]
+name = "granite light"
+rgb = "#e0d6d1"
+ramp = "granite"
+
+[[colour]]
+name = "gneiss dark"
+rgb = "#4c4a4c"
+ramp = "gneiss"
+
+[[colour]]
+name = "gneiss"
+rgb = "#858080"
+ramp = "gneiss"
+
+[[colour]]
+name = "gneiss light"
+rgb = "#bdb8b2"
+ramp = "gneiss"
+
+[[colour]]
+name = "sandstone dark"
+rgb = "#9e7a52"
+ramp = "sandstone"
+
+[[colour]]
+name = "sandstone"
+rgb = "#cca875"
+ramp = "sandstone"
+
+[[colour]]
+name = "sandstone light"
+rgb = "#e6cc9e"
+ramp = "sandstone"
+
+[[colour]]
+name = "shale dark"
+rgb = "#383840"
+ramp = "shale"
+
+[[colour]]
+name = "shale"
+rgb = "#57575e"
+ramp = "shale"
+
+[[colour]]
+name = "shale light"
+rgb = "#75757d"
+ramp = "shale"
+
+[[colour]]
+name = "limestone dark"
+rgb = "#9e9987"
+ramp = "limestone"
+
+[[colour]]
+name = "limestone"
+rgb = "#ccc7b2"
+ramp = "limestone"
+
+[[colour]]
+name = "limestone light"
+rgb = "#ebe8d9"
+ramp = "limestone"
+
+[[colour]]
+name = "slate dark"
+rgb = "#2b303b"
+ramp = "slate"
+
+[[colour]]
+name = "slate"
+rgb = "#4a525e"
+ramp = "slate"
+
+[[colour]]
+name = "slate light"
+rgb = "#6b7380"
+ramp = "slate"
+
+[[colour]]
+name = "marble dark"
+rgb = "#9e9ea3"
+ramp = "marble"
+
+[[colour]]
+name = "marble"
+rgb = "#e6e3de"
+ramp = "marble"
+
+[[colour]]
+name = "marble light"
+rgb = "#f7f7f5"
+ramp = "marble"
+
+[[colour]]
+name = "quartzite dark"
+rgb = "#a8998f"
+ramp = "quartzite"
+
+[[colour]]
+name = "quartzite"
+rgb = "#d9ccc2"
+ramp = "quartzite"
+
+[[colour]]
+name = "quartzite light"
+rgb = "#f2ede8"
+ramp = "quartzite"
+
+[[colour]]
+name = "schist dark"
+rgb = "#4c4c45"
+ramp = "schist"
+
+[[colour]]
+name = "schist"
+rgb = "#757569"
+ramp = "schist"
+
+[[colour]]
+name = "schist light"
+rgb = "#bdbdb2"
+ramp = "schist"
+
+[[colour]]
+name = "tuff dark"
+rgb = "#85735e"
+ramp = "tuff"
+
+[[colour]]
+name = "tuff"
+rgb = "#b29e85"
+ramp = "tuff"
+
+[[colour]]
+name = "tuff light"
+rgb = "#d1c2ad"
+ramp = "tuff"
+
+[[colour]]
+name = "andesite dark"
+rgb = "#474545"
+ramp = "andesite"
+
+[[colour]]
+name = "andesite"
+rgb = "#706e6b"
+ramp = "andesite"
+
+[[colour]]
+name = "andesite light"
+rgb = "#9e9c99"
+ramp = "andesite"
+
+[[colour]]
+name = "basalt dark"
+rgb = "#1f1f21"
+ramp = "basalt"
+
+[[colour]]
+name = "basalt"
+rgb = "#333336"
+ramp = "basalt"
+
+[[colour]]
+name = "basalt light"
+rgb = "#525254"
+ramp = "basalt"
+
+[[colour]]
+name = "gabbro dark"
+rgb = "#1f211f"
+ramp = "gabbro"
+
+[[colour]]
+name = "gabbro"
+rgb = "#383d38"
+ramp = "gabbro"
+
+[[colour]]
+name = "gabbro light"
+rgb = "#667066"
+ramp = "gabbro"
+
+[[colour]]
+name = "copper gravel dark"
+rgb = "#c77340"
+ramp = "copper gravel"
+
+[[colour]]
+name = "copper gravel"
+rgb = "#8c8780"
+ramp = "copper gravel"
+
+[[colour]]
+name = "copper gravel light"
+rgb = "#b2ada3"
+ramp = "copper gravel"
+
+[[colour]]
+name = "malachite dark"
+rgb = "#145233"
+ramp = "malachite"
+
+[[colour]]
+name = "malachite"
+rgb = "#2e8c61"
+ramp = "malachite"
+
+[[colour]]
+name = "malachite light"
+rgb = "#73cc99"
+ramp = "malachite"
+
+[[colour]]
+name = "chalcopyrite dark"
+rgb = "#403d38"
+ramp = "chalcopyrite"
+
+[[colour]]
+name = "chalcopyrite"
+rgb = "#6b665c"
+ramp = "chalcopyrite"
+
+[[colour]]
+name = "chalcopyrite light"
+rgb = "#d9b84c"
+ramp = "chalcopyrite"
+
+[[colour]]
+name = "cassiterite dark"
+rgb = "#38291f"
+ramp = "cassiterite"
+
+[[colour]]
+name = "cassiterite"
+rgb = "#8c8580"
+ramp = "cassiterite"
+
+[[colour]]
+name = "cassiterite light"
+rgb = "#bfbab2"
+ramp = "cassiterite"
+
+[[colour]]
+name = "tin gravel dark"
+rgb = "#403026"
+ramp = "tin gravel"
+
+[[colour]]
+name = "tin gravel"
+rgb = "#8f8a83"
+ramp = "tin gravel"
+
+[[colour]]
+name = "tin gravel light"
+rgb = "#b5b0a6"
+ramp = "tin gravel"
+
+[[colour]]
+name = "bog iron dark"
+rgb = "#4a1e0e"
+ramp = "bog iron"
+
+[[colour]]
+name = "bog iron"
+rgb = "#7a3418"
+ramp = "bog iron"
+
+[[colour]]
+name = "bog iron light"
+rgb = "#a8562a"
+ramp = "bog iron"
+
+[[colour]]
+name = "hematite dark"
+rgb = "#381f1c"
+ramp = "hematite"
+
+[[colour]]
+name = "hematite"
+rgb = "#613833"
+ramp = "hematite"
+
+[[colour]]
+name = "hematite light"
+rgb = "#8c8080"
+ramp = "hematite"
+
+[[colour]]
+name = "coal dark"
+rgb = "#0d0d0f"
+ramp = "coal"
+
+[[colour]]
+name = "coal"
+rgb = "#1a1a1c"
+ramp = "coal"
+
+[[colour]]
+name = "coal light"
+rgb = "#404045"
+ramp = "coal"
+
+[[colour]]
+name = "bauxite dark"
+rgb = "#804229"
+ramp = "bauxite"
+
+[[colour]]
+name = "bauxite"
+rgb = "#ad613d"
+ramp = "bauxite"
+
+[[colour]]
+name = "bauxite light"
+rgb = "#cc8c66"
+ramp = "bauxite"
+
+[[colour]]
+name = "galena dark"
+rgb = "#4c4c52"
+ramp = "galena"
+
+[[colour]]
+name = "galena"
+rgb = "#a1a1a6"
+ramp = "galena"
+
+[[colour]]
+name = "galena light"
+rgb = "#d9dbe0"
+ramp = "galena"
+
+[[colour]]
+name = "gold quartz dark"
+rgb = "#c2bdb5"
+ramp = "gold quartz"
+
+[[colour]]
+name = "gold quartz"
+rgb = "#e0dbd1"
+ramp = "gold quartz"
+
+[[colour]]
+name = "gold quartz light"
+rgb = "#f2c740"
+ramp = "gold quartz"
+
+[[colour]]
+name = "gold gravel dark"
+rgb = "#ebbf40"
+ramp = "gold gravel"
+
+[[colour]]
+name = "gold gravel"
+rgb = "#928d86"
+ramp = "gold gravel"
+
+[[colour]]
+name = "gold gravel light"
+rgb = "#b8b3a9"
+ramp = "gold gravel"
+
+[[colour]]
+name = "pitchblende dark"
+rgb = "#141412"
+ramp = "pitchblende"
+
+[[colour]]
+name = "pitchblende"
+rgb = "#292924"
+ramp = "pitchblende"
+
+[[colour]]
+name = "pitchblende light"
+rgb = "#666b47"
+ramp = "pitchblende"
+
+[[colour]]
+name = "gossan dark"
+rgb = "#612e14"
+ramp = "gossan"
+
+[[colour]]
+name = "gossan"
+rgb = "#8c4c26"
+ramp = "gossan"
+
+[[colour]]
+name = "gossan light"
+rgb = "#b87338"
+ramp = "gossan"
