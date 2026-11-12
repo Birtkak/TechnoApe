@@ -60,7 +60,8 @@ settings! {
     Lamps "lamps" "Lamp light" Kind::Choice(&["nearest 16", "nearest 64", "all in range"]), 2.0;
     Particles "particles" "Particles" Kind::Choice(&["few", "normal", "many"]), 1.0;
     Textures "textures" "Block textures" Kind::Choice(&["flat colours", "16 px"]), 1.0;
-    Leaves "leaves" "Leaves" Kind::Choice(&["fast", "fancy"]), 1.0; // fancy: seen through, light through them (ADR 0069)
+    // fancy: seen through, light through them; fast by default: fancy's fly-through misses ADR 0004's p99 (ADR 0069)
+    Leaves "leaves" "Leaves" Kind::Choice(&["fast", "fancy"]), 0.0;
     Stars "stars" "Stars and galaxy" Kind::Choice(OFF_ON), 1.0;
     Sensitivity "sensitivity" "Mouse sensitivity" Kind::Slider { lo: 0.05, hi: 5.0, step: 0.05, max: 10.0, unit: Unit::Times }, 1.0;
     ZoomSens "zoom_sensitivity" "Zoomed sensitivity" Kind::Slider { lo: 0.25, hi: 3.0, step: 0.05, max: 3.0, unit: Unit::Times }, 1.0;

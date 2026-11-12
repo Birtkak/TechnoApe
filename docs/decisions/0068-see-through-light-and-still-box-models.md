@@ -1,6 +1,6 @@
 # 0068 – See-through leaves take light through a candidate loop; still box models are 8-byte quads in the chunk mesh
 
-- **Status:** accepted (measured in a spike; steps 2 and 6 of `docs/design/see-through-and-boxes.md` build it)
+- **Status:** accepted (measured in a spike; steps 2 and 6 of `docs/design/see-through-and-boxes.md` build it). Amended by ADR 0069: fast leaves are the default, fancy missed the fly-through p99
 - **Date:** 2026-11-12
 
 ## Context

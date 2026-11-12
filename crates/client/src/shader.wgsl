@@ -306,10 +306,14 @@ fn hit_quad(ci: u32, geo: u32, prim: u32) -> vec2u {
 // whether a candidate hit at barycentrics bc is on an empty texel of its cutout block (level 0 only meshes them
 // so; summer's look, `texel_a` without a season)
 fn hit_empty(ci: u32, geo: u32, prim: u32, bc: vec2f) -> bool {
+    // flat colours draw a cutout block whole: the light takes it whole too
+    if ((g.opt.x & 4u) != 0u) { return false; }
     let c = chunks[ci];
     let q = hit_quad(ci, geo, prim);
     let tri = (prim & 1u) * 3u;
-    let local = quad_corner(q, tri, GROW) * (1.0 - bc.x - bc.y) + quad_corner(q, tri + 1u, GROW) * bc.x + quad_corner(q, tri + 2u, GROW) * bc.y;
+    // the BLAS holds the quads grown by GROW; the same barycentrics on the ungrown corners map a hit in the lip
+    // onto the quad's edge texel, as `vs` keeps `local` ungrown (a grown lip's fract wraps to the far edge)
+    let local = quad_corner(q, tri, 0.0) * (1.0 - bc.x - bc.y) + quad_corner(q, tri + 1u, 0.0) * bc.x + quad_corner(q, tri + 2u, 0.0) * bc.y;
     let dir = (q.x >> 28u) & 7u;
     let a = dir / 2u;
     let sgn = select(1.0, -1.0, (dir & 1u) == 1u);
@@ -741,7 +745,8 @@ fn fdiv(a: i32, b: i32) -> i32 { return (a - select(0, b - 1, a < 0)) / b; }
 // a hole of the leaves pattern at texel ti of face dir of the block at cell (ADR 0069, studio `pattern::hole`):
 // hashed by the texel's place on the face's plane, so the two faces between neighbouring leaf blocks agree
 fn leaf_hole(look: Look, dir: u32, cell: vec3i, ti: vec2i) -> bool {
-    if ((look.info & 255u) != LEAVES) { return false; }
+    // flat colours: one texel a face, never a hole (a face whose middle is a hole would be all hole colour)
+    if ((look.info & 255u) != LEAVES || (g.opt.x & 4u) != 0u) { return false; }
     let a = dir / 2u;
     let s = max(i32(look.size & 255u), 1);
     let pu = cell[(a + 1u) % 3u] * 16 + ti.x;

@@ -411,11 +411,8 @@ impl Textures {
             return;
         }
         let open = self.file(self.face);
-        if see == See::Opaque {
-            let others: Vec<String> = (0..4).flat_map(|q| (0..4).map(move |f| (q, f))).map(|(q, f)| art::season_file(&self.block, f, q)).filter(|n| *n != open && app.docs.get(n).is_some_and(|d| d.img.holes())).collect();
-            if !others.is_empty() {
-                return app.refuse(format!("Opaque: {} {} empty pixels; fill them first (Fill on an empty pixel), only the open face's are filled for you", others.join(", "), if others.len() == 1 { "has" } else { "have" }));
-            }
+        if see == See::Opaque && !self.may_be_opaque(app) {
+            return;
         }
         if !self.write_kind(app, see) {
             return;
@@ -441,18 +438,40 @@ impl Textures {
         }
     }
 
+    /// Whether the block may become opaque: no file but the open face's has empty pixels (refused by name if not,
+    /// so an undo or a click never leaves a file the game would refuse).
+    fn may_be_opaque(&self, app: &mut App) -> bool {
+        let open = self.file(self.face);
+        let others: Vec<String> = (0..4).flat_map(|q| (0..4).map(move |f| (q, f))).map(|(q, f)| art::season_file(&self.block, f, q)).filter(|n| *n != open && app.docs.get(n).is_some_and(|d| d.img.holes())).collect();
+        if !others.is_empty() {
+            app.refuse(format!("Opaque: {} {} empty pixels; fill them first (Fill on an empty pixel), only the open face's are filled for you", others.join(", "), if others.len() == 1 { "has" } else { "have" }));
+        }
+        others.is_empty()
+    }
+
     /// One undo (or redo) of the open face, a kind step writing the kind back; whether there was one.
     fn step(&mut self, app: &mut App, undo: bool) -> bool {
         let other = |s: See| if s == See::Cutout { See::Opaque } else { See::Cutout };
-        let Some(d) = app.docs.get_mut(&self.file(self.face)) else {
+        let Some(d) = app.docs.get(&self.file(self.face)) else {
             // no file of its own: the page's kind steps
+            let from = if undo { &self.kinds.0 } else { &self.kinds.1 };
+            let Some(&(_, see)) = from.iter().rev().find(|(b, _)| *b == self.block) else { return false };
+            let to_see = if undo { other(see) } else { see };
+            if to_see == See::Opaque && !self.may_be_opaque(app) {
+                return true;
+            }
             let (from, to) = if undo { (&mut self.kinds.0, &mut self.kinds.1) } else { (&mut self.kinds.1, &mut self.kinds.0) };
             let Some((b, see)) = from.pop_if(|(b, _)| *b == self.block) else { return false };
             to.push((b, see));
-            self.write_kind(app, if undo { other(see) } else { see });
+            self.write_kind(app, to_see);
             return true;
         };
         let name = if undo { d.hist.undo.last() } else { d.hist.redo.last() }.map(|s| s.name.clone());
+        // a kind step to opaque is refused while another file has empty pixels
+        if name.as_deref().and_then(|n| n.strip_prefix("Kind: ")).is_some_and(|k| (k == "cutout") == undo) && !self.may_be_opaque(app) {
+            return true;
+        }
+        let Some(d) = app.docs.get_mut(&self.file(self.face)) else { return false };
         let done = if undo { d.hist.undo(&mut d.img) } else { d.hist.redo(&mut d.img) };
         self.variant = self.variant.min(d.img.variants() - 1);
         if let Some(k) = name.as_deref().and_then(|n| n.strip_prefix("Kind: ")) {
@@ -1633,7 +1652,7 @@ impl Page for Textures {
                 for (see, name, what) in KINDS {
                     let r = look::chip(ui, kind == see, name);
                     crate::drive::mark(ui.ctx(), format!("kind:{}", name.to_lowercase()), r.rect);
-                    let help = if see == See::Cutout { format!("{what} Writes see = \"cutout\" to its row in data/blocks.toml; one undo step") } else { format!("{what} Drops see from its row in data/blocks.toml; the open face's empty pixels are filled with its mean colour; one undo step") };
+                    let help = if see == See::Cutout { format!("{what} Writes see = \"cutout\" to its row in data/blocks.toml; one undo step. The game and this view take a new kind after a rebuild (blocks.toml is built in)") } else { format!("{what} Drops see from its row in data/blocks.toml; the open face's empty pixels are filled with its mean colour; one undo step. The game and this view take a new kind after a rebuild (blocks.toml is built in)") };
                     if look::tip(r, &help, "").clicked() {
                         pick = Some(see);
                     }
