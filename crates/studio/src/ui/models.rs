@@ -938,9 +938,11 @@ impl Models {
                         for n in voxel::NORMALS {
                             let q = voxel::face_quad(c, n).map(|v| pose.transform_point3(v));
                             if pose.transform_vector3(n.as_vec3()).dot(eye - (q[0] + q[2]) / 2.0) > 0.0 {
-                                poly(q, Color32::from_rgba_unmultiplied(r, g, b, 130), Stroke::new(1.0, Color32::from_rgb(r, g, b)));
+                                poly(q, Color32::from_rgba_unmultiplied(r, g, b, 150), Stroke::NONE);
                             }
                         }
+                        // its outline light, so a colour like the ground's still shows
+                        cube(pose, c.as_vec3(), c.as_vec3() + 1.0, Stroke::new(1.5, Color32::from_white_alpha(210)));
                     }
                     // the voxel a right click removes, outlined red
                     for c in remove.map_or(vec![], twins) {
@@ -1404,7 +1406,8 @@ impl Page for Models {
         v.push(Cmd::new("layer.down", "Layer down", "layer mode's plane a row down (turns layer mode on)").key(Modifiers::NONE, Key::PageDown));
         v.push(Cmd::new("edges", "Edges on or off", "thin dark lines between voxels, so a face of one colour still reads as voxels"));
         v.push(Cmd::new("sel.none", "Select nothing", "drop the selection").key(Modifiers::NONE, Key::Escape));
-        for (k, (id, name, ..)) in VIEWS.iter().enumerate() {
+        // (the first key that matches runs, and a plain key matches with Shift held too: the Shift views first)
+        for (k, (id, name, ..)) in VIEWS.iter().enumerate().rev() {
             let key = [Key::Num1, Key::Num3, Key::Num7][k / 2];
             let mods = if k % 2 == 0 { Modifiers::NONE } else { Modifiers::SHIFT };
             v.push(Cmd::new(format!("view:{id}"), format!("View from the {}", name.to_lowercase()), "look at the model from that side (the view cube's face)").key(mods, key));
