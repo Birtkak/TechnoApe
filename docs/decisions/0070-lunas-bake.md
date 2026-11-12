@@ -159,6 +159,7 @@ standing on it the gain is 1. Nothing else changes: Luna's size, its phases, the
 | A lunar month at one hour (`out/moon/lunar-month.png`, old over new, a day a frame) | the phases keep their shape; luma 115 to 139 old, 231 to 252 new on the 7 nights it is up; the other 9 days, ground, the same |
 | Luna from its low orbit, and Terra from Luna's ground | the same as main's code: 0.31 % and 0.0 % of pixels differ by more than 8 of 255, as two runs of one binary do (0.42 %); mean luma 32.02 both |
 | GPU, `quick=1`, three runs each, old and new in turn: `stand` / `stand` at a full moon / `orbit` | p50 1.305 / 1.190 / 1.461 ms old, 1.318 / 1.184 / 1.397 new; p99 the same to 0.01 ms. One uniform branch and a smoothstep per sunlit pixel; no CPU change |
+| `tools/check.sh fast` (2026-11-12, while other sessions' `rustc` builds ran) | tests, soak (hash 7545fc98b1733f22), replay and feel pass; 0 cracks in every view. Failed: the season-autumn and season-winter views (3.2 and 15.8 % off), and the speed guard on stand, fly and sim (mesh jobs 3 to 8 times the baseline). The winter view run again: 30 % off once on this binary, then 0.036 and 0.031 %, and 0.030 to 0.035 % on main's code: the winter's frost sometimes comes late under load, not from this change. The speed guard wants a quiet PC |
 | Review | a fresh reviewer: no defect. Notes left: the ambient term and the metal glint are not raised, so Luna's contrast grows a little; a bright rock could clip to white (the post pass's shoulder rolls it off) |
 
 ## Consequences
