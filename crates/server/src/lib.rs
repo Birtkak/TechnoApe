@@ -73,6 +73,28 @@ const CHAT_MAX: usize = 256;
 /// The fastest time warp: the 54-day year in about 6 s.
 const MAX_WARP: u64 = 10_000;
 
+/// The cell of WATER_RANGE a water tile's centre (or a client) is in.
+fn cell(at: DVec3) -> glam::IVec3 {
+    (at / WATER_RANGE).floor().as_ivec3()
+}
+
+/// The water tiles a client at `me` lacks (it has `have`), within WATER_RANGE, nearest first. Every tile in
+/// range lies in the 27 cells around the client's, as a cell is WATER_RANGE wide.
+fn wanted(tiles: &FxMap<Col, (u64, DVec3)>, near: &FxMap<glam::IVec3, Vec<Col>>, me: DVec3, have: &FxMap<Col, u64>) -> Vec<(u64, Col)> {
+    let c = cell(me);
+    let cells = (-1..=1).flat_map(|x| (-1..=1).flat_map(move |y| (-1..=1).map(move |z| c + glam::IVec3::new(x, y, z))));
+    let mut want: Vec<(u64, Col)> = cells
+        .filter_map(|k| near.get(&k))
+        .flatten()
+        .map(|t| (t, &tiles[t]))
+        .filter(|(t, (v, _))| have.get(t).is_none_or(|s| s < v))
+        .map(|(t, (_, at))| ((at.distance(me) * 16.0) as u64, *t))
+        .filter(|(d, _)| (*d as f64) < WATER_RANGE * 16.0)
+        .collect();
+    want.sort_unstable();
+    want
+}
+
 /// What a save keeps of a connected player.
 fn saved(c: &Client) -> Saved {
     let inv = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u8, *n)).collect();
@@ -152,6 +174,10 @@ pub struct Server {
     pub water_bytes: u64,
     /// Every water tile that ever changed: the tick it last changed (its version) and its centre.
     tiles: FxMap<Col, (u64, DVec3)>,
+    /// The same tiles by the cell of WATER_RANGE their centre is in: a client looks only at the 27 cells
+    /// around its own, not at every tile that ever changed. shortcut: both only grow (a few dozen bytes a
+    /// tile); forget tiles back at their generated water when a long-running server's memory shows them.
+    near: FxMap<glam::IVec3, Vec<Col>>,
     /// When set, `run` adds every tick's length in ms (ADR 0025, S: the benchmark line's tick numbers).
     pub tick_ms: Option<std::sync::Arc<std::sync::Mutex<Vec<f32>>>>,
     /// The baked map as `ToClient::Map` pieces, made on the first request (18 MB for the 4 km planet).
@@ -202,6 +228,7 @@ impl Server {
             water_skipped: 0,
             water_bytes: 0,
             tiles: FxMap::default(),
+            near: FxMap::default(),
             tick_ms: None,
             map_pieces: None,
         }
@@ -1114,7 +1141,14 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
             let b = &self.world.bodies[t.body() as usize];
             let mid = (TILE as f64) * 0.5;
             let at = b.centre + b.dir(t.face() as usize, (t.i() * TILE) as f64 + mid, (t.j() * TILE) as f64 + mid) * b.radius;
-            self.tiles.entry(t).or_insert((0, at)).0 = self.tick + 1;
+            let near = &mut self.near;
+            self.tiles
+                .entry(t)
+                .or_insert_with(|| {
+                    near.entry(cell(at)).or_default().push(t);
+                    (0, at)
+                })
+                .0 = self.tick + 1;
         }
     }
 
@@ -1126,17 +1160,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         // what each client lacks, nearest first: a pass over every tile per client, so side by side when there
         // are many (in a game's own server the meshing fills rayon's pool, and one client needs no help)
         let seen: Vec<(DVec3, &FxMap<Col, u64>)> = self.clients.iter().map(|c| (DVec3::from_array(c.player.pos), &c.tiles)).collect();
-        let lacks = |(me, have): &(DVec3, &FxMap<Col, u64>)| {
-            let mut want: Vec<(u64, Col)> = self
-                .tiles
-                .iter()
-                .filter(|(t, (v, _))| have.get(t).is_none_or(|s| s < v))
-                .map(|(t, (_, at))| ((at.distance(*me) * 16.0) as u64, *t))
-                .filter(|(d, _)| (*d as f64) < WATER_RANGE * 16.0)
-                .collect();
-            want.sort_unstable();
-            want
-        };
+        let lacks = |(me, have): &(DVec3, &FxMap<Col, u64>)| wanted(&self.tiles, &self.near, *me, have);
         let wants: Vec<Vec<(u64, Col)>> = if seen.len() >= 8 { seen.par_iter().map(lacks).collect() } else { seen.iter().map(lacks).collect() };
         for (c, want) in self.clients.iter_mut().zip(wants) {
             if want.is_empty() {
@@ -2282,6 +2306,39 @@ mod tests {
         let want: Vec<String> = (0..1000).map(|k| format!("<?> {k}")).collect();
         assert_eq!(got, want);
         assert_eq!(s.tick, 1 + 1000_u64.div_ceil(MSGS_PER_TICK as u64));
+    }
+
+    /// The water tiles a client lacks, found from the cells near it, are the old scan over every tile's:
+    /// on a random set of tiles, versions, places and what each client has.
+    #[test]
+    fn water_wanted_from_near_cells_equals_the_scan_of_every_tile() {
+        let (mut s, _links) = server_with(0);
+        let mut r = 12345u64;
+        let mut rnd = |n: u64| {
+            r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (r >> 33) % n
+        };
+        for t in 0..20 {
+            s.tick = t;
+            let cols: Vec<Col> = (0..200).map(|_| Col::new(0, rnd(6) as u8, rnd(256) as i32, rnd(256) as i32)).collect();
+            s.water_changed(&cols);
+        }
+        let all: Vec<(Col, (u64, DVec3))> = s.tiles.iter().map(|(t, v)| (*t, *v)).collect();
+        for _ in 0..50 {
+            let (_, (_, at)) = all[rnd(all.len() as u64) as usize];
+            let me = at + DVec3::new(rnd(200) as f64, rnd(200) as f64, rnd(200) as f64) - DVec3::splat(100.0);
+            let have: FxMap<Col, u64> = all.iter().filter_map(|(t, _)| (rnd(3) == 0).then_some(*t)).collect::<Vec<_>>().into_iter().map(|t| (t, rnd(22))).collect();
+            // the old scan: every tile, nearest first
+            let mut old: Vec<(u64, Col)> = all
+                .iter()
+                .filter(|(t, (v, _))| have.get(t).is_none_or(|s| s < v))
+                .map(|(t, (_, at))| ((at.distance(me) * 16.0) as u64, *t))
+                .filter(|(d, _)| (*d as f64) < WATER_RANGE * 16.0)
+                .collect();
+            old.sort_unstable();
+            assert!(!old.is_empty());
+            assert_eq!(wanted(&s.tiles, &s.near, me, &have), old);
+        }
     }
 
     #[test]
