@@ -607,13 +607,20 @@ impl Body {
         // built outside the lock; two workers may build the same tile, the result is the same
         let tile = Arc::new(self.build_tile(face as usize, level, x, y));
         let mut m = self.tiles.map.lock().unwrap();
+        let mut gone = Vec::new();
         if m.len() >= HEIGHT_TILES {
+            // the cut is chosen, and the old tiles freed, outside the lock: the frame thread's physics takes it
+            // per column
             let mut ages: Vec<u64> = m.values().map(|e| e.1).collect();
+            drop(m);
             let mid = ages.len() / 2;
             let cut = *ages.select_nth_unstable(mid).1;
-            m.retain(|_, e| e.1 > cut);
+            m = self.tiles.map.lock().unwrap();
+            gone.extend(m.extract_if(|_, e| e.1 <= cut));
         }
         m.insert(k, (tile.clone(), now));
+        drop(m);
+        drop(gone);
         tile
     }
     fn build_tile(&self, face: usize, level: u8, x: i32, y: i32) -> HeightTile {
@@ -1496,6 +1503,26 @@ mod tests {
         let (i, j) = (5 * CS + 7, 9 * CS + 30);
         assert_eq!(b.col_height(2, i, j).to_bits(), b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)).to_bits());
         assert_eq!(b.col_height(3, i, j).to_bits(), b.height(b.dir(3, i as f64 + 0.5, j as f64 + 0.5)).to_bits());
+    }
+
+    /// A full height cache keeps the younger half: the tiles used after the median age, and the new one.
+    #[test]
+    fn a_full_height_cache_keeps_the_younger_half() {
+        let b = Body::new(DVec3::ZERO, 1536, 7);
+        let t = b.tile(0, 0, 0, 0);
+        let age = |i: usize| (i as u64 * 7919) % HEIGHT_TILES as u64; // every age once, shuffled
+        let keys: Vec<(u8, u8, i32, i32)> = (0..HEIGHT_TILES).map(|i| (0, 0, (i % 64) as i32, (i / 64) as i32)).collect();
+        *b.tiles.map.lock().unwrap() = keys.iter().enumerate().map(|(i, k)| (*k, (t.clone(), age(i)))).collect();
+        b.tile(1, 0, 0, 0);
+        let mut sorted: Vec<u64> = (0..HEIGHT_TILES).map(age).collect();
+        sorted.sort();
+        let cut = sorted[HEIGHT_TILES / 2];
+        let mut want: Vec<(u8, u8, i32, i32)> = keys.iter().enumerate().filter(|(i, _)| age(*i) > cut).map(|(_, k)| *k).collect();
+        want.push((1, 0, 0, 0));
+        want.sort();
+        let mut got: Vec<(u8, u8, i32, i32)> = b.tiles.map.lock().unwrap().keys().copied().collect();
+        got.sort();
+        assert_eq!(got, want);
     }
 
     /// On the 4 km planet a height a hair from a layer's centre, or from the top block's or the band's floor, is
