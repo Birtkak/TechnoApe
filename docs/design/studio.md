@@ -112,7 +112,7 @@ The developer's call (2026-11-11): everything is painted from one set of game co
   palette, not the colour). A colour still in use cannot be removed.
 - `check=1` refuses a texture with a pixel that is not in the palette and names the file and the pixel, so a
   PNG from another paint program is held to the same rule.
-- How many colours is the developer's to grow; a model file's letters allow 255.
+- How many colours is the developer's to grow: the palette has no limit; one model holds at most 62 of them (a letter each).
 
 ## Drafts
 `data/drafts.txt` lists the art files Claude made. The Studio marks them in its file list and takes a file
@@ -296,7 +296,7 @@ The developer, with the merged Studio open: "the blue box indicating parts is no
 "for making small models like saplings, leaves, pebbles it's too limiting with the bigger voxels or not being
 able to put a pattern on a voxel"; "colours for textures feel limited". Two calls made the same evening:
 **fine voxels per model** (not pattern materials on voxels) and **the one palette stays and grows in place**
-(not a free colour picker). Not built yet; steps 7 and 8 continue the usability round's numbering.
+(not a free colour picker). Step 8 is built (ADR 0080); steps 7 and 8 continue the usability round's numbering.
 
 ### 6. The part box and the edge lines sit on the model (bug)
 On `snake` (a chain of four parts, tail selected) and on `leaf` (one part with `at` and a pivot, a Spin clip)
@@ -348,10 +348,17 @@ changing a colour repaints everything that uses it); adding becomes one click.
   warmer), shown before Use, named after the colour. The new shades join the colour's ramp, so Shade and the
   patterns' "auto" second and third colours use them at once.
 - **Finding a colour as the palette grows:** swatches stay grouped by ramp, a search box filters by name, and
-  the count is shown ("112 of 255": a model file's letters allow 255 colours; the Studio warns near the end).
+  the count is shown (one model holds at most 62 colours, a letter each; the Studio warns near the end).
 
 Done when a `drive` script adds a colour and a ramp from the Textures page, paints with them, saves, and
 `check=1` passes; removing an unused colour and refusing a used one have tests.
+
+Built (ADR 0080), with one correction: "of 255" was not true. The palette has no limit (textures hold RGB,
+models name their colours); one model holds at most 62 colours, a letter each. The swatches show "N colours"
+with that in the tip, and the Models page "This model: k of 62 colours", amber near the end. In use, for
+Remove, now also means a saved model file that names the colour. The same round gave the Models and Sounds
+pages the recovery file the Textures page has (unsaved models and rows kept every few seconds, offered back
+after a crash, cleared on save or a clean close).
 
 ## Left out on purpose
 Import of outside sound files is in since 2026-11-12 (above). Import and export of other tools' formats, sculpting, bones and bending meshes, textures on models (a

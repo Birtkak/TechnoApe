@@ -594,7 +594,7 @@ impl Textures {
         if let Some(k) = pp.well {
             ui.label(RichText::new(format!("Now click a colour for the {} well, here or under Colours on the right", ["base", "second", "third"][k])).color(look::ACCENT));
             let (mut a, mut b) = (cs[k], cs[k]);
-            if let Some(c) = swatches(ui, &pal, &mut a, &mut b) {
+            if let Some(c) = swatches(ui, "well", &pal, &mut a, &mut b) {
                 pp.recipe.colours[k] = Some(c);
                 pp.well = None;
             }
@@ -1070,7 +1070,7 @@ impl Textures {
 
     fn palette(&mut self, ui: &mut Ui, app: &App) {
         let before = self.first;
-        let clicked = palette_picker(ui, &app.pal, &mut self.first, &mut self.second);
+        let clicked = palette_picker(ui, "textures", &app.pal, &mut self.first, &mut self.second);
         // a well of the pattern panel waiting for a colour takes the click instead of the first colour
         if let (Some(c), Some(pp)) = (clicked, self.pat.as_mut()) {
             if let Some(k) = pp.well.take() {
@@ -1786,7 +1786,8 @@ pub fn colour_name(pal: &Palette, c: [u8; 3]) -> String {
 /// The two colours and the palette's ramps as rows (the loose colours last): left click takes the first colour,
 /// right click the second. Every page that paints with the palette shows this one.
 /// The colour a left click took, if one did.
-pub fn palette_picker(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &mut [u8; 3]) -> Option<[u8; 3]> {
+/// `key` names the page, for its own search and "+" (`grow.rs`).
+pub fn palette_picker(ui: &mut Ui, key: &str, pal: &Palette, first: &mut [u8; 3], second: &mut [u8; 3]) -> Option<[u8; 3]> {
     ui.horizontal(|ui| {
         for (k, c) in [(0, *first), (1, *second)] {
             let (r, resp) = ui.allocate_exact_size(Vec2::new(36.0, 36.0), Sense::hover());
@@ -1800,18 +1801,23 @@ pub fn palette_picker(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &
         });
     });
     ui.add_space(GAP * 0.5);
-    swatches(ui, pal, first, second)
+    swatches(ui, key, pal, first, second)
 }
 
 /// The palette's swatches alone, the ramps as rows, the loose colours last: left click takes the first colour
-/// (and is returned), right click the second.
-pub fn swatches(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &mut [u8; 3]) -> Option<[u8; 3]> {
+/// (and is returned), right click the second. `key` names the place for the search and the "+" (`grow.rs`).
+pub fn swatches(ui: &mut Ui, key: &str, pal: &Palette, first: &mut [u8; 3], second: &mut [u8; 3]) -> Option<[u8; 3]> {
     let mut clicked = None;
-    // the ramps as rows, the loose colours last
+    let q = super::grow::search(ui, key, pal);
+    // the ramps as rows, the loose colours last; under a search only the colours it finds
     let mut rows: Vec<Vec<usize>> = pal.ramps().into_iter().map(|(_, v)| v).collect();
     let loose: Vec<usize> = (0..pal.colours.len()).filter(|&i| pal.colours[i].ramp.is_none()).collect();
     if !loose.is_empty() {
         rows.push(loose);
+    }
+    let rows: Vec<Vec<usize>> = rows.into_iter().map(|r| r.into_iter().filter(|&i| super::grow::shown(pal, i, &q)).collect::<Vec<_>>()).filter(|r| !r.is_empty()).collect();
+    if rows.is_empty() {
+        look::weak(ui, format!("No colour is called '{q}'"));
     }
     let size = 24.0;
     ui.spacing_mut().item_spacing = Vec2::splat(3.0);
@@ -1856,7 +1862,8 @@ pub fn swatches(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &mut [u
             }
         });
     }
-    clicked
+    // the palette grows here: a new colour is taken as a click would
+    super::grow::grow(ui, key, pal, first).or(clicked)
 }
 
 #[cfg(test)]

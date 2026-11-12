@@ -63,6 +63,8 @@ pub struct PalettePage {
     hist: History<(String, bool)>,
     /// The palette file's text as this page last wrote it: an undo over other changes on disk is refused.
     wrote: Option<String>,
+    /// The chosen colour's users as last read: (when, its name, the files).
+    seen: Option<(f64, String, Vec<String>)>,
 }
 
 /// Why an undo or redo from palette `now` back to `back` is refused: the file on disk is not what the page last
@@ -75,6 +77,31 @@ fn refusal(disk: &str, wrote: Option<&str>, now: &Palette, back: &Palette, uses:
         let used = uses(c.rgb);
         (!used.is_empty()).then(|| format!("Not undone: it removes {}, which {} use(s): repaint them first", c.name, used.join(", ")))
     })
+}
+
+/// Removes colour `name` unless a file uses it (`used`: the files that do); the refusal says how many.
+fn remove_colour(pal: &mut Palette, name: &str, used: &[String]) -> Result<Colour, String> {
+    let i = pal.colours.iter().position(|c| c.name == name).ok_or(format!("there is no colour '{name}' in the palette"))?;
+    if !used.is_empty() {
+        return Err(format!("{name} is not removed: {} file(s) use it ({}); repaint them first", used.len(), used.join(", ")));
+    }
+    Ok(pal.colours.remove(i))
+}
+
+/// The model files in `dir` whose `colours` name `name` (a model holds its colours by name).
+fn models_using(dir: &std::path::Path, name: &str) -> Vec<String> {
+    let want = [format!("\"{name}\""), format!("'{name}'")];
+    let mut v: Vec<String> = std::fs::read_dir(dir).into_iter().flatten().flatten().filter_map(|e| {
+        let n = e.file_name().into_string().ok().filter(|n| n.ends_with(".toml"))?;
+        let text = std::fs::read_to_string(e.path()).ok()?;
+        // the `colours = [...]` list, to its closing bracket
+        let at = text.lines().position(|l| l.trim_start().strip_prefix("colours").is_some_and(|r| r.trim_start().starts_with('=')))?;
+        let list: String = text.lines().skip(at).collect::<Vec<_>>().join("\n");
+        let list = &list[..list.find(']').unwrap_or(list.len())];
+        want.iter().any(|w| list.contains(w.as_str())).then(|| format!("{}/{n}", super::models::MODELS))
+    }).collect();
+    v.sort();
+    v
 }
 
 impl PalettePage {
@@ -94,6 +121,7 @@ impl PalettePage {
             mood: [0.0; 3],
             hist: History::default(),
             wrote: None,
+            seen: None,
         };
         p.select(app, 0);
         p
@@ -165,9 +193,24 @@ impl PalettePage {
         true
     }
 
+    /// `uses` of the chosen colour for the inspector, drawn every frame: the model files are read again at most
+    /// once a second (and at once for another colour).
+    fn uses_shown(&mut self, app: &App) -> Vec<String> {
+        let c = &app.pal.colours[self.sel];
+        if self.seen.as_ref().is_none_or(|(t, n, _)| n != &c.name || app.now - t >= 1.0) {
+            self.seen = Some((app.now, c.name.clone(), Self::uses(app, c.rgb)));
+        }
+        self.seen.as_ref().unwrap().2.clone()
+    }
+
+    /// The texture files and saved model files that use a colour.
     fn uses(app: &App, rgb: [u8; 3]) -> Vec<String> {
-        // shortcut: textures only, as `remove` checks; a model's colours are by name and not looked at here
-        app.docs.iter().filter(|(_, d)| d.img.uses(rgb) || d.saved.as_ref().is_some_and(|s| s.uses(rgb))).map(|(n, _)| n.clone()).collect()
+        let mut v: Vec<String> = app.docs.iter().filter(|(_, d)| d.img.uses(rgb) || d.saved.as_ref().is_some_and(|s| s.uses(rgb))).map(|(n, _)| n.clone()).collect();
+        // shortcut: models as saved on disk; an unsaved model's new colour is not seen (its save then refuses, nothing lost)
+        if let Some(c) = app.pal.colours.iter().find(|c| c.rgb == rgb) {
+            v.extend(models_using(std::path::Path::new(super::models::MODELS), &c.name));
+        }
+        v
     }
 
     /// Repaints every texture, in memory and on disk, by (old, new) colour pairs at once.
@@ -243,20 +286,46 @@ impl PalettePage {
                 rgb[1] = rgb[1].wrapping_add(1);
             }
         }
-        app.pal.colours.push(Colour::new(name, rgb));
-        self.select(app, app.pal.colours.len() - 1);
-        self.save(app, false, "Add");
+        self.add_named(app, &name, rgb, "Add");
     }
 
-    fn remove(&mut self, app: &mut App) {
-        let Some(c) = app.pal.colours.get(self.sel) else { return };
-        if !Self::uses(app, c.rgb).is_empty() {
-            return app.refuse(format!("{} is in use: repaint those files first", c.name));
+    /// A new colour at the end of the palette (the "+" where the swatches are: `add:<name>=#rrggbb`), one undo
+    /// step named `step`.
+    fn add_named(&mut self, app: &mut App, name: &str, rgb: [u8; 3], step: &str) {
+        if let Err(e) = app.pal.check(name, rgb, None) {
+            return app.refuse(e);
         }
-        let c = app.pal.colours.remove(self.sel);
-        self.select(app, self.sel);
-        app.toast(format!("Removed {}", c.name));
-        self.save(app, false, "Remove");
+        app.pal.colours.push(Colour::new(name, rgb));
+        self.select(app, app.pal.colours.len() - 1);
+        app.toast(format!("Added {name} to the palette"));
+        self.save(app, false, step);
+    }
+
+    fn remove(&mut self, app: &mut App, step: &str) {
+        let Some(c) = app.pal.colours.get(self.sel).cloned() else { return };
+        let used = Self::uses(app, c.rgb);
+        match remove_colour(&mut app.pal, &c.name, &used) {
+            Ok(_) => {
+                self.select(app, self.sel);
+                app.toast(format!("Removed {}", c.name));
+                self.save(app, false, step);
+            }
+            Err(e) => app.refuse(e),
+        }
+    }
+
+    /// "Add shades" of colour `i` (`ramp::shades`).
+    fn add_shades(&mut self, app: &mut App, i: usize) {
+        match ramp::shades(&app.pal, i) {
+            Ok((pal, added)) => {
+                app.pal = pal;
+                let at = app.pal.colours.iter().position(|c| c.name == added[0]).unwrap_or(0);
+                self.select(app, at);
+                app.toast(format!("Added the shades {}", added.join(", ")));
+                self.save(app, false, &format!("Add shades of {}", app.pal.colours.get(i).map_or("", |c| c.name.as_str())));
+            }
+            Err(e) => app.refuse(e),
+        }
     }
 
     /// Opens "Make a ramp": around the chosen colour for a new one, or around the open ramp's middle to recolour it.
@@ -507,7 +576,7 @@ impl PalettePage {
                     self.flush(app);
                 }
             }
-            let uses = Self::uses(app, app.pal.colours[self.sel].rgb);
+            let uses = self.uses_shown(app);
             ui.add_space(GAP * 0.5);
             ui.label(RichText::new(format!("Used by {} file(s)", uses.len())).small());
             for u in &uses {
@@ -519,8 +588,8 @@ impl PalettePage {
                     self.add(app);
                 }
                 let r = ui.add_enabled(uses.is_empty(), egui::Button::new("Remove"));
-                if look::tip(r, "Remove the colour; greyed while a texture uses it", "").clicked() {
-                    self.remove(app);
+                if look::tip(r, "Remove the colour; greyed while a texture or a model uses it", "").clicked() {
+                    self.remove(app, "Remove");
                 }
             });
         }
@@ -637,7 +706,7 @@ impl Page for PalettePage {
     fn run(&mut self, app: &mut App, id: &str) {
         match id {
             "colour.add" => self.add(app),
-            "colour.remove" => self.remove(app),
+            "colour.remove" => self.remove(app, "Remove"),
             "ramp.make" => self.start_ramp(app, false),
             "ramp.recolour" if self.ramp.is_some() => self.start_ramp(app, true),
             "ramp.recolour" => app.toast("Choose a colour of a ramp first"),
@@ -646,6 +715,28 @@ impl Page for PalettePage {
             "mood.apply" => self.apply_mood(app),
             "undo" | "redo" => {
                 self.step(app, id == "undo");
+            }
+            // what the swatches on other pages send (`grow.rs`): by name, never by place; their Undo undoes
+            // only the step they made, not a later one
+            _ if id.starts_with("undo:") => match self.hist.undo.last().map(|s| s.name.clone()) {
+                Some(n) if n == id[5..] => {
+                    self.step(app, true);
+                }
+                n => app.refuse(format!("Not undone: the palette's last change is {}", n.map_or("none".into(), |n| format!("'{n}' (the Palette page's history has them all)")))),
+            },
+            _ if id.starts_with("add:") => match id[4..].rsplit_once('=').map(|(n, h)| (n, hex(h))) {
+                Some((n, Some(rgb))) => self.add_named(app, n, rgb, &format!("Add {n}")),
+                _ => app.refuse(format!("not a colour: {id}")),
+            },
+            _ if id.starts_with("remove:") || id.starts_with("shades:") => {
+                let name = &id[id.find(':').unwrap() + 1..];
+                let Some(i) = app.pal.colours.iter().position(|c| c.name == name) else { return app.refuse(format!("there is no colour '{name}' in the palette")) };
+                self.select(app, i);
+                if id.starts_with("remove:") {
+                    self.remove(app, &format!("Remove {name}"));
+                } else {
+                    self.add_shades(app, i);
+                }
             }
             _ => {
                 // `mood=w,s,l` sets the sliders (for shots)
@@ -755,5 +846,29 @@ mod tests {
         assert!(why.contains("new 1") && why.contains("dirt.png"), "{why}");
         // the other way (a colour comes back) takes nothing away
         assert_eq!(refusal("x", Some("x"), &back, &now, |_| vec!["dirt.png".into()]), None);
+    }
+
+    #[test]
+    fn an_unused_colour_is_removed_and_a_used_one_refused_with_its_count() {
+        let mut pal = Palette::parse("[[colour]]\nname = \"a\"\nrgb = \"#102030\"\n\n[[colour]]\nname = \"b\"\nrgb = \"#405060\"\n").unwrap();
+        let why = remove_colour(&mut pal, "a", &["dirt.png".into(), "models/post.toml".into()]).unwrap_err();
+        assert!(why.contains("2 file(s)") && why.contains("dirt.png"), "{why}");
+        assert_eq!(pal.colours.len(), 2, "nothing removed");
+        assert_eq!(remove_colour(&mut pal, "b", &[]).unwrap().name, "b");
+        assert_eq!(pal.colours.len(), 1);
+        assert!(remove_colour(&mut pal, "b", &[]).is_err(), "gone already");
+        // a model names its colours: removing one it names would break it
+        let dir = std::env::temp_dir().join(format!("technoape-palette-uses-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("post.toml"), "# a post of stone\ncolours = [\"stone\", \"stone dark\"]\n[[part]]\nname = \"a\"\n").unwrap();
+        std::fs::write(dir.join("other.txt"), "colours = [\"stone\"]").unwrap();
+        std::fs::write(dir.join("tuft.toml"), "colours_note = [\"moss\"]\ncolours = ['moss']\n").unwrap();
+        assert_eq!(models_using(&dir, "moss"), ["data/models/tuft.toml"], "single quotes, and only the key colours");
+        assert_eq!(models_using(&dir, "stone dark"), ["data/models/post.toml"]);
+        assert_eq!(models_using(&dir, "stone"), ["data/models/post.toml"]);
+        assert!(models_using(&dir, "a").is_empty(), "a part's name is no colour");
+        assert!(models_using(&dir, "dark").is_empty(), "whole names only");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

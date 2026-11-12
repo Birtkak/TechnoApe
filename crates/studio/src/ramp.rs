@@ -36,7 +36,6 @@ pub fn rgb([h, s, v]: [f32; 3]) -> [u8; 3] {
 }
 
 /// How light a colour looks, 0..1 (Rec. 601 weights on the sRGB bytes; enough to order a ramp).
-#[cfg(test)]
 pub fn luma(c: [u8; 3]) -> f32 {
     (0.299 * c[0] as f32 + 0.587 * c[1] as f32 + 0.114 * c[2] as f32) / 255.0
 }
@@ -155,6 +154,64 @@ pub fn set(pal: &mut Palette, ramp: &str, colours: &[[u8; 3]]) -> Result<Vec<([u
     Ok(pairs)
 }
 
+/// "Add shades" (studio.md step 8): the palette with four shades of colour `i` around it, two darker leaning
+/// cooler and two lighter leaning warmer (a ramp of five, `make`'s), named after it; they join its ramp, or a new
+/// ramp named after it, ordered dark to light. Also the names added.
+pub fn shades(pal: &Palette, i: usize) -> Result<(Palette, Vec<String>), String> {
+    let c = pal.colours.get(i).ok_or(format!("there is no colour {}", i + 1))?.clone();
+    let five = make(&RampSpec::new(c.rgb));
+    let mut new = [five[0], five[1], five[3], five[4]];
+    distinct(&mut new, &pal.colours.iter().map(|c| c.rgb).collect::<Vec<_>>());
+    let mut added: Vec<String> = vec![];
+    for w in ["darker", "dark", "light", "lighter"] {
+        let n = free(&format!("{} {w}", c.name), |n| pal.colours.iter().all(|c| c.name != n) && !added.iter().any(|a| a == n));
+        added.push(n);
+    }
+    let ramp = c.ramp.clone().unwrap_or_else(|| free(&c.name, |n| pal.ramp(n).is_empty()));
+    let mut next = pal.clone();
+    next.colours[i].ramp = Some(ramp.clone());
+    let run = next.ramp(&ramp);
+    let at = run[0];
+    let mut members: Vec<Colour> = run.iter().rev().map(|&k| next.colours.remove(k)).collect();
+    members.reverse();
+    // each new shade goes before the first colour lighter than it: the ramp's own order is kept
+    for (name, rgb) in added.iter().zip(new) {
+        next.check(name, rgb, None)?;
+        let k = members.iter().position(|m| luma(m.rgb) > luma(rgb)).unwrap_or(members.len());
+        members.insert(k, Colour { name: name.clone(), rgb, ramp: Some(ramp.clone()) });
+    }
+    next.colours.splice(at..at, members);
+    Ok((next, added))
+}
+
+/// `base`, else "base 2", "base 3", ...: the first that `ok` takes.
+fn free(base: &str, ok: impl Fn(&str) -> bool) -> String {
+    (1..).map(|k| if k == 1 { base.to_string() } else { format!("{base} {k}") }).find(|n| ok(n)).unwrap()
+}
+
+/// A name for a new colour: a plain word for its hue and lightness ("dark green", "pale blue"), free in `pal`.
+pub fn suggest(pal: &Palette, c: [u8; 3]) -> String {
+    let [h, s, v] = hsv(c);
+    let word = if s < 0.15 {
+        match v {
+            v if v < 0.15 => "black".to_string(),
+            v if v > 0.9 => "white".to_string(),
+            v if v < 0.35 => "dark grey".to_string(),
+            v if v > 0.75 => "light grey".to_string(),
+            _ => "grey".to_string(),
+        }
+    } else {
+        let deg = h * 360.0;
+        let hue = [(15.0, "red"), (40.0, "orange"), (65.0, "yellow"), (160.0, "green"), (195.0, "teal"), (255.0, "blue"), (290.0, "purple"), (340.0, "pink"), (361.0, "red")].into_iter().find(|(d, _)| deg < *d).map_or("red", |(_, n)| n);
+        match () {
+            _ if v < 0.4 => format!("dark {hue}"),
+            _ if s < 0.35 && v > 0.75 => format!("pale {hue}"),
+            _ => hue.to_string(),
+        }
+    };
+    free(&word, |n| pal.colours.iter().all(|c| c.name != n))
+}
+
 /// The mood sliders over the whole palette, each -1..1: warmer (+) or cooler, more saturated, lighter. The
 /// colours in the palette's order, every one still different.
 pub fn mood(pal: &Palette, warm: f32, sat: f32, light: f32) -> Vec<[u8; 3]> {
@@ -258,5 +315,44 @@ mod tests {
         d.sort();
         d.dedup();
         assert_eq!(d.len(), 4, "still four colours");
+    }
+
+    #[test]
+    fn shades_join_the_colours_ramp_dark_to_light() {
+        // a loose colour: a new ramp of five named after it, the colour at its middle
+        let mut pal = Palette { colours: vec![Colour::new("rust", [150, 70, 40]), Colour::new("moss", [60, 110, 40])] };
+        let (next, added) = shades(&pal, 0).unwrap();
+        assert_eq!(added, ["rust darker", "rust dark", "rust light", "rust lighter"]);
+        let run = next.ramp("rust");
+        assert_eq!(run.len(), 5);
+        let cs: Vec<[u8; 3]> = run.iter().map(|&k| next.colours[k].rgb).collect();
+        assert_eq!(cs[2], [150, 70, 40], "the colour itself in the middle");
+        assert!(cs.windows(2).all(|w| luma(w[0]) < luma(w[1])), "dark to light: {cs:?}");
+        assert!(hue_gap(hsv(cs[0])[0], COOL) < hue_gap(hsv(cs[2])[0], COOL), "darker leans cooler");
+        assert!(hue_gap(hsv(cs[4])[0], WARM) < hue_gap(hsv(cs[2])[0], WARM), "lighter leans warmer");
+        assert_eq!(next.step([150, 70, 40], -1), Some(cs[1]), "the Shade tool and auto colours walk the new ramp");
+        assert_eq!(next.colours.last().unwrap().name, "moss", "the other colours stay where they were");
+        assert!(Palette::parse(&next.write()).is_ok());
+        // a colour on a ramp: the shades join that ramp, names kept free
+        pal = next;
+        let (again, added) = shades(&pal, run[2]).unwrap();
+        assert_eq!(again.ramp("rust").len(), 9);
+        assert!(added.iter().all(|n| pal.colours.iter().all(|c| &c.name != n)), "fresh names: {added:?}");
+        let run: Vec<[u8; 3]> = again.ramp("rust").iter().map(|&k| again.colours[k].rgb).collect();
+        assert!(run.windows(2).all(|w| luma(w[0]) <= luma(w[1])), "still dark to light: {run:?}");
+        assert!(Palette::parse(&again.write()).is_ok());
+        assert!(shades(&pal, 99).is_err());
+    }
+
+    #[test]
+    fn a_new_colour_gets_a_plain_free_name() {
+        let pal = Palette { colours: vec![Colour::new("green", [40, 160, 40])] };
+        assert_eq!(suggest(&pal, [40, 160, 40]), "green 2", "free in the palette");
+        assert_eq!(suggest(&pal, [30, 60, 160]), "blue");
+        assert_eq!(suggest(&pal, [20, 30, 90]), "dark blue");
+        assert_eq!(suggest(&pal, [200, 210, 250]), "pale blue");
+        assert_eq!(suggest(&pal, [128, 128, 128]), "grey");
+        assert_eq!(suggest(&pal, [10, 10, 10]), "black");
+        assert_eq!(suggest(&pal, [200, 60, 40]), "red");
     }
 }
