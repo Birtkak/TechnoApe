@@ -52,6 +52,7 @@ struct Bot {
     dam: Option<(Shape, u64)>,
     dams: u32,
     broken: u32,
+    heaps: u32,
 }
 
 /// A wet point of the baked map's rivers, the way across its channel there and its half width (m), or None
@@ -190,6 +191,22 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
         b.link.send(ToServer::Edit { seq, shape, material: stone });
         b.dam = Some((shape, s.tick + 120 + b.rng.next() % 240));
         b.dams += 1;
+    } else if (0.102..0.104).contains(&r) {
+        // a heap of sand or gravel beside the bot, in creative, and the ground dug out from under it at once:
+        // it falls into the hole and slides to its angle of rest (ADR 0079)
+        let feet = s.clients[me].phys.pos;
+        let fwd = phys::tangent(b.rng.dir(), phys::up(&s.world, feet), DVec3::X);
+        let at = s.world.block_at(feet + fwd * 3.0);
+        let m = BLOCKS.id(if b.rng.f() < 0.5 { "sand" } else { "gravel" });
+        let heap = Shape { min: at.pos - IVec3::new(1, 1, 0), max: at.pos + IVec3::new(1, 1, 2), ..Shape::one(at) };
+        let hole = Shape { min: at.pos - IVec3::new(1, 1, 3), max: at.pos + IVec3::new(1, 1, -1), ..Shape::one(at) };
+        b.link.send(ToServer::Creative(true));
+        let me = &s.clients[me].phys;
+        for (shape, m) in [(heap, m), (hole, 0)] {
+            let (seq, _) = b.pred.edit(&mut b.world, &shape, m, |w, c| phys::holds(w, me, c));
+            b.link.send(ToServer::Edit { seq, shape, material: m });
+        }
+        b.heaps += 1;
     }
 }
 
@@ -236,6 +253,9 @@ pub struct WaterStats {
     /// Dams bots built across rivers, and broke again (W5, ADR 0059).
     pub dams: u32,
     pub broken: u32,
+    /// Heaps of sand bots dug out from under (ADR 0079), and the blocks that fell or slid.
+    pub heaps: u32,
+    pub falls: u64,
 }
 
 /// Runs `ticks` ticks with the bots `which` (numbers into the seed's endless list of bots) on a planet of
@@ -268,7 +288,7 @@ pub fn run_warp(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Opt
             }
             // an empty input makes it a walker, as in the bot crate
             c.send(ToServer::Input(Input::default()));
-            Bot { rng: Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (k as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)), link: c, world: World::with_maps(planet_n, MOON_N, seed as i32, map.clone(), luna.clone()), pred: Predictor::default(), digging: None, dam: None, dams: 0, broken: 0 }
+            Bot { rng: Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (k as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)), link: c, world: World::with_maps(planet_n, MOON_N, seed as i32, map.clone(), luna.clone()), pred: Predictor::default(), digging: None, dam: None, dams: 0, broken: 0, heaps: 0 }
         })
         .collect();
     s.tick(); // everyone joins
@@ -326,6 +346,7 @@ pub fn run_warp(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Opt
         Ok(b) if b.snapshot() == snap && b.world.hash() == s.world.hash() => {
             (ws.skipped, ws.bytes) = (s.water_skipped, s.water_bytes);
             (ws.dams, ws.broken) = (bots.iter().map(|b| b.dams).sum(), bots.iter().map(|b| b.broken).sum());
+            (ws.heaps, ws.falls) = (bots.iter().map(|b| b.heaps).sum(), s.falls.moves);
             Ok((s.hash(), ws))
         }
         Ok(b) => {

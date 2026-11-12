@@ -90,6 +90,8 @@ struct Raw {
     #[serde(default)]
     loose: bool,
     #[serde(default)]
+    falls: bool,
+    #[serde(default)]
     soft: bool,
     model: Option<String>,
     #[serde(default)]
@@ -181,6 +183,8 @@ pub struct Def {
     /// Bare hands take it (dirt, sand, a lamp): dug in survival it goes into the inventory. A block that is
     /// not loose breaks by hand in its time but gives nothing (the tools that take it come later).
     pub loose: bool,
+    /// It falls when the cell under it opens and slides off a step of two (sand, gravel; ADR 0079).
+    pub falls: bool,
     /// Sound passes it without an echo (leaves, a shrub, reed): no wall to the cave reverb (ADR 0054).
     pub soft: bool,
     /// The model (`data/models/<model>.toml`, ADR 0047) drawn in its cell in place of the cube; the cell
@@ -298,7 +302,7 @@ impl Registry {
             if seasons.is_none() && r.stagger != 0.0 {
                 return Err(format!("block '{}': a stagger without a season", r.name));
             }
-            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger });
+            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, falls: r.falls, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger });
         }
         match &defs[0] {
             Some(d) if d.name == "air" && !d.solid => {}

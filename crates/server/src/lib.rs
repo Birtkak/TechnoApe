@@ -190,6 +190,8 @@ pub struct Server {
     air0: i128,
     /// Each ore body's blocks as generated: the ledger's opening (`ore_ledger`).
     pub ore_open: Vec<i64>,
+    /// Loose blocks awake to fall or slide (ADR 0079).
+    pub falls: engine::fall::Falls,
 }
 
 impl Server {
@@ -243,6 +245,7 @@ impl Server {
             tick_ms: None,
             map_pieces: HashMap::new(),
             ore_open,
+            falls: Default::default(),
         }
     }
 
@@ -251,6 +254,12 @@ impl Server {
         let mut s = Server::on_map(save.planet_n, save.moon_n, save.seed, save.map, save.luna, accept);
         for (b, m) in &save.edits {
             s.world.set_block(*b, *m);
+        }
+        // a block saved mid-fall, or over a hole it had not fallen into yet, carries on (ADR 0079)
+        for (b, m) in &save.edits {
+            if *m == AIR || BLOCKS.get(*m).is_some_and(|d| d.falls) {
+                s.falls.wake(&s.world, *b);
+            }
         }
         // the clock of the save's last step first (a save's tick is one past it): its water is restored at that
         // step's tide, and the next step retides exactly when the running world's did (ADR 0067)
@@ -684,6 +693,15 @@ impl Server {
         }
         for line in deaths {
             self.say(line);
+        }
+        // loose blocks wake where this tick's edits changed the world, then fall and slide (ADR 0079); never
+        // into a player
+        for (b, _) in &changed {
+            self.falls.wake(&self.world, *b);
+        }
+        if self.falls.awake() > 0 {
+            let held: std::collections::HashSet<Block> = self.clients.iter().flat_map(|c| phys::cells(&self.world, c.phys.pos)).collect();
+            self.falls.step(&mut self.world, self.tick, |_, b| held.contains(&b), &mut changed);
         }
         // water finds the new gaps of every column an edit changed, then flows: as many steps as the physics
         // took, fewer when that would spend more than WATER_BUDGET
@@ -1518,6 +1536,39 @@ mod tests {
         let d = b.dir(k.face as usize, k.pos.x as f64 + 0.5, k.pos.y as f64 + 0.5);
         let h = b.height(d);
         (b.centre + d * (h + 2.0), s.world.block_at(b.centre + d * (h + 0.6)))
+    }
+
+    /// Sand on a shelf in the air, the shelf dug out from under it: it falls to the ground, and the other
+    /// player is told each move as two edits (ADR 0079).
+    #[test]
+    fn sand_dug_from_under_falls_and_every_player_sees_it() {
+        let (mut s, links) = server_with(2);
+        let (pole, under) = on_land(&s);
+        let shelf = Block { pos: under.pos + glam::IVec3::new(3, 0, 5), ..under };
+        let over = Block { pos: shelf.pos + glam::IVec3::Z, ..shelf };
+        let (stone, sand) = (BLOCKS.id("stone"), BLOCKS.id("sand"));
+        s.world.set_block(shelf, stone);
+        s.world.set_block(over, sand);
+        links[0].send(ToServer::Creative(true));
+        links[0].send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        s.tick();
+        drain(&links[1]);
+        links[0].send(ToServer::Edit { seq: 1, shape: Shape::one(shelf), material: AIR });
+        let mut got = Vec::new();
+        for _ in 0..80 {
+            s.tick();
+            got.extend(drain(&links[1]));
+        }
+        assert_eq!(s.world.block(over), AIR, "it fell");
+        // where it lies: the one edit that made sand (it may have slid down the slope it landed on)
+        let lands: Vec<Block> = s.world.edits.iter().flat_map(|(k, c)| c.iter().map(move |(p, m)| (Block { body: k.body, face: k.face, pos: *p }, *m))).filter(|(b, m)| *m == sand && s.world.generated_block(*b) != sand).map(|(b, _)| b).collect();
+        assert_eq!(lands.len(), 1, "one sand: {lands:?}");
+        let rest = lands[0];
+        assert!(rest.pos.z < shelf.pos.z && (rest.pos - shelf.pos).abs().max_element() < 8, "under the shelf: {rest:?}");
+        assert!(BLOCKS.solid(s.world.block(Block { pos: rest.pos - glam::IVec3::Z, ..rest })), "on the ground");
+        assert_eq!(s.falls.awake(), 0, "and asleep");
+        let edits: Vec<(Block, u16)> = got.into_iter().filter_map(|m| if let ToClient::Edits(v) = m { Some(v) } else { None }).flatten().collect();
+        assert!(edits.contains(&(over, AIR)) && edits.contains(&(rest, sand)), "{edits:?}");
     }
 
     #[test]

@@ -222,11 +222,16 @@ impl App {
             match self.link.try_recv() {
                 Recv::Msg(ToClient::Edits(v)) => {
                     let mut heard = 0;
-                    for (b, m) in v {
+                    let mut moved = false;
+                    for (k, &(b, m)) in v.iter().enumerate() {
+                        // a loose block's fall (ADR 0079) is two edits in a row, the block gone from one cell and
+                        // in the next: it breaks nothing and places nothing
+                        let fall = std::mem::take(&mut moved) || (m == engine::blocks::AIR && v.get(k + 1).is_some_and(|&(_, n)| engine::blocks::BLOCKS.get(n).is_some_and(|d| d.falls) && self.world.block(b) == n));
+                        moved = fall && m == engine::blocks::AIR;
                         // the cell's delta: its effect and, for up to three cells of an edit, its sound (another
                         // player's digging and building; this player's own were seen and heard at the click)
-                        let hear = heard < 3 && self.loaded_at.is_some();
-                        let (shows, was) = fx::server_edit(&mut self.fx, &mut self.pred, &mut self.world, b, m, hear);
+                        let hear = heard < 3 && self.loaded_at.is_some() && !fall;
+                        let (shows, was) = if fall { (self.pred.server(&mut self.world, b, m), None) } else { fx::server_edit(&mut self.fx, &mut self.pred, &mut self.world, b, m, hear) };
                         if shows {
                             self.streamer.touch_block(&self.world, b);
                             if let Some(was) = was.filter(|_| hear) {
@@ -371,6 +376,16 @@ impl App {
         while self.fx_edits.last().is_some_and(|e| self.loaded_at.is_some() && e.0 <= t) {
             let (_, b, m) = self.fx_edits.pop().unwrap();
             let was = self.world.block(b);
+            if self.args.get("falls", 0) == 1 {
+                // falls=1: through the server, whose loose blocks then fall as in play (ADR 0079)
+                let (seq, cells) = self.pred.edit(&mut self.world, &Shape::one(b), m, |_, _| false);
+                for c in cells {
+                    self.streamer.touch_block(&self.world, c);
+                }
+                self.link.send(ToServer::Edit { seq, shape: Shape::one(b), material: m });
+                fx::changed(&mut self.fx, &self.world, b, was, m);
+                continue;
+            }
             self.world.set_block(b, m);
             fx::changed(&mut self.fx, &self.world, b, was, m);
             if self.fx.on && BLOCKS.solid(m) && !BLOCKS.solid(was) {
