@@ -613,8 +613,6 @@ impl Streamer {
         }
     }
 
-    /// True when every full-detail chunk that samples block `b` draws its latest version: an edit there is
-    /// on screen (the feel report's click-to-change, fundamentals section 1).
     /// Tile `t` became wet or dry: the chunks that draw its sea (levels up to 4) are meshed again.
     pub fn touch_tile(&mut self, world: &World, t: Col) {
         let body = &world.bodies[t.body() as usize];
@@ -629,6 +627,8 @@ impl Streamer {
         }
     }
 
+    /// True when every full-detail chunk that samples block `b` draws its latest version: an edit there is
+    /// on screen (the feel report's click-to-change, fundamentals section 1).
     pub fn shows(&self, world: &World, b: Block) -> bool {
         sampling(world, b, Some(0)).iter().all(|k| self.slots.get(k).is_none_or(|s| s.shown_v >= s.want_v))
     }
