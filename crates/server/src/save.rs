@@ -164,7 +164,7 @@ mod tests {
         assert_eq!(Save::from_bytes(&aired.to_bytes()).unwrap(), aired);
     }
 
-    /// A save written while block ids were 8 bits (ADR 0061) loads unchanged: postcard writes a u16 under 128
+    /// A save written while block ids were 8 bits (ADR 0062) loads unchanged: postcard writes a u16 under 128
     /// as the same one byte, and no build had a block id over 29 then.
     #[test]
     fn a_save_with_8_bit_block_ids_loads() {

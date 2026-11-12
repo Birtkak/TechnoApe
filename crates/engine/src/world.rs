@@ -144,7 +144,7 @@ pub struct Body {
     pub spawn: DVec3,
     /// What generation lays down: the top, the band under it, the rock below (block ids).
     pub ground: [u16; 3],
-    /// Generated hollows in the ground (ADR 0061): every reader asks `col_caves`, none looks here itself.
+    /// Generated hollows in the ground (ADR 0062): every reader asks `col_caves`, none looks here itself.
     pub caves: Vec<Cave>,
     /// The column heights of chunk footprints, shared by every consumer (ADR 0025, E).
     tiles: HeightCache,
@@ -1881,7 +1881,7 @@ mod baked_tests {
         }
     }
 
-    /// A cave is one answer (ADR 0061): the block physics sees (`generated_block`, `phys::blocked`), the chunk
+    /// A cave is one answer (ADR 0062): the block physics sees (`generated_block`, `phys::blocked`), the chunk
     /// the mesher draws (`generate`) and the water's gaps (`Solid::gaps`) agree cell by cell around a closed
     /// cave and one open to the sky, and a player fits in the closed one.
     #[test]

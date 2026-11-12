@@ -1,4 +1,4 @@
-# 0061 – 16-bit block ids, and one generated block for every reader
+# 0062 – 16-bit block ids, and one generated block for every reader
 
 - **Status:** accepted (routine technical calls; W4 step 1 of `docs/plans/worldgen-plan.md`)
 - **Date:** 2026-11-12

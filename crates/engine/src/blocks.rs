@@ -4,7 +4,7 @@
 use serde::Deserialize;
 use std::sync::LazyLock;
 
-/// A block id (ADR 0061): 16 bits, of which the registry uses the low 8 until the shader reads more.
+/// A block id (ADR 0062): 16 bits, of which the registry uses the low 8 until the shader reads more.
 pub const AIR: u16 = 0;
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
