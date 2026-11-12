@@ -61,3 +61,43 @@ and bushes grown from a few numbers and a seed, then frozen for hand work, each 
 `place=`, `fxedit=` and `structure=` are read by `client::stand_args`, which also checks `creature=`, `model=` and
 `fxplay=`'s count: bad input prints one line naming the argument on stderr and exits 1, never a panic. Test
 `bad_stand_arguments_are_named_not_panicked`, seen red on the first panic.
+
+**Added 2026-11-12 (`/structure`).** `/structure <name> [seed]` on the server stands a file of its
+`data/structures/` with the anchor in the first air over the ground five metres ahead of the player (the way
+the body faces), axes as `structure=`; cells that would leave the face or hold a player are skipped; the
+blocks go out as any edit. The name is letters, digits, `_` and `-` only. Tested red then green
+(`structure_stands_a_structure_file_near_the_player_and_refuses_what_is_no_name`) and filmed in a play run.
+Shortcuts, in the code: the file is read on the tick thread (small, a developer's command); a replay of a
+session that used it needs the same file; anyone may run it until the server has roles. It is not in the
+Tab completion yet.
+
+**Review of `/structure` (2026-11-12, a reviewer that did not write it).** No wrong placement, no way out of
+the folder, no block off the face or in a player. Found and fixed: the test of "does a player stand there" ran
+once a block for every player (a 64-sided file with 50 players would have stalled the tick for about a second):
+the players' cells are gathered once, and a structure of more than 4096 blocks is refused, since each block is
+an effect and a remesh on every player's frame thread; Windows' device names (`con`, `nul`, `com1`) passed the
+name check and a read of one would wait: refused; an anchor not found within 24 blocks (flying high, facing a
+cliff) now refuses instead of building in the air. Left, and said: over water the anchor is the seabed; a
+structure crossing a face's edge is cut there; the test checks that an oak's logs appear and the refusals, not
+where the anchor lands nor the hole left around a player.
+
+**Added 2026-11-12 (`lines=stdin`, completions for `/structure` and `/spawn`).** `run=play lines=stdin` runs
+each line written to the game's stdin as if typed into the chat and sent (a thread reads, the frame thread
+takes them in `build`; a line the player is typing by hand is kept; control characters are dropped and a
+line is 200 characters at most). It is for the program that started the game: the Studio's Try in game.
+Run off-screen with `/structure oak 3` and `/spawn boar` piped in: the filmstrip shows the oak and the boar.
+The Tab list gained `structure` and `spawn` and their names, on the client (`play.rs` `complete_with`,
+tested), not in `engine::net::complete`: `/spawn` is the client's own, and the names are this machine's
+files, read at most every two seconds (a shortcut, in the code: that reading is on the frame thread).
+
+**Review of `lines=stdin` and the completions (2026-11-12, a reviewer that did not write them).** A line
+can do no more than typing it does, and `submit` is safe with the menu, the death screen or the bug box
+open. Found and fixed: the completions were asked for every frame of play and looked at the files every two
+seconds though nothing was typed (now only for a line that starts with `/`); the place of the completed
+word was counted in a lowercased copy, so a letter whose small form is shorter or longer (the Kelvin sign, a
+dotted capital I) put it inside a character and the list's drawing would have panicked (counted in the line
+as typed; tested); a line arriving while a field was being edited was dropped (it waits); every waiting
+line ran in one frame (four a frame); a wrong byte ended the reading for good and a line without an end
+grew without bound (read in pieces of 4096 bytes, wrong bytes read past); a line from stdin reset the
+player's place in the lines sent before and joined them (both kept). Names compare without regard to
+capitals. Left: the loop in `build` has no test of its own (it was run, not tested).

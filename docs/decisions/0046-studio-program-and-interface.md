@@ -73,3 +73,77 @@ replaces one on disk); textures are written to a temporary file and renamed, so 
 half a file. The Studio's copy of the PNG rule is gone. Left as calls: the Studio does not watch `data/`, so a
 file changed by another program while it is open is overwritten by the next save of it; a slider passing over
 a colour that some file holds outside the palette merges those pixels in memory.
+
+**Added 2026-11-12 (the look, second pass).** One accent alone left every page the same grey: a colour per
+page (`look::PAGES`: tab, section bands) now says where you are, and the accent still means "chosen". Undo,
+Redo and Save moved from each page's inspector into the frame (one place, `btn:undo|redo|save` for `input=`);
+`look::row` lines labels up in one column and falls back to label over control under 250 points wide, which
+keeps the earlier rule that the inspector fits at any interface scale; `look::tool` and `look::toggle` tell
+tools from options; the files column splits a label into heading, name and tag (`look::split_label`, tested).
+Lines between sections are gone: the band separates. "New model" and "Plant…" moved from the parts tree's head to the inspector's Model section. A slider in a
+row is about 88 points at the default inspector width; the value boxes are typed into for exact numbers.
+
+**Added 2026-11-12 (the layout is the developer's).** Asked for: make big what is needed at the moment, as
+in Blender. Built on what the frame has, no docking library: `Settings` gains `hide_files`, `hide_inspector`,
+`swap`, `fold=Page/Section` lines and `split.Page/name=share` lines (round trip tested); `look::section`
+returns whether it is open and every inspector section is wrapped in it; `look::split` and `look::split_bar`
+give a page's work area a dragged divider. The side panels' widest is now what leaves the work 520 points
+(on a small window the old shares of 20 and 30 % still hold, so a large scale still fits). Checked by shots
+at 800x600, 1024x600, 1280x720 at 150 %, 1400x850, 1920x1080 and 2560x1440 at 200 %. Left out: areas that
+split and join freely with any editor in any area (a docking system: a library and its own ADR), dragging
+sections into another order, a saved layout per page or per screen, touch.
+
+**Added 2026-11-12 (a layout per page, sections in the developer's order, Try in game).**
+- `studio.txt`: `hide=Page/files|inspector` and `width.Page/files|inspector=` replace the two global hide
+  flags of the same day (never released); `order.Page=A|B|C` keeps a page's sections in the dragged order.
+  `files=` and `inspector=` stay as the width a page has until its own is dragged.
+- **Sections in another order.** A page draws its sections in code order into the panel, so a different
+  order needs each section to be drawn somewhere else than where the panel's cursor is: `look::section` now
+  returns a `Sec`, the room the section is drawn into. With no order for the page it is the panel itself and
+  nothing changes. With one, the first section of a frame takes the room of them all and each gets a child
+  area at its turn, placed by the heights measured last frame; a section whose height changes is one frame
+  late and asks for a repaint. `display_order` and `reorder` are tested; the placing is checked by a shot
+  (Fauna: Gait dragged above Parts). Widgets a page draws between sections come after the placed block.
+- **Try in game** (F5, `shell::try_args`, tested): the Studio saves the open file and starts the game exe
+  the view uses with `run=play onscreen=1 save=0`, creative by `acts=`, and `model=`, `fxplay=`,
+  `structure=` or `creature=` for the open thing. Each argument set was run off-screen for three seconds
+  without a refusal. The Studio does not wait for the game or close it.
+- Left out: Blender's free areas (a docking library: its own ADR, not wanted now); dragging a section to
+  another page; "Layout as new" does not make egui forget a dragged width until the Studio starts again.
+
+**Added 2026-11-12 (a second look pass).** Small things, each seen in a shot of its page: every slider's
+number box in an inspector row is one width (`look::VALUE`), so the right edges are a line; the inspector's top
+names the open file; a section's title shows a grip under the pointer (it can be dragged); a palette colour's
+cell is wide enough for its name; a model with no clip chosen has a one-line timeline and the view takes the
+rest. Logic: `studio.txt` keeps `page=` and `open.<Page>=` and the window starts there (`Studio::resume`; the
+round trip is tested, the start itself was not run on screen); Ctrl+1..7 are the pages (driven: Ctrl+4 shows
+Sounds), and the command box lists them once, with their keys.
+
+**Added 2026-11-12 (the game's font, sleeker controls).** The interface is set in the game's font. egui reads
+outlines and the game has 8 x 8 cells, so `crates/studio/src/font.rs` writes a TrueType file in memory from
+`client::font_cells` (a rectangle a lit run; seven tables, checksums left 0: egui's reader does not check
+them): the cells stay the one source, and no font file or dependency is added. Chosen against the game's
+fixed step of 6: each character steps its lit columns and one (digits keep 6, so a dragged number does not
+shake), or the label column could not hold its labels. At size 14 a cell's pixel is 1.5 screen pixels, so
+the edges are a little soft at 100 %: whole pixels would be 1 (too small to read) or 2 (nothing fits); at an
+interface scale of 133 % a pixel is 2. Hinting and sub-pixel places are off for it. Text runs about a
+quarter wider than before: the label column is 108, a slider's number box 80, the panels start at 230 and
+320. Characters the font does not draw (the degree sign, the ellipsis) fall back to egui's own. Tested: egui
+lays a text out as wide as the cells say. Controls: a fine edge on buttons, no growth under the pointer, the
+accent when pressed; sliders with a 4 point rail, lit up to a slim handle. Seen in shots of Fauna and Sounds.
+
+**Added 2026-11-12 (sharp text, icons, a player on Fauna, talking to the running game).**
+- **Sharp text.** A pixel font is sharp only where its pixel is whole screen pixels, so: one text size (small
+  text was 12 against 14, never both sharp at one scale; it is now told by its colour, and the label column is
+  124); the scale steps are `shell::sharp_scale` (tested: on a plain screen 67, 133, 200 %; the screen's own
+  pixels a point are counted in); the window's first frame puts the kept scale on the nearest (a shot keeps
+  the scale it is given, so shots at 100 % stay soft). The range starts at 60 % for the 67 step. The six
+  characters the texts use beyond the game's font are cells in `font::MORE`; the file's character map became
+  segments. Seen sharp in a shot at 133 %.
+- **Icons**: `icons.txt` beside the code, read by `look::icons` (tested: every tool of both pages has one that
+  fits), painted as squares at the left of the button's text. Drawn blind as text and seen once in a shot at
+  133 %: they read, they are not art.
+- **The player on Fauna**: `Viewport::player`, which Models' outline now also uses. Seen in a shot walking in
+  place; in the circle's middle not looked at.
+- **Try in game, again**: the Studio keeps the game it started and its stdin; `shell::game_line` (tested) is
+  the line. The game's side is ADR 0052's addition of this day.

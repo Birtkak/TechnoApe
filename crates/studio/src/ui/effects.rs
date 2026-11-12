@@ -678,7 +678,7 @@ impl Page for Effects {
     }
 
     fn run(&mut self, app: &mut App, id: &str) {
-        // with an argument (the command box and shot=): new:<preset>, take:<wall item>, hour:<h>, scene:<grass|cave>, stop:<i>
+        // with an argument (the command box and shot=): new:<preset>, take:<wall item>, hour:<h>, scene:<grass|cave|none>, stop:<i>
         if let Some((cmd, arg)) = id.split_once(':') {
             match cmd {
                 "new" => self.new_effect(arg),
@@ -688,7 +688,7 @@ impl Page for Effects {
                     }
                 }
                 "hour" => app.view.hour = arg.parse().unwrap_or(app.view.hour),
-                "scene" => app.view.scene = if arg == "cave" { super::viewport::Scene::Cave } else { super::viewport::Scene::Grass },
+                "scene" => app.view.scene = super::viewport::Scene::named(arg),
                 "stop" => self.stop = arg.parse().ok(),
                 _ => {}
             }
@@ -754,32 +754,28 @@ impl Page for Effects {
     }
 
     fn inspector(&mut self, ui: &mut Ui, app: &mut App) {
-        let cmds = self.commands(app);
-        look::section(ui, "Effect");
-        ui.horizontal_wrapped(|ui| {
-            for (id, label) in [("undo", "Undo"), ("redo", "Redo"), ("save", "Save")] {
-                let c = cmds.iter().find(|c| c.id == id).unwrap();
-                if look::tip(ui.button(label), &c.help, &c.keys()).clicked() {
-                    self.run(app, id);
-                }
-            }
-            ui.menu_button("New from…", |ui| {
-                let have: Vec<&str> = PRESETS.iter().copied().filter(|p| self.docs.contains_key(*p)).collect();
-                for p in have {
-                    if ui.button(p).clicked() {
-                        self.new_effect(p);
-                        ui.close();
+        if let Some(mut sec) = look::section(ui, "Effect") {
+            let ui = &mut *sec;
+            ui.horizontal_wrapped(|ui| {
+                ui.menu_button("New from…", |ui| {
+                    let have: Vec<&str> = PRESETS.iter().copied().filter(|p| self.docs.contains_key(*p)).collect();
+                    for p in have {
+                        if ui.button(p).clicked() {
+                            self.new_effect(p);
+                            ui.close();
+                        }
                     }
-                }
-            })
-            .response
-            .on_hover_text("A new effect starting from a preset: fire, smoke, sparks…");
-        });
+                })
+                .response
+                .on_hover_text("A new effect starting from a preset: fire, smoke, sparks…");
+            });
+        }
         let Some(d) = self.doc() else { return };
         if d.group() {
-            ui.separator();
-            look::section(ui, "Rows played together");
-            self.group_list(ui, app);
+            if let Some(mut sec) = look::section(ui, "Rows played together") {
+                let ui = &mut *sec;
+                self.group_list(ui, app);
+            }
             return;
         }
         let name = self.open.clone().unwrap_or_default();
@@ -788,56 +784,58 @@ impl Page for Effects {
             look::weak(ui, format!("played in {}", in_groups.join(", ")));
         }
         for g in GROUPS {
-            ui.separator();
-            look::section(ui, g);
-            self.numbers(ui, g);
-            match g {
-                "Motion" => self.noise_picture(ui),
-                "Life" => self.curve(ui, "size_curve", "size"),
-                "Look" => self.gradient(ui, app),
-                "Light" => self.curve(ui, "bright_curve", "brightness"),
+            if let Some(mut sec) = look::section(ui, g) {
+                let ui = &mut *sec;
+                self.numbers(ui, g);
+                match g {
+                    "Motion" => self.noise_picture(ui),
+                    "Life" => self.curve(ui, "size_curve", "size"),
+                    "Look" => self.gradient(ui, app),
+                    "Light" => self.curve(ui, "bright_curve", "brightness"),
+                    _ => {}
+                }
+            }
+        }
+        if let Some(mut sec) = look::section(ui, "Variations") {
+            let ui = &mut *sec;
+            if self.wall.is_none() {
+                if look::tip(ui.button("Make variations"), "Six variations of this row's numbers, each moving; a click takes one", "M").clicked() {
+                    self.run(app, "vary");
+                }
+                return;
+            }
+            let chosen = self.doc().and_then(|d| self.wall.as_ref()?.items.iter().position(|k| *k == d.k));
+            let (pal, now) = (app.pal.clone(), self.now);
+            let mut act = wallui::Act::None;
+            if let Some(w) = &mut self.wall {
+                let cell = Vec2::new(((ui.available_width() - 3.0 * GAP) / 3.0).floor().max(60.0), 70.0);
+                act = wallui::show(ui, w, chosen, cell, |p, r, k| sketch(p, r, &k.table().unwrap_or_default(), &pal, now));
+            }
+            let gen: crate::wall::Gen<Keys> = &effect::vary;
+            match act {
+                wallui::Act::Take(i) => self.run(app, &format!("take:{i}")),
+                wallui::Act::More(i) => {
+                    if let Some(w) = &mut self.wall {
+                        w.more_like(i, gen);
+                    }
+                }
+                wallui::Act::Back => {
+                    if let Some(w) = &mut self.wall {
+                        w.back();
+                    }
+                }
+                wallui::Act::Shuffle => {
+                    if let Some(w) = &mut self.wall {
+                        w.shuffle(gen);
+                    }
+                }
+                wallui::Act::Spread => {
+                    if let Some(w) = &mut self.wall {
+                        w.fill(6, gen);
+                    }
+                }
                 _ => {}
             }
-        }
-        ui.separator();
-        look::section(ui, "Variations");
-        if self.wall.is_none() {
-            if look::tip(ui.button("Make variations"), "Six variations of this row's numbers, each moving; a click takes one", "M").clicked() {
-                self.run(app, "vary");
-            }
-            return;
-        }
-        let chosen = self.doc().and_then(|d| self.wall.as_ref()?.items.iter().position(|k| *k == d.k));
-        let (pal, now) = (app.pal.clone(), self.now);
-        let mut act = wallui::Act::None;
-        if let Some(w) = &mut self.wall {
-            let cell = Vec2::new(((ui.available_width() - 3.0 * GAP) / 3.0).floor().max(60.0), 70.0);
-            act = wallui::show(ui, w, chosen, cell, |p, r, k| sketch(p, r, &k.table().unwrap_or_default(), &pal, now));
-        }
-        let gen: crate::wall::Gen<Keys> = &effect::vary;
-        match act {
-            wallui::Act::Take(i) => self.run(app, &format!("take:{i}")),
-            wallui::Act::More(i) => {
-                if let Some(w) = &mut self.wall {
-                    w.more_like(i, gen);
-                }
-            }
-            wallui::Act::Back => {
-                if let Some(w) = &mut self.wall {
-                    w.back();
-                }
-            }
-            wallui::Act::Shuffle => {
-                if let Some(w) = &mut self.wall {
-                    w.shuffle(gen);
-                }
-            }
-            wallui::Act::Spread => {
-                if let Some(w) = &mut self.wall {
-                    w.fill(6, gen);
-                }
-            }
-            _ => {}
         }
     }
 

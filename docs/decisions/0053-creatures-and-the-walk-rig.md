@@ -104,3 +104,20 @@ through the models' event path. Tests `the_footfalls_fall_where_the_feet_are_dow
 - The Fauna page's view gets the walk with its footfalls as events (`the_shown_walk_steps_on_its_footfalls`) and
   draws the creature at its `scale` (`model name clip t x<scale>` on the view's protocol); a creature's scale is
   its cells' only, never the model in hand or a particle (`a_creatures_scale_never_reaches_the_model_in_hand`).
+
+**Added 2026-11-12 (`/spawn`).** `/spawn <creature>[:speed]` in a running game shows that row's model
+walking in place three metres ahead, and `/spawn` alone takes it away. It is the client's own (as `/sound`):
+a preview for the developer's eyes, not a creature in the world: nothing is sent to the server, no other
+player sees it, it does not move, and one stands at a time. The `creature=` spec became shared with the
+models' watcher, so a saved row or model gives the shown creature its new walk within a second. Tested red
+then green (`spawn_stands_a_creature_of_the_rows_walking_and_refuses_by_name`) and filmed in a play run.
+Real creatures (the server's, with a mind) stay the later work this ADR names.
+
+**Review of `/spawn` and the view's `bare` (2026-11-12, the same reviewer).** `bare`: nothing found; every new
+branch is behind "the view, with bare on", so no other run changes. `/spawn`, found and fixed: the watcher held
+the shared spec's lock over its reading of the files and the frame thread unwrapped it (a panic in the watcher
+would have taken the game down at the next `/spawn`): the spec is cloned out and no lock is unwrapped;
+`/spawnboar` was taken as `/spawn boar`: the command now needs a space or the line's end. Left as shortcuts in
+the code: the creatures file is read on the frame thread; a reading of the models already on its way when
+`/spawn` runs can bring the model back without its walk until the next save. The test checks the spec kept for
+the watcher, not the watcher's reading itself.

@@ -48,6 +48,8 @@ pub struct Fauna {
     start: std::time::Instant,
     /// It walks a circle on a flat pad at its real speed (else in place), and how far it has come, in metres.
     circle: bool,
+    /// A player's outline beside it (in the circle's middle when it walks one), for scale.
+    show_player: bool,
     dist: f32,
     last: std::time::Instant,
 }
@@ -119,7 +121,7 @@ fn sketch(p: &egui::Painter, r: Rect, m: &Model, c: &Creature) {
 
 impl Fauna {
     pub fn new(app: &App) -> Fauna {
-        let mut f = Fauna { docs: BTreeMap::new(), open: None, refused: None, models: BTreeMap::new(), sounds: Vec::new(), speed: 1.0, merging: None, wall: None, walls: 0, gen: GEN0, written: None, act: None, aimed: None, start: std::time::Instant::now(), circle: true, dist: 0.0, last: std::time::Instant::now() };
+        let mut f = Fauna { docs: BTreeMap::new(), open: None, refused: None, models: BTreeMap::new(), sounds: Vec::new(), speed: 1.0, merging: None, wall: None, walls: 0, gen: GEN0, written: None, act: None, aimed: None, start: std::time::Instant::now(), circle: true, show_player: false, dist: 0.0, last: std::time::Instant::now() };
         f.read_disk(app);
         f.open = f.docs.keys().find(|n| n.as_str() == "boar").or(f.docs.keys().next()).cloned();
         f.speed = f.doc().map_or(1.0, |d| d.c.walk_speed);
@@ -237,8 +239,7 @@ impl Fauna {
     /// A pick list of the model's parts ("none" first) for one role; true when it changed.
     fn part_pick(ui: &mut Ui, id: &str, label: &str, parts: &[String], cur: &mut String) -> bool {
         let mut changed = false;
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(label).small());
+        look::row(ui, label, |ui| {
             let shown = if cur.is_empty() { "none".to_string() } else { cur.clone() };
             egui::ComboBox::from_id_salt(id).selected_text(shown).width((ui.available_width() - 8.0).max(60.0)).show_ui(ui, |ui| {
                 for p in std::iter::once(String::new()).chain(parts.iter().cloned()) {
@@ -301,6 +302,9 @@ impl Page for Fauna {
     fn current(&self) -> Option<String> {
         self.open.clone()
     }
+    fn try_extra(&self) -> Vec<String> {
+        self.doc().map(|d| format!("model={}:walk", d.c.model)).into_iter().collect()
+    }
 
     fn open(&mut self, app: &mut App, id: &str) {
         if self.docs.contains_key(id) {
@@ -321,6 +325,7 @@ impl Page for Fauna {
             Cmd::new("walk", "Walk", "the speed to its walking speed").key(Modifiers::NONE, Key::Num1),
             Cmd::new("run", "Run", "the speed to its running speed").key(Modifiers::NONE, Key::Num2),
             Cmd::new("vary", "Variations", "a wall of six gaits of this creature").key(Modifiers::NONE, Key::V),
+            Cmd::new("player", "Player for scale", "a player's outline (0.6 x 1.8 m) beside the creature, in the circle's middle when it walks one").key(Modifiers::NONE, Key::P),
             Cmd::new("circle", "Circle or in place", "walk a circle on a flat pad at its real speed (sliding feet show), or in place for a close look").key(Modifiers::NONE, Key::C),
         ]
     }
@@ -350,6 +355,7 @@ impl Page for Fauna {
                     let _ = if id == "undo" { d.hist.undo(&mut d.c) } else { d.hist.redo(&mut d.c) };
                 }
             }
+            "player" => self.show_player = !self.show_player,
             "circle" => {
                 self.circle = !self.circle;
                 self.aim(app);
@@ -412,31 +418,24 @@ impl Page for Fauna {
             if look::tip(look::chip(ui, self.circle, "Circle"), "Walk a circle on a flat pad at its real speed, so sliding feet are seen; off walks in place", "C").clicked() {
                 self.run(app, "circle");
             }
+            look::tip(look::toggle(ui, &mut self.show_player, "Player"), "A player's outline (0.6 x 1.8 m) beside the creature, for scale", "P");
         });
         let total = ui.available_height();
         let m = self.models.get(&c.model).cloned();
         app.view.left_turns = true;
-        app.view.ui(ui, total, |p, _, r| {
+        let resp = app.view.ui(ui, total, |p, _, r| {
             if let Some(m) = &m {
                 sketch(p, r.shrink(GAP), m, &c);
             }
         });
+        if self.show_player {
+            // the creature stands in the cell at the origin: the player a step beside it, or in its circle's middle
+            app.view.player(&ui.painter_at(resp.rect), if self.circle { Vec3::new(0.2, 0.0, 0.2) } else { Vec3::new(1.6, 0.0, 0.2) });
+        }
     }
 
     fn inspector(&mut self, ui: &mut Ui, app: &mut App) {
         let cmds = self.commands(app);
-        let button = |ui: &mut Ui, me: &mut Self, app: &mut App, id: &str, label: &str| {
-            let c = cmds.iter().find(|c| c.id == id).unwrap();
-            if look::tip(ui.button(label), &c.help, &c.keys()).clicked() {
-                me.run(app, id);
-            }
-        };
-        look::section(ui, "Creature");
-        ui.horizontal_wrapped(|ui| {
-            for (id, label) in [("undo", "Undo"), ("redo", "Redo"), ("save", "Save")] {
-                button(ui, self, app, id, label);
-            }
-        });
         let Some(d) = self.doc() else { return };
         let c = d.c.clone();
         let mut n = c.clone();
@@ -445,89 +444,89 @@ impl Page for Fauna {
             ui.colored_label(look::BAD, RichText::new(e).small());
         }
         egui::ScrollArea::vertical().id_salt("fauna").max_height((ui.available_height() - if self.wall.is_some() { 330.0 } else { 4.0 }).max(120.0)).show(ui, |ui| {
-            ui.separator();
-            look::section(ui, "Body");
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("model").small());
-                egui::ComboBox::from_id_salt("model").selected_text(&n.model).width((ui.available_width() - 8.0).max(60.0)).show_ui(ui, |ui| {
-                    for k in self.models.keys() {
-                        if ui.selectable_label(*k == n.model, k).clicked() {
-                            n.model = k.clone();
-                        }
-                    }
-                });
-            });
-            ui.label(RichText::new("plan").small());
-            ui.horizontal_wrapped(|ui| {
-                for (p, label) in Plan::ALL {
-                    if look::tip(look::chip(ui, n.plan == p, label), "The body plan: how the legs move against each other", "").clicked() {
-                        n.plan = p;
-                    }
-                }
-            });
-            if n.plan != c.plan {
-                n.legs.resize(n.plan.legs(), String::new());
-            }
-            for (i, label) in leg_names(n.plan).iter().enumerate() {
-                if let Some(slot) = n.legs.get_mut(i) {
-                    Self::part_pick(ui, &format!("leg{i}"), label, &parts, slot);
-                }
-            }
-            for (what, list) in [("arm", &mut n.arms), ("wing", &mut n.wings)] {
-                let mut two = [list.first().cloned().unwrap_or_default(), list.get(1).cloned().unwrap_or_default()];
-                let mut ch = false;
-                for (i, side) in ["left", "right"].iter().enumerate() {
-                    ch |= Self::part_pick(ui, &format!("{what}{i}"), &format!("{side} {what}"), &parts, &mut two[i]);
-                }
-                if ch {
-                    *list = if two.iter().all(|s| s.is_empty()) { vec![] } else { two.to_vec() };
-                }
-            }
-            Self::part_pick(ui, "head", "head", &parts, &mut n.head);
-            Self::part_pick(ui, "tail", "tail", &parts, &mut n.tail);
-            for group in ["Body", "Gait"] {
-                if group == "Gait" {
-                    ui.separator();
-                    look::section(ui, "Gait");
-                }
-                for (k, lo, hi, unit, g) in RANGES {
-                    if g != group {
-                        continue;
-                    }
-                    ui.label(RichText::new(k.replace('_', " ")).small());
-                    let mut v = n.get(k);
-                    ui.spacing_mut().slider_width = (ui.available_width() - 110.0).max(40.0);
-                    let r = ui.add(egui::Slider::new(&mut v, lo..=hi).fixed_decimals(2).suffix(format!(" {unit}")));
-                    crate::drive::mark(ui.ctx(), format!("slider:{k}"), r.rect);
-                    if r.changed() {
-                        n.set(k, v);
-                    }
-                }
-            }
-            ui.separator();
-            look::section(ui, "Sounds");
-            for (label, field) in [("step", 0), ("voice", 1)] {
-                let cur = if field == 0 { &mut n.step_sound } else { &mut n.voice };
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(label).small());
-                    let shown = if cur.is_empty() { "none".to_string() } else { cur.clone() };
-                    egui::ComboBox::from_id_salt(label).selected_text(shown).width((ui.available_width() - 8.0).max(60.0)).show_ui(ui, |ui| {
-                        for s in std::iter::once(String::new()).chain(self.sounds.iter().cloned()) {
-                            let text = if s.is_empty() { "none" } else { s.as_str() };
-                            if ui.selectable_label(*cur == s, text).clicked() {
-                                *cur = s;
+            if let Some(mut sec) = look::section(ui, "Body") {
+                let ui = &mut *sec;
+                look::row(ui, "model", |ui| {
+                    egui::ComboBox::from_id_salt("model").selected_text(&n.model).width((ui.available_width() - 8.0).max(60.0)).show_ui(ui, |ui| {
+                        for k in self.models.keys() {
+                            if ui.selectable_label(*k == n.model, k).clicked() {
+                                n.model = k.clone();
                             }
                         }
                     });
                 });
+                look::row(ui, "plan", |ui| ui.horizontal_wrapped(|ui| {
+                    for (p, label) in Plan::ALL {
+                        if look::tip(look::chip(ui, n.plan == p, label), "The body plan: how the legs move against each other", "").clicked() {
+                            n.plan = p;
+                        }
+                    }
+                }));
+                if n.plan != c.plan {
+                    n.legs.resize(n.plan.legs(), String::new());
+                }
             }
-            ui.separator();
-            look::section(ui, "Variations");
-            if self.wall.is_none() {
-                let c = cmds.iter().find(|c| c.id == "vary").unwrap();
-                if look::tip(ui.button("Six gaits"), &c.help, &c.keys()).clicked() {
-                    self.wall = Some(Wall::new(n.clone(), 6, 0.4, 0xfa + self.walls, &vary));
-                    self.walls += 1;
+            if let Some(mut sec) = look::section(ui, "Parts") {
+                let ui = &mut *sec;
+                for (i, label) in leg_names(n.plan).iter().enumerate() {
+                    if let Some(slot) = n.legs.get_mut(i) {
+                        Self::part_pick(ui, &format!("leg{i}"), label, &parts, slot);
+                    }
+                }
+                for (what, list) in [("arm", &mut n.arms), ("wing", &mut n.wings)] {
+                    let mut two = [list.first().cloned().unwrap_or_default(), list.get(1).cloned().unwrap_or_default()];
+                    let mut ch = false;
+                    for (i, side) in ["left", "right"].iter().enumerate() {
+                        ch |= Self::part_pick(ui, &format!("{what}{i}"), &format!("{side} {what}"), &parts, &mut two[i]);
+                    }
+                    if ch {
+                        *list = if two.iter().all(|s| s.is_empty()) { vec![] } else { two.to_vec() };
+                    }
+                }
+                Self::part_pick(ui, "head", "head", &parts, &mut n.head);
+                Self::part_pick(ui, "tail", "tail", &parts, &mut n.tail);
+            }
+            for (group, title) in [("Body", "Size and speed"), ("Gait", "Gait")] {
+                if let Some(mut sec) = look::section(ui, title) {
+                    let ui = &mut *sec;
+                    for (k, lo, hi, unit, g) in RANGES {
+                        if g != group {
+                            continue;
+                        }
+                        let mut v = n.get(k);
+                        let r = look::row(ui, &k.replace('_', " "), |ui| ui.add(egui::Slider::new(&mut v, lo..=hi).fixed_decimals(2).suffix(match unit { "deg" => "°".into(), "voxels" => " vox".into(), u => format!(" {u}") })));
+                        crate::drive::mark(ui.ctx(), format!("slider:{k}"), r.rect);
+                        if r.changed() {
+                            n.set(k, v);
+                        }
+                    }
+                }
+            }
+            if let Some(mut sec) = look::section(ui, "Sounds") {
+                let ui = &mut *sec;
+                for (label, field) in [("step", 0), ("voice", 1)] {
+                    let cur = if field == 0 { &mut n.step_sound } else { &mut n.voice };
+                    look::row(ui, label, |ui| {
+                        let shown = if cur.is_empty() { "none".to_string() } else { cur.clone() };
+                        egui::ComboBox::from_id_salt(label).selected_text(shown).width((ui.available_width() - 8.0).max(60.0)).show_ui(ui, |ui| {
+                            for s in std::iter::once(String::new()).chain(self.sounds.iter().cloned()) {
+                                let text = if s.is_empty() { "none" } else { s.as_str() };
+                                if ui.selectable_label(*cur == s, text).clicked() {
+                                    *cur = s;
+                                }
+                            }
+                        });
+                    });
+                }
+            }
+            if let Some(mut sec) = look::section(ui, "Variations") {
+                let ui = &mut *sec;
+                if self.wall.is_none() {
+                    let c = cmds.iter().find(|c| c.id == "vary").unwrap();
+                    if look::tip(ui.button("Six gaits"), &c.help, &c.keys()).clicked() {
+                        self.wall = Some(Wall::new(n.clone(), 6, 0.4, 0xfa + self.walls, &vary));
+                        self.walls += 1;
+                    }
                 }
             }
         });

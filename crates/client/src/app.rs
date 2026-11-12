@@ -204,6 +204,9 @@ pub(crate) struct App {
     pub(crate) bug: Option<String>,
     pub(crate) bug_shot: Option<image::RgbaImage>,
     pub(crate) bug_said: (std::sync::mpsc::Sender<String>, std::sync::mpsc::Receiver<String>),
+    /// lines=stdin: lines another program writes to the game (the Studio's "Try in game"), each run as if
+    /// typed into the chat and sent.
+    pub(crate) lines: Option<std::sync::mpsc::Receiver<String>>,
     /// Play's settings (ADR 0023) and where they are kept; the menu (Esc) when open, the mouse pointer, and
     /// the menu's buttons as last drawn (x, y, width, height).
     pub(crate) settings: Settings,

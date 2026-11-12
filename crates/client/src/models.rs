@@ -119,16 +119,20 @@ fn creature_walk(list: &mut [Loaded], spec: &str, text: &str) {
     };
     let Some(c) = rows.iter().find(|c| c.name == name) else { return eprintln!("[technoape] creatures: no creature '{name}'") };
     if let Some(l) = list.iter_mut().find(|l| l.name == c.model) {
-        let speed = speed.unwrap_or(c.walk_speed);
-        let mut clip = engine::creatures::walk(&l.model, c, speed);
-        clip.name = "walk".into();
-        l.model.clips.retain(|k| k.name != "walk");
-        l.model.clips.push(clip);
-        // its footfalls play its step sound, as any clip's events do
-        l.life.events.retain(|(n, _)| n != "walk");
-        l.life.events.push(("walk".into(), engine::creatures::steps(c, speed)));
-        l.scale = c.scale;
+        walk_into(l, c, speed);
     }
+}
+/// The creature's walk at `speed` (its row's when none) as its model's clip `walk`, and its scale.
+fn walk_into(l: &mut Loaded, c: &engine::creatures::Creature, speed: Option<f32>) {
+    let speed = speed.unwrap_or(c.walk_speed);
+    let mut clip = engine::creatures::walk(&l.model, c, speed);
+    clip.name = "walk".into();
+    l.model.clips.retain(|k| k.name != "walk");
+    l.model.clips.push(clip);
+    // its footfalls play its step sound, as any clip's events do
+    l.life.events.retain(|(n, _)| n != "walk");
+    l.life.events.push(("walk".into(), engine::creatures::steps(c, speed)));
+    l.scale = c.scale;
 }
 
 /// One draw: a part's quads for a run of pieces.
@@ -150,6 +154,8 @@ struct Run {
 
 pub struct Models {
     rx: Receiver<Vec<Loaded>>,
+    /// `creature=` or the last `/spawn`: whose walk the watcher gives its model at each reading.
+    creature: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     /// The models as the GPU has them: each with its parts' first quad and count.
     pub list: Vec<(Loaded, Vec<(u32, u32)>)>,
     /// `model=name[:clip|@state]` and run=models' count: what stands ahead of the camera, and where once placed.
@@ -179,7 +185,8 @@ impl Models {
     pub fn new(a: &crate::Args) -> Models {
         let dir = std::path::PathBuf::from(a.s("models", "data/models"));
         // `creature=name[:speed]` (ADR 0053): that creature's model takes the walk its row makes, as clip `walk`
-        let creature = a.0.get("creature").cloned();
+        let creature = std::sync::Arc::new(std::sync::Mutex::new(a.0.get("creature").cloned()));
+        let spawned = creature.clone();
         let kept = std::cell::RefCell::new(Default::default());
         let (effects, sounds) = (std::path::PathBuf::from(a.s("effects", "data/effects.toml")), crate::audio::rows_file());
         // a state is checked against the effects and sounds files: a change to either (or to the creatures) reads
@@ -187,7 +194,9 @@ impl Models {
         let also = vec![effects.clone(), sounds.clone(), "data/creatures.toml".into()];
         let rx = crate::gpu::watch("models", dir, also, move |d| {
             let mut l = load_keeping(d, &effects, &sounds, &mut kept.borrow_mut());
-            if let Some(spec) = &creature {
+            // (the spec is taken out first: the lock is never held over the reading, nor a panic here left in it)
+            let spec = creature.lock().ok().and_then(|g| g.clone());
+            if let Some(spec) = &spec {
                 creature_walk(&mut l, spec, &std::fs::read_to_string("data/creatures.toml").unwrap_or_default());
             }
             let any = !l.is_empty();
@@ -203,6 +212,7 @@ impl Models {
         let reach = rows.or_else(|| crate::audio::parse(crate::audio::ROWS_TOML).ok()).unwrap_or_default().into_iter().map(|r| (r.name, r.reach)).collect();
         Models {
             rx,
+            creature: spawned,
             list: Vec::new(),
             clip_state: State { clip: clip.clone(), ..State::default() },
             spec: (n > 0).then_some((name, clip, n)),
@@ -264,6 +274,40 @@ impl Models {
         self.clip_state.clip = spec.as_ref().and_then(|s| s.1.clone());
         self.spec = spec.map(|(n, c)| (n, c, 1));
         self.cells = vec![cell];
+    }
+
+    /// `/spawn name[:speed]` in a running game: that creature of `data/creatures.toml` walking in place in
+    /// `cell`; `/spawn` alone takes it away. A preview for the developer (ADR 0053): this player's eyes only,
+    /// nothing lives in the world yet. The answer, or what is wrong, for the chat.
+    /// shortcut: the creatures file is read here on the frame thread (small, on a typed command, as the
+    /// server's /structure); and a reading of the models already on its way when this runs brings the model
+    /// back without the walk until the next save: /spawn again. Both go when creatures are the server's.
+    pub fn spawn(&mut self, spec: &str, cell: Block) -> Result<String, String> {
+        let text = std::fs::read_to_string("data/creatures.toml").map_err(|e| format!("data/creatures.toml: {e}"))?;
+        self.spawn_from(spec, &text, cell)
+    }
+    pub(crate) fn spawn_from(&mut self, spec: &str, text: &str, cell: Block) -> Result<String, String> {
+        let set = |me: &Self, v: Option<String>| {
+            if let Ok(mut g) = me.creature.lock() {
+                *g = v;
+            }
+        };
+        if spec.is_empty() {
+            set(self, None);
+            self.show(None, cell);
+            return Ok("no creature stands there now".into());
+        }
+        let (name, speed) = spec.split_once(':').map_or((spec, None), |(n, s)| (n, Some(s)));
+        let speed = speed.map(|s| s.parse::<f32>().ok().filter(|v| v.is_finite() && *v >= 0.0).ok_or("usage: /spawn <creature>[:speed]   the speed after ':' is metres a second")).transpose()?;
+        let rows = engine::creatures::parse("data/creatures.toml", text, &|m| self.list.iter().find(|(l, _)| l.name == m).map(|(l, _)| l.model.clone()), &|_| true)?;
+        let Some(c) = rows.iter().find(|c| c.name == name) else {
+            return Err(format!("no creature '{name}'. There are: {}", rows.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ")));
+        };
+        let Some((l, _)) = self.list.iter_mut().find(|(l, _)| l.name == c.model) else { return Err(format!("{name}'s model '{}' is not loaded", c.model)) };
+        walk_into(l, c, speed);
+        set(self, Some(spec.to_string()));
+        self.show(Some((c.model.clone(), Some("walk".into()))), cell);
+        Ok(format!("{name} walks in place three blocks ahead of you: a preview, for your eyes only. /spawn alone takes it away"))
     }
 
     pub fn has(&self, name: &str) -> bool {
@@ -630,6 +674,36 @@ mod tests {
         }
         let n = m.draws[0].count as usize;
         (m.pieces[..n].to_vec(), audio.played.get("step.dirt").copied().unwrap_or(0))
+    }
+
+    /// `/spawn boar:2` in a running game: the loaded boar takes the walk its row makes and stands in the cell;
+    /// what is no creature or no speed is refused by name and changes nothing; `/spawn` alone takes it away.
+    #[test]
+    fn spawn_stands_a_creature_of_the_rows_walking_and_refuses_by_name() {
+        let p = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        let (model, life) = parse_life("boar.toml", include_str!("../../../data/models/boar.toml"), &p, &|_| true, &|_| true).unwrap();
+        let text = include_str!("../../../data/creatures.toml").replace("\r\n", "\n");
+        let row = &text[text.find("[[creature]]\nname = \"boar\"").unwrap()..];
+        let row = &row[..row[1..].find("[[creature]]").map_or(row.len(), |i| i + 1)];
+        let w = World::new(768, 256, 1);
+        let b = &w.bodies[0];
+        let cell = w.block_at(b.spawn * (b.height(b.spawn) + 0.1));
+        let mut m = Models::new(&crate::Args([("models".to_string(), "no/such/folder".to_string())].into_iter().collect()));
+        let parts = (0..model.parts.len()).map(|_| (0, 1)).collect();
+        m.list = vec![(Loaded { name: "boar".into(), quads: vec![Vec::new(); model.parts.len()], model, life, scale: 1.0 }, parts)];
+        for (bad, why) in [("ape", "no creature 'ape'"), ("boar:fast", "metres a second")] {
+            let e = m.spawn_from(bad, row, cell).unwrap_err();
+            assert!(e.contains(why), "{bad}: {e}");
+            assert!(m.spec.is_none() && !m.list[0].0.model.clips.iter().any(|c| c.name == "walk"), "{bad} changed something");
+        }
+        let said = m.spawn_from("boar:2", row, cell).unwrap();
+        assert!(said.starts_with("boar walks"), "{said}");
+        assert_eq!(m.spec.as_ref().map(|s| (s.0.as_str(), s.1.as_deref())), Some(("boar", Some("walk"))));
+        assert!(m.list[0].0.model.clips.iter().any(|c| c.name == "walk") && m.cells == vec![cell]);
+        // the spec the watcher reads at its next reading of the models (that reading is not run here)
+        assert_eq!(m.creature.lock().unwrap().as_deref(), Some("boar:2"));
+        m.spawn_from("", row, cell).unwrap();
+        assert!(m.spec.is_none() && m.creature.lock().unwrap().is_none());
     }
 
     fn axis_len(p: &Piece, r: usize) -> f32 {

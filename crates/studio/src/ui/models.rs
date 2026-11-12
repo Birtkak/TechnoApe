@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 pub const MODELS: &str = "data/models";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Tool {
+pub(super) enum Tool {
     Add,
     Paint,
     Pick,
@@ -28,7 +28,7 @@ enum Tool {
     Point,
 }
 /// Each tool: its command id, name, key and what it does.
-const TOOLS: [(Tool, &str, &str, Key, &str); 9] = [
+pub(super) const TOOLS: [(Tool, &str, &str, Key, &str); 9] = [
     (Tool::Add, "add", "Add", Key::A, "left click adds a voxel of the first colour on the face under the pointer, right click removes one"),
     (Tool::Paint, "paint", "Paint", Key::P, "left click paints a voxel the first colour, right the second"),
     (Tool::Pick, "pick", "Picker", Key::I, "left click takes a voxel's colour as the first, right as the second"),
@@ -569,7 +569,7 @@ impl Models {
         }
         if self.show_player {
             // a player's outline (0.6 x 1.8 m) beside the cell, for scale
-            cube(Mat4::IDENTITY, Vec3::new(1.6, 0.0, 0.2), Vec3::new(2.2, 1.8, 0.8), Stroke::new(1.5, Color32::from_rgb(120, 200, 140)));
+            view.player(p, Vec3::new(1.6, 0.0, 0.2));
         }
         let Some(part) = m.parts.get(self.part) else { return };
         let pose = poses[self.part];
@@ -827,8 +827,7 @@ impl Models {
         let Some(m) = self.m().cloned() else { return };
         let Some(part) = m.parts.get(self.part).cloned() else { return };
         let i = self.part;
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Name").small());
+        look::row(ui, "name", |ui| {
             let r = ui.add(egui::TextEdit::singleline(&mut self.part_name).desired_width(ui.available_width()));
             if look::tip(r.clone(), "The part's name; Enter renames it everywhere it is named", "").lost_focus() && self.part_name != part.name {
                 let new = self.part_name.clone();
@@ -846,8 +845,7 @@ impl Models {
                 }
             }
         });
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Parent").small());
+        look::row(ui, "parent", |ui| {
             let mut to = m.up.get(i).copied().flatten();
             let r = egui::ComboBox::from_id_salt("parent").selected_text(if part.parent.is_empty() { "none (a root)" } else { &part.parent }).width(ui.available_width() - 8.0).show_ui(ui, |ui| {
                 ui.selectable_value(&mut to, None, "none (a root)");
@@ -872,8 +870,8 @@ impl Models {
         });
         let mut at = part.at;
         let mut pivot = part.pivot;
-        egui::Grid::new("part numbers").num_columns(4).spacing(Vec2::new(4.0, 4.0)).show(ui, |ui| {
-            ui.label(RichText::new("At").small());
+        egui::Grid::new("part numbers").num_columns(4).spacing(Vec2::new(GAP, 4.0)).show(ui, |ui| {
+            look::label(ui, "at");
             let mut ch = false;
             for v in &mut at {
                 ch |= ui.add(egui::DragValue::new(v).speed(0.1)).changed();
@@ -885,7 +883,7 @@ impl Models {
                 });
             }
             ui.end_row();
-            ui.label(RichText::new("Pivot").small());
+            look::label(ui, "pivot");
             let mut ch = false;
             for v in &mut pivot {
                 ch |= ui.add(egui::DragValue::new(v).speed(0.05).fixed_decimals(1)).changed();
@@ -935,25 +933,8 @@ impl Models {
         });
     }
 
-    fn parts_tree(&mut self, ui: &mut Ui, app: &mut App) {
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Parts").strong());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if look::tip(ui.small_button("New model"), "A new model: one part, a block's size", "Ctrl+N").clicked() {
-                    self.run(app, "new");
-                }
-                ui.menu_button(RichText::new("Plant…").small(), |ui| {
-                    for kind in voxel::PLANTS {
-                        if ui.button(kind).clicked() {
-                            self.run(app, &format!("plant:{kind}"));
-                            ui.close();
-                        }
-                    }
-                })
-                .response
-                .on_hover_text("A small plant grown as a new model, to finish by hand; again grows another");
-            });
-        });
+    fn parts_tree(&mut self, ui: &mut Ui, _app: &mut App) {
+        ui.label(RichText::new("Parts").strong());
         let Some(m) = self.m().cloned() else {
             look::weak(ui, "no model open");
             return;
@@ -1055,7 +1036,7 @@ impl Page for Models {
             return;
         }
         // with an argument (the command box and shot=): part:<name>, clip:<name>, time:<s>, motion:<kind>,
-        // fromtex:<block>, slice:<voxels or off>, sel:x;y;z;x;y;z, scene:<grass|cave>, hour:<h>, cam:yaw;pitch;dist
+        // fromtex:<block>, slice:<voxels or off>, sel:x;y;z;x;y;z, scene:<grass|cave|none>, hour:<h>, cam:yaw;pitch;dist
         if let Some((cmd, arg)) = id.split_once(':') {
             let m = self.m().cloned();
             match cmd {
@@ -1112,7 +1093,7 @@ impl Page for Models {
                     }
                 }
                 "plant" if voxel::PLANTS.contains(&arg) => self.new_model(app, Some(arg)),
-                "scene" => app.view.scene = if arg == "cave" { super::viewport::Scene::Cave } else { super::viewport::Scene::Grass },
+                "scene" => app.view.scene = super::viewport::Scene::named(arg),
                 "hour" => app.view.hour = arg.parse().unwrap_or(app.view.hour),
                 "cam" => {
                     let n: Vec<f32> = arg.split(';').filter_map(|x| x.parse().ok()).collect();
@@ -1253,8 +1234,12 @@ impl Page for Models {
             return;
         }
         self.feed_view(app);
-        let timeline_h = 62.0 + 18.0 * (self.m().map_or(1, |m| m.parts.len()) as f32 + 2.0) + GAP;
-        let view_h = ui.available_height() - timeline_h - GAP;
+        // (no clip chosen: the timeline is its one line of buttons, and the view has the rest)
+        let timeline_h = if self.clip.is_none() { 62.0 } else { 62.0 + 18.0 * (self.m().map_or(1, |m| m.parts.len()) as f32 + 2.0) + GAP };
+        // the view over the timeline, the bar between them dragged; until then the timeline has what its rows need
+        let total = ui.available_height();
+        let view_share = ((total - timeline_h - GAP) / total.max(1.0)).clamp(0.1, 0.9);
+        let view_h = look::split(ui, "view", view_share, total) - GAP;
         app.view.orbit = self.orbit;
         let resp = {
             let me = &*self;
@@ -1266,114 +1251,130 @@ impl Page for Models {
         self.overlay(&painter, &app.view);
         let tool = TOOLS.iter().find(|t| t.0 == self.tool).unwrap();
         look::tip(resp, &format!("{}: {}", tool.2, tool.4), tool.3.name());
-        ui.add_space(GAP * 0.5);
+        look::split_bar(ui, "view", view_share, total);
         self.timeline(ui, app);
     }
 
     fn inspector(&mut self, ui: &mut Ui, app: &mut App) {
-        look::section(ui, "Tools");
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::splat(4.0);
-            for (t, _, name, k, help) in TOOLS {
-                if look::tip(ui.selectable_label(self.tool == t, format!("{name} {}", k.name())), help, k.name()).clicked() {
-                    self.tool = t;
-                }
-            }
-        });
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::splat(4.0);
-            look::tip(ui.toggle_value(&mut self.mirror.0, "Mirror x X"), "Every edit also on the far side of the part's middle in x", "X");
-            look::tip(ui.toggle_value(&mut self.mirror.1, "Mirror z Z"), "Every edit also on the far side of the part's middle in z", "Z");
-        });
-        let cmds = self.commands(app);
-        ui.horizontal_wrapped(|ui| {
-            for (id, label) in [("undo", "Undo"), ("redo", "Redo"), ("save", "Save")] {
-                let c = cmds.iter().find(|c| c.id == id).unwrap();
-                if look::tip(ui.button(label), &c.help, &c.keys()).clicked() {
-                    self.run(app, id);
-                }
-            }
-        });
-        ui.separator();
-        look::section(ui, "Colours");
-        palette_picker(ui, &app.pal, &mut self.first, &mut self.second);
-        ui.separator();
-        look::section(ui, "Model");
-        ui.horizontal(|ui| {
-            if look::tip(ui.button("Shade by light"), "Every voxel of the part along its ramp by how open it is: open tops lighter, crevices and undersides darker", "").clicked() {
-                self.run(app, "shade");
-            }
-            ui.spacing_mut().slider_width = (ui.available_width() - 60.0).max(40.0);
-            look::tip(ui.add(egui::Slider::new(&mut self.strength, 1.0..=6.0).fixed_decimals(1)), "How strongly: more steps along the ramp", "");
-        });
-        let painted: Vec<String> = app.reg.placeable().map(|d| d.name.clone()).filter(|n| (0..4).any(|f| app.docs.contains_key(&art::file_name(n, f)))).collect();
-        ui.horizontal(|ui| {
-            let w = (ui.available_width() - 70.0).max(60.0);
-            let r = egui::ComboBox::from_id_salt("from texture").selected_text(if self.tex_block.is_empty() { "a painted block" } else { &self.tex_block }).width(w).show_ui(ui, |ui| {
-                if painted.is_empty() {
-                    look::weak(ui, "no block is painted yet");
-                }
-                for n in &painted {
-                    ui.selectable_value(&mut self.tex_block, n.clone(), n);
+        if let Some(mut sec) = look::section(ui, "Tools") {
+            let ui = &mut *sec;
+            let w = ((ui.available_width() - 8.0) / 3.0).floor() - 1.0;
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::splat(4.0);
+                for (t, _, name, k, help) in TOOLS {
+                    if look::tip(look::tool(ui, self.tool == t, name, k.name(), w), help, k.name()).clicked() {
+                        self.tool = t;
+                    }
                 }
             });
-            look::tip(r.response, "A painted block to start a part from", "");
-            if look::tip(ui.add_enabled(!self.tex_block.is_empty(), egui::Button::new("Carve")), "From a texture: the block's faces become a new 8-voxel cube part to carve", "").clicked() {
-                let b = self.tex_block.clone();
-                self.run(app, &format!("fromtex:{b}"));
-            }
-        });
-        ui.horizontal(|ui| {
-            let mut on = self.slice.is_some();
-            if look::tip(ui.checkbox(&mut on, "Slice"), "Hide everything above a height, to work inside", "").changed() {
-                self.slice = on.then_some(4.0);
-            }
-            if let Some(s) = &mut self.slice {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::splat(4.0);
+                look::tip(look::toggle(ui, &mut self.mirror.0, "Mirror x X"), "Every edit also on the far side of the part's middle in x", "X");
+                look::tip(look::toggle(ui, &mut self.mirror.1, "Mirror z Z"), "Every edit also on the far side of the part's middle in z", "Z");
+            });
+        }
+        if let Some(mut sec) = look::section(ui, "Colours") {
+            let ui = &mut *sec;
+            palette_picker(ui, &app.pal, &mut self.first, &mut self.second);
+        }
+        if let Some(mut sec) = look::section(ui, "Model") {
+            let ui = &mut *sec;
+            ui.horizontal(|ui| {
+                if look::tip(ui.button("New model"), "A new model: one part, a block's size", "Ctrl+N").clicked() {
+                    self.run(app, "new");
+                }
+                ui.menu_button("Plant…", |ui| {
+                    for kind in voxel::PLANTS {
+                        if ui.button(kind).clicked() {
+                            self.run(app, &format!("plant:{kind}"));
+                            ui.close();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text("A small plant grown as a new model, to finish by hand; again grows another");
+            });
+            ui.horizontal(|ui| {
+                if look::tip(ui.button("Shade by light"), "Every voxel of the part along its ramp by how open it is: open tops lighter, crevices and undersides darker", "").clicked() {
+                    self.run(app, "shade");
+                }
                 ui.spacing_mut().slider_width = (ui.available_width() - 60.0).max(40.0);
-                look::tip(ui.add(egui::Slider::new(s, 0.0..=32.0).step_by(1.0).suffix(" vox")), "The height, in voxels, above which nothing shows", "");
-            }
-        });
-        ui.horizontal_wrapped(|ui| {
-            look::tip(ui.toggle_value(&mut self.show_block, "1 m block"), "A real stone block two cells away, for scale", "");
-            look::tip(ui.toggle_value(&mut self.show_player, "Player"), "A player's outline (0.6 x 1.8 m) beside the cell", "");
-            look::tip(ui.toggle_value(&mut self.show_grid, "Grid"), "Lines every 8 voxels: one block", "");
-        });
-        ui.separator();
-        look::section(ui, "Part");
-        self.part_inspector(ui, app);
-        ui.separator();
-        look::section(ui, "Point");
-        self.point_inspector(ui, app);
-        ui.separator();
-        look::section(ui, "States");
-        self.states_inspector(ui, app);
-        ui.separator();
-        look::section(ui, "Ready-made motion");
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::splat(4.0);
-            for (k, name, help, amount, _) in MOTIONS {
-                if look::tip(look::chip(ui, self.motion.0 == k, name), help, "").clicked() {
-                    self.motion = (k, self.motion.1, amount);
+                look::tip(ui.add(egui::Slider::new(&mut self.strength, 1.0..=6.0).fixed_decimals(1)), "How strongly: more steps along the ramp", "");
+            });
+            let painted: Vec<String> = app.reg.placeable().map(|d| d.name.clone()).filter(|n| (0..4).any(|f| app.docs.contains_key(&art::file_name(n, f)))).collect();
+            ui.horizontal(|ui| {
+                let w = (ui.available_width() - 70.0).max(60.0);
+                let r = egui::ComboBox::from_id_salt("from texture").selected_text(if self.tex_block.is_empty() { "a painted block" } else { &self.tex_block }).width(w).show_ui(ui, |ui| {
+                    if painted.is_empty() {
+                        look::weak(ui, "no block is painted yet");
+                    }
+                    for n in &painted {
+                        ui.selectable_value(&mut self.tex_block, n.clone(), n);
+                    }
+                });
+                look::tip(r.response, "A painted block to start a part from", "");
+                if look::tip(ui.add_enabled(!self.tex_block.is_empty(), egui::Button::new("Carve")), "From a texture: the block's faces become a new 8-voxel cube part to carve", "").clicked() {
+                    let b = self.tex_block.clone();
+                    self.run(app, &format!("fromtex:{b}"));
                 }
-            }
-        });
-        ui.horizontal(|ui| {
-            for (a, n) in ["x", "y", "z"].iter().enumerate() {
-                if look::tip(look::chip(ui, self.motion.1 == a, n), "The axis it turns about or moves along", "").clicked() {
-                    self.motion.1 = a;
+            });
+            ui.horizontal(|ui| {
+                let mut on = self.slice.is_some();
+                if look::tip(ui.checkbox(&mut on, "Slice"), "Hide everything above a height, to work inside", "").changed() {
+                    self.slice = on.then_some(4.0);
                 }
-            }
-            let unit = MOTIONS.iter().find(|m| m.0 == self.motion.0).map_or("", |m| m.4);
-            look::tip(ui.add(egui::DragValue::new(&mut self.motion.2).speed(0.5).suffix(format!(" {unit}"))), "How far", "");
-            if look::tip(ui.button("Fill"), "Fill the clip's keys of the chosen part with this motion", "").clicked() {
-                self.run(app, "motion");
-            }
-        });
+                if let Some(s) = &mut self.slice {
+                    ui.spacing_mut().slider_width = (ui.available_width() - 60.0).max(40.0);
+                    look::tip(ui.add(egui::Slider::new(s, 0.0..=32.0).step_by(1.0).suffix(" vox")), "The height, in voxels, above which nothing shows", "");
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
+                look::tip(look::toggle(ui, &mut self.show_block, "1 m block"), "A real stone block two cells away, for scale", "");
+                look::tip(look::toggle(ui, &mut self.show_player, "Player"), "A player's outline (0.6 x 1.8 m) beside the cell", "");
+                look::tip(look::toggle(ui, &mut self.show_grid, "Grid"), "Lines every 8 voxels: one block", "");
+            });
+        }
+        if let Some(mut sec) = look::section(ui, "Part") {
+            let ui = &mut *sec;
+            self.part_inspector(ui, app);
+        }
+        if let Some(mut sec) = look::section(ui, "Point") {
+            let ui = &mut *sec;
+            self.point_inspector(ui, app);
+        }
+        if let Some(mut sec) = look::section(ui, "States") {
+            let ui = &mut *sec;
+            self.states_inspector(ui, app);
+        }
+        if let Some(mut sec) = look::section(ui, "Ready-made motion") {
+            let ui = &mut *sec;
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::splat(4.0);
+                for (k, name, help, amount, _) in MOTIONS {
+                    if look::tip(look::chip(ui, self.motion.0 == k, name), help, "").clicked() {
+                        self.motion = (k, self.motion.1, amount);
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                for (a, n) in ["x", "y", "z"].iter().enumerate() {
+                    if look::tip(look::chip(ui, self.motion.1 == a, n), "The axis it turns about or moves along", "").clicked() {
+                        self.motion.1 = a;
+                    }
+                }
+                let unit = MOTIONS.iter().find(|m| m.0 == self.motion.0).map_or("", |m| m.4);
+                look::tip(ui.add(egui::DragValue::new(&mut self.motion.2).speed(0.5).suffix(format!(" {unit}"))), "How far", "");
+                if look::tip(ui.button("Fill"), "Fill the clip's keys of the chosen part with this motion", "").clicked() {
+                    self.run(app, "motion");
+                }
+            });
+        }
         if let Some((a, b)) = self.sel {
-            ui.separator();
-            look::section(ui, "Selection");
-            let (lo, hi) = (a.min(b), a.max(b));
-            look::weak(ui, format!("{} x {} x {} voxels; arrows and Page Up/Down move it, a drag on one of its faces pulls it out", hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1));
+            if let Some(mut sec) = look::section(ui, "Selection") {
+                let ui = &mut *sec;
+                let (lo, hi) = (a.min(b), a.max(b));
+                look::weak(ui, format!("{} x {} x {} voxels; arrows and Page Up/Down move it, a drag on one of its faces pulls it out", hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1));
+            }
         }
     }
 

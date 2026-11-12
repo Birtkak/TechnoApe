@@ -116,6 +116,8 @@ pub struct Server {
     clients: Vec<Client>,
     next_id: u32,
     pub tick: u64,
+    /// The folder of data files a command reads (`/structure`): `data` beside the server.
+    pub data: String,
     /// The world's age when this server started (from its save): the sky's clock runs on from it.
     tick0: u64,
     /// The time warp (/timewarp): world ticks per tick, 1 is real time. A restart is back at 1.
@@ -172,6 +174,7 @@ impl Server {
             clients: Vec::new(),
             next_id: 1,
             tick: 0,
+            data: "data".into(),
             tick0: 0,
             warp: 1,
             dt: 1.0 / TICK_HZ,
@@ -701,6 +704,8 @@ impl Server {
                 "  /give <block> [n]    n blocks, 64 if left out",
                 "  /place <block>       one under your feet; or at",
                 "    [face i j layer]   that block of the body you are on (F3)",
+                "  /structure <name>    a file of data/structures stood five",
+                "    [seed]             blocks ahead (a grown one: that seed)",
                 "  /goto <where>        terra (home: the spawn), luna, or sun",
                 "  /timewarp <n>        the clock n times faster (1 to 10000,",
                 "                       up, down); . and , step it too",
@@ -887,6 +892,73 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                 self.world.set_block(b, d.id);
                 changed.push((b, d.id));
                 format!("placed {} at face {} {} {}, layer {}", d.name, b.face, b.pos.x, b.pos.y, b.pos.z)
+            }
+            Some("structure") => {
+                // A structure file (the Studio's, ADR 0052) stood near the player, to see it in the world: its
+                // anchor in the first air over the ground five metres ahead of the player (the way the body faces). Free
+                // and anyone's, like /place.
+                // shortcut: the file is read on the tick thread from the server's own data/ (small, and a
+                // developer's command), and a replay of a session that used it needs the same file; it goes
+                // to the operator role with the others.
+                const USAGE: &str = "usage: /structure <name> [seed]   a file of data/structures, five blocks ahead of you";
+                let name = w.get(1).copied().unwrap_or("");
+                let seed = w.get(2).map(|s| s.parse::<u64>());
+                // (letters, digits, _ and - only: no path out of the folder; and none of Windows' device names,
+                // which a read would wait on)
+                let device = { let n = name.to_ascii_lowercase(); ["con", "prn", "aux", "nul"].contains(&n.as_str()) || (n.len() == 4 && (n.starts_with("com") || n.starts_with("lpt"))) };
+                if name.is_empty() || device || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') || matches!(seed, Some(Err(_))) || w.len() > 3 {
+                    return USAGE.into();
+                }
+                let file = format!("{}/structures/{name}.toml", self.data);
+                let mut s = match std::fs::read_to_string(&file).map_err(|e| e.to_string()).and_then(|t| engine::structures::Structure::parse(&file, &t, &BLOCKS)) {
+                    Ok(s) => s,
+                    Err(e) => return format!("no structure '{name}': {e}"),
+                };
+                if let (Some(Ok(seed)), Some(r)) = (seed, s.grow.clone()) {
+                    s = engine::structures::grow(&engine::structures::Recipe { seed, ..r });
+                }
+                let world = &self.world;
+                let feet = self.clients[i].phys.pos;
+                if world.frame_at(feet) == engine::world::INERTIAL {
+                    return "there is no body under you out here: /structure works on Terra and Luna".into();
+                }
+                let mut foot = world.block_at(feet + self.clients[i].phys.fwd * 5.0);
+                let solid = |b: Block| Shape::one(b).fits(world) && BLOCKS.solid(world.block(b));
+                let mut found = false;
+                for _ in 0..24 {
+                    let below = Block { pos: foot.pos - glam::IVec3::Z, ..foot };
+                    if solid(foot) {
+                        foot.pos.z += 1;
+                    } else if !solid(below) && Shape::one(below).fits(world) {
+                        foot.pos.z -= 1;
+                    } else {
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    return "no ground within 24 blocks of the point five ahead of you: stand nearer the ground".into();
+                }
+                // every edit is an effect and a remesh on each player's frame thread: a structure of more than
+                // this many blocks is the world generator's to place, not a command's
+                const MOST: usize = 4096;
+                let cells = s.blocks(&BLOCKS);
+                if cells.len() > MOST {
+                    return format!("{name} is {} blocks: /structure places {MOST} at most", cells.len());
+                }
+                // where the players are, gathered once (not once a block)
+                let held: std::collections::HashSet<Block> = self.clients.iter().flat_map(|c| phys::cells(world, c.phys.pos)).collect();
+                // x along j, z along i, y up the layers: as `structure=` stands one and the Studio shows it
+                let put: Vec<(Block, u8)> = cells
+                    .into_iter()
+                    .map(|(d, id)| (Block { pos: foot.pos + glam::IVec3::new(d[2], d[0], d[1]), ..foot }, id))
+                    .filter(|(b, id)| Shape::one(*b).fits(world) && !(BLOCKS.solid(*id) && held.contains(b)))
+                    .collect();
+                for (b, id) in &put {
+                    self.world.set_block(*b, *id);
+                    changed.push((*b, *id));
+                }
+                format!("placed {name}: {} blocks, five ahead of you at face {} {} {}, layer {}", put.len(), foot.face, foot.pos.x, foot.pos.y, foot.pos.z)
             }
             Some(other) => format!("unknown command /{other}\n  /help lists the commands"),
         }
@@ -1964,6 +2036,32 @@ mod tests {
         s.tick();
         let (lost, stood) = (h - s.clients[0].vitals.hunger, (t as f64 + 1.0) * 20.0 / sky::DAY);
         assert!(lost > 8.0 * vitals::DIG - 1e-9 && lost < 8.0 * vitals::DIG + stood, "{h} to {}: {lost}", s.clients[0].vitals.hunger);
+    }
+
+    #[test]
+    fn structure_stands_a_structure_file_near_the_player_and_refuses_what_is_no_name() {
+        let (mut s, links) = server_with(1);
+        s.data = "../../data".into();
+        let l = &links[0];
+        l.send(ToServer::Hello { name: "ape".into() });
+        s.tick();
+        drain(l);
+        let log = BLOCKS.placeable().find(|d| d.name == "log").unwrap().id;
+        let here = s.world.block_at(s.clients[0].phys.pos);
+        let logs = |s: &Server| (-12..=12).flat_map(|i| (-12..=12).flat_map(move |j| (-4..=14).map(move |k| glam::IVec3::new(i, j, k)))).filter(|d| s.world.block(Block { pos: here.pos + *d, ..here }) == log).count();
+        let before = logs(&s);
+        for line in ["/structure oak 3", "/structure", "/structure ../Cargo", "/structure no_such", "/structure oak x", "/structure CON"] {
+            l.send(ToServer::Chat(line.into()));
+        }
+        s.tick();
+        let got = drain(l);
+        let a = chats(&got);
+        assert!(a[0].starts_with("placed oak: "), "{a:?}");
+        assert!(logs(&s) >= before + 3, "an oak's trunk stands near: {} logs, {before} before", logs(&s));
+        // the players are told of every block, as of any edit
+        assert!(got.iter().any(|m| matches!(m, ToClient::Edits { .. })), "no edits were sent");
+        assert!([1, 2, 4, 5].iter().all(|i| a[*i].starts_with("usage: /structure")), "{a:?}");
+        assert!(a[3].starts_with("no structure 'no_such'"), "{a:?}");
     }
 
     #[test]

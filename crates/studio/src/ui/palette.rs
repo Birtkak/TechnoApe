@@ -334,9 +334,10 @@ impl PalettePage {
                 ui.spacing_mut().item_spacing = Vec2::new(4.0, 4.0);
                 for i in idx {
                     let c = &app.pal.colours[i];
-                    let (r, resp) = ui.allocate_exact_size(Vec2::new(size, size + 16.0), Sense::click_and_drag());
+                    // (wide enough for a colour's name under it)
+                    let (r, resp) = ui.allocate_exact_size(Vec2::new(size + 24.0, size + 16.0), Sense::click_and_drag());
                     crate::drive::mark(ui.ctx(), format!("colour:{}", c.name), r);
-                    let sw = Rect::from_min_size(r.min, Vec2::splat(size));
+                    let sw = Rect::from_min_size(r.min, Vec2::new(r.width(), size));
                     let p = ui.painter();
                     p.rect_filled(sw, 4.0, c32(c.rgb));
                     if i == self.sel {
@@ -433,154 +434,162 @@ impl PalettePage {
     }
 
     fn colour_inspector(&mut self, ui: &mut Ui, app: &mut App) {
-        look::section(ui, "Colour");
-        if app.pal.colours.is_empty() {
-            ui.label("The palette is empty.");
-            if ui.button("Add").clicked() {
-                self.add(app);
+        if let Some(mut sec) = look::section(ui, "Colour") {
+            let ui = &mut *sec;
+            if app.pal.colours.is_empty() {
+                ui.label("The palette is empty.");
+                if ui.button("Add").clicked() {
+                    self.add(app);
+                }
+                return;
             }
-            return;
-        }
-        let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 48.0), Sense::hover());
-        ui.painter().rect_filled(r, 6.0, c32(app.pal.colours[self.sel].rgb));
-        egui::Grid::new("colour fields").num_columns(2).spacing(Vec2::new(GAP, GAP * 0.75)).show(ui, |ui| {
-            ui.label("Name");
-            let r = look::tip(ui.add(egui::TextEdit::singleline(&mut self.name).desired_width(f32::INFINITY)), "The colour's name: lower case, unique; Enter keeps it", "");
-            if r.lost_focus() && self.name != app.pal.colours[self.sel].name {
-                match app.pal.check(&self.name, app.pal.colours[self.sel].rgb, Some(self.sel)) {
-                    Ok(()) => {
-                        app.pal.colours[self.sel].name = self.name.clone();
-                        self.save(app, false, "Rename");
-                    }
-                    Err(e) => {
-                        app.refuse(e);
-                        self.name = app.pal.colours[self.sel].name.clone();
+            let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 48.0), Sense::hover());
+            ui.painter().rect_filled(r, 6.0, c32(app.pal.colours[self.sel].rgb));
+            egui::Grid::new("colour fields").num_columns(2).spacing(Vec2::new(GAP, GAP * 0.75)).show(ui, |ui| {
+                look::label(ui, "name");
+                let r = look::tip(ui.add(egui::TextEdit::singleline(&mut self.name).desired_width(f32::INFINITY)), "The colour's name: lower case, unique; Enter keeps it", "");
+                if r.lost_focus() && self.name != app.pal.colours[self.sel].name {
+                    match app.pal.check(&self.name, app.pal.colours[self.sel].rgb, Some(self.sel)) {
+                        Ok(()) => {
+                            app.pal.colours[self.sel].name = self.name.clone();
+                            self.save(app, false, "Rename");
+                        }
+                        Err(e) => {
+                            app.refuse(e);
+                            self.name = app.pal.colours[self.sel].name.clone();
+                        }
                     }
                 }
-            }
-            ui.end_row();
-            ui.label("Hex");
-            let r = look::tip(ui.add(egui::TextEdit::singleline(&mut self.hex).desired_width(f32::INFINITY)), "The colour as #rrggbb; Enter sets it and repaints every texture that uses it", "");
-            if r.lost_focus() {
-                match hex(self.hex.trim()) {
-                    Some(rgb) => {
-                        self.set_colour(app, rgb);
-                        self.flush(app);
+                ui.end_row();
+                look::label(ui, "hex");
+                let r = look::tip(ui.add(egui::TextEdit::singleline(&mut self.hex).desired_width(f32::INFINITY)), "The colour as #rrggbb; Enter sets it and repaints every texture that uses it", "");
+                if r.lost_focus() {
+                    match hex(self.hex.trim()) {
+                        Some(rgb) => {
+                            self.set_colour(app, rgb);
+                            self.flush(app);
+                        }
+                        None => app.refuse(format!("'{}' is not #rrggbb", self.hex)),
                     }
-                    None => app.refuse(format!("'{}' is not #rrggbb", self.hex)),
+                    self.select(app, self.sel);
                 }
-                self.select(app, self.sel);
+                ui.end_row();
+                look::label(ui, "ramp");
+                let cur = app.pal.colours[self.sel].ramp.clone();
+                let mut pick = cur.clone();
+                let r = egui::ComboBox::from_id_salt("ramp of colour").selected_text(cur.clone().unwrap_or("none".into())).width(ui.available_width()).show_ui(ui, |ui| {
+                    ui.selectable_value(&mut pick, None, "none");
+                    for (n, _) in app.pal.ramps() {
+                        ui.selectable_value(&mut pick, Some(n.clone()), n);
+                    }
+                });
+                look::tip(r.response, "The ramp it belongs to; a ramp runs dark to light in the palette's order", "");
+                if pick != cur {
+                    app.pal.colours[self.sel].ramp = pick.clone();
+                    self.ramp = pick;
+                    self.save(app, false, "Ramp");
+                }
+                ui.end_row();
+            });
+            ui.add_space(GAP * 0.5);
+            for (k, label) in ["hue", "saturation", "value"].into_iter().enumerate() {
+                let r = look::row(ui, label, |ui| {
+                    ui.spacing_mut().slider_width = (ui.available_width() - 8.0).max(40.0);
+                    ui.add(egui::Slider::new(&mut self.hsv[k], 0.0..=1.0).show_value(false))
+                });
+                crate::drive::mark(ui.ctx(), format!("slider:{label}"), r.rect);
+                let r = look::tip(r, &format!("The colour's {label}; every texture using it follows as it moves"), "");
+                if r.changed() {
+                    let rgb = egui::ecolor::Hsva::new(self.hsv[0], self.hsv[1], self.hsv[2], 1.0).to_rgb().map(|v| (v * 255.0).round().clamp(0.0, 255.0) as u8);
+                    self.set_colour(app, rgb);
+                }
+                if r.drag_stopped() || (r.changed() && !r.dragged()) {
+                    self.flush(app);
+                }
             }
-            ui.end_row();
-            ui.label("Ramp");
-            let cur = app.pal.colours[self.sel].ramp.clone();
-            let mut pick = cur.clone();
-            let r = egui::ComboBox::from_id_salt("ramp of colour").selected_text(cur.clone().unwrap_or("none".into())).width(ui.available_width()).show_ui(ui, |ui| {
-                ui.selectable_value(&mut pick, None, "none");
-                for (n, _) in app.pal.ramps() {
-                    ui.selectable_value(&mut pick, Some(n.clone()), n);
+            let uses = Self::uses(app, app.pal.colours[self.sel].rgb);
+            ui.add_space(GAP * 0.5);
+            ui.label(RichText::new(format!("Used by {} file(s)", uses.len())).small());
+            for u in &uses {
+                look::weak(ui, u);
+            }
+            ui.add_space(GAP);
+            ui.horizontal_wrapped(|ui| {
+                if look::tip(ui.button("Add"), "A new colour beside the chosen one", "").clicked() {
+                    self.add(app);
+                }
+                let r = ui.add_enabled(uses.is_empty(), egui::Button::new("Remove"));
+                if look::tip(r, "Remove the colour; greyed while a texture uses it", "").clicked() {
+                    self.remove(app);
                 }
             });
-            look::tip(r.response, "The ramp it belongs to; a ramp runs dark to light in the palette's order", "");
-            if pick != cur {
-                app.pal.colours[self.sel].ramp = pick.clone();
-                self.ramp = pick;
-                self.save(app, false, "Ramp");
-            }
-            ui.end_row();
-        });
-        ui.add_space(GAP * 0.5);
-        ui.spacing_mut().slider_width = (ui.available_width() - 165.0).max(60.0); // room for the value box and the label
-        for (k, label) in ["hue", "saturation", "value"].into_iter().enumerate() {
-            let r = ui.add(egui::Slider::new(&mut self.hsv[k], 0.0..=1.0).text(label).show_value(false));
-            crate::drive::mark(ui.ctx(), format!("slider:{label}"), r.rect);
-            let r = look::tip(r, &format!("The colour's {label}; every texture using it follows as it moves"), "");
-            if r.changed() {
-                let rgb = egui::ecolor::Hsva::new(self.hsv[0], self.hsv[1], self.hsv[2], 1.0).to_rgb().map(|v| (v * 255.0).round().clamp(0.0, 255.0) as u8);
-                self.set_colour(app, rgb);
-            }
-            if r.drag_stopped() || (r.changed() && !r.dragged()) {
-                self.flush(app);
-            }
         }
-        let uses = Self::uses(app, app.pal.colours[self.sel].rgb);
-        ui.add_space(GAP * 0.5);
-        ui.label(RichText::new(format!("Used by {} file(s)", uses.len())).small());
-        for u in &uses {
-            look::weak(ui, u);
-        }
-        ui.add_space(GAP);
-        ui.horizontal_wrapped(|ui| {
-            if look::tip(ui.button("Add"), "A new colour beside the chosen one", "").clicked() {
-                self.add(app);
-            }
-            let r = ui.add_enabled(uses.is_empty(), egui::Button::new("Remove"));
-            if look::tip(r, "Remove the colour; greyed while a texture uses it", "").clicked() {
-                self.remove(app);
-            }
-        });
     }
 
     fn ramp_inspector(&mut self, ui: &mut Ui, app: &mut App) {
         let recolour = self.ramp.is_some();
-        look::section(ui, if recolour { "Recolour the ramp" } else { "Make a ramp" });
-        ui.horizontal(|ui| {
-            let (r, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::hover());
-            ui.painter().rect_filled(r, 4.0, c32(self.spec.base));
-            look::tip(resp, "The base colour: the ramp's middle", "");
-            ui.vertical(|ui| {
-                ui.label(RichText::new("base").small());
-                look::weak(ui, to_hex(self.spec.base));
-            });
-        });
-        ui.spacing_mut().slider_width = (ui.available_width() - 165.0).max(60.0); // room for the value box and the label
-        let s = &mut self.spec;
-        let mut steps = s.steps as u32;
-        let r = ui.add_enabled(!recolour, egui::Slider::new(&mut steps, 3..=9).text("steps"));
-        look::tip(r, "How many colours, 3 to 9 (a ramp being recoloured keeps its own)", "");
-        s.steps = steps as usize;
-        look::tip(ui.add(egui::Slider::new(&mut s.turn, 0.0..=60.0).text("hue turn").suffix("°")), "How far the hue turns towards cool in the dark and warm in the light", "");
-        look::tip(ui.add(egui::Slider::new(&mut s.fade, 0.0..=1.0).text("saturation fall")), "How much the colour greys towards both ends", "");
-        look::tip(ui.add(egui::Slider::new(&mut s.reach, 0.1..=1.0).text("reach")), "How far the ends go towards black and white", "");
-        ui.add_space(GAP);
-        if recolour {
-            let r = ui.button("Recolour the ramp");
-            if look::tip(r, "Write these colours into the ramp; every texture using it follows", "").clicked() {
-                self.apply_ramp(app);
-            }
-        } else {
+        if let Some(mut sec) = look::section(ui, if recolour { "Recolour the ramp" } else { "Make a ramp" }) {
+            let ui = &mut *sec;
             ui.horizontal(|ui| {
-                ui.label("Name");
-                look::tip(ui.add(egui::TextEdit::singleline(&mut self.new_name).desired_width(f32::INFINITY)), "The new ramp's name; its colours are named after it", "");
+                let (r, resp) = ui.allocate_exact_size(Vec2::splat(36.0), Sense::hover());
+                ui.painter().rect_filled(r, 4.0, c32(self.spec.base));
+                look::tip(resp, "The base colour: the ramp's middle", "");
+                ui.vertical(|ui| {
+                    ui.label(RichText::new("base").small());
+                    look::weak(ui, to_hex(self.spec.base));
+                });
             });
-            let r = ui.button("Add the ramp");
-            if look::tip(r, "Add these colours to the palette as a new ramp", "").clicked() {
-                self.apply_ramp(app);
-            }
-        }
-        if look::tip(ui.button("Close"), "Back to the chosen colour", "").clicked() {
-            self.mode = Mode::Colour;
-        }
-    }
-
-    fn mood_inspector(&mut self, ui: &mut Ui, app: &mut App) {
-        look::section(ui, "Mood of the palette");
-        ui.spacing_mut().slider_width = (ui.available_width() - 165.0).max(60.0); // room for the value box and the label
-        for (k, (label, help)) in [("warmer", "Turn every hue towards warm (right) or cool (left)"), ("saturated", "More (right) or less (left) colourful"), ("lighter", "Lighter (right) or darker (left)")].into_iter().enumerate() {
-            look::tip(ui.add(egui::Slider::new(&mut self.mood[k], -1.0..=1.0).text(label).show_value(false)), help, "");
-        }
-        ui.add_space(GAP);
-        ui.horizontal_wrapped(|ui| {
-            if look::tip(ui.button("Apply"), "Rewrite the palette once and repaint every texture", "").clicked() {
-                self.apply_mood(app);
-            }
-            if look::tip(ui.button("Reset"), "The sliders back to the middle", "").clicked() {
-                self.mood = [0.0; 3];
+            ui.spacing_mut().slider_width = (ui.available_width() - 165.0).max(60.0); // room for the value box and the label
+            let s = &mut self.spec;
+            let mut steps = s.steps as u32;
+            let r = ui.add_enabled(!recolour, egui::Slider::new(&mut steps, 3..=9).text("steps"));
+            look::tip(r, "How many colours, 3 to 9 (a ramp being recoloured keeps its own)", "");
+            s.steps = steps as usize;
+            look::tip(ui.add(egui::Slider::new(&mut s.turn, 0.0..=60.0).text("hue turn").suffix("°")), "How far the hue turns towards cool in the dark and warm in the light", "");
+            look::tip(ui.add(egui::Slider::new(&mut s.fade, 0.0..=1.0).text("saturation fall")), "How much the colour greys towards both ends", "");
+            look::tip(ui.add(egui::Slider::new(&mut s.reach, 0.1..=1.0).text("reach")), "How far the ends go towards black and white", "");
+            ui.add_space(GAP);
+            if recolour {
+                let r = ui.button("Recolour the ramp");
+                if look::tip(r, "Write these colours into the ramp; every texture using it follows", "").clicked() {
+                    self.apply_ramp(app);
+                }
+            } else {
+                ui.horizontal(|ui| {
+                    ui.label("Name");
+                    look::tip(ui.add(egui::TextEdit::singleline(&mut self.new_name).desired_width(f32::INFINITY)), "The new ramp's name; its colours are named after it", "");
+                });
+                let r = ui.button("Add the ramp");
+                if look::tip(r, "Add these colours to the palette as a new ramp", "").clicked() {
+                    self.apply_ramp(app);
+                }
             }
             if look::tip(ui.button("Close"), "Back to the chosen colour", "").clicked() {
                 self.mode = Mode::Colour;
             }
-        });
+        }
+    }
+
+    fn mood_inspector(&mut self, ui: &mut Ui, app: &mut App) {
+        if let Some(mut sec) = look::section(ui, "Mood of the palette") {
+            let ui = &mut *sec;
+            ui.spacing_mut().slider_width = (ui.available_width() - 165.0).max(60.0); // room for the value box and the label
+            for (k, (label, help)) in [("warmer", "Turn every hue towards warm (right) or cool (left)"), ("saturated", "More (right) or less (left) colourful"), ("lighter", "Lighter (right) or darker (left)")].into_iter().enumerate() {
+                look::tip(ui.add(egui::Slider::new(&mut self.mood[k], -1.0..=1.0).text(label).show_value(false)), help, "");
+            }
+            ui.add_space(GAP);
+            ui.horizontal_wrapped(|ui| {
+                if look::tip(ui.button("Apply"), "Rewrite the palette once and repaint every texture", "").clicked() {
+                    self.apply_mood(app);
+                }
+                if look::tip(ui.button("Reset"), "The sliders back to the middle", "").clicked() {
+                    self.mood = [0.0; 3];
+                }
+                if look::tip(ui.button("Close"), "Back to the chosen colour", "").clicked() {
+                    self.mode = Mode::Colour;
+                }
+            });
+        }
     }
 }
 
@@ -713,19 +722,20 @@ impl Page for PalettePage {
             Mode::Ramp => self.ramp_inspector(ui, app),
             Mode::Mood => self.mood_inspector(ui, app),
         }
-        ui.add_space(GAP);
-        ui.separator();
-        ui.horizontal_wrapped(|ui| {
-            if self.mode != Mode::Ramp && look::tip(ui.button("Make a ramp"), "A new ramp from the chosen colour, from a wall of variations", "").clicked() {
-                self.start_ramp(app, false);
-            }
-            if self.ramp.is_some() && self.mode == Mode::Colour && look::tip(ui.button("Recolour this ramp"), "The ramp's sliders and a wall of variations; every texture follows", "").clicked() {
-                self.start_ramp(app, true);
-            }
-            if self.mode != Mode::Mood && look::tip(ui.button("Mood"), "Warmer, more saturated, lighter: the whole palette at once", "").clicked() {
-                self.mode = Mode::Mood;
-            }
-        });
+        if let Some(mut sec) = look::section(ui, "Ramps and mood") {
+            let ui = &mut *sec;
+            ui.horizontal_wrapped(|ui| {
+                if self.mode != Mode::Ramp && look::tip(ui.button("Make a ramp"), "A new ramp from the chosen colour, from a wall of variations", "").clicked() {
+                    self.start_ramp(app, false);
+                }
+                if self.ramp.is_some() && self.mode == Mode::Colour && look::tip(ui.button("Recolour this ramp"), "The ramp's sliders and a wall of variations; every texture follows", "").clicked() {
+                    self.start_ramp(app, true);
+                }
+                if self.mode != Mode::Mood && look::tip(ui.button("Mood"), "Warmer, more saturated, lighter: the whole palette at once", "").clicked() {
+                    self.mode = Mode::Mood;
+                }
+            });
+        }
     }
 }
 

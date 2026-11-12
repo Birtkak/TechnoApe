@@ -7,6 +7,8 @@
 //! `effects file` (an effects file read on the reading thread, its rows played from then on; ADR 0050) and
 //! `effect name` (that row or group lasting on the stand cell's floor, from its start; `effect -` none). Effects
 //! play when the run has `fx=1`.
+//! `bare 1` leaves the land, the sea and the sky out of the picture (a plain grey instead; the light stays the
+//! place's and the time's), `bare 0` draws them again.
 //! `state name` puts the shown model in that state (its clip, effects at points, sound, light; ADR 0050); `state -` none.
 //! A frame is a line `frame id w h fov` then w * h * 4 bytes of RGBA. Stdin closing ends the run.
 use super::*;
@@ -35,6 +37,8 @@ pub(crate) struct ViewRun {
     sets: Receiver<Result<fx::Set, String>>,
     effect: Option<String>,
     effect_on: bool,
+    /// `bare 1`: no land and no sky are drawn, only the model and the effects on a plain ground colour.
+    pub(crate) bare: bool,
 }
 
 impl ViewRun {
@@ -66,7 +70,7 @@ impl ViewRun {
                 let _ = tx.send(Cmd::Quit);
             })
             .expect("a thread for stdin");
-        ViewRun { rx, eye: DVec3::new(2.0, 1.5, 2.5), target: DVec3::splat(0.5), t: 0.0, want: None, feet, orig: HashMap::new(), last: Instant::now(), sets, effect: None, effect_on: false }
+        ViewRun { rx, eye: DVec3::new(2.0, 1.5, 2.5), target: DVec3::splat(0.5), t: 0.0, want: None, feet, orig: HashMap::new(), last: Instant::now(), sets, effect: None, effect_on: false, bare: false }
     }
 
     /// The camera: the eye looking at the target, up the cell's up.
@@ -120,6 +124,7 @@ impl App {
             match f.first().copied() {
                 Some("cam") => (v.eye, v.target) = (DVec3::new(num(1), num(2), num(3)), DVec3::new(num(4), num(5), num(6))),
                 Some("time") => self.time0 = num(1),
+                Some("bare") => v.bare = num(1) != 0.0,
                 Some("frame") => v.want = Some(num(1) as u64),
                 Some("model") => {
                     // a last word `@x,z,yaw`: it stands that far from its cell (metres), turned (radians); the walk in a circle

@@ -8,6 +8,8 @@ pub mod fx;
 mod gi;
 pub mod gpu;
 mod hud;
+/// The game's font as cells, for the Studio's interface (its `font.rs`).
+pub use hud::font_cells;
 mod menu;
 pub mod models;
 mod play;
@@ -444,6 +446,7 @@ pub fn main() {
     let streamer = Streamer::new(&world, cap, opts);
     let el = EventLoop::new().unwrap();
     el.set_control_flow(ControlFlow::Poll);
+    let lines_on = run == "play" && args.s("lines", "") == "stdin";
     let (acts, creative, shot) = (parse_acts(&args.s("acts", "")), run != "play", args.0.get("shot").cloned());
     let time0 = args.get("time", if run == "orbit" { orbit_start(&world) } else { 0.0 });
     let server_at = args.0.get("connect").map_or("on this machine".to_string(), |a| a.clone());
@@ -580,6 +583,23 @@ pub fn main() {
         bug: None,
         bug_shot: None,
         bug_said: std::sync::mpsc::channel(),
+        lines: lines_on.then(|| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            // (ends with the pipe, or with the game: nothing waits for it)
+            let _ = std::thread::Builder::new().name("lines stdin".into()).spawn(move || {
+                use std::io::{BufRead, Read};
+                // (a line is taken in pieces of 4096 bytes at the most, and what is no text is read past:
+                // neither a line without an end nor a wrong byte stops the lines after it)
+                let mut stdin = std::io::stdin().lock();
+                loop {
+                    let mut buf = Vec::new();
+                    if !matches!((&mut stdin).take(4096).read_until(b'\n', &mut buf), Ok(n) if n > 0) || tx.send(String::from_utf8_lossy(&buf).into_owned()).is_err() {
+                        return;
+                    }
+                }
+            });
+            rx
+        }),
         settings,
         settings_file,
         menu: None,

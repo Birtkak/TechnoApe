@@ -41,7 +41,47 @@ One look for every page, so a tool learned once works everywhere.
   gone after four seconds, red ones stay until clicked.
 - **History:** the inspector can show the file's undo steps by name; a click goes back to one.
 - **Look:** dark, calm, one accent colour for what is chosen; panels on one grid with the same gaps; text in
-  two sizes only; nothing moves when a tooltip or toast appears. Panel widths and the interface scale
+  two sizes only; nothing moves when a tooltip or toast appears. **Each page has its own colour** (its tab,
+  and a band with that colour on every section title of its inspector), so where you are is seen at a glance;
+  a page's colour is never used for what is chosen. Status keeps its three: amber for drafts and unsaved,
+  red for problems, green for fine and for a Save that has work to save.
+- **The inspector's top** is the same on every page: Undo, Redo and Save for the open file (grey when there
+  is nothing to undo or redo). Below it, sections; in a section every label stands in one column with its
+  control beside it (the label goes over the control when the panel is narrow). Tools stand in three
+  columns with their key weak beside the name; an option that is on or off is a round chip, not a tool.
+- **The layout is the developer's**, and `studio.txt` keeps it. Each page has its own two side panels: they
+  drag wide (the work keeps 520 points) and hide (F2 the files, F3 the inspector, F4 both: the work area
+  alone), so Models may have a wide inspector while Sounds has none. The View menu also puts the inspector
+  on the left (everywhere) and makes the layout as new. A click on a section's title folds it shut; a drag
+  of the title up or down moves the section among the others.
+  Where a page's work is two parts one over the other (Models: view and timeline; Structures: view and
+  slice; Sounds: wave and chain) the bar between them drags, and a double click puts it back.
+- **The font is the game's own** (`data/font.txt`), each character as wide as it is drawn (digits a fixed
+  width); a change to the file shows at the Studio's next build. Buttons have a fine edge and keep their
+  size under the pointer; a slider is a thin rail lit up to a slim handle.
+- **Sharp text:** the font is one size everywhere (small text is told by its colour), and the interface
+  scale steps only through the sizes that draw a pixel of the font on whole screen pixels (on a plain
+  screen 67, 133 and 200 %); the window starts on the one nearest its kept scale. The characters the game's
+  font has not (degree, plus-minus, squared, middle dot, times, ellipsis) are the Studio's own cells.
+- **Tools have icons** (`crates/studio/src/icons.txt`, 8 x 8 cells drawn at the font's pixel) before their
+  names, on Models and Textures.
+- **A player for scale** on Fauna as on Models (P): a 0.6 x 1.8 m outline beside the creature, in the
+  circle's middle when it walks one.
+- **Where the developer was:** the Studio starts on the page it was closed on, each page with the file it
+  had open (`studio.txt`: `page=`, `open.<Page>=`; a file that is gone is skipped; `open=` on the command
+  line wins). Ctrl+1 to Ctrl+7 go to the pages. The inspector's top names the open file in the page's colour.
+- **Try in game (F5):** saves the open file and starts the game on it: a creative world that keeps no save,
+  the model, effect, structure or creature standing ahead at the spawn (a texture's block is given, to
+  place). The game then shows every later save within a second, so the Studio and the game stay side by
+  side. Try in game again while that game still runs says the open structure's `/structure` or the open
+  creature's `/spawn` there (the game was started with `lines=stdin`), in place of a second game; on the
+  other pages the running game shows a save by itself. In a running game `/structure <name> [seed]` stands a structure file five blocks ahead and
+  `/spawn <creature>[:speed]` shows a creature walking in place three blocks ahead (a preview for the one
+  player: creatures do not live in the world yet).
+- **The game view's scenes:** Grass, Cave, None (the thing alone on a plain grey) and Checker (the same on
+  a checkerboard). None and Checker are not offered where the thing is blocks (Structures, Textures).
+- **File rows** of one family ("dirt: dig, place, step") stand under the family's name; a row's kind
+  ("grown", "quadruped") is a weak tag after its name. Panel widths and the interface scale
   (80 to 200 %) are kept in `studio.txt` beside `settings.txt`.
 - **Outside changes:** the Studio watches `data/` as the game does. A file changed elsewhere reloads when it
   has no unsaved work, and asks which to keep when it has.
