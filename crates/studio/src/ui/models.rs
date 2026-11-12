@@ -41,6 +41,21 @@ pub(super) const TOOLS: [(Tool, &str, &str, Key, &str); 9] = [
     (Tool::Point, "point", "Point", Key::O, "click a face to add a point there; drag a point's cross to move it"),
 ];
 
+/// What each mouse button does with a tool, in the view's bar.
+fn buttons(tool: Tool) -> &'static str {
+    match tool {
+        Tool::Add => "left adds a voxel, right removes one",
+        Tool::Paint => "left paints a voxel the first colour, right the second",
+        Tool::Pick => "left takes a voxel's colour as the first, right as the second",
+        Tool::Box => "left drag adds a box, right drag removes one",
+        Tool::Line => "left drag adds a line, right drag removes one",
+        Tool::Fill => "left recolours the joined run, right removes it",
+        Tool::Select => "left drag selects a box; drag one of its faces to pull it out",
+        Tool::Pivot => "left drag moves the yellow cross, the point the part turns about",
+        Tool::Point => "left adds a point on a face; drag a point's cross to move it",
+    }
+}
+
 /// One model file open in the Studio: the model, its undo, its text as on disk, and a count of its edits.
 struct MDoc {
     m: Model,
@@ -496,6 +511,44 @@ impl Models {
         self.edge_cache.1.clone()
     }
 
+    /// The bar in the view's top left, always: the tool and what the buttons do, how the view moves, and what
+    /// is on (layer, mirror, flat).
+    fn view_bar(&self, ui: &Ui, view: Rect) {
+        let name = TOOLS.iter().find(|t| t.0 == self.tool).map_or("", |t| t.2);
+        let turn = if matches!(self.tool, Tool::Box | Tool::Line) { "Alt + left drag turns" } else { "Right drag (or Alt + left) turns" };
+        let mut lines = vec![format!("{name}: {}.", buttons(self.tool)), format!("{turn}, middle drag pans, the wheel zooms.")];
+        let mut on = vec![];
+        if let Some(l) = self.layer {
+            on.push(format!("Layer: row {l}, clicks land on its plane (Page Up/Down move it)"));
+        }
+        match self.mirror {
+            (true, true) => on.push("Mirror x and z".into()),
+            (true, false) => on.push("Mirror x".into()),
+            (false, true) => on.push("Mirror z".into()),
+            _ => {}
+        }
+        if self.flat {
+            on.push("Flat view".into());
+        }
+        if !on.is_empty() {
+            lines.push(on.join(". ") + ".");
+        }
+        let p = ui.painter_at(view);
+        let font = egui::FontId::proportional(look::SMALL);
+        let galleys: Vec<_> = lines.into_iter().enumerate().map(|(i, l)| p.layout_no_wrap(l, font.clone(), if i == 0 { Color32::WHITE } else { Color32::from_gray(200) })).collect();
+        let w = galleys.iter().map(|g| g.size().x).fold(0.0, f32::max);
+        let h: f32 = galleys.iter().map(|g| g.size().y).sum();
+        let bg = Rect::from_min_size(view.min + Vec2::splat(6.0), Vec2::new(w + 12.0, h + 8.0));
+        p.rect_filled(bg, 4.0, Color32::from_black_alpha(170));
+        let mut y = bg.min.y + 4.0;
+        for g in galleys {
+            let gh = g.size().y;
+            p.galley(Pos2::new(bg.min.x + 6.0, y), g, Color32::WHITE);
+            y += gh;
+        }
+        crate::drive::mark(ui.ctx(), "view_bar", bg);
+    }
+
     fn timeline_t(&mut self, t: f32) {
         let len = self.clip.and_then(|c| self.m()?.clips.get(c).map(|c| c.length)).unwrap_or(1.0);
         self.t = t.clamp(0.0, len);
@@ -526,13 +579,17 @@ impl Models {
             },
         };
         let pose = poses[part];
-        // the status line's middle: the cell under the pointer and its colour
+        // the status line's middle: the cell under the pointer, the part's box and the part, and the voxel's colour
         app.pointer = match self.hover {
-            Some(h) if h.solid => {
-                let v = voxel::get(&m.parts[part], h.cell);
-                format!("{} {}, {}, {}  {}", m.parts[part].name, h.cell.x, h.cell.y, h.cell.z, m.colours.get(v as usize - 1).cloned().unwrap_or_default())
+            Some(h) => {
+                let (c, p) = (h.cell, &m.parts[part]);
+                let what = match voxel::get(p, c) {
+                    0 if !voxel::inside(p, c) => "outside the box: an add grows it".to_string(),
+                    0 => "empty".to_string(),
+                    v => m.colours.get(v as usize - 1).cloned().unwrap_or_default(),
+                };
+                format!("x {} y {} z {} of {} x {} x {}, part {}: {what}", c.x, c.y, c.z, p.size[0], p.size[1], p.size[2], p.name)
             }
-            Some(h) => format!("{} {}, {}, {} (empty)", m.parts[part].name, h.cell.x, h.cell.y, h.cell.z),
             None => String::new(),
         };
         let screen = |p: Vec3| app.view.to_screen(p);
@@ -1546,6 +1603,7 @@ impl Page for Models {
         let edges = if self.edges { self.visible_faces(&app.view) } else { vec![] };
         self.overlay(&painter, &app.view, &edges);
         self.view_cube(ui, app, resp.rect);
+        self.view_bar(ui, resp.rect);
         let tool = TOOLS.iter().find(|t| t.0 == self.tool).unwrap();
         look::tip(resp, &format!("{}: {}", tool.2, tool.4), tool.3.name());
         look::split_bar(ui, "view", view_share, total);
