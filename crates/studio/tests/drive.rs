@@ -50,7 +50,7 @@ fn textures_paint_undo_save() {
         &dir,
         &[
             "open=dirt",
-            "input=click @btn:pattern; drag @face:0.08,0.09 @face:0.92,0.09; drag @face:0.08,0.28 @face:0.92,0.28 right; key G; click @face:0.5,0.72; \
+            "input=click @btn:pattern; click @btn:pat.use; drag @face:0.08,0.09 @face:0.92,0.09; drag @face:0.08,0.28 @face:0.92,0.28 right; key G; click @face:0.5,0.72; \
              mods alt; click @face:0.2,0.6; mods none; key Ctrl+Z; key Ctrl+Z; key Ctrl+Y; key Ctrl+S",
         ],
     );
@@ -135,7 +135,7 @@ fn models_save_keeps_comments_above_a_part_and_a_clip_and_crlf() {
 #[test]
 fn palette_undo_never_removes_a_colour_in_use() {
     let dir = scratch("palette-in-use");
-    studio(&dir, &["open=dirt", "input=click @btn:pattern; key Ctrl+S"]);
+    studio(&dir, &["open=dirt", "input=click @btn:pattern; click @btn:pat.use; key Ctrl+S"]);
     // a colour added, painted into dirt.png and saved, then the add undone on the Palette page
     let line = studio(&dir, &["cmd=page:Palette,colour.add,open:Textures:dirt,colours=new 1;new 1", "input=click @face:0.5,0.5; key Ctrl+S; click @tab:Palette; key Ctrl+Z"]);
     assert!(line.contains("\"undo\":[\"Add\"],\"redo\":[]"), "the undo went through: {line}");
@@ -237,7 +237,7 @@ fn shell_search_find_and_the_close_question() {
 #[test]
 fn palette_slider_moves_a_colour_and_its_texture_follows() {
     let dir = scratch("palette");
-    studio(&dir, &["open=dirt", "input=click @btn:pattern; key Ctrl+S"]);
+    studio(&dir, &["open=dirt", "input=click @btn:pattern; click @btn:pat.use; key Ctrl+S"]);
     let tex = dir.join("data/textures/dirt.png");
     let (w, _, px) = png(&tex);
     let rgb = [px[0], px[1], px[2]];
@@ -257,7 +257,7 @@ fn palette_slider_moves_a_colour_and_its_texture_follows() {
 #[test]
 fn palette_undo_leaves_the_files_as_they_were() {
     let dir = scratch("palette-undo");
-    studio(&dir, &["open=dirt", "input=click @btn:pattern; key Ctrl+S"]);
+    studio(&dir, &["open=dirt", "input=click @btn:pattern; click @btn:pat.use; key Ctrl+S"]);
     let (pal_path, tex) = (dir.join("data/palette.toml"), dir.join("data/textures/dirt.png"));
     let (pal0, tex0) = (std::fs::read(&pal_path).unwrap(), std::fs::read(&tex).unwrap());
     let (_, _, px) = png(&tex);
@@ -518,7 +518,7 @@ fn a_season_is_added_painted_and_removed() {
     let dir = scratch("seasons");
     let blocks = || std::fs::read_to_string(dir.join("data/blocks.toml")).unwrap();
     let before = blocks();
-    studio(&dir, &["open=dirt", "input=click @btn:pattern; key Ctrl+S"]);
+    studio(&dir, &["open=dirt", "input=click @btn:pattern; click @btn:pat.use; key Ctrl+S"]);
     studio(&dir, &["open=dirt", "season=winter", "cmd=season.add", "input=key Ctrl+S"]);
     let winter = dir.join("data/textures/dirt@winter.png");
     assert_eq!(png(&winter).2, png(&dir.join("data/textures/dirt.png")).2, "the season starts as the base");
@@ -532,4 +532,29 @@ fn a_season_is_added_painted_and_removed() {
     let line = studio(&dir, &["open=dirt", "season=winter", "cmd=season.remove"]);
     assert!(!winter.exists(), "{line}");
     assert_eq!(blocks(), before, "data/blocks.toml as it was, byte for byte");
+}
+
+#[test]
+fn the_pattern_panel_picks_bricks_three_colours_and_a_size() {
+    // usability round step 2: pick bricks, set three colours and a size, Use, save; the file passes check=1
+    let dir = scratch("pattern-panel");
+    let line = studio(
+        &dir,
+        &[
+            "open=clay",
+            "input=click @btn:pattern; click @pat:bricks; click @well:0; click @swatch:copper; click @well:1; click @swatch:stone_dark; \
+             click @well:2; click @swatch:copper_light; click @slider:size:0.3,0.5; click @btn:pat.use; key Ctrl+S",
+        ],
+    );
+    assert!(line.contains("\"undo\":[\"Start from pattern\"]") && line.contains("\"unsaved\":[]"), "{line}");
+    let (w, h, px) = png(&dir.join("data/textures/clay.png"));
+    assert_eq!((w, h), (16, 16));
+    let red = |x: u32, y: u32| px[((y * w + x) * 4) as usize];
+    // size 3: mortar rows 0, 3, 6 in the dark second colour, the bricks between them copper
+    for y in [0, 3, 6] {
+        assert!((0..16).all(|x| red(x, y) < 110), "row {y} is mortar: {line}");
+    }
+    assert!((0..16).filter(|&x| red(x, 2) > 150).count() > 10, "row 2 is brick");
+    let out = Command::new(env!("CARGO_BIN_EXE_technoape-studio")).current_dir(&dir).arg("check=1").output().unwrap();
+    assert!(out.status.success() && String::from_utf8_lossy(&out.stdout).contains("\"check\":\"ok\""), "{}", String::from_utf8_lossy(&out.stdout));
 }

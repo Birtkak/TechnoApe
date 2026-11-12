@@ -96,6 +96,20 @@ pub struct Textures {
     /// When the renderer's textures were last written, and how long that took (ms).
     tex_at: std::time::Instant,
     tex_ms: f32,
+    /// "Start from: Pattern" (usability round step 2): the panel's recipe, the well a swatch click sets.
+    pat: Option<PatPanel>,
+    /// Each file's last recipe in this session, for the panel to open with.
+    recipes: std::collections::HashMap<String, (pattern::Recipe, bool)>,
+    /// A change shown in the canvas and every preview before Use: (file, the picture it would hold).
+    pending: Option<(String, Img)>,
+}
+
+struct PatPanel {
+    recipe: pattern::Recipe,
+    /// The colour well a click on a palette swatch sets next.
+    well: Option<usize>,
+    /// Fill every variant, each from its own seed (else the open one).
+    every: bool,
 }
 
 /// The fixed preview's chips: (id, name, help).
@@ -149,6 +163,9 @@ impl Textures {
             tex_gen: 0,
             tex_at: std::time::Instant::now(),
             tex_ms: 0.0,
+            pat: None,
+            recipes: Default::default(),
+            pending: None,
         };
         t.go(app, &block);
         t
@@ -162,11 +179,21 @@ impl Textures {
         self.block = block.to_string();
         self.face = (0..4).find(|&f| app.docs.contains_key(&self.file(f))).unwrap_or(0);
         (self.variant, self.zoom, self.pan, self.stroke, self.sel, self.wall) = (0, None, Vec2::ZERO, None, None, None);
+        (self.pat, self.pending) = (None, None);
     }
 
     /// The picture a face shows in the season painted: its own file, else (dimmed, `false`) the season's
     /// every-face file, the base face's, the base every-face file.
-    fn shown<'a>(&self, app: &'a App) -> Option<(&'a Img, bool)> {
+    /// A pending change (a pattern, a set of variants) shows in its place until Use or Cancel.
+    fn shown<'a>(&'a self, app: &'a App) -> Option<(&'a Img, bool)> {
+        match &self.pending {
+            Some((f, img)) if *f == self.file(self.face) => Some((img, true)),
+            _ => self.real(app),
+        }
+    }
+
+    /// `shown` without the pending change: what the files hold.
+    fn real<'a>(&self, app: &'a App) -> Option<(&'a Img, bool)> {
         if self.season == 1 {
             return Self::face_img(app, &self.block, self.face);
         }
@@ -273,7 +300,7 @@ impl Textures {
     fn doc<'a>(&self, app: &'a mut App) -> &'a mut Doc {
         let key = self.file(self.face);
         if !app.docs.contains_key(&key) {
-            let img = match self.shown(app) {
+            let img = match self.real(app) {
                 Some((img, _)) => img.clone(),
                 None => Img::filled(1, tools::snap(&app.pal, self.block_colour(app).map(|v| v as f32 / 255.0))),
             };
@@ -308,13 +335,192 @@ impl Textures {
         app.toast(format!("{name}: {}", self.file(self.face)));
     }
 
-    fn start_pattern(&mut self, app: &mut App) {
-        let Some(mut def) = app.reg.placeable().find(|d| d.name == self.block).cloned() else { return };
-        // the season's colours, on the season's tab
+    /// The block's row in the season painted.
+    fn def(&self, app: &App) -> Option<engine::blocks::Def> {
+        let mut def = app.reg.placeable().find(|d| d.name == self.block).cloned()?;
         let l = def.tone(engine::blocks::ROW[self.season]);
         (def.colour, def.colour2, def.colour3, def.amount, def.contrast) = (l.colour, l.colour2, l.colour3, l.amount, l.contrast);
-        let face = pattern::face(&app.reg, &def, self.face, &app.pal);
-        self.put_variant(app, "Start from pattern", face);
+        Some(def)
+    }
+
+    /// Opens the pattern panel with the file's last recipe this session, else the block's own row.
+    fn open_pattern(&mut self, app: &App, every: bool) {
+        let key = self.file(self.face);
+        let (recipe, was) = match (self.recipes.get(&key), self.def(app)) {
+            (Some(r), _) => r.clone(),
+            (None, Some(d)) => (pattern::Recipe::of(&d, &app.pal), false),
+            (None, None) => return,
+        };
+        (self.wall, self.stroke) = (None, None);
+        self.pat = Some(PatPanel { recipe, well: None, every: every || was });
+    }
+
+    /// The pending picture from the panel's recipe, made again each frame (live while a slider moves).
+    fn pat_pending(&mut self, app: &App) {
+        let (Some(pp), Some(d)) = (&self.pat, self.def(app)) else { return };
+        let base = self.real(app).map(|(i, _)| i.clone()).unwrap_or_else(|| Img::filled(1, tools::snap(&app.pal, self.block_colour(app).map(|v| v as f32 / 255.0))));
+        let v = self.variant.min(base.variants() - 1);
+        let img = pp.recipe.fill(&base, v, pp.every, &app.reg, &d, self.face, &app.pal);
+        self.pending = Some((self.file(self.face), img));
+    }
+
+    /// Use: the pending pattern becomes the file, one undo step; the recipe is kept for the file.
+    fn pat_use(&mut self, app: &mut App) {
+        self.pat_pending(app);
+        let Some(pp) = self.pat.take() else { return };
+        self.recipes.insert(self.file(self.face), (pp.recipe, pp.every));
+        if let Some((f, img)) = self.pending.take() {
+            self.edit(app, "Start from pattern", |me, _, _| *me = img);
+            app.toast(format!("Pattern used: {f} (unsaved; Undo takes it back)"));
+        }
+    }
+
+    fn pat_cancel(&mut self) {
+        if let Some(pp) = self.pat.take() {
+            self.recipes.insert(self.file(self.face), (pp.recipe, pp.every));
+        }
+        self.pending = None;
+    }
+
+    /// The pattern panel in the middle column: the eleven patterns, three colour wells, the values the chosen
+    /// one reads, Another, this or every variant, Use and Cancel.
+    fn pattern_panel(&mut self, ui: &mut Ui, app: &mut App) {
+        let Some(def) = self.def(app) else { return };
+        let (face, pal) = (self.face, app.pal.clone());
+        let n = self.real(app).map_or(1, |(img, _)| img.variants());
+        let Some(pp) = self.pat.as_mut() else { return };
+        let mut act = "";
+        ui.label(RichText::new("Start from a pattern").strong());
+        look::weak(ui, "A pattern draws the face from three colours and a few numbers. Pick one, tune it, then paint over it.");
+        ui.add_space(GAP);
+        // a fixed grid: a wrapping row cannot know a column's width before it is drawn
+        let cols = ((ui.available_width() + 6.0) / 70.0).floor().max(1.0) as usize;
+        for line in pattern::NAMES.chunks(cols) {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::splat(6.0);
+                for &(p, name) in line {
+                    // the chosen one with its values, the others at their own defaults; all with the colours chosen
+                    let mut k = pp.recipe.clone();
+                    if p != k.pattern {
+                        k.set_pattern(p);
+                    }
+                    let img = k.draw(&app.reg, &def, face, &pal, k.seed);
+                    ui.vertical(|ui| {
+                        ui.set_width(64.0);
+                        ui.spacing_mut().item_spacing = Vec2::splat(2.0);
+                        let (r, resp) = ui.allocate_exact_size(Vec2::splat(56.0), Sense::click());
+                        crate::drive::mark(ui.ctx(), format!("pat:{name}"), r);
+                        draw(ui.painter(), &img, 0, r.min + Vec2::splat(4.0), 3.0, false);
+                        let on = p == pp.recipe.pattern;
+                        if on || resp.hovered() {
+                            ui.painter().rect_stroke(r, 4.0, egui::Stroke::new(if on { 2.0 } else { 1.0 }, if on { look::ACCENT } else { Color32::from_gray(120) }), StrokeKind::Inside);
+                        }
+                        if look::tip(resp, &format!("{name}: a click picks it"), "").clicked() {
+                            pp.recipe.set_pattern(p);
+                        }
+                        ui.label(if on { RichText::new(name).small().strong() } else { RichText::new(name).small() });
+                    });
+                }
+            });
+        }
+        ui.add_space(GAP);
+        ui.label(RichText::new("Colours").strong());
+        let cs = pp.recipe.colours(&pal);
+        ui.horizontal(|ui| {
+            for (k, name) in ["Base", "Second", "Third"].into_iter().enumerate() {
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing = Vec2::splat(2.0);
+                    let (r, resp) = ui.allocate_exact_size(Vec2::new(64.0, 36.0), Sense::click());
+                    crate::drive::mark(ui.ctx(), format!("well:{k}"), r);
+                    ui.painter().rect_filled(r, 4.0, c32(cs[k]));
+                    let armed = pp.well == Some(k);
+                    ui.painter().rect_stroke(r, 4.0, egui::Stroke::new(if armed { 3.0 } else { 1.0 }, if armed { look::ACCENT } else { Color32::from_gray(90) }), StrokeKind::Inside);
+                    let auto = pp.recipe.colours[k].is_none();
+                    let help = match k {
+                        0 => "The base colour: click here, then a colour under Colours on the right".to_string(),
+                        _ => format!("The {} colour (lines, mortar, spots): auto is one step {} than the base on its ramp; click here, then a colour under Colours on the right", name.to_lowercase(), if k == 1 { "darker" } else { "lighter" }),
+                    };
+                    if look::tip(resp, &help, "").clicked() {
+                        pp.well = if armed { None } else { Some(k) };
+                    }
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(if auto { format!("{name}: auto") } else { name.to_string() }).small());
+                        if k > 0 && !auto && look::tip(ui.small_button("make auto"), "Back to one step darker or lighter than the base", "").clicked() {
+                            pp.recipe.colours[k] = None;
+                        }
+                    });
+                    ui.label(RichText::new(colour_name(&pal, cs[k])).small().weak());
+                });
+            }
+        });
+        if let Some(k) = pp.well {
+            ui.label(RichText::new(format!("Now click a colour for the {} well, here or under Colours on the right", ["base", "second", "third"][k])).color(look::ACCENT));
+            let (mut a, mut b) = (cs[k], cs[k]);
+            if let Some(c) = swatches(ui, &pal, &mut a, &mut b) {
+                pp.recipe.colours[k] = Some(c);
+                pp.well = None;
+            }
+        }
+        ui.add_space(GAP);
+        ui.label(RichText::new("Values").strong());
+        let (rs, ra) = pattern::Recipe::reads(pp.recipe.pattern);
+        let (ds, da) = pp.recipe.pattern.defaults().unwrap_or((1, 0.5));
+        ui.spacing_mut().slider_width = (ui.available_width() - 190.0).clamp(80.0, 260.0);
+        let sw = ui.spacing().slider_width;
+        // one value's row: its slider with the number, its tip, and a reset (true when clicked)
+        let row = |ui: &mut Ui, id: &str, help: &str, s: egui::Slider| -> bool {
+            ui.horizontal(|ui| {
+                let r = ui.add(s);
+                crate::drive::mark(ui.ctx(), format!("slider:{id}"), Rect::from_min_size(r.rect.min, Vec2::new(sw, r.rect.height())));
+                look::tip(r, help, "");
+                look::tip(ui.small_button("reset"), "Back to the pattern's own value", "").clicked()
+            })
+            .inner
+        };
+        if rs && row(ui, "size", "How large the parts are, in pixels: bricks' height, tiles' and planks' width, the rings' step", egui::Slider::new(&mut pp.recipe.size, 1..=8).text("size")) {
+            pp.recipe.size = ds;
+        }
+        if ra && row(ui, "amount", "How much of the second and third colour: how many spots, threads, cracked boards", egui::Slider::new(&mut pp.recipe.amount, 0.0..=1.0).text("amount")) {
+            pp.recipe.amount = da;
+        }
+        if row(ui, "contrast", "How strongly each pixel's shade varies: 0 flat, 1 as the game draws blocks", egui::Slider::new(&mut pp.recipe.contrast, 0.0..=2.0).text("contrast")) {
+            pp.recipe.contrast = 1.0;
+        }
+        if !rs {
+            look::weak(ui, "this pattern takes no size or amount");
+        }
+        ui.add_space(GAP);
+        ui.horizontal_wrapped(|ui| {
+            let r = ui.button("Another");
+            crate::drive::mark(ui.ctx(), "btn:pat.another", r.rect);
+            if look::tip(r, "A new draw of the same values, where the pattern has chance in it (a new seed)", "").clicked() {
+                pp.recipe.seed += 1;
+            }
+            ui.separator();
+            let r = ui.radio_value(&mut pp.every, false, "This variant");
+            look::tip(r, "Fill only the variant open on the canvas", "");
+            let r = ui.radio_value(&mut pp.every, true, if n == 1 { "Every variant (makes 4)" } else { "Every variant" });
+            crate::drive::mark(ui.ctx(), "pat:every", r.rect);
+            look::tip(r, "Fill every variant, each from its own seed: one pattern, a varied field; a file of one variant gets four", "");
+        });
+        ui.add_space(GAP);
+        ui.horizontal(|ui| {
+            let r = ui.add(egui::Button::new(RichText::new("Use").color(Color32::WHITE)).fill(look::GOOD.gamma_multiply(0.45)));
+            crate::drive::mark(ui.ctx(), "btn:pat.use", r.rect);
+            if look::tip(r, "Put the pattern into the file: one undo step, saved with Save", "").clicked() {
+                act = "use";
+            }
+            let r = ui.button("Cancel");
+            crate::drive::mark(ui.ctx(), "btn:pat.cancel", r.rect);
+            if look::tip(r, "Close the panel; the file stays as it was", "").clicked() {
+                act = "cancel";
+            }
+        });
+        match act {
+            "use" => self.pat_use(app),
+            "cancel" => self.pat_cancel(),
+            _ => {}
+        }
     }
 
     fn start_picture(&mut self, app: &mut App, path: &str) {
@@ -592,7 +798,15 @@ impl Textures {
     }
 
     fn palette(&mut self, ui: &mut Ui, app: &App) {
-        palette_picker(ui, &app.pal, &mut self.first, &mut self.second);
+        let before = self.first;
+        let clicked = palette_picker(ui, &app.pal, &mut self.first, &mut self.second);
+        // a well of the pattern panel waiting for a colour takes the click instead of the first colour
+        if let (Some(c), Some(pp)) = (clicked, self.pat.as_mut()) {
+            if let Some(k) = pp.well.take() {
+                pp.recipe.colours[k] = Some(c);
+                self.first = before;
+            }
+        }
     }
 
     /// The fixed box on top of the inspector: the chips, then the block or a flat preview, never scrolled away.
@@ -626,7 +840,8 @@ impl Textures {
         };
         let fit = |w: f32, h: f32| ((r.width() - GAP) / w).min((r.height() - GAP) / h).floor().clamp(1.0, 6.0);
         if self.preview == 3 {
-            let faces = [1, 2, 3].map(|f| Self::face_img(app, &self.block, f));
+            let pend = |f: usize| self.pending.as_ref().filter(|p| p.0 == art::file_name(&self.block, f)).map(|p| (&p.1, true));
+            let faces = [1, 2, 3].map(|f| pend(f).or_else(|| Self::face_img(app, &self.block, f).filter(|(_, own)| *own)).or_else(|| pend(0)).or_else(|| Self::face_img(app, &self.block, f)));
             if faces.iter().all(Option::is_none) {
                 return note(&p, "nothing painted yet");
             }
@@ -664,9 +879,11 @@ impl Textures {
     /// the cave), with the textures as they are in the Studio, saved or not.
     fn lit_cube(&mut self, ui: &mut Ui, app: &mut App) {
         use std::hash::{Hash, Hasher};
+        let pend = self.pending.as_ref();
+        let files: Vec<(&String, &Img)> = app.docs.iter().filter(|(n, _)| pend.is_none_or(|p| p.0 != **n)).map(|(n, d)| (n, &d.img)).chain(pend.map(|p| (&p.0, &p.1))).collect();
         let mut h = std::hash::DefaultHasher::new();
-        for (n, d) in &app.docs {
-            (n, d.img.w, &d.img.px).hash(&mut h);
+        for (n, img) in &files {
+            (n, img.w, &img.px).hash(&mut h);
         }
         let gen = h.finish();
         let dir = format!("{}/textures", super::viewport::DIR);
@@ -676,15 +893,15 @@ impl Textures {
             let t0 = std::time::Instant::now();
             if held {
                 let n = self.file(self.face);
-                if let Some(d) = app.docs.get(&n) {
+                if let Some((_, img)) = files.iter().find(|(f, _)| **f == n) {
                     let _ = std::fs::create_dir_all(&dir);
-                    let _ = std::fs::write(format!("{dir}/{n}"), art::encode(&d.img));
+                    let _ = std::fs::write(format!("{dir}/{n}"), art::encode(img));
                 }
             } else {
                 let _ = std::fs::remove_dir_all(&dir);
                 let _ = std::fs::create_dir_all(&dir);
-                for (n, d) in &app.docs {
-                    let _ = std::fs::write(format!("{dir}/{n}"), art::encode(&d.img));
+                for (n, img) in &files {
+                    let _ = std::fs::write(format!("{dir}/{n}"), art::encode(img));
                 }
             }
             self.tex_ms = t0.elapsed().as_secs_f32() * 1000.0;
@@ -871,7 +1088,10 @@ impl Page for Textures {
         v.push(Cmd::new("sel.flipy", "Flip the selection top to bottom", "mirror it in place"));
         v.push(Cmd::new("sel.turn", "Turn the selection", "a quarter clockwise"));
         v.push(Cmd::new("sel.all", "Select all", "the whole face").key(Modifiers::COMMAND, Key::A));
-        v.push(Cmd::new("start.pattern", "Start from pattern", "the block's game pattern drawn into this variant, snapped to the palette"));
+        v.push(Cmd::new("start.pattern", "Start from a pattern", "the pattern panel: pick a pattern, its colours and values, see it live, then Use"));
+        v.push(Cmd::new("pat.use", "Use the pattern", "the pending pattern into the file, one undo step"));
+        v.push(Cmd::new("pat.cancel", "Cancel the pattern", "close the pattern panel; the file stays as it was"));
+        v.push(Cmd::new("pat.another", "Another draw of the pattern", "a new seed for the same values"));
         v.push(Cmd::new("undo", "Undo", "undo the last change to this file").key(Modifiers::COMMAND, Key::Z));
         v.push(Cmd::new("redo", "Redo", "redo what was undone").key(Modifiers::COMMAND, Key::Y));
         v.push(Cmd::new("save", "Save the block", "write the block's unsaved files and take them off the drafts list").key(Modifiers::COMMAND, Key::S));
@@ -928,6 +1148,14 @@ impl Page for Textures {
                         self.sel = Some(Sel::corners((x, y), (x + w.max(1) - 1, y + h.max(1) - 1)));
                     }
                 }
+                "pattern" => {
+                    if self.pat.is_none() {
+                        self.open_pattern(app, false);
+                    }
+                    if let (Some(pp), Some((p, _))) = (self.pat.as_mut(), pattern::NAMES.iter().find(|n| n.1 == arg)) {
+                        pp.recipe.set_pattern(*p);
+                    }
+                }
                 "take" => {
                     if let Some(item) = arg.parse::<usize>().ok().and_then(|i| self.wall.as_ref()?.items.get(i).cloned()) {
                         self.edit(app, "Make variants", |img, _, _| *img = item);
@@ -973,7 +1201,14 @@ impl Page for Textures {
                 self.sel = Some(Sel { x: 0, y: 0, w: S, h: S });
                 self.tool = Tool::Select;
             }
-            "start.pattern" => self.start_pattern(app),
+            "start.pattern" => self.open_pattern(app, false),
+            "pat.use" => self.pat_use(app),
+            "pat.cancel" => self.pat_cancel(),
+            "pat.another" => {
+                if let Some(pp) = self.pat.as_mut() {
+                    pp.recipe.seed += 1;
+                }
+            }
             "undo" | "redo" if self.stroke.is_none() => {
                 if let Some(d) = app.docs.get_mut(&self.file(self.face)) {
                     let done = if id == "undo" { d.hist.undo(&mut d.img) } else { d.hist.redo(&mut d.img) };
@@ -1058,8 +1293,18 @@ impl Page for Textures {
             return self.wall_work(ui, app);
         }
         // the panel's own room, never what a wide row of tabs pushed it to
-        let room = ui.available_rect_before_wrap().intersect(ui.clip_rect());
-        let (rect, resp) = ui.allocate_exact_size(room.size().max(Vec2::splat(16.0)), Sense::click_and_drag());
+        let mut room = ui.available_rect_before_wrap().intersect(ui.clip_rect());
+        if self.pat.is_some() {
+            let left = Rect::from_min_size(room.min, Vec2::new((room.width() * 0.5).clamp(360.0_f32.min(room.width()), 640.0), room.height()));
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(left).layout(egui::Layout::top_down(egui::Align::Min)));
+            egui::ScrollArea::vertical().id_salt("pattern panel").auto_shrink([false, false]).show(&mut child, |ui| self.pattern_panel(ui, app));
+            room.min.x = left.max.x + GAP;
+        }
+        if self.pat.is_some() {
+            self.pat_pending(app);
+        }
+        let rect = Rect::from_min_size(room.min, room.size().max(Vec2::splat(16.0)));
+        let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         crate::drive::mark(ui.ctx(), "canvas", rect);
         let span = if self.tiled { 2.0 } else { 1.0 };
         let fit = ((rect.width().min(rect.height()) - 2.0 * GAP) / (S as f32 * span)).floor().max(1.0);
@@ -1125,7 +1370,13 @@ impl Page for Textures {
         }
         let pos = ui.input(|i| i.pointer.hover_pos()).filter(|q| rect.contains(*q) || self.stroke.is_some());
         let cell = pos.map(|q| ((q - at) / scale).floor()).map(|c| (c.x as i32, c.y as i32));
-        if !app.pal.colours.is_empty() {
+        if let Some((f, _)) = self.pending.as_ref().filter(|(f, _)| *f == self.file(self.face)) {
+            // nothing is painted under a pending change: it is shown, not yet the file's
+            let g = p.layout_no_wrap(format!("Pending: {f} as it would be. Use or Cancel"), egui::FontId::proportional(look::BODY), Color32::WHITE);
+            let at = rect.left_top() + Vec2::splat(GAP);
+            p.rect_filled(Rect::from_min_size(at, g.size()).expand(4.0), 4.0, look::DRAFT.gamma_multiply(0.7));
+            p.galley(at, g, Color32::WHITE);
+        } else if !app.pal.colours.is_empty() {
             self.paint(ui, app, cell);
         }
         let on = cell.filter(|c| (self.tiled && (-16..32).contains(&c.0) && (-16..32).contains(&c.1)) || ((0..16).contains(&c.0) && (0..16).contains(&c.1)));
@@ -1168,8 +1419,8 @@ impl Page for Textures {
             ui.horizontal_wrapped(|ui| {
                 let r = ui.button("Pattern");
                 crate::drive::mark(ui.ctx(), "btn:pattern", r.rect);
-                if look::tip(r, "The block's game pattern drawn into this variant, each texel snapped to the palette", "").clicked() {
-                    self.start_pattern(app);
+                if look::tip(r, "The pattern panel: pick one of the game's eleven patterns, its colours and values, see it live, then Use", "").clicked() {
+                    self.open_pattern(app, false);
                 }
                 if look::tip(ui.button("Make variants"), "A wall of variant sets made from variant 1; a click takes one", "").clicked() {
                     self.open_wall(app);
@@ -1251,7 +1502,8 @@ pub fn colour_name(pal: &Palette, c: [u8; 3]) -> String {
 
 /// The two colours and the palette's ramps as rows (the loose colours last): left click takes the first colour,
 /// right click the second. Every page that paints with the palette shows this one.
-pub fn palette_picker(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &mut [u8; 3]) {
+/// The colour a left click took, if one did.
+pub fn palette_picker(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &mut [u8; 3]) -> Option<[u8; 3]> {
     ui.horizontal(|ui| {
         for (k, c) in [(0, *first), (1, *second)] {
             let (r, resp) = ui.allocate_exact_size(Vec2::new(36.0, 36.0), Sense::hover());
@@ -1265,6 +1517,13 @@ pub fn palette_picker(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &
         });
     });
     ui.add_space(GAP * 0.5);
+    swatches(ui, pal, first, second)
+}
+
+/// The palette's swatches alone, the ramps as rows, the loose colours last: left click takes the first colour
+/// (and is returned), right click the second.
+pub fn swatches(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &mut [u8; 3]) -> Option<[u8; 3]> {
+    let mut clicked = None;
     // the ramps as rows, the loose colours last
     let mut rows: Vec<Vec<usize>> = pal.ramps().into_iter().map(|(_, v)| v).collect();
     let loose: Vec<usize> = (0..pal.colours.len()).filter(|&i| pal.colours[i].ramp.is_none()).collect();
@@ -1302,9 +1561,11 @@ pub fn palette_picker(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &
                 if c.rgb == *first {
                     p.rect_stroke(r, 3.0, egui::Stroke::new(2.0, look::ACCENT), StrokeKind::Outside);
                 }
+                crate::drive::mark(ui.ctx(), format!("swatch:{}", c.name), r);
                 let resp = look::tip(resp, &format!("{}: left click makes it the first colour, right click the second", c.name), "");
                 if resp.clicked() {
                     *first = c.rgb;
+                    clicked = Some(c.rgb);
                 }
                 if resp.secondary_clicked() {
                     *second = c.rgb;
@@ -1312,4 +1573,5 @@ pub fn palette_picker(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &
             }
         });
     }
+    clicked
 }
