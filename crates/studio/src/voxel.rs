@@ -49,7 +49,35 @@ impl Orbit {
     }
     pub fn turn(&mut self, dx: f32, dy: f32) {
         self.yaw -= dx;
-        self.pitch = (self.pitch + dy).clamp(-1.45, 1.45);
+        // (a Top or Bottom view stands past the drag's limit: a drag from there keeps it, never jumps)
+        let lim = 1.45f32.max(self.pitch.abs());
+        self.pitch = (self.pitch + dy).clamp(-lim, lim);
+    }
+    /// `turn`, about the point `p` instead of the target: `p` stays where it shows in the view.
+    pub fn turn_about(&mut self, p: Vec3, dx: f32, dy: f32) {
+        let (f, r, u) = self.basis();
+        let v = self.target - p;
+        let c = [v.dot(r), v.dot(u), v.dot(f)];
+        self.turn(dx, dy);
+        let (f, r, u) = self.basis();
+        self.target = p + r * c[0] + u * c[1] + f * c[2];
+    }
+    /// `zoom` toward the point `p` (one in the plane of the target, under the pointer): `p` stays where it shows.
+    pub fn zoom_about(&mut self, k: f32, p: Vec3) {
+        let was = self.dist;
+        self.zoom(k);
+        self.target = p + (self.target - p) * (self.dist / was);
+    }
+    /// Looks from one of `VIEWS` at the same target.
+    pub fn look_from(&mut self, view: usize) {
+        let (_, _, yaw, pitch) = VIEWS[view.min(5)];
+        (self.yaw, self.pitch) = (yaw, pitch);
+    }
+    /// Looks at the box `lo`..`hi` (metres) so it fills the view; `th` is the tangent of half the view's
+    /// vertical field of view at the target's distance.
+    pub fn frame(&mut self, lo: Vec3, hi: Vec3, th: f32) {
+        self.target = (lo + hi) / 2.0;
+        self.dist = ((hi - lo).length() / 2.0 * 1.6 / th.max(0.05)).clamp(0.3, 12.0);
     }
     pub fn zoom(&mut self, k: f32) {
         self.dist = (self.dist * k).clamp(0.3, 12.0);
@@ -60,6 +88,17 @@ impl Orbit {
         self.target += (-r * dx + u * dy) * self.dist;
     }
 }
+
+/// The six views: the view cube's face, the button's word, the yaw and pitch it looks from. Front looks from +z,
+/// where a model faces in the hand and in the world; Top has the front at the bottom of the view.
+pub const VIEWS: [(&str, &str, f32, f32); 6] = [
+    ("front", "Front", 0.0, 0.0),
+    ("back", "Back", std::f32::consts::PI, 0.0),
+    ("right", "Right", std::f32::consts::FRAC_PI_2, 0.0),
+    ("left", "Left", -std::f32::consts::FRAC_PI_2, 0.0),
+    ("top", "Top", 0.0, 1.56),
+    ("bottom", "Bottom", 0.0, -1.56),
+];
 
 /// What a ray meets: a voxel's face (`solid`), or the cell where it enters a part's box; `n` the face's outward
 /// normal (zero from inside the box), `t` how far along the ray.
@@ -176,6 +215,64 @@ pub fn pick(m: &Model, poses: &[Mat4], only: Option<usize>, o: Vec3, d: Vec3) ->
         .collect();
     let best = |solid: bool| hits.iter().filter(|h| h.solid == solid).min_by(|a, b| a.t.total_cmp(&b.t)).copied();
     best(true).or_else(|| best(false))
+}
+
+/// Where a ray meets the plane at the foot of part `p`'s row `layer` (its cells, posed by `pose`): the cell of that
+/// row it lands in (`n` up, `solid` whether a voxel is there), whatever stands above. Layer mode's clicks, and the
+/// floor's (row 0) where no voxel is under the pointer. None: the ray runs along the plane, away from it, or lands
+/// farther from the box than a part may grow.
+pub fn pick_layer(p: &Part, pose: Mat4, layer: i32, o: Vec3, d: Vec3) -> Option<Hit> {
+    let inv = pose.inverse();
+    let (o, d) = (inv.transform_point3(o), inv.transform_vector3(d));
+    if d.y.abs() < 1e-6 {
+        return None;
+    }
+    let t = (layer as f32 - o.y) / d.y;
+    if t < 0.0 {
+        return None;
+    }
+    let at = o + d * t;
+    let cell = IVec3::new(at.x.floor() as i32, layer, at.z.floor() as i32);
+    let reach = MAX_BOX as i32;
+    if cell.cmplt(IVec3::splat(-reach)).any() || cell.cmpge(size(p) + reach).any() {
+        return None;
+    }
+    // (t in the posed ray's units: the pose is a scale and a turn, so the order of hits along it is kept)
+    Some(Hit { part: 0, cell, n: IVec3::Y, solid: get(p, cell) != 0, t })
+}
+
+/// The six face normals, in the order `exposed` numbers them.
+pub const NORMALS: [IVec3; 6] = [IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::NEG_Y, IVec3::Z, IVec3::NEG_Z];
+
+/// The faces of part `p`'s voxels with no voxel beside them: the cell and its `NORMALS` index.
+pub fn exposed(p: &Part) -> Vec<(IVec3, usize)> {
+    let s = size(p);
+    let mut out = vec![];
+    for y in 0..s.y {
+        for z in 0..s.z {
+            for x in 0..s.x {
+                let c = IVec3::new(x, y, z);
+                if get(p, c) != 0 {
+                    out.extend((0..6).filter(|&k| get(p, c + NORMALS[k]) == 0).map(|k| (c, k)));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A cell's face toward `n`, its four corners in the cell's units, round its edge.
+pub fn face_quad(cell: IVec3, n: IVec3) -> [Vec3; 4] {
+    let a = (0..3).find(|&k| n[k] != 0).unwrap_or(1);
+    let (u, v) = ((a + 1) % 3, (a + 2) % 3);
+    let mut base = cell.as_vec3();
+    if n[a] > 0 {
+        base[a] += 1.0;
+    }
+    let (mut du, mut dv) = (Vec3::ZERO, Vec3::ZERO);
+    du[u] = 1.0;
+    dv[v] = 1.0;
+    [base, base + du, base + du + dv, base + dv]
 }
 
 /// Box, line and fill work on the plane of the face first clicked: where a ray meets that layer of cells.
@@ -666,21 +763,76 @@ pub fn events_mut<'a>(life: &'a mut Life, clip: &str) -> &'a mut Vec<Event> {
     }
 }
 
-/// A new model: one part, `body`, 8 voxels a side (a block), its floor laid in stone (or the palette's first).
-pub fn new_model(pal: &Palette) -> Model {
-    let c = pal.colours.iter().find(|c| c.name == "stone").or(pal.colours.first()).map_or(String::from("stone"), |c| c.name.clone());
-    let mut cells = vec![0u8; 512];
-    cells[..64].fill(1);
-    let mut m = Model {
-        colours: vec![c],
-        parts: vec![Part { name: "body".into(), parent: String::new(), at: [0; 3], pivot: [4.0, 0.0, 4.0], size: [8, 8, 8], voxels: String::new(), cells }],
-        points: vec![],
-        clips: vec![],
-        rgb: vec![],
-        up: vec![],
+/// The starter shapes a new model begins from (docs/design/studio.md "The bar"): id, the button's word, its tip.
+pub const STARTERS: [(&str, &str, &str); 6] = [
+    ("block", "Block", "a whole 1 m block, 8 x 8 x 8 voxels, to carve and recolour"),
+    ("slab", "Slab", "half a block: 8 x 4 x 8 voxels"),
+    ("post", "Post", "a post 2 voxels thick and a block high, in the block's middle"),
+    ("tool", "Tool", "a handle with a head on top, as a pick or a hammer: two parts, the head hanging on the handle"),
+    ("plant", "Plant cross", "two crossed panes in a block, as grass and flowers stand"),
+    ("creature", "Creature", "a body, a head and four legs, each a part with its pivot where it turns, facing front (+z)"),
+];
+
+/// A part of `size` whose cells are `fill`'s colours (a colour's place + 1, 0 for none).
+fn filled(name: &str, parent: &str, at: [i32; 3], size: [u32; 3], pivot: [f32; 3], fill: impl Fn(IVec3) -> u8) -> Part {
+    let s = IVec3::from(size.map(|v| v as i32));
+    let mut cells = vec![0u8; (s.x * s.y * s.z) as usize];
+    for y in 0..s.y {
+        for z in 0..s.z {
+            for x in 0..s.x {
+                let c = IVec3::new(x, y, z);
+                cells[idx(s, c)] = fill(c);
+            }
+        }
+    }
+    Part { name: name.into(), parent: parent.into(), at, pivot, size, voxels: String::new(), cells }
+}
+
+/// A new model of a starter shape: its parts and pivots set, its colours the palette's by name (one the palette
+/// lacks falls to its first); it stands in the block at the origin. None: no such shape.
+pub fn starter(pal: &Palette, kind: &str) -> Option<Model> {
+    let mut colours: Vec<String> = vec![];
+    let mut col = |name: &str| -> u8 {
+        let name = pal.colours.iter().find(|c| c.name == name).or(pal.colours.first()).map_or(name.to_string(), |c| c.name.clone());
+        (colours.iter().position(|c| *c == name).unwrap_or_else(|| {
+            colours.push(name);
+            colours.len() - 1
+        }) + 1) as u8
     };
-    m = Model::parse("new", &text(&m), pal).unwrap_or(m);
-    m
+    let parts = match kind {
+        "block" | "slab" => {
+            let (side, top) = (col("stone"), col("stone light"));
+            let h = if kind == "block" { 8 } else { 4 };
+            vec![filled(kind, "", [0; 3], [8, h, 8], [4.0, 0.0, 4.0], |c| if c.y == h as i32 - 1 { top } else { side })]
+        }
+        "post" => {
+            let wood = col("dirt");
+            vec![filled("post", "", [3, 0, 3], [2, 8, 2], [1.0, 0.0, 1.0], |_| wood)]
+        }
+        "tool" => {
+            let (wood, head) = (col("dirt dark"), col("stone"));
+            vec![filled("handle", "", [4, 0, 4], [1, 7, 1], [0.5, 0.0, 0.5], |_| wood), filled("head", "handle", [-2, 6, 0], [5, 2, 1], [2.5, 1.0, 0.5], |_| head)]
+        }
+        "plant" => {
+            let shades = [col("grass dark"), col("grass"), col("grass light")];
+            vec![filled("plant", "", [0; 3], [8, 8, 8], [4.0, 0.0, 4.0], |c| if c.x == c.z || c.x == 7 - c.z { shades[(c.y * 3 / 8) as usize] } else { 0 })]
+        }
+        "creature" => {
+            let (body, head, leg, eye) = (col("dirt"), col("dirt light"), col("dirt dark"), col("stone dark"));
+            let mut v = vec![
+                filled("body", "", [2, 2, 0], [4, 3, 5], [2.0, 1.5, 2.5], |_| body),
+                filled("head", "body", [0, 0, 5], [4, 3, 3], [2.0, 1.5, 0.0], |c| if c.z == 2 && c.y == 2 && (c.x == 0 || c.x == 3) { eye } else { head }),
+            ];
+            // its left is +x: it faces +z
+            for (name, at) in [("leg_fl", [3, -2, 3]), ("leg_fr", [0, -2, 3]), ("leg_bl", [3, -2, 0]), ("leg_br", [0, -2, 0])] {
+                v.push(filled(name, "body", at, [1, 2, 1], [0.5, 2.0, 0.5], |_| leg));
+            }
+            v
+        }
+        _ => return None,
+    };
+    let m = Model { colours, parts, points: vec![], clips: vec![], rgb: vec![], up: vec![] };
+    Model::parse(kind, &text(&m), pal).ok()
 }
 
 /// The small plants grown as models (docs/design/studio-tools.md "Structures and flora": tufts and flowers
@@ -863,6 +1015,58 @@ mod tests {
     }
 
     #[test]
+    fn the_views_look_from_their_side_and_turning_and_zooming_keep_their_point_in_place() {
+        let mut o = Orbit::default();
+        for (k, (name, ..)) in VIEWS.iter().enumerate() {
+            o.look_from(k);
+            let from = (o.eye() - o.target).normalize();
+            let want = match *name {
+                "front" => Vec3::Z,
+                "back" => -Vec3::Z,
+                "right" => Vec3::X,
+                "left" => -Vec3::X,
+                "top" => Vec3::Y,
+                _ => -Vec3::Y,
+            };
+            assert!(from.dot(want) > 0.999, "{name}: from {from}");
+            // the front view has +x on the right and +y up; the top view has the front (+z) at the bottom
+            let s = o.project(o.target + Vec3::X * 0.1, 70.0, 1.6).unwrap();
+            assert!(s[0] > 0.0 || !matches!(*name, "front" | "top"), "{name}: +x at {s:?}");
+            if *name == "top" {
+                assert!(o.project(o.target + Vec3::Z * 0.1, 70.0, 1.6).unwrap()[1] < 0.0);
+            }
+        }
+        // turning about a point keeps it where it shows, a drag from the Top view does not jump
+        let mut o = Orbit::default();
+        let p = Vec3::new(0.2, 0.1, 0.9);
+        let before = o.project(p, 70.0, 1.6).unwrap();
+        o.turn_about(p, 0.4, -0.3);
+        let after = o.project(p, 70.0, 1.6).unwrap();
+        assert!((before[0] - after[0]).abs() < 1e-3 && (before[1] - after[1]).abs() < 1e-3, "{before:?} {after:?}");
+        o.look_from(4);
+        o.turn(0.0, 0.01);
+        assert!((o.pitch - 1.56).abs() < 1e-4, "Top kept: {}", o.pitch);
+        // zooming toward a point keeps it in place too
+        let mut o = Orbit::default();
+        let (f, r, _) = o.basis();
+        let p = o.target + r * 0.3;
+        let before = o.project(p, 70.0, 1.6).unwrap();
+        o.zoom_about(0.5, p);
+        let after = o.project(p, 70.0, 1.6).unwrap();
+        assert!((before[0] - after[0]).abs() < 1e-3 && (before[1] - after[1]).abs() < 1e-3, "{before:?} {after:?}");
+        assert!((o.dist - 1.3).abs() < 1e-4 && (o.target - p).dot(f).abs() < 1e-4);
+        // framing a box looks at its middle, near enough that it fills the view and every corner shows
+        o.frame(Vec3::new(0.0, 0.5, 0.0), Vec3::new(0.25, 1.0, 0.25), (35f32).to_radians().tan());
+        near(o.target, Vec3::new(0.125, 0.75, 0.125));
+        assert!(o.dist < 1.0, "{}", o.dist);
+        for k in 0..8 {
+            let c = Vec3::new((k & 1) as f32 * 0.25, 0.5 + (k >> 1 & 1) as f32 * 0.5, (k >> 2 & 1) as f32 * 0.25);
+            let s = o.project(c, 70.0, 1.6).unwrap();
+            assert!(s[0].abs() < 1.0 && s[1].abs() < 1.0, "corner {c} at {s:?}");
+        }
+    }
+
+    #[test]
     fn picking_finds_the_face_under_the_ray_or_where_it_enters_the_box() {
         let m = model();
         let poses = m.pose(None, 0.0);
@@ -891,6 +1095,51 @@ mod tests {
         let first = pick(&m, &m.pose(None, 0.0), Some(0), Vec3::new(0.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
         let c = on_plane(m.pose(None, 0.0)[0], &first, Vec3::new(1.5 * v, 1.0, 1.5 * v), Vec3::new(0.0, -1.0, 0.0)).unwrap();
         assert_eq!(c, IVec3::new(1, 1, 1));
+    }
+
+    #[test]
+    fn picking_on_a_layer_lands_on_its_plane_whatever_stands_above() {
+        let m = model();
+        let poses = m.pose(None, 0.0);
+        let (body, v) = (&m.parts[0], VOXEL);
+        // from above beside the voxel (0, 0, 0): row 0's empty cell (1, 0, 0), though the box's top is nearer
+        let h = pick_layer(body, poses[0], 0, Vec3::new(1.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
+        assert_eq!((h.cell, h.n, h.solid), (IVec3::new(1, 0, 0), IVec3::Y, false));
+        // straight down onto the voxel itself: that cell, solid
+        let h = pick_layer(body, poses[0], 0, Vec3::new(0.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
+        assert_eq!((h.cell, h.solid), (IVec3::ZERO, true));
+        // row 1 over it: the empty cell above, the voxel under the plane does not stop the click
+        let h = pick_layer(body, poses[0], 1, Vec3::new(0.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
+        assert_eq!((h.cell, h.solid), (IVec3::new(0, 1, 0), false));
+        // a slanted ray lands where it crosses the plane: from (0.5, 1 + 3, 0.5) voxels down and along +x by 1 a voxel
+        let o = Vec3::new(0.5 * v, 3.0 * v, 0.5 * v);
+        let h = pick_layer(body, poses[0], 0, o, Vec3::new(1.0, -1.0, 0.0).normalize()).unwrap();
+        assert_eq!(h.cell, IVec3::new(3, 0, 0), "outside the box: a cell the add grows the box to");
+        // the same ray on row 1 crosses its plane a voxel sooner
+        assert_eq!(pick_layer(body, poses[0], 1, o, Vec3::new(1.0, -1.0, 0.0).normalize()).unwrap().cell, IVec3::new(2, 1, 0));
+        // from below, up through the floor
+        let h = pick_layer(body, poses[0], 0, Vec3::new(1.5 * v, -1.0, 1.5 * v), Vec3::Y).unwrap();
+        assert_eq!(h.cell, IVec3::new(1, 0, 1));
+        // along the plane, away from it, or far off: nothing
+        assert_eq!(pick_layer(body, poses[0], 0, Vec3::new(0.0, 0.5 * v, 0.0), Vec3::X), None);
+        assert_eq!(pick_layer(body, poses[0], 0, Vec3::new(0.0, 1.0, 0.0), Vec3::Y), None);
+        assert_eq!(pick_layer(body, poses[0], 0, Vec3::new(0.0, 1.0, 0.0), Vec3::new(1.0, -0.01, 0.0).normalize()), None);
+        // the door, a child at x = 2: its own row 0, in its own cells
+        let h = pick_layer(&m.parts[1], poses[1], 0, Vec3::new(2.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
+        assert_eq!((h.cell, h.solid), (IVec3::ZERO, true));
+    }
+
+    #[test]
+    fn exposed_faces_are_the_ones_with_no_voxel_beside_them() {
+        let mut m = model();
+        assert_eq!(exposed(&m.parts[0]).len(), 6, "one voxel: six faces");
+        apply(&mut m, 0, &[IVec3::new(1, 0, 0)], Op::Add(1));
+        let e = exposed(&m.parts[0]);
+        assert_eq!(e.len(), 10, "two side by side: the faces between them hidden");
+        assert!(!e.contains(&(IVec3::ZERO, 0)) && e.contains(&(IVec3::ZERO, 1)));
+        let q = face_quad(IVec3::new(1, 0, 0), IVec3::X);
+        assert!(q.iter().all(|c| c.x == 2.0) && q.contains(&Vec3::new(2.0, 1.0, 1.0)));
+        assert!(face_quad(IVec3::ZERO, IVec3::NEG_Y).iter().all(|c| c.y == 0.0));
     }
 
     #[test]
@@ -1080,9 +1329,39 @@ mod tests {
     }
 
     #[test]
+    fn every_starter_shape_is_a_valid_model_standing_in_its_block() {
+        let p = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        for (kind, ..) in STARTERS {
+            let m = starter(&p, kind).unwrap_or_else(|| panic!("{kind}: not made"));
+            let again = Model::parse(kind, &text(&m), &p).unwrap();
+            assert_eq!(again.parts.iter().map(|q| &q.cells).collect::<Vec<_>>(), m.parts.iter().map(|q| &q.cells).collect::<Vec<_>>(), "{kind}");
+            assert!(m.colours.iter().all(|c| p.colours.iter().any(|k| &k.name == c)), "{kind}: a colour the palette lacks");
+            let poses = m.pose(None, 0.0);
+            for (i, q) in m.parts.iter().enumerate() {
+                assert!(q.cells.iter().any(|c| *c != 0), "{kind}: {} is empty", q.name);
+                assert!((0..3).all(|k| (0.0..=q.size[k] as f32).contains(&q.pivot[k])), "{kind}: {}'s pivot outside its box", q.name);
+                assert!(q.parent.is_empty() || m.parts.iter().any(|o| o.name == q.parent), "{kind}: {}'s parent", q.name);
+                // every voxel at rest inside the block at the origin
+                let s = IVec3::from(q.size.map(|v| v as i32));
+                for c in (0..s.x * s.y * s.z).map(|n| IVec3::new(n % s.x, n / (s.x * s.z), n / s.x % s.z)).filter(|c| get(q, *c) != 0) {
+                    let at = poses[i].transform_point3(c.as_vec3() + 0.5);
+                    assert!(at.cmpgt(Vec3::ZERO).all() && at.cmplt(Vec3::ONE).all(), "{kind}: {} {c} at {at}", q.name);
+                }
+            }
+            assert!(thumb(&m).px.iter().any(|c| *c != [26, 28, 32]), "{kind}: an empty thumbnail");
+        }
+        let c = starter(&p, "creature").unwrap();
+        assert_eq!(c.parts.iter().map(|q| q.name.as_str()).collect::<Vec<_>>(), ["body", "head", "leg_fl", "leg_fr", "leg_bl", "leg_br"]);
+        assert!(c.parts[1..].iter().all(|q| q.parent == "body") && c.parts[2..].iter().all(|q| q.pivot[1] == q.size[1] as f32), "legs turn at the hip");
+        let t = starter(&p, "tool").unwrap();
+        assert_eq!((t.parts.len(), t.parts[1].parent.as_str()), (2, "handle"));
+        assert!(starter(&p, "nothing").is_none());
+    }
+
+    #[test]
     fn a_new_model_reads_its_text_back_and_has_a_thumbnail() {
         let p = pal();
-        let m = new_model(&p);
+        let m = starter(&p, "block").unwrap();
         let again = Model::parse("new.toml", &text(&m), &p).unwrap();
         assert_eq!(again.parts[0].cells, m.parts[0].cells);
         let t = thumb(&m);

@@ -5,7 +5,7 @@
 //! (`model -` shows none; `x2` draws it twice as large, about its cell's floor centre), `models dir` and `textures dir` (read on the reading thread, drawn at once), `place di:dj:dl:block,...`
 //! (`_` air, around the stand cell), `reset` (every placed cell back as it was), `size w h`, `frame id`,
 //! `effects file` (an effects file read on the reading thread, its rows played from then on; ADR 0050) and
-//! `effect name` (that row or group lasting on the stand cell's floor, from its start; `effect -` none). Effects
+//! `zoom k` (the field of view k times narrower, the Studio's flat view), `effect name` (that row or group lasting on the stand cell's floor, from its start; `effect -` none). Effects
 //! play when the run has `fx=1`.
 //! `season north|equator|south` shows the seasons as at that latitude (`season -` by the place's own).
 //! `bare 1` leaves the land, the sea and the sky out of the picture (a plain grey instead; the light stays the
@@ -141,6 +141,8 @@ impl App {
             match f.first().copied() {
                 Some("cam") => (v.eye, v.target) = (DVec3::new(num(1), num(2), num(3)), DVec3::new(num(4), num(5), num(6))),
                 Some("time") => self.time0 = num(1),
+                // `zoom k`: the field of view k times narrower (the Studio's flat view: its eye k times as far)
+                Some("zoom") => self.zoom = num(1).clamp(1.0, 64.0),
                 Some("bare") => v.bare = num(1) != 0.0,
                 Some("season") => v.lat = ["north", "equator", "south"].iter().position(|n| f.get(1) == Some(n)).map(|k| k as u8),
                 Some("frame") => v.want = Some(num(1) as u64),
