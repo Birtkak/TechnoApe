@@ -1,0 +1,16 @@
+[package]
+name = "globe-map"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+engine = { path = "../../crates/engine" }
+glam = "0.34"
+png = "0.18"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1

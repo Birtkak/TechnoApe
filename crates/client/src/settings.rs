@@ -181,6 +181,7 @@ acts! {
     WarpDown "warp_down" "Time warp slower" k(KeyCode::Comma), "warp-" "";
     Waypoint "waypoint" "Drop a waypoint" k(KeyCode::KeyN), "waypoint" "";
     Marks "waypoint_overlay" "Show or hide waypoints" k(KeyCode::KeyK), "waypoints" "";
+    Map "map" "Globe map" k(KeyCode::KeyM), "map" "";
     Playtest "playtest" "Playtest menu" k(KeyCode::F10), "f10" "";
     Slot1 "slot1" "Hotbar 1" k(KeyCode::Digit1), "1" "";
     Slot2 "slot2" "Hotbar 2" k(KeyCode::Digit2), "2" "";
@@ -215,7 +216,7 @@ const KEY_GROUPS: &[(&str, &[Act])] = &[
     ("Moving", &[Act::Forward, Act::Back, Act::Left, Act::Right, Act::Jump, Act::Down, Act::RollLeft, Act::RollRight]),
     ("Hands and tools", &[Act::Dig, Act::Place, Act::Hammer, Act::Shape, Act::Bucket]),
     ("Hotbar", &[Act::Slot1, Act::Slot2, Act::Slot3, Act::Slot4, Act::Slot5, Act::Slot6, Act::Slot7, Act::Slot8, Act::Slot9]),
-    ("Looking and finding", &[Act::Zoom, Act::Waypoint, Act::Marks, Act::Overlay]),
+    ("Looking and finding", &[Act::Zoom, Act::Waypoint, Act::Marks, Act::Map, Act::Overlay]),
     ("Chat, time and testing", &[Act::Chat, Act::Command, Act::WarpUp, Act::WarpDown, Act::Bug, Act::Playtest]),
 ];
 

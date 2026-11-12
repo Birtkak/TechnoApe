@@ -441,6 +441,8 @@ pub(crate) struct Gpu {
     pub(crate) ghost_buf: wgpu::Buffer,
     pub(crate) ui_pipeline: wgpu::RenderPipeline,
     pub(crate) ui_buf: wgpu::Buffer,
+    /// The globe map's view, pictures and seen-masks (ADR 0077, `globe::off`).
+    pub(crate) globe_buf: wgpu::Buffer,
     /// The water (ADR 0020): the sea's quads in the chunks, the water mesh from its own buffer.
     pub(crate) sea_pipeline: wgpu::RenderPipeline,
     pub(crate) water_pipeline: wgpu::RenderPipeline,
@@ -740,6 +742,8 @@ impl Gpu {
         let tex = buf("block textures", TEX_LAYERS as u64 * 1024, U::STORAGE | U::COPY_DST);
         // the models (ADR 0047): their quads, and one transform per part drawn
         let mquads = buf("model quads", (crate::models::MAX_MQUADS * 16) as u64, U::STORAGE | U::COPY_DST);
+        // the globe map (ADR 0077): filled by `App::globe_frame` once the worker's pictures are made
+        let globe_buf = buf("globe", (crate::globe::LEN * 4) as u64, U::STORAGE | U::COPY_DST);
         let mpieces = buf("model pieces", (crate::models::MAX_PIECES * std::mem::size_of::<crate::models::Piece>()) as u64, U::STORAGE | U::COPY_DST);
         let tex_rx = watch_textures(std::path::PathBuf::from(a.get("textures", String::from("data/textures"))));
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -785,6 +789,7 @@ impl Gpu {
                 storage(11),
                 storage(12),
                 storage(13),
+                storage(20),
             ],
         });
         let rt = rt::Rt::new(&device, &shader, &globals, &quads, MAX_CHUNKS as u32);
@@ -804,6 +809,7 @@ impl Gpu {
                 wgpu::BindGroupEntry { binding: 11, resource: tex.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 12, resource: mquads.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 13, resource: mpieces.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 20, resource: globe_buf.as_entire_binding() },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -1017,6 +1023,7 @@ impl Gpu {
             ghost_buf,
             ui_pipeline,
             ui_buf,
+            globe_buf,
             bind,
             globals,
             quads,
