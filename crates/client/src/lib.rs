@@ -559,6 +559,7 @@ pub fn main() {
         jerks: Vec::new(),
         snap_t: Vec::new(),
         last_pos: DVec3::ZERO,
+        coarse_since: None,
         sheet: Vec::new(),
         next_cap: 0.0,
         done: false,

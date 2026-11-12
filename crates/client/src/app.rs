@@ -160,6 +160,8 @@ pub(crate) struct App {
     /// When each correction came and how far it moved the player.
     pub(crate) snap_t: Vec<(f64, f64)>,
     pub(crate) last_pos: DVec3,
+    /// Since when visible chunks are drawn coarser than their level with the camera slow (ADR 0073).
+    pub(crate) coarse_since: Option<f64>,
     pub(crate) sheet: Vec<image::RgbaImage>,
     pub(crate) next_cap: f64,
     pub(crate) done: bool,

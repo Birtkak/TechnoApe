@@ -449,6 +449,15 @@ impl App {
         lap!("table");
         let ts0 = Instant::now();
         self.streamer.select(&self.world, &view, true, 1.0, &mut draws, &mut reqs, &mut st);
+        // ADR 0073: chunks drawn coarser than their level may stream in while the camera flies, not once it is slow
+        if measuring {
+            if vel.length() < 20.0 && self.streamer.too_coarse(&self.world, &view, &draws) > 0 {
+                let since = *self.coarse_since.get_or_insert(t);
+                self.samples.coarse_slow_s = self.samples.coarse_slow_s.max(t - since);
+            } else {
+                self.coarse_since = None;
+            }
+        }
         let pf = self.streamer.opts.prefetch_s;
         // the look-ahead only requests chunks, so every `prefetch_every`th frame is enough
         let every: u64 = self.args.get("prefetch_every", 4);

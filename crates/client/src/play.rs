@@ -346,6 +346,8 @@ impl App {
                 self.pick = Some(0);
             }
             a if a.starts_with("say:") => self.link.send(ToServer::Chat(a[4..].to_string())),
+            // fly:<m/s> as the playtest menu's step: flying at that speed, for scripted flights (ADR 0073)
+            a if a.starts_with("fly:") => (self.flying, self.fly_speed) = (true, a[4..].parse::<f64>().unwrap_or(250.0).clamp(1.0, phys::FLY_MAX)),
             _ => {
                 if let Ok(d) = a.parse::<usize>() {
                     if self.slot != d.clamp(1, 9) - 1 {
