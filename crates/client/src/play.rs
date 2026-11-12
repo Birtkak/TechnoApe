@@ -599,11 +599,14 @@ impl App {
         // the ground's air (ADR 0055, W3): the baked year's mean where the map keeps it (the biome's band on an
         // older map), the season and the hour on top
         let (face, fi, fj) = (blk.face as usize, blk.pos.x as f64 + 0.5, blk.pos.y as f64 + 0.5);
+        let ap = engine::bake::air::Params::default();
+        let over_sea = b.over_sea(feet).unwrap_or(0.0);
         let air = match if space || bi != 0 { None } else { b.biome_at(face, fi, fj, up) } {
+            // over the air's top layer there is no air to read (the lapse would pass absolute zero)
+            Some(_) if over_sea > ap.tops[ap.tops.len() - 1] as f64 => format!("none, {:.0} m over the air's top", over_sea - ap.tops[ap.tops.len() - 1] as f64),
             Some(bio) => {
-                let over_sea = b.sea.map_or(0.0, |s| (feet - b.centre).length() - s);
                 let (mean, swing) = match b.climate_at(face, fi, fj) {
-                    Some((theta, swing, _)) => ((theta - engine::bake::air::Params::default().lapse * over_sea.max(0.0) as f32) as f64, swing as f64),
+                    Some((theta, swing, _)) => ((theta - ap.cool(over_sea as f32)) as f64, swing as f64),
                     None => engine::sky::BIOME_CLIMATE[bio as usize],
                 };
                 // the live air (W3) where the server runs it, else the baked year with the season and hour on top
@@ -615,7 +618,7 @@ impl App {
             }
             None => "no air reading here".into(),
         };
-        let sea = b.sea.map_or(String::new(), |s| format!(", {:.1} m over the sea", r - s));
+        let sea = b.over_sea(pos).map_or(String::new(), |h| format!(", {h:.1} m over the sea"));
         let look = match self.aim {
             Some((hit, _)) => format!(
                 "{} (face {}, {} {}, layer {})",

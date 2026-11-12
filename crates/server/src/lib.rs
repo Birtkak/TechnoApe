@@ -719,7 +719,7 @@ impl Server {
                 let b = &self.world.bodies[0];
                 let rel = c.phys.pos - b.centre;
                 if self.world.frame_at(c.phys.pos) == 0 && rel.length() > 0.0 {
-                    c.link.send(ToClient::Air(w.here(rel.normalize(), rel.length() - b.sea.unwrap_or(rel.length()))));
+                    c.link.send(ToClient::Air(w.here(rel.normalize(), b.over_sea(c.phys.pos).unwrap_or(0.0))));
                 }
             }
             let shown = (c.vitals.shown(), c.vitals.dead.is_some());
@@ -1432,6 +1432,11 @@ mod tests {
         let airs: Vec<engine::weather::Here> = drain(&c).into_iter().filter_map(|m| if let ToClient::Air(h) = m { Some(h) } else { None }).collect();
         assert_eq!(airs.len(), 3, "one at ticks 0, 40 and 80");
         assert!((-40.0..50.0).contains(&airs[0].temp) && (0.0..=1.0).contains(&airs[0].cover), "{:?}", airs[0]);
+        // the air at the player's height over the sea in metres, not over the sea's layer number (ADR 0072)
+        let b = &s.world.bodies[0];
+        let rel = s.clients[0].phys.pos - b.centre;
+        let want = s.weather.as_ref().unwrap().here(rel.normalize(), b.over_sea(s.clients[0].phys.pos).unwrap());
+        assert!((airs[2].temp - want.temp).abs() < 0.5, "sent {} C, the air {} m over the sea is {} C", airs[2].temp, rel.length() - b.layer_r(b.sea.unwrap()), want.temp);
         let save = Save::from_bytes(&s.snapshot().to_bytes()).unwrap();
         assert!(save.air.is_some());
         let mut back = Server::from_save(save, channel().1);
