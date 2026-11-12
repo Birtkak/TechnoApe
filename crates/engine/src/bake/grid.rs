@@ -80,6 +80,10 @@ impl Grid {
     pub fn n(&self) -> usize {
         6 * self.m * self.m
     }
+    /// A grid without its tables, for `dir_at` and `locate_xy` alone (a map's cells).
+    pub fn bare(m: usize, r: f64) -> Grid {
+        Grid { m, r, dir: Vec::new(), area: Vec::new(), edge: HashMap::new() }
+    }
     pub fn idx(&self, f: usize, i: usize, j: usize) -> u32 {
         ((f * self.m + j) * self.m + i) as u32
     }

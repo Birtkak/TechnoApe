@@ -147,6 +147,8 @@ pub struct Server {
     pub tick_ms: Option<std::sync::Arc<std::sync::Mutex<Vec<f32>>>>,
     /// The baked map as `ToClient::Map` pieces, made on the first request (18 MB for the 4 km planet).
     map_pieces: Option<Vec<ToClient>>,
+    /// The live air grid (W3), on a planet whose map keeps a climate.
+    pub weather: Option<engine::weather::Weather>,
 }
 
 impl Server {
@@ -167,7 +169,9 @@ impl Server {
         Server::with_world(World::with_map(planet_n, moon_n, seed, Some(m)), seed, accept)
     }
     fn with_world(world: World, seed: i32, accept: Receiver<ServerLink>) -> Server {
+        let weather = world.bodies[0].map().and_then(|m| m.climate.as_ref()).map(|c| engine::weather::Weather::new(c, None).expect("a map's climate was checked on load"));
         Server {
+            weather,
             world,
             seed,
             accept,
@@ -203,6 +207,13 @@ impl Server {
         water.restore(&engine::world::Solid { bodies, edits }, &save.water);
         (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
         s.tick0 = save.tick;
+        // the air carries on from the save; an older save on a map with a climate starts from the map's
+        if let (Some(state), Some(c)) = (&save.air, s.world.bodies[0].map().and_then(|m| m.climate.as_ref())) {
+            match engine::weather::Weather::new(c, Some(state)) {
+                Ok(w) => s.weather = Some(w),
+                Err(e) => eprintln!("[technoape-server] the save's air does not fit its map ({e}): it starts from the map's"),
+            }
+        }
         let cols: Vec<Col> = save.water.iter().map(|w| w.0).collect();
         s.water_changed(&cols);
         // a save from before Luna's grid and the inertial frame moved in the shared coordinates (ADR 0041,
@@ -248,6 +259,7 @@ impl Server {
             sea_extra: self.world.water.sea_extra,
             tick: self.tick0.wrapping_add(self.tick),
             map: self.map_hash(),
+            air: self.weather.as_ref().map(|w| w.state()),
         }
     }
 
@@ -302,6 +314,9 @@ impl Server {
     /// carried over.
     pub fn hash(&self) -> u64 {
         let mut h = fnv(fnv(self.world.hash(), &self.tick.to_le_bytes()), &self.debt.to_bits().to_le_bytes());
+        if let Some(w) = &self.weather {
+            h = fnv(h, &w.view().hash.to_le_bytes());
+        }
         h = fnv(h, &postcard::to_allocvec(&(self.world.water.all(), self.made, self.removed, self.world.water.sea_extra)).unwrap());
         for p in self.absent.values() {
             h = fnv(h, &postcard::to_allocvec(p).unwrap());
@@ -368,6 +383,9 @@ impl Server {
         // the sky's clock: the world's age, which a save carries on (ADR 0022)
         self.tick0 = self.tick0.wrapping_add(self.warp - 1);
         self.world.time = self.tick0.wrapping_add(self.tick) as f64 / TICK_HZ;
+        if let Some(w) = &mut self.weather {
+            w.tick(self.tick, self.world.time);
+        }
         if self.tick == 0 {
             let [b0, b1] = [&self.world.bodies[0], &self.world.bodies[1]];
             let start = Ev::Start { planet_n: b0.n, moon_n: b1.n, seed: self.seed, dt: self.dt, map: self.map_hash() };
@@ -592,6 +610,13 @@ impl Server {
             if std::mem::take(&mut c.inv_dirty) {
                 let counts = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u8, *n)).collect();
                 c.link.send(ToClient::Inventory { creative: c.creative, counts, water: c.water });
+            }
+            if let Some(w) = self.weather.as_ref().filter(|_| self.tick % engine::net::AIR_EVERY == 0) {
+                let b = &self.world.bodies[0];
+                let rel = c.phys.pos - b.centre;
+                if self.world.frame_at(c.phys.pos) == 0 && rel.length() > 0.0 {
+                    c.link.send(ToClient::Air(w.here(rel.normalize(), rel.length() - b.sea.unwrap_or(rel.length()))));
+                }
             }
             let shown = (c.vitals.shown(), c.vitals.dead.is_some());
             if c.sent != Some(shown) {
@@ -1282,6 +1307,32 @@ mod tests {
             v.push(m);
         }
         v
+    }
+
+    /// The live air (W3): a server on a baked map runs it, sends each player the air where it stands every
+    /// `AIR_EVERY` ticks, and a save carries it on to the same weather as the server that kept running.
+    #[test]
+    fn a_player_is_sent_the_live_air_and_a_save_carries_it_on() {
+        let (tx, rx) = channel();
+        let mut s = Server::baked(256, 128, 5, rx);
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
+        for _ in 0..engine::net::AIR_EVERY * 3 {
+            s.tick();
+        }
+        let airs: Vec<engine::weather::Here> = drain(&c).into_iter().filter_map(|m| if let ToClient::Air(h) = m { Some(h) } else { None }).collect();
+        assert_eq!(airs.len(), 3, "one at ticks 0, 40 and 80");
+        assert!((-40.0..50.0).contains(&airs[0].temp) && (0.0..=1.0).contains(&airs[0].cover), "{:?}", airs[0]);
+        let save = Save::from_bytes(&s.snapshot().to_bytes()).unwrap();
+        assert!(save.air.is_some());
+        let mut back = Server::from_save(save, channel().1);
+        for _ in 0..200 {
+            s.tick();
+            back.tick();
+        }
+        let view = |s: &Server| s.weather.as_ref().map(|w| (w.view().t, w.view().hash));
+        assert_eq!(view(&back), view(&s));
+        assert_eq!(view(&s).unwrap().0, 10.0, "the step to 10 s handed over at tick 200 and shown at 220");
     }
 
     #[test]

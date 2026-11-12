@@ -276,6 +276,7 @@ impl App {
                     }
                     self.water.update(&self.world, &ts, self.start.elapsed().as_secs_f32());
                 }
+                Recv::Msg(ToClient::Air(h)) => self.air = Some(h),
                 Recv::Msg(ToClient::Welcome { .. } | ToClient::Map { .. }) => {}
                 Recv::Msg(ToClient::Chat(text)) => {
                     for line in text.lines() {

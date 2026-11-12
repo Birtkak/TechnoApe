@@ -186,6 +186,11 @@ pub struct Air {
     pub runoff: Vec<u32>,
     /// volume each cell-layer gained by convergence in this step's carry, m^3
     conv: Vec<f32>,
+    /// W3 tick spike: the spin axis's lean (radians, 0 = the old sky), the day's length, and a held point of
+    /// the year (seconds: the sun keeps that day's declination, the hour still turns)
+    pub tilt: f64,
+    pub day: f64,
+    pub hold: Option<f64>,
 }
 
 fn sat_g(p: &Params, t: f32) -> f32 {
@@ -340,6 +345,9 @@ impl Air {
             fell: vec![0; n],
             runoff: vec![0; n],
             conv: vec![0.0; n * LAYERS],
+            tilt: 0.0,
+            day: DAY,
+            hold: None,
         }
     }
 
@@ -378,6 +386,23 @@ impl Air {
     pub fn sun(t: f64) -> DVec3 {
         let a = -SPIN0 - TAU * t / DAY;
         DVec3::new(a.cos(), a.sin(), 0.0)
+    }
+
+    /// The sun in the body frame now, as `engine::sky::Sky::sun_dir` has it (spin axis leaning `tilt` toward
+    /// the sun's place a quarter year on; a year of 54 days).
+    pub fn sun_now(&self) -> DVec3 {
+        if self.tilt == 0.0 && self.day == DAY && self.hold.is_none() {
+            return Air::sun(self.t);
+        }
+        let year = 54.0 * self.day;
+        let t = match self.hold {
+            Some(y) => y + self.t.rem_euclid(self.day),
+            None => self.t,
+        };
+        let a = TAU * t / year;
+        let spin = SPIN0 + TAU * t * (1.0 / self.day + 1.0 / year);
+        let v = DVec3::new(a.cos(), a.sin() * self.tilt.cos(), a.sin() * self.tilt.sin());
+        glam::DQuat::from_rotation_z(-spin) * v
     }
 
     /// The surface air's temperature at the column's mean ground, C.
@@ -422,7 +447,7 @@ impl Air {
     /// Passes 1 and 2: sunlight by the sun's height less cloud and reflection; the ground's balance; the
     /// ground warms the surface air; the upper layers relax toward a stable column.
     fn sun_ground(&mut self, dt: f32) {
-        let sun = Air::sun(self.t);
+        let sun = self.sun_now();
         let p = &self.p;
         let (dir, water, area, snow, cloud, thick, re) = (&self.dir, &self.water, &self.area, &self.snow, &self.cloud, &self.thick, &self.theta_ref);
         self.tg.par_iter_mut().zip(self.theta.par_chunks_mut(LAYERS)).enumerate().for_each(|(c, (tg, th))| {
@@ -688,7 +713,7 @@ impl Air {
     /// Runs days of `dt` steps until a day's means change by under `dt_k` K a column and `dr` of the rain
     /// (at least `min_days`, at most `max_days`), and returns the last day's.
     pub fn settle(&mut self, dt: f32, min_days: usize, max_days: usize, dt_k: f32, dr: f32) -> Means {
-        let per_day = (DAY / dt as f64).round() as usize;
+        let per_day = (self.day / dt as f64).round() as usize;
         let n = self.n;
         let (mut prev_t, mut prev_r) = (vec![0f64; n], vec![0f64; n]);
         let mut change = (f32::INFINITY, f32::INFINITY);

@@ -596,12 +596,22 @@ impl App {
         let (day, h) = engine::sky::clock(w.time);
         let m = (h * 60.0).round() as u32 % (24 * 60);
         let body = b.name.as_str();
-        // the ground's air (ADR 0055): the biome's yearly climate, the season and the hour on top
-        let air = match if space || bi != 0 { None } else { b.biome_at(blk.face as usize, blk.pos.x as f64 + 0.5, blk.pos.y as f64 + 0.5, up) } {
+        // the ground's air (ADR 0055, W3): the baked year's mean where the map keeps it (the biome's band on an
+        // older map), the season and the hour on top
+        let (face, fi, fj) = (blk.face as usize, blk.pos.x as f64 + 0.5, blk.pos.y as f64 + 0.5);
+        let air = match if space || bi != 0 { None } else { b.biome_at(face, fi, fj, up) } {
             Some(bio) => {
-                let (mean, swing) = engine::sky::BIOME_CLIMATE[bio as usize];
-                let c = engine::sky::temperature(mean, swing, up.z.clamp(-1.0, 1.0).asin(), w.sky.declination(w.time), w.sky.hour_angle(w.time, up));
-                format!("{c:.1} C, the year's mean here {mean:.0} C ({})", engine::bake::life::BIOMES[bio as usize].0)
+                let over_sea = b.sea.map_or(0.0, |s| (feet - b.centre).length() - s);
+                let (mean, swing) = match b.climate_at(face, fi, fj) {
+                    Some((theta, swing, _)) => ((theta - engine::bake::air::Params::default().lapse * over_sea.max(0.0) as f32) as f64, swing as f64),
+                    None => engine::sky::BIOME_CLIMATE[bio as usize],
+                };
+                // the live air (W3) where the server runs it, else the baked year with the season and hour on top
+                let (c, rain) = match self.air {
+                    Some(a) => (a.temp as f64, format!(", rain {:.2} mm/h, cloud {:.0} %, wind {:.1} m/s", a.rain, a.cover * 100.0, a.wind[0].hypot(a.wind[1]))),
+                    None => (engine::sky::temperature(mean, swing, up.z.clamp(-1.0, 1.0).asin(), w.sky.declination(w.time), w.sky.hour_angle(w.time, up)), String::new()),
+                };
+                format!("{c:.1} C, the year's mean here {mean:.0} C ({}){rain}", engine::bake::life::BIOMES[bio as usize].0)
             }
             None => "no air reading here".into(),
         };
