@@ -287,9 +287,67 @@ Done when: a test decodes one small file of each format and gets the same length
 script imports, trims and uses one and `sounds=1` shows the row playing a recording; `check=1` fails on a
 recording without credits.
 
+## Second round (2026-11-12, after the first play-test of the usability round)
+The developer, with the merged Studio open: "the blue box indicating parts is not aligned with the model";
+"for making small models like saplings, leaves, pebbles it's too limiting with the bigger voxels or not being
+able to put a pattern on a voxel"; "colours for textures feel limited". Two calls made the same evening:
+**fine voxels per model** (not pattern materials on voxels) and **the one palette stays and grows in place**
+(not a free colour picker). Not built yet; steps 7 and 8 continue the usability round's numbering.
+
+### 6. The part box and the edge lines sit on the model (bug)
+On `snake` (a chain of four parts, tail selected) and on `leaf` (one part with `at` and a pivot, a Spin clip)
+the selected part's blue box and the Edges lines stand a voxel or two beside the drawn voxels. The overlay and
+the mesh must take one transform (parent chain, `at`, pivot, the clip's pose), and a click must land on the
+voxel under the pointer. Sent to the models session as a red-then-green fix; ADR 0065 gets the finding.
+
+### 7. Fine voxels per model
+A sapling, a leaf or a pebble is a handful of 12.5 cm voxels and cannot have a shape. A model may therefore
+choose a finer voxel.
+
+- **The file:** `voxel = 16` in `data/models/<name>.toml` (voxels per metre; 8 when absent, so every model
+  made so far is unchanged). 16 is 6.25 cm: exactly one texture pixel, so a fine model beside a painted block
+  has the same grain. One size per model; parts do not mix. A part's box stays at most 32 on a side, which is
+  2 m for a fine model.
+- **Units:** `at`, pivots, points and a clip's moves are counted in the model's own voxels, as now. The
+  mesher scales by the model's size.
+- **The Studio:** New model asks the size beside the starter shape, in plain words: "Normal (12.5 cm): tools,
+  machines, creatures" and "Fine (6.25 cm): small plants, pebbles, items". The floor grid and the status line
+  follow. "Make fine" turns a normal model into a fine one (every voxel becomes 2 x 2 x 2, nothing is lost);
+  the way back is offered only as a preview with Use and Cancel, since it merges voxels.
+- **Patterns for models come from this:** at one voxel per pixel a pattern is painted voxels. The texture
+  page's Scatter, Shade, Spray and Dither become model tools on the faces under the pointer, and **Pattern
+  fill** paints a selection's surface from the pattern panel's recipe (three colours, size, amount, contrast,
+  Another). So "a pattern on a voxel" needs no second kind of material.
+- **Cost, to be measured before it is kept** (CPU first): a fine model has 8 times the voxels of the same
+  volume. `run=models` with a realistic count of fine models (a meadow of saplings as a block row's `model =`)
+  must hold ADR 0004; the result and the choice go in an ADR.
+- Accepted: a fine model is finer than the 12.5 cm cells the world breaks into (ADR 0033). It is for small
+  things that are whole or gone.
+
+Done when: a model file with `voxel = 16` has its tests (parse, mesh size, the old files unchanged); "Make
+fine" round-trips in a test; a `drive` script makes a fine sapling with Pattern fill and its `shot=` is read;
+the models benchmark's numbers are in the ADR.
+
+### 8. The palette grows where you paint
+The palette has 109 colours and its own page, but while painting there is no way to get a colour that is
+missing, so the palette feels like a wall. The rule stays (every pixel and voxel is a palette colour, so
+changing a colour repaints everything that uses it); adding becomes one click.
+
+- **"+" at the end of the swatches** on the Textures and Models pages and in the pattern panel's wells: a
+  small picker (hue, saturation, value, hex) and a name with a suggestion; Add puts the colour in
+  `data/palette.toml` and selects it. Undoable; a colour nothing uses can be removed in the same place.
+- **Add shades:** from the chosen colour, a ramp of five (two darker leaning cooler, two lighter leaning
+  warmer), shown before Use, named after the colour. The new shades join the colour's ramp, so Shade and the
+  patterns' "auto" second and third colours use them at once.
+- **Finding a colour as the palette grows:** swatches stay grouped by ramp, a search box filters by name, and
+  the count is shown ("112 of 255": a model file's letters allow 255 colours; the Studio warns near the end).
+
+Done when a `drive` script adds a colour and a ramp from the Textures page, paints with them, saves, and
+`check=1` passes; removing an unused colour and refusing a used one have tests.
+
 ## Left out on purpose
 Import of outside sound files is in since 2026-11-12 (above). Import and export of other tools' formats, sculpting, bones and bending meshes, textures on models (a
-model's voxels carry colour only), sizes other than 16 px and 12.5 cm, an editor inside the game. Each can be
+model's voxels carry colour only), sizes other than 16 px and 12.5 cm (6.25 cm models are in since the second round, step 7), an editor inside the game. Each can be
 added when its lack is felt.
 
 ## Build order
