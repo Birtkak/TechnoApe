@@ -177,14 +177,16 @@ pub fn parse(text: &str) -> Result<Rows, String> {
         }
         plants.push(Plant { name: p.name, shape: p.shape, trunk, leaves, height: p.height, radius: p.radius });
     }
-    if f.biome.len() != life::BIOMES.len() {
-        return Err(format!("{} biomes, the bake makes {}", f.biome.len(), life::BIOMES.len()));
+    // Terra's biomes, then Luna's kinds of ground (`bake::luna`, ADR 0070)
+    let names: Vec<&str> = life::BIOMES.iter().map(|b| b.0).chain(crate::bake::luna::KINDS).collect();
+    if f.biome.len() != names.len() {
+        return Err(format!("{} biomes, the bakes make {}", f.biome.len(), names.len()));
     }
     let mut biomes = Vec::new();
-    for (b, want) in f.biome.into_iter().zip(life::BIOMES) {
+    for (b, want) in f.biome.into_iter().zip(names) {
         let who = format!("biome '{}'", b.name);
-        if b.name != want.0 {
-            return Err(format!("{who}: the bake's biome here is '{}'", want.0));
+        if b.name != want {
+            return Err(format!("{who}: the bake's biome here is '{want}'"));
         }
         let ground = [block(&who, &Some(b.top))?, block(&who, &Some(b.band))?, block(&who, &Some(b.rock))?];
         let shares = |v: &[(String, f32)]| v.iter().all(|s| (0.0..=1.0).contains(&s.1)) && v.iter().map(|s| s.1).sum::<f32>() <= 1.0;
@@ -207,7 +209,10 @@ mod tests {
     #[test]
     fn the_data_file_has_every_biome_of_the_bake() {
         let r = &*ROWS;
-        assert_eq!(r.biomes.len(), 15);
+        assert_eq!(r.biomes.len(), 15 + crate::bake::luna::KINDS.len(), "Terra's 15, then Luna's kinds");
+        for (k, name) in crate::bake::luna::KINDS.iter().enumerate() {
+            assert_eq!(&r.biomes[crate::bake::luna::HIGHLAND as usize + k].name, name);
+        }
         let b = |i: u8| &r.biomes[i as usize];
         assert_eq!(b(life::DESERT).ground, [BLOCKS.id("sand"), BLOCKS.id("sand"), BLOCKS.id("stone")]);
         assert_eq!(b(life::TEMPERATE_FOREST).ground[0], BLOCKS.id("grass"));

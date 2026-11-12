@@ -846,10 +846,12 @@ impl App {
     /// title screen drawing the bar, then the game starts again with `then`.
     pub(crate) fn bake_then(&mut self, then: Vec<String>) {
         let num = |k: &str| then.iter().find_map(|a| a.strip_prefix(k)?.strip_prefix('=')?.parse::<i32>().ok());
+        let moon = num("moon");
         match (num("seed"), num("planet")) {
-            (Some(seed), Some(n)) if !engine::bake::file(seed, n).exists() => {
+            (Some(seed), Some(n)) if !engine::bake::file(seed, n).exists() || !engine::bake::luna::file(seed, moon.unwrap_or(engine::bodies::columns(1, n))).exists() => {
                 self.loading = Some(Loading::start(self.again_args(then), "Making the world", move || {
                     drop(engine::bake::get(seed, n));
+                    drop(engine::bake::luna::get(seed, moon.unwrap_or(engine::bodies::columns(1, n))));
                     Ok(())
                 }));
             }
@@ -983,12 +985,19 @@ impl Loading {
             let mut link: Link<ToServer, ToClient> = net::tcp(std::net::TcpStream::connect(&addr).map_err(|e| format!("{addr}: {e}"))?).map_err(|e| format!("{addr}: {e}"))?;
             link.send(ToServer::Hello { name });
             match link.rx.recv_timeout(Duration::from_secs(10)) {
-                Ok(ToClient::Welcome { seed, planet_n, map: Some(h), .. }) => {
+                Ok(ToClient::Welcome { seed, planet_n, moon_n, map: Some(h), luna, .. }) => {
                     engine::bake::report(engine::net::DOWNLOAD, 0.0);
                     engine::net::fetch_map(&mut link, seed, planet_n, h)?;
                     // (a map that could not be written would send the joining run back here, round and round)
-                    let file = engine::bake::file(seed, planet_n);
-                    if file.exists() { Ok(()) } else { Err(format!("the server's map could not be kept in {}", file.display())) }
+                    let mut files = vec![engine::bake::file(seed, planet_n)];
+                    if let Some(l) = luna {
+                        engine::net::fetch_map(&mut link, seed, moon_n, l)?;
+                        files.push(engine::bake::luna::file(seed, moon_n));
+                    }
+                    match files.iter().find(|f| !f.exists()) {
+                        Some(f) => Err(format!("the server's map could not be kept in {}", f.display())),
+                        None => Ok(()),
+                    }
                 }
                 Ok(ToClient::Welcome { .. }) => Ok(()),
                 other => Err(format!("{addr}: no welcome from the server ({other:?})")),

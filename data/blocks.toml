@@ -346,3 +346,52 @@ colour = [0.27, 0.47, 0.18]
 colour = [0.41, 0.46, 0.19]
 [block.winter]
 colour = [0.41, 0.41, 0.24]
+
+# Luna's ground (W6, ADR 0070; crates/engine/src/bake/luna.rs). Ids from 200 so Terra's rocks can take the
+# ones after 29. Looks are taste defaults: pale highlands, dark maria, bright fresh ejecta.
+
+[[block]]
+id = 200
+name = "anorthosite"
+hardness = 7.5
+colour = [0.74, 0.74, 0.72]
+pattern = "stone"
+
+[[block]]
+id = 201
+name = "mare regolith"
+hardness = 0.75
+loose = true
+sound = "dust"
+colour = [0.36, 0.36, 0.36]
+
+[[block]]
+id = 202
+name = "mare basalt"
+hardness = 9.0
+colour = [0.24, 0.24, 0.25]
+pattern = "stone"
+
+[[block]]
+id = 203
+name = "fresh regolith"
+hardness = 0.75
+loose = true
+sound = "dust"
+colour = [0.95, 0.95, 0.93]
+
+[[block]]
+id = 204
+name = "iron-nickel"
+hardness = 20.0
+sound = "metal"
+colour = [0.55, 0.52, 0.48]
+metal = 0.6
+pattern = "speckle"
+
+[[block]]
+id = 205
+name = "kreep"
+hardness = 8.0
+colour = [0.52, 0.47, 0.42]
+pattern = "stone"

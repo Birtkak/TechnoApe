@@ -145,8 +145,9 @@ pub struct Server {
     tiles: FxMap<Col, (u64, DVec3)>,
     /// When set, `run` adds every tick's length in ms (ADR 0025, S: the benchmark line's tick numbers).
     pub tick_ms: Option<std::sync::Arc<std::sync::Mutex<Vec<f32>>>>,
-    /// The baked map as `ToClient::Map` pieces, made on the first request (18 MB for the 4 km planet).
-    map_pieces: Option<Vec<ToClient>>,
+    /// The baked maps as `ToClient::Map` pieces by hash, each made on its first request (18 MB for the 4 km
+    /// planet, 21 for its Luna).
+    map_pieces: HashMap<u64, Vec<ToClient>>,
     /// The live air grid (W3), on a planet whose map keeps a climate.
     pub weather: Option<engine::weather::Weather>,
 }
@@ -160,13 +161,15 @@ impl Server {
     pub fn baked(planet_n: i32, moon_n: i32, seed: i32, accept: Receiver<ServerLink>) -> Server {
         Server::with_world(World::baked(planet_n, moon_n, seed), seed, accept)
     }
-    /// A server on the map of this hash (None: the noise land); the bake is redone if it is not kept. A map that
-    /// comes out other than the hash stops the game, as a save this build cannot read does: its edits belong
-    /// to other ground, and the next autosave would write over the old map's name.
-    pub fn on_map(planet_n: i32, moon_n: i32, seed: i32, map: Option<u64>, accept: Receiver<ServerLink>) -> Server {
+    /// A server on the map of this hash (None: the noise land) and Luna on the map of `luna` (None: its hills);
+    /// a bake is redone if it is not kept. A map that comes out other than the hash stops the game, as a save
+    /// this build cannot read does: its edits belong to other ground, and the next autosave would write over
+    /// the old map's name.
+    pub fn on_map(planet_n: i32, moon_n: i32, seed: i32, map: Option<u64>, luna: Option<u64>, accept: Receiver<ServerLink>) -> Server {
         let Some(h) = map else { return Server::new(planet_n, moon_n, seed, accept) };
         let m = engine::bake::for_hash(seed, planet_n, h).unwrap_or_else(|| panic!("this world was played on another map of seed {seed} (map version {}): it cannot be carried on", engine::bake::VERSION));
-        Server::with_world(World::with_map(planet_n, moon_n, seed, Some(m)), seed, accept)
+        let l = luna.map(|h| engine::bake::luna::for_hash(seed, moon_n, h).unwrap_or_else(|| panic!("this world was played on another Luna of seed {seed} (Luna's map version {}): it cannot be carried on", engine::bake::luna::VERSION)));
+        Server::with_world(World::with_maps(planet_n, moon_n, seed, Some(m), l), seed, accept)
     }
     fn with_world(world: World, seed: i32, accept: Receiver<ServerLink>) -> Server {
         let weather = world.bodies[0].map().and_then(|m| m.climate.as_ref()).map(|c| engine::weather::Weather::new(c, None).expect("a map's climate was checked on load"));
@@ -193,13 +196,13 @@ impl Server {
             water_bytes: 0,
             tiles: FxMap::default(),
             tick_ms: None,
-            map_pieces: None,
+            map_pieces: HashMap::new(),
         }
     }
 
     /// A server that carries on from `save` (its seed and planet win over any given elsewhere).
     pub fn from_save(save: Save, accept: Receiver<ServerLink>) -> Server {
-        let mut s = Server::on_map(save.planet_n, save.moon_n, save.seed, save.map, accept);
+        let mut s = Server::on_map(save.planet_n, save.moon_n, save.seed, save.map, save.luna, accept);
         for (b, m) in &save.edits {
             s.world.set_block(*b, *m);
         }
@@ -261,6 +264,7 @@ impl Server {
             sea_extra: self.world.water.sea_extra,
             tick: self.tick0.wrapping_add(self.tick),
             map: self.map_hash(),
+            luna: self.luna_hash(),
             air: self.weather.as_ref().map(|w| w.state()),
             reaches: (self.world.water.rained, self.world.water.reach_extra.iter().map(|(&a, &x)| (a, x)).collect()),
         }
@@ -269,6 +273,10 @@ impl Server {
     /// The hash of the baked map the planet stands on, None for the noise land.
     pub fn map_hash(&self) -> Option<u64> {
         self.world.bodies[0].map().map(|m| m.hash)
+    }
+    /// The hash of Luna's baked map, None for its hills (ADR 0070).
+    pub fn luna_hash(&self) -> Option<u64> {
+        self.world.bodies[1].map().map(|m| m.hash)
     }
 
     pub fn players(&self) -> usize {
@@ -403,7 +411,7 @@ impl Server {
             self.next_id += 1;
             self.log(Ev::Join { tick: self.tick, id });
             let [p, m] = [self.world.bodies[0].n, self.world.bodies[1].n];
-            link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m, blocks: BLOCKS.hash, map: self.map_hash() });
+            link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m, blocks: BLOCKS.hash, map: self.map_hash(), luna: self.luna_hash() });
             let all: Vec<(Block, u16)> = self
                 .world
                 .edits
@@ -513,10 +521,10 @@ impl Server {
                         }
                     }
                     Recv::Msg(ToServer::Dig(at)) => self.dig(i, at),
-                    Recv::Msg(ToServer::Map) => {
-                        if let Some(m) = self.world.bodies[0].map() {
+                    Recv::Msg(ToServer::Map(h)) => {
+                        if let Some(m) = self.world.bodies.iter().filter_map(|b| b.map()).find(|m| m.hash == h) {
                             // shortcut: any client may ask again; a limit per client when servers go public
-                            for p in self.map_pieces.get_or_insert_with(|| engine::net::map_pieces(m)) {
+                            for p in self.map_pieces.entry(h).or_insert_with(|| engine::net::map_pieces(m)) {
                                 self.clients[i].link.send(p.clone());
                             }
                         }
@@ -1231,7 +1239,9 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
         // 1 m blocks, ADR 0033. shortcut: one that starts from the seed alone is not told apart)
         Some(Ev::Loaded(save)) if save.version < 4 => return Err(std::io::Error::other("a recording of an older world (0.5 m blocks, ADR 0033)")),
         Some(Ev::Loaded(save)) => (Server::from_save(save.clone(), rx), &evs[2..]),
-        _ => (Server::on_map(*planet_n, *moon_n, *seed, *map, rx), &evs[1..]),
+        // shortcut: Start names Terra's map alone, so Luna is this build's bake whenever Terra is baked; a
+        // recording made before W6 or with another Luna version replays with other ground there (ADR 0070)
+        _ => (Server::on_map(*planet_n, *moon_n, *seed, *map, map.map(|_| engine::bake::luna::get(*seed, *moon_n).hash), rx), &evs[1..]),
     };
     s.dt = *dt;
     let mut links: HashMap<u32, Link<ToServer, ToClient>> = HashMap::new();

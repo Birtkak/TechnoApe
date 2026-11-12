@@ -348,11 +348,12 @@ pub fn main() {
         link.send(ToServer::Creative(true)); // the edit benchmark places stone it never dug
     }
     let (_id, mut world, seed) = match link.rx.recv_timeout(Duration::from_secs(10)) {
-        Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, map }) => {
+        Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, map, luna }) => {
             assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
             // the baked map (ADR 0043): the local server's in memory, else from the disk or the server
             let kept = map.and_then(|h| engine::bake::find(seed, planet_n, Some(h)));
-            if args.0.contains_key("connect") && kept.is_none() && map.is_some() && run == "play" && args.get("joined", 0) != 1 {
+            let luna_kept = luna.and_then(|h| engine::bake::find(seed, moon_n, Some(h)));
+            if args.0.contains_key("connect") && (kept.is_none() && map.is_some() || luna_kept.is_none() && luna.is_some()) && run == "play" && args.get("joined", 0) != 1 {
                 // in play, a map to download comes in on the title screen, under its bar, which joins after it
                 // (once: the run it starts has joined=1 and fetches here if the map is still not kept)
                 drop(link);
@@ -363,7 +364,8 @@ pub fn main() {
                 return;
             }
             let map = map.map(|h| kept.map_or_else(|| engine::net::fetch_map(&mut link, seed, planet_n, h), Ok).unwrap_or_else(|e| panic!("{e}")));
-            (id, World::with_map(planet_n, moon_n, seed, map), seed)
+            let luna = luna.map(|h| luna_kept.map_or_else(|| engine::net::fetch_map(&mut link, seed, moon_n, h), Ok).unwrap_or_else(|e| panic!("{e}")));
+            (id, World::with_maps(planet_n, moon_n, seed, map, luna), seed)
         }
         other => panic!("no welcome from the server: {other:?}"),
     };

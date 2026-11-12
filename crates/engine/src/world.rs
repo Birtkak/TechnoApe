@@ -364,6 +364,24 @@ impl Body {
         self.spawn = self.dir(f, (i0 + a) as f64 + 0.5, (j0 + b) as f64 + 0.5);
         self
     }
+    /// Luna on its bake (ADR 0070): the map's heights and kinds as a baked planet's, no sea, and its lava
+    /// tubes as caves.
+    pub fn with_luna(self, map: Arc<Map>) -> Self {
+        let mut b = self.with_map(map.clone());
+        b.sea = None;
+        let (m, k) = (map.m as usize, b.n as f64 / map.m as f64);
+        b.caves = map
+            .tubes
+            .iter()
+            .map(|&(c, depth, r)| {
+                let c = c as usize;
+                let (f, i, j) = (c / (m * m), c % m, (c / m) % m);
+                let ground = b.radius - SEA_DEPTH + map.h[c] as f64;
+                Cave { face: f as u8, at: DVec3::new((i as f64 + 0.5) * k, (j as f64 + 0.5) * k, b.layer_of(ground - depth as f64)), r: r as f64 }
+            })
+            .collect();
+        b
+    }
     /// The map it was baked from, if it was.
     pub fn map(&self) -> Option<&Arc<Map>> {
         self.baked.as_ref().map(|b| &b.map)
@@ -909,12 +927,17 @@ impl World {
     pub fn new(planet_n: i32, moon_n: i32, seed: i32) -> Self {
         World::with_map(planet_n, moon_n, seed, None)
     }
-    /// The world of a new game: the planet baked (ADR 0043), from memory, the disk or baked now.
+    /// The world of a new game: the planet and Luna baked (ADR 0043, 0070), from memory, the disk or baked now.
     pub fn baked(planet_n: i32, moon_n: i32, seed: i32) -> Self {
-        World::with_map(planet_n, moon_n, seed, Some(crate::bake::get(seed, planet_n)))
+        World::with_maps(planet_n, moon_n, seed, Some(crate::bake::get(seed, planet_n)), Some(crate::bake::luna::get(seed, moon_n)))
     }
-    /// The planet on `map` when one is given (its seed and size must be these), else on the noise land.
+    /// The planet on `map` when one is given (its seed and size must be these), else on the noise land; Luna
+    /// on its hills.
     pub fn with_map(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>) -> Self {
+        World::with_maps(planet_n, moon_n, seed, map, None)
+    }
+    /// `with_map`, and Luna on `luna` when one is given (`bake::luna`).
+    pub fn with_maps(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>, luna: Option<Arc<Map>>) -> Self {
         assert_eq!(BODIES.len(), 2, "the sky (sky.rs) poses a planet and one moon");
         let bodies: Vec<Body> = BODIES
             .iter()
@@ -925,7 +948,10 @@ impl World {
                 match (&map, row.generator) {
                     (Some(m), Generator::Continents) if i == 0 => b.with_map(m.clone()),
                     (_, Generator::Continents) => b.with_continents(seed + i as i32),
-                    _ => b,
+                    _ => match &luna {
+                        Some(l) if i == 1 => b.with_luna(l.clone()),
+                        _ => b,
+                    },
                 }
             })
             .collect();

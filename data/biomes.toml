@@ -170,3 +170,51 @@ top = "sand"
 band = "sand"
 rock = "stone"
 patches = [["coral", 0.35]]
+
+# Luna's kinds of ground (W6, ADR 0070; crates/engine/src/bake/luna.rs, HIGHLAND .. SHADOW): after Terra's,
+# never reordered. The dust is the band: 4 m of it on the old highlands, 1 m (the top block) on the maria
+# and on fresh ejecta. Taste defaults.
+
+[[biome]]
+name = "highland"
+top = "regolith"
+band = "regolith"
+rock = "anorthosite"
+
+[[biome]]
+name = "mare"
+top = "mare regolith"
+band = "mare basalt"
+rock = "mare basalt"
+
+[[biome]]
+name = "fresh highland"
+top = "fresh regolith"
+band = "anorthosite"
+rock = "anorthosite"
+
+[[biome]]
+name = "fresh mare"
+top = "fresh regolith"
+band = "mare basalt"
+rock = "mare basalt"
+
+# an iron impactor's floor: a lens of metal 3 m thick under the dust
+[[biome]]
+name = "metal crater"
+top = "fresh regolith"
+band = "iron-nickel"
+rock = "anorthosite"
+
+[[biome]]
+name = "kreep"
+top = "regolith"
+band = "regolith"
+rock = "kreep"
+
+# polar ground the sun never reaches; what lies there (ice or not) is the developer's call
+[[biome]]
+name = "polar shadow"
+top = "regolith"
+band = "regolith"
+rock = "anorthosite"

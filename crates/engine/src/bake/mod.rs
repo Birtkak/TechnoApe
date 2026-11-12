@@ -9,6 +9,7 @@ pub mod climate;
 pub mod grid;
 pub mod land;
 pub mod life;
+pub mod luna;
 pub mod rivers;
 
 pub use climate::Climate;
@@ -85,6 +86,10 @@ pub struct Map {
     /// whose ground keeps the uniform detail of ADR 0043.
     #[serde(skip)]
     pub rough: Vec<f32>,
+    /// Luna's lava tubes (`luna::VERSION` maps only): balls of air as (cell, depth of the middle under the
+    /// cell's ground, radius), metres. A Terra map's bytes do not hold the field.
+    #[serde(skip)]
+    pub tubes: Vec<(u32, f32, f32)>,
     /// FNV of the bytes it was read from or would be written as.
     #[serde(skip)]
     pub hash: u64,
@@ -125,6 +130,7 @@ impl Map {
             1 => postcard::to_stdvec(&(1u32, self.seed, self.n, self.m, &self.h, &self.biome, self.spawn)),
             2 => postcard::to_stdvec(&(2u32, self.seed, self.n, self.m, &self.h, &self.biome, self.spawn, rivers())),
             3 => postcard::to_stdvec(&(3u32, self.seed, self.n, self.m, &self.h, &self.biome, self.spawn, rivers(), &self.climate)),
+            luna::VERSION => postcard::to_stdvec(&(self, &self.tubes)),
             _ => postcard::to_stdvec(self),
         }
         .expect("a map serialises")
@@ -136,6 +142,10 @@ impl Map {
         let flowless = |r: Vec<(u32, u32, f32)>| r.into_iter().map(|(cell, to, area)| Reach { cell, to, area, flow: 0.0 }).collect();
         let mut m: Map = match version {
             VERSION => postcard::from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?,
+            luna::VERSION => {
+                let (m, rest) = postcard::take_from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?;
+                Map { tubes: postcard::from_bytes(rest).map_err(|e| format!("not a map's tubes: {e}"))?, ..m }
+            }
             3 => {
                 let v: V3 = postcard::from_bytes(b).map_err(|e| format!("not a map: {e}"))?;
                 Map { version: 3, seed: v.seed, n: v.n, m: v.m, h: v.h, biome: v.biome, spawn: v.spawn, rivers: flowless(v.rivers), climate: v.climate, ..Map::empty() }
@@ -154,7 +164,7 @@ impl Map {
         if let Some(c) = &m.climate {
             c.check()?;
         }
-        let known = m.version == VERSION || m.version == 3 || (m.version == 2 && m.climate.is_none()) || (m.version == 1 && m.rivers.is_empty());
+        let known = m.version == VERSION || m.version == luna::VERSION || m.version == 3 || (m.version == 2 && m.climate.is_none()) || (m.version == 1 && m.rivers.is_empty());
         // a river drains into a neighbouring cell (bytes from a server: a far one would build a huge index)
         let mm = m.m as i32;
         let next_to = |r: &Reach| {
@@ -166,7 +176,8 @@ impl Map {
         };
         let bad = m.rivers.iter().any(|r| r.cell as usize >= cells || r.to as usize >= cells || !(r.area.is_finite() && r.area > 0.0) || !(r.flow.is_finite() && r.flow >= 0.0) || !next_to(r))
             || m.lakes.iter().any(|&(c, l)| c as usize >= cells || !l.is_finite())
-            || m.lakes.windows(2).any(|w| w[0].0 >= w[1].0);
+            || m.lakes.windows(2).any(|w| w[0].0 >= w[1].0)
+            || m.tubes.iter().any(|&(c, d, r)| c as usize >= cells || !(d.is_finite() && d.abs() < 64.0) || !(r > 0.0 && r < 16.0));
         if !known || bad || m.h.len() != cells || m.biome.len() != cells {
             return Err(format!("a map of version {} with {} cells, not {VERSION} and {cells}", m.version, m.h.len()));
         }
@@ -425,8 +436,12 @@ fn file_v(seed: i32, n: i32, v: u32) -> PathBuf {
 /// The map of (seed, n) if it is in memory or on disk, and its hash is `hash` (any of this version, when
 /// None; a save that names one of version 1 gets that too).
 pub fn find(seed: i32, n: i32, hash: Option<u64>) -> Option<Arc<Map>> {
-    let ok = |m: &Map| hash.map_or(m.version == VERSION, |h| h == m.hash);
-    let versions: &[u32] = if hash.is_some() { &[VERSION, 3, 2, 1] } else { &[VERSION] };
+    find_in(seed, n, hash, if hash.is_some() { &[VERSION, 3, 2, 1, luna::VERSION] } else { &[VERSION] })
+}
+
+/// `find` among maps of these versions.
+fn find_in(seed: i32, n: i32, hash: Option<u64>, versions: &[u32]) -> Option<Arc<Map>> {
+    let ok = |m: &Map| hash.map_or(true, |h| h == m.hash);
     for &v in versions {
         if let Some(m) = LOADED.lock().unwrap().get(&(seed, n, v)).and_then(Weak::upgrade).filter(|m| ok(m)) {
             return Some(m);
