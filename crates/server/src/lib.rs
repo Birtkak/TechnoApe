@@ -403,7 +403,10 @@ impl Server {
                 self.log(Ev::Loaded(save));
             }
         }
+        // the player list changed this tick (a join, a name, a leave): it is sent only then
+        let mut roster = false;
         while let Ok(link) = self.accept.try_recv() {
+            roster = true;
             let id = self.next_id;
             self.next_id += 1;
             self.log(Ev::Join { tick: self.tick, id });
@@ -467,6 +470,7 @@ impl Server {
                         }
                         let c = &mut self.clients[i];
                         c.player.name = name;
+                        roster = true;
                         // a player the save remembers carries on where it left, with what it held
                         if let Some(sv) = self.absent.remove(&c.player.name) {
                             let p = DVec3::from_array(sv.pos);
@@ -549,6 +553,7 @@ impl Server {
                 i += 1;
             } else {
                 self.tell_dig(i, None);
+                roster = true;
                 let c = self.clients.swap_remove(i);
                 if !c.player.name.is_empty() {
                     self.absent.insert(c.player.name.clone(), saved(&c));
@@ -645,9 +650,12 @@ impl Server {
                 c.link.send(ToClient::Vitals { health: shown.0 .0, hunger: shown.0 .1, dead: c.vitals.dead.clone() });
             }
         }
-        let players: Vec<Player> = self.clients.iter().map(|c| c.player.clone()).collect();
-        for c in &self.clients {
-            c.link.send(ToClient::Players(players.clone()));
+        // clients count the list; each one's own position comes in its `You` every tick
+        if roster {
+            let players: Vec<Player> = self.clients.iter().map(|c| c.player.clone()).collect();
+            for c in &self.clients {
+                c.link.send(ToClient::Players(players.clone()));
+            }
         }
         self.tick += 1;
         if let Some((path, every)) = &self.autosave {
@@ -1724,8 +1732,8 @@ mod tests {
         // the spawn faces a steep slope that takes a jump per wall; walking speed is phys's test
         assert!((p.pos - start).reject_from(up).length() > 3.0, "moved {:?}", p.pos - start);
         assert!(!phys::inside(&s.world, p));
-        let seen = drain(&links[0]).into_iter().filter_map(|m| if let ToClient::Players(v) = m { Some(v) } else { None }).last().unwrap();
-        assert_eq!(seen[0].pos, p.pos.to_array(), "clients get the server's position");
+        let seen = drain(&links[0]).into_iter().filter_map(|m| if let ToClient::You { me, .. } = m { Some(me) } else { None }).last().unwrap();
+        assert_eq!(seen.pos, p.pos, "clients get the server's position");
     }
 
     #[test]
@@ -2226,6 +2234,25 @@ mod tests {
         let parts: Vec<usize> = drain(&c).into_iter().filter_map(|m| if let ToClient::Edits(v) = m { Some(v.len()) } else { None }).collect();
         assert!(parts.len() > 1 && parts.iter().all(|n| *n <= EDITS_PART), "{parts:?}");
         assert_eq!(parts.iter().sum::<usize>(), s.world.edit_count);
+    }
+
+    /// The player list goes out when it changes (a join, a name, a leave), not every tick.
+    #[test]
+    fn the_player_list_is_sent_when_it_changes_only() {
+        let (mut s, mut links) = server_with(2);
+        let lists = |l: &Link<ToServer, ToClient>| drain(l).into_iter().filter_map(|m| if let ToClient::Players(v) = m { Some(v.len()) } else { None }).collect::<Vec<_>>();
+        assert_eq!(lists(&links[1]), [2], "the join");
+        for _ in 0..5 {
+            s.tick();
+        }
+        assert_eq!(lists(&links[1]), [0usize; 0], "nothing changed");
+        links[0].send(ToServer::Hello { name: "ape".into() });
+        s.tick();
+        assert_eq!(lists(&links[1]), [2], "a name");
+        drop(links.remove(0));
+        s.tick();
+        s.tick();
+        assert_eq!(lists(&links[0]), [1], "a leave");
     }
 
     #[test]

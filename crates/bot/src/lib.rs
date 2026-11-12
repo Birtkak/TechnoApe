@@ -121,14 +121,15 @@ impl Bot {
                         }
                     }
                 }
-                Recv::Msg(ToClient::Players(p)) => {
-                    self.players = p.len();
-                    if let Some(me) = p.iter().find(|p| p.id == self.id && !self.flying) {
-                        self.pos = DVec3::from_array(me.pos);
+                // the list comes when it changes; this bot's own place every tick in `You`
+                Recv::Msg(ToClient::Players(p)) => self.players = p.len(),
+                Recv::Msg(ToClient::You { me, .. }) => {
+                    if !self.flying {
+                        self.pos = me.pos;
                     }
                 }
                 Recv::Msg(ToClient::Done { ok, .. }) => self.refused += !ok as u64,
-                Recv::Msg(ToClient::Inventory { .. } | ToClient::You { .. } | ToClient::Vitals { dead: None, .. } | ToClient::Digging { .. } | ToClient::Map { .. }) => {}
+                Recv::Msg(ToClient::Inventory { .. } | ToClient::Vitals { dead: None, .. } | ToClient::Digging { .. } | ToClient::Map { .. }) => {}
                 // a bot that dies respawns at once (ADR 0040); it builds in creative, so only a switch to
                 // survival can get it there
                 Recv::Msg(ToClient::Vitals { dead: Some(_), .. }) => self.link.send(ToServer::Respawn),
