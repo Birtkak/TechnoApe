@@ -37,19 +37,17 @@ this file says what is done, what is in work and what comes next, in order.
   - W3b: one block, a look per season, painted season files and the Studio's season tabs (ADR 0061);
   - W4: 16-bit block ids, rock provinces, caves by rock, counted ore bodies under a 192 m crust, and the
     material ledger opened with the ores (ADR 0062, 0063);
-  - W5, first half: water in rivers and lakes, booked per reach (ADR 0059);
-  - W6: Luna's own bake, with ice in the polar shadow (ADR 0027, 0070).
+  - W5, first half: water in rivers and lakes, booked per reach, and rain from the live air that raises
+    them (ADR 0059, save version 12);
+  - W6: Luna's own bake, with ice in the polar shadow, and a full Luna that reads bright from Terra
+    (ADR 0027, 0070).
 - **The Studio** (ADR 0044, 0046, 0049, 0051): textures from a palette, models, sounds, effects, structures
   and fauna pages, tied to the running game.
 - **An audit of the whole repo (2026-11-12):** fifteen findings in the server, the protocol, saves, the
   engine's core and the client's frame, all fixed with tests.
 
 ## In work (2026-11-12)
-- **Rain that raises the rivers:** a rain account per reach fed by the live air's runoff (ADR 0059, save
-  version 12), on `claude/w5-rivers`.
-- **Tides** (W5, second half): 1 m at springs, following Luna, on its own branch.
-- **Luna's brightness** in Terra's night sky, and a save naming a deleted version 4 map (it stops the server),
-  on `claude/w6-luna-10e10b`.
+- **Tides** (W5, second half): 1 m at springs, following Luna, on `claude/w5-tides`.
 
 ## Next
 In this order unless the developer says otherwise.
