@@ -232,6 +232,14 @@ fn noise(seed: i32, freq: f64, octaves: i32) -> FastNoiseLite {
     n
 }
 
+/// The detail of ground `a` metres rough (`bake::rough`) at detail noise value `n` (ADR 00XX): rounded
+/// swells on gentle ground, turning into sharp-crested crags (the noise folded at 0) where it is rougher
+/// than a metre.
+fn detail(a: f64, n: f64) -> f64 {
+    let c = smooth01((a - 1.0) / 1.5);
+    a * ((1.0 - c) * n + c * 1.6 * (0.25 - n.abs()))
+}
+
 fn smooth01(x: f64) -> f64 {
     let x = x.clamp(0.0, 1.0);
     x * x * (3.0 - 2.0 * x)
@@ -361,7 +369,18 @@ impl Body {
         let s = b.map.m as f64 / self.n as f64;
         let k = (level as i32 - (1.0 / s).log2().round() as i32).max(0) as usize;
         let p = d * self.radius;
-        let mut h = b.map.height(face, i * s, j * s, k) as f64 + DETAIL_M * b.detail.get_noise_3d(p.x as f32, p.y as f32, p.z as f32) as f64;
+        let noise = || b.detail.get_noise_3d(p.x as f32, p.y as f32, p.z as f32) as f64;
+        let mut h = if b.map.version == 1 {
+            // a map of version 1: the uniform detail of ADR 0043, to the bit
+            b.map.height(face, i * s, j * s, k) as f64 + DETAIL_M * noise()
+        } else if k.min(b.map.mips.len()) > 0 {
+            // far columns wider than a cell: the mip alone (worldgen.md, "far chunks")
+            b.map.height(face, i * s, j * s, k) as f64
+        } else {
+            debug_assert!(!b.map.rough.is_empty(), "a map of version {} without its roughness", b.map.version);
+            let (h, a) = b.map.height_rough(face, i * s, j * s);
+            h as f64 + detail(a as f64, noise())
+        };
         // the river beds (ADR 0056), after the detail so a bed's line is the bed to the bit
         if let Some(c) = b.map.river(face, i * s, j * s, d, (1u32 << level) as f32) {
             h = h.min(c.cut as f64).max(c.floor as f64);
@@ -1883,5 +1902,97 @@ mod baked_tests {
         let sea = b.layer_r(b.sea.unwrap());
         assert!(b.height(b.spawn) > sea + 1.0, "the spawn is on land");
         assert!(b.col_height(2, 3, 4) - b.radius < AMP && b.radius - b.col_height(2, 3, 4) < AMP);
+    }
+
+    /// A map of version 1 keeps the uniform detail of ADR 0043 to the bit, at every level: a save on it holds
+    /// only edits, so its ground must not move (ADR 00XX). The slow path is that detail written out again.
+    #[test]
+    fn a_version_1_map_keeps_its_ground_to_the_bit() {
+        let m = &*MAP;
+        let v1 = Map::from_bytes(&postcard::to_stdvec(&(1u32, m.seed, m.n, m.m, &m.h, &m.biome, m.spawn)).unwrap()).unwrap();
+        let w = World::with_map(512, 32, 5, Some(Arc::new(v1)));
+        let b = &w.bodies[0];
+        let bk = b.baked.as_ref().unwrap();
+        let s = bk.map.m as f64 / b.n as f64;
+        // `Map::height` as it was before ADR 00XX, written out here so a change to its arithmetic shows
+        let old_spline = |face: usize, x: f64, y: f64, k: usize| -> f32 {
+            let map = &bk.map;
+            let k = k.min(map.mips.len());
+            let (h, m) = (if k == 0 { &map.h } else { &map.mips[k - 1] }, (map.m >> k) as i32);
+            let (x, y) = (x / (1u32 << k) as f64 - 0.5, y / (1u32 << k) as f64 - 0.5);
+            let (i0, j0) = (x.floor() as i32, y.floor() as i32);
+            let (tx, ty) = ((x - i0 as f64) as f32, (y - j0 as f64) as f32);
+            let w = |t: f32| [((-0.5 * t + 1.0) * t - 0.5) * t, (1.5 * t - 2.5) * t * t + 1.0, ((-1.5 * t + 2.0) * t + 0.5) * t, (0.5 * t - 0.5) * t * t];
+            let (wx, wy) = (w(tx), w(ty));
+            let mut s = 0.0;
+            for (b, wb) in wy.iter().enumerate() {
+                let mut row = 0.0;
+                for (a, wa) in wx.iter().enumerate() {
+                    let (f, i, j) = fold(face, i0 - 1 + a as i32, j0 - 1 + b as i32, m);
+                    row += wa * h[(f * m as usize + j as usize) * m as usize + i as usize];
+                }
+                s += wb * row;
+            }
+            s
+        };
+        for face in 0..6 {
+            for q in 0..2000 {
+                let (i, j) = ((q * 37 % 512) as f64 + 0.5, (q * 91 % 512) as f64 + 0.25);
+                let d = b.dir(face, i, j);
+                for level in [0u8, 1, 3, 5] {
+                    let k = (level as i32 - (1.0 / s).log2().round() as i32).max(0) as usize;
+                    let p = d * b.radius;
+                    let old = old_spline(face, i * s, j * s, k) as f64 + DETAIL_M * bk.detail.get_noise_3d(p.x as f32, p.y as f32, p.z as f32) as f64;
+                    let want = b.radius - SEA_DEPTH + old.clamp(-FLOOR, AMP - SEA_DEPTH - 2.0 - TALLEST as f64);
+                    assert_eq!(b.height_at(face, i, j, d, level).to_bits(), want.to_bits(), "face {face} ({i}, {j}) level {level}");
+                }
+            }
+        }
+    }
+
+    /// A scouting tool, not a check (no asserts): the 4 km planet's slopes per map cell and a spot that sees a
+    /// plain and a steep slope at once, for ADR 00XX's filmstrip (release,
+    /// after `rivers_cost` kept the map: `cargo test --release -p engine detail_spot -- --ignored --nocapture`).
+    #[test]
+    #[ignore]
+    fn detail_spot() {
+        let map = Arc::new(Map::from_bytes(&std::fs::read(std::path::Path::new("../..").join(crate::bake::file(1337, 6144))).unwrap()).unwrap());
+        let m = map.m as i32;
+        let cell = map.n as f32 / m as f32;
+        let at = |f: usize, i: i32, j: i32| {
+            let (f, i, j) = fold(f, i, j, m);
+            map.h[(f * m as usize + j as usize) * m as usize + i as usize]
+        };
+        let slope = |f: usize, i: i32, j: i32| (at(f, i + 1, j) - at(f, i - 1, j)).hypot(at(f, i, j + 1) - at(f, i, j - 1)) / (2.0 * cell);
+        let mut land: Vec<f32> = (0..map.h.len()).filter(|&c| map.h[c] > 2.0).map(|c| slope(c / (m * m) as usize, c as i32 % m, (c as i32 / m) % m)).collect();
+        land.sort_by(f32::total_cmp);
+        let q = |p: f64| land[((land.len() - 1) as f64 * p) as usize];
+        println!("land slopes: p10 {:.3} p50 {:.3} p90 {:.3} p99 {:.3} max {:.3}", q(0.1), q(0.5), q(0.9), q(0.99), q(1.0));
+        let w = World::with_map(map.n, 32, map.seed, Some(map.clone()));
+        let b = &w.bodies[0];
+        let d = |f: usize, i: i32, j: i32| b.dir(f, (i as f64 + 0.5) * cell as f64, (j as f64 + 0.5) * cell as f64);
+        let near_spawn = |f: usize, i: i32, j: i32| d(f, i, j).dot(b.spawn);
+        let mut best: Option<(f64, usize, i32, i32, i32, i32)> = None;
+        for f in 0..6 {
+            for j in 4..m - 4 {
+                for i in 4..m - 4 {
+                    if at(f, i, j) < 4.0 || slope(f, i, j) > 0.05 || (-1..=1).any(|a| (-1..=1).any(|c| slope(f, i + a, j + c) > 0.08)) {
+                        continue;
+                    }
+                    for (a, c) in [(4, 0), (-4, 0), (0, 4), (0, -4), (3, 3), (-3, 3), (3, -3), (-3, -3)] {
+                        if slope(f, i + a, j + c) > 0.5 && at(f, i + a, j + c) > at(f, i, j) && best.is_none_or(|bb| near_spawn(f, i, j) > bb.0) {
+                            best = Some((near_spawn(f, i, j), f, i, j, a, c));
+                        }
+                    }
+                }
+            }
+        }
+        let (_, f, i, j, a, c) = best.expect("a plain under a steep slope");
+        let up = d(f, i, j);
+        let to = d(f, i + a, j + c) - up;
+        let ahead_ref = if up.y.abs() > 0.9 { DVec3::Z } else { DVec3::Y };
+        let ahead = (ahead_ref - up * ahead_ref.dot(up)).normalize();
+        let yaw = to.dot(up.cross(ahead)).atan2(to.dot(ahead)).to_degrees();
+        println!("spot: at={:.6},{:.6},{:.6} yaw={yaw:.1}: plain {:.1} m, slope {:.2} at {:.0} m", up.x, up.y, up.z, at(f, i, j), slope(f, i + a, j + c), (a as f32).hypot(c as f32) * cell);
     }
 }
