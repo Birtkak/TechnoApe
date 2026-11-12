@@ -24,10 +24,10 @@ Option 2.
 - **The deep crust.** `world::deep_layers(n)` adds whole layers under the old 64 m crust until it is at least
   192 m (146 layers on the 1.5 km test planet, about 140 on the 4 km one; none under 768 m of radius, so the
   small planets keep theirs; Luna of the 4 km planet, 1150 m in radius, gets some, and its saves move too). The surface keeps its radius; every layer index moves up by that many.
-  Below layer 0 nothing is diggable (`Shape::fits`, as before). Saves move to version 9: an older save's edits
+  Below layer 0 nothing is diggable (`Shape::fits`, as before). Saves move to version 10 (W5's 9 lies on disk the same): an older save's edits
   and water gaps move up by `deep_layers` (test `a_save_from_before_the_deep_ground_moves_up`).
 - **Provinces** (`bake::rock`, stage 9): shield, basin, folded belt, volcanic arc, rift, ocean floor, from
-  the plates (distance to collisions, arcs, rifts; old sutures as folded belts too). The map is **version 4**
+  the plates (distance to collisions, arcs, rifts; old sutures as folded belts too). The map is **version 5** (W5's lakes and flows are 4)
   with a `rock` byte per cell; older maps load with none (no rock, no caves, no ore).
 - **The rock rule** (`data/rocks.toml`, `rock::ROCKS.at`): each province's layers top down from a datum 60 m
   over the sea, folded by noise of the province's amplitude and wavelength. The mesher's fill (`generate`, from
@@ -56,7 +56,7 @@ Option 2.
 ## Shortcuts and consequences
 - Clients derive rock, caves and ore themselves from the map; nothing new goes over the wire. A rule change
   is a protocol change (the map hash covers the map, not the rules).
-- Map version 4 may collide with W5's map bump: the second to merge into main takes 5.
+- W5 reached main first with map 4 and save 9; this takes map 5 and save 10.
 - Recordings from before the deep crust do not replay (every layer moved).
 - Indicator plants over bodies are not done: a follow-up (stage 10's third sign).
 - `bake::rough` does not read the rock yet (hard rock in steps): a follow-up.

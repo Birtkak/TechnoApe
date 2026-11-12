@@ -125,7 +125,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   (`tools/perf.py`, ADR 0025 K: the frame thread's own work, the GPU stages, job time, VRAM, sim's tick); a
   change slower on purpose runs `bash tools/check.sh accept-perf` and its commit says why. Hold `out/.lock`
   (`mkdir`, `rmdir` after) around runs whose numbers you keep while another session shares the PC. Soak alone: `technoape-server soak=1 bots=50 minutes=10
-  seed=1` (a failure prints its repro line and writes `out/soak-fail.rec`). Sessions record to `out/rec/`;
+  seed=1` (a failure prints its repro line and writes `out/soak-fail.rec`). A dedicated server records to `out/rec/` with `record=1` (or `record=file`), else not;
   `technoape-server replay=file until=tick` replays one headless and dumps the players.
   `technoape-server report=1 seed= planet=` prints what the ground holds (ADR 0063): provinces, caves, heat, every
   mineral's bodies, blocks, ingots against `ore-budget.md`, nearest distance and depth, and `made_hash`.

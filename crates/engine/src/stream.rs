@@ -1,7 +1,7 @@
 //! LOD octree selection, job scheduling on worker threads, GPU sub-allocation of chunk meshes.
 use crate::mesh::{mesh, Mesh};
 use crate::liquid::{Col, TILE};
-use crate::world::{fold, generate, sea_cell, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS};
+use crate::world::{fold, generate, river_quads, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS};
 use glam::{DQuat, DVec3, IVec3, Vec4};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Instant;
@@ -22,13 +22,18 @@ pub struct Alloc {
     free: Vec<(u32, u32)>, // sorted (offset, len)
     pub used: u64,
     pub cap: u32,
+    /// An allocation failed and nothing was released since: a new mesh would fail too.
+    pub full: bool,
 }
 impl Alloc {
     pub fn new(cap: u32) -> Self {
-        Alloc { free: vec![(0, cap)], used: 0, cap }
+        Alloc { free: vec![(0, cap)], used: 0, cap, full: false }
     }
     pub fn alloc(&mut self, n: u32) -> Option<u32> {
-        let i = self.free.iter().position(|f| f.1 >= n)?;
+        let Some(i) = self.free.iter().position(|f| f.1 >= n) else {
+            self.full = true;
+            return None;
+        };
         let (o, l) = self.free[i];
         if l == n {
             self.free.remove(i);
@@ -39,6 +44,7 @@ impl Alloc {
         Some(o)
     }
     pub fn release(&mut self, o: u32, n: u32) {
+        self.full = false;
         self.used -= n as u64;
         let i = self.free.partition_point(|f| f.0 < o);
         self.free.insert(i, (o, n));
@@ -150,8 +156,9 @@ fn sampling(world: &World, b: Block, level: Option<u8>) -> Vec<Key> {
         let cell = q.div_euclid(IVec3::splat(s));
         let own = Key { body: b.body, face: b.face, level: l, pos: cell.div_euclid(IVec3::splat(CS)) };
         keys.push(own);
-        for d in [IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::NEG_Y, IVec3::Z, IVec3::NEG_Z] {
-            let c = cell + d;
+        // all 26 neighbours: the mesher's corner shading reads the diagonal padding too
+        for i in 0..27 {
+            let c = cell + IVec3::new(i % 3 - 1, i / 3 % 3 - 1, i / 9 - 1);
             let (f, ci, cj) = fold(b.face as usize, c.x, c.y, body.n >> l);
             let k = Key { face: f as u8, pos: IVec3::new(ci, cj, c.z).div_euclid(IVec3::splat(CS)), ..own };
             if k != own && !keys.contains(&k) {
@@ -512,7 +519,8 @@ impl Streamer {
                 break;
             }
             let Some(s) = self.slots.get_mut(&k) else { continue };
-            if !s.needs_job() {
+            // a full buffer would refuse a new mesh again: wait until something is released
+            if !s.needs_job() || (self.alloc.full && s.state == State::Pending) {
                 continue; // requested by both traversals, or a kept look-ahead request that is done
             }
             s.inflight = true;
@@ -528,10 +536,7 @@ impl Streamer {
             let greedy = self.opts.greedy;
             // tiles of stored water are the water mesh's; a coarse column lies within one tile up to level 4, and past
             // that a far chunk's sea covers them (shortcut: a flood far away shows as sea level)
-            let wet = match sea_cell(&bodies[k.body as usize], k) {
-                Some(_) if 1 << k.level <= TILE => world.water.wet_tiles(k.body, k.face, k.base().x, k.base().y, k.span()),
-                _ => Vec::new(),
-            };
+            let wet = if 1 << k.level <= TILE { world.water.wet_tiles(k.body, k.face, k.base().x, k.base().y, k.span()) } else { Vec::new() };
             let queued = Instant::now();
             rayon::spawn(move || {
                 let t = Instant::now();
@@ -542,7 +547,8 @@ impl Streamer {
                     Gen::Cells(c) => Some(mesh(c, if greedy { body.lattice(k.level) as usize } else { 1 })).filter(|m| !m.quads.is_empty()),
                     _ => None,
                 };
-                let sea = sea_quads(body, k, &wet, &gen);
+                let mut sea = sea_quads(body, k, &wet, &gen);
+                sea.extend(river_quads(body, k, &wet, &gen));
                 if !sea.is_empty() {
                     let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], water: 0 });
                     m.water = sea.len() as u32;
@@ -612,15 +618,9 @@ impl Streamer {
         }
     }
 
-    /// True when every full-detail chunk that samples block `b` draws its latest version: an edit there is
-    /// on screen (the feel report's click-to-change, fundamentals section 1).
-    /// Tile `t` became wet or dry: the chunks that draw its sea (levels up to 4) are meshed again.
+    /// Tile `t` became wet or dry: the chunks that draw its generated water (levels up to 4) are meshed again.
     pub fn touch_tile(&mut self, world: &World, t: Col) {
-        let body = &world.bodies[t.body() as usize];
-        let Some(sea) = body.sea else { return };
-        for l in 0..=body.root_level.min(4) {
-            let (span, cz) = (CS << l, (sea / (1i32 << l) as f64).floor() as i32);
-            let k = Key { body: t.body(), face: t.face(), level: l, pos: IVec3::new(t.i() * TILE / span, t.j() * TILE / span, cz.div_euclid(CS)) };
+        for k in crate::world::water_keys(&world.bodies[t.body() as usize], t) {
             if let Some(sl) = self.slots.get_mut(&k) {
                 sl.want_v += 1;
                 self.touched.push(k);
@@ -628,6 +628,8 @@ impl Streamer {
         }
     }
 
+    /// True when every full-detail chunk that samples block `b` draws its latest version: an edit there is
+    /// on screen (the feel report's click-to-change, fundamentals section 1).
     pub fn shows(&self, world: &World, b: Block) -> bool {
         sampling(world, b, Some(0)).iter().all(|k| self.slots.get(k).is_none_or(|s| s.shown_v >= s.want_v))
     }
@@ -669,6 +671,20 @@ mod tests {
         hide_models(&mut e, &reg);
         assert_eq!(e, vec![(5, 1), (6, 0)]);
     }
+
+    /// A block in a chunk's corner cell is in the padding of all seven chunks around that corner: the
+    /// diagonal ones read it for their corner shading.
+    #[test]
+    fn a_corner_block_is_sampled_by_the_diagonal_chunks() {
+        let w = World::new(1536, 64, 1337);
+        let b = Block { body: 0, face: 2, pos: IVec3::new(5 * CS, 9 * CS, 2 * CS) };
+        let keys = sampling(&w, b, Some(0));
+        for (x, y, z) in (4..=5).flat_map(|x| (8..=9).flat_map(move |y| (1..=2).map(move |z| (x, y, z)))) {
+            let k = Key { body: 0, face: 2, level: 0, pos: IVec3::new(x, y, z) };
+            assert!(keys.contains(&k), "{k:?} not among {keys:?}");
+        }
+        assert_eq!(keys.len(), 8, "{keys:?}");
+    }
     /// Selects, meshes and applies until nothing is missing or asked for; the chunks it draws.
     fn settle(s: &mut Streamer, w: &World, cam: DVec3) -> Vec<DrawChunk> {
         let view = View::new(cam, [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], w);
@@ -706,6 +722,43 @@ mod tests {
         let k = Key { body: 0, face: top.face, level: 0, pos: cell.pos.div_euclid(glam::IVec3::splat(CS)) };
         let d = out.iter().find(|d| d.key == k).unwrap_or_else(|| panic!("the cave's chunk {k:?} is not drawn; finest drawn level {:?}", out.iter().map(|d| d.key.level).min()));
         assert!(d.len > 0 && !d.hidden, "the cave's chunk is drawn with its walls: {} quads, hidden {}", d.len, d.hidden);
+    }
+
+    /// A full quad buffer does not mesh the same chunks again every frame: after a failed allocation no job
+    /// goes out for a chunk still waiting for a mesh until the buffer releases space, then they do.
+    #[test]
+    fn a_full_quad_buffer_waits_for_space_before_meshing_again() {
+        let w = World::new(1536, 64, 1337);
+        let opts = Opts { k: 4.0, greedy: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
+        let mut s = Streamer::new(&w, 1 << 20, opts);
+        let all = s.alloc.alloc(1 << 20).unwrap(); // the buffer taken up by others
+        let view = View::new(w.bodies[0].spawn_point() + w.bodies[0].spawn * 1.7, [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], &w);
+        let frame = |s: &mut Streamer| {
+            let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+            while !s.idle() {
+                std::thread::sleep(std::time::Duration::from_micros(200));
+                s.apply(usize::MAX, &mut st, |_, _| {});
+            }
+            s.frame += 1;
+            s.select(&w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+            s.dispatch(&w, &mut reqs);
+            s.inflight
+        };
+        for _ in 0..50 {
+            if s.alloc_fail > 0 {
+                break;
+            }
+            frame(&mut s);
+        }
+        assert!(s.alloc_fail > 0, "no allocation failed");
+        // every frame walks (as while the camera moves), so the waiting chunks are asked for each time
+        for f in 0..5 {
+            s.dirty = true;
+            assert_eq!(frame(&mut s), 0, "frame {f} after the failure: jobs went out");
+        }
+        s.alloc.release(all, 1 << 20);
+        s.dirty = true;
+        assert!(frame(&mut s) > 0, "space released, but no job went out");
     }
 
     #[test]

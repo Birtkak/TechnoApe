@@ -212,9 +212,14 @@ fn slide(world: &World, pos: &mut DVec3, d: DVec3) -> bool {
 /// Auto jump (the settings, ADR 0033): a walking player has a ledge one block high in the way, with room
 /// on top of it. The client turns this into a jump; the server sees an ordinary jump.
 pub fn ledge_ahead(world: &World, p: &Player) -> bool {
+    p.on_ground && ledge(world, p, p.vel)
+}
+
+/// A ledge one block high in the way of moving along `dir`, with room on top of it.
+fn ledge(world: &World, p: &Player, dir: DVec3) -> bool {
     let up = up(world, p.pos);
-    let dir = p.vel.reject_from(up);
-    if !p.on_ground || dir.length() < 0.5 {
+    let dir = dir.reject_from(up);
+    if dir.length() < 0.5 {
         return false;
     }
     // across the body's width: a ledge's corner stops the box though the middle of the way is free
@@ -306,6 +311,11 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
             v_up *= 1.0 - (3.0 * sub * dt).min(1.0);
             if inp.jump && sub > 0.3 {
                 v_up = v_up.max(SWIM);
+            }
+            // a ledge in the way climbs out (W5): a river's bed steps a block under shallow water, where
+            // swimming up never lifts the feet over the step
+            if inp.jump && v_up < JUMP && ledge(world, p, wish) {
+                v_up = JUMP;
             }
         }
         // snappy: the horizontal velocity is the wish, on the ground and in the air

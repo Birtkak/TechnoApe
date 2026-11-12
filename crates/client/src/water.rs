@@ -35,6 +35,12 @@ pub struct WaterMesh {
     /// The quads of all tiles, rebuilt when one changed.
     pub all: Vec<WQuad>,
     pub changed: bool,
+    /// Ranges of `all` rewritten in place since the last upload (when `changed` is false).
+    pub dirty: Vec<std::ops::Range<usize>>,
+    /// Each tile's range of `all`.
+    at: FxMap<Col, std::ops::Range<usize>>,
+    /// The buffer's cap cut `all` once: said once.
+    pub cut_told: bool,
     /// The spray's numbers (ADR 0020, its droplets ADR 0031).
     rng: u32,
 }
@@ -69,16 +75,34 @@ impl WaterMesh {
         }
         again.sort_unstable();
         again.dedup();
+        // a tile with as many quads as before is rewritten in place and only its range uploaded; else all is
+        // rebuilt (the reference)
+        let mut rebuild = false;
         for t in again {
             if world.water.wet(t) {
                 let q = self.mesh(world, t);
+                match self.at.get(&t) {
+                    Some(r) if r.len() == q.len() => {
+                        self.all[r.clone()].copy_from_slice(&q);
+                        self.dirty.push(r.clone());
+                    }
+                    _ => rebuild = true,
+                }
                 self.tiles.insert(t, q);
             } else {
-                self.tiles.remove(&t);
+                rebuild |= self.tiles.remove(&t).is_some();
             }
         }
-        self.all = self.tiles.values().flatten().copied().collect();
-        self.changed = true;
+        if rebuild {
+            self.all.clear();
+            self.at.clear();
+            self.dirty.clear();
+            for (t, q) in &self.tiles {
+                self.at.insert(*t, self.all.len()..self.all.len() + q.len());
+                self.all.extend_from_slice(q);
+            }
+            self.changed = true;
+        }
     }
 
     fn mesh(&self, world: &World, t: Col) -> Vec<WQuad> {
@@ -245,5 +269,63 @@ mod tests {
         w.water.set_tile(c.tile(), &[]);
         m.update(&w, &[c.tile()], 3.0);
         assert!(m.all.is_empty());
+    }
+
+    /// A re-meshed tile with as many quads as before is rewritten in place, its range alone to upload; any
+    /// sequence of updates leaves `all` holding the quads of the full rebuild (the reference: every tile's).
+    #[test]
+    fn a_remeshed_tile_of_the_same_size_is_rewritten_in_place() {
+        use engine::liquid::Ground;
+        let mut w = World::new(256, 512, 1);
+        let n = w.bodies[0].n / TILE;
+        let cols: Vec<(Col, i32)> = {
+            let g = w.ground();
+            let dry = |t: Col| tile_cols(t).all(|c| { let (lo, hi) = g.generated(c); lo >= hi });
+            let ts: Vec<Col> = (0..n * n).map(|k| Col::new(0, 2, k % n, k / n)).filter(|&t| dry(t)).step_by(3).take(3).collect();
+            ts.iter().map(|t| Col::new(0, 2, t.i() * TILE + 8, t.j() * TILE + 8)).map(|c| (c, g.gaps(c).last().unwrap().0)).collect()
+        };
+        assert_eq!(cols.len(), 3);
+        let bytes = |v: &mut dyn Iterator<Item = &WQuad>| {
+            let mut v: Vec<Vec<u8>> = v.map(|q| bytemuck::bytes_of(q).to_vec()).collect();
+            v.sort();
+            v
+        };
+        let check = |m: &WaterMesh, step: &str| assert_eq!(bytes(&mut m.all.iter()), bytes(&mut m.tiles.values().flatten()), "{step}");
+        let mut m = WaterMesh::default();
+        for (c, f) in &cols {
+            w.water.set_column(&(*c, vec![(*f, OPEN, U / 2)]));
+        }
+        m.update(&w, &cols.iter().map(|c| c.0.tile()).collect::<Vec<_>>(), 1.0);
+        check(&m, "three new tiles");
+        assert!(m.changed);
+        // the same quads, other heights: in place
+        let same = |m: &mut WaterMesh, w: &mut World, k: usize, water: i64, now: f32| {
+            let (c, f) = cols[k];
+            w.water.set_column(&(c, vec![(f, OPEN, water)]));
+            m.changed = false;
+            m.dirty.clear();
+            m.update(w, &[c.tile()], now);
+            assert!(!m.changed && !m.dirty.is_empty(), "tile {k}: rebuilt");
+            let want = f as f32 + water as f32 / U as f32;
+            let got: Vec<f32> = m.dirty.iter().flat_map(|r| m.all[r.clone()].iter().map(|q| q.cur[0])).collect();
+            // (a wet neighbour of its tile is re-meshed too)
+            assert!(got.iter().any(|h| (h - want).abs() < 1e-3), "tile {k}: another range, tops at {got:?}, not {want}");
+        };
+        same(&mut m, &mut w, 1, U / 4, 1.1);
+        check(&m, "tile 1 drained");
+        // a stored dry neighbour lower down adds a side: rebuilt
+        let (c0, f0) = cols[0];
+        w.water.set_column(&(Col::new(0, 2, c0.i() + 1, c0.j()), vec![(f0 - 2, OPEN, 0)]));
+        m.update(&w, &[c0.tile()], 1.2);
+        assert!(m.changed);
+        check(&m, "a side added");
+        same(&mut m, &mut w, 2, U / 3, 1.3);
+        check(&m, "tile 2 drained");
+        same(&mut m, &mut w, 1, U / 8, 1.4);
+        check(&m, "tile 1 again");
+        w.water.set_tile(c0.tile(), &[]);
+        m.update(&w, &[c0.tile()], 1.5);
+        check(&m, "tile 0 dry");
+        assert_eq!(m.all.len(), 2);
     }
 }

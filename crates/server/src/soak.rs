@@ -48,6 +48,29 @@ struct Bot {
     pred: Predictor,
     /// A dig held (ADR 0034): the shape and the tick its `Edit` goes, once its time is up.
     digging: Option<(Shape, u64)>,
+    /// A dam it built across a river and the tick it breaks it (W5), and how many it built and broke.
+    dam: Option<(Shape, u64)>,
+    dams: u32,
+    broken: u32,
+}
+
+/// A wet point of the baked map's rivers, the way across its channel there and its half width (m), or None
+/// when the planet has no river with water.
+fn river_point(w: &World, r: &mut Rng) -> Option<(DVec3, DVec3, f64)> {
+    let segs = &w.bodies[0].map()?.lines.segs;
+    if segs.is_empty() {
+        return None;
+    }
+    for _ in 0..8 {
+        let g = &segs[(r.next() % segs.len().max(1) as u64) as usize];
+        if g.lake || g.wl[0] <= g.bed[0] {
+            continue;
+        }
+        let p = g.a + (g.b - g.a) * r.f();
+        let across = (g.b - g.a).cross(p).normalize_or(DVec3::X);
+        return Some((p.normalize(), across, g.hw[0] as f64));
+    }
+    None
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -77,6 +100,15 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
     // a held dig whose time is up is sent (survival takes it, unless the bot moved or the cells changed)
     if let Some((shape, _)) = b.digging.filter(|d| s.tick >= d.1) {
         b.digging = None;
+        let me = &s.clients[me].phys;
+        let (seq, _) = b.pred.edit(&mut b.world, &shape, 0, |w, c| phys::holds(w, me, c));
+        b.link.send(ToServer::Edit { seq, shape, material: 0 });
+        return;
+    }
+    // a dam whose time is up is dug out again: the pond behind it runs off down the river
+    if let Some((shape, _)) = b.dam.filter(|d| s.tick >= d.1) {
+        b.dam = None;
+        b.broken += 1;
         let me = &s.clients[me].phys;
         let (seq, _) = b.pred.edit(&mut b.world, &shape, 0, |w, c| phys::holds(w, me, c));
         b.link.send(ToServer::Edit { seq, shape, material: 0 });
@@ -136,6 +168,28 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
         let feet = s.clients[me].phys.pos;
         let at = s.world.block_at(feet + b.rng.dir() * b.rng.range(0.0, 5.0));
         b.link.send(ToServer::Bucket { seq: b.pred.seq(), at, fill: b.rng.f() < 0.5 });
+    } else if r < 0.102 && b.dam.is_none() {
+        // a dam across a river (W5): from its bank, in creative, a plug of stone over the channel's width,
+        // broken again some seconds later; the water's count must hold through both
+        let Some((d, across, hw)) = river_point(&s.world, &mut b.rng) else { return };
+        let body = &s.world.bodies[0];
+        let bank = (d * body.radius + across * (hw + 2.0)).normalize();
+        let stand = body.centre + bank * (body.height(bank) + 1.0);
+        if phys::blocked(&s.world, stand) {
+            return;
+        }
+        let fwd = phys::tangent(DVec3::X, phys::up(&s.world, stand), DVec3::Z);
+        b.link.send(ToServer::Creative(true));
+        b.link.send(ToServer::Move { pos: stand.to_array(), fwd: fwd.as_vec3().to_array(), pitch: 0.0 });
+        let at = s.world.block_at(body.centre + d * (body.height(d) + 0.5));
+        let w = ((2.0 * hw) as i32 + 3).min(12);
+        let min = at.pos - IVec3::new(w / 2, w / 2, 0);
+        let shape = Shape { min, max: min + IVec3::new(w - 1, w - 1, 2), ..Shape::one(at) };
+        let stone = BLOCKS.placeable().find(|d| d.name == "stone").map_or(1, |d| d.id);
+        let (seq, _) = b.pred.edit(&mut b.world, &shape, stone, |_, _| true);
+        b.link.send(ToServer::Edit { seq, shape, material: stone });
+        b.dam = Some((shape, s.tick + 120 + b.rng.next() % 240));
+        b.dams += 1;
     }
 }
 
@@ -175,6 +229,9 @@ pub struct WaterStats {
     pub awake: usize,
     pub skipped: u64,
     pub bytes: u64,
+    /// Dams bots built across rivers, and broke again (W5, ADR 0059).
+    pub dams: u32,
+    pub broken: u32,
 }
 
 /// Runs `ticks` ticks with the bots `which` (numbers into the seed's endless list of bots) on a planet of
@@ -196,7 +253,7 @@ pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&
             c.send(ToServer::Hello { name: format!("bot{k}") }); // named, so the save keeps it
             // an empty input makes it a walker, as in the bot crate
             c.send(ToServer::Input(Input::default()));
-            Bot { rng: Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (k as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)), link: c, world: World::with_map(planet_n, MOON_N, seed as i32, map.clone()), pred: Predictor::default(), digging: None }
+            Bot { rng: Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (k as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)), link: c, world: World::with_map(planet_n, MOON_N, seed as i32, map.clone()), pred: Predictor::default(), digging: None, dam: None, dams: 0, broken: 0 }
         })
         .collect();
     s.tick(); // everyone joins
@@ -253,6 +310,7 @@ pub fn run(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Option<&
     match back {
         Ok(b) if b.snapshot() == snap && b.world.hash() == s.world.hash() => {
             (ws.skipped, ws.bytes) = (s.water_skipped, s.water_bytes);
+            (ws.dams, ws.broken) = (bots.iter().map(|b| b.dams).sum(), bots.iter().map(|b| b.broken).sum());
             Ok((s.hash(), ws))
         }
         Ok(b) => {
@@ -288,10 +346,23 @@ mod tests {
     #[test]
     fn soak_holds_its_invariants() {
         let bots: Vec<u32> = (0..8).collect();
-        if let Err(f) = run(7, &bots, 600, N, None) {
-            let (keep, f) = shrink(7, bots, f, N);
-            panic!("tick {}: {} (bots {keep:?})", f.tick, f.what);
+        match run(7, &bots, 600, N, None) {
+            Err(f) => {
+                let (keep, f) = shrink(7, bots, f, N);
+                panic!("tick {}: {} (bots {keep:?})", f.tick, f.what);
+            }
+            Ok(_) => {}
         }
+    }
+
+    /// Bots dam the rivers and break the dams again (W5, ADR 0059) on the smallest planet with wet rivers:
+    /// the water's count holds every tick, and the same seed gives the same state twice.
+    #[test]
+    fn dams_built_and_broken_keep_the_count_and_the_state() {
+        let bots: Vec<u32> = (0..4).collect();
+        let a = run(7, &bots, 900, 1536, None).unwrap_or_else(|f| panic!("tick {}: {}", f.tick, f.what));
+        assert!(a.1.dams > 2 && a.1.broken > 1, "{:?}", a.1);
+        assert_eq!(run(7, &bots, 900, 1536, None).map(|r| r.0), Ok(a.0));
     }
 
     #[test]

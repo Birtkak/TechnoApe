@@ -59,6 +59,13 @@ const WATER_BUDGET: usize = 60_000;
 const WATER_RANGE: f64 = 128.0;
 const WATER_BYTES: usize = 16 * 1024;
 
+/// Cells in one `ToClient::Edits`: about 1 MB, far under the TCP frame limit (16 MB, about 1.7 M cells).
+const EDITS_PART: usize = 100_000;
+
+/// Messages taken from one client in one tick; the rest wait for the next, so no client keeps a tick from
+/// ending. (A walking client sends a few a tick; a map request or a burst of edits catches up in a few ticks.)
+const MSGS_PER_TICK: usize = 64;
+
 /// How far /goto sun stands from the sun's centre, in sun radii: it fills about 23 degrees.
 const SUN_VIEW: f64 = 5.0;
 
@@ -66,6 +73,28 @@ const SUN_VIEW: f64 = 5.0;
 const CHAT_MAX: usize = 256;
 /// The fastest time warp: the 54-day year in about 6 s.
 const MAX_WARP: u64 = 10_000;
+
+/// The cell of WATER_RANGE a water tile's centre (or a client) is in.
+fn cell(at: DVec3) -> glam::IVec3 {
+    (at / WATER_RANGE).floor().as_ivec3()
+}
+
+/// The water tiles a client at `me` lacks (it has `have`), within WATER_RANGE, nearest first. Every tile in
+/// range lies in the 27 cells around the client's, as a cell is WATER_RANGE wide.
+fn wanted(tiles: &FxMap<Col, (u64, DVec3)>, near: &FxMap<glam::IVec3, Vec<Col>>, me: DVec3, have: &FxMap<Col, u64>) -> Vec<(u64, Col)> {
+    let c = cell(me);
+    let cells = (-1..=1).flat_map(|x| (-1..=1).flat_map(move |y| (-1..=1).map(move |z| c + glam::IVec3::new(x, y, z))));
+    let mut want: Vec<(u64, Col)> = cells
+        .filter_map(|k| near.get(&k))
+        .flatten()
+        .map(|t| (t, &tiles[t]))
+        .filter(|(t, (v, _))| have.get(t).is_none_or(|s| s < v))
+        .map(|(t, (_, at))| ((at.distance(me) * 16.0) as u64, *t))
+        .filter(|(d, _)| (*d as f64) < WATER_RANGE * 16.0)
+        .collect();
+    want.sort_unstable();
+    want
+}
 
 /// What a save keeps of a connected player.
 fn saved(c: &Client) -> Saved {
@@ -136,6 +165,8 @@ pub struct Server {
     loaded: Option<Save>,
     /// Where and how often (in ticks) to save; the write runs on its own thread.
     pub autosave: Option<(std::path::PathBuf, u64)>,
+    /// The autosave thread still writing, if any: the next save waits for it, as both write one temp file.
+    saving: Option<std::thread::JoinHandle<()>>,
     /// Water creative put in and took out, in units: what flowing never changes (`water_ledger`).
     made: i64,
     removed: i64,
@@ -144,6 +175,10 @@ pub struct Server {
     pub water_bytes: u64,
     /// Every water tile that ever changed: the tick it last changed (its version) and its centre.
     tiles: FxMap<Col, (u64, DVec3)>,
+    /// The same tiles by the cell of WATER_RANGE their centre is in: a client looks only at the 27 cells
+    /// around its own, not at every tile that ever changed. shortcut: both only grow (a few dozen bytes a
+    /// tile); forget tiles back at their generated water when a long-running server's memory shows them.
+    near: FxMap<glam::IVec3, Vec<Col>>,
     /// When set, `run` adds every tick's length in ms (ADR 0025, S: the benchmark line's tick numbers).
     pub tick_ms: Option<std::sync::Arc<std::sync::Mutex<Vec<f32>>>>,
     /// The baked map as `ToClient::Map` pieces, made on the first request (18 MB for the 4 km planet).
@@ -192,11 +227,13 @@ impl Server {
             absent: BTreeMap::new(),
             loaded: None,
             autosave: None,
+            saving: None,
             made: 0,
             removed: 0,
             water_skipped: 0,
             water_bytes: 0,
             tiles: FxMap::default(),
+            near: FxMap::default(),
             tick_ms: None,
             map_pieces: None,
             ore_open,
@@ -212,6 +249,8 @@ impl Server {
         let World { bodies, edits, water, .. } = &mut s.world;
         water.restore(&engine::world::Solid { bodies, edits }, &save.water);
         (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
+        water.rained = save.reaches.0;
+        water.reach_extra = save.reaches.1.iter().copied().collect();
         s.tick0 = save.tick;
         // the air carries on from the save; an older save on a map with a climate starts from the map's
         if let (Some(state), Some(c)) = (&save.air, s.world.bodies[0].map().and_then(|m| m.climate.as_ref())) {
@@ -266,6 +305,7 @@ impl Server {
             tick: self.tick0.wrapping_add(self.tick),
             map: self.map_hash(),
             air: self.weather.as_ref().map(|w| w.state()),
+            reaches: (self.world.water.rained, self.world.water.reach_extra.iter().map(|(&a, &x)| (a, x)).collect()),
         }
     }
 
@@ -331,7 +371,8 @@ impl Server {
         if let Some(w) = &self.weather {
             h = fnv(h, &w.view().hash.to_le_bytes());
         }
-        h = fnv(h, &postcard::to_allocvec(&(self.world.water.all(), self.made, self.removed, self.world.water.sea_extra)).unwrap());
+        let w = &self.world.water;
+        h = fnv(h, &postcard::to_allocvec(&(w.all(), self.made, self.removed, w.sea_extra, &w.reach_extra, w.rained)).unwrap());
         for p in self.absent.values() {
             h = fnv(h, &postcard::to_allocvec(p).unwrap());
         }
@@ -384,7 +425,10 @@ impl Server {
     }
 
     /// Saves where `autosave` says, on this thread: for shutting down.
-    pub fn save_now(&self) {
+    pub fn save_now(&mut self) {
+        if let Some(h) = self.saving.take() {
+            let _ = h.join();
+        }
         if let Some((path, _)) = &self.autosave {
             match self.snapshot().write(path) {
                 Ok(()) => eprintln!("[technoape-server] saved to {}", path.display()),
@@ -408,7 +452,10 @@ impl Server {
                 self.log(Ev::Loaded(save));
             }
         }
+        // the player list changed this tick (a join, a name, a leave): it is sent only then
+        let mut roster = false;
         while let Ok(link) = self.accept.try_recv() {
+            roster = true;
             let id = self.next_id;
             self.next_id += 1;
             self.log(Ev::Join { tick: self.tick, id });
@@ -420,8 +467,8 @@ impl Server {
                 .iter()
                 .flat_map(|(k, cells)| cells.iter().map(move |(pos, m)| (Block { body: k.body, face: k.face, pos: *pos }, *m)))
                 .collect();
-            if !all.is_empty() {
-                link.send(ToClient::Edits(all));
+            for part in all.chunks(EDITS_PART) {
+                link.send(ToClient::Edits(part.to_vec()));
             }
             let spawn = self.spawn();
             self.clients.push(Client {
@@ -448,7 +495,8 @@ impl Server {
         let mut i = 0;
         while i < self.clients.len() {
             let mut open = true;
-            loop {
+            // the recorder logs what is handled, at the tick it is handled, so a replay meets the same cap
+            for _ in 0..MSGS_PER_TICK {
                 let r = self.clients[i].link.try_recv();
                 let (tick, id) = (self.tick, self.clients[i].player.id);
                 match &r {
@@ -457,9 +505,22 @@ impl Server {
                     Recv::Empty => {}
                 }
                 match r {
+                    // a client names itself once: a second Hello would take another name's saved state
+                    Recv::Msg(ToServer::Hello { .. }) if !self.clients[i].player.name.is_empty() => {}
                     Recv::Msg(ToServer::Hello { name }) => {
+                        let base: String = name.chars().filter(|c| !c.is_control()).take(32).collect();
+                        // a name already online gets a suffix, so two of one name are two saved players
+                        let online = |n: &str| self.clients.iter().any(|c| c.player.name == n);
+                        let mut name = base.clone();
+                        for k in 2.. {
+                            if name.is_empty() || !online(&name) {
+                                break;
+                            }
+                            name = format!("{base}-{k}");
+                        }
                         let c = &mut self.clients[i];
-                        c.player.name = name.chars().take(32).collect();
+                        c.player.name = name;
+                        roster = true;
                         // a player the save remembers carries on where it left, with what it held
                         if let Some(sv) = self.absent.remove(&c.player.name) {
                             let p = DVec3::from_array(sv.pos);
@@ -542,6 +603,7 @@ impl Server {
                 i += 1;
             } else {
                 self.tell_dig(i, None);
+                roster = true;
                 let c = self.clients.swap_remove(i);
                 if !c.player.name.is_empty() {
                     self.absent.insert(c.player.name.clone(), saved(&c));
@@ -609,9 +671,9 @@ impl Server {
         for _ in 0..wsteps {
             self.world.step_water();
         }
-        if !changed.is_empty() {
+        for part in changed.chunks(EDITS_PART) {
             for c in &self.clients {
-                c.link.send(ToClient::Edits(changed.clone()));
+                c.link.send(ToClient::Edits(part.to_vec()));
             }
         }
         let cols: Vec<Col> = self.world.water.take_changes().into_iter().map(|w| w.0).collect();
@@ -638,20 +700,26 @@ impl Server {
                 c.link.send(ToClient::Vitals { health: shown.0 .0, hunger: shown.0 .1, dead: c.vitals.dead.clone() });
             }
         }
-        let players: Vec<Player> = self.clients.iter().map(|c| c.player.clone()).collect();
-        for c in &self.clients {
-            c.link.send(ToClient::Players(players.clone()));
+        // clients count the list; each one's own position comes in its `You` every tick
+        if roster {
+            let players: Vec<Player> = self.clients.iter().map(|c| c.player.clone()).collect();
+            for c in &self.clients {
+                c.link.send(ToClient::Players(players.clone()));
+            }
         }
         self.tick += 1;
         if let Some((path, every)) = &self.autosave {
             if self.tick % every == 0 {
                 // the snapshot is taken here, between ticks; serialising and writing are a thread's
                 let (s, path) = (self.snapshot(), path.clone());
-                std::thread::spawn(move || {
+                if let Some(h) = self.saving.take() {
+                    let _ = h.join();
+                }
+                self.saving = Some(std::thread::spawn(move || {
                     if let Err(e) = s.write(&path) {
                         eprintln!("[technoape-server] save failed: {e}");
                     }
-                });
+                }));
             }
         }
         if self.rec.is_some() {
@@ -1091,7 +1159,14 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
             let b = &self.world.bodies[t.body() as usize];
             let mid = (TILE as f64) * 0.5;
             let at = b.centre + b.dir(t.face() as usize, (t.i() * TILE) as f64 + mid, (t.j() * TILE) as f64 + mid) * b.radius;
-            self.tiles.entry(t).or_insert((0, at)).0 = self.tick + 1;
+            let near = &mut self.near;
+            self.tiles
+                .entry(t)
+                .or_insert_with(|| {
+                    near.entry(cell(at)).or_default().push(t);
+                    (0, at)
+                })
+                .0 = self.tick + 1;
         }
     }
 
@@ -1103,17 +1178,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         // what each client lacks, nearest first: a pass over every tile per client, so side by side when there
         // are many (in a game's own server the meshing fills rayon's pool, and one client needs no help)
         let seen: Vec<(DVec3, &FxMap<Col, u64>)> = self.clients.iter().map(|c| (DVec3::from_array(c.player.pos), &c.tiles)).collect();
-        let lacks = |(me, have): &(DVec3, &FxMap<Col, u64>)| {
-            let mut want: Vec<(u64, Col)> = self
-                .tiles
-                .iter()
-                .filter(|(t, (v, _))| have.get(t).is_none_or(|s| s < v))
-                .map(|(t, (_, at))| ((at.distance(*me) * 16.0) as u64, *t))
-                .filter(|(d, _)| (*d as f64) < WATER_RANGE * 16.0)
-                .collect();
-            want.sort_unstable();
-            want
-        };
+        let lacks = |(me, have): &(DVec3, &FxMap<Col, u64>)| wanted(&self.tiles, &self.near, *me, have);
         let wants: Vec<Vec<(u64, Col)>> = if seen.len() >= 8 { seen.par_iter().map(lacks).collect() } else { seen.iter().map(lacks).collect() };
         for (c, want) in self.clients.iter_mut().zip(wants) {
             if want.is_empty() {
@@ -1718,6 +1783,11 @@ mod tests {
         let got = drain(l);
         assert!(got.contains(&ToClient::Done { seq: 3, ok: true }) && got.contains(&ToClient::Done { seq: 4, ok: true }));
         assert_eq!((s.clients[0].water, s.made), (0, U));
+        // stored while it moves: a save and a load keep it
+        assert!(s.world.water.stored() > 0);
+        let back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
+        assert_eq!((back.hash() == s.hash(), back.water_ledger()), (false, 0), "players differ, water does not");
+        assert_eq!(back.world.water.all(), s.world.water.all());
         for _ in 0..200 {
             s.tick();
             assert_eq!(s.water_ledger(), 0);
@@ -1726,10 +1796,8 @@ mod tests {
         l.send(ToServer::Bucket { seq: 5, at: s.world.block_at(b.centre - d * sea), fill: true });
         s.tick();
         assert!(drain(l).contains(&ToClient::Done { seq: 5, ok: false }));
-        let back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
-        assert_eq!((back.hash() == s.hash(), back.water_ledger()), (false, 0), "players differ, water does not");
-        assert_eq!(back.world.water.all(), s.world.water.all());
-        assert!(s.world.water.stored() > 0);
+        // settled level with the sea again: forgotten, what it brought booked to the sea
+        assert_eq!((s.world.water.stored(), s.world.water.sea_extra), (0, U));
     }
 
     #[test]
@@ -1746,8 +1814,8 @@ mod tests {
         // the spawn faces a steep slope that takes a jump per wall; walking speed is phys's test
         assert!((p.pos - start).reject_from(up).length() > 3.0, "moved {:?}", p.pos - start);
         assert!(!phys::inside(&s.world, p));
-        let seen = drain(&links[0]).into_iter().filter_map(|m| if let ToClient::Players(v) = m { Some(v) } else { None }).last().unwrap();
-        assert_eq!(seen[0].pos, p.pos.to_array(), "clients get the server's position");
+        let seen = drain(&links[0]).into_iter().filter_map(|m| if let ToClient::You { me, .. } = m { Some(me) } else { None }).last().unwrap();
+        assert_eq!(seen.pos, p.pos, "clients get the server's position");
     }
 
     #[test]
@@ -1897,7 +1965,9 @@ mod tests {
         for l in &full {
             links[0].send(ToServer::Chat(l.clone()));
         }
-        s.tick();
+        for _ in 0..full.len().div_ceil(MSGS_PER_TICK) {
+            s.tick();
+        }
         let answers: Vec<String> = drain(&links[0]).into_iter().filter_map(|m| if let ToClient::Chat(t) = m { Some(t) } else { None }).collect();
         assert_eq!(answers.len(), full.len(), "{answers:?}");
         for (l, a) in full.iter().zip(&answers) {
@@ -2194,6 +2264,134 @@ mod tests {
         assert_eq!(s.clients[0].vitals.dead.as_deref(), Some("ape was hurt by a command"));
         assert!(chats(&drain(&links[1])).contains(&"ape was hurt by a command".to_string()));
         assert!(vitals_of(&drain(l)).contains(&(0, 0, Some("ape was hurt by a command".into()))));
+    }
+
+    /// Two clients of one name are two saved players; a second `Hello` changes nothing; a name is cleaned.
+    #[test]
+    fn equal_names_are_kept_apart_and_a_second_hello_changes_nothing() {
+        let (mut s, links) = server_with(3);
+        s.absent.insert("bob".into(), saved(&s.clients[0]));
+        links[0].send(ToServer::Hello { name: "ape".into() });
+        links[0].send(ToServer::Chat("/give stone 1".into()));
+        links[1].send(ToServer::Hello { name: "ape".into() });
+        links[1].send(ToServer::Chat("/give dirt 2".into()));
+        links[0].send(ToServer::Hello { name: "bob".into() });
+        links[2].send(ToServer::Hello { name: "a\npe\u{7}".into() });
+        s.tick();
+        let names: Vec<&str> = s.clients.iter().map(|c| c.player.name.as_str()).collect();
+        assert_eq!(names, ["ape", "ape-2", "ape-3"]);
+        assert!(s.absent.contains_key("bob"), "a second Hello took nobody's saved state");
+        drop(links);
+        s.tick();
+        let inv = |n: &str| s.absent[n].inv.clone();
+        assert_eq!((inv("ape"), inv("ape-2")), (vec![(BLOCKS.id("stone"), 1)], vec![(BLOCKS.id("dirt"), 2)]));
+    }
+
+    /// The quit save waits for an autosave still writing: the two never share the temp file, and when
+    /// `save_now` returns the save is whole and nothing writes any more.
+    #[test]
+    fn save_now_right_after_an_autosave_leaves_a_whole_save() {
+        let (mut s, _links) = server_with(1);
+        let path = std::env::temp_dir().join(format!("technoape-autosave-{}.sav", std::process::id()));
+        s.autosave = Some((path.clone(), 1));
+        for _ in 0..100 {
+            s.tick();
+            s.save_now();
+            assert!(!path.with_extension("tmp").exists(), "an autosave still writes after save_now");
+            assert!(Save::read(&path).is_ok());
+        }
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    /// A world of more edited cells than one `Edits` part carries reaches a joining client whole, in parts
+    /// that each stay under the TCP frame limit.
+    #[test]
+    fn a_join_to_a_world_of_many_edits_receives_them_all_in_parts() {
+        let (tx, rx) = channel();
+        let mut s = Server::new(256, 32, 1, rx);
+        for k in 0..EDITS_PART as i32 + 5 {
+            s.world.set_block(Block { body: 0, face: 0, pos: glam::IVec3::new(k % 256, (k / 256) % 256, 200 + k / 65536) }, BLOCKS.id("stone"));
+        }
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
+        s.tick();
+        let parts: Vec<usize> = drain(&c).into_iter().filter_map(|m| if let ToClient::Edits(v) = m { Some(v.len()) } else { None }).collect();
+        assert!(parts.len() > 1 && parts.iter().all(|n| *n <= EDITS_PART), "{parts:?}");
+        assert_eq!(parts.iter().sum::<usize>(), s.world.edit_count);
+    }
+
+    /// The player list goes out when it changes (a join, a name, a leave), not every tick.
+    #[test]
+    fn the_player_list_is_sent_when_it_changes_only() {
+        let (mut s, mut links) = server_with(2);
+        let lists = |l: &Link<ToServer, ToClient>| drain(l).into_iter().filter_map(|m| if let ToClient::Players(v) = m { Some(v.len()) } else { None }).collect::<Vec<_>>();
+        assert_eq!(lists(&links[1]), [2], "the join");
+        for _ in 0..5 {
+            s.tick();
+        }
+        assert_eq!(lists(&links[1]), [0usize; 0], "nothing changed");
+        links[0].send(ToServer::Hello { name: "ape".into() });
+        s.tick();
+        assert_eq!(lists(&links[1]), [2], "a name");
+        drop(links.remove(0));
+        s.tick();
+        s.tick();
+        assert_eq!(lists(&links[0]), [1], "a leave");
+    }
+
+    /// A client that floods the server gets MSGS_PER_TICK messages handled a tick, the rest on later ticks in
+    /// order; its leave is still seen once they are done.
+    #[test]
+    fn a_flood_of_messages_is_handled_a_part_a_tick_in_order() {
+        let (mut s, mut links) = server_with(2);
+        for k in 0..1000 {
+            links[0].send(ToServer::Chat(format!("{k}")));
+        }
+        drop(links.remove(0));
+        drain(&links[0]);
+        s.tick();
+        let mut got = chats(&drain(&links[0]));
+        assert_eq!(got.len(), MSGS_PER_TICK);
+        while s.players() == 2 {
+            s.tick();
+        }
+        got.extend(chats(&drain(&links[0])));
+        let want: Vec<String> = (0..1000).map(|k| format!("<?> {k}")).collect();
+        assert_eq!(got, want);
+        assert_eq!(s.tick, 1 + 1000_u64.div_ceil(MSGS_PER_TICK as u64));
+    }
+
+    /// The water tiles a client lacks, found from the cells near it, are the old scan over every tile's:
+    /// on a random set of tiles, versions, places and what each client has.
+    #[test]
+    fn water_wanted_from_near_cells_equals_the_scan_of_every_tile() {
+        let (mut s, _links) = server_with(0);
+        let mut r = 12345u64;
+        let mut rnd = |n: u64| {
+            r = r.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (r >> 33) % n
+        };
+        for t in 0..20 {
+            s.tick = t;
+            let cols: Vec<Col> = (0..200).map(|_| Col::new(0, rnd(6) as u8, rnd(256) as i32, rnd(256) as i32)).collect();
+            s.water_changed(&cols);
+        }
+        let all: Vec<(Col, (u64, DVec3))> = s.tiles.iter().map(|(t, v)| (*t, *v)).collect();
+        for _ in 0..50 {
+            let (_, (_, at)) = all[rnd(all.len() as u64) as usize];
+            let me = at + DVec3::new(rnd(200) as f64, rnd(200) as f64, rnd(200) as f64) - DVec3::splat(100.0);
+            let have: FxMap<Col, u64> = all.iter().filter_map(|(t, _)| (rnd(3) == 0).then_some(*t)).collect::<Vec<_>>().into_iter().map(|t| (t, rnd(22))).collect();
+            // the old scan: every tile, nearest first
+            let mut old: Vec<(u64, Col)> = all
+                .iter()
+                .filter(|(t, (v, _))| have.get(t).is_none_or(|s| s < v))
+                .map(|(t, (_, at))| ((at.distance(me) * 16.0) as u64, *t))
+                .filter(|(d, _)| (*d as f64) < WATER_RANGE * 16.0)
+                .collect();
+            old.sort_unstable();
+            assert!(!old.is_empty());
+            assert_eq!(wanted(&s.tiles, &s.near, me, &have), old);
+        }
     }
 
     #[test]
