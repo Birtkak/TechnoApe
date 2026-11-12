@@ -1,0 +1,65 @@
+# 0073 – Streaming, LOD and interface bugs: 10 km/s flight, coarse cover, one window, still outline
+
+- **Status:** accepted (built)
+- **Date:** 2026-11-12
+
+## Context
+Five F9 reports from the developer, one round:
+
+1. `2026-11-12_21-00-30` flying 100–1000 m/s about 125 m up, "a HUGE chunk of the world becomes like the
+   lowest quality LOD" near the camera.
+2. `2026-11-11_18-14-37` "glitched LOD" on Luna (1024 columns) 1 km up, on a 24576-column planet.
+3. `2026-11-11_17-37-12` going from the title into a world swaps windows; asked for a loading screen instead.
+4. `2026-11-11_17-38-47` the selection outline clips into the block a little; its rainbow should run like an
+   RGB keyboard's.
+5. `2026-11-12_20-56-50` creative flight up to 10 km/s.
+
+## Options considered
+- (1) A chunk that splits is drawn as cover while one of its children has no mesh (ADR 0038 B). Children out of
+  view rank last in the queue (×3 and behind every hole), so while flying the coarse parent kept covering its
+  visible children, which were already in, and stood over their finer ground. Options: rank hidden children
+  higher (more work for chunks nobody sees), or let only visible children hold the cover. Chosen: the second.
+- (3) Keep a process per world and hide the swap better (ADR 0038 already kept the old window up), or one
+  process and one window for everything. Chosen: one event loop for the program; the title and each world are
+  sessions run on it (`run_app_on_demand`), each taking over the window of the one before.
+- (5) Raise `phys::FLY_MAX` alone: a step at 10 km/s is 167 m, 670 substeps of 0.25 m with three collision
+  checks each, on the client, its replays and the server. Chosen: far over every body's top layer (radius +
+  `AMP` + `BUILD_HEADROOM`, plus the step's length) nothing can be in the way, so the step is one move there.
+
+## Decision
+- **Flight:** `FLY_MAX` is 10 000 m/s; the wheel reaches it. Over the top layer a flying step is one move; near
+  the ground the substeps stay, and a dive at 10 km/s still lands (test). No server check limits speed;
+  impacts over 3 m a step were already read as teleports (creative has no health).
+- **Coarse cover:** a child wholly out of view (`Streamer::hidden`) no longer holds its parent as cover in a
+  drawing walk. New `Streamer::too_coarse` counts drawn, visible chunks the split rule would split; a run's JSON
+  has `coarse_slow_s`, the longest that stays non-zero while the camera moves under 20 m/s, and the gate fails a
+  benchmark run over 1 s. Tests: the cover case (red: 18 coarse chunks over children that were in) and a
+  scripted fast flight that settles at its level.
+- **Luna:** not reproduced on this build. Filmstrips of Luna at 1664 and at 1024 columns from 1 km up show the
+  whole moon lit and intact; the report's build predates Luna's bake (ADR 0070). No code change.
+- **One window:** `main` makes one event loop; `session` builds a world (or the title's) and runs it; the next
+  session gets the window (`App::carried`), setting its fullscreen, frame and size from its settings, and makes
+  its own GPU state after the old one is dropped. Until a world is in, play draws a loading screen: the chunks
+  still missing against the most there were. The bake's and the map download's bars stay on the title (ADR
+  0057). The new-process hand-over (`sys::wait_shown`, `shown=`) is gone.
+- **Outline:** its clipping was already fixed by ADR 0041 (drawn with no depth test, on the mesh's own
+  lattice); the keyboard wave is there too. New Accessibility row **Outline colours: moving | still**
+  (`outline_colours`, bit 16 of `opt.x`) holds the hues where they are.
+- A `fly:<m/s>` act for scripted flights (the playtest menu's step).
+
+## Consequences
+- CPU: the flight fast path saves about 2 000 collision checks per step at 10 km/s high up and costs one
+  `altitude` per flying step; `too_coarse` runs only in measured frames (one distance per drawn chunk); the
+  cover test adds a bounds lookup and a frustum test per incomplete child in a walk.
+- A child out of view now shows nothing until its mesh comes; a camera that turns without moving (a frame that
+  only culls) can see that hole for the frames until the next walk, which a landing job starts.
+- Sessions share one process: statics (sizes, the audio folder, the bake caches, the contrast flag) carry from
+  one world to the next. Each world still gets a fresh server, world, streamer and GPU state.
+- Off-screen runs print one JSON line per session, as the separate processes did.
+
+## Calls for the developer to confirm
+- Loading screen look: dark, the title, "Loading the world: N chunks to go" and a green bar (not filmed: the
+  filmstrip only captures after loading).
+- The still outline keeps the rainbow, only frozen; it could instead be plain white.
+- Fly speed's wheel steps are unchanged (a factor per notch), so 1 → 10 000 m/s takes more notches.
+- Report 2 is closed as "no longer reproduces"; a 24576-column planet was not baked to recheck it there.
