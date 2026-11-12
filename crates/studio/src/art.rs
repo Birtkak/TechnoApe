@@ -42,6 +42,21 @@ pub fn file_name(block: &str, face: usize) -> String {
     }
 }
 
+/// The file of a block's face in season `season` (`engine::blocks::SEASONS`): `<face's file>@<season>.png`,
+/// summer's the base file without one (docs/design/seasonal-looks.md).
+pub fn season_file(block: &str, face: usize, season: usize) -> String {
+    let base = file_name(block, face);
+    match season {
+        1 => base,
+        q => format!("{}@{}.png", base.strip_suffix(".png").unwrap_or(&base), engine::blocks::SEASONS[q]),
+    }
+}
+
+/// Whether `file` is one of block `name`'s texture files: any face, any season.
+pub fn names_block(name: &str, file: &str) -> bool {
+    (0..4).any(|f| (0..4).any(|q| season_file(name, f, q) == file))
+}
+
 fn mirrored(x: usize, mirror: bool) -> Vec<usize> {
     if mirror && x != S - 1 - x {
         vec![x, S - 1 - x]
@@ -184,7 +199,7 @@ impl Doc {
 /// The block a texture file belongs to: `<block>.png` or `<block>_top/_side/_bottom.png`, by the names given.
 pub fn block_of<'a>(file: &str, names: impl IntoIterator<Item = &'a str>) -> Option<String> {
     let stem = file.rsplit(['/', '\\']).next()?.strip_suffix(".png")?;
-    names.into_iter().find(|n| (0..4).any(|f| file_name(n, f) == format!("{stem}.png"))).map(String::from)
+    names.into_iter().find(|n| names_block(n, &format!("{stem}.png"))).map(String::from)
 }
 
 /// `check=1` over `data/`: the palette's colours, the textures that passed, and every refusal.
@@ -270,8 +285,8 @@ pub fn off_palette(img: &Img, pal: &Palette) -> Option<(usize, usize, [u8; 3])> 
 /// One texture file against the rule, the palette and the block names; the error names the file.
 pub fn check_file(path: &str, bytes: &[u8], pal: &Palette, reg: &Registry) -> Result<Img, String> {
     let stem = path.rsplit(['/', '\\']).next().unwrap_or(path).strip_suffix(".png").unwrap_or("");
-    if !reg.placeable().any(|d| (0..4).any(|f| file_name(&d.name, f) == format!("{stem}.png"))) {
-        return Err(format!("{path}: names no block (<block>.png, <block>_top, _side or _bottom)"));
+    if !reg.placeable().any(|d| names_block(&d.name, &format!("{stem}.png"))) {
+        return Err(format!("{path}: names no block (<block>.png, <block>_top, _side or _bottom, each with @spring, @autumn or @winter for a season)"));
     }
     let img = decode(bytes).map_err(|e| format!("{path}: {e}"))?;
     if let Some((x, y, c)) = off_palette(&img, pal) {
@@ -641,6 +656,12 @@ mod tests {
         assert_eq!(block_of("blue lamp_side.png", names), Some("blue lamp".into()));
         assert_eq!(block_of("sand.png", names), None);
         assert_eq!(block_of("grass_left.png", names), None);
+        // a season's files (docs/design/seasonal-looks.md); summer's is the base file
+        assert_eq!(block_of("grass_top@autumn.png", names), Some("grass".into()));
+        assert_eq!(block_of("dirt@winter.png", names), Some("dirt".into()));
+        assert_eq!(block_of("dirt@summer.png", names), None);
+        assert_eq!(block_of("dirt@fall.png", names), None);
+        assert_eq!((season_file("grass", 2, 0), season_file("grass", 0, 1)), ("grass_side@spring.png".into(), "grass.png".into()));
     }
 
     #[test]

@@ -509,3 +509,26 @@ fn structures_oak_recipe_another_wall_save() {
     let reg = engine::blocks::Registry::parse(&std::fs::read_to_string(dir.join("data/blocks.toml")).unwrap()).unwrap();
     engine::structures::Structure::parse("oak.toml", &text, &reg).unwrap();
 }
+
+/// docs/design/seasonal-looks.md: a season tab paints `<block>@<season>.png` from the base, "Add season" puts the
+/// base colour in a `[block.<season>]` and "Remove" drops the files and the look again.
+#[test]
+fn a_season_is_added_painted_and_removed() {
+    let dir = scratch("seasons");
+    let blocks = || std::fs::read_to_string(dir.join("data/blocks.toml")).unwrap();
+    let before = blocks();
+    studio(&dir, &["open=dirt", "input=click @btn:pattern; key Ctrl+S"]);
+    studio(&dir, &["open=dirt", "season=winter", "cmd=season.add", "input=key Ctrl+S"]);
+    let winter = dir.join("data/textures/dirt@winter.png");
+    assert_eq!(png(&winter).2, png(&dir.join("data/textures/dirt.png")).2, "the season starts as the base");
+    let reg = engine::blocks::Registry::parse(&blocks()).unwrap();
+    let d = reg.get(reg.id("dirt")).unwrap();
+    let text = blocks();
+    let row = &text[text.find("name = \"dirt\"").unwrap()..];
+    let row = &row[..row.find("[[block]]").unwrap_or(row.len())];
+    assert!(row.contains("[block.winter]"), "a [block.winter] after dirt's row: {row}");
+    assert_eq!(d.tone(3).colour, d.colour, "with the base colour");
+    let line = studio(&dir, &["open=dirt", "season=winter", "cmd=season.remove"]);
+    assert!(!winter.exists(), "{line}");
+    assert_eq!(blocks(), before, "data/blocks.toml as it was, byte for byte");
+}

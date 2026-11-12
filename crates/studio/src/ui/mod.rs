@@ -520,6 +520,13 @@ impl Studio {
                 if let Some(h) = id.strip_prefix("hour:").and_then(|h| h.parse::<f32>().ok()) {
                     // the game view's Time slider (for `shot= cmd=hour:18`)
                     self.app.view.hour = h.rem_euclid(24.0);
+                } else if let Some(k) = id.strip_prefix("season:").and_then(|q| engine::blocks::SEASONS.iter().position(|n| *n == q)) {
+                    // the game view's Year slider at that season's start, and the Textures page on its tab
+                    // (for `shot= season=autumn`)
+                    self.app.view.day = viewport::season_day(k);
+                    for p in self.pages.iter_mut().filter(|p| p.name() == "Textures") {
+                        p.run(&mut self.app, id);
+                    }
                 } else if let Some(name) = id.strip_prefix("page:") {
                     if let Some(i) = self.pages.iter().position(|p| p.name().eq_ignore_ascii_case(name)) {
                         self.page = i;
