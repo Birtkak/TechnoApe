@@ -120,7 +120,7 @@ and feeding the reaches from its runoff is open (ADR 0059 says what it takes).
 - **Status (2026-11-12, ADR 0059): rivers and lakes done; tides open.**
   - Generated water stands in beds and lakes; touched water goes live and is forgotten again.
   - The reaches pass what they take in down to the sea. W3's live runoff feeds them by catchment, taken out
-    of the air's sea term (both ledgers exact in the soak); it does not raise live water yet (ADR 0059: the developer's call).
+    of the air's sea term (both ledgers exact in the soak); rain in a reach raises its live water on top of generation's dry-weather base (save version 12).
   - Maps are version 4 (climate and lakes; 3, 2 and 1 still read), saves version 9 (8 with its air still reads); bots dam rivers in the soak with the ledger exact.
   - A walker follows a river from spring to sea in water.
   - Open: the look (the developer's call), joining W3's air ledger (both are on main now), and tides.

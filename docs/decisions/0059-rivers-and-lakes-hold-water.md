@@ -96,17 +96,26 @@ The reaches take the air's runoff (`weather::Weather::feeding`, `Weather::tick`)
   and `run_reaches` passes it down to the sea as before. The air's ledger plus what it handed is constant
   (`Weather::ledger`), and so is the water's (`counted() - rained`). The soak checks both every tick
   (`Server::air_ledger`).
-- **Generation keeps the mean flow; rain does not move live water yet.** The plan was to make generation
-  carry a dry-weather base (half of the flow at rest) and let the live rain bring the rest. That was built
-  and taken out again. The reaches' accounts also carry the generated flow's circulation: live water upstream
-  borrows the reach's flow, and the open end downstream gives it back. Any flow read from an account
-  therefore feeds back on itself: a dam's wave never settled, and rain left a pond lower. With no live part,
-  a base only made dams fill at half the rate. So generation keeps the bake's mean flow; the air's runoff
-  runs through the accounts to the sea (both ledgers exact) and moves no live water. Nothing reads it as flow
-  yet, so nothing is counted twice.
-  - **Open for the developer:** rain that raises rivers needs a per-reach rain account apart from what a reach
-    lends its live water: a new save version, and generation then as the dry-weather base.
-  - **Until then:** `reach_flow` must not be read as rain (a wheel reads the generated flow).
+- **Rain raises live rivers** (the developer, 2026-11-12):
+  - **A rain account per reach.** `Liquids::rain_held` is kept apart from `reach_extra`. `reach_extra` also
+    carries the generated flow's circulation (live water upstream borrows the reach's flow, the open end
+    downstream gives it back), so reading it as flow fed back on itself: in a first attempt a dam's wave
+    never settled. Only `rain` writes `rain_held`; once a second it runs down the reaches' linear stores to
+    the sea, like `reach_extra`.
+  - **Generation is the dry-weather base:** `BASE` = 0.5 of a river's flow at rest (the flow per column of
+    width and the gain along it; the live water's friction is fitted to it). The fill and level drawn are
+    unchanged. A column hands its reaches 1 - `BASE` of its land's runoff. 0.5 is a typical baseflow index
+    (a routine default).
+  - **The pour.** Live water upstream pours in its share of the base, booked to `reach_extra` as before.
+    On top it pours the rain's flow (`reach_flow` = held over the reach's hold) at the same share
+    (`Ground::base`: the reach's outflow at its last segment; 0 for a lake). That part is taken out of
+    `rain_held`, capped at what is held and rounded up, so light rain on a small river is poured too.
+  - **Tests:** a dam's pond fills about twice as fast in rain (38 against 17 blocks in 4 s); a bucket's patch
+    stands over generation about twice as long in rain; once the rain has run off, the patch is forgotten.
+  - **Shortcut:** rain poured into a live patch leaves at its downstream open end into `reach_extra`, so the
+    reaches below see it as returned water, not rain. A second dam below a live patch fills as if that rain had
+    run straight to the sea. While a patch is live, its reach's rain leaves up to twice as fast (poured, and
+    run down). Fine for single dams; revisit if dam chains matter.
 - **Cost** on the 4 km planet (`weather::tests::runoff_cost`, release):
   - the split: 11.5 ms once, when the server starts (298 reaches over 13,824 air columns);
   - a landing's hand-over: 36 µs, once each air step (200 ticks), about 0.2 µs a tick, plus the rain booked
@@ -117,10 +126,18 @@ The reaches take the air's runoff (`weather::Weather::feeding`, `Weather::tick`)
 - **Review:** a fresh reviewer found no unit lost or made and no determinism problem. Its first finding
   (the rain moving no live water) led to the base-flow attempt above and its removal; the save window and a
   misplaced doc comment are answered above and fixed.
-- **Saves and wire:** unchanged. The air's `sea` and the reaches' `rained` and accounts are saved already.
-  A save taken between a job's return and its landing (the 20 ticks of every 200 the job is late) keeps that
-  job's runoff in the sea term, unhanded. A server loaded from it rains that much less into the reaches than
-  one that kept running; both ledgers hold. shortcut: until the pending runoff is saved too.
+- **Saves (version 12)** append `rain`: each reach's rain, the air's job back but not shown yet, and the
+  water's steps. A save in the 20 ticks before an air job lands used to lose that job's hand-over; now the
+  loaded server shows it and hands its runoff over on the same tick. `settle` and `run_reaches` run on
+  multiples of the saved steps. A save taken mid-rain and loaded keeps the same water and air as a server
+  that kept running (test `a_save_mid_rain_carries_on_to_the_same_water`). An 11 or older loads with none of
+  it. Not the same yet:
+  - up to 20 ticks of the shown weather after such a load (the loaded server shows the job's finished air at
+    once);
+  - which ticks step the water while the water budget is overloaded (decided by the server's tick, which
+    restarts at 0).
+  The wire is unchanged.
+- **Luna:** `Ground::down` and `base` read Terra's reaches only; Luna has none.
 
 ## Consequences
 - **Measured** — see the table below.

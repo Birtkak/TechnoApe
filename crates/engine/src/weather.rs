@@ -29,8 +29,12 @@ pub const MAX_STEPS: usize = 8;
 /// 5 %: a year after the bake's repeats it to 0.1 % in every biome; the live step at 5 s (10 to 20 %) or a bake
 /// without seasons (18 % at 60 to 70 degrees, `prototypes/air`) fail it.
 pub const RAIN_TOLERANCE: f64 = 0.05;
+/// The share of a river's flow at rest that generation carries: its dry-weather base (W5, ADR 0059). The rain
+/// brings the rest: a column hands the reaches draining it (1 - BASE) of its land's runoff, by catchment.
+pub const BASE: f64 = 0.5;
 
 /// What the game reads of the grid, made on the worker after each job. Per air column:
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct View {
     /// the grid's clock, world seconds
     pub t: f64,
@@ -147,10 +151,29 @@ impl Weather {
             .zip(&self.land)
             .map(|(rs, &land)| {
                 let total: f64 = rs.values().sum();
-                let share = if land > 0.0 && total > 0.0 { (total / land).min(1.0) } else { 0.0 };
+                let share = if land > 0.0 && total > 0.0 { (total / land).min(1.0) * (1.0 - BASE) } else { 0.0 };
                 rs.into_iter().map(|(r, a)| (r, (share * a / total * 65536.0) as u32)).filter(|x| x.1 > 0).collect()
             })
             .collect();
+        self
+    }
+
+    /// A job back but not shown yet, as (ticks till it shows, what it shows): a save asked for the state in
+    /// the job's last ticks (`state`). Saved with it, a loaded server shows it and hands its runoff to the
+    /// reaches on the same tick as one that kept running (`with_pending`).
+    pub fn pending(&self, tick: u64) -> Option<(u64, View)> {
+        match self.job.lock().unwrap().as_ref() {
+            Some(Job::Back { view, due, .. }) => Some((due.saturating_sub(tick), view.clone())),
+            _ => None,
+        }
+    }
+    /// The weather of a save, with the job it had back but not shown yet (`pending`), at this tick.
+    pub fn with_pending(mut self, pending: Option<(u64, View)>, tick: u64) -> Weather {
+        let job = self.job.get_mut().unwrap();
+        if let (Some((left, view)), Some(Job::Idle(_))) = (pending, job.as_ref()) {
+            let Some(Job::Idle(air)) = job.take() else { unreachable!() };
+            *job = Some(Job::Back { air, view, due: tick + left });
+        }
         self
     }
 
@@ -278,12 +301,12 @@ mod tests {
 
     /// The air's runoff feeds the rivers (W5, ADR 0059): each landing hands a column's runoff to the reaches
     /// draining it, by catchment, and takes those units out of the air's sea term, so the air's ledger plus what
-    /// it handed never changes. A column hands at most all of its land's runoff.
+    /// it handed never changes. A column hands at most the rain's part (1 - BASE) of its land's runoff.
     #[test]
     fn the_runoff_feeds_the_reaches_and_the_air_ledger_holds() {
         let map = crate::bake::get(7, 1536);
         let mut w = Weather::new(map.climate.as_ref().unwrap(), None).unwrap().feeding(&map);
-        assert!(w.split.iter().all(|c| c.iter().map(|&(_, f)| f as u64).sum::<u64>() <= 65536));
+        assert!(w.split.iter().all(|c| c.iter().map(|&(_, f)| f as u64).sum::<u64>() as f64 <= (1.0 - BASE) * 65536.0 + 1.0));
         let start = w.ledger();
         let (mut handed, mut fed) = (0i64, std::collections::BTreeSet::new());
         for tick in 0..2000u64 {

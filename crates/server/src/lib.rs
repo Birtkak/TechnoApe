@@ -257,11 +257,13 @@ impl Server {
         (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
         water.rained = save.reaches.0;
         water.reach_extra = save.reaches.1.iter().copied().collect();
+        water.rain_held = save.rain.0.iter().copied().collect();
+        water.steps = save.rain.2;
         s.tick0 = save.tick;
         // the air carries on from the save; an older save on a map with a climate starts from the map's
         if let (Some(state), Some(m)) = (&save.air, s.world.bodies[0].map().filter(|m| m.climate.is_some())) {
             match engine::weather::Weather::new(m.climate.as_ref().unwrap(), Some(state)) {
-                Ok(w) => s.weather = Some(w.feeding(m)),
+                Ok(w) => s.weather = Some(w.feeding(m).with_pending(save.rain.1.clone(), s.tick)),
                 Err(e) => eprintln!("[technoape-server] the save's air does not fit its map ({e}): it starts from the map's"),
             }
         }
@@ -314,6 +316,8 @@ impl Server {
             luna: self.luna_hash(),
             air: self.weather.as_ref().map(|w| w.state()),
             reaches: (self.world.water.rained, self.world.water.reach_extra.iter().map(|(&a, &x)| (a, x)).collect()),
+            // after `air`: its `state` takes a job in flight back, which `pending` then names
+            rain: (self.world.water.rain_held.iter().map(|(&a, &x)| (a, x)).collect(), self.weather.as_ref().and_then(|w| w.pending(self.tick)), self.world.water.steps),
         }
     }
 
@@ -390,7 +394,7 @@ impl Server {
             h = fnv(h, &w.view().hash.to_le_bytes());
         }
         let w = &self.world.water;
-        h = fnv(h, &postcard::to_allocvec(&(w.all(), self.made, self.removed, w.sea_extra, &w.reach_extra, w.rained)).unwrap());
+        h = fnv(h, &postcard::to_allocvec(&(w.all(), self.made, self.removed, w.sea_extra, &w.reach_extra, &w.rain_held, w.rained)).unwrap());
         for p in self.absent.values() {
             h = fnv(h, &postcard::to_allocvec(p).unwrap());
         }
@@ -1447,6 +1451,32 @@ mod tests {
             assert_eq!((s.air_ledger(), s.water_ledger()), (Some(0), 0), "tick {}", s.tick);
         }
         assert!(s.world.water.rained > 0, "no rain reached a river");
+    }
+
+    /// A save mid-rain carries on (W5): saved while an air job is out and rain is in the reaches, the loaded
+    /// server hands over that job's runoff when the running one does, and its water and air stay the same.
+    #[test]
+    fn a_save_mid_rain_carries_on_to_the_same_water() {
+        let mut s = Server::baked(1536, 32, 7, channel().1);
+        while s.world.water.rain_held.is_empty() || s.tick % 200 != 10 {
+            s.tick();
+            assert!(s.tick < 3000, "no rain in the reaches");
+        }
+        let mut back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
+        let state = |s: &Server| {
+            let w = &s.world.water;
+            (postcard::to_allocvec(&(w.all(), w.sea_extra, &w.reach_extra, &w.rain_held, w.rained)).unwrap(), s.weather.as_ref().map(|w| (w.view().hash, w.ledger())))
+        };
+        for t in 0..400 {
+            s.tick();
+            back.tick();
+            if t >= 12 && state(&back) != state(&s) {
+                let (a, b) = (state(&back), state(&s));
+                let (wa, wb) = (&back.world.water, &s.world.water);
+                panic!("{t} ticks after the save (tick {} / {}): water {} air {:?} / {:?}; rained {} / {}, held {} / {}, extra {} / {}, sea {} / {}, stored {} / {}", back.tick, s.tick, a.0 == b.0, a.1, b.1, wa.rained, wb.rained, wa.rain_held.values().sum::<i64>(), wb.rain_held.values().sum::<i64>(), wa.reach_extra.values().sum::<i64>(), wb.reach_extra.values().sum::<i64>(), wa.sea_extra, wb.sea_extra, wa.stored(), wb.stored());
+            }
+        }
+        assert_eq!((back.air_ledger(), back.water_ledger()), (Some(0), 0));
     }
 
     #[test]
