@@ -57,6 +57,22 @@ Five F9 reports from the developer, one round:
   one world to the next. Each world still gets a fresh server, world, streamer and GPU state.
 - Off-screen runs print one JSON line per session, as the separate processes did.
 
+## Review
+A fresh reviewer read the diff (principle 12). Its findings and answers:
+1. *Serious:* the cover left out for a hidden child depends on the look, but a frame that only culls reuses the
+   last walk when the camera did not move, so turning round showed that child's hole. Fixed: such a walk marks
+   the streamer dirty, so frames walk again until the child is in (asserted in the cover test).
+2. Ray-traced shadows lose the parent as a caster where a hidden child is not meshed yet. Accepted: the
+   shadow pops in when the child lands. The parent's coarse surface over fine children cast wrong shadows too.
+3. Between two sessions the window is not pumped while the next world is built. Measured below; a gap of
+   about 5 s would ghost the window, so a slow load waits on the follow-up below.
+4. Flight near the ground at 10 km/s keeps 670 substeps a step: measured 7.1 ms of CPU for 60 steps (one second)
+   30 m over the noise land, about 0.12 ms a step per flying player on client and server. Accepted.
+5. The fast path's switch between one move and substeps is at a margin of the step's length plus 1 m over the
+   top layer; client and server differ there by rounding only. Accepted.
+6. `too_coarse` was timed inside the select stage: moved after the dispatch stage.
+7. `sound_dir=` is a OnceLock: a later session keeps the first one's. Accepted (it is a command-line option).
+
 ## Calls for the developer to confirm
 - Loading screen look: dark, the title, "Loading the world: N chunks to go" and a green bar (not filmed: the
   filmstrip only captures after loading).

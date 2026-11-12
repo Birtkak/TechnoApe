@@ -428,7 +428,18 @@ impl Streamer {
                 // the children before they are meshed leaves no hole (ADR 0038 B)
                 // a child wholly out of view does not hold it either: it would cover the visible children that are in,
                 // over their finer ground, until the hidden ones came last in the queue (bug 2026-11-12_21-00-30)
-                let all = covered || kids.iter().all(|c| self.complete(world, view, c, kk) || (draw && self.hidden(view, c.body, &self.slots.get(c).map_or_else(|| world.bodies[c.body as usize].bounds(*c), |s| s.bounds))));
+                let mut by_view = false;
+                let all = covered
+                    || kids.iter().all(|c| {
+                        self.complete(world, view, c, kk) || (draw && {
+                            let h = self.hidden(view, c.body, &self.slots.get(c).map_or_else(|| world.bodies[c.body as usize].bounds(*c), |s| s.bounds));
+                            by_view |= h;
+                            h
+                        })
+                    });
+                // that choice depends on the look, which a frame that only culls does not check: walk again until
+                // the hidden child is in, or turning round shows its hole (the review of ADR 0073)
+                self.dirty |= by_view && all && !covered;
                 let mut cov = covered;
                 if !all && !covered && draw && self.emit(view, k, None, out) {
                     cov = true;
@@ -921,6 +932,8 @@ mod tests {
             s.dispatch(&w, &mut reqs);
             if st.missing == 0 && f > 0 {
                 assert_eq!(s.too_coarse(&w, &view, &out), 0, "every visible child is in, yet coarse chunks are drawn over them (frame {f}, {} still in flight)", s.inflight);
+                // a cover left out for a child out of view depends on the look: the next frame walks again
+                assert!(s.dirty, "a frame that only culls would keep the hole of a hidden child when the camera turns");
                 return;
             }
         }
