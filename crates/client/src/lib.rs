@@ -405,7 +405,7 @@ pub fn main() {
         }
         // structure=name[:seed] stands data/structures/<name>.toml (a grown one from that seed) with its anchor in
         // the first air over the stand point (ADR 0052): x along j, z along i, y up the layers (the camera frame of
-        // `models::cell_axes`, so the Studio's view and this agree)
+        // `models::cell_axes`; the Studio's view looks from the same axes made square, `models::view_axes`)
         if let Some(s) = structure {
             let foot = world.air_over_ground(0, up);
             for (d, id) in s.blocks(&BLOCKS) {

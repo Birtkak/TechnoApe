@@ -1,7 +1,7 @@
 //! run=view: the game's renderer for the Studio (ADR 0049). An off-screen stand run that never ends on its own: it
 //! takes one command a line on stdin and answers `frame` with the drawn frame on stdout. Commands:
-//! `cam ex ey ez tx ty tz` (the eye and the point looked at in the stand cell's frame: x, y up, z, the cell's edge
-//! is 1, its corner 0, as a model's metres are), `time s` (the sky's clock), `model name [clip] t [x<scale>]`
+//! `cam ex ey ez tx ty tz` (the eye and the point looked at in the stand cell's frame made square,
+//! `models::view_axes`: x, y up, z in metres, the floor's middle at 0.5 0 0.5, as a model's metres are), `time s` (the sky's clock), `model name [clip] t [x<scale>]`
 //! (`model -` shows none; `x2` draws it twice as large, about its cell's floor centre), `models dir` and `textures dir` (read on the reading thread, drawn at once), `place di:dj:dl:block,...`
 //! (`_` air, around the stand cell), `reset` (every placed cell back as it was), `size w h`, `frame id`,
 //! `effects file` (an effects file read on the reading thread, its rows played from then on; ADR 0050) and
@@ -79,10 +79,7 @@ impl ViewRun {
 
     /// The camera: the eye looking at the target, up the cell's up.
     pub(crate) fn pose(&self, w: &World) -> Pose {
-        let [o, x, y, z] = models::cell_axes(w, self.feet);
-        let at = |p: DVec3| o + x * p.x + y * p.y + z * p.z;
-        let (e, t) = (at(self.eye), at(self.target));
-        Pose { pos: e, fwd: (t - e).normalize_or(x), up: y.normalize() }
+        cam_pose(w, self.feet, self.eye, self.target)
     }
 
     pub(crate) fn wants(&self) -> bool {
@@ -233,6 +230,15 @@ fn place_spec(spec: &str) -> Option<(IVec3, u16)> {
     Some((d, id))
 }
 
+/// The view's camera: `eye` looking at `target`, both in the shown model's frame (square metres, as the Studio's
+/// overlay counts them, `models::view_axes`), up its up.
+fn cam_pose(w: &World, feet: Block, eye: DVec3, target: DVec3) -> Pose {
+    let [o, x, y, z] = models::view_axes(w, feet);
+    let at = |p: DVec3| o + x * p.x + y * p.y + z * p.z;
+    let (e, t) = (at(eye), at(target));
+    Pose { pos: e, fwd: (t - e).normalize_or(x), up: y.normalize() }
+}
+
 /// `size w h` as a window the surface can take: 64 pixels a side at least, `max` at most.
 fn view_size(w: f64, h: f64, max: u32) -> [u32; 2] {
     [w, h].map(|v| v.max(64.0).min(max as f64) as u32)
@@ -241,6 +247,30 @@ fn view_size(w: f64, h: f64, max: u32) -> [u32; 2] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Where a point shows, across and up over ahead, for an eye at `e` looking along `f`, up `u`.
+    fn seen(p: DVec3, e: DVec3, f: DVec3, u: DVec3) -> [f64; 2] {
+        let r = f.cross(u).normalize();
+        let (d, u) = (p - e, r.cross(f));
+        [d.dot(r) / d.dot(f), d.dot(u) / d.dot(f)]
+    }
+
+    /// The Studio draws its overlay (the part's box, the edges, the click's ray) as if the model stood in square
+    /// metres seen from the eye it sends: a voxel of the model drawn in the view (`models::view_axes`, as the
+    /// shown model is) shows where the Studio projects it, far from the look-at point too (the snake's tail).
+    #[test]
+    fn the_view_shows_a_model_point_where_the_studio_projects_it() {
+        let w = World::new(768, 256, 1);
+        let feet = w.air_over_ground(0, DVec3::Y);
+        let (eye, target) = (DVec3::new(2.2, 1.4, 1.9), DVec3::new(0.5, 0.3, 0.5));
+        let cam = cam_pose(&w, feet, eye, target);
+        let [o, x, y, z] = models::view_axes(&w, feet);
+        for p in [DVec3::new(0.5, 0.0, -0.5), DVec3::new(-1.0, 0.25, 1.75), DVec3::new(1.5, 0.75, 0.0)] {
+            let drawn = seen(o + x * p.x + y * p.y + z * p.z, cam.pos, cam.fwd, cam.up);
+            let studio = seen(p, eye, (target - eye).normalize(), DVec3::Y);
+            assert!((drawn[0] - studio[0]).abs() < 1e-6 && (drawn[1] - studio[1]).abs() < 1e-6, "{p}: drawn at {drawn:?}, the Studio's {studio:?}");
+        }
+    }
 
     #[test]
     fn a_size_is_one_the_surface_takes() {
