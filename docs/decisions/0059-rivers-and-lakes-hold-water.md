@@ -121,8 +121,10 @@ The reaches take the air's runoff (`weather::Weather::feeding`, `Weather::tick`)
   - a landing's hand-over: 36 µs, once each air step (200 ticks), about 0.2 µs a tick, plus the rain booked
     into up to 225 accounts;
   - `run_reaches` already walked every reach holding water: under 50 µs a second (the table below);
-  - the server's `sim` benchmark could not be compared to main's binary: two other sessions were compiling
-    and the runs scattered from 383 to 2424 µs a job.
+  - the server's tick on `sim` (quick, 150 ticks, alternated with main ec0ac0e's binary three times, holding
+    `out/.lock`): p50 1.37–1.42 ms against main's 1.49–1.70, p99 2.06–2.22 against 2.29–2.55. The rain
+    account and the hand-over cost less than the runs' spread. `sim`'s quick run lands only a few air jobs; the
+    hand-over alone is the 36 µs above.
 - **Review:** a fresh reviewer found no unit lost or made and no determinism problem. Its first finding
   (the rain moving no live water) led to the base-flow attempt above and its removal; the save window and a
   misplaced doc comment are answered above and fixed.
