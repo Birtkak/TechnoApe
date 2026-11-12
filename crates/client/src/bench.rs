@@ -67,15 +67,26 @@ pub(crate) fn pose(run: &str, t: f64, w: &World, speed: f64, alt: f64, warm: f64
             Pose { pos, fwd: back * fwd, up: back * up }
         }
         "edit" => Pose { pos: pole, fwd: DVec3::new(0.0, -1.0, 1.0).normalize(), up: DVec3::Y },
-        // stand: at=x,y,z picks the spot (a direction from the planet's centre), yaw and pitch turn the head
+        // stand: at=x,y,z picks the spot (a direction from the centre of body= 0 Terra or 1 Luna), yaw and pitch
+        // turn the head; look=terra or look=luna looks at that body's centre instead (ADR 0070)
         _ => {
             // (a bad at= ends the run with its reason before this: `stand_at`)
             let up = crate::stand_at(a).unwrap_or(DVec3::Y);
+            let i = a.get("body", 0usize).min(w.bodies.len() - 1);
+            let b = &w.bodies[i];
             let r = if up.y.abs() > 0.9 { DVec3::Z } else { DVec3::Y };
             let ahead = (r - up * r.dot(up)).normalize();
             let (yaw, pitch) = (a.get("yaw", 0f64).to_radians(), a.get("pitch", 0f64).to_radians());
-            let fwd = (ahead * yaw.cos() + up.cross(ahead) * yaw.sin()) * pitch.cos() + up * pitch.sin();
-            Pose { pos: up * (planet.top(up) + a.get("eye", 1.7)), fwd, up }
+            let pos = b.centre + up * (b.top(up) + a.get("eye", 1.7));
+            let fwd = match a.s("look", "").as_str() {
+                // the other body's centre, now, in this body's frame
+                l @ ("terra" | "luna") => {
+                    let (me, it) = (w.pose(i, w.time), w.pose((l == "luna") as usize, w.time));
+                    (b.centre + me.rot.inverse() * (it.centre - me.centre) - pos).normalize()
+                }
+                _ => (ahead * yaw.cos() + up.cross(ahead) * yaw.sin()) * pitch.cos() + up * pitch.sin(),
+            };
+            Pose { pos, fwd, up }
         }
     }
 }
