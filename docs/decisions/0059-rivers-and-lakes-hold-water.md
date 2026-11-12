@@ -60,7 +60,7 @@ Option 2. The spike (`prototypes/river-reach/README.md`) answered the design's f
 **The reaches' water** (`run_reaches`, once a second):
 - Each account passes on extra/hold, at least a unit a second, to the reach below and finally to the sea.
 - `Liquids::rain(reach, units)` is the entry point for W3's live runoff, booked as `rained`.
-- The count is `counted() - rained`. Saves (version 8) keep `rained` and every reach's account.
+- The count is `counted() - rained`. Saves (version 9) keep `rained` and every reach's account.
 - `reach_flow` is a wheel's read: one lookup.
 
 **Drawing** (`world::river_quads`, `vs_sea`, `fs_water`):
@@ -94,9 +94,11 @@ smallest planet with wet rivers (1536).
   - The gate's soak is still on planet 256, which has no rivers. The dam soak is a cargo test on 1536.
   - A sloped river quad steeper than 0.25 layer a column is drawn in steps.
   - Lake outlets can stay live (the spike's open question).
-- **Save versions:** W3's branch (ADR 0060) also writes a save version 8, with a trailing `air` field and a
-  third type parameter of its own. The two 8s have different layouts. Whichever branch merges second takes
-  version 9, and reads the other's 8.
+- **Save versions:** W3 (ADR 0060) merges first and owns version 8: version 7's layout plus a trailing
+  `air`. This branch writes 9 and reads W3's 8 through the layout of 7: postcard reads no further than the
+  type, so the air is left unread and starts again from the map's climate, as W3 does for a 7 (test
+  `a_version_8_from_the_air_branch_loads`). The merge must make 9 W3's 8 plus `reaches` after `air`, read 8
+  with W3's own type and keep the air, and keep the test.
 - **Tests seen red first:** the liquid tests (the spike stands as their red), the reach drain, the reach
   holds, the save's reaches, the soak's dams, the quads, the plants and the walker. Two were written
   alongside their code and not seen failing: the map v3 test and the save test (a compile error only).

@@ -15,16 +15,17 @@ use std::path::Path;
 /// the coordinates; a 6 that names a map is from before them, and is read as a 5 so its players are moved. A
 /// save of versions 1 to 3 holds a world of 0.5 m blocks, whose cells mean other places now: it is refused.
 /// One of version 4 loads, its players at full health and hunger; one from before the bake keeps its noise
-/// land. 8 keeps the river reaches' open water (W5, ADR 0059); a 7 loads with none. A save keeps the version
-/// it was read as until it is written again.
-pub const VERSION: u32 = 8;
+/// land. 8 is the air branch's (W3, ADR 0060): version 7's layout and then the live air, which this build
+/// leaves unread. 9 keeps the river reaches' open water (W5, ADR 0059); a 7 or an 8 loads with none. A save
+/// keeps the version it was read as until it is written again.
+pub const VERSION: u32 = 9;
 
 /// The rain brought into the reaches, and what each reach's open water took in (`Liquids::rained`,
 /// `Liquids::reach_extra`).
 pub type Reaches = (i64, Vec<(u32, i64)>);
 
 /// A save as written; `Save<SavedV4, (), ()>` is how version 4 lies on disk, `Save<Saved, (), ()>` version 5
-/// and `Save<Saved, Option<u64>, ()>` version 7 (postcard keeps no field names, so a player with one more field
+/// and `Save<Saved, Option<u64>, ()>` versions 7 and 8 (postcard keeps no field names, so a player with one more field
 /// is another layout; `()` is no bytes).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Save<P = Saved, M = Option<u64>, R = Reaches> {
@@ -90,7 +91,7 @@ impl Save {
     /// Reads a save and checks it is this version (or 4 or 5, carried over) and its blocks are this build's blocks.
     pub fn from_bytes(b: &[u8]) -> Result<Save, String> {
         let now = postcard::from_bytes::<Save>(b).ok().filter(|s| s.version == VERSION);
-        let mapped = || postcard::from_bytes::<Save<Saved, Option<u64>, ()>>(b).ok().filter(|s| s.version == 7 || s.version == 6);
+        let mapped = || postcard::from_bytes::<Save<Saved, Option<u64>, ()>>(b).ok().filter(|s| (6..=8).contains(&s.version));
         let bare = || postcard::from_bytes::<Save<Saved, (), ()>>(b).ok().filter(|s| s.version == 5 || s.version == 6);
         let s: Save = if let Some(s) = now {
             s
@@ -207,6 +208,20 @@ mod tests {
         let v7 = Save::<Saved, Option<u64>, ()> { version: 7, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, reaches: () };
         let back = Save::from_bytes(&postcard::to_allocvec(&v7).unwrap()).expect("version 7 loads");
         assert_eq!((back.version, back.map, back.reaches), (7, Some(0x5eed), Reaches::default()));
+    }
+
+    /// A save of version 8 is W3's (ADR 0060): version 7's layout and then its live air, which a build without
+    /// the air leaves unread (postcard reads no further than the type); it loads with its map and no reaches.
+    #[test]
+    fn a_version_8_from_the_air_branch_loads() {
+        let Save { seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, .. } = save(VERSION, registry());
+        let v7 = Save::<Saved, Option<u64>, ()> { version: 8, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, reaches: () };
+        for air in [None, Some((12.5f64, vec![1.0f32; 8], vec![2u32; 8], 99i64))] {
+            let mut b = postcard::to_allocvec(&v7).unwrap();
+            b.extend(postcard::to_allocvec(&air).unwrap());
+            let back = Save::from_bytes(&b).expect("W3's version 8 loads");
+            assert_eq!((back.version, back.map, back.tick, back.reaches), (8, Some(0x5eed), 7, Reaches::default()));
+        }
     }
 
     /// A block renamed in data (moon dust became regolith, W0) keeps its id: a save under the old name loads.

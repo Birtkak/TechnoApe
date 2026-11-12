@@ -449,20 +449,32 @@ impl Map {
     /// higher of the two where both are; None on a map of version 2 or before (dry beds, lakes as flats).
     /// Whether a river line or a lake lies over or next to map cells x0..=x1, y0..=y1 of a face (folded past
     /// its edges): a chunk with none skips `water`'s lookups.
-    pub fn wet_near(&self, face: usize, x0: i32, y0: i32, x1: i32, y1: i32) -> bool {
+    /// The lowest and highest water level (metres over the sea) a river or lake near cells x0..=x1, y0..=y1
+    /// may give (`water` never gives one outside it); None: none there.
+    pub fn wet_near(&self, face: usize, x0: i32, y0: i32, x1: i32, y1: i32) -> Option<(f32, f32)> {
         if self.version < 3 {
-            return false;
+            return None;
         }
         let m = self.m as i32;
-        (y0..=y1).any(|y| {
-            (x0..=x1).any(|x| {
+        let mut r: Option<(f32, f32)> = None;
+        let mut add = |lo: f32, hi: f32| r = Some(r.map_or((lo, hi), |(a, b)| (a.min(lo), b.max(hi))));
+        for y in y0..=y1 {
+            for x in x0..=x1 {
                 let (f, i, j) = fold(face, x, y, m);
                 let c = (f as u32 * self.m + j as u32) * self.m + i as u32;
-                !self.lines.around(c).is_empty() || self.lines.lake_of.contains_key(&c)
-            })
-        })
+                for &(_, k) in self.lines.around(c) {
+                    let g = &self.lines.segs[k as usize];
+                    add(g.wl[0].min(g.wl[1]), g.wl[0].max(g.wl[1]));
+                }
+                if let Some(&l) = self.lines.lake_of.get(&c) {
+                    let v = self.lines.lake_level[l as usize];
+                    add(v, v);
+                }
+            }
+        }
+        r
     }
-        pub fn water(&self, face: usize, x: f64, y: f64, d: DVec3) -> Option<Water> {
+    pub fn water(&self, face: usize, x: f64, y: f64, d: DVec3) -> Option<Water> {
         let c = self.cell_of(face, x, y);
         if !self.maybe_wet(face, x, y) {
             return None;
@@ -660,6 +672,26 @@ mod tests {
             }
         }
         assert!(climbs == 0 && steps_up == 0, "{climbs} climbs in {walked:.0} m of rivers, the worst {worst:.3} m; {steps_up} blocks up");
+    }
+
+    /// `wet_near`'s range holds every level `water` gives in the cells it covers: `river_quads` turns away the
+    /// chunks above and under it on that range alone.
+    #[test]
+    fn wet_near_bounds_the_water_levels() {
+        let map = &*MAP;
+        let (mut seen, m) = (0, map.m);
+        for g in map.lines.segs.iter().step_by(3) {
+            let (f, x, y) = locate(m, ((g.a + g.b) * 0.5).normalize());
+            for k in 0..25 {
+                let (px, py) = ((x + (k % 5) as f64 * 0.4 - 0.8).clamp(0.0, m as f64 - 1e-6), (y + (k / 5) as f64 * 0.4 - 0.8).clamp(0.0, m as f64 - 1e-6));
+                let Some(w) = map.water(f, px, py, dir(m, f, px, py)) else { continue };
+                let (cx, cy) = (px.floor() as i32, py.floor() as i32);
+                let (lo, hi) = map.wet_near(f, cx - 1, cy - 1, cx + 1, cy + 1).expect("water where wet_near says none");
+                assert!(w.level >= lo && w.level <= hi, "level {} outside {lo}..{hi}", w.level);
+                seen += 1;
+            }
+        }
+        assert!(seen > 1000, "{seen} wet points tried");
     }
 
     /// Rivers and lakes hold generated water (W5, ADR 0059): a point just under a wet river line's level, or

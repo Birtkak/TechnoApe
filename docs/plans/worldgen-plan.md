@@ -93,7 +93,7 @@ in `tests/views/`.
 - **Status (2026-11-12, ADR 0059): rivers and lakes done; tides open.**
   - Generated water stands in beds and lakes; touched water goes live and is forgotten again.
   - The reaches pass what they take in down to the sea, and `Liquids::rain` waits for W3's runoff.
-  - Saves are version 8; bots dam rivers in the soak with the ledger exact.
+  - Saves are version 9 (W3's 8 still reads); bots dam rivers in the soak with the ledger exact.
   - A walker follows a river from spring to sea in water.
   - Open: the look (the developer's call), joining W3's air ledger once both are merged, and tides.
 

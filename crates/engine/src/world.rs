@@ -147,6 +147,9 @@ struct Baked {
     /// `candidate` by (face, cx, cy), for lookups without a cached tile (the server's physics builds none);
     /// past `SPOTS` it is emptied.
     spots: std::sync::Mutex<FxMap<(u8, i32, i32), Option<Foot>>>,
+    /// `river_quads`' level grid by chunk column (face, level, x, y): generated water, which edits never change,
+    /// so a chunk meshed again after an edit looks nothing up; past `LEVEL_GRIDS` it is emptied.
+    levels: std::sync::Mutex<FxMap<(u8, u8, i32, i32), Arc<Vec<Option<f64>>>>>,
     detail: FastNoiseLite,
     jitter: FastNoiseLite,
     seed: u64,
@@ -159,6 +162,8 @@ pub const PLANT_TOP: f64 = (TALLEST + 2 + 8 * REACH) as f64;
 
 /// Plant spots kept per body for lookups without a tile: about 2 MB.
 const SPOTS: usize = 65536;
+/// Level grids kept per body: 18 KB each, 9 MB at most (only chunks near a river or a lake get one).
+const LEVEL_GRIDS: usize = 512;
 
 /// A plant's place (ADR 0043): its kind (`biomes::ROWS.plants`), height in blocks, trunk column and the layer
 /// of its foot, the first air over the ground there.
@@ -338,7 +343,7 @@ impl Body {
         jitter.set_noise_type(Some(NoiseType::OpenSimplex2));
         jitter.set_frequency(Some(1.0 / 24.0));
         let spawn = DVec3::from_array(map.spawn);
-        self.baked = Some(Box::new(Baked { seed: map.seed as u32 as u64, map, detail, jitter, spots: Default::default() }));
+        self.baked = Some(Box::new(Baked { seed: map.seed as u32 as u64, map, detail, jitter, spots: Default::default(), levels: Default::default() }));
         self.sea = Some(self.layer_of(self.radius - SEA_DEPTH).floor() + 0.875);
         // the scored spawn, moved to the nearest column with no plant within a step
         let (f, x, y) = self.locate(spawn);
@@ -1404,20 +1409,35 @@ pub fn river_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2
     // no river line or lake under the chunk and its ring: nothing to look up column by column
     let cell = |c: i32| (c as f64 * b.map.m as f64 / body.n as f64).floor() as i32;
     let (x0, y0, x1, y1) = (cell(base.x - s) - 1, cell(base.y - s) - 1, cell(base.x + key.span() + s) + 1, cell(base.y + key.span() + s) + 1);
-    if !b.map.wet_near(key.face as usize, x0, y0, x1, y1) {
+    // nor a level in the chunk's layers: a chunk above or under the water's surface draws none of it
+    let Some((lo, hi)) = b.map.wet_near(key.face as usize, x0, y0, x1, y1) else { return Vec::new() };
+    let layer = |v: f32| body.layer_of(body.radius - SEA_DEPTH + v as f64);
+    if layer(hi) < (base.z - 1) as f64 || layer(lo) > (base.z + key.span() + 1) as f64 {
         return Vec::new();
     }
     // the level of every (coarse) column and the ring around it, in layers: rivers' and lakes', not the sea's
     let m = n + 2;
-    let lv: Vec<Option<f64>> = (0..m * m)
-        .map(|k| {
-            let (ci, cj) = (base.x + (k % m) as i32 * s - s + s / 2, base.y + (k / m) as i32 * s - s + s / 2);
-            if !(0..body.n).contains(&ci) || !(0..body.n).contains(&cj) {
-                return None;
-            }
-            body.water_at(key.face, ci, cj).filter(|w| w.1 != crate::liquid::SEA).map(|w| w.0)
-        })
-        .collect();
+    let ck = (key.face, key.level, key.pos.x, key.pos.y);
+    let cached = b.levels.lock().unwrap().get(&ck).cloned();
+    let lv = cached.unwrap_or_else(|| {
+        let lv: Arc<Vec<Option<f64>>> = Arc::new(
+            (0..m * m)
+                .map(|k| {
+                    let (ci, cj) = (base.x + (k % m) as i32 * s - s + s / 2, base.y + (k / m) as i32 * s - s + s / 2);
+                    if !(0..body.n).contains(&ci) || !(0..body.n).contains(&cj) {
+                        return None;
+                    }
+                    body.water_at(key.face, ci, cj).filter(|w| w.1 != crate::liquid::SEA).map(|w| w.0)
+                })
+                .collect(),
+        );
+        let mut c = b.levels.lock().unwrap();
+        if c.len() >= LEVEL_GRIDS {
+            c.clear();
+        }
+        c.insert(ck, lv.clone());
+        lv
+    });
     let mut code: Vec<Option<(u32, u32)>> = vec![None; n * n];
     for y in 0..n {
         for x in 0..n {
