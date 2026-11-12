@@ -361,7 +361,11 @@ impl Body {
         let s = b.map.m as f64 / self.n as f64;
         let k = (level as i32 - (1.0 / s).log2().round() as i32).max(0) as usize;
         let p = d * self.radius;
-        let h = b.map.height(face, i * s, j * s, k) as f64 + DETAIL_M * b.detail.get_noise_3d(p.x as f32, p.y as f32, p.z as f32) as f64;
+        let mut h = b.map.height(face, i * s, j * s, k) as f64 + DETAIL_M * b.detail.get_noise_3d(p.x as f32, p.y as f32, p.z as f32) as f64;
+        // the river beds (ADR 0056), after the detail so a bed's line is the bed to the bit
+        if let Some(c) = b.map.river(face, i * s, j * s, d, (1u32 << level) as f32) {
+            h = h.min(c.cut as f64).max(c.floor as f64);
+        }
         self.radius - SEA_DEPTH + h.clamp(-FLOOR, AMP - SEA_DEPTH - 2.0 - TALLEST as f64)
     }
     /// Face point (i, j) moved by the jitter noise at d, in columns: biome borders and patches wander.

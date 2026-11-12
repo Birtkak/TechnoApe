@@ -35,9 +35,10 @@ package E (the height cache) every stage here builds on.
 ### W2. The bake in the engine
 **Status (2026-11-11, ADR 0043):** the map, its mips, heights from it, the height cache, far chunks, the
 spawn by score, the save (by hash) and the download in pieces are built, with W3's biome ground and still
-plants; progress on the title screen too (2026-11-12, ADR 0057: a new world's bake and a server's map
-under a bar, on a worker thread). Not yet: river lines and beds, detail by rock and slope, the walk
-test; `Land` stays for saves from before the bake.
+plants. River lines and dry beds (2026-11-12, ADR 0056) with the walk test on the engine's heights; water
+in the beds waits for W5. Progress on the title screen too (2026-11-12, ADR 0057: a new world's bake and a
+server's map under a bar, on a worker thread). Not yet: detail by rock and slope, a bot walking a river;
+`Land` stays for saves from before the bake.
 - `engine::bake`: the map with its mips, the river lines, the save format, and its download in the
   protocol (compressed, in pieces, with progress on the title screen).
 - Heights from the map: smooth interpolation plus detail driven by rock and slope; river beds cut from

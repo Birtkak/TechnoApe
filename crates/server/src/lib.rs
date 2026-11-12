@@ -161,8 +161,7 @@ impl Server {
     /// to other ground, and the next autosave would write over the old map's name.
     pub fn on_map(planet_n: i32, moon_n: i32, seed: i32, map: Option<u64>, accept: Receiver<ServerLink>) -> Server {
         let Some(h) = map else { return Server::new(planet_n, moon_n, seed, accept) };
-        let m = engine::bake::find(seed, planet_n, Some(h)).unwrap_or_else(|| engine::bake::keep(engine::bake::Map::bake(seed, planet_n)));
-        assert_eq!(m.hash, h, "this world was played on another map of seed {seed} (map version {}): it cannot be carried on", engine::bake::VERSION);
+        let m = engine::bake::for_hash(seed, planet_n, h).unwrap_or_else(|| panic!("this world was played on another map of seed {seed} (map version {}): it cannot be carried on", engine::bake::VERSION));
         Server::with_world(World::with_map(planet_n, moon_n, seed, Some(m)), seed, accept)
     }
     fn with_world(world: World, seed: i32, accept: Receiver<ServerLink>) -> Server {
