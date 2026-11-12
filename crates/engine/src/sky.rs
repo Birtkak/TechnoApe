@@ -168,7 +168,7 @@ pub const TIDE_SUN: f64 = TIDE_LUNA / 3.0;
 /// (`world::sea_quads`), so they are never meshed again for the tide.
 pub const TIDE_HIGH: f64 = 1.0;
 
-/// The sea's tide at one moment (ADR 0064): Luna's and the sun's directions in the planet's body frame and the
+/// The sea's tide at one moment (ADR 0067): Luna's and the sun's directions in the planet's body frame and the
 /// level that keeps the ocean's volume. `at` is a dozen multiplications, so the physics, the water and the
 /// shader (`vs_sea`, its port) all ask it per place.
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -1,4 +1,4 @@
-"""Tide filmstrips (ADR 0064): one frame of run=stand per world time, laid out in a sheet with the time under it.
+"""Tide filmstrips (ADR 0067): one frame of run=stand per world time, laid out in a sheet with the time under it.
 
 python -I prototypes/tides/film.py <technoape.exe> <out.png> <view args> -- t1 t2 ...
 """

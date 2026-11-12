@@ -39,7 +39,7 @@ struct Globals {
     // y: the settings' brightness in thousandths (post.wgsl has it as `tune.w`), for what is drawn after
     // the composite
     opt: vec4u,
-    // the planet's tide (ADR 0064, engine `sky::Tide`): Luna's and the sun's directions in its frame, w their
+    // the planet's tide (ADR 0067, engine `sky::Tide`): Luna's and the sun's directions in its frame, w their
     // pull in layers; its base is in bodies[0].sea (gpu.rs `Globals::tide`)
     tide: array<vec4f, 2>,
 };
@@ -952,7 +952,7 @@ fn vs_sea(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) ->
     // top face hides it
     var layer = b.sea;
     if (bi == 0u) {
-        // the tide (ADR 0064): the port of `Tide::at`, a dozen multiplications a vertex
+        // the tide (ADR 0067): the port of `Tide::at`, a dozen multiplications a vertex
         let l = dot(f.up, g.tide[0].xyz);
         let s = dot(f.up, g.tide[1].xyz);
         layer += g.tide[0].w * l * l + g.tide[1].w * s * s;

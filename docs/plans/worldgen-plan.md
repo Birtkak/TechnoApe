@@ -117,8 +117,8 @@ and feeding the reaches from its runoff is open (ADR 0059 says what it takes).
 - Then both in the engine; rivers fed by the live rain once W3's air grid runs.
 - **Taste call:** tide height.
 - Checks: the water ledger over a soak with dams built and broken; a tide filmstrip over one day.
-- **Status (2026-11-12, ADR 0059, 0064): rivers, lakes and tides done.**
-  - Tides (ADR 0064): the sea's level is a pure function of place and time following Luna and the sun, 1 m low
+- **Status (2026-11-12, ADR 0059, 0067): rivers, lakes and tides done.**
+  - Tides (ADR 0067): the sea's level is a pure function of place and time following Luna and the sun, 1 m low
     to high at springs; generation, the physics, the live water and the shader all ask it. Nothing is stored or
     sent; a harbour fills and drains with the ledger exact. Open: a wet-sand look for the tidal band (taste).
   - Generated water stands in beds and lakes; touched water goes live and is forgotten again.

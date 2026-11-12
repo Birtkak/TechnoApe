@@ -108,7 +108,7 @@ impl WaterMesh {
         }
     }
 
-    /// The tide moves the generated sea (ADR 0064) at most 13 mm in 4 s: every 4 s the wet tiles are meshed again,
+    /// The tide moves the generated sea (ADR 0067) at most 13 mm in 4 s: every 4 s the wet tiles are meshed again,
     /// so their columns that are not stored follow it (the chunks' sea follows it in the shader, every frame). One
     /// tile a frame, so a large flood never stalls the frame thread.
     pub fn retide(&mut self, world: &World, now: f32) {

@@ -1,4 +1,4 @@
-# 0064 – Tides: a sea level that follows Luna
+# 0067 – Tides: a sea level that follows Luna
 
 - **Status:** accepted (W5's second half, `docs/plans/worldgen-plan.md`). The developer's calls (2026-11-12): 1 m from
   low to high at spring tides, following Luna. The rest are routine defaults, recorded here.

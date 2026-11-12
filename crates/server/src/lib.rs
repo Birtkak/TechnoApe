@@ -253,7 +253,7 @@ impl Server {
             s.world.set_block(*b, *m);
         }
         // the clock of the save's last step first (a save's tick is one past it): its water is restored at that
-        // step's tide, and the next step retides exactly when the running world's did (ADR 0064)
+        // step's tide, and the next step retides exactly when the running world's did (ADR 0067)
         s.world.time = save.tick.saturating_sub(1) as f64 / TICK_HZ;
         let World { bodies, edits, water, sky, time, .. } = &mut s.world;
         water.restore(&engine::world::Solid::at(bodies, edits, sky, *time), &save.water);

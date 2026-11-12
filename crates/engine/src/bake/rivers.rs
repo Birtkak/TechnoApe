@@ -726,7 +726,7 @@ mod tests {
             tried += 1;
             match w.water_surface(d * (level - 0.05)) {
                 Some(r) if g.fill[0].min(g.fill[1]) > 0.0 && ground < level - 0.3 => {
-                    // a river's mouth is the sea's where the sea stands over it, at its tide (ADR 0064)
+                    // a river's mouth is the sea's where the sea stands over it, at its tide (ADR 0067)
                     let sea = b.layer_r(b.sea.unwrap() + b.tide_layers(&w.sky.tide(w.time.floor(), &b.ocean), d));
                     assert!((r - level.max(sea)).abs() < 0.05, "the river's level {level:.3}, the water's {r:.3}");
                     wet += 1;

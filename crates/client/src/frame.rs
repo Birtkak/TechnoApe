@@ -626,7 +626,7 @@ impl App {
         };
         let sun_light = Vec3::new(0.65, 0.97 * 0.65, 0.9 * 0.65).lerp(Vec3::splat(0.65), 1.0 - air) * tint;
         let to_stars = glam::DMat3::from_quat(self.world.pose(cf, wt).rot).as_mat3();
-        // the planet's tide (ADR 0064) in layers: the sea's shader lays its quads at it
+        // the planet's tide (ADR 0067) in layers: the sea's shader lays its quads at it
         let tide = self.world.tide();
         let b0 = &self.world.bodies[0];
         let per_m = b0.sea.map_or(0.0, |s| 1.0 / (b0.layer_r(s) * b0.lnq));

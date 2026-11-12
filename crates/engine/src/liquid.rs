@@ -131,7 +131,7 @@ pub trait Ground {
     fn base(&self, _acct: u32) -> f64 {
         0.0
     }
-    /// The tide's moment (ADR 0064): `generated` changes only when this does (the whole second of world time
+    /// The tide's moment (ADR 0067): `generated` changes only when this does (the whole second of world time
     /// the sea's tide was taken at; 0 for a sea without a tide).
     fn tide_epoch(&self) -> i64 {
         0
@@ -901,7 +901,7 @@ impl Liquids {
         }
     }
 
-    /// The tide moved (ADR 0064; once a second): generation's levels are asked again, and stored water beside
+    /// The tide moved (ADR 0067; once a second): generation's levels are asked again, and stored water beside
     /// open sea whose level moved by the dead band or more wakes, so its open end lets the sea in or out (the
     /// difference booked to `sea_extra` as ever). Sleeping water away from the sea costs one comparison.
     fn retide(&mut self, g: &impl Ground) {
@@ -1731,7 +1731,7 @@ mod tests {
         assert!(w.stored() < 100, "{} columns still stored", w.stored());
     }
 
-    /// The tide (ADR 0064): a harbour dug behind the shore, open to the sea through a channel 2 wide, fills as
+    /// The tide (ADR 0067): a harbour dug behind the shore, open to the sea through a channel 2 wide, fills as
     /// the sea rises and empties as it falls, a metre either way, every unit counted every step.
     #[test]
     fn a_dug_harbour_follows_the_tide_in_and_out() {

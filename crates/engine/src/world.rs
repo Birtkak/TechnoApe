@@ -158,7 +158,7 @@ pub struct Body {
     land: Option<Box<Land>>,
     /// Where players start: the land nearest the +y pole (a direction from the centre).
     pub spawn: DVec3,
-    /// The second moment of the sea's area: the mean of d d^T over its directions (ADR 0064; a third of the
+    /// The second moment of the sea's area: the mean of d d^T over its directions (ADR 0067; a third of the
     /// identity with no sea), which keeps the tide's volume (`Sky::tide`).
     pub ocean: glam::DMat3,
     /// What generation lays down: the top, the band under it, the rock below (block ids).
@@ -449,7 +449,7 @@ impl Body {
     pub fn water_at(&self, face: u8, i: i32, j: i32) -> Option<(f64, u32, Option<(f64, f64, f64)>)> {
         self.water_tide(face, i, j, None)
     }
-    /// `water_at` with the sea at `tide` (ADR 0064) instead of its mean: the tidal band goes wet and dry, and a
+    /// `water_at` with the sea at `tide` (ADR 0067) instead of its mean: the tidal band goes wet and dry, and a
     /// river's last columns under the high sea are the sea's.
     pub fn water_tide(&self, face: u8, i: i32, j: i32, tide: Option<&Tide>) -> Option<(f64, u32, Option<(f64, f64, f64)>)> {
         let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
@@ -957,7 +957,7 @@ impl Body {
 pub struct Solid<'a> {
     pub bodies: &'a [Body],
     pub edits: &'a FxMap<Key, FxMap<IVec3, u16>>,
-    /// The planet's sea at its tide (ADR 0064): the whole second of world time it was taken at and the tide
+    /// The planet's sea at its tide (ADR 0067): the whole second of world time it was taken at and the tide
     /// then; None, the mean sea.
     pub tide: Option<(i64, Tide)>,
 }
@@ -1687,7 +1687,7 @@ pub fn sea_cell(body: &Body, key: Key) -> Option<i32> {
 pub fn sea_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2]> {
     let Some(cz) = sea_cell(body, key) else { return Vec::new() };
     let s = 1i32 << key.level;
-    // meshed for the highest tide (ADR 0064): the shader lays each vertex at the tide's level and the ground hides
+    // meshed for the highest tide (ADR 0067): the shader lays each vertex at the tide's level and the ground hides
     // the water where it stands higher, so the tide never meshes the sea again
     let r = body.layer_r(body.sea_high().unwrap());
     let base = key.base();
@@ -2281,7 +2281,7 @@ mod water_tests {
     use super::*;
     use crate::liquid::Ground;
 
-    /// The tide's benchmark (ADR 0064; `cargo test --release -p engine tide_cost -- --ignored --nocapture`): what
+    /// The tide's benchmark (ADR 0067; `cargo test --release -p engine tide_cost -- --ignored --nocapture`): what
     /// one `Tide::at`, one `Solid::at` (the poses) and one `generated` of a sea column cost with and without the
     /// tide, and how far the ocean's shape moves the mean (`Tide::base`) over a month, on the baked 4 km Terra.
     #[test]
@@ -2362,7 +2362,7 @@ mod water_tests {
         }
     }
 
-    /// The tidal band (ADR 0064): a column whose ground's top is the layer over the mean sea's is dry at the mean
+    /// The tidal band (ADR 0067): a column whose ground's top is the layer over the mean sea's is dry at the mean
     /// and low tide and wet at high, and the sea's quads, meshed once for the highest tide, cover it.
     #[test]
     fn the_tidal_band_is_wet_at_high_water_and_meshed_for_it() {
@@ -2420,7 +2420,7 @@ mod water_tests {
         // find a low column on face 2
         let (i, j) = (0..b.n).step_by(7).flat_map(|i| (0..b.n).step_by(7).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 10.0).unwrap();
         let d = b.dir(2, i as f64 + 0.5, j as f64 + 0.5);
-        // at its tide (ADR 0064): the mean sea and the tide there at the whole second
+        // at its tide (ADR 0067): the mean sea and the tide there at the whole second
         let sea = b.sea.unwrap() + b.tide_layers(&w.sky.tide(0.0, &b.ocean), d);
         let c = Col::new(0, 2, i, j);
         let (lo, hi) = w.ground().generated(c);

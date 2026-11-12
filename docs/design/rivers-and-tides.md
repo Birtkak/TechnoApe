@@ -70,7 +70,7 @@
   - spring tides when the sun and Luna line up, weak ones at half moon (*proposal:* the sun at a third of
     Luna's pull);
   - the two daily tides differ by latitude and season (Luna's orbit leans 2°, ADR 0041; the axis 25°).
-- **Built** (ADR 0064): as above, with the sun at a third of Luna; the measured answers are in
+- **Built** (ADR 0067): as above, with the sun at a third of Luna; the measured answers are in
   `prototypes/tides/README.md`.
 - **The height** (decided 2026-11-12): 1 m between low and high at springs (2 blocks in 5 minutes: you
   can watch it, it will not drown you). On a 1 : 20 beach that is a tidal flat 20 m wide.
