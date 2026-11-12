@@ -68,6 +68,33 @@ impl SDoc {
     }
 }
 
+/// The unsaved rows as files for the recovery set (`recover.rs`): `<row>.toml` and the row's text as a save writes it.
+fn kept(docs: &BTreeMap<String, SDoc>) -> Vec<(String, Vec<u8>)> {
+    docs.iter().filter(|(_, d)| d.dirty()).map(|(n, d)| (format!("{n}.toml"), d.s.write().into_bytes())).collect()
+}
+
+/// Of what a crash left, what is not the row as saved (that much is offered back).
+fn left(docs: &BTreeMap<String, SDoc>, files: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>)> {
+    files.into_iter().filter(|(f, b)| docs.get(f.trim_end_matches(".toml")).and_then(|d| d.saved.as_deref()) != Some(String::from_utf8_lossy(b).as_ref())).collect()
+}
+
+/// What a crash left put back as unsaved rows, one undo step each ("Recovered"); a row that does not read is
+/// named in the errors and left out.
+fn restore(docs: &mut BTreeMap<String, SDoc>, files: Vec<(String, Vec<u8>)>) -> Vec<String> {
+    let mut errors = vec![];
+    for (f, b) in files {
+        let name = f.trim_end_matches(".toml").to_string();
+        match (String::from_utf8(b).map_err(|e| e.to_string()).and_then(|t| Sound::parse(&t).map_err(|e| e.to_string())), docs.get_mut(&name)) {
+            (Err(e), _) => errors.push(format!("{f}: {e}")),
+            (Ok(s), Some(d)) => d.hist.push(std::mem::replace(&mut d.s, s), "Recovered"),
+            (Ok(s), None) => {
+                docs.insert(name, SDoc { s, hist: History::default(), saved: None });
+            }
+        }
+    }
+    errors
+}
+
 /// What the worker is asked to render; of each kind only the newest is done.
 enum Job {
     /// The file's rows (the bases come from them).
@@ -1549,6 +1576,21 @@ impl Page for Sounds {
         self.opened();
     }
 
+    fn kept(&self) -> Option<Vec<(String, Vec<u8>)>> {
+        Some(kept(&self.docs))
+    }
+    fn unsaved_of(&self, files: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>)> {
+        left(&self.docs, files)
+    }
+    fn restore(&mut self, app: &mut App, files: Vec<(String, Vec<u8>)>) {
+        for e in restore(&mut self.docs, files) {
+            app.refuse(format!("Not restored: {e}"));
+        }
+        if self.open.is_some() {
+            self.opened();
+        }
+    }
+
     /// For `shot=`: every render asked for done.
     fn settle(&mut self, _ctx: &egui::Context, app: &mut App) {
         let t0 = std::time::Instant::now();
@@ -1556,5 +1598,50 @@ impl Page for Sounds {
             std::thread::sleep(std::time::Duration::from_millis(10));
             self.poll(app);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_unsaved_sound_row_is_kept_offered_back_after_a_crash_and_cleared_on_save() {
+        use crate::recover::Recovery;
+        use std::time::{Duration, Instant};
+        let root = std::env::temp_dir().join(format!("technoape-sounds-recover-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let row = |n: &str| Sound::parse(&format!("[[sound]]\nname = \"{n}\"\nbus = \"world\"\nvariants = 4\nfrom = [{{ base = \"base.thud\" }}]\n")).unwrap();
+        let open = || {
+            let s = row("door.creak");
+            BTreeMap::from([("door.creak".to_string(), SDoc { saved: Some(s.write()), s, hist: History::default() })])
+        };
+        let mut docs = open();
+        assert!(kept(&docs).is_empty(), "nothing unsaved yet");
+        let d = docs.get_mut("door.creak").unwrap();
+        d.s.keys.set("variants", Some("2".into()));
+        let edited = d.s.write();
+        assert!(d.dirty());
+        docs.insert("new.sound".into(), SDoc { s: row("new.sound"), hist: History::default(), saved: None });
+        let t0 = Instant::now();
+        let mut r = Recovery::new(&root, "sounds", Duration::from_secs(3));
+        assert!(r.keep(t0, || kept(&docs)));
+        // a crash: the next start reads the rows as saved and finds the set
+        let mut again = open();
+        let back = left(&again, Recovery::new(&root, "sounds", Duration::from_secs(3)).left());
+        let names: Vec<&str> = back.iter().map(|f| f.0.as_str()).collect();
+        assert_eq!(names, ["door.creak.toml", "new.sound.toml"], "both offered back");
+        assert!(restore(&mut again, back).is_empty(), "no errors");
+        assert_eq!(again["door.creak"].s.write(), edited, "the edit is back");
+        assert!(again["door.creak"].dirty() && again["door.creak"].hist.undo.len() == 1, "as unsaved work, one undo step");
+        assert!(again["new.sound"].saved.is_none(), "a new row stays new");
+        assert!(left(&open(), vec![("door.creak.toml".into(), open()["door.creak"].s.write().into_bytes())]).is_empty(), "the row as saved is not offered");
+        // saved (as `save` marks it): nothing kept, the set is cleared
+        for d in again.values_mut() {
+            d.saved = Some(d.s.write());
+        }
+        assert!(r.keep(t0 + Duration::from_secs(4), || kept(&again)));
+        assert!(Recovery::new(&root, "sounds", Duration::from_secs(3)).left().is_empty(), "cleared on save");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -91,6 +91,38 @@ impl MDoc {
     }
 }
 
+/// The unsaved models as files for the recovery set (`recover.rs`): `<name>.toml` and the text a save writes.
+fn kept(docs: &BTreeMap<String, MDoc>) -> Vec<(String, Vec<u8>)> {
+    docs.iter().filter(|(_, d)| d.dirty()).map(|(n, d)| (format!("{n}.toml"), d.text().into_bytes())).collect()
+}
+
+/// Of what a crash left, what is not the file as saved (that much is offered back).
+fn left(docs: &BTreeMap<String, MDoc>, files: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>)> {
+    files.into_iter().filter(|(f, b)| docs.get(f.trim_end_matches(".toml")).and_then(|d| d.saved.as_deref()) != Some(String::from_utf8_lossy(b).as_ref())).collect()
+}
+
+/// What a crash left put back as unsaved models, one undo step each ("Recovered"); a file the game's reader
+/// refuses is named in the errors and left out.
+fn restore(docs: &mut BTreeMap<String, MDoc>, files: Vec<(String, Vec<u8>)>, pal: &engine::palette::Palette) -> Vec<String> {
+    let mut errors = vec![];
+    for (f, b) in files {
+        let name = f.trim_end_matches(".toml").to_string();
+        let new = String::from_utf8(b).map_err(|e| e.to_string()).and_then(|t| MDoc::load(&format!("{MODELS}/{f}"), &t, pal));
+        match (new, docs.get_mut(&name)) {
+            (Err(e), _) => errors.push(format!("{f}: {e}")),
+            (Ok(new), Some(d)) => {
+                let before = (std::mem::replace(&mut d.m, new.m), std::mem::replace(&mut d.life, new.life));
+                d.hist.push(before, "Recovered");
+                d.rev += 1;
+            }
+            (Ok(new), None) => {
+                docs.insert(name, MDoc { saved: None, ..new });
+            }
+        }
+    }
+    errors
+}
+
 /// A drag in the view: where it began, with which button.
 #[derive(Clone, Copy)]
 struct Drag {
@@ -1865,6 +1897,22 @@ impl Page for Models {
         self.open = keep;
     }
 
+    fn kept(&self) -> Option<Vec<(String, Vec<u8>)>> {
+        Some(kept(&self.docs))
+    }
+    fn unsaved_of(&self, files: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>)> {
+        left(&self.docs, files)
+    }
+    fn restore(&mut self, app: &mut App, files: Vec<(String, Vec<u8>)>) {
+        for e in restore(&mut self.docs, files, &app.pal) {
+            app.refuse(format!("Not restored: {e}"));
+        }
+        if self.open.is_none() {
+            self.open = self.docs.keys().next().cloned();
+        }
+        self.opened_keep();
+    }
+
     fn settle(&mut self, ctx: &egui::Context, app: &mut App) {
         app.view.settle(ctx, std::time::Duration::from_secs(90));
     }
@@ -1900,6 +1948,45 @@ mod tests {
         let d = MDoc::load("furnace", FURNACE, &pal()).unwrap();
         let (_, back) = parse_life("furnace", &d.text(), &pal(), &|_| true, &|_| true).unwrap();
         assert_eq!(back, life, "the page's save dropped the model's life");
+    }
+
+    #[test]
+    fn an_unsaved_model_is_kept_offered_back_after_a_crash_and_cleared_on_save() {
+        use crate::recover::Recovery;
+        use std::time::{Duration, Instant};
+        let root = std::env::temp_dir().join(format!("technoape-models-recover-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let open = || BTreeMap::from([("furnace".to_string(), MDoc::load("furnace", FURNACE, &pal()).unwrap())]);
+        let mut docs = open();
+        assert!(kept(&docs).is_empty(), "nothing unsaved yet");
+        // an edit, and a new model never saved
+        let d = docs.get_mut("furnace").unwrap();
+        d.m.parts[0].pivot = [3.0, 0.0, 4.0];
+        let edited = d.text();
+        assert!(d.dirty());
+        let m = d.m.clone();
+        docs.insert("post".into(), MDoc { m, life: Life::default(), hist: History::default(), saved: None, rev: 0, old: String::new() });
+        let t0 = Instant::now();
+        let mut r = Recovery::new(&root, "models", Duration::from_secs(3));
+        assert!(r.keep(t0, || kept(&docs)));
+        // a crash: the next start opens the files as saved and finds the set
+        let mut again = open();
+        let back = left(&again, Recovery::new(&root, "models", Duration::from_secs(3)).left());
+        let names: Vec<&str> = back.iter().map(|f| f.0.as_str()).collect();
+        assert_eq!(names, ["furnace.toml", "post.toml"], "both offered back");
+        assert!(restore(&mut again, back, &pal()).is_empty(), "no errors");
+        assert_eq!(again["furnace"].text(), edited, "the edit is back");
+        assert!(again["furnace"].dirty() && again["furnace"].hist.undo.len() == 1, "as unsaved work, one undo step");
+        assert!(again["post"].saved.is_none(), "a new model stays new");
+        // what is the file as saved is not offered
+        assert!(left(&open(), vec![("furnace.toml".into(), open()["furnace"].text().into_bytes())]).is_empty(), "the file as saved is not offered");
+        // saved (as `save` marks it): nothing kept, the set is cleared
+        for d in again.values_mut() {
+            d.saved = Some(d.text());
+        }
+        assert!(r.keep(t0 + Duration::from_secs(4), || kept(&again)));
+        assert!(Recovery::new(&root, "models", Duration::from_secs(3)).left().is_empty(), "cleared on save");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
 

@@ -110,6 +110,17 @@ pub trait Page {
         vec![]
     }
     fn save_all(&mut self, _app: &mut App) {}
+    /// Its unsaved work as files for its recovery set (`recover.rs`, `studio-recovery/<page>/`); None: the page
+    /// keeps none (the textures are the frame's).
+    fn kept(&self) -> Option<Vec<(String, Vec<u8>)>> {
+        None
+    }
+    /// Of what a crash left, what is not the files as saved: that much is offered back.
+    fn unsaved_of(&self, left: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>)> {
+        left
+    }
+    /// What a crash left put back as unsaved work, one undo step each.
+    fn restore(&mut self, _app: &mut App, _files: Vec<(String, Vec<u8>)>) {}
     /// For `shot=`: wait for what the page shows to be drawn (the game's renderer).
     fn settle(&mut self, _ctx: &egui::Context, _app: &mut App) {}
 }
@@ -332,6 +343,9 @@ pub struct Studio {
     /// Unsaved textures kept every few seconds, and what a crash left, still to be offered (`recover.rs`).
     recovery: crate::recover::Recovery,
     recovered: Vec<(String, Img)>,
+    /// The same for the pages that keep their own (Models, Sounds): (page, its set), and (page, what is left).
+    page_kept: Vec<(usize, crate::recover::Recovery)>,
+    page_left: Vec<(usize, Vec<(String, Vec<u8>)>)>,
     /// Off for a shot (but `recover=1`): the kept set is neither offered, cleared nor written.
     recovering: bool,
 }
@@ -342,12 +356,19 @@ impl Studio {
         self.app.quiet = true;
         // nor offers, nor clears, the developer's kept work (`recover=1` does, in a scratch folder)
         (self.recovering, self.recovered) = (false, vec![]);
+        self.page_left.clear();
     }
 
     /// For a shot with `recover=1`: offer and answer the kept set as the window does.
     pub fn offer_kept(&mut self) {
         self.recovering = true;
         self.recovered = Self::kept(&self.recovery, &self.app);
+        self.page_left = Self::pages_left(&self.page_kept, &self.pages);
+    }
+
+    /// What a crash left of each page's own set, but for what is its files as saved.
+    fn pages_left(kept: &[(usize, crate::recover::Recovery)], pages: &[Box<dyn Page>]) -> Vec<(usize, Vec<(String, Vec<u8>)>)> {
+        kept.iter().map(|(i, r)| (*i, pages[*i].unsaved_of(r.left()))).filter(|(_, l)| !l.is_empty()).collect()
     }
 
     /// What a crash left, but for files that are on disk as kept.
@@ -400,6 +421,8 @@ impl Studio {
         }
         let recovery = crate::recover::Recovery::new(".", "textures", crate::recover::EVERY);
         let recovered = Self::kept(&recovery, &app);
+        let page_kept: Vec<(usize, crate::recover::Recovery)> = pages.iter().enumerate().filter(|(_, p)| p.kept().is_some()).map(|(i, p)| (i, crate::recover::Recovery::new(".", &p.name().to_lowercase(), crate::recover::EVERY))).collect();
+        let page_left = Self::pages_left(&page_kept, &pages);
         Ok(Studio {
             app,
             pages,
@@ -424,6 +447,8 @@ impl Studio {
             game: None,
             recovery,
             recovered,
+            page_kept,
+            page_left,
             recovering: true,
         })
     }
@@ -1289,9 +1314,32 @@ impl Studio {
                 }
                 None => {}
             }
+        } else if let Some((i, files)) = self.page_left.first() {
+            // then each page's own, one page at a time
+            let names: Vec<String> = files.iter().map(|f| f.0.clone()).collect();
+            match crate::recover::offer(ctx, &self.pages[*i].name().to_lowercase(), &names) {
+                Some(answer) => {
+                    let (i, files) = self.page_left.remove(0);
+                    if answer {
+                        self.pages[i].restore(&mut self.app, files);
+                        self.app.toast(format!("Restored as unsaved work: {}", names.join(", ")));
+                        for p in &mut self.pages {
+                            p.refresh(&self.app);
+                        }
+                    } else if let Some((_, r)) = self.page_kept.iter_mut().find(|(k, _)| *k == i) {
+                        r.clear();
+                    }
+                }
+                None => {}
+            }
         } else if self.write_settings && self.recovering && !self.quit && !self.closing {
             let docs = &self.app.docs;
-            self.recovery.keep(std::time::Instant::now(), || docs.iter().filter(|(_, d)| d.dirty()).map(|(n, d)| (n.clone(), art::encode(&d.img))).collect());
+            let now = std::time::Instant::now();
+            self.recovery.keep(now, || docs.iter().filter(|(_, d)| d.dirty()).map(|(n, d)| (n.clone(), art::encode(&d.img))).collect());
+            for (i, r) in &mut self.page_kept {
+                let p = &self.pages[*i];
+                r.keep(now, || p.kept().unwrap_or_default());
+            }
         }
     }
 
@@ -1299,8 +1347,11 @@ impl Studio {
         let mut unsaved: Vec<String> = self.app.docs.iter().filter(|(_, d)| d.dirty()).map(|(n, _)| n.clone()).collect();
         unsaved.extend(self.pages.iter().flat_map(|p| p.unsaved()));
         // a clean close keeps nothing to offer next time
-        if self.write_settings && self.recovering && self.recovered.is_empty() && (self.quit || (unsaved.is_empty() && ctx.input(|i| i.viewport().close_requested()))) {
+        if self.write_settings && self.recovering && self.recovered.is_empty() && self.page_left.is_empty() && (self.quit || (unsaved.is_empty() && ctx.input(|i| i.viewport().close_requested()))) {
             self.recovery.clear();
+            for (_, r) in &mut self.page_kept {
+                r.clear();
+            }
         }
         if ctx.input(|i| i.viewport().close_requested()) && !self.quit && !unsaved.is_empty() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
