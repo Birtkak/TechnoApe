@@ -623,11 +623,14 @@ impl App {
         let x = (day * air / 0.15).clamp(0.0, 1.0);
         let night = 1.0 - x * x * (3.0 - 2.0 * x);
         let haze = sky_c + Vec3::new(0.55, 0.60, 0.62) * day * air * 0.45 + Vec3::new(0.02, 0.03, 0.07) * air * night * 1.5;
+        // under water (ADR 0071): a blue fog over everything, thick by 12 m, as dim as the day above it
+        let fog = if self.world.water_surface(p.pos).is_some() { 0.09 } else { 0.0 };
+        let deep_light = 0.04 + 0.96 * day;
         let tune = (
             self.settings.on(S::Bounce),
             [fill.x, fill.y, fill.z, self.settings.get(S::Brightness) as f32],
             [haze.x, haze.y, haze.z, air / 2500.0],
-            [0.5 * air, 0.0, 0.0, cf as f32],
+            [0.5 * air, fog, deep_light, cf as f32],
         );
         // the sunlight through the air: the longer its way through it (the lower the sun), the more blue and
         // green it loses; at noon as it was, in space white (shader.wgsl sun_tint is the same)
@@ -646,6 +649,7 @@ impl App {
         let pull = |d: DVec3, a: f64| [d.x as f32, d.y as f32, d.z as f32, (1.5 * a * per_m) as f32];
         let mut g = Globals {
             tide: [pull(tide.luna, engine::sky::TIDE_LUNA), pull(tide.sun, engine::sky::TIDE_SUN)],
+            water: [(self.world.time.rem_euclid(3600.0)) as f32, fog, deep_light, 0.0],
             view_proj: vp.to_cols_array_2d(),
             sun: [sun.x, sun.y, sun.z, clock],
             bodies: bytemuck::Zeroable::zeroed(),

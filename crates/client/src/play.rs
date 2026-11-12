@@ -1088,10 +1088,6 @@ impl App {
             hud::vitals(&mut p, self.vitals, ages, self.start.elapsed().as_secs_f32());
             rects.extend(p.out);
         }
-        if self.world.water_surface(p.pos).is_some() {
-            // under water: a blue veil first, under the HUD. shortcut: a veil, not fog, until the sky has fog
-            rects.insert(0, hud::Rect { xy: [-1.0, -1.0, 1.0, 1.0], colour: [0.05, 0.25, 0.4, 0.55], glyph: 0 });
-        }
         // the text over it (ADR 0023): F3's numbers, the chat, the bug report's form
         let mut paint = hud::Paint::new(lw, lh);
         if self.f3 {

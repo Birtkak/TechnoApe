@@ -362,6 +362,9 @@ pub(crate) struct Globals {
     /// in layers (1.5 * TIDE_LUNA and 1.5 * TIDE_SUN over a layer's thickness at the sea); its `base` is in
     /// body 0's sea level.
     pub(crate) tide: [[f32; 4]; 2],
+    /// The water (ADR 0071): x its ripples' clock in s (the sky's, so a view is the same every time), y the
+    /// fog per metre with the camera under water (0 above), z the light down there (0 night .. 1 noon).
+    pub(crate) water: [f32; 4],
 }
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

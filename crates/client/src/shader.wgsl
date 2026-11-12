@@ -42,6 +42,9 @@ struct Globals {
     // the planet's tide (ADR 0067, engine `sky::Tide`): Luna's and the sun's directions in its frame, w their
     // pull in layers; its base is in bodies[0].sea (gpu.rs `Globals::tide`)
     tide: array<vec4f, 2>,
+    // the water (ADR 0071, gpu.rs `Globals::water`): x the ripples' clock in s, y the fog per metre with the
+    // camera under water (0 above), z the light down there
+    water: vec4f,
 };
 // base in columns and layers; info = face | level << 3 | body << 8; off: its first quad
 // opq: its opaque land quads; the cutout ones follow them, the BLAS's second geometry (ADR 0069)
@@ -960,6 +963,11 @@ struct WOut {
     @location(3) @interpolate(flat) body: u32,
     // a river's flow (W5): xyz its direction from the camera times its speed (m/s), w the distance along it (m)
     @location(4) flow: vec4f,
+    // where on its face (ADR 0071): the grid's columns i, j and the layer, for the ripples and the foam
+    @location(5) grid: vec3f,
+    // a river's flow in columns a second along i and j
+    @location(6) gflow: vec2f,
+    @location(7) @interpolate(flat) face: u32,
 };
 
 // the outward direction at grid point (gi, gj) of a face, and the face's normal and in-face axes
@@ -993,6 +1001,9 @@ fn wout(bi: u32, up: vec3f, layer: f32, normal: vec3f, side: u32) -> WOut {
     o.side = side;
     o.body = bi;
     o.flow = vec4f(0.0);
+    o.gflow = vec2f(0.0);
+    o.grid = vec3f(0.0);
+    o.face = 0u;
     return o;
 }
 
@@ -1035,12 +1046,15 @@ fn vs_sea(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) ->
         let layer = f32(c.base.z) + f32(q.y & 0x3ffffu) / 64.0 + dot(fall, (at * vec2f(w, h) - 0.5) * s);
         let tilt = f.s * fall.x + f.t * fall.y;
         var o = wout(bi, f.up, layer, normalize(f.up - tilt * (b.lnq / b.theta)), 0u);
+        o.grid = vec3f(gp, layer);
+        o.face = c.info & 7u;
         let g2 = length(fall);
         if (g2 > 0.0) {
             // downhill, as fast as it is steep: 0.5 m/s on the flat to 3 m/s down rapids
             let d2 = -fall / g2;
             let speed = clamp(0.5 + 30.0 * g2, 0.5, 3.0);
             o.flow = vec4f(brot(b, normalize(-tilt)) * speed, dot(gp, d2));
+            o.gflow = d2 * speed;
         }
         return o;
     }
@@ -1060,7 +1074,10 @@ fn vs_sea(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) ->
     if (q.y == 1u) {
         layer = max(layer, f32(c.base.z + (i32((lo >> 12u) & 63u) << level)) + 1.0);
     }
-    return wout(bi, f.up, layer, f.up, 0u);
+    var o = wout(bi, f.up, layer, f.up, 0u);
+    o.grid = vec3f(gp, layer);
+    o.face = c.info & 7u;
+    return o;
 }
 
 @vertex
@@ -1108,11 +1125,171 @@ fn vs_water(@builtin(vertex_index) vi: u32) -> WOut {
     } else {
         normal = normalize(f.t - f.n * f.tb) * select(-1.0, 1.0, kind == 4u);
     }
-    return wout(bi, f.up, z, normal, u32(kind != 0u));
+    var o = wout(bi, f.up, z, normal, u32(kind != 0u));
+    o.grid = vec3f(f32(q.i) + du, f32(q.j) + dv, z);
+    o.face = face;
+    return o;
+}
+
+// ---- the water's look (ADR 0071) ----
+// Clear and traced, on the blocks' pixel grid. The bed shows through, fading to blue by the length of the
+// way through the water (one ray down the view); the sky, Sol, Luna and the near terrain are in it with a
+// Fresnel term (one ray along the reflection); ripples of three octaves, flat over each 1/16 m texel, run with
+// the sky's clock and along a river's flow and calm with distance, so from orbit the sea is one blue with
+// the sun's glint; foam where the surface meets a bank (four short rays across it) and down falls. The
+// settings' Water row: off draws the old sheet (`water_old`), simple shades without rays of its own.
+
+// the colour of the water's own light at noon (post.wgsl has the same, for the fog under water)
+const WATER_FOG: vec3f = vec3f(0.03, 0.16, 0.24);
+// what the water takes of the light a metre: red first, blue last
+const WATER_ABSORB: vec3f = vec3f(0.45, 0.12, 0.075);
+// the ripples' texels a metre: the blocks' own
+const RIPPLE_PX: f32 = 16.0;
+// how far the way down the view is traced: past it the water is as good as opaque
+const WATER_SEE: f32 = 40.0;
+
+fn wnoise(p: vec2f) -> f32 {
+    let c = floor(p);
+    let f = p - c;
+    let u = f * f * (3.0 - 2.0 * f);
+    let k = bitcast<vec2u>(vec2i(c));
+    let a = mix(hash2(k), hash2(k + vec2u(1u, 0u)), u.x);
+    let b = mix(hash2(k + vec2u(0u, 1u)), hash2(k + vec2u(1u, 1u)), u.x);
+    return mix(a, b, u.y);
+}
+
+// the ripples' height at p (columns of the face), at time t: three octaves drifting apart
+fn ripple(p: vec2f, t: f32) -> f32 {
+    return wnoise(p * 0.45 + vec2f(0.21, 0.13) * t)
+        + 0.5 * wnoise(p * vec2f(1.1, 0.9) + vec2f(-0.17, 0.29) * t + 17.0)
+        + 0.25 * wnoise(p * 2.3 + vec2f(0.37, -0.31) * t + 41.0);
+}
+
+// the moon's body where a reflected ray from p along d meets its sphere: lit by its phase
+fn luna_in(p: vec3f, d: vec3f, body: u32) -> vec3f {
+    let mi = u32(g.moon_col.w);
+    let m = g.bodies[mi].ctr;
+    if (mi == body || m.w <= 0.0) { return vec3f(0.0); }
+    let oc = m.xyz - p;
+    let tca = dot(oc, d);
+    let d2 = dot(oc, oc) - tca * tca;
+    if (tca < 0.0 || d2 > m.w * m.w) { return vec3f(0.0); }
+    let hit = p + d * (tca - sqrt(m.w * m.w - d2));
+    let lit = max(dot(normalize(hit - m.xyz), normalize(g.sun_pos.xyz - hit)), 0.0);
+    return vec3f(0.65) * 0.5 * lit * moon_gain(mi);
 }
 
 @fragment
 fn fs_water(i: WOut) -> @location(0) vec4f {
+    // a pixel's footprint on the water in metres, before any branch (derivatives need uniform control flow)
+    let foot = max(length(fwidth(i.grid.xy)), 1e-4);
+    let mode = (g.opt.x >> 4u) & 3u;
+    if (mode >= 2u) { return water_old(i); }
+    let b = g.bodies[i.body];
+    let t = g.water.x;
+    let px = vec2u(i.clip.xy);
+    let v = normalize(-i.rel);
+    let dist = length(i.rel);
+    var n0 = normalize(i.normal);
+    let below = dot(n0, v) < 0.0;
+    if (below) { n0 = -n0; }
+    let fall = (i.side & 1u) == 1u;
+    let speed = length(i.gflow);
+    // the ripples: on the blocks' grid, calm where a pixel spans more than a few of its texels
+    var fsv = array<vec3f, 6>(vec3f(0., 1., 0.), vec3f(0., 0., 1.), vec3f(0., 0., 1.), vec3f(1., 0., 0.), vec3f(1., 0., 0.), vec3f(0., 1., 0.));
+    var ftv = array<vec3f, 6>(vec3f(0., 0., 1.), vec3f(0., 1., 0.), vec3f(1., 0., 0.), vec3f(0., 0., 1.), vec3f(0., 1., 0.), vec3f(1., 0., 0.));
+    let calm = 1.0 - smoothstep(0.04, 0.4, foot);
+    let q = 1.0 / RIPPLE_PX;
+    let p = i.grid.xy - i.gflow * t;
+    let cell = (floor(p * RIPPLE_PX) + 0.5) * q;
+    var n = n0;
+    if (!fall && calm > 0.0) {
+        let h0 = ripple(cell, t);
+        let gr = vec2f(ripple(cell + vec2f(q, 0.0), t) - h0, ripple(cell + vec2f(0.0, q), t) - h0) * RIPPLE_PX;
+        let k = (0.07 + 0.05 * min(speed, 3.0)) * calm;
+        n = normalize(n0 - (brot(b, fsv[i.face]) * gr.x + brot(b, ftv[i.face]) * gr.y) * k);
+        if (dot(n, v) < 0.02) { n = normalize(n + n0 * (0.02 - dot(n, v))); }
+    }
+    let l = light(i.rel, n, i.body, px);
+    let cosv = max(dot(n, v), 0.0);
+    let fres = 0.02 + 0.98 * pow(1.0 - cosv, 5.0);
+    // the water's own light, scattered back from inside it
+    let inside = WATER_FOG * (l.l * 0.5 + ambient(l.day) * 1.6);
+    // texel noise for the foam, steady for a moment, then the next
+    let grain = hash2(bitcast<vec2u>(vec2i(floor(p * RIPPLE_PX))) + vec2u(u32(t * 3.0) * 7u, 0u));
+    if (below) {
+        // from under it: the sky through a window overhead, the deep mirrored around it
+        let window = smoothstep(0.6, 0.7, cosv);
+        var col = mix(WATER_FOG * g.water.z, sky_colour(-v) * 0.8, window);
+        col = mix(col, WATER_FOG * g.water.z, 1.0 - exp(-dist * max(g.water.y, 0.02)));
+        return water_out(col, mix(1.0, 0.4, window));
+    }
+    // the reflection: the terrain traced, else the sky; kept above the flat surface
+    var r = reflect(-v, n);
+    let rn = dot(r, n0);
+    if (rn < 0.01) { r = normalize(r + n0 * (0.01 - rn)); }
+    var refl: vec3f;
+    if (mode == 0u && (g.opt.x & 2u) == 0u && dist < 1500.0) {
+        refl = seen(ray_origin(i.rel, n0), r, i.body, px, false, 2000.0);
+    } else {
+        refl = sky_colour(r);
+    }
+    refl += luna_in(i.rel, r, i.body);
+    // the way through the water to what is under it: traced, or guessed as 3 m deep
+    let cos0 = max(dot(n0, v), 0.05);
+    var len = 3.0 / cos0;
+    var foam = 0.0;
+    if (fall) {
+        // a fall or a front: churned white, streaking down
+        let fp = vec2f(i.grid.x + i.grid.y, i.grid.z + t * 2.5);
+        let fc = floor(fp * RIPPLE_PX) * q;
+        foam = 0.35 + 0.5 * step(0.45, wnoise(fc * vec2f(5.0, 1.2)));
+        len = 1.0;
+    } else if (mode == 0u) {
+        let m = mat3x3f(b.rot0.xyz, b.rot1.xyz, b.rot2.xyz);
+        let h = trace(to_body(b, i.rel - v * 0.01), -v * m, i.body, WATER_SEE, 0u);
+        len = select(WATER_SEE, h.t + 0.01, h.kind != RAY_QUERY_INTERSECTION_NONE);
+        if (foot < 0.25) {
+            // the shore: the nearest bank a little under the surface, across it four ways
+            let o = to_body(b, i.rel - n0 * 0.08);
+            var near = 1.0;
+            for (var k = 0u; k < 4u; k++) {
+                var a = brot(b, select(fsv[i.face], ftv[i.face], k >= 2u)) * select(1.0, -1.0, (k & 1u) == 1u);
+                a = normalize(a - n0 * dot(a, n0));
+                let hb = trace(o, a * m, i.body, 1.0, 0u);
+                if (hb.kind != RAY_QUERY_INTERSECTION_NONE) { near = min(near, hb.t); }
+            }
+            // a band that laps in and out, broken into texels
+            let lap = 0.45 + 0.2 * sin(t * 1.3 + (i.grid.x + i.grid.y) * 0.7);
+            foam = step(near / lap, 0.35 + 0.65 * grain) * step(near, lap) * (1.0 - smoothstep(0.1, 0.25, foot));
+        }
+    }
+    // rapids churn white, in texels
+    foam = max(foam, step(grain, 0.6 * smoothstep(1.5, 3.0, speed)));
+    let tr = exp(-WATER_ABSORB * len);
+    let tm = dot(tr, vec3f(0.25, 0.45, 0.3));
+    // blended over the terrain already drawn (the bed): what is left of it shows; the rest is the water
+    var a = 1.0 - (1.0 - fres) * tm;
+    var col = refl * fres + inside * (1.0 - tr) * (1.0 - fres);
+    // the sun's glint where it reaches: sharp on the ripples near, a wide sheen far off where they are too
+    // small to see
+    let e = mix(60.0, 900.0, calm);
+    col += g.sun_col.rgb * l.sun * pow(max(dot(r, normalize(g.sun_pos.xyz - i.rel)), 0.0), e) * mix(0.6, 2.0, calm);
+    col /= max(a, 1e-3);
+    let white = vec3f(0.85, 0.92, 1.0) * (l.l + ambient(l.day) * 1.3);
+    col = mix(col, white, foam);
+    a = mix(a, 1.0, foam * 0.9);
+    return water_out(col, a);
+}
+
+fn water_out(col: vec3f, a: f32) -> vec4f {
+    var lit = shoulder(col);
+    if (g.opt.y != 1000u) { lit = pow(lit, vec3f(1000.0 / f32(g.opt.y))); }
+    return vec4f(lit, clamp(a, 0.0, 1.0));
+}
+
+// the water before ADR 0071: the settings' Water off
+fn water_old(i: WOut) -> vec4f {
     let v = normalize(-i.rel);
     var n = normalize(i.normal);
     if (dot(n, v) < 0.0) { n = -n; } // seen from under the surface
@@ -1133,7 +1310,7 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     var a = clamp(0.62 + 0.35 * fres, 0.0, 0.96);
     // rapids churn white
     col = mix(col, vec3f(0.85, 0.92, 1.0), 0.3 * smoothstep(1.5, 3.0, speed));
-    if (i.side == 1u) {
+    if ((i.side & 1u) == 1u) {
         // a front or a fall: churned, lighter
         col = mix(col, vec3f(0.85, 0.92, 1.0), 0.25);
         a = max(a, 0.8);

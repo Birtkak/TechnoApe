@@ -793,10 +793,12 @@ impl App {
     }
 
     /// The graphics rows the shaders read, a bit each (`g.opt.x`): sharp sun shadows, no reflections, flat
-    /// block colours, no stars. The defaults are 0, today's picture.
+    /// block colours, no stars, the water's quality (2 bits). The defaults are 0, today's picture.
     pub(crate) fn gfx_bits(&self) -> u32 {
         let s = &self.settings;
         (s.at(S::Shadows) == 0) as u32 | (!s.on(S::Reflections) as u32) << 1 | ((s.at(S::Textures) == 0) as u32) << 2 | (!s.on(S::Stars) as u32) << 3
+            // the water's quality, 0 traced (ADR 0071)
+            | ((2 - s.at(S::Water).min(2)) as u32) << 4
     }
 
     /// The title menu's view: in orbit over the planet's sunlit limb, the planet filling the left half and the
