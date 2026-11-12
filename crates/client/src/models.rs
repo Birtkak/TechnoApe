@@ -671,7 +671,7 @@ mod tests {
         let mut t = 0.0;
         let mut run = |m: &mut Models, fx: &mut crate::fx::Fx, secs: f64| {
             while t < secs {
-                m.frame(&w, &cams, 0, eye, t, None, fx, &mut audio);
+                m.frame(&w, &cams, 0, eye, t, None, &[], fx, &mut audio);
                 fx.step(&w, 0.1);
                 t += 0.1;
             }
@@ -735,7 +735,7 @@ mod tests {
         let cams = vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()];
         let mut t = 0.0;
         while t < 2.0 {
-            m.frame(&w, &cams, 0, eye, t, in_hand.then_some("boar"), &mut fx, &mut audio);
+            m.frame(&w, &cams, 0, eye, t, in_hand.then_some("boar"), &[], &mut fx, &mut audio);
             t += 1.0 / 60.0;
         }
         let n = m.draws[0].count as usize;
