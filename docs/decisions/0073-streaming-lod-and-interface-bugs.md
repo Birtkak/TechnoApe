@@ -64,14 +64,20 @@ A fresh reviewer read the diff (principle 12). Its findings and answers:
    the streamer dirty, so frames walk again until the child is in (asserted in the cover test).
 2. Ray-traced shadows lose the parent as a caster where a hidden child is not meshed yet. Accepted: the
    shadow pops in when the child lands. The parent's coarse surface over fine children cast wrong shadows too.
-3. Between two sessions the window is not pumped while the next world is built. Measured below; a gap of
-   about 5 s would ghost the window, so a slow load waits on the follow-up below.
+3. Between two sessions the window is not pumped while the next world is built. Measured: 0.7 s from the
+   world's save to the title's GPU, 1.1 s from start to a 4 km world carried on from its save; Windows ghosts a
+   window after 5 s. A new world's bake runs on the title under its bar, pumped. Accepted.
 4. Flight near the ground at 10 km/s keeps 670 substeps a step: measured 7.1 ms of CPU for 60 steps (one second)
    30 m over the noise land, about 0.12 ms a step per flying player on client and server. Accepted.
 5. The fast path's switch between one move and substeps is at a margin of the step's length plus 1 m over the
    top layer; client and server differ there by rounding only. Accepted.
 6. `too_coarse` was timed inside the select stage: moved after the dispatch stage.
 7. `sound_dir=` is a OnceLock: a later session keeps the first one's. Accepted (it is a command-line option).
+
+## Views
+After merging main the fixed views differed from their baselines by 3 to 9 % (leaves' pattern): main's own build
+renders the same (seam 9.26 % against 9.27 % here; every view within 0.6 % of this branch's), so main's baselines
+were stale after ADR 0084's acceptance. Accepted as main renders them.
 
 ## Calls for the developer to confirm
 - Loading screen look: dark, the title, "Loading the world: N chunks to go" and a green bar (not filmed: the
