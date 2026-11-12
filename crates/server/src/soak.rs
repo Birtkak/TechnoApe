@@ -198,6 +198,10 @@ fn check(s: &Server) -> Result<(), String> {
     if s.water_ledger() != 0 {
         return Err(format!("{} units of water appeared", s.water_ledger()));
     }
+    // nor does any of the air's: what it handed the rivers as rain is in the water's ledger (W5)
+    if let Some(x) = s.air_ledger().filter(|&x| x != 0) {
+        return Err(format!("{x} units of the air's water appeared"));
+    }
     // no ore block appears or vanishes unseen: each body's ledger is what a recount from the edits says
     if let Some(&(k, ledger, recount)) = s.ore_ledger().first() {
         return Err(format!("ore body {k}: the ledger holds {ledger} blocks, the edits say {recount}"));

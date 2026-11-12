@@ -29,8 +29,12 @@ pub const MAX_STEPS: usize = 8;
 /// 5 %: a year after the bake's repeats it to 0.1 % in every biome; the live step at 5 s (10 to 20 %) or a bake
 /// without seasons (18 % at 60 to 70 degrees, `prototypes/air`) fail it.
 pub const RAIN_TOLERANCE: f64 = 0.05;
+/// The share of a river's flow at rest that generation carries: its dry-weather base (W5, ADR 0059). The rain
+/// brings the rest: a column hands the reaches draining it (1 - BASE) of its land's runoff, by catchment.
+pub const BASE: f64 = 0.5;
 
 /// What the game reads of the grid, made on the worker after each job. Per air column:
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub struct View {
     /// the grid's clock, world seconds
     pub t: f64,
@@ -45,6 +49,8 @@ pub struct View {
     /// water units (`liquid::U` a block) the column's ground ran off to its rivers over the job: what W5's
     /// reaches take as live rain (air.md, pass 7)
     pub runoff: Vec<u32>,
+    /// the air's ledger (`Air::ledger`) when the job ended, before the reaches took their share
+    pub ledger: i128,
     /// FNV of all of it: the soak's state hash
     pub hash: u64,
     /// the job's wall time on its worker, ms (not in the hash)
@@ -71,7 +77,7 @@ impl View {
         for v in &runoff {
             h = fnv(h, &v.to_le_bytes());
         }
-        View { t: a.t, theta, rain, cover, wind, runoff, hash: h, ms: 0.0 }
+        View { t: a.t, theta, rain, cover, wind, runoff, ledger: a.ledger(), hash: h, ms: 0.0 }
     }
 }
 
@@ -101,6 +107,11 @@ pub struct Weather {
     lapse: f32,
     job: Mutex<Option<Job>>,
     view: View,
+    /// Each column's land, m^2, and the reaches its runoff feeds with their shares in 1/65536 (`feeding`).
+    land: Vec<f64>,
+    split: Vec<Vec<(u32, u32)>>,
+    /// The air's ledger after the reaches took their share: with the units handed out, it never changes.
+    ledger: i128,
 }
 
 impl Weather {
@@ -113,12 +124,69 @@ impl Weather {
             None => a.t = 0.0,
         }
         let view = View::of(&a, vec![0; a.n], &vec![0; a.n], 0);
-        Ok(Weather { grid: c.grid(), lapse: a.p.lapse, job: Mutex::new(Some(Job::Idle(Box::new(a)))), view })
+        let land = (0..a.n).map(|c| a.area[c] as f64 * (1.0 - a.water[c] as f64).max(0.0)).collect();
+        let ledger = view.ledger;
+        Ok(Weather { grid: c.grid(), lapse: a.p.lapse, job: Mutex::new(Some(Job::Idle(Box::new(a)))), view, land, split: Vec::new(), ledger })
+    }
+
+    /// Feeds `map`'s reaches from the runoff (W5, ADR 0059): a river cell's own catchment (its drained area less
+    /// what flows into it) is shared out of its air column's land; what no river drains stays in the sea term.
+    pub fn feeding(mut self, map: &crate::bake::Map) -> Weather {
+        let m = map.m;
+        let cells = Grid::bare(m as usize, 1.0);
+        let mut inflow: crate::world::FxMap<u32, f64> = Default::default();
+        for r in &map.rivers {
+            *inflow.entry(r.to).or_default() += r.area as f64;
+        }
+        let mut per: Vec<std::collections::BTreeMap<u32, f64>> = vec![Default::default(); self.land.len()];
+        for (k, r) in map.rivers.iter().enumerate() {
+            let Some(reach) = map.lines.segs.get(k).map(|g| g.reach).filter(|&x| x != crate::bake::grid::NONE) else { continue };
+            let own = (r.area as f64 - inflow.get(&r.cell).copied().unwrap_or(0.0)).max(0.0);
+            let (f, i, j) = ((r.cell / (m * m)) as usize, (r.cell % m) as f64, ((r.cell / m) % m) as f64);
+            let c = self.grid.locate(cells.dir_at(f, i + 0.5, j + 0.5)) as usize;
+            *per[c].entry(reach).or_default() += own;
+        }
+        self.split = per
+            .into_iter()
+            .zip(&self.land)
+            .map(|(rs, &land)| {
+                let total: f64 = rs.values().sum();
+                let share = if land > 0.0 && total > 0.0 { (total / land).min(1.0) * (1.0 - BASE) } else { 0.0 };
+                rs.into_iter().map(|(r, a)| (r, (share * a / total * 65536.0) as u32)).filter(|x| x.1 > 0).collect()
+            })
+            .collect();
+        self
+    }
+
+    /// A job back but not shown yet, as (ticks till it shows, what it shows): a save asked for the state in
+    /// the job's last ticks (`state`). Saved with it, a loaded server shows it and hands its runoff to the
+    /// reaches on the same tick as one that kept running (`with_pending`).
+    pub fn pending(&self, tick: u64) -> Option<(u64, View)> {
+        match self.job.lock().unwrap().as_ref() {
+            Some(Job::Back { view, due, .. }) => Some((due.saturating_sub(tick), view.clone())),
+            _ => None,
+        }
+    }
+    /// The weather of a save, with the job it had back but not shown yet (`pending`), at this tick.
+    pub fn with_pending(mut self, pending: Option<(u64, View)>, tick: u64) -> Weather {
+        let job = self.job.get_mut().unwrap();
+        if let (Some((left, view)), Some(Job::Idle(_))) = (pending, job.as_ref()) {
+            let Some(Job::Idle(air)) = job.take() else { unreachable!() };
+            *job = Some(Job::Back { air, view, due: tick + left });
+        }
+        self
+    }
+
+    /// The air's ledger now, less what it handed to the reaches (constant with those units added back).
+    pub fn ledger(&self) -> i128 {
+        self.ledger
     }
 
     /// Once a tick, with the tick's number and the world's time: takes a job back when it is due, hands the
     /// next one over when the grid is a step behind.
-    pub fn tick(&mut self, tick: u64, time: f64) {
+    /// What it returns is the runoff handed to the reaches at this landing, (reach, units), already taken out
+    /// of the air's sea term: the caller rains it into them.
+    pub fn tick(&mut self, tick: u64, time: f64) -> Vec<(u32, i64)> {
         let job = self.job.get_mut().unwrap();
         let ready = match job.take() {
             Some(Job::Busy { back, due }) if tick >= due => {
@@ -132,13 +200,26 @@ impl Weather {
             }
             other => {
                 *job = other;
-                return;
+                return Vec::new();
             }
         };
-        if let Some((air, view)) = ready {
+        let mut fed = std::collections::BTreeMap::<u32, i64>::new();
+        if let Some((mut air, view)) = ready {
+            for (c, &r) in view.runoff.iter().enumerate().filter(|x| *x.1 > 0) {
+                for &(reach, f) in self.split.get(c).map_or(&[][..], |v| &v[..]) {
+                    let u = (r as u64 * f as u64 >> 16) as i64;
+                    if u > 0 {
+                        *fed.entry(reach).or_default() += u;
+                    }
+                }
+            }
+            let handed: i64 = fed.values().sum();
+            air.sea -= handed;
+            self.ledger = view.ledger - handed as i128;
             self.view = view;
             *job = Some(Job::Idle(air));
         }
+        let fed: Vec<(u32, i64)> = fed.into_iter().collect();
         let Some(Job::Idle(mut air)) = job.take() else { unreachable!("idle by now") };
         // a clock set back (/time set): the weather keeps its state and follows the clock from there
         if time < air.t {
@@ -147,7 +228,7 @@ impl Weather {
         let behind = time - air.t;
         if behind < DT as f64 {
             *job = Some(Job::Idle(air));
-            return;
+            return fed;
         }
         let steps = ((behind / DT as f64) as usize).min(MAX_STEPS);
         if behind > 2.0 * MAX_STEPS as f64 * DT as f64 {
@@ -172,6 +253,7 @@ impl Weather {
             })
             .expect("a thread for the air");
         *job = Some(Job::Busy { back, due: tick + LAG });
+        fed
     }
 
     /// The grid's state to save: a job in flight is waited for, and its result still shows only when due.
@@ -215,6 +297,56 @@ mod tests {
 
     fn climate() -> Climate {
         crate::bake::Map::bake(5, 256).climate.clone().expect("a baked map keeps its climate")
+    }
+
+    /// The air's runoff feeds the rivers (W5, ADR 0059): each landing hands a column's runoff to the reaches
+    /// draining it, by catchment, and takes those units out of the air's sea term, so the air's ledger plus what
+    /// it handed never changes. A column hands at most the rain's part (1 - BASE) of its land's runoff.
+    #[test]
+    fn the_runoff_feeds_the_reaches_and_the_air_ledger_holds() {
+        let map = crate::bake::get(7, 1536);
+        let mut w = Weather::new(map.climate.as_ref().unwrap(), None).unwrap().feeding(&map);
+        assert!(w.split.iter().all(|c| c.iter().map(|&(_, f)| f as u64).sum::<u64>() as f64 <= (1.0 - BASE) * 65536.0 + 1.0));
+        let start = w.ledger();
+        let (mut handed, mut fed) = (0i64, std::collections::BTreeSet::new());
+        for tick in 0..2000u64 {
+            for (r, u) in w.tick(tick, tick as f64) {
+                assert!(u > 0 && (r as usize) < map.lines.reaches.len(), "{u} units to reach {r}");
+                handed += u;
+                fed.insert(r);
+            }
+            assert_eq!(w.ledger() + handed as i128, start, "tick {tick}");
+        }
+        assert!(handed > 0 && fed.len() > 3, "{handed} units to {} reaches", fed.len());
+    }
+
+    /// The runoff's cost on Terra (W5): the split built once, and a landing's hand-over against a landing
+    /// without it. `cargo test --release -p engine --lib -- --ignored --nocapture runoff_cost`
+    #[test]
+    #[ignore]
+    fn runoff_cost() {
+        let map = crate::bake::get(1337, 6144);
+        let t = std::time::Instant::now();
+        let fed = Weather::new(map.climate.as_ref().unwrap(), None).unwrap().feeding(&map);
+        println!("split: {:.1} ms for {} reaches over {} columns", t.elapsed().as_secs_f64() * 1e3, map.lines.reaches.len(), fed.land.len());
+        let mut w = fed;
+        let mut units = 0i64;
+        for tick in 0..2000u64 {
+            units += w.tick(tick, tick as f64).iter().map(|x| x.1).sum::<i64>();
+        }
+        // the hand-over of one landing, alone: the loop `tick` runs over the view's runoff
+        let t = std::time::Instant::now();
+        let mut n = 0i64;
+        for _ in 0..100 {
+            let mut fed = std::collections::BTreeMap::<u32, i64>::new();
+            for (c, &r) in w.view.runoff.iter().enumerate().filter(|x| *x.1 > 0) {
+                for &(reach, f) in &w.split[c] {
+                    *fed.entry(reach).or_default() += (r as u64 * f as u64 >> 16) as i64;
+                }
+            }
+            n += std::hint::black_box(fed.len()) as i64;
+        }
+        println!("a landing's hand-over: {:.1} us ({} reaches fed); {units} units handed over 2000 ticks", t.elapsed().as_secs_f64() * 1e4, n / 100);
     }
 
     /// The weather follows the clock a step at a time, shows a job only when it is due, and two runs of the

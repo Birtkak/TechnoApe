@@ -455,8 +455,9 @@ impl Body {
         if sea.is_some_and(|s| s.0 >= top) {
             return sea;
         }
-        let u = U as f64;
-        let river = (w.q > 0.0).then(|| (w.q as f64 * u / 60.0, w.fall as f64 * u, w.gain as f64 * u / 60.0));
+        // generation carries the dry-weather base of the flow; the rain brings the rest (W5, ADR 0059)
+        let (u, q) = (U as f64, U as f64 / 60.0 * crate::weather::BASE);
+        let river = (w.q > 0.0).then(|| (w.q as f64 * q, w.fall as f64 * u, w.gain as f64 * q));
         Some((top, w.reach, river))
     }
     /// The surface radius at face point (i, j) in columns, d its direction, for chunks of `level`: from the
@@ -993,6 +994,12 @@ impl Ground for Solid<'_> {
         // reaches are Terra's baked map's (Luna has none); the map's NONE (to the sea) is the sea's account
         let r = self.bodies[0].baked.as_ref().and_then(|b| b.map.lines.reaches.get(acct as usize));
         r.map_or((crate::liquid::SEA, 0.0), |r| (r.down, r.hold as f64))
+    }
+    fn base(&self, acct: u32) -> f64 {
+        // a river reach's generated flow where it leaves (its last segment's), the dry-weather base, units a second
+        let Some(l) = self.bodies[0].baked.as_ref().map(|b| &b.map.lines) else { return 0.0 };
+        let q = l.reaches.get(acct as usize).filter(|r| !r.lake).and_then(|r| r.segs.last()).map_or(0.0, |&k| l.segs[k as usize].q[1] as f64);
+        q * crate::weather::BASE * U as f64
     }
     fn neighbours(&self, c: Col) -> [Option<Col>; 4] {
         let n = self.bodies[c.body() as usize].n;

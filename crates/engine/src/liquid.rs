@@ -126,6 +126,11 @@ pub trait Ground {
     fn down(&self, _acct: u32) -> (u32, f64) {
         (SEA, 0.0)
     }
+    /// Reach `acct`'s generated (dry-weather) flow, units a second (0: none, as a lake's). Live water upstream
+    /// is poured the rain's flow (`reach_flow`) on top, at this flow's share per column.
+    fn base(&self, _acct: u32) -> f64 {
+        0.0
+    }
 }
 
 /// `Ground::reach` and `Ground::river` of column c, from `cache` or asked once.
@@ -249,9 +254,14 @@ pub struct Liquids {
     pub reach_extra: std::collections::BTreeMap<u32, i64>,
     /// Water rain brought into the reaches (`rain`): counted, as water carried in.
     pub rained: i64,
+    /// The rain each reach holds (W5, ADR 0059): kept apart from `reach_extra`, which also carries what the
+    /// reach lends its live water and gets back, so the rain's flow (`reach_flow`) never feeds on itself. Live
+    /// water upstream is poured it on top of generation's dry-weather base; the rest runs down to the sea.
+    pub rain_held: std::collections::BTreeMap<u32, i64>,
     /// Work done, for the stats line and the tests.
     pub stepped: u64,
-    steps: u64,
+    /// Steps taken: `settle` and `run_reaches` run on its multiples, so a save keeps it (W5).
+    pub steps: u64,
     epoch: u32,
 }
 
@@ -316,12 +326,16 @@ impl Liquids {
     /// The water that differs from the seed's: changed only by water carried in or out (a bucket, creative,
     /// later rain and steam), never by flowing (ADR 0020).
     pub fn counted(&self) -> i64 {
-        self.total() - self.gen_total + self.sea_extra + self.reach_extra.values().sum::<i64>() - self.rained
+        self.total() - self.gen_total + self.sea_extra + self.reach_extra.values().sum::<i64>() + self.rain_held.values().sum::<i64>() - self.rained
     }
-    /// Rain (or a spring) brings `units` into reach `acct`'s open water; it runs on down like any water the
-    /// reach took in. shortcut: W3's air grid does not call it yet; till then a reach's runoff is the bake's.
+    /// Rain (or a spring) brings `units` into reach `acct` (`rain_held`; W5: the air's runoff, `Weather::tick`):
+    /// it raises the reach's live water and runs on down to the sea.
     pub fn rain(&mut self, acct: u32, units: i64) {
-        self.book(acct, units);
+        if acct == SEA {
+            self.sea_extra += units;
+        } else if units != 0 {
+            *self.rain_held.entry(acct).or_default() += units;
+        }
         self.rained += units;
     }
     fn book(&mut self, acct: u32, units: i64) {
@@ -885,12 +899,29 @@ impl Liquids {
             *self.reach_extra.get_mut(&a).unwrap() -= out;
             self.book(down, out);
         }
+        // the rain the reaches hold, by the same linear store, into the rain of the reach below
+        let accts: Vec<u32> = self.rain_held.keys().rev().copied().collect();
+        for a in accts {
+            let x = self.rain_held[&a];
+            if x == 0 {
+                self.rain_held.remove(&a);
+                continue;
+            }
+            let (down, hold) = g.down(a);
+            let out = if hold <= 1.0 { x } else { x.signum() * ((x.abs() as f64 / hold) as i64).max(1) };
+            *self.rain_held.get_mut(&a).unwrap() -= out;
+            if down == SEA {
+                self.sea_extra += out;
+            } else {
+                *self.rain_held.entry(down).or_default() += out;
+            }
+        }
     }
 
-    /// The flow reach `acct` carries over its generated one, units a second: what its open water took in over
-    /// the time it holds it (a wheel's read: one lookup).
+    /// The flow reach `acct` carries over its generated (dry-weather) one, units a second: the rain it holds
+    /// over the time it holds it (a wheel's read: one lookup).
     pub fn reach_flow(&self, g: &impl Ground, acct: u32) -> f64 {
-        let x = self.reach_extra.get(&acct).copied().unwrap_or(0) as f64;
+        let x = self.rain_held.get(&acct).copied().unwrap_or(0).max(0) as f64;
         x / g.down(acct).1.max(1.0)
     }
 
@@ -975,6 +1006,7 @@ impl Liquids {
             let mut sea = None;
             let mut grow: Vec<Col> = Vec::new();
             let mut feed: Vec<(i64, u32)> = Vec::new();
+            let mut rainfed: Vec<(i64, u32)> = Vec::new();
             for d in g.neighbours(c).into_iter().flatten().filter(|d| !self.cols.contains_key(d)) {
                 let (lo, hi) = *self.gen_at.entry(d).or_insert_with(|| g.generated(d));
                 match open.map(|a| &self.nodes[a as usize]) {
@@ -989,8 +1021,15 @@ impl Liquids {
                             if n.surface() > t + SEA_DH {
                                 grow.push(d);
                             } else if let (acct, Some((q, grad, _))) = river_of(&mut self.river_at, g, d) {
-                                // its share of the reach's flow: all of it straight downstream, none across
-                                feed.push(((q * ((hi - t) as f64 / grad.max(1.0)).min(1.0)).round() as i64, acct));
+                                // its share of the reach's flow: all of it straight downstream, none across; the
+                                // dry-weather base from the reach's account, and the rain's flow on top from its rain
+                                let share = q * ((hi - t) as f64 / grad.max(1.0)).min(1.0);
+                                feed.push((share.round() as i64, acct));
+                                let base = g.base(acct);
+                                if base > 0.0 {
+                                    // up, so light rain on a small river is poured too (capped by what the reach holds)
+                                    rainfed.push(((share * self.reach_flow(g, acct) / base).ceil() as i64, acct));
+                                }
                             }
                         } else if hi < t || (n.surface() - t).abs() < SEA_DH {
                             sea = Some((t, river_of(&mut self.river_at, g, d).0));
@@ -1026,6 +1065,14 @@ impl Liquids {
                 for (q, acct) in feed {
                     self.nodes[a as usize].water += q;
                     self.book(acct, -q);
+                }
+                for (q, acct) in rainfed {
+                    let held = self.rain_held.get_mut(&acct).map_or(0, |x| *x);
+                    let q = q.min(held).max(0);
+                    if q > 0 {
+                        self.nodes[a as usize].water += q;
+                        *self.rain_held.get_mut(&acct).unwrap() -= q;
+                    }
                 }
             }
             if sea.is_none() && self.cols[&c].len() > 0 && g.neighbours(c).into_iter().flatten().all(|d| self.cols.contains_key(&d)) {
@@ -1350,6 +1397,9 @@ pub mod test_ground {
         }
         fn down(&self, acct: u32) -> (u32, f64) {
             if acct == 0 { (1, 10.0) } else { (SEA, 5.0) }
+        }
+        fn base(&self, _acct: u32) -> f64 {
+            Q0
         }
         fn river(&self, c: Col) -> Option<(f64, f64, f64)> {
             let (lo, hi) = self.generated(c);
@@ -1721,6 +1771,64 @@ mod tests {
         }
         let t = until_forgotten(&mut w, &g, 60 * 400, 0).unwrap_or_else(|| panic!("{} columns still stored, {:.4} off", w.stored(), off(&g, &w)));
         println!("the dam's wave was live {:.1} s", t as f64 / 60.0);
+    }
+
+    /// Rain raises a river's live water (W5, ADR 0059): the open river pours in its dry-weather base plus the
+    /// flow of the rain its reach holds, which it uses up, so a dam's pond fills faster after rain.
+    #[test]
+    fn rain_fills_a_dams_pond_faster() {
+        let pond = |rain: i64| {
+            let mut g = Channel::new(200, 0.02, 1.5, 0.0);
+            let mut w = Liquids::default();
+            let (xd, top) = (100, (g.level(100) / U) as i32 + 3);
+            for y in 2..2 + W {
+                let z = g.gen_floor(xd, y)..top;
+                g.set(&mut w, xd, y, z, true);
+            }
+            w.rain(0, rain);
+            // 4 s: before a heavy rain's backwater reaches the test channel's upstream edge, where no river pours
+            for t in 0..60 * 4 {
+                w.step(&g);
+                assert_eq!(w.counted(), 0, "the count at step {t}");
+            }
+            (w.total() - w.generated_total()) as f64 / U as f64
+        };
+        let (dry, wet) = (pond(0), pond((Q0 * 40.0) as i64));
+        assert!(wet > dry * 1.3, "the pond holds {wet:.1} blocks after rain, {dry:.1} without");
+    }
+
+    /// And a dry spell lowers it to the base: a patch a bucket woke stands over generation while its reach
+    /// holds rain, and once the rain has run off it settles to generation and is forgotten.
+    #[test]
+    fn rain_raises_a_live_river_and_a_dry_spell_lowers_it_to_the_base() {
+        let run = |rain: i64| {
+            let g = Channel::new(160, 0.02, 1.5, 0.0);
+            let mut w = Liquids::default();
+            for y in 3..5 {
+                w.pour(&g, col(60, y), (g.level(60) / U) as i32, U);
+            }
+            w.rain(0, rain);
+            let mut high = 0.0f64;
+            for t in 0..60 * 3 {
+                w.step(&g);
+                assert_eq!(w.counted(), 2 * U, "the count at step {t}");
+                // the water standing over generation, block-seconds: the bucket's, and what the rain raised
+                high += (w.total() - w.generated_total()) as f64 / U as f64 / 60.0;
+            }
+            let gone = until_forgotten(&mut w, &g, 60 * 600, 2 * U);
+            // the rain left runs on down its reaches to the sea, waking nothing
+            for _ in 0..60 * 200 {
+                w.step(&g);
+            }
+            assert_eq!((w.stored(), w.counted()), (0, 2 * U));
+            (high, gone, w.rain_held.values().sum::<i64>())
+        };
+        // rain that triples the reach's flow at first (its hold is 10 s): a heavier one spreads the patch to the
+        // test box's ends, where no river takes the water on
+        let (dry, wet) = (run(0), run((Q0 * 20.0) as i64));
+        assert!(wet.0 > dry.0 * 1.5, "the river stood {:.1} block-seconds over generation in rain, {:.1} without", wet.0, dry.0);
+        assert!(wet.1.is_some(), "after the rain the patch settles to generation and is forgotten");
+        assert_eq!(wet.2, 0, "the rain ran off");
     }
 
     /// What a reach's open water took in runs down its reaches to the sea, each holding it for its own time
