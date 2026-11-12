@@ -144,6 +144,23 @@ download, the bots, the soak and the replay agree. Its findings, and what was do
   back 5, 4, 3, 2, 1 and Luna's 102 by their hashes with no file on disk. Luna's 101 is not rebuilt: no save
   that names Luna's map reads with a 101 (the pre-merge 10s are refused).
 
+## A brighter Luna in Terra's night sky (the developer's follow-up, taste call 2)
+Luna is real ground lit by the sun, 0.65 white times its albedo, with no exposure that adapts to the night: a
+full moon came out at a luma of about 125 of 255, grey. `shader.wgsl` `moon_gain` multiplies the sunlight on
+Luna (the copper of a lunar eclipse with it, so an eclipse keeps its ratio to a full moon) by
+**`MOON_NIGHT_GAIN` = 2.6**, the developer's to tune, only when the camera is in another body's air and that
+body's night (faded in by the sun's height from 0.05 to -0.1). By day, from space, in orbit round Luna and
+standing on it the gain is 1. Nothing else changes: Luna's size, its phases, the moonlight on Terra's ground
+(the CPU's `moon_col`), Terra's own light (its bounce rays never meet Luna).
+
+| Check | Result |
+|---|---|
+| Full moon from Terra, fov 30 (`out/moon/fullmoon-fov30-*.png`) | brightest 40 pixels: luma 125 old, 242 new; the highlands read white, the maria still grey |
+| A lunar month at one hour (`out/moon/lunar-month.png`, old over new, a day a frame) | the phases keep their shape; luma 115 to 139 old, 231 to 252 new on the 7 nights it is up; the other 9 days, ground, the same |
+| Luna from its low orbit, and Terra from Luna's ground | the same as main's code: 0.31 % and 0.0 % of pixels differ by more than 8 of 255, as two runs of one binary do (0.42 %); mean luma 32.02 both |
+| GPU, `quick=1`, three runs each, old and new in turn: `stand` / `stand` at a full moon / `orbit` | p50 1.305 / 1.190 / 1.461 ms old, 1.318 / 1.184 / 1.397 new; p99 the same to 0.01 ms. One uniform branch and a smoothstep per sunlit pixel; no CPU change |
+| Review | a fresh reviewer: no defect. Notes left: the ambient term and the metal glint are not raised, so Luna's contrast grows a little; a bright rock could clip to white (the post pass's shoulder rolls it off) |
+
 ## Consequences
 - W4's ore bodies and material ledger should count Luna's iron lenses and its KREEP province the same way.
 - `Ev::Start` should name Luna's map when recordings next change.
