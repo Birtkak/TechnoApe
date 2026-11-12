@@ -81,7 +81,26 @@ pub enum ToClient {
     /// The live air where this player stands (W3, `weather::Weather::here`), every `AIR_EVERY` ticks on a
     /// planet whose map keeps a climate.
     Air(crate::weather::Here),
+    /// The creature kinds by index (rows of `data/creatures.toml`), once on join (ADR 0083).
+    Kinds(Vec<String>),
+    /// The animals near this player that are new to it or changed, and those it no longer sees (ADR 0083).
+    Animals { seen: Vec<Animal>, gone: Vec<u32> },
 }
+
+/// An animal as a client sees it (ADR 0083): `kind` indexes `ToClient::Kinds`, `pos` its feet in body 0's frame,
+/// `act` its `herds::Mind` as a number, `call` counts its calls (the voice plays when it changes).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct Animal {
+    pub id: u32,
+    pub kind: u16,
+    pub pos: [f64; 3],
+    pub fwd: [f32; 3],
+    pub act: u8,
+    pub call: u8,
+}
+
+/// A client is told of the animals this near (m).
+pub const SEE: f64 = 80.0;
 
 /// Ticks between the `ToClient::Air` a player is sent (2 s).
 pub const AIR_EVERY: u64 = 40;

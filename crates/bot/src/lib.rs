@@ -83,12 +83,15 @@ pub struct Bot {
     air: Option<engine::weather::Here>,
     idle_until: Option<Instant>,
     start: Instant,
+    /// The creature kinds by index and the animals the server has this bot see (ADR 0083).
+    pub kinds: Vec<String>,
+    pub animals: std::collections::BTreeMap<u32, engine::net::Animal>,
 }
 
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, seq: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now() }
+        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, seq: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), kinds: Vec::new(), animals: Default::default() }
     }
 
     fn feet(&self) -> DVec3 {
@@ -135,6 +138,13 @@ impl Bot {
                 // survival can get it there
                 Recv::Msg(ToClient::Vitals { dead: Some(_), .. }) => self.link.send(ToServer::Respawn),
                 Recv::Msg(ToClient::Air(h)) => self.air = Some(h),
+                Recv::Msg(ToClient::Kinds(k)) => self.kinds = k,
+                Recv::Msg(ToClient::Animals { seen, gone }) => {
+                    for id in gone {
+                        self.animals.remove(&id);
+                    }
+                    self.animals.extend(seen.into_iter().map(|a| (a.id, a)));
+                }
                 Recv::Msg(ToClient::Chat(t)) => self.notes.push(format!("{{\"bot\":{:?},\"chat\":{t:?}}}", self.name)),
                 Recv::Msg(ToClient::Water(v)) => {
                     if let Some(w) = self.world.as_mut() {
@@ -208,7 +218,7 @@ impl Bot {
             }
             Cmd::Report => {
                 return Some(format!(
-                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{},\"air\":{}}}",
+                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{},\"air\":{},\"animals\":{}}}",
                     self.name,
                     self.start.elapsed().as_secs_f64(),
                     self.pos.x,
@@ -217,13 +227,26 @@ impl Bot {
                     self.players,
                     self.edits_applied,
                     self.refused,
-                    self.air.map_or("null".into(), |a| format!("{{\"temp\":{:.2},\"rain_mm_h\":{:.3},\"cover\":{:.2},\"wind\":[{:.2},{:.2}]}}", a.temp, a.rain, a.cover, a.wind[0], a.wind[1]))
+                    self.air.map_or("null".into(), |a| format!("{{\"temp\":{:.2},\"rain_mm_h\":{:.3},\"cover\":{:.2},\"wind\":[{:.2},{:.2}]}}", a.temp, a.rain, a.cover, a.wind[0], a.wind[1])),
+                    self.animals_json()
                 ));
             }
             Cmd::Say(t) => self.link.send(ToServer::Chat(t.clone())),
             Cmd::Quit => {}
         }
         None
+    }
+
+    /// The animals it sees (ADR 0083): how many, and the nearest five with kind, distance and what they do.
+    pub fn animals_json(&self) -> String {
+        const ACTS: [&str; 5] = ["stand", "graze", "wander", "flee", "sleep"];
+        let mut near: Vec<(f64, &engine::net::Animal)> = self.animals.values().map(|a| ((DVec3::from_array(a.pos) - self.pos).length(), a)).collect();
+        near.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let list: Vec<String> = near.iter().take(5).map(|(d, a)| {
+            let kind = self.kinds.get(a.kind as usize).map_or("?", |k| k.as_str());
+            format!("{{\"id\":{},\"kind\":{kind:?},\"d\":{d:.1},\"act\":{:?}}}", a.id, ACTS.get(a.act as usize).unwrap_or(&"?"))
+        }).collect();
+        format!("{{\"seen\":{},\"nearest\":[{}]}}", self.animals.len(), list.join(","))
     }
 
     /// Runs the script at TICK_HZ, then commands from `live` as they come (none: stop after the script),

@@ -135,6 +135,37 @@ fn walk_into(l: &mut Loaded, c: &engine::creatures::Creature, speed: Option<f32>
     l.scale = c.scale;
 }
 
+/// An animal to draw (ADR 0083): its model, what it does (`herds::Mind` as a number), its feet and look in
+/// body 0's frame, its row's scale.
+pub struct Beast {
+    pub id: u32,
+    pub model: String,
+    pub act: u8,
+    pub pos: DVec3,
+    pub fwd: DVec3,
+    pub scale: f32,
+}
+
+/// The clip each `herds::Mind` plays, by its number: stand, graze, wander, flee, sleep.
+pub const ACT_CLIPS: [&str; 5] = ["a.idle", "a.eat", "a.walk", "a.run", "a.idle"];
+
+/// Every creature row's clips for live animals on its model (ADR 0083): `a.idle`, `a.eat`, `a.walk` at its walk
+/// speed and `a.run` at its run speed. A row the models refuse is skipped (its animals stand unanimated).
+fn animal_clips(list: &mut [Loaded], text: &str) {
+    for c in engine::creatures::rows(text).unwrap_or_default() {
+        let Some(l) = list.iter_mut().find(|l| l.name == c.model) else { continue };
+        if c.check(Some(&l.model), &|_| true).is_err() {
+            continue;
+        }
+        let mut clips = vec![engine::creatures::idle(&l.model, &c), engine::creatures::act(&l.model, &c, "eat"), engine::creatures::walk(&l.model, &c, c.walk_speed), engine::creatures::walk(&l.model, &c, c.run_speed)];
+        for (k, n) in clips.iter_mut().zip(["a.idle", "a.eat", "a.walk", "a.run"]) {
+            k.name = n.into();
+        }
+        l.model.clips.retain(|k| !k.name.starts_with("a."));
+        l.model.clips.extend(clips);
+    }
+}
+
 /// One draw: a part's quads for a run of pieces.
 pub struct Draw {
     pub quads: u32,
@@ -196,9 +227,11 @@ impl Models {
             let mut l = load_keeping(d, &effects, &sounds, &mut kept.borrow_mut());
             // (the spec is taken out first: the lock is never held over the reading, nor a panic here left in it)
             let spec = creature.lock().ok().and_then(|g| g.clone());
+            let rows = std::fs::read_to_string("data/creatures.toml").unwrap_or_default();
             if let Some(spec) = &spec {
-                creature_walk(&mut l, spec, &std::fs::read_to_string("data/creatures.toml").unwrap_or_default());
+                creature_walk(&mut l, spec, &rows);
             }
+            animal_clips(&mut l, &rows);
             let any = !l.is_empty();
             (l, any)
         });
@@ -344,7 +377,7 @@ impl Models {
     /// camera's frame (frame.rs); `eye`: the camera's place, look and up in body `cf`'s frame; `hand`: the
     /// block in hand by name, drawn at the lower right when a model has its name.
     #[allow(clippy::too_many_arguments)]
-    pub fn frame(&mut self, world: &World, cams: &[(DVec3, DMat3)], cf: usize, eye: (DVec3, DVec3, DVec3), t: f64, hand: Option<&str>, fx: &mut crate::fx::Fx, audio: &mut crate::audio::Audio) {
+    pub fn frame(&mut self, world: &World, cams: &[(DVec3, DMat3)], cf: usize, eye: (DVec3, DVec3, DVec3), t: f64, hand: Option<&str>, herd: &[Beast], fx: &mut crate::fx::Fx, audio: &mut crate::audio::Audio) {
         self.pieces.clear();
         self.draws.clear();
         self.lamps.clear();
@@ -503,6 +536,23 @@ impl Models {
                 let (c, t) = posed.get(b).copied().unwrap_or((idle(m), t));
                 inst[m].push((c, t, x, b.body as u32, 1.0));
             }
+        }
+        // the animals (ADR 0083): the clip of what each does, each a little out of step with the others; the
+        // model's floor centre on its feet, its +z along its look
+        for a in herd {
+            let Some(m) = by_name(&a.model) else { continue };
+            let up = (a.pos - world.bodies[0].centre).normalize_or(DVec3::Z);
+            let z = (a.fwd - up * a.fwd.dot(up)).normalize_or(up.any_orthonormal_vector());
+            let x = up.cross(z);
+            let o = a.pos - (x + z) * 0.5;
+            let (cam, turn) = cams[0];
+            if (o - cam).length() > NEAR_M {
+                continue;
+            }
+            let clips = &self.list[m].0.model.clips;
+            let c = clips.iter().position(|k| k.name == ACT_CLIPS[(a.act as usize).min(4)]).or_else(|| idle(m));
+            let f = (DMat4::from_mat3(turn) * DMat4::from_cols(x.extend(0.0), up.extend(0.0), z.extend(0.0), (o - cam).extend(1.0))).as_mat4();
+            inst[m].push((c, t + a.id as f64 * 0.37, f, 0, a.scale));
         }
         // the effects' particles with a model look: at `size` times the model, resting on its first part's foot
         for (name, p) in fx.models() {

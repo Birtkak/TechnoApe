@@ -47,7 +47,9 @@ fn main() {
         Some(p) => {
             let s = server::save::Save::read(p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
             eprintln!("[technoape-server] carrying on from {save} ({} edited cells)", s.edits.len());
-            Server::from_save(s, rx)
+            let mut s = Server::from_save(s, rx);
+            s.read_herds(p);
+            s
         }
         None => {
             let planet = num("planet", engine::bodies::BODIES[0].n);

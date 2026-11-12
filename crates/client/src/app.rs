@@ -67,6 +67,11 @@ pub(crate) struct App {
     pub(crate) last_move: Instant,
     pub(crate) edits_applied: u64,
     pub(crate) players: usize,
+    /// The creature kinds by the server's index: their model, voice and scale (rows of data/creatures.toml),
+    /// and the animals it has this client see, each with where it was before its last view and when that came
+    /// (drawn lerped between them over a tick, ADR 0083).
+    pub(crate) kinds: Vec<Option<(String, String, f32)>>,
+    pub(crate) animals: std::collections::BTreeMap<u32, (engine::net::Animal, DVec3, Instant)>,
     pub(crate) streamer: Streamer,
     pub(crate) run: String,
     /// The world time at the run's start: time= seconds, by default 0 (9 am at the spawn), for the orbit run

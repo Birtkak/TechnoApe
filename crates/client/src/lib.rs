@@ -314,7 +314,9 @@ pub fn main() {
                     // a save this build cannot read stops the game rather than being overwritten
                     let s = server::save::Save::read(p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
                     eprintln!("[technoape] carrying on from {} ({} edited cells)", p.display(), s.edits.len());
-                    Server::from_save(s, accept_rx)
+                    let mut s = Server::from_save(s, accept_rx);
+                    s.read_herds(p);
+                    s
                 }
                 None => Server::baked(planet, moon, seed, accept_rx),
             };
@@ -505,6 +507,8 @@ pub fn main() {
         last_move: Instant::now(),
         edits_applied: 0,
         players: 0,
+        kinds: Vec::new(),
+        animals: Default::default(),
         streamer,
         run,
         start: Instant::now(),
