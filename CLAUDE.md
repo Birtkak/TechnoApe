@@ -56,7 +56,8 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 
 - Rust 1.99.1 (rustup) with `CARGO_HOME=~/Tools/rust/cargo` and `RUSTUP_HOME=~/Tools/rust/rustup`; add
   `~/Tools/rust/cargo/bin` to PATH. wgpu 30, winit 0.30 (versions from the engine spike).
-- Release builds for any performance number: fat LTO, one codegen unit, `target-cpu=native`.
+- Release builds for any performance number: fat LTO, one codegen unit, `target-cpu=native`. The one exception:
+  the gate's speed guard runs the `play` build (no LTO) against its own baseline, so the gate needs no fat-LTO link.
 - Libraries per system are chosen when the system is built, each in its own ADR.
 - Workspace: `crates/engine` (the Pillars of Simulation Engine: world on the cube-sphere grid, meshing, streaming, the player protocol; no
   window or GPU), `crates/server` (the authoritative world; binary `technoape-server`), `crates/bot` (windowless scripted
