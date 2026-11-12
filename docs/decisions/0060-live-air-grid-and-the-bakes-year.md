@@ -33,10 +33,23 @@ minute day and a 54-day year. Two models of one planet cannot agree on rain.
 - **The spike** (`prototypes/air`, `mode=tick` and `mode=year`): a live step on Terra costs 4.43 ms on one
   thread and 1.27 ms on 12. On the 8 km planet it is 17.5 and 4.4 ms. Handing the state to a worker and
   taking it back costs the server's thread under 10 µs.
-- **The bake's air** (`bake::air`): the sun is `Sky::sun_dir` with the sky's tilt. `Air::year` runs 10 days
-  held at the spring equinox, then one year of 10 s steps from world time 0, and returns the year's means
-  (potential temperature, the day's swing, rain). It ends at the year's turn, so its last state is the
-  weather at world time 0.
+- **The bake's air** (`bake::air`): the sun is `Sky::sun_dir` with the sky's tilt (25 degrees, ADR 0055's
+  20 raised on the developer's trial). `Air::year` runs the last 18 days of the year before, then one year of
+  10 s steps from world time 0, and returns the year's means (potential temperature, the day's swing, rain).
+  It ends at the year's turn, so its last state is the weather at world time 0. The warm-up first held the sun
+  at the equinox: with seasons in the upper air, its year began off the cycle and the next year rained up to
+  36 % more in the dry biomes (the rain check, seen failing).
+- **The seasons reach the whole air** (the developer: "stay close to realism"):
+  - The upper layers cool toward the day's mean sunlight at their latitude and the sun's declination
+    (`balance`), not toward the equinox's. With that fixed, the spawn's seasons were ±3 K.
+  - The wind bands move toward the sun by 0.4 of its declination (none at the poles), as the jet and the
+    trades' meeting do, and blow `1 - sin(lat) sin(decl)` as hard: about 1.3x in the winter hemisphere's
+    middle latitudes, 0.7x in its summer.
+  - `season_lag` can delay both behind the sun; it is 0. A month's lag on top of the ground's and the sea's
+    heat made spring barely warmer than winter (3.9 C against 1.4 at the spawn's noon).
+  - A test holds the sun at each solstice for 10 days on the small planet: at 45 N the top layer is 39 K
+    warmer in summer (1.7 K before, seen failing) and the westerlies blow 5x harder in winter (the same
+    before).
 - **The map, version 3** (`bake::Climate`): per air column (128 m), the ground and water share, the year's
   three means, and the grid's state at the year's end.
   - A cell's baked temperature is `Map::temp`. It applies the bake's own smoothing (`land::upsample_at`,
@@ -67,8 +80,8 @@ minute day and a 54-day year. Two models of one planet cannot agree on rain.
 - **The rain check** (`weather::tests`): the bake's mean rain per biome against the next year of live
   weather, each smoothed to the map's cells the same way. The tolerance is `RAIN_TOLERANCE`, 5 %.
   - The tests' 256-column planet is within 0.1 %.
-  - Terra (seed 1337, `cargo test --release -p engine -- --ignored terra_rain`) is within 1.0 % in every
-    biome. Desert is +1.0 %, dry scrub +0.9 %, the rest under 0.5 %.
+  - Terra (seed 1337, `cargo test --release -p engine -- --ignored terra_rain`) is within 0.3 % in every
+    biome.
   - The test failed at the 5 s step and tolerance 0.
 - **Tests run the engine at opt-level 2** (`[profile.test.package.engine]`). A small planet's bake now runs
   a year: the bake tests took 2.5 minutes unoptimised and take 31 s now. The floats give the same bits.
@@ -85,8 +98,12 @@ minute day and a 54-day year. Two models of one planet cannot agree on rain.
 - **The 8 km planet:** 0.09 ms a tick on one thread at this step.
 - **Soak:** seed 1 gives `eca98f7116931379` twice. The gate's 3-minute soak and its replay agree:
   `b774f156722fc5ac`, at all 180 checks.
-- **The spawn's live air at noon** (Terra, 1337): spring 13.4 C, summer 15.9 C, autumn 14.0 C, winter
-  10.6 C. That is about ±3 K, milder than ADR 0055's F3 formula (±7 K at 30 degrees).
+- **The spawn's live air at noon** (Terra, 1337, about 32 degrees north): spring 9.4 C, summer 27.8 C,
+  autumn 16.7 C, winter -2.2 C. Before the seasonal upper air it was 13.4, 15.9, 14.0 and 10.6 C (±3 K) at
+  20 degrees of tilt, and 13.3, 16.3, 14.0 and 9.7 at 25. Now it is ±15 K, like a continent's middle
+  latitudes (ADR 0055's F3 formula gives ±7 K).
+- **The seasons' CPU:** the sunlight balance and the moving bands add 0.8 ms to a step of Terra's grid on one
+  thread (5.7 to 6.2 ms in all; 1.5 to 1.8 ms on 12). That is 0.004 ms a tick.
 
 ## Review (CLAUDE.md principle 12)
 A fresh subagent read the engine and server diff. It found no nondeterminism, deadlock or misread format.
@@ -108,6 +125,19 @@ It checked the job scheme, the save versions 4 to 8, the map versions 1 to 3, th
 - **Recordings made before this change** (`out/rec`) can misread their `Loaded` save. Recordings are
   per-session. Left.
 
+A second fresh reviewer read the seasons' diff (the upper air's balance, the moving bands, the warm-up, the
+tilt). It found the insolation right at polar day, polar night, the poles and the equinox, the signs toward
+the sun, and nothing nondeterministic. Its findings:
+
+- **The map's version stayed 3** although the bake's climate changed. Version 3 never left this branch, and
+  the only version 3 maps were baked after the change. Left at 3; it moves on once merged.
+- **18 days of warm-up from an equinox guess** may not settle the seas and snow. Terra's rain check is within
+  0.3 % (36 % with the held warm-up), so the year closes on itself. Left.
+- **Trigonometry per step** where the bands were precomputed: 0.8 ms a step on one thread, measured above.
+  Left.
+- **Platform maths** (`asin`, `acos` in f32) may differ between a Windows and a Linux bake. It was so before
+  (f64 `cos`). Left.
+
 ## Consequences
 - **The biomes moved a little** with the seasonal climate. The old fixed views differ from their baselines
   by 5 to 59 % of pixels (seam, corner, lod, high, orbit); coast is unchanged. They wait for the developer,
@@ -123,7 +153,7 @@ It checked the job scheme, the save versions 4 to 8, the map versions 1 to 3, th
   - rain on awake chunks;
   - air.md's yearly swing, rain per season and snow days kept by the bake.
 - **Open taste calls for the developer:**
-  - the tilt (20 degrees);
-  - how strong the seasons are (the live air gives about ±3 K at the spawn, `SEASON_K` ±7 K in F3's
-    fallback);
+  - the tilt (25 degrees);
+  - how strong the seasons are (the live air gives about ±15 K at the spawn, `SEASON_K` ±7 K in F3's
+    fallback; `season_shift` and `season_wind` set the winds');
   - each biome's look after the shift.

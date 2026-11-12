@@ -60,12 +60,12 @@ walking a river;
 
 ### W3. Air, climate, seasons, biomes
 **Status (2026-11-12, ADR 0042, 0043, 0055):** the climate and the fifteen biomes are baked; the sky has its
-tilt (20 degrees, open) and seasons over the 54-day year, `/time set summer` and the others, and F3 shows the
+tilt (25 degrees since ADR 0060, open) and seasons over the 54-day year, `/time set summer` and the others, and F3 shows the
 air's temperature (the biome's yearly mean with the season and hour on top). **Done (2026-11-12, ADR 0060):**
 the tick spike (`prototypes/air`), the bake's climate over a year with the sky's seasons, the map keeping its
 climate (each cell's baked temperature, map version 3), the live air grid on the server (10 s steps on a
 worker, in the save and the soak's hash, the air at a player's feet over the wire, runoff per column for W5),
-the rain check (Terra within 1 % per biome, tolerance 5 %) and four season views in `tests/views/`. Waiting:
+seasons through the whole air (the upper air's balance and the wind bands follow the sun; the spawn's noon -2 C in winter, 28 C in summer), the rain check (Terra within 0.3 % per biome, tolerance 5 %) and four season views in `tests/views/`. Waiting:
 the developer's look at the views (the old ones moved with the biomes) and the open taste calls below.
 Visible weather is the roadmap's next step.
 - **First the spike ADR 0010 already asks for:** the coarse air grid's tick cost on Terra (target under

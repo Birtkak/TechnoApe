@@ -18,6 +18,10 @@ Reference machine, release build, `out/.lock` held; the 4 km planet, seed 1337.
 | `fly` quick, p99 / max ms (reruns) | 3.68 / 5.97, 4.00 / 6.36 | 4.01 / 4.92 |
 | `sim` quick, tick p99 ms (baseline 1.41) | 1.74, 1.28 (one first run 4.95) | 1.88 |
 | soak, 50 bots, 1 min, seed 1 | `eca98f7116931379` twice | |
+| **seasons through the air** (tilt 25, moving bands): a step of Terra's grid, 1 / 12 threads | 5.7-6.2 / 1.5-1.8 ms; the sunlight balance 0.39 and the bands 0.43 ms of it on 1 thread | about 0.8 ms less |
+| that as CPU a tick, 1 thread | **+0.004 ms** | |
+| Terra's bake in the rain check (all threads, test build) | 62.4 s (18 warm-up days, was 10 held) | 48.9 s |
+| the gate after it: soak and replay | `552a8a6d9eb0e7a2`, 180 checks agree; stand p99 2.79, fly 6.00, sim 3.36 ms | |
 
 The full gate (`tools/check.sh`) passed tests, soak and replay (`b774f156722fc5ac`, 180 checks agree); its
 `stand` and `fly` each had one frame of 35 to 38 ms while its soak ran beside them, none on reruns alone. A

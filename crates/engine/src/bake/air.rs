@@ -61,6 +61,13 @@ pub struct Params {
     /// vapour rains out where the air should sink.
     pub band_u: [f32; LAYERS],
     pub band_v: [f32; LAYERS],
+    /// the seasons (ADR 0060): the bands' latitudes move this share of the sun's declination toward it (the
+    /// jet and the trades' meeting follow the sun)...
+    pub season_shift: f32,
+    /// ...and blow `1 - season_wind * sin(lat) * sin(declination)` as hard: harder in the winter hemisphere
+    pub season_wind: f32,
+    /// seconds the upper air's balance and the bands lag the sun (the oceans' heat; a month on Earth)
+    pub season_lag: f64,
     /// m/s of breeze per K of difference toward the warmer column (surface; the low layer returns half)
     pub thermal: f32,
     /// a height step of this many metres halves the surface wind across it
@@ -111,6 +118,9 @@ impl Default for Params {
             convect: 1.0 / 300.0,
             band_u: [3.0, 4.0, 6.0, 8.0],
             band_v: [1.5, 0.6, -0.09, -0.09],
+            season_shift: 0.4,
+            season_wind: 1.0,
+            season_lag: 0.0,
             thermal: 0.25,
             block_m: 12.0,
             wind_relax: 1.0 / 120.0,
@@ -136,8 +146,11 @@ struct Edge {
     normal: DVec3,
     /// the shared face's width and the distance between the centres, metres
     width: f32,
-    /// the band wind along a to b per layer, m/s, and how much of it the ground lets through
-    band: [f32; LAYERS],
+    /// the boundary's latitude, and the east and north components of its normal: the bands' wind along it
+    phi: f32,
+    east: f32,
+    north: f32,
+    /// how much of the band wind per layer the ground lets through
     gate: [f32; LAYERS],
 }
 
@@ -170,8 +183,6 @@ pub struct Air {
     pub wind: Vec<f32>,
     /// ground potential temperature, C
     pub tg: Vec<f32>,
-    /// the column's radiative balance by its latitude, C: what the upper layers cool toward
-    theta_ref: Vec<f32>,
     pub soil: Vec<u32>,
     pub snow: Vec<u32>,
     /// dirt that came down
@@ -275,20 +286,12 @@ impl Air {
                 let (e, nn) = east_north(mid);
                 let phi = mid.z.asin();
                 let width = ((p1 - p0).length() * r) as f32;
-                let mut band = [0f32; LAYERS];
                 let mut gate = [1f32; LAYERS];
-                for k in 0..LAYERS {
-                    // trades, westerlies, polar easterlies; toward the equator in the tropics, poleward in
-                    // the middle latitudes, back aloft
-                    let u = -p.band_u[k] as f64 * (3.0 * phi).cos();
-                    let v = -p.band_v[k] as f64 * (6.0 * phi).sin();
-                    band[k] = (e * u + nn * v).dot(along) as f32;
-                }
                 let (ga, gb) = (ground[a as usize].max(0.0), ground[b as usize].max(0.0));
                 gate[0] = 1.0 / (1.0 + (ga - gb).abs() / p.block_m);
                 let (ta, tb) = (thick[a as usize * LAYERS + 1], thick[b as usize * LAYERS + 1]);
                 gate[1] = (ta.min(tb) / (p.tops[1] - p.tops[0])).clamp(0.2, 1.0);
-                Edge { a, b, normal: along, width, band, gate }
+                Edge { a, b, normal: along, width, phi: phi as f32, east: e.dot(along) as f32, north: nn.dot(along) as f32, gate }
             })
             .collect();
         let mut deg = vec![0u32; n + 1];
@@ -307,15 +310,8 @@ impl Air {
                 fill[c as usize] += 1;
             }
         }
-        // a first guess: the ground at its daily-mean balance, softened toward the mean for the carry of heat
-        let tg: Vec<f32> = (0..n)
-            .map(|c| {
-                let s = p.s0 as f64 / std::f64::consts::PI * (lat[c] as f64).cos();
-                let alb = water[c] * p.alb_sea + (1.0 - water[c]) * p.alb_land;
-                let eq = (s as f32 * (1.0 - alb) * 0.8 - p.olr_a) / p.olr_b;
-                0.6 * eq + 0.4 * 10.0
-            })
-            .collect();
+        // a first guess: the ground at its daily-mean balance at the equinox
+        let tg: Vec<f32> = (0..n).map(|c| balance(&p, lat[c], water[c], 0.0)).collect();
         let mut theta = vec![0f32; n * LAYERS];
         let mut vap = vec![0u32; n * LAYERS];
         for c in 0..n {
@@ -348,7 +344,6 @@ impl Air {
             cloud: vec![0; n * LAYERS],
             dirt: vec![0; n * LAYERS],
             wind: vec![0.0; ne * LAYERS],
-            theta_ref: tg.clone(),
             tg,
             soil,
             snow: vec![0; n],
@@ -447,6 +442,12 @@ impl Air {
         sky.sun_dir(self.hold.map_or(self.t, |y| y + self.t.rem_euclid(DAY)))
     }
 
+    /// The sine of the declination the seasons answer to: the sun's `season_lag` ago, or the held day's.
+    pub fn season(&self) -> f32 {
+        let sky = crate::sky::Sky { planet_radius: 1.0, moon_radius: 0.0, moon_orbit: 0.0, sun_dist: 1.0, sun_radius: 0.0, tilt: self.tilt };
+        sky.sun_dir(self.hold.unwrap_or(self.t - self.p.season_lag)).z as f32
+    }
+
     /// The surface air's temperature at the column's mean ground, C.
     pub fn surface_t(&self, c: usize) -> f32 {
         self.theta[c * LAYERS] - self.cool[c * LAYERS]
@@ -489,9 +490,9 @@ impl Air {
     /// Passes 1 and 2: sunlight by the sun's height less cloud and reflection; the ground's balance; the
     /// ground warms the surface air; the upper layers relax toward a stable column.
     fn sun_ground(&mut self, dt: f32) {
-        let sun = self.sun_now();
+        let (sun, sd) = (self.sun_now(), self.season());
         let p = &self.p;
-        let (dir, water, area, snow, cloud, thick, re) = (&self.dir, &self.water, &self.area, &self.snow, &self.cloud, &self.thick, &self.theta_ref);
+        let (dir, water, area, snow, cloud, thick, lat) = (&self.dir, &self.water, &self.area, &self.snow, &self.cloud, &self.thick, &self.lat);
         self.tg.par_iter_mut().zip(self.theta.par_chunks_mut(LAYERS)).enumerate().for_each(|(c, (tg, th))| {
             let ctot: u32 = cloud[c * LAYERS..c * LAYERS + LAYERS].iter().sum();
             let per_m2 = ctot as f32 / area[c];
@@ -506,8 +507,9 @@ impl Air {
             let cap = w * p.cap_sea + (1.0 - w) * p.cap_land;
             *tg += dt * (s_abs - olr - h) / cap;
             th[0] += dt * h / (p.cap_air * thick[c * LAYERS]);
+            let re = balance(p, lat[c], w, sd);
             for k in 1..LAYERS {
-                th[k] += (re[c] + p.stable * k as f32 - th[k]) * (dt * p.relax_up);
+                th[k] += (re + p.stable * k as f32 - th[k]) * (dt * p.relax_up);
             }
         });
     }
@@ -517,15 +519,23 @@ impl Air {
         let p = &self.p;
         let (edges, theta) = (&self.edges, &self.theta);
         let r = (dt * p.wind_relax).min(1.0);
+        let sd = self.season();
+        let dec = sd.asin();
         self.wind.par_chunks_mut(LAYERS).zip(edges.par_iter()).for_each(|(w, e)| {
             let d = theta[e.b as usize * LAYERS] - theta[e.a as usize * LAYERS];
+            // trades, westerlies, polar easterlies, moved toward the sun (none at the poles) and harder in
+            // winter; toward the equator in the tropics, poleward in the middle latitudes, back aloft
+            let phi = e.phi - p.season_shift * dec * e.phi.cos();
+            let s = 1.0 - p.season_wind * e.phi.sin() * sd;
+            let (cu, sv) = (-(3.0 * phi).cos() * s * e.east, -(6.0 * phi).sin() * s * e.north);
             for k in 0..LAYERS {
                 let breeze = match k {
                     0 => p.thermal * d,
                     1 => -0.5 * p.thermal * d,
                     _ => 0.0,
                 };
-                let target = ((e.band[k] + breeze) * e.gate[k]).clamp(-12.0, 12.0);
+                let band = p.band_u[k] * cu + p.band_v[k] * sv;
+                let target = ((band + breeze) * e.gate[k]).clamp(-12.0, 12.0);
                 w[k] += (target - w[k]) * r;
             }
         });
@@ -749,21 +759,22 @@ pub struct Means {
 }
 
 impl Air {
-    /// The bake's climate (W3, `prototypes/air` README "The live grid's tick"): `spin` days at the spring
-    /// equinox from the first guess, then one year of `dt` steps from world time 0, whose means it returns. It
-    /// ends at the year's turn, so its state is the live grid's at world time 0.
+    /// The bake's climate (W3, `prototypes/air` README "The live grid's tick"): the last `spin` days of the
+    /// year before from the first guess (so the soil and snow come into the counted year from their season),
+    /// then one year of `dt` steps from world time 0, whose means it returns. It ends at the year's turn, so
+    /// its state is the live grid's at world time 0.
     pub fn year(&mut self, dt: f32, spin: usize) -> Means {
         let per_day = (DAY / dt as f64).round() as usize;
         let days = (crate::sky::YEAR / DAY).round() as usize;
         let n = self.n;
-        self.hold = Some(0.0);
+        (self.hold, self.t) = (None, -(spin as f64) * DAY);
         for d in 0..spin {
             super::within(d as f32 / (spin + days) as f32);
             for _ in 0..per_day {
                 self.step(dt);
             }
         }
-        (self.hold, self.t) = (None, 0.0);
+        self.t = 0.0;
         let (mut th, mut rain, mut swing) = (vec![0f64; n], vec![0f64; n], vec![0f64; n]);
         for d in 0..days {
             super::within((spin + d) as f32 / (spin + days) as f32);
@@ -788,6 +799,20 @@ impl Air {
             rain: (0..n).map(|c| (rain[c] / days as f64 / 4096.0 / self.area[c] as f64 * 1000.0) as f32).collect(),
         }
     }
+}
+
+/// A column's radiative balance, C: the day's mean sunlight at latitude `lat` with the sun's declination's
+/// sine `sd` (cos(lat) / PI of the sun at the equinox), softened toward the mean for the carry of heat. The
+/// upper layers cool toward it; it is the ground's first guess at the equinox.
+fn balance(p: &Params, lat: f32, water: f32, sd: f32) -> f32 {
+    let (sl, cl) = lat.sin_cos();
+    let cd = (1.0 - sd * sd).max(0.0).sqrt();
+    // the sun's hour angle at sunset: 0 in polar night, PI in polar day
+    let h0 = (-(sl * sd) / (cl * cd).max(1e-6)).clamp(-1.0, 1.0).acos();
+    let s = p.s0 / std::f32::consts::PI * (h0 * sl * sd + cl * cd * h0.sin());
+    let alb = water * p.alb_sea + (1.0 - water) * p.alb_land;
+    let eq = (s * (1.0 - alb) * 0.8 - p.olr_a) / p.olr_b;
+    0.6 * eq + 0.4 * 10.0
 }
 
 /// Move share `f` of layer `from`'s water and dirt to layer `to`, and mix in its heat by volume.
@@ -908,5 +933,32 @@ mod tests {
         };
         assert!(mean_east(0.0, 15.0) < -1.0, "trades {}", mean_east(0.0, 15.0));
         assert!(mean_east(35.0, 55.0) > 1.0, "westerlies {}", mean_east(35.0, 55.0));
+    }
+
+    /// The seasons reach the whole column (the upper air's balance follows the sun's declination, not only
+    /// the ground's), and the winds follow the sun: the westerlies blow harder in the winter hemisphere.
+    #[test]
+    fn summer_warms_the_whole_column_and_winter_drives_the_westerlies() {
+        let held = |y: f64| {
+            let mut a = small();
+            a.hold = Some(y);
+            for _ in 0..1800 {
+                a.step(10.0);
+            }
+            let band = |lo: f32, hi: f32| (0..a.n).filter(|&c| (lo..hi).contains(&a.lat[c].to_degrees())).collect::<Vec<usize>>();
+            let (north, south) = (band(35.0, 55.0), band(-55.0, -35.0));
+            let mean = |cs: &[usize], f: &dyn Fn(usize) -> f32| cs.iter().map(|&c| f(c)).sum::<f32>() / cs.len() as f32;
+            let up = mean(&north, &|c| a.theta[c * LAYERS + 3]);
+            let ground = mean(&north, &|c| a.surface_t(c));
+            (up, ground, mean(&north, &|c| a.surface_wind(c).0), mean(&south, &|c| a.surface_wind(c).0))
+        };
+        let year = crate::sky::YEAR;
+        let (summer, winter) = (held(0.25 * year), held(0.75 * year));
+        eprintln!("45 N summer {summer:?} winter {winter:?}");
+        assert!(summer.0 - winter.0 > 10.0, "the upper air at 45 N: summer {} winter {}", summer.0, winter.0);
+        assert!(summer.1 - winter.1 > 8.0, "the surface air at 45 N: summer {} winter {}", summer.1, winter.1);
+        // the north's westerlies in its winter, against its summer, and the south's the other way
+        assert!(winter.2 > 1.3 * summer.2, "north westerlies: winter {} summer {}", winter.2, summer.2);
+        assert!(summer.3 > 1.3 * winter.3, "south westerlies: its winter {} its summer {}", summer.3, winter.3);
     }
 }

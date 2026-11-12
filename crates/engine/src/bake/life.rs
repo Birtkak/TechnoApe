@@ -99,7 +99,7 @@ impl Default for LifeParams {
         LifeParams {
             air_cell_m: 128.0,
             air_dt: 10.0,
-            air_spin: 10,
+            air_spin: 18,
             pet_per_c: 0.02,
             wet_slope: 0.045,
             wet_flow: 0.003,

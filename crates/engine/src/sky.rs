@@ -24,9 +24,9 @@ pub const PERIOD: f64 = 432.0 * DAY;
 /// How much smaller the sun looks than the moon from the ground right under the moon: 5 %, as the Moon on a total
 /// eclipse is 3 to 6 % bigger than the Sun, so totality lasts about 2 s on the 4 km Terra (ADR 0041; 0.995 gave 0.2 s).
 pub const SUN_UNDER_MOON: f64 = 0.95;
-/// The lean of the planet's spin axis from the ecliptic's pole: the design's proposal, 20 degrees (worldgen.md;
+/// The lean of the planet's spin axis from the ecliptic's pole: 25 degrees (the developer tried it over the design's 20 for stronger seasons, ADR 0060; worldgen.md;
 /// an open taste call, ADR 0055). 0 is the sky before the seasons.
-pub const TILT: f64 = 20.0 * TAU / 360.0;
+pub const TILT: f64 = 25.0 * TAU / 360.0;
 /// How much warmer than its yearly mean a place is per unit of sin(latitude) sin(declination): 40 K makes the
 /// 45-degree latitudes swing some 10 K either way of the mean over the year at TILT (ADR 0055, open to taste).
 pub const SEASON_K: f64 = 40.0;
@@ -403,7 +403,7 @@ mod tests {
         // ADR (seasons): the spin axis tilted TILT, t = 0 the northern spring equinox
         let s = sky();
         let e = s.tilt.to_degrees();
-        assert!((e - 20.0).abs() < 1e-9, "the design's proposal");
+        assert!((e - 25.0).abs() < 1e-9, "the developer's tilt");
         for (t, decl) in [(0.0, 0.0), (YEAR / 4.0, e), (YEAR / 2.0, 0.0), (0.75 * YEAR, -e)] {
             assert!((s.declination(t).to_degrees() - decl).abs() < 0.05, "{t}: {}", s.declination(t).to_degrees());
             for lat in [0.0, 30.0, 60.0, -45.0] {
