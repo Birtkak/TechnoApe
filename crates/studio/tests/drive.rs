@@ -558,3 +558,22 @@ fn the_pattern_panel_picks_bricks_three_colours_and_a_size() {
     let out = Command::new(env!("CARGO_BIN_EXE_technoape-studio")).current_dir(&dir).arg("check=1").output().unwrap();
     assert!(out.status.success() && String::from_utf8_lossy(&out.stdout).contains("\"check\":\"ok\""), "{}", String::from_utf8_lossy(&out.stdout));
 }
+
+#[test]
+fn generate_variants_picks_a_set_and_a_variant_is_removed() {
+    // usability round step 3: a set is pending until Use this; the file is then 3 variants (48 px) wide
+    let dir = scratch("variants");
+    let tex = dir.join("data/textures/clay.png");
+    let line = studio(&dir, &["open=clay", "input=click @btn:pattern; click @btn:pat.use; click @btn:variants; click @wall:3; key Ctrl+S"]);
+    assert!(line.contains("\"undo\":[\"Start from pattern\"]"), "a picked set is only pending: {line}");
+    assert_eq!(png(&tex).0, 16, "pending is not saved");
+    let line = studio(&dir, &["open=clay", "input=click @btn:variants; click @wall:3; click @btn:wall.use; key Ctrl+S"]);
+    assert!(line.contains("\"undo\":[\"Generate variants\"]") && line.contains("\"unsaved\":[]"), "{line}");
+    assert_eq!(png(&tex).0, 48);
+    // the x on a variant that holds paint asks first; Remove takes it out, one undo step
+    let line = studio(&dir, &["open=clay", "input=click @variant.remove:2; key Ctrl+S"]);
+    assert_eq!(png(&tex).0, 48, "asked, not removed: {line}");
+    let line = studio(&dir, &["open=clay", "input=click @variant.remove:2; click @btn:variant.remove; key Ctrl+S"]);
+    assert!(line.contains("\"undo\":[\"Remove variant 2\"]"), "{line}");
+    assert_eq!(png(&tex).0, 32);
+}

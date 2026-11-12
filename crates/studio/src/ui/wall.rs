@@ -32,16 +32,17 @@ pub fn show_with<T: Clone>(ui: &mut Ui, wall: &mut Wall<T>, chosen: Option<usize
     ui.horizontal_wrapped(|ui| {
         ui.label(RichText::new("Variations").strong());
         ui.add_space(GAP);
-        ui.label(RichText::new("spread").small());
+        ui.label(RichText::new("How different").small());
         let r = ui.add(egui::Slider::new(&mut wall.spread, 0.05..=1.0).show_value(false));
-        if look::tip(r, "How far the candidates may go from the first one", "").changed() {
+        crate::drive::mark(ui.ctx(), "slider:spread", r.rect);
+        if look::tip(r, "From slight (left) to strong (right): how far the candidates may go from the first one", "").changed() {
             act = Act::Spread;
         }
         let r = ui.add_enabled(wall.can_go_back(), egui::Button::new("Back"));
-        if look::tip(r, "The wall before the last \"more like this\"", "").clicked() {
+        if look::tip(r, "The wall before the last \"More like this\"", "").clicked() {
             act = Act::Back;
         }
-        if look::tip(ui.button("Others"), "Other candidates around the same first one", "").clicked() {
+        if look::tip(ui.button("New batch"), "Other candidates around the same first one", "").clicked() {
             act = Act::Shuffle;
         }
     });
@@ -65,7 +66,7 @@ pub fn show_with<T: Clone>(ui: &mut Ui, wall: &mut Wall<T>, chosen: Option<usize
                     } else if resp.hovered() {
                         p.rect_stroke(r, 6.0, egui::Stroke::new(1.0, Color32::from_gray(120)), StrokeKind::Inside);
                     }
-                    let help = if i == 0 { "The one this wall was made around; a click takes it back" } else { "A click takes this one into the editor" };
+                    let help = if i == 0 { "As it is now: the one this wall was made around; a click takes it back" } else { "A click picks this one" };
                     if look::tip(resp, help, "").clicked() {
                         act = Act::Take(i);
                     }
@@ -78,11 +79,11 @@ pub fn show_with<T: Clone>(ui: &mut Ui, wall: &mut Wall<T>, chosen: Option<usize
                             }
                         }
                         if i == 0 && !play {
-                            look::weak(ui, "first");
+                            look::tip(look::weak(ui, "as now"), "The one this wall was made around, unchanged", "");
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let r = ui.add(egui::Button::new(RichText::new(if play && cell.x < 120.0 { "more" } else { "more like this" }).small()).frame(false));
-                            if look::tip(r, "A new wall around this one", "").clicked() {
+                            let r = ui.add(egui::Button::new(RichText::new(if play && cell.x < 120.0 { "More" } else { "More like this" }).small()).frame(false));
+                            if look::tip(r, "A new wall made around this one", "").clicked() {
                                 act = Act::More(i);
                             }
                         });

@@ -87,9 +87,13 @@ pub struct Textures {
     swap: (String, String),
     /// The fixed preview on top of the inspector: 0 the block, 1 tiled 3 x 3, 2 tiled 5 x 5, 3 unfolded.
     preview: usize,
-    /// "Make variants": the wall and how many variants in all.
+    /// "Generate variants" (usability round step 3): open, its wall (None while variant 1 is flat: nothing to
+    /// vary), and how many variants in all.
+    gen: bool,
     wall: Option<Wall<Img>>,
     count: usize,
+    /// A variant tab's x asked first: the variant holds paint.
+    ask_remove: Option<usize>,
     /// The lit cube: its camera, and a hash of the textures last written for the renderer.
     orbit: crate::voxel::Orbit,
     tex_gen: u64,
@@ -157,8 +161,10 @@ impl Textures {
             from_block: String::new(),
             swap: (String::new(), String::new()),
             preview: 0,
+            gen: false,
             wall: None,
             count: 3,
+            ask_remove: None,
             orbit: home(),
             tex_gen: 0,
             tex_at: std::time::Instant::now(),
@@ -179,7 +185,7 @@ impl Textures {
         self.block = block.to_string();
         self.face = (0..4).find(|&f| app.docs.contains_key(&self.file(f))).unwrap_or(0);
         (self.variant, self.zoom, self.pan, self.stroke, self.sel, self.wall) = (0, None, Vec2::ZERO, None, None, None);
-        (self.pat, self.pending) = (None, None);
+        (self.pat, self.pending, self.gen, self.ask_remove) = (None, None, false, None);
     }
 
     /// The picture a face shows in the season painted: its own file, else (dimmed, `false`) the season's
@@ -351,7 +357,7 @@ impl Textures {
             (None, Some(d)) => (pattern::Recipe::of(&d, &app.pal), false),
             (None, None) => return,
         };
-        (self.wall, self.stroke) = (None, None);
+        (self.gen, self.wall, self.stroke) = (false, None, None);
         self.pat = Some(PatPanel { recipe, well: None, every: every || was });
     }
 
@@ -591,11 +597,120 @@ impl Textures {
         self.tool = Tool::Select;
     }
 
+    /// "Generate variants": the wall made around the file as it is; none while variant 1 is one flat colour.
     fn open_wall(&mut self, app: &mut App) {
-        let Some((img, _)) = self.shown(app) else { return app.toast("Paint variant 1 first, or start from the pattern") };
+        (self.pat, self.pending, self.stroke, self.gen, self.wall) = (None, None, None, true, None);
+        let Some((img, _)) = self.real(app) else { return };
+        if art::flat(img, 0) {
+            return;
+        }
         let around = img.clone();
         let (n, pal) = (self.count, app.pal.clone());
         self.wall = Some(Wall::new(around, 9, 0.35, 7, &|a: &Img, r: &mut Rng, k: f32| tools::make_variants(a, n, k, &pal, r)));
+    }
+
+    fn wall_close(&mut self) {
+        (self.gen, self.wall, self.pending) = (false, None, None);
+    }
+
+    /// Use this: the pending set becomes the file, one undo step.
+    fn wall_use(&mut self, app: &mut App) {
+        if let Some((f, img)) = self.pending.take() {
+            let n = img.variants();
+            self.edit(app, "Generate variants", |me, _, _| *me = img);
+            app.toast(format!("{f}: {n} variants (unsaved; Undo takes them back)"));
+        }
+        self.wall_close();
+    }
+
+    fn remove_variant(&mut self, app: &mut App, v: usize) {
+        self.ask_remove = None;
+        self.edit(app, &format!("Remove variant {}", v + 1), |img, _, _| {
+            if let Some(less) = art::remove_variant(img, v) {
+                *img = less;
+            }
+        });
+        self.variant = self.variant.min(self.real(app).map_or(1, |(i, _)| i.variants()) - 1);
+    }
+
+    /// The "Generate variants" panel: each set as a 4 x 4 patch of ground with its variants small under it; a
+    /// click makes it pending, Use this keeps it. A flat variant 1 points to the pattern panel instead.
+    fn wall_panel(&mut self, ui: &mut Ui, app: &mut App) {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Generate variants").strong());
+            let r = ui.button("Close");
+            crate::drive::mark(ui.ctx(), "btn:wall.close", r.rect);
+            if look::tip(r, "Back to the canvas; a set not used is dropped", "").clicked() {
+                self.wall_close();
+            }
+        });
+        let mut n = self.count;
+        ui.spacing_mut().slider_width = 100.0;
+        let r = ui.add(egui::Slider::new(&mut n, 2..=4).text("variants in all"));
+        look::tip(r, "How many variants each set has, your variant 1 among them", "");
+        if n != self.count {
+            self.count = n;
+            self.open_wall(app);
+        }
+        look::weak(ui, "Each set keeps your variant 1 and changes a share of its pixels for the others.");
+        ui.add_space(GAP);
+        if !self.gen {
+            return;
+        }
+        if self.wall.is_none() {
+            ui.label(RichText::new("Variant 1 is one flat colour: there is nothing to vary.").strong());
+            look::weak(ui, "Start from a pattern instead: it can fill every variant, each from its own seed, for a varied field at once. Or paint variant 1 first.");
+            ui.add_space(GAP * 0.5);
+            let r = ui.button("Start from a pattern");
+            crate::drive::mark(ui.ctx(), "btn:flat.pattern", r.rect);
+            if look::tip(r, "The pattern panel, set to fill every variant", "").clicked() {
+                self.open_pattern(app, true);
+            }
+            return;
+        }
+        let pending = self.pending.as_ref().filter(|(f, _)| *f == self.file(self.face)).map(|p| p.1.clone());
+        ui.horizontal(|ui| {
+            let r = ui.add_enabled(pending.is_some(), egui::Button::new(RichText::new("Use this").color(Color32::WHITE)).fill(look::GOOD.gamma_multiply(0.45)));
+            crate::drive::mark(ui.ctx(), "btn:wall.use", r.rect);
+            if look::tip(r, "Put the picked set into the file: one undo step, saved with Save", "").clicked() {
+                self.wall_use(app);
+            }
+            let r = ui.add_enabled(pending.is_some(), egui::Button::new("Cancel"));
+            if look::tip(r, "Drop the picked set; the file stays as it was", "").clicked() {
+                self.pending = None;
+            }
+        });
+        // its own line: a long label in a row widens the panel past its column
+        look::weak(ui, if pending.is_some() { "Shown on the canvas and the block: Use this keeps it." } else { "A click on a set shows it on the canvas and the block." });
+        ui.add_space(GAP * 0.5);
+        let (n, pal, file) = (self.count, app.pal.clone(), self.file(self.face));
+        let gen = |a: &Img, r: &mut Rng, k: f32| tools::make_variants(a, n, k, &pal, r);
+        let Some(w) = self.wall.as_mut() else { return };
+        let chosen = pending.as_ref().and_then(|p| w.items.iter().position(|i| i == p));
+        // a set is ground: 4 x 4 blocks mixed as the game mixes them, 2.5 px a texel, its variants small under it
+        let k = 2.5;
+        let patch = 4.0 * S as f32 * k;
+        let cell = Vec2::new(patch + 12.0, patch + 12.0 + 4.0 + 2.0 * S as f32);
+        let act = wall_ui::show(ui, w, chosen, cell, |p, r, img| {
+            for j in 0..4 {
+                for i in 0..4 {
+                    draw(p, img, art::variant_at([i, j, 0], img.variants()), r.min + Vec2::new(i as f32, j as f32) * S as f32 * k, k, false);
+                }
+            }
+            for v in 0..img.variants() {
+                draw(p, img, v, r.min + Vec2::new(v as f32 * (2.0 * S as f32 + 6.0), patch + 4.0), 2.0, false);
+            }
+        });
+        match act {
+            Act::Take(i) => self.pending = Some((file, w.items[i].clone())),
+            Act::More(i) => w.more_like(i, &gen),
+            Act::Back => {
+                w.back();
+            }
+            Act::Shuffle => w.shuffle(&gen),
+            Act::Spread => w.fill(9, &gen),
+            Act::None | Act::Play(_) => {}
+        }
     }
 
     fn tabs(&mut self, ui: &mut Ui, app: &mut App) {
@@ -636,14 +751,35 @@ impl Textures {
             }
             ui.separator();
             let n = self.shown(app).map_or(1, |(img, _)| img.variants());
+            const WHY: &str = "The game gives each block one of these by its place, so a field does not repeat.";
+            look::tip(ui.label("Variant"), WHY, "");
             for v in 0..n {
                 let r = ui.selectable_label(self.variant == v, format!("{}", v + 1));
-                if look::tip(r, &format!("Variant {}: the game picks one per block by its place", v + 1), &format!("{}", v + 1)).clicked() {
+                crate::drive::mark(ui.ctx(), format!("variant:{}", v + 1), r.rect);
+                if look::tip(r, &format!("Variant {}. {WHY}", v + 1), &format!("{}", v + 1)).clicked() {
                     self.variant = v;
                 }
+                if n > 1 {
+                    let r = ui.add(egui::Button::new(RichText::new("x").small()).frame(false));
+                    crate::drive::mark(ui.ctx(), format!("variant.remove:{}", v + 1), r.rect);
+                    if look::tip(r, &format!("Remove variant {} (asks first when it holds paint; Undo brings it back)", v + 1), "").clicked() {
+                        self.run(app, &format!("variant.remove={}", v + 1));
+                    }
+                }
             }
-            if n < 4 && look::tip(ui.button("+"), "A new variant, copied from this one", "").clicked() {
+            if n < 4 && look::tip(ui.button("+"), "A new variant, copied from the open one", "").clicked() {
                 self.run(app, "variant.add");
+            }
+            if let Some(v) = self.ask_remove {
+                ui.label(RichText::new(format!("Remove variant {}? It holds paint.", v + 1)).color(look::DRAFT));
+                let r = ui.button("Remove");
+                crate::drive::mark(ui.ctx(), "btn:variant.remove", r.rect);
+                if look::tip(r, "Remove it; Undo brings it back", "").clicked() {
+                    self.remove_variant(app, v);
+                }
+                if look::tip(ui.button("Keep"), "Keep the variant", "").clicked() {
+                    self.ask_remove = None;
+                }
             }
             ui.separator();
             let note = match self.shown(app) {
@@ -981,49 +1117,6 @@ impl Textures {
             _ => {}
         }
     }
-
-    fn wall_work(&mut self, ui: &mut Ui, app: &mut App) {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new("Make variants").strong());
-            let mut n = self.count;
-            look::tip(ui.add(egui::Slider::new(&mut n, 2..=4).text("variants")), "How many variants in all", "");
-            if n != self.count {
-                self.count = n;
-                self.open_wall(app);
-            }
-            if look::tip(ui.button("Close"), "Back to the canvas", "").clicked() {
-                self.wall = None;
-            }
-        });
-        look::weak(ui, "Each set keeps variant 1 and moves or re-scatters a share of its pixels (the spread) for the others.");
-        ui.add_space(GAP);
-        let (n, pal) = (self.count, app.pal.clone());
-        let gen = |a: &Img, r: &mut Rng, k: f32| tools::make_variants(a, n, k, &pal, r);
-        let chosen = app.docs.get(&self.file(self.face)).and_then(|d| self.wall.as_ref()?.items.iter().position(|i| *i == d.img));
-        let Some(w) = self.wall.as_mut() else { return };
-        let k = 3.0;
-        let cell = Vec2::new(n as f32 * (16.0 * k + 4.0) + 8.0, 16.0 * k + 12.0);
-        let act = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            wall_ui::show(ui, w, chosen, cell, |p, r, img| {
-                for v in 0..img.variants() {
-                    draw(p, img, v, r.min + Vec2::new(v as f32 * (16.0 * k + 4.0), 0.0), k, false);
-                }
-            })
-        });
-        match act.inner {
-            Act::Take(i) => {
-                let item = w.items[i].clone();
-                self.edit(app, "Make variants", |img, _, _| *img = item);
-            }
-            Act::More(i) => w.more_like(i, &gen),
-            Act::Back => {
-                w.back();
-            }
-            Act::Shuffle => w.shuffle(&gen),
-            Act::Spread => w.fill(9, &gen),
-            Act::None | Act::Play(_) => {}
-        }
-    }
 }
 
 impl Page for Textures {
@@ -1075,7 +1168,9 @@ impl Page for Textures {
         }
         v.push(Cmd::new("season.add", "Add the season", "copy the base into this season: its painted files and its look in data/blocks.toml"));
         v.push(Cmd::new("season.remove", "Remove the season", "drop this season's painted files and look; the base shows again"));
-        v.push(Cmd::new("variants", "Make variants", "a wall of variant sets made from variant 1; a click takes one"));
+        v.push(Cmd::new("variants", "Generate variants", "sets of variants made from variant 1, each as a patch of ground; a click shows one, Use this keeps it"));
+        v.push(Cmd::new("wall.use", "Use this set of variants", "the pending set into the file, one undo step"));
+        v.push(Cmd::new("wall.cancel", "Cancel the set", "the file stays as it was"));
         for (f, name) in FACE_NAMES.iter().enumerate() {
             v.push(Cmd::new(format!("face.{f}"), format!("Face: {name}"), "paint this face's own file"));
         }
@@ -1158,7 +1253,20 @@ impl Page for Textures {
                 }
                 "take" => {
                     if let Some(item) = arg.parse::<usize>().ok().and_then(|i| self.wall.as_ref()?.items.get(i).cloned()) {
-                        self.edit(app, "Make variants", |img, _, _| *img = item);
+                        self.pending = Some((self.file(self.face), item));
+                    }
+                }
+                "variant.remove" => {
+                    let v = arg.parse::<usize>().unwrap_or(0).saturating_sub(1);
+                    match self.real(app) {
+                        Some((img, true)) if v < img.variants() && img.variants() > 1 => {
+                            if art::flat(img, v) {
+                                self.remove_variant(app, v);
+                            } else {
+                                self.ask_remove = Some(v);
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 _ => {}
@@ -1181,6 +1289,8 @@ impl Page for Textures {
                 }
             }
             "variants" => self.open_wall(app),
+            "wall.use" => self.wall_use(app),
+            "wall.cancel" => self.wall_close(),
             "season.add" => self.add_season(app),
             "season.remove" => self.remove_season(app),
             "shift.left" | "shift.right" | "shift.up" | "shift.down" => {
@@ -1289,15 +1399,13 @@ impl Page for Textures {
         if let Some(p) = dropped.first() {
             self.start_picture(app, &p.to_string_lossy());
         }
-        if self.wall.is_some() {
-            return self.wall_work(ui, app);
-        }
         // the panel's own room, never what a wide row of tabs pushed it to
         let mut room = ui.available_rect_before_wrap().intersect(ui.clip_rect());
-        if self.pat.is_some() {
-            let left = Rect::from_min_size(room.min, Vec2::new((room.width() * 0.5).clamp(360.0_f32.min(room.width()), 640.0), room.height()));
+        if self.pat.is_some() || self.gen {
+            // the panel on the left, the canvas beside it showing what is pending
+            let left = Rect::from_min_size(room.min, Vec2::new((room.width() * 0.55).clamp(360.0_f32.min(room.width()), 700.0), room.height()));
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(left).layout(egui::Layout::top_down(egui::Align::Min)));
-            egui::ScrollArea::vertical().id_salt("pattern panel").auto_shrink([false, false]).show(&mut child, |ui| self.pattern_panel(ui, app));
+            egui::ScrollArea::vertical().id_salt("start panel").auto_shrink([false, false]).show(&mut child, |ui| if self.pat.is_some() { self.pattern_panel(ui, app) } else { self.wall_panel(ui, app) });
             room.min.x = left.max.x + GAP;
         }
         if self.pat.is_some() {
@@ -1422,7 +1530,9 @@ impl Page for Textures {
                 if look::tip(r, "The pattern panel: pick one of the game's eleven patterns, its colours and values, see it live, then Use", "").clicked() {
                     self.open_pattern(app, false);
                 }
-                if look::tip(ui.button("Make variants"), "A wall of variant sets made from variant 1; a click takes one", "").clicked() {
+                let r = ui.button("Generate variants");
+                crate::drive::mark(ui.ctx(), "btn:variants", r.rect);
+                if look::tip(r, "Sets of variants made from your variant 1, each shown as a patch of ground; a click shows one, Use this keeps it", "").clicked() {
                     self.open_wall(app);
                 }
             });
