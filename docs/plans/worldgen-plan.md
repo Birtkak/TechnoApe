@@ -77,6 +77,15 @@ Visible weather is the roadmap's next step.
 - Checks: the bake's mean rain against a year of live weather, per biome (within a set tolerance);
   views at four seasons.
 
+### W3b. Seasonal looks (after W3; `docs/design/seasonal-looks.md`)
+- The developer's call (2026-11-12): grass and leaves stay one block each, their look follows the season,
+  and the Studio paints a block's seasons. Nothing stored, no remesh: the shader mixes four looks by place
+  and clock.
+- Spike first: the shader's cost on `stand` and `orbit`.
+- **Taste calls:** each season's colours from a sheet; how long autumn's colour lasts.
+- Checks: a year's filmstrip at the spawn and from orbit; views without a season block unchanged.
+- Not in it: snow on the ground (weather, its own design), bare trees (W7).
+
 ### W4. Rock, caves and ore
 - **First:** block ids to 16 bits (its own ADR), and one shared `generated block at (column, layer)`
   for `generate`, `phys::blocked` and `Solid::gaps`, with a test that the three agree on a cave.
