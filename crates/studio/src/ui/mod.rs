@@ -4,6 +4,7 @@
 //! `shell`'s. Pages: `textures`, `palette`, `models`, `sounds`, `effects`; `viewport` is the game's renderer they share.
 pub mod look;
 mod fauna;
+mod grow;
 mod models;
 mod effects;
 mod palette;
@@ -678,6 +679,8 @@ impl Studio {
         let files = (!hide_f).then(|| side(!swap, &fk).resizable(true).default_size(fw).size_range(Settings::FILES.0.min(wide * 0.18)..=Settings::FILES.1.min((wide * 0.2).max(room * 0.4))).show(ui, |ui| self.files(ui)));
         let insp_max = (wide * 0.3).max(room - if hide_f { 0.0 } else { fw });
         let insp = (!hide_i).then(|| side(swap, &ik).resizable(true).default_size(iw).size_range(Settings::INSPECTOR.0.min(wide * 0.26)..=Settings::INSPECTOR.1.min(insp_max)).show(ui, |ui| self.inspector(ui)));
+        // before the work area: a page's work refreshes from the palette (and would drop a colour not added yet)
+        self.palette_commands(&ctx);
         egui::CentralPanel::default().show(ui, |ui| {
             egui::ScrollArea::both().id_salt("work").auto_shrink([false, false]).show(ui, |ui| self.pages[self.page].work(ui, &mut self.app));
         });
@@ -696,6 +699,7 @@ impl Studio {
             (self.settings.folded, self.settings.splits, self.settings.order) = (l.folded, l.splits, l.order);
         }
 
+        self.palette_commands(&ctx);
         self.overlays(&ctx);
         self.toasts(&ctx);
         self.asks(&ctx);
@@ -1243,6 +1247,18 @@ impl Studio {
                 self.app.keep_mine(&name);
             } else {
                 self.app.take_disk(&name, App::disk(&name));
+            }
+            for p in &mut self.pages {
+                p.refresh(&self.app);
+            }
+        }
+    }
+
+    /// What the swatches of any page asked of the palette (`grow.rs`): the Palette page does it, every page follows.
+    fn palette_commands(&mut self, ctx: &egui::Context) {
+        for c in grow::take(ctx) {
+            if let Some(p) = self.pages.iter_mut().find(|p| p.name() == "Palette") {
+                p.run(&mut self.app, &c);
             }
             for p in &mut self.pages {
                 p.refresh(&self.app);

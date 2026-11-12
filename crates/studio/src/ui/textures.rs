@@ -468,7 +468,7 @@ impl Textures {
         if let Some(k) = pp.well {
             ui.label(RichText::new(format!("Now click a colour for the {} well, here or under Colours on the right", ["base", "second", "third"][k])).color(look::ACCENT));
             let (mut a, mut b) = (cs[k], cs[k]);
-            if let Some(c) = swatches(ui, &pal, &mut a, &mut b) {
+            if let Some(c) = swatches(ui, "well", &pal, &mut a, &mut b) {
                 pp.recipe.colours[k] = Some(c);
                 pp.well = None;
             }
@@ -1635,18 +1635,23 @@ pub fn palette_picker(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &
         });
     });
     ui.add_space(GAP * 0.5);
-    swatches(ui, pal, first, second)
+    swatches(ui, "colours", pal, first, second)
 }
 
 /// The palette's swatches alone, the ramps as rows, the loose colours last: left click takes the first colour
-/// (and is returned), right click the second.
-pub fn swatches(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &mut [u8; 3]) -> Option<[u8; 3]> {
+/// (and is returned), right click the second. `key` names the place for the search and the "+" (`grow.rs`).
+pub fn swatches(ui: &mut Ui, key: &str, pal: &Palette, first: &mut [u8; 3], second: &mut [u8; 3]) -> Option<[u8; 3]> {
     let mut clicked = None;
-    // the ramps as rows, the loose colours last
+    let q = super::grow::search(ui, key, pal);
+    // the ramps as rows, the loose colours last; under a search only the colours it finds
     let mut rows: Vec<Vec<usize>> = pal.ramps().into_iter().map(|(_, v)| v).collect();
     let loose: Vec<usize> = (0..pal.colours.len()).filter(|&i| pal.colours[i].ramp.is_none()).collect();
     if !loose.is_empty() {
         rows.push(loose);
+    }
+    let rows: Vec<Vec<usize>> = rows.into_iter().map(|r| r.into_iter().filter(|&i| super::grow::shown(pal, i, &q)).collect::<Vec<_>>()).filter(|r| !r.is_empty()).collect();
+    if rows.is_empty() {
+        look::weak(ui, format!("No colour is called '{q}'"));
     }
     let size = 24.0;
     ui.spacing_mut().item_spacing = Vec2::splat(3.0);
@@ -1691,5 +1696,6 @@ pub fn swatches(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &mut [u
             }
         });
     }
-    clicked
+    // the palette grows here: a new colour is taken as a click would
+    super::grow::grow(ui, key, pal, first).or(clicked)
 }

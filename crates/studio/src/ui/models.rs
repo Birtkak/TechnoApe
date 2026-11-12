@@ -1700,6 +1700,12 @@ impl Page for Models {
         if let Some(mut sec) = look::section(ui, "Colours") {
             let ui = &mut *sec;
             palette_picker(ui, &app.pal, &mut self.first, &mut self.second);
+            if let Some(n) = self.m().map(|m| m.colours.len()) {
+                let max = super::grow::MODEL_MAX;
+                let t = RichText::new(format!("This model: {n} of {max} colours")).small();
+                let r = ui.label(if n + 6 >= max { t.color(look::DRAFT) } else { t.weak() });
+                look::tip(r, &format!("A model's voxel rows have one letter per colour, so one model holds at most {max}; the palette itself has no limit"), "");
+            }
         }
         if let Some(mut sec) = look::section(ui, "Model") {
             let ui = &mut *sec;

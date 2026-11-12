@@ -611,3 +611,34 @@ fn a_pending_set_goes_with_a_switch_of_face() {
     let line = studio(&dir, &["open=clay", "rects=1", "input=click @btn:pattern; click @facetab:1; wait"]);
     assert!(!line.contains("btn:pat.use"), "the pattern panel closed with the switch: {line}");
 }
+
+/// Second round step 8, "Done when": from the Textures page a colour is added with the "+" picker and given
+/// shades, both are painted with and saved, `check=1` passes; an unused colour is removed there, a used one refused.
+#[test]
+fn the_palette_grows_from_the_textures_page() {
+    let dir = scratch("palette-grows");
+    let line = studio(
+        &dir,
+        &[
+            "open=dirt",
+            "size=1920x1080",
+            // (a toast stands over the inspector's bottom corner for 4 s: `wait 20` lets it go before a click there)
+            "input=click @btn:pattern; click @btn:pat.use; wait 20; move @palette.search; wheel -30; wait 20; click @btn:palette.new;              click @palette.hex; key Ctrl+A; text #8a3fa0; wait 20; click @palette.name; key Ctrl+A; text plum; wait 20;              move @palette.search; wheel -30; wait 20; click @btn:palette.add; wait 20; drag @face:0.08,0.09 @face:0.92,0.09;              move @palette.search; wheel -30; wait 20; click @btn:palette.shades; move @palette.search; wheel -30; wait 20; click @btn:palette.use; wait 20;              move @palette.search; wheel -30; wait 20; click @swatch:plum_darker; drag @face:0.08,0.28 @face:0.92,0.28; key Ctrl+S",
+        ],
+    );
+    assert!(line.contains("\"unsaved\":[]"), "{line}");
+    let pal = engine::palette::Palette::parse(&std::fs::read_to_string(dir.join("data/palette.toml")).unwrap()).unwrap();
+    let run: Vec<&str> = pal.ramp("plum").iter().map(|&i| pal.colours[i].name.as_str()).collect();
+    assert_eq!(run, ["plum darker", "plum dark", "plum", "plum light", "plum lighter"], "{line}");
+    let rgb = |n: &str| pal.colours.iter().find(|c| c.name == n).unwrap().rgb;
+    assert_eq!(rgb("plum"), [0x8a, 0x3f, 0xa0]);
+    let (w, _, px) = png(&dir.join("data/textures/dirt.png"));
+    let at = |x: u32, y: u32| px[((y * w + x) * 4) as usize..][..3].to_vec();
+    assert_eq!(at(w / 2, w * 9 / 100), rgb("plum"), "painted with the new colour");
+    assert_eq!(at(w / 2, w * 28 / 100), rgb("plum darker"), "painted with its shade");
+    studio(&dir, &["check=1"]);
+    // the unused lightest shade goes; plum, painted in dirt.png, stays with the count
+    let line = studio(&dir, &["open=dirt", "size=1920x1080", "input=move @palette.search; wheel -30; wait 20; click @swatch:plum_lighter; click @btn:palette.remove; wait 20; click @swatch:plum; click @btn:palette.remove; wait"]);
+    let pal = std::fs::read_to_string(dir.join("data/palette.toml")).unwrap();
+    assert!(!pal.contains("\"plum lighter\"") && pal.contains("name = \"plum\""), "{line}\n{pal}");
+}
