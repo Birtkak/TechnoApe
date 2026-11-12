@@ -79,13 +79,13 @@ fn left(docs: &BTreeMap<String, SDoc>, files: Vec<(String, Vec<u8>)>) -> Vec<(St
 }
 
 /// What a crash left put back as unsaved rows, one undo step each ("Recovered"); a row that does not read is
-/// named in the errors and left out.
-fn restore(docs: &mut BTreeMap<String, SDoc>, files: Vec<(String, Vec<u8>)>) -> Vec<String> {
+/// given back (file, bytes, why) to be set aside.
+fn restore(docs: &mut BTreeMap<String, SDoc>, files: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>, String)> {
     let mut errors = vec![];
     for (f, b) in files {
         let name = f.trim_end_matches(".toml").to_string();
-        match (String::from_utf8(b).map_err(|e| e.to_string()).and_then(|t| Sound::parse(&t).map_err(|e| e.to_string())), docs.get_mut(&name)) {
-            (Err(e), _) => errors.push(format!("{f}: {e}")),
+        match (String::from_utf8(b.clone()).map_err(|e| e.to_string()).and_then(|t| Sound::parse(&t).map_err(|e| e.to_string())), docs.get_mut(&name)) {
+            (Err(e), _) => errors.push((f, b, e)),
             (Ok(s), Some(d)) => d.hist.push(std::mem::replace(&mut d.s, s), "Recovered"),
             (Ok(s), None) => {
                 docs.insert(name, SDoc { s, hist: History::default(), saved: None });
@@ -1582,13 +1582,12 @@ impl Page for Sounds {
     fn unsaved_of(&self, files: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>)> {
         left(&self.docs, files)
     }
-    fn restore(&mut self, app: &mut App, files: Vec<(String, Vec<u8>)>) {
-        for e in restore(&mut self.docs, files) {
-            app.refuse(format!("Not restored: {e}"));
-        }
+    fn restore(&mut self, _app: &mut App, files: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>, String)> {
+        let refused = restore(&mut self.docs, files);
         if self.open.is_some() {
             self.opened();
         }
+        refused
     }
 
     /// For `shot=`: every render asked for done.

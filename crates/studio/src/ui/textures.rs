@@ -943,7 +943,7 @@ impl Textures {
 
     fn palette(&mut self, ui: &mut Ui, app: &App) {
         let before = self.first;
-        let clicked = palette_picker(ui, &app.pal, &mut self.first, &mut self.second);
+        let clicked = palette_picker(ui, "textures", &app.pal, &mut self.first, &mut self.second);
         // a well of the pattern panel waiting for a colour takes the click instead of the first colour
         if let (Some(c), Some(pp)) = (clicked, self.pat.as_mut()) {
             if let Some(k) = pp.well.take() {
@@ -1621,7 +1621,8 @@ pub fn colour_name(pal: &Palette, c: [u8; 3]) -> String {
 /// The two colours and the palette's ramps as rows (the loose colours last): left click takes the first colour,
 /// right click the second. Every page that paints with the palette shows this one.
 /// The colour a left click took, if one did.
-pub fn palette_picker(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &mut [u8; 3]) -> Option<[u8; 3]> {
+/// `key` names the page, for its own search and "+" (`grow.rs`).
+pub fn palette_picker(ui: &mut Ui, key: &str, pal: &Palette, first: &mut [u8; 3], second: &mut [u8; 3]) -> Option<[u8; 3]> {
     ui.horizontal(|ui| {
         for (k, c) in [(0, *first), (1, *second)] {
             let (r, resp) = ui.allocate_exact_size(Vec2::new(36.0, 36.0), Sense::hover());
@@ -1635,7 +1636,7 @@ pub fn palette_picker(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &
         });
     });
     ui.add_space(GAP * 0.5);
-    swatches(ui, "colours", pal, first, second)
+    swatches(ui, key, pal, first, second)
 }
 
 /// The palette's swatches alone, the ramps as rows, the loose colours last: left click takes the first colour

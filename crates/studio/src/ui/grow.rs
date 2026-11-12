@@ -29,7 +29,7 @@ struct State {
     suggested: String,
     search: String,
     /// The last change made here, for its Undo button: its words, and its step's name in the palette's history.
-    undo: Option<(String, &'static str)>,
+    undo: Option<(String, String)>,
 }
 
 fn queue() -> egui::Id {
@@ -62,7 +62,9 @@ pub fn search(ui: &mut Ui, key: &str, pal: &Palette) -> String {
             st.search.clear();
         }
         let n = pal.colours.len();
-        look::tip(ui.label(RichText::new(format!("{n} colours")).small().weak()), &format!("The palette has no limit; one model holds at most {MODEL_MAX} of its colours"), "");
+        let q = st.search.trim().to_lowercase();
+        let words = if q.is_empty() { format!("{n} colours") } else { format!("{} of {n} colours", (0..n).filter(|&i| shown(pal, i, &q)).count()) };
+        look::tip(ui.label(RichText::new(words).small().weak()), &format!("The palette has no limit; one model holds at most {MODEL_MAX} of its colours"), "");
     });
     let q = st.search.trim().to_lowercase();
     ui.ctx().data_mut(|d| d.insert_temp(id, st));
@@ -103,7 +105,7 @@ pub fn grow(ui: &mut Ui, key: &str, pal: &Palette, first: &mut [u8; 3]) -> Optio
         if look::tip(r, "Take the first colour out of the palette; refused, with the count, while a texture or a model uses it", "").clicked() {
             if let Some(c) = &chosen {
                 send(ui.ctx(), format!("remove:{}", c.name));
-                st.undo = Some((format!("Remove {}", c.name), "Remove"));
+                st.undo = Some((format!("Remove {}", c.name), format!("Remove {}", c.name)));
             }
         }
         if let Some((u, step)) = st.undo.clone() {
@@ -175,7 +177,7 @@ fn picker(ui: &mut Ui, key: &str, pal: &Palette, st: &mut State) -> Option<[u8; 
             crate::drive::mark(ui.ctx(), "btn:palette.add", r.rect);
             if look::tip(r, "Write the colour into data/palette.toml and make it your first colour (Undo takes it back)", "").clicked() {
                 send(ui.ctx(), format!("add:{name}={}", to_hex(rgb)));
-                st.undo = Some((format!("Add {name}"), "Add"));
+                st.undo = Some((format!("Add {name}"), format!("Add {name}")));
                 st.open = Open::None;
                 out = Some(rgb);
             }
@@ -219,7 +221,7 @@ fn shades(ui: &mut Ui, pal: &Palette, name: Option<&str>, st: &mut State) {
                     crate::drive::mark(ui.ctx(), "btn:palette.use", r.rect);
                     if look::tip(r, "Add these shades to the palette: Shade and the patterns' auto colours walk them at once (Undo takes them back)", "").clicked() {
                         send(ui.ctx(), format!("shades:{name}"));
-                        st.undo = Some((format!("Add shades of {name}"), "Add shades"));
+                        st.undo = Some((format!("Add shades of {name}"), format!("Add shades of {name}")));
                         st.open = Open::None;
                     }
                     if look::tip(ui.button("Cancel"), "Close the preview; nothing is added", "").clicked() {

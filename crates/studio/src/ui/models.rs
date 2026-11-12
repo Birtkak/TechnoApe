@@ -102,14 +102,14 @@ fn left(docs: &BTreeMap<String, MDoc>, files: Vec<(String, Vec<u8>)>) -> Vec<(St
 }
 
 /// What a crash left put back as unsaved models, one undo step each ("Recovered"); a file the game's reader
-/// refuses is named in the errors and left out.
-fn restore(docs: &mut BTreeMap<String, MDoc>, files: Vec<(String, Vec<u8>)>, pal: &engine::palette::Palette) -> Vec<String> {
+/// refuses is given back (file, bytes, why) to be set aside.
+fn restore(docs: &mut BTreeMap<String, MDoc>, files: Vec<(String, Vec<u8>)>, pal: &engine::palette::Palette) -> Vec<(String, Vec<u8>, String)> {
     let mut errors = vec![];
     for (f, b) in files {
         let name = f.trim_end_matches(".toml").to_string();
-        let new = String::from_utf8(b).map_err(|e| e.to_string()).and_then(|t| MDoc::load(&format!("{MODELS}/{f}"), &t, pal));
+        let new = String::from_utf8(b.clone()).map_err(|e| e.to_string()).and_then(|t| MDoc::load(&format!("{MODELS}/{f}"), &t, pal));
         match (new, docs.get_mut(&name)) {
-            (Err(e), _) => errors.push(format!("{f}: {e}")),
+            (Err(e), _) => errors.push((f, b, e)),
             (Ok(new), Some(d)) => {
                 let before = (std::mem::replace(&mut d.m, new.m), std::mem::replace(&mut d.life, new.life));
                 d.hist.push(before, "Recovered");
@@ -1731,7 +1731,7 @@ impl Page for Models {
         }
         if let Some(mut sec) = look::section(ui, "Colours") {
             let ui = &mut *sec;
-            palette_picker(ui, &app.pal, &mut self.first, &mut self.second);
+            palette_picker(ui, "models", &app.pal, &mut self.first, &mut self.second);
             if let Some(n) = self.m().map(|m| m.colours.len()) {
                 let max = super::grow::MODEL_MAX;
                 let t = RichText::new(format!("This model: {n} of {max} colours")).small();
@@ -1903,14 +1903,13 @@ impl Page for Models {
     fn unsaved_of(&self, files: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>)> {
         left(&self.docs, files)
     }
-    fn restore(&mut self, app: &mut App, files: Vec<(String, Vec<u8>)>) {
-        for e in restore(&mut self.docs, files, &app.pal) {
-            app.refuse(format!("Not restored: {e}"));
-        }
+    fn restore(&mut self, app: &mut App, files: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>, String)> {
+        let refused = restore(&mut self.docs, files, &app.pal);
         if self.open.is_none() {
             self.open = self.docs.keys().next().cloned();
         }
         self.opened_keep();
+        refused
     }
 
     fn settle(&mut self, ctx: &egui::Context, app: &mut App) {

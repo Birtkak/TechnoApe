@@ -119,8 +119,11 @@ pub trait Page {
     fn unsaved_of(&self, left: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>)> {
         left
     }
-    /// What a crash left put back as unsaved work, one undo step each.
-    fn restore(&mut self, _app: &mut App, _files: Vec<(String, Vec<u8>)>) {}
+    /// What a crash left put back as unsaved work, one undo step each; what it refused (file, bytes, why), which
+    /// the frame sets aside.
+    fn restore(&mut self, _app: &mut App, _files: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>, String)> {
+        vec![]
+    }
     /// For `shot=`: wait for what the page shows to be drawn (the game's renderer).
     fn settle(&mut self, _ctx: &egui::Context, _app: &mut App) {}
 }
@@ -1321,7 +1324,16 @@ impl Studio {
                 Some(answer) => {
                     let (i, files) = self.page_left.remove(0);
                     if answer {
-                        self.pages[i].restore(&mut self.app, files);
+                        let page = self.pages[i].name().to_lowercase();
+                        // a file the page refuses (a colour since removed, say) is set aside, never dropped
+                        for (f, b, why) in self.pages[i].restore(&mut self.app, files) {
+                            let dir = std::path::Path::new(crate::recover::DIR).join(format!("{page}-refused"));
+                            let kept = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join(&f), &b));
+                            self.app.refuse(match kept {
+                                Ok(()) => format!("Not restored: {f}: {why}. Its text is kept in {}", dir.join(&f).display()),
+                                Err(e) => format!("Not restored: {f}: {why} (and not set aside: {e})"),
+                            });
+                        }
                         self.app.toast(format!("Restored as unsaved work: {}", names.join(", ")));
                         for p in &mut self.pages {
                             p.refresh(&self.app);
