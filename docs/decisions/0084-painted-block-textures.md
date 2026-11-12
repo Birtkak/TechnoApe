@@ -59,18 +59,18 @@ Option 3: `tools/paint_textures.py` (`python -I tools/paint_textures.py [block .
 - Every written file goes on `data/drafts.txt`; `gravel.png` and water are never written.
 
 ## Proof
-- `technoape-studio check=1`: RESULT_CHECK.
+- `technoape-studio check=1`: `{"check":"ok","palette":349,"textures":125,"refused":[]}`.
 - Contact sheet of every texture, tiled 4 x 4 with variants mixed: `out/tex-preview.png` (read); Studio render
-  sheets: RESULT_SHEETS.
+  sheets: `out/studio-sheets/<file>.png` (every file, 3 x 3), gathered with names in `out/all-textures.png` and `out/season-textures.png` (read).
 - Filmstrips at the forest of the season views (noon of each season), the coast view at noon and dusk, walls of
   every rock, ore and other block placed with `place=` (noon), a stacked cliff of limestone, shale, sandstone and
   granite (noon and dusk), and a closed cave of granite with ores, a lamp and a blue lamp. Read; what changed
-  from them: RESULT_CHANGES.
-- `cargo test -p studio -p engine`: RESULT_TESTS. `tools/views.sh`: every view with a painted block changed, by
+  from them: the first grass (eight-texel patches) showed a repeat lattice on a plain and was changed to fine ground with blades; chalcopyrite's crystals read as crosses and became small cubes; galena's cubes were too small; gold quartz lost a stray slate sliver; snow and the regoliths had busy grey flecks and became near flat; granite (and the ores on it) had too many dark specks for a cave wall seen close under a lamp and was calmed twice. The coast view is open sea on today's bake, so the shore was seen from the forest spot, from above.
+- `cargo test -p studio -p engine`: engine 217 and 115 passed; studio's `drive` tests needed three changes, all in the test files: the two clay tests and the palette test assumed their block had no painting (`scratch_unpainted` removes it in the scratch copy), and the palette test scrolled the swatches by a fixed amount that no longer reached the end of 349 colours (`wheel -400`). 28 passed. `tools/views.sh`: every view with a painted block changed, by
   design; looked at and accepted.
 
 ## Consequences
-- The palette grows from 109 to RESULT_PALETTE colours, almost all of them `shade`/`lit` steps and the ramps of
+- The palette grows from 109 to 349 colours, almost all of them `shade`/`lit` steps and the ramps of
   blocks that had none. Changing a colour in the Studio repaints every texture that uses it, as before; running
   the script again repaints from the recipes (and overwrites hand edits to those files: once the developer has
   painted a file, take it out of the script's reach by removing it from `data/drafts.txt` first – the script
@@ -83,7 +83,9 @@ Option 3: `tools/paint_textures.py` (`python -I tools/paint_textures.py [block .
   (cracks, laminae, crystals). One edit in the script moves all of them.
 - **Grass blades**: dark strokes with a lit tip on every third, against a fine two-tone ground; the tufts on the
   side hang 2 to 5 texels.
-- **Palette size**: about 375 colours; the generated ramps for each biome grass in each season are the bulk.
+- **Grass's new steps sit in a ramp of their own** (`grass steps`): the engine test `the_data_file_loads` holds the
+  `grass` ramp to three colours. Join them when that test allows more (an engine change, left for the developer).
+- **Palette size**: 349 colours; the generated ramps for each biome grass in each season are the bulk.
   Fewer is possible by letting the biome grasses share ramps (they would lose their exact `blocks.toml` tints).
 - **Hosts for ores with none in `minerals.toml`**: chalcopyrite on andesite, malachite on stone, gold quartz as
   a white quartz vein, bog iron in mud.
@@ -91,5 +93,5 @@ Option 3: `tools/paint_textures.py` (`python -I tools/paint_textures.py [block .
 - **Winter leaves keep a third** of their texels (more holes), not bare branches.
 
 ## Review
-Tool tier (ADR 0013 rule 13): the diff is a script, data and this ADR; read through by the author against the
-shots above. RESULT_REVIEW
+Tool tier (CLAUDE.md principle 13): the diff is a script, data and this ADR; read through by the author against the
+shots above. A fresh reviewer read the script (it is over 300 lines). Fixed: the colour nudge could loop forever near blue 255 (now searches outward and fails loudly); sand's dark grains used the wrong colour; the brightness order now uses the Studio's `luma` weights and every ramp the script grows is asserted to run dark to light (all do; `gold gravel` and `gold quartz`, the developer's own, do not by their names); `data/palette.toml` goes on the drafts list when colours are added; dead code went; shale's dashes wrapped 2.5 times; `--preview` without a path. Answered: grass bottoms are not unpainted, the shader takes a grass block's foot from its side block, `dirt.png`. Documented: a run for some blocks still builds every recipe, so the palette gains every step the set needs.

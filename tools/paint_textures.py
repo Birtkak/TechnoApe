@@ -7,12 +7,12 @@
 
 The style (the developer's call, 2026-11-12): calm and readable. Each block takes three or four colours of one
 ramp (dark, shade, mid, lit, light), low contrast between neighbours, and a material shape instead of noise.
+A run for some blocks still builds every recipe, so the palette gains any step the whole set needs.
 A ramp step the palette lacks is added to data/palette.toml the first time a texture uses it (`shade` between
 dark and mid, `lit` a third of the way from mid to light; a block with no ramp gets one from its blocks.toml
 colour), so a style change is an edit here and a run. Every file it writes goes on data/drafts.txt.
 gravel.png is the developer's and water is not a block texture here: neither is touched.
 """
-import colorsys
 import hashlib
 import sys
 import tomllib
@@ -49,13 +49,16 @@ class Palette:
 
     def add(self, name, rgb, ramp):
         taken = {r["rgb"] for r in self.rows}
-        c = list(rgb)
-        while "#%02x%02x%02x" % tuple(c) in taken:  # colours are unique in the palette
-            c[2] = c[2] + 1 if c[2] < 255 else c[2] - 3
-        hx = "#%02x%02x%02x" % tuple(c)
+        # colours are unique in the palette: the nearest free blue, searched outward
+        for d in (0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6, 7, -7, 8, -8):
+            hx = "#%02x%02x%02x" % (rgb[0], rgb[1], min(255, max(0, rgb[2] + d)))
+            if hx not in taken:
+                break
+        else:
+            raise SystemExit(f"no free colour near {rgb} for '{name}'")
         row = {"name": name, "rgb": hx, "ramp": ramp}
         same = [i for i, r in enumerate(self.rows) if r.get("ramp") == ramp]
-        lum = lambda h: sum(int(h[i:i + 2], 16) * w for i, w in ((1, .3), (3, .59), (5, .11)))
+        lum = luma
         at = len(self.rows)
         if same:  # a ramp runs dark to light in file order
             at = same[-1] + 1
@@ -74,6 +77,11 @@ class Palette:
             if r.get("ramp"):
                 out += f'ramp = "{r["ramp"]}"\n'
         self.path.write_text(out, encoding="utf-8", newline="\n")
+
+
+def luma(h):
+    """The Studio's brightness (crates/studio/src/ramp.rs `luma`), so the two order a ramp alike."""
+    return sum(int(h[i:i + 2], 16) * w for i, w in ((1, .299), (3, .587), (5, .114)))
 
 
 def hex3(h):
@@ -467,10 +475,9 @@ def build(pal, blocks):
     # soils and loose ground
     dirt_r = R("dirt")
     tex("dirt", 3, lambda g, v: dirt(g, dirt_r))
-    gravel_mix = [("sandstone dark", 0), ("tin gravel", 230), ("schist", 227), ("quartzite dark", 210),
+    gravel_mix = [("tin gravel", 230), ("schist", 227), ("quartzite dark", 210),
                   ("shale", 107), ("gold gravel", 103), ("shale light", 86), ("chalcopyrite", 35),
                   ("regolith dark", 25)]
-    gravel_mix = [(m, w) for m, w in gravel_mix if w]
     sand = R("sand")
 
     def sand_face(g, v, top):
@@ -480,7 +487,7 @@ def build(pal, blocks):
                 for x in range(N):
                     put(c, x, y0 + int(round(np.sin(x / 16 * 6.283 + v) * 0.8)), sand["l"])
         specks(c, g, sand["d"], 4)
-        specks(c, g, gravel_mix[0][0], 2)
+        specks(c, g, "sandstone dark", 2)
         return c
     tex("sand", 3, lambda g, v: sand_face(g, v, False))
     tex("sand_top", 3, lambda g, v: sand_face(g, v, True))
@@ -587,8 +594,8 @@ def build(pal, blocks):
          lambda g, v: rock_side(g, st, seed_of("stone"), [(6, 0), (4, 0.2), (6, -0.1)], 1, 1))
     gr = R("granite")  # coarse speckle: dark mica and pale feldspar in grains of two texels
 
-    def granite(g, v, r=gr, dark=6, pale=7):
-        c = grain(g, r, "sm", (0.35, 0.65), 4, 0.4)
+    def granite(g, v, r=gr, dark=5, pale=6):
+        c = grain(g, r, "sm", (0.3, 0.7), 4, 0.25)
         specks(c, g, r["d"], dark, 2)
         specks(c, g, r["l"], pale, 2)
         return c
@@ -605,7 +612,8 @@ def build(pal, blocks):
         c = grain(g, sh, "sm", (0.4, 0.6), 4, 0.3)
         for y in range(0, N, 2):  # thin flaky laminae: short dark dashes on every other row
             x = int(g.integers(N))
-            while x < 40:
+            start = x
+            while x < start + N:
                 ln = int(g.integers(3, 8))
                 for i in range(ln):
                     put(c, x + i, y, sh["d"] if y % 4 == 0 else sh["l"])
@@ -690,9 +698,6 @@ def build(pal, blocks):
     rock("gabbro", lambda g, v: granite(g, v, gb, 4, 9))
 
     # ores, each on its host
-    def on(host_fn, host_seed_v):
-        return host_fn(np.random.default_rng(seed_of(*host_seed_v)), host_seed_v[1])
-
     ma = R("malachite")
 
     def malachite(g, v):
@@ -860,7 +865,12 @@ def preview(paths, dest):
 
 def main(argv):
     want = [a for a in argv if not a.startswith("--")]
-    prev = argv[argv.index("--preview") + 1] if "--preview" in argv else None
+    prev = None
+    if "--preview" in argv:
+        k = argv.index("--preview")
+        if k + 1 >= len(argv):
+            raise SystemExit("--preview needs a file to write")
+        prev = argv[k + 1]
     if prev:
         want.remove(prev)
     pal = Palette(DATA / "palette.toml")
@@ -878,11 +888,14 @@ def main(argv):
         painted.add(block)
         if k > 6:
             print(f"note: {stem} uses {k} colours", file=sys.stderr)
+    for name in {r.get("ramp") for r in pal.rows if r["name"] in pal.added}:
+        steps = [luma(r["rgb"]) for r in pal.ramp_of(name)]
+        assert steps == sorted(steps), f"ramp '{name}' does not run dark to light"
     pal.save()
     drafts = DATA / "drafts.txt"
     have = drafts.read_text(encoding="utf-8").split("\n") if drafts.exists() else []
     have = [h for h in have if h.strip()]
-    for p in paths:
+    for p in ([DATA / "palette.toml"] if pal.added else []) + paths:
         rel = p.relative_to(ROOT).as_posix()
         if rel not in have:
             have.append(rel)
