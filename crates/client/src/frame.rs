@@ -40,7 +40,8 @@ impl App {
         let between = self.frame_end.map_or(0.0, |e| (now - e).as_secs_f64());
         self.last_frame = now;
         let t = self.loaded_at.map(|l| (now - l).as_secs_f64()).unwrap_or(0.0);
-        let measuring = self.loaded_at.is_some() && t >= warm;
+        let keep = keeps_frames(&self.run, a);
+        let measuring = self.loaded_at.is_some() && t >= warm && keep;
         // the tick and job numbers count from the measuring on, and play keeps none
         if !measuring || self.run == "play" {
             self.streamer.job_times.clear();
@@ -177,7 +178,7 @@ impl App {
                 }
                 self.steps.push_back((self.next_step, inp));
                 self.next_step += 1;
-                if self.loaded_at.is_some() {
+                if self.loaded_at.is_some() && keep {
                     // the third difference of the fixed-step path: jerk in m/s^3
                     self.path.push(self.me.pos);
                     if self.path.len() > 4 {
