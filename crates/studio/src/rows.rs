@@ -260,6 +260,72 @@ pub fn num(v: f32) -> String {
     }
 }
 
+/// `data/blocks.toml` as the Studio opens it: the game's own reader when it takes the file, else every row it
+/// can take, a field it does not know left out and a row it refuses left out, each named (the Problems list).
+/// `check=1` and the game stay strict: this is the Studio's start only.
+pub fn blocks(text: &str) -> (engine::blocks::Registry, Vec<String>) {
+    use engine::blocks::Registry;
+    if let Ok(r) = Registry::parse(text) {
+        return (r, vec![]);
+    }
+    const F: &str = "data/blocks.toml";
+    let rows: Vec<toml::Table> = match toml::from_str::<toml::Table>(text) {
+        Ok(t) => t.get("block").and_then(|b| b.as_array()).into_iter().flatten().filter_map(|r| r.as_table().cloned()).collect(),
+        Err(e) => return (Registry::parse("[[block]]
+id = 0
+name = \"air\"
+solid = false
+").expect("air alone"), vec![format!("{F}: {}", e.message())]),
+    };
+    let file = |rows: &[toml::Table]| {
+        let mut t = toml::Table::new();
+        t.insert("block".into(), toml::Value::Array(rows.iter().cloned().map(toml::Value::Table).collect()));
+        toml::to_string(&t).unwrap_or_default()
+    };
+    let name = |r: &toml::Table, k: usize| r.get("name").and_then(|n| n.as_str()).map_or(format!("row {}", k + 1), |n| format!("'{n}'"));
+    let (mut kept, mut problems, mut later) = (vec![], vec![], vec![]);
+    // a row naming a later one as its side is tried again once the others are in
+    for pass in 0..2 {
+        let todo: Vec<(usize, toml::Table)> = if pass == 0 { rows.iter().cloned().enumerate().collect() } else { std::mem::take(&mut later) };
+        for (k, mut row) in todo {
+            loop {
+                let mut with = kept.clone();
+                with.push(row.clone());
+                let e = match Registry::parse(&file(&with)) {
+                    Ok(_) => {
+                        kept.push(row);
+                        break;
+                    }
+                    Err(e) => e,
+                };
+                // an unknown field (`spring` from a newer game, or one inside a season's table): left out
+                let field = e.split_once("unknown field `").and_then(|(_, r)| r.split_once('`')).map(|(f, _)| f.to_string());
+                if let Some(f) = field.filter(|f| row.contains_key(f) || row.values().any(|v| v.as_table().is_some_and(|t| t.contains_key(f)))) {
+                    if row.remove(&f).is_none() {
+                        row.iter_mut().filter_map(|(_, v)| v.as_table_mut()).for_each(|t| drop(t.remove(&f)));
+                    }
+                    problems.push((k, format!("{F}: block {}: unknown field `{f}`, left out", name(&row, k))));
+                    continue;
+                }
+                if pass == 0 && e.contains("for its side") {
+                    later.push((k, row));
+                } else {
+                    let e = e.split_once(": ").filter(|(h, _)| h.starts_with("block '")).map_or(e.as_str(), |(_, m)| m).trim().to_string();
+                    problems.push((k, format!("{F}: block {} left out: {e}", name(&row, k))));
+                }
+                break;
+            }
+        }
+    }
+    problems.sort_by_key(|p| p.0);
+    let reg = Registry::parse(&file(&kept)).unwrap_or_else(|_| Registry::parse("[[block]]
+id = 0
+name = \"air\"
+solid = false
+").expect("air alone"));
+    (reg, problems.into_iter().map(|p| p.1).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,5 +393,58 @@ mod tests {
     #[test]
     fn numbers_are_written_short() {
         assert_eq!((num(1800.0), num(0.7), num(0.70000005), num(-0.0001), num(12.34), num(3.0)), ("1800".into(), "0.7".into(), "0.7".into(), "0".into(), "12.3".into(), "3".into()));
+    }
+
+    #[test]
+    fn a_blocks_file_with_an_unknown_field_opens_and_names_it() {
+        let text = "[[block]]
+id = 0
+name = \"air\"
+solid = false
+
+[[block]]
+id = 1
+name = \"dirt\"
+hardness = 1
+sheen = 0.5
+
+[[block]]
+id = 2
+name = \"grass\"
+hardness = 1
+side = \"dirt\"
+[block.summer]
+colour = [0.1, 0.2, 0.3]
+
+[[block]]
+id = 3
+name = \"glow\"
+hardness = 1
+light = [9, 9, 9]
+
+[[block]]
+id = 4
+name = \"moss\"
+hardness = 1
+side = \"rock\"
+
+[[block]]
+id = 5
+name = \"rock\"
+hardness = 2
+";
+        assert!(engine::blocks::Registry::parse(text).is_err(), "the game refuses it");
+        let (reg, problems) = blocks(text);
+        let names: Vec<&str> = reg.placeable().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, ["dirt", "grass", "moss", "rock"], "the unknown fields left out, the bad row dropped, a later side found");
+        assert_eq!(reg.get(2).unwrap().side, 1);
+        assert_eq!(problems.len(), 3, "{problems:?}");
+        assert!(problems[0].starts_with("data/blocks.toml: ") && problems[0].contains("'dirt'") && problems[0].contains("`sheen`"), "{problems:?}");
+        assert!(problems[1].contains("'grass'") && problems[1].contains("`summer`"), "{problems:?}");
+        assert!(problems[2].contains("'glow'") && problems[2].contains("light outside"), "{problems:?}");
+        // a file the game takes: as the game reads it, no problems
+        let good = std::fs::read_to_string("../../data/blocks.toml").unwrap();
+        let (reg, problems) = blocks(&good);
+        assert!(problems.is_empty() && reg.hash == engine::blocks::Registry::parse(&good).unwrap().hash);
     }
 }

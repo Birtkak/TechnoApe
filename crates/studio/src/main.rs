@@ -10,12 +10,15 @@
 //! `renderer=`, `target/release/technoape.exe`, the exe beside the Studio, `build/TechnoApe.exe`; `view=0` none.
 //! `input="move 400 300; down; drag @canvas:0.1,0.1 @canvas:0.9,0.1; key Ctrl+S"` drives the shot with real
 //! input first (`drive.rs`); `shot=-` draws nothing; `rects=1` adds the pages' named rects; `root=dir` works in
-//! that folder's `data/` (a scratch copy) instead of the working folder's.
+//! that folder's `data/` (a scratch copy) instead of the working folder's; `recover=1` offers (and answers) the
+//! unsaved work a crash left in `studio-recovery/`, which a shot otherwise leaves alone.
 mod art;
 mod drive;
 mod effect;
 mod font;
+mod import;
 mod ramp;
+mod recover;
 mod rows;
 mod sound;
 mod pattern;
@@ -49,7 +52,8 @@ fn write_rgba(path: &str, w: u32, h: u32, rgba: &[u8]) -> Result<(), String> {
 }
 
 fn check() -> Result<String, String> {
-    let (pal, ok, bad) = art::check_data(Path::new("data"))?;
+    let (pal, ok, mut bad) = art::check_data(Path::new("data"))?;
+    bad.extend(import::check_credits(Path::new("data/sounds")));
     let line = format!("{{\"check\":{},\"palette\":{pal},\"textures\":{ok},\"refused\":{}}}", js(if bad.is_empty() { "ok" } else { "failed" }), list(&bad));
     if bad.is_empty() {
         Ok(line)
@@ -238,6 +242,9 @@ fn main() {
         load().and_then(|mut s| {
             // a shot never writes the developer's studio.txt
             s.keep_settings();
+            if get("recover") == Some("1") {
+                s.offer_kept();
+            }
             if let Some(k) = get("scale").and_then(|k| k.parse::<f32>().ok()) {
                 s.settings.scale = k.clamp(shell::Settings::SCALE.0, shell::Settings::SCALE.1);
             }

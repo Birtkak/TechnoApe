@@ -3,13 +3,14 @@
 //! editing is `voxel`'s, pure and tested; this maps the pointer and keys to it.
 use super::look::{self, c32, GAP};
 use super::textures::palette_picker;
-use super::viewport::{Viewport, DIR};
+use super::viewport::{ModelCam, Viewport, DIR};
 use super::{App, Cmd, FileRow, Page, Thumb, DRAFTS};
 use crate::art::{self, History};
 use crate::shell::Flags;
-use crate::voxel::{self, Hit, Motion, Op, Orbit, MOTIONS};
+use crate::voxel::{self, Hit, Motion, Op, Orbit, MOTIONS, VIEWS};
 use eframe::egui::{self, Color32, Key, Modifiers, Pos2, Rect, RichText, Sense, Stroke, Ui, Vec2};
 use engine::models::{parse_life, sample, Clip, Ease, Event, Life, Light, Model, State, StateEffect};
+use engine::models::VOXEL;
 use glam::{IVec3, Mat4, Vec3};
 use std::collections::BTreeMap;
 
@@ -35,10 +36,25 @@ pub(super) const TOOLS: [(Tool, &str, &str, Key, &str); 9] = [
     (Tool::Box, "box", "Box", Key::B, "drag a box on the plane of the face first clicked: left adds, right removes"),
     (Tool::Line, "line", "Line", Key::L, "drag a line on the plane of the face first clicked: left adds, right removes"),
     (Tool::Fill, "fill", "Fill", Key::G, "left click recolours the joined run of one colour on that face's layer, right removes it"),
-    (Tool::Select, "select", "Select", Key::S, "drag a box of voxels; the arrows and Page Up/Down move it; drag one of its faces to pull it out"),
+    (Tool::Select, "select", "Select", Key::S, "drag a box of voxels; the arrows and Shift + Page Up/Down move it; drag one of its faces to pull it out"),
     (Tool::Pivot, "pivot", "Pivot", Key::V, "drag the cross: the point the part turns about"),
     (Tool::Point, "point", "Point", Key::O, "click a face to add a point there; drag a point's cross to move it"),
 ];
+
+/// What each mouse button does with a tool, in the view's bar.
+fn buttons(tool: Tool) -> &'static str {
+    match tool {
+        Tool::Add => "left adds a voxel, right removes one",
+        Tool::Paint => "left paints a voxel the first colour, right the second",
+        Tool::Pick => "left takes a voxel's colour as the first, right as the second",
+        Tool::Box => "left drag adds a box, right drag removes one",
+        Tool::Line => "left drag adds a line, right drag removes one",
+        Tool::Fill => "left recolours the joined run, right removes it",
+        Tool::Select => "left drag selects a box; drag one of its faces to pull it out",
+        Tool::Pivot => "left drag moves the yellow cross, the point the part turns about",
+        Tool::Point => "left adds a point on a face; drag a point's cross to move it",
+    }
+}
 
 /// One model file open in the Studio: the model, its undo, its text as on disk, and a count of its edits.
 struct MDoc {
@@ -83,6 +99,8 @@ struct Drag {
     right: bool,
     /// What it moves: a pivot, a point, a selection's face.
     what: Grab,
+    /// Begun on a plane (the layer's, the floor's): its end is where the pointer meets that plane too.
+    plane: bool,
 }
 #[derive(Clone, Copy, PartialEq)]
 enum Grab {
@@ -100,8 +118,16 @@ pub struct Models {
     first: [u8; 3],
     second: [u8; 3],
     mirror: (bool, bool),
-    /// The slice: voxels above this height (the model's voxels) hidden; none shows all.
-    slice: Option<f32>,
+    /// Layer mode: the chosen part's row whose plane the clicks land on; the rows above it are dimmed.
+    layer: Option<i32>,
+    /// The hover came from a plane (the layer's, or the floor's where no voxel is under the pointer).
+    on_plane: bool,
+    /// Thin dark lines between voxels.
+    edges: bool,
+    /// What the overlay draws of the voxels, found for its key: the faces the eye sees (in metres, for the
+    /// edges) and the dimmed rows above the layer (far first, with their colour); and whether it is the view's now.
+    faces: (String, Vec<[Vec3; 4]>, Vec<([Vec3; 4], [u8; 3])>),
+    faces_now: bool,
     sel: Option<(IVec3, IVec3)>,
     drag: Option<Drag>,
     hover: Option<Hit>,
@@ -112,6 +138,10 @@ pub struct Models {
     key: Option<usize>,
     motion: (Motion, usize, f32),
     orbit: Orbit,
+    /// The flat (near orthographic) view.
+    flat: bool,
+    /// The starter shapes are shown for a new model (Ctrl+N), in place of the view.
+    choosing: bool,
     show_block: bool,
     show_player: bool,
     show_grid: bool,
@@ -165,7 +195,11 @@ impl Models {
             first: at(1),
             second: at(0),
             mirror: (false, false),
-            slice: None,
+            layer: None,
+            on_plane: false,
+            edges: true,
+            faces: Default::default(),
+            faces_now: false,
             sel: None,
             drag: None,
             hover: None,
@@ -175,6 +209,8 @@ impl Models {
             key: None,
             motion: (Motion::Swing, 1, 30.0),
             orbit: Orbit::default(),
+            flat: false,
+            choosing: false,
             show_block: false,
             show_player: false,
             show_grid: true,
@@ -297,15 +333,56 @@ impl Models {
         }
     }
 
-    /// A new model, or a small plant of a kind grown from a seed (its name's number: "tuft 3" is seed 3).
-    fn new_model(&mut self, app: &App, plant: Option<&str>) {
-        let base = plant.unwrap_or("model");
+    /// A new model named after `base` (a free name: "post", "post 2", ...), made by `make` from that name's
+    /// number (a plant's seed: "tuft 3" is seed 3); none made, nothing opens.
+    fn new_model(&mut self, base: &str, make: impl FnOnce(u64) -> Option<Model>) {
         let (k, name) = (1u64..).map(|k| (k, if k == 1 { base.to_string() } else { format!("{base} {k}") })).find(|(_, n)| !self.docs.contains_key(n) && !std::path::Path::new(&format!("{MODELS}/{n}.toml")).exists()).unwrap();
-        let m = plant.map_or_else(|| voxel::new_model(&app.pal), |kind| voxel::plant(&app.pal, kind, k));
+        let Some(m) = make(k) else { return };
         self.docs.insert(name.clone(), MDoc { m, life: Life::default(), hist: History::default(), saved: None, rev: 0, old: String::new() });
         self.open = Some(name);
         self.part = 0;
+        self.choosing = false;
         self.opened();
+    }
+
+    /// In place of the view, for a new model and when there is none: the starter shapes, each a button with its
+    /// words, and what the first click does.
+    fn starters(&mut self, ui: &mut Ui, app: &mut App) {
+        ui.add_space(GAP);
+        if self.m().is_none() {
+            look::heading(ui, "No model yet: click a shape to start from");
+            look::weak(ui, "It opens in the view. There a left click adds a voxel of the chosen colour, a right click removes one, and a right drag turns the view.");
+        } else {
+            look::heading(ui, "New model: click a shape to start from");
+            look::weak(ui, "It opens as a new model beside the others, to recolour and reshape; the open one is kept as it is.");
+        }
+        ui.add_space(GAP);
+        for (id, label, help) in voxel::STARTERS {
+            ui.horizontal(|ui| {
+                let r = ui.add_sized([130.0, 28.0], egui::Button::new(label));
+                crate::drive::mark(ui.ctx(), format!("starter:{id}"), r.rect);
+                if look::tip(r, help, "").clicked() {
+                    self.run(app, &format!("new:{id}"));
+                }
+                // (in a row a label does not wrap: a column the row's width left)
+                ui.allocate_ui_with_layout(Vec2::new(ui.available_width(), 28.0), egui::Layout::top_down(egui::Align::Min), |ui| ui.add(egui::Label::new(RichText::new(help).small().weak()).wrap()));
+            });
+        }
+        ui.add_space(GAP);
+        ui.horizontal_wrapped(|ui| {
+            look::weak(ui, "Or grow a small plant:");
+            for kind in voxel::PLANTS {
+                if look::tip(ui.button(kind), "A small plant grown as a new model, to finish by hand; again grows another", "").clicked() {
+                    self.run(app, &format!("plant:{kind}"));
+                }
+            }
+        });
+        if self.m().is_some() {
+            ui.add_space(GAP);
+            if look::tip(ui.button("Cancel"), "Back to the open model", "Esc").clicked() {
+                self.choosing = false;
+            }
+        }
     }
 
     /// The open model as the renderer reads it (sliced), written when it changed.
@@ -315,10 +392,11 @@ impl Models {
             return;
         };
         let rev = self.docs[&name].rev;
-        let now = Some((name.clone(), rev, self.slice));
+        let top = self.layer_top();
+        let now = Some((name.clone(), rev, top));
         if self.written != now {
             let (m, life) = (&self.docs[&name].m, &self.docs[&name].life);
-            let shown = match self.slice {
+            let shown = match top {
                 Some(s) => voxel::sliced(m, &m.pose(None, 0.0), s),
                 None => m.clone(),
             };
@@ -337,6 +415,211 @@ impl Models {
         app.view.place = if self.show_block { "0:-2:0:stone".into() } else { String::new() };
     }
 
+    /// The box of a part's cells `lo`..=`hi` in the model's metres, posed as drawn.
+    fn cells_box(&self, part: usize, lo: IVec3, hi: IVec3) -> Option<(Vec3, Vec3)> {
+        let pose = *self.poses().get(part)?;
+        let (lo, hi) = (lo.min(hi).as_vec3(), lo.max(hi).as_vec3() + 1.0);
+        let pts = (0..8).map(|k: u8| pose.transform_point3(Vec3::new([lo.x, hi.x][(k & 1) as usize], [lo.y, hi.y][(k >> 1 & 1) as usize], [lo.z, hi.z][(k >> 2 & 1) as usize])));
+        Some(pts.fold((Vec3::INFINITY, Vec3::NEG_INFINITY), |(a, b), p| (a.min(p), b.max(p))))
+    }
+    /// A part's whole box, in metres.
+    fn part_box(&self, part: usize) -> Option<(Vec3, Vec3)> {
+        let s = self.m()?.parts.get(part)?.size;
+        self.cells_box(part, IVec3::ZERO, IVec3::from(s.map(|v| v as i32)) - 1)
+    }
+    /// What the view turns about: the selection's middle, else the model's.
+    fn turn_point(&self) -> Option<Vec3> {
+        let b = match self.sel {
+            Some((a, b)) => self.cells_box(self.part, a, b),
+            None => (0..self.m()?.parts.len()).filter_map(|i| self.part_box(i)).reduce(|(a, b), (c, d)| (a.min(c), b.max(d))),
+        }?;
+        Some((b.0 + b.1) / 2.0)
+    }
+    /// F: the selection, else the chosen part, fills the view.
+    fn frame(&mut self, app: &App) {
+        let b = match self.sel {
+            Some((a, b)) => self.cells_box(self.part, a, b),
+            None => self.part_box(self.part),
+        };
+        if let Some((lo, hi)) = b {
+            self.orbit.frame(lo, hi, app.view.half_height());
+        }
+    }
+
+    /// The view cube in the view's top right corner: the axes in colour (x red, y green and up, z blue), a click
+    /// on a face looks from there; under it the flat view and framing as buttons.
+    fn view_cube(&mut self, ui: &mut Ui, app: &App, view: Rect) {
+        let half = 28.0;
+        let c = Pos2::new(view.max.x - half * 2.1, view.min.y + half * 2.1);
+        let area = Rect::from_center_size(c, Vec2::splat(half * 4.0));
+        if !view.contains_rect(area) {
+            return;
+        }
+        let resp = ui.interact(area, egui::Id::unique("model view cube"), Sense::click());
+        let p = ui.painter_at(area);
+        let (f, r, u) = self.orbit.basis();
+        let to2 = |v: Vec3| c + Vec2::new(v.dot(r), -v.dot(u)) * half;
+        p.circle_filled(c, half * 1.9, Color32::from_black_alpha(110));
+        // the axes from the middle, drawn first: what points away goes behind the cube
+        for (a, col, name) in [(Vec3::X, Color32::from_rgb(230, 80, 70), "x"), (Vec3::Y, Color32::from_rgb(110, 210, 90), "y"), (Vec3::Z, Color32::from_rgb(80, 140, 240), "z")] {
+            p.line_segment([c, to2(a * 1.7)], Stroke::new(2.0, col));
+            p.text(to2(a * 1.85), egui::Align2::CENTER_CENTER, name, egui::FontId::proportional(look::SMALL), col);
+        }
+        let faces = [(Vec3::Z, 0), (-Vec3::Z, 1), (Vec3::X, 2), (-Vec3::X, 3), (Vec3::Y, 4), (-Vec3::Y, 5)];
+        let mut over = None;
+        let pointer = resp.hover_pos();
+        for (n, k) in faces {
+            let facing = n.dot(-f);
+            if facing < 0.02 {
+                continue;
+            }
+            let (a, b) = if n.y != 0.0 { (Vec3::X, Vec3::Z) } else { (Vec3::Y, n.cross(Vec3::Y)) };
+            let pts: Vec<Pos2> = [n + a + b, n + a - b, n - a - b, n - a + b].iter().map(|v| to2(*v)).collect();
+            // inside the face's quad: on the same side of each of its edges
+            let side = |i: usize, q: Pos2| (pts[(i + 1) % 4] - pts[i]).rot90().dot(q - pts[i]);
+            let inside = pointer.is_some_and(|q| {
+                let s: Vec<f32> = (0..4).map(|i| side(i, q)).collect();
+                s.iter().all(|v| *v >= 0.0) || s.iter().all(|v| *v <= 0.0)
+            });
+            if inside {
+                over = Some(k);
+            }
+            let axis: [u8; 3] = if n.x != 0.0 { [150, 70, 64] } else if n.y != 0.0 { [80, 140, 70] } else { [64, 96, 160] };
+            let fill = c32(axis.map(|v| (v as f32 * (0.55 + 0.45 * facing) + if inside { 50.0 } else { 0.0 }).min(255.0) as u8));
+            p.add(egui::Shape::convex_polygon(pts, fill, Stroke::new(1.0, Color32::from_black_alpha(150))));
+            if facing > 0.35 {
+                p.text(to2(n), egui::Align2::CENTER_CENTER, VIEWS[k].1, egui::FontId::proportional(look::SMALL * 0.8), Color32::WHITE);
+            }
+            crate::drive::mark(ui.ctx(), format!("cube:{}", VIEWS[k].0), Rect::from_center_size(to2(n), Vec2::splat(2.0)));
+        }
+        if let (true, Some(k)) = (resp.clicked(), over) {
+            self.orbit.look_from(k);
+        }
+        let tip = match over {
+            Some(k) => format!("Look from the {} (the model faces front, +z, in the hand and in the world)", VIEWS[k].1.to_lowercase()),
+            None => "The view cube: click a face to look from that side. The axes: x red, y green and up, z blue".into(),
+        };
+        look::tip(resp, &tip, "1 3 7, with Shift the far side");
+        // under the cube: the flat view and framing, as buttons
+        let row = Rect::from_min_max(Pos2::new(view.max.x - 128.0, area.max.y), Pos2::new(view.max.x - 6.0, area.max.y + 22.0));
+        if view.contains_rect(row) {
+            let mut b = ui.new_child(egui::UiBuilder::new().max_rect(row).layout(egui::Layout::left_to_right(egui::Align::Center)));
+            b.spacing_mut().item_spacing = Vec2::splat(4.0);
+            if look::tip(look::chip(&mut b, self.flat, "Flat"), "A flat view: no perspective, so rows and sizes line up (again for perspective)", "5").clicked() {
+                self.flat = !self.flat;
+            }
+            if look::tip(b.button(RichText::new("Frame").small()), "Fill the view with the selection, else the chosen part", "F").clicked() {
+                self.frame(app);
+            }
+        }
+    }
+
+    /// Layer mode's height in the model's voxels, at rest: the rows above the chosen part's layer row are hidden.
+    fn layer_top(&self) -> Option<f32> {
+        let l = self.layer?;
+        let pose = *self.m()?.pose(None, 0.0).get(self.part)?;
+        Some(pose.transform_point3(Vec3::new(0.0, l as f32 + 1.0, 0.0)).y / VOXEL)
+    }
+
+    /// Where a left click adds and which voxel a right click removes, for a hover.
+    fn aims(&self, h: Hit) -> (Option<IVec3>, Option<IVec3>) {
+        let add = if self.on_plane { (!h.solid).then_some(h.cell) } else { Some(h.target()) };
+        (add, h.solid.then_some(h.cell))
+    }
+
+    /// The faces the overlay draws, found again when the model, the layer, the pose or the eye changed: the ones
+    /// the eye sees of the shown voxels (the layer's rows and under), for the edges, and the rows above the layer.
+    /// While a button is held (the view turning) they are not found again and not drawn.
+    /// shortcut: a face counts as seen by its middle, so one half hidden draws whole; clip per edge if it shows.
+    /// shortcut: the layer's rows are cut at rest (`layer_top`) and the faces drawn posed: a clip scrubbed away from
+    /// rest moves the plane and the faces off the cut; leave layer mode for that, or cut posed, when it matters.
+    fn find_faces(&mut self, view: &Viewport, held: bool) {
+        let Some(rev) = self.doc().map(|d| d.rev) else { return };
+        let eye = view.cam().eye();
+        let key = format!("{:?} {} {:?} {:?} {:?} {} {}", self.open, rev, self.layer_top(), eye, self.clip, self.t, self.edges);
+        self.faces_now = self.faces.0 == key;
+        if self.faces_now || held {
+            return;
+        }
+        let d = self.doc().unwrap();
+        let poses = self.poses();
+        let facing = |i: usize, q: &[Vec3; 4], n: IVec3| poses[i].transform_vector3(n.as_vec3()).dot(eye - (q[0] + q[2]) / 2.0) > 0.0;
+        let m = match self.layer_top() {
+            Some(top) => voxel::sliced(&d.m, &d.m.pose(None, 0.0), top),
+            None => d.m.clone(),
+        };
+        let mut edges = vec![];
+        for (i, p) in m.parts.iter().enumerate().filter(|_| self.edges) {
+            for (c, k) in voxel::exposed(p) {
+                let n = voxel::NORMALS[k];
+                let q = voxel::face_quad(c, n).map(|v| poses[i].transform_point3(v));
+                // facing the eye, and the first face a ray to its middle meets
+                if facing(i, &q, n) && voxel::pick(&m, &poses, None, eye, ((q[0] + q[2]) / 2.0 - eye).normalize()).is_some_and(|h| h.solid && h.part == i && h.cell == c && h.n == n) {
+                    edges.push(q);
+                }
+            }
+        }
+        let mut dim = vec![];
+        if self.layer.is_some() {
+            for (i, (a, b)) in d.m.parts.iter().zip(&m.parts).enumerate() {
+                let mut above = a.clone();
+                for (c, k) in above.cells.iter_mut().zip(&b.cells) {
+                    if *k != 0 {
+                        *c = 0;
+                    }
+                }
+                for (c, k) in voxel::exposed(&above) {
+                    let q = voxel::face_quad(c, voxel::NORMALS[k]).map(|v| poses[i].transform_point3(v));
+                    if facing(i, &q, voxel::NORMALS[k]) {
+                        let rgb = d.m.rgb.get(voxel::get(&above, c) as usize - 1).copied().unwrap_or([128; 3]);
+                        dim.push((((q[0] + q[2]) / 2.0).distance(eye), q, rgb));
+                    }
+                }
+            }
+            dim.sort_by(|a, b| b.0.total_cmp(&a.0));
+        }
+        self.faces = (key, edges, dim.into_iter().map(|(_, q, c)| (q, c)).collect());
+        self.faces_now = true;
+    }
+
+    /// The bar in the view's top left, always: the tool and what the buttons do, how the view moves, and what
+    /// is on (layer, mirror, flat).
+    fn view_bar(&self, ui: &Ui, view: Rect) {
+        let name = TOOLS.iter().find(|t| t.0 == self.tool).map_or("", |t| t.2);
+        let turn = if matches!(self.tool, Tool::Box | Tool::Line) { "Alt + left drag turns" } else { "Right drag (or Alt + left) turns" };
+        let mut lines = vec![format!("{name}: {}.", buttons(self.tool)), format!("{turn}, middle drag pans, the wheel zooms.")];
+        let mut on = vec![];
+        if let Some(l) = self.layer {
+            on.push(format!("Layer: row {l}, clicks land on its plane (Page Up/Down move it)"));
+        }
+        match self.mirror {
+            (true, true) => on.push("Mirror x and z".into()),
+            (true, false) => on.push("Mirror x".into()),
+            (false, true) => on.push("Mirror z".into()),
+            _ => {}
+        }
+        if self.flat {
+            on.push("Flat view".into());
+        }
+        if !on.is_empty() {
+            lines.push(on.join(". ") + ".");
+        }
+        let p = ui.painter_at(view);
+        let font = egui::FontId::proportional(look::SMALL);
+        let galleys: Vec<_> = lines.into_iter().enumerate().map(|(i, l)| p.layout_no_wrap(l, font.clone(), if i == 0 { Color32::WHITE } else { Color32::from_gray(200) })).collect();
+        let w = galleys.iter().map(|g| g.size().x).fold(0.0, f32::max);
+        let h: f32 = galleys.iter().map(|g| g.size().y).sum();
+        let bg = Rect::from_min_size(view.min + Vec2::splat(6.0), Vec2::new(w + 12.0, h + 8.0));
+        p.rect_filled(bg, 4.0, Color32::from_black_alpha(170));
+        let mut y = bg.min.y + 4.0;
+        for g in galleys {
+            let gh = g.size().y;
+            p.galley(Pos2::new(bg.min.x + 6.0, y), g, Color32::WHITE);
+            y += gh;
+        }
+        crate::drive::mark(ui.ctx(), "view_bar", bg);
+    }
+
     fn timeline_t(&mut self, t: f32) {
         let len = self.clip.and_then(|c| self.m()?.clips.get(c).map(|c| c.length)).unwrap_or(1.0);
         self.t = t.clamp(0.0, len);
@@ -352,18 +635,34 @@ impl Models {
         let part = self.part.min(m.parts.len().saturating_sub(1));
         let pos = resp.hover_pos().or(resp.interact_pointer_pos());
         let ray = pos.and_then(|p| app.view.ray(p));
-        self.hover = ray.and_then(|(o, d)| voxel::pick(&m, &poses, Some(part), o, d));
         if m.parts.is_empty() {
+            self.hover = None;
             return;
         }
+        // layer mode: the layer's plane; else the voxel under the pointer, else the floor, else where the ray enters the box
+        let on = |l: i32| ray.and_then(|(o, d)| voxel::pick_layer(&m.parts[part], poses[part], l, o, d)).map(|h| Hit { part, ..h });
+        (self.hover, self.on_plane) = match self.layer {
+            Some(l) => (on(l), true),
+            None => match (ray.and_then(|(o, d)| voxel::pick(&m, &poses, Some(part), o, d)), on(0)) {
+                (Some(h), _) if h.solid => (Some(h), false),
+                // (only on the floor's drawn grid: a click far off never grows the part)
+                (_, Some(f)) if on_grid(&m.parts[part], f.cell) => (Some(f), true),
+                (h, _) if h.is_some_and(|h| h.solid) => (h, false),
+                (h, _) => (h, false),
+            },
+        };
         let pose = poses[part];
-        // the status line's middle: the cell under the pointer and its colour
+        // the status line's middle: the cell under the pointer, the part's box and the part, and the voxel's colour
         app.pointer = match self.hover {
-            Some(h) if h.solid => {
-                let v = voxel::get(&m.parts[part], h.cell);
-                format!("{} {}, {}, {}  {}", m.parts[part].name, h.cell.x, h.cell.y, h.cell.z, m.colours.get(v as usize - 1).cloned().unwrap_or_default())
+            Some(h) => {
+                let (c, p) = (h.cell, &m.parts[part]);
+                let what = match voxel::get(p, c) {
+                    0 if !voxel::inside(p, c) => "outside the box: an add grows it".to_string(),
+                    0 => "empty".to_string(),
+                    v => m.colours.get(v as usize - 1).cloned().unwrap_or_default(),
+                };
+                format!("x {} y {} z {} of {} x {} x {}, part {}: {what}", c.x, c.y, c.z, p.size[0], p.size[1], p.size[2], p.name)
             }
-            Some(h) => format!("{} {}, {}, {} (empty)", m.parts[part].name, h.cell.x, h.cell.y, h.cell.z),
             None => String::new(),
         };
         let screen = |p: Vec3| app.view.to_screen(p);
@@ -372,8 +671,9 @@ impl Models {
             crate::drive::mark(&resp.ctx, "pivot", Rect::from_center_size(q, Vec2::splat(2.0)));
         }
         let point_at: Vec<Option<Pos2>> = m.points.iter().map(|pt| m.parts.iter().position(|p| p.name == pt.part).and_then(|i| screen(poses[i].transform_point3(Vec3::from(pt.at))))).collect();
-        // a press starts a drag (or is a click when let go where it began)
-        let pressed = resp.drag_started_by(egui::PointerButton::Primary) || resp.drag_started_by(egui::PointerButton::Secondary);
+        // a press starts a drag (or is a click when let go where it began); Alt + left drag turns the view instead
+        let alt = resp.ctx.input(|i| i.modifiers.alt);
+        let pressed = (resp.drag_started_by(egui::PointerButton::Primary) && !alt) || resp.drag_started_by(egui::PointerButton::Secondary);
         if pressed && self.drag.is_none() {
             let right = resp.drag_started_by(egui::PointerButton::Secondary);
             let from = resp.interact_pointer_pos().unwrap_or_default();
@@ -392,9 +692,10 @@ impl Models {
             let takes_right = matches!(self.tool, Tool::Box | Tool::Line);
             if let (Some(what), Some(h)) = (what, self.hover.or(Some(Hit { part, cell: IVec3::ZERO, n: IVec3::Y, solid: false, t: 0.0 }))) {
                 if !right || takes_right {
-                    let hit = if right { Hit { solid: false, ..h } } else { h };
+                    // (a plane's hit stays on its plane: the drag's cells are on that row)
+                    let hit = if right || self.on_plane { Hit { solid: false, ..h } } else { h };
                     if what != Grab::Cells || self.hover.is_some() {
-                        self.drag = Some(Drag { hit, from, right, what });
+                        self.drag = Some(Drag { hit, from, right, what, plane: self.on_plane });
                     }
                 }
             }
@@ -431,7 +732,7 @@ impl Models {
                 _ => {}
             }
             if resp.drag_stopped() {
-                let end = voxel::on_plane(pose, &dr.hit, o, d);
+                let end = if dr.plane { voxel::pick_layer(&m.parts[part], pose, dr.hit.cell.y, o, d).map(|h| h.cell) } else { voxel::on_plane(pose, &dr.hit, o, d) };
                 let col = if dr.right { None } else { Some(self.first) };
                 match (dr.what, self.tool, end) {
                     (Grab::Cells, Tool::Box | Tool::Line, Some(end)) => {
@@ -471,17 +772,18 @@ impl Models {
             }
             return;
         }
-        let (left, right) = (resp.clicked(), resp.secondary_clicked());
+        let (left, right) = (resp.clicked() && !alt, resp.secondary_clicked());
         if !(left || right) {
             return;
         }
         let Some(h) = self.hover else { return };
-        let target = h.target();
         match self.tool {
-            Tool::Add if left => self.cells(app, "Add", &[target], Some(self.first)),
-            Tool::Add if right && h.solid => self.cells(app, "Remove", &[h.cell], None),
-            Tool::Box | Tool::Line if left => self.cells(app, "Add", &[target], Some(self.first)),
-            Tool::Box | Tool::Line if right && h.solid => self.cells(app, "Remove", &[h.cell], None),
+            Tool::Add | Tool::Box | Tool::Line if left => {
+                if let Some(c) = self.aims(h).0 {
+                    self.cells(app, "Add", &[c], Some(self.first));
+                }
+            }
+            Tool::Add | Tool::Box | Tool::Line if right && h.solid => self.cells(app, "Remove", &[h.cell], None),
             Tool::Paint if h.solid => {
                 let c = if left { self.first } else { self.second };
                 if let Some(k) = self.colour(app, c) {
@@ -567,6 +869,12 @@ impl Models {
                 line(Vec3::new(-1.0, 0.0, k as f32), Vec3::new(2.0, 0.0, k as f32), s);
             }
         }
+        // the floor's edges by name: front where the model faces in the hand and in the world (+z)
+        for (at, name) in [(Vec3::new(0.5, 0.0, 1.12), "front"), (Vec3::new(0.5, 0.0, -0.12), "back"), (Vec3::new(1.12, 0.0, 0.5), "right"), (Vec3::new(-0.12, 0.0, 0.5), "left")] {
+            if let Some(q) = view.to_screen(at) {
+                p.text(q, egui::Align2::CENTER_CENTER, name, egui::FontId::proportional(look::SMALL), Color32::from_white_alpha(if name == "front" { 200 } else { 110 }));
+            }
+        }
         if self.show_player {
             // a player's outline (0.6 x 1.8 m) beside the cell, for scale
             view.player(p, Vec3::new(1.6, 0.0, 0.2));
@@ -574,14 +882,86 @@ impl Models {
         let Some(part) = m.parts.get(self.part) else { return };
         let pose = poses[self.part];
         let size = Vec3::from(part.size.map(|v| v as f32));
+        let eye = view.cam().eye();
+        let poly = |q: [Vec3; 4], fill: Color32, s: Stroke| {
+            let pts: Option<Vec<Pos2>> = q.iter().map(|c| view.to_screen(*c)).collect();
+            if let Some(pts) = pts {
+                p.add(egui::Shape::convex_polygon(pts, fill, s));
+            }
+        };
+        // the part's floor (in layer mode the layer's plane) in voxel lines, the 1 m lines heavier
+        if self.show_grid || self.layer.is_some() {
+            let y = self.layer.unwrap_or(0) as f32;
+            let s = IVec3::from(part.size.map(|v| v as i32));
+            let (lo, hi) = (IVec3::new(-GRID, 0, -GRID), IVec3::new(s.x + GRID, 0, s.z + GRID));
+            let tint = if self.layer.is_some() { look::ACCENT } else { Color32::WHITE };
+            for ax in [0, 2] {
+                let (a0, a1, b0, b1) = if ax == 0 { (lo.x, hi.x, lo.z, hi.z) } else { (lo.z, hi.z, lo.x, hi.x) };
+                for k in a0..=a1 {
+                    let at = |b: i32| pose.transform_point3(if ax == 0 { Vec3::new(k as f32, y, b as f32) } else { Vec3::new(b as f32, y, k as f32) });
+                    let heavy = ((at(b0)[ax] / VOXEL).round() as i32).rem_euclid(8) == 0;
+                    let s = if heavy { Stroke::new(1.5, tint.gamma_multiply(0.5)) } else { Stroke::new(1.0, tint.gamma_multiply(0.15)) };
+                    line(at(b0), at(b1), s);
+                }
+            }
+        }
+        if self.faces_now {
+            // the rows above the layer, dimmed: hidden in the view, drawn here faint, the far faces first
+            for (q, rgb) in &self.faces.2 {
+                poly(*q, Color32::from_rgba_unmultiplied(rgb[0], rgb[1], rgb[2], 60), Stroke::new(1.0, Color32::from_white_alpha(18)));
+            }
+            // the edges: thin dark lines round every face the eye sees
+            for q in &self.faces.1 {
+                for i in 0..4 {
+                    line(q[i], q[(i + 1) % 4], Stroke::new(1.0, Color32::from_black_alpha(120)));
+                }
+            }
+        }
         cube(pose, Vec3::ZERO, size, Stroke::new(1.0, look::ACCENT.gamma_multiply(0.6)));
+        // the mirror's planes, through the part's middle
+        for (on, ax) in [(self.mirror.0, 0), (self.mirror.1, 2)] {
+            if on {
+                let mut q = [Vec3::ZERO, Vec3::new(0.0, size.y, 0.0), Vec3::new(0.0, size.y, 0.0), Vec3::ZERO];
+                let other = 2 - ax;
+                (q[2][other], q[3][other]) = (size[other], size[other]);
+                for c in &mut q {
+                    c[ax] = size[ax] / 2.0;
+                }
+                poly(q.map(|c| pose.transform_point3(c)), look::ACCENT.gamma_multiply(0.12), Stroke::new(1.5, look::ACCENT.gamma_multiply(0.7)));
+            }
+        }
         if let Some((a, b)) = self.sel {
             let (lo, hi) = (a.min(b).as_vec3(), a.max(b).as_vec3() + 1.0);
             cube(pose, lo, hi, Stroke::new(2.0, look::DRAFT));
         }
         if let Some(h) = self.hover.filter(|_| self.drag.is_none()) {
-            let c = if matches!(self.tool, Tool::Add | Tool::Box | Tool::Line) { h.target() } else { h.cell };
-            cube(pose, c.as_vec3(), c.as_vec3() + 1.0, Stroke::new(1.5, Color32::WHITE));
+            let (add, remove) = self.aims(h);
+            let twins = |c: IVec3| voxel::mirrored(part.size, &[c], self.mirror.0, self.mirror.1);
+            // the face under the pointer, lit: the voxel's, or the plane's cell
+            let lit = if self.on_plane { voxel::face_quad(h.cell, IVec3::NEG_Y) } else { voxel::face_quad(h.cell, if h.solid { h.n } else { -h.n }) };
+            poly(lit.map(|v| pose.transform_point3(v)), Color32::from_white_alpha(60), Stroke::NONE);
+            match self.tool {
+                Tool::Add | Tool::Box | Tool::Line => {
+                    // a ghost voxel in the chosen colour where a left click adds, half see-through
+                    for c in add.map_or(vec![], twins) {
+                        let [r, g, b] = self.first;
+                        for n in voxel::NORMALS {
+                            let q = voxel::face_quad(c, n).map(|v| pose.transform_point3(v));
+                            if pose.transform_vector3(n.as_vec3()).dot(eye - (q[0] + q[2]) / 2.0) > 0.0 {
+                                poly(q, Color32::from_rgba_unmultiplied(r, g, b, 150), Stroke::NONE);
+                            }
+                        }
+                        // its outline light, so a colour like the ground's still shows
+                        cube(pose, c.as_vec3(), c.as_vec3() + 1.0, Stroke::new(1.5, Color32::from_white_alpha(210)));
+                    }
+                    // the voxel a right click removes, outlined red
+                    for c in remove.map_or(vec![], twins) {
+                        cube(pose, c.as_vec3(), c.as_vec3() + 1.0, Stroke::new(2.0, Color32::from_rgb(235, 60, 50)));
+                    }
+                }
+                _ if h.solid => cube(pose, h.cell.as_vec3(), h.cell.as_vec3() + 1.0, Stroke::new(1.5, c32(self.first))),
+                _ => {}
+            }
         }
         let cross = |at: Option<Pos2>, col: Color32, big: f32| {
             if let Some(c) = at {
@@ -975,6 +1355,13 @@ impl Models {
     }
 }
 
+/// Within the floor grid the view draws under a part: its box and 4 cells round it.
+fn on_grid(p: &engine::models::Part, c: IVec3) -> bool {
+    let s = IVec3::from(p.size.map(|v| v as i32));
+    c.x >= -GRID && c.z >= -GRID && c.x < s.x + GRID && c.z < s.z + GRID
+}
+const GRID: i32 = 4;
+
 fn m_size(s: &Models, part: usize) -> [u32; 3] {
     s.m().and_then(|m| m.parts.get(part)).map_or([1; 3], |p| p.size)
 }
@@ -1013,7 +1400,10 @@ impl Page for Models {
         v.push(Cmd::new("undo", "Undo", "undo the last change to this model").key(Modifiers::COMMAND, Key::Z));
         v.push(Cmd::new("redo", "Redo", "redo what was undone").key(Modifiers::COMMAND, Key::Y));
         v.push(Cmd::new("save", "Save the model", "write it (checked by the game's reader first) and take it off the drafts list").key(Modifiers::COMMAND, Key::S));
-        v.push(Cmd::new("new", "New model", "one part, a block's size, its floor laid").key(Modifiers::COMMAND, Key::N));
+        v.push(Cmd::new("new", "New model", "choose a shape to start from: a block, a slab, a post, a tool, a plant cross or a creature").key(Modifiers::COMMAND, Key::N));
+        for (id, label, help) in voxel::STARTERS {
+            v.push(Cmd::new(format!("new:{id}"), format!("New model: {label}"), help));
+        }
         for kind in voxel::PLANTS {
             v.push(Cmd::new(format!("plant:{kind}"), format!("New {kind}"), "a small plant grown as a new model, to finish by hand; again grows another"));
         }
@@ -1024,9 +1414,23 @@ impl Page for Models {
         v.push(Cmd::new("part.child", "Add a child part", "a new empty part hanging on the chosen one"));
         v.push(Cmd::new("motion", "Ready-made motion", "fill the clip's keys of the chosen part with the motion set in the inspector"));
         for (id, k, what) in [("left", Key::ArrowLeft, "-x"), ("right", Key::ArrowRight, "+x"), ("up", Key::ArrowUp, "-z"), ("down", Key::ArrowDown, "+z"), ("raise", Key::PageUp, "+y"), ("lower", Key::PageDown, "-y")] {
-            v.push(Cmd::new(format!("sel.{id}"), format!("Move the selection {what}"), "one voxel").key(Modifiers::NONE, k));
+            // (Page Up/Down alone move the layer)
+            let mods = if matches!(id, "raise" | "lower") { Modifiers::SHIFT } else { Modifiers::NONE };
+            v.push(Cmd::new(format!("sel.{id}"), format!("Move the selection {what}"), "one voxel").key(mods, k));
         }
+        v.push(Cmd::new("layer.on", "Layer mode on or off", "clicks land on one row's plane, the rows above are dimmed: build floor by floor, or work inside"));
+        v.push(Cmd::new("layer.up", "Layer up", "layer mode's plane a row up (turns layer mode on)").key(Modifiers::NONE, Key::PageUp));
+        v.push(Cmd::new("layer.down", "Layer down", "layer mode's plane a row down (turns layer mode on)").key(Modifiers::NONE, Key::PageDown));
+        v.push(Cmd::new("edges", "Edges on or off", "thin dark lines between voxels, so a face of one colour still reads as voxels"));
         v.push(Cmd::new("sel.none", "Select nothing", "drop the selection").key(Modifiers::NONE, Key::Escape));
+        // (the first key that matches runs, and a plain key matches with Shift held too: the Shift views first)
+        for (k, (id, name, ..)) in VIEWS.iter().enumerate().rev() {
+            let key = [Key::Num1, Key::Num3, Key::Num7][k / 2];
+            let mods = if k % 2 == 0 { Modifiers::NONE } else { Modifiers::SHIFT };
+            v.push(Cmd::new(format!("view:{id}"), format!("View from the {}", name.to_lowercase()), "look at the model from that side (the view cube's face)").key(mods, key));
+        }
+        v.push(Cmd::new("view.flat", "Flat view on or off", "no perspective, so rows and sizes line up").key(Modifiers::NONE, Key::Num5));
+        v.push(Cmd::new("view.frame", "Frame", "fill the view with the selection, else the chosen part").key(Modifiers::NONE, Key::F));
         v
     }
 
@@ -1036,7 +1440,7 @@ impl Page for Models {
             return;
         }
         // with an argument (the command box and shot=): part:<name>, clip:<name>, time:<s>, motion:<kind>,
-        // fromtex:<block>, slice:<voxels or off>, sel:x;y;z;x;y;z, scene:<grass|cave|none>, hour:<h>, cam:yaw;pitch;dist
+        // fromtex:<block>, layer:<row or off>, sel:x;y;z;x;y;z, scene:<grass|cave|none>, hour:<h>, cam:yaw;pitch;dist
         if let Some((cmd, arg)) = id.split_once(':') {
             let m = self.m().cloned();
             match cmd {
@@ -1063,7 +1467,7 @@ impl Page for Models {
                 }
                 "event" => self.event = arg.parse().ok(),
                 "point" => self.point = arg.parse().ok(),
-                "slice" => self.slice = arg.parse().ok(),
+                "layer" | "slice" => self.layer = arg.parse().ok(),
                 "motion" => {
                     if let Some(k) = MOTIONS.iter().find(|x| format!("{:?}", x.0).eq_ignore_ascii_case(arg)) {
                         self.motion = (k.0, self.motion.1, k.3);
@@ -1092,7 +1496,13 @@ impl Page for Models {
                         self.sel = Some((IVec3::new(a, b, c), IVec3::new(d, e, f)));
                     }
                 }
-                "plant" if voxel::PLANTS.contains(&arg) => self.new_model(app, Some(arg)),
+                "plant" if voxel::PLANTS.contains(&arg) => self.new_model(arg, |k| Some(voxel::plant(&app.pal, arg, k))),
+                "new" => self.new_model(arg, |_| voxel::starter(&app.pal, arg)),
+                "view" => {
+                    if let Some(k) = VIEWS.iter().position(|v| v.0 == arg) {
+                        self.orbit.look_from(k);
+                    }
+                }
                 "scene" => app.view.scene = super::viewport::Scene::named(arg),
                 "hour" => app.view.hour = arg.parse().unwrap_or(app.view.hour),
                 "cam" => {
@@ -1116,7 +1526,7 @@ impl Page for Models {
             "mirror.z" => self.mirror.1 = !self.mirror.1,
             "play" => self.playing = !self.playing && self.clip.is_some(),
             "save" => self.save(app),
-            "new" => self.new_model(app, None),
+            "new" => self.choosing = true,
             "undo" | "redo" => {
                 if let Some(d) = self.open.as_ref().and_then(|n| self.docs.get_mut(n)) {
                     let done = d.step(|h, now| if id == "undo" { h.undo(now) } else { h.redo(now) });
@@ -1168,7 +1578,16 @@ impl Page for Models {
                     true
                 });
             }
-            "sel.none" => self.sel = None,
+            "sel.none" => (self.sel, self.choosing) = (None, false),
+            "view.flat" => self.flat = !self.flat,
+            "layer.on" => self.layer = if self.layer.is_some() { None } else { Some(0) },
+            "layer.up" | "layer.down" => {
+                let l = self.layer.map_or(0, |l| l + if id == "layer.up" { 1 } else { -1 });
+                // (not below row 0: an add there would grow the box down and leave the plane a row under it)
+                self.layer = Some(l.clamp(0, m_size(self, part)[1] as i32));
+            }
+            "edges" => self.edges = !self.edges,
+            "view.frame" => self.frame(app),
             _ => {
                 if let (Some(dir), Some((a, b))) = (id.strip_prefix("sel."), self.sel) {
                     let by = match dir {
@@ -1188,9 +1607,10 @@ impl Page for Models {
 
     fn more_keys(&self) -> Vec<(&'static str, &'static str)> {
         vec![
-            ("Right drag", "turn the view (the tools' right button: a click)"),
+            ("Right drag", "turn the view about the selection, else the model's middle (Box and Line: removes)"),
+            ("Alt + left drag", "turn the view, for a hand without a middle or right button"),
             ("Middle drag", "pan the view"),
-            ("Wheel", "zoom the view"),
+            ("Wheel", "zoom toward the pointer"),
             ("Left click", "the tool's first action (add, paint, pick)"),
             ("Right click", "the tool's second action (remove, second colour)"),
         ]
@@ -1228,11 +1648,11 @@ impl Page for Models {
                 }
             });
         }
-        app.view.controls(ui);
-        if self.m().is_none() {
-            look::weak(ui, "No model: Ctrl+N makes one");
+        if self.choosing || self.m().is_none() {
+            self.starters(ui, app);
             return;
         }
+        app.view.controls(ui);
         self.feed_view(app);
         // (no clip chosen: the timeline is its one line of buttons, and the view has the rest)
         let timeline_h = if self.clip.is_none() { 62.0 } else { 62.0 + 18.0 * (self.m().map_or(1, |m| m.parts.len()) as f32 + 2.0) + GAP };
@@ -1241,6 +1661,7 @@ impl Page for Models {
         let view_share = ((total - timeline_h - GAP) / total.max(1.0)).clamp(0.1, 0.9);
         let view_h = look::split(ui, "view", view_share, total) - GAP;
         app.view.orbit = self.orbit;
+        app.view.model = Some(ModelCam { flat: self.flat, pivot: self.turn_point(), right_turns: !matches!(self.tool, Tool::Box | Tool::Line) });
         let resp = {
             let me = &*self;
             app.view.ui(ui, view_h, |p, v, _| me.sketch(p, v))
@@ -1248,7 +1669,10 @@ impl Page for Models {
         self.orbit = app.view.orbit;
         self.pointer(app, &resp);
         let painter = ui.painter_at(resp.rect);
+        self.find_faces(&app.view, ui.input(|i| i.pointer.any_down()));
         self.overlay(&painter, &app.view);
+        self.view_cube(ui, app, resp.rect);
+        self.view_bar(ui, resp.rect);
         let tool = TOOLS.iter().find(|t| t.0 == self.tool).unwrap();
         look::tip(resp, &format!("{}: {}", tool.2, tool.4), tool.3.name());
         look::split_bar(ui, "view", view_share, total);
@@ -1280,7 +1704,7 @@ impl Page for Models {
         if let Some(mut sec) = look::section(ui, "Model") {
             let ui = &mut *sec;
             ui.horizontal(|ui| {
-                if look::tip(ui.button("New model"), "A new model: one part, a block's size", "Ctrl+N").clicked() {
+                if look::tip(ui.button("New model"), "Start a new model from a shape: a block, a slab, a post, a tool, a plant cross or a creature", "Ctrl+N").clicked() {
                     self.run(app, "new");
                 }
                 ui.menu_button("Plant…", |ui| {
@@ -1318,20 +1742,36 @@ impl Page for Models {
                     self.run(app, &format!("fromtex:{b}"));
                 }
             });
-            ui.horizontal(|ui| {
-                let mut on = self.slice.is_some();
-                if look::tip(ui.checkbox(&mut on, "Slice"), "Hide everything above a height, to work inside", "").changed() {
-                    self.slice = on.then_some(4.0);
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::splat(4.0);
+                if look::tip(look::chip(ui, self.layer.is_some(), "Layer"), "Layer mode: clicks land on one row's plane and the rows above are dimmed: build floor by floor, or work inside", "").clicked() {
+                    self.run(app, "layer.on");
                 }
-                if let Some(s) = &mut self.slice {
-                    ui.spacing_mut().slider_width = (ui.available_width() - 60.0).max(40.0);
-                    look::tip(ui.add(egui::Slider::new(s, 0.0..=32.0).step_by(1.0).suffix(" vox")), "The height, in voxels, above which nothing shows", "");
+                if let Some(l) = self.layer {
+                    if look::tip(ui.small_button("Down"), "The layer a row down", "PgDn").clicked() {
+                        self.run(app, "layer.down");
+                    }
+                    look::weak(ui, format!("row {l}"));
+                    if look::tip(ui.small_button("Up"), "The layer a row up", "PgUp").clicked() {
+                        self.run(app, "layer.up");
+                    }
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::splat(4.0);
+                look::weak(ui, "Look from");
+                for (k, (id, name, ..)) in VIEWS.iter().enumerate() {
+                    let key = format!("{}{}", if k % 2 == 1 { "Shift+" } else { "" }, ["1", "3", "7"][k / 2]);
+                    if look::tip(ui.small_button(*name), &format!("Look at the model from the {} (the view cube's face)", name.to_lowercase()), &key).clicked() {
+                        self.run(app, &format!("view:{id}"));
+                    }
                 }
             });
             ui.horizontal_wrapped(|ui| {
                 look::tip(look::toggle(ui, &mut self.show_block, "1 m block"), "A real stone block two cells away, for scale", "");
                 look::tip(look::toggle(ui, &mut self.show_player, "Player"), "A player's outline (0.6 x 1.8 m) beside the cell", "");
-                look::tip(look::toggle(ui, &mut self.show_grid, "Grid"), "Lines every 8 voxels: one block", "");
+                look::tip(look::toggle(ui, &mut self.show_grid, "Grid"), "The floor's voxel lines under the part, the 1 m lines heavier", "");
+                look::tip(look::toggle(ui, &mut self.edges, "Edges"), "Thin dark lines between voxels, so a face of one colour still reads as voxels", "");
             });
         }
         if let Some(mut sec) = look::section(ui, "Part") {
@@ -1373,7 +1813,7 @@ impl Page for Models {
             if let Some(mut sec) = look::section(ui, "Selection") {
                 let ui = &mut *sec;
                 let (lo, hi) = (a.min(b), a.max(b));
-                look::weak(ui, format!("{} x {} x {} voxels; arrows and Page Up/Down move it, a drag on one of its faces pulls it out", hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1));
+                look::weak(ui, format!("{} x {} x {} voxels; the arrows and Shift + Page Up/Down move it, a drag on one of its faces pulls it out", hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1));
             }
         }
     }

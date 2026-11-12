@@ -167,6 +167,9 @@ saw it.
 
 Done when `shot=out/x.png open=grass` at 1920 x 1080 shows the lit block without scrolling.
 
+**Built** (ADR 0064): the box on top of the inspector; while a stroke is held the block follows it (the open
+file written every 120 ms, about 1.5 ms a write); the variant pick is the shader's, held by a test.
+
 ### 2. Patterns are the main way to start a texture (Textures)
 Today "Pattern" stamps the block's row from `blocks.toml` into the canvas: no choice, no values, no preview.
 The eleven recipes and their values exist (`engine/src/blocks.rs` `Pattern`, `studio/src/pattern.rs`).
@@ -191,6 +194,9 @@ The result is snapped to the palette as now and saved as the PNG; `blocks.toml` 
 see the answers at the end). Done when a `drive` script picks bricks, sets three colours and a size, uses it, and the saved PNG passes
 `check=1`; a `shot=` of the open panel is read.
 
+**Built** (ADR 0064): the panel stands left of the canvas; while a well waits for a colour the swatches show
+in the panel too. The drive script is the test `the_pattern_panel_picks_bricks_three_colours_and_a_size`.
+
 ### 3. Variants explain themselves (Textures)
 Today: tabs `1 2 3 +` with no word beside them; "Make variants" opens nine sets, each three small squares, the
 first of which is variant 1 unchanged (flat green in the developer's screenshot, so every set looked broken);
@@ -210,6 +216,10 @@ first of which is variant 1 unchanged (flat green in the developer's screenshot,
 
 Done when a `drive` script generates, picks and uses a set and the file is 48 px wide; the flat case is a
 `shot=` that is read.
+
+**Built** (ADR 0064): the wall stands left of the canvas; the set made around the file is marked "as now". The
+drive script is the test `generate_variants_picks_a_set_and_a_variant_is_removed`. The bar's recovery file is
+built for textures (`recover.rs`, kept every 3 s in `studio-recovery/`), ready for the other pages.
 
 ### 4. The model view: where am I, where does the click land (Models)
 Today: right drag turns, middle drag pans, the wheel zooms; left adds on the hovered face and right removes; a
@@ -244,7 +254,16 @@ what a click does.
 Done when a `drive` script sets each of the six views and frames a part, and a filmstrip of hover, add and
 remove in layer mode is read; picking on the layer plane has a test.
 
+**Built** (2026-11-12, ADR 0065), with the starter shapes of "The bar": Ctrl+N and New model show the shapes
+(the page with no model shows them too, with what the first click does). The far side's views are Shift+1, 3,
+7 (Ctrl+number is the page keys). Page Up/Down move the layer; the selection moves up and down with Shift. The
+flat view is the eye 8 times as far and the renderer's field of view 8 times narrower (its `zoom` command),
+not a true orthographic camera.
+
 ### 5. Sounds from outside files (Sounds)
+**Built 2026-11-12** (ADR 0066: symphonia reads the four formats in the Studio only; the written file is 48 kHz
+mono 16-bit WAV; `crates/studio/src/import.rs`, the panel in `ui/sounds.rs`).
+
 Today a recording `data/sounds/<name>.wav` replaces a code-made sound and `data/sounds/base/*.wav` are bases
 for chains (ADR 0032, 0048), but only as WAV, only by copying files by hand, and nothing trims or levels them.
 Making a sound from layers and chains alone asks for audio skill the developer does not have; a good recording
@@ -268,9 +287,71 @@ Done when: a test decodes one small file of each format and gets the same length
 script imports, trims and uses one and `sounds=1` shows the row playing a recording; `check=1` fails on a
 recording without credits.
 
+## Second round (2026-11-12, after the first play-test of the usability round)
+The developer, with the merged Studio open: "the blue box indicating parts is not aligned with the model";
+"for making small models like saplings, leaves, pebbles it's too limiting with the bigger voxels or not being
+able to put a pattern on a voxel"; "colours for textures feel limited". Two calls made the same evening:
+**fine voxels per model** (not pattern materials on voxels) and **the one palette stays and grows in place**
+(not a free colour picker). Not built yet; steps 7 and 8 continue the usability round's numbering.
+
+### 6. The part box and the edge lines sit on the model (bug)
+On `snake` (a chain of four parts, tail selected) and on `leaf` (one part with `at` and a pivot, a Spin clip)
+the selected part's blue box and the Edges lines stand a voxel or two beside the drawn voxels. The overlay and
+the mesh must take one transform (parent chain, `at`, pivot, the clip's pose), and a click must land on the
+voxel under the pointer. Sent to the models session as a red-then-green fix; ADR 0065 gets the finding.
+
+### 7. Fine voxels per model (withdrawn the same evening)
+**Withdrawn:** the developer chose textured box models at 32 pixels per metre instead, with see-through
+leaves and glass (`docs/design/see-through-and-boxes.md`). Do not build this step; the text stays as the
+record of what was weighed.
+
+A sapling, a leaf or a pebble is a handful of 12.5 cm voxels and cannot have a shape. A model may therefore
+choose a finer voxel.
+
+- **The file:** `voxel = 16` in `data/models/<name>.toml` (voxels per metre; 8 when absent, so every model
+  made so far is unchanged). 16 is 6.25 cm: exactly one texture pixel, so a fine model beside a painted block
+  has the same grain. One size per model; parts do not mix. A part's box stays at most 32 on a side, which is
+  2 m for a fine model.
+- **Units:** `at`, pivots, points and a clip's moves are counted in the model's own voxels, as now. The
+  mesher scales by the model's size.
+- **The Studio:** New model asks the size beside the starter shape, in plain words: "Normal (12.5 cm): tools,
+  machines, creatures" and "Fine (6.25 cm): small plants, pebbles, items". The floor grid and the status line
+  follow. "Make fine" turns a normal model into a fine one (every voxel becomes 2 x 2 x 2, nothing is lost);
+  the way back is offered only as a preview with Use and Cancel, since it merges voxels.
+- **Patterns for models come from this:** at one voxel per pixel a pattern is painted voxels. The texture
+  page's Scatter, Shade, Spray and Dither become model tools on the faces under the pointer, and **Pattern
+  fill** paints a selection's surface from the pattern panel's recipe (three colours, size, amount, contrast,
+  Another). So "a pattern on a voxel" needs no second kind of material.
+- **Cost, to be measured before it is kept** (CPU first): a fine model has 8 times the voxels of the same
+  volume. `run=models` with a realistic count of fine models (a meadow of saplings as a block row's `model =`)
+  must hold ADR 0004; the result and the choice go in an ADR.
+- Accepted: a fine model is finer than the 12.5 cm cells the world breaks into (ADR 0033). It is for small
+  things that are whole or gone.
+
+Done when: a model file with `voxel = 16` has its tests (parse, mesh size, the old files unchanged); "Make
+fine" round-trips in a test; a `drive` script makes a fine sapling with Pattern fill and its `shot=` is read;
+the models benchmark's numbers are in the ADR.
+
+### 8. The palette grows where you paint
+The palette has 109 colours and its own page, but while painting there is no way to get a colour that is
+missing, so the palette feels like a wall. The rule stays (every pixel and voxel is a palette colour, so
+changing a colour repaints everything that uses it); adding becomes one click.
+
+- **"+" at the end of the swatches** on the Textures and Models pages and in the pattern panel's wells: a
+  small picker (hue, saturation, value, hex) and a name with a suggestion; Add puts the colour in
+  `data/palette.toml` and selects it. Undoable; a colour nothing uses can be removed in the same place.
+- **Add shades:** from the chosen colour, a ramp of five (two darker leaning cooler, two lighter leaning
+  warmer), shown before Use, named after the colour. The new shades join the colour's ramp, so Shade and the
+  patterns' "auto" second and third colours use them at once.
+- **Finding a colour as the palette grows:** swatches stay grouped by ramp, a search box filters by name, and
+  the count is shown ("112 of 255": a model file's letters allow 255 colours; the Studio warns near the end).
+
+Done when a `drive` script adds a colour and a ramp from the Textures page, paints with them, saves, and
+`check=1` passes; removing an unused colour and refusing a used one have tests.
+
 ## Left out on purpose
 Import of outside sound files is in since 2026-11-12 (above). Import and export of other tools' formats, sculpting, bones and bending meshes, textures on models (a
-model's voxels carry colour only), sizes other than 16 px and 12.5 cm, an editor inside the game. Each can be
+model's voxels carry colour only), sizes other than 16 px and 12.5 cm (6.25 cm models are in since the second round, step 7), an editor inside the game. Each can be
 added when its lack is felt.
 
 ## Build order

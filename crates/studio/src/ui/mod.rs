@@ -87,6 +87,8 @@ pub trait Page {
     }
     fn work(&mut self, ui: &mut Ui, app: &mut App);
     fn inspector(&mut self, ui: &mut Ui, app: &mut App);
+    /// What stays on top of the inspector and does not scroll (the Textures page's block).
+    fn inspector_top(&mut self, _ui: &mut Ui, _app: &mut App) {}
     /// The status line's left while the pointer is on no control: what the chosen tool does, and its keys.
     fn help(&self) -> String;
     /// The open file's undo steps by name, oldest first, and its redo steps, next first.
@@ -126,6 +128,8 @@ pub struct App {
     pub drafts: Vec<String>,
     /// What the file check refuses, one line each.
     pub problems: Vec<String>,
+    /// What the Studio left out of `data/blocks.toml` to open it (`rows::blocks`).
+    pub reg_problems: Vec<String>,
     /// The status line's middle: the pointer's place and colour, set by the page each frame.
     pub pointer: String,
     toasts: Vec<Toast>,
@@ -154,8 +158,11 @@ impl App {
     pub fn check(&mut self) {
         self.problems = match art::check_data(std::path::Path::new("data")) {
             Ok((_, _, bad)) => bad,
-            Err(e) => vec![e],
+            // a blocks file the game refuses: what was left out to open it, by row and field
+            Err(e) if e.starts_with(BLOCKS) && !self.reg_problems.is_empty() => self.reg_problems.clone(),
+            Err(e) => [vec![e], self.reg_problems.clone()].concat(),
         };
+        self.problems.extend(crate::import::check_credits(std::path::Path::new("data/sounds")));
     }
     pub fn has_problem(&self, path: &str) -> bool {
         self.problems.iter().any(|p| shell::problem_file(p) == Some(path))
@@ -229,8 +236,8 @@ impl App {
             } else if s == DRAFTS {
                 self.drafts = art::drafts(&std::fs::read_to_string(DRAFTS).unwrap_or_default());
             } else if s == BLOCKS {
-                if let Ok(r) = std::fs::read_to_string(BLOCKS).map_err(|e| e.to_string()).and_then(|t| Registry::parse(&t)) {
-                    self.reg = r;
+                if let Ok(t) = std::fs::read_to_string(BLOCKS) {
+                    (self.reg, self.reg_problems) = crate::rows::blocks(&t);
                 }
             } else if let Some(name) = s.strip_prefix(&format!("{TEX}/")).filter(|n| n.ends_with(".png")) {
                 self.outside_texture(name);
@@ -321,17 +328,36 @@ pub struct Studio {
     game: Option<std::process::Child>,
     /// Off for a shot: it never writes the developer's studio.txt.
     write_settings: bool,
+    /// Unsaved textures kept every few seconds, and what a crash left, still to be offered (`recover.rs`).
+    recovery: crate::recover::Recovery,
+    recovered: Vec<(String, Img)>,
+    /// Off for a shot (but `recover=1`): the kept set is neither offered, cleared nor written.
+    recovering: bool,
 }
 
 impl Studio {
     pub fn keep_settings(&mut self) {
         self.write_settings = false;
         self.app.quiet = true;
+        // nor offers, nor clears, the developer's kept work (`recover=1` does, in a scratch folder)
+        (self.recovering, self.recovered) = (false, vec![]);
+    }
+
+    /// For a shot with `recover=1`: offer and answer the kept set as the window does.
+    pub fn offer_kept(&mut self) {
+        self.recovering = true;
+        self.recovered = Self::kept(&self.recovery, &self.app);
+    }
+
+    /// What a crash left, but for files that are on disk as kept.
+    fn kept(r: &crate::recover::Recovery, app: &App) -> Vec<(String, Img)> {
+        r.left().into_iter().filter_map(|(n, b)| Some((n, art::decode(&b).ok()?))).filter(|(n, img)| app.docs.get(n).is_none_or(|d| d.img != *img)).collect()
     }
 
     /// Reads `data/` in the working folder: the blocks, the palette, every texture and the drafts list.
     pub fn load(open: Option<&str>) -> Result<Studio, String> {
-        let reg = Registry::parse(&std::fs::read_to_string(BLOCKS).map_err(|e| format!("{BLOCKS}: {e}"))?).map_err(|e| format!("{BLOCKS}: {e}"))?;
+        // a row or a field the Studio does not know is a problem in the list, never a refusal to open
+        let (reg, reg_problems) = crate::rows::blocks(&std::fs::read_to_string(BLOCKS).map_err(|e| format!("{BLOCKS}: {e}"))?);
         let pal = Palette::parse(&std::fs::read_to_string(PAL).map_err(|e| format!("{PAL}: {e}"))?).map_err(|e| format!("{PAL}: {e}"))?;
         let mut docs = BTreeMap::new();
         let mut refused = vec![];
@@ -353,6 +379,7 @@ impl Studio {
             docs,
             drafts: art::drafts(&std::fs::read_to_string(DRAFTS).unwrap_or_default()),
             problems: vec![],
+            reg_problems,
             pointer: String::new(),
             toasts: vec![],
             watch: Watch::new(&[PAL, DRAFTS, BLOCKS, sounds::SOUNDS, effects::EFFECTS, fauna::FILE], &[TEX, structures::DIR, models::MODELS]),
@@ -370,6 +397,8 @@ impl Studio {
         if let Some(b) = open {
             pages[0].open(&mut app, b);
         }
+        let recovery = crate::recover::Recovery::new(".", "textures", crate::recover::EVERY);
+        let recovered = Self::kept(&recovery, &app);
         Ok(Studio {
             app,
             pages,
@@ -392,6 +421,9 @@ impl Studio {
             native: 1.0,
             snap_scale: false,
             game: None,
+            recovery,
+            recovered,
+            recovering: true,
         })
     }
 
@@ -668,6 +700,7 @@ impl Studio {
         self.toasts(&ctx);
         self.asks(&ctx);
         self.close_check(&ctx);
+        self.recover(&ctx);
         self.help = look::take_help(&ctx);
         // where the developer is, for the next start
         let (name, cur) = (self.pages[self.page].name(), self.pages[self.page].current());
@@ -975,6 +1008,7 @@ impl Studio {
         });
         ui.add_space(GAP * 0.25);
         ui.separator();
+        self.pages[self.page].inspector_top(ui, &mut self.app);
         egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
             self.pages[self.page].inspector(ui, &mut self.app);
             ui.add_space(GAP);
@@ -1216,9 +1250,42 @@ impl Studio {
         }
     }
 
+    /// After a crash: offer the kept textures back. Else every few seconds: keep the unsaved ones (not a shot).
+    fn recover(&mut self, ctx: &egui::Context) {
+        if !self.recovered.is_empty() {
+            let names: Vec<String> = self.recovered.iter().map(|f| f.0.clone()).collect();
+            match crate::recover::offer(ctx, "textures", &names) {
+                Some(true) => {
+                    for (n, img) in std::mem::take(&mut self.recovered) {
+                        let d = self.app.docs.entry(n).or_insert_with(|| Doc { img: img.clone(), hist: Default::default(), saved: None });
+                        if d.img != img {
+                            d.hist.push(std::mem::replace(&mut d.img, img), "Recovered");
+                        }
+                    }
+                    self.app.toast(format!("Restored as unsaved work: {}", names.join(", ")));
+                    for p in &mut self.pages {
+                        p.refresh(&self.app);
+                    }
+                }
+                Some(false) => {
+                    self.recovered.clear();
+                    self.recovery.clear();
+                }
+                None => {}
+            }
+        } else if self.write_settings && self.recovering && !self.quit && !self.closing {
+            let docs = &self.app.docs;
+            self.recovery.keep(std::time::Instant::now(), || docs.iter().filter(|(_, d)| d.dirty()).map(|(n, d)| (n.clone(), art::encode(&d.img))).collect());
+        }
+    }
+
     fn close_check(&mut self, ctx: &egui::Context) {
         let mut unsaved: Vec<String> = self.app.docs.iter().filter(|(_, d)| d.dirty()).map(|(n, _)| n.clone()).collect();
         unsaved.extend(self.pages.iter().flat_map(|p| p.unsaved()));
+        // a clean close keeps nothing to offer next time
+        if self.write_settings && self.recovering && self.recovered.is_empty() && (self.quit || (unsaved.is_empty() && ctx.input(|i| i.viewport().close_requested()))) {
+            self.recovery.clear();
+        }
         if ctx.input(|i| i.viewport().close_requested()) && !self.quit && !unsaved.is_empty() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.closing = true;
