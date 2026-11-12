@@ -107,3 +107,38 @@ ramp = "regolith"
 name = "regolith light"
 rgb = "#ffffff"
 ramp = "regolith"
+
+[[colour]]
+name = "autumn dark"
+rgb = "#5c2410"
+ramp = "autumn"
+
+[[colour]]
+name = "autumn rust"
+rgb = "#993a18"
+ramp = "autumn"
+
+[[colour]]
+name = "autumn orange"
+rgb = "#b86b1f"
+ramp = "autumn"
+
+[[colour]]
+name = "autumn gold"
+rgb = "#d9a83a"
+ramp = "autumn"
+
+[[colour]]
+name = "dry grass dark"
+rgb = "#6e6a38"
+ramp = "dry grass"
+
+[[colour]]
+name = "dry grass"
+rgb = "#948c4c"
+ramp = "dry grass"
+
+[[colour]]
+name = "dry grass light"
+rgb = "#bdb170"
+ramp = "dry grass"

@@ -13,6 +13,8 @@ use eframe::egui::{self, Color32, Key, Modifiers, PointerButton, Pos2, Rect, Ric
 use engine::palette::{to_hex, Palette};
 
 const FACE_NAMES: [&str; 4] = ["All", "Top", "Side", "Bottom"];
+/// The seasons' tabs, in `engine::blocks::SEASONS`' order (docs/design/seasonal-looks.md); summer's is the base.
+const SEASON_NAMES: [&str; 4] = ["Spring", "Summer", "Autumn", "Winter"];
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum Tool {
@@ -59,6 +61,10 @@ struct Stroke {
 
 pub struct Textures {
     block: String,
+    /// The season painted (`engine::blocks::SEASONS`): 1, summer, is the base files.
+    season: usize,
+    /// Which seasons the block's row has a look for (`has_look`), by the registry and block it was read for.
+    looks: std::cell::RefCell<Option<((u64, String), [bool; 4])>>,
     face: usize,
     variant: usize,
     tool: Tool,
@@ -95,6 +101,8 @@ impl Textures {
         let block = app.reg.placeable().next().map_or(String::new(), |d| d.name.clone());
         let mut t = Textures {
             block: String::new(),
+            season: 1,
+            looks: Default::default(),
             face: 0,
             variant: 0,
             tool: Tool::Pencil,
@@ -127,7 +135,7 @@ impl Textures {
     }
 
     fn file(&self, face: usize) -> String {
-        art::file_name(&self.block, face)
+        art::season_file(&self.block, face, self.season)
     }
 
     fn go(&mut self, app: &App, block: &str) {
@@ -136,9 +144,100 @@ impl Textures {
         (self.variant, self.zoom, self.pan, self.stroke, self.sel, self.wall) = (0, None, Vec2::ZERO, None, None, None);
     }
 
-    /// The picture a face shows: its own file, else the block's every-face file (dimmed, `false`).
+    /// The picture a face shows in the season painted: its own file, else (dimmed, `false`) the season's
+    /// every-face file, the base face's, the base every-face file.
     fn shown<'a>(&self, app: &'a App) -> Option<(&'a Img, bool)> {
-        Self::face_img(app, &self.block, self.face)
+        if self.season == 1 {
+            return Self::face_img(app, &self.block, self.face);
+        }
+        let get = |f: usize, q: usize| app.docs.get(&art::season_file(&self.block, f, q)).map(|d| &d.img);
+        match get(self.face, self.season) {
+            Some(img) => Some((img, true)),
+            None => get(0, self.season).or(get(self.face, 1)).or(get(0, 1)).map(|i| (i, false)),
+        }
+    }
+
+    /// Whether the block has season `q` of its own: a look in data/blocks.toml or a painted file.
+    fn has_season(&self, app: &App, q: usize) -> bool {
+        q == 1 || self.has_look(app, q) || (0..4).any(|f| app.docs.contains_key(&art::season_file(&self.block, f, q)))
+    }
+
+    /// Whether the block's row in data/blocks.toml has a `[block.<season>]` for season `q` (the registry folds
+    /// a missing one into the base look): read again only when the registry or the block changed.
+    fn has_look(&self, app: &App, q: usize) -> bool {
+        let mut seen = self.looks.borrow_mut();
+        if seen.as_ref().is_none_or(|(k, _)| *k != (app.reg.hash, self.block.clone())) {
+            let text = std::fs::read_to_string(super::BLOCKS).unwrap_or_default();
+            let has = std::array::from_fn(|q| q != 1 && crate::rows::put_table(&text, "block", &self.block, engine::blocks::SEASONS[q], None) != text);
+            *seen = Some(((app.reg.hash, self.block.clone()), has));
+        }
+        seen.as_ref().is_some_and(|(_, has)| has[q])
+    }
+
+    /// "Add season": the base's painted files copied into the season's (unsaved, to paint over) and, when the
+    /// row has no look for it, a `[block.<season>]` with the base colour in data/blocks.toml.
+    fn add_season(&mut self, app: &mut App) {
+        let q = self.season;
+        if q == 1 {
+            return app.toast("Summer is the base look: pick Spring, Autumn or Winter");
+        }
+        let mut copied = 0;
+        for f in 0..4 {
+            let to = art::season_file(&self.block, f, q);
+            if let (Some(base), false) = (app.docs.get(&art::season_file(&self.block, f, 1)), app.docs.contains_key(&to)) {
+                let img = base.img.clone();
+                app.docs.insert(to, Doc { img, hist: Default::default(), saved: None });
+                copied += 1;
+            }
+        }
+        let def = app.reg.placeable().find(|d| d.name == self.block).cloned();
+        if let Some(d) = def.filter(|_| !self.has_look(app, q)) {
+            let c = d.colour.map(crate::rows::num).join(", ");
+            match Self::save_season_look(&self.block, q, Some(&format!("colour = [{c}]\n"))) {
+                Ok(reg) => app.reg = reg,
+                Err(e) => return app.refuse(e),
+            }
+        }
+        let name = engine::blocks::SEASONS[q];
+        app.toast(format!("{}: {name} added from the base ({copied} painted files to save, its look in {})", self.block, super::BLOCKS));
+    }
+
+    /// "Remove": the season's painted files gone (from the disk too) and its look dropped from data/blocks.toml.
+    fn remove_season(&mut self, app: &mut App) {
+        let q = self.season;
+        if q == 1 {
+            return;
+        }
+        for f in 0..4 {
+            let n = art::season_file(&self.block, f, q);
+            app.docs.remove(&n);
+            let path = format!("{TEX}/{n}");
+            if std::path::Path::new(&path).exists() {
+                if let Err(e) = std::fs::remove_file(&path) {
+                    app.refuse(format!("{path}: {e}"));
+                }
+            }
+        }
+        match Self::save_season_look(&self.block, q, None) {
+            Ok(reg) => app.reg = reg,
+            Err(e) => return app.refuse(e),
+        }
+        app.toast(format!("{}: {} removed, the base look again", self.block, engine::blocks::SEASONS[q]));
+    }
+
+    /// Writes (or drops) a block's `[block.<season>]` in data/blocks.toml, when the game's reader takes it; the
+    /// registry it now reads.
+    fn save_season_look(block: &str, q: usize, body: Option<&str>) -> Result<engine::blocks::Registry, String> {
+        let path = super::BLOCKS;
+        let old = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
+        let new = crate::rows::put_table(&old, "block", block, engine::blocks::SEASONS[q], body);
+        let reg = engine::blocks::Registry::parse(&new).map_err(|e| format!("{path}: {e}"))?;
+        let tmp = format!("{path}.tmp");
+        std::fs::write(&tmp, &new).and_then(|_| std::fs::rename(&tmp, path)).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            format!("{path}: {e}")
+        })?;
+        Ok(reg)
     }
     fn face_img<'a>(app: &'a App, block: &str, face: usize) -> Option<(&'a Img, bool)> {
         match app.docs.get(&art::file_name(block, face)) {
@@ -147,7 +246,7 @@ impl Textures {
         }
     }
     fn block_colour(&self, app: &App) -> [u8; 3] {
-        app.reg.placeable().find(|d| d.name == self.block).map_or([0.5; 3], |d| d.colour).map(|v| (v * 255.0).round() as u8)
+        app.reg.placeable().find(|d| d.name == self.block).map_or([0.5; 3], |d| d.tone(engine::blocks::ROW[self.season]).colour).map(|v| (v * 255.0).round() as u8)
     }
 
     /// The face's own file, made from what it shows (or the palette colour nearest the block's) when it has none.
@@ -190,7 +289,10 @@ impl Textures {
     }
 
     fn start_pattern(&mut self, app: &mut App) {
-        let Some(def) = app.reg.placeable().find(|d| d.name == self.block).cloned() else { return };
+        let Some(mut def) = app.reg.placeable().find(|d| d.name == self.block).cloned() else { return };
+        // the season's colours, on the season's tab
+        let l = def.tone(engine::blocks::ROW[self.season]);
+        (def.colour, def.colour2, def.colour3, def.amount, def.contrast) = (l.colour, l.colour2, l.colour3, l.amount, l.contrast);
         let face = pattern::face(&app.reg, &def, self.face, &app.pal);
         self.put_variant(app, "Start from pattern", face);
     }
@@ -272,6 +374,29 @@ impl Textures {
 
     fn tabs(&mut self, ui: &mut Ui, app: &mut App) {
         ui.horizontal_wrapped(|ui| {
+            for q in 0..4 {
+                let own = self.has_season(app, q);
+                let t = if own { RichText::new(SEASON_NAMES[q]) } else { RichText::new(SEASON_NAMES[q]).weak() };
+                let help = match q {
+                    1 => "Summer: the base look and files, <block>.png".to_string(),
+                    _ => format!("The block in {}: <block>@{}.png{}", engine::blocks::SEASONS[q], engine::blocks::SEASONS[q], if own { "" } else { "; dimmed: it shows the base until added" }),
+                };
+                let r = ui.selectable_label(self.season == q, t);
+                crate::drive::mark(ui.ctx(), &format!("season:{q}"), r.rect);
+                if look::tip(r, &help, "").clicked() {
+                    self.run(app, &format!("season:{}", engine::blocks::SEASONS[q]));
+                }
+            }
+            if self.season != 1 {
+                let own = self.has_season(app, self.season);
+                if !own && look::tip(ui.button("Add season"), "Copy the base into this season: its painted files and its look in data/blocks.toml", "").clicked() {
+                    self.add_season(app);
+                }
+                if own && look::tip(ui.button("Remove"), "Drop this season: its painted files (from the disk too) and its look; the base shows again", "").clicked() {
+                    self.remove_season(app);
+                }
+            }
+            ui.end_row();
             for f in 0..4 {
                 let own = app.docs.contains_key(&self.file(f));
                 let t = if own { RichText::new(FACE_NAMES[f]) } else { RichText::new(FACE_NAMES[f]).weak() };
@@ -652,7 +777,8 @@ impl Page for Textures {
         app.reg
             .placeable()
             .map(|d| {
-                let files: Vec<String> = (0..4).map(|f| art::file_name(&d.name, f)).collect();
+                // every face in every season, the base's first (its thumbnail)
+                let files: Vec<String> = [1, 0, 2, 3].into_iter().flat_map(|q| (0..4).map(move |f| art::season_file(&d.name, f, q))).collect();
                 let docs: Vec<&Doc> = files.iter().filter_map(|f| app.docs.get(f)).collect();
                 let thumb = match docs.first() {
                     Some(doc) => Thumb::Img(doc.img.clone()),
@@ -686,6 +812,11 @@ impl Page for Textures {
             v.push(Cmd::new(format!("variant.{}", n + 1), format!("Variant {}", n + 1), "show and paint this variant").key(Modifiers::NONE, k));
         }
         v.push(Cmd::new("variant.add", "Add a variant", "a new variant (up to 4), copied from this one"));
+        for (q, name) in SEASON_NAMES.iter().enumerate() {
+            v.push(Cmd::new(format!("season:{}", engine::blocks::SEASONS[q]), format!("Season: {name}"), "paint the block's look in this season (summer is the base)"));
+        }
+        v.push(Cmd::new("season.add", "Add the season", "copy the base into this season: its painted files and its look in data/blocks.toml"));
+        v.push(Cmd::new("season.remove", "Remove the season", "drop this season's painted files and look; the base shows again"));
         v.push(Cmd::new("variants", "Make variants", "a wall of variant sets made from variant 1; a click takes one"));
         for (f, name) in FACE_NAMES.iter().enumerate() {
             v.push(Cmd::new(format!("face.{f}"), format!("Face: {name}"), "paint this face's own file"));
@@ -718,6 +849,12 @@ impl Page for Textures {
             if self.shown(app).is_some_and(|(img, _)| n >= 1 && n <= img.variants()) {
                 self.variant = n - 1;
             }
+            return;
+        }
+        if let Some(q) = id.strip_prefix("season:").and_then(|q| engine::blocks::SEASONS.iter().position(|n| *n == q)) {
+            // the season painted, and the game view's year at its start so the lit cube shows it
+            (self.season, self.variant, self.stroke, self.sel) = (q, 0, None, None);
+            app.view.day = super::viewport::season_day(q);
             return;
         }
         if let Some(f) = id.strip_prefix("face.").and_then(|n| n.parse::<usize>().ok()).filter(|f| *f < 4) {
@@ -773,6 +910,8 @@ impl Page for Textures {
                 }
             }
             "variants" => self.open_wall(app),
+            "season.add" => self.add_season(app),
+            "season.remove" => self.remove_season(app),
             "shift.left" | "shift.right" | "shift.up" | "shift.down" => {
                 let (dx, dy) = match id {
                     "shift.left" => (-1, 0),
@@ -802,7 +941,7 @@ impl Page for Textures {
                 }
             }
             "save" => {
-                let files: Vec<String> = (0..4).map(|f| self.file(f)).filter(|f| app.docs.get(f).is_some_and(Doc::dirty)).collect();
+                let files: Vec<String> = (0..4).flat_map(|q| (0..4).map(move |f| (q, f))).map(|(q, f)| art::season_file(&self.block, f, q)).filter(|f| app.docs.get(f).is_some_and(Doc::dirty)).collect();
                 if files.is_empty() {
                     app.toast(format!("{}: nothing to save", self.block));
                 }

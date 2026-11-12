@@ -1060,11 +1060,12 @@ impl App {
             gpu.queue.write_buffer(&gpu.ghost_buf, 0, bytemuck::cast_slice(&verts));
             (self.ghost_n, self.ghost_of) = (verts.len() as u32, ghost);
         }
+        let season = crate::gpu::season_here(&self.world, self.me.pos);
         let slots: Vec<hud::Slot> = (0..9)
             .filter_map(|k| self.slot_block(k))
             .map(|m| {
                 let d = BLOCKS.get(m).unwrap();
-                let (colour, side, pattern) = crate::gpu::shown(d);
+                let (colour, side, pattern) = crate::gpu::shown(d, season);
                 hud::Slot { colour, side, pattern, count: (!self.creative).then(|| self.held_count(m)) }
             })
             .collect();
@@ -1178,7 +1179,7 @@ impl App {
                     (false, true) => "metal",
                     _ => "",
                 };
-                let (colour, side, pattern) = crate::gpu::shown(d);
+                let (colour, side, pattern) = crate::gpu::shown(d, season);
                 hud::looking_at(&mut paint, &d.name, colour, side, pattern, note, label_y);
             }
         }
@@ -1189,7 +1190,7 @@ impl App {
                 let [dx, dy] = self.dip.at(self.start.elapsed().as_secs_f64());
                 let pace = if self.me.on_ground { (self.me.vel.length() / 4.0).min(1.0) as f32 } else { 0.0 };
                 let [bx, by] = BOB.at(self.walked).map(|v| v * pace);
-                let (colour, side, pattern) = crate::gpu::shown(d);
+                let (colour, side, pattern) = crate::gpu::shown(d, season);
                 let (x, y) = (lw - 250.0 + dx + bx, lh - 236.0 + dy + by);
                 // a block with a model of its name is held as the model (frame.rs, ADR 0047)
                 if !self.models.has(&d.name) { hud::cube(&mut |x, y, w, h, c, g| paint.rect(x, y, w, h, c, g), x, y, 176.0, colour, side, pattern, 1.0); }

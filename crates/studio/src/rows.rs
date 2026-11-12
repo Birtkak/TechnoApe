@@ -88,6 +88,61 @@ pub fn save(path: &str, header: &str, name: &str, row: &str, check: impl Fn(&str
     Ok(new)
 }
 
+/// `text` with the row `name`'s sub-table `[header.sub]` (a block's season, `[block.autumn]`) set to `body` (its
+/// keys, LF), or dropped when `body` is None. A new one goes after the row's last sub-table. Every other byte
+/// stays; a row that is not there leaves the text as it was.
+pub fn put_table(text: &str, header: &str, name: &str, sub: &str, body: Option<&str>) -> String {
+    let Some(row) = spans(text).into_iter().find(|s| s.header == header && s.name == name) else { return text.to_string() };
+    let e = eol(text);
+    let mut lines = vec![];
+    let mut at = 0;
+    for l in text.split_inclusive('\n') {
+        lines.push((at, l));
+        at += l.len();
+    }
+    // the row's sub-tables follow its span: each `[header.x]` to the next line opening a table
+    let open = format!("[{header}.");
+    let mut end = row.at.end;
+    let mut found: Option<std::ops::Range<usize>> = None;
+    let mut i = lines.iter().position(|(a, _)| *a >= row.at.end).unwrap_or(lines.len());
+    while i < lines.len() {
+        let t = lines[i].1.trim();
+        if t.is_empty() || t.starts_with('#') {
+            i += 1;
+            continue;
+        }
+        if !t.starts_with(&open) {
+            break;
+        }
+        let start = lines[i].0;
+        let mut j = i + 1;
+        while j < lines.len() && !lines[j].1.starts_with('[') {
+            j += 1;
+        }
+        // back over the blank lines and comments that lead into what follows
+        let mut k = j;
+        while k > i + 1 && (lines[k - 1].1.trim().is_empty() || lines[k - 1].1.trim_start().starts_with('#')) {
+            k -= 1;
+        }
+        let stop = lines.get(k).map_or(text.len(), |l| l.0);
+        if t == format!("[{header}.{sub}]") {
+            found = Some(start..stop);
+        }
+        end = stop;
+        i = j;
+    }
+    let table = body.map(|b| format!("[{header}.{sub}]{e}{}", b.trim_end().replace("\r\n", "\n").replace('\n', e) + e));
+    match (found, table) {
+        (Some(r), t) => format!("{}{}{}", &text[..r.start], t.unwrap_or_default(), &text[r.end..]),
+        (None, Some(t)) => {
+            // after the last line of the row or its tables, which may end without a line ending
+            let sep = if text[..end].ends_with('\n') { "" } else { e };
+            format!("{}{sep}{t}{}", &text[..end], &text[end..])
+        }
+        (None, None) => text.to_string(),
+    }
+}
+
 /// A row's keys as written, in order: (key, its value's text). A key of "" is a line kept as it is (a comment).
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Keys {
@@ -250,6 +305,23 @@ mod tests {
         k.set("layer", None);
         assert_eq!(k.text(), "[[sound]]\nname = \"a\"\ngain = 2\n");
         assert_eq!(depth("x = [\"]\", { a = '[' }"), 1);
+    }
+
+    #[test]
+    fn a_rows_table_is_set_and_dropped_and_nothing_else_moves() {
+        let text = "[[block]]\r\nname = \"grass\"\r\ncolour = [0.3, 0.5, 0.2]\r\n[block.autumn]\r\ncolour = [0.5, 0.5, 0.2]\r\n\r\n# the dirt\r\n[[block]]\r\nname = \"dirt\"\r\n";
+        let with = put_table(text, "block", "grass", "winter", Some("colour = [0.4, 0.4, 0.2]\n"));
+        assert_eq!(with, text.replace("[block.autumn]\r\ncolour = [0.5, 0.5, 0.2]\r\n", "[block.autumn]\r\ncolour = [0.5, 0.5, 0.2]\r\n[block.winter]\r\ncolour = [0.4, 0.4, 0.2]\r\n"));
+        assert_eq!(put_table(&with, "block", "grass", "winter", None), text, "dropped again, byte for byte");
+        let changed = put_table(text, "block", "grass", "autumn", Some("colour = [0.6, 0.4, 0.1]"));
+        assert_eq!(changed, text.replace("[0.5, 0.5, 0.2]", "[0.6, 0.4, 0.1]"));
+        let no_autumn = put_table(text, "block", "grass", "autumn", None);
+        assert_eq!(no_autumn, text.replace("[block.autumn]\r\ncolour = [0.5, 0.5, 0.2]\r\n", ""));
+        // the last row of a file, no line ending at its end
+        let last = put_table("[[block]]\nname = \"dirt\"", "block", "dirt", "spring", Some("colour = [0.1, 0.2, 0.3]"));
+        assert_eq!(last, "[[block]]\nname = \"dirt\"\n[block.spring]\ncolour = [0.1, 0.2, 0.3]\n");
+        assert_eq!(put_table(text, "block", "sand", "spring", Some("colour = [0, 0, 0]")), text, "no such row");
+        assert_eq!(put_table(text, "block", "dirt", "spring", None), text, "no such table");
     }
 
     #[test]

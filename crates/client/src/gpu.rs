@@ -216,17 +216,54 @@ mod texture_layer_tests {
     #[test]
     fn faces_of_one_file_share_their_layers() {
         let all = face(1, 4);
-        let blocks: Vec<(u16, Painted)> = (1..=200u16).map(|id| (id, Painted { faces: [Some(all.clone()), Some(all.clone()), Some(all.clone())] })).collect();
+        let blocks: Vec<((u16, usize), Painted)> = (1..=200u16).map(|id| ((id, 0), Painted { faces: [Some(all.clone()), Some(all.clone()), Some(all.clone())] })).collect();
         let (placed, layers, refused) = place(blocks, TEX_LAYERS);
         assert_eq!((placed.len(), layers.len(), refused.len()), (200, 800, 0), "4 layers a block, not 12");
         assert!(placed.iter().all(|(_, _, at)| at[0] == at[1] && at[1] == at[2]));
         // a top of its own takes its own layers; side and bottom still share
-        let (placed, layers, _) = place(vec![(1, Painted { faces: [Some(face(2, 1)), Some(all.clone()), Some(all.clone())] })], TEX_LAYERS);
+        let (placed, layers, _) = place(vec![((1, 0), Painted { faces: [Some(face(2, 1)), Some(all.clone()), Some(all.clone())] })], TEX_LAYERS);
         assert_eq!((placed[0].2, layers.len()), ([0, 1, 1], 5));
         assert_eq!((layers[0][0], layers[1][0], layers[4][0]), ([2, 0, 0, 255], [1, 0, 0, 255], [1, 3, 0, 255]));
         // the cap counts the layers taken, and a block past it is refused whole
-        let (placed, layers, refused) = place(vec![(1, Painted { faces: [Some(all.clone()), Some(all.clone()), None] }), (2, Painted { faces: [Some(face(3, 2)), None, None] })], 5);
-        assert_eq!((placed.len(), layers.len(), refused), (1, 4, vec![2]));
+        let (placed, layers, refused) = place(vec![((1, 0), Painted { faces: [Some(all.clone()), Some(all.clone()), None] }), ((2, 0), Painted { faces: [Some(face(3, 2)), None, None] })], 5);
+        assert_eq!((placed.len(), layers.len(), refused), (1, 4, vec![(2, 0)]));
+    }
+
+    // a season's face that is its base's (the file it falls back to) takes the base's layers; its own its own
+    #[test]
+    fn a_season_shares_its_bases_layers() {
+        let all = face(1, 4);
+        let base = ((1, 0), Painted { faces: [Some(all.clone()), Some(all.clone()), Some(all.clone())] });
+        let autumn = ((1, 2), Painted { faces: [Some(face(2, 1)), Some(all.clone()), Some(all.clone())] });
+        let other = ((2, 2), Painted { faces: [Some(all.clone()), None, None] });
+        let (placed, layers, _) = place(vec![base, autumn, other], TEX_LAYERS);
+        assert_eq!(layers.len(), 4 + 1 + 4, "another block's same paint is its own");
+        assert_eq!(placed.iter().map(|p| p.2).collect::<Vec<_>>(), vec![[0, 0, 0], [4, 0, 0], [5, 0, 0]]);
+        // the look rows: a season its own paint, a season without its base's
+        let t = looks_of(&placed);
+        let top = |row: usize| t[row][13] & 0xffff;
+        assert_eq!([top(1), top(256 + 1), top(512 + 1), top(768 + 1)].map(|w| w & 4095), [0, 0, 4, 0]);
+        assert!(top(1) != 0 && top(256 + 1) != 0 && top(768 + 1) != 0, "summer, spring and winter take the base's paint");
+        assert_eq!(top(512 + 2) & 4095, 5, "and another block's season its own");
+        assert_eq!(top(2), 0, "with no base paint of its own");
+        // bit 8 of size: seasons (a season's paint alone gives a block them); bit 9: a season paints its own
+        let size = |row: usize| t[row][7];
+        assert_eq!([size(1) >> 8 & 3, size(2) >> 8 & 3, size(3) >> 8 & 3], [3, 3, 0], "{:?}", [size(1), size(2), size(3)]);
+    }
+}
+
+#[cfg(test)]
+mod shown_tests {
+    // the hotbar's cube of a block with seasons shows the season where the player stands, as shader.wgsl mixes it
+    #[test]
+    fn the_hotbar_shows_the_season_where_the_player_stands() {
+        let d = engine::blocks::BLOCKS.placeable().find(|d| d.seasons.is_some() && d.tone(2).colour != d.colour).expect("a block with an autumn");
+        let close = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-5);
+        assert!(close(super::shown(d, (1.0, 1.0)).0, d.colour), "summer is its own colour");
+        assert!(close(super::shown(d, (2.0, 1.0)).0, d.tone(2).colour), "autumn");
+        assert!(close(super::shown(d, (2.0, 0.0)).0, d.colour), "no season near the equator");
+        let half = std::array::from_fn(|c| d.colour[c] + ((d.tone(2).colour[c] + d.tone(3).colour[c]) / 2.0 - d.colour[c]) * 0.5);
+        assert!(close(super::shown(d, (2.5, 0.5)).0, half), "between autumn and winter, half a season");
     }
 }
 
@@ -429,23 +466,58 @@ pub(crate) struct Gpu {
 /// The painted faces' 16 x 16 layers (2 MB); a block past them keeps its pattern.
 const TEX_LAYERS: u32 = 2048;
 
-/// What the hotbar and the "looking at" cube show of a painted block: its top's mean and its side's.
-pub(crate) static SHOWN: std::sync::RwLock<[Option<[[f32; 3]; 2]>; 256]> = std::sync::RwLock::new([None; 256]);
+/// What the hotbar and the "looking at" cube show of a painted block: its top's mean and its side's, per look
+/// row (`looks_of`: 256 a season).
+pub(crate) static SHOWN: std::sync::RwLock<[Option<[[f32; 3]; 2]>; 4 * 256]> = std::sync::RwLock::new([None; 4 * 256]);
 
-/// A block as the hotbar's cubes draw it: top colour, side colour, pattern; a painted block in its faces' means
-/// with plain noise (ADR 0045), any other in its colours (a grass block's sides are its `side` block's).
-pub(crate) fn shown(d: &engine::blocks::Def) -> ([f32; 3], [f32; 3], u8) {
-    match SHOWN.read().unwrap()[d.id as usize] {
-        Some([top, side]) => (top, side, 0),
-        None => (d.colour, engine::blocks::BLOCKS.get(d.side).map_or(d.colour, |s| s.colour), d.pattern as u8),
+/// A block as the hotbar's cubes draw it in the season `sn` where the player stands (`season_here`): top
+/// colour, side colour, pattern; a painted block in its faces' means with plain noise (ADR 0045), any other in
+/// its colours (a grass block's sides are its `side` block's), each mixed by the season as shader.wgsl
+/// `look_in` mixes its rows (no stagger).
+pub(crate) fn shown(d: &engine::blocks::Def, sn: (f64, f64)) -> ([f32; 3], [f32; 3], u8) {
+    let painted = SHOWN.read().unwrap();
+    let id = d.id as usize % 256;
+    let row = |r: usize| match painted[r * 256 + id] {
+        Some(c) => c,
+        None => [d.tone(r).colour, engine::blocks::BLOCKS.get(d.side).map_or(d.colour, |s| s.tone(r).colour)],
+    };
+    // a season's paint alone gives a block seasons (`looks_of`); the summer cube keeps an unpainted block's pattern
+    let pattern = if painted[id].is_some() { 0 } else { d.pattern as u8 };
+    let own = row(0);
+    let seasons = d.seasons.is_some() || (1..4).any(|r| painted[r * 256 + id].is_some());
+    let [top, side] = match (seasons, season_rows(sn)) {
+        (true, Some((x, y, f, s))) => {
+            let (x, y) = (row(x), row(y));
+            std::array::from_fn(|k| std::array::from_fn(|c| own[k][c] + ((x[k][c] + (y[k][c] - x[k][c]) * f) - own[k][c]) * s))
+        }
+        _ => own,
+    };
+    (top, side, pattern)
+}
+
+/// The two nearest seasons' look rows (0 summer, 1 spring, 2 autumn, 3 winter), how far from the first to the
+/// second and the share of a season, for the season (phase, strength) of `engine::sky::season_at`; None for
+/// none (shader.wgsl `season_rows`, without a stagger).
+fn season_rows((phase, strength): (f64, f64)) -> Option<(usize, usize, f32, f32)> {
+    let q = phase.rem_euclid(4.0);
+    let i = (q as usize).min(3);
+    (strength > 0.0).then(|| (engine::blocks::ROW[i], engine::blocks::ROW[(i + 1) & 3], (q - i as f64) as f32, strength as f32))
+}
+
+/// The season where the player at `pos` stands (`engine::sky::season_at`): on the first body by its latitude
+/// and the year, none elsewhere, as frame.rs and shader.wgsl `season` have it.
+pub(crate) fn season_here(w: &engine::world::World, pos: glam::DVec3) -> (f64, f64) {
+    if w.frame_at(pos) != 0 {
+        return (0.0, 0.0);
     }
+    engine::sky::season_at(w.up_at(pos), w.time)
 }
 
 /// Every block's look from the registry (ADR 0013, 0039, 0045), shader.wgsl `Look`, 64 bytes each: colour rgb,
 /// pattern | side << 8 | metal << 16 | gives light << 24; colour2, size; colour3, amount; contrast; the painted
 /// faces (16 bits a face: layer | variants - 1 << 12 | painted << 15; top and side in `tex`, the bottom in
 /// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24).
-fn looks_of(painted: &[(u16, engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 16]> {
+fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 16]> {
     (0..4 * 256usize)
             .map(|row| {
                 // four rows a block (ADR 0061): summer (the row's own look), spring, autumn, winter
@@ -455,13 +527,18 @@ fn looks_of(painted: &[(u16, engine::textures::Painted, [u32; 3])]) -> Vec<[u32;
                     Some(d) => {
                         let tone = d.tone(season);
                         let ([r, g, b], [r2, g2, b2], [r3, g3, b3]) = (tone.colour.map(f), tone.colour2.map(f), tone.colour3.map(f));
-                        // size, and for a block with seasons bit 8 and its stagger from bit 16
-                        let size = d.size as u32 | (d.seasons.is_some() as u32) << 8 | engine::sky::stagger_units(d.stagger) << 16;
+                        // size, and for a block with seasons bit 8 (a season's paint alone gives it them), bit 9
+                        // when a season paints its own, and its stagger from bit 16
+                        let paints = painted.iter().any(|((b, q), _, _)| *b == id && *q != 0);
+                        let size = d.size as u32 | ((d.seasons.is_some() || paints) as u32) << 8 | (paints as u32) << 9 | engine::sky::stagger_units(d.stagger) << 16;
                         let shine = (d.metal * 255.0).round() as u32;
                         let gives = (d.light != [0.0; 3]) as u32;
                         let info = d.pattern as u32 | (d.side as u32) << 8 | shine << 16 | gives << 24;
                         let (mut tex, mut mean) = (0u64, 0);
-                        if let Some((_, p, at)) = painted.iter().find(|(b, _, _)| *b == id) {
+                        // a season's own paint, else the base's (a season row without one is its pattern only when
+                        // the base has none)
+                        let own = painted.iter().find(|(k, _, _)| *k == (id, season));
+                        if let Some((_, p, at)) = own.or_else(|| painted.iter().find(|(k, _, _)| *k == (id, 0))) {
                             for (k, face) in p.faces.iter().enumerate() {
                                 if let Some(face) = face {
                                     tex |= ((at[k] | (face.variants.len() as u32 - 1) << 12 | 1 << 15) as u64) << (16 * k);
@@ -481,22 +558,28 @@ fn looks_of(painted: &[(u16, engine::textures::Painted, [u32; 3])]) -> Vec<[u32;
         .collect()
 }
 
-/// Where the painted faces go among `cap` layers: per block its first layer for top, side and bottom, the
-/// layers in order, and the blocks that did not fit (they keep their patterns).
-fn place(blocks: Vec<(u16, engine::textures::Painted)>, cap: u32) -> (Vec<(u16, engine::textures::Painted, [u32; 3])>, Vec<engine::textures::Pixels>, Vec<u16>) {
-    let (mut placed, mut layers, mut refused) = (vec![], vec![], vec![]);
-    for (id, p) in blocks {
-        // a face the same as an earlier one of its block (a `<block>.png` they fall back to) takes its layers
-        let first = |k: usize| (0..k).find(|&e| p.faces[e].is_some() && p.faces[e] == p.faces[k]);
-        let n: u32 = (0..3).filter(|&k| first(k).is_none()).filter_map(|k| p.faces[k].as_ref()).map(|f| f.variants.len() as u32).sum();
+/// Where the painted faces go among `cap` layers: per block and season (its look row's, `looks_of`; the base
+/// first) its first layer for top, side and bottom, the layers in order, and the ones that did not fit (they
+/// keep their patterns, a season the base's paint).
+type Placed = ((u16, usize), engine::textures::Painted, [u32; 3]);
+fn place(rows: Vec<((u16, usize), engine::textures::Painted)>, cap: u32) -> (Vec<Placed>, Vec<engine::textures::Pixels>, Vec<(u16, usize)>) {
+    let (mut placed, mut layers, mut refused): (Vec<Placed>, Vec<_>, Vec<_>) = (vec![], vec![], vec![]);
+    for (key, p) in rows {
+        // a face the same as an earlier one of its row (a `<block>.png` they fall back to), or as one of its
+        // block's placed rows (a season's face the base's), takes its layers
+        let first = |k: usize| (0..k).find(|&e| p.faces[e].is_some() && p.faces[e] == p.faces[k]).map(|e| (None, e));
+        let placed_as = |k: usize| placed.iter().filter(|(o, _, _): &&Placed| o.0 == key.0).find_map(|(_, q, at)| (0..3).find(|&e| q.faces[e].is_some() && q.faces[e] == p.faces[k]).map(|e| at[e]));
+        let shared = |k: usize| first(k).or_else(|| placed_as(k).map(|l| (Some(l), k)));
+        let n: u32 = (0..3).filter(|&k| shared(k).is_none()).filter_map(|k| p.faces[k].as_ref()).map(|f| f.variants.len() as u32).sum();
         if layers.len() as u32 + n > cap {
-            refused.push(id);
+            refused.push(key);
             continue;
         }
         let mut at = [0; 3];
         for k in 0..3 {
-            match (first(k), &p.faces[k]) {
-                (Some(e), _) => at[k] = at[e],
+            match (shared(k), &p.faces[k]) {
+                (Some((Some(l), _)), _) => at[k] = l,
+                (Some((None, e)), _) => at[k] = at[e],
                 (None, Some(f)) => {
                     at[k] = layers.len() as u32;
                     layers.extend_from_slice(&f.variants);
@@ -504,9 +587,14 @@ fn place(blocks: Vec<(u16, engine::textures::Painted)>, cap: u32) -> (Vec<(u16, 
                 (None, None) => {}
             }
         }
-        placed.push((id, p, at));
+        placed.push((key, p, at));
     }
     (placed, layers, refused)
+}
+
+/// A texture set's rows for `place`: every block's base paint (look row 0), then its seasons'.
+fn rows_of(set: engine::textures::Set) -> Vec<((u16, usize), engine::textures::Painted)> {
+    set.blocks.into_iter().map(|(id, p)| ((id, 0), p)).chain(set.seasons.into_iter().map(|(id, q, p)| ((id, q), p))).collect()
 }
 
 /// The watcher (ADR 0045, 0047): a thread named `name` that calls `load` on `dir` at the start and again within
@@ -551,7 +639,7 @@ fn watch_textures(dir: std::path::PathBuf) -> std::sync::mpsc::Receiver<engine::
         for why in &set.refused {
             eprintln!("[technoape] textures: {why}");
         }
-        let any = !set.blocks.is_empty();
+        let any = !set.blocks.is_empty() || !set.seasons.is_empty();
         (set, any)
     })
 }
@@ -940,23 +1028,31 @@ impl Gpu {
     /// Swaps in the watcher's newest textures, if it sent any: the layers, the looks, the hotbar's colours.
     pub(crate) fn take_textures(&self) {
         let Some(set) = self.tex_rx.try_iter().last() else { return };
-        let (placed, layers, refused) = place(set.blocks, TEX_LAYERS);
-        for id in refused {
+        let (placed, layers, refused) = place(rows_of(set), TEX_LAYERS);
+        for (id, season) in refused {
             let name = &engine::blocks::BLOCKS.get(id).unwrap().name;
-            eprintln!("[technoape] textures: {name} refused, more than {TEX_LAYERS} faces and variants in all");
+            // a season's paint refused leaves that season the base's paint
+            let season = engine::blocks::ROW.iter().position(|r| *r == season).filter(|_| season != 0).map_or(String::new(), |k| format!(" in {}", engine::blocks::SEASONS[k]));
+            eprintln!("[technoape] textures: {name}{season} refused, more than {TEX_LAYERS} faces and variants in all");
         }
         if !layers.is_empty() {
             self.queue.write_buffer(&self.tex, 0, bytemuck::cast_slice(&layers));
         }
-        let mut shown = [None; 256];
-        for (id, p, _) in &placed {
-            let d = engine::blocks::BLOCKS.get(*id).unwrap();
-            let side = engine::blocks::BLOCKS.get(d.side).map_or(d.colour, |s| s.colour);
-            if p.colour().is_some() {
-                shown[*id as usize] = Some([p.faces[0].as_ref().map_or(d.colour, |f| f.mean), p.faces[1].as_ref().map_or(side, |f| f.mean)]);
+        let mut shown = [None; 4 * 256];
+        // per look row as `looks_of` takes them: a season's own paint, else the base's
+        for r in 0..4 {
+            for ((id, season), p, _) in placed.iter().filter(|((_, q), _, _)| *q == r || *q == 0) {
+                let d = engine::blocks::BLOCKS.get(*id).unwrap();
+                let at = r * 256 + *id as usize % 256;
+                if p.colour().is_some() && (*season == r || shown[at].is_none()) {
+                    let side = engine::blocks::BLOCKS.get(d.side).map_or(d.colour, |s| s.tone(r).colour);
+                    shown[at] = Some([p.faces[0].as_ref().map_or(d.tone(r).colour, |f| f.mean), p.faces[1].as_ref().map_or(side, |f| f.mean)]);
+                }
             }
         }
-        eprintln!("[technoape] textures: {} blocks painted, {} layers", placed.len(), layers.len());
+        // (tools/reload_check.py reads this line)
+        let blocks = placed.iter().filter(|((_, q), _, _)| *q == 0).count();
+        eprintln!("[technoape] textures: {blocks} blocks painted, {} season looks, {} layers", placed.len() - blocks, layers.len());
         self.queue.write_buffer(&self.looks, 0, bytemuck::cast_slice(&looks_of(&placed)));
         *SHOWN.write().unwrap() = shown;
     }

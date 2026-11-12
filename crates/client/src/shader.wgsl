@@ -61,7 +61,14 @@ struct Look { colour: vec3f, info: u32, colour2: vec3f, size: u32, colour3: vec3
 @group(0) @binding(11) var<storage, read> tex: array<u32>;
 // the colour a ray that meets block m sees in season sn: its own, or a painted block's mean
 fn seen_colour(m: u32, sn: vec3f) -> vec3f {
-    return select(look_in(m, sn).colour, unpack4x8unorm(looks[m].mean).rgb, (looks[m].mean >> 24u) != 0u);
+    let seasons = looks[m].size >> 8u;
+    if (seasons == 0u || sn.y == 0.0) { return row_seen(m); }
+    let r = season_rows(seasons, sn);
+    return mix(row_seen(m), mix(row_seen(r.x + m), row_seen(r.y + m), r.f), sn.y);
+}
+// look row r's one colour: its paint's mean, else its colour
+fn row_seen(r: u32) -> vec3f {
+    return select(looks[r].colour, unpack4x8unorm(looks[r].mean).rgb, (looks[r].mean >> 24u) != 0u);
 }
 // every chunk's terrain near and far, drawn or not, one instance each with mask 1 << body (ADR 0022), in its
 // body's frame relative to its centre: the instances carry no transform, a ray is turned into that frame here
@@ -619,6 +626,8 @@ fn part(look: Look, pattern: u32, dir: u32, cell: vec3i, x: i32, y: i32) -> vec4
 // z the column's own share of its block's stagger, -1..1, 0 until `stagger` sets it.
 fn season(b: Body, p: vec3f) -> vec3f {
     if (b.year < 0.0) { return vec3f(0.0); }
+    // the Studio's year slider at a latitude (view.rs `season_year`): that phase, whole, everywhere
+    if (b.year >= 8.0) { return vec3f(b.year - 8.0, 1.0, 0.0); }
     let z = normalize(to_body(b, p)).z;
     return vec3f(b.year + select(0.0, 2.0, z < 0.0), smoothstep(0.1736, 0.5736, abs(z)), 0.0);
 }
@@ -637,19 +646,33 @@ fn look_in(m: u32, sn: vec3f) -> Look {
     let seasons = a.size >> 8u;
     a.size &= 255u;
     if (seasons == 0u || sn.y == 0.0) { return a; }
-    let q = fract((sn.x + sn.z * f32(seasons >> 8u) / 1024.0) * 0.25) * 4.0;
-    let i = min(u32(q), 3u);
-    let j = (i + 1u) & 3u;
-    let f = q - f32(i);
-    // phase 0 is spring's row (1), 1 the block's own (0), then autumn's and winter's
-    let x = looks[select(i, 1u - i, i < 2u) * 256u + m];
-    let y = looks[select(j, 1u - j, j < 2u) * 256u + m];
+    let r = season_rows(seasons, sn);
+    let f = r.f;
+    let x = looks[r.x + m];
+    let y = looks[r.y + m];
     a.colour = mix(a.colour, mix(x.colour, y.colour, f), sn.y);
     a.colour2 = mix(a.colour2, mix(x.colour2, y.colour2, f), sn.y);
     a.colour3 = mix(a.colour3, mix(x.colour3, y.colour3, f), sn.y);
     a.amount = mix(a.amount, mix(x.amount, y.amount, f), sn.y);
     a.contrast = mix(a.contrast, mix(x.contrast, y.contrast, f), sn.y);
     return a;
+}
+
+// The two nearest seasons' look rows (their offsets, 256 a season) and how far from the first to the second,
+// for a block's `seasons` (`Look::size` from bit 8: its stagger from bit 16) in season sn
+struct SeasonRows { x: u32, y: u32, f: f32 };
+fn season_rows(seasons: u32, sn: vec3f) -> SeasonRows {
+    let q = fract((sn.x + sn.z * f32(seasons >> 8u) / 1024.0) * 0.25) * 4.0;
+    let i = min(u32(q), 3u);
+    let j = (i + 1u) & 3u;
+    // phase 0 is spring's row (1), 1 the block's own (0), then autumn's and winter's
+    return SeasonRows(select(i, 1u - i, i < 2u) * 256u, select(j, 1u - j, j < 2u) * 256u, q - f32(i));
+}
+
+// look row r's paint of face `dir` (16 bits: layer | variants - 1 << 12 | painted << 15), 0 for none (a
+// season's row without paint of its own has the base's, `looks_of`)
+fn face_paint(r: u32, dir: u32) -> u32 {
+    return (select(looks[r].tex, looks[r].tex2, dir == 5u) >> select(0u, 16u, dir < 4u)) & 65535u;
 }
 
 fn part_colour(look: Look, i: f32) -> vec3f {
@@ -664,10 +687,10 @@ fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> vec3
     let ti = vec2i(floor(t * n));
     let h = hash(cell * i32(n) + vec3i(ti.x, ti.y, i32(dir)));
     let tone = 0.82 + 0.12 * floor(h * 3.0);
-    var m = mat & 255u;
+    let m0 = mat & 255u;
+    var m = m0;
     // a painted face: its own file, else the block its side and foot take (ADR 0045)
-    let sh = select(0u, 16u, dir < 4u);
-    var painted = (select(looks[m].tex, looks[m].tex2, dir == 5u) >> sh) & 65535u;
+    var painted = face_paint(m, dir);
     if (painted == 0u && (looks[m].info & 255u) == GRASS && dir != 4u) {
         // a side of a grass block takes its side block's look, with 2-4 rows of grass over the top edge
         // hashed by the texel's column along the side: t is (z, x) on a y face, so ti.x there is the row, and
@@ -679,7 +702,7 @@ fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> vec3
         // any other block's side is its own id unless it names one (the mask drops metal and light)
         m = (looks[m].info >> 8u) & 255u;
     }
-    painted = (select(looks[m].tex, looks[m].tex2, dir == 5u) >> sh) & 65535u;
+    painted = face_paint(m, dir);
     // on a side, x runs left to right as seen from outside and y down from its top edge (t is (y, z) on an x
     // face, (z, x) on a y face; along +y on +x and along +x on -y read rightwards, the other two are turned)
     var x = ti.x;
@@ -690,14 +713,37 @@ fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> vec3
         y = 15 - select(ti.y, ti.x, on_y);
         if (dir == 1u || dir == 2u) { x = 15 - x; }
     }
+    var c: vec3f;
     if (painted != 0u) {
-        // one of its variants by the cell's hash, the same on every face of the block
-        let nv = ((painted >> 12u) & 3u) + 1u;
-        let v = min(u32(hash(cell + vec3i(0, 0, 4099)) * f32(nv)), nv - 1u);
-        let p = vec2u(clamp(vec2i(x, y), vec2i(0), vec2i(15)));
-        return unpack4x8unorm(tex[((painted & 4095u) + v) * 256u + p.y * 16u + p.x]).rgb;
+        c = paint_texel(painted, cell, x, y);
+    } else {
+        c = pattern_texel(look_in(m, sn), dir, cell, x, y, h, tone);
     }
-    let look = look_in(m, sn);
+    // a block a season paints (bit 9 of its size, `looks_of`): the two nearest seasons' rows, each its paint of
+    // this face or else the look above, mixed as look_in mixes; a row without paint is the summer look's face,
+    // so a grass side a season does not paint stays its side block's
+    let size = looks[m0].size;
+    if ((size & 512u) == 0u || sn.y == 0.0) { return c; }
+    let r = season_rows(size >> 8u, sn);
+    var cx = c;
+    var cy = c;
+    let px = face_paint(r.x + m0, dir);
+    let py = face_paint(r.y + m0, dir);
+    if (px != 0u) { cx = paint_texel(px, cell, x, y); }
+    if (py != 0u) { cy = paint_texel(py, cell, x, y); }
+    return mix(c, mix(cx, cy, r.f), sn.y);
+}
+
+// texel (x, y) of a painted face (`face_paint`): one of its variants by the cell's hash, the same on every face
+fn paint_texel(painted: u32, cell: vec3i, x: i32, y: i32) -> vec3f {
+    let nv = ((painted >> 12u) & 3u) + 1u;
+    let v = min(u32(hash(cell + vec3i(0, 0, 4099)) * f32(nv)), nv - 1u);
+    let p = vec2u(clamp(vec2i(x, y), vec2i(0), vec2i(15)));
+    return unpack4x8unorm(tex[((painted & 4095u) + v) * 256u + p.y * 16u + p.x]).rgb;
+}
+
+// a look's pattern texel (x, y) of face `dir`; h the texel's hash, tone its noise
+fn pattern_texel(look: Look, dir: u32, cell: vec3i, x: i32, y: i32, h: f32, tone: f32) -> vec3f {
     let pattern = look.info & 255u;
     // contrast 1 is exactly the look before ADR 0039
     let k = select(1.0 + look.contrast * (tone - 1.0), tone, look.contrast == 1.0);

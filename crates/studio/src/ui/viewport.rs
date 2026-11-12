@@ -110,6 +110,12 @@ pub struct Viewport {
     pub orbit: Orbit,
     /// The hour of the day, 0..24; the game's clock starts at 9 (ADR 0022).
     pub hour: f32,
+    /// The day of the year, 0..54 (docs/design/seasonal-looks.md): 0 the northern spring equinox, a season
+    /// 13.5 days; added to the clock in whole days, so the hour stays.
+    pub day: f32,
+    /// The latitude the seasons are shown at (`LATS`): the scene's own place is far from either pole, so the
+    /// view shows a season whole at "north" and "south" and none at the equator.
+    pub lat: usize,
     pub scene: Scene,
     /// Set by a page whose thing is blocks (a structure, a texture's cube) before it draws the view: "None"
     /// would leave nothing to see, so it is not offered there and Grass is shown. Off again after each frame.
@@ -148,6 +154,8 @@ impl Viewport {
         Viewport {
             orbit: Orbit::default(),
             hour: 11.0,
+            day: 0.0,
+            lat: 0,
             scene: Scene::Grass,
             land_only: false,
             left_turns: true,
@@ -346,8 +354,10 @@ impl Viewport {
         let (e, t) = (self.orbit.eye(), self.orbit.target);
         let cam = format!("cam {} {} {} {} {} {}", e.x, e.y, e.z, t.x, t.y, t.z);
         self.say("cam", cam.clone(), cam);
-        let s = format!("{:.2}", game_time(self.hour as f64, STAND));
+        let s = format!("{:.2}", game_time(self.hour as f64, STAND) + self.day.floor() as f64 * engine::sky::DAY);
         self.say("time", s.clone(), format!("time {s}"));
+        let lat = LATS[self.lat.min(2)].0;
+        self.say("season", lat.to_string(), format!("season {lat}"));
         let fx = self.shown_effect.as_ref().map_or("-".to_string(), |(n, k)| format!("{n} {k}"));
         let name = self.shown_effect.as_ref().map_or("-".to_string(), |(n, _)| n.clone());
         self.say("effect", fx, format!("effect {name}"));
@@ -493,6 +503,20 @@ impl Viewport {
                 let r = ui.add(egui::Slider::new(&mut self.hour, 0.0..=24.0).step_by(0.25).custom_formatter(|h, _| format!("{:02}:{:02}", h.floor() as u32 % 24, ((h.fract() * 60.0).round() as u32) % 60)));
                 look::tip(r, "The local time of day where the scene stands: 12:00 the sun highest, 00:00 night", "");
             });
+            if ui.max_rect().max.x - ui.cursor().min.x < slider + 100.0 {
+                ui.end_row();
+            }
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Year").small());
+                ui.spacing_mut().slider_width = slider;
+                let r = ui.add(egui::Slider::new(&mut self.day, 0.0..=53.0).step_by(1.0).custom_formatter(|d, _| season_name(d)));
+                look::tip(r, "The day of the year: a season is 13.5 days, spring from day 0 (the northern spring equinox); living blocks take the season's look", "");
+            });
+            for (k, (_, name, help)) in LATS.iter().enumerate() {
+                if look::tip(look::chip(ui, self.lat == k, name), help, "").clicked() {
+                    self.lat = k;
+                }
+            }
             let state = match &self.state {
                 State::Up => format!("game renderer, {:.0} ms", self.delays.iter().rev().take(20).copied().fold(0.0, f32::max)),
                 State::Failed(_) => "2D preview".into(),
@@ -546,6 +570,25 @@ impl Drop for Viewport {
     }
 }
 
+/// The view's latitudes for the seasons: the game's `season` word, the chip, its help.
+pub const LATS: [(&str, &str, &str); 3] = [
+    ("north", "North", "The seasons as in the northern mid latitudes: spring from day 0"),
+    ("equator", "Equator", "No seasons: the base look all year, as near the equator"),
+    ("south", "South", "The seasons as in the southern mid latitudes: half a year from the north's"),
+];
+
+/// The day of the year nearest a season's start (its look whole there, ADR 0061, and nearly so all that day):
+/// spring 0, summer 14, autumn 27, winter 41.
+pub fn season_day(k: usize) -> f32 {
+    (k as f64 * engine::sky::YEAR / 4.0 / engine::sky::DAY).round() as f32
+}
+
+/// "day 20, summer": the year slider's label, the north's season.
+fn season_name(day: f64) -> String {
+    let k = ((day * engine::sky::DAY / (engine::sky::YEAR / 4.0)).floor() as usize).min(3);
+    format!("day {}, {}", day as u32, engine::blocks::SEASONS[k])
+}
+
 /// Where `run=view` stands: its default `at`, the body's +y (`view.rs`), the spawn's longitude.
 const STAND: glam::DVec3 = glam::DVec3::Y;
 
@@ -556,6 +599,24 @@ fn game_time(hour: f64, up: glam::DVec3) -> f64 {
     // a point turned ahead of the spawn about +z sees the sun earlier: its clock runs ahead by the angle
     let ahead = (up.y.atan2(up.x) - std::f64::consts::FRAC_PI_2) / std::f64::consts::TAU * 24.0;
     (hour - ahead - 9.0).rem_euclid(24.0) / 24.0 * engine::sky::DAY
+}
+
+#[cfg(test)]
+mod season_tests {
+    use super::*;
+    // a season's day shows that season's look in the north at any hour, within a tenth of the way to the next
+    // (sky.rs `season_at`: a year's phase in quarter turns, the season's start at a whole one)
+    #[test]
+    fn a_seasons_day_shows_its_look() {
+        for k in 0..4 {
+            for hour in [0.0, 12.0, 23.99] {
+                let t = game_time(hour, STAND) + season_day(k) as f64 * engine::sky::DAY;
+                let off = (engine::sky::season_at(glam::DVec3::Z, t).0 - k as f64 + 2.0).rem_euclid(4.0) - 2.0;
+                assert!(off.abs() < 0.12, "season {k} at {hour}: {off} off its start");
+            }
+            assert!(season_name(season_day(k) as f64).ends_with(engine::blocks::SEASONS[k]));
+        }
+    }
 }
 
 #[cfg(test)]
