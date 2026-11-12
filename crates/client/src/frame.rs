@@ -571,9 +571,8 @@ impl App {
         self.audio.ear = [p.pos, p.fwd.cross(p.up).normalize_or_zero(), p.up, p.fwd];
         self.audio.carry = [air, air.max(0.4), 1.0][self.settings.at(S::SpaceSound).min(2)];
         self.audio.dull = if self.world.water_surface(p.pos).is_some() { 0.8 } else { 0.0 };
-        self.audio.listen(&|q| BLOCKS.solid(self.world.block(self.world.block_at(q))), &|q| {
-            let b = &self.world.bodies[self.world.nearest(q)];
-            (q - b.centre).length() - b.height((q - b.centre).normalize())
+        self.audio.listen(&|q| BLOCKS.get(self.world.block(self.world.block_at(q))).is_some_and(|d| d.solid && !d.soft), &|q| {
+            self.world.bodies[self.world.nearest(q)].over_top(q)
         });
         let vol = |s: S| (self.settings.get(s) / 100.0) as f32;
         let listening = self.focused || !self.onscreen || !self.settings.on(S::MuteBack);

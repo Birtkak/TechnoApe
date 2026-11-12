@@ -1056,14 +1056,14 @@ impl Audio {
 
     /// The cave's reverb: four times a second the rays of `room` from the head (`ear`) through the world's
     /// cells (`solid`), and the mixer told when the place changed. Called every frame. No rays without a card
-    /// (an off-screen run measures with `sound=1`), nor more than `ROOM_RAY` over the ground (`over_ground`,
+    /// (an off-screen run measures with `sound=1`), nor more than `ROOM_RAY` over the highest place a block can be (`over_top`,
     /// metres): there the place is the open.
-    pub fn listen(&mut self, solid: &dyn Fn(DVec3) -> bool, over_ground: &dyn Fn(DVec3) -> f64) {
+    pub fn listen(&mut self, solid: &dyn Fn(DVec3) -> bool, over_top: &dyn Fn(DVec3) -> f64) {
         if !self.open || self.room_at.is_some_and(|t| t.elapsed().as_millis() < 250) {
             return;
         }
         let t = std::time::Instant::now();
-        let r = if over_ground(self.ear[0]) > ROOM_RAY { (0.0, 0.0) } else { room(solid, &self.ear) };        self.room_us = self.room_us.max(t.elapsed().as_micros() as u32);
+        let r = if over_top(self.ear[0]) > ROOM_RAY { (0.0, 0.0) } else { room(solid, &self.ear) };        self.room_us = self.room_us.max(t.elapsed().as_micros() as u32);
         self.room_at = Some(t);
         if (r.0 - self.room.0).abs() > 0.02 || (r.1 - self.room.1).abs() > 1.0 {
             self.room = r;
@@ -1392,7 +1392,7 @@ mod tests {
         assert_eq!(level, down);
     }
 
-    /// Review of ADR 0054: nothing to hear, no rays: no card open, or high over the ground.
+    /// Review of ADR 0054: nothing to hear, no rays: no card open, or high over where blocks can be.
     #[test]
     fn no_rays_with_nothing_to_hear() {
         let asked = std::cell::Cell::new(0);
@@ -1405,7 +1405,7 @@ mod tests {
         assert_eq!(asked.get(), 0, "no card");
         a.open = true;
         a.listen(&solid, &|_| 100.0);
-        assert_eq!(asked.get(), 0, "high over the ground");
+        assert_eq!(asked.get(), 0, "high over the build headroom");
         a.room_at = None;
         a.listen(&solid, &|_| 1.6);
         assert!(asked.get() > 0 && a.room.0 == 1.0, "in a cave: {:?}", a.room);

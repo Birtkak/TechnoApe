@@ -33,8 +33,8 @@ Option 1. `crates/client/src/audio.rs`:
   in and out (no click); fully out it is not run and its buffers are cleared.
 - `Msg::Room { wet, size }`, `Audio::listen` (called each frame in `frame.rs`, measures every 250 ms, sends
   on a change of 0.02 or 1 m), and `"room":{"wet","size","us_max"}` in every run's `audio` JSON. No rays
-  without a card (an off-screen run measures with `sound=1`) or more than 24 m over the ground (high flight,
-  orbit, open sea over a deep floor): there the place is the open.
+  without a card (an off-screen run measures with `sound=1`) or more than 24 m over the build headroom, the highest place a block can be (high flight,
+  orbit): there the place is the open.
 
 ## Measured
 Dev PC, release build, 2026-11-12, `run=stand quick=1 sound=1 at=0.102815,0.769509,0.630306` (on land;
@@ -54,8 +54,8 @@ the default stand point is on the sea, 35 m over its floor, so no rays there).
 |---|---|
 | Corner rays reached only 13.9 m: a big hall came out drier than a tunnel, the 3 s hall unreachable; the floor pulled `size` down | rays go to a 24 m cube's face; `size` from sideways and upward hits only (`a_big_hall_is_as_wet_as_a_tunnel_and_bigger`: red wet 0.43) |
 | The ray frame tilted with the look's pitch | the frame is built from the body's up alone (`looking_up_or_down_does_not_change_the_room`: red) |
-| Leaves and plants count as rock | the block's `solid` now, as the footsteps use; but every block but air is `solid` in `data/blocks.toml` today (leaves too), so nothing changes until the data says otherwise; no new flag |
-| Rays paid for with nothing to hear | none without a card or more than 24 m over the ground (`no_rays_with_nothing_to_hear`: red) |
+| Leaves and plants count as rock | a block row's `soft = true` (leaves, shrub, reed) is no wall to the rays (`plants_are_soft_and_ground_is_not`: red) |
+| Rays paid for with nothing to hear | none without a card or more than 24 m over the build headroom (`no_rays_with_nothing_to_hear`: red; first gated by the ground, which heard a tower's room or a hut over deep water as the open: `only_over_the_build_headroom_is_there_surely_air`, red) |
 | The test's bound check ran after tanh | the reverb's own output checked, its feedback under 1 at the smallest and largest size, a bigger room rings longer (passed at once: a missing check, not a bug) |
 | The turned-ray test passed even if `room` ignored `ear` | a field with x up, which must give no reverb and no size (red: size from the floor's hits) |
 | A size change stepped the feedback while it rang | the feedback eased per sample (in the reverb test: red "no step") |
@@ -63,10 +63,10 @@ the default stand point is on the sea, 35 m over its floor, so no rays there).
 
 ## Consequences
 - Not built: sound behind a wall duller and quieter (sound.md, one ray per voice), water, machines.
-- shortcut: the rays treat every `solid` cell as a wall (leaves too, by the data) and water as air; refine
-  when a forest sounds like a room.
-- The height gate goes by the ground under the head, not water or what was built: a room built more than
-  24 m over the ground, or a raft's hut over deep water, is heard as the open.
+- shortcut: the rays treat water as air and cactus and coral as walls; refine
+  when it is heard.
+- The height gate is the build headroom (`Body::over_top`), so flight under it (to about 180 m over the sea
+  level) casts the rays too: up to 0.17 ms once every 250 ms on the frame thread.
 - shortcut: `room()` runs on the frame thread four times a second; move it to a worker if its `us_max`
   ever shows in the frame budget.
 - The reverb is one for all sounds: a sound in a cave heard from outside rings by the listener's place,

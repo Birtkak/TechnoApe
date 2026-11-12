@@ -11,7 +11,8 @@
 # `metal`: how much it reflects like a metal (0..1). `was`: names it had before, so old saves still load.
 # `hardness`: seconds a survival player digs it with bare hands (every solid block; ADR 0034). `loose`:
 # bare hands take it, so it goes into the inventory; a block that is not loose breaks in its time and gives
-# nothing until the tools that take it exist.
+# nothing until the tools that take it exist. `soft`: sound passes it without an echo (leaves, a shrub, reed),
+# so it is no wall to the cave reverb (ADR 0054).
 
 [[block]]
 id = 0
@@ -146,6 +147,7 @@ id = 15
 name = "spruce leaves"
 hardness = 0.3
 loose = true
+soft = true
 sound = "grass"
 colour = [0.12, 0.30, 0.18]
 pattern = "speckle"
@@ -155,6 +157,7 @@ id = 16
 name = "broadleaf leaves"
 hardness = 0.3
 loose = true
+soft = true
 sound = "grass"
 colour = [0.22, 0.45, 0.15]
 pattern = "speckle"
@@ -164,6 +167,7 @@ id = 17
 name = "jungle leaves"
 hardness = 0.3
 loose = true
+soft = true
 sound = "grass"
 colour = [0.10, 0.36, 0.10]
 pattern = "speckle"
@@ -173,6 +177,7 @@ id = 18
 name = "acacia leaves"
 hardness = 0.3
 loose = true
+soft = true
 sound = "grass"
 colour = [0.40, 0.48, 0.18]
 pattern = "speckle"
@@ -190,6 +195,7 @@ id = 20
 name = "shrub"
 hardness = 0.3
 loose = true
+soft = true
 sound = "grass"
 colour = [0.30, 0.42, 0.16]
 pattern = "speckle"
@@ -199,6 +205,7 @@ id = 21
 name = "reed"
 hardness = 0.2
 loose = true
+soft = true
 sound = "grass"
 colour = [0.55, 0.58, 0.30]
 

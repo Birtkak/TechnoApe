@@ -629,6 +629,11 @@ impl Body {
         let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
         self.height_at(face as usize, ci, cj, self.dir(face as usize, ci, cj), 0)
     }
+    /// Metres from `p` down to the highest place a block can be (the top of the build headroom): above
+    /// zero there is nothing but air around, whatever was built or however deep the sea is under it.
+    pub fn over_top(&self, p: DVec3) -> f64 {
+        (p - self.centre).length() - self.r0 * (self.layers as f64 * self.lnq).exp()
+    }
     /// Surface radius along unit direction d.
     pub fn height(&self, d: DVec3) -> f64 {
         if self.baked.is_some() {
@@ -1459,6 +1464,18 @@ mod tests {
         let (i, j) = (5 * CS + 7, 9 * CS + 30);
         assert_eq!(b.col_height(2, i, j).to_bits(), b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)).to_bits());
         assert_eq!(b.col_height(3, i, j).to_bits(), b.height(b.dir(3, i as f64 + 0.5, j as f64 + 0.5)).to_bits());
+    }
+
+    /// ADR 0054: a room built 40 m over the ground is still among blocks; only over the build headroom is
+    /// there surely nothing to hear back.
+    #[test]
+    fn only_over_the_build_headroom_is_there_surely_air() {
+        let b = Body::new(DVec3::ZERO, 1536, 1337);
+        let ground = b.height(DVec3::Y);
+        assert!(b.over_top(DVec3::Y * (ground + 40.0)) <= 0.0, "a tower's room");
+        assert!(b.over_top(DVec3::Y * (b.radius + AMP + BUILD_HEADROOM - 0.5)) <= 0.0, "the last streamed layer");
+        let over = b.over_top(DVec3::Y * (b.radius + AMP + BUILD_HEADROOM + 30.0));
+        assert!(over > 28.0 && over <= 30.0, "30 m over the top: {over}");
     }
 
     #[test]

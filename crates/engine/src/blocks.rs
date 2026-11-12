@@ -84,6 +84,8 @@ struct Raw {
     hardness: f32,
     #[serde(default)]
     loose: bool,
+    #[serde(default)]
+    soft: bool,
     model: Option<String>,
 }
 fn stone() -> String {
@@ -137,6 +139,8 @@ pub struct Def {
     /// Bare hands take it (dirt, sand, a lamp): dug in survival it goes into the inventory. A block that is
     /// not loose breaks by hand in its time but gives nothing (the tools that take it come later).
     pub loose: bool,
+    /// Sound passes it without an echo (leaves, a shrub, reed): no wall to the cave reverb (ADR 0054).
+    pub soft: bool,
     /// The model (`data/models/<model>.toml`, ADR 0047) drawn in its cell in place of the cube; the cell
     /// still collides as a whole block.
     pub model: Option<String>,
@@ -198,7 +202,7 @@ impl Registry {
                 None => r.id,
                 Some(s) => f.block.iter().find(|o| &o.name == s).ok_or(format!("block '{}': no block '{s}' for its side", r.name))?.id,
             };
-            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, model: r.model.clone() });
+            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, soft: r.soft, model: r.model.clone() });
         }
         match &defs[0] {
             Some(d) if d.name == "air" && !d.solid => {}
@@ -251,6 +255,15 @@ mod tests {
         let (dirt, stone) = (get("dirt"), get("stone"));
         assert!(dirt.loose && dirt.hardness < 1.0, "dirt goes by hand in under a second");
         assert!(!stone.loose && stone.hardness > 5.0, "stone is slow by hand and gives nothing");
+    }
+
+    /// ADR 0054: a forest is no cave. Plants let sound through; ground and rock, the grass blocks too, echo.
+    #[test]
+    fn plants_are_soft_and_ground_is_not() {
+        for d in BLOCKS.placeable() {
+            let plant = d.name.ends_with("leaves") || ["shrub", "reed"].contains(&d.name.as_str());
+            assert_eq!(d.soft, plant, "{}", d.name);
+        }
     }
 
     #[test]
