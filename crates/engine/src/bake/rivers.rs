@@ -38,6 +38,7 @@ pub(super) struct V2 {
 /// A map as version 1 wrote it (no rivers).
 #[derive(Deserialize)]
 pub(super) struct V1 {
+    #[allow(dead_code)]
     pub version: u32,
     pub seed: i32,
     pub n: i32,

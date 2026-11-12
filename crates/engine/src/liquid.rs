@@ -319,7 +319,8 @@ impl Liquids {
         self.total() - self.gen_total + self.sea_extra + self.reach_extra.values().sum::<i64>() - self.rained
     }
     /// Rain (or a spring) brings `units` into reach `acct`'s open water; it runs on down like any water the
-    /// reach took in. shortcut: W3's air grid does not call it yet; till then a reach's runoff is the bake's.
+    /// reach took in (W5: the air's runoff, `Weather::tick`). shortcut: it does not raise the live water a
+    /// dam holds back yet: that needs the rain kept apart from what the reach lends its live water (ADR 0059).
     pub fn rain(&mut self, acct: u32, units: i64) {
         self.book(acct, units);
         self.rained += units;

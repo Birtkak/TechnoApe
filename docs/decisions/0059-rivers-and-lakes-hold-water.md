@@ -84,18 +84,53 @@ Option 2. The spike (`prototypes/river-reach/README.md`) answered the design's f
 **The soak:** bots dam rivers (a creative plug of stone across the channel, dug out 2–6 s later), on the
 smallest planet with wet rivers (1536).
 
+## Live rain (2026-11-12, after W3's air grid went live)
+The reaches take the air's runoff (`weather::Weather::feeding`, `Weather::tick`):
+- **The split.** A river cell's own catchment (its drained area less what flows into it) is shared out of
+  its air column's land (the column's area less its water). The share is capped at all of the land and kept as
+  1/65536 parts per reach, built once when the server starts. What no river drains stays in the sea term:
+  a coast drains straight to the sea.
+- **The hand-over.** When an air job lands (at a fixed tick, so it is deterministic), each column's runoff
+  over the job goes to its reaches by those shares (at most all of its land's), in whole units, rounded down. The sum comes out of the
+  air's `sea` term, which already took the runoff. The server rains it into the reaches (`Liquids::rain`),
+  and `run_reaches` passes it down to the sea as before. The air's ledger plus what it handed is constant
+  (`Weather::ledger`), and so is the water's (`counted() - rained`). The soak checks both every tick
+  (`Server::air_ledger`).
+- **Generation keeps the mean flow; rain does not move live water yet.** The plan was to make generation
+  carry a dry-weather base (half of the flow at rest) and let the live rain bring the rest. That was built
+  and taken out again. The reaches' accounts also carry the generated flow's circulation: live water upstream
+  borrows the reach's flow, and the open end downstream gives it back. Any flow read from an account
+  therefore feeds back on itself: a dam's wave never settled, and rain left a pond lower. With no live part,
+  a base only made dams fill at half the rate. So generation keeps the bake's mean flow; the air's runoff
+  runs through the accounts to the sea (both ledgers exact) and moves no live water. Nothing reads it as flow
+  yet, so nothing is counted twice.
+  - **Open for the developer:** rain that raises rivers needs a per-reach rain account apart from what a reach
+    lends its live water: a new save version, and generation then as the dry-weather base.
+  - **Until then:** `reach_flow` must not be read as rain (a wheel reads the generated flow).
+- **Cost** on the 4 km planet (`weather::tests::runoff_cost`, release):
+  - the split: 11.5 ms once, when the server starts (298 reaches over 13,824 air columns);
+  - a landing's hand-over: 36 µs, once each air step (200 ticks), about 0.2 µs a tick, plus the rain booked
+    into up to 225 accounts;
+  - `run_reaches` already walked every reach holding water: under 50 µs a second (the table below);
+  - the server's `sim` benchmark could not be compared to main's binary: two other sessions were compiling
+    and the runs scattered from 383 to 2424 µs a job.
+- **Review:** a fresh reviewer found no unit lost or made and no determinism problem. Its first finding
+  (the rain moving no live water) led to the base-flow attempt above and its removal; the save window and a
+  misplaced doc comment are answered above and fixed.
+- **Saves and wire:** unchanged. The air's `sea` and the reaches' `rained` and accounts are saved already.
+  A save taken between a job's return and its landing (the 20 ticks of every 200 the job is late) keeps that
+  job's runoff in the sea term, unhanded. A server loaded from it rains that much less into the reaches than
+  one that kept running; both ledgers hold. shortcut: until the pending runoff is saved too.
+
 ## Consequences
 - **Measured** — see the table below.
 - **Taste calls open:** how a river, a lake and the rapids look (the filmstrips); whether real waterfalls
   (a drop of a block or more) should exist. The smooth generation has none: steep reaches are rapids.
 - **Shortcuts:**
-  - Live rain is not wired in yet. Once W3 merges, the units W3 hands to `rain()` leave the air ledger's
-    `sea` term, so the two ledgers together stay exact.
   - The gate's soak is still on planet 256, which has no rivers. The dam soak is a cargo test on 1536.
   - A sloped river quad steeper than 0.25 layer a column is drawn in steps.
   - Lake outlets can stay live (the spike's open question).
 - **Save versions:** W3 (ADR 0060) owns 8: version 7's layout plus `air`. 9 is 8 plus `reaches`; an 8 loads with its air and no reaches (`a_version_8_loads_with_its_air`), a 7 with neither.
-- **Live runoff not taken yet:** W3's air grid is live, but the reaches still run on the bake's mean rain. Taking its `runoff` means splitting each air column's runoff over its reaches by catchment, taking those units out of the air's `sea` term so the two ledgers stay exact, and the generated flow becoming the dry-weather base so rain is not counted twice: its own step, not part of the merge.
 - **Tests seen red first:** the liquid tests (the spike stands as their red), the reach drain, the reach
   holds, the save's reaches, the soak's dams, the quads, the plants and the walker. Two were written
   alongside their code and not seen failing: the map v4 test and the save test (a compile error only).
