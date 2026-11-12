@@ -443,9 +443,21 @@ impl Server {
                     Recv::Empty => {}
                 }
                 match r {
+                    // a client names itself once: a second Hello would take another name's saved state
+                    Recv::Msg(ToServer::Hello { .. }) if !self.clients[i].player.name.is_empty() => {}
                     Recv::Msg(ToServer::Hello { name }) => {
+                        let base: String = name.chars().filter(|c| !c.is_control()).take(32).collect();
+                        // a name already online gets a suffix, so two of one name are two saved players
+                        let online = |n: &str| self.clients.iter().any(|c| c.player.name == n);
+                        let mut name = base.clone();
+                        for k in 2.. {
+                            if name.is_empty() || !online(&name) {
+                                break;
+                            }
+                            name = format!("{base}-{k}");
+                        }
                         let c = &mut self.clients[i];
-                        c.player.name = name.chars().take(32).collect();
+                        c.player.name = name;
                         // a player the save remembers carries on where it left, with what it held
                         if let Some(sv) = self.absent.remove(&c.player.name) {
                             let p = DVec3::from_array(sv.pos);
@@ -2148,6 +2160,27 @@ mod tests {
         assert_eq!(s.clients[0].vitals.dead.as_deref(), Some("ape was hurt by a command"));
         assert!(chats(&drain(&links[1])).contains(&"ape was hurt by a command".to_string()));
         assert!(vitals_of(&drain(l)).contains(&(0, 0, Some("ape was hurt by a command".into()))));
+    }
+
+    /// Two clients of one name are two saved players; a second `Hello` changes nothing; a name is cleaned.
+    #[test]
+    fn equal_names_are_kept_apart_and_a_second_hello_changes_nothing() {
+        let (mut s, links) = server_with(3);
+        s.absent.insert("bob".into(), saved(&s.clients[0]));
+        links[0].send(ToServer::Hello { name: "ape".into() });
+        links[0].send(ToServer::Chat("/give stone 1".into()));
+        links[1].send(ToServer::Hello { name: "ape".into() });
+        links[1].send(ToServer::Chat("/give dirt 2".into()));
+        links[0].send(ToServer::Hello { name: "bob".into() });
+        links[2].send(ToServer::Hello { name: "a\npe\u{7}".into() });
+        s.tick();
+        let names: Vec<&str> = s.clients.iter().map(|c| c.player.name.as_str()).collect();
+        assert_eq!(names, ["ape", "ape-2", "ape-3"]);
+        assert!(s.absent.contains_key("bob"), "a second Hello took nobody's saved state");
+        drop(links);
+        s.tick();
+        let inv = |n: &str| s.absent[n].inv.clone();
+        assert_eq!((inv("ape"), inv("ape-2")), (vec![(BLOCKS.id("stone"), 1)], vec![(BLOCKS.id("dirt"), 2)]));
     }
 
     #[test]
