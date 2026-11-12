@@ -220,6 +220,7 @@ pub fn life(b: &Bake, seed: u64, p: &LifeParams) -> Life {
     let mut lap = |name: &'static str, times: &mut Vec<(&'static str, f64)>| {
         times.push((name, t.elapsed().as_secs_f64()));
         t = Instant::now();
+        super::lap(name);
     };
     let g = &b.g;
     let n = g.n();

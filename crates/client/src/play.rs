@@ -1200,6 +1200,16 @@ impl App {
             hud::menu(&mut paint, title, items, sliders, tones, hint, hover, caret, self.scroll, ease);
             self.menu_boxes = boxes;
         }
+        // a new world's bake or a server's map under way: the stage and a bar across the foot of the screen
+        if let Some(l) = &self.loading {
+            let (stage, f) = l.progress.get();
+            let (bw, bh, y) = ((lw * 0.5).min(720.0), 14.0, lh - 120.0);
+            let x = (lw - bw) / 2.0;
+            let s = format!("Making the world: {stage}  {:.0}%", f * 100.0);
+            paint.text(x, y - hud::LINE - 6.0, &s, [1.0, 1.0, 1.0, 0.95]);
+            paint.rect(x - 2.0, y - 2.0, bw + 4.0, bh + 4.0, [0.0, 0.0, 0.0, 0.6], 0);
+            paint.rect(x, y, bw * f, bh, [0.45, 0.8, 0.4, 0.95], 0);
+        }
         // the bug report's form over everything, the menus too
         if let Some(b) = &self.bug {
             hud::bug_form(&mut paint, b, caret);

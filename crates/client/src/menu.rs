@@ -491,6 +491,10 @@ impl App {
 
     /// Button `k` of the open page pressed (`back`: with the right button, a value goes the other way).
     pub(crate) fn menu_press(&mut self, k: usize, back: bool) {
+        // while a world is made only Quit answers
+        if self.loading.is_some() && (self.menu, k) != (Some(Menu::Title), 2) {
+            return;
+        }
         self.audio.play("ui.click", None, 1.0, 1.0, false);
         match (self.menu, k) {
             (Some(Menu::Title), 0) => self.set_menu(Some(Menu::Worlds)),
@@ -560,7 +564,7 @@ impl App {
                         // the server makes the file; a seed from the clock when none was typed
                         let clock = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(1, |d| d.subsec_nanos() as i32 & 0x3fff_ffff);
                         let args = new_world_args(&self.new_world, clock, |p| std::path::Path::new(p).exists());
-                        self.start_again(args);
+                        self.bake_then(args);
                     }
                     _ => self.set_menu(Some(Menu::Worlds)),
                 }
@@ -795,6 +799,34 @@ impl App {
         self.finish();
     }
 
+    /// A new world: its planet baked here on a worker thread first when it is not kept yet (ADR 0043), the
+    /// title screen drawing the bar, then the game starts again with `then`.
+    pub(crate) fn bake_then(&mut self, then: Vec<String>) {
+        let num = |k: &str| then.iter().find_map(|a| a.strip_prefix(k)?.strip_prefix('=')?.parse::<i32>().ok());
+        match (num("seed"), num("planet")) {
+            (Some(seed), Some(n)) if !engine::bake::file(seed, n).exists() => {
+                self.loading = Some(Loading::start(then, move || {
+                    drop(engine::bake::get(seed, n));
+                    Ok(())
+                }));
+            }
+            _ => self.start_again(then),
+        }
+    }
+
+    /// Each frame: a finished bake or download starts the game again, a failed one says why.
+    pub(crate) fn poll_loading(&mut self) {
+        if !self.loading.as_ref().is_some_and(|l| l.work.is_finished()) {
+            return;
+        }
+        let l = self.loading.take().unwrap();
+        match l.work.join() {
+            Ok(Ok(())) => self.start_again(l.then),
+            Ok(Err(e)) => self.note(e),
+            Err(_) => self.note("the world could not be made (see the log)".into()),
+        }
+    }
+
     /// Opens a menu page or closes the menu: the pointer is free while it is open.
     pub(crate) fn set_menu(&mut self, m: Option<Menu>) {
         if m == Some(Menu::Worlds) {
@@ -871,5 +903,41 @@ impl App {
         ];
         self.gi = Some(gi::Gi::new(&gpu.device, &gpu.shader, shared, gpu.config.format, nw, nh));
         eprintln!("[technoape] the render size is {nw}x{nh}");
+    }
+}
+
+
+/// A bake or a map's download under way on a worker thread, and what the game starts again with after it.
+pub(crate) struct Loading {
+    pub(crate) progress: Arc<engine::bake::Progress>,
+    pub(crate) work: std::thread::JoinHandle<Result<(), String>>,
+    pub(crate) then: Vec<String>,
+}
+
+impl Loading {
+    pub(crate) fn start(then: Vec<String>, f: impl FnOnce() -> Result<(), String> + Send + 'static) -> Loading {
+        let progress = Arc::new(engine::bake::Progress::default());
+        let p = progress.clone();
+        let work = std::thread::spawn(move || {
+            // below the frame thread, as the workers are (ADR 0012)
+            sys::below_normal();
+            engine::bake::reporting(p, f)
+        });
+        Loading { progress, work, then }
+    }
+
+    /// join=host[:port] on the title screen: the server's map is fetched here (a connect= run that lacked it
+    /// started the title for this), then the game joins with `connect=`.
+    pub(crate) fn join(addr: String, name: String) -> Loading {
+        let then = vec![format!("connect={addr}"), format!("name={name}")];
+        Loading::start(then, move || {
+            let mut link: Link<ToServer, ToClient> = net::tcp(std::net::TcpStream::connect(&addr).map_err(|e| format!("{addr}: {e}"))?).map_err(|e| format!("{addr}: {e}"))?;
+            link.send(ToServer::Hello { name });
+            match link.rx.recv_timeout(Duration::from_secs(10)) {
+                Ok(ToClient::Welcome { seed, planet_n, map: Some(h), .. }) => engine::net::fetch_map(&mut link, seed, planet_n, h).map(drop),
+                Ok(ToClient::Welcome { .. }) => Ok(()),
+                other => Err(format!("{addr}: no welcome from the server ({other:?})")),
+            }
+        })
     }
 }

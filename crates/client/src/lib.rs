@@ -340,7 +340,17 @@ pub fn main() {
         Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, map }) => {
             assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
             // the baked map (ADR 0043): the local server's in memory, else from the disk or the server
-            let map = map.map(|h| engine::net::fetch_map(&mut link, seed, planet_n, h).unwrap_or_else(|e| panic!("{e}")));
+            let kept = map.and_then(|h| engine::bake::find(seed, planet_n, Some(h)));
+            if let (Some(addr), None, true) = (args.0.get("connect"), &kept, map.is_some() && args.get("onscreen", 0) == 1) {
+                // on screen, a map to download comes in on the title screen, under its bar, which joins after it
+                let exe = std::env::current_exe().expect("the game's own path");
+                let title = TITLE_ARGS.iter().map(|s| s.to_string()).chain([format!("join={addr}"), format!("name={}", args.s("name", "player"))]);
+                if let Err(e) = std::process::Command::new(exe).args(title).spawn() {
+                    eprintln!("[technoape] could not start the title screen: {e}");
+                }
+                return;
+            }
+            let map = map.map(|h| kept.map_or_else(|| engine::net::fetch_map(&mut link, seed, planet_n, h), Ok).unwrap_or_else(|e| panic!("{e}")));
             (id, World::with_map(planet_n, moon_n, seed, map), seed)
         }
         other => panic!("no welcome from the server: {other:?}"),
@@ -443,6 +453,7 @@ pub fn main() {
         fx
     };
     let models = models::Models::new(&args);
+    let loading = args.0.get("join").map(|a| menu::Loading::join(a.clone(), args.s("name", "player")));
     let mut app = App {
         time0,
         args,
@@ -587,6 +598,7 @@ pub fn main() {
         rec_path,
         worlds: Vec::new(),
         next: None,
+        loading,
         view: None,
     };
     el.run_app(&mut app).unwrap();

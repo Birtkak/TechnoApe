@@ -673,7 +673,8 @@ pub fn drain(g: &Grid, h: &[f32], sea: f32) -> Drainage {
 pub fn erode(g: &Grid, h: &mut [f32], u: &[f32], p: &Params, iters: usize, dt: f32) -> f32 {
     let mut last = 0.0;
     let n = g.n();
-    for _ in 0..iters {
+    for k in 0..iters {
+        super::within(k as f32 / iters as f32);
         let sea = quantile(h, p.ocean_share);
         let d = drain(g, h, sea);
         let before = h.to_vec();
@@ -803,6 +804,7 @@ pub fn bake(planet_n: u32, seed: u64, p: &Params) -> Bake {
     let mut lap = |name: &'static str, times: &mut Vec<(&'static str, f64)>| {
         times.push((name, t.elapsed().as_secs_f64()));
         t = Instant::now();
+        super::lap(name);
     };
     // the engine's radius for N columns of 1 m blocks (ADR 0003, 0033)
     let r = planet_n as f64 / (2.0 * std::f64::consts::PI / 3.0).sqrt();

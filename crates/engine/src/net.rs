@@ -90,6 +90,9 @@ pub struct Player {
     pub pitch: f32,
 }
 
+/// The download's stage name in `bake::Progress`.
+pub const DOWNLOAD: &str = "downloading the map";
+
 /// The baked map as `ToClient::Map` pieces of a MiB each.
 pub fn map_pieces(map: &crate::bake::Map) -> Vec<ToClient> {
     let bytes = map.to_bytes();
@@ -109,6 +112,7 @@ pub fn fetch_map(link: &mut Link<ToServer, ToClient>, seed: i32, planet_n: i32, 
         match link.rx.recv_timeout(std::time::Duration::from_secs(120)) {
             Ok(ToClient::Map { piece, pieces, bytes: b }) => {
                 bytes.extend_from_slice(&b);
+                crate::bake::report(DOWNLOAD, (piece + 1) as f32 / pieces as f32);
                 if piece + 1 >= pieces {
                     break;
                 }
@@ -303,6 +307,35 @@ mod tests {
         assert_eq!(client.rx.recv().unwrap(), ToClient::Chat("before".into()));
         assert_eq!(client.rx.recv().unwrap(), ToClient::Chat("after".into()));
         assert!(crate::bake::find(-12345, 3072, Some(hash)).is_some(), "kept");
+    }
+
+    /// The download reports each piece as it comes (received / total) and ends at 1.
+    #[test]
+    fn a_map_download_reports_its_pieces() {
+        let cells = 6 * 384 * 384;
+        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12346, n: 3072, m: 384, h: vec![1.0; cells], biome: vec![4; cells], spawn: [0.0, 1.0, 0.0], mips: Vec::new(), hash: 0 }.to_bytes();
+        let map = crate::bake::Map::from_bytes(&bytes).unwrap();
+        let _ = std::fs::remove_file(crate::bake::file(-12346, 3072));
+        let (mut client, server) = local::<ToServer, ToClient>();
+        let (hash, p) = (map.hash, std::sync::Arc::new(crate::bake::Progress::default()));
+        let seen = p.clone();
+        let t = std::thread::spawn(move || {
+            assert_eq!(server.rx.recv().unwrap(), ToServer::Map);
+            let pieces = map_pieces(&map);
+            let n = pieces.len();
+            for (k, piece) in pieces.into_iter().enumerate() {
+                server.send(piece);
+                let want = (k + 1) as f32 / n as f32;
+                let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                while seen.get().1 < want && std::time::Instant::now() < end {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                assert_eq!(seen.get(), (DOWNLOAD, want), "piece {k} of {n}");
+            }
+        });
+        crate::bake::reporting(p.clone(), || fetch_map(&mut client, -12346, 3072, hash)).unwrap();
+        t.join().unwrap();
+        assert_eq!(p.get().1, 1.0);
     }
 
     #[test]

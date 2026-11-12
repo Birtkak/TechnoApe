@@ -163,6 +163,82 @@ fn spawn(b: &land::Bake, l: &life::Life) -> [f64; 3] {
     g.d(c as u32).to_array()
 }
 
+/// Where a bake or a map's download stands, for the title screen's bar: the stage's name and the fraction
+/// done. The worker writes it a few dozen times; the frame thread reads it each frame.
+#[derive(Default)]
+pub struct Progress(Mutex<(&'static str, f32)>);
+
+impl Progress {
+    pub fn get(&self) -> (&'static str, f32) {
+        *self.0.lock().unwrap()
+    }
+    /// (the fraction never falls, whatever order the reports come in)
+    fn set(&self, stage: &'static str, f: f32) {
+        let mut s = self.0.lock().unwrap();
+        *s = (stage, f.clamp(0.0, 1.0).max(s.1));
+    }
+}
+
+/// The bake's stages in order (the `lap` names of `land::bake` and `life::life`, then `Map::bake`'s own end)
+/// and each one's seconds in a 4 km bake (2026-11-12), so the bar moves at the bake's pace. A lap of another
+/// name is passed over.
+const STAGES: [(&str, f32); 13] = [
+    ("grid", 0.13),
+    ("plates and boundaries", 0.62),
+    ("erosion, coarse", 5.56),
+    ("refine", 0.36),
+    ("erosion, fine", 14.89),
+    ("sea and coast", 0.87),
+    ("rivers and lakes", 0.02),
+    ("climate (air model)", 5.12),
+    ("climate to cells", 0.10),
+    ("water on land", 0.73),
+    ("soil", 0.30),
+    ("biomes", 0.05),
+    ("the spawn and the mips", 1.1),
+];
+
+thread_local! {
+    /// The progress `reporting` writes on this thread, and the stage under way (an index into `STAGES`).
+    static SINK: std::cell::RefCell<Option<(Arc<Progress>, usize)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `f` (a bake, `net::fetch_map`) on this thread with its progress written to `p`, which ends at 1.
+pub fn reporting<T>(p: Arc<Progress>, f: impl FnOnce() -> T) -> T {
+    SINK.with(|s| *s.borrow_mut() = Some((p.clone(), 0)));
+    within(0.0);
+    let out = f();
+    SINK.with(|s| *s.borrow_mut() = None);
+    p.set(p.get().0, 1.0);
+    out
+}
+
+/// A report outside the bake's stages (the download): `stage` and its fraction.
+pub(crate) fn report(stage: &'static str, f: f32) {
+    SINK.with(|s| s.borrow().as_ref().map(|(p, _)| p.set(stage, f)));
+}
+
+/// The bake's stage `name` has ended (its `lap`): the next one is under way.
+pub(crate) fn lap(name: &str) {
+    SINK.with(|s| {
+        if let Some((_, k)) = s.borrow_mut().as_mut() {
+            *k = STAGES.iter().position(|s| s.0 == name).map_or(*k, |i| (i + 1).min(STAGES.len() - 1));
+        }
+    });
+    within(0.0);
+}
+
+/// The stage under way is `f` done (an erosion's steps).
+pub(crate) fn within(f: f32) {
+    SINK.with(|s| {
+        if let Some((p, k)) = s.borrow().as_ref() {
+            let total: f32 = STAGES.iter().map(|s| s.1).sum();
+            let before: f32 = STAGES[..*k].iter().map(|s| s.1).sum();
+            p.set(STAGES[*k].0, (before + f * STAGES[*k].1) / total);
+        }
+    });
+}
+
 /// Maps in memory, so a local server, its client and in-process bots share one.
 static LOADED: LazyLock<Mutex<HashMap<(i32, i32), Weak<Map>>>> = LazyLock::new(Mutex::default);
 
@@ -230,6 +306,36 @@ mod tests {
         let mut short = small();
         short.h.pop();
         assert!(Map::from_bytes(&short.to_bytes()).is_err());
+    }
+
+    /// A bake that reports its progress: the fraction never falls and ends at 1, the stages are named as they
+    /// come, and the map is the same to the bit as that of a bake that reports nothing.
+    #[test]
+    fn a_bake_reports_progress_and_makes_the_same_map() {
+        let p = Arc::new(Progress::default());
+        let (stop, stopped) = std::sync::mpsc::channel::<()>();
+        let watch = {
+            let p = p.clone();
+            std::thread::spawn(move || {
+                let mut seen = Vec::new();
+                while stopped.try_recv().is_err() {
+                    seen.push(p.get());
+                    std::thread::sleep(std::time::Duration::from_micros(200));
+                }
+                seen.push(p.get());
+                seen
+            })
+        };
+        let a = reporting(p.clone(), || Map::bake(3, 256));
+        stop.send(()).unwrap();
+        let seen = watch.join().unwrap();
+        assert!(seen.windows(2).all(|w| w[1].1 >= w[0].1), "the fraction falls: {seen:?}");
+        assert_eq!(seen.last().unwrap().1, 1.0);
+        let mut stages: Vec<&str> = seen.iter().map(|s| s.0).collect();
+        stages.dedup();
+        assert!(stages.len() >= 5, "stages seen: {stages:?}");
+        assert!(seen.iter().any(|s| s.1 > 0.3 && s.1 < 0.7), "the bar moves within the erosion: {stages:?}");
+        assert_eq!(a.hash, Map::bake(3, 256).hash);
     }
 
     /// The whole bake twice on a small planet: the same map to the bit.
