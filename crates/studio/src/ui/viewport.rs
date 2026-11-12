@@ -99,6 +99,20 @@ impl Scene {
     }
 }
 
+/// The Models page's camera (docs/design/studio.md "Usability round" step 4), set by it before each `ui` and
+/// gone after that frame, so every other page keeps the plain orbit.
+#[derive(Clone, Copy, Debug)]
+pub struct ModelCam {
+    /// The flat (near orthographic) view: the eye `FLAT` times as far, the renderer's field of view as narrow.
+    pub flat: bool,
+    /// Turning goes about this point (the selection's or the model's middle), not the target.
+    pub pivot: Option<Vec3>,
+    /// A right drag turns (off for the tools whose right drag removes).
+    pub right_turns: bool,
+}
+/// How much farther the flat view's eye stands, and how much narrower it sees.
+pub const FLAT: f32 = 8.0;
+
 enum State {
     Off,
     Starting,
@@ -122,6 +136,9 @@ pub struct Viewport {
     pub land_only: bool,
     /// A drag with the left button turns too (the right one always does).
     pub left_turns: bool,
+    /// The Models page's camera, for the next `ui` only; `now` the one this frame draws with.
+    pub model: Option<ModelCam>,
+    now: Option<ModelCam>,
     proc: Option<Proc>,
     state: State,
     tex: Option<egui::TextureHandle>,
@@ -159,6 +176,8 @@ impl Viewport {
             scene: Scene::Grass,
             land_only: false,
             left_turns: true,
+            model: None,
+            now: None,
             proc: None,
             state: State::Off,
             tex: None,
@@ -351,7 +370,7 @@ impl Viewport {
             }
             (self.img, self.fov, self.state) = ([f.w, f.h], f.fov, State::Up);
         }
-        let (e, t) = (self.orbit.eye(), self.orbit.target);
+        let (e, t) = (self.cam().eye(), self.orbit.target);
         let cam = format!("cam {} {} {} {} {} {}", e.x, e.y, e.z, t.x, t.y, t.z);
         self.say("cam", cam.clone(), cam);
         let s = format!("{:.2}", game_time(self.hour as f64, STAND) + self.day.floor() as f64 * engine::sky::DAY);
@@ -361,6 +380,8 @@ impl Viewport {
         let fx = self.shown_effect.as_ref().map_or("-".to_string(), |(n, k)| format!("{n} {k}"));
         let name = self.shown_effect.as_ref().map_or("-".to_string(), |(n, _)| n.clone());
         self.say("effect", fx, format!("effect {name}"));
+        let zoom = if self.flat() { FLAT } else { 1.0 };
+        self.say("zoom", zoom.to_string(), format!("zoom {zoom}"));
         let bare = (self.scene.bare() && !std::mem::take(&mut self.land_only)) as u8;
         self.say("bare", bare.to_string(), format!("bare {bare}"));
         let blocks = [self.scene.blocks(), self.place.clone()].into_iter().filter(|b| !b.is_empty()).collect::<Vec<_>>().join(",");
@@ -400,13 +421,19 @@ impl Viewport {
         self.shown_effect = self.effect.take();
         let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), height.max(80.0)), Sense::click_and_drag());
         crate::drive::mark(ui.ctx(), "view", rect);
+        self.now = self.model.take();
         let ppp = ui.ctx().pixels_per_point();
         let (w, h) = (((rect.width() * ppp) as u32).clamp(640, 1920), ((rect.height() * ppp) as u32).clamp(360, 1200));
         // orbit
         let d = resp.drag_delta();
-        let turning = resp.dragged_by(egui::PointerButton::Secondary) || (self.left_turns && resp.dragged_by(egui::PointerButton::Primary));
-        if turning {
-            self.orbit.turn(d.x * 0.008, d.y * 0.008);
+        let mc = self.now;
+        let alt = ui.input(|i| i.modifiers.alt);
+        let right = resp.dragged_by(egui::PointerButton::Secondary) && mc.is_none_or(|m| m.right_turns);
+        let turning = right || ((self.left_turns || (mc.is_some() && alt)) && resp.dragged_by(egui::PointerButton::Primary));
+        match mc.and_then(|m| m.pivot) {
+            Some(p) if turning => self.orbit.turn_about(p, d.x * 0.008, d.y * 0.008),
+            _ if turning => self.orbit.turn(d.x * 0.008, d.y * 0.008),
+            _ => {}
         }
         if resp.dragged_by(egui::PointerButton::Middle) {
             self.orbit.pan(d.x / rect.height(), d.y / rect.height());
@@ -414,7 +441,17 @@ impl Viewport {
         if resp.hovered() {
             let s = ui.input(|i| i.smooth_scroll_delta.y);
             if s != 0.0 {
-                self.orbit.zoom((-s * 0.002).exp());
+                let k = (-s * 0.002).exp();
+                // the Models page's wheel zooms toward the point under the pointer, in the plane of the target
+                let at = resp.hover_pos().filter(|_| mc.is_some()).and_then(|q| self.ray(q)).and_then(|(o, d)| {
+                    let (f, ..) = self.orbit.basis();
+                    let t = (self.orbit.target - o).dot(f) / d.dot(f);
+                    (t > 0.0).then(|| o + d * t)
+                });
+                match at {
+                    Some(p) => self.orbit.zoom_about(k, p),
+                    None => self.orbit.zoom(k),
+                }
             }
         }
         self.pump(ui.ctx(), w, h);
@@ -455,7 +492,7 @@ impl Viewport {
         let (rect, uv) = self.shown?;
         let rel = (pos - rect.min) / rect.size();
         let (u, v) = (uv.min.x + rel.x * uv.width(), uv.min.y + rel.y * uv.height());
-        Some(self.orbit.ray([u * 2.0 - 1.0, 1.0 - v * 2.0], self.fov, self.aspect(rect)))
+        Some(self.cam().ray([u * 2.0 - 1.0, 1.0 - v * 2.0], self.fov, self.aspect(rect)))
     }
     /// A player's outline (0.6 x 1.8 x 0.6 m) standing with its low corner at `at`, for scale.
     pub fn player(&self, p: &egui::Painter, at: Vec3) {
@@ -470,9 +507,27 @@ impl Viewport {
     /// Where a point of the model's metres shows on screen.
     pub fn to_screen(&self, p: Vec3) -> Option<Pos2> {
         let (rect, uv) = self.shown?;
-        let n = self.orbit.project(p, self.fov, self.aspect(rect))?;
+        let n = self.cam().project(p, self.fov, self.aspect(rect))?;
         let (u, v) = ((n[0] + 1.0) / 2.0, (1.0 - n[1]) / 2.0);
         Some(rect.min + Vec2::new((u - uv.min.x) / uv.width() * rect.width(), (v - uv.min.y) / uv.height() * rect.height()))
+    }
+    fn flat(&self) -> bool {
+        self.now.is_some_and(|m| m.flat)
+    }
+    /// The camera the frame is drawn with: the orbit, its eye `FLAT` times as far in the flat view.
+    pub fn cam(&self) -> Orbit {
+        let mut o = self.orbit;
+        if self.flat() {
+            o.dist *= FLAT;
+        }
+        o
+    }
+    /// The tangent of half the view's height at the target's distance, as the orbit counts it (the flat view's
+    /// narrower field of view times its farther eye).
+    /// shortcut: a renderer older than its `zoom` command keeps the wide field, and a framed flat view stands too
+    /// near; the Studio's renderer is built with it.
+    pub fn half_height(&self) -> f32 {
+        (self.fov.to_radians() / 2.0).tan() * if self.flat() { FLAT } else { 1.0 }
     }
     fn aspect(&self, rect: Rect) -> f32 {
         if self.img[0] > 0 {

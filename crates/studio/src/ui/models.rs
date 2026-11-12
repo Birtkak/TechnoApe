@@ -3,11 +3,11 @@
 //! editing is `voxel`'s, pure and tested; this maps the pointer and keys to it.
 use super::look::{self, c32, GAP};
 use super::textures::palette_picker;
-use super::viewport::{Viewport, DIR};
+use super::viewport::{ModelCam, Viewport, DIR};
 use super::{App, Cmd, FileRow, Page, Thumb, DRAFTS};
 use crate::art::{self, History};
 use crate::shell::Flags;
-use crate::voxel::{self, Hit, Motion, Op, Orbit, MOTIONS};
+use crate::voxel::{self, Hit, Motion, Op, Orbit, MOTIONS, VIEWS};
 use eframe::egui::{self, Color32, Key, Modifiers, Pos2, Rect, RichText, Sense, Stroke, Ui, Vec2};
 use engine::models::{parse_life, sample, Clip, Ease, Event, Life, Light, Model, State, StateEffect};
 use glam::{IVec3, Mat4, Vec3};
@@ -112,6 +112,8 @@ pub struct Models {
     key: Option<usize>,
     motion: (Motion, usize, f32),
     orbit: Orbit,
+    /// The flat (near orthographic) view.
+    flat: bool,
     show_block: bool,
     show_player: bool,
     show_grid: bool,
@@ -175,6 +177,7 @@ impl Models {
             key: None,
             motion: (Motion::Swing, 1, 30.0),
             orbit: Orbit::default(),
+            flat: false,
             show_block: false,
             show_player: false,
             show_grid: true,
@@ -335,6 +338,105 @@ impl Models {
         app.view.show_state(self.playing_state.as_deref());
         // the 1 m block for scale: a real block of stone two cells to the -x
         app.view.place = if self.show_block { "0:-2:0:stone".into() } else { String::new() };
+    }
+
+    /// The box of a part's cells `lo`..=`hi` in the model's metres, posed as drawn.
+    fn cells_box(&self, part: usize, lo: IVec3, hi: IVec3) -> Option<(Vec3, Vec3)> {
+        let pose = *self.poses().get(part)?;
+        let (lo, hi) = (lo.min(hi).as_vec3(), lo.max(hi).as_vec3() + 1.0);
+        let pts = (0..8).map(|k: u8| pose.transform_point3(Vec3::new([lo.x, hi.x][(k & 1) as usize], [lo.y, hi.y][(k >> 1 & 1) as usize], [lo.z, hi.z][(k >> 2 & 1) as usize])));
+        Some(pts.fold((Vec3::INFINITY, Vec3::NEG_INFINITY), |(a, b), p| (a.min(p), b.max(p))))
+    }
+    /// A part's whole box, in metres.
+    fn part_box(&self, part: usize) -> Option<(Vec3, Vec3)> {
+        let s = self.m()?.parts.get(part)?.size;
+        self.cells_box(part, IVec3::ZERO, IVec3::from(s.map(|v| v as i32)) - 1)
+    }
+    /// What the view turns about: the selection's middle, else the model's.
+    fn turn_point(&self) -> Option<Vec3> {
+        let b = match self.sel {
+            Some((a, b)) => self.cells_box(self.part, a, b),
+            None => (0..self.m()?.parts.len()).filter_map(|i| self.part_box(i)).reduce(|(a, b), (c, d)| (a.min(c), b.max(d))),
+        }?;
+        Some((b.0 + b.1) / 2.0)
+    }
+    /// F: the selection, else the chosen part, fills the view.
+    fn frame(&mut self, app: &App) {
+        let b = match self.sel {
+            Some((a, b)) => self.cells_box(self.part, a, b),
+            None => self.part_box(self.part),
+        };
+        if let Some((lo, hi)) = b {
+            self.orbit.frame(lo, hi, app.view.half_height());
+        }
+    }
+
+    /// The view cube in the view's top right corner: the axes in colour (x red, y green and up, z blue), a click
+    /// on a face looks from there; under it the flat view and framing as buttons.
+    fn view_cube(&mut self, ui: &mut Ui, app: &App, view: Rect) {
+        let half = 28.0;
+        let c = Pos2::new(view.max.x - half * 2.1, view.min.y + half * 2.1);
+        let area = Rect::from_center_size(c, Vec2::splat(half * 4.0));
+        if !view.contains_rect(area) {
+            return;
+        }
+        let resp = ui.interact(area, egui::Id::new("model view cube"), Sense::click());
+        let p = ui.painter_at(area);
+        let (f, r, u) = self.orbit.basis();
+        let to2 = |v: Vec3| c + Vec2::new(v.dot(r), -v.dot(u)) * half;
+        p.circle_filled(c, half * 1.9, Color32::from_black_alpha(110));
+        // the axes from the middle, drawn first: what points away goes behind the cube
+        for (a, col, name) in [(Vec3::X, Color32::from_rgb(230, 80, 70), "x"), (Vec3::Y, Color32::from_rgb(110, 210, 90), "y"), (Vec3::Z, Color32::from_rgb(80, 140, 240), "z")] {
+            p.line_segment([c, to2(a * 1.7)], Stroke::new(2.0, col));
+            p.text(to2(a * 1.85), egui::Align2::CENTER_CENTER, name, egui::FontId::proportional(look::SMALL), col);
+        }
+        let faces = [(Vec3::Z, 0), (-Vec3::Z, 1), (Vec3::X, 2), (-Vec3::X, 3), (Vec3::Y, 4), (-Vec3::Y, 5)];
+        let mut over = None;
+        let pointer = resp.hover_pos();
+        for (n, k) in faces {
+            let facing = n.dot(-f);
+            if facing < 0.02 {
+                continue;
+            }
+            let (a, b) = if n.y != 0.0 { (Vec3::X, Vec3::Z) } else { (Vec3::Y, n.cross(Vec3::Y)) };
+            let pts: Vec<Pos2> = [n + a + b, n + a - b, n - a - b, n - a + b].iter().map(|v| to2(*v)).collect();
+            // inside the face's quad: on the same side of each of its edges
+            let side = |i: usize, q: Pos2| (pts[(i + 1) % 4] - pts[i]).rot90().dot(q - pts[i]);
+            let inside = pointer.is_some_and(|q| {
+                let s: Vec<f32> = (0..4).map(|i| side(i, q)).collect();
+                s.iter().all(|v| *v >= 0.0) || s.iter().all(|v| *v <= 0.0)
+            });
+            if inside {
+                over = Some(k);
+            }
+            let axis: [u8; 3] = if n.x != 0.0 { [150, 70, 64] } else if n.y != 0.0 { [80, 140, 70] } else { [64, 96, 160] };
+            let fill = c32(axis.map(|v| (v as f32 * (0.55 + 0.45 * facing) + if inside { 50.0 } else { 0.0 }).min(255.0) as u8));
+            p.add(egui::Shape::convex_polygon(pts, fill, Stroke::new(1.0, Color32::from_black_alpha(150))));
+            if facing > 0.35 {
+                p.text(to2(n), egui::Align2::CENTER_CENTER, VIEWS[k].1, egui::FontId::proportional(look::SMALL * 0.8), Color32::WHITE);
+            }
+            crate::drive::mark(ui.ctx(), format!("cube:{}", VIEWS[k].0), Rect::from_center_size(to2(n), Vec2::splat(2.0)));
+        }
+        if let (true, Some(k)) = (resp.clicked(), over) {
+            self.orbit.look_from(k);
+        }
+        let tip = match over {
+            Some(k) => format!("Look from the {} (the model faces front, +z, in the hand and in the world)", VIEWS[k].1.to_lowercase()),
+            None => "The view cube: click a face to look from that side. The axes: x red, y green and up, z blue".into(),
+        };
+        look::tip(resp, &tip, "1 3 7, with Shift the far side");
+        // under the cube: the flat view and framing, as buttons
+        let row = Rect::from_min_max(Pos2::new(view.max.x - 128.0, area.max.y), Pos2::new(view.max.x - 6.0, area.max.y + 22.0));
+        if view.contains_rect(row) {
+            let mut b = ui.new_child(egui::UiBuilder::new().max_rect(row).layout(egui::Layout::left_to_right(egui::Align::Center)));
+            b.spacing_mut().item_spacing = Vec2::splat(4.0);
+            if look::tip(look::chip(&mut b, self.flat, "Flat"), "A flat view: no perspective, so rows and sizes line up (again for perspective)", "5").clicked() {
+                self.flat = !self.flat;
+            }
+            if look::tip(b.button(RichText::new("Frame").small()), "Fill the view with the selection, else the chosen part", "F").clicked() {
+                self.frame(app);
+            }
+        }
     }
 
     fn timeline_t(&mut self, t: f32) {
@@ -565,6 +667,12 @@ impl Models {
             for k in -1..=2 {
                 line(Vec3::new(k as f32, 0.0, -1.0), Vec3::new(k as f32, 0.0, 2.0), s);
                 line(Vec3::new(-1.0, 0.0, k as f32), Vec3::new(2.0, 0.0, k as f32), s);
+            }
+        }
+        // the floor's edges by name: front where the model faces in the hand and in the world (+z)
+        for (at, name) in [(Vec3::new(0.5, 0.0, 1.12), "front"), (Vec3::new(0.5, 0.0, -0.12), "back"), (Vec3::new(1.12, 0.0, 0.5), "right"), (Vec3::new(-0.12, 0.0, 0.5), "left")] {
+            if let Some(q) = view.to_screen(at) {
+                p.text(q, egui::Align2::CENTER_CENTER, name, egui::FontId::proportional(look::SMALL), Color32::from_white_alpha(if name == "front" { 200 } else { 110 }));
             }
         }
         if self.show_player {
@@ -1027,6 +1135,13 @@ impl Page for Models {
             v.push(Cmd::new(format!("sel.{id}"), format!("Move the selection {what}"), "one voxel").key(Modifiers::NONE, k));
         }
         v.push(Cmd::new("sel.none", "Select nothing", "drop the selection").key(Modifiers::NONE, Key::Escape));
+        for (k, (id, name, ..)) in VIEWS.iter().enumerate() {
+            let key = [Key::Num1, Key::Num3, Key::Num7][k / 2];
+            let mods = if k % 2 == 0 { Modifiers::NONE } else { Modifiers::SHIFT };
+            v.push(Cmd::new(format!("view:{id}"), format!("View from the {}", name.to_lowercase()), "look at the model from that side (the view cube's face)").key(mods, key));
+        }
+        v.push(Cmd::new("view.flat", "Flat view on or off", "no perspective, so rows and sizes line up").key(Modifiers::NONE, Key::Num5));
+        v.push(Cmd::new("view.frame", "Frame", "fill the view with the selection, else the chosen part").key(Modifiers::NONE, Key::F));
         v
     }
 
@@ -1093,6 +1208,11 @@ impl Page for Models {
                     }
                 }
                 "plant" if voxel::PLANTS.contains(&arg) => self.new_model(app, Some(arg)),
+                "view" => {
+                    if let Some(k) = VIEWS.iter().position(|v| v.0 == arg) {
+                        self.orbit.look_from(k);
+                    }
+                }
                 "scene" => app.view.scene = super::viewport::Scene::named(arg),
                 "hour" => app.view.hour = arg.parse().unwrap_or(app.view.hour),
                 "cam" => {
@@ -1169,6 +1289,8 @@ impl Page for Models {
                 });
             }
             "sel.none" => self.sel = None,
+            "view.flat" => self.flat = !self.flat,
+            "view.frame" => self.frame(app),
             _ => {
                 if let (Some(dir), Some((a, b))) = (id.strip_prefix("sel."), self.sel) {
                     let by = match dir {
@@ -1188,9 +1310,10 @@ impl Page for Models {
 
     fn more_keys(&self) -> Vec<(&'static str, &'static str)> {
         vec![
-            ("Right drag", "turn the view (the tools' right button: a click)"),
+            ("Right drag", "turn the view about the selection, else the model's middle (Box and Line: removes)"),
+            ("Alt + left drag", "turn the view, for a hand without a middle or right button"),
             ("Middle drag", "pan the view"),
-            ("Wheel", "zoom the view"),
+            ("Wheel", "zoom toward the pointer"),
             ("Left click", "the tool's first action (add, paint, pick)"),
             ("Right click", "the tool's second action (remove, second colour)"),
         ]
@@ -1241,6 +1364,7 @@ impl Page for Models {
         let view_share = ((total - timeline_h - GAP) / total.max(1.0)).clamp(0.1, 0.9);
         let view_h = look::split(ui, "view", view_share, total) - GAP;
         app.view.orbit = self.orbit;
+        app.view.model = Some(ModelCam { flat: self.flat, pivot: self.turn_point(), right_turns: !matches!(self.tool, Tool::Box | Tool::Line) });
         let resp = {
             let me = &*self;
             app.view.ui(ui, view_h, |p, v, _| me.sketch(p, v))
@@ -1249,6 +1373,7 @@ impl Page for Models {
         self.pointer(app, &resp);
         let painter = ui.painter_at(resp.rect);
         self.overlay(&painter, &app.view);
+        self.view_cube(ui, app, resp.rect);
         let tool = TOOLS.iter().find(|t| t.0 == self.tool).unwrap();
         look::tip(resp, &format!("{}: {}", tool.2, tool.4), tool.3.name());
         look::split_bar(ui, "view", view_share, total);

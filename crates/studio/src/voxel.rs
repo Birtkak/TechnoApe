@@ -49,7 +49,35 @@ impl Orbit {
     }
     pub fn turn(&mut self, dx: f32, dy: f32) {
         self.yaw -= dx;
-        self.pitch = (self.pitch + dy).clamp(-1.45, 1.45);
+        // (a Top or Bottom view stands past the drag's limit: a drag from there keeps it, never jumps)
+        let lim = 1.45f32.max(self.pitch.abs());
+        self.pitch = (self.pitch + dy).clamp(-lim, lim);
+    }
+    /// `turn`, about the point `p` instead of the target: `p` stays where it shows in the view.
+    pub fn turn_about(&mut self, p: Vec3, dx: f32, dy: f32) {
+        let (f, r, u) = self.basis();
+        let v = self.target - p;
+        let c = [v.dot(r), v.dot(u), v.dot(f)];
+        self.turn(dx, dy);
+        let (f, r, u) = self.basis();
+        self.target = p + r * c[0] + u * c[1] + f * c[2];
+    }
+    /// `zoom` toward the point `p` (one in the plane of the target, under the pointer): `p` stays where it shows.
+    pub fn zoom_about(&mut self, k: f32, p: Vec3) {
+        let was = self.dist;
+        self.zoom(k);
+        self.target = p + (self.target - p) * (self.dist / was);
+    }
+    /// Looks from one of `VIEWS` at the same target.
+    pub fn look_from(&mut self, view: usize) {
+        let (_, _, yaw, pitch) = VIEWS[view.min(5)];
+        (self.yaw, self.pitch) = (yaw, pitch);
+    }
+    /// Looks at the box `lo`..`hi` (metres) so it fills the view; `th` is the tangent of half the view's
+    /// vertical field of view at the target's distance.
+    pub fn frame(&mut self, lo: Vec3, hi: Vec3, th: f32) {
+        self.target = (lo + hi) / 2.0;
+        self.dist = ((hi - lo).length() / 2.0 * 1.25 / th.max(0.05)).clamp(0.3, 12.0);
     }
     pub fn zoom(&mut self, k: f32) {
         self.dist = (self.dist * k).clamp(0.3, 12.0);
@@ -60,6 +88,17 @@ impl Orbit {
         self.target += (-r * dx + u * dy) * self.dist;
     }
 }
+
+/// The six views: the view cube's face, the button's word, the yaw and pitch it looks from. Front looks from +z,
+/// where a model faces in the hand and in the world; Top has the front at the bottom of the view.
+pub const VIEWS: [(&str, &str, f32, f32); 6] = [
+    ("front", "Front", 0.0, 0.0),
+    ("back", "Back", std::f32::consts::PI, 0.0),
+    ("right", "Right", std::f32::consts::FRAC_PI_2, 0.0),
+    ("left", "Left", -std::f32::consts::FRAC_PI_2, 0.0),
+    ("top", "Top", 0.0, 1.56),
+    ("bottom", "Bottom", 0.0, -1.56),
+];
 
 /// What a ray meets: a voxel's face (`solid`), or the cell where it enters a part's box; `n` the face's outward
 /// normal (zero from inside the box), `t` how far along the ray.
@@ -860,6 +899,58 @@ mod tests {
         // up in the world is up on the screen; behind the eye is nowhere
         assert!(o.project(o.target + Vec3::Y * 0.1, 70.0, 1.6).unwrap()[1] > 0.0);
         assert_eq!(o.project(o.eye() * 2.0 - o.target, 70.0, 1.6), None);
+    }
+
+    #[test]
+    fn the_views_look_from_their_side_and_turning_and_zooming_keep_their_point_in_place() {
+        let mut o = Orbit::default();
+        for (k, (name, ..)) in VIEWS.iter().enumerate() {
+            o.look_from(k);
+            let from = (o.eye() - o.target).normalize();
+            let want = match *name {
+                "front" => Vec3::Z,
+                "back" => -Vec3::Z,
+                "right" => Vec3::X,
+                "left" => -Vec3::X,
+                "top" => Vec3::Y,
+                _ => -Vec3::Y,
+            };
+            assert!(from.dot(want) > 0.999, "{name}: from {from}");
+            // the front view has +x on the right and +y up; the top view has the front (+z) at the bottom
+            let s = o.project(o.target + Vec3::X * 0.1, 70.0, 1.6).unwrap();
+            assert!(s[0] > 0.0 || !matches!(*name, "front" | "top"), "{name}: +x at {s:?}");
+            if *name == "top" {
+                assert!(o.project(o.target + Vec3::Z * 0.1, 70.0, 1.6).unwrap()[1] < 0.0);
+            }
+        }
+        // turning about a point keeps it where it shows, a drag from the Top view does not jump
+        let mut o = Orbit::default();
+        let p = Vec3::new(0.2, 0.1, 0.9);
+        let before = o.project(p, 70.0, 1.6).unwrap();
+        o.turn_about(p, 0.4, -0.3);
+        let after = o.project(p, 70.0, 1.6).unwrap();
+        assert!((before[0] - after[0]).abs() < 1e-3 && (before[1] - after[1]).abs() < 1e-3, "{before:?} {after:?}");
+        o.look_from(4);
+        o.turn(0.0, 0.01);
+        assert!((o.pitch - 1.56).abs() < 1e-4, "Top kept: {}", o.pitch);
+        // zooming toward a point keeps it in place too
+        let mut o = Orbit::default();
+        let (f, r, _) = o.basis();
+        let p = o.target + r * 0.3;
+        let before = o.project(p, 70.0, 1.6).unwrap();
+        o.zoom_about(0.5, p);
+        let after = o.project(p, 70.0, 1.6).unwrap();
+        assert!((before[0] - after[0]).abs() < 1e-3 && (before[1] - after[1]).abs() < 1e-3, "{before:?} {after:?}");
+        assert!((o.dist - 1.3).abs() < 1e-4 && (o.target - p).dot(f).abs() < 1e-4);
+        // framing a box looks at its middle, near enough that it fills the view and every corner shows
+        o.frame(Vec3::new(0.0, 0.5, 0.0), Vec3::new(0.25, 1.0, 0.25), (35f32).to_radians().tan());
+        near(o.target, Vec3::new(0.125, 0.75, 0.125));
+        assert!(o.dist < 1.0, "{}", o.dist);
+        for k in 0..8 {
+            let c = Vec3::new((k & 1) as f32 * 0.25, 0.5 + (k >> 1 & 1) as f32 * 0.5, (k >> 2 & 1) as f32 * 0.25);
+            let s = o.project(c, 70.0, 1.6).unwrap();
+            assert!(s[0].abs() < 1.0 && s[1].abs() < 1.0, "corner {c} at {s:?}");
+        }
     }
 
     #[test]
