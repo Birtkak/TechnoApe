@@ -371,7 +371,8 @@ impl Body {
         let Some(b) = &self.baked else { return sea };
         let s = b.map.m as f64 / self.n as f64;
         let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
-        let Some(w) = b.map.water(face as usize, ci * s, cj * s, self.dir(face as usize, ci, cj)) else { return sea };
+        let d = self.dir(face as usize, ci, cj);
+        let Some(w) = b.map.water(face as usize, ci * s, cj * s, d) else { return sea };
         let top = self.layer_of(self.radius - SEA_DEPTH + w.level as f64);
         if sea.is_some_and(|s| s.0 >= top) {
             return sea;
@@ -1391,13 +1392,17 @@ pub fn sea_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2]>
 pub fn river_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2]> {
     // water stands at most this far over the ground under it (m): a lake over its bed
     const DEEPEST: f64 = 60.0;
-    if key.level > 6 || body.baked.is_none() {
-        return Vec::new();
-    }
+    let Some(b) = body.baked.as_ref().filter(|_| key.level <= 6) else { return Vec::new() };
     let s = 1i32 << key.level;
     let (base, n) = (key.base(), CS as usize);
     let heights = body.tile(key.face, key.level, key.pos.x, key.pos.y);
     if body.layer_r(base.z as f64) > heights.max as f64 + DEEPEST || body.layer_r((base.z + key.span()) as f64) < heights.min as f64 {
+        return Vec::new();
+    }
+    // no river line or lake under the chunk and its ring: nothing to look up column by column
+    let cell = |c: i32| (c as f64 * b.map.m as f64 / body.n as f64).floor() as i32;
+    let (x0, y0, x1, y1) = (cell(base.x - s) - 1, cell(base.y - s) - 1, cell(base.x + key.span() + s) + 1, cell(base.y + key.span() + s) + 1);
+    if !b.map.wet_near(key.face as usize, x0, y0, x1, y1) {
         return Vec::new();
     }
     // the level of every (coarse) column and the ring around it, in layers: rivers' and lakes', not the sea's
