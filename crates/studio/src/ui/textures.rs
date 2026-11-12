@@ -85,14 +85,33 @@ pub struct Textures {
     picture: String,
     from_block: String,
     swap: (String, String),
-    big_preview: bool,
-    unfolded: bool,
+    /// The fixed preview on top of the inspector: 0 the block, 1 tiled 3 x 3, 2 tiled 5 x 5, 3 unfolded.
+    preview: usize,
     /// "Make variants": the wall and how many variants in all.
     wall: Option<Wall<Img>>,
     count: usize,
     /// The lit cube: its camera, and a hash of the textures last written for the renderer.
     orbit: crate::voxel::Orbit,
     tex_gen: u64,
+    /// When the renderer's textures were last written, and how long that took (ms).
+    tex_at: std::time::Instant,
+    tex_ms: f32,
+}
+
+/// The fixed preview's chips: (id, name, help).
+const PREVIEWS: [(&str, &str, &str); 4] = [
+    ("block", "Block", "The block in the game's renderer, on a floor of its own kind: drag turns, the wheel zooms, a double click puts the camera back"),
+    ("3", "3 x 3", "The face tiled 3 x 3, variants mixed as the game mixes them"),
+    ("5", "5 x 5", "The face tiled 5 x 5: repeats show sooner"),
+    ("unfold", "Unfolded", "Top, the four sides and the bottom unfolded, as the block wears them"),
+];
+/// The fixed preview's picture height (points): the box with its chips is about 220.
+const BOX: f32 = 190.0;
+/// While a stroke is held the block follows it at most this often (ms): the writes cost the frame little
+/// (measured: ADR 0064), the renderer's reload sets the pace.
+const FOLLOW_MS: u128 = 120;
+fn home() -> crate::voxel::Orbit {
+    crate::voxel::Orbit { target: glam::Vec3::new(0.5, 0.3, 0.5), yaw: 0.7, pitch: 0.55, dist: 3.4 }
 }
 
 impl Textures {
@@ -123,12 +142,13 @@ impl Textures {
             picture: String::new(),
             from_block: String::new(),
             swap: (String::new(), String::new()),
-            big_preview: false,
-            unfolded: false,
+            preview: 0,
             wall: None,
             count: 3,
-            orbit: crate::voxel::Orbit { target: glam::Vec3::new(0.5, 0.3, 0.5), yaw: 0.7, pitch: 0.55, dist: 3.4 },
+            orbit: home(),
             tex_gen: 0,
+            tex_at: std::time::Instant::now(),
+            tex_ms: 0.0,
         };
         t.go(app, &block);
         t
@@ -575,37 +595,49 @@ impl Textures {
         palette_picker(ui, &app.pal, &mut self.first, &mut self.second);
     }
 
-    fn preview(&mut self, ui: &mut Ui, app: &App) {
+    /// The fixed box on top of the inspector: the chips, then the block or a flat preview, never scrolled away.
+    fn preview_box(&mut self, ui: &mut Ui, app: &mut App) {
         ui.horizontal(|ui| {
-            let r = ui.selectable_label(!self.big_preview && !self.unfolded, "3 x 3");
-            if look::tip(r, "The face tiled 3 x 3, variants mixed as the game mixes them", "").clicked() {
-                (self.big_preview, self.unfolded) = (false, false);
-            }
-            let r = ui.selectable_label(self.big_preview && !self.unfolded, "5 x 5");
-            if look::tip(r, "The face tiled 5 x 5: repeats show sooner", "").clicked() {
-                (self.big_preview, self.unfolded) = (true, false);
-            }
-            let r = ui.selectable_label(self.unfolded, "Unfolded");
-            if look::tip(r, "Top, the four sides and the bottom unfolded, as the block wears them", "").clicked() {
-                self.unfolded = true;
+            for (k, (id, name, help)) in PREVIEWS.iter().enumerate() {
+                let r = look::chip(ui, self.preview == k, name);
+                crate::drive::mark(ui.ctx(), format!("preview:{id}"), r.rect);
+                if look::tip(r, help, "").clicked() {
+                    self.preview = k;
+                }
             }
         });
-        let w = ui.available_width();
-        if self.unfolded {
+        if self.preview == 0 {
+            self.lit_cube(ui, app);
+        } else {
+            self.flat_preview(ui, app);
+        }
+        ui.add_space(GAP * 0.25);
+        ui.separator();
+    }
+
+    /// The tiled or unfolded face in the box, centred.
+    fn flat_preview(&mut self, ui: &mut Ui, app: &App) {
+        let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), BOX), Sense::hover());
+        crate::drive::mark(ui.ctx(), "preview", r);
+        let p = ui.painter_at(r);
+        p.rect_filled(r, 4.0, ui.visuals().extreme_bg_color);
+        let note = |p: &egui::Painter, t: &str| {
+            p.text(r.center(), egui::Align2::CENTER_CENTER, t, egui::FontId::proportional(look::SMALL), Color32::from_gray(140));
+        };
+        let fit = |w: f32, h: f32| ((r.width() - GAP) / w).min((r.height() - GAP) / h).floor().clamp(1.0, 6.0);
+        if self.preview == 3 {
             let faces = [1, 2, 3].map(|f| Self::face_img(app, &self.block, f));
             if faces.iter().all(Option::is_none) {
-                look::weak(ui, "nothing painted yet");
-                return;
+                return note(&p, "nothing painted yet");
             }
-            let scale = (w / (4 * S) as f32).floor().clamp(1.0, 4.0);
+            let scale = fit(4.0 * S as f32, 3.0 * S as f32);
             let t = S as f32 * scale;
-            let (r, _) = ui.allocate_exact_size(Vec2::new(4.0 * t, 3.0 * t), Sense::hover());
+            let at0 = (r.center() - Vec2::new(2.0 * t, 1.5 * t)).round();
             let flat = dim(self.block_colour(app));
-            let p = ui.painter();
             for (f, i, j) in [(0, 1, 0), (1, 0, 1), (1, 1, 1), (1, 2, 1), (1, 3, 1), (2, 1, 2)] {
-                let at = r.min + Vec2::new(i as f32, j as f32) * t;
+                let at = at0 + Vec2::new(i as f32, j as f32) * t;
                 match faces[f] {
-                    Some((img, _)) => draw(p, img, 0, at, scale, false),
+                    Some((img, _)) => draw(&p, img, 0, at, scale, false),
                     None => {
                         p.rect_filled(Rect::from_min_size(at, Vec2::splat(t)), 0.0, flat);
                     }
@@ -614,17 +646,16 @@ impl Textures {
             return;
         }
         let Some((img, _)) = self.shown(app) else {
-            look::weak(ui, "nothing painted yet");
-            return;
+            return note(&p, "nothing painted yet");
         };
-        let n = if self.big_preview { 5 } else { 3 };
+        let n = if self.preview == 2 { 5 } else { 3 };
         // whole pixels per texel: a fractional scale leaves hairline gaps between the tiles
-        let scale = (w / (n * S) as f32).floor().clamp(1.0, 6.0);
-        let (r, _) = ui.allocate_exact_size(Vec2::splat(n as f32 * S as f32 * scale), Sense::hover());
+        let scale = fit((n * S) as f32, (n * S) as f32);
+        let at0 = (r.center() - Vec2::splat(n as f32 * S as f32 * scale / 2.0)).round();
         for j in 0..n {
             for i in 0..n {
-                let at = r.min + Vec2::new(i as f32, j as f32) * S as f32 * scale;
-                draw(ui.painter(), img, art::variant_at(i, j, img.variants()), at, scale, false);
+                let at = at0 + Vec2::new(i as f32, j as f32) * S as f32 * scale;
+                draw(&p, img, art::variant_at([i as i32, j as i32, 0], img.variants()), at, scale, false);
             }
         }
     }
@@ -639,14 +670,25 @@ impl Textures {
         }
         let gen = h.finish();
         let dir = format!("{}/textures", super::viewport::DIR);
-        // written once a stroke is let go, not at every pixel of it
-        if gen != self.tex_gen && !ui.input(|i| i.pointer.any_down()) {
-            let _ = std::fs::remove_dir_all(&dir);
-            let _ = std::fs::create_dir_all(&dir);
-            for (n, d) in &app.docs {
-                let _ = std::fs::write(format!("{dir}/{n}"), art::encode(&d.img));
+        // while a stroke is held: at most every FOLLOW_MS and only the open file; else every file anew
+        let held = ui.input(|i| i.pointer.any_down());
+        if gen != self.tex_gen && (!held || self.tex_at.elapsed().as_millis() >= FOLLOW_MS) {
+            let t0 = std::time::Instant::now();
+            if held {
+                let n = self.file(self.face);
+                if let Some(d) = app.docs.get(&n) {
+                    let _ = std::fs::create_dir_all(&dir);
+                    let _ = std::fs::write(format!("{dir}/{n}"), art::encode(&d.img));
+                }
+            } else {
+                let _ = std::fs::remove_dir_all(&dir);
+                let _ = std::fs::create_dir_all(&dir);
+                for (n, d) in &app.docs {
+                    let _ = std::fs::write(format!("{dir}/{n}"), art::encode(&d.img));
+                }
             }
-            self.tex_gen = gen;
+            self.tex_ms = t0.elapsed().as_secs_f32() * 1000.0;
+            (self.tex_gen, self.tex_at) = (gen, std::time::Instant::now());
         }
         app.view.textures(&dir, self.tex_gen);
         app.view.show_model(None, None, 0.0);
@@ -661,14 +703,13 @@ impl Textures {
         app.view.orbit = self.orbit;
         app.view.left_turns = true;
         app.view.live = false;
-        let w = ui.available_width();
-        let r = app.view.ui(ui, w * 0.75, |p, _, r| {
-            p.text(r.center(), egui::Align2::CENTER_CENTER, "the lit cube comes with the game's renderer", egui::FontId::proportional(look::SMALL), Color32::from_gray(140));
+        let r = app.view.ui(ui, BOX, |p, _, r| {
+            p.text(r.center(), egui::Align2::CENTER_CENTER, "the lit block comes with the game's renderer", egui::FontId::proportional(look::SMALL), Color32::from_gray(140));
         });
-        look::tip(r, "The block in the game's renderer: drag turns, the wheel zooms, the middle drag pans", "");
-        self.orbit = app.view.orbit;
+        let help = format!("The block in the game's renderer: drag turns, the wheel zooms, the middle drag pans, a double click puts the camera back (textures written in {:.1} ms)", self.tex_ms);
+        let r = look::tip(r, &help, "");
+        self.orbit = if r.double_clicked() { home() } else { app.view.orbit };
         app.view.land_only = true;
-        app.view.controls(ui);
     }
 
     fn settle_view(&mut self, ctx: &egui::Context, app: &mut App) {
@@ -835,6 +876,8 @@ impl Page for Textures {
         v.push(Cmd::new("redo", "Redo", "redo what was undone").key(Modifiers::COMMAND, Key::Y));
         v.push(Cmd::new("save", "Save the block", "write the block's unsaved files and take them off the drafts list").key(Modifiers::COMMAND, Key::S));
         v.push(Cmd::new("zoom.fit", "Zoom to fit", "the canvas as large as fits, centred"));
+        v.push(Cmd::new("preview.block", "Preview the block", "the block in the game's renderer, on top of the inspector"));
+        v.push(Cmd::new("preview.3", "Preview 3 x 3", "the face tiled, variants mixed as the game mixes them"));
         v.push(Cmd::new("preview.5", "Preview 5 x 5", "a larger tiled preview"));
         v.push(Cmd::new("preview.unfold", "Preview unfolded", "top, sides and bottom unfolded"));
         v
@@ -948,8 +991,10 @@ impl Page for Textures {
                 app.save_textures(files);
             }
             "zoom.fit" => (self.zoom, self.pan) = (None, Vec2::ZERO),
-            "preview.5" => (self.big_preview, self.unfolded) = (true, false),
-            "preview.unfold" => self.unfolded = true,
+            "preview.block" => self.preview = 0,
+            "preview.3" => self.preview = 1,
+            "preview.5" => self.preview = 2,
+            "preview.unfold" => self.preview = 3,
             _ => {}
         }
     }
@@ -1186,14 +1231,17 @@ impl Page for Textures {
             let ui = &mut *sec;
             self.palette(ui, app);
         }
-        if let Some(mut sec) = look::section(ui, "Preview") {
-            let ui = &mut *sec;
-            self.preview(ui, app);
+        if self.preview == 0 {
+            if let Some(mut sec) = look::section(ui, "Scene") {
+                let ui = &mut *sec;
+                look::weak(ui, "where the block above stands: the ground, the time of day, the season");
+                app.view.controls(ui);
+            }
         }
-        if let Some(mut sec) = look::section(ui, "In the game") {
-            let ui = &mut *sec;
-            self.lit_cube(ui, app);
-        }
+    }
+
+    fn inspector_top(&mut self, ui: &mut Ui, app: &mut App) {
+        self.preview_box(ui, app);
     }
 }
 

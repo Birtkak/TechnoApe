@@ -87,6 +87,8 @@ pub trait Page {
     }
     fn work(&mut self, ui: &mut Ui, app: &mut App);
     fn inspector(&mut self, ui: &mut Ui, app: &mut App);
+    /// What stays on top of the inspector and does not scroll (the Textures page's block).
+    fn inspector_top(&mut self, _ui: &mut Ui, _app: &mut App) {}
     /// The status line's left while the pointer is on no control: what the chosen tool does, and its keys.
     fn help(&self) -> String;
     /// The open file's undo steps by name, oldest first, and its redo steps, next first.
@@ -975,6 +977,7 @@ impl Studio {
         });
         ui.add_space(GAP * 0.25);
         ui.separator();
+        self.pages[self.page].inspector_top(ui, &mut self.app);
         egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
             self.pages[self.page].inspector(ui, &mut self.app);
             ui.add_space(GAP);

@@ -394,10 +394,11 @@ pub fn set_draft(text: &str, path: &str, listed: bool) -> String {
 }
 
 /// Which variant the block at tile (i, j) shows.
-// shortcut: own hash of the tile, switch to the game's variant pick when engine::textures has one
-pub fn variant_at(i: usize, j: usize, variants: usize) -> usize {
-    let h = engine::world::fnv(engine::world::FNV0, &[i as u8, j as u8, 0x5a]);
-    (h % variants as u64) as usize
+/// The variant the game paints on the block at `cell` (`paint_texel` in `crates/client/src/shader.wgsl`); a
+/// flat preview lays its tiles at cells (i, j, 0).
+pub fn variant_at(cell: [i32; 3], variants: usize) -> usize {
+    let n = variants.max(1);
+    ((crate::pattern::hash(cell[0], cell[1], cell[2] + 4099) * n as f32) as usize).min(n - 1)
 }
 
 /// The texture tiled n x n, variants mixed, each pixel `scale` px: (width, RGBA bytes).
@@ -407,7 +408,7 @@ pub fn tiled(img: &Img, n: usize, scale: usize) -> (usize, Vec<u8>) {
     for py in 0..side {
         for px in 0..side {
             let (x, y) = (px / scale, py / scale);
-            let c = img.get(variant_at(x / S, y / S, img.variants()), x % S, y % S);
+            let c = img.get(variant_at([(x / S) as i32, (y / S) as i32, 0], img.variants()), x % S, y % S);
             out.extend_from_slice(&[c[0], c[1], c[2], 255]);
         }
     }
@@ -703,5 +704,23 @@ mod tests {
         assert_eq!((side, px.len()), (96, 96 * 96 * 4));
         let tiles: Vec<[u8; 3]> = (0..9).map(|t| (t % 3 * 32, t / 3 * 32)).map(|(x, y)| (y * side + x) * 4).map(|o| [px[o], px[o + 1], px[o + 2]]).collect();
         assert!(tiles.contains(&A) && tiles.contains(&B), "both variants show: {tiles:?}");
+    }
+
+    #[test]
+    fn the_preview_picks_variants_as_the_game_does() {
+        // `paint_texel` in the shader, word for word: a change there must come here too
+        let wgsl = include_str!("../../client/src/shader.wgsl");
+        assert!(wgsl.contains("let v = min(u32(hash(cell + vec3i(0, 0, 4099)) * f32(nv)), nv - 1u);"), "the shader's pick changed");
+        let game = |c: [i32; 3], nv: u32| ((crate::pattern::hash(c[0], c[1], c[2] + 4099) * nv as f32) as u32).min(nv - 1) as usize;
+        for nv in 1..=4u32 {
+            for j in -3..8 {
+                for i in -3..8 {
+                    assert_eq!(variant_at([i, j, 0], nv as usize), game([i, j, 0], nv), "cell {i} {j}, {nv} variants");
+                }
+            }
+        }
+        // a field of 64 cells with 4 variants uses them all
+        let seen: std::collections::BTreeSet<usize> = (0..64).map(|k| variant_at([k % 8, k / 8, 0], 4)).collect();
+        assert_eq!(seen.len(), 4);
     }
 }
