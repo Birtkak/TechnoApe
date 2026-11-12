@@ -99,6 +99,8 @@ struct Drag {
     right: bool,
     /// What it moves: a pivot, a point, a selection's face.
     what: Grab,
+    /// Begun on a plane (the layer's, the floor's): its end is where the pointer meets that plane too.
+    plane: bool,
 }
 #[derive(Clone, Copy, PartialEq)]
 enum Grab {
@@ -122,8 +124,10 @@ pub struct Models {
     on_plane: bool,
     /// Thin dark lines between voxels.
     edges: bool,
-    /// The faces the eye sees, in metres, for the edges, and what they were found for.
-    edge_cache: (String, Vec<[Vec3; 4]>),
+    /// What the overlay draws of the voxels, found for its key: the faces the eye sees (in metres, for the
+    /// edges) and the dimmed rows above the layer (far first, with their colour); and whether it is the view's now.
+    faces: (String, Vec<[Vec3; 4]>, Vec<([Vec3; 4], [u8; 3])>),
+    faces_now: bool,
     sel: Option<(IVec3, IVec3)>,
     drag: Option<Drag>,
     hover: Option<Hit>,
@@ -194,7 +198,8 @@ impl Models {
             layer: None,
             on_plane: false,
             edges: true,
-            edge_cache: Default::default(),
+            faces: Default::default(),
+            faces_now: false,
             sel: None,
             drag: None,
             hover: None,
@@ -522,37 +527,59 @@ impl Models {
         (add, h.solid.then_some(h.cell))
     }
 
-    /// The faces of the shown voxels (the layer's rows and under) that the eye sees, in metres, for the edges.
+    /// The faces the overlay draws, found again when the model, the layer, the pose or the eye changed: the ones
+    /// the eye sees of the shown voxels (the layer's rows and under), for the edges, and the rows above the layer.
+    /// While a button is held (the view turning) they are not found again and not drawn.
     /// shortcut: a face counts as seen by its middle, so one half hidden draws whole; clip per edge if it shows.
-    fn visible_faces(&mut self, view: &Viewport) -> Vec<[Vec3; 4]> {
-        let Some(d) = self.doc() else { return vec![] };
+    /// shortcut: the layer's rows are cut at rest (`layer_top`) and the faces drawn posed: a clip scrubbed away from
+    /// rest moves the plane and the faces off the cut; leave layer mode for that, or cut posed, when it matters.
+    fn find_faces(&mut self, view: &Viewport, held: bool) {
+        let Some(rev) = self.doc().map(|d| d.rev) else { return };
         let eye = view.cam().eye();
-        let key = format!("{:?} {} {:?} {:?} {:?} {}", self.open, d.rev, self.layer_top(), eye, self.clip, self.t);
-        if self.edge_cache.0 != key {
-            let m = match self.layer_top() {
-                Some(top) => voxel::sliced(&d.m, &d.m.pose(None, 0.0), top),
-                None => d.m.clone(),
-            };
-            let poses = self.poses();
-            let mut out = vec![];
-            for (i, p) in m.parts.iter().enumerate() {
-                for (c, k) in voxel::exposed(p) {
-                    let n = voxel::NORMALS[k];
-                    let q = voxel::face_quad(c, n).map(|v| poses[i].transform_point3(v));
-                    let mid = (q[0] + q[2]) / 2.0;
-                    // facing the eye, and the first face a ray to its middle meets
-                    if poses[i].transform_vector3(n.as_vec3()).dot(eye - mid) <= 0.0 {
-                        continue;
+        let key = format!("{:?} {} {:?} {:?} {:?} {} {}", self.open, rev, self.layer_top(), eye, self.clip, self.t, self.edges);
+        self.faces_now = self.faces.0 == key;
+        if self.faces_now || held {
+            return;
+        }
+        let d = self.doc().unwrap();
+        let poses = self.poses();
+        let facing = |i: usize, q: &[Vec3; 4], n: IVec3| poses[i].transform_vector3(n.as_vec3()).dot(eye - (q[0] + q[2]) / 2.0) > 0.0;
+        let m = match self.layer_top() {
+            Some(top) => voxel::sliced(&d.m, &d.m.pose(None, 0.0), top),
+            None => d.m.clone(),
+        };
+        let mut edges = vec![];
+        for (i, p) in m.parts.iter().enumerate().filter(|_| self.edges) {
+            for (c, k) in voxel::exposed(p) {
+                let n = voxel::NORMALS[k];
+                let q = voxel::face_quad(c, n).map(|v| poses[i].transform_point3(v));
+                // facing the eye, and the first face a ray to its middle meets
+                if facing(i, &q, n) && voxel::pick(&m, &poses, None, eye, ((q[0] + q[2]) / 2.0 - eye).normalize()).is_some_and(|h| h.solid && h.part == i && h.cell == c && h.n == n) {
+                    edges.push(q);
+                }
+            }
+        }
+        let mut dim = vec![];
+        if self.layer.is_some() {
+            for (i, (a, b)) in d.m.parts.iter().zip(&m.parts).enumerate() {
+                let mut above = a.clone();
+                for (c, k) in above.cells.iter_mut().zip(&b.cells) {
+                    if *k != 0 {
+                        *c = 0;
                     }
-                    let seen = voxel::pick(&m, &poses, None, eye, (mid - eye).normalize()).is_some_and(|h| h.solid && h.part == i && h.cell == c && h.n == n);
-                    if seen {
-                        out.push(q);
+                }
+                for (c, k) in voxel::exposed(&above) {
+                    let q = voxel::face_quad(c, voxel::NORMALS[k]).map(|v| poses[i].transform_point3(v));
+                    if facing(i, &q, voxel::NORMALS[k]) {
+                        let rgb = d.m.rgb.get(voxel::get(&above, c) as usize - 1).copied().unwrap_or([128; 3]);
+                        dim.push((((q[0] + q[2]) / 2.0).distance(eye), q, rgb));
                     }
                 }
             }
-            self.edge_cache = (key, out);
+            dim.sort_by(|a, b| b.0.total_cmp(&a.0));
         }
-        self.edge_cache.1.clone()
+        self.faces = (key, edges, dim.into_iter().map(|(_, q, c)| (q, c)).collect());
+        self.faces_now = true;
     }
 
     /// The bar in the view's top left, always: the tool and what the buttons do, how the view moves, and what
@@ -618,8 +645,10 @@ impl Models {
             Some(l) => (on(l), true),
             None => match (ray.and_then(|(o, d)| voxel::pick(&m, &poses, Some(part), o, d)), on(0)) {
                 (Some(h), _) if h.solid => (Some(h), false),
-                (_, Some(f)) => (Some(f), true),
-                (h, None) => (h, false),
+                // (only on the floor's drawn grid: a click far off never grows the part)
+                (_, Some(f)) if on_grid(&m.parts[part], f.cell) => (Some(f), true),
+                (h, _) if h.is_some_and(|h| h.solid) => (h, false),
+                (h, _) => (h, false),
             },
         };
         let pose = poses[part];
@@ -666,7 +695,7 @@ impl Models {
                     // (a plane's hit stays on its plane: the drag's cells are on that row)
                     let hit = if right || self.on_plane { Hit { solid: false, ..h } } else { h };
                     if what != Grab::Cells || self.hover.is_some() {
-                        self.drag = Some(Drag { hit, from, right, what });
+                        self.drag = Some(Drag { hit, from, right, what, plane: self.on_plane });
                     }
                 }
             }
@@ -703,7 +732,7 @@ impl Models {
                 _ => {}
             }
             if resp.drag_stopped() {
-                let end = voxel::on_plane(pose, &dr.hit, o, d);
+                let end = if dr.plane { voxel::pick_layer(&m.parts[part], pose, dr.hit.cell.y, o, d).map(|h| h.cell) } else { voxel::on_plane(pose, &dr.hit, o, d) };
                 let col = if dr.right { None } else { Some(self.first) };
                 match (dr.what, self.tool, end) {
                     (Grab::Cells, Tool::Box | Tool::Line, Some(end)) => {
@@ -816,7 +845,7 @@ impl Models {
     }
 
     /// The view's guides: the grid, the part's box, the pivot and points, the selection, the player.
-    fn overlay(&self, p: &egui::Painter, view: &Viewport, edges: &[[Vec3; 4]]) {
+    fn overlay(&self, p: &egui::Painter, view: &Viewport) {
         let Some(m) = self.m() else { return };
         let poses = self.poses();
         let line = |a: Vec3, b: Vec3, s: Stroke| {
@@ -864,7 +893,7 @@ impl Models {
         if self.show_grid || self.layer.is_some() {
             let y = self.layer.unwrap_or(0) as f32;
             let s = IVec3::from(part.size.map(|v| v as i32));
-            let (lo, hi) = (IVec3::new(-4, 0, -4), IVec3::new(s.x + 4, 0, s.z + 4));
+            let (lo, hi) = (IVec3::new(-GRID, 0, -GRID), IVec3::new(s.x + GRID, 0, s.z + GRID));
             let tint = if self.layer.is_some() { look::ACCENT } else { Color32::WHITE };
             for ax in [0, 2] {
                 let (a0, a1, b0, b1) = if ax == 0 { (lo.x, hi.x, lo.z, hi.z) } else { (lo.z, hi.z, lo.x, hi.x) };
@@ -876,35 +905,16 @@ impl Models {
                 }
             }
         }
-        // the rows above the layer, dimmed: hidden in the view, drawn here faint, the far faces first
-        if let (Some(top), Some(d)) = (self.layer_top(), self.doc()) {
-            let shown = voxel::sliced(&d.m, &d.m.pose(None, 0.0), top);
-            let mut faces = vec![];
-            for (i, (a, b)) in d.m.parts.iter().zip(&shown.parts).enumerate() {
-                let mut above = a.clone();
-                for (c, k) in above.cells.iter_mut().zip(&b.cells) {
-                    if *k != 0 {
-                        *c = 0;
-                    }
-                }
-                for (c, k) in voxel::exposed(&above) {
-                    let q = voxel::face_quad(c, voxel::NORMALS[k]).map(|v| poses[i].transform_point3(v));
-                    let mid = (q[0] + q[2]) / 2.0;
-                    if poses[i].transform_vector3(voxel::NORMALS[k].as_vec3()).dot(eye - mid) > 0.0 {
-                        let rgb = d.m.rgb.get(voxel::get(&above, c) as usize - 1).copied().unwrap_or([128; 3]);
-                        faces.push((mid.distance(eye), q, rgb));
-                    }
-                }
+        if self.faces_now {
+            // the rows above the layer, dimmed: hidden in the view, drawn here faint, the far faces first
+            for (q, rgb) in &self.faces.2 {
+                poly(*q, Color32::from_rgba_unmultiplied(rgb[0], rgb[1], rgb[2], 60), Stroke::new(1.0, Color32::from_white_alpha(18)));
             }
-            faces.sort_by(|a, b| b.0.total_cmp(&a.0));
-            for (_, q, rgb) in faces {
-                poly(q, Color32::from_rgba_unmultiplied(rgb[0], rgb[1], rgb[2], 60), Stroke::new(1.0, Color32::from_white_alpha(18)));
-            }
-        }
-        // the edges: thin dark lines round every face the eye sees
-        for q in edges {
-            for i in 0..4 {
-                line(q[i], q[(i + 1) % 4], Stroke::new(1.0, Color32::from_black_alpha(120)));
+            // the edges: thin dark lines round every face the eye sees
+            for q in &self.faces.1 {
+                for i in 0..4 {
+                    line(q[i], q[(i + 1) % 4], Stroke::new(1.0, Color32::from_black_alpha(120)));
+                }
             }
         }
         cube(pose, Vec3::ZERO, size, Stroke::new(1.0, look::ACCENT.gamma_multiply(0.6)));
@@ -1345,6 +1355,13 @@ impl Models {
     }
 }
 
+/// Within the floor grid the view draws under a part: its box and 4 cells round it.
+fn on_grid(p: &engine::models::Part, c: IVec3) -> bool {
+    let s = IVec3::from(p.size.map(|v| v as i32));
+    c.x >= -GRID && c.z >= -GRID && c.x < s.x + GRID && c.z < s.z + GRID
+}
+const GRID: i32 = 4;
+
 fn m_size(s: &Models, part: usize) -> [u32; 3] {
     s.m().and_then(|m| m.parts.get(part)).map_or([1; 3], |p| p.size)
 }
@@ -1566,7 +1583,8 @@ impl Page for Models {
             "layer.on" => self.layer = if self.layer.is_some() { None } else { Some(0) },
             "layer.up" | "layer.down" => {
                 let l = self.layer.map_or(0, |l| l + if id == "layer.up" { 1 } else { -1 });
-                self.layer = Some(l.clamp(-1, m_size(self, part)[1] as i32));
+                // (not below row 0: an add there would grow the box down and leave the plane a row under it)
+                self.layer = Some(l.clamp(0, m_size(self, part)[1] as i32));
             }
             "edges" => self.edges = !self.edges,
             "view.frame" => self.frame(app),
@@ -1651,8 +1669,8 @@ impl Page for Models {
         self.orbit = app.view.orbit;
         self.pointer(app, &resp);
         let painter = ui.painter_at(resp.rect);
-        let edges = if self.edges { self.visible_faces(&app.view) } else { vec![] };
-        self.overlay(&painter, &app.view, &edges);
+        self.find_faces(&app.view, ui.input(|i| i.pointer.any_down()));
+        self.overlay(&painter, &app.view);
         self.view_cube(ui, app, resp.rect);
         self.view_bar(ui, resp.rect);
         let tool = TOOLS.iter().find(|t| t.0 == self.tool).unwrap();
@@ -1736,6 +1754,16 @@ impl Page for Models {
                     look::weak(ui, format!("row {l}"));
                     if look::tip(ui.small_button("Up"), "The layer a row up", "PgUp").clicked() {
                         self.run(app, "layer.up");
+                    }
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::splat(4.0);
+                look::weak(ui, "Look from");
+                for (k, (id, name, ..)) in VIEWS.iter().enumerate() {
+                    let key = format!("{}{}", if k % 2 == 1 { "Shift+" } else { "" }, ["1", "3", "7"][k / 2]);
+                    if look::tip(ui.small_button(*name), &format!("Look at the model from the {} (the view cube's face)", name.to_lowercase()), &key).clicked() {
+                        self.run(app, &format!("view:{id}"));
                     }
                 }
             });

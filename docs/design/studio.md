@@ -244,6 +244,12 @@ what a click does.
 Done when a `drive` script sets each of the six views and frames a part, and a filmstrip of hover, add and
 remove in layer mode is read; picking on the layer plane has a test.
 
+**Built** (2026-11-12, ADR 0065), with the starter shapes of "The bar": Ctrl+N and New model show the shapes
+(the page with no model shows them too, with what the first click does). The far side's views are Shift+1, 3,
+7 (Ctrl+number is the page keys). Page Up/Down move the layer; the selection moves up and down with Shift. The
+flat view is the eye 8 times as far and the renderer's field of view 8 times narrower (its `zoom` command),
+not a true orthographic camera.
+
 ### 5. Sounds from outside files (Sounds)
 Today a recording `data/sounds/<name>.wav` replaces a code-made sound and `data/sounds/base/*.wav` are bases
 for chains (ADR 0032, 0048), but only as WAV, only by copying files by hand, and nothing trims or levels them.
