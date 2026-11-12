@@ -486,6 +486,7 @@ impl App {
         let mut args: Vec<(f32, DrawArgs)> = Vec::with_capacity(draws.len());
         let mut sea_args: Vec<DrawArgs> = Vec::new();
         let mut cut_args: Vec<(f32, DrawArgs)> = Vec::new();
+        let mut glass_args: Vec<(f32, DrawArgs)> = Vec::new();
         let mut nquads = 0u64;
         let mut insts: Vec<rt::Inst> = Vec::with_capacity(draws.len());
         let frame_no = self.streamer.frame;
@@ -497,22 +498,26 @@ impl App {
             let (ci, new) = self.slots.get(d.off, frame_no);
             assert!((ci as usize) < MAX_CHUNKS, "chunk table full");
             if new {
-                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.cut, _p: [0; 2] }));
+                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.cut - d.glass, _p: [0; 2] }));
             }
             let land = d.len - d.water;
             if land > 0 {
-                insts.push(rt::Inst { off: d.off, land, cut: d.cut, base: k.base().into(), info, body: k.body, ci });
+                // the cutout and glass quads are the BLAS's second geometry, not opaque (ADR 0069, 0081)
+                insts.push(rt::Inst { off: d.off, land, cut: d.cut + d.glass, base: k.base().into(), info, body: k.body, ci });
             }
             if d.hidden {
                 continue;
             }
             // the opaque quads, then the cutout blocks' through the pipeline that discards (ADR 0069)
-            let opq = land - d.cut;
+            let opq = land - d.cut - d.glass;
             if opq > 0 {
                 args.push((d.dist, DrawArgs { vertex_count: opq * 6, instance_count: 1, first_vertex: d.off * 6, first_instance: ci }));
             }
             if d.cut > 0 {
                 cut_args.push((d.dist, DrawArgs { vertex_count: d.cut * 6, instance_count: 1, first_vertex: (d.off + opq) * 6, first_instance: ci }));
+            }
+            if d.glass > 0 {
+                glass_args.push((d.dist, DrawArgs { vertex_count: d.glass * 6, instance_count: 1, first_vertex: (d.off + opq + d.cut) * 6, first_instance: ci }));
             }
             if d.water > 0 {
                 // vs_sea draws each sea quad in SEA_SUB^2 pieces, one instance each: instance = chunk * pieces + piece
@@ -526,6 +531,9 @@ impl App {
         let args: Vec<DrawArgs> = args.into_iter().map(|a| a.1).collect();
         cut_args.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
         let cut_args: Vec<DrawArgs> = cut_args.into_iter().map(|a| a.1).collect();
+        // glass far to near, so the nearer pane blends over the farther (ADR 0081; inside a chunk unsorted)
+        glass_args.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
+        let glass_args: Vec<DrawArgs> = glass_args.into_iter().map(|a| a.1).collect();
         // the water mesh when it changed, or the tide moved the sea in its tiles
         self.water.retide(&self.world, self.start.elapsed().as_secs_f32());
         let n = self.water.all.len().min(MAX_WQUADS);
@@ -737,6 +745,9 @@ impl App {
         if !cut_args.is_empty() {
             gpu.queue.write_buffer(&gpu.indirect, (MAX_CHUNKS * 32) as u64, bytemuck::cast_slice(&cut_args));
         }
+        if !glass_args.is_empty() {
+            gpu.queue.write_buffer(&gpu.indirect, (MAX_CHUNKS * 48) as u64, bytemuck::cast_slice(&glass_args));
+        }
 
         let mut sky = wgpu::Color { r: sky_c.x as f64, g: sky_c.y as f64, b: sky_c.z as f64, a: 1.0 };
         if self.shot.is_some() {
@@ -937,6 +948,18 @@ impl App {
             if self.wquad_n > 0 && !self.view.as_ref().is_some_and(|v| v.bare) {
                 rp.set_pipeline(&gpu.water_pipeline);
                 rp.draw(0..self.wquad_n * 6, 0..1);
+            }
+            // glass over the water (ADR 0081; shortcut: glass under the water's surface draws over it; when
+            // anyone builds under water, sort the two by chunk)
+            if !glass_args.is_empty() && !self.view.as_ref().is_some_and(|v| v.bare) {
+                rp.set_pipeline(&gpu.glass_pipeline);
+                if self.args.get("mdi", 1) == 1 {
+                    rp.multi_draw_indirect(&gpu.indirect, (MAX_CHUNKS * 48) as u64, glass_args.len() as u32);
+                } else {
+                    for d in &glass_args {
+                        rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
+                    }
+                }
             }
             if self.ghost_n > 0 {
                 rp.set_pipeline(&gpu.ghost_pipeline);

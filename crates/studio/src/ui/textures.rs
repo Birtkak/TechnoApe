@@ -61,7 +61,12 @@ const KINDS: [(See, &str, &str); 2] = [
 pub fn kind_row(text: &str, block: &str, see: See) -> Option<String> {
     let span = crate::rows::spans(text).into_iter().find(|s| s.header == "block" && s.name == block)?;
     let mut k = crate::rows::Keys::parse(&text[span.at]);
-    k.set_after("see", (see == See::Cutout).then(|| "\"cutout\"".to_string()), &["name"]);
+    let v = match see {
+        See::Opaque => None,
+        See::Cutout => Some("\"cutout\"".to_string()),
+        See::Glass => Some("\"glass\"".to_string()),
+    };
+    k.set_after("see", v, &["name"]);
     Some(k.text())
 }
 

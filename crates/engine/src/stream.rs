@@ -66,7 +66,7 @@ impl Alloc {
 enum State {
     Pending,
     Empty,
-    Ready { off: u32, len: u32, water: u32, cut: u32 },
+    Ready { off: u32, len: u32, water: u32, cut: u32, glass: u32 },
 }
 
 /// Every chunk the selection visits has a slot (it caches the bounds); only wanted leaves get a mesh.
@@ -110,7 +110,7 @@ pub struct JobResult {
 }
 
 /// One drawable range of the quad buffer: `len` quads, the last `water` of them the sea's surface and the `cut`
-/// before those the cutout blocks' (ADR 0069).
+/// before those the glass blocks' (ADR 0081) and the `cut` before those the cutout blocks' (ADR 0069).
 #[derive(Clone, Copy)]
 pub struct DrawChunk {
     pub key: Key,
@@ -118,6 +118,7 @@ pub struct DrawChunk {
     pub len: u32,
     pub water: u32,
     pub cut: u32,
+    pub glass: u32,
     /// Outside the view or behind a horizon: not drawn, only traced.
     pub hidden: bool,
     /// From the camera to its bounding sphere, metres: the draws go near to far (ADR 0025, D).
@@ -505,15 +506,15 @@ impl Streamer {
         }
         s.drawn_at = (self.frame, out.len() as u32);
         let bd = s.bounds;
-        let (off, len, water, cut) = match s.state {
+        let (off, len, water, cut, glass) = match s.state {
             State::Pending => return false,
             State::Empty => return true,
-            State::Ready { off, len, water, cut } => (off, len, water, cut),
+            State::Ready { off, len, water, cut, glass } => (off, len, water, cut, glass),
         };
         // hidden chunks are listed too: they are not drawn, but they cast shadows (ADR 0022)
         let hidden = hidden.unwrap_or_else(|| self.hidden(view, k.body, &bd));
         let dist = ((bd.c - view.cam_in(k.body)).length() - bd.rad).max(0.0) as f32;
-        out.push(DrawChunk { key: k, off, len, water, cut, hidden, dist });
+        out.push(DrawChunk { key: k, off, len, water, cut, glass, hidden, dist });
         true
     }
 
@@ -556,7 +557,7 @@ impl Streamer {
                 let mut sea = sea_quads(body, k, &wet, &gen);
                 sea.extend(river_quads(body, k, &wet, &gen));
                 if !sea.is_empty() {
-                    let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], cut: 0, water: 0 });
+                    let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], cut: 0, glass: 0, water: 0 });
                     m.water = sea.len() as u32;
                     m.quads.extend(sea);
                 }
@@ -591,7 +592,7 @@ impl Streamer {
                     upload(off, &m.quads);
                     bytes += m.quads.len() * 8;
                     st.applied_nonempty += 1;
-                    State::Ready { off, len: n, water: m.water, cut: m.cut }
+                    State::Ready { off, len: n, water: m.water, cut: m.cut, glass: m.glass }
                 }
             };
             let s = self.slots.get_mut(&r.key).unwrap();
@@ -602,9 +603,9 @@ impl Streamer {
             // a remesh that stays drawn changes only its range: the last walk's list takes it in place; any other
             // change of state can change what the walk picks
             match (s.state, new, &mut self.walk) {
-                (State::Ready { .. }, State::Ready { off, len, water, cut }, Some(w)) if s.drawn_at.0 == self.walk_frame => {
+                (State::Ready { .. }, State::Ready { off, len, water, cut, glass }, Some(w)) if s.drawn_at.0 == self.walk_frame => {
                     let d = &mut w.draws[(s.drawn_at.1 - w.first) as usize].0;
-                    (d.off, d.len, d.water, d.cut) = (off, len, water, cut);
+                    (d.off, d.len, d.water, d.cut, d.glass) = (off, len, water, cut, glass);
                 }
                 _ => self.dirty = true,
             }

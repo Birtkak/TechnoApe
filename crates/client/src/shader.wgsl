@@ -285,12 +285,21 @@ fn ray(p: vec3f, n: vec3f, d: vec3f, body: u32, tmax: f32) -> f32 {
 // quad (a BLAS's second geometry, not flagged opaque) is a candidate, confirmed unless its texel at the hit is
 // empty, so the sun, the lamps and the bounce pass through a crown's holes. Shadow, lamp and bounce rays all
 // come here. `flags`: a shadow ray takes the first hit, a ray that looks takes the nearest.
+// Glass (ADR 0081) is in the same geometry and never confirmed: each glass candidate multiplies `ray_tint` by what
+// its texel lets through, so light through a green pane comes out green. (shortcut: candidates come unordered, so
+// a ray that looks also takes the tint of glass beyond what it hits; exact only for shadow rays)
+var<private> ray_tint: vec3f;
 fn trace(o: vec3f, db: vec3f, body: u32, tmax: f32, flags: u32) -> RayIntersection {
     var rq: ray_query;
+    ray_tint = vec3f(1.0);
     rayQueryInitialize(&rq, acc, RayDesc(flags, 1u << body, 0.0, tmax, o, db));
     while (rayQueryProceed(&rq)) {
         let c = rayQueryGetCandidateIntersection(&rq);
-        if (!hit_empty(c.instance_custom_data, c.geometry_index, c.primitive_index, c.barycentrics)) {
+        let q = hit_quad(c.instance_custom_data, c.geometry_index, c.primitive_index);
+        if (is_glass(q.y)) {
+            let t = hit_texel(c.instance_custom_data, q, c.primitive_index, c.barycentrics);
+            ray_tint *= mix(vec3f(1.0), t.rgb, t.a);
+        } else if (!hit_empty(c.instance_custom_data, q, c.primitive_index, c.barycentrics)) {
             rayQueryConfirmIntersection(&rq);
         }
     }
@@ -305,11 +314,15 @@ fn hit_quad(ci: u32, geo: u32, prim: u32) -> vec2u {
 
 // whether a candidate hit at barycentrics bc is on an empty texel of its cutout block (level 0 only meshes them
 // so; summer's look, `texel_a` without a season)
-fn hit_empty(ci: u32, geo: u32, prim: u32, bc: vec2f) -> bool {
+fn hit_empty(ci: u32, q: vec2u, prim: u32, bc: vec2f) -> bool {
     // flat colours draw a cutout block whole: the light takes it whole too
     if ((g.opt.x & 4u) != 0u) { return false; }
+    return hit_texel(ci, q, prim, bc).a < 0.5;
+}
+
+// the texel of quad q of chunk-table entry ci at a candidate hit's barycentrics bc on its triangle prim
+fn hit_texel(ci: u32, q: vec2u, prim: u32, bc: vec2f) -> vec4f {
     let c = chunks[ci];
-    let q = hit_quad(ci, geo, prim);
     let tri = (prim & 1u) * 3u;
     // the BLAS holds the quads grown by GROW; the same barycentrics on the ungrown corners map a hit in the lip
     // onto the quad's edge texel, as `vs` keeps `local` ungrown (a grown lip's fract wraps to the far edge)
@@ -319,7 +332,7 @@ fn hit_empty(ci: u32, geo: u32, prim: u32, bc: vec2f) -> bool {
     let sgn = select(1.0, -1.0, (dir & 1u) == 1u);
     let cell = vec3i(floor(local - axis(a) * sgn * 0.5)) + c.base + vec3i(i32(c.info & 7u) * 977);
     let f = fract(local);
-    return texel_a(q.y, dir, cell, vec2f(f[(a + 1u) % 3u], f[(a + 2u) % 3u]), f.z, vec3f(0.0)).a < 0.5;
+    return texel_a(q.y, dir, cell, vec2f(f[(a + 1u) % 3u], f[(a + 2u) % 3u]), f.z, vec3f(0.0));
 }
 
 // a direction to a point of a disc of angular radius ar around direction s, from a per-pixel number pair
@@ -446,7 +459,7 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
         if ((g.opt.x & 1u) == 0u) { to_sun = in_disc(sd, ar, px); }
         let seen = occ * ray(p, n, to_sun, body, 1e5);
         o.sun = ecl * seen;
-        o.l += (sun_on(body) * ecl + COPPER * copper) * ndl * seen * moon_gain(body);
+        o.l += (sun_on(body) * ecl + COPPER * copper) * ndl * seen * moon_gain(body) * ray_tint;
     }
     // the moon's light where the sun's is weak, through the same terrain
     if (o.day < 0.5 && max(moon.r, moon.b) > 0.001) {
@@ -460,7 +473,10 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
             }
             // faded in as the sun's ambient fades out, not switched on at once (ADR 0038 C)
             mv *= 1.0 - smoothstep(0.3, 0.5, o.day);
-            if (mv > 0.0) { o.l += moon * ndm * mv * ray(p, n, md, body, 1e5); }
+            if (mv > 0.0) {
+                let mr = ray(p, n, md, body, 1e5);
+                o.l += moon * ndm * mv * mr * ray_tint;
+            }
         }
     }
     // the lamps: shadow rays to the LAMP_RAYS strongest here; the others get their mean visibility
@@ -521,7 +537,7 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
         let v = lamp_target(lp, ro) - ro;
         let d = length(v);
         let vis = select(ray(p, n, v / d, body, d - LAMP_STOP), 1.0, d < LAMP_STOP);
-        o.l += topl[k] * vis;
+        o.l += topl[k] * vis * select(ray_tint, vec3f(1.0), d < LAMP_STOP);
         seen_n += 1.0;
         seen_v += vis;
     }
@@ -536,7 +552,9 @@ fn seen(p: vec3f, d: vec3f, body: u32, px: vec2u, bounce: bool, tmax: f32) -> ve
     let bb = g.bodies[body];
     let db = d * mat3x3f(bb.rot0.xyz, bb.rot1.xyz, bb.rot2.xyz);
     let h = trace(to_body(bb, p), db, body, tmax, 0u);
-    if (h.kind == RAY_QUERY_INTERSECTION_NONE) { return select(sky_colour(d), sky_light(p, body), bounce); }
+    // what the glass on the way lets through, before `light` traces again
+    let tint = ray_tint;
+    if (h.kind == RAY_QUERY_INTERSECTION_NONE) { return select(sky_colour(d), sky_light(p, body), bounce) * tint; }
     let c = chunks[h.instance_custom_data];
     let q = hit_quad(h.instance_custom_data, h.geometry_index, h.primitive_index);
     let dir = (q.x >> 28u) & 7u;
@@ -549,10 +567,10 @@ fn seen(p: vec3f, d: vec3f, body: u32, px: vec2u, bounce: bool, tmax: f32) -> ve
     if (a == 1u) { hn = normalize(f.t - f.n * f.tb); }
     if ((dir & 1u) == 1u) { hn = -hn; }
     let m = q.y & 255u;
-    if (((looks[m].info >> 24u) & 1u) == 1u) { return select(seen_colour(m, vec3f(0.0)), vec3f(0.0), bounce); }
+    if (((looks[m].info >> 24u) & 1u) == 1u) { return select(seen_colour(m, vec3f(0.0)), vec3f(0.0), bounce) * tint; }
     let l = light(p + d * h.t, brot(b, hn), body, px);
     // the light from around at the hit: a flat share, the second bounce
-    return seen_colour(m, season(b, p + d * h.t)) * (l.l + ambient(l.day) * select(1.0, 0.35, bounce));
+    return seen_colour(m, season(b, p + d * h.t)) * (l.l + ambient(l.day) * select(1.0, 0.35, bounce)) * tint;
 }
 
 // ---- the bounce (ADR 0022) ----
@@ -740,6 +758,11 @@ fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> vec3
 }
 
 const LEAVES: u32 = 11u;
+fn is_glass(m: u32) -> bool { return ((looks[m & 255u].info >> 26u) & 1u) == 1u; }
+// an unpainted glass block's alpha at texel (x, y): a clear middle, a rim one texel wide, so a wall reads as panes
+fn glass_pane(x: i32, y: i32) -> f32 {
+    return select(0.3, 0.8, x == 0 || y == 0 || x == 15 || y == 15);
+}
 // floor(a / b) for b > 0, as Rust's div_euclid (the Studio's `pattern::hole`)
 fn fdiv(a: i32, b: i32) -> i32 { return (a - select(0, b - 1, a < 0)) / b; }
 // a hole of the leaves pattern at texel ti of face dir of the block at cell (ADR 0069, studio `pattern::hole`):
@@ -793,13 +816,13 @@ fn texel_a(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> ve
     var c: vec4f;
     if (painted != 0u) {
         c = paint_texel(painted, cell, x, y);
-        if (c.a < 0.5) { c = vec4f(row_seen(m) * 0.6, 0.0); }
+        if (c.a < 0.5 && !is_glass(m)) { c = vec4f(row_seen(m) * 0.6, 0.0); }
     } else {
         let lk = look_in(m, sn);
         if (leaf_hole(lk, dir, cell, ti)) {
             c = vec4f(lk.colour * 0.6, 0.0);
         } else {
-            c = vec4f(pattern_texel(lk, dir, cell, x, y, h, tone), 1.0);
+            c = vec4f(pattern_texel(lk, dir, cell, x, y, h, tone), select(1.0, glass_pane(x, y), is_glass(m)));
         }
     }
     // a block a season paints (bit 9 of its size, `looks_of`): the two nearest seasons' rows, each its paint of
@@ -873,9 +896,11 @@ fn terrain_texel(i: VOut) -> vec4f {
     let level = (c.info >> 3u) & 31u;
     sn.z = stagger((vec2i(floor(i.local.xy - axis(a).xy * sgn * 0.5)) + (c.base.xy >> vec2u(level))) << vec2u(level), c.info & 7u);
     if (level > 0u && ((looks[i.mat & 255u].info >> 25u) & 1u) == 1u) { return vec4f(seen_colour(i.mat & 255u, sn), 1.0); }
+    // far glass: its one colour, half clear (ADR 0081)
+    if (level > 0u && is_glass(i.mat)) { return vec4f(seen_colour(i.mat & 255u, sn), 0.45); }
     let col = texel_a(i.mat, i.dir, cell, t, f.z, sn);
-    // flat colours: one texel a face, never a hole
-    return vec4f(col.rgb, select(col.a, 1.0, (g.opt.x & 4u) != 0u));
+    // flat colours: one texel a face, never a hole; glass keeps its clearness
+    return vec4f(col.rgb, select(col.a, 1.0, (g.opt.x & 4u) != 0u && !is_glass(i.mat)));
 }
 
 fn terrain_lit(i: VOut, col: vec3f) -> GOut {
@@ -910,6 +935,26 @@ fn terrain_lit(i: VOut, col: vec3f) -> GOut {
     // the corner occlusion darkens the light from around a little more, in detail the bounce smooths away
     o.albedo = vec4f(col * diffuse * mix(1.0, i.ao, 0.5), f32(body) / 3.0);
     return o;
+}
+
+// glass (ADR 0081): after the light, blended over the frame as the water is, lit by the same direct light and
+// the flat light from around; the sky in it at a grazing angle, the sun's glint
+@fragment
+fn fs_glass(i: VOut) -> @location(0) vec4f {
+    let t = terrain_texel(i);
+    if (t.a < 0.01) { discard; }
+    let body = (chunks[i.ci].info >> 8u) & 255u;
+    let v = normalize(-i.rel);
+    let n = normalize(i.normal);
+    let l = light(i.rel, n, body, vec2u(i.clip.xy));
+    let fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+    var col = t.rgb * (l.l + ambient(l.day) + 0.1 * l.day);
+    col = mix(col, g.sky.rgb + vec3f(0.17, 0.13, 0.01) * l.day, fres * 0.6);
+    col += g.sun_col.rgb * 1.5 * l.sun * pow(max(dot(reflect(-g.sun.xyz, n), v), 0.0), 200.0);
+    let a = clamp(t.a + fres * 0.5 * (1.0 - t.a), 0.0, 0.97);
+    var lit = shoulder(col);
+    if (g.opt.y != 1000u) { lit = pow(lit, vec3f(1000.0 / f32(g.opt.y))); }
+    return vec4f(lit, a);
 }
 
 // the G-buffer: direct light; albedo, a the body / 3; normal (camera frame) and distance from the camera,

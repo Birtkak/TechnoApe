@@ -707,3 +707,36 @@ name = "kreep"
 hardness = 8.0
 colour = [0.52, 0.47, 0.42]
 pattern = "stone"
+
+# Glass (ADR 0081): `see = "glass"`, pixels partly clear (a painting's alpha); unpainted, a pane of the block's
+# colour, clear in its middle and denser at its rim. Drawn blended after the light; the light through it takes
+# its colour. Ids 120 on, clear of the rows other work adds.
+[[block]]
+id = 120
+name = "glass"
+see = "glass"
+hardness = 0.45
+loose = true
+sound = "glass"
+colour = [0.80, 0.92, 0.95]
+contrast = 0.3
+
+[[block]]
+id = 121
+name = "green glass"
+see = "glass"
+hardness = 0.45
+loose = true
+sound = "glass"
+colour = [0.36, 0.78, 0.42]
+contrast = 0.3
+
+[[block]]
+id = 122
+name = "amber glass"
+see = "glass"
+hardness = 0.45
+loose = true
+sound = "glass"
+colour = [0.95, 0.62, 0.22]
+contrast = 0.3

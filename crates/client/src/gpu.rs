@@ -444,6 +444,8 @@ pub(crate) struct Gpu {
     /// The water (ADR 0020): the sea's quads in the chunks, the water mesh from its own buffer.
     pub(crate) sea_pipeline: wgpu::RenderPipeline,
     pub(crate) water_pipeline: wgpu::RenderPipeline,
+    /// Glass (ADR 0081): the terrain's quads through `fs_glass`, blended over the lit frame as the water.
+    pub(crate) glass_pipeline: wgpu::RenderPipeline,
     pub(crate) wquads: wgpu::Buffer,
     /// The effects (ADR 0031): the particles, drawn into the G-buffer lit per pixel.
     pub(crate) fx_buf: wgpu::Buffer,
@@ -523,7 +525,7 @@ pub(crate) fn season_here(w: &engine::world::World, pos: glam::DVec3) -> (f64, f
 }
 
 /// Every block's look from the registry (ADR 0013, 0039, 0045), shader.wgsl `Look`, 64 bytes each: colour rgb,
-/// pattern | side << 8 | metal << 16 | gives light << 24 | cutout << 25; colour2, size; colour3, amount; contrast; the painted
+/// pattern | side << 8 | metal << 16 | gives light << 24 | cutout << 25 | glass << 26; colour2, size; colour3, amount; contrast; the painted
 /// faces (16 bits a face: layer | variants - 1 << 12 | painted << 15; top and side in `tex`, the bottom in
 /// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24).
 fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 16]> {
@@ -542,7 +544,7 @@ fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> 
                         let size = d.size as u32 | ((d.seasons.is_some() || paints) as u32) << 8 | (paints as u32) << 9 | engine::sky::stagger_units(d.stagger) << 16;
                         let shine = (d.metal * 255.0).round() as u32;
                         let gives = (d.light != [0.0; 3]) as u32;
-                        let info = d.pattern as u32 | (d.side as u32) << 8 | shine << 16 | gives << 24 | ((d.see == engine::blocks::See::Cutout) as u32) << 25;
+                        let info = d.pattern as u32 | (d.side as u32) << 8 | shine << 16 | gives << 24 | ((d.see == engine::blocks::See::Cutout) as u32) << 25 | ((d.see == engine::blocks::See::Glass) as u32) << 26;
                         let (mut tex, mut mean) = (0u64, 0);
                         // a season's own paint, else the base's (a season row without one is its pattern only when
                         // the base has none)
@@ -728,8 +730,8 @@ impl Gpu {
         let chunks = buf("chunks", (MAX_CHUNKS * std::mem::size_of::<ChunkGpu>()) as u64, U::STORAGE | U::COPY_DST);
         let lamps = buf("lamps", (MAX_LAMPS * std::mem::size_of::<LampGpu>()) as u64, U::STORAGE | U::COPY_DST);
         let lamp_cells = buf("lamp cells", (LAMP_GRID_LEN * 4) as u64, U::STORAGE | U::COPY_DST);
-        // the terrain's draws, then the sea's at MAX_CHUNKS * 16, the cutout blocks' at MAX_CHUNKS * 32 (ADR 0069)
-        let indirect = buf("indirect", (MAX_CHUNKS * 48) as u64, U::INDIRECT | U::COPY_DST);
+        // the terrain's draws, then the sea's at MAX_CHUNKS * 16, the cutout blocks' at MAX_CHUNKS * 32 (ADR 0069), glass at MAX_CHUNKS * 48 (ADR 0081)
+        let indirect = buf("indirect", (MAX_CHUNKS * 64) as u64, U::INDIRECT | U::COPY_DST);
         let wquads = buf("wquads", (MAX_WQUADS * std::mem::size_of::<water::WQuad>()) as u64, U::STORAGE | U::COPY_DST);
         let fx_buf = buf("fx", (MAX_FX * std::mem::size_of::<crate::fx::FxGpu>()) as u64, U::STORAGE | U::COPY_DST);
         // every block's look from the registry (ADR 0013, 0039), shader.wgsl `Look`, 64 bytes each: colour rgb,
@@ -868,18 +870,18 @@ impl Gpu {
         // the models (ADR 0047): into the G-buffer with the terrain
         let model_pipeline = gbuffer_pipeline("vs_model", "fs_model");
         // water: blended over the terrain, tested against its depth but not writing it, seen from both sides
-        let liquid = |vs| {
+        let liquid = |vs, fs, cull| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(vs),
                 layout: Some(&layout),
                 vertex: wgpu::VertexState { module: &shader, entry_point: Some(vs), buffers: &[], compilation_options: Default::default() },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: Some("fs_water"),
+                    entry_point: Some(fs),
                     targets: &[Some(wgpu::ColorTargetState { format, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })],
                     compilation_options: Default::default(),
                 }),
-                primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+                primitive: wgpu::PrimitiveState { cull_mode: cull, ..Default::default() },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
                     depth_write_enabled: Some(false),
@@ -915,8 +917,10 @@ impl Gpu {
             multiview_mask: None,
             cache: None,
         });
-        let sea_pipeline = liquid("vs_sea");
-        let water_pipeline = liquid("vs_water");
+        let sea_pipeline = liquid("vs_sea", "fs_water", None);
+        let water_pipeline = liquid("vs_water", "fs_water", None);
+        // a glass wall shows its near face only: one pane's tint, not two
+        let glass_pipeline = liquid("vs", "fs_glass", Some(wgpu::Face::Back));
         let overlay = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("overlay"),
             source: wgpu::ShaderSource::Wgsl((include_str!("overlay.wgsl").to_string() + &hud::font_wgsl()).into()),
@@ -1007,6 +1011,7 @@ impl Gpu {
             cut_pipeline,
             sea_pipeline,
             water_pipeline,
+            glass_pipeline,
             wquads,
             fx_buf,
             fx_pipeline,

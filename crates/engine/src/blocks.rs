@@ -119,6 +119,8 @@ pub enum See {
     Opaque,
     /// Pixels wholly there or wholly empty (alpha 255 or 0): leaves, a shrub, reed.
     Cutout,
+    /// Pixels partly clear (any alpha), drawn blended after the light and tinting the light through it (ADR 0081).
+    Glass,
 }
 
 /// The part of a look a season may change (docs/design/seasonal-looks.md).
@@ -326,6 +328,11 @@ impl Registry {
         id != AIR && self.get(id).is_none_or(|d| d.see == See::Opaque)
     }
 
+    /// Whether block `id` is glass (ADR 0081).
+    pub fn glass(&self, id: u16) -> bool {
+        self.get(id).is_some_and(|d| d.see == See::Glass)
+    }
+
     /// Every block but air, in id order.
     pub fn placeable(&self) -> impl Iterator<Item = &Def> {
         self.defs.iter().flatten().filter(|d| d.id != AIR)
@@ -368,10 +375,10 @@ mod tests {
         }
     }
 
-    /// ADR 0069: the plants are seen through, and nothing else is yet.
+    /// ADR 0069: the plants are seen through, and of the rest only glass (ADR 0081).
     #[test]
     fn leaves_shrub_and_reed_are_cutout() {
-        for d in BLOCKS.placeable() {
+        for d in BLOCKS.placeable().filter(|d| !d.name.ends_with("glass")) {
             let plant = d.name.ends_with("leaves") || ["shrub", "reed"].contains(&d.name.as_str());
             assert_eq!(d.see == See::Cutout, plant, "{}", d.name);
             assert_eq!(BLOCKS.opaque(d.id), !plant, "{}", d.name);
@@ -393,7 +400,19 @@ id = 1
 name = \"x\"
 hardness = 1
 see = \"glass\"
-")).is_err(), "glass is step 3");
+")).is_ok(), "glass, ADR 0081");
+    }
+
+    /// ADR 0081: the glass rows are glass, seen through and not cutout.
+    #[test]
+    fn glass_is_glass() {
+        let g: Vec<_> = BLOCKS.placeable().filter(|d| d.name.ends_with("glass")).collect();
+        assert!(g.len() >= 3);
+        for d in g {
+            assert_eq!(d.see, See::Glass, "{}", d.name);
+            assert!(BLOCKS.glass(d.id) && !BLOCKS.opaque(d.id) && d.solid, "{}", d.name);
+        }
+        assert!(!BLOCKS.glass(AIR) && !BLOCKS.glass(BLOCKS.id("stone")));
     }
 
     #[test]
