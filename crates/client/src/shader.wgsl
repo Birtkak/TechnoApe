@@ -1245,16 +1245,17 @@ fn hash4(p: vec3i) -> vec4f {
     return vec4f(vec4u(a, b.x) >> vec4u(8u)) / 16777215.0;
 }
 
-// one layer of stars: the sky in cells 1/n across, a star in `chance` of them
-fn star_layer(d: vec3f, n: f32, chance: f32, px: f32, gain: f32) -> vec3f {
+// one layer of stars: the sky in cells 1/n across, a star in `chance` of them, `faint` the faintest's light
+// and `size` its glow's width in pixels
+fn star_layer(d: vec3f, n: f32, chance: f32, px: f32, gain: f32, faint: f32, size: f32) -> vec3f {
     let c = vec3i(floor(d * n));
     let a = hash4(c);
     if (a.x > chance) { return vec3f(0.0); }
     let b = hash4(c + vec3i(7919, 104729, 1299709));
     let s = normalize(vec3f(c) + 0.25 + 0.5 * a.yzw);
-    let r = length(cross(d, s)) / px; // in pixels
+    let r = length(cross(d, s)) / (px * size); // in glow widths
     // most stars are faint; their colours from red giants to blue-white
-    let bright = pow(b.x, 7.0) * gain + 0.015;
+    let bright = pow(b.x, 7.0) * gain + faint;
     let col = mix(mix(vec3f(1.0, 0.72, 0.5), vec3f(1.0, 0.95, 0.88), smoothstep(0.0, 0.5, b.y)), vec3f(0.72, 0.82, 1.0), smoothstep(0.55, 1.0, b.y));
     return col * bright * exp(-r * r * 1.2) * step(0.0, dot(d, s));
 }
@@ -1283,9 +1284,13 @@ fn stars(dc: vec3f, px: f32) -> vec3f {
     let gal = normalize(vec3f(0.31, -0.46, 0.83));
     let lat = dot(d, gal);
     let band = exp(-lat * lat / 0.02) * (0.4 + vnoise(d * 7.0) * 0.8 + vnoise(d * 23.0) * 0.4);
-    var c = vec3f(0.045, 0.045, 0.055) * band * (0.5 + vnoise(d * 60.0));
-    c += star_layer(d, 110.0, 0.09 * (1.0 + 2.0 * band), px, 0.9);
-    c += star_layer(d, 45.0, 0.05, px, 2.5);
+    // a moonless night is rich, not empty (bug 2026-11-11_17-47-11, ADR 0072): the band twice as bright and a
+    // little blue, the faint stars brighter, and a few dozen bright ones a third of the sky's cells apart, the
+    // size of a named star, with a wider glow
+    var c = vec3f(0.08, 0.085, 0.11) * band * (0.5 + vnoise(d * 60.0));
+    c += star_layer(d, 110.0, 0.09 * (1.0 + 2.0 * band), px, 0.9, 0.03, 1.0);
+    c += star_layer(d, 45.0, 0.05, px, 2.5, 0.03, 1.0);
+    c += star_layer(d, 9.0, 0.07, px, 3.0, 1.2, 1.6);
     return c * dark;
 }
 
