@@ -547,6 +547,15 @@ pub fn get(seed: i32, n: i32) -> Arc<Map> {
     find(seed, n, None).unwrap_or_else(|| keep(Map::bake(seed, n)))
 }
 
+/// One bake of (seed, n) for every test that only reads it: baked once per test run, kept in memory only (never
+/// in saves/bakes/); two sizes or seeds bake side by side. A test that changes its map copies it first.
+#[cfg(test)]
+pub(crate) fn shared(seed: i32, n: i32) -> Arc<Map> {
+    static MAPS: LazyLock<Mutex<HashMap<(i32, i32), Arc<std::sync::OnceLock<Arc<Map>>>>>> = LazyLock::new(Mutex::default);
+    let cell = MAPS.lock().unwrap().entry((seed, n)).or_default().clone();
+    cell.get_or_init(|| Arc::new(Map::bake(seed, n))).clone()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -613,7 +622,7 @@ mod tests {
                 seen
             })
         };
-        let a = reporting(p.clone(), || Map::bake(3, 256));
+        let a = reporting(p.clone(), || Map::bake(5, 256));
         stop.send(()).unwrap();
         let seen = watch.join().unwrap();
         assert!(seen.windows(2).all(|w| w[1].1 >= w[0].1), "the fraction falls: {seen:?}");
@@ -622,7 +631,7 @@ mod tests {
         stages.dedup();
         assert!(stages.len() >= 5, "stages seen: {stages:?}");
         assert!(seen.iter().any(|s| s.1 > 0.3 && s.1 < 0.7), "the bar moves within the erosion: {stages:?}");
-        assert_eq!(a.hash, Map::bake(3, 256).hash);
+        assert_eq!(a.hash, shared(5, 256).hash);
     }
 
     /// A map of version 1 (an old save's, fetched from a server) is kept as the bytes it came in, in its own
@@ -731,10 +740,10 @@ mod tests {
     /// `life::Life::temp` at every cell that is not a lake, after a round trip through its bytes too.
     #[test]
     fn the_map_keeps_each_cells_baked_temperature() {
-        let (seed, n) = (3, 256);
+        let (seed, n) = (5, 256);
         let b = land::bake(n as u32, seed as u32 as u64, &land::Params::default());
         let l = life::life(&b, seed as u32 as u64, &life::LifeParams::default());
-        let map = Map::from_bytes(&Map::bake(seed, n).to_bytes()).unwrap();
+        let map = Map::from_bytes(&shared(seed, n).to_bytes()).unwrap();
         assert!(map.climate.is_some(), "a map of version {} keeps its climate", map.version);
         let m = map.m as usize;
         let mut seen = 0;
@@ -754,7 +763,7 @@ mod tests {
     /// bytes back; a climate cut short is refused.
     #[test]
     fn a_version_2_map_reads_without_a_climate_and_a_cut_climate_is_refused() {
-        let fresh = Map::bake(-78, 256);
+        let fresh = shared(5, 256);
         let rivers: Vec<(u32, u32, f32)> = fresh.rivers.iter().map(|r| (r.cell, r.to, r.area)).collect();
         let v2 = postcard::to_stdvec(&(2u32, fresh.seed, fresh.n, fresh.m, &fresh.h, &fresh.biome, fresh.spawn, &rivers)).unwrap();
         let old = Map::from_bytes(&v2).unwrap();
@@ -766,10 +775,10 @@ mod tests {
         let old = Map::from_bytes(&v3).unwrap();
         assert_eq!((old.version, old.climate == fresh.climate, old.lakes.len(), old.rivers.iter().all(|r| r.flow == 0.0)), (3, true, 0, true));
         assert_eq!(old.to_bytes(), v3, "the bytes it came in");
-        let mut cut = Map::bake(-78, 256);
+        let mut cut = Map::from_bytes(&fresh.to_bytes()).unwrap();
         cut.climate.as_mut().unwrap().state.vap.pop();
         assert!(Map::from_bytes(&cut.to_bytes()).is_err(), "a state that does not fit its grid");
-        let mut nan = Map::bake(-78, 256);
+        let mut nan = Map::from_bytes(&fresh.to_bytes()).unwrap();
         nan.climate.as_mut().unwrap().theta[3] = f32::NAN;
         assert!(Map::from_bytes(&nan.to_bytes()).is_err(), "a mean that is not a number");
     }
@@ -784,10 +793,10 @@ mod tests {
         assert!(find(-12347, 64, Some(hash)).is_some_and(|f| f.version == 3 && f.hash == hash));
     }
 
-    /// The whole bake twice on a small planet: the same map to the bit.
+    /// The whole bake twice on a small planet: the same map to the bit (the second the tests' shared one).
     #[test]
     fn a_small_planet_bakes_the_same_twice() {
-        let (a, b) = (Map::bake(3, 256), Map::bake(3, 256));
+        let (a, b) = (Map::bake(5, 256), shared(5, 256));
         assert_eq!(a.hash, b.hash);
         assert!(a.biome.iter().any(|&x| x < life::LAND_BIOMES) && a.h.iter().any(|&h| h < 0.0), "land and sea");
     }

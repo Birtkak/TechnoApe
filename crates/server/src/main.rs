@@ -112,8 +112,9 @@ fn run_soak(args: &HashMap<String, String>) {
         None => (0..get("bots", 50) as u32).collect(),
     };
     let record = args.get("record").filter(|r| *r != "0").map(Path::new);
+    let warp = get("warp", 1).clamp(1, 10_000); // /timewarp's range: a bigger one would be refused in chat
     let t0 = Instant::now();
-    match soak::run_warp(seed, &bots, ticks, planet, record, get("warp", 1).max(1)) {
+    match soak::run_warp(seed, &bots, ticks, planet, record, warp) {
         Ok((hash, w)) => println!(
             "{{\"soak\":\"ok\",\"seed\":{seed},\"bots\":{},\"ticks\":{ticks},\"sim_minutes\":{:.1},\"secs\":{:.2},\"hash\":\"{hash:016x}\",\"water\":{{\"stored_peak\":{},\"awake_peak\":{},\"skipped\":{},\"bytes\":{},\"dams\":{},\"broken\":{}}}}}",
             bots.len(),
@@ -129,12 +130,12 @@ fn run_soak(args: &HashMap<String, String>) {
         Err(f) => {
             // the shrink can take long: the first failure shows at once
             eprintln!("soak failed at tick {} after {:.0} s: {}; shrinking", f.tick, t0.elapsed().as_secs_f64(), f.what);
-            let (keep, f) = soak::shrink(seed, bots, f, planet);
+            let (keep, f) = soak::shrink(seed, bots, f, planet, warp);
             let rec = "out/soak-fail.rec";
-            let _ = soak::run(seed, &keep, f.tick + 1, planet, Some(Path::new(rec)));
+            let _ = soak::run_warp(seed, &keep, f.tick + 1, planet, Some(Path::new(rec)), warp);
             let only: Vec<String> = keep.iter().map(|b| b.to_string()).collect();
             println!(
-                "{{\"soak\":\"fail\",\"seed\":{seed},\"tick\":{},\"what\":{:?},\"repro\":\"technoape-server soak=1 seed={seed} planet={planet} only={} ticks={}\",\"replay\":\"{rec}\",\"secs\":{:.2}}}",
+                "{{\"soak\":\"fail\",\"seed\":{seed},\"tick\":{},\"what\":{:?},\"repro\":\"technoape-server soak=1 seed={seed} planet={planet} warp={warp} only={} ticks={}\",\"replay\":\"{rec}\",\"secs\":{:.2}}}",
                 f.tick,
                 f.what,
                 only.join(","),

@@ -296,7 +296,7 @@ mod tests {
     use super::*;
 
     fn climate() -> Climate {
-        crate::bake::Map::bake(5, 256).climate.clone().expect("a baked map keeps its climate")
+        crate::bake::shared(5, 256).climate.clone().expect("a baked map keeps its climate")
     }
 
     /// The air's runoff feeds the rivers (W5, ADR 0059): each landing hands a column's runoff to the reaches
@@ -397,7 +397,7 @@ mod tests {
     /// cells, bake mm a day, live mm a day), biomes of at least `min_cells` cells.
     /// Also the live air at the spawn's ground at noon of the four seasons (the views' times), C.
     pub(crate) fn rain_check(seed: i32, n: i32, min_cells: usize) -> (Vec<(u8, usize, f64, f64)>, Vec<f32>) {
-        let map = crate::bake::Map::bake(seed, n);
+        let map = crate::bake::shared(seed, n);
         let c = map.climate.clone().unwrap();
         let mut a = c.air().unwrap();
         a.t = 0.0;
