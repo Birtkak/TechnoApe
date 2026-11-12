@@ -362,6 +362,24 @@ impl Body {
         let col = |w: f64| ((w / dn).atan() / FRAC_PI_2 * 2.0 + 1.0) * 0.5 * self.n as f64;
         (f, col(d.dot(s)), col(d.dot(t)))
     }
+    /// The water generation puts over column (i, j) of a face (W5, ADR 0059): its top as a layer coordinate,
+    /// the account it books against (`liquid::Ground::reach`), and for a river its flow per column of width
+    /// (units a step), its surface's fall a column (units) and the runoff a column gathers (units a step). The
+    /// sea's where no river or lake is, or where theirs would stand under it.
+    pub fn water_at(&self, face: u8, i: i32, j: i32) -> Option<(f64, u32, Option<(f64, f64, f64)>)> {
+        let sea = self.sea.map(|s| (s, crate::liquid::SEA, None));
+        let Some(b) = &self.baked else { return sea };
+        let s = b.map.m as f64 / self.n as f64;
+        let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
+        let Some(w) = b.map.water(face as usize, ci * s, cj * s, self.dir(face as usize, ci, cj)) else { return sea };
+        let top = self.layer_of(self.radius - SEA_DEPTH + w.level as f64);
+        if sea.is_some_and(|s| s.0 >= top) {
+            return sea;
+        }
+        let u = U as f64;
+        let river = (w.q > 0.0).then(|| (w.q as f64 * u / 60.0, w.fall as f64 * u, w.gain as f64 * u / 60.0));
+        Some((top, w.reach, river))
+    }
     /// The surface radius at face point (i, j) in columns, d its direction, for chunks of `level`: from the
     /// map's mip whose cells are about as wide as the columns, plus the detail; or the noise land.
     fn height_at(&self, face: usize, i: f64, j: f64, d: DVec3, level: u8) -> f64 {
@@ -744,8 +762,14 @@ impl Ground for Solid<'_> {
         out
     }
     fn generated(&self, c: Col) -> (i64, i64) {
-        let Some(sea) = self.bodies[c.body() as usize].sea else { return (0, 0) };
-        (self.gen_floor(c) as i64 * U, (sea * U as f64) as i64)
+        let Some((top, _, _)) = self.bodies[c.body() as usize].water_at(c.face(), c.i(), c.j()) else { return (0, 0) };
+        (self.gen_floor(c) as i64 * U, (top * U as f64) as i64)
+    }
+    fn reach(&self, c: Col) -> u32 {
+        self.bodies[c.body() as usize].water_at(c.face(), c.i(), c.j()).map_or(crate::liquid::SEA, |w| w.1)
+    }
+    fn river(&self, c: Col) -> Option<(f64, f64, f64)> {
+        self.bodies[c.body() as usize].water_at(c.face(), c.i(), c.j()).and_then(|w| w.2)
     }
     fn neighbours(&self, c: Col) -> [Option<Col>; 4] {
         let n = self.bodies[c.body() as usize].n;

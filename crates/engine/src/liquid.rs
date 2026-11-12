@@ -110,7 +110,39 @@ pub trait Ground {
     /// The four neighbouring columns as [-i, +i, -j, +j] in this column's own frame, so slot `k ^ 1` is
     /// straight on from slot `k` (none at the edge of a test box).
     fn neighbours(&self, c: Col) -> [Option<Col>; 4];
+    /// The account the open water of column `c` books against: a reach of a river or a lake, or `SEA`.
+    fn reach(&self, _c: Col) -> u32 {
+        SEA
+    }
+    /// A river column's flow, units a step per column of width; its generated surface's fall, units a column;
+    /// and the runoff it gathers, units a step (None: still water). Its friction is chosen from the first two
+    /// (`drag_for`) so the live water carries the reach's flow at its generated level, and live it is given the
+    /// third, as generation's flow grows downstream by it.
+    fn river(&self, _c: Col) -> Option<(f64, f64, f64)> {
+        None
+    }
 }
+
+/// The friction that makes water `depth` units deep on a surface falling `grad` units a column carry `q`
+/// units a step per column of width, in steady flow: there each link's speed-up from the slope equals its
+/// friction, so v = 65536 grad CG / (U f), and the flow v depth / 2^VF is q. Proportional to the depth, the
+/// loss is the same on every column whatever the bed's steps do, so the live surface falls as the generated
+/// one does.
+pub fn drag_for(grad: f64, depth: f64, q: f64) -> i32 {
+    (65536.0 * grad * CG as f64 * depth / (U as f64 * q.max(1.0) * (1u64 << VF) as f64)).clamp(65536.0 / 2048.0, 16384.0) as i32
+}
+/// The speed of steady flow down a fall of `dh` units a column under friction `f` (`drag_for`).
+fn steady_speed(dh: i64, f: i32) -> i32 {
+    if f <= 0 || dh <= 0 {
+        return 0;
+    }
+    (65536 * dh as i128 * CG as i128 / (U as i128 * f as i128)).min(VMAX as i128) as i32
+}
+
+/// The open sea's account (`Ground::reach`).
+pub const SEA: u32 = u32::MAX;
+/// The wire's dead band: water this close to generation is generation (a reach's patch is forgotten).
+pub const DEAD: i64 = U / 64;
 
 /// One gap of a column, with its water and its links to the neighbours' gaps.
 #[derive(Clone, Debug)]
@@ -127,6 +159,14 @@ pub struct Node {
     seen: u32,
     /// The water the clients were last told about (the wire's dead band).
     sent: i64,
+    /// A river column's friction (`drag_for`; 0: still water's) and its surface's fall a column, units.
+    drag: i32,
+    grad: i32,
+    /// Runoff it gathers, in 1/65536 units a step, and what did not make a whole unit yet.
+    lat: u32,
+    lacc: u32,
+    /// Its generated surface, units (a river column's).
+    top: i64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -175,6 +215,9 @@ pub struct Liquids {
     tiles: FxMap<Col, Vec<Col>>,
     /// Nodes stepped next, sorted.
     awake: Vec<u32>,
+    /// Nodes fallen asleep since the last `forget_matching`: a body that slept before it matched generation
+    /// is tried once more.
+    slept: Vec<u32>,
     /// Columns the clients must hear about.
     dirty: FxMap<Col, ()>,
     /// What generation put into each stored column, and its sum.
@@ -189,6 +232,9 @@ pub struct Liquids {
     /// generation are forgotten again. shortcut: the sea's level does not rise with it; a whole sea holds
     /// millions of blocks, so a bucket is far under a unit of its level, until the water cycle moves sea.
     pub sea_extra: i64,
+    /// The same for the open water of each river reach and lake (`Ground::reach`): what it took in from
+    /// stored water. The reach graph takes it into the reach's water.
+    pub reach_extra: std::collections::BTreeMap<u32, i64>,
     /// Work done, for the stats line and the tests.
     pub stepped: u64,
     steps: u64,
@@ -256,7 +302,14 @@ impl Liquids {
     /// The water that differs from the seed's: changed only by water carried in or out (a bucket, creative,
     /// later rain and steam), never by flowing (ADR 0020).
     pub fn counted(&self) -> i64 {
-        self.total() - self.gen_total + self.sea_extra
+        self.total() - self.gen_total + self.sea_extra + self.reach_extra.values().sum::<i64>()
+    }
+    fn book(&mut self, acct: u32, units: i64) {
+        if acct == SEA {
+            self.sea_extra += units;
+        } else if units != 0 {
+            *self.reach_extra.entry(acct).or_default() += units;
+        }
     }
 
     /// A client's copy: column `c` becomes what the server sent (no links: a client does not simulate).
@@ -265,7 +318,7 @@ impl Liquids {
         if gaps.is_empty() {
             return;
         }
-        let ids = gaps.iter().map(|&(floor, ceil, water)| self.alloc(Node { col: *c, floor, ceil, water, links: Vec::new(), quiet: u16::MAX, rim: true, seen: 0, sent: water })).collect();
+        let ids = gaps.iter().map(|&(floor, ceil, water)| self.alloc(Node { col: *c, floor, ceil, water, links: Vec::new(), quiet: u16::MAX, rim: true, seen: 0, sent: water, drag: 0, grad: 0, lat: 0, lacc: 0, top: 0 })).collect();
         self.cols.insert(*c, ids);
         self.tiles.entry(c.tile()).or_default().push(*c);
     }
@@ -386,7 +439,14 @@ impl Liquids {
         let ids: Vec<u32> = gaps
             .iter()
             .zip(water)
-            .map(|(&(floor, ceil), water)| self.alloc(Node { col: c, floor, ceil, water, links: Vec::new(), quiet: 0, rim: false, seen: 0, sent: water }))
+            .map(|(&(floor, ceil), water)| {
+                let (lo, hi) = g.generated(c);
+                let (drag, grad, lat) = match g.river(c) {
+                    Some((q, grad, lat)) if ceil == OPEN && lo < hi && floor as i64 * U == lo => (drag_for(grad, (hi - lo) as f64, q), grad as i32, (lat * 65536.0) as u32),
+                    _ => (0, 0, 0),
+                };
+                self.alloc(Node { col: c, floor, ceil, water, links: Vec::new(), quiet: 0, rim: false, seen: 0, sent: water, drag, grad, lat, lacc: 0, top: hi })
+            })
             .collect();
         self.cols.insert(c, ids.clone());
         self.tiles.entry(c.tile()).or_default().push(c);
@@ -399,7 +459,23 @@ impl Liquids {
                     for &b in &nb {
                         let (lo, hi) = window(&self.nodes[a as usize], &self.nodes[b as usize]);
                         if lo < hi {
-                            self.link(a, b, sa as u8, sb as u8);
+                            // two river columns: the link starts at the speed generation's flow has, so a patch
+                            // carries the reach's flow from its first step (from rest its upstream end would
+                            // fill up while the water speeds up, and the patch would grow up the whole river)
+                            let (na, nb) = (&self.nodes[a as usize], &self.nodes[b as usize]);
+                            // across a generated fall (a reach's lip) the water speeds up on the reach's own fall,
+                            // not the drop's: the lip keeps its depth, and passes the reach's flow
+                            let (mut v, mut fall) = ((0, 0), 0u8);
+                            if na.drag > 0 && nb.drag > 0 {
+                                let (ga, gb) = (g.generated(c).1, g.generated(d).1);
+                                let cap = |n: &Node| (U / 2).max(4 * n.grad as i64);
+                                if (ga - gb).abs() > cap(na).min(cap(nb)) {
+                                    fall = 4;
+                                }
+                                let dh = |dh: i64, n: &Node| if fall > 0 { dh.min(n.grad as i64) } else { dh };
+                                v = (steady_speed(dh(ga - gb, na), na.drag), steady_speed(dh(gb - ga, nb), nb.drag));
+                            }
+                            self.link(a, b, sa as u8 | fall, sb as u8 | fall, v);
                         }
                     }
                 }
@@ -415,11 +491,11 @@ impl Liquids {
         self.dirty.insert(c, ());
     }
 
-    fn link(&mut self, a: u32, b: u32, sa: u8, sb: u8) {
+    fn link(&mut self, a: u32, b: u32, sa: u8, sb: u8, v: (i32, i32)) {
         let (la, lb) = (self.nodes[a as usize].links.len() as u16, self.nodes[b as usize].links.len() as u16);
-        let l = |to, back, dir| Link { to, back, v: 0, out: 0, frac: 0, dir, fin: 0, vin: 0 };
-        self.nodes[a as usize].links.push(l(b, lb, sa));
-        self.nodes[b as usize].links.push(l(a, la, sb));
+        let l = |to, back, dir, v| Link { to, back, v, out: 0, frac: 0, dir, fin: 0, vin: 0 };
+        self.nodes[a as usize].links.push(l(b, lb, sa, v.0));
+        self.nodes[b as usize].links.push(l(a, la, sb, v.1));
     }
 
     /// Steps node `a` from the next step on (`step` sorts out repeats).
@@ -554,41 +630,21 @@ impl Liquids {
     pub fn step(&mut self, g: &impl Ground) {
         self.awake.sort_unstable();
         self.awake.dedup();
-        // moving water may reach any neighbour, so those are stored before anything moves; open sea next to
-        // water at sea level is the exception: that water is held at sea level and trades with the sea
-        let mut cols: Vec<Col> = self.awake.iter().filter(|&&a| !self.nodes[a as usize].rim).map(|&a| self.nodes[a as usize].col).collect();
-        cols.sort_unstable();
-        cols.dedup();
-        for c in cols {
-            let open = self.cols[&c].iter().copied().find(|&a| self.nodes[a as usize].ceil == OPEN);
-            let (mut grow, mut sea) = (false, None);
-            for d in g.neighbours(c).into_iter().flatten().filter(|d| !self.cols.contains_key(d)) {
-                let (lo, hi) = *self.gen_at.entry(d).or_insert_with(|| g.generated(d));
-                match open.map(|a| &self.nodes[a as usize]) {
-                    Some(n) if lo < hi && n.floor as i64 * U < hi && (n.surface() - hi).abs() < SEA_DH => sea = Some(hi),
-                    _ => grow = true,
-                }
-            }
-            if grow || sea.is_none() {
-                for d in g.neighbours(c).into_iter().flatten() {
-                    self.materialize(g, d);
-                }
-                for &a in &self.cols[&c] {
-                    self.nodes[a as usize].rim = true;
-                }
-            } else if let (Some(a), Some(hi)) = (open, sea) {
-                let n = &mut self.nodes[a as usize];
-                let want = hi - n.floor as i64 * U;
-                self.sea_extra += n.water - want;
-                n.water = want;
-                // the open node may sleep while another node of its column moves: no step will send this
-                if n.quiet == u16::MAX && n.water != n.sent {
-                    self.dirty.insert(c, ());
-                }
-            }
-        }
+        self.open_ends(g, true);
         self.awake.sort_unstable();
         self.awake.dedup();
+        // the runoff a live river column gathers, from its reach's account
+        for k in 0..self.awake.len() {
+            let n = &mut self.nodes[self.awake[k] as usize];
+            if n.lat > 0 {
+                n.lacc += n.lat;
+                let add = (n.lacc >> 16) as i64;
+                n.lacc &= 0xFFFF;
+                n.water += add;
+                let c = n.col;
+                self.book(g.reach(c), -add);
+            }
+        }
         let awake = std::mem::take(&mut self.awake);
         self.stepped += awake.len() as u64;
         self.epoch = self.epoch.wrapping_add(1);
@@ -614,18 +670,27 @@ impl Liquids {
                 if area == 0 || !spreads(n, b) {
                     v = 0;
                 } else {
-                    let dh = ha - b.head().max(lo);
+                    let mut dh = ha - b.head().max(lo);
+                    if l.dir & 4 != 0 {
+                        // over a fall the reach's surface runs on as if there were none: the lip passes the
+                        // reach's flow when it stands at its generated level, more when higher
+                        dh = dh.min(n.grad as i64 + ha - n.top);
+                    }
                     v += dh * CG >> UB;
                     // water that came in from straight behind brings its speed: the share of this node's water
                     // it makes up moves on at the speed it came (a front runs, a jet keeps going)
                     let (fin, vin) = came[(l.dir ^ 1) as usize & 3];
-                    if fin > 0 {
+                    if fin > 0 && n.drag == 0 {
                         v += ((vin - v) as i128 * fin.min(wa) as i128 / wa.max(1) as i128) as i64;
                     }
                     // friction, stronger in a thin sheet
-                    v -= (v >> FRICTION).max(1);
-                    if area < U {
-                        v -= v * (U - area) / (THIN * U);
+                    if n.drag > 0 {
+                        v -= (v * n.drag as i64 >> 16).max(1);
+                    } else {
+                        v -= (v >> FRICTION).max(1);
+                        if area < U {
+                            v -= v * (U - area) / (THIN * U);
+                        }
                     }
                     if v < VSTOP {
                         v = 0;
@@ -743,6 +808,7 @@ impl Liquids {
                 next.push(a);
             } else {
                 n.quiet = u16::MAX;
+                self.slept.push(a);
                 for l in &mut n.links {
                     (l.v, l.out, l.frac, l.fin, l.vin) = (0, 0, 0, 0, 0);
                 }
@@ -761,9 +827,11 @@ impl Liquids {
         next.sort_unstable();
         next.dedup();
         self.awake = next;
+        self.open_ends(g, false);
         self.steps += 1;
         if self.steps % SETTLE_EVERY == 0 {
             self.settle(g);
+            self.forget_matching(g);
         }
     }
 
@@ -795,7 +863,7 @@ impl Liquids {
                     for d in g.neighbours(n.col).into_iter().flatten().filter(|d| !self.cols.contains_key(d)) {
                         let (lo, hi) = g.generated(d);
                         if lo < hi && n.surface() > lo.max(n.floor as i64 * U) {
-                            sea = Some(hi);
+                            sea = Some((hi, g.reach(d)));
                         }
                     }
                 }
@@ -812,7 +880,7 @@ impl Liquids {
                 }
                 calm &= hi_h - lo_h < SETTLE_DH && body.len() <= SETTLE_MAX;
             }
-            if !calm || body.len() < 2 || sea.is_some_and(|l| (lo_h - l).abs().max((hi_h - l).abs()) >= SETTLE_DH) {
+            if !calm || body.len() < 2 || sea.is_some_and(|(l, _)| (lo_h - l).abs().max((hi_h - l).abs()) >= SETTLE_DH) {
                 continue;
             }
             body.sort_unstable();
@@ -820,38 +888,173 @@ impl Liquids {
             if sea.is_some() {
                 // columns back to what generation gives, wet or the dry shore around them, are not stored
                 for &a in &body {
-                    forget.push(self.nodes[a as usize].col);
-                    for l in &self.nodes[a as usize].links {
-                        forget.push(self.nodes[l.to as usize].col);
-                    }
+                    let c = self.nodes[a as usize].col;
+                    forget.push(c);
+                    forget.extend(g.neighbours(c).into_iter().flatten());
                 }
             }
         }
         let flat: FxMap<u32, ()> = seen;
         self.awake.retain(|a| self.nodes[*a as usize].quiet != u16::MAX || !flat.contains_key(a));
-        forget.sort_unstable();
-        forget.dedup();
-        for c in forget {
-            let Some(ids) = self.cols.get(&c) else { continue };
-            let (lo, hi) = g.generated(c);
-            let plain = match ids[..] {
-                [a] => {
-                    let n = &self.nodes[a as usize];
-                    n.floor as i64 * U == lo && n.water == (hi - lo).max(0) && n.quiet == u16::MAX && g.gaps(c) == [(n.floor, OPEN)]
+        self.forget(g, forget);
+    }
+
+    /// The edge of the stored water against open water that is not stored (the sea, a lake, a river reach).
+    /// At the start of a step (`start`): moving water may reach any neighbour, so those are stored before
+    /// anything moves, and an open river upstream pours in its flow. At its end: an open end that holds a level
+    /// is put back to it, the difference to its account.
+    fn open_ends(&mut self, g: &impl Ground, start: bool) {
+        // moving water may reach any neighbour, so those are stored before anything moves; open sea next to
+        // water at sea level is the exception: that water is held at sea level and trades with the sea
+        let mut cols: Vec<Col> = self.awake.iter().filter(|&&a| !self.nodes[a as usize].rim).map(|&a| self.nodes[a as usize].col).collect();
+        cols.sort_unstable();
+        cols.dedup();
+        for c in cols {
+            let open = self.cols[&c].iter().copied().find(|&a| self.nodes[a as usize].ceil == OPEN);
+            let own = *self.gen_at.entry(c).or_insert_with(|| g.generated(c));
+            let mut sea = None;
+            let mut grow: Vec<Col> = Vec::new();
+            let mut feed: Vec<(i64, u32)> = Vec::new();
+            for d in g.neighbours(c).into_iter().flatten().filter(|d| !self.cols.contains_key(d)) {
+                let (lo, hi) = *self.gen_at.entry(d).or_insert_with(|| g.generated(d));
+                match open.map(|a| &self.nodes[a as usize]) {
+                    Some(n) if lo < hi && n.floor as i64 * U < hi => {
+                        // held at its own generated level (a river slopes), or the open water's where generation
+                        // left this column dry (dug); open water downstream takes whatever arrives and gives back
+                        // what is missing, open water level or upstream only while the surface is near it
+                        let t = if own.0 < own.1 { own.1 } else { hi };
+                        if hi > t {
+                            // upstream: the open river pours in its steady flow whatever this column holds, until
+                            // the water here stands over its level (a dam's pond: the patch grows upstream)
+                            if n.surface() > t + SEA_DH {
+                                grow.push(d);
+                            } else if let Some((q, grad, _)) = g.river(d) {
+                                // its share of the reach's flow: all of it straight downstream, none across
+                                feed.push(((q * ((hi - t) as f64 / grad.max(1.0)).min(1.0)).round() as i64, g.reach(d)));
+                            }
+                        } else if hi < t || (n.surface() - t).abs() < SEA_DH {
+                            sea = Some((t, g.reach(d)));
+                        } else {
+                            grow.push(d);
+                        }
+                    }
+                    // a dry column over the open water beside it: nothing can pass between them
+                    Some(n) if n.water == 0 && lo < hi && n.floor as i64 * U >= hi => {}
+                    _ => grow.push(d),
                 }
-                _ => false,
-            };
-            if plain {
-                self.remove(c, false);
-                self.gen_total -= self.gen.remove(&c).unwrap_or(0);
-                self.dirty.insert(c, ());
+            }
+            if !start {
+                // after the flow: the open ends that hold a level put it back exactly (what is sent and saved)
+                if let (Some(a), Some((hi, acct))) = (open, sea) {
+                    let n = &mut self.nodes[a as usize];
+                    let want = hi - n.floor as i64 * U;
+                    let d = n.water - want;
+                    n.water = want;
+                    self.book(acct, d);
+                    let n = &self.nodes[a as usize];
+                    // the open node may sleep while another node of its column moves: no step will send this
+                    if n.quiet == u16::MAX && n.water != n.sent {
+                        self.dirty.insert(c, ());
+                    }
+                }
+                continue;
+            }
+            for d in grow {
+                self.materialize(g, d);
+            }
+            if let Some(a) = open {
+                for (q, acct) in feed {
+                    self.nodes[a as usize].water += q;
+                    self.book(acct, -q);
+                }
+            }
+            if sea.is_none() && self.cols[&c].len() > 0 && g.neighbours(c).into_iter().flatten().all(|d| self.cols.contains_key(&d)) {
+                for &a in &self.cols[&c] {
+                    self.nodes[a as usize].rim = true;
+                }
+            }
+        }
+    }
+
+    /// A body of water whose every column is within the dead band of what generation gives it is forgotten,
+    /// moving or not: a river's patch flows on in its open water once it matches it. The difference goes to
+    /// each column's account (`Ground::reach`), so the count holds.
+    fn forget_matching(&mut self, g: &impl Ground) {
+        let mut seen: FxMap<u32, ()> = FxMap::default();
+        let mut starts = self.awake.clone();
+        starts.append(&mut self.slept);
+        let mut gone: Vec<Col> = Vec::new();
+        for a in starts {
+            // a slept node may have been removed since (its index free or reused)
+            let live = self.cols.get(&self.nodes[a as usize].col).is_some_and(|ids| ids.contains(&a));
+            if !live || seen.contains_key(&a) || self.nodes[a as usize].water == 0 {
+                continue;
+            }
+            let mut body = vec![a];
+            seen.insert(a, ());
+            let (mut k, mut ok, mut open) = (0, true, false);
+            // the whole body, even once it fails: a part left unseen would pass as a body of its own
+            while k < body.len() {
+                let n = &self.nodes[body[k] as usize];
+                k += 1;
+                let c = n.col;
+                let (lo, hi) = *self.gen_at.entry(c).or_insert_with(|| g.generated(c));
+                let n = &self.nodes[body[k - 1] as usize];
+                let want = if lo < hi && n.floor as i64 * U == lo { hi - lo } else { 0 };
+                ok &= self.cols[&c].len() == 1 && n.ceil == OPEN && (n.water - want).abs() < DEAD;
+                open |= !n.rim;
+                for l in &n.links {
+                    let b = &self.nodes[l.to as usize];
+                    if b.water > 0 && !seen.contains_key(&l.to) {
+                        seen.insert(l.to, ());
+                        body.push(l.to);
+                    }
+                }
+            }
+            if !ok || !open {
+                continue;
+            }
+            for &a in &body {
+                let c = self.nodes[a as usize].col;
+                gone.push(c);
+                // its dry shore too: the banks stored around it, linked or not
+                gone.extend(g.neighbours(c).into_iter().flatten());
+            }
+        }
+        self.forget(g, gone);
+    }
+
+    /// Columns back to what generation gives (within the dead band) are not stored: the difference goes to
+    /// each one's account. A dry one forgotten offers its neighbours too, so a patch's whole dry shore goes.
+    fn forget(&mut self, g: &impl Ground, mut todo: Vec<Col>) {
+        let mut tried: FxMap<Col, ()> = FxMap::default();
+        while let Some(c) = todo.pop() {
+            if tried.insert(c, ()).is_some() {
+                continue;
+            }
+            let Some(ids) = self.cols.get(&c) else { continue };
+            let [a] = ids[..] else { continue };
+            let n = &self.nodes[a as usize];
+            let (lo, hi) = g.generated(c);
+            let want = if lo < hi && n.floor as i64 * U == lo { hi - lo } else { 0 };
+            if n.ceil != OPEN || (n.water - want).abs() >= DEAD || (want == 0 && lo < hi) || g.gaps(c) != [(n.floor, OPEN)] {
+                continue;
+            }
+            let w = n.water;
+            self.remove(c, false);
+            let rec = self.gen.remove(&c).unwrap_or(0);
+            self.gen_total -= rec;
+            self.book(g.reach(c), w - rec);
+            self.dirty.insert(c, ());
+            if want == 0 {
+                todo.extend(g.neighbours(c).into_iter().flatten().filter(|d| !tried.contains_key(d)));
             }
         }
     }
 
     /// Gives every node of `body` the water that puts all of them at one level, and puts them to sleep: the
     /// level its water reaches, or `sea` (in units) with the difference given to the open sea.
-    fn flatten(&mut self, body: &[u32], sea: Option<i64>) {
+    fn flatten(&mut self, body: &[u32], sea: Option<(i64, u32)>) {
         let w = |n: &Node, l: i64| -> i64 {
             let f = n.floor as i64 * U;
             if l <= f {
@@ -867,7 +1070,7 @@ impl Liquids {
         let ns = || body.iter().map(|&a| &self.nodes[a as usize]);
         let mut lo = ns().map(|n| n.floor as i64 * U).min().unwrap();
         let mut hi = ns().map(|n| if n.ceil == OPEN { n.floor } else { n.ceil } as i64 * U).max().unwrap() + total * K + 1;
-        if let Some(l) = sea {
+        if let Some((l, _)) = sea {
             lo = l;
         }
         while sea.is_none() && hi - lo > 1 {
@@ -876,8 +1079,8 @@ impl Liquids {
             if need <= total { lo = mid } else { hi = mid }
         }
         let mut left = total - body.iter().map(|&a| w(&self.nodes[a as usize], lo)).sum::<i64>();
-        if sea.is_some() {
-            self.sea_extra += left;
+        if let Some((_, acct)) = sea {
+            self.book(acct, left);
             left = 0;
         }
         for &a in body {
@@ -984,6 +1187,101 @@ pub mod test_ground {
             }
         }
         w
+    }
+
+    /// A river in a straight channel along +x (`prototypes/river-reach`): banks at y < 2 and y >= 2 + W, a bed
+    /// falling `slope` blocks a column in whole-block steps under a smooth surface `depth` over it, a drop of
+    /// `fall` blocks at x = nx * 3 / 4 (a waterfall: the reach below is account 1), and a flow that grows from
+    /// `Q0` units a second at x = 0 to twice that at the far end. `edits` are solid (true) or air cells.
+    pub struct Channel {
+        pub nx: i32,
+        pub slope: f64,
+        pub depth: f64,
+        pub fall: f64,
+        pub edits: FxMap<(i32, i32, i32), bool>,
+    }
+    pub const W: i32 = 6;
+    pub const B0: f64 = 40.0;
+    pub const Q0: f64 = 4.0 * U as f64;
+
+    impl Channel {
+        pub fn new(nx: i32, slope: f64, depth: f64, fall: f64) -> Channel {
+            Channel { nx, slope, depth, fall, edits: FxMap::default() }
+        }
+        fn xf(&self) -> i32 {
+            self.nx * 3 / 4
+        }
+        pub fn bed(&self, x: i32) -> f64 {
+            B0 - self.slope * x as f64 - if x >= self.xf() { self.fall } else { 0.0 }
+        }
+        pub fn gen_floor(&self, x: i32, y: i32) -> i32 {
+            if (2..2 + W).contains(&y) { self.bed(x).floor() as i32 } else { (B0 + 6.0) as i32 }
+        }
+        /// The generated level, units: smooth, as a river's is.
+        pub fn level(&self, x: i32) -> i64 {
+            ((self.bed(x) + self.depth) * U as f64) as i64
+        }
+        fn solid(&self, x: i32, y: i32, z: i32) -> bool {
+            self.edits.get(&(x, y, z)).copied().unwrap_or(z < self.gen_floor(x, y))
+        }
+        /// Cells x, y, z0..z1 made solid (or air), the water told.
+        pub fn set(&mut self, w: &mut Liquids, x: i32, y: i32, z: std::ops::Range<i32>, solid: bool) {
+            for z in z {
+                self.edits.insert((x, y, z), solid);
+            }
+            w.regap(self, col(x, y));
+        }
+    }
+
+    impl Ground for Channel {
+        fn gaps(&self, c: Col) -> Vec<(i32, i32)> {
+            let (x, y) = (c.i(), c.j());
+            let top = (B0 + 12.0) as i32;
+            let mut out = Vec::new();
+            let mut start = None;
+            for z in 0..top {
+                match (self.solid(x, y, z), start) {
+                    (false, None) => start = Some(z),
+                    (true, Some(s)) => {
+                        out.push((s, z));
+                        start = None;
+                    }
+                    _ => {}
+                }
+            }
+            out.push((start.unwrap_or(top), OPEN));
+            out
+        }
+        fn generated(&self, c: Col) -> (i64, i64) {
+            let (x, y) = (c.i(), c.j());
+            let lo = self.gen_floor(x, y) as i64 * U;
+            let hi = self.level(x);
+            if (2..2 + W).contains(&y) && lo < hi { (lo, hi) } else { (0, 0) }
+        }
+        fn neighbours(&self, c: Col) -> [Option<Col>; 4] {
+            let (x, y) = (c.i(), c.j());
+            [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)].map(|(a, b)| ((0..self.nx).contains(&a) && (0..W + 4).contains(&b)).then(|| Col::new(0, 0, a, b)))
+        }
+        fn reach(&self, c: Col) -> u32 {
+            (c.i() >= self.xf()) as u32
+        }
+        fn river(&self, c: Col) -> Option<(f64, f64, f64)> {
+            let (lo, hi) = self.generated(c);
+            let q = Q0 / 60.0 * (1.0 + c.i() as f64 / self.nx as f64);
+            (lo < hi).then(|| (q / W as f64, self.slope * U as f64, Q0 / 60.0 / self.nx as f64 / W as f64))
+        }
+    }
+
+    /// The largest |live - generated| over the stored river columns, in blocks.
+    pub fn off(g: &Channel, w: &Liquids) -> f64 {
+        let mut worst = 0i64;
+        for (c, gaps) in w.all() {
+            let (lo, hi) = g.generated(c);
+            if lo < hi && gaps.len() == 1 && gaps[0].0 as i64 * U == lo {
+                worst = worst.max((lo + gaps[0].2 - hi).abs());
+            }
+        }
+        worst as f64 / U as f64
     }
 
     /// The water top of the open gap of column (x, y), in blocks.
@@ -1265,6 +1563,97 @@ mod tests {
     }
 
     /// The same pours give the same water, bit for bit.
+    /// Steps until the river's live patch is forgotten (or `cap` steps), checking the count every step: what was
+    /// poured, and nothing else, whatever went to the reaches' accounts.
+    fn until_forgotten(w: &mut Liquids, g: &Channel, cap: usize, poured: i64) -> Option<usize> {
+        for t in 1..=cap {
+            w.step(g);
+            assert_eq!(w.counted(), poured, "the count at step {t}");
+            if w.stored() == 0 {
+                return Some(t);
+            }
+        }
+        None
+    }
+
+    /// A bucket into a river at rest (W5, ADR 0059): the touched columns are live, the open river upstream pours
+    /// in its flow, the river downstream takes what arrives, and the patch is forgotten again once it is within
+    /// the dead band of generation, moving or not; the bucket's water went to the reach's account.
+    #[test]
+    fn a_bucket_in_a_river_is_forgotten_and_counted() {
+        for slope in [0.005, 0.05, 0.1] {
+            let g = Channel::new(160, slope, 1.5, 0.0);
+            let mut w = Liquids::default();
+            for y in 3..5 {
+                assert!(w.pour(&g, col(80, y), (g.level(80) / U) as i32, U));
+            }
+            let t = until_forgotten(&mut w, &g, 60 * 30, 2 * U).unwrap_or_else(|| panic!("slope {slope}: {} columns still stored, {:.4} off", w.stored(), off(&g, &w)));
+            assert!(t < 60 * 10, "slope {slope}: live {:.1} s", t as f64 / 60.0);
+            assert_eq!(w.reach_extra.values().sum::<i64>(), 2 * U, "the bucket went to the reach");
+        }
+    }
+
+    /// The same across a waterfall (a reach boundary with a drop of 3 blocks): the lip passes the reach's flow at
+    /// its generated depth, so a patch spanning the fall matches generation and goes too.
+    #[test]
+    fn a_touched_waterfall_is_forgotten() {
+        let g = Channel::new(160, 0.02, 1.5, 3.0);
+        let mut w = Liquids::default();
+        for x in [119, 120, 121] {
+            for y in 3..5 {
+                w.pour(&g, col(x, y), (g.level(x) / U) as i32, U);
+            }
+        }
+        let t = until_forgotten(&mut w, &g, 60 * 60, 6 * U).unwrap_or_else(|| panic!("{} columns still stored, {:.4} off", w.stored(), off(&g, &w)));
+        assert!(t < 60 * 20, "live {:.1} s", t as f64 / 60.0);
+    }
+
+    /// A dam across the river: no rule of its own. The pond behind it rises over generation and backs up the
+    /// river; the count holds every step; broken, its wave runs down and the patch is forgotten.
+    #[test]
+    fn a_dam_backs_the_river_up_and_its_wave_goes_when_broken() {
+        let mut g = Channel::new(200, 0.02, 1.5, 0.0);
+        let mut w = Liquids::default();
+        let (xd, top) = (100, (g.level(100) / U) as i32 + 1);
+        for y in 2..2 + W {
+            let z = g.gen_floor(xd, y)..top;
+            g.set(&mut w, xd, y, z, true);
+        }
+        for t in 0..60 * 60 {
+            w.step(&g);
+            assert_eq!(w.counted(), 0, "the count at step {t}");
+        }
+        let pond = level(&w, xd - 1, 4) - g.level(xd - 1) as f64 / U as f64;
+        assert!(pond > 0.4, "the pond stands {pond:.2} blocks over the river");
+        assert!(w.column(col(xd - 25, 4)).is_some(), "and backs it up");
+        for y in 2..2 + W {
+            let z = g.gen_floor(xd, y)..top;
+            for z in z {
+                g.edits.remove(&(xd, y, z));
+            }
+            w.regap(&g, col(xd, y));
+        }
+        let t = until_forgotten(&mut w, &g, 60 * 400, 0).unwrap_or_else(|| panic!("{} columns still stored, {:.4} off", w.stored(), off(&g, &w)));
+        println!("the dam's wave was live {:.1} s", t as f64 / 60.0);
+    }
+
+    /// A pillar standing in the river (a bridge's) keeps nothing live but its own column, which sleeps.
+    #[test]
+    fn a_pillar_in_a_river_keeps_nothing_awake() {
+        let mut g = Channel::new(160, 0.02, 1.5, 0.0);
+        let mut w = Liquids::default();
+        let z = g.gen_floor(80, 4)..(g.level(80) / U) as i32 + 2;
+        g.set(&mut w, 80, 4, z, true);
+        for _ in 0..60 * 30 {
+            w.step(&g);
+        }
+        let s0 = w.stepped;
+        for _ in 0..60 * 10 {
+            w.step(&g);
+        }
+        assert_eq!((w.stored(), w.awake(), w.stepped - s0), (1, 0, 0));
+    }
+
     #[test]
     fn deterministic() {
         let run = || {

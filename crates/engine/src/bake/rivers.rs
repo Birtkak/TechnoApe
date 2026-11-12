@@ -17,6 +17,22 @@ pub struct Reach {
     pub cell: u32,
     pub to: u32,
     pub area: f32,
+    /// The mean flow out of the cell, m^3/s (the bake's rain less what evaporates, gathered downstream; since
+    /// version 3, 0 before).
+    pub flow: f32,
+}
+
+/// A map as version 2 wrote it (rivers without their flow, no lakes: a lake's cells were flats at its level).
+#[derive(Serialize, Deserialize)]
+pub(super) struct V2 {
+    pub version: u32,
+    pub seed: i32,
+    pub n: i32,
+    pub m: u32,
+    pub h: Vec<f32>,
+    pub biome: Vec<u8>,
+    pub spawn: [f64; 3],
+    pub rivers: Vec<(u32, u32, f32)>,
 }
 
 /// A map as version 1 wrote it (no rivers).
@@ -56,7 +72,37 @@ pub struct Seg {
     pub hw: [f32; 2],
     /// The segment downstream (NONE: this one reaches the sea).
     pub next: u32,
+    /// Water at rest (W5, ADR 0059): its level at each end, metres over the sea (never falling downstream,
+    /// never under a lake or the sea it runs into); its depth over the bed as the rain gives it (0: a dry bed);
+    /// its flow, m^3/s; the reach it belongs to (`Lines::reaches`); and whether it lies in a lake.
+    pub wl: [f32; 2],
+    pub fill: [f32; 2],
+    pub q: [f32; 2],
+    pub reach: u32,
+    pub lake: bool,
 }
+
+/// A reach (rivers-and-tides.md): the segments from a spring, a confluence or a lake's outlet to the next, or
+/// a lake.
+#[derive(Clone, Debug, Default)]
+pub struct ReachDef {
+    /// Its segments, upstream first (none for a lake).
+    pub segs: Vec<u32>,
+    /// The reach it flows into (NONE: the sea, or nowhere for a lake no river leaves).
+    pub down: u32,
+    pub lake: bool,
+}
+
+/// A river's speed at rest is the Manning formula's with this roughness, clamped (m/s).
+const MANNING: f32 = 0.035;
+const V_MIN: f32 = 0.3;
+const V_MAX: f32 = 2.0;
+/// A river's water at rest fills its bed by this share at the median runoff per square metre of catchment,
+/// by its runoff's ratio to that to this power, to at most FILL_MAX; under FILL_MIN metres it is a dry bed.
+const FILL: f32 = 0.7;
+const FILL_POW: f32 = 0.3;
+const FILL_MAX: f32 = 0.85;
+const FILL_MIN: f32 = 0.15;
 
 impl Seg {
     /// Where along it p lies nearest (0 at a, 1 at b), and how far from it, metres.
@@ -78,6 +124,12 @@ pub struct Cut {
 #[derive(Default)]
 pub struct Lines {
     pub segs: Vec<Seg>,
+    /// The reaches: the rivers' first, then one per lake from `lake_reach`.
+    pub reaches: Vec<ReachDef>,
+    /// The lake of each lake cell, and each lake's level (metres over the sea).
+    pub lake_of: HashMap<u32, u32>,
+    pub lake_level: Vec<f32>,
+    pub lake_reach: u32,
     /// A bit per cell: some segment's cut may reach into it.
     near: Vec<u64>,
     /// (cell, segment) for every segment whose cut may reach into a cell, sorted.
@@ -113,9 +165,34 @@ impl Lines {
             dir(m, f, i as f64 + off, j as f64 + off) * r
         };
         let node: HashMap<u32, usize> = map.rivers.iter().enumerate().map(|(k, v)| (v.cell, k)).collect();
+        // the lakes: connected cells of the map's lake list, each its own id
+        let level: HashMap<u32, f32> = map.lakes.iter().copied().collect();
+        let (mut lake_of, mut lake_level) = (HashMap::new(), Vec::new());
+        for &(c0, l0) in &map.lakes {
+            if lake_of.contains_key(&c0) {
+                continue;
+            }
+            let id = lake_level.len() as u32;
+            lake_level.push(l0);
+            let mut todo = vec![c0];
+            lake_of.insert(c0, id);
+            while let Some(c) = todo.pop() {
+                let (f, i, j) = (c as usize / (m * m) as usize, (c % m) as i32, ((c / m) % m) as i32);
+                for (di, dj) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let (f, i, j) = fold(f, i + di, j + dj, m as i32);
+                    let d = (f as u32 * m + j as u32) * m + i as u32;
+                    if level.contains_key(&d) && !lake_of.contains_key(&d) {
+                        lake_of.insert(d, id);
+                        todo.push(d);
+                    }
+                }
+            }
+        }
+        // a cell's surface: a lake's level, or its ground
+        let surf = |c: u32| level.get(&c).copied().unwrap_or(map.h[c as usize]);
         // the banks: the lowest ground at or upstream of each river cell (downstream first, so upstream first
         // reversed: every donor is done before its receiver)
-        let mut s: Vec<f32> = map.rivers.iter().map(|v| map.h[v.cell as usize]).collect();
+        let mut s: Vec<f32> = map.rivers.iter().map(|v| surf(v.cell)).collect();
         for k in (0..map.rivers.len()).rev() {
             if let Some(&j) = node.get(&map.rivers[k].to) {
                 if j < k {
@@ -132,12 +209,16 @@ impl Lines {
                 let (bank, area, next) = match node.get(&v.to) {
                     // (a receiver later in the list would be a cycle: end the line there)
                     Some(&j) if j < k => (s[j], map.rivers[j].area, j as u32),
-                    _ => (s[k].min(map.h[v.to as usize]), v.area, NONE),
+                    _ => (s[k].min(surf(v.to)), v.area, NONE),
                 };
                 let (d1, w1) = (depth(area), half_width(area));
-                Seg { a: centre(v.cell), b: centre(v.to), bed: [s[k] - d0, bank - d1], depth: [d0, d1], hw: [w0, w1], next }
+                let lake = level.contains_key(&v.cell);
+                Seg { a: centre(v.cell), b: centre(v.to), bed: [s[k] - d0, bank - d1], depth: [d0, d1], hw: [w0, w1], next, wl: [0.0; 2], fill: [0.0; 2], q: [0.0; 2], reach: NONE, lake }
             })
             .collect();
+        let mut segs = segs;
+        water(map, &mut segs, &level);
+        let (reaches, lake_reach) = reaches(map, &mut segs, &lake_of, lake_level.len());
         // where each segment's cut may reach: the cells around three points along it
         let cell = r * FRAC_PI_2 / m as f64;
         let mut at = Vec::new();
@@ -162,7 +243,7 @@ impl Lines {
         for &(c, _) in &at {
             near[c as usize / 64] |= 1 << (c % 64);
         }
-        Lines { segs, near, at }
+        Lines { segs, near, at, reaches, lake_of, lake_level, lake_reach }
     }
     /// The segments whose cut may reach into map cell c.
     pub fn around(&self, c: u32) -> &[(u32, u32)] {
@@ -180,6 +261,9 @@ impl Lines {
         let (mut best, mut floor) = (f32::INFINITY, f32::NEG_INFINITY);
         for k in segs {
             let g = &self.segs[k as usize];
+            if g.lake {
+                continue;
+            }
             let (t, d) = g.nearest(p);
             let hw = g.hw[0] + (g.hw[1] - g.hw[0]) * t;
             if 2.0 * hw < col_m || d >= hw + BANK {
@@ -206,7 +290,160 @@ impl Lines {
     }
 }
 
+/// Each segment's water at rest: its depth from the runoff of its catchment, its flow, and its level, from the
+/// sea up (a river never stands under the lake or the sea it runs into, nor falls downstream).
+fn water(map: &Map, segs: &mut [Seg], level: &HashMap<u32, f32>) {
+    let node: HashMap<u32, usize> = map.rivers.iter().enumerate().map(|(k, v)| (v.cell, k)).collect();
+    let mut per: Vec<f32> = map.rivers.iter().filter(|r| r.flow > 0.0).map(|r| r.flow / r.area).collect();
+    per.sort_by(f32::total_cmp);
+    let mid = per.get(per.len() / 2).copied().unwrap_or(0.0);
+    let fill = |r: &Reach, depth: f32| {
+        let f = if mid > 0.0 { depth * (FILL * (r.flow / r.area / mid).powf(FILL_POW)).min(FILL_MAX) } else { 0.0 };
+        if f < FILL_MIN { 0.0 } else { f }
+    };
+    for k in 0..segs.len() {
+        let v = &map.rivers[k];
+        let end = node.get(&v.to).map_or(v, |&j| &map.rivers[j]);
+        let g = &mut segs[k];
+        g.fill = [fill(v, g.depth[0]), fill(end, g.depth[1])];
+        let len = (g.b - g.a).length().max(1e-3) as f32;
+        let slope = ((g.bed[0] - g.bed[1]) / len).max(0.0);
+        let q = |f: f32, hw: f32| (f.powf(2.0 / 3.0) * slope.sqrt() / MANNING).clamp(V_MIN, V_MAX) * 2.0 * hw * f;
+        g.q = [q(g.fill[0], g.hw[0]), q(g.fill[1], g.hw[1])];
+    }
+    // the list is downstream first: each segment's next has its level already
+    for k in 0..segs.len() {
+        let v = &map.rivers[k];
+        if segs[k].lake {
+            let l = level[&v.cell];
+            segs[k].wl = [l, l];
+            continue;
+        }
+        let below = match segs[k].next {
+            NONE => level.get(&v.to).copied().unwrap_or(0.0),
+            j => segs[j as usize].wl[0],
+        };
+        let g = &mut segs[k];
+        g.wl[1] = (g.bed[1] + g.fill[1]).max(below);
+        g.wl[0] = (g.bed[0] + g.fill[0]).max(g.wl[1]);
+    }
+}
+
+/// The reach graph: a river reach begins at a spring, a confluence or a lake's outlet; each lake is one reach,
+/// flowing out where a segment of its own leaves it.
+fn reaches(map: &Map, segs: &mut [Seg], lake_of: &HashMap<u32, u32>, lakes: usize) -> (Vec<ReachDef>, u32) {
+    let mut fed = vec![0u32; segs.len()];
+    let mut from_lake = vec![false; segs.len()];
+    for g in segs.iter() {
+        if g.next != NONE {
+            fed[g.next as usize] += 1;
+            from_lake[g.next as usize] |= g.lake;
+        }
+    }
+    let mut out: Vec<ReachDef> = Vec::new();
+    let starts: Vec<usize> = (0..segs.len()).filter(|&k| !segs[k].lake && (fed[k] != 1 || from_lake[k])).collect();
+    for k0 in starts {
+        let id = out.len() as u32;
+        let mut r = ReachDef { segs: Vec::new(), down: NONE, lake: false };
+        let mut k = k0;
+        loop {
+            segs[k].reach = id;
+            r.segs.push(k as u32);
+            let n = segs[k].next;
+            if n == NONE || segs[n as usize].lake || fed[n as usize] != 1 {
+                break;
+            }
+            k = n as usize;
+        }
+        out.push(r);
+    }
+    let lake_reach = out.len() as u32;
+    out.extend((0..lakes).map(|_| ReachDef { segs: Vec::new(), down: NONE, lake: true }));
+    for k in 0..segs.len() {
+        if segs[k].lake {
+            let id = lake_reach + lake_of[&map.rivers[k].cell];
+            segs[k].reach = id;
+            out[id as usize].segs.push(k as u32);
+        }
+    }
+    for r in 0..out.len() {
+        let last = *out[r].segs.last().unwrap_or(&NONE);
+        out[r].down = if out[r].lake {
+            // the first of its segments whose next is not its own
+            out[r].segs.iter().map(|&k| segs[k as usize].next).find(|&n| n != NONE && segs[n as usize].reach != r as u32).map_or(NONE, |n| segs[n as usize].reach)
+        } else {
+            match segs[last as usize].next {
+                NONE => NONE,
+                n => segs[n as usize].reach,
+            }
+        };
+    }
+    (out, lake_reach)
+}
+
+/// Generated water over a point (W5, ADR 0059): a river's or a lake's.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Water {
+    /// Its level, metres over the sea.
+    pub level: f32,
+    /// Its reach (`Lines::reaches`).
+    pub reach: u32,
+    /// A river's flow per metre of its width, m^2/s; its surface's fall, m a metre; and how much its flow per
+    /// metre of width grows a metre downstream (the runoff it gathers), m/s. All 0 on a lake.
+    pub q: f32,
+    pub fall: f32,
+    pub gain: f32,
+}
+
 impl Map {
+    /// The rivers' and lakes' water over unit direction d, at face point (x, y) in cells: a river's inside its
+    /// channel (where its level stands over its bed), a lake's over its cells and the cells next to them. The
+    /// higher of the two where both are; None on a map of version 2 or before (dry beds, lakes as flats).
+    pub fn water(&self, face: usize, x: f64, y: f64, d: DVec3) -> Option<Water> {
+        if self.version < 3 {
+            return None;
+        }
+        let m = self.m as i32;
+        let mut best: Option<Water> = None;
+        let mut take = |w: Water| {
+            if best.is_none_or(|b| w.level > b.level) {
+                best = Some(w);
+            }
+        };
+        // a lake: the cells whose centres are around the point
+        if !self.lines.lake_of.is_empty() {
+            let (i0, j0) = ((x - 0.5).floor() as i32, (y - 0.5).floor() as i32);
+            for (di, dj) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                let (f, i, j) = fold(face, i0 + di, j0 + dj, m);
+                if let Some(&l) = self.lines.lake_of.get(&((f as u32 * self.m + j as u32) * self.m + i as u32)) {
+                    take(Water { level: self.lines.lake_level[l as usize], reach: self.lines.lake_reach + l, q: 0.0, fall: 0.0, gain: 0.0 });
+                }
+            }
+        }
+        // a river: the nearest line whose channel holds the point
+        let (f, i, j) = fold(face, (x.floor() as i32).clamp(0, m - 1), (y.floor() as i32).clamp(0, m - 1), m);
+        let p = d * self.radius();
+        let mut near: Option<(f32, Water)> = None;
+        for &(_, k) in self.lines.around((f as u32 * self.m + j as u32) * self.m + i as u32) {
+            let g = &self.lines.segs[k as usize];
+            if g.lake {
+                continue;
+            }
+            let (t, dist) = g.nearest(p);
+            let at = |v: [f32; 2]| v[0] + (v[1] - v[0]) * t;
+            let (hw, wl) = (at(g.hw), at(g.wl));
+            if dist >= hw || wl <= at(g.bed) || near.is_some_and(|n| n.0 <= dist) {
+                continue;
+            }
+            let len = (g.b - g.a).length().max(1e-3) as f32;
+            let w = 2.0 * hw;
+            near = Some((dist, Water { level: wl, reach: g.reach, q: at(g.q) / w, fall: (g.wl[0] - g.wl[1]) / len, gain: (g.q[1] - g.q[0]) / len / w }));
+        }
+        if let Some((_, w)) = near {
+            take(w);
+        }
+        best
+    }
     /// The planet's radius in metres (ADR 0003: n columns of 1 m per face edge).
     pub fn radius(&self) -> f64 {
         self.n as f64 / (2.0 * std::f64::consts::PI / 3.0).sqrt()
@@ -311,6 +548,15 @@ mod tests {
             let (mut k, mut last, mut top) = (s, f64::INFINITY, i32::MAX);
             loop {
                 let g = &map.lines.segs[k as usize];
+                if g.lake {
+                    // through a lake the river is the lake (its bed is the lake's): walk on from its outlet
+                    (last, top) = (f64::INFINITY, i32::MAX);
+                    if g.next == NONE {
+                        break;
+                    }
+                    k = g.next;
+                    continue;
+                }
                 let steps = ((g.b - g.a).length() / 0.25).ceil() as usize;
                 for q in 0..steps {
                     let d = (g.a + (g.b - g.a) * (q as f64 / steps as f64)).normalize();
@@ -334,6 +580,48 @@ mod tests {
             }
         }
         assert!(climbs == 0 && steps_up == 0, "{climbs} climbs in {walked:.0} m of rivers, the worst {worst:.3} m; {steps_up} blocks up");
+    }
+
+    /// Rivers and lakes hold generated water (W5, ADR 0059): a point just under a wet river line's level, or
+    /// under a lake's, is under water, at that level; a lake has a bed under its level; a dry bed holds none.
+    #[test]
+    fn rivers_and_lakes_hold_generated_water() {
+        let map = MAP.clone();
+        assert!(!map.lakes.is_empty(), "the test planet has lakes");
+        let w = World::with_map(map.n, 32, map.seed, Some(map.clone()));
+        let b = &w.bodies[0];
+        let base = b.radius - crate::world::SEA_DEPTH;
+        let (mut wet, mut dry, mut tried) = (0, 0, 0);
+        for g in map.lines.segs.iter().step_by(7).filter(|g| !g.lake) {
+            let d = ((g.a + g.b) * 0.5).normalize();
+            let level = base + 0.5 * (g.wl[0] + g.wl[1]) as f64;
+            let ground = b.height(d);
+            tried += 1;
+            match w.water_surface(d * (level - 0.05)) {
+                Some(r) if g.fill[0].min(g.fill[1]) > 0.0 && ground < level - 0.3 => {
+                    assert!((r - level.max(b.layer_r(b.sea.unwrap()))).abs() < 0.05, "the river's level {level:.3}, the water's {r:.3}");
+                    wet += 1;
+                }
+                None if g.fill[0].max(g.fill[1]) == 0.0 => dry += 1,
+                _ => {}
+            }
+        }
+        assert!(wet > tried / 2, "{wet} of {tried} river points under water ({dry} dry beds)");
+        let (mut lakes, mut deep) = (0, 0);
+        for &(c, l) in map.lakes.iter().step_by(5) {
+            let (f, i, j) = ((c / (map.m * map.m)) as usize, c % map.m, (c / map.m) % map.m);
+            let s = b.n as f64 / map.m as f64;
+            let d = b.dir(f, (i as f64 + 0.5) * s, (j as f64 + 0.5) * s);
+            let level = base + l as f64;
+            if b.height(d) < level - 0.5 {
+                deep += 1;
+                // (a river running in may stand a little higher where its channel reaches)
+                let r = w.water_surface(d * (level - 0.25)).expect("under a lake");
+                assert!(r > level - 0.05 && r < level + 1.0, "the lake's level {level:.3}, the water's {r:.3}");
+            }
+            lakes += 1;
+        }
+        assert!(deep > lakes / 2, "{deep} of {lakes} lake cells have a bed under the water");
     }
 
     /// The detail follows the slope (ADR 0058): on the game's own heights, steep ground is several times

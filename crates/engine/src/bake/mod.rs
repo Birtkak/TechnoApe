@@ -11,7 +11,7 @@ pub mod life;
 pub mod rivers;
 
 pub use rivers::{Lines, Reach};
-use rivers::V1;
+use rivers::{V1, V2};
 
 use crate::world::fold;
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 /// Changes whenever the bake's code or parameters change what it makes: a map of another version is baked
 /// anew, and a save names the map it was played on (by hash).
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 /// How far in longitude from the +y meridian the spawn may lie, radians (about 26 degrees: 9 am at world
 /// time 0 is then between 7 and 11 am at the spawn). shortcut: until the sky's clock takes the spawn's own
@@ -31,7 +31,7 @@ const SPAWN_LON: f64 = 0.45;
 /// Where maps are kept, relative to the game's folder (next to the saves).
 pub const DIR: &str = "saves/bakes";
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct Map {
     pub version: u32,
     pub seed: i32,
@@ -39,8 +39,7 @@ pub struct Map {
     pub n: i32,
     /// Cells per face edge; cell (f, i, j) is index (f * m + j) * m + i, on the engine's face axes.
     pub m: u32,
-    /// Metres over the sea level: the ground, or a lake's level over its bed (lakes are flats until the
-    /// lakes hold water, W5).
+    /// Metres over the sea level: the ground (a lake's bed under its water, `lakes`).
     pub h: Vec<f32>,
     /// The biome (`life::ICE` .. `life::REEF`, the rows of `data/biomes.toml`).
     pub biome: Vec<u8>,
@@ -49,6 +48,9 @@ pub struct Map {
     /// The river cells (since version 2; ADR 0056), downstream first: a cell's `to` comes before it when it
     /// is a river cell too.
     pub rivers: Vec<Reach>,
+    /// The lakes' cells and each one's level, metres over the sea, sorted (since version 3; ADR 0059). `h`
+    /// holds the bed under the water; before version 3 a lake was a flat at its level and held none.
+    pub lakes: Vec<(u32, f32)>,
     /// The rivers' lines and beds, from `rivers` and `h`.
     #[serde(skip)]
     pub lines: Lines,
@@ -75,12 +77,14 @@ impl Map {
         let s = seed as u32 as u64;
         let mut b = land::bake(n as u32, s, p);
         let l = life::life(&b, s, &life::LifeParams::default());
-        let h: Vec<f32> = (0..b.g.n()).map(|c| if b.lake(c) { b.lvl[c] } else { b.h[c] }).collect();
+        let h = b.h.clone();
+        let lakes = (0..b.g.n()).filter(|&c| b.lake(c)).map(|c| (c as u32, b.lvl[c])).collect();
+        let flow = l.flow.clone();
         let spawn = spawn(&b, &l);
         b.life = Some(l);
         let biome = std::mem::take(&mut b.life.as_mut().unwrap().biome);
-        let rivers = b.rivers.iter().filter(|r| b.land(r.cell as usize)).map(|r| Reach { cell: r.cell, to: r.to, area: r.area }).collect();
-        let mut map = Map { version: VERSION, seed, n, m: b.g.m as u32, h, biome, spawn, rivers, lines: Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 };
+        let rivers = b.rivers.iter().filter(|r| b.land(r.cell as usize)).map(|r| Reach { cell: r.cell, to: r.to, area: r.area, flow: flow[r.cell as usize] }).collect();
+        let mut map = Map { version: VERSION, seed, n, m: b.g.m as u32, h, biome, spawn, rivers, lakes, lines: Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 };
         map.finish(&map.to_bytes());
         eprintln!("[bake] seed {seed} planet {n}: {:.1} s", t.elapsed().as_secs_f64());
         map
@@ -90,22 +94,32 @@ impl Map {
         if self.version == 1 {
             return postcard::to_stdvec(&(1u32, self.seed, self.n, self.m, &self.h, &self.biome, self.spawn)).expect("a map serialises");
         }
+        if self.version == 2 {
+            let rivers: Vec<(u32, u32, f32)> = self.rivers.iter().map(|r| (r.cell, r.to, r.area)).collect();
+            return postcard::to_stdvec(&(2u32, self.seed, self.n, self.m, &self.h, &self.biome, self.spawn, rivers)).expect("a map serialises");
+        }
         postcard::to_stdvec(self).expect("a map serialises")
     }
     /// A map of this version, or of version 1 (no rivers: old saves carry on on the ground they were played on).
     pub fn from_bytes(b: &[u8]) -> Result<Map, String> {
         let mut m: Map = match postcard::from_bytes::<Map>(b) {
             Ok(m) if m.version == VERSION => m,
-            _ => {
+            _ => match postcard::from_bytes::<V2>(b) {
+                Ok(v) if v.version == 2 => {
+                    let rivers = v.rivers.into_iter().map(|(cell, to, area)| Reach { cell, to, area, flow: 0.0 }).collect();
+                    Map { version: 2, seed: v.seed, n: v.n, m: v.m, h: v.h, biome: v.biome, spawn: v.spawn, rivers, ..Map::default() }
+                }
+                _ => {
                 let v: V1 = postcard::from_bytes(b).map_err(|e| format!("not a map: {e}"))?;
                 if v.version != 1 {
                     return Err(format!("a map of version {} that does not read", v.version));
                 }
-                Map { version: v.version, seed: v.seed, n: v.n, m: v.m, h: v.h, biome: v.biome, spawn: v.spawn, rivers: Vec::new(), lines: Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 }
-            }
+                Map { version: v.version, seed: v.seed, n: v.n, m: v.m, h: v.h, biome: v.biome, spawn: v.spawn, ..Map::default() }
+                }
+            },
         };
         let cells = 6 * m.m as usize * m.m as usize;
-        let known = m.version == VERSION || (m.version == 1 && m.rivers.is_empty());
+        let known = m.version == VERSION || (m.version == 2 && m.lakes.is_empty()) || (m.version == 1 && m.rivers.is_empty());
         // a river drains into a neighbouring cell (bytes from a server: a far one would build a huge index)
         let mm = m.m as i32;
         let next_to = |r: &Reach| {
@@ -115,7 +129,9 @@ impl Map {
                 (f as u32 * m.m + j as u32) * m.m + i as u32 == r.to
             }))
         };
-        let bad = m.rivers.iter().any(|r| r.cell as usize >= cells || r.to as usize >= cells || !(r.area.is_finite() && r.area > 0.0) || !next_to(r));
+        let bad = m.rivers.iter().any(|r| r.cell as usize >= cells || r.to as usize >= cells || !(r.area.is_finite() && r.area > 0.0) || !(r.flow.is_finite() && r.flow >= 0.0) || !next_to(r))
+            || m.lakes.iter().any(|&(c, l)| c as usize >= cells || !l.is_finite())
+            || m.lakes.windows(2).any(|w| w[0].0 >= w[1].0);
         if !known || bad || m.h.len() != cells || m.biome.len() != cells {
             return Err(format!("a map of version {} with {} cells, not {VERSION} and {cells}", m.version, m.h.len()));
         }
@@ -358,7 +374,7 @@ fn file_v(seed: i32, n: i32, v: u32) -> PathBuf {
 /// None; a save that names one of version 1 gets that too).
 pub fn find(seed: i32, n: i32, hash: Option<u64>) -> Option<Arc<Map>> {
     let ok = |m: &Map| hash.map_or(m.version == VERSION, |h| h == m.hash);
-    let versions: &[u32] = if hash.is_some() { &[VERSION, 1] } else { &[VERSION] };
+    let versions: &[u32] = if hash.is_some() { &[VERSION, 2, 1] } else { &[VERSION] };
     for &v in versions {
         if let Some(m) = LOADED.lock().unwrap().get(&(seed, n, v)).and_then(Weak::upgrade).filter(|m| ok(m)) {
             return Some(m);
@@ -392,12 +408,20 @@ pub fn for_hash(seed: i32, n: i32, hash: u64) -> Option<Arc<Map>> {
         return Some(m);
     }
     let b = Map::bake(seed, n);
-    let v1 = Map::from_bytes(&Map { version: 1, seed, n, m: b.m, h: b.h.clone(), biome: b.biome.clone(), spawn: b.spawn, rivers: Vec::new(), lines: Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 }.to_bytes()).ok();
+    // the older layouts of this bake: a lake a flat at its level; no lakes or flows (2); no rivers (1)
+    let mut flat = b.h.clone();
+    for &(c, l) in &b.lakes {
+        flat[c as usize] = l;
+    }
+    let rivers = b.rivers.iter().map(|r| Reach { flow: 0.0, ..*r }).collect();
+    let v2 = Map { version: 2, seed, n, m: b.m, h: flat.clone(), biome: b.biome.clone(), spawn: b.spawn, rivers, ..Map::default() };
+    let v1 = Map { version: 1, seed, n, m: b.m, h: flat, biome: b.biome.clone(), spawn: b.spawn, ..Map::default() };
+    let old: Vec<Map> = [v2, v1].iter().filter_map(|m| Map::from_bytes(&m.to_bytes()).ok()).collect();
     let b = keep(b);
     if b.hash == hash {
         return Some(b);
     }
-    v1.filter(|m| m.hash == hash).map(keep)
+    old.into_iter().find(|m| m.hash == hash).map(keep)
 }
 
 /// The map of (seed, n): from memory, from disk, else baked now and kept.
@@ -410,7 +434,7 @@ mod tests {
     use super::*;
 
     fn small() -> Map {
-        let mut m = Map { version: VERSION, seed: 1, n: 64, m: 8, h: (0..384).map(|c| (c % 8) as f32).collect(), biome: vec![3; 384], spawn: [0.0, 1.0, 0.0], rivers: Vec::new(), lines: Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 };
+        let mut m = Map { version: VERSION, seed: 1, n: 64, m: 8, h: (0..384).map(|c| (c % 8) as f32).collect(), biome: vec![3; 384], spawn: [0.0, 1.0, 0.0], rivers: Vec::new(), ..Map::default() };
         m.finish(&m.to_bytes());
         m
     }
@@ -493,14 +517,31 @@ mod tests {
     #[test]
     fn a_map_with_a_far_river_or_a_broken_tail_is_refused() {
         let mut m = small();
-        m.rivers = vec![Reach { cell: 9, to: 300, area: 2e5 }];
+        m.rivers = vec![Reach { cell: 9, to: 300, area: 2e5, flow: 0.0 }];
         assert!(Map::from_bytes(&m.to_bytes()).is_err(), "a river that jumps across the planet");
-        m.rivers = vec![Reach { cell: 9, to: 10, area: f32::NAN }];
+        m.rivers = vec![Reach { cell: 9, to: 10, area: f32::NAN, flow: 0.0 }];
         assert!(Map::from_bytes(&m.to_bytes()).is_err(), "an area that is not a number");
-        m.rivers = vec![Reach { cell: 9, to: 10, area: 2e5 }];
+        m.rivers = vec![Reach { cell: 9, to: 10, area: 2e5, flow: 0.0 }];
         let b = m.to_bytes();
         assert!(Map::from_bytes(&b).is_ok());
         assert!(Map::from_bytes(&b[..b.len() - 3]).is_err(), "a version 2 map cut short is not a version 1");
+    }
+
+    /// Version 3 keeps the lakes (each cell with its level; `h` holds the bed under it) and each river cell's
+    /// mean flow; a map of version 2 still reads, with neither, and writes back as it came.
+    #[test]
+    fn lakes_and_flows_survive_and_a_version_2_map_still_reads() {
+        let mut m = small();
+        m.lakes = vec![(20, 5.5), (21, 5.5)];
+        m.rivers = vec![Reach { cell: 9, to: 10, area: 2e5, flow: 0.3 }];
+        let back = Map::from_bytes(&m.to_bytes()).unwrap();
+        assert_eq!((back.lakes.clone(), back.rivers[0].flow), (m.lakes.clone(), 0.3));
+        let v2 = postcard::to_stdvec(&(2u32, m.seed, m.n, m.m, &m.h, &m.biome, m.spawn, vec![(9u32, 10u32, 2e5f32)])).unwrap();
+        let old = Map::from_bytes(&v2).unwrap();
+        assert_eq!((old.version, old.lakes.len(), old.rivers[0].flow), (2, 0, 0.0));
+        assert_eq!(old.to_bytes(), v2, "the bytes it came in");
+        m.lakes = vec![(9999, 1.0)];
+        assert!(Map::from_bytes(&m.to_bytes()).is_err(), "a lake cell off the map");
     }
 
     /// The whole bake twice on a small planet: the same map to the bit.
