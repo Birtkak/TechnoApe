@@ -206,7 +206,7 @@ pub struct HeightTile {
     /// Plant blocks over the ground (level 0 of a baked planet only): (column, layer, block), by column then
     /// layer. They stand where the generated ground is air; an edit wins over them.
     pub plants: Vec<(u16, i32, u16)>,
-    /// Of the heights as `f32`, as `generate` compares them.
+    /// Of the heights as `f32`, for `generate`'s early-outs.
     pub min: f32,
     pub max: f32,
 }
@@ -666,13 +666,20 @@ impl Body {
         // built outside the lock; two workers may build the same tile, the result is the same
         let tile = Arc::new(self.build_tile(face as usize, level, x, y));
         let mut m = self.tiles.map.lock().unwrap();
+        let mut gone = Vec::new();
         if m.len() >= HEIGHT_TILES {
+            // the cut is chosen, and the old tiles freed, outside the lock: the frame thread's physics takes it
+            // per column
             let mut ages: Vec<u64> = m.values().map(|e| e.1).collect();
+            drop(m);
             let mid = ages.len() / 2;
             let cut = *ages.select_nth_unstable(mid).1;
-            m.retain(|_, e| e.1 > cut);
+            m = self.tiles.map.lock().unwrap();
+            gone.extend(m.extract_if(|_, e| e.1 <= cut));
         }
         m.insert(k, (tile.clone(), now));
+        drop(m);
+        drop(gone);
         tile
     }
     fn build_tile(&self, face: usize, level: u8, x: i32, y: i32) -> HeightTile {
@@ -1576,7 +1583,7 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
     // the top padding's skirt looks SKIRT cells higher, past the chunk: generated terrain is air there when
     // the column is lower than this
     let z_air = c0.z + (P - 1 + SKIRT) as i32;
-    let r_air = body.layer_r((z_air as f64 + 0.5) * s) as f32;
+    let r_air = body.layer_r((z_air as f64 + 0.5) * s);
     // caves are carved at level 0 only: a coarser cell is too big to show one (world-data.md)
     let caved = key.level == 0 && body.caves.iter().any(|c| c.face == key.face && (c.at - (c0.as_dvec3() + P as f64 * 0.5)).abs().max_element() < c.r + P as f64 * 0.5);
     let plain = edits.is_empty() && !caved;
@@ -1585,32 +1592,34 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
         if r_lo > body.radius + AMP {
             return Gen::Empty;
         }
-        if (r_air as f64) < body.radius - AMP {
+        if r_air < body.radius - AMP {
             return Gen::Solid;
         }
     }
     // one height per column, from the footprint's tile (columns past a seam are the neighbouring face's)
     let tile = body.tile(key.face, key.level, key.pos.x, key.pos.y);
-    let h: [f32; P * P] = std::array::from_fn(|i| tile.h[i] as f32);
+    let h = &tile.h;
     let (hmin, hmax) = (tile.min, tile.max);
     if plain {
+        // rounding to f32 keeps order, so these agree with the cells' f64 test below
         if r_lo as f32 > hmax {
             return Gen::Empty;
         }
-        if r_air < hmin {
+        if (r_air as f32) < hmin {
             return Gen::Solid;
         }
     }
     let mut cells = Box::new([0u16; P * P * P]);
-    // coarse cells keep the surface band one cell thick, so the far planet stays green
-    let cf = (s * BLOCK) as f32;
+    // coarse cells keep the surface band one cell thick, so the far planet stays green. In f64, as
+    // `material` (physics, water) compares: f32 split cells within a quarter millimetre of a threshold
+    let cf = s * BLOCK;
     let grass = cf.max(0.5);
     let dirt = (2.0 * cf).max(4.0);
     let mut any_air = false;
     let mut any_solid = false;
     for z in 0..P {
         let l = (c0.z as f64 + z as f64 + 0.5) * s;
-        let r = body.layer_r(l) as f32;
+        let r = body.layer_r(l);
         let core = l < 0.0;
         for (i, hv) in h.iter().enumerate() {
             let d = hv - r;
@@ -1720,6 +1729,63 @@ mod tests {
         let (i, j) = (5 * CS + 7, 9 * CS + 30);
         assert_eq!(b.col_height(2, i, j).to_bits(), b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)).to_bits());
         assert_eq!(b.col_height(3, i, j).to_bits(), b.height(b.dir(3, i as f64 + 0.5, j as f64 + 0.5)).to_bits());
+    }
+
+    /// A full height cache keeps the younger half: the tiles used after the median age, and the new one.
+    #[test]
+    fn a_full_height_cache_keeps_the_younger_half() {
+        let b = Body::new(DVec3::ZERO, 1536, 7);
+        let t = b.tile(0, 0, 0, 0);
+        let age = |i: usize| (i as u64 * 7919) % HEIGHT_TILES as u64; // every age once, shuffled
+        let keys: Vec<(u8, u8, i32, i32)> = (0..HEIGHT_TILES).map(|i| (0, 0, (i % 64) as i32, (i / 64) as i32)).collect();
+        *b.tiles.map.lock().unwrap() = keys.iter().enumerate().map(|(i, k)| (*k, (t.clone(), age(i)))).collect();
+        b.tile(1, 0, 0, 0);
+        let mut sorted: Vec<u64> = (0..HEIGHT_TILES).map(age).collect();
+        sorted.sort();
+        let cut = sorted[HEIGHT_TILES / 2];
+        let mut want: Vec<(u8, u8, i32, i32)> = keys.iter().enumerate().filter(|(i, _)| age(*i) > cut).map(|(_, k)| *k).collect();
+        want.push((1, 0, 0, 0));
+        want.sort();
+        let mut got: Vec<(u8, u8, i32, i32)> = b.tiles.map.lock().unwrap().keys().copied().collect();
+        got.sort();
+        assert_eq!(got, want);
+    }
+
+    /// On the 4 km planet a height a hair from a layer's centre, or from the top block's or the band's floor, is
+    /// one answer for the mesher's cells, the physics and the water: columns placed just each side of them.
+    #[test]
+    fn the_mesher_physics_and_water_agree_at_a_layers_centre() {
+        let w = World::new(6144, 32, 1);
+        let b = &w.bodies[0];
+        let (face, x, y) = (2u8, 40, 70);
+        let kz = (b.layer_of(b.radius).floor() as i32).div_euclid(CS);
+        let zc = kz * CS + CS / 2;
+        // heights over cell zc's centre: the air/top, top/band and band/rock boundaries, within f32's rounding
+        let h: [f64; P * P] = std::array::from_fn(|i| {
+            let edge = [0.0, BLOCK, 4.0][i % 3];
+            b.layer_r(zc as f64 + 0.5) + edge + ((i / 3) % 25) as f64 * 2e-5 - 2.4e-4
+        });
+        let (min, max) = (h.iter().fold(f32::MAX, |a, v| a.min(*v as f32)), h.iter().fold(f32::MIN, |a, v| a.max(*v as f32)));
+        b.tiles.map.lock().unwrap().insert((face, 0, x, y), (Arc::new(HeightTile { h, g: [b.ground; P * P], plants: Vec::new(), min, max }), 0));
+        let k = Key { body: 0, face, level: 0, pos: IVec3::new(x, y, kz) };
+        let Gen::Cells(cells) = generate(b, k, &[]) else { panic!("the chunk is all one") };
+        let mut bad = Vec::new();
+        for v in 1..=CS as usize {
+            for u in 1..=CS as usize {
+                let (i, j) = (x * CS - 1 + u as i32, y * CS - 1 + v as i32);
+                let gaps = w.ground().gaps(Col::new(0, face, i, j));
+                for zl in 1..P - 1 {
+                    let z = kz * CS - 1 + zl as i32;
+                    let phys = w.generated_block(Block { body: 0, face, pos: IVec3::new(i, j, z) });
+                    let mesh = cells[pidx(u, v, zl)];
+                    let open = gaps.iter().any(|&(lo, hi)| (lo..hi).contains(&z));
+                    if mesh != phys || open != !BLOCKS.solid(phys) {
+                        bad.push(format!("({i}, {j}, {z}) height {:+e} over the centre: mesh {mesh}, physics {phys}, water open {open}", h[u + v * P] - b.layer_r(z as f64 + 0.5)));
+                    }
+                }
+            }
+        }
+        assert!(bad.is_empty(), "{} cells disagree, e.g. {:?}", bad.len(), &bad[..bad.len().min(4)]);
     }
 
     /// ADR 0054: a room built 40 m over the ground is still among blocks; only over the build headroom is
