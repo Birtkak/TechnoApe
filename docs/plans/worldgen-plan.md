@@ -79,9 +79,10 @@ Visible weather is the roadmap's next step.
 
 ### W3b. Seasonal looks (after W3; `docs/design/seasonal-looks.md`)
 **Status (2026-11-12, ADR 0061):** the spike (about 0.03 ms of GPU, no CPU), the season rows in
-`data/blocks.toml`, the four-row look table and the shader's mix are built, with first-guess colours on the
-grasses, broadleaf leaves, shrub and reed. Waiting: the developer's colours and autumn's length. Not yet:
-painted season files, the Studio's season tabs and year slider, the hotbar and the block in hand.
+`data/blocks.toml`, the four-row look table and the shader's mix are built, with colours on the
+grasses, broadleaf leaves, shrub and reed that the developer accepted (2026-11-12). In work on
+`claude/w3b-season-looks-d39e67`: painted season files, the Studio's season tabs and year slider, the hotbar
+and the block in hand.
 - The developer's call (2026-11-12): grass and leaves stay one block each, their look follows the season,
   and the Studio paints a block's seasons. Nothing stored, no remesh: the shader mixes four looks by place
   and clock.
@@ -91,6 +92,12 @@ painted season files, the Studio's season tabs and year slider, the hotbar and t
 - Not in it: snow on the ground (weather, its own design), bare trees (W7).
 
 ### W4. Rock, caves and ore
+**Status (2026-11-12, ADR 0062):** the first point is on main (ids are 16 bits everywhere but the shader's 8
+bits of material; `Body::col_caves` answers the mesher, the physics and the water alike). **Calls (the
+developer, 2026-11-12):** the ground goes 192 m deep, hot and undiggable below for now; rock and mineral names
+on the "looking at" label, no map, ore found by eye; a palette draft per rock on a look sheet before any is
+accepted; `ore-budget.md`'s numbers kept per 1 m block. The rest is in work on
+`claude/w4-rock-caves-ore-d4c157`.
 - **First:** block ids to 16 bits (its own ADR), and one shared `generated block at (column, layer)`
   for `generate`, `phys::blocked` and `Solid::gaps`, with a test that the three agree on a cave.
 - Rock provinces and folded layers (stage 9); caves by rock; the water table; heat with depth.
@@ -102,8 +109,8 @@ painted season files, the Studio's season tabs and year slider, the hotbar and t
 
 ### W5. Rivers, lakes and tides
 **Calls (the developer, 2026-11-12):** rivers and lakes first, tides after; the tide is 1 m low to high at
-springs. W3's air grid is not live yet, so a reach's runoff is the bake's mean rain over its catchment
-until it is; the reach graph takes the live rain later without a change of shape.
+springs. A reach's runoff is the bake's mean rain over its catchment; W3's air grid is live since ADR 0060,
+and feeding the reaches from its runoff is open (ADR 0059 says what it takes).
 - Spike: a river reach at rest described by the bake, live water when disturbed, the ledger across the
   hand-over (ADR 0020's still sea is the model).
 - Spike: a sea level that moves with Luna, in the shader, the physics and the waterline rule.
@@ -115,7 +122,7 @@ until it is; the reach graph takes the live rain later without a change of shape
   - The reaches pass what they take in down to the sea, and `Liquids::rain` waits for W3's runoff.
   - Maps are version 4 (climate and lakes; 3, 2 and 1 still read), saves version 9 (8 with its air still reads); bots dam rivers in the soak with the ledger exact.
   - A walker follows a river from spring to sea in water.
-  - Open: the look (the developer's call), joining W3's air ledger once both are merged, and tides.
+  - Open: the look (the developer's call), joining W3's air ledger (both are on main now), and tides.
 
 ### W6. Luna
 - **First:** Luna at N = 3072 (1,061 m, ADR 0027) and its orbit moved out (proposal 30 km): `sky.rs`,
