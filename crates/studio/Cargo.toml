@@ -20,3 +20,7 @@ egui-wgpu = "0.37"
 wgpu = "30"
 pollster = "1"
 png = "0.18"
+# sound import (ADR 0066): reads WAV, OGG Vorbis, MP3 and FLAC in pure Rust; the Studio writes WAV with hound,
+# the game's own WAV crate, so the game never needs a decoder
+symphonia = { version = "0.5", default-features = false, features = ["wav", "pcm", "ogg", "vorbis", "mp3", "flac"] }
+hound = "3"

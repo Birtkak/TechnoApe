@@ -15,6 +15,7 @@ mod art;
 mod drive;
 mod effect;
 mod font;
+mod import;
 mod ramp;
 mod rows;
 mod sound;
@@ -49,7 +50,8 @@ fn write_rgba(path: &str, w: u32, h: u32, rgba: &[u8]) -> Result<(), String> {
 }
 
 fn check() -> Result<String, String> {
-    let (pal, ok, bad) = art::check_data(Path::new("data"))?;
+    let (pal, ok, mut bad) = art::check_data(Path::new("data"))?;
+    bad.extend(import::check_credits(Path::new("data/sounds")));
     let line = format!("{{\"check\":{},\"palette\":{pal},\"textures\":{ok},\"refused\":{}}}", js(if bad.is_empty() { "ok" } else { "failed" }), list(&bad));
     if bad.is_empty() {
         Ok(line)

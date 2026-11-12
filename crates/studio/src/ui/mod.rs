@@ -157,9 +157,10 @@ impl App {
         self.problems = match art::check_data(std::path::Path::new("data")) {
             Ok((_, _, bad)) => bad,
             // a blocks file the game refuses: what was left out to open it, by row and field
-            Err(_) if !self.reg_problems.is_empty() => self.reg_problems.clone(),
-            Err(e) => vec![e],
+            Err(e) if e.starts_with(BLOCKS) && !self.reg_problems.is_empty() => self.reg_problems.clone(),
+            Err(e) => [vec![e], self.reg_problems.clone()].concat(),
         };
+        self.problems.extend(crate::import::check_credits(std::path::Path::new("data/sounds")));
     }
     pub fn has_problem(&self, path: &str) -> bool {
         self.problems.iter().any(|p| shell::problem_file(p) == Some(path))

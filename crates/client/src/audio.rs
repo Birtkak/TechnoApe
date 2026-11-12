@@ -1221,7 +1221,9 @@ pub fn report() -> String {
             let ms = t.elapsed().as_secs_f32() * 1000.0;
             let list = |v: Vec<String>| v.iter().map(|n| format!("\"{n}\"")).collect::<Vec<_>>().join(",");
             let made = format!("\"from\":[{}],\"chain\":[{}]", list(r.from.iter().map(|b| b.base.clone()).collect()), list(r.chain.iter().map(|s| s.name().to_string()).collect()));
-            format!("{{\"name\":\"{}\",\"takes\":{},\"made_in_code\":{},\"seconds\":{:.3},\"peak\":{:.3},\"rms\":{:.3},\"hz\":{:.0},{made},\"ms\":{ms:.2}}}", r.name, cs.len(), c.rate == RATE && cs.len() == r.variants as usize, n / c.rate, peak, rms, cross / 2.0 / (n / c.rate))
+            // the files `Bank::build` plays for the row (a 48 kHz recording looked like a made take by its rate)
+            let rec: Vec<String> = std::iter::once(format!("{}.wav", r.name)).chain((1..=8).map(|k| format!("{}.{k}.wav", r.name))).filter(|f| dir.join(f).exists()).collect();
+            format!("{{\"name\":\"{}\",\"takes\":{},\"made_in_code\":{},\"recordings\":[{}],\"seconds\":{:.3},\"peak\":{:.3},\"rms\":{:.3},\"hz\":{:.0},{made},\"ms\":{ms:.2}}}", r.name, cs.len(), rec.is_empty(), list(rec), n / c.rate, peak, rms, cross / 2.0 / (n / c.rate))
         })
         .collect();
     format!("{{\"sounds\":[{}],\"load_ms\":{load_ms:.1}}}", rows.join(","))
