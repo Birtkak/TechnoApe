@@ -27,7 +27,7 @@ pub enum Cmd {
     Walk(DVec3),
     Wait(f64),
     Dig(DVec3),
-    Place(DVec3, u8),
+    Place(DVec3, u16),
     Block(DVec3),
     Report,
     /// A chat line or a '/' command (ADR 0023): the rest of the line.
@@ -48,7 +48,7 @@ pub fn parse(line: &str) -> Result<Option<Cmd>, String> {
         "walk" => Cmd::Walk(v()?),
         "wait" => Cmd::Wait(num(1)?),
         "dig" => Cmd::Dig(v()?),
-        "place" => Cmd::Place(v()?, num(4)? as u8),
+        "place" => Cmd::Place(v()?, num(4)? as u16),
         "block" => Cmd::Block(v()?),
         "report" => Cmd::Report,
         "say" => Cmd::Say(w[1..].join(" ")),
@@ -79,6 +79,8 @@ pub struct Bot {
     target: Option<(DVec3, Instant)>,
     last_dist: f64,
     notes: Vec<String>,
+    /// The live air where it stands, as the server last sent it (W3).
+    air: Option<engine::weather::Here>,
     idle_until: Option<Instant>,
     start: Instant,
 }
@@ -86,7 +88,7 @@ pub struct Bot {
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, seq: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), idle_until: None, start: Instant::now() }
+        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, seq: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now() }
     }
 
     fn feet(&self) -> DVec3 {
@@ -130,6 +132,7 @@ impl Bot {
                 // a bot that dies respawns at once (ADR 0040); it builds in creative, so only a switch to
                 // survival can get it there
                 Recv::Msg(ToClient::Vitals { dead: Some(_), .. }) => self.link.send(ToServer::Respawn),
+                Recv::Msg(ToClient::Air(h)) => self.air = Some(h),
                 Recv::Msg(ToClient::Chat(t)) => self.notes.push(format!("{{\"bot\":{:?},\"chat\":{t:?}}}", self.name)),
                 Recv::Msg(ToClient::Water(v)) => {
                     if let Some(w) = self.world.as_mut() {
@@ -203,8 +206,16 @@ impl Bot {
             }
             Cmd::Report => {
                 return Some(format!(
-                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{}}}",
-                    self.name, self.start.elapsed().as_secs_f64(), self.pos.x, self.pos.y, self.pos.z, self.players, self.edits_applied, self.refused
+                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{},\"air\":{}}}",
+                    self.name,
+                    self.start.elapsed().as_secs_f64(),
+                    self.pos.x,
+                    self.pos.y,
+                    self.pos.z,
+                    self.players,
+                    self.edits_applied,
+                    self.refused,
+                    self.air.map_or("null".into(), |a| format!("{{\"temp\":{:.2},\"rain_mm_h\":{:.3},\"cover\":{:.2},\"wind\":[{:.2},{:.2}]}}", a.temp, a.rain, a.cover, a.wind[0], a.wind[1]))
                 ));
             }
             Cmd::Say(t) => self.link.send(ToServer::Chat(t.clone())),

@@ -68,7 +68,7 @@ const MAX_WARP: u64 = 10_000;
 
 /// What a save keeps of a connected player.
 fn saved(c: &Client) -> Saved {
-    let inv = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u8, *n)).collect();
+    let inv = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u16, *n)).collect();
     Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, inv, water: c.water, vitals: c.vitals.clone() }
 }
 
@@ -116,6 +116,8 @@ pub struct Server {
     clients: Vec<Client>,
     next_id: u32,
     pub tick: u64,
+    /// The folder of data files a command reads (`/structure`): `data` beside the server.
+    pub data: String,
     /// The world's age when this server started (from its save): the sky's clock runs on from it.
     tick0: u64,
     /// The time warp (/timewarp): world ticks per tick, 1 is real time. A restart is back at 1.
@@ -145,6 +147,8 @@ pub struct Server {
     pub tick_ms: Option<std::sync::Arc<std::sync::Mutex<Vec<f32>>>>,
     /// The baked map as `ToClient::Map` pieces, made on the first request (18 MB for the 4 km planet).
     map_pieces: Option<Vec<ToClient>>,
+    /// The live air grid (W3), on a planet whose map keeps a climate.
+    pub weather: Option<engine::weather::Weather>,
 }
 
 impl Server {
@@ -165,13 +169,16 @@ impl Server {
         Server::with_world(World::with_map(planet_n, moon_n, seed, Some(m)), seed, accept)
     }
     fn with_world(world: World, seed: i32, accept: Receiver<ServerLink>) -> Server {
+        let weather = world.bodies[0].map().and_then(|m| m.climate.as_ref()).map(|c| engine::weather::Weather::new(c, None).expect("a map's climate was checked on load"));
         Server {
+            weather,
             world,
             seed,
             accept,
             clients: Vec::new(),
             next_id: 1,
             tick: 0,
+            data: "data".into(),
             tick0: 0,
             warp: 1,
             dt: 1.0 / TICK_HZ,
@@ -202,6 +209,13 @@ impl Server {
         water.rained = save.reaches.0;
         water.reach_extra = save.reaches.1.iter().copied().collect();
         s.tick0 = save.tick;
+        // the air carries on from the save; an older save on a map with a climate starts from the map's
+        if let (Some(state), Some(c)) = (&save.air, s.world.bodies[0].map().and_then(|m| m.climate.as_ref())) {
+            match engine::weather::Weather::new(c, Some(state)) {
+                Ok(w) => s.weather = Some(w),
+                Err(e) => eprintln!("[technoape-server] the save's air does not fit its map ({e}): it starts from the map's"),
+            }
+        }
         let cols: Vec<Col> = save.water.iter().map(|w| w.0).collect();
         s.water_changed(&cols);
         // a save from before Luna's grid and the inertial frame moved in the shared coordinates (ADR 0041,
@@ -225,7 +239,7 @@ impl Server {
 
     /// Everything a save holds, from the current state.
     pub fn snapshot(&self) -> Save {
-        let mut edits: Vec<(Block, u8)> =
+        let mut edits: Vec<(Block, u16)> =
             self.world.edits.iter().flat_map(|(k, cells)| cells.iter().map(move |(pos, m)| (Block { body: k.body, face: k.face, pos: *pos }, *m))).collect();
         edits.sort_unstable_by_key(|(b, _)| (b.body, b.face, b.pos.x, b.pos.y, b.pos.z));
         let mut players = self.absent.clone();
@@ -247,6 +261,7 @@ impl Server {
             sea_extra: self.world.water.sea_extra,
             tick: self.tick0.wrapping_add(self.tick),
             map: self.map_hash(),
+            air: self.weather.as_ref().map(|w| w.state()),
             reaches: (self.world.water.rained, self.world.water.reach_extra.iter().map(|(&a, &x)| (a, x)).collect()),
         }
     }
@@ -302,6 +317,9 @@ impl Server {
     /// carried over.
     pub fn hash(&self) -> u64 {
         let mut h = fnv(fnv(self.world.hash(), &self.tick.to_le_bytes()), &self.debt.to_bits().to_le_bytes());
+        if let Some(w) = &self.weather {
+            h = fnv(h, &w.view().hash.to_le_bytes());
+        }
         let w = &self.world.water;
         h = fnv(h, &postcard::to_allocvec(&(w.all(), self.made, self.removed, w.sea_extra, &w.reach_extra, w.rained)).unwrap());
         for p in self.absent.values() {
@@ -369,6 +387,9 @@ impl Server {
         // the sky's clock: the world's age, which a save carries on (ADR 0022)
         self.tick0 = self.tick0.wrapping_add(self.warp - 1);
         self.world.time = self.tick0.wrapping_add(self.tick) as f64 / TICK_HZ;
+        if let Some(w) = &mut self.weather {
+            w.tick(self.tick, self.world.time);
+        }
         if self.tick == 0 {
             let [b0, b1] = [&self.world.bodies[0], &self.world.bodies[1]];
             let start = Ev::Start { planet_n: b0.n, moon_n: b1.n, seed: self.seed, dt: self.dt, map: self.map_hash() };
@@ -383,7 +404,7 @@ impl Server {
             self.log(Ev::Join { tick: self.tick, id });
             let [p, m] = [self.world.bodies[0].n, self.world.bodies[1].n];
             link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m, blocks: BLOCKS.hash, map: self.map_hash() });
-            let all: Vec<(Block, u8)> = self
+            let all: Vec<(Block, u16)> = self
                 .world
                 .edits
                 .iter()
@@ -413,7 +434,7 @@ impl Server {
                 hold: edit::Hold::default(),
             });
         }
-        let mut changed: Vec<(Block, u8)> = Vec::new();
+        let mut changed: Vec<(Block, u16)> = Vec::new();
         let mut i = 0;
         while i < self.clients.len() {
             let mut open = true;
@@ -591,8 +612,15 @@ impl Server {
                 c.link.send(ToClient::Done { seq, ok });
             }
             if std::mem::take(&mut c.inv_dirty) {
-                let counts = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u8, *n)).collect();
+                let counts = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u16, *n)).collect();
                 c.link.send(ToClient::Inventory { creative: c.creative, counts, water: c.water });
+            }
+            if let Some(w) = self.weather.as_ref().filter(|_| self.tick % engine::net::AIR_EVERY == 0) {
+                let b = &self.world.bodies[0];
+                let rel = c.phys.pos - b.centre;
+                if self.world.frame_at(c.phys.pos) == 0 && rel.length() > 0.0 {
+                    c.link.send(ToClient::Air(w.here(rel.normalize(), rel.length() - b.sea.unwrap_or(rel.length()))));
+                }
             }
             let shown = (c.vitals.shown(), c.vitals.dead.is_some());
             if c.sent != Some(shown) {
@@ -674,7 +702,7 @@ impl Server {
 
     /// A chat line from client `i` (ADR 0023): a '/' command runs here and answers it alone; any other line
     /// goes to everyone with its sender's name.
-    fn chat(&mut self, i: usize, text: &str, changed: &mut Vec<(Block, u8)>) {
+    fn chat(&mut self, i: usize, text: &str, changed: &mut Vec<(Block, u16)>) {
         let text: String = text.chars().filter(|c| !c.is_control()).take(CHAT_MAX).collect();
         let text = text.trim();
         if let Some(cmd) = text.strip_prefix('/') {
@@ -688,7 +716,7 @@ impl Server {
 
     /// The commands (ADR 0023), and the answer for the player who gave one. shortcut: anyone may run every
     /// command; an operator role when servers go public.
-    fn command(&mut self, i: usize, cmd: &str, changed: &mut Vec<(Block, u8)>) -> String {
+    fn command(&mut self, i: usize, cmd: &str, changed: &mut Vec<(Block, u16)>) -> String {
         let w: Vec<&str> = cmd.split_whitespace().collect();
         let mode = |creative: bool| if creative { "creative" } else { "survival" };
         let block_named = |name: &str| BLOCKS.placeable().find(|d| d.name.eq_ignore_ascii_case(name));
@@ -705,6 +733,8 @@ impl Server {
                 "  /give <block> [n]    n blocks, 64 if left out",
                 "  /place <block>       one under your feet; or at",
                 "    [face i j layer]   that block of the body you are on (F3)",
+                "  /structure <name>    a file of data/structures stood five",
+                "    [seed]             blocks ahead (a grown one: that seed)",
                 "  /goto <where>        terra (home: the spawn), luna, or sun",
                 "  /timewarp <n>        the clock n times faster (1 to 10000,",
                 "                       up, down); . and , step it too",
@@ -892,6 +922,73 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                 changed.push((b, d.id));
                 format!("placed {} at face {} {} {}, layer {}", d.name, b.face, b.pos.x, b.pos.y, b.pos.z)
             }
+            Some("structure") => {
+                // A structure file (the Studio's, ADR 0052) stood near the player, to see it in the world: its
+                // anchor in the first air over the ground five metres ahead of the player (the way the body faces). Free
+                // and anyone's, like /place.
+                // shortcut: the file is read on the tick thread from the server's own data/ (small, and a
+                // developer's command), and a replay of a session that used it needs the same file; it goes
+                // to the operator role with the others.
+                const USAGE: &str = "usage: /structure <name> [seed]   a file of data/structures, five blocks ahead of you";
+                let name = w.get(1).copied().unwrap_or("");
+                let seed = w.get(2).map(|s| s.parse::<u64>());
+                // (letters, digits, _ and - only: no path out of the folder; and none of Windows' device names,
+                // which a read would wait on)
+                let device = { let n = name.to_ascii_lowercase(); ["con", "prn", "aux", "nul"].contains(&n.as_str()) || (n.len() == 4 && (n.starts_with("com") || n.starts_with("lpt"))) };
+                if name.is_empty() || device || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') || matches!(seed, Some(Err(_))) || w.len() > 3 {
+                    return USAGE.into();
+                }
+                let file = format!("{}/structures/{name}.toml", self.data);
+                let mut s = match std::fs::read_to_string(&file).map_err(|e| e.to_string()).and_then(|t| engine::structures::Structure::parse(&file, &t, &BLOCKS)) {
+                    Ok(s) => s,
+                    Err(e) => return format!("no structure '{name}': {e}"),
+                };
+                if let (Some(Ok(seed)), Some(r)) = (seed, s.grow.clone()) {
+                    s = engine::structures::grow(&engine::structures::Recipe { seed, ..r });
+                }
+                let world = &self.world;
+                let feet = self.clients[i].phys.pos;
+                if world.frame_at(feet) == engine::world::INERTIAL {
+                    return "there is no body under you out here: /structure works on Terra and Luna".into();
+                }
+                let mut foot = world.block_at(feet + self.clients[i].phys.fwd * 5.0);
+                let solid = |b: Block| Shape::one(b).fits(world) && BLOCKS.solid(world.block(b));
+                let mut found = false;
+                for _ in 0..24 {
+                    let below = Block { pos: foot.pos - glam::IVec3::Z, ..foot };
+                    if solid(foot) {
+                        foot.pos.z += 1;
+                    } else if !solid(below) && Shape::one(below).fits(world) {
+                        foot.pos.z -= 1;
+                    } else {
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    return "no ground within 24 blocks of the point five ahead of you: stand nearer the ground".into();
+                }
+                // every edit is an effect and a remesh on each player's frame thread: a structure of more than
+                // this many blocks is the world generator's to place, not a command's
+                const MOST: usize = 4096;
+                let cells = s.blocks(&BLOCKS);
+                if cells.len() > MOST {
+                    return format!("{name} is {} blocks: /structure places {MOST} at most", cells.len());
+                }
+                // where the players are, gathered once (not once a block)
+                let held: std::collections::HashSet<Block> = self.clients.iter().flat_map(|c| phys::cells(world, c.phys.pos)).collect();
+                // x along j, z along i, y up the layers: as `structure=` stands one and the Studio shows it
+                let put: Vec<(Block, u16)> = cells
+                    .into_iter()
+                    .map(|(d, id)| (Block { pos: foot.pos + glam::IVec3::new(d[2], d[0], d[1]), ..foot }, id))
+                    .filter(|(b, id)| Shape::one(*b).fits(world) && !(BLOCKS.solid(*id) && held.contains(b)))
+                    .collect();
+                for (b, id) in &put {
+                    self.world.set_block(*b, *id);
+                    changed.push((*b, *id));
+                }
+                format!("placed {name}: {} blocks, five ahead of you at face {} {} {}, layer {}", put.len(), foot.face, foot.pos.x, foot.pos.y, foot.pos.z)
+            }
             Some(other) => format!("unknown command /{other}\n  /help lists the commands"),
         }
     }
@@ -933,7 +1030,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
 
     /// Client `i` digs or places `shape`: all of it or none. False when the shape fails `valid_shape`, a
     /// survival dig was not held for its time, or a survival player cannot pay for every block it places.
-    fn edit(&mut self, i: usize, shape: &Shape, m: u8, changed: &mut Vec<(Block, u8)>) -> bool {
+    fn edit(&mut self, i: usize, shape: &Shape, m: u16, changed: &mut Vec<(Block, u16)>) -> bool {
         if self.clients[i].vitals.dead.is_some() || !self.valid_shape(shape, m, DVec3::from_array(self.clients[i].player.pos)) {
             return false;
         }
@@ -1068,7 +1165,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
 
     /// The trust boundary: a box within the size limits on a face that exists, a known block, every cell
     /// within the player's reach.
-    fn valid_shape(&self, s: &Shape, m: u8, at: DVec3) -> bool {
+    fn valid_shape(&self, s: &Shape, m: u16, at: DVec3) -> bool {
         s.fits(&self.world)
             && BLOCKS.get(m).is_some()
             && s.cells().all(|b| self.world.block_centre(b).distance(at) <= REACH)
@@ -1214,6 +1311,32 @@ mod tests {
             v.push(m);
         }
         v
+    }
+
+    /// The live air (W3): a server on a baked map runs it, sends each player the air where it stands every
+    /// `AIR_EVERY` ticks, and a save carries it on to the same weather as the server that kept running.
+    #[test]
+    fn a_player_is_sent_the_live_air_and_a_save_carries_it_on() {
+        let (tx, rx) = channel();
+        let mut s = Server::baked(256, 128, 5, rx);
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
+        for _ in 0..engine::net::AIR_EVERY * 3 {
+            s.tick();
+        }
+        let airs: Vec<engine::weather::Here> = drain(&c).into_iter().filter_map(|m| if let ToClient::Air(h) = m { Some(h) } else { None }).collect();
+        assert_eq!(airs.len(), 3, "one at ticks 0, 40 and 80");
+        assert!((-40.0..50.0).contains(&airs[0].temp) && (0.0..=1.0).contains(&airs[0].cover), "{:?}", airs[0]);
+        let save = Save::from_bytes(&s.snapshot().to_bytes()).unwrap();
+        assert!(save.air.is_some());
+        let mut back = Server::from_save(save, channel().1);
+        for _ in 0..200 {
+            s.tick();
+            back.tick();
+        }
+        let view = |s: &Server| s.weather.as_ref().map(|w| (w.view().t, w.view().hash));
+        assert_eq!(view(&back), view(&s));
+        assert_eq!(view(&s).unwrap().0, 10.0, "the step to 10 s handed over at tick 200 and shown at 220");
     }
 
     #[test]
@@ -1971,6 +2094,32 @@ mod tests {
         s.tick();
         let (lost, stood) = (h - s.clients[0].vitals.hunger, (t as f64 + 1.0) * 20.0 / sky::DAY);
         assert!(lost > 8.0 * vitals::DIG - 1e-9 && lost < 8.0 * vitals::DIG + stood, "{h} to {}: {lost}", s.clients[0].vitals.hunger);
+    }
+
+    #[test]
+    fn structure_stands_a_structure_file_near_the_player_and_refuses_what_is_no_name() {
+        let (mut s, links) = server_with(1);
+        s.data = "../../data".into();
+        let l = &links[0];
+        l.send(ToServer::Hello { name: "ape".into() });
+        s.tick();
+        drain(l);
+        let log = BLOCKS.placeable().find(|d| d.name == "log").unwrap().id;
+        let here = s.world.block_at(s.clients[0].phys.pos);
+        let logs = |s: &Server| (-12..=12).flat_map(|i| (-12..=12).flat_map(move |j| (-4..=14).map(move |k| glam::IVec3::new(i, j, k)))).filter(|d| s.world.block(Block { pos: here.pos + *d, ..here }) == log).count();
+        let before = logs(&s);
+        for line in ["/structure oak 3", "/structure", "/structure ../Cargo", "/structure no_such", "/structure oak x", "/structure CON"] {
+            l.send(ToServer::Chat(line.into()));
+        }
+        s.tick();
+        let got = drain(l);
+        let a = chats(&got);
+        assert!(a[0].starts_with("placed oak: "), "{a:?}");
+        assert!(logs(&s) >= before + 3, "an oak's trunk stands near: {} logs, {before} before", logs(&s));
+        // the players are told of every block, as of any edit
+        assert!(got.iter().any(|m| matches!(m, ToClient::Edits { .. })), "no edits were sent");
+        assert!([1, 2, 4, 5].iter().all(|i| a[*i].starts_with("usage: /structure")), "{a:?}");
+        assert!(a[3].starts_with("no structure 'no_such'"), "{a:?}");
     }
 
     #[test]

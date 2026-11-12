@@ -1289,7 +1289,7 @@ mod tests {
     #[test]
     fn every_block_has_its_sounds() {
         let rows = rows();
-        for id in 1..=255u8 {
+        for id in 1..=255u16 {
             let Some(d) = BLOCKS.get(id) else { continue };
             for what in ["dig", "place", "step"] {
                 let name = format!("{what}.{}", d.sound);

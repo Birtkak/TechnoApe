@@ -291,11 +291,11 @@ impl App {
             }
             "tab" => {
                 let Some(t) = self.typing.clone() else { return };
-                let (at, hints) = engine::net::complete(&t);
+                let (at, hints) = complete(&t);
                 if let Some(h) = hints.get(self.pick.unwrap_or(0).min(hints.len().saturating_sub(1))) {
                     let mut line = format!("{}{h}", &t[..at]);
                     // on to the next word when there is one to pick
-                    if !engine::net::complete(&format!("{line} ")).1.is_empty() {
+                    if !complete(&format!("{line} ")).1.is_empty() {
                         line.push(' ');
                     }
                     self.typing = Some(line);
@@ -463,7 +463,7 @@ impl App {
 
     /// The completions of the command being typed.
     pub(crate) fn hints(&self) -> Vec<String> {
-        self.typing.as_deref().map_or(Vec::new(), |t| engine::net::complete(t).1)
+        self.typing.as_deref().map_or(Vec::new(), |t| complete(t).1)
     }
 
     /// The field of view drawn now, in degrees: the setting's, narrowed by the zoom.
@@ -539,6 +539,20 @@ impl App {
                 }
                 return;
             }
+            // /spawn <creature>[:speed] stands a row of data/creatures.toml walking in place three metres ahead
+            // (the way the body faces), in the first air there: the developer's preview (ADR 0053)
+            if let Some(n) = line.strip_prefix("/spawn").filter(|n| n.is_empty() || n.starts_with(' ')) {
+                let mut cell = self.world.block_at(self.me.pos + self.me.fwd * 3.0);
+                for _ in 0..8 {
+                    if !Shape::one(cell).fits(&self.world) || !BLOCKS.solid(self.world.block(cell)) {
+                        break;
+                    }
+                    cell.pos.z += 1;
+                }
+                let said = self.models.spawn(n.trim(), cell).unwrap_or_else(|e| e);
+                self.note(said);
+                return;
+            }
             // nothing stands under the sun: a creative player flies there
             if line.eq_ignore_ascii_case("/goto sun") && self.creative {
                 self.flying = true;
@@ -582,12 +596,22 @@ impl App {
         let (day, h) = engine::sky::clock(w.time);
         let m = (h * 60.0).round() as u32 % (24 * 60);
         let body = b.name.as_str();
-        // the ground's air (ADR 0055): the biome's yearly climate, the season and the hour on top
-        let air = match if space || bi != 0 { None } else { b.biome_at(blk.face as usize, blk.pos.x as f64 + 0.5, blk.pos.y as f64 + 0.5, up) } {
+        // the ground's air (ADR 0055, W3): the baked year's mean where the map keeps it (the biome's band on an
+        // older map), the season and the hour on top
+        let (face, fi, fj) = (blk.face as usize, blk.pos.x as f64 + 0.5, blk.pos.y as f64 + 0.5);
+        let air = match if space || bi != 0 { None } else { b.biome_at(face, fi, fj, up) } {
             Some(bio) => {
-                let (mean, swing) = engine::sky::BIOME_CLIMATE[bio as usize];
-                let c = engine::sky::temperature(mean, swing, up.z.clamp(-1.0, 1.0).asin(), w.sky.declination(w.time), w.sky.hour_angle(w.time, up));
-                format!("{c:.1} C, the year's mean here {mean:.0} C ({})", engine::bake::life::BIOMES[bio as usize].0)
+                let over_sea = b.sea.map_or(0.0, |s| (feet - b.centre).length() - s);
+                let (mean, swing) = match b.climate_at(face, fi, fj) {
+                    Some((theta, swing, _)) => ((theta - engine::bake::air::Params::default().lapse * over_sea.max(0.0) as f32) as f64, swing as f64),
+                    None => engine::sky::BIOME_CLIMATE[bio as usize],
+                };
+                // the live air (W3) where the server runs it, else the baked year with the season and hour on top
+                let (c, rain) = match self.air {
+                    Some(a) => (a.temp as f64, format!(", rain {:.2} mm/h, cloud {:.0} %, wind {:.1} m/s", a.rain, a.cover * 100.0, a.wind[0].hypot(a.wind[1]))),
+                    None => (engine::sky::temperature(mean, swing, up.z.clamp(-1.0, 1.0).asin(), w.sky.declination(w.time), w.sky.hour_angle(w.time, up)), String::new()),
+                };
+                format!("{c:.1} C, the year's mean here {mean:.0} C ({}){rain}", engine::bake::life::BIOMES[bio as usize].0)
             }
             None => "no air reading here".into(),
         };
@@ -824,11 +848,11 @@ impl App {
     }
 
     /// The hotbar: every placeable block in id order.
-    pub(crate) fn slot_block(&self, k: usize) -> Option<u8> {
+    pub(crate) fn slot_block(&self, k: usize) -> Option<u16> {
         BLOCKS.placeable().nth(k).map(|d| d.id)
     }
 
-    pub(crate) fn held_count(&self, m: u8) -> u32 {
+    pub(crate) fn held_count(&self, m: u16) -> u32 {
         self.inv.iter().find(|(id, _)| *id == m).map_or(0, |(_, n)| *n)
     }
 
@@ -967,7 +991,7 @@ impl App {
 
     /// A cell's delta heard (docs/design/sound.md): a dig in the sound of what was there, a place in the new
     /// block's; whether it played.
-    pub(crate) fn heard(&mut self, b: Block, was: u8, now: u8, touch: bool) -> bool {
+    pub(crate) fn heard(&mut self, b: Block, was: u16, now: u16, touch: bool) -> bool {
         let (what, id) = if now == AIR { ("dig", was) } else { ("place", now) };
         match BLOCKS.get(id).filter(|_| was != now) {
             Some(d) => self.audio.play(&format!("{what}.{}", d.sound), Some(self.world.block_centre(b)), 1.0, 1.0, touch),
@@ -977,7 +1001,7 @@ impl App {
 
     /// One placed block grows into place over its cell (ADR 0031); its own mesh waits until the grow is done
     /// (frame.rs).
-    pub(crate) fn grow(&mut self, b: Block, m: u8) {
+    pub(crate) fn grow(&mut self, b: Block, m: u16) {
         let tag = self.fx.play(fx::id("grow"), &fx::At::cell(&self.world, b, m));
         self.growing.push((self.start.elapsed().as_secs_f64() + GROW_S, b, m, tag, false));
     }
@@ -987,6 +1011,22 @@ impl App {
         while self.acts.last().is_some_and(|(at, _)| *at <= t) {
             let (_, a) = self.acts.pop().unwrap();
             self.act(&a);
+        }
+        // lines=stdin: each line as if typed and sent. What the player has in hand is kept: a line being
+        // typed, the place in the lines sent before, and those lines themselves. A field being edited (a
+        // waypoint's name) makes the lines wait; four a frame at the most, however many are written.
+        for _ in 0..4 {
+            if self.edit.is_some() {
+                break;
+            }
+            let Some(l) = self.lines.as_ref().and_then(|r| r.try_recv().ok()) else { break };
+            let l: String = l.trim().chars().filter(|c| !c.is_control()).take(200).collect();
+            if !l.is_empty() {
+                let (was, recall, sent) = (self.typing.replace(l), self.recall, self.sent.len());
+                self.submit();
+                (self.typing, self.recall) = (was, recall);
+                self.sent.truncate(sent);
+            }
         }
         while let Ok(l) = self.bug_said.1.try_recv() {
             self.note(l);
@@ -1059,7 +1099,7 @@ impl App {
         }
         let lines: Vec<(f32, &str)> = self.chat.iter().map(|(at, l)| (at.elapsed().as_secs_f32(), l.as_str())).collect();
         let caret = self.start.elapsed().as_millis() / 400 % 2 == 0;
-        let (at, hints) = engine::net::complete(self.typing.as_deref().unwrap_or(""));
+        let (at, hints) = complete(self.typing.as_deref().unwrap_or(""));
         if !title {
             hud::chat(&mut paint, &lines, self.typing.as_deref(), caret, at, &hints, self.pick);
         }
@@ -1271,5 +1311,90 @@ impl App {
             self.prev -= off;
         }
         self.me = me;
+    }
+}
+
+/// The command line's completions: the engine's (what the server runs), and what only the files of this
+/// machine name: `/structure`'s files and `/spawn`'s creatures.
+fn complete(line: &str) -> (usize, Vec<String>) {
+    // (asked for every frame of play: the files are looked at only while a command is being typed)
+    if !line.starts_with('/') {
+        return engine::net::complete(line);
+    }
+    let (structures, creatures) = data_names();
+    complete_with(line, &structures, &creatures)
+}
+fn complete_with(line: &str, structures: &[String], creatures: &[String]) -> (usize, Vec<String>) {
+    let (at, mut v) = engine::net::complete(line);
+    let Some(rest) = line.strip_prefix('/') else { return (at, v) };
+    // (the place in the line is counted in the line as typed: a small letter may be longer or shorter than
+    // its capital)
+    match rest.split_once(' ') {
+        // the command itself: the two the engine's list has not
+        None => {
+            let low = rest.to_lowercase();
+            v.extend(["structure", "spawn"].iter().filter(|w| w.starts_with(low.as_str()) && **w != low).map(|w| w.to_string()));
+            (1, v)
+        }
+        // its one name (what follows a name is a number: no list)
+        Some((cmd, arg)) if ["structure", "spawn"].contains(&cmd.to_lowercase().as_str()) && !arg.trim_start().contains(' ') => {
+            let (arg, names) = (arg.trim_start(), if cmd.eq_ignore_ascii_case("structure") { structures } else { creatures });
+            let low = arg.to_lowercase();
+            (line.len() - arg.len(), names.iter().filter(|n| n.to_lowercase().starts_with(&low) && n.to_lowercase() != low).cloned().collect())
+        }
+        _ => (at, v),
+    }
+}
+/// The files of data/structures and the rows of data/creatures.toml by name. The list is asked for every
+/// frame while it shows, so the files are read again every two seconds at the most.
+/// shortcut: that reading is on the frame thread (a folder's names and one small file, only while a command
+/// is being typed); a watcher's thread should hand them over if either grows large.
+fn data_names() -> (Vec<String>, Vec<String>) {
+    static KEPT: std::sync::Mutex<Option<(Instant, (Vec<String>, Vec<String>))>> = std::sync::Mutex::new(None);
+    let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
+    if kept.as_ref().is_none_or(|(at, _)| at.elapsed().as_secs() >= 2) {
+        let mut structures: Vec<String> = std::fs::read_dir("data/structures").into_iter().flatten().flatten().filter_map(|f| f.file_name().to_str()?.strip_suffix(".toml").map(str::to_string)).collect();
+        structures.sort();
+        let creatures = creature_names(&std::fs::read_to_string("data/creatures.toml").unwrap_or_default());
+        *kept = Some((Instant::now(), (structures, creatures)));
+    }
+    kept.as_ref().unwrap().1.clone()
+}
+/// The `name = "..."` of every row of a creatures file, as written (the list is a help: /spawn itself reads
+/// the file with the real reader).
+fn creature_names(text: &str) -> Vec<String> {
+    text.lines().filter_map(|l| l.trim().strip_prefix("name")?.trim_start().strip_prefix('=')?.trim().strip_prefix('"')?.split('"').next().map(str::to_string)).collect()
+}
+
+#[cfg(test)]
+mod complete_tests {
+    use super::*;
+
+    #[test]
+    fn structure_and_spawn_complete_to_the_files_names() {
+        let (s, c) = (vec!["boulder".to_string(), "bush".into(), "oak".into()], creature_names(include_str!("../../../data/creatures.toml")));
+        assert!(c.contains(&"boar".to_string()) && c.contains(&"ape".to_string()), "{c:?}");
+        let f = |l: &str| complete_with(l, &s, &c);
+        // the commands themselves, beside the engine's
+        assert_eq!(f("/s"), (1, vec!["structure".to_string(), "spawn".into()]));
+        assert!(f("/").1.contains(&"spawn".to_string()) && f("/").1.contains(&"time".to_string()));
+        assert_eq!(f("/structure "), (11, s.clone()));
+        assert_eq!(f("/structure b"), (11, vec!["boulder".to_string(), "bush".into()]));
+        assert_eq!(f("/SPAWN bo"), (7, vec!["boar".to_string()]));
+        // a name typed out in full, and what follows it (a seed), have no list
+        assert!(f("/structure oak").1.is_empty() && f("/structure oak ").1.is_empty() && f("/spawn boar:2").1.is_empty());
+        // the engine's own are as they were
+        assert_eq!(f("/time s"), engine::net::complete("/time s"));
+        assert_eq!(f("hello"), engine::net::complete("hello"));
+        // a second space, a capital in a name, no names at all
+        assert_eq!(f("/structure  b"), (12, vec!["boulder".to_string(), "bush".into()]));
+        assert_eq!(complete_with("/spawn bo", &[], &["Boar".to_string()]), (7, vec!["Boar".to_string()]));
+        assert!(complete_with("/structure ", &[], &[]).1.is_empty());
+        // letters whose small form is shorter (the Kelvin sign) or longer (a dotted capital I): the place
+        // stays inside the line and on a character's edge
+        for l in ["/spawn \u{212a}", "/spawn \u{130}\u{130}\u{130}\u{130}\u{130}\u{130}\u{130}\u{130}", "/\u{212a}", "/structure \u{130}o"] {
+            let (at, _) = complete_with(l, &["k".to_string(), "i\u{307}o".into()], &["k".to_string()]);
+            assert!(l.is_char_boundary(at), "{l}: {at}");
+        }
     }
 }

@@ -323,7 +323,7 @@ impl Structures {
             return;
         };
         if self.placed.as_ref().map(|p| &p.0) != Some(&s) {
-            let names: BTreeMap<u8, String> = app.reg.placeable().map(|d| (d.id, d.name.replace(' ', "_"))).collect();
+            let names: BTreeMap<u16, String> = app.reg.placeable().map(|d| (d.id, d.name.replace(' ', "_"))).collect();
             // the view's frame: x along j, z along i (as `structure=` on a stand run)
             let blocks = s.blocks(&app.reg);
             let mut line: Vec<String> = blocks.iter().map(|(d, id)| format!("{}:{}:{}:{}", d[2], d[0], d[1], names.get(id).map_or("_", |n| n.as_str()))).collect();
@@ -632,6 +632,7 @@ impl Page for Structures {
         if !ui.input(|i| i.pointer.any_down()) {
             (self.merging, self.stroke) = (None, false);
         }
+        app.view.land_only = true;
         app.view.controls(ui);
         let Some(name) = self.open.clone() else {
             look::weak(ui, "No structure: New makes one");
@@ -650,8 +651,9 @@ impl Page for Structures {
         let total = ui.available_height();
         let cols = colours(&s, app);
         app.view.left_turns = false;
-        app.view.ui(ui, total * 0.55, |p, _, r| sketch(p, r.shrink(GAP), &s, &cols));
-        ui.add_space(GAP * 0.5);
+        // the view over the slice, the bar between them dragged
+        app.view.ui(ui, look::split(ui, "view", 0.55, total), |p, _, r| sketch(p, r.shrink(GAP), &s, &cols));
+        look::split_bar(ui, "view", 0.55, total);
         let h = ui.available_height();
         self.slice(ui, app, h);
     }
@@ -666,140 +668,137 @@ impl Page for Structures {
                 me.run(app, id);
             }
         };
-        look::section(ui, "Structure");
-        ui.horizontal_wrapped(|ui| {
-            for (id, label) in [("undo", "Undo"), ("redo", "Redo"), ("save", "Save"), ("new", "New")] {
-                button(ui, self, app, id, label);
-            }
-        });
+        if let Some(mut sec) = look::section(ui, "Structure") {
+            let ui = &mut *sec;
+            ui.horizontal_wrapped(|ui| {
+                for (id, label) in [("new", "New")] {
+                    button(ui, self, app, id, label);
+                }
+            });
+        }
         let Some(d) = self.doc() else { return };
         let s = d.s.clone();
         let Some(r) = s.grow.clone() else {
-            ui.separator();
-            look::section(ui, "Tools");
-            ui.horizontal_wrapped(|ui| {
-                for (t, name, help, key) in TOOLS {
-                    if look::tip(look::chip(ui, self.tool == t, name), help, key).clicked() {
-                        self.tool = t;
-                    }
-                }
-            });
-            ui.horizontal_wrapped(|ui| {
-                button(ui, self, app, "mirror", "Mirror");
-                button(ui, self, app, "copyup", "Copy layer up");
-                button(ui, self, app, "copy", "Copy");
-                button(ui, self, app, "paste", "Paste");
-            });
-            ui.separator();
-            look::section(ui, "Box");
-            let mut size = s.size;
-            let mut anchor = s.anchor;
-            let (mut ch_size, mut ch_anchor) = (false, false);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("size").small());
-                for v in &mut size {
-                    ch_size |= ui.add(egui::DragValue::new(v).range(1..=MAX_SIDE).speed(0.1)).changed();
-                }
-            })
-            .response
-            .on_hover_text("The box in blocks: across (x), up (layers), deep (z)");
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("anchor").small());
-                for (i, v) in anchor.iter_mut().enumerate() {
-                    ch_anchor |= ui.add(egui::DragValue::new(v).range(0..=s.size[i] - 1).speed(0.1)).changed();
-                }
-            })
-            .response
-            .on_hover_text("The cell set into the place it stands on (the circle on the slice)");
-            if ch_size {
-                self.edit_merged("Size", |s| Self::resize(s, size));
-            }
-            if ch_anchor {
-                self.edit_merged("Anchor", |s| s.anchor = anchor);
-            }
-            ui.separator();
-            look::section(ui, "Blocks");
-            egui::ScrollArea::vertical().id_salt("blocks").max_height(ui.available_height().max(120.0)).show(ui, |ui| {
-                for b in app.reg.placeable() {
-                    let c = Color32::from_rgb((b.colour[0] * 255.0) as u8, (b.colour[1] * 255.0) as u8, (b.colour[2] * 255.0) as u8);
-                    ui.horizontal(|ui| {
-                        let (r, _) = ui.allocate_exact_size(Vec2::splat(14.0), Sense::hover());
-                        ui.painter().rect_filled(r, 2.0, c);
-                        let used = s.key.values().any(|n| n == &b.name);
-                        let text = if used { RichText::new(&b.name).strong() } else { RichText::new(&b.name) };
-                        if ui.selectable_label(self.block == b.name, text).on_hover_text("The block the tools place").clicked() {
-                            self.block = b.name.clone();
+            if let Some(mut sec) = look::section(ui, "Tools") {
+                let ui = &mut *sec;
+                ui.horizontal_wrapped(|ui| {
+                    for (t, name, help, key) in TOOLS {
+                        if look::tip(look::chip(ui, self.tool == t, name), help, key).clicked() {
+                            self.tool = t;
                         }
-                    });
+                    }
+                });
+                ui.horizontal_wrapped(|ui| {
+                    button(ui, self, app, "mirror", "Mirror");
+                    button(ui, self, app, "copyup", "Copy layer up");
+                    button(ui, self, app, "copy", "Copy");
+                    button(ui, self, app, "paste", "Paste");
+                });
+            }
+            if let Some(mut sec) = look::section(ui, "Box") {
+                let ui = &mut *sec;
+                let mut size = s.size;
+                let mut anchor = s.anchor;
+                let (mut ch_size, mut ch_anchor) = (false, false);
+                look::row(ui, "size", |ui| {
+                    for v in &mut size {
+                        ui.spacing_mut().interact_size.x = 40.0;
+                        ch_size |= ui.add(egui::DragValue::new(v).range(1..=MAX_SIDE).speed(0.1)).on_hover_text("The box in blocks: across (x), up (layers), deep (z)").changed();
+                    }
+                });
+                look::row(ui, "anchor", |ui| {
+                    for (i, v) in anchor.iter_mut().enumerate() {
+                        ui.spacing_mut().interact_size.x = 40.0;
+                        ch_anchor |= ui.add(egui::DragValue::new(v).range(0..=s.size[i] - 1).speed(0.1)).on_hover_text("The cell set into the place it stands on (the circle on the slice)").changed();
+                    }
+                });
+                if ch_size {
+                    self.edit_merged("Size", |s| Self::resize(s, size));
                 }
-            });
-            return;
+                if ch_anchor {
+                    self.edit_merged("Anchor", |s| s.anchor = anchor);
+                }
+            }
+            if let Some(mut sec) = look::section(ui, "Blocks") {
+                let ui = &mut *sec;
+                egui::ScrollArea::vertical().id_salt("blocks").max_height(ui.available_height().max(120.0)).show(ui, |ui| {
+                    for b in app.reg.placeable() {
+                        let c = Color32::from_rgb((b.colour[0] * 255.0) as u8, (b.colour[1] * 255.0) as u8, (b.colour[2] * 255.0) as u8);
+                        ui.horizontal(|ui| {
+                            let (r, _) = ui.allocate_exact_size(Vec2::splat(14.0), Sense::hover());
+                            ui.painter().rect_filled(r, 2.0, c);
+                            let used = s.key.values().any(|n| n == &b.name);
+                            let text = if used { RichText::new(&b.name).strong() } else { RichText::new(&b.name) };
+                            if ui.selectable_label(self.block == b.name, text).on_hover_text("The block the tools place").clicked() {
+                                self.block = b.name.clone();
+                            }
+                        });
+                    }
+                });
+            }
+                return;
         };
         // a grown one: the recipe
-        ui.separator();
-        look::section(ui, "Recipe");
-        ui.horizontal_wrapped(|ui| {
-            button(ui, self, app, "freeze", "Freeze");
-        });
-        let mut nr = r.clone();
-        // label over control, so it fits the inspector at any interface scale
-        ui.label(RichText::new("seed").small());
-        ui.horizontal(|ui| {
-            ui.add(egui::DragValue::new(&mut nr.seed).speed(1.0)).on_hover_text("The seed: the same seed grows the same blocks");
-            let c = cmds.iter().find(|c| c.id == "another").unwrap();
-            let rb = ui.button("Another");
-            crate::drive::mark(ui.ctx(), "another", rb.rect);
-            if look::tip(rb, &c.help, &c.keys()).clicked() {
-                self.run(app, "another");
-            }
-        });
-        for (n, lo, hi, unit) in RANGES {
-            ui.label(RichText::new(n.replace('_', " ")).small());
-            let mut v = r.get(n);
-            ui.spacing_mut().slider_width = (ui.available_width() - 100.0).max(40.0);
-            let whole = n != "leaf_density";
-            let mut sl = egui::Slider::new(&mut v, lo..=hi);
-            sl = if whole { sl.step_by(1.0).fixed_decimals(0) } else { sl.fixed_decimals(2) };
-            if !unit.is_empty() {
-                sl = sl.suffix(format!(" {}", if unit == "degrees" { "deg" } else { unit }));
-            }
-            let rr = ui.add(sl);
-            crate::drive::mark(ui.ctx(), format!("recipe:{n}"), rr.rect);
-            if rr.changed() {
-                nr.set(n, v);
-            }
-        }
-        ui.label(RichText::new("crown").small());
-        ui.horizontal_wrapped(|ui| {
-            for (c, label) in [(Crown::Round, "round"), (Crown::Cone, "cone"), (Crown::Flat, "flat")] {
-                if look::tip(look::chip(ui, nr.crown == c, label), "The crown's shape", "").clicked() {
-                    nr.crown = c;
+        if let Some(mut sec) = look::section(ui, "Recipe") {
+            let ui = &mut *sec;
+            ui.horizontal_wrapped(|ui| {
+                button(ui, self, app, "freeze", "Freeze");
+            });
+            let mut nr = r.clone();
+            look::row(ui, "seed", |ui| {
+                ui.add(egui::DragValue::new(&mut nr.seed).speed(1.0)).on_hover_text("The seed: the same seed grows the same blocks");
+                let c = cmds.iter().find(|c| c.id == "another").unwrap();
+                let rb = ui.button("Another");
+                crate::drive::mark(ui.ctx(), "another", rb.rect);
+                if look::tip(rb, &c.help, &c.keys()).clicked() {
+                    self.run(app, "another");
+                }
+            });
+            for (n, lo, hi, unit) in RANGES {
+                let mut v = r.get(n);
+                let whole = n != "leaf_density";
+                let mut sl = egui::Slider::new(&mut v, lo..=hi);
+                sl = if whole { sl.step_by(1.0).fixed_decimals(0) } else { sl.fixed_decimals(2) };
+                if !unit.is_empty() {
+                    sl = sl.suffix(format!(" {}", if unit == "degrees" { "deg" } else { unit }));
+                }
+                let rr = look::row(ui, &n.replace('_', " "), |ui| ui.add(sl));
+                crate::drive::mark(ui.ctx(), format!("recipe:{n}"), rr.rect);
+                if rr.changed() {
+                    nr.set(n, v);
                 }
             }
-        });
-        for (what, field) in [("wood", 0), ("leaves", 1)] {
-            ui.label(RichText::new(what).small());
-            let cur = if field == 0 { nr.wood.clone() } else { nr.leaves.clone() };
-            egui::ComboBox::from_id_salt(what).selected_text(&cur).width((ui.available_width() - 8.0).max(60.0)).show_ui(ui, |ui| {
-                for b in app.reg.placeable() {
-                    if ui.selectable_label(b.name == cur, &b.name).clicked() {
-                        if field == 0 {
-                            nr.wood = b.name.clone();
-                        } else {
-                            nr.leaves = b.name.clone();
-                        }
+            look::row(ui, "crown", |ui| {
+                for (c, label) in [(Crown::Round, "round"), (Crown::Cone, "cone"), (Crown::Flat, "flat")] {
+                    if look::tip(look::chip(ui, nr.crown == c, label), "The crown's shape", "").clicked() {
+                        nr.crown = c;
                     }
                 }
             });
+            for (what, field) in [("wood", 0), ("leaves", 1)] {
+                let cur = if field == 0 { nr.wood.clone() } else { nr.leaves.clone() };
+                look::row(ui, what, |ui| egui::ComboBox::from_id_salt(what).selected_text(&cur).width((ui.available_width() - 8.0).max(60.0)).show_ui(ui, |ui| {
+                    for b in app.reg.placeable() {
+                        if ui.selectable_label(b.name == cur, &b.name).clicked() {
+                            if field == 0 {
+                                nr.wood = b.name.clone();
+                            } else {
+                                nr.leaves = b.name.clone();
+                            }
+                        }
+                    }
+                }));
+            }
+            if nr != r {
+                self.regrow("Recipe", nr);
+            }
         }
-        if nr != r {
-            self.regrow("Recipe", nr);
-        }
-        ui.separator();
         if self.wall.is_none() {
-            look::section(ui, "Variations");
-            if look::tip(ui.button("Six seeds"), "A wall of six seeds of this recipe; a click takes one", "V").clicked() {
-                self.run(app, "vary");
+            if let Some(mut sec) = look::section(ui, "Variations") {
+                let ui = &mut *sec;
+                if look::tip(ui.button("Six seeds"), "A wall of six seeds of this recipe; a click takes one", "V").clicked() {
+                    self.run(app, "vary");
+                }
             }
             return;
         }

@@ -73,6 +73,10 @@ pub trait Page {
     fn files(&self, app: &App) -> Vec<FileRow>;
     /// The id of the row that is open.
     fn current(&self) -> Option<String>;
+    /// "Try in game": the game's arguments only this page knows for its open file (`shell::try_args` has the rest).
+    fn try_extra(&self) -> Vec<String> {
+        vec![]
+    }
     fn open(&mut self, app: &mut App, id: &str);
     /// Everything it can do; a command with a key runs from the keyboard while no text field has the focus.
     fn commands(&self, app: &App) -> Vec<Cmd>;
@@ -302,11 +306,19 @@ pub struct Studio {
     /// The status line's left, from the control the pointer stood on last frame.
     help: Option<String>,
     styled: bool,
+    /// The open file has unsaved work (from the files column, for the inspector's Save).
+    open_dirty: bool,
     last_poll: f64,
     closing: bool,
     quit: bool,
     /// Opens the history list next frame (its command).
     history_open: Option<bool>,
+    /// The screen's pixels a point, for the scale steps that keep the font sharp; and whether the scale is
+    /// still to be put on one (the window's first frame; a shot keeps the scale it is given).
+    native: f32,
+    snap_scale: bool,
+    /// The game "Try in game" started, while the Studio can still talk to it.
+    game: Option<std::process::Child>,
     /// Off for a shot: it never writes the developer's studio.txt.
     write_settings: bool,
 }
@@ -371,20 +383,21 @@ impl Studio {
             picked: 0,
             help: None,
             styled: false,
+            open_dirty: false,
             last_poll: 0.0,
             closing: false,
             quit: false,
             write_settings: true,
             history_open: None,
+            native: 1.0,
+            snap_scale: false,
+            game: None,
         })
     }
 
     /// Every entry of the command box: (id, label, where it comes from, keys).
     fn entries(&self) -> Vec<(String, String, String, String)> {
         let mut v = vec![];
-        for p in &self.pages {
-            v.push((format!("page:{}", p.name()), format!("Go to {}", p.name()), "page".into(), String::new()));
-        }
         for c in self.pages[self.page].commands(&self.app) {
             v.push((c.id.clone(), c.label.clone(), c.help.clone(), c.keys()));
         }
@@ -404,16 +417,74 @@ impl Studio {
             Cmd::new("frame:keys", "Key sheet", "every key of this page").key(Modifiers::NONE, Key::F1),
             Cmd::new("frame:problems", "Problems", "what the file check refuses; a click opens the file"),
             Cmd::new("frame:history", "History", "the open file's undo steps by name; a click goes back to one"),
-            Cmd::new("frame:larger", "Interface larger", "the interface scale up a step (80 to 200 %)").key(Modifiers::COMMAND, Key::Equals),
+            Cmd::new("frame:larger", "Interface larger", "the interface scale up to the next size the font's pixels are sharp at").key(Modifiers::COMMAND, Key::Equals),
             Cmd::new("frame:smaller", "Interface smaller", "the interface scale down a step").key(Modifiers::COMMAND, Key::Minus),
-            Cmd::new("frame:scale100", "Interface at 100 %", "the interface scale back to 100 %").key(Modifiers::COMMAND, Key::Num0),
+            Cmd::new("frame:scale100", "Interface as new", "the interface scale nearest 100 % that the font's pixels are sharp at").key(Modifiers::COMMAND, Key::Num0),
+            Cmd::new("frame:try", "Try in game", "save the open file and start the game on it: a creative world that keeps no save, the thing standing ahead; again while that game runs stands the open structure or creature ahead of you there").key(Modifiers::NONE, Key::F5),
+            Cmd::new("frame:files", "Files column", "hide or show the files column on this page").key(Modifiers::NONE, Key::F2),
+            Cmd::new("frame:inspector", "Inspector", "hide or show the inspector on this page").key(Modifiers::NONE, Key::F3),
+            Cmd::new("frame:focus", "Work area alone", "hide both side panels, or bring them back").key(Modifiers::NONE, Key::F4),
+            Cmd::new("frame:swap", "Swap the sides", "the inspector on the left and the files on the right, or back"),
+            Cmd::new("frame:reset", "Layout as new", "on every page: both panels shown, every section open and in its own order, every divider where it started"),
         ]
+        .into_iter()
+        .chain(look::PAGES.iter().zip([Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7]).map(|((name, _), k)| Cmd::new(format!("page:{name}"), format!("{name} page"), format!("go to the {name} page")).key(Modifiers::COMMAND, k)))
+        .collect()
+    }
+
+    /// The Studio as it was left: each page's file open again when it is still there, and the page shown.
+    /// The window calls it once at its start; a shot does not (it shows what its arguments say).
+    pub fn resume(&mut self) {
+        self.snap_scale = true;
+        for i in 0..self.pages.len() {
+            let Some(id) = self.settings.open.get(self.pages[i].name()).cloned() else { continue };
+            if self.pages[i].current().as_deref() != Some(&id) && self.pages[i].files(&self.app).iter().any(|f| f.id == id) {
+                self.pages[i].open(&mut self.app, &id);
+            }
+        }
+        if let Some(i) = self.pages.iter().position(|p| p.name() == self.settings.page) {
+            self.page = i;
+        }
+    }
+
+    /// Starts the game beside the Studio on the open file, saved first (the game reads what is on disk, and
+    /// from then on shows each save within a second). The Studio does not wait for it.
+    fn try_in_game(&mut self) {
+        if self.open_dirty {
+            let i = self.page;
+            self.pages[i].run(&mut self.app, "save");
+        }
+        let page = &self.pages[self.page];
+        let (line, args) = (shell::game_line(page.name(), page.current().as_deref()), shell::try_args(page.name(), page.current().as_deref(), &page.try_extra()));
+        // the game it started is still up: say it there, in place of a second game
+        if let Some(g) = self.game.as_mut().and_then(|g| matches!(g.try_wait(), Ok(None)).then_some(g)) {
+            use std::io::Write;
+            match (line, g.stdin.as_mut()) {
+                (Some(l), Some(i)) => match writeln!(i, "{l}").and_then(|_| i.flush()) {
+                    Ok(()) => self.app.toast(format!("Sent to the game: {l}")),
+                    Err(e) => self.app.refuse(format!("Try in game: the running game took no line ({e})")),
+                },
+                _ => self.app.toast("The game is running: it shows a saved file within a second"),
+            }
+            return;
+        }
+        match viewport::Viewport::exe().ok_or("no game exe found".to_string()).and_then(|exe| std::process::Command::new(exe).args(&args).stdin(std::process::Stdio::piped()).spawn().map_err(|e| e.to_string())) {
+            Ok(g) => {
+                self.game = Some(g);
+                self.app.toast(format!("Started the game: {}", args[4..args.len() - 1].join(" ")));
+            }
+            Err(e) => self.app.refuse(format!("Try in game: {e}")),
+        }
+    }
+
+    /// A side panel's name in `studio.txt`: this page's own ("Models/inspector").
+    fn panel(&self, what: &str) -> String {
+        format!("{}/{what}", self.pages[self.page].name())
     }
 
     /// Runs a command by id: the frame's, a page's (`page:<name>`), a file's (`open:<page>:<id>`) or the open
     /// page's own. The command box, the keys and `shot= cmd=` all come here.
     pub fn run_command(&mut self, id: &str) {
-        let step = |s: f32, d: f32| ((s * 10.0).round() / 10.0 + d).clamp(Settings::SCALE.0, Settings::SCALE.1);
         match id {
             "frame:commands" => {
                 self.overlay = Overlay::Commands;
@@ -422,9 +493,29 @@ impl Studio {
             "frame:keys" => self.overlay = Overlay::Keys,
             "frame:problems" => self.overlay = Overlay::Problems,
             "frame:history" => self.history_open = Some(true),
-            "frame:larger" => self.settings.scale = step(self.settings.scale, 0.1),
-            "frame:smaller" => self.settings.scale = step(self.settings.scale, -0.1),
-            "frame:scale100" => self.settings.scale = 1.0,
+            "frame:larger" => self.settings.scale = shell::sharp_scale(self.settings.scale, self.native, 1),
+            "frame:smaller" => self.settings.scale = shell::sharp_scale(self.settings.scale, self.native, -1),
+            "frame:scale100" => self.settings.scale = shell::sharp_scale(1.0, self.native, 0),
+            "frame:files" | "frame:inspector" => {
+                let key = self.panel(&id[6..]);
+                if !self.settings.hidden.remove(&key) {
+                    self.settings.hidden.insert(key);
+                }
+            }
+            "frame:focus" => {
+                let keys = [self.panel("files"), self.panel("inspector")];
+                let hide = !keys.iter().all(|k| self.settings.hidden.contains(k));
+                for k in keys {
+                    if hide {
+                        self.settings.hidden.insert(k);
+                    } else {
+                        self.settings.hidden.remove(&k);
+                    }
+                }
+            }
+            "frame:try" => self.try_in_game(),
+            "frame:swap" => self.settings.swap ^= true,
+            "frame:reset" => self.settings = Settings { files_w: self.settings.files_w, inspector_w: self.settings.inspector_w, scale: self.settings.scale, page: self.settings.page.clone(), open: self.settings.open.clone(), ..Settings::default() },
             _ => {
                 if let Some(h) = id.strip_prefix("hour:").and_then(|h| h.parse::<f32>().ok()) {
                     // the game view's Time slider (for `shot= cmd=hour:18`)
@@ -506,8 +597,13 @@ impl Studio {
     pub fn show(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         if !self.styled {
+            look::fonts(&ctx);
             look::apply(&ctx);
             self.styled = true;
+        }
+        self.native = ctx.native_pixels_per_point().unwrap_or(1.0);
+        if std::mem::take(&mut self.snap_scale) {
+            self.settings.scale = shell::sharp_scale(self.settings.scale, self.native, 0);
         }
         if (ctx.zoom_factor() - self.settings.scale).abs() > 1e-3 {
             ctx.set_zoom_factor(self.settings.scale);
@@ -525,20 +621,40 @@ impl Studio {
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(1000));
         self.keys(&ctx);
+        look::set_layout(&ctx, look::Layout { page: self.pages[self.page].name().into(), folded: self.settings.folded.clone(), splits: self.settings.splits.clone(), order: self.settings.order.clone() });
 
         egui::Panel::top("pages").show(ui, |ui| self.top_bar(ui));
         egui::Panel::bottom("status").exact_size(30.0).show(ui, |ui| self.status_line(ui));
         // at a large scale on a small window the side panels give way to the work
         let wide = ctx.content_rect().width();
         // (the centre keeps at least half the window; what does not fit a column scrolls, never runs under another)
-        let files = egui::Panel::left("files").resizable(true).default_size(self.settings.files_w).size_range(Settings::FILES.0.min(wide * 0.18)..=Settings::FILES.1.min(wide * 0.2)).show(ui, |ui| self.files(ui));
-        let insp = egui::Panel::right("inspector").resizable(true).default_size(self.settings.inspector_w).size_range(Settings::INSPECTOR.0.min(wide * 0.26)..=Settings::INSPECTOR.1.min(wide * 0.3)).show(ui, |ui| self.inspector(ui));
+        // a wide window lets a panel be dragged as wide as leaves the work 520 points
+        let room = wide - 520.0;
+        let swap = self.settings.swap;
+        // each page has its own two panels: shown or not, and as wide as it was left
+        let (fk, ik) = (self.panel("files"), self.panel("inspector"));
+        let (fw, iw) = (self.settings.widths.get(&fk).copied().unwrap_or(self.settings.files_w), self.settings.widths.get(&ik).copied().unwrap_or(self.settings.inspector_w));
+        let (hide_f, hide_i) = (self.settings.hidden.contains(&fk), self.settings.hidden.contains(&ik));
+        let side = |left: bool, id: &str| if left { egui::Panel::left(egui::Id::unique(id)) } else { egui::Panel::right(egui::Id::unique(id)) };
+        let files = (!hide_f).then(|| side(!swap, &fk).resizable(true).default_size(fw).size_range(Settings::FILES.0.min(wide * 0.18)..=Settings::FILES.1.min((wide * 0.2).max(room * 0.4))).show(ui, |ui| self.files(ui)));
+        let insp_max = (wide * 0.3).max(room - if hide_f { 0.0 } else { fw });
+        let insp = (!hide_i).then(|| side(swap, &ik).resizable(true).default_size(iw).size_range(Settings::INSPECTOR.0.min(wide * 0.26)..=Settings::INSPECTOR.1.min(insp_max)).show(ui, |ui| self.inspector(ui)));
         egui::CentralPanel::default().show(ui, |ui| {
             egui::ScrollArea::both().id_salt("work").auto_shrink([false, false]).show(ui, |ui| self.pages[self.page].work(ui, &mut self.app));
         });
         // only a drag of an edge sets the widths kept, not a panel squeezed by a large scale
         if ctx.input(|i| i.pointer.any_down()) {
-            (self.settings.files_w, self.settings.inspector_w) = (files.response.rect.width().round(), insp.response.rect.width().round());
+            // (a width is kept once it differs from what the page would have anyway)
+            for (key, was, panel) in [(fk, fw, files), (ik, iw, insp)] {
+                if let Some(w) = panel.map(|p| p.response.rect.width().round()).filter(|w| (w - was).abs() >= 1.0) {
+                    self.settings.widths.insert(key, w);
+                }
+            }
+        }
+        // what was folded or dragged this frame
+        let l = look::layout(&ctx);
+        if l.folded != self.settings.folded || l.splits != self.settings.splits || l.order != self.settings.order {
+            (self.settings.folded, self.settings.splits, self.settings.order) = (l.folded, l.splits, l.order);
         }
 
         self.overlays(&ctx);
@@ -546,6 +662,14 @@ impl Studio {
         self.asks(&ctx);
         self.close_check(&ctx);
         self.help = look::take_help(&ctx);
+        // where the developer is, for the next start
+        let (name, cur) = (self.pages[self.page].name(), self.pages[self.page].current());
+        if self.settings.page != name {
+            self.settings.page = name.into();
+        }
+        if let Some(c) = cur.filter(|c| self.settings.open.get(name) != Some(c)) {
+            self.settings.open.insert(name.into(), c);
+        }
         // studio.txt, once a drag of a panel's edge is let go
         if self.write_settings && self.settings != self.written && !ctx.input(|i| i.pointer.any_down()) {
             if std::fs::write(shell::SETTINGS, self.settings.write()).is_ok() {
@@ -587,7 +711,12 @@ impl Studio {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let pct = format!("{:.0} %", self.settings.scale * 100.0);
                 let r = ui.menu_button(pct, |ui| {
-                    for s in [0.8, 1.0, 1.25, 1.5, 1.75, 2.0] {
+                    // (the sizes the font's pixels are sharp at, smallest first)
+                    let mut sizes = vec![shell::sharp_scale(Settings::SCALE.0, self.native, 0)];
+                    while sizes.last().is_some_and(|s| shell::sharp_scale(*s, self.native, 1) > s + 1e-3) {
+                        sizes.push(shell::sharp_scale(sizes[sizes.len() - 1], self.native, 1));
+                    }
+                    for s in sizes {
                         if ui.selectable_label((self.settings.scale - s).abs() < 0.01, format!("{:.0} %", s * 100.0)).clicked() {
                             self.settings.scale = s;
                             ui.close();
@@ -601,6 +730,42 @@ impl Studio {
                 if look::tip(r, "Every key of this page", "F1").clicked() {
                     self.overlay = Overlay::Keys;
                 }
+                let r = ui.button("Try in game");
+                crate::drive::mark(ui.ctx(), "try", r.rect);
+                if look::tip(r, "Save the open file and start the game on it: a creative world that keeps no save, the thing standing ahead. Later saves show there within a second", "F5").clicked() {
+                    self.run_command("frame:try");
+                }
+                // the layout: what is shown and where
+                let r = ui.menu_button("View", |ui| {
+                    let s = &self.settings;
+                    let mut run = None;
+                    look::weak(ui, format!("on the {} page", self.pages[self.page].name()));
+                    for (id, on, label) in [("frame:files", !s.hidden.contains(&self.panel("files")), "Files column   F2"), ("frame:inspector", !s.hidden.contains(&self.panel("inspector")), "Inspector   F3")] {
+                        if ui.selectable_label(on, label).clicked() {
+                            run = Some(id);
+                        }
+                    }
+                    if ui.button("Work area alone   F4").clicked() {
+                        run = Some("frame:focus");
+                    }
+                    ui.separator();
+                    look::weak(ui, "everywhere");
+                    for (id, on, label) in [("frame:swap", s.swap, "Inspector on the left")] {
+                        if ui.selectable_label(on, label).clicked() {
+                            run = Some(id);
+                        }
+                    }
+                    ui.separator();
+                    if ui.button("Layout as new").clicked() {
+                        run = Some("frame:reset");
+                    }
+                    if let Some(id) = run {
+                        self.run_command(id);
+                        ui.close();
+                    }
+                });
+                crate::drive::mark(ui.ctx(), "view", r.response.rect);
+                look::tip(r.response, "Hide or show the side panels, swap their sides; sections fold by a click on their title, dividers drag", "F2, F3, F4");
                 let r = ui.button("Find…");
                 crate::drive::mark(ui.ctx(), "find", r.rect);
                 if look::tip(r, "Find any file, page, tool or action and run it", "Ctrl+P").clicked() {
@@ -614,9 +779,14 @@ impl Studio {
                     }
                     for i in 0..self.pages.len() {
                         let name = self.pages[i].name();
-                        let r = ui.add(egui::Button::selectable(self.page == i, RichText::new(name).strong()).min_size(Vec2::new(if narrow { 0.0 } else { 90.0 }, 26.0)));
+                        // a tab wears its page's colour: a line under it, and its fill when open
+                        let (on, c) = (self.page == i, look::page_colour(name));
+                        let text = RichText::new(name).strong();
+                        let r = ui.add(egui::Button::new(if on { text.color(Color32::WHITE) } else { text }).fill(if on { c.gamma_multiply(0.35) } else { Color32::TRANSPARENT }).min_size(Vec2::new(if narrow { 0.0 } else { 90.0 }, 26.0)));
+                        let line = Rect::from_min_max(Pos2::new(r.rect.min.x + 4.0, r.rect.max.y - 2.0), Pos2::new(r.rect.max.x - 4.0, r.rect.max.y));
+                        ui.painter().rect_filled(line, 1.0, if on { c } else { c.gamma_multiply(0.45) });
                         crate::drive::mark(ui.ctx(), format!("tab:{name}"), r.rect);
-                        if look::tip(r, &format!("The {name} page"), "Ctrl+P, then its name").clicked() {
+                        if look::tip(r, &format!("The {name} page"), &format!("Ctrl+{}", i + 1)).clicked() {
                             self.page = i;
                         }
                     }
@@ -669,6 +839,7 @@ impl Studio {
         let rows = page.files(&self.app);
         let drafts = rows.iter().filter(|r| r.flags.draft).count();
         let cur = page.current();
+        self.open_dirty = rows.iter().any(|r| r.flags.dirty && cur.as_deref() == Some(r.id.as_str()));
         let q = self.search.to_lowercase();
         let shown: Vec<&FileRow> = rows.iter().filter(|r| r.label.to_lowercase().contains(&q) && self.filter.keeps(r.flags)).collect();
         let mut open = None;
@@ -696,7 +867,15 @@ impl Studio {
             if shown.is_empty() {
                 look::weak(ui, "nothing matches");
             }
+            let mut heading = None;
             for row in shown {
+                let (group, name, tag) = look::split_label(&row.label);
+                // rows of one family ("dirt: dig") stand under its name; what has none comes under "other" after them
+                if group != heading && (group.is_some() || heading.is_some()) {
+                    ui.add_space(GAP * 0.5);
+                    look::weak(ui, group.unwrap_or("other").to_uppercase());
+                }
+                heading = group;
                 let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::click());
                 crate::drive::mark(ui.ctx(), format!("file:{}", row.id), rect);
                 let p = ui.painter();
@@ -734,10 +913,12 @@ impl Studio {
                     right -= 16.0;
                 }
                 let x = thumb.max.x + GAP;
-                let label = row.label.clone();
                 let text_col = if row.flags.made || on { ui.visuals().strong_text_color() } else { ui.visuals().text_color() };
                 // a name too long for its row ends in "…", not under the badge
-                let mut job = egui::text::LayoutJob::simple_singleline(label, egui::FontId::proportional(look::BODY), text_col);
+                let mut job = egui::text::LayoutJob::simple_singleline(name.into(), egui::FontId::proportional(look::BODY), text_col);
+                if let Some(tag) = tag {
+                    job.append(tag, 6.0, egui::TextFormat::simple(small.clone(), ui.visuals().weak_text_color()));
+                }
                 job.wrap = egui::text::TextWrapping::truncate_at_width((right - 2.0 - x).max(0.0));
                 let g = p.layout_job(job);
                 let end = x + g.size().x;
@@ -758,11 +939,38 @@ impl Studio {
     }
 
     fn inspector(&mut self, ui: &mut Ui) {
+        // the open file's own three, in one place on every page; Save is lit while there is work to save
+        let hist = self.pages[self.page].history(&self.app);
+        let cmds = self.pages[self.page].commands(&self.app);
+        ui.add_space(GAP * 0.75);
+        ui.horizontal(|ui| {
+            for (id, label) in [("undo", "Undo"), ("redo", "Redo"), ("save", "Save")] {
+                let Some(c) = cmds.iter().find(|c| c.id == id) else { continue };
+                let live = match (id, &hist) {
+                    ("undo", Some((u, _))) => !u.is_empty(),
+                    ("redo", Some((_, r))) => !r.is_empty(),
+                    _ => true,
+                };
+                let b = if id == "save" && self.open_dirty { egui::Button::new(RichText::new(label).color(Color32::WHITE)).fill(look::GOOD.gamma_multiply(0.45)) } else { egui::Button::new(label) };
+                let r = ui.add_enabled(live, b);
+                crate::drive::mark(ui.ctx(), format!("btn:{id}"), r.rect);
+                if look::tip(r, &c.help, &c.keys()).clicked() {
+                    self.pages[self.page].run(&mut self.app, id);
+                }
+            }
+            // whose inspector this is: the open file, in the page's colour
+            let open = self.pages[self.page].current();
+            if let Some(open) = self.pages[self.page].files(&self.app).into_iter().find(|f| Some(&f.id) == open.as_ref()).map(|f| look::split_label(&f.label).1.to_string()) {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add(egui::Label::new(RichText::new(open).strong().color(look::page_colour(self.pages[self.page].name()))).truncate());
+                });
+            }
+        });
+        ui.add_space(GAP * 0.25);
+        ui.separator();
         egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
-            ui.add_space(GAP * 0.5);
             self.pages[self.page].inspector(ui, &mut self.app);
             ui.add_space(GAP);
-            let hist = self.pages[self.page].history(&self.app);
             egui::CollapsingHeader::new(RichText::new("History").strong()).id_salt("history").default_open(false).open(self.history_open.take()).show(ui, |ui| {
                 let Some((undo, redo)) = hist else {
                     look::weak(ui, "this page saves each change at once");
@@ -894,11 +1102,11 @@ impl Studio {
                 });
             };
             ui.columns(2, |c| {
-                look::section(&mut c[0], name);
+                look::band(&mut c[0], name, Sense::hover());
                 rows(&mut c[0], "keys page", cmds.iter().map(|k| (k.keys(), k.label.clone())).collect());
-                look::section(&mut c[1], "The pointer");
+                look::band(&mut c[1], "The pointer", Sense::hover());
                 rows(&mut c[1], "keys more", more.iter().map(|(k, w)| (k.to_string(), w.to_string())).collect());
-                look::section(&mut c[1], "Everywhere");
+                look::band(&mut c[1], "Everywhere", Sense::hover());
                 rows(&mut c[1], "keys frame", frame.iter().map(|k| (k.keys(), k.label.clone())).collect());
             });
         });

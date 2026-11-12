@@ -276,6 +276,7 @@ impl App {
                     }
                     self.water.update(&self.world, &ts, self.start.elapsed().as_secs_f32());
                 }
+                Recv::Msg(ToClient::Air(h)) => self.air = Some(h),
                 Recv::Msg(ToClient::Welcome { .. } | ToClient::Map { .. }) => {}
                 Recv::Msg(ToClient::Chat(text)) => {
                     for line in text.lines() {
@@ -648,7 +649,8 @@ impl App {
                 lnq: b.lnq as f32,
                 theta: (std::f64::consts::FRAC_PI_2 / b.n as f64) as f32,
                 half_n: b.n as f32 * 0.5,
-                _p: [b.sea.map_or(-1.0, |s| s as f32), 0.0],
+                // shortcut: only the planet (body 0) has seasons; a second planet needs its own year in `Sky`
+                _p: [b.sea.map_or(-1.0, |s| s as f32), if bi == 0 { engine::sky::season_at(DVec3::Z, self.world.time).0 as f32 } else { -1.0 }],
                 rot: [col(m.x_axis), col(m.y_axis), col(m.z_axis)],
                 ctr: { let v = (m.as_dmat3() * -c).as_vec3(); [v.x, v.y, v.z, b.radius as f32] },
             };
@@ -782,6 +784,9 @@ impl App {
             // the G-buffer: the sky and the terrain; the bounce light and the composite come after
             let gi = self.gi.as_mut().unwrap();
             let [tdirect, talbedo, tgbuf] = gi.targets();
+            // the Studio's view with no background: a plain grey where the sky and the land would be
+            const BARE: wgpu::Color = wgpu::Color { r: 0.3, g: 0.3, b: 0.32, a: 1.0 };
+            let bare = self.view.as_ref().is_some_and(|v| v.bare);
             let target = |view, clear| {
                 Some(wgpu::RenderPassColorAttachment {
                     view,
@@ -792,7 +797,7 @@ impl App {
             };
             let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("gbuffer"),
-                color_attachments: &[target(tdirect, sky), target(talbedo, wgpu::Color::TRANSPARENT), target(tgbuf, wgpu::Color::TRANSPARENT)],
+                color_attachments: &[target(tdirect, if bare { BARE } else { sky }), target(talbedo, wgpu::Color::TRANSPARENT), target(tgbuf, wgpu::Color::TRANSPARENT)],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &gpu.depth,
                     depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0.0), store: wgpu::StoreOp::Store }),
@@ -803,13 +808,15 @@ impl App {
                 multiview_mask: None,
             });
             rp.set_bind_group(0, &gpu.bind, &[]);
-            // the crack detector's shots keep the plain clear colour
-            if self.shot.is_none() {
+            // the crack detector's shots keep the plain clear colour; so does the Studio's view with no background
+            if self.shot.is_none() && !bare {
                 rp.set_pipeline(&gpu.sky_pipeline);
                 rp.draw(0..3, 0..1);
             }
             rp.set_pipeline(&gpu.pipeline);
-            if self.args.get("mdi", 1) == 1 {
+            if bare {
+                // (the land is still there for the light: only its picture is left out)
+            } else if self.args.get("mdi", 1) == 1 {
                 rp.multi_draw_indirect(&gpu.indirect, 0, args.len() as u32);
             } else {
                 for d in &args {
@@ -874,7 +881,8 @@ impl App {
             });
             gi.composite(&mut rp);
             rp.set_bind_group(0, &gpu.bind, &[]);
-            if !sea_args.is_empty() {
+            // (with no background the sea goes with the land)
+            if !sea_args.is_empty() && !self.view.as_ref().is_some_and(|v| v.bare) {
                 rp.set_pipeline(&gpu.sea_pipeline);
                 if self.args.get("mdi", 1) == 1 {
                     rp.multi_draw_indirect(&gpu.indirect, (MAX_CHUNKS * 16) as u64, sea_args.len() as u32);
@@ -884,7 +892,7 @@ impl App {
                     }
                 }
             }
-            if self.wquad_n > 0 {
+            if self.wquad_n > 0 && !self.view.as_ref().is_some_and(|v| v.bare) {
                 rp.set_pipeline(&gpu.water_pipeline);
                 rp.draw(0..self.wquad_n * 6, 0..1);
             }

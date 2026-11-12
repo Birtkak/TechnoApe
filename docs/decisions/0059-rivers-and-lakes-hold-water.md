@@ -30,9 +30,9 @@ Option 2. The spike (`prototypes/river-reach/README.md`) answered the design's f
 - A wheel's flow read costs 1.8 ns.
 - The graph of 4,000 reaches ticks in 15 µs.
 
-**The map, version 3** (`bake::Map`):
+**The map, version 4** (`bake::Map`; W3's 3 holds the climate, 4 adds what follows):
 - It keeps the lakes (cell, level) and each river cell's flow. The ground under a lake is its bed.
-- Maps of versions 2 and 1 still read, with dry beds; `for_hash` rebuilds them from a fresh bake.
+- Maps of versions 3, 2 and 1 still read, with dry beds; `for_hash` rebuilds them from a fresh bake (lakes back as flats), main's 4 km planet's 3 to its hash.
 - `Lines` adds per segment its level at each end, its fill, its flow and its reach. The level never falls
   under the lake or sea it runs into, and never rises downstream.
 - Fill: the bed's depth × min(0.7 · (runoff ratio)^0.3, 0.85), dry under 0.15 m.
@@ -94,14 +94,11 @@ smallest planet with wet rivers (1536).
   - The gate's soak is still on planet 256, which has no rivers. The dam soak is a cargo test on 1536.
   - A sloped river quad steeper than 0.25 layer a column is drawn in steps.
   - Lake outlets can stay live (the spike's open question).
-- **Save versions:** W3 (ADR 0060) merges first and owns version 8: version 7's layout plus a trailing
-  `air`. This branch writes 9 and reads W3's 8 through the layout of 7: postcard reads no further than the
-  type, so the air is left unread and starts again from the map's climate, as W3 does for a 7 (test
-  `a_version_8_from_the_air_branch_loads`). The merge must make 9 W3's 8 plus `reaches` after `air`, read 8
-  with W3's own type and keep the air, and keep the test.
+- **Save versions:** W3 (ADR 0060) owns 8: version 7's layout plus `air`. 9 is 8 plus `reaches`; an 8 loads with its air and no reaches (`a_version_8_loads_with_its_air`), a 7 with neither.
+- **Live runoff not taken yet:** W3's air grid is live, but the reaches still run on the bake's mean rain. Taking its `runoff` means splitting each air column's runoff over its reaches by catchment, taking those units out of the air's `sea` term so the two ledgers stay exact, and the generated flow becoming the dry-weather base so rain is not counted twice: its own step, not part of the merge.
 - **Tests seen red first:** the liquid tests (the spike stands as their red), the reach drain, the reach
   holds, the save's reaches, the soak's dams, the quads, the plants and the walker. Two were written
-  alongside their code and not seen failing: the map v3 test and the save test (a compile error only).
+  alongside their code and not seen failing: the map v4 test and the save test (a compile error only).
 - **Review:** see the table below.
 
 | | |

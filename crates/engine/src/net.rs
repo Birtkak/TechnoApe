@@ -25,7 +25,7 @@ pub enum ToServer {
     Steps { first: u32, inputs: Vec<Input> },
     /// Dig (`material` 0) or place a shape. The server applies all of it or none and answers `Done` with the
     /// same `seq`, after the `Edits` that carry what it changed.
-    Edit { seq: u32, shape: Shape, material: u8 },
+    Edit { seq: u32, shape: Shape, material: u16 },
     /// Survival or creative (counts nothing). shortcut: anyone may switch; an operator role when servers go public.
     Creative(bool),
     /// The bucket (ADR 0020): `fill` scoops up to a block of water from the gap that holds block `at`, else
@@ -54,7 +54,7 @@ pub enum ToClient {
     Welcome { id: u32, seed: i32, planet_n: i32, moon_n: i32, blocks: u64, map: Option<u64> },
     /// A piece of the baked map's bytes (`Map::to_bytes`), in order, `pieces` in all.
     Map { piece: u32, pieces: u32, bytes: Vec<u8> },
-    Edits(Vec<(Block, u8)>),
+    Edits(Vec<(Block, u16)>),
     Players(Vec<Player>),
     /// The answer to the `Edit` with this `seq`: applied, or refused whole (reach, size, inventory).
     Done { seq: u32, ok: bool },
@@ -64,7 +64,7 @@ pub enum ToClient {
     You { step: u32, me: crate::phys::Player, time: f64, warp: f64 },
     /// This player's mode, every block kind it holds a nonzero count of, and the water in its bucket (units,
     /// `liquid::U` a block); sent on join and on change.
-    Inventory { creative: bool, counts: Vec<(u8, u32)>, water: u32 },
+    Inventory { creative: bool, counts: Vec<(u16, u32)>, water: u32 },
     /// Tiles of water (ADR 0020), each whole: the tile (`Col::tile`) and its stored columns, (floor, ceil,
     /// units) per gap; a column not listed is as generation gives it. A tile is sent when it changed by more
     /// than the dead band, or settled, since this client last had it: nearest first, within reach and a byte
@@ -78,7 +78,13 @@ pub enum ToClient {
     /// Another player's dig (ADR 0034): the shape, the share of it done when this was sent and the share it
     /// gains a second (the client runs the cracks on from those), or none when it stopped or finished.
     Digging { id: u32, at: Option<(Shape, f32, f32)> },
+    /// The live air where this player stands (W3, `weather::Weather::here`), every `AIR_EVERY` ticks on a
+    /// planet whose map keeps a climate.
+    Air(crate::weather::Here),
 }
+
+/// Ticks between the `ToClient::Air` a player is sent (2 s).
+pub const AIR_EVERY: u64 = 40;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Player {
@@ -285,7 +291,7 @@ mod tests {
     #[test]
     fn a_missing_map_comes_in_pieces() {
         let cells = 6 * 384 * 384;
-        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12345, n: 3072, m: 384, h: (0..cells).map(|c| c as f32).collect(), biome: vec![4; cells], spawn: [0.0, 1.0, 0.0], rivers: Vec::new(), ..Default::default() }.to_bytes();
+        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12345, n: 3072, m: 384, h: (0..cells).map(|c| c as f32).collect(), biome: vec![4; cells], ..crate::bake::Map::empty() }.to_bytes();
         let map = crate::bake::Map::from_bytes(&bytes).unwrap();
         // a run before this one kept it: this client must not have it yet
         let _ = std::fs::remove_file(crate::bake::file(-12345, 3072));
@@ -313,7 +319,7 @@ mod tests {
     #[test]
     fn a_map_download_reports_its_pieces() {
         let cells = 6 * 384 * 384;
-        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12346, n: 3072, m: 384, h: vec![1.0; cells], biome: vec![4; cells], spawn: [0.0, 1.0, 0.0], rivers: Vec::new(), ..Default::default() }.to_bytes();
+        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12346, n: 3072, m: 384, h: vec![1.0; cells], biome: vec![4; cells], ..crate::bake::Map::empty() }.to_bytes();
         let map = crate::bake::Map::from_bytes(&bytes).unwrap();
         let _ = std::fs::remove_file(crate::bake::file(-12346, 3072));
         let (mut client, server) = local::<ToServer, ToClient>();

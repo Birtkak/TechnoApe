@@ -39,16 +39,49 @@ struct Proc {
 pub enum Scene {
     Grass,
     Cave,
+    None,
+    Checker,
 }
-pub const SCENES: [(Scene, &str, &str); 2] = [
+pub const SCENES: [(Scene, &str, &str); 4] = [
     (Scene::Grass, "Grass", "On the grass at the spawn, in the open under the sky"),
     (Scene::Cave, "Cave", "In a dark stone room beside a lamp: block light only"),
+    (Scene::None, "None", "No background: the thing alone on a plain grey, lit as on the grass at this time"),
+    (Scene::Checker, "Checker", "No background, shown as a checkerboard: every edge of the thing stands out"),
 ];
+/// The checkerboard's squares in pixels of the frame, and its two greys.
+const CHECK: (usize, [u8; 3], [u8; 3]) = (16, [92, 92, 98], [124, 124, 130]);
+/// A frame drawn with no background, its plain ground colour made a checkerboard. The ground is what three of
+/// the four corners show (None: a frame with something in most corners is left as it is).
+/// shortcut: a pixel of the thing in exactly the ground's colour turns checkered too; the renderer sending
+/// its own mask would end that, when it matters.
+pub fn checker(px: &mut [u8], w: usize, h: usize) -> Option<[u8; 3]> {
+    if w == 0 || h == 0 || px.len() < w * h * 4 {
+        return None;
+    }
+    let at = |x: usize, y: usize| [px[(y * w + x) * 4], px[(y * w + x) * 4 + 1], px[(y * w + x) * 4 + 2]];
+    let corners = [at(0, 0), at(w - 1, 0), at(0, h - 1), at(w - 1, h - 1)];
+    let ground = corners.into_iter().find(|c| corners.iter().filter(|d| *d == c).count() >= 3)?;
+    for (i, p) in px.chunks_exact_mut(4).take(w * h).enumerate() {
+        if p[..3] == ground {
+            let light = (i % w / CHECK.0 + i / w / CHECK.0) % 2 == 1;
+            p[..3].copy_from_slice(if light { &CHECK.2 } else { &CHECK.1 });
+        }
+    }
+    Some(ground)
+}
 impl Scene {
+    /// No land, sea or sky is drawn.
+    pub fn bare(self) -> bool {
+        matches!(self, Scene::None | Scene::Checker)
+    }
+    /// `scene:<grass|cave|none|checker>` of a page's command.
+    pub fn named(name: &str) -> Scene {
+        SCENES.iter().find(|s| s.1.eq_ignore_ascii_case(name)).map_or(Scene::Grass, |s| s.0)
+    }
     /// The blocks that make it, around the stand cell.
     fn blocks(self) -> String {
         match self {
-            Scene::Grass => String::new(),
+            Scene::Grass | Scene::None | Scene::Checker => String::new(),
             Scene::Cave => {
                 let mut v = vec![];
                 for di in -3..=3i32 {
@@ -78,6 +111,9 @@ pub struct Viewport {
     /// The hour of the day, 0..24; the game's clock starts at 9 (ADR 0022).
     pub hour: f32,
     pub scene: Scene,
+    /// Set by a page whose thing is blocks (a structure, a texture's cube) before it draws the view: "None"
+    /// would leave nothing to see, so it is not offered there and Grass is shown. Off again after each frame.
+    pub land_only: bool,
     /// A drag with the left button turns too (the right one always does).
     pub left_turns: bool,
     proc: Option<Proc>,
@@ -113,6 +149,7 @@ impl Viewport {
             orbit: Orbit::default(),
             hour: 11.0,
             scene: Scene::Grass,
+            land_only: false,
             left_turns: true,
             proc: None,
             state: State::Off,
@@ -138,7 +175,7 @@ impl Viewport {
         matches!(self.state, State::Up)
     }
 
-    fn exe() -> Option<std::path::PathBuf> {
+    pub fn exe() -> Option<std::path::PathBuf> {
         // `view=0`: no game view, the pages' 2D fallback
         if RENDERER.get().is_some_and(|r| r == "0") {
             return None;
@@ -295,6 +332,10 @@ impl Viewport {
             if self.startup_s.is_none() {
                 self.startup_s = self.started.map(|s| s.elapsed().as_secs_f32());
             }
+            let mut f = f;
+            if self.scene == Scene::Checker && !self.land_only {
+                checker(&mut f.px, f.w as usize, f.h as usize);
+            }
             let img = egui::ColorImage::from_rgba_unmultiplied([f.w as usize, f.h as usize], &f.px);
             match &mut self.tex {
                 Some(t) => t.set(img, egui::TextureOptions::LINEAR),
@@ -310,6 +351,8 @@ impl Viewport {
         let fx = self.shown_effect.as_ref().map_or("-".to_string(), |(n, k)| format!("{n} {k}"));
         let name = self.shown_effect.as_ref().map_or("-".to_string(), |(n, _)| n.clone());
         self.say("effect", fx, format!("effect {name}"));
+        let bare = (self.scene.bare() && !std::mem::take(&mut self.land_only)) as u8;
+        self.say("bare", bare.to_string(), format!("bare {bare}"));
         let blocks = [self.scene.blocks(), self.place.clone()].into_iter().filter(|b| !b.is_empty()).collect::<Vec<_>>().join(",");
         if self.told.get("place") != Some(&blocks) {
             self.write("reset");
@@ -404,6 +447,16 @@ impl Viewport {
         let (u, v) = (uv.min.x + rel.x * uv.width(), uv.min.y + rel.y * uv.height());
         Some(self.orbit.ray([u * 2.0 - 1.0, 1.0 - v * 2.0], self.fov, self.aspect(rect)))
     }
+    /// A player's outline (0.6 x 1.8 x 0.6 m) standing with its low corner at `at`, for scale.
+    pub fn player(&self, p: &egui::Painter, at: Vec3) {
+        let c = |k: u8| self.to_screen(at + Vec3::new((k & 1) as f32 * 0.6, (k >> 1 & 1) as f32 * 1.8, (k >> 2 & 1) as f32 * 0.6));
+        // (a cube's edges: the corner pairs that differ in one bit)
+        for (a, b) in (0..8u8).flat_map(|a| [1, 2, 4].map(move |d| (a, a | d))).filter(|(a, b)| a != b) {
+            if let (Some(a), Some(b)) = (c(a), c(b)) {
+                p.line_segment([a, b], egui::Stroke::new(1.5, egui::Color32::from_rgb(120, 200, 140)));
+            }
+        }
+    }
     /// Where a point of the model's metres shows on screen.
     pub fn to_screen(&self, p: Vec3) -> Option<Pos2> {
         let (rect, uv) = self.shown?;
@@ -422,8 +475,8 @@ impl Viewport {
     /// The view's own controls: the scene, the time of day, the renderer's state.
     pub fn controls(&mut self, ui: &mut Ui) {
         ui.horizontal_wrapped(|ui| {
-            for (s, name, help) in SCENES {
-                if look::tip(look::chip(ui, self.scene == s, name), help, "").clicked() {
+            for (s, name, help) in SCENES.into_iter().filter(|s| !(self.land_only && s.0.bare())) {
+                if look::tip(look::chip(ui, self.scene == s || (self.land_only && self.scene.bare() && s == Scene::Grass), name), help, "").clicked() {
                     self.scene = s;
                 }
             }
@@ -510,6 +563,23 @@ mod tests {
     use super::*;
     use engine::sky::Sky;
     use glam::DVec3;
+
+    #[test]
+    fn the_checkerboard_takes_the_grounds_pixels_and_leaves_the_things() {
+        // 40 x 40 of one grey with a red thing in the middle and in one corner
+        let (w, h, grey, red) = (40usize, 40usize, [70u8, 70, 75, 255], [200u8, 10, 10, 255]);
+        let mut px: Vec<u8> = (0..w * h).flat_map(|i| if (i % w, i / w) == (20, 20) || i == 0 { red } else { grey }).collect();
+        assert_eq!(checker(&mut px, w, h), Some([70, 70, 75]));
+        let at = |px: &[u8], x: usize, y: usize| [px[(y * w + x) * 4], px[(y * w + x) * 4 + 1], px[(y * w + x) * 4 + 2]];
+        assert_eq!((at(&px, 20, 20), at(&px, 0, 0)), ([200, 10, 10], [200, 10, 10]), "the thing is left");
+        assert_eq!((at(&px, 1, 0), at(&px, 16, 0), at(&px, 16, 16), at(&px, 39, 39)), (CHECK.1, CHECK.2, CHECK.1, CHECK.1), "squares of 16");
+        // a frame full of other things has no ground to take: left as it is
+        let mut busy: Vec<u8> = (0..w * h).flat_map(|i| [i as u8, (i / 7) as u8, 3, 255]).collect();
+        let was = busy.clone();
+        assert_eq!(checker(&mut busy, w, h), None);
+        assert_eq!(busy, was);
+        assert_eq!(checker(&mut [], 0, 0), None);
+    }
 
     /// The sun's height in degrees over the point `up` at world time `t`, on the standard planet.
     fn elevation(t: f64, up: DVec3) -> f64 {

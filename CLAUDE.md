@@ -65,7 +65,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   `run=stand|fly|orbit|edit|sim|fx` (`fx` keeps `fx_n=` particles alive, ADR 0031), `quick=1` (quarter length, a smoke check in seconds), `planet=6144|12288|768`
   (columns per face edge: the standard 4 km planet, the huge 8 km one, a small one; ADR 0021), `seed=`, `out=file.jsonl`, `connect=host[:7777]` to join a running server
   (`technoape-server listen=0.0.0.0:7777 planet= seed=` prints a JSON line every 5 s).
-- A new world's planet is baked (ADR 0043: about 25 s for the 4 km planet, once per seed and planet; kept in
+- A new world's planet is baked (ADR 0043, 0060: about 36 s for the 4 km planet, once per seed and planet; kept in
   `saves/bakes/`); `World::new` is the old noise land (tests, saves from before the bake), `World::baked` the map.
 - Saves (ADR 0016): `run=play` keeps `saves/seed-<seed>-planet-<n>.sav`, the server `saves/server.sav`; both
   carry on from it. `save=file` names another, `save=0` keeps none.
@@ -78,7 +78,8 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   in space the mouse pitches you freely and Q/E roll, gravity rights you as it pulls (ADR 0024); C held zooms 3x;
   1-9 or the wheel the hotbar; N drops a waypoint and creative shows the compass, where you are and the waypoints
   (ADR 0030; Esc, Waypoints lists them, a click names, colours and sets where one shows; K hides them, ADR 0036); space swims up in water, ADR 0020; T chats, / runs a command: /time, /playmode, /give,
-  /place <block> [face i j layer], /goto terra|luna|sun, /timewarp (. and , step it), /heal, /feed [n], /hurt <points>
+  /place <block> [face i j layer], /structure <name> [seed] (a file of data/structures five blocks ahead, ADR 0052),
+  /spawn <creature>[:speed] (a row of data/creatures.toml walking in place ahead: this player's preview, ADR 0053), /goto terra|luna|sun, /timewarp (. and , step it), /heal, /feed [n], /hurt <points>
   (survival's health and hunger, ADR 0040: impacts hurt, hunger drains, the bars over the hotbar are
   survival's; at 0 health the death screen's `click:0` respawns), /help; /sound <name> plays a row of `data/sounds.toml` (ADR 0032:
   a recording `data/sounds/<name>.wav` replaces the code-made one; a painting `data/textures/<block>[_top|_side|_bottom].png`
@@ -94,6 +95,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   Accessibility), every key rebindable (Keys: grouped, searchable, a shared key red), kept in `settings.txt`, ADR 0023 and 0028; `dump=1` prints a
   settings file's meaning as JSON). `acts="t:action,..."`
   scripts those inputs off-screen (ADR 0017; `say:/time set noon`, `f3`, `f9`, `type:text`, `tab`, `enter`, `esc`, `click:1`, `point:x:y`, `C`/`c` the zoom, `next`/`prev`/`go`/`nudge+` the menu by keys, `bind:KeyW`, `key+:KeyW`/`key-:KeyW` a real key through the bindings;
+  `lines=stdin` runs each line another program writes to the game as if typed and sent (the Studio's Try in game),
   `seconds=` ends a play run, `settings=out/x.txt` keeps the real settings out of it), and a
   filmstrip shows the result.
 - **Builds for the developer** (double-click; without arguments the title menu opens on screen in the repository's

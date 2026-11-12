@@ -13,3 +13,8 @@ mimalloc = { version = "0.1", default-features = false }
 lto = "fat"
 codegen-units = 1
 panic = "abort"
+
+# The bake's air runs a year even on the tests' small planets (W3): unoptimised it took minutes. Floats
+# give the same bits at any opt-level (no fast-math), so this changes speed only.
+[profile.test.package.engine]
+opt-level = 2

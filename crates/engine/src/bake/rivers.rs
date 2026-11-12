@@ -446,13 +446,13 @@ pub struct Water {
 impl Map {
     /// The rivers' and lakes' water over unit direction d, at face point (x, y) in cells: a river's inside its
     /// channel (where its level stands over its bed), a lake's over its cells and the cells next to them. The
-    /// higher of the two where both are; None on a map of version 2 or before (dry beds, lakes as flats).
+    /// higher of the two where both are; None on a map of version 3 or before (dry beds, lakes as flats).
     /// Whether a river line or a lake lies over or next to map cells x0..=x1, y0..=y1 of a face (folded past
     /// its edges): a chunk with none skips `water`'s lookups.
     /// The lowest and highest water level (metres over the sea) a river or lake near cells x0..=x1, y0..=y1
     /// may give (`water` never gives one outside it); None: none there.
     pub fn wet_near(&self, face: usize, x0: i32, y0: i32, x1: i32, y1: i32) -> Option<(f32, f32)> {
-        if self.version < 3 {
+        if self.version < 4 {
             return None;
         }
         let m = self.m as i32;
@@ -489,11 +489,11 @@ impl Map {
     /// False where `water` is surely None (`Lines::wet`): one bit, before any geometry.
     pub fn maybe_wet(&self, face: usize, x: f64, y: f64) -> bool {
         let c = self.cell_of(face, x, y);
-        self.version >= 3 && self.lines.wet.get(c as usize / 64).is_some_and(|w| w & (1 << (c % 64)) != 0)
+        self.version >= 4 && self.lines.wet.get(c as usize / 64).is_some_and(|w| w & (1 << (c % 64)) != 0)
     }
     /// `water`, with the river segments to try given.
     fn water_among(&self, face: usize, x: f64, y: f64, d: DVec3, segs: impl Iterator<Item = u32>) -> Option<Water> {
-        if self.version < 3 {
+        if self.version < 4 {
             return None;
         }
         let m = self.m as i32;
@@ -571,6 +571,20 @@ mod tests {
 
     /// The 1 km planet (Luna's size from W6) with smaller rivers counted, as the prototype's test has them.
     static MAP: LazyLock<Arc<Map>> = LazyLock::new(|| Arc::new(Map::bake_with(2, 1536, &crate::bake::land::Params { river_area_m2: 2e4, ..Default::default() })));
+
+    /// A map of version 3 (W3's: lakes are flats, no flows) keeps dry beds: no river or lake water, even where
+    /// a bed by the coast is carved under the sea's level.
+    #[test]
+    fn a_version_3_map_has_dry_beds() {
+        let rivers: Vec<(u32, u32, f32)> = MAP.rivers.iter().map(|r| (r.cell, r.to, r.area)).collect();
+        let v3 = postcard::to_stdvec(&(3u32, MAP.seed, MAP.n, MAP.m, &MAP.h, &MAP.biome, MAP.spawn, rivers, &MAP.climate)).unwrap();
+        let old = Map::from_bytes(&v3).unwrap();
+        let m = old.m as i32;
+        assert!((0..6).all(|f| MAP.wet_near(f, 0, 0, m - 1, m - 1).is_some()), "the version 4 map has water on every face");
+        let wet: Vec<usize> = (0..6).filter(|&f| old.wet_near(f, 0, 0, m - 1, m - 1).is_some()).collect();
+        let cells = (0..6 * m * m).filter(|&c| old.maybe_wet((c / (m * m)) as usize, (c % m) as f64 + 0.5, ((c / m) % m) as f64 + 0.5)).count();
+        assert_eq!((wet, cells), (vec![], 0), "water on a map of version 3");
+    }
 
     /// Two diagonal reaches that cross (a 2 x 2 of cells draining crosswise) would give two beds where they
     /// meet. Steepest descent cannot make one (each diagonal needs the other's end lower); a flat's flood

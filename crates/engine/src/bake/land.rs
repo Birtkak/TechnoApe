@@ -726,23 +726,21 @@ pub fn erode(g: &Grid, h: &mut [f32], u: &[f32], p: &Params, iters: usize, dt: f
 /// neighbours, by true distance, so it is as smooth across a seam as inside a face. (Bilinear inside each
 /// face, clamped at its border, made the seams steps 3 to 4 times steeper than anywhere else: measured.)
 pub fn upsample(gc: &Grid, gf: &Grid, v: &[f32]) -> Vec<f32> {
+    (0..gf.n() as u32).into_par_iter().map(|c| upsample_at(gc, gf.dir[c as usize], gc.locate(gf.d(c)), v)).collect()
+}
+
+/// `upsample` at one unit direction `d` that lies in coarse cell `k` (the map's climate at a point).
+pub fn upsample_at(gc: &Grid, d: [f32; 3], k: u32, v: &[f32]) -> f32 {
     let s = (gc.r * std::f64::consts::FRAC_PI_2 / gc.m as f64) as f32 * 1.3;
-    (0..gf.n() as u32)
-        .into_par_iter()
-        .map(|c| {
-            let d = gf.dir[c as usize];
-            let k = gc.locate(gf.d(c));
-            let (mut sum, mut wsum) = (0.0f32, 0.0f32);
-            for o in std::iter::once(k).chain(gc.around(k)) {
-                let e = gc.dir[o as usize];
-                let dist = ((d[0] - e[0]).powi(2) + (d[1] - e[1]).powi(2) + (d[2] - e[2]).powi(2)).sqrt() * gc.r as f32;
-                let w = (1.0 - dist / s).max(0.0);
-                sum += w * v[o as usize];
-                wsum += w;
-            }
-            sum / wsum
-        })
-        .collect()
+    let (mut sum, mut wsum) = (0.0f32, 0.0f32);
+    for o in std::iter::once(k).chain(gc.around(k)) {
+        let e = gc.dir[o as usize];
+        let dist = ((d[0] - e[0]).powi(2) + (d[1] - e[1]).powi(2) + (d[2] - e[2]).powi(2)).sqrt() * gc.r as f32;
+        let w = (1.0 - dist / s).max(0.0);
+        sum += w * v[o as usize];
+        wsum += w;
+    }
+    sum / wsum
 }
 
 pub struct River {

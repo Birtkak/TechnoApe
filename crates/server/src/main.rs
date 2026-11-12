@@ -74,14 +74,16 @@ fn main() {
             report = Instant::now();
             let w = &server.world.water;
             println!(
-                "{{\"tick\":{},\"players\":{},\"edits\":{},\"water\":{{\"stored\":{},\"awake\":{},\"skipped\":{},\"bytes\":{}}}}}",
+                "{{\"tick\":{},\"players\":{},\"edits\":{},\"water\":{{\"stored\":{},\"awake\":{},\"skipped\":{},\"bytes\":{}}},\"air\":{}}}",
                 server.tick,
                 server.players(),
                 server.world.edit_count,
                 w.stored(),
                 w.awake(),
                 server.water_skipped,
-                server.water_bytes
+                server.water_bytes,
+                // the live air (W3): its clock and the last job's time on its worker
+                server.weather.as_ref().map_or("null".into(), |w| format!("{{\"t\":{:.0},\"job_ms\":{:.3}}}", w.view().t, w.view().ms))
             );
         }
         next += step;

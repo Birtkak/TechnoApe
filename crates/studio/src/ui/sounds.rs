@@ -587,8 +587,7 @@ impl Sounds {
         }
     }
 
-    fn wave_area(&mut self, ui: &mut Ui) {
-        let h = (ui.available_height() * 0.28).clamp(90.0, 200.0);
+    fn wave_area(&mut self, ui: &mut Ui, h: f32) {
         let (r, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), h), Sense::click());
         let p = ui.painter_at(r);
         p.rect_filled(r, 6.0, ui.visuals().extreme_bg_color);
@@ -641,7 +640,7 @@ impl Sounds {
 
     fn layers(&mut self, ui: &mut Ui, app: &mut App) {
         let Some(d) = self.doc() else { return };
-        look::section(ui, "Made from");
+        look::heading(ui, "Made from");
         if d.s.from.is_empty() {
             look::weak(ui, format!("{} code layers (waves and noise), kept as written; the chain works on them too", d.s.keys.get("layer").map_or(0, |l| l.matches("wave").count())));
             return;
@@ -713,7 +712,7 @@ impl Sounds {
         let chain = d.s.chain.clone();
         let s0 = d.s.clone();
         ui.horizontal(|ui| {
-            look::section(ui, "Chain");
+            look::heading(ui, "Chain");
             look::weak(ui, "each step changes what comes out of the one above");
         });
         let mut rects = vec![];
@@ -964,9 +963,12 @@ impl Page for Sounds {
         ui.add_space(GAP * 0.5);
         self.header(ui, app);
         self.family_strip(ui, app);
-        self.wave_area(ui);
+        // the wave over the chain, the bar between them dragged
+        let total = ui.available_height().max(1.0);
+        let share = (total * 0.28).clamp(90.0, 200.0) / total;
+        self.wave_area(ui, look::split(ui, "wave", share, total));
         self.takes_row(ui);
-        ui.separator();
+        look::split_bar(ui, "wave", share, total);
         egui::ScrollArea::vertical().id_salt("sound work").auto_shrink([false, false]).show(ui, |ui| {
             self.layers(ui, app);
             ui.add_space(GAP * 0.5);
@@ -975,136 +977,138 @@ impl Page for Sounds {
     }
 
     fn inspector(&mut self, ui: &mut Ui, app: &mut App) {
-        look::section(ui, "Sound");
-        let cmds = self.commands(app);
-        ui.horizontal_wrapped(|ui| {
-            for (id, label) in [("undo", "Undo"), ("redo", "Redo"), ("save", "Save"), ("copy", "Copy")] {
-                let c = cmds.iter().find(|c| c.id == id).unwrap();
-                if look::tip(ui.button(label), &c.help, &c.keys()).clicked() {
-                    self.run(app, id);
-                }
-            }
-            let bases = self.bases();
-            ui.menu_button("New from…", |ui| {
-                for b in bases.iter().filter(|b| b.starts_with("base.")) {
-                    if ui.button(b).clicked() {
-                        self.new_row(Some(b));
-                        ui.close();
+        if let Some(mut sec) = look::section(ui, "Sound") {
+            let ui = &mut *sec;
+            let cmds = self.commands(app);
+            ui.horizontal_wrapped(|ui| {
+                for (id, label) in [("copy", "Copy")] {
+                    let c = cmds.iter().find(|c| c.id == id).unwrap();
+                    if look::tip(ui.button(label), &c.help, &c.keys()).clicked() {
+                        self.run(app, id);
                     }
                 }
-            })
-            .response
-            .on_hover_text("A new row made from a base: then its chain");
-        });
-        ui.separator();
+                let bases = self.bases();
+                ui.menu_button("New from…", |ui| {
+                    for b in bases.iter().filter(|b| b.starts_with("base.")) {
+                        if ui.button(b).clicked() {
+                            self.new_row(Some(b));
+                            ui.close();
+                        }
+                    }
+                })
+                .response
+                .on_hover_text("A new row made from a base: then its chain");
+            });
+        }
         if let Some(s) = self.doc().map(|d| d.s.clone()) {
-            look::section(ui, "Row");
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("bus").small());
-                for b in crate::sound::BUSES {
-                    if look::tip(look::chip(ui, s.bus() == b, b), "Whose volume slider it follows in the game's Sound settings", "").clicked() {
-                        self.edit("Bus", |s| s.set_bus(b));
+            if let Some(mut sec) = look::section(ui, "Row") {
+                let ui = &mut *sec;
+                look::row(ui, "bus", |ui| {
+                    ui.spacing_mut().button_padding.x = 6.0; // four chips on one line
+                    for b in crate::sound::BUSES {
+                        if look::tip(look::chip(ui, s.bus() == b, b), "Whose volume slider it follows in the game's Sound settings", "").clicked() {
+                            self.edit("Bus", |s| s.set_bus(b));
+                        }
+                    }
+                });
+                for (i, (key, _, min, max, help)) in crate::sound::SCALARS.iter().enumerate() {
+                    look::row(ui, key, |ui| {
+                        let mut v = s.scalar(i);
+                        let r = ui.add(egui::Slider::new(&mut v, *min..=*max).fixed_decimals(if *max > 10.0 { 0 } else { 2 }).suffix(if *key == "reach" { " m" } else { "" }));
+                        if look::tip(r, help, "").changed() {
+                            self.edit_merged(key, |s| s.set_scalar(i, v));
+                        }
+                    });
+                }
+            }
+        }
+        if let Some(mut sec) = look::section(ui, "In place") {
+            let ui = &mut *sec;
+            look::row(ui, "distance", |ui| {
+                let reach = self.row.as_ref().map_or(24.0, |r| r.reach);
+                look::tip(ui.add(egui::Slider::new(&mut self.distance, 0.0..=reach).fixed_decimals(1).suffix(" m")), "Heard as the game hears it this far ahead (0: in the head); gone at the row's reach", "");
+            });
+            look::row(ui, "room", |ui| {
+                if look::tip(look::chip(ui, !self.in_cave, "Open"), "In the open: as it is", "").clicked() {
+                    self.in_cave = false;
+                }
+                if look::tip(look::chip(ui, self.in_cave, "Cave"), "In a stone room: a long ring, a little duller", "").clicked() {
+                    self.in_cave = true;
+                }
+            });
+        }
+        if let Some(mut sec) = look::section(ui, "Starts") {
+            let ui = &mut *sec;
+            look::weak(ui, "a ready chain, added to the stack");
+            let mut pick = None;
+            egui::Grid::new("starts").num_columns(2).spacing(Vec2::new(4.0, 4.0)).show(ui, |ui| {
+                for (k, (name, help, _)) in STARTS.iter().enumerate() {
+                    let w = (ui.available_width() / if k % 2 == 0 { 2.0 } else { 1.0 } - 4.0).max(60.0);
+                    if look::tip(ui.add_sized(Vec2::new(w.min(130.0), 24.0), egui::Button::new(RichText::new(*name).small())), help, "").clicked() {
+                        pick = Some(*name);
+                    }
+                    if k % 2 == 1 {
+                        ui.end_row();
                     }
                 }
             });
-            for (i, (key, _, min, max, help)) in crate::sound::SCALARS.iter().enumerate() {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(*key).small());
-                    ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(60.0);
-                    let mut v = s.scalar(i);
-                    let r = ui.add(egui::Slider::new(&mut v, *min..=*max).fixed_decimals(if *max > 10.0 { 0 } else { 2 }).suffix(if *key == "reach" { " m" } else { "" }));
-                    if look::tip(r, help, "").changed() {
-                        self.edit_merged(key, |s| s.set_scalar(i, v));
+            if let Some(n) = pick {
+                self.run(app, &format!("start:{n}"));
+            }
+        }
+        if let Some(mut sec) = look::section(ui, "Mutate") {
+            let ui = &mut *sec;
+            ui.horizontal(|ui| {
+                let r = ui.add_enabled(self.doc().is_some_and(|d| !d.s.chain.is_empty()), egui::Button::new("Mutate"));
+                if look::tip(r, "Six variations of the chain's numbers; a click takes one", "M").clicked() {
+                    self.mutate();
+                }
+                if self.wall.is_some() && look::tip(ui.small_button("close"), "Put the wall away", "").clicked() {
+                    self.wall = None;
+                }
+            });
+            let mut act = wallui::Act::None;
+            let chosen = self.doc().and_then(|d| self.wall.as_ref()?.items.iter().position(|c| *c == d.s.chain));
+            let waves = self.wall_waves.clone();
+            if let Some(w) = &mut self.wall {
+                let cell = Vec2::new(((ui.available_width() - 3.0 * GAP) / 3.0).floor().max(60.0), 44.0);
+                act = wallui::show_with(ui, w, chosen, cell, true, |p, r, i, _| match waves.get(i).and_then(|x| x.as_ref()) {
+                    Some(x) => draw_wave(p, r, x, true, Color32::from_gray(170)),
+                    None => {
+                        p.text(r.center(), egui::Align2::CENTER_CENTER, "…", egui::FontId::proportional(look::SMALL), Color32::from_gray(120));
                     }
                 });
             }
-            ui.separator();
-        }
-        look::section(ui, "In place");
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("distance").small());
-            ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(60.0);
-            let reach = self.row.as_ref().map_or(24.0, |r| r.reach);
-            look::tip(ui.add(egui::Slider::new(&mut self.distance, 0.0..=reach).fixed_decimals(1).suffix(" m")), "Heard as the game hears it this far ahead (0: in the head); gone at the row's reach", "");
-        });
-        ui.horizontal(|ui| {
-            if look::tip(look::chip(ui, !self.in_cave, "Open"), "In the open: as it is", "").clicked() {
-                self.in_cave = false;
-            }
-            if look::tip(look::chip(ui, self.in_cave, "Cave"), "In a stone room: a long ring, a little duller", "").clicked() {
-                self.in_cave = true;
-            }
-        });
-        ui.separator();
-        look::section(ui, "Starts");
-        look::weak(ui, "a ready chain, added to the stack");
-        let mut pick = None;
-        egui::Grid::new("starts").num_columns(2).spacing(Vec2::new(4.0, 4.0)).show(ui, |ui| {
-            for (k, (name, help, _)) in STARTS.iter().enumerate() {
-                let w = (ui.available_width() / if k % 2 == 0 { 2.0 } else { 1.0 } - 4.0).max(60.0);
-                if look::tip(ui.add_sized(Vec2::new(w.min(130.0), 24.0), egui::Button::new(RichText::new(*name).small())), help, "").clicked() {
-                    pick = Some(*name);
+            let gen: crate::wall::Gen<Vec<Card>> = &sound::mutate;
+            match act {
+                wallui::Act::Take(i) => self.run(app, &format!("take:{i}")),
+                wallui::Act::More(i) => {
+                    if let Some(w) = &mut self.wall {
+                        w.more_like(i, gen);
+                    }
                 }
-                if k % 2 == 1 {
-                    ui.end_row();
+                wallui::Act::Back => {
+                    if let Some(w) = &mut self.wall {
+                        w.back();
+                    }
                 }
-            }
-        });
-        if let Some(n) = pick {
-            self.run(app, &format!("start:{n}"));
-        }
-        ui.separator();
-        look::section(ui, "Mutate");
-        ui.horizontal(|ui| {
-            let r = ui.add_enabled(self.doc().is_some_and(|d| !d.s.chain.is_empty()), egui::Button::new("Mutate"));
-            if look::tip(r, "Six variations of the chain's numbers; a click takes one", "M").clicked() {
-                self.mutate();
-            }
-            if self.wall.is_some() && look::tip(ui.small_button("close"), "Put the wall away", "").clicked() {
-                self.wall = None;
-            }
-        });
-        let mut act = wallui::Act::None;
-        let chosen = self.doc().and_then(|d| self.wall.as_ref()?.items.iter().position(|c| *c == d.s.chain));
-        let waves = self.wall_waves.clone();
-        if let Some(w) = &mut self.wall {
-            let cell = Vec2::new(((ui.available_width() - 3.0 * GAP) / 3.0).floor().max(60.0), 44.0);
-            act = wallui::show_with(ui, w, chosen, cell, true, |p, r, i, _| match waves.get(i).and_then(|x| x.as_ref()) {
-                Some(x) => draw_wave(p, r, x, true, Color32::from_gray(170)),
-                None => {
-                    p.text(r.center(), egui::Align2::CENTER_CENTER, "…", egui::FontId::proportional(look::SMALL), Color32::from_gray(120));
+                wallui::Act::Shuffle => {
+                    if let Some(w) = &mut self.wall {
+                        w.shuffle(gen);
+                    }
                 }
-            });
-        }
-        let gen: crate::wall::Gen<Vec<Card>> = &sound::mutate;
-        match act {
-            wallui::Act::Take(i) => self.run(app, &format!("take:{i}")),
-            wallui::Act::More(i) => {
-                if let Some(w) = &mut self.wall {
-                    w.more_like(i, gen);
+                wallui::Act::Spread => {
+                    if let Some(w) = &mut self.wall {
+                        w.fill(6, gen);
+                    }
                 }
-            }
-            wallui::Act::Back => {
-                if let Some(w) = &mut self.wall {
-                    w.back();
+                wallui::Act::Play(i) => {
+                    if let Some(x) = self.wall_waves.get(i).cloned().flatten() {
+                        self.in_turn(vec![x]);
+                    }
                 }
+                wallui::Act::None => {}
             }
-            wallui::Act::Shuffle => {
-                if let Some(w) = &mut self.wall {
-                    w.shuffle(gen);
-                }
-            }
-            wallui::Act::Spread => {
-                if let Some(w) = &mut self.wall {
-                    w.fill(6, gen);
-                }
-            }
-            wallui::Act::Play(i) => {
-                if let Some(x) = self.wall_waves.get(i).cloned().flatten() {
-                    self.in_turn(vec![x]);
-                }
-            }
-            wallui::Act::None => {}
         }
     }
 

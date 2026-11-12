@@ -7,6 +7,8 @@
 //! `effects file` (an effects file read on the reading thread, its rows played from then on; ADR 0050) and
 //! `effect name` (that row or group lasting on the stand cell's floor, from its start; `effect -` none). Effects
 //! play when the run has `fx=1`.
+//! `bare 1` leaves the land, the sea and the sky out of the picture (a plain grey instead; the light stays the
+//! place's and the time's), `bare 0` draws them again.
 //! `state name` puts the shown model in that state (its clip, effects at points, sound, light; ADR 0050); `state -` none.
 //! A frame is a line `frame id w h fov` then w * h * 4 bytes of RGBA. Stdin closing ends the run.
 use super::*;
@@ -29,12 +31,14 @@ pub(crate) struct ViewRun {
     /// The air cell at the stand point's feet: the model's cell, the origin of `place`.
     feet: Block,
     /// Cells `place` changed, with what they were.
-    orig: HashMap<IVec3, u8>,
+    orig: HashMap<IVec3, u16>,
     last: Instant,
     /// Effects files read on the reading thread, and the effect asked for (and whether it plays).
     sets: Receiver<Result<fx::Set, String>>,
     effect: Option<String>,
     effect_on: bool,
+    /// `bare 1`: no land and no sky are drawn, only the model and the effects on a plain ground colour.
+    pub(crate) bare: bool,
 }
 
 impl ViewRun {
@@ -66,7 +70,7 @@ impl ViewRun {
                 let _ = tx.send(Cmd::Quit);
             })
             .expect("a thread for stdin");
-        ViewRun { rx, eye: DVec3::new(2.0, 1.5, 2.5), target: DVec3::splat(0.5), t: 0.0, want: None, feet, orig: HashMap::new(), last: Instant::now(), sets, effect: None, effect_on: false }
+        ViewRun { rx, eye: DVec3::new(2.0, 1.5, 2.5), target: DVec3::splat(0.5), t: 0.0, want: None, feet, orig: HashMap::new(), last: Instant::now(), sets, effect: None, effect_on: false, bare: false }
     }
 
     /// The camera: the eye looking at the target, up the cell's up.
@@ -98,7 +102,7 @@ impl App {
         let wait = Duration::from_millis(16).saturating_sub(v.last.elapsed());
         std::thread::sleep(wait);
         v.last = Instant::now();
-        let mut places: Vec<(Block, Option<u8>)> = Vec::new();
+        let mut places: Vec<(Block, Option<u16>)> = Vec::new();
         // a new effects file: what plays keeps playing with its new numbers; one asked for before it came starts now
         for s in v.sets.try_iter() {
             match s.and_then(|s| self.fx.swap(s)) {
@@ -120,6 +124,7 @@ impl App {
             match f.first().copied() {
                 Some("cam") => (v.eye, v.target) = (DVec3::new(num(1), num(2), num(3)), DVec3::new(num(4), num(5), num(6))),
                 Some("time") => self.time0 = num(1),
+                Some("bare") => v.bare = num(1) != 0.0,
                 Some("frame") => v.want = Some(num(1) as u64),
                 Some("model") => {
                     // a last word `@x,z,yaw`: it stands that far from its cell (metres), turned (radians); the walk in a circle
@@ -200,11 +205,11 @@ impl App {
 
 /// `di:dj:dl:block` (`_` for a space, none for air): the offset from the stand cell, within `PLACE_REACH`, and
 /// the block.
-fn place_spec(spec: &str) -> Option<(IVec3, u8)> {
+fn place_spec(spec: &str) -> Option<(IVec3, u16)> {
     let p: Vec<&str> = spec.split(':').collect();
     let d = (p.len() == 4).then(|| Some(IVec3::new(p[0].parse().ok()?, p[1].parse().ok()?, p[2].parse().ok()?))).flatten().filter(|d| d.to_array().iter().all(|v| (-PLACE_REACH..=PLACE_REACH).contains(v)))?;
     let name = p[3].replace('_', " ");
-    let id = if name.trim().is_empty() { Some(AIR) } else { (0..=255u8).filter_map(|i| BLOCKS.get(i)).find(|b| b.name == name).map(|b| b.id) }?;
+    let id = if name.trim().is_empty() { Some(AIR) } else { (0..=255u16).filter_map(|i| BLOCKS.get(i)).find(|b| b.name == name).map(|b| b.id) }?;
     Some((d, id))
 }
 

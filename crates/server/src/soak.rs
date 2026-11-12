@@ -134,7 +134,7 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
     } else if r < 0.085 {
         let feet = s.clients[me].phys.pos;
         let at = feet + b.rng.dir() * b.rng.range(0.0, 3.0);
-        let ids: Vec<u8> = BLOCKS.placeable().map(|d| d.id).collect();
+        let ids: Vec<u16> = BLOCKS.placeable().map(|d| d.id).collect();
         let m = if b.rng.f() < 0.5 { 0 } else { ids[(b.rng.next() % ids.len() as u64) as usize] };
         // a single block, the 1 m brush, a wall or a floor, some of them over the size limit or out of reach
         let mut k = |n: u64| (b.rng.next() % n) as i32;

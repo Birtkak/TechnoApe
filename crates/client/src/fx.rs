@@ -136,7 +136,7 @@ pub struct Row {
     pub grad: Vec<(f32, [f32; 3])>,
     /// `texture` as a block id.
     #[serde(skip)]
-    pub tex: u8,
+    pub tex: u16,
     #[serde(default)]
     pub start: Start,
     #[serde(default)]
@@ -443,7 +443,7 @@ pub struct At {
     /// The column the floor is under; `Column::NONE` keeps the floor wherever the particle goes (the water's
     /// spray, whose floor is the water's).
     pub col: Column,
-    pub block: u8,
+    pub block: u16,
     /// The cell, for a `block` look: drawn exactly where the terrain draws it.
     pub cell: Option<Block>,
 }
@@ -497,7 +497,7 @@ pub fn ground(world: &World, b: Block) -> (f32, Column) {
 impl At {
     /// A cell: its middle, its frame and size from the grid, and the floor under it (`ground`: a break's cell
     /// is air by now).
-    pub fn cell(world: &World, b: Block, block: u8) -> At {
+    pub fn cell(world: &World, b: Block, block: u16) -> At {
         let body = &world.bodies[b.body as usize];
         let c = b.pos.as_dvec3() + 0.5;
         let r = body.layer_r(c.z);
@@ -547,7 +547,7 @@ struct P {
     col: Column,
     row: u16,
     body: u8,
-    block: u8,
+    block: u16,
     rest: bool,
     /// For the shader: the debris' texel seed, or the cell's columns i | j << 15 for a `block` look.
     a: u32,
@@ -1235,7 +1235,7 @@ fn cell_code(c: Block) -> (u32, u32) {
 }
 
 /// A cell the client's world changed, with what it was: a solid block gone plays the break, one come the place.
-pub fn changed(fx: &mut Fx, world: &World, b: Block, was: u8, now: u8) {
+pub fn changed(fx: &mut Fx, world: &World, b: Block, was: u16, now: u16) {
     if !fx.on || was == now {
         return;
     }
@@ -1260,7 +1260,7 @@ pub fn changed(fx: &mut Fx, world: &World, b: Block, was: u8, now: u8) {
 /// world shows the change, so a cell this client already changed itself plays nothing twice. Whether it
 /// shows, and what the cell was when that was read: with effects on, or `hear` (its sound, frame.rs); a
 /// block read costs the terrain's noise, so a batch of hundreds reads only what it needs (ADR 0032).
-pub fn server_edit(fx: &mut Fx, pred: &mut Predictor, world: &mut World, b: Block, m: u8, hear: bool) -> (bool, Option<u8>) {
+pub fn server_edit(fx: &mut Fx, pred: &mut Predictor, world: &mut World, b: Block, m: u16, hear: bool) -> (bool, Option<u16>) {
     let was = (fx.on || hear).then(|| world.block(b));
     let shows = pred.server(world, b, m);
     if let (true, Some(was)) = (shows, was) {

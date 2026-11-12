@@ -96,3 +96,16 @@ single copper voxel in the game's frame, clicks it with Add and checks the voxel
 the orbit and the frame. The pick was right. A shot now settles the view after its input, and its `view`
 report carries the orbit. The Palette page gained undo (ADR 0046's page writes at once, so a step holds the
 file's old text and undo writes it back and repaints the textures).
+
+**Added 2026-11-12 (no background).** The view's scenes gain "None" beside Grass and Cave: the thing alone on a
+plain grey. A new line `bare 1|0` to the view; the frame then skips the sky, the land's and the sea's draws and
+clears to the grey, nothing else. The light is unchanged (the sun, the time and the land's shadows still fall on
+the model: at night it is dark on the same grey). Checked by shots of a model by day and an effect at 23:00.
+A structure's blocks and a texture's cube are land, so "None" would show nothing there: the Structures and
+Textures pages do not offer it (`Viewport::land_only`) and show Grass. The Fauna page's circle pad is land
+too: on "None" the creature walks its circle on the grey.
+
+**Added 2026-11-12 (the checkerboard).** A fourth scene, Checker: the bare frame with its ground colour made a
+checkerboard in the Studio (`viewport::checker`, tested): the ground is the colour three of the four corners
+share, every pixel of exactly that colour takes the board. Known limit, in the code as a shortcut: a pixel of
+the thing in exactly the ground's grey turns checkered too; the renderer sending a mask would end that.

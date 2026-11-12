@@ -24,9 +24,9 @@ pub const PERIOD: f64 = 432.0 * DAY;
 /// How much smaller the sun looks than the moon from the ground right under the moon: 5 %, as the Moon on a total
 /// eclipse is 3 to 6 % bigger than the Sun, so totality lasts about 2 s on the 4 km Terra (ADR 0041; 0.995 gave 0.2 s).
 pub const SUN_UNDER_MOON: f64 = 0.95;
-/// The lean of the planet's spin axis from the ecliptic's pole: the design's proposal, 20 degrees (worldgen.md;
+/// The lean of the planet's spin axis from the ecliptic's pole: 25 degrees (the developer tried it over the design's 20 for stronger seasons, ADR 0060; worldgen.md;
 /// an open taste call, ADR 0055). 0 is the sky before the seasons.
-pub const TILT: f64 = 20.0 * TAU / 360.0;
+pub const TILT: f64 = 25.0 * TAU / 360.0;
 /// How much warmer than its yearly mean a place is per unit of sin(latitude) sin(declination): 40 K makes the
 /// 45-degree latitudes swing some 10 K either way of the mean over the year at TILT (ADR 0055, open to taste).
 pub const SEASON_K: f64 = 40.0;
@@ -176,6 +176,24 @@ pub fn next_season(t: f64, q: u32) -> f64 {
     let days = (ahead / DAY).round();
     // a round up to a whole year: the season's start is under half a day behind, so stay
     t + if days * DAY >= YEAR { 0.0 } else { days * DAY }
+}
+
+/// The season a block's look takes (docs/design/seasonal-looks.md) where the planet's body-frame up is `up`, at
+/// world time t: the year's phase in quarter turns, 0..4 (0 spring, 1 summer, 2 autumn, 3 winter; the south
+/// half a year on), and how much of a season the place has, 0 near the equator to 1 from the mid latitudes on
+/// (a smooth step from 10 to 35 degrees, taken on the latitude's sine). shader.wgsl `season` is its port.
+/// shortcut: latitude stands in for the climate and the sun for the temperature that trails it; upgrade to the
+/// baked climate's summer-to-winter swing and a fixed lag when a warm coast turning with a cold peak looks wrong.
+pub fn season_at(up: DVec3, t: f64) -> (f64, f64) {
+    let s = ((up.z.abs() - SEASON_FROM) / (SEASON_FULL - SEASON_FROM)).clamp(0.0, 1.0);
+    ((t / YEAR * 4.0 + if up.z < 0.0 { 2.0 } else { 0.0 }).rem_euclid(4.0), s * s * (3.0 - 2.0 * s))
+}
+/// The sines of the latitudes where a look's seasons begin (10 degrees) and are whole (35).
+const SEASON_FROM: f64 = 0.1736;
+const SEASON_FULL: f64 = 0.5736;
+/// A stagger of `days` (a block row's, `blocks::Def::stagger`) in the look table's unit: 1/1024 quarter turn.
+pub fn stagger_units(days: f32) -> u32 {
+    (days as f64 * DAY / (YEAR / 4.0) * 1024.0).round() as u32
 }
 
 /// The air's temperature at the ground, C: the place's yearly mean `mean` and its day's swing `swing` (K,
@@ -403,7 +421,7 @@ mod tests {
         // ADR (seasons): the spin axis tilted TILT, t = 0 the northern spring equinox
         let s = sky();
         let e = s.tilt.to_degrees();
-        assert!((e - 20.0).abs() < 1e-9, "the design's proposal");
+        assert!((e - 25.0).abs() < 1e-9, "the developer's tilt");
         for (t, decl) in [(0.0, 0.0), (YEAR / 4.0, e), (YEAR / 2.0, 0.0), (0.75 * YEAR, -e)] {
             assert!((s.declination(t).to_degrees() - decl).abs() < 0.05, "{t}: {}", s.declination(t).to_degrees());
             for lat in [0.0, 30.0, 60.0, -45.0] {
@@ -439,6 +457,26 @@ mod tests {
         assert!(day_length(0.8, s.tilt) > 0.6 * DAY && day_length(0.8, -s.tilt) < 0.4 * DAY);
         assert_eq!(day_length(1.5, s.tilt), DAY);
         assert_eq!(day_length(-1.5, s.tilt), 0.0);
+    }
+
+    #[test]
+    fn a_looks_season_follows_the_year_and_the_hemisphere() {
+        let at = |lat: f64| DVec3::new(lat.to_radians().cos(), 0.0, lat.to_radians().sin());
+        for t in [0.0, 777.0, YEAR / 3.0, 5.6 * YEAR] {
+            assert_eq!(season_at(at(0.0), t).1, 0.0, "the equator has no seasons");
+            assert_eq!(season_at(at(-8.0), t).1, 0.0);
+            assert_eq!((season_at(at(40.0), t).1, season_at(at(-80.0), t).1), (1.0, 1.0), "the mid latitudes on have them whole");
+            let (n, s) = (season_at(at(50.0), t).0, season_at(at(-50.0), t).0);
+            assert!((0.0..4.0).contains(&n) && ((s - n).rem_euclid(4.0) - 2.0).abs() < 1e-9, "the south is half a year on: {n} {s}");
+        }
+        let mid = season_at(at(22.0), 0.0).1;
+        assert!(mid > 0.2 && mid < 0.8, "between, a part: {mid}");
+        // `/time set <season>` lands on that season's pure look: within half a day of its start
+        for q in 0..4 {
+            let p = season_at(at(50.0), next_season(100.0, q)).0;
+            let off = (p - q as f64 + 2.0).rem_euclid(4.0) - 2.0;
+            assert!(off.abs() <= 0.5 * DAY / (YEAR / 4.0) + 1e-9, "season {q}: phase {p}");
+        }
     }
 
     #[test]

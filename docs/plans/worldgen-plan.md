@@ -60,10 +60,14 @@ walking a river;
 
 ### W3. Air, climate, seasons, biomes
 **Status (2026-11-12, ADR 0042, 0043, 0055):** the climate and the fifteen biomes are baked; the sky has its
-tilt (20 degrees, open) and seasons over the 54-day year, `/time set summer` and the others, and F3 shows the
-air's temperature (the biome's yearly mean with the season and hour on top). Not yet: the map keeping each
-cell's baked temperature, the air grid's tick spike and live weather, the rain check, views at four seasons
-in `tests/views/`.
+tilt (25 degrees since ADR 0060, open) and seasons over the 54-day year, `/time set summer` and the others, and F3 shows the
+air's temperature (the biome's yearly mean with the season and hour on top). **Done (2026-11-12, ADR 0060):**
+the tick spike (`prototypes/air`), the bake's climate over a year with the sky's seasons, the map keeping its
+climate (each cell's baked temperature, map version 3), the live air grid on the server (10 s steps on a
+worker, in the save and the soak's hash, the air at a player's feet over the wire, runoff per column for W5),
+seasons through the whole air (the upper air's balance and the wind bands follow the sun; the spawn's noon -2 C in winter, 28 C in summer), the rain check (Terra within 0.3 % per biome, tolerance 5 %) and four season views in `tests/views/`. Waiting:
+the developer's look at the views (the old ones moved with the biomes) and the open taste calls below.
+Visible weather is the roadmap's next step.
 - **First the spike ADR 0010 already asks for:** the coarse air grid's tick cost on Terra (target under
   0.5 ms of the server tick).
 - The same model run to a steady year inside the bake (stage 5); biomes, soil and surface blocks from it
@@ -72,6 +76,19 @@ in `tests/views/`.
 - **Taste calls:** tilt and season strength; the biome list and each biome's look.
 - Checks: the bake's mean rain against a year of live weather, per biome (within a set tolerance);
   views at four seasons.
+
+### W3b. Seasonal looks (after W3; `docs/design/seasonal-looks.md`)
+**Status (2026-11-12, ADR 0061):** the spike (about 0.03 ms of GPU, no CPU), the season rows in
+`data/blocks.toml`, the four-row look table and the shader's mix are built, with first-guess colours on the
+grasses, broadleaf leaves, shrub and reed. Waiting: the developer's colours and autumn's length. Not yet:
+painted season files, the Studio's season tabs and year slider, the hotbar and the block in hand.
+- The developer's call (2026-11-12): grass and leaves stay one block each, their look follows the season,
+  and the Studio paints a block's seasons. Nothing stored, no remesh: the shader mixes four looks by place
+  and clock.
+- Spike first: the shader's cost on `stand` and `orbit`.
+- **Taste calls:** each season's colours from a sheet; how long autumn's colour lasts.
+- Checks: a year's filmstrip at the spawn and from orbit; views without a season block unchanged.
+- Not in it: snow on the ground (weather, its own design), bare trees (W7).
 
 ### W4. Rock, caves and ore
 - **First:** block ids to 16 bits (its own ADR), and one shared `generated block at (column, layer)`
@@ -84,6 +101,9 @@ in `tests/views/`.
   against what `progression.md` needs per tier; a bot digs a body out and the ledger reaches zero.
 
 ### W5. Rivers, lakes and tides
+**Calls (the developer, 2026-11-12):** rivers and lakes first, tides after; the tide is 1 m low to high at
+springs. W3's air grid is not live yet, so a reach's runoff is the bake's mean rain over its catchment
+until it is; the reach graph takes the live rain later without a change of shape.
 - Spike: a river reach at rest described by the bake, live water when disturbed, the ledger across the
   hand-over (ADR 0020's still sea is the model).
 - Spike: a sea level that moves with Luna, in the shader, the physics and the waterline rule.
@@ -93,7 +113,7 @@ in `tests/views/`.
 - **Status (2026-11-12, ADR 0059): rivers and lakes done; tides open.**
   - Generated water stands in beds and lakes; touched water goes live and is forgotten again.
   - The reaches pass what they take in down to the sea, and `Liquids::rain` waits for W3's runoff.
-  - Saves are version 9 (W3's 8 still reads); bots dam rivers in the soak with the ledger exact.
+  - Maps are version 4 (climate and lakes; 3, 2 and 1 still read), saves version 9 (8 with its air still reads); bots dam rivers in the soak with the ledger exact.
   - A walker follows a river from spring to sea in water.
   - Open: the look (the developer's call), joining W3's air ledger once both are merged, and tides.
 

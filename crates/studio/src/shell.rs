@@ -1,34 +1,75 @@
 //! The frame's logic without a window (docs/design/studio-tools.md "The interface"): `studio.txt`, the command
 //! box's matching, the files column's filters, the watch on `data/` and what an outside change does.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 pub const SETTINGS: &str = "studio.txt";
 
-/// What `studio.txt` keeps: the panel widths (points) and the interface scale.
+/// What `studio.txt` keeps: the panel widths (points), the interface scale and the layout as the developer
+/// left it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     pub files_w: f32,
     pub inspector_w: f32,
     pub scale: f32,
+    /// The inspector on the left and the files on the right.
+    pub swap: bool,
+    /// Side panels hidden on a page, as "Page/files" and "Page/inspector": each page has its own.
+    pub hidden: BTreeSet<String>,
+    /// A page's own panel widths as dragged, by the same names; `files_w` and `inspector_w` until then.
+    pub widths: BTreeMap<String, f32>,
+    /// A page's inspector sections in the developer's order (those not named follow in the page's own).
+    pub order: BTreeMap<String, Vec<String>>,
+    /// Inspector sections folded shut, as "Page/Section".
+    pub folded: BTreeSet<String>,
+    /// Dragged dividers of a page's work area, as "Page/name": the upper part's share of the height.
+    pub splits: BTreeMap<String, f32>,
+    /// Where the developer was: the page shown, and each page's open file (the Studio starts there again).
+    pub page: String,
+    pub open: BTreeMap<String, String>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { files_w: 210.0, inspector_w: 280.0, scale: 1.0 }
+        Settings { files_w: 230.0, inspector_w: 320.0, scale: 1.0, swap: false, hidden: BTreeSet::new(), widths: BTreeMap::new(), order: BTreeMap::new(), folded: BTreeSet::new(), splits: BTreeMap::new(), page: String::new(), open: BTreeMap::new() }
     }
 }
 
 impl Settings {
-    pub const FILES: (f32, f32) = (150.0, 420.0);
-    pub const INSPECTOR: (f32, f32) = (220.0, 520.0);
-    pub const SCALE: (f32, f32) = (0.8, 2.0);
+    pub const FILES: (f32, f32) = (150.0, 800.0);
+    pub const INSPECTOR: (f32, f32) = (220.0, 1200.0);
+    pub const SCALE: (f32, f32) = (0.6, 2.0);
+    pub const SPLIT: (f32, f32) = (0.1, 0.9);
 
     /// `key=value` lines as `settings.txt` has them; a line it does not know or cannot read keeps the default.
     pub fn parse(text: &str) -> Settings {
         let mut s = Settings::default();
         for (k, v) in text.lines().filter_map(|l| l.split_once('=')) {
+            let (k, v) = (k.trim(), v.trim());
+            if k == "fold" || k == "hide" {
+                if !v.is_empty() {
+                    (if k == "fold" { &mut s.folded } else { &mut s.hidden }).insert(v.to_string());
+                }
+                continue;
+            }
+            if k == "page" {
+                s.page = v.to_string();
+                continue;
+            }
+            if let Some(page) = k.strip_prefix("open.") {
+                if !v.is_empty() {
+                    s.open.insert(page.to_string(), v.to_string());
+                }
+                continue;
+            }
+            if let Some(page) = k.strip_prefix("order.") {
+                let list: Vec<String> = v.split('|').filter(|t| !t.is_empty()).map(str::to_string).collect();
+                if !list.is_empty() {
+                    s.order.insert(page.to_string(), list);
+                }
+                continue;
+            }
             let Ok(v) = v.trim().parse::<f32>() else { continue };
             if !v.is_finite() {
                 continue;
@@ -37,14 +78,91 @@ impl Settings {
                 "files" => s.files_w = v.clamp(Self::FILES.0, Self::FILES.1),
                 "inspector" => s.inspector_w = v.clamp(Self::INSPECTOR.0, Self::INSPECTOR.1),
                 "scale" => s.scale = v.clamp(Self::SCALE.0, Self::SCALE.1),
-                _ => {}
+                "swap" => s.swap = v != 0.0,
+                k => {
+                    if let Some(name) = k.strip_prefix("split.") {
+                        s.splits.insert(name.to_string(), v.clamp(Self::SPLIT.0, Self::SPLIT.1));
+                    } else if let Some(name) = k.strip_prefix("width.") {
+                        let (lo, hi) = if name.ends_with("/files") { Self::FILES } else { Self::INSPECTOR };
+                        s.widths.insert(name.to_string(), v.clamp(lo, hi));
+                    }
+                }
             }
         }
         s
     }
     pub fn write(&self) -> String {
-        format!("files={}\ninspector={}\nscale={}\n", self.files_w.round(), self.inspector_w.round(), (self.scale * 100.0).round() / 100.0)
+        let mut t = format!("files={}\ninspector={}\nscale={}\n", self.files_w.round(), self.inspector_w.round(), (self.scale * 100.0).round() / 100.0);
+        if self.swap {
+            t += "swap=1\n";
+        }
+        for (k, set) in [("hide", &self.hidden), ("fold", &self.folded)] {
+            for f in set {
+                t += &format!("{k}={f}\n");
+            }
+        }
+        for (k, v) in &self.widths {
+            t += &format!("width.{k}={}\n", v.round());
+        }
+        for (k, v) in &self.order {
+            t += &format!("order.{k}={}\n", v.join("|"));
+        }
+        for (k, v) in &self.splits {
+            t += &format!("split.{k}={v}\n");
+        }
+        if !self.page.is_empty() {
+            t += &format!("page={}\n", self.page);
+        }
+        for (k, v) in &self.open {
+            t += &format!("open.{k}={v}\n");
+        }
+        t
     }
+}
+
+/// A pixel of the game's font in points at scale 1 (`font.rs`: size 14 of an em of 9.33 pixels).
+pub const FONT_PIXEL: f32 = 1.5;
+/// The interface scale next to `scale` (`dir` 1 up, -1 down, 0 the nearest) among those that draw a pixel of
+/// the font on whole screen pixels, so the text is sharp; `native` is the screen's pixels a point. `scale`
+/// itself when the range holds none.
+pub fn sharp_scale(scale: f32, native: f32, dir: i32) -> f32 {
+    let unit = FONT_PIXEL * native.max(0.1);
+    let (lo, hi) = ((Settings::SCALE.0 * unit).ceil().max(1.0), (Settings::SCALE.1 * unit).floor());
+    if hi < lo {
+        return scale;
+    }
+    ((scale * unit).round() + dir as f32).clamp(lo, hi) / unit
+}
+
+/// What "Try in game" says to a game it started that is still running: the command that stands the open
+/// thing ahead of the player. None where the game shows a saved file by itself (models, effects, textures).
+pub fn game_line(page: &str, open: Option<&str>) -> Option<String> {
+    match (page, open) {
+        ("Structures", Some(n)) => Some(format!("/structure {n}")),
+        ("Fauna", Some(n)) => Some(format!("/spawn {n}")),
+        _ => None,
+    }
+}
+
+/// "Try in game": the game's arguments for a throwaway creative world (no save is kept) with the page's open
+/// thing standing ahead at the spawn; `extra` is what only the page knows (a creature's model).
+pub fn try_args(page: &str, open: Option<&str>, extra: &[String]) -> Vec<String> {
+    // (lines=stdin: the game runs what the Studio sends it later, `game_line`)
+    let mut v: Vec<String> = ["run=play", "onscreen=1", "save=0", "lines=stdin"].map(String::from).into();
+    let mut acts = "0.5:say:/playmode creative".to_string();
+    match (page, open) {
+        ("Models", Some(n)) => v.push(format!("model={n}")),
+        ("Effects", Some(n)) => v.push(format!("fxplay={n}")),
+        ("Structures", Some(n)) => v.push(format!("structure={n}")),
+        ("Fauna", Some(n)) => v.push(format!("creature={n}")),
+        ("Textures", Some(n)) => acts += &format!(",1:say:/give {n} 64"),
+        _ => {}
+    }
+    if open.is_some() {
+        v.extend(extra.iter().cloned());
+    }
+    v.push(format!("acts={acts}"));
+    v
 }
 
 /// How well `query` finds `text` in the command box: every letter in order, ignoring case; a run of the
@@ -189,11 +307,62 @@ mod tests {
     use super::*;
 
     #[test]
+    fn try_in_game_starts_a_throwaway_creative_world_with_the_open_thing_ahead() {
+        let a = |page, open, extra: &[&str]| try_args(page, open, &extra.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        let plain = a("Palette", None, &[]);
+        assert_eq!(plain, ["run=play", "onscreen=1", "save=0", "lines=stdin", "acts=0.5:say:/playmode creative"]);
+        assert!(a("Models", Some("furnace"), &[]).contains(&"model=furnace".to_string()));
+        assert!(a("Effects", Some("fire"), &[]).contains(&"fxplay=fire".to_string()));
+        assert!(a("Structures", Some("oak"), &[]).contains(&"structure=oak".to_string()));
+        let boar = a("Fauna", Some("boar"), &["model=boar:walk"]);
+        assert!(boar.contains(&"creature=boar".to_string()) && boar.contains(&"model=boar:walk".to_string()), "{boar:?}");
+        // a block is given, to place and look at
+        assert_eq!(a("Textures", Some("blue lamp"), &[]).last().unwrap(), "acts=0.5:say:/playmode creative,1:say:/give blue lamp 64");
+        // nothing open: the plain world
+        assert_eq!(a("Models", None, &[]), plain);
+        // to a game already running: the command that stands the thing ahead, where there is one
+        assert_eq!(game_line("Structures", Some("oak")).as_deref(), Some("/structure oak"));
+        assert_eq!(game_line("Fauna", Some("boar")).as_deref(), Some("/spawn boar"));
+        assert!(game_line("Models", Some("ape")).is_none() && game_line("Fauna", None).is_none());
+    }
+
+    #[test]
+    fn the_scale_steps_are_those_that_draw_the_fonts_pixel_on_whole_screen_pixels() {
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-4;
+        // a plain screen: a font pixel is 1, 2 or 3 screen pixels at 67, 133 and 200 %
+        assert!(near(sharp_scale(1.0, 1.0, 0), 4.0 / 3.0) && near(sharp_scale(1.2, 1.0, 0), 4.0 / 3.0));
+        assert!(near(sharp_scale(4.0 / 3.0, 1.0, 1), 2.0) && near(sharp_scale(4.0 / 3.0, 1.0, -1), 2.0 / 3.0));
+        // the ends hold
+        assert!(near(sharp_scale(2.0, 1.0, 1), 2.0) && near(sharp_scale(2.0 / 3.0, 1.0, -1), 2.0 / 3.0));
+        // a screen of 1.5 pixels a point: 89, 133 and 178 %
+        assert!(near(sharp_scale(1.0, 1.5, 0), 2.0 / 2.25) && near(sharp_scale(1.0, 1.5, 1), 3.0 / 2.25));
+        for (s, n) in [(1.0, 1.0), (0.7, 1.25), (1.9, 2.0), (1.3, 1.75)] {
+            let px = sharp_scale(s, n, 0) * FONT_PIXEL * n;
+            assert!(near(px, px.round()) && px >= 1.0, "{s} on {n}: {px}");
+        }
+    }
+
+    #[test]
     fn studio_txt_round_trips_and_holds_its_ranges() {
-        let s = Settings { files_w: 250.0, inspector_w: 300.0, scale: 1.25 };
+        let mut s = Settings { files_w: 250.0, inspector_w: 300.0, scale: 1.25, ..Settings::default() };
         assert_eq!(Settings::parse(&s.write()), s);
-        let t = Settings::parse("scale=7\nfiles=10\ninspector=nope\nother=3\nno line\n");
-        assert_eq!(t, Settings { files_w: 150.0, inspector_w: 280.0, scale: 2.0 });
+        // the layout: hidden panels, the inspector's side, folded sections and dragged dividers
+        // each page's own panels: hidden or not, and how wide
+        s.swap = true;
+        s.hidden.insert("Sounds/inspector".into());
+        s.widths.insert("Models/inspector".into(), 640.0);
+        s.folded.insert("Fauna/Parts".into());
+        s.splits.insert("Structures/view".into(), 0.7);
+        s.order.insert("Fauna".into(), vec!["Gait".into(), "Size and speed".into(), "Body".into()]);
+        // where the developer was: the page and each page's open file
+        s.page = "Sounds".into();
+        s.open.insert("Sounds".into(), "furnace.clank".into());
+        s.open.insert("Textures".into(), "blue lamp".into());
+        assert_eq!(Settings::parse(&s.write()), s);
+        assert!(Settings::parse("open.Models=\n").open.is_empty());
+        let t = Settings::parse("scale=7\nfiles=10\ninspector=nope\nother=3\nno line\nsplit.Models/view=9\nsplit.x=nope\nfold=\nhide=\norder.Models=\nwidth.Models/files=5\nwidth.Models/inspector=99999\n");
+        let widths = [("Models/files".to_string(), Settings::FILES.0), ("Models/inspector".to_string(), Settings::INSPECTOR.1)].into();
+        assert_eq!(t, Settings { files_w: 150.0, inspector_w: 320.0, scale: 2.0, splits: [("Models/view".to_string(), Settings::SPLIT.1)].into(), widths, ..Settings::default() });
         assert_eq!(Settings::parse(""), Settings::default());
         assert_eq!(Settings::parse("scale=NaN").scale, 1.0);
     }

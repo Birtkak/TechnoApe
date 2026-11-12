@@ -8,6 +8,8 @@ pub mod fx;
 mod gi;
 pub mod gpu;
 mod hud;
+/// The game's font as cells, for the Studio's interface (its `font.rs`).
+pub use hud::font_cells;
 mod menu;
 pub mod models;
 mod play;
@@ -412,7 +414,7 @@ pub fn main() {
             fx_edits.push((t, Block { pos: feet.pos + d, ..feet }, id));
         }
         // the soonest last, whatever order they came in
-        fx_edits.sort_by(|a: &(f64, Block, u8), b| b.0.total_cmp(&a.0));
+        fx_edits.sort_by(|a: &(f64, Block, u16), b| b.0.total_cmp(&a.0));
     }
     // play's settings (ADR 0023); every other run keeps the defaults unless settings= names a file (a shot at
     // another screen size)
@@ -444,6 +446,7 @@ pub fn main() {
     let streamer = Streamer::new(&world, cap, opts);
     let el = EventLoop::new().unwrap();
     el.set_control_flow(ControlFlow::Poll);
+    let lines_on = run == "play" && args.s("lines", "") == "stdin";
     let (acts, creative, shot) = (parse_acts(&args.s("acts", "")), run != "play", args.0.get("shot").cloned());
     let time0 = args.get("time", if run == "orbit" { orbit_start(&world) } else { 0.0 });
     let server_at = args.0.get("connect").map_or("on this machine".to_string(), |a| a.clone());
@@ -530,6 +533,7 @@ pub fn main() {
         creative,
         inv: Vec::new(),
         bucket_water: 0,
+        air: None,
         vitals: (engine::vitals::MAX, engine::vitals::MAX),
         health_min: engine::vitals::MAX,
         flash: [(Instant::now() - Duration::from_secs(10), 0); 2],
@@ -580,6 +584,23 @@ pub fn main() {
         bug: None,
         bug_shot: None,
         bug_said: std::sync::mpsc::channel(),
+        lines: lines_on.then(|| {
+            let (tx, rx) = std::sync::mpsc::channel();
+            // (ends with the pipe, or with the game: nothing waits for it)
+            let _ = std::thread::Builder::new().name("lines stdin".into()).spawn(move || {
+                use std::io::{BufRead, Read};
+                // (a line is taken in pieces of 4096 bytes at the most, and what is no text is read past:
+                // neither a line without an end nor a wrong byte stops the lines after it)
+                let mut stdin = std::io::stdin().lock();
+                loop {
+                    let mut buf = Vec::new();
+                    if !matches!((&mut stdin).take(4096).read_until(b'\n', &mut buf), Ok(n) if n > 0) || tx.send(String::from_utf8_lossy(&buf).into_owned()).is_err() {
+                        return;
+                    }
+                }
+            });
+            rx
+        }),
         settings,
         settings_file,
         menu: None,
@@ -651,11 +672,11 @@ pub(crate) const PLACE_REACH: i32 = 64;
 /// A stand's `at=`, `place=`, `fxedit=` and `structure=` read, and `creature=`, `model=` and `fxplay=` checked:
 /// what is wrong names its argument, for one line on stderr (no panic).
 #[allow(clippy::type_complexity)]
-pub fn stand_args(args: &Args, data: &str) -> Result<(Vec<(IVec3, u8)>, Vec<(f64, IVec3, u8)>, Option<engine::structures::Structure>), String> {
-    let block = |n: &str| (0..=255u8).find(|i| BLOCKS.get(*i).is_some_and(|d| d.name == n.replace('_', " "))).ok_or(format!("no block '{n}'"));
+pub fn stand_args(args: &Args, data: &str) -> Result<(Vec<(IVec3, u16)>, Vec<(f64, IVec3, u16)>, Option<engine::structures::Structure>), String> {
+    let block = |n: &str| (0..=255u16).find(|i| BLOCKS.get(*i).is_some_and(|d| d.name == n.replace('_', " "))).ok_or(format!("no block '{n}'"));
     stand_at(args)?;
     let int = |v: &str| v.parse::<i32>().ok().filter(|v| (-PLACE_REACH..=PLACE_REACH).contains(v)).ok_or(format!("'{v}' is not a whole number within {PLACE_REACH} cells"));
-    let each = |key: &str, shape: &str, f: &dyn Fn(&[&str]) -> Result<(f64, IVec3, u8), String>| -> Result<Vec<(f64, IVec3, u8)>, String> {
+    let each = |key: &str, shape: &str, f: &dyn Fn(&[&str]) -> Result<(f64, IVec3, u16), String>| -> Result<Vec<(f64, IVec3, u16)>, String> {
         let spec = args.s(key, "");
         let named = |e: String| format!("{key}={spec}: {e}");
         spec.split(',').filter(|s| !s.is_empty()).map(|one| {

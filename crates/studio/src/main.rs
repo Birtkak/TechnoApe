@@ -14,6 +14,7 @@
 mod art;
 mod drive;
 mod effect;
+mod font;
 mod ramp;
 mod rows;
 mod sound;
@@ -235,7 +236,7 @@ fn main() {
             // a shot never writes the developer's studio.txt
             s.keep_settings();
             if let Some(k) = get("scale").and_then(|k| k.parse::<f32>().ok()) {
-                s.settings.scale = k.clamp(0.8, 2.0);
+                s.settings.scale = k.clamp(shell::Settings::SCALE.0, shell::Settings::SCALE.1);
             }
             for c in get("cmd").into_iter().flat_map(|c| c.split(',')).filter(|c| !c.is_empty()) {
                 s.run_command(c);
@@ -247,7 +248,13 @@ fn main() {
         })
     } else {
         let studio = match load() {
-            Ok(s) => s,
+            Ok(mut s) => {
+                // (open= names a file: that one, not the last one)
+                if get("open").is_none() {
+                    s.resume();
+                }
+                s
+            }
             Err(e) => {
                 eprintln!("technoape-studio: {e}");
                 std::process::exit(1);

@@ -30,7 +30,7 @@ pub enum Tool {
 }
 
 /// Each tool: its id, name, key, and its help for the status line and tooltip.
-const TOOLS: [(Tool, &str, &str, Key, &str); 11] = [
+pub(super) const TOOLS: [(Tool, &str, &str, Key, &str); 11] = [
     (Tool::Pencil, "pencil", "Pencil", Key::B, "Pencil: left paints the first colour, right the second; Alt picks"),
     (Tool::Fill, "fill", "Fill", Key::G, "Fill: fills the touching area of one colour; left the first colour, right the second"),
     (Tool::Picker, "picker", "Picker", Key::I, "Picker: left takes the first colour from the canvas, right the second"),
@@ -542,6 +542,7 @@ impl Textures {
         });
         look::tip(r, "The block in the game's renderer: drag turns, the wheel zooms, the middle drag pans", "");
         self.orbit = app.view.orbit;
+        app.view.land_only = true;
         app.view.controls(ui);
     }
 
@@ -955,106 +956,105 @@ impl Page for Textures {
     }
 
     fn inspector(&mut self, ui: &mut Ui, app: &mut App) {
-        look::section(ui, "Tools");
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::splat(4.0);
-            for (t, _, name, k, help) in TOOLS {
-                let r = ui.selectable_label(self.tool == t, format!("{name} {}", k.name()));
-                if look::tip(r, help, k.name()).clicked() {
-                    self.tool = t;
-                }
-            }
-        });
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::splat(4.0);
-            look::tip(ui.toggle_value(&mut self.mirror, "Mirror M"), "Paint both halves at once, mirrored across the middle", "M");
-            if look::tip(ui.toggle_value(&mut self.tiled, "Tiled T"), "The neighbours ghosted round the face; strokes wrap over the edges", "T").changed() {
-                (self.zoom, self.pan) = (None, Vec2::ZERO);
-            }
-            look::tip(ui.toggle_value(&mut self.seams, "Seams"), "Mark edge pixels that clash with the far edge they meet when tiled", "Shift+T");
-        });
-        self.tool_options(ui, app);
-        let cmds = self.commands(app);
-        ui.horizontal_wrapped(|ui| {
-            for (id, label) in [("undo", "Undo"), ("redo", "Redo"), ("save", "Save")] {
-                let c = cmds.iter().find(|c| c.id == id).unwrap();
-                if look::tip(ui.button(label), &c.help, &c.keys()).clicked() {
-                    self.run(app, id);
-                }
-            }
-        });
-        ui.separator();
-        look::section(ui, "Colours");
-        self.palette(ui, app);
-        ui.separator();
-        look::section(ui, "Start from");
-        ui.horizontal_wrapped(|ui| {
-            let r = ui.button("Pattern");
-            crate::drive::mark(ui.ctx(), "btn:pattern", r.rect);
-            if look::tip(r, "The block's game pattern drawn into this variant, each texel snapped to the palette", "").clicked() {
-                self.start_pattern(app);
-            }
-            if look::tip(ui.button("Make variants"), "A wall of variant sets made from variant 1; a click takes one", "").clicked() {
-                self.open_wall(app);
-            }
-        });
-        ui.horizontal(|ui| {
-            let w = (ui.available_width() - 64.0).max(60.0);
-            let r = ui.add(egui::TextEdit::singleline(&mut self.picture).hint_text("a PNG's path, or drop one").desired_width(w));
-            look::tip(r, "Any PNG cut to 16 x 16 and snapped to the palette, as a rough to paint over", "");
-            if look::tip(ui.button("Open"), "Start this variant from the picture", "").clicked() {
-                let p = self.picture.trim().trim_matches('"').to_string();
-                self.start_picture(app, &p);
-            }
-        });
-        let painted: Vec<String> = app.reg.placeable().map(|d| d.name.clone()).filter(|n| *n != self.block && (0..4).any(|f| app.docs.contains_key(&art::file_name(n, f)))).collect();
-        ui.horizontal(|ui| {
-            let w = (ui.available_width() - 64.0).max(60.0);
-            let r = egui::ComboBox::from_id_salt("copy from block").selected_text(if self.from_block.is_empty() { "another block" } else { &self.from_block }).width(w).show_ui(ui, |ui| {
-                if painted.is_empty() {
-                    look::weak(ui, "no other block is painted yet");
-                }
-                for n in &painted {
-                    ui.selectable_value(&mut self.from_block, n.clone(), n);
+        if let Some(mut sec) = look::section(ui, "Tools") {
+            let ui = &mut *sec;
+            // three columns of tools
+            let w = ((ui.available_width() - 8.0) / 3.0).floor() - 1.0;
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::splat(4.0);
+                for (t, _, name, k, help) in TOOLS {
+                    let r = look::tool(ui, self.tool == t, name, k.name(), w);
+                    if look::tip(r, help, k.name()).clicked() {
+                        self.tool = t;
+                    }
                 }
             });
-            look::tip(r.response, "A painted block to start from", "");
-            if look::tip(ui.add_enabled(!self.from_block.is_empty(), egui::Button::new("Copy")), "Start this face from that block's texture", "").clicked() {
-                let b = self.from_block.clone();
-                self.copy_block(app, &b);
-            }
-        });
-        let ramps = app.pal.ramps();
-        if ramps.len() > 1 {
-            ui.horizontal(|ui| {
-                let w = ((ui.available_width() - 70.0) / 2.0).max(50.0);
-                for k in 0..2 {
-                    let cur = if k == 0 { self.swap.0.clone() } else { self.swap.1.clone() };
-                    let len = (k == 1).then(|| app.pal.ramp(&self.swap.0).len());
-                    let mut pick = cur.clone();
-                    let r = egui::ComboBox::from_id_salt(("swap", k)).selected_text(if cur.is_empty() { if k == 0 { "ramp" } else { "to ramp" } } else { &cur }).width(w).show_ui(ui, |ui| {
-                        for (n, v) in &ramps {
-                            if len.is_none_or(|l| l == v.len()) {
-                                ui.selectable_value(&mut pick, n.clone(), n);
-                            }
-                        }
-                    });
-                    look::tip(r.response, if k == 0 { "Swap ramp: the ramp the file uses now" } else { "The ramp of the same length to repaint it with" }, "");
-                    *(if k == 0 { &mut self.swap.0 } else { &mut self.swap.1 }) = pick;
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::splat(4.0);
+                look::tip(look::toggle(ui, &mut self.mirror, "Mirror M"), "Paint both halves at once, mirrored across the middle", "M");
+                if look::tip(look::toggle(ui, &mut self.tiled, "Tiled T"), "The neighbours ghosted round the face; strokes wrap over the edges", "T").changed() {
+                    (self.zoom, self.pan) = (None, Vec2::ZERO);
                 }
-                let ok = !self.swap.0.is_empty() && !self.swap.1.is_empty() && self.swap.0 != self.swap.1;
-                if look::tip(ui.add_enabled(ok, egui::Button::new("Swap")), "Repaint this file from one ramp to another of the same length", "").clicked() {
-                    let (a, b) = self.swap.clone();
-                    self.swap_ramp(app, &a, &b);
-                }
+                look::tip(look::toggle(ui, &mut self.seams, "Seams"), "Mark edge pixels that clash with the far edge they meet when tiled", "Shift+T");
             });
+            self.tool_options(ui, app);
         }
-        ui.separator();
-        look::section(ui, "Preview");
-        self.preview(ui, app);
-        ui.separator();
-        look::section(ui, "In the game");
-        self.lit_cube(ui, app);
+        if let Some(mut sec) = look::section(ui, "Colours") {
+            let ui = &mut *sec;
+            self.palette(ui, app);
+        }
+        if let Some(mut sec) = look::section(ui, "Start from") {
+            let ui = &mut *sec;
+            ui.horizontal_wrapped(|ui| {
+                let r = ui.button("Pattern");
+                crate::drive::mark(ui.ctx(), "btn:pattern", r.rect);
+                if look::tip(r, "The block's game pattern drawn into this variant, each texel snapped to the palette", "").clicked() {
+                    self.start_pattern(app);
+                }
+                if look::tip(ui.button("Make variants"), "A wall of variant sets made from variant 1; a click takes one", "").clicked() {
+                    self.open_wall(app);
+                }
+            });
+            ui.horizontal(|ui| {
+                let w = (ui.available_width() - 64.0).max(60.0);
+                let r = ui.add(egui::TextEdit::singleline(&mut self.picture).hint_text("a PNG's path, or drop one").desired_width(w));
+                look::tip(r, "Any PNG cut to 16 x 16 and snapped to the palette, as a rough to paint over", "");
+                if look::tip(ui.button("Open"), "Start this variant from the picture", "").clicked() {
+                    let p = self.picture.trim().trim_matches('"').to_string();
+                    self.start_picture(app, &p);
+                }
+            });
+            let painted: Vec<String> = app.reg.placeable().map(|d| d.name.clone()).filter(|n| *n != self.block && (0..4).any(|f| app.docs.contains_key(&art::file_name(n, f)))).collect();
+            ui.horizontal(|ui| {
+                let w = (ui.available_width() - 64.0).max(60.0);
+                let r = egui::ComboBox::from_id_salt("copy from block").selected_text(if self.from_block.is_empty() { "another block" } else { &self.from_block }).width(w).show_ui(ui, |ui| {
+                    if painted.is_empty() {
+                        look::weak(ui, "no other block is painted yet");
+                    }
+                    for n in &painted {
+                        ui.selectable_value(&mut self.from_block, n.clone(), n);
+                    }
+                });
+                look::tip(r.response, "A painted block to start from", "");
+                if look::tip(ui.add_enabled(!self.from_block.is_empty(), egui::Button::new("Copy")), "Start this face from that block's texture", "").clicked() {
+                    let b = self.from_block.clone();
+                    self.copy_block(app, &b);
+                }
+            });
+            let ramps = app.pal.ramps();
+            if ramps.len() > 1 {
+                ui.horizontal(|ui| {
+                    let w = ((ui.available_width() - 70.0) / 2.0).max(50.0);
+                    for k in 0..2 {
+                        let cur = if k == 0 { self.swap.0.clone() } else { self.swap.1.clone() };
+                        let len = (k == 1).then(|| app.pal.ramp(&self.swap.0).len());
+                        let mut pick = cur.clone();
+                        let r = egui::ComboBox::from_id_salt(("swap", k)).selected_text(if cur.is_empty() { if k == 0 { "ramp" } else { "to ramp" } } else { &cur }).width(w).show_ui(ui, |ui| {
+                            for (n, v) in &ramps {
+                                if len.is_none_or(|l| l == v.len()) {
+                                    ui.selectable_value(&mut pick, n.clone(), n);
+                                }
+                            }
+                        });
+                        look::tip(r.response, if k == 0 { "Swap ramp: the ramp the file uses now" } else { "The ramp of the same length to repaint it with" }, "");
+                        *(if k == 0 { &mut self.swap.0 } else { &mut self.swap.1 }) = pick;
+                    }
+                    let ok = !self.swap.0.is_empty() && !self.swap.1.is_empty() && self.swap.0 != self.swap.1;
+                    if look::tip(ui.add_enabled(ok, egui::Button::new("Swap")), "Repaint this file from one ramp to another of the same length", "").clicked() {
+                        let (a, b) = self.swap.clone();
+                        self.swap_ramp(app, &a, &b);
+                    }
+                });
+            }
+        }
+        if let Some(mut sec) = look::section(ui, "Preview") {
+            let ui = &mut *sec;
+            self.preview(ui, app);
+        }
+        if let Some(mut sec) = look::section(ui, "In the game") {
+            let ui = &mut *sec;
+            self.lit_cube(ui, app);
+        }
     }
 }
 
