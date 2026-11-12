@@ -18,8 +18,10 @@ use std::path::Path;
 /// land. A save keeps the version it was read as until it is written again. 8 keeps the live air grid (W3);
 /// an older one on a map with a climate starts its air from the map's. A save on a map of version 1 or 2 needs
 /// that map's file in `saves/bakes/`: since map version 3 a bake makes another climate (ADR 0060). 9 keeps the
-/// river reaches' open water too (W5, ADR 0059); an 8 or older loads with none.
-pub const VERSION: u32 = 9;
+/// river reaches' open water too (W5, ADR 0059); an 8 or older loads with none. 10 is the 192 m crust (ADR
+/// 0063): the same layers, some 140 more under them, so a save of 9 or older moves its cells and water up by
+/// its bodies' `deep_layers` on reading (9 lies on disk as 10 does).
+pub const VERSION: u32 = 10;
 
 /// The rain brought into the reaches, and what each reach's open water took in (`Liquids::rained`,
 /// `Liquids::reach_extra`).
@@ -94,7 +96,7 @@ impl Save {
 
     /// Reads a save and checks it is this version (or 4 or 5, carried over) and its blocks are this build's blocks.
     pub fn from_bytes(b: &[u8]) -> Result<Save, String> {
-        let now = postcard::from_bytes::<Save>(b).ok().filter(|s| s.version == VERSION);
+        let now = postcard::from_bytes::<Save>(b).ok().filter(|s| s.version == VERSION || s.version == 9);
         let aired = || postcard::from_bytes::<Save<Saved, Option<u64>, Option<engine::bake::air::State>, ()>>(b).ok().filter(|s| s.version == 8);
         let mapped = || postcard::from_bytes::<Save<Saved, Option<u64>, (), ()>>(b).ok().filter(|s| s.version == 7 || s.version == 6);
         let bare = || postcard::from_bytes::<Save<Saved, (), (), ()>>(b).ok().filter(|s| s.version == 5 || s.version == 6);
@@ -119,6 +121,22 @@ impl Save {
                 _ => return Err(format!("not a save of version 4 to {VERSION}: older ones are worlds of 0.5 m blocks (ADR 0033)")),
             }
         };
+        let mut s = s;
+        if s.version < 10 {
+            let deep = [engine::world::deep_layers(s.planet_n), engine::world::deep_layers(s.moon_n)];
+            for (b, _) in &mut s.edits {
+                b.pos.z += deep[b.body as usize];
+            }
+            for (c, gaps) in &mut s.water {
+                let d = deep[c.body() as usize];
+                for g in gaps {
+                    g.0 += d;
+                    if g.1 != engine::liquid::OPEN {
+                        g.1 += d;
+                    }
+                }
+            }
+        }
         for (id, name) in &s.blocks {
             if !BLOCKS.get(*id).is_some_and(|d| &d.name == name || d.was.contains(name)) {
                 return Err(format!("block {id} was '{name}' in the save; data/blocks.toml no longer has it so"));
@@ -194,6 +212,22 @@ mod tests {
         let mut bad = s.clone();
         bad.players[0].inv.push((300, 1));
         assert!(Save::from_bytes(&bad.to_bytes()).unwrap_err().contains("block 300"));
+    }
+
+    /// A save from before the 192 m crust (ADR 0063) moves its cells and water up by the deep layers of
+    /// each body; one of this version reads as written.
+    #[test]
+    fn a_save_from_before_the_deep_ground_moves_up() {
+        let (n, m) = (1536, 32);
+        assert_eq!((engine::world::deep_layers(n), engine::world::deep_layers(m)), (146, 0));
+        let at = |body: u8, z: i32| Block { body, face: 1, pos: IVec3::new(3, 4, z) };
+        let col = engine::liquid::Col::new(0, 1, 3, 4);
+        let mut s = Save { planet_n: n, moon_n: m, edits: vec![(at(0, 70), 0), (at(1, 70), 0)], water: vec![(col, vec![(60, 62, 5), (70, engine::liquid::OPEN, 0)])], ..save(9, registry()) };
+        let old = Save::from_bytes(&s.to_bytes()).unwrap();
+        assert_eq!(old.edits, vec![(at(0, 216), 0), (at(1, 70), 0)]);
+        assert_eq!(old.water, vec![(col, vec![(206, 208, 5), (216, engine::liquid::OPEN, 0)])]);
+        s.version = VERSION;
+        assert_eq!(Save::from_bytes(&s.to_bytes()).unwrap(), s);
     }
 
     /// A save reads back as written; one from the world of 0.5 m blocks is refused, and says why.

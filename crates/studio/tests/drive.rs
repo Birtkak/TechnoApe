@@ -244,7 +244,8 @@ fn palette_slider_moves_a_colour_and_its_texture_follows() {
     let pal = |d: &Path| engine::palette::Palette::parse(&std::fs::read_to_string(d.join("data/palette.toml")).unwrap()).unwrap();
     let p0 = pal(&dir);
     let name = p0.colours[p0.find(rgb).unwrap()].name.clone();
-    let line = studio(&dir, &["page=Palette", "rects=1", &format!("input=click @colour:{}; drag @slider:value:0.5,0.5 @slider:value:0.2,0.5", name.replace(' ', "_"))]);
+    // a window tall enough for every ramp: the colour the pattern snapped to can be any of them
+    let line = studio(&dir, &["page=Palette", "rects=1", "size=1280x4000", &format!("input=click @colour:{}; drag @slider:value:0.5,0.5 @slider:value:0.2,0.5", name.replace(' ', "_"))]);
     let p1 = pal(&dir);
     let moved = p1.colours.iter().find(|c| c.name == name).unwrap().rgb;
     assert_ne!(moved, rgb, "the value slider did not move {name}: {line}");

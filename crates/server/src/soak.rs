@@ -198,6 +198,10 @@ fn check(s: &Server) -> Result<(), String> {
     if s.water_ledger() != 0 {
         return Err(format!("{} units of water appeared", s.water_ledger()));
     }
+    // no ore block appears or vanishes unseen: each body's ledger is what a recount from the edits says
+    if let Some(&(k, ledger, recount)) = s.ore_ledger().first() {
+        return Err(format!("ore body {k}: the ledger holds {ledger} blocks, the edits say {recount}"));
+    }
     for c in &s.clients {
         let p = &c.phys;
         let id = c.player.id;
