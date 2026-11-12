@@ -123,7 +123,7 @@ pub struct FrameStats {
 }
 
 /// Edits of blocks that name a model become air for the mesher (ADR 0047).
-pub fn hide_models(edits: &mut [(u32, u8)], reg: &crate::blocks::Registry) {
+pub fn hide_models(edits: &mut [(u32, u16)], reg: &crate::blocks::Registry) {
     for e in edits.iter_mut() {
         if reg.get(e.1).is_some_and(|d| d.model.is_some()) {
             e.1 = crate::blocks::AIR;

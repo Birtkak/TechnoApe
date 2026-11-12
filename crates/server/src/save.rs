@@ -30,9 +30,9 @@ pub struct Save<P = Saved, M = Option<u64>, A = Option<engine::bake::air::State>
     pub planet_n: i32,
     pub moon_n: i32,
     /// Every registered block as (id, name) when saved: ids must keep their names (ADR 0013).
-    pub blocks: Vec<(u8, String)>,
+    pub blocks: Vec<(u16, String)>,
     /// Every edited cell, sorted, so one state always gives the same file.
-    pub edits: Vec<(Block, u8)>,
+    pub edits: Vec<(Block, u16)>,
     /// Sorted by name.
     pub players: Vec<P>,
     /// Every stored column's water, sorted, and what creative put in and took out (ADR 0020).
@@ -58,7 +58,7 @@ pub struct Saved {
     pub fwd: [f32; 3],
     pub creative: bool,
     /// Nonzero counts by block id.
-    pub inv: Vec<(u8, u32)>,
+    pub inv: Vec<(u16, u32)>,
     /// Units in the bucket.
     pub water: u32,
     /// Health and hunger (ADR 0040), and how it died if it is dead.
@@ -72,11 +72,11 @@ pub struct SavedV4 {
     pub pos: [f64; 3],
     pub fwd: [f32; 3],
     pub creative: bool,
-    pub inv: Vec<(u8, u32)>,
+    pub inv: Vec<(u16, u32)>,
     pub water: u32,
 }
 
-pub fn registry() -> Vec<(u8, String)> {
+pub fn registry() -> Vec<(u16, String)> {
     BLOCKS.placeable().map(|d| (d.id, d.name.clone())).collect()
 }
 
@@ -113,6 +113,12 @@ impl Save {
                 return Err(format!("block {id} was '{name}' in the save; data/blocks.toml no longer has it so"));
             }
         }
+        // the cells and inventories name only known blocks: an id past the registry would index past the
+        // inventory's 256 or into the mesh's other bits
+        let bad = s.edits.iter().map(|e| e.1).chain(s.players.iter().flat_map(|p| p.inv.iter().map(|i| i.0))).find(|&id| BLOCKS.get(id).is_none());
+        if let Some(id) = bad {
+            return Err(format!("the save holds block {id}, which data/blocks.toml does not have"));
+        }
         Ok(s)
     }
 
@@ -135,7 +141,7 @@ mod tests {
     use super::*;
     use glam::IVec3;
 
-    fn save(version: u32, blocks: Vec<(u8, String)>) -> Save {
+    fn save(version: u32, blocks: Vec<(u16, String)>) -> Save {
         let b = Block { body: 0, face: 1, pos: IVec3::new(3, 4, 5) };
         Save { version, seed: 9, planet_n: 256, moon_n: 32, blocks, edits: vec![(b, 0)], players: Vec::new(), water: Vec::new(), made: 0, removed: 0, sea_extra: 0, tick: 7, map: Some(0x5eed), air: None }
     }
@@ -156,6 +162,23 @@ mod tests {
         let a = engine::bake::air::State { t: 12.5, theta: vec![1.0; 8], vap: vec![2; 8], cloud: vec![0; 8], dirt: vec![0; 8], wind: vec![0.5; 4], tg: vec![3.0; 2], soil: vec![4; 2], snow: vec![0; 2], dirt_down: vec![0; 2], sea: 99 };
         let aired = Save { air: Some(a), ..s };
         assert_eq!(Save::from_bytes(&aired.to_bytes()).unwrap(), aired);
+    }
+
+    /// A save written while block ids were 8 bits (ADR 0061) loads unchanged: postcard writes a u16 under 128
+    /// as the same one byte, and no build had a block id over 29 then.
+    #[test]
+    fn a_save_with_8_bit_block_ids_loads() {
+        let b = Block { body: 0, face: 1, pos: IVec3::new(3, 4, 5) };
+        let blocks: Vec<(u8, String)> = registry().into_iter().map(|(id, n)| (id as u8, n)).collect();
+        let stone = BLOCKS.id("stone");
+        let player = ("ape".to_string(), [1.0f64, 2.0, 3.0], [1.0f32, 0.0, 0.0], false, vec![(stone as u8, 5u32)], 7u32, Vitals::default());
+        let old = (VERSION, 9i32, 256i32, 32i32, blocks, vec![(b, stone as u8)], vec![player], Vec::<ColWater>::new(), 0i64, 0i64, 0i64, 7u64, Some(0x5eedu64), None::<engine::bake::air::State>);
+        let s = Save::from_bytes(&postcard::to_allocvec(&old).unwrap()).expect("an 8-bit save loads");
+        assert_eq!((s.edits.clone(), s.players[0].inv.clone()), (vec![(b, stone)], vec![(stone, 5)]));
+        assert_eq!(s.blocks, registry());
+        let mut bad = s.clone();
+        bad.players[0].inv.push((300, 1));
+        assert!(Save::from_bytes(&bad.to_bytes()).unwrap_err().contains("block 300"));
     }
 
     /// A save reads back as written; one from the world of 0.5 m blocks is refused, and says why.
@@ -214,7 +237,7 @@ mod tests {
     /// A block renamed in data (moon dust became regolith, W0) keeps its id: a save under the old name loads.
     #[test]
     fn a_save_with_a_renamed_block_loads() {
-        let old: Vec<(u8, String)> = registry().into_iter().map(|(id, n)| (id, if n == "regolith" { "moon dust".into() } else { n })).collect();
+        let old: Vec<(u16, String)> = registry().into_iter().map(|(id, n)| (id, if n == "regolith" { "moon dust".into() } else { n })).collect();
         assert!(old.iter().any(|b| b.1 == "moon dust"));
         assert!(Save::from_bytes(&save(VERSION, old).to_bytes()).is_ok());
         assert!(Save::from_bytes(&save(VERSION, vec![(7, "cheese".to_string())]).to_bytes()).is_err(), "an unknown name is still refused");

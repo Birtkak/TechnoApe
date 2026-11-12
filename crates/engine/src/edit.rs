@@ -86,7 +86,7 @@ impl Shape {
 
 /// What a shape does to the world, as (cell, block before): digging (`m` = air) clears every non-air cell,
 /// placing fills every air cell with `m` except those `keep_clear` names (where a player stands).
-pub fn changes(world: &World, shape: &Shape, m: u8, keep_clear: impl Fn(Block) -> bool) -> Vec<(Block, u8)> {
+pub fn changes(world: &World, shape: &Shape, m: u16, keep_clear: impl Fn(Block) -> bool) -> Vec<(Block, u16)> {
     shape
         .cells()
         .filter_map(|b| {
@@ -232,7 +232,7 @@ pub struct Predictor {
     /// Edits sent and not answered yet, oldest first: (seq, cells).
     pending: std::collections::VecDeque<(u32, Vec<Block>)>,
     /// The server's word on every cell a pending edit covers, as `World::edit` gives it.
-    truth: crate::world::FxMap<Block, Option<u8>>,
+    truth: crate::world::FxMap<Block, Option<u16>>,
 }
 
 impl Predictor {
@@ -243,7 +243,7 @@ impl Predictor {
     }
     /// Applies the edit to `world` and returns the `seq` to send with it and the cells it changed. A shape that
     /// does not fit the world changes nothing here; the server will refuse it.
-    pub fn edit(&mut self, world: &mut World, shape: &Shape, m: u8, keep_clear: impl Fn(&World, Block) -> bool) -> (u32, Vec<Block>) {
+    pub fn edit(&mut self, world: &mut World, shape: &Shape, m: u16, keep_clear: impl Fn(&World, Block) -> bool) -> (u32, Vec<Block>) {
         self.next = self.next.wrapping_add(1);
         let w: &World = world;
         let cells: Vec<Block> = if shape.fits(w) && BLOCKS.get(m).is_some() {
@@ -260,7 +260,7 @@ impl Predictor {
     }
 
     /// A cell from the server's `Edits`; true when the world shows it now (no pending edit hides it).
-    pub fn server(&mut self, world: &mut World, b: Block, m: u8) -> bool {
+    pub fn server(&mut self, world: &mut World, b: Block, m: u16) -> bool {
         match self.truth.get_mut(&b) {
             Some(t) => {
                 *t = Some(m);
@@ -386,8 +386,8 @@ mod tests {
     }
 
     /// The server's side for the predictor tests: applies an edit and returns the `Edits` it would send.
-    fn serve(w: &mut World, s: &Shape, m: u8, keep_clear: impl Fn(Block) -> bool) -> Vec<(Block, u8)> {
-        let c: Vec<(Block, u8)> = changes(w, s, m, keep_clear).into_iter().map(|(b, _)| (b, m)).collect();
+    fn serve(w: &mut World, s: &Shape, m: u16, keep_clear: impl Fn(Block) -> bool) -> Vec<(Block, u16)> {
+        let c: Vec<(Block, u16)> = changes(w, s, m, keep_clear).into_iter().map(|(b, _)| (b, m)).collect();
         for (b, m) in &c {
             w.set_block(*b, *m);
         }

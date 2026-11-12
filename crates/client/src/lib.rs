@@ -414,7 +414,7 @@ pub fn main() {
             fx_edits.push((t, Block { pos: feet.pos + d, ..feet }, id));
         }
         // the soonest last, whatever order they came in
-        fx_edits.sort_by(|a: &(f64, Block, u8), b| b.0.total_cmp(&a.0));
+        fx_edits.sort_by(|a: &(f64, Block, u16), b| b.0.total_cmp(&a.0));
     }
     // play's settings (ADR 0023); every other run keeps the defaults unless settings= names a file (a shot at
     // another screen size)
@@ -672,11 +672,11 @@ pub(crate) const PLACE_REACH: i32 = 64;
 /// A stand's `at=`, `place=`, `fxedit=` and `structure=` read, and `creature=`, `model=` and `fxplay=` checked:
 /// what is wrong names its argument, for one line on stderr (no panic).
 #[allow(clippy::type_complexity)]
-pub fn stand_args(args: &Args, data: &str) -> Result<(Vec<(IVec3, u8)>, Vec<(f64, IVec3, u8)>, Option<engine::structures::Structure>), String> {
-    let block = |n: &str| (0..=255u8).find(|i| BLOCKS.get(*i).is_some_and(|d| d.name == n.replace('_', " "))).ok_or(format!("no block '{n}'"));
+pub fn stand_args(args: &Args, data: &str) -> Result<(Vec<(IVec3, u16)>, Vec<(f64, IVec3, u16)>, Option<engine::structures::Structure>), String> {
+    let block = |n: &str| (0..=255u16).find(|i| BLOCKS.get(*i).is_some_and(|d| d.name == n.replace('_', " "))).ok_or(format!("no block '{n}'"));
     stand_at(args)?;
     let int = |v: &str| v.parse::<i32>().ok().filter(|v| (-PLACE_REACH..=PLACE_REACH).contains(v)).ok_or(format!("'{v}' is not a whole number within {PLACE_REACH} cells"));
-    let each = |key: &str, shape: &str, f: &dyn Fn(&[&str]) -> Result<(f64, IVec3, u8), String>| -> Result<Vec<(f64, IVec3, u8)>, String> {
+    let each = |key: &str, shape: &str, f: &dyn Fn(&[&str]) -> Result<(f64, IVec3, u16), String>| -> Result<Vec<(f64, IVec3, u16)>, String> {
         let spec = args.s(key, "");
         let named = |e: String| format!("{key}={spec}: {e}");
         spec.split(',').filter(|s| !s.is_empty()).map(|one| {

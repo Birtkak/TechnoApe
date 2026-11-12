@@ -44,7 +44,7 @@ pub struct Row {
     pub n: i32,
     pub generator: Generator,
     /// Block ids: the top, the band under it, the rock below.
-    pub ground: [u8; 3],
+    pub ground: [u16; 3],
     pub air: bool,
     /// (radii of the first body, at least metres); None for the first body.
     pub orbit: Option<(f64, f64)>,

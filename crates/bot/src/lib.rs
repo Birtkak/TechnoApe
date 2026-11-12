@@ -27,7 +27,7 @@ pub enum Cmd {
     Walk(DVec3),
     Wait(f64),
     Dig(DVec3),
-    Place(DVec3, u8),
+    Place(DVec3, u16),
     Block(DVec3),
     Report,
     /// A chat line or a '/' command (ADR 0023): the rest of the line.
@@ -48,7 +48,7 @@ pub fn parse(line: &str) -> Result<Option<Cmd>, String> {
         "walk" => Cmd::Walk(v()?),
         "wait" => Cmd::Wait(num(1)?),
         "dig" => Cmd::Dig(v()?),
-        "place" => Cmd::Place(v()?, num(4)? as u8),
+        "place" => Cmd::Place(v()?, num(4)? as u16),
         "block" => Cmd::Block(v()?),
         "report" => Cmd::Report,
         "say" => Cmd::Say(w[1..].join(" ")),

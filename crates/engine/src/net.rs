@@ -25,7 +25,7 @@ pub enum ToServer {
     Steps { first: u32, inputs: Vec<Input> },
     /// Dig (`material` 0) or place a shape. The server applies all of it or none and answers `Done` with the
     /// same `seq`, after the `Edits` that carry what it changed.
-    Edit { seq: u32, shape: Shape, material: u8 },
+    Edit { seq: u32, shape: Shape, material: u16 },
     /// Survival or creative (counts nothing). shortcut: anyone may switch; an operator role when servers go public.
     Creative(bool),
     /// The bucket (ADR 0020): `fill` scoops up to a block of water from the gap that holds block `at`, else
@@ -54,7 +54,7 @@ pub enum ToClient {
     Welcome { id: u32, seed: i32, planet_n: i32, moon_n: i32, blocks: u64, map: Option<u64> },
     /// A piece of the baked map's bytes (`Map::to_bytes`), in order, `pieces` in all.
     Map { piece: u32, pieces: u32, bytes: Vec<u8> },
-    Edits(Vec<(Block, u8)>),
+    Edits(Vec<(Block, u16)>),
     Players(Vec<Player>),
     /// The answer to the `Edit` with this `seq`: applied, or refused whole (reach, size, inventory).
     Done { seq: u32, ok: bool },
@@ -64,7 +64,7 @@ pub enum ToClient {
     You { step: u32, me: crate::phys::Player, time: f64, warp: f64 },
     /// This player's mode, every block kind it holds a nonzero count of, and the water in its bucket (units,
     /// `liquid::U` a block); sent on join and on change.
-    Inventory { creative: bool, counts: Vec<(u8, u32)>, water: u32 },
+    Inventory { creative: bool, counts: Vec<(u16, u32)>, water: u32 },
     /// Tiles of water (ADR 0020), each whole: the tile (`Col::tile`) and its stored columns, (floor, ceil,
     /// units) per gap; a column not listed is as generation gives it. A tile is sent when it changed by more
     /// than the dead band, or settled, since this client last had it: nearest first, within reach and a byte

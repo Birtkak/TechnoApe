@@ -216,7 +216,7 @@ mod texture_layer_tests {
     #[test]
     fn faces_of_one_file_share_their_layers() {
         let all = face(1, 4);
-        let blocks: Vec<(u8, Painted)> = (1..=200u8).map(|id| (id, Painted { faces: [Some(all.clone()), Some(all.clone()), Some(all.clone())] })).collect();
+        let blocks: Vec<(u16, Painted)> = (1..=200u16).map(|id| (id, Painted { faces: [Some(all.clone()), Some(all.clone()), Some(all.clone())] })).collect();
         let (placed, layers, refused) = place(blocks, TEX_LAYERS);
         assert_eq!((placed.len(), layers.len(), refused.len()), (200, 800, 0), "4 layers a block, not 12");
         assert!(placed.iter().all(|(_, _, at)| at[0] == at[1] && at[1] == at[2]));
@@ -443,8 +443,8 @@ pub(crate) fn shown(d: &engine::blocks::Def) -> ([f32; 3], [f32; 3], u8) {
 /// pattern | side << 8 | metal << 16 | gives light << 24; colour2, size; colour3, amount; contrast; the painted
 /// faces (16 bits a face: layer | variants - 1 << 12 | painted << 15; top and side in `tex`, the bottom in
 /// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24).
-fn looks_of(painted: &[(u8, engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 16]> {
-    (0..=255u8)
+fn looks_of(painted: &[(u16, engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 16]> {
+    (0..=255u16)
             .map(|id| {
                 let f = f32::to_bits;
                 match engine::blocks::BLOCKS.get(id) {
@@ -476,7 +476,7 @@ fn looks_of(painted: &[(u8, engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 
 
 /// Where the painted faces go among `cap` layers: per block its first layer for top, side and bottom, the
 /// layers in order, and the blocks that did not fit (they keep their patterns).
-fn place(blocks: Vec<(u8, engine::textures::Painted)>, cap: u32) -> (Vec<(u8, engine::textures::Painted, [u32; 3])>, Vec<engine::textures::Pixels>, Vec<u8>) {
+fn place(blocks: Vec<(u16, engine::textures::Painted)>, cap: u32) -> (Vec<(u16, engine::textures::Painted, [u32; 3])>, Vec<engine::textures::Pixels>, Vec<u16>) {
     let (mut placed, mut layers, mut refused) = (vec![], vec![], vec![]);
     for (id, p) in blocks {
         // a face the same as an earlier one of its block (a `<block>.png` they fall back to) takes its layers

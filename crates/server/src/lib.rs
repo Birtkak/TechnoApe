@@ -68,7 +68,7 @@ const MAX_WARP: u64 = 10_000;
 
 /// What a save keeps of a connected player.
 fn saved(c: &Client) -> Saved {
-    let inv = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u8, *n)).collect();
+    let inv = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u16, *n)).collect();
     Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, inv, water: c.water, vitals: c.vitals.clone() }
 }
 
@@ -237,7 +237,7 @@ impl Server {
 
     /// Everything a save holds, from the current state.
     pub fn snapshot(&self) -> Save {
-        let mut edits: Vec<(Block, u8)> =
+        let mut edits: Vec<(Block, u16)> =
             self.world.edits.iter().flat_map(|(k, cells)| cells.iter().map(move |(pos, m)| (Block { body: k.body, face: k.face, pos: *pos }, *m))).collect();
         edits.sort_unstable_by_key(|(b, _)| (b.body, b.face, b.pos.x, b.pos.y, b.pos.z));
         let mut players = self.absent.clone();
@@ -400,7 +400,7 @@ impl Server {
             self.log(Ev::Join { tick: self.tick, id });
             let [p, m] = [self.world.bodies[0].n, self.world.bodies[1].n];
             link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m, blocks: BLOCKS.hash, map: self.map_hash() });
-            let all: Vec<(Block, u8)> = self
+            let all: Vec<(Block, u16)> = self
                 .world
                 .edits
                 .iter()
@@ -430,7 +430,7 @@ impl Server {
                 hold: edit::Hold::default(),
             });
         }
-        let mut changed: Vec<(Block, u8)> = Vec::new();
+        let mut changed: Vec<(Block, u16)> = Vec::new();
         let mut i = 0;
         while i < self.clients.len() {
             let mut open = true;
@@ -608,7 +608,7 @@ impl Server {
                 c.link.send(ToClient::Done { seq, ok });
             }
             if std::mem::take(&mut c.inv_dirty) {
-                let counts = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u8, *n)).collect();
+                let counts = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u16, *n)).collect();
                 c.link.send(ToClient::Inventory { creative: c.creative, counts, water: c.water });
             }
             if let Some(w) = self.weather.as_ref().filter(|_| self.tick % engine::net::AIR_EVERY == 0) {
@@ -698,7 +698,7 @@ impl Server {
 
     /// A chat line from client `i` (ADR 0023): a '/' command runs here and answers it alone; any other line
     /// goes to everyone with its sender's name.
-    fn chat(&mut self, i: usize, text: &str, changed: &mut Vec<(Block, u8)>) {
+    fn chat(&mut self, i: usize, text: &str, changed: &mut Vec<(Block, u16)>) {
         let text: String = text.chars().filter(|c| !c.is_control()).take(CHAT_MAX).collect();
         let text = text.trim();
         if let Some(cmd) = text.strip_prefix('/') {
@@ -712,7 +712,7 @@ impl Server {
 
     /// The commands (ADR 0023), and the answer for the player who gave one. shortcut: anyone may run every
     /// command; an operator role when servers go public.
-    fn command(&mut self, i: usize, cmd: &str, changed: &mut Vec<(Block, u8)>) -> String {
+    fn command(&mut self, i: usize, cmd: &str, changed: &mut Vec<(Block, u16)>) -> String {
         let w: Vec<&str> = cmd.split_whitespace().collect();
         let mode = |creative: bool| if creative { "creative" } else { "survival" };
         let block_named = |name: &str| BLOCKS.placeable().find(|d| d.name.eq_ignore_ascii_case(name));
@@ -974,7 +974,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                 // where the players are, gathered once (not once a block)
                 let held: std::collections::HashSet<Block> = self.clients.iter().flat_map(|c| phys::cells(world, c.phys.pos)).collect();
                 // x along j, z along i, y up the layers: as `structure=` stands one and the Studio shows it
-                let put: Vec<(Block, u8)> = cells
+                let put: Vec<(Block, u16)> = cells
                     .into_iter()
                     .map(|(d, id)| (Block { pos: foot.pos + glam::IVec3::new(d[2], d[0], d[1]), ..foot }, id))
                     .filter(|(b, id)| Shape::one(*b).fits(world) && !(BLOCKS.solid(*id) && held.contains(b)))
@@ -1026,7 +1026,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
 
     /// Client `i` digs or places `shape`: all of it or none. False when the shape fails `valid_shape`, a
     /// survival dig was not held for its time, or a survival player cannot pay for every block it places.
-    fn edit(&mut self, i: usize, shape: &Shape, m: u8, changed: &mut Vec<(Block, u8)>) -> bool {
+    fn edit(&mut self, i: usize, shape: &Shape, m: u16, changed: &mut Vec<(Block, u16)>) -> bool {
         if self.clients[i].vitals.dead.is_some() || !self.valid_shape(shape, m, DVec3::from_array(self.clients[i].player.pos)) {
             return false;
         }
@@ -1161,7 +1161,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
 
     /// The trust boundary: a box within the size limits on a face that exists, a known block, every cell
     /// within the player's reach.
-    fn valid_shape(&self, s: &Shape, m: u8, at: DVec3) -> bool {
+    fn valid_shape(&self, s: &Shape, m: u16, at: DVec3) -> bool {
         s.fits(&self.world)
             && BLOCKS.get(m).is_some()
             && s.cells().all(|b| self.world.block_centre(b).distance(at) <= REACH)
