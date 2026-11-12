@@ -567,6 +567,7 @@ impl App {
             self.water.spray(&self.world, dt as f32, &mut self.fx);
             self.fx.step(&self.world, (dt as f32).min(0.1));
             self.cracks(self.start.elapsed().as_secs_f64());
+            self.lay_piles();
             let gpu = self.gpu.as_ref().unwrap();
             let d = self.fx.drawn();
             let k = d.len().min(MAX_FX);

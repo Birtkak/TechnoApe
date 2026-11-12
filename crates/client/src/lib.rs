@@ -560,7 +560,7 @@ pub fn main() {
         creative,
         inv: engine::items::ape(),
         items_pending: Vec::new(),
-        piles: FxMap::default(),
+        piles: Default::default(),
         lifted: None,
         inv_tab: 0,
         inv_query: String::new(),

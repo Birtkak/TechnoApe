@@ -131,9 +131,17 @@ impl App {
     }
 
     /// A click at the pointer on the screen: `right` the right button, `shift` with shift held.
+    /// shortcut: no drag that spreads a stack, no number keys sending to a hotbar slot, the pack's rows not
+    /// drawn as that pack, no container beside the slots; items.md "The screen", when players miss them.
     pub(crate) fn inv_click(&mut self, right: bool, shift: bool) {
         let l = self.inv_layout();
         let p = self.pointer;
+        // a lifted stack the server took away meanwhile (a pile picked up, a refused move): let go
+        if let Some((h, i, n)) = self.lifted {
+            if self.slot_at(h, i).is_none_or(|s| s.n < n) {
+                self.lifted = None;
+            }
+        }
         if let Some(k) = l.tabs.iter().position(|b| inside(*b, p)) {
             (self.inv_tab, self.inv_scroll) = (k, 0);
             return;
@@ -242,7 +250,7 @@ impl App {
 
     /// The screen over the world: the panel, its slots and what they hold, the lifted stack at the pointer and
     /// the name of the one under it.
-    pub(crate) fn inv_draw(&mut self, p: &mut hud::Paint, season: (f64, f64)) {
+    pub(crate) fn inv_draw(&self, p: &mut hud::Paint, season: (f64, f64)) {
         let l = self.inv_layout();
         let pointer = self.pointer;
         hud::glass(p, l.panel[0], l.panel[1], l.panel[2], l.panel[3]);
@@ -281,9 +289,8 @@ impl App {
             }
         }
         if let Some((fh, fi, n)) = self.lifted {
-            match self.slot_at(fh, fi) {
-                Some(s) => icon(p, Stack { n, ..s }, pointer.0 - 16.0, pointer.1 - 16.0, 32.0, season, true),
-                None => self.lifted = None,
+            if let Some(s) = self.slot_at(fh, fi) {
+                icon(p, Stack { n, ..s }, pointer.0 - 16.0, pointer.1 - 16.0, 32.0, season, true);
             }
         } else if let Some(item) = hover {
             let name = ITEMS.name(item);
@@ -313,3 +320,29 @@ fn icon(p: &mut hud::Paint, s: Stack, x: f32, y: f32, size: f32, season: (f64, f
 }
 
 use hud::CYAN;
+
+/// Piles farther than this are not drawn: a quarter-metre cube is a few pixels there.
+const PILE_DRAWN: f64 = 64.0;
+
+impl App {
+    /// The piles on the ground as small cubes of what they hold (ADR 0074), one a stack, laid among this
+    /// frame's particles: still debris, turned by the cell so a pile looks the same each frame.
+    pub(crate) fn lay_piles(&mut self) {
+        let me = self.me.pos;
+        let mut still = Vec::new();
+        for (b, slots) in &self.piles {
+            if self.world.block_centre(*b).distance(me) > PILE_DRAWN {
+                continue;
+            }
+            let at = fx::At::floor_of(&self.world, *b);
+            let seed = b.pos.x as u32 ^ (b.pos.y as u32).rotate_left(11) ^ (b.pos.z as u32).rotate_left(22);
+            for (k, s) in slots.iter().enumerate().filter_map(|(k, s)| Some((k, (*s)?))) {
+                let side = [(-0.15, -0.15), (0.15, 0.1), (-0.1, 0.17), (0.17, -0.15)][k % 4];
+                let p = at.p + at.axes[0] * 0.13 + at.axes[1] * side.0 + at.axes[2] * side.1;
+                let info = ITEMS.look(s.item) as u32 | (b.body as u32) << 8;
+                still.push(fx::FxGpu { p: p.to_array(), size: 0.25, info, angle: k as f32 * 0.7, a: seed.wrapping_add(k as u32), b: 0 });
+            }
+        }
+        self.fx.lay(still);
+    }
+}

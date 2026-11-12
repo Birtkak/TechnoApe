@@ -126,7 +126,7 @@ pub(crate) struct App {
     /// undone by an older `Inventory` on its way.
     pub(crate) items_pending: Vec<u32>,
     /// Every pile the server told of, by cell (ADR 0074).
-    pub(crate) piles: FxMap<Block, Vec<engine::items::Slot>>,
+    pub(crate) piles: std::collections::HashMap<Block, Vec<engine::items::Slot>>,
     /// The inventory screen (ADR 0075): the stack lifted (holder, slot, how many), creative's tab, search and
     /// scroll, and whether shift is held.
     pub(crate) lifted: Option<(engine::items::Holder, u16, u16)>,

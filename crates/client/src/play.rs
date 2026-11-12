@@ -265,6 +265,7 @@ impl App {
             "inventory" => self.toggle_inventory(),
             "pick" if self.menu.is_none() => self.pick_block(),
             "sclick" if self.menu == Some(Menu::Inventory) => self.inv_click(false, true),
+            "rclick" if self.menu == Some(Menu::Inventory) => self.inv_click(true, false),
             "back" if self.menu == Some(Menu::Inventory) => {
                 self.inv_query.pop();
                 self.inv_scroll = 0;

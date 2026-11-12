@@ -659,6 +659,11 @@ impl Server {
                     Recv::Msg(ToServer::Chat(text)) => self.chat(i, &text, &mut changed),
                     Recv::Msg(ToServer::Respawn) => {
                         if self.clients[i].vitals.dead.is_some() {
+                            // what it carried stays where it died (ADR 0047, 0074)
+                            let feet = self.clients[i].phys.pos;
+                            let left: Vec<Stack> = self.clients[i].slots.iter_mut().filter_map(Option::take).collect();
+                            self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), left, (0, 0));
+                            self.clients[i].inv_dirty = true;
                             let p = self.spawn();
                             self.put(i, p, DVec3::X);
                             self.clients[i].vitals = Vitals::default();
@@ -1213,7 +1218,8 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         if self.clients[i].vitals.dead.is_some() || !self.valid_shape(shape, m, DVec3::from_array(self.clients[i].player.pos)) {
             return false;
         }
-        // a survival dig is taken once it was held for its time (ADR 0034)
+        // a survival dig is taken once it was held for its time (ADR 0034). shortcut: no tool divides the time
+        // or wears in the stack's payload; items.md step 4, with crafting.md's first recipes
         if m == AIR && !self.clients[i].creative {
             let now = self.clock();
             let held = self.clients[i].hold.held(shape, now);
@@ -1470,6 +1476,8 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
 
     /// The items' conservation law (ADR 0074, fundamentals 4.8): each item whose count over every player and
     /// pile is not what digs, places, creative's grid and /give made of it, as (item, held, made).
+    /// shortcut: a ledger of items, not of matter; the planet's material ledger (ore-budget.md) counts the
+    /// ground and does not see what is carried or lying in piles yet.
     pub fn item_ledger(&self) -> Vec<(u16, i64, i64)> {
         let held = self.held_now();
         let ids: std::collections::BTreeSet<u16> = held.keys().chain(self.item_made.keys()).copied().collect();
@@ -2687,10 +2695,13 @@ mod tests {
         back.tick();
         assert_eq!(back.clients[0].vitals.dead.as_ref(), Some(&cause));
         assert!(vitals_of(&drain(&c)).contains(&(0, 20, Some(cause.clone()))));
-        // a respawn: at the spawn, full again
+        // a respawn: at the spawn, full again, and what it carried left lying where it died (ADR 0047)
+        let dirt = Some(Stack::new(BLOCKS.id("dirt"), 5));
+        back.clients[0].slots[3] = dirt;
         c.send(ToServer::Respawn);
         back.tick();
         let me = &back.clients[0];
+        assert!(held(&me.slots).is_empty() && back.piles.values().any(|p| p.slots[0] == dirt), "{:?}", held(&me.slots));
         assert!(me.phys.pos.distance(back.world.bodies[0].spawn_point()) < 1.0);
         assert_eq!(me.vitals, Vitals::default());
         assert_eq!(vitals_of(&drain(&c)), vec![(20, 20, None)]);

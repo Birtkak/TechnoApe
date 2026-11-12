@@ -42,6 +42,7 @@ pub type Slot = Option<Stack>;
 
 /// What holds slots, as a move names it: the ape itself, the pile in a cell, creative's endless grid of every
 /// item (its slot is the item's id; a stack put there is gone), or the ground ahead (thrown: a new pile).
+/// shortcut: no containers or machines (block entities) yet; they become a holder here, items.md step 5.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 pub enum Holder {
     Ape,
