@@ -60,6 +60,7 @@ settings! {
     Lamps "lamps" "Lamp light" Kind::Choice(&["nearest 16", "nearest 64", "all in range"]), 2.0;
     Particles "particles" "Particles" Kind::Choice(&["few", "normal", "many"]), 1.0;
     Textures "textures" "Block textures" Kind::Choice(&["flat colours", "16 px"]), 1.0;
+    Leaves "leaves" "Leaves" Kind::Choice(&["fast", "fancy"]), 1.0; // fancy: seen through, light through them (ADR 0069)
     Stars "stars" "Stars and galaxy" Kind::Choice(OFF_ON), 1.0;
     Sensitivity "sensitivity" "Mouse sensitivity" Kind::Slider { lo: 0.05, hi: 5.0, step: 0.05, max: 10.0, unit: Unit::Times }, 1.0;
     ZoomSens "zoom_sensitivity" "Zoomed sensitivity" Kind::Slider { lo: 0.25, hi: 3.0, step: 0.05, max: 3.0, unit: Unit::Times }, 1.0;
@@ -231,7 +232,7 @@ pub fn page_rows(page: usize) -> Vec<Row> {
     use Row::Set;
     match page {
         0 => vec![Row::Resolution, Set(S::Monitor), Set(S::Display), Set(S::FrameCap), Set(S::BackCap), Set(S::Vsync), Set(S::Fov), Set(S::Brightness)],
-        1 => vec![Row::Preset, Set(S::Detail), Set(S::Shadows), Set(S::Bounce), Set(S::Reflections), Set(S::Lamps), Set(S::Particles), Set(S::Textures), Set(S::Stars)],
+        1 => vec![Row::Preset, Set(S::Detail), Set(S::Shadows), Set(S::Bounce), Set(S::Reflections), Set(S::Lamps), Set(S::Particles), Set(S::Textures), Set(S::Leaves), Set(S::Stars)],
         2 => vec![Set(S::Sensitivity), Set(S::ZoomSens), Set(S::InvertY), Set(S::ZoomMode), Set(S::AutoJump), Set(S::FlyTap)],
         3 => Settings::default().key_rows(""),
         4 => vec![Set(S::Volume), Set(S::VolWorld), Set(S::VolSteps), Set(S::VolUi), Set(S::VolMusic), Set(S::MuteBack), Set(S::SpaceSound)],

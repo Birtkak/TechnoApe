@@ -23,6 +23,9 @@ pub enum Pattern {
     Tiles = 8,
     Bricks = 9,
     Rings = 10,
+    /// Leafy texels with holes of `size` texels, `amount` of them (ADR 0069); a hole is empty on a cutout block,
+    /// a dark texel on any other.
+    Leaves = 11,
 }
 
 impl Pattern {
@@ -40,6 +43,7 @@ impl Pattern {
             Tiles => Some((8, 0.3)),
             Bricks => Some((4, 0.5)),
             Rings => Some((2, 0.5)),
+            Leaves => Some((2, 0.3)),
         }
     }
 }
@@ -89,6 +93,8 @@ struct Raw {
     soft: bool,
     model: Option<String>,
     #[serde(default)]
+    see: See,
+    #[serde(default)]
     stagger: f32,
     spring: Option<RawTone>,
     autumn: Option<RawTone>,
@@ -104,6 +110,17 @@ struct RawTone {
     amount: Option<f32>,
     contrast: Option<f32>,
 }
+/// How a block is seen through (docs/design/see-through-and-boxes.md, ADR 0069): `see` in its row.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum See {
+    /// Every pixel there: the block hides what is behind it (every block before ADR 0069).
+    #[default]
+    Opaque,
+    /// Pixels wholly there or wholly empty (alpha 255 or 0): leaves, a shrub, reed.
+    Cutout,
+}
+
 /// The part of a look a season may change (docs/design/seasonal-looks.md).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tone {
@@ -169,6 +186,8 @@ pub struct Def {
     /// The model (`data/models/<model>.toml`, ADR 0047) drawn in its cell in place of the cube; the cell
     /// still collides as a whole block.
     pub model: Option<String>,
+    /// Whether it may have empty pixels (ADR 0069): the mesher keeps the faces behind a cutout block.
+    pub see: See,
     /// Its looks in spring, autumn and winter; the row's own look is summer's, and a season the row does not
     /// name is that too. None: the block looks the same all year.
     pub seasons: Option<[Tone; 3]>,
@@ -279,7 +298,7 @@ impl Registry {
             if seasons.is_none() && r.stagger != 0.0 {
                 return Err(format!("block '{}': a stagger without a season", r.name));
             }
-            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, soft: r.soft, model: r.model.clone(), seasons, stagger: r.stagger });
+            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger });
         }
         match &defs[0] {
             Some(d) if d.name == "air" && !d.solid => {}
@@ -299,6 +318,12 @@ impl Registry {
 
     pub fn solid(&self, id: u16) -> bool {
         self.get(id).is_some_and(|d| d.solid)
+    }
+
+    /// Whether block `id` hides what is behind it: not air, not cutout. An id with no row counts as opaque, as
+    /// the mesher always took it.
+    pub fn opaque(&self, id: u16) -> bool {
+        id != AIR && self.get(id).is_none_or(|d| d.see == See::Opaque)
     }
 
     /// Every block but air, in id order.
@@ -341,6 +366,34 @@ mod tests {
             let plant = d.name.ends_with("leaves") || ["shrub", "reed"].contains(&d.name.as_str());
             assert_eq!(d.soft, plant, "{}", d.name);
         }
+    }
+
+    /// ADR 0069: the plants are seen through, and nothing else is yet.
+    #[test]
+    fn leaves_shrub_and_reed_are_cutout() {
+        for d in BLOCKS.placeable() {
+            let plant = d.name.ends_with("leaves") || ["shrub", "reed"].contains(&d.name.as_str());
+            assert_eq!(d.see == See::Cutout, plant, "{}", d.name);
+            assert_eq!(BLOCKS.opaque(d.id), !plant, "{}", d.name);
+        }
+        assert!(!BLOCKS.opaque(AIR) && BLOCKS.opaque(250), "air is not opaque, an unknown id is");
+        let air = "[[block]]
+id = 0
+name = \"air\"
+solid = false
+";
+        assert!(Registry::parse(&format!("{air}[[block]]
+id = 1
+name = \"x\"
+hardness = 1
+see = \"opaque\"
+")).is_ok());
+        assert!(Registry::parse(&format!("{air}[[block]]
+id = 1
+name = \"x\"
+hardness = 1
+see = \"glass\"
+")).is_err(), "glass is step 3");
     }
 
     #[test]

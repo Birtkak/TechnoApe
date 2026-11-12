@@ -1,0 +1,5 @@
+# Step 2 (ADR 0069): the forest, as the spike's Question 1; leaves= fancy or fast (a today build ignores it)
+stand-fancy | run=stand at=1125.34,3634.37,1915.81 time=23625 eye=9 pitch=-28 yaw=120 leaves=fancy
+fly-fancy | run=fly at=1125.34,3634.37,1915.81 time=23625 alt=12 speed=15 leaves=fancy
+stand-fast | run=stand at=1125.34,3634.37,1915.81 time=23625 eye=9 pitch=-28 yaw=120 leaves=fast
+fly-fast | run=fly at=1125.34,3634.37,1915.81 time=23625 alt=12 speed=15 leaves=fast

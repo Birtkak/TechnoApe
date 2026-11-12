@@ -176,6 +176,19 @@ pub fn draw(p: &egui::Painter, img: &Img, v: usize, at: Pos2, scale: f32, dimmed
         for x in 0..S {
             let c = img.get(v, x, y);
             let r = Rect::from_min_size(at + Vec2::new(x as f32, y as f32) * scale, Vec2::splat(scale));
+            if c == crate::art::EMPTY {
+                // an empty pixel: a checkerboard, two squares a side on a large canvas, one a pixel when small
+                let grey = |k: usize| Color32::from_gray(if k % 2 == 0 { 78 } else { 118 });
+                if scale >= 8.0 {
+                    let h = scale / 2.0;
+                    for k in 0..4 {
+                        p.rect_filled(Rect::from_min_size(r.min + Vec2::new((k % 2) as f32, (k / 2) as f32) * h, Vec2::splat(h)), 0.0, grey(k % 2 + k / 2));
+                    }
+                } else {
+                    p.rect_filled(r, 0.0, grey(x + y));
+                }
+                continue;
+            }
             p.rect_filled(r, 0.0, if dimmed { dim(c) } else { c32(c) });
         }
     }

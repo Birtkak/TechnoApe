@@ -117,11 +117,13 @@ pub fn vram_mb() -> f64 {
 pub fn meshbench(args: &HashMap<String, String>) {
     let num = |k: &str, d: i32| args.get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
     let planet = num("planet", engine::bodies::BODIES[0].n);
-    // at=x,y,z (the see-through spike, ADR 0068): the baked planet's chunks around that place, else the
+    // at=x,y,z (ADR 0068, 0069): the baked planet's chunks around that place, else the
     // noise land's around the middle of the +y face
     let at = args.get("at").map(|s| s.split(',').map(|v| v.parse::<f64>().unwrap()).collect::<Vec<_>>());
     let world = if at.is_some() { World::baked(planet, engine::bodies::columns(1, planet), 1337) } else { World::new(planet, engine::bodies::columns(1, planet), 1337) };
     let greedy = num("greedy", 1) == 1;
+    // leaves=fancy: level 0 as fancy leaves mesh it (ADR 0069), else as today
+    let cutout = args.get("leaves").is_some_and(|v| v == "fancy");
     let radius = num("chunks", 6);
     let b = &world.bodies[0];
     let (face, ci, cj, top) = match &at {
@@ -152,7 +154,7 @@ pub fn meshbench(args: &HashMap<String, String>) {
                 let mut n = 0;
                 for _ in 0..if near.is_some() { 5 } else { 1 } {
                     let t = Instant::now();
-                    n = engine::mesh::mesh_at(&c, if greedy { b.lattice(0) as usize } else { 1 }, near).quads.len();
+                    n = engine::mesh::mesh_cut(&c, if greedy { b.lattice(0) as usize } else { 1 }, cutout).quads.len();
                     best = best.min(t.elapsed().as_secs_f64() * 1e6);
                 }
                 return ((t1 - t0).as_secs_f64() * 1e6, best, n, 2);
@@ -175,8 +177,8 @@ pub fn meshbench(args: &HashMap<String, String>) {
     let quads = surf.iter().map(|r| r.2).sum::<usize>() as f64 / n;
     let shortcut_us = single.iter().filter(|r| r.3 != 2).map(|r| r.0).sum::<f64>() / single.iter().filter(|r| r.3 != 2).count().max(1) as f64;
     println!(
-        "{{\"run\":\"meshbench\",\"spike\":{},\"greedy\":{},\"chunks\":{},\"surface_chunks\":{},\"gen_us\":{:.1},\"mesh_us\":{:.1},\"shortcut_us\":{:.1},\"quads_per_chunk\":{:.0},\"bytes_per_chunk\":{:.0},\"single_chunks_per_s\":{:.0},\"parallel_chunks_per_s\":{:.0},\"threads\":{}}}",
-        engine::mesh::SPIKE.load(std::sync::atomic::Ordering::Relaxed), greedy as u8, keys.len(), surf.len(), gen_us, mesh_us, shortcut_us, quads, quads * 8.0,
+        "{{\"run\":\"meshbench\",\"greedy\":{},\"chunks\":{},\"surface_chunks\":{},\"gen_us\":{:.1},\"mesh_us\":{:.1},\"shortcut_us\":{:.1},\"quads_per_chunk\":{:.0},\"bytes_per_chunk\":{:.0},\"single_chunks_per_s\":{:.0},\"parallel_chunks_per_s\":{:.0},\"threads\":{}}}",
+        greedy as u8, keys.len(), surf.len(), gen_us, mesh_us, shortcut_us, quads, quads * 8.0,
         keys.len() as f64 / st, keys.len() as f64 / pt, rayon::current_num_threads()
     );
 }

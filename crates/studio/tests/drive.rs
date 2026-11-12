@@ -611,3 +611,21 @@ fn a_pending_set_goes_with_a_switch_of_face() {
     let line = studio(&dir, &["open=clay", "rects=1", "input=click @btn:pattern; click @facetab:1; wait"]);
     assert!(!line.contains("btn:pat.use"), "the pattern panel closed with the switch: {line}");
 }
+
+#[test]
+fn a_block_made_cutout_takes_the_eraser_and_undo_takes_the_kind_back() {
+    // ADR 0069: Kind writes `see` to the row; the Eraser (offered only then) leaves alpha 0 in the saved file
+    let dir = scratch("cutout");
+    let blocks = || std::fs::read_to_string(dir.join("data/blocks.toml")).unwrap();
+    let clay = |t: &str| t.split("name = \"clay\"").nth(1).unwrap().split("[[block]]").next().unwrap().contains("see = \"cutout\"");
+    studio(&dir, &["open=clay", "input=click @btn:pattern; click @btn:pat.use; click @kind:cutout; key X; click @face:0.5,0.5; key Ctrl+S"]);
+    assert!(clay(&blocks()), "the row says cutout");
+    let (w, _, px) = png(&dir.join("data/textures/clay.png"));
+    let at = |x: u32, y: u32| px[((y * w + x) * 4 + 3) as usize];
+    assert_eq!((at(8, 8), at(0, 0)), (0, 255), "the erased pixel is empty, the rest there");
+    // to opaque: the hole filled with the mean in one step; undo brings the hole and the kind back
+    let line = studio(&dir, &["open=clay", "input=click @kind:opaque"]);
+    assert!(!clay(&blocks()) && line.contains("\"Kind: opaque\""), "{line}");
+    studio(&dir, &["open=clay", "input=click @kind:cutout; click @kind:opaque; key Ctrl+Z"]);
+    assert!(clay(&blocks()), "undo writes cutout back");
+}

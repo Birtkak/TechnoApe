@@ -106,7 +106,7 @@ impl Gi {
                 wgpu::BindGroupEntry { binding: 5, resource: r5 },
                 wgpu::BindGroupEntry { binding: 8, resource: r8 },
                 wgpu::BindGroupEntry { binding: 9, resource: r9 },
-                // the spike's paintings, for rays through empty pixels (ADR 0068)
+                // the painted faces: a ray through a cutout block reads its texel (ADR 0069)
                 wgpu::BindGroupEntry { binding: 11, resource: r11 },
             ],
         });

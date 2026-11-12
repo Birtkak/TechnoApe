@@ -50,7 +50,11 @@ it the way a recording replaces a code-made sound (ADR 0032):
 The texture page: a 16 x 16 canvas with pencil, fill, picker, line, mirror and undo; the block shown
 tiled 3 x 3 flat and as a lit cube beside its neighbours; the faces and variants as tabs; "start from
 pattern" copies the block's current shader pattern into the canvas so the first stroke is not on an empty
-square. There is no eraser: a texture has no empty pixels.
+square. An opaque block's texture has no empty pixels. A cutout block's may (ADR 0069): the inspector's
+**Kind** chooses opaque or cutout and writes `see = "cutout"` to the block's row (or drops it), one undo
+step; to opaque, the open face's empty pixels are filled with its mean colour in that step, and empty pixels
+in the block's other files refuse it. The **Eraser** (X) is offered only on a cutout block; empty pixels show
+as a checkerboard on the canvas, the previews and the pattern panel (the leaves pattern's holes).
 
 ### The window's layout
 One window, three columns under a bar of pages (Textures, Palette; later Models, Effects, Structures).

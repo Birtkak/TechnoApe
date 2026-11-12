@@ -1,6 +1,6 @@
 //! The Studio's art without a window: a texture's pixels, the tools that paint them, undo, the PNG rule and the
 //! palette check, the drafts list and the tiled sheet. Everything here is a pure function of its inputs, tested.
-use engine::blocks::Registry;
+use engine::blocks::{Registry, See};
 use engine::palette::{to_hex, Palette};
 use std::path::Path;
 
@@ -8,7 +8,7 @@ use std::path::Path;
 pub const S: usize = 16;
 pub const FACES: [&str; 4] = ["", "top", "side", "bottom"];
 
-/// A texture: 16 high, 1 to 4 variants of 16 x 16 side by side, every pixel opaque (so only its colour is kept).
+/// A texture: 16 high, 1 to 4 variants of 16 x 16 side by side, each pixel a colour or `EMPTY`.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Img {
     pub w: usize,
@@ -32,6 +32,34 @@ impl Img {
     pub fn uses(&self, c: [u8; 3]) -> bool {
         self.px.contains(&c)
     }
+    /// Whether the pixel is empty (alpha 0: a cutout block's hole, ADR 0069).
+    pub fn empty_at(&self, v: usize, x: usize, y: usize) -> bool {
+        self.get(v, x, y) == EMPTY
+    }
+    /// Whether any pixel is empty.
+    pub fn holes(&self) -> bool {
+        self.uses(EMPTY)
+    }
+}
+
+/// An empty pixel, kept as a colour so every tool (fill, move, shift, undo) carries it like any other; `encode`
+/// writes it with alpha 0, `decode` reads alpha 0 as it.
+// shortcut: a key colour, so a palette colour of exactly this value would paint holes; `check=1` refuses one
+pub const EMPTY: [u8; 3] = [254, 1, 253];
+
+/// The eraser: pixel (x, y) of variant `v` (and its mirror twin) made empty (the page's strokes paint `EMPTY`).
+#[cfg(test)]
+pub fn erase(img: &mut Img, v: usize, x: usize, y: usize, mirror: bool) {
+    pencil(img, v, x, y, EMPTY, mirror);
+}
+
+/// Every empty pixel filled with the mean of the pixels there, snapped to the palette (a block made opaque);
+/// whether there were any.
+pub fn fill_holes(img: &mut Img, pal: &Palette) -> bool {
+    let there: Vec<[u8; 3]> = img.px.iter().copied().filter(|c| *c != EMPTY).collect();
+    let n = there.len().max(1) as f32;
+    let mean = std::array::from_fn(|i| there.iter().map(|c| c[i] as f32).sum::<f32>() / n / 255.0);
+    repaint(img, EMPTY, crate::tools::snap(pal, mean))
 }
 
 /// The file of a block's face: `FACES[0]` is every face.
@@ -223,6 +251,9 @@ pub fn check_data(data: &Path) -> Result<(usize, usize, Vec<String>), String> {
     let reg = Registry::parse(&read("blocks.toml")?).map_err(|e| format!("data/blocks.toml: {e}"))?;
     let pal = Palette::parse(&read("palette.toml")?).map_err(|e| format!("data/palette.toml: {e}"))?;
     let (ok, mut bad) = check_dir(&data.join("textures"), &pal, &reg);
+    if let Some(i) = pal.find(EMPTY) {
+        bad.push(format!("data/palette.toml: colour '{}' is {}, the Studio's key for an empty pixel: change it by one step", pal.colours[i].name, to_hex(EMPTY)));
+    }
     // the models too, through the game's own reader (ADR 0049)
     bad.extend(crate::voxel::check_models(&data.join("models"), &pal).1);
     bad.extend(check_structures(&data.join("structures"), &reg));
@@ -258,10 +289,16 @@ pub fn check_structures(dir: &Path, reg: &Registry) -> Vec<String> {
         .collect()
 }
 
-/// Reads a texture held to the game's rule (`engine::textures::decode`, ADR 0045).
+/// Reads a texture held to the game's rule for any block (`engine::textures::decode`, ADR 0045, 0069): pixels
+/// there or empty. `check_file` holds a file to its own block's kind.
 pub fn decode(bytes: &[u8]) -> Result<Img, String> {
-    let v = engine::textures::decode(bytes)?;
-    let px = (0..S).flat_map(|y| v.iter().flat_map(move |p| p[y * S..(y + 1) * S].iter().map(|c| [c[0], c[1], c[2]]))).collect();
+    decode_as(bytes, See::Cutout)
+}
+
+/// `decode` held to a block of kind `see`: an opaque block's file has no empty pixel.
+pub fn decode_as(bytes: &[u8], see: See) -> Result<Img, String> {
+    let v = engine::textures::decode(bytes, see)?;
+    let px = (0..S).flat_map(|y| v.iter().flat_map(move |p| p[y * S..(y + 1) * S].iter().map(|c| if c[3] == 0 { EMPTY } else { [c[0], c[1], c[2]] }))).collect();
     Ok(Img { w: v.len() * S, px })
 }
 
@@ -286,24 +323,24 @@ pub fn encode(img: &Img) -> Vec<u8> {
     e.set_color(png::ColorType::Rgba);
     e.set_depth(png::BitDepth::Eight);
     let mut wr = e.write_header().expect("a PNG header in memory");
-    let data: Vec<u8> = img.px.iter().flat_map(|c| [c[0], c[1], c[2], 255]).collect();
+    let data: Vec<u8> = img.px.iter().flat_map(|c| if *c == EMPTY { [0; 4] } else { [c[0], c[1], c[2], 255] }).collect();
     wr.write_image_data(&data).expect("a PNG in memory");
     wr.finish().expect("a PNG in memory");
     out
 }
 
-/// The first pixel whose colour is not in the palette, as (x, y) in the file.
+/// The first pixel whose colour is not in the palette, as (x, y) in the file (an empty pixel has none).
 pub fn off_palette(img: &Img, pal: &Palette) -> Option<(usize, usize, [u8; 3])> {
-    img.px.iter().enumerate().find(|(_, c)| pal.find(**c).is_none()).map(|(n, c)| (n % img.w, n / img.w, *c))
+    img.px.iter().enumerate().find(|(_, c)| **c != EMPTY && pal.find(**c).is_none()).map(|(n, c)| (n % img.w, n / img.w, *c))
 }
 
 /// One texture file against the rule, the palette and the block names; the error names the file.
 pub fn check_file(path: &str, bytes: &[u8], pal: &Palette, reg: &Registry) -> Result<Img, String> {
     let stem = path.rsplit(['/', '\\']).next().unwrap_or(path).strip_suffix(".png").unwrap_or("");
-    if !reg.placeable().any(|d| names_block(&d.name, &format!("{stem}.png"))) {
+    let Some(block) = reg.placeable().find(|d| names_block(&d.name, &format!("{stem}.png"))) else {
         return Err(format!("{path}: names no block (<block>.png, <block>_top, _side or _bottom, each with @spring, @autumn or @winter for a season)"));
-    }
-    let img = decode(bytes).map_err(|e| format!("{path}: {e}"))?;
+    };
+    let img = decode_as(bytes, block.see).map_err(|e| format!("{path}: {e}"))?;
     if let Some((x, y, c)) = off_palette(&img, pal) {
         return Err(format!("{path}: pixel ({x}, {y}) is {}, not a palette colour", to_hex(c)));
     }
@@ -424,7 +461,7 @@ pub fn tiled(img: &Img, n: usize, scale: usize) -> (usize, Vec<u8>) {
         for px in 0..side {
             let (x, y) = (px / scale, py / scale);
             let c = img.get(variant_at([(x / S) as i32, (y / S) as i32, 0], img.variants()), x % S, y % S);
-            out.extend_from_slice(&[c[0], c[1], c[2], 255]);
+            out.extend_from_slice(&if c == EMPTY { [0; 4] } else { [c[0], c[1], c[2], 255] });
         }
     }
     (side, out)
@@ -563,6 +600,59 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_pixel_round_trips_as_alpha_zero() {
+        let mut img = Img::filled(2, A);
+        erase(&mut img, 1, 3, 4, false);
+        assert!(img.empty_at(1, 3, 4) && !img.empty_at(0, 3, 4));
+        let png = encode(&img);
+        let px = &engine::textures::decode(&png, engine::blocks::See::Cutout).unwrap()[1][4 * S + 3];
+        assert_eq!(px[3], 0, "written with alpha 0");
+        assert_eq!(decode(&png).unwrap(), img, "read back empty");
+    }
+
+    #[test]
+    fn the_eraser_empties_pixels_and_paint_fills_them_again() {
+        let mut img = Img::filled(1, A);
+        erase(&mut img, 0, 2, 7, true);
+        assert!(img.empty_at(0, 2, 7) && img.empty_at(0, 13, 7), "the mirror too");
+        assert!(img.holes());
+        pencil(&mut img, 0, 2, 7, B, false);
+        assert_eq!((img.get(0, 2, 7), img.empty_at(0, 2, 7)), (B, false));
+        fill(&mut img, 0, 13, 7, B, false);
+        assert!(!img.holes(), "a fill on an empty pixel fills it");
+    }
+
+    #[test]
+    fn holes_fill_with_the_files_mean_colour_in_the_palette() {
+        let mut img = Img::filled(1, B);
+        erase(&mut img, 0, 0, 0, false);
+        assert!(fill_holes(&mut img, &pal()));
+        assert_eq!(img, Img::filled(1, B), "the mean of what is there, snapped");
+        assert!(!fill_holes(&mut img, &pal()), "nothing to fill");
+    }
+
+    #[test]
+    fn check_holds_each_file_to_its_own_blocks_kind() {
+        let p = pal();
+        let r = Registry::parse("[[block]]\nid = 0\nname = \"air\"\nsolid = false\n[[block]]\nid = 1\nname = \"rock\"\nhardness = 1\n[[block]]\nid = 2\nname = \"leaf\"\nsee = \"cutout\"\nhardness = 1\n").unwrap();
+        let mut img = Img::filled(1, A);
+        erase(&mut img, 0, 4, 3, false);
+        assert!(check_file("data/textures/leaf.png", &encode(&img), &p, &r).is_ok(), "a cutout block may have empty pixels");
+        assert_eq!(check_file("data/textures/rock.png", &encode(&img), &p, &r).unwrap_err(), "data/textures/rock.png: pixel (4, 3) is not opaque");
+        let mut data: Vec<u8> = (0..S * S).flat_map(|_| [A[0], A[1], A[2], 255]).collect();
+        data[(3 * 16 + 4) * 4 + 3] = 128;
+        let mut half = Vec::new();
+        let mut e = png::Encoder::new(&mut half, 16, 16);
+        e.set_color(png::ColorType::Rgba);
+        e.set_depth(png::BitDepth::Eight);
+        let mut w = e.write_header().unwrap();
+        w.write_image_data(&data).unwrap();
+        w.finish().unwrap();
+        let e = check_file("data/textures/leaf.png", &half, &p, &r).unwrap_err();
+        assert!(e.starts_with("data/textures/leaf.png: pixel (4, 3) is partly see-through"), "{e}");
+    }
+
+    #[test]
     fn check_names_the_file_and_the_pixel() {
         let (p, r) = (pal(), reg());
         let mut img = Img::filled(2, A);
@@ -596,7 +686,8 @@ mod tests {
         data[(3 * 16 + 4) * 4 + 3] = 128;
         w.write_image_data(&data).unwrap();
         w.finish().unwrap();
-        assert_eq!(decode(&out).unwrap_err(), "pixel (4, 3) is not opaque");
+        // the Studio reads any file the game could take for some block (`check_file` holds it to its own)
+        assert!(decode(&out).unwrap_err().starts_with("pixel (4, 3) is partly see-through"));
         let mut out = Vec::new();
         let mut e = png::Encoder::new(&mut out, 16, 16);
         e.set_color(png::ColorType::Grayscale);

@@ -10,6 +10,7 @@ use crate::shell::Flags;
 use crate::tools::{self, Clip, Sel};
 use crate::wall::{Rng, Wall};
 use eframe::egui::{self, Color32, Key, Modifiers, PointerButton, Pos2, Rect, RichText, Sense, StrokeKind, Ui, Vec2};
+use engine::blocks::See;
 use engine::palette::{to_hex, Palette};
 
 const FACE_NAMES: [&str; 4] = ["All", "Top", "Side", "Bottom"];
@@ -29,10 +30,11 @@ pub enum Tool {
     Gradient,
     Select,
     Replace,
+    Eraser,
 }
 
 /// Each tool: its id, name, key, and its help for the status line and tooltip.
-pub(super) const TOOLS: [(Tool, &str, &str, Key, &str); 11] = [
+pub(super) const TOOLS: [(Tool, &str, &str, Key, &str); 12] = [
     (Tool::Pencil, "pencil", "Pencil", Key::B, "Pencil: left paints the first colour, right the second; Alt picks"),
     (Tool::Fill, "fill", "Fill", Key::G, "Fill: fills the touching area of one colour; left the first colour, right the second"),
     (Tool::Picker, "picker", "Picker", Key::I, "Picker: left takes the first colour from the canvas, right the second"),
@@ -44,7 +46,24 @@ pub(super) const TOOLS: [(Tool, &str, &str, Key, &str); 11] = [
     (Tool::Gradient, "gradient", "Gradient", Key::E, "Gradient: drag a line; the face runs from the first to the second colour along their ramp, dithered"),
     (Tool::Select, "select", "Select", Key::S, "Select: drag a rectangle; drag inside it to move it; flip, turn, copy and paste in the inspector"),
     (Tool::Replace, "replace", "Replace", Key::R, "Replace colour: a click turns every pixel of that colour in the file into the first colour (right: the second)"),
+    (Tool::Eraser, "eraser", "Eraser", Key::X, "Eraser: left or right makes pixels empty, holes the faces behind show through; any paint fills them again"),
 ];
+/// The Eraser's tip while the block is opaque: why it is off.
+const ERASER_OFF: &str = "Eraser: only for a cutout block (choose Cutout under Kind); an opaque block has no empty pixels";
+/// The kinds of block (`see` in data/blocks.toml, ADR 0069): (id, name, what it is for).
+const KINDS: [(See, &str, &str); 2] = [
+    (See::Opaque, "Opaque", "Opaque: hides what is behind it, for ground, stone, wood."),
+    (See::Cutout, "Cutout", "Cutout: pixels are there or empty, for leaves, plants, grates. The faces behind it are drawn."),
+];
+
+/// Block `block`'s row of data/blocks.toml (`text`) with `see = "cutout"` after its name, or without it for
+/// opaque; None when the file has no such row.
+pub fn kind_row(text: &str, block: &str, see: See) -> Option<String> {
+    let span = crate::rows::spans(text).into_iter().find(|s| s.header == "block" && s.name == block)?;
+    let mut k = crate::rows::Keys::parse(&text[span.at]);
+    k.set_after("see", (see == See::Cutout).then(|| "\"cutout\"".to_string()), &["name"]);
+    Some(k.text())
+}
 
 struct Stroke {
     button: PointerButton,
@@ -106,6 +125,9 @@ pub struct Textures {
     recipes: std::collections::HashMap<String, (pattern::Recipe, bool)>,
     /// A change shown in the canvas and every preview before Use: (file, the picture it would hold).
     pending: Option<(String, Img)>,
+    /// Kind changes of a block whose open face has no file of its own to hold the step: (block, the kind it
+    /// was set to), undone and redone in order.
+    kinds: (Vec<(String, See)>, Vec<(String, See)>),
 }
 
 struct PatPanel {
@@ -172,6 +194,7 @@ impl Textures {
             pat: None,
             recipes: Default::default(),
             pending: None,
+            kinds: Default::default(),
         };
         t.go(app, &block);
         t
@@ -355,6 +378,90 @@ impl Textures {
         Some(def)
     }
 
+    /// The block's kind: opaque or cutout (`see` in its row).
+    fn kind(&self, app: &App) -> See {
+        app.reg.placeable().find(|d| d.name == self.block).map_or(See::Opaque, |d| d.see)
+    }
+
+    /// Writes the block's kind to its row in data/blocks.toml when the game's reader takes it (no undo step).
+    fn write_kind(&self, app: &mut App, see: See) -> bool {
+        let path = super::BLOCKS;
+        let block = self.block.clone();
+        let res = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}")).and_then(|old| {
+            let row = kind_row(&old, &block, see).ok_or(format!("{path}: no row for {block}"))?;
+            crate::rows::save(path, "block", &block, &row, |t| engine::blocks::Registry::parse(t).map(|_| ()))
+        });
+        match res {
+            Ok(new) => {
+                app.reg = crate::rows::blocks(&new).0;
+                true
+            }
+            Err(e) => {
+                app.refuse(e);
+                false
+            }
+        }
+    }
+
+    /// "Kind": the block made opaque or cutout, one undo step (in the open face's history, else the page's). To
+    /// opaque, the open face's empty pixels are filled with its mean colour in that step; empty pixels in the
+    /// block's other files refuse it, so none are lost unseen.
+    fn set_kind(&mut self, app: &mut App, see: See) {
+        if self.kind(app) == see {
+            return;
+        }
+        let open = self.file(self.face);
+        if see == See::Opaque {
+            let others: Vec<String> = (0..4).flat_map(|q| (0..4).map(move |f| (q, f))).map(|(q, f)| art::season_file(&self.block, f, q)).filter(|n| *n != open && app.docs.get(n).is_some_and(|d| d.img.holes())).collect();
+            if !others.is_empty() {
+                return app.refuse(format!("Opaque: {} {} empty pixels; fill them first (Fill on an empty pixel), only the open face's are filled for you", others.join(", "), if others.len() == 1 { "has" } else { "have" }));
+            }
+        }
+        if !self.write_kind(app, see) {
+            return;
+        }
+        let name = format!("Kind: {}", if see == See::Cutout { "cutout" } else { "opaque" });
+        let pal = app.pal.clone();
+        match app.docs.get_mut(&open) {
+            Some(d) => {
+                let before = d.img.clone();
+                let filled = see == See::Opaque && art::fill_holes(&mut d.img, &pal);
+                d.hist.push(before, &name);
+                if filled {
+                    app.toast(format!("{}: opaque; the empty pixels of {open} filled with its mean colour (Undo takes it back)", self.block));
+                }
+            }
+            None => {
+                self.kinds.0.push((self.block.clone(), see));
+                self.kinds.1.clear();
+            }
+        }
+        if see == See::Opaque && self.tool == Tool::Eraser {
+            self.tool = Tool::Pencil;
+        }
+    }
+
+    /// One undo (or redo) of the open face, a kind step writing the kind back; whether there was one.
+    fn step(&mut self, app: &mut App, undo: bool) -> bool {
+        let other = |s: See| if s == See::Cutout { See::Opaque } else { See::Cutout };
+        let Some(d) = app.docs.get_mut(&self.file(self.face)) else {
+            // no file of its own: the page's kind steps
+            let (from, to) = if undo { (&mut self.kinds.0, &mut self.kinds.1) } else { (&mut self.kinds.1, &mut self.kinds.0) };
+            let Some((b, see)) = from.pop_if(|(b, _)| *b == self.block) else { return false };
+            to.push((b, see));
+            self.write_kind(app, if undo { other(see) } else { see });
+            return true;
+        };
+        let name = if undo { d.hist.undo.last() } else { d.hist.redo.last() }.map(|s| s.name.clone());
+        let done = if undo { d.hist.undo(&mut d.img) } else { d.hist.redo(&mut d.img) };
+        self.variant = self.variant.min(d.img.variants() - 1);
+        if let Some(k) = name.as_deref().and_then(|n| n.strip_prefix("Kind: ")) {
+            let see = if k == "cutout" { See::Cutout } else { See::Opaque };
+            self.write_kind(app, if undo { other(see) } else { see });
+        }
+        done
+    }
+
     /// Opens the pattern panel with the file's last recipe this session, else the block's own row.
     fn open_pattern(&mut self, app: &App, every: bool) {
         let key = self.file(self.face);
@@ -394,7 +501,7 @@ impl Textures {
         self.pending = None;
     }
 
-    /// The pattern panel in the middle column: the eleven patterns, three colour wells, the values the chosen
+    /// The pattern panel in the middle column: the twelve patterns, three colour wells, the values the chosen
     /// one reads, Another, this or every variant, Use and Cancel.
     fn pattern_panel(&mut self, ui: &mut Ui, app: &mut App) {
         let Some(def) = self.def(app) else { return };
@@ -915,6 +1022,7 @@ impl Textures {
                 }
             }
             Tool::Spray => tools::spray(&mut d.img, v, to, radius, density, c, mirror, rng),
+            Tool::Eraser => tools::line_wrap(&mut d.img, v, st.last, to, art::EMPTY, mirror),
             Tool::Gradient => {
                 d.img = st.base.clone();
                 let (a, b) = if st.button == PointerButton::Primary { (first, second) } else { (second, first) };
@@ -1122,6 +1230,9 @@ impl Textures {
             Tool::Replace => {
                 look::weak(ui, "every pixel of the clicked colour, in every variant of the file");
             }
+            Tool::Eraser => {
+                look::weak(ui, "empty pixels show as a checkerboard; in the game the faces behind show through");
+            }
             _ => {}
         }
     }
@@ -1164,6 +1275,8 @@ impl Page for Textures {
 
     fn commands(&self, _app: &App) -> Vec<Cmd> {
         let mut v: Vec<Cmd> = TOOLS.iter().map(|(_, id, name, k, help)| Cmd::new(format!("tool.{id}"), format!("Tool: {name}"), *help).key(Modifiers::NONE, *k)).collect();
+        v.push(Cmd::new("kind.opaque", "Kind: opaque", "the block hides what is behind it; the open face's empty pixels are filled with its mean colour"));
+        v.push(Cmd::new("kind.cutout", "Kind: cutout", "the block's pixels are there or empty (the Eraser); the faces behind it are drawn"));
         v.push(Cmd::new("mirror", "Mirror on or off", "paint both halves at once, mirrored across the middle").key(Modifiers::NONE, Key::M));
         v.push(Cmd::new("tiled", "Tiled painting on or off", "the neighbours ghosted round the face; strokes wrap over the edges").key(Modifiers::NONE, Key::T));
         v.push(Cmd::new("seams", "Seam view on or off", "mark edge pixels that clash with the far edge they meet when tiled").key(Modifiers::SHIFT, Key::T));
@@ -1208,6 +1321,9 @@ impl Page for Textures {
 
     fn run(&mut self, app: &mut App, id: &str) {
         if let Some(t) = id.strip_prefix("tool.").and_then(|t| TOOLS.iter().find(|x| x.1 == t)) {
+            if t.0 == Tool::Eraser && self.kind(app) != See::Cutout {
+                return app.refuse(ERASER_OFF);
+            }
             self.tool = t.0;
             return;
         }
@@ -1328,14 +1444,12 @@ impl Page for Textures {
                 }
             }
             "undo" | "redo" if self.stroke.is_none() => {
-                if let Some(d) = app.docs.get_mut(&self.file(self.face)) {
-                    let done = if id == "undo" { d.hist.undo(&mut d.img) } else { d.hist.redo(&mut d.img) };
-                    self.variant = self.variant.min(d.img.variants() - 1);
-                    if !done {
-                        app.toast(format!("Nothing to {id}"));
-                    }
+                if !self.step(app, id == "undo") && app.docs.contains_key(&self.file(self.face)) {
+                    app.toast(format!("Nothing to {id}"));
                 }
             }
+            "kind.opaque" => self.set_kind(app, See::Opaque),
+            "kind.cutout" => self.set_kind(app, See::Cutout),
             "save" => {
                 let files: Vec<String> = (0..4).flat_map(|q| (0..4).map(move |f| (q, f))).map(|(q, f)| art::season_file(&self.block, f, q)).filter(|f| app.docs.get(f).is_some_and(Doc::dirty)).collect();
                 if files.is_empty() {
@@ -1379,13 +1493,17 @@ impl Page for Textures {
         Some(d.map_or((vec![], vec![]), |d| (d.hist.undo.iter().map(|s| s.name.clone()).collect(), d.hist.redo.iter().rev().map(|s| s.name.clone()).collect())))
     }
     fn back_to(&mut self, app: &mut App, n: usize) {
-        if let Some(d) = app.docs.get_mut(&self.file(self.face)) {
-            d.hist.back_to(&mut d.img, n);
-            self.variant = self.variant.min(d.img.variants() - 1);
-        }
+        // step by step, so a kind step on the way writes its kind back
+        let f = self.file(self.face);
+        let len = |app: &App| app.docs.get(&f).map(|d| d.hist.undo.len());
+        while len(app).is_some_and(|l| l > n) && self.step(app, true) {}
+        while len(app).is_some_and(|l| l < n) && self.step(app, false) {}
     }
     fn refresh(&mut self, app: &App) {
         self.variant = self.v(app);
+        if self.tool == Tool::Eraser && self.kind(app) != See::Cutout {
+            self.tool = Tool::Pencil;
+        }
         if app.pal.find(self.first).is_none() {
             self.first = app.pal.colours.first().map_or([128; 3], |c| c.rgb);
         }
@@ -1499,7 +1617,8 @@ impl Page for Textures {
         app.pointer = match (on, self.shown(app)) {
             (Some((x, y)), Some((img, _))) => {
                 let (ux, uy) = (x.rem_euclid(16) as usize, y.rem_euclid(16) as usize);
-                format!("{ux}, {uy}   {}", Self::colour_name(app, img.get(self.v(app), ux, uy)))
+                let v = self.v(app);
+                format!("{ux}, {uy}   {}", if img.empty_at(v, ux, uy) { "empty".into() } else { Self::colour_name(app, img.get(v, ux, uy)) })
             }
             (Some((x, y)), None) => format!("{x}, {y}"),
             _ => format!("{}  ×{}", self.file(self.face), scale),
@@ -1507,6 +1626,26 @@ impl Page for Textures {
     }
 
     fn inspector(&mut self, ui: &mut Ui, app: &mut App) {
+        if let Some(mut sec) = look::section(ui, "Kind") {
+            let ui = &mut *sec;
+            let (kind, mut pick) = (self.kind(app), None);
+            ui.horizontal(|ui| {
+                for (see, name, what) in KINDS {
+                    let r = look::chip(ui, kind == see, name);
+                    crate::drive::mark(ui.ctx(), format!("kind:{}", name.to_lowercase()), r.rect);
+                    let help = if see == See::Cutout { format!("{what} Writes see = \"cutout\" to its row in data/blocks.toml; one undo step") } else { format!("{what} Drops see from its row in data/blocks.toml; the open face's empty pixels are filled with its mean colour; one undo step") };
+                    if look::tip(r, &help, "").clicked() {
+                        pick = Some(see);
+                    }
+                }
+            });
+            // the chosen kind's line; the other's is its chip's tip
+            look::weak(ui, KINDS.iter().find(|k| k.0 == kind).map_or("", |k| k.2));
+            if let Some(see) = pick {
+                self.set_kind(app, see);
+            }
+        }
+        let kind = self.kind(app);
         if let Some(mut sec) = look::section(ui, "Tools") {
             let ui = &mut *sec;
             // three columns of tools
@@ -1514,7 +1653,14 @@ impl Page for Textures {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = Vec2::splat(4.0);
                 for (t, _, name, k, help) in TOOLS {
+                    if t == Tool::Eraser && kind != See::Cutout {
+                        // offered only to a cutout block: shown off, its tip says why
+                        let r = ui.add_enabled_ui(false, |ui| look::tool(ui, false, name, k.name(), w)).inner;
+                        r.on_disabled_hover_text(ERASER_OFF);
+                        continue;
+                    }
                     let r = look::tool(ui, self.tool == t, name, k.name(), w);
+                    crate::drive::mark(ui.ctx(), format!("tool:{}", name.to_lowercase()), r.rect);
                     if look::tip(r, help, k.name()).clicked() {
                         self.tool = t;
                     }
@@ -1535,7 +1681,7 @@ impl Page for Textures {
             ui.horizontal_wrapped(|ui| {
                 let r = ui.button("Pattern");
                 crate::drive::mark(ui.ctx(), "btn:pattern", r.rect);
-                if look::tip(r, "The pattern panel: pick one of the game's eleven patterns, its colours and values, see it live, then Use", "").clicked() {
+                if look::tip(r, "The pattern panel: pick one of the game's twelve patterns, its colours and values, see it live, then Use", "").clicked() {
                     self.open_pattern(app, false);
                 }
                 let r = ui.button("Generate variants");
@@ -1692,4 +1838,24 @@ pub fn swatches(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &mut [u
         });
     }
     clicked
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BLOCKS: &str = "# a comment\r\n[[block]]\r\nid = 0\r\nname = \"air\"\r\nsolid = false\r\n\r\n[[block]]\r\nid = 1\r\nname = \"leaf\"\r\nhardness = 1\r\n# kept\r\n\r\n[block.autumn]\r\ncolour = [0.5, 0.2, 0.1]\r\n";
+
+    #[test]
+    fn the_kind_is_written_to_the_blocks_row_and_back() {
+        let row = kind_row(BLOCKS, "leaf", See::Cutout).unwrap();
+        let cut = crate::rows::put(BLOCKS, "block", "leaf", &row);
+        assert!(cut.contains("name = \"leaf\"\r\nsee = \"cutout\"\r\nhardness = 1"), "after the name: {cut:?}");
+        let reg = engine::blocks::Registry::parse(&cut).unwrap();
+        assert_eq!(reg.get(reg.id("leaf")).unwrap().see, See::Cutout);
+        assert!(cut.contains("[block.autumn]") && cut.starts_with("# a comment"), "the rest stays");
+        let back = crate::rows::put(&cut, "block", "leaf", &kind_row(&cut, "leaf", See::Opaque).unwrap());
+        assert_eq!(back, BLOCKS, "opaque drops the line, every other byte as it was");
+        assert!(kind_row(BLOCKS, "sand", See::Cutout).is_none());
+    }
 }

@@ -3,70 +3,83 @@
 //! Quad = 8 bytes: lo = x6 y6 z6 (w-1)5 (h-1)5 dir3, hi = material8 | ao8 << 8: ambient occlusion at each
 //! corner, 2 bits (0 open .. 3 a corner shut in), corner (u, v) at bits 2 * (u + 2v) (ADR 0022).
 use crate::world::{pidx, CS, P};
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering::Relaxed};
+use std::sync::LazyLock;
 
-// ---- the see-through spike (prototypes/see-through, ADR 0068): switches set once from a run's arguments ----
-/// bit 0: cutout leaves (a face is culled only against an opaque neighbour, near chunks only); bit 1: still box
-/// models on grass, bits 2-3 their density (0: 1 per 16 columns, 1: 1 per 4, 2: every column); bits 8+ are
-/// the shader's (`opt.x`, shader.wgsl `SPIKE_*`)
-pub static SPIKE: AtomicU32 = AtomicU32::new(0);
-/// Near meshes made, their mesh time in ns, all their quads, the model quads among them.
-pub static STATS: [AtomicU64; 4] = [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)];
-/// The spike's see-through blocks: the four leaves, shrub, reed.
-pub fn is_cut(b: u16) -> bool {
-    matches!(b, 15..=18 | 20 | 21)
-}
-fn is_grass(b: u16) -> bool {
-    matches!(b, 1 | 23..=29)
-}
-/// The spike's box models: (stand-in block for a ray's colour, first face in the face table, faces). Must match
-/// `MODELS` in the client's spike.rs.
-pub const MODEL_FACES: [(u16, u32, u32); 3] = [(3, 0, 18), (16, 18, 4), (12, 22, 36)];
-
-/// Quads of one chunk, grouped by face direction (0..6 = +x,-x,+y,-y,+z,-z), then `water` quads of the
-/// generated sea's surface (`world::sea_quads`), drawn by the water pipeline.
+/// Quads of one chunk, grouped by face direction (0..6 = +x,-x,+y,-y,+z,-z), then `cut` quads of cutout blocks
+/// (ADR 0069: drawn by the pipeline that discards, their own geometry in the chunk's BLAS), then `water` quads of
+/// the generated sea's surface (`world::sea_quads`), drawn by the water pipeline.
 pub struct Mesh {
     pub quads: Vec<[u32; 2]>,
     pub counts: [u32; 6],
+    pub cut: u32,
     pub water: u32,
-    /// The still box models' quads (the spike), after the land's and before the water's.
-    pub models: u32,
+}
+
+/// One bit per block id, set for a cutout block (`blocks::See::Cutout`): the mesher's inner loop reads this, not
+/// the row.
+static CUT: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| {
+    let mut t = Box::new([0u64; 1024]);
+    for d in crate::blocks::BLOCKS.placeable().filter(|d| !crate::blocks::BLOCKS.opaque(d.id)) {
+        t[d.id as usize >> 6] |= 1 << (d.id & 63);
+    }
+    t
+});
+fn is_cut(t: &[u64; 1024], c: u16) -> bool {
+    t[c as usize >> 6] >> (c & 63) & 1 == 1
 }
 
 /// `lattice` > 1 merges faces into quads that stay inside the cells of a lattice that many cells wide, where the
-/// renderer places vertices by interpolation (`Body::lattice`, ADR 0025 I2); 1 merges nothing.
+/// renderer places vertices by interpolation (`Body::lattice`, ADR 0025 I2); 1 merges nothing. Every solid block
+/// hides the faces behind it: the fast Leaves setting, and every coarse level.
 pub fn mesh(cells: &[u16; P * P * P], lattice: usize) -> Mesh {
-    mesh_at(cells, lattice, None)
+    mesh_cut(cells, lattice, false)
 }
 
-/// `mesh`, and for a near chunk (`near`: its seed for the models' places) the spike's switches.
-pub fn mesh_at(cells: &[u16; P * P * P], lattice: usize, near: Option<u32>) -> Mesh {
-    let t = std::time::Instant::now();
-    let spike = SPIKE.load(Relaxed);
-    let cut = near.is_some() && spike & 1 != 0;
-    // cols[a][v*P+u] = bits along axis a; u = (a+1)%3, v = (a+2)%3. opq: the same of opaque cells only
+/// `mesh`, and with `cutout` (fancy leaves on level 0, ADR 0069) a face is culled only against an opaque
+/// neighbour, so the faces behind and between cutout blocks stay, and the cutout blocks' quads go last as `cut`.
+pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool) -> Mesh {
+    // cols[a][v*P+u] = bits along axis a; u = (a+1)%3, v = (a+2)%3. opq: the same of opaque cells only, made
+    // only for a cutout mesh
     let mut cols = [[0u64; P * P]; 3];
-    // only a cutout mesh pays for the second set (27 KB to zero)
-    let mut opq_cols = if cut { vec![[0u64; P * P]; 3] } else { Vec::new() };
-    for z in 0..P {
-        for y in 0..P {
-            for x in 0..P {
-                let c = cells[pidx(x, y, z)];
-                if c != 0 {
-                    cols[0][z * P + y] |= 1 << x; // a=x: u=y, v=z
-                    cols[1][x * P + z] |= 1 << y; // a=y: u=z, v=x
-                    cols[2][y * P + x] |= 1 << z; // a=z: u=x, v=y
-                    if cut && !is_cut(c) {
-                        opq_cols[0][z * P + y] |= 1 << x;
-                        opq_cols[1][x * P + z] |= 1 << y;
-                        opq_cols[2][y * P + x] |= 1 << z;
+    let mut opq_cols: Vec<[u64; P * P]> = Vec::new();
+    let cut_t: &[u64; 1024] = &CUT;
+    let mut any_cut = false;
+    if cutout {
+        opq_cols = vec![[0u64; P * P]; 3];
+        for z in 0..P {
+            for y in 0..P {
+                for x in 0..P {
+                    let c = cells[pidx(x, y, z)];
+                    if c != 0 {
+                        cols[0][z * P + y] |= 1 << x;
+                        cols[1][x * P + z] |= 1 << y;
+                        cols[2][y * P + x] |= 1 << z;
+                        if is_cut(cut_t, c) {
+                            any_cut = true;
+                        } else {
+                            opq_cols[0][z * P + y] |= 1 << x;
+                            opq_cols[1][x * P + z] |= 1 << y;
+                            opq_cols[2][y * P + x] |= 1 << z;
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        for z in 0..P {
+            for y in 0..P {
+                for x in 0..P {
+                    if cells[pidx(x, y, z)] != 0 {
+                        cols[0][z * P + y] |= 1 << x; // a=x: u=y, v=z
+                        cols[1][x * P + z] |= 1 << y; // a=y: u=z, v=x
+                        cols[2][y * P + x] |= 1 << z; // a=z: u=x, v=y
                     }
                 }
             }
         }
     }
-    let opq: &[[u64; P * P]] = if cut { &opq_cols } else { &cols };
-    let mut groups: [Vec<[u32; 2]>; 6] = Default::default();
+    let opq: &[[u64; P * P]] = if any_cut { &opq_cols } else { &cols };
+    let mut groups: [Vec<[u32; 2]>; 7] = Default::default();
     let mut planes = vec![[0u32; 32]; 32]; // planes[depth][v] = bits over u
     for a in 0..3 {
         for s in 0..2 {
@@ -118,7 +131,6 @@ pub fn mesh_at(cells: &[u16; P * P * P], lattice: usize, near: Option<u32>) -> M
                 }
                 bits
             };
-            let out = &mut groups[dir];
             for d in 0..CS as usize {
                 let rows = &mut planes[d];
                 for v in 0..CS as usize {
@@ -154,7 +166,7 @@ pub fn mesh_at(cells: &[u16; P * P * P], lattice: usize, near: Option<u32>) -> M
                         };
                         let lo = x as u32 | (y as u32) << 6 | (z as u32) << 12 | ((w - 1) as u32) << 18
                             | ((h - 1) as u32) << 23 | (dir as u32) << 28;
-                        out.push([lo, m as u32 | o << 8]);
+                        groups[if any_cut && is_cut(cut_t, m) { 6 } else { dir }].push([lo, m as u32 | o << 8]);
                     }
                 }
             }
@@ -163,53 +175,12 @@ pub fn mesh_at(cells: &[u16; P * P * P], lattice: usize, near: Option<u32>) -> M
     let mut counts = [0u32; 6];
     let mut quads = Vec::with_capacity(groups.iter().map(|g| g.len()).sum());
     for (i, g) in groups.iter().enumerate() {
-        counts[i] = g.len() as u32;
+        if i < 6 {
+            counts[i] = g.len() as u32;
+        }
         quads.extend_from_slice(g);
     }
-    let mut models = 0;
-    if let (Some(seed), true) = (near, spike & 2 != 0) {
-        let n0 = quads.len();
-        clutter(cells, seed, (spike >> 2) & 3, &mut quads);
-        models = (quads.len() - n0) as u32;
-    }
-    if near.is_some() {
-        for (s, v) in STATS.iter().zip([1, t.elapsed().as_nanos() as u64, quads.len() as u64, models as u64]) {
-            s.fetch_add(v, Relaxed);
-        }
-    }
-    Mesh { quads, counts, water: 0, models }
-}
-
-fn hash3(x: u32, y: u32, z: u32, seed: u32) -> u32 {
-    let mut h = x.wrapping_mul(73856093) ^ y.wrapping_mul(19349663) ^ z.wrapping_mul(83492791) ^ seed.wrapping_mul(2654435761);
-    h = (h ^ (h >> 13)).wrapping_mul(1274126177);
-    h ^ (h >> 16)
-}
-
-/// The spike's still box models: on the air cell over a grass top, by the cell's hash one in `1 << (4 - 2 * d)`
-/// columns, a model, its turn and its place in the cell. A model quad: lo = x6 y6 z6 (the air cell) | turn4 << 18
-/// | jitter 3 + 3 << 22 | 1 << 31; hi = stand-in block | face << 16 (shader.wgsl `model_corner`).
-fn clutter(cells: &[u16; P * P * P], seed: u32, d: u32, out: &mut Vec<[u32; 2]>) {
-    let every = 1u32 << (4 - 2 * d.min(2));
-    for y in 1..P - 1 {
-        for x in 1..P - 1 {
-            // from the padding's layer 0: grass there tops this chunk's layer 0
-            for z in 0..P - 2 {
-                let c = cells[pidx(x, y, z)];
-                if is_grass(c) && cells[pidx(x, y, z + 1)] == 0 {
-                    let h = hash3(x as u32, y as u32, z as u32, seed);
-                    if h % every == 0 {
-                        let k = (h >> 8) % 10;
-                        let (mat, first, n) = MODEL_FACES[if k < 4 { 0 } else if k < 8 { 1 } else { 2 }];
-                        let lo = (x - 1) as u32 | ((y - 1) as u32) << 6 | (z as u32) << 12 | ((h >> 12) & 15) << 18 | ((h >> 16) & 63) << 22 | 1 << 31;
-                        for f in first..first + n {
-                            out.push([lo, mat as u32 | f << 16]);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    Mesh { quads, counts, cut: groups[6].len() as u32, water: 0 }
 }
 
 #[cfg(test)]
@@ -231,6 +202,71 @@ mod tests {
         assert_eq!(m.counts[2], 16); // the top merged into 8x8 quads, one per lattice cell
         let m = mesh(&c, 1);
         assert_eq!(m.counts[2], 1024);
+    }
+
+    /// The slow path, face by face: each solid cell's face whose neighbour does not hide it, as (cell, dir,
+    /// block). `hides` is the rule: before ADR 0069 any solid neighbour, with cutout blocks an opaque one.
+    fn faces_one_by_one(c: &[u16; P * P * P], hides: impl Fn(u16) -> bool) -> Vec<([usize; 3], u32, u16)> {
+        let mut out = Vec::new();
+        for z in 1..P - 1 {
+            for y in 1..P - 1 {
+                for x in 1..P - 1 {
+                    let m = c[pidx(x, y, z)];
+                    if m == 0 {
+                        continue;
+                    }
+                    for (dir, (dx, dy, dz)) in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)].into_iter().enumerate() {
+                        let n = c[pidx((x as i32 + dx) as usize, (y as i32 + dy) as usize, (z as i32 + dz) as usize)];
+                        if !hides(n) {
+                            out.push(([x - 1, y - 1, z - 1], dir as u32, m));
+                        }
+                    }
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+    /// A quad of one cell (lattice 1 merges nothing) as (the cell it belongs to, dir, block).
+    fn face_of(q: &[u32; 2]) -> ([usize; 3], u32, u16) {
+        let dir = (q[0] >> 28) & 7;
+        let mut p = [(q[0] & 63) as usize, (q[0] >> 6 & 63) as usize, (q[0] >> 12 & 63) as usize];
+        if dir % 2 == 0 {
+            p[dir as usize / 2] -= 1; // a + face sits on the far side of its cell
+        }
+        (p, dir, (q[1] & 255) as u16)
+    }
+
+    /// ADR 0069: with cutout blocks a face is culled only against an opaque neighbour; without, the mesher is
+    /// the old one. Both against the slow path, on a chunk of stone, leaves, shrub and air at random.
+    #[test]
+    fn faces_are_culled_only_against_opaque_neighbours() {
+        let b = &crate::blocks::BLOCKS;
+        let (stone, leaves, shrub) = (b.id("stone"), b.id("broadleaf leaves"), b.id("shrub"));
+        let mut c = Box::new([0u16; P * P * P]);
+        let mut h = 12345u32;
+        for v in c.iter_mut() {
+            h ^= h << 13;
+            h ^= h >> 17;
+            h ^= h << 5;
+            *v = [0, 0, stone, leaves, leaves, shrub][(h % 6) as usize];
+        }
+        let fancy = mesh_cut(&c, 1, true);
+        let mut got: Vec<_> = fancy.quads.iter().map(face_of).collect();
+        got.sort();
+        assert_eq!(got, faces_one_by_one(&c, |n| b.opaque(n)), "fancy");
+        let n_opq = fancy.quads.len() - fancy.cut as usize;
+        assert!(fancy.cut > 0 && fancy.quads[n_opq..].iter().all(|q| !b.opaque((q[1] & 255) as u16)), "the cutout quads come last");
+        assert!(fancy.quads[..n_opq].iter().all(|q| b.opaque((q[1] & 255) as u16)));
+        for fast in [mesh(&c, 1), mesh_cut(&c, 1, false)] {
+            let mut got: Vec<_> = fast.quads.iter().map(face_of).collect();
+            got.sort();
+            assert_eq!(got, faces_one_by_one(&c, |n| n != 0), "fast is the old mesher");
+            assert_eq!(fast.cut, 0);
+        }
+        // a chunk with no cutout block meshes the same either way
+        let rock: Box<[u16; P * P * P]> = Box::new(c.map(|v| if v == 0 { 0 } else { stone }));
+        assert_eq!(mesh_cut(&rock, 8, true).quads, mesh(&rock, 8).quads);
     }
 
     #[test]

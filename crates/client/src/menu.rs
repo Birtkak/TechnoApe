@@ -797,7 +797,6 @@ impl App {
     pub(crate) fn gfx_bits(&self) -> u32 {
         let s = &self.settings;
         (s.at(S::Shadows) == 0) as u32 | (!s.on(S::Reflections) as u32) << 1 | ((s.at(S::Textures) == 0) as u32) << 2 | (!s.on(S::Stars) as u32) << 3
-            | engine::mesh::SPIKE.load(std::sync::atomic::Ordering::Relaxed) & 0xff00
     }
 
     /// The title menu's view: in orbit over the planet's sunlit limb, the planet filling the left half and the

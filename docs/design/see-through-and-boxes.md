@@ -1,6 +1,6 @@
 # See-through blocks and textured box models
 
-- **Status:** design, 2026-11-12. Nothing is built. Each step starts with a measured spike and gets its ADR
+- **Status:** design, 2026-11-12. Steps 1 (the spike, ADR 0068) and 2 (cutout blocks, ADR 0069) are built. Each step starts with a measured spike and gets its ADR
   from the coding session.
 - **The developer's calls (2026-11-12):** "I want see-through leaves anyways and I want detailed forest floor
   clutter later and see-through glass, so I'd suggest integrating textured boxes and make it a big nice
@@ -146,7 +146,7 @@ Each step is useful if the next never comes.
 
 1. **Spike, measured** (`prototypes/`): cutout terrain on a forest view with the three light options; still
    box models in the chunk mesh at clutter density. The answers decide steps 2 and 5.
-2. **Cutout blocks in the game** and the Studio's eraser: leaves, shrubs, reeds.
+2. **Cutout blocks in the game** and the Studio's eraser: leaves, shrubs, reeds. **Built** (ADR 0069).
 3. **Glass.**
 4. **Box models in the game**, moving (the hand, `model=` on a run): the file, the mesher, the paintings'
    store, the rest turn.

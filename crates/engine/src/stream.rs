@@ -1,5 +1,5 @@
 //! LOD octree selection, job scheduling on worker threads, GPU sub-allocation of chunk meshes.
-use crate::mesh::Mesh;
+use crate::mesh::{mesh_cut, Mesh};
 use crate::liquid::{Col, TILE};
 use crate::world::{fold, generate, river_quads, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS};
 use glam::{DQuat, DVec3, IVec3, Vec4};
@@ -12,6 +12,9 @@ pub struct Opts {
     /// A chunk splits when the camera is nearer than k chunk edges.
     pub k: f64,
     pub greedy: bool,
+    /// Fancy leaves (ADR 0069): level 0 keeps the faces behind and between cutout blocks; the client remeshes
+    /// level 0 when it changes.
+    pub cutout: bool,
     pub horizon: bool,
     pub prefetch_s: f64,
     pub max_inflight: usize,
@@ -63,7 +66,7 @@ impl Alloc {
 enum State {
     Pending,
     Empty,
-    Ready { off: u32, len: u32, water: u32 },
+    Ready { off: u32, len: u32, water: u32, cut: u32 },
 }
 
 /// Every chunk the selection visits has a slot (it caches the bounds); only wanted leaves get a mesh.
@@ -106,13 +109,15 @@ pub struct JobResult {
     wait_us: f32,
 }
 
-/// One drawable range of the quad buffer: `len` quads, the last `water` of them the sea's surface.
+/// One drawable range of the quad buffer: `len` quads, the last `water` of them the sea's surface and the `cut`
+/// before those the cutout blocks' (ADR 0069).
 #[derive(Clone, Copy)]
 pub struct DrawChunk {
     pub key: Key,
     pub off: u32,
     pub len: u32,
     pub water: u32,
+    pub cut: u32,
     /// Outside the view or behind a horizon: not drawn, only traced.
     pub hidden: bool,
     /// From the camera to its bounding sphere, metres: the draws go near to far (ADR 0025, D).
@@ -500,15 +505,15 @@ impl Streamer {
         }
         s.drawn_at = (self.frame, out.len() as u32);
         let bd = s.bounds;
-        let (off, len, water) = match s.state {
+        let (off, len, water, cut) = match s.state {
             State::Pending => return false,
             State::Empty => return true,
-            State::Ready { off, len, water } => (off, len, water),
+            State::Ready { off, len, water, cut } => (off, len, water, cut),
         };
         // hidden chunks are listed too: they are not drawn, but they cast shadows (ADR 0022)
         let hidden = hidden.unwrap_or_else(|| self.hidden(view, k.body, &bd));
         let dist = ((bd.c - view.cam_in(k.body)).length() - bd.rad).max(0.0) as f32;
-        out.push(DrawChunk { key: k, off, len, water, hidden, dist });
+        out.push(DrawChunk { key: k, off, len, water, cut, hidden, dist });
         true
     }
 
@@ -534,6 +539,7 @@ impl Streamer {
             let tx = self.tx.clone();
             let bodies = world.bodies.clone();
             let greedy = self.opts.greedy;
+            let cutout = self.opts.cutout && k.level == 0;
             // tiles of stored water are the water mesh's; a coarse column lies within one tile up to level 4, and past
             // that a far chunk's sea covers them (shortcut: a flood far away shows as sea level)
             let wet = if 1 << k.level <= TILE { world.water.wet_tiles(k.body, k.face, k.base().x, k.base().y, k.span()) } else { Vec::new() };
@@ -544,18 +550,13 @@ impl Streamer {
                 let body = &bodies[k.body as usize];
                 let gen = generate(body, k, &edits);
                 let mut mesh = match &gen {
-                    Gen::Cells(c) => {
-                        // the spike's switches act on level 0 only; the seed places its models (ADR 0068)
-                        let b = k.base();
-                        let near = (k.level == 0).then(|| (b.x as u32).wrapping_mul(7919) ^ (b.y as u32).wrapping_mul(104729) ^ (b.z as u32).wrapping_mul(1299709) ^ k.face as u32);
-                        Some(crate::mesh::mesh_at(c, if greedy { body.lattice(k.level) as usize } else { 1 }, near)).filter(|m| !m.quads.is_empty())
-                    }
+                    Gen::Cells(c) => Some(mesh_cut(c, if greedy { body.lattice(k.level) as usize } else { 1 }, cutout)).filter(|m| !m.quads.is_empty()),
                     _ => None,
                 };
                 let mut sea = sea_quads(body, k, &wet, &gen);
                 sea.extend(river_quads(body, k, &wet, &gen));
                 if !sea.is_empty() {
-                    let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], water: 0, models: 0 });
+                    let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], cut: 0, water: 0 });
                     m.water = sea.len() as u32;
                     m.quads.extend(sea);
                 }
@@ -590,7 +591,7 @@ impl Streamer {
                     upload(off, &m.quads);
                     bytes += m.quads.len() * 8;
                     st.applied_nonempty += 1;
-                    State::Ready { off, len: n, water: m.water | m.models << 16 } // spike: the models' quads packed over the water's
+                    State::Ready { off, len: n, water: m.water, cut: m.cut }
                 }
             };
             let s = self.slots.get_mut(&r.key).unwrap();
@@ -601,9 +602,9 @@ impl Streamer {
             // a remesh that stays drawn changes only its range: the last walk's list takes it in place; any other
             // change of state can change what the walk picks
             match (s.state, new, &mut self.walk) {
-                (State::Ready { .. }, State::Ready { off, len, water }, Some(w)) if s.drawn_at.0 == self.walk_frame => {
+                (State::Ready { .. }, State::Ready { off, len, water, cut }, Some(w)) if s.drawn_at.0 == self.walk_frame => {
                     let d = &mut w.draws[(s.drawn_at.1 - w.first) as usize].0;
-                    (d.off, d.len, d.water) = (off, len, water);
+                    (d.off, d.len, d.water, d.cut) = (off, len, water, cut);
                 }
                 _ => self.dirty = true,
             }
@@ -611,6 +612,21 @@ impl Streamer {
             s.shown_v = r.version;
             st.applied += 1;
         }
+    }
+
+    /// Fancy or fast leaves (ADR 0069): every level-0 slot gets a new version, so it is meshed again the new way
+    /// while the old mesh stays drawn.
+    pub fn set_cutout(&mut self, on: bool) {
+        if self.opts.cutout == on {
+            return;
+        }
+        self.opts.cutout = on;
+        for (k, sl) in self.slots.iter_mut() {
+            if k.level == 0 {
+                sl.want_v += 1;
+            }
+        }
+        self.dirty = true;
     }
 
     /// An edit changed a block: every chunk that samples it, in its cells or its padding, gets a new version.
@@ -720,7 +736,7 @@ mod tests {
         std::sync::Arc::get_mut(&mut w.bodies).unwrap()[0].set_caves(vec![crate::world::Cave { face: top.face, at, r: 4.0 }]);
         let b = &w.bodies[0];
         let cam = b.centre + b.dir(top.face as usize, at.x, at.y) * b.layer_r(at.z);
-        let opts = Opts { k: 4.0, greedy: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
         let mut s = Streamer::new(&w, 1 << 22, opts);
         let out = settle(&mut s, &w, cam);
         let cell = crate::world::Block { body: 0, face: top.face, pos: glam::IVec3::new(at.x as i32, at.y as i32, at.z as i32) };
@@ -734,7 +750,7 @@ mod tests {
     #[test]
     fn a_full_quad_buffer_waits_for_space_before_meshing_again() {
         let w = World::new(1536, 64, 1337);
-        let opts = Opts { k: 4.0, greedy: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
         let mut s = Streamer::new(&w, 1 << 20, opts);
         let all = s.alloc.alloc(1 << 20).unwrap(); // the buffer taken up by others
         let view = View::new(w.bodies[0].spawn_point() + w.bodies[0].spawn * 1.7, [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], &w);
@@ -771,7 +787,7 @@ mod tests {
         // far away the near chunks' coarse ancestors are the leaves and get meshes; back on the ground those
         // ancestors split again, and their children, which never get meshes, must not keep them covering
         let w = World::new(1536, 64, 1337);
-        let opts = Opts { k: 4.0, greedy: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
         let mut s = Streamer::new(&w, 1 << 22, opts);
         let ground = w.bodies[0].spawn_point() + w.bodies[0].spawn * 1.7;
         let fine = |out: &[DrawChunk]| out.iter().filter(|d| !d.hidden).map(|d| d.key.level).min().unwrap();
@@ -786,7 +802,7 @@ mod tests {
         // drawn from far away splits as the camera nears; if the camera nears its children before they are
         // meshed, they split too, never get meshes of their own, and the coarse chunk stopped covering them
         let w = World::new(1536, 64, 1337);
-        let opts = Opts { k: 4.0, greedy: false, horizon: true, prefetch_s: 0.0, max_inflight: 8 };
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 8 };
         let mut s = Streamer::new(&w, 1 << 23, opts);
         let b = &w.bodies[0];
         let side = b.spawn.any_orthonormal_vector();
@@ -818,7 +834,7 @@ mod tests {
     #[test]
     fn after_a_move_requests_radiate_out_from_the_camera() {
         let w = World::new(1536, 64, 1337);
-        let opts = Opts { k: 4.0, greedy: false, horizon: false, prefetch_s: 0.0, max_inflight: 64 };
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: false, prefetch_s: 0.0, max_inflight: 64 };
         let mut s = Streamer::new(&w, 1 << 22, opts);
         let b = &w.bodies[0];
         let up = b.spawn;

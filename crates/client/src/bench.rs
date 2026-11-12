@@ -377,16 +377,6 @@ impl App {
         if let Some(r) = gpu.device.generate_allocator_report() {
             stages += &format!("\"gpu_alloc_mb\":{:.0},\"gpu_reserved_mb\":{:.0},", r.total_allocated_bytes as f64 / 1e6, r.total_reserved_bytes as f64 / 1e6);
         }
-        {
-            // the see-through spike (ADR 0068): its switches, and the near chunks' mesh time and quads
-            use std::sync::atomic::Ordering::Relaxed;
-            let st = engine::mesh::STATS.each_ref().map(|x| x.load(Relaxed) as f64);
-            let n = st[0].max(1.0);
-            stages += &format!(
-                "\"spike\":{{\"bits\":{},\"near_meshes\":{},\"mesh_us\":{:.1},\"quads_per_chunk\":{:.0},\"model_quads_per_chunk\":{:.0}}},",
-                engine::mesh::SPIKE.load(Relaxed), st[0], st[1] / n / 1e3, st[2] / n, st[3] / n
-            );
-        }
         stages += &format!("\"fx_live_avg\":{:.0},", s.fx_live as f64 / s.frames.max(1) as f64);
         stages += &format!("\"job_us_after_load\":{job_us_after:.0},\"jobs_after_load\":{later},\"walks\":{},\"tlas_builds\":{},", self.streamer.walks, self.rt.as_ref().map_or(0, |r| r.tlas_builds));
         // ADR 0025, S: the server's ticks, the workers' jobs and what each holds of the cores over the measured time
