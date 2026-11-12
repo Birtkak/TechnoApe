@@ -20,7 +20,7 @@
   "edit": {
     "work_ms": 1.582,
     "gpu_ms_p50": 2.884,
-    "job_us_avg": 333,
+    "job_us_avg": 347,
     "gpu_alloc_mb": 755
   },
   "sim": {
