@@ -2479,6 +2479,52 @@ mod water_tests {
         assert!(peak < 400, "{peak} columns stored");
         assert_eq!((w.water.stored(), w.water.counted()), (0, 4 * U));
     }
+
+    /// A block placed in the sea, at the surface and on the bed, then dug again (the developer, 2026-11-12:
+    /// "water also behaved weird when you placed blocks inside it", ADR 0071): the water it pushes out is
+    /// counted, none stands on the block, the sea around stays level, and once it is dug the sea closes over
+    /// the column again: as generation has it, nothing left stored.
+    #[test]
+    fn a_block_placed_in_the_sea_and_dug_leaves_the_sea_as_it_was() {
+        let mut w = World::new(1536, 512, 1);
+        let b = &w.bodies[0];
+        let (i, j) = (0..b.n).step_by(3).flat_map(|i| (0..b.n).step_by(3).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 7.0).unwrap();
+        let c = Col::new(0, 2, i, j);
+        let (lo, hi) = w.ground().generated(c);
+        let stone = BLOCKS.id("stone");
+        let settle = |w: &mut World| {
+            for _ in 0..60 * 30 {
+                w.step_water();
+            }
+        };
+        let level = |w: &World, c: Col| w.water.surface_at(&w.ground(), c, (lo / U) as f64 + 0.5);
+        for z in [(hi / U) as i32, (lo / U) as i32] {
+            let at = Block { body: 0, face: 2, pos: IVec3::new(i, j, z) };
+            w.set_block(at, stone);
+            w.regap(at);
+            assert_eq!(w.water.counted(), 0, "layer {z}: the water the block pushed out is all there");
+            settle(&mut w);
+            assert_eq!(w.water.counted(), 0, "layer {z}: settled");
+            // the sea under a block set into its surface stays full (it swung and drained, ADR 0071)
+            for n in w.water.column(c).into_iter().flatten().filter(|n| n.ceil == z) {
+                assert!(n.water >= (n.ceil - n.floor) as i64 * U, "layer {z}: under the block {} of {} units", n.water, (n.ceil - n.floor) as i64 * U);
+            }
+            let over: i64 = w.water.column(c).map_or(0, |ns| ns.filter(|n| n.floor > z).map(|n| n.water).sum());
+            let gen_over = (hi - (z as i64 + 1) * U).max(0);
+            assert!((over - gen_over).abs() <= U / 16, "layer {z}: {over} units over the block, the sea's {gen_over}");
+            let nb = Col::new(0, 2, i + 1, j);
+            let s = level(&w, nb).expect("the sea next to it");
+            assert!((s - hi as f64 / U as f64).abs() < 1.0 / 16.0, "layer {z}: the sea beside it at {s}");
+            w.put_edit(at, None);
+            w.regap(at);
+            assert_eq!(w.water.counted(), 0, "layer {z}: dug");
+            settle(&mut w);
+            assert_eq!(w.water.counted(), 0, "layer {z}: dug and settled");
+            let s = level(&w, c).expect("the sea closed over the dug column");
+            assert!((s - hi as f64 / U as f64).abs() < 1.0 / 16.0, "layer {z}: the dug column's surface at {s}, the sea's {}", hi as f64 / U as f64);
+            assert_eq!(w.water.stored(), 0, "layer {z}: the sea is generation's again");
+        }
+    }
 }
 
 #[cfg(test)]
