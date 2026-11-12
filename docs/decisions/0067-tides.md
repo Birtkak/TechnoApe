@@ -70,7 +70,7 @@ the tide's mean over the actual ocean is then exactly 0 (tested on a lopsided oc
   main's 157 s, the same water awake.
 - The gate (`tools/check.sh`, once): tests, soak and replay pass. The views `high` (5.1 %) and `orbit` (1.4 %)
   differ by the tide: at the views' time the sea stands high there and the beaches on the band's layer are under
-  water; not accepted, the developer's to see. The perf rows failed while another session's mesh benchmark ran on
+  water; accepted by the developer (2026-11-12). The perf rows failed while another session's mesh benchmark ran on
   the PC (sim's tick 268 ms in the gate, 2.0 to 2.3 ms in quick runs alone right after; 12 alternated runs on a
   quiet PC matched main): to repeat on a quiet PC before merging.
 - Filmstrips: `out/tides/day.png` (a spring day, a frame a minute), `high-low.png`, `month.png` (each day's daylight
