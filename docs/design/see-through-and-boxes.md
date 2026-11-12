@@ -126,7 +126,10 @@ The bar of the usability round holds: someone new makes a flint in five minutes.
   alternates and turns mixed.
 - `check=1` holds a model's painting to the palette and the alpha rule, and names the file and pixel.
 
-## Part C: clutter and pick-ups (later, its own design when its turn comes)
+## Part C: clutter and pick-ups (designed in `clutter-and-pickups.md`, 2026-11-12)
+That document is the design; the lines below are the first sketch. Step 7 is two steps there: 7a clutter,
+and 7b pick-ups, which also need items (`items.md`).
+
 - **Clutter** is still box models placed by the seed: a biome row lists models with a density, a cell's hash
   picks one, its alternate and its turn. Nothing is stored; a dug-up or trampled one is a delta like any edit.
   Density and range are Graphics settings.

@@ -102,7 +102,8 @@ themselves, the model view's camera and placing, and sounds from outside files (
 2026-11-12; its second round adds a palette that grows where you paint).
 **After that: see-through blocks and textured box models** (`docs/design/see-through-and-boxes.md`): cutout
 leaves, glass, small models of painted boxes at 32 pixels per metre, still models meshed into the chunk, and
-later forest floor clutter and pick-ups. Seven steps, the first a measured spike.
+later forest floor clutter and pick-ups (`docs/design/clutter-and-pickups.md`: computed from the seed, only
+what was taken is stored; pick-ups wait for items). Seven steps, the first a measured spike (done, ADR 0068).
 
 ## The benchmark
 The engine keeps one benchmark as its performance check, so numbers stay comparable over time.
