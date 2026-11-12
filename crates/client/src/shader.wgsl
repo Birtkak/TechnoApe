@@ -85,7 +85,7 @@ struct Lamp { pos: vec4f, col: vec4f };
 // middle; cell c's lamps, those LAMP_R or nearer, are lamp_cells[lamp_cells[c] .. lamp_cells[c + 1]]
 // (`lamp_grid` in main.rs, which holds the same numbers)
 const LAMP_G: i32 = 32;
-const LAMP_CELL: f32 = 4.0;
+const LAMP_CELL: f32 = 8.0;
 @group(0) @binding(9) var<storage, read> lamp_cells: array<u32>;
 
 struct VOut {
@@ -355,7 +355,7 @@ fn ambient(day: f32) -> vec3f {
 }
 
 // the light on a surface of body `body` at p (from the camera) with normal n
-const LAMP_R: f32 = 12.0;
+const LAMP_R: f32 = 24.0;
 const LAMP_RAYS: u32 = 3u;
 // a shadow ray goes to the lamp's block, not its middle (`lamp_target`), and stops this far short of it, so
 // the lamp never shadows itself
@@ -364,10 +364,12 @@ const NONE: u32 = 0xffffffffu;
 
 // a lamp's light d2 square metres away: falling off with the square of the distance from 2 m, to nothing at
 // LAMP_R. It was 1.5 / (1 + d2) to 8 m, a seventh at 3 m and nothing past 6; the developer asked for "much more
-// light" (bug 2026-11-11_17-43-39, ADR 0041): now 7 times that at 3 m, 20 at 6, a glow to 10
+// light" (bug 2026-11-11_17-43-39, ADR 0041): now 7 times that at 3 m, 20 at 6, a glow to 10. Then twice the
+// reach (ADR 0072): about as bright within 3 m (stretching the whole curve washed a lamp's neighbours out by
+// day), twice as bright at 6 m, a tenth at 10 m and a glow to 20, so one lamp lights a 15 to 20 m room
 fn lamp_light(lp: Lamp, d2: f32) -> vec3f {
     let x = 1.0 - d2 / (LAMP_R * LAMP_R);
-    return lp.col.rgb * x * x * 3.0 / (1.0 + 0.25 * d2);
+    return lp.col.rgb * x * x * 2.0 / (1.0 + 0.1 * d2);
 }
 
 // the sunlight on body `body`: through the air as the camera sees the sun on its own body; white on
@@ -395,8 +397,10 @@ fn moon_gain(body: u32) -> f32 {
 // in flatter than 30 degrees, and the lamp's light ended there in a hard cone over the walls; a lamp on the
 // ground cast spikes from its own corners (bugs 2026-11-11_13-00-53, 2026-11-10_19-45-23; ADR 0037).
 // Worked in the grid's own coordinates (the face's two angles and the log of the radius, its face the up's
-// largest axis), where the block is a box: o clamped into the lamp's cell and turned back.
-fn lamp_target(lp: Lamp, o: vec3f) -> vec3f {
+// largest axis), where the block is a box: o clamped into the lamp's cell and turned back. Jittered per pixel
+// across the box before the clamp (ADR 0072), so the ray ends on a random point of the sides o sees: the lamp
+// is a 1 m light, not a point, and the shadows it casts are soft (the sun's are dithered by pixel the same way).
+fn lamp_target(lp: Lamp, o: vec3f, px: vec2u) -> vec3f {
     let b = g.bodies[u32(lp.pos.w)];
     let m = mat3x3f(b.rot0.xyz, b.rot1.xyz, b.rot2.xyz);
     let up = normalize(lp.pos.xyz - b.ctr.xyz);
@@ -412,7 +416,11 @@ fn lamp_target(lp: Lamp, o: vec3f) -> vec3f {
     let q = vec3f(atan(dot(ob, f.s) / dot(ob, f.n)), atan(dot(ob, f.t) / dot(ob, f.n)), log(ro));
     // half a cell each way (an angle's metres are about the radius times it), and 2 cm
     let half = vec3f(0.5 * b.theta, 0.5 * b.theta, 0.5 * b.lnq) + 0.02 / r;
-    let c = clamp(q, at - half, at + half);
+    // the jitter only along the axes o lies within the box on, inset 5 cm: along the others the end stays 2 cm out
+    // from the face o sees, and a ray from the floor beside a lamp never ends under that floor
+    let inner = vec3f(0.45 * b.theta, 0.45 * b.theta, 0.45 * b.lnq);
+    let j = vec3f(hash2(px + vec2u(3571u, 1931u)), hash2(px + vec2u(6007u, 4421u)), hash2(px + vec2u(8761u, 2287u))) * 2.0 - 1.0;
+    let c = select(clamp(q, at - half, at + half), clamp(q + j * inner, at - inner, at + inner), abs(q - at) < inner);
     let tb = normalize(f.n + f.s * tan(c.x) + f.t * tan(c.y)) * exp(c.z);
     return m * tb + b.ctr.xyz;
 }
@@ -518,7 +526,7 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
         // aimed from where the ray starts: from p, the 2 cm offset carried its end into the lamp by its corners
         // (bug 2026-11-10_19-45-23)
         let ro = ray_origin(p, n);
-        let v = lamp_target(lp, ro) - ro;
+        let v = lamp_target(lp, ro, px + vec2u(k * 7u, k * 13u)) - ro;
         let d = length(v);
         let vis = select(ray(p, n, v / d, body, d - LAMP_STOP), 1.0, d < LAMP_STOP);
         o.l += topl[k] * vis;
