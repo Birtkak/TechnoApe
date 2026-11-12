@@ -1,6 +1,6 @@
 //! The dedicated server: `technoape-server listen=0.0.0.0:7777 planet=6144 seed=1337` (moon= overrides Luna's size, `bodies::columns`).
-//! Prints one JSON line every 5 s: tick, players, edits. It records the session to `out/rec/server-<unix s>.rec`
-//! (`record=file` elsewhere, `record=0` not at all). It saves every 30 s to `saves/server.sav` (`save=file`,
+//! Prints one JSON line every 5 s: tick, players, edits. With `record=1` it records the session to
+//! `out/rec/server-<unix s>.rec` (`record=file` elsewhere; by default not at all). It saves every 30 s to `saves/server.sav` (`save=file`,
 //! `save=0` not at all) and carries on from that save when it exists.
 //!
 //! Test harness (ADR 0011), each printing one JSON line and exiting 1 on a failure:
@@ -47,8 +47,7 @@ fn main() {
     };
     server.autosave = (save != "0").then(|| (save.clone().into(), 30 * TICK_HZ as u64));
     let unix = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    let rec = args.get("record").cloned().unwrap_or_else(|| format!("out/rec/server-{unix}.rec"));
-    if rec != "0" {
+    if let Some(rec) = record_path(args.get("record").map(String::as_str), unix) {
         match server.record(Path::new(&rec)) {
             Ok(()) => eprintln!("[technoape-server] recording to {rec}"),
             Err(e) => eprintln!("[technoape-server] not recording: {e}"),
@@ -158,5 +157,25 @@ fn run_replay(path: &str, until: Option<u64>) {
     );
     if r.diverged.is_some() {
         std::process::exit(1);
+    }
+}
+
+/// Where the dedicated server records: nowhere unless `record=1` (to `out/rec/`) or `record=file`, as nothing
+/// cleans `out/rec/` and a long-running server would fill the disk.
+fn record_path(arg: Option<&str>, unix: u64) -> Option<String> {
+    match arg {
+        None | Some("0") => None,
+        Some("1") => Some(format!("out/rec/server-{unix}.rec")),
+        Some(file) => Some(file.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// A dedicated server records only when asked: `record=1` to `out/rec/`, `record=file` there.
+    #[test]
+    fn the_dedicated_server_records_only_when_asked() {
+        let r = |a| super::record_path(a, 7);
+        assert_eq!([r(None), r(Some("0")), r(Some("1")), r(Some("x.rec"))], [None, None, Some("out/rec/server-7.rec".into()), Some("x.rec".into())]);
     }
 }
