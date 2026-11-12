@@ -278,6 +278,7 @@ impl App {
                     self.water.update(&self.world, &ts, self.start.elapsed().as_secs_f32());
                 }
                 Recv::Msg(ToClient::Air(h)) => self.air = Some(h),
+                Recv::Msg(ToClient::Sky { t, all, changed }) => self.sky.take(t, all, changed),
                 Recv::Msg(ToClient::Welcome { .. } | ToClient::Map { .. }) => {}
                 Recv::Msg(ToClient::Chat(text)) => {
                     for line in text.lines() {
@@ -646,6 +647,7 @@ impl App {
         let pull = |d: DVec3, a: f64| [d.x as f32, d.y as f32, d.z as f32, (1.5 * a * per_m) as f32];
         let mut g = Globals {
             tide: [pull(tide.luna, engine::sky::TIDE_LUNA), pull(tide.sun, engine::sky::TIDE_SUN)],
+            cloud: [0.0; 4],
             view_proj: vp.to_cols_array_2d(),
             sun: [sun.x, sun.y, sun.z, clock],
             bodies: bytemuck::Zeroable::zeroed(),
@@ -722,6 +724,27 @@ impl App {
             gpu.queue.write_buffer(&gpu.lamps, 0, bytemuck::cast_slice(&lamps));
             gpu.queue.write_buffer(&gpu.lamp_cells, 0, bytemuck::cast_slice(&lamp_grid(&lamps)));
         }
+        // the clouds (ADR 0076): their map blended to this moment, and where the planet and its sea are
+        let clouds_on = self.settings.at(S::Clouds) > 0 && b0.sea.is_some() && self.sky.m() > 0;
+        if clouds_on {
+            self.sky.upload(&gpu.queue, &gpu.sky_tex, wt);
+            g.cloud = self.sky.cloud(wt, b0.layer_r(b0.sea.unwrap()));
+        }
+        let cl = {
+            let b = &g.bodies[0];
+            let sky_amb = Vec3::new(0.42, 0.55, 0.75) * 0.6;
+            let eclipse = 1.0 - sky_m.eclipse(wt, self.world.to_inertial(p.pos)) as f32;
+            [
+                [b.ctr[0], b.ctr[1], b.ctr[2], if clouds_on { g.cloud[2] } else { 0.0 }],
+                b.rot[0],
+                b.rot[1],
+                b.rot[2],
+                [sun.x, sun.y, sun.z, eclipse],
+                [sun_light.x, sun_light.y, sun_light.z, [0.0, 12.0, 24.0][self.settings.at(S::Clouds).min(2)]],
+                [sky_amb.x, sky_amb.y, sky_amb.z, 0.0],
+                g.cloud,
+            ]
+        };
         [g.n_lamps[2], g.n_lamps[3]] = eclipse_masks(&g);
         gpu.queue.write_buffer(&gpu.globals, 0, bytemuck::bytes_of(&g));
         self.slots.sweep(frame_no);
@@ -901,7 +924,7 @@ impl App {
                 rp.draw(0..36, 0..self.fx_n);
             }
             stamp(&mut enc, 3);
-            gi.record(&gpu.queue, &mut enc, vp, p.pos, cf, self.shot.is_some(), tune, &mut |e, k| stamp(e, 4 + k));
+            gi.record(&gpu.queue, &mut enc, vp, p.pos, cf, self.shot.is_some(), tune, cl, &mut |e, k| stamp(e, 4 + k));
             stamp(&mut enc, 6);
             // the screen: direct and bounced light, then the water and the overlays over it
             let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -937,6 +960,9 @@ impl App {
             if self.wquad_n > 0 && !self.view.as_ref().is_some_and(|v| v.bare) {
                 rp.set_pipeline(&gpu.water_pipeline);
                 rp.draw(0..self.wquad_n * 6, 0..1);
+            }
+            if clouds_on {
+                gi.clouds(&mut rp);
             }
             if self.ghost_n > 0 {
                 rp.set_pipeline(&gpu.ghost_pipeline);

@@ -81,6 +81,9 @@ pub enum ToClient {
     /// The live air where this player stands (W3, `weather::Weather::here`), every `AIR_EVERY` ticks on a
     /// planet whose map keeps a climate.
     Air(crate::weather::Here),
+    /// The planet's air as the client draws it (ADR 0076): every column (`all`, on join) or the columns that
+    /// changed (by index), when the grid lands a step at world time `t` or a forced weather changes.
+    Sky { t: f64, all: Vec<crate::weather::Cell>, changed: Vec<(u32, crate::weather::Cell)> },
 }
 
 /// Ticks between the `ToClient::Air` a player is sent (2 s).

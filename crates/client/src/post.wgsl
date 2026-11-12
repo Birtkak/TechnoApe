@@ -16,6 +16,17 @@ struct Post {
     amb: vec4f,    // x how much stronger the bounce light is drawn (the sky's light in the shadows: it
                    // reaches only where the bounce rays did, so a cave stays dark); w the body the camera
                    // is on, whose ground alone fades into the air
+    // the clouds (ADR 0076, clouds.wgsl): the planet's centre from the camera (w its sea's radius, 0 for no
+    // clouds), its frame in the camera's (columns), the sun's direction (w the daylight at the camera), its
+    // light (w the steps a ray takes at most), the sky's light on them (w a lightning flash), `Globals::cloud`
+    ctr: vec4f,
+    rot0: vec4f,
+    rot1: vec4f,
+    rot2: vec4f,
+    sun: vec4f,
+    sun_col: vec4f,
+    sky_amb: vec4f,
+    cloud: vec4f,
 };
 
 @group(0) @binding(0) var<uniform> u: Post;
@@ -141,6 +152,81 @@ fn atrous(@builtin(global_invocation_id) id: vec3u) {
 @group(0) @binding(6) var direct_t: texture_2d<f32>;
 @group(0) @binding(7) var albedo_t: texture_2d<f32>;
 @group(0) @binding(8) var bounce_t: texture_2d<f32>;
+@group(0) @binding(9) var cl_tex: texture_2d_array<f32>;
+@group(0) @binding(10) var cl_samp: sampler;
+
+// the clouds between the camera and what a pixel shows `dist` metres away along view ray `dir` (0: the sky),
+// premultiplied (rgb) with the share of what is behind them they hide (a): the slab's one or two pieces in
+// front of it, marched in steps of about 8 m (fewer far away), from a point jittered per pixel and frame
+fn clouds(px: vec2i, dir: vec3f, dist: f32) -> vec4f {
+    let sea = u.ctr.w;
+    let steps = u.sun_col.w;
+    if (sea <= 0.0 || steps <= 0.0 || u.cloud.w <= 0.0) { return vec4f(0.0); }
+    let m = mat3x3f(u.rot0.xyz, u.rot1.xyz, u.rot2.xyz);
+    let o = (-u.ctr.xyz) * m;
+    let d = dir * m;
+    let sd = u.sun.xyz * m;
+    let far = select(1e9, dist, dist > 0.0);
+    let r1 = sea + CL_BASE + CL_THICK;
+    let r0 = sea + CL_BASE;
+    let b = dot(o, d);
+    let c1 = dot(o, o) - r1 * r1;
+    let h1 = b * b - c1;
+    if (h1 <= 0.0) { return vec4f(0.0); }
+    let out_t = -b + sqrt(h1);
+    let in_t = max(-b - sqrt(h1), 0.0);
+    if (out_t <= 0.0 || in_t >= far) { return vec4f(0.0); }
+    // the inner sphere cuts the way through the slab in two where the ray dips under the clouds' base
+    let h0 = b * b - (dot(o, o) - r0 * r0);
+    var seg = array<vec2f, 2>(vec2f(in_t, min(out_t, far)), vec2f(0.0));
+    if (h0 > 0.0) {
+        let a0 = -b - sqrt(h0);
+        let a1 = -b + sqrt(h0);
+        if (a1 > in_t) {
+            seg[0] = vec2f(in_t, min(max(a0, in_t), far));
+            seg[1] = vec2f(max(a1, in_t), min(out_t, far));
+        }
+    }
+    let wind = cl_wind(normalize(o + d * max(seg[0].x, select(seg[1].x, seg[0].x, seg[0].y > seg[0].x))), u.cloud.w);
+    let jit = fract(sin(dot(vec2f(px) + f32(u.cfg.z % 64u) * vec2f(7.1, 3.7), vec2f(12.9898, 78.233))) * 43758.5453);
+    var tr = 1.0;
+    var col = vec3f(0.0);
+    var first = -1.0;
+    for (var k = 0; k < 2; k++) {
+        let s = seg[k];
+        let len = s.y - s.x;
+        if (len <= 0.0 || tr < 0.02) { continue; }
+        let n = clamp(ceil(len / max(8.0, s.x * 0.004)), 1.0, steps);
+        let dt = len / n;
+        for (var i = 0.0; i < n; i += 1.0) {
+            let t = s.x + (i + jit) * dt;
+            let q = o + d * t;
+            let cs = cl_sample(q, sea, wind, u.cloud);
+            if (cs.d <= 0.0) { continue; }
+            if (first < 0.0) { first = t; }
+            let r = length(q);
+            let up = q / r;
+            let hf = clamp((r - r0) / CL_THICK, 0.0, 1.0);
+            // lit from above by the sun, darker underneath; rain clouds grey to slate
+            // (by the sun's height where the cloud is: from orbit the night side's clouds are dark)
+            let mu = dot(up, sd);
+            let dayk = smoothstep(-0.2, 0.15, mu);
+            let sun = u.sun_col.rgb * u.sun.w * clamp(mu * 1.5 + 0.6, 0.0, 1.0) * dayk * (0.45 + 0.55 * hf);
+            let albedo = mix(0.95, 0.32, smoothstep(0.15, 0.75, cs.rain));
+            let amb = u.sky_amb.rgb * (0.06 + 0.94 * dayk) * (0.55 + 0.45 * hf);
+            let lit = albedo * (sun + amb + vec3f(0.9, 0.92, 1.0) * u.sky_amb.w);
+            let a = 1.0 - exp(-CL_K * dt * min(cs.d, 1.0));
+            col += tr * a * lit;
+            tr *= 1.0 - a;
+            if (tr < 0.02) { break; }
+        }
+    }
+    if (first > 0.0 && u.air.w > 0.0) {
+        // far clouds fade into the air as far ground does
+        col = mix(col, u.air.rgb * (1.0 - tr), 1.0 - exp(-first * u.air.w));
+    }
+    return vec4f(col, 1.0 - tr);
+}
 
 @vertex
 fn vs_composite(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
@@ -188,6 +274,18 @@ fn fs_composite(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     // the settings' brightness: a curve over the finished picture, 1 leaves it as it is
     if (u.tune.w != 1.0) { c = pow(c, vec3f(1.0 / u.tune.w)); }
     return vec4f(c, 1.0);
+}
+
+// the clouds over the screen after the water (which is under them: they are over the sea level), blended as
+// premultiplied; a pixel's distance is the G-buffer's, the water left out of it
+@fragment
+fn fs_clouds(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+    let px = vec2i(pos.xy);
+    let cl = clouds(px, normalize(point_at(px, 1.0)), gload(gbuf, px).w);
+    if (cl.a <= 0.0) { discard; }
+    var c = shoulder(cl.rgb / cl.a);
+    if (u.tune.w != 1.0) { c = pow(c, vec3f(1.0 / u.tune.w)); }
+    return vec4f(c * cl.a, cl.a);
 }
 
 // bright light rolls off above 0.8 instead of clipping; everything under it is left as it is

@@ -190,6 +190,11 @@ pub struct Server {
     air0: i128,
     /// Each ore body's blocks as generated: the ledger's opening (`ore_ledger`).
     pub ore_open: Vec<i64>,
+    /// The air as clients have been sent it (ADR 0076), the view's hash it was made from (None: make it
+    /// again), and the weather `/weather` forces.
+    sky: Vec<engine::weather::Cell>,
+    sky_at: Option<u64>,
+    force: Option<engine::weather::Force>,
 }
 
 impl Server {
@@ -243,6 +248,9 @@ impl Server {
             tick_ms: None,
             map_pieces: HashMap::new(),
             ore_open,
+            sky: Vec::new(),
+            sky_at: None,
+            force: None,
         }
     }
 
@@ -471,6 +479,7 @@ impl Server {
             for (reach, units) in w.tick(self.tick, self.world.time) {
                 self.world.water.rain(reach, units);
             }
+            self.send_sky();
         }
         if self.tick == 0 {
             let [b0, b1] = [&self.world.bodies[0], &self.world.bodies[1]];
@@ -497,6 +506,9 @@ impl Server {
                 .collect();
             for part in all.chunks(EDITS_PART) {
                 link.send(ToClient::Edits(part.to_vec()));
+            }
+            if !self.sky.is_empty() {
+                link.send(ToClient::Sky { t: self.world.time, all: self.sky.clone(), changed: Vec::new() });
             }
             let spawn = self.spawn();
             self.clients.push(Client {
@@ -719,7 +731,9 @@ impl Server {
                 let b = &self.world.bodies[0];
                 let rel = c.phys.pos - b.centre;
                 if self.world.frame_at(c.phys.pos) == 0 && rel.length() > 0.0 {
-                    c.link.send(ToClient::Air(w.here(rel.normalize(), rel.length() - b.sea.unwrap_or(rel.length()))));
+                    let d = rel.normalize();
+                    let h = w.here(d, rel.length() - b.sea.unwrap_or(rel.length()));
+                    c.link.send(ToClient::Air(self.force.map_or(h, |f| f.here(h, w.view().theta[w.column(d)]))));
                 }
             }
             let shown = (c.vitals.shown(), c.vitals.dead.is_some());
@@ -844,6 +858,7 @@ impl Server {
                 "  /goto <where>        terra (home: the spawn), luna, or sun",
                 "  /timewarp <n>        the clock n times faster (1 to 10000,",
                 "                       up, down); . and , step it too",
+                "  /weather <what>      clear cloudy rain storm snow, or auto",
                 "  /heal, /feed [n]     full health, full hunger (or n)",
                 "  /hurt <points>       takes health: 2 points a segment",
                 "  /help                this list",
@@ -950,6 +965,20 @@ impl Server {
                     None => "usage: /goto terra|luna|sun\n  terra (or home) is the spawn".into(),
                 }
             }
+            Some("weather") => match (w.get(1).map(|s| s.to_lowercase()), &self.weather) {
+                (_, None) => "this world has no air grid".into(),
+                (None, Some(_)) => format!("the weather is {}
+  /weather <{}>", if self.force.is_some() { "forced" } else { "the air's own" }, engine::weather::Force::NAMES),
+                (Some(n), Some(_)) => match engine::weather::Force::named(&n) {
+                    Some(f) => {
+                        self.force = f;
+                        self.sky_at = None;
+                        if f.is_some() { format!("weather forced: {n}") } else { "the air's own weather again".into() }
+                    }
+                    None => format!("not a weather: {n}
+  /weather <{}>", engine::weather::Force::NAMES),
+                },
+            },
             Some("timewarp") | Some("warp") => {
                 let now = self.warp;
                 let to = match w.get(1).map(|s| s.to_lowercase()).as_deref() {
@@ -1200,6 +1229,37 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
 
     /// Sends every client the water tiles it lacks: within WATER_RANGE, nearest first, until WATER_BYTES.
     /// The rest waits for the next tick, so a big flood reaches a client over a few ticks, near water first.
+    /// The air's columns to every client when the grid landed a step or the forced weather changed (ADR 0076):
+    /// those that moved more than a byte's step since they were sent, so a slow drift does not cost a message
+    /// a column every step.
+    fn send_sky(&mut self) {
+        let Some(w) = &self.weather else { return };
+        if self.sky_at == Some(w.view().hash) {
+            return;
+        }
+        self.sky_at = Some(w.view().hash);
+        let cells = w.cells(self.force.as_ref());
+        if self.sky.len() != cells.len() {
+            self.sky = cells;
+            for c in &self.clients {
+                c.link.send(ToClient::Sky { t: self.world.time, all: self.sky.clone(), changed: Vec::new() });
+            }
+            return;
+        }
+        let mut changed = Vec::new();
+        for (k, (old, new)) in self.sky.iter_mut().zip(&cells).enumerate() {
+            if old.iter().zip(new).any(|(a, b)| a.abs_diff(*b) > 1) {
+                *old = *new;
+                changed.push((k as u32, *new));
+            }
+        }
+        if !changed.is_empty() {
+            for c in &self.clients {
+                c.link.send(ToClient::Sky { t: self.world.time, all: Vec::new(), changed: changed.clone() });
+            }
+        }
+    }
+
     fn send_water(&mut self) {
         // each tile built and measured once a tick, however many clients get it
         let mut built: FxMap<Col, (Vec<engine::liquid::ColWater>, usize)> = FxMap::default();

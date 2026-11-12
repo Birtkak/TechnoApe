@@ -525,6 +525,13 @@ impl At {
         at.p -= at.axes[0] * at.half.x;
         at
     }
+    /// A point of body `body` (from its centre, in its frame) moving at v over the floor of the column it is in,
+    /// looked up again as it crosses into others (a raindrop, ADR 0076); None inside a solid block.
+    pub fn falling(world: &World, body: u8, p: DVec3, v: DVec3) -> Option<At> {
+        let b = Block { body, ..world.block_at(world.bodies[body as usize].centre + p) };
+        let (floor, col) = ground(world, b);
+        (floor <= world.bodies[body as usize].layer_r(b.pos.z as f64) as f32).then(|| At { col, ..At::point(body, p, v, floor as f64) })
+    }
     /// A point of body `body` (from its centre, in its frame) moving at v, over a floor at radius `floor`.
     pub fn point(body: u8, p: DVec3, v: DVec3, floor: f64) -> At {
         let up = p.normalize().as_vec3();

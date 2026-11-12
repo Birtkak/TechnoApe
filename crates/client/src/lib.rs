@@ -20,6 +20,7 @@ mod sim;
 mod sys;
 mod view;
 mod water;
+mod weather;
 
 use app::*;
 use bench::*;
@@ -343,6 +344,10 @@ pub fn main() {
         }
     };
     link.send(ToServer::Hello { name: args.s("name", "player") });
+    // weather=: a forced weather from the start, for filming (ADR 0076, the server's /weather)
+    if let Some(w) = args.0.get("weather") {
+        link.send(ToServer::Chat(format!("/weather {w}")));
+    }
     // (mode=creative: a new world made creative on its page; a world carried on keeps each player's own mode)
     if run != "play" || args.s("mode", "") == "creative" {
         link.send(ToServer::Creative(true)); // the edit benchmark places stone it never dug
@@ -539,6 +544,7 @@ pub fn main() {
         inv: Vec::new(),
         bucket_water: 0,
         air: None,
+        sky: Default::default(),
         vitals: (engine::vitals::MAX, engine::vitals::MAX),
         health_min: engine::vitals::MAX,
         flash: [(Instant::now() - Duration::from_secs(10), 0); 2],
