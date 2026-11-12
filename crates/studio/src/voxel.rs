@@ -217,6 +217,64 @@ pub fn pick(m: &Model, poses: &[Mat4], only: Option<usize>, o: Vec3, d: Vec3) ->
     best(true).or_else(|| best(false))
 }
 
+/// Where a ray meets the plane at the foot of part `p`'s row `layer` (its cells, posed by `pose`): the cell of that
+/// row it lands in (`n` up, `solid` whether a voxel is there), whatever stands above. Layer mode's clicks, and the
+/// floor's (row 0) where no voxel is under the pointer. None: the ray runs along the plane, away from it, or lands
+/// farther from the box than a part may grow.
+pub fn pick_layer(p: &Part, pose: Mat4, layer: i32, o: Vec3, d: Vec3) -> Option<Hit> {
+    let inv = pose.inverse();
+    let (o, d) = (inv.transform_point3(o), inv.transform_vector3(d));
+    if d.y.abs() < 1e-6 {
+        return None;
+    }
+    let t = (layer as f32 - o.y) / d.y;
+    if t < 0.0 {
+        return None;
+    }
+    let at = o + d * t;
+    let cell = IVec3::new(at.x.floor() as i32, layer, at.z.floor() as i32);
+    let reach = MAX_BOX as i32;
+    if cell.cmplt(IVec3::splat(-reach)).any() || cell.cmpge(size(p) + reach).any() {
+        return None;
+    }
+    // (t in the posed ray's units: the pose is a scale and a turn, so the order of hits along it is kept)
+    Some(Hit { part: 0, cell, n: IVec3::Y, solid: get(p, cell) != 0, t })
+}
+
+/// The six face normals, in the order `exposed` numbers them.
+pub const NORMALS: [IVec3; 6] = [IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::NEG_Y, IVec3::Z, IVec3::NEG_Z];
+
+/// The faces of part `p`'s voxels with no voxel beside them: the cell and its `NORMALS` index.
+pub fn exposed(p: &Part) -> Vec<(IVec3, usize)> {
+    let s = size(p);
+    let mut out = vec![];
+    for y in 0..s.y {
+        for z in 0..s.z {
+            for x in 0..s.x {
+                let c = IVec3::new(x, y, z);
+                if get(p, c) != 0 {
+                    out.extend((0..6).filter(|&k| get(p, c + NORMALS[k]) == 0).map(|k| (c, k)));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A cell's face toward `n`, its four corners in the cell's units, round its edge.
+pub fn face_quad(cell: IVec3, n: IVec3) -> [Vec3; 4] {
+    let a = (0..3).find(|&k| n[k] != 0).unwrap_or(1);
+    let (u, v) = ((a + 1) % 3, (a + 2) % 3);
+    let mut base = cell.as_vec3();
+    if n[a] > 0 {
+        base[a] += 1.0;
+    }
+    let (mut du, mut dv) = (Vec3::ZERO, Vec3::ZERO);
+    du[u] = 1.0;
+    dv[v] = 1.0;
+    [base, base + du, base + du + dv, base + dv]
+}
+
 /// Box, line and fill work on the plane of the face first clicked: where a ray meets that layer of cells.
 pub fn on_plane(pose: Mat4, first: &Hit, o: Vec3, d: Vec3) -> Option<IVec3> {
     let inv = pose.inverse();
@@ -982,6 +1040,51 @@ mod tests {
         let first = pick(&m, &m.pose(None, 0.0), Some(0), Vec3::new(0.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
         let c = on_plane(m.pose(None, 0.0)[0], &first, Vec3::new(1.5 * v, 1.0, 1.5 * v), Vec3::new(0.0, -1.0, 0.0)).unwrap();
         assert_eq!(c, IVec3::new(1, 1, 1));
+    }
+
+    #[test]
+    fn picking_on_a_layer_lands_on_its_plane_whatever_stands_above() {
+        let m = model();
+        let poses = m.pose(None, 0.0);
+        let (body, v) = (&m.parts[0], VOXEL);
+        // from above beside the voxel (0, 0, 0): row 0's empty cell (1, 0, 0), though the box's top is nearer
+        let h = pick_layer(body, poses[0], 0, Vec3::new(1.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
+        assert_eq!((h.cell, h.n, h.solid), (IVec3::new(1, 0, 0), IVec3::Y, false));
+        // straight down onto the voxel itself: that cell, solid
+        let h = pick_layer(body, poses[0], 0, Vec3::new(0.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
+        assert_eq!((h.cell, h.solid), (IVec3::ZERO, true));
+        // row 1 over it: the empty cell above, the voxel under the plane does not stop the click
+        let h = pick_layer(body, poses[0], 1, Vec3::new(0.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
+        assert_eq!((h.cell, h.solid), (IVec3::new(0, 1, 0), false));
+        // a slanted ray lands where it crosses the plane: from (0.5, 1 + 3, 0.5) voxels down and along +x by 1 a voxel
+        let o = Vec3::new(0.5 * v, 3.0 * v, 0.5 * v);
+        let h = pick_layer(body, poses[0], 0, o, Vec3::new(1.0, -1.0, 0.0).normalize()).unwrap();
+        assert_eq!(h.cell, IVec3::new(3, 0, 0), "outside the box: a cell the add grows the box to");
+        // the same ray on row 1 crosses its plane a voxel sooner
+        assert_eq!(pick_layer(body, poses[0], 1, o, Vec3::new(1.0, -1.0, 0.0).normalize()).unwrap().cell, IVec3::new(2, 1, 0));
+        // from below, up through the floor
+        let h = pick_layer(body, poses[0], 0, Vec3::new(1.5 * v, -1.0, 1.5 * v), Vec3::Y).unwrap();
+        assert_eq!(h.cell, IVec3::new(1, 0, 1));
+        // along the plane, away from it, or far off: nothing
+        assert_eq!(pick_layer(body, poses[0], 0, Vec3::new(0.0, 0.5 * v, 0.0), Vec3::X), None);
+        assert_eq!(pick_layer(body, poses[0], 0, Vec3::new(0.0, 1.0, 0.0), Vec3::Y), None);
+        assert_eq!(pick_layer(body, poses[0], 0, Vec3::new(0.0, 1.0, 0.0), Vec3::new(1.0, -0.01, 0.0).normalize()), None);
+        // the door, a child at x = 2: its own row 0, in its own cells
+        let h = pick_layer(&m.parts[1], poses[1], 0, Vec3::new(2.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
+        assert_eq!((h.cell, h.solid), (IVec3::ZERO, true));
+    }
+
+    #[test]
+    fn exposed_faces_are_the_ones_with_no_voxel_beside_them() {
+        let mut m = model();
+        assert_eq!(exposed(&m.parts[0]).len(), 6, "one voxel: six faces");
+        apply(&mut m, 0, &[IVec3::new(1, 0, 0)], Op::Add(1));
+        let e = exposed(&m.parts[0]);
+        assert_eq!(e.len(), 10, "two side by side: the faces between them hidden");
+        assert!(!e.contains(&(IVec3::ZERO, 0)) && e.contains(&(IVec3::ZERO, 1)));
+        let q = face_quad(IVec3::new(1, 0, 0), IVec3::X);
+        assert!(q.iter().all(|c| c.x == 2.0) && q.contains(&Vec3::new(2.0, 1.0, 1.0)));
+        assert!(face_quad(IVec3::ZERO, IVec3::NEG_Y).iter().all(|c| c.y == 0.0));
     }
 
     #[test]
