@@ -19,38 +19,49 @@ mkdir -p out/check
 FAST=; [ "$1" = fast ] && { FAST=1; shift; }
 ALL="stand fly orbit edit sim fx"
 if [ "$1" = accept-perf ]; then
-  cargo build --release >out/check/build.log 2>&1 || { echo "release build failed: out/check/build.log" >&2; exit 1; }
+  cargo build --release -p client -p server >out/check/build.log 2>&1 || { echo "release build failed: out/check/build.log" >&2; exit 1; }
   for i in 1 2 3; do for r in $ALL; do
     printf '%s\t%s\n' $r "$(timeout 170 target/release/technoape.exe run=$r quick=1 2>/dev/null | tail -1)"
   done; done | python -I tools/perf.py accept
   exit $?
 fi
-MIN=${1:-$([ $FAST ] && echo 1 || echo 3)}
+MIN=${1:-1}
 RUNS=$([ $FAST ] && echo "stand fly sim" || echo "$ALL")
 SECONDS=0
 SEED=$(( $(date +%s) % 100000 ))
 fails=()
 
-cargo build --release >out/check/build.log 2>&1 || { echo '{"ok":false,"error":"release build failed: out/check/build.log"}'; exit 1; }
-t_build=$SECONDS
-
-# the soak and its replay (CPU, timing nothing) run beside the tests and the viewpoints (no timing either);
-# the benchmark and the played run measure frame times, so they wait until both are done
-S=target/release/technoape-server.exe
-( timeout 600 $S soak=1 bots=50 minutes=$MIN seed=$SEED record=out/check/soak.rec >out/check/soak.json
-  timeout 600 $S replay=out/check/soak.rec >out/check/replay.json ) &
+# Everything that times nothing runs at once from the start:
+# - the `release` build of the game and the server (the gate runs neither the Studio nor the bot's binary), which
+#   only the benchmarks and the played run need;
+# - the `play` build (release without fat LTO, built in a fraction of the time; floats give the same bits at any
+#   opt-level), then on it the viewpoints, the soak and its replay. The soak runs its clock 32 times faster
+#   (the bots' first says /timewarp, so the replay follows): a minute of ticks is 1920 s of the world, a whole
+#   day and night and a full cycle of the tide, where three minutes unwarped were a tenth of a day (ADR 0067);
+# - the tests, every test binary side by side (tools/partest.py).
+# The benchmark and the played run measure frame times, so they wait until all of it is done.
+rm -f out/check/soak.json out/check/replay.json out/check/views.json
+cargo build --release -p client -p server >out/check/build.log 2>&1 &
+rel=$!
+S=target/play/technoape-server.exe
+( cargo build --profile play -p client -p server >out/check/build-play.log 2>&1 || exit 1
+  ( TECHNOAPE=target/play/technoape.exe bash tools/views.sh | tail -1 >out/check/views.json ) &
+  timeout 600 $S soak=1 bots=50 minutes=$MIN warp=32 seed=$SEED record=out/check/soak.rec >out/check/soak.json
+  timeout 600 $S replay=out/check/soak.rec >out/check/replay.json
+  wait ) &
 sim=$!
 
-if cargo test --workspace >out/check/test.log 2>&1; then tests=ok; else
+if python -I tools/partest.py out/check/test.log; then tests=ok; else
   tests=fail; fails+=("cargo test: $(grep -E '^test .* FAILED$' out/check/test.log | head -3 | sed 's/^test //;s/ \.\.\. FAILED//' | tr '\n' ' ')")
 fi
 t_tests=$SECONDS
 
-views=$(bash tools/views.sh | tail -1)
+wait $sim
+views=$(cat out/check/views.json 2>/dev/null)
 echo "$views" | grep -q '"ok": true' || fails+=("views: $(echo "$views" | python -I -c "import json,sys; print('; '.join(json.loads(sys.stdin.read())['failures']))" 2>/dev/null || echo "$views")")
 t_views=$SECONDS
 
-wait $sim
+wait $rel || { echo '{"ok":false,"error":"release build failed: out/check/build.log"}'; exit 1; }
 t_sim=$SECONDS
 soak=$(tail -1 out/check/soak.json)
 echo "$soak" | grep -q '"soak":"ok"' || fails+=("soak: $soak")
@@ -82,7 +93,7 @@ feel=$(MSYS_NO_PATHCONV=1 timeout 120 target/release/technoape.exe run=play save
 echo "$feel" | python -I -c "import json,sys; f=json.loads(sys.stdin.read()); sys.exit(0 if f['corrections'] == 0 and f['clicks'] >= 4 and f['clicks_not_shown'] == 0 and f['click_to_change_ms_max'] <= 16.7 else 1)" 2>/dev/null \
   || fails+=("feel: $feel (repro: technoape.exe run=play save=0 settings=out/check/settings.txt seconds=10 autowalk=1 acts=\"$ACTS\")")
 
-times="{\"build\":$t_build,\"tests\":$((t_tests-t_build)),\"views\":$((t_views-t_tests)),\"soak_wait\":$((t_sim-t_views)),\"bench\":$((t_bench-t_sim)),\"feel\":$((SECONDS-t_bench)),\"total\":$SECONDS}"
+times="{\"tests\":$t_tests,\"soak_and_views_wait\":$((t_views-t_tests)),\"release_build_wait\":$((t_sim-t_views)),\"bench\":$((t_bench-t_sim)),\"feel\":$((SECONDS-t_bench)),\"total\":$SECONDS}"
 printf '%s\n' "$tests" "$soak" "$replay" "$views" "$feel" "$times" "${bench[@]}" "--" "${fails[@]}" | python -I -c "
 import json, sys
 lines = sys.stdin.read().split('\n')
