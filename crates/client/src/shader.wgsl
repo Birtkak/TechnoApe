@@ -39,6 +39,9 @@ struct Globals {
     // y: the settings' brightness in thousandths (post.wgsl has it as `tune.w`), for what is drawn after
     // the composite
     opt: vec4u,
+    // the planet's tide (ADR 0064, engine `sky::Tide`): Luna's and the sun's directions in its frame, w their
+    // pull in layers; its base is in bodies[0].sea (gpu.rs `Globals::tide`)
+    tide: array<vec4f, 2>,
 };
 // base in columns and layers; info = face | level << 3 | body << 8; off: its first quad
 struct Chunk { base: vec3i, info: u32, off: u32 };
@@ -948,6 +951,16 @@ fn vs_sea(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) ->
     // a far coarse cell that holds the sea level but is solid: the water lies a layer over its top, or the
     // top face hides it
     var layer = b.sea;
+    if (bi == 0u) {
+        // the tide (ADR 0064): the port of `Tide::at`, a dozen multiplications a vertex
+        let l = dot(f.up, g.tide[0].xyz);
+        let s = dot(f.up, g.tide[1].xyz);
+        layer += g.tide[0].w * l * l + g.tide[1].w * s * s;
+        // the waterline rule: never within 1/64 layer of a block's top, where the two would flicker; the
+        // sea steps over it, 3 cm in an instant
+        let fr = layer - round(layer);
+        if (abs(fr) < 1.0 / 64.0) { layer = round(layer) + select(-1.0, 1.0, fr >= 0.0) / 64.0; }
+    }
     if (q.y == 1u) {
         layer = max(layer, f32(c.base.z + (i32((lo >> 12u) & 63u) << level)) + 1.0);
     }

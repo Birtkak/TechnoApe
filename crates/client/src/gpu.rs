@@ -358,6 +358,10 @@ pub(crate) struct Globals {
     pub(crate) stars: [[f32; 4]; 3],
     /// x: the settings' graphics rows, a bit each (`App::gfx_bits`).
     pub(crate) opt: [u32; 4],
+    /// The planet's tide (ADR 0064, `sky::Tide`): Luna's and the sun's directions in its frame, w their pull
+    /// in layers (1.5 * TIDE_LUNA and 1.5 * TIDE_SUN over a layer's thickness at the sea); its `base` is in
+    /// body 0's sea level.
+    pub(crate) tide: [[f32; 4]; 2],
 }
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

@@ -6,7 +6,7 @@ use crate::blocks::{AIR, BLOCKS};
 use crate::rock::{Rock, ROCKS};
 use crate::bodies::{Generator, BODIES};
 use crate::liquid::{Col, Ground, Liquids, OPEN, TILE, U};
-use crate::sky::{Pose, Sky};
+use crate::sky::{Pose, Sky, Tide};
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use glam::{DQuat, DVec3, IVec3};
 use std::collections::HashMap;
@@ -158,6 +158,9 @@ pub struct Body {
     land: Option<Box<Land>>,
     /// Where players start: the land nearest the +y pole (a direction from the centre).
     pub spawn: DVec3,
+    /// The second moment of the sea's area: the mean of d d^T over its directions (ADR 0064; a third of the
+    /// identity with no sea), which keeps the tide's volume (`Sky::tide`).
+    pub ocean: glam::DMat3,
     /// What generation lays down: the top, the band under it, the rock below (block ids).
     pub ground: [u16; 3],
     /// Generated hollows in the ground (ADR 0062, 0063), in the order they were made: every reader asks
@@ -369,7 +372,7 @@ impl Body {
         // small bodies keep half their radius; the deep ground lies under the old floor, layer for layer
         let r0 = (radius - CRUST.min(radius * 0.5)) * (-lnq * deep_layers(n) as f64).exp();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None, land: None, spawn: DVec3::Y, ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
+        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None, land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
     }
     /// The body on a baked map (ADR 0043): its heights, biomes, ground and plants, and its spawn.
     pub fn with_map(mut self, map: Arc<Map>) -> Self {
@@ -390,6 +393,7 @@ impl Body {
         let spawn = DVec3::from_array(map.spawn);
         self.baked = Some(Box::new(Baked { seed: map.seed as u32 as u64, map, detail, jitter, fold, spots: Default::default(), levels: Default::default() }));
         self.sea = Some(self.layer_of(self.radius - SEA_DEPTH).floor() + 0.875);
+        self.ocean = self.ocean_moments();
         // the scored spawn, moved to the nearest column with no plant within a step
         let (f, x, y) = self.locate(spawn);
         let (i0, j0) = (x as i32, y as i32);
@@ -443,14 +447,20 @@ impl Body {
     /// (units a step), its surface's fall a column (units) and the runoff a column gathers (units a step). The
     /// sea's where no river or lake is, or where theirs would stand under it.
     pub fn water_at(&self, face: u8, i: i32, j: i32) -> Option<(f64, u32, Option<(f64, f64, f64)>)> {
-        let sea = self.sea.map(|s| (s, crate::liquid::SEA, None));
+        self.water_tide(face, i, j, None)
+    }
+    /// `water_at` with the sea at `tide` (ADR 0064) instead of its mean: the tidal band goes wet and dry, and a
+    /// river's last columns under the high sea are the sea's.
+    pub fn water_tide(&self, face: u8, i: i32, j: i32, tide: Option<&Tide>) -> Option<(f64, u32, Option<(f64, f64, f64)>)> {
+        let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
+        let d = tide.map(|_| self.dir(face as usize, ci, cj));
+        let sea = self.sea.map(|s| (s + tide.zip(d).map_or(0.0, |(t, d)| self.tide_layers(t, d)), crate::liquid::SEA, None));
         let Some(b) = &self.baked else { return sea };
         let s = b.map.m as f64 / self.n as f64;
-        let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
         if !b.map.maybe_wet(face as usize, ci * s, cj * s) {
             return sea;
         }
-        let Some(w) = b.map.water(face as usize, ci * s, cj * s, self.dir(face as usize, ci, cj)) else { return sea };
+        let Some(w) = b.map.water(face as usize, ci * s, cj * s, d.unwrap_or_else(|| self.dir(face as usize, ci, cj))) else { return sea };
         let top = self.layer_of(self.radius - SEA_DEPTH + w.level as f64);
         if sea.is_some_and(|s| s.0 >= top) {
             return sea;
@@ -749,6 +759,7 @@ impl Body {
         // instead of flickering through it
         self.sea = Some(self.layer_of(land.sea_r).floor() + 0.875);
         self.land = Some(Box::new(land));
+        self.ocean = self.ocean_moments();
         // the land nearest the +y pole, a little above the sea
         let sea_r = self.radius - SEA_DEPTH;
         self.spawn = lattice(4096).filter(|d| d.y > 0.0 && self.height(*d) > sea_r + 2.0).max_by(|a, b| a.y.total_cmp(&b.y)).unwrap_or(DVec3::Y);
@@ -770,6 +781,26 @@ impl Body {
         }
         // (a block's top stands up to half a block over its column's height)
         self.centre + d * (top + 0.6 + 0.5 * BLOCK)
+    }
+    /// The tide at body-frame direction d in layers over the mean sea (the sea's layers are a metre thick to
+    /// within a part in a thousand).
+    pub fn tide_layers(&self, t: &Tide, d: DVec3) -> f64 {
+        t.at(d) / (self.layer_r(self.sea.unwrap_or(0.0)) * self.lnq)
+    }
+    /// The sea's level at the highest tide, a layer coordinate (`sea_quads`): in the layer over the mean's, as the
+    /// mean lies an eighth under a layer's top and TIDE_HIGH is under a layer and an eighth.
+    pub fn sea_high(&self) -> Option<f64> {
+        self.sea.map(|s| s + crate::sky::TIDE_HIGH / (self.layer_r(s) * self.lnq))
+    }
+    /// The sea's `ocean`: the mean of d d^T over 4096 even directions whose ground is under the sea.
+    fn ocean_moments(&self) -> glam::DMat3 {
+        let r = self.layer_r(self.sea.expect("a sea"));
+        let (mut m, mut k) = (glam::DMat3::ZERO, 0usize);
+        for d in lattice(4096).filter(|&d| self.height(d) < r) {
+            m += glam::DMat3::from_cols(d * d.x, d * d.y, d * d.z);
+            k += 1;
+        }
+        if k == 0 { glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)) } else { m * (1.0 / k as f64) }
     }
     /// The radius of the surface over direction d: the ground, or the sea over it.
     pub fn top(&self, d: DVec3) -> f64 {
@@ -926,6 +957,23 @@ impl Body {
 pub struct Solid<'a> {
     pub bodies: &'a [Body],
     pub edits: &'a FxMap<Key, FxMap<IVec3, u16>>,
+    /// The planet's sea at its tide (ADR 0064): the whole second of world time it was taken at and the tide
+    /// then; None, the mean sea.
+    pub tide: Option<(i64, Tide)>,
+}
+
+impl<'a> Solid<'a> {
+    /// The solid world of `bodies` and `edits` with the sea at its tide at world time t, taken at the whole
+    /// second: generation's water steps once a second (3 mm at most), so the water's caches hold for one.
+    pub fn at(bodies: &'a [Body], edits: &'a FxMap<Key, FxMap<IVec3, u16>>, sky: &Sky, t: f64) -> Solid<'a> {
+        let s = t.floor();
+        let tide = bodies.first().filter(|b| b.sea.is_some()).map(|b| (s as i64, sky.tide(s, &b.ocean)));
+        Solid { bodies, edits, tide }
+    }
+    fn water(&self, c: Col) -> Option<(f64, u32, Option<(f64, f64, f64)>)> {
+        let tide = if c.body() == 0 { self.tide.as_ref().map(|t| &t.1) } else { None };
+        self.bodies[c.body() as usize].water_tide(c.face(), c.i(), c.j(), tide)
+    }
 }
 
 impl Solid<'_> {
@@ -981,14 +1029,21 @@ impl Ground for Solid<'_> {
         out
     }
     fn generated(&self, c: Col) -> (i64, i64) {
-        let Some((top, _, _)) = self.bodies[c.body() as usize].water_at(c.face(), c.i(), c.j()) else { return (0, 0) };
+        let Some((top, _, _)) = self.water(c) else { return (0, 0) };
         (self.gen_floor(c) as i64 * U, (top * U as f64) as i64)
     }
     fn reach(&self, c: Col) -> u32 {
-        self.bodies[c.body() as usize].water_at(c.face(), c.i(), c.j()).map_or(crate::liquid::SEA, |w| w.1)
+        self.water(c).map_or(crate::liquid::SEA, |w| w.1)
     }
     fn river(&self, c: Col) -> Option<(f64, f64, f64)> {
-        self.bodies[c.body() as usize].water_at(c.face(), c.i(), c.j()).and_then(|w| w.2)
+        self.water(c).and_then(|w| w.2)
+    }
+    fn tide_epoch(&self) -> i64 {
+        self.tide.map_or(0, |t| t.0)
+    }
+    fn tide_top(&self, c: Col) -> i64 {
+        let b = &self.bodies[c.body() as usize];
+        b.sea.map_or(i64::MIN, |s| ((s + crate::sky::TIDE_HIGH / (b.layer_r(s) * b.lnq)) * U as f64) as i64 + 1)
     }
     fn down(&self, acct: u32) -> (u32, f64) {
         // reaches are Terra's baked map's (Luna has none); the map's NONE (to the sea) is the sea's account
@@ -1421,17 +1476,21 @@ impl World {
     }
     /// The solid world as the water sees it.
     pub fn ground(&self) -> Solid<'_> {
-        Solid { bodies: &self.bodies, edits: &self.edits }
+        Solid::at(&self.bodies, &self.edits, &self.sky, self.time)
+    }
+    /// The planet's tide now, to the frame (`Solid` takes it at the whole second): what the sea's shader is given.
+    pub fn tide(&self) -> Tide {
+        self.sky.tide(self.time, &self.bodies[0].ocean)
     }
     /// Steps the water once (1/60 s).
     pub fn step_water(&mut self) {
-        let World { bodies, edits, water, .. } = self;
-        water.step(&Solid { bodies, edits });
+        let World { bodies, edits, water, sky, time, .. } = self;
+        water.step(&Solid::at(bodies, edits, sky, *time));
     }
     /// Block b changed: its column's water finds its new gaps.
     pub fn regap(&mut self, b: Block) {
-        let World { bodies, edits, water, .. } = self;
-        water.regap(&Solid { bodies, edits }, World::col(b));
+        let World { bodies, edits, water, sky, time, .. } = self;
+        water.regap(&Solid::at(bodies, edits, sky, *time), World::col(b));
     }
     /// The radius of the water surface over world point p, if p is under water.
     pub fn water_surface(&self, p: DVec3) -> Option<f64> {
@@ -1611,9 +1670,12 @@ pub fn pidx(x: usize, y: usize, z: usize) -> usize {
 }
 
 /// Generate the padded cell grid of a chunk: x, y, z = column i, column j, layer.
-/// The cell (at chunk `key`'s level) that holds the sea's surface, if it is in this chunk.
+/// The cell (at chunk `key`'s level) that holds the sea's surface, if it is in this chunk: at level 0 the one at
+/// the highest tide (the tidal band's columns are solid in the mean's), coarser the mean's, whose solid test
+/// stands for the shallows (a coarse cell is 2 layers or more: the band is inside it).
 pub fn sea_cell(body: &Body, key: Key) -> Option<i32> {
-    let cz = (body.sea? / (1i32 << key.level) as f64).floor() as i32;
+    let sea = if key.level == 0 { body.sea_high()? } else { body.sea? };
+    let cz = (sea / (1i32 << key.level) as f64).floor() as i32;
     (cz.div_euclid(CS) == key.pos.z).then_some(cz)
 }
 
@@ -1625,7 +1687,9 @@ pub fn sea_cell(body: &Body, key: Key) -> Option<i32> {
 pub fn sea_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2]> {
     let Some(cz) = sea_cell(body, key) else { return Vec::new() };
     let s = 1i32 << key.level;
-    let r = body.layer_r(body.sea.unwrap());
+    // meshed for the highest tide (ADR 0064): the shader lays each vertex at the tide's level and the ground hides
+    // the water where it stands higher, so the tide never meshes the sea again
+    let r = body.layer_r(body.sea_high().unwrap());
     let base = key.base();
     let n = CS as usize;
     let zl = (cz - key.pos.z * CS) as usize;
@@ -1799,7 +1863,8 @@ pub fn river_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2
 /// The chunks (levels up to 4) that draw the generated water of tile `t`: the sea's and every river's and
 /// lake's level in it. When the tile turns wet or dry they are meshed again (`Streamer::touch_tile`).
 pub fn water_keys(body: &Body, t: Col) -> Vec<Key> {
-    let mut tops: Vec<f64> = body.sea.into_iter().collect();
+    // the sea's chunks: level 0's at the highest tide, the coarser ones' at the mean (`sea_cell`)
+    let mut tops: Vec<f64> = body.sea.into_iter().chain(body.sea_high()).collect();
     for j in t.j() * TILE..(t.j() + 1) * TILE {
         for i in t.i() * TILE..(t.i() + 1) * TILE {
             if let Some((top, acct, _)) = body.water_at(t.face(), i, j) {
@@ -2216,6 +2281,119 @@ mod water_tests {
     use super::*;
     use crate::liquid::Ground;
 
+    /// The tide's benchmark (ADR 0064; `cargo test --release -p engine tide_cost -- --ignored --nocapture`): what
+    /// one `Tide::at`, one `Solid::at` (the poses) and one `generated` of a sea column cost with and without the
+    /// tide, and how far the ocean's shape moves the mean (`Tide::base`) over a month, on the baked 4 km Terra.
+    #[test]
+    #[ignore]
+    fn tide_cost() {
+        use std::hint::black_box;
+        use std::time::Instant;
+        let w = World::with_map(6144, crate::bodies::columns(1, 6144), 1337, Some(crate::bake::get(1337, 6144)));
+        let b = &w.bodies[0];
+        let tide = w.tide();
+        let n = 2_000_000;
+        let t = Instant::now();
+        let mut acc = 0.0;
+        for k in 0..n {
+            acc += tide.at(DVec3::new(1.0, k as f64 * 1e-7, 0.5).normalize());
+        }
+        let at_ns = t.elapsed().as_secs_f64() * 1e9 / n as f64;
+        black_box(acc);
+        let t = Instant::now();
+        for k in 0..100_000 {
+            black_box(Solid::at(&w.bodies, &w.edits, &w.sky, k as f64));
+        }
+        let solid_ns = t.elapsed().as_secs_f64() * 1e9 / 100_000.0;
+        // sea columns: the face's columns under the sea, every 37th
+        let cols: Vec<Col> = (0..b.n).step_by(37).flat_map(|i| (0..b.n).step_by(37).map(move |j| Col::new(0, 2, i, j))).filter(|c| b.col_height(2, c.i(), c.j()) < b.layer_r(b.sea.unwrap()) - 3.0).collect();
+        let (mean, tidal) = (Solid { bodies: &w.bodies, edits: &w.edits, tide: None }, w.ground());
+        let time = |g: &Solid| {
+            let t = Instant::now();
+            for _ in 0..20 {
+                for &c in &cols {
+                    black_box(g.generated(c));
+                }
+            }
+            t.elapsed().as_secs_f64() * 1e9 / (20 * cols.len()) as f64
+        };
+        let (gm, gt) = (time(&mean), time(&tidal));
+        let bases: Vec<f64> = (0..2000).map(|k| w.sky.tide(k as f64 * crate::sky::MONTH / 2000.0, &b.ocean).base).collect();
+        let round = -0.5 * (crate::sky::TIDE_LUNA + crate::sky::TIDE_SUN);
+        println!(
+            "{{\"tide_at_ns\":{at_ns:.1},\"solid_at_ns\":{solid_ns:.0},\"generated_ns\":{gm:.0},\"generated_tide_ns\":{gt:.0},\"sea_cols\":{},\"ocean_trace\":{:.4},\"base_m\":[{:.4},{:.4}],\"round_base_m\":{round:.4}}}",
+            cols.len(),
+            b.ocean.x_axis.x + b.ocean.y_axis.y + b.ocean.z_axis.z,
+            bases.iter().copied().fold(f64::MAX, f64::min),
+            bases.iter().copied().fold(f64::MIN, f64::max)
+        );
+        // a beach near the spawn for the filmstrips: a run of 4 band columns between the sea and the land
+        let band = b.sea.unwrap().floor() as i32 + 1;
+        let (f, x, y) = b.locate(b.spawn);
+        let top = |i: i32, j: i32| b.first_air(b.col_height(f as u8, i, j));
+        let (i0, j0) = (x as i32, y as i32);
+        let found = (1..600).find_map(|r| {
+            (-r..=r).flat_map(|a| (-r..=r).map(move |c| (i0 + a, j0 + c))).filter(|&(i, j)| (i - i0).abs().max((j - j0).abs()) == r).find_map(|(i, j)| {
+                [(1, 0), (-1, 0), (0, 1), (0, -1)].into_iter().find(|&(di, dj)| top(i - di, j - dj) < band && (0..4).all(|k| top(i + k * di, j + k * dj) == band) && top(i + 6 * di, j + 6 * dj) > band).map(|d| (i, j, d))
+            })
+        });
+        if let Some((i, j, (di, dj))) = found {
+            let at = |i: i32, j: i32, up: f64| b.centre + b.dir(f, i as f64 + 0.5, j as f64 + 0.5) * (b.layer_r(band as f64) + up);
+            let (eye, look) = (at(i + 9 * di, j + 9 * dj, 3.0), at(i - 4 * di, j - 4 * dj, 0.0));
+            // run=stand's at=, yaw and pitch for that view (client bench.rs `stand_angles`)
+            let up = (eye - b.centre).normalize();
+            let fwd = (look - eye).normalize();
+            let r = if up.y.abs() > 0.9 { DVec3::Z } else { DVec3::Y };
+            let ahead = (r - up * r.dot(up)).normalize();
+            let (yaw, pitch) = (fwd.dot(up.cross(ahead)).atan2(fwd.dot(ahead)).to_degrees(), fwd.dot(up).asin().to_degrees());
+            println!("{{\"stand\":\"at={:.6},{:.6},{:.6} yaw={yaw:.1} pitch={pitch:.1}\",\"face\":{f},\"i\":{i},\"j\":{j}}}", up.x, up.y, up.z);
+            // the tide there over a month, a minute apart: each day's low and high and when the highest came
+            let d = b.dir(f, i as f64 + 0.5, j as f64 + 0.5);
+            let h = |t: f64| w.sky.tide(t, &b.ocean).at(d);
+            let days: Vec<String> = (0..16)
+                .map(|k| {
+                    let ts: Vec<f64> = (0..30).map(|m| (k * 30 + m) as f64 * 60.0).collect();
+                    let hi = ts.iter().copied().max_by(|&a, &c| h(a).total_cmp(&h(c))).unwrap();
+                    let lo = ts.iter().copied().fold(f64::MAX, |m, t| m.min(h(t)));
+                    format!("[{:.3},{:.3},{hi}]", lo, h(hi))
+                })
+                .collect();
+            println!("{{\"days\":[{}]}}", days.join(","));
+        }
+    }
+
+    /// The tidal band (ADR 0064): a column whose ground's top is the layer over the mean sea's is dry at the mean
+    /// and low tide and wet at high, and the sea's quads, meshed once for the highest tide, cover it.
+    #[test]
+    fn the_tidal_band_is_wet_at_high_water_and_meshed_for_it() {
+        let w = World::new(1536, 512, 1337);
+        let b = &w.bodies[0];
+        let band = b.sea.unwrap().floor() as i32 + 1;
+        let (i, j) = (0..b.n).flat_map(|i| (0..b.n).map(move |j| (i, j))).find(|&(i, j)| b.first_air(b.col_height(2, i, j)) == band).expect("a beach");
+        let c = Col::new(0, 2, i, j);
+        let d = b.dir(2, i as f64 + 0.5, j as f64 + 0.5);
+        // the tide there over a month, a minute apart: dry at its lows, wet at its highs
+        let tide = |t: f64| b.tide_layers(&w.sky.tide(t, &b.ocean), d);
+        let ts: Vec<f64> = (0..crate::sky::MONTH as usize / 60).map(|k| k as f64 * 60.0).collect();
+        let high = *ts.iter().max_by(|&&a, &&x| tide(a).total_cmp(&tide(x))).unwrap();
+        let low = *ts.iter().min_by(|&&a, &&x| tide(a).total_cmp(&tide(x))).unwrap();
+        let wet = |t: f64| {
+            let (lo, hi) = Solid::at(&w.bodies, &w.edits, &w.sky, t).generated(c);
+            lo < hi
+        };
+        assert!(wet(high) && !wet(low), "the tide at the band from {:.2} to {:.2} layers", tide(low), tide(high));
+        // its chunk's sea quads cover it, at level 0
+        let cz = b.sea_high().unwrap().floor() as i32;
+        let key = Key { body: 0, face: 2, level: 0, pos: IVec3::new(i.div_euclid(CS), j.div_euclid(CS), cz.div_euclid(CS)) };
+        let quads = sea_quads(b, key, &[], &generate(b, key, &[]));
+        let (x, y) = ((i - key.base().x) as u32, (j - key.base().y) as u32);
+        let covers = |q: &[u32; 2]| {
+            let (qx, qy, qw, qh) = (q[0] & 63, (q[0] >> 6) & 63, ((q[0] >> 18) & 31) + 1, ((q[0] >> 23) & 31) + 1);
+            (qx..qx + qw).contains(&x) && (qy..qy + qh).contains(&y)
+        };
+        assert!(quads.iter().any(covers), "{} quads, none over the band's column", quads.len());
+    }
+
     /// A column's gaps follow the terrain and its edits: generated ground is solid up to the surface, a dug
     /// hollow under it is a closed gap, a placed block splits the open air.
     #[test]
@@ -2237,11 +2415,13 @@ mod water_tests {
     /// The sea: a low column is water up to sea level from generation, and a point in it is under water.
     #[test]
     fn the_sea_is_generated_where_the_ground_is_low() {
-        let w = World::new(1536, 512, 1337);
+        let mut w = World::new(1536, 512, 1337);
         let b = &w.bodies[0];
-        let sea = b.sea.unwrap();
         // find a low column on face 2
         let (i, j) = (0..b.n).step_by(7).flat_map(|i| (0..b.n).step_by(7).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 10.0).unwrap();
+        let d = b.dir(2, i as f64 + 0.5, j as f64 + 0.5);
+        // at its tide (ADR 0064): the mean sea and the tide there at the whole second
+        let sea = b.sea.unwrap() + b.tide_layers(&w.sky.tide(0.0, &b.ocean), d);
         let c = Col::new(0, 2, i, j);
         let (lo, hi) = w.ground().generated(c);
         assert!(lo < hi && hi == (sea * U as f64) as i64, "{lo} {hi} {}", sea * U as f64);
@@ -2252,6 +2432,15 @@ mod water_tests {
         assert_eq!(w.water_surface(p.normalize() * (b.radius + 5.0)), None);
         // the moon has no sea
         assert!(w.bodies[1].sea.is_none());
+        // a quarter of a lunar day on, the surface has moved with the tide, and swimming follows it
+        let t = 480.7;
+        let tide = |w: &World, t: f64| w.bodies[0].tide_layers(&w.sky.tide(t, &w.bodies[0].ocean), d);
+        let moved = tide(&w, 480.0) - tide(&w, 0.0);
+        assert!(moved.abs() > 0.05, "{moved}");
+        w.time = t;
+        let r2 = w.water_surface(p).expect("under the sea");
+        let b = &w.bodies[0];
+        assert!((r2 - b.layer_r(b.sea.unwrap() + tide(&w, 480.0))).abs() < 1e-3, "the surface at {r2} after the tide moved {moved}");
     }
 
     /// The standard planet is about OCEAN sea, the spawn is on land, and its ground stays within AMP.
@@ -2280,8 +2469,8 @@ mod water_tests {
         let (i, j) = (0..b.n).step_by(3).flat_map(|i| (0..b.n).step_by(3).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 7.0).unwrap();
         let c = Col::new(0, 2, i, j);
         let (_, hi) = w.ground().generated(c);
-        let World { bodies, edits, water, .. } = &mut w;
-        assert!(water.pour(&Solid { bodies, edits }, c, (hi / U) as i32, 4 * U));
+        let World { bodies, edits, water, sky, time, .. } = &mut w;
+        assert!(water.pour(&Solid::at(bodies, edits, sky, *time), c, (hi / U) as i32, 4 * U));
         let mut peak = 0;
         for _ in 0..60 * 30 {
             w.step_water();

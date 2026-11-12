@@ -131,6 +131,16 @@ pub trait Ground {
     fn base(&self, _acct: u32) -> f64 {
         0.0
     }
+    /// The tide's moment (ADR 0064): `generated` changes only when this does (the whole second of world time
+    /// the sea's tide was taken at; 0 for a sea without a tide).
+    fn tide_epoch(&self) -> i64 {
+        0
+    }
+    /// The highest the generated sea can stand in column `c`'s body at any tide, units (MIN: no sea, MAX: unknown): stored
+    /// columns floored over it never meet the sea, whatever the tide does.
+    fn tide_top(&self, _c: Col) -> i64 {
+        i64::MAX
+    }
 }
 
 /// `Ground::reach` and `Ground::river` of column c, from `cache` or asked once.
@@ -263,6 +273,8 @@ pub struct Liquids {
     /// Steps taken: `settle` and `run_reaches` run on its multiples, so a save keeps it (W5).
     pub steps: u64,
     epoch: u32,
+    /// `Ground::tide_epoch` at the last step: when it moves, `retide`.
+    tide_epoch: i64,
 }
 
 fn window(a: &Node, b: &Node) -> (i64, i64) {
@@ -408,6 +420,8 @@ impl Liquids {
 
     /// Stores columns as a save left them: their water poured into the gaps the terrain has now, asleep.
     pub fn restore(&mut self, g: &impl Ground, cols: &[ColWater]) {
+        // the save was taken after its second's `retide`: a loaded world steps as the running one did
+        self.tide_epoch = g.tide_epoch();
         for (c, gaps) in cols {
             let mut wet = Vec::new();
             for &(floor, ceil, water) in gaps {
@@ -670,6 +684,10 @@ impl Liquids {
 
     /// One step of 1/60 s for every awake node.
     pub fn step(&mut self, g: &impl Ground) {
+        if g.tide_epoch() != self.tide_epoch {
+            self.tide_epoch = g.tide_epoch();
+            self.retide(g);
+        }
         self.awake.sort_unstable();
         self.awake.dedup();
         self.open_ends(g, true);
@@ -880,6 +898,36 @@ impl Liquids {
         }
         if self.steps % 60 == 0 {
             self.run_reaches(g);
+        }
+    }
+
+    /// The tide moved (ADR 0064; once a second): generation's levels are asked again, and stored water beside
+    /// open sea whose level moved by the dead band or more wakes, so its open end lets the sea in or out (the
+    /// difference booked to `sea_extra` as ever). Sleeping water away from the sea costs one comparison.
+    fn retide(&mut self, g: &impl Ground) {
+        self.gen_at.clear();
+        self.river_at.clear();
+        let mut wake = Vec::new();
+        for (&c, ids) in &self.cols {
+            let Some(&a) = ids.iter().find(|&&a| self.nodes[a as usize].ceil == OPEN) else { continue };
+            let n = &self.nodes[a as usize];
+            if n.rim || n.quiet != u16::MAX || n.floor as i64 * U >= g.tide_top(c) {
+                continue;
+            }
+            // the level `open_ends` holds this column at: its own generated one where generation wets it (a river's
+            // mouth stands over the sea), else the open water's beside it
+            let own = g.generated(c);
+            for d in g.neighbours(c).into_iter().flatten().filter(|d| !self.cols.contains_key(d)) {
+                let (lo, hi) = g.generated(d);
+                let t = if own.0 < own.1 { own.1 } else { hi };
+                if lo < hi && t > n.floor as i64 * U && (t - n.surface()).abs() >= DEAD && g.reach(d) == SEA {
+                    wake.push(a);
+                    break;
+                }
+            }
+        }
+        for a in wake {
+            self.wake(a);
         }
     }
 
@@ -1244,11 +1292,13 @@ pub mod test_ground {
         pub solid: Vec<bool>,
         /// The sea level and the floors it was generated over (the terrain before any edit).
         pub sea: Option<(i64, Vec<i32>)>,
+        /// `Ground::tide_epoch`: a test that moves the sea's level moves this with it.
+        pub epoch: i64,
     }
 
     impl Box3 {
         pub fn new(nx: i32, ny: i32, nz: i32) -> Box3 {
-            Box3 { nx, ny, nz, solid: vec![false; (nx * ny * nz) as usize], sea: None }
+            Box3 { nx, ny, nz, solid: vec![false; (nx * ny * nz) as usize], sea: None, epoch: 0 }
         }
         /// Generation fills every column to `level` units over the terrain as it is now.
         pub fn with_sea(&mut self, level: i64) {
@@ -1296,6 +1346,9 @@ pub mod test_ground {
                 Some((s, floors)) => (floors[(c.i() + c.j() * self.nx) as usize] as i64 * U, *s),
                 None => (0, 0),
             }
+        }
+        fn tide_epoch(&self) -> i64 {
+            self.epoch
         }
         fn neighbours(&self, c: Col) -> [Option<Col>; 4] {
             let (x, y) = (c.i(), c.j());
@@ -1676,6 +1729,53 @@ mod tests {
         assert_eq!(w.counted(), 0);
         assert!(w.sea_extra < 0, "the open sea gave {} units", -w.sea_extra);
         assert!(w.stored() < 100, "{} columns still stored", w.stored());
+    }
+
+    /// The tide (ADR 0064): a harbour dug behind the shore, open to the sea through a channel 2 wide, fills as
+    /// the sea rises and empties as it falls, a metre either way, every unit counted every step.
+    #[test]
+    fn a_dug_harbour_follows_the_tide_in_and_out() {
+        let mut g = Box3::new(40, 30, 12);
+        g.fill(0..40, 0..30, 0..2, true);
+        g.fill(20..40, 0..30, 2..8, true); // land up to layer 8, sea over the rest at layer 6
+        g.with_sea(6 * U);
+        let mut w = Liquids::default();
+        let mut dug = Vec::new();
+        for x in 20..36 {
+            for y in 10..12 {
+                dug.push((x, y));
+            }
+        }
+        for x in 26..36 {
+            for y in 6..16 {
+                dug.push((x, y));
+            }
+        }
+        dug.sort_unstable();
+        dug.dedup();
+        for &(x, y) in &dug {
+            g.fill(x..x + 1, y..y + 1, 4..8, false);
+            w.regap(&g, col(x, y));
+        }
+        // the sea a metre from low to high and back over 480 s, stepped once a second as `world::Solid` steps it
+        let sea = |s: i64| 6 * U + (U as f64 / 2.0 * (std::f64::consts::TAU * s as f64 / 480.0).sin()) as i64;
+        let (mut lo, mut hi) = (f64::MAX, f64::MIN);
+        for s in 0..960 {
+            g.sea.as_mut().unwrap().0 = sea(s);
+            g.epoch = s;
+            for k in 0..60 {
+                w.step(&g);
+                assert_eq!(w.counted(), 0, "the count at {s} s, step {k}");
+            }
+            if s >= 480 {
+                let l = level(&w, 33, 13);
+                (lo, hi) = (lo.min(l), hi.max(l));
+            }
+        }
+        assert!(hi > 6.45 && lo < 5.55, "the harbour from {lo:.3} to {hi:.3}");
+        // and it ends where the sea is
+        let end = sea(959) as f64 / U as f64;
+        assert!((level(&w, 33, 13) - end).abs() < 0.03, "{} against the sea's {end}", level(&w, 33, 13));
     }
 
     /// Buckets poured into the open sea spread, calm down, and are given to the sea: nothing stays stored, and
