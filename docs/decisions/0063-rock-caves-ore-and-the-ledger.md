@@ -64,7 +64,7 @@ Option 2.
 - The budget lives in `report.rs` (`BUDGET`) until `data/budget.toml` exists with the recipes.
 - **Not proven across platforms:** caves and bodies are made with the platform's `sin`, `cos`, `exp`, `ln`;
   one ulp of difference between the Linux server's libm and a Windows client's can add or drop a whole cave
-  or body on one side. `report=1` prints `made_hash` (seed 1337, 4 km: 853164ce64047dd8 on Windows); run it
+  or body on one side. `report=1` prints `made_hash` (seed 1337, 4 km: 8ecb5dadddbbf9b5 on Windows after W5); run it
   on the server before a remote game. If they differ: a pure-Rust `libm` for these paths, or the server sends
   the lists.
 - Coal seams lose some blocks where valleys cut them (902k of 1.1M blocks on seed 1337): the seams are
