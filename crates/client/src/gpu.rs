@@ -729,13 +729,19 @@ impl Gpu {
         queue.write_buffer(&looks, 0, bytemuck::cast_slice(&looks_of(&[])));
         // the painted faces (ADR 0045): 16 x 16 layers, filled by `take_textures` from the watcher's thread
         let tex = buf("block textures", TEX_LAYERS as u64 * 1024, U::STORAGE | U::COPY_DST);
+        let spike = engine::mesh::SPIKE.load(std::sync::atomic::Ordering::Relaxed);
+        if spike & 2 != 0 {
+            queue.write_buffer(&tex, (crate::spike::BASE * 4) as u64, bytemuck::cast_slice(&crate::spike::data()));
+        }
         // the models (ADR 0047): their quads, and one transform per part drawn
         let mquads = buf("model quads", (crate::models::MAX_MQUADS * 16) as u64, U::STORAGE | U::COPY_DST);
         let mpieces = buf("model pieces", (crate::models::MAX_PIECES * std::mem::size_of::<crate::models::Piece>()) as u64, U::STORAGE | U::COPY_DST);
         let tex_rx = watch_textures(std::path::PathBuf::from(a.get("textures", String::from("data/textures"))));
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            // the spike's discards only in a run that has cutouts or models: a shader that can discard may lose
+            // early depth on every terrain pixel, so the game as it was keeps none (ADR 0068)
+            source: wgpu::ShaderSource::Wgsl(if spike & 0x0102 != 0 { include_str!("shader.wgsl").into() } else { include_str!("shader.wgsl").replace("discard; // spike", "").into() }),
         });
         let storage = |b| wgpu::BindGroupLayoutEntry {
             binding: b,
@@ -778,7 +784,7 @@ impl Gpu {
                 storage(13),
             ],
         });
-        let rt = rt::Rt::new(&device, &shader, &globals, &quads, MAX_CHUNKS as u32);
+        let rt = rt::Rt::new(&device, &shader, &globals, &quads, &tex, MAX_CHUNKS as u32);
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &bgl,
@@ -979,6 +985,7 @@ impl Gpu {
                 rt.tlas.as_binding(),
                 lamps.as_entire_binding(),
                 lamp_cells.as_entire_binding(),
+                tex.as_entire_binding(),
             ],
             format,
             w(),

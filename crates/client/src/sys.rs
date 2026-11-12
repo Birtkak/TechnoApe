@@ -1,5 +1,4 @@
 //! Process RAM / VRAM probes (Windows) and the headless meshing benchmark.
-use engine::mesh::mesh;
 use engine::world::{generate, Gen, Key, World, CS};
 use glam::IVec3;
 use rayon::prelude::*;
@@ -118,27 +117,46 @@ pub fn vram_mb() -> f64 {
 pub fn meshbench(args: &HashMap<String, String>) {
     let num = |k: &str, d: i32| args.get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
     let planet = num("planet", engine::bodies::BODIES[0].n);
-    let world = World::new(planet, engine::bodies::columns(1, planet), 1337);
+    // at=x,y,z (the see-through spike, ADR 0068): the baked planet's chunks around that place, else the
+    // noise land's around the middle of the +y face
+    let at = args.get("at").map(|s| s.split(',').map(|v| v.parse::<f64>().unwrap()).collect::<Vec<_>>());
+    let world = if at.is_some() { World::baked(planet, engine::bodies::columns(1, planet), 1337) } else { World::new(planet, engine::bodies::columns(1, planet), 1337) };
     let greedy = num("greedy", 1) == 1;
     let radius = num("chunks", 6);
     let b = &world.bodies[0];
-    // the middle of the +y face, through the terrain's height range
-    let mid = b.n / CS / 2;
-    let top = b.layer_of(b.radius) as i32 / CS;
+    let (face, ci, cj, top) = match &at {
+        Some(v) => {
+            let d = glam::DVec3::new(v[0], v[1], v[2]).normalize();
+            let (f, i, j) = b.locate(d);
+            (f as u8, i as i32 / CS, j as i32 / CS, b.layer_of(b.top(d)) as i32 / CS)
+        }
+        None => (2, b.n / CS / 2, b.n / CS / 2, b.layer_of(b.radius) as i32 / CS),
+    };
     let mut keys = Vec::new();
     for z in top - 3..=top + 2 {
         for y in -radius..=radius {
             for x in -radius..=radius {
-                keys.push(Key { body: 0, face: 2, level: 0, pos: IVec3::new(mid + x, mid + y, z) });
+                keys.push(Key { body: 0, face, level: 0, pos: IVec3::new(ci + x, cj + y, z) });
             }
         }
     }
+    let near = at.is_some().then_some(1u32);
     let job = |k: &Key| -> (f64, f64, usize, u8) {
         let t0 = Instant::now();
         let g = generate(b, *k, &[]);
         let t1 = Instant::now();
         let (q, kind) = match g {
-            Gen::Cells(c) => (mesh(&c, if greedy { b.lattice(0) as usize } else { 1 }).quads.len(), 2),
+            Gen::Cells(c) => {
+                // with at=, the fastest of five (another process only ever slows a run); else once, as before
+                let mut best = f64::MAX;
+                let mut n = 0;
+                for _ in 0..if near.is_some() { 5 } else { 1 } {
+                    let t = Instant::now();
+                    n = engine::mesh::mesh_at(&c, if greedy { b.lattice(0) as usize } else { 1 }, near).quads.len();
+                    best = best.min(t.elapsed().as_secs_f64() * 1e6);
+                }
+                return ((t1 - t0).as_secs_f64() * 1e6, best, n, 2);
+            }
             Gen::Empty => (0, 0),
             Gen::Solid => (0, 1),
         };
@@ -157,8 +175,8 @@ pub fn meshbench(args: &HashMap<String, String>) {
     let quads = surf.iter().map(|r| r.2).sum::<usize>() as f64 / n;
     let shortcut_us = single.iter().filter(|r| r.3 != 2).map(|r| r.0).sum::<f64>() / single.iter().filter(|r| r.3 != 2).count().max(1) as f64;
     println!(
-        "{{\"run\":\"meshbench\",\"greedy\":{},\"chunks\":{},\"surface_chunks\":{},\"gen_us\":{:.1},\"mesh_us\":{:.1},\"shortcut_us\":{:.1},\"quads_per_chunk\":{:.0},\"bytes_per_chunk\":{:.0},\"single_chunks_per_s\":{:.0},\"parallel_chunks_per_s\":{:.0},\"threads\":{}}}",
-        greedy as u8, keys.len(), surf.len(), gen_us, mesh_us, shortcut_us, quads, quads * 8.0,
+        "{{\"run\":\"meshbench\",\"spike\":{},\"greedy\":{},\"chunks\":{},\"surface_chunks\":{},\"gen_us\":{:.1},\"mesh_us\":{:.1},\"shortcut_us\":{:.1},\"quads_per_chunk\":{:.0},\"bytes_per_chunk\":{:.0},\"single_chunks_per_s\":{:.0},\"parallel_chunks_per_s\":{:.0},\"threads\":{}}}",
+        engine::mesh::SPIKE.load(std::sync::atomic::Ordering::Relaxed), greedy as u8, keys.len(), surf.len(), gen_us, mesh_us, shortcut_us, quads, quads * 8.0,
         keys.len() as f64 / st, keys.len() as f64 / pt, rayon::current_num_threads()
     );
 }

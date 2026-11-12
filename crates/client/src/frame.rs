@@ -495,18 +495,21 @@ impl App {
             if new {
                 table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, _p: [0; 3] }));
             }
-            let land = d.len - d.water;
-            if land > 0 {
-                insts.push(rt::Inst { off: d.off, land, base: k.base().into(), info, body: k.body, ci });
+            // spike (ADR 0068): the still models' quads, packed over the water's, are traced only with mblas=1
+            let (water, models) = (d.water & 0xffff, d.water >> 16);
+            let land = d.len - water;
+            let traced = if engine::mesh::SPIKE.load(std::sync::atomic::Ordering::Relaxed) & 2048 != 0 { land } else { land - models };
+            if traced > 0 {
+                insts.push(rt::Inst { off: d.off, land: traced, base: k.base().into(), info, body: k.body, ci });
             }
             if d.hidden {
                 continue;
             }
             args.push((d.dist, DrawArgs { vertex_count: land * 6, instance_count: 1, first_vertex: d.off * 6, first_instance: ci }));
-            if d.water > 0 {
+            if water > 0 {
                 // vs_sea draws each sea quad in SEA_SUB^2 pieces, one instance each: instance = chunk * pieces + piece
                 let pieces = SEA_SUB * SEA_SUB;
-                sea_args.push(DrawArgs { vertex_count: d.water * 6, instance_count: pieces, first_vertex: (d.off + land) * 6, first_instance: ci * pieces });
+                sea_args.push(DrawArgs { vertex_count: water * 6, instance_count: pieces, first_vertex: (d.off + land) * 6, first_instance: ci * pieces });
             }
             nquads += d.len as u64;
         }

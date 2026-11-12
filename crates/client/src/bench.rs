@@ -22,9 +22,14 @@ pub(crate) fn pose(run: &str, t: f64, w: &World, speed: f64, alt: f64, warm: f64
         "fly" => {
             let r0 = planet.radius + alt;
             let th = speed * t / r0;
-            let dir = DVec3::new(th.sin(), 0.0, th.cos());
+            // at= starts the great circle there (the see-through spike's forest fly-through, ADR 0068)
+            let (d0, t0) = match a.0.contains_key("at").then(|| crate::stand_at(a).ok()).flatten() {
+                Some(d) => (d, d.cross(DVec3::Y).try_normalize().unwrap_or(DVec3::X)),
+                None => (DVec3::Z, DVec3::X),
+            };
+            let dir = d0 * th.cos() + t0 * th.sin();
             let pos = dir * (planet.top(dir) + alt);
-            Pose { pos, fwd: DVec3::new(th.cos(), 0.0, -th.sin()), up: dir }
+            Pose { pos, fwd: t0 * th.cos() - d0 * th.sin(), up: dir }
         }
         "orbit" => {
             // the waypoints where the bodies are now, in the inertial frame: the flight between them is there,
@@ -371,6 +376,16 @@ impl App {
         // what wgpu itself holds at the end, finer than the driver's 256 MB blocks in vram_mb (ADR 0025, G)
         if let Some(r) = gpu.device.generate_allocator_report() {
             stages += &format!("\"gpu_alloc_mb\":{:.0},\"gpu_reserved_mb\":{:.0},", r.total_allocated_bytes as f64 / 1e6, r.total_reserved_bytes as f64 / 1e6);
+        }
+        {
+            // the see-through spike (ADR 0068): its switches, and the near chunks' mesh time and quads
+            use std::sync::atomic::Ordering::Relaxed;
+            let st = engine::mesh::STATS.each_ref().map(|x| x.load(Relaxed) as f64);
+            let n = st[0].max(1.0);
+            stages += &format!(
+                "\"spike\":{{\"bits\":{},\"near_meshes\":{},\"mesh_us\":{:.1},\"quads_per_chunk\":{:.0},\"model_quads_per_chunk\":{:.0}}},",
+                engine::mesh::SPIKE.load(Relaxed), st[0], st[1] / n / 1e3, st[2] / n, st[3] / n
+            );
         }
         stages += &format!("\"fx_live_avg\":{:.0},", s.fx_live as f64 / s.frames.max(1) as f64);
         stages += &format!("\"job_us_after_load\":{job_us_after:.0},\"jobs_after_load\":{later},\"walks\":{},\"tlas_builds\":{},", self.streamer.walks, self.rt.as_ref().map_or(0, |r| r.tlas_builds));

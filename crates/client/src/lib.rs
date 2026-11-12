@@ -17,6 +17,7 @@ mod nav;
 mod rt;
 mod settings;
 mod sim;
+mod spike;
 mod sys;
 mod view;
 mod water;
@@ -282,6 +283,20 @@ pub fn main() {
             args.0.insert(k.into(), v.into());
         }
         args.0.remove("moon");
+    }
+    // the see-through spike's switches (prototypes/see-through, ADR 0068); all off is the game as it was
+    {
+        let leaves = args.s("leaves", "opaque");
+        let clutter: u32 = args.get("clutter", 0);
+        let light: u32 = args.get("light", 1);
+        let bits = (leaves == "fancy") as u32
+            | ((clutter > 0) as u32) << 1
+            | match clutter { 4 => 1, 1 => 2, _ => 0 } << 2
+            | ((leaves != "opaque") as u32) << 8
+            | ((light == 2) as u32) << 9
+            | ((light == 3) as u32) << 10
+            | ((args.get("mblas", 0) == 1) as u32) << 11;
+        engine::mesh::SPIKE.store(bits, Ordering::Relaxed);
     }
     let run = args.s("run", "stand");
     if run == "meshbench" {

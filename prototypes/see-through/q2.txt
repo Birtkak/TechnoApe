@@ -1,0 +1,15 @@
+# Question 2: still box models at three densities, with and without the BLAS (README.md)
+stand-none | run=stand at=0.0347,0.8675,0.4975 time=23625 eye=1.7 pitch=-20 yaw=0 clutter=0
+fly-none | run=fly at=0.0347,0.8675,0.4975 time=23625 alt=6 speed=15 clutter=0
+stand-c16 | run=stand at=0.0347,0.8675,0.4975 time=23625 eye=1.7 pitch=-20 yaw=0 clutter=16
+fly-c16 | run=fly at=0.0347,0.8675,0.4975 time=23625 alt=6 speed=15 clutter=16
+stand-c4 | run=stand at=0.0347,0.8675,0.4975 time=23625 eye=1.7 pitch=-20 yaw=0 clutter=4
+fly-c4 | run=fly at=0.0347,0.8675,0.4975 time=23625 alt=6 speed=15 clutter=4
+stand-c1 | run=stand at=0.0347,0.8675,0.4975 time=23625 eye=1.7 pitch=-20 yaw=0 clutter=1
+fly-c1 | run=fly at=0.0347,0.8675,0.4975 time=23625 alt=6 speed=15 clutter=1
+stand-c4-blas | run=stand at=0.0347,0.8675,0.4975 time=23625 eye=1.7 pitch=-20 yaw=0 clutter=4 mblas=1
+fly-c4-blas | run=fly at=0.0347,0.8675,0.4975 time=23625 alt=6 speed=15 clutter=4 mblas=1
+stand-c1-blas | run=stand at=0.0347,0.8675,0.4975 time=23625 eye=1.7 pitch=-20 yaw=0 clutter=1 mblas=1
+fly-c1-blas | run=fly at=0.0347,0.8675,0.4975 time=23625 alt=6 speed=15 clutter=1 mblas=1
+stand-c1-blas-l2 | run=stand at=0.0347,0.8675,0.4975 time=23625 eye=1.7 pitch=-20 yaw=0 clutter=1 mblas=1 light=2
+fly-c1-blas-l2 | run=fly at=0.0347,0.8675,0.4975 time=23625 alt=6 speed=15 clutter=1 mblas=1 light=2

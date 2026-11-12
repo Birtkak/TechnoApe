@@ -51,7 +51,7 @@ pub struct Rt {
 }
 
 impl Rt {
-    pub fn new(device: &wgpu::Device, shader: &wgpu::ShaderModule, globals: &wgpu::Buffer, quads: &wgpu::Buffer, max: u32) -> Rt {
+    pub fn new(device: &wgpu::Device, shader: &wgpu::ShaderModule, globals: &wgpu::Buffer, quads: &wgpu::Buffer, tex: &wgpu::Buffer, max: u32) -> Rt {
         use wgpu::BufferUsages as U;
         let tlas = device.create_tlas(&wgpu::CreateTlasDescriptor {
             label: Some("terrain"),
@@ -78,6 +78,8 @@ impl Rt {
                 wgpu::BindGroupEntry { binding: 1, resource: quads.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 6, resource: builds.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 7, resource: verts.as_entire_binding() },
+                // the spike's model faces (ADR 0068)
+                wgpu::BindGroupEntry { binding: 11, resource: tex.as_entire_binding() },
             ],
         });
         Rt { tlas, expand, bind, builds, verts, blas: HashMap::new(), n: 0, built: Vec::new(), tlas_builds: 0, pending: 0 }
@@ -108,7 +110,8 @@ impl Rt {
                 vertex_count: c.land * 6,
                 index_format: None,
                 index_count: None,
-                flags: wgpu::AccelerationStructureGeometryFlags::OPAQUE,
+                // spike light=3 (ADR 0068): every chunk non-opaque, the shader's candidate loop decides
+                flags: if engine::mesh::SPIKE.load(std::sync::atomic::Ordering::Relaxed) & 1024 != 0 { wgpu::AccelerationStructureGeometryFlags::empty() } else { wgpu::AccelerationStructureGeometryFlags::OPAQUE },
             };
             let blas = device.create_blas(
                 &wgpu::CreateBlasDescriptor {

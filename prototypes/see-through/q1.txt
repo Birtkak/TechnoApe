@@ -1,0 +1,11 @@
+# Question 1: the forest, each light option (README.md)
+stand-base | run=stand at=1125.34,3634.37,1915.81 time=23625 eye=9 pitch=-28 yaw=120 leaves=opaque light=1
+fly-base | run=fly at=1125.34,3634.37,1915.81 time=23625 alt=12 speed=15 leaves=opaque light=1
+stand-fancy-l1 | run=stand at=1125.34,3634.37,1915.81 time=23625 eye=9 pitch=-28 yaw=120 leaves=fancy light=1
+fly-fancy-l1 | run=fly at=1125.34,3634.37,1915.81 time=23625 alt=12 speed=15 leaves=fancy light=1
+stand-fancy-l2 | run=stand at=1125.34,3634.37,1915.81 time=23625 eye=9 pitch=-28 yaw=120 leaves=fancy light=2
+fly-fancy-l2 | run=fly at=1125.34,3634.37,1915.81 time=23625 alt=12 speed=15 leaves=fancy light=2
+stand-fancy-l3 | run=stand at=1125.34,3634.37,1915.81 time=23625 eye=9 pitch=-28 yaw=120 leaves=fancy light=3
+fly-fancy-l3 | run=fly at=1125.34,3634.37,1915.81 time=23625 alt=12 speed=15 leaves=fancy light=3
+stand-shell-l2 | run=stand at=1125.34,3634.37,1915.81 time=23625 eye=9 pitch=-28 yaw=120 leaves=shell light=2
+fly-shell-l2 | run=fly at=1125.34,3634.37,1915.81 time=23625 alt=12 speed=15 leaves=shell light=2

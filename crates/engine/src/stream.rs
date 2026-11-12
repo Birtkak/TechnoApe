@@ -1,5 +1,5 @@
 //! LOD octree selection, job scheduling on worker threads, GPU sub-allocation of chunk meshes.
-use crate::mesh::{mesh, Mesh};
+use crate::mesh::Mesh;
 use crate::liquid::{Col, TILE};
 use crate::world::{fold, generate, river_quads, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS};
 use glam::{DQuat, DVec3, IVec3, Vec4};
@@ -544,13 +544,18 @@ impl Streamer {
                 let body = &bodies[k.body as usize];
                 let gen = generate(body, k, &edits);
                 let mut mesh = match &gen {
-                    Gen::Cells(c) => Some(mesh(c, if greedy { body.lattice(k.level) as usize } else { 1 })).filter(|m| !m.quads.is_empty()),
+                    Gen::Cells(c) => {
+                        // the spike's switches act on level 0 only; the seed places its models (ADR 0068)
+                        let b = k.base();
+                        let near = (k.level == 0).then(|| (b.x as u32).wrapping_mul(7919) ^ (b.y as u32).wrapping_mul(104729) ^ (b.z as u32).wrapping_mul(1299709) ^ k.face as u32);
+                        Some(crate::mesh::mesh_at(c, if greedy { body.lattice(k.level) as usize } else { 1 }, near)).filter(|m| !m.quads.is_empty())
+                    }
                     _ => None,
                 };
                 let mut sea = sea_quads(body, k, &wet, &gen);
                 sea.extend(river_quads(body, k, &wet, &gen));
                 if !sea.is_empty() {
-                    let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], water: 0 });
+                    let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], water: 0, models: 0 });
                     m.water = sea.len() as u32;
                     m.quads.extend(sea);
                 }
@@ -585,7 +590,7 @@ impl Streamer {
                     upload(off, &m.quads);
                     bytes += m.quads.len() * 8;
                     st.applied_nonempty += 1;
-                    State::Ready { off, len: n, water: m.water }
+                    State::Ready { off, len: n, water: m.water | m.models << 16 } // spike: the models' quads packed over the water's
                 }
             };
             let s = self.slots.get_mut(&r.key).unwrap();
