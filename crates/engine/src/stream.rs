@@ -22,13 +22,18 @@ pub struct Alloc {
     free: Vec<(u32, u32)>, // sorted (offset, len)
     pub used: u64,
     pub cap: u32,
+    /// An allocation failed and nothing was released since: a new mesh would fail too.
+    pub full: bool,
 }
 impl Alloc {
     pub fn new(cap: u32) -> Self {
-        Alloc { free: vec![(0, cap)], used: 0, cap }
+        Alloc { free: vec![(0, cap)], used: 0, cap, full: false }
     }
     pub fn alloc(&mut self, n: u32) -> Option<u32> {
-        let i = self.free.iter().position(|f| f.1 >= n)?;
+        let Some(i) = self.free.iter().position(|f| f.1 >= n) else {
+            self.full = true;
+            return None;
+        };
         let (o, l) = self.free[i];
         if l == n {
             self.free.remove(i);
@@ -39,6 +44,7 @@ impl Alloc {
         Some(o)
     }
     pub fn release(&mut self, o: u32, n: u32) {
+        self.full = false;
         self.used -= n as u64;
         let i = self.free.partition_point(|f| f.0 < o);
         self.free.insert(i, (o, n));
@@ -513,7 +519,8 @@ impl Streamer {
                 break;
             }
             let Some(s) = self.slots.get_mut(&k) else { continue };
-            if !s.needs_job() {
+            // a full buffer would refuse a new mesh again: wait until something is released
+            if !s.needs_job() || (self.alloc.full && s.state == State::Pending) {
                 continue; // requested by both traversals, or a kept look-ahead request that is done
             }
             s.inflight = true;
@@ -702,6 +709,43 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
         panic!("never settled");
+    }
+
+    /// A full quad buffer does not mesh the same chunks again every frame: after a failed allocation no job
+    /// goes out for a chunk still waiting for a mesh until the buffer releases space, then they do.
+    #[test]
+    fn a_full_quad_buffer_waits_for_space_before_meshing_again() {
+        let w = World::new(1536, 64, 1337);
+        let opts = Opts { k: 4.0, greedy: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
+        let mut s = Streamer::new(&w, 1 << 20, opts);
+        let all = s.alloc.alloc(1 << 20).unwrap(); // the buffer taken up by others
+        let view = View::new(w.bodies[0].spawn_point() + w.bodies[0].spawn * 1.7, [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], &w);
+        let frame = |s: &mut Streamer| {
+            let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+            while !s.idle() {
+                std::thread::sleep(std::time::Duration::from_micros(200));
+                s.apply(usize::MAX, &mut st, |_, _| {});
+            }
+            s.frame += 1;
+            s.select(&w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+            s.dispatch(&w, &mut reqs);
+            s.inflight
+        };
+        for _ in 0..50 {
+            if s.alloc_fail > 0 {
+                break;
+            }
+            frame(&mut s);
+        }
+        assert!(s.alloc_fail > 0, "no allocation failed");
+        // every frame walks (as while the camera moves), so the waiting chunks are asked for each time
+        for f in 0..5 {
+            s.dirty = true;
+            assert_eq!(frame(&mut s), 0, "frame {f} after the failure: jobs went out");
+        }
+        s.alloc.release(all, 1 << 20);
+        s.dirty = true;
+        assert!(frame(&mut s) > 0, "space released, but no job went out");
     }
 
     #[test]
