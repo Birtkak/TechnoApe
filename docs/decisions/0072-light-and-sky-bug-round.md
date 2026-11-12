@@ -84,3 +84,12 @@ orbit, so a moonless night should be rich rather than empty.
 - The star drift when flying is left physical (13.5 degrees a second at 1 km/s). A damping setting
   would be a fake.
 - How many bright stars, and how bright the band is.
+
+## Review (a fresh reviewer read the diff)
+No significant bugs; checked: the Rust and WGSL lamp constants agree, `LAMP_GRID_LEN` still holds (at most 7
+cells an axis), the jitter keeps ADR 0037's guarantees (a floor, a wall and a corner point next to a lamp).
+Answered: the server's air reading is now held at the air's top layer too (`Weather::here`, was F3 only);
+the server test compares the air sent at a tick with where the player stood at that tick (it compared tick 80's
+with tick 120's position); each lamp ray's jitter seed is far apart (it reused a neighbour pixel's). Left: F3's
+top uses the top layer's nominal 1500 m (the grid's is `max(1500, ground + 30)`, apart only over 1440 m high
+ground); the per-pixel lamp loop sees about 8 times as many lamps, measured by the gate below.

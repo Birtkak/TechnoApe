@@ -281,13 +281,14 @@ impl Weather {
     }
 
     /// The air at unit direction `d`, `over_sea` metres over the sea level: the surface layer smoothed over
-    /// the columns as the bake smooths its climate, less the lapse by the height.
+    /// the columns as the bake smooths its climate, less the lapse by the height (held at the air's top
+    /// layer above it, never past absolute zero).
     pub fn here(&self, d: DVec3, over_sea: f64) -> Here {
         let d32 = d.as_vec3().to_array();
         let k = self.grid.locate(DVec3::from_array(d32.map(f64::from)));
         let at = |v: &[f32]| crate::bake::land::upsample_at(&self.grid, d32, k, v);
         let v = &self.view;
-        Here { temp: at(&v.theta) - self.p.cool(over_sea as f32), rain: at(&v.rain), cover: at(&v.cover), wind: v.wind[k as usize] }
+        Here { temp: at(&v.theta) - self.p.cool((over_sea as f32).min(self.p.tops[LAYERS - 1])), rain: at(&v.rain), cover: at(&v.cover), wind: v.wind[k as usize] }
     }
 }
 
@@ -484,5 +485,8 @@ mod tests {
         let (low, high) = (w.here(d, 0.0), w.here(d, 100.0));
         assert!((low.temp - high.temp - w.p.cool(100.0)).abs() < 1e-3, "{low:?} {high:?}");
         assert!((-40.0..50.0).contains(&low.temp));
+        // over the air's top it reads as the top layer, never past absolute zero (60 km read -6409 C, ADR 0072)
+        assert_eq!(w.here(d, 60_000.0).temp, w.here(d, w.p.tops[LAYERS - 1] as f64).temp);
+        assert!(w.here(d, 60_000.0).temp > -273.15);
     }
 }

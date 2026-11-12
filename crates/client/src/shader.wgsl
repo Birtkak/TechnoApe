@@ -526,7 +526,7 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
         // aimed from where the ray starts: from p, the 2 cm offset carried its end into the lamp by its corners
         // (bug 2026-11-10_19-45-23)
         let ro = ray_origin(p, n);
-        let v = lamp_target(lp, ro, px + vec2u(k * 7u, k * 13u)) - ro;
+        let v = lamp_target(lp, ro, px + vec2u(k * 7919u, k * 6271u)) - ro;
         let d = length(v);
         let vis = select(ray(p, n, v / d, body, d - LAMP_STOP), 1.0, d < LAMP_STOP);
         o.l += topl[k] * vis;

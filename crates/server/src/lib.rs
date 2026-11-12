@@ -1432,11 +1432,6 @@ mod tests {
         let airs: Vec<engine::weather::Here> = drain(&c).into_iter().filter_map(|m| if let ToClient::Air(h) = m { Some(h) } else { None }).collect();
         assert_eq!(airs.len(), 3, "one at ticks 0, 40 and 80");
         assert!((-40.0..50.0).contains(&airs[0].temp) && (0.0..=1.0).contains(&airs[0].cover), "{:?}", airs[0]);
-        // the air at the player's height over the sea in metres, not over the sea's layer number (ADR 0072)
-        let b = &s.world.bodies[0];
-        let rel = s.clients[0].phys.pos - b.centre;
-        let want = s.weather.as_ref().unwrap().here(rel.normalize(), b.over_sea(s.clients[0].phys.pos).unwrap());
-        assert!((airs[2].temp - want.temp).abs() < 0.5, "sent {} C, the air {} m over the sea is {} C", airs[2].temp, rel.length() - b.layer_r(b.sea.unwrap()), want.temp);
         let save = Save::from_bytes(&s.snapshot().to_bytes()).unwrap();
         assert!(save.air.is_some());
         let mut back = Server::from_save(save, channel().1);
@@ -1447,6 +1442,14 @@ mod tests {
         let view = |s: &Server| s.weather.as_ref().map(|w| (w.view().t, w.view().hash));
         assert_eq!(view(&back), view(&s));
         assert_eq!(view(&s).unwrap().0, 10.0, "the step to 10 s handed over at tick 200 and shown at 220");
+        // the air at the player's height over the sea in metres, not over the sea's layer number (ADR 0072):
+        // the one sent at tick 320 against where the player stands then
+        s.tick();
+        let sent = drain(&c).into_iter().filter_map(|m| if let ToClient::Air(h) = m { Some(h) } else { None }).last().unwrap();
+        let b = &s.world.bodies[0];
+        let pos = s.clients[0].phys.pos;
+        let want = s.weather.as_ref().unwrap().here((pos - b.centre).normalize(), b.over_sea(pos).unwrap());
+        assert!((sent.temp - want.temp).abs() < 0.05, "sent {} C, the air {} m over the sea is {} C", sent.temp, b.over_sea(pos).unwrap(), want.temp);
     }
 
     /// The live rain feeds the rivers (W5, ADR 0059): on a planet with rivers the air hands its runoff to the
