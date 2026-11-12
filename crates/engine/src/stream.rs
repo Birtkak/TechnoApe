@@ -150,8 +150,9 @@ fn sampling(world: &World, b: Block, level: Option<u8>) -> Vec<Key> {
         let cell = q.div_euclid(IVec3::splat(s));
         let own = Key { body: b.body, face: b.face, level: l, pos: cell.div_euclid(IVec3::splat(CS)) };
         keys.push(own);
-        for d in [IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::NEG_Y, IVec3::Z, IVec3::NEG_Z] {
-            let c = cell + d;
+        // all 26 neighbours: the mesher's corner shading reads the diagonal padding too
+        for i in 0..27 {
+            let c = cell + IVec3::new(i % 3 - 1, i / 3 % 3 - 1, i / 9 - 1);
             let (f, ci, cj) = fold(b.face as usize, c.x, c.y, body.n >> l);
             let k = Key { face: f as u8, pos: IVec3::new(ci, cj, c.z).div_euclid(IVec3::splat(CS)), ..own };
             if k != own && !keys.contains(&k) {
@@ -668,6 +669,20 @@ mod tests {
         let mut e = vec![(5, 1), (6, 2)];
         hide_models(&mut e, &reg);
         assert_eq!(e, vec![(5, 1), (6, 0)]);
+    }
+
+    /// A block in a chunk's corner cell is in the padding of all seven chunks around that corner: the
+    /// diagonal ones read it for their corner shading.
+    #[test]
+    fn a_corner_block_is_sampled_by_the_diagonal_chunks() {
+        let w = World::new(1536, 64, 1337);
+        let b = Block { body: 0, face: 2, pos: IVec3::new(5 * CS, 9 * CS, 2 * CS) };
+        let keys = sampling(&w, b, Some(0));
+        for (x, y, z) in (4..=5).flat_map(|x| (8..=9).flat_map(move |y| (1..=2).map(move |z| (x, y, z)))) {
+            let k = Key { body: 0, face: 2, level: 0, pos: IVec3::new(x, y, z) };
+            assert!(keys.contains(&k), "{k:?} not among {keys:?}");
+        }
+        assert_eq!(keys.len(), 8, "{keys:?}");
     }
     /// Selects, meshes and applies until nothing is missing or asked for; the chunks it draws.
     fn settle(s: &mut Streamer, w: &World, cam: DVec3) -> Vec<DrawChunk> {
