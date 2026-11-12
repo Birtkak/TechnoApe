@@ -296,6 +296,8 @@ pub(crate) struct BodyGpu {
     pub(crate) lnq: f32,
     pub(crate) theta: f32,
     pub(crate) half_n: f32,
+    /// Its sea level as a layer (negative: none), and its looks' season: the year's phase in quarter turns for
+    /// its northern half (`sky::season_at`), negative for a body without seasons.
     pub(crate) _p: [f32; 2],
     /// The body's frame turned into the camera's (ADR 0022): columns.
     pub(crate) rot: [[f32; 4]; 3],
@@ -444,12 +446,17 @@ pub(crate) fn shown(d: &engine::blocks::Def) -> ([f32; 3], [f32; 3], u8) {
 /// faces (16 bits a face: layer | variants - 1 << 12 | painted << 15; top and side in `tex`, the bottom in
 /// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24).
 fn looks_of(painted: &[(u8, engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 16]> {
-    (0..=255u8)
-            .map(|id| {
+    (0..4 * 256usize)
+            .map(|row| {
+                // four rows a block (ADR 0061): summer (the row's own look), spring, autumn, winter
+                let (id, season) = (row as u8, row / 256);
                 let f = f32::to_bits;
                 match engine::blocks::BLOCKS.get(id) {
                     Some(d) => {
-                        let ([r, g, b], [r2, g2, b2], [r3, g3, b3]) = (d.colour.map(f), d.colour2.map(f), d.colour3.map(f));
+                        let tone = d.tone(season);
+                        let ([r, g, b], [r2, g2, b2], [r3, g3, b3]) = (tone.colour.map(f), tone.colour2.map(f), tone.colour3.map(f));
+                        // size, and for a block with seasons bit 8 and its stagger from bit 16
+                        let size = d.size as u32 | (d.seasons.is_some() as u32) << 8 | engine::sky::stagger_units(d.stagger) << 16;
                         let shine = (d.metal * 255.0).round() as u32;
                         let gives = (d.light != [0.0; 3]) as u32;
                         let info = d.pattern as u32 | (d.side as u32) << 8 | shine << 16 | gives << 24;
@@ -463,7 +470,7 @@ fn looks_of(painted: &[(u8, engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 
                             let [mr, mg, mb] = p.colour().unwrap_or(d.colour).map(|c| (c * 255.0).round() as u32);
                             mean = mr | mg << 8 | mb << 16 | 1 << 24;
                         }
-                        [r, g, b, info, r2, g2, b2, d.size as u32, r3, g3, b3, f(d.amount), f(d.contrast), tex as u32, mean, (tex >> 32) as u32]
+                        [r, g, b, info, r2, g2, b2, size, r3, g3, b3, f(tone.amount), f(tone.contrast), tex as u32, mean, (tex >> 32) as u32]
                     }
                     None => {
                         let h = f(0.5);
@@ -630,7 +637,7 @@ impl Gpu {
         let fx_buf = buf("fx", (MAX_FX * std::mem::size_of::<crate::fx::FxGpu>()) as u64, U::STORAGE | U::COPY_DST);
         // every block's look from the registry (ADR 0013, 0039), shader.wgsl `Look`, 64 bytes each: colour rgb,
         // pattern | side << 8 | metal << 16 | gives light << 24; colour2, size; colour3, amount; contrast
-        let looks = buf("looks", 256 * 64, U::STORAGE | U::COPY_DST);
+        let looks = buf("looks", 4 * 256 * 64, U::STORAGE | U::COPY_DST);
         queue.write_buffer(&looks, 0, bytemuck::cast_slice(&looks_of(&[])));
         // the painted faces (ADR 0045): 16 x 16 layers, filled by `take_textures` from the watcher's thread
         let tex = buf("block textures", TEX_LAYERS as u64 * 1024, U::STORAGE | U::COPY_DST);
@@ -977,5 +984,32 @@ mod watch_tests {
         let again = rx.recv_timeout(std::time::Duration::from_secs(5));
         let _ = std::fs::remove_dir_all(&d);
         assert_eq!(again.as_deref(), Ok("after, longer"), "the folder was not read again");
+    }
+}
+
+#[cfg(test)]
+mod look_tests {
+    use engine::blocks::BLOCKS;
+
+    /// ADR 0061: four rows a block, the row's own (summer) first, then spring, autumn, winter; a block without
+    /// seasons is the same row four times with nothing over its size's 8 bits, so the shader leaves it alone.
+    #[test]
+    fn the_look_table_has_a_row_a_season() {
+        let t = super::looks_of(&[]);
+        assert_eq!(t.len(), 1024);
+        for d in BLOCKS.placeable() {
+            let id = d.id as usize;
+            for s in 0..4 {
+                let (row, tone) = (t[s * 256 + id], d.tone(s));
+                assert_eq!([row[0], row[1], row[2]], tone.colour.map(f32::to_bits), "{} season {s}", d.name);
+                assert_eq!((row[7] & 255, row[7] >> 8 & 1), (d.size as u32, d.seasons.is_some() as u32), "{}", d.name);
+                if d.seasons.is_none() {
+                    assert_eq!((row, row[7] >> 8), (t[id], 0), "{} has one look", d.name);
+                }
+            }
+        }
+        let leaves = BLOCKS.get(BLOCKS.id("broadleaf leaves")).unwrap();
+        assert_eq!(t[leaves.id as usize][7] >> 16, engine::sky::stagger_units(3.0), "3 days of 13.5 a season");
+        assert_ne!(t[512 + leaves.id as usize][..3], t[leaves.id as usize][..3], "autumn is not summer");
     }
 }

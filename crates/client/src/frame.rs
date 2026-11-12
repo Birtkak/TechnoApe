@@ -649,7 +649,8 @@ impl App {
                 lnq: b.lnq as f32,
                 theta: (std::f64::consts::FRAC_PI_2 / b.n as f64) as f32,
                 half_n: b.n as f32 * 0.5,
-                _p: [b.sea.map_or(-1.0, |s| s as f32), 0.0],
+                // shortcut: only the planet (body 0) has seasons; a second planet needs its own year in `Sky`
+                _p: [b.sea.map_or(-1.0, |s| s as f32), if bi == 0 { engine::sky::season_at(DVec3::Z, self.world.time).0 as f32 } else { -1.0 }],
                 rot: [col(m.x_axis), col(m.y_axis), col(m.z_axis)],
                 ctr: { let v = (m.as_dmat3() * -c).as_vec3(); [v.x, v.y, v.z, b.radius as f32] },
             };

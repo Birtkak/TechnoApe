@@ -78,6 +78,10 @@ Visible weather is the roadmap's next step.
   views at four seasons.
 
 ### W3b. Seasonal looks (after W3; `docs/design/seasonal-looks.md`)
+**Status (2026-11-12, ADR 0061):** the spike (about 0.03 ms of GPU, no CPU), the season rows in
+`data/blocks.toml`, the four-row look table and the shader's mix are built, with first-guess colours on the
+grasses, broadleaf leaves, shrub and reed. Waiting: the developer's colours and autumn's length. Not yet:
+painted season files, the Studio's season tabs and year slider, the hotbar and the block in hand.
 - The developer's call (2026-11-12): grass and leaves stay one block each, their look follows the season,
   and the Studio paints a block's seasons. Nothing stored, no remesh: the shader mixes four looks by place
   and clock.

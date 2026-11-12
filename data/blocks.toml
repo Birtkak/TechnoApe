@@ -28,6 +28,12 @@ sound = "grass"
 colour = [0.30, 0.58, 0.20]
 pattern = "grass"
 side = "dirt"
+[block.spring]
+colour = [0.36, 0.64, 0.22]
+[block.autumn]
+colour = [0.52, 0.54, 0.22]
+[block.winter]
+colour = [0.46, 0.42, 0.26]
 
 [[block]]
 id = 2
@@ -161,6 +167,14 @@ soft = true
 sound = "grass"
 colour = [0.22, 0.45, 0.15]
 pattern = "speckle"
+stagger = 3.0
+[block.spring]
+colour = [0.35, 0.58, 0.20]
+[block.autumn]
+colour = [0.72, 0.42, 0.12]
+colour2 = [0.60, 0.20, 0.08]
+[block.winter]
+colour = [0.38, 0.28, 0.18]
 
 [[block]]
 id = 17
@@ -199,6 +213,13 @@ soft = true
 sound = "grass"
 colour = [0.30, 0.42, 0.16]
 pattern = "speckle"
+stagger = 2.0
+[block.spring]
+colour = [0.36, 0.52, 0.20]
+[block.autumn]
+colour = [0.58, 0.40, 0.16]
+[block.winter]
+colour = [0.36, 0.30, 0.20]
 
 [[block]]
 id = 21
@@ -208,6 +229,12 @@ loose = true
 soft = true
 sound = "grass"
 colour = [0.55, 0.58, 0.30]
+[block.spring]
+colour = [0.50, 0.62, 0.30]
+[block.autumn]
+colour = [0.66, 0.58, 0.30]
+[block.winter]
+colour = [0.62, 0.54, 0.36]
 
 [[block]]
 id = 22
@@ -229,6 +256,12 @@ sound = "grass"
 colour = [0.45, 0.52, 0.36]
 pattern = "grass"
 side = "dirt"
+[block.spring]
+colour = [0.44, 0.58, 0.32]
+[block.autumn]
+colour = [0.54, 0.54, 0.29]
+[block.winter]
+colour = [0.48, 0.46, 0.30]
 
 [[block]]
 id = 24
@@ -239,6 +272,12 @@ sound = "grass"
 colour = [0.22, 0.45, 0.32]
 pattern = "grass"
 side = "dirt"
+[block.spring]
+colour = [0.28, 0.53, 0.30]
+[block.autumn]
+colour = [0.42, 0.50, 0.27]
+[block.winter]
+colour = [0.42, 0.44, 0.29]
 
 [[block]]
 id = 25
@@ -249,6 +288,12 @@ sound = "grass"
 colour = [0.40, 0.56, 0.21]
 pattern = "grass"
 side = "dirt"
+[block.spring]
+colour = [0.41, 0.61, 0.22]
+[block.autumn]
+colour = [0.51, 0.56, 0.21]
+[block.winter]
+colour = [0.47, 0.47, 0.26]
 
 [[block]]
 id = 26
@@ -259,6 +304,12 @@ sound = "grass"
 colour = [0.50, 0.52, 0.24]
 pattern = "grass"
 side = "dirt"
+[block.spring]
+colour = [0.48, 0.58, 0.24]
+[block.autumn]
+colour = [0.56, 0.54, 0.23]
+[block.winter]
+colour = [0.50, 0.46, 0.27]
 
 [[block]]
 id = 27
@@ -289,3 +340,9 @@ sound = "grass"
 colour = [0.20, 0.36, 0.16]
 pattern = "grass"
 side = "dirt"
+[block.spring]
+colour = [0.27, 0.47, 0.18]
+[block.autumn]
+colour = [0.41, 0.46, 0.19]
+[block.winter]
+colour = [0.41, 0.41, 0.24]

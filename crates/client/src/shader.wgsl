@@ -11,7 +11,7 @@ struct Body {
     theta: f32,    // angle of one column: (pi / 2) / n
     half_n: f32,
     sea: f32,      // the sea level as a layer (ADR 0020), negative for none
-    _p1: f32,
+    year: f32,     // its looks' season: the year in quarter turns for the north (ADR 0061), negative for none
     // the body's frame turned into the camera's (ADR 0022): columns of the rotation
     rot0: vec4f,
     rot1: vec4f,
@@ -52,13 +52,16 @@ struct Chunk { base: vec3i, info: u32, off: u32 };
 // painted faces (ADR 0045, gpu.rs `looks_of`: 16 bits a face, layer | variants - 1 << 12 | painted << 15; top
 // and side in `tex`, the bottom in `tex2`) and a painted block's one colour, unorm 8-bit, painted << 24
 struct Look { colour: vec3f, info: u32, colour2: vec3f, size: u32, colour3: vec3f, amount: f32, contrast: f32, tex: u32, mean: u32, tex2: u32 };
-@group(0) @binding(3) var<storage, read> looks: array<Look, 256>;
+// four rows a block (ADR 0061): its own look, summer's, at [m]; spring's, autumn's and winter's 256, 512 and
+// 768 on. `size` holds, over the size's 8 bits, bit 8 for a block with seasons and its stagger from bit 16
+// (1/1024 quarter turn)
+@group(0) @binding(3) var<storage, read> looks: array<Look, 1024>;
 // the painted faces' 16 x 16 layers, RGBA8 a u32, rows from the top, read with no filter and no mips: one texel
 // as the patterns hash one (a buffer, not a texture array: an image took a new 256 MB block of VRAM, ADR 0045)
 @group(0) @binding(11) var<storage, read> tex: array<u32>;
-// the colour a ray that meets block m sees: its own, or a painted block's mean
-fn seen_colour(m: u32) -> vec3f {
-    return select(looks[m].colour, unpack4x8unorm(looks[m].mean).rgb, (looks[m].mean >> 24u) != 0u);
+// the colour a ray that meets block m sees in season sn: its own, or a painted block's mean
+fn seen_colour(m: u32, sn: vec3f) -> vec3f {
+    return select(look_in(m, sn).colour, unpack4x8unorm(looks[m].mean).rgb, (looks[m].mean >> 24u) != 0u);
 }
 // every chunk's terrain near and far, drawn or not, one instance each with mask 1 << body (ADR 0022), in its
 // body's frame relative to its centre: the instances carry no transform, a ray is turned into that frame here
@@ -489,10 +492,10 @@ fn seen(p: vec3f, d: vec3f, body: u32, px: vec2u, bounce: bool, tmax: f32) -> ve
     if (a == 1u) { hn = normalize(f.t - f.n * f.tb); }
     if ((dir & 1u) == 1u) { hn = -hn; }
     let m = q.y & 255u;
-    if ((looks[m].info >> 24u) == 1u) { return select(seen_colour(m), vec3f(0.0), bounce); }
+    if ((looks[m].info >> 24u) == 1u) { return select(seen_colour(m, vec3f(0.0)), vec3f(0.0), bounce); }
     let l = light(p + d * h.t, brot(b, hn), body, px);
     // the light from around at the hit: a flat share, the second bounce
-    return seen_colour(m) * (l.l + ambient(l.day) * select(1.0, 0.35, bounce));
+    return seen_colour(m, season(b, p + d * h.t)) * (l.l + ambient(l.day) * select(1.0, 0.35, bounce));
 }
 
 // ---- the bounce (ADR 0022) ----
@@ -610,6 +613,45 @@ fn part(look: Look, pattern: u32, dir: u32, cell: vec3i, x: i32, y: i32) -> vec4
     return vec4f(0.0, 0.0, 0.0, 1.0);
 }
 
+// The season of the looks at p (from the camera, its frame) on body b, the port of engine `sky::season_at`:
+// x the year's phase in quarter turns (0 spring, 1 summer, 2 autumn, 3 winter; the south half a year on), y how
+// much of a season the place has, 0 near the equator to 1 from 35 degrees on (the sines of 10 and 35 degrees);
+// z the column's own share of its block's stagger, -1..1, 0 until `stagger` sets it.
+fn season(b: Body, p: vec3f) -> vec3f {
+    if (b.year < 0.0) { return vec3f(0.0); }
+    let z = normalize(to_body(b, p)).z;
+    return vec3f(b.year + select(0.0, 2.0, z < 0.0), smoothstep(0.1736, 0.5736, abs(z)), 0.0);
+}
+// How far the column `col` (columns of level 0, so a tree keeps its season as its chunk's level changes) of
+// face `face` runs ahead of or behind its place's season, -1..1: two thirds by its patch of 4 x 4 columns, a
+// third its own, so a tree turns nearly as one and trees turn one by one.
+fn stagger(col: vec2i, face: u32) -> f32 {
+    let f = i32(face);
+    return (hash(vec3i(col.x >> 2u, col.y >> 2u, 77 + f)) * 2.0 + hash(vec3i(col.x, col.y, 87 + f)) - 1.5) / 1.5;
+}
+// Block m's look in season sn (ADR 0061): the two nearest seasons' rows mixed by the phase, and that with its
+// own look by the place's share of a season; sn.z of the block's stagger ahead or behind. A block without
+// seasons, or a place without, is its row untouched.
+fn look_in(m: u32, sn: vec3f) -> Look {
+    var a = looks[m];
+    let seasons = a.size >> 8u;
+    a.size &= 255u;
+    if (seasons == 0u || sn.y == 0.0) { return a; }
+    let q = fract((sn.x + sn.z * f32(seasons >> 8u) / 1024.0) * 0.25) * 4.0;
+    let i = min(u32(q), 3u);
+    let j = (i + 1u) & 3u;
+    let f = q - f32(i);
+    // phase 0 is spring's row (1), 1 the block's own (0), then autumn's and winter's
+    let x = looks[select(i, 1u - i, i < 2u) * 256u + m];
+    let y = looks[select(j, 1u - j, j < 2u) * 256u + m];
+    a.colour = mix(a.colour, mix(x.colour, y.colour, f), sn.y);
+    a.colour2 = mix(a.colour2, mix(x.colour2, y.colour2, f), sn.y);
+    a.colour3 = mix(a.colour3, mix(x.colour3, y.colour3, f), sn.y);
+    a.amount = mix(a.amount, mix(x.amount, y.amount, f), sn.y);
+    a.contrast = mix(a.contrast, mix(x.contrast, y.contrast, f), sn.y);
+    return a;
+}
+
 fn part_colour(look: Look, i: f32) -> vec3f {
     return select(select(look.colour, look.colour2, i > 0.5), look.colour3, i > 1.5);
 }
@@ -617,7 +659,7 @@ fn part_colour(look: Look, i: f32) -> vec3f {
 // a pixel-art texel on an N x N grid per block face: 3 tones of noise, grass tops, a grass fringe on the
 // upper rows of a grass block's sides, dark crack texels in stone, the patterns with parts; a block with a
 // `side` takes that block's look on its sides and foot
-fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32) -> vec3f {
+fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> vec3f {
     let n = TEXELS;
     let ti = vec2i(floor(t * n));
     let h = hash(cell * i32(n) + vec3i(ti.x, ti.y, i32(dir)));
@@ -655,7 +697,7 @@ fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32) -> vec3f {
         let p = vec2u(clamp(vec2i(x, y), vec2i(0), vec2i(15)));
         return unpack4x8unorm(tex[((painted & 4095u) + v) * 256u + p.y * 16u + p.x]).rgb;
     }
-    let look = looks[m];
+    let look = look_in(m, sn);
     let pattern = look.info & 255u;
     // contrast 1 is exactly the look before ADR 0039
     let k = select(1.0 + look.contrast * (tone - 1.0), tone, look.contrast == 1.0);
@@ -678,10 +720,13 @@ fn fs(i: VOut) -> GOut {
     let f = fract(i.local);
     // flat colours: every pixel of a face takes its middle texel
     let t = select(vec2f(f[(a + 1u) % 3u], f[(a + 2u) % 3u]), vec2f(0.5), (g.opt.x & 4u) != 0u);
-    let col = texel(i.mat, i.dir, cell, t, f.z);
+    let body = (c.info >> 8u) & 255u;
+    var sn = season(g.bodies[body], i.rel);
+    let level = (c.info >> 3u) & 31u;
+    sn.z = stagger((vec2i(floor(i.local.xy - axis(a).xy * sgn * 0.5)) + (c.base.xy >> vec2u(level))) << vec2u(level), c.info & 7u);
+    let col = texel(i.mat, i.dir, cell, t, f.z, sn);
     let look = looks[i.mat & 255u];
     let n = normalize(i.normal);
-    let body = (c.info >> 8u) & 255u;
     var o: GOut;
     o.gbuf = gb_pack(n, length(i.rel));
     if ((look.info >> 24u) == 1u) {
@@ -1178,17 +1223,18 @@ fn fx_colour(i: FxOut) -> vec3f {
     let a = dir / 2u;
     let uv = vec2f(i.uvw[(a + 1u) % 3u], i.uvw[(a + 2u) % 3u]);
     let flat_t = (g.opt.x & 4u) != 0u;
+    let sn = season(g.bodies[(i.info >> 8u) & 3u], i.rel);
     if (look == 1u) {
         // a square's colour; a texture's (ADR 0050): its block's top face times it (a billboard's uv is uvw.xy)
         if (((i.info >> 18u) & 1u) == 1u) {
             let st = select(uv, i.uvw.xy, ((i.info >> 16u) & 3u) != 2u);
-            return texel(mat, 4u, vec3i(0), select(st, vec2f(0.5), flat_t), 0.5) * unpack4x8unorm(i.b).rgb;
+            return texel(mat, 4u, vec3i(0), select(st, vec2f(0.5), flat_t), 0.5, sn) * unpack4x8unorm(i.b).rgb;
         }
         return unpack4x8unorm(i.b).rgb;
     }
     if (look >= 2u) {
         let cell = vec3i(i32(i.a & 0x7fffu), i32((i.a >> 15u) & 0x7fffu), i32(i.b & 0xffffu)) + vec3i(i32(i.b >> 16u) * 977);
-        return texel(mat, dir, cell, select(uv, vec2f(0.5), flat_t), i.uvw.z);
+        return texel(mat, dir, cell, select(uv, vec2f(0.5), flat_t), i.uvw.z, sn);
     }
     let h = fx_hash(i.a);
     let base = vec2f(f32(h % 14u), f32((h >> 4u) % 14u));
@@ -1196,7 +1242,7 @@ fn fx_colour(i: FxOut) -> vec3f {
     let d = select(0u, 4u, (h >> 8u) % 3u == 0u);
     let hgt = f32((h >> 12u) & 15u) / 16.0;
     let cell = vec3i(i32(h & 0xfffu), i32((h >> 12u) & 0xfffu), 7);
-    return texel(mat, d, cell, select((base + floor(uv * 2.0) + 0.5) / TEXELS, vec2f(0.5), flat_t), hgt);
+    return texel(mat, d, cell, select((base + floor(uv * 2.0) + 0.5) / TEXELS, vec2f(0.5), flat_t), hgt, sn);
 }
 
 fn fx_out(i: FxOut, col: vec3f, l: vec3f) -> GOut {

@@ -87,6 +87,30 @@ struct Raw {
     #[serde(default)]
     soft: bool,
     model: Option<String>,
+    #[serde(default)]
+    stagger: f32,
+    spring: Option<RawTone>,
+    autumn: Option<RawTone>,
+    winter: Option<RawTone>,
+}
+/// What a season's table may name: look fields only, nothing the server reads.
+#[derive(Deserialize, Clone, Copy, Debug)]
+#[serde(deny_unknown_fields)]
+struct RawTone {
+    colour: Option<[f32; 3]>,
+    colour2: Option<[f32; 3]>,
+    colour3: Option<[f32; 3]>,
+    amount: Option<f32>,
+    contrast: Option<f32>,
+}
+/// The part of a look a season may change (docs/design/seasonal-looks.md).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Tone {
+    pub colour: [f32; 3],
+    pub colour2: [f32; 3],
+    pub colour3: [f32; 3],
+    pub amount: f32,
+    pub contrast: f32,
 }
 fn stone() -> String {
     "stone".into()
@@ -144,6 +168,24 @@ pub struct Def {
     /// The model (`data/models/<model>.toml`, ADR 0047) drawn in its cell in place of the cube; the cell
     /// still collides as a whole block.
     pub model: Option<String>,
+    /// Its looks in spring, autumn and winter; the row's own look is summer's, and a season the row does not
+    /// name is that too. None: the block looks the same all year.
+    pub seasons: Option<[Tone; 3]>,
+    /// How far a column's own season runs ahead of or behind the place's, days either way, 0..10: trees turn
+    /// one by one.
+    pub stagger: f32,
+}
+
+impl Def {
+    /// Its look in season `s`: 0 summer (the row's own), 1 spring, 2 autumn, 3 winter, the rows of the
+    /// renderer's look table.
+    pub fn tone(&self, s: usize) -> Tone {
+        let base = Tone { colour: self.colour, colour2: self.colour2, colour3: self.colour3, amount: self.amount, contrast: self.contrast };
+        match (s, self.seasons) {
+            (1..=3, Some(t)) => t[s - 1],
+            _ => base,
+        }
+    }
 }
 
 pub struct Registry {
@@ -202,7 +244,32 @@ impl Registry {
                 None => r.id,
                 Some(s) => f.block.iter().find(|o| &o.name == s).ok_or(format!("block '{}': no block '{s}' for its side", r.name))?.id,
             };
-            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, soft: r.soft, model: r.model.clone() });
+            if !(0.0..=10.0).contains(&r.stagger) {
+                return Err(format!("block '{}': stagger outside 0..10 days", r.name));
+            }
+            let base = Tone { colour: r.colour, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), amount, contrast: r.contrast };
+            let mut seasons = [base; 3];
+            for (o, (s, season)) in seasons.iter_mut().zip([(r.spring, "spring"), (r.autumn, "autumn"), (r.winter, "winter")]) {
+                let Some(s) = s else { continue };
+                if [s.colour, s.colour2, s.colour3].iter().flatten().flatten().any(|c| !(0.0..=1.0).contains(c)) {
+                    return Err(format!("block '{}': {season}: a colour outside 0..1", r.name));
+                }
+                if s.amount.is_some_and(|a| r.pattern.defaults().is_none() || !(0.0..=1.0).contains(&a)) {
+                    return Err(format!("block '{}': {season}: amount outside 0..1, or on a pattern that takes none", r.name));
+                }
+                if s.contrast.is_some_and(|c| !(0.0..=2.0).contains(&c)) {
+                    return Err(format!("block '{}': {season}: contrast outside 0..2", r.name));
+                }
+                // a season's colour brings its own darker and lighter parts, unless the season or the row names them
+                let colour = s.colour.unwrap_or(base.colour);
+                let part = |named: Option<[f32; 3]>, rows: Option<[f32; 3]>, made: [f32; 3]| named.or(rows).unwrap_or(made);
+                *o = Tone { colour, colour2: part(s.colour2, r.colour2, darker(colour)), colour3: part(s.colour3, r.colour3, lighter(colour)), amount: s.amount.unwrap_or(amount), contrast: s.contrast.unwrap_or(r.contrast) };
+            }
+            let seasons = (r.spring.is_some() || r.autumn.is_some() || r.winter.is_some()).then_some(seasons);
+            if seasons.is_none() && r.stagger != 0.0 {
+                return Err(format!("block '{}': a stagger without a season", r.name));
+            }
+            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, soft: r.soft, model: r.model.clone(), seasons, stagger: r.stagger });
         }
         match &defs[0] {
             Some(d) if d.name == "air" && !d.solid => {}
@@ -293,6 +360,40 @@ mod tests {
             (&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 1\npattern = \"marble\"\n"), "unknown pattern"),
         ] {
             assert!(Registry::parse(bad).is_err(), "{why}");
+        }
+    }
+
+    #[test]
+    fn a_row_may_name_its_seasons_looks() {
+        let head = "[[block]]\nid = 0\nname = \"air\"\nsolid = false\n[[block]]\nid = 1\nname = \"x\"\nhardness = 1\ncolour = [0.2, 0.4, 0.2]\n";
+        let r = Registry::parse(&format!("{head}pattern = \"speckle\"\nstagger = 3.0\n[block.autumn]\ncolour = [0.6, 0.4, 0.2]\ncolour3 = [0.9, 0.1, 0.1]\namount = 0.9\n[block.winter]\ncontrast = 0.5\n")).unwrap();
+        let d = r.get(1).unwrap();
+        let (base, autumn, winter) = (d.tone(0), d.tone(2), d.tone(3));
+        assert_eq!(d.stagger, 3.0);
+        assert_eq!((base.colour, base.amount, base.contrast), ([0.2, 0.4, 0.2], 0.6, 1.0), "the row's own look is summer's");
+        assert_eq!(d.tone(1), base, "a season it does not name is the base");
+        // a season's colour brings its own darker part unless the season or the row names one
+        assert_eq!((autumn.colour, autumn.colour2, autumn.colour3, autumn.amount), ([0.6, 0.4, 0.2], [0.33, 0.22, 0.11], [0.9, 0.1, 0.1], 0.9));
+        assert_eq!(winter, Tone { contrast: 0.5, ..base });
+        assert_eq!(r.get(0).unwrap().seasons, None);
+        assert!(Registry::parse(&format!("{head}colour2 = [0.1, 0.1, 0.1]\n[block.spring]\ncolour = [0.5, 0.5, 0.5]\n")).unwrap().get(1).unwrap().tone(1).colour2 == [0.1, 0.1, 0.1], "the row's named part stays");
+        for (bad, why) in [
+            ("[block.autumn]\npattern = \"bricks\"\n", "a season names look fields only"),
+            ("[block.autumn]\nsolid = false\n", "nothing the server reads"),
+            ("[block.summer]\ncolour = [0.5, 0.5, 0.5]\n", "summer is the row itself"),
+            ("[block.winter]\ncolour = [1.5, 0, 0]\n", "colour"),
+            ("[block.winter]\ncolour2 = [0, -1, 0]\n", "colour2"),
+            ("[block.winter]\namount = 0.5\n", "amount on plain"),
+            ("[block.winter]\ncontrast = 3.0\n", "contrast"),
+            ("stagger = 3.0\n", "a stagger without a season"),
+            ("stagger = 11.0\n[block.winter]\ncontrast = 0.5\n", "stagger"),
+            ("stagger = -1.0\n[block.winter]\ncontrast = 0.5\n", "stagger"),
+        ] {
+            assert!(Registry::parse(&format!("{head}{bad}")).is_err(), "{why}");
+        }
+        // the first rows with seasons; the evergreens keep one look
+        for (n, has) in [("grass", true), ("broadleaf leaves", true), ("shrub", true), ("reed", true), ("meadow grass", true), ("spruce leaves", false), ("jungle leaves", false), ("savanna grass", false), ("dirt", false)] {
+            assert_eq!(BLOCKS.get(BLOCKS.id(n)).unwrap().seasons.is_some(), has, "{n}");
         }
     }
 
