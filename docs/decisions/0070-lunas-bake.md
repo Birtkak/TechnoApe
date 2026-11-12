@@ -139,7 +139,10 @@ download, the bots, the soak and the replay agree. Its findings, and what was do
   on the hills and skip the crust's shift. A 10 or 9 must now leave no bytes over, so such a save is refused
   (the merge's reviewer found it; no such save was handed over).
 - The merge's review also found, in main's code, that `bake::for_hash` rebuilds the map layouts 1 to 3 but not 4,
-  so a save naming a deleted version 4 map stops the server; left to main.
+  so a save naming a deleted version 4 map stopped the server. **Fixed after the merge:** it rebuilds 4 too (this
+  bake without its rock). `every_version_a_save_names_is_baked_back_without_its_file` (red on 4 first) bakes
+  back 5, 4, 3, 2, 1 and Luna's 102 by their hashes with no file on disk. Luna's 101 is not rebuilt: no save
+  that names Luna's map reads with a 101 (the pre-merge 10s are refused).
 
 ## Consequences
 - W4's ore bodies and material ledger should count Luna's iron lenses and its KREEP province the same way.
