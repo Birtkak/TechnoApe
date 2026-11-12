@@ -55,6 +55,11 @@ test; `Land` stays for saves from before the bake.
 - Checks: a filmstrip of the globe turning; a bot walks a line and only that band is drawn.
 
 ### W3. Air, climate, seasons, biomes
+**Status (2026-11-12, ADR 0042, 0043, 0055):** the climate and the fifteen biomes are baked; the sky has its
+tilt (20 degrees, open) and seasons over the 54-day year, `/time set summer` and the others, and F3 shows the
+air's temperature (the biome's yearly mean with the season and hour on top). Not yet: the map keeping each
+cell's baked temperature, the air grid's tick spike and live weather, the rain check, views at four seasons
+in `tests/views/`.
 - **First the spike ADR 0010 already asks for:** the coarse air grid's tick cost on Terra (target under
   0.5 ms of the server tick).
 - The same model run to a steady year inside the bake (stage 5); biomes, soil and surface blocks from it

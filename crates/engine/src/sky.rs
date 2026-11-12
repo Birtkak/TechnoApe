@@ -2,7 +2,8 @@
 //! world's time in seconds, the same on every machine. Orbits are circles on rails.
 //!
 //! The inertial frame is centred on the sun. The ecliptic is its xy plane: the planet circles the sun in it
-//! once a year, and spins about its +z, which is the planet's body z; the moon circles the planet. A body's pose maps its own frame (its grid at its nominal centre, as
+//! once a year, and spins about its body +z, which leans TILT from the ecliptic's +z toward the sun's place at
+//! a quarter year (ADR 0055, seasons): world time 0 is the northern spring equinox. The moon circles the planet. A body's pose maps its own frame (its grid at its nominal centre, as
 //! `world::Body` has it) to the inertial frame.
 use glam::{DQuat, DVec3};
 use std::f64::consts::TAU;
@@ -23,6 +24,15 @@ pub const PERIOD: f64 = 432.0 * DAY;
 /// How much smaller the sun looks than the moon from the ground right under the moon: 5 %, as the Moon on a total
 /// eclipse is 3 to 6 % bigger than the Sun, so totality lasts about 2 s on the 4 km Terra (ADR 0041; 0.995 gave 0.2 s).
 pub const SUN_UNDER_MOON: f64 = 0.95;
+/// The lean of the planet's spin axis from the ecliptic's pole: the design's proposal, 20 degrees (worldgen.md;
+/// an open taste call, ADR 0055). 0 is the sky before the seasons.
+pub const TILT: f64 = 20.0 * TAU / 360.0;
+/// How much warmer than its yearly mean a place is per unit of sin(latitude) sin(declination): 40 K makes the
+/// 45-degree latitudes swing some 10 K either way of the mean over the year at TILT (ADR 0055, open to taste).
+pub const SEASON_K: f64 = 40.0;
+/// The day's warmest hour after local noon (the ground keeps warming while the sun still gives more than it
+/// loses): 2 hours.
+const WARMEST: f64 = 2.0 / 24.0 * TAU;
 /// Where the planet's spin starts: the spawn (near body +y) has the sun 45 degrees up in the morning.
 const SPIN0: f64 = -0.375 * TAU;
 /// Where the moon starts on its orbit, from its ascending node: a first quarter in the evening sky.
@@ -51,6 +61,8 @@ pub struct Sky {
     pub sun_dist: f64,
     /// The sun's radius: from the moon's size, so that a total eclipse is a perfect one (`Sky::new`).
     pub sun_radius: f64,
+    /// The spin axis's lean, radians (`TILT`).
+    pub tilt: f64,
 }
 
 /// Where a body is and how it is turned at a moment: its frame to the inertial frame.
@@ -79,7 +91,7 @@ impl Sky {
         assert!(moon_radius < moon_orbit - planet_radius, "the moon touches or holds the planet's ground");
         let moon_seen = (moon_radius / (moon_orbit - planet_radius)).asin();
         let sun_radius = (sun_dist - planet_radius) * (SUN_UNDER_MOON * moon_seen).sin();
-        Sky { planet_radius, moon_radius, moon_orbit, sun_dist, sun_radius }
+        Sky { planet_radius, moon_radius, moon_orbit, sun_dist, sun_radius, tilt: TILT }
     }
     /// The sun's centre: the inertial origin.
     pub fn sun(&self, _t: f64) -> DVec3 {
@@ -90,7 +102,25 @@ impl Sky {
         let t = t.rem_euclid(PERIOD);
         let a = TAU * t / YEAR;
         let spin = SPIN0 + TAU * t * (1.0 / DAY + 1.0 / YEAR);
-        Pose { centre: -DVec3::new(a.cos(), a.sin(), 0.0) * self.sun_dist, rot: DQuat::from_rotation_z(spin) }
+        // the axis leans toward +y, where the sun stands from the planet a quarter year on: the northern summer
+        let rot = DQuat::from_rotation_z(spin);
+        Pose { centre: -DVec3::new(a.cos(), a.sin(), 0.0) * self.sun_dist, rot: if self.tilt == 0.0 { rot } else { DQuat::from_rotation_x(-self.tilt) * rot } }
+    }
+    /// The direction to the sun in the planet's body frame (its +z the spin axis, north).
+    pub fn sun_dir(&self, t: f64) -> DVec3 {
+        let p = self.planet(t);
+        p.rot.inverse() * (self.sun(t) - p.centre).normalize()
+    }
+    /// The sun's declination: its angle north of the planet's equator, radians; +tilt at the northern summer
+    /// solstice (a quarter year after world time 0), -tilt at the winter one.
+    pub fn declination(&self, t: f64) -> f64 {
+        self.sun_dir(t).z.clamp(-1.0, 1.0).asin()
+    }
+    /// The sun's hour angle at the place `up` (body frame): 0 at its local noon, growing a turn a day, a
+    /// quarter turn (PI / 2) at 18:00 local; -PI..PI.
+    pub fn hour_angle(&self, t: f64, up: DVec3) -> f64 {
+        let s = self.sun_dir(t);
+        (s.x * up.y - s.y * up.x).atan2(s.x * up.x + s.y * up.y)
     }
     /// The moon: on its inclined circle once a sidereal month, the same face (its body -x) to the planet.
     pub fn moon(&self, t: f64) -> Pose {
@@ -128,6 +158,44 @@ impl Sky {
     }
 }
 
+/// How long the sun's centre stays up in a day at latitude `lat` when its declination is `decl` (radians):
+/// seconds, 0 to DAY; DAY / 2 on the equator or at an equinox.
+pub fn day_length(lat: f64, decl: f64) -> f64 {
+    (-lat.tan() * decl.tan()).clamp(-1.0, 1.0).acos() / std::f64::consts::PI * DAY
+}
+
+/// The season names `/time set` takes: 0 the northern spring equinox, 1 its summer solstice, 2 autumn, 3 winter.
+pub fn season(name: &str) -> Option<u32> {
+    ["spring", "summer", "autumn", "winter"].iter().position(|&n| n == name).map(|q| q as u32)
+}
+
+/// The first world time from `t` on, whole days later so the clock shows the same hour, nearest the start of
+/// season `q` (`season`): within half a day of it, as a year is not a whole number of quarter days.
+pub fn next_season(t: f64, q: u32) -> f64 {
+    let ahead = (q as f64 / 4.0 * YEAR - t).rem_euclid(YEAR);
+    let days = (ahead / DAY).round();
+    // a round up to a whole year: the season's start is under half a day behind, so stay
+    t + if days * DAY >= YEAR { 0.0 } else { days * DAY }
+}
+
+/// The air's temperature at the ground, C: the place's yearly mean `mean` and its day's swing `swing` (K,
+/// warmest to coldest) from the baked climate, with the season (latitude `lat` and the sun's declination
+/// `decl`, radians) and the hour (the sun's hour angle `hour`, `Sky::hour_angle`) on top.
+/// shortcut: no seasonal lag (the warmest day is the solstice, not a month after) and no live air (W3's air
+/// grid in play will replace the season and day terms with its own surface layer).
+pub fn temperature(mean: f64, swing: f64, lat: f64, decl: f64, hour: f64) -> f64 {
+    mean + SEASON_K * lat.sin() * decl.sin() + swing / 2.0 * (hour - WARMEST).cos()
+}
+
+/// A biome's yearly mean temperature, C, and its day's swing, K: the middle of the band the bake chose it by
+/// (`bake::life::LifeParams`' bounds) and a swing by how dry and how wet it is, in the bake's order ICE .. REEF.
+/// shortcut: the baked map keeps the biome, not the climate it came from; when `bake::Map` keeps `life::Life`'s
+/// `temp` and `swing` per cell (a bake format change), the F3 overlay reads those instead.
+pub const BIOME_CLIMATE: [(f64, f64); 15] = [
+    (-20.0, 6.0), (-10.0, 8.0), (0.0, 8.0), (10.0, 8.0), (12.0, 10.0), (18.0, 14.0), (24.0, 18.0), (24.0, 12.0),
+    (26.0, 6.0), (12.0, 6.0), (-3.0, 10.0), (18.0, 6.0), (15.0, 2.0), (8.0, 1.0), (26.0, 2.0),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,7 +227,10 @@ mod tests {
         let e0 = elevation(&s, 0.0, DVec3::Y);
         assert!((e0 - 45.0).abs() < 0.5, "{e0}");
         assert!(elevation(&s, 1.0, DVec3::Y) > e0, "the sun rises");
-        assert!((elevation(&s, DAY, DVec3::Y) - e0).abs() < 0.01);
+        // a day later the same, but for the season's drift (the declination moves up to 2.3 degrees a day)
+        assert!((elevation(&s, DAY, DVec3::Y) - e0).abs() < 2.5);
+        let flat = Sky { tilt: 0.0, ..s };
+        assert!((elevation(&flat, DAY, DVec3::Y) - elevation(&flat, 0.0, DVec3::Y)).abs() < 0.01);
         assert!(elevation(&s, DAY / 2.0, DVec3::Y) < -40.0, "night half a day later");
     }
 
@@ -316,5 +387,124 @@ mod tests {
         assert_eq!(s.covered(t, p + away * s.moon_orbit, p, s.planet_radius), 1.0);
         let side = away.cross(DVec3::Z).normalize();
         assert_eq!(s.covered(t, p + side * s.moon_orbit, p, s.planet_radius), 0.0);
+    }
+
+    /// The sun's height at a place's local noon, `lat` degrees north, near world time `t` (searched over a
+    /// day), and the declination then (it moves some 2 degrees a day near an equinox).
+    fn noon_height(s: &Sky, t: f64, lat: f64) -> (f64, f64) {
+        let up = DVec3::new(0.0, lat.to_radians().cos(), lat.to_radians().sin());
+        let at = |k: i32| t - DAY / 2.0 + k as f64;
+        let k = (0..1800).max_by(|&a, &b| elevation(s, at(a), up).total_cmp(&elevation(s, at(b), up))).unwrap();
+        (elevation(s, at(k), up), s.declination(at(k)).to_degrees())
+    }
+
+    #[test]
+    fn the_noon_sun_follows_latitude_and_season() {
+        // ADR (seasons): the spin axis tilted TILT, t = 0 the northern spring equinox
+        let s = sky();
+        let e = s.tilt.to_degrees();
+        assert!((e - 20.0).abs() < 1e-9, "the design's proposal");
+        for (t, decl) in [(0.0, 0.0), (YEAR / 4.0, e), (YEAR / 2.0, 0.0), (0.75 * YEAR, -e)] {
+            assert!((s.declination(t).to_degrees() - decl).abs() < 0.05, "{t}: {}", s.declination(t).to_degrees());
+            for lat in [0.0, 30.0, 60.0, -45.0] {
+                let (got, d) = noon_height(&s, t, lat);
+                assert!((d - decl).abs() < 2.5, "{d} at {t}");
+                let want = 90.0 - (lat - d).abs();
+                assert!((got - want).abs() < 0.2, "lat {lat} at {t}: {got} against {want}");
+            }
+        }
+        // past the polar circle the summer sun never sets and the winter sun never rises
+        let pole = DVec3::new(0.0, 0.1, 1.0).normalize();
+        assert!((0..18).all(|k| elevation(&s, YEAR / 4.0 + k as f64 * 100.0, pole) > 0.0));
+        assert!((0..18).all(|k| elevation(&s, 0.75 * YEAR + k as f64 * 100.0, pole) < 0.0));
+    }
+
+    #[test]
+    fn the_day_is_longer_in_summer() {
+        let s = sky();
+        // counted: seconds of a day the sun's centre is up, against the formula
+        let up_for = |t0: f64, lat: f64| {
+            let up = DVec3::new(0.0, lat.to_radians().cos(), lat.to_radians().sin());
+            (0..1800).filter(|&k| elevation(&s, t0 + k as f64, up) > 0.0).count() as f64
+        };
+        for t in [0.0, YEAR / 4.0, YEAR / 2.0, 0.75 * YEAR, YEAR / 9.0] {
+            // (not near the poles: there the day's own drift of the declination moves sunset by minutes)
+            for lat in [0.0, 40.0, -55.0, 62.0] {
+                let (got, want) = (up_for(t - DAY / 2.0, lat), day_length(lat.to_radians(), s.declination(t)));
+                assert!((got - want).abs() < 12.0, "lat {lat} at {t}: {got} against {want}");
+            }
+        }
+        assert_eq!(day_length(0.5, 0.0), DAY / 2.0);
+        // 46 degrees north: 15 of 24 hours in summer, 9 in winter
+        assert!(day_length(0.8, s.tilt) > 0.6 * DAY && day_length(0.8, -s.tilt) < 0.4 * DAY);
+        assert_eq!(day_length(1.5, s.tilt), DAY);
+        assert_eq!(day_length(-1.5, s.tilt), 0.0);
+    }
+
+    #[test]
+    fn tilt_zero_is_the_old_sky() {
+        // the sky before the tilt: the spin about the ecliptic's +z, as ADR 0022 had it
+        let s = Sky { tilt: 0.0, ..sky() };
+        for t in [0.0, 225.0, 1234.5, YEAR / 3.0, 0.7 * PERIOD] {
+            let u = t.rem_euclid(PERIOD);
+            let old = DQuat::from_rotation_z(SPIN0 + TAU * u * (1.0 / DAY + 1.0 / YEAR));
+            assert_eq!(s.planet(t).rot, old);
+            assert_eq!(s.declination(t), 0.0);
+        }
+    }
+
+    #[test]
+    fn the_tilt_moves_no_body_so_eclipses_stay_perfect() {
+        // ADR 0041: the tilt turns only the planet about its centre; the sun, the planet's and the moon's
+        // centres and the moon's turn are the same at any season, so every eclipse is too
+        let (a, b) = (Sky { tilt: 0.0, ..sky() }, sky());
+        let mut t = 0.0;
+        while t < PERIOD {
+            assert_eq!((a.planet(t).centre, a.moon(t)), (b.planet(t).centre, b.moon(t)));
+            t += 997.0;
+        }
+    }
+
+    #[test]
+    fn a_season_is_reached_at_the_same_hour() {
+        // (also just before and after the year's turn, and exactly on a season)
+        for (t, q) in (0..4).map(|q| (5000.0, q)).chain([(YEAR - 0.3 * DAY, 0), (0.4 * DAY, 0), (YEAR / 2.0, 2), (YEAR / 4.0, 3)]) {
+            let to = next_season(t, q);
+            assert!(to >= t && to < t + YEAR, "{q}: {to}");
+            assert!((clock(to).1 - clock(t).1).abs() < 1e-6, "the hour stays");
+            let off = (to / YEAR - q as f64 / 4.0).rem_euclid(1.0);
+            assert!(off.min(1.0 - off) * YEAR <= DAY / 2.0 + 1e-6, "{q}: {off}");
+        }
+        assert_eq!(season("summer"), Some(1));
+        assert_eq!(season("noon"), None);
+    }
+
+    #[test]
+    fn temperature_by_season_and_hour() {
+        let s = sky();
+        let (mean, swing) = BIOME_CLIMATE[crate::bake::life::TEMPERATE_FOREST as usize];
+        assert_eq!((mean, swing), (10.0, 8.0));
+        assert!(BIOME_CLIMATE[crate::bake::life::ICE as usize].0 < BIOME_CLIMATE[crate::bake::life::DESERT as usize].0);
+        let lat = 45f64.to_radians();
+        let at = |t: f64, lat: f64, h: f64| temperature(mean, swing, lat, s.declination(t), h);
+        // the year: warm in the northern summer, cold in its winter, the other way in the south; the equator
+        // and the equinoxes keep the mean
+        assert!(at(YEAR / 4.0, lat, 0.0) > at(0.75 * YEAR, lat, 0.0) + 15.0);
+        assert!(at(YEAR / 4.0, -lat, 0.0) < at(0.75 * YEAR, -lat, 0.0) - 15.0);
+        assert!((at(YEAR / 4.0, 0.0, 0.0) - at(0.75 * YEAR, 0.0, 0.0)).abs() < 1e-9);
+        // the day: warmest after noon, coldest before dawn, `swing` apart
+        let day: Vec<f64> = (0..240).map(|k| at(0.0, lat, (k as f64 / 240.0 - 0.5) * TAU)).collect();
+        let (hi, lo) = (day.iter().copied().fold(f64::MIN, f64::max), day.iter().copied().fold(f64::MAX, f64::min));
+        assert!((hi - lo - swing).abs() < 0.01 && ((hi + lo) / 2.0 - mean).abs() < 0.01);
+        let warmest = day.iter().position(|&v| v == hi).unwrap() as f64 / 240.0 * 24.0 - 12.0;
+        assert!((1.0..=3.0).contains(&warmest), "{warmest} h after noon");
+        // tilt 0: no seasons
+        let flat = Sky { tilt: 0.0, ..sky() };
+        assert_eq!(temperature(mean, swing, lat, flat.declination(YEAR / 4.0), 0.0), temperature(mean, swing, lat, 0.0, 0.0));
+        // the hour angle: 0 at local noon, a quarter turn at 18:00 local
+        let up = DVec3::new(0.0, lat.cos(), lat.sin());
+        let noon = next_hour(0.0, 12.0);
+        assert!(s.hour_angle(noon, up).abs() < 0.05, "{}", s.hour_angle(noon, up));
+        assert!((s.hour_angle(next_hour(0.0, 18.0), up) - TAU / 4.0).abs() < 0.05);
     }
 }

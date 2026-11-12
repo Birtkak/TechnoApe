@@ -242,7 +242,7 @@ pub fn complete(line: &str) -> (usize, Vec<String>) {
                 (None, _, _) => &["time", "playmode", "give", "place", "goto", "timewarp", "heal", "feed", "hurt", "help"],
                 (Some("timewarp" | "warp"), None, 1) => &["1", "10", "100", "1000", "10000", "up", "down"],
                 (Some("time"), None, 1) => &["set", "add"],
-                (Some("time"), Some("set"), 2) => &["sunrise", "day", "noon", "sunset", "night", "midnight"],
+                (Some("time"), Some("set"), 2) => &["sunrise", "day", "noon", "sunset", "night", "midnight", "spring", "summer", "autumn", "winter"],
                 (Some("playmode" | "gamemode"), None, 1) => &["creative", "survival"],
                 (Some("goto"), None, 1) => &places,
                 _ => &[],

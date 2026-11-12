@@ -696,6 +696,7 @@ impl Server {
                 "  /time                the time of day at the spawn",
                 "  /time set <when>     sunrise day noon sunset night",
                 "                       midnight, 14:30, or world seconds",
+                "                       or spring summer autumn winter",
                 "  /time add <seconds>  move the clock on",
                 "  /playmode <mode>     creative or survival",
                 "  /give <block> [n]    n blocks, 64 if left out",
@@ -728,6 +729,7 @@ impl Server {
                 let secs = |v: &str| v.parse::<f64>().ok().filter(|s| s.is_finite());
                 let to = match (w.get(1).copied(), w.get(2).copied()) {
                     (None | Some("query"), _) => None,
+                    (Some("set"), Some(v)) if sky::season(v).is_some() => Some(sky::next_season(now, sky::season(v).unwrap())),
                     (Some("set"), Some(v)) => match (named(v), secs(v)) {
                         (Some(h), _) => Some(sky::next_hour(now, h)),
                         (None, Some(s)) if s >= 0.0 => Some(s),
@@ -737,7 +739,7 @@ impl Server {
                         Some(t) if t >= 0.0 => Some(t),
                         _ => return format!("not a number of seconds: {v}"),
                     },
-                    _ => return "usage:\n  /time\n  /time set <sunrise|day|noon|sunset|night|midnight|hh:mm|seconds>\n  /time add <seconds>".into(),
+                    _ => return "usage:\n  /time\n  /time set <sunrise|day|noon|sunset|night|midnight|hh:mm|seconds>\n  /time set <spring|summer|autumn|winter>\n  /time add <seconds>".into(),
                 };
                 let t = match to {
                     Some(t) => {
@@ -1682,6 +1684,11 @@ mod tests {
         assert!(a.iter().any(|l| l.starts_with("it is day 1, 09:08")), "{a:?}");
         s.tick();
         assert!((s.world.time - 10.0).abs() < 0.2, "a time before the session's start: {}", s.world.time);
+        // a season (ADR 0055): whole days on, so the hour stays; the summer solstice is 13.5 days in
+        links[0].send(ToServer::Chat("/time set summer".into()));
+        s.tick();
+        let a = chat(&links[0]);
+        assert!(a.iter().any(|l| l.starts_with("time set to day 14, 09:08")), "{a:?}");
     }
 
     #[test]
