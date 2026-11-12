@@ -214,7 +214,7 @@ pub fn reporting<T>(p: Arc<Progress>, f: impl FnOnce() -> T) -> T {
 }
 
 /// A report outside the bake's stages (the download): `stage` and its fraction.
-pub(crate) fn report(stage: &'static str, f: f32) {
+pub fn report(stage: &'static str, f: f32) {
     SINK.with(|s| s.borrow().as_ref().map(|(p, _)| p.set(stage, f)));
 }
 

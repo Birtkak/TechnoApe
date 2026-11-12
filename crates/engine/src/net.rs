@@ -319,22 +319,33 @@ mod tests {
         let (mut client, server) = local::<ToServer, ToClient>();
         let (hash, p) = (map.hash, std::sync::Arc::new(crate::bake::Progress::default()));
         let seen = p.clone();
+        // the server sends every piece whatever it sees (no assert in its thread: a failed one would leave the
+        // client waiting out its timeout), and what the client reported after each comes back to be checked here
         let t = std::thread::spawn(move || {
-            assert_eq!(server.rx.recv().unwrap(), ToServer::Map);
+            let asked = server.rx.recv().ok();
             let pieces = map_pieces(&map);
             let n = pieces.len();
+            let mut got = Vec::new();
+            // one deadline for the whole download, so a wrong report fails in seconds
+            let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
             for (k, piece) in pieces.into_iter().enumerate() {
                 server.send(piece);
                 let want = (k + 1) as f32 / n as f32;
-                let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
                 while seen.get().1 < want && std::time::Instant::now() < end {
                     std::thread::sleep(std::time::Duration::from_millis(1));
                 }
-                assert_eq!(seen.get(), (DOWNLOAD, want), "piece {k} of {n}");
+                got.push((seen.get(), (DOWNLOAD, want)));
             }
+            (asked, got)
         });
-        crate::bake::reporting(p.clone(), || fetch_map(&mut client, -12346, 3072, hash)).unwrap();
-        t.join().unwrap();
+        let fetched = crate::bake::reporting(p.clone(), || fetch_map(&mut client, -12346, 3072, hash));
+        let (asked, got) = t.join().unwrap();
+        assert_eq!(asked, Some(ToServer::Map));
+        assert!(got.len() > 2);
+        for (k, (seen, want)) in got.iter().enumerate() {
+            assert_eq!(seen, want, "piece {k} of {}", got.len());
+        }
+        fetched.unwrap();
         assert_eq!(p.get().1, 1.0);
     }
 

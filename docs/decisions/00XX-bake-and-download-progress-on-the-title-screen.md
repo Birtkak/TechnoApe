@@ -31,8 +31,9 @@ Option 3 with (b).
 - `net::fetch_map` reports `DOWNLOAD` with pieces received / total.
 - Client: `menu::Loading` (a worker thread below normal priority, its `Progress`, the arguments to start
   again with). The new world page's Create bakes there when `bake::file(seed, planet)` is missing, else starts
-  at once. A `connect=` run on screen whose map is not kept starts the title screen with `join=host`, which
-  fetches the map under the bar and then starts the game with `connect=`. The frame polls `is_finished` and
+  at once. A `connect=` play run whose map is not kept starts the title screen with `join=host:port` (and every
+  other argument it had), which fetches the map under the bar and then starts the game with `connect=`
+  and `joined=1`. The frame polls `is_finished` and
   draws the stage and a bar at the foot of the screen; while it runs the menu answers only Quit.
 
 ## Consequences
@@ -46,8 +47,29 @@ Option 3 with (b).
   save=0 record=0 planet=768 seed=1 settings=out/bar-settings.txt acts=1:next,1.3:go,1.6:next,1.9:go,
   2.2:next,...(nine nexts)...,3.3:go capture_ms=1500 seconds=14 sheet=out/bake-bar.png`: the bar grows
   frame by frame while the menu draws on.
-- Review (principle 12): not yet done by a fresh reviewer.
+- Review (principle 12): a fresh reviewer read 041ba10. The bake side was sound; the `connect=` path had
+  six findings, each fixed in the follow-up commit:
+  1. `join=` got the raw `connect` value and `Loading::join` connected without the default port, so the
+     documented `connect=host` failed. `menu::server_addr` now adds `:7777` once, for both uses.
+  2. A map that could not be written sent the joining run back to the title, round and round. The title now
+     checks `bake::file` after the download and shows an error note when the file is missing, and the run it
+     starts carries `joined=1`, which never starts a title again (it fetches in place if it must).
+  3. Only `TITLE_ARGS`, `join=` and `name=` survived the hand-overs (`mode`, `seconds`, `settings`,
+     `threads`, ... were lost). `menu::join_args` / `joined_args` pass every argument through, `connect`
+     as `join` and back (`menu::a_join_keeps_every_argument_and_the_port`).
+  4. A `join=` title built the 4 km seed-1337 world before the download started. The join now starts first,
+     and the title's own world is the 768 planet with no save.
+  5. The bar read "Making the world: grid 0%" while connecting. It now says "Joining the server: connecting",
+     then `downloading the map`.
+  6. A failed assert in the download test's server thread left the client waiting. The server thread now
+     only records, the test asserts after it, and one 5 s deadline covers the whole download (a wrong
+     report fails in 5.4 s, checked by breaking the report on purpose).
+  Also: the join now goes through the title from any play run, not only on screen.
+  The join was run for real (a `technoape-server` on 127.0.0.1, planet 768, its map file removed from the
+  client's bakes folder; the client `run=play onscreen=0 connect=127.0.0.1 seconds=6 settings=out/x.txt`):
+  probe, title, download, kept, joined (`tester joined`), the run ended by `seconds`, no `settings.txt` written.
+  The bar itself was not filmed there: a 276 KB map over loopback arrives before the title's first frame.
 - A saved world whose map is missing (deleted, or a new map version) still bakes in `main()` with no bar;
   so does the title's own background world on a first start. A `connect=` join that needs the map connects
-  three times (the probe, the title's download, then the game); that path is built but was not run. The stage weights are one machine's 4 km bake; other sizes move a little
+  three times (the probe, the title's download, then the game). The stage weights are one machine's 4 km bake; other sizes move a little
   unevenly.

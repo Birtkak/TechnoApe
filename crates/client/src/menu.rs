@@ -77,6 +77,44 @@ fn a_new_world_starts_as_its_page_says() {
     assert!(SIZES.iter().all(|(n, _)| n % 768 == 0 && (n / 768).count_ones() == 1), "3 * 2^k columns");
 }
 
+/// `connect=` as given: host, or host:port (the default port when none).
+pub(crate) fn server_addr(a: &str) -> String {
+    if a.contains(':') { a.to_string() } else { format!("{a}:{}", net::DEFAULT_PORT) }
+}
+
+/// Every argument but `from`, which comes back as `to` (its address with the port), sorted.
+fn swap_arg(args: &HashMap<String, String>, from: &str, to: &str) -> Vec<String> {
+    let mut v: Vec<String> = args.iter().filter(|(k, _)| *k != from).map(|(k, v)| format!("{k}={v}")).collect();
+    v.extend(args.get(from).map(|a| format!("{to}={}", server_addr(a))));
+    v.sort();
+    v
+}
+
+/// A `connect=` run's arguments for the title screen that downloads the map: all of them, `connect` as `join`.
+pub(crate) fn join_args(args: &HashMap<String, String>) -> Vec<String> {
+    swap_arg(args, "connect", "join")
+}
+
+/// A `join=` title's own arguments back for the run that joins once the map is kept: `join` as `connect`, and
+/// `joined=1` so that run never starts a title again.
+pub(crate) fn joined_args(args: &HashMap<String, String>) -> Vec<String> {
+    let mut v = swap_arg(args, "join", "connect");
+    v.push("joined=1".into());
+    v.sort();
+    v
+}
+
+#[test]
+fn a_join_keeps_every_argument_and_the_port() {
+    assert_eq!((server_addr("box"), server_addr("box:9000"), server_addr("[::1]:7777")), ("box:7777".into(), "box:9000".into(), "[::1]:7777".into()));
+    let kv = |v: &[&str]| -> HashMap<String, String> { v.iter().map(|a| a.split_once('=').unwrap()).map(|(k, v)| (k.into(), v.into())).collect() };
+    let orig = ["connect=box", "run=play", "onscreen=0", "mode=creative", "seconds=9", "settings=out/x.txt", "name=bob"];
+    let title = join_args(&kv(&orig));
+    assert_eq!(title, ["join=box:7777", "mode=creative", "name=bob", "onscreen=0", "run=play", "seconds=9", "settings=out/x.txt"]);
+    let refs: Vec<&str> = title.iter().map(|s| s.as_str()).collect();
+    assert_eq!(joined_args(&kv(&refs)), ["connect=box:7777", "joined=1", "mode=creative", "name=bob", "onscreen=0", "run=play", "seconds=9", "settings=out/x.txt"]);
+}
+
 /// The saves under saves/, newest first.
 pub(crate) fn list_worlds() -> Vec<String> {
     let mut v: Vec<(std::time::SystemTime, String)> = std::fs::read_dir("saves")
@@ -790,13 +828,18 @@ impl App {
     /// Closes this world (the local server saves as it stops) and starts the game again with `more` after
     /// play on screen: a fresh process per world, so nothing of the old one carries over.
     pub(crate) fn start_again(&mut self, more: Vec<String>) {
+        self.next = Some(self.again_args(more));
+        self.finish();
+    }
+
+    /// The arguments `start_again` starts the game with.
+    pub(crate) fn again_args(&self, more: Vec<String>) -> Vec<String> {
         let mut a: Vec<String> = TITLE_ARGS[..2].iter().map(|s| s.to_string()).collect();
         a[1] = format!("onscreen={}", self.args.get("onscreen", 0));
         // scripted checks keep their length and settings file in the next world too
         a.extend(["seconds", "settings"].iter().filter_map(|k| self.args.0.get(*k).map(|v| format!("{k}={v}"))));
         a.extend(more);
-        self.next = Some(a);
-        self.finish();
+        a
     }
 
     /// A new world: its planet baked here on a worker thread first when it is not kept yet (ADR 0043), the
@@ -805,7 +848,7 @@ impl App {
         let num = |k: &str| then.iter().find_map(|a| a.strip_prefix(k)?.strip_prefix('=')?.parse::<i32>().ok());
         match (num("seed"), num("planet")) {
             (Some(seed), Some(n)) if !engine::bake::file(seed, n).exists() => {
-                self.loading = Some(Loading::start(then, move || {
+                self.loading = Some(Loading::start(self.again_args(then), "Making the world", move || {
                     drop(engine::bake::get(seed, n));
                     Ok(())
                 }));
@@ -821,7 +864,10 @@ impl App {
         }
         let l = self.loading.take().unwrap();
         match l.work.join() {
-            Ok(Ok(())) => self.start_again(l.then),
+            Ok(Ok(())) => {
+                self.next = Some(l.then);
+                self.finish();
+            }
             Ok(Err(e)) => self.note(e),
             Err(_) => self.note("the world could not be made (see the log)".into()),
         }
@@ -911,11 +957,14 @@ impl App {
 pub(crate) struct Loading {
     pub(crate) progress: Arc<engine::bake::Progress>,
     pub(crate) work: std::thread::JoinHandle<Result<(), String>>,
+    /// The game's arguments once it is done.
     pub(crate) then: Vec<String>,
+    /// What the bar says it is for.
+    pub(crate) what: &'static str,
 }
 
 impl Loading {
-    pub(crate) fn start(then: Vec<String>, f: impl FnOnce() -> Result<(), String> + Send + 'static) -> Loading {
+    pub(crate) fn start(then: Vec<String>, what: &'static str, f: impl FnOnce() -> Result<(), String> + Send + 'static) -> Loading {
         let progress = Arc::new(engine::bake::Progress::default());
         let p = progress.clone();
         let work = std::thread::spawn(move || {
@@ -923,18 +972,24 @@ impl Loading {
             sys::below_normal();
             engine::bake::reporting(p, f)
         });
-        Loading { progress, work, then }
+        Loading { progress, work, then, what }
     }
 
-    /// join=host[:port] on the title screen: the server's map is fetched here (a connect= run that lacked it
-    /// started the title for this), then the game joins with `connect=`.
-    pub(crate) fn join(addr: String, name: String) -> Loading {
-        let then = vec![format!("connect={addr}"), format!("name={name}")];
-        Loading::start(then, move || {
+    /// join=host:port on the title screen: the server's map is fetched here (a connect= run that lacked it
+    /// started the title for this), then the game joins with `then` (`joined_args`).
+    pub(crate) fn join(addr: String, name: String, then: Vec<String>) -> Loading {
+        Loading::start(then, "Joining the server", move || {
+            engine::bake::report("connecting", 0.0);
             let mut link: Link<ToServer, ToClient> = net::tcp(std::net::TcpStream::connect(&addr).map_err(|e| format!("{addr}: {e}"))?).map_err(|e| format!("{addr}: {e}"))?;
             link.send(ToServer::Hello { name });
             match link.rx.recv_timeout(Duration::from_secs(10)) {
-                Ok(ToClient::Welcome { seed, planet_n, map: Some(h), .. }) => engine::net::fetch_map(&mut link, seed, planet_n, h).map(drop),
+                Ok(ToClient::Welcome { seed, planet_n, map: Some(h), .. }) => {
+                    engine::bake::report(engine::net::DOWNLOAD, 0.0);
+                    engine::net::fetch_map(&mut link, seed, planet_n, h)?;
+                    // (a map that could not be written would send the joining run back here, round and round)
+                    let file = engine::bake::file(seed, planet_n);
+                    if file.exists() { Ok(()) } else { Err(format!("the server's map could not be kept in {}", file.display())) }
+                }
                 Ok(ToClient::Welcome { .. }) => Ok(()),
                 other => Err(format!("{addr}: no welcome from the server ({other:?})")),
             }
