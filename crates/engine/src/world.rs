@@ -445,6 +445,10 @@ impl Body {
         if z as f64 <= self.sea? {
             return None;
         }
+        // nor in a river or a lake (W5)
+        if self.water_at(face as u8, i, j).is_some_and(|w| z as f64 <= w.0) {
+            return None;
+        }
         let [lo, hi] = ROWS.plants[plant].height;
         Some(Foot { plant, h: lo + ((r >> 16) % (hi - lo + 1) as u64) as i32, i, j, z })
     }
@@ -1372,6 +1376,101 @@ pub fn sea_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2]>
                 }
             }
             out.push([x as u32 | (y as u32) << 6 | z << 12 | ((w - 1) as u32) << 18 | ((h - 1) as u32) << 23 | 4 << 28, (m - 1) as u32]);
+            x += w;
+        }
+    }
+    out
+}
+
+/// The generated rivers' and lakes' surface in chunk `key` (W5, ADR 0059), after the sea's quads: kind 5,
+/// one quad per wet column whose level lies in this chunk, as a plane: q.y is its level at the column's middle
+/// in 1/64 layer over the chunk's base (18 bits), and its fall along i and j in 1/256 layer a column (7 bits
+/// each, signed: a steeper one is drawn in steps). Level columns (a lake) are merged as the sea's are.
+/// Columns in a `wet` tile are the client's water mesh's; a far coarse cell that is solid at the level has its
+/// water on its top. None past level 6, where a river is narrower than a cell.
+pub fn river_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2]> {
+    // water stands at most this far over the ground under it (m): a lake over its bed
+    const DEEPEST: f64 = 60.0;
+    if key.level > 6 || body.baked.is_none() {
+        return Vec::new();
+    }
+    let s = 1i32 << key.level;
+    let (base, n) = (key.base(), CS as usize);
+    let heights = body.tile(key.face, key.level, key.pos.x, key.pos.y);
+    if body.layer_r(base.z as f64) > heights.max as f64 + DEEPEST || body.layer_r((base.z + key.span()) as f64) < heights.min as f64 {
+        return Vec::new();
+    }
+    // the level of every (coarse) column and the ring around it, in layers: rivers' and lakes', not the sea's
+    let m = n + 2;
+    let lv: Vec<Option<f64>> = (0..m * m)
+        .map(|k| {
+            let (ci, cj) = (base.x + (k % m) as i32 * s - s + s / 2, base.y + (k / m) as i32 * s - s + s / 2);
+            if !(0..body.n).contains(&ci) || !(0..body.n).contains(&cj) {
+                return None;
+            }
+            body.water_at(key.face, ci, cj).filter(|w| w.1 != crate::liquid::SEA).map(|w| w.0)
+        })
+        .collect();
+    let mut code: Vec<Option<(u32, u32)>> = vec![None; n * n];
+    for y in 0..n {
+        for x in 0..n {
+            let at = |dx: i32, dy: i32| lv[(x as i32 + 1 + dx) as usize + (y as i32 + 1 + dy) as usize * m];
+            let Some(mut l) = at(0, 0) else { continue };
+            let cz = (l / s as f64).floor() as i32;
+            if cz.div_euclid(CS) != key.pos.z || wet.binary_search(&Col::new(key.body, key.face, base.x + x as i32 * s, base.y + y as i32 * s).tile()).is_ok() {
+                continue;
+            }
+            let zl = (cz - key.pos.z * CS) as usize;
+            let solid = match gen {
+                Gen::Cells(c) => c[pidx(x + 1, y + 1, zl + 1)] != 0,
+                Gen::Solid => true,
+                Gen::Empty => false,
+            };
+            // the fall a column, from the neighbours that hold water too
+            let fall = |a: Option<f64>, b: Option<f64>| match (a, b) {
+                (Some(a), Some(b)) => (b - a) / 2.0,
+                (Some(a), None) => l - a,
+                (None, Some(b)) => b - l,
+                _ => 0.0,
+            } / s as f64;
+            let (mut gx, mut gy) = (fall(at(-1, 0), at(1, 0)), fall(at(0, -1), at(0, 1)));
+            if solid {
+                // a block that holds the level stands out of it; a coarse cell's water lies on its top
+                if key.level == 0 {
+                    continue;
+                }
+                (l, gx, gy) = (((cz + 1) * s) as f64, 0.0, 0.0);
+            }
+            let q = |g: f64| ((g * 256.0).round().clamp(-63.0, 63.0) as i32 & 127) as u32;
+            let lvl = ((l - base.z as f64) * 64.0).round().clamp(0.0, (1 << 18) as f64 - 1.0) as u32;
+            code[y * n + x] = Some((lvl | q(gx) << 18 | q(gy) << 25, (zl + 1) as u32));
+        }
+    }
+    let cap = (((2.0 * body.radius).sqrt() / BLOCK) as usize >> key.level).clamp(1, n);
+    let mut out = Vec::new();
+    for y in 0..n {
+        let mut x = 0;
+        while x < n {
+            let Some((c, z)) = code[y * n + x] else {
+                x += 1;
+                continue;
+            };
+            // only a level surface merges: a sloped one is a plane about its own column's middle
+            let (mut w, mut h) = (1, 1);
+            if c >> 18 == 0 {
+                while x + w < n && w < cap && code[y * n + x + w] == Some((c, z)) {
+                    w += 1;
+                }
+                while y + h < n && h < cap && (x..x + w).all(|i| code[(y + h) * n + i] == Some((c, z))) {
+                    h += 1;
+                }
+            }
+            for v in y..y + h {
+                for u in x..x + w {
+                    code[v * n + u] = None;
+                }
+            }
+            out.push([x as u32 | (y as u32) << 6 | z << 12 | ((w - 1) as u32) << 18 | ((h - 1) as u32) << 23 | 5 << 28, c]);
             x += w;
         }
     }

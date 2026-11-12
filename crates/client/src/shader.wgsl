@@ -757,6 +757,8 @@ struct WOut {
     @location(1) normal: vec3f,
     @location(2) @interpolate(flat) side: u32,
     @location(3) @interpolate(flat) body: u32,
+    // a river's flow (W5): xyz its direction from the camera times its speed (m/s), w the distance along it (m)
+    @location(4) flow: vec4f,
 };
 
 // the outward direction at grid point (gi, gj) of a face, and the face's normal and in-face axes
@@ -789,6 +791,7 @@ fn wout(bi: u32, up: vec3f, layer: f32, normal: vec3f, side: u32) -> WOut {
     o.normal = brot(b, normal);
     o.side = side;
     o.body = bi;
+    o.flow = vec4f(0.0);
     return o;
 }
 
@@ -814,16 +817,39 @@ fn vs_sea(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) ->
     let c = chunks[ii];
     let level = (c.info >> 3u) & 31u;
     let b = g.bodies[(c.info >> 8u) & 255u];
-    let at = (sub + vec2f(cu[k], cv[k])) / f32(SEA_SUB);
-    let gp = vec2f(c.base.xy) + (p + at * vec2f(w, h)) * f32(1u << level);
+    let river = (lo >> 28u) == 5u;
+    var at = (sub + vec2f(cu[k], cv[k])) / f32(SEA_SUB);
+    if (river && w * h == 1.0) {
+        // a river's column is small: one piece draws it, the others are empty
+        if (piece != 0u) { var o: WOut; o.clip = vec4f(0.0, 0.0, -1.0, 1.0); return o; }
+        at = vec2f(cu[k], cv[k]);
+    }
+    let s = f32(1u << level);
+    let gp = vec2f(c.base.xy) + (p + at * vec2f(w, h)) * s;
     let f = frame_at(c.info & 7u, b, gp.x, gp.y);
+    let bi = (c.info >> 8u) & 255u;
+    if (river) {
+        // its level at the column's middle and its fall a column along i and j (world.rs river_quads)
+        let fall = vec2f(f32(i32(q.y << 7u) >> 25u), f32(i32(q.y) >> 25u)) / 256.0;
+        let layer = f32(c.base.z) + f32(q.y & 0x3ffffu) / 64.0 + dot(fall, (at * vec2f(w, h) - 0.5) * s);
+        let tilt = f.s * fall.x + f.t * fall.y;
+        var o = wout(bi, f.up, layer, normalize(f.up - tilt * (b.lnq / b.theta)), 0u);
+        let g2 = length(fall);
+        if (g2 > 0.0) {
+            // downhill, as fast as it is steep: 0.5 m/s on the flat to 3 m/s down rapids
+            let d2 = -fall / g2;
+            let speed = clamp(0.5 + 30.0 * g2, 0.5, 3.0);
+            o.flow = vec4f(brot(b, normalize(-tilt)) * speed, dot(gp, d2));
+        }
+        return o;
+    }
     // a far coarse cell that holds the sea level but is solid: the water lies a layer over its top, or the
     // top face hides it
     var layer = b.sea;
     if (q.y == 1u) {
         layer = max(layer, f32(c.base.z + (i32((lo >> 12u) & 63u) << level)) + 1.0);
     }
-    return wout((c.info >> 8u) & 255u, f.up, layer, f.up, 0u);
+    return wout(bi, f.up, layer, f.up, 0u);
 }
 
 @vertex
@@ -879,6 +905,13 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     let v = normalize(-i.rel);
     var n = normalize(i.normal);
     if (dot(n, v) < 0.0) { n = -n; } // seen from under the surface
+    let speed = length(i.flow.xyz);
+    if (speed > 0.0) {
+        // a river: ripples across it, running downstream at its speed
+        let ph = i.flow.w - g.sun.w * speed;
+        let a = sin(ph * 3.1) + 0.6 * sin(ph * 7.7 + 1.3) + 0.3 * sin(ph * 17.0 + 4.0);
+        n = normalize(n + i.flow.xyz / speed * a * 0.07);
+    }
     let facing = max(dot(n, v), 0.0);
     let fres = 0.08 + 0.92 * pow(1.0 - facing, 5.0);
     let l = light(i.rel, n, i.body, vec2u(i.clip.xy));
@@ -887,6 +920,8 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     col = mix(col, g.sky.rgb + vec3f(0.17, 0.13, 0.01) * l.day, fres * 0.7);
     col += g.sun_col.rgb * 1.5 * l.sun * pow(max(dot(reflect(-g.sun.xyz, n), v), 0.0), 120.0);
     var a = clamp(0.62 + 0.35 * fres, 0.0, 0.96);
+    // rapids churn white
+    col = mix(col, vec3f(0.85, 0.92, 1.0), 0.3 * smoothstep(1.5, 3.0, speed));
     if (i.side == 1u) {
         // a front or a fall: churned, lighter
         col = mix(col, vec3f(0.85, 0.92, 1.0), 0.25);

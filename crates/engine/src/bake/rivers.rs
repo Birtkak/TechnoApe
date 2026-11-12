@@ -653,6 +653,129 @@ mod tests {
         }
     }
 
+    /// Rivers and lakes are drawn (W5, ADR 0059): the chunk that holds a river's or a lake's level gets a
+    /// water quad over each wet column at its generated level (kind 5, its level in 1/64 layer over the
+    /// chunk's base).
+    #[test]
+    fn rivers_and_lakes_get_surface_quads_at_their_level() {
+        use crate::world::{generate, river_quads, Key, CS};
+        use glam::IVec3;
+        let map = MAP.clone();
+        let w = World::with_map(map.n, 32, map.seed, Some(map.clone()));
+        let b = &w.bodies[0];
+        let (mut hit, mut tried) = (0, 0);
+        let pts = map.lines.segs.iter().filter(|g| !g.lake && g.fill[0] > 0.3).step_by(5).map(|g| g.a.normalize());
+        for d in pts.take(60) {
+            let blk = w.block_at(d * b.radius);
+            let Some((top, acct, _)) = b.water_at(blk.face, blk.pos.x, blk.pos.y) else { continue };
+            if acct == crate::liquid::SEA {
+                continue;
+            }
+            tried += 1;
+            let key = Key { body: 0, face: blk.face, level: 0, pos: IVec3::new(blk.pos.x.div_euclid(CS), blk.pos.y.div_euclid(CS), (top.floor() as i32).div_euclid(CS)) };
+            let qs = river_quads(b, key, &[], &generate(b, key, &[]));
+            let (x, y) = (blk.pos.x - key.base().x, blk.pos.y - key.base().y);
+            let q = qs.iter().find(|q| {
+                let (qx, qy, qw, qh) = ((q[0] & 63) as i32, (q[0] >> 6 & 63) as i32, (q[0] >> 18 & 31) as i32 + 1, (q[0] >> 23 & 31) as i32 + 1);
+                (qx..qx + qw).contains(&x) && (qy..qy + qh).contains(&y)
+            });
+            if let Some(q) = q {
+                assert_eq!(q[0] >> 28, 5, "a river quad");
+                let level = key.base().z as f64 + (q[1] & 0x3ffff) as f64 / 64.0;
+                assert!((level - top).abs() < 0.05, "drawn at {level:.3}, the water's top {top:.3}");
+                hit += 1;
+            }
+        }
+        assert!(tried > 10 && hit > tried * 2 / 3, "{hit} of {tried} river columns drawn");
+    }
+
+    /// A walker follows a river from its spring to the sea (W5, ADR 0059): the longest river wet all the way,
+    /// walked and swum by the player's own physics, is in the water nearly all the way and reaches the sea.
+    #[test]
+    fn a_walker_follows_a_river_from_spring_to_sea_in_water() {
+        use crate::liquid::Ground;
+        use crate::phys::{self, Input, Player};
+        let map = MAP.clone();
+        let w = World::with_map(map.n, 32, map.seed, Some(map.clone()));
+        let segs = &map.lines.segs;
+        let mut fed = vec![false; segs.len()];
+        for g in segs {
+            if g.next != NONE {
+                fed[g.next as usize] = true;
+            }
+        }
+        // each spring's course down to the sea, if it is wet and out of lakes all the way
+        let course = |k0: usize| {
+            let mut v = vec![k0];
+            while segs[*v.last().unwrap()].next != NONE {
+                v.push(segs[*v.last().unwrap()].next as usize);
+            }
+            v.iter().all(|&k| !segs[k].lake && segs[k].fill[0].min(segs[k].fill[1]) > 0.0).then_some(v)
+        };
+        let path = (0..segs.len()).filter(|&k| !fed[k]).filter_map(course).max_by_key(|v| v.len()).expect("a river wet from spring to sea");
+        let ends: Vec<DVec3> = std::iter::once(segs[path[0]].a).chain(path.iter().map(|&k| segs[k].b)).map(|p| p.normalize()).collect();
+        // a point every metre or so along the line, the walker heading for each in turn
+        let pts: Vec<DVec3> = ends.windows(2).flat_map(|q| {
+            let n = ((q[1] - q[0]).length() * map.radius()).ceil().max(1.0) as usize;
+            (0..n).map(move |k| q[0].lerp(q[1], k as f64 / n as f64).normalize())
+        }).chain(ends.last().copied()).collect();
+        let b = &w.bodies[0];
+        let mut p = Player::at(b.centre + pts[0] * (b.height(pts[0]) + 0.5), DVec3::X);
+        let (mut next, mut wet, mut ticks) = (1, 0, 0);
+        // a walker that stops making way sidesteps for a while, one way then the other (a bank's corner at a
+        // bend catches its box, as it would a player's)
+        let (mut was, mut side, mut stalls) = (p.pos, 0, 0.0f32);
+        let length: f64 = pts.windows(2).map(|q| (q[1] - q[0]).length() * b.radius).sum();
+        while next < pts.len() && ticks < (length * 60.0) as usize + 3600 {
+            let to = b.centre + pts[next] * b.radius;
+            let up = phys::up(&w, p.pos);
+            let ahead = (to - p.pos) - up * (to - p.pos).dot(up);
+            if ahead.length() < 1.5 {
+                next += 1;
+                continue;
+            }
+            if ticks % 60 == 0 {
+                if (p.pos - was).length() < 1.0 && side == 0 {
+                    stalls += 1.0;
+                    side = 40;
+                }
+                was = p.pos;
+            }
+            let strafe = if side > 0 { side -= 1; if stalls % 2.0 == 1.0 { 1.0 } else { -1.0 } } else { 0.0 };
+            let inp = Input { mv: [if side > 0 { 0.3 } else { 1.0 }, strafe], jump: true, fwd: ahead.normalize().as_vec3().to_array(), ..Default::default() };
+            phys::step(&w, &mut p, &inp, 1.0 / 60.0);
+            // in the water: the column it is over holds water (it hops along with jump held)
+            let (lo, hi) = w.ground().generated(World::col(w.block_at(p.pos)));
+            wet += (lo < hi) as usize;
+            ticks += 1;
+        }
+        assert_eq!(next, pts.len(), "reached point {next} of {} after {:.0} s ({length:.0} m)", pts.len(), ticks as f64 / 60.0);
+        assert!(wet * 10 >= ticks * 9, "in the water {wet} of {ticks} ticks along {length:.0} m");
+    }
+
+    /// No plant grows in a river or a lake (W5): every plant's foot by a river stands over its water.
+    #[test]
+    fn no_plant_stands_in_a_river() {
+        use crate::biomes::SPACING;
+        let map = MAP.clone();
+        let w = World::with_map(map.n, 32, map.seed, Some(map.clone()));
+        let b = &w.bodies[0];
+        let (mut feet, mut near) = (0, 0);
+        for g in map.lines.segs.iter().filter(|g| !g.lake && g.fill[0] > 0.3).step_by(3) {
+            let blk = w.block_at(g.a.normalize() * b.radius);
+            let (cx, cy) = (blk.pos.x / SPACING, blk.pos.y / SPACING);
+            for (dx, dy) in (-2..=2).flat_map(|x| (-2..=2).map(move |y| (x, y))) {
+                let Some(f) = b.candidate(blk.face as usize, cx + dx, cy + dy) else { continue };
+                feet += 1;
+                if let Some((top, acct, _)) = b.water_at(blk.face, f.i, f.j) {
+                    near += (acct != crate::liquid::SEA) as usize;
+                    assert!(f.z as f64 > top, "a plant at layer {} in water up to {top:.2}", f.z);
+                }
+            }
+        }
+        assert!(feet > 50, "{feet} plants by the rivers ({near} by their water)");
+    }
+
     /// The detail follows the slope (ADR 0058): on the game's own heights, steep ground is several times
     /// rougher than a plain, and the sea floor by the coast stays calm under its water. Measured as the RMS
     /// of the ground over the map's spline, away from the river beds.

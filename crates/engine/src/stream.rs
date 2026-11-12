@@ -1,7 +1,7 @@
 //! LOD octree selection, job scheduling on worker threads, GPU sub-allocation of chunk meshes.
 use crate::mesh::{mesh, Mesh};
 use crate::liquid::{Col, TILE};
-use crate::world::{fold, generate, sea_cell, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS};
+use crate::world::{fold, generate, river_quads, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS};
 use glam::{DQuat, DVec3, IVec3, Vec4};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::Instant;
@@ -528,10 +528,7 @@ impl Streamer {
             let greedy = self.opts.greedy;
             // tiles of stored water are the water mesh's; a coarse column lies within one tile up to level 4, and past
             // that a far chunk's sea covers them (shortcut: a flood far away shows as sea level)
-            let wet = match sea_cell(&bodies[k.body as usize], k) {
-                Some(_) if 1 << k.level <= TILE => world.water.wet_tiles(k.body, k.face, k.base().x, k.base().y, k.span()),
-                _ => Vec::new(),
-            };
+            let wet = if 1 << k.level <= TILE { world.water.wet_tiles(k.body, k.face, k.base().x, k.base().y, k.span()) } else { Vec::new() };
             let queued = Instant::now();
             rayon::spawn(move || {
                 let t = Instant::now();
@@ -542,7 +539,8 @@ impl Streamer {
                     Gen::Cells(c) => Some(mesh(c, if greedy { body.lattice(k.level) as usize } else { 1 })).filter(|m| !m.quads.is_empty()),
                     _ => None,
                 };
-                let sea = sea_quads(body, k, &wet, &gen);
+                let mut sea = sea_quads(body, k, &wet, &gen);
+                sea.extend(river_quads(body, k, &wet, &gen));
                 if !sea.is_empty() {
                     let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], water: 0 });
                     m.water = sea.len() as u32;

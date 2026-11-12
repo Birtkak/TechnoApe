@@ -1553,6 +1553,11 @@ mod tests {
         let got = drain(l);
         assert!(got.contains(&ToClient::Done { seq: 3, ok: true }) && got.contains(&ToClient::Done { seq: 4, ok: true }));
         assert_eq!((s.clients[0].water, s.made), (0, U));
+        // stored while it moves: a save and a load keep it
+        assert!(s.world.water.stored() > 0);
+        let back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
+        assert_eq!((back.hash() == s.hash(), back.water_ledger()), (false, 0), "players differ, water does not");
+        assert_eq!(back.world.water.all(), s.world.water.all());
         for _ in 0..200 {
             s.tick();
             assert_eq!(s.water_ledger(), 0);
@@ -1561,10 +1566,8 @@ mod tests {
         l.send(ToServer::Bucket { seq: 5, at: s.world.block_at(b.centre - d * sea), fill: true });
         s.tick();
         assert!(drain(l).contains(&ToClient::Done { seq: 5, ok: false }));
-        let back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
-        assert_eq!((back.hash() == s.hash(), back.water_ledger()), (false, 0), "players differ, water does not");
-        assert_eq!(back.world.water.all(), s.world.water.all());
-        assert!(s.world.water.stored() > 0);
+        // settled level with the sea again: forgotten, what it brought booked to the sea
+        assert_eq!((s.world.water.stored(), s.world.water.sea_extra), (0, U));
     }
 
     #[test]
