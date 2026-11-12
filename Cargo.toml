@@ -14,6 +14,13 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 
+# Hand-over builds (tools/playtest.sh): release's speed without fat LTO's minutes of linking. Every
+# performance number still comes from `release`.
+[profile.play]
+inherits = "release"
+lto = false
+codegen-units = 16
+
 # The bake's air runs a year even on the tests' small planets (W3): unoptimised it took minutes. Floats
 # give the same bits at any opt-level (no fast-math), so this changes speed only.
 [profile.test.package.engine]

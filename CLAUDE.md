@@ -25,7 +25,8 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
    run for behaviour and numbers, a filmstrip for visuals. Show the evidence. **Red, then green:** for a bug
    (F9 reports too) or new logic, write the test first and watch it fail for the right reason, then make it
    pass; a test never seen failing proves nothing. An optimisation keeps the slow path as its test's reference.
-   A Stop hook (`tools/stop-check.sh`) runs `cargo test` when a session that edited `crates/` ends its turn.
+   A Stop hook (`tools/stop-check.sh`) runs the tests of the crates a session edited, and of those that depend
+   on them, when it ends its turn.
 5. **The design doc wins over code** when they disagree; fix one of them explicitly.
 6. **Data-driven content:** items, recipes, machines, materials and biomes are data files with a schema and
    tests.
@@ -43,6 +44,13 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 12. **The author does not review.** Before a commit that changes engine, server or shader code, a fresh
     reviewer that did not write it reads the diff (`/code-review`, or a subagent given the diff and the task,
     not the author's summary). Fix or answer each finding; the ADR row says what the review found.
+13. **The tool tier is lighter** (the developer, 2026-11-12: too much waiting on checks that did not matter).
+    A change that touches only `crates/studio`, `tools/` and `docs/` needs its tests and, for something seen,
+    a shot that was read; red then green still holds. It gets **one ADR per round**, not per step, and a
+    fresh reviewer only when the diff is over about 300 lines. Such a branch is **merged into main without
+    asking** once its tests pass, `build/` is refreshed, and the developer is told after. Anything in
+    `crates/engine`, `crates/server`, `crates/client` or a shader keeps principles 2 and 12 in full and waits
+    for the developer before it is merged.
 
 ## Stack
 
@@ -101,7 +109,8 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 - **Builds for the developer** (double-click; without arguments the title menu opens on screen in the repository's
   folder, saves/ and bugs/: Singleplayer lists the saves and makes new worlds): `bash tools/playtest.sh build` refreshes `build/TechnoApe.exe` after every change
   that can be run; `bash tools/playtest.sh` refreshes `playtest/TechnoApe.exe` only when handing a version over
-  to play-test. `target/` is Claude's own.
+  to play-test. Both are built with the `play` profile (fast to link, for trying things); `--release` with
+  its fat LTO is only for performance numbers. `target/` is Claude's own.
 - **The Studio** (`technoape-studio`, `crates/studio`, ADR 0044 and 0046; handed over as `build/TechnoApeStudio.exe`):
   paints `data/textures/*.png` from `data/palette.toml`. Headless, one JSON line: `check=1` (palette and every
   texture; exit 1 names file and pixel), `drafts=1` (`data/drafts.txt`), `render=<png> sheet=out/x.png` (3 x 3),
