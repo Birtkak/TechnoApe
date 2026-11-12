@@ -2,7 +2,10 @@
 
 - **Status:** design proposal, 2026-11-10, for the two spikes of `worldgen-plan.md` W5. The developer's
   calls: rivers and lakes hold real counted water (ADR 0020, 0026) and tides follow Luna (ADR 0026).
-  The tide's height is an open taste call. The rest is routine technical default until spiked.
+  The tide's height is decided (2026-11-12): **1 m between low and high at springs**, one number in the
+  body's data. Rivers and lakes are built before tides (the developer, 2026-11-12); until W3's air grid
+  runs live, a reach's runoff is the bake's mean rain over its catchment. The rest is routine technical
+  default until spiked.
 - **The rule both obey** (ADR 0020): water that is doing what generation says costs nothing and is stored
   nowhere. Only disturbed water is simulated. Every unit is counted either way.
 
@@ -67,7 +70,7 @@
   - spring tides when the sun and Luna line up, weak ones at half moon (*proposal:* the sun at a third of
     Luna's pull);
   - because Luna's orbit is tilted 40°, the two daily tides differ, and by latitude.
-- **Taste call:** the height. *Proposal:* 1 m between low and high at springs (2 blocks in 5 minutes: you
+- **The height** (decided 2026-11-12): 1 m between low and high at springs (2 blocks in 5 minutes: you
   can watch it, it will not drown you). On a 1 : 20 beach that is a tidal flat 20 m wide.
 
 ### What changes in the engine

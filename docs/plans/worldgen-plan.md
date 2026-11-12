@@ -84,6 +84,9 @@ in `tests/views/`.
   against what `progression.md` needs per tier; a bot digs a body out and the ledger reaches zero.
 
 ### W5. Rivers, lakes and tides
+**Calls (the developer, 2026-11-12):** rivers and lakes first, tides after; the tide is 1 m low to high at
+springs. W3's air grid is not live yet, so a reach's runoff is the bake's mean rain over its catchment
+until it is; the reach graph takes the live rain later without a change of shape.
 - Spike: a river reach at rest described by the bake, live water when disturbed, the ledger across the
   hand-over (ADR 0020's still sea is the model).
 - Spike: a sea level that moves with Luna, in the shader, the physics and the waterline rule.
