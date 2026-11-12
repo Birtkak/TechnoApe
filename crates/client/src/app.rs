@@ -96,6 +96,8 @@ pub(crate) struct App {
     /// The effects (ADR 0031): the particle pool and the particles drawn this frame; the block in hand's dip
     /// (a track, from the clock `start`); `walked` bobs it.
     pub(crate) fx: fx::Fx,
+    /// The voxel models and this frame's draws of them (ADR 0047).
+    pub(crate) models: models::Models,
     pub(crate) fx_n: u32,
     pub(crate) dip: fx::Track<[f32; 2]>,
     /// Blocks this player placed, growing into place: when their mesh may show (the clock `start`), the cell,
@@ -241,6 +243,8 @@ pub(crate) struct App {
     /// (a world picked, or back to the title).
     pub(crate) worlds: Vec<String>,
     pub(crate) next: Option<Vec<String>>,
+    /// run=view: the Studio's commands and camera (ADR 0049).
+    pub(crate) view: Option<view::ViewRun>,
 }
 
 /// What the last frame drew, for F3 and bug reports.

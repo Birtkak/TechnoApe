@@ -117,6 +117,7 @@ off the list when the developer saves it. A release check can refuse to ship whi
 ## Later pages
 - **Effects:** edit the rows of `data/effects.toml` with a live preview (ADR 0031).
 - **Trees and structures:** build from whole world blocks; world generation places them.
+  Built (ADR 0052) as one Structures page for hand-made and grown files; world generation does not place them yet.
 
 Both wait until textures and models are in use. The Studio's shell (file list, preview, undo, save, the
 watch on `data/`) is built once in steps 3 and 5 and these pages reuse it.

@@ -1,10 +1,17 @@
 //! The Studio's frame (docs/design/studio-tools.md "The interface"): a bar of pages, the files column, the work
 //! area, the inspector and the status line, with the command box, the key sheet, toasts, the problems list and
 //! the watch on `data/`. A page plugs in through [`Page`]; the editing itself is `art`'s, the frame's logic
-//! `shell`'s. Pages: `textures`, `palette`.
+//! `shell`'s. Pages: `textures`, `palette`, `models`, `sounds`, `effects`; `viewport` is the game's renderer they share.
 pub mod look;
+mod fauna;
+mod models;
+mod effects;
 mod palette;
+mod sounds;
+mod structures;
 mod textures;
+pub mod viewport;
+mod wall;
 
 use crate::art::{self, Doc, Img};
 use crate::shell::{self, Filter, Flags, Outside, Settings, Watch, FILTERS};
@@ -86,6 +93,18 @@ pub trait Page {
     fn back_to(&mut self, _app: &mut App, _n: usize) {}
     /// After files changed on disk: keep the page's own state in range.
     fn refresh(&mut self, _app: &App) {}
+    /// Whether the files column has a tree of the open file under its rows (the Models page's parts).
+    fn has_tree(&self) -> bool {
+        false
+    }
+    fn tree(&mut self, _ui: &mut Ui, _app: &mut App) {}
+    /// The page's own files with unsaved work (the textures are the frame's), and saving them all.
+    fn unsaved(&self) -> Vec<String> {
+        vec![]
+    }
+    fn save_all(&mut self, _app: &mut App) {}
+    /// For `shot=`: wait for what the page shows to be drawn (the game's renderer).
+    fn settle(&mut self, _ctx: &egui::Context, _app: &mut App) {}
 }
 
 struct Toast {
@@ -110,6 +129,10 @@ pub struct App {
     /// Texture files changed on disk under unsaved work: the developer picks which to keep.
     asks: Vec<String>,
     now: f64,
+    /// The game's renderer, shared by the pages (ADR 0049).
+    pub view: viewport::Viewport,
+    /// A shot: no sound card is opened.
+    pub quiet: bool,
 }
 
 impl App {
@@ -282,6 +305,8 @@ pub struct Studio {
     last_poll: f64,
     closing: bool,
     quit: bool,
+    /// Opens the history list next frame (its command).
+    history_open: Option<bool>,
     /// Off for a shot: it never writes the developer's studio.txt.
     write_settings: bool,
 }
@@ -289,6 +314,7 @@ pub struct Studio {
 impl Studio {
     pub fn keep_settings(&mut self) {
         self.write_settings = false;
+        self.app.quiet = true;
     }
 
     /// Reads `data/` in the working folder: the blocks, the palette, every texture and the drafts list.
@@ -317,15 +343,18 @@ impl Studio {
             problems: vec![],
             pointer: String::new(),
             toasts: vec![],
-            watch: Watch::new(&[PAL, DRAFTS, BLOCKS], &[TEX]),
+            watch: Watch::new(&[PAL, DRAFTS, BLOCKS, sounds::SOUNDS, effects::EFFECTS, fauna::FILE], &[TEX, structures::DIR, models::MODELS]),
             asks: vec![],
             now: 0.0,
+            view: viewport::Viewport::new(),
+            quiet: false,
         };
         for r in refused {
             app.refuse(format!("Refused on load: {r}"));
         }
         app.check();
-        let mut pages: Vec<Box<dyn Page>> = vec![Box::new(textures::Textures::new(&app)), Box::new(palette::PalettePage::new(&app))];
+        let mut pages: Vec<Box<dyn Page>> = vec![Box::new(textures::Textures::new(&app)), Box::new(palette::PalettePage::new(&app)), Box::new(models::Models::new(&app)), Box::new(sounds::Sounds::new(&app)), Box::new(effects::Effects::new(&app)), Box::new(structures::Structures::new(&app))];
+        pages.push(Box::new(fauna::Fauna::new(&app)));
         if let Some(b) = open {
             pages[0].open(&mut app, b);
         }
@@ -346,6 +375,7 @@ impl Studio {
             closing: false,
             quit: false,
             write_settings: true,
+            history_open: None,
         })
     }
 
@@ -373,6 +403,7 @@ impl Studio {
             Cmd::new("frame:commands", "Command box", "find any file, page, tool or action and run it").key(Modifiers::COMMAND, Key::P),
             Cmd::new("frame:keys", "Key sheet", "every key of this page").key(Modifiers::NONE, Key::F1),
             Cmd::new("frame:problems", "Problems", "what the file check refuses; a click opens the file"),
+            Cmd::new("frame:history", "History", "the open file's undo steps by name; a click goes back to one"),
             Cmd::new("frame:larger", "Interface larger", "the interface scale up a step (80 to 200 %)").key(Modifiers::COMMAND, Key::Equals),
             Cmd::new("frame:smaller", "Interface smaller", "the interface scale down a step").key(Modifiers::COMMAND, Key::Minus),
             Cmd::new("frame:scale100", "Interface at 100 %", "the interface scale back to 100 %").key(Modifiers::COMMAND, Key::Num0),
@@ -390,11 +421,15 @@ impl Studio {
             }
             "frame:keys" => self.overlay = Overlay::Keys,
             "frame:problems" => self.overlay = Overlay::Problems,
+            "frame:history" => self.history_open = Some(true),
             "frame:larger" => self.settings.scale = step(self.settings.scale, 0.1),
             "frame:smaller" => self.settings.scale = step(self.settings.scale, -0.1),
             "frame:scale100" => self.settings.scale = 1.0,
             _ => {
-                if let Some(name) = id.strip_prefix("page:") {
+                if let Some(h) = id.strip_prefix("hour:").and_then(|h| h.parse::<f32>().ok()) {
+                    // the game view's Time slider (for `shot= cmd=hour:18`)
+                    self.app.view.hour = h.rem_euclid(24.0);
+                } else if let Some(name) = id.strip_prefix("page:") {
                     if let Some(i) = self.pages.iter().position(|p| p.name().eq_ignore_ascii_case(name)) {
                         self.page = i;
                     }
@@ -409,6 +444,44 @@ impl Studio {
             }
         }
     }
+    /// For `shot=`: the open page's game view drawn and settled.
+    pub fn settle(&mut self, ctx: &egui::Context) {
+        self.pages[self.page].settle(ctx, &mut self.app);
+    }
+    /// The renderer's numbers, for the shot's JSON line.
+    pub fn view_report(&self) -> String {
+        self.app.view.report()
+    }
+
+    /// For `shot= input=`: what a script can check without reading the picture.
+    pub fn drive_report(&self) -> String {
+        let p = &self.pages[self.page];
+        let mut unsaved: Vec<String> = self.app.docs.iter().filter(|(_, d)| d.dirty()).map(|(n, _)| n.clone()).collect();
+        unsaved.extend(self.pages.iter().flat_map(|p| p.unsaved()));
+        let toasts: Vec<String> = self.app.toasts.iter().map(|t| t.text.clone()).collect();
+        let (undo, redo) = p.history(&self.app).unwrap_or_default();
+        let overlay = match self.overlay {
+            Overlay::None => "none",
+            Overlay::Commands => "commands",
+            Overlay::Keys => "keys",
+            Overlay::Problems => "problems",
+        };
+        let js = |v: &[String]| format!("[{}]", v.iter().map(|s| crate::js(s)).collect::<Vec<_>>().join(","));
+        format!(
+            "{{\"page\":{},\"open\":{},\"unsaved\":{},\"toasts\":{},\"undo\":{},\"redo\":{},\"overlay\":\"{overlay}\",\"closing\":{},\"search\":{},\"query\":{},\"scale\":{}}}",
+            crate::js(p.name()),
+            p.current().map_or("null".into(), |c| crate::js(&c)),
+            js(&unsaved),
+            js(&toasts),
+            js(&undo),
+            js(&redo),
+            self.closing,
+            crate::js(&self.search),
+            crate::js(&self.query),
+            self.settings.scale
+        )
+    }
+
     /// Opens the command box with some text typed (for `shot=`).
     pub fn type_query(&mut self, q: &str) {
         self.run_command("frame:commands");
@@ -420,6 +493,8 @@ impl Studio {
         let Some(file) = shell::problem_file(line) else { return self.app.toast("That problem names no file") };
         if file == PAL {
             self.run_command("page:Palette");
+        } else if let Some(m) = file.strip_prefix("data/models/").and_then(|f| f.strip_suffix(".toml")) {
+            self.run_command(&format!("open:Models:{m}"));
         } else if let Some(block) = art::block_of(file, self.app.reg.placeable().map(|d| d.name.as_str())) {
             self.run_command(&format!("open:Textures:{block}"));
         } else {
@@ -437,6 +512,7 @@ impl Studio {
         if (ctx.zoom_factor() - self.settings.scale).abs() > 1e-3 {
             ctx.set_zoom_factor(self.settings.scale);
         }
+        crate::drive::clear(&ctx);
         self.app.now = ctx.input(|i| i.time);
         // the watch: a cheap look at the modified times about once a second
         if self.app.now - self.last_poll >= 1.0 {
@@ -452,10 +528,18 @@ impl Studio {
 
         egui::Panel::top("pages").show(ui, |ui| self.top_bar(ui));
         egui::Panel::bottom("status").exact_size(30.0).show(ui, |ui| self.status_line(ui));
-        let files = egui::Panel::left("files").resizable(true).default_size(self.settings.files_w).size_range(Settings::FILES.0..=Settings::FILES.1).show(ui, |ui| self.files(ui));
-        let insp = egui::Panel::right("inspector").resizable(true).default_size(self.settings.inspector_w).size_range(Settings::INSPECTOR.0..=Settings::INSPECTOR.1).show(ui, |ui| self.inspector(ui));
-        egui::CentralPanel::default().show(ui, |ui| self.pages[self.page].work(ui, &mut self.app));
-        (self.settings.files_w, self.settings.inspector_w) = (files.response.rect.width().round(), insp.response.rect.width().round());
+        // at a large scale on a small window the side panels give way to the work
+        let wide = ctx.content_rect().width();
+        // (the centre keeps at least half the window; what does not fit a column scrolls, never runs under another)
+        let files = egui::Panel::left("files").resizable(true).default_size(self.settings.files_w).size_range(Settings::FILES.0.min(wide * 0.18)..=Settings::FILES.1.min(wide * 0.2)).show(ui, |ui| self.files(ui));
+        let insp = egui::Panel::right("inspector").resizable(true).default_size(self.settings.inspector_w).size_range(Settings::INSPECTOR.0.min(wide * 0.26)..=Settings::INSPECTOR.1.min(wide * 0.3)).show(ui, |ui| self.inspector(ui));
+        egui::CentralPanel::default().show(ui, |ui| {
+            egui::ScrollArea::both().id_salt("work").auto_shrink([false, false]).show(ui, |ui| self.pages[self.page].work(ui, &mut self.app));
+        });
+        // only a drag of an edge sets the widths kept, not a panel squeezed by a large scale
+        if ctx.input(|i| i.pointer.any_down()) {
+            (self.settings.files_w, self.settings.inspector_w) = (files.response.rect.width().round(), insp.response.rect.width().round());
+        }
 
         self.overlays(&ctx);
         self.toasts(&ctx);
@@ -496,17 +580,10 @@ impl Studio {
     }
 
     fn top_bar(&mut self, ui: &mut Ui) {
+        // the buttons on the right first, then the title and the page tabs in what is left, wrapping to a second
+        // row in a narrow window
+        let narrow = ui.available_width() < 1100.0;
         ui.horizontal(|ui| {
-            ui.add_space(GAP * 0.5);
-            ui.label(RichText::new("TechnoApe Studio").strong().color(Color32::from_gray(170)));
-            ui.add_space(GAP * 2.0);
-            for i in 0..self.pages.len() {
-                let name = self.pages[i].name();
-                let r = ui.add(egui::Button::selectable(self.page == i, RichText::new(name).strong()).min_size(Vec2::new(90.0, 26.0)));
-                if look::tip(r, &format!("The {name} page"), "Ctrl+P, then its name").clicked() {
-                    self.page = i;
-                }
-            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let pct = format!("{:.0} %", self.settings.scale * 100.0);
                 let r = ui.menu_button(pct, |ui| {
@@ -517,15 +594,33 @@ impl Studio {
                         }
                     }
                 });
+                crate::drive::mark(ui.ctx(), "scale", r.response.rect);
                 look::tip(r.response, "Interface scale, kept in studio.txt", "Ctrl+= and Ctrl+-");
                 let r = ui.button("Keys");
+                crate::drive::mark(ui.ctx(), "keys", r.rect);
                 if look::tip(r, "Every key of this page", "F1").clicked() {
                     self.overlay = Overlay::Keys;
                 }
                 let r = ui.button("Find…");
+                crate::drive::mark(ui.ctx(), "find", r.rect);
                 if look::tip(r, "Find any file, page, tool or action and run it", "Ctrl+P").clicked() {
                     self.run_command("frame:commands");
                 }
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true), |ui| {
+                    ui.add_space(GAP * 0.5);
+                    if !narrow {
+                        ui.label(RichText::new("TechnoApe Studio").strong().color(Color32::from_gray(170)));
+                        ui.add_space(GAP * 2.0);
+                    }
+                    for i in 0..self.pages.len() {
+                        let name = self.pages[i].name();
+                        let r = ui.add(egui::Button::selectable(self.page == i, RichText::new(name).strong()).min_size(Vec2::new(if narrow { 0.0 } else { 90.0 }, 26.0)));
+                        crate::drive::mark(ui.ctx(), format!("tab:{name}"), r.rect);
+                        if look::tip(r, &format!("The {name} page"), "Ctrl+P, then its name").clicked() {
+                            self.page = i;
+                        }
+                    }
+                });
             });
         });
     }
@@ -533,7 +628,7 @@ impl Studio {
     fn status_line(&mut self, ui: &mut Ui) {
         let page = &self.pages[self.page];
         let help = self.help.clone().unwrap_or_else(|| page.help());
-        let unsaved = self.app.docs.values().filter(|d| d.dirty()).count();
+        let unsaved = self.app.docs.values().filter(|d| d.dirty()).count() + self.pages.iter().map(|p| p.unsaved().len()).sum::<usize>();
         ui.horizontal_centered(|ui| {
             let full = ui.available_width();
             ui.allocate_ui(Vec2::new(full * 0.5, 20.0), |ui| {
@@ -547,7 +642,7 @@ impl Studio {
                     self.overlay = if self.overlay == Overlay::Problems { Overlay::None } else { Overlay::Problems };
                 }
                 ui.separator();
-                let saved = if unsaved == 0 { RichText::new("all saved").small().weak() } else { RichText::new(format!("● {unsaved} unsaved")).small().color(look::DRAFT) };
+                let saved = if unsaved == 0 { RichText::new("all saved").small().weak() } else { RichText::new(format!("{unsaved} unsaved")).small().color(look::DRAFT) };
                 look::tip(ui.label(saved), "Files with work not saved yet; Ctrl+S saves the open block", "Ctrl+S");
                 ui.separator();
                 ui.add(egui::Label::new(RichText::new(&self.app.pointer).small().monospace()).truncate());
@@ -558,6 +653,7 @@ impl Studio {
     fn files(&mut self, ui: &mut Ui) {
         ui.add_space(GAP);
         let r = ui.add(egui::TextEdit::singleline(&mut self.search).hint_text("Search").desired_width(f32::INFINITY));
+        crate::drive::mark(ui.ctx(), "search", r.rect);
         look::tip(r, "Search the files of this page by name", "");
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = Vec2::new(4.0, 4.0);
@@ -584,12 +680,25 @@ impl Studio {
             };
             look::tip(ui.label(text), "Drafts are Claude's; saving your own over one takes it off data/drafts.txt", "");
         });
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        if self.pages[self.page].has_tree() {
+            let (pages, app, i) = (&mut self.pages, &mut self.app, self.page);
+            let h = ui.available_height();
+            let r = egui::Panel::bottom("page tree").resizable(true).default_size(240.0f32.min(h * 0.45)).size_range(60.0f32.min(h * 0.2)..=(h * 0.7).max(60.0)).show(ui, |ui| {
+                // (never taller than the panel: a scroll area's least height would draw over the files)
+                egui::ScrollArea::both().id_salt("tree").min_scrolled_height(0.0).auto_shrink([false, false]).show(ui, |ui| {
+                    ui.add_space(GAP * 0.5);
+                    pages[i].tree(ui, app);
+                });
+            });
+            crate::drive::mark(ui.ctx(), "tree", r.response.rect);
+        }
+        let list = egui::ScrollArea::vertical().min_scrolled_height(0.0).auto_shrink([false, false]).show(ui, |ui| {
             if shown.is_empty() {
                 look::weak(ui, "nothing matches");
             }
             for row in shown {
                 let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::click());
+                crate::drive::mark(ui.ctx(), format!("file:{}", row.id), rect);
                 let p = ui.painter();
                 let on = cur.as_deref() == Some(row.id.as_str());
                 if on {
@@ -625,32 +734,34 @@ impl Studio {
                     right -= 16.0;
                 }
                 let x = thumb.max.x + GAP;
-                let mut label = row.label.clone();
-                if row.flags.dirty {
-                    label.push_str("  ●");
-                }
+                let label = row.label.clone();
                 let text_col = if row.flags.made || on { ui.visuals().strong_text_color() } else { ui.visuals().text_color() };
                 let g = p.layout_no_wrap(label, egui::FontId::proportional(look::BODY), text_col);
                 let clip = Rect::from_min_max(Pos2::new(x, rect.min.y), Pos2::new(right - 2.0, rect.max.y));
+                let end = x + g.size().x;
                 p.with_clip_rect(clip).galley(Pos2::new(x, rect.center().y - g.size().y / 2.0), g, text_col);
+                if row.flags.dirty {
+                    p.circle_filled(Pos2::new((end + 9.0).min(right - 6.0), rect.center().y), 3.5, look::DRAFT);
+                }
                 let what = if row.flags.dirty { "not saved" } else if row.flags.made { "painted" } else { "not painted yet" };
                 if look::tip(resp, &format!("{}: {what}; a click opens it", row.label), "").clicked() {
                     open = Some(row.id.clone());
                 }
             }
         });
+        crate::drive::mark(ui.ctx(), "files", list.inner_rect);
         if let Some(id) = open {
             self.pages[self.page].open(&mut self.app, &id);
         }
     }
 
     fn inspector(&mut self, ui: &mut Ui) {
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
             ui.add_space(GAP * 0.5);
             self.pages[self.page].inspector(ui, &mut self.app);
             ui.add_space(GAP);
             let hist = self.pages[self.page].history(&self.app);
-            egui::CollapsingHeader::new(RichText::new("History").strong()).id_salt("history").default_open(false).show(ui, |ui| {
+            egui::CollapsingHeader::new(RichText::new("History").strong()).id_salt("history").default_open(false).open(self.history_open.take()).show(ui, |ui| {
                 let Some((undo, redo)) = hist else {
                     look::weak(ui, "this page saves each change at once");
                     return;
@@ -760,6 +871,7 @@ impl Studio {
         let more = page.more_keys();
         let frame: Vec<Cmd> = Self::frame_commands().into_iter().filter(|c| c.key.is_some()).collect();
         let name = page.name();
+        let help = page.help();
         let m = egui::Modal::new(Id::unique("key sheet")).show(ctx, |ui| {
             ui.set_width(640.0_f32.min(ctx.content_rect().width() - 80.0));
             ui.horizontal(|ui| {
@@ -767,6 +879,9 @@ impl Studio {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| look::weak(ui, "Esc or a click outside closes"));
             });
             ui.separator();
+            // the page's own help first: what it is for and how to start
+            ui.add(egui::Label::new(RichText::new(help).color(look::ACCENT)).wrap());
+            ui.add_space(GAP * 0.5);
             let rows = |ui: &mut Ui, id: &str, list: Vec<(String, String)>| {
                 egui::Grid::new(id).num_columns(2).spacing(Vec2::new(GAP * 2.0, 4.0)).show(ui, |ui| {
                     for (k, what) in list {
@@ -885,7 +1000,8 @@ impl Studio {
     }
 
     fn close_check(&mut self, ctx: &egui::Context) {
-        let unsaved: Vec<String> = self.app.docs.iter().filter(|(_, d)| d.dirty()).map(|(n, _)| n.clone()).collect();
+        let mut unsaved: Vec<String> = self.app.docs.iter().filter(|(_, d)| d.dirty()).map(|(n, _)| n.clone()).collect();
+        unsaved.extend(self.pages.iter().flat_map(|p| p.unsaved()));
         if ctx.input(|i| i.viewport().close_requested()) && !self.quit && !unsaved.is_empty() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.closing = true;
@@ -900,7 +1016,10 @@ impl Studio {
             ui.horizontal(|ui| {
                 if ui.button("Save all and close").clicked() {
                     self.app.save_textures(unsaved.clone());
-                    self.quit = self.app.docs.values().all(|d| !d.dirty());
+                    for p in &mut self.pages {
+                        p.save_all(&mut self.app);
+                    }
+                    self.quit = self.app.docs.values().all(|d| !d.dirty()) && self.pages.iter().all(|p| p.unsaved().is_empty());
                 }
                 if ui.button("Close without saving").clicked() {
                     self.quit = true;

@@ -93,3 +93,24 @@ key = [
   { part = "door", t = 1.2, turn = [0, 100, 0], ease = "smooth" },
   { part = "door", t = 2.0, turn = [0, 0, 0] },
 ]
+event = [{ t = 2.0, sound = "furnace.clank" }, { t = 2.0, effect = "sparks", point = "door" }]
+
+# the top of the copper chimney, and the door's middle (ADR 0050)
+[[point]]
+name = "chimney"
+part = "body"
+at = [6, 6, 6]
+
+[[point]]
+name = "door"
+part = "door"
+at = [2, 1.5, 0]
+
+# working: the door swings, a fire burns inside and smoke rises from the chimney, it hums and glows warm, and the
+# door clanks shut at the end of each swing (the clip's events)
+[[state]]
+name = "working"
+clip = "work"
+effects = [{ effect = "fire", point = "flame" }, { effect = "smoke", point = "chimney" }]
+sound = "furnace.burn"
+light = { point = "flame", colour = "lamp", strength = 0.7 }

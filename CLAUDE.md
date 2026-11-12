@@ -82,7 +82,11 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   (survival's health and hunger, ADR 0040: impacts hurt, hunger drains, the bars over the hotbar are
   survival's; at 0 health the death screen's `click:0` respawns), /help; /sound <name> plays a row of `data/sounds.toml` (ADR 0032:
   a recording `data/sounds/<name>.wav` replaces the code-made one; a painting `data/textures/<block>[_top|_side|_bottom].png`
-  replaces a block's pattern, live within a second, a refused file named on stderr (ADR 0045; `textures=dir` reads another folder); `sounds=1` prints every sound in numbers;
+  replaces a block's pattern, live within a second, a refused file named on stderr (ADR 0045; `textures=dir` reads another folder); a model `data/models/<name>.toml` (ADR 0047, voxels of 1/8 m)
+  is drawn where a block row names `model =` and in hand for a block of its name, live the same way (`models=dir`; `model=name[:clip]` on any run
+  stands one 3 m ahead; `run=models n=` the benchmark); a sound row may be made `from` bases (other rows, the `base.*` set, or
+  `data/sounds/base/<name>.wav`) through a `chain` of steps with a per-take `spread` (ADR 0048, the file's header), and
+  a running game makes a changed `data/sounds.toml` or `data/sounds/` again within a second (`sound_dir=dir` reads both from another folder); `sounds=1` prints every sound in numbers (its bases, chain, `ms`);
   off-screen runs are silent unless `sound=1`, and a play run's JSON counts what it played under `audio`); Tab completes a command, the arrows pick, else the up arrow
   recalls the last line; in creative (/playmode creative) space twice flies, the wheel its speed (not the hotbar) up to
   1 km/s; F3 the overlay of
@@ -108,6 +112,8 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   blocks (lamps, copper; `_` for a space) around the stand point; effects play only in `run=play` unless
   `fx=1` (ADR 0031; `fx_cap=` the pool, the Particles setting few/normal/many), and
   `fxedit=t:di:dj:dl:block,...` (`air` to dig) edits cells at t seconds to film a break or a place;
+  `fxplay=name[:n]` starts a lasting effect or group (`fire`, `smoke`, ...) n times on the ground ahead and
+  `model=name@state` plays a model's state (clip, effects, sound, light; ADR 0050); `data/effects.toml` reloads live (`effects=file` another; `bash tools/reload-check.sh` times all four kinds' reloads end to end);
   `capture_ms=2500 sheet=out/x.png` writes a filmstrip, `capture_w=1280` makes its frames large. Read the sheet.
 - **The gate:** `bash tools/check.sh` (about 4.5 min, 5.5 after a release build; the soak and its replay run beside the tests and the fixed viewpoints: tests, a soak, its replay, the quick benchmark, the fixed
   viewpoints and a played run's feel report, ADR 0018) prints

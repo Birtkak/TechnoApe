@@ -1,0 +1,12 @@
+[grow]
+seed = 1
+wood = "log"
+leaves = "broadleaf leaves"
+trunk_height = 6
+trunk_girth = 1
+branches = 5
+branch_angle = 55.0
+branch_length = 3
+crown = "round"
+crown_size = 3
+leaf_density = 0.75

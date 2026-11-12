@@ -1,0 +1,39 @@
+[[creature]]
+name = "ape"
+model = "ape"
+plan = "biped"
+scale = 1.0
+walk_speed = 1.1
+run_speed = 3.5
+step = 0.45
+legs = ["leg_l", "leg_r"]
+arms = ["arm_l", "arm_r"]
+head = "head"
+tail = ""
+wings = []
+step_sound = "step.grass"
+voice = "base.chirp"
+swing = 25.0
+bob = 0.4
+sway = 6.0
+wag = 0.0
+
+[[creature]]
+name = "boar"
+model = "boar"
+plan = "quadruped"
+scale = 1.0
+walk_speed = 1.2
+run_speed = 5.0
+step = 0.35
+legs = ["leg_fl", "leg_fr", "leg_bl", "leg_br"]
+arms = []
+head = "head"
+tail = "tail"
+wings = []
+step_sound = "step.dirt"
+voice = "base.growl"
+swing = 30.0
+bob = 0.3
+sway = 8.0
+wag = 25.0

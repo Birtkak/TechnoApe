@@ -6,6 +6,7 @@
 //! onto a value.
 use engine::blocks::BLOCKS;
 use engine::edit::Predictor;
+use engine::palette::Palette;
 use engine::world::{Block, World};
 use glam::{DVec3, IVec3, Vec3};
 use serde::Deserialize;
@@ -18,6 +19,36 @@ pub enum Start {
     Point,
     Block,
     Faces,
+    /// On a circle of `radius` about the point, flat on the ground (ADR 0050).
+    Ring,
+    /// At the point, flying out within `angle` degrees of `dir`.
+    Cone,
+    /// Anywhere in a box of `box` metres about the point.
+    Box,
+}
+
+/// How a square, a texture or a model lies (ADR 0050).
+#[derive(Deserialize, Clone, Copy, PartialEq, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Face {
+    #[default]
+    Camera,
+    /// Along its flight, stretched by its speed (rain, sparks).
+    Flight,
+    /// Turning about an axis of its own (a leaf, a chip).
+    Tumble,
+}
+
+/// Motion through a moving noise field: `strength` m/s² at most, `scale` the field's grain in metres, `speed`
+/// how fast it moves (field units a second).
+#[derive(Deserialize, Clone, Copy, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Noise {
+    pub strength: f32,
+    #[serde(default = "one")]
+    pub scale: f32,
+    #[serde(default)]
+    pub speed: f32,
 }
 
 #[derive(Deserialize, Clone, Copy, PartialEq, Debug, Default)]
@@ -39,6 +70,11 @@ pub enum Look {
     Block = 2,
     /// Cracks over a cell being dug (ADR 0034): drawn by `Fx::crack`, not by a row.
     Crack = 3,
+    /// A voxel model, `data/models/<model>.toml`, drawn by models.rs (ADR 0050).
+    Model = 4,
+    /// A square showing the top face of block `texture` (its PNG in data/textures/, else its pattern): drawn
+    /// as a square with the texture bit.
+    Texture = 5,
 }
 
 /// Cracked cells drawn a frame at most: a hammer's dig shows its first ones.
@@ -48,12 +84,59 @@ fn one() -> f32 {
     1.0
 }
 
+fn upward() -> [f32; 3] {
+    [0.0, 1.0, 0.0]
+}
+
 /// One effect, as `data/effects.toml` describes it (its header has the fields' meaning).
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Row {
     pub name: String,
+    #[serde(default)]
     pub count: u32,
+    /// Particles a second while it plays (a lasting effect, `Fx::start`).
+    #[serde(default)]
+    pub rate: f32,
+    #[serde(default)]
+    pub radius: f32,
+    #[serde(default)]
+    pub angle: f32,
+    /// The cone's axis in the event's frame: x, y up, z.
+    #[serde(default = "upward")]
+    pub dir: [f32; 3],
+    #[serde(default, rename = "box")]
+    pub size_box: Option<[f32; 3]>,
+    /// Colour over life: (share of the life, palette name), in order.
+    #[serde(default)]
+    pub gradient: Vec<(f32, String)>,
+    /// Size and brightness over life: (share of the life, times), in order.
+    #[serde(default)]
+    pub size_curve: Vec<[f32; 2]>,
+    #[serde(default)]
+    pub bright_curve: Vec<[f32; 2]>,
+    #[serde(default)]
+    pub noise: Option<Noise>,
+    /// m/s² along the up (a plume's lift) and sideways in a direction of its own (its widening).
+    #[serde(default)]
+    pub rise: f32,
+    #[serde(default)]
+    pub spread: f32,
+    /// The light it gives: emission times its colour, and a lamp of that strength where a lasting one plays.
+    #[serde(default)]
+    pub glow: f32,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub texture: Option<String>,
+    #[serde(default)]
+    pub face: Face,
+    /// `gradient` from the palette.
+    #[serde(skip)]
+    pub grad: Vec<(f32, [f32; 3])>,
+    /// `texture` as a block id.
+    #[serde(skip)]
+    pub tex: u8,
     #[serde(default)]
     pub start: Start,
     #[serde(default)]
@@ -84,54 +167,266 @@ pub struct Row {
     pub then_i: Option<u16>,
 }
 
+/// Several rows played and stopped as one (fire = flames + embers + smoke).
+#[derive(Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Group {
+    pub name: String,
+    pub rows: Vec<String>,
+    #[serde(skip)]
+    pub ids: Vec<u16>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct File {
     effect: Vec<Row>,
+    #[serde(default)]
+    group: Vec<Group>,
+}
+
+/// The rows and groups a pool plays.
+#[derive(Clone, Debug, Default)]
+pub struct Set {
+    pub rows: Vec<Row>,
+    pub groups: Vec<Group>,
+}
+
+impl Set {
+    /// The rows a name plays: a group's, or the row of that name.
+    pub fn rows_of(&self, name: &str) -> Option<Vec<u16>> {
+        match self.groups.iter().find(|g| g.name == name) {
+            Some(g) => Some(g.ids.clone()),
+            None => self.rows.iter().position(|r| r.name == name).map(|i| vec![i as u16]),
+        }
+    }
+    /// Every row's name, then every group's.
+    pub fn names(&self) -> Vec<&str> {
+        self.rows.iter().map(|r| r.name.as_str()).chain(self.groups.iter().map(|g| g.name.as_str())).collect()
+    }
 }
 
 /// The settings' Particles (few, normal, many): what a row's count is multiplied by, and the pool's cap.
 pub const SCALE: [f32; 3] = [0.5, 1.0, 2.0];
 pub const CAP: [usize; 3] = [1024, 4096, 16384];
 
+/// The game's palette as built in: gradients name its colours.
+pub static PALETTE: LazyLock<Palette> = LazyLock::new(|| Palette::parse(include_str!("../../../data/palette.toml")).expect("data/palette.toml"));
+
 /// Reads and checks the rows: unique names, every `then` a row, lives and sizes positive and in order, shares
 /// in 0..1, and no event of any row at any scale over the smallest pool.
 pub fn parse(text: &str) -> Result<Vec<Row>, String> {
-    let mut rows = toml::from_str::<File>(text).map_err(|e| e.to_string())?.effect;
-    let names: Vec<String> = rows.iter().map(|r| r.name.clone()).collect();
-    for r in rows.iter_mut() {
-        let n = &r.name;
-        if names.iter().filter(|m| *m == n).count() > 1 {
-            return Err(format!("effect {n} twice"));
-        }
-        if !(r.life[0] > 0.0 && r.life[0] <= r.life[1]) || !(r.size[0] > 0.0) || r.speed[0] > r.speed[1] || r.speed[0] < 0.0 {
-            return Err(format!("effect {n}: life and size must be above 0, every pair from low to high"));
-        }
-        if !(0.0..=1.0).contains(&r.grow) || !(0.0..=1.0).contains(&r.shrink) || r.grow + r.shrink > 1.0 {
-            return Err(format!("effect {n}: grow and shrink are shares of the life, together at most 1"));
-        }
-        if (r.count as f32 * SCALE[2]) as usize > CAP[0] / 4 {
-            return Err(format!("effect {n}: {} particles an event at most", CAP[0] / 4));
-        }
-        if r.look == Look::Crack {
-            return Err(format!("effect {n}: cracks are drawn by the dig, not by a row"));
-        }
-        if r.look == Look::Square && r.colour.is_none() {
-            return Err(format!("effect {n}: a square needs a colour"));
-        }
-        r.then_i = match &r.then {
-            Some(t) => Some(names.iter().position(|m| m == t).ok_or(format!("effect {n}: no effect {t}"))? as u16),
-            None => None,
-        };
-    }
-    Ok(rows)
+    parse_set(text, &PALETTE).map(|s| s.rows)
 }
 
-pub static ROWS: LazyLock<Vec<Row>> = LazyLock::new(|| parse(include_str!("../../../data/effects.toml")).expect("data/effects.toml"));
+/// `parse` with the groups, against a palette.
+pub fn parse_set(text: &str, palette: &Palette) -> Result<Set, String> {
+    let File { effect: mut rows, group: mut groups } = toml::from_str::<File>(text).map_err(|e| e.to_string())?;
+    let names: Vec<String> = rows.iter().map(|r| r.name.clone()).collect();
+    for r in rows.iter_mut() {
+        if names.iter().filter(|m| **m == r.name).count() > 1 {
+            return Err(format!("effect {} twice", r.name));
+        }
+        check(r, &names, palette)?;
+    }
+    for g in groups.iter_mut() {
+        let n = &g.name;
+        if names.contains(n) {
+            return Err(format!("group {n}: the name of a row or another group"));
+        }
+        if g.rows.is_empty() {
+            return Err(format!("group {n}: no rows"));
+        }
+        g.ids = g.rows.iter().map(|m| names.iter().position(|k| k == m).map(|i| i as u16).ok_or(format!("group {n}: no effect {m}"))).collect::<Result<_, _>>()?;
+    }
+    let gn: Vec<&String> = groups.iter().map(|g| &g.name).collect();
+    if let Some(g) = gn.iter().enumerate().find(|(i, g)| gn[..*i].contains(g)) {
+        return Err(format!("group {} twice", g.1));
+    }
+    Ok(Set { rows, groups })
+}
+
+/// One row's checks; every refusal names it and why. `names`: the rows its `then` may name.
+fn check(r: &mut Row, names: &[String], palette: &Palette) -> Result<(), String> {
+    let n = r.name.clone();
+    let no = |why: &str| Err(format!("effect {n}: {why}"));
+    // every number finite, named by its field
+    let z = r.noise.map_or([0.0; 3], |z| [z.strength, z.scale, z.speed]);
+    let curves = |c: &[[f32; 2]]| c.iter().flatten().copied().collect::<Vec<f32>>();
+    let nums: [(&str, Vec<f32>); 22] = [
+        ("rate", vec![r.rate]),
+        ("radius", vec![r.radius]),
+        ("angle", vec![r.angle]),
+        ("dir", r.dir.to_vec()),
+        ("box", r.size_box.map_or(vec![], |b| b.to_vec())),
+        ("gradient", r.gradient.iter().map(|s| s.0).collect()),
+        ("size_curve", curves(&r.size_curve)),
+        ("bright_curve", curves(&r.bright_curve)),
+        ("noise", z.to_vec()),
+        ("rise", vec![r.rise]),
+        ("spread", vec![r.spread]),
+        ("glow", vec![r.glow]),
+        ("speed", r.speed.to_vec()),
+        ("up", vec![r.up]),
+        ("gravity", vec![r.gravity]),
+        ("drag", vec![r.drag]),
+        ("life", r.life.to_vec()),
+        ("size", r.size.to_vec()),
+        ("grow", vec![r.grow]),
+        ("shrink", vec![r.shrink]),
+        ("colour", r.colour.map_or(vec![], |c| c.to_vec())),
+        ("spin", vec![r.spin]),
+    ];
+    if let Some((field, _)) = nums.iter().find(|(_, v)| v.iter().any(|x| !x.is_finite())) {
+        return Err(format!("effect {n}: {field} is not a finite number"));
+    }
+    if r.size[0] > r.size[1] {
+        return no("size is [low, high], from low to high");
+    }
+    if !(r.life[0] > 0.0 && r.life[0] <= r.life[1]) || !(r.size[0] > 0.0) || r.speed[0] > r.speed[1] || r.speed[0] < 0.0 {
+        return no("life and size must be above 0, every pair from low to high");
+    }
+    if !(0.0..=1.0).contains(&r.grow) || !(0.0..=1.0).contains(&r.shrink) || r.grow + r.shrink > 1.0 {
+        return no("grow and shrink are shares of the life, together at most 1");
+    }
+    if (r.count as f32 * SCALE[2]) as usize > CAP[0] / 4 {
+        return Err(format!("effect {n}: {} particles an event at most", CAP[0] / 4));
+    }
+    if r.count == 0 && r.rate <= 0.0 {
+        return no("a count, a rate or both");
+    }
+    if !(r.rate >= 0.0) || r.rate * r.life[1] * SCALE[2] > (CAP[0] / 4) as f32 {
+        return Err(format!("effect {n}: a rate times the longest life at most {} alive", CAP[0] / 4));
+    }
+    if r.look == Look::Crack {
+        return no("cracks are drawn by the dig, not by a row");
+    }
+    let coloured = matches!(r.look, Look::Square | Look::Texture);
+    if r.look == Look::Square && r.colour.is_none() && r.gradient.is_empty() {
+        return no("a square needs a colour or a gradient");
+    }
+    if !r.gradient.is_empty() && !coloured {
+        return no("a gradient colours squares and textures only");
+    }
+    if r.glow != 0.0 && (!coloured || !(0.0..=8.0).contains(&r.glow)) {
+        return no("glow is 0..8, on squares and textures");
+    }
+    if r.face != Face::Camera && matches!(r.look, Look::Debris | Look::Block) {
+        return no("debris always tumbles and a block lies in its cell: no face");
+    }
+    // each start's own numbers, and only with it
+    let fits = |s: Start, given: bool| given == (r.start == s);
+    if !fits(Start::Ring, r.radius != 0.0) || !(r.radius >= 0.0) {
+        return no("radius is over 0, for start = \"ring\" only");
+    }
+    if !fits(Start::Cone, r.angle != 0.0) || !(0.0..=180.0).contains(&r.angle) || r.dir != upward() && r.start != Start::Cone || Vec3::from(r.dir).length() < 1e-3 {
+        return no("angle is 0..180 degrees about a dir, for start = \"cone\" only");
+    }
+    if !fits(Start::Box, r.size_box.is_some()) || r.size_box.is_some_and(|b| b.iter().any(|v| !(*v > 0.0))) {
+        return no("box is three sizes over 0, for start = \"box\" only");
+    }
+    let curve = |c: &[[f32; 2]]| c.windows(2).all(|w| w[0][0] <= w[1][0]) && c.iter().all(|p| (0.0..=1.0).contains(&p[0]) && p[1] >= 0.0);
+    if !curve(&r.size_curve) || !curve(&r.bright_curve) {
+        return no("a curve's points are [share of the life 0..1, in order; value 0 or more]");
+    }
+    if !r.gradient.windows(2).all(|w| w[0].0 <= w[1].0) || r.gradient.iter().any(|s| !(0.0..=1.0).contains(&s.0)) {
+        return no("a gradient's stops are [share of the life 0..1, in order; palette name]");
+    }
+    r.grad = r
+        .gradient
+        .iter()
+        .map(|(t, c)| palette.colours.iter().find(|p| &p.name == c).map(|p| (*t, p.rgb.map(|v| v as f32 / 255.0))).ok_or(format!("effect {n}: colour '{c}' is not in the palette")))
+        .collect::<Result<_, _>>()?;
+    if let Some(z) = r.noise {
+        // (a finer grain than 1 cm overflows `noise_at`'s cell numbers far from the body's centre)
+        if !(z.strength >= 0.0 && z.scale >= 0.01 && z.speed >= 0.0) {
+            return no("noise is { strength 0 or more, scale 0.01 m or more, speed 0 or more }");
+        }
+    }
+    if (r.look == Look::Model) != r.model.is_some() {
+        return no("look = \"model\" names a model, and only it");
+    }
+    if (r.look == Look::Texture) != r.texture.is_some() {
+        return no("look = \"texture\" names a block, and only it");
+    }
+    if let Some(t) = &r.texture {
+        r.tex = BLOCKS.placeable().find(|d| &d.name == t).map(|d| d.id).ok_or(format!("effect {n}: no block '{t}' for its texture"))?;
+    }
+    r.then_i = match &r.then {
+        Some(t) => Some(names.iter().position(|m| m == t).ok_or(format!("effect {n}: no effect {t}"))? as u16),
+        None => None,
+    };
+    Ok(())
+}
+
+/// One row from text (with or without its `[[effect]]` line) as the Studio edits it, checked; its `then` may
+/// name a row of `set` or itself. `Fx::put` plays it.
+pub fn parse_row(text: &str, set: &Set) -> Result<Row, String> {
+    let t = if text.contains("[[effect]]") { text.to_string() } else { format!("[[effect]]\n{text}") };
+    let mut f = toml::from_str::<File>(&t).map_err(|e| e.to_string())?;
+    if f.effect.len() != 1 || !f.group.is_empty() {
+        return Err("one [[effect]] row and no group".into());
+    }
+    let mut r = f.effect.pop().unwrap();
+    let mut names: Vec<String> = set.rows.iter().map(|r| r.name.clone()).collect();
+    names.push(r.name.clone());
+    check(&mut r, &names, &PALETTE)?;
+    Ok(r)
+}
+
+/// The built-in set: the file as compiled in.
+pub static SET: LazyLock<Set> = LazyLock::new(|| parse_set(include_str!("../../../data/effects.toml"), &PALETTE).expect("data/effects.toml"));
+/// Its rows: what `id` names (the code's own effects).
+pub static ROWS: LazyLock<Vec<Row>> = LazyLock::new(|| SET.rows.clone());
 
 /// A row's index by name; a name not in the file is a bug in the code that plays it.
 pub fn id(name: &str) -> u16 {
     ROWS.iter().position(|r| r.name == name).unwrap_or_else(|| panic!("no effect {name} in data/effects.toml")) as u16
+}
+
+/// A curve of (x, value) points at x: straight between them, held past the ends; no points is 1.
+pub fn curve_at(c: &[[f32; 2]], x: f32) -> f32 {
+    let Some(k) = c.iter().position(|p| p[0] > x) else { return c.last().map_or(1.0, |p| p[1]) };
+    if k == 0 {
+        return c[0][1];
+    }
+    let (a, b) = (c[k - 1], c[k]);
+    a[1] + (b[1] - a[1]) * (x - a[0]) / (b[0] - a[0])
+}
+
+/// A gradient's colour at x, as `curve_at` runs; no stops is white.
+pub fn gradient_at(g: &[(f32, [f32; 3])], x: f32) -> [f32; 3] {
+    let Some(k) = g.iter().position(|p| p.0 > x) else { return g.last().map_or([1.0; 3], |p| p.1) };
+    if k == 0 {
+        return g[0].1;
+    }
+    let (a, b) = (g[k - 1], g[k]);
+    a.1.mix(b.1, (x - a.0) / (b.0 - a.0))
+}
+
+/// The noise field at p (metres) and time t: three channels of smooth value noise, each -1..1, continuous in
+/// both and the same for the same inputs. The field slides along the diagonal at `speed` grains a second.
+pub fn noise_at(p: Vec3, t: f32, n: &Noise) -> Vec3 {
+    let q = p / n.scale + Vec3::splat(t * n.speed);
+    let f = q.floor();
+    let i = f.as_ivec3();
+    let w = q - f;
+    let w = w * w * (Vec3::splat(3.0) - 2.0 * w);
+    let corner = |dx: i32, dy: i32, dz: i32| {
+        let mut h = (i.x + dx) as u32 ^ ((i.y + dy) as u32).wrapping_mul(0x9e37_79b1) ^ ((i.z + dz) as u32).wrapping_mul(0x85eb_ca77);
+        h ^= h >> 15;
+        h = h.wrapping_mul(0x2c1b_3c6d);
+        h ^= h >> 12;
+        h = h.wrapping_mul(0x297a_2d39);
+        h ^= h >> 15;
+        // three channels from one hash, 10 bits each
+        Vec3::new((h & 1023) as f32, (h >> 10 & 1023) as f32, (h >> 20 & 1023) as f32) / 511.5 - 1.0
+    };
+    let x0 = corner(0, 0, 0).lerp(corner(1, 0, 0), w.x);
+    let x1 = corner(0, 1, 0).lerp(corner(1, 1, 0), w.x);
+    let x2 = corner(0, 0, 1).lerp(corner(1, 0, 1), w.x);
+    let x3 = corner(0, 1, 1).lerp(corner(1, 1, 1), w.x);
+    x0.lerp(x1, w.y).lerp(x2.lerp(x3, w.y), w.z)
 }
 
 /// Where an event happened, in its body's frame from the body's centre: a point, the cell's frame (up and the
@@ -224,6 +519,12 @@ impl At {
             cell: Some(b),
         }
     }
+    /// The middle of a cell's floor, as `cell` has the cell otherwise: where a fire or a fountain stands.
+    pub fn floor_of(world: &World, b: Block) -> At {
+        let mut at = At::cell(world, b, 0);
+        at.p -= at.axes[0] * at.half.x;
+        at
+    }
     /// A point of body `body` (from its centre, in its frame) moving at v, over a floor at radius `floor`.
     pub fn point(body: u8, p: DVec3, v: DVec3, floor: f64) -> At {
         let up = p.normalize().as_vec3();
@@ -253,6 +554,31 @@ struct P {
     /// A square's colour (rgba8), or the cell's layer | face << 16.
     b: u32,
     tag: u32,
+    /// Its own steady push, m/s²: `rise` up and `spread` sideways.
+    push: Vec3,
+}
+
+/// A lasting effect playing (`Fx::start`): stopped, moved and restarted by its handle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Handle(pub u32);
+
+struct Emitter {
+    handle: u32,
+    row: u16,
+    at: At,
+    /// Particles owed by the rate, not yet whole.
+    due: f64,
+}
+
+/// A particle with a model look, for models.rs to draw: its row, body, place (body frame, from the centre), its
+/// turn (columns: the model's x, y, z in the body's frame) and scale.
+#[derive(Clone, Copy, Debug)]
+pub struct FxModel {
+    pub row: u16,
+    pub body: u8,
+    pub p: Vec3,
+    pub turn: glam::Mat3,
+    pub size: f32,
 }
 
 /// A particle as the shader reads it (`FxP` in shader.wgsl), 32 bytes: where, its edge now, the block | body
@@ -290,15 +616,216 @@ pub struct Fx {
     pub setting: Option<usize>,
     /// Cracks drawn since the last step.
     cracks: usize,
+    /// The rows and groups it plays: the built-in set until a reload of the file (`watch`) or the Studio's
+    /// `put` changes them.
+    pub set: Set,
+    /// `id`'s row numbers (the built-in set's) to the set's; `NO` where a row is gone.
+    remap: Vec<u16>,
+    emitters: Vec<Emitter>,
+    /// This step's particles with a model look, and the lamps of the lasting effects that glow (body, world
+    /// place, light).
+    mout: Vec<FxModel>,
+    lamps: Vec<(u8, DVec3, [f32; 3])>,
+    /// Seconds stepped: the noise field's clock.
+    clock: f32,
+    rx: Option<std::sync::mpsc::Receiver<Result<Set, String>>>,
+    /// `fxplay=` placed its effects.
+    pub placed: bool,
+    /// What `show` plays for the Studio.
+    shown: Option<Handle>,
 }
 
 /// The cell events a frame that play an effect.
 pub const EVENTS: u32 = 32;
+const NO: u16 = u16::MAX;
 
 impl Fx {
     pub fn new(on: bool, cap: usize, scale: f32, seed: u32) -> Fx {
         let cap = cap.max(1);
-        Fx { on, pool: Vec::with_capacity(cap), out: Vec::with_capacity(cap + CRACKS), later: Vec::with_capacity(256), cap, scale, rng: seed.max(1), next_tag: 1, played: 0, events: 0, cursor: 0, setting: None, cracks: 0 }
+        let set = SET.clone();
+        let remap = (0..set.rows.len() as u16).collect();
+        Fx {
+            on,
+            pool: Vec::with_capacity(cap),
+            out: Vec::with_capacity(cap + CRACKS),
+            later: Vec::with_capacity(256),
+            cap,
+            scale,
+            rng: seed.max(1),
+            next_tag: 1,
+            played: 0,
+            events: 0,
+            cursor: 0,
+            setting: None,
+            cracks: 0,
+            set,
+            remap,
+            emitters: Vec::new(),
+            mout: Vec::new(),
+            lamps: Vec::new(),
+            clock: 0.0,
+            rx: None,
+            placed: false,
+            shown: None,
+        }
+    }
+
+    /// Reads `file` again within a second of it changing, on a thread of its own; the frame thread swaps the
+    /// new rows in at its next `step`, or names the refusal and keeps the old.
+    pub fn watch(&mut self, file: std::path::PathBuf) {
+        let dir = file.parent().map_or(std::path::PathBuf::from("."), |d| d.to_path_buf());
+        let shown = file.display().to_string().replace('\\', "/");
+        self.rx = Some(crate::gpu::watch("effects", dir, Vec::new(), move |_| {
+            let Ok(text) = std::fs::read_to_string(&file) else { return (Err(format!("{shown}: not found")), false) };
+            let palette = std::fs::read_to_string("data/palette.toml").ok().and_then(|t| Palette::parse(&t).ok()).unwrap_or_else(|| PALETTE.clone());
+            (parse_set(&text, &palette).map_err(|e| format!("{shown}: {e}")), true)
+        }));
+    }
+
+    /// A new set of rows: the living particles and lasting effects keep theirs by name (those whose row is gone
+    /// go). Refused when it lacks a row the code plays (`id`'s).
+    pub fn swap(&mut self, set: Set) -> Result<(), String> {
+        let remap: Vec<u16> = ROWS.iter().map(|r| set.rows.iter().position(|m| m.name == r.name).map_or(NO, |i| i as u16)).collect();
+        if let Some(k) = remap.iter().position(|&i| i == NO) {
+            return Err(format!("effect {} is played by the game itself: keep it", ROWS[k].name));
+        }
+        let by_name: Vec<u16> = self.set.rows.iter().map(|r| set.rows.iter().position(|m| m.name == r.name).map_or(NO, |i| i as u16)).collect();
+        self.pool.retain_mut(|p| {
+            p.row = by_name[p.row as usize];
+            p.row != NO
+        });
+        self.emitters.retain_mut(|e| {
+            e.row = by_name[e.row as usize];
+            e.row != NO
+        });
+        self.later.clear();
+        (self.set, self.remap) = (set, remap);
+        Ok(())
+    }
+
+    /// One row put into the set as the Studio edits it (by name: replaced, or added): every `then` and group
+    /// keeps naming the same rows.
+    pub fn put(&mut self, row: Row) {
+        let mut set = self.set.clone();
+        match set.rows.iter().position(|r| r.name == row.name) {
+            Some(i) => set.rows[i] = row,
+            None => set.rows.push(row),
+        }
+        let names: Vec<String> = set.rows.iter().map(|r| r.name.clone()).collect();
+        for r in set.rows.iter_mut() {
+            r.then_i = r.then.as_ref().and_then(|t| names.iter().position(|m| m == t)).map(|i| i as u16);
+        }
+        let _ = self.swap(set);
+    }
+
+    /// The rows' names, then the groups'.
+    pub fn names(&self) -> Vec<&str> {
+        self.set.names()
+    }
+
+    /// The row of a particle or lasting effect by its number in `set`.
+    pub fn row(&self, i: u16) -> &Row {
+        &self.set.rows[i as usize]
+    }
+
+    /// Plays a row or group once where `at` is: each row's `count`. False when no row or group has that name.
+    pub fn play_named(&mut self, name: &str, at: &At) -> bool {
+        let Some(rows) = self.set.rows_of(name) else { return false };
+        for r in rows {
+            let tag = self.tag();
+            self.burst(r, at, tag);
+        }
+        true
+    }
+
+    /// Starts a row or group lasting at `at`: each row's `count` at once, then its `rate` a second until
+    /// `stop`. None when effects are off or no row or group has that name.
+    pub fn start(&mut self, name: &str, at: &At) -> Option<Handle> {
+        let rows = self.set.rows_of(name).filter(|_| self.on)?;
+        let h = self.tag();
+        for r in rows {
+            self.burst(r, at, h);
+            // a count-only row too, so `restart` knows it; `emit` passes it by
+            self.emitters.push(Emitter { handle: h, row: r, at: *at, due: 0.0 });
+        }
+        Some(Handle(h))
+    }
+
+    /// A lasting effect's new place (it follows a moving part); its particles already out fly on.
+    pub fn moved(&mut self, h: Handle, at: &At) {
+        self.emitters.iter_mut().filter(|e| e.handle == h.0).for_each(|e| e.at = *at);
+    }
+
+    /// Stops a lasting effect: no more particles; those out live their lives.
+    pub fn stop(&mut self, h: Handle) {
+        self.emitters.retain(|e| e.handle != h.0);
+    }
+
+    /// Plays a lasting effect again from its start: its particles gone, its counts burst again.
+    pub fn restart(&mut self, h: Handle) {
+        self.end(h.0);
+        let es: Vec<(u16, At)> = self.emitters.iter_mut().filter(|e| e.handle == h.0).map(|e| {
+            e.due = 0.0;
+            (e.row, e.at)
+        }).collect();
+        for (r, at) in es {
+            self.burst(r, &at, h.0);
+        }
+    }
+
+    /// The Studio's view: `name` lasting on the floor of `cell` in place of what it showed (None: nothing);
+    /// `restart` with the handle plays it again.
+    pub fn show(&mut self, name: Option<&str>, world: &World, cell: Block) -> Option<Handle> {
+        if let Some(h) = self.shown.take() {
+            self.stop(h);
+            self.end(h.0);
+        }
+        self.shown = name.and_then(|n| self.start(n, &At::floor_of(world, cell)));
+        self.shown
+    }
+
+    /// `fxplay=name[:n]`, once the world is loaded: n of a row or group lasting on the ground in a widening
+    /// fan ahead of `eye` (position, look), 1.5 m apart from 3 m out, as `model=` stands its models.
+    pub fn scene(&mut self, world: &World, eye: (DVec3, DVec3), spec: &str) {
+        if self.placed || spec.is_empty() {
+            return;
+        }
+        self.placed = true;
+        let (name, n) = spec.split_once(':').map_or((spec, 1), |(a, b)| (a, b.parse().unwrap_or(1)));
+        let pl = &world.bodies[0];
+        let up = (eye.0 - pl.centre).normalize();
+        let ahead = (eye.1 - up * eye.1.dot(up)).normalize_or(DVec3::X);
+        let side = up.cross(ahead);
+        let (mut a, mut k) = (3.0, 0);
+        while k < n {
+            let mut b = -(0.6 * a / 1.5f64).floor() * 1.5;
+            while b <= 0.6 * a && k < n {
+                let d = (eye.0 + ahead * a + side * b - pl.centre).normalize();
+                let c = world.air_over_ground(0, d);
+                if self.start(name, &At::floor_of(world, c)).is_none() {
+                    eprintln!("[technoape] fxplay: no effect {name}");
+                    return;
+                }
+                (b, k) = (b + 1.5, k + 1);
+            }
+            a += 1.5;
+        }
+    }
+
+    /// This step's particles with a model look, and their rows' model names.
+    pub fn models(&self) -> impl Iterator<Item = (&str, &FxModel)> {
+        self.mout.iter().map(|m| (self.set.rows[m.row as usize].model.as_deref().unwrap_or(""), m))
+    }
+
+    /// The lamps of the lasting effects that glow, this step: (body, place in the world, light).
+    pub fn lamps(&self) -> &[(u8, DVec3, [f32; 3])] {
+        &self.lamps
+    }
+
+    fn tag(&mut self) -> u32 {
+        let tag = self.next_tag;
+        self.next_tag = self.next_tag.wrapping_add(1).max(1);
+        tag
     }
 
     /// A new cap and scale (the Particles setting changed): the pool shrinks at once or grows its room once.
@@ -347,83 +874,122 @@ impl Fx {
         if !self.on {
             return 0;
         }
-        let r = &ROWS[row as usize];
-        // a row of one stays one: a second grow or drop would lie on the first
-        let n = if r.count == 1 { 1 } else { ((r.count as f32 * self.scale).round() as usize).max(1) };
-        let tag = self.next_tag;
-        self.next_tag = self.next_tag.wrapping_add(1).max(1);
-        self.played += 1;
-        let [up, s, t] = at.axes;
-        for _ in 0..n {
-            let (u, v, w) = (self.rnd() * 2.0 - 1.0, self.rnd() * 2.0 - 1.0, self.rnd() * 2.0 - 1.0);
-            let off = match r.start {
-                Start::Point => Vec3::ZERO,
-                Start::Block => up * u * at.half.x + s * v * at.half.y + t * w * at.half.z,
-                Start::Faces => {
-                    // on one of the six faces: one coordinate pushed to its side
-                    let k = (self.rnd() * 6.0) as u32;
-                    let side = if k & 1 == 0 { 1.0 } else { -1.0 };
-                    let c = match k / 2 {
-                        0 => Vec3::new(side, v, w),
-                        1 => Vec3::new(u, side, w),
-                        _ => Vec3::new(u, v, side),
-                    };
-                    up * c.x * at.half.x + s * c.y * at.half.y + t * c.z * at.half.z
-                }
-            };
-            let speed = r.speed[0] + (r.speed[1] - r.speed[0]) * self.rnd();
-            let d = self.dir();
-            let life = r.life[0] + (r.life[1] - r.life[0]) * self.rnd();
-            let size = if r.grow > 0.0 { r.size[0] } else { r.size[0] + (r.size[1] - r.size[0]) * self.rnd() };
-            let spin = r.spin * (self.rnd() * 2.0 - 1.0);
-            let seed = (self.rnd() * 16777216.0) as u32;
-            let (a, b) = match (r.look, at.cell) {
-                (Look::Block, Some(c)) => cell_code(c),
-                (Look::Square, _) => {
-                    let c = r.colour.unwrap_or([1.0; 3]).map(|x| (x.clamp(0.0, 1.0) * 255.0).round() as u32);
-                    (seed, c[0] | c[1] << 8 | c[2] << 16 | 255 << 24)
-                }
-                _ => (seed, 0),
-            };
-            let mut x = at.p + off;
-            // no part of it starts under the floor it lands on
-            let half = if r.look == Look::Block { 0.0 } else { size * 0.5 };
-            if r.ground != Ground::None && x.length() < at.floor + half {
-                x = x.normalize() * (at.floor + half);
-            }
-            let p = P {
-                p: x,
-                v: at.v + d * speed + up * r.up,
-                age: 0.0,
-                life,
-                size,
-                angle: 0.0,
-                spin,
-                floor: at.floor,
-                col: at.col,
-                row,
-                body: at.body,
-                block: at.block,
-                rest: false,
-                a,
-                b,
-                tag,
-            };
-            if self.pool.len() < self.cap {
-                self.pool.push(p);
-            } else {
-                // full: of the next 32 from the cursor, the one nearest its end goes; the cursor moves on, so a
-                // burst into a full pool costs 32 looks a particle, not the pool's size (shortcut: not the
-                // farthest from the camera; fine while bursts are local, add the distance when weather fills it)
-                let n = self.pool.len();
-                let look = n.min(32);
-                let end = |q: &P| q.age / q.life;
-                let k = (0..look).map(|j| (self.cursor + j) % n).max_by(|&x, &y| end(&self.pool[x]).total_cmp(&end(&self.pool[y]))).unwrap();
-                self.cursor = (self.cursor + look) % n;
-                self.pool[k] = p;
-            }
-        }
+        let tag = self.tag();
+        self.burst(self.remap[row as usize], at, tag);
         tag
+    }
+
+    /// Row `row` of the set's `count` at `at`, its particles tagged `tag`.
+    fn burst(&mut self, row: u16, at: &At, tag: u32) {
+        let count = self.set.rows[row as usize].count;
+        if !self.on || count == 0 {
+            return;
+        }
+        // a row of one stays one: a second grow or drop would lie on the first
+        let n = if count == 1 { 1 } else { ((count as f32 * self.scale).round() as usize).max(1) };
+        self.played += 1;
+        let set = std::mem::take(&mut self.set);
+        for _ in 0..n {
+            self.spawn(&set.rows[row as usize], row, at, tag);
+        }
+        self.set = set;
+    }
+
+    /// One particle of row `r` (number `row`) at `at`. The random numbers are drawn in the order the rows
+    /// before ADR 0050 drew them; the new starts and pushes draw more only when a row asks for them.
+    fn spawn(&mut self, r: &Row, row: u16, at: &At, tag: u32) {
+        use std::f32::consts::PI;
+        let [up, s, t] = at.axes;
+        let (u, v, w) = (self.rnd() * 2.0 - 1.0, self.rnd() * 2.0 - 1.0, self.rnd() * 2.0 - 1.0);
+        let off = match r.start {
+            Start::Point | Start::Cone => Vec3::ZERO,
+            Start::Block => up * u * at.half.x + s * v * at.half.y + t * w * at.half.z,
+            Start::Faces => {
+                // on one of the six faces: one coordinate pushed to its side
+                let k = (self.rnd() * 6.0) as u32;
+                let side = if k & 1 == 0 { 1.0 } else { -1.0 };
+                let c = match k / 2 {
+                    0 => Vec3::new(side, v, w),
+                    1 => Vec3::new(u, side, w),
+                    _ => Vec3::new(u, v, side),
+                };
+                up * c.x * at.half.x + s * c.y * at.half.y + t * c.z * at.half.z
+            }
+            Start::Ring => {
+                let a = (u + 1.0) * PI;
+                (s * a.cos() + t * a.sin()) * r.radius
+            }
+            Start::Box => {
+                let b = r.size_box.unwrap_or([0.0; 3]);
+                (s * u * b[0] + up * v * b[1] + t * w * b[2]) * 0.5
+            }
+        };
+        let speed = r.speed[0] + (r.speed[1] - r.speed[0]) * self.rnd();
+        let d = if r.start == Start::Cone {
+            // uniform over the cap within `angle` of the axis
+            let axis = (s * r.dir[0] + up * r.dir[1] + t * r.dir[2]).normalize();
+            let c = 1.0 - (v * 0.5 + 0.5) * (1.0 - r.angle.to_radians().cos());
+            let (b0, b1) = axis.any_orthonormal_pair();
+            let a = (w + 1.0) * PI;
+            axis * c + (b0 * a.cos() + b1 * a.sin()) * (1.0 - c * c).max(0.0).sqrt()
+        } else {
+            self.dir()
+        };
+        let life = r.life[0] + (r.life[1] - r.life[0]) * self.rnd();
+        let size = if r.grow > 0.0 { r.size[0] } else { r.size[0] + (r.size[1] - r.size[0]) * self.rnd() };
+        let spin = r.spin * (self.rnd() * 2.0 - 1.0);
+        let seed = (self.rnd() * 16777216.0) as u32;
+        let (a, b) = match (r.look, at.cell) {
+            (Look::Block, Some(c)) => cell_code(c),
+            (Look::Square | Look::Texture, _) => {
+                let c = r.colour.unwrap_or([1.0; 3]).map(|x| (x.clamp(0.0, 1.0) * 255.0).round() as u32);
+                (seed, c[0] | c[1] << 8 | c[2] << 16 | 255 << 24)
+            }
+            _ => (seed, 0),
+        };
+        let mut push = up * r.rise;
+        if r.spread != 0.0 {
+            let a = self.rnd() * 2.0 * PI;
+            push += (s * a.cos() + t * a.sin()) * r.spread;
+        }
+        let mut x = at.p + off;
+        // no part of it starts under the floor it lands on
+        let half = if matches!(r.look, Look::Block | Look::Model) { 0.0 } else { size * 0.5 };
+        if r.ground != Ground::None && x.length() < at.floor + half {
+            x = x.normalize() * (at.floor + half);
+        }
+        let p = P {
+            p: x,
+            v: at.v + d * speed + up * r.up,
+            age: 0.0,
+            life,
+            size,
+            angle: 0.0,
+            spin,
+            floor: at.floor,
+            col: at.col,
+            row,
+            body: at.body,
+            block: at.block,
+            rest: false,
+            a,
+            b,
+            tag,
+            push,
+        };
+        if self.pool.len() < self.cap {
+            self.pool.push(p);
+        } else {
+            // full: of the next 32 from the cursor, the one nearest its end goes; the cursor moves on, so a
+            // burst into a full pool costs 32 looks a particle, not the pool's size (shortcut: not the
+            // farthest from the camera; fine while bursts are local, add the distance when weather fills it)
+            let n = self.pool.len();
+            let look = n.min(32);
+            let end = |q: &P| q.age / q.life;
+            let k = (0..look).map(|j| (self.cursor + j) % n).max_by(|&x, &y| end(&self.pool[x]).total_cmp(&end(&self.pool[y]))).unwrap();
+            self.cursor = (self.cursor + look) % n;
+            self.pool[k] = p;
+        }
     }
 
     /// A cell gone under particles that lie on it: those in its column over its top fall on to the floor
@@ -446,10 +1012,21 @@ impl Fx {
     /// dead go, the living are packed for the GPU (`drawn`) in the same pass.
     pub fn step(&mut self, world: &World, dt: f32) {
         let g0 = engine::phys::G as f32;
-        let rows = &*ROWS;
+        // the file changed: its rows in, or why not
+        if let Some(got) = self.rx.as_ref().and_then(|rx| rx.try_iter().last()) {
+            match got.and_then(|set| self.swap(set)) {
+                Ok(()) => eprintln!("[technoape] effects: {} rows, {} groups read", self.set.rows.len(), self.set.groups.len()),
+                Err(e) => eprintln!("[technoape] effects: {e}; the rows before stay"),
+            }
+        }
         self.events = 0;
         self.out.clear();
+        self.mout.clear();
         self.cracks = 0;
+        self.clock += dt;
+        self.emit(world, dt);
+        let rows = &self.set.rows;
+        let clock = self.clock;
         let mut i = 0;
         while i < self.pool.len() {
             let q = &mut self.pool[i];
@@ -458,6 +1035,12 @@ impl Fx {
             if !q.rest && q.age < q.life {
                 let up = q.p.normalize();
                 q.v += (up * (-g0 * r.gravity) - q.v * r.drag) * dt;
+                // (the rows before ADR 0050 push nothing: their motion stays exactly as it was)
+                if let Some(n) = &r.noise {
+                    q.v += (q.push + noise_at(q.p, clock, n) * n.strength) * dt;
+                } else if q.push != Vec3::ZERO {
+                    q.v += q.push * dt;
+                }
                 let was = q.p;
                 q.p += q.v * dt;
                 q.angle += q.spin * dt;
@@ -475,7 +1058,7 @@ impl Fx {
                         (q.floor, q.col) = (floor, col);
                     }
                 }
-                let half = if r.look == Look::Block { 0.0 } else { q.size * 0.5 };
+                let half = if matches!(r.look, Look::Block | Look::Model) { 0.0 } else { q.size * 0.5 };
                 // its height along the old up: a frame's step sideways changes the radius by under a micrometre
                 let mut over = q.p.dot(up) - half - q.floor;
                 // down to where a deep column's lookup stopped: look on from there
@@ -521,12 +1104,95 @@ impl Fx {
             if r.shrink > 0.0 && x > 1.0 - r.shrink {
                 size *= (1.0 - x) / r.shrink;
             }
-            self.out.push(FxGpu { p: q.p.to_array(), size, info: q.block as u32 | (q.body as u32) << 8 | (r.look as u32) << 10, angle: q.angle, a: q.a, b: q.b });
+            if !r.size_curve.is_empty() {
+                size *= curve_at(&r.size_curve, x);
+            }
+            if r.look == Look::Model {
+                // upright about its up, along its flight, or turning about the axis its seed picks
+                let up = q.p.normalize();
+                let (s, t) = up.any_orthonormal_pair();
+                // (t, up, s), not (s, up, t): `any_orthonormal_pair` gives s x t = up, so this is a turn, not a mirror
+                let upright = glam::Mat3::from_cols(t, up, s);
+                let turn = match r.face {
+                    Face::Flight if q.v.length_squared() > 1e-6 => glam::Mat3::from_quat(glam::Quat::from_rotation_arc(Vec3::Y, q.v.normalize())),
+                    Face::Tumble => upright * glam::Mat3::from_axis_angle(seed_axis(q.a), q.angle),
+                    _ => upright,
+                };
+                self.mout.push(FxModel { row: q.row, body: q.body, p: q.p, turn, size });
+                i += 1;
+                continue;
+            }
+            let mut b = q.b;
+            if !r.grad.is_empty() || !r.bright_curve.is_empty() {
+                let c = if r.grad.is_empty() { r.colour.unwrap_or([1.0; 3]) } else { gradient_at(&r.grad, x) };
+                let k = curve_at(&r.bright_curve, x);
+                let c = c.map(|v| ((v * k).clamp(0.0, 1.0) * 255.0).round() as u32);
+                b = c[0] | c[1] << 8 | c[2] << 16 | 255 << 24;
+            }
+            let (gl, mut a, mut angle) = (if r.look == Look::Texture { Look::Square } else { r.look } as u32, q.a, q.angle);
+            let mut info = q.block as u32 | (q.body as u32) << 8 | gl << 10;
+            if gl == 1 {
+                // the new looks' bits (ADR 0050): face << 16, a texture's block in the block's place | 1 << 18,
+                // glow * 32 << 24; along the flight `a` is its direction and `angle` its streak, a 30th of a second
+                info |= (r.face as u32) << 16 | (((r.glow * 32.0).round() as u32).min(255)) << 24;
+                if r.look == Look::Texture {
+                    info = (info & !255) | r.tex as u32 | 1 << 18;
+                }
+                if r.face == Face::Flight {
+                    a = pack_dir(q.v);
+                    angle = q.v.length() / 30.0;
+                }
+            }
+            self.out.push(FxGpu { p: q.p.to_array(), size, info, angle, a, b });
             i += 1;
         }
         while let Some((t, at)) = self.later.pop() {
-            self.play(t, &at);
+            let tag = self.tag();
+            self.burst(t, &at, tag);
         }
+    }
+
+    /// The lasting effects' particles this step, by their rates, and the lamps of those that glow (one a
+    /// handle, at its place, its rows' glows added, flickering by the noise of the clock).
+    fn emit(&mut self, world: &World, dt: f32) {
+        self.lamps.clear();
+        let mut last = None;
+        if self.emitters.is_empty() {
+            return;
+        }
+        let set = std::mem::take(&mut self.set);
+        let mut emitters = std::mem::take(&mut self.emitters);
+        for e in emitters.iter_mut() {
+            let r = &set.rows[e.row as usize];
+            if r.rate <= 0.0 {
+                continue;
+            }
+            e.due += (r.rate * self.scale * dt) as f64;
+            // (a hair over: twelve sixtieths of a second at 5 a second is one, not 0.9999)
+            let n = (e.due + 1e-6).floor();
+            e.due -= n;
+            for _ in 0..n as usize {
+                self.spawn(r, e.row, &e.at, e.handle);
+            }
+            if r.glow > 0.0 {
+                let c = if r.grad.is_empty() { r.colour.unwrap_or([1.0; 3]) } else { r.grad.iter().fold([0.0; 3], |s, g| [0, 1, 2].map(|k| s[k] + g.1[k] / r.grad.len() as f32)) };
+                let mut c = c.map(|v| v * r.glow * 0.25);
+                if let Some(z) = &r.noise {
+                    let f = 0.8 + 0.2 * noise_at(Vec3::new(e.handle as f32 * 7.3, 0.0, 0.0), self.clock * 4.0, &Noise { strength: 1.0, scale: 1.0, speed: z.speed.max(1.0) }).x;
+                    c = c.map(|v| v * f);
+                }
+                match self.lamps.last_mut() {
+                    // a group's rows add up to one lamp
+                    Some(l) if last == Some(e.handle) => l.2 = [l.2[0] + c[0], l.2[1] + c[1], l.2[2] + c[2]],
+                    _ => {
+                        self.lamps.push((e.at.body, world.bodies[e.at.body as usize].centre + e.at.p.as_dvec3(), c));
+                        last = Some(e.handle);
+                    }
+                }
+            }
+        }
+        self.emitters = emitters;
+        self.set = set;
     }
 
     #[cfg(test)]
@@ -549,6 +1215,18 @@ impl Fx {
     pub fn drawn(&self) -> &[FxGpu] {
         &self.out
     }
+}
+
+/// A unit axis from a particle's seed, as the shader's debris turns about.
+fn seed_axis(a: u32) -> Vec3 {
+    let h = a.wrapping_mul(747796405).wrapping_add(2891336453);
+ (Vec3::new((h & 255) as f32, (h >> 8 & 255) as f32, (h >> 16 & 255) as f32) - Vec3::splat(127.25)).normalize_or(Vec3::Y)
+}
+
+/// A direction as three 10-bit numbers for the shader (`unpack_dir` in shader.wgsl).
+fn pack_dir(v: Vec3) -> u32 {
+    let d = v.normalize_or(Vec3::Y).to_array().map(|x| ((x * 0.5 + 0.5) * 1023.0).round() as u32);
+    d[0] | d[1] << 10 | d[2] << 20
 }
 
 /// A cell as the shader's `block` and `crack` looks find it on the grid: column and face.
@@ -1008,6 +1686,256 @@ mod tests {
             let rest = fx.pool.iter().filter(|p| p.rest).count();
             println!("step {n}: p50 {:.4} ms, p99 {:.4} ms ({rest} at rest)", times[times.len() / 2], times[times.len() * 99 / 100]);
         }
+    }
+
+    /// ADR 0050: the rows before it draw exactly as they did. The numbers are the drawn particles' bytes over
+    /// two seconds, hashed, as the code before ADR 0050 made them.
+    #[test]
+    fn the_old_rows_draw_exactly_as_before() {
+        let mut w = world();
+        let c = surface(&w);
+        w.set_block(c, AIR);
+        let at = At::cell(&w, c, BLOCKS.id("stone"));
+        let mut got = Vec::new();
+        for name in ["break", "place", "grow", "spray", "splash", "chip"] {
+            let mut fx = Fx::new(true, 4096, 1.0, 11);
+            fx.play(id(name), &at);
+            let mut h = engine::world::FNV0;
+            for _ in 0..120 {
+                fx.step(&w, 1.0 / 60.0);
+                h = engine::world::fnv(h, bytemuck::cast_slice(fx.drawn()));
+            }
+            got.push((name, h));
+        }
+        println!("{got:?}");
+        let want: [u64; 6] = [16124491450335446172, 12728753821768735219, 10756546070781930058, 5885070126393282328, 9628921545010191082, 7602677355907020114];
+        assert_eq!(got.iter().map(|g| g.1).collect::<Vec<_>>(), want);
+    }
+
+    #[test]
+    fn curves_and_gradients_run_between_their_points_and_hold_past_them() {
+        let c = [[0.0, 1.0], [0.5, 2.0], [1.0, 0.0]];
+        assert_eq!((curve_at(&c, 0.25), curve_at(&c, 0.75), curve_at(&c, -1.0), curve_at(&c, 2.0)), (1.5, 1.0, 1.0, 0.0));
+        assert_eq!(curve_at(&[], 0.3), 1.0);
+        assert_eq!(curve_at(&[[0.4, 3.0]], 0.0), 3.0);
+        let g = [(0.0, [1.0, 1.0, 1.0]), (0.5, [1.0, 0.0, 0.0]), (1.0, [0.0, 0.0, 0.0])];
+        assert_eq!(gradient_at(&g, 0.25), [1.0, 0.5, 0.5]);
+        assert_eq!(gradient_at(&g, 0.75), [0.5, 0.0, 0.0]);
+        assert_eq!(gradient_at(&g, 1.5), [0.0; 3]);
+        // a row's gradient by palette names
+        let set = parse_set("[[effect]]\nname='a'\ncount=1\nlife=[1,1]\nsize=[0.1,0.1]\nlook='square'\ngradient=[[0.0,'lamp light'],[1.0,'stone dark']]", &PALETTE).unwrap();
+        assert_eq!(set.rows[0].grad[1].1, [0x46 as f32 / 255.0, 0x46 as f32 / 255.0, 0x49 as f32 / 255.0]);
+    }
+
+    #[test]
+    fn the_noise_field_is_the_same_for_the_same_place_and_time_and_continuous() {
+        let n = Noise { strength: 1.0, scale: 0.5, speed: 1.0 };
+        let p = Vec3::new(3.1, 1200.7, -40.2);
+        assert_eq!(noise_at(p, 2.0, &n), noise_at(p, 2.0, &n));
+        let mut most = 0.0f32;
+        let mut spread = 0.0f32;
+        for k in 0..2000 {
+            let q = p + Vec3::new(k as f32 * 0.0137, k as f32 * 0.0071, 0.0);
+            let a = noise_at(q, 2.0, &n);
+            assert!(a.abs().max_element() <= 1.0);
+            // a millimetre or a millisecond on moves it a little only
+            most = most.max((noise_at(q + Vec3::X * 0.001, 2.0, &n) - a).length()).max((noise_at(q, 2.001, &n) - a).length());
+            spread = spread.max((a - noise_at(p, 2.0, &n)).length());
+        }
+        assert!(most < 0.02, "a jump of {most}");
+        assert!(spread > 0.5, "the field barely changes: {spread}");
+        // it moves with time
+        assert_ne!(noise_at(p, 2.0, &n), noise_at(p, 3.0, &n));
+    }
+
+    const LASTING: &str = "[[effect]]\nname='t flames'\nrate=10\nlife=[5,5]\nsize=[0.1,0.1]\nlook='square'\ncolour=[1,0.5,0]\ngravity=0\nglow=2\n\n[[effect]]\nname='t smoke'\ncount=2\nrate=4\nlife=[5,5]\nsize=[0.1,0.1]\nlook='square'\ncolour=[0.3,0.3,0.3]\ngravity=0\nrise=0.5\nspread=0.2\n\n[[group]]\nname='t fire'\nrows=['t flames','t smoke']\n";
+
+    fn pool_with(text: &str, scale: f32) -> Fx {
+        let mut fx = Fx::new(true, 4096, scale, 3);
+        let mut set = SET.clone();
+        let extra = parse_set(text, &PALETTE).unwrap();
+        let k = set.rows.len() as u16;
+        set.rows.extend(extra.rows);
+        set.groups.extend(extra.groups.into_iter().map(|mut g| {
+            g.ids.iter_mut().for_each(|i| *i += k);
+            g
+        }));
+        fx.swap(set).unwrap();
+        fx
+    }
+
+    #[test]
+    fn a_rate_makes_its_count_over_time_until_stopped_and_a_group_plays_its_rows_as_one() {
+        let w = world();
+        let at = At::point(0, DVec3::new(0.0, 2000.0, 0.0), DVec3::ZERO, 0.0);
+        for scale in [1.0, 2.0] {
+            let mut fx = pool_with(LASTING, scale);
+            let h = fx.start("t flames", &at).unwrap();
+            for _ in 0..120 {
+                fx.step(&w, 1.0 / 60.0);
+            }
+            assert_eq!(fx.live(), (20.0 * scale) as usize, "10 a second for 2 s at scale {scale}");
+            fx.stop(h);
+            for _ in 0..60 {
+                fx.step(&w, 1.0 / 60.0);
+            }
+            assert_eq!(fx.live(), (20.0 * scale) as usize, "stopped: none more, those out live on");
+        }
+        // the group: both rows, smoke's count at once, then 10 + 4 a second; one lamp for the glowing flames
+        let mut fx = pool_with(LASTING, 1.0);
+        assert_eq!(fx.set.rows_of("t fire").unwrap().len(), 2);
+        let h = fx.start("t fire", &at).unwrap();
+        assert_eq!(fx.live(), 2);
+        for _ in 0..60 {
+            fx.step(&w, 1.0 / 60.0);
+        }
+        assert_eq!(fx.live(), 2 + 14);
+        assert_eq!(fx.lamps().len(), 1);
+        // it follows its place, restarts from nothing, and stops as one
+        let far = At::point(0, DVec3::new(0.0, 2000.0, 50.0), DVec3::ZERO, 0.0);
+        fx.moved(h, &far);
+        fx.step(&w, 0.5);
+        assert!(fx.pool.iter().filter(|p| p.p.z > 49.0).count() >= 7);
+        fx.restart(h);
+        assert_eq!(fx.live(), 2);
+        fx.stop(h);
+        fx.step(&w, 1.0);
+        assert_eq!((fx.live(), fx.lamps().len()), (2, 0));
+        assert!(fx.start("no such", &at).is_none());
+        // a count-only row: a restart bursts it again, and it adds no more over time
+        let mut fx = pool_with(&LASTING.replace("count=2\nrate=4", "count=3"), 1.0);
+        let h = fx.start("t smoke", &at).unwrap();
+        fx.step(&w, 1.0);
+        assert_eq!(fx.live(), 3);
+        fx.restart(h);
+        assert_eq!(fx.live(), 3, "restarted: its count again");
+        fx.step(&w, 1.0);
+        assert_eq!(fx.live(), 3);
+        // effects off: nothing starts
+        assert!(Fx::new(false, 16, 1.0, 1).start("break", &at).is_none());
+    }
+
+    #[test]
+    fn each_start_keeps_to_its_shape() {
+        let rows = "[[effect]]\nname='ring'\ncount=100\nstart='ring'\nradius=0.5\nlife=[1,1]\nsize=[0.1,0.1]\nlook='debris'\n\n\
+                    [[effect]]\nname='box'\ncount=100\nstart='box'\nbox=[2.0,0.5,1.0]\nlife=[1,1]\nsize=[0.1,0.1]\nlook='debris'\n\n\
+                    [[effect]]\nname='cone'\ncount=100\nstart='cone'\nangle=20\ndir=[1,0,0]\nspeed=[1,1]\nlife=[1,1]\nsize=[0.1,0.1]\nlook='debris'\n";
+        let mut fx = pool_with(rows, 1.0);
+        let at = At::point(0, DVec3::new(0.0, 2000.0, 0.0), DVec3::ZERO, 0.0);
+        let [up, s, t] = at.axes;
+        let mut last = 0;
+        for (name, ok) in [
+            ("ring", &(|o: Vec3, _: Vec3| (o.length() - 0.5).abs() < 1e-3 && o.dot(up).abs() < 1e-3) as &dyn Fn(Vec3, Vec3) -> bool),
+            ("box", &|o: Vec3, _| o.dot(s).abs() <= 1.0 + 1e-3 && o.dot(up).abs() <= 0.25 + 1e-3 && o.dot(t).abs() <= 0.5 + 1e-3),
+            ("cone", &|o: Vec3, v: Vec3| o.length() < 1e-3 && v.normalize().dot(s) >= 20f32.to_radians().cos() - 1e-4),
+        ] {
+            fx.play_named(name, &at);
+            let new = &fx.pool[last..];
+            assert_eq!(new.len(), 100);
+            assert!(new.iter().all(|p| ok(p.p - at.p, p.v)), "{name} out of its shape");
+            // and fills it: not all in one place
+            assert!(new.iter().any(|p| (p.p - new[0].p).length() > 0.1 || (p.v - new[0].v).length() > 0.1), "{name} all alike");
+            last = fx.pool.len();
+        }
+    }
+
+    #[test]
+    fn new_fields_are_refused_by_row_and_reason() {
+        let base = "[[effect]]\nname='a'\ncount=1\nlife=[1,1]\nsize=[0.1,0.1]\n";
+        for (extra, why) in [
+            ("look='debris'\nradius=1", "radius"),
+            ("look='debris'\nstart='ring'", "radius"),
+            ("look='debris'\nstart='box'", "box"),
+            ("look='debris'\nangle=30", "angle"),
+            ("look='debris'\nstart='cone'\nangle=200", "angle"),
+            ("look='square'\ngradient=[[0.0,'mauve']]", "colour 'mauve' is not in the palette"),
+            ("look='square'\ngradient=[[0.5,'stone'],[0.2,'stone']]", "in order"),
+            ("look='debris'\ngradient=[[0.0,'stone']]", "squares and textures"),
+            ("look='square'\ncolour=[1,1,1]\nsize_curve=[[1.5,1]]", "curve"),
+            ("look='square'\ncolour=[1,1,1]\nnoise={strength=1,scale=0}", "noise"),
+            ("look='square'\ncolour=[1,1,1]\nnoise={strength=1,wobble=2}", "unknown field"),
+            ("look='debris'\nglow=1", "glow"),
+            ("look='debris'\nface='flight'", "no face"),
+            ("look='model'", "names a model"),
+            ("look='texture'\ntexture='cheese'", "no block 'cheese'"),
+            ("look='square'\ncolour=[1,1,1]\nrate=1000", "rate"),
+            ("look='debris'\nspin=nan", "spin"),
+            ("look='debris'\ngravity=inf", "gravity"),
+            ("look='square'\ncolour=[1,nan,1]", "colour"),
+            ("look='square'\ncolour=[1,1,1]\nnoise={strength=1,scale=0.001}", "0.01"),
+        ] {
+            let text = format!("{base}{extra}");
+            let e = parse(&text).map(|_| ()).expect_err(why);
+            assert!(e.contains("effect a") || e.contains("unknown field"), "{why}: {e}");
+            assert!(e.contains(why), "{why}: {e}");
+        }
+        let e = parse("[[effect]]\nname='a'\ncount=1\nlife=[1,1]\nsize=[0.2,0.1]\nlook='debris'").unwrap_err();
+        assert!(e.contains("effect a") && e.contains("size"), "a pair from high to low: {e}");
+        let e = parse("[[effect]]\nname='a'\nlife=[1,1]\nsize=[0.1,0.1]\nlook='debris'").unwrap_err();
+        assert!(e.contains("a count, a rate"), "{e}");
+        let e = parse_set(&format!("{base}look='debris'\n[[group]]\nname='g'\nrows=['a','b']"), &PALETTE).unwrap_err();
+        assert_eq!(e, "group g: no effect b");
+        let e = parse_set(&format!("{base}look='debris'\n[[group]]\nname='a'\nrows=['a']"), &PALETTE).unwrap_err();
+        assert!(e.contains("group a: the name of a row"), "{e}");
+        // the Studio's one row: checked the same, its `then` may name the set's rows
+        assert!(parse_row("name='x'\ncount=1\nlife=[1,1]\nsize=[0.1,0.1]\nlook='debris'\nthen='splash'", &SET).is_ok());
+        assert!(parse_row("name='x'\ncount=1\nlife=[1,1]\nsize=[0.1,0.1]\nlook='debris'\nthen='nope'", &SET).unwrap_err().contains("no effect nope"));
+    }
+
+    #[test]
+    fn the_drafts_are_there_and_a_reload_keeps_what_plays_by_name() {
+        for name in ["fire", "smoke", "sparks", "steam", "dust", "drip", "glint", "leaves"] {
+            assert!(SET.rows_of(name).is_some(), "draft {name}");
+            assert!(include_str!("../../../data/drafts.txt").contains(&format!("data/effects.toml#{name}")), "{name} not in drafts.txt");
+        }
+        for r in SET.rows.iter().filter(|r| r.look == Look::Model) {
+            let m = r.model.as_ref().unwrap();
+            assert!(std::path::Path::new(&format!("../../data/models/{m}.toml")).exists(), "effect {}: no model {m}", r.name);
+        }
+        let w = world();
+        let mut fx = Fx::new(true, 4096, 1.0, 3);
+        let at = At::point(0, DVec3::new(0.0, 2000.0, 0.0), DVec3::ZERO, 0.0);
+        let h = fx.start("fire", &at).unwrap();
+        fx.step(&w, 0.5);
+        let live = fx.live();
+        assert!(live > 0);
+        // the same rows in another order: everything keeps playing
+        let mut set = SET.clone();
+        set.rows.reverse();
+        let names: Vec<String> = set.rows.iter().map(|r| r.name.clone()).collect();
+        for g in set.groups.iter_mut() {
+            g.ids = g.rows.iter().map(|m| names.iter().position(|k| k == m).unwrap() as u16).collect();
+        }
+        for r in set.rows.iter_mut() {
+            r.then_i = r.then.as_ref().map(|t| names.iter().position(|m| m == t).unwrap() as u16);
+        }
+        fx.swap(set).unwrap();
+        assert_eq!(fx.live(), live);
+        assert!(fx.pool.iter().all(|p| fx.set.rows[p.row as usize].name != "break"));
+        fx.step(&w, 0.5);
+        assert!(fx.live() > live, "the lasting fire burns on");
+        assert_eq!(fx.play(id("break"), &at) > 0, true);
+        assert!(fx.pool.iter().any(|p| fx.set.rows[p.row as usize].name == "break"), "id's numbers follow the new order");
+        fx.stop(h);
+        // a set without a row the code plays is refused
+        let mut set = SET.clone();
+        set.rows.retain(|r| r.name != "chip");
+        assert!(fx.swap(set).unwrap_err().contains("chip"));
+    }
+
+    #[test]
+    fn a_model_particle_is_turned_never_mirrored() {
+        // a mirrored turn draws the model inside out under back-face culling
+        let rows = "[[effect]]\nname='m up'\ncount=1\nlife=[5,5]\nsize=[1,1]\nlook='model'\nmodel='leaf'\ngravity=0\n\n\
+                    [[effect]]\nname='m tumble'\ncount=1\nlife=[5,5]\nsize=[1,1]\nlook='model'\nmodel='leaf'\nface='tumble'\nspin=3\ngravity=0\n";
+        let mut fx = pool_with(rows, 1.0);
+        let at = At::point(0, DVec3::new(300.0, 2000.0, -700.0), DVec3::ZERO, 0.0);
+        fx.play_named("m up", &at);
+        fx.play_named("m tumble", &at);
+        fx.step(&world(), 0.1);
+        let dets: Vec<f32> = fx.models().map(|(_, m)| m.turn.determinant()).collect();
+        assert_eq!(dets.len(), 2);
+        assert!(dets.iter().all(|d| (d - 1.0).abs() < 1e-4), "a turn, not a mirror: {dets:?}");
     }
 
     #[test]

@@ -1,87 +1,109 @@
 # The one palette every texture and model is painted from (docs/design/studio.md; schema in
 # crates/engine/src/palette.rs). `name`: unique, lower case. `rgb`: "#rrggbb", sRGB, the bytes a PNG holds.
-# The order here is the order on the Studio's Palette page. Written by the Studio: comments are not kept.
+# The order here is the order on the Studio's Palette page. `ramp` (optional): the colours with one ramp name
+# are a run from dark to light, in this order. Written by the Studio: comments are not kept.
 
 [[colour]]
 name = "grass dark"
 rgb = "#2a511c"
+ramp = "grass"
 
 [[colour]]
 name = "grass"
 rgb = "#4c9433"
+ramp = "grass"
 
 [[colour]]
 name = "grass light"
 rgb = "#93ec73"
+ramp = "grass"
 
 [[colour]]
 name = "dirt dark"
 rgb = "#422e1c"
+ramp = "dirt"
 
 [[colour]]
 name = "dirt"
 rgb = "#785433"
+ramp = "dirt"
 
 [[colour]]
 name = "dirt light"
 rgb = "#c99c73"
+ramp = "dirt"
 
 [[colour]]
 name = "stone dark"
 rgb = "#464649"
+ramp = "stone"
 
 [[colour]]
 name = "stone"
 rgb = "#808085"
+ramp = "stone"
 
 [[colour]]
 name = "stone light"
 rgb = "#d2d2d9"
+ramp = "stone"
 
 [[colour]]
 name = "copper dark"
 rgb = "#77492d"
+ramp = "copper"
 
 [[colour]]
 name = "copper"
 rgb = "#d98552"
+ramp = "copper"
 
 [[colour]]
 name = "copper light"
 rgb = "#ffd999"
+ramp = "copper"
 
 [[colour]]
 name = "lamp dark"
 rgb = "#8c7957"
+ramp = "lamp"
 
 [[colour]]
 name = "lamp"
 rgb = "#ffdb9e"
+ramp = "lamp"
 
 [[colour]]
 name = "lamp light"
 rgb = "#fffff9"
+ramp = "lamp"
 
 [[colour]]
 name = "blue lamp dark"
 rgb = "#57738c"
+ramp = "blue lamp"
 
 [[colour]]
 name = "blue lamp"
 rgb = "#9ed1ff"
+ramp = "blue lamp"
 
 [[colour]]
 name = "blue lamp light"
 rgb = "#f9ffff"
+ramp = "blue lamp"
 
 [[colour]]
 name = "regolith dark"
 rgb = "#797976"
+ramp = "regolith"
 
 [[colour]]
 name = "regolith"
 rgb = "#dbdbd6"
+ramp = "regolith"
 
 [[colour]]
 name = "regolith light"
 rgb = "#ffffff"
+ramp = "regolith"

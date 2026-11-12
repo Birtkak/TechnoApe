@@ -97,6 +97,68 @@ pub enum Ease {
     Step,
 }
 
+/// A model's life (docs/design/studio-tools.md "A model's life: states", ADR 0050): its `[[state]]` tables and
+/// its clips' timed `event` lists, read from the same file (`parse_life`) and kept beside the model, so `Model`
+/// and `Clip` keep the fields their callers build them with. `write_life` puts them back into the file's text.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Life {
+    pub states: Vec<State>,
+    /// Each clip's events, by the clip's name.
+    pub events: Vec<(String, Vec<Event>)>,
+}
+
+/// What a model does in a state: its clip, its lasting effects at its points, a looping sound, a light.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct State {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<StateEffect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub light: Option<Light>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct StateEffect {
+    pub effect: String,
+    pub point: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Light {
+    pub point: String,
+    /// A palette name.
+    pub colour: String,
+    #[serde(default = "one")]
+    pub strength: f32,
+    /// `colour` from the palette, 0..1 (filled by `parse_life`).
+    #[serde(skip)]
+    pub rgb: [f32; 3],
+}
+
+fn one() -> f32 {
+    1.0
+}
+
+/// A moment of a clip: a sound, an effect, or both, at a point (none: the model's foot).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Event {
+    pub t: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub point: Option<String>,
+}
+
 /// One merged face of a part: its min corner in the part's voxels, its direction (0..6 = +x,-x,+y,-y,+z,-z),
 /// its extent along the axes (a+1)%3 and (a+2)%3 of its axis a, and its colour's place in `colours`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -167,9 +229,8 @@ pub fn encode(size: [u32; 3], cells: &[u8]) -> String {
 impl Model {
     /// Reads and checks a model; every refusal names `file` and why.
     pub fn parse(file: &str, text: &str, palette: &Palette) -> Result<Model, String> {
-        let mut m: Model = toml::from_str(text).map_err(|e| format!("{file}: {e}"))?;
-        m.check(palette).map_err(|e| format!("{file}: {e}"))?;
-        Ok(m)
+        // (a file with a life reads too: its states and events checked against the model's clips and points)
+        parse_life(file, text, palette, &|_| true, &|_| true).map(|(m, _)| m)
     }
 
     fn check(&mut self, palette: &Palette) -> Result<(), String> {
@@ -230,7 +291,9 @@ impl Model {
 
     /// The file's text (the voxels as their rows; parse it again to check it).
     pub fn write(&self) -> String {
-        toml::to_string(self).expect("a model always serialises")
+        let mut v = toml::Value::try_from(self).expect("a model always serialises");
+        as_typed(&mut v);
+        toml::to_string(&v).expect("a model always serialises")
     }
 
     /// Each part's transform from its voxels to the cell's metres (x, y up, z; the cell's corner at 0) at `t`
@@ -269,8 +332,241 @@ impl Model {
     }
 }
 
+/// A model and its life from a file's text; every refusal names `file` and why: a state or event naming no clip,
+/// point, effect (`effect` says which exist) or sound (`sound`), a light's colour not in the palette, an event's
+/// time outside its clip.
+pub fn parse_life(file: &str, text: &str, palette: &Palette, effect: &dyn Fn(&str) -> bool, sound: &dyn Fn(&str) -> bool) -> Result<(Model, Life), String> {
+    let at = |e: String| format!("{file}: {e}");
+    let mut t: toml::Table = toml::from_str(text).map_err(|e| at(e.to_string()))?;
+    // the life comes out of the table first, so the model's own fields stay as strict as before
+    let states = t.remove("state");
+    let mut events = Vec::new();
+    if let Some(toml::Value::Array(clips)) = t.get_mut("clip") {
+        for c in clips.iter_mut().filter_map(|c| c.as_table_mut()) {
+            if let Some(ev) = c.remove("event") {
+                let name = c.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+                let ev: Vec<Event> = ev.try_into().map_err(|e: toml::de::Error| at(format!("clip '{name}': {e}")))?;
+                events.push((name, ev));
+            }
+        }
+    }
+    let mut m: Model = toml::Value::Table(t).try_into().map_err(|e: toml::de::Error| at(e.to_string()))?;
+    m.check(palette).map_err(at)?;
+    let states: Vec<State> = match states {
+        Some(s) => s.try_into().map_err(|e: toml::de::Error| at(format!("state: {e}")))?,
+        None => Vec::new(),
+    };
+    let mut life = Life { states, events };
+    check_life(&m, &mut life, palette, effect, sound).map_err(at)?;
+    Ok((m, life))
+}
+
+fn check_life(m: &Model, life: &mut Life, palette: &Palette, effect: &dyn Fn(&str) -> bool, sound: &dyn Fn(&str) -> bool) -> Result<(), String> {
+    let point = |n: &str| m.points.iter().any(|p| p.name == n);
+    let names: Vec<String> = life.states.iter().map(|s| s.name.clone()).collect();
+    for s in life.states.iter_mut() {
+        let n = s.name.clone();
+        let no = |what: &str, x: &str| Err(format!("state '{n}': no {what} '{x}'"));
+        if names.iter().filter(|k| **k == n).count() > 1 {
+            return Err(format!("state '{n}' is named twice"));
+        }
+        if let Some(c) = &s.clip {
+            if !m.clips.iter().any(|k| &k.name == c) {
+                return no("clip", c);
+            }
+        }
+        for e in &s.effects {
+            if !point(&e.point) {
+                return no("point", &e.point);
+            }
+            if !effect(&e.effect) {
+                return no("effect", &e.effect);
+            }
+        }
+        if let Some(x) = &s.sound {
+            if !sound(x) {
+                return no("sound", x);
+            }
+        }
+        if let Some(l) = &mut s.light {
+            if !point(&l.point) {
+                return no("point", &l.point);
+            }
+            l.rgb = palette.colours.iter().find(|c| c.name == l.colour).map(|c| c.rgb.map(|v| v as f32 / 255.0)).ok_or(format!("state '{n}': colour '{}' is not in the palette", l.colour))?;
+            if !(l.strength > 0.0) {
+                return Err(format!("state '{n}': a light's strength is over 0"));
+            }
+        }
+    }
+    for (c, evs) in &life.events {
+        let clip = m.clips.iter().find(|k| &k.name == c).ok_or(format!("clip '{c}': events of no clip"))?;
+        for e in evs {
+            let no = |what: &str, x: &str| Err(format!("clip '{c}': no {what} '{x}'"));
+            if !(0.0..=clip.length).contains(&e.t) {
+                return Err(format!("clip '{c}': an event at t = {} is outside 0..{}", e.t, clip.length));
+            }
+            if e.sound.is_none() && e.effect.is_none() {
+                return Err(format!("clip '{c}': an event plays a sound, an effect or both"));
+            }
+            if let Some(p) = e.point.as_deref().filter(|p| !point(p)) {
+                return no("point", p);
+            }
+            if let Some(x) = e.effect.as_deref().filter(|x| !effect(x)) {
+                return no("effect", x);
+            }
+            if let Some(x) = e.sound.as_deref().filter(|x| !sound(x)) {
+                return no("sound", x);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The file's text of a model with its life (`Model::write` and the states and events put back).
+pub fn write_life(m: &Model, life: &Life) -> String {
+    let mut t: toml::Table = toml::from_str(&m.write()).expect("a written model reads");
+    if let Some(toml::Value::Array(clips)) = t.get_mut("clip") {
+        for c in clips.iter_mut().filter_map(|c| c.as_table_mut()) {
+            let name = c.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+            if let Some((_, ev)) = life.events.iter().find(|(n, ev)| *n == name && !ev.is_empty()) {
+                c.insert("event".into(), toml::Value::try_from(ev).expect("events serialise"));
+            }
+        }
+    }
+    if !life.states.is_empty() {
+        t.insert("state".into(), toml::Value::try_from(&life.states).expect("states serialise"));
+    }
+    let mut t = toml::Value::Table(t);
+    as_typed(&mut t);
+    toml::to_string(&t).expect("a model always serialises")
+}
+
+/// Every number as its f32 prints (0.8, not 0.800000011920929), as `creatures::write` does, so a saved
+/// file reads as it was typed.
+fn as_typed(v: &mut toml::Value) {
+    match v {
+        toml::Value::Float(f) => *f = format!("{:?}", *f as f32).parse().unwrap_or(*f),
+        toml::Value::Array(a) => a.iter_mut().for_each(as_typed),
+        toml::Value::Table(t) => t.iter_mut().for_each(|(_, v)| as_typed(v)),
+        _ => {}
+    }
+}
+
+/// A file's leading comment lines (and the blank lines among them), which a written model puts back on top.
+pub fn head(text: &str) -> String {
+    text.lines().take_while(|l| l.trim().is_empty() || l.trim_start().starts_with('#')).map(|l| format!("{l}
+")).collect()
+}
+
+/// The file's text of a model with its life, written over `old` (the file as it was): its leading comments on
+/// top, every other comment line above the section (`[[part]]`, `[[state]]`, ...) it stood above, found again by
+/// the section's `name` (else by its place among its kind), and CRLF if `old` had it.
+pub fn write_keeping(old: &str, m: &Model, life: &Life) -> String {
+    let top = head(old);
+    let (notes, tail) = notes(&old.lines().skip(top.lines().count()).collect::<Vec<_>>());
+    let new = write_life(m, life);
+    let lines: Vec<&str> = new.lines().collect();
+    let mut out = top;
+    let mut kept = 0;
+    for (i, id) in sections(&lines) {
+        if let Some((_, c)) = notes.iter().find(|(n, _)| *n == id) {
+            out.extend(lines[kept..i].iter().map(|l| format!("{l}\n")));
+            out.extend(c.iter().map(|l| format!("{l}\n")));
+            kept = i;
+        }
+    }
+    out.extend(lines[kept..].iter().chain(&tail).map(|l| format!("{l}\n")));
+    // (a section gone from the model takes its comments with it)
+    if old.contains("\r\n") {
+        out = out.replace('\n', "\r\n");
+    }
+    out
+}
+
+/// Each section's first line and who it is: its header (without a trailing comment) and its `name` (however
+/// quoted or spaced), else its place among its kind; a sub-section (`[[clip.key]]`) its place within its parent.
+fn sections(lines: &[&str]) -> Vec<(usize, (String, String))> {
+    let mut out: Vec<(usize, (String, String))> = Vec::new();
+    let mut in_string = false;
+    // the last top-level section: its place in `out` and who it is
+    let mut parent: Option<(usize, String)> = None;
+    for (i, l) in lines.iter().enumerate() {
+        let t = l.split('#').next().unwrap_or("").trim();
+        if !in_string && t.starts_with('[') {
+            let sub = t.contains('.');
+            let since = if sub { parent.as_ref().map_or(0, |p| p.0 + 1) } else { 0 };
+            let n = out[since..].iter().filter(|(_, (h, _))| h == t).count();
+            let name = lines[i + 1..].iter().take_while(|l| !l.trim_start().starts_with('[')).find_map(|l| toml::from_str::<toml::Table>(l).ok()?.get("name")?.as_str().map(String::from));
+            let mut id = name.unwrap_or_else(|| format!("#{n}"));
+            if sub {
+                id = format!("{}/{id}", parent.as_ref().map_or("", |p| p.1.as_str()));
+            } else {
+                parent = Some((out.len(), id.clone()));
+            }
+            out.push((i, (t.to_string(), id)));
+        }
+        in_string ^= l.matches("\"\"\"").count() % 2 == 1;
+    }
+    out
+}
+
+/// The comment lines of a file's body by the section they stand above (blank lines among them kept), and those
+/// after the last section.
+#[allow(clippy::type_complexity)]
+fn notes<'a>(lines: &[&'a str]) -> (Vec<((String, String), Vec<&'a str>)>, Vec<&'a str>) {
+    let heads = sections(lines);
+    let mut out = Vec::new();
+    let (mut c, mut in_string) = (Vec::new(), false);
+    for (i, l) in lines.iter().enumerate() {
+        if let Some((_, id)) = heads.iter().find(|(k, _)| *k == i) {
+            if c.iter().any(|l: &&str| !l.trim().is_empty()) {
+                // a blank line between the comments and the section stays out, as the written file has its own
+                while c.last().is_some_and(|l: &&str| l.trim().is_empty()) {
+                    c.pop();
+                }
+                out.push((id.clone(), std::mem::take(&mut c)));
+            }
+            c.clear();
+        } else if !in_string && l.trim_start().starts_with('#') {
+            c.push(*l);
+        } else if !in_string && l.trim().is_empty() && !c.is_empty() {
+            c.push(*l);
+        }
+        in_string ^= l.matches("\"\"\"").count() % 2 == 1;
+    }
+    (out, c.into_iter().skip_while(|l| l.trim().is_empty()).collect())
+}
+
+/// The events of a clip that fire as its time runs from `t0` (not included) to `t1` (seconds since it started):
+/// each once a pass of a looping clip (at its t, then a length later, and so on), once in all of another.
+/// Each at most once a call, however many passes `t0..t1` spans (a scrub in the Studio).
+pub fn events_between<'a>(c: &Clip, events: &'a [Event], t0: f64, t1: f64) -> Vec<&'a Event> {
+    let len = c.length as f64;
+    events
+        .iter()
+        .filter(|e| {
+            let t = e.t as f64;
+            if c.looping {
+                // the passes k >= 0 whose moment k * len + t lies in (t0, t1]
+                ((t1 - t) / len).floor().max(-1.0) > ((t0 - t) / len).floor().max(-1.0)
+            } else {
+                t0 < t && t <= t1
+            }
+        })
+        .collect()
+}
+
+impl Model {
+    /// Where point `name` is under `poses` (`pose`'s), in the cell's metres.
+    pub fn point_at(&self, poses: &[Mat4], name: &str) -> Option<Vec3> {
+        let p = self.points.iter().find(|p| p.name == name)?;
+        let k = self.parts.iter().position(|q| q.name == p.part)?;
+        Some(poses.get(k)?.transform_point3(Vec3::from(p.at)))
+    }
+}
+
 /// A part's move and turn at t in a clip: held before its first key and after its last, eased between.
-fn sample(c: &Clip, part: &str, t: f32) -> (Vec3, Vec3) {
+pub fn sample(c: &Clip, part: &str, t: f32) -> (Vec3, Vec3) {
     let mut keys: Vec<&Key> = c.key.iter().filter(|k| k.part == part).collect();
     keys.sort_by(|a, b| a.t.total_cmp(&b.t));
     let val = |k: &Key| (Vec3::from(k.shift), Vec3::from(k.turn));
@@ -479,5 +775,184 @@ key = [
         let p = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
         let m = Model::parse("data/models/furnace.toml", include_str!("../../../data/models/furnace.toml"), &p).unwrap();
         assert!(m.clips.iter().any(|c| c.name == "work") && m.points.iter().any(|p| p.name == "flame"));
+        // and its life: working burns, smokes at the chimney, hums, glows, and clanks as the door shuts
+        let (_, life) = parse_life("data/models/furnace.toml", include_str!("../../../data/models/furnace.toml"), &p, &|_| true, &|_| true).unwrap();
+        let s = life.states.iter().find(|s| s.name == "working").expect("a working state");
+        assert_eq!(s.clip.as_deref(), Some("work"));
+        assert!(s.effects.iter().any(|e| e.effect == "fire" && e.point == "flame") && s.effects.iter().any(|e| e.point == "chimney"));
+        assert_eq!(s.sound.as_deref(), Some("furnace.burn"));
+        assert!(s.light.as_ref().is_some_and(|l| l.rgb[0] > 0.5));
+        assert!(life.events.iter().any(|(c, e)| c == "work" && e.iter().any(|e| e.sound.as_deref() == Some("furnace.clank"))));
+    }
+
+    #[test]
+    fn the_furnace_writes_back_as_typed() {
+        let p = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        let text = include_str!("../../../data/models/furnace.toml");
+        let (m, life) = parse_life("furnace.toml", text, &p, &|_| true, &|_| true).unwrap();
+        let out = head(text) + &write_life(&m, &life);
+        // the leading comment kept, every number as typed (no f32 noise such as 0.800000011920929)
+        assert!(out.starts_with("# A draft furnace"), "{out}");
+        assert!(!out.contains("0000") && !out.contains("9999"), "{out}");
+        assert!(out.contains("t = 0.8
+") && out.contains("strength = 0.7
+"), "{out}");
+        assert_eq!(parse_life("again", &out, &p, &|_| true, &|_| true).unwrap(), (m, life));
+    }
+
+    #[test]
+    fn a_save_keeps_every_comment_above_its_section_and_crlf() {
+        let p = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        let text = include_str!("../../../data/models/furnace.toml").replace("\r\n", "\n");
+        let (m, life) = parse_life("furnace.toml", &text, &p, &|_| true, &|_| true).unwrap();
+        // a note above the door part, one inside the body part (it stands above the next section), one above a state
+        let door = m.parts.iter().position(|q| q.name == "door").expect("the furnace has a door");
+        let mut noted = text.replacen("[[state]]", "# when it burns\n[[state]]", 1);
+        let at = noted.match_indices("[[part]]").nth(door).unwrap().0;
+        noted.insert_str(at, "# the door: copper\n#   swings in `work`\n");
+        noted = noted.replacen("pivot = ", "# about its middle\npivot = ", 1);
+        // as a hand writes them: other quotes and spacing, a comment after a header
+        noted = noted.replacen("name = \"door\"", "name='door'", 1).replacen("[[state]]\nname = \"working\"", "[[state]] # the one state\nname=\"working\"", 1);
+        assert!(noted.contains("name='door'") && noted.contains("# the one state"));
+        for crlf in [false, true] {
+            let old = if crlf { noted.replace('\n', "\r\n") } else { noted.clone() };
+            let out = write_keeping(&old, &m, &life);
+            assert_eq!(parse_life("again", &out, &p, &|_| true, &|_| true).unwrap(), (m.clone(), life.clone()));
+            assert!(out.starts_with("# A draft furnace"), "the head kept");
+            assert_eq!(out.contains("\r\n"), crlf);
+            assert!(!crlf || !out.replace("\r\n", "").contains('\n'), "every line CRLF");
+            let out = out.replace("\r\n", "\n");
+            let after = |c: &str| out[out.find(c).unwrap_or_else(|| panic!("{c} lost: {out}")) + c.len()..].to_string();
+            // the section below a comment: its header and its name (the writer orders the keys)
+            let below = |c: &str, header: &str, name: &str| {
+                let rest = after(c);
+                let section = &rest[..rest[2..].find("\n[[").map_or(rest.len(), |k| k + 2)];
+                rest.starts_with(header) && section.contains(&format!("name = \"{name}\""))
+            };
+            assert!(below("# the door: copper\n#   swings in `work`\n", "[[part]]", "door"), "{out}");
+            assert!(below("# when it burns\n", "[[state]]", "working"), "{out}");
+            assert!(after("# about its middle\n").lines().find(|l| !l.trim().is_empty() && !l.starts_with('#')).is_some_and(|l| l.starts_with("[[")),"a comment inside a section stands above the next: {out}");
+        }
+    }
+
+    /// A comment above a clip's key stays with that key of that clip when another clip gains a key.
+    #[test]
+    fn a_keys_comment_stays_with_its_clip() {
+        let p = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        let text = include_str!("../../../data/models/furnace.toml").replace("\r\n", "\n");
+        let (mut m, life) = parse_life("furnace.toml", &text, &p, &|_| true, &|_| true).unwrap();
+        let mut two = m.clips[0].clone();
+        two.name = "shut".into();
+        m.clips.push(two);
+        let old = write_life(&m, &life);
+        // a note above the first key of the second clip
+        let at = old.find("name = \"shut\"").unwrap();
+        let k = at + old[at..].find("[[clip.key]]").unwrap();
+        let old = format!("{}# shut's first key\n{}", &old[..k], &old[k..]);
+        // the first clip gains a key at its start
+        let first = m.clips[0].key[0].clone();
+        m.clips[0].key.insert(0, first);
+        let out = write_keeping(&old, &m, &life);
+        let at = out.find("# shut's first key\n").unwrap_or_else(|| panic!("lost: {out}"));
+        let clip = out[..at].rfind("[[clip]]").unwrap();
+        assert!(out[clip..at].contains("name = \"shut\"") && !out[clip..at].contains("[[clip.key]]"), "the note moved off shut's first key: {out}");
+    }
+
+    const LIFE: &str = r#"
+[[state]]
+name = "working"
+clip = "work"
+effects = [{ effect = "fire", point = "flame" }]
+sound = "hum"
+light = { point = "flame", colour = "copper", strength = 2.0 }
+
+[[state]]
+name = "still"
+"#;
+
+    fn lively() -> String {
+        BOX.replace("  { part = \"door\", t = 0.75, move = [4, 0, 0] },\n]", "  { part = \"door\", t = 0.75, move = [4, 0, 0] },\n]\nevent = [{ t = 0.4, sound = \"clank\" }, { t = 0.0, effect = \"sparks\", point = \"flame\" }]") + LIFE
+    }
+
+    #[test]
+    fn a_life_reads_refuses_by_file_and_reason_and_round_trips() {
+        let p = palette();
+        let effects = |n: &str| ["fire", "sparks"].contains(&n);
+        let sounds = |n: &str| ["hum", "clank"].contains(&n);
+        let text = lively();
+        assert!(text.contains("event = ["));
+        let (m, life) = parse_life("box.toml", &text, &p, &effects, &sounds).unwrap();
+        assert_eq!(life.states.len(), 2);
+        assert_eq!(life.states[0].light.as_ref().unwrap().rgb, [0xb8 as f32 / 255.0, 0x73 as f32 / 255.0, 0x33 as f32 / 255.0]);
+        assert_eq!(life.events, vec![("work".to_string(), vec![Event { t: 0.4, sound: Some("clank".into()), ..Event::default() }, Event { t: 0.0, effect: Some("sparks".into()), point: Some("flame".into()), ..Event::default() }])]);
+        // the model alone reads the same file, its life left aside, and is the same model
+        assert_eq!(Model::parse("box.toml", &text, &p).unwrap(), m);
+        // written back with its life, read again: the same
+        let again = parse_life("again", &write_life(&m, &life), &p, &effects, &sounds).unwrap();
+        assert_eq!(again, (m.clone(), life.clone()));
+        for (bad, why) in [
+            (text.replace("clip = \"work\"", "clip = \"dance\""), "state 'working': no clip 'dance'"),
+            (text.replace("{ effect = \"fire\", point = \"flame\" }", "{ effect = \"fire\", point = \"spout\" }"), "state 'working': no point 'spout'"),
+            (text.replace("effect = \"fire\"", "effect = \"rain\""), "state 'working': no effect 'rain'"),
+            (text.replace("sound = \"hum\"", "sound = \"whir\""), "state 'working': no sound 'whir'"),
+            (text.replace("colour = \"copper\"", "colour = \"mauve\""), "state 'working': colour 'mauve' is not in the palette"),
+            (text.replace("point = \"flame\", colour", "point = \"top\", colour"), "state 'working': no point 'top'"),
+            (text.replace("t = 0.4, sound = \"clank\"", "t = 1.5, sound = \"clank\""), "clip 'work': an event at t = 1.5 is outside 0..1"),
+            (text.replace("sound = \"clank\"", "sound = \"bong\""), "clip 'work': no sound 'bong'"),
+            (text.replace("effect = \"sparks\"", "effect = \"smoke\""), "clip 'work': no effect 'smoke'"),
+            (text.replace("{ t = 0.4, sound = \"clank\" }", "{ t = 0.4 }"), "clip 'work': an event plays a sound, an effect or both"),
+            (text.replace("name = \"still\"", "name = \"working\""), "state 'working' is named twice"),
+            (text.replace("name = \"still\"", "name = \"still\"\nmood = 3"), "unknown field"),
+        ] {
+            let e = parse_life("data/models/box.toml", &bad, &p, &effects, &sounds).expect_err(why);
+            assert!(e.starts_with("data/models/box.toml: ") && e.contains(why), "{why}: {e}");
+        }
+    }
+
+    #[test]
+    fn events_fire_exactly_once_a_pass() {
+        let m = Model::parse("box.toml", BOX, &palette()).unwrap();
+        let ev = |t: f32| Event { t, sound: Some("x".into()), ..Event::default() };
+        let events = vec![ev(0.0), ev(0.4), ev(1.0)];
+        let mut clip = m.clips[0].clone();
+        // ten seconds of a one-second loop, in frames of uneven length: each event ten times
+        for dt in [1.0 / 60.0, 1.0 / 7.0, 0.3] {
+            let mut counts = [0; 3];
+            let (mut t0, mut t) = (-1e-9, 0.0f64);
+            while t < 10.0 - 1e-5 {
+                t = (t + dt).min(10.0 - 1e-6);
+                for e in events_between(&clip, &events, t0, t) {
+                    counts[events.iter().position(|x| std::ptr::eq(x, e)).unwrap()] += 1;
+                }
+                t0 = t;
+            }
+            // the first frame starts it: t = 0 fires at once; 1.0 is the end of a pass (the next one's start)
+            assert_eq!(counts, [10, 10, 9], "frames of {dt} s");
+        }
+        // a jump of many passes in one frame (the Studio scrubbing): each event at most once
+        assert_eq!(events_between(&clip, &events, 0.1, 25.7).len(), 3);
+        assert_eq!(events_between(&clip, &events, 25.7, 0.1).len(), 0, "and none scrubbing back");
+        // one that does not loop: once each, then never
+        clip.looping = false;
+        let mut n = 0;
+        let mut t0 = -1e-9;
+        for k in 1..=300 {
+            let t = k as f64 / 60.0;
+            n += events_between(&clip, &events, t0, t).len();
+            t0 = t;
+        }
+        assert_eq!(n, 3);
+    }
+
+    #[test]
+    fn a_point_moves_with_its_part() {
+        let mut m = Model::parse("box.toml", BOX, &palette()).unwrap();
+        m.points.push(Point { name: "knob".into(), part: "door".into(), at: [1.0, 0.0, 0.0] });
+        // at rest the door's voxel x = 1 is at the body's x = 3; at 0.6 s the door has turned 90 degrees about y
+        let near = |a: Vec3, b: Vec3| assert!(a.distance(b) < 1e-4, "{a} vs {b}");
+        near(m.point_at(&m.pose(None, 0.0), "knob").unwrap(), Vec3::new(3.0, 0.0, 0.0) * VOXEL);
+        near(m.point_at(&m.pose(Some("work"), 0.6), "knob").unwrap(), Vec3::new(2.0, 0.0, -1.0) * VOXEL);
+        near(m.point_at(&m.pose(Some("work"), 0.6), "flame").unwrap(), Vec3::new(1.0, 1.0, 0.0) * VOXEL);
+        assert!(m.point_at(&m.pose(None, 0.0), "nowhere").is_none());
     }
 }

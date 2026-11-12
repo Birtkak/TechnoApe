@@ -87,6 +87,35 @@ pub(crate) fn gather_lamps(w: &World, cams: &[DVec3]) -> Vec<(u8, DVec3, [f32; 3
     out.into_iter().take(MAX_LAMPS).map(|l| (l.1, l.2, l.3)).collect()
 }
 
+/// The world's lamps with the effects' and the models' states' added (ADR 0050), held to the Lamps setting's
+/// `cap` in all: when there are more, the nearest to the camera, as `gather_lamps` keeps them.
+pub(crate) fn cap_lamps<'a>(all: impl Iterator<Item = &'a (u8, DVec3, [f32; 3])>, cams: &[DVec3], cap: usize) -> Vec<(u8, DVec3, [f32; 3])> {
+    let mut out: Vec<_> = all.copied().collect();
+    // (sorted only when over: the usual frame keeps the world's own order, already nearest first)
+    if out.len() > cap {
+        let d = |l: &(u8, DVec3, [f32; 3])| (l.1 - cams[l.0 as usize]).length_squared();
+        out.sort_by(|a, b| d(a).total_cmp(&d(b)));
+        out.truncate(cap);
+    }
+    out
+}
+
+#[cfg(test)]
+mod lamp_tests {
+    use super::*;
+
+    #[test]
+    fn the_lamps_of_effects_and_models_count_against_the_cap() {
+        let lamp = |d: f64| (0u8, DVec3::X * d, [1.0f32; 3]);
+        let world = [lamp(1.0), lamp(2.0)];
+        let extra = [lamp(9.0), lamp(0.5)];
+        let kept = cap_lamps(world.iter().chain(&extra), &[DVec3::ZERO], 2);
+        let ds: Vec<f64> = kept.iter().map(|l| l.1.x).collect();
+        assert_eq!(ds, [0.5, 1.0], "two in all, the nearest");
+        assert_eq!(cap_lamps(world.iter(), &[DVec3::ZERO], 16).len(), 2, "under the cap: all");
+    }
+}
+
 /// The lamp grid for the lamps at `lamps` (from the camera, in its frame): LAMP_G^3 + 1 offsets into the same
 /// list, then each cell's lamps; cell c's are `[out[c], out[c + 1])`.
 pub(crate) fn lamp_grid(lamps: &[LampGpu]) -> Vec<u32> {
@@ -371,6 +400,9 @@ pub(crate) struct Gpu {
     /// The effects (ADR 0031): the particles, drawn into the G-buffer lit per pixel.
     pub(crate) fx_buf: wgpu::Buffer,
     pub(crate) fx_pipeline: wgpu::RenderPipeline,
+    pub mquads: wgpu::Buffer,
+    pub mpieces: wgpu::Buffer,
+    pub(crate) model_pipeline: wgpu::RenderPipeline,
     pub(crate) bind: wgpu::BindGroup,
     pub(crate) globals: wgpu::Buffer,
     pub(crate) quads: wgpu::Buffer,
@@ -470,17 +502,18 @@ fn place(blocks: Vec<(u8, engine::textures::Painted)>, cap: u32) -> (Vec<(u8, en
     (placed, layers, refused)
 }
 
-/// The watcher (ADR 0045): a thread that reads `dir`'s textures at the start and again within a second of a
-/// file there changing, appearing or going, so decoding never runs on the frame thread. A refused file is
-/// logged by name.
-fn watch_textures(dir: std::path::PathBuf) -> std::sync::mpsc::Receiver<engine::textures::Set> {
+/// The watcher (ADR 0045, 0047): a thread named `name` that calls `load` on `dir` at the start and again within
+/// a second of a file there (or one of `also`) changing, appearing or going, and sends what it made, so reading
+/// and decoding never run on the frame thread. `load` says whether it found anything: the first look at an empty
+/// folder sends nothing.
+pub(crate) fn watch<T: Send + 'static>(name: &str, dir: std::path::PathBuf, also: Vec<std::path::PathBuf>, load: impl Fn(&std::path::Path) -> (T, bool) + Send + 'static) -> std::sync::mpsc::Receiver<T> {
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::Builder::new()
-        .name("textures".into())
+        .name(name.into())
         .spawn(move || {
             let mut seen = None;
             loop {
-                let now: Vec<_> = std::fs::read_dir(&dir)
+                let mut now: Vec<_> = std::fs::read_dir(&dir)
                     .into_iter()
                     .flatten()
                     .flatten()
@@ -488,13 +521,10 @@ fn watch_textures(dir: std::path::PathBuf) -> std::sync::mpsc::Receiver<engine::
                     .collect::<std::collections::BTreeSet<_>>()
                     .into_iter()
                     .collect();
+                now.extend(also.iter().filter_map(|f| Some((f.as_os_str().to_owned(), f.metadata().ok()?.modified().ok()?, f.metadata().ok()?.len()))));
                 if seen.as_ref() != Some(&now) {
-                    let set = engine::textures::load(&dir, &engine::blocks::BLOCKS);
-                    for why in &set.refused {
-                        eprintln!("[technoape] textures: {why}; that block keeps its pattern");
-                    }
-                    // the first look at an empty folder changes nothing: send it only when there is something
-                    if (seen.is_some() || !set.blocks.is_empty()) && tx.send(set).is_err() {
+                    let (set, any) = load(&dir);
+                    if (seen.is_some() || any) && tx.send(set).is_err() {
                         return;
                     }
                     seen = Some(now);
@@ -502,8 +532,21 @@ fn watch_textures(dir: std::path::PathBuf) -> std::sync::mpsc::Receiver<engine::
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
         })
-        .expect("the textures thread");
+        .expect("a watcher thread");
     rx
+}
+
+fn watch_textures(dir: std::path::PathBuf) -> std::sync::mpsc::Receiver<engine::textures::Set> {
+    // each file's last good paint, kept on while a save of it is bad
+    let kept = std::cell::RefCell::new(engine::textures::Kept::new());
+    watch("textures", dir, Vec::new(), move |d| {
+        let set = engine::textures::load_keeping(d, &engine::blocks::BLOCKS, &mut kept.borrow_mut());
+        for why in &set.refused {
+            eprintln!("[technoape] textures: {why}");
+        }
+        let any = !set.blocks.is_empty();
+        (set, any)
+    })
 }
 
 impl Gpu {
@@ -539,6 +582,8 @@ impl Gpu {
         let al = adapter.limits();
         limits.max_storage_buffer_binding_size = al.max_storage_buffer_binding_size;
         limits.max_buffer_size = al.max_buffer_size;
+        // the models' two buffers (ADR 0047) take the main bind group past the default 8 storage buffers a stage
+        limits.max_storage_buffers_per_shader_stage = al.max_storage_buffers_per_shader_stage;
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: None,
             required_features: feats,
@@ -589,6 +634,9 @@ impl Gpu {
         queue.write_buffer(&looks, 0, bytemuck::cast_slice(&looks_of(&[])));
         // the painted faces (ADR 0045): 16 x 16 layers, filled by `take_textures` from the watcher's thread
         let tex = buf("block textures", TEX_LAYERS as u64 * 1024, U::STORAGE | U::COPY_DST);
+        // the models (ADR 0047): their quads, and one transform per part drawn
+        let mquads = buf("model quads", (crate::models::MAX_MQUADS * 16) as u64, U::STORAGE | U::COPY_DST);
+        let mpieces = buf("model pieces", (crate::models::MAX_PIECES * std::mem::size_of::<crate::models::Piece>()) as u64, U::STORAGE | U::COPY_DST);
         let tex_rx = watch_textures(std::path::PathBuf::from(a.get("textures", String::from("data/textures"))));
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
@@ -631,6 +679,8 @@ impl Gpu {
                     count: None,
                 },
                 storage(11),
+                storage(12),
+                storage(13),
             ],
         });
         let rt = rt::Rt::new(&device, &shader, &globals, &quads, MAX_CHUNKS as u32);
@@ -648,6 +698,8 @@ impl Gpu {
                 wgpu::BindGroupEntry { binding: 9, resource: lamp_cells.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 10, resource: fx_buf.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 11, resource: tex.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 12, resource: mquads.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 13, resource: mpieces.as_entire_binding() },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -683,12 +735,11 @@ impl Gpu {
             cache: None,
         });
         // the effects: into the G-buffer as the terrain, with its depth (ADR 0031)
-        let fx_pipeline = {
-            let fs = "fs_fx";
+        let gbuffer_pipeline = |vs: &'static str, fs: &'static str| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(fs),
                 layout: Some(&layout),
-                vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_fx"), buffers: &[], compilation_options: Default::default() },
+                vertex: wgpu::VertexState { module: &shader, entry_point: Some(vs), buffers: &[], compilation_options: Default::default() },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
                     entry_point: Some(fs),
@@ -708,6 +759,9 @@ impl Gpu {
                 cache: None,
             })
         };
+        let fx_pipeline = gbuffer_pipeline("vs_fx", "fs_fx");
+        // the models (ADR 0047): into the G-buffer with the terrain
+        let model_pipeline = gbuffer_pipeline("vs_model", "fs_model");
         // water: blended over the terrain, tested against its depth but not writing it, seen from both sides
         let liquid = |vs| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -818,7 +872,7 @@ impl Gpu {
             (qs, resolve, ring)
         });
         // play keeps one for the bug report's screenshot (F9)
-        let capture = (a.get("capture_ms", 0) > 0 || a.0.contains_key("shot") || a.s("run", "stand") == "play").then(|| capture_buf(&device));
+        let capture = (a.get("capture_ms", 0) > 0 || a.0.contains_key("shot") || ["play", "view"].contains(&a.s("run", "stand").as_str())).then(|| capture_buf(&device));
         let gi = gi::Gi::new(
             &device,
             &shader,
@@ -849,6 +903,9 @@ impl Gpu {
             wquads,
             fx_buf,
             fx_pipeline,
+            mquads,
+            mpieces,
+            model_pipeline,
             ghost_pipeline,
             ghost_buf,
             ui_pipeline,
@@ -899,5 +956,26 @@ impl Gpu {
 
     pub(crate) fn upload(&self, off: u32, q: &[[u32; 2]]) {
         self.queue.write_buffer(&self.quads, off as u64 * 8, bytemuck::cast_slice(q));
+    }
+}
+
+#[cfg(test)]
+mod watch_tests {
+    /// A change to one of `also` (the effects or sounds file a model's states are checked against) reads the
+    /// folder again, its files untouched.
+    #[test]
+    fn a_change_to_a_file_also_watched_reads_the_folder_again() {
+        let d = std::env::temp_dir().join(format!("technoape-watch-also-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("models")).unwrap();
+        std::fs::write(d.join("models/m.toml"), "x").unwrap();
+        std::fs::write(d.join("effects.toml"), "before").unwrap();
+        let fx = d.join("effects.toml");
+        let rx = super::watch("watch test", d.join("models"), vec![fx.clone()], move |_| (std::fs::read_to_string(&fx).unwrap_or_default(), true));
+        assert_eq!(rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap(), "before");
+        std::fs::write(d.join("effects.toml"), "after, longer").unwrap();
+        let again = rx.recv_timeout(std::time::Duration::from_secs(5));
+        let _ = std::fs::remove_dir_all(&d);
+        assert_eq!(again.as_deref(), Ok("after, longer"), "the folder was not read again");
     }
 }

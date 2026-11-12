@@ -12,6 +12,28 @@
 # A footstep is a heel and, a moment later, a toe; eight takes, and no take plays twice running.
 # A landing is a step; from two blocks up `land` thumps with it, louder and lower the further the fall.
 # In a loop a layer with a `decay` is a note: it starts at its `delay` and rings round the loop's end.
+#
+# Bases and chains (ADR 0048). A row is made from `layer`s or `from` bases, not both:
+#   from = [{ base = "base.thud", gain = 1.0, delay = 0.0 }, ...]
+# a base is a row by name (any row; the `base.*` rows are made for it) or else a recording
+# data/sounds/base/<base>.wav. Take k of the row is made from take k of each base (round their own count).
+# In a loop a base that is a loop fills it, one that is not plays once at its delay and rings round.
+# No row is made from itself, directly or through others. Then, for layers or bases, a `chain` of steps in
+# turn, each a table whose step key holds its first number, the others by name (defaults in brackets):
+#   pitch (semitones, length kept), speed (times as fast, pitch kept), stretch (times as long, pitch with it),
+#   lowpass / highpass / bandpass (Hz; q 0.707, bandpass 1), reverb (size 0..1: rings 0.3 to 4 s; damping 0.5,
+#   mix 0.3), echo (seconds; feedback 0.3, mix 0.5), drive (amount 0..20), tremolo (rate Hz; depth 0..1, 0.5),
+#   vibrato (rate Hz; depth semitones, 0.3), fade (in seconds; out 0), trim (start seconds; end 0 = to the end),
+#   reverse = true, gain (times), crush (bits 1..16).
+#   chain = [{ pitch = -5 }, { lowpass = 3500, q = 0.7 }, { reverb = 0.35, mix = 0.25 }]
+# reverb and echo keep the sound as it was and add their tail after it. A loop's chain has no trim or fade.
+# `spread`: how far each take's numbers stray, either way, in the numbers' own units; a step's name sets its
+# first number's, a table under it any number's (every step of that kind in the chain):
+#   spread = { pitch = 1.5, lowpass = 800, reverb = { mix = 0.1 } }
+# Each take draws its own from the row's seed, so takes differ and a rebuild makes the same takes. A take's
+# loudest sample is never past the row's `gain` (the mix of bases is set to it, the chain may lower it).
+# A running game makes changed rows again within about a second of a save; a file that does not parse, or
+# that drops a row, is refused by name and the old sounds play on.
 
 # --- stone: a crack, a click and a thump ---
 [[sound]]
@@ -336,3 +358,162 @@ layer = [
   { wave = "triangle", freq = [587.33, 587.33], delay = 20, attack = 2, decay = 6, gain = 0.07 },
   { wave = "triangle", freq = [493.88, 493.88], delay = 29, attack = 2, decay = 6, gain = 0.07 },
 ]
+
+# --- bases (ADR 0048): ordinary rows that others are made `from`; Claude's drafts, see data/drafts.txt ---
+[[sound]]
+name = "base.thud"
+bus = "world"
+variants = 4
+layer = [
+  { wave = "sine", freq = [120, 55], decay = 0.12 },
+  { wave = "noise", freq = [400, 150], q = 0.8, decay = 0.05, gain = 0.5 },
+]
+
+[[sound]]
+name = "base.click"
+bus = "world"
+variants = 4
+layer = [
+  { wave = "noise", freq = [4500, 3500], q = 1.5, decay = 0.006 },
+  { wave = "sine", freq = [2000, 1800], decay = 0.005, gain = 0.4 },
+]
+
+[[sound]]
+name = "base.crack"
+bus = "world"
+variants = 4
+layer = [
+  { wave = "noise", freq = [3000, 1200], q = 0.9, decay = 0.04 },
+  { wave = "noise", freq = [6000, 4000], q = 0.7, decay = 0.008, gain = 0.7 },
+  { wave = "sine", freq = [180, 90], decay = 0.03, gain = 0.3 },
+]
+
+[[sound]]
+name = "base.crunch"
+bus = "world"
+variants = 4
+layer = [
+  { wave = "noise", freq = [1200, 600], q = 0.8, decay = 0.08 },
+  { wave = "noise", freq = [2500, 1500], q = 1.2, decay = 0.03, gain = 0.6, delay = 0.02 },
+  { wave = "noise", freq = [1800, 900], q = 1.5, decay = 0.04, gain = 0.5, delay = 0.05 },
+]
+
+[[sound]]
+name = "base.hiss"
+bus = "world"
+loop = 2.0
+layer = [{ wave = "noise", freq = [5000, 5000], q = 0.7 }]
+
+[[sound]]
+name = "base.hum"
+bus = "world"
+loop = 2.0
+layer = [
+  { wave = "sine", freq = [60, 60] },
+  { wave = "sine", freq = [120, 120], gain = 0.5 },
+  { wave = "triangle", freq = [180, 180], gain = 0.15 },
+]
+
+[[sound]]
+name = "base.ring"
+bus = "world"
+variants = 4
+layer = [
+  { wave = "sine", freq = [1200, 1190], decay = 1.2 },
+  { wave = "sine", freq = [2760, 2750], decay = 0.6, gain = 0.4 },
+  { wave = "sine", freq = [4100, 4090], decay = 0.3, gain = 0.2 },
+]
+
+[[sound]]
+name = "base.whoosh"
+bus = "world"
+variants = 4
+layer = [{ wave = "noise", freq = [400, 2500], q = 1.0, attack = 0.15, decay = 0.35 }]
+
+[[sound]]
+name = "base.drip"
+bus = "world"
+variants = 4
+layer = [
+  { wave = "sine", freq = [900, 1800], attack = 0.001, decay = 0.05 },
+  { wave = "sine", freq = [1800, 2600], decay = 0.02, gain = 0.3, delay = 0.01 },
+]
+
+[[sound]]
+name = "base.pop"
+bus = "world"
+variants = 4
+layer = [
+  { wave = "sine", freq = [400, 150], decay = 0.03 },
+  { wave = "noise", freq = [1500, 800], q = 1.0, decay = 0.01, gain = 0.5 },
+]
+
+[[sound]]
+name = "base.rumble"
+bus = "world"
+loop = 4.0
+layer = [
+  { wave = "noise", freq = [120, 120], q = 0.7 },
+  { wave = "sine", freq = [45, 45], gain = 0.5 },
+]
+
+[[sound]]
+name = "base.chirp"
+bus = "world"
+variants = 4
+layer = [
+  { wave = "sine", freq = [2000, 4500], attack = 0.01, decay = 0.08 },
+  { wave = "sine", freq = [2200, 4800], decay = 0.06, gain = 0.3, delay = 0.1 },
+]
+
+[[sound]]
+name = "base.growl"
+bus = "world"
+variants = 4
+layer = [
+  { wave = "square", freq = [70, 60], attack = 0.05, decay = 0.6, gain = 0.6 },
+  { wave = "noise", freq = [300, 200], q = 2.0, attack = 0.05, decay = 0.5 },
+  { wave = "sine", freq = [140, 120], attack = 0.05, decay = 0.6, gain = 0.4 },
+]
+
+[[sound]]
+name = "base.scrape"
+bus = "world"
+variants = 4
+layer = [
+  { wave = "noise", freq = [2000, 1400], q = 2.5, attack = 0.05, decay = 0.4 },
+  { wave = "noise", freq = [3500, 3000], q = 4.0, attack = 0.05, decay = 0.3, gain = 0.4 },
+]
+
+# --- made from bases (ADR 0048); no game event plays these yet (the furnace's states, studio-tools.md) ---
+[[sound]]
+name = "furnace.burn"
+bus = "world"
+reach = 16
+gain = 0.5
+loop = 4.0
+from = [{ base = "base.hum", gain = 0.6 }, { base = "base.rumble", gain = 0.8 }, { base = "base.hiss", gain = 0.25 }]
+chain = [
+  { lowpass = 1800, q = 0.7 },
+  { tremolo = 3.0, depth = 0.25 },
+  { reverb = 0.3, damping = 0.6, mix = 0.2 },
+]
+spread = { lowpass = 300 }
+
+[[sound]]
+name = "furnace.clank"
+bus = "world"
+reach = 30
+gain = 0.8
+variants = 4
+pitch = 0.05
+from = [{ base = "base.ring", gain = 0.7 }, { base = "base.thud" }, { base = "base.click", gain = 0.6 }]
+chain = [
+  { pitch = -5 },
+  { highpass = 90 },
+  { lowpass = 3500 },
+  { drive = 1.5 },
+  { echo = 0.09, feedback = 0.25, mix = 0.3 },
+  { reverb = 0.35, damping = 0.5, mix = 0.25 },
+]
+spread = { pitch = 1.5, lowpass = 800, drive = 1.0, reverb = { mix = 0.1 } }

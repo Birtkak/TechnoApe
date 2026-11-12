@@ -16,6 +16,13 @@ pub(crate) fn frustum_planes(m: Mat4) -> [Vec4; 6] {
 
 impl App {
     pub(crate) fn frame(&mut self) {
+        // the Studio's view (ADR 0049): its commands first
+        if self.run == "view" {
+            self.view_take();
+            if self.done {
+                return;
+            }
+        }
         let a = &self.args;
         // length= scales a run (the benchmark uses 0.5); quick=1 is 0.25, for iterating, never a final number
         let q: f64 = a.get("length", if a.get("quick", 0) == 1 { 0.25 } else { 1.0 });
@@ -43,7 +50,7 @@ impl App {
                 v.clear();
             }
         }
-        let len = if self.run == "play" { a.get("seconds", f64::INFINITY) } else { run_len(&self.run, warm, q) };
+        let len = if self.run == "play" || self.run == "view" { a.get("seconds", f64::INFINITY) } else { run_len(&self.run, warm, q) };
         if t >= len && self.loaded_at.is_some() {
             self.finish();
             return;
@@ -60,7 +67,9 @@ impl App {
             }};
         }
         // the sky's clock: the server's in play, else time= seconds into the world plus the run's own
-        if self.run != "play" {
+        if self.run == "view" {
+            self.world.time = self.time0;
+        } else if self.run != "play" {
             self.world.time = self.time0 + t;
         } else if let Some((st, warp, at)) = self.clock {
             let target = st + (now - at).as_secs_f64() * warp;
@@ -189,6 +198,8 @@ impl App {
             let up = DQuat::from_axis_angle(fwd, self.roll) * up;
             let look = DQuat::from_axis_angle(fwd.cross(up), self.pitch) * fwd;
             Pose { pos: pos + up * phys::EYE, fwd: look, up }
+        } else if let Some(v) = &self.view {
+            v.pose(&self.world)
         } else {
             pose(&self.run, t, &self.world, speed, alt, warm, q, a)
         };
@@ -322,6 +333,10 @@ impl App {
                 self.edits_done += 1;
             }
         }
+        // fxplay=name[:n] (ADR 0050): lasting effects on the ground ahead, once loaded
+        if self.fx.on && !self.fx.placed && self.loaded_at.is_some() {
+            self.fx.scene(&self.world, (p.pos, p.fwd), &self.args.s("fxplay", ""));
+        }
         // run=fx (ADR 0031): bursts of the break on the ground 2-14 m ahead until fx_n particles are alive
         if self.run == "fx" && self.loaded_at.is_some() {
             let want: usize = self.args.get("fx_n", crate::fx::CAP[1]);
@@ -339,9 +354,8 @@ impl App {
                     (self.rng >> 11) as f64 / (1u64 << 53) as f64
                 };
                 let d = (p.pos + ahead * (2.0 + 12.0 * r()) + side * (r() * 2.0 - 1.0) * 8.0 - self.world.bodies[0].centre).normalize();
-                let pl = &self.world.bodies[0];
                 // the air cell over the ground, which lands them on its top; its look is the ground's
-                let c = self.world.block_at(pl.centre + d * (pl.height(d) + 0.1));
+                let c = self.world.air_over_ground(0, d);
                 let under = self.world.block(engine::world::Block { pos: c.pos - IVec3::Z, ..c });
                 self.fx.play(brk, &crate::fx::At::cell(&self.world, c, under));
             }
@@ -557,6 +571,10 @@ impl App {
         self.audio.ear = [p.pos, p.fwd.cross(p.up).normalize_or_zero(), p.up, p.fwd];
         self.audio.carry = [air, air.max(0.4), 1.0][self.settings.at(S::SpaceSound).min(2)];
         self.audio.dull = if self.world.water_surface(p.pos).is_some() { 0.8 } else { 0.0 };
+        self.audio.listen(&|q| BLOCKS.solid(self.world.block(self.world.block_at(q))), &|q| {
+            let b = &self.world.bodies[self.world.nearest(q)];
+            (q - b.centre).length() - b.height((q - b.centre).normalize())
+        });
         let vol = |s: S| (self.settings.get(s) / 100.0) as f32;
         let listening = self.focused || !self.onscreen || !self.settings.on(S::MuteBack);
         self.audio.levels(if listening { vol(S::Volume) } else { 0.0 }, [vol(S::VolWorld), vol(S::VolSteps), vol(S::VolUi), vol(S::VolMusic)]);
@@ -633,6 +651,15 @@ impl App {
             cams[bi] = (c + b.centre, m.as_dmat3());
         }
         gpu.take_textures();
+        // the models (ADR 0047): the watcher's newest, then this frame's pieces (timed under "table")
+        self.models.take(&gpu.queue, &gpu.mquads);
+        let hand = (self.run == "play" && !self.hammer && !self.bucket && !self.f3 && self.home() != Menu::Title)
+            .then(|| self.slot_block(self.slot))
+            .flatten()
+            .and_then(|m| BLOCKS.get(m))
+            .map(|d| d.name.clone());
+        self.models.frame(&self.world, &cams, cf, (p.pos, p.fwd, up), self.view.as_ref().map_or(self.start.elapsed().as_secs_f64(), |v| v.t), hand.as_deref(), &mut self.fx, &mut self.audio);
+        self.models.upload(&gpu.queue, &gpu.mpieces);
         // the lamps: gathered again when they change or every 10 frames, placed and gridded every frame
         let ec = self.world.lights_rev;
         if self.lamps_at.1 != ec || self.streamer.frame >= self.lamps_at.0 + 10 {
@@ -641,8 +668,10 @@ impl App {
             self.lamps.truncate([16, 64, MAX_LAMPS][self.settings.at(S::Lamps)]);
             self.lamps_at = (self.streamer.frame, ec);
         }
-        let lamps: Vec<LampGpu> = self
-            .lamps
+        // the lamps of the world, then the glowing lasting effects' and the models' states' (ADR 0050)
+        let near: Vec<DVec3> = cams.iter().map(|c| c.0).collect();
+        let cap = [16, 64, MAX_LAMPS][self.settings.at(S::Lamps)];
+        let lamps: Vec<LampGpu> = crate::gpu::cap_lamps(self.lamps.iter().chain(self.fx.lamps()).chain(self.models.lamps()), &near, cap)
             .iter()
             .map(|&(bi, x, l)| {
                 let (cam, m) = cams[bi as usize];
@@ -783,6 +812,13 @@ impl App {
                     rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
                 }
             }
+            // the models (ADR 0047): one draw per part, one instance per piece
+            if !self.models.draws.is_empty() {
+                rp.set_pipeline(&gpu.model_pipeline);
+                for d in &self.models.draws {
+                    rp.draw(0..d.quads * 6, d.first..d.first + d.count);
+                }
+            }
             drop(rp);
             stamp(&mut enc, 2);
             // the effects (ADR 0031): over the terrain into the same G-buffer, in a pass of their own to time it
@@ -871,7 +907,8 @@ impl App {
         let cap_now = film && gpu.capture.is_some() && self.loaded_at.is_some() && t >= cap_at;
         // F9: this frame, without the form, is the report's screenshot
         let bug_now = self.bug_grab && gpu.capture.is_some();
-        if cap_now || bug_now {
+        let view_now = self.view.as_ref().is_some_and(|v| v.wants()) && self.loaded_at.is_some();
+        if cap_now || bug_now || view_now {
             enc.copy_texture_to_buffer(
                 frame.texture.as_image_copy(),
                 wgpu::TexelCopyBufferInfo {
@@ -917,6 +954,9 @@ impl App {
             self.bug_shot = shot;
             (self.bug_grab, self.bug) = (false, Some(String::new()));
         }
+        if view_now {
+            self.view_send();
+        }
         if cap_now && self.shot.is_some() {
             self.take_shot();
             self.finish();
@@ -925,8 +965,8 @@ impl App {
         }
 
         // a filmstrip grab stalls on a readback: keep that frame and the next out of the numbers
-        let skip = cap_now || bug_now || self.cap_prev;
-        self.cap_prev = cap_now || bug_now;
+        let skip = cap_now || bug_now || view_now || self.cap_prev;
+        self.cap_prev = cap_now || bug_now || view_now;
         self.recent.push_back((dt * 1000.0) as f32);
         if self.recent.len() > 240 {
             self.recent.pop_front();

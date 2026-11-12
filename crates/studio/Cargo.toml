@@ -10,6 +10,10 @@ path = "src/main.rs"
 
 [dependencies]
 engine = { path = "../engine" }
+# the game as a library: its mixer and sound rows, its effects rows (ADR 0048, 0050)
+client = { path = "../client" }
+toml = "0.8"
+glam.workspace = true
 # the workspace's own wgpu 30 and winit 0.30 (ADR 0046): egui only here, never in the game
 eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts"] }
 egui-wgpu = "0.37"

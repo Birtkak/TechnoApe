@@ -1141,7 +1141,8 @@ impl App {
                 let [bx, by] = BOB.at(self.walked).map(|v| v * pace);
                 let (colour, side, pattern) = crate::gpu::shown(d);
                 let (x, y) = (lw - 250.0 + dx + bx, lh - 236.0 + dy + by);
-                hud::cube(&mut |x, y, w, h, c, g| paint.rect(x, y, w, h, c, g), x, y, 176.0, colour, side, pattern, 1.0);
+                // a block with a model of its name is held as the model (frame.rs, ADR 0047)
+                if !self.models.has(&d.name) { hud::cube(&mut |x, y, w, h, c, g| paint.rect(x, y, w, h, c, g), x, y, 176.0, colour, side, pattern, 1.0); }
             }
         }
         if self.flying && !title {

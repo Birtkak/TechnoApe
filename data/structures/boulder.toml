@@ -1,0 +1,22 @@
+size = [4, 3, 4]
+anchor = [1, 0, 1]
+layers = """
+.gg.
+gssg
+gssg
+.gs.
+
+.ss.
+ssss
+sssg
+.ss.
+
+....
+.ss.
+.s..
+....
+"""
+
+[key]
+g = "gravel"
+s = "stone"

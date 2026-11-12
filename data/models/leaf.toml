@@ -1,0 +1,10 @@
+# A draft leaf (Claude's, listed in data/drafts.txt): the look of the `leaves` effect (data/effects.toml).
+colours = ["grass dark", "grass"]
+
+[[part]]
+name = "leaf"
+box = [3, 1, 2]
+voxels = """
+.ab
+ab.
+"""

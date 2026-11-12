@@ -6,7 +6,7 @@ import json, os, subprocess, tomllib
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load = lambda p: tomllib.load(open(os.path.join(root, p), 'rb'))
 built = subprocess.run(['git', 'log', '-1', '--format=%h %cs'], cwd=root, capture_output=True, text=True).stdout.strip()
-data = json.dumps({'sounds': load('data/sounds.toml')['sound'], 'blocks': load('data/blocks.toml')['block'], 'built': built})
+data = json.dumps({'sounds': [r for r in load('data/sounds.toml')['sound'] if 'layer' in r], 'blocks': load('data/blocks.toml')['block'], 'built': built})
 os.makedirs(os.path.join(root, 'out/review'), exist_ok=True)
 for name in ['workbench.html']:
     src = os.path.join(root, 'tools/review', name)

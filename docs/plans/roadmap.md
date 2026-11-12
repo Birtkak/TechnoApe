@@ -54,14 +54,17 @@ grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read t
      moves, a ledger the soak checks every tick, tiles to the clients, a smooth water mesh with splash
      particles, the bucket and swimming. The 12.5 cm splash cells come with the fine cells, basin lakes
      with the biomes;
-   - **lighting and the sky's mechanics** (the developer's calls, 2026-11-10; spike in `prototypes/lighting/`):
+   - ~~**lighting and the sky's mechanics** (the developer's calls, 2026-11-10; spike in `prototypes/lighting/`):
      ray-traced light with the sun as the only source, a real sphere. The planet rotates (the 30 minute day
      comes from its spin) and Luna orbits on a tilted orbit, so its phases and moonlight follow from
      where it is. Eclipses are a real blockage of the light, each place on the planet getting its own share
      of totality. Soft but fairly sharp shadows, ambient occlusion, smooth coloured block light, and
      reflections on metal (later telescopes). Hardware ray queries on Vulkan: about 1.8 ms per 1080p frame
-     on the RTX 3070 with a reflection on every pixel;
-   - 3D audio with cave reverb and material sounds.
+     on the RTX 3070 with a reflection on every pixel;~~ done 2026-11-12: every point was already built
+     (ADR 0022, 0025, 0036, 0037, 0041; `engine::sky` and its tests), checked again with filmstrips of a
+     sped-up day and of the F10 eclipses. Telescopes stay for later;
+   - ~~3D audio with cave reverb and material sounds.~~ *Done 2026-11-12* (places and material sounds
+     ADR 0032, the cave reverb ADR 0054).
 2. **Before the rest (the developer, 2026-11-10), in this order:**
    - **the optimisation pass** (`docs/plans/optimization-handoff.md`, ADR 0025): the lighting took the
      frame from 0.4 ms to about 4 ms; target `stand` at 800 fps or more;

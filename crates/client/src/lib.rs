@@ -9,12 +9,14 @@ mod gi;
 pub mod gpu;
 mod hud;
 mod menu;
+pub mod models;
 mod play;
 mod nav;
 mod rt;
 mod settings;
 mod sim;
 mod sys;
+mod view;
 mod water;
 
 use app::*;
@@ -183,7 +185,7 @@ impl ApplicationHandler for App {
                 self.drag = None;
                 self.save_settings();
             }
-            WindowEvent::Resized(size) if self.run == "play" && self.onscreen => self.resize(size.width, size.height),
+            WindowEvent::Resized(size) if (self.run == "play" && self.onscreen) || self.run == "view" => self.resize(size.width, size.height),
             WindowEvent::Focused(f) => self.focused = f,
             WindowEvent::MouseInput { state: ElementState::Pressed, button, .. } if self.menu.is_some() && !self.texting() => {
                 if self.rebind.is_some() {
@@ -349,7 +351,13 @@ pub fn main() {
     let spawn = world.bodies[0].spawn_point();
     assert!(world.bodies.len() <= MAX_BODIES);
     // run=sim stands at the spawn, among its players (sim.rs)
-    if run == "sim" && !args.0.contains_key("at") {
+    if (run == "sim" || run == "view") && !args.0.contains_key("at") {
+        let s = world.bodies[0].spawn;
+        args.0.insert("at".into(), format!("{},{},{}", s.x, s.y, s.z));
+    }
+    // creature= (ADR 0053), model=, fxplay= and structure= stand at the spawn too, on land as the Studio's view
+    // does (the +y pole of the baked planet can be open sea)
+    if ["creature", "model", "fxplay", "structure"].iter().any(|k| args.0.contains_key(*k)) && !args.0.contains_key("at") {
         let s = world.bodies[0].spawn;
         args.0.insert("at".into(), format!("{},{},{}", s.x, s.y, s.z));
     }
@@ -358,19 +366,30 @@ pub fn main() {
     // fxedit=t:di:dj:dl:block,... does the same t seconds after loading, as a click would, with its effects
     // (ADR 0031; with fx=1): filmstrips of a break and a place
     let mut fx_edits = Vec::new();
+    let up = stand_at(&args).unwrap_or_else(|e| {
+        eprintln!("[technoape] {e}");
+        std::process::exit(1)
+    });
     if run != "play" {
-        let at: Vec<f64> = args.s("at", "0,1,0").split(',').filter_map(|v| v.parse().ok()).collect();
-        let up = DVec3::new(at[0], at[1], at[2]).normalize();
+        let (place, fxedit, structure) = stand_args(&args, "data").unwrap_or_else(|e| {
+            eprintln!("[technoape] {e}");
+            std::process::exit(1)
+        });
         let feet = world.block_at(up * (world.bodies[0].top(up) + 0.1));
-        for spec in args.s("place", "").split(',').filter(|s| !s.is_empty()) {
-            let f: Vec<&str> = spec.split(':').collect();
-            let d = IVec3::new(f[0].parse().unwrap(), f[1].parse().unwrap(), f[2].parse().unwrap());
-            world.set_block(Block { pos: feet.pos + d, ..feet }, BLOCKS.id(&f[3].replace('_', " ")));
+        for (d, id) in place {
+            world.set_block(Block { pos: feet.pos + d, ..feet }, id);
         }
-        for spec in args.s("fxedit", "").split(',').filter(|s| !s.is_empty()) {
-            let f: Vec<&str> = spec.split(':').collect();
-            let d = IVec3::new(f[1].parse().unwrap(), f[2].parse().unwrap(), f[3].parse().unwrap());
-            fx_edits.push((f[0].parse::<f64>().unwrap(), Block { pos: feet.pos + d, ..feet }, BLOCKS.id(&f[4].replace('_', " "))));
+        // structure=name[:seed] stands data/structures/<name>.toml (a grown one from that seed) with its anchor in
+        // the first air over the stand point (ADR 0052): x along j, z along i, y up the layers (the camera frame of
+        // `models::cell_axes`, so the Studio's view and this agree)
+        if let Some(s) = structure {
+            let foot = world.air_over_ground(0, up);
+            for (d, id) in s.blocks(&BLOCKS) {
+                world.set_block(Block { pos: foot.pos + IVec3::new(d[2], d[0], d[1]), ..foot }, id);
+            }
+        }
+        for (t, d, id) in fxedit {
+            fx_edits.push((t, Block { pos: feet.pos + d, ..feet }, id));
         }
         // the soonest last, whatever order they came in
         fx_edits.sort_by(|a: &(f64, Block, u8), b| b.0.total_cmp(&a.0));
@@ -379,6 +398,9 @@ pub fn main() {
     // another screen size)
     let settings_file = args.s("settings", "settings.txt");
     let settings = if run == "play" || args.0.contains_key("settings") { Settings::parse(&std::fs::read_to_string(&settings_file).unwrap_or_default()) } else { Settings::default() };
+    if let Some(d) = args.0.get("sound_dir") {
+        let _ = audio::DIR.set(d.into());
+    }
     // sounds=1: every sound in numbers, as one JSON line, and nothing else
     if args.get("sounds", 0) == 1 {
         println!("{}", audio::report());
@@ -414,8 +436,13 @@ pub fn main() {
         if run == "play" && args.get("fx_cap", 0usize) == 0 {
             fx.setting = Some(k);
         }
+        // data/effects.toml (effects=file another) read again when it changes (ADR 0050)
+        if on {
+            fx.watch(std::path::PathBuf::from(args.s("effects", "data/effects.toml")));
+        }
         fx
     };
+    let models = models::Models::new(&args);
     let mut app = App {
         time0,
         args,
@@ -469,6 +496,7 @@ pub fn main() {
         slot: 0,
         held_name: (usize::MAX, Instant::now()),
         fx,
+        models,
         fx_n: 0,
         dip: fx::Track { tween: fx::Tween::new(-10.0, 0.18, fx::Curve::Pulse), from: [0.0; 2], to: [0.0; 2] },
         growing: Vec::new(),
@@ -559,6 +587,7 @@ pub fn main() {
         rec_path,
         worlds: Vec::new(),
         next: None,
+        view: None,
     };
     el.run_app(&mut app).unwrap();
     // the local server saves as it stops
@@ -582,5 +611,117 @@ pub fn main() {
             Err(e) => eprintln!("[technoape] could not start again with {next:?}: {e}"),
         }
         drop(app);
+    }
+}
+
+/// `at=x,y,z`: the stand point's direction from the planet's centre (`0,1,0` when unset); three finite numbers,
+/// not all 0.
+pub fn stand_at(args: &Args) -> Result<DVec3, String> {
+    let spec = args.s("at", "0,1,0");
+    let v: Vec<f64> = spec.split(',').map(|v| v.trim().parse::<f64>()).collect::<Result<_, _>>().map_err(|_| format!("at={spec}: three numbers, x,y,z"))?;
+    let d = (v.len() == 3).then(|| DVec3::new(v[0], v[1], v[2])).filter(|d| d.is_finite() && d.length() > 0.0).ok_or(format!("at={spec}: three numbers, x,y,z, not all 0"))?;
+    Ok(d.normalize())
+}
+
+/// How far a `place=` or `fxedit=` cell may be from the stand cell, cells on each axis (a cell far off can lie
+/// off the planet's grid, where the bake's lookups panic).
+pub(crate) const PLACE_REACH: i32 = 64;
+
+/// A stand's `at=`, `place=`, `fxedit=` and `structure=` read, and `creature=`, `model=` and `fxplay=` checked:
+/// what is wrong names its argument, for one line on stderr (no panic).
+#[allow(clippy::type_complexity)]
+pub fn stand_args(args: &Args, data: &str) -> Result<(Vec<(IVec3, u8)>, Vec<(f64, IVec3, u8)>, Option<engine::structures::Structure>), String> {
+    let block = |n: &str| (0..=255u8).find(|i| BLOCKS.get(*i).is_some_and(|d| d.name == n.replace('_', " "))).ok_or(format!("no block '{n}'"));
+    stand_at(args)?;
+    let int = |v: &str| v.parse::<i32>().ok().filter(|v| (-PLACE_REACH..=PLACE_REACH).contains(v)).ok_or(format!("'{v}' is not a whole number within {PLACE_REACH} cells"));
+    let each = |key: &str, shape: &str, f: &dyn Fn(&[&str]) -> Result<(f64, IVec3, u8), String>| -> Result<Vec<(f64, IVec3, u8)>, String> {
+        let spec = args.s(key, "");
+        let named = |e: String| format!("{key}={spec}: {e}");
+        spec.split(',').filter(|s| !s.is_empty()).map(|one| {
+            let parts: Vec<&str> = one.split(':').collect();
+            if parts.len() != shape.split(':').count() {
+                return Err(named(format!("'{one}' is not {shape}")));
+            }
+            f(&parts).map_err(named)
+        }).collect()
+    };
+    let place = each("place", "di:dj:dl:block", &|f| Ok((0.0, IVec3::new(int(f[0])?, int(f[1])?, int(f[2])?), block(f[3])?)))?.into_iter().map(|(_, d, id)| (d, id)).collect();
+    let fxedit = each("fxedit", "t:di:dj:dl:block", &|f| Ok((f[0].parse::<f64>().ok().filter(|t| t.is_finite()).ok_or(format!("'{}' is not seconds", f[0]))?, IVec3::new(int(f[1])?, int(f[2])?, int(f[3])?), block(f[4])?)))?;
+    let structure = match args.0.get("structure") {
+        None => None,
+        Some(spec) => Some((|| {
+            let (name, seed) = spec.split_once(':').map_or(Ok((spec.as_str(), None)), |(n, s)| s.parse::<u64>().map(|s| (n, Some(s))).map_err(|_| format!("'{s}' is not a seed")))?;
+            let file = format!("{data}/structures/{name}.toml");
+            let mut s = std::fs::read_to_string(&file).map_err(|e| format!("{file}: {e}")).and_then(|t| engine::structures::Structure::parse(&file, &t, &BLOCKS))?;
+            if let (Some(seed), Some(r)) = (seed, s.grow.clone()) {
+                s = engine::structures::grow(&engine::structures::Recipe { seed, ..r });
+            }
+            Ok(s)
+        })().map_err(|e: String| format!("structure={spec}: {e}"))?),
+    };
+    if let Some(spec) = args.0.get("creature") {
+        let (name, speed) = spec.split_once(':').map_or((spec.as_str(), None), |(n, s)| (n, Some(s)));
+        let file = format!("{data}/creatures.toml");
+        let t: toml::Table = std::fs::read_to_string(&file).map_err(|e| e.to_string()).and_then(|t| toml::from_str(&t).map_err(|e| e.to_string())).map_err(|e| format!("creature={spec}: {file}: {e}"))?;
+        if !t.get("creature").and_then(|v| v.as_array()).into_iter().flatten().any(|c| c.get("name").and_then(|n| n.as_str()) == Some(name)) {
+            return Err(format!("creature={spec}: no creature '{name}' in {file}"));
+        }
+        if speed.is_some_and(|s| s.parse::<f32>().is_err()) {
+            return Err(format!("creature={spec}: the speed after ':' is metres a second"));
+        }
+    }
+    if let Some(spec) = args.0.get("model") {
+        let name = spec.split(['@', ':']).next().unwrap_or("");
+        let file = format!("{}/{name}.toml", args.s("models", "data/models"));
+        if !std::path::Path::new(&file).is_file() {
+            return Err(format!("model={spec}: no model file {file}"));
+        }
+    }
+    if let Some((_, n)) = args.0.get("fxplay").and_then(|s| s.split_once(':')) {
+        if n.parse::<usize>().is_err() {
+            return Err(format!("fxplay={}: the count after ':' is a whole number", args.s("fxplay", "")));
+        }
+    }
+    Ok((place, fxedit, structure))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DATA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data");
+
+    fn args(kv: &[(&str, &str)]) -> Args {
+        Args(kv.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect())
+    }
+
+    #[test]
+    fn bad_stand_arguments_are_named_not_panicked() {
+        let ok = stand_args(&args(&[("models", &format!("{DATA}/models")), ("structure", "oak:3"), ("creature", "boar:2"), ("model", "boar:walk"), ("fxplay", "fire:2")]), DATA).unwrap();
+        assert!(ok.2.is_some());
+        let ok = stand_args(&args(&[("models", &format!("{DATA}/models")), ("place", "0:1:2:stone,1:0:0:blue_lamp"), ("fxedit", "0.5:0:0:1:air")]), DATA).unwrap();
+        assert_eq!(ok.0, vec![(IVec3::new(0, 1, 2), BLOCKS.id("stone")), (IVec3::X, BLOCKS.id("blue lamp"))]);
+        assert_eq!(ok.1, vec![(0.5, IVec3::Z, AIR)]);
+        for (k, v) in [
+            ("place", "0:1:stone"),
+            ("place", "0:x:1:stone"),
+            ("place", "0:0:1:no such block"),
+            ("fxedit", "0:0:1:air"),
+            ("fxedit", "t:0:0:1:air"),
+            ("structure", "no such structure"),
+            ("structure", "../Cargo"),
+            ("creature", "no such creature"),
+            ("creature", "boar:fast"),
+            ("model", "no such model"),
+            ("fxplay", "fire:x"),
+            ("at", "1,2"),
+            ("at", "1,x,2"),
+            ("at", "0,0,0"),
+            ("place", "2000000000:0:0:stone"),
+            ("fxedit", "0:0:0:-2147483648:air"),
+        ] {
+            let e = std::panic::catch_unwind(|| stand_args(&args(&[("models", &format!("{DATA}/models")), (k, v)]), DATA)).unwrap_or_else(|_| panic!("{k}={v} panicked")).err().unwrap_or_else(|| panic!("{k}={v} passed"));
+            assert!(e.starts_with(&format!("{k}={v}: ")), "{e}");
+        }
     }
 }

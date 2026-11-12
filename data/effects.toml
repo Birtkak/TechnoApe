@@ -11,6 +11,25 @@
 # `look`: debris (a small cube of the block's own texels), square (a flat square facing the camera, in
 # `colour`), block (the whole cell, its texels exactly as the terrain draws them).
 # `spin`: rad/s at most.
+# Since ADR 0050 (docs/design/studio-tools.md "Effects"; every field optional, a row without them draws as before):
+# `rate`: particles a second for as long as it plays (`Fx::start` .. `stop`, a model state's effects, fxplay=);
+# `count` is then what bursts at its start (0 for none). A row needs a count, a rate or both.
+# `start` also: ring (on a circle of `radius` m, flat on the ground), cone (at the point, flying out within
+# `angle` degrees of `dir`, x, y up, z of the event's frame, default up), box (anywhere in `box` = [x, y up, z] m).
+# `gradient`: colour over life, [[share of the life, "palette name"], ...] in order, in place of `colour`
+# (squares and textures). `size_curve`, `bright_curve`: [[share, times], ...], straight between the points.
+# `noise = { strength, scale, speed }`: a push of up to `strength` m/s² through a smooth noise field of grain
+# `scale` m sliding at `speed` grains a second (flames lick, smoke curls). `rise`: m/s² up; `spread`: m/s²
+# sideways, each particle its own way (a plume widens).
+# `glow`: 0..8, the particle's own light times its colour; a lasting row that glows is also a lamp where it plays
+# (lit and shadowed as the lamps are, flickering when it has noise).
+# `look` also: model (`model` = a file of data/models/, drawn at `size` times its own size, resting on its foot),
+# texture (`texture` = a block: its top face, painted in data/textures/ or its pattern, times the gradient).
+# `face` (squares, textures, models): camera (default), flight (along its flight, a streak of a 30th of a second;
+# a model's y along it), tumble (turning about an axis of its own at `spin`).
+# [[group]] name, rows = [...]: several rows played and stopped as one (fire = flames + embers + smoke).
+# The file is read again within a second of a change in a running game; a refused one is named on stderr and
+# the rows before stay.
 
 [[effect]]
 name = "break"
@@ -87,3 +106,166 @@ size = [0.05, 0.09]
 shrink = 0.5
 look = "debris"
 spin = 9.0
+
+# ---- drafts (Claude's, ADR 0050, listed in data/drafts.txt): the Effects page's presets ----
+
+# a fire on the floor of its cell: flames that lick up, embers that drift off, smoke that curls away
+[[effect]]
+name = "flames"
+rate = 45
+start = "box"
+box = [0.4, 0.05, 0.4]
+speed = [0.0, 0.15]
+up = 0.4
+gravity = 0.0
+rise = 1.2
+drag = 1.5
+life = [0.45, 0.8]
+size = [0.1, 0.2]
+size_curve = [[0.0, 0.6], [0.25, 1.0], [1.0, 0.15]]
+look = "square"
+gradient = [[0.0, "lamp"], [0.2, "copper"], [0.75, "copper dark"], [1.0, "stone dark"]]
+glow = 1.5
+noise = { strength = 2.5, scale = 0.3, speed = 1.5 }
+spin = 2.0
+
+[[effect]]
+name = "embers"
+rate = 4
+start = "box"
+box = [0.3, 0.1, 0.3]
+speed = [0.2, 0.6]
+up = 1.2
+gravity = 0.15
+drag = 0.6
+life = [1.0, 2.0]
+size = [0.025, 0.04]
+shrink = 0.3
+look = "square"
+gradient = [[0.0, "lamp light"], [0.5, "copper light"], [1.0, "copper"]]
+glow = 2.0
+noise = { strength = 1.5, scale = 0.5, speed = 1.0 }
+
+[[effect]]
+name = "smoke"
+rate = 6
+start = "box"
+box = [0.3, 0.1, 0.3]
+speed = [0.05, 0.2]
+up = 0.6
+gravity = 0.0
+rise = 0.25
+spread = 0.08
+drag = 0.5
+life = [2.5, 4.0]
+size = [0.1, 0.18]
+size_curve = [[0.0, 0.4], [0.3, 1.0], [1.0, 1.4]]
+shrink = 0.25
+look = "square"
+gradient = [[0.0, "stone dark"], [0.4, "stone"], [1.0, "stone"]]
+noise = { strength = 0.8, scale = 0.8, speed = 0.4 }
+spin = 0.6
+
+[[group]]
+name = "fire"
+rows = ["flames", "embers", "smoke"]
+
+# a hot strike: a cone of streaks that die where they land
+[[effect]]
+name = "sparks"
+count = 14
+start = "cone"
+angle = 50
+speed = [2.0, 4.0]
+drag = 0.3
+ground = "die"
+life = [0.4, 0.8]
+size = [0.02, 0.035]
+look = "square"
+face = "flight"
+gradient = [[0.0, "lamp light"], [0.6, "copper light"], [1.0, "copper"]]
+glow = 4.0
+
+[[effect]]
+name = "steam"
+rate = 10
+start = "box"
+box = [0.3, 0.05, 0.3]
+speed = [0.0, 0.1]
+up = 0.5
+gravity = 0.0
+rise = 0.6
+spread = 0.1
+drag = 0.8
+life = [1.5, 2.5]
+size = [0.12, 0.2]
+size_curve = [[0.0, 0.5], [1.0, 2.0]]
+shrink = 0.4
+look = "square"
+gradient = [[0.0, "regolith light"], [1.0, "stone light"]]
+noise = { strength = 1.0, scale = 0.6, speed = 0.8 }
+spin = 0.5
+
+# a puff kicked up from the ground (a landing, a fall)
+[[effect]]
+name = "dust"
+count = 10
+start = "ring"
+radius = 0.3
+speed = [0.2, 0.5]
+up = 0.2
+gravity = 0.05
+drag = 2.0
+life = [0.8, 1.4]
+size = [0.06, 0.1]
+size_curve = [[0.0, 0.5], [1.0, 1.6]]
+shrink = 0.5
+look = "square"
+gradient = [[0.0, "dirt light"], [1.0, "dirt"]]
+noise = { strength = 0.4, scale = 0.5, speed = 0.5 }
+
+# water from a ceiling, a drop now and then that splashes where it lands
+[[effect]]
+name = "drip"
+rate = 0.7
+start = "point"
+ground = "die"
+life = [3.0, 3.0]
+size = [0.03, 0.03]
+look = "square"
+face = "flight"
+gradient = [[0.0, "blue lamp light"], [1.0, "blue lamp"]]
+then = "splash"
+
+# a twinkle of light in a box: ore, a polished face, frost
+[[effect]]
+name = "glint"
+rate = 1.5
+start = "box"
+box = [1.0, 1.0, 1.0]
+gravity = 0.0
+life = [0.3, 0.5]
+size = [0.03, 0.06]
+size_curve = [[0.0, 0.0], [0.5, 1.0], [1.0, 0.0]]
+look = "square"
+gradient = [[0.0, "lamp light"], [1.0, "lamp"]]
+glow = 6.0
+spin = 3.0
+
+# leaves falling from a canopy, turning as they go and lying where they land
+[[effect]]
+name = "leaves"
+rate = 1.5
+start = "box"
+box = [2.0, 0.2, 2.0]
+gravity = 0.08
+drag = 1.2
+ground = "stop"
+life = [4.0, 6.0]
+size = [0.8, 1.2]
+shrink = 0.2
+look = "model"
+model = "leaf"
+face = "tumble"
+spin = 3.0
+noise = { strength = 1.0, scale = 1.0, speed = 0.5 }

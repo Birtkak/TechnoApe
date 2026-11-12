@@ -70,8 +70,21 @@ fn face(variants: Vec<Pixels>) -> Face {
     Face { variants, mean }
 }
 
+/// Each file's last good variants, by file name: what a running game keeps showing while a file is bad.
+pub type Kept = std::collections::BTreeMap<String, Vec<Pixels>>;
+
+/// `load` for a running game: a file refused now that was good before keeps its last good paint (still named
+/// in `refused`).
+pub fn load_keeping(dir: &Path, reg: &Registry, kept: &mut Kept) -> Set {
+    load_with(dir, reg, Some(kept))
+}
+
 /// Reads every `.png` of `dir` against the block names of `reg`. A missing folder is an empty set.
 pub fn load(dir: &Path, reg: &Registry) -> Set {
+    load_with(dir, reg, None)
+}
+
+fn load_with(dir: &Path, reg: &Registry, mut kept: Option<&mut Kept>) -> Set {
     let mut set = Set::default();
     let mut names: Vec<String> = std::fs::read_dir(dir)
         .into_iter()
@@ -93,7 +106,20 @@ pub fn load(dir: &Path, reg: &Registry) -> Set {
             set.refused.push(format!("{name}: no block '{stem}' in data/blocks.toml (a face is _top, _side or _bottom)"));
             continue;
         };
-        match std::fs::read(dir.join(&name)).map_err(|e| e.to_string()).and_then(|b| decode(&b)) {
+        let got = std::fs::read(dir.join(&name)).map_err(|e| e.to_string()).and_then(|b| decode(&b));
+        let got = match (got, kept.as_deref_mut()) {
+            (Ok(v), Some(k)) => {
+                k.insert(name.clone(), v.clone());
+                Ok(v)
+            }
+            // refused now, but painted before: named, and the last good paint stays
+            (Err(why), Some(k)) if k.contains_key(&name) => {
+                set.refused.push(format!("{name}: {why}; its last good paint stays"));
+                Ok(k[&name].clone())
+            }
+            (got, _) => got,
+        };
+        match got {
             Err(why) => set.refused.push(format!("{name}: {why}")),
             Ok(v) => {
                 if !found.iter().any(|(b, _)| *b == id) {
@@ -102,6 +128,9 @@ pub fn load(dir: &Path, reg: &Registry) -> Set {
                 found.iter_mut().find(|(b, _)| *b == id).unwrap().1[slot] = Some(face(v));
             }
         }
+    }
+    if let Some(k) = kept {
+        k.retain(|n, _| dir.join(n).exists());
     }
     for (id, [all, top, side, bottom]) in found {
         set.blocks.push((id, Painted { faces: [top, side, bottom].map(|f| f.or_else(|| all.clone())) }));
@@ -197,6 +226,24 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(&d);
         assert!(load(&d, &BLOCKS).blocks.is_empty(), "no folder, nothing painted");
+    }
+
+    #[test]
+    fn a_running_game_keeps_a_files_last_good_paint_when_it_turns_bad() {
+        let flat = |c: u8| rgba(16, 16, move |_, _| [c, c, c, 255]);
+        let d = folder("keep", &[("grass_top.png", flat(70))]);
+        let mut kept = Kept::default();
+        let top = |s: &Set| s.blocks.iter().find(|(id, _)| *id == BLOCKS.id("grass")).and_then(|(_, p)| p.faces[0].as_ref().map(|f| f.variants[0][0][0]));
+        assert_eq!(top(&load_keeping(&d, &BLOCKS, &mut kept)), Some(70));
+        std::fs::write(d.join("grass_top.png"), rgba(16, 17, |_, _| [9, 9, 9, 255])).unwrap();
+        let s = load_keeping(&d, &BLOCKS, &mut kept);
+        assert_eq!(top(&s), Some(70), "the old paint stays");
+        assert!(s.refused.iter().any(|r| r.starts_with("grass_top.png")), "and the file is named: {:?}", s.refused);
+        std::fs::write(d.join("grass_top.png"), flat(90)).unwrap();
+        assert_eq!(top(&load_keeping(&d, &BLOCKS, &mut kept)), Some(90), "a good file again is taken");
+        std::fs::remove_file(d.join("grass_top.png")).unwrap();
+        assert_eq!(top(&load_keeping(&d, &BLOCKS, &mut kept)), None, "a file gone is gone");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

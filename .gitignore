@@ -37,3 +37,6 @@ saves/
 /build/
 /playtest/
 /settings.txt
+
+# the Studio window's panel widths and scale, per machine
+/studio.txt

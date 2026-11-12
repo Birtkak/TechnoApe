@@ -1089,6 +1089,7 @@ fn turn_about(ax: vec3f, cs: f32, sn: f32) -> mat3x3f {
 fn vs_fx(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> FxOut {
     let q = fxp[ii];
     let look = (q.info >> 10u) & 3u;
+    let face = (q.info >> 16u) & 3u;
     let bi = (q.info >> 8u) & 3u;
     let b = g.bodies[bi];
     let dir = vi / 6u;
@@ -1113,32 +1114,45 @@ fn vs_fx(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> Fx
         if (a == 1u) { nb = normalize(f.t - f.n * f.tb); }
         if ((dir & 1u) == 1u) { nb = -nb; }
         o.uvw = c;
-    } else if (look == 1u) {
-        // a square facing the camera: corners along the camera's right and the body's up there
+    } else if (look == 1u && face != 2u) {
+        // a square facing the camera: corners along the camera's right and the body's up there, turned by
+        // `angle`; along its flight (face 1, ADR 0050): its long side along the flight seen from the camera,
+        // `angle` metres longer, trailing behind it
         if (dir > 0u) {
             o.clip = vec4f(0.0, 0.0, -1.0, 1.0);
             return o;
         }
         let rel = brot(b, (q.p - b.cam_hi) - b.cam_lo);
         let fwd = normalize(rel);
-        var right = cross(fwd, brot(b, normalize(q.p)));
+        var along = brot(b, normalize(q.p));
+        if (face == 1u) {
+            along = brot(b, vec3f(f32(q.a & 1023u), f32((q.a >> 10u) & 1023u), f32((q.a >> 20u) & 1023u)) / 511.5 - 1.0);
+        }
+        var right = cross(fwd, along);
         if (dot(right, right) < 1e-6) { right = cross(fwd, vec3f(0.0, 0.0, 1.0)); }
         right = normalize(right);
         let up = cross(right, fwd);
         var cx = array<f32, 6>(-1., 1., 1., -1., 1., -1.);
         var cy = array<f32, 6>(-1., -1., 1., -1., 1., 1.);
-        o.rel = rel + (right * cx[k] + up * cy[k]) * (0.5 * q.size);
+        if (face == 1u) {
+            o.rel = rel - up * (0.5 * q.angle) + right * (cx[k] * 0.5 * q.size) + up * (cy[k] * 0.5 * (q.size + q.angle));
+        } else {
+            let cs = cos(q.angle);
+            let sn = sin(q.angle);
+            o.rel = rel + (right * (cx[k] * cs - cy[k] * sn) + up * (cx[k] * sn + cy[k] * cs)) * (0.5 * q.size);
+        }
         o.clip = g.view_proj * vec4f(o.rel, 1.0);
         o.normal = -fwd;
         o.uvw = vec3f(cx[k], cy[k], 0.0) * 0.5 + 0.5;
         return o;
     } else {
-        // debris: a cube turned by `angle` about an axis of its own
+        // debris: a cube turned by `angle` about an axis of its own; a tumbling square (face 2) the same, a
+        // tenth as thick
         let h = fx_hash(q.a);
         let ax = normalize(vec3f(f32(h & 255u), f32((h >> 8u) & 255u), f32((h >> 16u) & 255u)) - 127.25);
         let c = cube_corner(dir, k);
         let turn = turn_about(ax, cos(q.angle), sin(q.angle));
-        pb = q.p + turn * ((c - 0.5) * q.size);
+        pb = q.p + turn * ((c - 0.5) * q.size * vec3f(1.0, 1.0, select(1.0, 0.1, look == 1u)));
         nb = turn * (axis(dir / 2u) * select(1.0, -1.0, (dir & 1u) == 1u));
         o.uvw = c;
     }
@@ -1162,9 +1176,16 @@ fn fx_colour(i: FxOut) -> vec3f {
     let mat = i.info & 255u;
     let dir = (i.info >> 12u) & 7u;
     let a = dir / 2u;
-    if (look == 1u) { return unpack4x8unorm(i.b).rgb; }
     let uv = vec2f(i.uvw[(a + 1u) % 3u], i.uvw[(a + 2u) % 3u]);
     let flat_t = (g.opt.x & 4u) != 0u;
+    if (look == 1u) {
+        // a square's colour; a texture's (ADR 0050): its block's top face times it (a billboard's uv is uvw.xy)
+        if (((i.info >> 18u) & 1u) == 1u) {
+            let st = select(uv, i.uvw.xy, ((i.info >> 16u) & 3u) != 2u);
+            return texel(mat, 4u, vec3i(0), select(st, vec2f(0.5), flat_t), 0.5) * unpack4x8unorm(i.b).rgb;
+        }
+        return unpack4x8unorm(i.b).rgb;
+    }
     if (look >= 2u) {
         let cell = vec3i(i32(i.a & 0x7fffu), i32((i.a >> 15u) & 0x7fffu), i32(i.b & 0xffffu)) + vec3i(i32(i.b >> 16u) * 977);
         return texel(mat, dir, cell, select(uv, vec2f(0.5), flat_t), i.uvw.z);
@@ -1189,7 +1210,8 @@ fn fx_out(i: FxOut, col: vec3f, l: vec3f) -> GOut {
         o.albedo = vec4f(0.0, 0.0, 0.0, f32(body) / 3.0);
         return o;
     }
-    o.direct = vec4f(col * l, 1.0);
+    // a glowing particle (ADR 0050) adds its own light, glow = info >> 24 over 32
+    o.direct = vec4f(col * (l + f32(i.info >> 24u) / 32.0), 1.0);
     o.albedo = vec4f(col, f32(body) / 3.0);
     return o;
 }
@@ -1230,4 +1252,40 @@ fn fs_fx(i: FxOut) -> GOut {
     let l = light(i.rel, normalize(i.normal), (i.info >> 8u) & 3u, vec2u(i.clip.xy));
     // a crack shows the block's own texel, dark, as a gap in it
     return fx_out(i, fx_colour(i) * select(1.0, 0.3, look == 3u), l.l);
+}
+
+// ---- models (ADR 0047, crates/client/src/models.rs) ----
+// One draw per part of a model, one instance per piece: the part's quads (corner x | y << 6 | z << 12 | dir << 18
+// in its voxels; w | h << 6; rgba8) placed by the piece's transform straight into the camera's frame. Lit by
+// `light()` where they stand, as the terrain and the effects are; not in the traced scene, so they cast no
+// shadow.
+struct MPiece { x0: vec4f, x1: vec4f, x2: vec4f, q0: u32, body: u32, _a: u32, _b: u32 };
+@group(0) @binding(12) var<storage, read> mquads: array<vec4u>;
+@group(0) @binding(13) var<storage, read> mpieces: array<MPiece>;
+
+@vertex
+fn vs_model(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> FxOut {
+    let m = mpieces[ii];
+    let q = mquads[m.q0 + vi / 6u];
+    let dir = (q.x >> 18u) & 7u;
+    let a = dir / 2u;
+    var ext = vec3f(1.0);
+    ext[(a + 1u) % 3u] = f32(q.y & 63u);
+    ext[(a + 2u) % 3u] = f32((q.y >> 6u) & 63u);
+    let corner = vec3f(f32(q.x & 63u), f32((q.x >> 6u) & 63u), f32((q.x >> 12u) & 63u));
+    let v = vec4f(corner + cube_corner(dir, vi % 6u) * ext, 1.0);
+    let n = vec4f(axis(a) * select(1.0, -1.0, (dir & 1u) == 1u), 0.0);
+    var o: FxOut;
+    o.rel = vec3f(dot(m.x0, v), dot(m.x1, v), dot(m.x2, v));
+    o.clip = g.view_proj * vec4f(o.rel, 1.0);
+    o.normal = vec3f(dot(m.x0, n), dot(m.x1, n), dot(m.x2, n));
+    o.info = m.body << 8u;
+    o.b = q.z;
+    return o;
+}
+
+@fragment
+fn fs_model(i: FxOut) -> GOut {
+    let l = light(i.rel, normalize(i.normal), (i.info >> 8u) & 3u, vec2u(i.clip.xy));
+    return fx_out(i, unpack4x8unorm(i.b).rgb, l.l);
 }

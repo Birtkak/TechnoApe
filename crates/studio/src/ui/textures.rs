@@ -1,11 +1,16 @@
 //! The Textures page (docs/design/studio.md "The window's layout", studio-tools.md "Textures: the tools"): a
-//! block's faces and variants on a 16 x 16 canvas, the tools, the palette and the tiled preview.
+//! block's faces and variants on a 16 x 16 canvas, the tools, the palette, the starts (pattern, picture,
+//! another block), the variations wall for variants and the previews. The editing is `art`'s and `tools`'.
 use super::look::{self, c32, dim, draw, GAP};
+use super::wall::{self as wall_ui, Act};
 use super::{App, Cmd, FileRow, Page, Thumb, TEX};
 use crate::art::{self, Doc, Img, S};
+use crate::pattern;
 use crate::shell::Flags;
+use crate::tools::{self, Clip, Sel};
+use crate::wall::{Rng, Wall};
 use eframe::egui::{self, Color32, Key, Modifiers, PointerButton, Pos2, Rect, RichText, Sense, StrokeKind, Ui, Vec2};
-use engine::palette::to_hex;
+use engine::palette::{to_hex, Palette};
 
 const FACE_NAMES: [&str; 4] = ["All", "Top", "Side", "Bottom"];
 
@@ -15,21 +20,41 @@ pub enum Tool {
     Fill,
     Picker,
     Line,
+    Shade,
+    Scatter,
+    Spray,
+    Dither,
+    Gradient,
+    Select,
+    Replace,
 }
 
-/// Each tool: its id, name, key, and its help for the status line.
-const TOOLS: [(Tool, &str, &str, Key, &str); 4] = [
+/// Each tool: its id, name, key, and its help for the status line and tooltip.
+const TOOLS: [(Tool, &str, &str, Key, &str); 11] = [
     (Tool::Pencil, "pencil", "Pencil", Key::B, "Pencil: left paints the first colour, right the second; Alt picks"),
     (Tool::Fill, "fill", "Fill", Key::G, "Fill: fills the touching area of one colour; left the first colour, right the second"),
     (Tool::Picker, "picker", "Picker", Key::I, "Picker: left takes the first colour from the canvas, right the second"),
     (Tool::Line, "line", "Line", Key::L, "Line: drag a straight line; left the first colour, right the second"),
+    (Tool::Shade, "shade", "Shade", Key::U, "Shade: left makes a pixel one step darker on its ramp, right one lighter; a drag shades each pixel once"),
+    (Tool::Scatter, "scatter", "Scatter", Key::N, "Scatter: paints the colour and its ramp neighbours at random, by the amount; grain in palette colours"),
+    (Tool::Spray, "spray", "Spray", Key::A, "Spray: paints by chance within a radius; left the first colour, right the second"),
+    (Tool::Dither, "dither", "Dither", Key::D, "Dither fill: the touching area becomes a checker of the first and second colour"),
+    (Tool::Gradient, "gradient", "Gradient", Key::E, "Gradient: drag a line; the face runs from the first to the second colour along their ramp, dithered"),
+    (Tool::Select, "select", "Select", Key::S, "Select: drag a rectangle; drag inside it to move it; flip, turn, copy and paste in the inspector"),
+    (Tool::Replace, "replace", "Replace", Key::R, "Replace colour: a click turns every pixel of that colour in the file into the first colour (right: the second)"),
 ];
 
 struct Stroke {
     button: PointerButton,
-    start: (usize, usize),
-    last: (usize, usize),
+    tool: Tool,
+    start: (i32, i32),
+    last: (i32, i32),
+    /// The picture when the stroke began: a line, gradient or move draws from it again each frame.
     base: Img,
+    /// Pixels shaded or scattered this stroke: each only once.
+    touched: Vec<(usize, usize)>,
+    /// A selection being moved: where it was and what it holds.
+    lifted: Option<(Sel, Clip)>,
 }
 
 pub struct Textures {
@@ -38,18 +63,65 @@ pub struct Textures {
     variant: usize,
     tool: Tool,
     mirror: bool,
+    tiled: bool,
+    seams: bool,
     first: [u8; 3],
     second: [u8; 3],
     zoom: Option<f32>,
     pan: Vec2,
     stroke: Option<Stroke>,
+    rng: Rng,
+    amount: f32,
+    radius: i32,
+    density: f32,
+    sel: Option<Sel>,
+    clip: Option<Clip>,
+    picture: String,
+    from_block: String,
+    swap: (String, String),
+    big_preview: bool,
+    unfolded: bool,
+    /// "Make variants": the wall and how many variants in all.
+    wall: Option<Wall<Img>>,
+    count: usize,
+    /// The lit cube: its camera, and a hash of the textures last written for the renderer.
+    orbit: crate::voxel::Orbit,
+    tex_gen: u64,
 }
 
 impl Textures {
     pub fn new(app: &App) -> Textures {
         let at = |i: usize| app.pal.colours.get(i).or(app.pal.colours.first()).map_or([128; 3], |c| c.rgb);
         let block = app.reg.placeable().next().map_or(String::new(), |d| d.name.clone());
-        let mut t = Textures { block: String::new(), face: 0, variant: 0, tool: Tool::Pencil, mirror: false, first: at(0), second: at(1), zoom: None, pan: Vec2::ZERO, stroke: None };
+        let mut t = Textures {
+            block: String::new(),
+            face: 0,
+            variant: 0,
+            tool: Tool::Pencil,
+            mirror: false,
+            tiled: false,
+            seams: false,
+            first: at(0),
+            second: at(1),
+            zoom: None,
+            pan: Vec2::ZERO,
+            stroke: None,
+            rng: Rng::new(1),
+            amount: 0.5,
+            radius: 2,
+            density: 0.35,
+            sel: None,
+            clip: None,
+            picture: String::new(),
+            from_block: String::new(),
+            swap: (String::new(), String::new()),
+            big_preview: false,
+            unfolded: false,
+            wall: None,
+            count: 3,
+            orbit: crate::voxel::Orbit { target: glam::Vec3::new(0.5, 0.3, 0.5), yaw: 0.7, pitch: 0.55, dist: 3.4 },
+            tex_gen: 0,
+        };
         t.go(app, &block);
         t
     }
@@ -61,14 +133,17 @@ impl Textures {
     fn go(&mut self, app: &App, block: &str) {
         self.block = block.to_string();
         self.face = (0..4).find(|&f| app.docs.contains_key(&self.file(f))).unwrap_or(0);
-        (self.variant, self.zoom, self.pan, self.stroke) = (0, None, Vec2::ZERO, None);
+        (self.variant, self.zoom, self.pan, self.stroke, self.sel, self.wall) = (0, None, Vec2::ZERO, None, None, None);
     }
 
     /// The picture a face shows: its own file, else the block's every-face file (dimmed, `false`).
     fn shown<'a>(&self, app: &'a App) -> Option<(&'a Img, bool)> {
-        match app.docs.get(&self.file(self.face)) {
+        Self::face_img(app, &self.block, self.face)
+    }
+    fn face_img<'a>(app: &'a App, block: &str, face: usize) -> Option<(&'a Img, bool)> {
+        match app.docs.get(&art::file_name(block, face)) {
             Some(d) => Some((&d.img, true)),
-            None => app.docs.get(&self.file(0)).map(|d| (&d.img, false)),
+            None => app.docs.get(&art::file_name(block, 0)).map(|d| (&d.img, false)),
         }
     }
     fn block_colour(&self, app: &App) -> [u8; 3] {
@@ -81,11 +156,7 @@ impl Textures {
         if !app.docs.contains_key(&key) {
             let img = match self.shown(app) {
                 Some((img, _)) => img.clone(),
-                None => {
-                    let c = self.block_colour(app);
-                    let d = |p: &engine::palette::Colour| p.rgb.iter().zip(c).map(|(a, b)| (*a as i32 - b as i32).pow(2)).sum::<i32>();
-                    Img::filled(1, app.pal.colours.iter().min_by_key(|p| d(p)).map_or(c, |p| p.rgb))
-                }
+                None => Img::filled(1, tools::snap(&app.pal, self.block_colour(app).map(|v| v as f32 / 255.0))),
             };
             app.docs.insert(key.clone(), Doc { img, hist: Default::default(), saved: None });
         }
@@ -100,8 +171,107 @@ impl Textures {
         app.pal.find(c).map_or(format!("{} (not in the palette)", to_hex(c)), |i| app.pal.colours[i].name.clone())
     }
 
+    /// One named edit of the open face: `f` on the picture and the variant, a history step if it changed it.
+    fn edit(&mut self, app: &mut App, name: &str, f: impl FnOnce(&mut Img, usize, &Palette)) {
+        let v = self.v(app);
+        let pal = app.pal.clone();
+        let d = self.doc(app);
+        let before = d.img.clone();
+        f(&mut d.img, v, &pal);
+        if d.img != before {
+            d.hist.push(before, name);
+        }
+    }
+
+    /// A new picture for the open variant (pattern, picture).
+    fn put_variant(&mut self, app: &mut App, name: &str, face: Img) {
+        self.edit(app, name, |img, v, _| tools::paste(img, v, &tools::copy(&face, 0, Sel { x: 0, y: 0, w: S, h: S }), 0, 0));
+        app.toast(format!("{name}: {}", self.file(self.face)));
+    }
+
+    fn start_pattern(&mut self, app: &mut App) {
+        let Some(def) = app.reg.placeable().find(|d| d.name == self.block).cloned() else { return };
+        let face = pattern::face(&app.reg, &def, self.face, &app.pal);
+        self.put_variant(app, "Start from pattern", face);
+    }
+
+    fn start_picture(&mut self, app: &mut App, path: &str) {
+        match std::fs::read(path).map_err(|e| e.to_string()).and_then(|b| tools::decode_picture(&b)) {
+            Ok((w, h, px)) => {
+                let face = tools::from_picture(w, h, &px, &app.pal);
+                self.put_variant(app, "Start from a picture", face);
+            }
+            Err(e) => app.refuse(format!("{path}: {e}")),
+        }
+    }
+
+    fn copy_block(&mut self, app: &mut App, block: &str) {
+        let Some((img, _)) = Self::face_img(app, block, self.face) else {
+            return app.refuse(format!("{block} has no painted texture to copy"));
+        };
+        let img = img.clone();
+        self.edit(app, &format!("Copy from {block}"), |me, _, _| *me = img);
+        self.variant = 0;
+    }
+
+    fn swap_ramp(&mut self, app: &mut App, from: &str, to: &str) {
+        let colours = |r: &str| app.pal.ramp(r).iter().map(|&i| app.pal.colours[i].rgb).collect::<Vec<_>>();
+        let (a, b) = (colours(from), colours(to));
+        let mut err = None;
+        self.edit(app, "Swap ramp", |img, _, _| {
+            if let Err(e) = art::swap_ramp(img, &a, &b) {
+                err = Some(e);
+            }
+        });
+        match err {
+            Some(e) => app.refuse(format!("Swap ramp {from} to {to}: {e}")),
+            None => app.toast(format!("Swapped the ramp {from} for {to}")),
+        }
+    }
+
+    fn sel_op(&mut self, app: &mut App, op: &str) {
+        let Some(s) = self.sel else { return app.toast("Select a rectangle first (S)") };
+        let second = self.second;
+        if op == "copy" {
+            let v = self.v(app);
+            if let Some((img, _)) = self.shown(app) {
+                self.clip = Some(tools::copy(img, v, s));
+                app.toast(format!("Copied {} x {} pixels", s.w, s.h));
+            }
+            return;
+        }
+        let mut ns = s;
+        self.edit(app, if op == "turn" { "Turn" } else { "Flip" }, |img, v, _| {
+            let c = tools::copy(img, v, s);
+            let c = match op {
+                "flipx" => c.flip_x(),
+                "flipy" => c.flip_y(),
+                _ => c.turn(),
+            };
+            tools::cut(img, v, s, second);
+            tools::paste(img, v, &c, s.x as i32, s.y as i32);
+            ns = Sel { w: c.w, h: c.h, ..s };
+        });
+        self.sel = Some(Sel::corners((ns.x, ns.y), (ns.x + ns.w - 1, ns.y + ns.h - 1)));
+    }
+
+    fn paste(&mut self, app: &mut App) {
+        let Some(c) = self.clip.clone() else { return app.toast("Nothing copied yet (Ctrl+C copies the selection)") };
+        let (x, y) = self.sel.map_or((0, 0), |s| (s.x, s.y));
+        self.edit(app, "Paste", |img, v, _| tools::paste(img, v, &c, x as i32, y as i32));
+        self.sel = Some(Sel::corners((x, y), ((x + c.w - 1).min(S - 1), (y + c.h - 1).min(S - 1))));
+        self.tool = Tool::Select;
+    }
+
+    fn open_wall(&mut self, app: &mut App) {
+        let Some((img, _)) = self.shown(app) else { return app.toast("Paint variant 1 first, or start from the pattern") };
+        let around = img.clone();
+        let (n, pal) = (self.count, app.pal.clone());
+        self.wall = Some(Wall::new(around, 9, 0.35, 7, &|a: &Img, r: &mut Rng, k: f32| tools::make_variants(a, n, k, &pal, r)));
+    }
+
     fn tabs(&mut self, ui: &mut Ui, app: &mut App) {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             for f in 0..4 {
                 let own = app.docs.contains_key(&self.file(f));
                 let t = if own { RichText::new(FACE_NAMES[f]) } else { RichText::new(FACE_NAMES[f]).weak() };
@@ -110,7 +280,7 @@ impl Textures {
                     _ => format!("Only the {} face: <block>_{}.png{}", FACE_NAMES[f].to_lowercase(), art::FACES[f], if own { "" } else { "; dimmed: it falls back to All" }),
                 };
                 if look::tip(ui.selectable_label(self.face == f, t), &help, "").clicked() {
-                    (self.face, self.variant, self.stroke) = (f, 0, None);
+                    (self.face, self.variant, self.stroke, self.sel) = (f, 0, None, None);
                 }
             }
             ui.separator();
@@ -134,108 +304,340 @@ impl Textures {
         });
     }
 
-    fn paint(&mut self, ui: &Ui, app: &mut App, hover: Option<(usize, usize)>, clamped: Option<(usize, usize)>) {
+    /// The pointer on the canvas starts and carries strokes. `cell`: the canvas pixel under the pointer in face
+    /// coordinates (outside 0..16 on the ghosted neighbours), None when off the canvas.
+    fn paint(&mut self, ui: &Ui, app: &mut App, cell: Option<(i32, i32)>) {
         let (alt, pressed) = ui.input(|i| (i.modifiers.alt, [PointerButton::Primary, PointerButton::Secondary].map(|b| i.pointer.button_pressed(b))));
         let tool = if alt { Tool::Picker } else { self.tool };
-        let (v, mirror) = (self.v(app), self.mirror);
-        if let Some(px) = hover.filter(|_| self.stroke.is_none()) {
+        let (v, mirror, tiled) = (self.v(app), self.mirror, self.tiled);
+        let on_face = |c: (i32, i32)| (0..S as i32).contains(&c.0) && (0..S as i32).contains(&c.1);
+        if let Some(px) = cell.filter(|c| self.stroke.is_none() && (tiled || on_face(*c))) {
             for (k, button) in [PointerButton::Primary, PointerButton::Secondary].into_iter().enumerate() {
                 if !pressed[k] {
                     continue;
                 }
-                let c = if k == 0 { self.first } else { self.second };
+                let (c, other) = if k == 0 { (self.first, self.second) } else { (self.second, self.first) };
+                let (x, y) = (px.0.rem_euclid(S as i32) as usize, px.1.rem_euclid(S as i32) as usize);
+                let mut lifted = None;
                 match tool {
                     Tool::Picker => {
-                        let got = self.shown(app).map(|(img, _)| img.get(v.min(img.variants() - 1), px.0, px.1));
+                        let got = self.shown(app).map(|(img, _)| img.get(v.min(img.variants() - 1), x, y));
                         if let Some(got) = got.filter(|g| app.pal.find(*g).is_some()) {
                             *(if k == 0 { &mut self.first } else { &mut self.second }) = got;
                         }
+                        continue;
                     }
                     Tool::Fill => {
-                        let d = self.doc(app);
-                        d.hist.push(d.img.clone(), "Fill");
-                        art::fill(&mut d.img, v, px.0, px.1, c, mirror);
+                        self.edit(app, "Fill", |img, v, _| if tiled { tools::fill_wrap(img, v, x, y, c) } else { art::fill(img, v, x, y, c, mirror) });
+                        continue;
                     }
-                    Tool::Pencil | Tool::Line => {
-                        let d = self.doc(app);
-                        let base = d.img.clone();
-                        d.hist.push(base.clone(), if tool == Tool::Line { "Line" } else { "Pencil" });
-                        art::pencil(&mut d.img, v, px.0, px.1, c, mirror);
-                        self.stroke = Some(Stroke { button, start: px, last: px, base });
+                    Tool::Dither => {
+                        self.edit(app, "Dither fill", |img, v, _| tools::dither(img, v, x, y, c, other, tiled));
+                        continue;
                     }
+                    Tool::Replace => {
+                        let from = self.shown(app).map_or(c, |(img, _)| img.get(v, x, y));
+                        self.edit(app, "Replace colour", |img, _, _| {
+                            art::repaint(img, from, c);
+                        });
+                        continue;
+                    }
+                    Tool::Gradient if app.pal.between(self.first, self.second).is_none() => {
+                        app.refuse("Gradient: the first and second colour must be on one ramp");
+                        continue;
+                    }
+                    Tool::Select => match self.sel.filter(|s| s.contains((x, y))) {
+                        Some(s) => {
+                            let d = self.doc(app);
+                            lifted = Some((s, tools::copy(&d.img, v, s)));
+                        }
+                        None => self.sel = Some(Sel::corners((x, y), (x, y))),
+                    },
+                    _ => {}
                 }
+                let name = TOOLS.iter().find(|t| t.0 == tool).unwrap().2;
+                let d = self.doc(app);
+                let base = d.img.clone();
+                // a selection drawn changes nothing; a move does
+                if tool != Tool::Select || lifted.is_some() {
+                    d.hist.push(base.clone(), if tool == Tool::Select { "Move" } else { name });
+                }
+                self.stroke = Some(Stroke { button, tool, start: px, last: px, base, touched: vec![], lifted });
+                self.carry(app, px);
             }
         }
         let Some(st) = &self.stroke else { return };
-        let (button, start, last) = (st.button, st.start, st.last);
-        if !ui.input(|i| i.pointer.button_down(button)) {
+        if !ui.input(|i| i.pointer.button_down(st.button)) {
+            // a stroke that changed nothing leaves no step behind
+            let tool = st.tool;
+            if let Some(d) = app.docs.get_mut(&self.file(self.face)) {
+                if tool != Tool::Select && d.hist.undo.last().is_some_and(|s| s.img == d.img) {
+                    d.hist.undo.pop();
+                }
+            }
             self.stroke = None;
             return;
         }
-        let Some(to) = clamped else { return };
-        let c = if button == PointerButton::Primary { self.first } else { self.second };
-        let base = (tool == Tool::Line).then(|| st.base.clone());
-        let d = self.doc(app);
-        match base {
-            Some(base) => {
-                d.img = base;
-                art::line(&mut d.img, v, start, to, c, mirror);
+        if let Some(to) = cell {
+            let to = if tiled { (to.0.clamp(-16, 31), to.1.clamp(-16, 31)) } else { (to.0.clamp(0, 15), to.1.clamp(0, 15)) };
+            if to != st.last {
+                self.carry(app, to);
             }
-            None => art::line(&mut d.img, v, last, to, c, mirror),
         }
-        self.stroke.as_mut().unwrap().last = to;
+    }
+
+    /// Carries a stroke on to canvas pixel `to`.
+    fn carry(&mut self, app: &mut App, to: (i32, i32)) {
+        let v = self.v(app);
+        let Some(mut st) = self.stroke.take() else { return };
+        let (mirror, first, second) = (self.mirror, self.first, self.second);
+        let c = if st.button == PointerButton::Primary { first } else { second };
+        let pal = app.pal.clone();
+        let wrapped = |c: (i32, i32)| (c.0.rem_euclid(S as i32) as usize, c.1.rem_euclid(S as i32) as usize);
+        let path = tools::line_points(st.last, to);
+        let (amount, radius, density) = (self.amount, self.radius, self.density);
+        let mut sel = self.sel;
+        let rng = &mut self.rng;
+        let key = art::file_name(&self.block, self.face);
+        let Some(d) = app.docs.get_mut(&key) else { return };
+        match st.tool {
+            Tool::Pencil => tools::line_wrap(&mut d.img, v, st.last, to, c, mirror),
+            Tool::Line => {
+                d.img = st.base.clone();
+                tools::line_wrap(&mut d.img, v, st.start, to, c, mirror);
+            }
+            Tool::Shade | Tool::Scatter => {
+                for p in path.into_iter().map(wrapped) {
+                    if st.touched.contains(&p) {
+                        continue;
+                    }
+                    st.touched.push(p);
+                    if st.tool == Tool::Shade {
+                        tools::shade(&mut d.img, v, p.0, p.1, &pal, if st.button == PointerButton::Primary { -1 } else { 1 }, mirror);
+                    } else {
+                        art::pencil(&mut d.img, v, p.0, p.1, tools::scatter_colour(&pal, c, amount, rng), mirror);
+                    }
+                }
+            }
+            Tool::Spray => tools::spray(&mut d.img, v, to, radius, density, c, mirror, rng),
+            Tool::Gradient => {
+                d.img = st.base.clone();
+                let (a, b) = if st.button == PointerButton::Primary { (first, second) } else { (second, first) };
+                if let Some(ramp) = pal.between(a, b) {
+                    let mid = |p: (i32, i32)| (p.0 as f32 + 0.5, p.1 as f32 + 0.5);
+                    tools::gradient(&mut d.img, v, mid(st.start), mid(to), &ramp);
+                }
+            }
+            Tool::Select => match &st.lifted {
+                Some((s, clip)) => {
+                    d.img = st.base.clone();
+                    let (dx, dy) = (to.0 - st.start.0, to.1 - st.start.1);
+                    tools::cut(&mut d.img, v, *s, second);
+                    tools::paste(&mut d.img, v, clip, s.x as i32 + dx, s.y as i32 + dy);
+                    let (nx, ny) = ((s.x as i32 + dx).clamp(0, (S - s.w) as i32) as usize, (s.y as i32 + dy).clamp(0, (S - s.h) as i32) as usize);
+                    sel = Some(Sel { x: nx, y: ny, ..*s });
+                }
+                None => sel = Some(Sel::corners(wrapped(st.start), wrapped(to))),
+            },
+            _ => {}
+        }
+        self.sel = sel;
+        st.last = to;
+        self.stroke = Some(st);
     }
 
     fn palette(&mut self, ui: &mut Ui, app: &App) {
-        ui.horizontal(|ui| {
-            for (k, c) in [(0, self.first), (1, self.second)] {
-                let (r, resp) = ui.allocate_exact_size(Vec2::new(36.0, 36.0), Sense::hover());
-                ui.painter().rect_filled(r, 4.0, c32(c));
-                ui.painter().rect_stroke(r, 4.0, egui::Stroke::new(1.0, Color32::from_gray(90)), StrokeKind::Inside);
-                look::tip(resp, if k == 0 { "First colour: the left button paints it" } else { "Second colour: the right button paints it" }, "");
-            }
-            ui.vertical(|ui| {
-                ui.label(RichText::new(Self::colour_name(app, self.first)).small());
-                ui.label(RichText::new(format!("right: {}", Self::colour_name(app, self.second))).small().weak());
-            });
-        });
-        ui.add_space(GAP * 0.5);
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::splat(4.0);
-            for c in &app.pal.colours {
-                let (r, resp) = ui.allocate_exact_size(Vec2::splat(24.0), Sense::click());
-                let p = ui.painter();
-                p.rect_filled(r, 3.0, c32(c.rgb));
-                if c.rgb == self.second {
-                    p.rect_stroke(r.shrink(4.0), 1.0, egui::Stroke::new(2.0, Color32::from_gray(20)), StrokeKind::Inside);
-                    p.rect_stroke(r.shrink(5.0), 1.0, egui::Stroke::new(1.0, Color32::WHITE), StrokeKind::Inside);
-                }
-                if c.rgb == self.first {
-                    p.rect_stroke(r, 3.0, egui::Stroke::new(2.0, look::ACCENT), StrokeKind::Outside);
-                }
-                let resp = look::tip(resp, &format!("{}: left click makes it the first colour, right click the second", c.name), "");
-                if resp.clicked() {
-                    self.first = c.rgb;
-                }
-                if resp.secondary_clicked() {
-                    self.second = c.rgb;
-                }
-            }
-        });
+        palette_picker(ui, &app.pal, &mut self.first, &mut self.second);
     }
 
-    fn preview(&self, ui: &mut Ui, app: &App) {
+    fn preview(&mut self, ui: &mut Ui, app: &App) {
+        ui.horizontal(|ui| {
+            let r = ui.selectable_label(!self.big_preview && !self.unfolded, "3 x 3");
+            if look::tip(r, "The face tiled 3 x 3, variants mixed as the game mixes them", "").clicked() {
+                (self.big_preview, self.unfolded) = (false, false);
+            }
+            let r = ui.selectable_label(self.big_preview && !self.unfolded, "5 x 5");
+            if look::tip(r, "The face tiled 5 x 5: repeats show sooner", "").clicked() {
+                (self.big_preview, self.unfolded) = (true, false);
+            }
+            let r = ui.selectable_label(self.unfolded, "Unfolded");
+            if look::tip(r, "Top, the four sides and the bottom unfolded, as the block wears them", "").clicked() {
+                self.unfolded = true;
+            }
+        });
+        let w = ui.available_width();
+        if self.unfolded {
+            let faces = [1, 2, 3].map(|f| Self::face_img(app, &self.block, f));
+            if faces.iter().all(Option::is_none) {
+                look::weak(ui, "nothing painted yet");
+                return;
+            }
+            let scale = (w / (4 * S) as f32).floor().clamp(1.0, 4.0);
+            let t = S as f32 * scale;
+            let (r, _) = ui.allocate_exact_size(Vec2::new(4.0 * t, 3.0 * t), Sense::hover());
+            let flat = dim(self.block_colour(app));
+            let p = ui.painter();
+            for (f, i, j) in [(0, 1, 0), (1, 0, 1), (1, 1, 1), (1, 2, 1), (1, 3, 1), (2, 1, 2)] {
+                let at = r.min + Vec2::new(i as f32, j as f32) * t;
+                match faces[f] {
+                    Some((img, _)) => draw(p, img, 0, at, scale, false),
+                    None => {
+                        p.rect_filled(Rect::from_min_size(at, Vec2::splat(t)), 0.0, flat);
+                    }
+                }
+            }
+            return;
+        }
         let Some((img, _)) = self.shown(app) else {
             look::weak(ui, "nothing painted yet");
             return;
         };
-        let scale = (ui.available_width() / (3 * S) as f32).floor().clamp(1.0, 6.0);
-        let (r, _) = ui.allocate_exact_size(Vec2::splat(3.0 * S as f32 * scale), Sense::hover());
-        for j in 0..3 {
-            for i in 0..3 {
+        let n = if self.big_preview { 5 } else { 3 };
+        // whole pixels per texel: a fractional scale leaves hairline gaps between the tiles
+        let scale = (w / (n * S) as f32).floor().clamp(1.0, 6.0);
+        let (r, _) = ui.allocate_exact_size(Vec2::splat(n as f32 * S as f32 * scale), Sense::hover());
+        for j in 0..n {
+            for i in 0..n {
                 let at = r.min + Vec2::new(i as f32, j as f32) * S as f32 * scale;
                 draw(ui.painter(), img, art::variant_at(i, j, img.variants()), at, scale, false);
             }
+        }
+    }
+
+    /// The block in the game's renderer (ADR 0049): on the ground among its own kind, lit by the sun (or a lamp in
+    /// the cave), with the textures as they are in the Studio, saved or not.
+    fn lit_cube(&mut self, ui: &mut Ui, app: &mut App) {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::hash::DefaultHasher::new();
+        for (n, d) in &app.docs {
+            (n, d.img.w, &d.img.px).hash(&mut h);
+        }
+        let gen = h.finish();
+        let dir = format!("{}/textures", super::viewport::DIR);
+        // written once a stroke is let go, not at every pixel of it
+        if gen != self.tex_gen && !ui.input(|i| i.pointer.any_down()) {
+            let _ = std::fs::remove_dir_all(&dir);
+            let _ = std::fs::create_dir_all(&dir);
+            for (n, d) in &app.docs {
+                let _ = std::fs::write(format!("{dir}/{n}"), art::encode(&d.img));
+            }
+            self.tex_gen = gen;
+        }
+        app.view.textures(&dir, self.tex_gen);
+        app.view.show_model(None, None, 0.0);
+        let b = self.block.replace(' ', "_");
+        let mut place = vec![format!("0:0:0:{b}")];
+        for di in -1..=1 {
+            for dj in -1..=1 {
+                place.push(format!("{di}:{dj}:-1:{b}"));
+            }
+        }
+        app.view.place = place.join(",");
+        app.view.orbit = self.orbit;
+        app.view.left_turns = true;
+        app.view.live = false;
+        let w = ui.available_width();
+        let r = app.view.ui(ui, w * 0.75, |p, _, r| {
+            p.text(r.center(), egui::Align2::CENTER_CENTER, "the lit cube comes with the game's renderer", egui::FontId::proportional(look::SMALL), Color32::from_gray(140));
+        });
+        look::tip(r, "The block in the game's renderer: drag turns, the wheel zooms, the middle drag pans", "");
+        self.orbit = app.view.orbit;
+        app.view.controls(ui);
+    }
+
+    fn settle_view(&mut self, ctx: &egui::Context, app: &mut App) {
+        app.view.settle(ctx, std::time::Duration::from_secs(90));
+    }
+
+    fn tool_options(&mut self, ui: &mut Ui, app: &mut App) {
+        ui.spacing_mut().slider_width = (ui.available_width() - 165.0).max(60.0); // room for the value box and the label
+        match self.tool {
+            Tool::Scatter => {
+                look::tip(ui.add(egui::Slider::new(&mut self.amount, 0.0..=1.0).text("amount")), "How many pixels take a ramp neighbour instead of the colour", "");
+            }
+            Tool::Spray => {
+                look::tip(ui.add(egui::Slider::new(&mut self.radius, 1..=6).text("radius")), "The spray's radius in pixels", "");
+                look::tip(ui.add(egui::Slider::new(&mut self.density, 0.05..=1.0).text("density")), "The chance each pixel in the radius is painted", "");
+            }
+            Tool::Gradient => match app.pal.between(self.first, self.second) {
+                Some(r) => {
+                    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 18.0), Sense::hover());
+                    let w = rect.width() / r.len() as f32;
+                    for (i, c) in r.iter().enumerate() {
+                        ui.painter().rect_filled(Rect::from_min_size(rect.min + Vec2::new(i as f32 * w, 0.0), Vec2::new(w.ceil(), 18.0)), 0.0, c32(*c));
+                    }
+                    look::weak(ui, "the run from the first to the second colour");
+                }
+                None => {
+                    look::weak(ui, "choose a first and second colour on one ramp");
+                }
+            },
+            Tool::Select => {
+                ui.horizontal_wrapped(|ui| {
+                    for (id, label, help, key) in [
+                        ("sel.flipx", "Flip x", "Mirror the selection left to right", ""),
+                        ("sel.flipy", "Flip y", "Mirror the selection top to bottom", ""),
+                        ("sel.turn", "Turn", "Turn the selection a quarter clockwise", ""),
+                        ("sel.copy", "Copy", "Copy the selection, to paste on any face, variant or block", "Ctrl+C"),
+                        ("sel.paste", "Paste", "Paste what was copied at the selection's corner", "Ctrl+V"),
+                    ] {
+                        if look::tip(ui.button(label), help, key).clicked() {
+                            self.run(app, id);
+                        }
+                    }
+                });
+                look::weak(ui, match self.sel {
+                    Some(s) => format!("{} x {} at {}, {}; a move leaves the second colour behind; the arrows shift the face", s.w, s.h, s.x, s.y),
+                    None => "drag on the canvas to select; the arrows shift the whole face".into(),
+                });
+            }
+            Tool::Replace => {
+                look::weak(ui, "every pixel of the clicked colour, in every variant of the file");
+            }
+            _ => {}
+        }
+    }
+
+    fn wall_work(&mut self, ui: &mut Ui, app: &mut App) {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("Make variants").strong());
+            let mut n = self.count;
+            look::tip(ui.add(egui::Slider::new(&mut n, 2..=4).text("variants")), "How many variants in all", "");
+            if n != self.count {
+                self.count = n;
+                self.open_wall(app);
+            }
+            if look::tip(ui.button("Close"), "Back to the canvas", "").clicked() {
+                self.wall = None;
+            }
+        });
+        look::weak(ui, "Each set keeps variant 1 and moves or re-scatters a share of its pixels (the spread) for the others.");
+        ui.add_space(GAP);
+        let (n, pal) = (self.count, app.pal.clone());
+        let gen = |a: &Img, r: &mut Rng, k: f32| tools::make_variants(a, n, k, &pal, r);
+        let chosen = app.docs.get(&self.file(self.face)).and_then(|d| self.wall.as_ref()?.items.iter().position(|i| *i == d.img));
+        let Some(w) = self.wall.as_mut() else { return };
+        let k = 3.0;
+        let cell = Vec2::new(n as f32 * (16.0 * k + 4.0) + 8.0, 16.0 * k + 12.0);
+        let act = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            wall_ui::show(ui, w, chosen, cell, |p, r, img| {
+                for v in 0..img.variants() {
+                    draw(p, img, v, r.min + Vec2::new(v as f32 * (16.0 * k + 4.0), 0.0), k, false);
+                }
+            })
+        });
+        match act.inner {
+            Act::Take(i) => {
+                let item = w.items[i].clone();
+                self.edit(app, "Make variants", |img, _, _| *img = item);
+            }
+            Act::More(i) => w.more_like(i, &gen),
+            Act::Back => {
+                w.back();
+            }
+            Act::Shuffle => w.shuffle(&gen),
+            Act::Spread => w.fill(9, &gen),
+            Act::None | Act::Play(_) => {}
         }
     }
 }
@@ -277,17 +679,32 @@ impl Page for Textures {
     fn commands(&self, _app: &App) -> Vec<Cmd> {
         let mut v: Vec<Cmd> = TOOLS.iter().map(|(_, id, name, k, help)| Cmd::new(format!("tool.{id}"), format!("Tool: {name}"), *help).key(Modifiers::NONE, *k)).collect();
         v.push(Cmd::new("mirror", "Mirror on or off", "paint both halves at once, mirrored across the middle").key(Modifiers::NONE, Key::M));
+        v.push(Cmd::new("tiled", "Tiled painting on or off", "the neighbours ghosted round the face; strokes wrap over the edges").key(Modifiers::NONE, Key::T));
+        v.push(Cmd::new("seams", "Seam view on or off", "mark edge pixels that clash with the far edge they meet when tiled").key(Modifiers::SHIFT, Key::T));
         for (n, k) in [Key::Num1, Key::Num2, Key::Num3, Key::Num4].into_iter().enumerate() {
             v.push(Cmd::new(format!("variant.{}", n + 1), format!("Variant {}", n + 1), "show and paint this variant").key(Modifiers::NONE, k));
         }
         v.push(Cmd::new("variant.add", "Add a variant", "a new variant (up to 4), copied from this one"));
+        v.push(Cmd::new("variants", "Make variants", "a wall of variant sets made from variant 1; a click takes one"));
         for (f, name) in FACE_NAMES.iter().enumerate() {
             v.push(Cmd::new(format!("face.{f}"), format!("Face: {name}"), "paint this face's own file"));
         }
+        for (id, k) in [("left", Key::ArrowLeft), ("right", Key::ArrowRight), ("up", Key::ArrowUp), ("down", Key::ArrowDown)] {
+            v.push(Cmd::new(format!("shift.{id}"), format!("Shift the face {id}"), "move every pixel one step, wrapping over the edge").key(Modifiers::NONE, k));
+        }
+        v.push(Cmd::new("sel.copy", "Copy the selection", "to paste on any face, variant or block").key(Modifiers::COMMAND, Key::C));
+        v.push(Cmd::new("sel.paste", "Paste", "what was copied, at the selection's corner").key(Modifiers::COMMAND, Key::V));
+        v.push(Cmd::new("sel.flipx", "Flip the selection left to right", "mirror it in place"));
+        v.push(Cmd::new("sel.flipy", "Flip the selection top to bottom", "mirror it in place"));
+        v.push(Cmd::new("sel.turn", "Turn the selection", "a quarter clockwise"));
+        v.push(Cmd::new("sel.all", "Select all", "the whole face").key(Modifiers::COMMAND, Key::A));
+        v.push(Cmd::new("start.pattern", "Start from pattern", "the block's game pattern drawn into this variant, snapped to the palette"));
         v.push(Cmd::new("undo", "Undo", "undo the last change to this file").key(Modifiers::COMMAND, Key::Z));
         v.push(Cmd::new("redo", "Redo", "redo what was undone").key(Modifiers::COMMAND, Key::Y));
         v.push(Cmd::new("save", "Save the block", "write the block's unsaved files and take them off the drafts list").key(Modifiers::COMMAND, Key::S));
         v.push(Cmd::new("zoom.fit", "Zoom to fit", "the canvas as large as fits, centred"));
+        v.push(Cmd::new("preview.5", "Preview 5 x 5", "a larger tiled preview"));
+        v.push(Cmd::new("preview.unfold", "Preview unfolded", "top, sides and bottom unfolded"));
         v
     }
 
@@ -303,11 +720,46 @@ impl Page for Textures {
             return;
         }
         if let Some(f) = id.strip_prefix("face.").and_then(|n| n.parse::<usize>().ok()).filter(|f| *f < 4) {
-            (self.face, self.variant, self.stroke) = (f, 0, None);
+            (self.face, self.variant, self.stroke, self.sel) = (f, 0, None, None);
+            return;
+        }
+        // with an argument (shots, scripts): `picture=<path>`, `copy=<block>`, `swap=<from>;<to>`,
+        // `colours=<first>;<second>`, `sel=x;y;w;h`, `take=<n>` (an item of the variants wall)
+        if let Some((k, arg)) = id.split_once('=') {
+            match k {
+                "picture" => self.start_picture(app, arg),
+                "copy" => self.copy_block(app, arg),
+                "swap" => {
+                    if let Some((a, b)) = arg.split_once(';') {
+                        self.swap_ramp(app, a, b);
+                    }
+                }
+                "colours" => {
+                    let find = |n: &str| app.pal.colours.iter().find(|c| c.name == n).map(|c| c.rgb);
+                    if let Some((a, b)) = arg.split_once(';') {
+                        self.first = find(a).unwrap_or(self.first);
+                        self.second = find(b).unwrap_or(self.second);
+                    }
+                }
+                "sel" => {
+                    let n: Vec<usize> = arg.split(';').filter_map(|x| x.parse().ok()).collect();
+                    if let [x, y, w, h] = n[..] {
+                        self.sel = Some(Sel::corners((x, y), (x + w.max(1) - 1, y + h.max(1) - 1)));
+                    }
+                }
+                "take" => {
+                    if let Some(item) = arg.parse::<usize>().ok().and_then(|i| self.wall.as_ref()?.items.get(i).cloned()) {
+                        self.edit(app, "Make variants", |img, _, _| *img = item);
+                    }
+                }
+                _ => {}
+            }
             return;
         }
         match id {
             "mirror" => self.mirror = !self.mirror,
+            "tiled" => (self.tiled, self.zoom, self.pan) = (!self.tiled, None, Vec2::ZERO),
+            "seams" => self.seams = !self.seams,
             "variant.add" => {
                 let v = self.v(app);
                 let n = self.shown(app).map_or(1, |(img, _)| img.variants());
@@ -319,6 +771,26 @@ impl Page for Textures {
                     app.refuse("A texture holds at most 4 variants (64 px wide)");
                 }
             }
+            "variants" => self.open_wall(app),
+            "shift.left" | "shift.right" | "shift.up" | "shift.down" => {
+                let (dx, dy) = match id {
+                    "shift.left" => (-1, 0),
+                    "shift.right" => (1, 0),
+                    "shift.up" => (0, -1),
+                    _ => (0, 1),
+                };
+                self.edit(app, "Shift", |img, v, _| tools::shift(img, v, dx, dy));
+            }
+            "sel.copy" => self.sel_op(app, "copy"),
+            "sel.paste" => self.paste(app),
+            "sel.flipx" => self.sel_op(app, "flipx"),
+            "sel.flipy" => self.sel_op(app, "flipy"),
+            "sel.turn" => self.sel_op(app, "turn"),
+            "sel.all" => {
+                self.sel = Some(Sel { x: 0, y: 0, w: S, h: S });
+                self.tool = Tool::Select;
+            }
+            "start.pattern" => self.start_pattern(app),
             "undo" | "redo" if self.stroke.is_none() => {
                 if let Some(d) = app.docs.get_mut(&self.file(self.face)) {
                     let done = if id == "undo" { d.hist.undo(&mut d.img) } else { d.hist.redo(&mut d.img) };
@@ -336,6 +808,8 @@ impl Page for Textures {
                 app.save_textures(files);
             }
             "zoom.fit" => (self.zoom, self.pan) = (None, Vec2::ZERO),
+            "preview.5" => (self.big_preview, self.unfolded) = (true, false),
+            "preview.unfold" => self.unfolded = true,
             _ => {}
         }
     }
@@ -347,12 +821,19 @@ impl Page for Textures {
             ("Wheel", "zoom the canvas"),
             ("Middle drag", "move the canvas"),
             ("Right click a swatch", "make it the second colour"),
+            ("Drop a PNG", "start this variant from the picture"),
         ]
     }
 
     fn help(&self) -> String {
         let t = TOOLS.iter().find(|t| t.0 == self.tool).unwrap();
-        format!("{}   [{}]{}", t.4, t.3.name(), if self.mirror { "   · mirror on [M]" } else { "" })
+        let mut s = format!("{}   [{}]", t.4, t.3.name());
+        for (on, what) in [(self.mirror, "mirror [M]"), (self.tiled, "tiled [T]"), (self.seams, "seams [Shift+T]")] {
+            if on {
+                s += &format!("   · {what}");
+            }
+        }
+        s
     }
 
     fn history(&self, app: &App) -> Option<(Vec<String>, Vec<String>)> {
@@ -367,31 +848,59 @@ impl Page for Textures {
     }
     fn refresh(&mut self, app: &App) {
         self.variant = self.v(app);
-        if self.pal_missing(app, self.first) {
+        if app.pal.find(self.first).is_none() {
             self.first = app.pal.colours.first().map_or([128; 3], |c| c.rgb);
         }
-        if self.pal_missing(app, self.second) {
+        if app.pal.find(self.second).is_none() {
             self.second = app.pal.colours.get(1).or(app.pal.colours.first()).map_or([128; 3], |c| c.rgb);
         }
+    }
+
+    fn settle(&mut self, ctx: &egui::Context, app: &mut App) {
+        self.settle_view(ctx, app);
     }
 
     fn work(&mut self, ui: &mut Ui, app: &mut App) {
         self.refresh(app);
         self.tabs(ui, app);
         ui.add_space(GAP * 0.5);
-        let avail = ui.available_size();
-        let (rect, resp) = ui.allocate_exact_size(avail.max(Vec2::splat(16.0)), Sense::click_and_drag());
-        let fit = ((rect.width().min(rect.height()) - 2.0 * GAP) / S as f32).floor().max(1.0);
+        // a PNG dropped on the window starts this variant from it
+        let dropped: Vec<std::path::PathBuf> = ui.ctx().input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
+        if let Some(p) = dropped.first() {
+            self.start_picture(app, &p.to_string_lossy());
+        }
+        if self.wall.is_some() {
+            return self.wall_work(ui, app);
+        }
+        // the panel's own room, never what a wide row of tabs pushed it to
+        let room = ui.available_rect_before_wrap().intersect(ui.clip_rect());
+        let (rect, resp) = ui.allocate_exact_size(room.size().max(Vec2::splat(16.0)), Sense::click_and_drag());
+        crate::drive::mark(ui.ctx(), "canvas", rect);
+        let span = if self.tiled { 2.0 } else { 1.0 };
+        let fit = ((rect.width().min(rect.height()) - 2.0 * GAP) / (S as f32 * span)).floor().max(1.0);
         let scale = self.zoom.unwrap_or(fit);
         let at = (rect.center() - Vec2::splat(S as f32 * scale / 2.0) + self.pan).round();
         let p = ui.painter_at(rect);
         p.rect_filled(rect, 6.0, ui.visuals().extreme_bg_color);
         let face = Rect::from_min_size(at, Vec2::splat(S as f32 * scale));
+        crate::drive::mark(ui.ctx(), "face", face);
+        let v = self.v(app);
         match self.shown(app) {
-            Some((img, own)) => draw(&p, img, self.v(app), at, scale, !own),
+            Some((img, own)) => {
+                if self.tiled {
+                    for j in -1..=1 {
+                        for i in -1..=1 {
+                            if (i, j) != (0, 0) {
+                                draw(&p, img, v, at + Vec2::new(i as f32, j as f32) * S as f32 * scale, scale, true);
+                            }
+                        }
+                    }
+                }
+                draw(&p, img, v, at, scale, !own);
+            }
             None => {
                 p.rect_filled(face, 0.0, dim(self.block_colour(app)));
-                p.text(face.center(), egui::Align2::CENTER_CENTER, "unpainted: paint to start", egui::FontId::proportional(look::BODY), Color32::from_gray(230));
+                p.text(face.center(), egui::Align2::CENTER_CENTER, "unpainted: paint to start, or Start from: Pattern", egui::FontId::proportional(look::BODY), Color32::from_gray(230));
             }
         }
         if scale >= 8.0 {
@@ -402,7 +911,24 @@ impl Page for Textures {
                 p.line_segment([Pos2::new(face.min.x, face.min.y + o), Pos2::new(face.max.x, face.min.y + o)], grid);
             }
         }
-        p.rect_stroke(face, 0.0, egui::Stroke::new(1.0, Color32::from_gray(90)), StrokeKind::Outside);
+        p.rect_stroke(face, 0.0, egui::Stroke::new(1.0, Color32::from_gray(if self.tiled { 200 } else { 90 })), StrokeKind::Outside);
+        let px_rect = |x: usize, y: usize| Rect::from_min_size(at + Vec2::new(x as f32, y as f32) * scale, Vec2::splat(scale));
+        if self.seams {
+            if let Some((img, _)) = self.shown(app) {
+                for (x, y) in tools::seams(img, v, &app.pal) {
+                    p.rect_stroke(px_rect(x, y).shrink(1.0), 0.0, egui::Stroke::new(2.0, look::BAD), StrokeKind::Inside);
+                }
+            }
+        }
+        if let Some(s) = self.sel {
+            let r = Rect::from_min_size(at + Vec2::new(s.x as f32, s.y as f32) * scale, Vec2::new(s.w as f32, s.h as f32) * scale);
+            p.rect_stroke(r, 0.0, egui::Stroke::new(3.0, Color32::BLACK), StrokeKind::Middle);
+            p.rect_stroke(r, 0.0, egui::Stroke::new(1.5, look::ACCENT), StrokeKind::Middle);
+        }
+        if let Some(st) = self.stroke.as_ref().filter(|s| s.tool == Tool::Gradient) {
+            let c = |q: (i32, i32)| at + Vec2::new(q.0 as f32 + 0.5, q.1 as f32 + 0.5) * scale;
+            p.line_segment([c(st.start), c(st.last)], egui::Stroke::new(2.0, Color32::WHITE));
+        }
         if resp.dragged_by(PointerButton::Middle) {
             self.pan += resp.drag_delta();
         }
@@ -412,16 +938,17 @@ impl Page for Textures {
                 self.zoom = Some((scale + wheel.signum()).clamp(1.0, 64.0));
             }
         }
-        // the pixel under the pointer, clamped while a stroke runs
-        let pos = ui.input(|i| i.pointer.hover_pos());
-        let cell = |q: Pos2| ((q - at) / scale).floor();
-        let hover = pos.map(cell).filter(|c| (0.0..S as f32).contains(&c.x) && (0.0..S as f32).contains(&c.y) && rect.contains(pos.unwrap())).map(|c| (c.x as usize, c.y as usize));
-        let clamped = pos.map(cell).map(|c| (c.x.clamp(0.0, 15.0) as usize, c.y.clamp(0.0, 15.0) as usize));
+        let pos = ui.input(|i| i.pointer.hover_pos()).filter(|q| rect.contains(*q) || self.stroke.is_some());
+        let cell = pos.map(|q| ((q - at) / scale).floor()).map(|c| (c.x as i32, c.y as i32));
         if !app.pal.colours.is_empty() {
-            self.paint(ui, app, hover, clamped);
+            self.paint(ui, app, cell);
         }
-        app.pointer = match (hover, self.shown(app)) {
-            (Some((x, y)), Some((img, _))) => format!("{x}, {y}   {}", Self::colour_name(app, img.get(self.v(app), x, y))),
+        let on = cell.filter(|c| (self.tiled && (-16..32).contains(&c.0) && (-16..32).contains(&c.1)) || ((0..16).contains(&c.0) && (0..16).contains(&c.1)));
+        app.pointer = match (on, self.shown(app)) {
+            (Some((x, y)), Some((img, _))) => {
+                let (ux, uy) = (x.rem_euclid(16) as usize, y.rem_euclid(16) as usize);
+                format!("{ux}, {uy}   {}", Self::colour_name(app, img.get(self.v(app), ux, uy)))
+            }
             (Some((x, y)), None) => format!("{x}, {y}"),
             _ => format!("{}  ×{}", self.file(self.face), scale),
         };
@@ -429,22 +956,29 @@ impl Page for Textures {
 
     fn inspector(&mut self, ui: &mut Ui, app: &mut App) {
         look::section(ui, "Tools");
-        let cmds = self.commands(app);
         ui.horizontal_wrapped(|ui| {
-            for (t, id, name, k, help) in TOOLS {
-                let r = ui.selectable_label(self.tool == t, format!("{name}  {}", k.name()));
+            ui.spacing_mut().item_spacing = Vec2::splat(4.0);
+            for (t, _, name, k, help) in TOOLS {
+                let r = ui.selectable_label(self.tool == t, format!("{name} {}", k.name()));
                 if look::tip(r, help, k.name()).clicked() {
                     self.tool = t;
                 }
-                let _ = id;
             }
-            let r = ui.toggle_value(&mut self.mirror, "Mirror  M");
-            look::tip(r, "Paint both halves at once, mirrored across the middle", "M");
         });
-        ui.horizontal(|ui| {
-            for id in ["undo", "redo", "save"] {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = Vec2::splat(4.0);
+            look::tip(ui.toggle_value(&mut self.mirror, "Mirror M"), "Paint both halves at once, mirrored across the middle", "M");
+            if look::tip(ui.toggle_value(&mut self.tiled, "Tiled T"), "The neighbours ghosted round the face; strokes wrap over the edges", "T").changed() {
+                (self.zoom, self.pan) = (None, Vec2::ZERO);
+            }
+            look::tip(ui.toggle_value(&mut self.seams, "Seams"), "Mark edge pixels that clash with the far edge they meet when tiled", "Shift+T");
+        });
+        self.tool_options(ui, app);
+        let cmds = self.commands(app);
+        ui.horizontal_wrapped(|ui| {
+            for (id, label) in [("undo", "Undo"), ("redo", "Redo"), ("save", "Save")] {
                 let c = cmds.iter().find(|c| c.id == id).unwrap();
-                if look::tip(ui.button(&c.label), &c.help, &c.keys()).clicked() {
+                if look::tip(ui.button(label), &c.help, &c.keys()).clicked() {
                     self.run(app, id);
                 }
             }
@@ -453,13 +987,142 @@ impl Page for Textures {
         look::section(ui, "Colours");
         self.palette(ui, app);
         ui.separator();
+        look::section(ui, "Start from");
+        ui.horizontal_wrapped(|ui| {
+            let r = ui.button("Pattern");
+            crate::drive::mark(ui.ctx(), "btn:pattern", r.rect);
+            if look::tip(r, "The block's game pattern drawn into this variant, each texel snapped to the palette", "").clicked() {
+                self.start_pattern(app);
+            }
+            if look::tip(ui.button("Make variants"), "A wall of variant sets made from variant 1; a click takes one", "").clicked() {
+                self.open_wall(app);
+            }
+        });
+        ui.horizontal(|ui| {
+            let w = (ui.available_width() - 64.0).max(60.0);
+            let r = ui.add(egui::TextEdit::singleline(&mut self.picture).hint_text("a PNG's path, or drop one").desired_width(w));
+            look::tip(r, "Any PNG cut to 16 x 16 and snapped to the palette, as a rough to paint over", "");
+            if look::tip(ui.button("Open"), "Start this variant from the picture", "").clicked() {
+                let p = self.picture.trim().trim_matches('"').to_string();
+                self.start_picture(app, &p);
+            }
+        });
+        let painted: Vec<String> = app.reg.placeable().map(|d| d.name.clone()).filter(|n| *n != self.block && (0..4).any(|f| app.docs.contains_key(&art::file_name(n, f)))).collect();
+        ui.horizontal(|ui| {
+            let w = (ui.available_width() - 64.0).max(60.0);
+            let r = egui::ComboBox::from_id_salt("copy from block").selected_text(if self.from_block.is_empty() { "another block" } else { &self.from_block }).width(w).show_ui(ui, |ui| {
+                if painted.is_empty() {
+                    look::weak(ui, "no other block is painted yet");
+                }
+                for n in &painted {
+                    ui.selectable_value(&mut self.from_block, n.clone(), n);
+                }
+            });
+            look::tip(r.response, "A painted block to start from", "");
+            if look::tip(ui.add_enabled(!self.from_block.is_empty(), egui::Button::new("Copy")), "Start this face from that block's texture", "").clicked() {
+                let b = self.from_block.clone();
+                self.copy_block(app, &b);
+            }
+        });
+        let ramps = app.pal.ramps();
+        if ramps.len() > 1 {
+            ui.horizontal(|ui| {
+                let w = ((ui.available_width() - 70.0) / 2.0).max(50.0);
+                for k in 0..2 {
+                    let cur = if k == 0 { self.swap.0.clone() } else { self.swap.1.clone() };
+                    let len = (k == 1).then(|| app.pal.ramp(&self.swap.0).len());
+                    let mut pick = cur.clone();
+                    let r = egui::ComboBox::from_id_salt(("swap", k)).selected_text(if cur.is_empty() { if k == 0 { "ramp" } else { "to ramp" } } else { &cur }).width(w).show_ui(ui, |ui| {
+                        for (n, v) in &ramps {
+                            if len.is_none_or(|l| l == v.len()) {
+                                ui.selectable_value(&mut pick, n.clone(), n);
+                            }
+                        }
+                    });
+                    look::tip(r.response, if k == 0 { "Swap ramp: the ramp the file uses now" } else { "The ramp of the same length to repaint it with" }, "");
+                    *(if k == 0 { &mut self.swap.0 } else { &mut self.swap.1 }) = pick;
+                }
+                let ok = !self.swap.0.is_empty() && !self.swap.1.is_empty() && self.swap.0 != self.swap.1;
+                if look::tip(ui.add_enabled(ok, egui::Button::new("Swap")), "Repaint this file from one ramp to another of the same length", "").clicked() {
+                    let (a, b) = self.swap.clone();
+                    self.swap_ramp(app, &a, &b);
+                }
+            });
+        }
+        ui.separator();
         look::section(ui, "Preview");
         self.preview(ui, app);
+        ui.separator();
+        look::section(ui, "In the game");
+        self.lit_cube(ui, app);
     }
 }
 
-impl Textures {
-    fn pal_missing(&self, app: &App, c: [u8; 3]) -> bool {
-        app.pal.find(c).is_none()
+pub fn colour_name(pal: &Palette, c: [u8; 3]) -> String {
+    pal.find(c).map_or(format!("{} (not in the palette)", to_hex(c)), |i| pal.colours[i].name.clone())
+}
+
+/// The two colours and the palette's ramps as rows (the loose colours last): left click takes the first colour,
+/// right click the second. Every page that paints with the palette shows this one.
+pub fn palette_picker(ui: &mut Ui, pal: &Palette, first: &mut [u8; 3], second: &mut [u8; 3]) {
+    ui.horizontal(|ui| {
+        for (k, c) in [(0, *first), (1, *second)] {
+            let (r, resp) = ui.allocate_exact_size(Vec2::new(36.0, 36.0), Sense::hover());
+            ui.painter().rect_filled(r, 4.0, c32(c));
+            ui.painter().rect_stroke(r, 4.0, egui::Stroke::new(1.0, Color32::from_gray(90)), StrokeKind::Inside);
+            look::tip(resp, if k == 0 { "First colour: the left button paints it" } else { "Second colour: the right button paints it" }, "");
+        }
+        ui.vertical(|ui| {
+            ui.label(RichText::new(colour_name(pal, *first)).small());
+            ui.label(RichText::new(format!("right: {}", colour_name(pal, *second))).small().weak());
+        });
+    });
+    ui.add_space(GAP * 0.5);
+    // the ramps as rows, the loose colours last
+    let mut rows: Vec<Vec<usize>> = pal.ramps().into_iter().map(|(_, v)| v).collect();
+    let loose: Vec<usize> = (0..pal.colours.len()).filter(|&i| pal.colours[i].ramp.is_none()).collect();
+    if !loose.is_empty() {
+        rows.push(loose);
+    }
+    let size = 24.0;
+    ui.spacing_mut().item_spacing = Vec2::splat(3.0);
+    // two ramps to a line when they fit
+    let per = ((ui.available_width() + 3.0) / (size + 3.0)).floor().max(1.0) as usize;
+    let mut line: Vec<Option<usize>> = vec![];
+    let mut lines = vec![];
+    for row in rows {
+        if !line.is_empty() && line.len() + 1 + row.len() > per {
+            lines.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push(None);
+        }
+        line.extend(row.into_iter().map(Some));
+    }
+    lines.push(line);
+    for line in lines {
+        ui.horizontal(|ui| {
+            for i in line {
+                let (r, resp) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
+                let Some(i) = i else { continue };
+                let c = &pal.colours[i];
+                let p = ui.painter();
+                p.rect_filled(r, 3.0, c32(c.rgb));
+                if c.rgb == *second {
+                    p.rect_stroke(r.shrink(5.0), 1.0, egui::Stroke::new(2.0, Color32::from_gray(20)), StrokeKind::Inside);
+                    p.rect_stroke(r.shrink(6.0), 1.0, egui::Stroke::new(1.0, Color32::WHITE), StrokeKind::Inside);
+                }
+                if c.rgb == *first {
+                    p.rect_stroke(r, 3.0, egui::Stroke::new(2.0, look::ACCENT), StrokeKind::Outside);
+                }
+                let resp = look::tip(resp, &format!("{}: left click makes it the first colour, right click the second", c.name), "");
+                if resp.clicked() {
+                    *first = c.rgb;
+                }
+                if resp.secondary_clicked() {
+                    *second = c.rgb;
+                }
+            }
+        });
     }
 }

@@ -1,0 +1,111 @@
+# A draft boar (Claude's, listed in data/drafts.txt): a quadruped for data/creatures.toml (ADR 0053), facing +z.
+# Its walk is made from its row, not keyed here. Format: docs/design/studio-tools.md "Models".
+colours = ["dirt dark", "dirt", "dirt light", "stone dark", "stone light"]
+
+[[part]]
+name = "body"
+parent = ""
+at = [2, 2, 1]
+pivot = [2, 1.5, 3]
+box = [4, 3, 6]
+voxels = """
+cccc
+cccc
+cccc
+cccc
+cccc
+cccc
+
+bbbb
+bbbb
+bbbb
+bbbb
+bbbb
+bbbb
+
+abba
+aaaa
+aaaa
+aaaa
+aaaa
+abba
+"""
+
+[[part]]
+name = "head"
+parent = "body"
+at = [0, 0, 6]
+pivot = [2, 1.5, 0]
+box = [4, 3, 3]
+voxels = """
+bbbb
+bbbb
+ecce
+
+bbbb
+bbbb
+cddc
+
+aaaa
+dbbd
+bbbb
+"""
+
+[[part]]
+name = "leg_fl"
+parent = "body"
+at = [3, -2, 4]
+pivot = [0.5, 2, 0.5]
+box = [1, 2, 1]
+voxels = """
+d
+
+a
+"""
+
+[[part]]
+name = "leg_fr"
+parent = "body"
+at = [0, -2, 4]
+pivot = [0.5, 2, 0.5]
+box = [1, 2, 1]
+voxels = """
+d
+
+a
+"""
+
+[[part]]
+name = "leg_bl"
+parent = "body"
+at = [3, -2, 1]
+pivot = [0.5, 2, 0.5]
+box = [1, 2, 1]
+voxels = """
+d
+
+a
+"""
+
+[[part]]
+name = "leg_br"
+parent = "body"
+at = [0, -2, 1]
+pivot = [0.5, 2, 0.5]
+box = [1, 2, 1]
+voxels = """
+d
+
+a
+"""
+
+[[part]]
+name = "tail"
+parent = "body"
+at = [2, 2, -2]
+pivot = [0.5, 0.5, 2]
+box = [1, 1, 2]
+voxels = """
+a
+a
+"""

@@ -87,6 +87,7 @@ pub fn fill(img: &mut Img, v: usize, x: usize, y: usize, c: [u8; 3], mirror: boo
 }
 
 /// A straight line of pixels from a to b, both ends included (Bresenham).
+#[cfg(test)]
 pub fn line(img: &mut Img, v: usize, a: (usize, usize), b: (usize, usize), c: [u8; 3], mirror: bool) {
     let (mut x, mut y) = (a.0 as i32, a.1 as i32);
     let (x1, y1) = (b.0 as i32, b.1 as i32);
@@ -122,37 +123,43 @@ pub fn add_variant(img: &Img, copy: usize) -> Option<Img> {
 
 /// One undo step: the picture before an edit, and the edit's name for the history list.
 #[derive(Clone, Debug)]
-pub struct Step {
+pub struct Step<T = Img> {
     pub name: String,
-    pub img: Img,
+    pub img: T,
 }
 
 /// Undo and redo of one file: whole snapshots, a few KB each, each with its edit's name.
-#[derive(Default, Clone)]
-pub struct History {
-    pub undo: Vec<Step>,
-    pub redo: Vec<Step>,
+/// (any snapshot type: a model's history is whole models, ADR 0049)
+#[derive(Clone)]
+pub struct History<T = Img> {
+    pub undo: Vec<Step<T>>,
+    pub redo: Vec<Step<T>>,
+}
+impl<T> Default for History<T> {
+    fn default() -> Self {
+        History { undo: vec![], redo: vec![] }
+    }
 }
 
-impl History {
+impl<T> History<T> {
     /// Call before an edit with the picture as it was and the edit's name ("Pencil", "Fill").
-    pub fn push(&mut self, before: Img, name: &str) {
+    pub fn push(&mut self, before: T, name: &str) {
         self.undo.push(Step { name: name.into(), img: before });
         self.redo.clear();
     }
-    pub fn undo(&mut self, now: &mut Img) -> bool {
+    pub fn undo(&mut self, now: &mut T) -> bool {
         self.undo.pop().map(|s| self.redo.push(Step { img: std::mem::replace(now, s.img), name: s.name })).is_some()
     }
-    pub fn redo(&mut self, now: &mut Img) -> bool {
+    pub fn redo(&mut self, now: &mut T) -> bool {
         self.redo.pop().map(|s| self.undo.push(Step { img: std::mem::replace(now, s.img), name: s.name })).is_some()
     }
     /// Undoes or redoes until `n` steps are left to undo (a click on the history list).
-    pub fn back_to(&mut self, now: &mut Img, n: usize) {
+    pub fn back_to(&mut self, now: &mut T, n: usize) {
         while self.undo.len() > n && self.undo(now) {}
         while self.undo.len() < n && self.redo(now) {}
     }
     /// Every picture it holds, to repaint them all when a palette colour changes.
-    pub fn imgs(&mut self) -> impl Iterator<Item = &mut Img> {
+    pub fn imgs(&mut self) -> impl Iterator<Item = &mut T> {
         self.undo.iter_mut().chain(self.redo.iter_mut()).map(|s| &mut s.img)
     }
 }
@@ -185,13 +192,40 @@ pub fn check_data(data: &Path) -> Result<(usize, usize, Vec<String>), String> {
     let read = |f: &str| std::fs::read_to_string(data.join(f)).map_err(|e| format!("data/{f}: {e}"));
     let reg = Registry::parse(&read("blocks.toml")?).map_err(|e| format!("data/blocks.toml: {e}"))?;
     let pal = Palette::parse(&read("palette.toml")?).map_err(|e| format!("data/palette.toml: {e}"))?;
-    let (ok, bad) = check_dir(&data.join("textures"), &pal, &reg);
+    let (ok, mut bad) = check_dir(&data.join("textures"), &pal, &reg);
+    // the models too, through the game's own reader (ADR 0049)
+    bad.extend(crate::voxel::check_models(&data.join("models"), &pal).1);
+    bad.extend(check_structures(&data.join("structures"), &reg));
+    bad.extend(check_creatures(data, &pal));
     // the paths as the developer reads them, whatever folder `data` was given as
     let bad = bad.into_iter().map(|b| match b.split_once("/textures/") {
         Some((_, rest)) => format!("data/textures/{rest}"),
         None => b,
     });
     Ok((pal.colours.len(), ok, bad.collect()))
+}
+
+/// `data/creatures.toml` through the game's own reader (ADR 0053): its models from `data/models`, its sounds from
+/// `data/sounds.toml`; the refusal, naming the row. No file is no refusal.
+pub fn check_creatures(data: &Path, pal: &Palette) -> Option<String> {
+    let text = std::fs::read_to_string(data.join("creatures.toml")).ok()?.replace("\r\n", "\n");
+    let sounds = std::fs::read_to_string(data.join("sounds.toml")).unwrap_or_default();
+    let sounds: Vec<String> = crate::rows::spans(&sounds).into_iter().filter(|s| s.header == "sound").map(|s| s.name).collect();
+    let model = |n: &str| std::fs::read_to_string(data.join("models").join(format!("{n}.toml"))).ok().and_then(|t| engine::models::Model::parse(n, &t, pal).ok());
+    engine::creatures::parse("data/creatures.toml", &text, &model, &|s| sounds.iter().any(|k| k == s)).err()
+}
+
+/// Every `data/structures/*.toml` through the game's own reader (ADR 0052); the refusals, each naming its file.
+pub fn check_structures(dir: &Path, reg: &Registry) -> Vec<String> {
+    let mut files: Vec<String> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().to_string()).filter(|n| n.ends_with(".toml")).collect();
+    files.sort();
+    files
+        .into_iter()
+        .filter_map(|n| {
+            let shown = format!("data/structures/{n}");
+            std::fs::read_to_string(dir.join(&n)).map_err(|e| format!("{shown}: {e}")).and_then(|t| engine::structures::Structure::parse(&shown, &t, reg)).err()
+        })
+        .collect()
 }
 
 /// Reads a texture held to the game's rule (`engine::textures::decode`, ADR 0045).
@@ -295,6 +329,41 @@ pub fn repaint_dir(dir: &Path, from: [u8; 3], to: [u8; 3]) -> (Vec<String>, Vec<
     (done, failed)
 }
 
+/// Changes several colours at once (so a pair that swaps two colours works); whether anything changed.
+pub fn remap(img: &mut Img, pairs: &[([u8; 3], [u8; 3])]) -> bool {
+    let mut any = false;
+    for c in img.px.iter_mut() {
+        if let Some((_, to)) = pairs.iter().find(|(from, to)| from == c && from != to) {
+            *c = *to;
+            any = true;
+        }
+    }
+    any
+}
+
+/// "Swap ramp": repaints a texture from one ramp to another of the same length, colour for colour.
+pub fn swap_ramp(img: &mut Img, from: &[[u8; 3]], to: &[[u8; 3]]) -> Result<bool, String> {
+    if from.len() != to.len() {
+        return Err(format!("the ramps differ in length ({} and {} colours)", from.len(), to.len()));
+    }
+    Ok(remap(img, &from.iter().copied().zip(to.iter().copied()).collect::<Vec<_>>()))
+}
+
+/// [`remap`] over every texture in `dir`, as [`repaint_dir`] does for one colour.
+pub fn remap_dir(dir: &Path, pairs: &[([u8; 3], [u8; 3])]) -> (Vec<String>, Vec<(String, String)>) {
+    let (mut done, mut failed) = (vec![], vec![]);
+    for n in pngs(dir) {
+        let Ok(mut img) = std::fs::read(dir.join(&n)).map_err(|e| e.to_string()).and_then(|b| decode(&b)) else { continue };
+        if remap(&mut img, pairs) {
+            match save(&dir.join(&n), &img, false) {
+                Ok(()) => done.push(n),
+                Err(e) => failed.push((n, e)),
+            }
+        }
+    }
+    (done, failed)
+}
+
 /// The paths `data/drafts.txt` lists, one per line.
 pub fn drafts(text: &str) -> Vec<String> {
     text.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect()
@@ -340,7 +409,7 @@ mod tests {
     const C: [u8; 3] = [1, 2, 3];
 
     fn pal() -> Palette {
-        Palette { colours: vec![Colour { name: "a".into(), rgb: A }, Colour { name: "b".into(), rgb: B }] }
+        Palette { colours: vec![Colour::new("a", A), Colour::new("b", B)] }
     }
     fn reg() -> Registry {
         Registry::parse("[[block]]\nid = 0\nname = \"air\"\nsolid = false\n[[block]]\nid = 1\nname = \"rock\"\nhardness = 1\n").unwrap()
@@ -572,6 +641,25 @@ mod tests {
         assert_eq!(block_of("blue lamp_side.png", names), Some("blue lamp".into()));
         assert_eq!(block_of("sand.png", names), None);
         assert_eq!(block_of("grass_left.png", names), None);
+    }
+
+    #[test]
+    fn remap_changes_colours_at_once_and_swap_ramp_needs_equal_lengths() {
+        let mut img = Img::filled(1, A);
+        pencil(&mut img, 0, 0, 0, B, false);
+        assert!(remap(&mut img, &[(A, B), (B, A)]));
+        assert_eq!((img.get(0, 0, 0), img.get(0, 1, 0)), (A, B), "swapped, not both one colour");
+        assert!(!remap(&mut img, &[(C, A), (A, A)]), "nothing to change");
+        let mut s = Img::filled(1, A);
+        pencil(&mut s, 0, 3, 3, B, false);
+        assert_eq!(swap_ramp(&mut s, &[A, B], &[C, A]), Ok(true));
+        assert_eq!((s.get(0, 0, 0), s.get(0, 3, 3)), (C, A));
+        assert!(swap_ramp(&mut s, &[A, B], &[C]).is_err());
+        let d = temp("remap");
+        std::fs::write(d.join("rock.png"), encode(&Img::filled(1, A))).unwrap();
+        assert_eq!(remap_dir(&d, &[(A, C)]), (vec!["rock.png".to_string()], vec![]));
+        assert_eq!(decode(&std::fs::read(d.join("rock.png")).unwrap()).unwrap(), Img::filled(1, C));
+        let _ = std::fs::remove_dir_all(d);
     }
 
     #[test]

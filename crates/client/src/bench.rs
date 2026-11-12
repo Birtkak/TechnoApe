@@ -69,8 +69,8 @@ pub(crate) fn pose(run: &str, t: f64, w: &World, speed: f64, alt: f64, warm: f64
         "edit" => Pose { pos: pole, fwd: DVec3::new(0.0, -1.0, 1.0).normalize(), up: DVec3::Y },
         // stand: at=x,y,z picks the spot (a direction from the planet's centre), yaw and pitch turn the head
         _ => {
-            let at: Vec<f64> = a.s("at", "0,1,0").split(',').filter_map(|v| v.parse().ok()).collect();
-            let up = DVec3::new(at[0], at[1], at[2]).normalize();
+            // (a bad at= ends the run with its reason before this: `stand_at`)
+            let up = crate::stand_at(a).unwrap_or(DVec3::Y);
             let r = if up.y.abs() > 0.9 { DVec3::Z } else { DVec3::Y };
             let ahead = (r - up * r.dot(up)).normalize();
             let (yaw, pitch) = (a.get("yaw", 0f64).to_radians(), a.get("pitch", 0f64).to_radians());

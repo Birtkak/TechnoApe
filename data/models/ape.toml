@@ -1,0 +1,129 @@
+# A draft ape (Claude's, listed in data/drafts.txt): a biped for data/creatures.toml (ADR 0053), facing +z.
+# Its walk is made from its row, not keyed here. Format: docs/design/studio-tools.md "Models".
+colours = ["copper dark", "copper", "dirt dark", "dirt light"]
+
+[[part]]
+name = "body"
+parent = ""
+at = [2, 4, 3]
+pivot = [2, 0, 1]
+box = [4, 4, 2]
+voxels = """
+aaaa
+aaaa
+
+bbbb
+bddb
+
+bbbb
+bddb
+
+bbbb
+bbbb
+"""
+
+[[part]]
+name = "head"
+parent = "body"
+at = [0, 4, 0]
+pivot = [2, 0, 1]
+box = [4, 3, 3]
+voxels = """
+bbbb
+bbbb
+dddd
+
+bbbb
+bbbb
+dccd
+
+aaaa
+aaaa
+aaaa
+"""
+
+[[part]]
+name = "arm_l"
+parent = "body"
+at = [4, -1, 0]
+pivot = [0.5, 5, 1]
+box = [1, 5, 2]
+voxels = """
+d
+d
+
+b
+b
+
+b
+b
+
+b
+b
+
+b
+b
+"""
+
+[[part]]
+name = "arm_r"
+parent = "body"
+at = [-1, -1, 0]
+pivot = [0.5, 5, 1]
+box = [1, 5, 2]
+voxels = """
+d
+d
+
+b
+b
+
+b
+b
+
+b
+b
+
+b
+b
+"""
+
+[[part]]
+name = "leg_l"
+parent = "body"
+at = [2, -4, 0]
+pivot = [1, 4, 1]
+box = [2, 4, 2]
+voxels = """
+cc
+cc
+
+aa
+aa
+
+aa
+aa
+
+aa
+aa
+"""
+
+[[part]]
+name = "leg_r"
+parent = "body"
+at = [0, -4, 0]
+pivot = [1, 4, 1]
+box = [2, 4, 2]
+voxels = """
+cc
+cc
+
+aa
+aa
+
+aa
+aa
+
+aa
+aa
+"""

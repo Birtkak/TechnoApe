@@ -1019,6 +1019,27 @@ impl World {
     }
     /// The terrain's surface radius over block b's column: the costly part of `generated_block`, the same for
     /// every layer of a column.
+    /// The first air cell over the ground (edits and plants counted) along direction d from body `bi`'s centre:
+    /// where a model, an effect or a structure stands. The height along d can fall inside the top block, or over
+    /// it (the column's own height is at its centre): walked up to air, then down onto the ground, 16 at most.
+    pub fn air_over_ground(&self, bi: usize, d: DVec3) -> Block {
+        let pl = &self.bodies[bi];
+        let mut c = self.block_at(pl.centre + d * (pl.height(d) + 0.1));
+        let at = |c: Block, dz: i32| self.block(Block { pos: c.pos + IVec3::Z * dz, ..c });
+        for _ in 0..16 {
+            if at(c, 0) == AIR {
+                break;
+            }
+            c.pos.z += 1;
+        }
+        for _ in 0..16 {
+            if at(c, -1) != AIR || c.pos.z <= 0 {
+                break;
+            }
+            c.pos.z -= 1;
+        }
+        c
+    }
     pub fn column_height(&self, b: Block) -> f64 {
         self.bodies[b.body as usize].col_height(b.face, b.pos.x, b.pos.y)
     }
@@ -1747,6 +1768,23 @@ mod baked_tests {
 
     fn world() -> World {
         World::with_map(512, 32, 5, Some(MAP.clone()))
+    }
+
+    /// `air_over_ground` is air with ground (not air) under it, on the baked map and the old noise land, over
+    /// land: the terrain's height falls inside its top block, or over a lower neighbour's on a slope.
+    #[test]
+    fn the_air_over_the_ground_stands_on_it() {
+        for (name, w) in [("baked", world()), ("noise", World::new(512, 32, 5))] {
+            let pl = &w.bodies[0];
+            let land: Vec<DVec3> = lattice(2000).filter(|d| pl.sea.is_none_or(|s| pl.height(*d) > pl.layer_r(s) + 1.0)).take(300).collect();
+            assert!(land.len() >= 100, "{name}: {} land spots", land.len());
+            let bad: Vec<String> = land.iter().filter_map(|d| {
+                let c = w.air_over_ground(0, *d);
+                let under = w.block(Block { pos: c.pos - IVec3::Z, ..c });
+                (w.block(c) != AIR || under == AIR).then(|| format!("cell layer {} is {}, under it {}, first air of the column {}", c.pos.z, w.block(c), under, pl.first_air(w.column_height(c))))
+            }).collect();
+            assert!(bad.is_empty(), "{name}: {} of {} spots not on the ground, e.g. {:?}", bad.len(), land.len(), &bad[..bad.len().min(3)]);
+        }
     }
 
     /// Plants of every reader agree (ADR 0043): the block physics sees (`World::generated_block`), the chunk
