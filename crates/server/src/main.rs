@@ -105,14 +105,16 @@ fn run_soak(args: &HashMap<String, String>) {
     let t0 = Instant::now();
     match soak::run(seed, &bots, ticks, planet, record) {
         Ok((hash, w)) => println!(
-            "{{\"soak\":\"ok\",\"seed\":{seed},\"bots\":{},\"ticks\":{ticks},\"sim_minutes\":{:.1},\"secs\":{:.2},\"hash\":\"{hash:016x}\",\"water\":{{\"stored_peak\":{},\"awake_peak\":{},\"skipped\":{},\"bytes\":{}}}}}",
+            "{{\"soak\":\"ok\",\"seed\":{seed},\"bots\":{},\"ticks\":{ticks},\"sim_minutes\":{:.1},\"secs\":{:.2},\"hash\":\"{hash:016x}\",\"water\":{{\"stored_peak\":{},\"awake_peak\":{},\"skipped\":{},\"bytes\":{},\"dams\":{},\"broken\":{}}}}}",
             bots.len(),
             ticks as f64 / TICK_HZ / 60.0,
             t0.elapsed().as_secs_f64(),
             w.stored,
             w.awake,
             w.skipped,
-            w.bytes
+            w.bytes,
+            w.dams,
+            w.broken
         ),
         Err(f) => {
             // the shrink can take long: the first failure shows at once

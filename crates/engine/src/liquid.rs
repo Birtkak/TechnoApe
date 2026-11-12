@@ -121,6 +121,11 @@ pub trait Ground {
     fn river(&self, _c: Col) -> Option<(f64, f64, f64)> {
         None
     }
+    /// The account reach `acct`'s water flows on into, and how long the reach holds it, in seconds: what its
+    /// open water took in leaves it at that share of a second (`Liquids::step`, once a second).
+    fn down(&self, _acct: u32) -> (u32, f64) {
+        (SEA, 0.0)
+    }
 }
 
 /// The friction that makes water `depth` units deep on a surface falling `grad` units a column carry `q`
@@ -235,6 +240,8 @@ pub struct Liquids {
     /// The same for the open water of each river reach and lake (`Ground::reach`): what it took in from
     /// stored water. The reach graph takes it into the reach's water.
     pub reach_extra: std::collections::BTreeMap<u32, i64>,
+    /// Water rain brought into the reaches (`rain`): counted, as water carried in.
+    pub rained: i64,
     /// Work done, for the stats line and the tests.
     pub stepped: u64,
     steps: u64,
@@ -302,7 +309,13 @@ impl Liquids {
     /// The water that differs from the seed's: changed only by water carried in or out (a bucket, creative,
     /// later rain and steam), never by flowing (ADR 0020).
     pub fn counted(&self) -> i64 {
-        self.total() - self.gen_total + self.sea_extra + self.reach_extra.values().sum::<i64>()
+        self.total() - self.gen_total + self.sea_extra + self.reach_extra.values().sum::<i64>() - self.rained
+    }
+    /// Rain (or a spring) brings `units` into reach `acct`'s open water; it runs on down like any water the
+    /// reach took in. shortcut: W3's air grid does not call it yet; till then a reach's runoff is the bake's.
+    pub fn rain(&mut self, acct: u32, units: i64) {
+        self.book(acct, units);
+        self.rained += units;
     }
     fn book(&mut self, acct: u32, units: i64) {
         if acct == SEA {
@@ -833,6 +846,34 @@ impl Liquids {
             self.settle(g);
             self.forget_matching(g);
         }
+        if self.steps % 60 == 0 {
+            self.run_reaches(g);
+        }
+    }
+
+    /// Once a second, each reach's open water passes on what it took in (or gave out) to the reach below: a
+    /// linear store, out = extra / hold, at least a unit a second so it empties. Highest account first, so the
+    /// bake's reaches (numbered downstream first) mostly pass water down in one tick; any order keeps the count.
+    fn run_reaches(&mut self, g: &impl Ground) {
+        let accts: Vec<u32> = self.reach_extra.keys().rev().copied().collect();
+        for a in accts {
+            let x = self.reach_extra[&a];
+            if x == 0 {
+                self.reach_extra.remove(&a);
+                continue;
+            }
+            let (down, hold) = g.down(a);
+            let out = if hold <= 1.0 { x } else { x.signum() * ((x.abs() as f64 / hold) as i64).max(1) };
+            *self.reach_extra.get_mut(&a).unwrap() -= out;
+            self.book(down, out);
+        }
+    }
+
+    /// The flow reach `acct` carries over its generated one, units a second: what its open water took in over
+    /// the time it holds it (a wheel's read: one lookup).
+    pub fn reach_flow(&self, g: &impl Ground, acct: u32) -> f64 {
+        let x = self.reach_extra.get(&acct).copied().unwrap_or(0) as f64;
+        x / g.down(acct).1.max(1.0)
     }
 
     /// Calm water is laid flat and put to sleep as one body. Friction alone leaves a slowly filled lake
@@ -1265,6 +1306,9 @@ pub mod test_ground {
         fn reach(&self, c: Col) -> u32 {
             (c.i() >= self.xf()) as u32
         }
+        fn down(&self, acct: u32) -> (u32, f64) {
+            if acct == 0 { (1, 10.0) } else { (SEA, 5.0) }
+        }
         fn river(&self, c: Col) -> Option<(f64, f64, f64)> {
             let (lo, hi) = self.generated(c);
             let q = Q0 / 60.0 * (1.0 + c.i() as f64 / self.nx as f64);
@@ -1589,7 +1633,7 @@ mod tests {
             }
             let t = until_forgotten(&mut w, &g, 60 * 30, 2 * U).unwrap_or_else(|| panic!("slope {slope}: {} columns still stored, {:.4} off", w.stored(), off(&g, &w)));
             assert!(t < 60 * 10, "slope {slope}: live {:.1} s", t as f64 / 60.0);
-            assert_eq!(w.reach_extra.values().sum::<i64>(), 2 * U, "the bucket went to the reach");
+            assert_eq!(w.reach_extra.values().sum::<i64>() + w.sea_extra, 2 * U, "the bucket went to the reach, and on to the sea");
         }
     }
 
@@ -1635,6 +1679,25 @@ mod tests {
         }
         let t = until_forgotten(&mut w, &g, 60 * 400, 0).unwrap_or_else(|| panic!("{} columns still stored, {:.4} off", w.stored(), off(&g, &w)));
         println!("the dam's wave was live {:.1} s", t as f64 / 60.0);
+    }
+
+    /// What a reach's open water took in runs down its reaches to the sea, each holding it for its own time
+    /// (a linear store); rain booked to a reach goes the same way. The count holds every step.
+    #[test]
+    fn a_reach_passes_what_it_took_in_down_to_the_sea() {
+        let g = Channel::new(160, 0.02, 1.5, 3.0);
+        let mut w = Liquids::default();
+        for y in 3..5 {
+            w.pour(&g, col(60, y), (g.level(60) / U) as i32, U);
+        }
+        w.rain(0, U);
+        for t in 0..60 * 120 {
+            w.step(&g);
+            assert_eq!(w.counted(), 2 * U, "the count at step {t}");
+        }
+        assert_eq!((w.stored(), w.rained), (0, U));
+        assert!(w.reach_extra.values().all(|&x| x == 0), "{:?}", w.reach_extra);
+        assert_eq!(w.sea_extra, 3 * U, "the bucket and the rain reached the sea");
     }
 
     /// A pillar standing in the river (a bridge's) keeps nothing live but its own column, which sleeps.

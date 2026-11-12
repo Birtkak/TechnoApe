@@ -771,6 +771,11 @@ impl Ground for Solid<'_> {
     fn river(&self, c: Col) -> Option<(f64, f64, f64)> {
         self.bodies[c.body() as usize].water_at(c.face(), c.i(), c.j()).and_then(|w| w.2)
     }
+    fn down(&self, acct: u32) -> (u32, f64) {
+        // reaches are Terra's baked map's (Luna has none); the map's NONE (to the sea) is the sea's account
+        let r = self.bodies[0].baked.as_ref().and_then(|b| b.map.lines.reaches.get(acct as usize));
+        r.map_or((crate::liquid::SEA, 0.0), |r| (r.down, r.hold as f64))
+    }
     fn neighbours(&self, c: Col) -> [Option<Col>; 4] {
         let n = self.bodies[c.body() as usize].n;
         let (i, j) = (c.i(), c.j());

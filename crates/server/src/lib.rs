@@ -199,6 +199,8 @@ impl Server {
         let World { bodies, edits, water, .. } = &mut s.world;
         water.restore(&engine::world::Solid { bodies, edits }, &save.water);
         (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
+        water.rained = save.reaches.0;
+        water.reach_extra = save.reaches.1.iter().copied().collect();
         s.tick0 = save.tick;
         let cols: Vec<Col> = save.water.iter().map(|w| w.0).collect();
         s.water_changed(&cols);
@@ -245,6 +247,7 @@ impl Server {
             sea_extra: self.world.water.sea_extra,
             tick: self.tick0.wrapping_add(self.tick),
             map: self.map_hash(),
+            reaches: (self.world.water.rained, self.world.water.reach_extra.iter().map(|(&a, &x)| (a, x)).collect()),
         }
     }
 
@@ -299,7 +302,8 @@ impl Server {
     /// carried over.
     pub fn hash(&self) -> u64 {
         let mut h = fnv(fnv(self.world.hash(), &self.tick.to_le_bytes()), &self.debt.to_bits().to_le_bytes());
-        h = fnv(h, &postcard::to_allocvec(&(self.world.water.all(), self.made, self.removed, self.world.water.sea_extra)).unwrap());
+        let w = &self.world.water;
+        h = fnv(h, &postcard::to_allocvec(&(w.all(), self.made, self.removed, w.sea_extra, &w.reach_extra, w.rained)).unwrap());
         for p in self.absent.values() {
             h = fnv(h, &postcard::to_allocvec(p).unwrap());
         }

@@ -91,7 +91,13 @@ pub struct ReachDef {
     /// The reach it flows into (NONE: the sea, or nowhere for a lake no river leaves).
     pub down: u32,
     pub lake: bool,
+    /// How long it holds water it takes in, seconds: a river's length over its speed at rest, a lake's
+    /// LAKE_HOLD (a linear store, `liquid::Ground::down`).
+    pub hold: f32,
 }
+
+/// A lake holds what it takes in this long (seconds): far longer than a river, it is wide and still.
+const LAKE_HOLD: f32 = 600.0;
 
 /// A river's speed at rest is the Manning formula's with this roughness, clamped (m/s).
 const MANNING: f32 = 0.035;
@@ -344,7 +350,7 @@ fn reaches(map: &Map, segs: &mut [Seg], lake_of: &HashMap<u32, u32>, lakes: usiz
     let starts: Vec<usize> = (0..segs.len()).filter(|&k| !segs[k].lake && (fed[k] != 1 || from_lake[k])).collect();
     for k0 in starts {
         let id = out.len() as u32;
-        let mut r = ReachDef { segs: Vec::new(), down: NONE, lake: false };
+        let mut r = ReachDef { segs: Vec::new(), down: NONE, lake: false, hold: 0.0 };
         let mut k = k0;
         loop {
             segs[k].reach = id;
@@ -358,13 +364,25 @@ fn reaches(map: &Map, segs: &mut [Seg], lake_of: &HashMap<u32, u32>, lakes: usiz
         out.push(r);
     }
     let lake_reach = out.len() as u32;
-    out.extend((0..lakes).map(|_| ReachDef { segs: Vec::new(), down: NONE, lake: true }));
+    out.extend((0..lakes).map(|_| ReachDef { segs: Vec::new(), down: NONE, lake: true, hold: 0.0 }));
     for k in 0..segs.len() {
         if segs[k].lake {
             let id = lake_reach + lake_of[&map.rivers[k].cell];
             segs[k].reach = id;
             out[id as usize].segs.push(k as u32);
         }
+    }
+    for r in out.iter_mut() {
+        r.hold = if r.lake {
+            LAKE_HOLD
+        } else {
+            let t: f32 = r.segs.iter().map(|&k| {
+                let g = &segs[k as usize];
+                let v = if g.fill[0] > 0.0 { g.q[0] / (2.0 * g.hw[0] * g.fill[0]) } else { V_MIN };
+                (g.b - g.a).length() as f32 / v.max(V_MIN)
+            }).sum();
+            t.max(1.0)
+        };
     }
     for r in 0..out.len() {
         let last = *out[r].segs.last().unwrap_or(&NONE);
@@ -622,6 +640,17 @@ mod tests {
             lakes += 1;
         }
         assert!(deep > lakes / 2, "{deep} of {lakes} lake cells have a bed under the water");
+        // every reach holds its water a while and runs on down to the sea (or ends in a lake no river leaves)
+        let rs = &map.lines.reaches;
+        for (k, r) in rs.iter().enumerate() {
+            assert!(r.hold > 0.0 && r.hold.is_finite(), "reach {k} holds {}", r.hold);
+            let (mut d, mut n) = (k as u32, 0);
+            while d != NONE {
+                d = rs[d as usize].down;
+                n += 1;
+                assert!(n <= rs.len(), "reach {k} runs in a loop");
+            }
+        }
     }
 
     /// The detail follows the slope (ADR 0058): on the game's own heights, steep ground is several times
