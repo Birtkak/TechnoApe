@@ -252,6 +252,10 @@ pub(crate) struct App {
     /// (a world picked, or back to the title).
     pub(crate) worlds: Vec<String>,
     pub(crate) next: Option<Vec<String>>,
+    /// The window of the session before, taken over at the start (ADR 0073).
+    pub(crate) carried: Option<std::sync::Arc<winit::window::Window>>,
+    /// The most chunks the loading screen saw missing: its bar's whole (ADR 0073).
+    pub(crate) load_peak: u32,
     /// A new world's bake or a server's map on its way, on a worker thread, before the game starts again with
     /// `next` (the title screen draws its bar).
     pub(crate) loading: Option<menu::Loading>,

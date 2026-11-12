@@ -211,6 +211,8 @@ impl App {
         };
         if self.run == "play" && self.loaded_at.is_some() {
             self.build(&p, t);
+        } else if self.run == "play" {
+            self.loading_screen();
         }
         let p = if self.home() == Menu::Title { self.title_view(t) } else { p };
         let vel = if dt > 0.0 && self.loaded_at.is_some() { (p.pos - self.last_pos) / dt } else { DVec3::ZERO };
@@ -1010,9 +1012,6 @@ impl App {
         let tpres = Instant::now();
         gpu.queue.present(frame);
         let pres = tpres.elapsed().as_secs_f64();
-        if let Some(f) = self.args.0.remove("shown") {
-            let _ = std::fs::write(f, ""); // the process before this one may close its window now (ADR 0038)
-        }
         lap!("present");
         let tail0 = Instant::now();
         if self.bug_grab {

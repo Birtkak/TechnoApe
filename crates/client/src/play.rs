@@ -1008,6 +1008,27 @@ impl App {
         self.growing.push((self.start.elapsed().as_secs_f64() + GROW_S, b, m, tag, false));
     }
 
+    /// Until the world is in (ADR 0073): the loading screen over it in the same window, its bar the chunks
+    /// still missing against the most there were (the bake's own bar is the title's, ADR 0057).
+    pub(crate) fn loading_screen(&mut self) {
+        let (lw, lh) = self.ui_size();
+        let missing = self.drawn.streaming.0;
+        self.load_peak = self.load_peak.max(missing);
+        let f = if self.load_peak == 0 { 0.0 } else { 1.0 - missing as f32 / self.load_peak as f32 };
+        let mut paint = hud::Paint::new(lw, lh);
+        paint.rect(0.0, 0.0, lw, lh, [0.015, 0.02, 0.035, 1.0], 0);
+        let (bw, bh, y) = ((lw * 0.5).min(720.0), 14.0, lh * 0.55);
+        let x = (lw - bw) / 2.0;
+        paint.text(x, y - 2.0 * hud::LINE - 6.0, "TechnoApe", [1.0, 1.0, 1.0, 0.95]);
+        paint.text(x, y - hud::LINE - 6.0, &format!("Loading the world: {missing} chunks to go  {:.0}%", f * 100.0), [0.8, 0.85, 0.9, 0.95]);
+        paint.rect(x - 2.0, y - 2.0, bw + 4.0, bh + 4.0, [0.0, 0.0, 0.0, 0.6], 0);
+        paint.rect(x, y, bw * f, bh, [0.45, 0.8, 0.4, 0.95], 0);
+        let n = paint.out.len().min(hud::RECTS_MAX);
+        let gpu = self.gpu.as_ref().unwrap();
+        gpu.queue.write_buffer(&gpu.ui_buf, 0, bytemuck::cast_slice(&paint.out[..n]));
+        self.ui_n = n as u32;
+    }
+
     /// Each frame of run=play: scripted acts that are due, the aim, the ghost and the 2D layer.
     pub(crate) fn build(&mut self, p: &Pose, t: f64) {
         while self.acts.last().is_some_and(|(at, _)| *at <= t) {

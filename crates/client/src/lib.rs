@@ -45,6 +45,7 @@ use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, DeviceId, ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::platform::run_on_demand::EventLoopExtRunOnDemand;
 use winit::window::{CursorGrabMode, Window, WindowId};
 
 pub struct Args(pub HashMap<String, String>);
@@ -84,7 +85,18 @@ impl ApplicationHandler for App {
                 let at = if onscreen { 0 } else { -30000 };
                 winit::dpi::PhysicalPosition::new(at, at)
             });
-        let window = Arc::new(el.create_window(attrs).unwrap());
+        let window = match self.carried.take() {
+            // the window of the session before (ADR 0073): as this one's settings want it
+            Some(win) => {
+                win.set_fullscreen(fs.clone());
+                win.set_decorations(play && fs.is_none());
+                if fs.is_none() {
+                    let _ = win.request_inner_size(winit::dpi::PhysicalSize::new(w(), h()));
+                }
+                win
+            }
+            None => Arc::new(el.create_window(attrs).unwrap()),
+        };
         if self.run == "play" && onscreen {
             let _ = window.set_cursor_grab(CursorGrabMode::Confined).or_else(|_| window.set_cursor_grab(CursorGrabMode::Locked));
             window.set_cursor_visible(false);
@@ -231,7 +243,11 @@ impl ApplicationHandler for App {
     }
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
         if self.gpu.is_none() {
-            return;
+            // a later session on the same event loop may not be resumed again: it starts here
+            self.resumed(el);
+            if self.gpu.is_none() {
+                return;
+            }
         }
         if self.done {
             el.exit();
@@ -254,12 +270,7 @@ impl ApplicationHandler for App {
 
 /// The game: reads the command line's key=value pairs and runs until the window closes.
 pub fn main() {
-    let mut args = Args(
-        std::env::args()
-            .skip(1)
-            .filter_map(|a| a.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())))
-            .collect(),
-    );
+    let mut args = parse_args(std::env::args().skip(1));
     if args.0.is_empty() {
         // started without arguments (a double click, playtest/): the title menu on screen, in the repository the
         // exe sits in, so saves/ and bugs/ are the usual ones
@@ -274,6 +285,24 @@ pub fn main() {
     let low = args.get("low_workers", 1) == 1;
     LOW_WORKERS.store(low, std::sync::atomic::Ordering::Relaxed);
     rayon::ThreadPoolBuilder::new().num_threads(threads).start_handler(move |_| if low { sys::below_normal() }).build_global().unwrap();
+    // one window for the whole program (ADR 0073): the title menu and every world are sessions on one event loop,
+    // each starting the next in the same window (a fresh process per world swapped windows, bug 2026-11-11_17-37-12)
+    let mut el = EventLoop::new().unwrap();
+    let mut window = None;
+    while let Some((next, win)) = session(args, &mut el, threads, window) {
+        args = parse_args(next.into_iter());
+        window = win;
+    }
+}
+
+/// `key=value` arguments; anything else is left out.
+fn parse_args(a: impl Iterator<Item = String>) -> Args {
+    Args(a.filter_map(|a| a.split_once('=').map(|(k, v)| (k.to_string(), v.to_string()))).collect())
+}
+
+/// One world (or the title's) in `window`, or a new window when there is none yet: runs until it closes, and
+/// returns what to start next in the same window.
+fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Option<Arc<Window>>) -> Option<(Vec<String>, Option<Arc<Window>>)> {
     // join=host:port: the title screen downloading a server's map under its bar (a connect= run that lacked it
     // started this); the join starts first, and the title's own world is a small one with no save
     let loading = args.0.get("join").map(|addr| menu::Loading::join(addr.clone(), args.s("name", "player"), menu::joined_args(&args.0)));
@@ -286,7 +315,7 @@ pub fn main() {
     let run = args.s("run", "stand");
     if run == "meshbench" {
         sys::meshbench(&args.0);
-        return;
+        return None;
     }
     // the world comes from the server: a remote one (connect=host[:port]) or a local one on its own thread
     // (planet= and moon= are columns per face edge, 1 m each, ADR 0033: 6144 is the 4 km planet, the standard;
@@ -357,11 +386,11 @@ pub fn main() {
                 // in play, a map to download comes in on the title screen, under its bar, which joins after it
                 // (once: the run it starts has joined=1 and fetches here if the map is still not kept)
                 drop(link);
-                let exe = std::env::current_exe().expect("the game's own path");
-                if let Err(e) = std::process::Command::new(exe).args(menu::join_args(&args.0)).spawn() {
-                    eprintln!("[technoape] could not start the title screen: {e}");
+                if let Some((stop, thread)) = local_server {
+                    stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                    let _ = thread.join();
                 }
-                return;
+                return Some((menu::join_args(&args.0), window));
             }
             let map = map.map(|h| kept.map_or_else(|| engine::net::fetch_map(&mut link, seed, planet_n, h), Ok).unwrap_or_else(|e| panic!("{e}")));
             let luna = luna.map(|h| luna_kept.map_or_else(|| engine::net::fetch_map(&mut link, seed, moon_n, h), Ok).unwrap_or_else(|e| panic!("{e}")));
@@ -428,12 +457,12 @@ pub fn main() {
     // sounds=1: every sound in numbers, as one JSON line, and nothing else
     if args.get("sounds", 0) == 1 {
         println!("{}", audio::report());
-        return;
+        return None;
     }
     // dump=1: what the file means, every row and key as one JSON line, and nothing else
     if args.get("dump", 0) == 1 {
         println!("{}", settings.json());
-        return;
+        return None;
     }
     SIZE.store((settings.get(S::Width) as u64) << 32 | settings.get(S::Height) as u64, Ordering::Relaxed);
     let opts = Opts {
@@ -448,7 +477,6 @@ pub fn main() {
     };
     let cap: u32 = args.get("quad_cap_m", 16u32) * 1_000_000;
     let streamer = Streamer::new(&world, cap, opts);
-    let el = EventLoop::new().unwrap();
     el.set_control_flow(ControlFlow::Poll);
     let lines_on = run == "play" && args.s("lines", "") == "stdin";
     let (acts, creative, shot) = (parse_acts(&args.s("acts", "")), run != "play", args.0.get("shot").cloned());
@@ -636,30 +664,21 @@ pub fn main() {
         next: None,
         loading,
         view: None,
+        carried: window,
+        load_peak: 0,
     };
-    el.run_app(&mut app).unwrap();
+    el.run_app_on_demand(&mut app).unwrap();
     // the local server saves as it stops
     if let Some((stop, thread)) = local_server {
         stop.store(true, std::sync::atomic::Ordering::Relaxed);
         let _ = thread.join();
     }
-    // a world picked in the menu, or back to the title: the game again, once the old save is written
-    if let Some(next) = app.next.take() {
-        // this window stays up until the next one has drawn, so the desktop never shows between them (ADR 0038)
-        let shown = std::env::temp_dir().join(format!("technoape-shown-{}", std::process::id()));
-        let exe = std::env::current_exe().expect("the game's own path");
-        // (one left by an earlier process of this number would end the wait before the window is there)
-        let _ = std::fs::remove_file(&shown);
-        match std::process::Command::new(exe).args(&next).arg(format!("shown={}", shown.display())).spawn() {
-            Ok(mut next) => {
-                // (a world may take long to load: the wait ends when it shows, or at once when it has ended
-                // without showing, so a world that fails to load never leaves this window frozen)
-                sys::wait_shown(&shown, Duration::from_secs(30), || !matches!(next.try_wait(), Ok(None)));
-            }
-            Err(e) => eprintln!("[technoape] could not start again with {next:?}: {e}"),
-        }
-        drop(app);
-    }
+    // a world picked in the menu, or back to the title: the next session in this window, once the old save is
+    // written; the old one's GPU goes before the next makes its own
+    let next = app.next.take()?;
+    let win = app.gpu.as_ref().map(|g| g.window.clone());
+    drop(app);
+    Some((next, win))
 }
 
 /// `at=x,y,z`: the stand point's direction from the planet's centre (`0,1,0` when unset); three finite numbers,

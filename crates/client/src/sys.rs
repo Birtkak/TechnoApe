@@ -29,49 +29,6 @@ fn utc_stamps() {
     assert_eq!(utc_stamp(951_782_400), "2000-02-29_00-00-00");
 }
 
-/// Waits up to `limit` for the file the next game process writes once its window shows its first frame, and
-/// removes it: the old window stays over the screen till then, so going between a world and the title never
-/// shows the desktop (ADR 0038). False when it never came: the limit passed, or `gone` says the new process
-/// has ended without showing anything (the wait stops at once then).
-pub fn wait_shown(file: &std::path::Path, limit: std::time::Duration, mut gone: impl FnMut() -> bool) -> bool {
-
-    let end = Instant::now() + limit;
-    loop {
-        if std::fs::remove_file(file).is_ok() {
-            return true;
-        }
-        if Instant::now() >= end || gone() {
-            // (it may have shown and ended between the two looks)
-            return std::fs::remove_file(file).is_ok();
-        }
-        std::thread::sleep(std::time::Duration::from_millis(15));
-    }
-}
-
-#[test]
-fn waits_for_the_next_window() {
-    use std::time::Duration;
-    let f = std::env::temp_dir().join(format!("technoape-shown-test-{}", std::process::id()));
-    let _ = std::fs::remove_file(&f);
-    // nobody writes it: the wait gives up at its limit
-    let t = Instant::now();
-    assert!(!wait_shown(&f, Duration::from_millis(100), || false));
-    assert!(t.elapsed() >= Duration::from_millis(100));
-    // the next process ended without showing anything (it failed to load): no waiting for it
-    let t = Instant::now();
-    assert!(!wait_shown(&f, Duration::from_secs(30), || true));
-    assert!(t.elapsed() < Duration::from_secs(1), "waited {:?} for a process that is gone", t.elapsed());
-    // written a little later: the wait sees it and clears it
-    let g = f.clone();
-    let w = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(50));
-        std::fs::write(g, "").unwrap();
-    });
-    assert!(wait_shown(&f, Duration::from_secs(5), || false));
-    w.join().unwrap();
-    assert!(!f.exists());
-}
-
 pub fn ram_mb() -> f64 {
     let mut c = PROCESS_MEMORY_COUNTERS::default();
     unsafe {
