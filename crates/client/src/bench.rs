@@ -434,6 +434,13 @@ impl App {
     }
 }
 
+/// Frames a shot waits after loading before it is taken (`shot=`, ADR 0018).
+pub(crate) const SHOT_FRAMES: u64 = 400;
+/// Whether a shot `frames` after loading has its light settled.
+pub(crate) fn shot_settled(frames: u64) -> bool {
+    frames >= SHOT_FRAMES
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

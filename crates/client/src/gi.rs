@@ -283,6 +283,12 @@ impl Gi {
         self.frame
     }
 
+    /// Drops the history: the next frame starts it anew. A shot does so once the world has loaded, so what it
+    /// averages is the loaded world's light alone, however long loading took.
+    pub fn drop_history(&mut self) {
+        self.prev = None;
+    }
+
     /// After the terrain pass: trace, gather over frames, smooth. `cam` is the camera in frame `cf`'s
     /// coordinates; a change of frame or a jump drops the history. `still` averages without a limit.
     /// `stamp(enc, k)` writes the timer after the trace (0) and after `temporal` (1) (ADR 0025).

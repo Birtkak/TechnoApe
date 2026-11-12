@@ -74,6 +74,8 @@ pub(crate) struct App {
     pub(crate) time0: f64,
     pub(crate) start: Instant,
     pub(crate) loaded_at: Option<Instant>,
+    /// The streamer's frame when the world had loaded: a shot counts its frames from here.
+    pub(crate) loaded_frame: u64,
     pub(crate) last_frame: Instant,
     pub(crate) ts_slot: usize,
     pub(crate) samples: Samples,

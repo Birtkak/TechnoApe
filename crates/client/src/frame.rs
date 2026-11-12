@@ -931,10 +931,13 @@ impl App {
             enc.copy_buffer_to_buffer(resolve, (i * 256) as u64, &ring[i].0, 0, (TS_N * 8) as u64);
             self.ts_frames[i] = self.streamer.frame;
         }
-        // a shot waits a second after loading, so the last meshes are in
+        // a shot waits a second after loading, so the last meshes are in, and as many frames as a quiet PC draws
+        // in that second: the bounce light settles by frames, not by the clock, and a shot beside a build got a
+        // handful of them and came out dark (the gate's viewpoints failing under load, 2026-11-12)
         let cap_at = if self.shot.is_some() { 1.0 } else { self.next_cap };
         let film = self.shot.is_some() || self.args.get("capture_ms", 0.0) > 0.0;
-        let cap_now = film && gpu.capture.is_some() && self.loaded_at.is_some() && t >= cap_at;
+        let settled = self.shot.is_none() || bench::shot_settled(self.streamer.frame - self.loaded_frame);
+        let cap_now = film && gpu.capture.is_some() && self.loaded_at.is_some() && t >= cap_at && settled;
         // F9: this frame, without the form, is the report's screenshot
         let bug_now = self.bug_grab && gpu.capture.is_some();
         let view_now = self.view.as_ref().is_some_and(|v| v.wants()) && self.loaded_at.is_some();
@@ -1060,6 +1063,10 @@ impl App {
             if (self.streamer.idle() && st.missing == 0 && rt_pending == 0 && self.streamer.frame > 10) || el > 60.0 {
                 eprintln!("[technoape] loaded in {:.2} s, {} chunks, {} quads", el, self.streamer.slot_count(), self.streamer.alloc.used);
                 self.loaded_at = Some(Instant::now());
+                self.loaded_frame = self.streamer.frame;
+                if let (Some(gi), true) = (self.gi.as_mut(), self.shot.is_some()) {
+                    gi.drop_history();
+                }
                 self.jobs_at_load = (self.streamer.job_us_total, self.streamer.jobs_done as u64);
                 if self.run == "play" {
                     self.chat_line("Welcome to Terra. T chats, / runs a command, Esc opens the menu.".to_string());

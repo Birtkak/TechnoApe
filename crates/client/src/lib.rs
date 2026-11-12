@@ -507,6 +507,7 @@ pub fn main() {
         run,
         start: Instant::now(),
         loaded_at: None,
+        loaded_frame: 0,
         last_frame: Instant::now(),
         ts_slot: 0,
         samples: Samples::default(),

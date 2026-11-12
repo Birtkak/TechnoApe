@@ -11,7 +11,7 @@ fi
 mkdir -p out/views
 grep -v '^#' tests/views/views.txt | grep '|' | while IFS='|' read -r name allowed args; do
   name=$(echo $name); allowed=$(echo $allowed)
-  line=$(timeout 120 ${TECHNOAPE:-target/release/technoape.exe} run=stand $args shot=out/views/$name.png baseline=tests/views/$name.png 2>/dev/null | tail -1)
+  line=$(timeout 240 ${TECHNOAPE:-target/release/technoape.exe} run=stand $args shot=out/views/$name.png baseline=tests/views/$name.png 2>/dev/null | tail -1)
   echo "$name|$allowed|$args|$line"
 done | python -I -c "
 import json, sys
