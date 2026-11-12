@@ -467,6 +467,9 @@ impl App {
             self.streamer.ahead_reqs = ahead_reqs;
         }
         lap!("select");
+        // the Leaves setting (ADR 0069), or a run's leaves=fancy|fast: level 0 meshed again when it changes
+        let fancy = self.args.0.get("leaves").map_or(self.settings.at(S::Leaves) == 1, |v| v == "fancy");
+        self.streamer.set_cutout(fancy);
         self.streamer.dispatch(&self.world, &mut reqs);
         let sel = ts0.elapsed().as_secs_f64();
         lap!("dispatch");
@@ -482,6 +485,7 @@ impl App {
         let mut table: Vec<(u32, ChunkGpu)> = Vec::new();
         let mut args: Vec<(f32, DrawArgs)> = Vec::with_capacity(draws.len());
         let mut sea_args: Vec<DrawArgs> = Vec::new();
+        let mut cut_args: Vec<(f32, DrawArgs)> = Vec::new();
         let mut nquads = 0u64;
         let mut insts: Vec<rt::Inst> = Vec::with_capacity(draws.len());
         let frame_no = self.streamer.frame;
@@ -493,16 +497,23 @@ impl App {
             let (ci, new) = self.slots.get(d.off, frame_no);
             assert!((ci as usize) < MAX_CHUNKS, "chunk table full");
             if new {
-                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, _p: [0; 3] }));
+                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.cut, _p: [0; 2] }));
             }
             let land = d.len - d.water;
             if land > 0 {
-                insts.push(rt::Inst { off: d.off, land, base: k.base().into(), info, body: k.body, ci });
+                insts.push(rt::Inst { off: d.off, land, cut: d.cut, base: k.base().into(), info, body: k.body, ci });
             }
             if d.hidden {
                 continue;
             }
-            args.push((d.dist, DrawArgs { vertex_count: land * 6, instance_count: 1, first_vertex: d.off * 6, first_instance: ci }));
+            // the opaque quads, then the cutout blocks' through the pipeline that discards (ADR 0069)
+            let opq = land - d.cut;
+            if opq > 0 {
+                args.push((d.dist, DrawArgs { vertex_count: opq * 6, instance_count: 1, first_vertex: d.off * 6, first_instance: ci }));
+            }
+            if d.cut > 0 {
+                cut_args.push((d.dist, DrawArgs { vertex_count: d.cut * 6, instance_count: 1, first_vertex: (d.off + opq) * 6, first_instance: ci }));
+            }
             if d.water > 0 {
                 // vs_sea draws each sea quad in SEA_SUB^2 pieces, one instance each: instance = chunk * pieces + piece
                 let pieces = SEA_SUB * SEA_SUB;
@@ -513,6 +524,8 @@ impl App {
         // near to far, so the depth test drops what is hidden before its fragments trace their rays (ADR 0025, D)
         args.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
         let args: Vec<DrawArgs> = args.into_iter().map(|a| a.1).collect();
+        cut_args.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+        let cut_args: Vec<DrawArgs> = cut_args.into_iter().map(|a| a.1).collect();
         // the water mesh when it changed, or the tide moved the sea in its tiles
         self.water.retide(&self.world, self.start.elapsed().as_secs_f32());
         let n = self.water.all.len().min(MAX_WQUADS);
@@ -721,6 +734,9 @@ impl App {
         if !sea_args.is_empty() {
             gpu.queue.write_buffer(&gpu.indirect, (MAX_CHUNKS * 16) as u64, bytemuck::cast_slice(&sea_args));
         }
+        if !cut_args.is_empty() {
+            gpu.queue.write_buffer(&gpu.indirect, (MAX_CHUNKS * 32) as u64, bytemuck::cast_slice(&cut_args));
+        }
 
         let mut sky = wgpu::Color { r: sky_c.x as f64, g: sky_c.y as f64, b: sky_c.z as f64, a: 1.0 };
         if self.shot.is_some() {
@@ -836,8 +852,16 @@ impl App {
                 // (the land is still there for the light: only its picture is left out)
             } else if self.args.get("mdi", 1) == 1 {
                 rp.multi_draw_indirect(&gpu.indirect, 0, args.len() as u32);
+                if !cut_args.is_empty() {
+                    rp.set_pipeline(&gpu.cut_pipeline);
+                    rp.multi_draw_indirect(&gpu.indirect, (MAX_CHUNKS * 32) as u64, cut_args.len() as u32);
+                }
             } else {
                 for d in &args {
+                    rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
+                }
+                rp.set_pipeline(&gpu.cut_pipeline);
+                for d in &cut_args {
                     rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
                 }
             }

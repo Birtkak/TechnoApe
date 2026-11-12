@@ -1,5 +1,4 @@
 //! Process RAM / VRAM probes (Windows) and the headless meshing benchmark.
-use engine::mesh::mesh;
 use engine::world::{generate, Gen, Key, World, CS};
 use glam::IVec3;
 use rayon::prelude::*;
@@ -118,27 +117,48 @@ pub fn vram_mb() -> f64 {
 pub fn meshbench(args: &HashMap<String, String>) {
     let num = |k: &str, d: i32| args.get(k).and_then(|v| v.parse().ok()).unwrap_or(d);
     let planet = num("planet", engine::bodies::BODIES[0].n);
-    let world = World::new(planet, engine::bodies::columns(1, planet), 1337);
+    // at=x,y,z (ADR 0068, 0069): the baked planet's chunks around that place, else the
+    // noise land's around the middle of the +y face
+    let at = args.get("at").map(|s| s.split(',').map(|v| v.parse::<f64>().unwrap()).collect::<Vec<_>>());
+    let world = if at.is_some() { World::baked(planet, engine::bodies::columns(1, planet), 1337) } else { World::new(planet, engine::bodies::columns(1, planet), 1337) };
     let greedy = num("greedy", 1) == 1;
+    // leaves=fancy: level 0 as fancy leaves mesh it (ADR 0069), else as today
+    let cutout = args.get("leaves").is_some_and(|v| v == "fancy");
     let radius = num("chunks", 6);
     let b = &world.bodies[0];
-    // the middle of the +y face, through the terrain's height range
-    let mid = b.n / CS / 2;
-    let top = b.layer_of(b.radius) as i32 / CS;
+    let (face, ci, cj, top) = match &at {
+        Some(v) => {
+            let d = glam::DVec3::new(v[0], v[1], v[2]).normalize();
+            let (f, i, j) = b.locate(d);
+            (f as u8, i as i32 / CS, j as i32 / CS, b.layer_of(b.top(d)) as i32 / CS)
+        }
+        None => (2, b.n / CS / 2, b.n / CS / 2, b.layer_of(b.radius) as i32 / CS),
+    };
     let mut keys = Vec::new();
     for z in top - 3..=top + 2 {
         for y in -radius..=radius {
             for x in -radius..=radius {
-                keys.push(Key { body: 0, face: 2, level: 0, pos: IVec3::new(mid + x, mid + y, z) });
+                keys.push(Key { body: 0, face, level: 0, pos: IVec3::new(ci + x, cj + y, z) });
             }
         }
     }
+    let near = at.is_some().then_some(1u32);
     let job = |k: &Key| -> (f64, f64, usize, u8) {
         let t0 = Instant::now();
         let g = generate(b, *k, &[]);
         let t1 = Instant::now();
         let (q, kind) = match g {
-            Gen::Cells(c) => (mesh(&c, if greedy { b.lattice(0) as usize } else { 1 }).quads.len(), 2),
+            Gen::Cells(c) => {
+                // with at=, the fastest of five (another process only ever slows a run); else once, as before
+                let mut best = f64::MAX;
+                let mut n = 0;
+                for _ in 0..if near.is_some() { 5 } else { 1 } {
+                    let t = Instant::now();
+                    n = engine::mesh::mesh_cut(&c, if greedy { b.lattice(0) as usize } else { 1 }, cutout).quads.len();
+                    best = best.min(t.elapsed().as_secs_f64() * 1e6);
+                }
+                return ((t1 - t0).as_secs_f64() * 1e6, best, n, 2);
+            }
             Gen::Empty => (0, 0),
             Gen::Solid => (0, 1),
         };

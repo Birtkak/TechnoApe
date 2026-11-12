@@ -3,7 +3,9 @@
 //! frame in the shader, so the TLAS is rebuilt only when its instances change, not when the camera moves
 //! (ADR 0025, B). A new mesh's quads are expanded into triangles on the GPU
 //! (`expand` in shader.wgsl, the drawn geometry slightly grown) into a scratch buffer its BLAS is built from;
-//! the BLAS keeps no reference to it, so the next frame reuses it.
+//! the BLAS keeps no reference to it, so the next frame reuses it. A BLAS holds two geometries (ADR 0069): the
+//! opaque quads, flagged OPAQUE, then the cutout blocks' quads, not, so only those enter a ray's candidate loop
+//! (shader.wgsl `trace`); a chunk with no cutout quads has the one.
 use std::collections::HashMap;
 
 /// Quads expanded and built per frame at most: a stream of new chunks is spread over frames, as meshing is.
@@ -21,10 +23,12 @@ struct Build {
     _p: u32,
 }
 
-/// One chunk to trace this frame: its mesh's offset and land quads, its chunk-table entry, its body's transform.
+/// One chunk to trace this frame: its mesh's offset and land quads (the last `cut` of them cutout), its
+/// chunk-table entry, its body's transform.
 pub struct Inst {
     pub off: u32,
     pub land: u32,
+    pub cut: u32,
     pub base: [i32; 3],
     pub info: u32,
     pub body: u8,
@@ -103,20 +107,27 @@ impl Rt {
                 self.pending += 1;
                 continue;
             }
-            let size = wgpu::BlasTriangleGeometrySizeDescriptor {
+            let geo = |n: u32, flags| wgpu::BlasTriangleGeometrySizeDescriptor {
                 vertex_format: wgpu::VertexFormat::Float32x3,
-                vertex_count: c.land * 6,
+                vertex_count: n * 6,
                 index_format: None,
                 index_count: None,
-                flags: wgpu::AccelerationStructureGeometryFlags::OPAQUE,
+                flags,
             };
+            // the opaque quads first (none in a chunk wholly of leaves), then the cutout ones
+            let opq = c.land - c.cut;
+            let size: Vec<_> = [(opq, wgpu::AccelerationStructureGeometryFlags::OPAQUE), (c.cut, wgpu::AccelerationStructureGeometryFlags::empty())]
+                .into_iter()
+                .filter(|g| g.0 > 0)
+                .map(|(n, f)| (n, geo(n, f)))
+                .collect();
             let blas = device.create_blas(
                 &wgpu::CreateBlasDescriptor {
                     label: None,
                     flags: wgpu::AccelerationStructureFlags::PREFER_FAST_TRACE,
                     update_mode: wgpu::AccelerationStructureUpdateMode::Build,
                 },
-                wgpu::BlasGeometrySizeDescriptors::Triangles { descriptors: vec![size.clone()] },
+                wgpu::BlasGeometrySizeDescriptors::Triangles { descriptors: size.iter().map(|g| g.1.clone()).collect() },
             );
             self.blas.insert(c.off, (c.land, blas));
             todo.push(Build { base: c.base, info: c.info, off: c.off, n: c.land, dst: quads * 6, _p: 0 });
@@ -155,18 +166,29 @@ impl Rt {
         let entries: Vec<wgpu::BlasBuildEntry> = todo
             .iter()
             .zip(&sizes)
-            .map(|(b, size)| wgpu::BlasBuildEntry {
-                blas: &self.blas[&b.off].1,
-                geometry: wgpu::BlasGeometries::TriangleGeometries(vec![wgpu::BlasTriangleGeometry {
-                    size,
-                    vertex_buffer: &self.verts,
-                    first_vertex: b.dst,
-                    vertex_stride: 12,
-                    index_buffer: None,
-                    first_index: None,
-                    transform_buffer: None,
-                    transform_buffer_offset: None,
-                }]),
+            .map(|(b, size): (&Build, &Vec<(u32, wgpu::BlasTriangleGeometrySizeDescriptor)>)| {
+                let mut first = b.dst;
+                wgpu::BlasBuildEntry {
+                    blas: &self.blas[&b.off].1,
+                    geometry: wgpu::BlasGeometries::TriangleGeometries(
+                        size.iter()
+                            .map(|(n, size)| {
+                                let g = wgpu::BlasTriangleGeometry {
+                                    size,
+                                    vertex_buffer: &self.verts,
+                                    first_vertex: first,
+                                    vertex_stride: 12,
+                                    index_buffer: None,
+                                    first_index: None,
+                                    transform_buffer: None,
+                                    transform_buffer_offset: None,
+                                };
+                                first += n * 6;
+                                g
+                            })
+                            .collect(),
+                    ),
+                }
             })
             .collect();
         if rebuild {

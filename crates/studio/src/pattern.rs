@@ -95,19 +95,27 @@ pub fn part(d: &Def, dir: i32, cell: [i32; 3], x: i32, y: i32) -> (usize, usize,
                 plain
             }
         }
+        Pattern::Leaves => {
+            let h = hash(x.div_euclid(2) + cz * 8, y.div_euclid(2), 71);
+            if h < 0.3 {
+                (1, 1, 0.0, 1.0)
+            } else if h > 0.9 {
+                (2, 2, 0.0, 1.0)
+            } else {
+                plain
+            }
+        }
         Pattern::Plain | Pattern::Grass | Pattern::Stone => plain,
     }
 }
 
-/// One texel of a block's face as the game draws it unpainted, 0..1 per channel. `dir` is the shader's: 0 to
-/// 3 the sides, 4 the top, 5 the bottom; (x, y) with y down from the face's top edge; `cell` the block's place.
-pub fn texel(reg: &Registry, b: &Def, dir: i32, cell: [i32; 3], x: i32, y: i32) -> [f32; 3] {
+/// The row whose look texel (x, y) of face `dir` shows: a grass block's side block under its fringe, any other
+/// block's `side` on its sides and foot, else its own.
+fn look_of<'a>(reg: &'a Registry, b: &'a Def, dir: i32, cell: [i32; 3], x: i32, y: i32) -> &'a Def {
     let n = S as i32;
-    let h = hash(cell[0] * n + x, cell[1] * n + y, cell[2] * n + dir);
-    let tone = 0.82 + 0.12 * (h * 3.0).floor();
     // a block that is its own side is drawn from `b` (the pattern panel hands in a changed row)
     let side = if b.side == b.id { b } else { reg.get(b.side).unwrap_or(b) };
-    let m = if b.pattern == Pattern::Grass && dir != 4 {
+    if b.pattern == Pattern::Grass && dir != 4 {
         // a grass block's side is its side block's look under 2 to 4 rows of grass at the top
         let fringe = 2 + (hash(cell[0] * n + x, cell[1] * n + 7, cell[2] * n + dir) * 3.0).floor() as i32;
         if y >= fringe {
@@ -119,7 +127,46 @@ pub fn texel(reg: &Registry, b: &Def, dir: i32, cell: [i32; 3], x: i32, y: i32) 
         side
     } else {
         b
+    }
+}
+
+/// Whether texel (x, y) of face `dir` of the block at `cell` is a hole of the leaves pattern (shader.wgsl
+/// `leaf_hole`, ADR 0069): hashed by the texel's place on the face's plane, so the two faces between
+/// neighbouring leaf blocks have their holes in the same places. Empty on a cutout block, dark on any other.
+pub fn hole(reg: &Registry, b: &Def, dir: i32, cell: [i32; 3], x: i32, y: i32) -> bool {
+    let m = look_of(reg, b, dir, cell, x, y);
+    if m.pattern != Pattern::Leaves {
+        return false;
+    }
+    // (x, y) back to the shader's grid on the face: `texel` turns a side so x runs rightwards, y down
+    let (tx, ty) = if dir < 4 {
+        let x0 = if dir == 1 || dir == 2 { 15 - x } else { x };
+        if dir / 2 == 1 {
+            (15 - y, x0)
+        } else {
+            (x0, 15 - y)
+        }
+    } else {
+        (x, y)
     };
+    let a = (dir / 2) as usize;
+    let s = m.size.max(1) as i32;
+    let (pu, pv) = (cell[(a + 1) % 3] * 16 + tx, cell[(a + 2) % 3] * 16 + ty);
+    let plane = cell[a] + (dir % 2 == 0) as i32;
+    hash(pu.div_euclid(s), pv.div_euclid(s), plane * 4 + a as i32 + 61) < m.amount
+}
+
+/// One texel of a block's face as the game draws it unpainted, 0..1 per channel. `dir` is the shader's: 0 to
+/// 3 the sides, 4 the top, 5 the bottom; (x, y) with y down from the face's top edge; `cell` the block's place.
+pub fn texel(reg: &Registry, b: &Def, dir: i32, cell: [i32; 3], x: i32, y: i32) -> [f32; 3] {
+    let n = S as i32;
+    let h = hash(cell[0] * n + x, cell[1] * n + y, cell[2] * n + dir);
+    let tone = 0.82 + 0.12 * (h * 3.0).floor();
+    let m = look_of(reg, b, dir, cell, x, y);
+    if hole(reg, b, dir, cell, x, y) {
+        // the shader's `pattern_texel` for a hole: what an opaque block (or fast leaves) shows there
+        return m.colour.map(|v| (v * 0.6).clamp(0.0, 1.0));
+    }
     let k = if m.contrast == 1.0 { tone } else { 1.0 + m.contrast * (tone - 1.0) };
     let mut c = m.colour.map(|v| v * k);
     if m.pattern == Pattern::Stone && h > 0.94 {
@@ -149,14 +196,17 @@ pub fn face_at(reg: &Registry, b: &Def, face: usize, pal: &Palette, cell: [i32; 
     let mut img = Img::filled(1, [0; 3]);
     for y in 0..S {
         for x in 0..S {
-            crate::art::pencil(&mut img, 0, x, y, snap(pal, texel(reg, b, dir, cell, x as i32, y as i32)), false);
+            let (xi, yi) = (x as i32, y as i32);
+            // a cutout block's hole is an empty pixel; elsewhere `texel`'s dark stand-in
+            let c = if b.see == engine::blocks::See::Cutout && hole(reg, b, dir, cell, xi, yi) { crate::art::EMPTY } else { snap(pal, texel(reg, b, dir, cell, xi, yi)) };
+            crate::art::pencil(&mut img, 0, x, y, c, false);
         }
     }
     img
 }
 
-/// The eleven patterns by the names `blocks.toml` gives them, in the engine's order.
-pub const NAMES: [(Pattern, &str); 11] = [
+/// The twelve patterns by the names `blocks.toml` gives them, in the engine's order.
+pub const NAMES: [(Pattern, &str); 12] = [
     (Pattern::Plain, "plain"),
     (Pattern::Grass, "grass"),
     (Pattern::Stone, "stone"),
@@ -168,6 +218,7 @@ pub const NAMES: [(Pattern, &str); 11] = [
     (Pattern::Tiles, "tiles"),
     (Pattern::Bricks, "bricks"),
     (Pattern::Rings, "rings"),
+    (Pattern::Leaves, "leaves"),
 ];
 
 /// What the pattern panel chose (docs/design/studio.md, usability round step 2): a pattern, its three
@@ -339,6 +390,20 @@ mod tests {
         assert!(v(0).iter().all(|c| *c != [60, 60, 230]));
         assert_eq!(s.fill(&Img::filled(1, [60, 60, 230]), 0, true, &r, b, 1, &p).variants(), 4, "one variant: every makes four");
         assert_eq!(s.fill(&Img::filled(1, [60, 60, 230]), 0, false, &r, b, 1, &p).variants(), 1);
+    }
+
+    #[test]
+    fn leaves_leave_their_holes_empty_on_a_cutout_block_only() {
+        let (p, r) = (ramp_pal(), reg());
+        let mut b = r.get(1).unwrap().clone();
+        b.pattern = Pattern::Leaves;
+        (b.size, b.amount) = (2, 0.3);
+        let holes = |img: &Img| (0..S * S).filter(|&n| img.empty_at(0, n % S, n / S)).count();
+        assert_eq!(holes(&face(&r, &b, 2, &p)), 0, "an opaque block shows the dark stand-in");
+        b.see = engine::blocks::See::Cutout;
+        let img = face(&r, &b, 2, &p);
+        let want = (0..S * S).filter(|&n| hole(&r, &b, 0, [0; 3], (n % S) as i32, (n / S) as i32)).count();
+        assert!(want > 0 && holes(&img) == want, "every hole empty: {} of {want}", holes(&img));
     }
 
     #[test]

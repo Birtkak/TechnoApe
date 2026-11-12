@@ -22,9 +22,14 @@ pub(crate) fn pose(run: &str, t: f64, w: &World, speed: f64, alt: f64, warm: f64
         "fly" => {
             let r0 = planet.radius + alt;
             let th = speed * t / r0;
-            let dir = DVec3::new(th.sin(), 0.0, th.cos());
+            // at= starts the great circle there (the see-through spike's forest fly-through, ADR 0068)
+            let (d0, t0) = match a.0.contains_key("at").then(|| crate::stand_at(a).ok()).flatten() {
+                Some(d) => (d, d.cross(DVec3::Y).try_normalize().unwrap_or(DVec3::X)),
+                None => (DVec3::Z, DVec3::X),
+            };
+            let dir = d0 * th.cos() + t0 * th.sin();
             let pos = dir * (planet.top(dir) + alt);
-            Pose { pos, fwd: DVec3::new(th.cos(), 0.0, -th.sin()), up: dir }
+            Pose { pos, fwd: t0 * th.cos() - d0 * th.sin(), up: dir }
         }
         "orbit" => {
             // the waypoints where the bodies are now, in the inertial frame: the flight between them is there,

@@ -369,7 +369,9 @@ pub(crate) struct ChunkGpu {
     pub(crate) base: [i32; 3],
     pub(crate) info: u32,
     pub(crate) off: u32,
-    pub(crate) _p: [u32; 3],
+    /// Its opaque land quads: a ray's hit in the second geometry (the cutout quads) is that many on (ADR 0069).
+    pub(crate) opq: u32,
+    pub(crate) _p: [u32; 2],
 }
 
 /// The chunk table's entries by mesh offset, kept between frames so a traced instance's index stays valid and
@@ -430,6 +432,9 @@ pub(crate) struct Gpu {
     pub(crate) surface: wgpu::Surface<'static>,
     pub(crate) config: wgpu::SurfaceConfiguration,
     pub(crate) pipeline: wgpu::RenderPipeline,
+    /// The cutout blocks' quads (ADR 0069): the terrain's, through `fs_cut`, which discards an empty texel, so
+    /// the opaque terrain keeps early depth.
+    pub(crate) cut_pipeline: wgpu::RenderPipeline,
     pub(crate) sky_pipeline: wgpu::RenderPipeline,
     /// The overlays (ADR 0017): ghost lines and the 2D layer, with their vertex and rectangle buffers.
     pub(crate) ghost_pipeline: wgpu::RenderPipeline,
@@ -518,7 +523,7 @@ pub(crate) fn season_here(w: &engine::world::World, pos: glam::DVec3) -> (f64, f
 }
 
 /// Every block's look from the registry (ADR 0013, 0039, 0045), shader.wgsl `Look`, 64 bytes each: colour rgb,
-/// pattern | side << 8 | metal << 16 | gives light << 24; colour2, size; colour3, amount; contrast; the painted
+/// pattern | side << 8 | metal << 16 | gives light << 24 | cutout << 25; colour2, size; colour3, amount; contrast; the painted
 /// faces (16 bits a face: layer | variants - 1 << 12 | painted << 15; top and side in `tex`, the bottom in
 /// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24).
 fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 16]> {
@@ -537,7 +542,7 @@ fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> 
                         let size = d.size as u32 | ((d.seasons.is_some() || paints) as u32) << 8 | (paints as u32) << 9 | engine::sky::stagger_units(d.stagger) << 16;
                         let shine = (d.metal * 255.0).round() as u32;
                         let gives = (d.light != [0.0; 3]) as u32;
-                        let info = d.pattern as u32 | (d.side as u32) << 8 | shine << 16 | gives << 24;
+                        let info = d.pattern as u32 | (d.side as u32) << 8 | shine << 16 | gives << 24 | ((d.see == engine::blocks::See::Cutout) as u32) << 25;
                         let (mut tex, mut mean) = (0u64, 0);
                         // a season's own paint, else the base's (a season row without one is its pattern only when
                         // the base has none)
@@ -723,8 +728,8 @@ impl Gpu {
         let chunks = buf("chunks", (MAX_CHUNKS * std::mem::size_of::<ChunkGpu>()) as u64, U::STORAGE | U::COPY_DST);
         let lamps = buf("lamps", (MAX_LAMPS * std::mem::size_of::<LampGpu>()) as u64, U::STORAGE | U::COPY_DST);
         let lamp_cells = buf("lamp cells", (LAMP_GRID_LEN * 4) as u64, U::STORAGE | U::COPY_DST);
-        // the terrain's draws, then the sea's at MAX_CHUNKS * 16
-        let indirect = buf("indirect", (MAX_CHUNKS * 32) as u64, U::INDIRECT | U::COPY_DST);
+        // the terrain's draws, then the sea's at MAX_CHUNKS * 16, the cutout blocks' at MAX_CHUNKS * 32 (ADR 0069)
+        let indirect = buf("indirect", (MAX_CHUNKS * 48) as u64, U::INDIRECT | U::COPY_DST);
         let wquads = buf("wquads", (MAX_WQUADS * std::mem::size_of::<water::WQuad>()) as u64, U::STORAGE | U::COPY_DST);
         let fx_buf = buf("fx", (MAX_FX * std::mem::size_of::<crate::fx::FxGpu>()) as u64, U::STORAGE | U::COPY_DST);
         // every block's look from the registry (ADR 0013, 0039), shader.wgsl `Look`, 64 bytes each: colour rgb,
@@ -859,6 +864,7 @@ impl Gpu {
             })
         };
         let fx_pipeline = gbuffer_pipeline("vs_fx", "fs_fx");
+        let cut_pipeline = gbuffer_pipeline("vs", "fs_cut");
         // the models (ADR 0047): into the G-buffer with the terrain
         let model_pipeline = gbuffer_pipeline("vs_model", "fs_model");
         // water: blended over the terrain, tested against its depth but not writing it, seen from both sides
@@ -983,6 +989,7 @@ impl Gpu {
                 rt.tlas.as_binding(),
                 lamps.as_entire_binding(),
                 lamp_cells.as_entire_binding(),
+                tex.as_entire_binding(),
             ],
             format,
             w(),
@@ -997,6 +1004,7 @@ impl Gpu {
             surface,
             config,
             pipeline,
+            cut_pipeline,
             sea_pipeline,
             water_pipeline,
             wquads,

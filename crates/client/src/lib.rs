@@ -440,6 +440,8 @@ pub fn main() {
         k: args.get("k", settings.get(S::Detail)),
         // merging inside a lattice with interpolated corners (ADR 0025 I2); greedy=0 draws every face
         greedy: args.get("greedy", 1) == 1,
+        // fancy leaves (ADR 0069): the setting, or leaves=fancy|fast; frame.rs follows a change
+        cutout: args.0.get("leaves").map_or(settings.at(S::Leaves) == 1, |v| v == "fancy"),
         horizon: args.get("horizon", 1) == 1,
         prefetch_s: args.get("prefetch", 0.5),
         max_inflight: args.get("inflight", threads * 4),

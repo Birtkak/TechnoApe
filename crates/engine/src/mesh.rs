@@ -3,32 +3,83 @@
 //! Quad = 8 bytes: lo = x6 y6 z6 (w-1)5 (h-1)5 dir3, hi = material8 | ao8 << 8: ambient occlusion at each
 //! corner, 2 bits (0 open .. 3 a corner shut in), corner (u, v) at bits 2 * (u + 2v) (ADR 0022).
 use crate::world::{pidx, CS, P};
+use std::sync::LazyLock;
 
-/// Quads of one chunk, grouped by face direction (0..6 = +x,-x,+y,-y,+z,-z), then `water` quads of the
-/// generated sea's surface (`world::sea_quads`), drawn by the water pipeline.
+/// Quads of one chunk, grouped by face direction (0..6 = +x,-x,+y,-y,+z,-z), then `cut` quads of cutout blocks
+/// (ADR 0069: drawn by the pipeline that discards, their own geometry in the chunk's BLAS), then `water` quads of
+/// the generated sea's surface (`world::sea_quads`), drawn by the water pipeline.
 pub struct Mesh {
     pub quads: Vec<[u32; 2]>,
     pub counts: [u32; 6],
+    pub cut: u32,
     pub water: u32,
 }
 
+/// One bit per block id, set for a cutout block (`blocks::See::Cutout`): the mesher's inner loop reads this, not
+/// the row.
+static CUT: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| {
+    let mut t = Box::new([0u64; 1024]);
+    for d in crate::blocks::BLOCKS.placeable().filter(|d| !crate::blocks::BLOCKS.opaque(d.id)) {
+        t[d.id as usize >> 6] |= 1 << (d.id & 63);
+    }
+    t
+});
+fn is_cut(t: &[u64; 1024], c: u16) -> bool {
+    t[c as usize >> 6] >> (c & 63) & 1 == 1
+}
+
 /// `lattice` > 1 merges faces into quads that stay inside the cells of a lattice that many cells wide, where the
-/// renderer places vertices by interpolation (`Body::lattice`, ADR 0025 I2); 1 merges nothing.
+/// renderer places vertices by interpolation (`Body::lattice`, ADR 0025 I2); 1 merges nothing. Every solid block
+/// hides the faces behind it: the fast Leaves setting, and every coarse level.
 pub fn mesh(cells: &[u16; P * P * P], lattice: usize) -> Mesh {
-    // cols[a][v*P+u] = bits along axis a; u = (a+1)%3, v = (a+2)%3.
+    mesh_cut(cells, lattice, false)
+}
+
+/// `mesh`, and with `cutout` (fancy leaves on level 0, ADR 0069) a face is culled only against an opaque
+/// neighbour, so the faces behind and between cutout blocks stay, and the cutout blocks' quads go last as `cut`.
+pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool) -> Mesh {
+    // cols[a][v*P+u] = bits along axis a; u = (a+1)%3, v = (a+2)%3. opq: the same of opaque cells only, made
+    // only for a cutout mesh
     let mut cols = [[0u64; P * P]; 3];
-    for z in 0..P {
-        for y in 0..P {
-            for x in 0..P {
-                if cells[pidx(x, y, z)] != 0 {
-                    cols[0][z * P + y] |= 1 << x; // a=x: u=y, v=z
-                    cols[1][x * P + z] |= 1 << y; // a=y: u=z, v=x
-                    cols[2][y * P + x] |= 1 << z; // a=z: u=x, v=y
+    let mut opq_cols: Vec<[u64; P * P]> = Vec::new();
+    let cut_t: &[u64; 1024] = &CUT;
+    let mut any_cut = false;
+    if cutout {
+        opq_cols = vec![[0u64; P * P]; 3];
+        for z in 0..P {
+            for y in 0..P {
+                for x in 0..P {
+                    let c = cells[pidx(x, y, z)];
+                    if c != 0 {
+                        cols[0][z * P + y] |= 1 << x;
+                        cols[1][x * P + z] |= 1 << y;
+                        cols[2][y * P + x] |= 1 << z;
+                        if is_cut(cut_t, c) {
+                            any_cut = true;
+                        } else {
+                            opq_cols[0][z * P + y] |= 1 << x;
+                            opq_cols[1][x * P + z] |= 1 << y;
+                            opq_cols[2][y * P + x] |= 1 << z;
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        for z in 0..P {
+            for y in 0..P {
+                for x in 0..P {
+                    if cells[pidx(x, y, z)] != 0 {
+                        cols[0][z * P + y] |= 1 << x; // a=x: u=y, v=z
+                        cols[1][x * P + z] |= 1 << y; // a=y: u=z, v=x
+                        cols[2][y * P + x] |= 1 << z; // a=z: u=x, v=y
+                    }
                 }
             }
         }
     }
-    let mut groups: [Vec<[u32; 2]>; 6] = Default::default();
+    let opq: &[[u64; P * P]] = if any_cut { &opq_cols } else { &cols };
+    let mut groups: [Vec<[u32; 2]>; 7] = Default::default();
     let mut planes = vec![[0u32; 32]; 32]; // planes[depth][v] = bits over u
     for a in 0..3 {
         for s in 0..2 {
@@ -39,7 +90,8 @@ pub fn mesh(cells: &[u16; P * P * P], lattice: usize) -> Mesh {
             for v in 0..CS as usize {
                 for u in 0..CS as usize {
                     let col = cols[a][(v + 1) * P + (u + 1)];
-                    let f = if s == 0 { col & !(col >> 1) } else { col & !(col << 1) };
+                    let o = opq[a][(v + 1) * P + (u + 1)];
+                    let f = if s == 0 { col & !(o >> 1) } else { col & !(o << 1) };
                     let mut bits = (f >> 1) & 0xFFFF_FFFF;
                     while bits != 0 {
                         let d = bits.trailing_zeros() as usize;
@@ -79,7 +131,6 @@ pub fn mesh(cells: &[u16; P * P * P], lattice: usize) -> Mesh {
                 }
                 bits
             };
-            let out = &mut groups[dir];
             for d in 0..CS as usize {
                 let rows = &mut planes[d];
                 for v in 0..CS as usize {
@@ -115,7 +166,7 @@ pub fn mesh(cells: &[u16; P * P * P], lattice: usize) -> Mesh {
                         };
                         let lo = x as u32 | (y as u32) << 6 | (z as u32) << 12 | ((w - 1) as u32) << 18
                             | ((h - 1) as u32) << 23 | (dir as u32) << 28;
-                        out.push([lo, m as u32 | o << 8]);
+                        groups[if any_cut && is_cut(cut_t, m) { 6 } else { dir }].push([lo, m as u32 | o << 8]);
                     }
                 }
             }
@@ -124,10 +175,12 @@ pub fn mesh(cells: &[u16; P * P * P], lattice: usize) -> Mesh {
     let mut counts = [0u32; 6];
     let mut quads = Vec::with_capacity(groups.iter().map(|g| g.len()).sum());
     for (i, g) in groups.iter().enumerate() {
-        counts[i] = g.len() as u32;
+        if i < 6 {
+            counts[i] = g.len() as u32;
+        }
         quads.extend_from_slice(g);
     }
-    Mesh { quads, counts, water: 0 }
+    Mesh { quads, counts, cut: groups[6].len() as u32, water: 0 }
 }
 
 #[cfg(test)]
@@ -149,6 +202,71 @@ mod tests {
         assert_eq!(m.counts[2], 16); // the top merged into 8x8 quads, one per lattice cell
         let m = mesh(&c, 1);
         assert_eq!(m.counts[2], 1024);
+    }
+
+    /// The slow path, face by face: each solid cell's face whose neighbour does not hide it, as (cell, dir,
+    /// block). `hides` is the rule: before ADR 0069 any solid neighbour, with cutout blocks an opaque one.
+    fn faces_one_by_one(c: &[u16; P * P * P], hides: impl Fn(u16) -> bool) -> Vec<([usize; 3], u32, u16)> {
+        let mut out = Vec::new();
+        for z in 1..P - 1 {
+            for y in 1..P - 1 {
+                for x in 1..P - 1 {
+                    let m = c[pidx(x, y, z)];
+                    if m == 0 {
+                        continue;
+                    }
+                    for (dir, (dx, dy, dz)) in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)].into_iter().enumerate() {
+                        let n = c[pidx((x as i32 + dx) as usize, (y as i32 + dy) as usize, (z as i32 + dz) as usize)];
+                        if !hides(n) {
+                            out.push(([x - 1, y - 1, z - 1], dir as u32, m));
+                        }
+                    }
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+    /// A quad of one cell (lattice 1 merges nothing) as (the cell it belongs to, dir, block).
+    fn face_of(q: &[u32; 2]) -> ([usize; 3], u32, u16) {
+        let dir = (q[0] >> 28) & 7;
+        let mut p = [(q[0] & 63) as usize, (q[0] >> 6 & 63) as usize, (q[0] >> 12 & 63) as usize];
+        if dir % 2 == 0 {
+            p[dir as usize / 2] -= 1; // a + face sits on the far side of its cell
+        }
+        (p, dir, (q[1] & 255) as u16)
+    }
+
+    /// ADR 0069: with cutout blocks a face is culled only against an opaque neighbour; without, the mesher is
+    /// the old one. Both against the slow path, on a chunk of stone, leaves, shrub and air at random.
+    #[test]
+    fn faces_are_culled_only_against_opaque_neighbours() {
+        let b = &crate::blocks::BLOCKS;
+        let (stone, leaves, shrub) = (b.id("stone"), b.id("broadleaf leaves"), b.id("shrub"));
+        let mut c = Box::new([0u16; P * P * P]);
+        let mut h = 12345u32;
+        for v in c.iter_mut() {
+            h ^= h << 13;
+            h ^= h >> 17;
+            h ^= h << 5;
+            *v = [0, 0, stone, leaves, leaves, shrub][(h % 6) as usize];
+        }
+        let fancy = mesh_cut(&c, 1, true);
+        let mut got: Vec<_> = fancy.quads.iter().map(face_of).collect();
+        got.sort();
+        assert_eq!(got, faces_one_by_one(&c, |n| b.opaque(n)), "fancy");
+        let n_opq = fancy.quads.len() - fancy.cut as usize;
+        assert!(fancy.cut > 0 && fancy.quads[n_opq..].iter().all(|q| !b.opaque((q[1] & 255) as u16)), "the cutout quads come last");
+        assert!(fancy.quads[..n_opq].iter().all(|q| b.opaque((q[1] & 255) as u16)));
+        for fast in [mesh(&c, 1), mesh_cut(&c, 1, false)] {
+            let mut got: Vec<_> = fast.quads.iter().map(face_of).collect();
+            got.sort();
+            assert_eq!(got, faces_one_by_one(&c, |n| n != 0), "fast is the old mesher");
+            assert_eq!(fast.cut, 0);
+        }
+        // a chunk with no cutout block meshes the same either way
+        let rock: Box<[u16; P * P * P]> = Box::new(c.map(|v| if v == 0 { 0 } else { stone }));
+        assert_eq!(mesh_cut(&rock, 8, true).quads, mesh(&rock, 8).quads);
     }
 
     #[test]

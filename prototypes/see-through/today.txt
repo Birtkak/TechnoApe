@@ -1,0 +1,2 @@
+stand-today | run=stand at=1125.34,3634.37,1915.81 time=23625 eye=9 pitch=-28 yaw=120
+fly-today | run=fly at=1125.34,3634.37,1915.81 time=23625 alt=12 speed=15

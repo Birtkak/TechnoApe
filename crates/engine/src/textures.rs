@@ -1,11 +1,12 @@
 //! Hand-painted block textures (ADR 0045, docs/design/studio.md "Textures"): `data/textures/<block>.png` is a
 //! block's every face, `<block>_top.png`, `_side.png` (the four sides) and `_bottom.png` override one. The rule:
-//! 8-bit RGBA, 16 px high, 16, 32, 48 or 64 px wide (1 to 4 variants side by side), every pixel opaque. A file
+//! 8-bit RGBA, 16 px high, 16, 32, 48 or 64 px wide (1 to 4 variants side by side), every pixel opaque, or for a
+//! cutout block (`see = "cutout"`, ADR 0069) every pixel wholly there or wholly empty (alpha 255 or 0). A file
 //! that breaks it is refused by name and its block keeps its pattern. A season's paint is the same name with
 //! `@spring`, `@autumn` or `@winter` before `.png` (docs/design/seasonal-looks.md); the file without one is
 //! summer's and the base, and a face a season does not paint is the base's. No GPU here, so the Studio can run the
 //! same check.
-use crate::blocks::Registry;
+use crate::blocks::{Registry, See};
 use std::path::Path;
 
 /// One 16 x 16 variant, rows from the top, RGBA. The bytes are the same numbers as `blocks.toml`'s colours
@@ -18,7 +19,7 @@ pub const FACES: [&str; 3] = ["top", "side", "bottom"];
 #[derive(Clone, Debug, PartialEq)]
 pub struct Face {
     pub variants: Vec<Pixels>,
-    /// The mean of every pixel of every variant, 0..1, in `colour`'s numbers.
+    /// The mean of every pixel that is there (alpha 255) of every variant, 0..1, in `colour`'s numbers.
     pub mean: [f32; 3],
 }
 
@@ -45,8 +46,8 @@ pub struct Set {
     pub refused: Vec<String>,
 }
 
-/// One file's variants, or why it breaks the rule.
-pub fn decode(bytes: &[u8]) -> Result<Vec<Pixels>, String> {
+/// One file's variants for a block seen as `see`, or why it breaks the rule.
+pub fn decode(bytes: &[u8], see: See) -> Result<Vec<Pixels>, String> {
     let mut r = png::Decoder::new(std::io::Cursor::new(bytes)).read_info().map_err(|e| format!("not a PNG ({e})"))?;
     let i = r.info();
     let (w, h, colour, depth) = (i.width, i.height, i.color_type, i.bit_depth);
@@ -58,8 +59,10 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<Pixels>, String> {
     }
     let mut buf = vec![0; r.output_buffer_size().ok_or("too large")?];
     r.next_frame(&mut buf).map_err(|e| format!("unreadable ({e})"))?;
-    if let Some(p) = buf.chunks_exact(4).position(|p| p[3] != 255) {
-        return Err(format!("pixel ({}, {}) is not opaque", p as u32 % w, p as u32 / w));
+    let empty_ok = see == See::Cutout;
+    if let Some(p) = buf.chunks_exact(4).position(|p| p[3] != 255 && !(empty_ok && p[3] == 0)) {
+        let (x, y) = (p as u32 % w, p as u32 / w);
+        return Err(if empty_ok { format!("pixel ({x}, {y}) is partly see-through (alpha {}), a cutout block's pixels are 255 or 0", buf[p * 4 + 3]) } else { format!("pixel ({x}, {y}) is not opaque") });
     }
     Ok((0..w as usize / 16)
         .map(|v| std::array::from_fn(|k| {
@@ -70,8 +73,9 @@ pub fn decode(bytes: &[u8]) -> Result<Vec<Pixels>, String> {
 }
 
 fn face(variants: Vec<Pixels>) -> Face {
-    let n = (variants.len() * 256) as f32;
-    let mean = std::array::from_fn(|c| variants.iter().flatten().map(|p| p[c] as f32).sum::<f32>() / n / 255.0);
+    // an empty pixel is not seen: the mean is of those there (a face wholly empty is black)
+    let n = (variants.iter().flatten().filter(|p| p[3] != 0).count() as f32).max(1.0);
+    let mean = std::array::from_fn(|c| variants.iter().flatten().filter(|p| p[3] != 0).map(|p| p[c] as f32).sum::<f32>() / n / 255.0);
     Face { variants, mean }
 }
 
@@ -122,7 +126,7 @@ fn load_with(dir: &Path, reg: &Registry, mut kept: Option<&mut Kept>) -> Set {
             continue;
         };
         let id = (id, season);
-        let got = std::fs::read(dir.join(&name)).map_err(|e| e.to_string()).and_then(|b| decode(&b));
+        let got = std::fs::read(dir.join(&name)).map_err(|e| e.to_string()).and_then(|b| decode(&b, reg.get(id.0).map_or(See::Opaque, |d| d.see)));
         let got = match (got, kept.as_deref_mut()) {
             (Ok(v), Some(k)) => {
                 k.insert(name.clone(), v.clone());
@@ -184,7 +188,7 @@ mod tests {
     #[test]
     fn the_rule_takes_good_files_and_counts_their_variants() {
         for (w, n) in [(16, 1), (32, 2), (48, 3), (64, 4)] {
-            let v = decode(&rgba(w, 16, |x, y| [(x / 16) as u8, x as u8, y as u8, 255])).unwrap();
+            let v = decode(&rgba(w, 16, |x, y| [(x / 16) as u8, x as u8, y as u8, 255]), See::Opaque).unwrap();
             assert_eq!(v.len(), n, "{w} px wide");
             for (i, p) in v.iter().enumerate() {
                 assert_eq!(p[3 * 16 + 5], [i as u8, (i * 16 + 5) as u8, 3, 255], "variant {i}, pixel (5, 3)");
@@ -205,8 +209,23 @@ mod tests {
             (rgba(16, 16, |x, y| [9, 9, 9, if (x, y) == (7, 7) { 254 } else { 255 }]), "a see-through pixel"),
         ];
         for (bytes, why) in wrong {
-            assert!(decode(&bytes).is_err(), "{why}");
+            assert!(decode(&bytes, See::Opaque).is_err(), "{why}");
+            assert!(decode(&bytes, See::Cutout).is_err(), "{why}, cutout");
         }
+    }
+
+    /// ADR 0069: a cutout block may have empty pixels, nothing in between; an opaque block none, as before.
+    #[test]
+    fn a_cutout_block_may_have_empty_pixels_and_an_opaque_one_not() {
+        let holed = rgba(16, 16, |x, y| [9, 9, 9, if (x + y) % 3 == 0 { 0 } else { 255 }]);
+        assert_eq!(decode(&holed, See::Opaque).unwrap_err(), "pixel (0, 0) is not opaque");
+        let v = decode(&holed, See::Cutout).unwrap();
+        assert_eq!((v[0][0][3], v[0][1][3]), (0, 255), "the alpha byte is kept");
+        let half = rgba(16, 16, |x, y| [9, 9, 9, if (x, y) == (3, 2) { 128 } else { 255 }]);
+        assert!(decode(&half, See::Cutout).unwrap_err().contains("pixel (3, 2) is partly see-through (alpha 128)"));
+        // the mean leaves the empty pixels out
+        let f = face(vec![std::array::from_fn(|k| if k % 2 == 0 { [0, 0, 0, 0] } else { [255, 0, 0, 255] })]);
+        assert_eq!(f.mean, [1.0, 0.0, 0.0]);
     }
 
     fn folder(name: &str, files: &[(&str, Vec<u8>)]) -> std::path::PathBuf {

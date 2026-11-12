@@ -52,7 +52,7 @@ impl Gi {
     pub fn new(
         device: &wgpu::Device,
         shader: &wgpu::ShaderModule,
-        shared: [wgpu::BindingResource; 7],
+        shared: [wgpu::BindingResource; 8],
         screen: wgpu::TextureFormat,
         w: u32,
         h: u32,
@@ -94,7 +94,7 @@ impl Gi {
             compilation_options: Default::default(),
             cache: None,
         });
-        let [r0, r1, r2, r3, r5, r8, r9] = shared;
+        let [r0, r1, r2, r3, r5, r8, r9, r11] = shared;
         let trace0 = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &trace.get_bind_group_layout(0),
@@ -106,6 +106,8 @@ impl Gi {
                 wgpu::BindGroupEntry { binding: 5, resource: r5 },
                 wgpu::BindGroupEntry { binding: 8, resource: r8 },
                 wgpu::BindGroupEntry { binding: 9, resource: r9 },
+                // the painted faces: a ray through a cutout block reads its texel (ADR 0069)
+                wgpu::BindGroupEntry { binding: 11, resource: r11 },
             ],
         });
         fn view(v: &wgpu::TextureView) -> wgpu::BindingResource<'_> {
