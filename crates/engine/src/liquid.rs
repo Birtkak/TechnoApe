@@ -128,6 +128,11 @@ pub trait Ground {
     }
 }
 
+/// `Ground::reach` and `Ground::river` of column c, from `cache` or asked once.
+fn river_of(cache: &mut FxMap<Col, (u32, Option<(f64, f64, f64)>)>, g: &impl Ground, c: Col) -> (u32, Option<(f64, f64, f64)>) {
+    *cache.entry(c).or_insert_with(|| (g.reach(c), g.river(c)))
+}
+
 /// The friction that makes water `depth` units deep on a surface falling `grad` units a column carry `q`
 /// units a step per column of width, in steady flow: there each link's speed-up from the slope equals its
 /// friction, so v = 65536 grad CG / (U f), and the flow v depth / 2^VF is q. Proportional to the depth, the
@@ -232,6 +237,8 @@ pub struct Liquids {
     /// that trades with the sea asks for the same columns every step. shortcut: never pruned (24 bytes a shore
     /// column); prune it with `forget` if a long-lived server's shores ever make it large.
     gen_at: FxMap<Col, (i64, i64)>,
+    /// `Ground::reach` and `Ground::river` of the same columns, kept the same way (`open_ends` asks every step).
+    river_at: FxMap<Col, (u32, Option<(f64, f64, f64)>)>,
     /// Units the open sea took in from stored water (negative: gave out). Calm water at sea level next to
     /// sea that is not stored settles to exactly sea level, the difference goes here, and columns equal to
     /// generation are forgotten again. shortcut: the sea's level does not rise with it; a whole sea holds
@@ -396,6 +403,14 @@ impl Liquids {
             }
             self.remove(*c, false);
             self.build(g, *c, &wet, false);
+        }
+        // a river's water was moving when it was saved: it runs on (the sea's and a pond's sleep)
+        for (c, _) in cols {
+            for a in self.cols.get(c).cloned().unwrap_or_default() {
+                if self.nodes[a as usize].drag > 0 && self.nodes[a as usize].water > 0 {
+                    self.wake(a);
+                }
+            }
         }
     }
 
@@ -653,9 +668,12 @@ impl Liquids {
                 n.lacc += n.lat;
                 let add = (n.lacc >> 16) as i64;
                 n.lacc &= 0xFFFF;
-                n.water += add;
-                let c = n.col;
-                self.book(g.reach(c), -add);
+                if add > 0 {
+                    n.water += add;
+                    let c = n.col;
+                    let acct = river_of(&mut self.river_at, g, c).0;
+                    self.book(acct, -add);
+                }
             }
         }
         let awake = std::mem::take(&mut self.awake);
@@ -904,7 +922,7 @@ impl Liquids {
                     for d in g.neighbours(n.col).into_iter().flatten().filter(|d| !self.cols.contains_key(d)) {
                         let (lo, hi) = g.generated(d);
                         if lo < hi && n.surface() > lo.max(n.floor as i64 * U) {
-                            sea = Some((hi, g.reach(d)));
+                            sea = Some((hi, d));
                         }
                     }
                 }
@@ -925,6 +943,7 @@ impl Liquids {
                 continue;
             }
             body.sort_unstable();
+            let sea = sea.map(|(l, d)| (l, river_of(&mut self.river_at, g, d).0));
             self.flatten(&body, sea);
             if sea.is_some() {
                 // columns back to what generation gives, wet or the dry shore around them, are not stored
@@ -969,12 +988,12 @@ impl Liquids {
                             // the water here stands over its level (a dam's pond: the patch grows upstream)
                             if n.surface() > t + SEA_DH {
                                 grow.push(d);
-                            } else if let Some((q, grad, _)) = g.river(d) {
+                            } else if let (acct, Some((q, grad, _))) = river_of(&mut self.river_at, g, d) {
                                 // its share of the reach's flow: all of it straight downstream, none across
-                                feed.push(((q * ((hi - t) as f64 / grad.max(1.0)).min(1.0)).round() as i64, g.reach(d)));
+                                feed.push(((q * ((hi - t) as f64 / grad.max(1.0)).min(1.0)).round() as i64, acct));
                             }
                         } else if hi < t || (n.surface() - t).abs() < SEA_DH {
-                            sea = Some((t, g.reach(d)));
+                            sea = Some((t, river_of(&mut self.river_at, g, d).0));
                         } else {
                             grow.push(d);
                         }
@@ -1025,6 +1044,9 @@ impl Liquids {
         let mut starts = self.awake.clone();
         starts.append(&mut self.slept);
         let mut gone: Vec<Col> = Vec::new();
+        // columns whose ground was changed under generated water (a pit dug in a river's bed): generation
+        // cannot describe them, so they stay stored, asleep, once the water around them is forgotten
+        let mut keep: Vec<u32> = Vec::new();
         for a in starts {
             // a slept node may have been removed since (its index free or reused)
             let live = self.cols.get(&self.nodes[a as usize].col).is_some_and(|ids| ids.contains(&a));
@@ -1033,7 +1055,7 @@ impl Liquids {
             }
             let mut body = vec![a];
             seen.insert(a, ());
-            let (mut k, mut ok, mut open) = (0, true, false);
+            let (mut k, mut ok, mut open, mut kept) = (0, true, false, Vec::new());
             // the whole body, even once it fails: a part left unseen would pass as a body of its own
             while k < body.len() {
                 let n = &self.nodes[body[k] as usize];
@@ -1041,8 +1063,12 @@ impl Liquids {
                 let c = n.col;
                 let (lo, hi) = *self.gen_at.entry(c).or_insert_with(|| g.generated(c));
                 let n = &self.nodes[body[k - 1] as usize];
-                let want = if lo < hi && n.floor as i64 * U == lo { hi - lo } else { 0 };
+                let dug = lo < hi && n.floor as i64 * U < lo;
+                let want = if lo < hi && (n.floor as i64 * U == lo || dug) { hi - n.floor as i64 * U } else { 0 };
                 ok &= self.cols[&c].len() == 1 && n.ceil == OPEN && (n.water - want).abs() < DEAD;
+                if dug {
+                    kept.push(body[k - 1]);
+                }
                 open |= !n.rim;
                 for l in &n.links {
                     let b = &self.nodes[l.to as usize];
@@ -1055,6 +1081,7 @@ impl Liquids {
             if !ok || !open {
                 continue;
             }
+            keep.extend(kept);
             for &a in &body {
                 let c = self.nodes[a as usize].col;
                 gone.push(c);
@@ -1063,6 +1090,21 @@ impl Liquids {
             }
         }
         self.forget(g, gone);
+        for a in keep {
+            let n = &mut self.nodes[a as usize];
+            n.quiet = u16::MAX;
+            for l in &mut n.links {
+                (l.v, l.out, l.frac, l.fin, l.vin) = (0, 0, 0, 0, 0);
+            }
+            if n.water != n.sent {
+                let c = n.col;
+                self.dirty.insert(c, ());
+            }
+        }
+        let quiet: Vec<u32> = self.awake.iter().copied().filter(|&a| self.nodes[a as usize].quiet == u16::MAX).collect();
+        if !quiet.is_empty() {
+            self.awake.retain(|a| !quiet.contains(a));
+        }
     }
 
     /// Columns back to what generation gives (within the dead band) are not stored: the difference goes to
@@ -1700,7 +1742,46 @@ mod tests {
         assert_eq!(w.sea_extra, 3 * U, "the bucket and the rain reached the sea");
     }
 
-    /// A pillar standing in the river (a bridge's) keeps nothing live but its own column, which sleeps.
+    /// A river patch saved while it moved loads live (review of W5): it runs on and is forgotten, instead of
+    /// standing frozen in the river.
+    #[test]
+    fn a_restored_river_patch_runs_on() {
+        let g = Channel::new(160, 0.02, 1.5, 0.0);
+        let mut w = Liquids::default();
+        for y in 3..5 {
+            w.pour(&g, col(80, y), (g.level(80) / U) as i32, U);
+        }
+        for _ in 0..30 {
+            w.step(&g);
+        }
+        let mut back = Liquids::default();
+        back.restore(&g, &w.all());
+        assert!(back.stored() > 0);
+        let poured = back.counted();
+        assert!(until_forgotten(&mut back, &g, 60 * 30, poured).is_some(), "{} columns still stored", back.stored());
+    }
+
+        /// A pit dug in the river's bed (review of W5): the river around it is forgotten again and the pit, which
+    /// generation cannot describe, stays stored but asleep at the river's level; nothing keeps working.
+    #[test]
+    fn a_pit_dug_in_a_river_bed_falls_asleep() {
+        let mut g = Channel::new(160, 0.02, 1.5, 0.0);
+        let mut w = Liquids::default();
+        let z = g.gen_floor(80, 4);
+        g.set(&mut w, 80, 4, z - 2..z, false);
+        for t in 0..60 * 60 {
+            w.step(&g);
+            assert_eq!(w.counted(), 0, "the count at step {t}");
+        }
+        let s0 = w.stepped;
+        for _ in 0..60 * 10 {
+            w.step(&g);
+        }
+        assert_eq!((w.stored(), w.awake(), w.stepped - s0), (1, 0, 0));
+        assert!((level(&w, 80, 4) - g.level(80) as f64 / U as f64).abs() < 0.02, "the pit stands at the river's level");
+    }
+
+        /// A pillar standing in the river (a bridge's) keeps nothing live but its own column, which sleeps.
     #[test]
     fn a_pillar_in_a_river_keeps_nothing_awake() {
         let mut g = Channel::new(160, 0.02, 1.5, 0.0);

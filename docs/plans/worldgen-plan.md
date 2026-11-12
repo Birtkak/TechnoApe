@@ -90,6 +90,12 @@ in `tests/views/`.
 - Then both in the engine; rivers fed by the live rain once W3's air grid runs.
 - **Taste call:** tide height.
 - Checks: the water ledger over a soak with dams built and broken; a tide filmstrip over one day.
+- **Status (2026-11-12, ADR 0059): rivers and lakes done; tides open.**
+  - Generated water stands in beds and lakes; touched water goes live and is forgotten again.
+  - The reaches pass what they take in down to the sea, and `Liquids::rain` waits for W3's runoff.
+  - Saves are version 8; bots dam rivers in the soak with the ledger exact.
+  - A walker follows a river from spring to sea in water.
+  - Open: the look (the developer's call), joining W3's air ledger once both are merged, and tides.
 
 ### W6. Luna
 - **First:** Luna at N = 3072 (1,061 m, ADR 0027) and its orbit moved out (proposal 30 km): `sky.rs`,

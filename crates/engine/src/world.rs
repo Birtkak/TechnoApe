@@ -4,7 +4,7 @@ use crate::bake::Map;
 use crate::biomes::{REACH, ROWS, SPACING, TALLEST};
 use crate::blocks::{AIR, BLOCKS};
 use crate::bodies::{Generator, BODIES};
-use crate::liquid::{Col, Ground, Liquids, OPEN, U};
+use crate::liquid::{Col, Ground, Liquids, OPEN, TILE, U};
 use crate::sky::{Pose, Sky};
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use glam::{DQuat, DVec3, IVec3};
@@ -371,8 +371,10 @@ impl Body {
         let Some(b) = &self.baked else { return sea };
         let s = b.map.m as f64 / self.n as f64;
         let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
-        let d = self.dir(face as usize, ci, cj);
-        let Some(w) = b.map.water(face as usize, ci * s, cj * s, d) else { return sea };
+        if !b.map.maybe_wet(face as usize, ci * s, cj * s) {
+            return sea;
+        }
+        let Some(w) = b.map.water(face as usize, ci * s, cj * s, self.dir(face as usize, ci, cj)) else { return sea };
         let top = self.layer_of(self.radius - SEA_DEPTH + w.level as f64);
         if sea.is_some_and(|s| s.0 >= top) {
             return sea;
@@ -1480,6 +1482,30 @@ pub fn river_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2
         }
     }
     out
+}
+
+/// The chunks (levels up to 4) that draw the generated water of tile `t`: the sea's and every river's and
+/// lake's level in it. When the tile turns wet or dry they are meshed again (`Streamer::touch_tile`).
+pub fn water_keys(body: &Body, t: Col) -> Vec<Key> {
+    let mut tops: Vec<f64> = body.sea.into_iter().collect();
+    for j in t.j() * TILE..(t.j() + 1) * TILE {
+        for i in t.i() * TILE..(t.i() + 1) * TILE {
+            if let Some((top, acct, _)) = body.water_at(t.face(), i, j) {
+                if acct != crate::liquid::SEA {
+                    tops.push(top);
+                }
+            }
+        }
+    }
+    let mut keys: Vec<Key> = (0..=body.root_level.min(4))
+        .flat_map(|l| {
+            let span = CS << l;
+            tops.iter().map(move |&top| Key { body: t.body(), face: t.face(), level: l, pos: IVec3::new(t.i() * TILE / span, t.j() * TILE / span, ((top / (1i32 << l) as f64).floor() as i32).div_euclid(CS)) })
+        })
+        .collect();
+    keys.sort_unstable_by_key(|k| (k.level, k.pos.z));
+    keys.dedup();
+    keys
 }
 
 pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {

@@ -612,13 +612,9 @@ impl Streamer {
 
     /// True when every full-detail chunk that samples block `b` draws its latest version: an edit there is
     /// on screen (the feel report's click-to-change, fundamentals section 1).
-    /// Tile `t` became wet or dry: the chunks that draw its sea (levels up to 4) are meshed again.
+    /// Tile `t` became wet or dry: the chunks that draw its generated water (levels up to 4) are meshed again.
     pub fn touch_tile(&mut self, world: &World, t: Col) {
-        let body = &world.bodies[t.body() as usize];
-        let Some(sea) = body.sea else { return };
-        for l in 0..=body.root_level.min(4) {
-            let (span, cz) = (CS << l, (sea / (1i32 << l) as f64).floor() as i32);
-            let k = Key { body: t.body(), face: t.face(), level: l, pos: IVec3::new(t.i() * TILE / span, t.j() * TILE / span, cz.div_euclid(CS)) };
+        for k in crate::world::water_keys(&world.bodies[t.body() as usize], t) {
             if let Some(sl) = self.slots.get_mut(&k) {
                 sl.want_v += 1;
                 self.touched.push(k);

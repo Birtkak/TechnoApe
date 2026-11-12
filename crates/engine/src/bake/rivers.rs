@@ -463,13 +463,21 @@ impl Map {
         })
     }
         pub fn water(&self, face: usize, x: f64, y: f64, d: DVec3) -> Option<Water> {
-        let m = self.m as i32;
-        let (f, i, j) = fold(face, (x.floor() as i32).clamp(0, m - 1), (y.floor() as i32).clamp(0, m - 1), m);
-        let c = (f as u32 * self.m + j as u32) * self.m + i as u32;
-        if self.lines.wet.get(c as usize / 64).is_none_or(|w| w & (1 << (c % 64)) == 0) {
+        let c = self.cell_of(face, x, y);
+        if !self.maybe_wet(face, x, y) {
             return None;
         }
         self.water_among(face, x, y, d, self.lines.around(c).iter().map(|e| e.1))
+    }
+    fn cell_of(&self, face: usize, x: f64, y: f64) -> u32 {
+        let m = self.m as i32;
+        let (f, i, j) = fold(face, (x.floor() as i32).clamp(0, m - 1), (y.floor() as i32).clamp(0, m - 1), m);
+        (f as u32 * self.m + j as u32) * self.m + i as u32
+    }
+    /// False where `water` is surely None (`Lines::wet`): one bit, before any geometry.
+    pub fn maybe_wet(&self, face: usize, x: f64, y: f64) -> bool {
+        let c = self.cell_of(face, x, y);
+        self.version >= 3 && self.lines.wet.get(c as usize / 64).is_some_and(|w| w & (1 << (c % 64)) != 0)
     }
     /// `water`, with the river segments to try given.
     fn water_among(&self, face: usize, x: f64, y: f64, d: DVec3, segs: impl Iterator<Item = u32>) -> Option<Water> {
@@ -727,6 +735,8 @@ mod tests {
             }
             tried += 1;
             let key = Key { body: 0, face: blk.face, level: 0, pos: IVec3::new(blk.pos.x.div_euclid(CS), blk.pos.y.div_euclid(CS), (top.floor() as i32).div_euclid(CS)) };
+            // a tile turning wet or dry meshes this chunk again (the review of W5: only the sea's were)
+            assert!(crate::world::water_keys(b, World::col(blk).tile()).contains(&key), "{key:?} is remeshed with its tile");
             let qs = river_quads(b, key, &[], &generate(b, key, &[]));
             let (x, y) = (blk.pos.x - key.base().x, blk.pos.y - key.base().y);
             let q = qs.iter().find(|q| {
