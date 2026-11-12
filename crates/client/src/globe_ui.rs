@@ -200,8 +200,9 @@ impl App {
             for wp in self.waypoints.iter().filter(|wp| wp.body == b) {
                 if let Some((x, y)) = at(wp.rel) {
                     let c = nav::COLOURS[wp.colour % nav::COLOURS.len()];
-                    hud::icon(p, x, y, 6.0, wp.icon, [c[0], c[1], c[2], 1.0]);
-                    p.text_px(x + 9.0, y - 6.0, &wp.name, [c[0], c[1], c[2], 0.95], hud::PX * 0.75);
+                    hud::icon(p, x + 1.5, y + 1.5, 8.0, wp.icon, [0.0, 0.0, 0.0, 0.8]);
+                    hud::icon(p, x, y, 8.0, wp.icon, [c[0], c[1], c[2], 1.0]);
+                    p.text_px(x + 11.0, y - 6.0, &wp.name, [c[0], c[1], c[2], 0.95], hud::PX * 0.75);
                 }
             }
         }
@@ -215,11 +216,14 @@ impl App {
                     let (dx, dy) = (ax - x, ay - y);
                     let len = dx.hypot(dy).max(1e-3);
                     for k in 1..=4 {
-                        let s = 4.0 + 3.0 * k as f32;
-                        p.rect(x + dx / len * s - 1.5, y + dy / len * s - 1.5, 3.0, 3.0, [1.0, 0.85, 0.2, 1.0], 0);
+                        let s = 8.0 + 5.0 * k as f32;
+                        p.rect(x + dx / len * s - 3.0, y + dy / len * s - 3.0, 6.0, 6.0, [0.0, 0.0, 0.0, 0.8], 0);
+                        p.rect(x + dx / len * s - 2.0, y + dy / len * s - 2.0, 4.0, 4.0, [1.0, 0.85, 0.2, 1.0], 0);
                     }
                 }
-                hud::icon(p, x, y, 6.0, 3, [1.0, 0.85, 0.2, 1.0]);
+                p.rect(x - 9.0, y - 9.0, 18.0, 18.0, [0.0, 0.0, 0.0, 0.7], 0);
+                hud::icon(p, x, y, 8.0, 3, [1.0, 0.85, 0.2, 1.0]);
+                p.text_px(x + 12.0, y + 6.0, "you", [1.0, 0.85, 0.2, 0.95], hud::PX * 0.75);
             }
         }
         // the buttons, the body's name, and the place under the pointer in the compass's notation

@@ -45,4 +45,4 @@ it changed. Measured in the game: ADR 0077.
 **Picked.** As above: the pictures built on a worker when the world loads, one storage buffer (binding 20),
 the shader draws, markers are ordinary rectangles.
 
-![noon](out/noon.png) ![walked](out/walked.png) ![luna](out/luna.png)
+![noon](shots/noon.png) ![walked](shots/walked.png) ![luna](shots/luna.png)
