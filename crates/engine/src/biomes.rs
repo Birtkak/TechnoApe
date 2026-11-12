@@ -213,6 +213,9 @@ mod tests {
         for (k, name) in crate::bake::luna::KINDS.iter().enumerate() {
             assert_eq!(&r.biomes[crate::bake::luna::HIGHLAND as usize + k].name, name);
         }
+        // Luna's ice (the developer, ADR 0070): under 1 m of dust where the sun never reaches
+        let shadow = &r.biomes[crate::bake::luna::SHADOW as usize].ground;
+        assert_eq!(shadow[..2], [BLOCKS.id("regolith"), BLOCKS.id("ice")]);
         let b = |i: u8| &r.biomes[i as usize];
         assert_eq!(b(life::DESERT).ground, [BLOCKS.id("sand"), BLOCKS.id("sand"), BLOCKS.id("stone")]);
         assert_eq!(b(life::TEMPERATE_FOREST).ground[0], BLOCKS.id("grass"));

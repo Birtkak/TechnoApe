@@ -1,0 +1,162 @@
+# The ore bodies a planet holds (W4, ADR 0063; schema and checks in crates/engine/src/ore.rs), from
+# docs/design/ore-budget.md: its numbers kept per block (the developer's call), so a body has the blocks the
+# budget names and an ore block gives 1 to 3 ingots, the most at a body's middle.
+# Each [[kind]] is a kind of body:
+# `block`: the ore block (data/blocks.toml); `gives`: the element the ledger counts it as.
+# `shape`: lump (a rounded body), vein (tall and two metres thin), seam (a flat bed 2 m thick), layer (3 m),
+#   blanket (1 m, just under the ground), cap (the stained top of a body, at the ground), bog (1.5 m in a wet
+#   soil), gravel (1.5 m in a stream bed). `count` bodies of `blocks` each, on the 4 km planet (scaled by area
+#   on other sizes, at least one); `depth` [min, max]: metres from the ground to a body's middle.
+# `provinces`: where it forms (data/rocks.toml); `host`: the rock that must be at its middle (optional);
+# `biomes`: the biomes it forms under (optional; bog iron and bauxite follow the climate, not the rock).
+# `near`: [min, max] metres from the spawn the nearest body must lie (optional; ore-budget.md, "Where").
+# `gravel`: a kind of gravel body put in the stream bed below each body, when a stream runs within 300 m.
+# `gossan`: rusty ground over each body, that many metres across (a sign of a deep body).
+
+[[kind]]
+name = "copper gravel"
+block = "copper gravel"
+gives = "copper"
+shape = "gravel"
+count = 40
+blocks = 500
+depth = [0.75, 0.75]
+provinces = ["shield", "basin", "folded belt", "volcanic arc", "rift"]
+near = [0.0, 150.0]
+
+[[kind]]
+name = "copper cap"
+block = "malachite"
+gives = "copper"
+shape = "cap"
+count = 12
+blocks = 4000
+depth = [1.5, 1.5]
+provinces = ["folded belt", "volcanic arc", "shield"]
+gravel = "copper gravel"
+
+[[kind]]
+name = "deep copper"
+block = "chalcopyrite"
+gives = "copper"
+shape = "lump"
+count = 6
+blocks = 45000
+depth = [15.0, 60.0]
+provinces = ["volcanic arc", "folded belt"]
+near = [1000.0, 3000.0]
+gossan = 30.0
+
+[[kind]]
+name = "tin vein"
+block = "cassiterite"
+gives = "tin"
+shape = "vein"
+count = 12
+blocks = 1500
+depth = [3.0, 6.0]
+provinces = ["shield", "volcanic arc", "folded belt"]
+host = "granite"
+near = [800.0, 1500.0]
+gravel = "tin gravel"
+
+[[kind]]
+name = "tin gravel"
+block = "tin gravel"
+gives = "tin"
+shape = "gravel"
+count = 0
+blocks = 400
+depth = [0.75, 0.75]
+provinces = ["shield", "basin", "folded belt", "volcanic arc", "rift"]
+
+[[kind]]
+name = "bog iron"
+block = "bog iron"
+gives = "iron"
+shape = "bog"
+count = 30
+blocks = 500
+depth = [0.75, 0.75]
+provinces = ["shield", "basin", "folded belt", "volcanic arc", "rift"]
+biomes = ["wetland", "cold forest", "temperate forest"]
+near = [0.0, 500.0]
+
+[[kind]]
+name = "banded iron"
+block = "hematite"
+gives = "iron"
+shape = "layer"
+count = 4
+blocks = 190000
+depth = [20.0, 80.0]
+provinces = ["shield"]
+near = [3000.0, 1e9]
+gossan = 60.0
+
+[[kind]]
+name = "coal seam"
+block = "coal"
+gives = "coal"
+shape = "seam"
+count = 10
+blocks = 110000
+depth = [5.0, 20.0]
+provinces = ["basin"]
+host = "shale"
+near = [0.0, 1500.0]
+
+[[kind]]
+name = "bauxite"
+block = "bauxite"
+gives = "aluminium"
+shape = "blanket"
+count = 4
+blocks = 47500
+depth = [0.5, 0.5]
+provinces = ["shield", "basin", "folded belt", "volcanic arc", "rift"]
+biomes = ["rain forest", "savanna"]
+
+[[kind]]
+name = "lead pocket"
+block = "galena"
+gives = "lead"
+shape = "lump"
+count = 20
+blocks = 1750
+depth = [10.0, 40.0]
+provinces = ["basin"]
+host = "limestone"
+near = [1000.0, 3000.0]
+
+[[kind]]
+name = "gold vein"
+block = "gold quartz"
+gives = "gold"
+shape = "vein"
+count = 8
+blocks = 500
+depth = [40.0, 150.0]
+provinces = ["folded belt"]
+gravel = "gold gravel"
+
+[[kind]]
+name = "gold gravel"
+block = "gold gravel"
+gives = "gold"
+shape = "gravel"
+count = 0
+blocks = 300
+depth = [0.75, 0.75]
+provinces = ["shield", "basin", "folded belt", "volcanic arc", "rift"]
+
+[[kind]]
+name = "uranium"
+block = "pitchblende"
+gives = "uranium"
+shape = "lump"
+count = 3
+blocks = 333
+depth = [40.0, 150.0]
+provinces = ["shield"]
+host = "granite"

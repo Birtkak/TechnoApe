@@ -292,7 +292,7 @@ mod tests {
     #[test]
     fn a_missing_map_comes_in_pieces() {
         let cells = 6 * 384 * 384;
-        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12345, n: 3072, m: 384, h: (0..cells).map(|c| c as f32).collect(), biome: vec![4; cells], ..crate::bake::Map::empty() }.to_bytes();
+        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12345, n: 3072, m: 384, h: (0..cells).map(|c| c as f32).collect(), biome: vec![4; cells], rock: vec![0; cells], ..crate::bake::Map::empty() }.to_bytes();
         let map = crate::bake::Map::from_bytes(&bytes).unwrap();
         // a run before this one kept it: this client must not have it yet
         let _ = std::fs::remove_file(crate::bake::file(-12345, 3072));
@@ -320,7 +320,7 @@ mod tests {
     #[test]
     fn a_map_download_reports_its_pieces() {
         let cells = 6 * 384 * 384;
-        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12346, n: 3072, m: 384, h: vec![1.0; cells], biome: vec![4; cells], ..crate::bake::Map::empty() }.to_bytes();
+        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12346, n: 3072, m: 384, h: vec![1.0; cells], biome: vec![4; cells], rock: vec![0; cells], ..crate::bake::Map::empty() }.to_bytes();
         let map = crate::bake::Map::from_bytes(&bytes).unwrap();
         let _ = std::fs::remove_file(crate::bake::file(-12346, 3072));
         let (mut client, server) = local::<ToServer, ToClient>();

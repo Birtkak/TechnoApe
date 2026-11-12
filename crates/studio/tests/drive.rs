@@ -244,7 +244,8 @@ fn palette_slider_moves_a_colour_and_its_texture_follows() {
     let pal = |d: &Path| engine::palette::Palette::parse(&std::fs::read_to_string(d.join("data/palette.toml")).unwrap()).unwrap();
     let p0 = pal(&dir);
     let name = p0.colours[p0.find(rgb).unwrap()].name.clone();
-    let line = studio(&dir, &["page=Palette", "rects=1", &format!("input=click @colour:{}; drag @slider:value:0.5,0.5 @slider:value:0.2,0.5", name.replace(' ', "_"))]);
+    // a window tall enough for every ramp: the colour the pattern snapped to can be any of them
+    let line = studio(&dir, &["page=Palette", "rects=1", "size=1280x4000", &format!("input=click @colour:{}; drag @slider:value:0.5,0.5 @slider:value:0.2,0.5", name.replace(' ', "_"))]);
     let p1 = pal(&dir);
     let moved = p1.colours.iter().find(|c| c.name == name).unwrap().rgb;
     assert_ne!(moved, rgb, "the value slider did not move {name}: {line}");
@@ -508,4 +509,27 @@ fn structures_oak_recipe_another_wall_save() {
     let text = std::fs::read_to_string(dir.join("data/structures/oak.toml")).unwrap();
     let reg = engine::blocks::Registry::parse(&std::fs::read_to_string(dir.join("data/blocks.toml")).unwrap()).unwrap();
     engine::structures::Structure::parse("oak.toml", &text, &reg).unwrap();
+}
+
+/// docs/design/seasonal-looks.md: a season tab paints `<block>@<season>.png` from the base, "Add season" puts the
+/// base colour in a `[block.<season>]` and "Remove" drops the files and the look again.
+#[test]
+fn a_season_is_added_painted_and_removed() {
+    let dir = scratch("seasons");
+    let blocks = || std::fs::read_to_string(dir.join("data/blocks.toml")).unwrap();
+    let before = blocks();
+    studio(&dir, &["open=dirt", "input=click @btn:pattern; key Ctrl+S"]);
+    studio(&dir, &["open=dirt", "season=winter", "cmd=season.add", "input=key Ctrl+S"]);
+    let winter = dir.join("data/textures/dirt@winter.png");
+    assert_eq!(png(&winter).2, png(&dir.join("data/textures/dirt.png")).2, "the season starts as the base");
+    let reg = engine::blocks::Registry::parse(&blocks()).unwrap();
+    let d = reg.get(reg.id("dirt")).unwrap();
+    let text = blocks();
+    let row = &text[text.find("name = \"dirt\"").unwrap()..];
+    let row = &row[..row.find("[[block]]").unwrap_or(row.len())];
+    assert!(row.contains("[block.winter]"), "a [block.winter] after dirt's row: {row}");
+    assert_eq!(d.tone(3).colour, d.colour, "with the base colour");
+    let line = studio(&dir, &["open=dirt", "season=winter", "cmd=season.remove"]);
+    assert!(!winter.exists(), "{line}");
+    assert_eq!(blocks(), before, "data/blocks.toml as it was, byte for byte");
 }

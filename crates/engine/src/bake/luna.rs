@@ -18,8 +18,9 @@ use rayon::prelude::*;
 use std::f64::consts::TAU;
 use std::sync::Arc;
 
-/// Changes whenever this bake makes other ground: 100 + Luna's own version.
-pub const VERSION: u32 = 101;
+/// Changes whenever this bake makes other ground or bytes: 100 + Luna's own version (102: the map gained W4's
+/// empty rock field).
+pub const VERSION: u32 = 102;
 
 /// The kinds, rows of `data/biomes.toml` after Terra's 15: what the surface is and how deep its dust.
 pub const HIGHLAND: u8 = 15;

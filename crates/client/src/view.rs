@@ -7,6 +7,7 @@
 //! `effects file` (an effects file read on the reading thread, its rows played from then on; ADR 0050) and
 //! `effect name` (that row or group lasting on the stand cell's floor, from its start; `effect -` none). Effects
 //! play when the run has `fx=1`.
+//! `season north|equator|south` shows the seasons as at that latitude (`season -` by the place's own).
 //! `bare 1` leaves the land, the sea and the sky out of the picture (a plain grey instead; the light stays the
 //! place's and the time's), `bare 0` draws them again.
 //! `state name` puts the shown model in that state (its clip, effects at points, sound, light; ADR 0050); `state -` none.
@@ -39,6 +40,9 @@ pub(crate) struct ViewRun {
     effect_on: bool,
     /// `bare 1`: no land and no sky are drawn, only the model and the effects on a plain ground colour.
     pub(crate) bare: bool,
+    /// `season north|equator|south`: the seasons as at that latitude everywhere (the Studio's year slider shows
+    /// them whole); `season -` (the default) by the place's own.
+    pub(crate) lat: Option<u8>,
 }
 
 impl ViewRun {
@@ -70,7 +74,7 @@ impl ViewRun {
                 let _ = tx.send(Cmd::Quit);
             })
             .expect("a thread for stdin");
-        ViewRun { rx, eye: DVec3::new(2.0, 1.5, 2.5), target: DVec3::splat(0.5), t: 0.0, want: None, feet, orig: HashMap::new(), last: Instant::now(), sets, effect: None, effect_on: false, bare: false }
+        ViewRun { rx, eye: DVec3::new(2.0, 1.5, 2.5), target: DVec3::splat(0.5), t: 0.0, want: None, feet, orig: HashMap::new(), last: Instant::now(), sets, effect: None, effect_on: false, bare: false, lat: None }
     }
 
     /// The camera: the eye looking at the target, up the cell's up.
@@ -83,6 +87,19 @@ impl ViewRun {
 
     pub(crate) fn wants(&self) -> bool {
         self.want.is_some()
+    }
+}
+
+impl App {
+    /// The year's phase the first body's looks take (`BodyGpu::_p[1]`, shader.wgsl `season`) when it is `year`:
+    /// by each place's latitude; the Studio's `season` latitude makes the seasons whole everywhere (8 and on,
+    /// the phase at full strength), the north's or half a year on the south's, or none on the equator.
+    pub(crate) fn season_year(&self, year: f64) -> f64 {
+        match self.view.as_ref().and_then(|v| v.lat) {
+            None => year,
+            Some(1) => -1.0,
+            Some(k) => 8.0 + (year + k as f64).rem_euclid(4.0),
+        }
     }
 }
 
@@ -125,6 +142,7 @@ impl App {
                 Some("cam") => (v.eye, v.target) = (DVec3::new(num(1), num(2), num(3)), DVec3::new(num(4), num(5), num(6))),
                 Some("time") => self.time0 = num(1),
                 Some("bare") => v.bare = num(1) != 0.0,
+                Some("season") => v.lat = ["north", "equator", "south"].iter().position(|n| f.get(1) == Some(n)).map(|k| k as u8),
                 Some("frame") => v.want = Some(num(1) as u64),
                 Some("model") => {
                     // a last word `@x,z,yaw`: it stands that far from its cell (metres), turned (radians); the walk in a circle

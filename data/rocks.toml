@@ -1,0 +1,54 @@
+# The rock under the soil (W4, ADR 0063; schema and checks in crates/engine/src/rock.rs). The bake gives every
+# 8 m map cell a province from what the plates did there (crates/engine/src/bake/rock.rs); the rows here are
+# those provinces, in the bake's order, and their names must match it.
+# `layers`: the province's rocks top down, each [block, metres]. The first layer's top lies `datum` metres
+# over the sea (and above it the first layer goes on up to the soil); the last layer's metres are 0: it goes
+# to the bottom of the crust (192 m). A valley cuts down through the layers, and a cliff shows their bands.
+# `fold`: [metres, wavelength in metres]: how far the layers wave up and down and how wide the waves are.
+# `heat`: how much warmer the rock is a metre deeper, degrees C (the year's mean air at the surface on top).
+# `caves`: "limestone" (water-cut systems along the water table, where limestone holds it), "tubes" (lava
+# tubes a few metres under basalt ground: a rift's, or an island's of oceanic crust) or "none".
+
+datum = 60.0
+
+[[province]]
+name = "shield"
+layers = [["granite", 80.0], ["gneiss", 0.0]]
+fold = [3.0, 500.0]
+heat = 0.12
+caves = "none"
+
+[[province]]
+name = "basin"
+layers = [["sandstone", 25.0], ["shale", 15.0], ["limestone", 45.0], ["granite", 0.0]]
+fold = [6.0, 700.0]
+heat = 0.15
+caves = "limestone"
+
+[[province]]
+name = "folded belt"
+layers = [["slate", 25.0], ["marble", 15.0], ["quartzite", 20.0], ["schist", 50.0], ["gneiss", 0.0]]
+fold = [28.0, 180.0]
+heat = 0.18
+caves = "none"
+
+[[province]]
+name = "volcanic arc"
+layers = [["tuff", 20.0], ["andesite", 90.0], ["granite", 0.0]]
+fold = [8.0, 300.0]
+heat = 0.35
+caves = "none"
+
+[[province]]
+name = "rift"
+layers = [["basalt", 70.0], ["gabbro", 0.0]]
+fold = [4.0, 400.0]
+heat = 0.35
+caves = "tubes"
+
+[[province]]
+name = "ocean floor"
+layers = [["basalt", 50.0], ["gabbro", 0.0]]
+fold = [3.0, 600.0]
+heat = 0.2
+caves = "tubes"

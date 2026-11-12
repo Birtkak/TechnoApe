@@ -173,7 +173,7 @@ pub fn blocked(world: &World, pos: DVec3) -> bool {
             _ => world.column_height(b),
         };
         col = Some((key, h));
-        BLOCKS.solid(world.generated_under(b, h))
+        world.generated_solid_under(b, h)
     })
 }
 

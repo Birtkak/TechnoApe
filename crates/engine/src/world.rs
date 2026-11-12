@@ -3,6 +3,7 @@
 use crate::bake::Map;
 use crate::biomes::{REACH, ROWS, SPACING, TALLEST};
 use crate::blocks::{AIR, BLOCKS};
+use crate::rock::{Rock, ROCKS};
 use crate::bodies::{Generator, BODIES};
 use crate::liquid::{Col, Ground, Liquids, OPEN, TILE, U};
 use crate::sky::{Pose, Sky};
@@ -39,6 +40,21 @@ const PATCH: f64 = 3.0;
 /// The relief of a body without continents (the moon): +-30 m of hills.
 const HILLS: f64 = 30.0;
 pub const CRUST: f64 = 64.0;
+/// How deep the ground goes (W4, ADR 0063): at least this far under the radius.
+pub const DEEP: f64 = 192.0;
+
+/// The layers under the old 64 m `CRUST` on a body of `n` columns per face edge, so the crust is `DEEP` m: on
+/// one big enough to keep half its radius (Terra, and Luna from the 4 km planet up), else none. Every layer
+/// above keeps its radius and gains this in index (saves of version 8 and older shift their cells).
+pub fn deep_layers(n: i32) -> i32 {
+    let radius = n as f64 * BLOCK / (2.0 * PI / 3.0).sqrt();
+    if radius < 4.0 * DEEP {
+        return 0;
+    }
+    // layers thin with depth: whole ones down to DEEP
+    let old = radius - CRUST;
+    (-(1.0 - (DEEP - CRUST) / old).ln() / (1.0 + BLOCK / radius).ln()).ceil() as i32
+}
 
 /// FxHash-style hasher for the maps keyed by chunks and cells: SipHash cost a third of the streamer's selection
 /// time, and every block lookup goes through `World::edits`.
@@ -144,8 +160,17 @@ pub struct Body {
     pub spawn: DVec3,
     /// What generation lays down: the top, the band under it, the rock below (block ids).
     pub ground: [u16; 3],
-    /// Generated hollows in the ground (ADR 0062): every reader asks `col_caves`, none looks here itself.
+    /// Generated hollows in the ground (ADR 0062, 0063), in the order they were made: every reader asks
+    /// `col_caves`, none looks here itself. Set with `set_caves`.
     pub caves: Vec<Cave>,
+    /// The caves by (face, level-0 chunk x, y) of every footprint a ball reaches, with a column to spare.
+    cave_tiles: FxMap<(u8, i32, i32), Vec<u32>>,
+    /// Ore bodies (ADR 0063), in the order they were made: their index is their id in the ledger. Every reader
+    /// asks `ore_at` or `col_ores`. Set with `set_ores`.
+    pub ores: Vec<crate::ore::OreBody>,
+    ore_tiles: FxMap<(u8, i32, i32), Vec<u32>>,
+    /// Each body's layers at most, [lo, hi]: a chunk outside them keeps its shortcuts (`generate`).
+    ore_z: Vec<(f64, f64)>,
     /// The column heights of chunk footprints, shared by every consumer (ADR 0025, E).
     tiles: HeightCache,
     /// A baked planet's map and the noise over it (ADR 0043); None: the noise land of ADR 0021.
@@ -162,6 +187,8 @@ struct Baked {
     levels: std::sync::Mutex<FxMap<(u8, u8, i32, i32), Arc<Vec<Option<f64>>>>>,
     detail: FastNoiseLite,
     jitter: FastNoiseLite,
+    /// The rock layers' folds (`rock_at`), frequency 1: sampled at metres over a province's wavelength.
+    fold: FastNoiseLite,
     seed: u64,
 }
 
@@ -203,6 +230,8 @@ pub struct HeightTile {
     pub h: [f64; P * P],
     /// Each column's ground (`material`): the top, the band, the rock.
     pub g: [[u16; 3]; P * P],
+    /// Each column's rock under the band (`rock::Rocks::at`).
+    pub rock: [Rock; P * P],
     /// Plant blocks over the ground (level 0 of a baked planet only): (column, layer, block), by column then
     /// layer. They stand where the generated ground is air; an edit wins over them.
     pub plants: Vec<(u16, i32, u16)>,
@@ -336,10 +365,11 @@ impl Body {
         noise.set_frequency(Some(1.0 / 120.0));
         // 6 n^2 columns cover 4 pi R^2
         let radius = n as f64 * BLOCK / (2.0 * PI / 3.0).sqrt();
-        let r0 = radius - CRUST.min(radius * 0.5); // small bodies keep half their radius
         let lnq = (1.0 + BLOCK / radius).ln();
+        // small bodies keep half their radius; the deep ground lies under the old floor, layer for layer
+        let r0 = (radius - CRUST.min(radius * 0.5)) * (-lnq * deep_layers(n) as f64).exp();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None, land: None, spawn: DVec3::Y, ground: *GEN, caves: Vec::new(), tiles: HeightCache::default(), baked: None }
+        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None, land: None, spawn: DVec3::Y, ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
     }
     /// The body on a baked map (ADR 0043): its heights, biomes, ground and plants, and its spawn.
     pub fn with_map(mut self, map: Arc<Map>) -> Self {
@@ -352,8 +382,13 @@ impl Body {
         let mut jitter = FastNoiseLite::with_seed(map.seed ^ 0x1f7e);
         jitter.set_noise_type(Some(NoiseType::OpenSimplex2));
         jitter.set_frequency(Some(1.0 / 24.0));
+        let mut fold = FastNoiseLite::with_seed(map.seed ^ 0x0f01);
+        fold.set_noise_type(Some(NoiseType::OpenSimplex2));
+        fold.set_fractal_type(Some(FractalType::FBm));
+        fold.set_fractal_octaves(Some(2));
+        fold.set_frequency(Some(1.0));
         let spawn = DVec3::from_array(map.spawn);
-        self.baked = Some(Box::new(Baked { seed: map.seed as u32 as u64, map, detail, jitter, spots: Default::default(), levels: Default::default() }));
+        self.baked = Some(Box::new(Baked { seed: map.seed as u32 as u64, map, detail, jitter, fold, spots: Default::default(), levels: Default::default() }));
         self.sea = Some(self.layer_of(self.radius - SEA_DEPTH).floor() + 0.875);
         // the scored spawn, moved to the nearest column with no plant within a step
         let (f, x, y) = self.locate(spawn);
@@ -362,6 +397,12 @@ impl Body {
         let at = (0..=12).flat_map(|r| (-r..=r).flat_map(move |a| (-r..=r).map(move |b| (a, b))).filter(move |(a, b): &(i32, i32)| a.abs().max(b.abs()) == r)).find(|(a, b)| clear(i0 + a, j0 + b));
         let (a, b) = at.unwrap_or((0, 0));
         self.spawn = self.dir(f, (i0 + a) as f64 + 0.5, (j0 + b) as f64 + 0.5);
+        let caves = crate::caves::make(&self, self.baked.as_ref().unwrap().seed);
+        self.set_caves(caves);
+        let ores = crate::ore::place(&self, self.baked.as_ref().unwrap().seed);
+        self.set_ores(ores);
+        // plants were looked at for the spawn before the caves were in
+        self.baked.as_ref().unwrap().spots.lock().unwrap().clear();
         self
     }
     /// Luna on its bake (ADR 0070): the map's heights and kinds as a baked planet's, no sea, and its lava
@@ -370,7 +411,7 @@ impl Body {
         let mut b = self.with_map(map.clone());
         b.sea = None;
         let (m, k) = (map.m as usize, b.n as f64 / map.m as f64);
-        b.caves = map
+        let tubes = map
             .tubes
             .iter()
             .map(|&(c, depth, r)| {
@@ -380,6 +421,8 @@ impl Body {
                 Cave { face: f as u8, at: DVec3::new((i as f64 + 0.5) * k, (j as f64 + 0.5) * k, b.layer_of(ground - depth as f64)), r: r as f64 }
             })
             .collect();
+        // (a map without rock provinces gets none of W4's caves: the tubes are all of Luna's)
+        b.set_caves(tubes);
         b
     }
     /// The map it was baked from, if it was.
@@ -461,6 +504,39 @@ impl Body {
         let s = b.map.m as f64 / self.n as f64;
         b.map.climate_at(face, i * s, j * s)
     }
+    /// The rock's temperature at layer z of column (face, i, j), C (ADR 0063): the year's mean air at the
+    /// ground, and the province's `heat` a metre deeper under it. None without a map's climate and rock.
+    pub fn heat(&self, face: u8, i: i32, j: i32, z: f64) -> Option<f32> {
+        let b = self.baked.as_ref()?;
+        let s = b.map.m as f64 / self.n as f64;
+        let air = b.map.temp(face as usize, (i as f64 + 0.5) * s, (j as f64 + 0.5) * s)?;
+        let p = ROCKS.provinces.get(self.col_rock(face, i, j).province as usize)?;
+        Some(air + p.heat * (self.col_height(face, i, j) - self.layer_r(z)).max(0.0) as f32)
+    }
+    /// The rock at face point (i, j) in columns, d its direction (ADR 0063): the province of the map cell, its
+    /// border wandering as the biomes' do, and its layers' top, folded. `Rock::NONE` without a map's rock.
+    pub fn rock_at(&self, face: usize, i: f64, j: f64, d: DVec3) -> Rock {
+        let Some(b) = &self.baked else { return Rock::NONE };
+        let (x, y) = self.jittered(b, i, j, d);
+        let s = b.map.m as f64 / self.n as f64;
+        let Some(p) = b.map.rock(face, x * s, y * s) else { return Rock::NONE };
+        let [amp, width] = ROCKS.provinces[p as usize].fold;
+        let q = d * (self.radius / width as f64);
+        let wave = b.fold.get_noise_3d(q.x as f32, q.y as f32, q.z as f32);
+        Rock { province: p, top: (self.radius - SEA_DEPTH + ROCKS.datum as f64 + (amp * wave) as f64) as f32 }
+    }
+    /// The rock of level-0 column (i, j): from its tile when one is cached, else computed (as `col_height`).
+    pub fn col_rock(&self, face: u8, i: i32, j: i32) -> Rock {
+        if self.baked.is_none() {
+            return Rock::NONE;
+        }
+        let (x, y) = (i.div_euclid(CS), j.div_euclid(CS));
+        if let Some(e) = self.tiles.map.lock().unwrap().get(&(face, 0, x, y)) {
+            return e.0.rock[(i - x * CS + 1) as usize + (j - y * CS + 1) as usize * P];
+        }
+        let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
+        self.rock_at(face as usize, ci, cj, self.dir(face as usize, ci, cj))
+    }
     /// The ground (`material`) at face point (i, j) in columns, d its direction, `h` its surface radius.
     fn ground_at(&self, face: usize, i: f64, j: f64, d: DVec3, h: f64) -> [u16; 3] {
         let Some(b) = &self.baked else { return self.ground };
@@ -501,7 +577,7 @@ impl Body {
     /// stay clear of the seams (step 2 of W4 places them).
     pub fn col_caves(&self, face: u8, i: i32, j: i32) -> Vec<(i32, i32)> {
         let mut out = Vec::new();
-        for c in self.caves.iter().filter(|c| c.face == face) {
+        for c in self.tile_caves(face, i.div_euclid(CS), j.div_euclid(CS)) {
             let d2 = (i as f64 + 0.5 - c.at.x).powi(2) + (j as f64 + 0.5 - c.at.y).powi(2);
             if d2 < c.r * c.r {
                 // the cells whose middle lies inside the ball
@@ -513,6 +589,73 @@ impl Body {
             }
         }
         out
+    }
+    /// The caves that reach level-0 footprint (x, y) of a face.
+    fn tile_caves(&self, face: u8, x: i32, y: i32) -> impl Iterator<Item = &Cave> {
+        self.cave_tiles.get(&(face, x, y)).into_iter().flatten().map(|&k| &self.caves[k as usize])
+    }
+    /// Puts these caves in the ground, in place of any before.
+    pub fn set_caves(&mut self, caves: Vec<Cave>) {
+        self.cave_tiles.clear();
+        for (k, c) in caves.iter().enumerate() {
+            let span = |v: f64| ((v - c.r - 2.0).floor() as i32).div_euclid(CS)..=((v + c.r + 2.0).floor() as i32).div_euclid(CS);
+            for x in span(c.at.x) {
+                for y in span(c.at.y) {
+                    self.cave_tiles.entry((c.face, x, y)).or_default().push(k as u32);
+                }
+            }
+        }
+        self.caves = caves;
+    }
+    /// Puts these ore bodies in the ground, in place of any before.
+    pub fn set_ores(&mut self, ores: Vec<crate::ore::OreBody>) {
+        self.ore_tiles.clear();
+        for (k, o) in ores.iter().enumerate() {
+            let r = o.a.max(o.b) + 2.0;
+            let span = |v: f64| ((v - r).floor() as i32).div_euclid(CS)..=((v + r).floor() as i32).div_euclid(CS);
+            for x in span(o.at.x) {
+                for y in span(o.at.y) {
+                    self.ore_tiles.entry((o.face, x, y)).or_default().push(k as u32);
+                }
+            }
+        }
+        self.ore_z = ores
+            .iter()
+            .map(|o| if crate::ore::MINERALS.kinds[o.kind as usize].shape.follows_ground() { (self.layer_of(self.radius - AMP - o.at.z - o.h) - 1.0, self.layer_of(self.radius + AMP) + 1.0) } else { (o.at.z - o.h - 1.0, o.at.z + o.h + 1.0) })
+            .collect();
+        self.ores = ores;
+    }
+    /// The ore bodies that reach level-0 footprint (x, y) of a face, by index.
+    fn tile_ores(&self, face: u8, x: i32, y: i32) -> &[u32] {
+        self.ore_tiles.get(&(face, x, y)).map_or(&[], |v| v.as_slice())
+    }
+    /// The ore spans [lo, hi) of column (face, i, j), whose ground is at radius `ground`, and their bodies,
+    /// first body first. A cell in one is ore only where it is ground: not over the ground, not a cave.
+    pub fn col_ores(&self, face: u8, i: i32, j: i32, ground: f64) -> Vec<(i32, i32, u32)> {
+        let mut out = Vec::new();
+        for &k in self.tile_ores(face, i.div_euclid(CS), j.div_euclid(CS)) {
+            if let Some((lo, hi)) = self.ores[k as usize].span(self, i, j, ground) {
+                out.push((lo, hi, k));
+            }
+        }
+        out
+    }
+    /// The ore body whose ore generated layer z of column (face, i, j) is, under ground at radius `ground`:
+    /// the one rule `World::generated_under`, `generate` and the ledger's count share.
+    pub fn ore_at(&self, face: u8, i: i32, j: i32, z: i32, ground: f64) -> Option<u32> {
+        if z < 0 || self.tile_ores(face, i.div_euclid(CS), j.div_euclid(CS)).is_empty() || ground < self.layer_r(z as f64 + 0.5) {
+            return None;
+        }
+        let k = self.col_ores(face, i, j, ground).into_iter().find(|&(lo, hi, _)| (lo..hi).contains(&z))?.2;
+        (!self.col_caves(face, i, j).iter().any(|&(lo, hi)| (lo..hi).contains(&z))).then_some(k)
+    }
+    /// The ore block of body k.
+    pub fn ore_block(&self, k: u32) -> u16 {
+        crate::ore::MINERALS.kinds[self.ores[k as usize].kind as usize].block
+    }
+    /// The surface radius at face point (i, j) in columns, as level 0 makes it.
+    pub fn ground_r(&self, face: usize, i: f64, j: f64) -> f64 {
+        self.height_at(face, i, j, self.dir(face, i, j), 0)
     }
     /// The first generated air layer over a surface at radius h: `material`'s own test.
     fn first_air(&self, h: f64) -> i32 {
@@ -706,7 +849,7 @@ impl Body {
         let (c0x, c0y) = (x * CS - 1, y * CS - 1);
         let ta: [f64; P] = std::array::from_fn(|k| self.col_tan(((c0x + k as i32) as f64 + 0.5) * s));
         let tb: [f64; P] = std::array::from_fn(|k| self.col_tan(((c0y + k as i32) as f64 + 0.5) * s));
-        let mut t = HeightTile { h: [0.0; P * P], g: [self.ground; P * P], plants: Vec::new(), min: f32::MAX, max: f32::MIN };
+        let mut t = HeightTile { h: [0.0; P * P], g: [self.ground; P * P], rock: [Rock::NONE; P * P], plants: Vec::new(), min: f32::MAX, max: f32::MIN };
         // the candidate spots the footprint's plants come from, each looked at once
         let mut spots: FxMap<(usize, i32, i32), Option<Foot>> = FxMap::default();
         for v in 0..P {
@@ -722,6 +865,7 @@ impl Body {
                 t.h[u + v * P] = hv;
                 if self.baked.is_some() {
                     t.g[u + v * P] = self.ground_at(f, pi, pj, d, hv);
+                    t.rock[u + v * P] = self.rock_at(f, pi, pj, d);
                     if level == 0 {
                         for (z, m) in self.plants_with(fi, fj, &mut |cx, cy| *spots.entry((f, cx, cy)).or_insert_with(|| self.candidate(f, cx, cy))) {
                             t.max = t.max.max(self.layer_r(z as f64 + 1.0) as f32);
@@ -927,6 +1071,9 @@ pub struct World {
     pub models: FxMap<Block, u16>,
     /// Water (ADR 0020): on the server it flows; a client keeps the server's copy.
     pub water: Liquids,
+    /// The ore left in each of the planet's bodies (ADR 0063), blocks, as edits change it: the server's, opened
+    /// with `open_ledger` before any edit; None where nothing counts it (a client).
+    pub ore_left: Option<Vec<i64>>,
 }
 
 impl World {
@@ -978,7 +1125,46 @@ impl World {
             lights_rev: 0,
             models: FxMap::default(),
             water: Liquids::default(),
+            ore_left: None,
         }
+    }
+    /// Opens the ore ledger: every body of the planet as generated (`ore::count`), before any edit.
+    pub fn open_ledger(&mut self) {
+        assert!(self.edits.is_empty(), "the ledger opens on the generated ground");
+        self.ore_left = Some(crate::ore::count(&self.bodies[0]).iter().map(|h| h.blocks as i64).collect());
+    }
+    /// The planet's ore body whose generated ore block b is. shortcut: the planet's only; Luna holds none until
+    /// its own minerals (ore-budget.md, "Luna").
+    pub fn ore_cell(&self, b: Block) -> Option<u32> {
+        let body = &self.bodies[b.body as usize];
+        if b.body != 0 || body.ores.is_empty() || body.tile_ores(b.face, b.pos.x.div_euclid(CS), b.pos.y.div_euclid(CS)).is_empty() {
+            return None;
+        }
+        body.ore_at(b.face, b.pos.x, b.pos.y, b.pos.z, body.col_height(b.face, b.pos.x, b.pos.y))
+    }
+    /// Block b becomes `new`: its body's ore goes down when its own ore leaves the cell, up when it comes back.
+    fn tally(&mut self, b: Block, new: u16) {
+        if self.ore_left.is_none() {
+            return;
+        }
+        let Some(k) = self.ore_cell(b) else { return };
+        let ore = self.bodies[0].ore_block(k);
+        let was = self.edit(b).unwrap_or(ore) == ore;
+        self.ore_left.as_mut().unwrap()[k as usize] += (new == ore) as i64 - was as i64;
+    }
+    /// The ledger again from the edits alone, for the soak: each body's opening blocks less its cells whose
+    /// edit is not its ore. Equal to `ore_left` when no block was lost or made.
+    pub fn ore_recount(&self, open: &[i64]) -> Vec<i64> {
+        let mut left = open.to_vec();
+        for (key, cells) in &self.edits {
+            for (pos, &m) in cells {
+                let b = Block { body: key.body, face: key.face, pos: *pos };
+                if let Some(k) = self.ore_cell(b) {
+                    left[k as usize] -= (m != self.bodies[0].ore_block(k)) as i64;
+                }
+            }
+        }
+        left
     }
     /// The frame a position (shared coordinates) is in: a body's, near its grid, or the inertial one.
     pub fn frame_at(&self, p: DVec3) -> usize {
@@ -1196,11 +1382,31 @@ impl World {
         if body.col_caves(b.face, b.pos.x, b.pos.y).iter().any(|&(lo, hi)| (lo..hi).contains(&b.pos.z)) {
             return AIR;
         }
+        if let Some(k) = body.ore_at(b.face, b.pos.x, b.pos.y, b.pos.z, height) {
+            return body.ore_block(k);
+        }
         let ground = body.col_ground(b.face, b.pos.x, b.pos.y, Some(height));
         if b.pos.z < 0 {
             return ground[2];
         }
+        if depth >= 4.0 {
+            // under the band: the rock, by the rule the mesher's fill asks too
+            let r = body.layer_r(b.pos.z as f64 + 0.5) as f32;
+            return ROCKS.at(body.col_rock(b.face, b.pos.x, b.pos.y), r, ground[2]);
+        }
         material(depth, &ground)
+    }
+    /// Whether `generated_under` is solid, without asking rock or ore under the soil band (always solid): the
+    /// physics' question, per cell.
+    pub fn generated_solid_under(&self, b: Block, height: f64) -> bool {
+        let body = &self.bodies[b.body as usize];
+        let solid = if height - body.layer_r(b.pos.z as f64 + 0.5) < 4.0 {
+            BLOCKS.solid(self.generated_under(b, height))
+        } else {
+            !body.col_caves(b.face, b.pos.x, b.pos.y).iter().any(|&(lo, hi)| (lo..hi).contains(&b.pos.z))
+        };
+        debug_assert_eq!(solid, BLOCKS.solid(self.generated_under(b, height)), "{b:?}");
+        solid
     }
     /// The column that holds block b.
     pub fn col(b: Block) -> Col {
@@ -1234,6 +1440,7 @@ impl World {
         self.edit(b).unwrap_or_else(|| self.generated_block(b))
     }
     pub fn set_block(&mut self, b: Block, m: u16) {
+        self.tally(b, m);
         if self.edits.entry(b.chunk()).or_default().insert(b.pos, m).is_none() {
             self.edit_count += 1;
         }
@@ -1251,6 +1458,10 @@ impl World {
         match e {
             Some(m) => self.set_block(b, m),
             None => {
+                if self.edit(b).is_some() {
+                    let g = self.generated_block(b);
+                    self.tally(b, g);
+                }
                 let k = b.chunk();
                 if let Some(cells) = self.edits.get_mut(&k) {
                     if cells.remove(&b.pos).is_some() {
@@ -1611,8 +1822,9 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
     let z_air = c0.z + (P - 1 + SKIRT) as i32;
     let r_air = body.layer_r((z_air as f64 + 0.5) * s);
     // caves are carved at level 0 only: a coarser cell is too big to show one (world-data.md)
-    let caved = key.level == 0 && body.caves.iter().any(|c| c.face == key.face && (c.at - (c0.as_dvec3() + P as f64 * 0.5)).abs().max_element() < c.r + P as f64 * 0.5);
-    let plain = edits.is_empty() && !caved;
+    let caved = key.level == 0 && body.tile_caves(key.face, key.pos.x, key.pos.y).any(|c| (c.at - (c0.as_dvec3() + P as f64 * 0.5)).abs().max_element() < c.r + P as f64 * 0.5);
+    let ored = key.level == 0 && body.tile_ores(key.face, key.pos.x, key.pos.y).iter().any(|&k| body.ore_z[k as usize].0 < (c0.z + P as i32) as f64 && body.ore_z[k as usize].1 > c0.z as f64);
+    let plain = edits.is_empty() && !caved && !ored;
     if plain {
         // whole chunk outside the terrain's height range: no noise needed
         if r_lo > body.radius + AMP {
@@ -1643,6 +1855,7 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
     let dirt = (2.0 * cf).max(4.0);
     let mut any_air = false;
     let mut any_solid = false;
+    let rocks = &*ROCKS;
     for z in 0..P {
         let l = (c0.z as f64 + z as f64 + 0.5) * s;
         let r = body.layer_r(l);
@@ -1650,7 +1863,7 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
         for (i, hv) in h.iter().enumerate() {
             let d = hv - r;
             let g = &tile.g[i];
-            let mut m = if core || d >= dirt { g[2] } else if d >= grass { g[1] } else if d >= 0.0 { g[0] } else { 0 };
+            let mut m = if core { g[2] } else if d >= dirt { rocks.at(tile.rock[i], r as f32, g[2]) } else if d >= grass { g[1] } else if d >= 0.0 { g[0] } else { 0 };
             if z == P - 1 && z_air >= 0 && *hv < r_air {
                 // the skirt rule for the top padding, which has no cells above it here (ADR 0018). shortcut:
                 // from the generated height alone, edits over the chunk do not count; a dug hole there could
@@ -1668,6 +1881,20 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
                 for z in (lo - c0.z).max(0)..(hi - c0.z).min(P as i32) {
                     cells[pidx(x, y, z as usize)] = 0;
                     any_air = true;
+                }
+            }
+        }
+    }
+    if ored {
+        // ore where the ground is (the rule of `Body::ore_at`): a cell still solid here is under the ground and
+        // no cave; the bodies last to first, so the first body's ore is what stays
+        for (y, x) in (0..P).flat_map(|y| (0..P).map(move |x| (y, x))) {
+            for (lo, hi, k) in body.col_ores(key.face, c0.x + x as i32, c0.y + y as i32, tile.h[y * P + x]).into_iter().rev() {
+                for z in (lo - c0.z).max(0)..(hi - c0.z).min(P as i32) {
+                    let c = &mut cells[pidx(x, y, z as usize)];
+                    if *c != 0 {
+                        *c = body.ore_block(k);
+                    }
                 }
             }
         }
@@ -1792,7 +2019,7 @@ mod tests {
             b.layer_r(zc as f64 + 0.5) + edge + ((i / 3) % 25) as f64 * 2e-5 - 2.4e-4
         });
         let (min, max) = (h.iter().fold(f32::MAX, |a, v| a.min(*v as f32)), h.iter().fold(f32::MIN, |a, v| a.max(*v as f32)));
-        b.tiles.map.lock().unwrap().insert((face, 0, x, y), (Arc::new(HeightTile { h, g: [b.ground; P * P], plants: Vec::new(), min, max }), 0));
+        b.tiles.map.lock().unwrap().insert((face, 0, x, y), (Arc::new(HeightTile { h, g: [b.ground; P * P], rock: [Rock::NONE; P * P], plants: Vec::new(), min, max }), 0));
         let k = Key { body: 0, face, level: 0, pos: IVec3::new(x, y, kz) };
         let Gen::Cells(cells) = generate(b, k, &[]) else { panic!("the chunk is all one") };
         let mut bad = Vec::new();
@@ -2152,6 +2379,25 @@ mod baked_tests {
         }
     }
 
+    /// The 192 m crust (ADR 0063): a big body's layers keep their radii and move up 128 in index; a small
+    /// one keeps its old floor.
+    #[test]
+    fn the_deep_ground_lies_under_the_old_layers() {
+        for (n, big) in [(1536, true), (6144, true), (12288, true), (512, false), (32, false)] {
+            let (b, deep) = (Body::new(DVec3::ZERO, n, 1), deep_layers(n));
+            assert_eq!(deep > 0, big, "planet {n}: {deep} deep layers");
+            let old_r0 = b.radius - CRUST.min(b.radius * 0.5);
+            for l in [0.0, 10.5, 64.0, 200.0] {
+                let (now, was) = (b.layer_r(l + deep as f64), old_r0 * (b.lnq * l).exp());
+                assert!((now - was).abs() < 1e-6, "planet {n}, layer {l}: {now} against {was}");
+            }
+            if big {
+                let crust = b.radius - b.r0;
+                assert!((DEEP..DEEP + 1.0).contains(&crust), "planet {n}: {crust} m of crust");
+            }
+        }
+    }
+
     /// A cave is one answer (ADR 0062): the block physics sees (`generated_block`, `phys::blocked`), the chunk
     /// the mesher draws (`generate`) and the water's gaps (`Solid::gaps`) agree cell by cell around a closed
     /// cave and one open to the sky, and a player fits in the closed one.
@@ -2164,7 +2410,7 @@ mod baked_tests {
         let corner = |v: i32| ((v + CS / 2).div_euclid(CS) * CS) as f64;
         let shut = Cave { face: f, at: DVec3::new(corner(i0), corner(j0), ((z0 - 8).div_euclid(CS) * CS) as f64), r: 3.5 };
         let open = Cave { face: f, at: DVec3::new(i0 as f64 + 20.5, j0 as f64 + 0.5, w.air_over_ground(0, w.bodies[0].spawn).pos.z as f64 - 1.0), r: 4.0 };
-        std::sync::Arc::get_mut(&mut w.bodies).unwrap()[0].caves = vec![shut, open];
+        std::sync::Arc::get_mut(&mut w.bodies).unwrap()[0].set_caves(vec![shut, open]);
         let b = &w.bodies[0];
         let mut hollow = 0;
         for c in [shut, open] {
@@ -2190,6 +2436,81 @@ mod baked_tests {
         let at = |l: f64| b.centre + b.dir(f as usize, shut.at.x, shut.at.y) * b.layer_r(l);
         assert!(!crate::phys::blocked(&w, at(shut.at.z - 1.0)), "a player fits in the closed cave");
         assert!(crate::phys::blocked(&w, at(shut.at.z - 6.0)), "and not in the rock under it");
+    }
+
+    /// Ore is one answer too (ADR 0063): physics, the mesher's chunk and the ledger's count agree cell by cell
+    /// on a deep lump across a chunk corner with a cave through it, and on a stream-bed gravel at the ground,
+    /// which shows at the top.
+    #[test]
+    fn the_mesher_physics_and_the_count_see_the_same_ore() {
+        use crate::ore::{OreBody, MINERALS};
+        let mut w = world();
+        let top = w.air_over_ground(0, w.bodies[0].spawn);
+        let (f, i0, j0, z0) = (top.face, top.pos.x, top.pos.y, top.pos.z);
+        let kind = |n: &str| MINERALS.kinds.iter().position(|k| k.name == n).unwrap() as u16;
+        let corner = |v: i32| ((v + CS / 2).div_euclid(CS) * CS) as f64;
+        let lump = OreBody { kind: kind("deep copper"), face: f, at: DVec3::new(corner(i0), corner(j0), ((z0 - 10).div_euclid(CS) * CS) as f64), a: 4.5, b: 4.5, h: 3.5, angle: 0.3 };
+        let gravel = OreBody { kind: kind("copper gravel"), face: f, at: DVec3::new(i0 as f64 + 20.5, j0 as f64 + 0.5, 0.75), a: 6.0, b: 2.0, h: 0.75, angle: 1.0 };
+        let hole = Cave { face: f, at: lump.at + DVec3::new(2.0, 0.0, 0.0), r: 2.5 };
+        let m = std::sync::Arc::get_mut(&mut w.bodies).unwrap();
+        m[0].set_caves(vec![hole]);
+        m[0].set_ores(vec![lump, gravel]);
+        let b = &w.bodies[0];
+        let held = crate::ore::count(b);
+        for (k, o) in [lump, gravel].iter().enumerate() {
+            let ore = MINERALS.kinds[o.kind as usize].block;
+            let (mut seen, mut ingots, mut at_top) = (0, 0, 0);
+            for (i, j) in (-8..=8).flat_map(|a| (-8..=8).map(move |d| (o.at.x as i32 + a, o.at.y as i32 + d))) {
+                let floor = b.first_air(b.col_height(f, i, j));
+                let zs = if k == 0 { o.at.z as i32 - 6..=o.at.z as i32 + 6 } else { floor - 4..=floor + 1 };
+                for z in zs {
+                    let phys = w.generated_block(Block { body: 0, face: f, pos: IVec3::new(i, j, z) });
+                    let key = Key { body: 0, face: f, level: 0, pos: IVec3::new(i, j, z).div_euclid(IVec3::splat(CS)) };
+                    let mesh = match generate(b, key, &[]) {
+                        Gen::Cells(cells) => cells[pidx((i - key.pos.x * CS + 1) as usize, (j - key.pos.y * CS + 1) as usize, (z - key.pos.z * CS + 1) as usize)],
+                        Gen::Solid => u16::MAX,
+                        Gen::Empty => AIR,
+                    };
+                    assert!(mesh == phys || (mesh == u16::MAX && phys != AIR && phys != ore), "({i}, {j}, {z}): mesh {mesh}, physics {phys}");
+                    if phys == ore {
+                        seen += 1;
+                        ingots += o.grade(i, j);
+                        at_top += (z == floor - 1) as u32;
+                    }
+                }
+            }
+            assert!(seen > 20, "body {k}: {seen} ore cells");
+            assert_eq!((held[k].blocks, held[k].ingots), (seen, ingots), "body {k}: the count against what physics sees");
+            assert!(k == 0 || at_top > 10, "the gravel shows at the ground: {at_top} cells");
+        }
+        assert_eq!(w.generated_block(Block { body: 0, face: f, pos: IVec3::new(hole.at.x as i32, hole.at.y as i32, hole.at.z as i32) }), AIR, "the cave goes through the ore");
+    }
+
+    /// The ledger (ADR 0063) opens with the count, goes to zero when a body's cells are dug out, and up again by
+    /// one for an ore block put back in its own cell or an edit undone; ore put elsewhere counts nothing; the
+    /// recount from the edits alone agrees all along.
+    #[test]
+    fn digging_a_body_out_empties_its_ledger() {
+        use crate::ore::{OreBody, MINERALS};
+        let mut w = world();
+        let top = w.air_over_ground(0, w.bodies[0].spawn);
+        let kind = MINERALS.kinds.iter().position(|k| k.name == "lead pocket").unwrap() as u16;
+        let lump = OreBody { kind, face: top.face, at: DVec3::new(top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5, top.pos.z as f64 - 12.0), a: 3.5, b: 3.5, h: 2.5, angle: 0.0 };
+        std::sync::Arc::get_mut(&mut w.bodies).unwrap()[0].set_ores(vec![lump]);
+        w.open_ledger();
+        let open = w.ore_left.clone().unwrap();
+        let cells = crate::ore::cells(&w.bodies[0], 0);
+        assert!(open[0] > 50 && open[0] == cells.len() as i64, "{open:?} against {} cells", cells.len());
+        let ore = w.bodies[0].ore_block(0);
+        let at = |p: IVec3| Block { body: 0, face: top.face, pos: p };
+        for &p in &cells {
+            w.set_block(at(p), AIR);
+        }
+        assert_eq!((w.ore_left.as_ref().unwrap()[0], w.ore_recount(&open)[0]), (0, 0), "dug out");
+        w.set_block(at(cells[0]), ore);
+        w.put_edit(at(cells[1]), None);
+        w.set_block(at(top.pos + IVec3::Z), ore);
+        assert_eq!((w.ore_left.as_ref().unwrap()[0], w.ore_recount(&open)[0]), (2, 2), "one put back, one undone, one elsewhere");
     }
 
     /// Plants of every reader agree (ADR 0043): the block physics sees (`World::generated_block`), the chunk

@@ -2,8 +2,8 @@
 //! Without arguments it opens its window in the repository the exe sits in. Headless, one JSON line each:
 //! `check=1` (palette and every texture), `drafts=1`, `render=<png> sheet=out/x.png` (tiled 3 x 3),
 //! `shot=out/studio.png [open=<block>] [page=palette] [cmd=id,id..] [query=text] [scale=1.5] [size=1280x800]
-//! [pointer=x,y]` (one frame of the window, off-screen: `cmd` runs commands as the command box does, e.g.
-//! `frame:keys`, `tool.shade`, `open:Models:furnace`, `part:door`, `time:0.4`; `query` opens the command box with
+//! [pointer=x,y] [season=autumn]` (one frame of the window, off-screen: `cmd` runs commands as the command box does, e.g.
+//! `frame:keys`, `tool.shade`, `open:Models:furnace`, `part:door`, `time:0.4`; `season` sets the view's year and the Textures page's season tab; `query` opens the command box with
 //! that typed; `pointer` hovers there). Sounds: `page=Sounds cmd=open:Sounds:furnace.clank,start:metallic,mutate`
 //! (`add:<step>`, `toggle:<card>`, `take:<wall item>`); a shot never opens the sound card. Effects:
 //! `page=Effects cmd=open:Effects:flames,hour:22,vary,stop:1`. The game's view is drawn by `technoape run=view` (ADR 0049): the first there of
@@ -220,6 +220,9 @@ fn main() {
         let mut s = ui::Studio::load(get("open"))?;
         if let Some(p) = get("page") {
             s.run_command(&format!("page:{p}"));
+        }
+        if let Some(q) = get("season") {
+            s.run_command(&format!("season:{q}"));
         }
         Ok::<_, String>(s)
     };

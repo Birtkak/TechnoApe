@@ -1,7 +1,8 @@
 # 0070 – Luna's bake
 
-- **Status:** accepted (routine technical calls; W6 of `docs/plans/worldgen-plan.md`). Two taste calls are open:
-  Luna's ice, and its look from Terra and from orbit (end of this ADR).
+- **Status:** accepted (W6 of `docs/plans/worldgen-plan.md`). The developer took the three recommendations
+  (2026-11-12): ice under the dust in polar shadow, Luna from orbit as it is, and a brighter Luna in Terra's
+  night sky as a follow-up, not built here (end of this ADR).
 - **Date:** 2026-11-12
 
 Numbered 0070, not 0063: W4's session (rock, caves, ore) runs at the same time and takes the numbers from 0063 on.
@@ -19,7 +20,7 @@ this Luna.
 
 ## Options considered
 1. **A map of its own type, with its own save, download and protocol.** Clean, but it doubles code that already works.
-2. **The same `bake::Map`, under a version number of its own** (Terra's maps count 1 to 4; Luna's from 101). The
+2. **The same `bake::Map`, under a version number of its own** (Terra's maps count 1 to 5; Luna's from 101, now 102). The
    file name, the in-memory cache and the hash all key on the version, so the two never meet. The mips, the
    spline, the roughness, the save-by-hash and the download (`fetch_map`) all work unchanged. Luna's kinds of
    ground become rows of `data/biomes.toml` after Terra's 15, so `world.rs` draws them with no new code.
@@ -63,13 +64,14 @@ Option 2. `crates/engine/src/bake/luna.rs`:
   - computed on 8 m cells within 20° of either pole;
   - the sun's highest is the orbit's 2° tilt plus the disc's 0.25°;
   - a cell is shadowed when 32 rays toward that sun, marched 700 m over the ground, are all blocked;
-  - shadowed cells become the kind `polar shadow`; its blocks are a highland's until the ice is decided.
+  - shadowed cells become the kind `polar shadow`; 1 m of regolith on ice, the ice to 4 m down (its band), then anorthosite.
 - **Blocks** 200 to 205 (anorthosite, mare regolith, mare basalt, fresh regolith, iron-nickel, kreep), from 200
   so W4's rocks can take the ids after 29.
 - **Plumbing:**
   - `World::with_maps` and `World::baked` stand Luna on its map with no sea; `World::with_map` keeps the hills.
   - `ToClient::Welcome` carries `luna`, and `ToServer::Map(hash)` asks for either map.
-  - Saves are version 10, with `luna`; a 9 or older keeps Luna on its hills, so its edits there stay on their ground.
+  - Saves are version 11, with `luna`; a 10 (W4's) or older keeps Luna on its hills, so its edits there stay on
+    their ground.
   - The new-world page bakes both maps.
   - `run=stand` takes `body=1` and `look=terra|luna`, for the views.
 
@@ -79,7 +81,7 @@ Option 2. `crates/engine/src/bake/luna.rs`:
 | Crater power law (`luna_report`, the standard Luna, seed 5) | made N(>D) for D = 6, 12, 24, 48, 96 m: 92164, 22864, 5644, 1314, 205, slope -2.04 against the stated -2 (the cut at 150 m bends the top bin); still seen: 68000, 17902, 4700, 1155, 196, slope -1.96 (the smallest hide under younger craters and maria) |
 | Kinds, km² of 16.6 | highland 12.9, mare 2.0, fresh highland 1.2, fresh mare 0.21, kreep 0.25, metal 0.017, polar shadow 0.009 (123 cells of 8 m, out to 20° from the poles); 7 tubes, 289 balls, 14 pits |
 | Bake time | 2.0 to 2.5 s for the standard Luna (8 threads for the crust and the shadow; the craters are one thread); 0.2 s for a 416 Luna |
-| Tests (red first where new) | `craters_follow_the_power_law_and_the_small_ones_saturate` (red: it expected the uncut law on a small Luna), `maria_face_terra_and_every_kind_is_there` (red: 10 % maria on Terra's side), `a_polar_bowl_is_in_shadow_and_flat_ground_is_not`, `luna_stands_on_its_bake` (red: a roof check off by one), `a_bake_is_the_same_twice_and_reads_back_without_touching_terras_versions`, `a_version_9_keeps_luna_on_its_hills`; `cargo test` green |
+| Tests (red first where new) | `craters_follow_the_power_law_and_the_small_ones_saturate` (red: it expected the uncut law on a small Luna), `maria_face_terra_and_every_kind_is_there` (red: 10 % maria on Terra's side), `a_polar_bowl_is_in_shadow_and_flat_ground_is_not`, `luna_stands_on_its_bake` (red: a roof check off by one), `a_bake_is_the_same_twice_and_reads_back_without_touching_terras_versions`, `a_version_9_or_10_keeps_luna_on_its_hills`, the polar-shadow row's ice in `biomes.rs` (red before the data line); `cargo test --workspace` green |
 | `run=orbit quick=1` | holes 0 in every run; frame p99 4.4 to 5.2 ms; budget_ok in some runs, the others failed on GPU waits while another session used the GPU (below) |
 | Gate | `tools/check.sh`, 2026-11-12, run while four other sessions' cargo builds ran: tests, soak (hash 0ce6987bd250b9c8) and replay pass, and every view has 0 cracks. It fails on: (1) the four season views, 4.2 % of pixels off their baselines, the same with main's binary (6e78189), so the baselines predate the season looks and this branch does not change them; (2) the speed guard on every run, mesh jobs 2 to 3 times the baseline on Terra-only runs too, against about 260 us for both binaries when timed in turn; (3) feel, 2 corrections at t = 0. Run again on a quieter PC, both binaries have none, and jerk p99 is 25.6k / 25.5k new and 29.3k / 25.6k old. The gate needs a run on a quiet PC before the merge. |
 | Views | `out/luna/`: low Luna orbit (the maria toward Terra, a rayed crater), Terra at full moon (fov 70 and 30), the north pole, the map sheet `map.png`. Not added to `tests/views/` until the developer has seen them |
@@ -125,13 +127,27 @@ download, the bots, the soak and the replay agree. Its findings, and what was do
    kind. **Left:** a golden hash of a small Terra map; Terra's hash is still guarded by the soak's map and the old
    map files reading back.
 
+## Merged with W4 (rock, caves, ore; ADR 0063)
+- W4's map (version 5) gained a `rock` field. Luna's maps carry it empty and became version 102, so a 101 file
+  is baked again; the check that a map's rock provinces are there skips Luna's version.
+- Luna's tubes go into `Body::caves` through W4's `set_caves`, so they are bucketed per tile like Terra's caves
+  (the reviewer's finding 2 is settled). Luna gets none of W4's caves or ore bodies: its `rock` is empty.
+- W4's blocks take ids 30 to 56; Luna's stay 200 to 205, under the 255 limit, with no name shared (W4's
+  `basalt` is Terra's, Luna's is `mare basalt`).
+- W4's save is version 10; Luna's became 11 and reads 10 and 9 with the same layout. This branch's builds before
+  the merge also wrote a 10, with `luna` after it and on the old crust; read as W4's 10 it would put Luna's edits
+  on the hills and skip the crust's shift. A 10 or 9 must now leave no bytes over, so such a save is refused
+  (the merge's reviewer found it; no such save was handed over).
+- The merge's review also found, in main's code, that `bake::for_hash` rebuilds the map layouts 1 to 3 but not 4,
+  so a save naming a deleted version 4 map stops the server; left to main.
+
 ## Consequences
 - W4's ore bodies and material ledger should count Luna's iron lenses and its KREEP province the same way.
 - `Ev::Start` should name Luna's map when recordings next change.
 - The prototype rule (a throwaway first) was met by the bake's own `luna_report` and its sheet, at about 300
   lines; no separate prototype folder.
 
-## Taste calls for the developer (recommended defaults)
+## Taste calls (decided 2026-11-12: all three as recommended; 1 is in the data, 2's brightening is a follow-up)
 1. **Luna's ice.** Shadow exists: 0.009 km² on the default seed, in crater floors near both poles. **Recommended:** ice
    blocks under 1 m of dust in the `polar shadow` kind (its band); one data line. The alternative is no ice.
 2. **Luna from Terra's surface.** At its decided size Luna is 0.53° wide: about 12 pixels across at fov 30 (1280 wide), half that at the

@@ -212,9 +212,9 @@ top = "regolith"
 band = "regolith"
 rock = "kreep"
 
-# polar ground the sun never reaches; what lies there (ice or not) is the developer's call
+# polar ground the sun never reaches: ice under 1 m of dust, to 4 m down (the developer, 2026-11-12)
 [[biome]]
 name = "polar shadow"
 top = "regolith"
-band = "regolith"
+band = "ice"
 rock = "anorthosite"

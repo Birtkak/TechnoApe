@@ -189,6 +189,11 @@ impl Def {
     }
 }
 
+/// The seasons in the year's order (`<block>@<season>.png`, the Studio's tabs); `ROW[k]` is season k's look in
+/// `Def::tone` and the renderer's look table.
+pub const SEASONS: [&str; 4] = ["spring", "summer", "autumn", "winter"];
+pub const ROW: [usize; 4] = [1, 0, 2, 3];
+
 pub struct Registry {
     defs: Vec<Option<Def>>,
     pub hash: u64,

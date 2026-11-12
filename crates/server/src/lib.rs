@@ -5,6 +5,7 @@
 //! The flight recorder (ADR 0011): with `record`, every join, message and leave goes to a file with its tick,
 //! and every second a hash of the state; `replay` runs the file again headless and finds the first checkpoint
 //! where the state parts from the recording.
+pub mod report;
 pub mod save;
 pub mod soak;
 
@@ -185,6 +186,8 @@ pub struct Server {
     map_pieces: HashMap<u64, Vec<ToClient>>,
     /// The live air grid (W3), on a planet whose map keeps a climate.
     pub weather: Option<engine::weather::Weather>,
+    /// Each ore body's blocks as generated: the ledger's opening (`ore_ledger`).
+    pub ore_open: Vec<i64>,
 }
 
 impl Server {
@@ -206,7 +209,9 @@ impl Server {
         let l = luna.map(|h| engine::bake::luna::for_hash(seed, moon_n, h).unwrap_or_else(|| panic!("this world was played on another Luna of seed {seed} (Luna's map version {}): it cannot be carried on", engine::bake::luna::VERSION)));
         Server::with_world(World::with_maps(planet_n, moon_n, seed, Some(m), l), seed, accept)
     }
-    fn with_world(world: World, seed: i32, accept: Receiver<ServerLink>) -> Server {
+    fn with_world(mut world: World, seed: i32, accept: Receiver<ServerLink>) -> Server {
+        world.open_ledger();
+        let ore_open = world.ore_left.clone().unwrap_or_default();
         let weather = world.bodies[0].map().and_then(|m| m.climate.as_ref()).map(|c| engine::weather::Weather::new(c, None).expect("a map's climate was checked on load"));
         Server {
             weather,
@@ -234,6 +239,7 @@ impl Server {
             near: FxMap::default(),
             tick_ms: None,
             map_pieces: HashMap::new(),
+            ore_open,
         }
     }
 
@@ -356,6 +362,14 @@ impl Server {
     pub fn water_ledger(&self) -> i64 {
         let held: i64 = self.clients.iter().map(|c| c.water as i64).chain(self.absent.values().map(|p| p.water as i64)).sum();
         self.world.water.counted() + held - (self.made - self.removed)
+    }
+
+    /// Conservation of ore (ADR 0063): the bodies whose ledger differs from a recount from the edits, as
+    /// (body, ledger, recount). Empty when no ore block was lost or made unseen.
+    pub fn ore_ledger(&self) -> Vec<(usize, i64, i64)> {
+        let Some(left) = &self.world.ore_left else { return Vec::new() };
+        let again = self.world.ore_recount(&self.ore_open);
+        left.iter().zip(&again).enumerate().filter(|(_, (a, b))| a != b).map(|(k, (a, b))| (k, *a, *b)).collect()
     }
 
     /// The state as one number: the world's edits and water, every player's physics and input, the time
@@ -1702,6 +1716,38 @@ mod tests {
         assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![(BLOCKS.id("stone"), 1)], water: 0 }), "{got:?}");
         assert!(DVec3::from_array(back.clients[0].player.pos).distance(ground + DVec3::Z) < 0.01);
         assert!(Save::from_bytes(b"not a save").is_err());
+    }
+
+    /// A player digs an ore body out (ADR 0063, ore-budget.md "Checks"): its ledger goes from the count to zero,
+    /// and the recount from the edits (the soak's check) agrees.
+    #[test]
+    fn a_player_digs_an_ore_body_out_and_its_ledger_reaches_zero() {
+        use engine::ore::{OreBody, MINERALS};
+        let mut world = World::new(256, 32, 1);
+        let b0 = &world.bodies[0];
+        let top = world.air_over_ground(0, DVec3::Z);
+        let ground = b0.centre + b0.dir(top.face as usize, top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5) * b0.col_height(top.face, top.pos.x, top.pos.y);
+        let kind = MINERALS.kinds.iter().position(|k| k.name == "lead pocket").unwrap() as u16;
+        let lump = OreBody { kind, face: top.face, at: DVec3::new(top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5, top.pos.z as f64 - 6.0), a: 2.5, b: 2.5, h: 2.0, angle: 0.0 };
+        std::sync::Arc::get_mut(&mut world.bodies).unwrap()[0].set_ores(vec![lump]);
+        let (tx, rx) = channel();
+        let mut s = Server::with_world(world, 1, rx);
+        let (l, sv) = local();
+        tx.send(sv).unwrap();
+        s.tick();
+        let cells = engine::ore::cells(&s.world.bodies[0], 0);
+        assert!(s.ore_open == vec![cells.len() as i64] && cells.len() > 20, "{:?} for {} cells", s.ore_open, cells.len());
+        l.send(ToServer::Hello { name: "miner".into() });
+        l.send(ToServer::Move { pos: (ground + (ground - s.world.bodies[0].centre).normalize()).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        l.send(ToServer::Creative(true));
+        // from the top down, so every cell is reached through the hole over it
+        let mut order = cells.clone();
+        order.sort_by_key(|c| -c.z);
+        for (k, c) in order.iter().enumerate() {
+            l.send(ToServer::Edit { seq: k as u32 + 1, shape: Shape::one(Block { body: 0, face: top.face, pos: *c }), material: AIR });
+        }
+        s.tick();
+        assert_eq!((s.world.ore_left.clone(), s.ore_ledger()), (Some(vec![0]), vec![]), "dug out");
     }
 
     /// A bucket scoops a block of sea and pours it back; creative water is counted as made. Through all of it,

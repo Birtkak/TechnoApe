@@ -1,7 +1,9 @@
 //! Hand-painted block textures (ADR 0045, docs/design/studio.md "Textures"): `data/textures/<block>.png` is a
 //! block's every face, `<block>_top.png`, `_side.png` (the four sides) and `_bottom.png` override one. The rule:
 //! 8-bit RGBA, 16 px high, 16, 32, 48 or 64 px wide (1 to 4 variants side by side), every pixel opaque. A file
-//! that breaks it is refused by name and its block keeps its pattern. No GPU here, so the Studio can run the
+//! that breaks it is refused by name and its block keeps its pattern. A season's paint is the same name with
+//! `@spring`, `@autumn` or `@winter` before `.png` (docs/design/seasonal-looks.md); the file without one is
+//! summer's and the base, and a face a season does not paint is the base's. No GPU here, so the Studio can run the
 //! same check.
 use crate::blocks::Registry;
 use std::path::Path;
@@ -37,6 +39,9 @@ impl Painted {
 #[derive(Default, Debug)]
 pub struct Set {
     pub blocks: Vec<(u16, Painted)>,
+    /// The seasons' paint: block, season (its row in `blocks::Def::tone`: 1 spring, 2 autumn, 3 winter) and its
+    /// faces, each face its own or else the base's.
+    pub seasons: Vec<(u16, usize, Painted)>,
     pub refused: Vec<String>,
 }
 
@@ -94,11 +99,21 @@ fn load_with(dir: &Path, reg: &Registry, mut kept: Option<&mut Kept>) -> Set {
         .filter(|n| n.ends_with(".png"))
         .collect();
     names.sort();
-    // per block: its <block>.png, then its own top, side, bottom
-    let mut found: Vec<(u16, [Option<Face>; 4])> = Vec::new();
+    // per block and season (0 the base, summer's): its <block>.png, then its own top, side, bottom
+    let mut found: Vec<((u16, usize), [Option<Face>; 4])> = Vec::new();
     let block = |n: &str| reg.placeable().find(|d| d.name == n).map(|d| d.id);
     for name in names {
-        let stem = &name[..name.len() - 4];
+        let full = &name[..name.len() - 4];
+        let (stem, season) = match full.rsplit_once('@') {
+            None => (full, 0),
+            Some((stem, q)) => match crate::blocks::SEASONS.iter().position(|&n| n == q).map(|k| crate::blocks::ROW[k]) {
+                Some(row) if row != 0 => (stem, row),
+                _ => {
+                    set.refused.push(format!("{name}: no season '{q}' (a season is @spring, @autumn or @winter; summer's is the file without one)"));
+                    continue;
+                }
+            },
+        };
         let which = block(stem).map(|id| (id, 0)).or_else(|| {
             FACES.iter().enumerate().find_map(|(f, s)| stem.strip_suffix(&format!("_{s}")).and_then(block).map(|id| (id, f + 1)))
         });
@@ -106,6 +121,7 @@ fn load_with(dir: &Path, reg: &Registry, mut kept: Option<&mut Kept>) -> Set {
             set.refused.push(format!("{name}: no block '{stem}' in data/blocks.toml (a face is _top, _side or _bottom)"));
             continue;
         };
+        let id = (id, season);
         let got = std::fs::read(dir.join(&name)).map_err(|e| e.to_string()).and_then(|b| decode(&b));
         let got = match (got, kept.as_deref_mut()) {
             (Ok(v), Some(k)) => {
@@ -132,8 +148,14 @@ fn load_with(dir: &Path, reg: &Registry, mut kept: Option<&mut Kept>) -> Set {
     if let Some(k) = kept {
         k.retain(|n, _| dir.join(n).exists());
     }
-    for (id, [all, top, side, bottom]) in found {
-        set.blocks.push((id, Painted { faces: [top, side, bottom].map(|f| f.or_else(|| all.clone())) }));
+    let faces = |[all, top, side, bottom]: [Option<Face>; 4]| [top, side, bottom].map(|f| f.or_else(|| all.clone()));
+    for ((id, _), f) in found.iter().filter(|((_, q), _)| *q == 0) {
+        set.blocks.push((*id, Painted { faces: faces(f.clone()) }));
+    }
+    for ((id, q), f) in found.iter().filter(|((_, q), _)| *q != 0) {
+        let base = set.blocks.iter().find(|(b, _)| b == id).map(|(_, p)| p.faces.clone()).unwrap_or_default();
+        let own = faces(f.clone());
+        set.seasons.push((*id, *q, Painted { faces: std::array::from_fn(|i| own[i].clone().or_else(|| base[i].clone())) }));
     }
     set
 }
@@ -243,6 +265,34 @@ mod tests {
         assert_eq!(top(&load_keeping(&d, &BLOCKS, &mut kept)), Some(90), "a good file again is taken");
         std::fs::remove_file(d.join("grass_top.png")).unwrap();
         assert_eq!(top(&load_keeping(&d, &BLOCKS, &mut kept)), None, "a file gone is gone");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_season_paints_beside_the_base_and_takes_its_faces() {
+        let flat = |c: u8| rgba(16, 16, move |_, _| [c, c, c, 255]);
+        let d = folder(
+            "seasons",
+            &[
+                ("grass.png", flat(10)),
+                ("grass_top@autumn.png", flat(20)),
+                ("broadleaf leaves@winter.png", flat(30)),
+                ("grass@summer.png", flat(40)),
+                ("grass@fall.png", flat(50)),
+                ("nosuchblock@spring.png", flat(60)),
+            ],
+        );
+        let s = load(&d, &BLOCKS);
+        let first = |f: &Option<Face>| f.as_ref().map(|f| f.variants[0][0][0]);
+        let season = |n: &str, q: usize| s.seasons.iter().find(|(id, k, _)| *id == BLOCKS.id(n) && *k == q).map(|(_, _, p)| p.faces.each_ref().map(first));
+        assert_eq!(s.blocks.iter().find(|(id, _)| *id == BLOCKS.id("grass")).map(|(_, p)| p.faces.each_ref().map(first)), Some([Some(10); 3]), "the base is summer's");
+        assert_eq!(season("grass", 2), Some([Some(20), Some(10), Some(10)]), "autumn's top, the base's side and bottom");
+        assert_eq!(season("broadleaf leaves", 3), Some([Some(30); 3]), "a season with no base paint");
+        assert!(s.blocks.iter().all(|(id, _)| *id != BLOCKS.id("broadleaf leaves")), "and the base keeps its pattern");
+        assert_eq!(s.seasons.len(), 2, "{:?}", s.refused);
+        for n in ["grass@summer.png", "grass@fall.png", "nosuchblock@spring.png"] {
+            assert!(s.refused.iter().any(|r| r.starts_with(n)), "{n} refused by name: {:?}", s.refused);
+        }
         let _ = std::fs::remove_dir_all(&d);
     }
 

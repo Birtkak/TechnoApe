@@ -137,7 +137,7 @@ fn key(v: f32) -> u32 {
 
 /// Multi-source Dijkstra over the cell graph: per cell the cost to its nearest source and that source's
 /// index. `step(from, to, metres, source)` is the cost of a step; costs past `limit` are not followed.
-fn dijkstra(g: &Grid, sources: &[(u32, f64)], limit: f64, step: impl Fn(u32, u32, f64, u32) -> f64) -> (Vec<f32>, Vec<u32>) {
+pub(super) fn dijkstra(g: &Grid, sources: &[(u32, f64)], limit: f64, step: impl Fn(u32, u32, f64, u32) -> f64) -> (Vec<f32>, Vec<u32>) {
     let mut cost = vec![f64::INFINITY; g.n()];
     let mut src = vec![NONE; g.n()];
     let mut q = BinaryHeap::new();
@@ -772,6 +772,8 @@ pub struct Bake {
     pub plate: Vec<u8>,
     pub boundary: Vec<u8>,
     pub continental: Vec<bool>,
+    /// Each cell's rock province (`super::rock`, stage 9).
+    pub rock: Vec<u8>,
     pub rivers: Vec<River>,
     pub lakes: Vec<Lake>,
     /// seconds per stage
@@ -830,6 +832,7 @@ pub fn bake(planet_n: u32, seed: u64, p: &Params) -> Bake {
         (0..gf.n() as u32).map(|c| v[gc.locate(gf.d(c)) as usize]).collect()
     };
     let (plate, boundary) = (to_fine(&tc.plate), to_fine(&tc.boundary));
+    let rock = to_fine(&super::rock::provinces(&gc, &tc, seed, p));
     let continental: Vec<bool> = (0..gf.n() as u32).map(|c| tc.continental[gc.locate(gf.d(c)) as usize]).collect();
     lap("refine", &mut times);
     let conv_f = erode(&gf, &mut h, &u, p, p.fine_iters, p.fine_dt);
@@ -900,7 +903,7 @@ pub fn bake(planet_n: u32, seed: u64, p: &Params) -> Bake {
     }
     lap("rivers and lakes", &mut times);
     let (recv, area, ocean) = (d.recv, d.area, d.ocean);
-    Bake { g: gf, h: hm, w: wm, lvl: lm, recv, area, ocean, plate, boundary, continental, rivers, lakes, times, converged: (conv_c, conv_f), scale, life: None }
+    Bake { g: gf, h: hm, w: wm, lvl: lm, recv, area, ocean, plate, boundary, continental, rock, rivers, lakes, times, converged: (conv_c, conv_f), scale, life: None }
 }
 
 /// Mean height step between neighbours (inside a face, across a seam): a seam that shows has a larger one.
