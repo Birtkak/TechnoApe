@@ -40,7 +40,8 @@ impl App {
         let between = self.frame_end.map_or(0.0, |e| (now - e).as_secs_f64());
         self.last_frame = now;
         let t = self.loaded_at.map(|l| (now - l).as_secs_f64()).unwrap_or(0.0);
-        let measuring = self.loaded_at.is_some() && t >= warm;
+        let keep = keeps_frames(&self.run, a);
+        let measuring = self.loaded_at.is_some() && t >= warm && keep;
         // the tick and job numbers count from the measuring on, and play keeps none
         if !measuring || self.run == "play" {
             self.streamer.job_times.clear();
@@ -177,7 +178,7 @@ impl App {
                 }
                 self.steps.push_back((self.next_step, inp));
                 self.next_step += 1;
-                if self.loaded_at.is_some() {
+                if self.loaded_at.is_some() && keep {
                     // the third difference of the fixed-step path: jerk in m/s^3
                     self.path.push(self.me.pos);
                     if self.path.len() > 4 {
@@ -515,7 +516,17 @@ impl App {
         // the water mesh when it changed
         let n = self.water.all.len().min(MAX_WQUADS);
         if std::mem::take(&mut self.water.changed) {
+            // shortcut: past the cap the list is cut in map order, a far tile can go; when floods outgrow it
+            if n < self.water.all.len() && !std::mem::replace(&mut self.water.cut_told, true) {
+                eprintln!("[technoape] water: {} quads, the buffer holds {MAX_WQUADS}: the rest are not drawn", self.water.all.len());
+            }
             gpu.queue.write_buffer(&gpu.wquads, 0, bytemuck::cast_slice(&self.water.all[..n]));
+        }
+        for r in self.water.dirty.drain(..) {
+            let r = r.start.min(n)..r.end.min(n);
+            if !r.is_empty() {
+                gpu.queue.write_buffer(&gpu.wquads, (r.start * std::mem::size_of::<water::WQuad>()) as u64, bytemuck::cast_slice(&self.water.all[r]));
+            }
         }
         self.wquad_n = n as u32;
         lap!("table");

@@ -4,7 +4,7 @@ use crate::bake::Map;
 use crate::biomes::{REACH, ROWS, SPACING, TALLEST};
 use crate::blocks::{AIR, BLOCKS};
 use crate::bodies::{Generator, BODIES};
-use crate::liquid::{Col, Ground, Liquids, OPEN, U};
+use crate::liquid::{Col, Ground, Liquids, OPEN, TILE, U};
 use crate::sky::{Pose, Sky};
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use glam::{DQuat, DVec3, IVec3};
@@ -157,6 +157,9 @@ struct Baked {
     /// `candidate` by (face, cx, cy), for lookups without a cached tile (the server's physics builds none);
     /// past `SPOTS` it is emptied.
     spots: std::sync::Mutex<FxMap<(u8, i32, i32), Option<Foot>>>,
+    /// `river_quads`' level grid by chunk column (face, level, x, y): generated water, which edits never change,
+    /// so a chunk meshed again after an edit looks nothing up; past `LEVEL_GRIDS` it is emptied.
+    levels: std::sync::Mutex<FxMap<(u8, u8, i32, i32), Arc<Vec<Option<f64>>>>>,
     detail: FastNoiseLite,
     jitter: FastNoiseLite,
     seed: u64,
@@ -169,6 +172,8 @@ pub const PLANT_TOP: f64 = (TALLEST + 2 + 8 * REACH) as f64;
 
 /// Plant spots kept per body for lookups without a tile: about 2 MB.
 const SPOTS: usize = 65536;
+/// Level grids kept per body: 18 KB each, 9 MB at most (only chunks near a river or a lake get one).
+const LEVEL_GRIDS: usize = 512;
 
 /// A plant's place (ADR 0043): its kind (`biomes::ROWS.plants`), height in blocks, trunk column and the layer
 /// of its foot, the first air over the ground there.
@@ -201,7 +206,7 @@ pub struct HeightTile {
     /// Plant blocks over the ground (level 0 of a baked planet only): (column, layer, block), by column then
     /// layer. They stand where the generated ground is air; an edit wins over them.
     pub plants: Vec<(u16, i32, u16)>,
-    /// Of the heights as `f32`, as `generate` compares them.
+    /// Of the heights as `f32`, for `generate`'s early-outs.
     pub min: f32,
     pub max: f32,
 }
@@ -348,7 +353,7 @@ impl Body {
         jitter.set_noise_type(Some(NoiseType::OpenSimplex2));
         jitter.set_frequency(Some(1.0 / 24.0));
         let spawn = DVec3::from_array(map.spawn);
-        self.baked = Some(Box::new(Baked { seed: map.seed as u32 as u64, map, detail, jitter, spots: Default::default() }));
+        self.baked = Some(Box::new(Baked { seed: map.seed as u32 as u64, map, detail, jitter, spots: Default::default(), levels: Default::default() }));
         self.sea = Some(self.layer_of(self.radius - SEA_DEPTH).floor() + 0.875);
         // the scored spawn, moved to the nearest column with no plant within a step
         let (f, x, y) = self.locate(spawn);
@@ -371,6 +376,27 @@ impl Body {
         let dn = d.dot(nn);
         let col = |w: f64| ((w / dn).atan() / FRAC_PI_2 * 2.0 + 1.0) * 0.5 * self.n as f64;
         (f, col(d.dot(s)), col(d.dot(t)))
+    }
+    /// The water generation puts over column (i, j) of a face (W5, ADR 0059): its top as a layer coordinate,
+    /// the account it books against (`liquid::Ground::reach`), and for a river its flow per column of width
+    /// (units a step), its surface's fall a column (units) and the runoff a column gathers (units a step). The
+    /// sea's where no river or lake is, or where theirs would stand under it.
+    pub fn water_at(&self, face: u8, i: i32, j: i32) -> Option<(f64, u32, Option<(f64, f64, f64)>)> {
+        let sea = self.sea.map(|s| (s, crate::liquid::SEA, None));
+        let Some(b) = &self.baked else { return sea };
+        let s = b.map.m as f64 / self.n as f64;
+        let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
+        if !b.map.maybe_wet(face as usize, ci * s, cj * s) {
+            return sea;
+        }
+        let Some(w) = b.map.water(face as usize, ci * s, cj * s, self.dir(face as usize, ci, cj)) else { return sea };
+        let top = self.layer_of(self.radius - SEA_DEPTH + w.level as f64);
+        if sea.is_some_and(|s| s.0 >= top) {
+            return sea;
+        }
+        let u = U as f64;
+        let river = (w.q > 0.0).then(|| (w.q as f64 * u / 60.0, w.fall as f64 * u, w.gain as f64 * u / 60.0));
+        Some((top, w.reach, river))
     }
     /// The surface radius at face point (i, j) in columns, d its direction, for chunks of `level`: from the
     /// map's mip whose cells are about as wide as the columns, plus the detail; or the noise land.
@@ -442,6 +468,10 @@ impl Body {
         let h = self.height_at(face, i as f64 + 0.5, j as f64 + 0.5, d, 0);
         let z = self.first_air(h);
         if z as f64 <= self.sea? {
+            return None;
+        }
+        // nor in a river or a lake (W5)
+        if self.water_at(face as u8, i, j).is_some_and(|w| z as f64 <= w.0) {
             return None;
         }
         let [lo, hi] = ROWS.plants[plant].height;
@@ -636,13 +666,20 @@ impl Body {
         // built outside the lock; two workers may build the same tile, the result is the same
         let tile = Arc::new(self.build_tile(face as usize, level, x, y));
         let mut m = self.tiles.map.lock().unwrap();
+        let mut gone = Vec::new();
         if m.len() >= HEIGHT_TILES {
+            // the cut is chosen, and the old tiles freed, outside the lock: the frame thread's physics takes it
+            // per column
             let mut ages: Vec<u64> = m.values().map(|e| e.1).collect();
+            drop(m);
             let mid = ages.len() / 2;
             let cut = *ages.select_nth_unstable(mid).1;
-            m.retain(|_, e| e.1 > cut);
+            m = self.tiles.map.lock().unwrap();
+            gone.extend(m.extract_if(|_, e| e.1 <= cut));
         }
         m.insert(k, (tile.clone(), now));
+        drop(m);
+        drop(gone);
         tile
     }
     fn build_tile(&self, face: usize, level: u8, x: i32, y: i32) -> HeightTile {
@@ -781,8 +818,19 @@ impl Ground for Solid<'_> {
         out
     }
     fn generated(&self, c: Col) -> (i64, i64) {
-        let Some(sea) = self.bodies[c.body() as usize].sea else { return (0, 0) };
-        (self.gen_floor(c) as i64 * U, (sea * U as f64) as i64)
+        let Some((top, _, _)) = self.bodies[c.body() as usize].water_at(c.face(), c.i(), c.j()) else { return (0, 0) };
+        (self.gen_floor(c) as i64 * U, (top * U as f64) as i64)
+    }
+    fn reach(&self, c: Col) -> u32 {
+        self.bodies[c.body() as usize].water_at(c.face(), c.i(), c.j()).map_or(crate::liquid::SEA, |w| w.1)
+    }
+    fn river(&self, c: Col) -> Option<(f64, f64, f64)> {
+        self.bodies[c.body() as usize].water_at(c.face(), c.i(), c.j()).and_then(|w| w.2)
+    }
+    fn down(&self, acct: u32) -> (u32, f64) {
+        // reaches are Terra's baked map's (Luna has none); the map's NONE (to the sea) is the sea's account
+        let r = self.bodies[0].baked.as_ref().and_then(|b| b.map.lines.reaches.get(acct as usize));
+        r.map_or((crate::liquid::SEA, 0.0), |r| (r.down, r.hold as f64))
     }
     fn neighbours(&self, c: Col) -> [Option<Col>; 4] {
         let n = self.bodies[c.body() as usize].n;
@@ -1390,6 +1438,144 @@ pub fn sea_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2]>
     out
 }
 
+/// The generated rivers' and lakes' surface in chunk `key` (W5, ADR 0059), after the sea's quads: kind 5,
+/// one quad per wet column whose level lies in this chunk, as a plane: q.y is its level at the column's middle
+/// in 1/64 layer over the chunk's base (18 bits), and its fall along i and j in 1/256 layer a column (7 bits
+/// each, signed: a steeper one is drawn in steps). Level columns (a lake) are merged as the sea's are.
+/// Columns in a `wet` tile are the client's water mesh's; a far coarse cell that is solid at the level has its
+/// water on its top. None past level 6, where a river is narrower than a cell.
+pub fn river_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2]> {
+    // water stands at most this far over the ground under it (m): a lake over its bed
+    const DEEPEST: f64 = 60.0;
+    let Some(b) = body.baked.as_ref().filter(|_| key.level <= 6) else { return Vec::new() };
+    let s = 1i32 << key.level;
+    let (base, n) = (key.base(), CS as usize);
+    let heights = body.tile(key.face, key.level, key.pos.x, key.pos.y);
+    if body.layer_r(base.z as f64) > heights.max as f64 + DEEPEST || body.layer_r((base.z + key.span()) as f64) < heights.min as f64 {
+        return Vec::new();
+    }
+    // no river line or lake under the chunk and its ring: nothing to look up column by column
+    let cell = |c: i32| (c as f64 * b.map.m as f64 / body.n as f64).floor() as i32;
+    let (x0, y0, x1, y1) = (cell(base.x - s) - 1, cell(base.y - s) - 1, cell(base.x + key.span() + s) + 1, cell(base.y + key.span() + s) + 1);
+    // nor a level in the chunk's layers: a chunk above or under the water's surface draws none of it
+    let Some((lo, hi)) = b.map.wet_near(key.face as usize, x0, y0, x1, y1) else { return Vec::new() };
+    let layer = |v: f32| body.layer_of(body.radius - SEA_DEPTH + v as f64);
+    if layer(hi) < (base.z - 1) as f64 || layer(lo) > (base.z + key.span() + 1) as f64 {
+        return Vec::new();
+    }
+    // the level of every (coarse) column and the ring around it, in layers: rivers' and lakes', not the sea's
+    let m = n + 2;
+    let ck = (key.face, key.level, key.pos.x, key.pos.y);
+    let cached = b.levels.lock().unwrap().get(&ck).cloned();
+    let lv = cached.unwrap_or_else(|| {
+        let lv: Arc<Vec<Option<f64>>> = Arc::new(
+            (0..m * m)
+                .map(|k| {
+                    let (ci, cj) = (base.x + (k % m) as i32 * s - s + s / 2, base.y + (k / m) as i32 * s - s + s / 2);
+                    if !(0..body.n).contains(&ci) || !(0..body.n).contains(&cj) {
+                        return None;
+                    }
+                    body.water_at(key.face, ci, cj).filter(|w| w.1 != crate::liquid::SEA).map(|w| w.0)
+                })
+                .collect(),
+        );
+        let mut c = b.levels.lock().unwrap();
+        if c.len() >= LEVEL_GRIDS {
+            c.clear();
+        }
+        c.insert(ck, lv.clone());
+        lv
+    });
+    let mut code: Vec<Option<(u32, u32)>> = vec![None; n * n];
+    for y in 0..n {
+        for x in 0..n {
+            let at = |dx: i32, dy: i32| lv[(x as i32 + 1 + dx) as usize + (y as i32 + 1 + dy) as usize * m];
+            let Some(mut l) = at(0, 0) else { continue };
+            let cz = (l / s as f64).floor() as i32;
+            if cz.div_euclid(CS) != key.pos.z || wet.binary_search(&Col::new(key.body, key.face, base.x + x as i32 * s, base.y + y as i32 * s).tile()).is_ok() {
+                continue;
+            }
+            let zl = (cz - key.pos.z * CS) as usize;
+            let solid = match gen {
+                Gen::Cells(c) => c[pidx(x + 1, y + 1, zl + 1)] != 0,
+                Gen::Solid => true,
+                Gen::Empty => false,
+            };
+            // the fall a column, from the neighbours that hold water too
+            let fall = |a: Option<f64>, b: Option<f64>| match (a, b) {
+                (Some(a), Some(b)) => (b - a) / 2.0,
+                (Some(a), None) => l - a,
+                (None, Some(b)) => b - l,
+                _ => 0.0,
+            } / s as f64;
+            let (mut gx, mut gy) = (fall(at(-1, 0), at(1, 0)), fall(at(0, -1), at(0, 1)));
+            if solid {
+                // a block that holds the level stands out of it; a coarse cell's water lies on its top
+                if key.level == 0 {
+                    continue;
+                }
+                (l, gx, gy) = (((cz + 1) * s) as f64, 0.0, 0.0);
+            }
+            let q = |g: f64| ((g * 256.0).round().clamp(-63.0, 63.0) as i32 & 127) as u32;
+            let lvl = ((l - base.z as f64) * 64.0).round().clamp(0.0, (1 << 18) as f64 - 1.0) as u32;
+            code[y * n + x] = Some((lvl | q(gx) << 18 | q(gy) << 25, (zl + 1) as u32));
+        }
+    }
+    let cap = (((2.0 * body.radius).sqrt() / BLOCK) as usize >> key.level).clamp(1, n);
+    let mut out = Vec::new();
+    for y in 0..n {
+        let mut x = 0;
+        while x < n {
+            let Some((c, z)) = code[y * n + x] else {
+                x += 1;
+                continue;
+            };
+            // only a level surface merges: a sloped one is a plane about its own column's middle
+            let (mut w, mut h) = (1, 1);
+            if c >> 18 == 0 {
+                while x + w < n && w < cap && code[y * n + x + w] == Some((c, z)) {
+                    w += 1;
+                }
+                while y + h < n && h < cap && (x..x + w).all(|i| code[(y + h) * n + i] == Some((c, z))) {
+                    h += 1;
+                }
+            }
+            for v in y..y + h {
+                for u in x..x + w {
+                    code[v * n + u] = None;
+                }
+            }
+            out.push([x as u32 | (y as u32) << 6 | z << 12 | ((w - 1) as u32) << 18 | ((h - 1) as u32) << 23 | 5 << 28, c]);
+            x += w;
+        }
+    }
+    out
+}
+
+/// The chunks (levels up to 4) that draw the generated water of tile `t`: the sea's and every river's and
+/// lake's level in it. When the tile turns wet or dry they are meshed again (`Streamer::touch_tile`).
+pub fn water_keys(body: &Body, t: Col) -> Vec<Key> {
+    let mut tops: Vec<f64> = body.sea.into_iter().collect();
+    for j in t.j() * TILE..(t.j() + 1) * TILE {
+        for i in t.i() * TILE..(t.i() + 1) * TILE {
+            if let Some((top, acct, _)) = body.water_at(t.face(), i, j) {
+                if acct != crate::liquid::SEA {
+                    tops.push(top);
+                }
+            }
+        }
+    }
+    let mut keys: Vec<Key> = (0..=body.root_level.min(4))
+        .flat_map(|l| {
+            let span = CS << l;
+            tops.iter().map(move |&top| Key { body: t.body(), face: t.face(), level: l, pos: IVec3::new(t.i() * TILE / span, t.j() * TILE / span, ((top / (1i32 << l) as f64).floor() as i32).div_euclid(CS)) })
+        })
+        .collect();
+    keys.sort_unstable_by_key(|k| (k.level, k.pos.z));
+    keys.dedup();
+    keys
+}
+
 pub fn generate(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
     let s = (1i32 << key.level) as f64;
     let c0 = key.pos * CS - 1; // padded cell (0, 0, 0) in cells of this level
@@ -1397,7 +1583,7 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
     // the top padding's skirt looks SKIRT cells higher, past the chunk: generated terrain is air there when
     // the column is lower than this
     let z_air = c0.z + (P - 1 + SKIRT) as i32;
-    let r_air = body.layer_r((z_air as f64 + 0.5) * s) as f32;
+    let r_air = body.layer_r((z_air as f64 + 0.5) * s);
     // caves are carved at level 0 only: a coarser cell is too big to show one (world-data.md)
     let caved = key.level == 0 && body.caves.iter().any(|c| c.face == key.face && (c.at - (c0.as_dvec3() + P as f64 * 0.5)).abs().max_element() < c.r + P as f64 * 0.5);
     let plain = edits.is_empty() && !caved;
@@ -1406,32 +1592,34 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
         if r_lo > body.radius + AMP {
             return Gen::Empty;
         }
-        if (r_air as f64) < body.radius - AMP {
+        if r_air < body.radius - AMP {
             return Gen::Solid;
         }
     }
     // one height per column, from the footprint's tile (columns past a seam are the neighbouring face's)
     let tile = body.tile(key.face, key.level, key.pos.x, key.pos.y);
-    let h: [f32; P * P] = std::array::from_fn(|i| tile.h[i] as f32);
+    let h = &tile.h;
     let (hmin, hmax) = (tile.min, tile.max);
     if plain {
+        // rounding to f32 keeps order, so these agree with the cells' f64 test below
         if r_lo as f32 > hmax {
             return Gen::Empty;
         }
-        if r_air < hmin {
+        if (r_air as f32) < hmin {
             return Gen::Solid;
         }
     }
     let mut cells = Box::new([0u16; P * P * P]);
-    // coarse cells keep the surface band one cell thick, so the far planet stays green
-    let cf = (s * BLOCK) as f32;
+    // coarse cells keep the surface band one cell thick, so the far planet stays green. In f64, as
+    // `material` (physics, water) compares: f32 split cells within a quarter millimetre of a threshold
+    let cf = s * BLOCK;
     let grass = cf.max(0.5);
     let dirt = (2.0 * cf).max(4.0);
     let mut any_air = false;
     let mut any_solid = false;
     for z in 0..P {
         let l = (c0.z as f64 + z as f64 + 0.5) * s;
-        let r = body.layer_r(l) as f32;
+        let r = body.layer_r(l);
         let core = l < 0.0;
         for (i, hv) in h.iter().enumerate() {
             let d = hv - r;
@@ -1541,6 +1729,63 @@ mod tests {
         let (i, j) = (5 * CS + 7, 9 * CS + 30);
         assert_eq!(b.col_height(2, i, j).to_bits(), b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)).to_bits());
         assert_eq!(b.col_height(3, i, j).to_bits(), b.height(b.dir(3, i as f64 + 0.5, j as f64 + 0.5)).to_bits());
+    }
+
+    /// A full height cache keeps the younger half: the tiles used after the median age, and the new one.
+    #[test]
+    fn a_full_height_cache_keeps_the_younger_half() {
+        let b = Body::new(DVec3::ZERO, 1536, 7);
+        let t = b.tile(0, 0, 0, 0);
+        let age = |i: usize| (i as u64 * 7919) % HEIGHT_TILES as u64; // every age once, shuffled
+        let keys: Vec<(u8, u8, i32, i32)> = (0..HEIGHT_TILES).map(|i| (0, 0, (i % 64) as i32, (i / 64) as i32)).collect();
+        *b.tiles.map.lock().unwrap() = keys.iter().enumerate().map(|(i, k)| (*k, (t.clone(), age(i)))).collect();
+        b.tile(1, 0, 0, 0);
+        let mut sorted: Vec<u64> = (0..HEIGHT_TILES).map(age).collect();
+        sorted.sort();
+        let cut = sorted[HEIGHT_TILES / 2];
+        let mut want: Vec<(u8, u8, i32, i32)> = keys.iter().enumerate().filter(|(i, _)| age(*i) > cut).map(|(_, k)| *k).collect();
+        want.push((1, 0, 0, 0));
+        want.sort();
+        let mut got: Vec<(u8, u8, i32, i32)> = b.tiles.map.lock().unwrap().keys().copied().collect();
+        got.sort();
+        assert_eq!(got, want);
+    }
+
+    /// On the 4 km planet a height a hair from a layer's centre, or from the top block's or the band's floor, is
+    /// one answer for the mesher's cells, the physics and the water: columns placed just each side of them.
+    #[test]
+    fn the_mesher_physics_and_water_agree_at_a_layers_centre() {
+        let w = World::new(6144, 32, 1);
+        let b = &w.bodies[0];
+        let (face, x, y) = (2u8, 40, 70);
+        let kz = (b.layer_of(b.radius).floor() as i32).div_euclid(CS);
+        let zc = kz * CS + CS / 2;
+        // heights over cell zc's centre: the air/top, top/band and band/rock boundaries, within f32's rounding
+        let h: [f64; P * P] = std::array::from_fn(|i| {
+            let edge = [0.0, BLOCK, 4.0][i % 3];
+            b.layer_r(zc as f64 + 0.5) + edge + ((i / 3) % 25) as f64 * 2e-5 - 2.4e-4
+        });
+        let (min, max) = (h.iter().fold(f32::MAX, |a, v| a.min(*v as f32)), h.iter().fold(f32::MIN, |a, v| a.max(*v as f32)));
+        b.tiles.map.lock().unwrap().insert((face, 0, x, y), (Arc::new(HeightTile { h, g: [b.ground; P * P], plants: Vec::new(), min, max }), 0));
+        let k = Key { body: 0, face, level: 0, pos: IVec3::new(x, y, kz) };
+        let Gen::Cells(cells) = generate(b, k, &[]) else { panic!("the chunk is all one") };
+        let mut bad = Vec::new();
+        for v in 1..=CS as usize {
+            for u in 1..=CS as usize {
+                let (i, j) = (x * CS - 1 + u as i32, y * CS - 1 + v as i32);
+                let gaps = w.ground().gaps(Col::new(0, face, i, j));
+                for zl in 1..P - 1 {
+                    let z = kz * CS - 1 + zl as i32;
+                    let phys = w.generated_block(Block { body: 0, face, pos: IVec3::new(i, j, z) });
+                    let mesh = cells[pidx(u, v, zl)];
+                    let open = gaps.iter().any(|&(lo, hi)| (lo..hi).contains(&z));
+                    if mesh != phys || open != !BLOCKS.solid(phys) {
+                        bad.push(format!("({i}, {j}, {z}) height {:+e} over the centre: mesh {mesh}, physics {phys}, water open {open}", h[u + v * P] - b.layer_r(z as f64 + 0.5)));
+                    }
+                }
+            }
+        }
+        assert!(bad.is_empty(), "{} cells disagree, e.g. {:?}", bad.len(), &bad[..bad.len().min(4)]);
     }
 
     /// ADR 0054: a room built 40 m over the ground is still among blocks; only over the build headroom is

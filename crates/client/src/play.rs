@@ -1305,7 +1305,9 @@ impl App {
         }
         self.drift_max = self.drift_max.max(off.length());
         if off.length() > 0.001 {
-            self.snap_t.push((t, off.length()));
+            if keeps_frames(&self.run, &self.args) {
+                self.snap_t.push((t, off.length()));
+            }
             self.snaps += 1;
             self.path.clear(); // a correction is counted as one, not as jerk
             self.smooth = if off.length() < 2.0 { self.smooth + off } else { DVec3::ZERO };

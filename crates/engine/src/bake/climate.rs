@@ -6,19 +6,6 @@ use super::air::{Air, Params, State};
 use super::grid::Grid;
 use serde::{Deserialize, Serialize};
 
-/// A map as version 2 wrote it (no climate).
-#[derive(Deserialize)]
-pub(super) struct V2 {
-    pub version: u32,
-    pub seed: i32,
-    pub n: i32,
-    pub m: u32,
-    pub h: Vec<f32>,
-    pub biome: Vec<u8>,
-    pub spawn: [f64; 3],
-    pub rivers: Vec<super::Reach>,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Climate {
     /// Air columns per face edge (`LifeParams::air_cell_m` wide), and the bake's radius, metres.

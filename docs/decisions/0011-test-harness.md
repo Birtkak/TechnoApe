@@ -29,7 +29,8 @@ Options 2 and 4.
   `Server::hash` (the world, every player's physics and input, the tick and the carried-over time).
 - **Flight recorder:** `Server::record` writes every join, message and leave with its tick, and a hash every
   second, as length-prefixed postcard records, flushed every tick (the release build aborts on panic, so a
-  crash loses at most its own tick). The dedicated server records by default to `out/rec/`, and so does the
+  crash loses at most its own tick). The dedicated server records to `out/rec/` only with `record=1` (since 2026-11-12: at 50 players it
+  wrote about 12 GB a day and nothing cleans the folder); by default so does the
   client's local server when it runs on screen; `record=0` turns it off. `technoape-server replay=file
   until=tick` replays headless, stops at the first checkpoint that disagrees and dumps the players.
 - **The gate:** `bash tools/check.sh` runs `cargo test`, a 3-minute soak on a fresh seed with recording, the
