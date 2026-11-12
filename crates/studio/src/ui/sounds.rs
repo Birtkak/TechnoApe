@@ -5,6 +5,7 @@ use super::look::{self, GAP};
 use super::wall as wallui;
 use super::{App, Cmd, FileRow, Page, Thumb, DRAFTS};
 use crate::art::{self, History};
+use crate::import::{self, Credit, Make};
 use crate::rows;
 use crate::shell::Flags;
 use crate::sound::{self, Card, Layer, Sound, STARTS};
@@ -15,6 +16,45 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 pub const SOUNDS: &str = "data/sounds.toml";
+/// The recordings' folder: `<row>.wav` and its takes, `base/` the bases (ADR 0032, 0048).
+pub const REC: &str = "data/sounds";
+
+/// A file being imported (ADR 0066): pending, shown and heard, until Use or Cancel.
+struct Import {
+    file: String,
+    /// The whole file, one channel at 48 kHz.
+    src: Vec<f32>,
+    info: String,
+    m: Make,
+    /// The row's peak, for Level.
+    peak: f32,
+    level: bool,
+    /// `src` made by `m`: what Use writes.
+    out: Vec<f32>,
+    credit: Credit,
+    base: String,
+    /// The handle being dragged: 0 the start, 1 the end.
+    grab: Option<usize>,
+}
+impl Import {
+    fn remake(&mut self) {
+        self.m.level = self.level.then_some(self.peak);
+        self.out = import::make(&self.src, &self.m);
+    }
+}
+
+/// A Use: the row it was made on, its step's name in that row's undo, and each file it wrote as it was before
+/// and after (none: no file), so undo and redo put the files back.
+struct Wrote {
+    row: String,
+    name: String,
+    /// The WAV: its path, its bytes before (none: no file) and after.
+    wav: (String, Option<Vec<u8>>, Vec<u8>),
+    /// Its credits row: the file's name there, the row before (none: no row) and after. Only this row moves on
+    /// undo; the rest of the credits file is left as it is then.
+    credit: (String, Option<String>, String),
+    done: bool,
+}
 
 /// One row open in the Studio: the sound, its undo, and its text as saved (none: not in the file yet).
 struct SDoc {
@@ -191,6 +231,13 @@ pub struct Sounds {
     name_edit: String,
     disk: String,
     now: f64,
+    imports: u32,
+    import: Option<Import>,
+    import_path: String,
+    wrote: Vec<Wrote>,
+    /// The bases under `data/sounds/base/`, and the open row's recordings (what the game plays instead of its chain).
+    file_bases: Vec<String>,
+    recorded: Vec<String>,
 }
 
 impl Sounds {
@@ -234,6 +281,12 @@ impl Sounds {
             name_edit: String::new(),
             disk: String::new(),
             now: 0.0,
+            imports: 0,
+            import: None,
+            import_path: String::new(),
+            wrote: vec![],
+            file_bases: vec![],
+            recorded: vec![],
         };
         s.read_disk();
         s.open = s.docs.keys().find(|n| n.as_str() == "furnace.clank").or(s.docs.keys().next()).cloned();
@@ -268,6 +321,297 @@ impl Sounds {
         }
         self.disk = text;
         self.sent = None;
+        self.read_recordings();
+    }
+
+    /// The recordings on disk: the bases, and the open row's takes.
+    fn read_recordings(&mut self) {
+        let mut b: Vec<String> = std::fs::read_dir(format!("{REC}/base")).into_iter().flatten().flatten().filter_map(|e| e.file_name().to_str()?.strip_suffix(".wav").map(String::from)).collect();
+        b.sort();
+        self.file_bases = b;
+        self.recorded = self.open.as_deref().map_or(vec![], |r| import::recordings(std::path::Path::new(REC), r));
+    }
+
+    /// A file to import: read, made 48 kHz, and shown as pending (ADR 0066).
+    fn begin_import(&mut self, app: &mut App, path: &str) {
+        let path = path.trim().trim_matches('"');
+        if path.is_empty() {
+            app.refuse("Give the sound file's path, or drop the file on the page");
+            return;
+        }
+        // shortcut: decoded on the frame thread (a few seconds of sound in well under a second); a worker when long files are common
+        match import::load(std::path::Path::new(path)) {
+            Ok((src, d)) => {
+                let peak = match (self.takes.first(), self.row.as_ref()) {
+                    (Some(t), Some(r)) if r.gain > 0.0 => (t.iter().fold(0.0f32, |m, s| m.max(s.abs())) / r.gain).clamp(0.05, 1.0),
+                    _ => 1.0,
+                };
+                let info = format!("{} Hz, {} channel{}, {:.0} ms", d.rate, d.channels, if d.channels == 1 { "" } else { "s" }, d.samples.len() as f32 / d.rate as f32 * 1000.0);
+                let mut im = Import { file: path.to_string(), src, info, m: Make::default(), peak, level: true, out: vec![], credit: Credit::default(), base: import::base_name(path), grab: None };
+                im.remake();
+                self.stop();
+                self.import = Some(im);
+            }
+            Err(e) => app.refuse(format!("Not imported: {e}")),
+        }
+    }
+
+    /// Use: the import written as this row's sound (or its next take) or as a base, its credits row with it;
+    /// one undo step on the open row.
+    fn use_import(&mut self, app: &mut App, as_base: bool) {
+        let (Some(im), Some(row)) = (self.import.as_ref(), self.open.clone()) else { return };
+        if let Some(why) = im.credit.refused() {
+            app.refuse(format!("Not used: {why}"));
+            return;
+        }
+        let rel = if as_base {
+            let b = im.base.trim();
+            if b.is_empty() || b.contains(['/', '\\', '"']) || self.docs.contains_key(b) || self.file_bases.iter().any(|f| f == b) {
+                app.refuse(format!("'{b}' is taken (a row or a base) or not a name"));
+                return;
+            }
+            format!("base/{b}.wav")
+        } else {
+            match import::take_name(std::path::Path::new(REC), &row) {
+                Some(n) => n,
+                None => {
+                    app.refuse(format!("{row} has its {} takes: none added", import::TAKES + 1));
+                    return;
+                }
+            }
+        };
+        if im.out.is_empty() {
+            app.refuse("Not used: nothing is left between the handles");
+            return;
+        }
+        let path = format!("{REC}/{rel}");
+        let old = std::fs::read_to_string(import::CREDITS).unwrap_or_default();
+        let credit = (rel.clone(), import::credit_row(&old, &rel), Credit { file: rel.clone(), ..im.credit.clone() }.row());
+        self.imports += 1;
+        let name = format!("Import #{} {path}", self.imports);
+        let mut w = Wrote { row: row.clone(), name: name.clone(), wav: (path.clone(), std::fs::read(&path).ok(), import::wav_bytes(&im.out)), credit, done: false };
+        if let Err(e) = Self::apply(&mut w, true) {
+            app.refuse(format!("Not used: {e}"));
+            return;
+        }
+        let d = self.docs.get_mut(&row).unwrap();
+        d.hist.push(d.s.clone(), &name);
+        // a redo of something undone before is gone with its step
+        self.wrote.retain(|o| o.done || o.row != row);
+        self.wrote.push(w);
+        self.import = None;
+        self.after_files(app);
+        app.toast(if as_base { format!("Kept {path}: a row made from '{}' plays it", rel.trim_start_matches("base/").trim_end_matches(".wav")) } else { format!("Used {path}: the game plays it for {row} within a second") });
+    }
+
+    /// Writes a Use's files as after it (`on`) or as before it.
+    /// The WAV is touched only while it is what the step left (a file edited since is never removed or
+    /// replaced); the credits row is set or taken out in the file as it is now.
+    fn apply(w: &mut Wrote, on: bool) -> Result<(), String> {
+        let (path, before, after) = &w.wav;
+        let (want, put) = if on { (before.as_deref(), Some(after.as_slice())) } else { (Some(after.as_slice()), before.as_deref()) };
+        if std::fs::read(path).ok().as_deref() != want {
+            return Err(format!("{path} changed since: left as it is"));
+        }
+        let text = std::fs::read_to_string(import::CREDITS).unwrap_or_default();
+        let (file, row_before, row_after) = &w.credit;
+        let credits = match (on, row_before) {
+            (true, _) => import::put_row(&text, file, row_after),
+            (false, Some(r)) => import::put_row(&text, file, r),
+            (false, None) => import::drop_credit(&text, file),
+        };
+        import::put_file(path, put)?;
+        if let Err(e) = import::put_file(import::CREDITS, Some(credits.as_bytes())) {
+            // the WAV back as it was, so the pair stays together
+            let _ = import::put_file(path, want);
+            return Err(e);
+        }
+        w.done = on;
+        Ok(())
+    }
+
+    /// After an undo or redo: each Use on the open row is on disk exactly while its step is in the row's undo.
+    fn follow_files(&mut self, app: &mut App) {
+        let (Some(row), Some(d)) = (self.open.clone(), self.doc()) else { return };
+        let steps: Vec<String> = d.hist.undo.iter().map(|s| s.name.clone()).collect();
+        let mut changed = false;
+        // undone newest first, redone oldest first
+        for i in (0..self.wrote.len()).rev() {
+            let w = &mut self.wrote[i];
+            if w.row == row && w.done && !steps.contains(&w.name) {
+                changed = true;
+                if let Err(e) = Self::apply(w, false) {
+                    app.refuse(format!("Not undone: {e}"));
+                }
+            }
+        }
+        for w in self.wrote.iter_mut().filter(|w| w.row == row && !w.done && steps.contains(&w.name)) {
+            changed = true;
+            if let Err(e) = Self::apply(w, true) {
+                app.refuse(format!("Not redone: {e}"));
+            }
+        }
+        if changed {
+            self.after_files(app);
+        }
+    }
+
+    /// Recordings changed: the worker's bank made again (a new base), the lists and the check.
+    fn after_files(&mut self, app: &mut App) {
+        if let Ok(rows) = audio::parse(&self.disk) {
+            let _ = self.tx.send(Job::Rows(rows));
+        }
+        self.read_recordings();
+        app.check();
+    }
+
+    /// The import panel: the file's wave with the cut's handles, its making, its credits, and Use or Cancel.
+    fn import_panel(&mut self, ui: &mut Ui, app: &mut App) {
+        let row = self.open.clone();
+        let is_loop = self.doc().is_some_and(|d| d.s.is_loop());
+        let next_take = row.as_deref().and_then(|r| import::take_name(std::path::Path::new(REC), r));
+        let now = self.now;
+        let head = self.head;
+        let Some(im) = self.import.as_mut() else { return };
+        let mut act = None;
+        ui.add_space(GAP * 0.5);
+        ui.label(RichText::new(format!("Import into {}: {}", row.as_deref().unwrap_or("(no sound open)"), im.file)).strong());
+        look::weak(ui, format!("{}. A recording from a file: cut it, then use it as this sound, or keep it as a base that rows make many sounds from (their chain: pitch, spread, trim).", im.info));
+        ui.add_space(GAP * 0.5);
+        let (r, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 150.0), Sense::click_and_drag());
+        crate::drive::mark(ui.ctx(), "import_wave", r);
+        let p = ui.painter_at(r);
+        p.rect_filled(r, 6.0, ui.visuals().extreme_bg_color);
+        let inner = r.shrink(GAP);
+        draw_wave(&p, inner, &im.src, false, Color32::from_gray(150));
+        let x_of = |k: f32| inner.min.x + k.clamp(0.0, 1.0) * inner.width();
+        let (a, b) = (im.m.start.min(im.m.end), im.m.start.max(im.m.end));
+        let dim = Color32::from_black_alpha(150);
+        p.rect_filled(Rect::from_min_max(inner.min, Pos2::new(x_of(a), inner.max.y)), 0.0, dim);
+        p.rect_filled(Rect::from_min_max(Pos2::new(x_of(b), inner.min.y), inner.max), 0.0, dim);
+        // what Trim silence keeps inside the cut
+        if im.m.trim && !im.src.is_empty() {
+            let (i0, i1) = (import::share(im.src.len(), a), import::share(im.src.len(), b));
+            let (t0, t1) = import::sound_bounds(&im.src[i0..i1.max(i0)]);
+            let n = im.src.len() as f32;
+            let s = Stroke::new(1.0, look::GOOD);
+            for t in [i0 + t0, i0 + t1] {
+                let x = x_of(t as f32 / n);
+                p.line_segment([Pos2::new(x, inner.min.y), Pos2::new(x, inner.max.y)], s);
+            }
+        }
+        for (k, v) in [im.m.start, im.m.end].into_iter().enumerate() {
+            let x = x_of(v);
+            p.line_segment([Pos2::new(x, r.min.y), Pos2::new(x, r.max.y)], Stroke::new(2.0, look::ACCENT));
+            p.rect_filled(Rect::from_center_size(Pos2::new(x, r.min.y + 9.0), Vec2::new(10.0, 14.0)), 2.0, look::ACCENT);
+            p.text(Pos2::new(x + if k == 0 { 7.0 } else { -7.0 }, r.max.y - 4.0), if k == 0 { egui::Align2::LEFT_BOTTOM } else { egui::Align2::RIGHT_BOTTOM }, if k == 0 { "start" } else { "end" }, egui::FontId::proportional(look::SMALL), Color32::from_gray(200));
+        }
+        if let Some((t0, l)) = head {
+            let k = ((now - t0) / l).clamp(0.0, 1.0) as f32;
+            let px = x_of(a) + k * (x_of(b) - x_of(a));
+            p.line_segment([Pos2::new(px, r.min.y), Pos2::new(px, r.max.y)], Stroke::new(2.0, look::BAD));
+        }
+        let at = |pos: Pos2| ((pos.x - inner.min.x) / inner.width()).clamp(0.0, 1.0);
+        if resp.drag_started() {
+            if let Some(pos) = resp.interact_pointer_pos() {
+                im.grab = Some(if (pos.x - x_of(im.m.start)).abs() <= (pos.x - x_of(im.m.end)).abs() { 0 } else { 1 });
+            }
+        }
+        if let (Some(g), Some(pos)) = (im.grab, resp.interact_pointer_pos().filter(|_| resp.dragged())) {
+            *(if g == 0 { &mut im.m.start } else { &mut im.m.end }) = at(pos);
+        }
+        if resp.drag_stopped() {
+            im.grab = None;
+            im.remake();
+        }
+        if look::tip(resp, "The whole file; drag a blue handle to cut the start or the end (the dark part goes). Green: what Trim silence keeps. A click plays the result.", "").clicked() {
+            act = Some("import.play");
+        }
+        ui.add_space(GAP * 0.5);
+        ui.horizontal_wrapped(|ui| {
+            if look::tip(ui.button(if head.is_some() { "Stop" } else { "Play" }), "Hear what Use will write", "").clicked() {
+                act = Some("import.play");
+            }
+            let mut ch = look::tip(ui.checkbox(&mut im.m.trim, "Trim silence"), "Cut the quiet before and after the sound (under -40 dB of its peak)", "").changed();
+            ch |= look::tip(ui.checkbox(&mut im.level, "Level"), &format!("As loud as the row's own sound (peak {:.0}% of full)", im.peak * 100.0), "").changed();
+            if ch {
+                im.remake();
+            }
+            look::weak(ui, format!("{} ms fades at both ends, against clicks", import::FADE_MS));
+            ui.label(RichText::new(format!("{:.0} ms", im.out.len() as f32 / import::RATE as f32 * 1000.0)).strong());
+        });
+        let secs = im.out.len() as f32 / import::RATE as f32;
+        if !is_loop && secs > import::LONG_S {
+            ui.label(RichText::new(format!("{secs:.1} s is long for a one-shot (over {} s): cut it, or make the row a loop", import::LONG_S)).small().color(look::DRAFT));
+        }
+        ui.add_space(GAP);
+        ui.label(RichText::new("Where it came from").strong());
+        egui::Grid::new("import credits").num_columns(2).spacing(Vec2::new(GAP, 4.0)).show(ui, |ui| {
+            ui.label("source");
+            let r = ui.add(egui::TextEdit::singleline(&mut im.credit.source).hint_text("https://… the page you downloaded it from").desired_width(320.0));
+            crate::drive::mark(ui.ctx(), "import_source", r.rect);
+            look::tip(r, "Kept in data/sounds/credits.toml: a credits screen needs it before any public release", "");
+            ui.end_row();
+            ui.label("licence");
+            ui.horizontal(|ui| {
+                for l in ["own", "CC0", "CC BY", "other"] {
+                    let help = match l {
+                        "own" => "Made or recorded by you",
+                        "CC0" => "Free for anything, no credit needed",
+                        "CC BY" => "Free with credit: the author and title go on the credits screen",
+                        _ => "Any other licence: the check refuses it, so it cannot be kept",
+                    };
+                    let r = look::tip(look::chip(ui, im.credit.licence == l, l), help, "");
+                    crate::drive::mark(ui.ctx(), format!("licence:{}", l.replace(' ', "_")), r.rect);
+                    if r.clicked() {
+                        im.credit.licence = l.into();
+                    }
+                }
+            });
+            ui.end_row();
+            for (k, v) in [("author", &mut im.credit.author), ("title", &mut im.credit.title)] {
+                ui.label(k);
+                look::tip(ui.add(egui::TextEdit::singleline(v).hint_text("for CC BY: shown on the credits screen").desired_width(320.0)), "Who made it and what they called it", "");
+                ui.end_row();
+            }
+        });
+        if im.credit.licence == "other" {
+            ui.label(RichText::new("The check refuses licences other than own, CC0 and CC BY: a file under one cannot be kept.").small().color(look::BAD));
+        }
+        ui.add_space(GAP);
+        let why = im.credit.refused();
+        ui.horizontal_wrapped(|ui| {
+            let target = match (&row, &next_take) {
+                (Some(_), Some(n)) => format!("Writes {REC}/{n}"),
+                (Some(r), None) => format!("{r} has all its takes"),
+                (None, _) => "Open a sound first".into(),
+            };
+            let r = ui.add_enabled(why.is_none() && next_take.is_some(), egui::Button::new(RichText::new("Use as this sound").strong()));
+            crate::drive::mark(ui.ctx(), "import_use", r.rect);
+            if look::tip(r, &format!("{target}: the game plays the recording for this row instead of its chain (a second one is another take)"), "").clicked() {
+                act = Some("import.use");
+            }
+            ui.separator();
+            let r = ui.add(egui::TextEdit::singleline(&mut im.base).desired_width(130.0));
+            look::tip(r, "The base's name: a row made `from` it plays it through its chain", "");
+            let r = ui.add_enabled(why.is_none() && row.is_some(), egui::Button::new("Keep as a base"));
+            crate::drive::mark(ui.ctx(), "import_base", r.rect);
+            if look::tip(r, &format!("Writes {REC}/base/{}.wav: then New from… or a row's bases make many sounds out of it", im.base.trim()), "").clicked() {
+                act = Some("import.base");
+            }
+            ui.separator();
+            let r = ui.button("Cancel");
+            crate::drive::mark(ui.ctx(), "import_cancel", r.rect);
+            if look::tip(r, "Forget this import: nothing is written", "Esc").clicked() {
+                act = Some("import.cancel");
+            }
+        });
+        if let Some(w) = why {
+            look::weak(ui, format!("To keep it: {w}."));
+        }
+        if let Some(a) = act {
+            self.run(app, a);
+        }
     }
 
     fn doc(&self) -> Option<&SDoc> {
@@ -279,6 +623,7 @@ impl Sounds {
         (self.take, self.wall, self.wall_waves, self.wall_for, self.going_round, self.sent) = (0, None, vec![], None, false, None);
         self.name_edit = self.open.clone().unwrap_or_default();
         self.saved_take = None;
+        self.recorded = self.open.as_deref().map_or(vec![], |r| import::recordings(std::path::Path::new(REC), r));
         let Some(d) = self.doc() else { return };
         let (saved, name) = (d.saved.as_deref().and_then(one_take), d.s.name());
         if let Some(r) = saved {
@@ -515,6 +860,7 @@ impl Sounds {
 
     fn bases(&self) -> Vec<String> {
         let mut v: Vec<String> = self.docs.keys().filter(|n| n.starts_with("base.")).cloned().collect();
+        v.extend(self.file_bases.iter().cloned());
         v.extend(self.docs.keys().filter(|n| !n.starts_with("base.") && Some(*n) != self.open.as_ref()).cloned());
         v
     }
@@ -528,7 +874,10 @@ impl Sounds {
                 let r = ui.add(egui::TextEdit::singleline(&mut self.name_edit).desired_width(160.0));
                 if look::tip(r.clone(), "The new row's name; Enter renames it (a row in the file keeps its name: the game plays it by name)", "").lost_focus() && self.name_edit != name {
                     let to = self.name_edit.trim().to_string();
-                    if to.is_empty() || self.docs.contains_key(&to) || to.contains('"') {
+                    if self.wrote.iter().any(|w| w.row == name) {
+                        app.refuse(format!("{name} has an import under its name: it keeps the name"));
+                        self.name_edit = name.clone();
+                    } else if to.is_empty() || self.docs.contains_key(&to) || to.contains('"') {
                         app.refuse(format!("'{to}' is taken or not a name"));
                         self.name_edit = name.clone();
                     } else {
@@ -555,6 +904,9 @@ impl Sounds {
         });
         if let Some(e) = &self.err {
             ui.label(RichText::new(format!("The game refuses this: {e}")).small().color(look::BAD));
+        }
+        if !self.recorded.is_empty() {
+            look::weak(ui, format!("The game plays the recording{} {} for this row, not the chain below (Ctrl+Z after an import takes it back).", if self.recorded.len() == 1 { "" } else { "s" }, self.recorded.join(", ")));
         }
     }
 
@@ -854,6 +1206,10 @@ impl Page for Sounds {
             Cmd::new("new", "New sound from a base", "a new row made from base.thud: choose its bases and chain").key(Modifiers::COMMAND, Key::N),
             Cmd::new("copy", "Copy this sound", "a new row with this one's bases and chain"),
             Cmd::new("cave", "In a cave or the open", "hear it as in a stone room, or in the open"),
+            Cmd::new("import", "Import a sound file", "WAV, OGG, MP3 or FLAC: drop it on the page, or give its path under Import (right)"),
+            Cmd::new("import.use", "Use the import as this sound", "write it as this row's recording (or its next take), with its credits row"),
+            Cmd::new("import.base", "Keep the import as a base", "write it under data/sounds/base/ for rows to be made from"),
+            Cmd::new("import.cancel", "Cancel the import", "nothing is written"),
         ];
         for (name, help, _) in STARTS {
             v.push(Cmd::new(format!("start:{name}"), format!("Start: {name}"), help));
@@ -904,6 +1260,7 @@ impl Page for Sounds {
                     }
                 }
                 "new" => self.new_row(Some(arg)),
+                "import" => self.begin_import(app, arg),
                 _ => {}
             }
             return;
@@ -935,6 +1292,25 @@ impl Page for Sounds {
                         d.hist.redo(&mut d.s);
                     }
                 }
+                self.follow_files(app);
+            }
+            "import" => {
+                let p = self.import_path.clone();
+                self.begin_import(app, &p);
+            }
+            "import.use" => self.use_import(app, false),
+            "import.base" => self.use_import(app, true),
+            "import.cancel" => {
+                self.import = None;
+                self.stop();
+            }
+            "import.play" => {
+                if self.head.is_some() {
+                    self.stop();
+                } else if let Some(x) = self.import.as_ref().map(|i| i.out.clone()) {
+                    self.going_round = false;
+                    self.out(app, &x);
+                }
             }
             "new" => self.new_row(Some("base.thud")),
             "copy" => self.new_row(None),
@@ -956,8 +1332,21 @@ impl Page for Sounds {
         self.feed();
         self.feed_wall();
         self.tick(app, ui.ctx());
+        let dropped: Vec<std::path::PathBuf> = ui.ctx().input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
+        if let Some(f) = dropped.first() {
+            self.begin_import(app, &f.to_string_lossy());
+        }
+        if self.import.is_some() {
+            if ui.input(|i| i.key_pressed(Key::Escape)) {
+                self.run(app, "import.cancel");
+            }
+            egui::ScrollArea::vertical().id_salt("import").auto_shrink([false, false]).show(ui, |ui| self.import_panel(ui, app));
+            return;
+        }
         if self.doc().is_none() {
-            look::weak(ui, "No sound: Ctrl+N makes one from a base");
+            ui.add_space(GAP * 2.0);
+            ui.label(RichText::new("No sound yet").strong());
+            look::weak(ui, "First click: New from… (right) makes a sound from a base. Or drop a sound file here (WAV, OGG, MP3, FLAC) to start from a recording.");
             return;
         }
         ui.add_space(GAP * 0.5);
@@ -977,6 +1366,20 @@ impl Page for Sounds {
     }
 
     fn inspector(&mut self, ui: &mut Ui, app: &mut App) {
+        if let Some(mut sec) = look::section(ui, "Import") {
+            let ui = &mut *sec;
+            look::weak(ui, "A sound from a file (WAV, OGG, MP3, FLAC): drop it on the page, or give its path");
+            ui.horizontal(|ui| {
+                let r = ui.add(egui::TextEdit::singleline(&mut self.import_path).hint_text("C:\\…\\sound.ogg").desired_width((ui.available_width() - 70.0).max(80.0)));
+                crate::drive::mark(ui.ctx(), "import_path", r.rect);
+                let enter = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                let b = ui.button("Import");
+                crate::drive::mark(ui.ctx(), "import_go", b.rect);
+                if look::tip(b, "Read the file and show it, to cut, hear and credit before anything is written", "").clicked() || enter {
+                    self.run(app, "import");
+                }
+            });
+        }
         if let Some(mut sec) = look::section(ui, "Sound") {
             let ui = &mut *sec;
             let cmds = self.commands(app);
@@ -1121,10 +1524,11 @@ impl Page for Sounds {
         Some((d.hist.undo.iter().map(|s| s.name.clone()).collect(), d.hist.redo.iter().rev().map(|s| s.name.clone()).collect()))
     }
 
-    fn back_to(&mut self, _app: &mut App, n: usize) {
+    fn back_to(&mut self, app: &mut App, n: usize) {
         if let Some(d) = self.open.as_ref().and_then(|k| self.docs.get_mut(k)) {
             d.hist.back_to(&mut d.s, n);
         }
+        self.follow_files(app);
     }
 
     fn refresh(&mut self, _app: &App) {

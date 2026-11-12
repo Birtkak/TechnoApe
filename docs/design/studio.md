@@ -245,6 +245,9 @@ Done when a `drive` script sets each of the six views and frames a part, and a f
 remove in layer mode is read; picking on the layer plane has a test.
 
 ### 5. Sounds from outside files (Sounds)
+**Built 2026-11-12** (ADR 0066: symphonia reads the four formats in the Studio only; the written file is 48 kHz
+mono 16-bit WAV; `crates/studio/src/import.rs`, the panel in `ui/sounds.rs`).
+
 Today a recording `data/sounds/<name>.wav` replaces a code-made sound and `data/sounds/base/*.wav` are bases
 for chains (ADR 0032, 0048), but only as WAV, only by copying files by hand, and nothing trims or levels them.
 Making a sound from layers and chains alone asks for audio skill the developer does not have; a good recording
