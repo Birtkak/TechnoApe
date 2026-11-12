@@ -577,3 +577,24 @@ fn generate_variants_picks_a_set_and_a_variant_is_removed() {
     assert!(line.contains("\"undo\":[\"Remove variant 2\"]"), "{line}");
     assert_eq!(png(&tex).0, 32);
 }
+
+#[test]
+fn textures_kept_after_a_crash_are_offered_back() {
+    // usability round: unsaved work kept in studio-recovery/ is offered at the next start; Restore makes it unsaved work
+    let dir = scratch("recover");
+    studio(&dir, &["open=clay", "input=click @btn:pattern; click @btn:pat.use; key Ctrl+S"]);
+    let (tex, kept) = (dir.join("data/textures/clay.png"), dir.join("studio-recovery/textures"));
+    std::fs::create_dir_all(&kept).unwrap();
+    std::fs::rename(&tex, kept.join("clay.png")).unwrap();
+    let line = studio(&dir, &["open=clay", "input=wait", "rects=1"]);
+    assert!(line.contains("\"unsaved\":[]") && line.contains("btn:recover.restore"), "offered, not restored before the answer: {line}");
+    let line = studio(&dir, &["open=clay", "input=click @btn:recover.restore; key Ctrl+S"]);
+    assert!(line.contains("Restored as unsaved work: clay.png") && line.contains("Saved clay.png"), "{line}");
+    assert_eq!(std::fs::read(&tex).unwrap(), std::fs::read(kept.join("clay.png")).unwrap());
+    // kept work the files already hold is not offered; Discard drops the rest
+    let line = studio(&dir, &["open=clay", "input=wait", "rects=1"]);
+    assert!(!line.contains("btn:recover.restore"), "the same as on disk: not offered: {line}");
+    std::fs::write(kept.join("dirt.png"), std::fs::read(&tex).unwrap()).unwrap();
+    studio(&dir, &["open=clay", "input=click @btn:recover.discard"]);
+    assert!(!kept.exists(), "Discard clears the kept set");
+}

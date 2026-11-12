@@ -16,6 +16,7 @@ mod drive;
 mod effect;
 mod font;
 mod ramp;
+mod recover;
 mod rows;
 mod sound;
 mod pattern;

@@ -323,6 +323,9 @@ pub struct Studio {
     game: Option<std::process::Child>,
     /// Off for a shot: it never writes the developer's studio.txt.
     write_settings: bool,
+    /// Unsaved textures kept every few seconds, and what a crash left, still to be offered (`recover.rs`).
+    recovery: crate::recover::Recovery,
+    recovered: Vec<(String, Img)>,
 }
 
 impl Studio {
@@ -372,6 +375,9 @@ impl Studio {
         if let Some(b) = open {
             pages[0].open(&mut app, b);
         }
+        // what a crash left, but for files that are on disk as kept
+        let recovery = crate::recover::Recovery::new(".", "textures", crate::recover::EVERY);
+        let recovered = recovery.left().into_iter().filter_map(|(n, b)| Some((n, art::decode(&b).ok()?))).filter(|(n, img)| app.docs.get(n).is_none_or(|d| d.img != *img)).collect();
         Ok(Studio {
             app,
             pages,
@@ -394,6 +400,8 @@ impl Studio {
             native: 1.0,
             snap_scale: false,
             game: None,
+            recovery,
+            recovered,
         })
     }
 
@@ -670,6 +678,7 @@ impl Studio {
         self.toasts(&ctx);
         self.asks(&ctx);
         self.close_check(&ctx);
+        self.recover(&ctx);
         self.help = look::take_help(&ctx);
         // where the developer is, for the next start
         let (name, cur) = (self.pages[self.page].name(), self.pages[self.page].current());
@@ -1219,9 +1228,42 @@ impl Studio {
         }
     }
 
+    /// After a crash: offer the kept textures back. Else every few seconds: keep the unsaved ones (not a shot).
+    fn recover(&mut self, ctx: &egui::Context) {
+        if !self.recovered.is_empty() {
+            let names: Vec<String> = self.recovered.iter().map(|f| f.0.clone()).collect();
+            match crate::recover::offer(ctx, "textures", &names) {
+                Some(true) => {
+                    for (n, img) in std::mem::take(&mut self.recovered) {
+                        let d = self.app.docs.entry(n).or_insert_with(|| Doc { img: img.clone(), hist: Default::default(), saved: None });
+                        if d.img != img {
+                            d.hist.push(std::mem::replace(&mut d.img, img), "Recovered");
+                        }
+                    }
+                    self.app.toast(format!("Restored as unsaved work: {}", names.join(", ")));
+                    for p in &mut self.pages {
+                        p.refresh(&self.app);
+                    }
+                }
+                Some(false) => {
+                    self.recovered.clear();
+                    self.recovery.clear();
+                }
+                None => {}
+            }
+        } else if self.write_settings {
+            let docs = &self.app.docs;
+            self.recovery.keep(std::time::Instant::now(), || docs.iter().filter(|(_, d)| d.dirty()).map(|(n, d)| (n.clone(), art::encode(&d.img))).collect());
+        }
+    }
+
     fn close_check(&mut self, ctx: &egui::Context) {
         let mut unsaved: Vec<String> = self.app.docs.iter().filter(|(_, d)| d.dirty()).map(|(n, _)| n.clone()).collect();
         unsaved.extend(self.pages.iter().flat_map(|p| p.unsaved()));
+        // a clean close keeps nothing to offer next time
+        if self.write_settings && self.recovered.is_empty() && (self.quit || (unsaved.is_empty() && ctx.input(|i| i.viewport().close_requested()))) {
+            self.recovery.clear();
+        }
         if ctx.input(|i| i.viewport().close_requested()) && !self.quit && !unsaved.is_empty() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.closing = true;
