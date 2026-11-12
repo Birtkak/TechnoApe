@@ -243,6 +243,9 @@ pub(crate) struct App {
     /// (a world picked, or back to the title).
     pub(crate) worlds: Vec<String>,
     pub(crate) next: Option<Vec<String>>,
+    /// A new world's bake or a server's map on its way, on a worker thread, before the game starts again with
+    /// `next` (the title screen draws its bar).
+    pub(crate) loading: Option<menu::Loading>,
     /// run=view: the Studio's commands and camera (ADR 0049).
     pub(crate) view: Option<view::ViewRun>,
 }

@@ -16,6 +16,11 @@ pub(crate) fn frustum_planes(m: Mat4) -> [Vec4; 6] {
 
 impl App {
     pub(crate) fn frame(&mut self) {
+        // a new world's bake or a server's map done: the game starts again with it
+        self.poll_loading();
+        if self.done {
+            return;
+        }
         // the Studio's view (ADR 0049): its commands first
         if self.run == "view" {
             self.view_take();
