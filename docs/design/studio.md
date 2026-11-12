@@ -300,7 +300,11 @@ the selected part's blue box and the Edges lines stand a voxel or two beside the
 the mesh must take one transform (parent chain, `at`, pivot, the clip's pose), and a click must land on the
 voxel under the pointer. Sent to the models session as a red-then-green fix; ADR 0065 gets the finding.
 
-### 7. Fine voxels per model
+### 7. Fine voxels per model (withdrawn the same evening)
+**Withdrawn:** the developer chose textured box models at 32 pixels per metre instead, with see-through
+leaves and glass (`docs/design/see-through-and-boxes.md`). Do not build this step; the text stays as the
+record of what was weighed.
+
 A sapling, a leaf or a pebble is a handful of 12.5 cm voxels and cannot have a shape. A model may therefore
 choose a finer voxel.
 

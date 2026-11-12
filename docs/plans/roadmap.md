@@ -98,7 +98,11 @@ air up to pollution, and three networks (pipes, shafts, wires) on one network en
 Our own program in which the developer makes the game's textures and voxel models by hand, and its effects,
 sounds, trees and structures (ADR 0044, `docs/design/studio.md`). **Next: the usability round** (2026-11-12,
 the design doc's section of that name): the block always in view, a pattern panel, variants that explain
-themselves, the model view's camera and placing, and sounds from outside files.
+themselves, the model view's camera and placing, and sounds from outside files (built and merged
+2026-11-12; its second round adds a palette that grows where you paint).
+**After that: see-through blocks and textured box models** (`docs/design/see-through-and-boxes.md`): cutout
+leaves, glass, small models of painted boxes at 32 pixels per metre, still models meshed into the chunk, and
+later forest floor clutter and pick-ups. Seven steps, the first a measured spike.
 
 ## The benchmark
 The engine keeps one benchmark as its performance check, so numbers stay comparable over time.
