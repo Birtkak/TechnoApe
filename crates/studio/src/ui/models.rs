@@ -136,6 +136,8 @@ pub struct Models {
     orbit: Orbit,
     /// The flat (near orthographic) view.
     flat: bool,
+    /// The starter shapes are shown for a new model (Ctrl+N), in place of the view.
+    choosing: bool,
     show_block: bool,
     show_player: bool,
     show_grid: bool,
@@ -203,6 +205,7 @@ impl Models {
             motion: (Motion::Swing, 1, 30.0),
             orbit: Orbit::default(),
             flat: false,
+            choosing: false,
             show_block: false,
             show_player: false,
             show_grid: true,
@@ -325,15 +328,56 @@ impl Models {
         }
     }
 
-    /// A new model, or a small plant of a kind grown from a seed (its name's number: "tuft 3" is seed 3).
-    fn new_model(&mut self, app: &App, plant: Option<&str>) {
-        let base = plant.unwrap_or("model");
+    /// A new model named after `base` (a free name: "post", "post 2", ...), made by `make` from that name's
+    /// number (a plant's seed: "tuft 3" is seed 3); none made, nothing opens.
+    fn new_model(&mut self, base: &str, make: impl FnOnce(u64) -> Option<Model>) {
         let (k, name) = (1u64..).map(|k| (k, if k == 1 { base.to_string() } else { format!("{base} {k}") })).find(|(_, n)| !self.docs.contains_key(n) && !std::path::Path::new(&format!("{MODELS}/{n}.toml")).exists()).unwrap();
-        let m = plant.map_or_else(|| voxel::new_model(&app.pal), |kind| voxel::plant(&app.pal, kind, k));
+        let Some(m) = make(k) else { return };
         self.docs.insert(name.clone(), MDoc { m, life: Life::default(), hist: History::default(), saved: None, rev: 0, old: String::new() });
         self.open = Some(name);
         self.part = 0;
+        self.choosing = false;
         self.opened();
+    }
+
+    /// In place of the view, for a new model and when there is none: the starter shapes, each a button with its
+    /// words, and what the first click does.
+    fn starters(&mut self, ui: &mut Ui, app: &mut App) {
+        ui.add_space(GAP);
+        if self.m().is_none() {
+            look::heading(ui, "No model yet: click a shape to start from");
+            look::weak(ui, "It opens in the view. There a left click adds a voxel of the chosen colour, a right click removes one, and a right drag turns the view.");
+        } else {
+            look::heading(ui, "New model: click a shape to start from");
+            look::weak(ui, "It opens as a new model beside the others, to recolour and reshape; the open one is kept as it is.");
+        }
+        ui.add_space(GAP);
+        for (id, label, help) in voxel::STARTERS {
+            ui.horizontal(|ui| {
+                let r = ui.add_sized([130.0, 28.0], egui::Button::new(label));
+                crate::drive::mark(ui.ctx(), format!("starter:{id}"), r.rect);
+                if look::tip(r, help, "").clicked() {
+                    self.run(app, &format!("new:{id}"));
+                }
+                // (in a row a label does not wrap: a column the row's width left)
+                ui.allocate_ui_with_layout(Vec2::new(ui.available_width(), 28.0), egui::Layout::top_down(egui::Align::Min), |ui| ui.add(egui::Label::new(RichText::new(help).small().weak()).wrap()));
+            });
+        }
+        ui.add_space(GAP);
+        ui.horizontal_wrapped(|ui| {
+            look::weak(ui, "Or grow a small plant:");
+            for kind in voxel::PLANTS {
+                if look::tip(ui.button(kind), "A small plant grown as a new model, to finish by hand; again grows another", "").clicked() {
+                    self.run(app, &format!("plant:{kind}"));
+                }
+            }
+        });
+        if self.m().is_some() {
+            ui.add_space(GAP);
+            if look::tip(ui.button("Cancel"), "Back to the open model", "Esc").clicked() {
+                self.choosing = false;
+            }
+        }
     }
 
     /// The open model as the renderer reads it (sliced), written when it changed.
@@ -1337,7 +1381,10 @@ impl Page for Models {
         v.push(Cmd::new("undo", "Undo", "undo the last change to this model").key(Modifiers::COMMAND, Key::Z));
         v.push(Cmd::new("redo", "Redo", "redo what was undone").key(Modifiers::COMMAND, Key::Y));
         v.push(Cmd::new("save", "Save the model", "write it (checked by the game's reader first) and take it off the drafts list").key(Modifiers::COMMAND, Key::S));
-        v.push(Cmd::new("new", "New model", "one part, a block's size, its floor laid").key(Modifiers::COMMAND, Key::N));
+        v.push(Cmd::new("new", "New model", "choose a shape to start from: a block, a slab, a post, a tool, a plant cross or a creature").key(Modifiers::COMMAND, Key::N));
+        for (id, label, help) in voxel::STARTERS {
+            v.push(Cmd::new(format!("new:{id}"), format!("New model: {label}"), help));
+        }
         for kind in voxel::PLANTS {
             v.push(Cmd::new(format!("plant:{kind}"), format!("New {kind}"), "a small plant grown as a new model, to finish by hand; again grows another"));
         }
@@ -1429,7 +1476,8 @@ impl Page for Models {
                         self.sel = Some((IVec3::new(a, b, c), IVec3::new(d, e, f)));
                     }
                 }
-                "plant" if voxel::PLANTS.contains(&arg) => self.new_model(app, Some(arg)),
+                "plant" if voxel::PLANTS.contains(&arg) => self.new_model(arg, |k| Some(voxel::plant(&app.pal, arg, k))),
+                "new" => self.new_model(arg, |_| voxel::starter(&app.pal, arg)),
                 "view" => {
                     if let Some(k) = VIEWS.iter().position(|v| v.0 == arg) {
                         self.orbit.look_from(k);
@@ -1458,7 +1506,7 @@ impl Page for Models {
             "mirror.z" => self.mirror.1 = !self.mirror.1,
             "play" => self.playing = !self.playing && self.clip.is_some(),
             "save" => self.save(app),
-            "new" => self.new_model(app, None),
+            "new" => self.choosing = true,
             "undo" | "redo" => {
                 if let Some(d) = self.open.as_ref().and_then(|n| self.docs.get_mut(n)) {
                     let done = d.step(|h, now| if id == "undo" { h.undo(now) } else { h.redo(now) });
@@ -1510,7 +1558,7 @@ impl Page for Models {
                     true
                 });
             }
-            "sel.none" => self.sel = None,
+            "sel.none" => (self.sel, self.choosing) = (None, false),
             "view.flat" => self.flat = !self.flat,
             "layer.on" => self.layer = if self.layer.is_some() { None } else { Some(0) },
             "layer.up" | "layer.down" => {
@@ -1579,11 +1627,11 @@ impl Page for Models {
                 }
             });
         }
-        app.view.controls(ui);
-        if self.m().is_none() {
-            look::weak(ui, "No model: Ctrl+N makes one");
+        if self.choosing || self.m().is_none() {
+            self.starters(ui, app);
             return;
         }
+        app.view.controls(ui);
         self.feed_view(app);
         // (no clip chosen: the timeline is its one line of buttons, and the view has the rest)
         let timeline_h = if self.clip.is_none() { 62.0 } else { 62.0 + 18.0 * (self.m().map_or(1, |m| m.parts.len()) as f32 + 2.0) + GAP };
@@ -1635,7 +1683,7 @@ impl Page for Models {
         if let Some(mut sec) = look::section(ui, "Model") {
             let ui = &mut *sec;
             ui.horizontal(|ui| {
-                if look::tip(ui.button("New model"), "A new model: one part, a block's size", "Ctrl+N").clicked() {
+                if look::tip(ui.button("New model"), "Start a new model from a shape: a block, a slab, a post, a tool, a plant cross or a creature", "Ctrl+N").clicked() {
                     self.run(app, "new");
                 }
                 ui.menu_button("Plant…", |ui| {

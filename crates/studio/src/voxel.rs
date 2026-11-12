@@ -77,7 +77,7 @@ impl Orbit {
     /// vertical field of view at the target's distance.
     pub fn frame(&mut self, lo: Vec3, hi: Vec3, th: f32) {
         self.target = (lo + hi) / 2.0;
-        self.dist = ((hi - lo).length() / 2.0 * 1.25 / th.max(0.05)).clamp(0.3, 12.0);
+        self.dist = ((hi - lo).length() / 2.0 * 1.6 / th.max(0.05)).clamp(0.3, 12.0);
     }
     pub fn zoom(&mut self, k: f32) {
         self.dist = (self.dist * k).clamp(0.3, 12.0);
@@ -763,21 +763,76 @@ pub fn events_mut<'a>(life: &'a mut Life, clip: &str) -> &'a mut Vec<Event> {
     }
 }
 
-/// A new model: one part, `body`, 8 voxels a side (a block), its floor laid in stone (or the palette's first).
-pub fn new_model(pal: &Palette) -> Model {
-    let c = pal.colours.iter().find(|c| c.name == "stone").or(pal.colours.first()).map_or(String::from("stone"), |c| c.name.clone());
-    let mut cells = vec![0u8; 512];
-    cells[..64].fill(1);
-    let mut m = Model {
-        colours: vec![c],
-        parts: vec![Part { name: "body".into(), parent: String::new(), at: [0; 3], pivot: [4.0, 0.0, 4.0], size: [8, 8, 8], voxels: String::new(), cells }],
-        points: vec![],
-        clips: vec![],
-        rgb: vec![],
-        up: vec![],
+/// The starter shapes a new model begins from (docs/design/studio.md "The bar"): id, the button's word, its tip.
+pub const STARTERS: [(&str, &str, &str); 6] = [
+    ("block", "Block", "a whole 1 m block, 8 x 8 x 8 voxels, to carve and recolour"),
+    ("slab", "Slab", "half a block: 8 x 4 x 8 voxels"),
+    ("post", "Post", "a post 2 voxels thick and a block high, in the block's middle"),
+    ("tool", "Tool", "a handle with a head on top, as a pick or a hammer: two parts, the head hanging on the handle"),
+    ("plant", "Plant cross", "two crossed panes in a block, as grass and flowers stand"),
+    ("creature", "Creature", "a body, a head and four legs, each a part with its pivot where it turns, facing front (+z)"),
+];
+
+/// A part of `size` whose cells are `fill`'s colours (a colour's place + 1, 0 for none).
+fn filled(name: &str, parent: &str, at: [i32; 3], size: [u32; 3], pivot: [f32; 3], fill: impl Fn(IVec3) -> u8) -> Part {
+    let s = IVec3::from(size.map(|v| v as i32));
+    let mut cells = vec![0u8; (s.x * s.y * s.z) as usize];
+    for y in 0..s.y {
+        for z in 0..s.z {
+            for x in 0..s.x {
+                let c = IVec3::new(x, y, z);
+                cells[idx(s, c)] = fill(c);
+            }
+        }
+    }
+    Part { name: name.into(), parent: parent.into(), at, pivot, size, voxels: String::new(), cells }
+}
+
+/// A new model of a starter shape: its parts and pivots set, its colours the palette's by name (one the palette
+/// lacks falls to its first); it stands in the block at the origin. None: no such shape.
+pub fn starter(pal: &Palette, kind: &str) -> Option<Model> {
+    let mut colours: Vec<String> = vec![];
+    let mut col = |name: &str| -> u8 {
+        let name = pal.colours.iter().find(|c| c.name == name).or(pal.colours.first()).map_or(name.to_string(), |c| c.name.clone());
+        (colours.iter().position(|c| *c == name).unwrap_or_else(|| {
+            colours.push(name);
+            colours.len() - 1
+        }) + 1) as u8
     };
-    m = Model::parse("new", &text(&m), pal).unwrap_or(m);
-    m
+    let parts = match kind {
+        "block" | "slab" => {
+            let (side, top) = (col("stone"), col("stone light"));
+            let h = if kind == "block" { 8 } else { 4 };
+            vec![filled(kind, "", [0; 3], [8, h, 8], [4.0, 0.0, 4.0], |c| if c.y == h as i32 - 1 { top } else { side })]
+        }
+        "post" => {
+            let wood = col("dirt");
+            vec![filled("post", "", [3, 0, 3], [2, 8, 2], [1.0, 0.0, 1.0], |_| wood)]
+        }
+        "tool" => {
+            let (wood, head) = (col("dirt dark"), col("stone"));
+            vec![filled("handle", "", [4, 0, 4], [1, 7, 1], [0.5, 0.0, 0.5], |_| wood), filled("head", "handle", [-2, 6, 0], [5, 2, 1], [2.5, 1.0, 0.5], |_| head)]
+        }
+        "plant" => {
+            let shades = [col("grass dark"), col("grass"), col("grass light")];
+            vec![filled("plant", "", [0; 3], [8, 8, 8], [4.0, 0.0, 4.0], |c| if c.x == c.z || c.x == 7 - c.z { shades[(c.y * 3 / 8) as usize] } else { 0 })]
+        }
+        "creature" => {
+            let (body, head, leg, eye) = (col("dirt"), col("dirt light"), col("dirt dark"), col("stone dark"));
+            let mut v = vec![
+                filled("body", "", [2, 2, 0], [4, 3, 5], [2.0, 1.5, 2.5], |_| body),
+                filled("head", "body", [0, 0, 5], [4, 3, 3], [2.0, 1.5, 0.0], |c| if c.z == 2 && c.y == 2 && (c.x == 0 || c.x == 3) { eye } else { head }),
+            ];
+            // its left is +x: it faces +z
+            for (name, at) in [("leg_fl", [3, -2, 3]), ("leg_fr", [0, -2, 3]), ("leg_bl", [3, -2, 0]), ("leg_br", [0, -2, 0])] {
+                v.push(filled(name, "body", at, [1, 2, 1], [0.5, 2.0, 0.5], |_| leg));
+            }
+            v
+        }
+        _ => return None,
+    };
+    let m = Model { colours, parts, points: vec![], clips: vec![], rgb: vec![], up: vec![] };
+    Model::parse(kind, &text(&m), pal).ok()
 }
 
 /// The small plants grown as models (docs/design/studio-tools.md "Structures and flora": tufts and flowers
@@ -1274,9 +1329,39 @@ mod tests {
     }
 
     #[test]
+    fn every_starter_shape_is_a_valid_model_standing_in_its_block() {
+        let p = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        for (kind, ..) in STARTERS {
+            let m = starter(&p, kind).unwrap_or_else(|| panic!("{kind}: not made"));
+            let again = Model::parse(kind, &text(&m), &p).unwrap();
+            assert_eq!(again.parts.iter().map(|q| &q.cells).collect::<Vec<_>>(), m.parts.iter().map(|q| &q.cells).collect::<Vec<_>>(), "{kind}");
+            assert!(m.colours.iter().all(|c| p.colours.iter().any(|k| &k.name == c)), "{kind}: a colour the palette lacks");
+            let poses = m.pose(None, 0.0);
+            for (i, q) in m.parts.iter().enumerate() {
+                assert!(q.cells.iter().any(|c| *c != 0), "{kind}: {} is empty", q.name);
+                assert!((0..3).all(|k| (0.0..=q.size[k] as f32).contains(&q.pivot[k])), "{kind}: {}'s pivot outside its box", q.name);
+                assert!(q.parent.is_empty() || m.parts.iter().any(|o| o.name == q.parent), "{kind}: {}'s parent", q.name);
+                // every voxel at rest inside the block at the origin
+                let s = IVec3::from(q.size.map(|v| v as i32));
+                for c in (0..s.x * s.y * s.z).map(|n| IVec3::new(n % s.x, n / (s.x * s.z), n / s.x % s.z)).filter(|c| get(q, *c) != 0) {
+                    let at = poses[i].transform_point3(c.as_vec3() + 0.5);
+                    assert!(at.cmpgt(Vec3::ZERO).all() && at.cmplt(Vec3::ONE).all(), "{kind}: {} {c} at {at}", q.name);
+                }
+            }
+            assert!(thumb(&m).px.iter().any(|c| *c != [26, 28, 32]), "{kind}: an empty thumbnail");
+        }
+        let c = starter(&p, "creature").unwrap();
+        assert_eq!(c.parts.iter().map(|q| q.name.as_str()).collect::<Vec<_>>(), ["body", "head", "leg_fl", "leg_fr", "leg_bl", "leg_br"]);
+        assert!(c.parts[1..].iter().all(|q| q.parent == "body") && c.parts[2..].iter().all(|q| q.pivot[1] == q.size[1] as f32), "legs turn at the hip");
+        let t = starter(&p, "tool").unwrap();
+        assert_eq!((t.parts.len(), t.parts[1].parent.as_str()), (2, "handle"));
+        assert!(starter(&p, "nothing").is_none());
+    }
+
+    #[test]
     fn a_new_model_reads_its_text_back_and_has_a_thumbnail() {
         let p = pal();
-        let m = new_model(&p);
+        let m = starter(&p, "block").unwrap();
         let again = Model::parse("new.toml", &text(&m), &p).unwrap();
         assert_eq!(again.parts[0].cells, m.parts[0].cells);
         let t = thumb(&m);
