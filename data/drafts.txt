@@ -36,3 +36,10 @@ data/models/boar.toml
 data/models/ape.toml
 data/creatures.toml#snake
 data/models/snake.toml
+data/creatures.toml#deer
+data/models/deer.toml
+data/creatures.toml#hare
+data/models/hare.toml
+data/sounds.toml#deer.call
+data/sounds.toml#hare.squeak
+data/herds.toml

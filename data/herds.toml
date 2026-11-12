@@ -1,0 +1,23 @@
+# Where the peaceful animals live (ADR 0083, docs/design/creatures.md; schema and checks in
+# crates/engine/src/herds.rs). A site is 64 x 64 columns; the seed picks a spot in it, and the biome there picks
+# one row by `share` (the shares of a biome's rows, in order, add up to at most 1; the rest of its sites are
+# empty). `size`: [fewest, most] animals in the herd. `creature`: a row of data/creatures.toml. The noise land
+# (no baked map) counts as grassland. Every number here is open to taste.
+
+[[herd]]
+creature = "deer"
+biomes = ["grassland", "temperate forest", "cold forest", "savanna"]
+share = 0.3
+size = [3, 6]
+
+[[herd]]
+creature = "hare"
+biomes = ["grassland", "tundra", "cold forest", "dry scrub", "alpine"]
+share = 0.3
+size = [2, 4]
+
+[[herd]]
+creature = "boar"
+biomes = ["temperate forest", "rain forest", "wetland", "savanna", "dry scrub"]
+share = 0.25
+size = [2, 5]

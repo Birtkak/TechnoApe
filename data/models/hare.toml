@@ -1,0 +1,95 @@
+# A draft hare (Claude's, listed in data/drafts.txt): a small quadruped for data/creatures.toml and
+# data/herds.toml (ADR 0083), facing +z. Its walk is made from its row. Format: docs/design/studio-tools.md "Models".
+colours = ["dirt", "dirt light", "stone light", "stone dark"]
+
+[[part]]
+name = "body"
+parent = ""
+at = [3, 1, 2]
+pivot = [1, 1, 1.5]
+box = [2, 2, 3]
+voxels = """
+bb
+bb
+bb
+
+aa
+aa
+aa
+"""
+
+[[part]]
+name = "head"
+parent = "body"
+at = [0, 1, 3]
+pivot = [1, 0, 0]
+box = [2, 2, 2]
+voxels = """
+aa
+aa
+
+aa
+dd
+"""
+
+[[part]]
+name = "ears"
+parent = "head"
+at = [0, 2, 0]
+pivot = [1, 0, 0.5]
+box = [2, 2, 1]
+voxels = """
+aa
+
+bb
+"""
+
+[[part]]
+name = "leg_fl"
+parent = "body"
+at = [1, -1, 2]
+pivot = [0.5, 1, 0.5]
+box = [1, 1, 1]
+voxels = """
+a
+"""
+
+[[part]]
+name = "leg_fr"
+parent = "body"
+at = [0, -1, 2]
+pivot = [0.5, 1, 0.5]
+box = [1, 1, 1]
+voxels = """
+a
+"""
+
+[[part]]
+name = "leg_bl"
+parent = "body"
+at = [1, -1, 0]
+pivot = [0.5, 1, 0.5]
+box = [1, 1, 1]
+voxels = """
+a
+"""
+
+[[part]]
+name = "leg_br"
+parent = "body"
+at = [0, -1, 0]
+pivot = [0.5, 1, 0.5]
+box = [1, 1, 1]
+voxels = """
+a
+"""
+
+[[part]]
+name = "tail"
+parent = "body"
+at = [0, 1, -1]
+pivot = [1, 0.5, 1]
+box = [2, 1, 1]
+voxels = """
+cc
+"""
