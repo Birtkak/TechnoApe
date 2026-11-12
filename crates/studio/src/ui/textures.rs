@@ -188,6 +188,12 @@ impl Textures {
         (self.pat, self.pending, self.gen, self.ask_remove) = (None, None, false, None);
     }
 
+    /// Another face or season: what was open or pending for the old file goes (the review of ADR 0064).
+    fn leave(&mut self, face: usize, season: usize) {
+        (self.face, self.season, self.variant, self.stroke, self.sel) = (face, season, 0, None, None);
+        (self.pat, self.pending, self.gen, self.wall, self.ask_remove) = (None, None, false, None, None);
+    }
+
     /// The picture a face shows in the season painted: its own file, else (dimmed, `false`) the season's
     /// every-face file, the base face's, the base every-face file.
     /// A pending change (a pattern, a set of variants) shows in its place until Use or Cancel.
@@ -615,7 +621,7 @@ impl Textures {
 
     /// Use this: the pending set becomes the file, one undo step.
     fn wall_use(&mut self, app: &mut App) {
-        if let Some((f, img)) = self.pending.take() {
+        if let Some((f, img)) = self.pending.take().filter(|(f, _)| *f == self.file(self.face)) {
             let n = img.variants();
             self.edit(app, "Generate variants", |me, _, _| *me = img);
             app.toast(format!("{f}: {n} variants (unsaved; Undo takes them back)"));
@@ -745,8 +751,10 @@ impl Textures {
                     0 => "Every face: <block>.png".to_string(),
                     _ => format!("Only the {} face: <block>_{}.png{}", FACE_NAMES[f].to_lowercase(), art::FACES[f], if own { "" } else { "; dimmed: it falls back to All" }),
                 };
-                if look::tip(ui.selectable_label(self.face == f, t), &help, "").clicked() {
-                    (self.face, self.variant, self.stroke, self.sel) = (f, 0, None, None);
+                let r = ui.selectable_label(self.face == f, t);
+                crate::drive::mark(ui.ctx(), format!("facetab:{f}"), r.rect);
+                if look::tip(r, &help, "").clicked() {
+                    self.leave(f, self.season);
                 }
             }
             ui.separator();
@@ -759,7 +767,7 @@ impl Textures {
                 if look::tip(r, &format!("Variant {}. {WHY}", v + 1), &format!("{}", v + 1)).clicked() {
                     self.variant = v;
                 }
-                if n > 1 {
+                if n > 1 && self.real(app).is_some_and(|(_, own)| own) {
                     let r = ui.add(egui::Button::new(RichText::new("x").small()).frame(false));
                     crate::drive::mark(ui.ctx(), format!("variant.remove:{}", v + 1), r.rect);
                     if look::tip(r, &format!("Remove variant {} (asks first when it holds paint; Undo brings it back)", v + 1), "").clicked() {
@@ -1211,12 +1219,12 @@ impl Page for Textures {
         }
         if let Some(q) = id.strip_prefix("season:").and_then(|q| engine::blocks::SEASONS.iter().position(|n| *n == q)) {
             // the season painted, and the game view's year at its start so the lit cube shows it
-            (self.season, self.variant, self.stroke, self.sel) = (q, 0, None, None);
+            self.leave(self.face, q);
             app.view.day = super::viewport::season_day(q);
             return;
         }
         if let Some(f) = id.strip_prefix("face.").and_then(|n| n.parse::<usize>().ok()).filter(|f| *f < 4) {
-            (self.face, self.variant, self.stroke, self.sel) = (f, 0, None, None);
+            self.leave(f, self.season);
             return;
         }
         // with an argument (shots, scripts): `picture=<path>`, `copy=<block>`, `swap=<from>;<to>`,

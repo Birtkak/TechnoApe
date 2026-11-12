@@ -586,15 +586,28 @@ fn textures_kept_after_a_crash_are_offered_back() {
     let (tex, kept) = (dir.join("data/textures/clay.png"), dir.join("studio-recovery/textures"));
     std::fs::create_dir_all(&kept).unwrap();
     std::fs::rename(&tex, kept.join("clay.png")).unwrap();
+    // a plain shot neither offers nor clears the developer's kept work
     let line = studio(&dir, &["open=clay", "input=wait", "rects=1"]);
+    assert!(!line.contains("btn:recover") && kept.join("clay.png").exists(), "a shot leaves the kept set alone: {line}");
+    let line = studio(&dir, &["open=clay", "recover=1", "input=wait", "rects=1"]);
     assert!(line.contains("\"unsaved\":[]") && line.contains("btn:recover.restore"), "offered, not restored before the answer: {line}");
-    let line = studio(&dir, &["open=clay", "input=click @btn:recover.restore; key Ctrl+S"]);
+    let line = studio(&dir, &["open=clay", "recover=1", "input=click @btn:recover.restore; key Ctrl+S"]);
     assert!(line.contains("Restored as unsaved work: clay.png") && line.contains("Saved clay.png"), "{line}");
     assert_eq!(std::fs::read(&tex).unwrap(), std::fs::read(kept.join("clay.png")).unwrap());
     // kept work the files already hold is not offered; Discard drops the rest
-    let line = studio(&dir, &["open=clay", "input=wait", "rects=1"]);
+    let line = studio(&dir, &["open=clay", "recover=1", "input=wait", "rects=1"]);
     assert!(!line.contains("btn:recover.restore"), "the same as on disk: not offered: {line}");
     std::fs::write(kept.join("dirt.png"), std::fs::read(&tex).unwrap()).unwrap();
-    studio(&dir, &["open=clay", "input=click @btn:recover.discard"]);
+    studio(&dir, &["open=clay", "recover=1", "input=click @btn:recover.discard"]);
     assert!(!kept.exists(), "Discard clears the kept set");
+}
+
+#[test]
+fn a_pending_set_goes_with_a_switch_of_face() {
+    // review of ADR 0064: a set pending for one face must not stay open (and be used) on another
+    let dir = scratch("pending-switch");
+    let line = studio(&dir, &["open=clay", "rects=1", "input=click @btn:pattern; click @btn:pat.use; click @btn:variants; click @wall:2; click @facetab:2; wait"]);
+    assert!(!line.contains("\"wall:0\"") && !line.contains("btn:wall.use"), "the wall closed with the switch: {line}");
+    let line = studio(&dir, &["open=clay", "rects=1", "input=click @btn:pattern; click @facetab:1; wait"]);
+    assert!(!line.contains("btn:pat.use"), "the pattern panel closed with the switch: {line}");
 }

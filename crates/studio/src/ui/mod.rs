@@ -326,12 +326,27 @@ pub struct Studio {
     /// Unsaved textures kept every few seconds, and what a crash left, still to be offered (`recover.rs`).
     recovery: crate::recover::Recovery,
     recovered: Vec<(String, Img)>,
+    /// Off for a shot (but `recover=1`): the kept set is neither offered, cleared nor written.
+    recovering: bool,
 }
 
 impl Studio {
     pub fn keep_settings(&mut self) {
         self.write_settings = false;
         self.app.quiet = true;
+        // nor offers, nor clears, the developer's kept work (`recover=1` does, in a scratch folder)
+        (self.recovering, self.recovered) = (false, vec![]);
+    }
+
+    /// For a shot with `recover=1`: offer and answer the kept set as the window does.
+    pub fn offer_kept(&mut self) {
+        self.recovering = true;
+        self.recovered = Self::kept(&self.recovery, &self.app);
+    }
+
+    /// What a crash left, but for files that are on disk as kept.
+    fn kept(r: &crate::recover::Recovery, app: &App) -> Vec<(String, Img)> {
+        r.left().into_iter().filter_map(|(n, b)| Some((n, art::decode(&b).ok()?))).filter(|(n, img)| app.docs.get(n).is_none_or(|d| d.img != *img)).collect()
     }
 
     /// Reads `data/` in the working folder: the blocks, the palette, every texture and the drafts list.
@@ -375,9 +390,8 @@ impl Studio {
         if let Some(b) = open {
             pages[0].open(&mut app, b);
         }
-        // what a crash left, but for files that are on disk as kept
         let recovery = crate::recover::Recovery::new(".", "textures", crate::recover::EVERY);
-        let recovered = recovery.left().into_iter().filter_map(|(n, b)| Some((n, art::decode(&b).ok()?))).filter(|(n, img)| app.docs.get(n).is_none_or(|d| d.img != *img)).collect();
+        let recovered = Self::kept(&recovery, &app);
         Ok(Studio {
             app,
             pages,
@@ -402,6 +416,7 @@ impl Studio {
             game: None,
             recovery,
             recovered,
+            recovering: true,
         })
     }
 
@@ -1251,7 +1266,7 @@ impl Studio {
                 }
                 None => {}
             }
-        } else if self.write_settings {
+        } else if self.write_settings && self.recovering && !self.quit && !self.closing {
             let docs = &self.app.docs;
             self.recovery.keep(std::time::Instant::now(), || docs.iter().filter(|(_, d)| d.dirty()).map(|(n, d)| (n.clone(), art::encode(&d.img))).collect());
         }
@@ -1261,7 +1276,7 @@ impl Studio {
         let mut unsaved: Vec<String> = self.app.docs.iter().filter(|(_, d)| d.dirty()).map(|(n, _)| n.clone()).collect();
         unsaved.extend(self.pages.iter().flat_map(|p| p.unsaved()));
         // a clean close keeps nothing to offer next time
-        if self.write_settings && self.recovered.is_empty() && (self.quit || (unsaved.is_empty() && ctx.input(|i| i.viewport().close_requested()))) {
+        if self.write_settings && self.recovering && self.recovered.is_empty() && (self.quit || (unsaved.is_empty() && ctx.input(|i| i.viewport().close_requested()))) {
             self.recovery.clear();
         }
         if ctx.input(|i| i.viewport().close_requested()) && !self.quit && !unsaved.is_empty() {
