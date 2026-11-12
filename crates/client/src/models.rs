@@ -418,7 +418,8 @@ impl Models {
             let ct = clock - run.start;
             let ci = s.clip.as_deref().and_then(|c| l.model.clips.iter().position(|k| k.name == c)).or_else(|| l.model.clips.iter().position(|c| c.name == "idle"));
             let poses = l.model.pose(ci.map(|c| l.model.clips[c].name.as_str()), ct as f32);
-            let [o, x, y, z] = cell_axes(world, b);
+            // (the shown model's cells in the view's square frame, as it is drawn)
+            let [o, x, y, z] = if self.spec.is_some() && self.cells.contains(&b) { view_axes(world, b) } else { cell_axes(world, b) };
             let place = |p: Vec3| {
                 let p = FLOOR + (p - FLOOR) * l.scale;
                 o + x * p.x as f64 + y * p.y as f64 + z * p.z as f64
@@ -491,7 +492,7 @@ impl Models {
                 let c = clip.as_deref().and_then(|c| self.list[m].0.model.clips.iter().position(|k| k.name == c)).or_else(|| idle(m)).or((!self.list[m].0.model.clips.is_empty()).then_some(0));
                 for (k, b) in self.cells.iter().enumerate() {
                     let (c, t) = posed.get(b).copied().unwrap_or((c, t + k as f64 * 0.37));
-                    inst[m].push((c, t, cell_frame(world, cams, *b) * self.spec_place, b.body as u32, self.spec_scale.unwrap_or(self.list[m].0.scale)));
+                    inst[m].push((c, t, frame_of(view_axes(world, *b), cams, *b) * self.spec_place, b.body as u32, self.spec_scale.unwrap_or(self.list[m].0.scale)));
                 }
             }
         }
@@ -567,9 +568,24 @@ pub(crate) fn cell_axes(world: &World, b: Block) -> [DVec3; 4] {
     [body.centre + up * r - (si + sj + su) * 0.5, sj, su, si]
 }
 
+/// The Studio's view frame of a cell (ADR 0065): `cell_axes` made square, each axis 1 m and at right angles, y up
+/// the cell's up and x along its x, the floor's middle where the cell's is. The view's camera and its shown model
+/// stand in it, so the Studio's overlay (square metres) lines up with the drawing; a cell's own axes are skewed and
+/// up to a tenth longer, and a model drawn in them drifts off the overlay away from the look-at point.
+pub(crate) fn view_axes(world: &World, b: Block) -> [DVec3; 4] {
+    let [o, cx, cy, cz] = cell_axes(world, b);
+    let y = cy.normalize();
+    let x = (cx - y * cx.dot(y)).normalize();
+    let z = x.cross(y) * x.cross(y).dot(cz).signum();
+    [o + (cx + cz) * 0.5 - (x + z) * 0.5, x, y, z]
+}
+
 /// A cell's frame in the camera's (`cell_axes`), the corner at the cell's.
 fn cell_frame(world: &World, cams: &[(DVec3, DMat3)], b: Block) -> Mat4 {
-    let [o, x, y, z] = cell_axes(world, b);
+    frame_of(cell_axes(world, b), cams, b)
+}
+/// Axes (`cell_axes`, `view_axes`) as a frame in the camera's.
+fn frame_of([o, x, y, z]: [DVec3; 4], cams: &[(DVec3, DMat3)], b: Block) -> Mat4 {
     let (cam, turn) = cams[b.body as usize];
     (DMat4::from_mat3(turn) * DMat4::from_cols(x.extend(0.0), y.extend(0.0), z.extend(0.0), (o - cam).extend(1.0))).as_mat4()
 }
@@ -721,6 +737,28 @@ mod tests {
         }
     }
 
+    /// The Studio's overlay draws the model in square metres about the eye it sends: the renderer's frame for
+    /// the camera and the shown model must be square too, or the two drift apart away from the look-at point
+    /// (a cell of the cube-sphere is skewed and not quite 1 m; the bug: edges and box a voxel off a long model).
+    #[test]
+    fn the_view_frame_is_square_metres() {
+        for planet in [768, 6144] {
+            let w = World::new(planet, 256, 1);
+            let b = &w.bodies[0];
+            for d in [DVec3::Y, b.spawn, DVec3::new(0.3, 1.0, 0.7).normalize()] {
+                let cell = w.air_over_ground(0, d);
+                let [_, x, y, z] = view_axes(&w, cell);
+                let [_, cx, cy, cz] = cell_axes(&w, cell);
+                for (n, a) in [("x", x), ("y", y), ("z", z)] {
+                    assert!((a.length() - 1.0).abs() < 1e-9, "{planet} {d}: axis {n} is {} m (cell: {} {} {})", a.length(), cx.length(), cy.length(), cz.length());
+                }
+                assert!(x.dot(y).abs() < 1e-9 && y.dot(z).abs() < 1e-9 && z.dot(x).abs() < 1e-9, "{planet} {d}: not at right angles");
+                // the same way round as the cell's, up its up
+                assert!(y.dot(cy.normalize()) > 1.0 - 1e-9 && x.cross(y).dot(z) * cx.cross(cy).dot(cz) > 0.0);
+            }
+        }
+    }
+
     /// The Studio's view walks a creature about: the shown model stands `at` metres from its cell along the
     /// cell's x and z, turned by `yaw` about its floor centre, and is otherwise drawn as it was.
     #[test]
@@ -729,7 +767,7 @@ mod tests {
         let ((was, _), (now, _)) = (boar_drawn(1.0, None, false, None), boar_drawn(1.0, None, false, Some((at, yaw))));
         let w = World::new(768, 256, 1);
         let b = &w.bodies[0];
-        let x = cell_frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], w.block_at(b.spawn * (b.height(b.spawn) + 0.1)));
+        let x = frame_of(view_axes(&w, w.block_at(b.spawn * (b.height(b.spawn) + 0.1))), &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], w.block_at(b.spawn * (b.height(b.spawn) + 0.1)));
         let mat = |p: &Piece| Mat4::from_cols_array_2d(&[p.x[0], p.x[1], p.x[2], [0.0, 0.0, 0.0, 1.0]]).transpose();
         let want = x * Mat4::from_translation(Vec3::new(at[0], 0.0, at[1]) + FLOOR) * Mat4::from_rotation_y(yaw) * Mat4::from_translation(-FLOOR) * x.inverse() * mat(&was[0]);
         let got = mat(&now[0]);

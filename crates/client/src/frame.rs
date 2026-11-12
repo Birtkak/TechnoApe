@@ -516,7 +516,8 @@ impl App {
         // near to far, so the depth test drops what is hidden before its fragments trace their rays (ADR 0025, D)
         args.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
         let args: Vec<DrawArgs> = args.into_iter().map(|a| a.1).collect();
-        // the water mesh when it changed
+        // the water mesh when it changed, or the tide moved the sea in its tiles
+        self.water.retide(&self.world, self.start.elapsed().as_secs_f32());
         let n = self.water.all.len().min(MAX_WQUADS);
         if std::mem::take(&mut self.water.changed) {
             // shortcut: past the cap the list is cut in map order, a far tile can go; when floods outgrow it
@@ -628,7 +629,13 @@ impl App {
         };
         let sun_light = Vec3::new(0.65, 0.97 * 0.65, 0.9 * 0.65).lerp(Vec3::splat(0.65), 1.0 - air) * tint;
         let to_stars = glam::DMat3::from_quat(self.world.pose(cf, wt).rot).as_mat3();
+        // the planet's tide (ADR 0067) in layers: the sea's shader lays its quads at it
+        let tide = self.world.tide();
+        let b0 = &self.world.bodies[0];
+        let per_m = b0.sea.map_or(0.0, |s| 1.0 / (b0.layer_r(s) * b0.lnq));
+        let pull = |d: DVec3, a: f64| [d.x as f32, d.y as f32, d.z as f32, (1.5 * a * per_m) as f32];
         let mut g = Globals {
+            tide: [pull(tide.luna, engine::sky::TIDE_LUNA), pull(tide.sun, engine::sky::TIDE_SUN)],
             view_proj: vp.to_cols_array_2d(),
             sun: [sun.x, sun.y, sun.z, clock],
             bodies: bytemuck::Zeroable::zeroed(),
@@ -664,7 +671,7 @@ impl App {
                 theta: (std::f64::consts::FRAC_PI_2 / b.n as f64) as f32,
                 half_n: b.n as f32 * 0.5,
                 // shortcut: only the planet (body 0) has seasons; a second planet needs its own year in `Sky`
-                _p: [b.sea.map_or(-1.0, |s| s as f32), if bi == 0 { self.season_year(engine::sky::season_at(DVec3::Z, self.world.time).0) as f32 } else { -1.0 }],
+                _p: [b.sea.map_or(-1.0, |s| (s + if bi == 0 { tide.base * per_m } else { 0.0 }) as f32), if bi == 0 { self.season_year(engine::sky::season_at(DVec3::Z, self.world.time).0) as f32 } else { -1.0 }],
                 rot: [col(m.x_axis), col(m.y_axis), col(m.z_axis)],
                 ctr: { let v = (m.as_dmat3() * -c).as_vec3(); [v.x, v.y, v.z, b.radius as f32] },
             };

@@ -113,7 +113,7 @@ fn run_soak(args: &HashMap<String, String>) {
     };
     let record = args.get("record").filter(|r| *r != "0").map(Path::new);
     let t0 = Instant::now();
-    match soak::run(seed, &bots, ticks, planet, record) {
+    match soak::run_warp(seed, &bots, ticks, planet, record, get("warp", 1).max(1)) {
         Ok((hash, w)) => println!(
             "{{\"soak\":\"ok\",\"seed\":{seed},\"bots\":{},\"ticks\":{ticks},\"sim_minutes\":{:.1},\"secs\":{:.2},\"hash\":\"{hash:016x}\",\"water\":{{\"stored_peak\":{},\"awake_peak\":{},\"skipped\":{},\"bytes\":{},\"dams\":{},\"broken\":{}}}}}",
             bots.len(),
