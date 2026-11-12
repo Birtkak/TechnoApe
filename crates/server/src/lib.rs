@@ -135,6 +135,8 @@ pub struct Server {
     loaded: Option<Save>,
     /// Where and how often (in ticks) to save; the write runs on its own thread.
     pub autosave: Option<(std::path::PathBuf, u64)>,
+    /// The autosave thread still writing, if any: the next save waits for it, as both write one temp file.
+    saving: Option<std::thread::JoinHandle<()>>,
     /// Water creative put in and took out, in units: what flowing never changes (`water_ledger`).
     made: i64,
     removed: i64,
@@ -187,6 +189,7 @@ impl Server {
             absent: BTreeMap::new(),
             loaded: None,
             autosave: None,
+            saving: None,
             made: 0,
             removed: 0,
             water_skipped: 0,
@@ -370,7 +373,10 @@ impl Server {
     }
 
     /// Saves where `autosave` says, on this thread: for shutting down.
-    pub fn save_now(&self) {
+    pub fn save_now(&mut self) {
+        if let Some(h) = self.saving.take() {
+            let _ = h.join();
+        }
         if let Some((path, _)) = &self.autosave {
             match self.snapshot().write(path) {
                 Ok(()) => eprintln!("[technoape-server] saved to {}", path.display()),
@@ -645,11 +651,14 @@ impl Server {
             if self.tick % every == 0 {
                 // the snapshot is taken here, between ticks; serialising and writing are a thread's
                 let (s, path) = (self.snapshot(), path.clone());
-                std::thread::spawn(move || {
+                if let Some(h) = self.saving.take() {
+                    let _ = h.join();
+                }
+                self.saving = Some(std::thread::spawn(move || {
                     if let Err(e) = s.write(&path) {
                         eprintln!("[technoape-server] save failed: {e}");
                     }
-                });
+                }));
             }
         }
         if self.rec.is_some() {
@@ -2181,6 +2190,22 @@ mod tests {
         s.tick();
         let inv = |n: &str| s.absent[n].inv.clone();
         assert_eq!((inv("ape"), inv("ape-2")), (vec![(BLOCKS.id("stone"), 1)], vec![(BLOCKS.id("dirt"), 2)]));
+    }
+
+    /// The quit save waits for an autosave still writing: the two never share the temp file, and when
+    /// `save_now` returns the save is whole and nothing writes any more.
+    #[test]
+    fn save_now_right_after_an_autosave_leaves_a_whole_save() {
+        let (mut s, _links) = server_with(1);
+        let path = std::env::temp_dir().join(format!("technoape-autosave-{}.sav", std::process::id()));
+        s.autosave = Some((path.clone(), 1));
+        for _ in 0..100 {
+            s.tick();
+            s.save_now();
+            assert!(!path.with_extension("tmp").exists(), "an autosave still writes after save_now");
+            assert!(Save::read(&path).is_ok());
+        }
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]
