@@ -219,8 +219,10 @@ impl Save {
                 st.item = ids.iter().find(|m| m.0 == st.item).ok_or(format!("the save holds item {}, which its table does not name", st.item))?.1;
             }
         }
-        if !players.iter().all(|p| items::stacks_fit(&p.slots)) || !held.piles.iter().all(|p| p.1.len() == items::PILE_SLOTS && items::stacks_fit(&p.1)) {
-            return Err("the save holds a stack of an unknown block or of a wrong size".into());
+        // a stack over its item's size (a smaller `stack` in data/items.toml) loads: the server re-packs it
+        let known = |v: &[Slot]| v.iter().flatten().all(|s| ITEMS.known(s.item));
+        if !players.iter().all(|p| known(&p.slots)) || !held.piles.iter().all(|p| p.1.len() == items::PILE_SLOTS && known(&p.1)) {
+            return Err("the save holds a stack of an unknown block".into());
         }
         held.items = ITEMS.table();
         // the cells name only known blocks: an id past the registry would index into the mesh's other bits

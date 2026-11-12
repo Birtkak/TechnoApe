@@ -69,3 +69,17 @@ items.md steps 1 and 2 and the move message of step 3; the screens are ADR 0075.
 - The reach to a pile 4 m, pick-up within 1.5 m, a throw 2 m ahead that waits 2 s for its thrower.
 - `/give <thing>` gives one stack by default, at most 36 stacks.
 - Death drops everything at the spot, on respawn.
+
+## Review
+A fresh reviewer read the diff and found no duplication in the move path. Its findings and what became of them:
+1. A version 12 player with exactly 37 stacks was not re-packed and its rows stuck for good: re-packing now
+   runs for any player whose slots do not fit (`ape_fits`), which also covers a pack made smaller. Tested.
+2. A smaller `stack` in data/items.toml made saves unloadable: a stack over its size now loads and is split
+   (players re-packed, piles laid again). An unknown item still refuses the save: a call for the developer.
+3. A throw or a death in space walked down every layer to the ground on the tick thread: a laid pile falls at
+   most 64 layers and floats where that ends.
+4. Things got before a player's name, or held by a client that left unnamed, vanished: they are laid at its
+   feet. The leaver is tested (red without the fix: the ledger's 20 dirt).
+5. A pile just over a cube face's edge is not picked up until the player steps across: a `shortcut:` note.
+6. The join's `Piles` was one message: split like the edits.
+7. Items past the top layer are lost (already a shortcut); the soak's ledger would catch it.

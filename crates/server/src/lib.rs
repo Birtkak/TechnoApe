@@ -119,6 +119,8 @@ pub struct Pile {
     pub wait: (u32, u64),
 }
 
+/// The most layers a laid pile falls to find its floor.
+const FALL: i32 = 64;
 /// A pile is picked up by a player whose feet are within this of its cell's middle (m), checked every tick.
 const PICK: f64 = 1.5;
 /// A pile can be opened from this far (m).
@@ -326,8 +328,13 @@ impl Server {
         s.absent = save.players.iter().map(|p| (p.name.clone(), moved(p))).collect();
         // the piles, and the players of a save from before slots (ADR 0074): their stacks into slots, what does
         // not fit laid at their feet
-        s.piles = save.held.piles.iter().map(|(b, slots)| (key(*b), Pile { slots: slots.clone(), wait: (0, 0) })).collect();
-        let old: Vec<String> = s.absent.iter().filter(|(_, p)| p.slots.len() != items::APE_SLOTS).map(|(n, _)| n.clone()).collect();
+        // (any whose slots do not fit: a save from before slots, a pack or a stack made smaller in data/items.toml)
+        s.piles = save.held.piles.iter().filter(|p| items::stacks_fit(&p.1)).map(|(b, slots)| (key(*b), Pile { slots: slots.clone(), wait: (0, 0) })).collect();
+        for (b, slots) in save.held.piles.iter().filter(|p| !items::stacks_fit(&p.1)) {
+            let over: Vec<Stack> = slots.iter().flatten().filter(|s| s.n > 0).flat_map(|s| items::stacks(s.item, s.n as u32).into_iter().map(|t| Stack { payload: s.payload, ..t })).collect();
+            s.lay(*b, over, (0, 0));
+        }
+        let old: Vec<String> = s.absent.iter().filter(|(_, p)| !items::ape_fits(&p.slots)).map(|(n, _)| n.clone()).collect();
         for n in old {
             let p = s.absent.get_mut(&n).unwrap();
             let stacks = std::mem::replace(&mut p.slots, items::ape());
@@ -548,7 +555,10 @@ impl Server {
             for part in all.chunks(EDITS_PART) {
                 link.send(ToClient::Edits(part.to_vec()));
             }
-            link.send(ToClient::Piles(self.piles.iter().map(|(k, p)| (unkey(*k), p.slots.clone())).collect()));
+            let piles: Vec<(Block, Vec<Slot>)> = self.piles.iter().map(|(k, p)| (unkey(*k), p.slots.clone())).collect();
+            for part in piles.chunks(EDITS_PART) {
+                link.send(ToClient::Piles(part.to_vec()));
+            }
             let spawn = self.spawn();
             self.clients.push(Client {
                 link,
@@ -601,11 +611,16 @@ impl Server {
                         c.player.name = name;
                         roster = true;
                         // a player the save remembers carries on where it left, with what it held
+                        let mut before = Vec::new();
                         if let Some(sv) = self.absent.remove(&c.player.name) {
+                            // what it got before its name (a /give, a pick-up) is laid where it comes back
+                            before = c.slots.iter_mut().filter_map(Option::take).collect();
                             let p = DVec3::from_array(sv.pos);
                             c.phys = phys::Player::at(p, phys::tangent(DVec3::from_array(sv.fwd.map(f64::from)), phys::up(&self.world, p), DVec3::X));
                             (c.player.pos, c.player.fwd, c.creative, c.inv_dirty, c.water, c.vitals, c.slots) = (sv.pos, sv.fwd, sv.creative, true, sv.water, sv.vitals, sv.slots);
                         }
+                        let feet = self.clients[i].phys.pos;
+                        self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), before, (0, 0));
                         let line = format!("{} joined", self.clients[i].player.name);
                         self.say(line);
                     }
@@ -691,7 +706,11 @@ impl Server {
                 self.tell_dig(i, None);
                 roster = true;
                 let c = self.clients.swap_remove(i);
-                if !c.player.name.is_empty() {
+                if c.player.name.is_empty() {
+                    // no name, no save to keep its things in: they stay where it stood
+                    let feet = c.phys.pos;
+                    self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), c.slots.into_iter().flatten().collect(), (0, 0));
+                } else {
                     self.absent.insert(c.player.name.clone(), saved(&c));
                     self.say(format!("{} left", c.player.name));
                 }
@@ -1285,7 +1304,10 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         while at.pos.z + 1 < layers && solid(&self.world, at) {
             at.pos.z += 1;
         }
-        while at.pos.z > 0 && !solid(&self.world, Block { pos: at.pos - glam::IVec3::Z, ..at }) {
+        // a fall of at most FALL layers: a throw or a death in space leaves its pile floating there, not a walk
+        // down tens of thousands of layers on the tick thread
+        let lowest = (at.pos.z - FALL).max(0);
+        while at.pos.z > lowest && !solid(&self.world, Block { pos: at.pos - glam::IVec3::Z, ..at }) {
             at.pos.z -= 1;
         }
         for st in stacks {
@@ -1324,7 +1346,8 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
     }
 
     /// Every living player takes what its slots have room for from the piles within `PICK` of its feet,
-    /// players in their order, piles in theirs (ADR 0074).
+    /// players in their order, piles in theirs (ADR 0074). shortcut: the cells around the feet are on the
+    /// feet's face, so a pile just over a cube face's edge waits until the player steps across.
     fn pick_up(&mut self) {
         let Server { clients, piles, piles_changed, world, tick, .. } = self;
         for c in clients.iter_mut().filter(|c| c.vitals.dead.is_none()) {
@@ -2043,6 +2066,19 @@ mod tests {
         assert!(drain(l).contains(&ToClient::Done { seq: 6, ok: false }));
     }
 
+    /// A player that leaves before it has a name has no save to keep its things in: they lie where it stood.
+    #[test]
+    fn an_unnamed_leaver_leaves_its_things_lying() {
+        let (mut s, links) = server_with(1);
+        let (pole, _) = on_land(&s);
+        links[0].send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        links[0].send(ToServer::Chat("/give dirt 20".into()));
+        s.tick();
+        drop(links);
+        s.tick();
+        assert!(s.clients.is_empty() && s.piles.len() == 1 && s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    }
+
     /// A save keeps the piles and the slots, and one from before slots puts what did not fit at its feet.
     #[test]
     fn piles_and_slots_are_saved_and_old_counts_overflow_to_the_feet() {
@@ -2062,6 +2098,17 @@ mod tests {
         assert_eq!(held(&back.absent["ape"].slots), vec![(BLOCKS.id("stone"), 64 * 9)]);
         assert_eq!(back.piles.len(), 2, "the throw's and the overflow's");
         assert!(back.item_ledger().is_empty());
+        // exactly 37 stacks, as many as the ape has slots, and a stack over its size (a smaller `stack` in
+        // data/items.toml): re-packed all the same, nothing stuck in rows no pack opens, nothing lost
+        let mut old = s.snapshot();
+        old.players[0].slots = items::from_counts(&[(BLOCKS.id("stone"), 64 * 37)]);
+        old.players[0].slots[0] = Some(Stack::new(BLOCKS.id("stone"), 100));
+        let back = Server::from_save(old, channel().1);
+        assert!(items::ape_fits(&back.absent["ape"].slots));
+        assert_eq!(held(&back.absent["ape"].slots), vec![(BLOCKS.id("stone"), 64 * 9)]);
+        assert!(back.item_ledger().is_empty());
+        let n: u32 = back.piles.values().flat_map(|p| p.slots.iter().flatten()).filter(|s| s.item == BLOCKS.id("stone")).map(|s| s.n as u32).sum();
+        assert_eq!(n, 64 * 36 + 100 - 64 * 9, "the rest at its feet");
     }
 
     #[test]
