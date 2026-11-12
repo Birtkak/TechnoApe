@@ -582,6 +582,15 @@ impl App {
         let (day, h) = engine::sky::clock(w.time);
         let m = (h * 60.0).round() as u32 % (24 * 60);
         let body = b.name.as_str();
+        // the ground's air (ADR 0055): the biome's yearly climate, the season and the hour on top
+        let air = match if space || bi != 0 { None } else { b.biome_at(blk.face as usize, blk.pos.x as f64 + 0.5, blk.pos.y as f64 + 0.5, up) } {
+            Some(bio) => {
+                let (mean, swing) = engine::sky::BIOME_CLIMATE[bio as usize];
+                let c = engine::sky::temperature(mean, swing, up.z.clamp(-1.0, 1.0).asin(), w.sky.declination(w.time), w.sky.hour_angle(w.time, up));
+                format!("{c:.1} C, the year's mean here {mean:.0} C ({})", engine::bake::life::BIOMES[bio as usize].0)
+            }
+            None => "no air reading here".into(),
+        };
         let sea = b.sea.map_or(String::new(), |s| format!(", {:.1} m over the sea", r - s));
         let look = match self.aim {
             Some((hit, _)) => format!(
@@ -665,6 +674,7 @@ impl App {
                 vec![
                     ("Time", format!("day {day}, {:02}:{:02} at the spawn, {:.0} s", m / 60, m % 60, w.time), 0),
                     ("Sol", format!("{:.1} degrees over the horizon", d.sun_deg), 0),
+                    ("Air", air, 0),
                     ("Moon", format!("{} {:.0}% lit", w.bodies.get(1).map_or("none", |b| b.name.as_str()), d.moon_lit * 100.0), 0),
                     ("Seed", format!("{}", self.seed), 0),
                     ("Size", w.bodies.iter().map(|b| format!("{} {}", b.name, b.n)).collect::<Vec<_>>().join(", ") + " columns a face", 0),
@@ -1199,6 +1209,16 @@ impl App {
             let ease = if moving { ((now - self.menu_since).as_secs_f32() / 0.14, (now - self.lit.1).as_secs_f32() / 0.1) } else { (1.0, 1.0) };
             hud::menu(&mut paint, title, items, sliders, tones, hint, hover, caret, self.scroll, ease);
             self.menu_boxes = boxes;
+        }
+        // a new world's bake or a server's map under way: the stage and a bar across the foot of the screen
+        if let Some(l) = &self.loading {
+            let (stage, f) = l.progress.get();
+            let (bw, bh, y) = ((lw * 0.5).min(720.0), 14.0, lh - 120.0);
+            let x = (lw - bw) / 2.0;
+            let s = format!("{}: {stage}  {:.0}%", l.what, f * 100.0);
+            paint.text(x, y - hud::LINE - 6.0, &s, [1.0, 1.0, 1.0, 0.95]);
+            paint.rect(x - 2.0, y - 2.0, bw + 4.0, bh + 4.0, [0.0, 0.0, 0.0, 0.6], 0);
+            paint.rect(x, y, bw * f, bh, [0.45, 0.8, 0.4, 0.95], 0);
         }
         // the bug report's form over everything, the menus too
         if let Some(b) = &self.bug {

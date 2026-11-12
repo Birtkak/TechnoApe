@@ -272,6 +272,15 @@ pub fn main() {
     let low = args.get("low_workers", 1) == 1;
     LOW_WORKERS.store(low, std::sync::atomic::Ordering::Relaxed);
     rayon::ThreadPoolBuilder::new().num_threads(threads).start_handler(move |_| if low { sys::below_normal() }).build_global().unwrap();
+    // join=host:port: the title screen downloading a server's map under its bar (a connect= run that lacked it
+    // started this); the join starts first, and the title's own world is a small one with no save
+    let loading = args.0.get("join").map(|addr| menu::Loading::join(addr.clone(), args.s("name", "player"), menu::joined_args(&args.0)));
+    if loading.is_some() {
+        for (k, v) in [("run", "play"), ("title", "1"), ("save", "0"), ("record", "0"), ("planet", "768")] {
+            args.0.insert(k.into(), v.into());
+        }
+        args.0.remove("moon");
+    }
     let run = args.s("run", "stand");
     if run == "meshbench" {
         sys::meshbench(&args.0);
@@ -285,7 +294,7 @@ pub fn main() {
     let (mut save_path, mut rec_path) = (None, None);
     let mut link: Link<ToServer, ToClient> = match args.0.get("connect") {
         Some(addr) => {
-            let addr = if addr.contains(':') { addr.clone() } else { format!("{addr}:{}", net::DEFAULT_PORT) };
+            let addr = menu::server_addr(addr);
             net::tcp(std::net::TcpStream::connect(&addr).expect("connect to the server")).expect("link")
         }
         None => {
@@ -340,7 +349,18 @@ pub fn main() {
         Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, map }) => {
             assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
             // the baked map (ADR 0043): the local server's in memory, else from the disk or the server
-            let map = map.map(|h| engine::net::fetch_map(&mut link, seed, planet_n, h).unwrap_or_else(|e| panic!("{e}")));
+            let kept = map.and_then(|h| engine::bake::find(seed, planet_n, Some(h)));
+            if args.0.contains_key("connect") && kept.is_none() && map.is_some() && run == "play" && args.get("joined", 0) != 1 {
+                // in play, a map to download comes in on the title screen, under its bar, which joins after it
+                // (once: the run it starts has joined=1 and fetches here if the map is still not kept)
+                drop(link);
+                let exe = std::env::current_exe().expect("the game's own path");
+                if let Err(e) = std::process::Command::new(exe).args(menu::join_args(&args.0)).spawn() {
+                    eprintln!("[technoape] could not start the title screen: {e}");
+                }
+                return;
+            }
+            let map = map.map(|h| kept.map_or_else(|| engine::net::fetch_map(&mut link, seed, planet_n, h), Ok).unwrap_or_else(|e| panic!("{e}")));
             (id, World::with_map(planet_n, moon_n, seed, map), seed)
         }
         other => panic!("no welcome from the server: {other:?}"),
@@ -587,6 +607,7 @@ pub fn main() {
         rec_path,
         worlds: Vec::new(),
         next: None,
+        loading,
         view: None,
     };
     el.run_app(&mut app).unwrap();

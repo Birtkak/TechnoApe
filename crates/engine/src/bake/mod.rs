@@ -8,6 +8,10 @@ pub mod air;
 pub mod grid;
 pub mod land;
 pub mod life;
+pub mod rivers;
+
+pub use rivers::{Lines, Reach};
+use rivers::V1;
 
 use crate::world::fold;
 use serde::{Deserialize, Serialize};
@@ -17,7 +21,7 @@ use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 /// Changes whenever the bake's code or parameters change what it makes: a map of another version is baked
 /// anew, and a save names the map it was played on (by hash).
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 /// How far in longitude from the +y meridian the spawn may lie, radians (about 26 degrees: 9 am at world
 /// time 0 is then between 7 and 11 am at the spawn). shortcut: until the sky's clock takes the spawn's own
@@ -42,9 +46,19 @@ pub struct Map {
     pub biome: Vec<u8>,
     /// Where players start: a unit direction from the centre (`spawn`).
     pub spawn: [f64; 3],
+    /// The river cells (since version 2; ADR 0056), downstream first: a cell's `to` comes before it when it
+    /// is a river cell too.
+    pub rivers: Vec<Reach>,
+    /// The rivers' lines and beds, from `rivers` and `h`.
+    #[serde(skip)]
+    pub lines: Lines,
     /// The heights halved again and again (2 x 2 means), for chunks whose columns are wider than a cell.
     #[serde(skip)]
     pub mips: Vec<Vec<f32>>,
+    /// How rough each cell's ground is, metres of detail (`rough`, ADR 0058); empty on a map of version 1,
+    /// whose ground keeps the uniform detail of ADR 0043.
+    #[serde(skip)]
+    pub rough: Vec<f32>,
     /// FNV of the bytes it was read from or would be written as.
     #[serde(skip)]
     pub hash: u64,
@@ -53,26 +67,56 @@ pub struct Map {
 impl Map {
     /// Bakes the planet of `n` columns per face edge from `seed`. Seconds: 22 for the 4 km planet on 8 threads.
     pub fn bake(seed: i32, n: i32) -> Map {
+        Map::bake_with(seed, n, &land::Params::default())
+    }
+    /// `bake` with other land parameters (tests: smaller rivers on a small planet).
+    pub fn bake_with(seed: i32, n: i32, p: &land::Params) -> Map {
         let t = std::time::Instant::now();
         let s = seed as u32 as u64;
-        let mut b = land::bake(n as u32, s, &land::Params::default());
+        let mut b = land::bake(n as u32, s, p);
         let l = life::life(&b, s, &life::LifeParams::default());
         let h: Vec<f32> = (0..b.g.n()).map(|c| if b.lake(c) { b.lvl[c] } else { b.h[c] }).collect();
         let spawn = spawn(&b, &l);
         b.life = Some(l);
         let biome = std::mem::take(&mut b.life.as_mut().unwrap().biome);
-        let mut map = Map { version: VERSION, seed, n, m: b.g.m as u32, h, biome, spawn, mips: Vec::new(), hash: 0 };
+        let rivers = b.rivers.iter().filter(|r| b.land(r.cell as usize)).map(|r| Reach { cell: r.cell, to: r.to, area: r.area }).collect();
+        let mut map = Map { version: VERSION, seed, n, m: b.g.m as u32, h, biome, spawn, rivers, lines: Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 };
         map.finish(&map.to_bytes());
         eprintln!("[bake] seed {seed} planet {n}: {:.1} s", t.elapsed().as_secs_f64());
         map
     }
+    /// Its bytes in the layout of its version (a version 1 map as it was read, so its hash holds).
     pub fn to_bytes(&self) -> Vec<u8> {
+        if self.version == 1 {
+            return postcard::to_stdvec(&(1u32, self.seed, self.n, self.m, &self.h, &self.biome, self.spawn)).expect("a map serialises");
+        }
         postcard::to_stdvec(self).expect("a map serialises")
     }
+    /// A map of this version, or of version 1 (no rivers: old saves carry on on the ground they were played on).
     pub fn from_bytes(b: &[u8]) -> Result<Map, String> {
-        let mut m: Map = postcard::from_bytes(b).map_err(|e| format!("not a map: {e}"))?;
+        let mut m: Map = match postcard::from_bytes::<Map>(b) {
+            Ok(m) if m.version == VERSION => m,
+            _ => {
+                let v: V1 = postcard::from_bytes(b).map_err(|e| format!("not a map: {e}"))?;
+                if v.version != 1 {
+                    return Err(format!("a map of version {} that does not read", v.version));
+                }
+                Map { version: v.version, seed: v.seed, n: v.n, m: v.m, h: v.h, biome: v.biome, spawn: v.spawn, rivers: Vec::new(), lines: Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 }
+            }
+        };
         let cells = 6 * m.m as usize * m.m as usize;
-        if m.version != VERSION || m.h.len() != cells || m.biome.len() != cells {
+        let known = m.version == VERSION || (m.version == 1 && m.rivers.is_empty());
+        // a river drains into a neighbouring cell (bytes from a server: a far one would build a huge index)
+        let mm = m.m as i32;
+        let next_to = |r: &Reach| {
+            let (f, i, j) = ((r.cell / (m.m * m.m)) as usize, (r.cell % m.m) as i32, ((r.cell / m.m) % m.m) as i32);
+            (-1..=1).any(|dj| (-1..=1).any(|di| {
+                let (f, i, j) = fold(f, i + di, j + dj, mm);
+                (f as u32 * m.m + j as u32) * m.m + i as u32 == r.to
+            }))
+        };
+        let bad = m.rivers.iter().any(|r| r.cell as usize >= cells || r.to as usize >= cells || !(r.area.is_finite() && r.area > 0.0) || !next_to(r));
+        if !known || bad || m.h.len() != cells || m.biome.len() != cells {
             return Err(format!("a map of version {} with {} cells, not {VERSION} and {cells}", m.version, m.h.len()));
         }
         m.finish(b);
@@ -95,6 +139,24 @@ impl Map {
             self.mips.push(next);
             m = h;
         }
+        self.lines = Lines::new(self);
+        self.rough = if self.version == 1 { Vec::new() } else { self.roughs() };
+    }
+    /// Every cell's `rough`, its slope from its four neighbours (across the seams too).
+    fn roughs(&self) -> Vec<f32> {
+        let m = self.m as i32;
+        let cell = self.n as f32 / m as f32;
+        let at = |f: usize, i: i32, j: i32| {
+            let (f, i, j) = fold(f, i, j, m);
+            self.h[(f * m as usize + j as usize) * m as usize + i as usize]
+        };
+        (0..self.h.len())
+            .map(|c| {
+                let (f, i, j) = (c / (m * m) as usize, c as i32 % m, (c as i32 / m) % m);
+                let slope = (at(f, i + 1, j) - at(f, i - 1, j)).hypot(at(f, i, j + 1) - at(f, i, j - 1)) / (2.0 * cell);
+                rough(slope, self.biome[c], self.h[c])
+            })
+            .collect()
     }
     /// The heights of mip `k` (0 the cells themselves) and its cells per face edge.
     fn level(&self, k: usize) -> (&[f32], i32) {
@@ -104,22 +166,36 @@ impl Map {
     /// Metres over the sea at face point (x, y) in cells of mip `k` (x = 0.5 the middle of cell 0), a
     /// Catmull-Rom spline through the 4 x 4 cells around it; cells past the face fold over its seam.
     pub fn height(&self, face: usize, x: f64, y: f64, k: usize) -> f32 {
+        self.spline::<false>(face, x, y, k).0
+    }
+    /// `height` at mip 0 with the ground's roughness there (`rough`), on the same spline: no step at a cell's
+    /// border. Only on a map with `rough` (version 2 on).
+    pub fn height_rough(&self, face: usize, x: f64, y: f64) -> (f32, f32) {
+        self.spline::<true>(face, x, y, 0)
+    }
+    fn spline<const R: bool>(&self, face: usize, x: f64, y: f64, k: usize) -> (f32, f32) {
         let (h, m) = self.level(k);
         let (x, y) = (x / (1u32 << k.min(self.mips.len())) as f64 - 0.5, y / (1u32 << k.min(self.mips.len())) as f64 - 0.5);
         let (i0, j0) = (x.floor() as i32, y.floor() as i32);
         let (tx, ty) = ((x - i0 as f64) as f32, (y - j0 as f64) as f32);
         let w = |t: f32| [((-0.5 * t + 1.0) * t - 0.5) * t, (1.5 * t - 2.5) * t * t + 1.0, ((-1.5 * t + 2.0) * t + 0.5) * t, (0.5 * t - 0.5) * t * t];
         let (wx, wy) = (w(tx), w(ty));
-        let mut s = 0.0;
+        let (mut s, mut r) = (0.0, 0.0);
         for (b, wb) in wy.iter().enumerate() {
-            let mut row = 0.0;
+            let (mut row, mut rr) = (0.0, 0.0);
             for (a, wa) in wx.iter().enumerate() {
                 let (f, i, j) = fold(face, i0 - 1 + a as i32, j0 - 1 + b as i32, m);
-                row += wa * h[(f * m as usize + j as usize) * m as usize + i as usize];
+                let c = (f * m as usize + j as usize) * m as usize + i as usize;
+                row += wa * h[c];
+                if R {
+                    rr += wa * self.rough[c];
+                }
             }
             s += wb * row;
+            r += wb * rr;
         }
-        s
+        // the spline overshoots a little next to a calm cell
+        (s, r.max(0.0))
     }
     /// The biome of the cell that holds face point (x, y), in cells.
     pub fn biome(&self, face: usize, x: f64, y: f64) -> u8 {
@@ -127,6 +203,34 @@ impl Map {
         let (f, i, j) = fold(face, x.floor() as i32, y.floor() as i32, m);
         self.biome[(f * m as usize + j as usize) * m as usize + i as usize]
     }
+}
+
+/// How rough the ground of a cell is, metres of detail over the map's spline (ADR 0058): by its slope (m/m),
+/// its biome and its height over the sea (`h`, m). Plains and beaches are smooth, steep ground rough; the
+/// sea floor by the coast is calm, and a lake's flat (no slope at all) has none. Until rock provinces exist,
+/// height and biome stand in for rock. W4 hands this function the cell's rock as one more argument: hard rock
+/// raises it (and so the crags of `World::height_at`), soft rock lowers it, in place of the `high` factor.
+pub fn rough(slope: f32, biome: u8, h: f32) -> f32 {
+    if slope == 0.0 {
+        return 0.0;
+    }
+    let s = |x: f32| {
+        let x = x.clamp(0.0, 1.0);
+        x * x * (3.0 - 2.0 * x)
+    };
+    let by_slope = 0.1 + 0.4 * s(slope / 0.2) + 2.5 * s((slope - 0.25) / 0.6);
+    let high = 1.0 + 0.5 * s((h - 50.0) / 50.0);
+    let calm = if h < 0.0 { 0.1 + 0.9 * s((-h - 4.0) / 12.0) } else { 1.0 };
+    let kind = match biome {
+        life::BEACH => 0.3,
+        life::WETLAND => 0.4,
+        life::DESERT => 0.6,
+        life::GRASSLAND | life::SAVANNA => 0.8,
+        life::ICE | life::TUNDRA => 1.1,
+        life::ALPINE => 1.3,
+        _ => 1.0,
+    };
+    (by_slope * high * calm * kind).min(3.0)
 }
 
 /// Where players start (worldgen.md, "spawn by score"): gentle ground in grassland or temperate forest,
@@ -163,36 +267,137 @@ fn spawn(b: &land::Bake, l: &life::Life) -> [f64; 3] {
     g.d(c as u32).to_array()
 }
 
+/// Where a bake or a map's download stands, for the title screen's bar: the stage's name and the fraction
+/// done. The worker writes it a few dozen times; the frame thread reads it each frame.
+#[derive(Default)]
+pub struct Progress(Mutex<(&'static str, f32)>);
+
+impl Progress {
+    pub fn get(&self) -> (&'static str, f32) {
+        *self.0.lock().unwrap()
+    }
+    /// (the fraction never falls, whatever order the reports come in)
+    fn set(&self, stage: &'static str, f: f32) {
+        let mut s = self.0.lock().unwrap();
+        *s = (stage, f.clamp(0.0, 1.0).max(s.1));
+    }
+}
+
+/// The bake's stages in order (the `lap` names of `land::bake` and `life::life`, then `Map::bake`'s own end)
+/// and each one's seconds in a 4 km bake (2026-11-12), so the bar moves at the bake's pace. A lap of another
+/// name is passed over.
+const STAGES: [(&str, f32); 13] = [
+    ("grid", 0.13),
+    ("plates and boundaries", 0.62),
+    ("erosion, coarse", 5.56),
+    ("refine", 0.36),
+    ("erosion, fine", 14.89),
+    ("sea and coast", 0.87),
+    ("rivers and lakes", 0.02),
+    ("climate (air model)", 5.12),
+    ("climate to cells", 0.10),
+    ("water on land", 0.73),
+    ("soil", 0.30),
+    ("biomes", 0.05),
+    ("the spawn and the mips", 1.1),
+];
+
+thread_local! {
+    /// The progress `reporting` writes on this thread, and the stage under way (an index into `STAGES`).
+    static SINK: std::cell::RefCell<Option<(Arc<Progress>, usize)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `f` (a bake, `net::fetch_map`) on this thread with its progress written to `p`, which ends at 1.
+pub fn reporting<T>(p: Arc<Progress>, f: impl FnOnce() -> T) -> T {
+    SINK.with(|s| *s.borrow_mut() = Some((p.clone(), 0)));
+    within(0.0);
+    let out = f();
+    SINK.with(|s| *s.borrow_mut() = None);
+    p.set(p.get().0, 1.0);
+    out
+}
+
+/// A report outside the bake's stages (the download): `stage` and its fraction.
+pub fn report(stage: &'static str, f: f32) {
+    SINK.with(|s| s.borrow().as_ref().map(|(p, _)| p.set(stage, f)));
+}
+
+/// The bake's stage `name` has ended (its `lap`): the next one is under way.
+pub(crate) fn lap(name: &str) {
+    SINK.with(|s| {
+        if let Some((_, k)) = s.borrow_mut().as_mut() {
+            *k = STAGES.iter().position(|s| s.0 == name).map_or(*k, |i| (i + 1).min(STAGES.len() - 1));
+        }
+    });
+    within(0.0);
+}
+
+/// The stage under way is `f` done (an erosion's steps).
+pub(crate) fn within(f: f32) {
+    SINK.with(|s| {
+        if let Some((p, k)) = s.borrow().as_ref() {
+            let total: f32 = STAGES.iter().map(|s| s.1).sum();
+            let before: f32 = STAGES[..*k].iter().map(|s| s.1).sum();
+            p.set(STAGES[*k].0, (before + f * STAGES[*k].1) / total);
+        }
+    });
+}
+
 /// Maps in memory, so a local server, its client and in-process bots share one.
-static LOADED: LazyLock<Mutex<HashMap<(i32, i32), Weak<Map>>>> = LazyLock::new(Mutex::default);
+static LOADED: LazyLock<Mutex<HashMap<(i32, i32, u32), Weak<Map>>>> = LazyLock::new(Mutex::default);
 
 /// Where the map of (seed, n) is kept.
 pub fn file(seed: i32, n: i32) -> PathBuf {
-    PathBuf::from(DIR).join(format!("seed-{seed}-planet-{n}-v{VERSION}.map"))
+    file_v(seed, n, VERSION)
+}
+fn file_v(seed: i32, n: i32, v: u32) -> PathBuf {
+    PathBuf::from(DIR).join(format!("seed-{seed}-planet-{n}-v{v}.map"))
 }
 
-/// The map of (seed, n) if it is in memory or on disk, and its hash is `hash` (any, when None).
+/// The map of (seed, n) if it is in memory or on disk, and its hash is `hash` (any of this version, when
+/// None; a save that names one of version 1 gets that too).
 pub fn find(seed: i32, n: i32, hash: Option<u64>) -> Option<Arc<Map>> {
-    let ok = |m: &Map| hash.map_or(true, |h| h == m.hash);
-    if let Some(m) = LOADED.lock().unwrap().get(&(seed, n)).and_then(Weak::upgrade).filter(|m| ok(m)) {
-        return Some(m);
+    let ok = |m: &Map| hash.map_or(m.version == VERSION, |h| h == m.hash);
+    let versions: &[u32] = if hash.is_some() { &[VERSION, 1] } else { &[VERSION] };
+    for &v in versions {
+        if let Some(m) = LOADED.lock().unwrap().get(&(seed, n, v)).and_then(Weak::upgrade).filter(|m| ok(m)) {
+            return Some(m);
+        }
+        if let Some(m) = Map::from_bytes(&std::fs::read(file_v(seed, n, v)).unwrap_or_default()).ok().filter(|m| m.version == v && ok(m)) {
+            let m = Arc::new(m);
+            LOADED.lock().unwrap().insert((seed, n, v), Arc::downgrade(&m));
+            return Some(m);
+        }
     }
-    let m = Arc::new(Map::from_bytes(&std::fs::read(file(seed, n)).ok()?).ok().filter(ok)?);
-    LOADED.lock().unwrap().insert((seed, n), Arc::downgrade(&m));
-    Some(m)
+    None
 }
 
 /// Keeps a map in memory and on disk (a failed write only costs the next start a bake).
 pub fn keep(map: Map) -> Arc<Map> {
-    let path = file(map.seed, map.n);
+    let path = file_v(map.seed, map.n, map.version);
     let tmp = path.with_extension("tmp");
     let wrote = std::fs::create_dir_all(DIR).and_then(|_| std::fs::write(&tmp, map.to_bytes())).and_then(|_| std::fs::rename(&tmp, &path));
     if let Err(e) = wrote {
         eprintln!("[bake] could not keep {}: {e}", path.display());
     }
     let m = Arc::new(map);
-    LOADED.lock().unwrap().insert((m.seed, m.n), Arc::downgrade(&m));
+    LOADED.lock().unwrap().insert((m.seed, m.n, m.version), Arc::downgrade(&m));
     m
+}
+
+/// The map a save names by `hash`: from memory or disk, else baked now (a version 1 map is this bake
+/// without its rivers); None if the bake makes another map.
+pub fn for_hash(seed: i32, n: i32, hash: u64) -> Option<Arc<Map>> {
+    if let Some(m) = find(seed, n, Some(hash)) {
+        return Some(m);
+    }
+    let b = Map::bake(seed, n);
+    let v1 = Map::from_bytes(&Map { version: 1, seed, n, m: b.m, h: b.h.clone(), biome: b.biome.clone(), spawn: b.spawn, rivers: Vec::new(), lines: Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 }.to_bytes()).ok();
+    let b = keep(b);
+    if b.hash == hash {
+        return Some(b);
+    }
+    v1.filter(|m| m.hash == hash).map(keep)
 }
 
 /// The map of (seed, n): from memory, from disk, else baked now and kept.
@@ -205,7 +410,7 @@ mod tests {
     use super::*;
 
     fn small() -> Map {
-        let mut m = Map { version: VERSION, seed: 1, n: 64, m: 8, h: (0..384).map(|c| (c % 8) as f32).collect(), biome: vec![3; 384], spawn: [0.0, 1.0, 0.0], mips: Vec::new(), hash: 0 };
+        let mut m = Map { version: VERSION, seed: 1, n: 64, m: 8, h: (0..384).map(|c| (c % 8) as f32).collect(), biome: vec![3; 384], spawn: [0.0, 1.0, 0.0], rivers: Vec::new(), lines: Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 };
         m.finish(&m.to_bytes());
         m
     }
@@ -230,6 +435,72 @@ mod tests {
         let mut short = small();
         short.h.pop();
         assert!(Map::from_bytes(&short.to_bytes()).is_err());
+    }
+
+    /// A bake that reports its progress: the fraction never falls and ends at 1, the stages are named as they
+    /// come, and the map is the same to the bit as that of a bake that reports nothing.
+    #[test]
+    fn a_bake_reports_progress_and_makes_the_same_map() {
+        let p = Arc::new(Progress::default());
+        let (stop, stopped) = std::sync::mpsc::channel::<()>();
+        let watch = {
+            let p = p.clone();
+            std::thread::spawn(move || {
+                let mut seen = Vec::new();
+                while stopped.try_recv().is_err() {
+                    seen.push(p.get());
+                    std::thread::sleep(std::time::Duration::from_micros(200));
+                }
+                seen.push(p.get());
+                seen
+            })
+        };
+        let a = reporting(p.clone(), || Map::bake(3, 256));
+        stop.send(()).unwrap();
+        let seen = watch.join().unwrap();
+        assert!(seen.windows(2).all(|w| w[1].1 >= w[0].1), "the fraction falls: {seen:?}");
+        assert_eq!(seen.last().unwrap().1, 1.0);
+        let mut stages: Vec<&str> = seen.iter().map(|s| s.0).collect();
+        stages.dedup();
+        assert!(stages.len() >= 5, "stages seen: {stages:?}");
+        assert!(seen.iter().any(|s| s.1 > 0.3 && s.1 < 0.7), "the bar moves within the erosion: {stages:?}");
+        assert_eq!(a.hash, Map::bake(3, 256).hash);
+    }
+
+    /// A map of version 1 (an old save's, fetched from a server) is kept as the bytes it came in, in its own
+    /// file; a new game never gets it; a save that names one whose file is gone gets it back from a bake.
+    #[test]
+    fn a_version_1_map_is_kept_apart_and_baked_back_for_its_save() {
+        let fresh = Map::bake(-77, 256);
+        let v1 = postcard::to_stdvec(&(1u32, fresh.seed, fresh.n, fresh.m, &fresh.h, &fresh.biome, fresh.spawn)).unwrap();
+        let old = Map::from_bytes(&v1).unwrap();
+        assert_eq!(old.to_bytes(), v1, "the bytes it came in");
+        let h = old.hash;
+        let _ = (std::fs::remove_file(file(-77, 256)), std::fs::remove_file(file_v(-77, 256, 1)));
+        let kept = keep(old);
+        assert!(file_v(-77, 256, 1).exists() && !file(-77, 256).exists(), "kept under its own version");
+        assert!(find(-77, 256, None).is_none(), "a new game never gets it");
+        assert_eq!(find(-77, 256, Some(h)).map(|m| m.hash), Some(h));
+        drop(kept);
+        let _ = std::fs::remove_file(file_v(-77, 256, 1));
+        LOADED.lock().unwrap().remove(&(-77, 256, 1));
+        assert_eq!(for_hash(-77, 256, h).map(|m| (m.version, m.hash)), Some((1, h)), "baked back for its save");
+        assert_eq!(for_hash(-77, 256, h ^ 1).map(|m| m.hash), None, "another map's hash");
+        let _ = (std::fs::remove_file(file(-77, 256)), std::fs::remove_file(file_v(-77, 256, 1)));
+    }
+
+    /// Bytes from a server are checked before anything is built from them.
+    #[test]
+    fn a_map_with_a_far_river_or_a_broken_tail_is_refused() {
+        let mut m = small();
+        m.rivers = vec![Reach { cell: 9, to: 300, area: 2e5 }];
+        assert!(Map::from_bytes(&m.to_bytes()).is_err(), "a river that jumps across the planet");
+        m.rivers = vec![Reach { cell: 9, to: 10, area: f32::NAN }];
+        assert!(Map::from_bytes(&m.to_bytes()).is_err(), "an area that is not a number");
+        m.rivers = vec![Reach { cell: 9, to: 10, area: 2e5 }];
+        let b = m.to_bytes();
+        assert!(Map::from_bytes(&b).is_ok());
+        assert!(Map::from_bytes(&b[..b.len() - 3]).is_err(), "a version 2 map cut short is not a version 1");
     }
 
     /// The whole bake twice on a small planet: the same map to the bit.

@@ -35,8 +35,12 @@ package E (the height cache) every stage here builds on.
 ### W2. The bake in the engine
 **Status (2026-11-11, ADR 0043):** the map, its mips, heights from it, the height cache, far chunks, the
 spawn by score, the save (by hash) and the download in pieces are built, with W3's biome ground and still
-plants. Not yet: river lines and beds, detail by rock and slope, progress on the title screen, the walk
-test; `Land` stays for saves from before the bake.
+plants. River lines and dry beds (2026-11-12, ADR 0056) with the walk test on the engine's heights; water
+in the beds waits for W5. Progress on the title screen too (2026-11-12, ADR 0057: a new world's bake and a
+server's map under a bar, on a worker thread). Detail by slope, biome and height (2026-11-12, ADR 0058:
+smooth plains and calm coasts, rough craggy slopes; W4's rock plugs into `bake::rough`). Not yet: a bot
+walking a river;
+`Land` stays for saves from before the bake.
 - `engine::bake`: the map with its mips, the river lines, the save format, and its download in the
   protocol (compressed, in pieces, with progress on the title screen).
 - Heights from the map: smooth interpolation plus detail driven by rock and slope; river beds cut from
@@ -55,6 +59,11 @@ test; `Land` stays for saves from before the bake.
 - Checks: a filmstrip of the globe turning; a bot walks a line and only that band is drawn.
 
 ### W3. Air, climate, seasons, biomes
+**Status (2026-11-12, ADR 0042, 0043, 0055):** the climate and the fifteen biomes are baked; the sky has its
+tilt (20 degrees, open) and seasons over the 54-day year, `/time set summer` and the others, and F3 shows the
+air's temperature (the biome's yearly mean with the season and hour on top). Not yet: the map keeping each
+cell's baked temperature, the air grid's tick spike and live weather, the rain check, views at four seasons
+in `tests/views/`.
 - **First the spike ADR 0010 already asks for:** the coarse air grid's tick cost on Terra (target under
   0.5 ms of the server tick).
 - The same model run to a steady year inside the bake (stage 5); biomes, soil and surface blocks from it

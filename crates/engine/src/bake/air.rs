@@ -692,6 +692,7 @@ impl Air {
         let (mut prev_t, mut prev_r) = (vec![0f64; n], vec![0f64; n]);
         let mut change = (f32::INFINITY, f32::INFINITY);
         for day in 0..max_days {
+            super::within((day as f32 / min_days.max(1) as f32).min(1.0));
             let (mut th, mut rain, mut lo, mut hi) = (vec![0f64; n], vec![0f64; n], vec![f32::MAX; n], vec![f32::MIN; n]);
             for _ in 0..per_day {
                 self.step(dt);

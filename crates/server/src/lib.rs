@@ -161,8 +161,7 @@ impl Server {
     /// to other ground, and the next autosave would write over the old map's name.
     pub fn on_map(planet_n: i32, moon_n: i32, seed: i32, map: Option<u64>, accept: Receiver<ServerLink>) -> Server {
         let Some(h) = map else { return Server::new(planet_n, moon_n, seed, accept) };
-        let m = engine::bake::find(seed, planet_n, Some(h)).unwrap_or_else(|| engine::bake::keep(engine::bake::Map::bake(seed, planet_n)));
-        assert_eq!(m.hash, h, "this world was played on another map of seed {seed} (map version {}): it cannot be carried on", engine::bake::VERSION);
+        let m = engine::bake::for_hash(seed, planet_n, h).unwrap_or_else(|| panic!("this world was played on another map of seed {seed} (map version {}): it cannot be carried on", engine::bake::VERSION));
         Server::with_world(World::with_map(planet_n, moon_n, seed, Some(m)), seed, accept)
     }
     fn with_world(world: World, seed: i32, accept: Receiver<ServerLink>) -> Server {
@@ -696,6 +695,7 @@ impl Server {
                 "  /time                the time of day at the spawn",
                 "  /time set <when>     sunrise day noon sunset night",
                 "                       midnight, 14:30, or world seconds",
+                "                       or spring summer autumn winter",
                 "  /time add <seconds>  move the clock on",
                 "  /playmode <mode>     creative or survival",
                 "  /give <block> [n]    n blocks, 64 if left out",
@@ -728,6 +728,7 @@ impl Server {
                 let secs = |v: &str| v.parse::<f64>().ok().filter(|s| s.is_finite());
                 let to = match (w.get(1).copied(), w.get(2).copied()) {
                     (None | Some("query"), _) => None,
+                    (Some("set"), Some(v)) if sky::season(v).is_some() => Some(sky::next_season(now, sky::season(v).unwrap())),
                     (Some("set"), Some(v)) => match (named(v), secs(v)) {
                         (Some(h), _) => Some(sky::next_hour(now, h)),
                         (None, Some(s)) if s >= 0.0 => Some(s),
@@ -737,7 +738,7 @@ impl Server {
                         Some(t) if t >= 0.0 => Some(t),
                         _ => return format!("not a number of seconds: {v}"),
                     },
-                    _ => return "usage:\n  /time\n  /time set <sunrise|day|noon|sunset|night|midnight|hh:mm|seconds>\n  /time add <seconds>".into(),
+                    _ => return "usage:\n  /time\n  /time set <sunrise|day|noon|sunset|night|midnight|hh:mm|seconds>\n  /time set <spring|summer|autumn|winter>\n  /time add <seconds>".into(),
                 };
                 let t = match to {
                     Some(t) => {
@@ -1682,6 +1683,11 @@ mod tests {
         assert!(a.iter().any(|l| l.starts_with("it is day 1, 09:08")), "{a:?}");
         s.tick();
         assert!((s.world.time - 10.0).abs() < 0.2, "a time before the session's start: {}", s.world.time);
+        // a season (ADR 0055): whole days on, so the hour stays; the summer solstice is 13.5 days in
+        links[0].send(ToServer::Chat("/time set summer".into()));
+        s.tick();
+        let a = chat(&links[0]);
+        assert!(a.iter().any(|l| l.starts_with("time set to day 14, 09:08")), "{a:?}");
     }
 
     #[test]

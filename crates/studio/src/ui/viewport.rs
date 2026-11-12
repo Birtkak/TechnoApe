@@ -497,7 +497,8 @@ impl Drop for Viewport {
 const STAND: glam::DVec3 = glam::DVec3::Y;
 
 /// The game's clock (`time s`) at which a point on the planet (body frame direction `up`) has local solar time
-/// `hour`: world time 0 is 9 am at the spawn, the body's +y (ADR 0022, 0041), and the planet spins about its +z.
+/// `hour`: world time 0 is 9 am at the spawn, the body's +y (ADR 0022, 0041), and the planet spins about its +z
+/// (which leans `sky::TILT`: right near world time 0, the spring equinox, where this lands, ADR 0055).
 fn game_time(hour: f64, up: glam::DVec3) -> f64 {
     // a point turned ahead of the spawn about +z sees the sun earlier: its clock runs ahead by the angle
     let ahead = (up.y.atan2(up.x) - std::f64::consts::FRAC_PI_2) / std::f64::consts::TAU * 24.0;

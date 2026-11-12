@@ -90,6 +90,9 @@ pub struct Player {
     pub pitch: f32,
 }
 
+/// The download's stage name in `bake::Progress`.
+pub const DOWNLOAD: &str = "downloading the map";
+
 /// The baked map as `ToClient::Map` pieces of a MiB each.
 pub fn map_pieces(map: &crate::bake::Map) -> Vec<ToClient> {
     let bytes = map.to_bytes();
@@ -109,6 +112,7 @@ pub fn fetch_map(link: &mut Link<ToServer, ToClient>, seed: i32, planet_n: i32, 
         match link.rx.recv_timeout(std::time::Duration::from_secs(120)) {
             Ok(ToClient::Map { piece, pieces, bytes: b }) => {
                 bytes.extend_from_slice(&b);
+                crate::bake::report(DOWNLOAD, (piece + 1) as f32 / pieces as f32);
                 if piece + 1 >= pieces {
                     break;
                 }
@@ -242,7 +246,7 @@ pub fn complete(line: &str) -> (usize, Vec<String>) {
                 (None, _, _) => &["time", "playmode", "give", "place", "goto", "timewarp", "heal", "feed", "hurt", "help"],
                 (Some("timewarp" | "warp"), None, 1) => &["1", "10", "100", "1000", "10000", "up", "down"],
                 (Some("time"), None, 1) => &["set", "add"],
-                (Some("time"), Some("set"), 2) => &["sunrise", "day", "noon", "sunset", "night", "midnight"],
+                (Some("time"), Some("set"), 2) => &["sunrise", "day", "noon", "sunset", "night", "midnight", "spring", "summer", "autumn", "winter"],
                 (Some("playmode" | "gamemode"), None, 1) => &["creative", "survival"],
                 (Some("goto"), None, 1) => &places,
                 _ => &[],
@@ -281,7 +285,7 @@ mod tests {
     #[test]
     fn a_missing_map_comes_in_pieces() {
         let cells = 6 * 384 * 384;
-        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12345, n: 3072, m: 384, h: (0..cells).map(|c| c as f32).collect(), biome: vec![4; cells], spawn: [0.0, 1.0, 0.0], mips: Vec::new(), hash: 0 }.to_bytes();
+        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12345, n: 3072, m: 384, h: (0..cells).map(|c| c as f32).collect(), biome: vec![4; cells], spawn: [0.0, 1.0, 0.0], rivers: Vec::new(), lines: crate::bake::Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 }.to_bytes();
         let map = crate::bake::Map::from_bytes(&bytes).unwrap();
         // a run before this one kept it: this client must not have it yet
         let _ = std::fs::remove_file(crate::bake::file(-12345, 3072));
@@ -303,6 +307,46 @@ mod tests {
         assert_eq!(client.rx.recv().unwrap(), ToClient::Chat("before".into()));
         assert_eq!(client.rx.recv().unwrap(), ToClient::Chat("after".into()));
         assert!(crate::bake::find(-12345, 3072, Some(hash)).is_some(), "kept");
+    }
+
+    /// The download reports each piece as it comes (received / total) and ends at 1.
+    #[test]
+    fn a_map_download_reports_its_pieces() {
+        let cells = 6 * 384 * 384;
+        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12346, n: 3072, m: 384, h: vec![1.0; cells], biome: vec![4; cells], spawn: [0.0, 1.0, 0.0], rivers: Vec::new(), lines: crate::bake::Lines::default(), mips: Vec::new(), rough: Vec::new(), hash: 0 }.to_bytes();
+        let map = crate::bake::Map::from_bytes(&bytes).unwrap();
+        let _ = std::fs::remove_file(crate::bake::file(-12346, 3072));
+        let (mut client, server) = local::<ToServer, ToClient>();
+        let (hash, p) = (map.hash, std::sync::Arc::new(crate::bake::Progress::default()));
+        let seen = p.clone();
+        // the server sends every piece whatever it sees (no assert in its thread: a failed one would leave the
+        // client waiting out its timeout), and what the client reported after each comes back to be checked here
+        let t = std::thread::spawn(move || {
+            let asked = server.rx.recv().ok();
+            let pieces = map_pieces(&map);
+            let n = pieces.len();
+            let mut got = Vec::new();
+            // one deadline for the whole download, so a wrong report fails in seconds
+            let end = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            for (k, piece) in pieces.into_iter().enumerate() {
+                server.send(piece);
+                let want = (k + 1) as f32 / n as f32;
+                while seen.get().1 < want && std::time::Instant::now() < end {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                got.push((seen.get(), (DOWNLOAD, want)));
+            }
+            (asked, got)
+        });
+        let fetched = crate::bake::reporting(p.clone(), || fetch_map(&mut client, -12346, 3072, hash));
+        let (asked, got) = t.join().unwrap();
+        assert_eq!(asked, Some(ToServer::Map));
+        assert!(got.len() > 2);
+        for (k, (seen, want)) in got.iter().enumerate() {
+            assert_eq!(seen, want, "piece {k} of {}", got.len());
+        }
+        fetched.unwrap();
+        assert_eq!(p.get().1, 1.0);
     }
 
     #[test]
