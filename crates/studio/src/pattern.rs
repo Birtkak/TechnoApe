@@ -105,7 +105,8 @@ pub fn texel(reg: &Registry, b: &Def, dir: i32, cell: [i32; 3], x: i32, y: i32) 
     let n = S as i32;
     let h = hash(cell[0] * n + x, cell[1] * n + y, cell[2] * n + dir);
     let tone = 0.82 + 0.12 * (h * 3.0).floor();
-    let side = reg.get(b.side).unwrap_or(b);
+    // a block that is its own side is drawn from `b` (the pattern panel hands in a changed row)
+    let side = if b.side == b.id { b } else { reg.get(b.side).unwrap_or(b) };
     let m = if b.pattern == Pattern::Grass && dir != 4 {
         // a grass block's side is its side block's look under 2 to 4 rows of grass at the top
         let fringe = 2 + (hash(cell[0] * n + x, cell[1] * n + 7, cell[2] * n + dir) * 3.0).floor() as i32;
@@ -137,15 +138,96 @@ pub fn texel(reg: &Registry, b: &Def, dir: i32, cell: [i32; 3], x: i32, y: i32) 
 
 /// The pattern of a block's face drawn into a texture, each texel snapped to the nearest palette colour. `face`
 /// as the Studio counts them: 0 every face (drawn as a side), 1 top, 2 side, 3 bottom.
+#[cfg(test)]
 pub fn face(reg: &Registry, b: &Def, face: usize, pal: &Palette) -> Img {
+    face_at(reg, b, face, pal, [0, 0, 0])
+}
+
+/// `face` as drawn on the block at `cell`: where a recipe has chance in it, another cell is another draw.
+pub fn face_at(reg: &Registry, b: &Def, face: usize, pal: &Palette, cell: [i32; 3]) -> Img {
     let dir = [0, 4, 0, 5][face.min(3)];
     let mut img = Img::filled(1, [0; 3]);
     for y in 0..S {
         for x in 0..S {
-            crate::art::pencil(&mut img, 0, x, y, snap(pal, texel(reg, b, dir, [0, 0, 0], x as i32, y as i32)), false);
+            crate::art::pencil(&mut img, 0, x, y, snap(pal, texel(reg, b, dir, cell, x as i32, y as i32)), false);
         }
     }
     img
+}
+
+/// The eleven patterns by the names `blocks.toml` gives them, in the engine's order.
+pub const NAMES: [(Pattern, &str); 11] = [
+    (Pattern::Plain, "plain"),
+    (Pattern::Grass, "grass"),
+    (Pattern::Stone, "stone"),
+    (Pattern::Pebbles, "pebbles"),
+    (Pattern::Speckle, "speckle"),
+    (Pattern::Frame, "frame"),
+    (Pattern::Weave, "weave"),
+    (Pattern::Planks, "planks"),
+    (Pattern::Tiles, "tiles"),
+    (Pattern::Bricks, "bricks"),
+    (Pattern::Rings, "rings"),
+];
+
+/// What the pattern panel chose (docs/design/studio.md, usability round step 2): a pattern, its three
+/// colours (the second and third None: "auto", one step darker and lighter on the base's ramp), its values
+/// and a seed (the cell it is drawn at, so another seed is another draw of the same values).
+#[derive(Clone, PartialEq, Debug)]
+pub struct Recipe {
+    pub pattern: Pattern,
+    pub colours: [Option<[u8; 3]>; 3],
+    pub size: u8,
+    pub amount: f32,
+    pub contrast: f32,
+    pub seed: i32,
+}
+
+impl Recipe {
+    /// The block's own row as a start: its pattern and values, its colour snapped to the palette, the others auto.
+    pub fn of(b: &Def, pal: &Palette) -> Recipe {
+        let base = snap(pal, b.colour);
+        Recipe { pattern: b.pattern, colours: [Some(base), None, None], size: b.size, amount: b.amount, contrast: b.contrast, seed: 0 }
+    }
+    /// Which values `p` reads: (size, amount). Plain, grass and stone neither, rings no amount.
+    pub fn reads(p: Pattern) -> (bool, bool) {
+        (p.defaults().is_some(), p.defaults().is_some() && p != Pattern::Rings)
+    }
+    /// Picks another pattern: its own default size and amount, the colours and contrast kept.
+    pub fn set_pattern(&mut self, p: Pattern) {
+        self.pattern = p;
+        if let Some((size, amount)) = p.defaults() {
+            (self.size, self.amount) = (size, amount);
+        }
+    }
+    /// The three colours, the auto ones made from the base.
+    pub fn colours(&self, pal: &Palette) -> [[u8; 3]; 3] {
+        let base = self.colours[0].unwrap_or([128; 3]);
+        let auto = |k: usize| pal.step(base, if k == 1 { -1 } else { 1 }).unwrap_or(base);
+        [base, self.colours[1].unwrap_or_else(|| auto(1)), self.colours[2].unwrap_or_else(|| auto(2))]
+    }
+    /// The block's row with this recipe in place of its look.
+    fn def(&self, b: &Def, pal: &Palette) -> Def {
+        let f = |c: [u8; 3]| c.map(|v| v as f32 / 255.0);
+        let [c1, c2, c3] = self.colours(pal).map(f);
+        Def { pattern: self.pattern, colour: c1, colour2: c2, colour3: c3, size: self.size.max(1), amount: self.amount, contrast: self.contrast, ..b.clone() }
+    }
+    /// One face drawn from the recipe at `seed`, snapped to the palette.
+    pub fn draw(&self, reg: &Registry, b: &Def, face: usize, pal: &Palette, seed: i32) -> Img {
+        face_at(reg, &self.def(b, pal), face, pal, [seed, 0, 0])
+    }
+    /// The file with the recipe filled in: variant `v` alone, or every variant from its own seed (a file of one
+    /// variant then gets four: one pattern, four seeds, a varied field).
+    pub fn fill(&self, img: &Img, v: usize, every: bool, reg: &Registry, b: &Def, face: usize, pal: &Palette) -> Img {
+        let mut out = if every && img.variants() == 1 { Img::filled(4, [0; 3]) } else { img.clone() };
+        for k in 0..out.variants() {
+            if k == v || every {
+                let one = self.draw(reg, b, face, pal, self.seed + if every { k as i32 * 101 } else { 0 });
+                crate::tools::paste(&mut out, k, &crate::tools::copy(&one, 0, crate::tools::Sel { x: 0, y: 0, w: S, h: S }), 0, 0);
+            }
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -195,6 +277,68 @@ mod tests {
         assert!((0..S).all(|x| p.find(side.get(0, x, 0)).unwrap() < 3), "the first row is grass colours");
         assert!((0..S).all(|x| p.find(side.get(0, x, 15)).unwrap() >= 3), "the last row is dirt colours");
         assert_eq!(face(&r, g, 2, &p), side, "the same every time");
+    }
+
+    fn ramp_pal() -> Palette {
+        // two ramps far apart, so a texel with no tone (contrast 0) snaps to its own colour
+        let mut p = Palette::default();
+        for (i, c) in [[20, 20, 200], [60, 60, 230], [120, 120, 250], [200, 30, 30], [230, 90, 90], [250, 160, 160]].into_iter().enumerate() {
+            let mut c = Colour::new(format!("c{i}"), c);
+            c.ramp = Some(if i < 3 { "blue" } else { "red" }.into());
+            p.colours.push(c);
+        }
+        p
+    }
+
+    #[test]
+    fn a_recipe_reads_only_its_values_and_its_auto_colours_are_the_ramp_neighbours() {
+        assert_eq!(Recipe::reads(Pattern::Plain), (false, false));
+        assert_eq!(Recipe::reads(Pattern::Grass), (false, false));
+        assert_eq!(Recipe::reads(Pattern::Stone), (false, false));
+        assert_eq!(Recipe::reads(Pattern::Rings), (true, false));
+        assert_eq!(Recipe::reads(Pattern::Bricks), (true, true));
+        let p = ramp_pal();
+        let r = reg();
+        let mut k = Recipe::of(r.get(3).unwrap(), &p);
+        k.colours[0] = Some([60, 60, 230]);
+        assert_eq!(k.colours(&p), [[60, 60, 230], [20, 20, 200], [120, 120, 250]], "auto: one darker, one lighter");
+        k.colours[2] = Some([250, 160, 160]);
+        assert_eq!(k.colours(&p)[2], [250, 160, 160], "a set colour wins");
+        k.set_pattern(Pattern::Tiles);
+        assert_eq!((k.size, k.amount), (8, 0.3), "a new pattern starts at its defaults");
+    }
+
+    #[test]
+    fn a_bricks_recipe_draws_its_colours_and_size_and_fills_one_or_every_variant() {
+        let (p, r) = (ramp_pal(), reg());
+        let b = r.get(3).unwrap();
+        let k = Recipe { pattern: Pattern::Bricks, colours: [Some([200, 30, 30]), Some([20, 20, 200]), Some([250, 160, 160])], size: 3, amount: 0.0, contrast: 0.0, seed: 0 };
+        let img = k.draw(&r, b, 1, &p, 0);
+        for y in 0..S {
+            let mortar = y % 3 == 0;
+            assert_eq!(img.get(0, 5, y) == [20, 20, 200], mortar, "row {y}: mortar every 3 rows in the second colour");
+        }
+        assert!(img.px.iter().all(|c| p.find(*c).is_some()), "snapped to the palette");
+        // every face and the sides draw the recipe too, not the registry's look of the block
+        for f in [0, 2, 3] {
+            let side = k.draw(&r, b, f, &p, 0);
+            assert!((0..S).all(|y| (side.get(0, 5, y) == [20, 20, 200]) == (y % 3 == 0)), "face {f}: the recipe's mortar");
+        }
+        assert!(img.px.contains(&[200, 30, 30]), "the base colour shows");
+        assert_eq!(k.draw(&r, b, 1, &p, 0), img, "the same recipe draws the same face");
+        // a chance pattern: another seed, another draw
+        let s = Recipe { pattern: Pattern::Speckle, size: 3, amount: 0.6, ..k.clone() };
+        assert_ne!(s.draw(&r, b, 1, &p, 0), s.draw(&r, b, 1, &p, 1));
+        let file = Img::filled(3, [60, 60, 230]);
+        let one = s.fill(&file, 1, false, &r, b, 1, &p);
+        assert_eq!((one.variants(), one.get(0, 0, 0), one.get(2, 0, 0)), (3, [60, 60, 230], [60, 60, 230]), "only variant 2 is filled");
+        assert_ne!(one.get(1, 0, 0), [60, 60, 230]);
+        let all = s.fill(&file, 1, true, &r, b, 1, &p);
+        let v = |i: usize| (0..S * S).map(|n| all.get(i, n % S, n / S)).collect::<Vec<_>>();
+        assert!(v(0) != v(1) && v(1) != v(2) && v(0) != v(2), "every variant from its own seed");
+        assert!(v(0).iter().all(|c| *c != [60, 60, 230]));
+        assert_eq!(s.fill(&Img::filled(1, [60, 60, 230]), 0, true, &r, b, 1, &p).variants(), 4, "one variant: every makes four");
+        assert_eq!(s.fill(&Img::filled(1, [60, 60, 230]), 0, false, &r, b, 1, &p).variants(), 1);
     }
 
     #[test]

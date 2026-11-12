@@ -40,3 +40,6 @@ saves/
 
 # the Studio window's panel widths and scale, per machine
 /studio.txt
+
+# unsaved Studio work kept against a crash (studio/src/recover.rs)
+/studio-recovery/

@@ -50,7 +50,7 @@ fn textures_paint_undo_save() {
         &dir,
         &[
             "open=dirt",
-            "input=click @btn:pattern; drag @face:0.08,0.09 @face:0.92,0.09; drag @face:0.08,0.28 @face:0.92,0.28 right; key G; click @face:0.5,0.72; \
+            "input=click @btn:pattern; click @btn:pat.use; drag @face:0.08,0.09 @face:0.92,0.09; drag @face:0.08,0.28 @face:0.92,0.28 right; key G; click @face:0.5,0.72; \
              mods alt; click @face:0.2,0.6; mods none; key Ctrl+Z; key Ctrl+Z; key Ctrl+Y; key Ctrl+S",
         ],
     );
@@ -135,7 +135,7 @@ fn models_save_keeps_comments_above_a_part_and_a_clip_and_crlf() {
 #[test]
 fn palette_undo_never_removes_a_colour_in_use() {
     let dir = scratch("palette-in-use");
-    studio(&dir, &["open=dirt", "input=click @btn:pattern; key Ctrl+S"]);
+    studio(&dir, &["open=dirt", "input=click @btn:pattern; click @btn:pat.use; key Ctrl+S"]);
     // a colour added, painted into dirt.png and saved, then the add undone on the Palette page
     let line = studio(&dir, &["cmd=page:Palette,colour.add,open:Textures:dirt,colours=new 1;new 1", "input=click @face:0.5,0.5; key Ctrl+S; click @tab:Palette; key Ctrl+Z"]);
     assert!(line.contains("\"undo\":[\"Add\"],\"redo\":[]"), "the undo went through: {line}");
@@ -237,7 +237,7 @@ fn shell_search_find_and_the_close_question() {
 #[test]
 fn palette_slider_moves_a_colour_and_its_texture_follows() {
     let dir = scratch("palette");
-    studio(&dir, &["open=dirt", "input=click @btn:pattern; key Ctrl+S"]);
+    studio(&dir, &["open=dirt", "input=click @btn:pattern; click @btn:pat.use; key Ctrl+S"]);
     let tex = dir.join("data/textures/dirt.png");
     let (w, _, px) = png(&tex);
     let rgb = [px[0], px[1], px[2]];
@@ -257,7 +257,7 @@ fn palette_slider_moves_a_colour_and_its_texture_follows() {
 #[test]
 fn palette_undo_leaves_the_files_as_they_were() {
     let dir = scratch("palette-undo");
-    studio(&dir, &["open=dirt", "input=click @btn:pattern; key Ctrl+S"]);
+    studio(&dir, &["open=dirt", "input=click @btn:pattern; click @btn:pat.use; key Ctrl+S"]);
     let (pal_path, tex) = (dir.join("data/palette.toml"), dir.join("data/textures/dirt.png"));
     let (pal0, tex0) = (std::fs::read(&pal_path).unwrap(), std::fs::read(&tex).unwrap());
     let (_, _, px) = png(&tex);
@@ -518,7 +518,7 @@ fn a_season_is_added_painted_and_removed() {
     let dir = scratch("seasons");
     let blocks = || std::fs::read_to_string(dir.join("data/blocks.toml")).unwrap();
     let before = blocks();
-    studio(&dir, &["open=dirt", "input=click @btn:pattern; key Ctrl+S"]);
+    studio(&dir, &["open=dirt", "input=click @btn:pattern; click @btn:pat.use; key Ctrl+S"]);
     studio(&dir, &["open=dirt", "season=winter", "cmd=season.add", "input=key Ctrl+S"]);
     let winter = dir.join("data/textures/dirt@winter.png");
     assert_eq!(png(&winter).2, png(&dir.join("data/textures/dirt.png")).2, "the season starts as the base");
@@ -532,4 +532,82 @@ fn a_season_is_added_painted_and_removed() {
     let line = studio(&dir, &["open=dirt", "season=winter", "cmd=season.remove"]);
     assert!(!winter.exists(), "{line}");
     assert_eq!(blocks(), before, "data/blocks.toml as it was, byte for byte");
+}
+
+#[test]
+fn the_pattern_panel_picks_bricks_three_colours_and_a_size() {
+    // usability round step 2: pick bricks, set three colours and a size, Use, save; the file passes check=1
+    let dir = scratch("pattern-panel");
+    let line = studio(
+        &dir,
+        &[
+            "open=clay",
+            "input=click @btn:pattern; click @pat:bricks; click @well:0; click @swatch:copper; click @well:1; click @swatch:stone_dark; \
+             click @well:2; click @swatch:copper_light; click @slider:size:0.3,0.5; click @btn:pat.use; key Ctrl+S",
+        ],
+    );
+    assert!(line.contains("\"undo\":[\"Start from pattern\"]") && line.contains("\"unsaved\":[]"), "{line}");
+    let (w, h, px) = png(&dir.join("data/textures/clay.png"));
+    assert_eq!((w, h), (16, 16));
+    let red = |x: u32, y: u32| px[((y * w + x) * 4) as usize];
+    // size 3: mortar rows 0, 3, 6 in the dark second colour, the bricks between them copper
+    for y in [0, 3, 6] {
+        assert!((0..16).all(|x| red(x, y) < 110), "row {y} is mortar: {line}");
+    }
+    assert!((0..16).filter(|&x| red(x, 2) > 150).count() > 10, "row 2 is brick");
+    let out = Command::new(env!("CARGO_BIN_EXE_technoape-studio")).current_dir(&dir).arg("check=1").output().unwrap();
+    assert!(out.status.success() && String::from_utf8_lossy(&out.stdout).contains("\"check\":\"ok\""), "{}", String::from_utf8_lossy(&out.stdout));
+}
+
+#[test]
+fn generate_variants_picks_a_set_and_a_variant_is_removed() {
+    // usability round step 3: a set is pending until Use this; the file is then 3 variants (48 px) wide
+    let dir = scratch("variants");
+    let tex = dir.join("data/textures/clay.png");
+    let line = studio(&dir, &["open=clay", "input=click @btn:pattern; click @btn:pat.use; click @btn:variants; click @wall:3; key Ctrl+S"]);
+    assert!(line.contains("\"undo\":[\"Start from pattern\"]"), "a picked set is only pending: {line}");
+    assert_eq!(png(&tex).0, 16, "pending is not saved");
+    let line = studio(&dir, &["open=clay", "input=click @btn:variants; click @wall:3; click @btn:wall.use; key Ctrl+S"]);
+    assert!(line.contains("\"undo\":[\"Generate variants\"]") && line.contains("\"unsaved\":[]"), "{line}");
+    assert_eq!(png(&tex).0, 48);
+    // the x on a variant that holds paint asks first; Remove takes it out, one undo step
+    let line = studio(&dir, &["open=clay", "input=click @variant.remove:2; key Ctrl+S"]);
+    assert_eq!(png(&tex).0, 48, "asked, not removed: {line}");
+    let line = studio(&dir, &["open=clay", "input=click @variant.remove:2; click @btn:variant.remove; key Ctrl+S"]);
+    assert!(line.contains("\"undo\":[\"Remove variant 2\"]"), "{line}");
+    assert_eq!(png(&tex).0, 32);
+}
+
+#[test]
+fn textures_kept_after_a_crash_are_offered_back() {
+    // usability round: unsaved work kept in studio-recovery/ is offered at the next start; Restore makes it unsaved work
+    let dir = scratch("recover");
+    studio(&dir, &["open=clay", "input=click @btn:pattern; click @btn:pat.use; key Ctrl+S"]);
+    let (tex, kept) = (dir.join("data/textures/clay.png"), dir.join("studio-recovery/textures"));
+    std::fs::create_dir_all(&kept).unwrap();
+    std::fs::rename(&tex, kept.join("clay.png")).unwrap();
+    // a plain shot neither offers nor clears the developer's kept work
+    let line = studio(&dir, &["open=clay", "input=wait", "rects=1"]);
+    assert!(!line.contains("btn:recover") && kept.join("clay.png").exists(), "a shot leaves the kept set alone: {line}");
+    let line = studio(&dir, &["open=clay", "recover=1", "input=wait", "rects=1"]);
+    assert!(line.contains("\"unsaved\":[]") && line.contains("btn:recover.restore"), "offered, not restored before the answer: {line}");
+    let line = studio(&dir, &["open=clay", "recover=1", "input=click @btn:recover.restore; key Ctrl+S"]);
+    assert!(line.contains("Restored as unsaved work: clay.png") && line.contains("Saved clay.png"), "{line}");
+    assert_eq!(std::fs::read(&tex).unwrap(), std::fs::read(kept.join("clay.png")).unwrap());
+    // kept work the files already hold is not offered; Discard drops the rest
+    let line = studio(&dir, &["open=clay", "recover=1", "input=wait", "rects=1"]);
+    assert!(!line.contains("btn:recover.restore"), "the same as on disk: not offered: {line}");
+    std::fs::write(kept.join("dirt.png"), std::fs::read(&tex).unwrap()).unwrap();
+    studio(&dir, &["open=clay", "recover=1", "input=click @btn:recover.discard"]);
+    assert!(!kept.exists(), "Discard clears the kept set");
+}
+
+#[test]
+fn a_pending_set_goes_with_a_switch_of_face() {
+    // review of ADR 0064: a set pending for one face must not stay open (and be used) on another
+    let dir = scratch("pending-switch");
+    let line = studio(&dir, &["open=clay", "rects=1", "input=click @btn:pattern; click @btn:pat.use; click @btn:variants; click @wall:2; click @facetab:2; wait"]);
+    assert!(!line.contains("\"wall:0\"") && !line.contains("btn:wall.use"), "the wall closed with the switch: {line}");
+    let line = studio(&dir, &["open=clay", "rects=1", "input=click @btn:pattern; click @facetab:1; wait"]);
+    assert!(!line.contains("btn:pat.use"), "the pattern panel closed with the switch: {line}");
 }

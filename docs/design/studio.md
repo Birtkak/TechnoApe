@@ -167,6 +167,9 @@ saw it.
 
 Done when `shot=out/x.png open=grass` at 1920 x 1080 shows the lit block without scrolling.
 
+**Built** (ADR 0064): the box on top of the inspector; while a stroke is held the block follows it (the open
+file written every 120 ms, about 1.5 ms a write); the variant pick is the shader's, held by a test.
+
 ### 2. Patterns are the main way to start a texture (Textures)
 Today "Pattern" stamps the block's row from `blocks.toml` into the canvas: no choice, no values, no preview.
 The eleven recipes and their values exist (`engine/src/blocks.rs` `Pattern`, `studio/src/pattern.rs`).
@@ -191,6 +194,9 @@ The result is snapped to the palette as now and saved as the PNG; `blocks.toml` 
 see the answers at the end). Done when a `drive` script picks bricks, sets three colours and a size, uses it, and the saved PNG passes
 `check=1`; a `shot=` of the open panel is read.
 
+**Built** (ADR 0064): the panel stands left of the canvas; while a well waits for a colour the swatches show
+in the panel too. The drive script is the test `the_pattern_panel_picks_bricks_three_colours_and_a_size`.
+
 ### 3. Variants explain themselves (Textures)
 Today: tabs `1 2 3 +` with no word beside them; "Make variants" opens nine sets, each three small squares, the
 first of which is variant 1 unchanged (flat green in the developer's screenshot, so every set looked broken);
@@ -210,6 +216,10 @@ first of which is variant 1 unchanged (flat green in the developer's screenshot,
 
 Done when a `drive` script generates, picks and uses a set and the file is 48 px wide; the flat case is a
 `shot=` that is read.
+
+**Built** (ADR 0064): the wall stands left of the canvas; the set made around the file is marked "as now". The
+drive script is the test `generate_variants_picks_a_set_and_a_variant_is_removed`. The bar's recovery file is
+built for textures (`recover.rs`, kept every 3 s in `studio-recovery/`), ready for the other pages.
 
 ### 4. The model view: where am I, where does the click land (Models)
 Today: right drag turns, middle drag pans, the wheel zooms; left adds on the hovered face and right removes; a
