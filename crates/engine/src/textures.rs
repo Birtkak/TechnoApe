@@ -36,7 +36,7 @@ impl Painted {
 /// Every painted block of a folder, and why each refused file was refused (its name first).
 #[derive(Default, Debug)]
 pub struct Set {
-    pub blocks: Vec<(u8, Painted)>,
+    pub blocks: Vec<(u16, Painted)>,
     pub refused: Vec<String>,
 }
 
@@ -95,7 +95,7 @@ fn load_with(dir: &Path, reg: &Registry, mut kept: Option<&mut Kept>) -> Set {
         .collect();
     names.sort();
     // per block: its <block>.png, then its own top, side, bottom
-    let mut found: Vec<(u8, [Option<Face>; 4])> = Vec::new();
+    let mut found: Vec<(u16, [Option<Face>; 4])> = Vec::new();
     let block = |n: &str| reg.placeable().find(|d| d.name == n).map(|d| d.id);
     for name in names {
         let stem = &name[..name.len() - 4];

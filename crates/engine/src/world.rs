@@ -110,6 +110,14 @@ pub fn fold(face: usize, i: i32, j: i32, n: i32) -> (usize, i32, i32) {
     (f, (AX[f][1].dot(p) + n - 1) / 2, (AX[f][2].dot(p) + n - 1) / 2)
 }
 
+/// A ball of air in the ground, in a face's grid: `at` is (column i, column j, layer), `r` in blocks.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Cave {
+    pub face: u8,
+    pub at: DVec3,
+    pub r: f64,
+}
+
 pub struct Body {
     /// Its row's name in `data/bodies.toml`: Terra, Luna.
     pub name: String,
@@ -135,7 +143,9 @@ pub struct Body {
     /// Where players start: the land nearest the +y pole (a direction from the centre).
     pub spawn: DVec3,
     /// What generation lays down: the top, the band under it, the rock below (block ids).
-    pub ground: [u8; 3],
+    pub ground: [u16; 3],
+    /// Generated hollows in the ground (ADR 0062): every reader asks `col_caves`, none looks here itself.
+    pub caves: Vec<Cave>,
     /// The column heights of chunk footprints, shared by every consumer (ADR 0025, E).
     tiles: HeightCache,
     /// A baked planet's map and the noise over it (ADR 0043); None: the noise land of ADR 0021.
@@ -187,10 +197,10 @@ fn unit(h: u64) -> f32 {
 pub struct HeightTile {
     pub h: [f64; P * P],
     /// Each column's ground (`material`): the top, the band, the rock.
-    pub g: [[u8; 3]; P * P],
+    pub g: [[u16; 3]; P * P],
     /// Plant blocks over the ground (level 0 of a baked planet only): (column, layer, block), by column then
     /// layer. They stand where the generated ground is air; an edit wins over them.
-    pub plants: Vec<(u16, i32, u8)>,
+    pub plants: Vec<(u16, i32, u16)>,
     /// Of the heights as `f32`, as `generate` compares them.
     pub min: f32,
     pub max: f32,
@@ -324,7 +334,7 @@ impl Body {
         let r0 = radius - CRUST.min(radius * 0.5); // small bodies keep half their radius
         let lnq = (1.0 + BLOCK / radius).ln();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None, land: None, spawn: DVec3::Y, ground: *GEN, tiles: HeightCache::default(), baked: None }
+        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None, land: None, spawn: DVec3::Y, ground: *GEN, caves: Vec::new(), tiles: HeightCache::default(), baked: None }
     }
     /// The body on a baked map (ADR 0043): its heights, biomes, ground and plants, and its spawn.
     pub fn with_map(mut self, map: Arc<Map>) -> Self {
@@ -408,7 +418,7 @@ impl Body {
         b.map.climate_at(face, i * s, j * s)
     }
     /// The ground (`material`) at face point (i, j) in columns, d its direction, `h` its surface radius.
-    fn ground_at(&self, face: usize, i: f64, j: f64, d: DVec3, h: f64) -> [u8; 3] {
+    fn ground_at(&self, face: usize, i: f64, j: f64, d: DVec3, h: f64) -> [u16; 3] {
         let Some(b) = &self.baked else { return self.ground };
         let (x, y) = self.jittered(b, i, j, d);
         let s = b.map.m as f64 / self.n as f64;
@@ -437,6 +447,25 @@ impl Body {
         let [lo, hi] = ROWS.plants[plant].height;
         Some(Foot { plant, h: lo + ((r >> 16) % (hi - lo + 1) as u64) as i32, i, j, z })
     }
+    /// The layers [lo, hi) of column (face, i, j) a cave hollows, at layer 0 and up: under the ground they are
+    /// air (`World::generated_under`, `generate` at level 0, `Solid::gaps`), over it they change nothing.
+    /// shortcut: a cave's ball lies in its face's grid, so one across a seam is cut there; fine while caves
+    /// stay clear of the seams (step 2 of W4 places them).
+    pub fn col_caves(&self, face: u8, i: i32, j: i32) -> Vec<(i32, i32)> {
+        let mut out = Vec::new();
+        for c in self.caves.iter().filter(|c| c.face == face) {
+            let d2 = (i as f64 + 0.5 - c.at.x).powi(2) + (j as f64 + 0.5 - c.at.y).powi(2);
+            if d2 < c.r * c.r {
+                // the cells whose middle lies inside the ball
+                let hh = (c.r * c.r - d2).sqrt();
+                let (lo, hi) = (((c.at.z - hh - 0.5).ceil() as i32).max(0), (c.at.z + hh - 0.5).floor() as i32 + 1);
+                if lo < hi {
+                    out.push((lo, hi));
+                }
+            }
+        }
+        out
+    }
     /// The first generated air layer over a surface at radius h: `material`'s own test.
     fn first_air(&self, h: f64) -> i32 {
         let mut z = ((self.layer_of(h) - 0.5).floor() as i32 + 1).max(0);
@@ -451,8 +480,8 @@ impl Body {
     /// The plant blocks over level-0 column (i, j), (layer, block) by layer, from the candidate spots of its face
     /// `cand` gives (`candidate`, or a cache of it): the one function the mesher, physics and the water read
     /// plants through (ADR 0043). Where two plants meet, the first in spot order wins, wood over leaves.
-    pub fn plants_with(&self, i: i32, j: i32, cand: &mut impl FnMut(i32, i32) -> Option<Foot>) -> Vec<(i32, u8)> {
-        let mut out: Vec<(i32, u8, bool)> = Vec::new();
+    pub fn plants_with(&self, i: i32, j: i32, cand: &mut impl FnMut(i32, i32) -> Option<Foot>) -> Vec<(i32, u16)> {
+        let mut out: Vec<(i32, u16, bool)> = Vec::new();
         if self.baked.is_none() {
             return Vec::new();
         }
@@ -481,7 +510,7 @@ impl Body {
         out.into_iter().map(|o| (o.0, o.1)).collect()
     }
     /// `plants_with` over level-0 column (i, j): from its cached tile, else computed.
-    pub fn col_plants(&self, face: u8, i: i32, j: i32) -> Vec<(i32, u8)> {
+    pub fn col_plants(&self, face: u8, i: i32, j: i32) -> Vec<(i32, u16)> {
         if self.baked.is_none() {
             return Vec::new();
         }
@@ -509,7 +538,7 @@ impl Body {
     }
     /// The ground (`material`) of level-0 column (i, j) of a face: from its cached tile, else computed.
     /// `height`: the column's surface radius when the caller has it (`col_height`'s, to the bit).
-    pub fn col_ground(&self, face: u8, i: i32, j: i32, height: Option<f64>) -> [u8; 3] {
+    pub fn col_ground(&self, face: u8, i: i32, j: i32, height: Option<f64>) -> [u16; 3] {
         if self.baked.is_none() {
             return self.ground;
         }
@@ -696,7 +725,7 @@ impl Body {
 /// The solid world as the water sees it (`liquid::Ground`): terrain from the seed plus the edits.
 pub struct Solid<'a> {
     pub bodies: &'a [Body],
-    pub edits: &'a FxMap<Key, FxMap<IVec3, u8>>,
+    pub edits: &'a FxMap<Key, FxMap<IVec3, u16>>,
 }
 
 impl Solid<'_> {
@@ -732,9 +761,10 @@ impl Ground for Solid<'_> {
             }
         }
         edits.sort_unstable_by_key(|e| e.0);
-        let lo = edits.first().map_or(zs, |e| e.0.min(zs)).max(0);
+        let caves = b.col_caves(c.face(), i, j);
+        let lo = edits.first().map_or(zs, |e| e.0.min(zs)).min(caves.iter().map(|c| c.0).min().unwrap_or(zs)).max(0);
         let hi = edits.last().map_or(zs, |e| (e.0 + 1).max(zs));
-        let solid = |z: i32| edits.iter().find(|e| e.0 == z).map_or(z < zs, |e| e.1);
+        let solid = |z: i32| edits.iter().find(|e| e.0 == z).map_or(z < zs && !caves.iter().any(|&(a, b)| (a..b).contains(&z)), |e| e.1);
         let mut out = Vec::new();
         let mut start = None;
         for z in lo..hi {
@@ -771,11 +801,11 @@ pub struct Bounds {
 }
 
 /// The blocks generation names, looked up once in the registry: grass, dirt, stone.
-static GEN: std::sync::LazyLock<[u8; 3]> =
+static GEN: std::sync::LazyLock<[u16; 3]> =
     std::sync::LazyLock::new(|| [BLOCKS.id("grass"), BLOCKS.id("dirt"), BLOCKS.id("stone")]);
 
 /// The generated block `depth` metres under the surface, from a body's `ground`.
-pub fn material(depth: f64, ground: &[u8; 3]) -> u8 {
+pub fn material(depth: f64, ground: &[u16; 3]) -> u16 {
     if depth < 0.0 {
         AIR
     } else if depth < BLOCK {
@@ -821,14 +851,14 @@ pub struct World {
     pub sky: Sky,
     pub time: f64,
     /// Edits bucketed by level 0 chunk; value = material that replaces the generated one.
-    pub edits: FxMap<Key, FxMap<IVec3, u8>>,
+    pub edits: FxMap<Key, FxMap<IVec3, u16>>,
     pub edit_count: usize,
     /// The edits that give light, and a number that changes with them: the client's lamps come from here, so
     /// nothing scans the edits (ADR 0025, H).
     pub lights: FxMap<Block, [f32; 3]>,
     pub lights_rev: u64,
     /// The cells whose block names a model (ADR 0047), with the block: drawn as models, not cubes.
-    pub models: FxMap<Block, u8>,
+    pub models: FxMap<Block, u16>,
     /// Water (ADR 0020): on the server it flows; a client keeps the server's copy.
     pub water: Liquids,
 }
@@ -1049,7 +1079,7 @@ impl World {
         let p = b.pos.as_dvec3() + 0.5;
         body.centre + body.dir(b.face as usize, p.x, p.y) * body.layer_r(p.z)
     }
-    pub fn generated_block(&self, b: Block) -> u8 {
+    pub fn generated_block(&self, b: Block) -> u16 {
         self.generated_under(b, self.column_height(b))
     }
     /// The terrain's surface radius over block b's column: the costly part of `generated_block`, the same for
@@ -1079,7 +1109,7 @@ impl World {
         self.bodies[b.body as usize].col_height(b.face, b.pos.x, b.pos.y)
     }
     /// The generated material of block b under a surface at radius `height` (its `column_height`).
-    pub fn generated_under(&self, b: Block, height: f64) -> u8 {
+    pub fn generated_under(&self, b: Block, height: f64) -> u16 {
         let body = &self.bodies[b.body as usize];
         let depth = height - body.layer_r(b.pos.z as f64 + 0.5);
         if depth < 0.0 {
@@ -1088,6 +1118,9 @@ impl World {
                 return AIR;
             }
             return body.col_plants(b.face, b.pos.x, b.pos.y).iter().find(|p| p.0 == b.pos.z).map_or(AIR, |p| p.1);
+        }
+        if body.col_caves(b.face, b.pos.x, b.pos.y).iter().any(|&(lo, hi)| (lo..hi).contains(&b.pos.z)) {
+            return AIR;
         }
         let ground = body.col_ground(b.face, b.pos.x, b.pos.y, Some(height));
         if b.pos.z < 0 {
@@ -1120,13 +1153,13 @@ impl World {
         let l = self.water.surface_at(&self.ground(), World::col(b), g.z)?;
         Some(self.bodies[bi].layer_r(l))
     }
-    pub fn edit(&self, b: Block) -> Option<u8> {
+    pub fn edit(&self, b: Block) -> Option<u16> {
         self.edits.get(&b.chunk()).and_then(|m| m.get(&b.pos)).copied()
     }
-    pub fn block(&self, b: Block) -> u8 {
+    pub fn block(&self, b: Block) -> u16 {
         self.edit(b).unwrap_or_else(|| self.generated_block(b))
     }
-    pub fn set_block(&mut self, b: Block, m: u8) {
+    pub fn set_block(&mut self, b: Block, m: u16) {
         if self.edits.entry(b.chunk()).or_default().insert(b.pos, m).is_none() {
             self.edit_count += 1;
         }
@@ -1140,7 +1173,7 @@ impl World {
         }
     }
     /// Puts back what `edit` returned: an edit, or (None) the generated block with no edit recorded.
-    pub fn put_edit(&mut self, b: Block, e: Option<u8>) {
+    pub fn put_edit(&mut self, b: Block, e: Option<u16>) {
         match e {
             Some(m) => self.set_block(b, m),
             None => {
@@ -1165,9 +1198,10 @@ impl World {
             .edits
             .iter()
             .map(|(k, cells)| {
-                let mut c: Vec<(&IVec3, &u8)> = cells.iter().collect();
+                let mut c: Vec<(&IVec3, &u16)> = cells.iter().collect();
                 c.sort_unstable_by_key(|(p, _)| (p.x, p.y, p.z));
-                (*k, c.iter().fold(FNV0, |h, (p, m)| fnv(fnv_ivec(h, **p), &[**m])))
+                // an id under 256 hashes as its one byte, so recordings made with 8-bit ids still replay
+                (*k, c.iter().fold(FNV0, |h, (p, m)| fnv(fnv_ivec(h, **p), &m.to_le_bytes()[..1 + (**m > 255) as usize])))
             })
             .collect();
         v.sort_unstable_by_key(|(k, _)| (k.body, k.face, k.level, k.pos.x, k.pos.y, k.pos.z));
@@ -1178,7 +1212,7 @@ impl World {
         self.chunk_hashes().iter().fold(FNV0, |h, (k, c)| fnv(fnv_ivec(fnv(h, &[k.body, k.face, k.level]), k.pos), &c.to_le_bytes()))
     }
     /// The edits a chunk's padded cells sample, as (padded cell index, material): a job's snapshot.
-    pub fn edits_for(&self, k: Key) -> Vec<(u32, u8)> {
+    pub fn edits_for(&self, k: Key) -> Vec<(u32, u16)> {
         let mut out = Vec::new();
         if self.edits.is_empty() {
             return out;
@@ -1189,7 +1223,7 @@ impl World {
         let c0 = k.pos * CS - 1; // padded cell (0, 0, 0) in cells of this level
         let lo = c0 * s;
         let hi = lo + IVec3::splat(P as i32 * s);
-        let mut take = |m: &FxMap<IVec3, u8>| {
+        let mut take = |m: &FxMap<IVec3, u16>| {
             for (b, v) in m {
                 let q = *b - lo - half;
                 if q.x.rem_euclid(s) | q.y.rem_euclid(s) | q.z.rem_euclid(s) != 0 {
@@ -1277,7 +1311,7 @@ impl Key {
 pub enum Gen {
     Empty,
     Solid,
-    Cells(Box<[u8; P * P * P]>),
+    Cells(Box<[u16; P * P * P]>),
 }
 
 pub fn pidx(x: usize, y: usize, z: usize) -> usize {
@@ -1356,7 +1390,7 @@ pub fn sea_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2]>
     out
 }
 
-pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
+pub fn generate(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
     let s = (1i32 << key.level) as f64;
     let c0 = key.pos * CS - 1; // padded cell (0, 0, 0) in cells of this level
     let r_lo = body.layer_r(c0.z as f64 * s);
@@ -1364,7 +1398,10 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
     // the column is lower than this
     let z_air = c0.z + (P - 1 + SKIRT) as i32;
     let r_air = body.layer_r((z_air as f64 + 0.5) * s) as f32;
-    if edits.is_empty() {
+    // caves are carved at level 0 only: a coarser cell is too big to show one (world-data.md)
+    let caved = key.level == 0 && body.caves.iter().any(|c| c.face == key.face && (c.at - (c0.as_dvec3() + P as f64 * 0.5)).abs().max_element() < c.r + P as f64 * 0.5);
+    let plain = edits.is_empty() && !caved;
+    if plain {
         // whole chunk outside the terrain's height range: no noise needed
         if r_lo > body.radius + AMP {
             return Gen::Empty;
@@ -1377,7 +1414,7 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
     let tile = body.tile(key.face, key.level, key.pos.x, key.pos.y);
     let h: [f32; P * P] = std::array::from_fn(|i| tile.h[i] as f32);
     let (hmin, hmax) = (tile.min, tile.max);
-    if edits.is_empty() {
+    if plain {
         if r_lo as f32 > hmax {
             return Gen::Empty;
         }
@@ -1385,7 +1422,7 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
             return Gen::Solid;
         }
     }
-    let mut cells = Box::new([0u8; P * P * P]);
+    let mut cells = Box::new([0u16; P * P * P]);
     // coarse cells keep the surface band one cell thick, so the far planet stays green
     let cf = (s * BLOCK) as f32;
     let grass = cf.max(0.5);
@@ -1409,6 +1446,16 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u8)]) -> Gen {
             any_air |= m == 0;
             any_solid |= m != 0;
             cells[z * P * P + i] = m;
+        }
+    }
+    if caved {
+        for (y, x) in (0..P).flat_map(|y| (0..P).map(move |x| (y, x))) {
+            for (lo, hi) in body.col_caves(key.face, c0.x + x as i32, c0.y + y as i32) {
+                for z in (lo - c0.z).max(0)..(hi - c0.z).min(P as i32) {
+                    cells[pidx(x, y, z as usize)] = 0;
+                    any_air = true;
+                }
+            }
         }
     }
     // plants stand where the ground left air (the same rule as `generated_under`, `Solid::gaps`)
@@ -1834,6 +1881,46 @@ mod baked_tests {
         }
     }
 
+    /// A cave is one answer (ADR 0062): the block physics sees (`generated_block`, `phys::blocked`), the chunk
+    /// the mesher draws (`generate`) and the water's gaps (`Solid::gaps`) agree cell by cell around a closed
+    /// cave and one open to the sky, and a player fits in the closed one.
+    #[test]
+    fn the_mesher_physics_and_water_see_the_same_cave() {
+        let mut w = world();
+        let top = w.air_over_ground(0, w.bodies[0].spawn);
+        let (f, i0, j0, z0) = (top.face, top.pos.x, top.pos.y, top.pos.z);
+        // the closed one on a chunk corner, so it reaches into four chunks and their padding
+        let corner = |v: i32| ((v + CS / 2).div_euclid(CS) * CS) as f64;
+        let shut = Cave { face: f, at: DVec3::new(corner(i0), corner(j0), ((z0 - 8).div_euclid(CS) * CS) as f64), r: 3.5 };
+        let open = Cave { face: f, at: DVec3::new(i0 as f64 + 20.5, j0 as f64 + 0.5, w.air_over_ground(0, w.bodies[0].spawn).pos.z as f64 - 1.0), r: 4.0 };
+        std::sync::Arc::get_mut(&mut w.bodies).unwrap()[0].caves = vec![shut, open];
+        let b = &w.bodies[0];
+        let mut hollow = 0;
+        for c in [shut, open] {
+            for (i, j) in (-6..=6).flat_map(|a| (-6..=6).map(move |d| (c.at.x as i32 + a, c.at.y as i32 + d))) {
+                let gaps = w.ground().gaps(Col::new(0, f, i, j));
+                let floor = b.first_air(b.col_height(f, i, j));
+                for z in c.at.z as i32 - 6..=c.at.z as i32 + 6 {
+                    let phys = w.generated_block(Block { body: 0, face: f, pos: IVec3::new(i, j, z) });
+                    let k = Key { body: 0, face: f, level: 0, pos: IVec3::new(i, j, z).div_euclid(IVec3::splat(CS)) };
+                    let mesh = match generate(b, k, &[]) {
+                        Gen::Cells(cells) => cells[pidx((i - k.pos.x * CS + 1) as usize, (j - k.pos.y * CS + 1) as usize, (z - k.pos.z * CS + 1) as usize)],
+                        Gen::Solid => u16::MAX,
+                        Gen::Empty => AIR,
+                    };
+                    assert!(mesh == phys || (mesh == u16::MAX && phys != AIR), "({i}, {j}, {z}): mesh {mesh}, physics {phys}");
+                    let wet = gaps.iter().any(|&(lo, hi)| (lo..hi).contains(&z));
+                    assert_eq!(wet, !BLOCKS.solid(phys), "({i}, {j}, {z}): water {gaps:?}, physics {phys}");
+                    hollow += (phys == AIR && z < floor) as usize;
+                }
+            }
+        }
+        assert!(hollow > 150, "{hollow} cave cells under the ground");
+        let at = |l: f64| b.centre + b.dir(f as usize, shut.at.x, shut.at.y) * b.layer_r(l);
+        assert!(!crate::phys::blocked(&w, at(shut.at.z - 1.0)), "a player fits in the closed cave");
+        assert!(crate::phys::blocked(&w, at(shut.at.z - 6.0)), "and not in the rock under it");
+    }
+
     /// Plants of every reader agree (ADR 0043): the block physics sees (`World::generated_block`), the chunk
     /// the mesher draws (`generate`) and what the water flows around (`Solid::gaps`), from a cached tile and
     /// computed without one.
@@ -1872,10 +1959,10 @@ mod baked_tests {
                         let k = key(z);
                         let mesh = match generate(b, k, &[]) {
                             Gen::Cells(cells) => cells[pidx((i - k.pos.x * CS + 1) as usize, (j - k.pos.y * CS + 1) as usize, (z - k.pos.z * CS + 1) as usize)],
-                            Gen::Solid => u8::MAX,
+                            Gen::Solid => u16::MAX,
                             Gen::Empty => AIR,
                         };
-                        assert!(mesh == phys || (mesh == u8::MAX && phys != AIR), "pass {pass} ({i}, {j}, {z}): mesh {mesh}, physics {phys}");
+                        assert!(mesh == phys || (mesh == u16::MAX && phys != AIR), "pass {pass} ({i}, {j}, {z}): mesh {mesh}, physics {phys}");
                         let open = gaps.iter().any(|&(lo, hi)| (lo..hi).contains(&z));
                         assert_eq!(open, !BLOCKS.solid(phys), "pass {pass} ({i}, {j}, {z}): water {gaps:?}, physics {phys}");
                         checked += (phys != AIR && z >= f.z) as usize;

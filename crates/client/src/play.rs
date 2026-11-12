@@ -848,11 +848,11 @@ impl App {
     }
 
     /// The hotbar: every placeable block in id order.
-    pub(crate) fn slot_block(&self, k: usize) -> Option<u8> {
+    pub(crate) fn slot_block(&self, k: usize) -> Option<u16> {
         BLOCKS.placeable().nth(k).map(|d| d.id)
     }
 
-    pub(crate) fn held_count(&self, m: u8) -> u32 {
+    pub(crate) fn held_count(&self, m: u16) -> u32 {
         self.inv.iter().find(|(id, _)| *id == m).map_or(0, |(_, n)| *n)
     }
 
@@ -991,7 +991,7 @@ impl App {
 
     /// A cell's delta heard (docs/design/sound.md): a dig in the sound of what was there, a place in the new
     /// block's; whether it played.
-    pub(crate) fn heard(&mut self, b: Block, was: u8, now: u8, touch: bool) -> bool {
+    pub(crate) fn heard(&mut self, b: Block, was: u16, now: u16, touch: bool) -> bool {
         let (what, id) = if now == AIR { ("dig", was) } else { ("place", now) };
         match BLOCKS.get(id).filter(|_| was != now) {
             Some(d) => self.audio.play(&format!("{what}.{}", d.sound), Some(self.world.block_centre(b)), 1.0, 1.0, touch),
@@ -1001,7 +1001,7 @@ impl App {
 
     /// One placed block grows into place over its cell (ADR 0031); its own mesh waits until the grow is done
     /// (frame.rs).
-    pub(crate) fn grow(&mut self, b: Block, m: u8) {
+    pub(crate) fn grow(&mut self, b: Block, m: u16) {
         let tag = self.fx.play(fx::id("grow"), &fx::At::cell(&self.world, b, m));
         self.growing.push((self.start.elapsed().as_secs_f64() + GROW_S, b, m, tag, false));
     }

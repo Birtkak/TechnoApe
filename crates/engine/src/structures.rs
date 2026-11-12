@@ -132,7 +132,7 @@ pub struct Structure {
     pub grow: Option<Recipe>,
 }
 
-fn block_id(reg: &Registry, name: &str) -> Option<u8> {
+fn block_id(reg: &Registry, name: &str) -> Option<u16> {
     reg.placeable().find(|d| d.name == name).map(|d| d.id)
 }
 
@@ -201,8 +201,8 @@ impl Structure {
     }
 
     /// The cells it sets, as offsets from the anchor (x, y up, z) and the block id (AIR for a cleared one).
-    pub fn blocks(&self, reg: &Registry) -> Vec<([i32; 3], u8)> {
-        let ids: BTreeMap<u8, u8> = self.key.iter().filter_map(|(l, n)| Some((l.as_bytes()[0], block_id(reg, n)?))).collect();
+    pub fn blocks(&self, reg: &Registry) -> Vec<([i32; 3], u16)> {
+        let ids: BTreeMap<u8, u16> = self.key.iter().filter_map(|(l, n)| Some((l.as_bytes()[0], block_id(reg, n)?))).collect();
         let mut v = vec![];
         for y in 0..self.size[1] {
             for z in 0..self.size[2] {

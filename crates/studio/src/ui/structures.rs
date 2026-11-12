@@ -323,7 +323,7 @@ impl Structures {
             return;
         };
         if self.placed.as_ref().map(|p| &p.0) != Some(&s) {
-            let names: BTreeMap<u8, String> = app.reg.placeable().map(|d| (d.id, d.name.replace(' ', "_"))).collect();
+            let names: BTreeMap<u16, String> = app.reg.placeable().map(|d| (d.id, d.name.replace(' ', "_"))).collect();
             // the view's frame: x along j, z along i (as `structure=` on a stand run)
             let blocks = s.blocks(&app.reg);
             let mut line: Vec<String> = blocks.iter().map(|(d, id)| format!("{}:{}:{}:{}", d[2], d[0], d[1], names.get(id).map_or("_", |n| n.as_str()))).collect();

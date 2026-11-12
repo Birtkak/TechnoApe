@@ -4,7 +4,8 @@
 use serde::Deserialize;
 use std::sync::LazyLock;
 
-pub const AIR: u8 = 0;
+/// A block id (ADR 0062): 16 bits, of which the registry uses the low 8 until the shader reads more.
+pub const AIR: u16 = 0;
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -57,7 +58,7 @@ fn lighter(c: [f32; 3]) -> [f32; 3] {
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 struct Raw {
-    id: u8,
+    id: u16,
     name: String,
     #[serde(default = "yes")]
     solid: bool,
@@ -133,7 +134,7 @@ struct File {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Def {
-    pub id: u8,
+    pub id: u16,
     pub name: String,
     pub solid: bool,
     pub colour: [f32; 3],
@@ -148,7 +149,7 @@ pub struct Def {
     pub contrast: f32,
     /// The block whose look its four sides and foot take: a grass block's under its fringe, any other's
     /// wholly. Its own id when it names none.
-    pub side: u8,
+    pub side: u16,
     /// The light it gives (ADR 0022), as a colour times its strength; zero for most blocks.
     pub light: [f32; 3],
     /// How much it reflects like a metal, 0..1.
@@ -201,6 +202,10 @@ impl Registry {
         let f: File = toml::from_str(text).map_err(|e| e.to_string())?;
         let mut defs: Vec<Option<Def>> = vec![None; 256];
         for r in &f.block {
+            // shortcut: the shader unpacks 8 bits of material (`q.y & 255u`); widen it there, then lift this
+            if r.id > 255 {
+                return Err(format!("block '{}': id {} over 255, the shader's material field", r.name, r.id));
+            }
             if defs[r.id as usize].is_some() {
                 return Err(format!("block id {} is used twice", r.id));
             }
@@ -278,17 +283,17 @@ impl Registry {
         Ok(Registry { defs, hash: crate::world::fnv(crate::world::FNV0, text.as_bytes()) })
     }
 
-    pub fn get(&self, id: u8) -> Option<&Def> {
-        self.defs[id as usize].as_ref()
+    pub fn get(&self, id: u16) -> Option<&Def> {
+        self.defs.get(id as usize)?.as_ref()
     }
 
     /// The id of a block the code itself names (generation); a missing one is a broken data file.
-    pub fn id(&self, name: &str) -> u8 {
+    pub fn id(&self, name: &str) -> u16 {
         self.defs.iter().flatten().find(|d| d.name == name).unwrap_or_else(|| panic!("data/blocks.toml has no block '{name}'")).id
     }
 
-    pub fn solid(&self, id: u8) -> bool {
-        self.defs[id as usize].as_ref().is_some_and(|d| d.solid)
+    pub fn solid(&self, id: u16) -> bool {
+        self.get(id).is_some_and(|d| d.solid)
     }
 
     /// Every block but air, in id order.
@@ -424,7 +429,7 @@ mod tests {
         text += "[[block]]\nid = 20\nname = \"set\"\nhardness = 1\npattern = \"bricks\"\ncolour2 = [0.1, 0.2, 0.3]\ncolour3 = [0.9, 0.8, 0.7]\nsize = 8\namount = 1.0\ncontrast = 0.0\nside = \"rings\"\n";
         let r = Registry::parse(&text).unwrap();
         for (i, (p, size, amount)) in all.iter().enumerate() {
-            let d = r.get(i as u8 + 1).unwrap();
+            let d = r.get(i as u16 + 1).unwrap();
             assert_eq!((d.pattern as u8, d.size, d.amount, d.contrast), (i as u8 + 3, *size, *amount, 1.0), "{p}");
             assert_eq!(d.colour2, [0.33, 0.22, 0.44], "{p}: darker");
             assert_eq!(d.colour3, [0.95, 0.7, 1.0], "{p}: lighter");

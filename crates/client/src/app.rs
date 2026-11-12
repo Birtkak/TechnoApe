@@ -102,7 +102,7 @@ pub(crate) struct App {
     pub(crate) dip: fx::Track<[f32; 2]>,
     /// Blocks this player placed, growing into place: when their mesh may show (the clock `start`), the cell,
     /// the block, the grow's tag, and whether the mesh was asked for (play.rs `apply`).
-    pub(crate) growing: Vec<(f64, Block, u8, u32, bool)>,
+    pub(crate) growing: Vec<(f64, Block, u16, u32, bool)>,
     /// The survival dig (ADR 0034): what is held and kept (on the clock `start`, as the server keeps it on
     /// its own), the last hit, and whether to go on to the next block under the aim; the other players' digs
     /// by id: shape, share done and gained a second as told, when told, their last hit.
@@ -111,14 +111,14 @@ pub(crate) struct App {
     pub(crate) dig_again: bool,
     pub(crate) digs: Vec<(u32, Shape, f32, f32, f64, f64)>,
     /// fxedit=: cells to change and when (seconds after loading), soonest last.
-    pub(crate) fx_edits: Vec<(f64, Block, u8)>,
+    pub(crate) fx_edits: Vec<(f64, Block, u16)>,
     /// What each world of the Singleplayer list is (seed, size, last played), beside `worlds`.
     pub(crate) world_notes: Vec<String>,
     pub(crate) new_world: menu::NewWorld,
     /// The slot whose block's name shows over the hotbar, and since when.
     pub(crate) held_name: (usize, Instant),
     pub(crate) creative: bool,
-    pub(crate) inv: Vec<(u8, u32)>,
+    pub(crate) inv: Vec<(u16, u32)>,
     /// Units of water in the bucket (ADR 0020).
     pub(crate) bucket_water: u32,
     /// The live air where the player stands, as the server last sent it (W3); None on an older map.

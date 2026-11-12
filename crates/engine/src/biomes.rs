@@ -64,8 +64,8 @@ pub struct Plant {
     pub name: String,
     pub shape: Shape,
     /// Block ids (0 where the shape has none).
-    pub trunk: u8,
-    pub leaves: u8,
+    pub trunk: u16,
+    pub leaves: u16,
     pub height: [i32; 2],
     pub radius: i32,
 }
@@ -74,9 +74,9 @@ pub struct Plant {
 pub struct Biome {
     pub name: String,
     /// Block ids: the top, the band under it, the rock below.
-    pub ground: [u8; 3],
+    pub ground: [u16; 3],
     /// (block, the share of the surface it covers), in order.
-    pub patches: Vec<(u8, f32)>,
+    pub patches: Vec<(u16, f32)>,
     pub snow_over: Option<f32>,
     /// (index into `Rows::plants`, its share of the candidate spots), in order.
     pub plants: Vec<(usize, f32)>,
@@ -89,7 +89,7 @@ pub struct Rows {
 
 impl Biome {
     /// The surface block, from `roll` (uniform in 0..1, the same over a patch) and the height over the sea.
-    pub fn top(&self, roll: f32, over_sea: f32) -> u8 {
+    pub fn top(&self, roll: f32, over_sea: f32) -> u16 {
         if self.snow_over.is_some_and(|s| over_sea >= s) {
             return BLOCKS.id("snow");
         }
@@ -118,7 +118,7 @@ impl Biome {
 impl Plant {
     /// The block of a plant `h` blocks tall at (dx, dz) columns from its trunk and `z` layers over its foot (0 the
     /// first layer of air), and whether it is wood (wood wins over leaves where two plants meet).
-    pub fn block(&self, h: i32, dx: i32, dz: i32, z: i32) -> Option<(u8, bool)> {
+    pub fn block(&self, h: i32, dx: i32, dz: i32, z: i32) -> Option<(u16, bool)> {
         let d2 = (dx * dx + dz * dz) as f32;
         let centre = dx == 0 && dz == 0;
         let r = self.radius as f32;
@@ -154,7 +154,7 @@ impl Plant {
 /// most 1, every plant named exists.
 pub fn parse(text: &str) -> Result<Rows, String> {
     let f: File = toml::from_str(text).map_err(|e| e.to_string())?;
-    let block = |owner: &str, name: &Option<String>| -> Result<u8, String> {
+    let block = |owner: &str, name: &Option<String>| -> Result<u16, String> {
         name.as_ref().map_or(Ok(0), |n| BLOCKS.placeable().find(|d| &d.name == n).map(|d| d.id).ok_or(format!("{owner}: no block '{n}'")))
     };
     let mut plants: Vec<Plant> = Vec::new();

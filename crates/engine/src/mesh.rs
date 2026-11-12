@@ -14,7 +14,7 @@ pub struct Mesh {
 
 /// `lattice` > 1 merges faces into quads that stay inside the cells of a lattice that many cells wide, where the
 /// renderer places vertices by interpolation (`Body::lattice`, ADR 0025 I2); 1 merges nothing.
-pub fn mesh(cells: &[u8; P * P * P], lattice: usize) -> Mesh {
+pub fn mesh(cells: &[u16; P * P * P], lattice: usize) -> Mesh {
     // cols[a][v*P+u] = bits along axis a; u = (a+1)%3, v = (a+2)%3.
     let mut cols = [[0u64; P * P]; 3];
     for z in 0..P {
@@ -48,7 +48,7 @@ pub fn mesh(cells: &[u8; P * P * P], lattice: usize) -> Mesh {
                     }
                 }
             }
-            let mat = |u: usize, v: usize, d: usize| -> u8 {
+            let mat = |u: usize, v: usize, d: usize| -> u16 {
                 let (u, v, d) = (u + 1, v + 1, d + 1);
                 match a {
                     0 => cells[pidx(d, u, v)],
@@ -135,11 +135,11 @@ mod tests {
     use super::*;
     #[test]
     fn single_cell_has_six_faces_and_slab_merges() {
-        let mut c = Box::new([0u8; P * P * P]);
+        let mut c = Box::new([0u16; P * P * P]);
         c[pidx(5, 5, 5)] = 3;
         let m = mesh(&c, 8);
         assert_eq!(m.counts, [1; 6]);
-        let mut c = Box::new([0u8; P * P * P]);
+        let mut c = Box::new([0u16; P * P * P]);
         for z in 1..33 {
             for x in 1..33 {
                 c[pidx(x, 1, z)] = 1;
@@ -154,7 +154,7 @@ mod tests {
     #[test]
     fn a_floor_by_a_wall_is_occluded_at_the_wall() {
         // a floor at y = 1, a wall along x = 6 on top of it: the floor cell at x = 5 has its +x corners shut
-        let mut c = Box::new([0u8; P * P * P]);
+        let mut c = Box::new([0u16; P * P * P]);
         for z in 1..33 {
             for x in 1..33 {
                 c[pidx(x, 1, z)] = 1;
