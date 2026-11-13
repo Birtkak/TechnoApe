@@ -185,6 +185,10 @@ impl Herds {
                 let p = feet + (e1 * x as f64 + e2 * y as f64) * (WAKE / 2.0);
                 let s = Herds::site_of(world, p - b.centre);
                 if let Some(h) = self.sites.get_mut(&s) {
+                    // asleep: it is found where the time gone took it
+                    if tick.saturating_sub(h.near) > SLEEP_TICKS {
+                        drift(world, h, &self.kinds, self.seed as u64, tick);
+                    }
                     h.near = tick;
                 } else {
                     let mut next = self.next;
@@ -271,6 +275,40 @@ impl Herds {
         }
         (self.next, self.clock, self.sites) = (next, clock, sites);
         Ok(())
+    }
+}
+
+/// A herd asleep since `h.near`, as it is found again at `tick` (ADR 0083): computed, not ticked. Each animal
+/// has grazed along towards a hashed spot within `LEASH` of home, at an eighth of its walk speed for the time
+/// nobody saw it, onto land of home's biome; where none of four tries lands, it stays.
+fn drift(world: &World, h: &mut Herd, kinds: &[Kind], seed: u64, tick: u64) {
+    let b = &world.bodies[0];
+    let biome = |d: DVec3| {
+        let (f, i, j) = b.locate(d);
+        b.biome_at(f, i, j, d)
+    };
+    let up = (h.home - b.centre).normalize();
+    let home_biome = biome(up);
+    // the herds ran on for SLEEP_TICKS after the last player left
+    let away = (tick - h.near - SLEEP_TICKS) as f64 / crate::net::TICK_HZ;
+    let (e1, e2) = (up.any_orthonormal_vector(), up.cross(up.any_orthonormal_vector()));
+    for a in &mut h.animals {
+        let reach = kinds[a.kind as usize].walk * 0.125 * away;
+        for k in 0..4 {
+            let r = |n: u64| unit(h64(&[seed, a.id as u64, tick, 40 + k * 4 + n]));
+            let (ang, rad) = (r(0) * std::f64::consts::TAU, LEASH * r(1).sqrt());
+            let spot = h.home + (e1 * ang.cos() + e2 * ang.sin()) * rad;
+            let way = spot - a.p.pos;
+            let to = a.p.pos + way * (reach / way.length().max(1e-9)).min(1.0);
+            let d = (to - b.centre).normalize();
+            if biome(d) != home_biome {
+                continue;
+            }
+            let Some(feet) = stand(world, d) else { continue };
+            let fwd = phys::tangent(way, d, a.p.fwd);
+            (a.p, a.mind, a.until, a.go) = (Player::at(feet, fwd), Mind::Stand, tick + 20 + (r(2) * 60.0) as u64, fwd);
+            break;
+        }
     }
 }
 
@@ -493,6 +531,45 @@ mod tests {
         let kind = |hs: &Herds| hs.all().map(|a| hs.kinds[a.kind as usize].name.clone()).collect::<Vec<_>>();
         assert_eq!(kind(&moved), kind(&h));
         assert!(h.all().any(|a| moved.kinds[a.kind as usize].name != h.kinds[a.kind as usize].name), "the indices did move");
+    }
+
+    #[test]
+    fn a_herd_left_alone_is_found_moved_inside_its_range_the_same_each_run() {
+        let mut w = world();
+        noon(&mut w);
+        let p = spawn(&w);
+        let run = |away: u64| {
+            let mut h = herds();
+            for t in 0..100 {
+                h.tick(&w, &[(p, DVec3::ZERO)], t, 0.05);
+            }
+            // the player leaves; the herds run on until they sleep, then freeze
+            for t in 100..100 + SLEEP_TICKS + 2 {
+                h.tick(&w, &[], t, 0.05);
+            }
+            let left: BTreeMap<u32, DVec3> = h.all().map(|a| (a.id, a.p.pos)).collect();
+            // back after `away` ticks: found where the time gone took them (dt 0: no step on top)
+            h.tick(&w, &[(p, DVec3::ZERO)], 100 + SLEEP_TICKS + 2 + away, 0.0);
+            (h, left)
+        };
+        let five_min = 5 * 60 * crate::net::TICK_HZ as u64;
+        let (h, left) = run(five_min);
+        assert!(left.len() >= 3);
+        let moved = h.all().filter(|a| (a.p.pos - left[&a.id]).length() > 1.0).count();
+        assert!(moved * 4 >= left.len() * 3, "most drifted in five minutes: {moved} of {}", left.len());
+        for herd in h.sites.values() {
+            for a in &herd.animals {
+                assert!((a.p.pos - herd.home).length() < LEASH + 3.0, "animal {} drifted {:.1} m from home", a.id, (a.p.pos - herd.home).length());
+                let up = phys::up(&w, a.p.pos);
+                assert_eq!(w.block(w.block_at(a.p.pos + up * 0.3)), crate::blocks::AIR, "animal {} stands in air", a.id);
+                assert!(w.water_surface(a.p.pos + up * 0.1).is_none(), "animal {} on water", a.id);
+            }
+        }
+        assert_eq!(run(five_min).0.to_bytes(), h.to_bytes(), "the same absence, the same drift");
+        // a short absence moves them less than a long one
+        let (near, _) = run(20 * crate::net::TICK_HZ as u64);
+        let far = |h: &Herds| h.all().map(|a| (a.p.pos - left[&a.id]).length()).sum::<f64>();
+        assert!(far(&near) < far(&h), "20 s: {:.1} m in all, 5 min: {:.1} m", far(&near), far(&h));
     }
 
     #[test]

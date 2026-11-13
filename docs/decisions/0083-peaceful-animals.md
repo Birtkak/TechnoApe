@@ -13,9 +13,9 @@ the developer's open call (`open-questions.md`), so this ADR covers peaceful ani
 1. Every animal simulated and stored all the time. Pros: time passes everywhere. Cons: a tick and a save
    that grow with the planet.
 2. Herds are a pure function of the seed per site until a player comes near, then simulated and kept as a
-   delta, and frozen when nobody is near (in the spirit of `clutter-and-pickups.md`). Pros: nothing is
-   stored or ticked for unmet ground, and the cost follows the players. Cons: a herd does not age while
-   nobody sees it.
+   delta, and not ticked when nobody is near (in the spirit of `clutter-and-pickups.md`). Pros: nothing is
+   stored or ticked for unmet ground, and the cost follows the players. Cons: a herd does not live while
+   nobody sees it (answered by the drift below).
 3. The client simulates its own animals. Cons: players would disagree, which breaks principle 7.
 
 ## Decision
@@ -27,6 +27,12 @@ Option 2, server-authoritative.
 - **Waking.** A site wakes when a player is within about 96 m (25 sample points) and sleeps 200 ticks after
   the last one left. Every met site is kept, with its animals' `phys::Player`, mind, heading and call
   count, plus the next id and the herds' own clock.
+- **Drift while away** (the developer's call, 2026-11-13). A sleeping site is not ticked. When it wakes again,
+  each animal is found where the time gone took it, computed in `drift`: it has walked at an eighth of its
+  walk speed for the time unsimulated (the clock's ticks gone, less the `SLEEP_TICKS` it ran on) towards a
+  spot within `LEASH` of home, hashed from the seed, its id and the clock. The spot must be land (`stand`,
+  not water) of the home spot's biome; after four refused tries it stays. It wakes standing, its mind
+  Stand. No cost while away, the same on replay, and a site woken within `SLEEP_TICKS` does not drift.
 - **Body.** The player's box, gravity and collision (`phys::step`). An animal at rest is stepped once a
   second. One trapped by a placed block climbs out on top.
 - **Mind.** Every choice comes from a hash of the seed, the id and the herds' clock:
@@ -81,6 +87,10 @@ Option 2, server-authoritative.
   inside the ground or non-finite). 58 animals in 96 sites were awake throughout; hash 5e43f1bbdf2297de.
   The soak's replay test (`a_replay_meets_every_checkpoint_of_its_recording`) passes with the herds in the
   hash.
+- **Drift** `a_herd_left_alone_is_found_moved_inside_its_range_the_same_each_run`, seen red (0 of 15
+  moved) then green. Left five minutes, at least three in four animals are found over 1 m away, all within
+  `LEASH` of home, in air and off water; a second run is byte for byte the same, and 20 s away moves them
+  less than 5 min.
 - **Tick cost** (`herds_tick_cost`, release, ignored test). 29 players on the 4 km planet woke 244 animals,
   62 of them walking: 1.11 ms mean, 1.74 ms p99, 4.0 ms max of the 50 ms tick, on one thread. That is about
   5 us an animal, including waking. A `run=stand` beside a deer herd: `tick_ms_p99` 0.46 ms; frame p99
@@ -108,13 +118,25 @@ Answered:
 - A crash between writing `.sav` and `.herds` leaves them unpaired. The climb-out absorbs mismatched
   ground.
 
+## Review of the drift (a fresh reviewer of its diff)
+No panic, underflow or non-determinism found (the drift reads only the seed, the id, the herds' clock, the
+animal's place and the world; `add` wakes on the same clock). Answered:
+- The drift places an animal by the first air over the ground, with no path: a herd fenced in or roofed over
+  can be found outside the fence or inside the room. Later, with pens (a path or "enclosed" rule).
+- An animal far out of range when its site slept (one that fled) heads home at the drift's pace, so after a
+  short absence it is still out of range; and the range is measured on home's tangent plane, so on a slope
+  the straight distance can pass `LEASH` a little. The test's `LEASH + 3 m` holds for its seed.
+- The test's second run is in one process, and the test world is the noise land, where every spot is
+  grassland, so the biome rule is not exercised there; the server's replay test covers the hash.
+
 ## Consequences
 - **Later:**
   - combat and hurting an animal, drops, breeding, taming and hostile creatures;
   - birds and fish, and animals on Luna;
   - footfall sounds on live animals, and a sleep pose (a sleeper plays `a.idle`);
   - a collision box per kind (every animal has the player's);
-  - time passing for herds nobody sees;
+  - a herd's minds living on while nobody sees it (the drift moves it, but it wakes standing, by day or
+    night);
   - culling met sites the seed makes again empty.
 - **Shortcuts:**
   - The server takes `data/creatures.toml` and `data/herds.toml` compiled in, so a change needs a rebuild.
@@ -126,7 +148,8 @@ Answered:
 
 ## Calls for the developer to confirm
 - `/spawn <creature> live` for a real animal: the word `live`, and that anyone may run it.
-- Herds freeze when nobody is near instead of living on.
+- Herds drift while nobody is near (decided by the developer, 2026-11-13). Still to confirm: the pace (an
+  eighth of the walk speed) and that the drift happens even across nights.
 - The kinds per biome, the shares (0.3, 0.3, 0.25 a site) and the herd sizes.
 - Deer and hare look (drafts), deer run at 7 m/s and hare at 6, and the voices.
 - Flee distance 10 m and speed 2.5 m/s (walking straight at one scares it).
