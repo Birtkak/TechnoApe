@@ -747,3 +747,144 @@ loose = true
 sound = "glass"
 colour = [0.95, 0.62, 0.22]
 contrast = 0.3
+
+# The trees of ADR 0092 (birch, oak, pine, willow, palm, bamboo): each its own log and leaves, unpainted
+# drafts until data/textures has them (the logs plain bark, not rings: rings on a log's sides read as a
+# post of 2 x 2). Ids 140 on.
+[[block]]
+id = 140
+name = "birch log"
+hardness = 2.0
+loose = true
+sound = "dirt"
+colour = [0.86, 0.84, 0.78]
+pattern = "plain"
+contrast = 1.6
+colour2 = [0.20, 0.18, 0.16]
+
+[[block]]
+id = 141
+name = "birch leaves"
+see = "cutout"
+hardness = 0.3
+loose = true
+soft = true
+sound = "grass"
+colour = [0.42, 0.62, 0.22]
+pattern = "leaves"
+[block.autumn]
+colour = [0.86, 0.72, 0.18]
+[block.winter]
+colour = [0.38, 0.28, 0.18]
+
+[[block]]
+id = 142
+name = "oak log"
+hardness = 2.0
+loose = true
+sound = "dirt"
+colour = [0.32, 0.26, 0.20]
+pattern = "plain"
+contrast = 1.6
+
+[[block]]
+id = 143
+name = "oak leaves"
+see = "cutout"
+hardness = 0.3
+loose = true
+soft = true
+sound = "grass"
+colour = [0.16, 0.38, 0.12]
+pattern = "leaves"
+[block.autumn]
+colour = [0.62, 0.36, 0.12]
+[block.winter]
+colour = [0.38, 0.28, 0.18]
+
+[[block]]
+id = 144
+name = "pine log"
+hardness = 2.0
+loose = true
+sound = "dirt"
+colour = [0.46, 0.26, 0.16]
+pattern = "plain"
+contrast = 1.6
+
+[[block]]
+id = 145
+name = "pine leaves"
+see = "cutout"
+hardness = 0.3
+loose = true
+soft = true
+sound = "grass"
+colour = [0.10, 0.28, 0.20]
+pattern = "leaves"
+
+[[block]]
+id = 146
+name = "willow log"
+hardness = 2.0
+loose = true
+sound = "dirt"
+colour = [0.36, 0.32, 0.26]
+pattern = "plain"
+contrast = 1.6
+
+[[block]]
+id = 147
+name = "willow leaves"
+see = "cutout"
+hardness = 0.3
+loose = true
+soft = true
+sound = "grass"
+colour = [0.46, 0.58, 0.32]
+pattern = "leaves"
+[block.autumn]
+colour = [0.74, 0.70, 0.26]
+[block.winter]
+colour = [0.38, 0.28, 0.18]
+
+[[block]]
+id = 148
+name = "palm log"
+hardness = 2.0
+loose = true
+sound = "dirt"
+colour = [0.62, 0.50, 0.32]
+pattern = "plain"
+contrast = 1.6
+
+[[block]]
+id = 149
+name = "palm leaves"
+see = "cutout"
+hardness = 0.3
+loose = true
+soft = true
+sound = "grass"
+colour = [0.40, 0.60, 0.16]
+pattern = "leaves"
+
+[[block]]
+id = 150
+name = "bamboo"
+hardness = 1.0
+loose = true
+sound = "dirt"
+colour = [0.46, 0.62, 0.22]
+pattern = "rings"
+
+[[block]]
+id = 151
+name = "bamboo leaves"
+see = "cutout"
+hardness = 0.3
+loose = true
+soft = true
+sound = "grass"
+colour = [0.36, 0.62, 0.18]
+pattern = "leaves"

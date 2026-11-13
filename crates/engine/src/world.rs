@@ -227,6 +227,8 @@ const LEVEL_GRIDS: usize = 512;
 pub struct Foot {
     pub plant: usize,
     pub h: i32,
+    /// The tree's own hash: where its limbs go, which leaves its crown lets fall (ADR 0092).
+    pub v: u32,
     pub i: i32,
     pub j: i32,
     pub z: i32,
@@ -539,6 +541,13 @@ impl Body {
         let s = b.map.m as f64 / self.n as f64;
         b.map.climate_at(face, i * s, j * s)
     }
+    /// The baked year's mean air at the ground of column (face, i, j), C: what the bake chose the biome by
+    /// (`bake::Map::temp`). None without a map that keeps a climate.
+    pub fn year_air(&self, face: usize, i: i32, j: i32) -> Option<f32> {
+        let b = self.baked.as_ref()?;
+        let s = b.map.m as f64 / self.n as f64;
+        b.map.temp(face, (i as f64 + 0.5) * s, (j as f64 + 0.5) * s)
+    }
     /// The rock's temperature at layer z of column (face, i, j), C (ADR 0063): the year's mean air at the
     /// ground, and the province's `heat` a metre deeper under it. None without a map's climate and rock.
     pub fn heat(&self, face: u8, i: i32, j: i32, z: f64) -> Option<f32> {
@@ -661,8 +670,12 @@ impl Body {
         if self.water_at(face as u8, i, j).is_some_and(|w| z as f64 <= w.0) {
             return None;
         }
+        // a palm only where the year is warm (ADR 0092)
+        if ROWS.plants[plant].warm.is_some_and(|t| self.year_air(face, i, j).is_none_or(|a| a < t)) {
+            return None;
+        }
         let [lo, hi] = ROWS.plants[plant].height;
-        Some(Foot { plant, h: lo + ((r >> 16) % (hi - lo + 1) as u64) as i32, i, j, z })
+        Some(Foot { plant, h: lo + ((r >> 16) % (hi - lo + 1) as u64) as i32, v: mix(r ^ 0x7ee5) as u32, i, j, z })
     }
     /// The layers [lo, hi) of column (face, i, j) a cave hollows, at layer 0 and up: under the ground they are
     /// air (`World::generated_under`, `generate` at level 0, `Solid::gaps`), over it they change nothing.
@@ -778,7 +791,7 @@ impl Body {
                     continue;
                 }
                 for z in 0..=f.h {
-                    let Some((m, wood)) = p.block(f.h, dx, dz, z) else { continue };
+                    let Some((m, wood)) = p.block(f.h, f.v, dx, dz, z) else { continue };
                     match out.iter_mut().find(|o| o.0 == f.z + z) {
                         Some(o) => {
                             if wood && !o.2 {
@@ -2696,6 +2709,99 @@ mod baked_tests {
         World::with_map(512, 32, 5, Some(MAP.clone()))
     }
 
+    /// A scouting tool, not a check: on the 4 km planet (seed 1337), the large tree of each species nearest the
+    /// spawn and a `run=stand` that looks at it from 13 m, for ADR 0092's shots. The bake is read from
+    /// `TECHNOAPE_BAKE` (a path), else `saves/bakes` under the repository.
+    /// `cargo test --profile play -p engine tree_spots -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn tree_spots() {
+        let path = std::env::var("TECHNOAPE_BAKE").map(std::path::PathBuf::from).unwrap_or(std::path::Path::new("../..").join(crate::bake::file(1337, 6144)));
+        let map = Arc::new(Map::from_bytes(&std::fs::read(&path).unwrap()).unwrap());
+        let w = World::with_map(map.n, 32, map.seed, Some(map.clone()));
+        let b = &w.bodies[0];
+        let mut best: Vec<Option<(f64, usize, Foot)>> = vec![None; ROWS.plants.len() * 3];
+        for f in 0..6 {
+            for cx in 0..b.n / SPACING {
+                for cy in 0..b.n / SPACING {
+                    let Some(t) = b.candidate(f, cx, cy) else { continue };
+                    let p = &ROWS.plants[t.plant];
+                    if p.radius == 0 || p.shape == crate::biomes::Shape::Bush {
+                        continue;
+                    }
+                    let near = b.dir(f, t.i as f64 + 0.5, t.j as f64 + 0.5).dot(b.spawn);
+                    let k = t.plant * 3 + p.size(t.h) as usize;
+                    if best[k].is_none_or(|bb| near > bb.0) {
+                        best[k] = Some((near, f, t));
+                    }
+                }
+            }
+        }
+        for (k, found) in best.iter().enumerate() {
+            let Some((near, f, t)) = *found else { continue };
+            let dt = b.dir(f, t.i as f64 + 0.5, t.j as f64 + 0.5);
+            let target = b.centre + dt * (b.layer_r(t.z as f64) + t.h as f64 * 0.5);
+            // from the side whose ground is lowest, far enough to see the whole tree
+            let e1 = dt.any_orthonormal_vector();
+            let e2 = dt.cross(e1);
+            let r = b.layer_r(t.z as f64);
+            let dc = (0..8).map(|a| (a as f64 * std::f64::consts::FRAC_PI_4).sin_cos()).map(|(s, c)| (dt * r + (e1 * c + e2 * s) * (8.0 + t.h as f64 * 1.3)).normalize()).min_by(|x, y| b.top(*x).total_cmp(&b.top(*y))).unwrap();
+            let eye = 1.5 + t.h as f64 * 0.5;
+            let pos = b.centre + dc * (b.top(dc) + eye);
+            let up = dc;
+            let rr = if up.y.abs() > 0.9 { DVec3::Z } else { DVec3::Y };
+            let ahead = (rr - up * rr.dot(up)).normalize();
+            let fwd = (target - pos).normalize();
+            let pitch = fwd.dot(up).asin().to_degrees();
+            let hz = fwd - up * fwd.dot(up);
+            let yaw = hz.dot(up.cross(ahead)).atan2(hz.dot(ahead)).to_degrees();
+            let name = ROWS.plants[k / 3].name.replace(' ', "-");
+            println!("SHOT {name}-{} at={:.6},{:.6},{:.6} eye={eye:.1} yaw={yaw:.1} pitch={pitch:.1}  # h {} {:.0} m from the spawn", ["small", "medium", "large"][k % 3], dc.x, dc.y, dc.z, t.h, near.clamp(-1.0, 1.0).acos() * b.radius);
+        }
+    }
+
+    /// ADR 0092: what trees cost a forest chunk on one worker thread: the chunk's generation (cold, then with
+    /// its tiles cached) and its quads (fast and fancy leaves). The chunks are those over every candidate spot
+    /// in a forest biome, so the set is the same whatever grows there.
+    /// `cargo test --profile play -p engine tree_chunk_cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn tree_chunk_cost() {
+        let w = world();
+        let b = &w.bodies[0];
+        let forest = [crate::bake::life::COLD_FOREST, crate::bake::life::TEMPERATE_FOREST, crate::bake::life::RAIN_FOREST];
+        let mut keys = std::collections::BTreeSet::new();
+        for f in 0..6usize {
+            for cx in 0..b.n / SPACING {
+                for cy in 0..b.n / SPACING {
+                    let (i, j) = (cx * SPACING + SPACING / 2, cy * SPACING + SPACING / 2);
+                    let d = b.dir(f, i as f64 + 0.5, j as f64 + 0.5);
+                    if b.biome_at(f, i as f64 + 0.5, j as f64 + 0.5, d).is_some_and(|bi| forest.contains(&bi)) {
+                        let z = b.first_air(b.col_height(f as u8, i, j)) + 4;
+                        keys.insert((f as u8, i.div_euclid(CS), j.div_euclid(CS), z.div_euclid(CS)));
+                    }
+                }
+            }
+        }
+        let keys: Vec<Key> = keys.into_iter().map(|(face, x, y, z)| Key { body: 0, face, level: 0, pos: IVec3::new(x, y, z) }).collect();
+        let run = || {
+            let t0 = std::time::Instant::now();
+            let cells: Vec<_> = keys.iter().filter_map(|k| match generate(b, *k, &[]) {
+                Gen::Cells(c) => Some(c),
+                _ => None,
+            }).collect();
+            (t0.elapsed().as_secs_f64() * 1e6 / keys.len() as f64, cells)
+        };
+        let (cold, _) = run();
+        let (warm, cells) = run();
+        let t0 = std::time::Instant::now();
+        let fast: usize = cells.iter().map(|c| crate::mesh::mesh(c, 1).quads.len()).sum();
+        let mesh_us = t0.elapsed().as_secs_f64() * 1e6 / cells.len() as f64;
+        let fancy: usize = cells.iter().map(|c| crate::mesh::mesh_cut(c, 1, true, true).quads.len()).sum();
+        let n = cells.len() as f64;
+        println!("{{\"chunks\":{},\"gen_us_cold\":{cold:.1},\"gen_us_warm\":{warm:.1},\"mesh_us_fast\":{mesh_us:.1},\"quads_fast\":{:.0},\"quads_fancy\":{:.0}}}", cells.len(), fast as f64 / n, fancy as f64 / n);
+    }
+
     /// Beds (ADR 0086): no column under the sea, a lake or a river has grass, snow or ice on top; the deep
     /// sea is not sand and a shallow lake not clay; each kind of water is found.
     #[test]
@@ -2890,6 +2996,48 @@ mod baked_tests {
         w.put_edit(at(cells[1]), None);
         w.set_block(at(top.pos + IVec3::Z), ore);
         assert_eq!((w.ore_left.as_ref().unwrap()[0], w.ore_recount(&open)[0]), (2, 2), "one put back, one undone, one elsewhere");
+    }
+
+    /// ADR 0092: on a baked planet every tree of a biome's row grows in it where that biome is common, palms
+    /// only where the year is warm, and two looks at a spot give the same tree.
+    #[test]
+    fn every_species_grows_in_its_biomes() {
+        let w = world();
+        let b = &w.bodies[0];
+        let mut spots = vec![0usize; ROWS.biomes.len()];
+        let mut found = std::collections::BTreeSet::new();
+        for f in 0..6 {
+            for cx in 0..b.n / SPACING {
+                for cy in 0..b.n / SPACING {
+                    let (i, j) = (cx * SPACING + SPACING / 2, cy * SPACING + SPACING / 2);
+                    if let Some(bi) = b.biome_at(f, i as f64, j as f64, b.dir(f, i as f64, j as f64)) {
+                        spots[bi as usize] += 1;
+                    }
+                    let Some(foot) = b.candidate(f, cx, cy) else { continue };
+                    assert_eq!(Some(foot), b.candidate(f, cx, cy));
+                    let bi = b.biome_at(f, foot.i as f64 + 0.5, foot.j as f64 + 0.5, b.dir(f, foot.i as f64 + 0.5, foot.j as f64 + 0.5)).unwrap();
+                    let p = &ROWS.plants[foot.plant];
+                    if let Some(warm) = p.warm {
+                        let t = b.year_air(f, foot.i, foot.j).unwrap();
+                        assert!(t >= warm, "a {} at {t:.1} C", p.name);
+                    }
+                    found.insert((bi, foot.plant));
+                }
+            }
+        }
+        let mut checked = 0;
+        for (bi, row) in ROWS.biomes.iter().enumerate() {
+            for &(p, share) in &row.plants {
+                // enough spots that the share would find it ten times over; palms need warm ones too
+                if (spots[bi] as f32) * share >= 10.0 && ROWS.plants[p].warm.is_none() {
+                    assert!(found.contains(&(bi as u8, p)), "no {} in {} ({} spots)", ROWS.plants[p].name, row.name, spots[bi]);
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked >= 10, "{checked} pairs checked");
+        let palm = ROWS.plants.iter().position(|p| p.name == "palm").unwrap();
+        assert!(found.iter().any(|&(_, p)| p == palm), "palms somewhere warm: rain forest {} spots, beach {}", spots[crate::bake::life::RAIN_FOREST as usize], spots[crate::bake::life::BEACH as usize]);
     }
 
     /// Plants of every reader agree (ADR 0043): the block physics sees (`World::generated_block`), the chunk
