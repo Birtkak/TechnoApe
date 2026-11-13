@@ -639,23 +639,32 @@ pub struct Fx {
     pub placed: bool,
     /// What `show` plays for the Studio.
     shown: Option<Handle>,
+    /// The fine cells lying chips hold, kept between steps for its room (ADR 0078).
+    held: std::collections::HashSet<FineCell>,
 }
 
 /// A fine cell over a column's floor: (body, the column's frame, (across, along, cells up)).
-type FineCell = (u8, [u32; 2], IVec3);
+type FineCell = (u8, [u32; 6], IVec3);
+
+impl Column {
+    /// The column's identity for the fine cells: its whole frame, so no two columns share a key.
+    fn key(&self) -> [u32; 6] {
+        [self.s.x, self.s.y, self.s.z, self.t.x, self.t.y, self.t.z].map(f32::to_bits)
+    }
+}
 
 impl P {
     /// The fine cell a lying chip is in.
     fn fine(&self) -> FineCell {
         let k = ((self.p.length() - self.floor) / FINE).floor() as i32;
-        (self.body, [self.col.s.x.to_bits(), self.col.t.y.to_bits()], IVec3::new((self.p.dot(self.col.s) / FINE).floor() as i32, (self.p.dot(self.col.t) / FINE).floor() as i32, k))
+        (self.body, self.col.key(), IVec3::new((self.p.dot(self.col.s) / FINE).floor() as i32, (self.p.dot(self.col.t) / FINE).floor() as i32, k))
     }
 
     /// A chip come to rest lies in the fine cell under it, on the chips already there (`held`); over one, it
     /// rolls to a side cell lower down, as the loose blocks slide (ADR 0079), within its column.
     fn pile(&mut self, held: &mut std::collections::HashSet<FineCell>) {
         let (s, t, r) = (self.col.s, self.col.t, self.p.length());
-        let (body, frame) = (self.body, [s.x.to_bits(), t.y.to_bits()]);
+        let (body, frame) = (self.body, self.col.key());
         let level = |held: &std::collections::HashSet<FineCell>, a: i32, b: i32| (0..8).find(|k| !held.contains(&(body, frame, IVec3::new(a, b, *k)))).unwrap_or(8);
         let n = [(self.col.w[0] * r / FINE).floor() as i32, (self.col.w[1] * r / FINE).floor() as i32];
         let inside = |a: i32, b: i32| (-n[0]..n[0]).contains(&a) && (-n[1]..n[1]).contains(&b);
@@ -672,7 +681,11 @@ impl P {
             return; // shortcut: a pile a metre high takes no more; it lies where it fell
         }
         held.insert((body, frame, IVec3::new(a, b, k)));
-        let p = self.p + s * ((a as f32 + 0.5) * FINE - self.p.dot(s)) + t * ((b as f32 + 0.5) * FINE - self.p.dot(t));
+        // the move along s and t that puts the chip over the cell's middle: s and t need not be square
+        let (da, db, st) = ((a as f32 + 0.5) * FINE - self.p.dot(s), (b as f32 + 0.5) * FINE - self.p.dot(t), s.dot(t));
+        let (ss, tt) = (s.dot(s), t.dot(t));
+        let det = ss * tt - st * st;
+        let p = self.p + s * ((da * tt - db * st) / det) + t * ((db * ss - da * st) / det);
         self.p = p.normalize() * (self.floor + FINE * (k as f32 + 0.5));
         (self.size, self.spin, self.angle) = (FINE, 0.0, 0.0);
     }
@@ -710,6 +723,7 @@ impl Fx {
             rx: None,
             placed: false,
             shown: None,
+            held: Default::default(),
         }
     }
 
@@ -1072,7 +1086,21 @@ impl Fx {
         let clock = self.clock;
         // the fine cells the lying chips hold, when a chip may come to lie this step (ADR 0078): one pass
         let piling = |q: &P| rows[q.row as usize].ground == Ground::Pile;
-        let mut held: std::collections::HashSet<FineCell> = if self.pool.iter().any(|q| !q.rest && piling(q)) { self.pool.iter().filter(|q| q.rest && piling(q)).map(|q| q.fine()).collect() } else { Default::default() };
+        let mut held = std::mem::take(&mut self.held);
+        held.clear();
+        held.extend(self.pool.iter().filter(|q| q.rest && piling(q)).map(|q| q.fine()));
+        // a chip over a cell whose chip has ended falls again, and so on up (bottom first): none hangs on nothing
+        if !held.is_empty() {
+            let mut lying: Vec<usize> = (0..self.pool.len()).filter(|&i| self.pool[i].rest && piling(&self.pool[i])).collect();
+            lying.sort_by_key(|&i| self.pool[i].fine().2.z);
+            for i in lying {
+                let f = self.pool[i].fine();
+                if f.2.z > 0 && !held.contains(&(f.0, f.1, f.2 - IVec3::Z)) {
+                    held.remove(&f);
+                    self.pool[i].rest = false;
+                }
+            }
+        }
         let mut i = 0;
         while i < self.pool.len() {
             let q = &mut self.pool[i];
@@ -1195,6 +1223,7 @@ impl Fx {
             self.out.push(FxGpu { p: q.p.to_array(), size, info, angle, a, b });
             i += 1;
         }
+        self.held = held;
         while let Some((t, at)) = self.later.pop() {
             let tag = self.tag();
             self.burst(t, &at, tag);
@@ -1528,6 +1557,34 @@ mod tests {
         assert!(lying.iter().any(|p| p.p.length() - p.floor > FINE), "nothing piled on another");
     }
 
+    /// A chip whose support fades first (lives differ) falls on to what is under it: none hangs in the air.
+    #[test]
+    fn a_piled_chip_falls_when_the_one_under_it_is_gone() {
+        let mut w = world();
+        let c = surface(&w);
+        w.set_block(c, AIR);
+        let at = At::cell(&w, c, BLOCKS.id("stone"));
+        let mut fx = Fx::new(true, 4096, 1.0, 5);
+        for _ in 0..4 {
+            fx.play(id("break"), &at);
+        }
+        for _ in 0..100 {
+            fx.step(&w, 1.0 / 60.0);
+        }
+        assert!(fx.pool.iter().any(|p| p.rest && p.fine().2.z > 0), "a pile to test");
+        // the bottom layer goes
+        for p in fx.pool.iter_mut().filter(|p| p.rest && p.fine().2.z == 0) {
+            p.age = p.life;
+        }
+        for _ in 0..40 {
+            fx.step(&w, 1.0 / 60.0);
+        }
+        let lying: Vec<FineCell> = fx.pool.iter().filter(|p| p.rest).map(|p| p.fine()).collect();
+        for f in &lying {
+            assert!(f.2.z == 0 || lying.contains(&(f.0, f.1, f.2 - IVec3::Z)), "a chip hangs {} cells over its floor on nothing", f.2.z);
+        }
+    }
+
     #[test]
     fn a_spray_drop_dies_on_the_floor_and_splashes_there() {
         let w = world();
@@ -1646,9 +1703,10 @@ mod tests {
                     if r < bottom + 0.5 {
                         fell += 1;
                     }
-                    // (a chip piled on another lies on it, not on a block: ADR 0078)
-                    if p.rest && r - p.floor < FINE {
-                        let under = w.block_at(w.bodies[0].centre + (p.p * ((r - p.size * 0.5 - 0.05) / r)).as_dvec3());
+                    // under its floor (a chip piled on another lies over it: ADR 0078; none hangs, its own test)
+                    if p.rest {
+                        assert!(r - p.floor < 1.0, "seed {seed}: debris at rest {} over its floor", r - p.floor);
+                        let under = w.block_at(w.bodies[0].centre + (p.p * ((p.floor - 0.05) / r)).as_dvec3());
                         assert!(BLOCKS.solid(w.block(Block { body: 0, ..under })), "seed {seed}: debris at rest in the air, {r} against the pit's bottom {bottom}");
                     }
                 }
@@ -1794,7 +1852,7 @@ mod tests {
         }
         println!("{got:?}");
         // break's chips pile since ADR 0078
-        let want: [u64; 6] = [7680210479508249421, 12728753821768735219, 10756546070781930058, 5885070126393282328, 9628921545010191082, 7602677355907020114];
+        let want: [u64; 6] = [17591566305369780750, 12728753821768735219, 10756546070781930058, 5885070126393282328, 9628921545010191082, 7602677355907020114];
         assert_eq!(got.iter().map(|g| g.1).collect::<Vec<_>>(), want);
     }
 

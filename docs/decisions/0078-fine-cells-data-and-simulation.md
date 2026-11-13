@@ -41,6 +41,15 @@ spike: `prototypes/fine-cells/`.
 - Cost: the frame thread's `fx` stage; one extra pass over the pool in a step where a chip of a pile row is
   still flying (the pool holds 1,024 to 16,384), a few hash lookups a chip that lies.
 
+## Review (a fresh reviewer read the diff)
+- *A chip piled on one that ended first hung in the air* (lives differ), and the pit test had been loosened
+  to let piled chips by: each step a lying chip over a cell that no longer holds a chip falls again, bottom
+  first; test `a_piled_chip_falls_when_the_one_under_it_is_gone`, seen red; the pit test asks again for a
+  solid block under every lying chip's floor.
+- *Two columns could share a fine cell's key* (two of the frame's six numbers): the key is the whole frame.
+- *The snap assumed a square frame*: it solves the 2 x 2 for s and t.
+- *A set built every step*: one set kept on `Fx` and cleared, filled from the lying chips (a few dozen).
+
 ## Calls for the developer to confirm
 - The chips fade after 2.5 to 4 s. Longer lasting heaps (until swept, or settling into a block of loose
   dirt) would be the material fine cells' job.
