@@ -103,8 +103,8 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
     // a held dig whose time is up is sent (survival takes it, unless the bot moved or the cells changed)
     if let Some((shape, _)) = b.digging.filter(|d| s.tick >= d.1) {
         b.digging = None;
-        let me = &s.clients[me].phys;
-        let (seq, _) = b.pred.edit(&mut b.world, &shape, 0, |w, c| phys::holds(w, me, c));
+        let (me, survival) = (&s.clients[me].phys, !s.clients[me].creative);
+        let (seq, _) = b.pred.edit(&mut b.world, &shape, 0, survival, |w, c| phys::holds(w, me, c));
         b.link.send(ToServer::Edit { seq, shape, material: 0 });
         return;
     }
@@ -112,8 +112,8 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
     if let Some((shape, _)) = b.dam.filter(|d| s.tick >= d.1) {
         b.dam = None;
         b.broken += 1;
-        let me = &s.clients[me].phys;
-        let (seq, _) = b.pred.edit(&mut b.world, &shape, 0, |w, c| phys::holds(w, me, c));
+        let (me, survival) = (&s.clients[me].phys, !s.clients[me].creative);
+        let (seq, _) = b.pred.edit(&mut b.world, &shape, 0, survival, |w, c| phys::holds(w, me, c));
         b.link.send(ToServer::Edit { seq, shape, material: 0 });
         return;
     }
@@ -158,8 +158,8 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
             return;
         }
         // the bot predicts like a client; its own box is the only one it keeps clear
-        let me = &s.clients[me].phys;
-        let (seq, _) = b.pred.edit(&mut b.world, &shape, m, |w, c| phys::holds(w, me, c));
+        let (me, survival) = (&s.clients[me].phys, !s.clients[me].creative);
+        let (seq, _) = b.pred.edit(&mut b.world, &shape, m, survival, |w, c| phys::holds(w, me, c));
         b.link.send(ToServer::Edit { seq, shape, material: m });
     } else if r < 0.087 {
         b.link.send(ToServer::Creative(b.rng.f() < 0.5));
@@ -206,7 +206,7 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
         let min = at.pos - IVec3::new(w / 2, w / 2, 0);
         let shape = Shape { min, max: min + IVec3::new(w - 1, w - 1, 2), ..Shape::one(at) };
         let stone = BLOCKS.placeable().find(|d| d.name == "stone").map_or(1, |d| d.id);
-        let (seq, _) = b.pred.edit(&mut b.world, &shape, stone, |_, _| true);
+        let (seq, _) = b.pred.edit(&mut b.world, &shape, stone, false, |_, _| true);
         b.link.send(ToServer::Edit { seq, shape, material: stone });
         b.dam = Some((shape, s.tick + 120 + b.rng.next() % 240));
         b.dams += 1;
@@ -222,7 +222,8 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
         b.link.send(ToServer::Creative(true));
         let me = &s.clients[me].phys;
         for (shape, m) in [(heap, m), (hole, 0)] {
-            let (seq, _) = b.pred.edit(&mut b.world, &shape, m, |w, c| phys::holds(w, me, c));
+            // creative from the message just sent, not the server's mode of last tick
+            let (seq, _) = b.pred.edit(&mut b.world, &shape, m, false, |w, c| phys::holds(w, me, c));
             b.link.send(ToServer::Edit { seq, shape, material: m });
         }
         b.heaps += 1;
@@ -237,8 +238,10 @@ fn check(s: &Server) -> Result<(), String> {
     if let Some(&(k, held, made)) = s.item_ledger().first() {
         return Err(format!("{}: {held} held, {made} made", engine::items::ITEMS.name(k)));
     }
-    // no animal is left inside the ground or off to infinity (ADR 0083)
-    if let Some(a) = s.herds.all().find(|a| !a.p.pos.is_finite() || engine::phys::inside(&s.world, &a.p)) {
+    // no animal is left inside the ground or off to infinity (ADR 0083); rubble and sand that fell on one bury it
+    // as they bury a player (ADR 0079, 0093)
+    let fell = |b| s.world.edit(b).map_or(!BLOCKS.solid(s.world.block(b)), |m| !BLOCKS.solid(m) || BLOCKS.get(m).is_some_and(|d| d.falls));
+    if let Some(a) = s.herds.all().find(|a| !a.p.pos.is_finite() || (engine::phys::inside(&s.world, &a.p) && !engine::phys::cells(&s.world, a.p.pos).all(fell))) {
         return Err(format!("animal {} at {:?} is inside the ground", a.id, a.p.pos));
     }
     // no water appears or vanishes: what differs from the seed is what buckets hold plus what creative made

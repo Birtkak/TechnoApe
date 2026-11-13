@@ -342,4 +342,55 @@ mod tests {
         println!("{{\"fall_cost\":{{\"ticks\":{tick},\"moves\":{},\"visits\":{},\"ns_per_visit\":{:.0},\"worst_tick_ms\":{:.3}}}}}", f.moves, f.visits, s * 1e9 / f.visits as f64, worst * 1e3);
         assert!(f.awake() == 0);
     }
+
+    /// Spike 2 of mining.md (ADR 0093): a mine of 5,766 granite rubble blocks resting on a 31 x 31 floor, then a
+    /// 9 x 9 hole dug under its middle. Prints the tick's cost with all of it resting, the drop's ns a visit and
+    /// worst tick, and the chunks a tick of the drop changes (what a client meshes again)
+    /// (`cargo test -p engine --profile play rubble_mine_cost -- --nocapture`).
+    #[test]
+    fn rubble_mine_cost() {
+        let mut w = World::new(512, 32, 5);
+        let g = w.air_over_ground(0, DVec3::new(0.3, 0.5, 0.8).normalize());
+        let base = Block { pos: g.pos + IVec3::Z * 12, ..g };
+        let (stone, rubble) = (BLOCKS.id("stone"), BLOCKS.get(BLOCKS.id("granite")).unwrap().rubble.unwrap());
+        let mut f = Falls::default();
+        let mut out = Vec::new();
+        for di in -15..=15 {
+            for dj in -15..=15 {
+                w.set_block(at(base, di, dj, 0), stone);
+                for l in 1..=6 {
+                    w.set_block(at(base, di, dj, l), rubble);
+                    f.poke(at(base, di, dj, l));
+                }
+            }
+        }
+        settle(&mut f, &mut w, &mut out);
+        let resting = w.edits.values().flat_map(|c| c.values()).filter(|&&m| m == rubble).count();
+        let t = std::time::Instant::now();
+        for tick in 0..10_000 {
+            f.step(&mut w, tick, &mut out);
+        }
+        let rest_ns = t.elapsed().as_secs_f64() * 1e9 / 10_000.0;
+        assert!(out.is_empty() || f.awake() == 0);
+        let (v0, m0) = (f.visits, f.moves);
+        for di in -4..=4 {
+            for dj in -4..=4 {
+                w.set_block(at(base, di, dj, 0), AIR);
+                f.wake(&w, at(base, di, dj, 0));
+            }
+        }
+        let (mut worst, mut chunks_max, mut tick, mut busy) = (0f64, 0usize, 0u64, 0f64);
+        while f.awake() > 0 {
+            out.clear();
+            let s = std::time::Instant::now();
+            f.step(&mut w, tick, &mut out);
+            let e = s.elapsed().as_secs_f64();
+            (worst, busy) = (worst.max(e), busy + e);
+            chunks_max = chunks_max.max(out.iter().map(|(b, _)| (b.face, b.pos.div_euclid(IVec3::splat(crate::world::CS)).to_array())).collect::<std::collections::BTreeSet<_>>().len());
+            tick += 1;
+        }
+        let (visits, moves) = (f.visits - v0, f.moves - m0);
+        println!("{{\"rubble_mine\":{{\"resting\":{resting},\"rest_tick_ns\":{rest_ns:.0},\"drop_ticks\":{tick},\"moves\":{moves},\"visits\":{visits},\"ns_per_visit\":{:.0},\"worst_tick_ms\":{:.3},\"chunks_a_tick_max\":{chunks_max}}}}}", busy * 1e9 / visits as f64, worst * 1e3);
+        assert!(moves > 0 && f.awake() == 0);
+    }
 }

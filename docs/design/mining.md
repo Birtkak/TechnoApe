@@ -1,6 +1,7 @@
 # Mining
 
-- **Status:** design, 2026-11-13 (the developer's calls of that day; ADR 0087). Nothing here is built.
+- **Status:** design, 2026-11-13 (the developer's calls of that day; ADR 0087). Built: (a) rubble and stacks
+  of 16 (ADR 0093).
 - **From:** vision (finite planets, a world that reacts), `worldgen.md` and ADR 0063 (rock by province, ore
   bodies as counted objects with a grade, found by eye), `fine-cells.md` and ADR 0079 (loose blocks fall,
   sand buries), ADR 0034 (a block is dug held, by its hardness), `progression.md` (drill, ore line,

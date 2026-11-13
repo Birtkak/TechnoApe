@@ -1349,7 +1349,7 @@ pub fn changed(fx: &mut Fx, world: &World, b: Block, was: u16, now: u16) {
     }
     let play = fx.events < EVENTS;
     fx.events += 1;
-    if BLOCKS.solid(was) && !BLOCKS.solid(now) {
+    if engine::edit::breaks(was, now) {
         // past the budget it plays nothing but still drops what lies on the cell (one floor lookup, and only
         // while anything is alive)
         if play || !fx.pool.is_empty() {
@@ -1757,7 +1757,7 @@ mod tests {
         // this client digs: the prediction changes the cell, the effect plays once
         let shape = engine::edit::Shape::one(mine);
         let was = w.block(mine);
-        let (seq, cells) = pred.edit(&mut w, &shape, AIR, |_, _| false);
+        let (seq, cells) = pred.edit(&mut w, &shape, AIR, false, |_, _| false);
         assert_eq!(cells, vec![mine]);
         changed(&mut fx, &w, mine, was, AIR);
         assert_eq!(fx.played, 1);
@@ -1783,6 +1783,18 @@ mod tests {
         let was = w.block(deepest);
         assert_eq!(server_edit(&mut off, &mut pred, &mut w, deepest, AIR, true), (true, Some(was)));
         assert_eq!(off.played, 0);
+    }
+
+    /// ADR 0093: a survival dig of rock leaves its rubble, solid to solid; it breaks (one effect), it does not place.
+    #[test]
+    fn rock_dug_into_its_rubble_plays_a_break() {
+        let w = world();
+        let mut fx = Fx::new(true, 4096, 1.0, 1);
+        let (granite, rubble) = (BLOCKS.id("granite"), BLOCKS.id("granite rubble"));
+        changed(&mut fx, &w, surface(&w), granite, rubble);
+        assert_eq!((fx.played, fx.live()), (1, 24), "the break's chips");
+        changed(&mut fx, &w, surface(&w), BLOCKS.id("basalt"), rubble);
+        assert_eq!(fx.played, 1, "another rock's rubble is no dig");
     }
 
     #[test]
