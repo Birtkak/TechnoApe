@@ -17,6 +17,8 @@ pub(crate) fn frustum_planes(m: Mat4) -> [Vec4; 6] {
 /// How far the plants reach at each Vegetation setting, m (ADR 0091): each has its own reach, 55 to 100 % of this,
 /// and shrinks into the ground over the last fifth of it, so they thin and none pops.
 const PLANTS_FAR: [f32; 3] = [48.0, 80.0, 112.0];
+// shader.wgsl `trace` skips a near plant's reach hash on the bound a shrub keeps only to 120 m (ADR 0104)
+const _: () = assert!(PLANTS_FAR[2] <= 120.0);
 
 /// Chunk-table entry `ci`'s `n` quads from quad `first`, as indexed draws over `quad_index` (ADR 0103: four corners
 /// a quad, so the vertex shader runs four times a quad, not six), split at `QUAD_INDEX` quads; `key` sorts them.
@@ -649,7 +651,7 @@ impl App {
             // before the setting changed keeps its split until it is meshed again
             let (draw_cut, ray_cut) = (d.cut, if shell { d.cut } else { d.ray_cut });
             if new {
-                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.still - ray_cut - d.glass, clim: d.clim, _p: 0 }));
+                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.still - ray_cut - d.glass, clim: d.clim, sto: d.len - d.water - d.still }));
             }
             // the still models' and plants' quads lie between the land's and the sea's: they cast shadows (ADR 0091)
             let land = d.len - d.water - d.still;
@@ -658,7 +660,7 @@ impl App {
             if land + cast > 0 {
                 // the cutout (as `ray_cut` says), glass and still quads are the BLAS's second geometry, not opaque
                 // (ADR 0069, 0081, 0090, 0091): [cut][glass][still] at the land's end, contiguous whether cut is in or not
-                insts.push(rt::Inst { off: d.off, land: land + cast, cut: ray_cut + d.glass + cast, base: k.base().into(), info, body: k.body, ci });
+                insts.push(rt::Inst { off: d.off, land: land + cast, cut: ray_cut + d.glass + cast, still: cast, dist: d.dist, base: k.base().into(), info, body: k.body, ci });
             }
             if d.hidden {
                 continue;

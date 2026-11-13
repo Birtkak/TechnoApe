@@ -5,12 +5,25 @@
 //! (`expand` in shader.wgsl, the drawn geometry slightly grown) into a scratch buffer its BLAS is built from;
 //! the BLAS keeps no reference to it, so the next frame reuses it. A BLAS holds two geometries (ADR 0069): the
 //! opaque quads, flagged OPAQUE, then the cutout blocks' quads, not, so only those enter a ray's candidate loop
-//! (shader.wgsl `trace`); a chunk with no cutout quads has the one.
+//! (shader.wgsl `trace`); a chunk with no cutout quads has the one. A chunk first built within SPLIT_M has its still models' and plants' quads (the last `still` of the land's) in a BLAS of their own, under
+//! an instance with the mask `16 << body` and the chunk-table index plus `STILL_INST`: only shadow and lamp rays
+//! ask for them (ADR 0104), so the bounce and the reflections no longer walk through every blade of grass they
+//! never stop at. One built farther out keeps them as the second geometry's tail, and a split one stays split,
+//! until its mesh goes: splitting or joining a built chunk as the camera moved cost the frame thread more builds.
 use std::collections::HashMap;
 
 /// Quads expanded and built per frame at most: a stream of new chunks is spread over frames, as meshing is.
 const BUILD_QUADS: u32 = 1 << 17;
 const BUILDS_MAX: usize = 256;
+/// Added to a still instance's custom index (shader.wgsl `STILL_INST`): its quads start at the chunk's `sto`.
+const STILL_INST: u32 = 1 << 23;
+/// A chunk first built within this many metres of the camera has its stills split off: past every plant's reach
+/// (96 m at most). In a stand every near chunk is; flying, the chunks come in from farther and few are.
+const SPLIT_M: f32 = 128.0;
+/// Split chunks at most. The TLAS keeps its one slot a chunk table entry: a TLAS with room for more cost the fly
+/// run's frame thread 0.5 ms at p99 for 4096 more, 2 ms for twice as many (wgpu's build), so a split takes a
+/// slot no chunk uses this frame. Past either a chunk keeps its stills in its land's BLAS, which is only slower.
+const SPLIT_MAX: usize = 4096;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -23,12 +36,15 @@ struct Build {
     _p: u32,
 }
 
-/// One chunk to trace this frame: its mesh's offset and land quads (the last `cut` of them cutout), its
-/// chunk-table entry, its body's transform.
+/// One chunk to trace this frame: its mesh's offset and land quads (the last `cut` of them cutout, the last
+/// `still` of those the still models' and plants'), its chunk-table entry, its body's transform.
 pub struct Inst {
     pub off: u32,
     pub land: u32,
     pub cut: u32,
+    pub still: u32,
+    /// Its nearest point's distance from the camera, m.
+    pub dist: f32,
     pub base: [i32; 3],
     pub info: u32,
     pub body: u8,
@@ -42,9 +58,9 @@ pub struct Rt {
     bind: wgpu::BindGroup,
     builds: wgpu::Buffer,
     verts: wgpu::Buffer,
-    /// By mesh offset in the quad buffer: its land quads and its BLAS, dropped when the streamer releases the
-    /// offset (ADR 0025, G).
-    blas: HashMap<u32, (u32, wgpu::Blas)>,
+    /// By mesh offset in the quad buffer: its land quads, its BLAS and its stills' BLAS, dropped when the
+    /// streamer releases the offset (ADR 0025, G).
+    blas: HashMap<u32, (u32, Option<wgpu::Blas>, Option<wgpu::Blas>)>,
     n: usize,
     /// The instances the TLAS was last built from: (mesh offset, chunk-table index, body).
     built: Vec<(u32, u32, u8)>,
@@ -52,6 +68,14 @@ pub struct Rt {
     pub tlas_builds: u64,
     /// Chunks that waited for their BLAS in the last frame.
     pub pending: usize,
+    /// Chunks whose stills are a BLAS of their own.
+    split_n: usize,
+    /// What each TLAS slot holds: (mesh offset, custom index, mask).
+    slots: Vec<(u32, u32, u8)>,
+    /// The TLAS's slots.
+    cap: usize,
+    /// Whether instances were ever left out for want of a slot (said once on stderr).
+    overflowed: bool,
 }
 
 impl Rt {
@@ -60,6 +84,7 @@ impl Rt {
         use wgpu::BufferUsages as U;
         let tlas = device.create_tlas(&wgpu::CreateTlasDescriptor {
             label: Some("terrain"),
+            // a chunk's terrain and its stills
             max_instances: max,
             flags: wgpu::AccelerationStructureFlags::PREFER_FAST_TRACE,
             update_mode: wgpu::AccelerationStructureUpdateMode::Build,
@@ -86,12 +111,14 @@ impl Rt {
                 wgpu::BindGroupEntry { binding: 16, resource: sfaces.as_entire_binding() },
             ],
         });
-        Rt { tlas, expand, bind, builds, verts, blas: HashMap::new(), n: 0, built: Vec::new(), tlas_builds: 0, pending: 0 }
+        Rt { tlas, expand, bind, builds, verts, blas: HashMap::new(), n: 0, built: Vec::new(), tlas_builds: 0, pending: 0, split_n: 0, slots: Vec::new(), cap: max as usize, overflowed: false }
     }
 
     /// New quads were written at `off`: a BLAS from there is stale.
     pub fn forget(&mut self, off: u32) {
-        self.blas.remove(&off);
+        if self.blas.remove(&off).is_some_and(|b| b.2.is_some()) {
+            self.split_n -= 1;
+        }
     }
 
     /// Build the missing BLAS within the budget, and the TLAS from every chunk that has one when that set or a
@@ -100,12 +127,24 @@ impl Rt {
         let mut todo: Vec<Build> = Vec::new();
         let mut sizes = Vec::new();
         let mut quads = 0;
+        // BLAS made this frame: a chunk with stills makes two, and the budget counts both
+        let mut made = 0;
         self.pending = 0;
+        // whether a chunk's stills are (to be) a BLAS of their own: once split, while it has stills; else when first
+        // built near and there is room
+        let most = SPLIT_MAX.min(self.cap.saturating_sub(insts.len()));
+        let split = |b: Option<&(u32, Option<wgpu::Blas>, Option<wgpu::Blas>)>, c: &Inst, split_n: usize| {
+            let was = b.is_some_and(|b| b.2.is_some());
+            c.still > 0 && (was || b.is_none() && c.dist < SPLIT_M && split_n < most)
+        };
         for c in insts {
-            if self.blas.get(&c.off).is_some_and(|b| b.0 == c.land) {
+            let b = self.blas.get(&c.off);
+            let want = split(b, c, self.split_n);
+            if b.is_some_and(|x| x.0 == c.land && x.2.is_some() == want) {
                 continue;
             }
-            if todo.len() >= BUILDS_MAX || quads + c.land > BUILD_QUADS {
+            let still_n = if want { c.still } else { 0 };
+            if made >= BUILDS_MAX || quads + c.land > BUILD_QUADS {
                 self.pending += 1;
                 continue;
             }
@@ -116,24 +155,31 @@ impl Rt {
                 index_count: None,
                 flags,
             };
-            // the opaque quads first (none in a chunk wholly of leaves), then the cutout ones
+            // the opaque quads first (none in a chunk wholly of leaves), then the cutout ones; the stills apart
             let opq = c.land - c.cut;
-            let size: Vec<_> = [(opq, wgpu::AccelerationStructureGeometryFlags::OPAQUE), (c.cut, wgpu::AccelerationStructureGeometryFlags::empty())]
-                .into_iter()
-                .filter(|g| g.0 > 0)
-                .map(|(n, f)| (n, geo(n, f)))
-                .collect();
-            let blas = device.create_blas(
-                &wgpu::CreateBlasDescriptor {
-                    label: None,
-                    flags: wgpu::AccelerationStructureFlags::PREFER_FAST_TRACE,
-                    update_mode: wgpu::AccelerationStructureUpdateMode::Build,
-                },
-                wgpu::BlasGeometrySizeDescriptors::Triangles { descriptors: size.iter().map(|g| g.1.clone()).collect() },
-            );
-            self.blas.insert(c.off, (c.land, blas));
+            let sizes_of = |gs: &[(u32, wgpu::AccelerationStructureGeometryFlags)]| -> Vec<_> { gs.iter().filter(|g| g.0 > 0).map(|&(n, f)| (n, geo(n, f))).collect() };
+            let new_blas = |size: &Vec<(u32, wgpu::BlasTriangleGeometrySizeDescriptor)>| {
+                device.create_blas(
+                    &wgpu::CreateBlasDescriptor {
+                        label: None,
+                        flags: wgpu::AccelerationStructureFlags::PREFER_FAST_TRACE,
+                        update_mode: wgpu::AccelerationStructureUpdateMode::Build,
+                    },
+                    wgpu::BlasGeometrySizeDescriptors::Triangles { descriptors: size.iter().map(|g| g.1.clone()).collect() },
+                )
+            };
+            let size = sizes_of(&[(opq, wgpu::AccelerationStructureGeometryFlags::OPAQUE), (c.cut - still_n, wgpu::AccelerationStructureGeometryFlags::empty())]);
+            let still = sizes_of(&[(still_n, wgpu::AccelerationStructureGeometryFlags::empty())]);
+            // (a chunk of stills alone, none of land: its terrain BLAS is empty and stays out of the TLAS)
+            let blas = (!size.is_empty()).then(|| new_blas(&size));
+            let sblas = (!still.is_empty()).then(|| new_blas(&still));
+            made += blas.is_some() as usize + sblas.is_some() as usize;
+            self.split_n += sblas.is_some() as usize;
+            if self.blas.insert(c.off, (c.land, blas, sblas)).is_some_and(|b| b.2.is_some()) {
+                self.split_n -= 1;
+            }
             todo.push(Build { base: c.base, info: c.info, off: c.off, n: c.land, dst: quads * 6, _p: 0 });
-            sizes.push(size);
+            sizes.push((size, still));
             quads += c.land;
         }
         if !todo.is_empty() {
@@ -147,6 +193,7 @@ impl Rt {
         const IDENTITY: [f32; 12] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
         let mut now = Vec::with_capacity(insts.len());
         for c in insts {
+            // (a chunk whose split changed waits on its old BLAS until the new one is built)
             if !self.blas.get(&c.off).is_some_and(|b| b.0 == c.land) {
                 continue;
             }
@@ -155,44 +202,71 @@ impl Rt {
         // a new BLAS at an offset the last build had is a change too; the TLAS is built at least once before use
         let rebuild = !todo.is_empty() || now != self.built || self.tlas_builds == 0;
         if rebuild {
-            for (n, &(off, ci, body)) in now.iter().enumerate() {
-                self.tlas[n] = Some(wgpu::TlasInstance::new(&self.blas[&off].1, IDENTITY, ci, 1 << body));
+            // a slot is written only when what it holds changed: the same mesh's same BLAS stays (a BLAS made this
+            // frame is new even at an old offset)
+            let fresh: std::collections::HashSet<u32> = todo.iter().map(|b| b.off).collect();
+            let mut n = 0;
+            for &(off, ci, body) in &now {
+                let (_, land, still) = &self.blas[&off];
+                for (b, id, mask) in [(land, ci, 1u8 << body), (still, ci | STILL_INST, 16u8 << body)] {
+                    let Some(b) = b else { continue };
+                    // (only when the chunks outgrow the slots the splits took: the old TLAS had none to spare)
+                    if n >= self.cap {
+                        if !self.overflowed {
+                            eprintln!("[technoape] the traced terrain has more instances than its {} slots: some are left out", self.cap);
+                            self.overflowed = true;
+                        }
+                        continue;
+                    }
+                    if self.slots.get(n) != Some(&(off, id, mask)) || fresh.contains(&off) {
+                        self.tlas[n] = Some(wgpu::TlasInstance::new(b, IDENTITY, id, mask));
+                        if n < self.slots.len() {
+                            self.slots[n] = (off, id, mask);
+                        } else {
+                            self.slots.push((off, id, mask));
+                        }
+                    }
+                    n += 1;
+                }
             }
-            for i in now.len()..self.n {
+            for i in n..self.n {
                 self.tlas[i] = None;
             }
-            self.n = now.len();
+            self.slots.truncate(n);
+            self.n = n;
             self.built = now;
             self.tlas_builds += 1;
         }
-        let entries: Vec<wgpu::BlasBuildEntry> = todo
-            .iter()
-            .zip(&sizes)
-            .map(|(b, size): (&Build, &Vec<(u32, wgpu::BlasTriangleGeometrySizeDescriptor)>)| {
-                let mut first = b.dst;
-                wgpu::BlasBuildEntry {
-                    blas: &self.blas[&b.off].1,
-                    geometry: wgpu::BlasGeometries::TriangleGeometries(
-                        size.iter()
-                            .map(|(n, size)| {
-                                let g = wgpu::BlasTriangleGeometry {
-                                    size,
-                                    vertex_buffer: &self.verts,
-                                    first_vertex: first,
-                                    vertex_stride: 12,
-                                    index_buffer: None,
-                                    first_index: None,
-                                    transform_buffer: None,
-                                    transform_buffer_offset: None,
-                                };
-                                first += n * 6;
-                                g
-                            })
-                            .collect(),
-                    ),
-                }
-            })
-            .collect();
+        fn geometries<'a>(verts: &'a wgpu::Buffer, first: u32, size: &'a [(u32, wgpu::BlasTriangleGeometrySizeDescriptor)]) -> Vec<wgpu::BlasTriangleGeometry<'a>> {
+            let mut first = first;
+            size.iter()
+                .map(|(n, size)| {
+                    let g = wgpu::BlasTriangleGeometry {
+                        size,
+                        vertex_buffer: verts,
+                        first_vertex: first,
+                        vertex_stride: 12,
+                        index_buffer: None,
+                        first_index: None,
+                        transform_buffer: None,
+                        transform_buffer_offset: None,
+                    };
+                    first += n * 6;
+                    g
+                })
+                .collect()
+        }
+        let mut entries: Vec<wgpu::BlasBuildEntry> = Vec::with_capacity(todo.len() * 2);
+        for (b, (size, still)) in todo.iter().zip(&sizes) {
+            let (_, land, sb) = &self.blas[&b.off];
+            if let Some(blas) = land {
+                entries.push(wgpu::BlasBuildEntry { blas, geometry: wgpu::BlasGeometries::TriangleGeometries(geometries(&self.verts, b.dst, size)) });
+            }
+            if let (Some(blas), Some((n, _))) = (sb, still.first()) {
+                // the stills are the last of the chunk's expanded land quads
+                entries.push(wgpu::BlasBuildEntry { blas, geometry: wgpu::BlasGeometries::TriangleGeometries(geometries(&self.verts, b.dst + (b.n - n) * 6, still)) });
+            }
+        }
         if rebuild {
             enc.build_acceleration_structures(entries.iter(), std::iter::once(&self.tlas));
         }

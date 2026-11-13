@@ -56,7 +56,7 @@ struct Globals {
 // base in columns and layers; info = face | level << 3 | body << 8; off: its first quad
 // opq: its opaque land quads; the cutout ones follow them, the BLAS's second geometry (ADR 0069)
 // clim: the climate at its footprint's corners (engine clutter::chunk_climate; ADR 0091)
-struct Chunk { base: vec3i, info: u32, off: u32, opq: u32, clim: u32 };
+struct Chunk { base: vec3i, info: u32, off: u32, opq: u32, clim: u32, sto: u32 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
 @group(0) @binding(14) var cl_tex: texture_2d_array<f32>;
@@ -366,7 +366,7 @@ fn expand(@builtin(global_invocation_id) id: vec3u) {
     let bd = builds[id.y];
     if (id.x >= bd.n) { return; }
     let q = quads[bd.off + id.x];
-    let c = Chunk(bd.base, bd.info, bd.off, 0u, 0u);
+    let c = Chunk(bd.base, bd.info, bd.off, 0u, 0u, 0u);
     let b = g.bodies[(c.info >> 8u) & 255u];
     if (((q.x >> 28u) & 7u) == 7u) {
         // a still model's or plant's quad (ADR 0091): where `vs_still` draws it, unswayed, unfaded
@@ -466,10 +466,14 @@ fn ray(p: vec3f, n: vec3f, d: vec3f, body: u32, tmax: f32) -> f32 {
 // its texel lets through, so light through a green pane comes out green. (shortcut: candidates come unordered, so
 // a ray that looks also takes the tint of glass beyond what it hits; exact only for shadow rays)
 var<private> ray_tint: vec3f;
+// added to a chunk's index for its stills' instance (rt.rs STILL_INST)
+const STILL_INST: u32 = 8388608u;
 fn trace(o: vec3f, db: vec3f, body: u32, tmax: f32, flags: u32) -> RayIntersection {
     var rq: ray_query;
     ray_tint = vec3f(1.0);
-    rayQueryInitialize(&rq, acc, RayDesc(flags, 1u << body, 0.0, tmax, o, db));
+    // the stills are instances of their own (rt.rs): only shadow and lamp rays, which they stop, ask for them
+    let mask = select(1u << body, 17u << body, (flags & RAY_FLAG_TERMINATE_ON_FIRST_HIT) != 0u);
+    rayQueryInitialize(&rq, acc, RayDesc(flags, mask, 0.0, tmax, o, db));
     // the season where the ray starts: a bare crown lets it through between its twigs (ADR 0090)
     let sn = season_in(g.bodies[body], o);
     while (rayQueryProceed(&rq)) {
@@ -480,8 +484,11 @@ fn trace(o: vec3f, db: vec3f, body: u32, tmax: f32, flags: u32) -> RayIntersecti
             // whole (`still_reach`), by its painting, and past `still_skip` from the ray's start, so a swaying
             // blade does not shade itself
             let b = g.bodies[body];
+            // (nearer than 0.44 of the far distance every plant reaches, `plant_reach` times 0.8, a shrub's too
+            // while still_far() <= 120 (frame.rs PLANTS_FAR): its hash is not needed)
+            let e = length((o + db * c.t - b.cam_hi) - b.cam_lo);
             if ((flags & RAY_FLAG_TERMINATE_ON_FIRST_HIT) != 0u && c.t > still_skip
-                && length((o + db * c.t - b.cam_hi) - b.cam_lo) < still_reach(c.instance_custom_data, q)
+                && (e < 0.44 * still_far() || e < still_reach(c.instance_custom_data & (STILL_INST - 1u), q))
                 && still_texel(q, c.primitive_index, c.barycentrics).a >= 0.5) {
                 rayQueryConfirmIntersection(&rq);
             }
@@ -506,9 +513,11 @@ fn trace(o: vec3f, db: vec3f, body: u32, tmax: f32, flags: u32) -> RayIntersecti
     return rayQueryGetCommittedIntersection(&rq);
 }
 
-// the quad a ray hit: chunk-table entry ci, geometry geo (0 the opaque quads, 1 the cutout ones), triangle prim
-fn hit_quad(ci: u32, geo: u32, prim: u32) -> vec2u {
-    let c = chunks[ci];
+// the quad a ray hit: instance id (a chunk-table entry, plus STILL_INST for its stills' instance), geometry
+// geo (0 the opaque quads, 1 the cutout ones), triangle prim
+fn hit_quad(id: u32, geo: u32, prim: u32) -> vec2u {
+    let c = chunks[id & (STILL_INST - 1u)];
+    if (id >= STILL_INST) { return quads[c.off + c.sto + prim / 2u]; }
     return quads[c.off + select(0u, c.opq, geo == 1u) + prim / 2u];
 }
 
@@ -2339,10 +2348,9 @@ var<private> still_skip: f32 = 0.04;
 // the painting's texel of still quad q at a candidate hit's barycentrics bc on its triangle prim
 fn still_texel(q: vec2u, prim: u32, bc: vec2f) -> vec4f {
     let f = sfaces[q.y & 65535u];
-    var cu = array<f32, 6>(0., 1., 1., 0., 1., 0.);
-    var cv = array<f32, 6>(0., 0., 1., 0., 1., 1.);
-    let t = (prim & 1u) * 3u;
-    let uv = vec2f(cu[t], cv[t]) * (1.0 - bc.x - bc.y) + vec2f(cu[t + 1u], cv[t + 1u]) * bc.x + vec2f(cu[t + 2u], cv[t + 2u]) * bc.y;
+    // the corners' uv, (0,0) (1,0) (1,1) then (0,0) (1,1) (0,1), weighed by bc: written out, as an array indexed
+    // at run time spills to slow memory, and this runs for every blade a shadow ray passes (ADR 0104)
+    let uv = select(vec2f(bc.x, bc.x + bc.y), vec2f(bc.x + bc.y, bc.y), (prim & 1u) == 0u);
     let wh = vec2u(f.wh & 65535u, f.wh >> 16u);
     let px = min(vec2u(uv * vec2f(wh)), wh - 1u) + vec2u(f.xy & 65535u, f.xy >> 16u);
     return unpack4x8unorm(spaint[f.base + px.y * f.pw + px.x]);

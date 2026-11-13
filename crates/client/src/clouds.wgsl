@@ -103,6 +103,8 @@ fn cl_sample(q: vec3f, sea: f32, wind: vec3f, cfg: vec4f) -> ClS {
         let c = vec2i(floor(p - off));
         let mid = (vec2f(c) + 0.5 + off) / CL_SUB;
         let t = cl_map(at.f, mid, m, 0u);
+        // (a cell's number is CL_OPEN or more: under it no cell fills, and its hashes are skipped; exact)
+        if (t.r <= CL_OPEN) { continue; }
         let margin = t.r - cl_number(at.f, c);
         // the more the cover beats the cell's number, the taller the cell; a thin cell is a soft one
         if (margin > 0.0 && h < 0.3 + margin * 2.0) {
@@ -127,12 +129,20 @@ fn cl_clump(f: u32, p: vec2f) -> f32 {
 // a point's cloud as its shadow sees it, 0 to 1: `cl_sample`'s field made smooth (the cover and the clump read
 // where the point is, the cells' own numbers by their mean, the edge as wide as those numbers spread), so a
 // shadow takes the cloud's shape with a soft edge and no cell's square in it
-fn cl_soft(q: vec3f, sea: f32, wind: vec3f, cfg: vec4f) -> f32 {
+// (the wind as `cl_wind` reads it, from the same texel: one locate and one fetch, not two)
+fn cl_soft(q: vec3f, sea: f32, cfg: vec4f) -> f32 {
     let m = cfg.w;
-    let at = cl_locate(normalize(q), m);
+    let up = normalize(q);
+    let at = cl_locate(up, m);
     let fa = cl_face(at.f);
+    let tx = cl_map(at.f, at.xy, m, 0u);
+    let w = (tx.ba - 128.0 / 255.0) * 255.0 * 0.25;
+    let east = normalize(cross(vec3f(0.0, 0.0, 1.0), up) + vec3f(1e-6, 0.0, 0.0));
+    let wind = east * w.x + cross(up, east) * w.y;
     let wf = vec2f(dot(wind, fa.s), dot(wind, fa.t)) / (sea * CL_PI * 0.5 / m) * CL_SUB;
-    let cover = cl_map(at.f, at.xy, m, 0u).r;
+    let cover = tx.r;
+    // (open sky: the margin below is -0.15 or less whatever the clump, so nothing; exact)
+    if (cover <= CL_OPEN) { return 0.0; }
     var d = 0.0;
     for (var k = 0u; k < 2u; k++) {
         let ph = fract(cfg.x + 0.5 * f32(k));
@@ -153,7 +163,7 @@ fn cl_shadow(p: vec3f, sd: vec3f, sea: f32, cfg: vec4f) -> f32 {
     if (c > 0.0) { return 1.0; }
     let t = -b + sqrt(b * b - c);
     let q = p + sd * t;
-    return 1.0 - 0.8 * cl_soft(q, sea, cl_wind(normalize(q), cfg.w), cfg);
+    return 1.0 - 0.8 * cl_soft(q, sea, cfg);
 }
 
 // lying snow at body-frame direction d, 0 to 1 (the share of SNOW_TOP in weather.rs)
