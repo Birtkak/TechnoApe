@@ -294,13 +294,16 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     if (a == 0u) { normal = normalize(f.s - f.n * f.ta); }
     if (a == 1u) { normal = normalize(f.t - f.n * f.tb); }
     if ((dir & 1u) == 1u) { normal = -normal; }
+    // a plant's faces and planes lit as one mass (ADR 0090): their normals bent toward up, so the sun side is not
+    // lime and the far side not black; the crown's volume is its shade (`ao`)
+    if (mode != 0u) { normal = normalize(normal + f.up * 0.5); }
 
     let at = quad_corner(q, 0u, 0.0);
     let rel = brot(b, (place(c, b, local, at) - b.cam_hi) - b.cam_lo);
     o.clip = g.view_proj * vec4f(rel, 1.0);
     o.rel = rel;
     // the shade's floor: a crown's shaded side stays green (the target's), never near black
-    o.ao = (1.0 - 0.2 * f32(occl)) * max(shade, 0.6);
+    o.ao = (1.0 - 0.2 * f32(occl)) * max(shade, 0.7);
     // the texture and the cell from the quad's own corner: in the grown lip, fract() would wrap to the far edge
     // (a dirt line along every grass top edge) and floor() name the neighbour
     o.local = paint;
