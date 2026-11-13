@@ -1,6 +1,7 @@
 //! The fast-forward soak (`docs/design/fundamentals.md` section 4, step 1; ADR 0011). Seeded random bots walk,
 //! jump, dig, place and teleport, half the teleports onto cube seams and corners, while the server ticks
-//! without sleeping and checks after every tick: no walking player inside a block, nothing NaN, nothing under
+//! without sleeping and checks after every tick: no walking player inside a block (but loose sand or gravel
+//! fallen on it, ADR 0079), nothing NaN, nothing under
 //! the core, and every bot's copy of the world equals the server's. A failure is shrunk to the fewest bots
 //! that still fail it.
 use crate::save::Save;
@@ -263,7 +264,9 @@ fn check(s: &Server) -> Result<(), String> {
             return Err(format!("player {id} under the core at {:?}", p.pos));
         }
         if c.input.is_some() {
-            if phys::inside(&s.world, p) {
+            // (sand and gravel fall on players and bury them: ADR 0079)
+            let loose = |b| BLOCKS.get(s.world.block(b)).is_some_and(|d| !d.solid || d.falls);
+            if phys::inside(&s.world, p) && !phys::cells(&s.world, p.pos).all(loose) {
                 return Err(format!("player {id} inside a block at {:?}", p.pos.to_array()));
             }
         }

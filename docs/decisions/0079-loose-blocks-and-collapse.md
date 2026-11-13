@@ -24,7 +24,7 @@ cells' half).
   block over an open cell falls a cell when g t^2 / 2 (rounded) says, at most one a tick; the blocks on it
   come down with it in the same tick; one on a block that is still waiting waits with it; on solid ground
   it slides to a side whose cell and the cell under it are open (first side by a hash of cell and tick),
-  else it sleeps. Never into a cell a player's box holds: it waits on the head.
+  else it sleeps. A player is no floor: it falls through the player's cells and buries them (below).
 - **`BUDGET` = 1,024 visits a tick**, the rest carried to the next, lowest first: never a stall.
 - **Server:** after the players' steps, before the water regaps: this tick's edits wake, the falls step, and
   each move is two ordinary edits in the tick's `Edits` (the water regaps their columns, the ore ledger
@@ -37,8 +37,7 @@ cells' half).
 
 ## Evidence
 - Tests seen red (the step switched off) then green: `fall::tests` (falls to the floor in its time, a
-  column comes down whole, a tower spreads to no step of two with no block made or lost, waits on a
-  player's head, the budget holds and the rest carry on, two runs end in the same world) and the server's
+  column comes down whole, a tower spreads to no step of two with no block made or lost, the budget holds and the rest carry on, two runs end in the same world) and the server's
   `sand_dug_from_under_falls_and_every_player_sees_it`.
 - **Cost** (`fall_cost`, play build, the noise land whose every generated lookup is noise): 2,744 sand
   blocks dropped onto a 7 x 7 floor and spread over the ground, 132,060 moves in 624 ticks: **517 ns a
@@ -81,8 +80,27 @@ cells' half).
   slopes).
 - A falling block teleports a cell at a time on the client (the edit stream): no smooth motion yet. A
   follow-up draws a falling block as a moving cube (the effects' `block` instance) between its cells.
-- Sand falling onto a player rests on the head rather than hurting or burying them.
+- ~~Sand falling onto a player rests on the head~~: decided, see *Burial* below.
 - Generated sand is not disturbed until something next to it changes: a beach over a cave stays until dug.
+
+## Burial (the developer's decision, 2026-11-13)
+- Falling sand buries and hurts. A loose block that lands on a player neither pushes them out nor breaks: it
+  falls through the player's cells and settles on what is under them (`Falls::step` no longer asks about
+  players). A player in a block is held by the physics as before (every move is blocked) until they dig out.
+- **Breath** (there was no drowning to reuse): `Vitals::smother`. With the eye's cell solid, the breath lasts
+  `BREATH` = 10 s, then a point goes every second (`CHOKE`) until they dig out; a breath of air starts it
+  again. Death reads "<name> was buried". Feet only (eyes free) costs nothing. Creative takes no harm. The
+  count (`Client::buried`) is not saved: a load starts the breath anew.
+- A single column of sand two high on open ground slides off itself to its angle of rest, so a head is
+  buried by a heap, not by one block.
+- Tests, seen red (the sand waited over the head) then green: the server's
+  `sand_over_the_head_takes_breath_then_health` (a 3 x 3 slab two high: feet and head filled, health whole
+  after 5 s, lower after 25 s, buried to death in 60 s) and `sand_at_the_feet_only_does_not_hurt`, and
+  `vitals::buried_the_breath_lasts_then_a_point_a_second_and_air_starts_it_again`.
+- The soak's "no player inside a block" now passes a player inside sand or gravel only (bots are buried
+  where they dig under heaps).
+- Defaults taken, for the developer to change: 10 s of breath and a point a second; any solid block at the
+  eye counts, not only loose ones; the HUD shows no breath bar yet (a follow-up).
 
 ## Consequences
 - Collapse (slice (c)) reuses this: an unsupported piece's blocks become falling blocks.

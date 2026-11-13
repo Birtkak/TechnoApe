@@ -22,6 +22,9 @@ pub const DIG: f64 = 0.05;
 pub const FED: f64 = 14.0;
 pub const REGEN: u32 = (8.0 / phys::DT) as u32;
 pub const STARVE: u32 = (10.0 / phys::DT) as u32;
+/// Buried to the eyes (sand fallen on the head, ADR 0079): the breath held, in steps, then a point a second.
+pub const BREATH: u32 = (10.0 / phys::DT) as u32;
+pub const CHOKE: u32 = (1.0 / phys::DT) as u32;
 
 /// The fastest impact that costs nothing, m/s.
 pub fn safe_speed() -> f64 {
@@ -119,6 +122,13 @@ impl Vitals {
             self.dead = Some(cause());
         }
         self.dead.is_some()
+    }
+
+    /// One step with the head `under` a solid block or not; `held` counts the steps under so far (out, it
+    /// starts again). The breath lasts `BREATH`, then a point goes every `CHOKE`. True when that killed.
+    pub fn smother(&mut self, held: &mut u32, under: bool, cause: impl FnOnce() -> String) -> bool {
+        *held = if under { *held + 1 } else { 0 };
+        *held >= BREATH && (*held - BREATH) % CHOKE == 0 && self.hurt(1, cause)
     }
 
     /// What the HUD shows: health, and hunger in whole points (a point started counts).
@@ -281,6 +291,27 @@ mod tests {
         let mut v = Vitals::default();
         v.step(false);
         assert_eq!(v.health, MAX, "never over full");
+    }
+
+    #[test]
+    fn buried_the_breath_lasts_then_a_point_a_second_and_air_starts_it_again() {
+        let mut v = Vitals::default();
+        let mut held = 0;
+        for _ in 0..BREATH - 1 {
+            v.smother(&mut held, true, || "buried".into());
+        }
+        assert_eq!(v.health, MAX, "the breath held");
+        v.smother(&mut held, false, || "buried".into());
+        for _ in 0..BREATH - 1 {
+            v.smother(&mut held, true, || "buried".into());
+        }
+        assert_eq!(v.health, MAX, "a breath of air starts the count again");
+        for _ in 0..1 + 3 * CHOKE {
+            v.smother(&mut held, true, || "buried".into());
+        }
+        assert_eq!(v.health, MAX - 4, "then a point a second");
+        let killed = (0..100 * CHOKE).any(|_| v.smother(&mut held, true, || "ape was buried".into()));
+        assert!(killed && v.dead.as_deref() == Some("ape was buried"));
     }
 
     #[test]

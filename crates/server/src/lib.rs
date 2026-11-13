@@ -159,6 +159,8 @@ struct Client {
     /// what the client was last told of them.
     vitals: Vitals,
     was: DVec3,
+    /// Steps the head has been in a solid block (buried, ADR 0079; not saved: a load starts the breath anew).
+    buried: u32,
     sent: Option<((u8, u8), bool)>,
     /// The survival dig it holds (ADR 0034), on the server's clock.
     hold: edit::Hold,
@@ -642,6 +644,7 @@ impl Server {
                 done: Vec::new(),
                 inv_dirty: true,
                 vitals: Vitals::default(),
+                buried: 0,
                 was: DVec3::ZERO,
                 sent: None,
                 hold: edit::Hold::default(),
@@ -834,15 +837,14 @@ impl Server {
         for line in deaths {
             self.say(line);
         }
-        // loose blocks wake where this tick's edits changed the world, then fall and slide (ADR 0079); never
-        // into a player
+        // loose blocks wake where this tick's edits changed the world, then fall and slide (ADR 0079), through
+        // a player too: `live` takes the breath of one buried to the eyes
         for (b, _) in &changed {
             self.falls.wake(&self.world, *b);
         }
         let mine = changed.len();
         if self.falls.awake() > 0 {
-            let held: std::collections::HashSet<Block> = self.clients.iter().flat_map(|c| phys::cells(&self.world, c.phys.pos)).collect();
-            self.falls.step(&mut self.world, self.tick, |_, b| held.contains(&b), &mut changed);
+            self.falls.step(&mut self.world, self.tick, &mut changed);
         }
         // the animals (ADR 0083): woken by the players on Terra, stepped as far as the players were
         let players: Vec<(DVec3, DVec3)> = self.clients.iter().filter(|c| self.world.frame_at(c.phys.pos) == 0).map(|c| (c.phys.pos, c.phys.vel)).collect();
@@ -1832,15 +1834,20 @@ fn live(c: &mut Client, world: &World, before: &phys::Player, inp: &Input, death
     let (now, hit) = vitals::impact(c.was, before, &c.phys, phys::DT);
     c.was = now;
     if c.creative {
+        c.buried = 0;
         return;
+    }
+    let name = if c.player.name.is_empty() { "?" } else { c.player.name.as_str() };
+    let up = phys::up(world, c.phys.pos);
+    let under = BLOCKS.solid(world.block(world.block_at(c.phys.pos + up * phys::EYE)));
+    if c.vitals.smother(&mut c.buried, under, || format!("{name} was buried")) {
+        deaths.extend(c.vitals.dead.clone());
     }
     if hit > vitals::safe_speed() {
         // landing in water costs nothing (asked only for a hit that would hurt)
-        let up = phys::up(world, c.phys.pos);
         if world.water_surface(c.phys.pos + up * 0.05).is_none() {
             let into = before.vel.dot(up) / before.vel.length().max(1e-9);
             let what = if into < -0.7 { "the ground" } else if into > 0.7 { "a ceiling" } else { "a wall" };
-            let name = if c.player.name.is_empty() { "?" } else { c.player.name.as_str() };
             if c.vitals.hurt(vitals::impact_damage(hit), || format!("{name} hit {what} at {hit:.0} m/s")) {
                 deaths.extend(c.vitals.dead.clone());
             }
@@ -2964,6 +2971,49 @@ mod tests {
         }
         assert!(s.clients[0].phys.on_ground, "landed");
         s.clients[0].vitals.health
+    }
+
+    /// Drops `n` layers of sand on a survival player standing on the ground (the developer, 2026-11-13: sand
+    /// buries and hurts, ADR 0079) and waits `secs`; its health then and the sand's cells.
+    fn bury(n: i32, secs: f64) -> (u8, Option<String>, Vec<u16>) {
+        let (mut s, links) = server_with(1);
+        drop_from(&mut s, &links[0], 0.0);
+        let pos = s.clients[0].phys.pos;
+        let up = phys::up(&s.world, pos);
+        let feet = s.world.block_at(pos + up * 0.5);
+        let sand = BLOCKS.id("sand");
+        // a slab 3 x 3 wide (a single column two high would slide off itself, to its angle of rest)
+        for k in 0..n {
+            for (di, dj) in (-1..=1).flat_map(|i| (-1..=1).map(move |j| (i, j))) {
+                let b = Block { pos: feet.pos + glam::IVec3::new(di, dj, 4 + k), ..feet };
+                s.world.set_block(b, sand);
+                s.falls.poke(b);
+            }
+        }
+        for _ in 0..(secs * 20.0) as usize {
+            s.tick();
+        }
+        let cells = (0..3).map(|k| s.world.block(Block { pos: feet.pos + glam::IVec3::Z * k, ..feet })).collect();
+        (s.clients[0].vitals.health, s.clients[0].vitals.dead.clone(), cells)
+    }
+
+    #[test]
+    fn sand_over_the_head_takes_breath_then_health() {
+        let sand = BLOCKS.id("sand");
+        let (health, _, cells) = bury(2, 25.0);
+        assert_eq!(cells, [sand, sand, AIR], "the sand settles in the player's cells, feet and head");
+        assert!(health < vitals::MAX, "buried to the eyes for 25 s hurts: health {health}");
+        let (early, _, _) = bury(2, 5.0);
+        assert_eq!(early, vitals::MAX, "a breath held: the first seconds cost nothing");
+        let (_, dead, _) = bury(2, 60.0);
+        assert!(dead.is_some_and(|d| d.contains("buried")), "staying under kills, by burial");
+    }
+
+    #[test]
+    fn sand_at_the_feet_only_does_not_hurt() {
+        let (health, _, cells) = bury(1, 25.0);
+        assert_eq!(cells[..2], [BLOCKS.id("sand"), AIR], "one block settles at the feet");
+        assert_eq!(health, vitals::MAX);
     }
 
     fn vitals_of(got: &[ToClient]) -> Vec<(u8, u8, Option<String>)> {
