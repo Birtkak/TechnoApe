@@ -68,6 +68,9 @@ settings! {
     // the ground's small things (ADR 0082): pick-ups lie there whatever this says, it thins the rest
     Clutter "clutter" "Clutter" Kind::Choice(&["off", "few", "normal", "many"]), 2.0;
     Stars "stars" "Stars and galaxy" Kind::Choice(OFF_ON), 1.0;
+    // off: the old flat sheet; simple: ripples and the sky in it, no rays of its own; traced: the bed seen
+    // through it, the world in it, foam at the shore (ADR 0071)
+    Water "water" "Water" Kind::Choice(&["off", "simple", "traced"]), 2.0;
     Sensitivity "sensitivity" "Mouse sensitivity" Kind::Slider { lo: 0.05, hi: 5.0, step: 0.05, max: 10.0, unit: Unit::Times }, 1.0;
     ZoomSens "zoom_sensitivity" "Zoomed sensitivity" Kind::Slider { lo: 0.25, hi: 3.0, step: 0.05, max: 3.0, unit: Unit::Times }, 1.0;
     InvertY "invert_look" "Invert look up and down" Kind::Choice(OFF_ON), 0.0;
@@ -190,6 +193,7 @@ acts! {
     WarpDown "warp_down" "Time warp slower" k(KeyCode::Comma), "warp-" "";
     Waypoint "waypoint" "Drop a waypoint" k(KeyCode::KeyN), "waypoint" "";
     Marks "waypoint_overlay" "Show or hide waypoints" k(KeyCode::KeyK), "waypoints" "";
+    Map "map" "Globe map" k(KeyCode::KeyM), "map" "";
     Playtest "playtest" "Playtest menu" k(KeyCode::F10), "f10" "";
     Slot1 "slot1" "Hotbar 1" k(KeyCode::Digit1), "1" "";
     Slot2 "slot2" "Hotbar 2" k(KeyCode::Digit2), "2" "";
@@ -224,7 +228,7 @@ const KEY_GROUPS: &[(&str, &[Act])] = &[
     ("Moving", &[Act::Forward, Act::Back, Act::Left, Act::Right, Act::Jump, Act::Down, Act::RollLeft, Act::RollRight]),
     ("Hands and tools", &[Act::Dig, Act::Place, Act::Hammer, Act::Shape, Act::Bucket, Act::Inventory, Act::Pick]),
     ("Hotbar", &[Act::Slot1, Act::Slot2, Act::Slot3, Act::Slot4, Act::Slot5, Act::Slot6, Act::Slot7, Act::Slot8, Act::Slot9]),
-    ("Looking and finding", &[Act::Zoom, Act::Waypoint, Act::Marks, Act::Overlay]),
+    ("Looking and finding", &[Act::Zoom, Act::Waypoint, Act::Marks, Act::Map, Act::Overlay]),
     ("Chat, time and testing", &[Act::Chat, Act::Command, Act::WarpUp, Act::WarpDown, Act::Bug, Act::Playtest]),
 ];
 
@@ -242,7 +246,7 @@ pub fn page_rows(page: usize) -> Vec<Row> {
     use Row::Set;
     match page {
         0 => vec![Row::Resolution, Set(S::Monitor), Set(S::Display), Set(S::FrameCap), Set(S::BackCap), Set(S::Vsync), Set(S::Fov), Set(S::Brightness)],
-        1 => vec![Row::Preset, Set(S::Detail), Set(S::Shadows), Set(S::Bounce), Set(S::Reflections), Set(S::Lamps), Set(S::Particles), Set(S::Clouds), Set(S::Rain), Set(S::Textures), Set(S::Leaves), Set(S::Clutter), Set(S::Stars)],
+        1 => vec![Row::Preset, Set(S::Detail), Set(S::Shadows), Set(S::Bounce), Set(S::Reflections), Set(S::Lamps), Set(S::Particles), Set(S::Clouds), Set(S::Rain), Set(S::Textures), Set(S::Leaves), Set(S::Water), Set(S::Clutter), Set(S::Stars)],
         2 => vec![Set(S::Sensitivity), Set(S::ZoomSens), Set(S::InvertY), Set(S::ZoomMode), Set(S::AutoJump), Set(S::FlyTap)],
         3 => Settings::default().key_rows(""),
         4 => vec![Set(S::Volume), Set(S::VolWorld), Set(S::VolSteps), Set(S::VolUi), Set(S::VolMusic), Set(S::MuteBack), Set(S::SpaceSound)],

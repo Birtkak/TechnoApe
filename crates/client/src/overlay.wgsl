@@ -101,8 +101,55 @@ fn ui_vs(@builtin(vertex_index) vi: u32, r: Rect) -> UiOut {
 const DIGITS = array<u32, 10>(31599u, 11415u, 29671u, 29647u, 23497u, 31183u, 31215u, 29257u, 31727u, 31695u);
 
 // FONT, the 8 x 8 font (ADR 0023), is appended by the client from `hud::font_wgsl`
+// The globe map (ADR 0077, globe.rs): its head (the view), then Terra's and Luna's pictures (RGBA8, latitude
+// rows from the north, longitude from 180 W) and their seen bits, all in `globe::off`'s order.
+@group(0) @binding(20) var<storage, read> globe: array<u32>;
+fn gf(k: u32) -> f32 { return bitcast<f32>(globe[k]); }
+
+// One pixel of the globe: every px x px block takes the texel under its middle (the game's pixel look), the
+// night side darker past the terminator, the unseen bare, a line every 30 degrees. globe.rs `View::pick`
+// and prototypes/globe-map `shade` do the same on the CPU.
+fn globe_px(frag: vec2f) -> vec4f {
+    let scale = f32(g.opt.z) / gf(23u);
+    let c = vec2f(gf(0u), gf(1u)) * scale;
+    let r = gf(2u) * scale;
+    let px = max(gf(3u) * scale, 1.0);
+    let q = (floor(frag / px) + 0.5) * px;
+    let p = vec2f(q.x - c.x, c.y - q.y) / r;
+    let s = dot(p, p);
+    if (s > 1.0) { discard; }
+    let v = normalize(vec3f(gf(4u), gf(5u), gf(6u)) * p.x + vec3f(gf(8u), gf(9u), gf(10u)) * p.y + vec3f(gf(12u), gf(13u), gf(14u)) * sqrt(1.0 - s));
+    let luna = gf(20u) > 0.5;
+    let lat = degrees(asin(clamp(v.z, -1.0, 1.0)));
+    let lon = fract((degrees(atan2(v.y, v.x) - gf(22u)) + 180.0) / 360.0) * 360.0 - 180.0;
+    let w = select(1024u, 512u, luna);
+    let h = w / 2u;
+    let k = min(u32(max(floor((90.0 - lat) / 180.0 * f32(h)), 0.0)), h - 1u) * w + min(u32(floor((lon + 180.0) / 360.0 * f32(w))), w - 1u);
+    let t = 32u + 1024u * 512u;
+    let texel = unpack4x8unorm(globe[select(32u, t, luna) + k]);
+    let mask = select(t + 512u * 256u, t + 512u * 256u + 1024u * 512u / 32u, luna);
+    var rgb = texel.rgb;
+    if (texel.a < 0.5 || (gf(21u) < 0.5 && ((globe[mask + k / 32u] >> (k % 32u)) & 1u) == 0u)) {
+        rgb = vec3f(0.32, 0.30, 0.27);
+    }
+    // soft over about 6 degrees, the night a dim blue so the land still reads
+    let day = clamp(dot(v, vec3f(gf(16u), gf(17u), gf(18u))) / 0.1 + 0.5, 0.0, 1.0);
+    rgb *= vec3f(0.25, 0.28, 0.4) + vec3f(0.75, 0.72, 0.6) * day;
+    // the lines a pixel block wide wherever the globe is turned
+    let wide = degrees(px / r) * 0.6;
+    let near = abs(fract(vec2f(lat, lon) / 30.0 + 0.5) - 0.5) * 30.0;
+    if (near.x < wide || (near.y < wide / max(cos(radians(lat)), 0.05) && abs(lat) < 80.0)) {
+        rgb = rgb * 0.7 + vec3f(0.26);
+    }
+    // a little darker to the rim, so it reads as round
+    return vec4f(rgb * (0.8 + 0.2 * sqrt(1.0 - s)), 1.0);
+}
+
 @fragment
 fn ui_fs(i: UiOut) -> @location(0) vec4f {
+    if (i.glyph == 200u) {
+        return globe_px(i.clip.xy);
+    }
     if (i.glyph >= 32u) {
         let x = u32(clamp(i.uv.x * 8.0, 0.0, 7.0));
         let y = u32(clamp((1.0 - i.uv.y) * 8.0, 0.0, 7.0));

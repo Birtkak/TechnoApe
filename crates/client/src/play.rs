@@ -218,6 +218,8 @@ impl App {
             }
             "up" | "down" => self.act(&(wheel_slot(self.slot, a == "down") + 1).to_string()),
             // the waypoints' marks on and off (bugs/2026-11-11_13-16-39), kept in the settings
+            // the globe map (ADR 0077): M, and its acts= inputs
+            a if a == "map" || a.starts_with("globe:") => self.globe_act(a),
             "waypoints" => {
                 let on = !self.settings.on(S::Marks);
                 self.settings.set(S::Marks, on as u8 as f64);
@@ -291,7 +293,7 @@ impl App {
                 Some(Menu::Remove(_) | Menu::NewWorld) => Some(Menu::Worlds),
                 Some(Menu::Waypoints) => Some(Menu::Pause),
                 Some(Menu::Waypoint(_)) => Some(Menu::Waypoints),
-                Some(Menu::Playtest) => None,
+                Some(Menu::Playtest) | Some(Menu::Globe) => None,
                 Some(Menu::Dead) => Some(Menu::Dead),
             }),
             // point:x:y puts the pointer there (pixels), to see a button lit
@@ -1067,6 +1069,7 @@ impl App {
             let (_, a) = self.acts.pop().unwrap();
             self.act(&a);
         }
+        self.globe_frame();
         // lines=stdin: each line as if typed and sent. What the player has in hand is kept: a line being
         // typed, the place in the lines sent before, and those lines themselves. A field being edited (a
         // waypoint's name) makes the lines wait; four a frame at the most, however many are written.
@@ -1143,10 +1146,6 @@ impl App {
             let ages = self.flash.map(|(at, from)| (at.elapsed().as_secs_f32(), from));
             hud::vitals(&mut p, self.vitals, ages, self.start.elapsed().as_secs_f32());
             rects.extend(p.out);
-        }
-        if self.world.water_surface(p.pos).is_some() {
-            // under water: a blue veil first, under the HUD. shortcut: a veil, not fog, until the sky has fog
-            rects.insert(0, hud::Rect { xy: [-1.0, -1.0, 1.0, 1.0], colour: [0.05, 0.25, 0.4, 0.55], glyph: 0 });
         }
         // the text over it (ADR 0023): F3's numbers, the chat, the bug report's form
         let mut paint = hud::Paint::new(lw, lh);
@@ -1257,7 +1256,9 @@ impl App {
             // over the hotbar's right end (hud::layer: its pane ends 268 px right of the middle)
             paint.text_px(lw / 2.0 + 268.0 - s.len() as f32 * hud::ADV * hud::PX * 0.75, lh - 110.0, &s, [1.0, 1.0, 1.0, 0.9], hud::PX * 0.75);
         }
-        if self.menu == Some(Menu::Inventory) {
+        if self.menu == Some(Menu::Globe) {
+            self.menu_boxes = self.globe_draw(&mut paint, lw, lh, p.fwd);
+        } else if self.menu == Some(Menu::Inventory) {
             self.inv_draw(&mut paint, season);
             self.menu_boxes.clear();
         } else if let Some(m) = self.menu {
@@ -1275,6 +1276,7 @@ impl App {
                 Menu::Remove(_) => ("Remove world", "It moves to saves/removed/ and can be put back by hand."),
                 Menu::Waypoints => ("Waypoints", "N drops one where you stand. Click one to change it; right click or Delete takes it away."),
                 Menu::Waypoint(_) => ("Waypoint", "Click the name to type a new one. Click a row for its next value, right click the one before."),
+                Menu::Globe => ("", ""),
                 Menu::Playtest => ("Playtest", "Set-ups to look at: the clock and you move there. F10 or Esc closes it."),
                 Menu::Pause => ("Paused", "The world runs on. Esc goes back to the game."),
                 Menu::Settings => ("Settings", "Click or Enter: the next value. Right click: the one before. Arrows move."),

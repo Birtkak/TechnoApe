@@ -240,6 +240,8 @@ pub(crate) enum Menu {
     Confirm,
     /// The death screen (ADR 0040): how, Respawn, or back to the title. Esc does not close it.
     Dead,
+    /// The globe map (M, ADR 0077): drawn by `globe_ui`, its buttons the bodies and Back.
+    Globe,
     /// The inventory (ADR 0075, inventory.rs): its own screen of slots, no buttons.
     Inventory,
 }
@@ -384,6 +386,7 @@ impl App {
                 rows
             }
             Some(Menu::Dead) => vec!["Respawn".into(), "To the title".into()],
+            Some(Menu::Globe) => self.globe_items(),
             Some(Menu::Pause) => vec!["Back to game".into(), "Settings".into(), "Waypoints".into(), "Main menu".into(), "Quit game".into()],
             Some(Menu::Waypoints) => {
                 let w = &self.world;
@@ -468,7 +471,12 @@ impl App {
         if self.edit.as_ref().is_some_and(|e| v.map(|v| v + self.scroll) != Some(e.0)) {
             self.submit();
         }
-        let Some(v) = v else { return };
+        let Some(v) = v else {
+            if self.menu == Some(Menu::Globe) {
+                self.globe_press(back);
+            }
+            return;
+        };
         let k = v + self.scroll;
         if self.menu_sliders().get(k).is_some_and(|s| s.is_some()) {
             let (t, n) = hud::slider_parts(self.menu_boxes[v], &self.menu_items()[k]);
@@ -547,6 +555,7 @@ impl App {
         }
         self.audio.play("ui.click", None, 1.0, 1.0, false);
         match (self.menu, k) {
+            (Some(Menu::Globe), k) => self.globe_button(k),
             (Some(Menu::Title), 0) => self.set_menu(Some(Menu::Worlds)),
             (Some(Menu::Title) | Some(Menu::Pause), 1) => self.set_menu(Some(Menu::Settings)),
             (Some(Menu::Title), 2) | (Some(Menu::Pause), 4) => self.finish(),
@@ -805,10 +814,13 @@ impl App {
     }
 
     /// The graphics rows the shaders read, a bit each (`g.opt.x`): sharp sun shadows, no reflections, flat
-    /// block colours, no stars. The defaults are 0, today's picture.
+    /// block colours, no stars, the water's quality (2 bits). The defaults are 0, today's picture.
     pub(crate) fn gfx_bits(&self) -> u32 {
         let s = &self.settings;
-        (s.at(S::Shadows) == 0) as u32 | (!s.on(S::Reflections) as u32) << 1 | ((s.at(S::Textures) == 0) as u32) << 2 | (!s.on(S::Stars) as u32) << 3 | ((s.at(S::Outline) == 1) as u32) << 16
+        (s.at(S::Shadows) == 0) as u32 | (!s.on(S::Reflections) as u32) << 1 | ((s.at(S::Textures) == 0) as u32) << 2 | (!s.on(S::Stars) as u32) << 3
+            // the water's quality, 0 traced (ADR 0071)
+            | ((2 - s.at(S::Water).min(2)) as u32) << 4
+            | ((s.at(S::Outline) == 1) as u32) << 16
     }
 
     /// The title menu's view: in orbit over the planet's sunlit limb, the planet filling the left half and the
@@ -901,7 +913,7 @@ impl App {
         }
         (self.sel, self.rebind) = (None, None);
         self.menu = m;
-        (self.held, self.mouse) = (None, (0.0, 0.0));
+        (self.held, self.mouse, self.globe.drag) = (None, (0.0, 0.0), None);
         self.keys.clear();
         self.zoomed &= self.settings.at(S::ZoomMode) == 1;
         if self.onscreen {

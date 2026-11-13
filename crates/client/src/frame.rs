@@ -73,10 +73,8 @@ impl App {
             }};
         }
         // the sky's clock: the server's in play, else time= seconds into the world plus the run's own
-        if self.run == "view" {
-            self.world.time = self.time0;
-        } else if self.run != "play" {
-            self.world.time = self.time0 + t;
+        if self.run != "play" {
+            self.world.time = bench::sky_time(&self.run, self.shot.is_some(), self.time0, t);
         } else if let Some((st, warp, at)) = self.clock {
             let target = st + (now - at).as_secs_f64() * warp;
             self.world.time += dt.min(0.1) * warp;
@@ -254,7 +252,7 @@ impl App {
                         self.streamer.touch_block(&self.world, b);
                     }
                 }
-                Recv::Msg(ToClient::Players(ps)) => self.players = ps.len(),
+                Recv::Msg(ToClient::Players(ps)) => (self.players, self.globe.others) = (ps.len(), ps),
                 Recv::Msg(ToClient::Kinds(k)) => {
                     // shortcut: the creatures file is read here, once on join (small); the server's index wins
                     let rows = engine::creatures::rows(&std::fs::read_to_string("data/creatures.toml").unwrap_or_default()).unwrap_or_default();
@@ -736,11 +734,14 @@ impl App {
         let x = (day * air / 0.15).clamp(0.0, 1.0);
         let night = 1.0 - x * x * (3.0 - 2.0 * x);
         let haze = sky_c + Vec3::new(0.55, 0.60, 0.62) * day * air * 0.45 + Vec3::new(0.02, 0.03, 0.07) * air * night * 1.5;
+        // under water (ADR 0071): a blue fog over everything, thick by 12 m, as dim as the day above it
+        let fog = if self.world.water_surface(p.pos).is_some() { 0.09 } else { 0.0 };
+        let deep_light = 0.04 + 0.96 * day;
         let tune = (
             self.settings.on(S::Bounce),
             [fill.x, fill.y, fill.z, self.settings.get(S::Brightness) as f32],
             [haze.x, haze.y, haze.z, air / 2500.0],
-            [0.5 * air, 0.0, 0.0, cf as f32],
+            [0.5 * air, fog, deep_light, cf as f32],
         );
         // the sunlight through the air: the longer its way through it (the lower the sun), the more blue and
         // green it loses; at noon as it was, in space white (shader.wgsl sun_tint is the same)
@@ -759,6 +760,8 @@ impl App {
         let pull = |d: DVec3, a: f64| [d.x as f32, d.y as f32, d.z as f32, (1.5 * a * per_m) as f32];
         let mut g = Globals {
             tide: [pull(tide.luna, engine::sky::TIDE_LUNA), pull(tide.sun, engine::sky::TIDE_SUN)],
+            // a shot's ripples stand still: it is taken after as many frames as the PC draws, the clock in wall time
+            water: [if self.shot.is_some() { 0.0 } else { self.world.time.rem_euclid(3600.0) as f32 }, fog, deep_light, 0.0],
             cloud: [0.0; 4],
             view_proj: vp.to_cols_array_2d(),
             sun: [sun.x, sun.y, sun.z, clock],
@@ -848,7 +851,9 @@ impl App {
         // the clouds (ADR 0076): their map blended to this moment, and where the planet and its sea are
         let clouds_on = self.settings.at(S::Clouds) > 0 && b0.sea.is_some() && self.sky.m() > 0;
         if b0.sea.is_some() && self.sky.m() > 0 {
-            self.sky.upload(&gpu.queue, &gpu.sky_tex, wt);
+            // a shot's clock stands still, so it shows the newest map whole rather than a blend stuck where a
+            // message's time left it (a forced weather= came in as a step: ADR 0073)
+            self.sky.upload(&gpu.queue, &gpu.sky_tex, if self.shot.is_some() { f64::INFINITY } else { wt });
             // a shot's clouds stand at its time=, however long its load took (the views compare it by pixels)
             g.cloud = self.sky.cloud(if self.shot.is_some() { self.time0 } else { wt }, b0.layer_r(b0.sea.unwrap()));
             if !clouds_on {
@@ -1134,10 +1139,10 @@ impl App {
             enc.copy_buffer_to_buffer(resolve, (i * 256) as u64, &ring[i].0, 0, (TS_N * 8) as u64);
             self.ts_frames[i] = self.streamer.frame;
         }
-        // a shot waits a second after loading, so the last meshes are in, and as many frames as a quiet PC draws
-        // in that second: the bounce light settles by frames, not by the clock, and a shot beside a build got a
-        // handful of them and came out dark (the gate's viewpoints failing under load, 2026-11-12)
-        let cap_at = if self.shot.is_some() { 1.0 } else { self.next_cap };
+        // a shot waits exactly SHOT_FRAMES frames after loading, whatever the clock says: the bounce light settles
+        // by frames, a shot beside a build got a handful of them and came out dark (2026-11-12), and one on a quiet
+        // PC averaged more frames than one on a busy PC (ADR 0073)
+        let cap_at = if self.shot.is_some() { 0.0 } else { self.next_cap };
         let film = self.shot.is_some() || self.args.get("capture_ms", 0.0) > 0.0;
         let settled = self.shot.is_none() || bench::shot_settled(self.streamer.frame - self.loaded_frame);
         let cap_now = film && gpu.capture.is_some() && self.loaded_at.is_some() && t >= cap_at && settled;
@@ -1258,9 +1263,10 @@ impl App {
                 s.vram_max = s.vram_max.max(sys::vram_mb());
             }
         }
+        // a shot waits longer than a run for the whole world: one of half of it on a busy PC was compared (ADR 0073)
         if self.loaded_at.is_none() {
             let el = self.start.elapsed().as_secs_f64();
-            if (self.streamer.idle() && st.missing == 0 && rt_pending == 0 && self.streamer.frame > 10) || el > 60.0 {
+            if (self.streamer.idle() && st.missing == 0 && rt_pending == 0 && self.streamer.frame > 10) || el > if self.shot.is_some() { 180.0 } else { 60.0 } {
                 eprintln!("[technoape] loaded in {:.2} s, {} chunks, {} quads", el, self.streamer.slot_count(), self.streamer.alloc.used);
                 self.loaded_at = Some(Instant::now());
                 self.loaded_frame = self.streamer.frame;

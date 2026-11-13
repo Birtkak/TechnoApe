@@ -325,10 +325,12 @@ impl Gi {
         self.frame
     }
 
-    /// Drops the history: the next frame starts it anew. A shot does so once the world has loaded, so what it
-    /// averages is the loaded world's light alone, however long loading took.
+    /// Drops the history and the rays' seed: the next frame starts both anew. A shot does so once the world has
+    /// loaded, so what it averages is the loaded world's light alone, however long loading took.
     pub fn drop_history(&mut self) {
         self.prev = None;
+        // and the seed with it: the frames it averages get the same rays however many frames loading took
+        self.frame = 0;
     }
 
     /// After the terrain pass: trace, gather over frames, smooth. `cam` is the camera in frame `cf`'s

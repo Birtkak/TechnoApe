@@ -484,11 +484,20 @@ impl Liquids {
                 let (gl, gh) = (f as i64 * U, if cl == OPEN { i64::MAX } else { cl as i64 * U });
                 water[k] += (hi.min(gh) - lo.max(gl)).max(0);
             }
-            // the parts in solid layers (under each gap, down to the gap below): each rises into the gap above it
+            // the parts in solid layers (under each gap, down to the gap below): each rises into the gap above it,
+            // unless that gap's floor stands over generation's still water here (the sea's, a lake's): a block set
+            // into its surface pushed it out, and on top of the block it stood as a puddle over the sea for good
+            // (ADR 0071); it joins the water's account instead, as a splash does when it is forgotten. A river's
+            // runs off the block on its own (a dam and a pillar's tests hold it to that)
+            let (glo, ghi) = g.generated(c);
             let mut below = i64::MIN;
             for (k, &(f, cl)) in gaps.iter().enumerate() {
                 let gl = f as i64 * U;
-                water[k] += (hi.min(gl) - lo.max(below)).max(0);
+                let part = (hi.min(gl) - lo.max(below)).max(0);
+                // (only what lay under generation's level: water standing over it, poured or carried, still rises)
+                let sunk = if glo < ghi && gl >= ghi && g.river(c).is_none() { (hi.min(gl).min(ghi) - lo.max(below)).max(0) } else { 0 };
+                self.book(g.reach(c), sunk);
+                water[k] += part - sunk;
                 below = if cl == OPEN { i64::MAX } else { cl as i64 * U };
             }
         }
@@ -760,7 +769,26 @@ impl Liquids {
                     }
                     v = v.clamp(0, VMAX);
                 }
-                let flow = v * area + l.frac as i64;
+                let mut flow = v * area + l.frac as i64;
+                // a closed gap's head rises K times as fast as the water it takes in: unbounded, a full gap under
+                // a block set into the sea took in a wave, shot it out again at K times the height, and swung
+                // on, pumping water out over the block and leaving the gap half empty (ADR 0071). Into or out of
+                // a closed gap, a link passes at most what would level the two heads, shared over its links: half
+                // the difference between two open surfaces, a (K + 1)-th of it against a full gap's pressure.
+                if v > 0 && (n.ceil != OPEN || b.ceil != OPEN) {
+                    let dh = (ha - b.head().max(lo)).max(0);
+                    let mut most = i64::MAX;
+                    if b.ceil != OPEN {
+                        let room = (b.cap() - b.water).max(0);
+                        let level = if 2 * room >= dh { dh / 2 } else { room + (dh - 2 * room) / (K + 1) };
+                        most = most.min(level / b.links.len().max(1) as i64);
+                    }
+                    if n.ceil != OPEN {
+                        let over = (wa - n.cap()).max(0);
+                        most = most.min((over + (sa - b.head().max(lo)).max(0) / 2) / n.links.len().max(1) as i64);
+                    }
+                    flow = flow.min(most.max(0) << VF);
+                }
                 outs.push((v as i32, (flow >> VF) as i32, (flow & ((1 << VF) - 1)) as i32));
                 total += flow >> VF;
             }
