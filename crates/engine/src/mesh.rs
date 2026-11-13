@@ -13,6 +13,8 @@ pub struct Mesh {
     pub quads: Vec<[u32; 2]>,
     pub counts: [u32; 6],
     pub cut: u32,
+    /// How many of `cut` a ray may pass through an empty texel of (fancy leaves: all; fast: none, ADR 0088).
+    pub ray_cut: u32,
     /// Glass quads (ADR 0081), after the cutout ones: drawn blended after the light, the BLAS's second geometry.
     pub glass: u32,
     /// Still model quads (ADR 0068, 0082: clutter), after the glass ones and before the water: their own pipeline,
@@ -26,6 +28,7 @@ pub struct Mesh {
 static SEE: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| bits(|id| !crate::blocks::BLOCKS.opaque(id)));
 static GLASS: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| bits(|id| crate::blocks::BLOCKS.glass(id)));
 static JOINS: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| bits(|id| crate::blocks::BLOCKS.joins(id)));
+static WOOD: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| bits(|id| crate::blocks::BLOCKS.wood(id)));
 fn bits(f: impl Fn(u16) -> bool) -> Box<[u64; 1024]> {
     let mut t = Box::new([0u64; 1024]);
     for d in crate::blocks::BLOCKS.placeable().filter(|d| f(d.id)) {
@@ -39,17 +42,29 @@ fn is_in(t: &[u64; 1024], c: u16) -> bool {
 
 /// `lattice` > 1 merges faces into quads that stay inside the cells of a lattice that many cells wide, where the
 /// renderer places vertices by interpolation (`Body::lattice`, ADR 0025 I2); 1 merges nothing. Every solid block
-/// but glass hides the faces behind it: the fast Leaves setting, and every coarse level.
+/// but glass hides the faces behind it: every coarse level.
 pub fn mesh(cells: &[u16; P * P * P], lattice: usize) -> Mesh {
-    mesh_cut(cells, lattice, false, true)
+    mesh_cut(cells, lattice, Cut::Solid, true)
 }
 
-/// `mesh`, and with `cutout` (fancy leaves on level 0, ADR 0069) a face is culled only against an opaque
-/// neighbour, so the faces behind and between cutout blocks stay, and the cutout blocks' quads go last as `cut`.
+/// How level 0 meshes cutout blocks (leaves; ADR 0069, 0088).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Cut {
+    /// As any block: they hide what is behind them, their quads lie with the rest (coarse levels).
+    Solid,
+    /// Fast leaves: the faces between two cutout blocks go, an opaque block's behind one stays.
+    Shell,
+    /// Fancy leaves: a face is culled only against an opaque neighbour.
+    Full,
+}
+
+/// `mesh` with level 0's rule for cutout blocks, `cut`. With `Shell` and `Full` the cutout blocks' quads go
+/// last as `cut`, for the pipeline that leaves their empty texels out.
 /// Glass (ADR 0081) always hides only its own kind and is hidden only by what hides; its quads go after `cut`.
-/// `glass`: the cells may hold glass. Generation makes none, so a chunk without edits passes false and its fast
-/// first pass looks at no block's kind, as before glass.
-pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: bool) -> Mesh {
+/// `glass`: the cells may hold glass. Generation makes none, so a `Solid` chunk without edits passes false and
+/// its first pass looks at no block's kind, as before glass.
+pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool) -> Mesh {
+    let cutout = cut != Cut::Solid;
     // cols[a][v*P+u] = bits along axis a; u = (a+1)%3, v = (a+2)%3. opq: the same of the cells that hide what is
     // behind them, and gls of glass, made only for a chunk with glass or (fancy) cutout blocks
     let mut cols = [[0u64; P * P]; 3];
@@ -57,7 +72,6 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
     let mut gls_cols: Vec<[u64; P * P]> = Vec::new();
     let (see_t, glass_t): (&[u64; 1024], &[u64; 1024]) = (&SEE, &GLASS);
     let (mut any_see, mut glass_seen) = (false, false);
-    let look = cutout || glass;
     for z in 0..P {
         for y in 0..P {
             for x in 0..P {
@@ -66,7 +80,7 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
                     cols[0][z * P + y] |= 1 << x; // a=x: u=y, v=z
                     cols[1][x * P + z] |= 1 << y; // a=y: u=z, v=x
                     cols[2][y * P + x] |= 1 << z; // a=z: u=x, v=y
-                    if look && is_in(see_t, c) {
+                    if (cutout || glass) && is_in(see_t, c) {
                         any_see = true;
                         glass_seen |= glass && is_in(glass_t, c);
                     }
@@ -76,7 +90,7 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
     }
     let (mut any_cut, mut any_glass) = (false, false);
     if glass_seen || cutout && any_see {
-        // a second pass, only in a chunk with glass, or (fancy) cutout blocks: fast leaves hide like any block
+        // a second pass, only in a chunk with glass or cutout blocks
         opq_cols = vec![[0u64; P * P]; 3];
         gls_cols = vec![[0u64; P * P]; 3];
         for z in 0..P {
@@ -105,6 +119,7 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
         }
     }
     let cut_t = see_t;
+    let root = if any_cut { roots(cells, cut_t) } else { Vec::new() };
     let opq: &[[u64; P * P]] = if any_cut || any_glass { &opq_cols } else { &cols };
     let mut groups: [Vec<[u32; 2]>; 8] = Default::default();
     let mut planes = vec![[0u32; 32]; 32]; // planes[depth][v] = bits over u
@@ -119,6 +134,12 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
                     let col = cols[a][(v + 1) * P + (u + 1)];
                     let o = opq[a][(v + 1) * P + (u + 1)];
                     let mut f = if s == 0 { col & !(o >> 1) } else { col & !(o << 1) };
+                    if any_cut && cut == Cut::Shell {
+                        // fast leaves: a cutout block's face against a cutout block goes (a crown has no inner
+                        // faces), an opaque block's behind one stays, seen through its holes (ADR 0088)
+                        let ct = col & !o & !gls_cols[a][(v + 1) * P + (u + 1)];
+                        f &= !(ct & if s == 0 { ct >> 1 } else { ct << 1 });
+                    }
                     if any_glass {
                         // a glass face whose neighbour is the same glass goes (a glass wall has no inner faces)
                         let gl = gls_cols[a][(v + 1) * P + (u + 1)];
@@ -188,7 +209,9 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
                         let o = ao(u, v, d);
                         // a joining block's face never merges: each knows its own sides
                         let jm = is_in(joins_t, m);
-                        let merge = lattice > 1 && o == 0 && !jm;
+                        // a cutout block's face never merges either: each carries its own way to wood and its
+                        // own fluff (ADR 0090)
+                        let merge = lattice > 1 && o == 0 && !jm && !(any_cut && is_in(cut_t, m));
                         // a merged quad has one occlusion per corner: only open faces merge
                         let open = |u: usize, v: usize| ao(u, v, d) == 0;
                         let mut w = 1;
@@ -224,7 +247,12 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
                         } else {
                             dir
                         };
-                        let j = if jm { join_sides(cells, a, s, u, v, d, m, &hides) } else { 0 };
+                        let mut j = if jm { join_sides(cells, a, s, u, v, d, m, &hides) } else { 0 };
+                        if g == 6 {
+                            j |= twig_bits(root[match a { 0 => pidx(d + 1, u + 1, v + 1), 1 => pidx(v + 1, d + 1, u + 1), _ => pidx(u + 1, v + 1, d + 1) }], a) << 4;
+                            // bit 25: it opens on air (the client's fluff grows there only)
+                            j |= ((!occ(u + 1, v + 1, if s == 0 { d + 2 } else { d })) as u32) << 9;
+                        }
                         groups[g].push([lo, m as u32 | o << 8 | j << 16]);
                     }
                 }
@@ -239,7 +267,77 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
         }
         quads.extend_from_slice(g);
     }
-    Mesh { quads, counts, cut: groups[6].len() as u32, glass: groups[7].len() as u32, still: 0, water: 0 }
+    let n_cut = groups[6].len() as u32;
+    Mesh { quads, counts, cut: n_cut, ray_cut: if cut == Cut::Full { n_cut } else { 0 }, glass: groups[7].len() as u32, still: 0, water: 0 }
+}
+
+/// Each padded cell's way to wood through cutout blocks (ADR 0090): the world direction 0..6 (+x, -x, +y, -y,
+/// +z, -z) of the neighbour that leads to it, bits 0-2 (7: none within `TWIG_REACH` steps), and the steps less
+/// one, bits 3-4. A cutout block on an opaque block that is not wood roots there, below it (-z), one step: a
+/// shrub's twigs grow from the ground. Only in a chunk with cutout blocks, so a short walk over its cells.
+const TWIG_REACH: u8 = 3;
+fn roots(cells: &[u16; P * P * P], cut_t: &[u64; 1024]) -> Vec<u8> {
+    let (wood_t, glass_t): (&[u64; 1024], &[u64; 1024]) = (&WOOD, &GLASS);
+    let step = [1isize, -1, P as isize, -(P as isize), (P * P) as isize, -((P * P) as isize)];
+    // the neighbour of cell i (at x, y, z) the way k, inside the padded grid
+    let next = |i: usize, k: usize| -> Option<usize> {
+        let (x, y, z) = (i % P, i / P % P, i / (P * P));
+        let c = [x, y, z][k / 2];
+        (if k % 2 == 0 { c + 1 < P } else { c > 0 }).then(|| (i as isize + step[k]) as usize)
+    };
+    let mut root = vec![7u8; P * P * P];
+    let mut ring = Vec::new();
+    let is_cut = |c: u16| c != 0 && is_in(cut_t, c) && !is_in(glass_t, c);
+    // the padding too: a crown across a chunk's edge roots through its neighbour's cells there.
+    // shortcut: wood more than the padding away is not seen, so a bare crown's blocks at a chunk edge may lose
+    // their twigs; mesh with a halo of TWIG_REACH cells if that shows
+    for i in 0..P * P * P {
+        if !is_cut(cells[i]) {
+            continue;
+        }
+        let k = (0..6).find(|&k| next(i, k).is_some_and(|j| is_in(wood_t, cells[j]))).or_else(|| {
+            let under = cells[next(i, 5)?];
+            (under != 0 && !is_cut(under) && !is_in(glass_t, under)).then_some(5)
+        });
+        if let Some(k) = k {
+            root[i] = k as u8;
+            ring.push(i);
+        }
+    }
+    // outward a ring at a time; a cell takes the first way it is reached by
+    for n in 1..TWIG_REACH {
+        let mut out = Vec::new();
+        for &i in &ring {
+            for k in 0..6 {
+                let Some(j) = next(i, k) else { continue };
+                if root[j] == 7 && is_cut(cells[j]) {
+                    root[j] = (k ^ 1) as u8 | n << 3; // back toward i
+                    out.push(j);
+                }
+            }
+        }
+        ring = out;
+    }
+    root
+}
+
+/// A cell's way to wood (`roots`) as its face of axis `a` carries it: the side of the face it lies on, u-, u+,
+/// v-, v+ (1..4), 5 behind or in front of the face, 0 none (as every quad of a coarse level); the steps less one above, two bits (bits 20-24 of the
+/// quad's high word).
+fn twig_bits(r: u8, a: usize) -> u32 {
+    let k = (r & 7) as usize;
+    if k == 7 {
+        return 0;
+    }
+    // wood above (+z, k 4) folds the painting like wood behind: hinged there the twigs would hang down as streamers
+    let side = match (k / 2 + 3 - a) % 3 {
+        _ if k == 4 => 5,
+        0 => 5,
+        // an odd world direction is the negative one: the u- or v- side
+        1 => 1 + (!k as u32 & 1),
+        _ => 3 + (!k as u32 & 1),
+    };
+    side | ((r >> 3) as u32) << 3
 }
 
 /// The sides of joining block `m`'s face at (u, v, d) of axis `a`, side `s` that meet the same block whose face
@@ -314,6 +412,59 @@ mod tests {
         (p, dir, (q[1] & 255) as u16)
     }
 
+    /// ADR 0090: a cutout face carries where its block's way to wood leads (bits 20-22: 1..4 u-, u+, v-, v+ in the
+    /// face's plane, 5 behind the face, 0 none within three blocks) and how far the wood is (bits 23-24, one less
+    /// than the steps), so a bare crown's twigs grow from the log; a leaf on the ground roots there.
+    #[test]
+    fn leaf_faces_know_the_way_to_the_wood() {
+        let b = &crate::blocks::BLOCKS;
+        let (log, leaves, stone) = (b.id("log"), b.id("broadleaf leaves"), b.id("stone"));
+        let mut c = Box::new([0u16; P * P * P]);
+        for z in 10..13 {
+            c[pidx(10, 10, z)] = log;
+        }
+        for x in 11..15 {
+            c[pidx(x, 10, 11)] = leaves; // a row out from the log along +x: 1, 2, 3 steps, then none
+        }
+        c[pidx(10, 11, 11)] = leaves; // beside the log on +y
+        c[pidx(20, 20, 20)] = leaves; // alone in the air
+        c[pidx(10, 10, 9)] = leaves; // under the log
+        c[pidx(5, 5, 5)] = stone;
+        c[pidx(5, 5, 6)] = leaves; // a shrub on the ground
+        c[pidx(0, 28, 11)] = log; // in the padding: the neighbour chunk's log and leaf
+        c[pidx(0, 29, 11)] = leaves;
+        c[pidx(1, 29, 11)] = leaves;
+        for (cut, lattice) in [(Cut::Shell, 1), (Cut::Full, 1), (Cut::Shell, 8), (Cut::Full, 8)] {
+            let m = mesh_cut(&c, lattice, cut, false);
+            // a cutout face never merges: each is one cell's (level 0 meshes on a lattice of up to 8)
+            assert!(m.quads[m.quads.len() - m.cut as usize..].iter().all(|q| (q[0] >> 18) & 1023 == 0), "{cut:?} {lattice}: merged");
+            let twig = |at: [usize; 3], dir: u32| {
+                let q = m.quads.iter().find(|q| { let (p, d, _) = face_of(q); p.map(|v| v + 1) == at && d == dir }).unwrap_or_else(|| panic!("no face {dir} at {at:?}"));
+                ((q[1] >> 20) & 7, (q[1] >> 23) & 3)
+            };
+            // +y face (a = y: u = z, v = x): the log at -x is v-; +z face (u = x, v = y): u-
+            assert_eq!(twig([11, 10, 11], 2), (3, 0), "{cut:?}");
+            assert_eq!(twig([11, 10, 11], 4), (1, 0));
+            assert_eq!(twig([12, 10, 11], 4), (1, 1), "two steps on, the same way");
+            assert_eq!(twig([13, 10, 11], 5), (1, 2));
+            assert_eq!(twig([14, 10, 11], 4).0, 0, "four steps: none");
+            assert_eq!(twig([14, 10, 11], 0).0, 0);
+            assert_eq!(twig([10, 11, 11], 2), (5, 0), "the log behind the face");
+            assert_eq!(twig([10, 11, 11], 4), (3, 0), "+z face of the leaf on +y: the log at -y is v-");
+            assert_eq!(twig([20, 20, 20], 4).0, 0, "no wood, no ground");
+            // wood above: the twigs fold from the face's middle (reach up and out), never hang from the top edge
+            assert_eq!(twig([10, 10, 9], 0), (5, 0), "wood above a side face folds");
+            assert_eq!(twig([10, 10, 9], 3), (5, 0));
+            assert_eq!(twig([5, 5, 6], 4), (5, 0), "a shrub roots in the ground under it");
+            assert_eq!(twig([5, 5, 6], 0), (3, 0), "+x face (u = y, v = z): the ground at -z is v-");
+            assert_eq!(twig([1, 29, 11], 4), (1, 1), "rooted through the next chunk's leaf, in the padding");
+            // bit 25: the face opens on air, where the client grows its fluff (fancy leaves keep inner faces)
+            let open = |at: [usize; 3], dir: u32| m.quads.iter().find(|q| { let (p, d, _) = face_of(q); p.map(|v| v + 1) == at && d == dir }).map(|q| q[1] >> 25 & 1);
+            assert_eq!(open([11, 10, 11], 2), Some(1));
+            assert_eq!(open([11, 10, 11], 0), if cut == Cut::Full { Some(0) } else { None }, "against a leaf");
+        }
+    }
+
     /// ADR 0085: a joining block's face carries which of its four neighbours in the face's plane are the same
     /// block with that face open too (bits 16-19: u-, u+, v-, v+), so the shader draws the frame on the outer
     /// edge only; a joining block never merges, and other blocks carry none.
@@ -350,7 +501,7 @@ mod tests {
             c[pidx(10, y, 10)] = lamp;
         }
         c[pidx(9, 11, 10)] = glass;
-        let m = mesh_cut(&c, 8, false, true);
+        let m = mesh_cut(&c, 8, Cut::Solid, true);
         let mask = |cell: [usize; 3], dir: u32| {
             let q = m.quads.iter().find(|q| face_of(q).0 == cell && face_of(q).1 == dir).expect("face");
             q[1] >> 16
@@ -374,22 +525,35 @@ mod tests {
             h ^= h << 5;
             *v = [0, 0, stone, leaves, leaves, shrub][(h % 6) as usize];
         }
-        let fancy = mesh_cut(&c, 1, true, true);
+        let fancy = mesh_cut(&c, 1, Cut::Full, true);
         let mut got: Vec<_> = fancy.quads.iter().map(face_of).collect();
         got.sort();
         assert_eq!(got, faces_one_by_one(&c, |_, n| b.opaque(n)), "fancy");
         let n_opq = fancy.quads.len() - fancy.cut as usize;
+        assert_eq!(fancy.ray_cut, fancy.cut, "fancy: a ray passes their holes");
         assert!(fancy.cut > 0 && fancy.quads[n_opq..].iter().all(|q| !b.opaque((q[1] & 255) as u16)), "the cutout quads come last");
         assert!(fancy.quads[..n_opq].iter().all(|q| b.opaque((q[1] & 255) as u16)));
-        for fast in [mesh(&c, 1), mesh_cut(&c, 1, false, true)] {
+        let solid = mesh(&c, 1);
+        let mut got: Vec<_> = solid.quads.iter().map(face_of).collect();
+        got.sort();
+        assert_eq!(got, faces_one_by_one(&c, |_, n| n != 0), "a coarse level is the old mesher");
+        assert_eq!(solid.cut, 0);
+        {
+            let fast = mesh_cut(&c, 1, Cut::Shell, true);
             let mut got: Vec<_> = fast.quads.iter().map(face_of).collect();
             got.sort();
-            assert_eq!(got, faces_one_by_one(&c, |_, n| n != 0), "fast is the old mesher");
-            assert_eq!(fast.cut, 0);
+            // fast: a cutout block hides its own kind's faces (no inner faces in a crown), never an opaque
+            // block's: the ground under a shrub shows through its holes
+            assert_eq!(got, faces_one_by_one(&c, |me, n| b.opaque(n) || n != 0 && !b.opaque(me)), "fast");
+            // its cutout blocks' quads go last too: the client draws their holes open (ADR 0088)
+            let n_opq = fast.quads.len() - fast.cut as usize;
+            assert_eq!(fast.ray_cut, 0, "fast: whole blocks to a ray");
+            assert!(fast.cut > 0 && fast.quads[n_opq..].iter().all(|q| !b.opaque((q[1] & 255) as u16)), "fast: the cutout quads come last");
+            assert!(fast.quads[..n_opq].iter().all(|q| b.opaque((q[1] & 255) as u16)));
         }
         // a chunk with no cutout block meshes the same either way
         let rock: Box<[u16; P * P * P]> = Box::new(c.map(|v| if v == 0 { 0 } else { stone }));
-        assert_eq!(mesh_cut(&rock, 8, true, true).quads, mesh(&rock, 8).quads);
+        assert_eq!(mesh_cut(&rock, 8, Cut::Full, true).quads, mesh(&rock, 8).quads);
     }
 
     /// ADR 0081: a glass face is culled against an opaque neighbour or the same glass; nothing is culled against
@@ -407,16 +571,17 @@ mod tests {
             *v = [0, 0, stone, leaves, glass, glass, green][(h % 7) as usize];
         }
         for fancy in [true, false] {
-            let m = mesh_cut(&c, 1, fancy, true);
+            let m = mesh_cut(&c, 1, if fancy { Cut::Full } else { Cut::Shell }, true);
             let mut got: Vec<_> = m.quads.iter().map(face_of).collect();
             got.sort();
-            // what hides a face: an opaque block (fast: leaves too), or the same glass
-            let hides = |me: u16, n: u16| n == me && b.glass(me) || if fancy { b.opaque(n) } else { n != 0 && !b.glass(n) };
+            // what hides a face: an opaque block, the same glass, or (fast) a cutout block a cutout block's
+            let cut = |c: u16| c != 0 && !b.opaque(c) && !b.glass(c);
+            let hides = |me: u16, n: u16| n == me && b.glass(me) || b.opaque(n) || !fancy && cut(me) && cut(n);
             assert_eq!(got, faces_one_by_one(&c, hides), "fancy {fancy}");
             let g0 = m.quads.len() - m.glass as usize;
             assert!(m.glass > 0 && m.quads[g0..].iter().all(|q| b.glass((q[1] & 255) as u16)), "the glass quads come last");
             assert!(m.quads[..g0].iter().all(|q| !b.glass((q[1] & 255) as u16)));
-            assert_eq!(m.cut > 0, fancy);
+            assert!(m.cut > 0, "the cutout quads are grouped fast or fancy");
         }
     }
 

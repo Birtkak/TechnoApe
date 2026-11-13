@@ -68,7 +68,7 @@ struct Chunk { base: vec3i, info: u32, off: u32, opq: u32, clim: u32 };
 // (ADR 0039) and a pattern's second and third colours, its size in texels, amount and grain contrast; the
 // painted faces (ADR 0045, gpu.rs `looks_of`: 16 bits a face, layer | variants - 1 << 12 | painted << 15; top
 // and side in `tex`, the bottom in `tex2`) and a painted block's one colour, unorm 8-bit, painted << 24
-struct Look { colour: vec3f, info: u32, colour2: vec3f, size: u32, colour3: vec3f, amount: f32, contrast: f32, tex: u32, mean: u32, tex2: u32 };
+struct Look { colour: vec3f, info: u32, colour2: vec3f, size: u32, colour3: vec3f, amount: f32, contrast: f32, tex: u32, mean: u32, tex2: u32, fluff: u32, through: f32, _b: u32, _c: u32 };
 // four rows a block (ADR 0061): its own look, summer's, at [m]; spring's, autumn's and winter's 256, 512 and
 // 768 on. `size` holds, over the size's 8 bits, bit 8 for a block with seasons and its stagger from bit 16
 // (1/1024 quarter turn)
@@ -102,7 +102,8 @@ const LAMP_CELL: f32 = 8.0;
 @group(0) @binding(9) var<storage, read> lamp_cells: array<u32>;
 
 struct VOut {
-    @builtin(position) clip: vec4f,
+    // invariant: the cutout blocks' depth and colour passes meet with Equal (ADR 0090)
+    @builtin(position) @invariant clip: vec4f,
     @location(0) local: vec3f,
     @location(1) @interpolate(flat) dir: u32,
     @location(2) @interpolate(flat) mat: u32,
@@ -110,6 +111,7 @@ struct VOut {
     @location(4) normal: vec3f,
     @location(5) rel: vec3f, // from the camera
     @location(6) ao: f32,    // open 1 .. shut in
+    @location(7) plane: vec2f, // a fluff plane's own 0..1 face units across it (ADR 0090)
 };
 
 fn axis(i: u32) -> vec3f { return vec3f(f32(i == 0u), f32(i == 1u), f32(i == 2u)); }
@@ -159,6 +161,36 @@ fn place(c: Chunk, b: Body, local: vec3f, at: vec3f) -> vec3f {
 
 @vertex
 fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
+    return terrain_vertex(vi, ii, 0u);
+}
+
+// the cutout blocks' quads (ADR 0090): as `vs`, swaying in the wind
+@vertex
+fn vs_cut(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
+    return terrain_vertex(vi, ii, 1u);
+}
+
+// the crowns' fluff (ADR 0090): each cutout face that opens on air (bit 25 of the quad, mesh.rs) again, a plane
+// larger than the face and stood out from it, hinged on the side its wood is (bits 20-22), so a crown is a soft
+// mass and a bare one's twigs fan out of it from the wood; turned per corner by a hash of the place. Not traced.
+@vertex
+fn vs_fluff(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
+    return terrain_vertex(vi, ii, 2u);
+}
+
+// how far the leaves sway, in cells of level 0, at a point (`p` in cells, the chunk's grid) of a quad drawn by
+// `vs_cut` or `vs_fluff`: a smooth field of the place and the sky's clock, so faces that share an edge move as
+// one and a fixed view stands still (`g.water.w`, the wind here, is 0 in a shot; frame.rs)
+fn sway(p: vec3f, reach: f32) -> vec2f {
+    if (g.water.w == 0.0) { return vec2f(0.0); }
+    let amp = min(0.012 + 0.005 * g.water.w, 0.07) * reach;
+    // whole turns an hour (the clock wraps at 3600 s): 1203, 2464, 974 and 2235 turns, about 2.1, 4.3, 1.7, 3.9 rad/s
+    let t = g.water.x * (6.2831853 / 3600.0);
+    let ph = dot(p, vec3f(0.61, 0.47, 0.83));
+    return amp * vec2f(sin(t * 1203.0 + ph) + 0.4 * sin(t * 2464.0 + ph * 2.3), sin(t * 974.0 + ph * 1.3 + 1.0) + 0.4 * sin(t * 2235.0 - ph * 1.7));
+}
+
+fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     let q = quads[vi / 6u];
     let dir = (q.x >> 28u) & 7u;
     let a = dir / 2u;
@@ -166,7 +198,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
     // grown by a millimetre: a merged quad's edge and its neighbours' corners on it are worked out apart, at
     // f32's grain at the body's radius (a quarter millimetre at 4 km), and met with pixel holes of sky between
     // them (bug 2026-11-11_17-38-04, ADR 0041); the overlap closes them, too thin to see as a lip
-    let local = quad_corner(q, k, DRAW_GROW);
+    var local = quad_corner(q, k, DRAW_GROW);
     // the corner in the face's u, v: as quad_corner lays it out
     var cu = array<u32, 6>(0u, 1u, 1u, 0u, 1u, 0u);
     var cv = array<u32, 6>(0u, 0u, 1u, 0u, 1u, 1u);
@@ -175,6 +207,91 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
     if ((dir & 1u) == 1u) { ku = cv[k]; kv = cu[k]; }
     let occl = (q.y >> (8u + 2u * (ku + 2u * kv))) & 3u;
     let c = chunks[ii];
+    var o: VOut;
+    if (mode == 2u && ((q.y >> 25u) & 1u) == 0u) {
+        // no fluff on a face against a block: all six corners at one point, nothing drawn
+        o.clip = vec4f(0.0, 0.0, 0.0, 1.0);
+        return o;
+    }
+    // where the painting is read: the quad's own unswayed corner, so the painting rides with the vertices
+    var paint = quad_corner(q, k, 0.0);
+    // a crown's own shade (ADR 0090): darker toward its wood and under it, and in a fluff clump's dents
+    var shade = 1.0;
+    // a fluff plane on a top face faces the sun square on: dimmed below the floor, else it reads lime (ADR 0090)
+    var sun_face = 1.0;
+    if (mode != 0u) {
+        shade = 1.0 - 0.45 * select(0.0, 1.0 - f32((q.y >> 23u) & 3u) / 3.0, ((q.y >> 20u) & 7u) != 0u);
+        if (dir == 5u) { shade *= 0.6; }
+        var reach = 0.5;
+        if (mode == 2u) {
+            let at0 = quad_corner(q, 0u, 0.0);
+            let root = (q.y >> 20u) & 7u;
+            let cell0 = vec3i(floor(at0)) + c.base;
+            let h = hash(cell0 + vec3i(7, 13, i32(dir) * 31 + 5));
+            // the block's fluff (`Fluff::packed`, blocks.rs): size, push, droop, long, dense, six bits each
+            let fw = looks[q.y & 255u].fluff;
+            let size = f32(fw & 63u) * 0.05;
+            let fpush = f32((fw >> 6u) & 63u) * 0.025;
+            let droop = f32((fw >> 12u) & 63u) * 0.025;
+            let long = 1.0 + f32((fw >> 18u) & 63u) * 0.05;
+            let dense = f32((fw >> 24u) & 63u) / 63.0;
+            // clumps: a smooth field of the place, about 2.5 m across, pushes some faces far out and larger, leaves
+            // others on the face or with no plane at all, so a crown bulges in lobes with dents, never a ball or a box
+            let clump = smoothstep(0.3, 0.7, vnoise(vec3f(cell0) * 0.4 + f32(c.info & 7u) * 17.0));
+            if (size == 0.0 || hash(cell0 + vec3i(29, 31, i32(dir) * 31 + 7)) >= dense * smoothstep(0.0, 0.3, clump)) {
+                o.clip = vec4f(0.0, 0.0, 0.0, 1.0);
+                return o;
+            }
+            // per face: the plane tilted 25-35 degrees off its face about a line turned by the hash, so none lies
+            // edge-on along an axis (thin rods seen from below) and neighbours differ
+            let hf = hash(cell0 + vec3i(17, 3, i32(dir) * 31 + 11));
+            let hg = hash(cell0 + vec3i(5, 23, i32(dir) * 31 + 2));
+            // a top face's plane steeper (45-60 degrees) and less far up: leaves rising out of the plant, not a
+            // slab floating over a shrub or a reed bed
+            let top = dir == 4u;
+            let slope = tan(radians(select(25.0 + 10.0 * hg, 45.0 + 15.0 * hg, top)));
+            let spread = size * mix(0.65, 1.4, clump);
+            shade *= mix(0.55, 1.0, clump);
+            sun_face = select(1.0, 0.72, top);
+            var su = 0.5 + (f32(ku) - 0.5) * spread * long;
+            var sv = 0.5 + (f32(kv) - 0.5) * spread;
+            let phi = hf * 6.2831853;
+            // the round mask in the units of a 1.7 plane, whatever its size: an ellipse along a long one
+            var mask = 0.5 + (vec2f(su, sv) - 0.5) * (1.7 / spread) / vec2f(long, 1.0);
+            var push = fpush * mix(0.0, 2.2, clump) * select(1.0, 0.35, top) + slope * ((su - 0.5) * cos(phi) + (sv - 0.5) * sin(phi)) + 0.06 * (h - 0.5);
+            // the corners stood further out (the tilt) hang more: the plane bends down away from the crown
+            var hang = max(push, 0.0);
+            reach = 1.0;
+            if (root >= 1u && root <= 4u) {
+                // hinged on the wood's side: that edge on the face, the far one stood out (28 degrees at the
+                // broadleaf's push, steeper with less: a reed's blades near upright), `long` faces
+                // long (the painting tiles, never stretched), twisted a little about the hinge by the hash
+                let along_u = root < 3u;
+                let out = select(f32(select(kv, ku, along_u)), 1.0 - f32(select(kv, ku, along_u)), (root & 1u) == 0u);
+                // across the hinge as wide as any plane, unstretched
+                su = 0.5 + (f32(ku) - 0.5) * spread;
+                sv = 0.5 + (f32(kv) - 0.5) * spread;
+                let across = select(su, sv, along_u);
+                push = 0.02 + 0.53 * out * long * (fpush / 0.35) + 0.4 * (hg - 0.5) * (across - 0.5) + 0.06 * (h - 0.5);
+                // the round mask centred on the hinge and reaching past the far edge: the twigs whole at the wood,
+                // their tips ragged, not square
+                // (across it in the units of a 1.7 plane, as the others)
+                let mu = 0.5 + (f32(ku) - 0.5) * 1.7;
+                let mv = 0.5 + (f32(kv) - 0.5) * 1.7;
+                mask = select(vec2f(mu, 0.5 + 0.95 * out), vec2f(0.5 + 0.95 * out, mv), along_u);
+                let s = select(out * long, 1.0 - out * long, (root & 1u) == 0u);
+                if (along_u) { su = s; } else { sv = s; }
+                hang = out * long;
+                reach = 0.4 + out * long;
+            }
+            // the painting at its own size across the plane: 32 texels a metre, tiling past the face's edges
+            paint = at0 + axis((a + 1u) % 3u) * su + axis((a + 2u) % 3u) * sv;
+            o.plane = mask;
+            // its outer parts hang down by `droop` a metre out (up is the grid's z)
+            local = paint + axis(a) * select(push, -push, (dir & 1u) == 1u) - vec3f(0.0, 0.0, droop * hang);
+        }
+        local += vec3f(sway(vec3f(c.base) + local, reach), 0.0);
+    }
     let b = g.bodies[(c.info >> 8u) & 255u];
     let gp = grid(c, local);
     let f = frame_at(c.info & 7u, b, gp.x, gp.y);
@@ -185,15 +302,15 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
     if (a == 1u) { normal = normalize(f.t - f.n * f.tb); }
     if ((dir & 1u) == 1u) { normal = -normal; }
 
-    var o: VOut;
     let at = quad_corner(q, 0u, 0.0);
     let rel = brot(b, (place(c, b, local, at) - b.cam_hi) - b.cam_lo);
     o.clip = g.view_proj * vec4f(rel, 1.0);
     o.rel = rel;
-    o.ao = 1.0 - 0.2 * f32(occl);
+    // the shade's floor: a crown's shaded side stays green (the target's), never near black
+    o.ao = (1.0 - 0.2 * f32(occl)) * max(shade, 0.7) * sun_face;
     // the texture and the cell from the quad's own corner: in the grown lip, fract() would wrap to the far edge
     // (a dirt line along every grass top edge) and floor() name the neighbour
-    o.local = quad_corner(q, k, 0.0);
+    o.local = paint;
     o.dir = dir;
     o.mat = q.y;
     o.ci = ii;
@@ -320,6 +437,8 @@ fn trace(o: vec3f, db: vec3f, body: u32, tmax: f32, flags: u32) -> RayIntersecti
     var rq: ray_query;
     ray_tint = vec3f(1.0);
     rayQueryInitialize(&rq, acc, RayDesc(flags, 1u << body, 0.0, tmax, o, db));
+    // the season where the ray starts: a bare crown lets it through between its twigs (ADR 0090)
+    let sn = season_in(g.bodies[body], o);
     while (rayQueryProceed(&rq)) {
         let c = rayQueryGetCandidateIntersection(&rq);
         let q = hit_quad(c.instance_custom_data, c.geometry_index, c.primitive_index);
@@ -336,10 +455,19 @@ fn trace(o: vec3f, db: vec3f, body: u32, tmax: f32, flags: u32) -> RayIntersecti
         } else if (is_glass(q.y)) {
             // far glass is drawn in its one colour, half clear: its shadow the same
             var t = vec4f(seen_colour(q.y & 255u, vec3f(0.0)), 0.45);
-            if (((chunks[c.instance_custom_data].info >> 3u) & 31u) == 0u) { t = hit_texel(c.instance_custom_data, q, c.primitive_index, c.barycentrics); }
+            if (((chunks[c.instance_custom_data].info >> 3u) & 31u) == 0u) { t = hit_texel(c.instance_custom_data, q, c.primitive_index, c.barycentrics, sn); }
             ray_tint *= mix(vec3f(1.0), t.rgb, t.a);
-        } else if (!hit_empty(c.instance_custom_data, q, c.primitive_index, c.barycentrics)) {
-            rayQueryConfirmIntersection(&rq);
+        } else if (!hit_empty(c.instance_custom_data, q, c.primitive_index, c.barycentrics, hit_season(c.instance_custom_data, q, sn))) {
+            // a shadow ray through a face of fast leaves takes its share of the light (`fluff.light`, the block row)
+            // and goes on: a soft green shade under a crown, not a whole block's (ADR 0090); nearly none left stops it.
+            // shortcut: a fast crown is a shell, so any crown passes light squared whatever its thickness; weigh by
+            // the distance from the entry face if thin and thick crowns should differ
+            if (flags == RAY_FLAG_TERMINATE_ON_FIRST_HIT && ((chunks[c.instance_custom_data].info >> 18u) & 1u) == 1u) {
+                ray_tint *= looks[q.y & 255u].through * vec3f(0.9, 1.0, 0.75);
+                if (max(ray_tint.r, max(ray_tint.g, ray_tint.b)) < 0.02) { rayQueryConfirmIntersection(&rq); }
+            } else {
+                rayQueryConfirmIntersection(&rq);
+            }
         }
     }
     return rayQueryGetCommittedIntersection(&rq);
@@ -352,15 +480,28 @@ fn hit_quad(ci: u32, geo: u32, prim: u32) -> vec2u {
 }
 
 // whether a candidate hit at barycentrics bc is on an empty texel of its cutout block (level 0 only meshes them
-// so; summer's look, `texel_a` without a season)
-fn hit_empty(ci: u32, q: vec2u, prim: u32, bc: vec2f) -> bool {
+// so), in season sn. Fast leaves (the chunk's info bit 18, frame.rs) are whole blocks to a ray (ADR 0069) unless
+// bare: then the ray takes the twigs' painting, so light falls through a winter crown and its twigs are lit like
+// the bark (ADR 0090); fancy ones take the season's texel
+fn hit_empty(ci: u32, q: vec2u, prim: u32, bc: vec2f, sn: vec3f) -> bool {
     // flat colours draw a cutout block whole: the light takes it whole too
     if ((g.opt.x & 4u) != 0u) { return false; }
-    return hit_texel(ci, q, prim, bc).a < 0.5;
+    if (((chunks[ci].info >> 18u) & 1u) == 1u && !is_bare(q.y & 255u, sn)) { return false; }
+    return hit_texel(ci, q, prim, bc, sn).a < 0.5;
+}
+
+// season sn at quad q of chunk-table entry ci of level 0: with its column's stagger, as `terrain_texel` draws it
+// (a cutout quad never merges, so its corner names its cell)
+fn hit_season(ci: u32, q: vec2u, sn: vec3f) -> vec3f {
+    let c = chunks[ci];
+    let a = ((q.x >> 28u) & 7u) / 2u;
+    let sgn = select(1.0, -1.0, ((q.x >> 28u) & 1u) == 1u);
+    let at = quad_corner(q, 0u, 0.0);
+    return vec3f(sn.xy, stagger(vec2i(floor(at.xy - axis(a).xy * sgn * 0.5)) + c.base.xy, c.info & 7u));
 }
 
 // the texel of quad q of chunk-table entry ci at a candidate hit's barycentrics bc on its triangle prim
-fn hit_texel(ci: u32, q: vec2u, prim: u32, bc: vec2f) -> vec4f {
+fn hit_texel(ci: u32, q: vec2u, prim: u32, bc: vec2f, sn: vec3f) -> vec4f {
     let c = chunks[ci];
     let tri = (prim & 1u) * 3u;
     // the BLAS holds the quads grown by GROW; the same barycentrics on the ungrown corners map a hit in the lip
@@ -371,7 +512,7 @@ fn hit_texel(ci: u32, q: vec2u, prim: u32, bc: vec2f) -> vec4f {
     let sgn = select(1.0, -1.0, (dir & 1u) == 1u);
     let cell = vec3i(floor(local - axis(a) * sgn * 0.5)) + c.base + vec3i(i32(c.info & 7u) * 977);
     let f = fract(local);
-    return texel_a(q.y, dir, cell, vec2f(f[(a + 1u) % 3u], f[(a + 2u) % 3u]), f.z, vec3f(0.0));
+    return texel_a(q.y, dir, cell, vec2f(f[(a + 1u) % 3u], f[(a + 2u) % 3u]), f.z, sn);
 }
 
 // a direction to a point of a disc of angular radius ar around direction s, from a per-pixel number pair
@@ -752,10 +893,15 @@ fn part(look: Look, pattern: u32, dir: u32, cell: vec3i, x: i32, y: i32) -> vec4
 // much of a season the place has, 0 near the equator to 1 from 35 degrees on (the sines of 10 and 35 degrees);
 // z the column's own share of its block's stagger, -1..1, 0 until `stagger` sets it.
 fn season(b: Body, p: vec3f) -> vec3f {
+    return season_in(b, to_body(b, p));
+}
+
+// the same at a point of body b's own frame (`to_body`)
+fn season_in(b: Body, bp: vec3f) -> vec3f {
     if (b.year < 0.0) { return vec3f(0.0); }
     // the Studio's year slider at a latitude (view.rs `season_year`): that phase, whole, everywhere
     if (b.year >= 8.0) { return vec3f(b.year - 8.0, 1.0, 0.0); }
-    let z = normalize(to_body(b, p)).z;
+    let z = normalize(bp).z;
     return vec3f(b.year + select(0.0, 2.0, z < 0.0), smoothstep(0.1736, 0.5736, abs(z)), 0.0);
 }
 // How far the column `col` (columns of level 0, so a tree keeps its season as its chunk's level changes) of
@@ -870,17 +1016,17 @@ fn texel_a(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> ve
     painted = face_paint(m, dir);
     // on a side, x runs left to right as seen from outside and y down from its top edge (t is (y, z) on an x
     // face, (z, x) on a y face; along +y on +x and along +x on -y read rightwards, the other two are turned)
-    var x = ti.x;
-    var y = ti.y;
-    if (dir < 4u) {
-        let on_y = dir / 2u == 1u;
-        x = select(ti.x, ti.y, on_y);
-        y = 15 - select(ti.y, ti.x, on_y);
-        if (dir == 1u || dir == 2u) { x = 15 - x; }
-    }
+    let root = (mat >> 20u) & 7u;
+    let cutout = ((looks[m0].info >> 25u) & 1u) == 1u;
+    let turn = select(0u, root, cutout);
+    let xy = face_xy(ti, t, dir, turn, 15);
+    let x = xy.x;
+    let y = xy.y;
+    // the same at 32 texels a metre, for a fine painting (ADR 0090)
+    let fxy = face_xy(clamp(vec2i(floor(t * 32.0)), vec2i(0), vec2i(31)), t, dir, turn, 31);
     var c: vec4f;
     if (painted != 0u) {
-        c = paint_texel(painted, cell, x, y);
+        c = paint_texel(painted, cell, xy, fxy, -1);
         if (c.a < 0.5 && !is_glass(m)) { c = vec4f(row_seen(m) * 0.6, 0.0); }
     } else {
         let lk = look_in(m, sn);
@@ -900,19 +1046,77 @@ fn texel_a(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> ve
     var cy = c;
     let px = face_paint(r.x + m0, dir);
     let py = face_paint(r.y + m0, dir);
-    if (px != 0u) { cx = paint_texel(px, cell, x, y); }
-    if (py != 0u) { cy = paint_texel(py, cell, x, y); }
+    // a bare crown's winter painting picks its variant by the block's place in the crown (ADR 0090, part D's
+    // layout): beside the wood 0 or 1, a step on 2 (a limb through to the next block), two on 3 (tips)
+    let steps = (mat >> 23u) & 3u;
+    let role = cutout && root != 0u;
+    if (px != 0u) { cx = paint_texel(px, cell, xy, fxy, select(-1, i32(steps), role && r.x == 768u)); }
+    if (py != 0u) { cy = paint_texel(py, cell, xy, fxy, select(-1, i32(steps), role && r.y == 768u)); }
     let mixed = mix(c, mix(cx, cy, r.f), sn.y);
+    var a = select(select(0.0, 1.0, mixed.a >= 0.5), mixed.a, is_glass(m0));
+    // a bare crown is its winter painting alone: bark-coloured twigs, no leaf tint mixed in (a crown turns bare
+    // at once where winter outweighs the rest); a block with no way to wood within three steps draws no twigs
+    if (cutout && bare_of(r, sn) > 0.5) {
+        let w = select(cy, cx, r.x == 768u);
+        return vec4f(w.rgb, select(0.0, 1.0, w.a >= 0.5 && root != 0u));
+    }
     // the empty texels of the season nearest in the mix
-    return vec4f(mixed.rgb, select(select(0.0, 1.0, mixed.a >= 0.5), mixed.a, is_glass(m0)));
+    return vec4f(mixed.rgb, a);
+}
+
+// how much winter's bare look weighs in a season mix (`season_rows`, row 768 the winter look)
+fn bare_of(r: SeasonRows, sn: vec3f) -> f32 {
+    return sn.y * (select(0.0, 1.0 - r.f, r.x == 768u) + select(0.0, r.f, r.y == 768u));
+}
+
+// whether block m0 at season sn is bare (a cutout block a season paints, winter outweighing the rest)
+fn is_bare(m0: u32, sn: vec3f) -> bool {
+    let size = looks[m0].size;
+    if ((size & 512u) == 0u || sn.y == 0.0 || ((looks[m0].info >> 25u) & 1u) == 0u) { return false; }
+    return bare_of(season_rows(size >> 8u, sn), sn) > 0.5;
+}
+
+// a face's texel in its painting (`last` 15, or 31 for a fine one): on a side, x runs left to right as seen
+// from outside and y down from its top edge (t is (y, z) on an x face, (z, x) on a y face; along +y on +x and
+// along +x on -y read rightwards, the other two are turned). A cutout block's twigs grow from its wood (ADR 0090,
+// mesh.rs `twig_bits`): its paintings have them rooted on the bottom edge, turned here so that edge lies on the
+// side of the face the wood is on (`root` 1..4: u-, u+, v-, v+), or folded about the middle when the wood is
+// behind the face (5); 0 turns nothing
+fn face_xy(ti: vec2i, t: vec2f, dir: u32, root: u32, last: i32) -> vec2i {
+    if (root == 5u) {
+        return vec2i(ti.x, last - i32(floor(abs(t.y - 0.5) * f32(2 * last + 2))));
+    }
+    if (root != 0u) {
+        let d = select(ti.y, ti.x, root < 3u);
+        return vec2i(select(ti.x, ti.y, root < 3u), select(d, last - d, (root & 1u) == 1u));
+    }
+    var x = ti.x;
+    var y = ti.y;
+    if (dir < 4u) {
+        let on_y = dir / 2u == 1u;
+        x = select(ti.x, ti.y, on_y);
+        y = last - select(ti.y, ti.x, on_y);
+        if (dir == 1u || dir == 2u) { x = last - x; }
+    }
+    return vec2i(x, y);
 }
 
 // texel (x, y) of a painted face (`face_paint`): one of its variants by the cell's hash, the same on every face;
-// a 0 for an empty pixel (a cutout block's, ADR 0069)
-fn paint_texel(painted: u32, cell: vec3i, x: i32, y: i32) -> vec4f {
+// a 0 for an empty pixel (a cutout block's, ADR 0069). A fine painting (bit 14, 32 x 32 a variant as four 16 x 16
+// quarters in turn, ADR 0090) reads `fxy` instead. `steps` >= 0: a bare crown's winter painting of four variants
+// takes its variant by the block's place in the crown (ADR 0090, part D's layout): beside the wood 0 or 1 by the
+// hash, a step on 2 (a limb through), two on 3 (tips)
+fn paint_texel(painted: u32, cell: vec3i, xy: vec2i, fxy: vec2i, steps: i32) -> vec4f {
     let nv = ((painted >> 12u) & 3u) + 1u;
-    let v = min(u32(hash(cell + vec3i(0, 0, 4099)) * f32(nv)), nv - 1u);
-    let p = vec2u(clamp(vec2i(x, y), vec2i(0), vec2i(15)));
+    let hv = hash(cell + vec3i(0, 0, 4099));
+    var v = min(u32(hv * f32(nv)), nv - 1u);
+    if (steps > 0 && nv == 4u) { v = u32(steps) + 1u; } else if (steps == 0 && nv == 4u) { v = min(u32(hv * 2.0), 1u); }
+    if (((painted >> 14u) & 1u) == 1u) {
+        let f = vec2u(clamp(fxy, vec2i(0), vec2i(31)));
+        let q = (f.y >> 4u) * 2u + (f.x >> 4u);
+        return unpack4x8unorm(tex[((painted & 4095u) + v * 4u + q) * 256u + (f.y & 15u) * 16u + (f.x & 15u)]);
+    }
+    let p = vec2u(clamp(xy, vec2i(0), vec2i(15)));
     return unpack4x8unorm(tex[((painted & 4095u) + v) * 256u + p.y * 16u + p.x]);
 }
 
@@ -999,6 +1203,42 @@ fn fs_cut(i: VOut) -> GOut {
     return terrain_lit(i, c.rgb);
 }
 
+// the cutout blocks' depth pass (ADR 0090): the same holes as `fs_cut`, nothing written but the depth
+@fragment
+fn fs_cut_depth(i: VOut) -> GOut {
+    if (terrain_texel(i).a < 0.5) {
+        discard;
+    }
+    // the targets are masked off: what is returned is never written
+    return GOut(vec4f(0.0), vec4f(0.0), vec2u(0u));
+}
+
+// their G-buffer after the opaque terrain, where the depth pass left theirs (`Equal`): no discard, early depth
+@fragment
+fn fs_cut_lit(i: VOut) -> GOut {
+    return terrain_lit(i, terrain_texel(i).rgb);
+}
+
+// the fluff (`vs_fluff`): the painting at its own size across the larger plane, inside a ragged round of texels
+fn fluff_in(i: VOut) -> bool {
+    let tx = (floor(i.plane * 32.0) + 0.5) / 32.0;
+    let h = hash(vec3i(floor(i.local * 32.0)) + chunks[i.ci].base * 32 + vec3i(3, 9, 27 + i32(i.dir)));
+    return length(tx - 0.5) < 0.64 + 0.26 * h;
+}
+
+@fragment
+fn fs_fluff_depth(i: VOut) -> GOut {
+    if (!fluff_in(i) || terrain_texel(i).a < 0.5) {
+        discard;
+    }
+    return GOut(vec4f(0.0), vec4f(0.0), vec2u(0u));
+}
+
+@fragment
+fn fs_fluff_lit(i: VOut) -> GOut {
+    return terrain_lit(i, terrain_texel(i).rgb);
+}
+
 fn terrain_texel(i: VOut) -> vec4f {
     let a = i.dir / 2u;
     let sgn = select(1.0, -1.0, (i.dir & 1u) == 1u);
@@ -1047,8 +1287,15 @@ fn terrain_lit(i: VOut, col_in: vec3f) -> GOut {
         return o;
     }
     let px = vec2u(i.clip.xy);
-    let l = light(i.rel, n, body, px);
+    // a plant lit as one mass (ADR 0090): the direct light takes its normal bent half way toward up, so the sun
+    // side is not lime and the far side not black (its volume is its shade, `ao`); the G-buffer keeps the true
+    // normal for the bounce and the denoiser
+    var ln = n;
+    if (((look.info >> 25u) & 1u) == 1u) { ln = normalize(n + normalize(i.rel - g.bodies[body].ctr.xyz) * 0.5); }
+    let l = light(i.rel, ln, body, px);
     var out = col * l.l;
+    // its own shade darkens its sunlit side too, so a plane facing the sun keeps the painting's greens
+    if (((look.info >> 25u) & 1u) == 1u) { out *= i.ao; }
     var diffuse = 1.0;
     let metal = f32((look.info >> 16u) & 255u) / 255.0;
     if (metal > 0.0 && (g.opt.x & 2u) == 0u) {

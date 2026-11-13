@@ -8,26 +8,32 @@ use std::path::Path;
 pub const S: usize = 16;
 pub const FACES: [&str; 4] = ["", "top", "side", "bottom"];
 
-/// A texture: 16 high, 1 to 4 variants of 16 x 16 side by side, each pixel a colour or `EMPTY`.
+/// A texture: `h` high (16, or 32 for a fine painting, ADR 0090), 1 to 4 square variants side by side, each
+/// pixel a colour or `EMPTY`.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Img {
     pub w: usize,
+    pub h: usize,
     pub px: Vec<[u8; 3]>,
 }
 
 impl Img {
     pub fn filled(variants: usize, c: [u8; 3]) -> Img {
-        Img { w: variants * S, px: vec![c; variants * S * S] }
+        Img::sized(variants, S, c)
+    }
+    /// `filled` with variants `side` px square.
+    pub fn sized(variants: usize, side: usize, c: [u8; 3]) -> Img {
+        Img { w: variants * side, h: side, px: vec![c; variants * side * side] }
     }
     pub fn variants(&self) -> usize {
-        self.w / S
+        self.w / self.h
     }
     pub fn get(&self, v: usize, x: usize, y: usize) -> [u8; 3] {
-        self.px[y * self.w + v * S + x]
+        self.px[y * self.w + v * self.h + x]
     }
     fn set(&mut self, v: usize, x: usize, y: usize, c: [u8; 3]) {
         let w = self.w;
-        self.px[y * w + v * S + x] = c;
+        self.px[y * w + v * self.h + x] = c;
     }
     pub fn uses(&self, c: [u8; 3]) -> bool {
         self.px.contains(&c)
@@ -85,9 +91,9 @@ pub fn names_block(name: &str, file: &str) -> bool {
     (0..4).any(|f| (0..4).any(|q| season_file(name, f, q) == file))
 }
 
-fn mirrored(x: usize, mirror: bool) -> Vec<usize> {
-    if mirror && x != S - 1 - x {
-        vec![x, S - 1 - x]
+fn mirrored(x: usize, mirror: bool, side: usize) -> Vec<usize> {
+    if mirror && x != side - 1 - x {
+        vec![x, side - 1 - x]
     } else {
         vec![x]
     }
@@ -95,14 +101,14 @@ fn mirrored(x: usize, mirror: bool) -> Vec<usize> {
 
 /// Paints one pixel of variant `v` (and its mirror image across the variant's middle).
 pub fn pencil(img: &mut Img, v: usize, x: usize, y: usize, c: [u8; 3], mirror: bool) {
-    for x in mirrored(x, mirror) {
+    for x in mirrored(x, mirror, img.h) {
         img.set(v, x, y, c);
     }
 }
 
 /// Fills the 4-connected area of one colour that holds (x, y) within variant `v`.
 pub fn fill(img: &mut Img, v: usize, x: usize, y: usize, c: [u8; 3], mirror: bool) {
-    for x in mirrored(x, mirror) {
+    for x in mirrored(x, mirror, img.h) {
         let from = img.get(v, x, y);
         if from == c {
             continue;
@@ -116,13 +122,13 @@ pub fn fill(img: &mut Img, v: usize, x: usize, y: usize, c: [u8; 3], mirror: boo
             if x > 0 {
                 todo.push((x - 1, y));
             }
-            if x + 1 < S {
+            if x + 1 < img.h {
                 todo.push((x + 1, y));
             }
             if y > 0 {
                 todo.push((x, y - 1));
             }
-            if y + 1 < S {
+            if y + 1 < img.h {
                 todo.push((x, y + 1));
             }
         }
@@ -154,14 +160,14 @@ pub fn line(img: &mut Img, v: usize, a: (usize, usize), b: (usize, usize), c: [u
     }
 }
 
-/// A fifth variant does not fit: the widest file is 64 px.
+/// A fifth variant does not fit: the widest file is 4 variants.
 pub fn add_variant(img: &Img, copy: usize) -> Option<Img> {
     if img.variants() >= 4 {
         return None;
     }
-    let w = img.w + S;
-    let px = (0..S).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| if x < img.w { img.px[y * img.w + x] } else { img.get(copy, x - img.w, y) }).collect();
-    Some(Img { w, px })
+    let w = img.w + img.h;
+    let px = (0..img.h).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| if x < img.w { img.px[y * img.w + x] } else { img.get(copy, x - img.w, y) }).collect();
+    Some(Img { w, h: img.h, px })
 }
 
 /// The file without variant `v`; None when it is the only one.
@@ -169,14 +175,14 @@ pub fn remove_variant(img: &Img, v: usize) -> Option<Img> {
     if img.variants() <= 1 || v >= img.variants() {
         return None;
     }
-    let px = (0..S).flat_map(|y| (0..img.w).map(move |x| (x, y))).filter(|(x, _)| x / S != v).map(|(x, y)| img.px[y * img.w + x]).collect();
-    Some(Img { w: img.w - S, px })
+    let px = (0..img.h).flat_map(|y| (0..img.w).map(move |x| (x, y))).filter(|(x, _)| x / img.h != v).map(|(x, y)| img.px[y * img.w + x]).collect();
+    Some(Img { w: img.w - img.h, h: img.h, px })
 }
 
 /// Whether variant `v` is one colour all over (nothing to vary, nothing lost).
 pub fn flat(img: &Img, v: usize) -> bool {
-    let c = img.get(v, 0, 0);
-    (0..S * S).all(|i| img.get(v, i % S, i / S) == c)
+    let (c, s) = (img.get(v, 0, 0), img.h);
+    (0..s * s).all(|i| img.get(v, i % s, i / s) == c)
 }
 
 /// One undo step: the picture before an edit, and the edit's name for the history list.
@@ -297,9 +303,16 @@ pub fn decode(bytes: &[u8]) -> Result<Img, String> {
 
 /// `decode` held to a block of kind `see`: an opaque block's file has no empty pixel.
 pub fn decode_as(bytes: &[u8], see: See) -> Result<Img, String> {
-    let v = engine::textures::decode(bytes, see)?;
-    let px = (0..S).flat_map(|y| v.iter().flat_map(move |p| p[y * S..(y + 1) * S].iter().map(|c| if c[3] == 0 { EMPTY } else { [c[0], c[1], c[2]] }))).collect();
-    Ok(Img { w: v.len() * S, px })
+    let (t, fine) = engine::textures::decode_fine(bytes, see)?;
+    // a fine variant is 32 x 32, its four 16 px tiles in turn: top left, top right, bottom left, bottom right
+    let (s, n) = if fine { (2 * S, 2) } else { (S, 1) };
+    let w = t.len() / (n * n) * s;
+    let px = (0..s)
+        .flat_map(|y| (0..w).map(move |x| (x, y)))
+        .map(|(x, y)| t[x / s * n * n + y / S * n + x % s / S][y % S * S + x % S])
+        .map(|c| if c[3] == 0 { EMPTY } else { [c[0], c[1], c[2]] })
+        .collect();
+    Ok(Img { w, h: s, px })
 }
 
 /// Writes a texture: to a temporary file renamed over it, so a game reading the folder never sees half a file.
@@ -319,7 +332,7 @@ pub fn save(path: &Path, img: &Img, new: bool) -> Result<(), String> {
 
 pub fn encode(img: &Img) -> Vec<u8> {
     let mut out = Vec::new();
-    let mut e = png::Encoder::new(&mut out, img.w as u32, S as u32);
+    let mut e = png::Encoder::new(&mut out, img.w as u32, img.h as u32);
     e.set_color(png::ColorType::Rgba);
     e.set_depth(png::BitDepth::Eight);
     let mut wr = e.write_header().expect("a PNG header in memory");
@@ -455,12 +468,13 @@ pub fn variant_at(cell: [i32; 3], variants: usize) -> usize {
 
 /// The texture tiled n x n, variants mixed, each pixel `scale` px: (width, RGBA bytes).
 pub fn tiled(img: &Img, n: usize, scale: usize) -> (usize, Vec<u8>) {
-    let side = n * S * scale;
+    let s = img.h;
+    let side = n * s * scale;
     let mut out = Vec::with_capacity(side * side * 4);
     for py in 0..side {
         for px in 0..side {
             let (x, y) = (px / scale, py / scale);
-            let c = img.get(variant_at([(x / S) as i32, (y / S) as i32, 0], img.variants()), x % S, y % S);
+            let c = img.get(variant_at([(x / s) as i32, (y / s) as i32, 0], img.variants()), x % s, y % s);
             out.extend_from_slice(&if c == EMPTY { [0; 4] } else { [c[0], c[1], c[2], 255] });
         }
     }
@@ -599,6 +613,49 @@ mod tests {
         assert_eq!(decode(&encode(&img)).unwrap(), img);
     }
 
+    /// An RGBA PNG of any size, pixel by pixel.
+    fn raw_png(w: u32, h: u32, px: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut e = png::Encoder::new(&mut out, w, h);
+        e.set_color(png::ColorType::Rgba);
+        e.set_depth(png::BitDepth::Eight);
+        let mut wr = e.write_header().unwrap();
+        let data: Vec<u8> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).flat_map(|(x, y)| px(x, y)).collect();
+        wr.write_image_data(&data).unwrap();
+        wr.finish().unwrap();
+        out
+    }
+    fn raw_pixels(bytes: &[u8]) -> (u32, u32, Vec<u8>) {
+        let mut r = png::Decoder::new(std::io::Cursor::new(bytes)).read_info().unwrap();
+        let mut buf = vec![0; r.output_buffer_size().unwrap()];
+        let i = r.next_frame(&mut buf).unwrap();
+        (i.width, i.height, buf)
+    }
+    /// 64 x 32: two fine variants, one hole, every quarter its own colour so a mixed-up quarter shows.
+    fn fine_png(w: u32) -> Vec<u8> {
+        raw_png(w, 32, |x, y| if (x, y) == (40, 20) { [0; 4] } else if (x / 16 + y / 16) % 2 == 0 { [A[0], A[1], A[2], 255] } else { [B[0], B[1], B[2], 255] })
+    }
+
+    #[test]
+    fn a_fine_texture_round_trips_through_its_png() {
+        let png = fine_png(64);
+        let img = decode(&png).unwrap();
+        assert_eq!(raw_pixels(&encode(&img)), raw_pixels(&png), "32 high, every pixel where it was");
+        assert_eq!((img.variants(), img.get(1, 8, 20), img.empty_at(1, 8, 20)), (2, EMPTY, true));
+    }
+
+    #[test]
+    fn check_takes_a_fine_cutout_file_of_a_width_the_rule_allows() {
+        let r = Registry::parse("[[block]]\nid = 0\nname = \"air\"\nsolid = false\n[[block]]\nid = 2\nname = \"leaf\"\nsee = \"cutout\"\nhardness = 1\n").unwrap();
+        let d = temp("fine");
+        std::fs::write(d.join("leaf.png"), fine_png(64)).unwrap();
+        std::fs::write(d.join("leaf_top.png"), fine_png(48)).unwrap();
+        let (ok, bad) = check_dir(&d, &pal(), &r);
+        assert_eq!(ok, 1, "{bad:?}");
+        assert!(bad.len() == 1 && bad[0].contains("leaf_top.png: 48 x 32 px"), "{bad:?}");
+        let _ = std::fs::remove_dir_all(d);
+    }
+
     #[test]
     fn an_empty_pixel_round_trips_as_alpha_zero() {
         let mut img = Img::filled(2, A);
@@ -660,7 +717,7 @@ mod tests {
         pencil(&mut img, 1, 2, 5, C, false);
         let e = check_file("data/textures/rock_top.png", &encode(&img), &p, &r).unwrap_err();
         assert_eq!(e, "data/textures/rock_top.png: pixel (18, 5) is #010203, not a palette colour");
-        let wide = Img { w: 20, px: vec![A; 20 * S] };
+        let wide = Img { w: 20, h: S, px: vec![A; 20 * S] };
         let e = check_file("data/textures/rock.png", &encode(&wide), &p, &r).unwrap_err();
         assert!(e.starts_with("data/textures/rock.png: 20 x 16 px"), "{e}");
         let e = check_file("data/textures/sand.png", &encode(&Img::filled(1, A)), &p, &r).unwrap_err();
@@ -828,7 +885,9 @@ mod tests {
     fn the_preview_picks_variants_as_the_game_does() {
         // `paint_texel` in the shader, word for word: a change there must come here too
         let wgsl = include_str!("../../client/src/shader.wgsl");
-        assert!(wgsl.contains("let v = min(u32(hash(cell + vec3i(0, 0, 4099)) * f32(nv)), nv - 1u);"), "the shader's pick changed");
+        // (a bare crown's winter painting of four variants picks by its place in the crown instead, ADR 0090)
+        assert!(wgsl.contains("let hv = hash(cell + vec3i(0, 0, 4099));"), "the shader's pick changed");
+        assert!(wgsl.contains("var v = min(u32(hv * f32(nv)), nv - 1u);"), "the shader's pick changed");
         let game = |c: [i32; 3], nv: u32| ((crate::pattern::hash(c[0], c[1], c[2] + 4099) * nv as f32) as u32).min(nv - 1) as usize;
         for nv in 1..=4u32 {
             for j in -3..8 {

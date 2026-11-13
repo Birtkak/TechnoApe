@@ -80,7 +80,7 @@ pub fn meshbench(args: &HashMap<String, String>) {
     let world = if at.is_some() { World::baked(planet, engine::bodies::columns(1, planet), 1337) } else { World::new(planet, engine::bodies::columns(1, planet), 1337) };
     let greedy = num("greedy", 1) == 1;
     // leaves=fancy: level 0 as fancy leaves mesh it (ADR 0069), else as today
-    let cutout = args.get("leaves").is_some_and(|v| v == "fancy");
+    let cutout = if args.get("leaves").is_some_and(|v| v == "fancy") { engine::mesh::Cut::Full } else { engine::mesh::Cut::Shell };
     let radius = num("chunks", 6);
     let b = &world.bodies[0];
     let (face, ci, cj, top) = match &at {

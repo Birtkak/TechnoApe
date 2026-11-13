@@ -2150,42 +2150,42 @@ ramp = "acacia leaves rich"
 
 [[colour]]
 name = "shrub r1"
-rgb = "#112608"
+rgb = "#0a2707"
 ramp = "shrub rich"
 
 [[colour]]
 name = "shrub r2"
-rgb = "#1f3f0c"
+rgb = "#144209"
 ramp = "shrub rich"
 
 [[colour]]
 name = "shrub r3"
-rgb = "#315d10"
+rgb = "#22620b"
 ramp = "shrub rich"
 
 [[colour]]
 name = "shrub r4"
-rgb = "#487f12"
+rgb = "#34850b"
 ramp = "shrub rich"
 
 [[colour]]
 name = "shrub r5"
-rgb = "#629c19"
+rgb = "#4ea411"
 ramp = "shrub rich"
 
 [[colour]]
 name = "shrub r6"
-rgb = "#7fb822"
+rgb = "#6dc219"
 ramp = "shrub rich"
 
 [[colour]]
 name = "shrub r7"
-rgb = "#9ed22f"
+rgb = "#8edc24"
 ramp = "shrub rich"
 
 [[colour]]
 name = "shrub r8"
-rgb = "#b4d553"
+rgb = "#aadd4b"
 ramp = "shrub rich"
 
 [[colour]]
@@ -2667,6 +2667,266 @@ ramp = "flint rich"
 name = "flint r8"
 rgb = "#809e8e"
 ramp = "flint rich"
+
+[[colour]]
+name = "shrub spring r1"
+rgb = "#153409"
+ramp = "shrub spring rich"
+
+[[colour]]
+name = "shrub spring r2"
+rgb = "#22500b"
+ramp = "shrub spring rich"
+
+[[colour]]
+name = "shrub spring r3"
+rgb = "#34700c"
+ramp = "shrub spring rich"
+
+[[colour]]
+name = "shrub spring r4"
+rgb = "#4b930c"
+ramp = "shrub spring rich"
+
+[[colour]]
+name = "shrub spring r5"
+rgb = "#67b212"
+ramp = "shrub spring rich"
+
+[[colour]]
+name = "shrub spring r6"
+rgb = "#86cf1b"
+ramp = "shrub spring rich"
+
+[[colour]]
+name = "shrub spring r7"
+rgb = "#a4df32"
+ramp = "shrub spring rich"
+
+[[colour]]
+name = "shrub spring r8"
+rgb = "#badf58"
+ramp = "shrub spring rich"
+
+[[colour]]
+name = "shrub autumn r1"
+rgb = "#261507"
+ramp = "shrub autumn rich"
+
+[[colour]]
+name = "shrub autumn r2"
+rgb = "#41240b"
+ramp = "shrub autumn rich"
+
+[[colour]]
+name = "shrub autumn r3"
+rgb = "#60370d"
+ramp = "shrub autumn rich"
+
+[[colour]]
+name = "shrub autumn r4"
+rgb = "#824d0e"
+ramp = "shrub autumn rich"
+
+[[colour]]
+name = "shrub autumn r5"
+rgb = "#a06615"
+ramp = "shrub autumn rich"
+
+[[colour]]
+name = "shrub autumn r6"
+rgb = "#bd801e"
+ramp = "shrub autumn rich"
+
+[[colour]]
+name = "shrub autumn r7"
+rgb = "#d79b2a"
+ramp = "shrub autumn rich"
+
+[[colour]]
+name = "shrub autumn r8"
+rgb = "#d9ae4f"
+ramp = "shrub autumn rich"
+
+[[colour]]
+name = "reed spring r2"
+rgb = "#24560e"
+ramp = "reed spring rich"
+
+[[colour]]
+name = "reed spring r3"
+rgb = "#367610"
+ramp = "reed spring rich"
+
+[[colour]]
+name = "reed spring r4"
+rgb = "#4c9911"
+ramp = "reed spring rich"
+
+[[colour]]
+name = "reed spring r5"
+rgb = "#68b718"
+ramp = "reed spring rich"
+
+[[colour]]
+name = "reed spring r6"
+rgb = "#87d321"
+ramp = "reed spring rich"
+
+[[colour]]
+name = "reed spring r7"
+rgb = "#a3db3f"
+ramp = "reed spring rich"
+
+[[colour]]
+name = "reed spring r8"
+rgb = "#badd64"
+ramp = "reed spring rich"
+
+[[colour]]
+name = "straw r1"
+rgb = "#453e12"
+ramp = "straw rich"
+
+[[colour]]
+name = "straw r2"
+rgb = "#5f5515"
+ramp = "straw rich"
+
+[[colour]]
+name = "straw r3"
+rgb = "#7d7019"
+ramp = "straw rich"
+
+[[colour]]
+name = "straw r4"
+rgb = "#9e8d1b"
+ramp = "straw rich"
+
+[[colour]]
+name = "straw r5"
+rgb = "#baa823"
+ramp = "straw rich"
+
+[[colour]]
+name = "straw r6"
+rgb = "#d2bf31"
+ramp = "straw rich"
+
+[[colour]]
+name = "straw r7"
+rgb = "#d5c655"
+ramp = "straw rich"
+
+[[colour]]
+name = "straw r8"
+rgb = "#dacf77"
+ramp = "straw rich"
+
+[[colour]]
+name = "reed winter r2"
+rgb = "#4f442f"
+ramp = "reed winter rich"
+
+[[colour]]
+name = "reed winter r3"
+rgb = "#65573b"
+ramp = "reed winter rich"
+
+[[colour]]
+name = "reed winter r4"
+rgb = "#7d6c46"
+ramp = "reed winter rich"
+
+[[colour]]
+name = "reed winter r5"
+rgb = "#948254"
+ramp = "reed winter rich"
+
+[[colour]]
+name = "reed winter r6"
+rgb = "#a69568"
+ramp = "reed winter rich"
+
+[[colour]]
+name = "reed winter r7"
+rgb = "#b2a781"
+ramp = "reed winter rich"
+
+[[colour]]
+name = "reed winter r8"
+rgb = "#c0b89b"
+ramp = "reed winter rich"
+
+[[colour]]
+name = "cactus r2"
+rgb = "#11301b"
+ramp = "cactus rich"
+
+[[colour]]
+name = "cactus r3"
+rgb = "#194a23"
+ramp = "cactus rich"
+
+[[colour]]
+name = "cactus r4"
+rgb = "#206625"
+ramp = "cactus rich"
+
+[[colour]]
+name = "cactus r5"
+rgb = "#2f802b"
+ramp = "cactus rich"
+
+[[colour]]
+name = "cactus r6"
+rgb = "#489937"
+ramp = "cactus rich"
+
+[[colour]]
+name = "cactus r7"
+rgb = "#65b245"
+ramp = "cactus rich"
+
+[[colour]]
+name = "cactus r8"
+rgb = "#87be60"
+ramp = "cactus rich"
+
+[[colour]]
+name = "cactus spine r5"
+rgb = "#b6ad7f"
+ramp = "cactus spine rich"
+
+[[colour]]
+name = "cactus spine r6"
+rgb = "#c2bc98"
+ramp = "cactus spine rich"
+
+[[colour]]
+name = "cactus spine r7"
+rgb = "#cfcbb1"
+ramp = "cactus spine rich"
+
+[[colour]]
+name = "cattail r3"
+rgb = "#472c1b"
+ramp = "cattail rich"
+
+[[colour]]
+name = "cattail r4"
+rgb = "#633e23"
+ramp = "cattail rich"
+
+[[colour]]
+name = "cattail r6"
+rgb = "#956a3b"
+ramp = "cattail rich"
+
+[[colour]]
+name = "cattail r7"
+rgb = "#ad824a"
+ramp = "cattail rich"
 
 [[colour]]
 name = "halo grey dark"
@@ -4107,266 +4367,6 @@ ramp = "bamboo wood rich"
 name = "bamboo wood r5"
 rgb = "#b2ac69"
 ramp = "bamboo wood rich"
-
-[[colour]]
-name = "shrub spring r1"
-rgb = "#253f0e"
-ramp = "shrub spring rich"
-
-[[colour]]
-name = "shrub spring r2"
-rgb = "#375911"
-ramp = "shrub spring rich"
-
-[[colour]]
-name = "shrub spring r3"
-rgb = "#4d7814"
-ramp = "shrub spring rich"
-
-[[colour]]
-name = "shrub spring r4"
-rgb = "#689916"
-ramp = "shrub spring rich"
-
-[[colour]]
-name = "shrub spring r5"
-rgb = "#84b71d"
-ramp = "shrub spring rich"
-
-[[colour]]
-name = "shrub spring r6"
-rgb = "#a2d227"
-ramp = "shrub spring rich"
-
-[[colour]]
-name = "shrub spring r7"
-rgb = "#b6d848"
-ramp = "shrub spring rich"
-
-[[colour]]
-name = "shrub spring r8"
-rgb = "#c7db6c"
-ramp = "shrub spring rich"
-
-[[colour]]
-name = "shrub autumn r1"
-rgb = "#261507"
-ramp = "shrub autumn rich"
-
-[[colour]]
-name = "shrub autumn r2"
-rgb = "#41240b"
-ramp = "shrub autumn rich"
-
-[[colour]]
-name = "shrub autumn r3"
-rgb = "#60370d"
-ramp = "shrub autumn rich"
-
-[[colour]]
-name = "shrub autumn r4"
-rgb = "#824d0e"
-ramp = "shrub autumn rich"
-
-[[colour]]
-name = "shrub autumn r5"
-rgb = "#a06615"
-ramp = "shrub autumn rich"
-
-[[colour]]
-name = "shrub autumn r6"
-rgb = "#bd801e"
-ramp = "shrub autumn rich"
-
-[[colour]]
-name = "shrub autumn r7"
-rgb = "#d79b2a"
-ramp = "shrub autumn rich"
-
-[[colour]]
-name = "shrub autumn r8"
-rgb = "#d9ae4f"
-ramp = "shrub autumn rich"
-
-[[colour]]
-name = "reed spring r2"
-rgb = "#24560e"
-ramp = "reed spring rich"
-
-[[colour]]
-name = "reed spring r3"
-rgb = "#367610"
-ramp = "reed spring rich"
-
-[[colour]]
-name = "reed spring r4"
-rgb = "#4c9911"
-ramp = "reed spring rich"
-
-[[colour]]
-name = "reed spring r5"
-rgb = "#68b718"
-ramp = "reed spring rich"
-
-[[colour]]
-name = "reed spring r6"
-rgb = "#87d321"
-ramp = "reed spring rich"
-
-[[colour]]
-name = "reed spring r7"
-rgb = "#a3db3f"
-ramp = "reed spring rich"
-
-[[colour]]
-name = "reed spring r8"
-rgb = "#badd64"
-ramp = "reed spring rich"
-
-[[colour]]
-name = "straw r1"
-rgb = "#453e12"
-ramp = "straw rich"
-
-[[colour]]
-name = "straw r2"
-rgb = "#5f5515"
-ramp = "straw rich"
-
-[[colour]]
-name = "straw r3"
-rgb = "#7d7019"
-ramp = "straw rich"
-
-[[colour]]
-name = "straw r4"
-rgb = "#9e8d1b"
-ramp = "straw rich"
-
-[[colour]]
-name = "straw r5"
-rgb = "#baa823"
-ramp = "straw rich"
-
-[[colour]]
-name = "straw r6"
-rgb = "#d2bf31"
-ramp = "straw rich"
-
-[[colour]]
-name = "straw r7"
-rgb = "#d5c655"
-ramp = "straw rich"
-
-[[colour]]
-name = "straw r8"
-rgb = "#dacf77"
-ramp = "straw rich"
-
-[[colour]]
-name = "reed winter r2"
-rgb = "#4f442f"
-ramp = "reed winter rich"
-
-[[colour]]
-name = "reed winter r3"
-rgb = "#65573b"
-ramp = "reed winter rich"
-
-[[colour]]
-name = "reed winter r4"
-rgb = "#7d6c46"
-ramp = "reed winter rich"
-
-[[colour]]
-name = "reed winter r5"
-rgb = "#948254"
-ramp = "reed winter rich"
-
-[[colour]]
-name = "reed winter r6"
-rgb = "#a69568"
-ramp = "reed winter rich"
-
-[[colour]]
-name = "reed winter r7"
-rgb = "#b2a781"
-ramp = "reed winter rich"
-
-[[colour]]
-name = "reed winter r8"
-rgb = "#c0b89b"
-ramp = "reed winter rich"
-
-[[colour]]
-name = "cattail r3"
-rgb = "#472c1b"
-ramp = "cattail rich"
-
-[[colour]]
-name = "cattail r4"
-rgb = "#633e23"
-ramp = "cattail rich"
-
-[[colour]]
-name = "cattail r6"
-rgb = "#956a3b"
-ramp = "cattail rich"
-
-[[colour]]
-name = "cattail r7"
-rgb = "#ad824a"
-ramp = "cattail rich"
-
-[[colour]]
-name = "cactus r2"
-rgb = "#11301b"
-ramp = "cactus rich"
-
-[[colour]]
-name = "cactus r3"
-rgb = "#194a23"
-ramp = "cactus rich"
-
-[[colour]]
-name = "cactus r4"
-rgb = "#206625"
-ramp = "cactus rich"
-
-[[colour]]
-name = "cactus r5"
-rgb = "#2f802b"
-ramp = "cactus rich"
-
-[[colour]]
-name = "cactus r6"
-rgb = "#489937"
-ramp = "cactus rich"
-
-[[colour]]
-name = "cactus r7"
-rgb = "#65b245"
-ramp = "cactus rich"
-
-[[colour]]
-name = "cactus r8"
-rgb = "#87be60"
-ramp = "cactus rich"
-
-[[colour]]
-name = "cactus spine r5"
-rgb = "#b6ad7f"
-ramp = "cactus spine rich"
-
-[[colour]]
-name = "cactus spine r6"
-rgb = "#c2bc98"
-ramp = "cactus spine rich"
-
-[[colour]]
-name = "cactus spine r7"
-rgb = "#cfcbb1"
-ramp = "cactus spine rich"
 
 [[colour]]
 name = "meadow green 1 r2"
