@@ -51,6 +51,14 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
     asking** once its tests pass, `build/` is refreshed, and the developer is told after. Anything in
     `crates/engine`, `crates/server`, `crates/client` or a shader keeps principles 2 and 12 in full and waits
     for the developer before it is merged.
+14. **Features first, speed in batches** (the developer, 2026-11-13; ADR 0096). While features are added or
+    changed, do not optimise them: build it, get the look and behaviour right, measure its cost **once** and
+    write the row in `docs/perf-debt.md` (what it costs on which run, CPU and GPU apart, and the ideas to make
+    it cheaper). A feature over the budget of principle 9 is still merged; its commit accepts the cost
+    (`bash tools/check.sh accept-perf`) and names its row. Speed is then won back in an **optimisation batch**:
+    measure, optimise, measure, down the debt list, until principle 9 holds again. Never left for the batch:
+    a stalled frame thread (principle 8), a crash, a leak, a soak that fails, or a frame so slow the game cannot
+    be judged by playing (about 20 ms p99): those are bugs.
 
 ## Stack
 
@@ -133,8 +141,11 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   (95 s after a build: a 1 minute soak, `stand`, `fly` and `sim` only; the verdict's `seconds` says where the
   time went); the full gate is for handovers. Both tiers hold every benchmark run to `tests/perf/baseline.json`
   (`tools/perf.py`, ADR 0025 K: the frame thread's own work, the GPU stages, job time, VRAM, sim's tick); a
-  change slower on purpose runs `bash tools/check.sh accept-perf` and its commit says why. Hold `out/.lock`
-  (`mkdir`, `rmdir` after) around runs whose numbers you keep while another session shares the PC. Soak alone: `technoape-server soak=1 bots=50 minutes=10
+  change slower on purpose runs `bash tools/check.sh accept-perf` and its commit says why. **Sharing the PC**
+  (ADR 0096): `bash tools/slot.sh job <command>` for a build, a test run, a shot or a film (two at a time);
+  `bash tools/slot.sh measure <command>` for a speed run or soak whose numbers are kept (alone, holds `out/.lock`);
+  `bash tools/slot.sh quiet bash tools/check.sh fast` for the gate and `tools/bench.sh`, which take the lock themselves.
+  One compiler cache serves every worktree (sccache, in the cargo home's `config.toml`, with 6 jobs a cargo). Soak alone: `technoape-server soak=1 bots=50 minutes=10
   seed=1` (a failure prints its repro line and writes `out/soak-fail.rec`). A dedicated server records to `out/rec/` with `record=1` (or `record=file`), else not;
   `technoape-server replay=file until=tick` replays one headless and dumps the players.
   `technoape-server report=1 seed= planet=` prints what the ground holds (ADR 0063): provinces, caves, heat, every
