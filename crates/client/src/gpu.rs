@@ -383,7 +383,9 @@ pub(crate) struct ChunkGpu {
     pub(crate) off: u32,
     /// Its opaque land quads: a ray's hit in the second geometry (the cutout quads) is that many on (ADR 0069).
     pub(crate) opq: u32,
-    pub(crate) _p: [u32; 2],
+    /// The climate at its footprint's corners (engine `clutter::chunk_climate`, ADR 0091).
+    pub(crate) clim: u32,
+    pub(crate) _p: u32,
 }
 
 /// The chunk table's entries by mesh offset, kept between frames so a traced instance's index stays valid and
@@ -481,6 +483,9 @@ pub(crate) struct Gpu {
     pub(crate) chunks: wgpu::Buffer,
     pub(crate) lamps: wgpu::Buffer,
     pub(crate) lamp_cells: wgpu::Buffer,
+    /// The still faces and paintings: the bounce pass's rays read them too (ADR 0091).
+    pub(crate) sfaces: wgpu::Buffer,
+    pub(crate) spaint: wgpu::Buffer,
     pub(crate) indirect: wgpu::Buffer,
     pub(crate) depth: wgpu::TextureView,
     /// The terrain's shader and the block looks: the bounce light is built again from them on a resize.
@@ -848,7 +853,7 @@ impl Gpu {
                 storage(17),
             ],
         });
-        let rt = rt::Rt::new(&device, &shader, &globals, &quads, MAX_CHUNKS as u32);
+        let rt = rt::Rt::new(&device, &shader, &globals, &quads, &sfaces, MAX_CHUNKS as u32);
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &bgl,
@@ -1062,6 +1067,8 @@ impl Gpu {
                 tex.as_entire_binding(),
                 wgpu::BindingResource::TextureView(&sky_view),
                 wgpu::BindingResource::Sampler(&sky_samp),
+                sfaces.as_entire_binding(),
+                spaint.as_entire_binding(),
             ],
             (&sky_view, &sky_samp),
             format,
@@ -1103,6 +1110,8 @@ impl Gpu {
             chunks,
             lamps,
             lamp_cells,
+            sfaces,
+            spaint,
             indirect,
             depth,
             shader: shader.clone(),

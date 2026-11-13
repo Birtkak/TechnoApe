@@ -151,34 +151,53 @@ impl Thing {
     }
 }
 
-/// What lies on column (face, i, j) of a body with `seed`, of biome `biome` and generated top block `ground`, in
-/// `season` (0..4): one roll over the biome's rows of that ground and season, pick-ups at their full weight
-/// (what the server answers for), then decoration at `density[0]` times its own (the Clutter setting: off 0,
-/// few 0.25, normal 1, many 4), then plants at `density[1]` times theirs (the Vegetation setting, `VEGETATION`),
-/// so a lower setting is a subset of a higher one. `trees`: the trunks near the column.
+/// The model that lies on column (face, i, j) of a body with `seed`, of biome `biome` and generated top block
+/// `ground`, in `season` (0..4): one roll over the biome's models of that ground and season, pick-ups at their
+/// full weight (what the server answers for), decoration at `density` times its own (the Clutter setting: off 0,
+/// few 0.25, normal 1, many 4), so a lower setting is a subset of a higher one. `trees`: the trunks near the
+/// column. Plants have a roll of their own (`plant`).
 #[allow(clippy::too_many_arguments)]
-pub fn pick(seed: u64, face: u8, i: i32, j: i32, biome: u8, ground: u16, season: u8, density: [f32; 2], trees: &[(i32, i32)]) -> Option<Thing> {
+pub fn pick(seed: u64, face: u8, i: i32, j: i32, biome: u8, ground: u16, season: u8, density: f32, trees: &[(i32, i32)]) -> Option<Thing> {
+    let h = roll(seed, face, i, j);
+    choose(h, &[(Kind::Pickup, 1.0), (Kind::Decoration, density)], i, j, biome, ground, season, trees)
+}
+
+/// The plant that grows on the column (ADR 0091), as `pick` but by its own roll at `vegetation` times the
+/// biome's weights (`VEGETATION`): neither the Clutter setting nor a seasonal model moves a plant, and a lower
+/// Vegetation setting is a subset of a higher one. A plant may stand over a model.
+#[allow(clippy::too_many_arguments)]
+pub fn plant(seed: u64, face: u8, i: i32, j: i32, biome: u8, ground: u16, season: u8, vegetation: f32, trees: &[(i32, i32)]) -> Option<Thing> {
+    choose(mix(roll(seed, face, i, j) ^ PLANT_ROLL), &[(Kind::Plant, vegetation)], i, j, biome, ground, season, trees)
+}
+const PLANT_ROLL: u64 = 0x91a4_7000_0091;
+
+/// One roll `h` over the biome's rows of `kinds` (each at its weight times its density, in that order) that fit
+/// the ground and the season, then which row of the kind by a second roll; the `near` rule last.
+#[allow(clippy::too_many_arguments)]
+fn choose(h: u64, kinds: &[(Kind, f32)], i: i32, j: i32, biome: u8, ground: u16, season: u8, trees: &[(i32, i32)]) -> Option<Thing> {
     let b = crate::biomes::ROWS.biomes.get(biome as usize)?;
-    if b.clutter.is_empty() {
-        return None;
-    }
     let rows = &*CLUTTER;
     let fits = |r: &Row| r.on.contains(&ground) && r.seasons >> season & 1 == 1;
-    let weight = |k: Kind| b.clutter.iter().filter(|c| rows[c.0].kind == k && fits(&rows[c.0])).map(|c| c.1 / 100.0).sum::<f32>();
-    let (wp, wd, wl) = (weight(Kind::Pickup), weight(Kind::Decoration), weight(Kind::Plant));
-    let h = roll(seed, face, i, j);
-    let u = unit(h);
-    let (kind, w) = if u < wp {
-        (Kind::Pickup, wp)
-    } else if u < wp + wd * density[0] {
-        (Kind::Decoration, wd)
-    } else if u < wp + wd * density[0] + wl * density[1] {
-        (Kind::Plant, wl)
+    let mut u = unit(h);
+    let mut found = None;
+    for &(k, d) in kinds {
+        let w = b.clutter.iter().filter(|c| rows[c.0].kind == k && fits(&rows[c.0])).map(|c| c.1 / 100.0).sum::<f32>();
+        if u < w * d {
+            found = Some((k, w));
+            break;
+        }
+        u -= w * d;
+    }
+    let (kind, w) = found?;
+    // which of that kind, by a second roll over their weights; three plants in four take their patch's roll
+    // (about 7 columns across, ragged at the edges), so a kind grows in drifts of its own
+    let r = if kind == Kind::Plant && unit(mix(h ^ 0xd41f7)) < 0.75 {
+        let jig = |k: u64| ((mix(h ^ k) & 3) as i32) - 1;
+        mix(PLANT_ROLL ^ ((i + jig(0x11)).div_euclid(7) as u32 as u64) << 32 ^ (j + jig(0x22)).div_euclid(7) as u32 as u64)
     } else {
-        return None;
+        mix(h ^ 0x5eed)
     };
-    // which of that kind, by a second roll over their weights
-    let mut v = unit(mix(h ^ 0x5eed)) * w;
+    let mut v = unit(r) * w;
     let &(row, _) = b.clutter.iter().filter(|c| rows[c.0].kind == kind && fits(&rows[c.0])).find(|c| {
         v -= c.1 / 100.0;
         v < 0.0
@@ -195,45 +214,61 @@ fn roll(seed: u64, face: u8, i: i32, j: i32) -> u64 {
     mix(seed ^ 0xc1_0773_5000 ^ (face as u64) << 58 ^ (i as u32 as u64) << 29 ^ j as u32 as u64)
 }
 
-/// Whether anything can lie on the column at all: its roll against every row of the biome, of any ground and
-/// season. A bound on `pick` that costs one hash, so the mesher asks the ground and the season only of the few
-/// columns that pass (most do not).
+/// Whether anything can lie on the column at all: its rolls against every row of the biome, of any ground and
+/// season (`density`: the Clutter and the Vegetation settings'). A bound on `pick` and `plant` that costs two
+/// hashes, so the mesher asks the ground and the season only of the columns that pass.
 pub fn may(seed: u64, face: u8, i: i32, j: i32, biome: u8, density: [f32; 2]) -> bool {
     let Some(b) = crate::biomes::ROWS.biomes.get(biome as usize) else { return false };
-    let mut w = 0.0;
+    let (mut models, mut plants) = (0.0, 0.0);
     for c in &b.clutter {
-        w += c.1 / 100.0 * match CLUTTER[c.0].kind {
-            Kind::Pickup => 1.0,
-            Kind::Decoration => density[0],
-            Kind::Plant => density[1],
-        };
+        match CLUTTER[c.0].kind {
+            Kind::Pickup => models += c.1 / 100.0,
+            Kind::Decoration => models += c.1 / 100.0 * density[0],
+            Kind::Plant => plants += c.1 / 100.0 * density[1],
+        }
     }
-    unit(roll(seed, face, i, j)) < w
+    let h = roll(seed, face, i, j);
+    unit(h) < models || plants > 0.0 && unit(mix(h ^ PLANT_ROLL)) < plants
 }
 
 /// The Vegetation setting's density of plants (few, normal, many; ADR 0091).
 pub const VEGETATION: [f32; 3] = [0.4, 1.0, 1.6];
 
-/// The climate a plant's tint is made from at layer `z` of column (face, i, j) (ADR 0091): heat and wetness,
-/// 0 to 1, from the bake's year (the air's temperature at the ground, -5 to 35 C, and the rain, 0 to 6 mm a day
-/// on a root scale). None on a body with no climate.
-pub fn climate(body: &Body, face: u8, i: i32, j: i32, z: i32) -> Option<[f32; 2]> {
+/// The climate a plant's and the grass's tint is made from at column (face, i, j) (ADR 0091): heat and wetness,
+/// 0 to 1, from the bake's year (the air at the column's height, -5 to 35 C, and the rain, 0 to 6 mm a day on a
+/// root scale). None on a body with no climate.
+pub fn climate(body: &Body, face: u8, i: i32, j: i32) -> Option<[f32; 2]> {
     let (theta, _, rain) = body.climate_at(face as usize, i as f64 + 0.5, j as f64 + 0.5)?;
-    // a layer is a metre (ADR 0033); the air cools 6.5 K a km over the sea
-    let t = theta - 0.0065 * (z as f64 - body.sea.unwrap_or(0.0)).max(0.0) as f32;
+    // the air cools 6.5 K a km over the sea (`climate_at`'s temperature is the sea level's)
+    let over = body.col_height(face, i, j) - body.layer_r(body.sea.unwrap_or(0.0));
+    let t = theta - 0.0065 * over.max(0.0) as f32;
     Some([((t + 5.0) / 40.0).clamp(0.0, 1.0), (rain.max(0.0) / 6.0).sqrt().clamp(0.0, 1.0)])
 }
 
-/// The tint a plant's green takes, a factor on its painting's colour (ADR 0091): yellow-green where it is dry
-/// and warm, deep green where it is wet, fresh in spring, yellowing from late summer, dull in winter. `part` is
-/// the part of the year (`part`). The shader's `climate_tint` is this, line for line; leaves and the grass block
-/// can take it the same way.
-pub fn tint(heat: f32, wet: f32, part: u8) -> [f32; 3] {
+/// The climate at the corners of chunk `key`'s footprint (ADR 0091), a byte each (heat 4 | wetness 4 << 4; x0y0,
+/// x1y0, x0y1, x1y1): the shader's `chunk_climate` mixes them over the chunk, for the grass top and the plants
+/// alike, so a field and its ground take one tint and neighbouring chunks share their corners. 0x77 a corner
+/// on a body with no climate.
+pub fn chunk_climate(body: &Body, key: Key) -> u32 {
+    let (b, e) = (key.base(), CS << key.level);
+    let q = |v: f32| ((v * 15.0).round() as u32).min(15);
+    [(0, 0), (e, 0), (0, e), (e, e)].iter().enumerate().fold(0, |acc, (n, &(x, y))| {
+        let c = climate(body, key.face, b.x + x, b.y + y).unwrap_or([0.5, 0.5]);
+        acc | (q(c[0]) | q(c[1]) << 4) << (8 * n)
+    })
+}
+
+/// The tint a green pixel takes, a factor on its painting's colour (ADR 0091): yellow-green where it is dry and
+/// warm, deep green where it is wet; for a plant also fresh in spring, yellowing from late summer, dull in
+/// winter, by `season` (0 to 1: how much of a season the place has; 0 for the grass block, whose paintings have
+/// their seasons). `part` is the part of the year (`part`). The shader's `climate_tint` is this, line for line.
+pub fn tint(heat: f32, wet: f32, part: u8, season: f32) -> [f32; 3] {
     const SHIFT: [f32; 8] = [-0.2, -0.1, 0.0, 0.15, 0.35, 0.5, 0.4, 0.3];
-    let dry = ((1.0 - wet) * (0.35 + 0.65 * heat) + SHIFT[part as usize & 7]).clamp(0.0, 1.0);
-    let (wet_c, dry_c) = ([0.62, 0.86, 0.56], [1.12, 1.0, 0.42]);
-    let dim = if part >= 6 { 0.82 } else { 1.0 };
-    std::array::from_fn(|k| (wet_c[k] + (dry_c[k] - wet_c[k]) * dry) * dim)
+    let dry = ((1.0 - wet) * (0.35 + 0.65 * heat) + SHIFT[part as usize & 7] * season).clamp(0.0, 1.0);
+    let (wet_c, dry_c) = ([0.62, 0.86, 0.56], [1.4, 0.86, 0.36]);
+    let dim = 1.0 - if part >= 6 { 0.18 * season } else { 0.0 };
+    // squared: a middling climate stays green, only the dry end turns to straw
+    std::array::from_fn(|k| (wet_c[k] + (dry_c[k] - wet_c[k]) * dry * dry) * dim)
 }
 
 /// The season (0..4, `SEASONS`) at time `t` over a point of direction `up` from its body's centre: the nearest
@@ -312,7 +347,7 @@ pub fn pickup_at(world: &World, b: Block, t: f64) -> Option<Thing> {
         return None;
     }
     let up = body.dir(b.face as usize, i as f64 + 0.5, j as f64 + 0.5);
-    pick(seed, b.face, i, j, biome, top, season(up, t), [1.0, 1.0], &tile.trees).filter(|th| CLUTTER[th.row].kind == Kind::Pickup)
+    pick(seed, b.face, i, j, biome, top, season(up, t), 1.0, &tile.trees).filter(|th| CLUTTER[th.row].kind == Kind::Pickup)
 }
 
 /// The still models' faces (ADR 0068, 0081): every face of every clutter row's model and alternates once, at rest
@@ -333,18 +368,26 @@ pub struct Still {
 /// A face's flags in the table's word 13: a plant's plane, drawn from both sides, swayed, tinted and faded far
 /// away (ADR 0091).
 pub const PLANT: u32 = 1;
-/// A plant's painting's pixels a metre (ADR 0081's 32 px/m): its size is its painting's.
+/// A plant's painting's pixels a metre: 32, finer than a block's 16 so a blade reads (the developer's call of
+/// 2026-11-13; its size is its painting's, a column's painting 32 px wide so neighbours merge).
 pub const PLANT_PX: f32 = 32.0;
 
-/// A plant's planes (ADR 0091): `n` upright planes through the cell's middle, turned by 180/n degrees each, as
-/// wide and high as the painting at `PLANT_PX`; each face's corner is its painting's top left, `ev` down.
+/// How far a plant's planes lean off upright, each to its own side by turns (ADR 0091): seen from above a tuft
+/// then covers ground, so a meadow reads from 20 m up and not only from the side.
+pub const PLANT_LEAN: f32 = 0.26;
+
+/// A plant's planes (ADR 0091): `n` planes through the cell's middle, turned by 180/n degrees each and leaning
+/// `PLANT_LEAN` off upright to either side by turns, as wide and high (along the plane) as the painting at
+/// `PLANT_PX`; each face's corner is its painting's top left, `ev` down.
 pub fn plant_faces(n: u8, w: u32, h: u32) -> Vec<([glam::Vec3; 3], [u32; 4])> {
     let (wm, hm) = (w as f32 / PLANT_PX, h as f32 / PLANT_PX);
     (0..n)
         .map(|k| {
             let a = std::f32::consts::PI * k as f32 / n as f32;
             let d = glam::Vec3::new(a.cos(), 0.0, a.sin()) * wm;
-            ([glam::Vec3::new(0.5, hm, 0.5) - d * 0.5, d, glam::Vec3::new(0.0, -hm, 0.0)], [0, 0, w, h])
+            let side = if k % 2 == 0 { 1.0 } else { -1.0 } * PLANT_LEAN.sin();
+            let up = glam::Vec3::new(-a.sin() * side, PLANT_LEAN.cos(), a.cos() * side) * hm;
+            ([glam::Vec3::new(0.5, 0.0, 0.5) + up - d * 0.5, d, -up], [0, 0, w, h])
         })
         .collect()
 }
@@ -373,6 +416,11 @@ impl Still {
                         Ok(p) => p,
                         Err(e) => return Some(Err(format!("data/plants/{base}.png: {e}"))),
                     };
+                    // what a chunk's bounds and the faces' table can hold (shortcut: the chunk's bounding sphere has no
+                    // margin over its top, so a tall plant on a chunk's top layer may be culled a frame early at an edge)
+                    if p.w as f32 > 2.0 * PLANT_PX || p.h as f32 > 2.5 * PLANT_PX {
+                        return Some(Err(format!("data/plants/{base}.png: {} x {} px, a plant is at most 2 m wide and 2.5 m high ({PLANT_PX} px a metre)", p.w, p.h)));
+                    }
                     Some(s.push(&base, &p, plant_faces(r.planes, p.w, p.h), PLANT))
                 };
                 for a in 0..=ALTERNATES {
@@ -436,17 +484,9 @@ impl Still {
 }
 
 /// A still quad (ADR 0068): lo = the cell x6 y6 z6, its place in the cell u4 v4, dir 7 at bit 28 (no face of a
-/// block has it); hi = the face's index in `Still::faces`, its turn in sixteenths at bit 16, and (ADR 0091) the
-/// tint's `TINT` bits at bit 20: heat 4, wetness 4, the part of the year 3.
-pub fn quad(x: u32, y: u32, z: u32, du: u32, dv: u32, face: u32, turn: u32, tint: u32) -> [u32; 2] {
-    [x | y << 6 | z << 12 | du << 18 | dv << 22 | 7 << 28, face | turn << 16 | tint << 20]
-}
-
-/// A tint's 11 bits (ADR 0091; the shader's `climate_tint` reads them): heat and wetness in sixteenths, then the
-/// part of the year. `d` (0..1) dithers the rounding, so a slope of climate shows no steps.
-pub fn tint_bits(c: [f32; 2], part: u8, d: f32) -> u32 {
-    let q = |v: f32| ((v * 15.0 + d).floor() as u32).min(15);
-    q(c[0]) | q(c[1]) << 4 | (part as u32 & 7) << 8
+/// block has it); hi = the face's index in `Still::faces`, its turn in sixteenths at bit 16.
+pub fn quad(x: u32, y: u32, z: u32, du: u32, dv: u32, face: u32, turn: u32) -> [u32; 2] {
+    [x | y << 6 | z << 12 | du << 18 | dv << 22 | 7 << 28, face | turn << 16]
 }
 
 /// The still quads of the clutter on level-0 chunk `key` (its padded `cells`, the `edits` it was generated with):
@@ -472,8 +512,6 @@ pub fn quads(body: &Body, key: Key, cells: &[u16; P * P * P], edits: &[(u32, u16
         edited[c as usize % (P * P)] = true;
     }
     let c0 = key.pos * CS - 1;
-    // the climate at the footprint's corners, asked once a chunk and only if a plant lies in it; between, linear
-    let mut corners: Option<[[f32; 2]; 4]> = None;
     for v in 1..=CS as usize {
         for u in 1..=CS as usize {
             if edited[u + v * P] {
@@ -491,30 +529,23 @@ pub fn quads(body: &Body, key: Key, cells: &[u16; P * P * P], edits: &[(u32, u16
                 continue;
             }
             let p8 = part(body.dir(key.face as usize, i as f64 + 0.5, j as f64 + 0.5), t);
-            let Some(t) = pick(seed, key.face, i, j, biome, top, p8 / 2, density, &tile.trees) else { continue };
-            if !lies(&CLUTTER[t.row], taken.iter().find(|x| x.0 == IVec3::new(i, j, z)).map(|x| x.1), year) {
-                continue;
-            }
-            let row = &CLUTTER[t.row];
-            let alts = &still.rows[t.row];
-            if alts.is_empty() {
-                continue;
-            }
-            let (a, turn, du, dv) = t.shape(alts.len());
-            let (first, n) = still.looks[t.row].iter().find(|l| l.0 >> p8 & 1 == 1).map_or(alts[a], |l| l.1);
-            let tint = if row.kind == Kind::Plant {
-                let k = corners.get_or_insert_with(|| {
-                    let at = |x: i32, y: i32| climate(body, key.face, x, y, z).unwrap_or([0.5, 0.5]);
-                    [at(c0.x + 1, c0.y + 1), at(c0.x + CS, c0.y + 1), at(c0.x + 1, c0.y + CS), at(c0.x + CS, c0.y + CS)]
-                });
-                let (fu, fv) = ((u - 1) as f32 / (CS - 1) as f32, (v - 1) as f32 / (CS - 1) as f32);
-                let c = std::array::from_fn(|n| (k[0][n] * (1.0 - fu) + k[1][n] * fu) * (1.0 - fv) + (k[2][n] * (1.0 - fu) + k[3][n] * fu) * fv);
-                tint_bits(c, p8, unit(mix(t.h ^ 0x7177)))
-            } else {
-                0
-            };
-            for f in first..first + n {
-                out.push(quad(u as u32 - 1, v as u32 - 1, zl as u32 - 1, du, dv, f, turn, tint));
+            let model = pick(seed, key.face, i, j, biome, top, p8 / 2, density[0], &tile.trees);
+            let grows = plant(seed, key.face, i, j, biome, top, p8 / 2, density[1], &tile.trees);
+            for t in [model, grows].into_iter().flatten() {
+                let row = &CLUTTER[t.row];
+                // (only a pick-up is ever taken: the list is not looked through for the rest)
+                if row.kind == Kind::Pickup && !lies(row, taken.iter().find(|x| x.0 == IVec3::new(i, j, z)).map(|x| x.1), year) {
+                    continue;
+                }
+                let alts = &still.rows[t.row];
+                if alts.is_empty() {
+                    continue;
+                }
+                let (a, turn, du, dv) = t.shape(alts.len());
+                let (first, n) = still.looks[t.row].iter().find(|l| l.0 >> p8 & 1 == 1).map_or(alts[a], |l| l.1);
+                for f in first..first + n {
+                    out.push(quad(u as u32 - 1, v as u32 - 1, zl as u32 - 1, du, dv, f, turn));
+                }
             }
         }
     }
@@ -524,6 +555,20 @@ pub fn quads(body: &Body, key: Key, cells: &[u16; P * P * P], edits: &[(u32, u16
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plant_planes_lean_and_cover_ground() {
+        // each plane stands on the cell's middle line and leans to its own side, so from above a tuft covers ground
+        let f = plant_faces(3, 32, 32);
+        for (k, (v, _)) in f.iter().enumerate() {
+            let (top, bottom) = (v[0], v[0] + v[2]);
+            assert!(bottom.y.abs() < 1e-5 && (top.y - PLANT_LEAN.cos()).abs() < 1e-4, "{k}: {v:?}");
+            let lean = glam::Vec2::new(top.x - bottom.x, top.z - bottom.z).length();
+            assert!(lean > 0.2, "{k} leans {lean}");
+        }
+        let dx = |k: usize| f[k].0[0].x + f[k].0[0].z - (f[k].0[0] + f[k].0[2]).x - (f[k].0[0] + f[k].0[2]).z;
+        assert!(dx(0).signum() != dx(1).signum() || dx(1).signum() != dx(2).signum(), "they lean by turns");
+    }
 
     #[test]
     fn the_rows_load_and_the_biomes_name_them() {
@@ -664,20 +709,37 @@ mod tests {
         let mut count = [0usize; 3];
         for i in 0..200 {
             for j in 0..200 {
-                let at = |v: f32| pick(9, 1, i, j, bi, meadow, 1, [1.0, v], &[]);
+                let at = |v: f32| plant(9, 1, i, j, bi, meadow, 1, v, &[]);
                 let k = VEGETATION.map(at);
                 for (c, t) in count.iter_mut().zip(&k) {
-                    *c += t.is_some_and(|t| rows[t.row].kind == Kind::Plant) as usize;
+                    *c += t.is_some() as usize;
                 }
                 if let Some(t) = k[0] {
                     assert_eq!(k[2], Some(t), "few is a subset of many");
+                    assert_eq!(CLUTTER[t.row].kind, Kind::Plant);
                 }
-                for t in k.iter().flatten().filter(|t| rows[t.row].kind != Kind::Plant) {
-                    assert_eq!(pick(9, 1, i, j, bi, meadow, 1, [1.0, 0.0], &[]), Some(*t), "plants move nothing else");
+                // the review of 2026-11-13: plants shared the models' roll and hopped with the Clutter setting and
+                // the seasons' models; now that roll lays no plant, and `plant` takes no Clutter density
+                for d in [0.0, 0.25, 4.0] {
+                    if let Some(m) = pick(9, 1, i, j, bi, meadow, 1, d, &[]) {
+                        assert_ne!(CLUTTER[m.row].kind, Kind::Plant);
+                    }
                 }
             }
         }
-        assert!(count[1] * 2 > n, "most open meadow has a plant at normal: {count:?} of {n}");
+        assert!(count[1] * 10 > n * 6, "60 % or more of open meadow has a plant at normal: {count:?} of {n}");
+        // the overseer's call of 2026-11-13: kinds grow in drifts of their own, not sprinkled evenly; a uniform
+        // pick would make two neighbours alike about (0.45/0.75)^2 + .. = 0.42 of the time
+        let (mut same, mut pairs) = (0, 0);
+        for i in 0..200 {
+            for j in 0..200 {
+                if let (Some(a), Some(b)) = (plant(9, 1, i, j, bi, meadow, 1, 1.0, &[]), plant(9, 1, i + 1, j, bi, meadow, 1, 1.0, &[])) {
+                    pairs += 1;
+                    same += (a.row == b.row) as usize;
+                }
+            }
+        }
+        assert!(same * 10 > pairs * 6, "neighbours alike {same} of {pairs}");
         assert!(count[0] < count[1] && count[1] < count[2], "{count:?}");
     }
 
@@ -685,18 +747,24 @@ mod tests {
     /// than in spring, its bits round-trip.
     #[test]
     fn the_tint_follows_the_climate_and_the_season() {
-        let (dry, wet) = (tint(0.9, 0.05, 2), tint(0.6, 0.95, 2));
+        let (dry, wet) = (tint(0.9, 0.05, 2, 1.0), tint(0.6, 0.95, 2, 1.0));
         assert!(dry[0] > dry[2] * 2.0 && dry[0] > dry[1] * 0.95, "yellow-green: {dry:?}");
-        assert!(dry.iter().chain(&wet).all(|&v| v <= 1.12), "it hardly brightens: {dry:?}");
+        assert!(dry.iter().chain(&wet).all(|&v| v <= 1.4), "it hardly brightens: {dry:?}");
+        // a painting's mid green (0.3, 0.6, 0.15) comes out as a dry grass's yellow where it is driest, as the
+        // savanna's ground is: red at least four fifths of green
+        let g = tint(1.0, 0.0, 2, 1.0);
+        assert!(0.3 * g[0] >= 0.8 * 0.6 * g[1], "dry grass yellow: {g:?}");
+        // and a temperate meadow (heat and wetness halfway) stays green, red under green
+        let m = tint(0.5, 0.5, 2, 1.0);
+        assert!(m[0] < m[1], "a temperate meadow green: {m:?}");
         assert!(wet[1] > wet[0] && wet[1] > wet[2] && wet[1] < 1.0, "deep green: {wet:?}");
         assert!(dry[0] / dry[1] > wet[0] / wet[1] + 0.2);
-        let (spring, autumn) = (tint(0.5, 0.5, 0), tint(0.5, 0.5, 4));
+        let (spring, autumn) = (tint(0.5, 0.5, 0, 1.0), tint(0.5, 0.5, 4, 1.0));
         assert!(autumn[0] / autumn[2] > spring[0] / spring[2], "{spring:?} {autumn:?}");
-        assert!(tint(0.5, 0.5, 7)[1] < tint(0.5, 0.5, 2)[1], "dull in winter");
-        let b = tint_bits([1.0, 0.0], 5, 0.99);
-        assert_eq!((b & 15, b >> 4 & 15, b >> 8), (15, 0, 5));
-        assert_eq!(tint_bits([0.5, 0.5], 0, 0.0) & 255, 7 | 7 << 4);
-        assert!(b < 1 << 11, "11 bits over the turn's 20");
+        assert!(tint(0.5, 0.5, 7, 1.0)[1] < tint(0.5, 0.5, 2, 1.0)[1], "dull in winter");
+        // the grass block (season 0) and the plants at a season's middle (part 2's shift is 0) are one colour
+        assert_eq!(tint(0.7, 0.3, 2, 1.0), tint(0.7, 0.3, 5, 0.0));
+        assert_eq!(tint(0.5, 0.5, 4, 0.0), tint(0.5, 0.5, 0, 0.0), "no season where the place has none");
     }
 
     /// `may` bounds `pick`: whatever `pick` lays, `may` lets through.
@@ -710,7 +778,7 @@ mod tests {
                 for d in [0.0, 1.0, 4.0] {
                     let m = may(7, 2, i, j, bi, [d, d]);
                     asked += m as usize;
-                    if pick(7, 2, i, j, bi, grass, 1, [d, d], &[(150, 150)]).is_some() {
+                    if pick(7, 2, i, j, bi, grass, 1, d, &[(150, 150)]).is_some() || plant(7, 2, i, j, bi, grass, 1, d, &[(150, 150)]).is_some() {
                         laid += 1;
                         assert!(m);
                     }
@@ -732,8 +800,8 @@ mod tests {
         let mut by_season = [0usize; 4];
         for i in 0..200 {
             for j in 0..200 {
-                let f = pick(7, 2, i, j, bi, grass, 2, [0.25, 0.0], &trees);
-                let m = pick(7, 2, i, j, bi, grass, 2, [4.0, 0.0], &trees);
+                let f = pick(7, 2, i, j, bi, grass, 2, 0.25, &trees);
+                let m = pick(7, 2, i, j, bi, grass, 2, 4.0, &trees);
                 if let Some(f) = f {
                     assert_eq!(Some(f), m, "few is a subset of many");
                     few += 1;
@@ -741,11 +809,11 @@ mod tests {
                 many += m.is_some() as usize;
                 if let Some(t) = m.filter(|t| rows[t.row].kind == Kind::Pickup) {
                     picks += 1;
-                    assert_eq!(pick(7, 2, i, j, bi, grass, 2, [0.0, 0.0], &trees), Some(t), "a pick-up stays with clutter off");
+                    assert_eq!(pick(7, 2, i, j, bi, grass, 2, 0.0, &trees), Some(t), "a pick-up stays with clutter off");
                 }
-                assert!(pick(7, 2, i, j, bi, crate::blocks::BLOCKS.id("stone"), 2, [4.0, 1.0], &[]).is_none_or(|t| rows[t.row].on.contains(&crate::blocks::BLOCKS.id("stone"))));
+                assert!(pick(7, 2, i, j, bi, crate::blocks::BLOCKS.id("stone"), 2, 4.0, &[]).is_none_or(|t| rows[t.row].on.contains(&crate::blocks::BLOCKS.id("stone"))));
                 for (s, n) in by_season.iter_mut().enumerate() {
-                    if let Some(t) = pick(7, 2, i, j, bi, grass, s as u8, [1.0, 1.0], &trees) {
+                    if let Some(t) = pick(7, 2, i, j, bi, grass, s as u8, 1.0, &trees).or(plant(7, 2, i, j, bi, grass, s as u8, 1.0, &trees)) {
                         assert!(rows[t.row].seasons >> s & 1 == 1);
                         *n += 1;
                     }

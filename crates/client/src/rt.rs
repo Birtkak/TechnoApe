@@ -55,7 +55,8 @@ pub struct Rt {
 }
 
 impl Rt {
-    pub fn new(device: &wgpu::Device, shader: &wgpu::ShaderModule, globals: &wgpu::Buffer, quads: &wgpu::Buffer, max: u32) -> Rt {
+    /// `sfaces`: the still faces, which place a still quad (ADR 0091).
+    pub fn new(device: &wgpu::Device, shader: &wgpu::ShaderModule, globals: &wgpu::Buffer, quads: &wgpu::Buffer, sfaces: &wgpu::Buffer, max: u32) -> Rt {
         use wgpu::BufferUsages as U;
         let tlas = device.create_tlas(&wgpu::CreateTlasDescriptor {
             label: Some("terrain"),
@@ -82,6 +83,7 @@ impl Rt {
                 wgpu::BindGroupEntry { binding: 1, resource: quads.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 6, resource: builds.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 7, resource: verts.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 16, resource: sfaces.as_entire_binding() },
             ],
         });
         Rt { tlas, expand, bind, builds, verts, blas: HashMap::new(), n: 0, built: Vec::new(), tlas_builds: 0, pending: 0 }

@@ -14,8 +14,8 @@ pub(crate) fn frustum_planes(m: Mat4) -> [Vec4; 6] {
     p
 }
 
-/// How far the plants reach at each Vegetation setting, m (ADR 0091): past it they have shrunk into the ground,
-/// each from its own distance in the last 45 % of it, so none pops.
+/// How far the plants reach at each Vegetation setting, m (ADR 0091): each has its own reach, 55 to 100 % of this,
+/// and shrinks into the ground over the last fifth of it, so they thin and none pops.
 const PLANTS_FAR: [f32; 3] = [40.0, 64.0, 96.0];
 
 impl App {
@@ -575,6 +575,7 @@ impl App {
         let mut nquads = 0u64;
         let mut insts: Vec<rt::Inst> = Vec::with_capacity(draws.len());
         let frame_no = self.streamer.frame;
+        let no_cast = self.args.0.get("plant_shadows").is_some_and(|v| v == "0");
         for d in draws.iter().take(MAX_CHUNKS) {
             let k = d.key;
             // the lattice its quads were merged in (ADR 0025 I2), as log2 at bit 16
@@ -583,13 +584,15 @@ impl App {
             let (ci, new) = self.slots.get(d.off, frame_no);
             assert!((ci as usize) < MAX_CHUNKS, "chunk table full");
             if new {
-                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.still - d.cut - d.glass, _p: [0; 2] }));
+                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.still - d.cut - d.glass, clim: d.clim, _p: 0 }));
             }
-            // the still models' quads lie between the land's and the sea's, in no BLAS (ADR 0082)
+            // the still models' and plants' quads lie between the land's and the sea's: they cast shadows (ADR 0091)
             let land = d.len - d.water - d.still;
-            if land > 0 {
-                // the cutout and glass quads are the BLAS's second geometry, not opaque (ADR 0069, 0081)
-                insts.push(rt::Inst { off: d.off, land, cut: d.cut + d.glass, base: k.base().into(), info, body: k.body, ci });
+            // `plant_shadows=0` leaves them out, to measure what they cost (ADR 0091)
+            let cast = if no_cast { 0 } else { d.still };
+            if land + cast > 0 {
+                // the cutout, glass and still quads are the BLAS's second geometry, not opaque (ADR 0069, 0081, 0091)
+                insts.push(rt::Inst { off: d.off, land: land + cast, cut: d.cut + d.glass + cast, base: k.base().into(), info, body: k.body, ci });
             }
             if d.hidden {
                 continue;

@@ -79,7 +79,7 @@ rock = "stone"
 patches = [["gravel", 0.25]]
 plants = [["shrub", 0.03]]
 clutter = [["pebbles", 3], ["loose stone", 0.6], ["flint", 0.3], ["berries", 0.6]]
-undergrowth = [["short grass", 15], ["flowers", 4]]
+undergrowth = [["short grass", 30], ["tall grass", 4], ["flowers", 5]]
 
 [[biome]]
 name = "cold forest"
@@ -89,7 +89,7 @@ rock = "stone"
 patches = [["snow", 0.15]]
 plants = [["spruce", 0.38], ["shrub", 0.05]]
 clutter = [["twigs", 4], ["pebbles", 1], ["stick", 2], ["loose stone", 0.5], ["mushroom", 1.5], ["berries", 0.4]]
-undergrowth = [["short grass", 20], ["fern", 15], ["tall grass", 5]]
+undergrowth = [["short grass", 30], ["fern", 15], ["tall grass", 8]]
 
 [[biome]]
 name = "temperate forest"
@@ -98,7 +98,7 @@ band = "dirt"
 rock = "stone"
 plants = [["broadleaf", 0.25], ["shrub", 0.12]]
 clutter = [["fallen leaves", 6], ["twigs", 4], ["pebbles", 1], ["stick", 2], ["loose stone", 0.7], ["mushroom", 1.2], ["berries", 0.5]]
-undergrowth = [["short grass", 25], ["fern", 10], ["tall grass", 8], ["flowers", 4], ["berry bush", 1]]
+undergrowth = [["short grass", 30], ["fern", 12], ["tall grass", 10], ["flowers", 4], ["berry bush", 1]]
 
 [[biome]]
 name = "grassland"
@@ -107,7 +107,7 @@ band = "dirt"
 rock = "stone"
 plants = [["broadleaf", 0.015], ["shrub", 0.04]]
 clutter = [["pebbles", 1], ["loose stone", 0.5], ["berries", 0.3]]
-undergrowth = [["tall grass", 38], ["short grass", 15], ["wild wheat", 10], ["flowers", 8], ["berry bush", 0.8]]
+undergrowth = [["tall grass", 45], ["short grass", 15], ["wild wheat", 8], ["flowers", 6], ["berry bush", 0.8]]
 
 [[biome]]
 name = "dry scrub"
@@ -117,7 +117,7 @@ rock = "stone"
 patches = [["dirt", 0.1], ["gravel", 0.04]]
 plants = [["shrub", 0.2]]
 clutter = [["twigs", 3], ["pebbles", 4], ["stick", 0.8], ["loose stone", 1], ["flint", 0.6]]
-undergrowth = [["short grass", 12], ["tall grass", 6], ["wild wheat", 3]]
+undergrowth = [["short grass", 18], ["tall grass", 10], ["wild wheat", 4]]
 
 [[biome]]
 name = "desert"
@@ -134,7 +134,7 @@ band = "dirt"
 rock = "stone"
 plants = [["acacia", 0.04], ["shrub", 0.03]]
 clutter = [["twigs", 2], ["stick", 0.5], ["loose stone", 0.4]]
-undergrowth = [["tall grass", 30], ["short grass", 10], ["wild wheat", 8], ["flowers", 1.5]]
+undergrowth = [["tall grass", 40], ["short grass", 12], ["wild wheat", 12], ["flowers", 2]]
 
 [[biome]]
 name = "rain forest"
@@ -143,7 +143,7 @@ band = "dirt"
 rock = "stone"
 plants = [["jungle tree", 0.4], ["shrub", 0.25]]
 clutter = [["twigs", 5], ["stick", 2.5], ["mushroom", 1.5]]
-undergrowth = [["fern", 30], ["short grass", 10]]
+undergrowth = [["fern", 35], ["short grass", 15]]
 
 [[biome]]
 name = "wetland"
@@ -152,7 +152,7 @@ band = "clay"
 rock = "stone"
 patches = [["marsh grass", 0.5]]
 plants = [["reed", 0.35], ["shrub", 0.05]]
-undergrowth = [["reeds", 30], ["short grass", 15]]
+undergrowth = [["reeds", 35], ["short grass", 20]]
 
 [[biome]]
 name = "alpine"

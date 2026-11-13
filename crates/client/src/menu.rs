@@ -981,6 +981,8 @@ impl App {
             gpu.tex.as_entire_binding(),
             wgpu::BindingResource::TextureView(&gpu.sky_view),
             wgpu::BindingResource::Sampler(&gpu.sky_samp),
+            gpu.sfaces.as_entire_binding(),
+            gpu.spaint.as_entire_binding(),
         ];
         self.gi = Some(gi::Gi::new(&gpu.device, &gpu.shader, shared, (&gpu.sky_view, &gpu.sky_samp), gpu.config.format, nw, nh));
         eprintln!("[technoape] the render size is {nw}x{nh}");

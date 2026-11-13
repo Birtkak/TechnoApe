@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Make the placeholder paintings of the small plants (ADR 0091): data/plants/<name>.png, one upright plane each,
-at 32 pixels a metre (the plant is as wide and high as its painting), from data/palette.toml's colours only, every
+at 32 pixels a metre (the plant is as wide and high as its painting; a column's painting is 32 px wide so
+neighbours merge), with variants `.1` and `.2` the game picks by the place's hash,, from data/palette.toml's colours only, every
 pixel whole or empty. The game crosses two to four of these planes in the cell (`planes` in data/clutter.toml) and
 tints their green pixels by the climate. Every file goes on data/drafts.txt; the textures session repaints them in
 the calm style.
@@ -28,7 +29,7 @@ def rnd(*k):
     return int.from_bytes(hashlib.blake2b(repr(k).encode(), digest_size=4).digest(), "little") / 2**32
 
 
-def blades(img, n, seed, dark, mid, lit, lean=0.25, low=0.35, head=None):
+def blades(img, n, seed, dark, mid, lit, lean=0.25, low=0.35, head=None, root="grass dark", tip=None):
     """n tapering blades from the bottom edge, dark at the root, lit at the tip; `head` paints a seed head on top."""
     w, h = img.size
     for b in range(n):
@@ -37,14 +38,15 @@ def blades(img, n, seed, dark, mid, lit, lean=0.25, low=0.35, head=None):
         bend = (rnd(seed, b, "l") - 0.5) * 2 * lean
         for yy in range(int(top)):
             cx = x0 + bend * yy
-            half = max(0.6, 1.3 * (1 - yy / top))
+            half = max(0.5, 1.1 * (1 - yy / top))
             for x in range(w):
                 if abs(x + 0.5 - cx) <= half:
-                    c = dark if yy < top * 0.3 else (lit if yy > top * 0.75 else mid)
+                    f = yy / top
+                    c = root if f < 0.12 else dark if f < 0.35 else mid if f < 0.7 else lit if (f < 0.9 or not tip) else tip
                     img.putpixel((x, h - 1 - yy), rgb(c))
         if head:
             cx = x0 + bend * top
-            for k in range(6):
+            for k in range(10):
                 yy, dx = int(top) - k, (k % 2) * 2 - 1
                 for x in (int(cx), int(cx + dx)):
                     if 0 <= x < w and 0 <= h - 1 - yy < h:
@@ -61,26 +63,28 @@ def frond(img, dark, mid, lit):
                 img.putpixel((x, y), rgb(dark))
                 continue
             reach = (w / 2 - 1) * (1 - yy / h) ** 0.6 * min(1.0, yy / 4)
-            if yy > 1 and yy % 2 < 1 and abs(x + 0.5 - cx) <= reach:
+            if yy > 1 and yy % 3 < 2 and abs(x + 0.5 - cx) <= reach:
                 img.putpixel((x, y), rgb(lit if abs(x + 0.5 - cx) > reach - 1.5 else mid))
 
 
 def flowers(img, seed, stem, leaf, head, eye):
+    """five stems with leaves under round heads two pixels across the middle"""
     w, h = img.size
-    for b in range(4):
-        fx = 2 + b * (w - 4) / 3 + (rnd(seed, b, "x") - 0.5) * 2
-        top = int(h * (0.5 + 0.45 * rnd(seed, b)))
+    for b in range(5):
+        fx = 3 + b * (w - 6) / 4 + (rnd(seed, b, "x") - 0.5) * 3
+        top = int(h * (0.45 + 0.4 * rnd(seed, b)))
         for yy in range(top):
             x = int(fx)
             img.putpixel((x, h - 1 - yy), rgb(stem))
-            if yy in (top // 3, top // 2) and 0 <= x + (1 if yy == top // 3 else -1) < w:
-                img.putpixel((x + (1 if yy == top // 3 else -1), h - 1 - yy), rgb(leaf))
-        for dx in (-1, 0, 1):
-            for dy in (-1, 0, 1):
-                if abs(dx) + abs(dy) <= 1 + (rnd(seed, b, dx, dy) < 0.5):
+            for ly, dx in ((top // 4, 1), (top // 2, -1)):
+                if yy in (ly, ly + 1) and 0 <= x + dx < w:
+                    img.putpixel((x + dx, h - 1 - yy), rgb(leaf))
+        for dx in range(-2, 3):
+            for dy in range(-2, 3):
+                if dx * dx + dy * dy <= 4 + (rnd(seed, b, dx, dy) < 0.4):
                     x, y = int(fx) + dx, h - 1 - top + dy
                     if 0 <= x < w and 0 <= y < h:
-                        img.putpixel((x, y), rgb(eye if dx == dy == 0 else head))
+                        img.putpixel((x, y), rgb(eye if abs(dx) + abs(dy) <= 1 and dx * dy == 0 and dx == 0 and dy == 0 else head))
 
 
 def bush(img, seed, dark, mid, lit, dots=None, share=0.0):
@@ -107,36 +111,40 @@ def make():
         out.append(f"data/plants/{name}.png")
         print(f"{name}: {img.size[0]} x {img.size[1]} px, {what}")
 
-    g = ("grass dark", "grass", "grass light")
-    im = Image.new("RGBA", (32, 14), (0, 0, 0, 0))
-    blades(im, 9, "short", *g)
-    save("short grass", im, "short blades")
-    im = Image.new("RGBA", (24, 10), (0, 0, 0, 0))
-    blades(im, 6, "short.1", *g)
-    save("short grass.1", im, "a sparser tuft")
-    im = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
-    blades(im, 10, "tall", *g, lean=0.18, low=0.5)
-    save("tall grass", im, "tall blades bending")
-    im = Image.new("RGBA", (32, 26), (0, 0, 0, 0))
-    blades(im, 8, "tall.1", *g, lean=0.22, low=0.45)
-    save("tall grass.1", im, "a lower clump")
-    im = Image.new("RGBA", (32, 40), (0, 0, 0, 0))
-    blades(im, 9, "wheat", "dry grass dark", "grass", "dry grass", lean=0.12, low=0.6, head=("dry grass light", "autumn gold"))
-    save("wild wheat", im, "stalks with seed heads")
-    im = Image.new("RGBA", (32, 22), (0, 0, 0, 0))
-    frond(im, "jungle grass shade", "jungle grass", "jungle grass lit")
-    save("fern", im, "a frond, three crossed")
-    im = Image.new("RGBA", (16, 64), (0, 0, 0, 0))
-    blades(im, 5, "reeds", "grass dark", "grass", "grass light", lean=0.05, low=0.7, head=("log dark", "log"))
-    save("reeds", im, "upright stalks with brown heads")
-    for alt, (head, eye) in enumerate([("lamp", "autumn gold"), ("snow", "lamp"), ("blue lamp", "snow")]):
-        im = Image.new("RGBA", (24, 18), (0, 0, 0, 0))
-        flowers(im, ("flowers", alt), "grass dark", "grass", head, eye)
-        save("flowers" + (f".{alt}" if alt else ""), im, f"stems under {head} heads")
-    for look, dots, share in [("", None, 0.0), (".bloom", "snow", 0.08), (".fruit", "coral", 0.1)]:
-        im = Image.new("RGBA", (40, 32), (0, 0, 0, 0))
-        bush(im, "bush", "shrub dark", "shrub", "grass light", dots, share)
-        save("berry bush" + look, im, {"": "leaves", ".bloom": "white blossom (late spring)", ".fruit": "red berries (late summer)"}[look])
+    g = ("grass shade", "grass", "grass lit")
+    v = ["", ".1", ".2"]
+
+    def new(w, h):
+        return Image.new("RGBA", (w, h), (0, 0, 0, 0))
+
+    for k, alt in enumerate(v):
+        im = new(32, 13)
+        blades(im, 9 + k, ("short", k), *g, tip="grass spring lit")
+        save("short grass" + alt, im, "short blades")
+        im = new(32, 32)
+        blades(im, 10 + 2 * k, ("tall", k), *g, lean=0.18 + 0.03 * k, low=0.45, tip="meadow grass lit")
+        save("tall grass" + alt, im, "tall blades bending")
+        im = new(32, 40)
+        blades(im, 8 + k, ("wheat", k), "grass shade", "meadow grass", "dry grass", lean=0.1, low=0.6,
+               head=("dry grass light", "autumn gold", "dry grass"), tip="dry grass light")
+        save("wild wheat" + alt, im, "stalks with seed heads")
+        im = new(48, 22)
+        frond(im, "jungle grass shade", "jungle grass", "jungle grass lit")
+        save("fern" + alt, im, "a frond, three crossed")
+        im = new(32, 64)
+        blades(im, 8 + k, ("reeds", k), "reed shade", "reed", "reed lit", lean=0.05, low=0.65, head=("log dark", "log", "log shade"))
+        save("reeds" + alt, im, "upright stalks with brown heads")
+        head, eye = [("lamp", "autumn gold"), ("snow", "lamp"), ("blue lamp", "snow")][k]
+        im = new(32, 16)
+        flowers(im, ("flowers", k), "grass shade", "grass", head, eye)
+        save("flowers" + alt, im, f"stems under {head} heads")
+        im = new(40, 40)
+        bush(im, ("bush", k), "grass shade", "grass", "grass lit")
+        save("berry bush" + alt, im, "leaves")
+    for look, dots, share in [(".bloom", "snow", 0.08), (".fruit", "coral", 0.1)]:
+        im = new(40, 40)
+        bush(im, ("bush", 0), "grass shade", "grass", "grass lit", dots, share)
+        save("berry bush" + look, im, {".bloom": "white blossom (late spring)", ".fruit": "red berries (late summer)"}[look])
     return out
 
 

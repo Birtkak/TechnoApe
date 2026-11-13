@@ -83,6 +83,8 @@ struct Slot {
     leaf_at: u64,
     /// The walk that last drew it, and where in its list.
     drawn_at: (u64, u32),
+    /// The climate at its footprint's corners (`clutter::chunk_climate`, ADR 0091), from its last mesh job.
+    clim: u32,
 }
 
 /// The last LOD walk (ADR 0025, F): which chunks it drew, their bounds, its stats, and the camera in each
@@ -109,6 +111,7 @@ pub struct JobResult {
     pub us: f64,
     /// From the request to a worker taking it up.
     wait_us: f32,
+    clim: u32,
 }
 
 /// One drawable range of the quad buffer: `len` quads, the last `water` of them the sea's surface and the `cut`
@@ -130,6 +133,8 @@ pub struct DrawChunk {
     /// From the camera to its centre, metres: glass blends far to near by it (ADR 0081; `dist` is 0 for every chunk
     /// round the camera).
     pub centre: f32,
+    /// The climate at its footprint's corners (`clutter::chunk_climate`): the grass's and the plants' tint (ADR 0091).
+    pub clim: u32,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -418,6 +423,7 @@ impl Streamer {
                 inflight: false,
                 bounds: world.bodies[k.body as usize].bounds(k),
                 leaf_at: 0,
+                clim: 0,
                 drawn_at: (0, 0),
             });
             slot.last_seen = frame;
@@ -539,7 +545,7 @@ impl Streamer {
             s.leaf_at = self.frame;
         }
         s.drawn_at = (self.frame, out.len() as u32);
-        let bd = s.bounds;
+        let (bd, clim) = (s.bounds, s.clim);
         let (off, len, water, cut, glass, still) = match s.state {
             State::Pending => return false,
             State::Empty => return true,
@@ -548,7 +554,7 @@ impl Streamer {
         // hidden chunks are listed too: they are not drawn, but they cast shadows (ADR 0022)
         let hidden = hidden.unwrap_or_else(|| self.hidden(view, k.body, &bd));
         let centre = (bd.c - view.cam_in(k.body)).length();
-        out.push(DrawChunk { key: k, off, len, water, cut, glass, still, hidden, dist: (centre - bd.rad).max(0.0) as f32, centre: centre as f32 });
+        out.push(DrawChunk { key: k, off, len, water, cut, glass, still, hidden, dist: (centre - bd.rad).max(0.0) as f32, centre: centre as f32, clim });
         true
     }
 
@@ -608,7 +614,8 @@ impl Streamer {
                     m.water = sea.len() as u32;
                     m.quads.extend(sea);
                 }
-                let _ = tx.send(JobResult { key: k, version, mesh, us: t.elapsed().as_secs_f64() * 1e6, wait_us });
+                let clim = if mesh.is_some() { crate::clutter::chunk_climate(body, k) } else { 0 };
+                let _ = tx.send(JobResult { key: k, version, mesh, us: t.elapsed().as_secs_f64() * 1e6, wait_us, clim });
             });
         }
         reqs.clear();
@@ -643,6 +650,7 @@ impl Streamer {
                 }
             };
             let s = self.slots.get_mut(&r.key).unwrap();
+            s.clim = r.clim;
             if let State::Ready { off, len, .. } = s.state {
                 self.alloc.release(off, len);
                 self.released.push(off);
