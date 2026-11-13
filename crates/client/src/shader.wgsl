@@ -229,7 +229,10 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
             let droop = f32((fw >> 12u) & 63u) * 0.02;
             let long = 1.0 + f32((fw >> 18u) & 63u) * 0.05;
             let dense = f32((fw >> 24u) & 63u) / 63.0;
-            if (size == 0.0 || hash(cell0 + vec3i(29, 31, i32(dir) * 31 + 7)) >= dense) {
+            // clumps: a smooth field of the place, about 2.5 m across, pushes some faces far out and larger, leaves
+            // others on the face or with no plane at all, so a crown bulges in lobes with dents, never a ball or a box
+            let clump = smoothstep(0.3, 0.7, vnoise(vec3f(cell0) * 0.4 + f32(c.info & 7u) * 17.0));
+            if (size == 0.0 || hash(cell0 + vec3i(29, 31, i32(dir) * 31 + 7)) >= dense * smoothstep(0.0, 0.3, clump)) {
                 o.clip = vec4f(0.0, 0.0, 0.0, 1.0);
                 return o;
             }
@@ -238,21 +241,19 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
             let hf = hash(cell0 + vec3i(17, 3, i32(dir) * 31 + 11));
             let hg = hash(cell0 + vec3i(5, 23, i32(dir) * 31 + 2));
             let slope = tan(radians(25.0 + 10.0 * hg));
-            // clumps: a smooth field of the place, about 2.5 m across, pushes some faces far and larger, others
-            // hardly out, so a crown bulges in lobes with dents between, never a ball or a box
-            let clump = smoothstep(0.3, 0.7, vnoise(vec3f(cell0) * 0.4 + f32(c.info & 7u) * 17.0));
-            let spread = size * mix(0.76, 1.18, clump);
-            shade *= mix(0.65, 1.0, clump);
+            let spread = size * mix(0.65, 1.4, clump);
+            shade *= mix(0.55, 1.0, clump);
             var su = 0.5 + (f32(ku) - 0.5) * spread * long;
             var sv = 0.5 + (f32(kv) - 0.5) * spread;
             let phi = hf * 6.2831853;
             // the round mask in the units of a 1.7 plane, whatever its size: an ellipse along a long one
             var mask = 0.5 + (vec2f(su, sv) - 0.5) * (1.7 / spread) / vec2f(long, 1.0);
-            var push = fpush * mix(0.1, 1.7, clump) + slope * ((su - 0.5) * cos(phi) + (sv - 0.5) * sin(phi)) + 0.06 * (h - 0.5);
+            var push = fpush * mix(0.0, 3.0, clump) + slope * ((su - 0.5) * cos(phi) + (sv - 0.5) * sin(phi)) + 0.06 * (h - 0.5);
             var hang = length(vec2f(su, sv) - 0.5) + max(push, 0.0);
             reach = 1.0;
             if (root >= 1u && root <= 4u) {
-                // hinged on the wood's side: that edge on the face, the far one stood out (28 degrees), `long` faces
+                // hinged on the wood's side: that edge on the face, the far one stood out (28 degrees at the
+                // broadleaf's push, steeper with less: a reed's blades near upright), `long` faces
                 // long (the painting tiles, never stretched), twisted a little about the hinge by the hash
                 let along_u = root < 3u;
                 let out = select(f32(select(kv, ku, along_u)), 1.0 - f32(select(kv, ku, along_u)), (root & 1u) == 0u);
@@ -260,7 +261,7 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
                 su = 0.5 + (f32(ku) - 0.5) * spread;
                 sv = 0.5 + (f32(kv) - 0.5) * spread;
                 let across = select(su, sv, along_u);
-                push = 0.02 + 0.53 * out * long + 0.4 * (hg - 0.5) * (across - 0.5) + 0.06 * (h - 0.5);
+                push = 0.02 + 0.53 * out * long * (fpush / 0.35) + 0.4 * (hg - 0.5) * (across - 0.5) + 0.06 * (h - 0.5);
                 // the round mask centred on the hinge and reaching past the far edge: the twigs whole at the wood,
                 // their tips ragged, not square
                 mask = select(vec2f(su, 0.5 + 0.95 * out), vec2f(0.5 + 0.95 * out, sv), along_u);

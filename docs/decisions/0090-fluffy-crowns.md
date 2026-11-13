@@ -76,11 +76,11 @@ gets no early depth.
    0, 1, 1; size 0 none). It rides in the look row's new word 16 (`Fluff::packed`, six bits a number; the row grew
    from 16 to 20 words). `vs_fluff` reads it: `long` stretches the plane along the way from the wood (fronds,
    blades), `droop` lowers its outer parts, `dense` keeps that share of faces. A smooth field of the place about
-   2.5 m across (`vnoise`) makes clumps: where it is high a plane is larger and pushed up to 1.7 times out, where
-   low it hardly leaves the face, so a crown bulges in lobes with dents. Each cutout quad and plane carries a
+   2.5 m across (`vnoise`) makes clumps: where it is high a plane is up to 1.4 times larger and pushed up to 3 times out, where
+   low it stays on the face or keeps no plane, so a crown bulges in lobes with dents. Each cutout quad and plane carries a
    shade in `ao`: darker toward its wood (the steps to it), under (a face down 0.6) and in a dent. The rows:
    spruce short, drooping and long; jungle large and drooping; acacia wide and sparser; shrub small; reed narrow
-   blades 2.6 long. Species to come (palm, bamboo, willow) take their rows the same way.
+   blades 1.8 long, near upright (a hinged plane leans by the push: 28 degrees at 0.35). Species to come (palm, bamboo, willow) take their rows the same way.
 
 ## The Studio (tool tier)
 `art::Img` has a height: a fine file opens 32 x 32 a variant (the engine's quarters put back together), saves at

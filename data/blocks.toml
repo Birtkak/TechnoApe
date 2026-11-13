@@ -247,7 +247,7 @@ colour = [0.36, 0.30, 0.20]
 id = 21
 name = "reed"
 see = "cutout"
-fluff = { size = 0.9, push = 0.1, long = 2.6, dense = 0.7 }
+fluff = { size = 0.9, push = 0.1, long = 1.8, dense = 0.7 }
 hardness = 0.2
 loose = true
 soft = true
