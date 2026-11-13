@@ -40,8 +40,9 @@ where the world genuinely holds less than a block.
     cells give finer angles later). Which side first is a hash of the cell and the tick: deterministic,
     not always north.
   - else it sleeps (leaves the set).
-- **A player in the way:** a block never moves into a cell a player's box holds (`phys::holds`, the rule
-  edits keep); it waits awake on the head until the player steps away.
+- **A player in the way** (the developer, 2026-11-13): no floor. The block falls through the player's cells
+  and settles; a player buried to the eyes holds their breath 10 s, then loses a point a second until they
+  dig out (ADR 0079, *Burial*).
 - **Bounded:** at most `FALL_BUDGET` = 2,048 visits a tick; the rest wait in the set for the next tick
   (lowest first, so the bottom of a collapse goes first). Never a stall.
 - **Wire:** a move is two ordinary edits (`ToClient::Edits`), in the tick's batch with the players' own.

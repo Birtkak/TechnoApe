@@ -203,10 +203,14 @@ impl Tool {
 }
 
 /// The first solid block along the ray from `eye` in direction `dir` within `reach` metres, and the block the
-/// ray was in just before it (where a place goes).
+/// ray was in just before it (where a place goes; the block itself when the eye is inside it).
 pub fn aim(world: &World, eye: DVec3, dir: DVec3, reach: f64) -> Option<(Block, Block)> {
     // shortcut: fixed 5 cm steps instead of an exact grid walk; a corner clipped by under 5 cm can be missed
     let mut prev = world.block_at(eye);
+    // an eye inside a block (buried, ADR 0079) aims at that block: the way out
+    if prev.pos.z >= 0 && BLOCKS.solid(world.block(prev)) {
+        return Some((prev, prev));
+    }
     let mut t = 0.0;
     while t < reach {
         t += 0.05;
@@ -470,6 +474,20 @@ mod tests {
         assert!(BLOCKS.solid(w.block(hit)) && !BLOCKS.solid(w.block(before)));
         assert_eq!((hit.pos.x, hit.pos.y, hit.pos.z + 1), (before.pos.x, before.pos.y, before.pos.z));
         assert!(aim(&w, ground + glam::DVec3::Z * 1.6, glam::DVec3::Z, 8.0).is_none(), "nothing in the sky");
+    }
+
+    /// Buried to the eyes (sand fallen on the head, ADR 0079): the block the eye is in is the one aimed at, so
+    /// a buried player can dig out, whichever way they look.
+    #[test]
+    fn an_eye_inside_a_block_aims_at_that_block() {
+        let mut w = World::new(256, 32, 1);
+        let ground = w.bodies[0].centre + glam::DVec3::Z * w.bodies[0].height(glam::DVec3::Z);
+        let eye = ground + glam::DVec3::Z * 1.6;
+        let head = w.block_at(eye);
+        w.set_block(head, BLOCKS.id("sand"));
+        for dir in [glam::DVec3::Z, -glam::DVec3::Z, glam::DVec3::X] {
+            assert_eq!(aim(&w, eye, dir, 8.0).map(|a| a.0), Some(head), "looking {dir}");
+        }
     }
 
     /// The block just under the surface at the planet's +z pole.

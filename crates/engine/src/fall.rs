@@ -65,8 +65,9 @@ impl Falls {
     }
 
     /// One tick: every awake falling block falls a cell when its time says, else slides off a step of two,
-    /// else sleeps. Never into a cell `held` says a player holds. Each move is two edits, pushed to `out`.
-    pub fn step(&mut self, world: &mut World, tick: u64, held: impl Fn(&World, Block) -> bool, out: &mut Vec<(Block, u16)>) {
+    /// else sleeps. A player is no floor: it falls through the player's cells and buries them (the developer,
+    /// 2026-11-13; the server takes their breath). Each move is two edits, pushed to `out`.
+    pub fn step(&mut self, world: &mut World, tick: u64, out: &mut Vec<(Block, u16)>) {
         let mut now = std::mem::take(&mut self.awake);
         let mut visits = 0;
         while let Some((k, (t, fell))) = now.pop_first() {
@@ -87,11 +88,11 @@ impl Falls {
             if !BLOCKS.get(m).is_some_and(|d| d.falls) {
                 continue;
             }
-            let open = |w: &World, b: Block| !BLOCKS.solid(w.block(b)) && !held(w, b);
+            let open = |w: &World, b: Block| !BLOCKS.solid(w.block(b));
             let below = near(world, p, 0, 0, -1);
             let to = if !BLOCKS.solid(world.block(below)) {
-                if held(world, below) || due(t + 1) <= fell {
-                    // in flight, not a cell yet (or on a player's head): it waits awake
+                if due(t + 1) <= fell {
+                    // in flight, not a cell yet: it waits awake
                     self.awake.insert(k, (t + 1, fell));
                     continue;
                 }
@@ -156,7 +157,7 @@ mod tests {
     fn settle(f: &mut Falls, w: &mut World, out: &mut Vec<(Block, u16)>) -> u64 {
         let mut tick = 0;
         while f.awake() > 0 {
-            f.step(w, tick, |_, _| false, out);
+            f.step(w, tick, out);
             tick += 1;
             assert!(tick < 2000, "never settled");
         }
@@ -207,7 +208,7 @@ mod tests {
         }
         let mut tick = 0;
         while f.awake() > 0 {
-            f.step(&mut w, tick, |_, _| false, &mut out);
+            f.step(&mut w, tick, &mut out);
             tick += 1;
             // after every tick the four sands are one unbroken stack
             let ls: Vec<i32> = (0..8).filter(|l| w.block(at(top, 0, 0, *l)) == sand).collect();
@@ -234,7 +235,7 @@ mod tests {
         }
         let mut out = Vec::new();
         for tick in 0..400 {
-            f.step(&mut w, tick, |_, _| false, &mut out);
+            f.step(&mut w, tick, &mut out);
             if w.block(at(top, 0, 0, 0)) == sand {
                 break; // landed: from here it may spread
             }
@@ -270,23 +271,6 @@ mod tests {
     }
 
     #[test]
-    fn a_block_waits_on_a_player_s_head() {
-        let (mut w, top) = floor();
-        let sand = BLOCKS.id("sand");
-        let up = at(top, 0, 0, 3);
-        w.set_block(up, sand);
-        let mut f = Falls::default();
-        f.wake(&w, up);
-        let mut out = Vec::new();
-        let head = at(top, 0, 0, 1);
-        for t in 0..60 {
-            f.step(&mut w, t, |_, b| b == head || b == top, &mut out);
-        }
-        assert_eq!(w.block(at(top, 0, 0, 2)), sand, "it rests over the player");
-        assert!(f.awake() > 0, "and stays awake");
-        settle(&mut f, &mut w, &mut out);
-        assert_eq!(w.block(top), sand, "the player stepped away: it falls");
-    }
 
     #[test]
     fn a_tick_visits_at_most_the_budget_and_the_rest_carry_on() {
@@ -303,7 +287,7 @@ mod tests {
             }
         }
         let mut out = Vec::new();
-        f.step(&mut w, 0, |_, _| false, &mut out);
+        f.step(&mut w, 0, &mut out);
         assert_eq!(f.visits, BUDGET as u64);
         assert!(f.awake() > 0);
         settle(&mut f, &mut w, &mut out);
@@ -350,7 +334,7 @@ mod tests {
         let mut tick = 0;
         while f.awake() > 0 && tick < 5000 {
             let s = std::time::Instant::now();
-            f.step(&mut w, tick, |_, _| false, &mut out);
+            f.step(&mut w, tick, &mut out);
             worst = worst.max(s.elapsed().as_secs_f64());
             tick += 1;
         }
