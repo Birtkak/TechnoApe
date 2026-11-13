@@ -1238,6 +1238,8 @@ const WATER_FOG: vec3f = vec3f(0.03, 0.16, 0.24);
 const WATER_ABSORB: vec3f = vec3f(0.7, 0.25, 0.16);
 // the ripples' texels a metre: the blocks' own
 const RIPPLE_PX: f32 = 16.0;
+// how often a second the ripples, foam and falls step on: they jump like pixel art, not glide (the developer)
+const WATER_STEPS: f32 = 4.0;
 // how far the way down the view is traced (a ray's cost grows with its length): deeper counts as deep
 const WATER_SEE: f32 = 16.0;
 // how far off the terrain is traced in it: farther, the far chunks are coarse cells that stand a layer over
@@ -1308,7 +1310,7 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     let mode = (g.opt.x >> 4u) & 3u;
     if (mode >= 2u) { return water_old(i); }
     let b = g.bodies[i.body];
-    let t = g.water.x;
+    let t = floor(g.water.x * WATER_STEPS) / WATER_STEPS;
     let px = vec2u(i.clip.xy);
     let v = normalize(-i.rel);
     let dist = length(i.rel);
