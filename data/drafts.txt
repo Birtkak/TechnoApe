@@ -161,3 +161,29 @@ data/textures/anorthosite.png
 data/textures/mare basalt.png
 data/textures/iron-nickel.png
 data/textures/kreep.png
+data/models/grass tuft.toml
+data/models/grass tuft.png
+data/models/grass tuft.1.toml
+data/models/grass tuft.1.png
+data/models/fern.toml
+data/models/fern.png
+data/models/fallen leaves.toml
+data/models/fallen leaves.png
+data/models/twigs.toml
+data/models/twigs.png
+data/models/flowers.toml
+data/models/flowers.png
+data/models/pebbles.toml
+data/models/pebbles.png
+data/models/pebbles.1.toml
+data/models/pebbles.1.png
+data/models/stick.toml
+data/models/stick.png
+data/models/loose stone.toml
+data/models/loose stone.png
+data/models/flint.toml
+data/models/flint.png
+data/models/mushroom.toml
+data/models/mushroom.png
+data/models/berries.toml
+data/models/berries.png

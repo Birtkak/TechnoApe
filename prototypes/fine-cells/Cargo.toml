@@ -1,0 +1,15 @@
+[package]
+name = "fine-cells"
+version = "0.1.0"
+edition = "2021"
+description = "Throwaway spike: what awake whole-block falls and 12.5 cm fine cells cost a server tick (docs/design/fine-cells.md)."
+
+# its own workspace: not a member of the game's
+[workspace]
+
+[dependencies]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"

@@ -1,0 +1,18 @@
+# A draft mushroom (Claude's, listed in data/drafts.txt): clutter, ADR 0082. Painted
+# boxes at 32 px a metre (a stem under a red cap); made by tools/paint_clutter.py.
+colours = ["coral"]
+
+[[part]]
+name = "body"
+box = [1, 1, 1]
+voxels = "."
+
+[[part.boxes]]
+at = [15.0, 0.0, 15.0]
+size = [2, 4, 2]
+uv = [0, 0]
+
+[[part.boxes]]
+at = [13.0, 4.0, 13.0]
+size = [6, 2, 6]
+uv = [8, 0]

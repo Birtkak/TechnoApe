@@ -28,7 +28,8 @@ use std::path::Path;
 /// loads with none. 13 keeps slots in place of counts (ADR 0074): each player's stacks, the items' names (an
 /// item's id is given at load, so a save maps its ids by name) and the piles on the ground; a 12 or older loads
 /// its counts into slots in block id order, and what does not fit lies at the player's feet (`Server::from_save`).
-pub const VERSION: u32 = 13;
+/// 14 keeps the pick-ups taken (ADR 0082); a 13 loads with none taken.
+pub const VERSION: u32 = 14;
 
 /// The rain each reach holds (`Liquids::rain_held`), an air job back but not shown yet as (ticks till it
 /// shows, its view) (`Weather::pending`), and the water's steps (`Liquids::steps`: once a second the reaches
@@ -81,6 +82,15 @@ pub struct Save<P = Saved, M = Option<u64>, A = Option<engine::bake::air::State>
 /// every pile on the ground, sorted by cell.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Held {
+    pub items: Vec<(u16, String)>,
+    pub piles: Vec<(Block, Vec<Slot>)>,
+    /// The pick-ups taken (ADR 0082): the cell each lay in and the year, sorted by cell; none before 14.
+    pub taken: Vec<(Block, u32)>,
+}
+
+/// `Held` as version 13 keeps it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct Held13 {
     pub items: Vec<(u16, String)>,
     pub piles: Vec<(Block, Vec<Slot>)>,
 }
@@ -145,7 +155,11 @@ impl Save {
 
     /// Reads a save and checks it is this version (or 4 or 5, carried over) and its blocks are this build's blocks.
     pub fn from_bytes(b: &[u8]) -> Result<Save, String> {
-        let now = postcard::from_bytes::<Save>(b).ok().filter(|s| s.version == VERSION);
+        let v13 = || postcard::take_from_bytes::<Save<Saved, Option<u64>, Option<engine::bake::air::State>, Reaches, Option<u64>, Rain, Held13>>(b).ok().filter(|(s, rest)| rest.is_empty() && s.version == 13).map(|(s, _)| s);
+        let now = postcard::from_bytes::<Save>(b).ok().filter(|s| s.version == VERSION).or_else(|| {
+            let Save { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held } = v13()?;
+            Some(Save { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held: Held { items: held.items, piles: held.piles, taken: Vec::new() } })
+        });
         let v12 = || postcard::take_from_bytes::<Old>(b).ok().filter(|(s, rest)| rest.is_empty() && s.version == 12).map(|(s, _)| s);
         // nothing left over: W6's pre-merge builds wrote a 10 with `luna` after it, on the old crust (ADR 0070)
         let lunar = || postcard::take_from_bytes::<Save<SavedV12, Option<u64>, Option<engine::bake::air::State>, Reaches, Option<u64>, (), ()>>(b).ok().filter(|(s, rest)| rest.is_empty() && s.version == 11).map(|(s, _)| s);
@@ -258,7 +272,7 @@ mod tests {
 
     fn save(version: u32, blocks: Vec<(u16, String)>) -> Save {
         let b = Block { body: 0, face: 1, pos: IVec3::new(3, 4, 5) };
-        Save { version, seed: 9, planet_n: 256, moon_n: 32, blocks, edits: vec![(b, 0)], players: Vec::new(), water: Vec::new(), made: 0, removed: 0, sea_extra: 0, tick: 7, map: Some(0x5eed), air: None, reaches: Reaches::default(), luna: None, rain: Rain::default(), held: Held { items: if version >= 13 { ITEMS.table() } else { Vec::new() }, piles: Vec::new() } }
+        Save { version, seed: 9, planet_n: 256, moon_n: 32, blocks, edits: vec![(b, 0)], players: Vec::new(), water: Vec::new(), made: 0, removed: 0, sea_extra: 0, tick: 7, map: Some(0x5eed), air: None, reaches: Reaches::default(), luna: None, rain: Rain::default(), held: Held { items: if version >= 13 { ITEMS.table() } else { Vec::new() }, piles: Vec::new(), taken: Vec::new() } }
     }
 
     /// The same save in the layout of versions 6 and 7: no air.
@@ -309,7 +323,7 @@ mod tests {
         let mut s = Save { planet_n: n, moon_n: m, edits: vec![(at(0, 70), 0), (at(1, 70), 0)], water: vec![(col, vec![(60, 62, 5), (70, engine::liquid::OPEN, 0)])], ..save(9, registry()) };
         let mut bytes = s.to_bytes();
         let n = bytes.len();
-        assert_eq!(bytes.split_off(n - 6), vec![0; 6], "a 9 has no `luna` (a None's one byte), `rain` (three: none, none, 0) nor `held` (two empty lists)");
+        assert_eq!(bytes.split_off(n - 7), vec![0; 7], "a 9 has no `luna` (a None's one byte), `rain` (three: none, none, 0) nor `held` (three empty lists)");
         let old = Save::from_bytes(&bytes).unwrap();
         assert_eq!(old.edits, vec![(at(0, 216), 0), (at(1, 70), 0)]);
         assert_eq!(old.water, vec![(col, vec![(206, 208, 5), (216, engine::liquid::OPEN, 0)])]);
@@ -441,7 +455,7 @@ mod tests {
         let mut slots = items::ape();
         (slots[0], slots[1]) = (Some(Stack::new(stone, 5)), Some(Stack::new(basket + 7, 1)));
         let cell = Block { body: 0, face: 2, pos: IVec3::new(1, 2, 3) };
-        let held = Held { items: vec![(basket + 7, "basket".into())], piles: vec![(cell, vec![Some(Stack::new(basket + 7, 1)), None, None, None])] };
+        let held = Held { items: vec![(basket + 7, "basket".into())], piles: vec![(cell, vec![Some(Stack::new(basket + 7, 1)), None, None, None])], taken: vec![(cell, 3)] };
         let s = Save { players: vec![p(slots)], held, ..save(VERSION, registry()) };
         let back = Save::from_bytes(&s.to_bytes()).expect("loads");
         assert_eq!((back.players[0].slots[1], back.held.piles[0].1[0]), (Some(Stack::new(basket, 1)), Some(Stack::new(basket, 1))));
@@ -454,5 +468,18 @@ mod tests {
         let v12: Old = Save { version: 12, seed, planet_n, moon_n, blocks, edits, players: vec![old], water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held: () };
         let back = Save::from_bytes(&postcard::to_allocvec(&v12).unwrap()).expect("version 12 loads");
         assert_eq!((back.version, back.players[0].slots.clone()), (12, vec![Some(Stack::new(stone, 64)), Some(Stack::new(stone, 6))]));
+    }
+
+    /// 14 keeps the pick-ups taken (ADR 0082); a 13 loads with none taken.
+    #[test]
+    fn the_pick_ups_taken_are_kept_and_a_13_has_none() {
+        let cell = Block { body: 0, face: 2, pos: IVec3::new(1, 2, 3) };
+        let mut s = save(VERSION, registry());
+        s.held.taken = vec![(cell, 3)];
+        assert_eq!(Save::from_bytes(&s.to_bytes()).expect("loads").held.taken, vec![(cell, 3)]);
+        let Save { seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, .. } = s;
+        let v13 = Save { version: 13, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held: Held13 { items: held.items, piles: held.piles } };
+        let back = Save::from_bytes(&postcard::to_allocvec(&v13).unwrap()).expect("version 13 loads");
+        assert_eq!((back.version, back.held.taken), (13, Vec::new()));
     }
 }

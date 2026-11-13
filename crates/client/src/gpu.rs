@@ -62,6 +62,8 @@ pub(crate) const MAX_BODIES: usize = 4; // the size of `bodies` in shader.wgsl
 pub(crate) const MOON_LIGHT: Vec3 = Vec3::new(0.12, 0.14, 0.18);
 /// The lamps the GPU holds: the nearest to the camera within LAMP_REACH metres (ADR 0022; 1024 since ADR 0025, H).
 pub(crate) const MAX_LAMPS: usize = 1024;
+/// The clouds' map's side in texels (clouds.wgsl CL_TEX): the most air columns a face edge.
+pub(crate) const SKY_TEX: u32 = 128;
 pub(crate) const LAMP_REACH: f64 = 48.0;
 /// The lamp grid (ADR 0025, H): LAMP_G^3 cells of LAMP_CELL metres in the camera's frame, the camera in the
 /// middle, each a range into a list of the lamps that reach it: LAMP_R (as in shader.wgsl) or nearer, so a lamp
@@ -363,6 +365,9 @@ pub(crate) struct Globals {
     /// in layers (1.5 * TIDE_LUNA and 1.5 * TIDE_SUN over a layer's thickness at the sea); its `base` is in
     /// body 0's sea level.
     pub(crate) tide: [[f32; 4]; 2],
+    /// The clouds (ADR 0076, clouds.wgsl): x the drift's phase 0 to 1, y its period s, z the planet's sea
+    /// radius (0: none), w the map's air columns a face edge (0: no map yet).
+    pub(crate) cloud: [f32; 4],
 }
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -427,6 +432,10 @@ pub(crate) struct DrawArgs {
 }
 
 pub(crate) struct Gpu {
+    /// The clouds' map (ADR 0076), filled by `sky::Sky::upload`.
+    pub(crate) sky_tex: wgpu::Texture,
+    pub(crate) sky_view: wgpu::TextureView,
+    pub(crate) sky_samp: wgpu::Sampler,
     pub(crate) window: Arc<Window>,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
@@ -447,12 +456,18 @@ pub(crate) struct Gpu {
     /// The water (ADR 0020): the sea's quads in the chunks, the water mesh from its own buffer.
     pub(crate) sea_pipeline: wgpu::RenderPipeline,
     pub(crate) water_pipeline: wgpu::RenderPipeline,
+    /// Glass (ADR 0081): the terrain's quads through `fs_glass`, blended over the lit frame as the water.
+    pub(crate) glass_pipeline: wgpu::RenderPipeline,
     pub(crate) wquads: wgpu::Buffer,
     /// The effects (ADR 0031): the particles, drawn into the G-buffer lit per pixel.
     pub(crate) fx_buf: wgpu::Buffer,
     pub(crate) fx_pipeline: wgpu::RenderPipeline,
     pub mquads: wgpu::Buffer,
     pub mpieces: wgpu::Buffer,
+    /// The clutter's still models (ADR 0082): their faces and paintings are bindings 16 and 17, the streamer
+    /// lays their quads in level 0's meshes; drawn by `still_pipeline`.
+    pub still: std::sync::Arc<engine::clutter::Still>,
+    pub(crate) still_pipeline: wgpu::RenderPipeline,
     pub(crate) model_pipeline: wgpu::RenderPipeline,
     pub(crate) bind: wgpu::BindGroup,
     pub(crate) globals: wgpu::Buffer,
@@ -526,7 +541,7 @@ pub(crate) fn season_here(w: &engine::world::World, pos: glam::DVec3) -> (f64, f
 }
 
 /// Every block's look from the registry (ADR 0013, 0039, 0045), shader.wgsl `Look`, 64 bytes each: colour rgb,
-/// pattern | side << 8 | metal << 16 | gives light << 24 | cutout << 25; colour2, size; colour3, amount; contrast; the painted
+/// pattern | side << 8 | metal << 16 | gives light << 24 | cutout << 25 | glass << 26; colour2, size; colour3, amount; contrast; the painted
 /// faces (16 bits a face: layer | variants - 1 << 12 | painted << 15; top and side in `tex`, the bottom in
 /// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24).
 fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 16]> {
@@ -545,7 +560,7 @@ fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> 
                         let size = d.size as u32 | ((d.seasons.is_some() || paints) as u32) << 8 | (paints as u32) << 9 | engine::sky::stagger_units(d.stagger) << 16;
                         let shine = (d.metal * 255.0).round() as u32;
                         let gives = (d.light != [0.0; 3]) as u32;
-                        let info = d.pattern as u32 | (d.side as u32) << 8 | shine << 16 | gives << 24 | ((d.see == engine::blocks::See::Cutout) as u32) << 25;
+                        let info = d.pattern as u32 | (d.side as u32) << 8 | shine << 16 | gives << 24 | ((d.see == engine::blocks::See::Cutout) as u32) << 25 | ((d.see == engine::blocks::See::Glass) as u32) << 26;
                         let (mut tex, mut mean) = (0u64, 0);
                         // a season's own paint, else the base's (a season row without one is its pattern only when
                         // the base has none)
@@ -731,8 +746,9 @@ impl Gpu {
         let chunks = buf("chunks", (MAX_CHUNKS * std::mem::size_of::<ChunkGpu>()) as u64, U::STORAGE | U::COPY_DST);
         let lamps = buf("lamps", (MAX_LAMPS * std::mem::size_of::<LampGpu>()) as u64, U::STORAGE | U::COPY_DST);
         let lamp_cells = buf("lamp cells", (LAMP_GRID_LEN * 4) as u64, U::STORAGE | U::COPY_DST);
-        // the terrain's draws, then the sea's at MAX_CHUNKS * 16, the cutout blocks' at MAX_CHUNKS * 32 (ADR 0069)
-        let indirect = buf("indirect", (MAX_CHUNKS * 48) as u64, U::INDIRECT | U::COPY_DST);
+        // the terrain's draws, then the sea's at MAX_CHUNKS * 16, the cutout blocks' at MAX_CHUNKS * 32 (ADR 0069), glass at MAX_CHUNKS * 48 (ADR 0081)
+        // and the still models' at MAX_CHUNKS * 64 (ADR 0082)
+        let indirect = buf("indirect", (MAX_CHUNKS * 80) as u64, U::INDIRECT | U::COPY_DST);
         let wquads = buf("wquads", (MAX_WQUADS * std::mem::size_of::<water::WQuad>()) as u64, U::STORAGE | U::COPY_DST);
         let fx_buf = buf("fx", (MAX_FX * std::mem::size_of::<crate::fx::FxGpu>()) as u64, U::STORAGE | U::COPY_DST);
         // every block's look from the registry (ADR 0013, 0039), shader.wgsl `Look`, 64 bytes each: colour rgb,
@@ -746,10 +762,34 @@ impl Gpu {
         // the globe map (ADR 0077): filled by `App::globe_frame` once the worker's pictures are made
         let globe_buf = buf("globe", (crate::globe::LEN * 4) as u64, U::STORAGE | U::COPY_DST);
         let mpieces = buf("model pieces", (crate::models::MAX_PIECES * std::mem::size_of::<crate::models::Piece>()) as u64, U::STORAGE | U::COPY_DST);
+        // the clutter's models, read once at the start (shortcut: not live as the models' are; a restart reads them)
+        let palette = std::fs::read_to_string("data/palette.toml").ok().and_then(|t| engine::palette::Palette::parse(&t).ok()).unwrap_or_else(|| crate::fx::PALETTE.clone());
+        let (still, bad) = engine::clutter::Still::load(std::path::Path::new(&a.get("models", String::from("data/models"))), &palette);
+        for b in bad {
+            eprintln!("clutter: {b}");
+        }
+        let sfaces = buf("still faces", (still.faces.len().max(1) * 64) as u64, U::STORAGE | U::COPY_DST);
+        queue.write_buffer(&sfaces, 0, bytemuck::cast_slice(&still.faces));
+        let spaint = buf("still paintings", (still.paint.len().max(1) * 4) as u64, U::STORAGE | U::COPY_DST);
+        queue.write_buffer(&spaint, 0, bytemuck::cast_slice(&still.paint));
+        let still = std::sync::Arc::new(still);
+        // the clouds' map (ADR 0076, clouds.wgsl): a texel per air column, CL_TEX a side, twelve layers
+        let sky_tex = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("sky"),
+            size: wgpu::Extent3d { width: SKY_TEX, height: SKY_TEX, depth_or_array_layers: 12 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let sky_view = sky_tex.create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
+        let sky_samp = device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..Default::default() });
         let tex_rx = watch_textures(std::path::PathBuf::from(a.get("textures", String::from("data/textures"))));
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(concat!(include_str!("shader.wgsl"), include_str!("clouds.wgsl")).into()),
         });
         let storage = |b| wgpu::BindGroupLayoutEntry {
             binding: b,
@@ -791,6 +831,15 @@ impl Gpu {
                 storage(12),
                 storage(13),
                 storage(20),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 14,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2Array, multisampled: false },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry { binding: 15, visibility: wgpu::ShaderStages::VERTEX_FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
+                storage(16),
+                storage(17),
             ],
         });
         let rt = rt::Rt::new(&device, &shader, &globals, &quads, MAX_CHUNKS as u32);
@@ -811,6 +860,10 @@ impl Gpu {
                 wgpu::BindGroupEntry { binding: 12, resource: mquads.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 13, resource: mpieces.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 20, resource: globe_buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 14, resource: wgpu::BindingResource::TextureView(&sky_view) },
+                wgpu::BindGroupEntry { binding: 15, resource: wgpu::BindingResource::Sampler(&sky_samp) },
+                wgpu::BindGroupEntry { binding: 16, resource: sfaces.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 17, resource: spaint.as_entire_binding() },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -846,7 +899,7 @@ impl Gpu {
             cache: None,
         });
         // the effects: into the G-buffer as the terrain, with its depth (ADR 0031)
-        let gbuffer_pipeline = |vs: &'static str, fs: &'static str| {
+        let gbuffer_pipeline = |vs: &'static str, fs: &'static str, cull| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(fs),
                 layout: Some(&layout),
@@ -857,7 +910,7 @@ impl Gpu {
                     targets: &gi::TARGETS.map(|f| Some(f.into())),
                     compilation_options: Default::default(),
                 }),
-                primitive: wgpu::PrimitiveState { cull_mode: Some(wgpu::Face::Back), ..Default::default() },
+                primitive: wgpu::PrimitiveState { cull_mode: cull, ..Default::default() },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
                     depth_write_enabled: Some(true),
@@ -870,23 +923,25 @@ impl Gpu {
                 cache: None,
             })
         };
-        let fx_pipeline = gbuffer_pipeline("vs_fx", "fs_fx");
-        let cut_pipeline = gbuffer_pipeline("vs", "fs_cut");
+        let fx_pipeline = gbuffer_pipeline("vs_fx", "fs_fx", Some(wgpu::Face::Back));
+        let cut_pipeline = gbuffer_pipeline("vs", "fs_cut", Some(wgpu::Face::Back));
+        // still models: either way round (`fs_still` drops the face turned away)
+        let still_pipeline = gbuffer_pipeline("vs_still", "fs_still", None);
         // the models (ADR 0047): into the G-buffer with the terrain
-        let model_pipeline = gbuffer_pipeline("vs_model", "fs_model");
+        let model_pipeline = gbuffer_pipeline("vs_model", "fs_model", Some(wgpu::Face::Back));
         // water: blended over the terrain, tested against its depth but not writing it, seen from both sides
-        let liquid = |vs| {
+        let liquid = |vs, fs, cull| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(vs),
                 layout: Some(&layout),
                 vertex: wgpu::VertexState { module: &shader, entry_point: Some(vs), buffers: &[], compilation_options: Default::default() },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: Some("fs_water"),
+                    entry_point: Some(fs),
                     targets: &[Some(wgpu::ColorTargetState { format, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })],
                     compilation_options: Default::default(),
                 }),
-                primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+                primitive: wgpu::PrimitiveState { cull_mode: cull, ..Default::default() },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
                     depth_write_enabled: Some(false),
@@ -922,8 +977,10 @@ impl Gpu {
             multiview_mask: None,
             cache: None,
         });
-        let sea_pipeline = liquid("vs_sea");
-        let water_pipeline = liquid("vs_water");
+        let sea_pipeline = liquid("vs_sea", "fs_water", None);
+        let water_pipeline = liquid("vs_water", "fs_water", None);
+        // a glass wall shows its near face only: one pane's tint, not two
+        let glass_pipeline = liquid("vs", "fs_glass", Some(wgpu::Face::Back));
         let overlay = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("overlay"),
             source: wgpu::ShaderSource::Wgsl((include_str!("overlay.wgsl").to_string() + &hud::font_wgsl()).into()),
@@ -997,12 +1054,18 @@ impl Gpu {
                 lamps.as_entire_binding(),
                 lamp_cells.as_entire_binding(),
                 tex.as_entire_binding(),
+                wgpu::BindingResource::TextureView(&sky_view),
+                wgpu::BindingResource::Sampler(&sky_samp),
             ],
+            (&sky_view, &sky_samp),
             format,
             w(),
             h(),
         );
         let gpu = Gpu {
+            sky_tex,
+            sky_view,
+            sky_samp,
             window,
             sky_pipeline,
             ts_period: queue.get_timestamp_period(),
@@ -1014,11 +1077,14 @@ impl Gpu {
             cut_pipeline,
             sea_pipeline,
             water_pipeline,
+            glass_pipeline,
             wquads,
             fx_buf,
             fx_pipeline,
             mquads,
             mpieces,
+            still,
+            still_pipeline,
             model_pipeline,
             ghost_pipeline,
             ghost_buf,
