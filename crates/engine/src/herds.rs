@@ -347,6 +347,13 @@ fn think(a: &mut Animal, home: DVec3, players: &[(DVec3, DVec3)], sun: DVec3, ce
 
 fn move_on(world: &World, a: &mut Animal, kind: &Kind, dt: f64, tick: u64) {
     let up = phys::up(world, a.p.pos);
+    // a block placed on it, or ground grown over it: it climbs out on top, as `air_over_ground` stands it
+    if phys::inside(world, &a.p) {
+        if let Some(feet) = stand(world, (a.p.pos - world.bodies[0].centre).normalize()) {
+            (a.p.pos, a.p.vel) = (feet, DVec3::ZERO);
+        }
+        return;
+    }
     let speed = match a.mind {
         Mind::Wander => kind.walk,
         Mind::Flee => kind.run,
@@ -586,5 +593,30 @@ mod tests {
         // the moat is 4 deep; the ground around it rolls by a block or two
         assert!(low > -2.5, "one fell in the moat: {low:.2} m");
         assert!(h.all().zip(&start).any(|(a, _)| (a.p.pos - p).reject_from(up).length() > 2.5), "they did wander inside the ring");
+    }
+
+    /// The tick's cost with a few hundred animals awake (ADR 0083): players spread over the noise land of the
+    /// 4 km planet, each waking its 25 sites. `cargo test --release -p engine herds_tick_cost -- --ignored`.
+    #[test]
+    #[ignore]
+    fn herds_tick_cost() {
+        let mut w = World::new(6144, 1664, 1337);
+        noon(&mut w);
+        let b = &w.bodies[0];
+        let mut h = herds();
+        let players: Vec<(DVec3, DVec3)> = (0..400).filter_map(|k| stand(&w, (b.spawn + DVec3::new(0.06 * (k % 20) as f64 - 0.6, 0.06 * (k / 20) as f64 - 0.6, 0.0)).normalize()).map(|p| (p, DVec3::ZERO))).step_by(5).take(40).collect();
+        for t in 0..200 {
+            h.tick(&w, &players, t, 0.05);
+        }
+        let mut ms = Vec::new();
+        for t in 200..800 {
+            let s = std::time::Instant::now();
+            h.tick(&w, &players, t, 0.05);
+            ms.push(s.elapsed().as_secs_f64() * 1000.0);
+        }
+        ms.sort_by(f64::total_cmp);
+        let walking = h.awake_animals(800).filter(|a| matches!(a.mind, Mind::Wander | Mind::Flee)).count();
+        println!("{{\"herds_tick\":{{\"players\":{},\"awake\":{},\"walking\":{walking},\"mean_ms\":{:.3},\"p99_ms\":{:.3},\"max_ms\":{:.3}}}}}", players.len(), h.awake, ms.iter().sum::<f64>() / ms.len() as f64, ms[ms.len() * 99 / 100], ms[ms.len() - 1]);
+        assert!(h.awake >= 200, "a few hundred awake: {}", h.awake);
     }
 }

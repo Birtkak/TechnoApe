@@ -236,6 +236,10 @@ fn check(s: &Server) -> Result<(), String> {
     if let Some(&(k, held, made)) = s.item_ledger().first() {
         return Err(format!("{}: {held} held, {made} made", engine::items::ITEMS.name(k)));
     }
+    // no animal is left inside the ground or off to infinity (ADR 0083)
+    if let Some(a) = s.herds.all().find(|a| !a.p.pos.is_finite() || engine::phys::inside(&s.world, &a.p)) {
+        return Err(format!("animal {} at {:?} is inside the ground", a.id, a.p.pos));
+    }
     // no water appears or vanishes: what differs from the seed is what buckets hold plus what creative made
     if s.water_ledger() != 0 {
         return Err(format!("{} units of water appeared", s.water_ledger()));
@@ -372,6 +376,7 @@ pub fn run_warp(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Opt
             (ws.skipped, ws.bytes) = (s.water_skipped, s.water_bytes);
             (ws.dams, ws.broken) = (bots.iter().map(|b| b.dams).sum(), bots.iter().map(|b| b.broken).sum());
             (ws.heaps, ws.falls) = (bots.iter().map(|b| b.heaps).sum(), s.falls.moves);
+            eprintln!("[soak] animals: {} met in {} sites, {} awake at the end", s.herds.all().count(), s.herds.sites.len(), s.herds.awake);
             Ok((s.hash(), ws))
         }
         Ok(b) => {
