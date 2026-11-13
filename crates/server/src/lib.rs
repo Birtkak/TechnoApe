@@ -293,10 +293,14 @@ impl Server {
         for (b, m) in &save.edits {
             s.world.set_block(*b, *m);
         }
-        // a block saved mid-fall, or over a hole it had not fallen into yet, carries on (ADR 0079)
+        // a block saved mid-fall, or over a hole it had not fallen into yet, carries on (ADR 0079): each falling
+        // block of the edits, and the one over each dug cell when it falls, is looked at once
         for (b, m) in &save.edits {
-            if *m == AIR || BLOCKS.get(*m).is_some_and(|d| d.falls) {
-                s.falls.wake(&s.world, *b);
+            let over = Block { pos: b.pos + glam::IVec3::Z, ..*b };
+            if BLOCKS.get(*m).is_some_and(|d| d.falls) {
+                s.falls.poke(*b);
+            } else if *m == AIR && BLOCKS.get(s.world.block(over)).is_some_and(|d| d.falls) {
+                s.falls.poke(over);
             }
         }
         // the clock of the save's last step first (a save's tick is one past it): its water is restored at that
@@ -776,6 +780,7 @@ impl Server {
         for (b, _) in &changed {
             self.falls.wake(&self.world, *b);
         }
+        let mine = changed.len();
         if self.falls.awake() > 0 {
             let held: std::collections::HashSet<Block> = self.clients.iter().flat_map(|c| phys::cells(&self.world, c.phys.pos)).collect();
             self.falls.step(&mut self.world, self.tick, |_, b| held.contains(&b), &mut changed);
@@ -799,7 +804,9 @@ impl Server {
         for _ in 0..wsteps {
             self.world.step_water();
         }
-        for part in changed.chunks(EDITS_PART) {
+        // the falls' moves in messages of their own, so no move's two edits are split between two (the client
+        // knows a move by its pair)
+        for part in changed[..mine].chunks(EDITS_PART).chain(changed[mine..].chunks(EDITS_PART)) {
             for c in &self.clients {
                 c.link.send(ToClient::Edits(part.to_vec()));
             }

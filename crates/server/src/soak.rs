@@ -209,7 +209,7 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
         b.link.send(ToServer::Edit { seq, shape, material: stone });
         b.dam = Some((shape, s.tick + 120 + b.rng.next() % 240));
         b.dams += 1;
-    } else if (0.102..0.104).contains(&r) {
+    } else if (0.102 + ITEM_SHARE..0.104 + ITEM_SHARE).contains(&r) {
         // a heap of sand or gravel beside the bot, in creative, and the ground dug out from under it at once:
         // it falls into the hole and slides to its angle of rest (ADR 0079)
         let feet = s.clients[me].phys.pos;

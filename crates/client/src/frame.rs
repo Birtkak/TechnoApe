@@ -225,8 +225,10 @@ impl App {
                     let mut moved = false;
                     for (k, &(b, m)) in v.iter().enumerate() {
                         // a loose block's fall (ADR 0079) is two edits in a row, the block gone from one cell and
-                        // in the next: it breaks nothing and places nothing
-                        let fall = std::mem::take(&mut moved) || (m == engine::blocks::AIR && v.get(k + 1).is_some_and(|&(_, n)| engine::blocks::BLOCKS.get(n).is_some_and(|d| d.falls) && self.world.block(b) == n));
+                        // in the next, side by side (the server sends moves in messages of their own): it breaks
+                        // nothing and places nothing. shortcut: a move across a face's edge plays its break and place
+                        // (a few cells of the planet); pair by the fold when anyone notices
+                        let fall = std::mem::take(&mut moved) || (m == engine::blocks::AIR && v.get(k + 1).is_some_and(|&(q, n)| engine::blocks::BLOCKS.get(n).is_some_and(|d| d.falls) && (q.body, q.face) == (b.body, b.face) && (q.pos - b.pos).abs().element_sum() == 1 && self.world.block(b) == n));
                         moved = fall && m == engine::blocks::AIR;
                         // the cell's delta: its effect and, for up to three cells of an edit, its sound (another
                         // player's digging and building; this player's own were seen and heard at the click)

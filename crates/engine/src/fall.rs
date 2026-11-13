@@ -50,6 +50,11 @@ impl Falls {
         self.awake.len()
     }
 
+    /// Cell `b` alone is looked at next tick (a save's falling blocks on loading).
+    pub fn poke(&mut self, b: Block) {
+        self.awake.entry(key(b)).or_insert((0, 0));
+    }
+
     /// `b` changed: it, the cell over it and the four sides at both layers may now fall or slide.
     pub fn wake(&mut self, world: &World, b: Block) {
         for dl in 0..=1 {
@@ -96,7 +101,7 @@ impl Falls {
                     now.insert(key(over), (t, fell));
                 }
                 Some((below, (t + 1, fell + 1)))
-            } else if let Some(&s) = self.awake.get(&key(below)).filter(|s| t > 0 && s.0 > 0) {
+            } else if let Some(&s) = self.awake.get(&key(below)).filter(|s| s.0 > 0) {
                 // riding on a block in flight that waited this tick (it was visited first): it waits with it
                 self.awake.insert(k, s);
                 continue;
@@ -210,6 +215,32 @@ mod tests {
             assert_eq!(ls[3] - ls[0], 3, "tick {tick}: the stack broke apart: {ls:?}");
         }
         assert_eq!((0..4).map(|l| w.block(at(top, 0, 0, l))).collect::<Vec<_>>(), vec![sand; 4]);
+    }
+
+    /// A heap placed in the air falls as one piece: nothing slides off the blocks under it while they wait
+    /// to start (a fresh block on one in flight waits with it).
+    #[test]
+    fn a_heap_in_the_air_comes_down_whole() {
+        let (mut w, top) = floor();
+        let sand = BLOCKS.id("sand");
+        let mut f = Falls::default();
+        for l in 8..11 {
+            for di in -1..=1 {
+                for dj in -1..=1 {
+                    w.set_block(at(top, di, dj, l), sand);
+                    f.wake(&w, at(top, di, dj, l));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        for tick in 0..400 {
+            f.step(&mut w, tick, |_, _| false, &mut out);
+            if w.block(at(top, 0, 0, 0)) == sand {
+                break; // landed: from here it may spread
+            }
+            let outside = (-3..=3).flat_map(|di| (-3..=3).map(move |dj| (di, dj))).filter(|&(di, dj): &(i32, i32)| di.abs() > 1 || dj.abs() > 1).any(|(di, dj)| (0..12).any(|l| w.block(at(top, di, dj, l)) == sand));
+            assert!(!outside, "tick {tick}: a block slid off the falling heap");
+        }
     }
 
     #[test]
