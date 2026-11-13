@@ -97,6 +97,9 @@ pub enum ToClient {
     /// Pick-ups taken (ADR 0082): the cell each lay in and the year (`clutter::year`); every one on join.
     /// shortcut: every mark to every client, as the piles.
     Taken(Vec<(crate::world::Block, u32)>),
+    /// The planet's air as the client draws it (ADR 0076): every column (`all`, on join) or the columns that
+    /// changed (by index), when the grid lands a step at world time `t` or a forced weather changes.
+    Sky { t: f64, all: Vec<crate::weather::Cell>, changed: Vec<(u32, crate::weather::Cell)> },
 }
 
 /// Ticks between the `ToClient::Air` a player is sent (2 s).

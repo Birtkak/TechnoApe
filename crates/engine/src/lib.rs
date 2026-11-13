@@ -8,6 +8,7 @@ pub mod clutter;
 pub mod ore;
 pub mod creatures;
 pub mod edit;
+pub mod fall;
 pub mod items;
 pub mod liquid;
 pub mod mesh;

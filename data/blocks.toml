@@ -11,7 +11,8 @@
 # `metal`: how much it reflects like a metal (0..1). `was`: names it had before, so old saves still load.
 # `hardness`: seconds a survival player digs it with bare hands (every solid block; ADR 0034). `loose`:
 # bare hands take it, so it goes into the inventory; a block that is not loose breaks in its time and gives
-# nothing until the tools that take it exist. `soft`: sound passes it without an echo (leaves, a shrub, reed),
+# nothing until the tools that take it exist. `falls`: it falls when the cell under it opens and slides off a
+# step of two or more, as a whole block (sand, gravel; ADR 0079). `soft`: sound passes it without an echo (leaves, a shrub, reed),
 # so it is no wall to the cave reverb (ADR 0054). `see`: "cutout" for a block seen through, its pixels
 # wholly there or wholly empty (alpha 0 in its painting; the `leaves` pattern has holes), opaque without it (ADR 0069).
 
@@ -94,6 +95,7 @@ id = 8
 name = "sand"
 hardness = 0.6
 loose = true
+falls = true
 sound = "dust"
 colour = [0.88, 0.74, 0.47]
 contrast = 0.6
@@ -120,6 +122,7 @@ id = 11
 name = "gravel"
 hardness = 0.9
 loose = true
+falls = true
 sound = "stone"
 colour = [0.55, 0.53, 0.50]
 pattern = "pebbles"

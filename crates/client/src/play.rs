@@ -367,6 +367,8 @@ impl App {
                 self.pick = Some(0);
             }
             a if a.starts_with("say:") => self.link.send(ToServer::Chat(a[4..].to_string())),
+            // fly:<m/s> as the playtest menu's step: flying at that speed, for scripted flights (ADR 0073)
+            a if a.starts_with("fly:") => (self.flying, self.fly_speed) = (true, a[4..].parse::<f64>().unwrap_or(250.0).clamp(1.0, phys::FLY_MAX)),
             _ => {
                 if let Ok(d) = a.parse::<usize>() {
                     if self.slot != d.clamp(1, 9) - 1 {
@@ -615,11 +617,14 @@ impl App {
         // the ground's air (ADR 0055, W3): the baked year's mean where the map keeps it (the biome's band on an
         // older map), the season and the hour on top
         let (face, fi, fj) = (blk.face as usize, blk.pos.x as f64 + 0.5, blk.pos.y as f64 + 0.5);
+        let ap = engine::bake::air::Params::default();
+        let over_sea = b.over_sea(feet).unwrap_or(0.0);
         let air = match if space || bi != 0 { None } else { b.biome_at(face, fi, fj, up) } {
+            // over the air's top layer there is no air to read (the lapse would pass absolute zero)
+            Some(_) if over_sea > ap.tops[ap.tops.len() - 1] as f64 => format!("none, {:.0} m over the air's top", over_sea - ap.tops[ap.tops.len() - 1] as f64),
             Some(bio) => {
-                let over_sea = b.sea.map_or(0.0, |s| (feet - b.centre).length() - s);
                 let (mean, swing) = match b.climate_at(face, fi, fj) {
-                    Some((theta, swing, _)) => ((theta - engine::bake::air::Params::default().lapse * over_sea.max(0.0) as f32) as f64, swing as f64),
+                    Some((theta, swing, _)) => ((theta - ap.cool(over_sea as f32)) as f64, swing as f64),
                     None => engine::sky::BIOME_CLIMATE[bio as usize],
                 };
                 // the live air (W3) where the server runs it, else the baked year with the season and hour on top
@@ -631,7 +636,7 @@ impl App {
             }
             None => "no air reading here".into(),
         };
-        let sea = b.sea.map_or(String::new(), |s| format!(", {:.1} m over the sea", r - s));
+        let sea = b.over_sea(pos).map_or(String::new(), |h| format!(", {h:.1} m over the sea"));
         let look = match self.aim {
             Some((hit, _)) => format!(
                 "{} (face {}, {} {}, layer {})",
@@ -1033,6 +1038,27 @@ impl App {
     pub(crate) fn grow(&mut self, b: Block, m: u16) {
         let tag = self.fx.play(fx::id("grow"), &fx::At::cell(&self.world, b, m));
         self.growing.push((self.start.elapsed().as_secs_f64() + GROW_S, b, m, tag, false));
+    }
+
+    /// Until the world is in (ADR 0073): the loading screen over it in the same window, its bar the chunks
+    /// still missing against the most there were (the bake's own bar is the title's, ADR 0057).
+    pub(crate) fn loading_screen(&mut self) {
+        let (lw, lh) = self.ui_size();
+        let missing = self.drawn.streaming.0;
+        self.load_peak = self.load_peak.max(missing);
+        let f = if self.load_peak == 0 { 0.0 } else { 1.0 - missing as f32 / self.load_peak as f32 };
+        let mut paint = hud::Paint::new(lw, lh);
+        paint.rect(0.0, 0.0, lw, lh, [0.015, 0.02, 0.035, 1.0], 0);
+        let (bw, bh, y) = ((lw * 0.5).min(720.0), 14.0, lh * 0.55);
+        let x = (lw - bw) / 2.0;
+        paint.text(x, y - 2.0 * hud::LINE - 6.0, "TechnoApe", [1.0, 1.0, 1.0, 0.95]);
+        paint.text(x, y - hud::LINE - 6.0, &format!("Loading the world: {missing} chunks to go  {:.0}%", f * 100.0), [0.8, 0.85, 0.9, 0.95]);
+        paint.rect(x - 2.0, y - 2.0, bw + 4.0, bh + 4.0, [0.0, 0.0, 0.0, 0.6], 0);
+        paint.rect(x, y, bw * f, bh, [0.45, 0.8, 0.4, 0.95], 0);
+        let n = paint.out.len().min(hud::RECTS_MAX);
+        let gpu = self.gpu.as_ref().unwrap();
+        gpu.queue.write_buffer(&gpu.ui_buf, 0, bytemuck::cast_slice(&paint.out[..n]));
+        self.ui_n = n as u32;
     }
 
     /// Each frame of run=play: scripted acts that are due, the aim, the ghost and the 2D layer.

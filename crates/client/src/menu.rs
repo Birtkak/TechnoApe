@@ -806,7 +806,7 @@ impl App {
     /// block colours, no stars. The defaults are 0, today's picture.
     pub(crate) fn gfx_bits(&self) -> u32 {
         let s = &self.settings;
-        (s.at(S::Shadows) == 0) as u32 | (!s.on(S::Reflections) as u32) << 1 | ((s.at(S::Textures) == 0) as u32) << 2 | (!s.on(S::Stars) as u32) << 3
+        (s.at(S::Shadows) == 0) as u32 | (!s.on(S::Reflections) as u32) << 1 | ((s.at(S::Textures) == 0) as u32) << 2 | (!s.on(S::Stars) as u32) << 3 | ((s.at(S::Outline) == 1) as u32) << 16
     }
 
     /// The title menu's view: in orbit over the planet's sunlit limb, the planet filling the left half and the
@@ -959,8 +959,10 @@ impl App {
             gpu.lamps.as_entire_binding(),
             gpu.lamp_cells.as_entire_binding(),
             gpu.tex.as_entire_binding(),
+            wgpu::BindingResource::TextureView(&gpu.sky_view),
+            wgpu::BindingResource::Sampler(&gpu.sky_samp),
         ];
-        self.gi = Some(gi::Gi::new(&gpu.device, &gpu.shader, shared, gpu.config.format, nw, nh));
+        self.gi = Some(gi::Gi::new(&gpu.device, &gpu.shader, shared, (&gpu.sky_view, &gpu.sky_samp), gpu.config.format, nw, nh));
         eprintln!("[technoape] the render size is {nw}x{nh}");
     }
 }

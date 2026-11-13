@@ -94,6 +94,14 @@ pub struct Params {
     pub washout: f32,
 }
 
+impl Params {
+    /// K the air `h` metres over the sea is colder than its potential temperature: `lapse` up to 150 m,
+    /// `lapse_up` above (the grid's layers and every read-out of the air at a height share it)
+    pub fn cool(&self, h: f32) -> f32 {
+        self.lapse * h.clamp(0.0, 150.0) + self.lapse_up * (h - 150.0).max(0.0)
+    }
+}
+
 impl Default for Params {
     fn default() -> Params {
         Params {
@@ -264,7 +272,7 @@ impl Air {
                 let top = if k == 0 { gz + p.tops[0] } else { p.tops[k].max(bottom + 30.0) };
                 thick[c * LAYERS + k] = top - bottom;
                 let mid = 0.5 * (top + bottom);
-                cool[c * LAYERS + k] = p.lapse * mid.min(150.0) + p.lapse_up * (mid - 150.0).max(0.0);
+                cool[c * LAYERS + k] = p.cool(mid);
                 bottom = top;
             }
         }
@@ -453,6 +461,13 @@ impl Air {
         self.theta[c * LAYERS] - self.cool[c * LAYERS]
     }
 
+    /// A column's cloud as a share of what its layers hold at `cloud_max` (where it rains), for pictures
+    /// (ADR 0076): `cover_half` makes the sun pass's cover a hundredth at most on Terra.
+    pub fn cloud_share(&self, c: usize) -> f32 {
+        let ctot: u32 = self.cloud[c * LAYERS..c * LAYERS + LAYERS].iter().sum();
+        let full: f64 = (0..LAYERS).map(|k| self.p.cloud_max as f64 * (self.thick[c * LAYERS + k] * self.area[c]) as f64 / G_PER_UNIT).sum();
+        (ctot as f64 / full.max(1e-9)) as f32
+    }
     /// The surface wind at a column, east and north, m/s (the mean over its edges, for pictures).
     pub fn surface_wind(&self, c: usize) -> (f32, f32) {
         let d = self.dir[c];

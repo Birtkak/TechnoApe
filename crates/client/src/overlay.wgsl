@@ -63,7 +63,8 @@ fn ghost_fs(i: GhostOut) -> @location(0) vec4f {
     // was 12 s and paler, which read as standing still: bug 2026-11-11_17-38-47); a held dig stays red and a
     // held place green
     if (i.colour.a < 0.7 && min(i.colour.r, min(i.colour.g, i.colour.b)) > 0.99) {
-        let h = fract(i.along - g.sun.w / 3.0);
+        // the Accessibility page's still outline colours (bit 16, ADR 0073) keep the hues where they are
+        let h = fract(i.along - select(g.sun.w / 3.0, 0.0, (g.opt.x & 65536u) != 0u));
         let rgb = clamp(abs(fract(vec3f(h) + vec3f(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, vec3f(0.0), vec3f(1.0));
         return vec4f(mix(vec3f(1.0), rgb, 0.92), 0.95);
     }

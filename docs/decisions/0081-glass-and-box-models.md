@@ -49,7 +49,7 @@ water, and lets it tint the light that passes it "if the spike's numbers allow".
   face has it) naming a row of a face table (corner, edges, rectangle, painting) and a turn in sixteenths and
   a place in the cell. Their quads lie after the glass and before the water (`Mesh::still`), drawn by
   `vs_still`/`fs_still` into the G-buffer and lit as blocks are; they are in no BLAS, so they cast no shadow and
-  hold no light. The face table and paintings are bindings 14 and 15, read once at the start.
+  hold no light. The face table and paintings are bindings 16 and 17, read once at the start.
 - **Not built:** moving box models (in hand, `model=`): the client's voxel models still draw voxels only.
 
 ## Calls for the developer to confirm

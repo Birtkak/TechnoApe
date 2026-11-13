@@ -211,6 +211,8 @@ impl App {
         };
         if self.run == "play" && self.loaded_at.is_some() {
             self.build(&p, t);
+        } else if self.run == "play" {
+            self.loading_screen();
         }
         let p = if self.home() == Menu::Title { self.title_view(t) } else { p };
         let vel = if dt > 0.0 && self.loaded_at.is_some() { (p.pos - self.last_pos) / dt } else { DVec3::ZERO };
@@ -222,11 +224,18 @@ impl App {
             match self.link.try_recv() {
                 Recv::Msg(ToClient::Edits(v)) => {
                     let mut heard = 0;
-                    for (b, m) in v {
+                    let mut moved = false;
+                    for (k, &(b, m)) in v.iter().enumerate() {
+                        // a loose block's fall (ADR 0079) is two edits in a row, the block gone from one cell and
+                        // in the next, side by side (the server sends moves in messages of their own): it breaks
+                        // nothing and places nothing. shortcut: a move across a face's edge plays its break and place
+                        // (a few cells of the planet); pair by the fold when anyone notices
+                        let fall = std::mem::take(&mut moved) || (m == engine::blocks::AIR && v.get(k + 1).is_some_and(|&(q, n)| engine::blocks::BLOCKS.get(n).is_some_and(|d| d.falls) && (q.body, q.face) == (b.body, b.face) && (q.pos - b.pos).abs().element_sum() == 1 && self.world.block(b) == n));
+                        moved = fall && m == engine::blocks::AIR;
                         // the cell's delta: its effect and, for up to three cells of an edit, its sound (another
                         // player's digging and building; this player's own were seen and heard at the click)
-                        let hear = heard < 3 && self.loaded_at.is_some();
-                        let (shows, was) = fx::server_edit(&mut self.fx, &mut self.pred, &mut self.world, b, m, hear);
+                        let hear = heard < 3 && self.loaded_at.is_some() && !fall;
+                        let (shows, was) = if fall { (self.pred.server(&mut self.world, b, m), None) } else { fx::server_edit(&mut self.fx, &mut self.pred, &mut self.world, b, m, hear) };
                         if shows {
                             self.streamer.touch_block(&self.world, b);
                             if let Some(was) = was.filter(|_| hear) {
@@ -299,6 +308,7 @@ impl App {
                     self.water.update(&self.world, &ts, self.start.elapsed().as_secs_f32());
                 }
                 Recv::Msg(ToClient::Air(h)) => self.air = Some(h),
+                Recv::Msg(ToClient::Sky { t, all, changed }) => self.sky.take(t, all, changed),
                 Recv::Msg(ToClient::Welcome { .. } | ToClient::Map { .. }) => {}
                 Recv::Msg(ToClient::Chat(text)) => {
                     for line in text.lines() {
@@ -392,6 +402,16 @@ impl App {
         while self.fx_edits.last().is_some_and(|e| self.loaded_at.is_some() && e.0 <= t) {
             let (_, b, m) = self.fx_edits.pop().unwrap();
             let was = self.world.block(b);
+            if self.args.get("falls", 0) == 1 {
+                // falls=1: through the server, whose loose blocks then fall as in play (ADR 0079)
+                let (seq, cells) = self.pred.edit(&mut self.world, &Shape::one(b), m, |_, _| false);
+                for c in cells {
+                    self.streamer.touch_block(&self.world, c);
+                }
+                self.link.send(ToServer::Edit { seq, shape: Shape::one(b), material: m });
+                fx::changed(&mut self.fx, &self.world, b, was, m);
+                continue;
+            }
             self.world.set_block(b, m);
             fx::changed(&mut self.fx, &self.world, b, was, m);
             if self.fx.on && BLOCKS.solid(m) && !BLOCKS.solid(was) {
@@ -498,6 +518,15 @@ impl App {
         self.streamer.dispatch(&self.world, &mut reqs);
         let sel = ts0.elapsed().as_secs_f64();
         lap!("dispatch");
+        // ADR 0073: chunks drawn coarser than their level may stream in while the camera flies, not once it is slow
+        if measuring {
+            if vel.length() < 20.0 && self.streamer.too_coarse(&self.world, &view, &draws) > 0 {
+                let since = *self.coarse_since.get_or_insert(t);
+                self.samples.coarse_slow_s = self.samples.coarse_slow_s.max(t - since);
+            } else {
+                self.coarse_since = None;
+            }
+        }
         if self.streamer.frame % 30 == 0 {
             self.streamer.evict(120);
             let rt = self.rt.as_mut().unwrap();
@@ -589,6 +618,13 @@ impl App {
         if self.fx.on {
             self.fx.follow(self.settings.at(S::Particles));
             self.water.spray(&self.world, dt as f32, &mut self.fx);
+            // the weather (ADR 0076): the wind on light particles, rain or snow round the camera on the planet
+            if let Some(a) = self.air.filter(|_| self.world.frame_at(p.pos) == 0) {
+                self.fx.wind = crate::weather::wind_at((p.pos - self.world.bodies[0].centre).normalize(), a.wind).as_vec3();
+                self.fall.drops(&mut self.fx, &self.world, p.pos, &a, self.settings.at(S::Rain), dt as f32);
+            } else {
+                self.fx.wind = Vec3::ZERO;
+            }
             self.fx.step(&self.world, (dt as f32).min(0.1));
             self.cracks(self.start.elapsed().as_secs_f64());
             self.lay_piles();
@@ -651,10 +687,22 @@ impl App {
         self.audio.levels(if listening { vol(S::Volume) } else { 0.0 }, [vol(S::VolWorld), vol(S::VolSteps), vol(S::VolUi), vol(S::VolMusic)]);
         // (the title has its music and no wind: bug reports 2026-11-11_12-53-31 and 12-55-41)
         let title = self.home() == Menu::Title;
-        let wind = if title { 0.0 } else { (0.05 + over_air.clamp(0.0, 400.0) / 400.0 * 0.3 + self.me.vel.length() / 50.0).min(1.0) as f32 * air };
+        // the weather where the camera is (ADR 0076): the wind rises with its speed; the rain is heard through
+        // the open sky over the head, dulled where a roof is between
+        let here = self.air.filter(|_| !title && cf == 0).unwrap_or_default();
+        let blow = here.wind[0].hypot(here.wind[1]) as f64;
+        let wind = if title { 0.0 } else { (0.05 + over_air.clamp(0.0, 400.0) / 400.0 * 0.3 + self.me.vel.length() / 50.0 + blow / 20.0).min(1.0) as f32 * air };
         self.audio.hold("wind", wind);
+        let wet = (here.rain / 6.0).sqrt().min(1.0) * air;
+        let rain_on = self.settings.at(S::Rain) > 0 && here.temp >= 0.0 && here.rain >= 0.3;
+        let open = self.fall.open;
+        self.audio.hold("rain", if rain_on { wet * open } else { 0.0 });
+        self.audio.hold("rain.in", if rain_on { wet * (1.0 - open) * 0.7 } else { 0.0 });
+        let flash = if title || cf != 0 { 0.0 } else { self.fall.storm(&self.sky, self.seed, &self.world, p.pos, wt, &mut self.audio) };
         self.audio.hold("music.menu", if title { 1.0 } else { 0.0 });
-        let sky_c = Vec3::new(0.45, 0.65, 0.95) * day * air + Vec3::new(0.01, 0.012, 0.025);
+        // a grey sky under cloud, darker in rain (ADR 0076)
+        let grey = here.cover * air;
+        let sky_c = Vec3::new(0.45, 0.65, 0.95).lerp(Vec3::new(0.52, 0.56, 0.62) * (1.0 - 0.45 * wet), grey) * day * air + Vec3::new(0.01, 0.012, 0.025);
         // the bounce light on or off (off: a flat fill from the sky), and the screen's brightness
         let fill = sky_c * 0.35 + Vec3::splat(0.01);
         // the air: the horizon's colour (as `sky_colour` in shader.wgsl makes it) for far ground to fade
@@ -687,6 +735,7 @@ impl App {
         let pull = |d: DVec3, a: f64| [d.x as f32, d.y as f32, d.z as f32, (1.5 * a * per_m) as f32];
         let mut g = Globals {
             tide: [pull(tide.luna, engine::sky::TIDE_LUNA), pull(tide.sun, engine::sky::TIDE_SUN)],
+            cloud: [0.0; 4],
             view_proj: vp.to_cols_array_2d(),
             sun: [sun.x, sun.y, sun.z, clock],
             bodies: bytemuck::Zeroable::zeroed(),
@@ -763,6 +812,31 @@ impl App {
             gpu.queue.write_buffer(&gpu.lamps, 0, bytemuck::cast_slice(&lamps));
             gpu.queue.write_buffer(&gpu.lamp_cells, 0, bytemuck::cast_slice(&lamp_grid(&lamps)));
         }
+        // the clouds (ADR 0076): their map blended to this moment, and where the planet and its sea are
+        let clouds_on = self.settings.at(S::Clouds) > 0 && b0.sea.is_some() && self.sky.m() > 0;
+        if b0.sea.is_some() && self.sky.m() > 0 {
+            self.sky.upload(&gpu.queue, &gpu.sky_tex, wt);
+            // a shot's clouds stand at its time=, however long its load took (the views compare it by pixels)
+            g.cloud = self.sky.cloud(if self.shot.is_some() { self.time0 } else { wt }, b0.layer_r(b0.sea.unwrap()));
+            if !clouds_on {
+                g.cloud[1] = 0.0;
+            }
+        }
+        let cl = {
+            let b = &g.bodies[0];
+            let sky_amb = Vec3::new(0.42, 0.55, 0.75) * 0.6;
+            let eclipse = 1.0 - sky_m.eclipse(wt, self.world.to_inertial(p.pos)) as f32;
+            [
+                [b.ctr[0], b.ctr[1], b.ctr[2], if clouds_on { g.cloud[2] } else { 0.0 }],
+                b.rot[0],
+                b.rot[1],
+                b.rot[2],
+                [sun.x, sun.y, sun.z, eclipse],
+                [sun_light.x, sun_light.y, sun_light.z, [0.0, 12.0, 24.0][self.settings.at(S::Clouds).min(2)]],
+                [sky_amb.x, sky_amb.y, sky_amb.z, flash],
+                g.cloud,
+            ]
+        };
         [g.n_lamps[2], g.n_lamps[3]] = eclipse_masks(&g);
         gpu.queue.write_buffer(&gpu.globals, 0, bytemuck::bytes_of(&g));
         self.slots.sweep(frame_no);
@@ -956,7 +1030,7 @@ impl App {
                 rp.draw(0..36, 0..self.fx_n);
             }
             stamp(&mut enc, 3);
-            gi.record(&gpu.queue, &mut enc, vp, p.pos, cf, self.shot.is_some(), tune, &mut |e, k| stamp(e, 4 + k));
+            gi.record(&gpu.queue, &mut enc, vp, p.pos, cf, self.shot.is_some(), tune, cl, &mut |e, k| stamp(e, 4 + k));
             stamp(&mut enc, 6);
             // the screen: direct and bounced light, then the water and the overlays over it
             let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1004,6 +1078,11 @@ impl App {
                         rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
                     }
                 }
+            }
+            if clouds_on {
+                gi.clouds(&mut rp);
+                // the ghost and the hud after it draw with the globals at group 0 again
+                rp.set_bind_group(0, &gpu.bind, &[]);
             }
             if self.ghost_n > 0 {
                 rp.set_pipeline(&gpu.ghost_pipeline);
@@ -1068,9 +1147,6 @@ impl App {
         let tpres = Instant::now();
         gpu.queue.present(frame);
         let pres = tpres.elapsed().as_secs_f64();
-        if let Some(f) = self.args.0.remove("shown") {
-            let _ = std::fs::write(f, ""); // the process before this one may close its window now (ADR 0038)
-        }
         lap!("present");
         let tail0 = Instant::now();
         if self.bug_grab {

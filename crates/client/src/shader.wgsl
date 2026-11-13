@@ -42,12 +42,18 @@ struct Globals {
     // the planet's tide (ADR 0067, engine `sky::Tide`): Luna's and the sun's directions in its frame, w their
     // pull in layers; its base is in bodies[0].sea (gpu.rs `Globals::tide`)
     tide: array<vec4f, 2>,
+    // the clouds (ADR 0076, clouds.wgsl): x the drift's phase, y its period s, z the planet's sea radius
+    // (0: none), w the map's air columns a face edge (0: none yet); y 0 with the clouds off (no shadow, the
+    // snow still lies)
+    cloud: vec4f,
 };
 // base in columns and layers; info = face | level << 3 | body << 8; off: its first quad
 // opq: its opaque land quads; the cutout ones follow them, the BLAS's second geometry (ADR 0069)
 struct Chunk { base: vec3i, info: u32, off: u32, opq: u32 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
+@group(0) @binding(14) var cl_tex: texture_2d_array<f32>;
+@group(0) @binding(15) var cl_samp: sampler;
 @group(0) @binding(1) var<storage, read> quads: array<vec2u>;
 @group(0) @binding(2) var<storage, read> chunks: array<Chunk>;
 // a block's look from data/blocks.toml (ADR 0013): info = pattern | side << 8 | metal (0..255) << 16 | gives light
@@ -85,7 +91,7 @@ struct Lamp { pos: vec4f, col: vec4f };
 // middle; cell c's lamps, those LAMP_R or nearer, are lamp_cells[lamp_cells[c] .. lamp_cells[c + 1]]
 // (`lamp_grid` in main.rs, which holds the same numbers)
 const LAMP_G: i32 = 32;
-const LAMP_CELL: f32 = 4.0;
+const LAMP_CELL: f32 = 8.0;
 @group(0) @binding(9) var<storage, read> lamp_cells: array<u32>;
 
 struct VOut {
@@ -370,7 +376,7 @@ fn ambient(day: f32) -> vec3f {
 }
 
 // the light on a surface of body `body` at p (from the camera) with normal n
-const LAMP_R: f32 = 12.0;
+const LAMP_R: f32 = 24.0;
 const LAMP_RAYS: u32 = 3u;
 // a shadow ray goes to the lamp's block, not its middle (`lamp_target`), and stops this far short of it, so
 // the lamp never shadows itself
@@ -379,10 +385,12 @@ const NONE: u32 = 0xffffffffu;
 
 // a lamp's light d2 square metres away: falling off with the square of the distance from 2 m, to nothing at
 // LAMP_R. It was 1.5 / (1 + d2) to 8 m, a seventh at 3 m and nothing past 6; the developer asked for "much more
-// light" (bug 2026-11-11_17-43-39, ADR 0041): now 7 times that at 3 m, 20 at 6, a glow to 10
+// light" (bug 2026-11-11_17-43-39, ADR 0041): now 7 times that at 3 m, 20 at 6, a glow to 10. Then twice the
+// reach (ADR 0072): about as bright within 3 m (stretching the whole curve washed a lamp's neighbours out by
+// day), twice as bright at 6 m, a tenth at 10 m and a glow to 20, so one lamp lights a 15 to 20 m room
 fn lamp_light(lp: Lamp, d2: f32) -> vec3f {
     let x = 1.0 - d2 / (LAMP_R * LAMP_R);
-    return lp.col.rgb * x * x * 3.0 / (1.0 + 0.25 * d2);
+    return lp.col.rgb * x * x * 2.0 / (1.0 + 0.1 * d2);
 }
 
 // the sunlight on body `body`: through the air as the camera sees the sun on its own body; white on
@@ -410,8 +418,10 @@ fn moon_gain(body: u32) -> f32 {
 // in flatter than 30 degrees, and the lamp's light ended there in a hard cone over the walls; a lamp on the
 // ground cast spikes from its own corners (bugs 2026-11-11_13-00-53, 2026-11-10_19-45-23; ADR 0037).
 // Worked in the grid's own coordinates (the face's two angles and the log of the radius, its face the up's
-// largest axis), where the block is a box: o clamped into the lamp's cell and turned back.
-fn lamp_target(lp: Lamp, o: vec3f) -> vec3f {
+// largest axis), where the block is a box: o clamped into the lamp's cell and turned back. Jittered per pixel
+// across the box before the clamp (ADR 0072), so the ray ends on a random point of the sides o sees: the lamp
+// is a 1 m light, not a point, and the shadows it casts are soft (the sun's are dithered by pixel the same way).
+fn lamp_target(lp: Lamp, o: vec3f, px: vec2u) -> vec3f {
     let b = g.bodies[u32(lp.pos.w)];
     let m = mat3x3f(b.rot0.xyz, b.rot1.xyz, b.rot2.xyz);
     let up = normalize(lp.pos.xyz - b.ctr.xyz);
@@ -427,7 +437,11 @@ fn lamp_target(lp: Lamp, o: vec3f) -> vec3f {
     let q = vec3f(atan(dot(ob, f.s) / dot(ob, f.n)), atan(dot(ob, f.t) / dot(ob, f.n)), log(ro));
     // half a cell each way (an angle's metres are about the radius times it), and 2 cm
     let half = vec3f(0.5 * b.theta, 0.5 * b.theta, 0.5 * b.lnq) + 0.02 / r;
-    let c = clamp(q, at - half, at + half);
+    // the jitter only along the axes o lies within the box on, inset 5 cm: along the others the end stays 2 cm out
+    // from the face o sees, and a ray from the floor beside a lamp never ends under that floor
+    let inner = vec3f(0.45 * b.theta, 0.45 * b.theta, 0.45 * b.lnq);
+    let j = vec3f(hash2(px + vec2u(3571u, 1931u)), hash2(px + vec2u(6007u, 4421u)), hash2(px + vec2u(8761u, 2287u))) * 2.0 - 1.0;
+    let c = select(clamp(q, at - half, at + half), clamp(q + j * inner, at - inner, at + inner), abs(q - at) < inner);
     let tb = normalize(f.n + f.s * tan(c.x) + f.t * tan(c.y)) * exp(c.z);
     return m * tb + b.ctr.xyz;
 }
@@ -459,7 +473,13 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
         // soft: towards a point of the sun's disc; sharp: towards its middle
         var to_sun = sd;
         if ((g.opt.x & 1u) == 0u) { to_sun = in_disc(sd, ar, px); }
-        let seen = occ * ray(p, n, to_sun, body, 1e5);
+        var seen = occ * ray(p, n, to_sun, body, 1e5);
+        // the planet's clouds (ADR 0076), where the sun is not already hidden
+        if (body == 0u && seen > 0.0 && g.cloud.y > 0.0) {
+            let b0 = g.bodies[0];
+            let m0 = mat3x3f(b0.rot0.xyz, b0.rot1.xyz, b0.rot2.xyz);
+            seen *= cl_shadow((p - b0.ctr.xyz) * m0, sd * m0, g.cloud.z, g.cloud);
+        }
         // (the glint behind a pane takes its share of the tint)
         o.sun = ecl * seen * dot(ray_tint, vec3f(1.0 / 3.0));
         o.l += (sun_on(body) * ecl + COPPER * copper) * ndl * seen * moon_gain(body) * ray_tint;
@@ -537,7 +557,7 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
         // aimed from where the ray starts: from p, the 2 cm offset carried its end into the lamp by its corners
         // (bug 2026-11-10_19-45-23)
         let ro = ray_origin(p, n);
-        let v = lamp_target(lp, ro) - ro;
+        let v = lamp_target(lp, ro, px + vec2u(k * 7919u, k * 6271u)) - ro;
         let d = length(v);
         let vis = select(ray(p, n, v / d, body, d - LAMP_STOP), 1.0, d < LAMP_STOP);
         o.l += topl[k] * vis * select(ray_tint, vec3f(1.0), d < LAMP_STOP);
@@ -906,11 +926,25 @@ fn terrain_texel(i: VOut) -> vec4f {
     return vec4f(col.rgb, select(col.a, 1.0, (g.opt.x & 4u) != 0u && !is_glass(i.mat)));
 }
 
-fn terrain_lit(i: VOut, col: vec3f) -> GOut {
+fn terrain_lit(i: VOut, col_in: vec3f) -> GOut {
     let c = chunks[i.ci];
     let body = (c.info >> 8u) & 255u;
     let look = looks[i.mat & 255u];
     let n = normalize(i.normal);
+    var col = col_in;
+    // the planet's lying snow (ADR 0076, the air grid's per column): white over what faces up, the face's own
+    // pattern showing through where it lies thin
+    if (body == 0u && g.cloud.w > 0.0) {
+        let b0 = g.bodies[0];
+        let up = normalize(i.rel - b0.ctr.xyz);
+        let flat = smoothstep(0.55, 0.85, dot(n, up));
+        var lie = 0.0;
+        if (flat > 0.0) { lie = cl_snow(up * mat3x3f(b0.rot0.xyz, b0.rot1.xyz, b0.rot2.xyz), g.cloud) * flat; }
+        if (lie > 0.0) {
+            let lum = dot(col, vec3f(0.3, 0.5, 0.2));
+            col = mix(col, vec3f(0.9, 0.92, 0.96), clamp(lie * 1.6 - (0.5 - lum) * 0.6, 0.0, 1.0));
+        }
+    }
     var o: GOut;
     o.gbuf = gb_pack(n, length(i.rel));
     if (((look.info >> 24u) & 1u) == 1u) {
@@ -1285,16 +1319,17 @@ fn hash4(p: vec3i) -> vec4f {
     return vec4f(vec4u(a, b.x) >> vec4u(8u)) / 16777215.0;
 }
 
-// one layer of stars: the sky in cells 1/n across, a star in `chance` of them
-fn star_layer(d: vec3f, n: f32, chance: f32, px: f32, gain: f32) -> vec3f {
+// one layer of stars: the sky in cells 1/n across, a star in `chance` of them, `faint` the faintest's light
+// and `size` its glow's width in pixels
+fn star_layer(d: vec3f, n: f32, chance: f32, px: f32, gain: f32, faint: f32, size: f32) -> vec3f {
     let c = vec3i(floor(d * n));
     let a = hash4(c);
     if (a.x > chance) { return vec3f(0.0); }
     let b = hash4(c + vec3i(7919, 104729, 1299709));
     let s = normalize(vec3f(c) + 0.25 + 0.5 * a.yzw);
-    let r = length(cross(d, s)) / px; // in pixels
+    let r = length(cross(d, s)) / (px * size); // in glow widths
     // most stars are faint; their colours from red giants to blue-white
-    let bright = pow(b.x, 7.0) * gain + 0.015;
+    let bright = pow(b.x, 7.0) * gain + faint;
     let col = mix(mix(vec3f(1.0, 0.72, 0.5), vec3f(1.0, 0.95, 0.88), smoothstep(0.0, 0.5, b.y)), vec3f(0.72, 0.82, 1.0), smoothstep(0.55, 1.0, b.y));
     return col * bright * exp(-r * r * 1.2) * step(0.0, dot(d, s));
 }
@@ -1323,9 +1358,13 @@ fn stars(dc: vec3f, px: f32) -> vec3f {
     let gal = normalize(vec3f(0.31, -0.46, 0.83));
     let lat = dot(d, gal);
     let band = exp(-lat * lat / 0.02) * (0.4 + vnoise(d * 7.0) * 0.8 + vnoise(d * 23.0) * 0.4);
-    var c = vec3f(0.045, 0.045, 0.055) * band * (0.5 + vnoise(d * 60.0));
-    c += star_layer(d, 110.0, 0.09 * (1.0 + 2.0 * band), px, 0.9);
-    c += star_layer(d, 45.0, 0.05, px, 2.5);
+    // a moonless night is rich, not empty (bug 2026-11-11_17-47-11, ADR 0072): the band twice as bright and a
+    // little blue, the faint stars brighter, and a few dozen bright ones a third of the sky's cells apart, the
+    // size of a named star, with a wider glow
+    var c = vec3f(0.08, 0.085, 0.11) * band * (0.5 + vnoise(d * 60.0));
+    c += star_layer(d, 110.0, 0.09 * (1.0 + 2.0 * band), px, 0.9, 0.03, 1.0);
+    c += star_layer(d, 45.0, 0.05, px, 2.5, 0.03, 1.0);
+    c += star_layer(d, 9.0, 0.07, px, 3.0, 1.2, 1.6);
     return c * dark;
 }
 
@@ -1559,8 +1598,8 @@ fn fs_fx(i: FxOut) -> GOut {
 // in the cell u4 v4 in lo, the face's index in `sfaces` and its turn in sixteenths in hi. Drawn into the G-buffer
 // as the terrain is and lit the same; not traced (no shadow).
 struct SFace { o: vec3f, base: u32, eu: vec3f, pw: u32, ev: vec3f, xy: u32, wh: u32, _a: u32, _b: u32, _c: u32 };
-@group(0) @binding(14) var<storage, read> sfaces: array<SFace>;
-@group(0) @binding(15) var<storage, read> spaint: array<u32>;
+@group(0) @binding(16) var<storage, read> sfaces: array<SFace>;
+@group(0) @binding(17) var<storage, read> spaint: array<u32>;
 
 // a model direction (x, y up, z) turned by the quad's sixteenths about y, into the chunk's axes: model y is the
 // chunk's z (up), model z its -y, a turn and not a mirror
