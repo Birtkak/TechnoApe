@@ -450,9 +450,23 @@ pub(crate) fn shot_settled(frames: u64) -> bool {
     frames >= SHOT_FRAMES
 }
 
+/// The sky's clock off the server, `t` seconds into the run. A view and a shot hold it at `time=`: a shot is
+/// taken when loading and its frames are done, and a sun moved by those seconds made the `lod` view differ
+/// from run to run (ADR 0073).
+pub(crate) fn sky_time(run: &str, shot: bool, time0: f64, t: f64) -> f64 {
+    if run == "view" || shot { time0 } else { time0 + t }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_shot_shows_the_sky_at_its_time_however_long_loading_took() {
+        assert_eq!(sky_time("stand", true, 225.0, 1.5), sky_time("stand", true, 225.0, 6.0), "a shot on a busy PC is the quiet PC's");
+        assert_eq!(sky_time("stand", true, 225.0, 6.0), 225.0);
+        assert_eq!(sky_time("stand", false, 225.0, 6.0), 231.0, "a benchmark's sky runs");
+    }
 
     #[test]
     fn an_open_ended_play_session_keeps_no_frame_numbers() {
