@@ -405,7 +405,8 @@ pub(crate) struct ChunkGpu {
     pub(crate) opq: u32,
     /// The climate at its footprint's corners (engine `clutter::chunk_climate`, ADR 0091).
     pub(crate) clim: u32,
-    pub(crate) _p: u32,
+    /// Its first still quad (the stills' own BLAS, rt.rs): a ray's hit there is that many on.
+    pub(crate) sto: u32,
 }
 
 /// The chunk table's entries by mesh offset, kept between frames so a traced instance's index stays valid and
