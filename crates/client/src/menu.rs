@@ -238,6 +238,8 @@ pub(crate) enum Menu {
     Confirm,
     /// The death screen (ADR 0040): how, Respawn, or back to the title. Esc does not close it.
     Dead,
+    /// The inventory (ADR 0075, inventory.rs): its own screen of slots, no buttons.
+    Inventory,
 }
 
 /// Window sizes the settings offer, those that fit the monitor.
@@ -340,7 +342,7 @@ impl App {
     pub(crate) fn menu_items(&self) -> Vec<String> {
         let s = &self.settings;
         match self.menu {
-            None => Vec::new(),
+            None | Some(Menu::Inventory) => Vec::new(),
             Some(Menu::Title) => vec!["Singleplayer".into(), "Settings".into(), "Quit game".into()],
             Some(Menu::Worlds) => {
                 let names = self.worlds.iter().zip(&self.world_notes).map(|(p, n)| format!("{}   {n}", p.trim_start_matches("saves/").trim_end_matches(".sav")));
@@ -455,6 +457,9 @@ impl App {
     /// A left or right click at the pointer in the menu: on a slider's track it drags the slider, on its number
     /// it starts typing one; anywhere else on a button it presses it.
     pub(crate) fn menu_click(&mut self, back: bool) {
+        if self.menu == Some(Menu::Inventory) {
+            return self.inv_click(back, self.shift);
+        }
         let (x, y) = self.pointer;
         let v = self.menu_boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]);
         // a click anywhere but on the row typed into keeps what was typed, as Enter does
@@ -509,6 +514,11 @@ impl App {
 
     /// The window of rows moves by `d` (the wheel).
     pub(crate) fn scroll_by(&mut self, d: i32) {
+        if self.menu == Some(Menu::Inventory) {
+            let most = self.grid_items().len().div_ceil(9).saturating_sub(inventory::GRID_ROWS);
+            self.inv_scroll = (self.inv_scroll as i32 + d).clamp(0, most as i32) as usize;
+            return;
+        }
         let most = self.menu_items().len().saturating_sub(self.menu_fit());
         self.scroll = (self.scroll as i32 + d).clamp(0, most as i32) as usize;
     }
@@ -799,6 +809,7 @@ impl App {
         (s.at(S::Shadows) == 0) as u32 | (!s.on(S::Reflections) as u32) << 1 | ((s.at(S::Textures) == 0) as u32) << 2 | (!s.on(S::Stars) as u32) << 3
             // the water's quality, 0 traced (ADR 0071)
             | ((2 - s.at(S::Water).min(2)) as u32) << 4
+            | ((s.at(S::Outline) == 1) as u32) << 16
     }
 
     /// The title menu's view: in orbit over the planet's sunlit limb, the planet filling the left half and the

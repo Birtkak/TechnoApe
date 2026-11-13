@@ -120,7 +120,20 @@ pub(crate) struct App {
     /// The slot whose block's name shows over the hotbar, and since when.
     pub(crate) held_name: (usize, Instant),
     pub(crate) creative: bool,
-    pub(crate) inv: Vec<(u16, u32)>,
+    /// The ape's slots as the server last sent them, with this client's moves predicted on them (ADR 0074).
+    pub(crate) inv: Vec<engine::items::Slot>,
+    /// `Items` moves sent and not answered yet: the server's slots wait for them, so a prediction is not
+    /// undone by an older `Inventory` on its way.
+    pub(crate) items_pending: Vec<u32>,
+    /// Every pile the server told of, by cell (ADR 0074).
+    pub(crate) piles: std::collections::HashMap<Block, Vec<engine::items::Slot>>,
+    /// The inventory screen (ADR 0075): the stack lifted (holder, slot, how many), creative's tab, search and
+    /// scroll, and whether shift is held.
+    pub(crate) lifted: Option<(engine::items::Holder, u16, u16)>,
+    pub(crate) inv_tab: usize,
+    pub(crate) inv_query: String,
+    pub(crate) inv_scroll: usize,
+    pub(crate) shift: bool,
     /// Units of water in the bucket (ADR 0020).
     pub(crate) bucket_water: u32,
     /// The live air where the player stands, as the server last sent it (W3); None on an older map.
@@ -160,6 +173,8 @@ pub(crate) struct App {
     /// When each correction came and how far it moved the player.
     pub(crate) snap_t: Vec<(f64, f64)>,
     pub(crate) last_pos: DVec3,
+    /// Since when visible chunks are drawn coarser than their level with the camera slow (ADR 0073).
+    pub(crate) coarse_since: Option<f64>,
     pub(crate) sheet: Vec<image::RgbaImage>,
     pub(crate) next_cap: f64,
     pub(crate) done: bool,
@@ -250,6 +265,10 @@ pub(crate) struct App {
     /// (a world picked, or back to the title).
     pub(crate) worlds: Vec<String>,
     pub(crate) next: Option<Vec<String>>,
+    /// The window of the session before, taken over at the start (ADR 0073).
+    pub(crate) carried: Option<std::sync::Arc<winit::window::Window>>,
+    /// The most chunks the loading screen saw missing: its bar's whole (ADR 0073).
+    pub(crate) load_peak: u32,
     /// A new world's bake or a server's map on its way, on a worker thread, before the game starts again with
     /// `next` (the title screen draws its bar).
     pub(crate) loading: Option<menu::Loading>,

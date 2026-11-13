@@ -1211,6 +1211,12 @@ impl Fx {
         self.out.push(FxGpu { p: [0.0; 3], size: 1.0, info: world.block(b) as u32 | (b.body as u32) << 8 | (Look::Crack as u32) << 10, angle: k.clamp(0.0, 1.0), a, b: code });
     }
 
+    /// Debris no step moves, drawn after this step's particles until the next step: the piles on the ground
+    /// (ADR 0074).
+    pub fn lay(&mut self, still: impl IntoIterator<Item = FxGpu>) {
+        self.out.extend(still);
+    }
+
     /// The particles for the GPU as the last step left them, in a buffer kept from frame to frame.
     pub fn drawn(&self) -> &[FxGpu] {
         &self.out

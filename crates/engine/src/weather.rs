@@ -104,7 +104,7 @@ enum Job {
 
 pub struct Weather {
     grid: Grid,
-    lapse: f32,
+    p: crate::bake::air::Params,
     job: Mutex<Option<Job>>,
     view: View,
     /// Each column's land, m^2, and the reaches its runoff feeds with their shares in 1/65536 (`feeding`).
@@ -126,7 +126,7 @@ impl Weather {
         let view = View::of(&a, vec![0; a.n], &vec![0; a.n], 0);
         let land = (0..a.n).map(|c| a.area[c] as f64 * (1.0 - a.water[c] as f64).max(0.0)).collect();
         let ledger = view.ledger;
-        Ok(Weather { grid: c.grid(), lapse: a.p.lapse, job: Mutex::new(Some(Job::Idle(Box::new(a)))), view, land, split: Vec::new(), ledger })
+        Ok(Weather { grid: c.grid(), p: a.p.clone(), job: Mutex::new(Some(Job::Idle(Box::new(a)))), view, land, split: Vec::new(), ledger })
     }
 
     /// Feeds `map`'s reaches from the runoff (W5, ADR 0059): a river cell's own catchment (its drained area less
@@ -281,13 +281,14 @@ impl Weather {
     }
 
     /// The air at unit direction `d`, `over_sea` metres over the sea level: the surface layer smoothed over
-    /// the columns as the bake smooths its climate, less the lapse by the height.
+    /// the columns as the bake smooths its climate, less the lapse by the height (held at the air's top
+    /// layer above it, never past absolute zero).
     pub fn here(&self, d: DVec3, over_sea: f64) -> Here {
         let d32 = d.as_vec3().to_array();
         let k = self.grid.locate(DVec3::from_array(d32.map(f64::from)));
         let at = |v: &[f32]| crate::bake::land::upsample_at(&self.grid, d32, k, v);
         let v = &self.view;
-        Here { temp: at(&v.theta) - self.lapse * over_sea.max(0.0) as f32, rain: at(&v.rain), cover: at(&v.cover), wind: v.wind[k as usize] }
+        Here { temp: at(&v.theta) - self.p.cool((over_sea as f32).min(self.p.tops[LAYERS - 1])), rain: at(&v.rain), cover: at(&v.cover), wind: v.wind[k as usize] }
     }
 }
 
@@ -482,7 +483,10 @@ mod tests {
         let w = Weather::new(&climate(), None).unwrap();
         let d = DVec3::new(0.3, 0.8, 0.2).normalize();
         let (low, high) = (w.here(d, 0.0), w.here(d, 100.0));
-        assert!((low.temp - high.temp - 100.0 * w.lapse).abs() < 1e-3, "{low:?} {high:?}");
+        assert!((low.temp - high.temp - w.p.cool(100.0)).abs() < 1e-3, "{low:?} {high:?}");
         assert!((-40.0..50.0).contains(&low.temp));
+        // over the air's top it reads as the top layer, never past absolute zero (60 km read -6409 C, ADR 0072)
+        assert_eq!(w.here(d, 60_000.0).temp, w.here(d, w.p.tops[LAYERS - 1] as f64).temp);
+        assert!(w.here(d, 60_000.0).temp > -273.15);
     }
 }

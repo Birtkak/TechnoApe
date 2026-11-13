@@ -27,8 +27,9 @@ pub struct Rect {
 /// The most ghost vertices: every edge of every cell of the largest shape.
 pub const GHOST_MAX: usize = engine::edit::MAX_CELLS as usize * 24;
 /// Enough for F3, a full chat being typed, the hotbar's and the hand's cubes (192 rectangles each) and
-/// sixteen waypoints together: about 11,000 at the most, two rectangles (shadow and face) a character.
-pub const RECTS_MAX: usize = 16384;
+/// sixteen waypoints together: about 11,000 at the most, two rectangles (shadow and face) a character; the
+/// inventory screens' 54 cubes take some 11,000 more (ADR 0075).
+pub const RECTS_MAX: usize = 32768;
 
 /// The game's own font (data/font.txt): 8 x 8 cells from ' ' to '~', a byte a row from the top, the
 /// leftmost pixel the lowest bit. Errors name what is wrong with the file.
@@ -864,7 +865,7 @@ pub fn glass(p: &mut Paint, x: f32, y: f32, w: f32, h: f32) {
 
 /// Crosshair and hotbar for a `w` x `h` pixel screen. `tool_height` shows beside the hotbar for cylinders
 /// and cones; `held` is the name of the block in hand and how strongly it shows (it fades after a change).
-pub fn layer(w: f32, h: f32, slots: &[Slot], selected: usize, creative: bool, tool_height: Option<i32>, held: Option<(&str, f32)>) -> Vec<Rect> {
+pub fn layer(w: f32, h: f32, slots: &[Option<Slot>], selected: usize, creative: bool, tool_height: Option<i32>, held: Option<(&str, f32)>) -> Vec<Rect> {
     let mut p = Paint::new(w, h);
     let (cx, cy) = (w / 2.0, h / 2.0);
     // the crosshair: four short arms round a gap and a dot, each on a dark edge so it shows on snow and in
@@ -907,7 +908,7 @@ pub fn layer(w: f32, h: f32, slots: &[Slot], selected: usize, creative: bool, to
         p.rect(x, y, size, 1.0, [1.0, 1.0, 1.0, 0.1], 0);
         // the key that takes it, small in the corner
         digits(&mut p, x + 4.0 + 6.0, y + 4.0 + 7.5, k as u32 + 1, 1.5, if on { CYAN } else { [0.62, 0.72, 0.82, 0.7] });
-        if let Some(sl) = slots.get(k) {
+        if let Some(Some(sl)) = slots.get(k) {
             let dim = if sl.count == Some(0) { 0.35 } else { 1.0 };
             cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x + 10.0, y + 12.0, 32.0, sl.colour, sl.side, sl.pattern, dim);
             if let Some(c) = sl.count {
@@ -1360,7 +1361,7 @@ mod tests {
 
     #[test]
     fn the_layer_has_a_crosshair_and_nine_slots() {
-        let slots = [Slot { colour: [0.5; 3], side: [0.4; 3], pattern: 2, count: Some(12) }];
+        let slots = [Some(Slot { colour: [0.5; 3], side: [0.4; 3], pattern: 2, count: Some(12) })];
         let r = layer(1280.0, 720.0, &slots, 0, false, None, Some(("Grass", 1.0)));
         assert!(r.len() >= 2 + 1 + 9 * 2 + 4, "{}", r.len());
         assert!(r.iter().all(|r| r.xy[0] < r.xy[2] && r.xy[1] < r.xy[3] && r.xy.iter().all(|v| (-1.0..=1.0).contains(v))));
