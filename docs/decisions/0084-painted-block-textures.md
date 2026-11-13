@@ -221,3 +221,42 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
   - `out/flora/winter.png` shows each role on its log, and a small crown laid out as the shader turns it.
 - **Fruit** is `@fruit` (late summer, ADR 0090). The script adds `fruit` to its season tags once the engine's
   season list names it; until then the fruit looks wait.
+- **32 px a metre, rich colour** (the developer, 2026-11-13: "still too low quality of details and colours"):
+  - All flora is painted again at 32 px a metre. Leaves and bark are 32x32 a face, in `data/textures/hd/<block>.png`,
+    named as before (variants side by side, the season tags). The 16x16 files stay where they were. The Studio's
+    check reads only the top folder, so `hd/` does not disturb it; the engine reads it once the crowns session's
+    renderer takes 32 px faces.
+  - Plants are planes at 32 px a metre, width x height in pixels: short grass 32x13, tall grass 32x32, wild wheat
+    32x40, fern 48x22, reeds 32x64, flowers 32x16, berry bush 40x40. Each plant has `.1` and `.2` besides itself:
+    another shape and a hue a few degrees off. The berry bush adds `.bloom` and `.fruit`.
+  - Colour comes from **rich ramps** (`<name> rich` in the palette, `r1`..`r8`), eight tones from very dark to
+    light. The lights are pulled toward warm yellow-green and the shadows pushed toward cool blue-green, sampled
+    from the five pictures in `out/flora-refs`. Non-flora blocks stay calm at 16 px.
+  - Leaves are single leaf shapes (oval, lobed, small, broad, leaflet, lance) stamped in clumps. The clumps are
+    drawn back to front, each lit as a ball from the top left, over a dark accent that shows only in the gaps
+    between them. The clumps are drawn until about 92 % of the mass is covered.
+    - Willow is a curtain of strands, its leaves in pairs.
+    - Spruce is drooping sprays in tiers.
+    - Pine is needle rosettes over a mid-dark ground.
+    - Palm is two or three fronds at their own slant.
+  - Grass blades run from a dark root to a bright tip. Wild wheat is a bushy tuft: dry straw blades and arching
+    stems with nodding, awned ears. Flowers are six heads, big and small, at their own heights. The berry bush
+    is lumpy, with red berries.
+  - Barks:
+    - ridged (oak, broadleaf);
+    - diamond (willow);
+    - plates for pine and spruce: wrapping cells stretched along the trunk, deep furrows between them (a grid of
+      columns read as brick);
+    - birch;
+    - palm rings;
+    - culm (bamboo);
+    - smooth with long fibres (jungle, acacia).
+  - Winter twigs follow the same four roles at 32 px: the `through` limb is at x 16, and the root variants' low
+    limbs leave at rows 25, 21 and 17.
+  - A rich ramp that the script changes is written over in the palette, so a new hue takes effect.
+  - The palette has 430 colours, 77 of them rich ramps for the blocks on this branch; the pending species add
+    theirs when their blocks arrive.
+  - Proof:
+    - look sheets, read beside the references: `out/flora/species-hd.png`, `walls-a.png`, `walls-b.png`,
+      `walls-bark.png`, `plants-hd.png`, `meadow-vs-ref.png`;
+    - `technoape-studio check=1` ok (430 colours, 125 textures).
