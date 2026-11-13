@@ -448,6 +448,11 @@ pub(crate) struct Gpu {
     /// The cutout blocks' quads (ADR 0069): the terrain's, through `fs_cut`, which discards an empty texel, so
     /// the opaque terrain keeps early depth.
     pub(crate) cut_pipeline: wgpu::RenderPipeline,
+    /// The cutout blocks in two passes around the opaque terrain (ADR 0090): their depth alone first (`fs_cut_depth`
+    /// discards an empty texel and writes nothing else), so the terrain behind a crown is never shaded; then their
+    /// G-buffer where the depth is theirs (`Equal`), with no discard, so each pixel is shaded once with early depth.
+    pub(crate) cut_depth_pipeline: wgpu::RenderPipeline,
+    pub(crate) cut_lit_pipeline: wgpu::RenderPipeline,
     pub(crate) sky_pipeline: wgpu::RenderPipeline,
     /// The overlays (ADR 0017): ghost lines and the 2D layer, with their vertex and rectangle buffers.
     pub(crate) ghost_pipeline: wgpu::RenderPipeline,
@@ -902,7 +907,7 @@ impl Gpu {
             cache: None,
         });
         // the effects: into the G-buffer as the terrain, with its depth (ADR 0031)
-        let gbuffer_pipeline = |vs: &'static str, fs: &'static str, cull| {
+        let gbuffer_pass = |vs: &'static str, fs: &'static str, cull, colour: bool, compare| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(fs),
                 layout: Some(&layout),
@@ -910,14 +915,14 @@ impl Gpu {
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
                     entry_point: Some(fs),
-                    targets: &gi::TARGETS.map(|f| Some(f.into())),
+                    targets: &gi::TARGETS.map(|f| Some(wgpu::ColorTargetState { format: f, blend: None, write_mask: if colour { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::empty() } })),
                     compilation_options: Default::default(),
                 }),
                 primitive: wgpu::PrimitiveState { cull_mode: cull, ..Default::default() },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: Some(true),
-                    depth_compare: Some(wgpu::CompareFunction::Greater),
+                    depth_write_enabled: Some(compare == wgpu::CompareFunction::Greater),
+                    depth_compare: Some(compare),
                     stencil: Default::default(),
                     bias: Default::default(),
                 }),
@@ -926,8 +931,11 @@ impl Gpu {
                 cache: None,
             })
         };
+        let gbuffer_pipeline = |vs, fs, cull| gbuffer_pass(vs, fs, cull, true, wgpu::CompareFunction::Greater);
         let fx_pipeline = gbuffer_pipeline("vs_fx", "fs_fx", Some(wgpu::Face::Back));
         let cut_pipeline = gbuffer_pipeline("vs", "fs_cut", Some(wgpu::Face::Back));
+        let cut_depth_pipeline = gbuffer_pass("vs", "fs_cut_depth", Some(wgpu::Face::Back), false, wgpu::CompareFunction::Greater);
+        let cut_lit_pipeline = gbuffer_pass("vs", "fs_cut_lit", Some(wgpu::Face::Back), true, wgpu::CompareFunction::Equal);
         // still models: either way round (`fs_still` drops the face turned away)
         let still_pipeline = gbuffer_pipeline("vs_still", "fs_still", None);
         // the models (ADR 0047): into the G-buffer with the terrain
@@ -1078,6 +1086,8 @@ impl Gpu {
             config,
             pipeline,
             cut_pipeline,
+            cut_depth_pipeline,
+            cut_lit_pipeline,
             sea_pipeline,
             water_pipeline,
             glass_pipeline,

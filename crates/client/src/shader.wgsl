@@ -920,6 +920,22 @@ fn fs_cut(i: VOut) -> GOut {
     return terrain_lit(i, c.rgb);
 }
 
+// the cutout blocks' depth pass (ADR 0090): the same holes as `fs_cut`, nothing written but the depth
+@fragment
+fn fs_cut_depth(i: VOut) -> GOut {
+    if (terrain_texel(i).a < 0.5) {
+        discard;
+    }
+    // the targets are masked off: what is returned is never written
+    return GOut(vec4f(0.0), vec4f(0.0), vec2u(0u));
+}
+
+// their G-buffer after the opaque terrain, where the depth pass left theirs (`Equal`): no discard, early depth
+@fragment
+fn fs_cut_lit(i: VOut) -> GOut {
+    return terrain_lit(i, terrain_texel(i).rgb);
+}
+
 fn terrain_texel(i: VOut) -> vec4f {
     let a = i.dir / 2u;
     let sgn = select(1.0, -1.0, (i.dir & 1u) == 1u);

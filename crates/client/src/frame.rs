@@ -1015,20 +1015,32 @@ impl App {
             if bare {
                 // (the land is still there for the light: only its picture is left out)
             } else if self.args.get("mdi", 1) == 1 {
+                // the cutout blocks' depth first, the terrain, then their colour where their depth is (ADR 0090)
+                let cut_at = (MAX_CHUNKS * 32) as u64;
+                if !cut_args.is_empty() {
+                    rp.set_pipeline(&gpu.cut_depth_pipeline);
+                    rp.multi_draw_indirect(&gpu.indirect, cut_at, cut_args.len() as u32);
+                    rp.set_pipeline(&gpu.pipeline);
+                }
                 rp.multi_draw_indirect(&gpu.indirect, 0, args.len() as u32);
                 if !cut_args.is_empty() {
-                    rp.set_pipeline(&gpu.cut_pipeline);
-                    rp.multi_draw_indirect(&gpu.indirect, (MAX_CHUNKS * 32) as u64, cut_args.len() as u32);
+                    rp.set_pipeline(&gpu.cut_lit_pipeline);
+                    rp.multi_draw_indirect(&gpu.indirect, cut_at, cut_args.len() as u32);
                 }
                 if !still_args.is_empty() {
                     rp.set_pipeline(&gpu.still_pipeline);
                     rp.multi_draw_indirect(&gpu.indirect, (MAX_CHUNKS * 64) as u64, still_args.len() as u32);
                 }
             } else {
+                rp.set_pipeline(&gpu.cut_depth_pipeline);
+                for d in &cut_args {
+                    rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
+                }
+                rp.set_pipeline(&gpu.pipeline);
                 for d in &args {
                     rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
                 }
-                rp.set_pipeline(&gpu.cut_pipeline);
+                rp.set_pipeline(&gpu.cut_lit_pipeline);
                 for d in &cut_args {
                     rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
                 }
