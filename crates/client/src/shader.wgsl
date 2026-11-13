@@ -225,8 +225,8 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
             // the block's fluff (`Fluff::packed`, blocks.rs): size, push, droop, long, dense, six bits each
             let fw = looks[q.y & 255u].fluff;
             let size = f32(fw & 63u) * 0.05;
-            let fpush = f32((fw >> 6u) & 63u) * 0.02;
-            let droop = f32((fw >> 12u) & 63u) * 0.02;
+            let fpush = f32((fw >> 6u) & 63u) * 0.025;
+            let droop = f32((fw >> 12u) & 63u) * 0.025;
             let long = 1.0 + f32((fw >> 18u) & 63u) * 0.05;
             let dense = f32((fw >> 24u) & 63u) / 63.0;
             // clumps: a smooth field of the place, about 2.5 m across, pushes some faces far out and larger, leaves
@@ -249,7 +249,8 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
             // the round mask in the units of a 1.7 plane, whatever its size: an ellipse along a long one
             var mask = 0.5 + (vec2f(su, sv) - 0.5) * (1.7 / spread) / vec2f(long, 1.0);
             var push = fpush * mix(0.0, 3.0, clump) + slope * ((su - 0.5) * cos(phi) + (sv - 0.5) * sin(phi)) + 0.06 * (h - 0.5);
-            var hang = length(vec2f(su, sv) - 0.5) + max(push, 0.0);
+            // the corners stood further out (the tilt) hang more: the plane bends down away from the crown
+            var hang = max(push, 0.0);
             reach = 1.0;
             if (root >= 1u && root <= 4u) {
                 // hinged on the wood's side: that edge on the face, the far one stood out (28 degrees at the
@@ -264,7 +265,10 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
                 push = 0.02 + 0.53 * out * long * (fpush / 0.35) + 0.4 * (hg - 0.5) * (across - 0.5) + 0.06 * (h - 0.5);
                 // the round mask centred on the hinge and reaching past the far edge: the twigs whole at the wood,
                 // their tips ragged, not square
-                mask = select(vec2f(su, 0.5 + 0.95 * out), vec2f(0.5 + 0.95 * out, sv), along_u);
+                // (across it in the units of a 1.7 plane, as the others)
+                let mu = 0.5 + (f32(ku) - 0.5) * 1.7;
+                let mv = 0.5 + (f32(kv) - 0.5) * 1.7;
+                mask = select(vec2f(mu, 0.5 + 0.95 * out), vec2f(0.5 + 0.95 * out, mv), along_u);
                 let s = select(out * long, 1.0 - out * long, (root & 1u) == 0u);
                 if (along_u) { su = s; } else { sv = s; }
                 hang = out * long;

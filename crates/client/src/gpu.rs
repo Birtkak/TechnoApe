@@ -551,10 +551,10 @@ pub(crate) fn season_here(w: &engine::world::World, pos: glam::DVec3) -> (f64, f
     engine::sky::season_at(w.up_at(pos), w.time)
 }
 
-/// Every block's look from the registry (ADR 0013, 0039, 0045), shader.wgsl `Look`, 64 bytes each: colour rgb,
+/// Every block's look from the registry (ADR 0013, 0039, 0045), shader.wgsl `Look`, 80 bytes each: colour rgb,
 /// pattern | side << 8 | metal << 16 | gives light << 24 | cutout << 25 | glass << 26; colour2, size; colour3, amount; contrast; the painted
 /// faces (16 bits a face: layer | variants - 1 << 12 | fine << 14 (32 x 32, four layers a variant, ADR 0090) | painted << 15; top and side in `tex`, the bottom in
-/// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24).
+/// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24); a cutout block's fluff (`Fluff::packed`, ADR 0090), three words free.
 fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 20]> {
     (0..4 * 256usize)
             .map(|row| {
@@ -769,7 +769,7 @@ impl Gpu {
         let indirect = buf("indirect", (MAX_CHUNKS * 80) as u64, U::INDIRECT | U::COPY_DST);
         let wquads = buf("wquads", (MAX_WQUADS * std::mem::size_of::<water::WQuad>()) as u64, U::STORAGE | U::COPY_DST);
         let fx_buf = buf("fx", (MAX_FX * std::mem::size_of::<crate::fx::FxGpu>()) as u64, U::STORAGE | U::COPY_DST);
-        // every block's look from the registry (ADR 0013, 0039), shader.wgsl `Look`, 64 bytes each: colour rgb,
+        // every block's look from the registry (ADR 0013, 0039), shader.wgsl `Look`, 80 bytes each: colour rgb,
         // pattern | side << 8 | metal << 16 | gives light << 24; colour2, size; colour3, amount; contrast
         let looks = buf("looks", 4 * 256 * 80, U::STORAGE | U::COPY_DST);
         queue.write_buffer(&looks, 0, bytemuck::cast_slice(&looks_of(&[])));

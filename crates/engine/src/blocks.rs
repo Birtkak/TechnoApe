@@ -141,11 +141,11 @@ impl Default for Fluff {
 }
 
 impl Fluff {
-    /// Six bits a number for the shader's look row (`vs_fluff` reads them back): size / 0.05, push / 0.02,
-    /// droop / 0.02, (long - 1) / 0.05, dense * 63.
+    /// Six bits a number for the shader's look row (`vs_fluff` reads them back): size / 0.05, push / 0.025,
+    /// droop / 0.025, (long - 1) / 0.05, dense * 63.
     pub fn packed(&self) -> u32 {
         let q = |v: f32, step: f32| ((v / step).round() as u32).min(63);
-        q(self.size, 0.05) | q(self.push, 0.02) << 6 | q(self.droop, 0.02) << 12 | q(self.long - 1.0, 0.05) << 18 | ((self.dense * 63.0).round() as u32).min(63) << 24
+        q(self.size, 0.05) | q(self.push, 0.025) << 6 | q(self.droop, 0.025) << 12 | q(self.long - 1.0, 0.05) << 18 | ((self.dense * 63.0).round() as u32).min(63) << 24
     }
 
     fn check(&self) -> bool {
@@ -348,6 +348,9 @@ impl Registry {
                 let part = |named: Option<[f32; 3]>, rows: Option<[f32; 3]>, made: [f32; 3]| named.or(rows).unwrap_or(made);
                 *o = Tone { colour, colour2: part(s.colour2, r.colour2, darker(colour)), colour3: part(s.colour3, r.colour3, lighter(colour)), amount: s.amount.unwrap_or(amount), contrast: s.contrast.unwrap_or(r.contrast) };
             }
+            if r.fluff.is_some() && r.see != See::Cutout {
+                return Err(format!("block '{}': fluff on a block that is not see = \"cutout\"", r.name));
+            }
             let fluff = (r.see == See::Cutout).then(|| r.fluff.unwrap_or_default());
             if fluff.is_some_and(|f| !f.check()) {
                 return Err(format!("block '{}': fluff outside its ranges (size 0..3, push and droop 0..1.2, long 1..4, dense 0..1)", r.name));
@@ -433,13 +436,15 @@ hardness = 0.3
         let r = Registry::parse(&row("fluff = { size = 1.2, droop = 0.4, long = 2.5, dense = 0.5 }")).unwrap();
         let f = r.get(1).unwrap().fluff.unwrap();
         assert_eq!((f.size, f.push, f.droop, f.long, f.dense), (1.2, 0.35, 0.4, 2.5, 0.5));
-        // six bits each, in turn: size / 0.05, push / 0.02, droop / 0.02, (long - 1) / 0.05, dense * 63
-        assert_eq!(f.packed(), 24 | 18 << 6 | 20 << 12 | 30 << 18 | 32 << 24);
+        // six bits each, in turn: size / 0.05, push / 0.025, droop / 0.025, (long - 1) / 0.05, dense * 63
+        assert_eq!(f.packed(), 24 | 14 << 6 | 16 << 12 | 30 << 18 | 32 << 24);
         assert_eq!(Fluff { size: 0.0, ..f }.packed() & 63, 0, "size 0: no fluff");
         assert!(Registry::parse(&row("fluff = { size = 4.0 }")).err().unwrap().contains("leaf"));
         assert!(Registry::parse(&row("fluff = { long = 0.5 }")).is_err());
-        // an opaque block has none, even when named
+        // an opaque block has none, and naming one is refused
         assert_eq!(BLOCKS.get(BLOCKS.id("stone")).unwrap().fluff, None);
+        assert!(Registry::parse(&row("fluff = { size = 1.0 }").replace("see = \"cutout\"
+", "")).err().unwrap().contains("cutout"));
         assert!(BLOCKS.get(BLOCKS.id("spruce leaves")).unwrap().fluff.unwrap().droop > 0.0, "conifers droop");
     }
 

@@ -127,8 +127,20 @@ One measurement, the PC alone (`tools/slot.sh measure`), play build, quick runs,
 
 Fly's p99 holds the budget (8.3 ms) with fluff on. GPU +1.0 ms in fly: fluff 0.65, the rest the leaf faces no
 longer merging (742k quads against 659k) and the two passes. CPU: the frame thread +0.06 ms (fly) and +0.10 ms
-(sim), more draws to record; jobs +8 % in fly (the walk to wood, more quads). The row and its ideas are in
+(sim), more draws to record; jobs +8 % in fly (the walk to wood, more quads). The look fixes (decision 7: fast leaves
+as ray candidates; the planes) then cost fly +0.4 ms GPU p50 (3.64 to 4.04) and +0.23 ms on the frame thread
+(the BLAS's second geometry), p99 7.28 to 8.13, inside the budget by 0.2 ms; sim flat. Measured once on a quiet
+PC before decision 8 (data fluff, clumps), which adds a `vnoise` per fluff vertex; not measured again (ADR 0096). The row and its ideas are in
 `docs/perf-debt.md` (ADR 0096: no further cost work here).
+
+## Review of the data fluff (decision 8)
+A fresh reviewer read the diff: the look row's layout (80 bytes, stride and buffer), the bits and the branches.
+Fixed: a hinged plane's round mask followed its size across the hinge (reed blades square, jungle ones cut
+thin), now in a 1.7 plane's units like the rest; `droop` lowered a whole plane by one amount, now each corner
+by how far it stands out, so planes bend down away from the crown; push and droop step by 0.025 (the default
+0.35 is exact); `fluff` on a block that is not cutout is refused by name; a stale "64 bytes". Noted: coarse
+levels carry no root bits and coarse cells, so their shade and clumps differ from level 0's and a crown's fluff
+changes where a chunk changes level (some 200 m out at the default Detail).
 
 ## Review of the look fixes (decision 4's planes, 7)
 A fresh reviewer read the diff. Fixed: the ray's season had no column stagger, so a tree drawn bare during the
@@ -171,5 +183,8 @@ leaves last and is won back by decision 1 above. This branch carries it to main.
 - Summer: fast leaves still shadow as whole blocks (ADR 0088's call); winter: light through the twigs.
 - The topmost twigs in full sun read lighter and warmer than the calmed bark: part D's twig painting is a tan
   family; one palette with `log_side` would make one tree one colour.
+- How far the fluffy look reaches: all of level 0, which a level 1 chunk (64 m) hands down within Detail x its
+  edge (4 x 64 m at the default), so about 200 m; past it a cutout block is one colour. Part D has far paintings
+  (`data/textures/hd/far/`, 8 px a face) ready as the next step for the first coarse level; not read yet.
 - Twigs shorten to nothing three blocks from the wood; big crowns may want a longer reach once part C's
   branches are in.
