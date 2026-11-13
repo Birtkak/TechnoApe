@@ -341,11 +341,13 @@ def dirt(rng, r):
     return c
 
 
-def leaves(rng, r, holes=0.1, cell=4):
-    """Calm cutout leaves: two close tones in soft clumps, the lit tone on clump tops only, few small holes
-    (each hole shows the dark inside of the crown, so many read as a black checker from afar)."""
+def leaves(rng, r, holes=0.06, cell=4):
+    """Calm cutout leaves: two close tones in soft clumps, the lit tone on clump tops only, a few holes in one or
+    two blobs. A hole shows the dark inside of the crown (fancy) or the leaf colour darker (fast, the default),
+    so many scattered holes read as a black checker from afar."""
     f = field(rng, cell, 0.2)
-    mask = f >= np.quantile(f, holes)
+    gaps = field(rng, 8, 0.0)  # smooth: the holes gather where it is lowest
+    mask = gaps >= np.quantile(gaps, holes)
     c = levels(f, [r["s"], r["m"], r["l"]], (0.35, 0.5, 0.15), mask)
     for y in range(N):
         for x in range(N):
@@ -553,20 +555,20 @@ def build(pal, blocks):
     leaf_look = {
         "spruce leaves": lambda g, r: needles(g, r),
         "broadleaf leaves": lambda g, r: leaves(g, r),
-        "jungle leaves": lambda g, r: leaves(g, r, 0.06),
-        "acacia leaves": lambda g, r: leaves(g, r, 0.16, 3),
-        "shrub": lambda g, r: leaves(g, r, 0.12, 3),
+        "jungle leaves": lambda g, r: leaves(g, r, 0.04),
+        "acacia leaves": lambda g, r: leaves(g, r, 0.1, 3),
+        "shrub": lambda g, r: leaves(g, r, 0.08, 3),
         "reed": lambda g, r: blades(g, r),
     }
-    autumn = {"d": "autumn dark", "s": "autumn rust", "m": "autumn orange", "l": "autumn gold",
-              "L": "autumn gold"}
+    # autumn leaves: close steps around the orange (rust to gold was too strong a jump for calm leaves)
+    autumn = {"d": "autumn rust", "L": "autumn gold"}
     for name, fn in leaf_look.items():
         b = defs[name]
         for s in ("summer", "spring", "autumn", "winter"):
             if s != "summer" and s not in b:
                 continue
             if name == "broadleaf leaves" and s == "autumn":
-                r = Ramp(pal, "autumn", names=dict(autumn))
+                r = Ramp(pal, "autumn orange", names=dict(autumn), into="autumn")
             else:
                 r = R(name, b["colour"]) if s == "summer" else R(f"{name} {s}", b[s]["colour"])
             at = "" if s == "summer" else f"@{s}"

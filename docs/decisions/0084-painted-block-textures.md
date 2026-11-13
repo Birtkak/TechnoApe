@@ -91,21 +91,30 @@ Option 3: `tools/paint_textures.py` (`python -I tools/paint_textures.py [block .
   a white quartz vein, bog iron in mud.
 - ~~Lamps tile as framed panels~~ – decided, below.
 - ~~Winter leaves keep a third~~ – decided, below.
+- **Bare crowns under fast leaves** are dark cubes (fast fills an empty texel with the block's colour,
+  darker). Options: winter crowns always through the cutout pipeline (fancy's cost, on fewer blocks), or fast
+  fills a mostly empty look's holes with the sky's colour; neither is a texture change.
 
 ## Review
 Tool tier (CLAUDE.md principle 13): the diff is a script, data and this ADR; read through by the author against the
 shots above. A fresh reviewer read the script (it is over 300 lines). Fixed: the colour nudge could loop forever near blue 255 (now searches outward and fails loudly); sand's dark grains used the wrong colour; the brightness order now uses the Studio's `luma` weights and every ramp the script grows is asserted to run dark to light (all do; `gold gravel` and `gold quartz`, the developer's own, do not by their names); `data/palette.toml` goes on the drafts list when colours are added; dead code went; shale's dashes wrapped 2.5 times; `--preview` without a path. Answered: grass bottoms are not unpainted, the shader takes a grass block's foot from its side block, `dirt.png`. Documented: a run for some blocks still builds every recipe, so the palette gains every step the set needs.
 
 ## The developer's calls (2026-11-13)
-- **Calmer leaves.** In the forest view (`tests/views/seam.png`) the canopy read as a busy yellow-and-black
-  checker: a quarter to a third of every leaf texture was holes, and each hole shows the dark inside of the
-  crown. Now: a smooth field (cell 4), holes 6 % (jungle) to 16 % (acacia) in small clumps, two close tones with
-  the lit one on 15 % (clump tops), the texel under a hole in shade, no dark rims; spruce's needles keep 6 % holes
-  and lost their dark specks.
+- **Calmer leaves.** In the forest view (`tests/views/seam.png`, autumn there) the canopy read as a busy
+  yellow-and-black checker: a quarter to a third of every leaf texture was holes, scattered, and under the
+  default fast leaves (ADR 0069) a hole is drawn as the leaf colour at 60 %, so gold leaves came out
+  dotted with near black; autumn also jumped from rust to gold. Now: two close tones in soft clumps (cell 4)
+  with the lit one on 15 % (clump tops), the texel under a hole in shade, no dark rims; the holes are 4 %
+  (jungle) to 10 % (acacia) and gather in one or two blobs of a smooth field; autumn broadleaf is the orange
+  with a shade and a lit step of its own (two palette colours added), rust and gold only at the ends; spruce's
+  needles keep 6 % holes and lost their dark specks.
 - **Bare winter branches.** The winter look of the deciduous crowns (`broadleaf leaves@winter`,
   `shrub@winter`) is branches in the log's bark colours: limbs that lean out as they rise through the block
   with twigs forking off (two limbs and five twigs a broadleaf texture, one and three a shrub), everything else
-  open. Spruce, jungle and acacia have no winter look and stay green.
+  open. Spruce, jungle and acacia have no winter look and stay green. **Seen in fancy leaves only:** with the
+  default fast leaves an empty texel is the block's colour at 60 %, so a bare crown is a dark brown cube with
+  lighter twigs (filmed: `out/winter2.png` fast, `out/winter3.png` fancy). Fixing that is engine work, for the
+  developer: a call below.
 - **Lamps join** into one glowing surface with the frame only on the outer edge: engine and shader code, its own
   ADR 0085 on its own branch.
 - Views that change: `seam` (the canopy) and the season views of the forest (winter: bare crowns; spring,
