@@ -1,6 +1,7 @@
 //! Hand-painted block textures (ADR 0045, docs/design/studio.md "Textures"): `data/textures/<block>.png` is a
 //! block's every face, `<block>_top.png`, `_side.png` (the four sides) and `_bottom.png` override one. The rule:
-//! 8-bit RGBA, 16 px high, 16, 32, 48 or 64 px wide (1 to 4 variants side by side), every pixel opaque, or for a
+//! 8-bit RGBA, 16 px high, 16, 32, 48 or 64 px wide (1 to 4 variants side by side), or 32 px high and 32 to 128
+//! wide for a fine painting (32 px a metre: flora, ADR 0090), every pixel opaque, or for a
 //! cutout block (`see = "cutout"`, ADR 0069) every pixel wholly there or wholly empty (alpha 255 or 0). A file
 //! that breaks it is refused by name and its block keeps its pattern. A season's paint is the same name with
 //! `@spring`, `@autumn` or `@winter` before `.png` (docs/design/seasonal-looks.md); the file without one is
@@ -13,12 +14,18 @@ use std::path::Path;
 /// (x 255).
 pub type Pixels = [[u8; 4]; 256];
 
+/// The fine paintings' folder inside a textures folder: each file there is read in place of its namesake.
+pub const HD: &str = "hd";
+
 /// The faces in the order `Painted::faces` holds them.
 pub const FACES: [&str; 3] = ["top", "side", "bottom"];
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Face {
+    /// Each variant 16 x 16; a fine face's are its 32 x 32 variants' quarters in turn: top left, top right,
+    /// bottom left, bottom right (ADR 0090).
     pub variants: Vec<Pixels>,
+    pub fine: bool,
     /// The mean of every pixel that is there (alpha 255) of every variant, 0..1, in `colour`'s numbers.
     pub mean: [f32; 3],
 }
@@ -46,16 +53,21 @@ pub struct Set {
     pub refused: Vec<String>,
 }
 
-/// One file's variants for a block seen as `see`, or why it breaks the rule.
+/// One file's variants for a block seen as `see`, or why it breaks the rule (a fine file's quarters, `Face`).
 pub fn decode(bytes: &[u8], see: See) -> Result<Vec<Pixels>, String> {
+    decode_fine(bytes, see).map(|(v, _)| v)
+}
+
+/// `decode`, and whether the file is fine (32 px high).
+pub fn decode_fine(bytes: &[u8], see: See) -> Result<(Vec<Pixels>, bool), String> {
     let mut r = png::Decoder::new(std::io::Cursor::new(bytes)).read_info().map_err(|e| format!("not a PNG ({e})"))?;
     let i = r.info();
     let (w, h, colour, depth) = (i.width, i.height, i.color_type, i.bit_depth);
     if colour != png::ColorType::Rgba || depth != png::BitDepth::Eight {
         return Err(format!("{colour:?} at {depth:?} bits, a texture is 8-bit RGBA"));
     }
-    if h != 16 || !matches!(w, 16 | 32 | 48 | 64) {
-        return Err(format!("{w} x {h} px, a texture is 16 high and 16, 32, 48 or 64 wide"));
+    if !(h == 16 && matches!(w, 16 | 32 | 48 | 64) || h == 32 && matches!(w, 32 | 64 | 96 | 128)) {
+        return Err(format!("{w} x {h} px, a texture is 16 high and 16, 32, 48 or 64 wide, or 32 high and 32, 64, 96 or 128 wide"));
     }
     let mut buf = vec![0; r.output_buffer_size().ok_or("too large")?];
     r.next_frame(&mut buf).map_err(|e| format!("unreadable ({e})"))?;
@@ -65,23 +77,31 @@ pub fn decode(bytes: &[u8], see: See) -> Result<Vec<Pixels>, String> {
         let (x, y) = (p as u32 % w, p as u32 / w);
         return Err(if empty_ok { format!("pixel ({x}, {y}) is partly see-through (alpha {}), a cutout block's pixels are 255 or 0", buf[p * 4 + 3]) } else { format!("pixel ({x}, {y}) is not opaque") });
     }
-    Ok((0..w as usize / 16)
-        .map(|v| std::array::from_fn(|k| {
-            let at = ((k / 16) * w as usize + v * 16 + k % 16) * 4;
+    // 16 x 16 tiles: a fine variant's four quarters in turn
+    let fine = h == 32;
+    let tile = |x0: usize, y0: usize| -> Pixels {
+        std::array::from_fn(|k| {
+            let at = ((y0 + k / 16) * w as usize + x0 + k % 16) * 4;
             [buf[at], buf[at + 1], buf[at + 2], buf[at + 3]]
-        }))
-        .collect())
+        })
+    };
+    let tiles = if fine {
+        (0..w as usize / 32).flat_map(|v| [(0, 0), (16, 0), (0, 16), (16, 16)].map(|(x, y)| tile(v * 32 + x, y))).collect()
+    } else {
+        (0..w as usize / 16).map(|v| tile(v * 16, 0)).collect()
+    };
+    Ok((tiles, fine))
 }
 
-fn face(variants: Vec<Pixels>) -> Face {
+fn face((variants, fine): (Vec<Pixels>, bool)) -> Face {
     // an empty pixel is not seen: the mean is of those there (a face wholly empty is black)
     let n = (variants.iter().flatten().filter(|p| p[3] != 0).count() as f32).max(1.0);
     let mean = std::array::from_fn(|c| variants.iter().flatten().filter(|p| p[3] != 0).map(|p| p[c] as f32).sum::<f32>() / n / 255.0);
-    Face { variants, mean }
+    Face { variants, fine, mean }
 }
 
 /// Each file's last good variants, by file name: what a running game keeps showing while a file is bad.
-pub type Kept = std::collections::BTreeMap<String, Vec<Pixels>>;
+pub type Kept = std::collections::BTreeMap<String, (Vec<Pixels>, bool)>;
 
 /// `load` for a running game: a file refused now that was good before keeps its last good paint (still named
 /// in `refused`).
@@ -89,21 +109,22 @@ pub fn load_keeping(dir: &Path, reg: &Registry, kept: &mut Kept) -> Set {
     load_with(dir, reg, Some(kept))
 }
 
-/// Reads every `.png` of `dir` against the block names of `reg`. A missing folder is an empty set.
+/// Reads every `.png` of `dir` against the block names of `reg`. A missing folder is an empty set. A file of the
+/// same name in `dir/hd/` (the fine paintings, ADR 0090) is read in its place.
 pub fn load(dir: &Path, reg: &Registry) -> Set {
     load_with(dir, reg, None)
 }
 
 fn load_with(dir: &Path, reg: &Registry, mut kept: Option<&mut Kept>) -> Set {
     let mut set = Set::default();
-    let mut names: Vec<String> = std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|n| n.ends_with(".png"))
-        .collect();
+    let pngs = |d: &Path| -> Vec<String> {
+        std::fs::read_dir(d).into_iter().flatten().flatten().filter_map(|e| e.file_name().into_string().ok()).filter(|n| n.ends_with(".png")).collect()
+    };
+    let hd = pngs(&dir.join(HD));
+    let mut names = pngs(dir);
+    names.extend(hd.iter().filter(|n| !names.contains(n)).cloned().collect::<Vec<_>>());
     names.sort();
+    let file = |n: &str| if hd.iter().any(|h| h == n) { dir.join(HD).join(n) } else { dir.join(n) };
     // per block and season (0 the base, summer's): its <block>.png, then its own top, side, bottom
     let mut found: Vec<((u16, usize), [Option<Face>; 4])> = Vec::new();
     let block = |n: &str| reg.placeable().find(|d| d.name == n).map(|d| d.id);
@@ -127,7 +148,7 @@ fn load_with(dir: &Path, reg: &Registry, mut kept: Option<&mut Kept>) -> Set {
             continue;
         };
         let id = (id, season);
-        let got = std::fs::read(dir.join(&name)).map_err(|e| e.to_string()).and_then(|b| decode(&b, reg.get(id.0).map_or(See::Opaque, |d| d.see)));
+        let got = std::fs::read(file(&name)).map_err(|e| e.to_string()).and_then(|b| decode_fine(&b, reg.get(id.0).map_or(See::Opaque, |d| d.see)));
         let got = match (got, kept.as_deref_mut()) {
             (Ok(v), Some(k)) => {
                 k.insert(name.clone(), v.clone());
@@ -151,7 +172,7 @@ fn load_with(dir: &Path, reg: &Registry, mut kept: Option<&mut Kept>) -> Set {
         }
     }
     if let Some(k) = kept {
-        k.retain(|n, _| dir.join(n).exists());
+        k.retain(|n, _| file(n).exists());
     }
     let faces = |[all, top, side, bottom]: [Option<Face>; 4]| [top, side, bottom].map(|f| f.or_else(|| all.clone()));
     for ((id, _), f) in found.iter().filter(|((_, q), _)| *q == 0) {
@@ -197,6 +218,25 @@ mod tests {
         }
     }
 
+    /// ADR 0090: a fine painting, 32 px high, is 32 x 32 variants, each kept as its four quarters in turn.
+    #[test]
+    fn a_fine_file_is_32_high_and_kept_as_quarters() {
+        for (w, n) in [(32, 1), (64, 2), (128, 4)] {
+            let (v, fine) = decode_fine(&rgba(w, 32, |x, y| [(x / 32) as u8, x as u8, y as u8, 255]), See::Opaque).unwrap();
+            assert!(fine);
+            assert_eq!(v.len(), 4 * n, "{w} px wide");
+            for i in 0..n {
+                // pixel (21, 19) of variant i: its bottom right quarter, (5, 3) in it
+                assert_eq!(v[4 * i + 3][3 * 16 + 5], [i as u8, (i * 32 + 21) as u8, 19, 255], "variant {i}");
+                assert_eq!(v[4 * i + 1][0], [i as u8, (i * 32 + 16) as u8, 0, 255], "variant {i}, top right");
+            }
+        }
+        assert!(!decode_fine(&rgba(32, 16, |_, _| [9, 9, 9, 255]), See::Opaque).unwrap().1, "16 high is not fine");
+        for (w, h) in [(48, 32), (160, 32), (32, 24), (16, 32)] {
+            assert!(decode(&rgba(w, h, |_, _| [9, 9, 9, 255]), See::Opaque).is_err(), "{w} x {h}");
+        }
+    }
+
     #[test]
     fn the_rule_refuses_each_kind_of_bad_file() {
         let wrong = [
@@ -228,7 +268,7 @@ mod tests {
         assert_eq!(decode(&half, See::Glass).unwrap()[0][2 * 16 + 3][3], 128);
         assert!(decode(&holed, See::Glass).is_ok());
         // the mean leaves the empty pixels out
-        let f = face(vec![std::array::from_fn(|k| if k % 2 == 0 { [0, 0, 0, 0] } else { [255, 0, 0, 255] })]);
+        let f = face((vec![std::array::from_fn(|k| if k % 2 == 0 { [0, 0, 0, 0] } else { [255, 0, 0, 255] })], false));
         assert_eq!(f.mean, [1.0, 0.0, 0.0]);
     }
 
@@ -240,6 +280,20 @@ mod tests {
             std::fs::write(d.join(n), b).unwrap();
         }
         d
+    }
+
+    /// ADR 0090: `hd/<name>` is read in place of `<name>`, and alone when there is none beside it.
+    #[test]
+    fn a_fine_file_in_hd_takes_its_namesakes_place() {
+        let d = folder("hd", &[("stone.png", rgba(16, 16, |_, _| [10, 10, 10, 255]))]);
+        std::fs::create_dir_all(d.join(HD)).unwrap();
+        std::fs::write(d.join(HD).join("stone.png"), rgba(64, 32, |_, _| [20, 20, 20, 255])).unwrap();
+        std::fs::write(d.join(HD).join("dirt.png"), rgba(32, 32, |_, _| [30, 30, 30, 255])).unwrap();
+        let s = load(&d, &BLOCKS);
+        let side = |n: &str| s.blocks.iter().find(|(id, _)| *id == BLOCKS.id(n)).and_then(|(_, p)| p.faces[1].as_ref()).map(|f| (f.fine, f.variants.len(), f.variants[0][0][0]));
+        assert_eq!(side("stone"), Some((true, 8, 20)));
+        assert_eq!(side("dirt"), Some((true, 4, 30)));
+        assert!(s.refused.is_empty(), "{:?}", s.refused);
     }
 
     #[test]

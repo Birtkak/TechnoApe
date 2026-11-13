@@ -79,6 +79,33 @@ fn textures_paint_undo_save() {
     assert!(check.status.success(), "{}", String::from_utf8_lossy(&check.stdout));
 }
 
+/// ADR 0090: a fine painting (32 high) is painted and saved at its own size, and a new face of a block that has
+/// one is fine too.
+#[test]
+fn a_fine_painting_paints_at_its_size_and_a_new_face_takes_it() {
+    let dir = scratch_unpainted("fine", "shrub");
+    let grass = [0x4c, 0x94, 0x33, 255];
+    let mut out = Vec::new();
+    let mut e = png::Encoder::new(&mut out, 64, 32);
+    e.set_color(png::ColorType::Rgba);
+    e.set_depth(png::BitDepth::Eight);
+    let mut w = e.write_header().unwrap();
+    w.write_image_data(&grass.repeat(64 * 32)).unwrap();
+    w.finish().unwrap();
+    std::fs::write(dir.join("data/textures/shrub_top.png"), out).unwrap();
+    // the top: erase near its far corner; All (no file yet): erase near its near corner
+    studio(&dir, &["open=shrub", "input=click @facetab:1; key X; click @face:0.9,0.9; click @facetab:0; click @face:0.1,0.1; key Ctrl+S"]);
+    let alpha = |f: &str, x: u32, y: u32| {
+        let (w, h, px) = png(&dir.join("data/textures").join(f));
+        (w, h, px[((y * w + x) * 4 + 3) as usize])
+    };
+    assert_eq!(alpha("shrub_top.png", 28, 28), (64, 32, 0), "erased at (28, 28) of the 32 x 32 face");
+    assert_eq!(alpha("shrub_top.png", 14, 14), (64, 32, 255), "not at (14, 14), as a 16 px face would");
+    assert_eq!(alpha("shrub.png", 3, 3), (32, 32, 0), "the new face is fine, erased at (3, 3)");
+    let check = Command::new(env!("CARGO_BIN_EXE_technoape-studio")).current_dir(&dir).arg("check=1").output().unwrap();
+    assert!(check.status.success(), "{}", String::from_utf8_lossy(&check.stdout));
+}
+
 /// The JSON array of a named rect in a `rects=1` line: [x0, y0, x1, y1].
 fn rect(line: &str, name: &str) -> [f32; 4] {
     let at = line.find(&format!("\"{name}\":[")).unwrap_or_else(|| panic!("no rect {name}: {line}")) + name.len() + 4;

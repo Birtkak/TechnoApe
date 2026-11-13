@@ -344,11 +344,22 @@ impl Textures {
         if !app.docs.contains_key(&key) {
             let img = match self.real(app) {
                 Some((img, _)) => img.clone(),
-                None => Img::filled(1, tools::snap(&app.pal, self.block_colour(app).map(|v| v as f32 / 255.0))),
+                None => Img::sized(1, self.new_side(app), tools::snap(&app.pal, self.block_colour(app).map(|v| v as f32 / 255.0))),
             };
             app.docs.insert(key.clone(), Doc { img, hist: Default::default(), saved: None });
         }
         app.docs.get_mut(&key).unwrap()
+    }
+
+    /// A new painting's side: 32 when any of the block's files (any face, any season) is fine, else 16 (ADR 0090).
+    fn new_side(&self, app: &App) -> usize {
+        let fine = (0..4).any(|q| (0..4).any(|f| app.docs.get(&art::season_file(&self.block, f, q)).is_some_and(|d| d.img.h > S)));
+        if fine { 2 * S } else { S }
+    }
+
+    /// The open face's grid: what it shows, else what a new painting would be.
+    fn side(&self, app: &App) -> usize {
+        self.shown(app).map_or_else(|| self.new_side(app), |(img, _)| img.h)
     }
 
     fn v(&self, app: &App) -> usize {
@@ -373,7 +384,7 @@ impl Textures {
 
     /// A new picture for the open variant (pattern, picture).
     fn put_variant(&mut self, app: &mut App, name: &str, face: Img) {
-        self.edit(app, name, |img, v, _| tools::paste(img, v, &tools::copy(&face, 0, Sel { x: 0, y: 0, w: S, h: S }), 0, 0));
+        self.edit(app, name, |img, v, _| tools::paste(img, v, &tools::copy(&face, 0, Sel { x: 0, y: 0, w: face.h, h: face.h }), 0, 0));
         app.toast(format!("{name}: {}", self.file(self.face)));
     }
 
@@ -716,7 +727,7 @@ impl Textures {
             }
             return;
         }
-        let mut ns = s;
+        let (mut ns, side) = (s, self.side(app));
         self.edit(app, if op == "turn" { "Turn" } else { "Flip" }, |img, v, _| {
             let c = tools::copy(img, v, s);
             let c = match op {
@@ -728,14 +739,15 @@ impl Textures {
             tools::paste(img, v, &c, s.x as i32, s.y as i32);
             ns = Sel { w: c.w, h: c.h, ..s };
         });
-        self.sel = Some(Sel::corners((ns.x, ns.y), (ns.x + ns.w - 1, ns.y + ns.h - 1)));
+        self.sel = Some(Sel::corners((ns.x, ns.y), (ns.x + ns.w - 1, ns.y + ns.h - 1), side));
     }
 
     fn paste(&mut self, app: &mut App) {
         let Some(c) = self.clip.clone() else { return app.toast("Nothing copied yet (Ctrl+C copies the selection)") };
         let (x, y) = self.sel.map_or((0, 0), |s| (s.x, s.y));
         self.edit(app, "Paste", |img, v, _| tools::paste(img, v, &c, x as i32, y as i32));
-        self.sel = Some(Sel::corners((x, y), ((x + c.w - 1).min(S - 1), (y + c.h - 1).min(S - 1))));
+        let side = self.side(app);
+        self.sel = Some(Sel::corners((x, y), (x + c.w - 1, y + c.h - 1), side));
         self.tool = Tool::Select;
     }
 
@@ -940,15 +952,15 @@ impl Textures {
     fn paint(&mut self, ui: &Ui, app: &mut App, cell: Option<(i32, i32)>) {
         let (alt, pressed) = ui.input(|i| (i.modifiers.alt, [PointerButton::Primary, PointerButton::Secondary].map(|b| i.pointer.button_pressed(b))));
         let tool = if alt { Tool::Picker } else { self.tool };
-        let (v, mirror, tiled) = (self.v(app), self.mirror, self.tiled);
-        let on_face = |c: (i32, i32)| (0..S as i32).contains(&c.0) && (0..S as i32).contains(&c.1);
+        let (v, mirror, tiled, side) = (self.v(app), self.mirror, self.tiled, self.side(app) as i32);
+        let on_face = |c: (i32, i32)| (0..side).contains(&c.0) && (0..side).contains(&c.1);
         if let Some(px) = cell.filter(|c| self.stroke.is_none() && (tiled || on_face(*c))) {
             for (k, button) in [PointerButton::Primary, PointerButton::Secondary].into_iter().enumerate() {
                 if !pressed[k] {
                     continue;
                 }
                 let (c, other) = if k == 0 { (self.first, self.second) } else { (self.second, self.first) };
-                let (x, y) = (px.0.rem_euclid(S as i32) as usize, px.1.rem_euclid(S as i32) as usize);
+                let (x, y) = (px.0.rem_euclid(side) as usize, px.1.rem_euclid(side) as usize);
                 let mut lifted = None;
                 match tool {
                     Tool::Picker => {
@@ -982,7 +994,7 @@ impl Textures {
                             let d = self.doc(app);
                             lifted = Some((s, tools::copy(&d.img, v, s)));
                         }
-                        None => self.sel = Some(Sel::corners((x, y), (x, y))),
+                        None => self.sel = Some(Sel::corners((x, y), (x, y), side as usize)),
                     },
                     _ => {}
                 }
@@ -1010,7 +1022,7 @@ impl Textures {
             return;
         }
         if let Some(to) = cell {
-            let to = if tiled { (to.0.clamp(-16, 31), to.1.clamp(-16, 31)) } else { (to.0.clamp(0, 15), to.1.clamp(0, 15)) };
+            let to = if tiled { (to.0.clamp(-side, 2 * side - 1), to.1.clamp(-side, 2 * side - 1)) } else { (to.0.clamp(0, side - 1), to.1.clamp(0, side - 1)) };
             if to != st.last {
                 self.carry(app, to);
             }
@@ -1023,8 +1035,8 @@ impl Textures {
         let Some(mut st) = self.stroke.take() else { return };
         let (mirror, first, second) = (self.mirror, self.first, self.second);
         let c = if st.button == PointerButton::Primary { first } else { second };
-        let pal = app.pal.clone();
-        let wrapped = |c: (i32, i32)| (c.0.rem_euclid(S as i32) as usize, c.1.rem_euclid(S as i32) as usize);
+        let (pal, side) = (app.pal.clone(), self.side(app));
+        let wrapped = |c: (i32, i32)| (c.0.rem_euclid(side as i32) as usize, c.1.rem_euclid(side as i32) as usize);
         let path = tools::line_points(st.last, to);
         let (amount, radius, density) = (self.amount, self.radius, self.density);
         let mut sel = self.sel;
@@ -1066,10 +1078,10 @@ impl Textures {
                     let (dx, dy) = (to.0 - st.start.0, to.1 - st.start.1);
                     tools::cut(&mut d.img, v, *s, second);
                     tools::paste(&mut d.img, v, clip, s.x as i32 + dx, s.y as i32 + dy);
-                    let (nx, ny) = ((s.x as i32 + dx).clamp(0, (S - s.w) as i32) as usize, (s.y as i32 + dy).clamp(0, (S - s.h) as i32) as usize);
+                    let (nx, ny) = ((s.x as i32 + dx).clamp(0, (side - s.w) as i32) as usize, (s.y as i32 + dy).clamp(0, (side - s.h) as i32) as usize);
                     sel = Some(Sel { x: nx, y: ny, ..*s });
                 }
-                None => sel = Some(Sel::corners(wrapped(st.start), wrapped(to))),
+                None => sel = Some(Sel::corners(wrapped(st.start), wrapped(to), side)),
             },
             _ => {}
         }
@@ -1393,7 +1405,7 @@ impl Page for Textures {
                 "sel" => {
                     let n: Vec<usize> = arg.split(';').filter_map(|x| x.parse().ok()).collect();
                     if let [x, y, w, h] = n[..] {
-                        self.sel = Some(Sel::corners((x, y), (x + w.max(1) - 1, y + h.max(1) - 1)));
+                        self.sel = Some(Sel::corners((x, y), (x + w.max(1) - 1, y + h.max(1) - 1), self.side(app)));
                     }
                 }
                 "pattern" => {
@@ -1461,7 +1473,8 @@ impl Page for Textures {
             "sel.flipy" => self.sel_op(app, "flipy"),
             "sel.turn" => self.sel_op(app, "turn"),
             "sel.all" => {
-                self.sel = Some(Sel { x: 0, y: 0, w: S, h: S });
+                let side = self.side(app);
+                self.sel = Some(Sel { x: 0, y: 0, w: side, h: side });
                 self.tool = Tool::Select;
             }
             "start.pattern" => self.open_pattern(app, false),
@@ -1570,12 +1583,15 @@ impl Page for Textures {
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         crate::drive::mark(ui.ctx(), "canvas", rect);
         let span = if self.tiled { 2.0 } else { 1.0 };
-        let fit = ((rect.width().min(rect.height()) - 2.0 * GAP) / (S as f32 * span)).floor().max(1.0);
+        let side = self.side(app);
+        let fit = ((rect.width().min(rect.height()) - 2.0 * GAP) / (side as f32 * span)).floor().max(1.0);
         let scale = self.zoom.unwrap_or(fit);
-        let at = (rect.center() - Vec2::splat(S as f32 * scale / 2.0) + self.pan).round();
+        let at = (rect.center() - Vec2::splat(side as f32 * scale / 2.0) + self.pan).round();
         let p = ui.painter_at(rect);
         p.rect_filled(rect, 6.0, ui.visuals().extreme_bg_color);
-        let face = Rect::from_min_size(at, Vec2::splat(S as f32 * scale));
+        let face = Rect::from_min_size(at, Vec2::splat(side as f32 * scale));
+        // `draw` takes px per 1/16 m
+        let per16 = scale * side as f32 / S as f32;
         crate::drive::mark(ui.ctx(), "face", face);
         let v = self.v(app);
         match self.shown(app) {
@@ -1584,12 +1600,12 @@ impl Page for Textures {
                     for j in -1..=1 {
                         for i in -1..=1 {
                             if (i, j) != (0, 0) {
-                                draw(&p, img, v, at + Vec2::new(i as f32, j as f32) * S as f32 * scale, scale, true);
+                                draw(&p, img, v, at + Vec2::new(i as f32, j as f32) * side as f32 * scale, per16, true);
                             }
                         }
                     }
                 }
-                draw(&p, img, v, at, scale, !own);
+                draw(&p, img, v, at, per16, !own);
             }
             None => {
                 p.rect_filled(face, 0.0, dim(self.block_colour(app)));
@@ -1598,7 +1614,7 @@ impl Page for Textures {
         }
         if scale >= 8.0 {
             let grid = egui::Stroke::new(1.0, Color32::from_black_alpha(60));
-            for i in 1..S {
+            for i in 1..side {
                 let o = i as f32 * scale;
                 p.line_segment([Pos2::new(face.min.x + o, face.min.y), Pos2::new(face.min.x + o, face.max.y)], grid);
                 p.line_segment([Pos2::new(face.min.x, face.min.y + o), Pos2::new(face.max.x, face.min.y + o)], grid);

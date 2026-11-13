@@ -5,8 +5,8 @@ use crate::art::{pencil, Img, S};
 use crate::wall::Rng;
 use engine::palette::Palette;
 
-fn wrap(v: i32) -> usize {
-    v.rem_euclid(S as i32) as usize
+fn wrap(v: i32, side: usize) -> usize {
+    v.rem_euclid(side as i32) as usize
 }
 
 /// The pixels of a straight line, both ends included, in any coordinates (Bresenham).
@@ -37,20 +37,20 @@ pub fn line_points(a: (i32, i32), b: (i32, i32)) -> Vec<(i32, i32)> {
 /// leaves one edge comes in at the other.
 pub fn line_wrap(img: &mut Img, v: usize, a: (i32, i32), b: (i32, i32), c: [u8; 3], mirror: bool) {
     for (x, y) in line_points(a, b) {
-        pencil(img, v, wrap(x), wrap(y), c, mirror);
+        pencil(img, v, wrap(x, img.h), wrap(y, img.h), c, mirror);
     }
 }
 
 /// The 4-connected area of one colour holding (x, y); with `tiled` it runs over the edges.
 pub fn region(img: &Img, v: usize, x: usize, y: usize, tiled: bool) -> Vec<(usize, usize)> {
-    let from = img.get(v, x, y);
-    let mut seen = [[false; S]; S];
+    let (from, s) = (img.get(v, x, y), img.h);
+    let mut seen = vec![vec![false; s]; s];
     let (mut todo, mut out) = (vec![(x as i32, y as i32)], vec![]);
     while let Some((x, y)) = todo.pop() {
-        if !tiled && !(0..S as i32).contains(&x) || !tiled && !(0..S as i32).contains(&y) {
+        if !tiled && !(0..s as i32).contains(&x) || !tiled && !(0..s as i32).contains(&y) {
             continue;
         }
-        let (ux, uy) = (wrap(x), wrap(y));
+        let (ux, uy) = (wrap(x, s), wrap(y, s));
         if seen[uy][ux] || img.get(v, ux, uy) != from {
             continue;
         }
@@ -87,9 +87,9 @@ pub fn clash(pal: &Palette, a: [u8; 3], b: [u8; 3]) -> bool {
 
 /// The seam view: the edge pixels that clash with the pixel across the far edge they meet when tiled.
 pub fn seams(img: &Img, v: usize, pal: &Palette) -> Vec<(usize, usize)> {
-    let mut out = vec![];
-    for k in 0..S {
-        for (p, q) in [((0, k), (S - 1, k)), ((k, 0), (k, S - 1))] {
+    let (mut out, s) = (vec![], img.h);
+    for k in 0..s {
+        for (p, q) in [((0, k), (s - 1, k)), ((k, 0), (k, s - 1))] {
             if clash(pal, img.get(v, p.0, p.1), img.get(v, q.0, q.1)) {
                 out.extend([p, q]);
             }
@@ -124,7 +124,7 @@ pub fn spray(img: &mut Img, v: usize, (x, y): (i32, i32), radius: i32, density: 
     for dy in -radius..=radius {
         for dx in -radius..=radius {
             if dx * dx + dy * dy <= radius * radius + radius && rng.f32() < density {
-                pencil(img, v, wrap(x + dx), wrap(y + dy), c, mirror);
+                pencil(img, v, wrap(x + dx, img.h), wrap(y + dy, img.h), c, mirror);
             }
         }
     }
@@ -144,8 +144,8 @@ pub fn gradient(img: &mut Img, v: usize, a: (f32, f32), b: (f32, f32), ramp: &[[
     let Some(&last) = ramp.last() else { return };
     let (dx, dy) = (b.0 - a.0, b.1 - a.1);
     let len2 = dx * dx + dy * dy;
-    for y in 0..S {
-        for x in 0..S {
+    for y in 0..img.h {
+        for x in 0..img.h {
             let t = if len2 == 0.0 { 0.0 } else { (((x as f32 + 0.5 - a.0) * dx + (y as f32 + 0.5 - a.1) * dy) / len2).clamp(0.0, 1.0) };
             let f = t * (ramp.len() - 1) as f32;
             let threshold = (BAYER[y % 4][x % 4] as f32 + 0.5) / 16.0;
@@ -165,8 +165,10 @@ pub struct Sel {
 }
 
 impl Sel {
-    pub fn corners(a: (usize, usize), b: (usize, usize)) -> Sel {
-        let (x0, x1, y0, y1) = (a.0.min(b.0).min(S - 1), a.0.max(b.0).min(S - 1), a.1.min(b.1).min(S - 1), a.1.max(b.1).min(S - 1));
+    /// The rectangle a to b on a face `side` px square.
+    pub fn corners(a: (usize, usize), b: (usize, usize), side: usize) -> Sel {
+        let m = side - 1;
+        let (x0, x1, y0, y1) = (a.0.min(b.0).min(m), a.0.max(b.0).min(m), a.1.min(b.1).min(m), a.1.max(b.1).min(m));
         Sel { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }
     }
     pub fn contains(&self, (x, y): (usize, usize)) -> bool {
@@ -207,7 +209,7 @@ pub fn copy(img: &Img, v: usize, s: Sel) -> Clip {
 pub fn paste(img: &mut Img, v: usize, clip: &Clip, x: i32, y: i32) {
     for cy in 0..clip.h {
         for cx in 0..clip.w {
-            pencil(img, v, wrap(x + cx as i32), wrap(y + cy as i32), clip.at(cx, cy), false);
+            pencil(img, v, wrap(x + cx as i32, img.h), wrap(y + cy as i32, img.h), clip.at(cx, cy), false);
         }
     }
 }
@@ -219,7 +221,7 @@ pub fn cut(img: &mut Img, v: usize, s: Sel, c: [u8; 3]) {
 
 /// The arrow keys: the whole face moved by (dx, dy) with wrap.
 pub fn shift(img: &mut Img, v: usize, dx: i32, dy: i32) {
-    let all = copy(img, v, Sel { x: 0, y: 0, w: S, h: S });
+    let all = copy(img, v, Sel { x: 0, y: 0, w: img.h, h: img.h });
     paste(img, v, &all, dx, dy);
 }
 
@@ -286,23 +288,23 @@ pub fn from_picture(w: usize, h: usize, px: &[[u8; 4]], pal: &Palette) -> Img {
 /// Make variants: variant 1 kept, and up to `n` in all made from it by moving a `share` (0..1) of its pixels
 /// to a neighbour's place and re-scattering others one step along their ramp.
 pub fn make_variants(img: &Img, n: usize, share: f32, pal: &Palette, rng: &mut Rng) -> Img {
-    let n = n.clamp(1, 4);
-    let mut out = Img::filled(n, [0; 3]);
+    let (n, s) = (n.clamp(1, 4), img.h);
+    let mut out = Img::sized(n, s, [0; 3]);
     for v in 0..n {
-        for y in 0..S {
-            for x in 0..S {
+        for y in 0..s {
+            for x in 0..s {
                 pencil(&mut out, v, x, y, img.get(0, x, y), false);
             }
         }
         if v == 0 {
             continue;
         }
-        let k = (share.clamp(0.0, 1.0) * (S * S) as f32 / 2.0).round() as usize;
+        let k = (share.clamp(0.0, 1.0) * (s * s) as f32 / 2.0).round() as usize;
         for _ in 0..k {
-            let (x, y) = (rng.below(S), rng.below(S));
+            let (x, y) = (rng.below(s), rng.below(s));
             if rng.f32() < 0.5 {
                 let (nx, ny) = [(1, 0), (-1, 0), (0, 1), (0, -1)][rng.below(4)];
-                let (qx, qy) = (wrap(x as i32 + nx), wrap(y as i32 + ny));
+                let (qx, qy) = (wrap(x as i32 + nx, s), wrap(y as i32 + ny, s));
                 let (a, b) = (out.get(v, x, y), out.get(v, qx, qy));
                 pencil(&mut out, v, x, y, b, false);
                 pencil(&mut out, v, qx, qy, a, false);
@@ -435,7 +437,7 @@ mod tests {
     fn a_selection_copies_flips_turns_pastes_and_shifts_with_wrap() {
         let mut img = Img::filled(1, M);
         pencil(&mut img, 0, 2, 3, D, false); // the top left of a 3 x 2 selection
-        let s = Sel::corners((4, 4), (2, 3));
+        let s = Sel::corners((4, 4), (2, 3), S);
         assert_eq!(s, Sel { x: 2, y: 3, w: 3, h: 2 });
         assert!(s.contains((4, 4)) && !s.contains((5, 4)));
         let c = copy(&img, 0, s);

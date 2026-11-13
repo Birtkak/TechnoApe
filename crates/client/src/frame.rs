@@ -583,31 +583,39 @@ impl App {
             let k = d.key;
             // the lattice its quads were merged in (ADR 0025 I2), as log2 at bit 16
             let lat = if self.streamer.opts.greedy { self.world.bodies[k.body as usize].lattice(k.level) } else { 1 };
-            let info = k.face as u32 | (k.level as u32) << 3 | (k.body as u32) << 8 | lat.trailing_zeros() << 16;
+            // fast leaves of level 0 (meshed as a shell, no ray_cut): the BLAS's second geometry too, whole blocks
+            // to a ray unless bare, when it takes the twigs (ADR 0090; info bit 18, shader.wgsl `hit_empty`)
+            let shell = k.level == 0 && d.ray_cut == 0 && d.cut > 0;
+            let info = k.face as u32 | (k.level as u32) << 3 | (k.body as u32) << 8 | lat.trailing_zeros() << 16 | (shell as u32) << 18;
             let (ci, new) = self.slots.get(d.off, frame_no);
             assert!((ci as usize) < MAX_CHUNKS, "chunk table full");
+            // the cutout blocks' quads (ADR 0088): drawn with their holes open on level 0, fast or fancy (a coarse
+            // level's are one colour, opaque); to a ray they are the BLAS's second geometry, not opaque: fancy leaves
+            // take their texels, fast ones are whole blocks unless bare (above). The mesh says which: a chunk meshed
+            // before the setting changed keeps its split until it is meshed again
+            let (draw_cut, ray_cut) = (d.cut, if shell { d.cut } else { d.ray_cut });
             if new {
-                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.still - d.cut - d.glass, _p: [0; 2] }));
+                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.still - ray_cut - d.glass, _p: [0; 2] }));
             }
             // the still models' quads lie between the land's and the sea's, in no BLAS (ADR 0082)
             let land = d.len - d.water - d.still;
             if land > 0 {
                 // the cutout and glass quads are the BLAS's second geometry, not opaque (ADR 0069, 0081)
-                insts.push(rt::Inst { off: d.off, land, cut: d.cut + d.glass, base: k.base().into(), info, body: k.body, ci });
+                insts.push(rt::Inst { off: d.off, land, cut: ray_cut + d.glass, base: k.base().into(), info, body: k.body, ci });
             }
             if d.hidden {
                 continue;
             }
             // the opaque quads, then the cutout blocks' through the pipeline that discards (ADR 0069)
-            let opq = land - d.cut - d.glass;
+            let opq = land - draw_cut - d.glass;
             if opq > 0 {
                 args.push((d.dist, DrawArgs { vertex_count: opq * 6, instance_count: 1, first_vertex: d.off * 6, first_instance: ci }));
             }
-            if d.cut > 0 {
-                cut_args.push((d.dist, DrawArgs { vertex_count: d.cut * 6, instance_count: 1, first_vertex: (d.off + opq) * 6, first_instance: ci }));
+            if draw_cut > 0 {
+                cut_args.push((d.dist, DrawArgs { vertex_count: draw_cut * 6, instance_count: 1, first_vertex: (d.off + opq) * 6, first_instance: ci }));
             }
             if d.glass > 0 {
-                glass_args.push((d.centre, DrawArgs { vertex_count: d.glass * 6, instance_count: 1, first_vertex: (d.off + opq + d.cut) * 6, first_instance: ci }));
+                glass_args.push((d.centre, DrawArgs { vertex_count: d.glass * 6, instance_count: 1, first_vertex: (d.off + opq + draw_cut) * 6, first_instance: ci }));
             }
             if d.still > 0 {
                 still_args.push((d.dist, DrawArgs { vertex_count: d.still * 6, instance_count: 1, first_vertex: (d.off + land) * 6, first_instance: ci }));
@@ -773,7 +781,8 @@ impl App {
         let mut g = Globals {
             tide: [pull(tide.luna, engine::sky::TIDE_LUNA), pull(tide.sun, engine::sky::TIDE_SUN)],
             // a shot's ripples stand still: it is taken after as many frames as the PC draws, the clock in wall time
-            water: [if self.shot.is_some() { 0.0 } else { self.world.time.rem_euclid(3600.0) as f32 }, fog, deep_light, 0.0],
+            // w: the wind here for the leaves' sway (ADR 0090), a breeze in calm air, none in a shot
+            water: [if self.shot.is_some() { 0.0 } else { self.world.time.rem_euclid(3600.0) as f32 }, fog, deep_light, if self.shot.is_some() { 0.0 } else { 0.5 + blow as f32 }],
             cloud: [0.0; 4],
             view_proj: vp.to_cols_array_2d(),
             sun: [sun.x, sun.y, sun.z, clock],
@@ -1013,6 +1022,8 @@ impl App {
                 multiview_mask: None,
             });
             rp.set_bind_group(0, &gpu.bind, &[]);
+            // the crowns' fluff (ADR 0090); `fluff=0` leaves it out to measure it
+            let fluff = self.args.get("fluff", 1) == 1;
             // the crack detector's shots keep the plain clear colour; so does the Studio's view with no background
             if self.shot.is_none() && !bare {
                 rp.set_pipeline(&gpu.sky_pipeline);
@@ -1022,22 +1033,49 @@ impl App {
             if bare {
                 // (the land is still there for the light: only its picture is left out)
             } else if self.args.get("mdi", 1) == 1 {
+                // the cutout blocks' depth first, the terrain, then their colour where their depth is (ADR 0090)
+                let cut_at = (MAX_CHUNKS * 32) as u64;
+                let n_cut = cut_args.len() as u32;
+                if n_cut > 0 {
+                    rp.set_pipeline(&gpu.cut_depth_pipeline);
+                    rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
+                    if fluff {
+                        rp.set_pipeline(&gpu.fluff_depth_pipeline);
+                        rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
+                    }
+                    rp.set_pipeline(&gpu.pipeline);
+                }
                 rp.multi_draw_indirect(&gpu.indirect, 0, args.len() as u32);
-                if !cut_args.is_empty() {
-                    rp.set_pipeline(&gpu.cut_pipeline);
-                    rp.multi_draw_indirect(&gpu.indirect, (MAX_CHUNKS * 32) as u64, cut_args.len() as u32);
+                if n_cut > 0 {
+                    rp.set_pipeline(&gpu.cut_lit_pipeline);
+                    rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
+                    if fluff {
+                        rp.set_pipeline(&gpu.fluff_lit_pipeline);
+                        rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
+                    }
                 }
                 if !still_args.is_empty() {
                     rp.set_pipeline(&gpu.still_pipeline);
                     rp.multi_draw_indirect(&gpu.indirect, (MAX_CHUNKS * 64) as u64, still_args.len() as u32);
                 }
             } else {
+                let cuts = |rp: &mut wgpu::RenderPass, p: &wgpu::RenderPipeline| {
+                    rp.set_pipeline(p);
+                    for d in &cut_args {
+                        rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
+                    }
+                };
+                cuts(&mut rp, &gpu.cut_depth_pipeline);
+                if fluff {
+                    cuts(&mut rp, &gpu.fluff_depth_pipeline);
+                }
+                rp.set_pipeline(&gpu.pipeline);
                 for d in &args {
                     rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
                 }
-                rp.set_pipeline(&gpu.cut_pipeline);
-                for d in &cut_args {
-                    rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
+                cuts(&mut rp, &gpu.cut_lit_pipeline);
+                if fluff {
+                    cuts(&mut rp, &gpu.fluff_lit_pipeline);
                 }
                 rp.set_pipeline(&gpu.still_pipeline);
                 for d in &still_args {

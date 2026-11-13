@@ -156,7 +156,7 @@ def blades(ramp, n, seed, lean=0.25):
             cx = x0 + (rnd(seed, b, "l") - 0.5) * 2 * lean * (h - y)
             if abs(x + 0.5 - cx) <= max(0.6, 1.2 * (1 - (h - y) / top)):
                 t = (h - y) / top  # 0 at the root, 1 at this blade's tip
-                return R(ramp, 0.4 + t ** 1.7 * 6.4 + (rnd(seed, b, "c") - 0.5) * 1.5)
+                return R(ramp, 2 + t ** 1.7 * 5 + (rnd(seed, b, "c") - 0.5) * 1.5)  # the shader darkens the root
         return None
     return p
 
@@ -167,7 +167,7 @@ def frond(ramp, seed):
         cx, yy = w / 2, h - y  # height over the ground
         d = abs(x + 0.5 - cx)
         if d < 0.6 and yy <= h - 1:
-            return R(ramp, 1 if yy < 3 else 3)
+            return R(ramp, 2 if yy < 3 else 3)
         reach = (w / 2 - 1) * (1 - yy / h) ** 0.6
         if yy > 2 and yy % 2 < 1 and d <= reach:
             return R(ramp, 3.5 + 3.5 * d / max(1, reach) + (rnd(seed, x, y) - 0.5))
@@ -186,7 +186,7 @@ def flowers(green, petal, seed):
             if abs(dx) <= 1.1 and abs(dy) <= 1.1:
                 return R(petal, 1) if abs(dx) < 0.6 and abs(dy) < 0.6 else R(petal, 5 + (1 if dx < 0 else 0) + (1 if dy > 0 else -1))
             if abs(dx) < 0.6 and yy < top:
-                return R(green, 1 + 3 * yy / top)
+                return R(green, 2 + 2 * yy / top)
         return None
     return p
 

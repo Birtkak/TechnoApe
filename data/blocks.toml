@@ -8,7 +8,7 @@
 # `side`: a grass block's sides under the fringe; any other block takes that block's whole look on its four
 # sides and its foot. `light`: the light it gives, a colour times its strength (0..4, ADR 0022).
 # `joins`: side by side in a wall, its faces glow as one surface, the painted frame only on the outer edge
-# (lamps, ADR 0085).
+# (lamps, ADR 0085). `wood`: a tree grows from it (log, branches): a bare crown's twigs start at it (ADR 0090).
 # `holds`: [item, chance]: a generated cell of it, never edited, gives that item too when dug in survival, by a
 # roll from the seed and the cell (ADR 0097: flint in gravel).
 # `sound`: its material's sound, a family of rows in data/sounds.toml (stone when it names none).
@@ -26,6 +26,10 @@
 # `soft`: sound passes it without an echo (leaves, a shrub, reed),
 # so it is no wall to the cave reverb (ADR 0054). `see`: "cutout" for a block seen through, its pixels
 # wholly there or wholly empty (alpha 0 in its painting; the `leaves` pattern has holes), opaque without it (ADR 0069).
+# `fluff` (a cutout block's, ADR 0090): the planes standing out of a plant, `size` (faces wide, 0..3; 0 none),
+# `push` (metres out, 0..1.2), `droop` (metres down a metre out, 0..1.2), `long` (length over width along the way
+# from the wood, 1..4), `dense` (the share of faces with one, 0..1) and `light` (the share of the sun one face lets
+# through to a shadow, 0..1); unnamed ones are the broadleaf's 1.7, 0.35, 0, 1, 1, 0.5.
 
 [[block]]
 id = 0
@@ -167,11 +171,13 @@ loose = true
 sound = "dirt"
 colour = [0.40, 0.28, 0.17]
 pattern = "rings"
+wood = true
 
 [[block]]
 id = 15
 name = "spruce leaves"
 see = "cutout"
+fluff = { size = 1.2, push = 0.22, droop = 0.35, long = 1.4, light = 0.35 }
 hardness = 0.3
 loose = true
 soft = true
@@ -202,6 +208,7 @@ colour = [0.38, 0.28, 0.18]
 id = 17
 name = "jungle leaves"
 see = "cutout"
+fluff = { size = 2.0, push = 0.4, droop = 0.25, long = 1.4 }
 hardness = 0.3
 loose = true
 soft = true
@@ -213,6 +220,7 @@ pattern = "leaves"
 id = 18
 name = "acacia leaves"
 see = "cutout"
+fluff = { size = 1.9, push = 0.25, dense = 0.8, light = 0.65 }
 hardness = 0.3
 loose = true
 soft = true
@@ -232,6 +240,7 @@ colour = [0.25, 0.50, 0.22]
 id = 20
 name = "shrub"
 see = "cutout"
+fluff = { size = 1.4, push = 0.2, droop = 0.1 }
 hardness = 0.3
 loose = true
 soft = true
@@ -250,6 +259,7 @@ colour = [0.36, 0.30, 0.20]
 id = 21
 name = "reed"
 see = "cutout"
+fluff = { size = 0.0, light = 0.7 }
 hardness = 0.2
 loose = true
 soft = true
@@ -900,6 +910,7 @@ amount = 0.35
 [[block]]
 id = 206
 name = "birch log"
+wood = true
 hardness = 2.0
 loose = true
 sound = "dirt"
@@ -911,6 +922,7 @@ colour2 = [0.20, 0.18, 0.16]
 [[block]]
 id = 207
 name = "birch leaves"
+fluff = { size = 1.5, push = 0.3, dense = 0.9, light = 0.6 }
 see = "cutout"
 hardness = 0.3
 loose = true
@@ -926,6 +938,7 @@ colour = [0.38, 0.28, 0.18]
 [[block]]
 id = 208
 name = "oak log"
+wood = true
 hardness = 2.0
 loose = true
 sound = "dirt"
@@ -936,6 +949,7 @@ contrast = 1.6
 [[block]]
 id = 209
 name = "oak leaves"
+fluff = { light = 0.45 }
 see = "cutout"
 hardness = 0.3
 loose = true
@@ -951,6 +965,7 @@ colour = [0.38, 0.28, 0.18]
 [[block]]
 id = 210
 name = "pine log"
+wood = true
 hardness = 2.0
 loose = true
 sound = "dirt"
@@ -961,6 +976,7 @@ contrast = 1.6
 [[block]]
 id = 211
 name = "pine leaves"
+fluff = { size = 1.2, push = 0.22, droop = 0.35, long = 1.4, light = 0.35 }
 see = "cutout"
 hardness = 0.3
 loose = true
@@ -972,6 +988,7 @@ pattern = "leaves"
 [[block]]
 id = 212
 name = "willow log"
+wood = true
 hardness = 2.0
 loose = true
 sound = "dirt"
@@ -982,6 +999,7 @@ contrast = 1.6
 [[block]]
 id = 213
 name = "willow leaves"
+fluff = { size = 1.0, push = 0.15, droop = 1.0, long = 2.5, light = 0.6 }
 see = "cutout"
 hardness = 0.3
 loose = true
@@ -997,6 +1015,7 @@ colour = [0.38, 0.28, 0.18]
 [[block]]
 id = 214
 name = "palm log"
+wood = true
 hardness = 2.0
 loose = true
 sound = "dirt"
@@ -1007,6 +1026,7 @@ contrast = 1.6
 [[block]]
 id = 215
 name = "palm leaves"
+fluff = { size = 1.2, push = 0.3, droop = 0.6, long = 3.0, light = 0.6 }
 see = "cutout"
 hardness = 0.3
 loose = true
@@ -1018,6 +1038,7 @@ pattern = "leaves"
 [[block]]
 id = 216
 name = "bamboo"
+wood = true
 hardness = 1.0
 loose = true
 sound = "dirt"
@@ -1027,6 +1048,7 @@ pattern = "rings"
 [[block]]
 id = 217
 name = "bamboo leaves"
+fluff = { size = 1.0, push = 0.25, droop = 0.2, long = 2.2, light = 0.65 }
 see = "cutout"
 hardness = 0.3
 loose = true
