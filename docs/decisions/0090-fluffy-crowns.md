@@ -196,8 +196,13 @@ leaves last and is won back by decision 1 above. This branch carries it to main.
   stills of them here.
 - The topmost twigs in full sun read lighter and warmer than the calmed bark: part D's twig painting is a tan
   family; one palette with `log_side` would make one tree one colour.
-- How far the fluffy look reaches: all of level 0, which a level 1 chunk (64 m) hands down within Detail x its
-  edge (4 x 64 m at the default), so about 200 m; past it a cutout block is one colour. Part D has far paintings
-  (`data/textures/hd/far/`, 8 px a face) ready as the next step for the first coarse level; not read yet.
+- How far the fluffy look reaches: painted, with its leaves, all of level 0, which a level 1 chunk (64 m) hands
+  down within Detail x its edge (4 x 64 m at the default), so about 200 m. Fluff is drawn on every level: past
+  200 m a crown is the same lobed planes in the block's one colour, with the shade (seen against `fluff=0` from
+  40 m up, `out/flora-crowns/v4-air*.png`). Part D's far paintings (`data/textures/hd/far/`, 8 px a face) are
+  the next step for the coarse levels' colour; not read yet.
+- Open after the last stills: a shrub's top planes in full sun read lime against its sides (the planes keep their
+  face's normal); pine, palm and willow leaves are unpainted drafts, judged by shape only; reed beds (no fluff on
+  the reed block; part D's four reed kinds and the plants session's planes share one painting) have no still yet.
 - Twigs shorten to nothing three blocks from the wood; big crowns may want a longer reach once part C's
   branches are in.
