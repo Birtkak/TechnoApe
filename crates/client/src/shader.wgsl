@@ -950,20 +950,28 @@ fn ground_tint(i: VOut, c: vec3f) -> vec3f {
     // painting (the textures session's three tiles, one by its column's hash): tall-grass greens, a few
     // flowers, so from a hill there is no line where plants end
     let gp = grid(ch, i.local);
-    let far = smoothstep(still_far() * 0.5, still_far(), length(i.rel));
+    let d = length(i.rel);
+    let far = smoothstep(still_far() * 0.5, still_far(), d);
+    // past 150 m a pixel spans many texels: the painting fades to its mean colour, no crawling noise
+    let blur = smoothstep(150.0, 300.0, d);
     if (i.dir == 4u) {
         if (!leafy(c)) { return c; }
         if (far <= 0.0) { return c * tint; }
-        let m = meadow_texel(gp.xy);
+        let m = mix(meadow_texel(gp.xy), meadow_mean(), blur);
         return mix(c * tint, m * select(vec3f(1.0), tint, leafy(m)), far);
     }
-    // a side: the meadow hangs over the step's top third as a fringe, so terraces seen from above do not read
-    // as bare block edges
-    let up = fract(i.local.z);
-    let t = smoothstep(0.55, 0.85, up) * far;
+    // a side of a level-0 chunk's grass block: the meadow hangs over the step's top third as a
+    // fringe, so terraces seen from above do not read as bare block edges (a coarse chunk's step is many metres
+    // high, the fringe would be a band)
+    if ((ch.info >> 8u) != 0u || fract(i.local.z) < 0.5) { return c; }
+    let t = smoothstep(0.55, 0.85, fract(i.local.z)) * far;
     if (t <= 0.0) { return c; }
-    let m = meadow_texel(vec2f(gp.x + gp.y, gp.z));
+    let m = mix(meadow_texel(vec2f(gp.x + gp.y, gp.z)), meadow_mean(), blur);
     return mix(c, m * select(vec3f(1.0), tint, leafy(m)), t);
+}
+
+fn meadow_mean() -> vec3f {
+    return unpack4x8unorm(sfaces[0].mean).rgb;
 }
 
 // const: face 0's flag when it is the meadow ground (engine clutter::MEADOW)
@@ -1892,7 +1900,8 @@ fn fs_fx(i: FxOut) -> GOut {
 // in the cell u4 v4 in lo, the face's index in `sfaces` and its turn in sixteenths in hi. Drawn into the G-buffer
 // as the terrain is and lit the same; not traced (no shadow).
 // flags: 1 a plant's plane (ADR 0091: both sides drawn, swayed, tinted, faded far away; clutter::PLANT)
-struct SFace { o: vec3f, base: u32, eu: vec3f, pw: u32, ev: vec3f, xy: u32, wh: u32, flags: u32, _b: u32, _c: u32 };
+// mean: face 0's (the meadow ground's) mean colour, RGBA8
+struct SFace { o: vec3f, base: u32, eu: vec3f, pw: u32, ev: vec3f, xy: u32, wh: u32, flags: u32, mean: u32, _c: u32 };
 const PLANT: u32 = 1u;
 // and 2 a shrub's: wide, lopsided, seen twice as far (clutter::SHRUB)
 const SHRUB: u32 = 2u;
@@ -2041,7 +2050,9 @@ fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     if (plant && (c.info >> 8u) == 0u) { bend = sway(brot(b, g.plants.xyz), local.z - cell.z, vec2f(col), h.z); }
     let gp = grid(c, local);
     let fr = frame_at(c.info & 7u, b, gp.x, gp.y);
-    let n = still_dir(q, cross(f.ev, f.eu));
+    // a plant's plane turns, leans and stretches by its place's hash (`still_local`): its normal from the placed
+    // corners, so the sun side is the drawn plane's
+    let n = select(still_dir(q, cross(f.ev, f.eu)), cross(still_local(q, vec2f(0.0, 1.0), c, 1.0) - still_local(q, vec2f(0.0), c, 1.0), still_local(q, vec2f(1.0, 0.0), c, 1.0) - still_local(q, vec2f(0.0), c, 1.0)), plant);
     // a plant's planes are lit as the ground under them is, from either side
     let normal = select(normalize(normalize(fr.s - fr.n * fr.ta) * n.x + normalize(fr.t - fr.n * fr.tb) * n.y + fr.up * n.z), normalize(fr.up), plant);
     var o: VOut;

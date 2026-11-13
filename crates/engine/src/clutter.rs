@@ -363,6 +363,9 @@ pub struct Still {
     pub rows: Vec<Vec<(u32, u32)>>,
     /// per row, a plant's looks: the parts of the year (bits of `part`) and the faces (first, count) they draw
     pub looks: Vec<Vec<(u8, (u32, u32))>>,
+    /// per row, a plant's `<name>.back.png` (faces), drawn inside a stand, where its four neighbours grow it too:
+    /// a bed darker within than at its edge, from every side (ADR 0091)
+    pub back: Vec<Option<(u32, u32)>>,
 }
 
 /// A face's flags in the table's word 13: a plant's plane, drawn from both sides, swayed, tinted and faded far
@@ -434,6 +437,8 @@ impl Still {
         if let Err(e) = s.push("meadow ground", &meadow, vec![face], MEADOW) {
             bad.push(e);
         }
+        // word 14: its mean colour, RGBA8, which far grass fades to instead of point-sampling (no shimmer)
+        s.faces[0][14] = mean_colour(&meadow);
         for r in CLUTTER.iter() {
             let mut alts = Vec::new();
             let mut looks = Vec::new();
@@ -470,8 +475,17 @@ impl Still {
                         None => bad.push(format!("data/plants/{}.{n}.png: missing, its row names the look", r.name)),
                     }
                 }
+                let back = match one(&format!("{}.back", r.name), &mut s) {
+                    Some(Ok(f)) => Some(f),
+                    Some(Err(e)) => {
+                        bad.push(e);
+                        None
+                    }
+                    None => None,
+                };
                 s.rows.push(alts);
                 s.looks.push(looks);
+                s.back.push(back);
                 continue;
             }
             for a in 0..=ALTERNATES {
@@ -494,6 +508,7 @@ impl Still {
             }
             s.rows.push(alts);
             s.looks.push(looks);
+            s.back.push(None);
         }
         (s, bad)
     }
@@ -574,7 +589,14 @@ pub fn quads(body: &Body, key: Key, cells: &[u16; P * P * P], edits: &[(u32, u16
                     continue;
                 }
                 let (a, turn, du, dv) = t.shape(alts.len());
-                let (first, n) = still.looks[t.row].iter().find(|l| l.0 >> p8 & 1 == 1).map_or(alts[a], |l| l.1);
+                // shortcut: the neighbours are asked with this column's biome and ground, so a bed's edge on a biome
+                // or ground border may take the inside painting; fine for a look, revisit if it shows
+                let inside = || [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().all(|&(di, dj)| plant(seed, key.face, i + di, j + dj, biome, top, p8 / 2, density[1], &tile.trees).is_some_and(|o| o.row == t.row));
+                let alt = match still.back[t.row] {
+                    Some(b) if row.kind == Kind::Plant && inside() => b,
+                    _ => alts[a],
+                };
+                let (first, n) = still.looks[t.row].iter().find(|l| l.0 >> p8 & 1 == 1).map_or(alt, |l| l.1);
                 for f in first..first + n {
                     out.push(quad(u as u32 - 1, v as u32 - 1, zl as u32 - 1, du, dv, f, turn));
                 }
@@ -582,6 +604,17 @@ pub fn quads(body: &Body, key: Key, cells: &[u16; P * P * P], edits: &[(u32, u16
         }
     }
     out
+}
+
+/// A painting's mean colour over its opaque pixels, packed RGBA8 (r in the low byte).
+fn mean_colour(p: &crate::models::Painting) -> u32 {
+    let (mut sum, mut n) = ([0u32; 3], 0u32);
+    for px in p.px.iter().filter(|px| px[3] >= 128) {
+        (0..3).for_each(|k| sum[k] += px[k] as u32);
+        n += 1;
+    }
+    let m = sum.map(|v| v / n.max(1));
+    m[0] | m[1] << 8 | m[2] << 16 | 255 << 24
 }
 
 #[cfg(test)]
@@ -646,6 +679,8 @@ mod tests {
         // the meadow ground the far grass tops take is face 0, three 32 px tiles side by side (ADR 0091)
         assert_eq!(s.faces[0][13], MEADOW, "the meadow ground is face 0");
         assert_eq!(s.faces[0][12], 96 | 32 << 16, "three tiles of 32 x 32");
+        let mean = s.faces[0][14].to_le_bytes();
+        assert!(mean[3] == 255 && mean[1] > mean[0] && mean[1] > mean[2], "the meadow ground's mean is green: {mean:?}");
         assert!(s.faces.len() < 2000, "{} faces", s.faces.len());
         // in the cell's metres: every corner within a block of the cell (a plant up to 2.5 m high), none of them
         // in pixels or voxels
@@ -663,6 +698,10 @@ mod tests {
             let shrub = s.faces[s.rows[r][0].0 as usize][13] & SHRUB != 0;
             assert_eq!(shrub, plant && row.planes >= 4, "{}", row.name);
         }
+        // a reed bed has depth: its inside a darker painting, and four outlines so no stand looks stamped
+        let reeds = CLUTTER.iter().position(|r| r.name == "reeds").unwrap();
+        assert!(s.back[reeds].is_some(), "reeds.back.png");
+        assert_eq!(s.rows[reeds].len(), 4, "reeds and .1 to .3");
     }
 
     /// The review of 2026-11-13: the season alone turns at a season's middle, so a year began without a new mesh

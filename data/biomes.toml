@@ -117,7 +117,7 @@ rock = "stone"
 patches = [["dirt", 0.1], ["gravel", 0.04]]
 plants = [["shrub", 0.2]]
 clutter = [["twigs", 3], ["pebbles", 4], ["stick", 0.8], ["loose stone", 1], ["flint", 0.6]]
-undergrowth = [["short grass", 18], ["tall grass", 10], ["wild wheat", 4]]
+undergrowth = [["tall grass", 30], ["short grass", 22], ["wild wheat", 12]]
 
 [[biome]]
 name = "desert"

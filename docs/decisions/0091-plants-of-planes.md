@@ -30,20 +30,23 @@ shadows and feel like they got depth").
 - **Placement:** a plant is a clutter row of kind `plant` (`data/clutter.toml`, `planes = 2..4`, `looks`), placed
   by the same per-column roll as ADR 0082 with no storage, from a biome's new `undergrowth` list in
   `data/biomes.toml` (models stay in `clutter`). Plants roll on their own (`PLANT_ROLL`), and three in four take
-  their patch's roll (cells about 7 columns across, ragged), so a kind grows in drifts: tall grass in sweeps,
-  flowers and wheat in patches (four plants in five follow their patch). Short grass fills what the tall leaves
+  their patch's roll (cells about 12 columns across, ragged), so a kind grows in drifts: stretches of short grass,
+  stands of tall grass, patches of wheat and of one flower colour (four plants in five follow their patch). Short grass fills what the tall leaves
   open: open grassland is at least 85 % covered at normal (tested), so no bare ground shows between tufts.
 - **No grid:** each plant turns to any angle, stands up to a third of a block off its cell's middle and has its
   own width and height, all from its column's hash in the shader (`still_local`, shared with the BLAS so its
   shadow matches), so no row shows from any side.
-- **Shrubs** (four planes, the berry bush; `SHRUB` flag): wider than tall and lopsided by the hash, seen twice as
-  far as the grass (up to 120 m, inside the level-0 chunks they are meshed in).
+- **Shrubs** (four planes, the berry bush; `SHRUB` flag): three leaning crosses of three planes at fixed offsets
+  and sizes (`plant_faces`), a lobed clump wider than tall, lopsided by the hash; seen twice as far as the grass
+  (up to 120 m, inside the level-0 chunks they are meshed in). Grassland has a berry bush in about forty plants.
 - **Vegetation setting** (Graphics: few / normal / many = 0.4 / 1.0 / 1.6 of the density; `vegetation=`), and the
   far distance 48 / 80 / 112 m. Each plant shrinks into the ground over the last fifth of its own reach (55 to
   100 % of the far one, by its hash): the plants thin in a hashed order, no ring, none pops.
-- **Far away:** beyond about half the far distance the grass block's top takes the meadow's tone, a little
-  darker (the understorey under the tufts' lit tops) and mottled in 2 m patches (`ground_tint`), so from a hill
-  the valley reads as meadow with no line where the plants end.
+- **Far away:** the textures session's `meadow ground` painting (96 x 32, three tiles of 1 m at 32 px) is still
+  face 0 (`MEADOW` flag). Beyond half the far distance the grass block's top fades to it, a tile per column by
+  hash, climate-tinted (`ground_tint`, `meadow_texel`); the block's four sides take it in a fringe over their
+  top 0.15 to 0.45 m, faded the same way, so a step's edge reads as grass hanging over it. From a hill the valley
+  reads as meadow with no line where the plants end. Its `.far` plant paintings are not read yet.
 - **Sway** in `vs_still`: `sway(wind, height, column, hash)` from the weather's wind at the camera (ADR 0076) on
   the sky's clock; zero in a `shot=`, so fixed views stand still.
 - **Tint:** `climate_tint(heat, wet, part, season)` (WGSL) = `clutter::tint` (Rust, tested): heat from the bake's
@@ -52,8 +55,9 @@ shadows and feel like they got depth").
   from late summer, dull in winter. Only leafy pixels (g > r and g > b) take it, as a gentle multiply, so the
   paintings keep their ramps. The grass block's top takes the same tint without the season (`ground_tint`); each
   plant is also shifted a little warmer or cooler and lighter or darker by its column's hash.
-- **Depth:** darker at the root, lit at the tips; the planes of a cross a shade apart by their turn; shadows
-  between neighbours and from each plant onto the ground.
+- **Depth:** darker at the root, lit at the tips; the planes of a cross a shade apart by their turn; each plane
+  lit by how squarely it faces the sun (`|n . sun|`, 0.8 to 1.08); shadows between neighbours and from each
+  plant onto the ground.
 - **Shadows:** the still quads (plants and voxel clutter models alike) join the BLAS's second, non-opaque
   geometry. `expand` places them with the same `still_local` as `vs_still` (unswayed, unfaded). In `trace` a
   still candidate is confirmed only for shadow and lamp rays (first hit), more than 4 cm off the ray's start (a
@@ -118,16 +122,16 @@ lopsided side and its warm tint came from one hash: fixed, separate hashes.
    wheat patches). Vegetation few / normal / many scales it and the distance (48 / 80 / 112 m).
 4. **Tint:** deep green where wet, straw only where really dry (squared), the grass top and plants alike; a
    middling climate stays green.
-5. **Far meadow tone:** the grass top darkens and mottles where the plants have thinned, instead of a cheaper far
-   plant layer (one plane per column), which was not built.
-6. **Shrub = the berry bush** drawn as four lopsided planes; the trees session's leaf-block shrubs take the
+5. **Far meadow ground:** the grass top and a fringe on its sides take the painted meadow ground where the plants
+   have thinned, instead of a far plant layer (one plane per column, the `.far` paintings), which was not built.
+6. **Shrub = the berry bush** drawn as three lopsided clumps; the trees session's leaf-block shrubs take the
    crowns' fluff. Whether the two read as one kind of thing waits for both to be on main.
 
 ## Not done (asked, left for a later round)
-- A shrub as several bulging clumps with dents (more planes at several tilts, or planes on a leaf-block core):
-  today it is one lopsided cross of four.
-- Shading by the sun's side of each plane and the far plane of a cross darker than the near one: today a plant is
-  lit as the ground under it is (normal up), shaded by its root, its plane's turn and real shadows.
+- Far plane cards from the `.far` paintings, and keeping far planes longer on a step's edge (asked by the
+  overseer's fourth review): the meadow ground's fringe stands in.
+- From 40 m straight above, the grass tops within half the plant distance are the plain grass block between the
+  tufts; the meadow ground only starts beyond it.
 - A meadow's edge fraying into scattered tufts on a biome border: plants follow the biome's ground blocks.
 
 ## Consequences
