@@ -1795,8 +1795,11 @@ def build(pal, blocks):
     # the reed block: a tuft of blades a block high, its own outline per variant; seasons recolour the same blades
     for season, ramp in (("", RR("meadow green", 0, rgb=turned(MEADOW, 0))), ("@spring", RR("reed spring", 96, 0.85, 0.05)),
                          ("@autumn", RR("straw", 46, 0.75, 0.08)), ("@winter", RR("reed winter", 40, 0.3, 0.1))):
-        hd(f"reed{season}", 4, lambda g, v, r=ramp: named_canvas(  # the four variants are the four reed kinds
-            reeds_hd(np.random.default_rng(seed_of("reed", v)), HD, HD, v),
+        # the four variants are the four reed kinds; winter three (cattails, leaning, broken), as ADR 0090 picks
+        # winter variants by role only in a painting of exactly four
+        kinds = (0, 2, 3) if season == "@winter" else (0, 1, 2, 3)
+        hd(f"reed{season}", len(kinds), lambda g, v, r=ramp, kinds=kinds: named_canvas(
+            reeds_hd(np.random.default_rng(seed_of("reed", kinds[v])), HD, HD, kinds[v]),
             [r, RR("straw", 46, 0.75, 0.08), RR("cattail", 22, 0.5, -0.02)]))
     cactus_r, spine_r = RR("cactus", 128, 0.55, -0.02), RR("cactus spine", 50, 0.3, 0.25)
     hd("cactus_side", 3, lambda g, v: named_canvas(cactus_hd(g, False), [cactus_r, spine_r]))

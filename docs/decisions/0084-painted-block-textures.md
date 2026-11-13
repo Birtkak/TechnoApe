@@ -360,7 +360,8 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
   - Greens vary, with a few dry tan stalks (straw); short blades grow behind as an under-layer.
   - `reeds.back.png` is the tall kind two tones darker in every ramp (`darker`), for the back row of a bed so it
     has depth front to back.
-  - The reed block's four variants are the four kinds, a block high.
+  - The reed block's four variants are the four kinds, a block high. `reed@winter` has three (cattails, leaning,
+    broken), so ADR 0090's winter role pick, which keys on exactly four variants, leaves it alone.
   - The same stamped look elsewhere:
     - each fern now has its own number of fronds, spans and lean;
     - short grass and tall grass get a fourth outline (`.3`).
