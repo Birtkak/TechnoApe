@@ -582,6 +582,7 @@ impl App {
         let mut args: Vec<(f32, DrawArgs)> = Vec::with_capacity(draws.len());
         let mut sea_args: Vec<DrawArgs> = Vec::new();
         let mut cut_args: Vec<(f32, DrawArgs)> = Vec::new();
+        let mut fluff_args: Vec<(f32, DrawArgs)> = Vec::new();
         let mut glass_args: Vec<(f32, DrawArgs)> = Vec::new();
         let mut still_args: Vec<(f32, DrawArgs)> = Vec::new();
         let mut nquads = 0u64;
@@ -626,6 +627,10 @@ impl App {
             if draw_cut > 0 {
                 cut_args.push((d.dist, DrawArgs { vertex_count: draw_cut * 6, instance_count: 1, first_vertex: (d.off + opq) * 6, first_instance: ci }));
             }
+            // the fluff grows only on the cutout faces that open on air, which lead the cutout quads (ADR 0103)
+            if d.fluff > 0 {
+                fluff_args.push((d.dist, DrawArgs { vertex_count: d.fluff * 6, instance_count: 1, first_vertex: (d.off + opq) * 6, first_instance: ci }));
+            }
             if d.glass > 0 {
                 glass_args.push((d.centre, DrawArgs { vertex_count: d.glass * 6, instance_count: 1, first_vertex: (d.off + opq + draw_cut) * 6, first_instance: ci }));
             }
@@ -644,6 +649,8 @@ impl App {
         let args: Vec<DrawArgs> = args.into_iter().map(|a| a.1).collect();
         cut_args.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
         let cut_args: Vec<DrawArgs> = cut_args.into_iter().map(|a| a.1).collect();
+        fluff_args.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+        let fluff_args: Vec<DrawArgs> = fluff_args.into_iter().map(|a| a.1).collect();
         // glass far to near, so the nearer pane blends over the farther (ADR 0081; inside a chunk unsorted)
         glass_args.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
         let glass_args: Vec<DrawArgs> = glass_args.into_iter().map(|a| a.1).collect();
@@ -940,6 +947,9 @@ impl App {
         if !still_args.is_empty() {
             gpu.queue.write_buffer(&gpu.indirect, (MAX_CHUNKS * 64) as u64, bytemuck::cast_slice(&still_args));
         }
+        if !fluff_args.is_empty() {
+            gpu.queue.write_buffer(&gpu.indirect, (MAX_CHUNKS * 80) as u64, bytemuck::cast_slice(&fluff_args));
+        }
         if !glass_args.is_empty() {
             gpu.queue.write_buffer(&gpu.indirect, (MAX_CHUNKS * 48) as u64, bytemuck::cast_slice(&glass_args));
         }
@@ -1060,14 +1070,14 @@ impl App {
                 // (the land is still there for the light: only its picture is left out)
             } else if self.args.get("mdi", 1) == 1 {
                 // the cutout blocks' depth first, the terrain, then their colour where their depth is (ADR 0090)
-                let cut_at = (MAX_CHUNKS * 32) as u64;
+                let (cut_at, fluff_at) = ((MAX_CHUNKS * 32) as u64, (MAX_CHUNKS * 80) as u64);
                 let n_cut = cut_args.len() as u32;
                 if n_cut > 0 {
                     rp.set_pipeline(&gpu.cut_depth_pipeline);
                     rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
-                    if fluff {
+                    if fluff && !fluff_args.is_empty() {
                         rp.set_pipeline(&gpu.fluff_depth_pipeline);
-                        rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
+                        rp.multi_draw_indirect(&gpu.indirect, fluff_at, fluff_args.len() as u32);
                     }
                 }
                 // the plants' and still models' depth too, so the ground under the grass is never shaded (ADR 0103)
@@ -1081,9 +1091,9 @@ impl App {
                 if n_cut > 0 {
                     rp.set_pipeline(&gpu.cut_lit_pipeline);
                     rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
-                    if fluff {
+                    if fluff && !fluff_args.is_empty() {
                         rp.set_pipeline(&gpu.fluff_lit_pipeline);
-                        rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
+                        rp.multi_draw_indirect(&gpu.indirect, fluff_at, fluff_args.len() as u32);
                     }
                 }
                 if !still_args.is_empty() {
@@ -1091,15 +1101,15 @@ impl App {
                     rp.multi_draw_indirect(&gpu.indirect, still_at, still_args.len() as u32);
                 }
             } else {
-                let cuts = |rp: &mut wgpu::RenderPass, p: &wgpu::RenderPipeline| {
+                let cuts = |rp: &mut wgpu::RenderPass, p: &wgpu::RenderPipeline, list: &[DrawArgs]| {
                     rp.set_pipeline(p);
-                    for d in &cut_args {
+                    for d in list {
                         rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
                     }
                 };
-                cuts(&mut rp, &gpu.cut_depth_pipeline);
+                cuts(&mut rp, &gpu.cut_depth_pipeline, &cut_args);
                 if fluff {
-                    cuts(&mut rp, &gpu.fluff_depth_pipeline);
+                    cuts(&mut rp, &gpu.fluff_depth_pipeline, &fluff_args);
                 }
                 rp.set_pipeline(&gpu.still_depth_pipeline);
                 for d in &still_args {
@@ -1109,9 +1119,9 @@ impl App {
                 for d in &args {
                     rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
                 }
-                cuts(&mut rp, &gpu.cut_lit_pipeline);
+                cuts(&mut rp, &gpu.cut_lit_pipeline, &cut_args);
                 if fluff {
-                    cuts(&mut rp, &gpu.fluff_lit_pipeline);
+                    cuts(&mut rp, &gpu.fluff_lit_pipeline, &fluff_args);
                 }
                 rp.set_pipeline(&gpu.still_pipeline);
                 for d in &still_args {

@@ -16,6 +16,9 @@ pub struct Mesh {
     pub cut: u32,
     /// How many of `cut` a ray may pass through an empty texel of (fancy leaves: all; fast: none, ADR 0088).
     pub ray_cut: u32,
+    /// How many of `cut` open on air (bit 25), first among them: the client grows its fluff cards on these alone
+    /// (ADR 0103), and draws no fluff for the inner faces fancy leaves keep.
+    pub fluff: u32,
     /// Glass quads (ADR 0081), after the cutout ones: drawn blended after the light, the BLAS's second geometry.
     pub glass: u32,
     /// Still model quads (ADR 0068, 0082: clutter), after the glass ones and before the water: their own pipeline,
@@ -283,6 +286,9 @@ pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: b
             }
         }
     }
+    // the cutout faces that open on air first: the client's fluff passes draw those alone (ADR 0103)
+    groups[6].sort_by_key(|q| q[1] >> 25 & 1 == 0);
+    let n_fluff = groups[6].iter().take_while(|q| q[1] >> 25 & 1 == 1).count() as u32;
     let mut counts = [0u32; 6];
     let mut quads = Vec::with_capacity(groups.iter().map(|g| g.len()).sum());
     for (i, g) in groups.iter().enumerate() {
@@ -292,7 +298,7 @@ pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: b
         quads.extend_from_slice(g);
     }
     let n_cut = groups[6].len() as u32;
-    Mesh { quads, counts, cut: n_cut, ray_cut: if cut == Cut::Full { n_cut } else { 0 }, glass: groups[7].len() as u32, still: 0, water: 0 }
+    Mesh { quads, counts, cut: n_cut, ray_cut: if cut == Cut::Full { n_cut } else { 0 }, fluff: n_fluff, glass: groups[7].len() as u32, still: 0, water: 0 }
 }
 
 /// Each padded cell's way to wood through cutout blocks (ADR 0090): the world direction 0..6 (+x, -x, +y, -y,
@@ -586,6 +592,11 @@ mod tests {
         assert_eq!(fancy.ray_cut, fancy.cut, "fancy: a ray passes their holes");
         assert!(fancy.cut > 0 && fancy.quads[n_opq..].iter().all(|q| !b.opaque((q[1] & 255) as u16)), "the cutout quads come last");
         assert!(fancy.quads[..n_opq].iter().all(|q| b.opaque((q[1] & 255) as u16)));
+        // those that open on air first, `fluff` of them: the client's fluff passes draw only these (ADR 0103)
+        let (cuts, n) = (&fancy.quads[n_opq..], fancy.fluff as usize);
+        let open = |q: &[u32; 2]| q[1] >> 25 & 1 == 1;
+        assert!(n > 0 && n < cuts.len(), "a crown has open and inner faces: {n} of {}", cuts.len());
+        assert!(cuts[..n].iter().all(open) && !cuts[n..].iter().any(open));
         let solid = mesh(&c, 1);
         let mut got: Vec<_> = solid.quads.iter().map(face_of).collect();
         got.sort();
