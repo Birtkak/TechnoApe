@@ -79,6 +79,21 @@ After merging main the fixed views differed from their baselines by 3 to 9 % (le
 renders the same (seam 9.26 % against 9.27 % here; every view within 0.6 % of this branch's), so main's baselines
 were stale after ADR 0084's acceptance. Accepted as main renders them.
 
+
+## Follow-up: a steady `lod` view
+After the merge the `lod` view differed from its baseline by 1.0 to 1.4 % from run to run on a busy PC (the line
+is 0.5 %, the other views under 0.04 %). Not the LOD: every run loaded the same 8 304 chunks and quads. Two inputs
+depended on how long loading took:
+- **The sky's clock.** Off the server it was `time=` plus the run's seconds, so a shot's sun stood where the
+  load and the shot's 400 frames had moved it (0.2 degrees a second); the view from 120 m with its long shadows
+  shows it most. A shot now holds the clock at `time=`, as `run=view` did (`bench::sky_time`, test seen red).
+- **The bounce rays' seed.** `Gi::frame` counted from the run's start, and it also picks which of four pixels
+  the sun's trace takes (`n_lamps.y % 4`), so the 400 averaged frames got other rays when loading took more frames.
+  `Gi::drop_history`, which a shot calls at load, now restarts it.
+Measured (the `lod` view, 640 x 360 shots): the clock alone made quiet runs pixel-identical, but runs under twelve
+busy loops (18 to 28 s loads) still differed by up to 37 a channel; with both, three quiet and two busy runs (22 s
+loads) are pixel-identical. The views were accepted again: each view's sky is now exactly at its `time=`.
+
 ## Calls for the developer to confirm
 - Loading screen look: dark, the title, "Loading the world: N chunks to go" and a green bar (not filmed: the
   filmstrip only captures after loading).

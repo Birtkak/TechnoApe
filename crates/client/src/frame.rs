@@ -73,10 +73,8 @@ impl App {
             }};
         }
         // the sky's clock: the server's in play, else time= seconds into the world plus the run's own
-        if self.run == "view" {
-            self.world.time = self.time0;
-        } else if self.run != "play" {
-            self.world.time = self.time0 + t;
+        if self.run != "play" {
+            self.world.time = bench::sky_time(&self.run, self.shot.is_some(), self.time0, t);
         } else if let Some((st, warp, at)) = self.clock {
             let target = st + (now - at).as_secs_f64() * warp;
             self.world.time += dt.min(0.1) * warp;
@@ -983,10 +981,10 @@ impl App {
             enc.copy_buffer_to_buffer(resolve, (i * 256) as u64, &ring[i].0, 0, (TS_N * 8) as u64);
             self.ts_frames[i] = self.streamer.frame;
         }
-        // a shot waits a second after loading, so the last meshes are in, and as many frames as a quiet PC draws
-        // in that second: the bounce light settles by frames, not by the clock, and a shot beside a build got a
-        // handful of them and came out dark (the gate's viewpoints failing under load, 2026-11-12)
-        let cap_at = if self.shot.is_some() { 1.0 } else { self.next_cap };
+        // a shot waits exactly SHOT_FRAMES frames after loading, whatever the clock says: the bounce light settles
+        // by frames, a shot beside a build got a handful of them and came out dark (2026-11-12), and one on a quiet
+        // PC averaged more frames than one on a busy PC (ADR 0073)
+        let cap_at = if self.shot.is_some() { 0.0 } else { self.next_cap };
         let film = self.shot.is_some() || self.args.get("capture_ms", 0.0) > 0.0;
         let settled = self.shot.is_none() || bench::shot_settled(self.streamer.frame - self.loaded_frame);
         let cap_now = film && gpu.capture.is_some() && self.loaded_at.is_some() && t >= cap_at && settled;
