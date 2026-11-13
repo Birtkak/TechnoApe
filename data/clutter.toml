@@ -7,6 +7,8 @@
 # `gives`: a pick-up's item and how many. `on`: the ground blocks it lies on. `near`: "tree" (within 3 columns of
 # a trunk) or "open" (not). `season`: when it is there (all year if left out). `regrow`: "year" (it comes back
 # each year; left out, it never does).
+# `water`: it lies only within that many columns of water (a river, a lake, the sea; 1 to 8), or, with `over`,
+# over one of those rocks (the rock under the soil band); with neither, wherever its ground is (ADR 0097).
 
 [[clutter]]
 name = "grass tuft"
@@ -63,7 +65,9 @@ on = ["grass", "dirt", "sand", "gravel", "tundra grass", "scrub grass", "cold gr
 name = "flint"
 kind = "pickup"
 gives = ["flint", 1]
-on = ["gravel", "sand", "dirt", "scrub grass", "stone", "tundra grass"]
+on = ["gravel", "sand", "dirt", "stone", "grass", "meadow grass", "cold grass", "scrub grass", "tundra grass", "savanna grass", "jungle grass", "marsh grass", "mud"]
+water = 8
+over = ["limestone", "marble"]
 
 [[clutter]]
 name = "mushroom"
