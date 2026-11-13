@@ -91,6 +91,13 @@ gets no early depth.
    still take a leaf block whole. The overseer's plan (opaque BLAS, a fraction at the committed hit) would not see
    the second crown and needs the geometry flag per season anyway; the candidate path was already paid for.
    Also: a top face's fluff stands 45-60 degrees and a third as far out, leaves rising out of a shrub, not a slab.
+10. **A plant is lit as one mass.** Faces turned to the sun read lime and faces turned away near black (the
+   overseer's v4 review). Cutout quads and fluff planes bend their normal half way toward up (`normal + up * 0.5`),
+   so the sun falls on a crown more evenly, and their shade has a floor of 0.7: the volume is the shade, the
+   shaded side a deep green (v6 against the target). A bend of 1.2 was tried first: crowns went flat and lime.
+11. **Reeds are the plants session's** (ADR 0091). Its painted planes, with part D's four reed kinds, make the
+   reed bed: along the water's edge, over many columns, ragged. The reed block here has no fluff (`size = 0`), so
+   a `[[plant]] reed` column is a bare painted block of the same paintings. Agreed with flora-plants and part D.
 
 ## The Studio (tool tier)
 `art::Img` has a height: a fine file opens 32 x 32 a variant (the engine's quarters put back together), saves at
@@ -202,7 +209,8 @@ leaves last and is won back by decision 1 above. This branch carries it to main.
   40 m up, `out/flora-crowns/v4-air*.png`). Part D's far paintings (`data/textures/hd/far/`, 8 px a face) are
   the next step for the coarse levels' colour; not read yet.
 - Open after the last stills: a shrub's top planes in full sun read lime against its sides (the planes keep their
-  face's normal); pine, palm and willow leaves are unpainted drafts, judged by shape only; reed beds (no fluff on
-  the reed block; part D's four reed kinds and the plants session's planes share one painting) have no still yet.
+  face's normal); pine, palm and willow leaves are unpainted drafts, judged by shape only; reed beds are the plants
+  session's (decision 11). Shrub paintings are yellower than the trees' (shrub (85,130,27), shrub@spring
+  (113,153,36) against broadleaf (69,132,19)): part D is bringing them into the family; no tint is applied on top.
 - Twigs shorten to nothing three blocks from the wood; big crowns may want a longer reach once part C's
   branches are in.
