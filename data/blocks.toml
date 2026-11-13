@@ -817,3 +817,66 @@ loose = true
 sound = "glass"
 colour = [0.95, 0.62, 0.22]
 contrast = 0.3
+
+# The altered rock around an ore body (ADR 0095; `halo` in data/minerals.toml): host rock with a look, no
+# metal, the richer grade toward the body. Placeholder looks until they are painted. Ids 100 on.
+[[block]]
+id = 100
+name = "iron-stained rock"
+hardness = 8.0
+colour = [0.58, 0.46, 0.38]
+pattern = "speckle"
+colour2 = [0.62, 0.30, 0.12]
+colour3 = [0.78, 0.55, 0.28]
+size = 3
+amount = 0.5
+
+[[block]]
+id = 101
+name = "copper-stained rock"
+hardness = 8.0
+colour = [0.50, 0.50, 0.46]
+pattern = "speckle"
+colour2 = [0.18, 0.58, 0.40]
+colour3 = [0.22, 0.42, 0.66]
+size = 3
+amount = 0.55
+
+[[block]]
+id = 102
+name = "quartz-veined rock"
+hardness = 9.0
+colour = [0.48, 0.47, 0.46]
+pattern = "stone"
+colour2 = [0.95, 0.94, 0.90]
+contrast = 1.6
+
+[[block]]
+id = 103
+name = "greisen"
+hardness = 8.0
+colour = [0.70, 0.72, 0.66]
+pattern = "speckle"
+colour2 = [0.20, 0.20, 0.22]
+colour3 = [0.92, 0.93, 0.86]
+size = 1
+amount = 0.4
+
+[[block]]
+id = 104
+name = "bleached rock"
+hardness = 6.0
+colour = [0.84, 0.80, 0.70]
+pattern = "plain"
+contrast = 0.7
+
+[[block]]
+id = 105
+name = "dolomite"
+hardness = 6.0
+colour = [0.76, 0.66, 0.52]
+pattern = "speckle"
+colour2 = [0.92, 0.88, 0.80]
+colour3 = [0.60, 0.50, 0.38]
+size = 2
+amount = 0.35
