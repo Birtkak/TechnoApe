@@ -12,6 +12,8 @@
 # `near`: [min, max] metres from the spawn the nearest body must lie (optional; ore-budget.md, "Where").
 # `gravel`: a kind of gravel body put in the stream bed below each body, when a stream runs within 300 m.
 # `gossan`: rusty ground over each body, that many metres across (a sign of a deep body).
+# `halo`: the altered rock around a body at a depth (ADR 0095), its grades outermost first (blocks), the last
+#   next to the ore; `halo_m`: how far out it reaches, metres from the ore. Host rock with a look: no metal.
 
 [[kind]]
 name = "copper gravel"
@@ -46,6 +48,8 @@ depth = [15.0, 60.0]
 provinces = ["volcanic arc", "folded belt"]
 near = [1000.0, 3000.0]
 gossan = 30.0
+halo = ["iron-stained rock", "copper-stained rock"]
+halo_m = 8.0
 
 [[kind]]
 name = "tin vein"
@@ -59,6 +63,8 @@ provinces = ["shield", "volcanic arc", "folded belt"]
 host = "granite"
 near = [800.0, 1500.0]
 gravel = "tin gravel"
+halo = ["quartz-veined rock", "greisen"]
+halo_m = 4.0
 
 [[kind]]
 name = "tin gravel"
@@ -93,6 +99,8 @@ depth = [20.0, 80.0]
 provinces = ["shield"]
 near = [3000.0, 1e9]
 gossan = 60.0
+halo = ["bleached rock", "iron-stained rock"]
+halo_m = 6.0
 
 [[kind]]
 name = "coal seam"
@@ -128,6 +136,8 @@ depth = [10.0, 40.0]
 provinces = ["basin"]
 host = "limestone"
 near = [1000.0, 3000.0]
+halo = ["dolomite", "iron-stained rock"]
+halo_m = 4.0
 
 [[kind]]
 name = "gold vein"
@@ -139,6 +149,8 @@ blocks = 500
 depth = [40.0, 150.0]
 provinces = ["folded belt"]
 gravel = "gold gravel"
+halo = ["bleached rock", "quartz-veined rock"]
+halo_m = 3.0
 
 [[kind]]
 name = "gold gravel"
@@ -160,3 +172,5 @@ blocks = 333
 depth = [40.0, 150.0]
 provinces = ["shield"]
 host = "granite"
+halo = ["bleached rock", "iron-stained rock"]
+halo_m = 3.0

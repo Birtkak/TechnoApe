@@ -82,7 +82,7 @@ Option 2.
   over their shores.
 - **Warmth:** a row's `warm` keeps it where the baked year's mean air is at least that (`World::year_air`). So
   palms grow on warm beaches and in the rain forest, not on cold shores.
-- **Species:** each new one has its own log and leaves (ids 140 to 151). The leaves are `see = "cutout"` with the
+- **Species:** each new one has its own log and leaves (ids 206 to 217, after main's rubble and halo rows). The leaves are `see = "cutout"` with the
   `leaves` pattern; the logs are plain bark, because rings on a log's sides read as a 2 x 2 post.
   `out/flora-tree-blocks.txt` names them for painting.
 
@@ -224,6 +224,9 @@ inside a block was set on the ground under it, but under an oak's low limb its b
 `herds::move_on` now climbs it a block at a time (at most 16) until it fits. Red: the soak at seed 1; green
 with the climb. A rule that a shrub grows only on level ground was tried and dropped: it left grassland
 with no shrubs at all (`every_species_grows_in_its_biomes`), and the climb covers the animal case.
+A fresh reviewer of the climb: the up direction was taken before the move to the feet (now each step takes
+its own). Answered: an animal still inside after 16 blocks stays put and tries again each tick (no harm, no
+log); a whole-block step can lift a small animal onto a limb, where gravity takes it on the next tick.
 
 ## What changes for existing saves and checks
 - **Saves:** they hold edits only, so a save loads as before. But every unedited tree grows differently: new

@@ -409,7 +409,7 @@ fn move_on(world: &World, a: &mut Animal, kind: &Kind, dt: f64, tick: u64) {
                 if !phys::inside(world, &a.p) {
                     break;
                 }
-                a.p.pos += up;
+                a.p.pos += phys::up(world, a.p.pos);
             }
         }
         return;
