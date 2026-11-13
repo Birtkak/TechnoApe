@@ -212,17 +212,17 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
             let at0 = quad_corner(q, 0u, 0.0);
             let root = (q.y >> 20u) & 7u;
             let h = hash(vec3i(floor(at0)) + c.base + vec3i(i32(ku) * 7, i32(kv) * 13, i32(dir) * 31 + 5));
-            var su = 0.5 + (f32(ku) - 0.5) * 1.4;
-            var sv = 0.5 + (f32(kv) - 0.5) * 1.4;
-            var push = 0.22 + 0.2 * h;
+            var su = 0.5 + (f32(ku) - 0.5) * 1.7;
+            var sv = 0.5 + (f32(kv) - 0.5) * 1.7;
+            var push = 0.3 + 0.25 * h;
             reach = 1.0;
             if (root >= 1u && root <= 4u) {
                 // hinged on the wood's side: that edge on the face, the far one stood out
                 let along_u = root < 3u;
                 let along = f32(select(kv, ku, along_u));
                 let out = select(along, 1.0 - along, (root & 1u) == 0u);
-                push = mix(0.02, 0.4, out) + 0.12 * (h - 0.5);
-                let s = select(out * 1.35, 1.0 - out * 1.35, (root & 1u) == 0u);
+                push = mix(0.02, 0.55, out) + 0.16 * (h - 0.5);
+                let s = select(out * 1.6, 1.0 - out * 1.6, (root & 1u) == 0u);
                 if (along_u) { su = s; } else { sv = s; }
                 reach = 0.4 + out;
             }

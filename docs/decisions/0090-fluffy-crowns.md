@@ -38,7 +38,7 @@ gets no early depth.
    wood v0 or v1 by hash, a step on v2 (a limb through), two on v3 (tips); a bare block with no way to wood
    within three steps draws nothing, so a crown thins to its edge and nothing floats.
 4. **Fluff** (`vs_fluff`, `fs_fluff_depth`, `fs_fluff_lit`): every cutout quad that opens on air is drawn again,
-   1.4 times larger and stood 0.2-0.4 m out of the crown, turned per corner by a hash of the place, inside a ragged
+   1.7 times larger and stood 0.3-0.55 m out of the crown, turned per corner by a hash of the place, inside a ragged
    round of texels. A rooted one is hinged on its wood's side: that edge stays on the face, the far edge stands
    out, so bare twigs fan out of the crown from the wood. Fluff is not traced: to rays leaves stay whole blocks
    (ADR 0069, 0088), and far levels stay one colour. `fluff=0` on a run leaves it out.
