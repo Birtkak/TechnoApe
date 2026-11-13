@@ -319,7 +319,9 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
     - `data/plants/meadow ground.png`: three 32 px tiles side by side, a mottled grass top in the meadow's
       greens with lit blade tips and a few petals and seed heads. It is for where the plants session thins
       plants out.
-    - These names and sizes were proposed to the plants session (glass-clutter); its answer may move them.
+    - The plants session (glass-clutter) agreed these names and sizes. `meadow ground` is its still face 0: the grass
+      top fades to it past half the plant distance, and the grass block's sides take it as a fringe near the top.
+      The `.far` paintings are not read yet; far plants still use the near painting.
   - Proof: the sheets `out/flora/plants-hd.png` and `meadow-vs-ref.png` (outline and depth, beside reference 4),
     and `far-vs-ref.png` and `far-plants.png` (distance), all read.
 - **Every mass, and only masses** (the developer, 2026-11-13: "everything biological more or less (things like
