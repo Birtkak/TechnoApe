@@ -193,7 +193,8 @@ fn clouds(px: vec2i, dir: vec3f, dist: f32) -> vec4f {
     // (most ground pixels: the slab is behind what they show)
     if (seg[0].y <= seg[0].x && seg[1].y <= seg[1].x) { return vec4f(0.0); }
     let wind = cl_wind(normalize(o + d * max(seg[0].x, select(seg[1].x, seg[0].x, seg[0].y > seg[0].x))), u.cloud.w);
-    let jit = fract(sin(dot(vec2f(px) + f32(u.cfg.z % 64u) * vec2f(7.1, 3.7), vec2f(12.9898, 78.233))) * 43758.5453);
+    // by the pixel alone: nothing accumulates the clouds over frames, so a jitter by the frame would only shimmer
+    let jit = fract(sin(dot(vec2f(px), vec2f(12.9898, 78.233))) * 43758.5453);
     var tr = 1.0;
     var col = vec3f(0.0);
     var first = -1.0;

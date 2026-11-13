@@ -775,7 +775,8 @@ impl App {
         let clouds_on = self.settings.at(S::Clouds) > 0 && b0.sea.is_some() && self.sky.m() > 0;
         if b0.sea.is_some() && self.sky.m() > 0 {
             self.sky.upload(&gpu.queue, &gpu.sky_tex, wt);
-            g.cloud = self.sky.cloud(wt, b0.layer_r(b0.sea.unwrap()));
+            // a shot's clouds stand at its time=, however long its load took (the views compare it by pixels)
+            g.cloud = self.sky.cloud(if self.shot.is_some() { self.time0 } else { wt }, b0.layer_r(b0.sea.unwrap()));
             if !clouds_on {
                 g.cloud[1] = 0.0;
             }

@@ -58,7 +58,7 @@ see the same sky, nothing may stall the frame thread, and the game will be CPU-b
   and its `thunder` plays from the strike, late by distance at 343 m/s.
 - **Lying snow:** the terrain shader whitens faces that look up by the column's snow (bilinear over the
   columns), the face's pattern showing through where it is thin. Nothing in the world changes.
-- **Settings:** Graphics "Clouds" (off, low, high) and "Rain and snow" (off, light, full).
+- **Settings:** Graphics "Clouds" (off, low, high; low by default) and "Rain and snow" (off, light, full).
 
 ## Consequences
 - A client's weather traffic is the join's 83 kB and then a delta every 10 s.
@@ -67,6 +67,10 @@ see the same sky, nothing may stall the frame thread, and the game will be CPU-b
   and the drops' spawning (a few block lookups each).
 - Clouds cast shadows only on the sun's light, not on the moon's; they are not in the traced scene, so a
   reflection does not show them.
+- **Cost** (quick runs, play build, RTX 3070): the GPU's median frame +0.8 ms with clouds low (stand 1.44 to
+  2.28 ms, fly 1.92 to 2.73, sim 1.64 to 2.30), +1.5 ms with high; about 0.35 of it the shadow in `light()`, the
+  rest the march. Off costs what main did. The frame thread's own work, job time and the sim's tick did not
+  move (stand 0.62 ms, tick p99 2.4 ms). Accepted into `tests/perf/baseline.json` on purpose.
 - Rain is not water in the world (that stays the grid's runoff to the rivers, ADR 0059).
 - A client that joins sees the current step at once (no blend from the last); the cells' pattern and the cover
   step at the cube's twelve edges (each face's texture is sampled alone: a shortcut, pad the faces if it shows).
