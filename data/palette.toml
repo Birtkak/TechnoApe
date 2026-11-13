@@ -1979,8 +1979,18 @@ rgb = "#31241c"
 ramp = "log bark rich"
 
 [[colour]]
+name = "log bark r3"
+rgb = "#473626"
+ramp = "log bark rich"
+
+[[colour]]
 name = "log bark r4"
 rgb = "#604931"
+ramp = "log bark rich"
+
+[[colour]]
+name = "log bark r5"
+rgb = "#775e3f"
 ramp = "log bark rich"
 
 [[colour]]

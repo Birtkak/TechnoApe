@@ -938,7 +938,8 @@ def leaf_mass(rng, shapes, size=(HD, HD), clumps=11, radius=(6, 10), flat=1.0, s
         for y, x, q in sorted(leaves):
             n = np.array([x / (r * flat), y / r, np.sqrt(max(0.0, 1 - q))])
             lit = max(0.0, float(n @ LIGHT))
-            tone = 1 + round(lit * 5.5) - round(2 * back) + int(rng.integers(-1, 2))
+            # a leaf a step off only now and then: clumps a quarter block wide must read from 10 to 20 m, not speckle
+            tone = 1 + round(lit * 5.5) - round(2 * back) + (int(rng.integers(-1, 2)) if rng.random() < 0.3 else 0)
             px, py = int(round(cx + x)), int(round(cy + y))
             if not wrap and mask is not None and not (0 <= py < h and 0 <= px < w and mask[py, px]):
                 continue
@@ -1001,12 +1002,12 @@ def pine_hd(rng):
         for x in range(HD):
             if rng.random() < 0.35:
                 c[y, x] = 1 if rng.random() < 0.6 else 3
-    for _ in range(14):
+    for _ in range(9):  # fewer, bigger rosettes: clusters that read from 20 m
         cx, cy = int(rng.integers(HD)), int(rng.integers(HD))
         for a in np.linspace(0, 6.283, 18, endpoint=False) + rng.uniform(0, 0.35):
             dx, dy = np.cos(a), np.sin(a)
             lit = max(0.0, -dx * 0.5 - dy * 0.85)
-            for i in range(1, int(rng.integers(4, 8))):
+            for i in range(1, int(rng.integers(6, 10))):
                 hd_put(c, cx + int(round(dx * i)), cy + int(round(dy * i)),
                        max(1, min(7, 2 + round(lit * 4.5) + (1 if i > 3 else 0))))
         hd_put(c, cx, cy, 0)
@@ -1151,7 +1152,7 @@ def wnoise(rng, cell, size=HD):
 def calm(c, lo, hi):
     """Squeeze a bark's tones 0..7 into lo..hi: close browns or greys, the furrows only a little darker, so a trunk
     reads as bark from 9 m and does not draw the eye from the crown (the overseer, 2026-11-13: oak read as zebra)."""
-    return np.vectorize(lambda t: int(round(lo + (hi - lo) * t / 7)), otypes=[object])(c)
+    return np.vectorize(lambda t: None if t is None else int(round(lo + (hi - lo) * t / 7)), otypes=[object])(c)
 
 
 def bark_hd(rng, kind):
@@ -1658,7 +1659,7 @@ def build(pal, blocks):
         "oak": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["lobed"], radius=(7, 11), spacing=4, holes=0.08, nholes=1),
                     hue=(112, 0.85, -0.02), bark="ridged", barkc=(32, 0.18, 0.02), woodc=(32, 0.5, 0.1),
                     spring=(102, 0.85, 0.02), autumn=(26, 0.7, 0.0), fruit=("acorn", 36, 0.7, 0.06, 2)),
-        "birch": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["small"], clumps=13, radius=(5, 8), spacing=2,
+        "birch": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["small"], clumps=9, radius=(7, 10), spacing=2,
                                                holes=0.1, nholes=4), hue=(84, 0.9, 0.03), bark="birch",
                       barkrgb=BIRCH, woodc=(42, 0.4, 0.2), spring=(78, 0.9, 0.05), autumn=(48, 0.95, 0.05),
                       catkins=True, twigs="log"),
@@ -1670,12 +1671,12 @@ def build(pal, blocks):
         "jungle": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["broad"], clumps=9, radius=(8, 12), spacing=5,
                                                 holes=0.04, nholes=3), hue=(118, 1.0, 0.0), bark="smooth",
                        barkc=(40, 0.2, 0.08), woodc=(30, 0.5, 0.12), fruit=("tropical fruit", 28, 1.0, 0.08, 3)),
-        "acacia": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["small"], clumps=12, radius=(4, 7), flat=1.7,
+        "acacia": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["small"], clumps=7, radius=(7, 11), flat=1.6,
                                                 spacing=3, holes=0.1, nholes=3), hue=(74, 0.72, 0.06), bark="smooth",
                        barkc=(30, 0.18, 0.0), woodc=(22, 0.6, 0.1)),
         "palm": dict(leaf=palm_hd, hue=(90, 0.9, 0.02), bark="palm", barkc=(38, 0.35, 0.05), woodc=(40, 0.45, 0.15),
                      fruit=("coconut", 28, 0.5, -0.02, 5)),
-        "bamboo": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["lance"], clumps=10, radius=(6, 9), spacing=4,
+        "bamboo": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["lance"], clumps=8, radius=(8, 11), spacing=4,
                                                 holes=0.08, nholes=3), hue=(92, 0.95, 0.02), bark="culm",
                        barkc=(85, 0.6, 0.05), woodc=(55, 0.35, 0.2), hollow=True),
     }
@@ -1729,7 +1730,7 @@ def build(pal, blocks):
                 f(np.random.default_rng(seed_of(b, v))), [r]))
             tw = RR("log bark", *sp_hd["broadleaf"]["barkc"]) if t.get("twigs") == "log" else bark_r
             hd(f"{leaf_b}@winter", 4, lambda g, v, r=tw, b=leaf_b: named_canvas(
-                hd_twigs(np.random.default_rng(seed_of(b, "winter", v)), WINTER_ROLES[v]), [r]))
+                calm(hd_twigs(np.random.default_rng(seed_of(b, "winter", v)), WINTER_ROLES[v]), 1, 4), [r]))  # one tree, one bark family
         if "fruit" in t:
             name, hue, sat, light, size = t["fruit"]
             fr = RR(name, hue, sat, light)
@@ -1741,7 +1742,7 @@ def build(pal, blocks):
     hd("shrub", 4, lambda g, v: named_canvas(leaf_mass(np.random.default_rng(seed_of("shrub", v)), LEAF_SHAPES["oval"],
                                                        radius=(5, 8), holes=0.08), [shrub_r]))
     hd("shrub@winter", 4, lambda g, v: named_canvas(
-        hd_twigs(np.random.default_rng(seed_of("shrub", "winter", v)), WINTER_ROLES[v]), [RR("log bark", 28, 0.35, 0.0)]))
+        calm(hd_twigs(np.random.default_rng(seed_of("shrub", "winter", v)), WINTER_ROLES[v]), 1, 4), [RR("log bark", 28, 0.35, 0.0)]))
     for season, ramp in (("spring", RR("shrub spring", 84, 0.8, 0.06)), ("autumn", RR("shrub autumn", 30, 0.85, 0.0))):
         hd(f"shrub@{season}", 4, lambda g, v, r=ramp: named_canvas(leaf_mass(np.random.default_rng(seed_of("shrub", v)),
                                                                              LEAF_SHAPES["oval"], radius=(5, 8), holes=0.08), [r]))

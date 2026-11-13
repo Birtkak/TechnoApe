@@ -338,3 +338,13 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
     the crowns session.
   - The palette now has 573 colours.
   - Proof: `out/flora/masses-far.png`, each mass as 2x2 blocks beside its far painting at the same size, read.
+- **One tree, one colour family; clusters that carry** (the crowns review, 2026-11-13):
+  - Winter twigs take the same calm band of the species' bark ramp as its log side (tones 1 to 4). They were the
+    full ramp, and their tips read light tan beside the calmed bark. `broadleaf leaves@winter` and
+    `hd/log_side.png` now share their darkest, middle and lightest colours.
+  - Leaf clusters about a quarter block wide must still read from 10 to 20 m, the developer's target:
+    - only three leaves in ten get a random step of tone, so a clump is no longer speckled;
+    - birch, acacia and bamboo have fewer, larger clumps;
+    - pine has fewer, longer rosettes.
+  - Proof: `out/flora/leaves-10-20m.png`, every species' leaves box-filtered to 28 and 14 px a block (about 10
+    and 20 m in the crowns stills), read. Clusters carry for all but willow, whose strands are its look.
