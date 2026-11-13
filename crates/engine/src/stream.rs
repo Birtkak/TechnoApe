@@ -1,7 +1,7 @@
 //! LOD octree selection, job scheduling on worker threads, GPU sub-allocation of chunk meshes.
-use crate::mesh::{mesh_cut, Mesh};
+use crate::mesh::{mesh_cracked, Mesh};
 use crate::liquid::{Col, TILE};
-use crate::world::{fold, generate, river_quads, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS};
+use crate::world::{fold, generate, pidx, river_quads, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS, P};
 use glam::{DQuat, DVec3, IVec3, Vec4};
 use crate::clutter::Still;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -593,7 +593,10 @@ impl Streamer {
                 let body = &bodies[k.body as usize];
                 let gen = generate(body, k, &edits);
                 let mut mesh = match &gen {
-                    Gen::Cells(c) => Some(mesh_cut(c, if greedy { body.lattice(k.level) as usize } else { 1 }, cutout, may_glass)).filter(|m| !m.quads.is_empty()),
+                    Gen::Cells(c) => {
+                        let cracks = if k.level == 0 { cracks(body, k, c) } else { None };
+                        Some(mesh_cracked(c, if greedy { body.lattice(k.level) as usize } else { 1 }, cutout, may_glass, cracks.as_deref())).filter(|m| !m.quads.is_empty())
+                    }
                     _ => None,
                 };
                 if let (Gen::Cells(c), Some(m)) = (&gen, mesh.as_mut()) {
@@ -1036,4 +1039,28 @@ mod tests {
         assert!(hid(ball(r0 + 20.0, 0.0))); // on the equator, seen from above the pole
         assert!(hid(ball(r0 * 0.9, -r0 * 0.6))); // past the horizon, well inside the cone
     }
+}
+
+/// The crack faces (ADR 0094) of a level-0 chunk's cells that a face shows: cracking rock beside an open cell; None
+/// when it has none (most chunks: no rock in sight). shortcut: a cell beside glass or a cutout block draws no crack.
+fn cracks(body: &crate::world::Body, k: Key, c: &[u16; P * P * P]) -> Option<Box<[u8; P * P * P]>> {
+    let cracking = |m: u16| crate::blocks::BLOCKS.get(m).is_some_and(|d| d.bedding > 0.0 || d.joints > 0);
+    let base = k.base() - IVec3::ONE;
+    let mut out: Option<Box<[u8; P * P * P]>> = None;
+    for z in 1..P - 1 {
+        for y in 1..P - 1 {
+            for x in 1..P - 1 {
+                let m = c[pidx(x, y, z)];
+                if !cracking(m) || [(1, 0, 0), (0, 1, 0), (0, 0, 1)].iter().all(|&(dx, dy, dz)| c[pidx(x + dx, y + dy, z + dz)] != 0 && c[pidx(x - dx, y - dy, z - dz)] != 0) {
+                    continue;
+                }
+                let g = base + IVec3::new(x as i32, y as i32, z as i32);
+                let f = crate::crack::at(body, m, k.face, g.x, g.y, g.z);
+                if f != 0 {
+                    out.get_or_insert_with(|| Box::new([0; P * P * P]))[pidx(x, y, z)] = f;
+                }
+            }
+        }
+    }
+    out
 }

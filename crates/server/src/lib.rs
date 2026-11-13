@@ -125,6 +125,8 @@ pub struct Pile {
 const FALL: i32 = 64;
 /// A pile is picked up by a player whose feet are within this of its cell's middle (m), checked every tick.
 const PICK: f64 = 1.5;
+/// Points a falling rock takes from the head it falls through (ADR 0094).
+const ROCK_HIT: u8 = 4;
 /// A pile can be opened from this far (m).
 const PILE_REACH: f64 = 4.0;
 /// A throw lands this far ahead (m), and its thrower cannot take it back for this many ticks (2 s).
@@ -846,6 +848,7 @@ impl Server {
         let mine = changed.len();
         if self.falls.awake() > 0 {
             self.falls.step(&mut self.world, self.tick, &mut changed);
+            self.rock_hits(&changed[mine..]);
         }
         // the animals (ADR 0083): woken by the players on Terra, stepped as far as the players were
         let players: Vec<(DVec3, DVec3)> = self.clients.iter().filter(|c| self.world.frame_at(c.phys.pos) == 0).map(|c| (c.phys.pos, c.phys.vel)).collect();
@@ -1446,15 +1449,42 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
             }
             c.inv_dirty = true;
         }
-        for &(b, old) in &cells {
+        // a survival dig on a crack loosens its neighbours along it into rubble too (ADR 0094), read before the
+        // dig changes the world
+        let loose: Vec<(Block, u16)> = if m == AIR && !c.creative {
+            cells.iter().flat_map(|&(b, old)| engine::crack::drop(&self.world, b, old).into_iter().map(move |n| (n, old))).filter(|(n, _)| !cells.iter().any(|c| c.0 == *n)).collect()
+        } else {
+            Vec::new()
+        };
+        for &(b, old) in cells.iter().chain(&loose) {
             let m = leave(old);
-            self.world.set_block(b, m);
-            changed.push((b, m));
+            if self.world.block(b) != m {
+                self.world.set_block(b, m);
+                changed.push((b, m));
+            }
         }
         if !drops.is_empty() {
             self.drop_dug(i, &cells, drops);
         }
         true
+    }
+
+    /// A falling rock that moved into a survival player's head this tick hits it (ADR 0094: a drop hurts who is
+    /// under it); sand only buries. A block falls through a head once, so it hits once.
+    fn rock_hits(&mut self, moves: &[(Block, u16)]) {
+        let mut deaths = Vec::new();
+        for &(b, m) in moves.iter().filter(|(_, m)| BLOCKS.get(*m).is_some_and(|d| d.rubble_of.is_some())) {
+            for c in self.clients.iter_mut().filter(|c| !c.creative && c.vitals.dead.is_none()) {
+                let eye = self.world.block_at(c.phys.pos + phys::up(&self.world, c.phys.pos) * phys::EYE);
+                let name = if c.player.name.is_empty() { "?" } else { c.player.name.as_str() };
+                if eye == b && c.vitals.hurt(ROCK_HIT, || format!("{name} was hit by falling {}", BLOCKS.get(m).map_or("rock", |d| d.name.as_str()))) {
+                    deaths.extend(c.vitals.dead.clone());
+                }
+            }
+        }
+        for line in deaths {
+            self.say(line);
+        }
     }
 
     /// What a survival dig took falls to the ground (ADR 0047, 0074): as few piles as hold it, in the dug cells
@@ -3058,12 +3088,16 @@ mod tests {
     /// Drops `n` layers of sand on a survival player standing on the ground (the developer, 2026-11-13: sand
     /// buries and hurts, ADR 0079) and waits `secs`; its health then and the sand's cells.
     fn bury(n: i32, secs: f64) -> (u8, Option<String>, Vec<u16>) {
+        bury_in(BLOCKS.id("sand"), n, secs)
+    }
+
+    /// `bury` with layers of block `sand`.
+    fn bury_in(sand: u16, n: i32, secs: f64) -> (u8, Option<String>, Vec<u16>) {
         let (mut s, links) = server_with(1);
         drop_from(&mut s, &links[0], 0.0);
         let pos = s.clients[0].phys.pos;
         let up = phys::up(&s.world, pos);
         let feet = s.world.block_at(pos + up * 0.5);
-        let sand = BLOCKS.id("sand");
         // a slab 3 x 3 wide (a single column two high would slide off itself, to its angle of rest)
         for k in 0..n {
             for (di, dj) in (-1..=1).flat_map(|i| (-1..=1).map(move |j| (i, j))) {
@@ -3089,6 +3123,60 @@ mod tests {
         assert_eq!(early, vitals::MAX, "a breath held: the first seconds cost nothing");
         let (_, dead, _) = bury(2, 60.0);
         assert!(dead.is_some_and(|d| d.contains("buried")), "staying under kills, by burial");
+    }
+
+    /// ADR 0094 (mining.md 2: a drop hurts who is under it): rock falling through a player's head hits it once, by
+    /// `ROCK_HIT`; one layer then lies at the feet, which costs no breath. Sand hits nothing (it only buries).
+    #[test]
+    fn falling_rock_hits_the_head_it_falls_through() {
+        let rubble = BLOCKS.id("granite rubble");
+        let (health, _, cells) = bury_in(rubble, 1, 5.0);
+        assert_eq!(cells[..2], [rubble, AIR], "it fell through the head to the feet");
+        assert_eq!(health, vitals::MAX - ROCK_HIT);
+    }
+
+    /// ADR 0094: a survival dig of granite on a joint loosens 2 to 5 more of it along the joint into rubble; a dig off
+    /// every crack takes the one block.
+    #[test]
+    fn a_dig_on_a_crack_drops_rubble_along_it() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let (pole, under) = on_land(&s);
+        let granite = BLOCKS.id("granite");
+        let rubble = BLOCKS.get(granite).unwrap().rubble.unwrap();
+        // the ground under the player (whose feet are in `under`) made a granite floor three deep
+        let cell = |di: i32, dj: i32, dl: i32| Block { pos: under.pos + glam::IVec3::new(di, dj, -dl), ..under };
+        let near: Vec<Block> = (-6..=6).flat_map(|di| (-6..=6).flat_map(move |dj| (1..=3).map(move |dl| cell(di, dj, dl)))).collect();
+        for &b in &near {
+            s.world.set_block(b, granite);
+        }
+        l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        s.tick();
+        let mut seq = 0;
+        let mut dig = |s: &mut Server, b: Block| {
+            seq += 1;
+            let one = Shape::one(b);
+            l.send(ToServer::Dig(Some(one)));
+            s.tick();
+            wait(s, edit::dig_time(&s.world, &one) * 1.05);
+            l.send(ToServer::Edit { seq, shape: one, material: AIR });
+            s.tick();
+            assert!(drain(l).contains(&ToClient::Done { seq, ok: true }), "dug {b:?}");
+        };
+        let reach = |b: &&Block| s.world.block_centre(**b).distance(pole) < 3.5 && b.pos.z == under.pos.z - 1;
+        let on = *near.iter().filter(reach).find(|b| engine::crack::of(&s.world, **b) != 0).expect("a joint near");
+        let off = *near.iter().filter(reach).find(|b| engine::crack::of(&s.world, **b) == 0).expect("solid rock near");
+        let loose = engine::crack::drop(&s.world, on, granite);
+        assert!((2..=5).contains(&loose.len()));
+        dig(&mut s, on);
+        let count = |s: &Server| near.iter().filter(|b| s.world.block(**b) == rubble).count();
+        assert_eq!(count(&s), 1 + loose.len(), "the dug block and its neighbours along the joint");
+        assert!(loose.iter().all(|b| s.world.block(*b) == rubble));
+        if !loose.contains(&off) {
+            dig(&mut s, off);
+            assert_eq!(count(&s), 2 + loose.len(), "off the cracks: the one block");
+        }
+        assert!(s.item_ledger().is_empty());
     }
 
     #[test]
