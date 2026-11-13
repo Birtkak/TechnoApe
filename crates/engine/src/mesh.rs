@@ -13,6 +13,8 @@ pub struct Mesh {
     pub quads: Vec<[u32; 2]>,
     pub counts: [u32; 6],
     pub cut: u32,
+    /// How many of `cut` a ray may pass through an empty texel of (fancy leaves: all; fast: none, ADR 0088).
+    pub ray_cut: u32,
     /// Glass quads (ADR 0081), after the cutout ones: drawn blended after the light, the BLAS's second geometry.
     pub glass: u32,
     /// Still model quads (ADR 0068, 0082: clutter), after the glass ones and before the water: their own pipeline,
@@ -39,17 +41,29 @@ fn is_in(t: &[u64; 1024], c: u16) -> bool {
 
 /// `lattice` > 1 merges faces into quads that stay inside the cells of a lattice that many cells wide, where the
 /// renderer places vertices by interpolation (`Body::lattice`, ADR 0025 I2); 1 merges nothing. Every solid block
-/// but glass hides the faces behind it: the fast Leaves setting, and every coarse level.
+/// but glass hides the faces behind it: every coarse level.
 pub fn mesh(cells: &[u16; P * P * P], lattice: usize) -> Mesh {
-    mesh_cut(cells, lattice, false, true)
+    mesh_cut(cells, lattice, Cut::Solid, true)
 }
 
-/// `mesh`, and with `cutout` (fancy leaves on level 0, ADR 0069) a face is culled only against an opaque
-/// neighbour, so the faces behind and between cutout blocks stay, and the cutout blocks' quads go last as `cut`.
+/// How level 0 meshes cutout blocks (leaves; ADR 0069, 0088).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Cut {
+    /// As any block: they hide what is behind them, their quads lie with the rest (coarse levels).
+    Solid,
+    /// Fast leaves: the faces between two cutout blocks go, an opaque block's behind one stays.
+    Shell,
+    /// Fancy leaves: a face is culled only against an opaque neighbour.
+    Full,
+}
+
+/// `mesh` with level 0's rule for cutout blocks, `cut`. With `Shell` and `Full` the cutout blocks' quads go
+/// last as `cut`, for the pipeline that leaves their empty texels out.
 /// Glass (ADR 0081) always hides only its own kind and is hidden only by what hides; its quads go after `cut`.
-/// `glass`: the cells may hold glass. Generation makes none, so a chunk without edits passes false and its fast
-/// first pass looks at no block's kind, as before glass.
-pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: bool) -> Mesh {
+/// `glass`: the cells may hold glass. Generation makes none, so a `Solid` chunk without edits passes false and
+/// its first pass looks at no block's kind, as before glass.
+pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool) -> Mesh {
+    let cutout = cut != Cut::Solid;
     // cols[a][v*P+u] = bits along axis a; u = (a+1)%3, v = (a+2)%3. opq: the same of the cells that hide what is
     // behind them, and gls of glass, made only for a chunk with glass or (fancy) cutout blocks
     let mut cols = [[0u64; P * P]; 3];
@@ -57,7 +71,6 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
     let mut gls_cols: Vec<[u64; P * P]> = Vec::new();
     let (see_t, glass_t): (&[u64; 1024], &[u64; 1024]) = (&SEE, &GLASS);
     let (mut any_see, mut glass_seen) = (false, false);
-    let look = cutout || glass;
     for z in 0..P {
         for y in 0..P {
             for x in 0..P {
@@ -66,7 +79,7 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
                     cols[0][z * P + y] |= 1 << x; // a=x: u=y, v=z
                     cols[1][x * P + z] |= 1 << y; // a=y: u=z, v=x
                     cols[2][y * P + x] |= 1 << z; // a=z: u=x, v=y
-                    if look && is_in(see_t, c) {
+                    if (cutout || glass) && is_in(see_t, c) {
                         any_see = true;
                         glass_seen |= glass && is_in(glass_t, c);
                     }
@@ -76,7 +89,7 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
     }
     let (mut any_cut, mut any_glass) = (false, false);
     if glass_seen || cutout && any_see {
-        // a second pass, only in a chunk with glass, or (fancy) cutout blocks: fast leaves hide like any block
+        // a second pass, only in a chunk with glass or cutout blocks
         opq_cols = vec![[0u64; P * P]; 3];
         gls_cols = vec![[0u64; P * P]; 3];
         for z in 0..P {
@@ -119,6 +132,12 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
                     let col = cols[a][(v + 1) * P + (u + 1)];
                     let o = opq[a][(v + 1) * P + (u + 1)];
                     let mut f = if s == 0 { col & !(o >> 1) } else { col & !(o << 1) };
+                    if any_cut && cut == Cut::Shell {
+                        // fast leaves: a cutout block's face against a cutout block goes (a crown has no inner
+                        // faces), an opaque block's behind one stays, seen through its holes (ADR 0088)
+                        let ct = col & !o & !gls_cols[a][(v + 1) * P + (u + 1)];
+                        f &= !(ct & if s == 0 { ct >> 1 } else { ct << 1 });
+                    }
                     if any_glass {
                         // a glass face whose neighbour is the same glass goes (a glass wall has no inner faces)
                         let gl = gls_cols[a][(v + 1) * P + (u + 1)];
@@ -239,7 +258,8 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
         }
         quads.extend_from_slice(g);
     }
-    Mesh { quads, counts, cut: groups[6].len() as u32, glass: groups[7].len() as u32, still: 0, water: 0 }
+    let n_cut = groups[6].len() as u32;
+    Mesh { quads, counts, cut: n_cut, ray_cut: if cut == Cut::Full { n_cut } else { 0 }, glass: groups[7].len() as u32, still: 0, water: 0 }
 }
 
 /// The sides of joining block `m`'s face at (u, v, d) of axis `a`, side `s` that meet the same block whose face
@@ -350,7 +370,7 @@ mod tests {
             c[pidx(10, y, 10)] = lamp;
         }
         c[pidx(9, 11, 10)] = glass;
-        let m = mesh_cut(&c, 8, false, true);
+        let m = mesh_cut(&c, 8, Cut::Solid, true);
         let mask = |cell: [usize; 3], dir: u32| {
             let q = m.quads.iter().find(|q| face_of(q).0 == cell && face_of(q).1 == dir).expect("face");
             q[1] >> 16
@@ -374,22 +394,35 @@ mod tests {
             h ^= h << 5;
             *v = [0, 0, stone, leaves, leaves, shrub][(h % 6) as usize];
         }
-        let fancy = mesh_cut(&c, 1, true, true);
+        let fancy = mesh_cut(&c, 1, Cut::Full, true);
         let mut got: Vec<_> = fancy.quads.iter().map(face_of).collect();
         got.sort();
         assert_eq!(got, faces_one_by_one(&c, |_, n| b.opaque(n)), "fancy");
         let n_opq = fancy.quads.len() - fancy.cut as usize;
+        assert_eq!(fancy.ray_cut, fancy.cut, "fancy: a ray passes their holes");
         assert!(fancy.cut > 0 && fancy.quads[n_opq..].iter().all(|q| !b.opaque((q[1] & 255) as u16)), "the cutout quads come last");
         assert!(fancy.quads[..n_opq].iter().all(|q| b.opaque((q[1] & 255) as u16)));
-        for fast in [mesh(&c, 1), mesh_cut(&c, 1, false, true)] {
+        let solid = mesh(&c, 1);
+        let mut got: Vec<_> = solid.quads.iter().map(face_of).collect();
+        got.sort();
+        assert_eq!(got, faces_one_by_one(&c, |_, n| n != 0), "a coarse level is the old mesher");
+        assert_eq!(solid.cut, 0);
+        {
+            let fast = mesh_cut(&c, 1, Cut::Shell, true);
             let mut got: Vec<_> = fast.quads.iter().map(face_of).collect();
             got.sort();
-            assert_eq!(got, faces_one_by_one(&c, |_, n| n != 0), "fast is the old mesher");
-            assert_eq!(fast.cut, 0);
+            // fast: a cutout block hides its own kind's faces (no inner faces in a crown), never an opaque
+            // block's: the ground under a shrub shows through its holes
+            assert_eq!(got, faces_one_by_one(&c, |me, n| b.opaque(n) || n != 0 && !b.opaque(me)), "fast");
+            // its cutout blocks' quads go last too: the client draws their holes open (ADR 0088)
+            let n_opq = fast.quads.len() - fast.cut as usize;
+            assert_eq!(fast.ray_cut, 0, "fast: whole blocks to a ray");
+            assert!(fast.cut > 0 && fast.quads[n_opq..].iter().all(|q| !b.opaque((q[1] & 255) as u16)), "fast: the cutout quads come last");
+            assert!(fast.quads[..n_opq].iter().all(|q| b.opaque((q[1] & 255) as u16)));
         }
         // a chunk with no cutout block meshes the same either way
         let rock: Box<[u16; P * P * P]> = Box::new(c.map(|v| if v == 0 { 0 } else { stone }));
-        assert_eq!(mesh_cut(&rock, 8, true, true).quads, mesh(&rock, 8).quads);
+        assert_eq!(mesh_cut(&rock, 8, Cut::Full, true).quads, mesh(&rock, 8).quads);
     }
 
     /// ADR 0081: a glass face is culled against an opaque neighbour or the same glass; nothing is culled against
@@ -407,16 +440,17 @@ mod tests {
             *v = [0, 0, stone, leaves, glass, glass, green][(h % 7) as usize];
         }
         for fancy in [true, false] {
-            let m = mesh_cut(&c, 1, fancy, true);
+            let m = mesh_cut(&c, 1, if fancy { Cut::Full } else { Cut::Shell }, true);
             let mut got: Vec<_> = m.quads.iter().map(face_of).collect();
             got.sort();
-            // what hides a face: an opaque block (fast: leaves too), or the same glass
-            let hides = |me: u16, n: u16| n == me && b.glass(me) || if fancy { b.opaque(n) } else { n != 0 && !b.glass(n) };
+            // what hides a face: an opaque block, the same glass, or (fast) a cutout block a cutout block's
+            let cut = |c: u16| c != 0 && !b.opaque(c) && !b.glass(c);
+            let hides = |me: u16, n: u16| n == me && b.glass(me) || b.opaque(n) || !fancy && cut(me) && cut(n);
             assert_eq!(got, faces_one_by_one(&c, hides), "fancy {fancy}");
             let g0 = m.quads.len() - m.glass as usize;
             assert!(m.glass > 0 && m.quads[g0..].iter().all(|q| b.glass((q[1] & 255) as u16)), "the glass quads come last");
             assert!(m.quads[..g0].iter().all(|q| !b.glass((q[1] & 255) as u16)));
-            assert_eq!(m.cut > 0, fancy);
+            assert!(m.cut > 0, "the cutout quads are grouped fast or fancy");
         }
     }
 

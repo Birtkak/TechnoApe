@@ -574,28 +574,33 @@ impl App {
             let info = k.face as u32 | (k.level as u32) << 3 | (k.body as u32) << 8 | lat.trailing_zeros() << 16;
             let (ci, new) = self.slots.get(d.off, frame_no);
             assert!((ci as usize) < MAX_CHUNKS, "chunk table full");
+            // the cutout blocks' quads (ADR 0088): drawn with their holes open on level 0, fast or fancy (a coarse
+            // level's are one colour, opaque); to a ray they are not opaque only as fancy leaves meshed them, which
+            // alone pay for the BLAS's second geometry (ADR 0069), so fast leaves cast a whole block's shadow. The
+            // mesh says which: a chunk meshed before the setting changed keeps its split until it is meshed again
+            let (draw_cut, ray_cut) = (d.cut, d.ray_cut);
             if new {
-                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.still - d.cut - d.glass, _p: [0; 2] }));
+                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.still - ray_cut - d.glass, _p: [0; 2] }));
             }
             // the still models' quads lie between the land's and the sea's, in no BLAS (ADR 0082)
             let land = d.len - d.water - d.still;
             if land > 0 {
                 // the cutout and glass quads are the BLAS's second geometry, not opaque (ADR 0069, 0081)
-                insts.push(rt::Inst { off: d.off, land, cut: d.cut + d.glass, base: k.base().into(), info, body: k.body, ci });
+                insts.push(rt::Inst { off: d.off, land, cut: ray_cut + d.glass, base: k.base().into(), info, body: k.body, ci });
             }
             if d.hidden {
                 continue;
             }
             // the opaque quads, then the cutout blocks' through the pipeline that discards (ADR 0069)
-            let opq = land - d.cut - d.glass;
+            let opq = land - draw_cut - d.glass;
             if opq > 0 {
                 args.push((d.dist, DrawArgs { vertex_count: opq * 6, instance_count: 1, first_vertex: d.off * 6, first_instance: ci }));
             }
-            if d.cut > 0 {
-                cut_args.push((d.dist, DrawArgs { vertex_count: d.cut * 6, instance_count: 1, first_vertex: (d.off + opq) * 6, first_instance: ci }));
+            if draw_cut > 0 {
+                cut_args.push((d.dist, DrawArgs { vertex_count: draw_cut * 6, instance_count: 1, first_vertex: (d.off + opq) * 6, first_instance: ci }));
             }
             if d.glass > 0 {
-                glass_args.push((d.centre, DrawArgs { vertex_count: d.glass * 6, instance_count: 1, first_vertex: (d.off + opq + d.cut) * 6, first_instance: ci }));
+                glass_args.push((d.centre, DrawArgs { vertex_count: d.glass * 6, instance_count: 1, first_vertex: (d.off + opq + draw_cut) * 6, first_instance: ci }));
             }
             if d.still > 0 {
                 still_args.push((d.dist, DrawArgs { vertex_count: d.still * 6, instance_count: 1, first_vertex: (d.off + land) * 6, first_instance: ci }));

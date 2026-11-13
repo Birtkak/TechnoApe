@@ -68,7 +68,7 @@ impl Alloc {
 enum State {
     Pending,
     Empty,
-    Ready { off: u32, len: u32, water: u32, cut: u32, glass: u32, still: u32 },
+    Ready { off: u32, len: u32, water: u32, cut: u32, ray_cut: u32, glass: u32, still: u32 },
 }
 
 /// Every chunk the selection visits has a slot (it caches the bounds); only wanted leaves get a mesh.
@@ -121,6 +121,8 @@ pub struct DrawChunk {
     pub len: u32,
     pub water: u32,
     pub cut: u32,
+    /// How many of `cut` are not opaque to a ray: the mesh's own (`Mesh::ray_cut`), not the setting's.
+    pub ray_cut: u32,
     pub glass: u32,
     pub still: u32,
     /// Outside the view or behind a horizon: not drawn, only traced.
@@ -540,15 +542,15 @@ impl Streamer {
         }
         s.drawn_at = (self.frame, out.len() as u32);
         let bd = s.bounds;
-        let (off, len, water, cut, glass, still) = match s.state {
+        let (off, len, water, cut, ray_cut, glass, still) = match s.state {
             State::Pending => return false,
             State::Empty => return true,
-            State::Ready { off, len, water, cut, glass, still } => (off, len, water, cut, glass, still),
+            State::Ready { off, len, water, cut, ray_cut, glass, still } => (off, len, water, cut, ray_cut, glass, still),
         };
         // hidden chunks are listed too: they are not drawn, but they cast shadows (ADR 0022)
         let hidden = hidden.unwrap_or_else(|| self.hidden(view, k.body, &bd));
         let centre = (bd.c - view.cam_in(k.body)).length();
-        out.push(DrawChunk { key: k, off, len, water, cut, glass, still, hidden, dist: (centre - bd.rad).max(0.0) as f32, centre: centre as f32 });
+        out.push(DrawChunk { key: k, off, len, water, cut, ray_cut, glass, still, hidden, dist: (centre - bd.rad).max(0.0) as f32, centre: centre as f32 });
         true
     }
 
@@ -576,7 +578,11 @@ impl Streamer {
             // generation makes no glass: a chunk without edits holds none (`mesh_cut`)
             let may_glass = !edits.is_empty();
             let greedy = self.opts.greedy;
-            let cutout = self.opts.cutout && k.level == 0;
+            let cutout = match (k.level, self.opts.cutout) {
+                (0, true) => crate::mesh::Cut::Full,
+                (0, false) => crate::mesh::Cut::Shell,
+                _ => crate::mesh::Cut::Solid,
+            };
             // the sky's time the clutter was set at: both hemispheres change season at once (`sky::season_at`)
             let (still, sky_t, _, density) = self.clutter.clone();
             // shortcut: every taken mark is looked through for every level-0 job; a map by chunk once a world
@@ -604,7 +610,7 @@ impl Streamer {
                 let mut sea = sea_quads(body, k, &wet, &gen);
                 sea.extend(river_quads(body, k, &wet, &gen));
                 if !sea.is_empty() {
-                    let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], cut: 0, glass: 0, still: 0, water: 0 });
+                    let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], cut: 0, ray_cut: 0, glass: 0, still: 0, water: 0 });
                     m.water = sea.len() as u32;
                     m.quads.extend(sea);
                 }
@@ -639,7 +645,7 @@ impl Streamer {
                     upload(off, &m.quads);
                     bytes += m.quads.len() * 8;
                     st.applied_nonempty += 1;
-                    State::Ready { off, len: n, water: m.water, cut: m.cut, glass: m.glass, still: m.still }
+                    State::Ready { off, len: n, water: m.water, cut: m.cut, ray_cut: m.ray_cut, glass: m.glass, still: m.still }
                 }
             };
             let s = self.slots.get_mut(&r.key).unwrap();
@@ -650,9 +656,9 @@ impl Streamer {
             // a remesh that stays drawn changes only its range: the last walk's list takes it in place; any other
             // change of state can change what the walk picks
             match (s.state, new, &mut self.walk) {
-                (State::Ready { .. }, State::Ready { off, len, water, cut, glass, still }, Some(w)) if s.drawn_at.0 == self.walk_frame => {
+                (State::Ready { .. }, State::Ready { off, len, water, cut, ray_cut, glass, still }, Some(w)) if s.drawn_at.0 == self.walk_frame => {
                     let d = &mut w.draws[(s.drawn_at.1 - w.first) as usize].0;
-                    (d.off, d.len, d.water, d.cut, d.glass, d.still) = (off, len, water, cut, glass, still);
+                    (d.off, d.len, d.water, d.cut, d.ray_cut, d.glass, d.still) = (off, len, water, cut, ray_cut, glass, still);
                 }
                 _ => self.dirty = true,
             }
