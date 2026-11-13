@@ -1857,13 +1857,15 @@ def build(pal, blocks):
     hd("cactus", 2, lambda g, v: named_canvas(cactus_hd(g, True), [cactus_r, spine_r]))
 
     # plants at 32 px a metre: two variants each besides the first (`.1`, `.2`), another shape and a hue a step off
-    plant_sizes = {"short grass": (32, 13), "tall grass": (32, 32), "wild wheat": (32, 40), "fern": (48, 22),
+    # short grass 0.75 m and full, its fourth outline (`.3`) the young tuft of 0.4 m, one in four (bug
+    # 2026-11-13_14-24-52, ADR 0099)
+    plant_sizes = {"short grass": (32, 24), "short grass.3": (32, 13), "tall grass": (32, 32), "wild wheat": (32, 40), "fern": (48, 22),
                    "reeds": (32, 64), "flowers": (32, 16), "berry bush": (40, 40)}
     hues = (0, -7, 6)
     plant_sizes["meadow ground"] = (96, 32)
 
     def plant(name, fn):
-        w, h = plant_sizes[name.split(".")[0]]
+        w, h = plant_sizes.get(name) or plant_sizes[name.split(".")[0]]
         out[f"plant:{name}"] = [fn(np.random.default_rng(seed_of("plant", name)), w, h)]
         if "." not in name and name not in ("meadow ground", "flowers"):  # the far painting, per kind of mass:
             # 8 px a metre; single flowers have none (the developer: masses only)
@@ -1880,7 +1882,7 @@ def build(pal, blocks):
     for k, d in enumerate(hues):
         sfx = f".{k}" if k else ""
         G = RR("meadow green" + (f" {k}" if k else ""), 0, rgb=turned(MEADOW, d))
-        plant(f"short grass{sfx}", lambda g, w, h, G=G: named_canvas(blades_hd(g, w, h, w * 3, 3, h, 0.45, 0.15), [G]))
+        plant(f"short grass{sfx}", lambda g, w, h, G=G: named_canvas(blades_hd(g, w, h, w * 4, 3, h, 0.45, 0.15), [G]))
         plant(f"tall grass{sfx}", lambda g, w, h, G=G: named_canvas(blades_hd(g, w, h, w * 3, h // 3, h, 0.45), [G]))
         plant(f"wild wheat{sfx}", lambda g, w, h, G=G, S=straw[k]: named_canvas(ears_hd(g, w, h), [G, S]))
         plant(f"fern{sfx}", lambda g, w, h, F=RR("fern" + (f" {k}" if k else ""), 104 + d, 0.9, -0.04):
