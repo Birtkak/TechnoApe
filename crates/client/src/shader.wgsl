@@ -1150,7 +1150,7 @@ fn vs_water(@builtin(vertex_index) vi: u32) -> WOut {
 // the colour of the water's own light at noon (post.wgsl has the same, for the fog under water)
 const WATER_FOG: vec3f = vec3f(0.03, 0.16, 0.24);
 // what the water takes of the light a metre: red first, blue last
-const WATER_ABSORB: vec3f = vec3f(0.45, 0.12, 0.075);
+const WATER_ABSORB: vec3f = vec3f(0.7, 0.25, 0.16);
 // the ripples' texels a metre: the blocks' own
 const RIPPLE_PX: f32 = 16.0;
 // how far the way down the view is traced (a ray's cost grows with its length): deeper counts as deep
@@ -1254,7 +1254,7 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     let cosv = max(dot(n, v), 0.0);
     let fres = 0.02 + 0.98 * pow(1.0 - cosv, 5.0);
     // the water's own light, scattered back from inside it
-    let inside = WATER_FOG * (l.l * 0.5 + ambient(l.day) * 1.6);
+    let inside = WATER_FOG * (l.l * 0.8 + ambient(l.day) * 2.0);
     // texel noise for the foam, steady for a moment, then the next
     let grain = hash2(bitcast<vec2u>(vec2i(floor(p * RIPPLE_PX))) + vec2u(u32(t * 3.0) * 7u, 0u));
     if (below) {
@@ -1291,6 +1291,9 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
         let m = mat3x3f(b.rot0.xyz, b.rot1.xyz, b.rot2.xyz);
         let h = trace(to_body(b, i.rel - v * 0.01), -v * m, i.body, WATER_SEE, 0u);
         len = select(60.0, h.t + 0.01, h.kind != RAY_QUERY_INTERSECTION_NONE);
+        // far off the coarse terrain meets the ray at the surface (shelves from 400 m showed as dry grey rock):
+        // there, where the ripples have calmed too, at least the simple mode's guessed 3 m
+        len = mix(len, max(len, 3.0 / cos0), smoothstep(0.15, 0.5, foot));
         // the shore: surf where the water is thinnest over what the view meets (its depth there is the way
         // through times the cosine), in a band that laps in and out, broken into texels: dense where it is
         // thinnest, a few flecks over half a metre. (Four short rays across the surface to the banks were
@@ -1302,7 +1305,7 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     }
     // rapids churn white, in texels
     foam = max(foam, select(0.0, 1.0, grain < 0.6 * smoothstep(1.5, 3.0, speed)));
-    let tr = exp(-WATER_ABSORB * len);
+    let tr = exp(-WATER_ABSORB * max(len, 1.0)); // at least a metre's tint: thin sheets over a shelf read as sea
     let tm = dot(tr, vec3f(0.25, 0.45, 0.3));
     // blended over the terrain already drawn (the bed): what is left of it shows; the rest is the water
     var a = 1.0 - (1.0 - fres) * tm;
