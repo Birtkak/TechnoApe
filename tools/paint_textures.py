@@ -404,6 +404,8 @@ def grow(c, rng, r, x, y, lean, thick, steps, forks):
     for i in range(steps):
         w = max(1, thick - (i * thick) // max(1, steps))  # tapers toward the far edge
         cx = int(round(fx))
+        if not 0 <= cx < N:
+            break  # off the painting: a fork from out there would start in mid-air when it leaned back in
         for k in range(w):
             put_in(c, cx - w // 2 + k, y, r["s"] if w == 1 else (r["d"] if k == w - 1 else r["m"]))
         if w == 1 and i == steps - 1:
@@ -421,10 +423,14 @@ def grow(c, rng, r, x, y, lean, thick, steps, forks):
 def bare(rng, r, role):
     """One winter role on a 16 x 16 canvas, wood at the bottom edge (row 15)."""
     c = np.empty((N, N), object)
-    if role == "root":
-        grow(c, rng, r, 7, N - 1, (rng.random() - 0.5) * 0.3, 3, 14, 3)
-    elif role == "root off-centre":
-        grow(c, rng, r, 4, N - 1, 0.35, 3, 13, 3)
+    if role in ("root", "root off-centre"):
+        x0, lean = (7, (rng.random() - 0.5) * 0.3) if role == "root" else (4, 0.35)
+        grow(c, rng, r, x0, N - 1, lean, 3, 14 if role == "root" else 13, 3)
+        # two limbs leave the stem low (rows 12 and 10), so the lower half fans out on its own: a face with the
+        # wood straight behind it shows only that half, folded about the middle (ADR 0090)
+        for y, side in ((12, -1), (10, 1)):
+            x = next((x for x in range(N) if c[y, x] is not None), x0) if side < 0 else                 max((x for x in range(N) if c[y, x] is not None), default=x0)
+            grow(c, rng, r, x + side, y - 1, side * (0.7 + rng.random() * 0.4), 2, int(rng.integers(6, 10)), 1)
     elif role == "through":  # a limb from the bottom edge to the top edge at x 8 on every block: blocks chain
         forks = set(int(y) for y in rng.choice(np.arange(3, N - 2), 2, replace=False))
         for y in range(N):
@@ -942,6 +948,11 @@ def bush(rng, r, w, h, look=None):
 # or whose look has no season file (`@fruit`), goes to out/flora/pending/ instead of data/textures/.
 PENDING = ROOT / "out" / "flora" / "pending"
 TAGS = {"spring", "autumn", "winter"}
+# late summer's `@fruit` (ADR 0090) once the engine's season list names it; until then fruit looks wait
+_seasons = next((l for l in (ROOT / "crates/engine/src/blocks.rs").read_text(encoding="utf-8").splitlines()
+                 if "SEASONS" in l and "const" in l), "")
+if '"fruit"' in _seasons or '"fruit"' in (ROOT / "crates/engine/src/textures.rs").read_text(encoding="utf-8"):
+    TAGS.add("fruit")
 
 
 def flora_list(name):

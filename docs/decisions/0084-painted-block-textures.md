@@ -209,7 +209,15 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
   - Limbs taper from three texels to one. They are bark-mid with a dark side, and a thin twig ends in a lit tip.
   - The script asserts that every texel reaches the bottom edge through its neighbours, so nothing floats.
     Before the change, the old floating sticks would have failed it, and twigs started mid-air fail it now.
-  - The crowns session (part A, ADR 0090) has been proposed this layout: the shader picks the role and turns the
-    face so the bottom edge meets the neighbouring log or branch. Until that lands, the game picks the four by
-    hash, unturned. The sheet `out/flora/winter.png` shows each role on its log, and a small crown laid out as
-    the shader would turn it.
+  - ADR 0090 (crowns, part A) confirms this layout:
+    - a leaf face beside the wood takes `root` or `root off-centre`, two steps away `through`, three steps away
+      `tips`, and none further out;
+    - the face is turned so the bottom edge meets the wood;
+    - where the wood is straight behind the face, the lower half is folded about the middle.
+  - So the root variants fan out low: two limbs leave the stem at rows 12 and 10, and the lower half reads on its
+    own (`out/flora/winter-folded.png`).
+  - A limb now stops where it leaves the painting. A fork from off the canvas could lean back in mid-air, and the
+    no-floating assert caught it.
+  - `out/flora/winter.png` shows each role on its log, and a small crown laid out as the shader turns it.
+- **Fruit** is `@fruit` (late summer, ADR 0090). The script adds `fruit` to its season tags once the engine's
+  season list names it; until then the fruit looks wait.
