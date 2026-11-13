@@ -103,10 +103,14 @@ loads) are pixel-identical. The views were accepted again: each view's sky is no
   (seam 95.9 % off, its whole ground in a cloud's shadow); accepted again.
   The force reaches the client as a step it blends in over 10 s of world time, which a shot's held clock
   stopped part-way (one shot clear, the next under the first map's cloud): a shot shows the newest map whole.
-- A shot waits up to 200 s for the whole world (a run 60 s): on a swamped PC a shot of a half-loaded world was
+- A shot waits up to 180 s for the whole world (`views.sh` kills one at 240 s) (a run 60 s): on a swamped PC a shot of a half-loaded world was
   compared (86 % off).
 - A shot fires at exactly 400 frames after loading (it waited for a second from the start as well, so a quiet
   PC averaged more frames; the reviewer's finding).
+- Review (a fresh reviewer per commit): the shot fired at exactly 400 frames came from the first; from the
+  second, a column whose cover was 1/255 when the force landed keeps it (the server sends a change over 1 only),
+  so a faint cell's shadow can still drift with the wind's steps: under one colour step, accepted; and 200 s
+  plus a bake ran past `views.sh`'s 240 s, so 180 s.
 - Left: water's ripples and rises run on the process's clock (`sun.w`), so a view of a flowing river would still
   vary; no view shows one. In play the clouds' shadows are the hard-edged cells by design (ADR 0076).
 

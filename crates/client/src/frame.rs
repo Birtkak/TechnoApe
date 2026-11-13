@@ -1228,7 +1228,7 @@ impl App {
         // a shot waits longer than a run for the whole world: one of half of it on a busy PC was compared (ADR 0073)
         if self.loaded_at.is_none() {
             let el = self.start.elapsed().as_secs_f64();
-            if (self.streamer.idle() && st.missing == 0 && rt_pending == 0 && self.streamer.frame > 10) || el > if self.shot.is_some() { 200.0 } else { 60.0 } {
+            if (self.streamer.idle() && st.missing == 0 && rt_pending == 0 && self.streamer.frame > 10) || el > if self.shot.is_some() { 180.0 } else { 60.0 } {
                 eprintln!("[technoape] loaded in {:.2} s, {} chunks, {} quads", el, self.streamer.slot_count(), self.streamer.alloc.used);
                 self.loaded_at = Some(Instant::now());
                 self.loaded_frame = self.streamer.frame;
