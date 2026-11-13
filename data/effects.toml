@@ -93,7 +93,6 @@ size = [0.05, 0.05]
 look = "square"
 colour = [0.75, 0.86, 0.95]
 
-# a survival dig's hit (ADR 0034): a few chips off the block's faces, every quarter second held
 # a loose block gliding to its new cell (ADR 0101): grains of its own texels shed off its faces, falling away
 [[effect]]
 name = "grains"
@@ -108,6 +107,7 @@ size = [0.03, 0.06]
 shrink = 0.5
 look = "debris"
 
+# a survival dig's hit (ADR 0034): a few chips off the block's faces, every quarter second held
 [[effect]]
 name = "chip"
 count = 3

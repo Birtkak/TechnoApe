@@ -1319,6 +1319,12 @@ impl Fx {
         self.out.extend(still);
     }
 
+    /// Blocks gliding into their cells (ADR 0101), before every particle: a full buffer is cut at its end, and a
+    /// glide cut off would leave a hole where its cell is meshed as air.
+    pub fn lay_first(&mut self, glides: impl IntoIterator<Item = FxGpu>) {
+        self.out.splice(0..0, glides);
+    }
+
     /// The particles for the GPU as the last step left them, in a buffer kept from frame to frame.
     pub fn drawn(&self) -> &[FxGpu] {
         &self.out
@@ -1365,9 +1371,10 @@ impl Glide {
         let t = ((now - self.t0) / GLIDE_S).clamp(0.0, 1.0) as f32;
         self.from * (1.0 - t * t * (3.0 - 2.0 * t))
     }
-    /// Moved on again from `to` (a fall a cell a tick): from where it is drawn now toward the next cell.
+    /// Moved on again from `to` (a fall a cell a tick): from where it is drawn now toward the next cell, at most a
+    /// cell behind it, so a long fall never trails (a restarted ease alone settles some six cells back).
     pub fn chain(&mut self, to: Block, now: f64) {
-        self.from = self.offset(now) + (self.to.pos - to.pos).as_vec3();
+        self.from = (self.offset(now) + (self.to.pos - to.pos).as_vec3()).clamp_length_max(1.0);
         (self.to, self.t0) = (to, now);
     }
     pub fn ended(&self, now: f64) -> bool {
@@ -1528,12 +1535,17 @@ mod tests {
         let d = g.gpu(1.0 + GLIDE_S / 2.0);
         assert_eq!((d.info & 255, d.info >> 10 & 3, d.info >> 20 & 1), (8, Look::Block as u32, 1));
         assert_eq!((d.a, d.b), cell_code(c(6, 10)), "drawn as its new cell");
-        // it falls on from its new cell a quarter of the way in: from where it is drawn, toward the next
+        // it falls on from its new cell a quarter of the way in: from about where it is drawn, toward the next
         let at = g.offset(1.05);
         g.chain(c(6, 9), 1.05);
         assert_eq!(g.to, c(6, 9));
-        assert!((g.offset(1.05) - (at + Vec3::Z)).length() < 1e-5, "no jump: {} against {}", g.offset(1.05), at + Vec3::Z);
+        assert!((g.offset(1.05) - (at + Vec3::Z)).length() < 0.4, "a small jump at most: {} against {}", g.offset(1.05), at + Vec3::Z);
         assert!(!g.ended(1.05 + GLIDE_S * 0.9) && g.ended(1.05 + GLIDE_S));
+        // a long fall, a cell a tick: never drawn more than a cell behind the cell it is in (the review of 0101)
+        for k in 1..30 {
+            g.chain(c(6, 9 - k), 1.05 + 0.05 * k as f64);
+            assert!(g.offset(1.05 + 0.05 * k as f64).length() <= 1.0 + 1e-5, "tick {k}: {} cells behind", g.offset(1.05 + 0.05 * k as f64).length());
+        }
     }
 
     /// A solid cell on the planet's surface at the spawn and the radius of its top.

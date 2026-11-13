@@ -246,8 +246,11 @@ impl App {
                             if self.fx.on {
                                 self.glide(from, b, m);
                             }
-                            slid += 1;
-                            slid_at.get_or_insert(b);
+                            // a slide, not a fall: a block dropping down a shaft is no slump
+                            if b.pos.z == from.pos.z {
+                                slid += 1;
+                                slid_at.get_or_insert(b);
+                            }
                         }
                         // the cell's delta: its effect and, for up to three cells of an edit, its sound (another
                         // player's digging and building; this player's own were seen and heard at the click)
@@ -715,7 +718,7 @@ impl App {
             self.cracks(self.start.elapsed().as_secs_f64());
             self.lay_piles();
             let now = self.start.elapsed().as_secs_f64();
-            self.fx.lay(self.glides.iter().map(|(g, _)| g.gpu(now)));
+            self.fx.lay_first(self.glides.iter().map(|(g, _)| g.gpu(now)));
             let gpu = self.gpu.as_ref().unwrap();
             let d = self.fx.drawn();
             let k = d.len().min(MAX_FX);
