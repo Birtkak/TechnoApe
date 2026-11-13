@@ -674,6 +674,24 @@ impl Body {
         if ROWS.plants[plant].warm.is_some_and(|t| self.year_air(face, i, j).is_none_or(|a| a < t)) {
             return None;
         }
+        // nor a tree in a clearing: one patch of four by four spots in eight, by the hash, so sun reaches a
+        // forest's floor (ADR 0092)
+        let clearing = mix(b.seed.wrapping_mul(0x9e3779b97f4a7c15) ^ (face as u64) << 58 ^ (cx.div_euclid(4) as u32 as u64) << 29 ^ cy.div_euclid(4) as u32 as u64) % 8 == 0;
+        if clearing && ROWS.plants[plant].trunk != 0 {
+            return None;
+        }
+        // nor a tree whose crown would hang over a river: a river stays open to swim and wade along (the
+        // crown's rim and half way in, sixteen columns)
+        let p = &ROWS.plants[plant];
+        if p.trunk != 0 && p.radius >= 2 {
+            let over = |di: i32, dj: i32| self.water_at(face as u8, i + di, j + dj).is_some_and(|w| w.2.is_some());
+            let (r, s) = (p.radius, (p.radius * 7 + 5) / 10);
+            for (di, dj) in [(r, 0), (-r, 0), (0, r), (0, -r), (s, s), (s, -s), (-s, s), (-s, -s)] {
+                if over(di, dj) || over(di / 2, dj / 2) {
+                    return None;
+                }
+            }
+        }
         let [lo, hi] = ROWS.plants[plant].height;
         Some(Foot { plant, h: lo + ((r >> 16) % (hi - lo + 1) as u64) as i32, v: mix(r ^ 0x7ee5) as u32, i, j, z })
     }
@@ -2780,7 +2798,7 @@ mod baked_tests {
                     let (pos, yaw, pitch) = aim(dc, 1.7, target);
                     let len = (target - pos).length() - p.crown(t.h) as f64 - 1.0;
                     let clear = (0..(len * 2.0) as i32).all(|s| w.block(w.block_at(pos + (target - pos).normalize() * s as f64 * 0.5)) == 0);
-                    clear.then_some((dc, yaw, pitch, near, t))
+                    (clear && w.water_surface(pos).is_none()).then_some((dc, yaw, pitch, near, t))
                 })
             });
             let Some((dc, yaw, pitch, near, t)) = found else { continue };
@@ -2800,7 +2818,7 @@ mod baked_tests {
                 let dc = (dt * r + (e1 * ca + e2 * sa) * m as f64).normalize();
                 let (pos, ..) = aim(dc, 1.7, dt);
                 let ahead = (e1 * ca + e2 * sa) * 10.0;
-                (clear(pos - dc * 0.6, pos + dc * 0.6, 3) && clear(pos, pos + ahead, 20)).then_some((dc, b.centre + dt * r + (e1 * ca + e2 * sa) * (m as f64 + 30.0)))
+                (clear(pos - dc * 0.6, pos + dc * 0.6, 3) && clear(pos, pos + ahead, 20) && w.water_surface(pos).is_none()).then_some((dc, b.centre + dt * r + (e1 * ca + e2 * sa) * (m as f64 + 30.0)))
             });
             let Some((dc, far)) = found else { continue };
             let (_, yaw, _) = aim(dc, 1.7, far);
@@ -3047,6 +3065,32 @@ mod baked_tests {
         w.put_edit(at(cells[1]), None);
         w.set_block(at(top.pos + IVec3::Z), ore);
         assert_eq!((w.ore_left.as_ref().unwrap()[0], w.ore_recount(&open)[0]), (2, 2), "one put back, one undone, one elsewhere");
+    }
+
+    /// ADR 0092 (the overseer: a closed canopy left the forest floor black at noon): a forest has clearings,
+    /// patches of four by four spots where no tree grows, about one patch in eight.
+    #[test]
+    fn forests_have_clearings() {
+        let w = world();
+        let b = &w.bodies[0];
+        let forest = crate::bake::life::TEMPERATE_FOREST;
+        let (mut patches, mut clear) = (0, 0);
+        for f in 0..6 {
+            for px in 0..b.n / SPACING / 4 {
+                for py in 0..b.n / SPACING / 4 {
+                    let spots: Vec<(i32, i32)> = (0..4).flat_map(|a| (0..4).map(move |c| (px * 4 + a, py * 4 + c))).collect();
+                    let all = spots.iter().all(|&(cx, cy)| {
+                        let (i, j) = (cx * SPACING + SPACING / 2, cy * SPACING + SPACING / 2);
+                        b.biome_at(f, i as f64, j as f64, b.dir(f, i as f64, j as f64)) == Some(forest)
+                    });
+                    if all {
+                        patches += 1;
+                        clear += spots.iter().all(|&(cx, cy)| b.candidate(f, cx, cy).is_none_or(|t| ROWS.plants[t.plant].trunk == 0)) as usize;
+                    }
+                }
+            }
+        }
+        assert!(patches >= 40 && clear * 12 >= patches && clear * 4 <= patches, "{clear} clearings in {patches} patches of temperate forest");
     }
 
     /// ADR 0092: on a baked planet every tree of a biome's row grows in it where that biome is common, palms
