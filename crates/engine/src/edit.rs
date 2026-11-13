@@ -239,6 +239,30 @@ pub struct Predictor {
     truth: crate::world::FxMap<Block, Option<u16>>,
 }
 
+/// What a dig leaves of block `old` (ADR 0093, mining.md 4): in survival a rock's or ore's rubble, else air.
+pub fn dug(old: u16, survival: bool) -> u16 {
+    BLOCKS.get(old).and_then(|d| d.rubble).filter(|_| survival).unwrap_or(AIR)
+}
+
+/// What a survival dig of block `old` from cell `b` finds in it besides the block (ADR 0097: flint in gravel):
+/// the item its row `holds`, by a roll from the seed and the cell against the row's chance, and only in a cell
+/// whose block is still as generated (no edit ever made there). A block placed, or fallen into the cell, is an
+/// edit and holds nothing, so placing and digging again finds nothing. Ask before the dig is written.
+pub fn held(world: &crate::world::World, b: Block, old: u16) -> Option<u16> {
+    let (name, chance) = BLOCKS.get(old)?.holds.as_ref()?;
+    if world.edit(b).is_some() || world.generated_block(b) != old {
+        return None;
+    }
+    let seed = world.bodies.get(b.body as usize)?.baked_seed().unwrap_or(0);
+    let h = crate::world::mix(seed ^ 0x401d_5000 ^ (b.body as u64) << 61 ^ (b.face as u64) << 58 ^ (b.pos.x as u32 as u64) << 29 ^ b.pos.y as u32 as u64 ^ (b.pos.z as u32 as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+    (crate::world::unit(h) < *chance).then(|| crate::items::ITEMS.named(name)).flatten()
+}
+
+/// Whether a cell going from `was` to `now` is a block dug: to an open cell, or to `was`'s own rubble.
+pub fn breaks(was: u16, now: u16) -> bool {
+    BLOCKS.solid(was) && (!BLOCKS.solid(now) || BLOCKS.get(now).is_some_and(|d| d.rubble_of == Some(was)))
+}
+
 impl Predictor {
     /// The last `seq` handed out: a message that is not an edit (a bucket) sends it, so its `Done` confirms
     /// only what was sent before it.
@@ -247,18 +271,16 @@ impl Predictor {
     }
     /// Applies the edit to `world` and returns the `seq` to send with it and the cells it changed. A shape that
     /// does not fit the world changes nothing here; the server will refuse it.
-    pub fn edit(&mut self, world: &mut World, shape: &Shape, m: u16, keep_clear: impl Fn(&World, Block) -> bool) -> (u32, Vec<Block>) {
+    /// A survival dig leaves rubble where the server will (`dug`).
+    pub fn edit(&mut self, world: &mut World, shape: &Shape, m: u16, survival: bool, keep_clear: impl Fn(&World, Block) -> bool) -> (u32, Vec<Block>) {
         self.next = self.next.wrapping_add(1);
         let w: &World = world;
-        let cells: Vec<Block> = if shape.fits(w) && BLOCKS.get(m).is_some() {
-            changes(w, shape, m, |b| keep_clear(w, b)).into_iter().map(|(b, _)| b).collect()
-        } else {
-            Vec::new()
-        };
-        for &b in &cells {
+        let olds = if shape.fits(w) && BLOCKS.get(m).is_some() { changes(w, shape, m, |b| keep_clear(w, b)) } else { Vec::new() };
+        for &(b, old) in &olds {
             self.truth.entry(b).or_insert_with(|| world.edit(b));
-            world.set_block(b, m);
+            world.set_block(b, if m == AIR { dug(old, survival) } else { m });
         }
+        let cells: Vec<Block> = olds.into_iter().map(|(b, _)| b).collect();
         self.pending.push_back((self.next, cells.clone()));
         (self.next, cells)
     }
@@ -304,6 +326,18 @@ impl Predictor {
 
 #[cfg(test)]
 mod tests {
+    /// Every `holds` names an item (ADR 0097), and gravel holds flint.
+    #[test]
+    fn what_blocks_hold_are_items() {
+        let mut n = 0;
+        for d in BLOCKS.placeable().filter(|d| d.holds.is_some()) {
+            let (name, _) = d.holds.as_ref().unwrap();
+            assert!(crate::items::ITEMS.named(name).is_some(), "{} holds '{name}', no item", d.name);
+            n += 1;
+        }
+        assert!(n >= 1 && BLOCKS.get(BLOCKS.id("gravel")).unwrap().holds.as_ref().is_some_and(|h| h.0 == "flint"));
+    }
+
     use super::*;
 
     #[test]
@@ -407,18 +441,18 @@ mod tests {
         let (mut srv, mut cli, mut p) = (World::new(256, 32, 1), World::new(256, 32, 1), Predictor::default());
 
         // refused: nothing comes back, everything is put back, down to no edit being recorded
-        let (s1, cells) = p.edit(&mut cli, &brush, AIR, |_, _| false);
+        let (s1, cells) = p.edit(&mut cli, &brush, AIR, false, |_, _| false);
         assert!(!cells.is_empty() && cli.chunk_hashes() != fresh.chunk_hashes());
         p.done(&mut cli, s1);
         assert_eq!((cli.chunk_hashes(), cli.edit_count, p.pending()), (fresh.chunk_hashes(), 0, 0));
 
         // accepted, but the server kept one cell open for a player the client did not know about
-        let (s2, _) = p.edit(&mut cli, &brush, AIR, |_, _| false);
+        let (s2, _) = p.edit(&mut cli, &brush, AIR, false, |_, _| false);
         for (b, m) in serve(&mut srv, &brush, AIR, |_| false) {
             p.server(&mut cli, b, m);
         }
         p.done(&mut cli, s2);
-        let (s3, _) = p.edit(&mut cli, &brush, stone, |_, _| false);
+        let (s3, _) = p.edit(&mut cli, &brush, stone, false, |_, _| false);
         for (b, m) in serve(&mut srv, &brush, stone, |b| b == top) {
             p.server(&mut cli, b, m);
         }
@@ -429,8 +463,8 @@ mod tests {
         // two edits in flight over the same cells; the first is refused, another player's edit lands on one
         // cell in between, the second is accepted
         let line = Shape { max: top.pos + IVec3::new(3, 0, 0), ..Shape::one(top) };
-        let (s4, _) = p.edit(&mut cli, &brush, stone, |_, _| false);
-        let (s5, _) = p.edit(&mut cli, &line, AIR, |_, _| false);
+        let (s4, _) = p.edit(&mut cli, &brush, stone, false, |_, _| false);
+        let (s5, _) = p.edit(&mut cli, &line, AIR, false, |_, _| false);
         let other = Block { pos: top.pos + IVec3::new(0, 1, 1), ..top };
         for (b, m) in serve(&mut srv, &Shape::one(other), BLOCKS.id("dirt"), |_| false) {
             p.server(&mut cli, b, m);

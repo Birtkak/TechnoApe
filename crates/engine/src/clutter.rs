@@ -35,6 +35,8 @@ pub enum Near {
 }
 /// How near a trunk `near = "tree"` is, in columns.
 pub const TREE: i32 = 3;
+/// The farthest a row's `water` may reach, columns (a face's own columns; a bank and its gravel bar).
+pub const WATER_MAX: i32 = 8;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -61,6 +63,10 @@ struct RawRow {
     looks: std::collections::BTreeMap<String, Vec<String>>,
     #[serde(default)]
     wades: bool,
+    #[serde(default)]
+    water: Option<i32>,
+    #[serde(default)]
+    over: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -83,6 +89,10 @@ pub struct Row {
     pub looks: Vec<(String, u8)>,
     /// a plant that also stands in fresh water up to `WADE` deep (reeds)
     pub wades: bool,
+    /// Where it lies, besides its ground (ADR 0097): within this many columns of water (a river, a lake, the
+    /// sea), or over one of `over`'s rocks (the rock under the soil band). Neither set: anywhere its ground is.
+    pub water: Option<i32>,
+    pub over: Vec<u16>,
 }
 
 /// Reads and checks the rows: names unique, ground blocks and items that exist, a pick-up gives something and a
@@ -110,6 +120,10 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
             (Some("year"), Kind::Pickup) => true,
             _ => return Err(format!("{who}: regrow is \"year\", on a pick-up")),
         };
+        if r.water.is_some_and(|w| !(1..=WATER_MAX).contains(&w)) {
+            return Err(format!("{who}: water is 1 to {WATER_MAX} columns"));
+        }
+        let over = r.over.iter().map(|n| crate::blocks::BLOCKS.placeable().find(|d| &d.name == n).map(|d| d.id).ok_or(format!("{who}: no rock '{n}'"))).collect::<Result<Vec<_>, _>>()?;
         let planes = match (r.planes, r.kind) {
             (None, Kind::Plant) => 2,
             (Some(n @ 2..=4), Kind::Plant) => n,
@@ -130,7 +144,7 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
             }
             looks.push((n.clone(), m));
         }
-        out.push(Row { name: r.name, kind: r.kind, gives, on, near: r.near, seasons, regrow, planes, looks, wades: r.wades });
+        out.push(Row { name: r.name, kind: r.kind, gives, on, near: r.near, seasons, regrow, planes, looks, wades: r.wades, water: r.water, over });
     }
     Ok(out)
 }
@@ -164,9 +178,10 @@ impl Thing {
 /// few 0.25, normal 1, many 4), so a lower setting is a subset of a higher one. `trees`: the trunks near the
 /// column. Plants have a roll of their own (`plant`).
 #[allow(clippy::too_many_arguments)]
-pub fn pick(seed: u64, face: u8, i: i32, j: i32, biome: u8, ground: u16, season: u8, density: f32, trees: &[(i32, i32)]) -> Option<Thing> {
+pub fn pick(body: &Body, seed: u64, face: u8, i: i32, j: i32, biome: u8, ground: u16, season: u8, density: f32, trees: &[(i32, i32)]) -> Option<Thing> {
     let h = roll(seed, face, i, j);
-    choose(h, &[(Kind::Pickup, 1.0), (Kind::Decoration, density)], i, j, biome, ground, season, trees)
+    // a model's place rule (ADR 0097: near water, over a rock) last
+    choose(h, &[(Kind::Pickup, 1.0), (Kind::Decoration, density)], i, j, biome, ground, season, trees).filter(|t| wet_or_over(body, face, i, j, &CLUTTER[t.row]))
 }
 
 /// The plant that grows on the column (ADR 0091), as `pick` but by its own roll at `vegetation` times the
@@ -215,6 +230,24 @@ fn choose(h: u64, kinds: &[(Kind, f32)], i: i32, j: i32, biome: u8, ground: u16,
         Some(Near::Open) if near() => None,
         _ => Some(Thing { row, h }),
     }
+}
+
+/// Whether row's place rule holds on column (face, i, j) (ADR 0097): near water or over one of its rocks, or it
+/// has none. Asked only of the few columns whose roll chose the row.
+pub fn wet_or_over(body: &Body, face: u8, i: i32, j: i32, row: &Row) -> bool {
+    if row.water.is_none() && row.over.is_empty() {
+        return true;
+    }
+    if let Some(r) = row.water {
+        // water standing over the ground (`water_at` names the sea for every dry column too)
+        let wet = |i: i32, j: i32| body.water_at(face, i, j).is_some_and(|w| w.0 > body.first_air(body.col_height(face, i, j)) as f64);
+        if (-r..=r).flat_map(|a| (-r..=r).map(move |c| (i + a, j + c))).any(|(i, j)| (0..body.n).contains(&i) && (0..body.n).contains(&j) && wet(i, j)) {
+            return true;
+        }
+    }
+    // the rock under the soil band, as `World::generated_under` has it there
+    let h = body.col_height(face, i, j);
+    !row.over.is_empty() && row.over.contains(&crate::rock::ROCKS.at(body.col_rock(face, i, j), (h - 6.0) as f32, 0))
 }
 
 fn roll(seed: u64, face: u8, i: i32, j: i32) -> u64 {
@@ -362,7 +395,7 @@ pub fn pickup_at(world: &World, b: Block, t: f64) -> Option<Thing> {
         return None;
     }
     let up = body.dir(b.face as usize, i as f64 + 0.5, j as f64 + 0.5);
-    pick(seed, b.face, i, j, biome, top, season(up, t), 1.0, &tile.trees).filter(|th| CLUTTER[th.row].kind == Kind::Pickup)
+    pick(body, seed, b.face, i, j, biome, top, season(up, t), 1.0, &tile.trees).filter(|th| CLUTTER[th.row].kind == Kind::Pickup)
 }
 
 /// The still models' faces (ADR 0068, 0081): every face of every clutter row's model and alternates once, at rest
@@ -593,7 +626,7 @@ pub fn quads(body: &Body, key: Key, cells: &[u16; P * P * P], edits: &[(u32, u16
                 continue;
             }
             let p8 = part(body.dir(key.face as usize, i as f64 + 0.5, j as f64 + 0.5), t);
-            let model = pick(seed, key.face, i, j, biome, top, p8 / 2, density[0], &tile.trees).filter(|_| !wet);
+            let model = pick(body, seed, key.face, i, j, biome, top, p8 / 2, density[0], &tile.trees).filter(|_| !wet);
             let grows = plant(seed, key.face, i, j, biome, top, p8 / 2, density[1], &tile.trees).filter(|g| !wet || CLUTTER[g.row].wades);
             for t in [model, grows].into_iter().flatten() {
                 let row = &CLUTTER[t.row];
@@ -669,6 +702,42 @@ mod tests {
         }
         let dx = |k: usize| f[k].0[0].x + f[k].0[0].z - (f[k].0[0] + f[k].0[2]).x - (f[k].0[0] + f[k].0[2]).z;
         assert!(dx(0).signum() != dx(1).signum() || dx(1).signum() != dx(2).signum(), "they lean by turns");
+    }
+
+    /// Flint (ADR 0097) lies where a new player looks first: near the spawn of every seed, at least `NEAR` within
+    /// 60 m, and each one near water (a bank, a beach, a gravel bar) or over limestone or marble.
+    #[test]
+    fn flint_lies_within_a_short_walk_of_every_spawn() {
+        use crate::bake::Map;
+        use crate::world::{Block, World};
+        use std::sync::Arc;
+        const NEAR: usize = 5;
+        let flint = CLUTTER.iter().position(|r| r.name == "flint").unwrap();
+        for seed in [5, 11, 23] {
+            let w = World::with_map(1536, 32, seed, Some(Arc::new(Map::bake(seed, 1536))));
+            let b = &w.bodies[0];
+            let (f, si, sj) = b.locate(b.spawn);
+            let (f, si, sj) = (f as u8, si as i32, sj as i32);
+            let mut found = Vec::new();
+            for (i, j) in (-60..=60).flat_map(|a| (-60..=60).map(move |c| (si + a, sj + c))).filter(|&(i, j)| ((i - si).pow(2) + (j - sj).pow(2)) <= 3600) {
+                let tile = b.tile(f, 0, i.div_euclid(CS), j.div_euclid(CS));
+                let Some((z, _, _)) = ground(b, &tile, f, i, j) else { continue };
+                if pickup_at(&w, Block { body: 0, face: f, pos: IVec3::new(i, j, z) }, 0.0).is_some_and(|t| t.row == flint) {
+                    found.push((i, j));
+                }
+            }
+            eprintln!("seed {seed}: {} flints within 60 m of the spawn", found.len());
+            assert!(found.len() >= NEAR, "seed {seed}: {} flints within 60 m of the spawn", found.len());
+            for &(i, j) in &found {
+                assert!(wet_or_over(b, f, i, j, &CLUTTER[flint]), "seed {seed}: a flint at ({i}, {j}) neither near water nor over its rock");
+            }
+            // the rule picks places: most dry land of the face is neither by water nor over limestone
+            let sea = b.sea.unwrap();
+            let land: Vec<_> = (0..b.n).step_by(13).flat_map(|i| (0..b.n).step_by(13).map(move |j| (i, j))).filter(|&(i, j)| b.first_air(b.col_height(f, i, j)) as f64 > sea + 2.0).collect();
+            let ok = land.iter().filter(|&&(i, j)| wet_or_over(b, f, i, j, &CLUTTER[flint])).count();
+            eprintln!("seed {seed}: {ok} of {} dry columns take flint", land.len());
+            assert!(ok * 2 < land.len(), "seed {seed}: {ok} of {} dry columns take flint", land.len());
+        }
     }
 
     #[test]
@@ -822,6 +891,8 @@ mod tests {
         let rows = &*CLUTTER;
         let bi = crate::biomes::ROWS.biomes.iter().position(|b| b.name == "grassland").unwrap() as u8;
         let meadow = crate::blocks::BLOCKS.id("meadow grass");
+        let w = crate::world::World::with_map(256, 32, 1, None);
+        let body = &w.bodies[0];
         let n = 200 * 200;
         let mut count = [0usize; 3];
         for i in 0..200 {
@@ -838,7 +909,7 @@ mod tests {
                 // the review of 2026-11-13: plants shared the models' roll and hopped with the Clutter setting and
                 // the seasons' models; now that roll lays no plant, and `plant` takes no Clutter density
                 for d in [0.0, 0.25, 4.0] {
-                    if let Some(m) = pick(9, 1, i, j, bi, meadow, 1, d, &[]) {
+                    if let Some(m) = pick(body, 9, 1, i, j, bi, meadow, 1, d, &[]) {
                         assert_ne!(CLUTTER[m.row].kind, Kind::Plant);
                     }
                 }
@@ -890,13 +961,15 @@ mod tests {
     fn may_lets_through_all_that_pick_lays() {
         let bi = crate::biomes::ROWS.biomes.iter().position(|b| b.name == "temperate forest").unwrap() as u8;
         let grass = crate::blocks::BLOCKS.id("grass");
+        let w = crate::world::World::with_map(256, 32, 1, None);
+        let body = &w.bodies[0];
         let (mut laid, mut asked) = (0, 0);
         for i in 0..300 {
             for j in 0..300 {
                 for d in [0.0, 1.0, 4.0] {
                     let m = may(7, 2, i, j, bi, [d, d]);
                     asked += m as usize;
-                    if pick(7, 2, i, j, bi, grass, 1, d, &[(150, 150)]).is_some() || plant(7, 2, i, j, bi, grass, 1, d, &[(150, 150)]).is_some() {
+                    if pick(body, 7, 2, i, j, bi, grass, 1, d, &[(150, 150)]).is_some() || plant(7, 2, i, j, bi, grass, 1, d, &[(150, 150)]).is_some() {
                         laid += 1;
                         assert!(m);
                     }
@@ -913,13 +986,15 @@ mod tests {
         let rows = &*CLUTTER;
         let bi = crate::biomes::ROWS.biomes.iter().position(|b| b.name == "temperate forest").unwrap() as u8;
         let grass = crate::blocks::BLOCKS.id("grass");
+        let w = crate::world::World::with_map(256, 32, 1, None);
+        let body = &w.bodies[0];
         let trees = [(100, 100)];
         let (mut few, mut many, mut picks) = (0, 0, 0);
         let mut by_season = [0usize; 4];
         for i in 0..200 {
             for j in 0..200 {
-                let f = pick(7, 2, i, j, bi, grass, 2, 0.25, &trees);
-                let m = pick(7, 2, i, j, bi, grass, 2, 4.0, &trees);
+                let f = pick(body, 7, 2, i, j, bi, grass, 2, 0.25, &trees);
+                let m = pick(body, 7, 2, i, j, bi, grass, 2, 4.0, &trees);
                 if let Some(f) = f {
                     assert_eq!(Some(f), m, "few is a subset of many");
                     few += 1;
@@ -927,11 +1002,11 @@ mod tests {
                 many += m.is_some() as usize;
                 if let Some(t) = m.filter(|t| rows[t.row].kind == Kind::Pickup) {
                     picks += 1;
-                    assert_eq!(pick(7, 2, i, j, bi, grass, 2, 0.0, &trees), Some(t), "a pick-up stays with clutter off");
+                    assert_eq!(pick(body, 7, 2, i, j, bi, grass, 2, 0.0, &trees), Some(t), "a pick-up stays with clutter off");
                 }
-                assert!(pick(7, 2, i, j, bi, crate::blocks::BLOCKS.id("stone"), 2, 4.0, &[]).is_none_or(|t| rows[t.row].on.contains(&crate::blocks::BLOCKS.id("stone"))));
+                assert!(pick(body, 7, 2, i, j, bi, crate::blocks::BLOCKS.id("stone"), 2, 4.0, &[]).is_none_or(|t| rows[t.row].on.contains(&crate::blocks::BLOCKS.id("stone"))));
                 for (s, n) in by_season.iter_mut().enumerate() {
-                    if let Some(t) = pick(7, 2, i, j, bi, grass, s as u8, 1.0, &trees).or(plant(7, 2, i, j, bi, grass, s as u8, 1.0, &trees)) {
+                    if let Some(t) = pick(body, 7, 2, i, j, bi, grass, s as u8, 1.0, &trees).or(plant(7, 2, i, j, bi, grass, s as u8, 1.0, &trees)) {
                         assert!(rows[t.row].seasons >> s & 1 == 1);
                         *n += 1;
                     }

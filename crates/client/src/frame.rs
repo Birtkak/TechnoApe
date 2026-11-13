@@ -393,7 +393,7 @@ impl App {
                 }
                 let m = if self.world.block(b) == AIR { BLOCKS.id("stone") } else { AIR };
                 let me = &self.me;
-                let (seq, cells) = self.pred.edit(&mut self.world, &Shape::one(b), m, |w, c| phys::holds(w, me, c));
+                let (seq, cells) = self.pred.edit(&mut self.world, &Shape::one(b), m, !self.creative, |w, c| phys::holds(w, me, c));
                 for c in cells {
                     self.streamer.touch_block(&self.world, c);
                 }
@@ -434,12 +434,12 @@ impl App {
             let was = self.world.block(b);
             if self.args.get("falls", 0) == 1 {
                 // falls=1: through the server, whose loose blocks then fall as in play (ADR 0079)
-                let (seq, cells) = self.pred.edit(&mut self.world, &Shape::one(b), m, |_, _| false);
+                let (seq, cells) = self.pred.edit(&mut self.world, &Shape::one(b), m, !self.creative, |_, _| false);
                 for c in cells {
                     self.streamer.touch_block(&self.world, c);
                 }
                 self.link.send(ToServer::Edit { seq, shape: Shape::one(b), material: m });
-                fx::changed(&mut self.fx, &self.world, b, was, m);
+                fx::changed(&mut self.fx, &self.world, b, was, self.world.block(b));
                 continue;
             }
             self.world.set_block(b, m);

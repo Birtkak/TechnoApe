@@ -256,3 +256,43 @@ data/plants/reeds.3.png
 data/plants/reeds.back.png
 data/plants/short grass.3.png
 data/plants/tall grass.3.png
+data/models/grass tuft.toml
+data/models/grass tuft.png
+data/models/grass tuft.1.toml
+data/models/grass tuft.1.png
+data/models/fern.toml
+data/models/fern.png
+data/models/flowers.toml
+data/models/flowers.png
+data/textures/iron-stained rock.png
+data/textures/copper-stained rock.png
+data/textures/quartz-veined rock.png
+data/textures/greisen.png
+data/textures/bleached rock.png
+data/textures/dolomite.png
+data/textures/stone rubble.png
+data/textures/granite rubble.png
+data/textures/gneiss rubble.png
+data/textures/sandstone rubble.png
+data/textures/shale rubble.png
+data/textures/limestone rubble.png
+data/textures/slate rubble.png
+data/textures/marble rubble.png
+data/textures/quartzite rubble.png
+data/textures/schist rubble.png
+data/textures/tuff rubble.png
+data/textures/andesite rubble.png
+data/textures/basalt rubble.png
+data/textures/gabbro rubble.png
+data/textures/malachite rubble.png
+data/textures/chalcopyrite rubble.png
+data/textures/cassiterite rubble.png
+data/textures/hematite rubble.png
+data/textures/coal rubble.png
+data/textures/galena rubble.png
+data/textures/gold quartz rubble.png
+data/textures/pitchblende rubble.png
+data/textures/anorthosite rubble.png
+data/textures/mare basalt rubble.png
+data/textures/iron-nickel rubble.png
+data/textures/kreep rubble.png

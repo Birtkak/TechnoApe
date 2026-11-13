@@ -227,6 +227,8 @@ const LEVEL_GRIDS: usize = 512;
 pub struct Foot {
     pub plant: usize,
     pub h: i32,
+    /// The tree's own hash: where its limbs go, which leaves its crown lets fall (ADR 0092).
+    pub v: u32,
     pub i: i32,
     pub j: i32,
     pub z: i32,
@@ -539,6 +541,13 @@ impl Body {
         let s = b.map.m as f64 / self.n as f64;
         b.map.climate_at(face, i * s, j * s)
     }
+    /// The baked year's mean air at the ground of column (face, i, j), C: what the bake chose the biome by
+    /// (`bake::Map::temp`). None without a map that keeps a climate.
+    pub fn year_air(&self, face: usize, i: i32, j: i32) -> Option<f32> {
+        let b = self.baked.as_ref()?;
+        let s = b.map.m as f64 / self.n as f64;
+        b.map.temp(face, (i as f64 + 0.5) * s, (j as f64 + 0.5) * s)
+    }
     /// The rock's temperature at layer z of column (face, i, j), C (ADR 0063): the year's mean air at the
     /// ground, and the province's `heat` a metre deeper under it. None without a map's climate and rock.
     pub fn heat(&self, face: u8, i: i32, j: i32, z: f64) -> Option<f32> {
@@ -661,8 +670,30 @@ impl Body {
         if self.water_at(face as u8, i, j).is_some_and(|w| z as f64 <= w.0) {
             return None;
         }
+        // a palm only where the year is warm (ADR 0092)
+        if ROWS.plants[plant].warm.is_some_and(|t| self.year_air(face, i, j).is_none_or(|a| a < t)) {
+            return None;
+        }
+        // nor a tree in a clearing: one patch of four by four spots in eight, by the hash, so sun reaches a
+        // forest's floor (ADR 0092)
+        let clearing = mix(b.seed.wrapping_mul(0x9e3779b97f4a7c15) ^ (face as u64) << 58 ^ (cx.div_euclid(4) as u32 as u64) << 29 ^ cy.div_euclid(4) as u32 as u64) % 8 == 0;
+        if clearing && ROWS.plants[plant].trunk != 0 {
+            return None;
+        }
+        // nor a tree whose crown would hang over a river: a river stays open to swim and wade along (the
+        // crown's rim and half way in, sixteen columns)
+        let p = &ROWS.plants[plant];
+        if p.trunk != 0 && p.radius >= 2 {
+            let over = |di: i32, dj: i32| self.water_at(face as u8, i + di, j + dj).is_some_and(|w| w.2.is_some());
+            let (r, s) = (p.radius, (p.radius * 7 + 5) / 10);
+            for (di, dj) in [(r, 0), (-r, 0), (0, r), (0, -r), (s, s), (s, -s), (-s, s), (-s, -s)] {
+                if over(di, dj) || over(di / 2, dj / 2) {
+                    return None;
+                }
+            }
+        }
         let [lo, hi] = ROWS.plants[plant].height;
-        Some(Foot { plant, h: lo + ((r >> 16) % (hi - lo + 1) as u64) as i32, i, j, z })
+        Some(Foot { plant, h: lo + ((r >> 16) % (hi - lo + 1) as u64) as i32, v: mix(r ^ 0x7ee5) as u32, i, j, z })
     }
     /// The layers [lo, hi) of column (face, i, j) a cave hollows, at layer 0 and up: under the ground they are
     /// air (`World::generated_under`, `generate` at level 0, `Solid::gaps`), over it they change nothing.
@@ -703,8 +734,10 @@ impl Body {
     /// Puts these ore bodies in the ground, in place of any before.
     pub fn set_ores(&mut self, ores: Vec<crate::ore::OreBody>) {
         self.ore_tiles.clear();
+        // a body's halo reaches past it (ADR 0095)
+        let reach = |o: &crate::ore::OreBody| crate::ore::MINERALS.kinds[o.kind as usize].halo_m * (1.0 + crate::ore::FRAY);
         for (k, o) in ores.iter().enumerate() {
-            let r = o.a.max(o.b) + 2.0;
+            let r = o.a.max(o.b) + 2.0 + reach(o);
             let span = |v: f64| ((v - r).floor() as i32).div_euclid(CS)..=((v + r).floor() as i32).div_euclid(CS);
             for x in span(o.at.x) {
                 for y in span(o.at.y) {
@@ -714,7 +747,7 @@ impl Body {
         }
         self.ore_z = ores
             .iter()
-            .map(|o| if crate::ore::MINERALS.kinds[o.kind as usize].shape.follows_ground() { (self.layer_of(self.radius - AMP - o.at.z - o.h) - 1.0, self.layer_of(self.radius + AMP) + 1.0) } else { (o.at.z - o.h - 1.0, o.at.z + o.h + 1.0) })
+            .map(|o| if crate::ore::MINERALS.kinds[o.kind as usize].shape.follows_ground() { (self.layer_of(self.radius - AMP - o.at.z - o.h) - 1.0, self.layer_of(self.radius + AMP) + 1.0) } else { (o.at.z - o.h - 1.0 - reach(o), o.at.z + o.h + 1.0 + reach(o)) })
             .collect();
         self.ores = ores;
     }
@@ -741,6 +774,24 @@ impl Body {
         }
         let k = self.col_ores(face, i, j, ground).into_iter().find(|&(lo, hi, _)| (lo..hi).contains(&z))?.2;
         (!self.col_caves(face, i, j).iter().any(|&(lo, hi)| (lo..hi).contains(&z))).then_some(k)
+    }
+    /// The halo of altered rock that layer z of column (face, i, j) is (ADR 0095), as (body, grade): the
+    /// highest grade any body's halo gives the cell, the first body on a tie. The one rule `generated_under`,
+    /// `generate` and the report share; they ask it only of rock under the soil band that is no ore or cave.
+    pub fn halo_at(&self, face: u8, i: i32, j: i32, z: i32) -> Option<(u32, usize)> {
+        let mut best: Option<(u32, usize)> = None;
+        for &k in self.tile_ores(face, i.div_euclid(CS), j.div_euclid(CS)) {
+            if let Some(g) = self.ores[k as usize].halo_grade(face, i, j, z) {
+                if best.is_none_or(|(_, b)| g > b) {
+                    best = Some((k, g));
+                }
+            }
+        }
+        best
+    }
+    /// The block of grade g of body k's halo.
+    pub fn halo_block(&self, k: u32, g: usize) -> u16 {
+        crate::ore::MINERALS.kinds[self.ores[k as usize].kind as usize].halo[g]
     }
     /// The ore block of body k.
     pub fn ore_block(&self, k: u32) -> u16 {
@@ -778,7 +829,7 @@ impl Body {
                     continue;
                 }
                 for z in 0..=f.h {
-                    let Some((m, wood)) = p.block(f.h, dx, dz, z) else { continue };
+                    let Some((m, wood)) = p.block(f.h, f.v, dx, dz, z) else { continue };
                     match out.iter_mut().find(|o| o.0 == f.z + z) {
                         Some(o) => {
                             if wood && !o.2 {
@@ -1544,7 +1595,10 @@ impl World {
             return ground[2];
         }
         if depth >= 4.0 {
-            // under the band: the rock, by the rule the mesher's fill asks too
+            // under the band: the rock, by the rule the mesher's fill asks too, altered round a body (ADR 0095)
+            if let Some((k, g)) = body.halo_at(b.face, b.pos.x, b.pos.y, b.pos.z) {
+                return body.halo_block(k, g);
+            }
             let r = body.layer_r(b.pos.z as f64 + 0.5) as f32;
             return ROCKS.at(body.col_rock(b.face, b.pos.x, b.pos.y), r, ground[2]);
         }
@@ -2050,6 +2104,33 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
         }
     }
     if ored {
+        // the halo first (ADR 0095): rock under the soil band, no cave (the rule of `generated_under`); ore after
+        // takes its own cells
+        let halos: Vec<&crate::ore::OreBody> = body.tile_ores(key.face, key.pos.x, key.pos.y).iter().map(|&k| &body.ores[k as usize]).filter(|o| !crate::ore::MINERALS.kinds[o.kind as usize].halo.is_empty()).collect();
+        for (y, x) in (0..P).flat_map(|y| (0..P).map(move |x| (y, x))) {
+            let (i, j) = (c0.x + x as i32, c0.y + y as i32);
+            let hv = tile.h[y * P + x];
+            // the layers a halo can reach in this column: each body's box, its reach to spare
+            let (mut lo, mut hi) = (i32::MAX, i32::MIN);
+            for o in &halos {
+                if let Some((l, h)) = o.halo_span(i, j) {
+                    (lo, hi) = (lo.min(l), hi.max(h));
+                }
+            }
+            // a padding column past the face's seam is the next face's, where this face's bodies are not
+            if lo >= hi || !(0..body.n).contains(&i) || !(0..body.n).contains(&j) {
+                continue;
+            }
+            for z in (lo - c0.z).max(0)..(hi - c0.z).min(P as i32) {
+                let (zl, z) = (c0.z + z, z as usize);
+                let c = &mut cells[pidx(x, y, z)];
+                if *c != 0 && zl >= 0 && hv - body.layer_r(zl as f64 + 0.5) >= 4.0 {
+                    if let Some((k, g)) = body.halo_at(key.face, i, j, zl) {
+                        *c = body.halo_block(k, g);
+                    }
+                }
+            }
+        }
         // ore where the ground is (the rule of `Body::ore_at`): a cell still solid here is under the ground and
         // no cave; the bodies last to first, so the first body's ore is what stays
         for (y, x) in (0..P).flat_map(|y| (0..P).map(move |x| (y, x))) {
@@ -2696,6 +2777,150 @@ mod baked_tests {
         World::with_map(512, 32, 5, Some(MAP.clone()))
     }
 
+    /// A scouting tool, not a check: on the 4 km planet (seed 1337), the large tree of each species nearest the
+    /// spawn at each size and a `run=stand` that looks at it from 10 to 15 m, for ADR 0092's shots. The bake is read from
+    /// `TECHNOAPE_BAKE` (a path), else `saves/bakes` under the repository.
+    /// `cargo test --profile play -p engine tree_spots -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn tree_spots() {
+        let path = std::env::var("TECHNOAPE_BAKE").map(std::path::PathBuf::from).unwrap_or(std::path::Path::new("../..").join(crate::bake::file(1337, 6144)));
+        let map = Arc::new(Map::from_bytes(&std::fs::read(&path).unwrap()).unwrap());
+        let w = World::with_map(map.n, 32, map.seed, Some(map.clone()));
+        let b = &w.bodies[0];
+        // every spot by species and size, nearest the spawn first
+        let mut all: Vec<Vec<(f64, usize, Foot)>> = vec![Vec::new(); ROWS.plants.len() * 3];
+        // the forests: a spot nearest the spawn of each whose ground 30 m round is all that biome
+        use crate::bake::life::{COLD_FOREST, RAIN_FOREST, TEMPERATE_FOREST};
+        let kinds = [(TEMPERATE_FOREST, "temperate"), (COLD_FOREST, "cold"), (RAIN_FOREST, "rain")];
+        let mut forest: [Option<(f64, usize, Foot)>; 3] = [None; 3];
+        for f in 0..6 {
+            for cx in 0..b.n / SPACING {
+                for cy in 0..b.n / SPACING {
+                    let Some(t) = b.candidate(f, cx, cy) else { continue };
+                    let p = &ROWS.plants[t.plant];
+                    if p.radius == 0 || p.shape == crate::biomes::Shape::Bush {
+                        continue;
+                    }
+                    let d = b.dir(f, t.i as f64 + 0.5, t.j as f64 + 0.5);
+                    let near = d.dot(b.spawn);
+                    all[t.plant * 3 + p.size(t.h) as usize].push((near, f, t));
+                    let here = b.biome_at(f, t.i as f64 + 0.5, t.j as f64 + 0.5, d);
+                    if let Some(q) = kinds.iter().position(|k| Some(k.0) == here) {
+                        let inside = || {
+                            (0..8).all(|a| {
+                                let (si, ci) = (a as f64 * std::f64::consts::FRAC_PI_4).sin_cos();
+                                let (x, y) = (t.i as f64 + 0.5 + 30.0 * ci, t.j as f64 + 0.5 + 30.0 * si);
+                                b.biome_at(f, x, y, b.dir(f, x, y)) == here
+                            })
+                        };
+                        if forest[q].is_none_or(|x| near > x.0) && inside() {
+                            forest[q] = Some((near, f, t));
+                        }
+                    }
+                }
+            }
+        }
+        let sun = w.sky.sun_dir(225.0);
+        // the view from `dc` (a direction from the centre) at `eye` over the ground to `target`
+        let aim = |dc: DVec3, eye: f64, target: DVec3| {
+            let pos = b.centre + dc * (b.top(dc) + eye);
+            let up = dc;
+            let rr = if up.y.abs() > 0.9 { DVec3::Z } else { DVec3::Y };
+            let ahead = (rr - up * rr.dot(up)).normalize();
+            let fwd = (target - pos).normalize();
+            let hz = fwd - up * fwd.dot(up);
+            (pos, hz.dot(up.cross(ahead)).atan2(hz.dot(ahead)).to_degrees(), fwd.dot(up).asin().to_degrees())
+        };
+        for (k, list) in all.iter_mut().enumerate() {
+            list.sort_by(|x, y| y.0.total_cmp(&x.0));
+            let p = &ROWS.plants[k / 3];
+            // the nearest of the first forty with a view from the sun's half that nothing stands in: no block
+            // but air on the line from the eye to the tree's middle until its crown
+            let found = list.iter().take(40).find_map(|&(near, f, t)| {
+                let dt = b.dir(f, t.i as f64 + 0.5, t.j as f64 + 0.5);
+                let r = b.layer_r(t.z as f64);
+                let target = b.centre + dt * (r + t.h as f64 * 0.55);
+                let (e1, e2) = (dt.any_orthonormal_vector(), dt.cross(dt.any_orthonormal_vector()));
+                let mut ways: Vec<DVec3> = (0..16).map(|a| (a as f64 * std::f64::consts::PI / 8.0).sin_cos()).map(|(s, c)| (dt * r + (e1 * c + e2 * s) * (12.0 + t.h as f64 * 0.5)).normalize()).filter(|dc| (*dc - dt).dot(sun) > 0.0).collect();
+                ways.sort_by(|x, y| y.dot(sun).total_cmp(&x.dot(sun)));
+                ways.into_iter().find_map(|dc| {
+                    let (pos, yaw, pitch) = aim(dc, 1.7, target);
+                    let len = (target - pos).length() - p.crown(t.h) as f64 - 1.0;
+                    let clear = (0..(len * 2.0) as i32).all(|s| w.block(w.block_at(pos + (target - pos).normalize() * s as f64 * 0.5)) == 0);
+                    (clear && w.water_surface(pos).is_none()).then_some((dc, yaw, pitch, near, t))
+                })
+            });
+            let Some((dc, yaw, pitch, near, t)) = found else { continue };
+            let name = p.name.replace(' ', "-");
+            println!("SHOT {name}-{} at={:.6},{:.6},{:.6} eye=1.7 yaw={yaw:.1} pitch={pitch:.1}  # h {} {:.0} m from the spawn", ["small", "medium", "large"][k % 3], dc.x, dc.y, dc.z, t.h, near.clamp(-1.0, 1.0).acos() * b.radius);
+        }
+        // each forest from among its trees looking ahead; the temperate one also from 40 m over them
+        for (q, (_, kind)) in kinds.iter().enumerate() {
+            let Some((_, f, t)) = forest[q] else { continue };
+            let dt = b.dir(f, t.i as f64 + 0.5, t.j as f64 + 0.5);
+            let r = b.layer_r(t.z as f64);
+            let (e1, e2) = (dt.any_orthonormal_vector(), dt.cross(dt.any_orthonormal_vector()));
+            // a spot near the tree whose eye is in the open and sees 10 m ahead between the trunks
+            let clear = |from: DVec3, to: DVec3, n: i32| (0..n).all(|s| w.block(w.block_at(from + (to - from) * (s as f64 / n as f64))) == 0);
+            let found = (2..20).flat_map(|m| (0..8).map(move |a| (m, a))).find_map(|(m, a)| {
+                let (sa, ca) = (a as f64 * std::f64::consts::FRAC_PI_4).sin_cos();
+                let dc = (dt * r + (e1 * ca + e2 * sa) * m as f64).normalize();
+                let (pos, ..) = aim(dc, 1.7, dt);
+                let ahead = (e1 * ca + e2 * sa) * 10.0;
+                (clear(pos - dc * 0.6, pos + dc * 0.6, 3) && clear(pos, pos + ahead, 20) && w.water_surface(pos).is_none()).then_some((dc, b.centre + dt * r + (e1 * ca + e2 * sa) * (m as f64 + 30.0)))
+            });
+            let Some((dc, far)) = found else { continue };
+            let (_, yaw, _) = aim(dc, 1.7, far);
+            println!("SHOT forest-{kind} at={:.6},{:.6},{:.6} eye=1.7 yaw={yaw:.1} pitch=8", dc.x, dc.y, dc.z);
+            if q == 0 {
+                println!("SHOT forest-above at={:.6},{:.6},{:.6} eye=40 yaw={yaw:.1} pitch=-40", dc.x, dc.y, dc.z);
+            }
+        }
+    }
+
+    /// ADR 0092: what trees cost a forest chunk on one worker thread: the chunk's generation (cold, then with
+    /// its tiles cached) and its quads (fast and fancy leaves). The chunks are those over every candidate spot
+    /// in a forest biome, so the set is the same whatever grows there.
+    /// `cargo test --profile play -p engine tree_chunk_cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn tree_chunk_cost() {
+        let w = world();
+        let b = &w.bodies[0];
+        let forest = [crate::bake::life::COLD_FOREST, crate::bake::life::TEMPERATE_FOREST, crate::bake::life::RAIN_FOREST];
+        let mut keys = std::collections::BTreeSet::new();
+        for f in 0..6usize {
+            for cx in 0..b.n / SPACING {
+                for cy in 0..b.n / SPACING {
+                    let (i, j) = (cx * SPACING + SPACING / 2, cy * SPACING + SPACING / 2);
+                    let d = b.dir(f, i as f64 + 0.5, j as f64 + 0.5);
+                    if b.biome_at(f, i as f64 + 0.5, j as f64 + 0.5, d).is_some_and(|bi| forest.contains(&bi)) {
+                        let z = b.first_air(b.col_height(f as u8, i, j)) + 4;
+                        keys.insert((f as u8, i.div_euclid(CS), j.div_euclid(CS), z.div_euclid(CS)));
+                    }
+                }
+            }
+        }
+        let keys: Vec<Key> = keys.into_iter().map(|(face, x, y, z)| Key { body: 0, face, level: 0, pos: IVec3::new(x, y, z) }).collect();
+        let run = || {
+            let t0 = std::time::Instant::now();
+            let cells: Vec<_> = keys.iter().filter_map(|k| match generate(b, *k, &[]) {
+                Gen::Cells(c) => Some(c),
+                _ => None,
+            }).collect();
+            (t0.elapsed().as_secs_f64() * 1e6 / keys.len() as f64, cells)
+        };
+        let (cold, _) = run();
+        let (warm, cells) = run();
+        let t0 = std::time::Instant::now();
+        let fast: usize = cells.iter().map(|c| crate::mesh::mesh(c, 1).quads.len()).sum();
+        let mesh_us = t0.elapsed().as_secs_f64() * 1e6 / cells.len() as f64;
+        let fancy: usize = cells.iter().map(|c| crate::mesh::mesh_cut(c, 1, true, true).quads.len()).sum();
+        let n = cells.len() as f64;
+        println!("{{\"chunks\":{},\"gen_us_cold\":{cold:.1},\"gen_us_warm\":{warm:.1},\"mesh_us_fast\":{mesh_us:.1},\"quads_fast\":{:.0},\"quads_fancy\":{:.0}}}", cells.len(), fast as f64 / n, fancy as f64 / n);
+    }
+
     /// Beds (ADR 0086): no column under the sea, a lake or a river has grass, snow or ice on top; the deep
     /// sea is not sand and a shallow lake not clay; each kind of water is found.
     #[test]
@@ -2818,7 +3043,7 @@ mod baked_tests {
     }
 
     /// Ore is one answer too (ADR 0063): physics, the mesher's chunk and the ledger's count agree cell by cell
-    /// on a deep lump across a chunk corner with a cave through it, and on a stream-bed gravel at the ground,
+    /// on a deep lump across a chunk corner with a cave through it (its halo too, ADR 0095), and on a stream-bed gravel at the ground,
     /// which shows at the top.
     #[test]
     fn the_mesher_physics_and_the_count_see_the_same_ore() {
@@ -2836,6 +3061,7 @@ mod baked_tests {
         m[0].set_ores(vec![lump, gravel]);
         let b = &w.bodies[0];
         let held = crate::ore::count(b);
+        let mut halos = 0;
         for (k, o) in [lump, gravel].iter().enumerate() {
             let ore = MINERALS.kinds[o.kind as usize].block;
             let (mut seen, mut ingots, mut at_top) = (0, 0, 0);
@@ -2850,7 +3076,9 @@ mod baked_tests {
                         Gen::Solid => u16::MAX,
                         Gen::Empty => AIR,
                     };
-                    assert!(mesh == phys || (mesh == u16::MAX && phys != AIR && phys != ore), "({i}, {j}, {z}): mesh {mesh}, physics {phys}");
+                    let halo = MINERALS.kinds[o.kind as usize].halo.contains(&phys);
+                    assert!(mesh == phys || (mesh == u16::MAX && phys != AIR && phys != ore && !halo), "({i}, {j}, {z}): mesh {mesh}, physics {phys}");
+                    halos += halo as u32;
                     if phys == ore {
                         seen += 1;
                         ingots += o.grade(i, j);
@@ -2863,6 +3091,94 @@ mod baked_tests {
             assert!(k == 0 || at_top > 10, "the gravel shows at the ground: {at_top} cells");
         }
         assert_eq!(w.generated_block(Block { body: 0, face: f, pos: IVec3::new(hole.at.x as i32, hole.at.y as i32, hole.at.z as i32) }), AIR, "the cave goes through the ore");
+        assert!(halos > 100, "{halos} halo cells, mesher and physics alike (ADR 0095)");
+    }
+
+    /// The halo (ADR 0095): for every kind with one, a line walked from the host rock toward a body's core, along
+    /// each of its axes both ways, meets the halo's grades outermost first and then ore; the mesher's chunk sees
+    /// every cell as physics does; the halo eats no ore (the count is the ore physics sees) and is never ore to
+    /// the ledger.
+    #[test]
+    fn a_line_toward_a_body_passes_rising_halo_grades_then_ore() {
+        use crate::ore::{OreBody, MINERALS};
+        let mut w = world();
+        let top = w.air_over_ground(0, w.bodies[0].spawn);
+        let f = top.face;
+        let kinds: Vec<usize> = (0..MINERALS.kinds.len()).filter(|&k| !MINERALS.kinds[k].halo.is_empty()).collect();
+        assert!(kinds.len() >= 6, "{} kinds with a halo", kinds.len());
+        for &k in &kinds {
+            let kind = &MINERALS.kinds[k];
+            let (a, bw, h) = kind.shape.axes(kind.blocks as f64);
+            // the big bodies cut down to fit the small planet; the halo is the kind's own
+            let (a, bw, h) = (a.min(16.0), bw.min(16.0), h.min(10.0));
+            let t = kind.halo_m;
+            let o = OreBody { kind: k as u16, face: f, at: DVec3::new(top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5, top.pos.z as f64 - h - t - 12.0), a, b: bw, h, angle: 0.4 };
+            let m = Arc::get_mut(&mut w.bodies).unwrap();
+            m[0].set_caves(Vec::new());
+            m[0].set_ores(vec![o]);
+            let b = &w.bodies[0];
+            let top_level = kind.halo.len() + 1;
+            let level = |m: u16| if m == kind.block { top_level } else { kind.halo.iter().position(|&x| x == m).map_or(0, |g| g + 1) };
+            let mut chunk: Option<(Key, Gen)> = None;
+            let mut check = |p: IVec3| -> u16 {
+                let blk = Block { body: 0, face: f, pos: p };
+                let phys = w.generated_block(blk);
+                let key = Key { body: 0, face: f, level: 0, pos: p.div_euclid(IVec3::splat(CS)) };
+                if chunk.as_ref().is_none_or(|c| c.0 != key) {
+                    chunk = Some((key, generate(b, key, &[])));
+                }
+                let mesh = match &chunk.as_ref().unwrap().1 {
+                    Gen::Cells(cells) => cells[pidx((p.x - key.pos.x * CS + 1) as usize, (p.y - key.pos.y * CS + 1) as usize, (p.z - key.pos.z * CS + 1) as usize)],
+                    Gen::Solid => u16::MAX,
+                    Gen::Empty => AIR,
+                };
+                // a chunk wholly solid draws nothing, whatever its cells are; a dig makes it cells again
+                assert!(mesh == phys || (mesh == u16::MAX && phys != AIR), "{}: {p}: mesh {mesh}, physics {phys}", kind.name);
+                if level(phys) > 0 && level(phys) < top_level {
+                    assert_eq!(w.ore_cell(blk), None, "{}: halo is no ore", kind.name);
+                }
+                phys
+            };
+            let (c, s) = (o.angle.cos(), o.angle.sin());
+            for (du, dv, dw, ext) in [(1.0, 0.0, 0.0, a), (-1.0, 0.0, 0.0, a), (0.0, 1.0, 0.0, bw), (0.0, -1.0, 0.0, bw), (0.0, 0.0, 1.0, h), (0.0, 0.0, -1.0, h)] {
+                // from 1.5 halos out to the middle, a quarter metre a step; the levels met, each once in a row
+                let mut seen: Vec<usize> = Vec::new();
+                for n in (0..=((ext + 1.5 * t) * 4.0) as i32).rev() {
+                    let r = n as f64 * 0.25;
+                    let (u, v) = (du * r, dv * r);
+                    let p = IVec3::new((o.at.x + u * c - v * s).floor() as i32, (o.at.y + u * s + v * c).floor() as i32, (o.at.z + dw * r).floor() as i32);
+                    let l = level(check(p));
+                    if seen.last() != Some(&l) {
+                        seen.push(l);
+                    }
+                }
+                let mut first: Vec<usize> = Vec::new();
+                for &l in &seen {
+                    if !first.contains(&l) {
+                        first.push(l);
+                    }
+                }
+                assert_eq!(first, (0..=top_level).collect::<Vec<_>>(), "{} along ({du}, {dv}, {dw}): levels met {seen:?}", kind.name);
+                assert_eq!(seen.last(), Some(&top_level), "{}: the line ends in ore", kind.name);
+            }
+            // the whole box: ore as the count has it, halo only within its reach
+            let (mut ore, mut halo) = (0u32, 0u32);
+            let rr = a.max(bw) + 1.5 * t;
+            for (i, j) in (-rr as i32..=rr as i32).flat_map(|x| (-rr as i32..=rr as i32).map(move |y| (x, y))) {
+                for z in (o.at.z - h - 1.5 * t) as i32..=(o.at.z + h + 1.5 * t) as i32 {
+                    let p = IVec3::new(o.at.x as i32 + i, o.at.y as i32 + j, z);
+                    let l = level(w.generated_block(Block { body: 0, face: f, pos: p }));
+                    ore += (l == top_level) as u32;
+                    if l > 0 && l < top_level {
+                        halo += 1;
+                        assert!(o.within(p.x, p.y, p.z, t * (1.0 + crate::ore::FRAY)) && !o.within(p.x, p.y, p.z, 0.0), "{}: halo at {p} past its reach", kind.name);
+                    }
+                }
+            }
+            assert_eq!(ore, crate::ore::count(b)[0].blocks, "{}: the halo took no ore", kind.name);
+            assert!(halo > ore / 2, "{}: {halo} halo cells round {ore} ore", kind.name);
+            assert_eq!(crate::ore::count_halo(b)[0].iter().sum::<u32>(), halo, "{}: the report's halo count", kind.name);
+        }
     }
 
     /// The ledger (ADR 0063) opens with the count, goes to zero when a body's cells are dug out, and up again by
@@ -2890,6 +3206,74 @@ mod baked_tests {
         w.put_edit(at(cells[1]), None);
         w.set_block(at(top.pos + IVec3::Z), ore);
         assert_eq!((w.ore_left.as_ref().unwrap()[0], w.ore_recount(&open)[0]), (2, 2), "one put back, one undone, one elsewhere");
+    }
+
+    /// ADR 0092 (the overseer: a closed canopy left the forest floor black at noon): a forest has clearings,
+    /// patches of four by four spots where no tree grows, about one patch in eight.
+    #[test]
+    fn forests_have_clearings() {
+        let w = world();
+        let b = &w.bodies[0];
+        let forest = crate::bake::life::TEMPERATE_FOREST;
+        let (mut patches, mut clear) = (0, 0);
+        for f in 0..6 {
+            for px in 0..b.n / SPACING / 4 {
+                for py in 0..b.n / SPACING / 4 {
+                    let spots: Vec<(i32, i32)> = (0..4).flat_map(|a| (0..4).map(move |c| (px * 4 + a, py * 4 + c))).collect();
+                    let all = spots.iter().all(|&(cx, cy)| {
+                        let (i, j) = (cx * SPACING + SPACING / 2, cy * SPACING + SPACING / 2);
+                        b.biome_at(f, i as f64, j as f64, b.dir(f, i as f64, j as f64)) == Some(forest)
+                    });
+                    if all {
+                        patches += 1;
+                        clear += spots.iter().all(|&(cx, cy)| b.candidate(f, cx, cy).is_none_or(|t| ROWS.plants[t.plant].trunk == 0)) as usize;
+                    }
+                }
+            }
+        }
+        assert!(patches >= 40 && clear * 12 >= patches && clear * 4 <= patches, "{clear} clearings in {patches} patches of temperate forest");
+    }
+
+    /// ADR 0092: on a baked planet every tree of a biome's row grows in it where that biome is common, palms
+    /// only where the year is warm, and two looks at a spot give the same tree.
+    #[test]
+    fn every_species_grows_in_its_biomes() {
+        let w = world();
+        let b = &w.bodies[0];
+        let mut spots = vec![0usize; ROWS.biomes.len()];
+        let mut found = std::collections::BTreeSet::new();
+        for f in 0..6 {
+            for cx in 0..b.n / SPACING {
+                for cy in 0..b.n / SPACING {
+                    let (i, j) = (cx * SPACING + SPACING / 2, cy * SPACING + SPACING / 2);
+                    if let Some(bi) = b.biome_at(f, i as f64, j as f64, b.dir(f, i as f64, j as f64)) {
+                        spots[bi as usize] += 1;
+                    }
+                    let Some(foot) = b.candidate(f, cx, cy) else { continue };
+                    assert_eq!(Some(foot), b.candidate(f, cx, cy));
+                    let bi = b.biome_at(f, foot.i as f64 + 0.5, foot.j as f64 + 0.5, b.dir(f, foot.i as f64 + 0.5, foot.j as f64 + 0.5)).unwrap();
+                    let p = &ROWS.plants[foot.plant];
+                    if let Some(warm) = p.warm {
+                        let t = b.year_air(f, foot.i, foot.j).unwrap();
+                        assert!(t >= warm, "a {} at {t:.1} C", p.name);
+                    }
+                    found.insert((bi, foot.plant));
+                }
+            }
+        }
+        let mut checked = 0;
+        for (bi, row) in ROWS.biomes.iter().enumerate() {
+            for &(p, share) in &row.plants {
+                // enough spots that the share would find it ten times over; palms need warm ones too
+                if (spots[bi] as f32) * share >= 10.0 && ROWS.plants[p].warm.is_none() {
+                    assert!(found.contains(&(bi as u8, p)), "no {} in {} ({} spots)", ROWS.plants[p].name, row.name, spots[bi]);
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked >= 10, "{checked} pairs checked");
+        let palm = ROWS.plants.iter().position(|p| p.name == "palm").unwrap();
+        assert!(found.iter().any(|&(_, p)| p == palm), "palms somewhere warm: rain forest {} spots, beach {}", spots[crate::bake::life::RAIN_FOREST as usize], spots[crate::bake::life::BEACH as usize]);
     }
 
     /// Plants of every reader agree (ADR 0043): the block physics sees (`World::generated_block`), the chunk

@@ -1467,6 +1467,57 @@ def bush_hd(rng, w, h, look=None):
     return c
 
 
+# ---------------------------------------------------------------- mining (ADR 0093 rubble, ADR 0095 halo)
+
+
+def pieces(rng, n, size=N):
+    """Broken rock: n pieces over the face (wrapping), each texel's piece, and how deep it is inside it (the gap
+    between pieces where that is under one texel)."""
+    px, py = rng.uniform(0, size, n), rng.uniform(0, size, n) * rng.uniform(0.8, 1.0)
+    ys, xs = np.mgrid[0:size, 0:size].astype(float)
+    dx = np.abs(xs[..., None] - px)
+    dy = np.abs(ys[..., None] - py)
+    d = np.hypot(np.minimum(dx, size - dx), np.minimum(dy, size - dy) * 1.15)
+    o = np.sort(d, axis=2)
+    return np.argmin(d, axis=2), o[..., 1] - o[..., 0]
+
+
+def rubble(rng, src, gap, pal):
+    """A rock's rubble from its own painting: six to eight broken pieces, each a shifted cut of the rock (its
+    grain and colours), a lit rim up and left, a shaded rim down and right, one piece in three a step darker,
+    and dark gaps between them, so it reads loose at a glance next to the solid wall."""
+    vals, counts = np.unique(src.astype(str), return_counts=True)
+    names = sorted((v for v, n in zip(vals, counts) if n >= src.size * 0.06), key=lambda k: luma(pal.rgb(k)))  # the rock's
+    # own ramp; rare colours (ore specks, crystals) stay themselves, so a rim never turns gold or green
+    step = {k: names[max(0, i - 1)] for i, k in enumerate(names)}
+    brighter = {k: names[min(len(names) - 1, i + 1)] for i, k in enumerate(names)}
+    if sum(luma(pal.rgb(k)) for k in names) / len(names) < 51:  # a dark rock (coal, basalt): its rims catch the
+        sheen = max(vals, key=lambda k: luma(pal.rgb(k)))  # light in its lightest colour, or the pieces vanish
+        brighter = {k: sheen for k in names}
+    piece, depth = pieces(rng, int(rng.integers(6, 9)))
+    shift = {k: (int(rng.integers(N)), int(rng.integers(N))) for k in np.unique(piece)}
+    darkp = {k for k in shift if rng.random() < 0.33}
+    c = np.empty((N, N), object)
+    for y in range(N):
+        for x in range(N):
+            k = piece[y, x]
+            if depth[y, x] < 1.0:  # the gap between pieces
+                c[y, x] = gap
+                continue
+            ox, oy = shift[k]
+            v = src[(y + oy) % N, (x + ox) % N]
+            if k in darkp:
+                v = step.get(v, v)
+            up, left = piece[(y - 1) % N, x] != k or depth[(y - 1) % N, x] < 1.0, piece[y, (x - 1) % N] != k or depth[y, (x - 1) % N] < 1.0
+            down = piece[(y + 1) % N, x] != k or depth[(y + 1) % N, x] < 1.0
+            if up or left:
+                v = brighter.get(v, v)
+            elif down and v in step:
+                v = step[step[v]]
+            c[y, x] = v
+    return c
+
+
 # ---------------------------------------------------------------- the blocks
 
 # Names the other flora sessions choose (their lists in the main checkout's out/, flora.md): where a list is
@@ -2124,6 +2175,104 @@ def build(pal, blocks):
     tex("iron-nickel", 2, iron_nickel)
     kr = R("kreep")
     tex("kreep", 3, lambda g, v: specks(specks(rock_top(g, kr, 1), g, kr["L"], 5), g, kr["d"], 4))
+
+    # the ore halo (ADR 0095): the host rock altered round an ore body, each its own look, read at a glance
+    host = R("halo grey", (0.50, 0.49, 0.47))
+    rust, ochre, pits = R("limonite", (0.62, 0.32, 0.12)), R("ochre", (0.80, 0.58, 0.26)), R("weathered pyrite", (0.30, 0.20, 0.13))
+
+    def iron_stained(g, v):
+        """Grey rock blotched and streaked rust to ochre, dark brown pits where pyrite weathered out."""
+        c = grain(g, host, "sml", (0.3, 0.45, 0.25), 4, 0.35)
+        f = field(g, 4, 0.35)  # blotches, not bands
+        c[f > 0.5] = ochre["m"]
+        c[f > 0.62] = rust["m"]
+        c[f > 0.78] = rust["d"]
+        for _ in range(2):  # stains run down from the blotches
+            x, y = int(g.integers(N)), int(g.integers(N))
+            walk(c, g, rust["s"], x, y, int(g.integers(4, 8)), 0, 1, 0.2)
+        specks(c, g, pits["m"], 3)
+        return c
+    tex("iron-stained rock", 3, iron_stained)
+
+    mal, azu = R("malachite smear", (0.20, 0.62, 0.38)), R("azurite", (0.20, 0.38, 0.72))
+
+    def copper_stained(g, v):
+        """Grey rock cracked, green malachite smeared along the cracks, a few small blue azurite patches."""
+        c = grain(g, host, "sml", (0.25, 0.5, 0.25), 4, 0.35)
+        for _ in range(3):
+            vert = g.random() < 0.5
+            x, y = int(g.integers(N)), int(g.integers(N))
+            for _ in range(int(g.integers(6, 11))):
+                put(c, x, y, host["d"])
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    if g.random() < 0.45:
+                        put(c, x + dx, y + dy, mal["m"] if g.random() < 0.7 else mal["l"])
+                if g.random() < 0.3:
+                    x, y = (x + g.choice((-1, 1)), y) if vert else (x, y + g.choice((-1, 1)))
+                x, y = (x, y + 1) if vert else (x + 1, y)
+        for _ in range(2):
+            specks(c, g, azu["m"], 1, 2)
+        return c
+    tex("copper-stained rock", 3, copper_stained)
+
+    qhost, quartz = R("veined host", (0.36, 0.36, 0.37)), R("milky quartz", (0.93, 0.92, 0.88))
+
+    def quartz_veined(g, v):
+        """Dark grey host crossed by thin milky quartz veinlets, one and two texels, a crisscross stockwork."""
+        c = grain(g, qhost, "dsm", (0.2, 0.5, 0.3), 4, 0.3)
+        for k in range(int(g.integers(4, 6))):
+            x, y = int(g.integers(N)), int(g.integers(N))
+            sx, sy = ((1, int(g.choice((-1, 0, 1)))) if k % 2 else (int(g.choice((-1, 0, 1))), 1))
+            wide = g.random() < 0.4
+            for _ in range(int(g.integers(6, 13))):
+                put(c, x, y, quartz["m"] if g.random() < 0.65 else quartz["s"])
+                if wide:
+                    put(c, x + (0 if sx else 1), y + (1 if sx else 0), quartz["s"])
+                if g.random() < 0.25:  # the vein jogs
+                    x, y = x + (0 if sx else int(g.choice((-1, 1)))), y + (int(g.choice((-1, 1))) if sx else 0)
+                x, y = x + sx, y + sy
+        return c
+    tex("quartz-veined rock", 3, quartz_veined)
+
+    gre, glint, cass = R("greisen"), R("mica glint", (0.97, 0.97, 0.92)), R("cassiterite speck", (0.18, 0.17, 0.18))
+
+    def greisen(g, v):
+        """Pale grey-green, coarse, glittering with quartz and light mica, small dark specks."""
+        c = grain(g, gre, "sml", (0.3, 0.4, 0.3), 2, 0.6)
+        specks(c, g, glint["m"], 9)
+        specks(c, g, cass["m"], 5)
+        return c
+    tex("greisen", 3, greisen)
+
+    bl = R("bleached rock")
+
+    def bleached(g, v):
+        """The host gone pale: cream to off-white, chalky, a faint ghost of the grain."""
+        c = grain(g, bl, "smL", (0.15, 0.6, 0.25), 4, 0.25)
+        specks(c, g, bl["s"], 6, 2)
+        return c
+    tex("bleached rock", 3, bleached)
+
+    do, spar = R("dolomite"), R("calcite spar", (0.95, 0.94, 0.90))
+
+    def dolomite(g, v):
+        """Buff to tan sugary carbonate, white calcite spar in small vugs (a dark under-edge)."""
+        c = grain(g, do, "sml", (0.25, 0.5, 0.25), 2, 0.7)
+        for _ in range(2):
+            x, y = int(g.integers(N)), int(g.integers(N))
+            for dx, dy in ((0, 0), (1, 0), (0, 1)):
+                put(c, x + dx, y + dy, spar["m"])
+            put(c, x, y + 2, do["d"])
+            put(c, x + 1, y + 1, do["d"])
+        return c
+    tex("dolomite", 3, dolomite)
+
+    # rubble (ADR 0093): each rock's and hard ore's broken pieces, from its own painting
+    gap = R("rubble gap", (0.12, 0.11, 0.10))["m"]
+    for b in blocks:
+        if "rubble" in b and b["name"] in out:
+            src = out[b["name"]]
+            tex(f"{b['name']} rubble", 3, lambda g, v, src=src: rubble(g, src[v % len(src)], gap, pal))
     for stem in [k for k in out if k.startswith("hd:")]:
         block = stem[3:].split("@")[0].removesuffix("_side")
         if block.endswith("leaves") or block in ("shrub", "reed", "cactus"):
@@ -2209,7 +2358,7 @@ def main(argv):
     out = build(pal, blocks)
     OUT.mkdir(exist_ok=True)
     painted, paths, pending, used = set(), [], [], set()
-    names = {b["name"] for b in blocks}
+    names = {b["name"] for b in blocks} | {f"{b['name']} rubble" for b in blocks if "rubble" in b}
     for stem, variants in out.items():
         if stem.startswith("plant:"):  # data/plants/ once the plants branch made it, else waiting
             name = stem.removeprefix("plant:")
