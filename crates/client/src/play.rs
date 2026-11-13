@@ -918,7 +918,7 @@ impl App {
         // frame of the click (fundamentals.md)
         let me = &self.me;
         let olds = edit::changes(&self.world, s, m, |c| phys::holds(&self.world, me, c));
-        let (seq, cells) = self.pred.edit(&mut self.world, s, m, |w, c| phys::holds(w, me, c));
+        let (seq, cells) = self.pred.edit(&mut self.world, s, m, !self.creative, |w, c| phys::holds(w, me, c));
         for &(b, was) in &olds {
             fx::changed(&mut self.fx, &self.world, b, was, self.world.block(b));
         }
@@ -1026,7 +1026,7 @@ impl App {
     /// A cell's delta heard (docs/design/sound.md): a dig in the sound of what was there, a place in the new
     /// block's; whether it played.
     pub(crate) fn heard(&mut self, b: Block, was: u16, now: u16, touch: bool) -> bool {
-        let (what, id) = if now == AIR { ("dig", was) } else { ("place", now) };
+        let (what, id) = if now == AIR || engine::edit::breaks(was, now) { ("dig", was) } else { ("place", now) };
         match BLOCKS.get(id).filter(|_| was != now) {
             Some(d) => self.audio.play(&format!("{what}.{}", d.sound), Some(self.world.block_centre(b)), 1.0, 1.0, touch),
             None => false,

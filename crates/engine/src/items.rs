@@ -158,7 +158,7 @@ impl Items {
     }
 
     pub fn stack(&self, id: u16) -> u16 {
-        self.get(id).map_or(STACK, |d| d.stack)
+        self.get(id).map(|d| d.stack).or(BLOCKS.get(id).map(|d| d.stack)).unwrap_or(STACK)
     }
 
     /// The block an item is drawn as; a block is itself.
@@ -320,14 +320,15 @@ pub fn from_counts(counts: &[(u16, u32)]) -> Vec<Slot> {
 mod tests {
     use super::*;
 
+    /// A block of full stacks of 64 (stone stacks by 16 since ADR 0093).
     fn stone() -> u16 {
-        BLOCKS.id("stone")
+        BLOCKS.id("snow")
     }
 
     #[test]
     fn every_block_is_an_item_and_names_and_ids_are_unique() {
         let all: Vec<u16> = ITEMS.all().collect();
-        assert!(BLOCKS.placeable().all(|d| all.contains(&d.id) && ITEMS.name(d.id) == d.name && ITEMS.stack(d.id) == STACK));
+        assert!(BLOCKS.placeable().all(|d| all.contains(&d.id) && ITEMS.name(d.id) == d.name && ITEMS.stack(d.id) == d.stack));
         let mut names: Vec<&str> = all.iter().map(|&i| ITEMS.name(i)).collect();
         names.sort_unstable();
         let n = names.len();

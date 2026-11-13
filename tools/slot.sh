@@ -2,9 +2,10 @@
 # Sharing the PC between sessions (ADR 0096). Builds, tests and pictures may run two at a time; anything
 # whose speed numbers are kept runs alone.
 #   bash tools/slot.sh job <command...>      a build, a test run, a shot or film: one of two slots
-#   bash tools/slot.sh measure <command...>  a speed run or soak whose numbers are kept: the PC to itself
+#   bash tools/slot.sh measure <command...>  a speed run, a soak or the gate (tools/check.sh), whose numbers
+#                                            are kept: the PC to itself
 #   bash tools/slot.sh quiet <command...>    waits for a quiet PC, then runs a tool that takes out/.lock
-#                                            itself (tools/check.sh, tools/bench.sh)
+#                                            itself (tools/bench.sh)
 # The slots are folders in the main checkout's out/, shared by every worktree. A slot older than its limit
 # is taken over: its owner died.
 set -u
@@ -46,7 +47,7 @@ measure)
   until take "$out/.lock" 45; do sleep 5; done
   trap 'rm -rf "$out/.lock"' EXIT
   while jobs_busy; do sleep 5; done
-  "$@"
+  SLOT_HELD=1 "$@"
   ;;
 quiet)
   while { [ -d "$out/.lock" ] && ! stale "$out/.lock" 45; } || jobs_busy; do sleep 5; done

@@ -450,7 +450,7 @@ mod tests {
     #[test]
     fn slots_and_piles_are_kept_and_items_are_found_by_name() {
         use items::Stack;
-        let (stone, basket) = (BLOCKS.id("stone"), ITEMS.named("basket").unwrap());
+        let (stone, basket) = (BLOCKS.id("snow"), ITEMS.named("basket").unwrap());
         let p = |slots: Vec<Slot>| Saved { name: "ape".into(), pos: [1.0, 2.0, 3.0], fwd: [1.0, 0.0, 0.0], creative: false, slots, water: 0, vitals: Vitals::default() };
         let mut slots = items::ape();
         (slots[0], slots[1]) = (Some(Stack::new(stone, 5)), Some(Stack::new(basket + 7, 1)));
