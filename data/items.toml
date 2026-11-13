@@ -39,6 +39,7 @@ look = "stone"
 
 [[item]]
 name = "flint"
+stack = 16
 look = "slate"
 
 [[item]]

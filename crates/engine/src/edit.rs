@@ -244,6 +244,20 @@ pub fn dug(old: u16, survival: bool) -> u16 {
     BLOCKS.get(old).and_then(|d| d.rubble).filter(|_| survival).unwrap_or(AIR)
 }
 
+/// What a survival dig of block `old` from cell `b` finds in it besides the block (ADR 0097: flint in gravel):
+/// the item its row `holds`, by a roll from the seed and the cell against the row's chance, and only in a cell
+/// whose block is still as generated (no edit ever made there). A block placed, or fallen into the cell, is an
+/// edit and holds nothing, so placing and digging again finds nothing. Ask before the dig is written.
+pub fn held(world: &crate::world::World, b: Block, old: u16) -> Option<u16> {
+    let (name, chance) = BLOCKS.get(old)?.holds.as_ref()?;
+    if world.edit(b).is_some() || world.generated_block(b) != old {
+        return None;
+    }
+    let seed = world.bodies.get(b.body as usize)?.baked_seed().unwrap_or(0);
+    let h = crate::world::mix(seed ^ 0x401d_5000 ^ (b.body as u64) << 61 ^ (b.face as u64) << 58 ^ (b.pos.x as u32 as u64) << 29 ^ b.pos.y as u32 as u64 ^ (b.pos.z as u32 as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+    (crate::world::unit(h) < *chance).then(|| crate::items::ITEMS.named(name)).flatten()
+}
+
 /// Whether a cell going from `was` to `now` is a block dug: to an open cell, or to `was`'s own rubble.
 pub fn breaks(was: u16, now: u16) -> bool {
     BLOCKS.solid(was) && (!BLOCKS.solid(now) || BLOCKS.get(now).is_some_and(|d| d.rubble_of == Some(was)))
@@ -312,6 +326,18 @@ impl Predictor {
 
 #[cfg(test)]
 mod tests {
+    /// Every `holds` names an item (ADR 0097), and gravel holds flint.
+    #[test]
+    fn what_blocks_hold_are_items() {
+        let mut n = 0;
+        for d in BLOCKS.placeable().filter(|d| d.holds.is_some()) {
+            let (name, _) = d.holds.as_ref().unwrap();
+            assert!(crate::items::ITEMS.named(name).is_some(), "{} holds '{name}', no item", d.name);
+            n += 1;
+        }
+        assert!(n >= 1 && BLOCKS.get(BLOCKS.id("gravel")).unwrap().holds.as_ref().is_some_and(|h| h.0 == "flint"));
+    }
+
     use super::*;
 
     #[test]
