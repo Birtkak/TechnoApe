@@ -91,6 +91,16 @@ the river by the spawn at noon and sunset, the lake at noon, sunset and night, o
 deepen to blue; trees are mirrored in the lake; the river's foam laps along its banks; from orbit the sea is one
 calm blue with the sun's sheen and no seam.
 
+Gate (fast, after merging main ad0da8f9): `stand`'s GPU p50 2.90 ms with water traced against 2.70 with it off
+(the same binary back to back): the water's cost there is 0.2 ms. The rest over the baseline (2.28) is main's clouds.
+The `sim` tick's p99 was noise from other sessions compiling: main's build 3.7 to 12 ms, this branch 2.5 to 2.6.
+
+Reviews: a fresh reviewer read each round. The first found falls dark from behind, the discard after the rays, the
+clock's wrap, foam twinkling on still water, booking poured water, and heads not levelled: all fixed but the wrap
+(below). The second found reflections sunlit under a roof and bottoms lit as tops, near shallows turned deep at
+grazing views (the far floor went by footprint, now by distance), and a contour where the view ray's reach ends:
+all fixed. It also noted the surf moves a little with the view's tilt: left, a look call.
+
 ## Consequences
 - The water pass is the frame's dearest after the G-buffer near water: two rays a pixel more than before (view
   and reflection). The setting's simple and off rows give it back.
