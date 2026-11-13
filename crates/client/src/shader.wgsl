@@ -2224,23 +2224,34 @@ fn still_local(q: vec2u, uv: vec2f, c: Chunk, fade: f32) -> vec3f {
     // its place in the cell: up to a quarter metre off the middle
     let off = (vec2f(f32((lo >> 18u) & 15u), f32((lo >> 22u) & 15u)) / 15.0 - 0.5) * 0.5;
     let c0 = vec3f(0.5, 0.0, 0.5);
-    var m = f.o + f.eu * uv.x + f.ev * uv.y - c0;
+    let t = plant_turn(f, c, cell);
+    var m = turned(t, f.o + f.eu * uv.x + f.ev * uv.y - c0);
     var at = off;
     if ((f.flags & PLANT) != 0u) {
-        // a plant: its height (h.x) and width (k.z) its own, turned to any angle and set up to a third of a block
-        // off the middle (k), so no row or grid shows from any side
-        let col = c.base.xy + vec2i(cell.xy);
-        let h = hash4(vec3i(col, i32(c.info & 7u)));
-        let k = hash4(vec3i(col, i32(c.info & 7u) + 8));
-        let a = k.w * 6.2831853;
-        var sc = vec3f(0.85 + 0.3 * k.z, 0.8 + 0.4 * h.x, 0.85 + 0.3 * k.z);
-        // a shrub: wider than tall and lopsided, one side fuller than the other
-        if ((f.flags & SHRUB) != 0u) { sc = vec3f(1.1 + 0.4 * k.z, 0.7 + 0.25 * h.x, 0.85 + 0.4 * fract(k.x * 7.31)); }
-        m = vec3f(m.x * cos(a) - m.z * sin(a), m.y, m.x * sin(a) + m.z * cos(a)) * sc;
         m.y *= fade;
-        at = (k.xy - 0.5) * 0.66;
+        at = t.at;
     }
     return cell + vec3f(0.5 + at.x, 0.5 + at.y, 0.0) + still_dir(q, m);
+}
+
+// a plant's turn and size (`still_local`): its height (h.x) and width (k.z) its own, turned to any angle (cos and
+// sin in `cs`) and set up to a third of a block off the middle (`at`, k), so no row or grid shows from any side; a
+// model's is none
+struct Turn { cs: vec2f, sc: vec3f, at: vec2f };
+fn plant_turn(f: SFace, c: Chunk, cell: vec3f) -> Turn {
+    if ((f.flags & PLANT) == 0u) { return Turn(vec2f(1.0, 0.0), vec3f(1.0), vec2f(0.0)); }
+    let col = c.base.xy + vec2i(cell.xy);
+    let h = hash4(vec3i(col, i32(c.info & 7u)));
+    let k = hash4(vec3i(col, i32(c.info & 7u) + 8));
+    let a = k.w * 6.2831853;
+    var sc = vec3f(0.85 + 0.3 * k.z, 0.8 + 0.4 * h.x, 0.85 + 0.3 * k.z);
+    // a shrub: wider than tall and lopsided, one side fuller than the other
+    if ((f.flags & SHRUB) != 0u) { sc = vec3f(1.1 + 0.4 * k.z, 0.7 + 0.25 * h.x, 0.85 + 0.4 * fract(k.x * 7.31)); }
+    return Turn(vec2f(cos(a), sin(a)), sc, (k.xy - 0.5) * 0.66);
+}
+// a model direction turned about y and sized by t
+fn turned(t: Turn, m: vec3f) -> vec3f {
+    return vec3f(m.x * t.cs.x - m.z * t.cs.y, m.y, m.x * t.cs.y + m.z * t.cs.x) * t.sc;
 }
 
 // how far from the eye plants stand (`vs_still` fades them by then)
@@ -2304,14 +2315,24 @@ fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
         let d = length(brot(b, (place(c, b, cell + vec3f(0.5, 0.5, 0.0), cell) - b.cam_hi) - b.cam_lo));
         let d0 = plant_reach(f.flags, h.y);
         fade = 1.0 - smoothstep(d0 * 0.8, d0, d);
+        // past its reach it has shrunk into the ground: nothing more to place (ADR 0103)
+        if (fade <= 0.0) {
+            var o: VOut;
+            o.clip = vec4f(0.0, 0.0, 0.0, 1.0);
+            return o;
+        }
     }
     let local = still_local(q, uv, c, fade);
     if (plant && (c.info >> 8u) == 0u) { bend = plant_sway(brot(b, g.plants.xyz), local.z - cell.z, vec2f(col), h.z); }
     let gp = grid(c, local);
     let fr = frame_at(c.info & 7u, b, gp.x, gp.y);
-    // a plant's plane turns, leans and stretches by its place's hash (`still_local`): its normal from the placed
-    // corners, so the sun side is the drawn plane's
-    let n = select(still_dir(q, cross(f.ev, f.eu)), cross(still_local(q, vec2f(0.0, 1.0), c, 1.0) - still_local(q, vec2f(0.0), c, 1.0), still_local(q, vec2f(1.0, 0.0), c, 1.0) - still_local(q, vec2f(0.0), c, 1.0)), plant);
+    // a plant's plane turns, leans and stretches by its place's hash (`still_local`): its normal from its turned
+    // edges (the placed corners' differences), so the sun side is the drawn plane's
+    var n = still_dir(q, cross(f.ev, f.eu));
+    if (plant) {
+        let t = plant_turn(f, c, cell);
+        n = cross(still_dir(q, turned(t, f.ev)), still_dir(q, turned(t, f.eu)));
+    }
     // a plant's planes are lit as the ground under them is, from either side
     let normal = select(normalize(normalize(fr.s - fr.n * fr.ta) * n.x + normalize(fr.t - fr.n * fr.tb) * n.y + fr.up * n.z), normalize(fr.up), plant);
     var o: VOut;
