@@ -1757,3 +1757,13 @@ ramp = "kreep"
 name = "kreep light"
 rgb = "#b8ac94"
 ramp = "kreep"
+
+[[colour]]
+name = "blossom"
+rgb = "#f2ccd6"
+ramp = "blossom"
+
+[[colour]]
+name = "catkin"
+rgb = "#d6cc61"
+ramp = "catkin"

@@ -119,3 +119,70 @@ shots above. A fresh reviewer read the script (it is over 300 lines). Fixed: the
   ADR 0085 on its own branch.
 - Views that change: `seam` (the canopy) and the season views of the forest (winter: bare crowns; spring,
   summer and autumn: the calmer leaves).
+
+## Flora paintings (2026-11-13, `docs/design/flora.md` part D, ADR 0089)
+The richness of the developer's Vintage Story references, in the calm style above: **each species is told apart
+by its shape first, its colour second.** The colours are picked a step of hue apart around the mid green that a
+climate tint (part B) will multiply, so the tint moves them all and keeps them apart.
+
+- **Leaves** (four variants each, cutouts):
+  - broadleaf: soft round clumps (as before);
+  - oak: big lobed clumps, deep green, with notched rims round its holes;
+  - birch: small light leaves, more open;
+  - willow: hanging strands from the top of the block with long open slits between them, a curtain;
+  - spruce: drooping tiers every five rows;
+  - pine: needle clumps, rosettes lit at the tips, open between;
+  - jungle: big broad ovals with a midrib;
+  - acacia: flat layers of fine leaflets, open slits between;
+  - palm: a rib on the slant with long leaflets hanging from it;
+  - bamboo: slanted lance leaves.
+
+  Holes are now round blobs around one or two centres. A smooth noise field could be lowest along a whole row,
+  which drew a one-texel slit across the block.
+- **Bark** (`<log>_side`, three variants) and **ends** (`<log>`):
+  - birch: white with dark lenticel dashes;
+  - oak: grey ridges broken across;
+  - pine: big one-tone plates parted by furrows (spruce: small plates);
+  - willow: slanting furrows into diamonds;
+  - jungle: pale with moss;
+  - acacia: grey with orange under-bark;
+  - palm: rings of leaf scars;
+  - bamboo: a jointed green culm, its end a hollow ring.
+- **Seasons:**
+  - The deciduous species (broadleaf, oak, birch, willow) take a spring, an autumn and a bare winter look. Winter
+    branches are in the species' bark colours; birch's twigs are in the log's dark brown.
+  - Blossom is the spring look where it fits: broadleaf with pink-white flowers, birch and willow with catkins.
+  - Fruit is a late-summer look `@fruit`: broadleaf apples, oak acorns, jungle fruit, palm coconuts, ripe berries.
+    No season file holds it yet; part A decides how it is shown. Until then it waits in `out/flora/pending/`.
+- **Small plants as planes** (ADR 0091's format: one upright plane a file in `data/plants/<name>.png`, 32 px a
+  metre, at the sizes in the plants session's list):
+  - short grass (and `.1`), tall grass (and `.1`), wild wheat (straw ears over blades), fern (four arching fronds),
+    reeds two metres tall with cattails;
+  - `flowers` in red and white, `.1` yellow, `.2` blue and white;
+  - the berry bush with its looks `.bloom` (pink-white blossom) and `.fruit` (red berries), all three from the
+    same leaves.
+
+  They are painted at 16 texels a metre and written with each texel doubled, so a plant's pixels match the
+  ground's. Greens are the grass block's own ramp, so a meadow and its ground read as one field. The game
+  tints only green pixels (g above r and b), so the greens take the climate's tint and the straw, petals,
+  cattails and fruit keep their colour. On the grass block's side, the top row is mid with a few lit tips; it
+  was all lit and drew a light line under standing blades.
+- **Names** come from the other sessions' lists: the trees session's `out/flora-tree-blocks.txt` is read, and
+  bamboo's stalk is the block `bamboo`. The plants session's `out/flora-plant-paintings.txt` gives the plants'
+  names and sizes. A painting whose block does not exist on the branch, or whose look has no season file, is
+  written to `out/flora/pending/`; so are the plants until `data/plants/` exists, and then they replace the plants
+  session's placeholders. Its colours join the palette only when a file in `data/textures` uses them, so the
+  palette grows with the blocks: +2 now (`blossom`, `catkin`). Rerun the script once the trees and plants
+  branches are on main.
+- **Proof:**
+  - Look sheets, read: `out/flora/species.png` (every species, by season, bark and end, over sky so holes show),
+    `out/flora/plants.png` (each plane at its size, standing on a grass block), and `out/flora/meadow.png` (a
+    field of mixed planes on grass tops, near to far).
+  - `technoape-studio check=1` ok (353 colours, 125 textures).
+  - On a copy of `data/` with the trees session's twelve blocks added, the script writes 152 textures and the
+    check passes (442 colours; +89 for the six new species and their seasons).
+  - The spruce, jungle and acacia barks wait: those trees still share `log`.
+- **Views that change:**
+  - `seam` and the season views: broadleaf leaves now have four variants with round holes, and spruce has tiers;
+  - acacia and jungle canopies;
+  - every view with a grass block's side (its top row).
