@@ -282,9 +282,10 @@ impl Plant {
         if lens(dx, dz, z) {
             return Some((self.leaves, false));
         }
-        // a willow's strand: on every other column of its rim beside a withe, most of them, from under the
+        // a willow's strand: on every other column each way of its rim beside a withe (a block's gap between
+        // strands seen from any side), most of them, from under the
         // umbrella down to a block or two over the ground, one in four stopping half way
-        if droop && d2 >= (cr - 1.0) * (cr - 1.0) && (dx + dz).rem_euclid(2) == 0 {
+        if droop && d2 >= (cr - 1.0) * (cr - 1.0) && dx.rem_euclid(2) == 0 && dz.rem_euclid(2) == 0 {
             let k = hash(v, dx, dz, 1);
             let withe = ends.iter().any(|e| (e[0] - c[0]).abs() <= 2.0 && (e[1] - c[1]).abs() <= 2.0);
             let low = if k % 4 == 0 { h / 2 } else { 1 + (k >> 2) as i32 % 2 };
@@ -358,16 +359,25 @@ impl Plant {
 /// cos(d 22.5 degrees) for d in 0..16, to four places (sin is cos four steps on): the limbs' directions.
 const COS16: [f32; 16] = [1.0, 0.9239, 0.7071, 0.3827, 0.0, -0.3827, -0.7071, -0.9239, -1.0, -0.9239, -0.7071, -0.3827, 0.0, 0.3827, 0.7071, 0.9239];
 
-/// Whether cell `c` (its middle) lies on the segment from `a` to `b`: within half a block of its nearest point
-/// on each axis. Plain arithmetic only, the same on every platform.
+/// Whether the segment from `a` to `b` passes through cell `c` (its middle). Plain arithmetic only, the same on
+/// every platform.
 fn on(a: [f32; 3], b: [f32; 3], c: [f32; 3]) -> bool {
-    if (0..3).any(|i| c[i] < a[i].min(b[i]) - 0.5 || c[i] > a[i].max(b[i]) + 0.5) {
-        return false;
+    // the segment's span inside the cell's cube, a hair larger so a segment through an edge or a corner takes
+    // every cell there: the cells it passes are joined face to face (a limb steps out, then up)
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    for i in 0..3 {
+        let (min, max, d) = (c[i] - 0.501, c[i] + 0.501, b[i] - a[i]);
+        if d == 0.0 {
+            if a[i] < min || a[i] > max {
+                return false;
+            }
+        } else {
+            let (t0, t1) = ((min - a[i]) / d, (max - a[i]) / d);
+            lo = lo.max(t0.min(t1));
+            hi = hi.min(t0.max(t1));
+        }
     }
-    let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-    let l = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
-    let t = if l == 0.0 { 0.0 } else { (((c[0] - a[0]) * d[0] + (c[1] - a[1]) * d[1] + (c[2] - a[2]) * d[2]) / l).clamp(0.0, 1.0) };
-    (0..3).all(|i| (c[i] - (a[i] + t * d[i])).abs() <= 0.5)
+    lo <= hi
 }
 
 /// A hash of a tree's own hash and a small cell, 24 bits.
@@ -408,6 +418,10 @@ pub fn parse(text: &str) -> Result<Rows, String> {
         let forks = matches!(p.shape, Shape::Round | Shape::Flat | Shape::Droop);
         if (!forks && (p.fork.is_some() || p.limbs.is_some() || p.depth.is_some() || p.thick)) || (p.shape != Shape::Cone && p.bare.is_some()) {
             return Err(format!("{who}: fork, limbs, depth and thick are for round, flat and droop, bare for cone"));
+        }
+        // a forked tree needs room under its crown (its layers clamp to 1..h-1), and a 2 x 2 trunk a radius of 2
+        if forks && (p.height[0] < 3 || (p.thick && p.radius < 2)) {
+            return Err(format!("{who}: a forked tree is 3 or more tall, and a thick one has a radius of 2 or more"));
         }
         // three sizes need three heights; a bush or a stalk has none
         let sized = p.radius > 0 && p.shape != Shape::Bush;
@@ -477,26 +491,6 @@ mod tests {
         (0..256u64).map(|k| crate::world::mix(k * 0x9e37_79b9 + 1) as u32)
     }
     /// Every block of one tree: (dx, dz, z) -> (block, wood).
-    #[test]
-    #[ignore]
-    fn dbg_tree() {
-        let name = std::env::var("T").unwrap_or("oak".into());
-        let p = ROWS.plants.iter().find(|p| p.name == name).unwrap();
-        for h in [p.height[0], (p.height[0] + p.height[1]) / 2, p.height[1]] {
-            let t = tree(p, h, std::env::var("V").map(|v| u32::from_str_radix(&v, 16).unwrap()).unwrap_or(0x1234567));
-            println!("{name} h={h} size={} crown={}", p.size(h), p.crown(h));
-            for z in (0..=h).rev() {
-                let mut l = String::new();
-                for dx in -7..=7 {
-                    // a side view: the nearest block along dz
-                    let c = (-7..=7).find_map(|dz| t.get(&(dx, dz, z)));
-                    l.push(match c { Some(b) if b.1 => '#', Some(_) => 'o', None => '.' });
-                }
-                println!("{z:3} {l}");
-            }
-        }
-    }
-
     fn tree(p: &Plant, h: i32, v: u32) -> std::collections::BTreeMap<(i32, i32, i32), (u16, bool)> {
         let mut out = std::collections::BTreeMap::new();
         for dx in -REACH - 1..=REACH + 1 {
@@ -542,6 +536,31 @@ mod tests {
     fn the_limb_table_is_a_circle() {
         for (d, c) in COS16.iter().enumerate() {
             assert!((*c as f64 - (d as f64 * std::f64::consts::TAU / 16.0).cos()).abs() < 1e-4, "{d}");
+        }
+    }
+
+    /// ADR 0092 (the overseer's winter stills: branch blocks that met only at corners floated off the trunk): a
+    /// bare tree is one skeleton, every block of wood joined face to face to wood on the ground.
+    #[test]
+    fn the_wood_is_one_skeleton() {
+        for p in ROWS.plants.iter().filter(|p| p.trunk != 0) {
+            for h in p.height[0]..=p.height[1] {
+                for v in hashes() {
+                    let t = tree(p, h, v);
+                    let wood: std::collections::BTreeSet<(i32, i32, i32)> = t.iter().filter(|b| b.1 .1).map(|b| *b.0).collect();
+                    let mut seen: std::collections::BTreeSet<(i32, i32, i32)> = wood.iter().filter(|k| k.2 == 0).copied().collect();
+                    let mut todo: Vec<(i32, i32, i32)> = seen.iter().copied().collect();
+                    while let Some(k) = todo.pop() {
+                        for n in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)].map(|d| (k.0 + d.0, k.1 + d.1, k.2 + d.2)) {
+                            if wood.contains(&n) && seen.insert(n) {
+                                todo.push(n);
+                            }
+                        }
+                    }
+                    let loose: Vec<_> = wood.difference(&seen).collect();
+                    assert!(loose.is_empty(), "{} of {h} ({v:x}): wood joined to nothing by a face at {loose:?}", p.name);
+                }
+            }
         }
     }
 
@@ -684,10 +703,18 @@ mod tests {
             ("fork = 0.35", "fork = 1.5", "a fork over the top"),
             ("warm = 15.0", "warm = nan", "warm not a number"),
             ("bare = 0.55", "bare = 0.55\nfork = 0.5", "a fork on a cone"),
-            ("height = [6, 12]\nradius = 6", "height = [8, 9]\nradius = 6", "too few heights for three sizes"),
-            ("depth = 1.6", "depth = 9.0", "a crown too deep"),
+            ("height = [5, 10]\nradius = 6", "height = [8, 9]\nradius = 6", "too few heights for three sizes"),
+            ("limbs = 4\ndepth = 2.5", "limbs = 4\ndepth = 9.0", "a crown too deep"),
+            ("leaves = \"willow leaves\"
+height = [6, 10]", "leaves = \"willow leaves\"
+height = [1, 10]", "a forked tree too short to fork"),
+            ("leaves = \"willow leaves\"
+height = [6, 10]
+radius = 5", "leaves = \"willow leaves\"
+height = [6, 10]
+radius = 1", "a 2 x 2 trunk wider than its radius"),
             ("bare = 0.55", "bare = 0.55\nthick = true", "a thick cone"),
-            ("limbs = 4\ndepth = 1.6", "limbs = 9\ndepth = 1.6", "too many limbs"),
+            ("limbs = 4\ndepth = 2.5", "limbs = 9\ndepth = 2.5", "too many limbs"),
             ("name = \"tundra\"", "name = \"steppe\"", "not the bake's biome"),
             ("name = \"cactus\"\nshape = \"column\"\ntrunk = \"cactus\"", "name = \"cactus\"\nshape = \"column\"", "a column with no trunk"),
         ] {

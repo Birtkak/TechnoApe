@@ -33,7 +33,7 @@ name = "broadleaf"
 shape = "round"
 trunk = "log"
 leaves = "broadleaf leaves"
-height = [6, 11]
+height = [5, 9]
 radius = 4
 fork = 0.4
 limbs = 3
@@ -99,11 +99,11 @@ name = "oak"
 shape = "round"
 trunk = "oak log"
 leaves = "oak leaves"
-height = [6, 12]
+height = [5, 10]
 radius = 6
 fork = 0.35
 limbs = 4
-depth = 1.6
+depth = 2.5
 thick = true
 
 [[plant]]
@@ -124,7 +124,7 @@ height = [6, 10]
 radius = 5
 fork = 0.55
 limbs = 4
-depth = 1.0
+depth = 1.5
 thick = true
 
 [[plant]]

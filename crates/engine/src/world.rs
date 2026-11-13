@@ -2772,9 +2772,9 @@ mod baked_tests {
             let found = list.iter().take(40).find_map(|&(near, f, t)| {
                 let dt = b.dir(f, t.i as f64 + 0.5, t.j as f64 + 0.5);
                 let r = b.layer_r(t.z as f64);
-                let target = b.centre + dt * (r + t.h as f64 * 0.5);
+                let target = b.centre + dt * (r + t.h as f64 * 0.55);
                 let (e1, e2) = (dt.any_orthonormal_vector(), dt.cross(dt.any_orthonormal_vector()));
-                let mut ways: Vec<DVec3> = (0..16).map(|a| (a as f64 * std::f64::consts::PI / 8.0).sin_cos()).map(|(s, c)| (dt * r + (e1 * c + e2 * s) * (10.0 + t.h as f64 * 0.3)).normalize()).filter(|dc| (*dc - dt).dot(sun) > 0.0).collect();
+                let mut ways: Vec<DVec3> = (0..16).map(|a| (a as f64 * std::f64::consts::PI / 8.0).sin_cos()).map(|(s, c)| (dt * r + (e1 * c + e2 * s) * (12.0 + t.h as f64 * 0.5)).normalize()).filter(|dc| (*dc - dt).dot(sun) > 0.0).collect();
                 ways.sort_by(|x, y| y.dot(sun).total_cmp(&x.dot(sun)));
                 ways.into_iter().find_map(|dc| {
                     let (pos, yaw, pitch) = aim(dc, 1.7, target);
@@ -2791,9 +2791,18 @@ mod baked_tests {
         for (q, (_, kind)) in kinds.iter().enumerate() {
             let Some((_, f, t)) = forest[q] else { continue };
             let dt = b.dir(f, t.i as f64 + 0.5, t.j as f64 + 0.5);
-            let e1 = dt.any_orthonormal_vector();
-            let dc = (dt * b.layer_r(t.z as f64) + e1 * 3.0).normalize();
-            let far = b.centre + (dt * b.layer_r(t.z as f64) - e1 * 30.0);
+            let r = b.layer_r(t.z as f64);
+            let (e1, e2) = (dt.any_orthonormal_vector(), dt.cross(dt.any_orthonormal_vector()));
+            // a spot near the tree whose eye is in the open and sees 10 m ahead between the trunks
+            let clear = |from: DVec3, to: DVec3, n: i32| (0..n).all(|s| w.block(w.block_at(from + (to - from) * (s as f64 / n as f64))) == 0);
+            let found = (2..20).flat_map(|m| (0..8).map(move |a| (m, a))).find_map(|(m, a)| {
+                let (sa, ca) = (a as f64 * std::f64::consts::FRAC_PI_4).sin_cos();
+                let dc = (dt * r + (e1 * ca + e2 * sa) * m as f64).normalize();
+                let (pos, ..) = aim(dc, 1.7, dt);
+                let ahead = (e1 * ca + e2 * sa) * 10.0;
+                (clear(pos - dc * 0.6, pos + dc * 0.6, 3) && clear(pos, pos + ahead, 20)).then_some((dc, b.centre + dt * r + (e1 * ca + e2 * sa) * (m as f64 + 30.0)))
+            });
+            let Some((dc, far)) = found else { continue };
             let (_, yaw, _) = aim(dc, 1.7, far);
             println!("SHOT forest-{kind} at={:.6},{:.6},{:.6} eye=1.7 yaw={yaw:.1} pitch=8", dc.x, dc.y, dc.z);
             if q == 0 {
