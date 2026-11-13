@@ -14,6 +14,9 @@ use std::path::Path;
 /// (x 255).
 pub type Pixels = [[u8; 4]; 256];
 
+/// The fine paintings' folder inside a textures folder: each file there is read in place of its namesake.
+pub const HD: &str = "hd";
+
 /// The faces in the order `Painted::faces` holds them.
 pub const FACES: [&str; 3] = ["top", "side", "bottom"];
 
@@ -106,21 +109,22 @@ pub fn load_keeping(dir: &Path, reg: &Registry, kept: &mut Kept) -> Set {
     load_with(dir, reg, Some(kept))
 }
 
-/// Reads every `.png` of `dir` against the block names of `reg`. A missing folder is an empty set.
+/// Reads every `.png` of `dir` against the block names of `reg`. A missing folder is an empty set. A file of the
+/// same name in `dir/hd/` (the fine paintings, ADR 0090) is read in its place.
 pub fn load(dir: &Path, reg: &Registry) -> Set {
     load_with(dir, reg, None)
 }
 
 fn load_with(dir: &Path, reg: &Registry, mut kept: Option<&mut Kept>) -> Set {
     let mut set = Set::default();
-    let mut names: Vec<String> = std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| e.file_name().into_string().ok())
-        .filter(|n| n.ends_with(".png"))
-        .collect();
+    let pngs = |d: &Path| -> Vec<String> {
+        std::fs::read_dir(d).into_iter().flatten().flatten().filter_map(|e| e.file_name().into_string().ok()).filter(|n| n.ends_with(".png")).collect()
+    };
+    let hd = pngs(&dir.join(HD));
+    let mut names = pngs(dir);
+    names.extend(hd.iter().filter(|n| !names.contains(n)).cloned().collect::<Vec<_>>());
     names.sort();
+    let file = |n: &str| if hd.iter().any(|h| h == n) { dir.join(HD).join(n) } else { dir.join(n) };
     // per block and season (0 the base, summer's): its <block>.png, then its own top, side, bottom
     let mut found: Vec<((u16, usize), [Option<Face>; 4])> = Vec::new();
     let block = |n: &str| reg.placeable().find(|d| d.name == n).map(|d| d.id);
@@ -144,7 +148,7 @@ fn load_with(dir: &Path, reg: &Registry, mut kept: Option<&mut Kept>) -> Set {
             continue;
         };
         let id = (id, season);
-        let got = std::fs::read(dir.join(&name)).map_err(|e| e.to_string()).and_then(|b| decode_fine(&b, reg.get(id.0).map_or(See::Opaque, |d| d.see)));
+        let got = std::fs::read(file(&name)).map_err(|e| e.to_string()).and_then(|b| decode_fine(&b, reg.get(id.0).map_or(See::Opaque, |d| d.see)));
         let got = match (got, kept.as_deref_mut()) {
             (Ok(v), Some(k)) => {
                 k.insert(name.clone(), v.clone());
@@ -168,7 +172,7 @@ fn load_with(dir: &Path, reg: &Registry, mut kept: Option<&mut Kept>) -> Set {
         }
     }
     if let Some(k) = kept {
-        k.retain(|n, _| dir.join(n).exists());
+        k.retain(|n, _| file(n).exists());
     }
     let faces = |[all, top, side, bottom]: [Option<Face>; 4]| [top, side, bottom].map(|f| f.or_else(|| all.clone()));
     for ((id, _), f) in found.iter().filter(|((_, q), _)| *q == 0) {
@@ -276,6 +280,20 @@ mod tests {
             std::fs::write(d.join(n), b).unwrap();
         }
         d
+    }
+
+    /// ADR 0090: `hd/<name>` is read in place of `<name>`, and alone when there is none beside it.
+    #[test]
+    fn a_fine_file_in_hd_takes_its_namesakes_place() {
+        let d = folder("hd", &[("stone.png", rgba(16, 16, |_, _| [10, 10, 10, 255]))]);
+        std::fs::create_dir_all(d.join(HD)).unwrap();
+        std::fs::write(d.join(HD).join("stone.png"), rgba(64, 32, |_, _| [20, 20, 20, 255])).unwrap();
+        std::fs::write(d.join(HD).join("dirt.png"), rgba(32, 32, |_, _| [30, 30, 30, 255])).unwrap();
+        let s = load(&d, &BLOCKS);
+        let side = |n: &str| s.blocks.iter().find(|(id, _)| *id == BLOCKS.id(n)).and_then(|(_, p)| p.faces[1].as_ref()).map(|f| (f.fine, f.variants.len(), f.variants[0][0][0]));
+        assert_eq!(side("stone"), Some((true, 8, 20)));
+        assert_eq!(side("dirt"), Some((true, 4, 30)));
+        assert!(s.refused.is_empty(), "{:?}", s.refused);
     }
 
     #[test]

@@ -47,6 +47,16 @@ gets no early depth.
    the weather's wind, ADR 0076), more at a fluff plane's free edge. In a shot `g.water.w` is 0: the fixed views
    stand still.
 
+6. **Flora at 32 px a metre** (the developer, 2026-11-13: "still too low quality of details and colours"). A
+   painting 32 px high (32, 64, 96 or 128 wide: 1 to 4 variants of 32 x 32) is a fine painting; the file's
+   height says it, no block row changes, and 16-high files stay valid, so every other block is unchanged.
+   `engine::textures::decode_fine` keeps each fine variant as its four 16 x 16 quarters in turn (top left, top
+   right, bottom left, bottom right), so the texture buffer, its layers and `place` stay as they were; the face
+   word's bit 14 marks it (`looks_of`), and `paint_texel` reads it at 32 texels a metre (`face_xy` maps both
+   grids, with the twig turn). Unpainted patterns stay 16. A fine face takes four layers a variant of the 2048
+   (2 MB, unchanged); the GPU cost is one branch per painted texel. The Studio's check and textures page take
+   the size (see below).
+
 ## Hooks for blossom and fruit
 A season's look is a painting `data/textures/<block>@<season>.png` (spring, autumn, winter; the base is summer).
 Blossom is the spring painting (`broadleaf leaves@spring.png` already is). Fruit is named **`@fruit`**:
