@@ -172,8 +172,10 @@ pub fn dim(c: [u8; 3]) -> Color32 {
 
 /// One variant of a texture, one rectangle per pixel (ADR 0046: no GPU textures, a shot draws what the window does).
 pub fn draw(p: &egui::Painter, img: &Img, v: usize, at: Pos2, scale: f32, dimmed: bool) {
-    for y in 0..S {
-        for x in 0..S {
+    // `scale` is per 1/16 m: a fine painting's pixels are half as large, its face as large (ADR 0090)
+    let scale = scale * S as f32 / img.h as f32;
+    for y in 0..img.h {
+        for x in 0..img.h {
             let c = img.get(v, x, y);
             let r = Rect::from_min_size(at + Vec2::new(x as f32, y as f32) * scale, Vec2::splat(scale));
             if c == crate::art::EMPTY {

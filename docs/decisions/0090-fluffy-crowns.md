@@ -57,6 +57,16 @@ gets no early depth.
    (2 MB, unchanged); the GPU cost is one branch per painted texel. The Studio's check and textures page take
    the size (see below).
 
+## The Studio (tool tier)
+`art::Img` has a height: a fine file opens 32 x 32 a variant (the engine's quarters put back together), saves at
+its own size, and `check=1` and `check_dir` take 32-high files of the allowed widths for any block. The textures
+page's canvas, grid and every pointer tool work on the open face's own grid; previews and thumbnails draw a fine
+face at the same 1 m size. A new painting is 16 unless any file of the block is already fine, then 32. Patterns
+and "Start from a picture" still make 16 px faces (on a fine face they paint its top-left quarter). The
+Studio's preview picks variants by hash only; it does not show a winter crown's pick by role. Tests:
+`art::tests::a_fine_texture_round_trips_through_its_png`, `check_takes_a_fine_cutout_file_of_a_width_the_rule_allows`,
+`drive::a_fine_painting_paints_at_its_size_and_a_new_face_takes_it`.
+
 ## Hooks for blossom and fruit
 A season's look is a painting `data/textures/<block>@<season>.png` (spring, autumn, winter; the base is summer).
 Blossom is the spring painting (`broadleaf leaves@spring.png` already is). Fruit is named **`@fruit`**:
@@ -64,11 +74,13 @@ Blossom is the spring painting (`broadleaf leaves@spring.png` already is). Fruit
 tag now. All seasons' paintings of a cutout block follow the bottom-edge rule above.
 
 ## Painting layout for part D
-Agreed with part D (2026-11-13): `<species> leaves@winter.png` is four 16 x 16 variants, the wood on the
-**bottom edge** (row 15) of each: v0 one stem entering near the middle and fanning out, v1 the same entering at
-x = 4, v2 a limb through from bottom to top at x = 8 with side twigs, v3 sparse short tips. Top and bottom faces
-follow the sides' rule; with the wood behind the face the painting folds about the middle (rows 15 to 8 mirrored
-up), so its lower half must read on its own. Other seasons' leaf paintings are turned the same way; isotropic
+Agreed with part D (2026-11-13): `<species> leaves@winter.png` is four variants, the wood on the **bottom
+edge** (row 15, or 31 at 32 px) of each: v0 one stem entering near the middle and fanning out, v1 the same
+entering off-centre, v2 a limb through from bottom to top at the middle with side twigs, v3 sparse short tips.
+Top and bottom faces follow the sides' rule; with the wood behind the face the painting folds about the middle
+(the lower half mirrored up), so its lower half must read on its own. The 32 px paintings live in
+`data/textures/hd/` (read in place of their 16 px namesakes, `textures::HD`); main's engine before this branch
+refuses 32-high files, so part D kept them there; they may move up once this is merged. Other seasons' leaf paintings are turned the same way; isotropic
 leaves need nothing.
 
 ## Consequences
@@ -78,12 +90,53 @@ leaves need nothing.
   `g.water.w` and lean the crowns downwind.
 
 ## Numbers
-(see below)
+One measurement, the PC alone (`tools/slot.sh measure`), play build, quick runs, median of three, 32 px leaves:
+
+| | GPU p50 ms | G-buffer ms | frame p99 ms | frame thread CPU ms | jobs us |
+|---|---|---|---|---|---|
+| main, fly | 2.90 | 0.99 | 6.82 | 0.68 | 352 |
+| this, fly | 3.91 | 1.97 | 7.52 | 0.74 | 381 |
+| this, fly, `fluff=0` | 3.26 | 1.48 | 6.78 | 0.60 | 378 |
+| main, sim | 2.85 | 0.72 | 6.03 | 0.74 | 422 |
+| this, sim | 2.93 | 0.80 | 6.34 | 0.84 | 421 |
+
+Fly's p99 holds the budget (8.3 ms) with fluff on. GPU +1.0 ms in fly: fluff 0.65, the rest the leaf faces no
+longer merging (742k quads against 659k) and the two passes. CPU: the frame thread +0.06 ms (fly) and +0.10 ms
+(sim), more draws to record; jobs +8 % in fly (the walk to wood, more quads). The row and its ideas are in
+`docs/perf-debt.md` (ADR 0096: no further cost work here).
 
 ## Review
-(see below)
+A fresh reviewer read the diff against ADR 0088's branch (mesher, shader, gpu.rs, frame.rs, textures.rs).
+Fixed:
+1. Level 0 meshes on a lattice of up to 8, so open leaf faces merged and a merged quad carried one cell's root
+   and one fluff plane (crowns at 20-30 m kept flat box tops in the stills). Cutout faces never merge now
+   (test `leaf_faces_know_the_way_to_the_wood` at lattice 8, seen failing first).
+2. The walk to wood covered the inner cells only: it now covers the padding, so a crown across a chunk edge
+   roots through its neighbour's cells (test: through a padding leaf to a padding log). Wood more than the
+   padding away is still unseen (a `shortcut:` in `roots`).
+3. The watcher did not see files changing in `hd/`: it now looks one folder down.
+4. `@invariant` on the position, so the depth and colour passes meet with `Equal` by rule, not by luck.
+5. The steps-0 variant pick could reach variant 2 when the hash was 1.0; clamped.
+6. Sway jumped when the clock wrapped at 3600 s: its frequencies are whole turns an hour now.
+7. The walk went through glass: cutout blocks only now.
+Answered: "sway slides the outline over a still painting" and "fluff tiles its painting" do not hold: `o.local`
+(the painting's coordinates) is the quad's own unswayed corner, so the painting rides with the vertices and a
+fluff plane spreads its face's painting once. Noted: cutout quads go through the vertex stage four times with
+fluff; the Studio read a fine file as quarters (the Studio change below).
+
+## Fixed views
+The cutout blocks' look changes everywhere they show: every view with trees or shrubs at level 0 (the seasons
+views most, the spawn and forest views), and their shading through the twig turn and 32 px paintings. Shots stand
+still (no sway). Not re-accepted here: the overseer runs the views on a quiet PC after the merge.
+
+## ADR 0088's fate
+Kept as the base: its mesher rule (`Cut::Shell`) and the cutout pipeline stay; its cost came from drawing the
+leaves last and is won back by decision 1 above. This branch carries it to main.
 
 ## Calls for the developer to confirm
-- Fluff on by default (see the numbers).
+- Fluff on by default (see the numbers); `fluff=0` is a run argument, not yet a setting.
+- Bare crowns' fluff planes seen edge-on from below read as thin rods; and branch logs show as cubes inside
+  a bare crown (part C's shapes).
+- Whole-block shadows under crowns stay (ADR 0088's call).
 - Twigs shorten to nothing three blocks from the wood; big crowns may want a longer reach once part C's
   branches are in.
