@@ -641,6 +641,8 @@ pub struct Fx {
     shown: Option<Handle>,
     /// The fine cells lying chips hold, kept between steps for its room (ADR 0078).
     held: std::collections::HashSet<FineCell>,
+    /// A lying chip ended this step: the next looks for chips left over nothing.
+    ended: bool,
 }
 
 /// A fine cell over a column's floor: (body, the column's frame, (across, along, cells up)).
@@ -724,6 +726,7 @@ impl Fx {
             placed: false,
             shown: None,
             held: Default::default(),
+            ended: false,
         }
     }
 
@@ -1086,16 +1089,20 @@ impl Fx {
         let clock = self.clock;
         // the fine cells the lying chips hold, when a chip may come to lie this step (ADR 0078): one pass
         let piling = |q: &P| rows[q.row as usize].ground == Ground::Pile;
+        let ended = std::mem::take(&mut self.ended);
         let mut held = std::mem::take(&mut self.held);
         held.clear();
-        held.extend(self.pool.iter().filter(|q| q.rest && piling(q)).map(|q| q.fine()));
-        // a chip over a cell whose chip has ended falls again, and so on up (bottom first): none hangs on nothing
-        if !held.is_empty() {
-            let mut lying: Vec<usize> = (0..self.pool.len()).filter(|&i| self.pool[i].rest && piling(&self.pool[i])).collect();
-            lying.sort_by_key(|&i| self.pool[i].fine().2.z);
-            for i in lying {
+        if ended || self.pool.iter().any(|q| !q.rest && piling(q)) {
+            held.extend(self.pool.iter().filter(|q| q.rest && piling(q)).map(|q| q.fine()));
+        }
+        // a lying chip ended last step: a chip piled over a cell left empty falls again, and so on up (bottom
+        // first), so none hangs on nothing; only the chips `pile` put on the lattice (FINE) are piled
+        if ended {
+            let mut lying: Vec<(i32, usize)> = (0..self.pool.len()).filter(|&i| self.pool[i].rest && self.pool[i].size == FINE && piling(&self.pool[i])).map(|i| (self.pool[i].fine().2.z, i)).filter(|c| c.0 > 0).collect();
+            lying.sort_unstable();
+            for (_, i) in lying {
                 let f = self.pool[i].fine();
-                if f.2.z > 0 && !held.contains(&(f.0, f.1, f.2 - IVec3::Z)) {
+                if !held.contains(&(f.0, f.1, f.2 - IVec3::Z)) {
                     held.remove(&f);
                     self.pool[i].rest = false;
                 }
@@ -1170,6 +1177,7 @@ impl Fx {
                 }
             }
             if q.age >= q.life {
+                self.ended |= q.rest && r.ground == Ground::Pile;
                 self.pool.swap_remove(i);
                 continue;
             }
@@ -1573,13 +1581,19 @@ mod tests {
         }
         assert!(fx.pool.iter().any(|p| p.rest && p.fine().2.z > 0), "a pile to test");
         // the bottom layer goes
-        for p in fx.pool.iter_mut().filter(|p| p.rest && p.fine().2.z == 0) {
-            p.age = p.life;
+        let mut kept = 0;
+        for p in fx.pool.iter_mut().filter(|p| p.rest) {
+            if p.fine().2.z == 0 {
+                p.age = p.life;
+            } else {
+                kept += 1;
+            }
         }
         for _ in 0..40 {
             fx.step(&w, 1.0 / 60.0);
         }
         let lying: Vec<FineCell> = fx.pool.iter().filter(|p| p.rest).map(|p| p.fine()).collect();
+        assert!(lying.len() >= kept, "the chips that fell came to lie again: {} of {kept}", lying.len());
         for f in &lying {
             assert!(f.2.z == 0 || lying.contains(&(f.0, f.1, f.2 - IVec3::Z)), "a chip hangs {} cells over its floor on nothing", f.2.z);
         }

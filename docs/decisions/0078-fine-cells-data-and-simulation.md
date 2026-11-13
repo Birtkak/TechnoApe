@@ -49,6 +49,9 @@ spike: `prototypes/fine-cells/`.
 - *Two columns could share a fine cell's key* (two of the frame's six numbers): the key is the whole frame.
 - *The snap assumed a square frame*: it solves the 2 x 2 for s and t.
 - *A set built every step*: one set kept on `Fx` and cleared, filled from the lying chips (a few dozen).
+- *A second reader:* the falling-again pass ran every step: it now runs only on the step after a lying chip
+  ended, over the chips `pile` put on the lattice (an unsnapped big chip never flips), and the test asks that
+  the chips that fell lie again.
 
 ## Calls for the developer to confirm
 - The chips fade after 2.5 to 4 s. Longer lasting heaps (until swept, or settling into a block of loose
