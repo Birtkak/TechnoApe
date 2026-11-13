@@ -585,7 +585,7 @@ impl Body {
         let row = &ROWS.biomes[biome as usize];
         let cell = ((x / PATCH).floor() as i64 as u64) ^ ((y / PATCH).floor() as i64 as u64).wrapping_mul(0x9e3779b97f4a7c15);
         let roll = unit(mix(b.seed ^ cell ^ (face as u64) << 56));
-        if let Some(bed) = self.bed(b, face, i, j, d, h, biome, row.ground[1]) {
+        if let Some(bed) = self.bed(b, face, i, j, d, h, biome, row.ground) {
             return ([bed[0], bed[1], row.ground[2]], biome);
         }
         ([row.top(roll, (h - (self.radius - SEA_DEPTH)) as f32), row.ground[1], row.ground[2]], biome)
@@ -598,7 +598,9 @@ impl Body {
     /// the shelf, mud over clay further out. A warm reef keeps its row (coral). Where the land's band is dirt, a
     /// pond's thin edge and a small gentle stream lie on that soil, flooded: dirt (never grass).
     #[allow(clippy::too_many_arguments)]
-    fn bed(&self, b: &Baked, face: usize, i: f64, j: f64, d: DVec3, h: f64, biome: u8, band: u16) -> Option<[u16; 2]> {
+    fn bed(&self, b: &Baked, face: usize, i: f64, j: f64, d: DVec3, h: f64, biome: u8, ground: [u16; 3]) -> Option<[u16; 2]> {
+        let [sand, clay, mud, gravel, dirt] = *BED;
+        let soil = ground[1] == dirt;
         let (top, reach, river) = self.water_at(face as u8, i.floor() as i32, j.floor() as i32)?;
         let depth = self.layer_r(top) - h;
         if depth <= 0.0 {
@@ -611,31 +613,32 @@ impl Body {
         // the slope of the map's cell: the ground's lie, not a column's step
         let s = b.map.m as f64 / self.n as f64;
         let slope = b.map.slope(face, i * s, j * s) as f64;
-        let name = if slope > BED_STEEP || (!sea && river.is_none() && biome == life::ALPINE) {
-            let rock = ROCKS.at(self.rock_at(face, i, j, d), h as f32, BLOCKS.id("stone"));
+        let bed = if slope > BED_STEEP || (!sea && river.is_none() && biome == life::ALPINE) {
+            // the biome's rock where there is no province, as `generated_under` has it under the band
+            let rock = ROCKS.at(self.rock_at(face, i, j, d), h as f32, ground[2]);
             return Some([rock, rock]);
         } else if let Some((q, fall, _)) = river {
             // the flow per metre of width as the bake has it (`water_tide` scaled it into units)
             let q = q / (U as f64 / 60.0 * crate::weather::BASE);
             match fall / U as f64 {
-                f if f >= BED_RAPID => "gravel",
-                _ if q < BED_STREAM && depth < BED_SOIL && band == BLOCKS.id("dirt") => "dirt",
-                f if f < BED_SLOW || depth >= BED_DEEP_RIVER => "clay",
-                _ => "sand",
+                f if f >= BED_RAPID => gravel,
+                _ if q < BED_STREAM && depth < BED_SOIL && soil => dirt,
+                f if f < BED_SLOW || depth >= BED_DEEP_RIVER => clay,
+                _ => sand,
             }
         } else if sea {
             if depth >= BED_SHELF {
-                return Some([BLOCKS.id("mud"), BLOCKS.id("clay")]);
+                return Some([mud, clay]);
             }
-            "sand"
-        } else if depth < BED_SOIL && band == BLOCKS.id("dirt") {
-            "dirt"
+            sand
+        } else if depth < BED_SOIL && soil {
+            dirt
         } else if depth < BED_SHALLOW_LAKE {
-            "sand"
+            sand
         } else {
-            "clay"
+            clay
         };
-        Some([BLOCKS.id(name); 2])
+        Some([bed; 2])
     }
     /// The plant at candidate spot (cx, cy) of a face (one each `SPACING` x `SPACING` columns), if one grows
     /// there: on a baked planet, over the sea, at least `REACH` columns inside the face.
@@ -1159,6 +1162,9 @@ pub struct Bounds {
 }
 
 /// The blocks generation names, looked up once in the registry: grass, dirt, stone.
+/// The beds' blocks (ADR 0086, `Body::bed`), looked up once: sand, clay, mud, gravel, dirt.
+static BED: std::sync::LazyLock<[u16; 5]> =
+    std::sync::LazyLock::new(|| ["sand", "clay", "mud", "gravel", "dirt"].map(|n| BLOCKS.id(n)));
 static GEN: std::sync::LazyLock<[u16; 3]> =
     std::sync::LazyLock::new(|| [BLOCKS.id("grass"), BLOCKS.id("dirt"), BLOCKS.id("stone")]);
 
