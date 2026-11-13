@@ -2125,42 +2125,42 @@ ramp = "acacia leaves rich"
 
 [[colour]]
 name = "shrub r1"
-rgb = "#112608"
+rgb = "#0a2707"
 ramp = "shrub rich"
 
 [[colour]]
 name = "shrub r2"
-rgb = "#1f3f0c"
+rgb = "#144209"
 ramp = "shrub rich"
 
 [[colour]]
 name = "shrub r3"
-rgb = "#315d10"
+rgb = "#22620b"
 ramp = "shrub rich"
 
 [[colour]]
 name = "shrub r4"
-rgb = "#487f12"
+rgb = "#34850b"
 ramp = "shrub rich"
 
 [[colour]]
 name = "shrub r5"
-rgb = "#629c19"
+rgb = "#4ea411"
 ramp = "shrub rich"
 
 [[colour]]
 name = "shrub r6"
-rgb = "#7fb822"
+rgb = "#6dc219"
 ramp = "shrub rich"
 
 [[colour]]
 name = "shrub r7"
-rgb = "#9ed22f"
+rgb = "#8edc24"
 ramp = "shrub rich"
 
 [[colour]]
 name = "shrub r8"
-rgb = "#b4d553"
+rgb = "#aadd4b"
 ramp = "shrub rich"
 
 [[colour]]
@@ -2645,42 +2645,42 @@ ramp = "flint rich"
 
 [[colour]]
 name = "shrub spring r1"
-rgb = "#253f0e"
+rgb = "#153409"
 ramp = "shrub spring rich"
 
 [[colour]]
 name = "shrub spring r2"
-rgb = "#375911"
+rgb = "#22500b"
 ramp = "shrub spring rich"
 
 [[colour]]
 name = "shrub spring r3"
-rgb = "#4d7814"
+rgb = "#34700c"
 ramp = "shrub spring rich"
 
 [[colour]]
 name = "shrub spring r4"
-rgb = "#689916"
+rgb = "#4b930c"
 ramp = "shrub spring rich"
 
 [[colour]]
 name = "shrub spring r5"
-rgb = "#84b71d"
+rgb = "#67b212"
 ramp = "shrub spring rich"
 
 [[colour]]
 name = "shrub spring r6"
-rgb = "#a2d227"
+rgb = "#86cf1b"
 ramp = "shrub spring rich"
 
 [[colour]]
 name = "shrub spring r7"
-rgb = "#b6d848"
+rgb = "#a4df32"
 ramp = "shrub spring rich"
 
 [[colour]]
 name = "shrub spring r8"
-rgb = "#c7db6c"
+rgb = "#badf58"
 ramp = "shrub spring rich"
 
 [[colour]]
