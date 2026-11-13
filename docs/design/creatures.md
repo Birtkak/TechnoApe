@@ -15,9 +15,11 @@ first time, or taken from the **kept delta** if it was met before. A woken herd 
 a player is near. When nobody has been near for 10 s it **sleeps**: its animals are frozen where they stand
 and the site's record is kept. The kept delta is that record: per met site, its animals (id, kind, physics
 state, mind). It is small (a few dozen bytes an animal) and grows only with the ground players have walked.
-A site that sleeps does not age: an animal left at noon is where it was when you come back at night, and then
-sleeps there. That is consistent (nothing jumps while seen, two players see one herd) and cheap; time passing
-for herds no one sees is later, if it is missed.
+A site that sleeps is not simulated, but it **drifts** (the developer, 2026-11-13): when it wakes again, each
+animal's place is computed from the time gone, not ticked. It has grazed along towards a spot hashed from the
+seed, its id and the clock, within its home range and on land of its home's biome, at an eighth of its walk
+speed for the time nobody saw it. Nothing jumps while seen (the drift happens as the site wakes, beyond sight),
+it costs nothing while away and is the same on a replay.
 
 ## The animal
 - **State:** id (u32, given in the order sites are met, so deterministic), kind (row of `data/creatures.toml`),
