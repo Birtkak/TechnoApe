@@ -8,7 +8,7 @@
 # `side`: a grass block's sides under the fringe; any other block takes that block's whole look on its four
 # sides and its foot. `light`: the light it gives, a colour times its strength (0..4, ADR 0022).
 # `joins`: side by side in a wall, its faces glow as one surface, the painted frame only on the outer edge
-# (lamps, ADR 0085).
+# (lamps, ADR 0085). `wood`: a tree grows from it (log, branches): a bare crown's twigs start at it (ADR 0090).
 # `sound`: its material's sound, a family of rows in data/sounds.toml (stone when it names none).
 # `metal`: how much it reflects like a metal (0..1). `was`: names it had before, so old saves still load.
 # `hardness`: seconds a survival player digs it with bare hands (every solid block; ADR 0034). `loose`:
@@ -155,6 +155,7 @@ loose = true
 sound = "dirt"
 colour = [0.40, 0.28, 0.17]
 pattern = "rings"
+wood = true
 
 [[block]]
 id = 15

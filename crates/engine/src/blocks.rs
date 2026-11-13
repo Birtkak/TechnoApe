@@ -100,6 +100,8 @@ struct Raw {
     stagger: f32,
     #[serde(default)]
     joins: bool,
+    #[serde(default)]
+    wood: bool,
     spring: Option<RawTone>,
     autumn: Option<RawTone>,
     winter: Option<RawTone>,
@@ -205,6 +207,8 @@ pub struct Def {
     /// Neighbours of it in a wall join into one surface (lamps, ADR 0085): the mesher tells each face which of its
     /// four sides meet the same block, and the shader reads that side's frame texels from inside instead.
     pub joins: bool,
+    /// Wood a tree grows from (log, branches): a bare crown's twigs start at it (ADR 0090).
+    pub wood: bool,
 }
 
 impl Def {
@@ -309,7 +313,7 @@ impl Registry {
             if seasons.is_none() && r.stagger != 0.0 {
                 return Err(format!("block '{}': a stagger without a season", r.name));
             }
-            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, falls: r.falls, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger, joins: r.joins });
+            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, falls: r.falls, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger, joins: r.joins, wood: r.wood });
         }
         match &defs[0] {
             Some(d) if d.name == "air" && !d.solid => {}
@@ -345,6 +349,11 @@ impl Registry {
     /// Whether block `id` joins its neighbours in a wall (ADR 0085).
     pub fn joins(&self, id: u16) -> bool {
         self.get(id).is_some_and(|d| d.joins)
+    }
+
+    /// Whether block `id` is a tree's wood (ADR 0090).
+    pub fn wood(&self, id: u16) -> bool {
+        self.get(id).is_some_and(|d| d.wood)
     }
 
     /// Every block but air, in id order.
