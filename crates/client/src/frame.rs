@@ -654,7 +654,8 @@ impl App {
         let fluff_args: Vec<DrawIndexed> = fluff_args.into_iter().map(|a| a.1).take(MAX_CHUNKS).collect();
         // glass far to near, so the nearer pane blends over the farther (ADR 0081; inside a chunk unsorted)
         glass_args.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
-        let glass_args: Vec<DrawIndexed> = glass_args.into_iter().map(|a| a.1).take(MAX_CHUNKS).collect();
+        let far = glass_args.len().saturating_sub(MAX_CHUNKS);
+        let glass_args: Vec<DrawIndexed> = glass_args.into_iter().map(|a| a.1).skip(far).collect();
         still_args.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
         let still_args: Vec<DrawIndexed> = still_args.into_iter().map(|a| a.1).take(MAX_CHUNKS).collect();
         // the water mesh when it changed, or the tide moved the sea in its tiles
@@ -1066,7 +1067,6 @@ impl App {
                 rp.set_pipeline(&gpu.sky_pipeline);
                 rp.draw(0..3, 0..1);
             }
-            rp.set_pipeline(&gpu.pipeline);
             if bare {
                 // (the land is still there for the light: only its picture is left out)
             } else {
