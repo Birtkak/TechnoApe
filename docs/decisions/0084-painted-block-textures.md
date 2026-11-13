@@ -291,3 +291,13 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
       reference 4.
   - `paint_textures.py` now keeps any colour that was in the palette before its run (`Palette.before`), so the
     clutter's ramps that `paint_clutter.py` added are not dropped.
+- **Calm bark** (the overseer, from the crowns session's in-game still): at 9 m the oak's bark read as black and
+  cream zebra stripes.
+  - Every bark's tones are now squeezed into a narrow band of its ramp (`calm`): ridged and plates 1 to 4 or 1 to
+    5, willow, smooth and palm 2 to 5. That gives two or three close browns or greys, with furrows a little darker.
+  - The ridged bark (oak, broadleaf) is no longer a regular sine wave. Noise stretched along the trunk now carries
+    more of its shape than the waves.
+  - Birch's lenticels are dark grey and fewer.
+  - Bamboo's nodes are a single step, no longer a stripe.
+  - Proof: `out/flora/trunks-9m.png`, every bark as a two-face trunk at the still's scale (about 28 px a metre),
+    beside the still's oak, read.
