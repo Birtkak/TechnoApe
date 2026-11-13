@@ -606,9 +606,11 @@ pub fn quads(body: &Body, key: Key, cells: &[u16; P * P * P], edits: &[(u32, u16
                     continue;
                 }
                 let (a, turn, du, dv) = t.shape(alts.len());
-                // shortcut: the neighbours are asked with this column's biome and ground, so a bed's edge on a biome
-                // or ground border may take the inside painting; fine for a look, revisit if it shows
-                let inside = || [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().all(|&(di, dj)| plant(seed, key.face, i + di, j + dj, biome, top, p8 / 2, density[1], &tile.trees).is_some_and(|o| o.row == t.row));
+                // a neighbour counts if it grows this row and has ground (none too deep: the bed's open-water edge
+                // keeps the light painting). shortcut: the neighbours are asked with this column's biome and ground,
+                // and past the chunk's tile their ground is not looked up; fine for a look, revisit if it shows
+                let has_ground = |ni: i32, nj: i32| ni.div_euclid(CS) != key.pos.x || nj.div_euclid(CS) != key.pos.y || ground_under(body, &tile, key.face, ni, nj, WADE).is_some();
+                let inside = || [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().all(|&(di, dj)| has_ground(i + di, j + dj) && plant(seed, key.face, i + di, j + dj, biome, top, p8 / 2, density[1], &tile.trees).is_some_and(|o| o.row == t.row));
                 let alt = match still.back[t.row] {
                     Some(b) if row.kind == Kind::Plant && inside() => b,
                     _ => alts[a],

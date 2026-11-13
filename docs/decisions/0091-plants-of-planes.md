@@ -45,8 +45,18 @@ shadows and feel like they got depth").
 - **Far away:** the textures session's `meadow ground` painting (96 x 32, three tiles of 1 m at 32 px) is still
   face 0 (`MEADOW` flag). Beyond half the far distance the grass block's top fades to it, a tile per column by
   hash, climate-tinted (`ground_tint`, `meadow_texel`); the block's four sides take it in a fringe over their
-  top 0.15 to 0.45 m, faded the same way, so a step's edge reads as grass hanging over it. From a hill the valley
-  reads as meadow with no line where the plants end. Its `.far` plant paintings are not read yet.
+  top 0.15 to 0.45 m, reaching down the whole side between one and three times the far distance (and on coarse
+  chunks, all of whose steps are far), so a step reads as a grassy ledge, not a band of dirt. Past 150 m the
+  painting fades to its mean colour (face 0's word 14), so it does not shimmer. From a hill the valley reads as
+  meadow with no line where the plants end. Its `.far` plant paintings are not read yet.
+- **Reeds** (the developer: "flat and too uniform"): four outlines (`reeds` to `.3`: tall with cattails, tall
+  without, short and leaning, sparse with a broken stalk; green and dry tan stalks), and `reeds.back` two tones
+  darker drawn where a reed's four neighbours are reeds too, so a bed is darker inside than at its edge, from any
+  side. A plant row may say `wades = true` (reeds): it also stands in fresh water up to `WADE` (0.8 m) deep
+  (`ground_under`); a wet column takes nothing else, and the server's pick-ups keep `ground`. Short and tall grass
+  have a fourth outline too, so no stand looks stamped from one painting.
+- **Dry ground's own cover:** dry scrub went from about a third covered in single tufts to about two thirds, tall
+  grass and wild wheat in drifts, which the climate tint turns straw.
 - **Sway** in `vs_still`: `sway(wind, height, column, hash)` from the weather's wind at the camera (ADR 0076) on
   the sky's clock; zero in a `shot=`, so fixed views stand still.
 - **Tint:** `climate_tint(heat, wet, part, season)` (WGSL) = `clutter::tint` (Rust, tested): heat from the bake's
@@ -77,8 +87,12 @@ figures are `docs/perf-debt.md`'s (fly GPU p50 2.9 ms, p99 6.3 ms, frame-thread 
 
 | Run | GPU p50 | gbuffer | trace | frame p99 | frame-thread work | VRAM |
 |---|---|---|---|---|---|---|
-| fly, normal | 3.20 ms | 1.42 | 0.25 | 6.97 ms | 0.75 ms | 1094 MB |
-| meadow stand, normal | 4.33 | 2.00 | 0.69 | 5.43 | 0.71 | 1092 |
+| fly, normal | 3.22 ms | 1.45 | 0.25 | 6.77 ms | 0.63 ms | 1094 MB |
+| meadow stand, normal | 4.48 | 2.07 | 0.76 | 5.54 | 0.66 | 1092 |
+
+Retaken after the clumps, the sun side, the meadow ground, its fringe and the reeds (the second round); the
+first round's were fly 3.20 / p99 6.97, stand 4.33 / 5.43: the clumps and the meadow ground add about 0.15 ms
+GPU in the meadow, within the runs' spread in the fly-through.
 
 CPU apart: the frame thread pays about 0.15 ms (more still quads into draws and BLAS instances); the mesh
 workers about 47 µs more a level-0 chunk (clutter 80 µs against 33 on main; meshbench in grassland). An earlier
@@ -90,7 +104,7 @@ over main in the fly-through; not measured together, as neither branch is on mai
 series had one 15 ms frame (a cold start); the medians are of three. The debt row is in `docs/perf-debt.md`.
 
 ## Review
-Two fresh reviews (subagents given the diff and the task).
+Five fresh reviews (subagents given the diff and the task).
 
 First (the planes, placement, sway, tint): plants shared the models' roll (fixed: `PLANT_ROLL`); the taken list
 was scanned for every thing (now pick-ups only); the climate took the sea's air (now the column's height); tall
@@ -113,6 +127,18 @@ mean from 150 to 400 m. (3) The far tone darkens every grass top, also where no 
 player's lawn): answered, a call for the developer (above); the shader cannot tell cheaply. (4) A shrub's
 lopsided side and its warm tint came from one hash: fixed, separate hashes.
 
+Fourth (clumps, sun side, the meadow ground, fringe): (1) the sun side used the unturned template plane, so it
+was random per plant: fixed, the normal comes from the placed corners (`still_local`). (2) The meadow painting was
+point-sampled to the horizon and would shimmer: fixed, it fades to its mean from 150 to 300 m. (3) The fringe used
+a coarse chunk's cell, a band of metres on a step: answered by design, a far step's side is all fringe now (the
+ledge). (4) A covered grass block's fringe: answered, see Not done.
+
+Fifth (the inside reed painting, wading, the review four fixes): (1) a neighbour too deep to grow a reed still
+counted, so a bed's open-water edge took the dark inside painting: fixed, a neighbour needs ground within
+`WADE` (inside the chunk's tile; past it, a shortcut comment). (2) `water_at` asked twice per wet column, and (3)
+three more placements per vertex for the sun-side normal: cost notes, in the debt row. The depth units, the
+server's unchanged pick-ups, the mean colour's packing and the normal's orientation were checked and hold.
+
 ## Calls for the developer to confirm
 1. **Texel 32 px a metre** for plants (blocks stay 16): taken from your verdict on detail; the paintings are the
    textures session's (ADR 0084), merged here.
@@ -130,8 +156,13 @@ lopsided side and its warm tint came from one hash: fixed, separate hashes.
 ## Not done (asked, left for a later round)
 - Far plane cards from the `.far` paintings, and keeping far planes longer on a step's edge (asked by the
   overseer's fourth review): the meadow ground's fringe stands in.
-- From 40 m straight above, the grass tops within half the plant distance are the plain grass block between the
-  tufts; the meadow ground only starts beyond it.
+- From 40 m up the terraces still show as steps (a block world's), now grassy ledges; the grass tops within half
+  the plant distance are the plain grass block between the tufts.
+- A reed bed in the open at a lake's edge: on seed 1337 the wetland near the spawn is swamp forest (the crowns'
+  trees), so the stills show reeds under trees and wading into the swamp's water. Whether the wetland should be
+  more open is the crowns' call. Reeds on a grassland river's bank (a `near = "water"` rule) were not built.
+- A grass block covered by another block still shows the fringe on its sides far away (the shader cannot see the
+  cell over it cheaply).
 - A meadow's edge fraying into scattered tufts on a biome border: plants follow the biome's ground blocks.
 
 ## Consequences
