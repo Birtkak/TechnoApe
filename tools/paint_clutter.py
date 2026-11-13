@@ -30,6 +30,7 @@ RAMPS = {  # rich ramps, eight tones dark to light, shared with tools/paint_text
     "red petal": rich_rgb(2, 0.85, 0.08), "yellow petal": rich_rgb(50, 0.95, 0.15),
     "fallen leaves": rich_rgb(30, 0.85, 0.02), "twig": rich_rgb(28, 0.45, 0.0),
     "pebble": rich_rgb(210, 0.08, 0.08), "flint": rich_rgb(225, 0.18, -0.02),
+    "flint cortex": rich_rgb(42, 0.22, 0.24),
 }
 
 
@@ -122,6 +123,25 @@ def rock(ramp, seed, lift=0.0):
         r = rnd(seed, face, x, y, "g")
         t = 7 if r < 0.05 and face != "bottom" else (t - 2 if r > 0.95 else t)
         return R(ramp, t + lift)
+    return p
+
+
+def flint(seed):
+    """A flint shard (ADR 0097): a dark glassy grey-black face flaked in shallow ripples with a glint, a pale chalky
+    cortex on one long edge of the top and the upper half of the sides; calm, so it reads on grass and on gravel."""
+    def p(face, x, y, w, h):
+        n = (rnd(seed, face, x, y) - 0.5) * 0.8
+        if face == "bottom":
+            return R("flint", 1)
+        if face == "top":
+            if y >= h - 1 or (y >= h - 2 and rnd(seed, "c", x) < 0.5):  # the cortex rind along the far edge
+                return R("flint cortex", 5 + n)
+            ripple = (x + 2 * y) % 4 == 0  # conchoidal ripples, a shade lighter
+            glint = x == w // 2 and y == 1
+            return R("flint", 6 if glint else (3 if ripple else 2) + n)
+        if y < h // 2:  # sides: the cortex above, the glassy core below
+            return R("flint cortex", 4 + n)
+        return R("flint", 1.5 + n)
     return p
 
 
@@ -246,7 +266,7 @@ def make():
     m.box((12, 0, 12), (8, 4, 7), rock("pebble", "stone", -0.5), (0, 20, 6))
     written += m.write("stone", "a stone the size of a fist, tilted")
     m = Model("flint")
-    m.box((13, 0, 13), (6, 2, 5), rock("flint", "flint", -1.0), (8, 35, 0))
+    m.box((13, 0, 13), (6, 2, 5), flint("flint"), (8, 35, 0))
     written += m.write("slate", "a dark shard")
     m = Model("mushroom")
     m.box((15, 0, 15), (2, 4, 2), rock("mushroom stem", "stem", 1.0))
