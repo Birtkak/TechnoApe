@@ -68,6 +68,9 @@ see the same sky, nothing may stall the frame thread, and the game will be CPU-b
 - Clouds cast shadows only on the sun's light, not on the moon's; they are not in the traced scene, so a
   reflection does not show them.
 - Rain is not water in the world (that stays the grid's runoff to the rivers, ADR 0059).
+- A client that joins sees the current step at once (no blend from the last); the cells' pattern and the cover
+  step at the cube's twelve edges (each face's texture is sampled alone: a shortcut, pad the faces if it shows).
+- Thunder plays in the head (no position), its gain by distance: the sound rows' reach caps at 200 m.
 
 ## Calls for the developer to confirm
 1. Cloud height (300 m over the sea) and thickness (64 m), and the 16 m cell.
@@ -82,3 +85,8 @@ see the same sky, nothing may stall the frame thread, and the game will be CPU-b
   last step, winds through calm; lightning only in storms, the seed's own, once each (`client::weather`).
 - Filmstrips: ground, 200 m and orbit, clear, cloudy, rain, storm, snow, day and night (`out/weather-*.png`).
 - The fast gate against `tests/perf/baseline.json`.
+- Fresh review (a subagent given the diff and the brief): a step landing mid-blend jumped (now it goes on
+  from what showed, tested); rain spawned past the pool's cap (stops at two thirds); the march ran for pixels
+  below the sea and through empty segments (leaves early); a later strike's flash was lost under an earlier
+  one (keeps the latest); thunder's queue survived a clock jump (cleared); the cube-edge seam (answered as a
+  shortcut above); a joiner's jump to the current step (answered above).

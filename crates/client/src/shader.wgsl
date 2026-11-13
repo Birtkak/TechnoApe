@@ -909,7 +909,9 @@ fn terrain_lit(i: VOut, col_in: vec3f) -> GOut {
     if (body == 0u && g.cloud.w > 0.0) {
         let b0 = g.bodies[0];
         let up = normalize(i.rel - b0.ctr.xyz);
-        let lie = cl_snow(up * mat3x3f(b0.rot0.xyz, b0.rot1.xyz, b0.rot2.xyz), g.cloud) * smoothstep(0.55, 0.85, dot(n, up));
+        let flat = smoothstep(0.55, 0.85, dot(n, up));
+        var lie = 0.0;
+        if (flat > 0.0) { lie = cl_snow(up * mat3x3f(b0.rot0.xyz, b0.rot1.xyz, b0.rot2.xyz), g.cloud) * flat; }
         if (lie > 0.0) {
             let lum = dot(col, vec3f(0.3, 0.5, 0.2));
             col = mix(col, vec3f(0.9, 0.92, 0.96), clamp(lie * 1.6 - (0.5 - lum) * 0.6, 0.0, 1.0));

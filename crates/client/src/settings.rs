@@ -60,7 +60,7 @@ settings! {
     Lamps "lamps" "Lamp light" Kind::Choice(&["nearest 16", "nearest 64", "all in range"]), 2.0;
     Particles "particles" "Particles" Kind::Choice(&["few", "normal", "many"]), 1.0;
     // the weather (ADR 0076): the clouds' steps a ray (and their shadow), the rain's and snow's particles
-    Clouds "clouds" "Clouds" Kind::Choice(&["off", "low", "high"]), 2.0;
+    Clouds "clouds" "Clouds" Kind::Choice(&["off", "low", "high"]), 1.0;
     Rain "rain" "Rain and snow" Kind::Choice(&["off", "light", "full"]), 2.0;
     Textures "textures" "Block textures" Kind::Choice(&["flat colours", "16 px"]), 1.0;
     // fancy: seen through, light through them; fast by default: fancy's fly-through misses ADR 0004's p99 (ADR 0069)

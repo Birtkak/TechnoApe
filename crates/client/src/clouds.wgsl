@@ -22,11 +22,12 @@ const CL_PI: f32 = 3.14159265;
 const CL_K: f32 = 0.09;
 
 struct ClFace { n: vec3f, s: vec3f, t: vec3f };
+// (axes by bits, not local arrays: an array indexed at run time spills to slow memory on most GPUs)
+fn cl_axis(a: u32) -> vec3f { return vec3f(f32(a == 0u), f32(a == 1u), f32(a == 2u)); }
 fn cl_face(f: u32) -> ClFace {
-    var fnv = array<vec3f, 6>(vec3f(1., 0., 0.), vec3f(-1., 0., 0.), vec3f(0., 1., 0.), vec3f(0., -1., 0.), vec3f(0., 0., 1.), vec3f(0., 0., -1.));
-    var fsv = array<vec3f, 6>(vec3f(0., 1., 0.), vec3f(0., 0., 1.), vec3f(0., 0., 1.), vec3f(1., 0., 0.), vec3f(1., 0., 0.), vec3f(0., 1., 0.));
-    var ftv = array<vec3f, 6>(vec3f(0., 0., 1.), vec3f(0., 1., 0.), vec3f(1., 0., 0.), vec3f(0., 0., 1.), vec3f(0., 1., 0.), vec3f(1., 0., 0.));
-    return ClFace(fnv[f], fsv[f], ftv[f]);
+    let n = cl_axis(f >> 1u) * select(1.0, -1.0, (f & 1u) == 1u);
+    // each face's s and t axes two bits a face (`bake::grid::AX`): s 1 2 2 0 0 1, t 2 1 0 2 1 0
+    return ClFace(n, cl_axis((1065u >> (2u * f)) & 3u), cl_axis((390u >> (2u * f)) & 3u));
 }
 
 // the face of body-frame direction d and its continuous column coordinates there (x, y), m columns a face edge
