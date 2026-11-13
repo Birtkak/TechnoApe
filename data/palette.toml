@@ -2175,22 +2175,22 @@ ramp = "meadow green rich"
 
 [[colour]]
 name = "meadow green r5"
-rgb = "#22740f"
+rgb = "#1e740e"
 ramp = "meadow green rich"
 
 [[colour]]
 name = "meadow green r6"
-rgb = "#3c8a14"
+rgb = "#2a8a12"
 ramp = "meadow green rich"
 
 [[colour]]
 name = "meadow green r7"
-rgb = "#70a21a"
+rgb = "#50a216"
 ramp = "meadow green rich"
 
 [[colour]]
 name = "meadow green r8"
-rgb = "#a8b82a"
+rgb = "#98b824"
 ramp = "meadow green rich"
 
 [[colour]]

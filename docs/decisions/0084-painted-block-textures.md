@@ -279,3 +279,25 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
   - The palette now has 526 colours. The model files' boxes are unchanged; only their paintings change.
   - Proof: the sheets `out/flora/plants-hd.png`, `meadow-vs-ref.png` and `clutter.png` (the models' paintings,
     8x), read; `technoape-studio check=1` ok.
+  - **Painted for the plants' shader** (claude/flora-plants, `shader.wgsl`):
+    - The shader tints green pixels (g above r and b) with a per-channel multiply. It is about x(0.75, 0.86, 0.5)
+      in a middling climate; the dry end raises red and cuts blue.
+    - It then darkens every plant to x0.45 at the root.
+    - So a blade's root is now only two tones down (tone = 2 + t^1.7 x 5), and the fern's rib and the stems start
+      at tone 2.
+    - `MEADOW`'s middle tones carry little red, so they stay green and do not turn olive; yellow is in the
+      lightest tone only.
+    - Proof: `out/flora/meadow-lit-vs-ref.png` is the meadow with that tint and depth shading applied, read beside
+      reference 4.
+  - `paint_textures.py` now keeps any colour that was in the palette before its run (`Palette.before`), so the
+    clutter's ramps that `paint_clutter.py` added are not dropped.
+- **Calm bark** (the overseer, from the crowns session's in-game still): at 9 m the oak's bark read as black and
+  cream zebra stripes.
+  - Every bark's tones are now squeezed into a narrow band of its ramp (`calm`): ridged and plates 1 to 4 or 1 to
+    5, willow, smooth and palm 2 to 5. That gives two or three close browns or greys, with furrows a little darker.
+  - The ridged bark (oak, broadleaf) is no longer a regular sine wave. Noise stretched along the trunk now carries
+    more of its shape than the waves.
+  - Birch's lenticels are dark grey and fewer.
+  - Bamboo's nodes are a single step, no longer a stripe.
+  - Proof: `out/flora/trunks-9m.png`, every bark as a two-face trunk at the still's scale (about 28 px a metre),
+    beside the still's oak, read.

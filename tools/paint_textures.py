@@ -36,6 +36,7 @@ class Palette:
         text = path.read_text(encoding="utf-8")
         self.header = [l for l in text.splitlines() if l.startswith("#")]
         self.rows = tomllib.loads(text)["colour"]
+        self.before = {r["name"] for r in self.rows}  # another tool's colours (paint_clutter.py's ramps) stay
         self.added = []
 
     def rgb(self, name):
@@ -840,9 +841,10 @@ def rich_rgb(hue, sat=1.0, light=0.0, n=8):
     return out
 
 
-# the meadow's greens, from reference 4 (a deep saturated green; yellow only in the two lightest, the tips)
-MEADOW = [tuple(v / 255 for v in q) for q in [(6, 40, 4), (10, 58, 6), (16, 78, 9), (22, 96, 11), (34, 116, 15),
-                                              (60, 138, 20), (112, 162, 26), (168, 184, 42)]]
+# the meadow's greens, from reference 4: a deep saturated green, yellow only in the lightest (the tips); little red
+# in the mids, so the plants' climate tint (a multiply, red x0.75 blue x0.5 in a middling climate) keeps them green
+MEADOW = [tuple(v / 255 for v in q) for q in [(6, 40, 4), (10, 58, 6), (16, 78, 9), (22, 96, 11), (30, 116, 14),
+                                              (42, 138, 18), (80, 162, 22), (152, 184, 36)]]
 
 
 def turned(ramp, deg):
@@ -1105,21 +1107,28 @@ def wnoise(rng, cell, size=HD):
     return (a + (b - a) * tx) * (1 - ty) + (c + (d - c) * tx) * ty
 
 
+def calm(c, lo, hi):
+    """Squeeze a bark's tones 0..7 into lo..hi: close browns or greys, the furrows only a little darker, so a trunk
+    reads as bark from 9 m and does not draw the eye from the crown (the overseer, 2026-11-13: oak read as zebra)."""
+    return np.vectorize(lambda t: int(round(lo + (hi - lo) * t / 7)), otypes=[object])(c)
+
+
 def bark_hd(rng, kind):
     ys, xs = np.mgrid[0:HD, 0:HD].astype(float)
-    if kind == "ridged":  # oak, broadleaf: vertical ridges that wander, broken across
-        warp = wnoise(rng, 8) * 6
-        hf = 0.5 + 0.5 * np.sin((xs + warp) / HD * 6.283 * 5)
-        hf = hf * 0.8 + wnoise(rng, 4) * 0.2
-        for _ in range(10):
+    if kind == "ridged":  # oak, broadleaf: ridges of uneven width along the trunk, furrows that wander and part
+        streak = wnoise(rng, 3)[(ys.astype(int) // 6) % HD, xs.astype(int)]  # noise stretched along the trunk
+        warp = wnoise(rng, 8) * 4
+        hf = 0.45 * (0.5 + 0.5 * np.sin((xs + warp) / HD * 6.283 * 4)) + 0.55 * streak
+        for _ in range(8):  # ridges broken across
             x, y = int(rng.integers(HD)), int(rng.integers(HD))
-            hf[y, x:x + 4] *= 0.3
-        return shade_height(hf, rng)
+            hf[y, x:x + 3] *= 0.6
+        return calm(shade_height(hf, rng, 3.4, 2.4, 3.0, 0.4), 1, 4)
     if kind == "diamond":  # willow: furrows crossing on the slant
-        u = (xs * 2 + ys) % 16
-        v = (xs * 2 - ys) % 16
+        warp = wnoise(rng, 8) * 3
+        u = (xs * 2 + ys + warp) % 16
+        v = (xs * 2 - ys + warp) % 16
         hf = np.minimum(np.minimum(u, 16 - u), np.minimum(v, 16 - v)) / 8
-        return shade_height(hf * 0.85 + wnoise(rng, 4) * 0.15, rng)
+        return calm(shade_height(hf * 0.6 + wnoise(rng, 4) * 0.4, rng, 3.4, 2.4, 3.0, 0.4), 2, 5)
     if kind in ("plates", "small plates"):  # pine, spruce: plates stretched along the trunk, each its own height, deep furrows
         n, stretch = (12, 0.55) if kind == "plates" else (22, 0.5)
         px, py, lvl = rng.uniform(0, HD, n), rng.uniform(0, HD, n), rng.uniform(0.45, 0.95, n)
@@ -1130,44 +1139,43 @@ def bark_hd(rng, kind):
         near = np.argmin(d, axis=2)
         edge = np.clip((o[..., 1] - o[..., 0]) / (2.2 if kind == "plates" else 1.6), 0, 1)
         hf = lvl[near] * (0.15 + 0.85 * edge) + wnoise(rng, 4) * 0.12
-        return shade_height(hf, rng, 3.0, 3.4, 4.0, 0.35)
+        return calm(shade_height(hf, rng, 3.0, 3.4, 4.0, 0.35), 1, 5)
     if kind == "birch":  # white bark: light tones, black lenticels across, dark patches, a faint peel
         c = np.clip(np.round(5.6 + wnoise(rng, 8) * 1.4 + rng.normal(0, 0.35, (HD, HD))), 4, 7).astype(int).astype(object)
-        for _ in range(16):
-            x, y, n = int(rng.integers(HD)), int(rng.integers(HD)), int(rng.integers(3, 9))
+        for _ in range(11):  # lenticels grey-dark, not black: they speckle at 9 m instead of striping
+            x, y, n = int(rng.integers(HD)), int(rng.integers(HD)), int(rng.integers(3, 8))
             for i in range(n):
-                hd_put(c, x + i, y, 0)
-                if rng.random() < 0.5:
-                    hd_put(c, x + i, y + 1, 2)
+                hd_put(c, x + i, y, 2)
+                if rng.random() < 0.4:
+                    hd_put(c, x + i, y + 1, 3)
         for _ in range(3):
             x, y = int(rng.integers(HD)), int(rng.integers(HD))
             for dy in range(-2, 3):
                 for dx in range(-3, 4):
                     if dx * dx / 9 + dy * dy / 4 <= 1:
-                        hd_put(c, x + dx, y + dy, 1 if abs(dx) + abs(dy) > 2 else 0)
+                        hd_put(c, x + dx, y + dy, 2 if abs(dx) + abs(dy) > 2 else 1)
         return c
     if kind == "palm":  # leaf-scar rings every eight rows, a lip lit on top, fibre between
         ring = (ys % 8) / 8
         hf = 0.35 + 0.6 * ring + wnoise(rng, 2) * 0.15
         hf[(ys % 8) == 0] = 0.95
-        return shade_height(hf, rng, 3.4, 2.4, 3.0)
+        return calm(shade_height(hf, rng, 3.4, 2.4, 3.0), 2, 5)
     if kind == "culm":  # bamboo: a round stem lit on the left, a node every sixteen rows
         hf = np.sin(xs / HD * np.pi) * 0.6 + 0.2
-        c = np.clip(np.round(6.4 - xs / HD * 5 + rng.normal(0, 0.3, (HD, HD))), 1, 7).astype(int).astype(object)
+        c = np.clip(np.round(5.8 - xs / HD * 3 + rng.normal(0, 0.3, (HD, HD))), 2, 7).astype(int).astype(object)
         y0 = int(rng.integers(16))
-        for y in (y0, y0 + 16):
-            c[y % HD, :] = 7
-            c[(y + 1) % HD, :] = 1
-            c[(y + 2) % HD, :] = 3
+        for y in (y0, y0 + 16):  # a node: a lit lip over a shaded groove, a step each, not a stripe
+            c[y % HD, :] = 6
+            c[(y + 1) % HD, :] = 3
         return c
     # "smooth": jungle and acacia, a pale smooth bark with soft bumps and a few cracks
     fibre = 0.5 + 0.5 * np.sin((xs + wnoise(rng, 4) * 5) / HD * 6.283 * 7)  # long fibres, soft bumps over them
     hf = wnoise(rng, 8) * 0.35 + wnoise(rng, 4) * 0.2 + fibre * 0.45
-    c = shade_height(hf, rng, 3.8, 2.6, 4.0, 0.4)
+    c = calm(shade_height(hf, rng, 3.8, 2.6, 4.0, 0.4), 2, 5)
     for _ in range(3):
         x, y = int(rng.integers(HD)), int(rng.integers(HD))
         for i in range(int(rng.integers(5, 12))):
-            hd_put(c, x, y + i, 0)
+            hd_put(c, x, y + i, 1)
             x += int(rng.choice((-1, 0, 0, 1)))
     return c
 
@@ -1213,7 +1221,8 @@ def blades_hd(rng, w, h, n, lo, hi, lean=0.35, wide=0.25):
         two = rng.random() < wide
         for i in range(bh):
             t = i / max(1, bh - 1)
-            tone = int(round(0.5 + t ** 1.7 * 6.3 + lift * (0.4 + t * 0.6)))  # mostly mid green, the tip lit
+            # mostly mid green, the tip lit; the root only a step down, as the plants' shader darkens it to x0.45
+            tone = int(round(2 + t ** 1.7 * 5 + lift * (0.4 + t * 0.6)))
             px = int(round(fx)) % w
             hd_put(c, px, h - 1 - i, max(0, min(7, tone)), False)
             if two and i < bh * 0.4:
@@ -1246,7 +1255,7 @@ def ears_hd(rng, w, h):
                 if k % 2 and rng.random() < 0.7:
                     hd_put(c, px + 2 * side, y - 1, 10 + 6, False)
             else:
-                hd_put(c, px, y, 10 + (1 if i < 4 else 3), False)
+                hd_put(c, px, y, 10 + (2 if i < 4 else 3), False)
             fx += lean * (i / sh) ** 2 * 1.5
     return c
 
@@ -1270,7 +1279,7 @@ def fern_hd(rng, w, h):
                 for j in range(1, leaf + 1):
                     hd_put(c, x + side * (j // 3), y - j, 4 + (2 if j > leaf - 2 else 1) + (1 if top > h * 0.7 else 0) - 1, False)
                     hd_put(c, x - side * (j // 3), y + j, 3 + (1 if j < leaf else 0), False)
-            hd_put(c, x, y, 1 if t < 0.15 else 3, False)  # the rib dark only at the root: no outline against the light
+            hd_put(c, x, y, 2 if t < 0.15 else 3, False)  # the rib dark only at the root: no outline against the light
     return c
 
 
@@ -1579,7 +1588,7 @@ def build(pal, blocks):
                           bark="ridged", barkc=(28, 0.35, 0.0), woodc=(34, 0.55, 0.12), spring=(92, 0.9, 0.03),
                           autumn=(30, 0.95, 0.02), blossom=True, fruit=("apple", 2, 0.95, 0.04, 3)),
         "oak": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["lobed"], radius=(7, 11), spacing=4, holes=0.08, nholes=1),
-                    hue=(112, 0.85, -0.02), bark="ridged", barkc=(35, 0.12, 0.0), woodc=(32, 0.5, 0.1),
+                    hue=(112, 0.85, -0.02), bark="ridged", barkc=(32, 0.18, 0.02), woodc=(32, 0.5, 0.1),
                     spring=(102, 0.85, 0.02), autumn=(26, 0.7, 0.0), fruit=("acorn", 36, 0.7, 0.06, 2)),
         "birch": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["small"], clumps=13, radius=(5, 8), spacing=2,
                                                holes=0.1, nholes=4), hue=(84, 0.9, 0.03), bark="birch",
@@ -2073,7 +2082,7 @@ def main(argv):
         if len(k) > 6:
             print(f"note: {stem} uses {len(k)} colours", file=sys.stderr)
     # a colour only waiting paintings use joins the palette when their block does
-    early = set(pal.added) - used
+    early = set(pal.added) - used - pal.before
     pal.rows = [r for r in pal.rows if r["name"] not in early]
     pal.added = [a for a in pal.added if a not in early]
     for name in {r.get("ramp") for r in pal.rows if r["name"] in pal.added}:
