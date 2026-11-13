@@ -79,7 +79,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 - Saves (ADR 0016): `run=play` keeps `saves/seed-<seed>-planet-<n>.sav`, the server `saves/server.sav`; both
   carry on from it. `save=file` names another, `save=0` keeps none.
 - Bots: `technoape-bot connect=host n=50 script="wait 1; dig 0.25 -0.5 0.25; block 0.25 -0.5 0.25; report"`
-  runs windowless players on the protocol (commands: spawn, walk, wait, dig, place, block, report, quit; items: slots, move a b n, drop a n, take dx dy dz k a n, put a dx dy dz k n, grab <item> a n;
+  runs windowless players on the protocol (commands: spawn, walk, wait, dig, place, block, report, quit; items: slots, move a b n, drop a n, take dx dy dz k a n, put a dx dy dz k n, grab <item> a n; pick dx dy dz takes a pick-up, ADR 0082;
   `script=-` takes them live from stdin). Output is one JSON line per report or block. Use bots, not a second
   windowed client, for multiplayer checks: two windows on one PC throttle each other (ADR 0006).
 - Play: `technoape.exe run=play onscreen=1` (WASD, space; left click digs a block (in survival held, by its hardness, ADR 0034), right click places one;

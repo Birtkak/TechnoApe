@@ -50,6 +50,8 @@ struct RawBiome {
     snow_over: Option<f32>,
     #[serde(default)]
     plants: Vec<(String, f32)>,
+    #[serde(default)]
+    clutter: Vec<(String, f32)>,
 }
 
 #[derive(Deserialize)]
@@ -80,6 +82,8 @@ pub struct Biome {
     pub snow_over: Option<f32>,
     /// (index into `Rows::plants`, its share of the candidate spots), in order.
     pub plants: Vec<(usize, f32)>,
+    /// (index into `clutter::CLUTTER`, how many lie on 100 columns of its ground), in order (ADR 0082).
+    pub clutter: Vec<(usize, f32)>,
 }
 
 pub struct Rows {
@@ -195,7 +199,12 @@ pub fn parse(text: &str) -> Result<Rows, String> {
         }
         let patches = b.patches.iter().map(|(n, s)| Ok((block(&who, &Some(n.clone()))?, *s))).collect::<Result<_, String>>()?;
         let plants = b.plants.iter().map(|(n, s)| Ok((plants.iter().position(|p| &p.name == n).ok_or(format!("{who}: no plant '{n}'"))?, *s))).collect::<Result<_, String>>()?;
-        biomes.push(Biome { name: b.name, ground, patches, snow_over: b.snow_over, plants });
+        let rows = &*crate::clutter::CLUTTER;
+        if b.clutter.iter().any(|c| !(0.0..=100.0).contains(&c.1)) || b.clutter.iter().map(|c| c.1).sum::<f32>() > 100.0 {
+            return Err(format!("{who}: clutter lies on 0..100 of 100 columns, adding up to at most 100"));
+        }
+        let clutter = b.clutter.iter().map(|(n, k)| Ok((rows.iter().position(|r| &r.name == n).ok_or(format!("{who}: no clutter '{n}' in data/clutter.toml"))?, *k))).collect::<Result<_, String>>()?;
+        biomes.push(Biome { name: b.name, ground, patches, snow_over: b.snow_over, plants, clutter });
     }
     Ok(Rows { plants, biomes })
 }

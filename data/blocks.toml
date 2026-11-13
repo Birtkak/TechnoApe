@@ -11,7 +11,8 @@
 # `metal`: how much it reflects like a metal (0..1). `was`: names it had before, so old saves still load.
 # `hardness`: seconds a survival player digs it with bare hands (every solid block; ADR 0034). `loose`:
 # bare hands take it, so it goes into the inventory; a block that is not loose breaks in its time and gives
-# nothing until the tools that take it exist. `soft`: sound passes it without an echo (leaves, a shrub, reed),
+# nothing until the tools that take it exist. `falls`: it falls when the cell under it opens and slides off a
+# step of two or more, as a whole block (sand, gravel; ADR 0079). `soft`: sound passes it without an echo (leaves, a shrub, reed),
 # so it is no wall to the cave reverb (ADR 0054). `see`: "cutout" for a block seen through, its pixels
 # wholly there or wholly empty (alpha 0 in its painting; the `leaves` pattern has holes), opaque without it (ADR 0069).
 
@@ -94,6 +95,7 @@ id = 8
 name = "sand"
 hardness = 0.6
 loose = true
+falls = true
 sound = "dust"
 colour = [0.88, 0.74, 0.47]
 contrast = 0.6
@@ -120,6 +122,7 @@ id = 11
 name = "gravel"
 hardness = 0.9
 loose = true
+falls = true
 sound = "stone"
 colour = [0.55, 0.53, 0.50]
 pattern = "pebbles"
@@ -707,3 +710,36 @@ name = "kreep"
 hardness = 8.0
 colour = [0.52, 0.47, 0.42]
 pattern = "stone"
+
+# Glass (ADR 0081): `see = "glass"`, pixels partly clear (a painting's alpha); unpainted, a pane of the block's
+# colour, clear in its middle and denser at its rim. Drawn blended after the light; the light through it takes
+# its colour. Ids 120 on, clear of the rows other work adds.
+[[block]]
+id = 120
+name = "glass"
+see = "glass"
+hardness = 0.45
+loose = true
+sound = "glass"
+colour = [0.80, 0.92, 0.95]
+contrast = 0.3
+
+[[block]]
+id = 121
+name = "green glass"
+see = "glass"
+hardness = 0.45
+loose = true
+sound = "glass"
+colour = [0.36, 0.78, 0.42]
+contrast = 0.3
+
+[[block]]
+id = 122
+name = "amber glass"
+see = "glass"
+hardness = 0.45
+loose = true
+sound = "glass"
+colour = [0.95, 0.62, 0.22]
+contrast = 0.3

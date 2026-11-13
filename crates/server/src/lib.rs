@@ -219,12 +219,22 @@ pub struct Server {
     air0: i128,
     /// Each ore body's blocks as generated: the ledger's opening (`ore_ledger`).
     pub ore_open: Vec<i64>,
+    /// Loose blocks awake to fall or slide (ADR 0079).
+    pub falls: engine::fall::Falls,
+    /// The air as clients have been sent it (ADR 0076), the view's hash it was made from (None: make it
+    /// again), and the weather `/weather` forces.
+    sky: Vec<engine::weather::Cell>,
+    sky_at: Option<u64>,
+    force: Option<engine::weather::Force>,
     /// Every pile on the ground, by cell (ADR 0074), and the cells whose pile changed this tick.
     piles: BTreeMap<PileKey, Pile>,
     piles_changed: Vec<Block>,
     /// Of each item, what digs, places, creative's grid and /give made since the start (or what was held at
     /// the load): the items' ledger (`item_ledger`).
     item_made: BTreeMap<u16, i64>,
+    /// The pick-ups taken (ADR 0082): the cell each lay in and the year, and those taken this tick.
+    taken: BTreeMap<PileKey, u32>,
+    taken_changed: Vec<(Block, u32)>,
 }
 
 impl Server {
@@ -278,9 +288,15 @@ impl Server {
             tick_ms: None,
             map_pieces: HashMap::new(),
             ore_open,
+            falls: Default::default(),
+            sky: Vec::new(),
+            sky_at: None,
+            force: None,
             piles: BTreeMap::new(),
             piles_changed: Vec::new(),
             item_made: BTreeMap::new(),
+            taken: BTreeMap::new(),
+            taken_changed: Vec::new(),
         }
     }
 
@@ -289,6 +305,16 @@ impl Server {
         let mut s = Server::on_map(save.planet_n, save.moon_n, save.seed, save.map, save.luna, accept);
         for (b, m) in &save.edits {
             s.world.set_block(*b, *m);
+        }
+        // a block saved mid-fall, or over a hole it had not fallen into yet, carries on (ADR 0079): each falling
+        // block of the edits, and the one over each dug cell when it falls, is looked at once
+        for (b, m) in &save.edits {
+            let over = Block { pos: b.pos + glam::IVec3::Z, ..*b };
+            if BLOCKS.get(*m).is_some_and(|d| d.falls) {
+                s.falls.poke(*b);
+            } else if *m == AIR && BLOCKS.get(s.world.block(over)).is_some_and(|d| d.falls) {
+                s.falls.poke(over);
+            }
         }
         // the clock of the save's last step first (a save's tick is one past it): its water is restored at that
         // step's tide, and the next step retides exactly when the running world's did (ADR 0067)
@@ -344,6 +370,7 @@ impl Server {
             s.lay(at, over, (0, 0));
         }
         s.piles_changed.clear();
+        s.taken = save.held.taken.iter().map(|(b, y)| (key(*b), *y)).collect();
         s.item_made = s.held_now();
         s.loaded = Some(save);
         s
@@ -378,7 +405,7 @@ impl Server {
             reaches: (self.world.water.rained, self.world.water.reach_extra.iter().map(|(&a, &x)| (a, x)).collect()),
             // after `air`: its `state` takes a job in flight back, which `pending` then names
             rain: (self.world.water.rain_held.iter().map(|(&a, &x)| (a, x)).collect(), self.weather.as_ref().and_then(|w| w.pending(self.tick)), self.world.water.steps),
-            held: save::Held { items: ITEMS.table(), piles: self.piles.iter().map(|(k, p)| (unkey(*k), p.slots.clone())).collect() },
+            held: save::Held { items: ITEMS.table(), piles: self.piles.iter().map(|(k, p)| (unkey(*k), p.slots.clone())).collect(), taken: self.taken.iter().map(|(k, y)| (unkey(*k), *y)).collect() },
         }
     }
 
@@ -528,6 +555,7 @@ impl Server {
             for (reach, units) in w.tick(self.tick, self.world.time) {
                 self.world.water.rain(reach, units);
             }
+            self.send_sky();
         }
         if self.tick == 0 {
             let [b0, b1] = [&self.world.bodies[0], &self.world.bodies[1]];
@@ -555,9 +583,16 @@ impl Server {
             for part in all.chunks(EDITS_PART) {
                 link.send(ToClient::Edits(part.to_vec()));
             }
+            if !self.sky.is_empty() {
+                link.send(ToClient::Sky { t: self.world.time, all: self.sky.clone(), changed: Vec::new() });
+            }
             let piles: Vec<(Block, Vec<Slot>)> = self.piles.iter().map(|(k, p)| (unkey(*k), p.slots.clone())).collect();
             for part in piles.chunks(EDITS_PART) {
                 link.send(ToClient::Piles(part.to_vec()));
+            }
+            let taken: Vec<(Block, u32)> = self.taken.iter().map(|(k, y)| (unkey(*k), *y)).collect();
+            for part in taken.chunks(EDITS_PART) {
+                link.send(ToClient::Taken(part.to_vec()));
             }
             let spawn = self.spawn();
             self.clients.push(Client {
@@ -663,6 +698,10 @@ impl Server {
                         self.clients[i].done.push((seq, ok));
                         self.clients[i].inv_dirty = true;
                     }
+                    Recv::Msg(ToServer::Take { seq, at }) => {
+                        let ok = self.take(i, at);
+                        self.clients[i].done.push((seq, ok));
+                    }
                     Recv::Msg(ToServer::Bucket { seq, at, fill }) => {
                         let ok = self.bucket(i, at, fill);
                         self.clients[i].done.push((seq, ok));
@@ -762,6 +801,16 @@ impl Server {
         for line in deaths {
             self.say(line);
         }
+        // loose blocks wake where this tick's edits changed the world, then fall and slide (ADR 0079); never
+        // into a player
+        for (b, _) in &changed {
+            self.falls.wake(&self.world, *b);
+        }
+        let mine = changed.len();
+        if self.falls.awake() > 0 {
+            let held: std::collections::HashSet<Block> = self.clients.iter().flat_map(|c| phys::cells(&self.world, c.phys.pos)).collect();
+            self.falls.step(&mut self.world, self.tick, |_, b| held.contains(&b), &mut changed);
+        }
         // water finds the new gaps of every column an edit changed, then flows: as many steps as the physics
         // took, fewer when that would spend more than WATER_BUDGET
         let mut cols: Vec<Block> = changed.iter().map(|(b, _)| Block { pos: glam::IVec3::new(b.pos.x, b.pos.y, 0), ..*b }).collect();
@@ -781,7 +830,9 @@ impl Server {
         for _ in 0..wsteps {
             self.world.step_water();
         }
-        for part in changed.chunks(EDITS_PART) {
+        // the falls' moves in messages of their own, so no move's two edits are split between two (the client
+        // knows a move by its pair)
+        for part in changed[..mine].chunks(EDITS_PART).chain(changed[mine..].chunks(EDITS_PART)) {
             for c in &self.clients {
                 c.link.send(ToClient::Edits(part.to_vec()));
             }
@@ -789,6 +840,12 @@ impl Server {
         let cols: Vec<Col> = self.world.water.take_changes().into_iter().map(|w| w.0).collect();
         self.water_changed(&cols);
         self.send_water();
+        if !self.taken_changed.is_empty() {
+            let taken = std::mem::take(&mut self.taken_changed);
+            for c in &self.clients {
+                c.link.send(ToClient::Taken(taken.clone()));
+            }
+        }
         if !self.piles_changed.is_empty() {
             let mut cells = std::mem::take(&mut self.piles_changed);
             cells.sort_unstable_by_key(|b| key(*b));
@@ -809,7 +866,9 @@ impl Server {
                 let b = &self.world.bodies[0];
                 let rel = c.phys.pos - b.centre;
                 if self.world.frame_at(c.phys.pos) == 0 && rel.length() > 0.0 {
-                    c.link.send(ToClient::Air(w.here(rel.normalize(), b.over_sea(c.phys.pos).unwrap_or(0.0))));
+                    let d = rel.normalize();
+                    let h = w.here(d, b.over_sea(c.phys.pos).unwrap_or(0.0));
+                    c.link.send(ToClient::Air(self.force.map_or(h, |f| f.here(h, w.view().theta[w.column(d)]))));
                 }
             }
             let shown = (c.vitals.shown(), c.vitals.dead.is_some());
@@ -934,6 +993,7 @@ impl Server {
                 "  /goto <where>        terra (home: the spawn), luna, or sun",
                 "  /timewarp <n>        the clock n times faster (1 to 10000,",
                 "                       up, down); . and , step it too",
+                "  /weather <what>      clear cloudy rain storm snow, or auto",
                 "  /heal, /feed [n]     full health, full hunger (or n)",
                 "  /hurt <points>       takes health: 2 points a segment",
                 "  /help                this list",
@@ -1040,6 +1100,20 @@ impl Server {
                     None => "usage: /goto terra|luna|sun\n  terra (or home) is the spawn".into(),
                 }
             }
+            Some("weather") => match (w.get(1).map(|s| s.to_lowercase()), &self.weather) {
+                (_, None) => "this world has no air grid".into(),
+                (None, Some(_)) => format!("the weather is {}
+  /weather <{}>", if self.force.is_some() { "forced" } else { "the air's own" }, engine::weather::Force::NAMES),
+                (Some(n), Some(_)) => match engine::weather::Force::named(&n) {
+                    Some(f) => {
+                        self.force = f;
+                        self.sky_at = None;
+                        if f.is_some() { format!("weather forced: {n}") } else { "the air's own weather again".into() }
+                    }
+                    None => format!("not a weather: {n}
+  /weather <{}>", engine::weather::Force::NAMES),
+                },
+            },
             Some("timewarp") | Some("warp") => {
                 let now = self.warp;
                 let to = match w.get(1).map(|s| s.to_lowercase()).as_deref() {
@@ -1393,6 +1467,30 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         self.lay(at, stacks, (id, self.tick + THROW_WAIT));
     }
 
+    /// Client `i` takes the pick-up lying in air cell `at` (`ToServer::Take`, ADR 0082): within `REACH`, one lies
+    /// there and was not taken (or has come back), and all it gives fits in the slots; else nothing changes.
+    fn take(&mut self, i: usize, at: Block) -> bool {
+        let c = &self.clients[i];
+        let t = self.world.time;
+        if c.vitals.dead.is_some() || self.world.block_centre(at).distance(c.phys.pos) > REACH {
+            return false;
+        }
+        let Some(th) = engine::clutter::pickup_at(&self.world, at, t) else { return false };
+        let row = &engine::clutter::CLUTTER[th.row];
+        let year = engine::clutter::year(t);
+        let Some((item, n)) = row.item().filter(|_| engine::clutter::lies(row, self.taken.get(&key(at)).copied(), year)) else { return false };
+        let mut slots = c.slots.clone();
+        if items::stacks(item, n as u32).any(|st| items::give(&mut slots, st) > 0) {
+            return false;
+        }
+        let c = &mut self.clients[i];
+        (c.slots, c.inv_dirty) = (slots, true);
+        *self.item_made.entry(item).or_default() += n as i64;
+        self.taken.insert(key(at), year);
+        self.taken_changed.push((at, year));
+        true
+    }
+
     /// Client `i` moves `n` of the stack in `from` to `to` (`ToServer::Items`, ADR 0074): all of it or nothing.
     /// A pile must lie within `PILE_REACH`; creative's grid is creative's; every holder keeps its rules after it.
     fn items(&mut self, i: usize, from: (Holder, u16), to: (Holder, u16), n: u16) -> bool {
@@ -1534,6 +1632,37 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
 
     /// Sends every client the water tiles it lacks: within WATER_RANGE, nearest first, until WATER_BYTES.
     /// The rest waits for the next tick, so a big flood reaches a client over a few ticks, near water first.
+    /// The air's columns to every client when the grid landed a step or the forced weather changed (ADR 0076):
+    /// those that moved more than a byte's step since they were sent, so a slow drift does not cost a message
+    /// a column every step.
+    fn send_sky(&mut self) {
+        let Some(w) = &self.weather else { return };
+        if self.sky_at == Some(w.view().hash) {
+            return;
+        }
+        self.sky_at = Some(w.view().hash);
+        let cells = w.cells(self.force.as_ref());
+        if self.sky.len() != cells.len() {
+            self.sky = cells;
+            for c in &self.clients {
+                c.link.send(ToClient::Sky { t: self.world.time, all: self.sky.clone(), changed: Vec::new() });
+            }
+            return;
+        }
+        let mut changed = Vec::new();
+        for (k, (old, new)) in self.sky.iter_mut().zip(&cells).enumerate() {
+            if old.iter().zip(new).any(|(a, b)| a.abs_diff(*b) > 1) {
+                *old = *new;
+                changed.push((k as u32, *new));
+            }
+        }
+        if !changed.is_empty() {
+            for c in &self.clients {
+                c.link.send(ToClient::Sky { t: self.world.time, all: Vec::new(), changed: changed.clone() });
+            }
+        }
+    }
+
     fn send_water(&mut self) {
         // each tile built and measured once a tick, however many clients get it
         let mut built: FxMap<Col, (Vec<engine::liquid::ColWater>, usize)> = FxMap::default();
@@ -1873,6 +2002,39 @@ mod tests {
         let d = b.dir(k.face as usize, k.pos.x as f64 + 0.5, k.pos.y as f64 + 0.5);
         let h = b.height(d);
         (b.centre + d * (h + 2.0), s.world.block_at(b.centre + d * (h + 0.6)))
+    }
+
+    /// Sand on a shelf in the air, the shelf dug out from under it: it falls to the ground, and the other
+    /// player is told each move as two edits (ADR 0079).
+    #[test]
+    fn sand_dug_from_under_falls_and_every_player_sees_it() {
+        let (mut s, links) = server_with(2);
+        let (pole, under) = on_land(&s);
+        let shelf = Block { pos: under.pos + glam::IVec3::new(3, 0, 5), ..under };
+        let over = Block { pos: shelf.pos + glam::IVec3::Z, ..shelf };
+        let (stone, sand) = (BLOCKS.id("stone"), BLOCKS.id("sand"));
+        s.world.set_block(shelf, stone);
+        s.world.set_block(over, sand);
+        links[0].send(ToServer::Creative(true));
+        links[0].send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        s.tick();
+        drain(&links[1]);
+        links[0].send(ToServer::Edit { seq: 1, shape: Shape::one(shelf), material: AIR });
+        let mut got = Vec::new();
+        for _ in 0..80 {
+            s.tick();
+            got.extend(drain(&links[1]));
+        }
+        assert_eq!(s.world.block(over), AIR, "it fell");
+        // where it lies: the one edit that made sand (it may have slid down the slope it landed on)
+        let lands: Vec<Block> = s.world.edits.iter().flat_map(|(k, c)| c.iter().map(move |(p, m)| (Block { body: k.body, face: k.face, pos: *p }, *m))).filter(|(b, m)| *m == sand && s.world.generated_block(*b) != sand).map(|(b, _)| b).collect();
+        assert_eq!(lands.len(), 1, "one sand: {lands:?}");
+        let rest = lands[0];
+        assert!(rest.pos.z < shelf.pos.z && (rest.pos - shelf.pos).abs().max_element() < 8, "under the shelf: {rest:?}");
+        assert!(BLOCKS.solid(s.world.block(Block { pos: rest.pos - glam::IVec3::Z, ..rest })), "on the ground");
+        assert_eq!(s.falls.awake(), 0, "and asleep");
+        let edits: Vec<(Block, u16)> = got.into_iter().filter_map(|m| if let ToClient::Edits(v) = m { Some(v) } else { None }).flatten().collect();
+        assert!(edits.contains(&(over, AIR)) && edits.contains(&(rest, sand)), "{edits:?}");
     }
 
     #[test]

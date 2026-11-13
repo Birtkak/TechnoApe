@@ -100,6 +100,12 @@ pub fn meshbench(args: &HashMap<String, String>) {
         }
     }
     let near = at.is_some().then_some(1u32);
+    // clutter=off|few|normal|many (ADR 0082): its quads laid after each mesh, timed apart, in summer (time=)
+    let density = args.get("clutter").and_then(|v| ["off", "few", "normal", "many"].iter().position(|n| n == v)).map_or(1.0, |l| [0.0, 0.25, 1.0, 4.0][l]);
+    let pal = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+    let still = engine::clutter::Still::load(std::path::Path::new("data/models"), &pal).0;
+    let t_sky = args.get("time").and_then(|v| v.parse::<f64>().ok()).unwrap_or(23625.0);
+    let clutter_us = std::sync::Mutex::new((0.0f64, 0usize, 0usize));
     let job = |k: &Key| -> (f64, f64, usize, u8) {
         let t0 = Instant::now();
         let g = generate(b, *k, &[]);
@@ -111,9 +117,14 @@ pub fn meshbench(args: &HashMap<String, String>) {
                 let mut n = 0;
                 for _ in 0..if near.is_some() { 5 } else { 1 } {
                     let t = Instant::now();
-                    n = engine::mesh::mesh_cut(&c, if greedy { b.lattice(0) as usize } else { 1 }, cutout).quads.len();
+                    n = engine::mesh::mesh_cut(&c, if greedy { b.lattice(0) as usize } else { 1 }, cutout, false).quads.len();
                     best = best.min(t.elapsed().as_secs_f64() * 1e6);
                 }
+                let t = Instant::now();
+                let cq = engine::clutter::quads(b, *k, &c, &[], &still, t_sky, density, &[]).len();
+                let mut cu = clutter_us.lock().unwrap();
+                (cu.0, cu.1, cu.2) = (cu.0 + t.elapsed().as_secs_f64() * 1e6, cu.1 + cq, cu.2 + 1);
+                drop(cu);
                 return ((t1 - t0).as_secs_f64() * 1e6, best, n, 2);
             }
             Gen::Empty => (0, 0),
@@ -134,8 +145,9 @@ pub fn meshbench(args: &HashMap<String, String>) {
     let quads = surf.iter().map(|r| r.2).sum::<usize>() as f64 / n;
     let shortcut_us = single.iter().filter(|r| r.3 != 2).map(|r| r.0).sum::<f64>() / single.iter().filter(|r| r.3 != 2).count().max(1) as f64;
     println!(
-        "{{\"run\":\"meshbench\",\"greedy\":{},\"chunks\":{},\"surface_chunks\":{},\"gen_us\":{:.1},\"mesh_us\":{:.1},\"shortcut_us\":{:.1},\"quads_per_chunk\":{:.0},\"bytes_per_chunk\":{:.0},\"single_chunks_per_s\":{:.0},\"parallel_chunks_per_s\":{:.0},\"threads\":{}}}",
+        "{{\"run\":\"meshbench\",\"greedy\":{},\"chunks\":{},\"surface_chunks\":{},\"gen_us\":{:.1},\"mesh_us\":{:.1},\"shortcut_us\":{:.1},\"quads_per_chunk\":{:.0},\"bytes_per_chunk\":{:.0},\"single_chunks_per_s\":{:.0},\"parallel_chunks_per_s\":{:.0},\"threads\":{},\"clutter_us\":{:.1},\"clutter_quads_per_chunk\":{:.0}}}",
         greedy as u8, keys.len(), surf.len(), gen_us, mesh_us, shortcut_us, quads, quads * 8.0,
-        keys.len() as f64 / st, keys.len() as f64 / pt, rayon::current_num_threads()
+        keys.len() as f64 / st, keys.len() as f64 / pt, rayon::current_num_threads(),
+        { let c = clutter_us.lock().unwrap(); c.0 / c.2.max(1) as f64 }, { let c = clutter_us.lock().unwrap(); c.1 as f64 / c.2.max(1) as f64 }
     );
 }

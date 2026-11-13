@@ -411,14 +411,14 @@ fn effects_colour_dir_then_texture_and_model_save_as_the_game_reads_them() {
             "cmd=open:Effects:flames",
             "size=1280x1800",
             "input=click @btn:one_colour; drag @field:red:0.9,0.5 @field:red:0.3,0.5; click @choice:start:cone; drag @field:dir_x:0.5,0.5 @field:dir_x:0.8,0.5; \
-             click @pick:then; click @pick:then:smoke; key Ctrl+S",
+             click @pick:then; click @pick:then:embers; key Ctrl+S",
         ],
     );
     assert!(line.contains("\"unsaved\":[]"), "{line}");
     let r = read();
     assert!(r.gradient.is_empty() && r.colour.is_some_and(|c| c[0] < 0.6), "one colour, its red moved: {:?} {line}", r.colour);
     assert!(r.dir[0] > 0.3 && r.dir[1] == 1.0, "the cone's dir: {:?} {line}", r.dir);
-    assert_eq!(r.then.as_deref(), Some("smoke"), "{line}");
+    assert_eq!(r.then.as_deref(), Some("embers"), "{line}");
     let line = studio(&dir, &["cmd=open:Effects:flames", "size=1280x1800", "input=click @choice:look:texture; click @pick:texture; click @pick:texture:dirt; key Ctrl+S"]);
     assert!(line.contains("\"undo\":[\"look: texture\",\"texture: dirt\"]") && line.contains("\"unsaved\":[]"), "{line}");
     let r = read();
