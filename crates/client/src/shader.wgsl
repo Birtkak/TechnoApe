@@ -64,7 +64,7 @@ struct Chunk { base: vec3i, info: u32, off: u32, opq: u32 };
 // (ADR 0039) and a pattern's second and third colours, its size in texels, amount and grain contrast; the
 // painted faces (ADR 0045, gpu.rs `looks_of`: 16 bits a face, layer | variants - 1 << 12 | painted << 15; top
 // and side in `tex`, the bottom in `tex2`) and a painted block's one colour, unorm 8-bit, painted << 24
-struct Look { colour: vec3f, info: u32, colour2: vec3f, size: u32, colour3: vec3f, amount: f32, contrast: f32, tex: u32, mean: u32, tex2: u32, fluff: u32, _a: u32, _b: u32, _c: u32 };
+struct Look { colour: vec3f, info: u32, colour2: vec3f, size: u32, colour3: vec3f, amount: f32, contrast: f32, tex: u32, mean: u32, tex2: u32, fluff: u32, through: f32, _b: u32, _c: u32 };
 // four rows a block (ADR 0061): its own look, summer's, at [m]; spring's, autumn's and winter's 256, 512 and
 // 768 on. `size` holds, over the size's 8 bits, bit 8 for a block with seasons and its stagger from bit 16
 // (1/1024 quarter turn)
@@ -240,7 +240,10 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
             // edge-on along an axis (thin rods seen from below) and neighbours differ
             let hf = hash(cell0 + vec3i(17, 3, i32(dir) * 31 + 11));
             let hg = hash(cell0 + vec3i(5, 23, i32(dir) * 31 + 2));
-            let slope = tan(radians(25.0 + 10.0 * hg));
+            // a top face's plane steeper (45-60 degrees) and less far up: leaves rising out of the plant, not a
+            // slab floating over a shrub or a reed bed
+            let top = dir == 4u;
+            let slope = tan(radians(select(25.0 + 10.0 * hg, 45.0 + 15.0 * hg, top)));
             let spread = size * mix(0.65, 1.4, clump);
             shade *= mix(0.55, 1.0, clump);
             var su = 0.5 + (f32(ku) - 0.5) * spread * long;
@@ -248,7 +251,7 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
             let phi = hf * 6.2831853;
             // the round mask in the units of a 1.7 plane, whatever its size: an ellipse along a long one
             var mask = 0.5 + (vec2f(su, sv) - 0.5) * (1.7 / spread) / vec2f(long, 1.0);
-            var push = fpush * mix(0.0, 3.0, clump) + slope * ((su - 0.5) * cos(phi) + (sv - 0.5) * sin(phi)) + 0.06 * (h - 0.5);
+            var push = fpush * mix(0.0, 3.0, clump) * select(1.0, 0.35, top) + slope * ((su - 0.5) * cos(phi) + (sv - 0.5) * sin(phi)) + 0.06 * (h - 0.5);
             // the corners stood further out (the tilt) hang more: the plane bends down away from the crown
             var hang = max(push, 0.0);
             reach = 1.0;
@@ -423,7 +426,14 @@ fn trace(o: vec3f, db: vec3f, body: u32, tmax: f32, flags: u32) -> RayIntersecti
             if (((chunks[c.instance_custom_data].info >> 3u) & 31u) == 0u) { t = hit_texel(c.instance_custom_data, q, c.primitive_index, c.barycentrics, sn); }
             ray_tint *= mix(vec3f(1.0), t.rgb, t.a);
         } else if (!hit_empty(c.instance_custom_data, q, c.primitive_index, c.barycentrics, hit_season(c.instance_custom_data, q, sn))) {
-            rayQueryConfirmIntersection(&rq);
+            // a shadow ray through a face of fast leaves takes its share of the light (`fluff.light`, the block row)
+            // and goes on: a soft green shade under a crown, not a whole block's (ADR 0090); nearly none left stops it
+            if (flags == RAY_FLAG_TERMINATE_ON_FIRST_HIT && ((chunks[c.instance_custom_data].info >> 18u) & 1u) == 1u) {
+                ray_tint *= looks[q.y & 255u].through * vec3f(0.9, 1.0, 0.75);
+                if (max(ray_tint.r, max(ray_tint.g, ray_tint.b)) < 0.02) { rayQueryConfirmIntersection(&rq); }
+            } else {
+                rayQueryConfirmIntersection(&rq);
+            }
         }
     }
     return rayQueryGetCommittedIntersection(&rq);

@@ -132,11 +132,14 @@ pub struct Fluff {
     pub long: f32,
     /// The share of faces that have one, 0..1.
     pub dense: f32,
+    /// The share of the sun one face of it lets through to a shadow ray, 0..1 (fast leaves; a ray through a crown
+    /// passes two faces or more): the shade under it.
+    pub light: f32,
 }
 
 impl Default for Fluff {
     fn default() -> Self {
-        Fluff { size: 1.7, push: 0.35, droop: 0.0, long: 1.0, dense: 1.0 }
+        Fluff { size: 1.7, push: 0.35, droop: 0.0, long: 1.0, dense: 1.0, light: 0.5 }
     }
 }
 
@@ -149,7 +152,7 @@ impl Fluff {
     }
 
     fn check(&self) -> bool {
-        (0.0..=3.0).contains(&self.size) && (0.0..=1.2).contains(&self.push) && (0.0..=1.2).contains(&self.droop) && (1.0..=4.0).contains(&self.long) && (0.0..=1.0).contains(&self.dense)
+        (0.0..=3.0).contains(&self.size) && (0.0..=1.2).contains(&self.push) && (0.0..=1.2).contains(&self.droop) && (1.0..=4.0).contains(&self.long) && (0.0..=1.0).contains(&self.dense) && (0.0..=1.0).contains(&self.light)
     }
 }
 
@@ -353,7 +356,7 @@ impl Registry {
             }
             let fluff = (r.see == See::Cutout).then(|| r.fluff.unwrap_or_default());
             if fluff.is_some_and(|f| !f.check()) {
-                return Err(format!("block '{}': fluff outside its ranges (size 0..3, push and droop 0..1.2, long 1..4, dense 0..1)", r.name));
+                return Err(format!("block '{}': fluff outside its ranges (size 0..3, push and droop 0..1.2, long 1..4, dense and light 0..1)", r.name));
             }
             let seasons = (r.spring.is_some() || r.autumn.is_some() || r.winter.is_some()).then_some(seasons);
             if seasons.is_none() && r.stagger != 0.0 {
@@ -432,7 +435,7 @@ hardness = 0.3
 {extra}");
         let r = Registry::parse(&row("")).unwrap();
         assert_eq!(r.get(1).unwrap().fluff, Some(Fluff::default()));
-        assert_eq!(Fluff::default(), Fluff { size: 1.7, push: 0.35, droop: 0.0, long: 1.0, dense: 1.0 });
+        assert_eq!(Fluff::default(), Fluff { size: 1.7, push: 0.35, droop: 0.0, long: 1.0, dense: 1.0, light: 0.5 });
         let r = Registry::parse(&row("fluff = { size = 1.2, droop = 0.4, long = 2.5, dense = 0.5 }")).unwrap();
         let f = r.get(1).unwrap().fluff.unwrap();
         assert_eq!((f.size, f.push, f.droop, f.long, f.dense), (1.2, 0.35, 0.4, 2.5, 0.5));
@@ -441,6 +444,8 @@ hardness = 0.3
         assert_eq!(Fluff { size: 0.0, ..f }.packed() & 63, 0, "size 0: no fluff");
         assert!(Registry::parse(&row("fluff = { size = 4.0 }")).err().unwrap().contains("leaf"));
         assert!(Registry::parse(&row("fluff = { long = 0.5 }")).is_err());
+        assert!(Registry::parse(&row("fluff = { light = 1.5 }")).is_err());
+        assert_eq!(BLOCKS.get(BLOCKS.id("acacia leaves")).unwrap().fluff.unwrap().light, 0.65, "sparse leaves let more through");
         // an opaque block has none, and naming one is refused
         assert_eq!(BLOCKS.get(BLOCKS.id("stone")).unwrap().fluff, None);
         assert!(Registry::parse(&row("fluff = { size = 1.0 }").replace("see = \"cutout\"

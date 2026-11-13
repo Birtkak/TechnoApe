@@ -19,8 +19,8 @@
 # wholly there or wholly empty (alpha 0 in its painting; the `leaves` pattern has holes), opaque without it (ADR 0069).
 # `fluff` (a cutout block's, ADR 0090): the planes standing out of a plant, `size` (faces wide, 0..3; 0 none),
 # `push` (metres out, 0..1.2), `droop` (metres down a metre out, 0..1.2), `long` (length over width along the way
-# from the wood, 1..4) and `dense` (the share of faces with one, 0..1); unnamed ones are the broadleaf's 1.7, 0.35,
-# 0, 1, 1.
+# from the wood, 1..4), `dense` (the share of faces with one, 0..1) and `light` (the share of the sun one face lets
+# through to a shadow, 0..1); unnamed ones are the broadleaf's 1.7, 0.35, 0, 1, 1, 0.5.
 
 [[block]]
 id = 0
@@ -165,7 +165,7 @@ wood = true
 id = 15
 name = "spruce leaves"
 see = "cutout"
-fluff = { size = 1.2, push = 0.22, droop = 0.35, long = 1.4 }
+fluff = { size = 1.2, push = 0.22, droop = 0.35, long = 1.4, light = 0.35 }
 hardness = 0.3
 loose = true
 soft = true
@@ -208,7 +208,7 @@ pattern = "leaves"
 id = 18
 name = "acacia leaves"
 see = "cutout"
-fluff = { size = 1.9, push = 0.25, dense = 0.8 }
+fluff = { size = 1.9, push = 0.25, dense = 0.8, light = 0.65 }
 hardness = 0.3
 loose = true
 soft = true
@@ -247,7 +247,7 @@ colour = [0.36, 0.30, 0.20]
 id = 21
 name = "reed"
 see = "cutout"
-fluff = { size = 0.9, push = 0.1, long = 1.8, dense = 0.7 }
+fluff = { size = 0.9, push = 0.1, long = 1.8, dense = 0.7, light = 0.7 }
 hardness = 0.2
 loose = true
 soft = true

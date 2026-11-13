@@ -554,7 +554,7 @@ pub(crate) fn season_here(w: &engine::world::World, pos: glam::DVec3) -> (f64, f
 /// Every block's look from the registry (ADR 0013, 0039, 0045), shader.wgsl `Look`, 80 bytes each: colour rgb,
 /// pattern | side << 8 | metal << 16 | gives light << 24 | cutout << 25 | glass << 26; colour2, size; colour3, amount; contrast; the painted
 /// faces (16 bits a face: layer | variants - 1 << 12 | fine << 14 (32 x 32, four layers a variant, ADR 0090) | painted << 15; top and side in `tex`, the bottom in
-/// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24); a cutout block's fluff (`Fluff::packed`, ADR 0090), three words free.
+/// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24); a cutout block's fluff (`Fluff::packed`, ADR 0090) and its share of light through (f32), two words free.
 fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 20]> {
     (0..4 * 256usize)
             .map(|row| {
@@ -586,8 +586,9 @@ fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> 
                             mean = mr | mg << 8 | mb << 16 | 1 << 24;
                         }
                         // a cutout block's fluff (ADR 0090, `Fluff::packed`), the same in every season
-                        let fluff = d.fluff.map_or(0, |f| f.packed());
-                        [r, g, b, info, r2, g2, b2, size, r3, g3, b3, f(tone.amount), f(tone.contrast), tex as u32, mean, (tex >> 32) as u32, fluff, 0, 0, 0]
+                        // and the share of the sun a face of it lets through to a shadow ray
+                        let (fluff, through) = d.fluff.map_or((0, 0.0), |f| (f.packed(), f.light));
+                        [r, g, b, info, r2, g2, b2, size, r3, g3, b3, f(tone.amount), f(tone.contrast), tex as u32, mean, (tex >> 32) as u32, fluff, f(through), 0, 0]
                     }
                     None => {
                         let h = f(0.5);

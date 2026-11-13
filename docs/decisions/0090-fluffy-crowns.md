@@ -82,6 +82,16 @@ gets no early depth.
    spruce short, drooping and long; jungle large and drooping; acacia wide and sparser; shrub small; reed narrow
    blades 1.8 long, near upright (a hinged plane leans by the push: 28 degrees at 0.35). Species to come (palm, bamboo, willow) take their rows the same way.
 
+9. **Leaves shade, not block, the sun** (the overseer: a closed canopy was near black inside). Fast leaves are
+   already the BLAS's second geometry (decision 7), so a shadow ray meets each leaf face as a candidate: it
+   multiplies `ray_tint` (glass's path, ADR 0081) by the face's `fluff.light` (the block row: broadleaf, jungle and
+   shrub 0.5, spruce 0.35, acacia 0.65, reed 0.7), a little green, and goes on; below 2 % left it stops. A ray
+   through a crown passes two faces or more, so a broadleaf's shade lets about a quarter through, two crowns a
+   sixteenth. Bare crowns take their twigs' texels as before (nearly no shade). Looking rays (bounce, reflections)
+   still take a leaf block whole. The overseer's plan (opaque BLAS, a fraction at the committed hit) would not see
+   the second crown and needs the geometry flag per season anyway; the candidate path was already paid for.
+   Also: a top face's fluff stands 45-60 degrees and a third as far out, leaves rising out of a shrub, not a slab.
+
 ## The Studio (tool tier)
 `art::Img` has a height: a fine file opens 32 x 32 a variant (the engine's quarters put back together), saves at
 its own size, and `check=1` and `check_dir` take 32-high files of the allowed widths for any block. The textures
@@ -180,7 +190,10 @@ leaves last and is won back by decision 1 above. This branch carries it to main.
 - Fluff on by default (see the numbers); `fluff=0` is a run argument, not yet a setting.
 - From straight below, a bare crown's own vertical leaf faces (not fluff) are seen edge-on and read as short
   dark bars; branch logs show as cubes inside a bare crown (part C's shapes).
-- Summer: fast leaves still shadow as whole blocks (ADR 0088's call); winter: light through the twigs.
+- Leaves' shade: a quarter of the sun under one broadleaf crown (decision 9); ADR 0088's call on solid shadows
+  under bare shrubs is answered (light through the twigs).
+- Palm, bamboo and willow are not on this branch (part C's species): their rows take `fluff` the same way; no
+  stills of them here.
 - The topmost twigs in full sun read lighter and warmer than the calmed bark: part D's twig painting is a tan
   family; one palette with `log_side` would make one tree one colour.
 - How far the fluffy look reaches: all of level 0, which a level 1 chunk (64 m) hands down within Detail x its
