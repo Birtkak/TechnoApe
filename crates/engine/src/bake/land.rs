@@ -14,8 +14,12 @@ use std::time::Instant;
 /// on the command line, nowhere else.
 #[derive(Clone, Debug)]
 pub struct Params {
-    /// TASTE CALL, decided 2026-11-11: 120 m (ADR 0021 had 50). The highest land over the sea, metres.
+    /// TASTE CALL, decided 2026-11-11: 120 m (ADR 0021 had 50). The highest land over the sea, metres, before
+    /// the peaks are stretched by `peak_extra_m`.
     pub mountain_m: f32,
+    /// How much higher the highest land stands after the peaks are stretched (`stretch`, ADR 0105), metres on
+    /// the 4 km planet and larger ones; a smaller planet gets its share by size. 0 is the bake before 0105.
+    pub peak_extra_m: f32,
     /// TASTE CALL, decided 2026-11-11: 60 m (ADR 0021 had 25). The deepest sea under it, metres.
     pub sea_depth_m: f32,
     /// The share of the surface under the sea (ADR 0021: 55 %).
@@ -58,6 +62,7 @@ impl Default for Params {
     fn default() -> Params {
         Params {
             mountain_m: 120.0,
+            peak_extra_m: 230.0,
             sea_depth_m: 60.0,
             ocean_share: 0.55,
             cell_m: 8.0,
@@ -753,7 +758,7 @@ pub struct Lake {
     pub cells: u32,
     /// level over the sea, metres
     pub level: f32,
-    /// the deepest water, metres
+    /// the deepest water, metres (before the peaks' stretch, ADR 0105)
     pub depth: f32,
 }
 
@@ -767,6 +772,8 @@ pub struct Bake {
     pub w: Vec<f32>,
     /// the lake level without the flood's epsilon (`Drainage::lvl`), metres over the sea
     pub lvl: Vec<f32>,
+    /// the lakes' cells (`lake`)
+    lake: Vec<bool>,
     pub recv: Vec<u32>,
     pub area: Vec<f32>,
     pub plate: Vec<u8>,
@@ -779,7 +786,7 @@ pub struct Bake {
     /// seconds per stage
     pub times: Vec<(&'static str, f64)>,
     pub converged: (f32, f32),
-    /// metres per model metre: (land, sea)
+    /// metres per model metre: (land, sea); on land under `STRETCH_FROM` (ADR 0105)
     pub scale: (f32, f32),
     /// stages 5 to 8 (`life.rs`), once run
     pub life: Option<super::life::Life>,
@@ -789,12 +796,9 @@ impl Bake {
     pub fn land(&self, c: usize) -> bool {
         !self.ocean[c]
     }
+    /// Under a lake: where the filled surface stood over the ground by `LAKE` before the stretch.
     pub fn lake(&self, c: usize) -> bool {
-        self.land(c) && self.lvl[c] - self.h[c] > LAKE * self.land_scale()
-    }
-    /// metres per model metre on land, kept for the lake test
-    pub fn land_scale(&self) -> f32 {
-        self.scale.0
+        self.lake[c]
     }
 }
 
@@ -859,8 +863,8 @@ pub fn bake(planet_n: u32, seed: u64, p: &Params) -> Bake {
     let scale = (p.mountain_m / top, p.sea_depth_m / deep);
     let sc = |v: f32| if v >= sea { (v - sea) * scale.0 } else { (v - sea) * scale.1 };
     let mut hm: Vec<f32> = h.iter().map(|&v| sc(v)).collect();
-    let wm: Vec<f32> = d.w.iter().map(|&v| sc(v)).collect();
-    let lm: Vec<f32> = d.lvl.iter().map(|&v| sc(v)).collect();
+    let mut wm: Vec<f32> = d.w.iter().map(|&v| sc(v)).collect();
+    let mut lm: Vec<f32> = d.lvl.iter().map(|&v| sc(v)).collect();
     lap("sea and coast", &mut times);
 
     let rivers: Vec<River> = d
@@ -901,9 +905,33 @@ pub fn bake(planet_n: u32, seed: u64, p: &Params) -> Bake {
             lakes.push(Lake { cells: cells.len() as u32, level: lm[cells[0] as usize], depth });
         }
     }
+    // the lakes are found before the peaks are stretched (ADR 0105), so they are the unstretched bake's
+    let lake = (0..gf.n()).map(|c| !d.ocean[c] && lm[c] - hm[c] > LAKE * scale.0).collect();
+    let extra = p.peak_extra_m * (planet_n as f32 / 6144.0).min(1.0);
+    hm.iter_mut().chain(wm.iter_mut()).chain(lm.iter_mut()).for_each(|v| *v = stretch(*v, p.mountain_m, extra));
+    lakes.iter_mut().for_each(|l| l.level = stretch(l.level, p.mountain_m, extra));
     lap("rivers and lakes", &mut times);
     let (recv, area, ocean) = (d.recv, d.area, d.ocean);
-    Bake { g: gf, h: hm, w: wm, lvl: lm, recv, area, ocean, plate, boundary, continental, rock, rivers, lakes, times, converged: (conv_c, conv_f), scale, life: None }
+    Bake { g: gf, h: hm, w: wm, lvl: lm, recv, area, ocean, lake, plate, boundary, continental, rock, rivers, lakes, times, converged: (conv_c, conv_f), scale, life: None }
+}
+
+/// Land under this height, metres over the sea, is never stretched (`stretch`).
+pub const STRETCH_FROM: f32 = 45.0;
+/// Over this many metres above `STRETCH_FROM` the stretch eases from none to its full factor.
+const STRETCH_EASE: f32 = 20.0;
+
+/// The peaks stretched (ADR 0105): height `v` over the sea on land whose highest point is `top`, raised so
+/// that `top` stands `extra` higher. Under `STRETCH_FROM` it is `v` to the bit; above, the relief over it is
+/// scaled by a factor that eases in from 1, so the map's slope is continuous and the order of heights (every
+/// downhill, so every river and lake) is kept.
+pub fn stretch(v: f32, top: f32, extra: f32) -> f32 {
+    if v <= STRETCH_FROM || extra <= 0.0 {
+        return v;
+    }
+    debug_assert!(top > STRETCH_FROM + STRETCH_EASE, "the stretch eases in under the highest land");
+    let x = v - STRETCH_FROM;
+    let e = (x / STRETCH_EASE).min(1.0);
+    STRETCH_FROM + x * (1.0 + extra / (top - STRETCH_FROM) * e * e * (3.0 - 2.0 * e))
 }
 
 /// Mean height step between neighbours (inside a face, across a seam): a seam that shows has a larger one.
@@ -950,6 +978,25 @@ mod tests {
     /// The fast drainage (land masses and basins in parallel, radix heap and buckets) against the slow path
     /// it replaced, kept here as the reference: one binary-heap Priority-Flood and one serial sweep of the
     /// area. The same water level and the same area to the bit.
+    /// The peaks' stretch (ADR 0105): the lowland to the bit, every height's order, the top `extra` higher.
+    #[test]
+    fn the_stretch_keeps_the_lowland_and_the_order_and_lifts_the_top() {
+        let (top, extra) = (120.0, 230.0);
+        for v in [-60.0, 0.0, 12.5, STRETCH_FROM] {
+            assert_eq!(stretch(v, top, extra).to_bits(), (v as f32).to_bits(), "{v} is lowland");
+        }
+        assert_eq!(stretch(top, top, extra), top + extra, "the highest");
+        let mut last = STRETCH_FROM;
+        for k in 1..=7500 {
+            let v = STRETCH_FROM + k as f32 * 0.01;
+            let s = stretch(v, top, extra);
+            assert!(s > last, "{v}: {s} not over {last}");
+            assert!(k > 1 || s - last < 0.0101, "no step where the stretch begins");
+            last = s;
+        }
+        assert_eq!(stretch(80.0, top, 0.0), 80.0, "no extra, no stretch");
+    }
+
     /// A plain wider than LAKE / EPS cells is no lake: the flood's epsilon must not add up to one there (it
     /// did, and the erosion then left such plains alone as lake floors). A pit is still a lake.
     #[test]

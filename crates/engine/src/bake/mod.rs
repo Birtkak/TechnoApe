@@ -57,8 +57,9 @@ use std::sync::{Arc, LazyLock, Mutex, Weak};
 /// Changes whenever the bake's code or parameters change what it makes: a map of another version is baked
 /// anew, and a save names the map it was played on (by hash). 3 keeps the climate (W3) and bakes it over a
 /// year with the sky's seasons; 4 adds the lakes and each river cell's flow (W5, ADR 0059); 5 keeps each cell's
-/// rock province (W4, ADR 0063).
-pub const VERSION: u32 = 5;
+/// rock province (W4, ADR 0063); 6 stretches the peaks (ADR 0105: the same layout as 5, other heights over
+/// `land::STRETCH_FROM`; a save on a 5 is baked back by `Map::bake_v5`).
+pub const VERSION: u32 = 6;
 
 /// How far in longitude from the +y meridian the spawn may lie, radians (about 26 degrees: 9 am at world
 /// time 0 is then between 7 and 11 am at the spawn). shortcut: until the sky's clock takes the spawn's own
@@ -141,6 +142,13 @@ impl Map {
         eprintln!("[bake] seed {seed} planet {n}: {:.1} s", t.elapsed().as_secs_f64());
         map
     }
+    /// The bake of version 5, before the peaks were stretched (ADR 0105): what a save made on one plays on.
+    pub fn bake_v5(seed: i32, n: i32) -> Map {
+        let mut m = Map::bake_with(seed, n, &land::Params { peak_extra_m: 0.0, ..Default::default() });
+        m.version = 5;
+        m.finish(&m.to_bytes());
+        m
+    }
     /// A map with nothing in it, for `..Map::empty()`.
     pub fn empty() -> Map {
         Map { version: VERSION, spawn: [0.0, 1.0, 0.0], ..Map::default() }
@@ -164,7 +172,7 @@ impl Map {
         let version = postcard::take_from_bytes::<u32>(b).map_err(|e| format!("not a map: {e}"))?.0;
         let flowless = |r: Vec<(u32, u32, f32)>| r.into_iter().map(|(cell, to, area)| Reach { cell, to, area, flow: 0.0 }).collect();
         let mut m: Map = match version {
-            VERSION => postcard::from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?,
+            VERSION | 5 => postcard::from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?,
             luna::VERSION => {
                 let (m, rest) = postcard::take_from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?;
                 Map { tubes: postcard::from_bytes(rest).map_err(|e| format!("not a map's tubes: {e}"))?, ..m }
@@ -196,7 +204,7 @@ impl Map {
         if let Some(c) = &m.climate {
             c.check()?;
         }
-        let known = m.version == VERSION || m.version == luna::VERSION || m.version == 4 || m.version == 3 || (m.version == 2 && m.climate.is_none()) || (m.version == 1 && m.rivers.is_empty());
+        let known = m.version == VERSION || m.version == luna::VERSION || m.version == 5 || m.version == 4 || m.version == 3 || (m.version == 2 && m.climate.is_none()) || (m.version == 1 && m.rivers.is_empty());
         // a river drains into a neighbouring cell (bytes from a server: a far one would build a huge index)
         let mm = m.m as i32;
         let next_to = |r: &Reach| {
@@ -253,7 +261,7 @@ impl Map {
         let m = self.m as usize;
         let (i, j) = ((x.floor().max(0.0) as usize).min(m - 1), (y.floor().max(0.0) as usize).min(m - 1));
         let theta = self.climate_at(face, i as f64 + 0.5, j as f64 + 0.5)?.0;
-        Some(theta - air::Params::default().lapse * self.h[(face * m + j) * m + i].max(0.0))
+        Some(theta - air::Params::default().cool(self.h[(face * m + j) * m + i]))
     }
     /// The slope (rise over run) of cell (f, i, j), from its four neighbours (across the seams too).
     fn cell_slope(&self, f: usize, i: i32, j: i32) -> f32 {
@@ -487,7 +495,7 @@ fn file_v(seed: i32, n: i32, v: u32) -> PathBuf {
 /// The map of (seed, n) if it is in memory or on disk, and its hash is `hash` (any of this version, when
 /// None; a save that names one of version 1 gets that too).
 pub fn find(seed: i32, n: i32, hash: Option<u64>) -> Option<Arc<Map>> {
-    find_in(seed, n, hash, if hash.is_some() { &[VERSION, 4, 3, 2, 1, luna::VERSION] } else { &[VERSION] })
+    find_in(seed, n, hash, if hash.is_some() { &[VERSION, 5, 4, 3, 2, 1, luna::VERSION] } else { &[VERSION] })
 }
 
 /// `find` among maps of these versions.
@@ -519,9 +527,9 @@ pub fn keep(map: Map) -> Arc<Map> {
     m
 }
 
-/// The map a save names by `hash`: from memory or disk, else baked now (a version 4 map is this bake without its
-/// rock, a 3 without its lakes and flows, a 2 without its climate too, a 1 without its rivers; none comes back
-/// from a bake of another climate); None if the bake makes another map.
+/// The map a save names by `hash`: from memory or disk, else baked now (a version 5 map is this bake without the
+/// stretched peaks, a 4 that without its rock, a 3 without its lakes and flows, a 2 without its climate too, a 1
+/// without its rivers; none comes back from a bake of another climate); None if the bake makes another map.
 pub fn for_hash(seed: i32, n: i32, hash: u64) -> Option<Arc<Map>> {
     if let Some(m) = find(seed, n, Some(hash)) {
         return Some(m);
@@ -529,6 +537,10 @@ pub fn for_hash(seed: i32, n: i32, hash: u64) -> Option<Arc<Map>> {
     let b = keep(Map::bake(seed, n));
     if b.hash == hash {
         return Some(b);
+    }
+    let b = Map::bake_v5(seed, n);
+    if b.hash == hash {
+        return Some(keep(b));
     }
     // the older layouts of this bake, one at a time: no rock provinces (4); a lake a flat at its level, no lakes
     // or flows (3); no climate (2); no rivers (1)
@@ -646,7 +658,7 @@ mod tests {
     /// file; a new game never gets it; a save that names one whose file is gone gets it back from a bake.
     #[test]
     fn a_version_1_map_is_kept_apart_and_baked_back_for_its_save() {
-        let fresh = Map::bake(-77, 256);
+        let fresh = Map::bake_v5(-77, 256);
         let v1 = postcard::to_stdvec(&(1u32, fresh.seed, fresh.n, fresh.m, &fresh.h, &fresh.biome, fresh.spawn)).unwrap();
         let old = Map::from_bytes(&v1).unwrap();
         assert_eq!(old.to_bytes(), v1, "the bytes it came in");
@@ -664,24 +676,27 @@ mod tests {
         let _ = (std::fs::remove_file(file(-77, 256)), std::fs::remove_file(file_v(-77, 256, 1)));
     }
 
-    /// Every map a save can still name (5, 4, 3, 2, 1, and Luna's) is baked back by its hash when its file is gone.
+    /// Every map a save can still name (6, 5, 4, 3, 2, 1, and Luna's) is baked back by its hash when its file is gone.
     #[test]
     fn every_version_a_save_names_is_baked_back_without_its_file() {
         let (seed, n) = (-79, 256);
         let gone = || {
-            for v in [1, 2, 3, 4, VERSION, luna::VERSION] {
+            for v in [1, 2, 3, 4, 5, VERSION, luna::VERSION] {
                 let _ = std::fs::remove_file(file_v(seed, n, v));
                 LOADED.lock().unwrap().remove(&(seed, n, v));
             }
         };
-        let b = Map::bake(seed, n);
+        let new = Map::bake(seed, n);
+        let b = Map::bake_v5(seed, n);
+        assert_ne!(new.h, b.h, "the peaks stretched");
         let mut flat = b.h.clone();
         for &(c, l) in &b.lakes {
             flat[c as usize] = l;
         }
         let rivers = || b.rivers.iter().map(|r| (r.cell, r.to, r.area)).collect::<Vec<_>>();
         let layouts = [
-            (VERSION, b.to_bytes()),
+            (VERSION, new.to_bytes()),
+            (5, b.to_bytes()),
             (4, postcard::to_stdvec(&(4u32, seed, n, b.m, &b.h, &b.biome, b.spawn, &b.rivers, &b.lakes, &b.climate)).unwrap()),
             (3, postcard::to_stdvec(&(3u32, seed, n, b.m, &flat, &b.biome, b.spawn, rivers(), &b.climate)).unwrap()),
             (2, postcard::to_stdvec(&(2u32, seed, n, b.m, &flat, &b.biome, b.spawn, rivers())).unwrap()),
@@ -799,6 +814,39 @@ mod tests {
         let hash = m.hash;
         drop(keep(m)); // only the file is left: the loaded map is a weak reference
         assert!(find(-12347, 64, Some(hash)).is_some_and(|f| f.version == 3 && f.hash == hash));
+    }
+
+    /// ADR 0105: the peaks stretched, the lowland as it was. On every planet size the highest land is the
+    /// taste call's 120 m and the planet's share of `peak_extra_m`; land under `land::STRETCH_FROM` is the
+    /// version 5 bake's to the bit, and so are the rivers.
+    #[test]
+    fn the_peaks_rise_and_the_lowland_stays_to_the_bit() {
+        for (n, lo, hi) in [(768, 140.0, 160.0), (1536, 160.0, 190.0)] {
+            let (new, old) = (Map::bake(3, n), Map::bake_v5(3, n));
+            let top = |m: &Map| m.h.iter().fold(f32::MIN, |a, &h| a.max(h));
+            assert!((lo..hi).contains(&top(&new)), "planet {n}: highest {} m, the old {} m", top(&new), top(&old));
+            let low = (0..old.h.len()).filter(|&c| old.h[c] <= land::STRETCH_FROM).count();
+            assert!(low > old.h.len() * 9 / 10, "planet {n}: most of it lowland");
+            for c in 0..old.h.len() {
+                if old.h[c] <= land::STRETCH_FROM {
+                    assert_eq!(new.h[c].to_bits(), old.h[c].to_bits(), "planet {n}, cell {c}");
+                } else {
+                    assert!(new.h[c] >= old.h[c], "planet {n}, cell {c} sank");
+                }
+            }
+            let reach = |m: &Map| m.rivers.iter().map(|r| (r.cell, r.to)).collect::<Vec<_>>();
+            assert_eq!(reach(&new), reach(&old), "planet {n}: the same rivers");
+            let cells = |m: &Map| m.lakes.iter().map(|l| l.0).collect::<Vec<_>>();
+            assert_eq!(cells(&new), cells(&old), "planet {n}: the same lakes");
+        }
+    }
+
+    /// The 4 km planet's highest peak reaches the clouds' base (250 m, clouds.wgsl `CL_BASE`) by 100 m or so.
+    #[test]
+    fn the_standard_planets_highest_peak_reaches_into_the_clouds() {
+        let m = get(1337, 6144);
+        let top = m.h.iter().fold(f32::MIN, |a, &h| a.max(h));
+        assert!((320.0..380.0).contains(&top), "highest {top} m");
     }
 
     /// The whole bake twice on a small planet: the same map to the bit (the second the tests' shared one).

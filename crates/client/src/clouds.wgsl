@@ -14,9 +14,9 @@
 // the pattern never shears however long the wind blows; the cover itself moves as the grid carries it.
 
 const CL_TEX: f32 = 128.0;
-// low enough that the highest peaks (120 m over the sea, bake::land `mountain_m`) reach into them (bug
-// 2026-11-13_14-38-44; was 300)
-const CL_BASE: f32 = 100.0;
+// over the hills, under the mountains: the 4 km planet's stretched peaks (up to 350 m over the sea, bake::land
+// `stretch`) stand into and through the slab (ADR 0105; 0098 had 100 for the old 120 m peaks, 0076 300)
+const CL_BASE: f32 = 250.0;
 const CL_THICK: f32 = 64.0;
 const CL_SUB: f32 = 8.0;
 const CL_PI: f32 = 3.14159265;
