@@ -49,7 +49,7 @@ Option 3: `tools/paint_textures.py` (`python -I tools/paint_textures.py [block .
   - log: rings with pith, a radial check and a bark edge on the ends; bark of vertical plates and dark furrows;
   - leaves as cutouts (soft clumps, the lit tone on their tops, few holes), spruce as slanted needles, reed as
     blades; autumn broadleaf takes the palette's autumn ramp; winter broadleaf and shrub are bare branches;
-  - lamps: a two-texel frame and a glowing core; copper a bevelled brushed plate; sand fine grains with wind
+  - lamps: a two-texel frame round an even glow, four variants (ADR 0085 joins them); copper a bevelled brushed plate; sand fine grains with wind
     ripples on top; snow and ice near flat (ice one long crack); clay and mud smooth; Luna's dusts with small
     rocks, anorthosite with feldspar laths, iron-nickel with Widmanstätten bands.
 - **Tiling:** all noise is periodic on 16 texels; strata, bark plates and grass overhang use the block's seed,

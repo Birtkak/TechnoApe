@@ -98,6 +98,8 @@ struct Raw {
     see: See,
     #[serde(default)]
     stagger: f32,
+    #[serde(default)]
+    joins: bool,
     spring: Option<RawTone>,
     autumn: Option<RawTone>,
     winter: Option<RawTone>,
@@ -200,6 +202,9 @@ pub struct Def {
     /// How far a column's own season runs ahead of or behind the place's, days either way, 0..10: trees turn
     /// one by one.
     pub stagger: f32,
+    /// Neighbours of it in a wall join into one surface (lamps, ADR 0085): the mesher tells each face which of its
+    /// four sides meet the same block, and the shader reads that side's frame texels from inside instead.
+    pub joins: bool,
 }
 
 impl Def {
@@ -304,7 +309,7 @@ impl Registry {
             if seasons.is_none() && r.stagger != 0.0 {
                 return Err(format!("block '{}': a stagger without a season", r.name));
             }
-            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, falls: r.falls, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger });
+            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, falls: r.falls, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger, joins: r.joins });
         }
         match &defs[0] {
             Some(d) if d.name == "air" && !d.solid => {}
@@ -335,6 +340,11 @@ impl Registry {
     /// Whether block `id` is glass (ADR 0081).
     pub fn glass(&self, id: u16) -> bool {
         self.get(id).is_some_and(|d| d.see == See::Glass)
+    }
+
+    /// Whether block `id` joins its neighbours in a wall (ADR 0085).
+    pub fn joins(&self, id: u16) -> bool {
+        self.get(id).is_some_and(|d| d.joins)
     }
 
     /// Every block but air, in id order.
