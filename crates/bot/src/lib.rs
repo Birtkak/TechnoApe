@@ -163,6 +163,7 @@ impl Bot {
                 // survival can get it there
                 Recv::Msg(ToClient::Vitals { dead: Some(_), .. }) => self.link.send(ToServer::Respawn),
                 Recv::Msg(ToClient::Air(h)) => self.air = Some(h),
+                Recv::Msg(ToClient::Sky { .. }) => {}
                 Recv::Msg(ToClient::Chat(t)) => self.notes.push(format!("{{\"bot\":{:?},\"chat\":{t:?}}}", self.name)),
                 Recv::Msg(ToClient::Water(v)) => {
                     if let Some(w) = self.world.as_mut() {

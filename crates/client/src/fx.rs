@@ -531,6 +531,13 @@ impl At {
         at.p -= at.axes[0] * at.half.x;
         at
     }
+    /// A point of body `body` (from its centre, in its frame) moving at v over the floor of the column it is in,
+    /// looked up again as it crosses into others (a raindrop, ADR 0076); None inside a solid block.
+    pub fn falling(world: &World, body: u8, p: DVec3, v: DVec3) -> Option<At> {
+        let b = Block { body, ..world.block_at(world.bodies[body as usize].centre + p) };
+        let (floor, col) = ground(world, b);
+        (floor <= world.bodies[body as usize].layer_r(b.pos.z as f64) as f32).then(|| At { col, ..At::point(body, p, v, floor as f64) })
+    }
     /// A point of body `body` (from its centre, in its frame) moving at v, over a floor at radius `floor`.
     pub fn point(body: u8, p: DVec3, v: DVec3, floor: f64) -> At {
         let up = p.normalize().as_vec3();
@@ -604,6 +611,9 @@ pub struct FxGpu {
 /// runs without `fx=1`) plays nothing, so their pictures repeat.
 pub struct Fx {
     pub on: bool,
+    /// The planet's wind where the camera is, its frame, m/s (ADR 0076): a particle of the planet with drag
+    /// slows toward it rather than to rest, so leaves, smoke and snow drift with the weather.
+    pub wind: Vec3,
     pool: Vec<P>,
     out: Vec<FxGpu>,
     /// Plays `then` rows ask for, where a particle died; kept to reuse its room.
@@ -704,6 +714,7 @@ impl Fx {
         let remap = (0..set.rows.len() as u16).collect();
         Fx {
             on,
+            wind: Vec3::ZERO,
             pool: Vec::with_capacity(cap),
             out: Vec::with_capacity(cap + CRACKS),
             later: Vec::with_capacity(256),
@@ -907,6 +918,10 @@ impl Fx {
 
     pub fn live(&self) -> usize {
         self.pool.len()
+    }
+    /// Particles the pool holds at most, and the Particles setting's scale.
+    pub fn cap(&self) -> (usize, f32) {
+        (self.cap, self.scale)
     }
 
     fn rnd(&mut self) -> f32 {
@@ -1115,7 +1130,8 @@ impl Fx {
             q.age += dt;
             if !q.rest && q.age < q.life {
                 let up = q.p.normalize();
-                q.v += (up * (-g0 * r.gravity) - q.v * r.drag) * dt;
+                let air = if q.body == 0 { self.wind } else { Vec3::ZERO };
+                q.v += (up * (-g0 * r.gravity) + (air - q.v) * r.drag) * dt;
                 // (the rows before ADR 0050 push nothing: their motion stays exactly as it was)
                 if let Some(n) = &r.noise {
                     q.v += (q.push + noise_at(q.p, clock, n) * n.strength) * dt;

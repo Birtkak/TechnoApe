@@ -62,6 +62,8 @@ pub(crate) const MAX_BODIES: usize = 4; // the size of `bodies` in shader.wgsl
 pub(crate) const MOON_LIGHT: Vec3 = Vec3::new(0.12, 0.14, 0.18);
 /// The lamps the GPU holds: the nearest to the camera within LAMP_REACH metres (ADR 0022; 1024 since ADR 0025, H).
 pub(crate) const MAX_LAMPS: usize = 1024;
+/// The clouds' map's side in texels (clouds.wgsl CL_TEX): the most air columns a face edge.
+pub(crate) const SKY_TEX: u32 = 128;
 pub(crate) const LAMP_REACH: f64 = 48.0;
 /// The lamp grid (ADR 0025, H): LAMP_G^3 cells of LAMP_CELL metres in the camera's frame, the camera in the
 /// middle, each a range into a list of the lamps that reach it: LAMP_R (as in shader.wgsl) or nearer, so a lamp
@@ -363,6 +365,9 @@ pub(crate) struct Globals {
     /// in layers (1.5 * TIDE_LUNA and 1.5 * TIDE_SUN over a layer's thickness at the sea); its `base` is in
     /// body 0's sea level.
     pub(crate) tide: [[f32; 4]; 2],
+    /// The clouds (ADR 0076, clouds.wgsl): x the drift's phase 0 to 1, y its period s, z the planet's sea
+    /// radius (0: none), w the map's air columns a face edge (0: no map yet).
+    pub(crate) cloud: [f32; 4],
 }
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -427,6 +432,10 @@ pub(crate) struct DrawArgs {
 }
 
 pub(crate) struct Gpu {
+    /// The clouds' map (ADR 0076), filled by `sky::Sky::upload`.
+    pub(crate) sky_tex: wgpu::Texture,
+    pub(crate) sky_view: wgpu::TextureView,
+    pub(crate) sky_samp: wgpu::Sampler,
     pub(crate) window: Arc<Window>,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
@@ -742,10 +751,23 @@ impl Gpu {
         // the models (ADR 0047): their quads, and one transform per part drawn
         let mquads = buf("model quads", (crate::models::MAX_MQUADS * 16) as u64, U::STORAGE | U::COPY_DST);
         let mpieces = buf("model pieces", (crate::models::MAX_PIECES * std::mem::size_of::<crate::models::Piece>()) as u64, U::STORAGE | U::COPY_DST);
+        // the clouds' map (ADR 0076, clouds.wgsl): a texel per air column, CL_TEX a side, twelve layers
+        let sky_tex = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("sky"),
+            size: wgpu::Extent3d { width: SKY_TEX, height: SKY_TEX, depth_or_array_layers: 12 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let sky_view = sky_tex.create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
+        let sky_samp = device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..Default::default() });
         let tex_rx = watch_textures(std::path::PathBuf::from(a.get("textures", String::from("data/textures"))));
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(concat!(include_str!("shader.wgsl"), include_str!("clouds.wgsl")).into()),
         });
         let storage = |b| wgpu::BindGroupLayoutEntry {
             binding: b,
@@ -786,6 +808,13 @@ impl Gpu {
                 storage(11),
                 storage(12),
                 storage(13),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 14,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2Array, multisampled: false },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry { binding: 15, visibility: wgpu::ShaderStages::VERTEX_FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
             ],
         });
         let rt = rt::Rt::new(&device, &shader, &globals, &quads, MAX_CHUNKS as u32);
@@ -805,6 +834,8 @@ impl Gpu {
                 wgpu::BindGroupEntry { binding: 11, resource: tex.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 12, resource: mquads.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 13, resource: mpieces.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 14, resource: wgpu::BindingResource::TextureView(&sky_view) },
+                wgpu::BindGroupEntry { binding: 15, resource: wgpu::BindingResource::Sampler(&sky_samp) },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -991,12 +1022,18 @@ impl Gpu {
                 lamps.as_entire_binding(),
                 lamp_cells.as_entire_binding(),
                 tex.as_entire_binding(),
+                wgpu::BindingResource::TextureView(&sky_view),
+                wgpu::BindingResource::Sampler(&sky_samp),
             ],
+            (&sky_view, &sky_samp),
             format,
             w(),
             h(),
         );
         let gpu = Gpu {
+            sky_tex,
+            sky_view,
+            sky_samp,
             window,
             sky_pipeline,
             ts_period: queue.get_timestamp_period(),

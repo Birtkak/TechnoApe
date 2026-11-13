@@ -42,12 +42,18 @@ struct Globals {
     // the planet's tide (ADR 0067, engine `sky::Tide`): Luna's and the sun's directions in its frame, w their
     // pull in layers; its base is in bodies[0].sea (gpu.rs `Globals::tide`)
     tide: array<vec4f, 2>,
+    // the clouds (ADR 0076, clouds.wgsl): x the drift's phase, y its period s, z the planet's sea radius
+    // (0: none), w the map's air columns a face edge (0: none yet); y 0 with the clouds off (no shadow, the
+    // snow still lies)
+    cloud: vec4f,
 };
 // base in columns and layers; info = face | level << 3 | body << 8; off: its first quad
 // opq: its opaque land quads; the cutout ones follow them, the BLAS's second geometry (ADR 0069)
 struct Chunk { base: vec3i, info: u32, off: u32, opq: u32 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
+@group(0) @binding(14) var cl_tex: texture_2d_array<f32>;
+@group(0) @binding(15) var cl_samp: sampler;
 @group(0) @binding(1) var<storage, read> quads: array<vec2u>;
 @group(0) @binding(2) var<storage, read> chunks: array<Chunk>;
 // a block's look from data/blocks.toml (ADR 0013): info = pattern | side << 8 | metal (0..255) << 16 | gives light
@@ -452,7 +458,13 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
         // soft: towards a point of the sun's disc; sharp: towards its middle
         var to_sun = sd;
         if ((g.opt.x & 1u) == 0u) { to_sun = in_disc(sd, ar, px); }
-        let seen = occ * ray(p, n, to_sun, body, 1e5);
+        var seen = occ * ray(p, n, to_sun, body, 1e5);
+        // the planet's clouds (ADR 0076), where the sun is not already hidden
+        if (body == 0u && seen > 0.0 && g.cloud.y > 0.0) {
+            let b0 = g.bodies[0];
+            let m0 = mat3x3f(b0.rot0.xyz, b0.rot1.xyz, b0.rot2.xyz);
+            seen *= cl_shadow((p - b0.ctr.xyz) * m0, sd * m0, g.cloud.z, g.cloud);
+        }
         o.sun = ecl * seen;
         o.l += (sun_on(body) * ecl + COPPER * copper) * ndl * seen * moon_gain(body);
     }
@@ -886,11 +898,25 @@ fn terrain_texel(i: VOut) -> vec4f {
     return vec4f(col.rgb, select(col.a, 1.0, (g.opt.x & 4u) != 0u));
 }
 
-fn terrain_lit(i: VOut, col: vec3f) -> GOut {
+fn terrain_lit(i: VOut, col_in: vec3f) -> GOut {
     let c = chunks[i.ci];
     let body = (c.info >> 8u) & 255u;
     let look = looks[i.mat & 255u];
     let n = normalize(i.normal);
+    var col = col_in;
+    // the planet's lying snow (ADR 0076, the air grid's per column): white over what faces up, the face's own
+    // pattern showing through where it lies thin
+    if (body == 0u && g.cloud.w > 0.0) {
+        let b0 = g.bodies[0];
+        let up = normalize(i.rel - b0.ctr.xyz);
+        let flat = smoothstep(0.55, 0.85, dot(n, up));
+        var lie = 0.0;
+        if (flat > 0.0) { lie = cl_snow(up * mat3x3f(b0.rot0.xyz, b0.rot1.xyz, b0.rot2.xyz), g.cloud) * flat; }
+        if (lie > 0.0) {
+            let lum = dot(col, vec3f(0.3, 0.5, 0.2));
+            col = mix(col, vec3f(0.9, 0.92, 0.96), clamp(lie * 1.6 - (0.5 - lum) * 0.6, 0.0, 1.0));
+        }
+    }
     var o: GOut;
     o.gbuf = gb_pack(n, length(i.rel));
     if (((look.info >> 24u) & 1u) == 1u) {

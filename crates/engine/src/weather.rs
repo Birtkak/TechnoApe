@@ -42,7 +42,7 @@ pub struct View {
     pub theta: Vec<f32>,
     /// rain and snow over the job, mm an hour
     pub rain: Vec<f32>,
-    /// the share of the sky the column's cloud covers, 0 to 1
+    /// the share of the sky the column's cloud covers, 0 to 1 (ADR 0076: by `Air::cloud_share`)
     pub cover: Vec<f32>,
     /// the surface wind, east and north, m/s
     pub wind: Vec<[f32; 2]>,
@@ -63,10 +63,12 @@ impl View {
         let theta: Vec<f32> = (0..n).map(|c| a.theta[c * LAYERS]).collect();
         let secs = (steps.max(1) as f64) * DT as f64;
         let rain: Vec<f32> = (0..n).map(|c| (rain_units[c] as f64 / 4096.0 / a.area[c] as f64 * 1000.0 * 3600.0 / secs) as f32).collect();
+        // the share of what the column holds where it rains (on Terra: none over a tenth of it, 0.7 its median,
+        // 1.1 its wettest tenth), as a cover: clear stays clear, a mean sky is broken, a raining one overcast
         let cover: Vec<f32> = (0..n)
             .map(|c| {
-                let per_m2 = a.cloud[c * LAYERS..c * LAYERS + LAYERS].iter().map(|&x| x as u64).sum::<u64>() as f32 / a.area[c];
-                per_m2 / (per_m2 + a.p.cover_half)
+                let x = ((a.cloud_share(c) - 0.2) / 1.0).clamp(0.0, 1.0);
+                x * x * (3.0 - 2.0 * x)
             })
             .collect();
         let wind: Vec<[f32; 2]> = (0..n).map(|c| a.surface_wind(c).into()).collect();
@@ -94,6 +96,75 @@ pub struct Here {
     pub wind: [f32; 2],
 }
 
+/// What a client draws of one air column (ADR 0076), a byte each: cloud cover (0 to 1 as 0 to 255), rain (the
+/// root of its share of `RAIN_TOP`), the wind east and north (`WIND_STEP` m/s a step, signed), lying snow
+/// (water mm over `SNOW_TOP`), the surface air's temperature at sea level (C + 128).
+pub type Cell = [u8; 6];
+/// Rain, mm an hour, the top of a cell's rain byte: a cloudburst.
+pub const RAIN_TOP: f32 = 40.0;
+/// Lying snow, mm of water, from which the ground shows all white (about 10 cm of snow).
+pub const SNOW_TOP: f32 = 10.0;
+pub const WIND_STEP: f32 = 0.25;
+
+/// A cell's bytes from the air's numbers, and back (`decode`).
+pub fn encode(cover: f32, rain: f32, wind: [f32; 2], snow: f32, temp: f32) -> Cell {
+    let u = |x: f32| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let s = |x: f32| ((x / WIND_STEP).round().clamp(-127.0, 127.0) as i8) as u8;
+    [u(cover), u((rain.max(0.0) / RAIN_TOP).sqrt()), s(wind[0]), s(wind[1]), u(snow / SNOW_TOP), (temp.round().clamp(-128.0, 127.0) + 128.0) as u8]
+}
+/// (cover 0..1, rain mm/h, wind east and north m/s, snow 0..1 of `SNOW_TOP`, temperature C)
+pub fn decode(c: Cell) -> (f32, f32, [f32; 2], f32, f32) {
+    let r = c[1] as f32 / 255.0;
+    let s = |b: u8| b as i8 as f32 * WIND_STEP;
+    (c[0] as f32 / 255.0, r * r * RAIN_TOP, [s(c[2]), s(c[3])], c[4] as f32 / 255.0, c[5] as f32 - 128.0)
+}
+
+/// A weather forced over the whole planet for testing and filming (`/weather`, ADR 0076): only what is sent
+/// to clients changes, never the grid itself, so the rivers, the ledger and the soak's hash run on as before.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Force {
+    pub cover: f32,
+    /// mm an hour
+    pub rain: f32,
+    /// the wind's least speed, m/s (the grid's direction kept; east where it is calm)
+    pub wind: f32,
+    /// the surface air's temperature at sea level, C, where it is set
+    pub temp: Option<f32>,
+    /// lying snow, 0 to 1, where it is set
+    pub snow: Option<f32>,
+}
+
+impl Force {
+    /// The names `/weather` takes: Some(None) is the grid's own weather again.
+    pub fn named(name: &str) -> Option<Option<Force>> {
+        let f = |cover, rain, wind| Force { cover, rain, wind, temp: None, snow: None };
+        Some(Some(match name {
+            "auto" | "live" | "off" => return Some(None),
+            "clear" => Force { snow: Some(0.0), ..f(0.0, 0.0, 0.0) },
+            "cloudy" => f(0.75, 0.0, 0.0),
+            "rain" => f(0.95, 4.0, 3.0),
+            "storm" => f(1.0, 20.0, 12.0),
+            "snow" => Force { temp: Some(-6.0), snow: Some(1.0), ..f(0.9, 3.0, 2.0) },
+            _ => return None,
+        }))
+    }
+    pub const NAMES: &'static str = "clear, cloudy, rain, storm, snow, auto";
+    fn wind(&self, w: [f32; 2]) -> [f32; 2] {
+        let s = w[0].hypot(w[1]);
+        if s >= self.wind {
+            w
+        } else if s > 0.01 {
+            [w[0] / s * self.wind, w[1] / s * self.wind]
+        } else {
+            [self.wind, 0.0]
+        }
+    }
+    /// The air someone stands in under this weather (the temperature moved by as much as at sea level).
+    pub fn here(&self, h: Here, sea_temp: f32) -> Here {
+        Here { temp: self.temp.map_or(h.temp, |t| h.temp - sea_temp + t), rain: self.rain, cover: self.cover, wind: self.wind(h.wind) }
+    }
+}
+
 enum Job {
     Idle(Box<Air>),
     /// handed over on a tick, back at `due`
@@ -112,6 +183,13 @@ pub struct Weather {
     split: Vec<Vec<(u32, u32)>>,
     /// The air's ledger after the reaches took their share: with the units handed out, it never changes.
     ledger: i128,
+    /// Each column's lying snow, mm of water, as of the last landing (not in the view: the saves keep the
+    /// view's layout; a loaded grid has it from its state).
+    snow: Vec<f32>,
+}
+
+fn snow_mm(a: &Air) -> Vec<f32> {
+    (0..a.n).map(|c| (a.snow[c] as f64 / 4096.0 / a.area[c] as f64 * 1000.0) as f32).collect()
 }
 
 impl Weather {
@@ -126,7 +204,8 @@ impl Weather {
         let view = View::of(&a, vec![0; a.n], &vec![0; a.n], 0);
         let land = (0..a.n).map(|c| a.area[c] as f64 * (1.0 - a.water[c] as f64).max(0.0)).collect();
         let ledger = view.ledger;
-        Ok(Weather { grid: c.grid(), p: a.p.clone(), job: Mutex::new(Some(Job::Idle(Box::new(a)))), view, land, split: Vec::new(), ledger })
+        let snow = snow_mm(&a);
+        Ok(Weather { grid: c.grid(), p: a.p.clone(), job: Mutex::new(Some(Job::Idle(Box::new(a)))), view, land, split: Vec::new(), ledger, snow })
     }
 
     /// Feeds `map`'s reaches from the runoff (W5, ADR 0059): a river cell's own catchment (its drained area less
@@ -217,6 +296,7 @@ impl Weather {
             air.sea -= handed;
             self.ledger = view.ledger - handed as i128;
             self.view = view;
+            self.snow = snow_mm(&air);
             *job = Some(Job::Idle(air));
         }
         let fed: Vec<(u32, i64)> = fed.into_iter().collect();
@@ -273,6 +353,21 @@ impl Weather {
     /// What the game reads now.
     pub fn view(&self) -> &View {
         &self.view
+    }
+
+    /// Every column as a client draws it (ADR 0076), under a forced weather if one is set.
+    pub fn cells(&self, force: Option<&Force>) -> Vec<Cell> {
+        let v = &self.view;
+        (0..v.cover.len())
+            .map(|c| match force {
+                None => encode(v.cover[c], v.rain[c], v.wind[c], self.snow[c], v.theta[c]),
+                Some(f) => encode(f.cover, f.rain, f.wind(v.wind[c]), f.snow.map_or(self.snow[c], |s| s * SNOW_TOP), f.temp.unwrap_or(v.theta[c])),
+            })
+            .collect()
+    }
+    /// The columns per face edge.
+    pub fn m(&self) -> usize {
+        self.grid.m
     }
 
     /// The air column that holds unit direction `d` (an index into the view's vectors).
@@ -475,6 +570,43 @@ mod tests {
         w.tick(60, 30.0);
         w.tick(80, 30.0);
         assert!((w.view().t - 30.0).abs() < 1e-9, "the air's clock: {}", w.view().t);
+    }
+
+    /// A client's bytes of a column come back to its numbers within a step, and a forced weather is the
+    /// same on every column while the grid itself is left as it was (ADR 0076).
+    #[test]
+    fn a_columns_bytes_carry_its_weather_and_a_force_leaves_the_grid() {
+        let (c, r, w, s, t) = decode(encode(0.4, 9.0, [3.1, -2.6], 4.0, -7.2));
+        assert!((c - 0.4).abs() < 0.003 && (r - 9.0).abs() < 0.3 && (w[0] - 3.0).abs() < 0.2 && (w[1] + 2.5).abs() < 0.2, "{c} {r} {w:?}");
+        assert!((s - 0.4).abs() < 0.003 && t == -7.0, "{s} {t}");
+        assert_eq!(decode(encode(2.0, 1e6, [100.0, -100.0], 1e3, 900.0)).0, 1.0);
+        let w = Weather::new(&climate(), None).unwrap();
+        let live = w.cells(None);
+        assert!(live.iter().any(|c| c[0] > 0) && live.iter().any(|c| c[0] < 255), "the grid's own cover varies");
+        let storm = Force::named("storm").unwrap().unwrap();
+        let forced = w.cells(Some(&storm));
+        assert!(forced.iter().all(|c| { let d = decode(*c); d.0 == 1.0 && (d.1 - 20.0).abs() < 0.5 && d.2[0].hypot(d.2[1]) >= 11.5 }));
+        assert_eq!(w.cells(None), live, "the force is in what is sent only");
+        assert_eq!(Force::named("auto"), Some(None));
+        assert_eq!(Force::named("hail"), None);
+    }
+
+    /// The live cover's spread on Terra, for tuning the clouds' look: `cargo test --release -p engine -- --ignored cover_spread --nocapture`
+    #[test]
+    #[ignore]
+    fn cover_spread() {
+        let map = crate::bake::get(1337, 6144);
+        let mut w = Weather::new(map.climate.as_ref().unwrap(), None).unwrap();
+        for k in 0..6u64 {
+            let mut v: Vec<f32> = w.view().cover.clone();
+            v.sort_by(f32::total_cmp);
+            let q = |x: f64| v[((v.len() - 1) as f64 * x) as usize];
+            let rain = w.view().rain.iter().filter(|&&r| r > 0.1).count();
+            eprintln!("t {:.0}: cover p10 {:.2} p50 {:.2} p90 {:.2} max {:.2}; raining {} of {}", w.view().t, q(0.1), q(0.5), q(0.9), q(1.0), rain, v.len());
+            for t in 0..400u64 {
+                w.tick(k * 400 + t, (k * 400 + t) as f64 * 10.0);
+            }
+        }
     }
 
     /// The air someone stands in: warmer at the sea than on a hill, by the lapse.
