@@ -75,6 +75,8 @@ settings! {
     UiScale "interface_scale" "Interface scale" Kind::Steps { list: &[0.75, 1.0, 1.25, 1.5, 2.0], lo: 0.5, hi: 3.0 }, 1.0;
     Contrast "high_contrast" "High contrast interface" Kind::Choice(OFF_ON), 0.0;
     Marks "waypoints_shown" "Waypoints shown" Kind::Choice(OFF_ON), 1.0;
+    // the aimed-at outline's rainbow wave (ADR 0073); still holds its colours where they are
+    Outline "outline_colours" "Outline colours" Kind::Choice(&["moving", "still"]), 0.0;
     Volume "volume" "Master volume" VOLUME, 100.0;
     VolWorld "volume_world" "World" VOLUME, 100.0;
     VolSteps "volume_footsteps" "Footsteps" VOLUME, 100.0;
@@ -169,13 +171,15 @@ acts! {
     Jump "jump" "Jump, swim up, fly up" k(KeyCode::Space), "space" "";
     Down "down" "Fly down" [Some(Bind::Key(KeyCode::ShiftLeft)), Some(Bind::Key(KeyCode::ShiftRight))], "" "";
     RollLeft "roll_left" "Roll left (space)" k(KeyCode::KeyQ), "" "";
-    RollRight "roll_right" "Roll right (space)" k(KeyCode::KeyE), "" "";
+    RollRight "roll_right" "Roll right (space)" k(KeyCode::KeyR), "" "";
     Zoom "zoom" "Zoom" k(KeyCode::KeyC), "zoom" "unzoom";
     Dig "dig" "Dig, scoop" [Some(Bind::Mouse(1)), None], "L" "l";
     Place "place" "Place, pour" [Some(Bind::Mouse(2)), None], "R" "r";
     Hammer "hammer" "Build hammer" k(KeyCode::KeyH), "h" "";
     Shape "shape" "Hammer shape" k(KeyCode::KeyB), "b" "";
     Bucket "bucket" "Bucket" k(KeyCode::KeyV), "v" "";
+    Inventory "inventory" "Inventory" k(KeyCode::KeyE), "inventory" "";
+    Pick "pick" "Pick block (creative)" [Some(Bind::Mouse(3)), None], "pick" "";
     Chat "chat" "Chat" k(KeyCode::KeyT), "t" "";
     Command "command" "Command" k(KeyCode::Slash), "/" "";
     Overlay "overlay" "Numbers overlay" k(KeyCode::F3), "f3" "";
@@ -216,7 +220,7 @@ pub enum Row {
 /// The keys page's groups, in order (bugs/2026-11-11_13-13-42); every action is in one.
 const KEY_GROUPS: &[(&str, &[Act])] = &[
     ("Moving", &[Act::Forward, Act::Back, Act::Left, Act::Right, Act::Jump, Act::Down, Act::RollLeft, Act::RollRight]),
-    ("Hands and tools", &[Act::Dig, Act::Place, Act::Hammer, Act::Shape, Act::Bucket]),
+    ("Hands and tools", &[Act::Dig, Act::Place, Act::Hammer, Act::Shape, Act::Bucket, Act::Inventory, Act::Pick]),
     ("Hotbar", &[Act::Slot1, Act::Slot2, Act::Slot3, Act::Slot4, Act::Slot5, Act::Slot6, Act::Slot7, Act::Slot8, Act::Slot9]),
     ("Looking and finding", &[Act::Zoom, Act::Waypoint, Act::Marks, Act::Overlay]),
     ("Chat, time and testing", &[Act::Chat, Act::Command, Act::WarpUp, Act::WarpDown, Act::Bug, Act::Playtest]),
@@ -240,7 +244,7 @@ pub fn page_rows(page: usize) -> Vec<Row> {
         2 => vec![Set(S::Sensitivity), Set(S::ZoomSens), Set(S::InvertY), Set(S::ZoomMode), Set(S::AutoJump), Set(S::FlyTap)],
         3 => Settings::default().key_rows(""),
         4 => vec![Set(S::Volume), Set(S::VolWorld), Set(S::VolSteps), Set(S::VolUi), Set(S::VolMusic), Set(S::MuteBack), Set(S::SpaceSound)],
-        _ => vec![Set(S::UiScale), Set(S::Contrast), Set(S::Marks), Set(S::ZoomMode), Set(S::AutoJump), Set(S::Textures), Set(S::Brightness)],
+        _ => vec![Set(S::UiScale), Set(S::Contrast), Set(S::Marks), Set(S::Outline), Set(S::ZoomMode), Set(S::AutoJump), Set(S::Textures), Set(S::Brightness)],
     }
 }
 

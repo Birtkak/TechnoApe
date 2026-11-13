@@ -72,8 +72,8 @@ bench=()
 for r in $RUNS; do
   line=$(timeout 170 target/play/technoape.exe run=$r quick=1 2>/dev/null | tail -1)
   bench+=("$line")
-  echo "$line" | python -I -c "import json,sys; d=json.loads(sys.stdin.read()); sys.exit(0 if d['budget_ok'] and (d['run']!='fly' or d['missing_chunks_max']==0) else 1)" 2>/dev/null \
-    || fails+=("bench $r: budget or streaming failed (repro: technoape.exe run=$r quick=1)")
+  echo "$line" | python -I -c "import json,sys; d=json.loads(sys.stdin.read()); sys.exit(0 if d['budget_ok'] and (d['run']!='fly' or d['missing_chunks_max']==0) and d.get('coarse_slow_s', 0) <= 1.0 else 1)" 2>/dev/null \
+    || fails+=("bench $r: budget or streaming failed, or chunks coarse over 1 s with the camera slow (coarse_slow_s, ADR 0073) (repro: technoape.exe run=$r quick=1)")
   if ! echo "$line" | python -I tools/perf.py check $r >/dev/null; then
     more=$(for i in 1 2; do timeout 170 target/play/technoape.exe run=$r quick=1 2>/dev/null | tail -1; done)
     msg=$(printf '%s\n%s\n' "$line" "$more" | python -I tools/perf.py check $r) \
@@ -87,7 +87,7 @@ t_bench=$SECONDS
 # its own settings, a copy the game may write to: the developer's settings.txt must not decide the verdict.
 # detail=8 loads for over a second, which is what showed the steps lost while loading (db30c50)
 cp tests/gate-settings.txt out/check/settings.txt
-ACTS="0.5:m:0:250,1:say:/playmode creative,2:L,2.1:l,3:R,3.1:r,4:L,4.1:l,5:h,5.2:R,5.3:m:-100:0,5.6:r,7:L,7.1:l,8:R,8.1:r"
+ACTS="0.5:m:0:250,1:say:/playmode creative,1.2:say:/give stone,2:L,2.1:l,3:R,3.1:r,4:L,4.1:l,5:h,5.2:R,5.3:m:-100:0,5.6:r,7:L,7.1:l,8:R,8.1:r"
 feel=$(MSYS_NO_PATHCONV=1 timeout 120 target/play/technoape.exe run=play save=0 settings=out/check/settings.txt seconds=10 autowalk=1 acts="$ACTS" 2>/dev/null | tail -1 \
   | python -I -c "import json,sys; print(json.dumps(json.loads(sys.stdin.read())['feel']))" 2>/dev/null)
 echo "$feel" | python -I -c "import json,sys; f=json.loads(sys.stdin.read()); sys.exit(0 if f['corrections'] == 0 and f['clicks'] >= 4 and f['clicks_not_shown'] == 0 and f['click_to_change_ms_max'] <= 16.7 else 1)" 2>/dev/null \

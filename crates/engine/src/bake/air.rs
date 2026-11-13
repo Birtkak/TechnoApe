@@ -94,6 +94,14 @@ pub struct Params {
     pub washout: f32,
 }
 
+impl Params {
+    /// K the air `h` metres over the sea is colder than its potential temperature: `lapse` up to 150 m,
+    /// `lapse_up` above (the grid's layers and every read-out of the air at a height share it)
+    pub fn cool(&self, h: f32) -> f32 {
+        self.lapse * h.clamp(0.0, 150.0) + self.lapse_up * (h - 150.0).max(0.0)
+    }
+}
+
 impl Default for Params {
     fn default() -> Params {
         Params {
@@ -264,7 +272,7 @@ impl Air {
                 let top = if k == 0 { gz + p.tops[0] } else { p.tops[k].max(bottom + 30.0) };
                 thick[c * LAYERS + k] = top - bottom;
                 let mid = 0.5 * (top + bottom);
-                cool[c * LAYERS + k] = p.lapse * mid.min(150.0) + p.lapse_up * (mid - 150.0).max(0.0);
+                cool[c * LAYERS + k] = p.cool(mid);
                 bottom = top;
             }
         }

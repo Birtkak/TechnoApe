@@ -211,6 +211,8 @@ impl App {
         };
         if self.run == "play" && self.loaded_at.is_some() {
             self.build(&p, t);
+        } else if self.run == "play" {
+            self.loading_screen();
         }
         let p = if self.home() == Menu::Title { self.title_view(t) } else { p };
         let vel = if dt > 0.0 && self.loaded_at.is_some() { (p.pos - self.last_pos) / dt } else { DVec3::ZERO };
@@ -240,6 +242,7 @@ impl App {
                     }
                 }
                 Recv::Msg(ToClient::Done { seq, .. }) => {
+                    self.items_pending.retain(|s| *s != seq);
                     for b in self.pred.done(&mut self.world, seq) {
                         self.streamer.touch_block(&self.world, b);
                     }
@@ -262,7 +265,22 @@ impl App {
                     self.reconcile(step, me, t)
                 }
                 Recv::Msg(ToClient::You { .. }) => {}
-                Recv::Msg(ToClient::Inventory { creative, counts, water }) => (self.creative, self.inv, self.bucket_water) = (creative, counts, water),
+                Recv::Msg(ToClient::Inventory { creative, slots, water }) => {
+                    (self.creative, self.bucket_water) = (creative, water);
+                    // the slots once every move sent is answered: until then the prediction stands
+                    if self.items_pending.is_empty() && slots.len() == engine::items::APE_SLOTS {
+                        self.inv = slots;
+                    }
+                }
+                Recv::Msg(ToClient::Piles(v)) => {
+                    for (b, s) in v {
+                        if s.is_empty() {
+                            self.piles.remove(&b);
+                        } else {
+                            self.piles.insert(b, s);
+                        }
+                    }
+                }
                 Recv::Msg(ToClient::Vitals { health, hunger, dead }) => self.vitals_in(health, hunger, dead),
                 Recv::Msg(ToClient::Water(v)) => {
                     let mut ts = Vec::with_capacity(v.len());
@@ -474,6 +492,15 @@ impl App {
         self.streamer.dispatch(&self.world, &mut reqs);
         let sel = ts0.elapsed().as_secs_f64();
         lap!("dispatch");
+        // ADR 0073: chunks drawn coarser than their level may stream in while the camera flies, not once it is slow
+        if measuring {
+            if vel.length() < 20.0 && self.streamer.too_coarse(&self.world, &view, &draws) > 0 {
+                let since = *self.coarse_since.get_or_insert(t);
+                self.samples.coarse_slow_s = self.samples.coarse_slow_s.max(t - since);
+            } else {
+                self.coarse_since = None;
+            }
+        }
         if self.streamer.frame % 30 == 0 {
             self.streamer.evict(120);
             let rt = self.rt.as_mut().unwrap();
@@ -559,6 +586,7 @@ impl App {
             }
             self.fx.step(&self.world, (dt as f32).min(0.1));
             self.cracks(self.start.elapsed().as_secs_f64());
+            self.lay_piles();
             let gpu = self.gpu.as_ref().unwrap();
             let d = self.fx.drawn();
             let k = d.len().min(MAX_FX);
@@ -1049,9 +1077,6 @@ impl App {
         let tpres = Instant::now();
         gpu.queue.present(frame);
         let pres = tpres.elapsed().as_secs_f64();
-        if let Some(f) = self.args.0.remove("shown") {
-            let _ = std::fs::write(f, ""); // the process before this one may close its window now (ADR 0038)
-        }
         lap!("present");
         let tail0 = Instant::now();
         if self.bug_grab {

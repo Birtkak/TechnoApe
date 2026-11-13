@@ -9,7 +9,12 @@
 //!   wait s              idle s seconds         dig dx dy dz        set that block to air
 //!   place dx dy dz m    set that block to m    block dx dy dz      report that block's material
 //!   report              report position, players and edits seen    quit
+//! Items (ADR 0074; slots are the ape's: 0-8 the hotbar, 9 the worn pack, 10 on its rows):
+//!   slots               report every slot held  move a b n         n from slot a to slot b
+//!   drop a n            throw n from slot a     take dx dy dz k a n  n from slot k of the pile there to a
+//!   put a dx dy dz k n  n from slot a to slot k of the pile there  grab item a n  creative's grid: n into a
 use engine::edit::Shape;
+use engine::items::{Holder, Slot, ITEMS};
 use engine::net::{Link, Recv, ToClient, ToServer, TICK_HZ};
 use engine::phys::{self, Input};
 use engine::world::World;
@@ -32,6 +37,14 @@ pub enum Cmd {
     Report,
     /// A chat line or a '/' command (ADR 0023): the rest of the line.
     Say(String),
+    /// Items (ADR 0074): report the slots; a move within them; a throw; to and from the pile at a cell; from
+    /// creative's grid (an item by name).
+    Slots,
+    Shift(u16, u16, u16),
+    Drop(u16, u16),
+    Take(DVec3, u16, u16, u16),
+    Put(u16, DVec3, u16, u16),
+    Grab(u16, u16, u16),
     Quit,
 }
 
@@ -52,6 +65,17 @@ pub fn parse(line: &str) -> Result<Option<Cmd>, String> {
         "block" => Cmd::Block(v()?),
         "report" => Cmd::Report,
         "say" => Cmd::Say(w[1..].join(" ")),
+        "slots" => Cmd::Slots,
+        "move" => Cmd::Shift(num(1)? as u16, num(2)? as u16, num(3)? as u16),
+        "drop" => Cmd::Drop(num(1)? as u16, num(2)? as u16),
+        "take" => Cmd::Take(v()?, num(4)? as u16, num(5)? as u16, num(6)? as u16),
+        "put" => Cmd::Put(num(1)? as u16, DVec3::new(num(2)?, num(3)?, num(4)?), num(5)? as u16, num(6)? as u16),
+        "grab" => {
+            // the item's name may have spaces: every word but the last two
+            let name = w.get(1..w.len().saturating_sub(2)).unwrap_or_default().join(" ");
+            let item = ITEMS.named(&name).ok_or(format!("no block or item '{name}' in '{line}'"))?;
+            Cmd::Grab(item, num(w.len() - 2)? as u16, num(w.len() - 1)? as u16)
+        }
         "quit" => Cmd::Quit,
         _ => return Err(format!("unknown command '{}'", w[0])),
     }))
@@ -72,6 +96,8 @@ pub struct Bot {
     pub edits_applied: u64,
     /// Edits the server refused (`Done` with ok false).
     pub refused: u64,
+    /// Its slots as the server last sent them (ADR 0074).
+    pub slots: Vec<Slot>,
     seq: u32,
     id: u32,
     flying: bool,
@@ -88,7 +114,7 @@ pub struct Bot {
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, seq: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now() }
+        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now() }
     }
 
     fn feet(&self) -> DVec3 {
@@ -99,8 +125,9 @@ impl Bot {
     pub fn receive(&mut self) -> bool {
         loop {
             match self.link.try_recv() {
-                Recv::Msg(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, map, luna }) => {
+                Recv::Msg(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, items, map, luna }) => {
                     assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
+                    assert_eq!(items, engine::items::ITEMS.hash, "the server's build has other items (data/items.toml)");
                     // the baked map (ADR 0043): shared with a server in this process, from the disk, or fetched
                     let map = map.map(|h| engine::net::fetch_map(&mut self.link, seed, planet_n, h).unwrap_or_else(|e| panic!("{e}")));
                     let luna = luna.map(|h| engine::net::fetch_map(&mut self.link, seed, moon_n, h).unwrap_or_else(|e| panic!("{e}")));
@@ -130,7 +157,8 @@ impl Bot {
                     }
                 }
                 Recv::Msg(ToClient::Done { ok, .. }) => self.refused += !ok as u64,
-                Recv::Msg(ToClient::Inventory { .. } | ToClient::Vitals { dead: None, .. } | ToClient::Digging { .. } | ToClient::Map { .. }) => {}
+                Recv::Msg(ToClient::Inventory { slots, .. }) => self.slots = slots,
+                Recv::Msg(ToClient::Vitals { dead: None, .. } | ToClient::Digging { .. } | ToClient::Map { .. } | ToClient::Piles(_)) => {}
                 // a bot that dies respawns at once (ADR 0040); it builds in creative, so only a switch to
                 // survival can get it there
                 Recv::Msg(ToClient::Vitals { dead: Some(_), .. }) => self.link.send(ToServer::Respawn),
@@ -222,6 +250,23 @@ impl Bot {
                 ));
             }
             Cmd::Say(t) => self.link.send(ToServer::Chat(t.clone())),
+            Cmd::Slots => {
+                let held: Vec<String> = self.slots.iter().enumerate().filter_map(|(k, s)| s.map(|s| format!("[{k},{:?},{}]", ITEMS.name(s.item), s.n))).collect();
+                return Some(format!("{{\"bot\":\"{}\",\"slots\":[{}]}}", self.name, held.join(",")));
+            }
+            Cmd::Shift(..) | Cmd::Drop(..) | Cmd::Take(..) | Cmd::Put(..) | Cmd::Grab(..) => {
+                let pile = |d: &DVec3| Holder::Pile(w.block_at(self.feet() + *d));
+                let (from, to, n) = match c {
+                    Cmd::Shift(a, b, n) => ((Holder::Ape, *a), (Holder::Ape, *b), *n),
+                    Cmd::Drop(a, n) => ((Holder::Ape, *a), (Holder::Ground, 0), *n),
+                    Cmd::Take(d, k, a, n) => ((pile(d), *k), (Holder::Ape, *a), *n),
+                    Cmd::Put(a, d, k, n) => ((Holder::Ape, *a), (pile(d), *k), *n),
+                    Cmd::Grab(item, a, n) => ((Holder::Grid, *item), (Holder::Ape, *a), *n),
+                    _ => unreachable!(),
+                };
+                self.seq += 1;
+                self.link.send(ToServer::Items { seq: self.seq, from, to, n });
+            }
             Cmd::Quit => {}
         }
         None
@@ -273,6 +318,10 @@ mod tests {
         let s = parse_script("spawn 1 2 3; wait 0.5\n# a comment\ndig 0 -1 0; place 1 0 0 3; block 1 0 0; report; quit").unwrap();
         assert_eq!(s.len(), 7);
         assert_eq!(s[3], Cmd::Place(DVec3::new(1.0, 0.0, 0.0), 3));
+        let items = parse_script("slots; move 0 4 3; drop 1 2; take 0 -0.5 1 2 5 6; put 5 0 -0.5 1 0 6; grab blue lamp 2 64").unwrap();
+        assert_eq!(items[3], Cmd::Take(DVec3::new(0.0, -0.5, 1.0), 2, 5, 6));
+        assert_eq!(items[5], Cmd::Grab(engine::blocks::BLOCKS.id("blue lamp"), 2, 64));
+        assert!(parse("grab nothing 1 2").is_err());
         assert!(parse("fly 1 2 3").is_err());
         assert!(parse("walk 1 x 3").is_err());
     }
@@ -309,6 +358,21 @@ mod tests {
         assert!(dout[0].contains("\"material\":0"), "{dout:?}");
         assert!(wout[0].contains("\"material\":0") && wout[1].contains("\"material\":0"), "{wout:?}");
         assert!(wout[2].contains("\"players\":2") && wout[2].contains("\"edits_applied\":2"), "{wout:?}");
+    }
+
+    /// A bot drives the items (ADR 0074): given stone, it moves some along its slots, throws some, and
+    /// reports what it holds.
+    #[test]
+    fn a_bot_moves_throws_and_reports_its_slots() {
+        let (tx, rx) = channel();
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(200.0, &std::sync::atomic::AtomicBool::new(false)));
+        let (c, s) = local();
+        tx.send(s).unwrap();
+        let mut b = Bot::new("hauler", c);
+        let mut out = Vec::new();
+        b.run(parse_script("wait 0.5; say /give stone 10; wait 0.3; move 0 4 3; drop 0 2; grab blue lamp 2 64; wait 0.3; slots").unwrap(), None, |l| out.push(l));
+        let line = out.iter().find(|l| l.contains("\"slots\"")).expect("a slots line");
+        assert!(line.contains("[0,\"stone\",5]") && line.contains("[4,\"stone\",3]") && line.contains("[2,\"blue lamp\",64]"), "{line}");
     }
 
     #[test]

@@ -24,8 +24,18 @@ rgb = "#422e1c"
 ramp = "dirt"
 
 [[colour]]
+name = "dirt shade"
+rgb = "#604329"
+ramp = "dirt"
+
+[[colour]]
 name = "dirt"
 rgb = "#785433"
+ramp = "dirt"
+
+[[colour]]
+name = "dirt lit"
+rgb = "#936c48"
 ramp = "dirt"
 
 [[colour]]
@@ -39,8 +49,18 @@ rgb = "#464649"
 ramp = "stone"
 
 [[colour]]
+name = "stone shade"
+rgb = "#66666a"
+ramp = "stone"
+
+[[colour]]
 name = "stone"
 rgb = "#808085"
+ramp = "stone"
+
+[[colour]]
+name = "stone lit"
+rgb = "#9b9ba1"
 ramp = "stone"
 
 [[colour]]
@@ -54,8 +74,18 @@ rgb = "#77492d"
 ramp = "copper"
 
 [[colour]]
+name = "copper shade"
+rgb = "#ad6a41"
+ramp = "copper"
+
+[[colour]]
 name = "copper"
 rgb = "#d98552"
+ramp = "copper"
+
+[[colour]]
+name = "copper lit"
+rgb = "#e6a169"
 ramp = "copper"
 
 [[colour]]
@@ -69,8 +99,18 @@ rgb = "#8c7957"
 ramp = "lamp"
 
 [[colour]]
+name = "lamp shade"
+rgb = "#cbaf7e"
+ramp = "lamp"
+
+[[colour]]
 name = "lamp"
 rgb = "#ffdb9e"
+ramp = "lamp"
+
+[[colour]]
+name = "lamp lit"
+rgb = "#ffe7bc"
 ramp = "lamp"
 
 [[colour]]
@@ -84,8 +124,18 @@ rgb = "#57738c"
 ramp = "blue lamp"
 
 [[colour]]
+name = "blue lamp shade"
+rgb = "#7ea7cb"
+ramp = "blue lamp"
+
+[[colour]]
 name = "blue lamp"
 rgb = "#9ed1ff"
+ramp = "blue lamp"
+
+[[colour]]
+name = "blue lamp lit"
+rgb = "#bce0ff"
 ramp = "blue lamp"
 
 [[colour]]
@@ -99,8 +149,18 @@ rgb = "#797976"
 ramp = "regolith"
 
 [[colour]]
+name = "regolith shade"
+rgb = "#afafab"
+ramp = "regolith"
+
+[[colour]]
 name = "regolith"
 rgb = "#dbdbd6"
+ramp = "regolith"
+
+[[colour]]
+name = "regolith lit"
+rgb = "#e7e7e4"
 ramp = "regolith"
 
 [[colour]]
@@ -149,8 +209,18 @@ rgb = "#3d383b"
 ramp = "granite"
 
 [[colour]]
+name = "granite shade"
+rgb = "#786b68"
+ramp = "granite"
+
+[[colour]]
 name = "granite"
 rgb = "#a8948c"
+ramp = "granite"
+
+[[colour]]
+name = "granite lit"
+rgb = "#baaaa3"
 ramp = "granite"
 
 [[colour]]
@@ -164,8 +234,18 @@ rgb = "#4c4a4c"
 ramp = "gneiss"
 
 [[colour]]
+name = "gneiss shade"
+rgb = "#6b6869"
+ramp = "gneiss"
+
+[[colour]]
 name = "gneiss"
 rgb = "#858080"
+ramp = "gneiss"
+
+[[colour]]
+name = "gneiss lit"
+rgb = "#979290"
 ramp = "gneiss"
 
 [[colour]]
@@ -179,8 +259,18 @@ rgb = "#9e7a52"
 ramp = "sandstone"
 
 [[colour]]
+name = "sandstone shade"
+rgb = "#b79365"
+ramp = "sandstone"
+
+[[colour]]
 name = "sandstone"
 rgb = "#cca875"
+ramp = "sandstone"
+
+[[colour]]
+name = "sandstone lit"
+rgb = "#d5b483"
 ramp = "sandstone"
 
 [[colour]]
@@ -194,8 +284,18 @@ rgb = "#383840"
 ramp = "shale"
 
 [[colour]]
+name = "shale shade"
+rgb = "#494950"
+ramp = "shale"
+
+[[colour]]
 name = "shale"
 rgb = "#57575e"
+ramp = "shale"
+
+[[colour]]
+name = "shale lit"
+rgb = "#616168"
 ramp = "shale"
 
 [[colour]]
@@ -209,8 +309,18 @@ rgb = "#9e9987"
 ramp = "limestone"
 
 [[colour]]
+name = "limestone shade"
+rgb = "#b7b29f"
+ramp = "limestone"
+
+[[colour]]
 name = "limestone"
 rgb = "#ccc7b2"
+ramp = "limestone"
+
+[[colour]]
+name = "limestone lit"
+rgb = "#d6d2bf"
 ramp = "limestone"
 
 [[colour]]
@@ -224,8 +334,18 @@ rgb = "#2b303b"
 ramp = "slate"
 
 [[colour]]
+name = "slate shade"
+rgb = "#3c434e"
+ramp = "slate"
+
+[[colour]]
 name = "slate"
 rgb = "#4a525e"
+ramp = "slate"
+
+[[colour]]
+name = "slate lit"
+rgb = "#555d69"
 ramp = "slate"
 
 [[colour]]
@@ -239,8 +359,18 @@ rgb = "#9e9ea3"
 ramp = "marble"
 
 [[colour]]
+name = "marble shade"
+rgb = "#c6c4c3"
+ramp = "marble"
+
+[[colour]]
 name = "marble"
 rgb = "#e6e3de"
+ramp = "marble"
+
+[[colour]]
+name = "marble lit"
+rgb = "#eceae6"
 ramp = "marble"
 
 [[colour]]
@@ -254,8 +384,18 @@ rgb = "#a8998f"
 ramp = "quartzite"
 
 [[colour]]
+name = "quartzite shade"
+rgb = "#c3b5ab"
+ramp = "quartzite"
+
+[[colour]]
 name = "quartzite"
 rgb = "#d9ccc2"
+ramp = "quartzite"
+
+[[colour]]
+name = "quartzite lit"
+rgb = "#e1d7cf"
 ramp = "quartzite"
 
 [[colour]]
@@ -269,8 +409,18 @@ rgb = "#4c4c45"
 ramp = "schist"
 
 [[colour]]
+name = "schist shade"
+rgb = "#636359"
+ramp = "schist"
+
+[[colour]]
 name = "schist"
 rgb = "#757569"
+ramp = "schist"
+
+[[colour]]
+name = "schist lit"
+rgb = "#8d8d81"
 ramp = "schist"
 
 [[colour]]
@@ -284,8 +434,18 @@ rgb = "#85735e"
 ramp = "tuff"
 
 [[colour]]
+name = "tuff shade"
+rgb = "#9e8b73"
+ramp = "tuff"
+
+[[colour]]
 name = "tuff"
 rgb = "#b29e85"
+ramp = "tuff"
+
+[[colour]]
+name = "tuff lit"
+rgb = "#bcaa92"
 ramp = "tuff"
 
 [[colour]]
@@ -299,8 +459,18 @@ rgb = "#474545"
 ramp = "andesite"
 
 [[colour]]
+name = "andesite shade"
+rgb = "#5e5c5a"
+ramp = "andesite"
+
+[[colour]]
 name = "andesite"
 rgb = "#706e6b"
+ramp = "andesite"
+
+[[colour]]
+name = "andesite lit"
+rgb = "#7f7d7a"
 ramp = "andesite"
 
 [[colour]]
@@ -314,8 +484,18 @@ rgb = "#1f1f21"
 ramp = "basalt"
 
 [[colour]]
+name = "basalt shade"
+rgb = "#2a2a2d"
+ramp = "basalt"
+
+[[colour]]
 name = "basalt"
 rgb = "#333336"
+ramp = "basalt"
+
+[[colour]]
+name = "basalt lit"
+rgb = "#3d3d40"
 ramp = "basalt"
 
 [[colour]]
@@ -329,8 +509,18 @@ rgb = "#1f211f"
 ramp = "gabbro"
 
 [[colour]]
+name = "gabbro shade"
+rgb = "#2d302d"
+ramp = "gabbro"
+
+[[colour]]
 name = "gabbro"
 rgb = "#383d38"
+ramp = "gabbro"
+
+[[colour]]
+name = "gabbro lit"
+rgb = "#474e47"
 ramp = "gabbro"
 
 [[colour]]
@@ -359,8 +549,18 @@ rgb = "#145233"
 ramp = "malachite"
 
 [[colour]]
+name = "malachite shade"
+rgb = "#22724c"
+ramp = "malachite"
+
+[[colour]]
 name = "malachite"
 rgb = "#2e8c61"
+ramp = "malachite"
+
+[[colour]]
+name = "malachite lit"
+rgb = "#45a173"
 ramp = "malachite"
 
 [[colour]]
@@ -434,8 +634,18 @@ rgb = "#381f1c"
 ramp = "hematite"
 
 [[colour]]
+name = "hematite shade"
+rgb = "#4f2d29"
+ramp = "hematite"
+
+[[colour]]
 name = "hematite"
 rgb = "#613833"
+ramp = "hematite"
+
+[[colour]]
+name = "hematite lit"
+rgb = "#6f504c"
 ramp = "hematite"
 
 [[colour]]
@@ -449,8 +659,18 @@ rgb = "#0d0d0f"
 ramp = "coal"
 
 [[colour]]
+name = "coal shade"
+rgb = "#141416"
+ramp = "coal"
+
+[[colour]]
 name = "coal"
 rgb = "#1a1a1c"
+ramp = "coal"
+
+[[colour]]
+name = "coal lit"
+rgb = "#27272a"
 ramp = "coal"
 
 [[colour]]
@@ -464,8 +684,18 @@ rgb = "#804229"
 ramp = "bauxite"
 
 [[colour]]
+name = "bauxite shade"
+rgb = "#995334"
+ramp = "bauxite"
+
+[[colour]]
 name = "bauxite"
 rgb = "#ad613d"
+ramp = "bauxite"
+
+[[colour]]
+name = "bauxite lit"
+rgb = "#b76f4b"
 ramp = "bauxite"
 
 [[colour]]
@@ -529,6 +759,11 @@ rgb = "#292924"
 ramp = "pitchblende"
 
 [[colour]]
+name = "pitchblende lit"
+rgb = "#3d3f30"
+ramp = "pitchblende"
+
+[[colour]]
 name = "pitchblende light"
 rgb = "#666b47"
 ramp = "pitchblende"
@@ -539,11 +774,976 @@ rgb = "#612e14"
 ramp = "gossan"
 
 [[colour]]
+name = "gossan shade"
+rgb = "#793f1e"
+ramp = "gossan"
+
+[[colour]]
 name = "gossan"
 rgb = "#8c4c26"
+ramp = "gossan"
+
+[[colour]]
+name = "gossan lit"
+rgb = "#9b592c"
 ramp = "gossan"
 
 [[colour]]
 name = "gossan light"
 rgb = "#b87338"
 ramp = "gossan"
+
+[[colour]]
+name = "sand dark"
+rgb = "#877655"
+ramp = "sand"
+
+[[colour]]
+name = "sand shade"
+rgb = "#b29967"
+ramp = "sand"
+
+[[colour]]
+name = "sand"
+rgb = "#e0bd78"
+ramp = "sand"
+
+[[colour]]
+name = "sand lit"
+rgb = "#eaca89"
+ramp = "sand"
+
+[[colour]]
+name = "snow shade"
+rgb = "#bdc5d5"
+ramp = "snow"
+
+[[colour]]
+name = "snow"
+rgb = "#edf2f7"
+ramp = "snow"
+
+[[colour]]
+name = "snow lit"
+rgb = "#f5f7ef"
+ramp = "snow"
+
+[[colour]]
+name = "snow light"
+rgb = "#fdfce6"
+ramp = "snow"
+
+[[colour]]
+name = "ice shade"
+rgb = "#8aaace"
+ramp = "ice"
+
+[[colour]]
+name = "ice"
+rgb = "#add1f0"
+ramp = "ice"
+
+[[colour]]
+name = "ice lit"
+rgb = "#bfdbe9"
+ramp = "ice"
+
+[[colour]]
+name = "ice light"
+rgb = "#d3e6e2"
+ramp = "ice"
+
+[[colour]]
+name = "clay dark"
+rgb = "#5f504c"
+ramp = "clay"
+
+[[colour]]
+name = "clay shade"
+rgb = "#7e685c"
+ramp = "clay"
+
+[[colour]]
+name = "clay"
+rgb = "#9e806b"
+ramp = "clay"
+
+[[colour]]
+name = "clay lit"
+rgb = "#b2977f"
+ramp = "clay"
+
+[[colour]]
+name = "mud dark"
+rgb = "#332a24"
+ramp = "mud"
+
+[[colour]]
+name = "mud shade"
+rgb = "#43362c"
+ramp = "mud"
+
+[[colour]]
+name = "mud"
+rgb = "#544233"
+ramp = "mud"
+
+[[colour]]
+name = "mud lit"
+rgb = "#736352"
+ramp = "mud"
+
+[[colour]]
+name = "grass shade"
+rgb = "#3d7629"
+ramp = "grass steps"
+
+[[colour]]
+name = "grass lit"
+rgb = "#63b148"
+ramp = "grass steps"
+
+[[colour]]
+name = "grass spring shade"
+rgb = "#498430"
+ramp = "grass spring"
+
+[[colour]]
+name = "grass spring"
+rgb = "#5ca338"
+ramp = "grass spring"
+
+[[colour]]
+name = "grass spring lit"
+rgb = "#7ab556"
+ramp = "grass spring"
+
+[[colour]]
+name = "grass autumn shade"
+rgb = "#697030"
+ramp = "grass autumn"
+
+[[colour]]
+name = "grass autumn"
+rgb = "#858a38"
+ramp = "grass autumn"
+
+[[colour]]
+name = "grass autumn lit"
+rgb = "#9c9f56"
+ramp = "grass autumn"
+
+[[colour]]
+name = "grass winter shade"
+rgb = "#5d5739"
+ramp = "grass winter"
+
+[[colour]]
+name = "grass winter"
+rgb = "#756b42"
+ramp = "grass winter"
+
+[[colour]]
+name = "grass winter lit"
+rgb = "#90865e"
+ramp = "grass winter"
+
+[[colour]]
+name = "tundra grass shade"
+rgb = "#5b6c4f"
+ramp = "tundra grass"
+
+[[colour]]
+name = "tundra grass"
+rgb = "#73855c"
+ramp = "tundra grass"
+
+[[colour]]
+name = "tundra grass lit"
+rgb = "#8d9b73"
+ramp = "tundra grass"
+
+[[colour]]
+name = "tundra grass spring shade"
+rgb = "#597846"
+ramp = "tundra grass spring"
+
+[[colour]]
+name = "tundra grass spring"
+rgb = "#709452"
+ramp = "tundra grass spring"
+
+[[colour]]
+name = "tundra grass spring lit"
+rgb = "#8ba86b"
+ramp = "tundra grass spring"
+
+[[colour]]
+name = "tundra grass autumn shade"
+rgb = "#6e7040"
+ramp = "tundra grass autumn"
+
+[[colour]]
+name = "tundra grass autumn"
+rgb = "#8a8a4a"
+ramp = "tundra grass autumn"
+
+[[colour]]
+name = "tundra grass autumn lit"
+rgb = "#a19f65"
+ramp = "tundra grass autumn"
+
+[[colour]]
+name = "tundra grass winter shade"
+rgb = "#615f42"
+ramp = "tundra grass winter"
+
+[[colour]]
+name = "tundra grass winter"
+rgb = "#7a754c"
+ramp = "tundra grass winter"
+
+[[colour]]
+name = "tundra grass winter lit"
+rgb = "#948e67"
+ramp = "tundra grass winter"
+
+[[colour]]
+name = "cold grass shade"
+rgb = "#2d5d46"
+ramp = "cold grass"
+
+[[colour]]
+name = "cold grass"
+rgb = "#387352"
+ramp = "cold grass"
+
+[[colour]]
+name = "cold grass lit"
+rgb = "#5c8c6b"
+ramp = "cold grass"
+
+[[colour]]
+name = "cold grass spring shade"
+rgb = "#396e42"
+ramp = "cold grass spring"
+
+[[colour]]
+name = "cold grass spring"
+rgb = "#47874c"
+ramp = "cold grass spring"
+
+[[colour]]
+name = "cold grass spring lit"
+rgb = "#699d67"
+ramp = "cold grass spring"
+
+[[colour]]
+name = "cold grass autumn shade"
+rgb = "#55683b"
+ramp = "cold grass autumn"
+
+[[colour]]
+name = "cold grass autumn"
+rgb = "#6b8045"
+ramp = "cold grass autumn"
+
+[[colour]]
+name = "cold grass autumn lit"
+rgb = "#879760"
+ramp = "cold grass autumn"
+
+[[colour]]
+name = "cold grass winter shade"
+rgb = "#555b40"
+ramp = "cold grass winter"
+
+[[colour]]
+name = "cold grass winter"
+rgb = "#6b704a"
+ramp = "cold grass winter"
+
+[[colour]]
+name = "cold grass winter lit"
+rgb = "#878a65"
+ramp = "cold grass winter"
+
+[[colour]]
+name = "meadow grass shade"
+rgb = "#51742e"
+ramp = "meadow grass"
+
+[[colour]]
+name = "meadow grass"
+rgb = "#668f36"
+ramp = "meadow grass"
+
+[[colour]]
+name = "meadow grass lit"
+rgb = "#83a354"
+ramp = "meadow grass"
+
+[[colour]]
+name = "meadow grass spring shade"
+rgb = "#537e30"
+ramp = "meadow grass spring"
+
+[[colour]]
+name = "meadow grass spring"
+rgb = "#699c38"
+ramp = "meadow grass spring"
+
+[[colour]]
+name = "meadow grass spring lit"
+rgb = "#85ae56"
+ramp = "meadow grass spring"
+
+[[colour]]
+name = "meadow grass autumn shade"
+rgb = "#67742e"
+ramp = "meadow grass autumn"
+
+[[colour]]
+name = "meadow grass autumn"
+rgb = "#828f36"
+ramp = "meadow grass autumn"
+
+[[colour]]
+name = "meadow grass autumn lit"
+rgb = "#9aa354"
+ramp = "meadow grass autumn"
+
+[[colour]]
+name = "meadow grass winter shade"
+rgb = "#5f6139"
+ramp = "meadow grass winter"
+
+[[colour]]
+name = "meadow grass winter"
+rgb = "#787842"
+ramp = "meadow grass winter"
+
+[[colour]]
+name = "meadow grass winter lit"
+rgb = "#92905e"
+ramp = "meadow grass winter"
+
+[[colour]]
+name = "scrub grass shade"
+rgb = "#656c35"
+ramp = "scrub grass"
+
+[[colour]]
+name = "scrub grass"
+rgb = "#80853d"
+ramp = "scrub grass"
+
+[[colour]]
+name = "scrub grass lit"
+rgb = "#989b5a"
+ramp = "scrub grass"
+
+[[colour]]
+name = "scrub grass spring shade"
+rgb = "#617835"
+ramp = "scrub grass spring"
+
+[[colour]]
+name = "scrub grass spring"
+rgb = "#7a943d"
+ramp = "scrub grass spring"
+
+[[colour]]
+name = "scrub grass spring lit"
+rgb = "#94a85a"
+ramp = "scrub grass spring"
+
+[[colour]]
+name = "scrub grass autumn shade"
+rgb = "#727032"
+ramp = "scrub grass autumn"
+
+[[colour]]
+name = "scrub grass autumn"
+rgb = "#8f8a3b"
+ramp = "scrub grass autumn"
+
+[[colour]]
+name = "scrub grass autumn lit"
+rgb = "#a59f58"
+ramp = "scrub grass autumn"
+
+[[colour]]
+name = "scrub grass winter shade"
+rgb = "#655f3b"
+ramp = "scrub grass winter"
+
+[[colour]]
+name = "scrub grass winter"
+rgb = "#807545"
+ramp = "scrub grass winter"
+
+[[colour]]
+name = "scrub grass winter lit"
+rgb = "#988e60"
+ramp = "scrub grass winter"
+
+[[colour]]
+name = "savanna grass shade"
+rgb = "#96803d"
+ramp = "savanna grass"
+
+[[colour]]
+name = "savanna grass"
+rgb = "#bd9e47"
+ramp = "savanna grass"
+
+[[colour]]
+name = "savanna grass lit"
+rgb = "#ccb063"
+ramp = "savanna grass"
+
+[[colour]]
+name = "jungle grass shade"
+rgb = "#1e5d1a"
+ramp = "jungle grass"
+
+[[colour]]
+name = "jungle grass"
+rgb = "#26731f"
+ramp = "jungle grass"
+
+[[colour]]
+name = "jungle grass lit"
+rgb = "#4d8c42"
+ramp = "jungle grass"
+
+[[colour]]
+name = "marsh grass shade"
+rgb = "#294b23"
+ramp = "marsh grass"
+
+[[colour]]
+name = "marsh grass"
+rgb = "#335c29"
+ramp = "marsh grass"
+
+[[colour]]
+name = "marsh grass lit"
+rgb = "#57794a"
+ramp = "marsh grass"
+
+[[colour]]
+name = "marsh grass spring shade"
+rgb = "#376128"
+ramp = "marsh grass spring"
+
+[[colour]]
+name = "marsh grass spring"
+rgb = "#45782e"
+ramp = "marsh grass spring"
+
+[[colour]]
+name = "marsh grass spring lit"
+rgb = "#67904e"
+ramp = "marsh grass spring"
+
+[[colour]]
+name = "marsh grass autumn shade"
+rgb = "#535f2a"
+ramp = "marsh grass autumn"
+
+[[colour]]
+name = "marsh grass autumn"
+rgb = "#697530"
+ramp = "marsh grass autumn"
+
+[[colour]]
+name = "marsh grass autumn lit"
+rgb = "#858e50"
+ramp = "marsh grass autumn"
+
+[[colour]]
+name = "marsh grass winter shade"
+rgb = "#535535"
+ramp = "marsh grass winter"
+
+[[colour]]
+name = "marsh grass winter"
+rgb = "#69693d"
+ramp = "marsh grass winter"
+
+[[colour]]
+name = "marsh grass winter lit"
+rgb = "#85835a"
+ramp = "marsh grass winter"
+
+[[colour]]
+name = "spruce leaves dark"
+rgb = "#123020"
+ramp = "spruce leaves"
+
+[[colour]]
+name = "spruce leaves shade"
+rgb = "#183e28"
+ramp = "spruce leaves"
+
+[[colour]]
+name = "spruce leaves"
+rgb = "#1f4c2e"
+ramp = "spruce leaves"
+
+[[colour]]
+name = "spruce leaves lit"
+rgb = "#466c4e"
+ramp = "spruce leaves"
+
+[[colour]]
+name = "broadleaf leaves dark"
+rgb = "#22481b"
+ramp = "broadleaf leaves"
+
+[[colour]]
+name = "broadleaf leaves shade"
+rgb = "#2d5d21"
+ramp = "broadleaf leaves"
+
+[[colour]]
+name = "broadleaf leaves"
+rgb = "#387326"
+ramp = "broadleaf leaves"
+
+[[colour]]
+name = "broadleaf leaves lit"
+rgb = "#5c8c48"
+ramp = "broadleaf leaves"
+
+[[colour]]
+name = "broadleaf leaves spring dark"
+rgb = "#365d24"
+ramp = "broadleaf leaves spring"
+
+[[colour]]
+name = "broadleaf leaves spring shade"
+rgb = "#47782c"
+ramp = "broadleaf leaves spring"
+
+[[colour]]
+name = "broadleaf leaves spring"
+rgb = "#599433"
+ramp = "broadleaf leaves spring"
+
+[[colour]]
+name = "broadleaf leaves spring lit"
+rgb = "#78a852"
+ramp = "broadleaf leaves spring"
+
+[[colour]]
+name = "broadleaf leaves winter dark"
+rgb = "#3a2d20"
+ramp = "broadleaf leaves winter"
+
+[[colour]]
+name = "broadleaf leaves winter shade"
+rgb = "#4d3a28"
+ramp = "broadleaf leaves winter"
+
+[[colour]]
+name = "broadleaf leaves winter"
+rgb = "#61472e"
+ramp = "broadleaf leaves winter"
+
+[[colour]]
+name = "broadleaf leaves winter lit"
+rgb = "#7e684e"
+ramp = "broadleaf leaves winter"
+
+[[colour]]
+name = "jungle leaves dark"
+rgb = "#0f3a12"
+ramp = "jungle leaves"
+
+[[colour]]
+name = "jungle leaves shade"
+rgb = "#144b16"
+ramp = "jungle leaves"
+
+[[colour]]
+name = "jungle leaves"
+rgb = "#1a5c1a"
+ramp = "jungle leaves"
+
+[[colour]]
+name = "jungle leaves lit"
+rgb = "#42793e"
+ramp = "jungle leaves"
+
+[[colour]]
+name = "acacia leaves dark"
+rgb = "#3d4d20"
+ramp = "acacia leaves"
+
+[[colour]]
+name = "acacia leaves shade"
+rgb = "#516328"
+ramp = "acacia leaves"
+
+[[colour]]
+name = "acacia leaves"
+rgb = "#667a2e"
+ramp = "acacia leaves"
+
+[[colour]]
+name = "acacia leaves lit"
+rgb = "#83924e"
+ramp = "acacia leaves"
+
+[[colour]]
+name = "shrub dark"
+rgb = "#2e431d"
+ramp = "shrub"
+
+[[colour]]
+name = "shrub shade"
+rgb = "#3d5723"
+ramp = "shrub"
+
+[[colour]]
+name = "shrub"
+rgb = "#4c6b29"
+ramp = "shrub"
+
+[[colour]]
+name = "shrub lit"
+rgb = "#6d864a"
+ramp = "shrub"
+
+[[colour]]
+name = "shrub spring dark"
+rgb = "#375324"
+ramp = "shrub spring"
+
+[[colour]]
+name = "shrub spring shade"
+rgb = "#496c2c"
+ramp = "shrub spring"
+
+[[colour]]
+name = "shrub spring"
+rgb = "#5c8533"
+ramp = "shrub spring"
+
+[[colour]]
+name = "shrub spring lit"
+rgb = "#7a9b52"
+ramp = "shrub spring"
+
+[[colour]]
+name = "shrub autumn dark"
+rgb = "#59401d"
+ramp = "shrub autumn"
+
+[[colour]]
+name = "shrub autumn shade"
+rgb = "#765323"
+ramp = "shrub autumn"
+
+[[colour]]
+name = "shrub autumn"
+rgb = "#946629"
+ramp = "shrub autumn"
+
+[[colour]]
+name = "shrub autumn lit"
+rgb = "#a9814a"
+ramp = "shrub autumn"
+
+[[colour]]
+name = "shrub winter dark"
+rgb = "#373024"
+ramp = "shrub winter"
+
+[[colour]]
+name = "shrub winter shade"
+rgb = "#493e2c"
+ramp = "shrub winter"
+
+[[colour]]
+name = "shrub winter"
+rgb = "#5c4c33"
+ramp = "shrub winter"
+
+[[colour]]
+name = "shrub winter lit"
+rgb = "#7a6c52"
+ramp = "shrub winter"
+
+[[colour]]
+name = "reed shade"
+rgb = "#707842"
+ramp = "reed"
+
+[[colour]]
+name = "reed"
+rgb = "#8c944c"
+ramp = "reed"
+
+[[colour]]
+name = "reed lit"
+rgb = "#a3a867"
+ramp = "reed"
+
+[[colour]]
+name = "reed spring shade"
+rgb = "#658042"
+ramp = "reed spring"
+
+[[colour]]
+name = "reed spring"
+rgb = "#809e4c"
+ramp = "reed spring"
+
+[[colour]]
+name = "reed spring lit"
+rgb = "#98b067"
+ramp = "reed spring"
+
+[[colour]]
+name = "reed autumn shade"
+rgb = "#867842"
+ramp = "reed autumn"
+
+[[colour]]
+name = "reed autumn"
+rgb = "#a8944c"
+ramp = "reed autumn"
+
+[[colour]]
+name = "reed autumn lit"
+rgb = "#bba867"
+ramp = "reed autumn"
+
+[[colour]]
+name = "reed winter shade"
+rgb = "#7e704f"
+ramp = "reed winter"
+
+[[colour]]
+name = "reed winter"
+rgb = "#9e8a5c"
+ramp = "reed winter"
+
+[[colour]]
+name = "reed winter lit"
+rgb = "#b29f73"
+ramp = "reed winter"
+
+[[colour]]
+name = "cactus shade"
+rgb = "#336830"
+ramp = "cactus"
+
+[[colour]]
+name = "cactus"
+rgb = "#408038"
+ramp = "cactus"
+
+[[colour]]
+name = "cactus lit"
+rgb = "#629756"
+ramp = "cactus"
+
+[[colour]]
+name = "cactus light"
+rgb = "#8ab176"
+ramp = "cactus"
+
+[[colour]]
+name = "coral dark"
+rgb = "#8a484c"
+ramp = "coral"
+
+[[colour]]
+name = "coral shade"
+rgb = "#b75d5c"
+ramp = "coral"
+
+[[colour]]
+name = "coral"
+rgb = "#e6736b"
+ramp = "coral"
+
+[[colour]]
+name = "coral lit"
+rgb = "#ef8c7f"
+ramp = "coral"
+
+[[colour]]
+name = "log dark"
+rgb = "#3d2d1f"
+ramp = "log"
+
+[[colour]]
+name = "log shade"
+rgb = "#513a25"
+ramp = "log"
+
+[[colour]]
+name = "log"
+rgb = "#66472b"
+ramp = "log"
+
+[[colour]]
+name = "log lit"
+rgb = "#83684c"
+ramp = "log"
+
+[[colour]]
+name = "log wood dark"
+rgb = "#725d44"
+ramp = "log wood"
+
+[[colour]]
+name = "log wood shade"
+rgb = "#967853"
+ramp = "log wood"
+
+[[colour]]
+name = "log wood"
+rgb = "#bd9461"
+ramp = "log wood"
+
+[[colour]]
+name = "log wood lit"
+rgb = "#cca877"
+ramp = "log wood"
+
+[[colour]]
+name = "mare regolith dark"
+rgb = "#373a41"
+ramp = "mare regolith"
+
+[[colour]]
+name = "mare regolith shade"
+rgb = "#494b4f"
+ramp = "mare regolith"
+
+[[colour]]
+name = "mare regolith"
+rgb = "#5c5c5c"
+ramp = "mare regolith"
+
+[[colour]]
+name = "mare regolith lit"
+rgb = "#7a7973"
+ramp = "mare regolith"
+
+[[colour]]
+name = "fresh regolith dark"
+rgb = "#9298a7"
+ramp = "fresh regolith"
+
+[[colour]]
+name = "fresh regolith shade"
+rgb = "#c1c5cc"
+ramp = "fresh regolith"
+
+[[colour]]
+name = "fresh regolith"
+rgb = "#f2f2ed"
+ramp = "fresh regolith"
+
+[[colour]]
+name = "fresh regolith lit"
+rgb = "#f9f7e7"
+ramp = "fresh regolith"
+
+[[colour]]
+name = "anorthosite dark"
+rgb = "#727682"
+ramp = "anorthosite"
+
+[[colour]]
+name = "anorthosite shade"
+rgb = "#96999e"
+ramp = "anorthosite"
+
+[[colour]]
+name = "anorthosite"
+rgb = "#bdbdb8"
+ramp = "anorthosite"
+
+[[colour]]
+name = "anorthosite lit"
+rgb = "#cccabc"
+ramp = "anorthosite"
+
+[[colour]]
+name = "anorthosite light"
+rgb = "#ddd9c1"
+ramp = "anorthosite"
+
+[[colour]]
+name = "mare basalt dark"
+rgb = "#25262d"
+ramp = "mare basalt"
+
+[[colour]]
+name = "mare basalt shade"
+rgb = "#313237"
+ramp = "mare basalt"
+
+[[colour]]
+name = "mare basalt"
+rgb = "#3d3d41"
+ramp = "mare basalt"
+
+[[colour]]
+name = "mare basalt lit"
+rgb = "#605f5c"
+ramp = "mare basalt"
+
+[[colour]]
+name = "iron-nickel dark"
+rgb = "#545356"
+ramp = "iron-nickel"
+
+[[colour]]
+name = "iron-nickel shade"
+rgb = "#706c69"
+ramp = "iron-nickel"
+
+[[colour]]
+name = "iron-nickel"
+rgb = "#8c857a"
+ramp = "iron-nickel"
+
+[[colour]]
+name = "iron-nickel lit"
+rgb = "#a39b8b"
+ramp = "iron-nickel"
+
+[[colour]]
+name = "kreep dark"
+rgb = "#504b4c"
+ramp = "kreep"
+
+[[colour]]
+name = "kreep shade"
+rgb = "#69615c"
+ramp = "kreep"
+
+[[colour]]
+name = "kreep"
+rgb = "#85786b"
+ramp = "kreep"
+
+[[colour]]
+name = "kreep lit"
+rgb = "#9c907f"
+ramp = "kreep"
+
+[[colour]]
+name = "kreep light"
+rgb = "#b8ac94"
+ramp = "kreep"

@@ -7,6 +7,7 @@ pub mod caves;
 pub mod ore;
 pub mod creatures;
 pub mod edit;
+pub mod items;
 pub mod liquid;
 pub mod mesh;
 pub mod models;

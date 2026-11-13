@@ -1,0 +1,29 @@
+# Items that are not blocks (ADR 0074, docs/design/items.md; schema and checks in crates/engine/src/items.rs).
+# Every block kind is an item already, with its block id; these take ids from 0x8000 up in the order written
+# here, and saves keep them by name, so a row may be added anywhere without breaking a save. Never rename one
+# without a `was` (not needed yet: nothing has been renamed).
+# `stack`: how many make a full slot (1..64, 64 if left out). `pack`: slots it opens when worn (packs only).
+# `look`: the block whose colours it is drawn in, in a slot and lying in a pile, until items have pictures.
+# shortcut: packs cannot be made yet (no recipes, crafting.md); /give hands them out.
+
+# The creative screen's tabs (ADR 0075): ore takes every block data/minerals.toml names, rock every layer of
+# data/rocks.toml, lamps every block that gives light, made the blocks listed here, nature the rest.
+made = ["copper"]
+
+[[item]]
+name = "basket"
+stack = 1
+pack = 9
+look = "reed"
+
+[[item]]
+name = "hide pack"
+stack = 1
+pack = 18
+look = "mud"
+
+[[item]]
+name = "frame pack"
+stack = 1
+pack = 27
+look = "log"
