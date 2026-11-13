@@ -9,3 +9,4 @@ frame p99 6.3 ms, frame-thread work 0.58 ms; sim work 0.59 ms.
 
 | Feature (ADR) | Run | CPU: frame thread, jobs | GPU | Frame p99 | Ideas to make it cheaper |
 |---|---|---|---|---|---|
+| Rubble in mines (0093) | `fall::rubble_mine_cost` (engine, play build; server tick, no frame run) | server tick: 5,766 resting rubble 9 ns a tick; a drop of 25,473 moves 306 ns a visit, worst tick 0.66 ms; client: at most 2 chunk mesh jobs a tick during a drop, none at rest | none beyond the blocks in the mesh | not measured (no frame run; resting rubble is ordinary blocks) | a drop over many chunks remeshes each chunk once a tick: batch a chunk's moves over 2-3 ticks; a fallen column could move as one edit of n cells; the budget (1,024 visits) visits lowest first, so a big drop holds others back a few ticks |

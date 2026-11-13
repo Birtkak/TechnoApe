@@ -1415,11 +1415,28 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         let (world, clients) = (&self.world, &self.clients);
         let cells = edit::changes(world, shape, m, |b| clients.iter().any(|c| phys::holds(world, &c.phys, b)));
         let c = &mut self.clients[i];
+        // a survival dig of rock or ore leaves its rubble in the cell (ADR 0093)
+        let leave = |old: u16| if m == AIR { edit::dug(old, !c.creative) } else { m };
         let mut drops = Vec::new();
         if !c.creative && !cells.is_empty() {
             if m == AIR {
-                // bare hands take only loose blocks; the rest breaks into nothing (shortcut: no tools yet, ADR 0034)
-                drops.extend(cells.iter().filter(|(_, old)| BLOCKS.get(*old).is_some_and(|d| d.loose)).map(|c| c.1));
+                // bare hands take only loose blocks; the rest breaks into nothing (shortcut: no tools yet, ADR 0034).
+                // Rubble goes into the slots (mining.md 4: no pile to walk over); with no room for all of it the dig
+                // is refused and the rubble stays a block
+                let (mut slots, mut taken) = (c.slots.clone(), Vec::new());
+                for &(_, old) in cells.iter().filter(|(_, old)| leave(*old) == AIR && BLOCKS.get(*old).is_some_and(|d| d.loose)) {
+                    if BLOCKS.get(old).is_none_or(|d| d.rubble_of.is_none()) {
+                        drops.push(old);
+                    } else if items::give(&mut slots, Stack::new(old, 1)) > 0 {
+                        return false;
+                    } else {
+                        taken.push(old);
+                    }
+                }
+                c.slots = slots;
+                for old in taken {
+                    *self.item_made.entry(old).or_default() += 1;
+                }
                 c.vitals.dug(cells.len());
             } else {
                 if !items::take(&mut c.slots, m, cells.len() as u32) {
@@ -1429,9 +1446,10 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
             }
             c.inv_dirty = true;
         }
-        for (b, _) in &cells {
-            self.world.set_block(*b, m);
-            changed.push((*b, m));
+        for &(b, old) in &cells {
+            let m = leave(old);
+            self.world.set_block(b, m);
+            changed.push((b, m));
         }
         if !drops.is_empty() {
             self.drop_dug(i, &cells, drops);
@@ -2236,15 +2254,22 @@ mod tests {
         assert_eq!(s.world.block(deep), stone);
         let brush = Shape { max: deep.pos + 1, ..Shape::one(deep) };
         l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
-        // held for the stone's time: dug, but bare hands take nothing of stone (ADR 0034); it is given instead
-        l.send(ToServer::Dig(Some(brush)));
-        s.tick();
-        let t = edit::dig_time(&s.world, &brush);
-        wait(&mut s, t);
-        l.send(ToServer::Edit { seq: 1, shape: brush, material: AIR });
-        s.tick();
-        assert!(brush.cells().all(|b| s.world.block(b) == AIR));
-        assert_eq!(items::count(&s.clients[0].slots, stone), 0);
+        // held for the stone's time: dug into rubble (ADR 0093), and the rubble dug: bare hands take it, never the
+        // stone itself (ADR 0034); stone is given instead
+        let rubble = BLOCKS.id("stone rubble");
+        for (seq, left) in [(1, rubble), (4, AIR)] {
+            l.send(ToServer::Dig(Some(brush)));
+            s.tick();
+            let t = edit::dig_time(&s.world, &brush);
+            wait(&mut s, t);
+            l.send(ToServer::Edit { seq, shape: brush, material: AIR });
+            s.tick();
+            assert!(brush.cells().all(|b| s.world.block(b) == left));
+        }
+        assert_eq!((items::count(&s.clients[0].slots, stone), items::count(&s.clients[0].slots, rubble)), (0, 8));
+        assert!(s.item_ledger().is_empty() && s.piles.is_empty(), "into the slots, not a pile");
+        s.clients[0].slots = vec![None; items::APE_SLOTS];
+        s.item_made.clear();
         l.send(ToServer::Chat("/give stone 8".into()));
         s.tick();
         let got = drain(l);
@@ -2328,9 +2353,9 @@ mod tests {
         let l = &links[0];
         let (pole, _) = on_land(&s);
         l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
-        l.send(ToServer::Chat("/give stone 70".into()));
+        l.send(ToServer::Chat("/give snow 70".into()));
         s.tick();
-        let stone = BLOCKS.id("stone");
+        let stone = BLOCKS.id("snow");
         let mv = |seq, from, to, n| ToServer::Items { seq, from, to, n };
         l.send(mv(1, (Holder::Ape, 1), (Holder::Ape, 4), 3));
         l.send(mv(2, (Holder::Ape, 0), (Holder::Grid, 0), 1));
@@ -2364,7 +2389,7 @@ mod tests {
         s.tick();
         let b = s.clients[0].slots.iter().position(|x| x.is_some_and(|x| x.item == ITEMS.named("basket").unwrap())).unwrap() as u16;
         l.send(mv(7, (Holder::Ape, b), (Holder::Ape, items::WORN as u16), 1));
-        l.send(ToServer::Chat("/give stone 1000".into()));
+        l.send(ToServer::Chat("/give snow 1000".into()));
         l.send(mv(8, (Holder::Ape, items::WORN as u16), (Holder::Ape, b), 1));
         s.tick();
         let got = drain(l);
@@ -2425,21 +2450,21 @@ mod tests {
         let back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
         assert_eq!((back.snapshot(), back.piles.len()), (s.snapshot(), 1));
         let mut old = s.snapshot();
-        old.players[0].slots = items::from_counts(&[(BLOCKS.id("stone"), 64 * 10 + 1)]);
+        old.players[0].slots = items::from_counts(&[(BLOCKS.id("snow"), 64 * 10 + 1)]);
         let back = Server::from_save(old, channel().1);
-        assert_eq!(held(&back.absent["ape"].slots), vec![(BLOCKS.id("stone"), 64 * 9)]);
+        assert_eq!(held(&back.absent["ape"].slots), vec![(BLOCKS.id("snow"), 64 * 9)]);
         assert_eq!(back.piles.len(), 2, "the throw's and the overflow's");
         assert!(back.item_ledger().is_empty());
         // exactly 37 stacks, as many as the ape has slots, and a stack over its size (a smaller `stack` in
         // data/items.toml): re-packed all the same, nothing stuck in rows no pack opens, nothing lost
         let mut old = s.snapshot();
-        old.players[0].slots = items::from_counts(&[(BLOCKS.id("stone"), 64 * 37)]);
-        old.players[0].slots[0] = Some(Stack::new(BLOCKS.id("stone"), 100));
+        old.players[0].slots = items::from_counts(&[(BLOCKS.id("snow"), 64 * 37)]);
+        old.players[0].slots[0] = Some(Stack::new(BLOCKS.id("snow"), 100));
         let back = Server::from_save(old, channel().1);
         assert!(items::ape_fits(&back.absent["ape"].slots));
-        assert_eq!(held(&back.absent["ape"].slots), vec![(BLOCKS.id("stone"), 64 * 9)]);
+        assert_eq!(held(&back.absent["ape"].slots), vec![(BLOCKS.id("snow"), 64 * 9)]);
         assert!(back.item_ledger().is_empty());
-        let n: u32 = back.piles.values().flat_map(|p| p.slots.iter().flatten()).filter(|s| s.item == BLOCKS.id("stone")).map(|s| s.n as u32).sum();
+        let n: u32 = back.piles.values().flat_map(|p| p.slots.iter().flatten()).filter(|s| s.item == BLOCKS.id("snow")).map(|s| s.n as u32).sum();
         assert_eq!(n, 64 * 36 + 100 - 64 * 9, "the rest at its feet");
     }
 
@@ -2471,7 +2496,7 @@ mod tests {
         assert!(got.contains(&ToClient::Done { seq: 3, ok: true }), "{got:?}");
         assert!(pile_in(&got, dirt).is_some_and(|p| p[0] == Some(Stack::new(BLOCKS.id("dirt"), 1))), "{got:?}");
         assert!(drain(&links[1]).contains(&ToClient::Digging { id, at: None }), "the cracks end with the dig");
-        // stone by hand: slow, and nothing comes of it (the developer, 2026-11-11)
+        // stone by hand: slow, and it leaves rubble, not a pile (ADR 0093)
         let stone = Block { pos: dirt.pos - glam::IVec3::Z, ..dirt };
         s.world.set_block(stone, BLOCKS.id("stone"));
         let one = Shape::one(stone);
@@ -2482,14 +2507,70 @@ mod tests {
         l.send(ToServer::Edit { seq: 4, shape: one, material: AIR });
         s.tick();
         let got = drain(l);
-        assert!(got.contains(&ToClient::Done { seq: 4, ok: true }) && s.world.block(stone) == AIR, "{got:?}");
+        assert!(got.contains(&ToClient::Done { seq: 4, ok: true }) && s.world.block(stone) == BLOCKS.id("stone rubble"), "{got:?}");
         assert_eq!(items::count(&s.clients[0].slots, BLOCKS.id("stone")), 0);
+        assert!(pile_in(&got, stone).is_none());
         // creative does not wait
         l.send(ToServer::Creative(true));
         let below = Block { pos: stone.pos - glam::IVec3::Z, ..stone };
         l.send(ToServer::Edit { seq: 5, shape: Shape::one(below), material: AIR });
         s.tick();
         assert!(drain(l).contains(&ToClient::Done { seq: 5, ok: true }));
+    }
+
+    /// Mining (ADR 0093, mining.md 4): granite dug in survival leaves granite rubble in its cell, which falls
+    /// into the open cell under it and blocks the way; digging the rubble puts it into the slots, no pile.
+    /// Creative digs it away as before.
+    #[test]
+    fn a_survival_dig_leaves_rock_as_rubble_and_digging_that_takes_it() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let cell = over_dirt(&mut s, l);
+        let (granite, rubble) = (BLOCKS.id("granite"), BLOCKS.id("granite rubble"));
+        let below = Block { pos: cell.pos - glam::IVec3::Z, ..cell };
+        s.world.set_block(cell, granite);
+        s.world.set_block(below, AIR);
+        let dig = |s: &mut Server, b: Block, seq: u32| {
+            let one = Shape::one(b);
+            l.send(ToServer::Dig(Some(one)));
+            s.tick();
+            wait(s, edit::dig_time(&s.world, &one) * 1.05);
+            l.send(ToServer::Edit { seq, shape: one, material: AIR });
+            s.tick();
+            drain(l)
+        };
+        let got = dig(&mut s, cell, 1);
+        assert!(got.contains(&ToClient::Done { seq: 1, ok: true }), "{got:?}");
+        assert!(got.iter().any(|m| matches!(m, ToClient::Edits(v) if v.contains(&(cell, rubble)))), "the digger is told the rubble");
+        assert_eq!(items::count(&s.clients[0].slots, granite) + items::count(&s.clients[0].slots, rubble), 0);
+        assert!(s.piles.is_empty());
+        wait(&mut s, 1.0);
+        assert_eq!((s.world.block(cell), s.world.block(below)), (AIR, rubble), "it fell into the open cell");
+        assert!(edit::dig_time(&s.world, &Shape::one(below)) < 1.0, "rubble goes fast by hand");
+        let got = dig(&mut s, below, 2);
+        assert!(got.contains(&ToClient::Done { seq: 2, ok: true }) && s.world.block(below) == AIR, "{got:?}");
+        assert_eq!(items::count(&s.clients[0].slots, rubble), 1);
+        assert!(s.piles.is_empty() && s.item_ledger().is_empty());
+        // a full pack: the rubble is not dug, it stays a block (nothing lost, no pile; the developer, via the lead)
+        let snow = BLOCKS.id("snow");
+        let full = s.clients[0].slots.clone();
+        for k in 0..items::open(&full) {
+            s.clients[0].slots[k] = Some(Stack::new(snow, 64));
+        }
+        *s.item_made.entry(snow).or_default() += 64 * items::open(&full) as i64;
+        s.item_made.remove(&rubble);
+        s.world.set_block(below, rubble);
+        let got = dig(&mut s, below, 9);
+        assert!(got.contains(&ToClient::Done { seq: 9, ok: false }) && s.world.block(below) == rubble, "{got:?}");
+        assert!(s.piles.is_empty() && s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+        s.world.set_block(below, AIR);
+        // creative is unchanged: a dig takes the cell away
+        l.send(ToServer::Creative(true));
+        let deeper = Block { pos: below.pos - glam::IVec3::Z, ..below };
+        s.world.set_block(deeper, granite);
+        l.send(ToServer::Edit { seq: 3, shape: Shape::one(deeper), material: AIR });
+        s.tick();
+        assert_eq!(s.world.block(deeper), AIR);
     }
 
     #[test]
@@ -2816,12 +2897,12 @@ mod tests {
         assert_eq!(b, vec!["<ape> hello there".to_string()], "commands answer only their sender");
         assert_eq!(a.len(), 6, "{a:?}");
         assert!(a[1].starts_with("time set to day 1, 12:00"), "{}", a[1]);
-        assert_eq!((a[2].as_str(), a[3].as_str()), ("gave 5 blue lamp: 5 held", "gave 64 stone: 64 held"));
+        assert_eq!((a[2].as_str(), a[3].as_str()), ("gave 5 blue lamp: 5 held", "gave 16 stone: 16 held"));
         assert!(a[5].starts_with("unknown command"));
         s.tick();
         assert!((s.world.time - sky::DAY / 8.0).abs() < 0.2, "{}", s.world.time);
         let c = &s.clients.iter().find(|c| c.player.name == "ape").unwrap();
-        assert!(c.creative && items::count(&c.slots, BLOCKS.id("blue lamp")) == 5 && items::count(&c.slots, BLOCKS.id("stone")) == 64);
+        assert!(c.creative && items::count(&c.slots, BLOCKS.id("blue lamp")) == 5 && items::count(&c.slots, BLOCKS.id("stone")) == 16);
         // time runs on from where it was set, and survives a save
         assert!(s.snapshot().tick as f64 / TICK_HZ > sky::DAY / 8.0);
         links[0].send(ToServer::Chat("/time set 10".into()));
