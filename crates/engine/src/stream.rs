@@ -225,6 +225,10 @@ pub struct Streamer {
     pub taken: FxMap<Block, u32>,
     /// Cells level 0 meshes as air while the client draws their block gliding in (ADR 0101): few, a slump's.
     pub gliding: Vec<Block>,
+    /// Chunks the walks took off their stack, for the test of the empty leaves' shortcut.
+    visits: u64,
+    /// Walk every empty leaf one by one, as before the shortcut: the test's reference.
+    slow_walk: bool,
 }
 
 pub struct View {
@@ -330,6 +334,8 @@ impl Streamer {
             clutter: (Arc::new(Still::default()), 0.0, (i64::MIN, 0), [1.0; 2]),
             taken: FxMap::default(),
             gliding: Vec::new(),
+            visits: 0,
+            slow_walk: false,
         }
     }
 
@@ -422,6 +428,7 @@ impl Streamer {
         let kk = if draw { self.opts.k } else { self.opts.k * 1.1 };
         let frame = self.frame;
         while let Some((k, covered)) = stack.pop() {
+            self.visits += 1;
             let slot = self.slots.entry(k).or_insert_with(|| Slot {
                 state: State::Pending,
                 last_seen: frame,
@@ -457,21 +464,56 @@ impl Streamer {
                 // the children before they are meshed leaves no hole (ADR 0038 B)
                 // a child wholly out of view does not hold it either: it would cover the visible children that are in,
                 // over their finer ground, until the hidden ones came last in the queue (bug 2026-11-12_21-00-30)
-                let mut by_view = false;
-                let all = covered
-                    || kids.iter().all(|c| {
+                // one look-up of each child answers both: does it draw without this chunk's cover, and is it a leaf
+                // for this camera that is empty and wants no job (the air over the ground, the rock under it)
+                let (mut by_view, mut all, mut empty_leaves) = (false, true, !self.slow_walk);
+                if self.slow_walk && !covered {
+                    // the walk before the shortcut, the test's reference
+                    all = kids.iter().all(|c| {
                         self.complete(world, view, c, kk) || (draw && {
                             let h = self.hidden(view, c.body, &self.slots.get(c).map_or_else(|| world.bodies[c.body as usize].bounds(*c), |s| s.bounds));
                             by_view |= h;
                             h
                         })
                     });
+                }
+                for c in kids.iter().filter(|_| !self.slow_walk) {
+                    let s = self.slots.get(c);
+                    empty_leaves &= s.is_some_and(|s| {
+                        s.state == State::Empty
+                            && !s.needs_job()
+                            && !(c.level > 0 && ((s.bounds.c - view.cam_in(c.body)).length() - s.bounds.rad).max(0.0) < kk * c.edge())
+                    });
+                    // as `all` over the children, stopping at the first that neither draws nor is out of view
+                    if all && !covered {
+                        all = s.is_some_and(|s| s.state != State::Pending)
+                            || self.complete(world, view, c, kk)
+                            || (draw && {
+                                let h = self.hidden(view, c.body, &s.map_or_else(|| world.bodies[c.body as usize].bounds(*c), |s| s.bounds));
+                                by_view |= h;
+                                h
+                            });
+                    }
+                }
+                let all = covered || all;
                 // that choice depends on the look, which a frame that only culls does not check: walk again until
                 // the hidden child is in, or turning round shows its hole (the review of ADR 0073)
                 self.dirty |= by_view && all && !covered;
                 let mut cov = covered;
                 if !all && !covered && draw && self.emit(view, k, None, out) {
                     cov = true;
+                }
+                // such children would draw and ask for nothing: marked as their visits would, not visited
+                if empty_leaves {
+                    let at = out.len() as u32;
+                    for c in kids {
+                        let s = self.slots.get_mut(c).unwrap();
+                        s.last_seen = frame;
+                        if draw && !cov {
+                            (s.leaf_at, s.drawn_at) = (frame, (frame, at));
+                        }
+                    }
+                    continue;
                 }
                 for &c in kids {
                     stack.push((c, cov));
@@ -1060,6 +1102,50 @@ mod tests {
             }
         }
         panic!("the visible chunks never came in");
+    }
+
+    /// The empty leaves (the air over the ground, 400 m of it since ADR 0105, and the rock under it) are not
+    /// visited one by one: the walk draws, asks for and counts what the slow walk does, in far fewer visits.
+    #[test]
+    fn the_walk_passes_over_empty_leaves_and_picks_the_same() {
+        let w = World::new(1536, 64, 1337);
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
+        let mut s = Streamer::new(&w, 1 << 22, opts);
+        let b = &w.bodies[0];
+        let ground = b.spawn_point() + b.spawn * 1.7;
+        settle(&mut s, &w, ground);
+        // settled, then 60 m along and 30 m up: chunks split anew and wait for meshes
+        for cam in [ground, ground + b.spawn.any_orthonormal_vector() * 60.0 + b.spawn * 30.0] {
+            let view = View::new(cam, [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], &w);
+            let walk = |s: &mut Streamer, slow: bool, draw: bool| {
+                // a frame each, so the slots each walk marks seen and drawn are its own
+                (s.slow_walk, s.dirty, s.frame) = (slow, true, s.frame + 1);
+                let v0 = s.visits;
+                let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+                s.select(&w, &view, draw, 1.0, &mut out, &mut reqs, &mut st);
+                let key = |k: &Key| (k.face, k.level, k.pos.x, k.pos.y, k.pos.z);
+                let mut o: Vec<_> = out.iter().map(|d| (key(&d.key), d.off, d.len, d.hidden, d.dist.to_bits())).collect();
+                let mut r: Vec<_> = reqs.iter().map(|q| (key(&q.1), q.0.to_bits())).collect();
+                o.sort_unstable();
+                r.sort_unstable();
+                // the slots this walk marked seen, and drawn as leaves
+                let marked = |f: fn(&Slot) -> u64| {
+                    let mut m: Vec<_> = s.slots.iter().filter(|(_, sl)| f(sl) == s.frame).map(|(k, _)| key(k)).collect();
+                    m.sort_unstable();
+                    m
+                };
+                let marks = (marked(|sl| sl.last_seen), marked(|sl| sl.leaf_at));
+                (o, r, (st.missing, st.holes, st.requests, s.dirty, marks), s.visits - v0)
+            };
+            for draw in [true, false] {
+                let slow = walk(&mut s, true, draw);
+                let fast = walk(&mut s, false, draw);
+                assert!(!slow.0.is_empty() || !draw, "nothing drawn");
+                assert_eq!((&fast.0, &fast.1, &fast.2), (&slow.0, &slow.1, &slow.2), "draw {draw}: the walks differ");
+                // the look-ahead splits 10 % further out, so fewer of its children are leaves
+                assert!(fast.3 * 3 < slow.3 * 2, "draw {draw}: {} visits against the slow walk's {}", fast.3, slow.3);
+            }
+        }
     }
 
     #[test]
