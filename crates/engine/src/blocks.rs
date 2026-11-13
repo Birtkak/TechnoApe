@@ -90,6 +90,8 @@ struct Raw {
     #[serde(default)]
     loose: bool,
     #[serde(default)]
+    falls: bool,
+    #[serde(default)]
     soft: bool,
     model: Option<String>,
     #[serde(default)]
@@ -119,6 +121,8 @@ pub enum See {
     Opaque,
     /// Pixels wholly there or wholly empty (alpha 255 or 0): leaves, a shrub, reed.
     Cutout,
+    /// Pixels partly clear (any alpha), drawn blended after the light and tinting the light through it (ADR 0081).
+    Glass,
 }
 
 /// The part of a look a season may change (docs/design/seasonal-looks.md).
@@ -181,6 +185,8 @@ pub struct Def {
     /// Bare hands take it (dirt, sand, a lamp): dug in survival it goes into the inventory. A block that is
     /// not loose breaks by hand in its time but gives nothing (the tools that take it come later).
     pub loose: bool,
+    /// It falls when the cell under it opens and slides off a step of two (sand, gravel; ADR 0079).
+    pub falls: bool,
     /// Sound passes it without an echo (leaves, a shrub, reed): no wall to the cave reverb (ADR 0054).
     pub soft: bool,
     /// The model (`data/models/<model>.toml`, ADR 0047) drawn in its cell in place of the cube; the cell
@@ -298,7 +304,7 @@ impl Registry {
             if seasons.is_none() && r.stagger != 0.0 {
                 return Err(format!("block '{}': a stagger without a season", r.name));
             }
-            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger });
+            defs[r.id as usize] = Some(Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, falls: r.falls, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger });
         }
         match &defs[0] {
             Some(d) if d.name == "air" && !d.solid => {}
@@ -324,6 +330,11 @@ impl Registry {
     /// the mesher always took it.
     pub fn opaque(&self, id: u16) -> bool {
         id != AIR && self.get(id).is_none_or(|d| d.see == See::Opaque)
+    }
+
+    /// Whether block `id` is glass (ADR 0081).
+    pub fn glass(&self, id: u16) -> bool {
+        self.get(id).is_some_and(|d| d.see == See::Glass)
     }
 
     /// Every block but air, in id order.
@@ -368,10 +379,10 @@ mod tests {
         }
     }
 
-    /// ADR 0069: the plants are seen through, and nothing else is yet.
+    /// ADR 0069: the plants are seen through, and of the rest only glass (ADR 0081).
     #[test]
     fn leaves_shrub_and_reed_are_cutout() {
-        for d in BLOCKS.placeable() {
+        for d in BLOCKS.placeable().filter(|d| !d.name.ends_with("glass")) {
             let plant = d.name.ends_with("leaves") || ["shrub", "reed"].contains(&d.name.as_str());
             assert_eq!(d.see == See::Cutout, plant, "{}", d.name);
             assert_eq!(BLOCKS.opaque(d.id), !plant, "{}", d.name);
@@ -393,7 +404,19 @@ id = 1
 name = \"x\"
 hardness = 1
 see = \"glass\"
-")).is_err(), "glass is step 3");
+")).is_ok(), "glass, ADR 0081");
+    }
+
+    /// ADR 0081: the glass rows are glass, seen through and not cutout.
+    #[test]
+    fn glass_is_glass() {
+        let g: Vec<_> = BLOCKS.placeable().filter(|d| d.name.ends_with("glass")).collect();
+        assert!(g.len() >= 3);
+        for d in g {
+            assert_eq!(d.see, See::Glass, "{}", d.name);
+            assert!(BLOCKS.glass(d.id) && !BLOCKS.opaque(d.id) && d.solid, "{}", d.name);
+        }
+        assert!(!BLOCKS.glass(AIR) && !BLOCKS.glass(BLOCKS.id("stone")));
     }
 
     #[test]

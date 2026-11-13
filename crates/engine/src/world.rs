@@ -216,14 +216,14 @@ pub struct Foot {
     pub z: i32,
 }
 
-fn mix(mut x: u64) -> u64 {
+pub(crate) fn mix(mut x: u64) -> u64 {
     x = (x ^ (x >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
     x = (x ^ (x >> 27)).wrapping_mul(0x94d049bb133111eb);
     x ^ (x >> 31)
 }
 
 /// A number in 0..1 from a hash.
-fn unit(h: u64) -> f32 {
+pub(crate) fn unit(h: u64) -> f32 {
     (h >> 40) as f32 / (1u64 << 24) as f32
 }
 
@@ -238,6 +238,10 @@ pub struct HeightTile {
     /// Plant blocks over the ground (level 0 of a baked planet only): (column, layer, block), by column then
     /// layer. They stand where the generated ground is air; an edit wins over them.
     pub plants: Vec<(u16, i32, u16)>,
+    /// Each column's biome (0 on a planet with no map), and the trunks of the plants within `REACH` of the
+    /// footprint (level 0 of a baked planet): what clutter asks (ADR 0082).
+    pub biome: [u8; P * P],
+    pub trees: Vec<(i32, i32)>,
     /// Of the heights as `f32`, for `generate`'s early-outs.
     pub min: f32,
     pub max: f32,
@@ -472,7 +476,7 @@ impl Body {
     }
     /// The surface radius at face point (i, j) in columns, d its direction, for chunks of `level`: from the
     /// map's mip whose cells are about as wide as the columns, plus the detail; or the noise land.
-    fn height_at(&self, face: usize, i: f64, j: f64, d: DVec3, level: u8) -> f64 {
+    pub(crate) fn height_at(&self, face: usize, i: f64, j: f64, d: DVec3, level: u8) -> f64 {
         let Some(b) = &self.baked else { return self.height(d) };
         let s = b.map.m as f64 / self.n as f64;
         let k = (level as i32 - (1.0 / s).log2().round() as i32).max(0) as usize;
@@ -500,6 +504,10 @@ impl Body {
         let p = d * self.radius;
         let (x, y, z) = (p.x as f32, p.y as f32, p.z as f32);
         (i + JITTER * b.jitter.get_noise_3d(x, y, z) as f64, j + JITTER * b.jitter.get_noise_3d(x + 517.0, y - 311.0, z + 97.0) as f64)
+    }
+    /// The seed of its map, None on a planet with no map.
+    pub fn baked_seed(&self) -> Option<u64> {
+        self.baked.as_ref().map(|b| b.seed)
     }
     /// The biome at face point (i, j) in columns (its direction d), None on a planet with no map.
     pub fn biome_at(&self, face: usize, i: f64, j: f64, d: DVec3) -> Option<u8> {
@@ -550,13 +558,18 @@ impl Body {
     }
     /// The ground (`material`) at face point (i, j) in columns, d its direction, `h` its surface radius.
     fn ground_at(&self, face: usize, i: f64, j: f64, d: DVec3, h: f64) -> [u16; 3] {
-        let Some(b) = &self.baked else { return self.ground };
+        self.ground_biome_at(face, i, j, d, h).0
+    }
+    /// `ground_at` and the biome it is of (0 on a planet with no map).
+    pub(crate) fn ground_biome_at(&self, face: usize, i: f64, j: f64, d: DVec3, h: f64) -> ([u16; 3], u8) {
+        let Some(b) = &self.baked else { return (self.ground, 0) };
         let (x, y) = self.jittered(b, i, j, d);
         let s = b.map.m as f64 / self.n as f64;
-        let row = &ROWS.biomes[b.map.biome(face, x * s, y * s) as usize];
+        let biome = b.map.biome(face, x * s, y * s);
+        let row = &ROWS.biomes[biome as usize];
         let cell = ((x / PATCH).floor() as i64 as u64) ^ ((y / PATCH).floor() as i64 as u64).wrapping_mul(0x9e3779b97f4a7c15);
         let roll = unit(mix(b.seed ^ cell ^ (face as u64) << 56));
-        [row.top(roll, (h - (self.radius - SEA_DEPTH)) as f32), row.ground[1], row.ground[2]]
+        ([row.top(roll, (h - (self.radius - SEA_DEPTH)) as f32), row.ground[1], row.ground[2]], biome)
     }
     /// The plant at candidate spot (cx, cy) of a face (one each `SPACING` x `SPACING` columns), if one grows
     /// there: on a baked planet, over the sea, at least `REACH` columns inside the face.
@@ -669,7 +682,7 @@ impl Body {
         self.height_at(face, i, j, self.dir(face, i, j), 0)
     }
     /// The first generated air layer over a surface at radius h: `material`'s own test.
-    fn first_air(&self, h: f64) -> i32 {
+    pub(crate) fn first_air(&self, h: f64) -> i32 {
         let mut z = ((self.layer_of(h) - 0.5).floor() as i32 + 1).max(0);
         while z > 0 && material(h - self.layer_r(z as f64 - 0.5), &self.ground) == AIR {
             z -= 1;
@@ -885,7 +898,7 @@ impl Body {
         let (c0x, c0y) = (x * CS - 1, y * CS - 1);
         let ta: [f64; P] = std::array::from_fn(|k| self.col_tan(((c0x + k as i32) as f64 + 0.5) * s));
         let tb: [f64; P] = std::array::from_fn(|k| self.col_tan(((c0y + k as i32) as f64 + 0.5) * s));
-        let mut t = HeightTile { h: [0.0; P * P], g: [self.ground; P * P], rock: [Rock::NONE; P * P], plants: Vec::new(), min: f32::MAX, max: f32::MIN };
+        let mut t = HeightTile { h: [0.0; P * P], g: [self.ground; P * P], rock: [Rock::NONE; P * P], plants: Vec::new(), biome: [0; P * P], trees: Vec::new(), min: f32::MAX, max: f32::MIN };
         // the candidate spots the footprint's plants come from, each looked at once
         let mut spots: FxMap<(usize, i32, i32), Option<Foot>> = FxMap::default();
         for v in 0..P {
@@ -900,7 +913,7 @@ impl Body {
                 t.max = t.max.max(hv as f32);
                 t.h[u + v * P] = hv;
                 if self.baked.is_some() {
-                    t.g[u + v * P] = self.ground_at(f, pi, pj, d, hv);
+                    (t.g[u + v * P], t.biome[u + v * P]) = self.ground_biome_at(f, pi, pj, d, hv);
                     t.rock[u + v * P] = self.rock_at(f, pi, pj, d);
                     if level == 0 {
                         for (z, m) in self.plants_with(fi, fj, &mut |cx, cy| *spots.entry((f, cx, cy)).or_insert_with(|| self.candidate(f, cx, cy))) {
@@ -911,6 +924,9 @@ impl Body {
                 }
             }
         }
+        // the trunks among the spots looked at (this face's only: a seam's columns ask their own face)
+        t.trees = spots.iter().filter(|(k, _)| k.0 == face).filter_map(|(_, f)| f.as_ref()).filter(|f| ROWS.plants[f.plant].trunk != 0).map(|f| (f.i, f.j)).collect();
+        t.trees.sort_unstable();
         t
     }
     /// The surface radius over level-0 column (i, j) of a face: from its tile when one is cached, else computed,
@@ -2095,7 +2111,7 @@ mod tests {
             b.layer_r(zc as f64 + 0.5) + edge + ((i / 3) % 25) as f64 * 2e-5 - 2.4e-4
         });
         let (min, max) = (h.iter().fold(f32::MAX, |a, v| a.min(*v as f32)), h.iter().fold(f32::MIN, |a, v| a.max(*v as f32)));
-        b.tiles.map.lock().unwrap().insert((face, 0, x, y), (Arc::new(HeightTile { h, g: [b.ground; P * P], rock: [Rock::NONE; P * P], plants: Vec::new(), min, max }), 0));
+        b.tiles.map.lock().unwrap().insert((face, 0, x, y), (Arc::new(HeightTile { h, g: [b.ground; P * P], rock: [Rock::NONE; P * P], plants: Vec::new(), biome: [0; P * P], trees: Vec::new(), min, max }), 0));
         let k = Key { body: 0, face, level: 0, pos: IVec3::new(x, y, kz) };
         let Gen::Cells(cells) = generate(b, k, &[]) else { panic!("the chunk is all one") };
         let mut bad = Vec::new();

@@ -1,0 +1,31 @@
+# A draft fallen leaves (Claude's, listed in data/drafts.txt): clutter, ADR 0082. Painted
+# boxes at 32 px a metre (flat leaves on the ground); made by tools/paint_clutter.py.
+colours = ["autumn orange"]
+
+[[part]]
+name = "body"
+box = [1, 1, 1]
+voxels = "."
+
+[[part.boxes]]
+at = [6.0, 0.5, 8.0]
+size = [6, 0, 5]
+uv = [0, 0]
+
+[[part.boxes]]
+at = [16.0, 0.5, 14.0]
+size = [6, 0, 5]
+turn = [0.0, 40.0, 0.0]
+uv = [22, 0]
+
+[[part.boxes]]
+at = [11.0, 0.5, 20.0]
+size = [6, 0, 5]
+turn = [0.0, 80.0, 0.0]
+uv = [0, 5]
+
+[[part.boxes]]
+at = [20.0, 0.5, 6.0]
+size = [6, 0, 5]
+turn = [0.0, 120.0, 0.0]
+uv = [22, 5]

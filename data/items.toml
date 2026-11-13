@@ -8,7 +8,7 @@
 
 # The creative screen's tabs (ADR 0075): ore takes every block data/minerals.toml names, rock every layer of
 # data/rocks.toml, lamps every block that gives light, made the blocks listed here, nature the rest.
-made = ["copper"]
+made = ["copper", "glass", "green glass", "amber glass"]
 
 [[item]]
 name = "basket"
@@ -27,3 +27,24 @@ name = "frame pack"
 stack = 1
 pack = 27
 look = "log"
+
+# The first age's pick-ups (ADR 0082): they lie on the ground as clutter (data/clutter.toml) and are taken by hand.
+[[item]]
+name = "stick"
+look = "log"
+
+[[item]]
+name = "loose stone"
+look = "stone"
+
+[[item]]
+name = "flint"
+look = "slate"
+
+[[item]]
+name = "mushroom"
+look = "coral"
+
+[[item]]
+name = "berries"
+look = "coral"

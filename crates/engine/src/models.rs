@@ -8,6 +8,13 @@ use serde::{Deserialize, Serialize};
 pub const VOXEL: f32 = 0.125;
 /// A part's box is 1..MAX_BOX voxels a side.
 pub const MAX_BOX: u32 = 32;
+/// One model pixel in metres: a painted box's corner and size are in these (ADR 0081), 32 a metre; blocks are
+/// painted at 16.
+pub const PIXEL: f32 = 1.0 / 32.0;
+/// A model's painting is at most this many pixels a side, and holds at most this many boxes (ADR 0081, the
+/// design's first guess).
+pub const MAX_PAINT: u32 = 128;
+pub const MAX_BOXES: usize = 64;
 /// The letters of the voxel rows, in the order of `colours`; '.' is empty.
 pub const LETTERS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
@@ -47,9 +54,54 @@ pub struct Part {
     #[serde(rename = "box")]
     pub size: [u32; 3],
     pub voxels: String,
+    /// Its turn at rest, degrees about x, y, z (ADR 0081): a flint lies tilted without a clip.
+    #[serde(default, skip_serializing_if = "zero3")]
+    pub turn: [f32; 3],
+    /// Painted boxes beside its voxels (ADR 0081); a part of boxes alone has one empty voxel (`box = [1, 1, 1]`,
+    /// `voxels = "."`), so every tool that reads voxels reads it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub boxes: Vec<Bx>,
     /// 0 empty, else a colour's place + 1, at x + size.x * (z + size.z * y) (filled by `parse`).
     #[serde(skip)]
     pub cells: Vec<u8>,
+}
+
+fn zero3(v: &[f32; 3]) -> bool {
+    *v == [0.0; 3]
+}
+
+/// A painted box (ADR 0081): its corner and size in model pixels (`PIXEL`) in its part, a turn about its middle in
+/// degrees, and where its faces lie in the model's painting `data/models/<name>.png`: the net of its six faces
+/// from `uv` (`Bx::rects`). A box with no thickness on one axis is a plane, drawn from both sides with the one
+/// rectangle of its positive face.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Bx {
+    pub at: [f32; 3],
+    pub size: [u32; 3],
+    #[serde(default, skip_serializing_if = "zero3")]
+    pub turn: [f32; 3],
+    pub uv: [u32; 2],
+}
+
+/// One face of a painted box in its part's voxels: the corner where its painting's rectangle starts (`o`), the
+/// edges along the rectangle's width and height (`eu`, `ev`; the face looks along `ev x eu`), its part, and the
+/// rectangle (x, y, w, h) in the painting.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BoxFace {
+    pub part: usize,
+    pub o: Vec3,
+    pub eu: Vec3,
+    pub ev: Vec3,
+    pub rect: [u32; 4],
+}
+
+/// A model's painting (ADR 0081): w x h pixels, row by row; alpha 0 (empty) or 255, palette colours only.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Painting {
+    pub w: u32,
+    pub h: u32,
+    pub px: Vec<[u8; 4]>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -267,6 +319,16 @@ impl Model {
             }
         }
         self.up = up;
+        if self.parts.iter().map(|p| p.boxes.len()).sum::<usize>() > MAX_BOXES {
+            return Err(format!("more than {MAX_BOXES} boxes"));
+        }
+        for p in &self.parts {
+            for (i, b) in p.boxes.iter().enumerate() {
+                if b.size.iter().filter(|&&v| v == 0).count() > 1 || b.size.iter().any(|&v| v > MAX_PAINT) {
+                    return Err(format!("part '{}', box {}: size {:?}, thin on one axis at most (a plane), {MAX_PAINT} at most", p.name, i + 1, b.size));
+                }
+            }
+        }
         let n = self.colours.len();
         for p in &mut self.parts {
             p.cells = decode(p.size, &p.voxels, n).map_err(|e| format!("part '{}': {e}", p.name))?;
@@ -317,7 +379,7 @@ impl Model {
         let p = &self.parts[i];
         let (shift, turn) = clip.map_or((Vec3::ZERO, Vec3::ZERO), |c| sample(c, &p.name, t));
         let pivot = Vec3::from(p.pivot);
-        let turn = turn * (std::f32::consts::PI / 180.0);
+        let turn = (turn + Vec3::from(p.turn)) * (std::f32::consts::PI / 180.0);
         let local = Mat4::from_translation(Vec3::from(p.at.map(|v| v as f32)) + pivot + shift)
             * Mat4::from_rotation_z(turn.z)
             * Mat4::from_rotation_y(turn.y)
@@ -586,6 +648,104 @@ pub fn sample(c: &Clip, part: &str, t: f32) -> (Vec3, Vec3) {
     (s0.lerp(s1, f), r0.lerp(r1, f))
 }
 
+impl Bx {
+    /// Its faces' rectangles in the painting, (x, y, w, h), in the order +x, -x, +y, -y, +z, -z: the net of a box
+    /// sx x sy x sz from (u, v): the top and bottom in the first row (sz high), the four sides below (sy high),
+    /// -x, +z, +x, -z from the left.
+    pub fn rects(&self) -> [[u32; 4]; 6] {
+        let [sx, sy, sz] = self.size;
+        let [u, v] = self.uv;
+        [[u + sz + sx, v + sz, sz, sy], [u, v + sz, sz, sy], [u + sz, v, sx, sz], [u + sz + sx, v, sx, sz], [u + sz, v + sz, sx, sy], [u + 2 * sz + sx, v + sz, sx, sy]]
+    }
+
+    /// Its faces in pixels, as `BoxFace` lays them out, turned about its middle; a plane's two.
+    fn faces(&self) -> Vec<(Vec3, Vec3, Vec3, [u32; 4])> {
+        let p0 = Vec3::from(self.at);
+        let s = Vec3::from(self.size.map(|v| v as f32));
+        let p1 = p0 + s;
+        let r = self.rects();
+        let (x, y, z) = (Vec3::X, Vec3::Y, Vec3::Z);
+        // (corner, along the rectangle's width, along its height): the face seen from outside, read left to right
+        // and top to bottom
+        let all = [
+            (Vec3::new(p1.x, p1.y, p1.z), -z * s.z, -y * s.y, r[0]),
+            (Vec3::new(p0.x, p1.y, p0.z), z * s.z, -y * s.y, r[1]),
+            (Vec3::new(p0.x, p1.y, p0.z), x * s.x, z * s.z, r[2]),
+            (Vec3::new(p0.x, p0.y, p1.z), x * s.x, -z * s.z, r[3]),
+            (Vec3::new(p0.x, p1.y, p1.z), x * s.x, -y * s.y, r[4]),
+            (Vec3::new(p1.x, p1.y, p0.z), -x * s.x, -y * s.y, r[5]),
+        ];
+        let thin = self.size.iter().position(|&v| v == 0);
+        let mid = (p0 + p1) * 0.5;
+        let t = self.turn.map(f32::to_radians);
+        let rot = glam::Mat3::from_rotation_z(t[2]) * glam::Mat3::from_rotation_y(t[1]) * glam::Mat3::from_rotation_x(t[0]);
+        all.iter()
+            .enumerate()
+            // a plane: the two faces across its thin axis, both on the positive face's rectangle
+            .filter(|(k, _)| thin.is_none_or(|a| k / 2 == a))
+            .map(|(k, &(o, eu, ev, rect))| (rot * (o - mid) + mid, rot * eu, rot * ev, if thin.is_some() { r[k & !1] } else { rect }))
+            .collect()
+    }
+}
+
+impl Model {
+    /// Every painted box's faces, in their parts' voxels (ADR 0081).
+    pub fn box_faces(&self) -> Vec<BoxFace> {
+        let k = PIXEL / VOXEL;
+        self.parts
+            .iter()
+            .enumerate()
+            .flat_map(|(part, p)| p.boxes.iter().flat_map(Bx::faces).map(move |(o, eu, ev, rect)| BoxFace { part, o: o * k, eu: eu * k, ev: ev * k, rect }))
+            .collect()
+    }
+
+    /// Whether every box's faces lie inside the painting.
+    pub fn check_painting(&self, p: &Painting) -> Result<(), String> {
+        for part in &self.parts {
+            for (i, b) in part.boxes.iter().enumerate() {
+                if let Some(r) = b.rects().into_iter().find(|r| r[0] + r[2] > p.w || r[1] + r[3] > p.h) {
+                    return Err(format!("part '{}', box {}: its faces reach ({}, {}), outside the painting's {} x {}", part.name, i + 1, r[0] + r[2], r[1] + r[3], p.w, p.h));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Each painted box's face at rest, in the cell's metres (x, y up, z; the cell's corner at 0): what a still
+    /// model puts in the chunk's mesh (ADR 0068, 0081), as (corner, width edge, height edge, rectangle).
+    pub fn rest_faces(&self) -> Vec<([Vec3; 3], [u32; 4])> {
+        let pose = self.pose(None, 0.0);
+        self.box_faces().into_iter().map(|f| ([pose[f.part].transform_point3(f.o), pose[f.part].transform_vector3(f.eu), pose[f.part].transform_vector3(f.ev)], f.rect)).collect()
+    }
+}
+
+/// A model's painting read and held to the rules (ADR 0081): 8-bit RGBA, 1..MAX_PAINT pixels a side, every pixel
+/// empty (alpha 0) or a palette colour.
+pub fn painting(bytes: &[u8], palette: &Palette) -> Result<Painting, String> {
+    let mut r = png::Decoder::new(std::io::Cursor::new(bytes)).read_info().map_err(|e| format!("not a PNG ({e})"))?;
+    let i = r.info();
+    let (w, h) = (i.width, i.height);
+    if i.color_type != png::ColorType::Rgba || i.bit_depth != png::BitDepth::Eight {
+        return Err(format!("{:?} at {:?} bits, a painting is 8-bit RGBA", i.color_type, i.bit_depth));
+    }
+    if !(1..=MAX_PAINT).contains(&w) || !(1..=MAX_PAINT).contains(&h) {
+        return Err(format!("{w} x {h} px, a painting is 1..{MAX_PAINT} a side"));
+    }
+    let mut buf = vec![0; r.output_buffer_size().ok_or("too large")?];
+    r.next_frame(&mut buf).map_err(|e| format!("unreadable ({e})"))?;
+    let px: Vec<[u8; 4]> = buf.chunks_exact(4).map(|p| [p[0], p[1], p[2], p[3]]).collect();
+    for (k, p) in px.iter().enumerate() {
+        let (x, y) = (k as u32 % w, k as u32 / w);
+        match p[3] {
+            0 => {}
+            255 if palette.colours.iter().any(|c| c.rgb == [p[0], p[1], p[2]]) => {}
+            255 => return Err(format!("pixel ({x}, {y}) #{:02x}{:02x}{:02x} is not in the palette", p[0], p[1], p[2])),
+            a => return Err(format!("pixel ({x}, {y}) is partly see-through (alpha {a}), a model's pixels are 255 or 0")),
+        }
+    }
+    Ok(Painting { w, h, px })
+}
+
 /// A part's faces: hidden ones (against a voxel of the part) dropped, flat runs of one colour merged.
 pub fn mesh(part: &Part) -> Vec<Quad> {
     let s = part.size.map(|v| v as i32);
@@ -755,9 +915,78 @@ key = [
         near(at(&m, Some("work"), 0.0, 1, Vec3::ZERO), Vec3::new(2.0, 3.0, 0.0));
     }
 
+
+    fn boxed(boxes: Vec<Bx>) -> Model {
+        let text = "colours = [\"stone\"]\n[[part]]\nname = \"p\"\nbox = [1, 1, 1]\nvoxels = \".\"\n";
+        let mut m = Model::parse("t", text, &palette()).unwrap();
+        m.parts[0].boxes = boxes;
+        m
+    }
+
+    /// ADR 0081: a box's six faces look outwards and cover it; a plane has two faces back to back on one rectangle;
+    /// the net lays the faces out from `uv`.
+    #[test]
+    fn a_box_has_six_faces_looking_out_and_a_plane_two() {
+        let m = boxed(vec![Bx { at: [4.0, 0.0, 8.0], size: [8, 4, 2], turn: [0.0; 3], uv: [10, 20] }]);
+        let f = m.box_faces();
+        assert_eq!(f.len(), 6);
+        let mid = Vec3::new(8.0, 2.0, 9.0) / 4.0; // pixels to voxels
+        for x in &f {
+            let n = x.ev.cross(x.eu);
+            let c = x.o + 0.5 * (x.eu + x.ev);
+            assert!(n.dot(c - mid) > 0.0, "{x:?} looks out");
+            assert_eq!([x.eu.length() * 4.0, x.ev.length() * 4.0].map(|v| v.round() as u32), [x.rect[2], x.rect[3]], "{x:?}");
+        }
+        // the net: top at (uv.x + sz, uv.y), front (+z) at (uv.x + sz, uv.y + sz), 2 (sz + sx) wide, sz + sy high
+        let rects: Vec<_> = f.iter().map(|x| x.rect).collect();
+        assert!(rects.contains(&[12, 20, 8, 2]) && rects.contains(&[12, 22, 8, 4]));
+        assert_eq!(rects.iter().map(|r| r[0] + r[2]).max(), Some(10 + 2 * (8 + 2)));
+        assert_eq!(rects.iter().map(|r| r[1] + r[3]).max(), Some(20 + 2 + 4));
+        // a plane: two faces, opposite, on the same rectangle
+        let p = boxed(vec![Bx { at: [0.0; 3], size: [8, 8, 0], turn: [0.0; 3], uv: [0, 0] }]).box_faces();
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[0].rect, p[1].rect);
+        assert!(p[0].ev.cross(p[0].eu).dot(p[1].ev.cross(p[1].eu)) < 0.0);
+        // a turn about its middle keeps the middle
+        let t = boxed(vec![Bx { at: [0.0; 3], size: [4, 4, 4], turn: [0.0, 90.0, 0.0], uv: [0, 0] }]).box_faces();
+        let centre = t.iter().map(|x| x.o + 0.5 * (x.eu + x.ev)).sum::<Vec3>() / 6.0;
+        assert!((centre - Vec3::splat(0.5)).length() < 1e-4, "{centre}");
+    }
+
+    /// ADR 0081: a painting holds palette colours, empty or whole pixels, at most MAX_PAINT a side; a box's faces lie
+    /// inside it; a box with two thin axes, or too many boxes, is refused by name.
+    #[test]
+    fn a_painting_and_its_boxes_are_held_to_the_rules() {
+        let pal = palette();
+        let png = |w: u32, h: u32, px: [u8; 4]| {
+            let mut out = Vec::new();
+            let mut e = png::Encoder::new(&mut out, w, h);
+            e.set_color(png::ColorType::Rgba);
+            e.set_depth(png::BitDepth::Eight);
+            e.write_header().unwrap().write_image_data(&px.repeat((w * h) as usize)).unwrap();
+            out
+        };
+        let ok = painting(&png(32, 16, [0x80, 0x80, 0x80, 255]), &pal).unwrap();
+        assert_eq!((ok.w, ok.h, ok.px.len()), (32, 16, 512));
+        assert!(painting(&png(32, 16, [0, 0, 0, 0]), &pal).is_ok(), "empty pixels");
+        assert!(painting(&png(32, 16, [1, 2, 3, 255]), &pal).unwrap_err().contains("not in the palette"));
+        assert!(painting(&png(32, 16, [0x80, 0x80, 0x80, 128]), &pal).unwrap_err().contains("partly"));
+        assert!(painting(&png(256, 16, [0x80, 0x80, 0x80, 255]), &pal).is_err(), "too wide");
+        let m = boxed(vec![Bx { at: [0.0; 3], size: [8, 4, 2], turn: [0.0; 3], uv: [0, 0] }]);
+        assert!(m.check_painting(&ok).is_ok());
+        let m = boxed(vec![Bx { at: [0.0; 3], size: [8, 4, 2], turn: [0.0; 3], uv: [20, 0] }]);
+        assert!(m.check_painting(&ok).unwrap_err().contains("outside"));
+        let thin = "colours = [\"stone\"]\n[[part]]\nname = \"p\"\nbox = [1, 1, 1]\nvoxels = \".\"\n[[part.boxes]]\nat = [0, 0, 0]\nsize = [4, 0, 0]\nuv = [0, 0]\n";
+        assert!(Model::parse("t", thin, &pal).unwrap_err().contains("thin"));
+        let one = thin.replace("size = [4, 0, 0]", "size = [4, 4, 0]");
+        let m = Model::parse("t", &one, &pal).unwrap();
+        assert_eq!(m.parts[0].boxes.len(), 1);
+        assert_eq!(Model::parse("t", &m.write(), &pal).unwrap(), m, "a box part writes back");
+    }
+
     #[test]
     fn the_mesher_drops_hidden_faces_and_merges_flat_runs() {
-        let part = |size: [u32; 3], cells: Vec<u8>| Part { name: "p".into(), parent: String::new(), at: [0; 3], pivot: [0.0; 3], size, voxels: String::new(), cells };
+        let part = |size: [u32; 3], cells: Vec<u8>| Part { name: "p".into(), parent: String::new(), at: [0; 3], pivot: [0.0; 3], size, voxels: String::new(), turn: [0.0; 3], boxes: vec![], cells };
         assert_eq!(mesh(&part([1, 1, 1], vec![1])).len(), 6);
         // a bar of one colour: six faces; of two colours: the four long sides split in two
         assert_eq!(mesh(&part([2, 1, 1], vec![1, 1])).len(), 6);

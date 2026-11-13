@@ -60,7 +60,8 @@ pub fn decode(bytes: &[u8], see: See) -> Result<Vec<Pixels>, String> {
     let mut buf = vec![0; r.output_buffer_size().ok_or("too large")?];
     r.next_frame(&mut buf).map_err(|e| format!("unreadable ({e})"))?;
     let empty_ok = see == See::Cutout;
-    if let Some(p) = buf.chunks_exact(4).position(|p| p[3] != 255 && !(empty_ok && p[3] == 0)) {
+    // glass takes any alpha (ADR 0081)
+    if let Some(p) = buf.chunks_exact(4).position(|p| p[3] != 255 && !(empty_ok && p[3] == 0) && see != See::Glass) {
         let (x, y) = (p as u32 % w, p as u32 / w);
         return Err(if empty_ok { format!("pixel ({x}, {y}) is partly see-through (alpha {}), a cutout block's pixels are 255 or 0", buf[p * 4 + 3]) } else { format!("pixel ({x}, {y}) is not opaque") });
     }
@@ -223,6 +224,9 @@ mod tests {
         assert_eq!((v[0][0][3], v[0][1][3]), (0, 255), "the alpha byte is kept");
         let half = rgba(16, 16, |x, y| [9, 9, 9, if (x, y) == (3, 2) { 128 } else { 255 }]);
         assert!(decode(&half, See::Cutout).unwrap_err().contains("pixel (3, 2) is partly see-through (alpha 128)"));
+        // glass takes any alpha (ADR 0081)
+        assert_eq!(decode(&half, See::Glass).unwrap()[0][2 * 16 + 3][3], 128);
+        assert!(decode(&holed, See::Glass).is_ok());
         // the mean leaves the empty pixels out
         let f = face(vec![std::array::from_fn(|k| if k % 2 == 0 { [0, 0, 0, 0] } else { [255, 0, 0, 255] })]);
         assert_eq!(f.mean, [1.0, 0.0, 0.0]);

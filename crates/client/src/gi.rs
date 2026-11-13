@@ -25,6 +25,9 @@ struct Post {
     /// fades into it, per metre (w); and how much stronger the bounce is drawn (x), the camera's body (w).
     air: [f32; 4],
     amb: [f32; 4],
+    /// The clouds' (ADR 0076, post.wgsl `Post`): the planet's centre and frame, the sun, its light, the sky's
+    /// light, `Globals::cloud`.
+    clouds: [[f32; 4]; 8],
 }
 
 pub struct Gi {
@@ -35,6 +38,7 @@ pub struct Gi {
     temporal: wgpu::ComputePipeline,
     atrous: wgpu::ComputePipeline,
     composite: wgpu::RenderPipeline,
+    clouds: wgpu::RenderPipeline,
     trace0: wgpu::BindGroup,
     /// Per frame parity: the trace's group 1, the temporal pass, the three smoothing passes, the composite.
     trace1: [wgpu::BindGroup; 2],
@@ -52,7 +56,8 @@ impl Gi {
     pub fn new(
         device: &wgpu::Device,
         shader: &wgpu::ShaderModule,
-        shared: [wgpu::BindingResource; 8],
+        shared: [wgpu::BindingResource; 10],
+        sky: (&wgpu::TextureView, &wgpu::Sampler),
         screen: wgpu::TextureFormat,
         w: u32,
         h: u32,
@@ -94,7 +99,7 @@ impl Gi {
             compilation_options: Default::default(),
             cache: None,
         });
-        let [r0, r1, r2, r3, r5, r8, r9, r11] = shared;
+        let [r0, r1, r2, r3, r5, r8, r9, r11, r14, r15] = shared;
         let trace0 = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &trace.get_bind_group_layout(0),
@@ -108,6 +113,9 @@ impl Gi {
                 wgpu::BindGroupEntry { binding: 9, resource: r9 },
                 // the painted faces: a ray through a cutout block reads its texel (ADR 0069)
                 wgpu::BindGroupEntry { binding: 11, resource: r11 },
+                // the clouds' map: their shadow where a bounce ray lands (ADR 0076)
+                wgpu::BindGroupEntry { binding: 14, resource: r14 },
+                wgpu::BindGroupEntry { binding: 15, resource: r15 },
             ],
         });
         fn view(v: &wgpu::TextureView) -> wgpu::BindingResource<'_> {
@@ -127,7 +135,7 @@ impl Gi {
 
         let post = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("post"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("post.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(concat!(include_str!("post.wgsl"), include_str!("clouds.wgsl")).into()),
         });
         let texture = |binding, visibility| wgpu::BindGroupLayoutEntry {
             binding,
@@ -233,6 +241,13 @@ impl Gi {
                 texture(6, fs),
                 texture(7, fs),
                 texture(8, fs),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 9,
+                    visibility: fs,
+                    ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2Array, multisampled: false },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry { binding: 10, visibility: fs, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
             ],
         });
         // the full-resolution G-buffer of the frame's parity guides the upsampling
@@ -246,6 +261,8 @@ impl Gi {
                     wgpu::BindGroupEntry { binding: 6, resource: view(&direct) },
                     wgpu::BindGroupEntry { binding: 7, resource: view(&albedo) },
                     wgpu::BindGroupEntry { binding: 8, resource: view(&a) },
+                    wgpu::BindGroupEntry { binding: 9, resource: view(sky.0) },
+                    wgpu::BindGroupEntry { binding: 10, resource: wgpu::BindingResource::Sampler(sky.1) },
                 ],
             })
         });
@@ -272,7 +289,30 @@ impl Gi {
             multiview_mask: None,
             cache: None,
         });
-        Gi { direct, albedo, gbuf, trace, temporal, atrous, composite, trace0, trace1, passes, comp, ubufs, prev: None, frame: 0, size: (w, h) }
+        // the clouds over it all, premultiplied (post.wgsl fs_clouds)
+        let clouds = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("clouds"),
+            layout: Some(&clayout),
+            vertex: wgpu::VertexState { module: &post, entry_point: Some("vs_composite"), buffers: &[], compilation_options: Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &post,
+                entry_point: Some("fs_clouds"),
+                targets: &[Some(wgpu::ColorTargetState { format: screen, blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })],
+                compilation_options: Default::default(),
+            }),
+            primitive: Default::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        Gi { direct, albedo, gbuf, trace, temporal, atrous, composite, clouds, trace0, trace1, passes, comp, ubufs, prev: None, frame: 0, size: (w, h) }
     }
 
     /// The terrain pass's targets this frame, in `TARGETS` order.
@@ -296,7 +336,7 @@ impl Gi {
     /// After the terrain pass: trace, gather over frames, smooth. `cam` is the camera in frame `cf`'s
     /// coordinates; a change of frame or a jump drops the history. `still` averages without a limit.
     /// `stamp(enc, k)` writes the timer after the trace (0) and after `temporal` (1) (ADR 0025).
-    pub fn record(&mut self, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, vp: Mat4, cam: DVec3, cf: usize, still: bool, tune: (bool, [f32; 4], [f32; 4], [f32; 4]), stamp: &mut dyn FnMut(&mut wgpu::CommandEncoder, usize)) {
+    pub fn record(&mut self, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, vp: Mat4, cam: DVec3, cf: usize, still: bool, tune: (bool, [f32; 4], [f32; 4], [f32; 4]), clouds: [[f32; 4]; 8], stamp: &mut dyn FnMut(&mut wgpu::CommandEncoder, usize)) {
         let p = (self.frame % 2) as usize;
         let (prev_vp, delta, reset) = match self.prev {
             Some((pvp, pcam, pcf)) if pcf == cf && (cam - pcam).length() < 20.0 => (pvp, (cam - pcam).as_vec3(), 0.0),
@@ -322,6 +362,7 @@ impl Gi {
                 tune: tune.1,
                 air: tune.2,
                 amb: tune.3,
+                clouds,
             };
             queue.write_buffer(u, 0, bytemuck::bytes_of(&post));
         }
@@ -362,6 +403,13 @@ impl Gi {
     pub fn composite<'a>(&'a self, rp: &mut wgpu::RenderPass<'a>) {
         rp.set_pipeline(&self.composite);
         // record() has counted this frame already
+        rp.set_bind_group(0, &self.comp[((self.frame + 1) % 2) as usize], &[]);
+        rp.draw(0..3, 0..1);
+    }
+
+    /// The clouds over the screen, after the water (ADR 0076); none when the frame has none (`Post::clouds`).
+    pub fn clouds<'a>(&'a self, rp: &mut wgpu::RenderPass<'a>) {
+        rp.set_pipeline(&self.clouds);
         rp.set_bind_group(0, &self.comp[((self.frame + 1) % 2) as usize], &[]);
         rp.draw(0..3, 0..1);
     }
