@@ -871,6 +871,17 @@ fn texel_a(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> ve
             c = vec4f(c.rgb * 0.3, c.a);
         }
     }
+    // a bedding plane across a side face (bits 24-31: its texel row at the face's low end + 8, the rows it climbs to
+    // the high end + 4 in the top three; `crack::bed`): neighbouring faces share their edges' rows, so the line runs
+    // on along the wall and tilts with the fold
+    let bd = mat >> 24u;
+    if (bd != 0u && dir < 4u) {
+        let along = (f32(select(ti.x, ti.y, dir / 2u == 1u)) + 0.5) / n;
+        let row = floor(f32(i32(bd & 31u) - 8) + f32(i32(bd >> 5u) - 4) * along + 0.5);
+        if (floor(hgt * n) == row) {
+            c = vec4f(c.rgb * 0.3, c.a);
+        }
+    }
     // a block a season paints (bit 9 of its size, `looks_of`): the two nearest seasons' rows, each its paint of
     // this face or else the look above, mixed as look_in mixes; a row without paint is the summer look's face,
     // so a grass side a season does not paint stays its side block's

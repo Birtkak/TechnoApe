@@ -430,7 +430,7 @@ mod tests {
     fn rock_and_ore_dig_into_rubble_and_stack_by_16() {
         let rocks = crate::rock::ROCKS.provinces.iter().flat_map(|p| p.layers.iter().map(|l| l.0));
         let ores = crate::ore::MINERALS.kinds.iter().map(|k| k.block);
-        let luna = ["anorthosite", "mare basalt", "iron-nickel", "kreep", "stone"].map(|n| BLOCKS.id(n));
+        let luna = ["anorthosite", "mare basalt", "iron-nickel", "kreep", "stone", "iron-stained rock", "copper-stained rock", "quartz-veined rock", "greisen", "bleached rock"].map(|n| BLOCKS.id(n));
         for id in rocks.chain(ores).chain(luna) {
             let d = BLOCKS.get(id).unwrap();
             assert_eq!(d.stack, 16, "{}", d.name);

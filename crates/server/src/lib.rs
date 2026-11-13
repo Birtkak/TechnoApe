@@ -1473,9 +1473,16 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
     /// under it); sand only buries. A block falls through a head once, so it hits once.
     fn rock_hits(&mut self, moves: &[(Block, u16)]) {
         let mut deaths = Vec::new();
-        for &(b, m) in moves.iter().filter(|(_, m)| BLOCKS.get(*m).is_some_and(|d| d.rubble_of.is_some())) {
-            for c in self.clients.iter_mut().filter(|c| !c.creative && c.vitals.dead.is_none()) {
-                let eye = self.world.block_at(c.phys.pos + phys::up(&self.world, c.phys.pos) * phys::EYE);
+        let rocks: Vec<(Block, u16)> = moves.iter().copied().filter(|(_, m)| BLOCKS.get(*m).is_some_and(|d| d.rubble_of.is_some())).collect();
+        if rocks.is_empty() {
+            return;
+        }
+        let world = &self.world;
+        let mut heads: Vec<(Block, &mut Client)> = self.clients.iter_mut().filter(|c| !c.creative && c.vitals.dead.is_none())
+            .map(|c| (world.block_at(c.phys.pos + phys::up(world, c.phys.pos) * phys::EYE), c)).collect();
+        for &(b, m) in &rocks {
+            for (eye, c) in heads.iter_mut() {
+                let eye = *eye;
                 let name = if c.player.name.is_empty() { "?" } else { c.player.name.as_str() };
                 if eye == b && c.vitals.hurt(ROCK_HIT, || format!("{name} was hit by falling {}", BLOCKS.get(m).map_or("rock", |d| d.name.as_str()))) {
                     deaths.extend(c.vitals.dead.clone());
@@ -3163,9 +3170,9 @@ mod tests {
             s.tick();
             assert!(drain(l).contains(&ToClient::Done { seq, ok: true }), "dug {b:?}");
         };
-        let reach = |b: &&Block| s.world.block_centre(**b).distance(pole) < 3.5 && b.pos.z == under.pos.z - 1;
-        let on = *near.iter().filter(reach).find(|b| engine::crack::of(&s.world, **b) != 0).expect("a joint near");
-        let off = *near.iter().filter(reach).find(|b| engine::crack::of(&s.world, **b) == 0).expect("solid rock near");
+        let reach = |b: &&Block| s.world.block_centre(**b).distance(pole) < 6.0 && b.pos.z == under.pos.z - 1;
+        let on = *near.iter().filter(reach).find(|b| engine::crack::of(&s.world, **b) & engine::crack::HIT != 0).expect("a joint near");
+        let off = *near.iter().filter(reach).find(|b| engine::crack::of(&s.world, **b) & engine::crack::HIT == 0).expect("solid rock near");
         let loose = engine::crack::drop(&s.world, on, granite);
         assert!((2..=5).contains(&loose.len()));
         dig(&mut s, on);

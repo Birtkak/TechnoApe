@@ -56,7 +56,7 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
 
 /// `mesh_cut`, and `cracks` (the cells' `crack::faces`, padded as `cells`) draws each crack along the edges of the
 /// faces beside it: those faces never merge.
-pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: bool, cracks: Option<&[u8; P * P * P]>) -> Mesh {
+pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: bool, cracks: Option<&[[u8; 5]; P * P * P]>) -> Mesh {
     // cols[a][v*P+u] = bits along axis a; u = (a+1)%3, v = (a+2)%3. opq: the same of the cells that hide what is
     // behind them, and gls of glass, made only for a chunk with glass or (fancy) cutout blocks
     let mut cols = [[0u64; P * P]; 3];
@@ -185,15 +185,18 @@ pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glas
             };
             // the face's crack edges: its cell's crack faces across the plane's two axes, u-, u+, v-, v+
             let (au, av) = ((a + 1) % 3, (a + 2) % 3);
+            // and, on a side face, the bedding line across it (bits 24-31, `crack::bed`)
             let edges = |u: usize, v: usize, d: usize| -> u32 {
                 let Some(k) = cracks else { return 0 };
                 let (u, v, d) = (u + 1, v + 1, d + 1);
-                let f = k[match a {
+                let k = &k[match a {
                     0 => pidx(d, u, v),
                     1 => pidx(v, d, u),
                     _ => pidx(u, v, d),
-                }] as u32;
-                (f >> (2 * au + 1) & 1) | (f >> (2 * au) & 1) << 1 | (f >> (2 * av + 1) & 1) << 2 | (f >> (2 * av) & 1) << 3
+                }];
+                let f = k[0] as u32;
+                let bed = if dir < 4 { k[1 + dir] as u32 } else { 0 };
+                (f >> (2 * au + 1) & 1) | (f >> (2 * au) & 1) << 1 | (f >> (2 * av + 1) & 1) << 2 | (f >> (2 * av) & 1) << 3 | bed << 4
             };
             let joins_t: &[u64; 1024] = &JOINS;
             // the culling rule above, for one cell: it hides a face behind it (glass and fancy cutout blocks do not)
@@ -339,21 +342,28 @@ mod tests {
     #[test]
     fn a_crack_marks_the_edges_of_the_faces_beside_it_and_stops_their_merge() {
         let mut c = [0u16; P * P * P];
-        let mut k = [0u8; P * P * P];
+        let mut k = [[0u8; 5]; P * P * P];
         for x in 1..6 {
             c[pidx(x, 1, 1)] = 3;
         }
-        k[pidx(3, 1, 1)] = crate::crack::PL;
+        k[pidx(3, 1, 1)][0] = crate::crack::PL;
         let plain = mesh_cut(&c, 8, false, false);
         let m = mesh_cracked(&c, 8, false, false, Some(&k));
         let cracked: Vec<[u32; 2]> = m.quads.iter().copied().filter(|q| q[1] >> 20 != 0).collect();
         assert_eq!(cracked.len(), 2, "{cracked:?}");
         for q in &cracked {
-            assert_eq!((q[1] >> 20, q[0] >> 28 & 7, q[0] >> 18 & 1023), (2, (q[0] >> 28 & 7), 0), "u+ only, one cell");
+            assert_eq!((q[1] >> 20, q[0] >> 18 & 1023), (2, 0), "u+ only, one cell");
             assert!([2, 3].contains(&(q[0] >> 28 & 7)), "the y faces");
         }
         assert_eq!(m.quads.len(), plain.quads.len() + 4, "each y face split in three");
         assert_eq!(mesh_cracked(&c, 8, false, false, None).quads, plain.quads);
+        // a bedding line on the cell's +j face rides on bits 24-31 of that face alone, and stops its merge too
+        let mut k = [[0u8; 5]; P * P * P];
+        k[pidx(3, 1, 1)][1 + 2] = 0xa5;
+        let m = mesh_cracked(&c, 8, false, false, Some(&k));
+        let lined: Vec<[u32; 2]> = m.quads.iter().copied().filter(|q| q[1] >> 20 != 0).collect();
+        assert_eq!(lined.len(), 1, "{lined:?}");
+        assert_eq!((lined[0][1] >> 24, lined[0][1] >> 20 & 15, lined[0][0] >> 28 & 7, lined[0][0] >> 18 & 1023), (0xa5, 0, 2, 0));
     }
 
     /// ADR 0085: a joining block's face carries which of its four neighbours in the face's plane are the same

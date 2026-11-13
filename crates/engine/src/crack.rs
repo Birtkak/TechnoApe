@@ -15,6 +15,11 @@ pub const MJ: u8 = 8;
 pub const PL: u8 = 16;
 pub const ML: u8 = 32;
 
+/// The faces that make a dig a good hit: a plane through the cell (a bedding plane across its span, a joint on its +i
+/// or +j side), one side of each plane only, so a dig on a crack is about one in `bedding` metres or two in `joints`
+/// (the review: with both sides nearly every dig in shale and basalt was a good hit).
+pub const HIT: u8 = PL | PI | PJ;
+
 /// Blocks a good hit drops at most, the dug one with them (mining.md: 3 to 6).
 pub const DROP_MAX: usize = 6;
 /// Cells a drop's search looks at at most (spike 3: each is a block and a crack lookup of the generated ground).
@@ -28,9 +33,17 @@ fn mix(mut h: u64) -> u64 {
     h ^ (h >> 33)
 }
 
-/// Whether a joint plane runs between columns `k` and `k + 1` along an axis: about one in `n`.
+/// The columns and metres a joint plane's stretch runs along and up.
+const SEG: i32 = 16;
+const SEG_M: f32 = 8.0;
+const JOG_M: f32 = 3.0;
+
+/// Whether a joint plane runs between columns `k` and `k + 1` along an axis: one in every `n` columns, at a hashed
+/// place in each run of `n`, so joints are 1 to 2n - 1 apart and any face 2n columns wide shows one (the overseer: a
+/// granite tunnel must always have a joint to read).
 fn joint(seed: u64, face: u8, axis: u64, k: i32, n: u16) -> bool {
-    mix(seed ^ (face as u64) << 40 ^ axis << 36 ^ (k as u32 as u64)) % n as u64 == 0
+    let n = n as i32;
+    (mix(seed ^ (face as u64) << 40 ^ axis << 36 ^ (k.div_euclid(n) as u32 as u64)) % n as u64) as i32 == k.rem_euclid(n)
 }
 
 /// The faces of a cell of `block` that lie on a crack. `top`: the radius of the column's first rock layer (folded,
@@ -45,11 +58,37 @@ pub fn faces(block: u16, seed: u64, face: u8, i: i32, j: i32, top: f32, below: f
         f |= if k(hi) != k(lo) { PL } else { 0 } | if k(lo) != k(below) { ML } else { 0 };
     }
     if d.joints > 0 {
+        // a joint runs `SEG` columns along and `SEG_M` metres up, then the next stretch has its own: a few joints
+        // that end, not a grid across the whole face (the review)
         let n = d.joints;
-        f |= if joint(seed, face, 0, i, n) { PI } else { 0 } | if joint(seed, face, 0, i - 1, n) { MI } else { 0 };
-        f |= if joint(seed, face, 1, j, n) { PJ } else { 0 } | if joint(seed, face, 1, j - 1, n) { MJ } else { 0 };
+        let up = (lo / SEG_M).floor() as i32 as u32 as u64;
+        let (si, sj) = (seed ^ mix(up << 32 ^ j.div_euclid(SEG) as u32 as u64), seed ^ mix(1 << 63 ^ up << 32 ^ i.div_euclid(SEG) as u32 as u64));
+        // every `JOG_M` metres up a joint steps a column or not, so it climbs crooked
+        let band = (lo / JOG_M).floor() as i32 as u32 as u64;
+        let (ji, jj) = ((mix(si ^ band) & 1) as i32, (mix(sj ^ band) & 1) as i32);
+        f |= if joint(si, face, 0, i - ji, n) { PI } else { 0 } | if joint(si, face, 0, i - 1 - ji, n) { MI } else { 0 };
+        f |= if joint(sj, face, 1, j - jj, n) { PJ } else { 0 } | if joint(sj, face, 1, j - 1 - jj, n) { MJ } else { 0 };
     }
     f
+}
+
+/// The bedding line across a side face of a cell of `block`: `ta`, `tb` the folded top (`Rock::top`) at the face's two
+/// vertical edges (its low and high end along the face), `lo`, `hi` the cell's bottom and top radii. 0 when no plane
+/// crosses the face; else `(h0 + 8) | (dh + 4) << 5`: the texel row (of 16, from the bottom) the plane lies in at the low
+/// end, and the rows it climbs to the high end. The plane is the one nearest the face's middle, so the faces beside it
+/// along a wall, which share its edges' tops, carry on the same line through the fold (the shader draws it).
+pub fn bed(block: u16, ta: f32, tb: f32, lo: f32, hi: f32) -> u8 {
+    let Some(s) = BLOCKS.get(block).map(|d| d.bedding).filter(|&s| s > 0.0) else { return 0 };
+    let n = ((0.5 * (ta + tb) - 0.5 * (lo + hi)) / s).round();
+    let row = |t: f32| ((t - n * s - lo) / (hi - lo) * 16.0).floor();
+    let (a, b) = (row(ta), row(tb));
+    if (a < 0.0 && b < 0.0) || (a > 15.0 && b > 15.0) {
+        return 0;
+    }
+    // shortcut: a fold steeper than 4 rows (1/4 m) a metre is cut to that and its line breaks at the face edge
+    let h0 = a.clamp(-7.0, 23.0);
+    let dh = (b - h0).clamp(-4.0, 3.0);
+    (h0 as i32 + 8) as u8 | ((dh as i32 + 4) as u8) << 5
 }
 
 /// `faces` of cell (i, j, l) of a body holding `block` there.
@@ -69,7 +108,7 @@ pub fn of(world: &World, b: Block) -> u8 {
 
 /// What the hashed joints mix in for a body. shortcut: its size and centre, not the world's seed (`Body` keeps none):
 /// every world of a planet size has the same joints; add the seed to `Body` when anyone notices
-fn salt(body: &Body) -> u64 {
+pub(crate) fn salt(body: &Body) -> u64 {
     body.n as u64 ^ body.centre.x.to_bits() ^ body.centre.z.to_bits().rotate_left(17)
 }
 
@@ -83,7 +122,7 @@ fn step(f: u8) -> IVec3 {
 /// breadth first in a fixed order within `SEARCH` cells (a good hit drops 3 to 6 in all, by a hash of the cell).
 pub fn drop(world: &World, b: Block, block: u16) -> Vec<Block> {
     let body = &world.bodies[b.body as usize];
-    let here = at(body, block, b.face, b.pos.x, b.pos.y, b.pos.z);
+    let here = at(body, block, b.face, b.pos.x, b.pos.y, b.pos.z) & HIT;
     if here == 0 || BLOCKS.get(block).is_none_or(|d| d.rubble.is_none()) {
         return Vec::new();
     }
@@ -138,10 +177,38 @@ mod tests {
         for i in 0..200 {
             let f = faces(granite, 7, 2, i, 5, 0.0, 0.0, 1.0, 2.0);
             assert_eq!(f & PI != 0, faces(granite, 7, 2, i + 1, 5, 0.0, 0.0, 1.0, 2.0) & MI != 0, "both sides of the plane");
-            assert_eq!(f & PI, faces(granite, 7, 2, i, 99, 0.0, 0.0, 1.0, 2.0) & PI, "a plane, the same on every j");
+            assert_eq!(f & PI, faces(granite, 7, 2, i, 15, 0.0, 0.0, 1.0, 2.0) & PI, "a plane along its stretch of j");
+            assert_eq!(f & PI, faces(granite, 7, 2, i, 5, 0.0, 0.0, 2.0, 3.0) & PI, "and up its band");
         }
+        // any 2n columns hold a joint: a face of 8 blocks in granite (n = 4) always shows one
+        for i in 0..200 {
+            assert!((i..i + 2 * n as i32).any(|i| faces(granite, 7, 2, i, 5, 0.0, 0.0, 1.0, 2.0) & PI != 0), "a joint in {i}..+{}", 2 * n);
+        }
+        let other = (0..200).filter(|&i| faces(granite, 7, 2, i, 5, 0.0, 0.0, 1.0, 2.0) & PI != faces(granite, 7, 2, i, 99, 0.0, 0.0, 1.0, 2.0) & PI).count();
+        assert!(other > 10, "another stretch has its own joints: {other} of 200 differ");
         assert_eq!(faces(stone, 7, 2, 0, 0, 0.0, 0.0, 1.0, 2.0), 0, "plain stone has no cracks");
         assert_eq!(faces(BLOCKS.id("granite rubble"), 7, 2, 0, 0, 0.0, 0.0, 1.0, 2.0), 0, "nor rubble");
+    }
+
+    /// The overseer's look (ADR 0094): a bedding line runs on through the faces beside it and climbs with the fold.
+    #[test]
+    fn a_bedding_line_runs_on_across_faces_and_follows_the_fold() {
+        let lime = BLOCKS.id("limestone");
+        let s = BLOCKS.get(lime).unwrap().bedding;
+        let line = |b: u8| (b as i32 & 31) - 8;
+        let climb = |b: u8| (b as i32 >> 5) - 4;
+        // level layers: a plane 0.25 m over the cell's foot is row 4 at both ends
+        let top = 10.0 * s + 0.25;
+        let b = bed(lime, top, top, 0.0, 1.0);
+        assert_eq!((line(b), climb(b)), (4, 0), "{b}");
+        // a fold rising 1/8 m a metre: the line climbs 2 rows across a face, and the next face starts where it ended
+        let (t0, t1, t2) = (top, top + 0.125, top + 0.25);
+        let (b0, b1) = (bed(lime, t0, t1, 0.0, 1.0), bed(lime, t1, t2, 0.0, 1.0));
+        assert_eq!((line(b0), climb(b0)), (4, 2));
+        assert_eq!(line(b1), line(b0) + climb(b0), "one line, not bricks");
+        // no plane in the cell: nothing; and rock with no bedding draws none
+        assert_eq!(bed(lime, top + s / 2.0, top + s / 2.0, 0.0, 1.0), 0);
+        assert_eq!(bed(BLOCKS.id("granite"), top, top, 0.0, 1.0), 0);
     }
 
     /// Spike 3 of mining.md (ADR 0094): the drop's search over generated rock on the 4 km planet, where every
@@ -159,7 +226,7 @@ mod tests {
                     for z in (top - 60..top - 6).step_by(3) {
                         let b = Block { body: 0, face, pos: IVec3::new(i, j, z) };
                         let m = w.block(b);
-                        if of(&w, b) != 0 {
+                        if of(&w, b) & HIT != 0 {
                             on.push((b, m));
                             if on.len() == 3000 {
                                 break 'find;
@@ -206,7 +273,7 @@ mod tests {
         for di in -4..=4 {
             for dj in -4..=4 {
                 let b = cell(di, dj, 1);
-                let here = of(&w, b);
+                let here = of(&w, b) & HIT;
                 let got = drop(&w, b, granite);
                 if here == 0 {
                     assert!(got.is_empty());
@@ -226,7 +293,7 @@ mod tests {
         }
         assert!(good > 0 && bad > 0, "{good} on a crack, {bad} off");
         // another rock in the way stops it
-        let b = (-4..=4).flat_map(|di| (-4..=4).map(move |dj| (di, dj))).map(|(di, dj)| cell(di, dj, 1)).find(|b| of(&w, *b) != 0).unwrap();
+        let b = (-4..=4).flat_map(|di| (-4..=4).map(move |dj| (di, dj))).map(|(di, dj)| cell(di, dj, 1)).find(|b| of(&w, *b) & HIT != 0).unwrap();
         for c in drop(&w, b, granite) {
             w.set_block(c, AIR);
         }
