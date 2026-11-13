@@ -111,7 +111,7 @@ struct VOut {
     @location(4) normal: vec3f,
     @location(5) rel: vec3f, // from the camera
     @location(6) ao: f32,    // open 1 .. shut in
-    @location(7) plane: vec2f, // a fluff plane's own 0..1 face units across it (ADR 0090)
+    @location(7) plane: vec3f, // a fluff card's point from its face's middle in face units, z its overhang (ADR 0099)
 };
 
 fn axis(i: u32) -> vec3f { return vec3f(f32(i == 0u), f32(i == 1u), f32(i == 2u)); }
@@ -170,9 +170,9 @@ fn vs_cut(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> V
     return terrain_vertex(vi, ii, 1u);
 }
 
-// the crowns' fluff (ADR 0090): each cutout face that opens on air (bit 25 of the quad, mesh.rs) again, a plane
-// larger than the face and stood out from it, hinged on the side its wood is (bits 20-22), so a crown is a soft
-// mass and a bare one's twigs fan out of it from the wood; turned per corner by a hash of the place. Not traced.
+// the crowns' fluff (ADR 0090, 0099): each cutout face that opens on air (bit 25 of the quad, mesh.rs) again, a
+// card a little larger than the face, lying close over it a hand out and barely tilted, whose leaves spill past
+// the face's edges in lobes (`fluff_in`), so a crown's edges and corners are soft, never a sheet. Not traced.
 @vertex
 fn vs_fluff(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
     return terrain_vertex(vi, ii, 2u);
@@ -225,70 +225,50 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
         var reach = 0.5;
         if (mode == 2u) {
             let at0 = quad_corner(q, 0u, 0.0);
-            let root = (q.y >> 20u) & 7u;
             let cell0 = vec3i(floor(at0)) + c.base;
-            let h = hash(cell0 + vec3i(7, 13, i32(dir) * 31 + 5));
-            // the block's fluff (`Fluff::packed`, blocks.rs): size, push, droop, long, dense, six bits each
+            // the block's fluff (`Fluff::packed`, blocks.rs): size, push, droop, long (unread since ADR 0099), dense
             let fw = looks[q.y & 255u].fluff;
             let size = f32(fw & 63u) * 0.05;
             let fpush = f32((fw >> 6u) & 63u) * 0.025;
             let droop = f32((fw >> 12u) & 63u) * 0.025;
-            let long = 1.0 + f32((fw >> 18u) & 63u) * 0.05;
             let dense = f32((fw >> 24u) & 63u) / 63.0;
-            // clumps: a smooth field of the place, about 2.5 m across, pushes some faces far out and larger, leaves
-            // others on the face or with no plane at all, so a crown bulges in lobes with dents, never a ball or a box
+            // clumps: a smooth field of the place, about 2.5 m across, spills some faces' leaves further and others
+            // less, so a crown bulges in lobes with dents, never a ball or a box; `dense` keeps that share of cards
             let clump = smoothstep(0.3, 0.7, vnoise(vec3f(cell0) * 0.4 + f32(c.info & 7u) * 17.0));
-            if (size == 0.0 || hash(cell0 + vec3i(29, 31, i32(dir) * 31 + 7)) >= dense * smoothstep(0.0, 0.3, clump)) {
+            if (size == 0.0 || hash(cell0 + vec3i(29, 31, i32(dir) * 31 + 7)) >= dense) {
                 o.clip = vec4f(0.0, 0.0, 0.0, 1.0);
                 return o;
             }
-            // per face: the plane tilted 25-35 degrees off its face about a line turned by the hash, so none lies
-            // edge-on along an axis (thin rods seen from below) and neighbours differ
+            // a card over the face (ADR 0099): `size` sets how far its leaves spill past the face's edges (0.34 m at
+            // the broadleaf's 1.7), the clump field more or less; a hand out (`push`), tilted only 4-12 degrees
+            // about a line turned by the hash so neighbours differ and none is seen edge-on as a sheet
             let hf = hash(cell0 + vec3i(17, 3, i32(dir) * 31 + 11));
             let hg = hash(cell0 + vec3i(5, 23, i32(dir) * 31 + 2));
-            // a top face's plane steeper (45-60 degrees) and less far up: leaves rising out of the plant, not a
-            // slab floating over a shrub or a reed bed
             let top = dir == 4u;
-            let slope = tan(radians(select(25.0 + 10.0 * hg, 45.0 + 15.0 * hg, top)));
-            let spread = size * mix(0.65, 1.4, clump);
             shade *= mix(0.55, 1.0, clump);
             sun_face = select(1.0, 0.72, top);
-            var su = 0.5 + (f32(ku) - 0.5) * spread * long;
-            var sv = 0.5 + (f32(kv) - 0.5) * spread;
-            let phi = hf * 6.2831853;
-            // the round mask in the units of a 1.7 plane, whatever its size: an ellipse along a long one
-            var mask = 0.5 + (vec2f(su, sv) - 0.5) * (1.7 / spread) / vec2f(long, 1.0);
-            var push = fpush * mix(0.0, 2.2, clump) * select(1.0, 0.35, top) + slope * ((su - 0.5) * cos(phi) + (sv - 0.5) * sin(phi)) + 0.06 * (h - 0.5);
-            // the corners stood further out (the tilt) hang more: the plane bends down away from the crown
-            var hang = max(push, 0.0);
             reach = 1.0;
-            if (root >= 1u && root <= 4u) {
-                // hinged on the wood's side: that edge on the face, the far one stood out (28 degrees at the
-                // broadleaf's push, steeper with less: a reed's blades near upright), `long` faces
-                // long (the painting tiles, never stretched), twisted a little about the hinge by the hash
-                let along_u = root < 3u;
-                let out = select(f32(select(kv, ku, along_u)), 1.0 - f32(select(kv, ku, along_u)), (root & 1u) == 0u);
-                // across the hinge as wide as any plane, unstretched
-                su = 0.5 + (f32(ku) - 0.5) * spread;
-                sv = 0.5 + (f32(kv) - 0.5) * spread;
-                let across = select(su, sv, along_u);
-                push = 0.02 + 0.53 * out * long * (fpush / 0.35) + 0.4 * (hg - 0.5) * (across - 0.5) + 0.06 * (h - 0.5);
-                // the round mask centred on the hinge and reaching past the far edge: the twigs whole at the wood,
-                // their tips ragged, not square
-                // (across it in the units of a 1.7 plane, as the others)
-                let mu = 0.5 + (f32(ku) - 0.5) * 1.7;
-                let mv = 0.5 + (f32(kv) - 0.5) * 1.7;
-                mask = select(vec2f(mu, 0.5 + 0.95 * out), vec2f(0.5 + 0.95 * out, mv), along_u);
-                let s = select(out * long, 1.0 - out * long, (root & 1u) == 0u);
-                if (along_u) { su = s; } else { sv = s; }
-                hang = out * long;
-                reach = 0.4 + out * long;
-            }
-            // the painting at its own size across the plane: 32 texels a metre, tiling past the face's edges
-            paint = at0 + axis((a + 1u) % 3u) * su + axis((a + 2u) % 3u) * sv;
-            o.plane = mask;
-            // its outer parts hang down by `droop` a metre out (up is the grid's z)
-            local = paint + axis(a) * select(push, -push, (dir & 1u) == 1u) - vec3f(0.0, 0.0, droop * hang);
+            // over and under a plant the card stays closer and smaller: one stood off and spilling read from the side
+            // as a lid on a shrub or a slab floating under a crown with the sky between; the side cards' lobes round
+            // its top and underside
+            let under = select(select(1.0, 0.5, top), 0.3, dir == 5u);
+            let over = 0.2 * size * mix(0.6, 1.4, clump) * under;
+            let su = f32(ku) * (1.0 + 2.0 * over) - over;
+            let sv = f32(kv) * (1.0 + 2.0 * over) - over;
+            let phi = hf * 6.2831853;
+            let slope = tan(radians(4.0 + 8.0 * hg));
+            // never behind the face: the tilt rises one side and the other stays a hand out
+            let push = max((0.03 + fpush * mix(0.1, 0.4, clump)) + slope * ((su - 0.5) * cos(phi) + (sv - 0.5) * sin(phi)), 0.03) * under;
+            // the painting at its own size across the card, shifted half a face so it does not repeat the face under
+            // it; one shift for every card, so the lobes' field (`fluff_in`, read at the painting's point) is one of the
+            // place and neighbouring cards agree at a shared edge; the mask's texels stay on the painting's grid
+            let shift = vec2f(0.5, 0.25);
+            let eu = axis((a + 1u) % 3u);
+            let ev = axis((a + 2u) % 3u);
+            paint = at0 + eu * (su + shift.x) + ev * (sv + shift.y);
+            o.plane = vec3f(su - 0.5, sv - 0.5, over);
+            // a side's card hangs a little by `droop` (up is the grid's z); a top's would sink into its face
+            local = at0 + eu * su + ev * sv + axis(a) * select(push, -push, (dir & 1u) == 1u) - vec3f(0.0, 0.0, select(droop, 0.0, a == 2u) * (push + over));
         }
         local += vec3f(sway(vec3f(c.base) + local, reach), 0.0);
     }
@@ -1239,11 +1219,18 @@ fn fs_cut_lit(i: VOut) -> GOut {
     return terrain_lit(i, terrain_texel(i).rgb);
 }
 
-// the fluff (`vs_fluff`): the painting at its own size across the larger plane, inside a ragged round of texels
+// the fluff (`vs_fluff`, ADR 0099): the card keeps the face (its corners rounded) and, past its edges, lobes of
+// leaves up to its overhang (`i.plane.z`) from a smooth field of the place about 0.3 m across, in whole texels with
+// a ragged rim, so a crown's outline is bumpy leaves, not a square
 fn fluff_in(i: VOut) -> bool {
-    let tx = (floor(i.plane * 32.0) + 0.5) / 32.0;
-    let h = hash(vec3i(floor(i.local * 32.0)) + chunks[i.ci].base * 32 + vec3i(3, 9, 27 + i32(i.dir)));
-    return length(tx - 0.5) < 0.64 + 0.26 * h;
+    let tx = (floor(i.plane.xy * 32.0) + 0.5) / 32.0;
+    let c = chunks[i.ci];
+    // in the chunk's own cells (a coarse level's are larger), as `terrain_texel`, so the field has no seam at its edge
+    let cell = vec3i(floor(i.local * 32.0)) + (c.base >> vec3u((c.info >> 3u) & 31u)) * 32;
+    let h = hash(cell + vec3i(3, 9, 27 + i32(i.dir)));
+    let out = length(max(abs(tx) - 0.38, vec2f(0.0))) - 0.12;
+    let lobe = vnoise(vec3f(cell) / 32.0 * 3.3 + vec3f(f32(i.dir & 6u) * 5.1));
+    return out < i.plane.z * smoothstep(0.25, 0.75, lobe) * 1.15 + 0.035 * (h - 0.5);
 }
 
 @fragment
