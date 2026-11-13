@@ -46,16 +46,18 @@ Option 2.
 - **Sizes:** where a tree's height falls in its row's range makes it small, medium or large (`Plant::size`). Its
   crown is 2, 1 or 0 blocks narrower than the row's radius, and at least 1.
 - **Shapes** (`data/biomes.toml` documents the keys):
-  - `round`: a trunk forks at `fork` of its height into `limbs` limbs.
-    - The limbs spread out under the crown to two thirds of its radius, where they show.
-    - On a crown of 3 or more, each limb then parts into three branches that reach the rim inside the leaves.
-    - The trunk goes on up the middle to two blocks under the top.
-    - The leaves are a lens `depth` thick each way, at most 0.7 of its radius (at least 1.5). So every size is
-      a dome no taller than wide.
-    - On a crown of 4 or more, the lens's skin leaves fall by the hash, but only where the cell a step in is the
-      core, so no leaf hangs alone.
-    - `thick`: a large tree stands on a 2 x 2 trunk.
-  - `flat`: the same with a flat pad (acacia).
+  - `round` (the developer's target picture, `out/flora-refs/6-leaf-block-target.png`):
+    - The crown is clumps of leaves, not one ball: a clump at the top and one at each branch's end, each 2 or
+      2.5 blocks across each way and 0.85 of that up and down, each its own length out and a block or two under
+      the top by the hash. So the crown is lobed and uneven with sky between its clumps.
+    - The trunk leans a block in two trees of three, up to the top clump. A large `thick` tree stands straight,
+      on 2 x 2 below its fork.
+    - At `fork` of its height, `limbs` limbs spread out under the crown to half its radius. On a crown of 3 or
+      more, each limb parts into two branches.
+    - On a crown of 4 or more, a clump's outer leaves fall by the hash, but only where the cell a step towards
+      its middle is core, so no leaf hangs alone.
+  - `flat` (acacia): a lens of leaves `depth` thick each way, at most 0.7 of its radius, over limbs that
+    spread to two thirds of its radius and part into three branches each.
   - `droop` (willow): an umbrella whose rim sags.
     - A wooden withe hangs from each limb's middle branch.
     - Strands of leaves, one block wide, hang on every other column each way of the rim beside a withe (a
@@ -83,10 +85,10 @@ Option 2.
   |---|---|---|---|---|
   | spruce | cone | 7–14 | 3 | bare 0.15 |
   | pine | cone | 8–16 | 2 | bare 0.55 |
-  | broadleaf | round | 5–9 | 4 | fork 0.4, limbs 3, depth 3.0 |
-  | oak | round | 5–10 | 6 | fork 0.35, limbs 4, depth 2.5, thick |
-  | birch | round | 7–13 | 3 | fork 0.45, limbs 3, depth 2.5 |
-  | jungle tree | round | 10–16 | 5 | fork 0.65, limbs 4, depth 2.0, thick |
+  | broadleaf | round | 5–9 | 4 | fork 0.4, limbs 3 |
+  | oak | round | 5–10 | 6 | fork 0.35, limbs 4, thick |
+  | birch | round | 7–13 | 4 | fork 0.45, limbs 3 |
+  | jungle tree | round | 10–16 | 5 | fork 0.65, limbs 4, thick |
   | acacia | flat | 5–8 | 5 | fork 0.55, limbs 2, depth 0.8 |
   | willow | droop | 6–10 | 5 | fork 0.55, limbs 4, depth 1.5, thick |
   | palm | palm | 5–10 | 3 | warm 15 C |

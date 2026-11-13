@@ -169,11 +169,19 @@ impl Plant {
         match self.shape {
             Shape::Column if self.leaves == 0 || r == 0 => wood(centre && z < h),
             Shape::Column => self.stalks(h, v, dx, dz, z),
-            // low and wide: one layer, the middle and most of its four sides, a corner only beside a side
+            // low, wide and lopsided: one layer; a clump of the middle, most of its four sides and a corner
+            // only beside a side, and on one side by the hash a second, smaller clump two out
             Shape::Bush => {
-                let side = |x: i32, y: i32| (x == 0) != (y == 0) && hash(v, x, y, 6) % 4 != 0;
-                let corner = dx != 0 && dz != 0 && hash(v, dx, dz, 6) % 2 == 0 && (side(dx, 0) || side(0, dz));
-                leaf(z == 0 && (centre || side(dx, dz) || corner))
+                let side = |x: i32, y: i32| (x == 0) != (y == 0) && x.abs() <= 1 && y.abs() <= 1 && hash(v, x, y, 6) % 4 != 0;
+                // never all four corners: one by the hash is always open, so no bush is a square
+                let open = [(1, 1), (-1, 1), (-1, -1), (1, -1)][(hash(v, 0, 0, 5) % 4) as usize];
+                let corner = dx.abs() == 1 && dz.abs() == 1 && (dx, dz) != open && hash(v, dx, dz, 6) % 2 == 0 && (side(dx, 0) || side(0, dz));
+                // the second clump: two out along an axis, and one beside it
+                let way = (hash(v, 0, 0, 7) % 4) as i32;
+                let (ax, az) = [(1, 0), (0, 1), (-1, 0), (0, -1)][way as usize];
+                let (u, w) = (dx * ax + dz * az, dx * az - dz * ax);
+                let second = r >= 2 && u == 2 && (w == 0 || (w.abs() == 1 && hash(v, dx, dz, 7) % 2 == 0)) && side(ax, az);
+                leaf(z == 0 && (centre || side(dx, dz) || corner || second))
             }
             Shape::Cone => self.tiers(h, v, dx, dz, z),
             Shape::Palm => {
@@ -329,10 +337,11 @@ impl Plant {
         for k in 0..n {
             let d = turn + k * 16 / n + (hash(v, k, 0, 3) % 3) as i32 - 1;
             for j in if two { [-1, 1].as_slice() } else { [0].as_slice() } {
-                let r = size(k * 2 + j);
+                let r = size(k * 2 + (j + 1) / 2);
                 let reach = (cr + 1.0 - r - 0.5 * (hash(v, k, *j, 10) % 2) as f32).max(1.0);
                 let (ex, ez) = at(d + j, reach);
-                let ze = (h - 2 - (hash(v, k, *j, 11) % 2) as i32).clamp(2, h - 1);
+                // never so low that its leaves reach a walker's head: its lowest leaf two over the ground
+                let ze = (h - 2 - (hash(v, k, *j, 11) % 2) as i32).max((0.85 * r).ceil() as i32 + 2).min(h - 1);
                 (clumps[nc], nc) = (([ex, ez, ze as f32], r), nc + 1);
             }
         }
@@ -501,8 +510,9 @@ pub fn parse(text: &str) -> Result<Rows, String> {
             return Err(format!("{who}: fork 0.1..0.9, limbs 1..6, bare 0..0.8, depth 0.5..4, warm -30..40 C"));
         }
         let forks = matches!(p.shape, Shape::Round | Shape::Flat | Shape::Droop);
-        if (!forks && (p.fork.is_some() || p.limbs.is_some() || p.depth.is_some() || p.thick)) || (p.shape != Shape::Cone && p.bare.is_some()) {
-            return Err(format!("{who}: fork, limbs, depth and thick are for round, flat and droop, bare for cone"));
+        let lens = matches!(p.shape, Shape::Flat | Shape::Droop);
+        if (!forks && (p.fork.is_some() || p.limbs.is_some() || p.thick)) || (!lens && p.depth.is_some()) || (p.shape != Shape::Cone && p.bare.is_some()) {
+            return Err(format!("{who}: fork, limbs and thick are for round, flat and droop, depth for flat and droop, bare for cone"));
         }
         // a forked tree needs room under its crown (its layers clamp to 1..h-1), and a 2 x 2 trunk a radius of 2
         if forks && (p.height[0] < 3 || (p.thick && p.radius < 2)) {
@@ -752,7 +762,14 @@ mod tests {
         for v in hashes() {
             let t = tree(shrub, shrub.height[1], v);
             assert!(t.keys().all(|k| k.2 == 0) && t.len() >= 2 && t.keys().any(|k| k.0 != 0 || k.1 != 0), "a low, wide bush ({v:x}): {:?}", t.keys());
+            // lopsided: not a square, and often longer one way than the other
+            assert!(!(-1..=1).all(|x| (-1..=1).all(|y| t.contains_key(&(x, y, 0)))), "a square bush ({v:x})");
         }
+        let span = |t: &std::collections::BTreeMap<(i32, i32, i32), (u16, bool)>| {
+            let f = |g: fn(&(i32, i32, i32)) -> i32| t.keys().map(g).max().unwrap() - t.keys().map(g).min().unwrap() + 1;
+            f(|k| k.0).max(f(|k| k.1))
+        };
+        assert!(hashes().filter(|&v| span(&tree(shrub, shrub.height[1], v)) == 4).count() >= 32, "a bush with a second clump, four across, now and then");
         let bamboo = named("bamboo");
         assert!(hashes().any(|v| tree(bamboo, bamboo.height[1], v).iter().filter(|(k, b)| b.1 && k.2 == 0).count() >= 3), "a clump of stalks");
     }
@@ -789,7 +806,8 @@ mod tests {
             ("warm = 15.0", "warm = nan", "warm not a number"),
             ("bare = 0.55", "bare = 0.55\nfork = 0.5", "a fork on a cone"),
             ("height = [5, 10]\nradius = 6", "height = [8, 9]\nradius = 6", "too few heights for three sizes"),
-            ("limbs = 4\ndepth = 2.5", "limbs = 4\ndepth = 9.0", "a crown too deep"),
+            ("depth = 0.8", "depth = 9.0", "a crown too deep"),
+            ("limbs = 4\nthick", "limbs = 4\ndepth = 2.0\nthick", "a depth that does nothing on a round crown"),
             ("leaves = \"willow leaves\"
 height = [6, 10]", "leaves = \"willow leaves\"
 height = [1, 10]", "a forked tree too short to fork"),
@@ -799,7 +817,7 @@ radius = 5", "leaves = \"willow leaves\"
 height = [6, 10]
 radius = 1", "a 2 x 2 trunk wider than its radius"),
             ("bare = 0.55", "bare = 0.55\nthick = true", "a thick cone"),
-            ("limbs = 4\ndepth = 2.5", "limbs = 9\ndepth = 2.5", "too many limbs"),
+            ("limbs = 4\nthick", "limbs = 9\nthick", "too many limbs"),
             ("name = \"tundra\"", "name = \"steppe\"", "not the bake's biome"),
             ("name = \"cactus\"\nshape = \"column\"\ntrunk = \"cactus\"", "name = \"cactus\"\nshape = \"column\"", "a column with no trunk"),
         ] {
