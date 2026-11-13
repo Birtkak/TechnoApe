@@ -90,6 +90,9 @@ pub struct Herds {
     pub next: u32,
     /// Animals stepped in the last tick, for the stats.
     pub awake: usize,
+    /// The herds' own clock: ticks stepped, kept with the herds. The minds and the looks ahead count it, not
+    /// the world's age, which /timewarp runs faster (a warp of 20 would freeze every `% 20`).
+    pub clock: u64,
 }
 
 /// The creatures and herds files as compiled in (shortcut: a changed file needs a rebuild of the server; read
@@ -128,7 +131,7 @@ impl Herds {
                 by_biome[i].push((k as u16, r.share, r.size));
             }
         }
-        Ok(Herds { kinds, by_biome, seed, sites: BTreeMap::new(), next: 1, awake: 0 })
+        Ok(Herds { kinds, by_biome, seed, sites: BTreeMap::new(), next: 1, awake: 0, clock: 0 })
     }
 
     /// The site direction `d` (from body 0's centre) lies in.
@@ -194,7 +197,8 @@ impl Herds {
     }
 
     /// One tick: wake the sites near `players` (feet and velocity in body 0's frame), then step every awake
-    /// animal by `dt` (0: no physics this tick) up to `MAX_AWAKE`. `tick` is the world's age in ticks.
+    /// animal by `dt` (0: no physics this tick) up to `MAX_AWAKE`. `tick` is the herds' clock (the server
+    /// passes `clock`); it is one more after.
     pub fn tick(&mut self, world: &World, players: &[(DVec3, DVec3)], tick: u64, dt: f64) {
         for (feet, _) in players {
             self.wake(world, *feet, tick);
@@ -203,10 +207,11 @@ impl Herds {
         let centre = world.bodies[0].centre;
         let mut stepped = 0;
         let seed = self.seed as u64;
-        for herd in self.sites.values_mut() {
-            if tick.saturating_sub(herd.near) > SLEEP_TICKS || herd.animals.is_empty() {
-                continue;
-            }
+        // over the cap, each tick starts at another awake site, so none is left out for good
+        let awake: Vec<Site> = self.sites.iter().filter(|(_, h)| tick.saturating_sub(h.near) <= SLEEP_TICKS && !h.animals.is_empty()).map(|(s, _)| *s).collect();
+        let first = if awake.is_empty() { 0 } else { tick as usize % awake.len() };
+        for s in awake[first..].iter().chain(&awake[..first]) {
+            let herd = self.sites.get_mut(s).expect("an awake site");
             for a in &mut herd.animals {
                 if stepped >= MAX_AWAKE {
                     break;
@@ -220,6 +225,7 @@ impl Herds {
             }
         }
         self.awake = stepped;
+        self.clock = tick + 1;
     }
 
     /// A real animal of `kind` standing at direction `d`, in the site it stands in (made first, so the seed's
@@ -230,10 +236,11 @@ impl Herds {
         let b = &world.bodies[0];
         self.wake(world, feet, tick);
         let s = Herds::site_of(world, feet - b.centre);
+        let herd = self.sites.get_mut(&s)?;
         let id = self.next;
         self.next += 1;
         let fwd = phys::tangent(fwd, d, d.any_orthonormal_vector());
-        self.sites.get_mut(&s)?.animals.push(Animal { id, kind: k, p: Player::at(feet, fwd), mind: Mind::Stand, until: tick + 40, go: fwd, call: 0 });
+        herd.animals.push(Animal { id, kind: k, p: Player::at(feet, fwd), mind: Mind::Stand, until: tick + 40, go: fwd, call: 0 });
         Some(id)
     }
 
@@ -245,16 +252,24 @@ impl Herds {
         self.sites.values().flat_map(|h| h.animals.iter())
     }
 
-    /// The kept delta, for the save and the hash.
+    /// The kept delta, for the save and the hash: the next id, the clock, the kinds by name (an animal keeps
+    /// its kind when rows of data/creatures.toml move) and every met site.
+    /// shortcut: every met site is kept for good, empty ones too (at most the planet's 55k for the 4 km one);
+    /// forget empty sites the seed makes again when long-running servers show their size.
     pub fn to_bytes(&self) -> Vec<u8> {
-        postcard::to_allocvec(&(self.next, &self.sites)).expect("herds serialise")
+        let names: Vec<&str> = self.kinds.iter().map(|k| k.name.as_str()).collect();
+        postcard::to_allocvec(&(self.next, self.clock, names, &self.sites)).expect("herds serialise")
     }
     pub fn load(&mut self, bytes: &[u8]) -> Result<(), String> {
-        let (next, sites): (u32, BTreeMap<Site, Herd>) = postcard::from_bytes(bytes).map_err(|e| format!("herds: {e}"))?;
-        if sites.values().flat_map(|h| &h.animals).any(|a| a.kind as usize >= self.kinds.len()) {
-            return Err("herds: an animal of a kind data/creatures.toml no longer has".into());
+        let (next, clock, names, mut sites): (u32, u64, Vec<String>, BTreeMap<Site, Herd>) = postcard::from_bytes(bytes).map_err(|e| format!("herds: {e}"))?;
+        let map: Vec<Option<u16>> = names.iter().map(|n| self.kinds.iter().position(|k| &k.name == n).map(|i| i as u16)).collect();
+        for a in sites.values_mut().flat_map(|h| &mut h.animals) {
+            match map.get(a.kind as usize).copied().flatten() {
+                Some(k) => a.kind = k,
+                None => return Err(format!("herds: an animal of kind '{}', which data/creatures.toml no longer has", names.get(a.kind as usize).map_or("?", |n| n.as_str()))),
+            }
         }
-        (self.next, self.sites) = (next, sites);
+        (self.next, self.clock, self.sites) = (next, clock, sites);
         Ok(())
     }
 }
@@ -454,21 +469,30 @@ mod tests {
         for t in 1..400 {
             h.tick(&w, &[(p, DVec3::ZERO)], t, 0.05);
         }
-        let seen = h.to_bytes();
+        let seen = h.sites.clone();
         // gone: after SLEEP_TICKS the herds freeze
         for t in 400..400 + SLEEP_TICKS + 1 {
             h.tick(&w, &[], t, 0.05);
         }
-        let frozen = h.to_bytes();
+        let frozen = h.sites.clone();
         for t in 1000..1400 {
             h.tick(&w, &[], t, 0.05);
         }
         assert_eq!((h.awake, h.sites.len()), (0, met));
-        assert_eq!(frozen, h.to_bytes(), "a sleeping site does not change");
+        assert_eq!(frozen, h.sites, "a sleeping site does not change");
         assert_ne!(seen, frozen, "the herd moved on in the ticks after the player left, then froze");
         let mut back = herds();
         back.load(&h.to_bytes()).unwrap();
         assert_eq!(back.to_bytes(), h.to_bytes());
+        // the rows of data/creatures.toml in another order: each animal is still its own kind
+        let text = include_str!("../../../data/creatures.toml").replace("\r\n", "\n");
+        let mut rows: Vec<&str> = text.split("[[creature]]").skip(1).collect();
+        rows.reverse();
+        let mut moved = Herds::parse(&rows.iter().map(|r| format!("[[creature]]{r}")).collect::<String>(), include_str!("../../../data/herds.toml"), 1337).unwrap();
+        moved.load(&h.to_bytes()).unwrap();
+        let kind = |hs: &Herds| hs.all().map(|a| hs.kinds[a.kind as usize].name.clone()).collect::<Vec<_>>();
+        assert_eq!(kind(&moved), kind(&h));
+        assert!(h.all().any(|a| moved.kinds[a.kind as usize].name != h.kinds[a.kind as usize].name), "the indices did move");
     }
 
     #[test]
@@ -618,5 +642,22 @@ mod tests {
         let walking = h.awake_animals(800).filter(|a| matches!(a.mind, Mind::Wander | Mind::Flee)).count();
         println!("{{\"herds_tick\":{{\"players\":{},\"awake\":{},\"walking\":{walking},\"mean_ms\":{:.3},\"p99_ms\":{:.3},\"max_ms\":{:.3}}}}}", players.len(), h.awake, ms.iter().sum::<f64>() / ms.len() as f64, ms[ms.len() * 99 / 100], ms[ms.len() - 1]);
         assert!(h.awake >= 200, "a few hundred awake: {}", h.awake);
+    }
+
+    /// Where the seed's herds stand near the baked 4 km planet's spawn: a place to film one (ADR 0083).
+    /// `cargo test --release -p engine herds_near_the_spawn -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn herds_near_the_spawn() {
+        let w = World::baked(6144, 1664, 1337);
+        let b = &w.bodies[0];
+        let mut h = herds();
+        let p = stand(&w, b.spawn).unwrap();
+        h.tick(&w, &[(p, DVec3::ZERO)], 0, 0.0);
+        for herd in h.sites.values().filter(|s| !s.animals.is_empty()) {
+            let a = &herd.animals[0];
+            let d = (a.p.pos - b.centre).normalize();
+            println!("{} x{} at={:.5},{:.5},{:.5} {:.0} m from the spawn", h.kinds[a.kind as usize].name, herd.animals.len(), d.x, d.y, d.z, (a.p.pos - p).length());
+        }
     }
 }

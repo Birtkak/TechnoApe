@@ -846,9 +846,9 @@ impl Server {
         }
         // the animals (ADR 0083): woken by the players on Terra, stepped as far as the players were
         let players: Vec<(DVec3, DVec3)> = self.clients.iter().filter(|c| self.world.frame_at(c.phys.pos) == 0).map(|c| (c.phys.pos, c.phys.vel)).collect();
-        let age = self.tick0.wrapping_add(self.tick);
-        self.herds.tick(&self.world, &players, age, steps as f64 * phys::DT);
-        self.send_animals(age);
+        let t = self.herds.clock;
+        self.herds.tick(&self.world, &players, t, steps as f64 * phys::DT);
+        self.send_animals(t);
         // water finds the new gaps of every column an edit changed, then flows: as many steps as the physics
         // took, fewer when that would spend more than WATER_BUDGET
         let mut cols: Vec<Block> = changed.iter().map(|(b, _)| Block { pos: glam::IVec3::new(b.pos.x, b.pos.y, 0), ..*b }).collect();
@@ -959,9 +959,9 @@ impl Server {
             let me = c.phys.pos;
             let on = world.frame_at(me) == 0;
             let mut seen = Vec::new();
-            let mut here: Vec<u32> = Vec::new();
+            let mut here: std::collections::HashSet<u32> = Default::default();
             for a in herds.awake_animals(age).filter(|a| on && (a.p.pos - me).length() < engine::net::SEE) {
-                here.push(a.id);
+                here.insert(a.id);
                 let v = engine::net::Animal { id: a.id, kind: a.kind, pos: a.p.pos.to_array(), fwd: a.p.fwd.as_vec3().to_array(), act: a.mind as u8, call: a.call };
                 let old = c.animals.get(&a.id);
                 if old.is_none_or(|o| o.act != v.act || o.call != v.call || (DVec3::from_array(o.pos) - a.p.pos).length() > 0.02) {
@@ -1278,7 +1278,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                     return "animals live on Terra: /spawn works there".into();
                 }
                 let at = c.phys.pos + c.phys.fwd * 3.0 - self.world.bodies[0].centre;
-                let (fwd, age) = (-c.phys.fwd, self.tick0.wrapping_add(self.tick));
+                let (fwd, age) = (-c.phys.fwd, self.herds.clock);
                 match self.herds.add(&self.world, name, at.normalize(), fwd, age) {
                     Some(id) => format!("a {name} (animal {id}) stands three metres ahead"),
                     None if self.herds.kinds.iter().any(|k| k.name == *name) => "no ground to stand on there (water)".into(),
@@ -2110,6 +2110,12 @@ mod tests {
         let deer = seen.iter().find(|a| kinds[a.kind as usize] == "deer" && (DVec3::from_array(a.pos) - pole).length() < 6.0).expect("the spawned deer is seen");
         // only deltas: a standing deer is not sent again every tick
         assert!(seen.iter().filter(|a| a.id == deer.id).count() < 10);
+        // under /timewarp the herds' clock still counts ticks: their looks ahead and minds keep their pace
+        let c0 = s.herds.clock;
+        links[0].send(ToServer::Chat("/timewarp 100".into()));
+        s.tick();
+        s.tick();
+        assert_eq!(s.herds.clock, c0 + 2);
         let far = s.world.bodies[0].centre - (pole - s.world.bodies[0].centre);
         links[0].send(ToServer::Move { pos: far.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
         s.tick();
