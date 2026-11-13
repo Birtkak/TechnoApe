@@ -103,9 +103,10 @@ impl Sky {
 pub const STORM: f32 = 8.0;
 /// Seconds a slot of lightning lasts: each stormy column may strike once a slot.
 const SLOT: f64 = 2.0;
-/// The share of slots a stormy column strikes in at `STORM` (up to three times that in heavier rain): under a
-/// storm from horizon to horizon a strike every few seconds within 2.5 km.
-const STRIKE: f64 = 0.0006;
+/// The share of slots a stormy column strikes in at `STORM` (up to twice that in heavier rain): under a storm
+/// over all the 13 x 13 columns `Fall::storm` looks at, a strike every 40 s, every 20 s in the heaviest (the
+/// developer's call, ADR 0076).
+const STRIKE: f64 = 2.0 / (40.0 * 169.0);
 /// Metres a second sound goes: thunder comes this late from where the flash was.
 const SOUND: f64 = 343.0;
 
@@ -135,7 +136,7 @@ pub fn strikes(sky: &Sky, seed: i32, d: DVec3, sea: f64, from: f64, to: f64, wit
             if rain < STORM {
                 continue;
             }
-            let p = STRIKE * (rain / STORM).min(3.0) as f64;
+            let p = STRIKE * (rain / STORM).min(2.0) as f64;
             for s in s0..=s1 {
                 let mut h = engine::world::fnv(engine::world::FNV0, &seed.to_le_bytes());
                 h = engine::world::fnv(h, &(c as u64).to_le_bytes());
@@ -304,7 +305,7 @@ mod tests {
         assert!(strikes(&s, 7, d, 1000.0, 0.0, 600.0, 3).is_empty(), "no storm, no lightning");
         s.take(0.0, vec![engine::weather::encode(1.0, 20.0, [0.0; 2], 0.0, 10.0); n], Vec::new());
         let all = strikes(&s, 7, d, 1000.0, 0.0, 600.0, 3);
-        assert!((10..100).contains(&all.len()), "{} strikes in 10 minutes over 49 stormy columns", all.len());
+        assert!((3..30).contains(&all.len()), "{} strikes in 10 minutes over 49 stormy columns", all.len());
         assert_ne!(all, strikes(&s, 8, d, 1000.0, 0.0, 600.0, 3));
         let mut split = strikes(&s, 7, d, 1000.0, 0.0, 250.5, 3);
         split.extend(strikes(&s, 7, d, 1000.0, 250.5, 600.0, 3));
@@ -314,5 +315,20 @@ mod tests {
         key(&mut whole);
         assert_eq!(split, whole);
         assert!(all.iter().all(|x| (x.1.length() - 1300.0).abs() < 1e-6));
+    }
+
+    #[test]
+    fn a_storm_from_horizon_to_horizon_strikes_every_20_to_40_seconds() {
+        // 13 x 13 stormy columns round the camera, as `Fall::storm` looks (the developer's call, ADR 0076)
+        let mut s = Sky::default();
+        let n = 6 * 16 * 16;
+        let d = DVec3::new(1.0, 0.1, 0.05).normalize();
+        let every = |s: &Sky| 3600.0 / (0..6).map(|k| strikes(s, k, d, 1000.0, 0.0, 3600.0, 6).len()).sum::<usize>() as f64 * 6.0;
+        s.take(0.0, vec![engine::weather::encode(1.0, 40.0, [0.0; 2], 0.0, 10.0); n], Vec::new());
+        let heavy = every(&s);
+        s.take(0.0, vec![engine::weather::encode(1.0, 9.0, [0.0; 2], 0.0, 10.0); n], Vec::new());
+        let light = every(&s);
+        assert!((16.0..24.0).contains(&heavy), "a heavy storm strikes every {heavy:.1} s");
+        assert!((30.0..44.0).contains(&light), "a storm at its threshold strikes every {light:.1} s");
     }
 }

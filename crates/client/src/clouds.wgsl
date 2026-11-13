@@ -107,6 +107,36 @@ fn cl_sample(q: vec3f, sea: f32, wind: vec3f, cfg: vec4f) -> ClS {
     return o;
 }
 
+// `cl_number`'s clump read anywhere, not per cell: p in cells (a cell's middle gives its own clump)
+fn cl_clump(f: u32, p: vec2f) -> f32 {
+    let g = p / 4.0;
+    let q = vec2i(floor(g));
+    let t = fract(g);
+    let fi = i32(f) * 977;
+    let a = mix(cl_hash(vec3i(q, fi)), cl_hash(vec3i(q + vec2i(1, 0), fi)), t.x);
+    let b = mix(cl_hash(vec3i(q + vec2i(0, 1), fi)), cl_hash(vec3i(q + vec2i(1, 1), fi)), t.x);
+    return mix(a, b, t.y);
+}
+
+// a point's cloud as its shadow sees it, 0 to 1: `cl_sample`'s field made smooth (the cover and the clump read
+// where the point is, the cells' own numbers by their mean, the edge as wide as those numbers spread), so a
+// shadow takes the cloud's shape with a soft edge and no cell's square in it
+fn cl_soft(q: vec3f, sea: f32, wind: vec3f, cfg: vec4f) -> f32 {
+    let m = cfg.w;
+    let at = cl_locate(normalize(q), m);
+    let fa = cl_face(at.f);
+    let wf = vec2f(dot(wind, fa.s), dot(wind, fa.t)) / (sea * CL_PI * 0.5 / m) * CL_SUB;
+    let cover = cl_map(at.f, at.xy, m, 0u).r;
+    var d = 0.0;
+    for (var k = 0u; k < 2u; k++) {
+        let ph = fract(cfg.x + 0.5 * f32(k));
+        let wk = 1.0 - abs(2.0 * ph - 1.0);
+        let margin = cover - (0.7 * cl_clump(at.f, at.xy * CL_SUB - wf * (ph * cfg.y)) + 0.15);
+        d += wk * smoothstep(-0.15, 0.15, margin);
+    }
+    return clamp(d, 0.0, 1.0);
+}
+
 // the share of the sun's light the clouds let through to a point p (body-frame metres from the centre) on its
 // way from direction sd: the cloud where that ray crosses the slab's middle
 fn cl_shadow(p: vec3f, sd: vec3f, sea: f32, cfg: vec4f) -> f32 {
@@ -117,8 +147,7 @@ fn cl_shadow(p: vec3f, sd: vec3f, sea: f32, cfg: vec4f) -> f32 {
     if (c > 0.0) { return 1.0; }
     let t = -b + sqrt(b * b - c);
     let q = p + sd * t;
-    let s = cl_sample(q, sea, cl_wind(normalize(q), cfg.w), cfg);
-    return 1.0 - 0.8 * clamp(s.d, 0.0, 1.0);
+    return 1.0 - 0.8 * cl_soft(q, sea, cl_wind(normalize(q), cfg.w), cfg);
 }
 
 // lying snow at body-frame direction d, 0 to 1 (the share of SNOW_TOP in weather.rs)
