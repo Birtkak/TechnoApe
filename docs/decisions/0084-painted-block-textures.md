@@ -301,3 +301,50 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
   - Bamboo's nodes are a single step, no longer a stripe.
   - Proof: `out/flora/trunks-9m.png`, every bark as a two-face trunk at the still's scale (about 28 px a metre),
     beside the still's oak, read.
+- **Outline, depth and distance for plants** (the developer, 2026-11-13: plants as the crowns, target
+  `out/flora-refs/6-leaf-block-target.png` with references 3 and 4):
+  - Outline:
+    - A tuft's blade heights follow its own outline (`envelope`): two or three bulges with dents between them,
+      falling to the sides. No tuft has a flat top or straight sides.
+    - Roots sit in the middle 80 % of the plane, and the outer blades lean out.
+    - Each variant draws its own outline.
+    - Bushes are two or three lobes with dents between them, not a round blob.
+  - Depth:
+    - A tuft draws a back layer, darker, then a lighter front layer over it.
+    - A bush keeps the lit upper left of each leaf clump, and loses up to two tones in its lower third, darker
+      underneath and inside.
+  - Distance:
+    - A far painting per plant kind: `data/plants/<name>.far.png`, at 8 px a metre. Each 4x4 cell takes its
+      most common colour where a quarter of it is filled, so the outline and the main colours stay.
+    - `data/plants/meadow ground.png`: three 32 px tiles side by side, a mottled grass top in the meadow's
+      greens with lit blade tips and a few petals and seed heads. It is for where the plants session thins
+      plants out.
+    - These names and sizes were proposed to the plants session (glass-clutter); its answer may move them.
+  - Proof: the sheets `out/flora/plants-hd.png` and `meadow-vs-ref.png` (outline and depth, beside reference 4),
+    and `far-vs-ref.png` and `far-plants.png` (distance), all read.
+- **Every mass, and only masses** (the developer, 2026-11-13: "everything biological more or less (things like
+  single flowers and mushrooms not)"):
+  - Outline, depth and a far version go to every plant that makes a mass: the leaves of every species, grasses,
+    wheat, ferns, reeds, bushes, the shrub, cactus, bamboo and palm fronds.
+  - Single flowers, mushrooms, sticks and stones stay rich but simple, with no far version. `flowers.far` is gone.
+  - New block paintings at 32:
+    - `reed` and its seasons: a stand of blades a block high, its top ragged (each variant's own outline, never
+      under half the block, so a row of reeds has no gaps);
+    - `shrub@spring` and `shrub@autumn`, from the same leaves as the shrub;
+    - `cactus` (the top: eight ribs meeting at a crown, with areoles) and `cactus_side` (four ribs a face, lit on
+      the left, a dark groove between, areoles with pale spines). The ribs line up across variants.
+  - Far block paintings: `data/textures/hd/far/<block>[@season].png`, 8 px a face. They are made the same way as
+    the plants' far paintings, for every leaves block, the shrub, reed and cactus. These names are proposed to
+    the crowns session.
+  - The palette now has 573 colours.
+  - Proof: `out/flora/masses-far.png`, each mass as 2x2 blocks beside its far painting at the same size, read.
+- **One tree, one colour family; clusters that carry** (the crowns review, 2026-11-13):
+  - Winter twigs take the same calm band of the species' bark ramp as its log side (tones 1 to 4). They were the
+    full ramp, and their tips read light tan beside the calmed bark. `broadleaf leaves@winter` and
+    `hd/log_side.png` now share their darkest, middle and lightest colours.
+  - Leaf clusters about a quarter block wide must still read from 10 to 20 m, the developer's target:
+    - only three leaves in ten get a random step of tone, so a clump is no longer speckled;
+    - birch, acacia and bamboo have fewer, larger clumps;
+    - pine has fewer, longer rosettes.
+  - Proof: `out/flora/leaves-10-20m.png`, every species' leaves box-filtered to 28 and 14 px a block (about 10
+    and 20 m in the crowns stills), read. Clusters carry for all but willow, whose strands are its look.
