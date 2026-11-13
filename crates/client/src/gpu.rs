@@ -458,6 +458,26 @@ pub(crate) struct DrawArgs {
     pub(crate) first_vertex: u32,
     pub(crate) first_instance: u32,
 }
+/// An indexed draw's arguments (`multi_draw_indexed_indirect`): the terrain's quads over `quad_index` (ADR 0103).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct DrawIndexed {
+    pub(crate) index_count: u32,
+    pub(crate) instance_count: u32,
+    pub(crate) first_index: u32,
+    pub(crate) base_vertex: i32,
+    pub(crate) first_instance: u32,
+}
+/// Quads one indexed draw holds at most: `quad_index`'s length in quads (ADR 0103).
+pub(crate) const QUAD_INDEX: u32 = 1 << 16;
+/// The regions of `indirect`, bytes: the sea's draws (ADR 0071), then MAX_CHUNKS indexed draws each for the
+/// terrain, the cutout blocks (ADR 0069), glass (ADR 0081), the still models (ADR 0082) and the fluff (ADR 0103).
+pub(crate) const IND_SEA: u64 = 0;
+pub(crate) const IND_LAND: u64 = MAX_CHUNKS as u64 * 16;
+pub(crate) const IND_CUT: u64 = IND_LAND + MAX_CHUNKS as u64 * 20;
+pub(crate) const IND_GLASS: u64 = IND_CUT + MAX_CHUNKS as u64 * 20;
+pub(crate) const IND_STILL: u64 = IND_GLASS + MAX_CHUNKS as u64 * 20;
+pub(crate) const IND_FLUFF: u64 = IND_STILL + MAX_CHUNKS as u64 * 20;
 
 pub(crate) struct Gpu {
     /// The clouds' map (ADR 0076), filled by `sky::Sky::upload`.
@@ -517,6 +537,8 @@ pub(crate) struct Gpu {
     pub(crate) sfaces: wgpu::Buffer,
     pub(crate) spaint: wgpu::Buffer,
     pub(crate) indirect: wgpu::Buffer,
+    /// Six indices a quad over its four corners, for QUAD_INDEX quads (ADR 0103).
+    pub(crate) quad_index: wgpu::Buffer,
     pub(crate) depth: wgpu::TextureView,
     /// The terrain's shader and the block looks: the bounce light is built again from them on a resize.
     pub(crate) shader: wgpu::ShaderModule,
@@ -805,9 +827,15 @@ impl Gpu {
         let chunks = buf("chunks", (MAX_CHUNKS * std::mem::size_of::<ChunkGpu>()) as u64, U::STORAGE | U::COPY_DST);
         let lamps = buf("lamps", (MAX_LAMPS * std::mem::size_of::<LampGpu>()) as u64, U::STORAGE | U::COPY_DST);
         let lamp_cells = buf("lamp cells", (LAMP_GRID_LEN * 4) as u64, U::STORAGE | U::COPY_DST);
-        // the terrain's draws, then the sea's at MAX_CHUNKS * 16, the cutout blocks' at MAX_CHUNKS * 32 (ADR 0069), glass at MAX_CHUNKS * 48 (ADR 0081)
-        // the still models' at MAX_CHUNKS * 64 (ADR 0082) and the crowns' fluff at MAX_CHUNKS * 80 (ADR 0103)
-        let indirect = buf("indirect", (MAX_CHUNKS * 96) as u64, U::INDIRECT | U::COPY_DST);
+        // the draws, in the regions IND_SEA .. IND_FLUFF
+        let indirect = buf("indirect", IND_FLUFF + MAX_CHUNKS as u64 * 20, U::INDIRECT | U::COPY_DST);
+        // the terrain's quads are drawn indexed (ADR 0103): quad q's corners are vertices 4q .. 4q + 3 (shader.wgsl
+        // `corner_k`), its two triangles 0 1 2 and 0 2 3, so each corner is shaded once, not once a triangle
+        let quad_index = wgpu::util::DeviceExt::create_buffer_init(&device, &wgpu::util::BufferInitDescriptor {
+            label: Some("quad index"),
+            contents: bytemuck::cast_slice(&(0..QUAD_INDEX).flat_map(|q| [0, 1, 2, 0, 2, 3].map(|k| q * 4 + k)).collect::<Vec<u32>>()),
+            usage: U::INDEX,
+        });
         let wquads = buf("wquads", (MAX_WQUADS * std::mem::size_of::<water::WQuad>()) as u64, U::STORAGE | U::COPY_DST);
         let fx_buf = buf("fx", (MAX_FX * std::mem::size_of::<crate::fx::FxGpu>()) as u64, U::STORAGE | U::COPY_DST);
         // every block's look from the registry (ADR 0013, 0039), shader.wgsl `Look`, 80 bytes each: colour rgb,
@@ -1170,6 +1198,7 @@ impl Gpu {
             sfaces,
             spaint,
             indirect,
+            quad_index,
             depth,
             shader: shader.clone(),
             looks: looks.clone(),

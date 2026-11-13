@@ -190,11 +190,16 @@ fn sway(p: vec3f, reach: f32) -> vec2f {
     return amp * vec2f(sin(t * 1203.0 + ph) + 0.4 * sin(t * 2464.0 + ph * 2.3), sin(t * 974.0 + ph * 1.3 + 1.0) + 0.4 * sin(t * 2235.0 - ph * 1.7));
 }
 
+// an indexed quad's corner (ADR 0103: four a quad, `quad_index` in gpu.rs) as quad_corner's k: 0, 1, 2 and 5
+fn corner_k(vi: u32) -> u32 {
+    return select(vi % 4u, 5u, vi % 4u == 3u);
+}
+
 fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
-    let q = quads[vi / 6u];
+    let q = quads[vi / 4u];
     let dir = (q.x >> 28u) & 7u;
     let a = dir / 2u;
-    let k = vi % 6u;
+    let k = corner_k(vi);
     // grown by a millimetre: a merged quad's edge and its neighbours' corners on it are worked out apart, at
     // f32's grain at the body's radius (a quarter millimetre at 4 km), and met with pixel holes of sky between
     // them (bug 2026-11-11_17-38-04, ADR 0041); the overlap closes them, too thin to see as a lip
@@ -2293,12 +2298,12 @@ fn still_texel(q: vec2u, prim: u32, bc: vec2f) -> vec4f {
 
 @vertex
 fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
-    let q = quads[vi / 6u];
+    let q = quads[vi / 4u];
     let fi = q.y & 65535u;
     let f = sfaces[fi];
     var cu = array<f32, 6>(0., 1., 1., 0., 1., 0.);
     var cv = array<f32, 6>(0., 0., 1., 0., 1., 1.);
-    let uv = vec2f(cu[vi % 6u], cv[vi % 6u]);
+    let uv = vec2f(cu[corner_k(vi)], cv[corner_k(vi)]);
     let lo = q.x;
     let cell = vec3f(f32(lo & 63u), f32((lo >> 6u) & 63u), f32((lo >> 12u) & 63u));
     let c = chunks[ii];
