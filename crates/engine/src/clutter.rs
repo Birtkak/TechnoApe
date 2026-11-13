@@ -59,6 +59,8 @@ struct RawRow {
     planes: Option<u8>,
     #[serde(default)]
     looks: std::collections::BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    wades: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -79,6 +81,8 @@ pub struct Row {
     pub planes: u8,
     /// a plant's other paintings `<name>.<look>.png` and the parts of the year (`part`, a bit each) they show in
     pub looks: Vec<(String, u8)>,
+    /// a plant that also stands in fresh water up to `WADE` deep (reeds)
+    pub wades: bool,
 }
 
 /// Reads and checks the rows: names unique, ground blocks and items that exist, a pick-up gives something and a
@@ -115,6 +119,9 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
         if !r.looks.is_empty() && r.kind != Kind::Plant {
             return Err(format!("{who}: looks are a plant's"));
         }
+        if r.wades && r.kind != Kind::Plant {
+            return Err(format!("{who}: wades is a plant's"));
+        }
         let mut looks = Vec::new();
         for (n, parts) in &r.looks {
             let mut m = 0u8;
@@ -123,7 +130,7 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
             }
             looks.push((n.clone(), m));
         }
-        out.push(Row { name: r.name, kind: r.kind, gives, on, near: r.near, seasons, regrow, planes, looks });
+        out.push(Row { name: r.name, kind: r.kind, gives, on, near: r.near, seasons, regrow, planes, looks, wades: r.wades });
     }
     Ok(out)
 }
@@ -281,6 +288,14 @@ pub fn season(up: glam::DVec3, t: f64) -> u8 {
 /// of generated air over it, and its generated top block and biome; None at a face's last columns, under the sea
 /// or in a river or lake. The one ground the mesher and the server ask (ADR 0082).
 pub fn ground(body: &Body, tile: &HeightTile, face: u8, i: i32, j: i32) -> Option<(i32, u16, u8)> {
+    ground_under(body, tile, face, i, j, 0.0)
+}
+
+/// How deep the fresh water a wading plant stands in may be, in metres (ADR 0091).
+pub const WADE: f64 = 0.8;
+
+/// `ground`, also under fresh water less than `depth` deep (never under the sea).
+pub fn ground_under(body: &Body, tile: &HeightTile, face: u8, i: i32, j: i32, depth: f64) -> Option<(i32, u16, u8)> {
     let (x, y) = (i.div_euclid(CS), j.div_euclid(CS));
     let k = (i - x * CS + 1) as usize + (j - y * CS + 1) as usize * P;
     let r = crate::biomes::REACH;
@@ -288,7 +303,7 @@ pub fn ground(body: &Body, tile: &HeightTile, face: u8, i: i32, j: i32) -> Optio
         return None;
     }
     let z = body.first_air(tile.h[k]);
-    if body.sea.is_some_and(|s| z as f64 <= s) || body.water_at(face, i, j).is_some_and(|w| z as f64 <= w.0) {
+    if body.sea.is_some_and(|s| z as f64 <= s) || body.water_at(face, i, j).is_some_and(|w| w.0 - z as f64 >= depth) {
         return None;
     }
     Some((z, tile.g[k][0], tile.biome[k]))
@@ -569,15 +584,17 @@ pub fn quads(body: &Body, key: Key, cells: &[u16; P * P * P], edits: &[(u32, u16
             if !may(seed, key.face, i, j, tile.biome[u + v * P], density) {
                 continue;
             }
-            let Some((z, top, biome)) = ground(body, &tile, key.face, i, j) else { continue };
+            // shallow fresh water too: a wading plant (reeds) stands in it, nothing else does
+            let Some((z, top, biome)) = ground_under(body, &tile, key.face, i, j, WADE) else { continue };
+            let wet = body.water_at(key.face, i, j).is_some_and(|w| z as f64 <= w.0);
             let zl = z - c0.z;
             // the chunk that holds the ground cell lays it: that chunk is never all air
             if !(2..=CS + 1).contains(&zl) || cells[pidx(u, v, zl as usize)] != 0 || cells[pidx(u, v, zl as usize - 1)] != top {
                 continue;
             }
             let p8 = part(body.dir(key.face as usize, i as f64 + 0.5, j as f64 + 0.5), t);
-            let model = pick(seed, key.face, i, j, biome, top, p8 / 2, density[0], &tile.trees);
-            let grows = plant(seed, key.face, i, j, biome, top, p8 / 2, density[1], &tile.trees);
+            let model = pick(seed, key.face, i, j, biome, top, p8 / 2, density[0], &tile.trees).filter(|_| !wet);
+            let grows = plant(seed, key.face, i, j, biome, top, p8 / 2, density[1], &tile.trees).filter(|g| !wet || CLUTTER[g.row].wades);
             for t in [model, grows].into_iter().flatten() {
                 let row = &CLUTTER[t.row];
                 // (only a pick-up is ever taken: the list is not looked through for the rest)
@@ -702,6 +719,7 @@ mod tests {
         let reeds = CLUTTER.iter().position(|r| r.name == "reeds").unwrap();
         assert!(s.back[reeds].is_some(), "reeds.back.png");
         assert_eq!(s.rows[reeds].len(), 4, "reeds and .1 to .3");
+        assert!(CLUTTER[reeds].wades, "reeds stand in shallow water");
     }
 
     /// The review of 2026-11-13: the season alone turns at a season's middle, so a year began without a new mesh
@@ -759,6 +777,9 @@ mod tests {
         assert_eq!(parse(&row("")).unwrap()[0].planes, 2, "two planes unless it says");
         assert!(!bad(&row("planes = 4\nlooks = { fruit = [\"late summer\"], bloom = [\"spring\"] }\n")));
         assert!(bad(&row("planes = 1\n")) && bad(&row("planes = 5\n")));
+        // a plant that stands in shallow fresh water too (reeds), and only a plant
+        assert!(!bad(&row("wades = true\n")));
+        assert!(bad("[[clutter]]\nname = \"x\"\nkind = \"decoration\"\non = [\"grass\"]\nwades = true\n"), "wading is a plant's");
         assert!(bad(&row("looks = { fruit = [\"midsummer\"] }\n")));
         assert!(bad("[[clutter]]\nname = \"x\"\nkind = \"decoration\"\non = [\"grass\"]\nplanes = 2\n"), "planes are a plant's");
         assert!(bad("[[clutter]]\nname = \"x\"\nkind = \"decoration\"\non = [\"grass\"]\nlooks = { a = [\"spring\"] }\n"));

@@ -960,11 +960,11 @@ fn ground_tint(i: VOut, c: vec3f) -> vec3f {
         let m = mix(meadow_texel(gp.xy), meadow_mean(), blur);
         return mix(c * tint, m * select(vec3f(1.0), tint, leafy(m)), far);
     }
-    // a side of a level-0 chunk's grass block: the meadow hangs over the step's top third as a
-    // fringe, so terraces seen from above do not read as bare block edges (a coarse chunk's step is many metres
-    // high, the fringe would be a band)
-    if ((ch.info >> 8u) != 0u || fract(i.local.z) < 0.5) { return c; }
-    let t = smoothstep(0.55, 0.85, fract(i.local.z)) * far;
+    // a side: the meadow hangs over the step's top third as a fringe, reaching further down with distance until
+    // a far step (and a coarse chunk's, all of whose steps are far) is a grassy ledge, not a band of dirt, so
+    // terraces seen from above read as meadow
+    let low = mix(0.55, 0.0, smoothstep(still_far(), 3.0 * still_far(), d));
+    let t = smoothstep(low, low + 0.3, fract(i.local.z)) * far;
     if (t <= 0.0) { return c; }
     let m = mix(meadow_texel(vec2f(gp.x + gp.y, gp.z)), meadow_mean(), blur);
     return mix(c, m * select(vec3f(1.0), tint, leafy(m)), t);
