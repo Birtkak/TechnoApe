@@ -252,3 +252,7 @@ data/plants/fern.far.png
 data/plants/reeds.far.png
 data/plants/meadow ground.png
 data/plants/berry bush.far.png
+data/plants/reeds.3.png
+data/plants/reeds.back.png
+data/plants/short grass.3.png
+data/plants/tall grass.3.png

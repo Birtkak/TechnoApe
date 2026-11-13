@@ -866,7 +866,7 @@ def far(c, k=4):
         for i in range(o.shape[1]):
             cell = [v for v in c[j * k:(j + 1) * k, i * k:(i + 1) * k].flat if v is not None]
             if len(cell) * 4 >= k * k:
-                o[j, i] = max(set(cell), key=cell.count)
+                o[j, i] = max(sorted(set(cell)), key=cell.count)  # sorted: ties fall the same way every run
     return o
 
 
@@ -1326,8 +1326,11 @@ def fern_hd(rng, w, h):
     c = np.full((h, w), None, object)
     fronds = [(-1, 0.5, 0.5), (1, 0.5, 0.5), (-1, 0.36, 0.78), (1, 0.36, 0.78), (-1, 0.18, 0.95), (1, 0.18, 0.95),
               (-1, 0.05, 1.0)]
+    fronds = [f for f in fronds if rng.random() < 0.85] or fronds  # each fern its own count of fronds
+    tilt = rng.uniform(-0.15, 0.15)  # and its own lean, so a stand of ferns is not stamped
     for side, span, top in fronds:
-        span, top = span * w * rng.uniform(0.9, 1.0), top * (h - 1)
+        span = span * w * rng.uniform(0.7, 1.0) * (1 + tilt * side)
+        top = top * (h - 1) * rng.uniform(0.75, 1.0)
         pts = []
         for i in range(61):
             t = i / 60
@@ -1366,22 +1369,65 @@ def flowers_hd(rng, w, h, n=6):
     return c
 
 
-def reeds_hd(rng, w, h):
-    """Tall stems two texels wide, lit on the left, from dark at the root; a few cattails (tones + 10)."""
-    c = blades_hd(rng, w, h, w // 2, h // 2, h, 0.06, 1.0)
-    for k in range(3):
-        x, top = 3 + k * (w // 3) + int(rng.integers(max(1, w // 3 - 5))), int(rng.integers(2, 10))
-        for y in range(top, h):
-            t = max(0, min(7, int(6 - (y - top) / h * 5)))
-            hd_put(c, x, y, t, False)
-            hd_put(c, x + 1, y, max(0, t - 2), False)
-        for y in range(top + 2, top + 11):
-            hd_put(c, x - 1, y, 10 + 5, False)
-            hd_put(c, x, y, 10 + 4, False)
-            hd_put(c, x + 1, y, 10 + 2, False)
-            hd_put(c, x + 2, y, 10 + 1, False)
-        hd_put(c, x, top + 2, 10 + 6, False)
+REED_KINDS = ("tall with heads", "tall", "short and leaning", "sparse, one broken")
+
+
+def reeds_hd(rng, w, h, kind=0):
+    """A reed stand of one of four kinds (`REED_KINDS`) that clearly differ: stalks two texels wide of uneven height
+    (lit on the left), a long leaf or two arching off each, greens that vary with a few dry tan stalks (tones + 10),
+    cattails on the tallest of the first kind (tones + 20); short blades low behind; the base dark."""
+    c = np.full((h, w), None, object)
+    tall = kind in (0, 1)
+    if kind != 3:  # an under-layer of short blades behind the stalks
+        under = blades_hd(rng, w, h, w * 2, 2, h // (4 if tall else 3), 0.3)
+        c[under != None] = [max(1, t - 1) for t in under[under != None]]  # noqa: E711
+    n = {0: 9, 1: 10, 2: 9, 3: 5}[kind]
+    lean_all = rng.choice((-1, 1)) * rng.uniform(0.18, 0.3) if kind == 2 else 0.0
+    stalks = []
+    for k in range(n):
+        x = w * (0.12 + 0.76 * (k + rng.uniform(0.1, 0.9)) / n)
+        sh = int(h * (rng.uniform(0.55, 1.0) if tall else rng.uniform(0.3, 0.62)))
+        dry = rng.random() < (0.35 if kind == 3 else 0.18)
+        stalks.append((sh, x, dry))
+    broken = int(rng.integers(n)) if kind == 3 else -1
+    for k, (sh, x, dry) in enumerate(sorted(stalks)):  # short first: the tall stand in front
+        base = 10 if dry else 0
+        lift = rng.uniform(-0.8, 0.8)
+        lean = lean_all + rng.uniform(-0.05, 0.05)
+        kink = int(sh * rng.uniform(0.5, 0.7)) if k == broken % n and kind == 3 else None
+        fx, fy = float(x), float(h - 1)
+        dx, dy = lean, -1.0
+        for i in range(sh):
+            t = i / max(1, sh - 1)
+            tone = int(round(1 + t * 4.5 + lift)) if i > h * 0.08 else 1  # the dark base
+            px, py = int(round(fx)), int(round(fy))
+            hd_put(c, px, py, base + max(1, min(7, tone + 1)), False)
+            hd_put(c, px + 1, py, base + max(1, min(7, tone - 1)), False)
+            if kink is not None and i == kink:  # the broken stalk folds over and hangs down to one side
+                dx, dy = (1.0 if x < w / 2 else -1.0) * 0.8, 0.45
+            fx += dx
+            fy += dy
+        top = (int(round(fx)), int(round(fy)))
+        if kind == 0 and sh > h * 0.75 and not dry:  # a cattail on the tallest
+            for j in range(2, 2 + int(h * 0.13)):
+                hd_put(c, top[0], top[1] + j, 20 + (5 if j < 4 else 3), False)
+                hd_put(c, top[0] + 1, top[1] + j, 20 + 2, False)
+            hd_put(c, top[0], top[1] + 1, 20 + 6, False)
+        for _ in range(int(rng.integers(1, 3))):  # long leaves arching off the stalk
+            y0 = h - 1 - int(sh * rng.uniform(0.15, 0.5))
+            side = rng.choice((-1, 1))
+            lx, ly, ldx = float(x) + (1 if side > 0 else 0), float(y0), side * rng.uniform(0.25, 0.5)
+            for i in range(int(sh * rng.uniform(0.35, 0.6))):
+                hd_put(c, int(round(lx)), int(round(ly)), base + max(1, min(7, 3 + i // 6 + int(lift))), False)
+                lx += ldx
+                ly -= max(0.15, 1.0 - i * 0.06)  # up, bending out flatter toward the tip (never back down: no hoops)
     return c
+
+
+def darker(c, k=2):
+    """The same painting k tones darker in every ramp: the back row of a bed, so a stand has depth front to back."""
+    return np.vectorize(lambda t: None if t is None else (t // 10) * 10 + max(0, t % 10 - k), otypes=[object])(c)
+
 
 
 def bush_hd(rng, w, h, look=None):
@@ -1749,8 +1795,12 @@ def build(pal, blocks):
     # the reed block: a tuft of blades a block high, its own outline per variant; seasons recolour the same blades
     for season, ramp in (("", RR("meadow green", 0, rgb=turned(MEADOW, 0))), ("@spring", RR("reed spring", 96, 0.85, 0.05)),
                          ("@autumn", RR("straw", 46, 0.75, 0.08)), ("@winter", RR("reed winter", 40, 0.3, 0.1))):
-        hd(f"reed{season}", 4, lambda g, v, r=ramp: named_canvas(
-            blades_hd(np.random.default_rng(seed_of("reed", v)), HD, HD, HD * 3, HD // 2, HD, 0.2, low=0.5), [r]))  # a stand: ragged top, no gaps
+        # the four variants are the four reed kinds; winter three (cattails, leaning, broken), as ADR 0090 picks
+        # winter variants by role only in a painting of exactly four
+        kinds = (0, 2, 3) if season == "@winter" else (0, 1, 2, 3)
+        hd(f"reed{season}", len(kinds), lambda g, v, r=ramp, kinds=kinds: named_canvas(
+            reeds_hd(np.random.default_rng(seed_of("reed", kinds[v])), HD, HD, kinds[v]),
+            [r, RR("straw", 46, 0.75, 0.08), RR("cattail", 22, 0.5, -0.02)]))
     cactus_r, spine_r = RR("cactus", 128, 0.55, -0.02), RR("cactus spine", 50, 0.3, 0.25)
     hd("cactus_side", 3, lambda g, v: named_canvas(cactus_hd(g, False), [cactus_r, spine_r]))
     hd("cactus", 2, lambda g, v: named_canvas(cactus_hd(g, True), [cactus_r, spine_r]))
@@ -1769,6 +1819,13 @@ def build(pal, blocks):
             out[f"plant:{name}.far"] = [far(out[f"plant:{name}"][0])]
 
     straw = [RR("straw", 46 + d, 0.75, 0.08) for d in hues]
+    cattail = RR("cattail", 22, 0.5, -0.02)
+    plant_sizes["reeds"] = (32, 64)
+    # the fourth reed kind (sparse, one broken stalk), and the back row: the tall kind without heads, two tones darker
+    plant("reeds.3", lambda g, w, h: named_canvas(reeds_hd(g, w, h, 3), [RR("meadow green 1", 0, rgb=turned(MEADOW, -7)),
+                                                                         straw[0], cattail]))
+    plant("reeds.back", lambda g, w, h: named_canvas(darker(reeds_hd(np.random.default_rng(seed_of("plant", "reeds.1")), w, h, 1)),
+                                                     [RR("meadow green", 0, rgb=turned(MEADOW, 0)), straw[0], cattail]))
     for k, d in enumerate(hues):
         sfx = f".{k}" if k else ""
         G = RR("meadow green" + (f" {k}" if k else ""), 0, rgb=turned(MEADOW, d))
@@ -1777,7 +1834,10 @@ def build(pal, blocks):
         plant(f"wild wheat{sfx}", lambda g, w, h, G=G, S=straw[k]: named_canvas(ears_hd(g, w, h), [G, S]))
         plant(f"fern{sfx}", lambda g, w, h, F=RR("fern" + (f" {k}" if k else ""), 104 + d, 0.9, -0.04):
               named_canvas(fern_hd(g, w, h), [F]))
-        plant(f"reeds{sfx}", lambda g, w, h, G=G: named_canvas(reeds_hd(g, w, h), [G, RR("cattail", 22, 0.5, -0.02)]))
+        plant(f"reeds{sfx}", lambda g, w, h, G=G, k=k: named_canvas(reeds_hd(g, w, h, k), [G, straw[0], cattail]))
+    for name, (lo, lean) in (("short grass", (3, 0.45)), ("tall grass", (32 // 3, 0.45))):  # a fourth outline where stands repeat
+        plant(f"{name}.3", lambda g, w, h, lo=lo, lean=lean: named_canvas(blades_hd(g, w, h, w * 3, lo, h, lean, 0.15),
+                                                                      [RR("meadow green 2", 0, rgb=turned(MEADOW, 6))]))
     def meadow_ground(g, w, h, G, P, S):
         """The grass top where plants thin out (three tiles side by side, each tiling): mottled clumps of the
         meadow's greens, blade tips as lit specks, a few petals and straw (tones + 10, + 20)."""

@@ -2774,6 +2774,11 @@ rgb = "#badd64"
 ramp = "reed spring rich"
 
 [[colour]]
+name = "straw r1"
+rgb = "#453e12"
+ramp = "straw rich"
+
+[[colour]]
 name = "straw r2"
 rgb = "#5f5515"
 ramp = "straw rich"
@@ -2894,18 +2899,13 @@ rgb = "#cfcbb1"
 ramp = "cactus spine rich"
 
 [[colour]]
-name = "cattail r2"
-rgb = "#2e1c13"
-ramp = "cattail rich"
-
-[[colour]]
 name = "cattail r3"
 rgb = "#472c1b"
 ramp = "cattail rich"
 
 [[colour]]
-name = "cattail r5"
-rgb = "#7c532f"
+name = "cattail r4"
+rgb = "#633e23"
 ramp = "cattail rich"
 
 [[colour]]
@@ -2917,11 +2917,6 @@ ramp = "cattail rich"
 name = "cattail r7"
 rgb = "#ad824a"
 ramp = "cattail rich"
-
-[[colour]]
-name = "meadow green 1 r1"
-rgb = "#0a2804"
-ramp = "meadow green 1 rich"
 
 [[colour]]
 name = "meadow green 1 r2"
@@ -2982,11 +2977,6 @@ ramp = "fern 1 rich"
 name = "fern 1 r7"
 rgb = "#8ccc20"
 ramp = "fern 1 rich"
-
-[[colour]]
-name = "meadow green 2 r1"
-rgb = "#042806"
-ramp = "meadow green 2 rich"
 
 [[colour]]
 name = "meadow green 2 r2"
