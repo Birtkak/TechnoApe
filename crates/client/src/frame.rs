@@ -14,7 +14,15 @@ pub(crate) fn frustum_planes(m: Mat4) -> [Vec4; 6] {
     p
 }
 
+/// How far the plants reach at each Vegetation setting, m (ADR 0091): past it they have shrunk into the ground,
+/// each from its own distance in the last 45 % of it, so none pops.
+const PLANTS_FAR: [f32; 3] = [40.0, 64.0, 96.0];
+
 impl App {
+    /// The Vegetation setting (ADR 0091), or a run's vegetation=few|normal|many: 0, 1 or 2.
+    pub(crate) fn vegetation(&self) -> usize {
+        self.args.0.get("vegetation").and_then(|v| ["few", "normal", "many"].iter().position(|n| n == v)).unwrap_or(self.settings.at(S::Vegetation)).min(2)
+    }
     pub(crate) fn frame(&mut self) {
         // a new world's bake or a server's map done: the game starts again with it
         self.poll_loading();
@@ -536,7 +544,7 @@ impl App {
         // the Clutter setting (ADR 0082), or a run's clutter=off|few|normal|many
         let level = self.args.0.get("clutter").and_then(|v| ["off", "few", "normal", "many"].iter().position(|n| n == v)).unwrap_or(self.settings.at(S::Clutter));
         let still = self.gpu.as_ref().unwrap().still.clone();
-        self.streamer.set_clutter(&still, self.world.time, [0.0, 0.25, 1.0, 4.0][level.min(3)]);
+        self.streamer.set_clutter(&still, self.world.time, [[0.0, 0.25, 1.0, 4.0][level.min(3)], engine::clutter::VEGETATION[self.vegetation()]]);
         self.streamer.dispatch(&self.world, &mut reqs);
         let sel = ts0.elapsed().as_secs_f64();
         lap!("dispatch");
@@ -763,6 +771,14 @@ impl App {
             // a shot's ripples stand still: it is taken after as many frames as the PC draws, the clock in wall time
             water: [if self.shot.is_some() { 0.0 } else { self.world.time.rem_euclid(3600.0) as f32 }, fog, deep_light, 0.0],
             cloud: [0.0; 4],
+            // the plants' sway and how far they reach (ADR 0091)
+            plants: {
+                let wind = match self.air.filter(|_| cf == 0 && self.shot.is_none()) {
+                    Some(a) => crate::weather::wind_at((p.pos - self.world.bodies[0].centre).normalize(), a.wind).as_vec3(),
+                    None => Vec3::ZERO,
+                };
+                [wind.x, wind.y, wind.z, PLANTS_FAR[self.vegetation()]]
+            },
             view_proj: vp.to_cols_array_2d(),
             sun: [sun.x, sun.y, sun.z, clock],
             bodies: bytemuck::Zeroable::zeroed(),

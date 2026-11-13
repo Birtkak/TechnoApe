@@ -210,8 +210,8 @@ pub struct Streamer {
     pub released: Vec<u32>,
     /// What level 0 lays its clutter with (ADR 0082): the still models, the sky's time it was last set at (its
     /// season picks the rows, its year what has come back), that time's (nearest season, year), and the Clutter
-    /// setting's density.
-    pub clutter: (Arc<Still>, f64, (i64, u32), f32),
+    /// setting's density and the Vegetation setting's (ADR 0091).
+    pub clutter: (Arc<Still>, f64, (i64, u32), [f32; 2]),
     /// The pick-ups taken (ADR 0082): the cell each lay in and the year it was taken, as the server sends them.
     pub taken: FxMap<Block, u32>,
 }
@@ -316,7 +316,7 @@ impl Streamer {
             touched: Vec::new(),
             walks: 0,
             released: Vec::new(),
-            clutter: (Arc::new(Still::default()), 0.0, (i64::MIN, 0), 1.0),
+            clutter: (Arc::new(Still::default()), 0.0, (i64::MIN, 0), [1.0; 2]),
             taken: FxMap::default(),
         }
     }
@@ -677,10 +677,10 @@ impl Streamer {
         self.dirty = true;
     }
 
-    /// The clutter's models, the sky's time and the Clutter setting's density (ADR 0082): level 0 is meshed again
-    /// when the models are new, the year turns into another season or begins again, or the density changes.
+    /// The clutter's models, the sky's time and the Clutter and Vegetation settings' densities (ADR 0082, 0091): level 0 is meshed again
+    /// when the models are new, the year turns into another part (an eighth, ADR 0091) or begins again, or the density changes.
     /// shortcut: every level-0 chunk, though only those with seasonal rows change; by row when it shows in p99.
-    pub fn set_clutter(&mut self, still: &Arc<Still>, t: f64, density: f32) {
+    pub fn set_clutter(&mut self, still: &Arc<Still>, t: f64, density: [f32; 2]) {
         let quarter = crate::clutter::stamp(t);
         let c = &self.clutter;
         if Arc::ptr_eq(&c.0, still) && c.2 == quarter && c.3 == density {

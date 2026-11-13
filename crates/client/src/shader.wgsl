@@ -49,6 +49,9 @@ struct Globals {
     // (0: none), w the map's air columns a face edge (0: none yet); y 0 with the clouds off (no shadow, the
     // snow still lies)
     cloud: vec4f,
+    // the plants (ADR 0091, gpu.rs `Globals::plants`): xyz the wind at the camera in body 0's frame, m/s (0 in a
+    // shot), w how far away they have shrunk into the ground, m (the Vegetation setting)
+    plants: vec4f,
 };
 // base in columns and layers; info = face | level << 3 | body << 8; off: its first quad
 // opq: its opaque land quads; the cutout ones follow them, the BLAS's second geometry (ADR 0069)
@@ -1820,7 +1823,37 @@ fn fs_fx(i: FxOut) -> GOut {
 // A painted box face put in a level-0 chunk's mesh as one quad (`clutter::quad`): the cell x6 y6 z6 and its place
 // in the cell u4 v4 in lo, the face's index in `sfaces` and its turn in sixteenths in hi. Drawn into the G-buffer
 // as the terrain is and lit the same; not traced (no shadow).
-struct SFace { o: vec3f, base: u32, eu: vec3f, pw: u32, ev: vec3f, xy: u32, wh: u32, _a: u32, _b: u32, _c: u32 };
+// flags: 1 a plant's plane (ADR 0091: both sides drawn, swayed, tinted, faded far away; clutter::PLANT)
+struct SFace { o: vec3f, base: u32, eu: vec3f, pw: u32, ev: vec3f, xy: u32, wh: u32, flags: u32, _b: u32, _c: u32 };
+const PLANT: u32 = 1u;
+
+// The climate's tint of a green pixel (ADR 0091; engine clutter::tint, line for line): bits = heat 4 | wetness 4
+// << 4 | the part of the year 3 << 8 (clutter::tint_bits). Yellow-green where it is dry and warm, deep green where
+// it is wet, fresh in spring, yellowing from late summer, dull in winter. Leaves and the grass block's top can
+// take it by carrying the same 11 bits (ADR 0091, "For part A").
+fn climate_tint(bits: u32) -> vec3f {
+    var shift = array<f32, 8>(-0.2, -0.1, 0.0, 0.15, 0.35, 0.5, 0.4, 0.3);
+    let heat = f32(bits & 15u) / 15.0;
+    let wet = f32((bits >> 4u) & 15u) / 15.0;
+    let part = (bits >> 8u) & 7u;
+    let dry = clamp((1.0 - wet) * (0.35 + 0.65 * heat) + shift[part], 0.0, 1.0);
+    return mix(vec3f(0.62, 0.86, 0.56), vec3f(1.12, 1.0, 0.42), dry) * select(1.0, 0.82, part >= 6u);
+}
+// a painted pixel the tint takes: a green one (flowers, berries and seed heads keep their colour)
+fn leafy(c: vec3f) -> bool { return c.g > c.r && c.g > c.b; }
+
+// A plant's sway (ADR 0091): the wind `w` (camera frame, m/s) bends a point `hm` metres up by its square, in gusts
+// that roll across the land with `place` (columns) and run on the sky's clock, so every client and every shot of
+// the same time sees the same. Leaves can take it the same way.
+fn sway(w: vec3f, hm: f32, place: vec2f, seed: f32) -> vec3f {
+    let speed = length(w);
+    if (speed < 0.01) { return vec3f(0.0); }
+    let t = g.water.x;
+    let ph = dot(place, vec2f(0.31, 0.23)) + seed * 1.5;
+    // periods that divide the clock's hour, so it has no jump
+    let gust = 0.4 + 0.6 * sin(t * 6.2831853 * 0.6 + ph) + 0.2 * sin(t * 6.2831853 * 1.5 + ph * 1.7);
+    return w / speed * min(speed * 0.025, 0.3) * min(hm * hm, 1.5) * gust;
+}
 @group(0) @binding(16) var<storage, read> sfaces: array<SFace>;
 @group(0) @binding(17) var<storage, read> spaint: array<u32>;
 
@@ -1844,21 +1877,38 @@ fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     let cell = vec3f(f32(lo & 63u), f32((lo >> 6u) & 63u), f32((lo >> 12u) & 63u));
     // its place in the cell: up to a quarter metre off the middle
     let off = (vec2f(f32((lo >> 18u) & 15u), f32((lo >> 22u) & 15u)) / 15.0 - 0.5) * 0.5;
-    let m = f.o + f.eu * uv.x + f.ev * uv.y;
-    let local = cell + vec3f(0.5 + off.x, 0.5 + off.y, 0.0) + still_dir(q, m - vec3f(0.5, 0.0, 0.5));
+    var m = f.o + f.eu * uv.x + f.ev * uv.y;
     let c = chunks[ii];
     let b = g.bodies[(c.info >> 8u) & 255u];
+    let plant = (f.flags & PLANT) != 0u;
+    var h = vec4f(0.0);
+    var bend = vec3f(0.0);
+    if (plant) {
+        // its own size, how far it reaches and its gusts' phase, from its column: the same on every client
+        let col = c.base.xy + vec2i(cell.xy);
+        h = hash4(vec3i(col, i32(c.info & 7u)));
+        // it shrinks into the ground from its own distance on, over the last fifth of it: thins, never pops
+        let base = cell + vec3f(0.5 + off.x, 0.5 + off.y, 0.0);
+        let d = length(brot(b, (place(c, b, base, cell) - b.cam_hi) - b.cam_lo));
+        let d0 = g.plants.w * (0.55 + 0.45 * h.y);
+        let k = (0.8 + 0.4 * h.x) * (1.0 - smoothstep(d0 * 0.8, d0, d));
+        m = vec3f(0.5, 0.0, 0.5) + (m - vec3f(0.5, 0.0, 0.5)) * vec3f(0.8 + 0.4 * h.x, k, 0.8 + 0.4 * h.x);
+        if ((c.info >> 8u) == 0u) { bend = sway(brot(b, g.plants.xyz), m.y, vec2f(col), h.z); }
+    }
+    let local = cell + vec3f(0.5 + off.x, 0.5 + off.y, 0.0) + still_dir(q, m - vec3f(0.5, 0.0, 0.5));
     let gp = grid(c, local);
     let fr = frame_at(c.info & 7u, b, gp.x, gp.y);
     let n = still_dir(q, cross(f.ev, f.eu));
-    let normal = normalize(normalize(fr.s - fr.n * fr.ta) * n.x + normalize(fr.t - fr.n * fr.tb) * n.y + fr.up * n.z);
+    // a plant's planes are lit as the ground under them is, from either side
+    let normal = select(normalize(normalize(fr.s - fr.n * fr.ta) * n.x + normalize(fr.t - fr.n * fr.tb) * n.y + fr.up * n.z), normalize(fr.up), plant);
     var o: VOut;
-    let rel = brot(b, (place(c, b, local, cell) - b.cam_hi) - b.cam_lo);
+    let rel = brot(b, (place(c, b, local, cell) - b.cam_hi) - b.cam_lo) + bend;
     o.clip = g.view_proj * vec4f(rel, 1.0);
     o.rel = rel;
     o.ao = 1.0;
     // the painting's pixel, in `local.xy`; the face in `dir`; no block's look (0, air: no light of its own, no metal)
-    o.local = vec3f(vec2f(f32(f.xy & 65535u), f32(f.xy >> 16u)) + uv * vec2f(f32(f.wh & 65535u), f32(f.wh >> 16u)), 0.0);
+    // and in `local.z` a plant's tint bits (clutter::tint_bits)
+    o.local = vec3f(vec2f(f32(f.xy & 65535u), f32(f.xy >> 16u)) + uv * vec2f(f32(f.wh & 65535u), f32(f.wh >> 16u)), f32(q.y >> 20u));
     o.dir = fi;
     o.mat = 0u;
     o.ci = ii;
@@ -1868,16 +1918,21 @@ fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
 
 @fragment
 fn fs_still(i: VOut) -> GOut {
-    // a plane is two faces back to back: the one turned away goes (the pipeline culls nothing)
-    if (dot(i.normal, i.rel) > 0.0) {
+    let f = sfaces[i.dir];
+    let plant = (f.flags & PLANT) != 0u;
+    // a model's plane is two faces back to back: the one turned away goes (the pipeline culls nothing); a plant's
+    // is one face seen from both sides
+    if (!plant && dot(i.normal, i.rel) > 0.0) {
         discard;
     }
-    let f = sfaces[i.dir];
     let x0 = vec2u(f.xy & 65535u, f.xy >> 16u);
     let px = clamp(vec2u(max(floor(i.local.xy), vec2f(0.0))), x0, x0 + vec2u(f.wh & 65535u, f.wh >> 16u) - 1u);
     let t = unpack4x8unorm(spaint[f.base + px.y * f.pw + px.x]);
     if (t.a < 0.5) {
         discard;
+    }
+    if (plant && leafy(t.rgb)) {
+        return terrain_lit(i, t.rgb * climate_tint(u32(i.local.z + 0.5)));
     }
     return terrain_lit(i, t.rgb);
 }

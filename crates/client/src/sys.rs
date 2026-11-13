@@ -101,9 +101,13 @@ pub fn meshbench(args: &HashMap<String, String>) {
     }
     let near = at.is_some().then_some(1u32);
     // clutter=off|few|normal|many (ADR 0082): its quads laid after each mesh, timed apart, in summer (time=)
-    let density = args.get("clutter").and_then(|v| ["off", "few", "normal", "many"].iter().position(|n| n == v)).map_or(1.0, |l| [0.0, 0.25, 1.0, 4.0][l]);
+    // and vegetation=few|normal|many (ADR 0091)
+    let density = [
+        args.get("clutter").and_then(|v| ["off", "few", "normal", "many"].iter().position(|n| n == v)).map_or(1.0, |l| [0.0, 0.25, 1.0, 4.0][l]),
+        args.get("vegetation").and_then(|v| ["few", "normal", "many"].iter().position(|n| n == v)).map_or(1.0, |l| engine::clutter::VEGETATION[l]),
+    ];
     let pal = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
-    let still = engine::clutter::Still::load(std::path::Path::new("data/models"), &pal).0;
+    let still = engine::clutter::Still::load(std::path::Path::new("data/models"), std::path::Path::new("data/plants"), &pal).0;
     let t_sky = args.get("time").and_then(|v| v.parse::<f64>().ok()).unwrap_or(23625.0);
     let clutter_us = std::sync::Mutex::new((0.0f64, 0usize, 0usize));
     let job = |k: &Key| -> (f64, f64, usize, u8) {

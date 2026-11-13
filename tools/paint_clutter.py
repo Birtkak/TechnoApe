@@ -86,49 +86,6 @@ def solid(top, side, bottom=None, speck=None, seed=""):
     return p
 
 
-def blades(dark, mid, lit, n, seed, lean=0.25):
-    """A plane of grass blades: n tapering blades from the bottom edge, dark at the root, lit at the tip."""
-    def p(face, x, y, w, h):
-        for b in range(n):
-            x0 = (b + 0.5) * w / n + (rnd(seed, b) - 0.5) * w / n * 0.8
-            top = h * (0.35 + 0.65 * rnd(seed, b, "h"))
-            t = (h - y) / h  # 0 at the root
-            if h - y > top:
-                continue
-            cx = x0 + (rnd(seed, b, "l") - 0.5) * 2 * lean * (h - y)
-            if abs(x + 0.5 - cx) <= max(0.6, 1.2 * (1 - (h - y) / top)):
-                return dark if t < 0.3 else (lit if (h - y) > top * 0.75 else mid)
-        return None
-    return p
-
-
-def frond(dark, mid, lit, seed):
-    """A fern's plane: a rib from the bottom middle, leaflets either side shortening to the tip."""
-    def p(face, x, y, w, h):
-        cx, yy = w / 2, h - y  # height over the ground
-        if abs(x + 0.5 - cx) < 0.6 and yy <= h - 1:
-            return dark
-        reach = (w / 2 - 1) * (1 - yy / h) ** 0.6
-        if yy > 2 and yy % 2 < 1 and abs(x + 0.5 - cx) <= reach:
-            return lit if abs(x + 0.5 - cx) > reach - 1.5 else mid
-        return None
-    return p
-
-
-def flowers(stem, head, eye, seed):
-    def p(face, x, y, w, h):
-        for b in range(3):
-            fx = 1.5 + b * (w - 3) / 2
-            top = 4 + int(rnd(seed, b) * (h - 5))
-            yy = h - 1 - y
-            if abs(x - fx) < 0.6 and yy < top:
-                return stem
-            if abs(x - fx) <= 1.1 and abs(yy - top) <= 1.1:
-                return eye if (abs(x - fx) < 0.6 and abs(yy - top) < 0.6) else head
-        return None
-    return p
-
-
 def bush(dark, mid, berry, seed):
     def p(face, x, y, w, h):
         dx, dy = (x + 0.5 - w / 2) / (w / 2), (h - y - 0.5) / h
@@ -152,16 +109,7 @@ def leaf(c, vein):
 
 def make():
     written = []
-    # grass tuft: two crossed planes of blades, and an alternate of three
-    for alt, (n, planes) in enumerate([(5, [(0, 0), (90, 0)]), (4, [(30, 1), (100, 2), (160, 3)])]):
-        m = Model("grass tuft" + (f".{alt}" if alt else ""))
-        for turn, s in planes:
-            m.box((10, 0, 16), (12, 10, 0), blades("grass shade", "grass", "grass lit", n, ("tuft", alt, s)), (0, turn, 0))
-        written += m.write("grass", "crossed planes of blades")
-    m = Model("fern")
-    for turn in (0, 60, 120):
-        m.box((6, 0, 16), (20, 12, 0), frond("jungle grass shade", "jungle grass", "jungle grass lit", turn), (-20, turn, 0))
-    written += m.write("jungle grass", "three fronds leaning out")
+    # (grass tuft, fern and flowers became plants of planes: tools/paint_plants.py, ADR 0091)
     m = Model("fallen leaves")
     for k, (x, z, c) in enumerate([(6, 8, "autumn rust"), (16, 14, "autumn orange"), (11, 20, "autumn gold"), (20, 6, "autumn rust")]):
         m.box((x, 0.5, z), (6, 0, 5), leaf(c, "autumn dark"), (0, 40 * k, 0))
@@ -170,10 +118,6 @@ def make():
     for k, (x, z, t) in enumerate([(6, 12, 20), (10, 18, -35), (14, 8, 70)]):
         m.box((x, 0, z), (14, 1, 1), solid("log lit", "log", "log dark", seed=k), (0, t, 0))
     written += m.write("log", "thin sticks crossing")
-    m = Model("flowers")
-    for turn, head in ((0, "lamp"), (90, "snow")):
-        m.box((12, 0, 16), (8, 10, 0), flowers("grass shade", head, "autumn gold", turn), (0, turn, 0))
-    written += m.write("lamp", "crossed planes of stems and heads")
     for alt, stones in enumerate([[(8, 10, 4, 2, 3), (18, 16, 3, 2, 3), (13, 22, 2, 1, 2)], [(10, 12, 3, 2, 4), (19, 9, 2, 1, 2)]]):
         m = Model("pebbles" + (f".{alt}" if alt else ""))
         for k, (x, z, sx, sy, sz) in enumerate(stones):

@@ -371,6 +371,9 @@ pub(crate) struct Globals {
     /// The clouds (ADR 0076, clouds.wgsl): x the drift's phase 0 to 1, y its period s, z the planet's sea
     /// radius (0: none), w the map's air columns a face edge (0: no map yet).
     pub(crate) cloud: [f32; 4],
+    /// The plants (ADR 0091): xyz the wind at the camera in body 0's frame, m/s (0 in a shot: a still picture
+    /// shows them at rest), w how far away they shrink into the ground, m (the Vegetation setting).
+    pub(crate) plants: [f32; 4],
 }
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -767,7 +770,7 @@ impl Gpu {
         let mpieces = buf("model pieces", (crate::models::MAX_PIECES * std::mem::size_of::<crate::models::Piece>()) as u64, U::STORAGE | U::COPY_DST);
         // the clutter's models, read once at the start (shortcut: not live as the models' are; a restart reads them)
         let palette = std::fs::read_to_string("data/palette.toml").ok().and_then(|t| engine::palette::Palette::parse(&t).ok()).unwrap_or_else(|| crate::fx::PALETTE.clone());
-        let (still, bad) = engine::clutter::Still::load(std::path::Path::new(&a.get("models", String::from("data/models"))), &palette);
+        let (still, bad) = engine::clutter::Still::load(std::path::Path::new(&a.get("models", String::from("data/models"))), std::path::Path::new(&a.get("plants", String::from("data/plants"))), &palette);
         for b in bad {
             eprintln!("clutter: {b}");
         }
