@@ -56,6 +56,12 @@ cells' half).
   gravel come down and lie on the ground, spread to one block of step; no break effect while they fall.
   That run's server tick: p99 0.07 ms.
 
+- **The gate (fast):** tests, the soak and its replay pass, and the views do on main's re-accepted
+  baseline. The speed guard was **not held on a quiet PC**: the night's other sessions compiled through it
+  (the `sim` tick swung from 4 to 1,100 ms run to run, with the falls switched off as well as on; main's own
+  gate saw 748 ms). Measured instead: the falls step at most 0.05 ms a tick in `sim`, with nothing to
+  move there. A quiet gate on main follows the night.
+
 ## Review (a fresh reviewer read the diff)
 - *The soak's heap branch never ran* (it sat behind the items' share after main's merge): fixed; the soak
   line above counts its heaps.
