@@ -2877,3 +2877,23 @@ ramp = "cactus spine rich"
 name = "cactus spine r7"
 rgb = "#cfcbb1"
 ramp = "cactus spine rich"
+
+[[colour]]
+name = "cattail r3"
+rgb = "#472c1b"
+ramp = "cattail rich"
+
+[[colour]]
+name = "cattail r4"
+rgb = "#633e23"
+ramp = "cattail rich"
+
+[[colour]]
+name = "cattail r6"
+rgb = "#956a3b"
+ramp = "cattail rich"
+
+[[colour]]
+name = "cattail r7"
+rgb = "#ad824a"
+ramp = "cattail rich"
