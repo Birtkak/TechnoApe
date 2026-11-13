@@ -31,10 +31,19 @@ shadows and feel like they got depth").
   by the same per-column roll as ADR 0082 with no storage, from a biome's new `undergrowth` list in
   `data/biomes.toml` (models stay in `clutter`). Plants roll on their own (`PLANT_ROLL`), and three in four take
   their patch's roll (cells about 7 columns across, ragged), so a kind grows in drifts: tall grass in sweeps,
-  flowers and wheat in patches. Open grassland is 60–80 % covered at normal (tested).
+  flowers and wheat in patches (four plants in five follow their patch). Short grass fills what the tall leaves
+  open: open grassland is at least 85 % covered at normal (tested), so no bare ground shows between tufts.
+- **No grid:** each plant turns to any angle, stands up to a third of a block off its cell's middle and has its
+  own width and height, all from its column's hash in the shader (`still_local`, shared with the BLAS so its
+  shadow matches), so no row shows from any side.
+- **Shrubs** (four planes, the berry bush; `SHRUB` flag): wider than tall and lopsided by the hash, seen twice as
+  far as the grass (up to 120 m, inside the level-0 chunks they are meshed in).
 - **Vegetation setting** (Graphics: few / normal / many = 0.4 / 1.0 / 1.6 of the density; `vegetation=`), and the
-  far distance 40 / 64 / 96 m. Each plant shrinks into the ground over the last fifth of its own reach (55 to
-  100 % of the far one, by its hash): the plants thin, none pops.
+  far distance 48 / 80 / 112 m. Each plant shrinks into the ground over the last fifth of its own reach (55 to
+  100 % of the far one, by its hash): the plants thin in a hashed order, no ring, none pops.
+- **Far away:** beyond about half the far distance the grass block's top takes the meadow's tone, a little
+  darker (the understorey under the tufts' lit tops) and mottled in 2 m patches (`ground_tint`), so from a hill
+  the valley reads as meadow with no line where the plants end.
 - **Sway** in `vs_still`: `sway(wind, height, column, hash)` from the weather's wind at the camera (ADR 0076) on
   the sky's clock; zero in a `shot=`, so fixed views stand still.
 - **Tint:** `climate_tint(heat, wet, part, season)` (WGSL) = `clutter::tint` (Rust, tested): heat from the bake's
@@ -58,43 +67,23 @@ shadows and feel like they got depth").
 `climate_tint(cl.x, cl.y, year_part(sn), sn.y)` matches the ground and the plants under it.
 
 ## Costs
-Play build, dev PC, three runs each, medians; `run=fly quick=1` (the forest fly-through from the spawn) and
-`run=stand` in a dense grassland meadow at noon of southern late summer. Main is `build/TechnoApe.exe` before
-this branch.
+Measured once at the default setting (ADR 0096), play build, three runs each, medians, under `tools/slot.sh
+measure`: `run=fly quick=1` (the forest fly-through) and `run=stand` in a dense grassland meadow at noon. Main's
+figures are `docs/perf-debt.md`'s (fly GPU p50 2.9 ms, p99 6.3 ms, frame-thread work 0.58 ms).
 
-| Run | GPU p50 | of it: gbuffer | trace (shadows, bounce) | frame p99 | VRAM |
-|---|---|---|---|---|---|
-| main, fly | 2.96 ms | 1.02 | 0.42 | 6.36 ms | 1084 MB |
-| few, fly | 3.16 | 1.37 | 0.23 | 6.95 | 1094 |
-| **normal, fly** | **3.24** | 1.42 | 0.25 | **7.13** | 1094 |
-| normal without plant shadows, fly | 3.07 | 1.37 | 0.19 | 6.65 | 1094 |
-| many, fly | 3.32 | 1.51 | 0.28 | 7.57 | 1094 |
-| main, meadow | 2.96 | 0.86 | 0.46 | 4.15 | 828 |
-| few, meadow | 3.38 | 1.40 | 0.34 | 4.48 | 838 |
-| **normal, meadow** | **3.88** | 1.65 | 0.43 | **5.11** | 836 |
-| normal without plant shadows, meadow | 3.38 | 1.51 | 0.22 | 4.51 | 836 |
-| many, meadow | 4.56 | 2.07 | 0.82 | 5.65 | 1092 |
+| Run | GPU p50 | gbuffer | trace | frame p99 | frame-thread work | VRAM |
+|---|---|---|---|---|---|---|
+| fly, normal | 3.20 ms | 1.42 | 0.25 | 6.97 ms | 0.75 ms | 1094 MB |
+| meadow stand, normal | 4.33 | 2.00 | 0.69 | 5.43 | 0.71 | 1092 |
 
-Every setting holds the 8.3 ms p99 budget; normal's worst is the fly-through at 7.13 ms (main 6.36). The shadows
-cost about 0.2 ms of trace and 0.5 ms GPU in the dense meadow (0.2 ms in the fly-through); `few` is the setting
-that saves most. Some first runs had one 21–27 ms frame (few, normal and many alike, in the first of the three
-reps; main's first fly rep 7.8 ms), so `budget_ok` is false there; the medians are of three. Main's trace in the
-fly-through (0.42 ms against 0.25 with plants) is unexplained and not chased. The series ran back to back under
-`out/.lock`. Numbers before the review's fixes, which only remove work (fewer shadow candidates
-confirmed).
+CPU apart: the frame thread pays about 0.15 ms (more still quads into draws and BLAS instances); the mesh
+workers about 47 µs more a level-0 chunk (clutter 80 µs against 33 on main; meshbench in grassland). An earlier
+series (before the far distance grew, without and with the plants' shadows) put the shadows at about 0.5 ms GPU
+in the meadow and 0.2 ms in the fly-through; every Vegetation level held the 8.3 ms p99 then.
 
-CPU (separate, ADR "CPU over GPU"): the frame thread's `work_ms` and the mesh job per chunk.
-
-| | main | few | normal | many |
-|---|---|---|---|---|
-| frame thread `work_ms`, fly | 0.63 | 0.83 | 0.81 | 0.81 |
-| frame thread `work_ms`, meadow | 0.65 | 0.69 | 0.73 | 0.73 |
-| clutter per chunk (meshbench, grassland) | 33 µs, 569 quads | 45 µs, 556 | 80 µs, 889 | 112 µs, 1139 |
-| mesh per chunk | 74 µs | 59 | 59 | 63 |
-
-The frame thread pays about 0.1–0.2 ms (more still quads to sort into draws and BLAS instances); the mesh workers
-pay about 47 µs a level-0 chunk at normal for the plants' rolls (two rolls a column, plus the patch roll), off
-the frame thread. Mesh time itself is unchanged (main's 74 µs is a different build's noise).
+With the crowns (part A, about +0.7 ms fly GPU over main by its own measurement) the two add to about 1 ms GPU
+over main in the fly-through; not measured together, as neither branch is on main yet. The first run of a
+series had one 15 ms frame (a cold start); the medians are of three. The debt row is in `docs/perf-debt.md`.
 
 ## Review
 Two fresh reviews (subagents given the diff and the task).
@@ -112,6 +101,34 @@ swaying blade's shadow ray crossed its unswayed BLAS copy and flickered: fixed, 
 hits within 35 cm (`still_skip`), its root darkening stands in for that close shade. (3) Grazing sun on a leaning
 plane: covered by the same 35 cm skip. (4) Voxel models' shadows stopped at the plant distance: fixed, models
 cast as far as they are drawn. (5) An argument looked up per chunk: hoisted.
+
+Third (turn and offset per place, shrubs, the far tone): the drawn plant, its BLAS copy and its shadow reach
+agree (checked). (1) The 120 m cap on a shrub's reach clamped most shrubs to one ring: fixed, the cap is taken
+before the hash. (2) The far mottle reached the horizon and would crawl as sub-pixel noise: fixed, it fades to its
+mean from 150 to 400 m. (3) The far tone darkens every grass top, also where no plants grow (a dug plot, a
+player's lawn): answered, a call for the developer (above); the shader cannot tell cheaply. (4) A shrub's
+lopsided side and its warm tint came from one hash: fixed, separate hashes.
+
+## Calls for the developer to confirm
+1. **Texel 32 px a metre** for plants (blocks stay 16): taken from your verdict on detail; the paintings are the
+   textures session's (ADR 0084), merged here.
+2. **Shadows as traced alpha-tested geometry** for every plant and clutter model, on sun, moon and lamp rays;
+   they do not sway with the plant. The alternative was a cheaper contact shadow, not built.
+3. **Density:** open meadow 85 % or more covered at normal, drifts of one kind (tall grass sweeps, flower and
+   wheat patches). Vegetation few / normal / many scales it and the distance (48 / 80 / 112 m).
+4. **Tint:** deep green where wet, straw only where really dry (squared), the grass top and plants alike; a
+   middling climate stays green.
+5. **Far meadow tone:** the grass top darkens and mottles where the plants have thinned, instead of a cheaper far
+   plant layer (one plane per column), which was not built.
+6. **Shrub = the berry bush** drawn as four lopsided planes; the trees session's leaf-block shrubs take the
+   crowns' fluff. Whether the two read as one kind of thing waits for both to be on main.
+
+## Not done (asked, left for a later round)
+- A shrub as several bulging clumps with dents (more planes at several tilts, or planes on a leaf-block core):
+  today it is one lopsided cross of four.
+- Shading by the sun's side of each plane and the far plane of a cross darker than the near one: today a plant is
+  lit as the ground under it is (normal up), shaded by its root, its plane's turn and real shadows.
+- A meadow's edge fraying into scattered tufts on a biome border: plants follow the biome's ground blocks.
 
 ## Consequences
 - The fixed views change wherever grass grows: every view with grassland, savanna, forest floor or wetland in

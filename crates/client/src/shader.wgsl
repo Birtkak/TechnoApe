@@ -948,7 +948,10 @@ fn ground_tint(i: VOut, c: vec3f) -> vec3f {
     // the tufts' lit tops is, and mottled by 2 m patches, so from a hill there is no line where plants end
     let gp = grid(chunks[i.ci], i.local);
     let far = smoothstep(still_far() * 0.5, still_far(), length(i.rel));
-    let mottle = 0.8 + 0.25 * hash2(vec2u(vec2i(floor(gp.xy * 0.5)) + vec2i(1 << 20)));
+
+    // the patches fade to their mean where they would shrink under a pixel (no crawling noise far away)
+    let dist = length(i.rel);
+    let mottle = mix(0.8 + 0.25 * hash2(vec2u(vec2i(floor(gp.xy * 0.5)) + vec2i(1 << 20))), 0.925, smoothstep(150.0, 400.0, dist));
     return c * climate_tint(cl.x, cl.y, 2u, 0.0) * mix(1.0, mottle * 0.88, far);
 }
 
@@ -1937,7 +1940,7 @@ fn still_local(q: vec2u, uv: vec2f, c: Chunk, fade: f32) -> vec3f {
         let a = k.w * 6.2831853;
         var sc = vec3f(0.85 + 0.3 * k.z, 0.8 + 0.4 * h.x, 0.85 + 0.3 * k.z);
         // a shrub: wider than tall and lopsided, one side fuller than the other
-        if ((f.flags & SHRUB) != 0u) { sc = vec3f(1.1 + 0.4 * k.z, 0.7 + 0.25 * h.x, 0.85 + 0.4 * h.w); }
+        if ((f.flags & SHRUB) != 0u) { sc = vec3f(1.1 + 0.4 * k.z, 0.7 + 0.25 * h.x, 0.85 + 0.4 * fract(k.x * 7.31)); }
         m = vec3f(m.x * cos(a) - m.z * sin(a), m.y, m.x * sin(a) + m.z * cos(a)) * sc;
         m.y *= fade;
         at = (k.xy - 0.5) * 0.66;
@@ -1951,8 +1954,9 @@ fn still_far() -> f32 { return g.plants.w; }
 // how far one plant reaches, by its hash y: 55 to 100 % of the far distance, so the plants thin in a hashed
 // order and no ring shows; a shrub twice as far, within the level-0 chunks it is meshed in (about 128 m)
 fn plant_reach(flags: u32, hy: f32) -> f32 {
-    let d = still_far() * (0.55 + 0.45 * hy);
-    return select(d, min(d * 2.0, 120.0), (flags & SHRUB) != 0u);
+    // the cap first, then the hash, so shrubs too thin in a hashed order and do not all end on one ring
+    let far = select(still_far(), min(still_far() * 2.0, 120.0), (flags & SHRUB) != 0u);
+    return far * (0.55 + 0.45 * hy);
 }
 
 // how far from the eye still quad q of chunk-table entry ci casts a shadow: a plant until it starts to shrink
