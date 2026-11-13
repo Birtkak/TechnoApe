@@ -857,6 +857,19 @@ def turned(ramp, deg):
     return out
 
 
+def far(c, k=4):
+    """A quarter-size painting: each 4x4 cell takes its most common colour where a quarter of it is filled, so
+    the outline and the main colours stay and thin details drop out."""
+    h, w = c.shape
+    o = np.full(((h + k - 1) // k, (w + k - 1) // k), None, object)
+    for j in range(o.shape[0]):
+        for i in range(o.shape[1]):
+            cell = [v for v in c[j * k:(j + 1) * k, i * k:(i + 1) * k].flat if v is not None]
+            if len(cell) * 4 >= k * k:
+                o[j, i] = max(set(cell), key=cell.count)
+    return o
+
+
 def hd_put(c, x, y, v, wrap=True):
     h, w = c.shape
     if wrap:
@@ -925,7 +938,8 @@ def leaf_mass(rng, shapes, size=(HD, HD), clumps=11, radius=(6, 10), flat=1.0, s
         for y, x, q in sorted(leaves):
             n = np.array([x / (r * flat), y / r, np.sqrt(max(0.0, 1 - q))])
             lit = max(0.0, float(n @ LIGHT))
-            tone = 1 + round(lit * 5.5) - round(2 * back) + int(rng.integers(-1, 2))
+            # a leaf a step off only now and then: clumps a quarter block wide must read from 10 to 20 m, not speckle
+            tone = 1 + round(lit * 5.5) - round(2 * back) + (int(rng.integers(-1, 2)) if rng.random() < 0.3 else 0)
             px, py = int(round(cx + x)), int(round(cy + y))
             if not wrap and mask is not None and not (0 <= py < h and 0 <= px < w and mask[py, px]):
                 continue
@@ -988,12 +1002,12 @@ def pine_hd(rng):
         for x in range(HD):
             if rng.random() < 0.35:
                 c[y, x] = 1 if rng.random() < 0.6 else 3
-    for _ in range(14):
+    for _ in range(9):  # fewer, bigger rosettes: clusters that read from 20 m
         cx, cy = int(rng.integers(HD)), int(rng.integers(HD))
         for a in np.linspace(0, 6.283, 18, endpoint=False) + rng.uniform(0, 0.35):
             dx, dy = np.cos(a), np.sin(a)
             lit = max(0.0, -dx * 0.5 - dy * 0.85)
-            for i in range(1, int(rng.integers(4, 8))):
+            for i in range(1, int(rng.integers(6, 10))):
                 hd_put(c, cx + int(round(dx * i)), cy + int(round(dy * i)),
                        max(1, min(7, 2 + round(lit * 4.5) + (1 if i > 3 else 0))))
         hd_put(c, cx, cy, 0)
@@ -1023,6 +1037,34 @@ def palm_hd(rng):
             hd_put(c, x * side, y, 7)
     return c
 
+
+
+def cactus_hd(rng, top):
+    """A cactus face: ribs (four on a side, each lit on its left and in shade on its right, a dark groove between),
+    areoles on the crests with pale spines (tones + 10); the top: the ribs meeting at a lighter crown."""
+    ys, xs = np.mgrid[0:HD, 0:HD].astype(float)
+    if top:
+        a = np.arctan2(ys - 15.5, xs - 15.5)
+        r = np.hypot(ys - 15.5, xs - 15.5)
+        rib = 0.5 + 0.5 * np.cos(a * 8)
+        c = np.clip(np.round(2 + rib * 3 + (16 - r) / 8 + rng.normal(0, 0.4, (HD, HD))), 1, 7).astype(int).astype(object)
+        for k in range(8):
+            for rr in (5, 10, 14):
+                x, y = 15.5 + rr * np.cos(k * np.pi / 4), 15.5 + rr * np.sin(k * np.pi / 4)
+                hd_put(c, int(x), int(y), 10 + 6, False)
+        return c
+    u = xs % 8 / 8  # across a rib; the same in every variant, so the ribs meet at the seams
+    t = 2 + 4 * np.sin(u * np.pi) - 1.2 * u + rng.normal(0, 0.35, (HD, HD))
+    c = np.clip(np.round(t), 1, 7).astype(int).astype(object)
+    c[u < 0.13] = 1
+    for x in range(HD):
+        if abs(u[0, x] - 0.45) < 0.07:
+            y0 = int(rng.integers(6))
+            for y in range(y0, HD, 6):
+                hd_put(c, x, y, 10 + 6)
+                hd_put(c, x - 1, y - 1, 10 + 4)
+                hd_put(c, x + 1, y - 1, 10 + 5)
+    return c
 
 
 def hd_twigs(rng, role):
@@ -1110,7 +1152,7 @@ def wnoise(rng, cell, size=HD):
 def calm(c, lo, hi):
     """Squeeze a bark's tones 0..7 into lo..hi: close browns or greys, the furrows only a little darker, so a trunk
     reads as bark from 9 m and does not draw the eye from the crown (the overseer, 2026-11-13: oak read as zebra)."""
-    return np.vectorize(lambda t: int(round(lo + (hi - lo) * t / 7)), otypes=[object])(c)
+    return np.vectorize(lambda t: None if t is None else int(round(lo + (hi - lo) * t / 7)), otypes=[object])(c)
 
 
 def bark_hd(rng, kind):
@@ -1208,25 +1250,43 @@ def end_hd(rng, hollow=False):
 # plants at 32 px a metre: tones are indices into the plant's ramp, None open; nothing wraps
 
 
-def blades_hd(rng, w, h, n, lo, hi, lean=0.35, wide=0.25):
-    """`n` blades over the whole width (every column first), each from a dark root to a bright tip, curving out;
-    short dark blades behind, tall bright ones in front; a quarter two texels wide at the root."""
+def envelope(rng, w, peaks=(2, 4), low=0.04):
+    """A tuft's outline across its width, 0..1: two or three bulges of their own height with dents between, low
+    at the sides, so no tuft has a flat top or straight sides and every variant has its own."""
+    xs = np.arange(w)
+    env = np.full(w, 0.0)
+    for _ in range(int(rng.integers(*peaks))):
+        cx, wd = rng.uniform(0.3, 0.7) * w, rng.uniform(0.2, 0.32) * w
+        env = np.maximum(env, rng.uniform(0.55, 1.0) * np.exp(-((xs - cx) / wd) ** 2))
+    env = env / env.max() * np.sin(np.pi * (xs + 0.5) / w) ** 0.7  # falls to the sides: a fountain, not a wall
+    return low + (1 - low) * env / env.max()
+
+
+def blades_hd(rng, w, h, n, lo, hi, lean=0.35, wide=0.25, low=0.04):
+    """`n` blades over the whole width, their heights following the tuft's own outline (`envelope`): a back
+    layer, darker, and a lighter front layer; each blade from a dark root to a bright tip; outer blades lean
+    out, so the sides are not straight; a quarter two texels wide at the root."""
     c = np.full((h, w), None, object)
-    bl = [(x, int(rng.integers(lo, hi + 1))) for x in range(w)]
-    bl += [(int(rng.integers(w)), int(rng.integers(lo, hi + 1))) for _ in range(max(0, n - w))]
-    bl.sort(key=lambda b: b[1])
-    for x, bh in bl:
-        lift = rng.uniform(-1, 1.2)  # this blade's own lightness
-        d, fx = rng.uniform(-lean, lean), float(x)
+    env = envelope(rng, w, low=low)
+    # roots in the middle 80 %: the outer blades lean out to the sides, so no side is cut straight
+    xs = [int(round(w * 0.1 + x * 0.8)) for x in range(w)] + [int(rng.integers(w // 10, w - w // 10)) for _ in range(max(0, n - w))]
+    rng.shuffle(xs)
+    half = len(xs) // 2
+    for k, x in enumerate(xs):
+        front = k >= half  # the back layer first, the front over it
+        bh = max(2, int(round((lo * env[x] ** 0.5 + (hi - lo) * env[x]) * rng.uniform(0.6, 1.0))))  # low at the sides too
+        lift = rng.uniform(-0.3, 1.2) if front else rng.uniform(-1.8, -0.6)
+        out = (x - (w - 1) / 2) / (w / 2)  # -1 at the left side, 1 at the right
+        d, fx = out * lean * 1.4 + rng.uniform(-lean, lean) * 0.5, float(x)
         two = rng.random() < wide
         for i in range(bh):
             t = i / max(1, bh - 1)
             # mostly mid green, the tip lit; the root only a step down, as the plants' shader darkens it to x0.45
             tone = int(round(2 + t ** 1.7 * 5 + lift * (0.4 + t * 0.6)))
-            px = int(round(fx)) % w
-            hd_put(c, px, h - 1 - i, max(0, min(7, tone)), False)
+            px = int(round(fx))
+            hd_put(c, px, h - 1 - i, max(1, min(7, tone)), False)
             if two and i < bh * 0.4:
-                hd_put(c, (px + 1) % w, h - 1 - i, max(0, min(7, tone - 1)), False)
+                hd_put(c, px + 1, h - 1 - i, max(1, min(7, tone - 1)), False)
             fx += d * t * 1.8
     return c
 
@@ -1328,8 +1388,14 @@ def bush_hd(rng, w, h, look=None):
     """A round bush of single leaves in clumps on the ground (rich, like the reference's berry bush); `look`
     'fruit' or 'bloom' adds berries or blossom (tones + 10)."""
     ys, xs = np.mgrid[0:h, 0:w]
-    edge = wnoise(rng, 8, max(w, h))[:h, :w] * 0.6 + wnoise(rng, 4, max(w, h))[:h, :w] * 0.4
-    mask = np.hypot((xs - (w - 1) / 2) / (w / 2), (ys - h * 0.62) / (h * 0.62)) + (edge - 0.5) * 0.7 <= 1  # lumpy, not round
+    edge = wnoise(rng, 4, max(w, h))[:h, :w]
+    mask = np.zeros((h, w), bool)
+    lobes = int(rng.integers(2, 4))  # two or three bulges with dents between: no round blob, each variant its own
+    for k in range(lobes):
+        cx = w * (0.5 + (k - (lobes - 1) / 2) * rng.uniform(0.26, 0.34))
+        r = rng.uniform(0.28, 0.36) * w
+        cy = h - r * rng.uniform(0.95, 1.35)
+        mask |= np.hypot(xs - cx, (ys - cy) * 1.1) + (edge - 0.5) * 6 <= r
     mask[h - 1] = mask[h - 2]  # stands on the ground
     c = leaf_mass(rng, LEAF_SHAPES["oval"], (h, w), 9, (6, 10), 1.0, 3, False, mask)
     for y, x in zip(*np.nonzero(mask)):  # the rim against the air takes a mid tone: no painted outline
@@ -1337,6 +1403,9 @@ def bush_hd(rng, w, h, look=None):
                 not (0 <= y + dy < h and 0 <= x + dx < w) or c[y + dy, x + dx] is None
                 for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
             c[y, x] = 3
+    for y, x in zip(*np.nonzero(mask)):  # clearly darker underneath and inside: the lower third loses up to two tones
+        if c[y, x] is not None:
+            c[y, x] = max(1, c[y, x] - int(round(2.2 * max(0.0, (y / h - 0.45) / 0.55) ** 1.3)))
     k = np.random.default_rng(int(rng.integers(1 << 30)))
     if look:
         for _ in range(w * h // 30):
@@ -1590,7 +1659,7 @@ def build(pal, blocks):
         "oak": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["lobed"], radius=(7, 11), spacing=4, holes=0.08, nholes=1),
                     hue=(112, 0.85, -0.02), bark="ridged", barkc=(32, 0.18, 0.02), woodc=(32, 0.5, 0.1),
                     spring=(102, 0.85, 0.02), autumn=(26, 0.7, 0.0), fruit=("acorn", 36, 0.7, 0.06, 2)),
-        "birch": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["small"], clumps=13, radius=(5, 8), spacing=2,
+        "birch": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["small"], clumps=9, radius=(7, 10), spacing=2,
                                                holes=0.1, nholes=4), hue=(84, 0.9, 0.03), bark="birch",
                       barkrgb=BIRCH, woodc=(42, 0.4, 0.2), spring=(78, 0.9, 0.05), autumn=(48, 0.95, 0.05),
                       catkins=True, twigs="log"),
@@ -1602,12 +1671,12 @@ def build(pal, blocks):
         "jungle": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["broad"], clumps=9, radius=(8, 12), spacing=5,
                                                 holes=0.04, nholes=3), hue=(118, 1.0, 0.0), bark="smooth",
                        barkc=(40, 0.2, 0.08), woodc=(30, 0.5, 0.12), fruit=("tropical fruit", 28, 1.0, 0.08, 3)),
-        "acacia": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["small"], clumps=12, radius=(4, 7), flat=1.7,
+        "acacia": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["small"], clumps=7, radius=(7, 11), flat=1.6,
                                                 spacing=3, holes=0.1, nholes=3), hue=(74, 0.72, 0.06), bark="smooth",
                        barkc=(30, 0.18, 0.0), woodc=(22, 0.6, 0.1)),
         "palm": dict(leaf=palm_hd, hue=(90, 0.9, 0.02), bark="palm", barkc=(38, 0.35, 0.05), woodc=(40, 0.45, 0.15),
                      fruit=("coconut", 28, 0.5, -0.02, 5)),
-        "bamboo": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["lance"], clumps=10, radius=(6, 9), spacing=4,
+        "bamboo": dict(leaf=lambda g: leaf_mass(g, LEAF_SHAPES["lance"], clumps=8, radius=(8, 11), spacing=4,
                                                 holes=0.08, nholes=3), hue=(92, 0.95, 0.02), bark="culm",
                        barkc=(85, 0.6, 0.05), woodc=(55, 0.35, 0.2), hollow=True),
     }
@@ -1661,7 +1730,7 @@ def build(pal, blocks):
                 f(np.random.default_rng(seed_of(b, v))), [r]))
             tw = RR("log bark", *sp_hd["broadleaf"]["barkc"]) if t.get("twigs") == "log" else bark_r
             hd(f"{leaf_b}@winter", 4, lambda g, v, r=tw, b=leaf_b: named_canvas(
-                hd_twigs(np.random.default_rng(seed_of(b, "winter", v)), WINTER_ROLES[v]), [r]))
+                calm(hd_twigs(np.random.default_rng(seed_of(b, "winter", v)), WINTER_ROLES[v]), 1, 4), [r]))  # one tree, one bark family
         if "fruit" in t:
             name, hue, sat, light, size = t["fruit"]
             fr = RR(name, hue, sat, light)
@@ -1673,16 +1742,31 @@ def build(pal, blocks):
     hd("shrub", 4, lambda g, v: named_canvas(leaf_mass(np.random.default_rng(seed_of("shrub", v)), LEAF_SHAPES["oval"],
                                                        radius=(5, 8), holes=0.08), [shrub_r]))
     hd("shrub@winter", 4, lambda g, v: named_canvas(
-        hd_twigs(np.random.default_rng(seed_of("shrub", "winter", v)), WINTER_ROLES[v]), [RR("log bark", 28, 0.35, 0.0)]))
+        calm(hd_twigs(np.random.default_rng(seed_of("shrub", "winter", v)), WINTER_ROLES[v]), 1, 4), [RR("log bark", 28, 0.35, 0.0)]))
+    for season, ramp in (("spring", RR("shrub spring", 84, 0.8, 0.06)), ("autumn", RR("shrub autumn", 30, 0.85, 0.0))):
+        hd(f"shrub@{season}", 4, lambda g, v, r=ramp: named_canvas(leaf_mass(np.random.default_rng(seed_of("shrub", v)),
+                                                                             LEAF_SHAPES["oval"], radius=(5, 8), holes=0.08), [r]))
+    # the reed block: a tuft of blades a block high, its own outline per variant; seasons recolour the same blades
+    for season, ramp in (("", RR("meadow green", 0, rgb=turned(MEADOW, 0))), ("@spring", RR("reed spring", 96, 0.85, 0.05)),
+                         ("@autumn", RR("straw", 46, 0.75, 0.08)), ("@winter", RR("reed winter", 40, 0.3, 0.1))):
+        hd(f"reed{season}", 4, lambda g, v, r=ramp: named_canvas(
+            blades_hd(np.random.default_rng(seed_of("reed", v)), HD, HD, HD * 3, HD // 2, HD, 0.2, low=0.5), [r]))  # a stand: ragged top, no gaps
+    cactus_r, spine_r = RR("cactus", 128, 0.55, -0.02), RR("cactus spine", 50, 0.3, 0.25)
+    hd("cactus_side", 3, lambda g, v: named_canvas(cactus_hd(g, False), [cactus_r, spine_r]))
+    hd("cactus", 2, lambda g, v: named_canvas(cactus_hd(g, True), [cactus_r, spine_r]))
 
     # plants at 32 px a metre: two variants each besides the first (`.1`, `.2`), another shape and a hue a step off
     plant_sizes = {"short grass": (32, 13), "tall grass": (32, 32), "wild wheat": (32, 40), "fern": (48, 22),
                    "reeds": (32, 64), "flowers": (32, 16), "berry bush": (40, 40)}
     hues = (0, -7, 6)
+    plant_sizes["meadow ground"] = (96, 32)
 
     def plant(name, fn):
         w, h = plant_sizes[name.split(".")[0]]
         out[f"plant:{name}"] = [fn(np.random.default_rng(seed_of("plant", name)), w, h)]
+        if "." not in name and name not in ("meadow ground", "flowers"):  # the far painting, per kind of mass:
+            # 8 px a metre; single flowers have none (the developer: masses only)
+            out[f"plant:{name}.far"] = [far(out[f"plant:{name}"][0])]
 
     straw = [RR("straw", 46 + d, 0.75, 0.08) for d in hues]
     for k, d in enumerate(hues):
@@ -1694,10 +1778,29 @@ def build(pal, blocks):
         plant(f"fern{sfx}", lambda g, w, h, F=RR("fern" + (f" {k}" if k else ""), 104 + d, 0.9, -0.04):
               named_canvas(fern_hd(g, w, h), [F]))
         plant(f"reeds{sfx}", lambda g, w, h, G=G: named_canvas(reeds_hd(g, w, h), [G, RR("cattail", 22, 0.5, -0.02)]))
+    def meadow_ground(g, w, h, G, P, S):
+        """The grass top where plants thin out (three tiles side by side, each tiling): mottled clumps of the
+        meadow's greens, blade tips as lit specks, a few petals and straw (tones + 10, + 20)."""
+        tiles = []
+        for _ in range(3):
+            n = wnoise(g, 6) * 0.6 + wnoise(g, 3) * 0.4
+            c = np.clip(np.round(1.5 + n * 4.5 + g.normal(0, 0.5, (HD, HD))), 1, 6).astype(int).astype(object)
+            for _ in range(40):  # blade tips
+                x, y = int(g.integers(HD)), int(g.integers(HD))
+                c[y, x], c[(y + 1) % HD, x] = 6, 4
+            for _ in range(4):  # flowers and seed heads
+                x, y = int(g.integers(HD)), int(g.integers(HD))
+                c[y, x] = (10 + 5) if g.random() < 0.6 else (20 + 5)
+                c[y, (x + 1) % HD] = (10 + 3) if g.random() < 0.6 else (20 + 3)
+            tiles.append(c)
+        return named_canvas(np.concatenate(tiles, axis=1), [G, P, S])
+
     petals = [RR("red petal", 2, 0.85, 0.08), RR("yellow petal", 50, 0.95, 0.15), RR("blue petal", 240, 0.6, 0.12)]
     for k, pr in enumerate(petals):
         G = RR("meadow green" + (f" {k}" if k else ""), 0, rgb=turned(MEADOW, hues[k]))
         plant(f"flowers{f'.{k}' if k else ''}", lambda g, w, h, G=G, pr=pr: named_canvas(flowers_hd(g, w, h), [G, pr]))
+    plant("meadow ground", lambda g, w, h: meadow_ground(g, w, h, RR("meadow green", 0, rgb=turned(MEADOW, 0)),
+                                                          petals[1], straw[0]))
     bush_r = RR("berry bush", 104, 0.85, -0.06)
     plant("berry bush", lambda g, w, h: named_canvas(bush_hd(np.random.default_rng(seed_of("berry bush")), w, h), [bush_r]))
     plant("berry bush.1", lambda g, w, h: named_canvas(bush_hd(g, w, h), [RR("berry bush 1", 98, 0.85, -0.05)]))
@@ -1961,6 +2064,10 @@ def build(pal, blocks):
     tex("iron-nickel", 2, iron_nickel)
     kr = R("kreep")
     tex("kreep", 3, lambda g, v: specks(specks(rock_top(g, kr, 1), g, kr["L"], 5), g, kr["d"], 4))
+    for stem in [k for k in out if k.startswith("hd:")]:
+        block = stem[3:].split("@")[0].removesuffix("_side")
+        if block.endswith("leaves") or block in ("shrub", "reed", "cactus"):
+            out["hdfar:" + stem[3:]] = [far(v) for v in out[stem]]  # 8 px a face: the outline and main colours
     return out
 
 
@@ -2054,14 +2161,15 @@ def main(argv):
             (paths if folder.parent == DATA else pending).append(p)
             used |= k if folder.parent == DATA else set()
             continue
-        if stem.startswith("hd:"):  # flora at 32: data/textures/hd/ (ADR 0090's engine reads them), or waiting
-            stem = stem.removeprefix("hd:")
+        if stem.startswith(("hd:", "hdfar:")):  # flora at 32: data/textures/hd/ (ADR 0090), its far ones in hd/far/
+            sub = "hd/far" if stem.startswith("hdfar:") else "hd"
+            stem = stem.split(":", 1)[1]
             block = stem.split("@")[0].removesuffix("_top").removesuffix("_side").removesuffix("_bottom")
             if want and block not in want:
                 continue
             tag = stem.split("@")[1] if "@" in stem else None
             ok = block in names and not (tag and tag not in TAGS)
-            folder = OUT / "hd" if ok else PENDING / "hd"
+            folder = OUT / sub if ok else PENDING / sub
             folder.mkdir(parents=True, exist_ok=True)
             p, k = write(pal, stem, variants, True, folder)
             (paths if ok else pending).append(p)
