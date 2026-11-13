@@ -866,7 +866,7 @@ def far(c, k=4):
         for i in range(o.shape[1]):
             cell = [v for v in c[j * k:(j + 1) * k, i * k:(i + 1) * k].flat if v is not None]
             if len(cell) * 4 >= k * k:
-                o[j, i] = max(set(cell), key=cell.count)
+                o[j, i] = max(sorted(set(cell)), key=cell.count)  # sorted: ties fall the same way every run
     return o
 
 
