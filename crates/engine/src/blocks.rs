@@ -390,7 +390,7 @@ impl Registry {
                 if r.loose || r.falls || !r.solid {
                     return Err(format!("block '{}': only a solid block that is not loose makes rubble", r.name));
                 }
-                defs[t as usize] = Some(Def { id: t, name, pattern: Pattern::Pebbles, size: 2, amount: 0.6, side: t, light: [0.0; 3], was: Vec::new(), hardness: RUBBLE_S, loose: true, falls: true, model: None, see: See::Opaque, seasons: None, stagger: 0.0, joins: false, rubble: None, rubble_of: Some(r.id), ..def.clone() });
+                defs[t as usize] = Some(Def { id: t, name, pattern: Pattern::Pebbles, size: 2, amount: 0.6, side: t, light: [0.0; 3], was: Vec::new(), hardness: RUBBLE_S, loose: true, falls: true, model: None, see: See::Opaque, seasons: None, stagger: 0.0, joins: false, rubble: None, rubble_of: Some(r.id), wood: false, fluff: None, ..def.clone() });
             }
             if defs[r.id as usize].is_some() {
                 return Err(format!("block id {} is used twice", r.id));

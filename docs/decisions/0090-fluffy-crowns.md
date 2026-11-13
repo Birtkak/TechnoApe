@@ -96,6 +96,14 @@ gets no early depth.
    `normal + up * 0.5`; the G-buffer keeps the true one for the bounce and the denoiser), so the sun falls on a
    crown more evenly, and their shade has a floor of 0.7: the volume is the shade, the
    shaded side a deep green (v6 against the target). A bend of 1.2 was tried first: crowns went flat and lime.
+   The lime that stayed on a shrub's top and on the forest edge's bushes (v6, v7) was the top faces' fluff: a
+   plane lying nearly flat faces the sun square on and shows the painting's lightest greens (shrub (142,220,36),
+   (170,221,75)) at full sun, while the shade (`ao`) reached only the bounce. Now a one-mass plant's direct light
+   takes its shade too, and a top face's plane is 0.72 of it: the top reads lighter than the sides, in the
+   painting's greens (v8: pixels over g 190, r 110, b under 90 from 0.64 % of the shrub still and 0.29 % of the
+   edge to none; at 0.3 the tops went darker than the sides). The 25 m broadleaf that read pale beside deep green
+   neighbours is the same colours: its neighbours are other kinds (oak, birch, then unpainted drafts); the right
+   hand bushes of the edge are acacia, whose painting is yellower (133,154,45).
 11. **Reeds are the plants session's** (ADR 0091). Its painted planes, with part D's four reed kinds, make the
    reed bed: along the water's edge, over many columns, ragged. The reed block here has no fluff (`size = 0`), so
    a `[[plant]] reed` column is a bare painted block of the same paintings. Agreed with flora-plants and part D.
@@ -198,6 +206,15 @@ Answered: "sway slides the outline over a still painting" and "fluff tiles its p
 fluff plane spreads its face's painting once. Noted: cutout quads go through the vertex stage four times with
 fluff; the Studio read a fine file as quarters (the Studio change below).
 
+## Review of the top planes' shade and the second main merge
+A fresh reviewer read the shader change and blocks.rs against main. `o.ao` is written on every path that
+reaches a fragment, so the direct light reads no unset value; `fs_still` is air and untouched. Found: the shade
+now darkens every cutout quad's direct light, not only fluff (kept: the look was judged with it; listed under
+the calls); the rubble twin inherited `wood` and `fluff` from its rock through `..def.clone()`, harmless today
+(no cutout row makes rubble) but against fluff only on cutout rows: it now sets `wood: false, fluff: None`.
+Main moved its tree rows to ids 206-217 after the rubble and halo rows; the merge takes main's rows and adds
+`wood` and `fluff` to them by name, so only those lines differ from main.
+
 ## Fixed views
 The cutout blocks' look changes everywhere they show: every view with trees or shrubs at level 0 (the seasons
 views most, the spawn and forest views), and their shading through the twig turn and 32 px paintings. Shots stand
@@ -213,8 +230,8 @@ leaves last and is won back by decision 1 above. This branch carries it to main.
   dark bars; branch logs show as cubes inside a bare crown (part C's shapes).
 - Leaves' shade: a quarter of the sun under one broadleaf crown (decision 9); ADR 0088's call on solid shadows
   under bare shrubs is answered (light through the twigs).
-- Palm, bamboo and willow are not on this branch (part C's species): their rows take `fluff` the same way; no
-  stills of them here.
+- Part C's species (birch, oak, pine, willow, palm, bamboo; ids 206-217 since main's rubble and halo rows) carry
+  `fluff` and `wood` on their rows; pine, palm and willow are judged by shape until painted.
 - The topmost twigs in full sun read lighter and warmer than the calmed bark: part D's twig painting is a tan
   family; one palette with `log_side` would make one tree one colour.
 - How far the fluffy look reaches: painted, with its leaves, all of level 0, which a level 1 chunk (64 m) hands
@@ -222,8 +239,13 @@ leaves last and is won back by decision 1 above. This branch carries it to main.
   200 m a crown is the same lobed planes in the block's one colour, with the shade (seen against `fluff=0` from
   40 m up, `out/flora-crowns/v4-air*.png`). Part D's far paintings (`data/textures/hd/far/`, 8 px a face) are
   the next step for the coarse levels' colour; not read yet.
-- Open after the last stills: a shrub's top planes in full sun read lime against its sides (the planes keep their
-  face's normal); pine, palm and willow leaves are unpainted drafts, judged by shape only; reed beds are the plants
+- Known gaps at hand-over (v8 accepted on look): a little lime left on far bushes at the forest edge (acacia's
+  painting, (133,154,45)); twig streamers in winter (long thin twigs off a bare crown's edge); pink specks on
+  crown rims against the test sky (the off-screen shots' magenta sky showing through cut texels' edges).
+- A one-mass plant's direct light takes its shade (v8), on every cutout quad, the cube faces and the coarse
+  levels' too, not only the fluff: the sunlit faces of a leaf cube are up to 0.4 darker in a corner. Judged on
+  v8's near crown, edge and shade; not filmed across a level switch, where fluff and cube could differ.
+- Open after the last stills: pine, palm and willow leaves are unpainted drafts, judged by shape only; reed beds are the plants
   session's (decision 11). Shrub paintings are yellower than the trees' (shrub (85,130,27), shrub@spring
   (113,153,36) against broadleaf (69,132,19)): part D is bringing them into the family; no tint is applied on top.
 - Twigs shorten to nothing three blocks from the wood; big crowns may want a longer reach once part C's

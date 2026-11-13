@@ -213,6 +213,8 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     var paint = quad_corner(q, k, 0.0);
     // a crown's own shade (ADR 0090): darker toward its wood and under it, and in a fluff clump's dents
     var shade = 1.0;
+    // a fluff plane on a top face faces the sun square on: dimmed below the floor, else it reads lime (ADR 0090)
+    var sun_face = 1.0;
     if (mode != 0u) {
         shade = 1.0 - 0.45 * select(0.0, 1.0 - f32((q.y >> 23u) & 3u) / 3.0, ((q.y >> 20u) & 7u) != 0u);
         if (dir == 5u) { shade *= 0.6; }
@@ -246,6 +248,7 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
             let slope = tan(radians(select(25.0 + 10.0 * hg, 45.0 + 15.0 * hg, top)));
             let spread = size * mix(0.65, 1.4, clump);
             shade *= mix(0.55, 1.0, clump);
+            sun_face = select(1.0, 0.72, top);
             var su = 0.5 + (f32(ku) - 0.5) * spread * long;
             var sv = 0.5 + (f32(kv) - 0.5) * spread;
             let phi = hf * 6.2831853;
@@ -300,7 +303,7 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     o.clip = g.view_proj * vec4f(rel, 1.0);
     o.rel = rel;
     // the shade's floor: a crown's shaded side stays green (the target's), never near black
-    o.ao = (1.0 - 0.2 * f32(occl)) * max(shade, 0.7);
+    o.ao = (1.0 - 0.2 * f32(occl)) * max(shade, 0.7) * sun_face;
     // the texture and the cell from the quad's own corner: in the grown lip, fract() would wrap to the far edge
     // (a dirt line along every grass top edge) and floor() name the neighbour
     o.local = paint;
@@ -1212,6 +1215,8 @@ fn terrain_lit(i: VOut, col_in: vec3f) -> GOut {
     if (((look.info >> 25u) & 1u) == 1u) { ln = normalize(n + normalize(i.rel - g.bodies[body].ctr.xyz) * 0.5); }
     let l = light(i.rel, ln, body, px);
     var out = col * l.l;
+    // its own shade darkens its sunlit side too, so a plane facing the sun keeps the painting's greens
+    if (((look.info >> 25u) & 1u) == 1u) { out *= i.ao; }
     var diffuse = 1.0;
     let metal = f32((look.info >> 16u) & 255u) / 255.0;
     if (metal > 0.0 && (g.opt.x & 2u) == 0u) {
