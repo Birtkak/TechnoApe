@@ -254,7 +254,7 @@ impl App {
                         self.streamer.touch_block(&self.world, b);
                     }
                 }
-                Recv::Msg(ToClient::Players(ps)) => self.players = ps.len(),
+                Recv::Msg(ToClient::Players(ps)) => (self.players, self.globe.others) = (ps.len(), ps),
                 // another player's dig (ADR 0034): its cracks run on from this
                 Recv::Msg(ToClient::Digging { id, at }) => {
                     let now = self.start.elapsed().as_secs_f64();

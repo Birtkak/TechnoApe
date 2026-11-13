@@ -292,6 +292,7 @@ impl App {
             return;
         }
         self.done = true;
+        self.globe_save();
         let gpu = self.gpu.as_ref().unwrap();
         let s = &mut self.samples;
         let secs: f64 = s.frame_ms.iter().map(|v| *v as f64).sum::<f64>() / 1000.0;

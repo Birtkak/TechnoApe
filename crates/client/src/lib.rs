@@ -6,6 +6,8 @@ mod bench;
 pub mod frame;
 pub mod fx;
 mod gi;
+mod globe;
+mod globe_ui;
 pub mod gpu;
 mod hud;
 mod inventory;
@@ -187,6 +189,8 @@ impl ApplicationHandler for App {
                             KeyCode::ArrowLeft => self.act("nudge-"),
                             KeyCode::Enter | KeyCode::NumpadEnter => self.act("go"),
                             KeyCode::Delete => self.act("remove"),
+                            // the globe's own key closes it as it opened it
+                            c if !repeat && self.menu == Some(Menu::Globe) && self.settings.acts_of(Bind::Key(c)).any(|a| a == settings::Act::Map) => self.act("map"),
                             _ => {}
                         }
                     }
@@ -213,6 +217,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::ModifiersChanged(m) => self.shift = m.state().shift_key(),
             WindowEvent::CursorMoved { position, .. } => {
+                self.globe_move((position.x as f32 / self.ui(), position.y as f32 / self.ui()));
                 self.pointer = (position.x as f32 / self.ui(), position.y as f32 / self.ui());
                 self.sel = None;
                 self.slide();
@@ -220,6 +225,14 @@ impl ApplicationHandler for App {
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } if self.drag.is_some() => {
                 self.drag = None;
                 self.save_settings();
+            }
+            WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } if self.globe.drag.is_some() && self.menu == Some(Menu::Globe) => self.globe_release(),
+            WindowEvent::MouseWheel { delta, .. } if self.menu == Some(Menu::Globe) && !self.texting() => {
+                let y = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y as f64,
+                    MouseScrollDelta::PixelDelta(p) => p.y / 40.0,
+                };
+                self.act(&format!("globe:zoom:{}", 1.25f64.powf(y)));
             }
             WindowEvent::Resized(size) if (self.run == "play" && self.onscreen) || self.run == "view" => self.resize(size.width, size.height),
             WindowEvent::Focused(f) => self.focused = f,
@@ -402,7 +415,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
     if run != "play" || args.s("mode", "") == "creative" {
         link.send(ToServer::Creative(true)); // the edit benchmark places stone it never dug
     }
-    let (_id, mut world, seed) = match link.rx.recv_timeout(Duration::from_secs(10)) {
+    let (my_id, mut world, seed) = match link.rx.recv_timeout(Duration::from_secs(10)) {
         Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, items, map, luna }) => {
             assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
             assert_eq!(items, engine::items::ITEMS.hash, "the server's build has other items (data/items.toml)");
@@ -525,6 +538,14 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         fx
     };
     let models = models::Models::new(&args);
+    // the globe's pictures start on a worker now; what was seen is kept beside the save (ADR 0077); the
+    // meridians as `App::meridian` has them
+    let mut globe = globe::State::new(
+        [world.bodies[0].map().cloned(), world.bodies.get(1).and_then(|b| b.map().cloned())],
+        [world.bodies[0].spawn_point() - world.bodies[0].centre, -DVec3::X],
+        save_path.as_ref().map(|s| format!("{s}.seen")),
+    );
+    globe.id = my_id;
     let mut app = App {
         time0,
         args,
@@ -638,6 +659,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         f3: false,
         recent: VecDeque::new(),
         waypoints: waypoint_file.as_deref().and_then(|f| std::fs::read_to_string(f).ok()).map_or(Vec::new(), |t| nav::parse(&t)),
+        globe,
         waypoint_file,
         key_query: String::new(),
         menu_since: Instant::now(),

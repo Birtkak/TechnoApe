@@ -877,8 +877,9 @@ impl Server {
                 c.link.send(ToClient::Vitals { health: shown.0 .0, hunger: shown.0 .1, dead: c.vitals.dead.clone() });
             }
         }
-        // clients count the list; each one's own position comes in its `You` every tick
-        if roster {
+        // clients count the list; each one's own position comes in its `You` every tick. The others' come
+        // with it once a second too, for the globe map (ADR 0077)
+        if roster || self.tick % TICK_HZ as u64 == 0 {
             let players: Vec<Player> = self.clients.iter().map(|c| c.player.clone()).collect();
             for c in &self.clients {
                 c.link.send(ToClient::Players(players.clone()));

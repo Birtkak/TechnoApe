@@ -203,6 +203,8 @@ pub(crate) struct App {
     /// The places the player marked and the file they are kept in (beside the save; none without one).
     pub(crate) waypoints: Vec<nav::Waypoint>,
     pub(crate) waypoint_file: Option<String>,
+    /// The globe map (M, ADR 0077).
+    pub(crate) globe: crate::globe::State,
     /// What the keys page's search holds (bugs/2026-11-11_13-13-42); a new page starts it empty.
     pub(crate) key_query: String,
     /// When the open menu page came up, and the row lit and since when: the menu's short motion.
