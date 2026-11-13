@@ -42,7 +42,7 @@ pub struct View {
     pub theta: Vec<f32>,
     /// rain and snow over the job, mm an hour
     pub rain: Vec<f32>,
-    /// the share of the sky the column's cloud covers, 0 to 1
+    /// the share of the sky the column's cloud covers, 0 to 1 (ADR 0076: by `Air::cloud_share`)
     pub cover: Vec<f32>,
     /// the surface wind, east and north, m/s
     pub wind: Vec<[f32; 2]>,
@@ -63,10 +63,12 @@ impl View {
         let theta: Vec<f32> = (0..n).map(|c| a.theta[c * LAYERS]).collect();
         let secs = (steps.max(1) as f64) * DT as f64;
         let rain: Vec<f32> = (0..n).map(|c| (rain_units[c] as f64 / 4096.0 / a.area[c] as f64 * 1000.0 * 3600.0 / secs) as f32).collect();
+        // the share of what the column holds where it rains (on Terra: none over a tenth of it, 0.7 its median,
+        // 1.1 its wettest tenth), as a cover: clear stays clear, a mean sky is broken, a raining one overcast
         let cover: Vec<f32> = (0..n)
             .map(|c| {
-                let per_m2 = a.cloud[c * LAYERS..c * LAYERS + LAYERS].iter().map(|&x| x as u64).sum::<u64>() as f32 / a.area[c];
-                per_m2 / (per_m2 + a.p.cover_half)
+                let x = ((a.cloud_share(c) - 0.2) / 1.0).clamp(0.0, 1.0);
+                x * x * (3.0 - 2.0 * x)
             })
             .collect();
         let wind: Vec<[f32; 2]> = (0..n).map(|c| a.surface_wind(c).into()).collect();
@@ -586,6 +588,24 @@ mod tests {
         assert_eq!(w.cells(None), live, "the force is in what is sent only");
         assert_eq!(Force::named("auto"), Some(None));
         assert_eq!(Force::named("hail"), None);
+    }
+
+    /// The live cover's spread on Terra, for tuning the clouds' look: `cargo test --release -p engine -- --ignored cover_spread --nocapture`
+    #[test]
+    #[ignore]
+    fn cover_spread() {
+        let map = crate::bake::get(1337, 6144);
+        let mut w = Weather::new(map.climate.as_ref().unwrap(), None).unwrap();
+        for k in 0..6u64 {
+            let mut v: Vec<f32> = w.view().cover.clone();
+            v.sort_by(f32::total_cmp);
+            let q = |x: f64| v[((v.len() - 1) as f64 * x) as usize];
+            let rain = w.view().rain.iter().filter(|&&r| r > 0.1).count();
+            eprintln!("t {:.0}: cover p10 {:.2} p50 {:.2} p90 {:.2} max {:.2}; raining {} of {}", w.view().t, q(0.1), q(0.5), q(0.9), q(1.0), rain, v.len());
+            for t in 0..400u64 {
+                w.tick(k * 400 + t, (k * 400 + t) as f64 * 10.0);
+            }
+        }
     }
 
     /// The air someone stands in: warmer at the sea than on a hill, by the lapse.

@@ -605,6 +605,9 @@ pub struct FxGpu {
 /// runs without `fx=1`) plays nothing, so their pictures repeat.
 pub struct Fx {
     pub on: bool,
+    /// The planet's wind where the camera is, its frame, m/s (ADR 0076): a particle of the planet with drag
+    /// slows toward it rather than to rest, so leaves, smoke and snow drift with the weather.
+    pub wind: Vec3,
     pool: Vec<P>,
     out: Vec<FxGpu>,
     /// Plays `then` rows ask for, where a particle died; kept to reuse its room.
@@ -653,6 +656,7 @@ impl Fx {
         let remap = (0..set.rows.len() as u16).collect();
         Fx {
             on,
+            wind: Vec3::ZERO,
             pool: Vec::with_capacity(cap),
             out: Vec::with_capacity(cap + CRACKS),
             later: Vec::with_capacity(256),
@@ -1041,7 +1045,8 @@ impl Fx {
             q.age += dt;
             if !q.rest && q.age < q.life {
                 let up = q.p.normalize();
-                q.v += (up * (-g0 * r.gravity) - q.v * r.drag) * dt;
+                let air = if q.body == 0 { self.wind } else { Vec3::ZERO };
+                q.v += (up * (-g0 * r.gravity) + (air - q.v) * r.drag) * dt;
                 // (the rows before ADR 0050 push nothing: their motion stays exactly as it was)
                 if let Some(n) = &r.noise {
                     q.v += (q.push + noise_at(q.p, clock, n) * n.strength) * dt;

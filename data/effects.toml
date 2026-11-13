@@ -269,3 +269,85 @@ model = "leaf"
 face = "tumble"
 spin = 3.0
 noise = { strength = 1.0, scale = 1.0, speed = 0.5 }
+
+# the weather (ADR 0076, crates/client/src/weather.rs `Fall`): drops started over the camera at their fall's
+# speed and the wind's, landing on the floor of the column they are over (a roof stops them), a little splash
+# where they land; over water the same on its surface
+[[effect]]
+name = "rain"
+count = 1
+start = "point"
+gravity = 0.0
+ground = "die"
+life = [4.0, 4.0]
+size = [0.025, 0.03]
+look = "square"
+face = "flight"
+colour = [0.62, 0.68, 0.78]
+then = "rain.splash"
+
+[[effect]]
+name = "rain.sea"
+count = 1
+start = "point"
+gravity = 0.0
+ground = "die"
+life = [4.0, 4.0]
+size = [0.025, 0.03]
+look = "square"
+face = "flight"
+colour = [0.62, 0.68, 0.78]
+then = "rain.ripple"
+
+[[effect]]
+name = "rain.splash"
+count = 2
+start = "point"
+speed = [0.6, 1.2]
+up = 1.0
+ground = "die"
+life = [0.25, 0.35]
+size = [0.025, 0.03]
+look = "square"
+colour = [0.7, 0.76, 0.85]
+
+[[effect]]
+name = "rain.ripple"
+count = 3
+start = "ring"
+radius = 0.08
+speed = [0.3, 0.5]
+up = 0.6
+ground = "die"
+life = [0.2, 0.3]
+size = [0.02, 0.03]
+look = "square"
+colour = [0.75, 0.82, 0.9]
+
+# a snowflake (falling at gravity's pull over its drag, about 1.6 m/s): drifting down with the wind and a little noise, lying a moment where it lands
+[[effect]]
+name = "snow"
+count = 1
+start = "point"
+gravity = 0.1
+drag = 0.6
+noise = { strength = 0.6, scale = 1.5, speed = 0.4 }
+ground = "stop"
+life = [6.0, 8.0]
+size = [0.04, 0.06]
+shrink = 0.2
+look = "square"
+colour = [0.95, 0.96, 1.0]
+
+[[effect]]
+name = "snow.sea"
+count = 1
+start = "point"
+gravity = 0.1
+drag = 0.6
+noise = { strength = 0.6, scale = 1.5, speed = 0.4 }
+ground = "die"
+life = [6.0, 8.0]
+size = [0.04, 0.06]
+look = "square"
+colour = [0.95, 0.96, 1.0]

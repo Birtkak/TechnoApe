@@ -550,6 +550,13 @@ impl App {
         if self.fx.on {
             self.fx.follow(self.settings.at(S::Particles));
             self.water.spray(&self.world, dt as f32, &mut self.fx);
+            // the weather (ADR 0076): the wind on light particles, rain or snow round the camera on the planet
+            if let Some(a) = self.air.filter(|_| self.world.frame_at(p.pos) == 0) {
+                self.fx.wind = crate::weather::wind_at((p.pos - self.world.bodies[0].centre).normalize(), a.wind).as_vec3();
+                self.fall.drops(&mut self.fx, &self.world, p.pos, &a, self.settings.at(S::Rain), dt as f32);
+            } else {
+                self.fx.wind = Vec3::ZERO;
+            }
             self.fx.step(&self.world, (dt as f32).min(0.1));
             self.cracks(self.start.elapsed().as_secs_f64());
             let gpu = self.gpu.as_ref().unwrap();
@@ -611,10 +618,22 @@ impl App {
         self.audio.levels(if listening { vol(S::Volume) } else { 0.0 }, [vol(S::VolWorld), vol(S::VolSteps), vol(S::VolUi), vol(S::VolMusic)]);
         // (the title has its music and no wind: bug reports 2026-11-11_12-53-31 and 12-55-41)
         let title = self.home() == Menu::Title;
-        let wind = if title { 0.0 } else { (0.05 + over_air.clamp(0.0, 400.0) / 400.0 * 0.3 + self.me.vel.length() / 50.0).min(1.0) as f32 * air };
+        // the weather where the camera is (ADR 0076): the wind rises with its speed; the rain is heard through
+        // the open sky over the head, dulled where a roof is between
+        let here = self.air.filter(|_| !title && cf == 0).unwrap_or_default();
+        let blow = here.wind[0].hypot(here.wind[1]) as f64;
+        let wind = if title { 0.0 } else { (0.05 + over_air.clamp(0.0, 400.0) / 400.0 * 0.3 + self.me.vel.length() / 50.0 + blow / 20.0).min(1.0) as f32 * air };
         self.audio.hold("wind", wind);
+        let wet = (here.rain / 6.0).sqrt().min(1.0) * air;
+        let rain_on = self.settings.at(S::Rain) > 0 && here.temp >= 0.0 && here.rain >= 0.3;
+        let open = self.fall.open;
+        self.audio.hold("rain", if rain_on { wet * open } else { 0.0 });
+        self.audio.hold("rain.in", if rain_on { wet * (1.0 - open) * 0.7 } else { 0.0 });
+        let flash = if title || cf != 0 { 0.0 } else { self.fall.storm(&self.sky, self.seed, &self.world, p.pos, wt, &mut self.audio) };
         self.audio.hold("music.menu", if title { 1.0 } else { 0.0 });
-        let sky_c = Vec3::new(0.45, 0.65, 0.95) * day * air + Vec3::new(0.01, 0.012, 0.025);
+        // a grey sky under cloud, darker in rain (ADR 0076)
+        let grey = here.cover * air;
+        let sky_c = Vec3::new(0.45, 0.65, 0.95).lerp(Vec3::new(0.52, 0.56, 0.62) * (1.0 - 0.45 * wet), grey) * day * air + Vec3::new(0.01, 0.012, 0.025);
         // the bounce light on or off (off: a flat fill from the sky), and the screen's brightness
         let fill = sky_c * 0.35 + Vec3::splat(0.01);
         // the air: the horizon's colour (as `sky_colour` in shader.wgsl makes it) for far ground to fade
@@ -726,9 +745,12 @@ impl App {
         }
         // the clouds (ADR 0076): their map blended to this moment, and where the planet and its sea are
         let clouds_on = self.settings.at(S::Clouds) > 0 && b0.sea.is_some() && self.sky.m() > 0;
-        if clouds_on {
+        if b0.sea.is_some() && self.sky.m() > 0 {
             self.sky.upload(&gpu.queue, &gpu.sky_tex, wt);
             g.cloud = self.sky.cloud(wt, b0.layer_r(b0.sea.unwrap()));
+            if !clouds_on {
+                g.cloud[1] = 0.0;
+            }
         }
         let cl = {
             let b = &g.bodies[0];
@@ -741,7 +763,7 @@ impl App {
                 b.rot[2],
                 [sun.x, sun.y, sun.z, eclipse],
                 [sun_light.x, sun_light.y, sun_light.z, [0.0, 12.0, 24.0][self.settings.at(S::Clouds).min(2)]],
-                [sky_amb.x, sky_amb.y, sky_amb.z, 0.0],
+                [sky_amb.x, sky_amb.y, sky_amb.z, flash],
                 g.cloud,
             ]
         };

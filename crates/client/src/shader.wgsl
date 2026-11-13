@@ -43,7 +43,8 @@ struct Globals {
     // pull in layers; its base is in bodies[0].sea (gpu.rs `Globals::tide`)
     tide: array<vec4f, 2>,
     // the clouds (ADR 0076, clouds.wgsl): x the drift's phase, y its period s, z the planet's sea radius
-    // (0: none), w the map's air columns a face edge (0: none yet)
+    // (0: none), w the map's air columns a face edge (0: none yet); y 0 with the clouds off (no shadow, the
+    // snow still lies)
     cloud: vec4f,
 };
 // base in columns and layers; info = face | level << 3 | body << 8; off: its first quad
@@ -451,7 +452,7 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
         if ((g.opt.x & 1u) == 0u) { to_sun = in_disc(sd, ar, px); }
         var seen = occ * ray(p, n, to_sun, body, 1e5);
         // the planet's clouds (ADR 0076), where the sun is not already hidden
-        if (body == 0u && seen > 0.0 && g.cloud.z > 0.0) {
+        if (body == 0u && seen > 0.0 && g.cloud.y > 0.0) {
             let b0 = g.bodies[0];
             let m0 = mat3x3f(b0.rot0.xyz, b0.rot1.xyz, b0.rot2.xyz);
             seen *= cl_shadow((p - b0.ctr.xyz) * m0, sd * m0, g.cloud.z, g.cloud);
@@ -889,11 +890,23 @@ fn terrain_texel(i: VOut) -> vec4f {
     return vec4f(col.rgb, select(col.a, 1.0, (g.opt.x & 4u) != 0u));
 }
 
-fn terrain_lit(i: VOut, col: vec3f) -> GOut {
+fn terrain_lit(i: VOut, col_in: vec3f) -> GOut {
     let c = chunks[i.ci];
     let body = (c.info >> 8u) & 255u;
     let look = looks[i.mat & 255u];
     let n = normalize(i.normal);
+    var col = col_in;
+    // the planet's lying snow (ADR 0076, the air grid's per column): white over what faces up, the face's own
+    // pattern showing through where it lies thin
+    if (body == 0u && g.cloud.w > 0.0) {
+        let b0 = g.bodies[0];
+        let up = normalize(i.rel - b0.ctr.xyz);
+        let lie = cl_snow(up * mat3x3f(b0.rot0.xyz, b0.rot1.xyz, b0.rot2.xyz), g.cloud) * smoothstep(0.55, 0.85, dot(n, up));
+        if (lie > 0.0) {
+            let lum = dot(col, vec3f(0.3, 0.5, 0.2));
+            col = mix(col, vec3f(0.9, 0.92, 0.96), clamp(lie * 1.6 - (0.5 - lum) * 0.6, 0.0, 1.0));
+        }
+    }
     var o: GOut;
     o.gbuf = gb_pack(n, length(i.rel));
     if (((look.info >> 24u) & 1u) == 1u) {

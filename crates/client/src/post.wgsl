@@ -265,6 +265,10 @@ fn fs_composite(@builtin(position) pos: vec4f) -> @location(0) vec4f {
         let bounce = select(textureLoad(bounce_t, min(px / 2, hs - 1), 0).rgb, sum / ws, ws > 1e-4);
         c += textureLoad(albedo_t, px, 0).rgb * bounce * (1.0 + u.amb.x);
     }
+    // a lightning flash (ADR 0076) lights everything at once, the sky a little
+    if (u.sky_amb.w > 0.0) {
+        c += select(vec3f(0.25), textureLoad(albedo_t, px, 0).rgb, gb.w > 0.0) * vec3f(0.8, 0.85, 1.0) * u.sky_amb.w;
+    }
     if (gb.w > 0.0 && u.air.w > 0.0 && round(textureLoad(albedo_t, px, 0).a * 3.0) == u.amb.w) {
         // far ground fades into the air (ADR 0030). shortcut: by distance alone, so a long tunnel fades
         // too; the air's own grid (W3) will know where air is lit

@@ -453,6 +453,13 @@ impl Air {
         self.theta[c * LAYERS] - self.cool[c * LAYERS]
     }
 
+    /// A column's cloud as a share of what its layers hold at `cloud_max` (where it rains), for pictures
+    /// (ADR 0076): `cover_half` makes the sun pass's cover a hundredth at most on Terra.
+    pub fn cloud_share(&self, c: usize) -> f32 {
+        let ctot: u32 = self.cloud[c * LAYERS..c * LAYERS + LAYERS].iter().sum();
+        let full: f64 = (0..LAYERS).map(|k| self.p.cloud_max as f64 * (self.thick[c * LAYERS + k] * self.area[c]) as f64 / G_PER_UNIT).sum();
+        (ctot as f64 / full.max(1e-9)) as f32
+    }
     /// The surface wind at a column, east and north, m/s (the mean over its edges, for pictures).
     pub fn surface_wind(&self, c: usize) -> (f32, f32) {
         let d = self.dir[c];

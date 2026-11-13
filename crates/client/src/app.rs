@@ -127,6 +127,8 @@ pub(crate) struct App {
     pub(crate) air: Option<engine::weather::Here>,
     /// The planet's air columns as the server sent them, and the clouds' map made from them (ADR 0076).
     pub(crate) sky: crate::weather::Sky,
+    /// Rain and snow round the camera, lightning and thunder (ADR 0076).
+    pub(crate) fall: crate::weather::Fall,
     /// Health and hunger as the server last told them (ADR 0040), the lowest health seen, when each last fell
     /// and from what (the lost cells flash), and how this player died while it is dead.
     pub(crate) vitals: (u8, u8),
