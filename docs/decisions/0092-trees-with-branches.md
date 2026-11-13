@@ -219,6 +219,12 @@ Answered:
 - **15 C is low for palms** (18 to 20 C is usual for coconuts). 15 C is the bake's own warm band (`t_warm`,
   where savanna and rain forest start), so it is a call for the developer below.
 
+Soak (after the merge with main): the server's soak failed with "animal inside the ground". An animal found
+inside a block was set on the ground under it, but under an oak's low limb its body still overlapped wood.
+`herds::move_on` now climbs it a block at a time (at most 16) until it fits. Red: the soak at seed 1; green
+with the climb. A rule that a shrub grows only on level ground was tried and dropped: it left grassland
+with no shrubs at all (`every_species_grows_in_its_biomes`), and the climb covers the animal case.
+
 ## What changes for existing saves and checks
 - **Saves:** they hold edits only, so a save loads as before. But every unedited tree grows differently: new
   shapes, heights, shares and species. An edit (a dug or placed block) stays where it was, so a cut made in an old

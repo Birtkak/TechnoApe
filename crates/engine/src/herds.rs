@@ -404,6 +404,13 @@ fn move_on(world: &World, a: &mut Animal, kind: &Kind, dt: f64, tick: u64) {
     if phys::inside(world, &a.p) {
         if let Some(feet) = stand(world, (a.p.pos - world.bodies[0].centre).normalize()) {
             (a.p.pos, a.p.vel) = (feet, DVec3::ZERO);
+            // under a low limb its body may not fit there: on up a block at a time until it does (ADR 0092)
+            for _ in 0..16 {
+                if !phys::inside(world, &a.p) {
+                    break;
+                }
+                a.p.pos += up;
+            }
         }
         return;
     }
