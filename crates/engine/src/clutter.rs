@@ -189,9 +189,9 @@ fn choose(h: u64, kinds: &[(Kind, f32)], i: i32, j: i32, biome: u8, ground: u16,
         u -= w * d;
     }
     let (kind, w) = found?;
-    // which of that kind, by a second roll over their weights; three plants in four take their patch's roll
+    // which of that kind, by a second roll over their weights; four plants in five take their patch's roll
     // (about 7 columns across, ragged at the edges), so a kind grows in drifts of its own
-    let r = if kind == Kind::Plant && unit(mix(h ^ 0xd41f7)) < 0.75 {
+    let r = if kind == Kind::Plant && unit(mix(h ^ 0xd41f7)) < 0.8 {
         let jig = |k: u64| ((mix(h ^ k) & 3) as i32) - 1;
         mix(PLANT_ROLL ^ ((i + jig(0x11)).div_euclid(7) as u32 as u64) << 32 ^ (j + jig(0x22)).div_euclid(7) as u32 as u64)
     } else {
@@ -727,7 +727,8 @@ mod tests {
                 }
             }
         }
-        assert!(count[1] * 10 > n * 6, "60 % or more of open meadow has a plant at normal: {count:?} of {n}");
+        // short grass fills what the tall leaves open: no bare ground between tufts (the overseer, 2026-11-13)
+        assert!(count[1] * 100 > n * 85, "85 % or more of open meadow has a plant at normal: {count:?} of {n}");
         // the overseer's call of 2026-11-13: kinds grow in drifts of their own, not sprinkled evenly; a uniform
         // pick would make two neighbours alike about (0.45/0.75)^2 + .. = 0.42 of the time
         let (mut same, mut pairs) = (0, 0);

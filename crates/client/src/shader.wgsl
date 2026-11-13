@@ -1920,12 +1920,19 @@ fn still_local(q: vec2u, uv: vec2f, c: Chunk, fade: f32) -> vec3f {
     let off = (vec2f(f32((lo >> 18u) & 15u), f32((lo >> 22u) & 15u)) / 15.0 - 0.5) * 0.5;
     let c0 = vec3f(0.5, 0.0, 0.5);
     var m = f.o + f.eu * uv.x + f.ev * uv.y - c0;
+    var at = off;
     if ((f.flags & PLANT) != 0u) {
-        let h = hash4(vec3i(c.base.xy + vec2i(cell.xy), i32(c.info & 7u)));
-        m *= 0.8 + 0.4 * h.x;
+        // a plant: its height (h.x) and width (k.z) its own, turned to any angle and set up to a third of a block
+        // off the middle (k), so no row or grid shows from any side
+        let col = c.base.xy + vec2i(cell.xy);
+        let h = hash4(vec3i(col, i32(c.info & 7u)));
+        let k = hash4(vec3i(col, i32(c.info & 7u) + 8));
+        let a = k.w * 6.2831853;
+        m = vec3f(m.x * cos(a) - m.z * sin(a), m.y, m.x * sin(a) + m.z * cos(a)) * vec3f(0.85 + 0.3 * k.z, 0.8 + 0.4 * h.x, 0.85 + 0.3 * k.z);
         m.y *= fade;
+        at = (k.xy - 0.5) * 0.66;
     }
-    return cell + vec3f(0.5 + off.x, 0.5 + off.y, 0.0) + still_dir(q, m);
+    return cell + vec3f(0.5 + at.x, 0.5 + at.y, 0.0) + still_dir(q, m);
 }
 
 // how far from the eye plants stand (`vs_still` fades them by then)

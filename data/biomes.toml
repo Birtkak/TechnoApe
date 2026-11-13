@@ -107,7 +107,7 @@ band = "dirt"
 rock = "stone"
 plants = [["broadleaf", 0.015], ["shrub", 0.04]]
 clutter = [["pebbles", 1], ["loose stone", 0.5], ["berries", 0.3]]
-undergrowth = [["tall grass", 45], ["short grass", 15], ["wild wheat", 8], ["flowers", 6], ["berry bush", 0.8]]
+undergrowth = [["tall grass", 45], ["short grass", 40], ["wild wheat", 8], ["flowers", 6], ["berry bush", 0.8]]
 
 [[biome]]
 name = "dry scrub"
@@ -134,7 +134,7 @@ band = "dirt"
 rock = "stone"
 plants = [["acacia", 0.04], ["shrub", 0.03]]
 clutter = [["twigs", 2], ["stick", 0.5], ["loose stone", 0.4]]
-undergrowth = [["tall grass", 40], ["short grass", 12], ["wild wheat", 12], ["flowers", 2]]
+undergrowth = [["tall grass", 40], ["short grass", 35], ["wild wheat", 12], ["flowers", 2]]
 
 [[biome]]
 name = "rain forest"
