@@ -15,9 +15,10 @@ items.md "The screen" asks for Minecraft's mouse habits, since they are free to 
    reusing the glass, the brackets and the hotbar's block cubes. Chosen.
 
 ## Decision
-- **E opens and closes it** (`Act::Inventory`, rebindable, `acts=` `inventory`); Esc closes it too. It is a
-  `Menu` (the world runs on, the pointer is free) with no buttons of its own. Roll right moved from E to R
-  so the default keys stay apart.
+- **Tab opens and closes it** (`Act::Inventory`, rebindable, `acts=` `inventory`); Esc closes it too, and
+  so does its key on the search tab unless that key types a letter. Tab still completes a command while the
+  chat line is open (the chat takes the keys first). It is a `Menu` (the world runs on, the pointer is free)
+  with no buttons of its own. Q and E roll in space, as before.
 - **Survival**: the panel holds the hotbar's 9, the worn pack's slot, the pack's rows as far as it opens them,
   and the pile nearest the feet (within 4 m) beside them. Click lifts a stack and puts it down (onto another
   item: they swap); right click lifts half, or puts one; shift-click sends a stack across (hotbar to rows,
@@ -46,7 +47,10 @@ items.md "The screen" asks for Minecraft's mouse habits, since they are free to 
   sending to a hotbar slot, predicted piles, the pack's rows drawn as that pack, containers beside the slots.
 
 ## Calls for the developer to confirm
-- E for the inventory and R for roll right (it was E).
+- Decided 2026-11-13: the inventory opens with **Tab** (first built on E with roll right moved to R); Q and E
+  roll again. `settings.txt` is now version 2: a version 1 file that still holds the built defaults (the
+  inventory on E, roll right on R) moves to the new ones, a key the player chose stays (test
+  `the_inventory_is_on_tab_and_an_old_file_moves_to_it`, red without the move).
 - The tabs and what falls in each; a 9 by 5 grid.
 - A stack put back into creative's grid is gone.
 - The hint lines under the panel.

@@ -150,12 +150,14 @@ impl ApplicationHandler for App {
                     // the inventory (ADR 0075): its key or Esc closes it; on creative's search tab the keys type
                     let search = self.creative && self.inv_tab == inventory::SEARCH;
                     let own = self.settings.acts_of(Bind::Key(code)).any(|a| a == settings::Act::Inventory);
+                    // its key closes it even while searching, unless that key types a letter there
+                    let types = search && text.as_ref().is_some_and(|t| !t.chars().any(char::is_control));
                     match code {
                         KeyCode::Escape => self.act("esc"),
                         KeyCode::Backspace if search => self.act("back"),
                         KeyCode::F3 => self.act("f3"),
                         KeyCode::F9 => self.act("f9"),
-                        _ if own && !search => self.act("inventory"),
+                        _ if own && !types => self.act("inventory"),
                         _ if search => {
                             if let Some(t) = text.filter(|t| !t.chars().any(char::is_control)) {
                                 self.act(&format!("type:{t}"));

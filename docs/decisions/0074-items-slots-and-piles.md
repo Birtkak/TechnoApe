@@ -68,7 +68,7 @@ items.md steps 1 and 2 and the move message of step 3; the screens are ADR 0075.
 - The packs' sizes (9, 18, 27) and what they look like (reed, mud, log) until they have models.
 - The reach to a pile 4 m, pick-up within 1.5 m, a throw 2 m ahead that waits 2 s for its thrower.
 - `/give <thing>` gives one stack by default, at most 36 stacks.
-- Death drops everything at the spot, on respawn.
+- Death drops everything at the spot, on respawn. Decided 2026-11-13: as built, and the piles stay.
 
 ## Review
 A fresh reviewer read the diff and found no duplication in the move path. Its findings and what became of them:
