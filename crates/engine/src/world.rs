@@ -2086,7 +2086,8 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
                     (lo, hi) = (lo.min(l), hi.max(h));
                 }
             }
-            if lo >= hi {
+            // a padding column past the face's seam is the next face's, where this face's bodies are not
+            if lo >= hi || !(0..body.n).contains(&i) || !(0..body.n).contains(&j) {
                 continue;
             }
             for z in (lo - c0.z).max(0)..(hi - c0.z).min(P as i32) {

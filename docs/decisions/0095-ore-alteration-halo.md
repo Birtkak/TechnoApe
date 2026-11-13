@@ -37,8 +37,10 @@ are asked through one rule (`Body::ore_at`) by physics, the mesher and the ledge
 - **The rule** (`OreBody::halo_grade`, `Body::halo_at`): a cell is in a body's halo when it lies inside the
   body's ellipsoid with each half axis grown by `halo_m` and not inside the body; grade g reaches `halo_m (1 -
   g / grades)` out, so the richest grade is next to the ore. Each cell's reach is frayed by a hash of the
-  cell (`FRAY`, 15 % of the reach either way) so a grade's edge is ragged, not a smooth shell. Growing every
-  axis by the same metres makes a vein's halo a sheet and a lump's a shell. Where two halos meet, the higher
+  cell (`FRAY`, 15 % of the reach either way) so a grade's edge is ragged, not a smooth shell: where two
+  grades meet they mix over 30 % of the reach, so the richer grade gets commoner toward the body rather than
+  starting at a line. Growing every axis by the same metres makes a vein's halo a sheet and a lump's a shell;
+  it is the full reach along the axes and a little thinner between them (off a vein's tip, about 3 m of 4). Where two halos meet, the higher
   grade wins, the first body on a tie.
 - It is asked only of rock under the soil band (4 m) that is no ore and no cave: `World::generated_under`,
   the mesher's fill (`generate`, at level 0, before the ore), and `ore::count_halo`. Ore, the ledger and its
@@ -55,9 +57,27 @@ are asked through one rule (`Body::ore_at`) by physics, the mesher and the ledge
   move. The rule is part of what a client derives from the map: a client and a server of different builds
   disagree about halo cells (the same as a rock or ore rule change, ADR 0063). There is no protocol version
   to bump; the halo is one more reason the server and the client must be one build.
-- A halo reaching a face's seam is cut there (bodies keep 6 columns from a seam, halos reach up to 9 m).
+- A halo reaching a face's seam is cut there (bodies keep 6 columns from a seam, halos reach up to 9 m): the
+  mesher's padding and the report ask a face's own columns only, as physics does.
 - Halo rock has its row's hardness, not the host's (granite 9, these 6 to 9).
-- Cost: see the measurement below.
+- Cost: see Measured.
+
+## Review
+A fresh reviewer read the engine diff (principle 12). Findings and answers:
+1. *Medium:* `count_halo` counted columns past a face's seam that physics never makes (the copper and banded
+   iron halos reach past the 6 columns bodies keep). Fixed: it, and the mesher's padding, ask the face's own
+   columns only.
+2. *Medium:* no cost number. Measured below (`crates/engine/tests/gen_cost.rs`).
+3. *Medium:* the rule took a cosine and a sine per grade tested, up to four pairs a cell. Fixed: a cell goes to
+   the body's frame once (`OreBody::local`), each grade is then three divides.
+4. The shape note said a grown ellipsoid is thicker between its axes; it is thinner. Corrected.
+5. Two grades interleave where they meet, and the line test checks the order in which grades first appear.
+   Accepted: that is the fray, and no grade lies outside its band (the box test).
+6. `cos`/`sin` come from each platform's maths library, so a cell right on a grade's edge could differ in
+   its last bit between a Linux server and a Windows client. The same holds for ore (`across`) since ADR 0063;
+   a halo swaps one solid block for another, so collision cannot differ. Accepted with ore's.
+7. Test gaps (overlapping halos, the soil band, a cave in a halo): the extended ore test has a cave through a
+   copper lump's halo; overlaps and the band are covered by the rule's order, not a test. Accepted.
 
 ## Calls for the developer to confirm
 - New rows over a look on the host (the host is not seen inside a halo).

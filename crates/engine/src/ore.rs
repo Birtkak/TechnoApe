@@ -203,27 +203,39 @@ impl OreBody {
             _ => 1,
         }
     }
-    /// Whether cell (i, j, z) lies within `t` metres of it, for a body at a depth: inside it with each half axis
-    /// grown by t (a vein's halo a sheet, a lump's a shell; exact along its axes, a little more between them).
-    pub fn within(&self, i: i32, j: i32, z: i32, t: f64) -> bool {
-        let (dx, dy, w) = (i as f64 + 0.5 - self.at.x, j as f64 + 0.5 - self.at.y, z as f64 + 0.5 - self.at.z);
+    /// Cell (i, j, z) in its own frame: along, across, up, metres from its middle.
+    fn local(&self, i: i32, j: i32, z: i32) -> (f64, f64, f64) {
+        let (dx, dy) = (i as f64 + 0.5 - self.at.x, j as f64 + 0.5 - self.at.y);
         let (c, s) = (self.angle.cos(), self.angle.sin());
-        let (u, v) = ((dx * c + dy * s) / (self.a + t), (dy * c - dx * s) / (self.b + t));
-        let w = w / (self.h + t);
+        (dx * c + dy * s, dy * c - dx * s, z as f64 + 0.5 - self.at.z)
+    }
+    /// Whether a point of its frame (`local`) lies inside it with each half axis grown by `t` metres: a vein's
+    /// halo a sheet, a lump's a shell; `t` out along its axes, a little less between them (off a vein's tip).
+    fn grown(&self, (u, v, w): (f64, f64, f64), t: f64) -> bool {
+        let (u, v, w) = (u / (self.a + t), v / (self.b + t), w / (self.h + t));
         u * u + v * v + w * w < 1.0
+    }
+    /// Whether cell (i, j, z) lies inside it grown by `t` metres (`grown`), for a body at a depth.
+    pub fn within(&self, i: i32, j: i32, z: i32, t: f64) -> bool {
+        self.grown(self.local(i, j, z), t)
     }
     /// The halo grade of cell (i, j, z) around it (0 the outermost), if its kind has a halo and the cell lies in
     /// it and not in the body: grade g reaches `halo_m` (1 - g / grades) out, each cell's reach frayed by a hash
-    /// of the cell so a grade's edge is ragged. The richest grade lies next to the ore.
+    /// of the cell so a grade's edge is ragged (two grades mix over 30 % of the reach where they meet). The
+    /// richest grade lies next to the ore.
     pub fn halo_grade(&self, face: u8, i: i32, j: i32, z: i32) -> Option<usize> {
         let kind = &MINERALS.kinds[self.kind as usize];
         let n = kind.halo.len();
-        if n == 0 || !self.within(i, j, z, kind.halo_m * (1.0 + FRAY)) || self.within(i, j, z, 0.0) {
+        if n == 0 {
+            return None;
+        }
+        let p = self.local(i, j, z);
+        if !self.grown(p, kind.halo_m * (1.0 + FRAY)) || self.grown(p, 0.0) {
             return None;
         }
         let h = crate::world::mix(0x4a10 ^ (face as u64) << 58 ^ (i as u32 as u64) << 29 ^ (j as u32 as u64) ^ (z as u32 as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
         let fray = (crate::world::unit(h) as f64 - 0.5) * 2.0 * FRAY;
-        (0..n).rev().find(|&g| self.within(i, j, z, kind.halo_m * (1.0 - g as f64 / n as f64 - fray)))
+        (0..n).rev().find(|&g| self.grown(p, kind.halo_m * (1.0 - g as f64 / n as f64 - fray)))
     }
     /// The layers [lo, hi) its halo can reach in column (i, j): its box widened by the halo's reach, None
     /// where the column lies outside that (the mesher's cut before it asks `halo_grade` per cell).
@@ -402,6 +414,10 @@ pub fn count_halo(b: &Body) -> Vec<Vec<u32>> {
             let r = (o.a.max(o.b) + kind.halo_m * (1.0 + FRAY) + 1.0).ceil() as i32;
             let (ci, cj) = (o.at.x.floor() as i32, o.at.y.floor() as i32);
             for (i, j) in (cj - r..=cj + r).flat_map(|j| (ci - r..=ci + r).map(move |i| (i, j))) {
+                // only the face's own columns: past its seam the cells are the next face's, which has no halo
+                if !(0..b.n).contains(&i) || !(0..b.n).contains(&j) {
+                    continue;
+                }
                 let Some((lo, hi)) = o.halo_span(i, j) else { continue };
                 let ground = b.col_height(o.face, i, j);
                 for z in lo.max(0)..hi {
