@@ -2021,7 +2021,9 @@ fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     let rel = brot(b, (place(c, b, local, cell) - b.cam_hi) - b.cam_lo) + bend;
     o.clip = g.view_proj * vec4f(rel, 1.0);
     o.rel = rel;
-    o.ao = 1.0;
+    // a plant's plane: how squarely it faces the sun (either side), for `fs_still`'s sun side; 1 for models
+    let np = normalize(normalize(fr.s - fr.n * fr.ta) * n.x + normalize(fr.t - fr.n * fr.tb) * n.y + fr.up * n.z);
+    o.ao = select(1.0, abs(dot(brot(b, np), normalize(g.sun_pos.xyz - rel))), plant);
     // the painting's pixel, in `local.xy`; the face in `dir`; no block's look (0, air: no light of its own, no metal)
     // and in `local.z` its cell's x | y << 6, for a plant's climate
     o.local = vec3f(vec2f(f32(f.xy & 65535u), f32(f.xy >> 16u)) + uv * vec2f(f32(f.wh & 65535u), f32(f.wh >> 16u)), f32(lo & 4095u));
@@ -2065,7 +2067,10 @@ fn fs_still(i: VOut) -> GOut {
         let up = 1.0 - (i.local.y - f32(f.xy >> 16u)) / f32(f.wh >> 16u);
         let turn = abs(f.eu.x) / max(length(f.eu), 1e-4);
         still_skip = 0.35;
-        return terrain_lit(i, col * mix(0.45, 1.05, clamp(up * 1.3, 0.0, 1.0)) * mix(0.82, 1.0, turn));
+        // the planes facing the sun lighter, those edge-on to it darker, so a tuft has a sun side
+        var j = i;
+        j.ao = 1.0;
+        return terrain_lit(j, col * mix(0.42, 1.0, clamp(up * 1.3, 0.0, 1.0)) * mix(0.82, 1.0, turn) * mix(0.8, 1.08, i.ao));
     }
     return terrain_lit(i, t.rgb);
 }

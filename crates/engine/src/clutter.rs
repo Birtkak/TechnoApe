@@ -383,10 +383,26 @@ pub const PLANT_LEAN: f32 = 0.26;
 /// `PLANT_LEAN` off upright to either side by turns, as wide and high (along the plane) as the painting at
 /// `PLANT_PX`; each face's corner is its painting's top left, `ev` down.
 pub fn plant_faces(n: u8, w: u32, h: u32) -> Vec<([glam::Vec3; 3], [u32; 4])> {
-    let (wm, hm) = (w as f32 / PLANT_PX, h as f32 / PLANT_PX);
+    if n >= 4 {
+        // a shrub: three bulging clumps of three planes, of different sizes and turns, set apart in the cell so
+        // it is lobed with dents between them, wider than tall together, not one card cross
+        let clumps = [(glam::Vec3::new(-0.22, 0.0, -0.08), 0.85, 0.0), (glam::Vec3::new(0.2, 0.0, 0.12), 0.7, 0.35), (glam::Vec3::new(0.02, 0.0, 0.26), 0.55, 0.8)];
+        return clumps
+            .iter()
+            .flat_map(|&(at, size, turn)| {
+                plant_cross(3, w, h, size, turn).into_iter().map(move |(v, r)| ([v[0] + at, v[1], v[2]], r))
+            })
+            .collect();
+    }
+    plant_cross(n, w, h, 1.0, 0.0)
+}
+
+/// `n` leaning planes through the cell's middle at `size` of the painting, the first turned `turn` radians.
+fn plant_cross(n: u8, w: u32, h: u32, size: f32, turn: f32) -> Vec<([glam::Vec3; 3], [u32; 4])> {
+    let (wm, hm) = (w as f32 / PLANT_PX * size, h as f32 / PLANT_PX * size);
     (0..n)
         .map(|k| {
-            let a = std::f32::consts::PI * k as f32 / n as f32;
+            let a = std::f32::consts::PI * k as f32 / n as f32 + turn;
             let d = glam::Vec3::new(a.cos(), 0.0, a.sin()) * wm;
             let side = if k % 2 == 0 { 1.0 } else { -1.0 } * PLANT_LEAN.sin();
             let up = glam::Vec3::new(-a.sin() * side, PLANT_LEAN.cos(), a.cos() * side) * hm;
@@ -558,6 +574,23 @@ pub fn quads(body: &Body, key: Key, cells: &[u16; P * P * P], edits: &[(u32, u16
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A shrub (four planes or more) is several bulging clumps, not one card cross (ADR 0091): three crosses of
+    /// different sizes, set apart in the cell, wider than tall together.
+    #[test]
+    fn a_shrub_is_several_clumps() {
+        let f = plant_faces(4, 40, 40);
+        let feet: Vec<glam::Vec3> = f.iter().map(|(v, _)| v[0] + v[2] + v[1] * 0.5).collect();
+        let mut centres: Vec<(i32, i32)> = feet.iter().map(|p| ((p.x * 20.0).round() as i32, (p.z * 20.0).round() as i32)).collect();
+        centres.sort();
+        centres.dedup();
+        assert!(centres.len() >= 3, "three clumps or more: {centres:?}");
+        let (lo, hi) = feet.iter().fold((glam::Vec3::splat(9.0), glam::Vec3::splat(-9.0)), |(a, b), p| (a.min(*p), b.max(*p)));
+        let top = f.iter().map(|(v, _)| v[0].y).fold(0.0f32, f32::max);
+        assert!((hi.x - lo.x).max(hi.z - lo.z) > 0.3, "set apart: {lo:?} {hi:?}");
+        assert!(f.iter().map(|(v, _)| v[2].length()).fold(9.0f32, f32::min) < 0.9 * f[0].0[2].length().max(1.25), "of different sizes");
+        assert!(top < 1.25, "lower than its painting: {top}");
+    }
 
     #[test]
     fn plant_planes_lean_and_cover_ground() {
