@@ -859,6 +859,10 @@ impl Fx {
     pub fn live(&self) -> usize {
         self.pool.len()
     }
+    /// Particles the pool holds at most, and the Particles setting's scale.
+    pub fn cap(&self) -> (usize, f32) {
+        (self.cap, self.scale)
+    }
 
     fn rnd(&mut self) -> f32 {
         let mut r = self.rng;

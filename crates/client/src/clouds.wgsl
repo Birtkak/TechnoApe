@@ -42,6 +42,8 @@ fn cl_locate(d: vec3f, m: f32) -> ClAt {
 }
 
 // the map's texel of a face at column coordinates xy, bilinear between columns and held at the face's edge
+// shortcut: the cover, the wind and the cells' pattern step at the cube's twelve edges (each face is sampled
+// alone); pad each face with its neighbours' columns if the seam shows
 fn cl_map(f: u32, xy: vec2f, m: f32, layer: u32) -> vec4f {
     let uv = clamp(xy, vec2f(0.5), vec2f(m - 0.5)) / CL_TEX;
     return textureSampleLevel(cl_tex, cl_samp, uv, f + layer, 0.0);

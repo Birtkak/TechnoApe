@@ -164,6 +164,9 @@ fn clouds(px: vec2i, dir: vec3f, dist: f32) -> vec4f {
     if (sea <= 0.0 || steps <= 0.0 || u.cloud.w <= 0.0) { return vec4f(0.0); }
     let m = mat3x3f(u.rot0.xyz, u.rot1.xyz, u.rot2.xyz);
     let o = (-u.ctr.xyz) * m;
+    // shortcut: under the sea level the water hides them (the G-buffer has no water: from under it they would
+    // show on its surface); a camera in a cave under the sea level loses them too, until the water is in the G-buffer
+    if (dot(o, o) < sea * sea) { return vec4f(0.0); }
     let d = dir * m;
     let sd = u.sun.xyz * m;
     let far = select(1e9, dist, dist > 0.0);
@@ -187,6 +190,8 @@ fn clouds(px: vec2i, dir: vec3f, dist: f32) -> vec4f {
             seg[1] = vec2f(max(a1, in_t), min(out_t, far));
         }
     }
+    // (most ground pixels: the slab is behind what they show)
+    if (seg[0].y <= seg[0].x && seg[1].y <= seg[1].x) { return vec4f(0.0); }
     let wind = cl_wind(normalize(o + d * max(seg[0].x, select(seg[1].x, seg[0].x, seg[0].y > seg[0].x))), u.cloud.w);
     let jit = fract(sin(dot(vec2f(px) + f32(u.cfg.z % 64u) * vec2f(7.1, 3.7), vec2f(12.9898, 78.233))) * 43758.5453);
     var tr = 1.0;

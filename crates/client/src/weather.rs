@@ -27,8 +27,13 @@ impl Sky {
         if !all.is_empty() {
             self.prev = all.clone();
             self.cur = all;
-        } else {
-            self.prev.clone_from(&self.cur);
+        } else if self.cur.len() == self.prev.len() {
+            // from what shows now, so a step that lands mid-blend (a forced weather) does not jump
+            let b = self.blend(t);
+            let lerp = |a: u8, c: u8| (a as f64 + (c as f64 - a as f64) * b).round() as u8;
+            for (p, c) in self.prev.iter_mut().zip(&self.cur) {
+                *p = [lerp(p[0], c[0]), lerp(p[1], c[1]), (lerp(p[2] ^ 0x80, c[2] ^ 0x80)) ^ 0x80, (lerp(p[3] ^ 0x80, c[3] ^ 0x80)) ^ 0x80, c[4], c[5]];
+            }
         }
         for (k, c) in changed {
             if let Some(x) = self.cur.get_mut(k as usize) {
@@ -116,7 +121,7 @@ pub fn wind_at(up: DVec3, w: [f32; 2]) -> DVec3 {
 /// the same strikes. A strike is (world time, body-frame point at the clouds' base over its column).
 pub fn strikes(sky: &Sky, seed: i32, d: DVec3, sea: f64, from: f64, to: f64, within: i32) -> Vec<(f64, DVec3)> {
     let m = sky.m();
-    if m == 0 || to <= from {
+    if m == 0 || 6 * m * m != sky.cur.len() || to <= from {
         return Vec::new();
     }
     let g = engine::bake::grid::Grid::bare(m, 1.0);
@@ -178,7 +183,8 @@ impl Fall {
         let up = rel.normalize();
         let snow = here.temp < 0.0;
         // (a drizzle under 0.3 mm an hour falls unseen: the grid rains a little over half the planet)
-        let rate = if here.rain < 0.3 { 0.0 } else { [0.0, 350.0, 1100.0][level.min(2)] * (here.rain / 4.0).sqrt().min(1.6) * if snow { 0.6 } else { 1.0 } };
+        let (cap, scale) = fx.cap();
+        let rate = if here.rain < 0.3 { 0.0 } else { [0.0, 350.0, 1100.0][level.min(2)] * scale * (here.rain / 4.0).sqrt().min(1.6) * if snow { 0.6 } else { 1.0 } };
         if rate <= 0.0 || b.over_top(eye) > 60.0 {
             return;
         }
@@ -190,6 +196,11 @@ impl Fall {
         let (row, sea_row) = if snow { ("snow", "snow.sea") } else { ("rain", "rain.sea") };
         while self.acc >= 1.0 {
             self.acc -= 1.0;
+            // the weather leaves a third of the pool to what the game does (a break's debris, a fire)
+            if fx.live() * 3 >= cap * 2 {
+                self.acc = 0.0;
+                break;
+            }
             let a = self.rnd() * std::f64::consts::TAU;
             // (none lands within 1.5 m: a drop passing the lens is a blot)
             let r = 1.5 + self.rnd().sqrt() * (radius - 1.5);
@@ -201,7 +212,8 @@ impl Fall {
                 continue;
             };
             if r < 8.0 {
-                let open = at.floor as f64 <= rel.length() + 2.0;
+                // (a deep column: nothing within 8 blocks under the drop's start, so open over the head)
+                let open = at.col.deep || at.floor as f64 <= rel.length() + 2.0;
                 self.open += (open as u8 as f32 - self.open) * 0.02;
             }
             // over water it lands on the surface, not the bed
@@ -229,7 +241,7 @@ impl Fall {
         }
         for (t, at) in strikes(sky, seed, rel.normalize(), sea, self.struck, now, 6) {
             let far = (at - rel).length();
-            if far < 2500.0 {
+            if far < 2500.0 && t >= self.flash.0 {
                 self.flash = (t, far);
                 self.thunder.push((t + far / SOUND, far));
             }
@@ -250,7 +262,8 @@ impl Fall {
         }
         // a flicker: two bright moments, then a fade; weaker far away
         let k = if since < 0.08 || (0.18..0.26).contains(&since) { 1.0 } else { (-(since - 0.26).max(0.0) * 8.0).exp() * 0.5 };
-        (k * (1.0 - self.flash.1 / 2500.0).clamp(0.2, 1.0)) as f32
+        // under a roof or in a cave the flash is seen only as far as the sky is open over the head
+        (k * (1.0 - self.flash.1 / 2500.0).clamp(0.2, 1.0)) as f32 * (0.15 + 0.85 * self.open)
     }
 }
 
@@ -273,6 +286,9 @@ mod tests {
         let done = s.texels(100.0 + DT as f64 * 2.0);
         assert_eq!(&done[5 * 4..5 * 4 + 4], &[200, 100, 132, 124]);
         assert_eq!(&done[n * 4..n * 4 + 2], &[9, 128], "the snow layers follow the faces'");
+        // a step landing halfway goes on from what showed then, not from the last step's end
+        s.take(100.0 + DT as f64 / 2.0, Vec::new(), vec![(5, [0, 0, 4, (-4i8) as u8, 9, 128])]);
+        assert_eq!(&s.texels(100.0 + DT as f64 / 2.0)[5 * 4..5 * 4 + 2], &[100, 50]);
         assert_eq!(s.cloud(0.0, 1000.0)[3], 4.0);
         assert_eq!(Sky::default().cloud(0.0, 1000.0), [0.0; 4]);
     }
