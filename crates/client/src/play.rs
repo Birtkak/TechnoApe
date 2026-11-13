@@ -3,7 +3,7 @@ use super::*;
 
 /// The playtest menu's rows (F10, bugs/2026-11-11_13-12-42): a name, its steps and what to look for. A step
 /// is a command as typed in the chat, or `eclipse:sun`, `eclipse:luna` (the clock and the player go to the
-/// next one), `fly:<m/s>` (flying, at that speed), `give:all` (64 of every block). A new thing worth a look
+/// next one), `fly:<m/s>` (flying, at that speed). A new thing worth a look
 /// gets a row here.
 pub(crate) const PLAYTEST: &[(&str, &[&str], &str)] = &[
     ("Eclipse of the sun: Luna in front of Sol", &["eclipse:sun"], ""),
@@ -13,7 +13,7 @@ pub(crate) const PLAYTEST: &[(&str, &[&str], &str)] = &[
     ("Midnight: the moon grey, not red", &["/goto terra", "/time set midnight"], "Find Luna: grey-white, unless an eclipse is on."),
     ("Sunset: the light fading out", &["/goto terra", "/time set sunset"], "The sunlight on the ground should dim smoothly as Sol sets."),
     ("Lamps at night: a kit for a lit room", &["/goto terra", "/time set night", "/give lamp 32", "/give blue lamp 32"], "Dig a room and set lamps into its floor and walls: even light, no hard cones."),
-    ("Every block: 64 of each", &["give:all"], "64 of every block is yours."),
+    ("Every block: creative's inventory", &["/playmode creative"], "E opens every block and item in tabs: a click takes a stack, the middle button picks a block in the world."),
     ("Health and hunger: the bars at 13 and 6", &["/playmode survival", "/heal", "/hurt 7", "/feed 6"], "Two bars over the hotbar: a green cross, an orange stomach. /heal and /feed fill them."),
     ("Low health and an empty stomach", &["/playmode survival", "/heal", "/hurt 17", "/feed 0"], "Health pulses with red corners; hunger is outlined in red and health sinks to 1."),
     ("The death screen", &["/playmode survival", "/heal", "/hurt 20"], "You died: Respawn puts you at the spawn with full bars."),
@@ -263,8 +263,24 @@ impl App {
             "enter" => self.submit(),
             // the menu (ADR 0023): esc opens it, goes back a page or closes it; click:k and rclick:k press button k
             "esc" if self.menu == Some(Menu::Confirm) => self.undo_display(),
+            // the inventory (ADR 0075): its key, a pick in the world, the screen's clicks
+            "inventory" => self.toggle_inventory(),
+            "pick" if self.menu.is_none() => self.pick_block(),
+            "sclick" if self.menu == Some(Menu::Inventory) => self.inv_click(false, true),
+            "rclick" if self.menu == Some(Menu::Inventory) => self.inv_click(true, false),
+            "back" if self.menu == Some(Menu::Inventory) => {
+                self.inv_query.pop();
+                self.inv_scroll = 0;
+            }
+            a if a.starts_with("type:") && self.menu == Some(Menu::Inventory) => {
+                if self.inv_tab == inventory::SEARCH && self.inv_query.chars().count() < 24 {
+                    self.inv_query.extend(a[5..].chars().filter(|c| !c.is_control()));
+                    self.inv_scroll = 0;
+                }
+            }
             "esc" => self.set_menu(match self.menu {
                 None => Some(Menu::Pause),
+                Some(Menu::Inventory) => None,
                 Some(Menu::Pause) | Some(Menu::Confirm) => None,
                 Some(Menu::Settings) => Some(self.home()),
                 Some(Menu::Page(_)) => Some(Menu::Settings),
@@ -382,11 +398,6 @@ impl App {
             match *step {
                 "eclipse:sun" => self.eclipse(false),
                 "eclipse:luna" => self.eclipse(true),
-                "give:all" => {
-                    for d in BLOCKS.placeable() {
-                        self.link.send(ToServer::Chat(format!("/give {} 64", d.name)));
-                    }
-                }
                 s if s.starts_with("fly:") => (self.flying, self.fly_speed) = (true, s[4..].parse().unwrap_or(250.0)),
                 s => self.link.send(ToServer::Chat(s.to_string())),
             }
@@ -795,7 +806,7 @@ impl App {
         args.sort();
         let chat: Vec<String> =
             self.chat.iter().rev().take(50).rev().map(|(at, l)| format!("- {:.0} s ago: {l}", at.elapsed().as_secs_f64())).collect();
-        let inv: Vec<String> = self.inv.iter().map(|(m, n)| format!("{} {n}", BLOCKS.get(*m).map_or("?", |d| d.name.as_str()))).collect();
+        let inv: Vec<String> = self.inv.iter().enumerate().filter_map(|(k, s)| s.map(|s| format!("{k}: {} {}", engine::items::ITEMS.name(s.item), s.n))).collect();
         let report = format!(
             "# Bug report {}\n\n{}\n\n## To look at it again\n\n- The view, without the session's edits: `{stand}`\n- The world: {}\n- The session: {}\n\n## State (F3)\n\n{}\n\n{}\n\nInventory: {}; bucket {} units\n\n## Chat and messages\n\n{}\n\n## Arguments\n\n`{}`\n",
             sys::utc_stamp(now),
@@ -849,13 +860,13 @@ impl App {
         self.tool.shape(&self.world, at, end, false)
     }
 
-    /// The hotbar: every placeable block in id order.
+    /// The block in hotbar slot `k` (ADR 0074): what its stack holds, when that is a block one can place.
     pub(crate) fn slot_block(&self, k: usize) -> Option<u16> {
-        BLOCKS.placeable().nth(k).map(|d| d.id)
+        self.inv.get(k).copied().flatten().map(|s| s.item).filter(|&m| m != AIR && BLOCKS.get(m).is_some())
     }
 
     pub(crate) fn held_count(&self, m: u16) -> u32 {
-        self.inv.iter().find(|(id, _)| *id == m).map_or(0, |(_, n)| *n)
+        engine::items::count(&self.inv, m)
     }
 
     /// Digs or places a shape: predicted here at once (ADR 0015), sent to the server. A survival place this
@@ -1064,12 +1075,13 @@ impl App {
             (self.ghost_n, self.ghost_of) = (verts.len() as u32, ghost);
         }
         let season = crate::gpu::season_here(&self.world, self.me.pos);
-        let slots: Vec<hud::Slot> = (0..9)
-            .filter_map(|k| self.slot_block(k))
-            .map(|m| {
-                let d = BLOCKS.get(m).unwrap();
+        // the hotbar's nine slots as they lie (ADR 0074): an item shows the block it looks like
+        let slots: Vec<Option<hud::Slot>> = (0..engine::items::HOTBAR)
+            .map(|k| {
+                let s = self.inv.get(k).copied().flatten()?;
+                let d = BLOCKS.get(engine::items::ITEMS.look(s.item))?;
                 let (colour, side, pattern) = crate::gpu::shown(d, season);
-                hud::Slot { colour, side, pattern, count: (!self.creative).then(|| self.held_count(m)) }
+                Some(hud::Slot { colour, side, pattern, count: (!self.creative).then_some(s.n as u32) })
             })
             .collect();
         let height = (self.hammer && self.tool.kind != Kind::Box).then_some(self.tool.height);
@@ -1206,6 +1218,9 @@ impl App {
         }
         if self.menu == Some(Menu::Globe) {
             self.menu_boxes = self.globe_draw(&mut paint, lw, lh, p.fwd);
+        } else if self.menu == Some(Menu::Inventory) {
+            self.inv_draw(&mut paint, season);
+            self.menu_boxes.clear();
         } else if let Some(m) = self.menu {
             let cause = self.dead.clone().unwrap_or_default();
             if m == Menu::Dead {
@@ -1213,6 +1228,7 @@ impl App {
                 paint.rect(0.0, 0.0, lw, lh, [0.22, 0.0, 0.02, 0.4], 0);
             }
             let (title, hint) = match m {
+                Menu::Inventory => unreachable!(),
                 Menu::Dead => ("You died", cause.as_str()),
                 Menu::Title => ("TechnoApe", "Pillars of Simulation Engine"),
                 Menu::Worlds => ("Singleplayer", "A world carries on from its save. Right click or Delete removes one."),

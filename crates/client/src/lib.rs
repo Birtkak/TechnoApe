@@ -10,6 +10,7 @@ mod globe;
 mod globe_ui;
 pub mod gpu;
 mod hud;
+mod inventory;
 /// The game's font as cells, for the Studio's interface (its `font.rs`).
 pub use hud::font_cells;
 mod menu;
@@ -132,6 +133,25 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
+                if self.menu == Some(Menu::Inventory) && state == ElementState::Pressed {
+                    // the inventory (ADR 0075): its key or Esc closes it; on creative's search tab the keys type
+                    let search = self.creative && self.inv_tab == inventory::SEARCH;
+                    let own = self.settings.acts_of(Bind::Key(code)).any(|a| a == settings::Act::Inventory);
+                    match code {
+                        KeyCode::Escape => self.act("esc"),
+                        KeyCode::Backspace if search => self.act("back"),
+                        KeyCode::F3 => self.act("f3"),
+                        KeyCode::F9 => self.act("f9"),
+                        _ if own && !search => self.act("inventory"),
+                        _ if search => {
+                            if let Some(t) = text.filter(|t| !t.chars().any(char::is_control)) {
+                                self.act(&format!("type:{t}"));
+                            }
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
                 if self.menu.is_some() {
                     if state == ElementState::Pressed && self.rebind.is_some() {
                         // a key row waits for its key: Esc leaves it as it was, Backspace clears it
@@ -182,6 +202,7 @@ impl ApplicationHandler for App {
                     }
                 }
             }
+            WindowEvent::ModifiersChanged(m) => self.shift = m.state().shift_key(),
             WindowEvent::CursorMoved { position, .. } => {
                 self.globe_move((position.x as f32 / self.ui(), position.y as f32 / self.ui()));
                 self.pointer = (position.x as f32 / self.ui(), position.y as f32 / self.ui());
@@ -361,8 +382,9 @@ pub fn main() {
         link.send(ToServer::Creative(true)); // the edit benchmark places stone it never dug
     }
     let (_id, mut world, seed) = match link.rx.recv_timeout(Duration::from_secs(10)) {
-        Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, map, luna }) => {
+        Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, items, map, luna }) => {
             assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
+            assert_eq!(items, engine::items::ITEMS.hash, "the server's build has other items (data/items.toml)");
             // the baked map (ADR 0043): the local server's in memory, else from the disk or the server
             let kept = map.and_then(|h| engine::bake::find(seed, planet_n, Some(h)));
             let luna_kept = luna.and_then(|h| engine::bake::find(seed, moon_n, Some(h)));
@@ -556,7 +578,14 @@ pub fn main() {
         world_notes: Vec::new(),
         new_world: Default::default(),
         creative,
-        inv: Vec::new(),
+        inv: engine::items::ape(),
+        items_pending: Vec::new(),
+        piles: Default::default(),
+        lifted: None,
+        inv_tab: 0,
+        inv_query: String::new(),
+        inv_scroll: 0,
+        shift: false,
         bucket_water: 0,
         air: None,
         vitals: (engine::vitals::MAX, engine::vitals::MAX),

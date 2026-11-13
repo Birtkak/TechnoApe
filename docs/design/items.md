@@ -4,9 +4,9 @@
   ("items and inventories beyond blocks") and the tools ADR 0034 left open ("the tool divides the time and
   decides the drop"). Lines marked *taste call* are the developer's; the rest are routine defaults, each
   with its ADR when built.
-- **Today:** the inventory is a count per block id with no limit, plus the bucket's water
-  (`ToClient::Inventory { counts, water }`, ADR 0014). Nothing but blocks can be owned, and nothing can
-  lie on the ground.
+- **Today (2026-11-12):** steps 1-3 are built (ADR 0074: items, slots, packs, piles, the move message, the
+  conservation check in the soak; ADR 0075: the survival and creative screens). Steps 4-6 are not; neither
+  is the littered-face benchmark.
 
 ## One idea: an inventory is a list of slots, and everything that holds things is one
 The ape, a basket, a chest, a machine's input, and a heap of things on the ground are the same structure

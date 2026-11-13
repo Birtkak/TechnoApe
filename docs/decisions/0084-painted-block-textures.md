@@ -1,0 +1,97 @@
+# 0084 – Every block painted: calm, readable textures from a script
+
+- **Status:** accepted (tool tier: data and a script; drafts until the developer paints over them)
+- **Date:** 2026-11-12
+
+## Context
+Most blocks still showed their shader pattern (ADR 0039), which reads as busy checker noise up close (bug
+2026-11-12_20-49-17: the grass, the blue lamp, the log ends). The developer chose the style for painted
+textures: **calm and readable** – three or four colours from one ramp of the palette, low contrast between
+neighbours, and a material shape instead of noise; the rocks of `data/rocks.toml` told apart at a glance, each
+ore of `data/minerals.toml` visible on its host rock, tiling without a repeat grid, readable from 100 m.
+The rules they live under: 16 x 16 PNGs, up to four variants side by side, per-face and season files, every
+pixel a palette colour (ADR 0044, 0045, 0061, 0064, 0069, 0080). `gravel.png` is the developer's own (untracked
+in the main checkout) and water's look belongs to another session.
+
+## Options considered
+1. **Paint by hand in the Studio, block by block** – the Studio's way, but 61 blocks and 27 season looks in
+   one night with no one to judge the eye; and a style change would mean repainting all of it.
+2. **The Studio's pattern panel** (ADR 0064) – the eleven shader recipes snapped to the palette. They are the
+   noise the developer wants gone; they have no strata, crystals, blades or rings.
+3. **A small generator under `tools/` that paints from palette names** – one recipe per material, the colour
+   steps named, deterministic from the block's name. A style change is one edit and a run; the result is
+   plain PNGs the developer can repaint in the Studio.
+
+## Decision
+Option 3: `tools/paint_textures.py` (`python -I tools/paint_textures.py [block ...] [--preview out/x.png]`).
+
+- **Ramps of five steps by key:** `d` dark, `s` shade, `m` mid, `l` lit, `L` light. A palette ramp with
+  `X dark`, `X`, `X light` gains `X shade` (55 % of the way from dark to mid) and `X lit` (a third of the way
+  from mid to light) the first time a texture asks for them – the palette's own steps are too far apart for
+  calm neighbours (grass to grass light is a jump of 0.36 in value). A block with no ramp gets one from its
+  `blocks.toml` colour (darker steps lean cool, lighter ones warm, as the Studio's "Add shades"); a season look
+  from that season's row (`grass autumn`, `shrub winter`, ...). Only colours a texture uses are added.
+- **Most texels are `s`, `m`, `l`; `d` draws the shapes** (cracks, joints, laminae, rims), `L` the glints.
+  A field of shares (`levels`) sets exactly how much of each, so a texture's mean and calm do not drift.
+- **Shapes per material** (top/bottom in `<block>.png`, the sides in `_side` where strata or bark show):
+  - grass of every biome and season: fine two-tone ground with short dark blades and a few lit tips; the side is
+    dirt with the grass hanging over the top edge in tufts of 2 to 5 rows, lighter at the edge, a shadow under it;
+  - the rocks: stone soft beds and a crack; granite and gabbro coarse two-texel speckle (gabbro dark and green);
+    gneiss broad wavy bands, schist fine wavy bands with mica glints; sandstone fine beds with two bedding lines;
+    shale thin flaky laminae; limestone thick beds, bedding lines, a shell on top; slate two long cleavage
+    partings; marble a grey vein; quartzite pale with white healed cracks; tuff clasts and pores; andesite pale
+    phenocrysts; basalt columns (two joints on the side, a net on top);
+  - the ores on their hosts: chalcopyrite brass crystals on andesite, cassiterite dark crystals on granite, galena
+    cubes on limestone, pitchblende black lumps with a yellow-green halo on granite, malachite banded green crusts
+    on stone, gold flecks in white quartz, coal with glossy streaks, hematite red and grey bands (banded iron),
+    bauxite nodules, bog iron rusty lumps in mud, gossan rust with cracks; the three gravels are the developer's
+    gravel mix (its exact colours and weights) with copper, tin or gold grains;
+  - log: rings with pith, a radial check and a bark edge on the ends; bark of vertical plates and dark furrows;
+  - leaves as cutouts (clumps lit inside, shadowed under a hole), spruce as slanted needles, reed as blades;
+    autumn broadleaf takes the palette's autumn ramp; winter broadleaf and shrub keep a third of their leaves;
+  - lamps: a two-texel frame and a glowing core; copper a bevelled brushed plate; sand fine grains with wind
+    ripples on top; snow and ice near flat (ice one long crack); clay and mud smooth; Luna's dusts with small
+    rocks, anorthosite with feldspar laths, iron-nickel with Widmanstätten bands.
+- **Tiling:** all noise is periodic on 16 texels; strata, bark plates and grass overhang use the block's seed,
+  not the variant's, so beds and tufts run on across neighbouring blocks; a vein or crack that crosses an edge
+  runs corner to corner so it meets itself. Features no larger than four texels, so no repeat lattice shows on a
+  plain (the first grass, with eight-texel patches, did show one and was changed).
+- Every written file goes on `data/drafts.txt`; `gravel.png` and water are never written.
+
+## Proof
+- `technoape-studio check=1`: `{"check":"ok","palette":349,"textures":125,"refused":[]}`.
+- Contact sheet of every texture, tiled 4 x 4 with variants mixed: `out/tex-preview.png` (read); Studio render
+  sheets: `out/studio-sheets/<file>.png` (every file, 3 x 3), gathered with names in `out/all-textures.png` and `out/season-textures.png` (read).
+- Filmstrips at the forest of the season views (noon of each season), the coast view at noon and dusk, walls of
+  every rock, ore and other block placed with `place=` (noon), a stacked cliff of limestone, shale, sandstone and
+  granite (noon and dusk), and a closed cave of granite with ores, a lamp and a blue lamp. Read; what changed
+  from them: the first grass (eight-texel patches) showed a repeat lattice on a plain and was changed to fine ground with blades; chalcopyrite's crystals read as crosses and became small cubes; galena's cubes were too small; gold quartz lost a stray slate sliver; snow and the regoliths had busy grey flecks and became near flat; granite (and the ores on it) had too many dark specks for a cave wall seen close under a lamp and was calmed twice. The coast view is open sea on today's bake, so the shore was seen from the forest spot, from above.
+- `cargo test -p studio -p engine`: engine 217 and 115 passed; studio's `drive` tests needed three changes, all in the test files: the two clay tests and the palette test assumed their block had no painting (`scratch_unpainted` removes it in the scratch copy), and the palette test scrolled the swatches by a fixed amount that no longer reached the end of 349 colours (`wheel -400`). 28 passed. `tools/views.sh`: every view with a painted block changed, by
+  design; looked at and accepted.
+
+## Consequences
+- The palette grows from 109 to 349 colours, almost all of them `shade`/`lit` steps and the ramps of
+  blocks that had none. Changing a colour in the Studio repaints every texture that uses it, as before; running
+  the script again repaints from the recipes (and overwrites hand edits to those files: once the developer has
+  painted a file, take it out of the script's reach by removing it from `data/drafts.txt` first – the script
+  does not check that yet).
+- A block added later has no texture until a recipe is written; the script names such blocks on stderr.
+- The shader patterns stay as the look of a block without a file.
+
+## Calls for the developer to confirm
+- **The style itself**: the shares (mostly mid, a quarter shade, a quarter lit) and how strong the shapes are
+  (cracks, laminae, crystals). One edit in the script moves all of them.
+- **Grass blades**: dark strokes with a lit tip on every third, against a fine two-tone ground; the tufts on the
+  side hang 2 to 5 texels.
+- **Grass's new steps sit in a ramp of their own** (`grass steps`): the engine test `the_data_file_loads` holds the
+  `grass` ramp to three colours. Join them when that test allows more (an engine change, left for the developer).
+- **Palette size**: 349 colours; the generated ramps for each biome grass in each season are the bulk.
+  Fewer is possible by letting the biome grasses share ramps (they would lose their exact `blocks.toml` tints).
+- **Hosts for ores with none in `minerals.toml`**: chalcopyrite on andesite, malachite on stone, gold quartz as
+  a white quartz vein, bog iron in mud.
+- **Lamps tile as framed panels** (each block its own frame), so a wall of lamps reads as a grid.
+- **Winter leaves keep a third** of their texels (more holes), not bare branches.
+
+## Review
+Tool tier (CLAUDE.md principle 13): the diff is a script, data and this ADR; read through by the author against the
+shots above. A fresh reviewer read the script (it is over 300 lines). Fixed: the colour nudge could loop forever near blue 255 (now searches outward and fails loudly); sand's dark grains used the wrong colour; the brightness order now uses the Studio's `luma` weights and every ramp the script grows is asserted to run dark to light (all do; `gold gravel` and `gold quartz`, the developer's own, do not by their names); `data/palette.toml` goes on the drafts list when colours are added; dead code went; shale's dashes wrapped 2.5 times; `--preview` without a path. Answered: grass bottoms are not unpainted, the shader takes a grass block's foot from its side block, `dirt.png`. Documented: a run for some blocks still builds every recipe, so the palette gains every step the set needs.
