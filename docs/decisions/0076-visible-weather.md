@@ -37,7 +37,11 @@ see the same sky, nothing may stall the frame thread, and the game will be CPU-b
   water (premultiplied) in up to 12 (low) or 24 (high) steps a pixel; lit by Sol by the sun's height where the
   cell is (the night side's are dark from orbit), grey to slate with the rain they hold, fading into the air
   as far ground does. Their shadow: one sample where the sun ray crosses the slab's middle, in `light()`, so
-  the ground, the bounce rays' hits and particles all get it.
+  the ground, the bounce rays' hits and particles all get it. The shadow is soft and cloud-shaped (the
+  developer, 2026-11-13: the cells' hard squares showed on sea and ground, in up to four shades where the two
+  drifting phases overlapped): `cl_soft` reads the same field as the cells but smooth, the cover where the
+  point is against the clump noise read anywhere (the cells' own numbers by their mean), with an edge as wide
+  as those numbers spread. The clouds themselves stay blocky.
 - **Rain and snow** (`client::weather::Fall`): drops of the effects pool started over the camera, upwind by
   their fall, landing on the floor of the column they are over (the pool's own lookup, re-done as they cross
   columns), so a roof or a cave's ceiling stops them; a small splash where they land, a ripple on water.
@@ -53,7 +57,8 @@ see the same sky, nothing may stall the frame thread, and the game will be CPU-b
   0.2 to 1.2. F3's cloud reads the same. The sun pass's own shade still uses `cover_half` (so clouds barely
   shade the bake's or the live grid's ground): changing it changes every bake, left for the developer.
 - **Storms:** rain over 8 mm/h. Each stormy column within 6 of the camera's strikes in a seeded share of 2 s
-  slots (`strikes`: seed, column, slot), so every client sees the same strikes from the bytes alone; a strike
+  slots, so that under a storm over all those 13 x 13 columns a strike comes every 40 s, every 20 s in rain
+  twice as heavy (the developer, 2026-11-13: rarer than the first every few seconds) (`strikes`: seed, column, slot), so every client sees the same strikes from the bytes alone; a strike
   within 2.5 km flashes (two flickers and a fade that lights every lit pixel by its albedo, weaker far off)
   and its `thunder` plays from the strike, late by distance at 343 m/s.
 - **Lying snow:** the terrain shader whitens faces that look up by the column's snow (bilinear over the
@@ -81,12 +86,13 @@ see the same sky, nothing may stall the frame thread, and the game will be CPU-b
 2. How much of the sky the grid's cover fills (`cl_number`'s spread: tuned to the live grid's cover so a
    mean sky has broken cloud).
 3. Rain density (350 / 1,100 drops a second at 4 mm/h for light and full) and the sounds' levels.
-4. Lightning's rate (0.06 % of 2 s slots per stormy column, up to three times that: a strike every few seconds within 2.5 km under a storm from horizon to horizon) and flash strength.
+4. ~~Lightning's rate~~ (decided: every 20 to 40 s under a storm) and the flash's strength.
+6. ~~Cloud shadows~~ (decided: soft and cloud-shaped).
 5. Snow fully white from 10 mm of water (about 10 cm of snow).
 
 ## Checks
 - Tests: a column's bytes round-trip and a force leaves the grid (`engine::weather`); the map blends from the
-  last step, winds through calm; lightning only in storms, the seed's own, once each (`client::weather`).
+  last step, winds through calm; lightning only in storms, the seed's own, once each, every 20 to 40 s under a storm (`client::weather`).
 - Filmstrips: ground, 200 m and orbit, clear, cloudy, rain, storm, snow, day and night (`out/weather-*.png`).
 - The fast gate against `tests/perf/baseline.json`.
 - Fresh review (a subagent given the diff and the brief): a step landing mid-blend jumped (now it goes on
