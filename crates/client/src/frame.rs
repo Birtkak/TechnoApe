@@ -1013,6 +1013,8 @@ impl App {
             }
             if clouds_on {
                 gi.clouds(&mut rp);
+                // the ghost and the hud after it draw with the globals at group 0 again
+                rp.set_bind_group(0, &gpu.bind, &[]);
             }
             if self.ghost_n > 0 {
                 rp.set_pipeline(&gpu.ghost_pipeline);
