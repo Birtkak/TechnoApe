@@ -48,6 +48,28 @@ cells' half).
   soak's bots' worlds match the server's chunk by chunk, its replay meets every checkpoint and a save and
   load give back the same state.
 
+- **Soak** (`technoape-server soak=1 bots=50 minutes=2 seed=1`, play build): ok, 265 heaps dug out from
+  under, 209,535 blocks moved; the bots' worlds equal the server's, a save and a load give back the state.
+- **Filmstrip** (`technoape.exe run=stand quick=1 at=-1,1,-0.85 eye=2 pitch=0 yaw=-45 fx=1 falls=1
+  fxedit="0.2:4:0:3:stone,0.2:4:0:4:sand,0.2:4:0:5:sand,0.2:4:0:6:sand,0.2:4:0:7:sand,0.2:4:1:3:stone,0.2:4:1:4:gravel,0.2:4:1:5:gravel,1.5:4:0:3:air,1.5:4:1:3:air"
+  capture_ms=700 capture_w=480 sheet=out/falls-c.png`), read: the shelves are dug (grey chips), the sand and
+  gravel come down and lie on the ground, spread to one block of step; no break effect while they fall.
+  That run's server tick: p99 0.07 ms.
+
+## Review (a fresh reviewer read the diff)
+- *The soak's heap branch never ran* (it sat behind the items' share after main's merge): fixed; the soak
+  line above counts its heaps.
+- *A fresh block on one still waiting to start slid off it* (a heap in the air lost its edges): fixed, test
+  `a_heap_in_the_air_comes_down_whole`, seen red.
+- *Loading woke ten cells of every edit* (millions of keys for a big save): it now looks at each falling
+  block of the edits, and at the block over each dug cell when it falls, once.
+- *A move's two edits split over two messages played a break and a place*, and an unrelated dig and place
+  could pass for a move: moves go in `Edits` of their own, and the client pairs only side-by-side cells
+  (shortcut: a move across a face's edge plays its effects).
+- *Answered, not changed:* the budget visits the lowest face and layer first, so a big collapse holds back
+  blocks in flight elsewhere for a few ticks (bounded; they carry on), and a budget cut between a block and
+  the one riding on it parts them for one tick.
+
 ## Calls for the developer to confirm
 - 45 degrees for sand and gravel alike (gravel would be steeper, sand flatter, once fine cells give finer
   slopes).
