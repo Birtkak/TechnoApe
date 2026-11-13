@@ -77,7 +77,7 @@ pub enum Cut {
 /// `glass`: the cells may hold glass. Generation makes none, so a `Solid` chunk without edits passes false and
 /// its first pass looks at no block's kind, as before glass.
 pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool) -> Mesh {
-    mesh_cracked(cells, lattice, cut, glass, None, &[])
+    mesh_cracked(cells, lattice, cut, glass, None, &[], None)
 }
 
 /// `mesh_cut`, and `cracks` (per cell its joint faces and the bedding line across each side face, `stream::cracks`,
@@ -85,7 +85,9 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool)
 /// crack's on rock and the twigs' (ADR 0090) on a cutout block: rock that cracks is never cutout.
 /// `held`: padded cells meshed as air that the slopes take as loose blocks (ADR 0101: a block gliding in, drawn by
 /// the client meanwhile), so its neighbours keep the shape they will have when it lands.
-pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool, cracks: Option<&[[u8; 5]; P * P * P]>, held: &[usize]) -> Mesh {
+/// `raw`: the cells before the skirts (`world::generate_raw`), which the slopes read: a skirted padding is a step
+/// down all round the chunk. None reads `cells`.
+pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool, cracks: Option<&[[u8; 5]; P * P * P]>, held: &[usize], raw: Option<&[u16; P * P * P]>) -> Mesh {
     let cutout = cut != Cut::Solid;
     // cols[a][v*P+u] = bits along axis a; u = (a+1)%3, v = (a+2)%3. opq: the same of the cells that hide what is
     // behind them, and gls of glass, made only for a chunk with glass or (fancy) cutout blocks
@@ -111,7 +113,7 @@ pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: b
             }
         }
     }
-    let slope = if any_fall { slopes(cells, falls_t, held) } else { None };
+    let slope = if any_fall { slopes(raw.unwrap_or(cells), falls_t, held) } else { None };
     let (mut any_cut, mut any_glass) = (false, false);
     if glass_seen || cutout && any_see {
         // a second pass, only in a chunk with glass or cutout blocks
@@ -561,7 +563,7 @@ mod tests {
         }
         k[pidx(3, 1, 1)][0] = crate::crack::PL;
         let plain = mesh_cut(&c, 8, Cut::Solid, false);
-        let m = mesh_cracked(&c, 8, Cut::Solid, false, Some(&k), &[]);
+        let m = mesh_cracked(&c, 8, Cut::Solid, false, Some(&k), &[], None);
         let cracked: Vec<[u32; 2]> = m.quads.iter().copied().filter(|q| q[1] >> 20 != 0).collect();
         assert_eq!(cracked.len(), 2, "{cracked:?}");
         for q in &cracked {
@@ -569,11 +571,11 @@ mod tests {
             assert!([2, 3].contains(&(q[0] >> 28 & 7)), "the y faces");
         }
         assert_eq!(m.quads.len(), plain.quads.len() + 4, "each y face split in three");
-        assert_eq!(mesh_cracked(&c, 8, Cut::Solid, false, None, &[]).quads, plain.quads);
+        assert_eq!(mesh_cracked(&c, 8, Cut::Solid, false, None, &[], None).quads, plain.quads);
         // a bedding line on the cell's +j face rides on bits 24-31 of that face alone, and stops its merge too
         let mut k = [[0u8; 5]; P * P * P];
         k[pidx(3, 1, 1)][1 + 2] = 0xa5;
-        let m = mesh_cracked(&c, 8, Cut::Solid, false, Some(&k), &[]);
+        let m = mesh_cracked(&c, 8, Cut::Solid, false, Some(&k), &[], None);
         let lined: Vec<[u32; 2]> = m.quads.iter().copied().filter(|q| q[1] >> 20 != 0).collect();
         assert_eq!(lined.len(), 1, "{lined:?}");
         assert_eq!((lined[0][1] >> 24, lined[0][1] >> 20 & 15, lined[0][0] >> 28 & 7, lined[0][0] >> 18 & 1023), (0xa5, 0, 2, 0));
@@ -825,10 +827,27 @@ mod tests {
         assert_eq!(zs, vec![[7, 7, 6], [7, 8, 5], [8, 7, 6], [8, 8, 5]], "the ramp's corners in chunk cells (0-based)");
         // a block gliding into the edge (meshed as air, held): its neighbour keeps the shape it has with it there
         c[pidx(7, 8, 6)] = 0;
-        let held = mesh_cracked(&c, 1, Cut::Solid, false, None, &[pidx(7, 8, 6)]);
+        let held = mesh_cracked(&c, 1, Cut::Solid, false, None, &[pidx(7, 8, 6)], None);
         let d = |m: &Mesh| { let q = m.quads.iter().find(|q| face_of(q).0 == [7, 7, 5] && face_of(q).1 == 4).unwrap(); if q[0] >> 31 == 1 { q[1] >> 20 & 15 } else { 0 } };
         assert_eq!(d(&held), 0b1100, "held: as with the block there");
         assert_ne!(d(&mesh(&c, 1)), 0b1100, "not held: it slopes toward the hole");
+    }
+
+    /// ADR 0101: a flat floor of sand stays flat at the chunk's border: `generate` skirts the padding (air under
+    /// air), and the slopes read the padding the neighbours hold, not a step down all round (the grid on the sea
+    /// floor of the `high` view).
+    #[test]
+    fn a_flat_loose_floor_has_no_slopes_at_the_chunks_border() {
+        let sand = crate::blocks::BLOCKS.id("sand");
+        let mut raw = Box::new([0u16; P * P * P]);
+        for i in 0..P * P * 8 {
+            raw[i] = sand;
+        }
+        let mut c = raw.clone();
+        crate::world::skirt(&mut c);
+        let m = mesh_cracked(&c, 1, Cut::Solid, false, None, &[], Some(&raw));
+        let sloped = m.quads.iter().filter(|q| q[0] >> 31 == 1).count();
+        assert_eq!(sloped, 0, "{sloped} sloped quads on a flat floor");
     }
 
     /// ADR 0101: with slopes the terrain is still closed: every edge of a drawn triangle is met by another (an even
