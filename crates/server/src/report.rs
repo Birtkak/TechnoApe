@@ -46,13 +46,23 @@ fn minerals(w: &World) -> Vec<String> {
         let ks: Vec<usize> = (0..b.ores.len()).filter(|&k| of(&b.ores[k])).collect();
         let (blocks, ingots) = ks.iter().fold((0u64, 0u64), |(a, i), &k| (a + held[k].blocks as u64, i + held[k].ingots as u64));
         let near = ks.iter().map(|&k| away(&b.ores[k])).fold(f64::MAX, f64::min);
+        // where the nearest one lies, a direction from the planet's centre (`run=stand at=`)
+        let at = ks.iter().min_by(|&&x, &&y| away(&b.ores[x]).total_cmp(&away(&b.ores[y]))).map_or(glam::DVec3::ZERO, |&k| b.dir(b.ores[k].face as usize, b.ores[k].at.x, b.ores[k].at.y));
         let (lo, hi) = ks.iter().map(|&k| depth(&b.ores[k])).fold((f64::MAX, f64::MIN), |(a, z), d| (a.min(d), z.max(d)));
         let budget = budget.map_or(String::new(), |n| format!(", \"budget_blocks\": {:.0}", n as f64 * scale));
-        format!("\"{name}\": {{\"bodies\": {}, \"blocks\": {blocks}, \"ingots\": {ingots}{budget}, \"nearest_m\": {:.0}, \"depth_m\": [{:.1}, {:.1}]}}", ks.len(), if ks.is_empty() { -1.0 } else { near }, lo, hi)
+        format!("\"{name}\": {{\"bodies\": {}, \"blocks\": {blocks}, \"ingots\": {ingots}{budget}, \"nearest_m\": {:.0}, \"nearest_at\": [{:.6}, {:.6}, {:.6}], \"depth_m\": [{:.1}, {:.1}]}}", ks.len(), if ks.is_empty() { -1.0 } else { near }, at.x, at.y, at.z, lo, hi)
     };
     let mut out: Vec<String> = BUDGET.iter().map(|&(e, n)| line(e, &|o| MINERALS.kinds[o.kind as usize].gives == e, Some(n))).collect();
+    // the altered rock round each kind's bodies (ADR 0095), blocks per grade outermost first: no metal
+    let halo = engine::ore::count_halo(b);
     for (k, kind) in MINERALS.kinds.iter().enumerate() {
-        out.push(line(&format!("kind {}", kind.name), &|o| o.kind as usize == k, None));
+        let l = line(&format!("kind {}", kind.name), &|o| o.kind as usize == k, None);
+        if kind.halo.is_empty() {
+            out.push(l);
+            continue;
+        }
+        let grades: Vec<String> = kind.halo.iter().enumerate().map(|(g, &m)| format!("\"{}\": {}", engine::blocks::BLOCKS.get(m).unwrap().name, (0..b.ores.len()).filter(|&o| b.ores[o].kind as usize == k).map(|o| halo[o][g] as u64).sum::<u64>())).collect();
+        out.push(format!("{}, \"halo_blocks\": {{{}}}}}", &l[..l.len() - 1], grades.join(", ")));
     }
     out
 }

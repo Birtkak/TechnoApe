@@ -703,8 +703,10 @@ impl Body {
     /// Puts these ore bodies in the ground, in place of any before.
     pub fn set_ores(&mut self, ores: Vec<crate::ore::OreBody>) {
         self.ore_tiles.clear();
+        // a body's halo reaches past it (ADR 0095)
+        let reach = |o: &crate::ore::OreBody| crate::ore::MINERALS.kinds[o.kind as usize].halo_m * (1.0 + crate::ore::FRAY);
         for (k, o) in ores.iter().enumerate() {
-            let r = o.a.max(o.b) + 2.0;
+            let r = o.a.max(o.b) + 2.0 + reach(o);
             let span = |v: f64| ((v - r).floor() as i32).div_euclid(CS)..=((v + r).floor() as i32).div_euclid(CS);
             for x in span(o.at.x) {
                 for y in span(o.at.y) {
@@ -714,7 +716,7 @@ impl Body {
         }
         self.ore_z = ores
             .iter()
-            .map(|o| if crate::ore::MINERALS.kinds[o.kind as usize].shape.follows_ground() { (self.layer_of(self.radius - AMP - o.at.z - o.h) - 1.0, self.layer_of(self.radius + AMP) + 1.0) } else { (o.at.z - o.h - 1.0, o.at.z + o.h + 1.0) })
+            .map(|o| if crate::ore::MINERALS.kinds[o.kind as usize].shape.follows_ground() { (self.layer_of(self.radius - AMP - o.at.z - o.h) - 1.0, self.layer_of(self.radius + AMP) + 1.0) } else { (o.at.z - o.h - 1.0 - reach(o), o.at.z + o.h + 1.0 + reach(o)) })
             .collect();
         self.ores = ores;
     }
@@ -741,6 +743,24 @@ impl Body {
         }
         let k = self.col_ores(face, i, j, ground).into_iter().find(|&(lo, hi, _)| (lo..hi).contains(&z))?.2;
         (!self.col_caves(face, i, j).iter().any(|&(lo, hi)| (lo..hi).contains(&z))).then_some(k)
+    }
+    /// The halo of altered rock that layer z of column (face, i, j) is (ADR 0095), as (body, grade): the
+    /// highest grade any body's halo gives the cell, the first body on a tie. The one rule `generated_under`,
+    /// `generate` and the report share; they ask it only of rock under the soil band that is no ore or cave.
+    pub fn halo_at(&self, face: u8, i: i32, j: i32, z: i32) -> Option<(u32, usize)> {
+        let mut best: Option<(u32, usize)> = None;
+        for &k in self.tile_ores(face, i.div_euclid(CS), j.div_euclid(CS)) {
+            if let Some(g) = self.ores[k as usize].halo_grade(face, i, j, z) {
+                if best.is_none_or(|(_, b)| g > b) {
+                    best = Some((k, g));
+                }
+            }
+        }
+        best
+    }
+    /// The block of grade g of body k's halo.
+    pub fn halo_block(&self, k: u32, g: usize) -> u16 {
+        crate::ore::MINERALS.kinds[self.ores[k as usize].kind as usize].halo[g]
     }
     /// The ore block of body k.
     pub fn ore_block(&self, k: u32) -> u16 {
@@ -1544,7 +1564,10 @@ impl World {
             return ground[2];
         }
         if depth >= 4.0 {
-            // under the band: the rock, by the rule the mesher's fill asks too
+            // under the band: the rock, by the rule the mesher's fill asks too, altered round a body (ADR 0095)
+            if let Some((k, g)) = body.halo_at(b.face, b.pos.x, b.pos.y, b.pos.z) {
+                return body.halo_block(k, g);
+            }
             let r = body.layer_r(b.pos.z as f64 + 0.5) as f32;
             return ROCKS.at(body.col_rock(b.face, b.pos.x, b.pos.y), r, ground[2]);
         }
@@ -2050,6 +2073,32 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
         }
     }
     if ored {
+        // the halo first (ADR 0095): rock under the soil band, no cave (the rule of `generated_under`); ore after
+        // takes its own cells
+        let halos: Vec<&crate::ore::OreBody> = body.tile_ores(key.face, key.pos.x, key.pos.y).iter().map(|&k| &body.ores[k as usize]).filter(|o| !crate::ore::MINERALS.kinds[o.kind as usize].halo.is_empty()).collect();
+        for (y, x) in (0..P).flat_map(|y| (0..P).map(move |x| (y, x))) {
+            let (i, j) = (c0.x + x as i32, c0.y + y as i32);
+            let hv = tile.h[y * P + x];
+            // the layers a halo can reach in this column: each body's box, its reach to spare
+            let (mut lo, mut hi) = (i32::MAX, i32::MIN);
+            for o in &halos {
+                if let Some((l, h)) = o.halo_span(i, j) {
+                    (lo, hi) = (lo.min(l), hi.max(h));
+                }
+            }
+            if lo >= hi {
+                continue;
+            }
+            for z in (lo - c0.z).max(0)..(hi - c0.z).min(P as i32) {
+                let (zl, z) = (c0.z + z, z as usize);
+                let c = &mut cells[pidx(x, y, z)];
+                if *c != 0 && zl >= 0 && hv - body.layer_r(zl as f64 + 0.5) >= 4.0 {
+                    if let Some((k, g)) = body.halo_at(key.face, i, j, zl) {
+                        *c = body.halo_block(k, g);
+                    }
+                }
+            }
+        }
         // ore where the ground is (the rule of `Body::ore_at`): a cell still solid here is under the ground and
         // no cave; the bodies last to first, so the first body's ore is what stays
         for (y, x) in (0..P).flat_map(|y| (0..P).map(move |x| (y, x))) {
@@ -2818,7 +2867,7 @@ mod baked_tests {
     }
 
     /// Ore is one answer too (ADR 0063): physics, the mesher's chunk and the ledger's count agree cell by cell
-    /// on a deep lump across a chunk corner with a cave through it, and on a stream-bed gravel at the ground,
+    /// on a deep lump across a chunk corner with a cave through it (its halo too, ADR 0095), and on a stream-bed gravel at the ground,
     /// which shows at the top.
     #[test]
     fn the_mesher_physics_and_the_count_see_the_same_ore() {
@@ -2836,6 +2885,7 @@ mod baked_tests {
         m[0].set_ores(vec![lump, gravel]);
         let b = &w.bodies[0];
         let held = crate::ore::count(b);
+        let mut halos = 0;
         for (k, o) in [lump, gravel].iter().enumerate() {
             let ore = MINERALS.kinds[o.kind as usize].block;
             let (mut seen, mut ingots, mut at_top) = (0, 0, 0);
@@ -2850,7 +2900,9 @@ mod baked_tests {
                         Gen::Solid => u16::MAX,
                         Gen::Empty => AIR,
                     };
-                    assert!(mesh == phys || (mesh == u16::MAX && phys != AIR && phys != ore), "({i}, {j}, {z}): mesh {mesh}, physics {phys}");
+                    let halo = MINERALS.kinds[o.kind as usize].halo.contains(&phys);
+                    assert!(mesh == phys || (mesh == u16::MAX && phys != AIR && phys != ore && !halo), "({i}, {j}, {z}): mesh {mesh}, physics {phys}");
+                    halos += halo as u32;
                     if phys == ore {
                         seen += 1;
                         ingots += o.grade(i, j);
@@ -2863,6 +2915,94 @@ mod baked_tests {
             assert!(k == 0 || at_top > 10, "the gravel shows at the ground: {at_top} cells");
         }
         assert_eq!(w.generated_block(Block { body: 0, face: f, pos: IVec3::new(hole.at.x as i32, hole.at.y as i32, hole.at.z as i32) }), AIR, "the cave goes through the ore");
+        assert!(halos > 100, "{halos} halo cells, mesher and physics alike (ADR 0095)");
+    }
+
+    /// The halo (ADR 0095): for every kind with one, a line walked from the host rock toward a body's core, along
+    /// each of its axes both ways, meets the halo's grades outermost first and then ore; the mesher's chunk sees
+    /// every cell as physics does; the halo eats no ore (the count is the ore physics sees) and is never ore to
+    /// the ledger.
+    #[test]
+    fn a_line_toward_a_body_passes_rising_halo_grades_then_ore() {
+        use crate::ore::{OreBody, MINERALS};
+        let mut w = world();
+        let top = w.air_over_ground(0, w.bodies[0].spawn);
+        let f = top.face;
+        let kinds: Vec<usize> = (0..MINERALS.kinds.len()).filter(|&k| !MINERALS.kinds[k].halo.is_empty()).collect();
+        assert!(kinds.len() >= 6, "{} kinds with a halo", kinds.len());
+        for &k in &kinds {
+            let kind = &MINERALS.kinds[k];
+            let (a, bw, h) = kind.shape.axes(kind.blocks as f64);
+            // the big bodies cut down to fit the small planet; the halo is the kind's own
+            let (a, bw, h) = (a.min(16.0), bw.min(16.0), h.min(10.0));
+            let t = kind.halo_m;
+            let o = OreBody { kind: k as u16, face: f, at: DVec3::new(top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5, top.pos.z as f64 - h - t - 12.0), a, b: bw, h, angle: 0.4 };
+            let m = Arc::get_mut(&mut w.bodies).unwrap();
+            m[0].set_caves(Vec::new());
+            m[0].set_ores(vec![o]);
+            let b = &w.bodies[0];
+            let top_level = kind.halo.len() + 1;
+            let level = |m: u16| if m == kind.block { top_level } else { kind.halo.iter().position(|&x| x == m).map_or(0, |g| g + 1) };
+            let mut chunk: Option<(Key, Gen)> = None;
+            let mut check = |p: IVec3| -> u16 {
+                let blk = Block { body: 0, face: f, pos: p };
+                let phys = w.generated_block(blk);
+                let key = Key { body: 0, face: f, level: 0, pos: p.div_euclid(IVec3::splat(CS)) };
+                if chunk.as_ref().is_none_or(|c| c.0 != key) {
+                    chunk = Some((key, generate(b, key, &[])));
+                }
+                let mesh = match &chunk.as_ref().unwrap().1 {
+                    Gen::Cells(cells) => cells[pidx((p.x - key.pos.x * CS + 1) as usize, (p.y - key.pos.y * CS + 1) as usize, (p.z - key.pos.z * CS + 1) as usize)],
+                    Gen::Solid => u16::MAX,
+                    Gen::Empty => AIR,
+                };
+                // a chunk wholly solid draws nothing, whatever its cells are; a dig makes it cells again
+                assert!(mesh == phys || (mesh == u16::MAX && phys != AIR), "{}: {p}: mesh {mesh}, physics {phys}", kind.name);
+                if level(phys) > 0 && level(phys) < top_level {
+                    assert_eq!(w.ore_cell(blk), None, "{}: halo is no ore", kind.name);
+                }
+                phys
+            };
+            let (c, s) = (o.angle.cos(), o.angle.sin());
+            for (du, dv, dw, ext) in [(1.0, 0.0, 0.0, a), (-1.0, 0.0, 0.0, a), (0.0, 1.0, 0.0, bw), (0.0, -1.0, 0.0, bw), (0.0, 0.0, 1.0, h), (0.0, 0.0, -1.0, h)] {
+                // from 1.5 halos out to the middle, a quarter metre a step; the levels met, each once in a row
+                let mut seen: Vec<usize> = Vec::new();
+                for n in (0..=((ext + 1.5 * t) * 4.0) as i32).rev() {
+                    let r = n as f64 * 0.25;
+                    let (u, v) = (du * r, dv * r);
+                    let p = IVec3::new((o.at.x + u * c - v * s).floor() as i32, (o.at.y + u * s + v * c).floor() as i32, (o.at.z + dw * r).floor() as i32);
+                    let l = level(check(p));
+                    if seen.last() != Some(&l) {
+                        seen.push(l);
+                    }
+                }
+                let mut first: Vec<usize> = Vec::new();
+                for &l in &seen {
+                    if !first.contains(&l) {
+                        first.push(l);
+                    }
+                }
+                assert_eq!(first, (0..=top_level).collect::<Vec<_>>(), "{} along ({du}, {dv}, {dw}): levels met {seen:?}", kind.name);
+                assert_eq!(seen.last(), Some(&top_level), "{}: the line ends in ore", kind.name);
+            }
+            // the whole box: ore as the count has it, halo only within its reach
+            let (mut ore, mut halo) = (0u32, 0u32);
+            let rr = a.max(bw) + 1.5 * t;
+            for (i, j) in (-rr as i32..=rr as i32).flat_map(|x| (-rr as i32..=rr as i32).map(move |y| (x, y))) {
+                for z in (o.at.z - h - 1.5 * t) as i32..=(o.at.z + h + 1.5 * t) as i32 {
+                    let p = IVec3::new(o.at.x as i32 + i, o.at.y as i32 + j, z);
+                    let l = level(w.generated_block(Block { body: 0, face: f, pos: p }));
+                    ore += (l == top_level) as u32;
+                    if l > 0 && l < top_level {
+                        halo += 1;
+                        assert!(o.within(p.x, p.y, p.z, t * (1.0 + crate::ore::FRAY)) && !o.within(p.x, p.y, p.z, 0.0), "{}: halo at {p} past its reach", kind.name);
+                    }
+                }
+            }
+            assert_eq!(ore, crate::ore::count(b)[0].blocks, "{}: the halo took no ore", kind.name);
+            assert!(halo > ore / 2, "{}: {halo} halo cells round {ore} ore", kind.name);
+            assert_eq!(crate::ore::count_halo(b)[0].iter().sum::<u32>(), halo, "{}: the report's halo count", kind.name);
+        }
     }
 
     /// The ledger (ADR 0063) opens with the count, goes to zero when a body's cells are dug out, and up again by

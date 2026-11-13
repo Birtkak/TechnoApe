@@ -44,7 +44,7 @@ impl Shape {
         matches!(self, Shape::Blanket | Shape::Cap | Shape::Bog | Shape::Gravel)
     }
     /// Its half axes (length, width, height) for a body of `blocks` cubic metres: 4/3 pi a b h = blocks.
-    fn axes(self, blocks: f64) -> (f64, f64, f64) {
+    pub fn axes(self, blocks: f64) -> (f64, f64, f64) {
         let v = blocks / (4.0 / 3.0 * std::f64::consts::PI);
         if self == Shape::Vein {
             // a metre wide each way: two metres thin
@@ -75,6 +75,10 @@ struct RawKind {
     gravel: Option<String>,
     #[serde(default)]
     gossan: f64,
+    #[serde(default)]
+    halo: Vec<String>,
+    #[serde(default)]
+    halo_m: f64,
 }
 
 #[derive(Deserialize)]
@@ -99,7 +103,14 @@ pub struct Kind {
     pub near: Option<[f64; 2]>,
     pub gravel: Option<usize>,
     pub gossan: f64,
+    /// The altered rock around it (ADR 0095), outermost grade first; empty for none.
+    pub halo: Vec<u16>,
+    /// How far out the halo reaches from the ore, metres.
+    pub halo_m: f64,
 }
+
+/// The farthest any halo reaches, metres: `World::set_ores` registers a body this much wider.
+pub const HALO_MAX: f64 = 12.0;
 
 #[derive(Debug)]
 pub struct Minerals {
@@ -132,13 +143,17 @@ impl Minerals {
                 return Err(format!("kind '{}': a host rock is for a body at a depth, not one under the ground", r.name));
             }
             let host = r.host.as_ref().map(|h| block(&r.name, h)).transpose()?;
-            kinds.push(Kind { name: r.name.clone(), block: block(&r.name, &r.block)?, gives: r.gives.clone(), shape: r.shape, count: r.count, blocks: r.blocks, depth: r.depth, provinces, host, biomes, near: r.near, gravel, gossan: r.gossan });
+            if !r.halo.is_empty() && (r.shape.follows_ground() || !(r.halo_m > 0.0 && r.halo_m <= HALO_MAX) || r.halo.len() > 3) {
+                return Err(format!("kind '{}': a halo is for a body at a depth, one to three grades, halo_m over 0 and at most {HALO_MAX}", r.name));
+            }
+            let halo = r.halo.iter().map(|h| block(&r.name, h)).collect::<Result<Vec<u16>, String>>()?;
+            kinds.push(Kind { name: r.name.clone(), block: block(&r.name, &r.block)?, gives: r.gives.clone(), shape: r.shape, count: r.count, blocks: r.blocks, depth: r.depth, provinces, host, biomes, near: r.near, gravel, gossan: r.gossan, halo, halo_m: r.halo_m });
         }
         if kinds.iter().map(|k| &k.name).collect::<std::collections::BTreeSet<_>>().len() != kinds.len() {
             return Err("two kinds share a name".into());
         }
         let gossan = kinds.len();
-        kinds.push(Kind { name: "gossan".into(), block: BLOCKS.id("gossan"), gives: String::new(), shape: Shape::Blanket, count: 0, blocks: 1, depth: [0.5, 0.5], provinces: Vec::new(), host: None, biomes: Vec::new(), near: None, gravel: None, gossan: 0.0 });
+        kinds.push(Kind { name: "gossan".into(), block: BLOCKS.id("gossan"), gives: String::new(), shape: Shape::Blanket, count: 0, blocks: 1, depth: [0.5, 0.5], provinces: Vec::new(), host: None, biomes: Vec::new(), near: None, gravel: None, gossan: 0.0, halo: Vec::new(), halo_m: 0.0 });
         Ok(Minerals { kinds, gossan })
     }
 }
@@ -188,6 +203,37 @@ impl OreBody {
             _ => 1,
         }
     }
+    /// Whether cell (i, j, z) lies within `t` metres of it, for a body at a depth: inside it with each half axis
+    /// grown by t (a vein's halo a sheet, a lump's a shell; exact along its axes, a little more between them).
+    pub fn within(&self, i: i32, j: i32, z: i32, t: f64) -> bool {
+        let (dx, dy, w) = (i as f64 + 0.5 - self.at.x, j as f64 + 0.5 - self.at.y, z as f64 + 0.5 - self.at.z);
+        let (c, s) = (self.angle.cos(), self.angle.sin());
+        let (u, v) = ((dx * c + dy * s) / (self.a + t), (dy * c - dx * s) / (self.b + t));
+        let w = w / (self.h + t);
+        u * u + v * v + w * w < 1.0
+    }
+    /// The halo grade of cell (i, j, z) around it (0 the outermost), if its kind has a halo and the cell lies in
+    /// it and not in the body: grade g reaches `halo_m` (1 - g / grades) out, each cell's reach frayed by a hash
+    /// of the cell so a grade's edge is ragged. The richest grade lies next to the ore.
+    pub fn halo_grade(&self, face: u8, i: i32, j: i32, z: i32) -> Option<usize> {
+        let kind = &MINERALS.kinds[self.kind as usize];
+        let n = kind.halo.len();
+        if n == 0 || !self.within(i, j, z, kind.halo_m * (1.0 + FRAY)) || self.within(i, j, z, 0.0) {
+            return None;
+        }
+        let h = crate::world::mix(0x4a10 ^ (face as u64) << 58 ^ (i as u32 as u64) << 29 ^ (j as u32 as u64) ^ (z as u32 as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+        let fray = (crate::world::unit(h) as f64 - 0.5) * 2.0 * FRAY;
+        (0..n).rev().find(|&g| self.within(i, j, z, kind.halo_m * (1.0 - g as f64 / n as f64 - fray)))
+    }
+    /// The layers [lo, hi) its halo can reach in column (i, j): its box widened by the halo's reach, None
+    /// where the column lies outside that (the mesher's cut before it asks `halo_grade` per cell).
+    pub fn halo_span(&self, i: i32, j: i32) -> Option<(i32, i32)> {
+        let r = MINERALS.kinds[self.kind as usize].halo_m * (1.0 + FRAY) + 1.0;
+        let (dx, dy) = (i as f64 + 0.5 - self.at.x, j as f64 + 0.5 - self.at.y);
+        let (c, s) = (self.angle.cos(), self.angle.sin());
+        let (u, v) = (dx * c + dy * s, dy * c - dx * s);
+        (u.abs() < self.a + r && v.abs() < self.b + r).then(|| ((self.at.z - self.h - r).floor() as i32, (self.at.z + self.h + r).ceil() as i32 + 1))
+    }
     /// Its footprint's columns, a column to spare.
     pub fn columns(&self) -> impl Iterator<Item = (i32, i32)> {
         let r = self.a.max(self.b) + 1.0;
@@ -207,6 +253,9 @@ impl Rng {
         ((z ^ (z >> 31)) >> 11) as f64 / (1u64 << 53) as f64
     }
 }
+
+/// How ragged a halo grade's edge is, a share of `halo_m` either way.
+pub const FRAY: f64 = 0.15;
 
 /// Bodies keep this many columns from a face's seam, and from the spawn's own column.
 const SEAM: f64 = 6.0;
@@ -337,6 +386,39 @@ pub fn count(b: &Body) -> Vec<Held> {
         .collect()
 }
 
+/// Every body's halo as generated (ADR 0095): blocks of each grade, outermost first, that are its own (the
+/// cell's highest grade, the first body on a tie). Rock with a look: the ledger never counts it. Parallel.
+pub fn count_halo(b: &Body) -> Vec<Vec<u32>> {
+    use rayon::prelude::*;
+    (0..b.ores.len())
+        .into_par_iter()
+        .map(|k| {
+            let o = &b.ores[k];
+            let kind = &MINERALS.kinds[o.kind as usize];
+            let mut out = vec![0u32; kind.halo.len()];
+            if kind.halo.is_empty() {
+                return out;
+            }
+            let r = (o.a.max(o.b) + kind.halo_m * (1.0 + FRAY) + 1.0).ceil() as i32;
+            let (ci, cj) = (o.at.x.floor() as i32, o.at.y.floor() as i32);
+            for (i, j) in (cj - r..=cj + r).flat_map(|j| (ci - r..=ci + r).map(move |i| (i, j))) {
+                let Some((lo, hi)) = o.halo_span(i, j) else { continue };
+                let ground = b.col_height(o.face, i, j);
+                for z in lo.max(0)..hi {
+                    // the rule of `World::generated_under`: rock under the soil band, no cave, no ore
+                    if ground - b.layer_r(z as f64 + 0.5) < 4.0 || b.ore_at(o.face, i, j, z, ground).is_some() || b.col_caves(o.face, i, j).iter().any(|&(l, h)| (l..h).contains(&z)) {
+                        continue;
+                    }
+                    if let Some((w, g)) = b.halo_at(o.face, i, j, z) {
+                        out[g] += (w as usize == k) as u32;
+                    }
+                }
+            }
+            out
+        })
+        .collect()
+}
+
 /// The cells (i, j, layer) of body `k` as generated.
 pub fn cells(b: &Body, k: usize) -> Vec<glam::IVec3> {
     let o = &b.ores[k];
@@ -373,5 +455,9 @@ mod tests {
         assert!(Minerals::parse(&bad).unwrap_err().contains("no province 'moon'"));
         let bad = include_str!("../../../data/minerals.toml").replace("gravel = \"tin gravel\"", "gravel = \"tin vein\"");
         assert!(Minerals::parse(&bad).unwrap_err().contains("no gravel kind"));
+        let bad = include_str!("../../../data/minerals.toml").replace("\r\n", "\n").replace("halo_m = 3.0\n", "halo_m = 30.0\n");
+        assert!(Minerals::parse(&bad).unwrap_err().contains("a halo is for"));
+        let bad = include_str!("../../../data/minerals.toml").replace("\"greisen\"", "\"greisen stone\"");
+        assert!(Minerals::parse(&bad).unwrap_err().contains("no solid block 'greisen stone'"));
     }
 }
