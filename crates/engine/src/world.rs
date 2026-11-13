@@ -1066,12 +1066,29 @@ impl Body {
                             t.max = t.max.max(self.layer_r(z as f64 + 1.0) as f32);
                             t.plants.push(((u + v * P) as u16, z, m));
                         }
+                    } else {
+                        // far chunks: the trees' canopy is the ground, as tall as the highest real tree over the
+                        // coarse column's middle (level 1) or its four quarter points, with that tree's top block,
+                        // so a forest reads as one (ADR 0100)
+                        let q = 1 << level;
+                        let at: &[(i32, i32)] = if level == 1 { &[(1, 1)] } else { &[(q / 4, q / 4), (3 * q / 4, q / 4), (q / 4, 3 * q / 4), (3 * q / 4, 3 * q / 4)] };
+                        let mut trees = |g: usize, cx: i32, cy: i32| spots.entry((g, cx, cy)).or_insert_with(|| self.candidate(g, cx, cy)).filter(|f| ROWS.plants[f.plant].trunk != 0);
+                        let tops = at.iter().filter_map(|&(a, c)| self.plants_with(f, (fi << level) + a, (fj << level) + c, &mut trees).last().copied());
+                        if let Some((z, m)) = tops.max_by_key(|o| o.0) {
+                            let top = self.layer_r(z as f64 + 1.0);
+                            // not where the coarse column's middle is under water: a lakeside crown would hide the lake
+                            let wet = self.water_at(f as u8, (fi << level) + q / 2, (fj << level) + q / 2).is_some_and(|w| w.0 > self.layer_of(hv));
+                            if top > hv && !wet {
+                                (t.h[u + v * P], t.g[u + v * P], t.rock[u + v * P]) = (top, [m; 3], Rock::NONE);
+                                t.max = t.max.max(top as f32);
+                            }
+                        }
                     }
                 }
             }
         }
         // the trunks among the spots looked at (this face's only: a seam's columns ask their own face)
-        t.trees = spots.iter().filter(|(k, _)| k.0 == face).filter_map(|(_, f)| f.as_ref()).filter(|f| ROWS.plants[f.plant].trunk != 0).map(|f| (f.i, f.j)).collect();
+        t.trees = spots.iter().filter(|(k, _)| level == 0 && k.0 == face).filter_map(|(_, f)| f.as_ref()).filter(|f| ROWS.plants[f.plant].trunk != 0).map(|f| (f.i, f.j)).collect();
         t.trees.sort_unstable();
         t
     }
@@ -3300,6 +3317,67 @@ mod baked_tests {
         assert!(checked >= 10, "{checked} pairs checked");
         let palm = ROWS.plants.iter().position(|p| p.name == "palm").unwrap();
         assert!(found.iter().any(|&(_, p)| p == palm), "palms somewhere warm: rain forest {} spots, beach {}", spots[crate::bake::life::RAIN_FOREST as usize], spots[crate::bake::life::BEACH as usize]);
+    }
+
+    /// Far chunks show the forest (ADR 0100): a coarse column whose footprint holds a tree's trunk mostly stands
+    /// at a canopy over its ground, leaves on top; one with no tree within reach is bare ground.
+    #[test]
+    fn far_tiles_carry_the_canopy() {
+        let w = world();
+        let b = &w.bodies[0];
+        for level in 1..=4u8 {
+            let (mut forest, mut raised, mut bare) = (0, 0, 0);
+            // the footprints of a dozen trees' tiles, over every face
+            let mut tiles: Vec<(usize, i32, i32)> = (0..6).flat_map(|f| (0..b.n / SPACING).step_by(7).flat_map(move |cx| (0..b.n / SPACING).step_by(5).map(move |cy| (f, cx, cy)))).filter_map(|(f, cx, cy)| b.candidate(f, cx, cy).filter(|t| ROWS.plants[t.plant].trunk != 0).map(|t| (f, (t.i >> level) / CS, (t.j >> level) / CS))).collect();
+            tiles.dedup();
+            for &(face, x, y) in tiles.iter().step_by((tiles.len() / 12).max(1)) {
+                let t = b.tile(face as u8, level, x, y);
+                for (u, v) in (1..P - 1).flat_map(|u| (1..P - 1).map(move |v| (u, v))) {
+                    let (fi, fj) = (x * CS + u as i32 - 1, y * CS + v as i32 - 1);
+                    let (pi, pj) = ((fi as f64 + 0.5) * (1 << level) as f64, (fj as f64 + 0.5) * (1 << level) as f64);
+                    let ground = b.height_at(face, pi, pj, b.dir(face, pi, pj), level);
+                    let k = u + v * P;
+                    // the trunks whose crown can reach the footprint, and those standing in it
+                    let (lo, hi) = (fi << level, (fi + 1) << level);
+                    let (lo2, hi2) = (fj << level, (fj + 1) << level);
+                    let trunks: Vec<Foot> = ((lo - REACH).div_euclid(SPACING)..=(hi + REACH).div_euclid(SPACING)).flat_map(|cx| ((lo2 - REACH).div_euclid(SPACING)..=(hi2 + REACH).div_euclid(SPACING)).map(move |cy| (cx, cy))).filter_map(|(cx, cy)| b.candidate(face, cx, cy)).filter(|f| ROWS.plants[f.plant].trunk != 0).collect();
+                    // (by a seam the next face's trees reach in too)
+                    let inner = lo >= REACH && lo2 >= REACH && hi + REACH <= b.n && hi2 + REACH <= b.n;
+                    if trunks.is_empty() && inner {
+                        assert_eq!(t.h[k], ground, "level {level} ({fi}, {fj}): no tree, yet raised");
+                        bare += 1;
+                    } else if trunks.iter().any(|f| (lo..hi).contains(&f.i) && (lo2..hi2).contains(&f.j)) {
+                        forest += 1;
+                        if t.h[k] >= ground + 3.0 && BLOCKS.get(t.g[k][0]).is_some_and(|d| d.name.contains("leaves")) {
+                            raised += 1;
+                        }
+                    }
+                }
+            }
+            assert!(bare > 100 && forest > 50 && raised * 2 >= forest, "level {level}: {raised} of {forest} columns over a trunk stand at a leafy canopy ({bare} bare)");
+        }
+    }
+
+    /// What a far tile costs to build over forest (ADR 0100, perf-debt): microseconds a tile by level, each built
+    /// fresh. `cargo test --profile play -p engine far_tile_cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn far_tile_cost() {
+        let w = world();
+        let b = &w.bodies[0];
+        for level in 1..=4u8 {
+            let tiles: Vec<(usize, i32, i32)> = (0..6).flat_map(|f| (0..b.n / SPACING).step_by(3).flat_map(move |cx| (0..b.n / SPACING).step_by(3).map(move |cy| (f, cx, cy)))).filter_map(|(f, cx, cy)| b.candidate(f, cx, cy).filter(|t| ROWS.plants[t.plant].trunk != 0).map(|t| (f, (t.i >> level) / CS, (t.j >> level) / CS))).collect::<std::collections::BTreeSet<_>>().into_iter().take(40).collect();
+            let mut us: Vec<f64> = tiles
+                .iter()
+                .map(|&(f, x, y)| {
+                    let s = std::time::Instant::now();
+                    std::hint::black_box(b.build_tile(f, level, x, y));
+                    s.elapsed().as_secs_f64() * 1e6
+                })
+                .collect();
+            us.sort_by(f64::total_cmp);
+            println!("{{\"far_tile\":{{\"level\":{level},\"tiles\":{},\"median_us\":{:.0},\"max_us\":{:.0}}}}}", us.len(), us[us.len() / 2], us[us.len() - 1]);
+        }
     }
 
     /// A face's seam is no bare strip (ADR 0100): trees stand as close to an edge as further in, and a crown
