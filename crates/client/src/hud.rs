@@ -338,13 +338,13 @@ fn panels_size(list: &[Section], px: f32) -> (f32, f32) {
 
 /// What the crosshair is on, top middle: a swatch of the block's colour, its name, and under it what is
 /// worth knowing about it (empty for most blocks).
-pub fn looking_at(p: &mut Paint, name: &str, colour: [f32; 3], side: [f32; 3], pattern: u8, note: &str, y: f32) {
+pub fn looking_at(p: &mut Paint, name: &str, colour: [f32; 3], side: [f32; 3], pattern: u8, painted: [Option<&engine::textures::Pixels>; 2], note: &str, y: f32) {
     let w = text_width(name).max(text_width(note)) + 34.0 + 20.0;
     let h = if note.is_empty() { LINE + 12.0 } else { 2.0 * LINE + 12.0 };
     let x = (p.w - w) / 2.0;
     glass(p, x, y, w, h);
     brackets(p, [x - 4.0, y - 4.0, w + 8.0, h + 8.0], 8.0, false, CYAN);
-    cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x + 6.0, y + (h - 16.0) / 2.0, 16.0, colour, side, pattern, 1.0);
+    cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x + 6.0, y + (h - 16.0) / 2.0, 16.0, colour, side, pattern, 1.0, painted);
     p.text(x + 10.0 + 34.0, y + 7.0, name, [0.95, 0.95, 0.95, 1.0]);
     if !note.is_empty() {
         p.text(x + 10.0 + 34.0, y + 7.0 + LINE, note, [0.62, 0.72, 0.82, 1.0]);
@@ -792,10 +792,28 @@ pub fn icon(p: &mut Paint, cx: f32, cy: f32, r: f32, kind: usize, c: [f32; 4]) {
 /// the world draws a block (shader.wgsl `texel`): 8 x 8 texels a face in three tones of the block's colour,
 /// a grass block's sides its side block's with grass hanging over the top edge, dark cracks in stone. The
 /// left side is in half shade, the right in more. `pattern` is `engine::blocks::Pattern as u8`.
-pub fn cube(rect: &mut dyn FnMut(f32, f32, f32, f32, [f32; 4], u32), x: f32, y: f32, size: f32, top: [f32; 3], side: [f32; 3], pattern: u8, dim: f32) {
-    // a texel is 2u wide and u high on the top, u wide and u high on a side; the cube is 16u across and high
-    let u = (size / 16.0).floor().max(1.0);
-    let (x, y) = (x + (size - 16.0 * u) / 2.0, y + (size - 16.0 * u) / 2.0);
+/// `painted`: the top's and the side's painting (`gpu::painting`), drawn in place of the tones: every texel of
+/// it when the cube is large (the block in hand), else 8 x 8 means of its 2 x 2 texels.
+pub fn cube(rect: &mut dyn FnMut(f32, f32, f32, f32, [f32; 4], u32), x: f32, y: f32, size: f32, top: [f32; 3], side: [f32; 3], pattern: u8, dim: f32, painted: [Option<&engine::textures::Pixels>; 2]) {
+    // n texels a face edge: a texel is 2u wide and u high on the top, u wide and u high on a side; the cube is
+    // 2nu across and high
+    let n = if painted.iter().any(Option::is_some) && size >= 64.0 { 16u32 } else { 8 };
+    let nf = n as f32;
+    let u = (size / (2.0 * nf)).floor().max(1.0);
+    let (x, y) = (x + (size - 2.0 * nf * u) / 2.0, y + (size - 2.0 * nf * u) / 2.0);
+    // a painting's texel (column i, row k from the top), the mean of the 16 / n square it covers
+    let s = 16 / n;
+    // (by the pixels that are there: a cutout's empty ones count for nothing; None where all are empty)
+    let pixel = |p: &engine::textures::Pixels, i: u32, k: u32, shade: f32| {
+        let (mut c, mut n) = ([0.0f32; 3], 0.0f32);
+        for (a, b) in (0..s * s).map(|q| (q / s, q % s)) {
+            let px = p[((k * s + a) * 16 + i * s + b) as usize];
+            let w = px[3] as f32 / 255.0;
+            (0..3).for_each(|m| c[m] += px[m] as f32 / 255.0 * w);
+            n += w;
+        }
+        (n > 0.0).then(|| [(c[0] / n * shade * dim).min(1.0), (c[1] / n * shade * dim).min(1.0), (c[2] / n * shade * dim).min(1.0), 1.0])
+    };
     // the same noise for the same block every frame: seeded by its colours
     let seed = (top[0] * 255.0) as u32 ^ ((top[1] * 255.0) as u32) << 8 ^ ((side[2] * 255.0) as u32) << 16;
     let noise = |i: u32, j: u32, face: u32| {
@@ -812,25 +830,26 @@ pub fn cube(rect: &mut dyn FnMut(f32, f32, f32, f32, [f32; 4], u32), x: f32, y: 
         }
         [(c[0] * k).min(1.0), (c[1] * k).min(1.0), (c[2] * k).min(1.0), 1.0]
     };
-    for i in 0..8u32 {
-        for j in 0..8u32 {
+    for i in 0..n {
+        for j in 0..n {
             // the top: a diamond lattice, each texel a brick; the far ones first, the near ones over them
             let h = noise(i, j, 0);
-            let c = paint(top, h, if pattern == 1 && h > 0.9 { 1.15 } else { 1.0 });
-            rect(x + (7.0 + i as f32 - j as f32) * u, y + (i + j) as f32 * u / 2.0, 2.0 * u, u, c, 0);
+            let c = painted[0].and_then(|p| pixel(p, i, j, 1.0)).unwrap_or_else(|| paint(top, h, if pattern == 1 && h > 0.9 { 1.15 } else { 1.0 }));
+            rect(x + (nf - 1.0 + i as f32 - j as f32) * u, y + (i + j) as f32 * u / 2.0, 2.0 * u, u, c, 0);
         }
     }
-    for i in 0..8u32 {
+    for i in 0..n {
         // the two sides, column by column down from the top's lower edges
         let fringe = 2 + (noise(i, 99, 1) * 3.0) as u32;
-        for k in 0..8u32 {
+        for k in 0..n {
             for (face, cx, cy, shade) in [
-                (1, x + i as f32 * u, y + 4.0 * u + (i as f32 + 1.0) * u / 2.0, 0.78),
-                (2, x + (8.0 + i as f32) * u, y + 8.0 * u - i as f32 * u / 2.0, 0.56),
+                (1, x + i as f32 * u, y + nf / 2.0 * u + (i as f32 + 1.0) * u / 2.0, 0.78),
+                (2, x + (nf + i as f32) * u, y + nf * u - i as f32 * u / 2.0, 0.56),
             ] {
                 // grass hangs two to four texels over a grass block's sides
                 let c = if pattern == 1 && k < fringe { top } else { side };
-                rect(cx, cy + k as f32 * u, u, u, paint(c, noise(i, k, face), shade), 0);
+                let c = painted[1].and_then(|p| pixel(p, i, k, shade)).unwrap_or_else(|| paint(c, noise(i, k, face), shade));
+                rect(cx, cy + k as f32 * u, u, u, c, 0);
             }
         }
     }
@@ -842,6 +861,8 @@ pub struct Slot {
     pub side: [f32; 3],
     /// Its pattern (`engine::blocks::Pattern as u8`): plain, grass, stone.
     pub pattern: u8,
+    /// Its painting's top and side (`gpu::painting`), shown in place of its tones.
+    pub painted: [Option<engine::textures::Pixels>; 2],
     pub count: Option<u32>,
 }
 
@@ -910,7 +931,7 @@ pub fn layer(w: f32, h: f32, slots: &[Option<Slot>], selected: usize, creative: 
         digits(&mut p, x + 4.0 + 6.0, y + 4.0 + 7.5, k as u32 + 1, 1.5, if on { CYAN } else { [0.62, 0.72, 0.82, 0.7] });
         if let Some(Some(sl)) = slots.get(k) {
             let dim = if sl.count == Some(0) { 0.35 } else { 1.0 };
-            cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x + 10.0, y + 12.0, 32.0, sl.colour, sl.side, sl.pattern, dim);
+            cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x + 10.0, y + 12.0, 32.0, sl.colour, sl.side, sl.pattern, dim, [sl.painted[0].as_ref(), sl.painted[1].as_ref()]);
             if let Some(c) = sl.count {
                 digits(&mut p, x + size - 3.0, y + size - 3.0, c, 2.0, [1.0, 1.0, 1.0, 1.0]);
             }
@@ -1188,7 +1209,7 @@ mod tests {
     fn a_block_s_cube_fills_its_square_in_three_shades() {
         let mut p = Paint::new(100.0, 100.0);
         let mut rect = |x: f32, y: f32, w: f32, h: f32, c: [f32; 4], g: u32| p.rect(x, y, w, h, c, g);
-        cube(&mut rect, 10.0, 10.0, 32.0, [0.2, 0.8, 0.2], [0.5, 0.3, 0.1], 1, 1.0);
+        cube(&mut rect, 10.0, 10.0, 32.0, [0.2, 0.8, 0.2], [0.5, 0.3, 0.1], 1, 1.0, [None; 2]);
         // 64 texels a face on three faces; a grass block: green on top and hanging over the brown sides
         assert_eq!(p.out.len(), 3 * 64);
         let green = |r: &&Rect| r.colour[1] > r.colour[0];
@@ -1202,6 +1223,30 @@ mod tests {
         assert!(p.out.iter().all(|r| px(r.xy[0]) >= 9.99 && px(r.xy[2]) <= 42.01));
         let (l, r) = p.out.iter().fold((f32::MAX, f32::MIN), |a, q| (a.0.min(px(q.xy[0])), a.1.max(px(q.xy[2]))));
         assert!(r - l >= 27.9, "{l} to {r}");
+    }
+
+    /// Bug 2026-11-13_14-31-01: a painted block's cube shows its painting, as the placed block does: every
+    /// texel at 16 x 16 when the cube is large (the block in hand), 8 x 8 of it in small ones (the hotbar).
+    #[test]
+    fn a_painted_block_s_cube_shows_its_painting() {
+        let red: engine::textures::Pixels = std::array::from_fn(|k| if k % 16 < 8 { [250, 10, 10, 255] } else { [120, 10, 10, 255] });
+        let blue: engine::textures::Pixels = [[10, 10, 250, 255]; 256];
+        for (size, n) in [(176.0, 16 * 16), (32.0, 64)] {
+            let mut p = Paint::new(400.0, 400.0);
+            let mut rect = |x: f32, y: f32, w: f32, h: f32, c: [f32; 4], g: u32| p.rect(x, y, w, h, c, g);
+            cube(&mut rect, 10.0, 10.0, size, [0.5; 3], [0.5; 3], 0, 1.0, [Some(&red), Some(&blue)]);
+            assert_eq!(p.out.len(), 3 * n, "size {size}");
+            let tops = &p.out[..n];
+            assert!(tops.iter().all(|r| r.colour[0] > 0.4 && r.colour[2] < 0.1), "size {size}: the top is the red painting");
+            assert!(tops.iter().any(|r| r.colour[0] > 0.9) && tops.iter().any(|r| r.colour[0] < 0.6), "size {size}: in both its reds");
+            assert!(p.out[n..].iter().all(|r| r.colour[2] > 0.4 && r.colour[0] < 0.1), "size {size}: the sides are the blue painting");
+        }
+        // a cutout's empty pixels count for nothing: an empty top falls back to the block's tones
+        let empty: engine::textures::Pixels = [[0, 0, 0, 0]; 256];
+        let mut p = Paint::new(400.0, 400.0);
+        let mut rect = |x: f32, y: f32, w: f32, h: f32, c: [f32; 4], g: u32| p.rect(x, y, w, h, c, g);
+        cube(&mut rect, 10.0, 10.0, 32.0, [0.2, 0.8, 0.2], [0.5; 3], 0, 1.0, [Some(&empty), None]);
+        assert!(p.out[..64].iter().all(|r| r.colour[1] > 0.5), "the empty top in the block's green");
     }
 
     #[test]
@@ -1233,7 +1278,7 @@ mod tests {
     #[test]
     fn the_looked_at_block_is_named_in_the_middle_with_its_colour() {
         let mut p = Paint::new(1920.0, 1080.0);
-        looking_at(&mut p, "Copper", [0.8, 0.5, 0.2], [0.4, 0.2, 0.1], 0, "metal", 10.0);
+        looking_at(&mut p, "Copper", [0.8, 0.5, 0.2], [0.4, 0.2, 0.1], 0, [None; 2], "metal", 10.0);
         // its cube: texels in tones of its colour (red over green over blue, as copper is)
         let swatch = p.out.iter().find(|r| r.glyph == 0 && r.colour[0] > r.colour[1] && r.colour[1] > r.colour[2] && r.colour[0] > 0.5).expect("the block's colour");
         assert!(swatch.xy[0] < 0.0 && swatch.xy[3] > 0.9, "left of the middle, at the top");
@@ -1361,7 +1406,7 @@ mod tests {
 
     #[test]
     fn the_layer_has_a_crosshair_and_nine_slots() {
-        let slots = [Some(Slot { colour: [0.5; 3], side: [0.4; 3], pattern: 2, count: Some(12) })];
+        let slots = [Some(Slot { colour: [0.5; 3], side: [0.4; 3], pattern: 2, painted: [None; 2], count: Some(12) })];
         let r = layer(1280.0, 720.0, &slots, 0, false, None, Some(("Grass", 1.0)));
         assert!(r.len() >= 2 + 1 + 9 * 2 + 4, "{}", r.len());
         assert!(r.iter().all(|r| r.xy[0] < r.xy[2] && r.xy[1] < r.xy[3] && r.xy.iter().all(|v| (-1.0..=1.0).contains(v))));

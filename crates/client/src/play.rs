@@ -1123,7 +1123,7 @@ impl App {
                 let s = self.inv.get(k).copied().flatten()?;
                 let d = BLOCKS.get(engine::items::ITEMS.look(s.item))?;
                 let (colour, side, pattern) = crate::gpu::shown(d, season);
-                Some(hud::Slot { colour, side, pattern, count: (!self.creative).then_some(s.n as u32) })
+                Some(hud::Slot { colour, side, pattern, painted: crate::gpu::painting(d), count: (!self.creative).then_some(s.n as u32) })
             })
             .collect();
         let height = (self.hammer && self.tool.kind != Kind::Box).then_some(self.tool.height);
@@ -1233,7 +1233,8 @@ impl App {
                     _ => "",
                 };
                 let (colour, side, pattern) = crate::gpu::shown(d, season);
-                hud::looking_at(&mut paint, &d.name, colour, side, pattern, note, label_y);
+                let pt = crate::gpu::painting(d);
+                hud::looking_at(&mut paint, &d.name, colour, side, pattern, [pt[0].as_ref(), pt[1].as_ref()], note, label_y);
             }
         }
         // the block in hand, large at the lower right, on its tracks (ADR 0031): the dip when it digs or places,
@@ -1246,7 +1247,8 @@ impl App {
                 let (colour, side, pattern) = crate::gpu::shown(d, season);
                 let (x, y) = (lw - 250.0 + dx + bx, lh - 236.0 + dy + by);
                 // a block with a model of its name is held as the model (frame.rs, ADR 0047)
-                if !self.models.has(&d.name) { hud::cube(&mut |x, y, w, h, c, g| paint.rect(x, y, w, h, c, g), x, y, 176.0, colour, side, pattern, 1.0); }
+                let pt = crate::gpu::painting(d);
+                if !self.models.has(&d.name) { hud::cube(&mut |x, y, w, h, c, g| paint.rect(x, y, w, h, c, g), x, y, 176.0, colour, side, pattern, 1.0, [pt[0].as_ref(), pt[1].as_ref()]); }
             }
         }
         if self.flying && !title {

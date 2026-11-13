@@ -308,7 +308,8 @@ impl App {
 fn icon(p: &mut hud::Paint, s: Stack, x: f32, y: f32, size: f32, season: (f64, f64), count: bool) {
     let Some(d) = BLOCKS.get(ITEMS.look(s.item)) else { return };
     let (colour, side, pattern) = crate::gpu::shown(d, season);
-    hud::cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x, y, size, colour, side, pattern, 1.0);
+    let pt = crate::gpu::painting(d);
+    hud::cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x, y, size, colour, side, pattern, 1.0, [pt[0].as_ref(), pt[1].as_ref()]);
     if s.item >= items::ITEM_BASE {
         p.rect(x - 6.0, y - 6.0, 8.0, 8.0, CYAN, 0);
     }

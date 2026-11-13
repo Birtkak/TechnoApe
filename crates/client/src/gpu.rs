@@ -103,6 +103,12 @@ pub(crate) fn cap_lamps<'a>(all: impl Iterator<Item = &'a (u8, DVec3, [f32; 3])>
     out
 }
 
+/// The lamp of the block in hand (bug 2026-11-13_14-31-01): a block that gives light lights the world from the
+/// hand, 0.4 m ahead of the eye and 0.3 m under it, as `cap_lamps` takes it (body `cf`, world place, light).
+pub(crate) fn held_lamp(d: Option<&engine::blocks::Def>, cf: u8, eye: DVec3, fwd: DVec3, up: DVec3) -> Option<(u8, DVec3, [f32; 3])> {
+    d.filter(|d| d.light != [0.0; 3]).map(|d| (cf, eye + fwd * 0.4 - up * 0.3, d.light))
+}
+
 #[cfg(test)]
 mod lamp_tests {
     use super::*;
@@ -116,6 +122,20 @@ mod lamp_tests {
         let ds: Vec<f64> = kept.iter().map(|l| l.1.x).collect();
         assert_eq!(ds, [0.5, 1.0], "two in all, the nearest");
         assert_eq!(cap_lamps(world.iter(), &[DVec3::ZERO], 16).len(), 2, "under the cap: all");
+    }
+
+    /// Bug 2026-11-13_14-31-01: a block that gives light lights the world from the hand, in its light's colour,
+    /// a little ahead of the eye; one that does not, nothing.
+    #[test]
+    fn a_held_lamp_gives_light_from_the_hand() {
+        let b = &engine::blocks::BLOCKS;
+        let (eye, fwd, up) = (DVec3::new(0.0, 0.0, 100.0), DVec3::X, DVec3::Z);
+        let lamp = b.get(b.id("lamp")).unwrap();
+        let (body, at, light) = held_lamp(Some(lamp), 0, eye, fwd, up).expect("a lamp gives light");
+        assert_eq!((body, light), (0, lamp.light));
+        assert!((at - eye).length() < 1.0 && (at - eye).dot(fwd) > 0.0, "in hand, ahead of the eye: {at}");
+        assert!(held_lamp(b.get(b.id("dirt")), 0, eye, fwd, up).is_none(), "dirt gives none");
+        assert!(held_lamp(None, 0, eye, fwd, up).is_none(), "an empty hand none");
     }
 }
 
@@ -515,6 +535,16 @@ const TEX_LAYERS: u32 = 2048;
 /// What the hotbar and the "looking at" cube show of a painted block: its top's mean and its side's, per look
 /// row (`looks_of`: 256 a season).
 pub(crate) static SHOWN: std::sync::RwLock<[Option<[[f32; 3]; 2]>; 4 * 256]> = std::sync::RwLock::new([None; 4 * 256]);
+
+/// A painted block's top and side (their first variants) as `hud::cube` draws them, by block id.
+static PAINTING: std::sync::RwLock<Vec<(u16, [Option<engine::textures::Pixels>; 2])>> = std::sync::RwLock::new(Vec::new());
+
+/// The painting of block `d`'s top and side for `hud::cube` (bug 2026-11-13_14-31-01: in hand as placed).
+/// shortcut: summer's paint only, a season's own paint shows in the world but not on the cubes; upgrade when
+/// seasons get their own paintings.
+pub(crate) fn painting(d: &engine::blocks::Def) -> [Option<engine::textures::Pixels>; 2] {
+    PAINTING.read().unwrap().iter().find(|(id, _)| *id == d.id).map_or([None; 2], |p| p.1)
+}
 
 /// A block as the hotbar's cubes draw it in the season `sn` where the player stands (`season_here`): top
 /// colour, side colour, pattern; a painted block in its faces' means with plain noise (ADR 0045), any other in
@@ -1179,6 +1209,9 @@ impl Gpu {
         eprintln!("[technoape] textures: {blocks} blocks painted, {} season looks, {} layers", placed.len() - blocks, layers.len());
         self.queue.write_buffer(&self.looks, 0, bytemuck::cast_slice(&looks_of(&placed)));
         *SHOWN.write().unwrap() = shown;
+        // shortcut: a fine face (ADR 0090) keeps its tones, its variant 0 is a quarter; draw its four quarters if wanted
+        let first = |f: &Option<engine::textures::Face>| f.as_ref().filter(|f| !f.fine).map(|f| f.variants[0]);
+        *PAINTING.write().unwrap() = placed.iter().filter(|((_, q), _, _)| *q == 0).map(|((id, _), p, _)| (*id, [first(&p.faces[0]), first(&p.faces[1])])).collect();
     }
 
     pub(crate) fn upload(&self, off: u32, q: &[[u32; 2]]) {

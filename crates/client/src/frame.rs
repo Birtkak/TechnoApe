@@ -875,7 +875,13 @@ impl App {
         // the lamps of the world, then the glowing lasting effects' and the models' states' (ADR 0050)
         let near: Vec<DVec3> = cams.iter().map(|c| c.0).collect();
         let cap = [16, 64, MAX_LAMPS][self.settings.at(S::Lamps)];
-        let lamps: Vec<LampGpu> = crate::gpu::cap_lamps(self.lamps.iter().chain(self.fx.lamps()).chain(self.models.lamps()), &near, cap)
+        // and the block in hand's, when it gives light (only this player's: the protocol does not carry what others hold)
+        // (none between the bodies, in the inertial frame: lamps belong to a body)
+        let held = (self.run == "play" && !self.hammer && !self.bucket && self.home() != Menu::Title && cf < self.world.bodies.len())
+            .then(|| self.slot_block(self.slot))
+            .flatten()
+            .and_then(|m| crate::gpu::held_lamp(BLOCKS.get(m), cf as u8, p.pos, p.fwd, up));
+        let lamps: Vec<LampGpu> = crate::gpu::cap_lamps(self.lamps.iter().chain(self.fx.lamps()).chain(self.models.lamps()).chain(held.as_ref()), &near, cap)
             .iter()
             .map(|&(bi, x, l)| {
                 let (cam, m) = cams[bi as usize];

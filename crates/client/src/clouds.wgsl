@@ -14,12 +14,15 @@
 // the pattern never shears however long the wind blows; the cover itself moves as the grid carries it.
 
 const CL_TEX: f32 = 128.0;
-const CL_BASE: f32 = 300.0;
+// low enough that the highest peaks (120 m over the sea, bake::land `mountain_m`) reach into them (bug
+// 2026-11-13_14-38-44; was 300)
+const CL_BASE: f32 = 100.0;
 const CL_THICK: f32 = 64.0;
 const CL_SUB: f32 = 8.0;
 const CL_PI: f32 = 3.14159265;
 // a filled cell's light falloff: 1 - exp(-CL_K * metres) of the light behind it is stopped
-const CL_K: f32 = 0.09;
+// (0.14, was 0.09: a cell's edge is crisper, less of it half seen through; bug 2026-11-13_14-38-44)
+const CL_K: f32 = 0.14;
 
 struct ClFace { n: vec3f, s: vec3f, t: vec3f };
 // (axes by bits, not local arrays: an array indexed at run time spills to slow memory on most GPUs)
@@ -57,6 +60,9 @@ fn cl_hash(p: vec3i) -> f32 {
     return f32((v.x + v.y * v.z) & 0xffffffu) / 16777216.0;
 }
 
+// what every cell's number is raised by: the sky a little more open than the cover says (bug 2026-11-13_14-38-44)
+const CL_OPEN: f32 = 0.06;
+
 // the cell's own number: a clump noise over four cells and the cell's own, so clouds come in heaps
 fn cl_number(f: u32, c: vec2i) -> f32 {
     let q = c >> vec2u(2u);
@@ -64,7 +70,7 @@ fn cl_number(f: u32, c: vec2i) -> f32 {
     let fi = i32(f) * 977;
     let a = mix(cl_hash(vec3i(q, fi)), cl_hash(vec3i(q + vec2i(1, 0), fi)), t.x);
     let b = mix(cl_hash(vec3i(q + vec2i(0, 1), fi)), cl_hash(vec3i(q + vec2i(1, 1), fi)), t.x);
-    return 0.7 * mix(a, b, t.y) + 0.3 * cl_hash(vec3i(c, fi + 13));
+    return 0.7 * mix(a, b, t.y) + 0.3 * cl_hash(vec3i(c, fi + 13)) + CL_OPEN;
 }
 
 // the wind at body-frame direction d, body-frame metres a second (the planet spins about z: east is z x d)
@@ -100,7 +106,7 @@ fn cl_sample(q: vec3f, sea: f32, wind: vec3f, cfg: vec4f) -> ClS {
         let margin = t.r - cl_number(at.f, c);
         // the more the cover beats the cell's number, the taller the cell; a thin cell is a soft one
         if (margin > 0.0 && h < 0.3 + margin * 2.0) {
-            o.d += wk * smoothstep(0.0, 0.08, margin);
+            o.d += wk * smoothstep(0.0, 0.04, margin);
             o.rain += wk * t.g;
         }
     }
@@ -131,7 +137,7 @@ fn cl_soft(q: vec3f, sea: f32, wind: vec3f, cfg: vec4f) -> f32 {
     for (var k = 0u; k < 2u; k++) {
         let ph = fract(cfg.x + 0.5 * f32(k));
         let wk = 1.0 - abs(2.0 * ph - 1.0);
-        let margin = cover - (0.7 * cl_clump(at.f, at.xy * CL_SUB - wf * (ph * cfg.y)) + 0.15);
+        let margin = cover - (0.7 * cl_clump(at.f, at.xy * CL_SUB - wf * (ph * cfg.y)) + 0.15 + CL_OPEN);
         d += wk * smoothstep(-0.15, 0.15, margin);
     }
     return clamp(d, 0.0, 1.0);
