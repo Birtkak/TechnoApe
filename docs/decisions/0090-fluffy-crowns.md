@@ -92,8 +92,9 @@ gets no early depth.
    the second crown and needs the geometry flag per season anyway; the candidate path was already paid for.
    Also: a top face's fluff stands 45-60 degrees and a third as far out, leaves rising out of a shrub, not a slab.
 10. **A plant is lit as one mass.** Faces turned to the sun read lime and faces turned away near black (the
-   overseer's v4 review). Cutout quads and fluff planes bend their normal half way toward up (`normal + up * 0.5`),
-   so the sun falls on a crown more evenly, and their shade has a floor of 0.7: the volume is the shade, the
+   overseer's v4 review). A cutout block's direct light takes its normal bent half way toward up (`terrain_lit`,
+   `normal + up * 0.5`; the G-buffer keeps the true one for the bounce and the denoiser), so the sun falls on a
+   crown more evenly, and their shade has a floor of 0.7: the volume is the shade, the
    shaded side a deep green (v6 against the target). A bend of 1.2 was tried first: crowns went flat and lime.
 11. **Reeds are the plants session's** (ADR 0091). Its painted planes, with part D's four reed kinds, make the
    reed bed: along the water's edge, over many columns, ragged. The reed block here has no fluff (`size = 0`), so
@@ -147,8 +148,21 @@ longer merging (742k quads against 659k) and the two passes. CPU: the frame thre
 (sim), more draws to record; jobs +8 % in fly (the walk to wood, more quads). The look fixes (decision 7: fast leaves
 as ray candidates; the planes) then cost fly +0.4 ms GPU p50 (3.64 to 4.04) and +0.23 ms on the frame thread
 (the BLAS's second geometry), p99 7.28 to 8.13, inside the budget by 0.2 ms; sim flat. Measured once on a quiet
-PC before decision 8 (data fluff, clumps), which adds a `vnoise` per fluff vertex; not measured again (ADR 0096). The row and its ideas are in
+PC before decision 8 (data fluff, clumps). Decisions 8-10 measured once more, with ADR 0092's denser forests merged
+(fly quads 742k to 844k, so the two are not apart): fly GPU p50 3.94 to 4.70 ms (G-buffer 2.00 to 2.87: shadow rays
+run on past leaf faces, the clumps, the quads), frame thread 0.65 to 0.88 ms, p99 7.50 to 9.0, over the 8.3 budget
+(ADR 0096: merged, its row in `docs/perf-debt.md`, won back in the optimisation batch); sim GPU 3.00 to 3.50, p99
+6.89, frame thread flat. The row and its ideas are in
 `docs/perf-debt.md` (ADR 0096: no further cost work here).
+
+## Review of the leaf shadows and the one-mass light (decisions 9, 10)
+A fresh reviewer read the diff. Fixed: the bent normal went into the G-buffer, so the bounce's rays could start
+into the leaf and the denoiser's plane test moved; only the direct light takes it now. Answered: a leaf's shade
+follows the Leaves setting and the level (fancy leaves keep their texel shadows, coarse levels and a chunk not yet
+meshed again stay whole blocks), as ADR 0069 has it; a ray crosses a fast crown's shell twice, so a crown of any
+thickness passes `light` squared (`shortcut:` in `trace`; thickness would need the entry hit's distance); a
+shadow ray now runs on past every leaf face (its cost in the numbers and the debt row); the lamps' rest term
+ignores the tint, as it did for glass. Non-fluff cutouts (`through` 0) still stop a ray at once.
 
 ## Review of the data fluff (decision 8)
 A fresh reviewer read the diff: the look row's layout (80 bytes, stride and buffer), the bits and the branches.

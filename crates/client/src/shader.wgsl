@@ -294,9 +294,6 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     if (a == 0u) { normal = normalize(f.s - f.n * f.ta); }
     if (a == 1u) { normal = normalize(f.t - f.n * f.tb); }
     if ((dir & 1u) == 1u) { normal = -normal; }
-    // a plant's faces and planes lit as one mass (ADR 0090): their normals bent toward up, so the sun side is not
-    // lime and the far side not black; the crown's volume is its shade (`ao`)
-    if (mode != 0u) { normal = normalize(normal + f.up * 0.5); }
 
     let at = quad_corner(q, 0u, 0.0);
     let rel = brot(b, (place(c, b, local, at) - b.cam_hi) - b.cam_lo);
@@ -431,7 +428,9 @@ fn trace(o: vec3f, db: vec3f, body: u32, tmax: f32, flags: u32) -> RayIntersecti
             ray_tint *= mix(vec3f(1.0), t.rgb, t.a);
         } else if (!hit_empty(c.instance_custom_data, q, c.primitive_index, c.barycentrics, hit_season(c.instance_custom_data, q, sn))) {
             // a shadow ray through a face of fast leaves takes its share of the light (`fluff.light`, the block row)
-            // and goes on: a soft green shade under a crown, not a whole block's (ADR 0090); nearly none left stops it
+            // and goes on: a soft green shade under a crown, not a whole block's (ADR 0090); nearly none left stops it.
+            // shortcut: a fast crown is a shell, so any crown passes light squared whatever its thickness; weigh by
+            // the distance from the entry face if thin and thick crowns should differ
             if (flags == RAY_FLAG_TERMINATE_ON_FIRST_HIT && ((chunks[c.instance_custom_data].info >> 18u) & 1u) == 1u) {
                 ray_tint *= looks[q.y & 255u].through * vec3f(0.9, 1.0, 0.75);
                 if (max(ray_tint.r, max(ray_tint.g, ray_tint.b)) < 0.02) { rayQueryConfirmIntersection(&rq); }
@@ -1206,7 +1205,12 @@ fn terrain_lit(i: VOut, col_in: vec3f) -> GOut {
         return o;
     }
     let px = vec2u(i.clip.xy);
-    let l = light(i.rel, n, body, px);
+    // a plant lit as one mass (ADR 0090): the direct light takes its normal bent half way toward up, so the sun
+    // side is not lime and the far side not black (its volume is its shade, `ao`); the G-buffer keeps the true
+    // normal for the bounce and the denoiser
+    var ln = n;
+    if (((look.info >> 25u) & 1u) == 1u) { ln = normalize(n + normalize(i.rel - g.bodies[body].ctr.xyz) * 0.5); }
+    let l = light(i.rel, ln, body, px);
     var out = col * l.l;
     var diffuse = 1.0;
     let metal = f32((look.info >> 16u) & 255u) / 255.0;
