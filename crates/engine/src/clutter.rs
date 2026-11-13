@@ -368,6 +368,9 @@ pub struct Still {
 /// A face's flags in the table's word 13: a plant's plane, drawn from both sides, swayed, tinted and faded far
 /// away (ADR 0091).
 pub const PLANT: u32 = 1;
+/// And a shrub's (a plant of four planes or more): wider than tall, lopsided by its hash, seen twice as far as
+/// the grass (ADR 0091).
+pub const SHRUB: u32 = 2;
 /// A plant's painting's pixels a metre: 32, finer than a block's 16 so a blade reads (the developer's call of
 /// 2026-11-13; its size is its painting's, a column's painting 32 px wide so neighbours merge).
 pub const PLANT_PX: f32 = 32.0;
@@ -421,7 +424,7 @@ impl Still {
                     if p.w as f32 > 2.0 * PLANT_PX || p.h as f32 > 2.5 * PLANT_PX {
                         return Some(Err(format!("data/plants/{base}.png: {} x {} px, a plant is at most 2 m wide and 2.5 m high ({PLANT_PX} px a metre)", p.w, p.h)));
                     }
-                    Some(s.push(&base, &p, plant_faces(r.planes, p.w, p.h), PLANT))
+                    Some(s.push(&base, &p, plant_faces(r.planes, p.w, p.h), PLANT | if r.planes >= 4 { SHRUB } else { 0 }))
                 };
                 for a in 0..=ALTERNATES {
                     let base = if a == 0 { r.name.clone() } else { format!("{}.{a}", r.name) };
@@ -607,6 +610,9 @@ mod tests {
             assert_eq!(s.looks[r].len(), row.looks.len(), "{}: a painting per look", row.name);
             let plant = s.faces[s.rows[r][0].0 as usize][13] & PLANT != 0;
             assert_eq!(plant, row.kind == Kind::Plant, "{}", row.name);
+            // a shrub (four planes or more) is drawn wide and lopsided and reaches twice as far (ADR 0091)
+            let shrub = s.faces[s.rows[r][0].0 as usize][13] & SHRUB != 0;
+            assert_eq!(shrub, plant && row.planes >= 4, "{}", row.name);
         }
     }
 

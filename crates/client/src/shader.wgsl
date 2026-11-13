@@ -944,7 +944,12 @@ fn fs(i: VOut) -> GOut {
 fn ground_tint(i: VOut, c: vec3f) -> vec3f {
     if (i.dir != 4u || (looks[i.mat & 255u].info & 255u) != GRASS || !leafy(c)) { return c; }
     let cl = chunk_climate(chunks[i.ci], i.local.xy / 32.0);
-    return c * climate_tint(cl.x, cl.y, 2u, 0.0);
+    // where the plants have thinned out, the ground takes the meadow's tone: darker, as the understorey under
+    // the tufts' lit tops is, and mottled by 2 m patches, so from a hill there is no line where plants end
+    let gp = grid(chunks[i.ci], i.local);
+    let far = smoothstep(still_far() * 0.5, still_far(), length(i.rel));
+    let mottle = 0.8 + 0.25 * hash2(vec2u(vec2i(floor(gp.xy * 0.5)) + vec2i(1 << 20)));
+    return c * climate_tint(cl.x, cl.y, 2u, 0.0) * mix(1.0, mottle * 0.88, far);
 }
 
 @fragment
@@ -1859,6 +1864,8 @@ fn fs_fx(i: FxOut) -> GOut {
 // flags: 1 a plant's plane (ADR 0091: both sides drawn, swayed, tinted, faded far away; clutter::PLANT)
 struct SFace { o: vec3f, base: u32, eu: vec3f, pw: u32, ev: vec3f, xy: u32, wh: u32, flags: u32, _b: u32, _c: u32 };
 const PLANT: u32 = 1u;
+// and 2 a shrub's: wide, lopsided, seen twice as far (clutter::SHRUB)
+const SHRUB: u32 = 2u;
 
 // The climate's tint of a green pixel (ADR 0091; engine clutter::tint, line for line): heat and wetness 0 to 1,
 // the part of the year (0..8, `year_part`) and how much of a season the place has (0 for the grass block, whose
@@ -1928,7 +1935,10 @@ fn still_local(q: vec2u, uv: vec2f, c: Chunk, fade: f32) -> vec3f {
         let h = hash4(vec3i(col, i32(c.info & 7u)));
         let k = hash4(vec3i(col, i32(c.info & 7u) + 8));
         let a = k.w * 6.2831853;
-        m = vec3f(m.x * cos(a) - m.z * sin(a), m.y, m.x * sin(a) + m.z * cos(a)) * vec3f(0.85 + 0.3 * k.z, 0.8 + 0.4 * h.x, 0.85 + 0.3 * k.z);
+        var sc = vec3f(0.85 + 0.3 * k.z, 0.8 + 0.4 * h.x, 0.85 + 0.3 * k.z);
+        // a shrub: wider than tall and lopsided, one side fuller than the other
+        if ((f.flags & SHRUB) != 0u) { sc = vec3f(1.1 + 0.4 * k.z, 0.7 + 0.25 * h.x, 0.85 + 0.4 * h.w); }
+        m = vec3f(m.x * cos(a) - m.z * sin(a), m.y, m.x * sin(a) + m.z * cos(a)) * sc;
         m.y *= fade;
         at = (k.xy - 0.5) * 0.66;
     }
@@ -1938,13 +1948,21 @@ fn still_local(q: vec2u, uv: vec2f, c: Chunk, fade: f32) -> vec3f {
 // how far from the eye plants stand (`vs_still` fades them by then)
 fn still_far() -> f32 { return g.plants.w; }
 
+// how far one plant reaches, by its hash y: 55 to 100 % of the far distance, so the plants thin in a hashed
+// order and no ring shows; a shrub twice as far, within the level-0 chunks it is meshed in (about 128 m)
+fn plant_reach(flags: u32, hy: f32) -> f32 {
+    let d = still_far() * (0.55 + 0.45 * hy);
+    return select(d, min(d * 2.0, 120.0), (flags & SHRUB) != 0u);
+}
+
 // how far from the eye still quad q of chunk-table entry ci casts a shadow: a plant until it starts to shrink
 // (its own reach, as `vs_still`), a model as far as it is drawn
 fn still_reach(ci: u32, q: vec2u) -> f32 {
-    if ((sfaces[q.y & 65535u].flags & PLANT) == 0u) { return 1e9; }
+    let fl = sfaces[q.y & 65535u].flags;
+    if ((fl & PLANT) == 0u) { return 1e9; }
     let c = chunks[ci];
     let h = hash4(vec3i(c.base.xy + vec2i(i32(q.x & 63u), i32((q.x >> 6u) & 63u)), i32(c.info & 7u)));
-    return still_far() * (0.55 + 0.45 * h.y) * 0.8;
+    return plant_reach(fl, h.y) * 0.8;
 }
 
 // a shadow ray skips still quads this near its start: a few cm, or for a plant's own pixel (`fs_still`) the
@@ -1985,7 +2003,7 @@ fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
         // the ground over the last fifth of its own reach (55 to 100 % of the far one): the plants thin, none pops
         h = hash4(vec3i(col, i32(c.info & 7u)));
         let d = length(brot(b, (place(c, b, cell + vec3f(0.5, 0.5, 0.0), cell) - b.cam_hi) - b.cam_lo));
-        let d0 = still_far() * (0.55 + 0.45 * h.y);
+        let d0 = plant_reach(f.flags, h.y);
         fade = 1.0 - smoothstep(d0 * 0.8, d0, d);
     }
     let local = still_local(q, uv, c, fade);

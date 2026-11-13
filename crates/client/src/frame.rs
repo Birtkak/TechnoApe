@@ -16,7 +16,7 @@ pub(crate) fn frustum_planes(m: Mat4) -> [Vec4; 6] {
 
 /// How far the plants reach at each Vegetation setting, m (ADR 0091): each has its own reach, 55 to 100 % of this,
 /// and shrinks into the ground over the last fifth of it, so they thin and none pops.
-const PLANTS_FAR: [f32; 3] = [40.0, 64.0, 96.0];
+const PLANTS_FAR: [f32; 3] = [48.0, 80.0, 112.0];
 
 impl App {
     /// The Vegetation setting (ADR 0091), or a run's vegetation=few|normal|many: 0, 1 or 2.
