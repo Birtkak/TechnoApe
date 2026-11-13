@@ -1136,7 +1136,7 @@ fn vs_water(@builtin(vertex_index) vi: u32) -> WOut {
 // way through the water (one ray down the view); the sky, Sol, Luna and the near terrain are in it with a
 // Fresnel term (one ray along the reflection); ripples of three octaves, flat over each 1/16 m texel, run with
 // the sky's clock and along a river's flow and calm with distance, so from orbit the sea is one blue with
-// the sun's glint; foam where the surface meets a bank (four short rays across it) and down falls. The
+// the sun's glint; foam where the water thins to the shore and down falls. The
 // settings' Water row: off draws the old sheet (`water_old`), simple shades without rays of its own.
 
 // the colour of the water's own light at noon (post.wgsl has the same, for the fog under water)
@@ -1145,8 +1145,13 @@ const WATER_FOG: vec3f = vec3f(0.03, 0.16, 0.24);
 const WATER_ABSORB: vec3f = vec3f(0.45, 0.12, 0.075);
 // the ripples' texels a metre: the blocks' own
 const RIPPLE_PX: f32 = 16.0;
-// how far the way down the view is traced: past it the water is as good as opaque
-const WATER_SEE: f32 = 40.0;
+// how far the way down the view is traced (a ray's cost grows with its length): deeper counts as deep
+const WATER_SEE: f32 = 16.0;
+// how far off the terrain is traced in it: farther, the far chunks are coarse cells that stand a layer over
+// the sea at the coast, and a grazing reflection met them as a dark band along the horizon; the sky is enough there
+const WATER_MIRROR: f32 = 250.0;
+// and how far a reflected ray goes looking for it: past it the sky (a ray's cost grows with its length)
+const WATER_REACH: f32 = 150.0;
 
 fn wnoise(p: vec2f) -> f32 {
     let c = floor(p);
@@ -1163,6 +1168,28 @@ fn ripple(p: vec2f, t: f32) -> f32 {
     return wnoise(p * 0.45 + vec2f(0.21, 0.13) * t)
         + 0.5 * wnoise(p * vec2f(1.1, 0.9) + vec2f(-0.17, 0.29) * t + 17.0)
         + 0.25 * wnoise(p * 2.3 + vec2f(0.37, -0.31) * t + 41.0);
+}
+
+// what a reflected ray from p sees, lit without rays of its own (the water's pass is the dearest near water,
+// and a shadow in a ripple's reflection is not missed): the terrain it hits in the sun as the water has it
+// (`day`) and the light from around, else the sky. `seen` traces the hit's light (a metal's mirror).
+fn seen_lit(p: vec3f, d: vec3f, body: u32, day: f32, tmax: f32) -> vec3f {
+    let bb = g.bodies[body];
+    let h = trace(to_body(bb, p), d * mat3x3f(bb.rot0.xyz, bb.rot1.xyz, bb.rot2.xyz), body, tmax, 0u);
+    if (h.kind == RAY_QUERY_INTERSECTION_NONE) { return sky_colour(d); }
+    let c = chunks[h.instance_custom_data];
+    let q = hit_quad(h.instance_custom_data, h.geometry_index, h.primitive_index);
+    let m = q.y & 255u;
+    if (((looks[m].info >> 24u) & 1u) == 1u) { return seen_colour(m, vec3f(0.0)); }
+    let b = g.bodies[(c.info >> 8u) & 255u];
+    let hp = p + d * h.t;
+    let up = normalize(hp - bb.ctr.xyz);
+    let sd = normalize(g.sun_pos.xyz - hp);
+    // a face's normal from its axis, as  has it; a top's is the up
+    let dir = (q.x >> 28u) & 7u;
+    var hn = up;
+    if (dir / 2u != 2u) { hn = normalize(-d - up * dot(-d, up)); }
+    return seen_colour(m, season(b, hp)) * (sun_on(body) * max(dot(hn, sd), 0.0) * day + ambient(day));
 }
 
 // the moon's body where a reflected ray from p along d meets its sphere: lit by its phase
@@ -1191,9 +1218,14 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     let v = normalize(-i.rel);
     let dist = length(i.rel);
     var n0 = normalize(i.normal);
-    let below = dot(n0, v) < 0.0;
-    if (below) { n0 = -n0; }
     let fall = (i.side & 1u) == 1u;
+    // seen from behind: from under the water, or (the camera out of it) the sea past the horizon seen through
+    // the nearer sea (water writes no depth), not drawn, else a dark band along the horizon; a fall or a front
+    // seen from its dry side is drawn as its face. Before the rays, so what is dropped costs nothing.
+    let behind = dot(n0, v) < 0.0;
+    if (behind) { n0 = -n0; }
+    let below = behind && g.water.y > 0.0;
+    if (behind && !fall && !below) { discard; }
     let speed = length(i.gflow);
     // the ripples: on the blocks' grid, calm where a pixel spans more than a few of its texels
     var fsv = array<vec3f, 6>(vec3f(0., 1., 0.), vec3f(0., 0., 1.), vec3f(0., 0., 1.), vec3f(1., 0., 0.), vec3f(1., 0., 0.), vec3f(0., 1., 0.));
@@ -1228,11 +1260,13 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     var r = reflect(-v, n);
     let rn = dot(r, n0);
     if (rn < 0.01) { r = normalize(r + n0 * (0.01 - rn)); }
-    var refl: vec3f;
-    if (mode == 0u && (g.opt.x & 2u) == 0u && dist < 1500.0) {
-        refl = seen(ray_origin(i.rel, n0), r, i.body, px, false, 2000.0);
-    } else {
-        refl = sky_colour(r);
+    var refl = sky_colour(r);
+    if (mode == 0u && (g.opt.x & 2u) == 0u && dist < WATER_MIRROR && fres > 0.08) {
+        // only where it shows: looking down the water mirrors 2 to 8 %, and there the sky's colour does (the
+        // ray was half the pass's cost on a lake); faded in from there and into the sky's over the last fifth
+        // of its reach, so no line shows where the tracing starts or ends
+        let traced = seen_lit(ray_origin(i.rel, n0), r, i.body, l.day, WATER_REACH);
+        refl = mix(traced, refl, max(smoothstep(0.8 * WATER_MIRROR, WATER_MIRROR, dist), 1.0 - smoothstep(0.08, 0.16, fres)));
     }
     refl += luna_in(i.rel, r, i.body);
     // the way through the water to what is under it: traced, or guessed as 3 m deep
@@ -1248,24 +1282,18 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     } else if (mode == 0u) {
         let m = mat3x3f(b.rot0.xyz, b.rot1.xyz, b.rot2.xyz);
         let h = trace(to_body(b, i.rel - v * 0.01), -v * m, i.body, WATER_SEE, 0u);
-        len = select(WATER_SEE, h.t + 0.01, h.kind != RAY_QUERY_INTERSECTION_NONE);
-        if (foot < 0.25) {
-            // the shore: the nearest bank a little under the surface, across it four ways
-            let o = to_body(b, i.rel - n0 * 0.08);
-            var near = 1.0;
-            for (var k = 0u; k < 4u; k++) {
-                var a = brot(b, select(fsv[i.face], ftv[i.face], k >= 2u)) * select(1.0, -1.0, (k & 1u) == 1u);
-                a = normalize(a - n0 * dot(a, n0));
-                let hb = trace(o, a * m, i.body, 1.0, 0u);
-                if (hb.kind != RAY_QUERY_INTERSECTION_NONE) { near = min(near, hb.t); }
-            }
-            // a band that laps in and out, broken into texels
-            let lap = 0.45 + 0.2 * sin(t * 1.3 + (i.grid.x + i.grid.y) * 0.7);
-            foam = step(near / lap, 0.35 + 0.65 * grain) * step(near, lap) * (1.0 - smoothstep(0.1, 0.25, foot));
-        }
+        len = select(60.0, h.t + 0.01, h.kind != RAY_QUERY_INTERSECTION_NONE);
+        // the shore: surf where the water is thinnest over what the view meets (its depth there is the way
+        // through times the cosine), in a band that laps in and out, broken into texels: dense where it is
+        // thinnest, a few flecks over half a metre. (Four short rays across the surface to the banks were
+        // tried first: a beach shelves in whole steps, and within a metre they met no bank.)
+        let lap = 0.2 + 0.15 * sin(t * 1.3 + (i.grid.x + i.grid.y) * 0.7);
+        // and where the way itself is short: the view meets the bank's wall just under the surface
+        let thin = min(len * cos0, 0.5 * len);
+        foam = select(0.0, 1.0, abs(thin - lap) < 0.03 + 0.06 * grain && grain > 0.25) * (1.0 - smoothstep(0.1, 0.3, foot));
     }
     // rapids churn white, in texels
-    foam = max(foam, step(grain, 0.6 * smoothstep(1.5, 3.0, speed)));
+    foam = max(foam, select(0.0, 1.0, grain < 0.6 * smoothstep(1.5, 3.0, speed)));
     let tr = exp(-WATER_ABSORB * len);
     let tm = dot(tr, vec3f(0.25, 0.45, 0.3));
     // blended over the terrain already drawn (the bed): what is left of it shows; the rest is the water
