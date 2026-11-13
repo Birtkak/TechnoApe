@@ -13,7 +13,7 @@ The spike says what each costs a tick, and that decides where each lives.
 | what | where | cost | when |
 |---|---|---|---|
 | **a loose block falls or slides** (sand, gravel), whole | server, world edits | ~200 ns an awake block | slice (a), built |
-| **a dug block's burst** of debris, piling and fading | each client, presentation | none on the server | slice (b) |
+| **a dug block's burst** of debris, piling and fading | each client, presentation | none on the server | slice (b), built |
 | **material fine cells** (a chiselled block, a blast, a pile that does not fit blocks) | server, world data | ~90 ns an awake cell, a burst of 512 wakes ~5,600 | with chiselling |
 | **an unsupported build collapses** | server, world edits | a capped search a tick | slice (c) |
 
@@ -61,9 +61,9 @@ where the world genuinely holds less than a block.
   a chip that comes to rest over another resting chip's cell lies on top of it, and one that would stand
   more than a cell higher than a side neighbour rolls down to it (the same 45 degree rule as (a), one cell
   down). Then they fade, as now.
-- Every client runs the same burst from the same seed (the cell and its old block), so two players see the
-  same pile; it is presentation only: nothing is saved or sent, the server is not touched, and the ledger
-  is unchanged (the dug block went whole to the digger, as before).
+- It is presentation only: nothing is saved or sent, the server is not touched, and the ledger is unchanged
+  (the dug block went whole to the digger, as before; ADR 0074's item piles take what is picked up). Each
+  client throws its own chips (the effects' own random numbers), so two players see piles alike, not equal.
 - Cost: a few dozen chips a dig, inside the effects pool's budget (ADR 0031); the pile is a small map of
   resting fine cells, emptied as chips end.
 

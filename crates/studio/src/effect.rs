@@ -73,7 +73,7 @@ pub const FIELDS: &[Field] = &[
 /// The choices a row names by word: (key, its words, what it does).
 pub const CHOICES: &[(&str, &str, &[&str], &str)] = &[
     ("Start", "start", &["point", "block", "faces", "ring", "cone", "box"], "where the particles start"),
-    ("Life", "ground", &["none", "stop", "bounce", "die"], "what a particle does on the ground"),
+    ("Life", "ground", &["none", "stop", "bounce", "die", "pile"], "what a particle does on the ground"),
     ("Look", "look", &["square", "debris", "block", "texture", "model"], "what a particle is"),
     ("Look", "face", &["camera", "flight", "tumble"], "how it lies: facing you, along its flight, or tumbling"),
 ];
