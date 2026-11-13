@@ -1,6 +1,6 @@
 //! Terrain: bodies on the equi-angular cube-sphere grid (ADR 0003), generated from the seed, plus a sparse
 //! edit map. A block is (face, column i, column j, layer); layers are geometric shells, so blocks stay cubic.
-use crate::bake::Map;
+use crate::bake::{life, Map};
 use crate::biomes::{REACH, ROWS, SPACING, TALLEST};
 use crate::blocks::{AIR, BLOCKS};
 use crate::rock::{Rock, ROCKS};
@@ -18,6 +18,22 @@ pub const BLOCK: f64 = 1.0;
 /// The planet's sea lies this far under its nominal radius (ADR 0020); the continents decide how much of it
 /// is sea (ADR 0021).
 pub const SEA_DEPTH: f64 = 4.0;
+/// Beds under water (ADR 0086, `Body::bed`): ground steeper than this (rise over run, across the map's cells)
+/// is bare rock under any water: past sediment's angle of repose, about 35 degrees, nothing settles.
+pub const BED_STEEP: f64 = 0.7;
+/// A river falling this much a metre or more runs fast enough to leave gravel; under BED_SLOW it drops clay,
+/// as it does BED_DEEP_RIVER metres down.
+pub const BED_RAPID: f64 = 0.01;
+pub const BED_SLOW: f64 = 0.002;
+pub const BED_DEEP_RIVER: f64 = 2.0;
+/// A lake's shallows are sand to this depth, its middle clay; the sea's beach and shelf sand to BED_SHELF, mud on
+/// clay further out.
+pub const BED_SHALLOW_LAKE: f64 = 1.5;
+pub const BED_SHELF: f64 = 8.0;
+/// Fresh water shallower than this over land whose band is dirt lies on that soil: a pond's edge, and a stream
+/// carrying under BED_STREAM m^2/s a metre of its width.
+pub const BED_SOIL: f64 = 0.5;
+pub const BED_STREAM: f64 = 0.05;
 /// The share of the planet's surface the continents leave to the sea (ADR 0021).
 pub const OCEAN: f64 = 0.55;
 pub const CS: i32 = 32; // cells per chunk edge
@@ -569,7 +585,57 @@ impl Body {
         let row = &ROWS.biomes[biome as usize];
         let cell = ((x / PATCH).floor() as i64 as u64) ^ ((y / PATCH).floor() as i64 as u64).wrapping_mul(0x9e3779b97f4a7c15);
         let roll = unit(mix(b.seed ^ cell ^ (face as u64) << 56));
+        if let Some(bed) = self.bed(b, face, i, j, d, h, biome, row.ground[1]) {
+            return ([bed[0], bed[1], row.ground[2]], biome);
+        }
         ([row.top(roll, (h - (self.radius - SEA_DEPTH)) as f32), row.ground[1], row.ground[2]], biome)
+    }
+    /// The bed under standing or running water (ADR 0086), top and band, where the column's top block lies
+    /// under the water; None on dry ground (the biome's, banks too). By what the bake knows: the slope of the
+    /// map's ground, the water's depth, a river's fall. Steep ground is bare rock (the province's); a river
+    /// lays gravel where it runs fast, sand where it is gentle, clay where it is slow or deep (and at its
+    /// mouth, where it is flat); a lake sand in its shallows, clay in the middle; the sea sand on the beach and
+    /// the shelf, mud over clay further out. A warm reef keeps its row (coral). Where the land's band is dirt, a
+    /// pond's thin edge and a small gentle stream lie on that soil, flooded: dirt (never grass).
+    #[allow(clippy::too_many_arguments)]
+    fn bed(&self, b: &Baked, face: usize, i: f64, j: f64, d: DVec3, h: f64, biome: u8, band: u16) -> Option<[u16; 2]> {
+        let (top, reach, river) = self.water_at(face as u8, i.floor() as i32, j.floor() as i32)?;
+        let depth = self.layer_r(top) - h;
+        if depth <= 0.0 {
+            return None;
+        }
+        let sea = river.is_none() && reach == crate::liquid::SEA;
+        if sea && biome == life::REEF {
+            return None;
+        }
+        // the slope of the map's cell: the ground's lie, not a column's step
+        let s = b.map.m as f64 / self.n as f64;
+        let slope = b.map.slope(face, i * s, j * s) as f64;
+        let name = if slope > BED_STEEP || (!sea && river.is_none() && biome == life::ALPINE) {
+            let rock = ROCKS.at(self.rock_at(face, i, j, d), h as f32, BLOCKS.id("stone"));
+            return Some([rock, rock]);
+        } else if let Some((q, fall, _)) = river {
+            // the flow per metre of width as the bake has it (`water_tide` scaled it into units)
+            let q = q / (U as f64 / 60.0 * crate::weather::BASE);
+            match fall / U as f64 {
+                f if f >= BED_RAPID => "gravel",
+                _ if q < BED_STREAM && depth < BED_SOIL && band == BLOCKS.id("dirt") => "dirt",
+                f if f < BED_SLOW || depth >= BED_DEEP_RIVER => "clay",
+                _ => "sand",
+            }
+        } else if sea {
+            if depth >= BED_SHELF {
+                return Some([BLOCKS.id("mud"), BLOCKS.id("clay")]);
+            }
+            "sand"
+        } else if depth < BED_SOIL && band == BLOCKS.id("dirt") {
+            "dirt"
+        } else if depth < BED_SHALLOW_LAKE {
+            "sand"
+        } else {
+            "clay"
+        };
+        Some([BLOCKS.id(name); 2])
     }
     /// The plant at candidate spot (cx, cy) of a face (one each `SPACING` x `SPACING` columns), if one grows
     /// there: on a baked planet, over the sea, at least `REACH` columns inside the face.
@@ -2486,7 +2552,7 @@ mod water_tests {
     fn a_bucket_in_the_sea_stays_local() {
         let mut w = World::new(1536, 512, 1);
         let b = &w.bodies[0];
-        let (i, j) = (0..b.n).step_by(3).flat_map(|i| (0..b.n).step_by(3).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 7.0).unwrap();
+        let (i, j) = (0..b.n).step_by(2).flat_map(|i| (0..b.n).step_by(2).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 7.0).unwrap();
         let c = Col::new(0, 2, i, j);
         let (_, hi) = w.ground().generated(c);
         let World { bodies, edits, water, sky, time, .. } = &mut w;
@@ -2508,7 +2574,7 @@ mod water_tests {
     fn a_block_placed_in_the_sea_and_dug_leaves_the_sea_as_it_was() {
         let mut w = World::new(1536, 512, 1);
         let b = &w.bodies[0];
-        let (i, j) = (0..b.n).step_by(3).flat_map(|i| (0..b.n).step_by(3).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 7.0).unwrap();
+        let (i, j) = (0..b.n).step_by(2).flat_map(|i| (0..b.n).step_by(2).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 7.0).unwrap();
         let c = Col::new(0, 2, i, j);
         let (lo, hi) = w.ground().generated(c);
         let stone = BLOCKS.id("stone");
@@ -2622,6 +2688,51 @@ mod baked_tests {
 
     fn world() -> World {
         World::with_map(512, 32, 5, Some(MAP.clone()))
+    }
+
+    /// Beds (ADR 0086): no column under the sea, a lake or a river has grass, snow or ice on top; the deep
+    /// sea is not sand and a shallow lake not clay; each kind of water is found.
+    #[test]
+    fn the_beds_under_water_are_sand_clay_gravel_stone_or_dirt() {
+        // a planet big enough for rivers (the 512 one has none), baked in seconds
+        let w = World::with_map(1536, 32, 5, Some(Arc::new(Map::bake(5, 1536))));
+        let b = &w.bodies[0];
+        let soil = |m: u16| {
+            let n = &BLOCKS.get(m).unwrap().name;
+            n.contains("grass") || ["snow", "ice"].contains(&n.as_str())
+        };
+        let (mut seen, mut bad) = ([0usize; 3], Vec::new());
+        let mut tally = std::collections::BTreeMap::new();
+        let mut all = std::collections::BTreeMap::new();
+        for f in 0..6u8 {
+            for (i, j) in (0..b.n).step_by(2).flat_map(|i| (0..b.n).step_by(2).map(move |j| (i, j))) {
+                let Some((top, reach, river)) = b.water_at(f, i, j) else { continue };
+                let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
+                let h = b.height_at(f as usize, ci, cj, b.dir(f as usize, ci, cj), 0);
+                let depth = b.layer_r(top) - h;
+                if depth <= 0.0 {
+                    continue;
+                }
+                let kind = if river.is_some() { 2 } else if reach == crate::liquid::SEA { 0 } else { 1 };
+                seen[kind] += 1;
+                let g = b.col_ground(f, i, j, Some(h));
+                let name = &BLOCKS.get(g[0]).unwrap().name;
+                *all.entry(format!("{} {name}", ["sea", "lake", "river"][kind])).or_insert(0usize) += 1;
+                let wrong = soil(g[0]) || soil(g[1])
+                    || (kind == 0 && depth > 12.0 && name == "sand")
+                    || (kind == 1 && depth < 0.75 && name == "clay")
+                    || (kind == 0 && name == "dirt");
+                if wrong {
+                    *tally.entry(format!("{} {name}", ["sea", "lake", "river"][kind])).or_insert(0usize) += 1;
+                    if bad.len() < 6 {
+                        bad.push(format!("{} at {f} {i} {j}, {depth:.1} m under, top {name}", ["sea", "lake", "river"][kind]));
+                    }
+                }
+            }
+        }
+        assert!(seen.iter().all(|&n| n > 20), "sea, lake, river columns seen: {seen:?}");
+        eprintln!("beds (kind, top: columns): {all:?}");
+        assert!(tally.is_empty(), "wrong beds (kind, top: columns) {tally:?} of {seen:?}, e.g. {bad:?}");
     }
 
     /// `air_over_ground` is air with ground (not air) under it, on the baked map and the old noise land, over

@@ -255,19 +255,27 @@ impl Map {
         let theta = self.climate_at(face, i as f64 + 0.5, j as f64 + 0.5)?.0;
         Some(theta - air::Params::default().lapse * self.h[(face * m + j) * m + i].max(0.0))
     }
-    /// Every cell's `rough`, its slope from its four neighbours (across the seams too).
-    fn roughs(&self) -> Vec<f32> {
+    /// The slope (rise over run) of cell (f, i, j), from its four neighbours (across the seams too).
+    fn cell_slope(&self, f: usize, i: i32, j: i32) -> f32 {
         let m = self.m as i32;
-        let cell = self.n as f32 / m as f32;
-        let at = |f: usize, i: i32, j: i32| {
+        let at = |i: i32, j: i32| {
             let (f, i, j) = fold(f, i, j, m);
             self.h[(f * m as usize + j as usize) * m as usize + i as usize]
         };
+        (at(i + 1, j) - at(i - 1, j)).hypot(at(i, j + 1) - at(i, j - 1)) / (2.0 * self.n as f32 / m as f32)
+    }
+    /// The slope of the cell that holds face point (x, y) in cells: the ground's lie (a bed under water, ADR 0086).
+    pub fn slope(&self, face: usize, x: f64, y: f64) -> f32 {
+        let m = self.m as i32;
+        self.cell_slope(face, (x.floor() as i32).clamp(0, m - 1), (y.floor() as i32).clamp(0, m - 1))
+    }
+    /// Every cell's `rough`, from its slope.
+    fn roughs(&self) -> Vec<f32> {
+        let m = self.m as i32;
         (0..self.h.len())
             .map(|c| {
                 let (f, i, j) = (c / (m * m) as usize, c as i32 % m, (c as i32 / m) % m);
-                let slope = (at(f, i + 1, j) - at(f, i - 1, j)).hypot(at(f, i, j + 1) - at(f, i, j - 1)) / (2.0 * cell);
-                rough(slope, self.biome[c], self.h[c])
+                rough(self.cell_slope(f, i, j), self.biome[c], self.h[c])
             })
             .collect()
     }
