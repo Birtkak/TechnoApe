@@ -555,7 +555,7 @@ pub(crate) fn season_here(w: &engine::world::World, pos: glam::DVec3) -> (f64, f
 /// pattern | side << 8 | metal << 16 | gives light << 24 | cutout << 25 | glass << 26; colour2, size; colour3, amount; contrast; the painted
 /// faces (16 bits a face: layer | variants - 1 << 12 | fine << 14 (32 x 32, four layers a variant, ADR 0090) | painted << 15; top and side in `tex`, the bottom in
 /// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24).
-fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 16]> {
+fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 20]> {
     (0..4 * 256usize)
             .map(|row| {
                 // four rows a block (ADR 0061): summer (the row's own look), spring, autumn, winter
@@ -585,11 +585,13 @@ fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> 
                             let [mr, mg, mb] = p.colour().unwrap_or(d.colour).map(|c| (c * 255.0).round() as u32);
                             mean = mr | mg << 8 | mb << 16 | 1 << 24;
                         }
-                        [r, g, b, info, r2, g2, b2, size, r3, g3, b3, f(tone.amount), f(tone.contrast), tex as u32, mean, (tex >> 32) as u32]
+                        // a cutout block's fluff (ADR 0090, `Fluff::packed`), the same in every season
+                        let fluff = d.fluff.map_or(0, |f| f.packed());
+                        [r, g, b, info, r2, g2, b2, size, r3, g3, b3, f(tone.amount), f(tone.contrast), tex as u32, mean, (tex >> 32) as u32, fluff, 0, 0, 0]
                     }
                     None => {
                         let h = f(0.5);
-                        [h, h, h, (id as u32) << 8, h, h, h, 0, h, h, h, 0, f(1.0), 0, 0, 0]
+                        [h, h, h, (id as u32) << 8, h, h, h, 0, h, h, h, 0, f(1.0), 0, 0, 0, 0, 0, 0, 0]
                     }
                 }
             })
@@ -769,7 +771,7 @@ impl Gpu {
         let fx_buf = buf("fx", (MAX_FX * std::mem::size_of::<crate::fx::FxGpu>()) as u64, U::STORAGE | U::COPY_DST);
         // every block's look from the registry (ADR 0013, 0039), shader.wgsl `Look`, 64 bytes each: colour rgb,
         // pattern | side << 8 | metal << 16 | gives light << 24; colour2, size; colour3, amount; contrast
-        let looks = buf("looks", 4 * 256 * 64, U::STORAGE | U::COPY_DST);
+        let looks = buf("looks", 4 * 256 * 80, U::STORAGE | U::COPY_DST);
         queue.write_buffer(&looks, 0, bytemuck::cast_slice(&looks_of(&[])));
         // the painted faces (ADR 0045): 16 x 16 layers, filled by `take_textures` from the watcher's thread
         let tex = buf("block textures", TEX_LAYERS as u64 * 1024, U::STORAGE | U::COPY_DST);

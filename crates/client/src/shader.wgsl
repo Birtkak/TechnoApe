@@ -64,7 +64,7 @@ struct Chunk { base: vec3i, info: u32, off: u32, opq: u32 };
 // (ADR 0039) and a pattern's second and third colours, its size in texels, amount and grain contrast; the
 // painted faces (ADR 0045, gpu.rs `looks_of`: 16 bits a face, layer | variants - 1 << 12 | painted << 15; top
 // and side in `tex`, the bottom in `tex2`) and a painted block's one colour, unorm 8-bit, painted << 24
-struct Look { colour: vec3f, info: u32, colour2: vec3f, size: u32, colour3: vec3f, amount: f32, contrast: f32, tex: u32, mean: u32, tex2: u32 };
+struct Look { colour: vec3f, info: u32, colour2: vec3f, size: u32, colour3: vec3f, amount: f32, contrast: f32, tex: u32, mean: u32, tex2: u32, fluff: u32, _a: u32, _b: u32, _c: u32 };
 // four rows a block (ADR 0061): its own look, summer's, at [m]; spring's, autumn's and winter's 256, 512 and
 // 768 on. `size` holds, over the size's 8 bits, bit 8 for a block with seasons and its stagger from bit 16
 // (1/1024 quarter turn)
@@ -211,42 +211,69 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     }
     // where the painting is read: the quad's own unswayed corner, so the painting rides with the vertices
     var paint = quad_corner(q, k, 0.0);
+    // a crown's own shade (ADR 0090): darker toward its wood and under it, and in a fluff clump's dents
+    var shade = 1.0;
     if (mode != 0u) {
+        shade = 1.0 - 0.45 * select(0.0, 1.0 - f32((q.y >> 23u) & 3u) / 3.0, ((q.y >> 20u) & 7u) != 0u);
+        if (dir == 5u) { shade *= 0.6; }
         var reach = 0.5;
         if (mode == 2u) {
             let at0 = quad_corner(q, 0u, 0.0);
             let root = (q.y >> 20u) & 7u;
             let cell0 = vec3i(floor(at0)) + c.base;
             let h = hash(cell0 + vec3i(7, 13, i32(dir) * 31 + 5));
+            // the block's fluff (`Fluff::packed`, blocks.rs): size, push, droop, long, dense, six bits each
+            let fw = looks[q.y & 255u].fluff;
+            let size = f32(fw & 63u) * 0.05;
+            let fpush = f32((fw >> 6u) & 63u) * 0.02;
+            let droop = f32((fw >> 12u) & 63u) * 0.02;
+            let long = 1.0 + f32((fw >> 18u) & 63u) * 0.05;
+            let dense = f32((fw >> 24u) & 63u) / 63.0;
+            if (size == 0.0 || hash(cell0 + vec3i(29, 31, i32(dir) * 31 + 7)) >= dense) {
+                o.clip = vec4f(0.0, 0.0, 0.0, 1.0);
+                return o;
+            }
             // per face: the plane tilted 25-35 degrees off its face about a line turned by the hash, so none lies
             // edge-on along an axis (thin rods seen from below) and neighbours differ
             let hf = hash(cell0 + vec3i(17, 3, i32(dir) * 31 + 11));
             let hg = hash(cell0 + vec3i(5, 23, i32(dir) * 31 + 2));
             let slope = tan(radians(25.0 + 10.0 * hg));
-            var su = 0.5 + (f32(ku) - 0.5) * 1.7;
-            var sv = 0.5 + (f32(kv) - 0.5) * 1.7;
+            // clumps: a smooth field of the place, about 2.5 m across, pushes some faces far and larger, others
+            // hardly out, so a crown bulges in lobes with dents between, never a ball or a box
+            let clump = smoothstep(0.3, 0.7, vnoise(vec3f(cell0) * 0.4 + f32(c.info & 7u) * 17.0));
+            let spread = size * mix(0.76, 1.18, clump);
+            shade *= mix(0.65, 1.0, clump);
+            var su = 0.5 + (f32(ku) - 0.5) * spread * long;
+            var sv = 0.5 + (f32(kv) - 0.5) * spread;
             let phi = hf * 6.2831853;
-            var mask = vec2f(su, sv);
-            var push = 0.35 + slope * ((su - 0.5) * cos(phi) + (sv - 0.5) * sin(phi)) + 0.06 * (h - 0.5);
+            // the round mask in the units of a 1.7 plane, whatever its size: an ellipse along a long one
+            var mask = 0.5 + (vec2f(su, sv) - 0.5) * (1.7 / spread) / vec2f(long, 1.0);
+            var push = fpush * mix(0.1, 1.7, clump) + slope * ((su - 0.5) * cos(phi) + (sv - 0.5) * sin(phi)) + 0.06 * (h - 0.5);
+            var hang = length(vec2f(su, sv) - 0.5) + max(push, 0.0);
             reach = 1.0;
             if (root >= 1u && root <= 4u) {
-                // hinged on the wood's side: that edge on the face, the far one stood out (28 degrees), one face
-                // long so its twigs are not stretched, and twisted a little about the hinge by the hash
+                // hinged on the wood's side: that edge on the face, the far one stood out (28 degrees), `long` faces
+                // long (the painting tiles, never stretched), twisted a little about the hinge by the hash
                 let along_u = root < 3u;
-                let along = f32(select(kv, ku, along_u));
-                let out = select(along, 1.0 - along, (root & 1u) == 0u);
+                let out = select(f32(select(kv, ku, along_u)), 1.0 - f32(select(kv, ku, along_u)), (root & 1u) == 0u);
+                // across the hinge as wide as any plane, unstretched
+                su = 0.5 + (f32(ku) - 0.5) * spread;
+                sv = 0.5 + (f32(kv) - 0.5) * spread;
                 let across = select(su, sv, along_u);
-                push = mix(0.02, 0.55, out) + 0.4 * (hg - 0.5) * (across - 0.5) + 0.06 * (h - 0.5);
+                push = 0.02 + 0.53 * out * long + 0.4 * (hg - 0.5) * (across - 0.5) + 0.06 * (h - 0.5);
                 // the round mask centred on the hinge and reaching past the far edge: the twigs whole at the wood,
                 // their tips ragged, not square
                 mask = select(vec2f(su, 0.5 + 0.95 * out), vec2f(0.5 + 0.95 * out, sv), along_u);
-                if (along_u) { su = along; } else { sv = along; }
-                reach = 0.4 + out;
+                let s = select(out * long, 1.0 - out * long, (root & 1u) == 0u);
+                if (along_u) { su = s; } else { sv = s; }
+                hang = out * long;
+                reach = 0.4 + out * long;
             }
             // the painting at its own size across the plane: 32 texels a metre, tiling past the face's edges
             paint = at0 + axis((a + 1u) % 3u) * su + axis((a + 2u) % 3u) * sv;
             o.plane = mask;
-            local = paint + axis(a) * select(push, -push, (dir & 1u) == 1u);
+            // its outer parts hang down by `droop` a metre out (up is the grid's z)
+            local = paint + axis(a) * select(push, -push, (dir & 1u) == 1u) - vec3f(0.0, 0.0, droop * hang);
         }
         local += vec3f(sway(vec3f(c.base) + local, reach), 0.0);
     }
@@ -264,7 +291,7 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     let rel = brot(b, (place(c, b, local, at) - b.cam_hi) - b.cam_lo);
     o.clip = g.view_proj * vec4f(rel, 1.0);
     o.rel = rel;
-    o.ao = 1.0 - 0.2 * f32(occl);
+    o.ao = (1.0 - 0.2 * f32(occl)) * shade;
     // the texture and the cell from the quad's own corner: in the grown lip, fract() would wrap to the far edge
     // (a dirt line along every grass top edge) and floor() name the neighbour
     o.local = paint;

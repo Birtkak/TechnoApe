@@ -38,10 +38,14 @@ gets no early depth.
    wood v0 or v1 by hash, a step on v2 (a limb through), two on v3 (tips); a bare block with no way to wood
    within three steps draws nothing, so a crown thins to its edge and nothing floats.
 4. **Fluff** (`vs_fluff`, `fs_fluff_depth`, `fs_fluff_lit`): every cutout quad that opens on air is drawn again,
-   1.7 times larger and stood 0.3-0.55 m out of the crown, turned per corner by a hash of the place, inside a ragged
-   round of texels. A rooted one is hinged on its wood's side: that edge stays on the face, the far edge stands
-   out, so bare twigs fan out of the crown from the wood. Fluff is not traced: to rays leaves stay whole blocks
-   (ADR 0069, 0088), and far levels stay one colour. `fluff=0` on a run leaves it out.
+   1.7 times larger, stood about 0.35 m out of the crown and tilted 25-35 degrees off its face about a line
+   turned by a hash of the place (per face, so the plane stays flat), so no plane is seen edge-on along an axis
+   as a thin rod and neighbours differ; inside a ragged round of texels (the varying `plane`). Its painting is read
+   in the plane's own coordinates (32 texels a metre, tiling past the face's edges), never stretched. A rooted one
+   is hinged on its wood's side, one face long: that edge stays on the face, the far edge stands 0.55 m out
+   (28 degrees), twisted a little about the hinge, its round mask centred on the hinge so the tips are ragged,
+   so bare twigs fan out of the crown from the wood. Fluff is not traced, and far levels stay one colour.
+   `fluff=0` on a run leaves it out.
 5. **Sway** (`sway`, in `vs_cut` and `vs_fluff`): a smooth field of the place and the sky's clock (`g.water.x`),
    so faces that share an edge move together; amplitude from the wind here (`g.water.w`, frame.rs: 0.5 m/s plus
    the weather's wind, ADR 0076), more at a fluff plane's free edge. In a shot `g.water.w` is 0: the fixed views
@@ -56,6 +60,27 @@ gets no early depth.
    grids, with the twig turn). Unpainted patterns stay 16. A fine face takes four layers a variant of the 2048
    (2 MB, unchanged); the GPU cost is one branch per painted texel. The Studio's check and textures page take
    the size (see below).
+
+7. **A bare crown is lit like bark.** A crown block where winter outweighs the season mix takes its winter
+   painting alone (no summer leaf tint mixed in at a mid latitude; `bare_of`, `is_bare`). To rays, fast leaves were
+   whole blocks in the BLAS's opaque geometry, so a bare crown shadowed itself and its twigs were near black. Now
+   level 0's fast leaves are the BLAS's second geometry too (`frame.rs` `shell`, chunk info bit 18): a ray takes
+   them whole unless they are bare where they stand (the season at the ray's start with the hit column's stagger,
+   `hit_season`), then it passes between the twigs. Fancy leaves take the season's texel the same way. Light falls
+   through a winter crown onto the ground, and each twig has a lit and a shaded side like the trunk.
+
+8. **Every plant's fluff is data, in clumps, with its own shade** (the developer: the target picture
+   `out/flora-refs/6-leaf-block-target.png`, a crown of bulging lobed clumps, bright on top, dark under and
+   inside; "everything biological more or less, single flowers and mushrooms not"). A cutout block's row takes
+   `fluff = { size, push, droop, long, dense }` (`blocks::Fluff`; unnamed numbers are the broadleaf's 1.7, 0.35,
+   0, 1, 1; size 0 none). It rides in the look row's new word 16 (`Fluff::packed`, six bits a number; the row grew
+   from 16 to 20 words). `vs_fluff` reads it: `long` stretches the plane along the way from the wood (fronds,
+   blades), `droop` lowers its outer parts, `dense` keeps that share of faces. A smooth field of the place about
+   2.5 m across (`vnoise`) makes clumps: where it is high a plane is larger and pushed up to 1.7 times out, where
+   low it hardly leaves the face, so a crown bulges in lobes with dents. Each cutout quad and plane carries a
+   shade in `ao`: darker toward its wood (the steps to it), under (a face down 0.6) and in a dent. The rows:
+   spruce short, drooping and long; jungle large and drooping; acacia wide and sparser; shrub small; reed narrow
+   blades 2.6 long. Species to come (palm, bamboo, willow) take their rows the same way.
 
 ## The Studio (tool tier)
 `art::Img` has a height: a fine file opens 32 x 32 a variant (the engine's quarters put back together), saves at
@@ -105,6 +130,12 @@ longer merging (742k quads against 659k) and the two passes. CPU: the frame thre
 (sim), more draws to record; jobs +8 % in fly (the walk to wood, more quads). The row and its ideas are in
 `docs/perf-debt.md` (ADR 0096: no further cost work here).
 
+## Review of the look fixes (decision 4's planes, 7)
+A fresh reviewer read the diff. Fixed: the ray's season had no column stagger, so a tree drawn bare during the
+turn of the season could still shadow as a whole block (`hit_season`); the planes folded along their diagonal
+(a per-corner hash, a bilinear twist; both per face and linear now); hinged planes ended square (the mask is
+centred on the hinge now). Noted: the round mask touches the plane's edge midpoints, as before. Cost: below.
+
 ## Review
 A fresh reviewer read the diff against ADR 0088's branch (mesher, shader, gpu.rs, frame.rs, textures.rs).
 Fixed:
@@ -135,8 +166,10 @@ leaves last and is won back by decision 1 above. This branch carries it to main.
 
 ## Calls for the developer to confirm
 - Fluff on by default (see the numbers); `fluff=0` is a run argument, not yet a setting.
-- Bare crowns' fluff planes seen edge-on from below read as thin rods; and branch logs show as cubes inside
-  a bare crown (part C's shapes).
-- Whole-block shadows under crowns stay (ADR 0088's call).
+- From straight below, a bare crown's own vertical leaf faces (not fluff) are seen edge-on and read as short
+  dark bars; branch logs show as cubes inside a bare crown (part C's shapes).
+- Summer: fast leaves still shadow as whole blocks (ADR 0088's call); winter: light through the twigs.
+- The topmost twigs in full sun read lighter and warmer than the calmed bark: part D's twig painting is a tan
+  family; one palette with `log_side` would make one tree one colour.
 - Twigs shorten to nothing three blocks from the wood; big crowns may want a longer reach once part C's
   branches are in.
