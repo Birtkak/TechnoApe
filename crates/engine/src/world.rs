@@ -2710,7 +2710,7 @@ mod baked_tests {
     }
 
     /// A scouting tool, not a check: on the 4 km planet (seed 1337), the large tree of each species nearest the
-    /// spawn and a `run=stand` that looks at it from 13 m, for ADR 0092's shots. The bake is read from
+    /// spawn at each size and a `run=stand` that looks at it from 10 to 15 m, for ADR 0092's shots. The bake is read from
     /// `TECHNOAPE_BAKE` (a path), else `saves/bakes` under the repository.
     /// `cargo test --profile play -p engine tree_spots -- --ignored --nocapture`.
     #[test]
@@ -2741,12 +2741,13 @@ mod baked_tests {
             let Some((near, f, t)) = *found else { continue };
             let dt = b.dir(f, t.i as f64 + 0.5, t.j as f64 + 0.5);
             let target = b.centre + dt * (b.layer_r(t.z as f64) + t.h as f64 * 0.5);
-            // from the side whose ground is lowest, far enough to see the whole tree
+            // from the sun's side at noon (time=225), 10 to 15 m out at eye height, looking up at its middle
+            let sun = w.sky.sun_dir(225.0);
             let e1 = dt.any_orthonormal_vector();
             let e2 = dt.cross(e1);
             let r = b.layer_r(t.z as f64);
-            let dc = (0..8).map(|a| (a as f64 * std::f64::consts::FRAC_PI_4).sin_cos()).map(|(s, c)| (dt * r + (e1 * c + e2 * s) * (8.0 + t.h as f64 * 1.3)).normalize()).min_by(|x, y| b.top(*x).total_cmp(&b.top(*y))).unwrap();
-            let eye = 1.5 + t.h as f64 * 0.5;
+            let dc = (0..8).map(|a| (a as f64 * std::f64::consts::FRAC_PI_4).sin_cos()).map(|(s, c)| (dt * r + (e1 * c + e2 * s) * (10.0 + t.h as f64 * 0.3)).normalize()).max_by(|x, y| x.dot(sun).total_cmp(&y.dot(sun))).unwrap();
+            let eye = 1.7;
             let pos = b.centre + dc * (b.top(dc) + eye);
             let up = dc;
             let rr = if up.y.abs() > 0.9 { DVec3::Z } else { DVec3::Y };
