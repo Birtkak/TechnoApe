@@ -1405,6 +1405,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn indexed_quads_draw_both_triangles_of_every_split_with_its_own_provoking_corner() {
+        use crate::gpu::{CORNER_K, QUAD_TRIS};
+        // shader.wgsl `quad_corner`'s six corners (u, v): plain, and a slope split along the other diagonal
+        let cu = [[0, 1, 1, 0, 1, 0], [0, 1, 0, 1, 1, 0]];
+        let cv = [0, 0, 1, 0, 1, 1];
+        // a triangle as its corners from its lowest, so the winding counts
+        let tri = |c: [(u32, u32); 3]| {
+            let i = (0..3).min_by_key(|&i| c[i]).unwrap();
+            [c[i], c[(i + 1) % 3], c[(i + 2) % 3]]
+        };
+        for s in 0..2 {
+            let at = |k: u32| (cu[s][k as usize], cv[k as usize]);
+            let want: Vec<_> = (0..2).map(|t| tri([at(3 * t), at(3 * t + 1), at(3 * t + 2)])).collect();
+            for t in 0..2 {
+                let ks = [0, 1, 2].map(|j| CORNER_K[s][QUAD_TRIS[3 * t + j] as usize]);
+                let got = tri(ks.map(at));
+                let which = want.iter().position(|w| *w == got);
+                assert!(which.is_some(), "split {s}: indexed triangle {t} {got:?} is none of {want:?}");
+                // its provoking (first) corner is one of its own triangle's: the flat slope normal is the right one
+                assert_eq!(ks[0] / 3, which.unwrap() as u32, "split {s}: triangle {t}'s first corner is the other triangle's");
+            }
+        }
+    }
+
+    #[test]
     fn quad_draws_cover_every_quad_once_within_the_index_buffer() {
         let mut out = Vec::new();
         quad_draws(&mut out, 1.0, 10, 0, 7);

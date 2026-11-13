@@ -90,6 +90,12 @@ build; the only differences seen are the sky's clouds between shots. No distance
   leaves opaque to rays outside winter are its perf-debt rows.
 - A taste call for the developer: fluff past ~64 m (option 3) saves another 1.1-1.4 ms at 1440p (measured before win 4) and turns far
   crowns back toward cubes.
+- With ADR 0101's sloped tops (merged after): a slope split along the other diagonal lost a triangle (the four
+  indexed corners missed (1, 1)) and the shared corners blended the two triangles' normals. Now the index order is
+  0 1 2, 3 0 2, a swapped slope's corners are `quad_corner`'s 3 4 5 0, and the slope's normal goes flat
+  (`VOut.slope`) from each triangle's first corner; test
+  `frame::tests::indexed_quads_draw_both_triangles_of_every_split_with_its_own_provoking_corner` (seen failing),
+  stills `out/shots/cmp-slope-{top,side,side2}.png` (before over after). The traced geometry keeps its six corners.
 - `vs_fluff`'s bit-25 early-out is now redundant but kept (cheap, guards a mesh from before).
 - Review (fresh subagent on the diff): no serious finding; glass's MAX_CHUNKS cut dropped the nearest panes, not
   the farthest (fixed); a pre-existing overlap of the crack bits (`ck << 20`) with the twig and open-on-air bits in

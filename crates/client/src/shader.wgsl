@@ -112,6 +112,9 @@ struct VOut {
     @location(5) rel: vec3f, // from the camera
     @location(6) ao: f32,    // open 1 .. shut in
     @location(7) plane: vec3f, // a fluff card's point from its face's middle in face units, z its overhang (ADR 0099)
+    // a slope's triangle normal, w 1 (ADR 0101): flat, from the triangle's first corner (gpu.rs QUAD_TRIS), as the
+    // indexed corners are shared by both triangles (ADR 0103)
+    @location(8) @interpolate(flat) slope: vec4f,
 };
 
 fn axis(i: u32) -> vec3f { return vec3f(f32(i == 0u), f32(i == 1u), f32(i == 2u)); }
@@ -220,16 +223,22 @@ fn sway(p: vec3f, reach: f32) -> vec2f {
     return amp * vec2f(sin(t * 1203.0 + ph) + 0.4 * sin(t * 2464.0 + ph * 2.3), sin(t * 974.0 + ph * 1.3 + 1.0) + 0.4 * sin(t * 2235.0 - ph * 1.7));
 }
 
-// an indexed quad's corner (ADR 0103: four a quad, `quad_index` in gpu.rs) as quad_corner's k: 0, 1, 2 and 5
-fn corner_k(vi: u32) -> u32 {
-    return select(vi % 4u, 5u, vi % 4u == 3u);
+// an indexed quad's corner (ADR 0103: four a quad, `quad_index` in gpu.rs) as quad_corner's k: 0, 1, 2 and 5, or
+// for a slope split along the other diagonal 3, 4, 5 and 0, so each triangle's first corner is its own (gpu.rs
+// CORNER_K mirrors this)
+fn corner_k(vi: u32, swap: bool) -> u32 {
+    let i = vi % 4u;
+    if (swap) { return (i + 3u) % 6u; }
+    return select(i, 5u, i == 3u);
 }
 
 fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     let q = quads[vi / 4u];
     let dir = (q.x >> 28u) & 7u;
     let a = dir / 2u;
-    let k = corner_k(vi);
+    let sloped = (q.x >> 31u) == 1u;
+    let swap = sloped && ((q.y >> 20u) & 1u) != ((q.y >> 23u) & 1u);
+    let k = corner_k(vi, swap);
     // grown by a millimetre: a merged quad's edge and its neighbours' corners on it are worked out apart, at
     // f32's grain at the body's radius (a quarter millimetre at 4 km), and met with pixel holes of sky between
     // them (bug 2026-11-11_17-38-04, ADR 0041); the overlap closes them, too thin to see as a lip
@@ -237,8 +246,7 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     // the corner in the face's u, v: as quad_corner lays it out
     var cu = array<u32, 6>(0u, 1u, 1u, 0u, 1u, 0u);
     var cv = array<u32, 6>(0u, 0u, 1u, 0u, 1u, 1u);
-    let sloped = (q.x >> 31u) == 1u;
-    if (sloped && ((q.y >> 20u) & 1u) != ((q.y >> 23u) & 1u)) {
+    if (swap) {
         cu = array<u32, 6>(0u, 1u, 0u, 1u, 1u, 0u);
     }
     var ku = cu[k];
@@ -323,6 +331,7 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     if (sloped && dir == 4u) {
         // a slope: its triangle's own normal (ADR 0101), as the traced geometry has it; its painting laid flat
         normal = slope_normal(c, b, q, k / 3u);
+        o.slope = vec4f(brot(b, normal), 1.0);
         paint.z = f32((q.x >> 12u) & 63u);
     }
 
@@ -1322,7 +1331,7 @@ fn terrain_lit(i: VOut, col_in: vec3f) -> GOut {
     let c = chunks[i.ci];
     let body = (c.info >> 8u) & 255u;
     let look = looks[i.mat & 255u];
-    let n = normalize(i.normal);
+    let n = normalize(select(i.normal, i.slope.xyz, i.slope.w > 0.5));
     var col = col_in;
     // the planet's lying snow (ADR 0076, the air grid's per column): white over what faces up, the face's own
     // pattern showing through where it lies thin
@@ -2346,7 +2355,7 @@ fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     let f = sfaces[fi];
     var cu = array<f32, 6>(0., 1., 1., 0., 1., 0.);
     var cv = array<f32, 6>(0., 0., 1., 0., 1., 1.);
-    let uv = vec2f(cu[corner_k(vi)], cv[corner_k(vi)]);
+    let uv = vec2f(cu[corner_k(vi, false)], cv[corner_k(vi, false)]);
     let lo = q.x;
     let cell = vec3f(f32(lo & 63u), f32((lo >> 6u) & 63u), f32((lo >> 12u) & 63u));
     let c = chunks[ii];

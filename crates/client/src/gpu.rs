@@ -470,6 +470,13 @@ pub(crate) struct DrawIndexed {
 }
 /// Quads one indexed draw holds at most: `quad_index`'s length in quads (ADR 0103).
 pub(crate) const QUAD_INDEX: u32 = 1 << 16;
+/// A quad's two triangles over its four corners (`quad_index`); each triangle's first corner is its provoking
+/// vertex, which carries a slope's flat normal (ADR 0101, 0103).
+pub(crate) const QUAD_TRIS: [u32; 6] = [0, 1, 2, 3, 0, 2];
+/// Mirror of shader.wgsl's `corner_k`: the four corners as `quad_corner`'s k, plain and a slope split along the
+/// other diagonal.
+#[cfg(test)]
+pub(crate) const CORNER_K: [[u32; 4]; 2] = [[0, 1, 2, 5], [3, 4, 5, 0]];
 /// The regions of `indirect`, bytes: the sea's draws (ADR 0071), then MAX_CHUNKS indexed draws each for the
 /// terrain, the cutout blocks (ADR 0069), glass (ADR 0081), the still models (ADR 0082) and the fluff (ADR 0103).
 pub(crate) const IND_SEA: u64 = 0;
@@ -830,10 +837,10 @@ impl Gpu {
         // the draws, in the regions IND_SEA .. IND_FLUFF
         let indirect = buf("indirect", IND_FLUFF + MAX_CHUNKS as u64 * 20, U::INDIRECT | U::COPY_DST);
         // the terrain's quads are drawn indexed (ADR 0103): quad q's corners are vertices 4q .. 4q + 3 (shader.wgsl
-        // `corner_k`), its two triangles 0 1 2 and 0 2 3, so each corner is shaded once, not once a triangle
+        // `corner_k`), its two triangles QUAD_TRIS, so each corner is shaded once, not once a triangle
         let quad_index = wgpu::util::DeviceExt::create_buffer_init(&device, &wgpu::util::BufferInitDescriptor {
             label: Some("quad index"),
-            contents: bytemuck::cast_slice(&(0..QUAD_INDEX).flat_map(|q| [0, 1, 2, 0, 2, 3].map(|k| q * 4 + k)).collect::<Vec<u32>>()),
+            contents: bytemuck::cast_slice(&(0..QUAD_INDEX).flat_map(|q| QUAD_TRIS.map(|k| q * 4 + k)).collect::<Vec<u32>>()),
             usage: U::INDEX,
         });
         let wquads = buf("wquads", (MAX_WQUADS * std::mem::size_of::<water::WQuad>()) as u64, U::STORAGE | U::COPY_DST);
