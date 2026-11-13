@@ -1,15 +1,17 @@
 # Fixed viewpoints (ADR 0018): name | crack pixels allowed | run=stand arguments.
 # A shot clears to magenta and counts it where a ray must meet a body (cracks); it is compared by pixel with
 # tests/views/<name>.png. Allowed cracks above 0 are known bugs, each with its note; the gate fails on more.
-seam   | 0 | at=-1,1,-0.85 eye=3 pitch=-20
-corner | 0 | at=-1,1,-1 eye=4 pitch=-30
-lod    | 0 | at=0.3,1,0.2 eye=120 pitch=-35
-high   | 0 | at=0.2,1,0.1 eye=400 pitch=-50
-orbit  | 0 | at=0,1,0 eye=2500 pitch=-89
-coast  | 0 | at=-0.1210,0.9926,0 eye=8 pitch=-20 yaw=90
+# Every view's weather is forced clear (ADR 0073): a fresh server's grid steps on its wall clock, so a slow load
+# met other clouds, and their cell shadows and grey sky made the same view differ by up to 40 %.
+seam   | 0 | at=-1,1,-0.85 eye=3 pitch=-20 weather=clear
+corner | 0 | at=-1,1,-1 eye=4 pitch=-30 weather=clear
+lod    | 0 | at=0.3,1,0.2 eye=120 pitch=-35 weather=clear
+high   | 0 | at=0.2,1,0.1 eye=400 pitch=-50 weather=clear
+orbit  | 0 | at=0,1,0 eye=2500 pitch=-89 weather=clear
+coast  | 0 | at=-0.1210,0.9926,0 eye=8 pitch=-20 yaw=90 weather=clear
 # W3's seasons (ADR 0060): the spawn's forest (about 30 degrees north) at noon of each season, looking south:
 # the shadows shorten to summer and lengthen to winter
-season-spring | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=225
-season-summer | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=23625
-season-autumn | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=48825
-season-winter | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=72225
+season-spring | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=225 weather=clear
+season-summer | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=23625 weather=clear
+season-autumn | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=48825 weather=clear
+season-winter | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=72225 weather=clear

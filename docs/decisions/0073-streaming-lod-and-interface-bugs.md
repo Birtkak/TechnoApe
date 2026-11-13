@@ -93,6 +93,22 @@ depended on how long loading took:
 Measured (the `lod` view, 640 x 360 shots): the clock alone made quiet runs pixel-identical, but runs under twelve
 busy loops (18 to 28 s loads) still differed by up to 37 a channel; with both, three quiet and two busy runs (22 s
 loads) are pixel-identical. The views were accepted again: each view's sky is now exactly at its `time=`.
+- **The weather's step.** After the weather (ADR 0076) the `coast` view once came out 39.65 % off, its sea a
+  patchwork of light and dark rectangles: a storm's cell shadows (`cl_shadow` takes the 16 m cell where the
+  sun's ray crosses the cloud slab), there because the server's grid steps every 10 s of its wall-clock time and
+  a slow load reached a later step. The cover where the camera stands (`ToClient::Air`) greys the sky and the
+  fill light too, so holding the client's first map was not enough (tried: three different pictures of `coast`).
+  Every fixed view now runs under `weather=clear` (the server's `/weather` force from the start): the views test
+  ground, light and LOD, not a fresh grid's first steps. Main's baselines had been shot under other steps
+  (seam 95.9 % off, its whole ground in a cloud's shadow); accepted again.
+  The force reaches the client as a step it blends in over 10 s of world time, which a shot's held clock
+  stopped part-way (one shot clear, the next under the first map's cloud): a shot shows the newest map whole.
+- A shot waits up to 200 s for the whole world (a run 60 s): on a swamped PC a shot of a half-loaded world was
+  compared (86 % off).
+- A shot fires at exactly 400 frames after loading (it waited for a second from the start as well, so a quiet
+  PC averaged more frames; the reviewer's finding).
+- Left: water's ripples and rises run on the process's clock (`sun.w`), so a view of a flowing river would still
+  vary; no view shows one. In play the clouds' shadows are the hard-edged cells by design (ADR 0076).
 
 ## Calls for the developer to confirm
 - Loading screen look: dark, the title, "Loading the world: N chunks to go" and a green bar (not filmed: the
