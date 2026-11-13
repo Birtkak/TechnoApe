@@ -231,13 +231,24 @@ impl App {
                 Recv::Msg(ToClient::Edits(v)) => {
                     let mut heard = 0;
                     let mut moved = false;
+                    let (mut slid, mut slid_at) = (0u32, None);
                     for (k, &(b, m)) in v.iter().enumerate() {
                         // a loose block's fall (ADR 0079) is two edits in a row, the block gone from one cell and
                         // in the next, side by side (the server sends moves in messages of their own): it breaks
                         // nothing and places nothing. shortcut: a move across a face's edge plays its break and place
                         // (a few cells of the planet); pair by the fold when anyone notices
-                        let fall = std::mem::take(&mut moved) || (m == engine::blocks::AIR && v.get(k + 1).is_some_and(|&(q, n)| engine::blocks::BLOCKS.get(n).is_some_and(|d| d.falls) && (q.body, q.face) == (b.body, b.face) && (q.pos - b.pos).abs().element_sum() == 1 && self.world.block(b) == n));
+                        let second = std::mem::take(&mut moved);
+                        let fall = second || (m == engine::blocks::AIR && v.get(k + 1).is_some_and(|&(q, n)| engine::blocks::BLOCKS.get(n).is_some_and(|d| d.falls) && (q.body, q.face) == (b.body, b.face) && (q.pos - b.pos).abs().element_sum() == 1 && self.world.block(b) == n));
                         moved = fall && m == engine::blocks::AIR;
+                        if second {
+                            // the block arriving (ADR 0101): it glides in from the cell it left, one hiss a slump
+                            let from = v[k - 1].0;
+                            if self.fx.on {
+                                self.glide(from, b, m);
+                            }
+                            slid += 1;
+                            slid_at.get_or_insert(b);
+                        }
                         // the cell's delta: its effect and, for up to three cells of an edit, its sound (another
                         // player's digging and building; this player's own were seen and heard at the click)
                         let hear = heard < 3 && self.loaded_at.is_some() && !fall;
@@ -252,6 +263,13 @@ impl App {
                         if measuring {
                             self.samples.edits += 1;
                         }
+                    }
+                    // a slump is one rolling hiss: a take at most every SLUMP_S while blocks keep moving, louder
+                    // the more move at once, never one a block
+                    let now = self.start.elapsed().as_secs_f64();
+                    if let Some(b) = slid_at.filter(|_| now >= self.slump_quiet && self.loaded_at.is_some()) {
+                        self.audio.play("slump", Some(self.world.block_centre(b)), (0.4 + 0.1 * slid as f32).min(1.0), 1.0, false);
+                        self.slump_quiet = now + crate::app::SLUMP_S;
                     }
                 }
                 Recv::Msg(ToClient::Done { seq, .. }) => {
@@ -481,6 +499,20 @@ impl App {
                 !over
             });
         }
+        // a glide ended: its cell meshed again, and the block drawn on until the terrain shows it (ADR 0101)
+        if !self.glides.is_empty() {
+            let now = self.start.elapsed().as_secs_f64();
+            let (world, streamer) = (&self.world, &mut self.streamer);
+            self.glides.retain_mut(|(g, shown)| {
+                let gone = world.block(g.to) != g.block;
+                if shown.is_none() && (g.ended(now) || gone) {
+                    streamer.gliding.retain(|b| *b != g.to);
+                    streamer.touch_block(world, g.to);
+                    *shown = Some(now);
+                }
+                !(gone || shown.is_some_and(|t| streamer.shows(world, g.to) || now > t + 1.0))
+            });
+        }
         lap!("edits");
 
         let gpu = self.gpu.as_ref().unwrap();
@@ -682,6 +714,8 @@ impl App {
             self.fx.step(&self.world, (dt as f32).min(0.1));
             self.cracks(self.start.elapsed().as_secs_f64());
             self.lay_piles();
+            let now = self.start.elapsed().as_secs_f64();
+            self.fx.lay(self.glides.iter().map(|(g, _)| g.gpu(now)));
             let gpu = self.gpu.as_ref().unwrap();
             let d = self.fx.drawn();
             let k = d.len().min(MAX_FX);

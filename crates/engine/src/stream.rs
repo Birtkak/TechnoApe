@@ -221,6 +221,8 @@ pub struct Streamer {
     pub clutter: (Arc<Still>, f64, (i64, u32), [f32; 2]),
     /// The pick-ups taken (ADR 0082): the cell each lay in and the year it was taken, as the server sends them.
     pub taken: FxMap<Block, u32>,
+    /// Cells level 0 meshes as air while the client draws their block gliding in (ADR 0101): few, a slump's.
+    pub gliding: Vec<Block>,
 }
 
 pub struct View {
@@ -325,6 +327,7 @@ impl Streamer {
             released: Vec::new(),
             clutter: (Arc::new(Still::default()), 0.0, (i64::MIN, 0), [1.0; 2]),
             taken: FxMap::default(),
+            gliding: Vec::new(),
         }
     }
 
@@ -578,6 +581,16 @@ impl Streamer {
             let mut edits = world.edits_for(k);
             if !world.models.is_empty() {
                 hide_models(&mut edits, &crate::blocks::BLOCKS);
+            }
+            if k.level == 0 {
+                let c0 = k.pos * CS - 1; // padded cell (0, 0, 0)
+                for b in self.gliding.iter().filter(|b| (b.body, b.face) == (k.body, k.face)) {
+                    let q = b.pos - c0;
+                    if q.cmpge(IVec3::ZERO).all() && q.cmplt(IVec3::splat(P as i32)).all() {
+                        let i = pidx(q.x as usize, q.y as usize, q.z as usize) as u32;
+                        edits.iter_mut().filter(|e| e.0 == i).for_each(|e| e.1 = crate::blocks::AIR);
+                    }
+                }
             }
             let tx = self.tx.clone();
             let bodies = world.bodies.clone();

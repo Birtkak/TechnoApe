@@ -127,10 +127,40 @@ fn quad_corner(q: vec2u, k: u32, grow: f32) -> vec3f {
     // corner order of two CCW triangles; mirrored for the negative faces
     var cu = array<f32, 6>(0., 1., 1., 0., 1., 0.);
     var cv = array<f32, 6>(0., 0., 1., 0., 1., 1.);
+    // a loose block's slope (bit 31, ADR 0101; mesh.rs): corner (du, dv) a cell lower where bit 20 + du + 2 dv
+    // is set, split along the other diagonal when corners (0, 0) and (1, 1) differ, so a lone corner down is one
+    // triangle's
+    let sloped = (lo >> 31u) == 1u;
+    if (sloped && ((q.y >> 20u) & 1u) != ((q.y >> 23u) & 1u)) {
+        cu = array<f32, 6>(0., 1., 0., 1., 1., 0.);
+    }
     var du = cu[k];
     var dv = cv[k];
     if ((dir & 1u) == 1u) { du = cv[k]; dv = cu[k]; }
-    return p + axis((a + 1u) % 3u) * (du * (w + 2.0 * grow) - grow) + axis((a + 2u) % 3u) * (dv * (h + 2.0 * grow) - grow);
+    var c = p + axis((a + 1u) % 3u) * (du * (w + 2.0 * grow) - grow) + axis((a + 2u) % 3u) * (dv * (h + 2.0 * grow) - grow);
+    if (sloped) { c.z -= f32((q.y >> (20u + u32(du) + 2u * u32(dv))) & 1u); }
+    return c;
+}
+
+// the quad's own corner, which picks its lattice cell in `place`: a sloped top's half a cell down, so its
+// lowered corners lie in the cell rather than past its edge (ADR 0101)
+fn quad_at(q: vec2u) -> vec3f {
+    let p = vec3f(f32(q.x & 63u), f32((q.x >> 6u) & 63u), f32((q.x >> 12u) & 63u));
+    return p - vec3f(0.0, 0.0, select(0.0, 0.5, (q.x >> 31u) == 1u && ((q.x >> 28u) & 7u) == 4u));
+}
+
+// a sloped top's triangle `tri` (0, 1): its true normal from where its corners are drawn, in the body's frame
+fn slope_normal(c: Chunk, b: Body, q: vec2u, tri: u32) -> vec3f {
+    let at = quad_at(q);
+    let p0 = place(c, b, quad_corner(q, tri * 3u, 0.0), at);
+    let p1 = place(c, b, quad_corner(q, tri * 3u + 1u, 0.0), at);
+    let p2 = place(c, b, quad_corner(q, tri * 3u + 2u, 0.0), at);
+    return normalize(cross(p1 - p0, p2 - p0));
+}
+
+// a quad's look bits for the texel: a slope's corner bits are no crack edges
+fn quad_mat(q: vec2u) -> u32 {
+    return select(q.y, q.y & ~0x00f00000u, (q.x >> 31u) == 1u);
 }
 
 // a point of chunk c, in its cells, on the cube-sphere: the grid point and its frame
@@ -202,6 +232,10 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     // the corner in the face's u, v: as quad_corner lays it out
     var cu = array<u32, 6>(0u, 1u, 1u, 0u, 1u, 0u);
     var cv = array<u32, 6>(0u, 0u, 1u, 0u, 1u, 1u);
+    let sloped = (q.x >> 31u) == 1u;
+    if (sloped && ((q.y >> 20u) & 1u) != ((q.y >> 23u) & 1u)) {
+        cu = array<u32, 6>(0u, 1u, 0u, 1u, 1u, 0u);
+    }
     var ku = cu[k];
     var kv = cv[k];
     if ((dir & 1u) == 1u) { ku = cv[k]; kv = cu[k]; }
@@ -301,8 +335,13 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     if (a == 0u) { normal = normalize(f.s - f.n * f.ta); }
     if (a == 1u) { normal = normalize(f.t - f.n * f.tb); }
     if ((dir & 1u) == 1u) { normal = -normal; }
+    if (sloped && dir == 4u) {
+        // a slope: its triangle's own normal (ADR 0101), as the traced geometry has it; its painting laid flat
+        normal = slope_normal(c, b, q, k / 3u);
+        paint.z = f32((q.x >> 12u) & 63u);
+    }
 
-    let at = quad_corner(q, 0u, 0.0);
+    let at = quad_at(q);
     let rel = brot(b, (place(c, b, local, at) - b.cam_hi) - b.cam_lo);
     o.clip = g.view_proj * vec4f(rel, 1.0);
     o.rel = rel;
@@ -312,7 +351,7 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     // (a dirt line along every grass top edge) and floor() name the neighbour
     o.local = paint;
     o.dir = dir;
-    o.mat = q.y;
+    o.mat = quad_mat(q);
     o.ci = ii;
     o.normal = brot(b, normal);
     return o;
@@ -350,7 +389,7 @@ fn expand(@builtin(global_invocation_id) id: vec3u) {
         return;
     }
     for (var k = 0u; k < 6u; k++) {
-        let at = quad_corner(q, 0u, 0.0);
+        let at = quad_at(q);
         let p = place(c, b, quad_corner(q, k, GROW), at);
         let o = (bd.dst + id.x * 6u + k) * 3u;
         verts[o] = p.x;
@@ -506,13 +545,15 @@ fn hit_texel(ci: u32, q: vec2u, prim: u32, bc: vec2f, sn: vec3f) -> vec4f {
     let tri = (prim & 1u) * 3u;
     // the BLAS holds the quads grown by GROW; the same barycentrics on the ungrown corners map a hit in the lip
     // onto the quad's edge texel, as `vs` keeps `local` ungrown (a grown lip's fract wraps to the far edge)
-    let local = quad_corner(q, tri, 0.0) * (1.0 - bc.x - bc.y) + quad_corner(q, tri + 1u, 0.0) * bc.x + quad_corner(q, tri + 2u, 0.0) * bc.y;
+    var local = quad_corner(q, tri, 0.0) * (1.0 - bc.x - bc.y) + quad_corner(q, tri + 1u, 0.0) * bc.x + quad_corner(q, tri + 2u, 0.0) * bc.y;
     let dir = (q.x >> 28u) & 7u;
+    // a slope's painting lies flat, as `vs` lays it (ADR 0101)
+    if ((q.x >> 31u) == 1u && dir == 4u) { local.z = f32((q.x >> 12u) & 63u); }
     let a = dir / 2u;
     let sgn = select(1.0, -1.0, (dir & 1u) == 1u);
     let cell = vec3i(floor(local - axis(a) * sgn * 0.5)) + c.base + vec3i(i32(c.info & 7u) * 977);
     let f = fract(local);
-    return texel_a(q.y, dir, cell, vec2f(f[(a + 1u) % 3u], f[(a + 2u) % 3u]), f.z, sn);
+    return texel_a(quad_mat(q), dir, cell, vec2f(f[(a + 1u) % 3u], f[(a + 2u) % 3u]), f.z, sn);
 }
 
 // a direction to a point of a disc of angular radius ar around direction s, from a per-pixel number pair
@@ -761,6 +802,7 @@ fn seen(p: vec3f, d: vec3f, body: u32, px: vec2u, bounce: bool, tmax: f32) -> ve
     if (a == 0u) { hn = normalize(f.s - f.n * f.ta); }
     if (a == 1u) { hn = normalize(f.t - f.n * f.tb); }
     if ((dir & 1u) == 1u) { hn = -hn; }
+    if ((q.x >> 31u) == 1u && dir == 4u) { hn = slope_normal(c, b, q, h.primitive_index & 1u); }
     let m = q.y & 255u;
     if (((looks[m].info >> 24u) & 1u) == 1u) { return select(seen_colour(m, vec3f(0.0)), vec3f(0.0), bounce) * tint; }
     let l = light(p + d * h.t, brot(b, hn), body, px);
@@ -2007,7 +2049,8 @@ fn vs_fx(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> Fx
         // a whole cell, scaled about its middle, its corners from the grid as `vs` places the terrain's
         let cell = vec3f(f32(q.a & 0x7fffu), f32((q.a >> 15u) & 0x7fffu), f32(q.b & 0xffffu));
         let c = cube_corner(dir, k);
-        let gp = cell + 0.5 + (c - 0.5) * q.size;
+        // a loose block gliding into its cell (bit 20, ADR 0101): `p` is its offset in cells
+        let gp = cell + 0.5 + (c - 0.5) * q.size + select(vec3f(0.0), q.p, ((q.info >> 20u) & 1u) == 1u);
         let f = frame_at(q.b >> 16u, b, gp.x, gp.y);
         pb = f.up * (b.r0 * exp(gp.z * b.lnq));
         let a = dir / 2u;

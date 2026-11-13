@@ -610,6 +610,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         fx_n: 0,
         dip: fx::Track { tween: fx::Tween::new(-10.0, 0.18, fx::Curve::Pulse), from: [0.0; 2], to: [0.0; 2] },
         growing: Vec::new(),
+        glides: Vec::new(),
+        slump_quiet: 0.0,
         hold: edit::Hold::default(),
         dig_hit: 0.0,
         dig_again: false,
