@@ -1069,8 +1069,14 @@ impl App {
                         rp.set_pipeline(&gpu.fluff_depth_pipeline);
                         rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
                     }
-                    rp.set_pipeline(&gpu.pipeline);
                 }
+                // the plants' and still models' depth too, so the ground under the grass is never shaded (ADR 0103)
+                let still_at = (MAX_CHUNKS * 64) as u64;
+                if !still_args.is_empty() {
+                    rp.set_pipeline(&gpu.still_depth_pipeline);
+                    rp.multi_draw_indirect(&gpu.indirect, still_at, still_args.len() as u32);
+                }
+                rp.set_pipeline(&gpu.pipeline);
                 rp.multi_draw_indirect(&gpu.indirect, 0, args.len() as u32);
                 if n_cut > 0 {
                     rp.set_pipeline(&gpu.cut_lit_pipeline);
@@ -1082,7 +1088,7 @@ impl App {
                 }
                 if !still_args.is_empty() {
                     rp.set_pipeline(&gpu.still_pipeline);
-                    rp.multi_draw_indirect(&gpu.indirect, (MAX_CHUNKS * 64) as u64, still_args.len() as u32);
+                    rp.multi_draw_indirect(&gpu.indirect, still_at, still_args.len() as u32);
                 }
             } else {
                 let cuts = |rp: &mut wgpu::RenderPass, p: &wgpu::RenderPipeline| {
@@ -1094,6 +1100,10 @@ impl App {
                 cuts(&mut rp, &gpu.cut_depth_pipeline);
                 if fluff {
                     cuts(&mut rp, &gpu.fluff_depth_pipeline);
+                }
+                rp.set_pipeline(&gpu.still_depth_pipeline);
+                for d in &still_args {
+                    rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
                 }
                 rp.set_pipeline(&gpu.pipeline);
                 for d in &args {

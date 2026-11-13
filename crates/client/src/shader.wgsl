@@ -2331,18 +2331,32 @@ fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     return o;
 }
 
+// a still quad's painted texel; clear where it is not drawn: a model's plane is two faces back to back, the one
+// turned away goes (the pipeline culls nothing); a plant's is one face seen from both sides
+fn still_paint(i: VOut) -> vec4f {
+    let f = sfaces[i.dir];
+    if ((f.flags & PLANT) == 0u && dot(i.normal, i.rel) > 0.0) { return vec4f(0.0); }
+    let x0 = vec2u(f.xy & 65535u, f.xy >> 16u);
+    let px = clamp(vec2u(max(floor(i.local.xy), vec2f(0.0))), x0, x0 + vec2u(f.wh & 65535u, f.wh >> 16u) - 1u);
+    return unpack4x8unorm(spaint[f.base + px.y * f.pw + px.x]);
+}
+
+// the still quads' depth pass (ADR 0103), as the cutout blocks' (`fs_cut_depth`): `fs_still` then shades where
+// this left its depth (`Equal`), each pixel once, and the terrain under a plant is not shaded at all
+@fragment
+fn fs_still_depth(i: VOut) -> GOut {
+    if (still_paint(i).a < 0.5) {
+        discard;
+    }
+    return GOut(vec4f(0.0), vec4f(0.0), vec2u(0u));
+}
+
 @fragment
 fn fs_still(i: VOut) -> GOut {
     let f = sfaces[i.dir];
     let plant = (f.flags & PLANT) != 0u;
-    // a model's plane is two faces back to back: the one turned away goes (the pipeline culls nothing); a plant's
-    // is one face seen from both sides
-    if (!plant && dot(i.normal, i.rel) > 0.0) {
-        discard;
-    }
-    let x0 = vec2u(f.xy & 65535u, f.xy >> 16u);
-    let px = clamp(vec2u(max(floor(i.local.xy), vec2f(0.0))), x0, x0 + vec2u(f.wh & 65535u, f.wh >> 16u) - 1u);
-    let t = unpack4x8unorm(spaint[f.base + px.y * f.pw + px.x]);
+    // (the back-to-back faces of a model meet the depth pass's alike: the turned-away one still goes)
+    let t = still_paint(i);
     if (t.a < 0.5) {
         discard;
     }

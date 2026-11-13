@@ -501,8 +501,10 @@ pub(crate) struct Gpu {
     pub mquads: wgpu::Buffer,
     pub mpieces: wgpu::Buffer,
     /// The clutter's still models (ADR 0082): their faces and paintings are bindings 16 and 17, the streamer
-    /// lays their quads in level 0's meshes; drawn by `still_pipeline`.
+    /// lays their quads in level 0's meshes; drawn as the cutout blocks are (ADR 0103): their depth alone before
+    /// the terrain (`still_depth_pipeline`), then `still_pipeline` shades each pixel once where that depth is.
     pub still: std::sync::Arc<engine::clutter::Still>,
+    pub(crate) still_depth_pipeline: wgpu::RenderPipeline,
     pub(crate) still_pipeline: wgpu::RenderPipeline,
     pub(crate) model_pipeline: wgpu::RenderPipeline,
     pub(crate) bind: wgpu::BindGroup,
@@ -986,8 +988,9 @@ impl Gpu {
         let cut_lit_pipeline = gbuffer_pass("vs_cut", "fs_cut_lit", Some(wgpu::Face::Back), true, wgpu::CompareFunction::Equal);
         let fluff_depth_pipeline = gbuffer_pass("vs_fluff", "fs_fluff_depth", Some(wgpu::Face::Back), false, wgpu::CompareFunction::Greater);
         let fluff_lit_pipeline = gbuffer_pass("vs_fluff", "fs_fluff_lit", Some(wgpu::Face::Back), true, wgpu::CompareFunction::Equal);
-        // still models: either way round (`fs_still` drops the face turned away)
-        let still_pipeline = gbuffer_pipeline("vs_still", "fs_still", None);
+        // still models: either way round (`fs_still` drops the face turned away); depth first, then lit where it is
+        let still_depth_pipeline = gbuffer_pass("vs_still", "fs_still_depth", None, false, wgpu::CompareFunction::Greater);
+        let still_pipeline = gbuffer_pass("vs_still", "fs_still", None, true, wgpu::CompareFunction::Equal);
         // the models (ADR 0047): into the G-buffer with the terrain
         let model_pipeline = gbuffer_pipeline("vs_model", "fs_model", Some(wgpu::Face::Back));
         // water: blended over the terrain, tested against its depth but not writing it, seen from both sides
@@ -1150,6 +1153,7 @@ impl Gpu {
             mquads,
             mpieces,
             still,
+            still_depth_pipeline,
             still_pipeline,
             model_pipeline,
             ghost_pipeline,
