@@ -458,6 +458,33 @@ pub(crate) struct DrawArgs {
     pub(crate) first_vertex: u32,
     pub(crate) first_instance: u32,
 }
+/// An indexed draw's arguments (`multi_draw_indexed_indirect`): the terrain's quads over `quad_index` (ADR 0103).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct DrawIndexed {
+    pub(crate) index_count: u32,
+    pub(crate) instance_count: u32,
+    pub(crate) first_index: u32,
+    pub(crate) base_vertex: i32,
+    pub(crate) first_instance: u32,
+}
+/// Quads one indexed draw holds at most: `quad_index`'s length in quads (ADR 0103).
+pub(crate) const QUAD_INDEX: u32 = 1 << 16;
+/// A quad's two triangles over its four corners (`quad_index`); each triangle's first corner is its provoking
+/// vertex, which carries a slope's flat normal (ADR 0101, 0103).
+pub(crate) const QUAD_TRIS: [u32; 6] = [0, 1, 2, 3, 0, 2];
+/// Mirror of shader.wgsl's `corner_k`: the four corners as `quad_corner`'s k, plain and a slope split along the
+/// other diagonal.
+#[cfg(test)]
+pub(crate) const CORNER_K: [[u32; 4]; 2] = [[0, 1, 2, 5], [3, 4, 5, 0]];
+/// The regions of `indirect`, bytes: the sea's draws (ADR 0071), then MAX_CHUNKS indexed draws each for the
+/// terrain, the cutout blocks (ADR 0069), glass (ADR 0081), the still models (ADR 0082) and the fluff (ADR 0103).
+pub(crate) const IND_SEA: u64 = 0;
+pub(crate) const IND_LAND: u64 = MAX_CHUNKS as u64 * 16;
+pub(crate) const IND_CUT: u64 = IND_LAND + MAX_CHUNKS as u64 * 20;
+pub(crate) const IND_GLASS: u64 = IND_CUT + MAX_CHUNKS as u64 * 20;
+pub(crate) const IND_STILL: u64 = IND_GLASS + MAX_CHUNKS as u64 * 20;
+pub(crate) const IND_FLUFF: u64 = IND_STILL + MAX_CHUNKS as u64 * 20;
 
 pub(crate) struct Gpu {
     /// The clouds' map (ADR 0076), filled by `sky::Sky::upload`.
@@ -501,8 +528,10 @@ pub(crate) struct Gpu {
     pub mquads: wgpu::Buffer,
     pub mpieces: wgpu::Buffer,
     /// The clutter's still models (ADR 0082): their faces and paintings are bindings 16 and 17, the streamer
-    /// lays their quads in level 0's meshes; drawn by `still_pipeline`.
+    /// lays their quads in level 0's meshes; drawn as the cutout blocks are (ADR 0103): their depth alone before
+    /// the terrain (`still_depth_pipeline`), then `still_pipeline` shades each pixel once where that depth is.
     pub still: std::sync::Arc<engine::clutter::Still>,
+    pub(crate) still_depth_pipeline: wgpu::RenderPipeline,
     pub(crate) still_pipeline: wgpu::RenderPipeline,
     pub(crate) model_pipeline: wgpu::RenderPipeline,
     pub(crate) bind: wgpu::BindGroup,
@@ -515,6 +544,8 @@ pub(crate) struct Gpu {
     pub(crate) sfaces: wgpu::Buffer,
     pub(crate) spaint: wgpu::Buffer,
     pub(crate) indirect: wgpu::Buffer,
+    /// Six indices a quad over its four corners, for QUAD_INDEX quads (ADR 0103).
+    pub(crate) quad_index: wgpu::Buffer,
     pub(crate) depth: wgpu::TextureView,
     /// The terrain's shader and the block looks: the bounce light is built again from them on a resize.
     pub(crate) shader: wgpu::ShaderModule,
@@ -803,9 +834,15 @@ impl Gpu {
         let chunks = buf("chunks", (MAX_CHUNKS * std::mem::size_of::<ChunkGpu>()) as u64, U::STORAGE | U::COPY_DST);
         let lamps = buf("lamps", (MAX_LAMPS * std::mem::size_of::<LampGpu>()) as u64, U::STORAGE | U::COPY_DST);
         let lamp_cells = buf("lamp cells", (LAMP_GRID_LEN * 4) as u64, U::STORAGE | U::COPY_DST);
-        // the terrain's draws, then the sea's at MAX_CHUNKS * 16, the cutout blocks' at MAX_CHUNKS * 32 (ADR 0069), glass at MAX_CHUNKS * 48 (ADR 0081)
-        // and the still models' at MAX_CHUNKS * 64 (ADR 0082)
-        let indirect = buf("indirect", (MAX_CHUNKS * 80) as u64, U::INDIRECT | U::COPY_DST);
+        // the draws, in the regions IND_SEA .. IND_FLUFF
+        let indirect = buf("indirect", IND_FLUFF + MAX_CHUNKS as u64 * 20, U::INDIRECT | U::COPY_DST);
+        // the terrain's quads are drawn indexed (ADR 0103): quad q's corners are vertices 4q .. 4q + 3 (shader.wgsl
+        // `corner_k`), its two triangles QUAD_TRIS, so each corner is shaded once, not once a triangle
+        let quad_index = wgpu::util::DeviceExt::create_buffer_init(&device, &wgpu::util::BufferInitDescriptor {
+            label: Some("quad index"),
+            contents: bytemuck::cast_slice(&(0..QUAD_INDEX).flat_map(|q| QUAD_TRIS.map(|k| q * 4 + k)).collect::<Vec<u32>>()),
+            usage: U::INDEX,
+        });
         let wquads = buf("wquads", (MAX_WQUADS * std::mem::size_of::<water::WQuad>()) as u64, U::STORAGE | U::COPY_DST);
         let fx_buf = buf("fx", (MAX_FX * std::mem::size_of::<crate::fx::FxGpu>()) as u64, U::STORAGE | U::COPY_DST);
         // every block's look from the registry (ADR 0013, 0039), shader.wgsl `Look`, 80 bytes each: colour rgb,
@@ -986,8 +1023,9 @@ impl Gpu {
         let cut_lit_pipeline = gbuffer_pass("vs_cut", "fs_cut_lit", Some(wgpu::Face::Back), true, wgpu::CompareFunction::Equal);
         let fluff_depth_pipeline = gbuffer_pass("vs_fluff", "fs_fluff_depth", Some(wgpu::Face::Back), false, wgpu::CompareFunction::Greater);
         let fluff_lit_pipeline = gbuffer_pass("vs_fluff", "fs_fluff_lit", Some(wgpu::Face::Back), true, wgpu::CompareFunction::Equal);
-        // still models: either way round (`fs_still` drops the face turned away)
-        let still_pipeline = gbuffer_pipeline("vs_still", "fs_still", None);
+        // still models: either way round (`fs_still` drops the face turned away); depth first, then lit where it is
+        let still_depth_pipeline = gbuffer_pass("vs_still", "fs_still_depth", None, false, wgpu::CompareFunction::Greater);
+        let still_pipeline = gbuffer_pass("vs_still", "fs_still", None, true, wgpu::CompareFunction::Equal);
         // the models (ADR 0047): into the G-buffer with the terrain
         let model_pipeline = gbuffer_pipeline("vs_model", "fs_model", Some(wgpu::Face::Back));
         // water: blended over the terrain, tested against its depth but not writing it, seen from both sides
@@ -1150,6 +1188,7 @@ impl Gpu {
             mquads,
             mpieces,
             still,
+            still_depth_pipeline,
             still_pipeline,
             model_pipeline,
             ghost_pipeline,
@@ -1166,6 +1205,7 @@ impl Gpu {
             sfaces,
             spaint,
             indirect,
+            quad_index,
             depth,
             shader: shader.clone(),
             looks: looks.clone(),

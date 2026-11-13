@@ -18,6 +18,15 @@ pub(crate) fn frustum_planes(m: Mat4) -> [Vec4; 6] {
 /// and shrinks into the ground over the last fifth of it, so they thin and none pops.
 const PLANTS_FAR: [f32; 3] = [48.0, 80.0, 112.0];
 
+/// Chunk-table entry `ci`'s `n` quads from quad `first`, as indexed draws over `quad_index` (ADR 0103: four corners
+/// a quad, so the vertex shader runs four times a quad, not six), split at `QUAD_INDEX` quads; `key` sorts them.
+fn quad_draws(out: &mut Vec<(f32, DrawIndexed)>, key: f32, first: u32, n: u32, ci: u32) {
+    for at in (0..n).step_by(QUAD_INDEX as usize) {
+        let k = (n - at).min(QUAD_INDEX);
+        out.push((key, DrawIndexed { index_count: k * 6, instance_count: 1, first_index: 0, base_vertex: ((first + at) * 4) as i32, first_instance: ci }));
+    }
+}
+
 impl App {
     /// The Vegetation setting (ADR 0091), or a run's vegetation=few|normal|many: 0, 1 or 2.
     pub(crate) fn vegetation(&self) -> usize {
@@ -614,11 +623,12 @@ impl App {
 
         // the indirect args per frame; the chunk table's entries only for meshes new to it (ADR 0025, B)
         let mut table: Vec<(u32, ChunkGpu)> = Vec::new();
-        let mut args: Vec<(f32, DrawArgs)> = Vec::with_capacity(draws.len());
+        let mut args: Vec<(f32, DrawIndexed)> = Vec::with_capacity(draws.len());
         let mut sea_args: Vec<DrawArgs> = Vec::new();
-        let mut cut_args: Vec<(f32, DrawArgs)> = Vec::new();
-        let mut glass_args: Vec<(f32, DrawArgs)> = Vec::new();
-        let mut still_args: Vec<(f32, DrawArgs)> = Vec::new();
+        let mut cut_args: Vec<(f32, DrawIndexed)> = Vec::new();
+        let mut fluff_args: Vec<(f32, DrawIndexed)> = Vec::new();
+        let mut glass_args: Vec<(f32, DrawIndexed)> = Vec::new();
+        let mut still_args: Vec<(f32, DrawIndexed)> = Vec::new();
         let mut nquads = 0u64;
         let mut insts: Vec<rt::Inst> = Vec::with_capacity(draws.len());
         let frame_no = self.streamer.frame;
@@ -655,18 +665,12 @@ impl App {
             }
             // the opaque quads, then the cutout blocks' through the pipeline that discards (ADR 0069)
             let opq = land - draw_cut - d.glass;
-            if opq > 0 {
-                args.push((d.dist, DrawArgs { vertex_count: opq * 6, instance_count: 1, first_vertex: d.off * 6, first_instance: ci }));
-            }
-            if draw_cut > 0 {
-                cut_args.push((d.dist, DrawArgs { vertex_count: draw_cut * 6, instance_count: 1, first_vertex: (d.off + opq) * 6, first_instance: ci }));
-            }
-            if d.glass > 0 {
-                glass_args.push((d.centre, DrawArgs { vertex_count: d.glass * 6, instance_count: 1, first_vertex: (d.off + opq + draw_cut) * 6, first_instance: ci }));
-            }
-            if d.still > 0 {
-                still_args.push((d.dist, DrawArgs { vertex_count: d.still * 6, instance_count: 1, first_vertex: (d.off + land) * 6, first_instance: ci }));
-            }
+            quad_draws(&mut args, d.dist, d.off, opq, ci);
+            quad_draws(&mut cut_args, d.dist, d.off + opq, draw_cut, ci);
+            // the fluff grows only on the cutout faces that open on air, which lead the cutout quads (ADR 0103)
+            quad_draws(&mut fluff_args, d.dist, d.off + opq, d.fluff, ci);
+            quad_draws(&mut glass_args, d.centre, d.off + opq + draw_cut, d.glass, ci);
+            quad_draws(&mut still_args, d.dist, d.off + land, d.still, ci);
             if d.water > 0 {
                 // vs_sea draws each sea quad in SEA_SUB^2 pieces, one instance each: instance = chunk * pieces + piece
                 let pieces = SEA_SUB * SEA_SUB;
@@ -674,16 +678,21 @@ impl App {
             }
             nquads += d.len as u64;
         }
+        // (shortcut: each list holds MAX_CHUNKS draws, its region of `indirect`; past that, which only chunks split at
+        // QUAD_INDEX quads can reach, the farthest are not drawn: when a view holds that many)
         // near to far, so the depth test drops what is hidden before its fragments trace their rays (ADR 0025, D)
         args.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
-        let args: Vec<DrawArgs> = args.into_iter().map(|a| a.1).collect();
+        let args: Vec<DrawIndexed> = args.into_iter().map(|a| a.1).take(MAX_CHUNKS).collect();
         cut_args.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
-        let cut_args: Vec<DrawArgs> = cut_args.into_iter().map(|a| a.1).collect();
+        let cut_args: Vec<DrawIndexed> = cut_args.into_iter().map(|a| a.1).take(MAX_CHUNKS).collect();
+        fluff_args.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+        let fluff_args: Vec<DrawIndexed> = fluff_args.into_iter().map(|a| a.1).take(MAX_CHUNKS).collect();
         // glass far to near, so the nearer pane blends over the farther (ADR 0081; inside a chunk unsorted)
         glass_args.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
-        let glass_args: Vec<DrawArgs> = glass_args.into_iter().map(|a| a.1).collect();
+        let far = glass_args.len().saturating_sub(MAX_CHUNKS);
+        let glass_args: Vec<DrawIndexed> = glass_args.into_iter().map(|a| a.1).skip(far).collect();
         still_args.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
-        let still_args: Vec<DrawArgs> = still_args.into_iter().map(|a| a.1).collect();
+        let still_args: Vec<DrawIndexed> = still_args.into_iter().map(|a| a.1).take(MAX_CHUNKS).collect();
         // the water mesh when it changed, or the tide moved the sea in its tiles
         self.water.retide(&self.world, self.start.elapsed().as_secs_f32());
         let n = self.water.all.len().min(MAX_WQUADS);
@@ -966,19 +975,22 @@ impl App {
             gpu.queue.write_buffer(&gpu.chunks, (*ci as usize * std::mem::size_of::<ChunkGpu>()) as u64, bytemuck::bytes_of(c));
         }
         if !args.is_empty() {
-            gpu.queue.write_buffer(&gpu.indirect, 0, bytemuck::cast_slice(&args));
+            gpu.queue.write_buffer(&gpu.indirect, IND_LAND, bytemuck::cast_slice(&args));
         }
         if !sea_args.is_empty() {
-            gpu.queue.write_buffer(&gpu.indirect, (MAX_CHUNKS * 16) as u64, bytemuck::cast_slice(&sea_args));
+            gpu.queue.write_buffer(&gpu.indirect, IND_SEA, bytemuck::cast_slice(&sea_args));
         }
         if !cut_args.is_empty() {
-            gpu.queue.write_buffer(&gpu.indirect, (MAX_CHUNKS * 32) as u64, bytemuck::cast_slice(&cut_args));
+            gpu.queue.write_buffer(&gpu.indirect, IND_CUT, bytemuck::cast_slice(&cut_args));
         }
         if !still_args.is_empty() {
-            gpu.queue.write_buffer(&gpu.indirect, (MAX_CHUNKS * 64) as u64, bytemuck::cast_slice(&still_args));
+            gpu.queue.write_buffer(&gpu.indirect, IND_STILL, bytemuck::cast_slice(&still_args));
+        }
+        if !fluff_args.is_empty() {
+            gpu.queue.write_buffer(&gpu.indirect, IND_FLUFF, bytemuck::cast_slice(&fluff_args));
         }
         if !glass_args.is_empty() {
-            gpu.queue.write_buffer(&gpu.indirect, (MAX_CHUNKS * 48) as u64, bytemuck::cast_slice(&glass_args));
+            gpu.queue.write_buffer(&gpu.indirect, IND_GLASS, bytemuck::cast_slice(&glass_args));
         }
 
         let mut sky = wgpu::Color { r: sky_c.x as f64, g: sky_c.y as f64, b: sky_c.z as f64, a: 1.0 };
@@ -1092,58 +1104,35 @@ impl App {
                 rp.set_pipeline(&gpu.sky_pipeline);
                 rp.draw(0..3, 0..1);
             }
-            rp.set_pipeline(&gpu.pipeline);
             if bare {
                 // (the land is still there for the light: only its picture is left out)
-            } else if self.args.get("mdi", 1) == 1 {
-                // the cutout blocks' depth first, the terrain, then their colour where their depth is (ADR 0090)
-                let cut_at = (MAX_CHUNKS * 32) as u64;
-                let n_cut = cut_args.len() as u32;
-                if n_cut > 0 {
-                    rp.set_pipeline(&gpu.cut_depth_pipeline);
-                    rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
-                    if fluff {
-                        rp.set_pipeline(&gpu.fluff_depth_pipeline);
-                        rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
-                    }
-                    rp.set_pipeline(&gpu.pipeline);
-                }
-                rp.multi_draw_indirect(&gpu.indirect, 0, args.len() as u32);
-                if n_cut > 0 {
-                    rp.set_pipeline(&gpu.cut_lit_pipeline);
-                    rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
-                    if fluff {
-                        rp.set_pipeline(&gpu.fluff_lit_pipeline);
-                        rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
-                    }
-                }
-                if !still_args.is_empty() {
-                    rp.set_pipeline(&gpu.still_pipeline);
-                    rp.multi_draw_indirect(&gpu.indirect, (MAX_CHUNKS * 64) as u64, still_args.len() as u32);
-                }
             } else {
-                let cuts = |rp: &mut wgpu::RenderPass, p: &wgpu::RenderPipeline| {
+                // the cutout blocks' depth first, the plants' too (ADR 0103: the ground under the grass is never
+                // shaded), the terrain, then their colour where their depth is (ADR 0090); all indexed over
+                // `quad_index` (ADR 0103)
+                rp.set_index_buffer(gpu.quad_index.slice(..), wgpu::IndexFormat::Uint32);
+                let mdi = self.args.get("mdi", 1) == 1;
+                let each = |rp: &mut wgpu::RenderPass, p: &wgpu::RenderPipeline, at: u64, list: &[DrawIndexed]| {
+                    if list.is_empty() {
+                        return;
+                    }
                     rp.set_pipeline(p);
-                    for d in &cut_args {
-                        rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
+                    if mdi {
+                        rp.multi_draw_indexed_indirect(&gpu.indirect, at, list.len() as u32);
+                    } else {
+                        for d in list {
+                            rp.draw_indexed(0..d.index_count, d.base_vertex, d.first_instance..d.first_instance + 1);
+                        }
                     }
                 };
-                cuts(&mut rp, &gpu.cut_depth_pipeline);
-                if fluff {
-                    cuts(&mut rp, &gpu.fluff_depth_pipeline);
-                }
-                rp.set_pipeline(&gpu.pipeline);
-                for d in &args {
-                    rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
-                }
-                cuts(&mut rp, &gpu.cut_lit_pipeline);
-                if fluff {
-                    cuts(&mut rp, &gpu.fluff_lit_pipeline);
-                }
-                rp.set_pipeline(&gpu.still_pipeline);
-                for d in &still_args {
-                    rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
-                }
+                let no: &[DrawIndexed] = &[];
+                each(&mut rp, &gpu.cut_depth_pipeline, IND_CUT, &cut_args);
+                each(&mut rp, &gpu.fluff_depth_pipeline, IND_FLUFF, if fluff { &fluff_args } else { no });
+                each(&mut rp, &gpu.still_depth_pipeline, IND_STILL, &still_args);
+                each(&mut rp, &gpu.pipeline, IND_LAND, &args);
+                each(&mut rp, &gpu.cut_lit_pipeline, IND_CUT, &cut_args);
+                each(&mut rp, &gpu.fluff_lit_pipeline, IND_FLUFF, if fluff { &fluff_args } else { no });
+                each(&mut rp, &gpu.still_pipeline, IND_STILL, &still_args);
             }
             // the models (ADR 0047): one draw per part, one instance per piece
             if !self.models.draws.is_empty() {
@@ -1207,7 +1196,7 @@ impl App {
             if !sea_args.is_empty() && !self.view.as_ref().is_some_and(|v| v.bare) {
                 rp.set_pipeline(&gpu.sea_pipeline);
                 if self.args.get("mdi", 1) == 1 {
-                    rp.multi_draw_indirect(&gpu.indirect, (MAX_CHUNKS * 16) as u64, sea_args.len() as u32);
+                    rp.multi_draw_indirect(&gpu.indirect, IND_SEA, sea_args.len() as u32);
                 } else {
                     for d in &sea_args {
                         rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + d.instance_count);
@@ -1222,11 +1211,12 @@ impl App {
             // anyone builds under water, sort the two by chunk)
             if !glass_args.is_empty() && !self.view.as_ref().is_some_and(|v| v.bare) {
                 rp.set_pipeline(&gpu.glass_pipeline);
+                rp.set_index_buffer(gpu.quad_index.slice(..), wgpu::IndexFormat::Uint32);
                 if self.args.get("mdi", 1) == 1 {
-                    rp.multi_draw_indirect(&gpu.indirect, (MAX_CHUNKS * 48) as u64, glass_args.len() as u32);
+                    rp.multi_draw_indexed_indirect(&gpu.indirect, IND_GLASS, glass_args.len() as u32);
                 } else {
                     for d in &glass_args {
-                        rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
+                        rp.draw_indexed(0..d.index_count, d.base_vertex, d.first_instance..d.first_instance + 1);
                     }
                 }
             }
@@ -1407,5 +1397,52 @@ impl crate::app::App {
         let (a, from, at) = self.animals.get(&id)?;
         let k = (now.duration_since(*at).as_secs_f64() * engine::net::TICK_HZ).min(1.0);
         Some(from.lerp(DVec3::from_array(a.pos), k))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn indexed_quads_draw_both_triangles_of_every_split_with_its_own_provoking_corner() {
+        use crate::gpu::{CORNER_K, QUAD_TRIS};
+        // shader.wgsl `quad_corner`'s six corners (u, v): plain, and a slope split along the other diagonal
+        let cu = [[0, 1, 1, 0, 1, 0], [0, 1, 0, 1, 1, 0]];
+        let cv = [0, 0, 1, 0, 1, 1];
+        // a triangle as its corners from its lowest, so the winding counts
+        let tri = |c: [(u32, u32); 3]| {
+            let i = (0..3).min_by_key(|&i| c[i]).unwrap();
+            [c[i], c[(i + 1) % 3], c[(i + 2) % 3]]
+        };
+        for s in 0..2 {
+            let at = |k: u32| (cu[s][k as usize], cv[k as usize]);
+            let want: Vec<_> = (0..2).map(|t| tri([at(3 * t), at(3 * t + 1), at(3 * t + 2)])).collect();
+            for t in 0..2 {
+                let ks = [0, 1, 2].map(|j| CORNER_K[s][QUAD_TRIS[3 * t + j] as usize]);
+                let got = tri(ks.map(at));
+                let which = want.iter().position(|w| *w == got);
+                assert!(which.is_some(), "split {s}: indexed triangle {t} {got:?} is none of {want:?}");
+                // its provoking (first) corner is one of its own triangle's: the flat slope normal is the right one
+                assert_eq!(ks[0] / 3, which.unwrap() as u32, "split {s}: triangle {t}'s first corner is the other triangle's");
+            }
+        }
+    }
+
+    #[test]
+    fn quad_draws_cover_every_quad_once_within_the_index_buffer() {
+        let mut out = Vec::new();
+        quad_draws(&mut out, 1.0, 10, 0, 7);
+        assert!(out.is_empty(), "no quads, no draw");
+        let n = 2 * QUAD_INDEX + 5;
+        quad_draws(&mut out, 1.0, 10, n, 7);
+        assert!(out.iter().all(|(_, d)| d.index_count <= QUAD_INDEX * 6 && d.first_index == 0 && d.first_instance == 7));
+        assert_eq!(out.iter().map(|(_, d)| d.index_count).sum::<u32>(), n * 6);
+        // one after the other: each starts at the quad where the one before ends
+        let mut at = 10 * 4;
+        for (_, d) in &out {
+            assert_eq!(d.base_vertex, at);
+            at += (d.index_count / 6 * 4) as i32;
+        }
     }
 }

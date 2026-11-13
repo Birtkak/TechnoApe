@@ -112,6 +112,9 @@ struct VOut {
     @location(5) rel: vec3f, // from the camera
     @location(6) ao: f32,    // open 1 .. shut in
     @location(7) plane: vec3f, // a fluff card's point from its face's middle in face units, z its overhang (ADR 0099)
+    // a slope's triangle normal, w 1 (ADR 0101): flat, from the triangle's first corner (gpu.rs QUAD_TRIS), as the
+    // indexed corners are shared by both triangles (ADR 0103)
+    @location(8) @interpolate(flat) slope: vec4f,
 };
 
 fn axis(i: u32) -> vec3f { return vec3f(f32(i == 0u), f32(i == 1u), f32(i == 2u)); }
@@ -220,11 +223,22 @@ fn sway(p: vec3f, reach: f32) -> vec2f {
     return amp * vec2f(sin(t * 1203.0 + ph) + 0.4 * sin(t * 2464.0 + ph * 2.3), sin(t * 974.0 + ph * 1.3 + 1.0) + 0.4 * sin(t * 2235.0 - ph * 1.7));
 }
 
+// an indexed quad's corner (ADR 0103: four a quad, `quad_index` in gpu.rs) as quad_corner's k: 0, 1, 2 and 5, or
+// for a slope split along the other diagonal 3, 4, 5 and 0, so each triangle's first corner is its own (gpu.rs
+// CORNER_K mirrors this)
+fn corner_k(vi: u32, swap: bool) -> u32 {
+    let i = vi % 4u;
+    if (swap) { return (i + 3u) % 6u; }
+    return select(i, 5u, i == 3u);
+}
+
 fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
-    let q = quads[vi / 6u];
+    let q = quads[vi / 4u];
     let dir = (q.x >> 28u) & 7u;
     let a = dir / 2u;
-    let k = vi % 6u;
+    let sloped = (q.x >> 31u) == 1u;
+    let swap = sloped && ((q.y >> 20u) & 1u) != ((q.y >> 23u) & 1u);
+    let k = corner_k(vi, swap);
     // grown by a millimetre: a merged quad's edge and its neighbours' corners on it are worked out apart, at
     // f32's grain at the body's radius (a quarter millimetre at 4 km), and met with pixel holes of sky between
     // them (bug 2026-11-11_17-38-04, ADR 0041); the overlap closes them, too thin to see as a lip
@@ -232,8 +246,7 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     // the corner in the face's u, v: as quad_corner lays it out
     var cu = array<u32, 6>(0u, 1u, 1u, 0u, 1u, 0u);
     var cv = array<u32, 6>(0u, 0u, 1u, 0u, 1u, 1u);
-    let sloped = (q.x >> 31u) == 1u;
-    if (sloped && ((q.y >> 20u) & 1u) != ((q.y >> 23u) & 1u)) {
+    if (swap) {
         cu = array<u32, 6>(0u, 1u, 0u, 1u, 1u, 0u);
     }
     var ku = cu[k];
@@ -318,6 +331,7 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     if (sloped && dir == 4u) {
         // a slope: its triangle's own normal (ADR 0101), as the traced geometry has it; its painting laid flat
         normal = slope_normal(c, b, q, k / 3u);
+        o.slope = vec4f(brot(b, normal), 1.0);
         paint.z = f32((q.x >> 12u) & 63u);
     }
 
@@ -1317,7 +1331,7 @@ fn terrain_lit(i: VOut, col_in: vec3f) -> GOut {
     let c = chunks[i.ci];
     let body = (c.info >> 8u) & 255u;
     let look = looks[i.mat & 255u];
-    let n = normalize(i.normal);
+    let n = normalize(select(i.normal, i.slope.xyz, i.slope.w > 0.5));
     var col = col_in;
     // the planet's lying snow (ADR 0076, the air grid's per column): white over what faces up, the face's own
     // pattern showing through where it lies thin
@@ -2267,23 +2281,34 @@ fn still_local(q: vec2u, uv: vec2f, c: Chunk, fade: f32) -> vec3f {
     // its place in the cell: up to a quarter metre off the middle
     let off = (vec2f(f32((lo >> 18u) & 15u), f32((lo >> 22u) & 15u)) / 15.0 - 0.5) * 0.5;
     let c0 = vec3f(0.5, 0.0, 0.5);
-    var m = f.o + f.eu * uv.x + f.ev * uv.y - c0;
+    let t = plant_turn(f, c, cell);
+    var m = turned(t, f.o + f.eu * uv.x + f.ev * uv.y - c0);
     var at = off;
     if ((f.flags & PLANT) != 0u) {
-        // a plant: its height (h.x) and width (k.z) its own, turned to any angle and set up to a third of a block
-        // off the middle (k), so no row or grid shows from any side
-        let col = c.base.xy + vec2i(cell.xy);
-        let h = hash4(vec3i(col, i32(c.info & 7u)));
-        let k = hash4(vec3i(col, i32(c.info & 7u) + 8));
-        let a = k.w * 6.2831853;
-        var sc = vec3f(0.85 + 0.3 * k.z, 0.8 + 0.4 * h.x, 0.85 + 0.3 * k.z);
-        // a shrub: wider than tall and lopsided, one side fuller than the other
-        if ((f.flags & SHRUB) != 0u) { sc = vec3f(1.1 + 0.4 * k.z, 0.7 + 0.25 * h.x, 0.85 + 0.4 * fract(k.x * 7.31)); }
-        m = vec3f(m.x * cos(a) - m.z * sin(a), m.y, m.x * sin(a) + m.z * cos(a)) * sc;
         m.y *= fade;
-        at = (k.xy - 0.5) * 0.66;
+        at = t.at;
     }
     return cell + vec3f(0.5 + at.x, 0.5 + at.y, 0.0) + still_dir(q, m);
+}
+
+// a plant's turn and size (`still_local`): its height (h.x) and width (k.z) its own, turned to any angle (cos and
+// sin in `cs`) and set up to a third of a block off the middle (`at`, k), so no row or grid shows from any side; a
+// model's is none
+struct Turn { cs: vec2f, sc: vec3f, at: vec2f };
+fn plant_turn(f: SFace, c: Chunk, cell: vec3f) -> Turn {
+    if ((f.flags & PLANT) == 0u) { return Turn(vec2f(1.0, 0.0), vec3f(1.0), vec2f(0.0)); }
+    let col = c.base.xy + vec2i(cell.xy);
+    let h = hash4(vec3i(col, i32(c.info & 7u)));
+    let k = hash4(vec3i(col, i32(c.info & 7u) + 8));
+    let a = k.w * 6.2831853;
+    var sc = vec3f(0.85 + 0.3 * k.z, 0.8 + 0.4 * h.x, 0.85 + 0.3 * k.z);
+    // a shrub: wider than tall and lopsided, one side fuller than the other
+    if ((f.flags & SHRUB) != 0u) { sc = vec3f(1.1 + 0.4 * k.z, 0.7 + 0.25 * h.x, 0.85 + 0.4 * fract(k.x * 7.31)); }
+    return Turn(vec2f(cos(a), sin(a)), sc, (k.xy - 0.5) * 0.66);
+}
+// a model direction turned about y and sized by t
+fn turned(t: Turn, m: vec3f) -> vec3f {
+    return vec3f(m.x * t.cs.x - m.z * t.cs.y, m.y, m.x * t.cs.y + m.z * t.cs.x) * t.sc;
 }
 
 // how far from the eye plants stand (`vs_still` fades them by then)
@@ -2325,12 +2350,12 @@ fn still_texel(q: vec2u, prim: u32, bc: vec2f) -> vec4f {
 
 @vertex
 fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
-    let q = quads[vi / 6u];
+    let q = quads[vi / 4u];
     let fi = q.y & 65535u;
     let f = sfaces[fi];
     var cu = array<f32, 6>(0., 1., 1., 0., 1., 0.);
     var cv = array<f32, 6>(0., 0., 1., 0., 1., 1.);
-    let uv = vec2f(cu[vi % 6u], cv[vi % 6u]);
+    let uv = vec2f(cu[corner_k(vi, false)], cv[corner_k(vi, false)]);
     let lo = q.x;
     let cell = vec3f(f32(lo & 63u), f32((lo >> 6u) & 63u), f32((lo >> 12u) & 63u));
     let c = chunks[ii];
@@ -2347,14 +2372,24 @@ fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
         let d = length(brot(b, (place(c, b, cell + vec3f(0.5, 0.5, 0.0), cell) - b.cam_hi) - b.cam_lo));
         let d0 = plant_reach(f.flags, h.y);
         fade = 1.0 - smoothstep(d0 * 0.8, d0, d);
+        // past its reach it has shrunk into the ground: nothing more to place (ADR 0103)
+        if (fade <= 0.0) {
+            var o: VOut;
+            o.clip = vec4f(0.0, 0.0, 0.0, 1.0);
+            return o;
+        }
     }
     let local = still_local(q, uv, c, fade);
     if (plant && (c.info >> 8u) == 0u) { bend = plant_sway(brot(b, g.plants.xyz), local.z - cell.z, vec2f(col), h.z); }
     let gp = grid(c, local);
     let fr = frame_at(c.info & 7u, b, gp.x, gp.y);
-    // a plant's plane turns, leans and stretches by its place's hash (`still_local`): its normal from the placed
-    // corners, so the sun side is the drawn plane's
-    let n = select(still_dir(q, cross(f.ev, f.eu)), cross(still_local(q, vec2f(0.0, 1.0), c, 1.0) - still_local(q, vec2f(0.0), c, 1.0), still_local(q, vec2f(1.0, 0.0), c, 1.0) - still_local(q, vec2f(0.0), c, 1.0)), plant);
+    // a plant's plane turns, leans and stretches by its place's hash (`still_local`): its normal from its turned
+    // edges (the placed corners' differences), so the sun side is the drawn plane's
+    var n = still_dir(q, cross(f.ev, f.eu));
+    if (plant) {
+        let t = plant_turn(f, c, cell);
+        n = cross(still_dir(q, turned(t, f.ev)), still_dir(q, turned(t, f.eu)));
+    }
     // a plant's planes are lit as the ground under them is, from either side
     let normal = select(normalize(normalize(fr.s - fr.n * fr.ta) * n.x + normalize(fr.t - fr.n * fr.tb) * n.y + fr.up * n.z), normalize(fr.up), plant);
     var o: VOut;
@@ -2374,18 +2409,32 @@ fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     return o;
 }
 
+// a still quad's painted texel; clear where it is not drawn: a model's plane is two faces back to back, the one
+// turned away goes (the pipeline culls nothing); a plant's is one face seen from both sides
+fn still_paint(i: VOut) -> vec4f {
+    let f = sfaces[i.dir];
+    if ((f.flags & PLANT) == 0u && dot(i.normal, i.rel) > 0.0) { return vec4f(0.0); }
+    let x0 = vec2u(f.xy & 65535u, f.xy >> 16u);
+    let px = clamp(vec2u(max(floor(i.local.xy), vec2f(0.0))), x0, x0 + vec2u(f.wh & 65535u, f.wh >> 16u) - 1u);
+    return unpack4x8unorm(spaint[f.base + px.y * f.pw + px.x]);
+}
+
+// the still quads' depth pass (ADR 0103), as the cutout blocks' (`fs_cut_depth`): `fs_still` then shades where
+// this left its depth (`Equal`), each pixel once, and the terrain under a plant is not shaded at all
+@fragment
+fn fs_still_depth(i: VOut) -> GOut {
+    if (still_paint(i).a < 0.5) {
+        discard;
+    }
+    return GOut(vec4f(0.0), vec4f(0.0), vec2u(0u));
+}
+
 @fragment
 fn fs_still(i: VOut) -> GOut {
     let f = sfaces[i.dir];
     let plant = (f.flags & PLANT) != 0u;
-    // a model's plane is two faces back to back: the one turned away goes (the pipeline culls nothing); a plant's
-    // is one face seen from both sides
-    if (!plant && dot(i.normal, i.rel) > 0.0) {
-        discard;
-    }
-    let x0 = vec2u(f.xy & 65535u, f.xy >> 16u);
-    let px = clamp(vec2u(max(floor(i.local.xy), vec2f(0.0))), x0, x0 + vec2u(f.wh & 65535u, f.wh >> 16u) - 1u);
-    let t = unpack4x8unorm(spaint[f.base + px.y * f.pw + px.x]);
+    // (the back-to-back faces of a model meet the depth pass's alike: the turned-away one still goes)
+    let t = still_paint(i);
     if (t.a < 0.5) {
         discard;
     }
