@@ -381,24 +381,65 @@ def needles(rng, r, holes=0.06):
     return c
 
 
-def branches(rng, r, limbs=2, twigs=5):
-    """Bare winter crown: a few limbs rising through the block, twigs forking off them, the rest open."""
+# Bare winter crowns (the developer, 2026-11-13: twigs must grow out of a log or branch, not float). Every stroke
+# starts on wood: the painting's wood is its BOTTOM edge, and the four variants are roles the crown's shader picks
+# and turns so that edge faces the neighbouring log or branch (ADR 0090): root, root off-centre, through, tips.
+WINTER_ROLES = ("root", "root off-centre", "through", "tips")
+
+
+def grow(c, rng, r, x, y, lean, thick, steps, forks):
+    """A limb from (x, y) upward: `thick` texels wide (a dark side right, bark mid left), one thinner as it
+    rises, forking thinner twigs off itself that lean out; a thin twig ends in a lit tip."""
+    fx = float(x)
+    for i in range(steps):
+        w = max(1, thick - (i * thick) // max(1, steps))  # tapers toward the far edge
+        cx = int(round(fx))
+        for k in range(w):
+            put_in(c, cx - w // 2 + k, y, r["s"] if w == 1 else (r["d"] if k == w - 1 else r["m"]))
+        if w == 1 and i == steps - 1:
+            put_in(c, cx, y, r["l"])
+        if forks and i >= 2 and rng.random() < 0.3 and y > 1:
+            side = -1 if rng.random() < 0.5 else 1
+            grow(c, rng, r, cx + side, y - 1, side * (0.5 + rng.random() * 0.5), max(1, w - 1),
+                 int(rng.integers(3, max(4, min(y, steps - i) + 1))), forks - 1)
+        fx += lean + (rng.random() - 0.5) * 0.4
+        y -= 1
+        if y < 0:
+            break
+
+
+def bare(rng, r, role):
+    """One winter role on a 16 x 16 canvas, wood at the bottom edge (row 15)."""
     c = np.empty((N, N), object)
-    for _ in range(limbs):
-        x, y, lean = int(rng.integers(N)), N - 1, int(rng.choice((-1, 1)))
-        pts = []
-        for _ in range(N):  # a limb leans out as it rises, as a crown spreads
-            put(c, x, y, r["s"])
-            pts.append((x, y))
-            if rng.random() < 0.45:
-                x += lean
-                put(c, x, y, r["s"])
-            y -= 1
-        for _ in range(twigs):
-            x, y = pts[int(rng.integers(2, len(pts)))]
-            d = int(rng.choice((-1, 1)))
-            for i in range(1, int(rng.integers(3, 6))):
-                put(c, x + i * d, y - i // 2 - (i % 2), r["m"])
+    if role == "root":
+        grow(c, rng, r, 7, N - 1, (rng.random() - 0.5) * 0.3, 3, 14, 3)
+    elif role == "root off-centre":
+        grow(c, rng, r, 4, N - 1, 0.35, 3, 13, 3)
+    elif role == "through":  # a limb from the bottom edge to the top edge at x 8 on every block: blocks chain
+        forks = set(int(y) for y in rng.choice(np.arange(3, N - 2), 2, replace=False))
+        for y in range(N):
+            x = 8 + int(round(np.sin(y / (N - 1) * np.pi) * 1.5))
+            put_in(c, x, y, r["m"])
+            put_in(c, x + 1, y, r["d"])
+            if 2 < y < N - 2 and (y in forks or rng.random() < 0.2):
+                side = -1 if rng.random() < 0.5 else 1
+                grow(c, rng, r, x + (side if side < 0 else 2), y - 1, side * 0.7, 1, int(rng.integers(3, 7)), 1)
+    else:  # tips: a few fine twigs off the edge, short and open
+        for x in (3, 8, 12):
+            grow(c, rng, r, x + int(rng.integers(-1, 2)), N - 1, (rng.random() - 0.5) * 0.8, 1,
+                 int(rng.integers(5, 10)), 1)
+    # every texel reaches the wood edge through its neighbours (eight ways): nothing floats
+    seen = {(N - 1, x) for x in range(N) if c[N - 1, x] is not None}
+    todo = list(seen)
+    while todo:
+        y, x = todo.pop()
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                q = (y + dy, x + dx)
+                if 0 <= q[0] < N and 0 <= q[1] < N and q not in seen and c[q] is not None:
+                    seen.add(q)
+                    todo.append(q)
+    assert len(seen) == sum(v is not None for v in c.flat), f"winter {role}: a twig floats"
     return c
 
 
@@ -1002,7 +1043,7 @@ def build(pal, blocks):
             r = R(name, b["colour"]) if s == "summer" else R(f"{name} {s}", b[s]["colour"])
             at = "" if s == "summer" else f"@{s}"
             if s == "winter" and name != "reed":  # a bare shrub: twigs in the bark's colours
-                tex(f"{name}{at}", 2, lambda g, v, n=name: branches(np.random.default_rng(seed_of(n, v)), R("log"), 1, 3))
+                tex(f"{name}{at}", 4, lambda g, v, n=name: bare(np.random.default_rng(seed_of(n, v)), R("log"), WINTER_ROLES[v]))
             else:
                 tex(f"{name}{at}", 2, lambda g, v, r=r, fn=fn, n=name: fn(np.random.default_rng(seed_of(n, v)), r))
 
@@ -1069,7 +1110,7 @@ def build(pal, blocks):
             ar = t.get("autumn") or R(f"{leaf_b} autumn", (known or {}).get("autumn", {}).get("colour") or t["autumn_colour"])
             tex(f"{leaf_b}@autumn", 4, lambda g, v, r=ar, leaf=leaf: leaf(r, v))
             # deciduous: bare branches in winter, in the species' bark
-            tex(f"{leaf_b}@winter", 4, lambda g, v, b=leaf_b, br=t.get("twigs", bark_r): branches(np.random.default_rng(seed_of(b, v)), br))
+            tex(f"{leaf_b}@winter", 4, lambda g, v, b=leaf_b, br=t.get("twigs", bark_r): bare(np.random.default_rng(seed_of(b, v)), br, WINTER_ROLES[v]))
         if "fruit" in t:  # late summer: no season file holds it yet (flora.md part A), so it waits in out/
             tex(f"{leaf_b}@fruit", 4, lambda g, v, r=leaf_r, leaf=leaf, f=t["fruit"]: f(leaf(r, v), g))
         tex(f"{log_b}_side", 3, lambda g, v, br=bark_r, fn=t["bark"], b=log_b: fn(g, br, seed_of(b, "bark")))

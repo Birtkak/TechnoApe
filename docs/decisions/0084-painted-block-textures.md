@@ -186,3 +186,18 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
   - `seam` and the season views: broadleaf leaves now have four variants with round holes, and spruce has tiers;
   - acacia and jungle canopies;
   - every view with a grass block's side (its top row).
+- **Winter twigs grow out of the wood** (the developer, 2026-11-13: "not just a block with random sticks
+  flying"):
+  - The bare winter looks (`broadleaf/oak/birch/willow leaves@winter`, `shrub@winter`) are four roles, in file
+    order. Each one's wood is the painting's **bottom edge**:
+    - `root`: one stem from the middle that fans out;
+    - `root off-centre`: the same, leaning across;
+    - `through`: a limb from the bottom edge to the top edge at x 8 with side twigs, so stacked blocks chain;
+    - `tips`: a few fine twigs for the crown's outer blocks.
+  - Limbs taper from three texels to one. They are bark-mid with a dark side, and a thin twig ends in a lit tip.
+  - The script asserts that every texel reaches the bottom edge through its neighbours, so nothing floats.
+    Before the change, the old floating sticks would have failed it, and twigs started mid-air fail it now.
+  - The crowns session (part A, ADR 0090) has been proposed this layout: the shader picks the role and turns the
+    face so the bottom edge meets the neighbouring log or branch. Until that lands, the game picks the four by
+    hash, unturned. The sheet `out/flora/winter.png` shows each role on its log, and a small crown laid out as
+    the shader would turn it.
