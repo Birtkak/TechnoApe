@@ -104,6 +104,10 @@ struct Raw {
     wood: bool,
     fluff: Option<Fluff>,
     rubble: Option<u16>,
+    #[serde(default)]
+    bedding: f32,
+    #[serde(default)]
+    joints: u16,
     #[serde(default = "full")]
     stack: u16,
     holds: Option<(String, f32)>,
@@ -263,6 +267,10 @@ pub struct Def {
     /// The loose block a survival dig leaves in its cell (rock and ore, mining.md 4): `<name> rubble`, made from
     /// this row with the id it names. None: the dig takes the block itself.
     pub rubble: Option<u16>,
+    /// Layered rock (ADR 0094): metres between its bedding planes, 0 for none.
+    pub bedding: f32,
+    /// Massive rock: about how many columns between its joints, 0 for none.
+    pub joints: u16,
     /// The rock or ore a rubble block is of; None for any other block.
     pub rubble_of: Option<u16>,
     /// How many make a full slot (ADR 0074), 1..64.
@@ -381,13 +389,16 @@ impl Registry {
             if seasons.is_none() && r.stagger != 0.0 {
                 return Err(format!("block '{}': a stagger without a season", r.name));
             }
+            if !(r.bedding == 0.0 || (1.0..=50.0).contains(&r.bedding)) || r.joints == 1 || r.joints > 100 || (r.bedding > 0.0 || r.joints > 0) && r.rubble.is_none() {
+                return Err(format!("block '{}': bedding 1..50 m, joints 2..100 columns, and only on a rock that makes rubble", r.name));
+            }
             if !(1..=crate::items::STACK).contains(&r.stack) {
                 return Err(format!("block '{}': stack outside 1..64", r.name));
             }
             if r.holds.as_ref().is_some_and(|h| !(h.1 > 0.0 && h.1 <= 1.0) || !r.loose) {
                 return Err(format!("block '{}': holds is for a loose block, with a chance over 0 and at most 1", r.name));
             }
-            let def = Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, falls: r.falls, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger, joins: r.joins, rubble: r.rubble, rubble_of: None, stack: r.stack, holds: r.holds.clone(), wood: r.wood, fluff };
+            let def = Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, falls: r.falls, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger, joins: r.joins, rubble: r.rubble, rubble_of: None, stack: r.stack, holds: r.holds.clone(), wood: r.wood, fluff, bedding: r.bedding, joints: r.joints };
             if let Some(t) = r.rubble {
                 // the twin: the rock's colours in pebbles, loose and falling (ADR 0093)
                 let name = format!("{} rubble", r.name);
@@ -397,7 +408,7 @@ impl Registry {
                 if r.loose || r.falls || !r.solid {
                     return Err(format!("block '{}': only a solid block that is not loose makes rubble", r.name));
                 }
-                defs[t as usize] = Some(Def { id: t, name, pattern: Pattern::Pebbles, size: 2, amount: 0.6, side: t, light: [0.0; 3], was: Vec::new(), hardness: RUBBLE_S, loose: true, falls: true, model: None, see: See::Opaque, seasons: None, stagger: 0.0, joins: false, rubble: None, rubble_of: Some(r.id), holds: None, wood: false, fluff: None, ..def.clone() });
+                defs[t as usize] = Some(Def { id: t, name, pattern: Pattern::Pebbles, size: 2, amount: 0.6, side: t, light: [0.0; 3], was: Vec::new(), hardness: RUBBLE_S, loose: true, falls: true, model: None, see: See::Opaque, seasons: None, stagger: 0.0, joins: false, rubble: None, rubble_of: Some(r.id), holds: None, wood: false, fluff: None, bedding: 0.0, joints: 0, ..def.clone() });
             }
             if defs[r.id as usize].is_some() {
                 return Err(format!("block id {} is used twice", r.id));
@@ -519,7 +530,7 @@ hardness = 0.3
     fn rock_and_ore_dig_into_rubble_and_stack_by_16() {
         let rocks = crate::rock::ROCKS.provinces.iter().flat_map(|p| p.layers.iter().map(|l| l.0));
         let ores = crate::ore::MINERALS.kinds.iter().map(|k| k.block);
-        let luna = ["anorthosite", "mare basalt", "iron-nickel", "kreep", "stone"].map(|n| BLOCKS.id(n));
+        let luna = ["anorthosite", "mare basalt", "iron-nickel", "kreep", "stone", "iron-stained rock", "copper-stained rock", "quartz-veined rock", "greisen", "bleached rock"].map(|n| BLOCKS.id(n));
         for id in rocks.chain(ores).chain(luna) {
             let d = BLOCKS.get(id).unwrap();
             assert_eq!(d.stack, 16, "{}", d.name);

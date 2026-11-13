@@ -1,7 +1,7 @@
 //! LOD octree selection, job scheduling on worker threads, GPU sub-allocation of chunk meshes.
-use crate::mesh::{mesh_cut, Mesh};
+use crate::mesh::{mesh_cracked, Mesh};
 use crate::liquid::{Col, TILE};
-use crate::world::{fold, generate, river_quads, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS};
+use crate::world::{fold, generate, pidx, river_quads, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS, P};
 use glam::{DQuat, DVec3, IVec3, Vec4};
 use crate::clutter::Still;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -605,7 +605,10 @@ impl Streamer {
                 let body = &bodies[k.body as usize];
                 let gen = generate(body, k, &edits);
                 let mut mesh = match &gen {
-                    Gen::Cells(c) => Some(mesh_cut(c, if greedy { body.lattice(k.level) as usize } else { 1 }, cutout, may_glass)).filter(|m| !m.quads.is_empty()),
+                    Gen::Cells(c) => {
+                        let cracks = if k.level == 0 { cracks(body, k, c) } else { None };
+                        Some(mesh_cracked(c, if greedy { body.lattice(k.level) as usize } else { 1 }, cutout, may_glass, cracks.as_deref())).filter(|m| !m.quads.is_empty())
+                    }
                     _ => None,
                 };
                 if let (Gen::Cells(c), Some(m)) = (&gen, mesh.as_mut()) {
@@ -777,6 +780,31 @@ mod tests {
         let mut e = vec![(5, 1), (6, 2)];
         hide_models(&mut e, &reg);
         assert_eq!(e, vec![(5, 1), (6, 0)]);
+    }
+
+    /// ADR 0094: a row of exposed granite along j gets its joints (on the i faces' u edges) and no bedding; a row of
+    /// limestone gets bedding lines on its open sides and no joints.
+    #[test]
+    fn exposed_rock_gets_its_joints_and_bedding_lines() {
+        use crate::crack::{MJ, PJ};
+        let w = World::new(1536, 64, 1337);
+        let k = Key { body: 0, face: 2, level: 0, pos: IVec3::new(5, 9, 2) };
+        let row = |m: u16| {
+            let mut c = Box::new([0u16; P * P * P]);
+            for y in 1..P - 1 {
+                c[pidx(5, y, 5)] = m;
+            }
+            let k = cracks(&w.bodies[0], k, &c);
+            let mesh = crate::mesh::mesh_cracked(&c, 8, crate::mesh::Cut::Solid, false, k.as_deref());
+            (k, mesh.quads.iter().filter(|q| q[0] >> 28 & 7 < 2 && q[1] >> 20 & 15 != 0).count())
+        };
+        let (g, sides) = row(crate::blocks::BLOCKS.id("granite"));
+        let g = g.expect("granite on show");
+        assert!(sides >= 2, "{sides} i faces carry a joint edge");
+        let joints = (1..P - 1).filter(|&y| g[pidx(5, y, 5)][0] & (PJ | MJ) != 0).count();
+        assert!(joints >= 2, "{joints} joint sides along {} columns", P - 2);
+        assert!((1..P - 1).all(|y| g[pidx(5, y, 5)][1..] == [0; 4]), "granite has no bedding");
+        let _ = row(crate::blocks::BLOCKS.id("limestone"));
     }
 
     /// A block in a chunk's corner cell is in the padding of all seven chunks around that corner: the
@@ -1050,4 +1078,63 @@ mod tests {
         assert!(hid(ball(r0 + 20.0, 0.0))); // on the equator, seen from above the pole
         assert!(hid(ball(r0 * 0.9, -r0 * 0.6))); // past the horizon, well inside the cone
     }
+}
+
+/// The crack faces (ADR 0094) of a level-0 chunk's cells that a face shows: cracking rock beside an open cell; None
+/// when it has none (most chunks: no rock in sight). shortcut: a cell beside glass or a cutout block draws no crack.
+/// The cracks of a level-0 chunk's exposed cracking rock (ADR 0094), padded as `c`: per cell its joint faces
+/// (`crack::faces` less the bedding bits, drawn on the face edges) and the bedding line across each of its four side
+/// faces that is open (`crack::bed`, from the folded top at the face's two vertical edges, so a line runs on through
+/// the faces beside it). None for a chunk with none. Column and corner tops are looked up once each.
+fn cracks(body: &crate::world::Body, k: Key, c: &[u16; P * P * P]) -> Option<Box<[[u8; 5]; P * P * P]>> {
+    use crate::crack::{bed, faces, salt, ML, PL};
+    let cracking = |m: u16| crate::blocks::BLOCKS.get(m).filter(|d| d.bedding > 0.0 || d.joints > 0);
+    let base = k.base() - IVec3::ONE;
+    let (seed, face) = (salt(body), k.face);
+    let r = |l: i32| body.layer_r(l as f64) as f32;
+    let (mut cols, mut corners) = (vec![f32::NAN; P * P], vec![f32::NAN; P * P]);
+    let mut col = |x: usize, y: usize| {
+        if cols[x + y * P].is_nan() {
+            cols[x + y * P] = body.col_rock(face, base.x + x as i32, base.y + y as i32).top;
+        }
+        cols[x + y * P]
+    };
+    // corner (x, y) is the grid point at the low i, low j edge of padded column (x, y)
+    let mut corner = |x: usize, y: usize| {
+        if corners[x + y * P].is_nan() {
+            let (ci, cj) = ((base.x + x as i32) as f64, (base.y + y as i32) as f64);
+            corners[x + y * P] = body.rock_at(face as usize, ci, cj, body.dir(face as usize, ci, cj)).top;
+        }
+        corners[x + y * P]
+    };
+    let mut out: Option<Box<[[u8; 5]; P * P * P]>> = None;
+    for z in 1..P - 1 {
+        for y in 1..P - 1 {
+            for x in 1..P - 1 {
+                let m = c[pidx(x, y, z)];
+                let Some(d) = cracking(m) else { continue };
+                // the side faces +i, -i, +j, -j that are open, then the top and foot
+                let open = [c[pidx(x + 1, y, z)], c[pidx(x - 1, y, z)], c[pidx(x, y + 1, z)], c[pidx(x, y - 1, z)], c[pidx(x, y, z + 1)], c[pidx(x, y, z - 1)]].map(|n| n == 0);
+                if !open.contains(&true) {
+                    continue;
+                }
+                let g = base + IVec3::new(x as i32, y as i32, z as i32);
+                let (lo, hi) = (r(g.z), r(g.z + 1));
+                let mut e = [faces(m, seed, face, g.x, g.y, col(x, y), r(g.z - 1), lo, hi) & !(PL | ML), 0, 0, 0, 0];
+                if d.bedding > 0.0 {
+                    // each side's two vertical edges, low end first along the face (j on an i face, i on a j face)
+                    let ends = [((x + 1, y), (x + 1, y + 1)), ((x, y), (x, y + 1)), ((x, y + 1), (x + 1, y + 1)), ((x, y), (x + 1, y))];
+                    for (s, &((ax, ay), (bx, by))) in ends.iter().enumerate() {
+                        if open[s] {
+                            e[1 + s] = bed(m, corner(ax, ay), corner(bx, by), lo, hi);
+                        }
+                    }
+                }
+                if e != [0; 5] {
+                    out.get_or_insert_with(|| Box::new([[0; 5]; P * P * P]))[pidx(x, y, z)] = e;
+                }
+            }
+        }
+    }
+    out
 }

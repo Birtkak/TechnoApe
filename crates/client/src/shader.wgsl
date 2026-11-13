@@ -1036,6 +1036,26 @@ fn texel_a(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> ve
             c = vec4f(pattern_texel(lk, dir, cell, x, y, h, tone), select(1.0, glass_pane(x, y), is_glass(m)));
         }
     }
+    // a crack along an edge of the face (bits 20-23 of a rock's quad, u-, u+, v-, v+; a cutout block's are its twigs'; mesh.rs, ADR 0094): a dark line a
+    // texel wide on the edge, so the two faces beside a crack draw it as one line two texels wide
+    let ck = (mat >> 20u) & 15u;
+    if (ck != 0u && !cutout) {
+        let e = i32(n) - 1;
+        if (((ck & 1u) != 0u && ti.x == 0) || ((ck & 2u) != 0u && ti.x == e) || ((ck & 4u) != 0u && ti.y == 0) || ((ck & 8u) != 0u && ti.y == e)) {
+            c = vec4f(c.rgb * 0.3, c.a);
+        }
+    }
+    // a bedding plane across a side face (bits 24-31: its texel row at the face's low end + 8, the rows it climbs to
+    // the high end + 4 in the top three; `crack::bed`): neighbouring faces share their edges' rows, so the line runs
+    // on along the wall and tilts with the fold
+    let bd = mat >> 24u;
+    if (bd != 0u && dir < 4u && !cutout) {
+        let along = (f32(select(ti.x, ti.y, dir / 2u == 1u)) + 0.5) / n;
+        let row = floor(f32(i32(bd & 31u) - 8) + f32(i32(bd >> 5u) - 4) * along + 0.5);
+        if (floor(hgt * n) == row) {
+            c = vec4f(c.rgb * 0.3, c.a);
+        }
+    }
     // a block a season paints (bit 9 of its size, `looks_of`): the two nearest seasons' rows, each its paint of
     // this face or else the look above, mixed as look_in mixes; a row without paint is the summer look's face,
     // so a grass side a season does not paint stays its side block's

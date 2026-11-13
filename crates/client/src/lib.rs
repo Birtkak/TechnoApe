@@ -761,6 +761,10 @@ pub(crate) const PLACE_REACH: i32 = 64;
 /// A stand's `at=`, `place=`, `fxedit=` and `structure=` read, and `creature=`, `model=` and `fxplay=` checked:
 /// what is wrong names its argument, for one line on stderr (no panic).
 #[allow(clippy::type_complexity)]
+/// `fxedit=t:di:dj:dl:dig`: a survival dig by the server's rule, the cell and what a crack loosens with it turned to
+/// their rubble (ADR 0094; the stills of a good and a bad hit, on blocks only the stand's world has).
+pub(crate) const DIG: u16 = u16::MAX;
+
 pub fn stand_args(args: &Args, data: &str) -> Result<(Vec<(IVec3, u16)>, Vec<(f64, IVec3, u16)>, Option<engine::structures::Structure>), String> {
     let block = |n: &str| (0..=255u16).find(|i| BLOCKS.get(*i).is_some_and(|d| d.name == n.replace('_', " "))).ok_or(format!("no block '{n}'"));
     stand_at(args)?;
@@ -777,7 +781,7 @@ pub fn stand_args(args: &Args, data: &str) -> Result<(Vec<(IVec3, u16)>, Vec<(f6
         }).collect()
     };
     let place = each("place", "di:dj:dl:block", &|f| Ok((0.0, IVec3::new(int(f[0])?, int(f[1])?, int(f[2])?), block(f[3])?)))?.into_iter().map(|(_, d, id)| (d, id)).collect();
-    let fxedit = each("fxedit", "t:di:dj:dl:block", &|f| Ok((f[0].parse::<f64>().ok().filter(|t| t.is_finite()).ok_or(format!("'{}' is not seconds", f[0]))?, IVec3::new(int(f[1])?, int(f[2])?, int(f[3])?), block(f[4])?)))?;
+    let fxedit = each("fxedit", "t:di:dj:dl:block", &|f| Ok((f[0].parse::<f64>().ok().filter(|t| t.is_finite()).ok_or(format!("'{}' is not seconds", f[0]))?, IVec3::new(int(f[1])?, int(f[2])?, int(f[3])?), if f[4] == "dig" { DIG } else { block(f[4])? })))?;
     let structure = match args.0.get("structure") {
         None => None,
         Some(spec) => Some((|| {
@@ -830,9 +834,9 @@ mod tests {
     fn bad_stand_arguments_are_named_not_panicked() {
         let ok = stand_args(&args(&[("models", &format!("{DATA}/models")), ("structure", "oak:3"), ("creature", "boar:2"), ("model", "boar:walk"), ("fxplay", "fire:2")]), DATA).unwrap();
         assert!(ok.2.is_some());
-        let ok = stand_args(&args(&[("models", &format!("{DATA}/models")), ("place", "0:1:2:stone,1:0:0:blue_lamp"), ("fxedit", "0.5:0:0:1:air")]), DATA).unwrap();
+        let ok = stand_args(&args(&[("models", &format!("{DATA}/models")), ("place", "0:1:2:stone,1:0:0:blue_lamp"), ("fxedit", "0.5:0:0:1:air,1:0:0:2:dig")]), DATA).unwrap();
         assert_eq!(ok.0, vec![(IVec3::new(0, 1, 2), BLOCKS.id("stone")), (IVec3::X, BLOCKS.id("blue lamp"))]);
-        assert_eq!(ok.1, vec![(0.5, IVec3::Z, AIR)]);
+        assert_eq!(ok.1, vec![(0.5, IVec3::Z, AIR), (1.0, IVec3::Z * 2, DIG)]);
         for (k, v) in [
             ("place", "0:1:stone"),
             ("place", "0:x:1:stone"),

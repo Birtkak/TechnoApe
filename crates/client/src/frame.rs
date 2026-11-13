@@ -442,6 +442,18 @@ impl App {
                 fx::changed(&mut self.fx, &self.world, b, was, self.world.block(b));
                 continue;
             }
+            if m == crate::DIG {
+                let loose = engine::crack::drop(&self.world, b, was);
+                eprintln!("[technoape] dig {:?}: {} more loosened", b.pos, loose.len());
+                for c in std::iter::once(b).chain(loose) {
+                    let old = self.world.block(c);
+                    let r = engine::edit::dug(old, true);
+                    self.world.set_block(c, r);
+                    fx::changed(&mut self.fx, &self.world, c, old, r);
+                    self.streamer.touch_block(&self.world, c);
+                }
+                continue;
+            }
             self.world.set_block(b, m);
             fx::changed(&mut self.fx, &self.world, b, was, m);
             if self.fx.on && BLOCKS.solid(m) && !BLOCKS.solid(was) {

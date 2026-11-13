@@ -131,7 +131,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   sets the sky's clock (0 is 9 am at the spawn, a day is 1800 s; ADR 0022, 0041), `place=di:dj:dl:block,...` puts
   blocks (lamps, copper; `_` for a space) around the stand point; effects play only in `run=play` unless
   `fx=1` (ADR 0031; `fx_cap=` the pool, the Particles setting few/normal/many), and
-  `fxedit=t:di:dj:dl:block,...` (`air` to dig) edits cells at t seconds to film a break or a place;
+  `fxedit=t:di:dj:dl:block,...` (`air` to dig, `dig` a survival dig by the crack rule, ADR 0094) edits cells at t seconds to film a break or a place;
   `fxplay=name[:n]` starts a lasting effect or group (`fire`, `smoke`, ...) n times on the ground ahead and
   `model=name@state` plays a model's state (clip, effects, sound, light; ADR 0050); `data/effects.toml` reloads live (`effects=file` another; `bash tools/reload-check.sh` times all four kinds' reloads end to end);
   `capture_ms=2500 sheet=out/x.png` writes a filmstrip, `capture_w=1280` makes its frames large. Read the sheet.
