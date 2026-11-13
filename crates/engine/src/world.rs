@@ -2779,7 +2779,7 @@ mod baked_tests {
                 ways.into_iter().find_map(|dc| {
                     let (pos, yaw, pitch) = aim(dc, 1.7, target);
                     let len = (target - pos).length() - p.crown(t.h) as f64 - 1.0;
-                    let clear = (1..(len * 2.0) as i32).all(|s| w.block(w.block_at(pos + (target - pos).normalize() * s as f64 * 0.5)) == 0);
+                    let clear = (0..(len * 2.0) as i32).all(|s| w.block(w.block_at(pos + (target - pos).normalize() * s as f64 * 0.5)) == 0);
                     clear.then_some((dc, yaw, pitch, near, t))
                 })
             });

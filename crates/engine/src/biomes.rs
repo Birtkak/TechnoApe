@@ -192,7 +192,8 @@ impl Plant {
                 };
                 leaf(frond)
             }
-            Shape::Round | Shape::Flat | Shape::Droop => self.crowned(h, v, dx, dz, z),
+            Shape::Round => self.clumped(h, v, dx, dz, z),
+            Shape::Flat | Shape::Droop => self.crowned(h, v, dx, dz, z),
         }
     }
 
@@ -294,6 +295,90 @@ impl Plant {
             }
         }
         None
+    }
+
+    /// A broad-leaved tree (round): a trunk that leans a block by the hash (not a large `thick` one, which
+    /// stands straight on 2 x 2 below its fork) up to a clump of leaves at its top; at `fork` of its height
+    /// `limbs` limbs spread out under the crown, each (on a crown of three or more) parting into two branches of
+    /// their own lengths, and every branch ends in a clump of its own size a block or two under the top. The
+    /// clumps are 2 or 2.5 blocks across each way and 0.85 of that up and down, so the crown is
+    /// lobed and uneven with sky between its clumps, not one ball. A clump's outer leaves fall by the hash but
+    /// never one whose way in is open.
+    fn clumped(&self, h: i32, v: u32, dx: i32, dz: i32, z: i32) -> Option<(u16, bool)> {
+        // a clump is two blocks across at least, so the smallest crown is too
+        let cr = self.crown(h).max(2) as f32;
+        // a clump may hang half a block over the crown's radius, but not over the row's
+        let rim = (cr + 1.0).min(self.radius.max(2) as f32 + 0.5);
+        if (dx * dx + dz * dz) as f32 > rim * rim {
+            return None;
+        }
+        let large = self.size(h) == 2 && self.thick;
+        let at = |d: i32, r: f32| ((r * COS16[d.rem_euclid(16) as usize]).round(), (r * COS16[(d + 12).rem_euclid(16) as usize]).round());
+        // a clump's size: 2 or 2.5 across each way, never wider than the crown
+        let size = |k: i32| (2.0 + (hash(v, k, 0, 9) % 2) as f32 * 0.5).min(cr);
+        // the top clump, and the trunk's lean to it: two trees in three lean a block, a large thick one not
+        let r0 = size(99);
+        let ztop = ((h as f32 - 0.75 * r0).round() as i32).clamp(2, h - 1);
+        let (lx, lz) = if large || hash(v, 0, 0, 8) % 3 == 0 { (0.0, 0.0) } else { at((hash(v, 0, 1, 8) % 8) as i32 * 2, 1.0) };
+        // the limbs' ends: a block or two under the top, each its own length
+        let (n, turn) = (self.limbs as i32, (hash(v, 0, 0, 2) % 16) as i32);
+        let two = cr >= 3.0;
+        // on the stack: limbs are at most 6 (`parse`), two branches each, and the top
+        let (mut clumps, mut nc) = ([([0f32; 3], 0f32); 13], 1);
+        clumps[0] = ([lx, lz, ztop as f32], r0);
+        for k in 0..n {
+            let d = turn + k * 16 / n + (hash(v, k, 0, 3) % 3) as i32 - 1;
+            for j in if two { [-1, 1].as_slice() } else { [0].as_slice() } {
+                let r = size(k * 2 + j);
+                let reach = (cr + 1.0 - r - 0.5 * (hash(v, k, *j, 10) % 2) as f32).max(1.0);
+                let (ex, ez) = at(d + j, reach);
+                let ze = (h - 2 - (hash(v, k, *j, 11) % 2) as i32).clamp(2, h - 1);
+                (clumps[nc], nc) = (([ex, ez, ze as f32], r), nc + 1);
+            }
+        }
+        let clumps = &clumps[..nc];
+        let low = clumps.iter().map(|c| c.0[2] as i32).min().unwrap_or(ztop);
+        let fork = ((self.fork * h as f32).round() as i32).min(low - 1).max(1);
+        // the wood: the trunk to the top clump, a 2 x 2 foot on a large thick one, the limbs and branches
+        let c = [dx as f32, dz as f32, z as f32];
+        let top = [lx, lz, ztop as f32];
+        if on([0.0, 0.0, 0.0], top, c) || (large && (0..=1).contains(&dx) && (0..=1).contains(&dz) && z < fork) {
+            return Some((self.trunk, true));
+        }
+        // where the limbs leave the trunk: its cell at the fork's layer
+        let f = fork as f32 / ztop as f32;
+        let base = [(lx * f).round(), (lz * f).round(), fork as f32];
+        for k in 0..n {
+            let d = turn + k * 16 / n + (hash(v, k, 0, 3) % 3) as i32 - 1;
+            let ends = &clumps[1 + (k as usize) * (1 + two as usize)..][..1 + two as usize];
+            let elbow = if two {
+                let (mx, mz) = at(d, 0.5 * cr);
+                [mx, mz, (low - 1).max(fork) as f32]
+            } else {
+                ends[0].0
+            };
+            if on(base, elbow, c) || (two && ends.iter().any(|e| on(elbow, e.0, c))) {
+                return Some((self.trunk, true));
+            }
+        }
+        // the leaves: in any clump
+        let depth = |e: &([f32; 3], f32), x: f32, y: f32, zz: f32| ((x - e.0[0]).powi(2) + (y - e.0[1]).powi(2)) / (e.1 * e.1) + ((zz - e.0[2]) / (0.85 * e.1)).powi(2);
+        let leaf = clumps.iter().any(|e| {
+            let q = depth(e, c[0], c[1], c[2]);
+            if q > 1.0 {
+                return false;
+            }
+            if q < 0.6 || cr < 4.0 {
+                return true;
+            }
+            // a step towards the clump's middle along the way it is farthest: a kept outer leaf has core there
+            let o = [c[0] - e.0[0], c[1] - e.0[1], (c[2] - e.0[2]) / 0.85];
+            let i = (0..3).max_by(|&a, &b| o[a].abs().total_cmp(&o[b].abs())).unwrap();
+            let mut n = c;
+            n[i] -= o[i].signum();
+            hash(v, dx, dz, z) % 256 >= 80 && depth(e, n[0], n[1], n[2]) < 0.6
+        });
+        leaf.then_some((self.leaves, false))
     }
 
     /// The lowest layer of a willow's withe from limb end `e`: one or two over the ground.
