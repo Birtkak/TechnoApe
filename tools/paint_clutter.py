@@ -191,21 +191,23 @@ def make():
     for k, (x, z) in enumerate([(6, 8), (16, 14), (11, 20), (20, 6)]):
         m.box((x, 0.5, z), (6, 0, 5), leaf("fallen leaves", k), (0, 40 * k, 0))
     written += m.write("autumn orange", "flat leaves on the ground")
+    # sizes that read from standing height (bug 2026-11-13_14-24-52, ADR 0099): a fallen branch 0.6-0.9 m with a
+    # side twig, stones 0.2-0.35 m
     m = Model("twigs")
-    for k, (x, z, t) in enumerate([(6, 12, 20), (10, 18, -35), (14, 8, 70)]):
-        m.box((x, 0, z), (14, 1, 1), rock("twig", ("twig", k)), (0, t, 0))
-    written += m.write("log", "thin sticks crossing")
-    for alt, stones in enumerate([[(8, 10, 4, 2, 3), (18, 16, 3, 2, 3), (13, 22, 2, 1, 2)], [(10, 12, 3, 2, 4), (19, 9, 2, 1, 2)]]):
+    for k, (x, z, n, w, t) in enumerate([(3, 12, 28, 2, 20), (9, 20, 20, 2, -35), (14, 6, 12, 1, 70)]):
+        m.box((x, 0, z), (n, w, w), rock("twig", ("twig", k)), (0, t, 0))
+    written += m.write("log", "a fallen branch and sticks crossing")
+    for alt, stones in enumerate([[(6, 8, 10, 5, 8), (19, 16, 7, 4, 7), (12, 22, 5, 3, 4)], [(8, 10, 11, 6, 9), (21, 7, 6, 3, 5)]]):
         m = Model("pebbles" + (f".{alt}" if alt else ""))
         for k, (x, z, sx, sy, sz) in enumerate(stones):
             m.box((x, 0, z), (sx, sy, sz), rock("pebble", ("pebble", alt, k)), (0, 25 * k, 0))
-        written += m.write("stone", "a few small stones")
+        written += m.write("stone", "a few stones")
     m = Model("stick")
-    m.box((7, 0.5, 15), (18, 1, 1), rock("twig", "stick"), (0, 15, 4))
+    m.box((3, 1, 15), (26, 2, 2), rock("twig", "stick"), (0, 15, 4))
     written += m.write("log", "one stick, lying tilted")
     m = Model("loose stone")
-    m.box((12, 0, 12), (8, 4, 7), rock("pebble", "stone", -0.5), (0, 20, 6))
-    written += m.write("stone", "a stone the size of a fist, tilted")
+    m.box((10, 0, 10), (12, 6, 10), rock("pebble", "stone", -0.5), (0, 20, 6))
+    written += m.write("stone", "a stone of two fists, tilted")
     m = Model("flint")
     m.box((13, 0, 13), (6, 2, 5), flint("flint"), (8, 35, 0))
     written += m.write("slate", "a dark shard")

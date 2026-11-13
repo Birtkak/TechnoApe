@@ -793,6 +793,28 @@ mod tests {
         assert!(CLUTTER[reeds].wades, "reeds stand in shallow water");
     }
 
+    /// Bug 2026-11-13_14-24-52 (ADR 0099): twigs, stones and grass too small to read from standing height. A
+    /// row's longest box edge in metres: a fallen branch 0.6 m or more, a stick 0.75, stones 0.3; short grass
+    /// mostly 0.6 m high, with one young outline lower.
+    #[test]
+    fn clutter_reads_from_standing_height() {
+        let pal = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
+        let (s, _) = Still::load(&data.join("models"), &data.join("plants"), &pal);
+        let edge = |f: &[u32; 16], k: usize| glam::Vec3::from_array([k, k + 1, k + 2].map(|i| f32::from_bits(f[i]))).length();
+        let row = |name: &str| &s.rows[CLUTTER.iter().position(|r| r.name == name).unwrap()];
+        let longest = |&(first, n): &(u32, u32)| (first..first + n).map(|i| edge(&s.faces[i as usize], 4).max(edge(&s.faces[i as usize], 8))).fold(0.0, f32::max);
+        for (name, least) in [("twigs", 0.6), ("stick", 0.75), ("pebbles", 0.3), ("loose stone", 0.3)] {
+            for alt in row(name) {
+                assert!(longest(alt) >= least, "{name}: {} m, at least {least}", longest(alt));
+            }
+        }
+        // a plant's planes are as high as its painting along `ev`
+        let high: Vec<f32> = row("short grass").iter().map(|&(first, _)| edge(&s.faces[first as usize], 8)).collect();
+        assert!(high.iter().filter(|&&h| h >= 0.6).count() >= 3, "short grass mostly tall: {high:?}");
+        assert!(high.iter().any(|&h| h < 0.5), "and a young one: {high:?}");
+    }
+
     /// The review of 2026-11-13: the season alone turns at a season's middle, so a year began without a new mesh
     /// and a regrowing pick-up taken then stayed drawn; the stamp turns at both.
     #[test]

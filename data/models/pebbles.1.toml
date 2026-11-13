@@ -1,5 +1,5 @@
 # A draft pebbles (Claude's, listed in data/drafts.txt): clutter, ADR 0082. Painted
-# boxes at 32 px a metre (a few small stones); made by tools/paint_clutter.py.
+# boxes at 32 px a metre (a few stones); made by tools/paint_clutter.py.
 colours = ["stone"]
 
 [[part]]
@@ -8,12 +8,12 @@ box = [1, 1, 1]
 voxels = "."
 
 [[part.boxes]]
-at = [10.0, 0.0, 12.0]
-size = [3, 2, 4]
+at = [8.0, 0.0, 10.0]
+size = [11, 6, 9]
 uv = [0, 0]
 
 [[part.boxes]]
-at = [19.0, 0.0, 9.0]
-size = [2, 1, 2]
+at = [21.0, 0.0, 7.0]
+size = [6, 3, 5]
 turn = [0.0, 25.0, 0.0]
-uv = [14, 0]
+uv = [40, 0]
