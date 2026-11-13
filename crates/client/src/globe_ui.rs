@@ -129,12 +129,8 @@ impl App {
     }
 
     /// A click at the pointer: on a waypoint it opens its page (a right click takes it away), elsewhere on
-    /// the globe it drops a new one on the ground there. Waypoints are creative's until the compass is made.
+    /// the globe it drops a new one on the ground there; survival only on land it has charted (ADR 0077).
     fn globe_click(&mut self, back: bool) {
-        if !self.creative {
-            self.note("waypoints come with the compass, which is still to be made: /playmode creative has them".into());
-            return;
-        }
         match (self.globe_mark_under(), back) {
             (Some(k), true) => self.remove_waypoint(k),
             (Some(k), false) => self.set_menu(Some(Menu::Waypoint(k))),
@@ -142,10 +138,15 @@ impl App {
             (None, false) => {
                 let b = self.globe.body;
                 let Some(d) = self.globe.view.pick(self.pointer.0 as f64, self.pointer.1 as f64, self.globe.zeros[b]) else { return };
+                let (lat, lon) = nav::geo(d, self.globe.zeros[b]);
+                if !self.creative && !self.globe.seen[b].get(crate::globe::texel(lat, lon, crate::globe::SIZE[b])) {
+                    self.note("that land is not charted yet: go and see it first".into());
+                    return;
+                }
                 let body = &self.world.bodies[b];
                 let rel = body.stand_point(d) - body.centre;
                 let name = nav::next_name(&self.waypoints);
-                let line = format!("{name} at {} on {}", nav::geo_text(nav::geo(rel, self.globe.zeros[b])), body.name);
+                let line = self.waypoint_line(&name, rel, b);
                 self.waypoints.push(nav::Waypoint::new(name, b, rel, self.waypoints.len()));
                 self.note(line);
                 self.save_waypoints();
@@ -195,8 +196,8 @@ impl App {
                 p.text_px(x + 6.0, y - 6.0, &o.name, [1.0, 1.0, 1.0, 0.85], hud::PX * 0.75);
             }
         }
-        // the waypoints (where waypoints are shown at all: creative's, and K hides them)
-        if self.creative && self.settings.on(crate::settings::S::Marks) {
+        // the waypoints (K hides them)
+        if self.settings.on(crate::settings::S::Marks) {
             for wp in self.waypoints.iter().filter(|wp| wp.body == b) {
                 if let Some((x, y)) = at(wp.rel) {
                     let c = nav::COLOURS[wp.colour % nav::COLOURS.len()];
@@ -235,7 +236,8 @@ impl App {
             p.text_flat(bx[0] + 12.0, bx[1] + 11.0, BUTTONS[k], ink, hud::PX);
         }
         p.text_px(24.0, 20.0, &body.name, [1.0, 1.0, 1.0, 0.95], hud::PX * 1.5);
-        let under = v.pick(self.pointer.0 as f64, self.pointer.1 as f64, zero).map(|d| format!("{} {}", body.name, nav::geo_text(nav::geo(d, zero))));
+        // the coordinates under the pointer are creative's, like the compass's read-out (ADR 0077)
+        let under = v.pick(self.pointer.0 as f64, self.pointer.1 as f64, zero).filter(|_| self.creative).map(|d| format!("{} {}", body.name, nav::geo_text(nav::geo(d, zero))));
         let hint = "Drag turns the globe, the wheel zooms. A click drops a waypoint or opens one, a right click takes one away. M or Esc closes.";
         p.text(24.0, lh - 34.0, hint, [0.8, 0.8, 0.85, 0.85]);
         if let Some(s) = under {

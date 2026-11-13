@@ -752,6 +752,12 @@ impl App {
         if body == 0 { self.world.bodies[0].spawn_point() - self.world.bodies[0].centre } else { -DVec3::X }
     }
 
+    /// The chat's line for a new waypoint: where it is in numbers only in creative (ADR 0077).
+    pub(crate) fn waypoint_line(&self, name: &str, rel: DVec3, body: usize) -> String {
+        let on = &self.world.bodies[body].name;
+        if self.creative { format!("{name} at {} on {on}", nav::geo_text(nav::geo(rel, self.meridian(body)))) } else { format!("{name} dropped on {on}") }
+    }
+
     /// Keeps the waypoints in their file, when the world has one.
     pub(crate) fn save_waypoints(&mut self) {
         if let Some(f) = self.waypoint_file.clone() {
