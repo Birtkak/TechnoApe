@@ -1,7 +1,7 @@
 //! LOD octree selection, job scheduling on worker threads, GPU sub-allocation of chunk meshes.
 use crate::mesh::{mesh_cracked, Mesh};
 use crate::liquid::{Col, TILE};
-use crate::world::{fold, generate, pidx, river_quads, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS, P};
+use crate::world::{fold, generate_raw, pidx, skirt, river_quads, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS, P};
 use glam::{DQuat, DVec3, IVec3, Vec4};
 use crate::clutter::Still;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -621,11 +621,20 @@ impl Streamer {
                 let t = Instant::now();
                 let wait_us = (t - queued).as_secs_f32() * 1e6;
                 let body = &bodies[k.body as usize];
-                let gen = generate(body, k, &edits);
+                // the slopes read the padding before its skirts (ADR 0101)
+                let mut gen = generate_raw(body, k, &edits);
+                let raw = match &mut gen {
+                    Gen::Cells(c) => {
+                        let raw = c.clone();
+                        skirt(c);
+                        Some(raw)
+                    }
+                    _ => None,
+                };
                 let mut mesh = match &gen {
                     Gen::Cells(c) => {
                         let cracks = if k.level == 0 { cracks(body, k, c) } else { None };
-                        Some(mesh_cracked(c, if greedy { body.lattice(k.level) as usize } else { 1 }, cutout, may_glass, cracks.as_deref(), &held)).filter(|m| !m.quads.is_empty())
+                        Some(mesh_cracked(c, if greedy { body.lattice(k.level) as usize } else { 1 }, cutout, may_glass, cracks.as_deref(), &held, raw.as_deref())).filter(|m| !m.quads.is_empty())
                     }
                     _ => None,
                 };
@@ -813,7 +822,7 @@ mod tests {
                 c[pidx(5, y, 5)] = m;
             }
             let k = cracks(&w.bodies[0], k, &c);
-            let mesh = crate::mesh::mesh_cracked(&c, 8, crate::mesh::Cut::Solid, false, k.as_deref(), &[]);
+            let mesh = crate::mesh::mesh_cracked(&c, 8, crate::mesh::Cut::Solid, false, k.as_deref(), &[], None);
             (k, mesh.quads.iter().filter(|q| q[0] >> 28 & 7 < 2 && q[1] >> 20 & 15 != 0).count())
         };
         let (g, sides) = row(crate::blocks::BLOCKS.id("granite"));

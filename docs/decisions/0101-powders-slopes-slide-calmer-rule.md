@@ -85,3 +85,5 @@ like the near one; level borders already differ by the coarse sampling, nothing 
 sides take the occlusion of the cell they face; the slope pass's 48 KB per chunk with loose blocks (perf-debt
 row). Also fixed after the first slump film: a gliding cell was air to its neighbours' slopes, so a tower's
 blocks showed as wedges for a glide; the mesher now takes it as a loose block for the slopes (`held`, tested).
+
+**Follow-up (2026-11-13):** the `high` view showed a grid on the sand sea floor: `generate` skirts the padding (air under air), so every chunk border read as a step down and its tops sloped all round, at every level; the slopes now read the cells before the skirts (`generate_raw`, `skirt`, `mesh_cracked`'s `raw`; tested by a flat skirted floor).

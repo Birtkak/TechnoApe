@@ -2130,7 +2130,18 @@ pub fn water_keys(body: &Body, t: Col) -> Vec<Key> {
 }
 
 pub fn generate(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
-    let s = (1i32 << key.level) as f64;
+    match generate_raw(body, key, edits) {
+        Gen::Cells(mut c) => {
+            skirt(&mut c);
+            Gen::Cells(c)
+        }
+        g => g,
+    }
+}
+
+/// `generate` without the skirts: the padding as the neighbours hold it (the slopes read it, ADR 0101).
+pub fn generate_raw(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
+    let s =(1i32 << key.level) as f64;
     let c0 = key.pos * CS - 1; // padded cell (0, 0, 0) in cells of this level
     let r_lo = body.layer_r(c0.z as f64 * s);
     // the top padding's skirt looks SKIRT cells higher, past the chunk: generated terrain is air there when
@@ -2261,6 +2272,11 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
     if !any_air {
         return Gen::Solid;
     }
+    Gen::Cells(cells)
+}
+
+/// The skirts of `generate`.
+pub fn skirt(cells: &mut [u16; P * P * P]) {
     // skirts: a neighbour at another detail level draws a different surface, so faces culled against the
     // padding would leave holes and slivers at the chunk border. Padding cells within SKIRT cells under
     // air become air, and the chunk draws its own border walls that deep (hidden inside a same-level
@@ -2275,7 +2291,6 @@ pub fn generate(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
             }
         }
     }
-    Gen::Cells(cells)
 }
 
 #[cfg(test)]
