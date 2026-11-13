@@ -137,8 +137,14 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
   - palm: a rib on the slant with long leaflets hanging from it;
   - bamboo: slanted lance leaves.
 
-  Holes are now round blobs around one or two centres. A smooth noise field could be lowest along a whole row,
-  which drew a one-texel slit across the block.
+  Holes are few and ragged. Each variant opens from none to its species' share, in clusters that start on the
+  block's edge and wander in. Oak has one big notch, birch five small ones, and spruce and bamboo stretched ones.
+  A cube of leaves stays at most 15 % open, and the script asserts it; the crowns' fluffy planes (part A) give
+  the ragged outline. Two earlier tries failed: holes from a smooth noise field could fall along a whole row,
+  cutting a slit across the block, and round blobs in the middle read as polka dots on a regular grid. Pine and
+  bamboo now have a ground of dark needles or shaded leaves under their clumps and lances; they were 40 to 65 %
+  open. Palm's fronds and willow's curtain stay open as continuous shapes that reach the block's edge: the
+  willow's strands hang from the top edge, so they run on from the block above.
 - **Bark** (`<log>_side`, three variants) and **ends** (`<log>`):
   - birch: white with dark lenticel dashes;
   - oak: grey ridges broken across;
@@ -154,16 +160,22 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
   - Blossom is the spring look where it fits: broadleaf with pink-white flowers, birch and willow with catkins.
   - Fruit is a late-summer look `@fruit`: broadleaf apples, oak acorns, jungle fruit, palm coconuts, ripe berries.
     No season file holds it yet; part A decides how it is shown. Until then it waits in `out/flora/pending/`.
-- **Small plants as planes** (ADR 0091's format: one upright plane a file in `data/plants/<name>.png`, 32 px a
-  metre, at the sizes in the plants session's list):
-  - short grass (and `.1`), tall grass (and `.1`), wild wheat (straw ears over blades), fern (four arching fronds),
-    reeds two metres tall with cattails;
+- **Small plants as planes** (ADR 0091's format: one upright plane a file in `data/plants/<name>.png`). One
+  pixel is 1/16 m, the block's texel (the overseer's call). Sizes are in `PLANT_SIZES`, width x height in
+  pixels, and were sent to the plants session to read its planes by:
+  - short grass 16x7 and 16x6, tall grass 16x16 and 16x14, wild wheat 16x20, reeds 16x32;
+  - fern 24x11, berry bush 24x20, flowers 16x8.
+
+  A tuft fills its width edge to edge: a blade on every column and more besides, wrapping at the sides, so
+  neighbouring tufts merge into a field as in the references. Each tuft has four tones (shade at the foot, each
+  blade's own tone, a lit or light tip), and tall light blades stand in front of short dark ones.
+  - short grass (and `.1`) a low dense fringe, tall grass (and `.1`), wild wheat (straw ears over a full tuft),
+    fern (six fronds arching out of the middle), reeds two metres tall with cattails;
   - `flowers` in red and white, `.1` yellow, `.2` blue and white;
   - the berry bush with its looks `.bloom` (pink-white blossom) and `.fruit` (red berries), all three from the
     same leaves.
 
-  They are painted at 16 texels a metre and written with each texel doubled, so a plant's pixels match the
-  ground's. Greens are the grass block's own ramp, so a meadow and its ground read as one field. The game
+  Greens are the grass block's own ramp, so a meadow and its ground read as one field. The game
   tints only green pixels (g above r and b), so the greens take the climate's tint and the straw, petals,
   cattails and fruit keep their colour. On the grass block's side, the top row is mid with a few lit tips; it
   was all lit and drew a light line under standing blades.
