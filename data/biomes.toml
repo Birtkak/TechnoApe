@@ -8,48 +8,64 @@
 # `plants`: [plant, share] pairs: the share of the candidate spots (one every 4 x 4 columns, jittered)
 # that grow that plant; the shares add up to at most 1.
 #
-# A plant (generated as plain blocks; they do not grow, living plants are W7): `shape` cone (a spruce),
-# round (a crown on a trunk), flat (a flat top, the savanna's), column (a cactus, a reed: `trunk` only),
-# bush (`leaves` only). `height`: [lowest, highest] in blocks. `radius`: the crown's, in blocks, 0..3.
+# A plant (generated as plain blocks; they do not grow, living plants are W7): `shape` cone (a layered
+# conifer: tiers of clumps on limbs with gaps between, bare under `bare`), round (a trunk that forks at
+# `fork` of its height into `limbs` limbs, each spreading into branches under a dome of leaves `depth`
+# blocks thick each way; `thick`: a large one stands on a 2 x 2 trunk), flat (the same with a flat top: the
+# savanna's), droop (a willow: a flatter cap and curtains of leaves hanging to the ground), palm (fronds on a
+# bare trunk), column (a cactus, a reed: `trunk` only; with `leaves` and a radius, a clump of stalks:
+# bamboo), bush (`leaves` only). `height`: [lowest, highest] in blocks; a tree is small, medium or large by
+# where its height falls in that range, and its crown is 2, 1 or 0 blocks narrower than `radius` (0..6).
+# `warm`: it grows only where the year's mean air is at least this, C (ADR 0092).
+# The plant rows may be reordered; new ones go at the end (ADR 0092).
 
 [[plant]]
 name = "spruce"
 shape = "cone"
 trunk = "log"
 leaves = "spruce leaves"
-height = [8, 12]
+height = [7, 14]
 radius = 3
+bare = 0.15
 
 [[plant]]
 name = "broadleaf"
 shape = "round"
 trunk = "log"
 leaves = "broadleaf leaves"
-height = [6, 9]
-radius = 2
+height = [5, 9]
+radius = 4
+fork = 0.4
+limbs = 3
 
 [[plant]]
 name = "jungle tree"
 shape = "round"
 trunk = "log"
 leaves = "jungle leaves"
-height = [12, 16]
-radius = 3
+height = [10, 16]
+radius = 5
+fork = 0.65
+limbs = 4
+thick = true
 
 [[plant]]
 name = "acacia"
 shape = "flat"
 trunk = "log"
 leaves = "acacia leaves"
-height = [5, 7]
-radius = 3
+height = [5, 8]
+radius = 5
+fork = 0.55
+limbs = 2
+depth = 0.8
 
 [[plant]]
 name = "shrub"
 shape = "bush"
 leaves = "shrub"
 height = [1, 2]
-radius = 0
+radius = 2
 
 [[plant]]
 name = "cactus"
@@ -64,6 +80,65 @@ shape = "column"
 trunk = "reed"
 height = [1, 2]
 radius = 0
+
+[[plant]]
+name = "birch"
+shape = "round"
+trunk = "birch log"
+leaves = "birch leaves"
+height = [7, 13]
+radius = 4
+fork = 0.45
+limbs = 3
+
+[[plant]]
+name = "oak"
+shape = "round"
+trunk = "oak log"
+leaves = "oak leaves"
+height = [5, 10]
+radius = 6
+fork = 0.35
+limbs = 4
+thick = true
+
+[[plant]]
+name = "pine"
+shape = "cone"
+trunk = "pine log"
+leaves = "pine leaves"
+height = [8, 16]
+radius = 2
+bare = 0.55
+
+[[plant]]
+name = "willow"
+shape = "droop"
+trunk = "willow log"
+leaves = "willow leaves"
+height = [6, 10]
+radius = 5
+fork = 0.55
+limbs = 4
+depth = 1.5
+thick = true
+
+[[plant]]
+name = "palm"
+shape = "palm"
+trunk = "palm log"
+leaves = "palm leaves"
+height = [5, 10]
+radius = 3
+warm = 15.0
+
+[[plant]]
+name = "bamboo"
+shape = "column"
+trunk = "bamboo"
+leaves = "bamboo leaves"
+height = [6, 12]
+radius = 2
 
 [[biome]]
 name = "ice"
@@ -86,7 +161,7 @@ top = "cold grass"
 band = "dirt"
 rock = "stone"
 patches = [["snow", 0.15]]
-plants = [["spruce", 0.38], ["shrub", 0.05]]
+plants = [["spruce", 0.32], ["pine", 0.14], ["birch", 0.06], ["shrub", 0.05]]
 clutter = [["grass tuft", 5], ["fern", 6], ["twigs", 4], ["pebbles", 1], ["stick", 2], ["loose stone", 0.5], ["mushroom", 1.5], ["berries", 0.4]]
 
 [[biome]]
@@ -94,7 +169,7 @@ name = "temperate forest"
 top = "grass"
 band = "dirt"
 rock = "stone"
-plants = [["broadleaf", 0.25], ["shrub", 0.12]]
+plants = [["broadleaf", 0.18], ["oak", 0.12], ["birch", 0.05], ["willow", 0.01], ["shrub", 0.10]]
 clutter = [["grass tuft", 8], ["fern", 5], ["fallen leaves", 6], ["twigs", 4], ["flowers", 3], ["pebbles", 1], ["stick", 2], ["loose stone", 0.7], ["mushroom", 1.2], ["berries", 0.5]]
 
 [[biome]]
@@ -102,7 +177,7 @@ name = "grassland"
 top = "meadow grass"
 band = "dirt"
 rock = "stone"
-plants = [["broadleaf", 0.015], ["shrub", 0.04]]
+plants = [["broadleaf", 0.008], ["oak", 0.007], ["shrub", 0.04]]
 clutter = [["grass tuft", 12], ["flowers", 6], ["pebbles", 1], ["loose stone", 0.5], ["berries", 0.3]]
 
 [[biome]]
@@ -135,7 +210,7 @@ name = "rain forest"
 top = "jungle grass"
 band = "dirt"
 rock = "stone"
-plants = [["jungle tree", 0.4], ["shrub", 0.25]]
+plants = [["jungle tree", 0.34], ["bamboo", 0.07], ["palm", 0.03], ["shrub", 0.2]]
 clutter = [["fern", 12], ["twigs", 5], ["stick", 2.5], ["mushroom", 1.5]]
 
 [[biome]]
@@ -144,7 +219,7 @@ top = "mud"
 band = "clay"
 rock = "stone"
 patches = [["marsh grass", 0.5]]
-plants = [["reed", 0.35], ["shrub", 0.05]]
+plants = [["reed", 0.3], ["willow", 0.05], ["oak", 0.01], ["shrub", 0.05]]
 clutter = [["grass tuft", 6]]
 
 [[biome]]
@@ -160,6 +235,7 @@ name = "beach"
 top = "sand"
 band = "sand"
 rock = "stone"
+plants = [["palm", 0.05]]
 
 [[biome]]
 name = "shelf"
