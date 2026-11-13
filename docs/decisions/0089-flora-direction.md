@@ -17,6 +17,13 @@ developer wants all flora to look better, with Vintage Story as the reference (f
 The developer chose: **fluffy crowns**; **crossed flat planes** for small plants; **branches and more species**
 (no giant trees for now); **all four extras**.
 
+**Added the same day** (the developer, after the first sheets: "still too low quality of details and colours"):
+- **Flora is painted at 32 pixels per metre** (leaves, bark, plants on planes); other blocks stay at 16. The
+  developer had no preference between the options; 32 for all flora was the recommendation, since crowns at 16
+  over a meadow at 32 would not match.
+- **Rich colour, like the references:** six to eight tones with hue shifts (warm highlights, cool shadows),
+  saturated, and two or three variants per plant. This replaces "calm" for flora only.
+
 ## Consequences
 - Drawing see-through plants is the cost: ADR 0088's leaf shells alone took the forest fly-through from 6.3 to
   7.4 ms p99 against a budget of 8.3. Every part starts with a measured spike and the default settings must hold
