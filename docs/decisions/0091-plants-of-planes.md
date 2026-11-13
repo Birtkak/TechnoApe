@@ -57,7 +57,8 @@ shadows and feel like they got depth").
   have a fourth outline too, so no stand looks stamped from one painting.
 - **Dry ground's own cover:** dry scrub went from about a third covered in single tufts to about two thirds, tall
   grass and wild wheat in drifts, which the climate tint turns straw.
-- **Sway** in `vs_still`: `sway(wind, height, column, hash)` from the weather's wind at the camera (ADR 0076) on
+- **Sway** in `vs_still`: `plant_sway(wind, height, column, hash)` (renamed at the merge with the crowns, whose
+  leaves have their own `sway`) from the weather's wind at the camera (ADR 0076) on
   the sky's clock; zero in a `shot=`, so fixed views stand still.
 - **Tint:** `climate_tint(heat, wet, part, season)` (WGSL) = `clutter::tint` (Rust, tested): heat from the bake's
   air at the column's height (−5 to 35 °C), wetness from its rain (root scale). Deep green where wet, straw where
@@ -76,7 +77,7 @@ shadows and feel like they got depth").
   sun's, the moon's and the lamps' rays all take them. `plant_shadows=0` leaves them out for measuring.
 
 ### For part A (crowns) and later users
-`sway`, `Globals.plants` (wind xyz, far w), `chunk_climate(chunks[ci], local.xy / 32)`, `year_part(season(..))`,
+`plant_sway`, `Globals.plants` (wind xyz, far w), `chunk_climate(chunks[ci], local.xy / 32)`, `year_part(season(..))`,
 `climate_tint` and `leafy` are built for leaves to reuse: a leaf texel multiplied by
 `climate_tint(cl.x, cl.y, year_part(sn), sn.y)` matches the ground and the plants under it.
 
@@ -164,6 +165,13 @@ server's unchanged pick-ups, the mean colour's packing and the normal's orientat
 - A grass block covered by another block still shows the fringe on its sides far away (the shader cannot see the
   cell over it cheaply).
 - A meadow's edge fraying into scattered tufts on a biome border: plants follow the biome's ground blocks.
+
+## Merge with main (the crowns, trees, flint)
+Main's `ray_cut` (fast leaves whole to a ray) and the plants' shadows share the BLAS's second geometry:
+[cut as `ray_cut` says][glass][still], so `cut: ray_cut + glass + cast` and the chunk table's `opq` subtracts
+`ray_cut`. Flint's place rule (`wet_or_over`) applies to models in `pick`; plants keep their own roll. The biomes
+take main's trees and flint and this branch's undergrowth; main's grass tuft, fern and flower models are this
+branch's plants.
 
 ## Consequences
 - The fixed views change wherever grass grows: every view with grassland, savanna, forest floor or wetland in

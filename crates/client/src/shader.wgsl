@@ -2183,7 +2183,7 @@ fn leafy(c: vec3f) -> bool { return c.g > c.r && c.g > c.b; }
 // A plant's sway (ADR 0091): the wind `w` (camera frame, m/s) bends a point `hm` metres up by its square, in gusts
 // that roll across the land with `place` (columns) and run on the sky's clock, so every client and every shot of
 // the same time sees the same. Leaves can take it the same way.
-fn sway(w: vec3f, hm: f32, place: vec2f, seed: f32) -> vec3f {
+fn plant_sway(w: vec3f, hm: f32, place: vec2f, seed: f32) -> vec3f {
     let speed = length(w);
     if (speed < 0.01) { return vec3f(0.0); }
     let t = g.water.x;
@@ -2294,7 +2294,7 @@ fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
         fade = 1.0 - smoothstep(d0 * 0.8, d0, d);
     }
     let local = still_local(q, uv, c, fade);
-    if (plant && (c.info >> 8u) == 0u) { bend = sway(brot(b, g.plants.xyz), local.z - cell.z, vec2f(col), h.z); }
+    if (plant && (c.info >> 8u) == 0u) { bend = plant_sway(brot(b, g.plants.xyz), local.z - cell.z, vec2f(col), h.z); }
     let gp = grid(c, local);
     let fr = frame_at(c.info & 7u, b, gp.x, gp.y);
     // a plant's plane turns, leans and stretches by its place's hash (`still_local`): its normal from the placed
