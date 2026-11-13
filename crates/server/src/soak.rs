@@ -7,6 +7,7 @@ use crate::save::Save;
 use crate::Server;
 use engine::net::{local, Link, Recv, ToClient, ToServer};
 use engine::blocks::BLOCKS;
+use engine::items::{Holder, ITEMS};
 use engine::phys::{self, Input};
 use engine::world::World;
 use engine::edit::{self, Kind, Predictor, Shape};
@@ -162,14 +163,31 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
     } else if r < 0.087 {
         b.link.send(ToServer::Creative(b.rng.f() < 0.5));
     } else if r < 0.0875 {
-        let lines = ["hi", "/time", "/time add 30", "/give stone 3", "/give nothing", "/playmode survival", "/bad", "/time set 99:99"];
+        let lines = ["hi", "/time", "/time add 30", "/give stone 3", "/give nothing", "/playmode survival", "/bad", "/time set 99:99", "/give basket", "/give dirt 700"];
         b.link.send(ToServer::Chat(lines[(b.rng.next() % lines.len() as u64) as usize].into()));
     } else if r < 0.1 {
         // the bucket, mostly where it reaches water or air, some of it out of reach or into rock
         let feet = s.clients[me].phys.pos;
         let at = s.world.block_at(feet + b.rng.dir() * b.rng.range(0.0, 5.0));
         b.link.send(ToServer::Bucket { seq: b.pred.seq(), at, fill: b.rng.f() < 0.5 });
-    } else if r < 0.102 && b.dam.is_none() {
+    } else if r < 0.1 + ITEM_SHARE {
+        // items (ADR 0074): moves, splits, throws, piles and creative's grid at random, some onto full or wrong
+        // slots, some from piles out of reach, some of no item; the items' ledger must hold through all of them
+        let pick = |rng: &mut Rng| -> (Holder, u16) {
+            match rng.next() % 8 {
+                0..=3 => (Holder::Ape, (rng.next() % 40) as u16),
+                4 | 5 if !s.piles.is_empty() => (Holder::Pile(crate::unkey(*s.piles.keys().nth((rng.next() % s.piles.len() as u64) as usize).unwrap())), (rng.next() % 5) as u16),
+                6 => {
+                    let all: Vec<u16> = ITEMS.all().collect();
+                    (Holder::Grid, if rng.f() < 0.9 { all[(rng.next() % all.len() as u64) as usize] } else { 0x7fff })
+                }
+                _ => (Holder::Ground, 0),
+            }
+        };
+        let (from, to) = (pick(&mut b.rng), pick(&mut b.rng));
+        let n = (b.rng.next() % 70) as u16;
+        b.link.send(ToServer::Items { seq: b.pred.seq(), from, to, n });
+    } else if r < 0.102 + ITEM_SHARE && b.dam.is_none() {
         // a dam across a river (W5): from its bank, in creative, a plug of stone over the channel's width,
         // broken again some seconds later; the water's count must hold through both
         let Some((d, across, hw)) = river_point(&s.world, &mut b.rng) else { return };
@@ -210,7 +228,14 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
     }
 }
 
+/// The share of a bot's ticks that move items (ADR 0074).
+const ITEM_SHARE: f64 = 0.01;
+
 fn check(s: &Server) -> Result<(), String> {
+    // no item appears or vanishes: what every player and pile holds is what digs, places, the grid and /give made
+    if let Some(&(k, held, made)) = s.item_ledger().first() {
+        return Err(format!("{}: {held} held, {made} made", engine::items::ITEMS.name(k)));
+    }
     // no water appears or vanishes: what differs from the seed is what buckets hold plus what creative made
     if s.water_ledger() != 0 {
         return Err(format!("{} units of water appeared", s.water_ledger()));
