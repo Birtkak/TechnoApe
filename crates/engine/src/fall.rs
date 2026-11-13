@@ -55,8 +55,10 @@ impl Falls {
         self.awake.entry(key(b)).or_insert((0, 0));
     }
 
-    /// `b` changed: it, the cell over it and the four sides at both layers may now fall or slide.
+    /// `b` changed: it, the cell over it and the four sides at both layers may now fall or slide, and the cell
+    /// under it, which may be a pile's top now (ADR 0101).
     pub fn wake(&mut self, world: &World, b: Block) {
+        self.awake.entry(key(near(world, b, 0, 0, -1))).or_insert((0, 0));
         for dl in 0..=1 {
             for (di, dj) in [(0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)] {
                 self.awake.entry(key(near(world, b, di, dj, dl))).or_insert((0, 0));
@@ -64,8 +66,8 @@ impl Falls {
         }
     }
 
-    /// One tick: every awake falling block falls a cell when its time says, else slides off a step of two,
-    /// else sleeps. A player is no floor: it falls through the player's cells and buries them (the developer,
+    /// One tick: every awake falling block falls a cell when its time says, else, the top of its pile, slides off
+    /// a step of two (ADR 0101), else sleeps. A player is no floor: it falls through the player's cells and buries them (the developer,
     /// 2026-11-13; the server takes their breath). Each move is two edits, pushed to `out`.
     pub fn step(&mut self, world: &mut World, tick: u64, out: &mut Vec<(Block, u16)>) {
         let mut now = std::mem::take(&mut self.awake);
@@ -105,6 +107,9 @@ impl Falls {
             } else if let Some(&s) = self.awake.get(&key(below)).filter(|s| s.0 > 0) {
                 // riding on a block in flight that waited this tick (it was visited first): it waits with it
                 self.awake.insert(k, s);
+                continue;
+            } else if !open(world, near(world, p, 0, 0, 1)) {
+                // calmer (ADR 0101): only a pile's top slides; a block with anything on it holds
                 continue;
             } else {
                 // a hash of the cell and the tick picks the first side: not always the same way
@@ -270,7 +275,95 @@ mod tests {
         assert!(h(0, 0) < 5, "the tower spread");
     }
 
+    /// A corridor one block wide along +i from `top`, `len` long, walled with stone up to 8 layers: sand in it can
+    /// only go one way, so a slump's end is known.
+    fn corridor(w: &mut World, top: Block, len: i32) {
+        let stone = BLOCKS.id("stone");
+        for l in 0..8 {
+            for i in -1..=len {
+                w.set_block(at(top, i, 1, l), stone);
+                w.set_block(at(top, i, -1, l), stone);
+            }
+            w.set_block(at(top, -1, 0, l), stone);
+            w.set_block(at(top, len, 0, l), stone);
+        }
+    }
+
+    /// The developer's rule (ADR 0101): a step of one stays put; the top of a pile two over its neighbour slides.
     #[test]
+    fn a_step_of_one_stays_and_a_step_of_two_slides() {
+        let sand = BLOCKS.id("sand");
+        for (h, moves) in [(1, 0), (2, 2)] {
+            let (mut w, top) = floor();
+            corridor(&mut w, top, 3);
+            let mut f = Falls::default();
+            for l in 0..h {
+                w.set_block(at(top, 0, 0, l), sand);
+                f.wake(&w, at(top, 0, 0, l));
+            }
+            settle(&mut f, &mut w, &mut Vec::new());
+            // a step of two: the top slides one over (a move) and falls a cell (another)
+            assert_eq!(f.moves, moves, "a step of {h}");
+            let hs: Vec<usize> = (0..3).map(|i| (0..4).filter(|l| w.block(at(top, i, 0, *l)) == sand).count()).collect();
+            assert_eq!(hs, if h == 1 { vec![1, 0, 0] } else { vec![1, 1, 0] }, "a step of {h}");
+        }
+    }
+
+    /// Calmer (ADR 0101): only a pile's top block slides; one under another block never slides out from under it,
+    /// so no hole opens in a pile and a block with anything on it stays.
+    #[test]
+    fn only_a_piles_top_slides() {
+        let (sand, stone) = (BLOCKS.id("sand"), BLOCKS.id("stone"));
+        let (mut w, top) = floor();
+        corridor(&mut w, top, 4);
+        let mut f = Falls::default();
+        for l in 0..4 {
+            w.set_block(at(top, 0, 0, l), sand);
+            f.wake(&w, at(top, 0, 0, l));
+        }
+        let mut out = Vec::new();
+        let mut tick = 0;
+        while f.awake() > 0 {
+            f.step(&mut w, tick, &mut out);
+            tick += 1;
+            // the first column's sand is one unbroken stack on the floor after every tick
+            let ls: Vec<i32> = (0..8).filter(|l| w.block(at(top, 0, 0, *l)) == sand).collect();
+            assert_eq!(ls, (0..ls.len() as i32).collect::<Vec<_>>(), "tick {tick}: a hole opened under the pile");
+        }
+        // a stone laid on a tower: the sand under it holds
+        let (mut w, top) = floor();
+        corridor(&mut w, top, 4);
+        let mut f = Falls::default();
+        for l in 0..3 {
+            w.set_block(at(top, 0, 0, l), sand);
+            f.wake(&w, at(top, 0, 0, l));
+        }
+        w.set_block(at(top, 0, 0, 3), stone);
+        settle(&mut f, &mut w, &mut Vec::new());
+        assert_eq!(f.moves, 0, "sand under a stone slid out");
+        // the stone taken: the sand under it is the top now, woken, and slides
+        w.set_block(at(top, 0, 0, 3), AIR);
+        f.wake(&w, at(top, 0, 0, 3));
+        settle(&mut f, &mut w, &mut Vec::new());
+        assert!(f.moves > 0, "the new top never woke");
+    }
+
+    /// A known slump: a tower of four at the end of a corridor peels from the top a block a tick, each new top
+    /// sliding before the one ahead of it has landed, and ends flat along the corridor, every block kept.
+    #[test]
+    fn a_tower_in_a_corridor_slumps_to_steps_of_one() {
+        let sand = BLOCKS.id("sand");
+        let (mut w, top) = floor();
+        corridor(&mut w, top, 4);
+        let mut f = Falls::default();
+        for l in 0..4 {
+            w.set_block(at(top, 0, 0, l), sand);
+            f.wake(&w, at(top, 0, 0, l));
+        }
+        settle(&mut f, &mut w, &mut Vec::new());
+        let hs: Vec<usize> = (0..4).map(|i| (0..8).filter(|l| w.block(at(top, i, 0, *l)) == sand).count()).collect();
+        assert_eq!(hs, vec![1, 1, 1, 1]);
+    }
 
     #[test]
     fn a_tick_visits_at_most_the_budget_and_the_rest_carry_on() {

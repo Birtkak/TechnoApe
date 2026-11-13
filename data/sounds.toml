@@ -267,6 +267,18 @@ layer = [
   { wave = "noise", freq = [900, 450], q = 0.6, attack = 0.008, decay = 0.1, gain = 0.6, delay = 0.09 },
 ]
 
+# --- loose blocks sliding (ADR 0101): one rolling hiss a slump, a take every 0.45 s while blocks keep moving,
+# each swelling in and out over about 0.7 s so the takes roll on into one another ---
+[[sound]]
+name = "slump"
+bus = "world"
+reach = 28
+gain = 0.45
+variants = 4
+pitch = 0.12
+from = [{ base = "base.whoosh", gain = 1.0 }, { base = "base.scrape", gain = 0.6, delay = 0.05 }]
+chain = [{ pitch = -4 }, { lowpass = 2600, q = 0.7 }, { tremolo = 16.0, depth = 0.35 }]
+
 # --- the body coming down: under the step of whatever it lands on ---
 [[sound]]
 name = "land"
