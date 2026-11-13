@@ -1,7 +1,8 @@
 //! Binary greedy mesher: occupancy bitmasks per column, faces culled 34 cells at a time with shifts,
 //! then a greedy merge per slice over 32-bit rows (same material only).
 //! Quad = 8 bytes: lo = x6 y6 z6 (w-1)5 (h-1)5 dir3, hi = material8 | ao8 << 8: ambient occlusion at each
-//! corner, 2 bits (0 open .. 3 a corner shut in), corner (u, v) at bits 2 * (u + 2v) (ADR 0022).
+//! corner, 2 bits (0 open .. 3 a corner shut in), corner (u, v) at bits 2 * (u + 2v) (ADR 0022); a joining
+//! block's face (lamps) has join4 << 16: the sides u-, u+, v-, v+ that meet the same block's open face (ADR 0085).
 use crate::world::{pidx, CS, P};
 use std::sync::LazyLock;
 
@@ -24,6 +25,7 @@ pub struct Mesh {
 /// loop reads this, not the row. `GLASS`: the same for glass alone (ADR 0081).
 static SEE: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| bits(|id| !crate::blocks::BLOCKS.opaque(id)));
 static GLASS: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| bits(|id| crate::blocks::BLOCKS.glass(id)));
+static JOINS: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| bits(|id| crate::blocks::BLOCKS.joins(id)));
 fn bits(f: impl Fn(u16) -> bool) -> Box<[u64; 1024]> {
     let mut t = Box::new([0u64; 1024]);
     for d in crate::blocks::BLOCKS.placeable().filter(|d| f(d.id)) {
@@ -174,6 +176,9 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
                 }
                 bits
             };
+            let joins_t: &[u64; 1024] = &JOINS;
+            // the culling rule above, for one cell: it hides a face behind it (glass and fancy cutout blocks do not)
+            let hides = |c: u16| c != 0 && !(any_glass && is_in(glass_t, c)) && !(any_cut && is_in(cut_t, c));
             for d in 0..CS as usize {
                 let rows = &mut planes[d];
                 for v in 0..CS as usize {
@@ -181,10 +186,13 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
                         let u = rows[v].trailing_zeros() as usize;
                         let m = mat(u, v, d);
                         let o = ao(u, v, d);
+                        // a joining block's face never merges: each knows its own sides
+                        let jm = is_in(joins_t, m);
+                        let merge = lattice > 1 && o == 0 && !jm;
                         // a merged quad has one occlusion per corner: only open faces merge
                         let open = |u: usize, v: usize| ao(u, v, d) == 0;
                         let mut w = 1;
-                        if lattice > 1 && o == 0 {
+                        if merge {
                             // never across a lattice line
                             while u + w < 32 && (u + w) % lattice != 0 && rows[v] >> (u + w) & 1 == 1 && mat(u + w, v, d) == m && open(u + w, v) {
                                 w += 1;
@@ -192,7 +200,7 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
                         }
                         let mask = (((1u64 << w) - 1) << u) as u32;
                         let mut h = 1;
-                        if lattice > 1 && o == 0 {
+                        if merge {
                             while v + h < 32 && (v + h) % lattice != 0 && rows[v + h] & mask == mask && (u..u + w).all(|i| mat(i, v + h, d) == m && open(i, v + h)) {
                                 h += 1;
                             }
@@ -216,7 +224,8 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
                         } else {
                             dir
                         };
-                        groups[g].push([lo, m as u32 | o << 8]);
+                        let j = if jm { join_sides(cells, a, s, u, v, d, m, &hides) } else { 0 };
+                        groups[g].push([lo, m as u32 | o << 8 | j << 16]);
                     }
                 }
             }
@@ -231,6 +240,24 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: b
         quads.extend_from_slice(g);
     }
     Mesh { quads, counts, cut: groups[6].len() as u32, glass: groups[7].len() as u32, still: 0, water: 0 }
+}
+
+/// The sides of joining block `m`'s face at (u, v, d) of axis `a`, side `s` that meet the same block whose face
+/// there is drawn too (`hides`: the mesher's culling rule): u-, u+, v-, v+ as bits 0..3 (ADR 0085). Out of the mesher's loop: few blocks join.
+#[cold]
+#[inline(never)]
+#[allow(clippy::too_many_arguments)]
+fn join_sides(cells: &[u16; P * P * P], a: usize, s: usize, u: usize, v: usize, d: usize, m: u16, hides: &dyn Fn(u16) -> bool) -> u32 {
+    // padded coordinates: the face's cell is (u + 1, v + 1, d + 1), the cell in front of it fd
+    let fd = if s == 0 { d + 2 } else { d };
+    let cell = |u: usize, v: usize, d: usize| match a {
+        0 => cells[pidx(d, u, v)],
+        1 => cells[pidx(v, d, u)],
+        _ => cells[pidx(u, v, d)],
+    };
+    [(u, v + 1), (u + 2, v + 1), (u + 1, v), (u + 1, v + 2)].iter().enumerate()
+        .map(|(i, &(nu, nv))| ((cell(nu, nv, d + 1) == m && !hides(cell(nu, nv, fd))) as u32) << i)
+        .sum()
 }
 
 #[cfg(test)]
@@ -285,6 +312,52 @@ mod tests {
             p[dir as usize / 2] -= 1; // a + face sits on the far side of its cell
         }
         (p, dir, (q[1] & 255) as u16)
+    }
+
+    /// ADR 0085: a joining block's face carries which of its four neighbours in the face's plane are the same
+    /// block with that face open too (bits 16-19: u-, u+, v-, v+), so the shader draws the frame on the outer
+    /// edge only; a joining block never merges, and other blocks carry none.
+    #[test]
+    fn lamps_know_their_neighbours_in_the_wall() {
+        let b = &crate::blocks::BLOCKS;
+        let (lamp, stone) = (b.id("lamp"), b.id("stone"));
+        let mut c = Box::new([0u16; P * P * P]);
+        // a row of three lamps along x at y = 5, z = 5, stone beside the last; a stone in front (+z) of the first
+        for x in 5..8 {
+            c[pidx(x, 5, 5)] = lamp;
+        }
+        c[pidx(8, 5, 5)] = stone;
+        c[pidx(5, 5, 6)] = stone;
+        let m = mesh(&c, 8);
+        let mask = |cell: [usize; 3], dir: u32| {
+            let q = m.quads.iter().find(|q| face_of(q).0 == cell && face_of(q).1 == dir).expect("face");
+            q[1] >> 16
+        };
+        // +y faces (a = y: u = z, v = x): the middle lamp joins both ways along x (v), the first only to +x
+        assert_eq!(mask([4, 4, 4], 2), 8);
+        assert_eq!(mask([5, 4, 4], 2), 4 | 8);
+        assert_eq!(mask([6, 4, 4], 2), 4); // stone beyond is not a lamp
+        // +z faces (a = z: u = x, v = y): the first lamp's is covered, so the second does not join to it
+        assert_eq!(mask([5, 4, 4], 4), 2);
+        // stone carries no mask
+        assert!(m.quads.iter().filter(|q| face_of(q).2 == stone).all(|q| q[1] >> 16 == 0));
+
+        // a column of three lamps along y, their -x faces (a = x: u = y, v = z; front at x - 1): a glass pane in
+        // front of the middle one leaves its face drawn, so it still joins both ways (as fancy leaves would)
+        let glass = b.id("glass");
+        let mut c = Box::new([0u16; P * P * P]);
+        for y in 10..13 {
+            c[pidx(10, y, 10)] = lamp;
+        }
+        c[pidx(9, 11, 10)] = glass;
+        let m = mesh_cut(&c, 8, false, true);
+        let mask = |cell: [usize; 3], dir: u32| {
+            let q = m.quads.iter().find(|q| face_of(q).0 == cell && face_of(q).1 == dir).expect("face");
+            q[1] >> 16
+        };
+        assert_eq!(mask([9, 9, 9], 1), 2);
+        assert_eq!(mask([9, 10, 9], 1), 1 | 2);
+        assert_eq!(mask([9, 11, 9], 1), 1);
     }
 
     /// ADR 0069: with cutout blocks a face is culled only against an opaque neighbour; without, the mesher is

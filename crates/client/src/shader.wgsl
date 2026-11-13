@@ -783,6 +783,8 @@ fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> vec3
     return texel_a(mat, dir, cell, t, hgt, sn).rgb;
 }
 
+// a joining block's painted frame, texels wide (`lamp` in tools/paint_textures.py)
+const JOIN_FRAME: i32 = 2;
 const LEAVES: u32 = 11u;
 fn is_glass(m: u32) -> bool { return ((looks[m & 255u].info >> 26u) & 1u) == 1u; }
 // an unpainted glass block's alpha at texel (x, y): a clear middle, a rim one texel wide, so a wall reads as panes
@@ -810,7 +812,16 @@ fn leaf_hole(look: Look, dir: u32, cell: vec3i, ti: vec2i) -> bool {
 // hole, ADR 0069), whose colour is what an opaque block or fast leaves show there: the block's colour, darker
 fn texel_a(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> vec4f {
     let n = TEXELS;
-    let ti = vec2i(floor(t * n));
+    var ti = vec2i(floor(t * n));
+    // a joining block's sides that meet its own kind (bits 16-19 of the quad, u-, u+, v-, v+; mesh.rs, ADR 0085):
+    // the frame there is read from inside, so a wall of lamps glows as one surface with the frame round it.
+    // shortcut: an inner corner (both sides joined, the diagonal not) loses its frame texel; fine for flat walls
+    let j = (mat >> 16u) & 15u;
+    if (j != 0u) {
+        let lo = select(vec2i(0), vec2i(JOIN_FRAME), vec2<bool>((j & 1u) != 0u, (j & 4u) != 0u));
+        let hi = select(vec2i(15), vec2i(15 - JOIN_FRAME), vec2<bool>((j & 2u) != 0u, (j & 8u) != 0u));
+        ti = clamp(ti, lo, hi);
+    }
     let h = hash(cell * i32(n) + vec3i(ti.x, ti.y, i32(dir)));
     let tone = 0.82 + 0.12 * floor(h * 3.0);
     let m0 = mat & 255u;

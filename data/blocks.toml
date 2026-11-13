@@ -7,6 +7,8 @@
 # its own defaults. `contrast` (0..2, default 1): how strong the three tones of grain are, on any block.
 # `side`: a grass block's sides under the fringe; any other block takes that block's whole look on its four
 # sides and its foot. `light`: the light it gives, a colour times its strength (0..4, ADR 0022).
+# `joins`: side by side in a wall, its faces glow as one surface, the painted frame only on the outer edge
+# (lamps, ADR 0085).
 # `sound`: its material's sound, a family of rows in data/sounds.toml (stone when it names none).
 # `metal`: how much it reflects like a metal (0..1). `was`: names it had before, so old saves still load.
 # `hardness`: seconds a survival player digs it with bare hands (every solid block; ADR 0034). `loose`:
@@ -68,6 +70,7 @@ loose = true
 sound = "glass"
 colour = [1.0, 0.86, 0.62]
 light = [1.0, 0.72, 0.42]
+joins = true
 
 [[block]]
 id = 6
@@ -77,6 +80,7 @@ loose = true
 sound = "glass"
 colour = [0.62, 0.82, 1.0]
 light = [0.35, 0.6, 1.0]
+joins = true
 
 # Luna's ground: a pale dust that throws the sunlight back (bug 2026-11-10_20-49-46); named "moon dust" until W0
 [[block]]

@@ -440,18 +440,15 @@ def bark(rng, r, seed):
     return c
 
 
-def lamp(r):
+def lamp(rng, r):
+    """A frame two texels wide (dark outside, shade inside) round an even glow of soft lit and light patches:
+    no core, so lamps side by side, whose joined frames the shader reads from inside (ADR 0085), glow as one
+    surface. The frame's width is the shader's JOIN_FRAME."""
     ys, xs = np.mgrid[0:N, 0:N]
-    d = np.hypot(xs - 7.5, ys - 7.5)
     edge = np.minimum(np.minimum(xs, ys), np.minimum(15 - xs, 15 - ys))
-    c = np.empty((N, N), object)
-    for y in range(N):
-        for x in range(N):
-            e, v = edge[y, x], d[y, x]
-            c[y, x] = (r["d"] if e == 0 else r["s"] if e == 1 else
-                       r["L"] if v < 2.6 else r["l"] if v < 4.4 else r["m"])
-    for x, y in ((1, 1), (14, 1), (1, 14), (14, 14)):
-        c[y, x] = r["m"]
+    c = levels(field(rng, 4, 0.1), [r["m"], r["l"], r["L"]], (0.08, 0.62, 0.3))
+    c[edge == 1] = r["s"]
+    c[edge == 0] = r["d"]
     return c
 
 
@@ -602,8 +599,8 @@ def build(pal, blocks):
     tex("log_side", 3, lambda g, v: bark(g, log, seed_of("log", "bark")))
 
     # lamps, metal
-    tex("lamp", 1, lambda g, v: lamp(R("lamp")))
-    tex("blue lamp", 1, lambda g, v: lamp(R("blue lamp")))
+    tex("lamp", 4, lambda g, v: lamp(g, R("lamp")))
+    tex("blue lamp", 4, lambda g, v: lamp(g, R("blue lamp")))
     tex("copper", 1, lambda g, v: plate(g, R("copper")))
 
     # rocks: told apart by shape, not only by colour
