@@ -70,11 +70,16 @@ Option 2.
       the trunk.
   - `palm`: four fronds along the axes that bow down at their tips, and short ones between them in most quarters.
   - `column` with leaves and a radius (bamboo): a clump of stalks of different heights, with leaves at their tops.
-  - `bush`: one layer, the middle and most of its four sides, a corner only beside a side.
+  - `bush`: one layer, low, wide and lopsided: a clump of the middle, most of its four sides and a corner only
+    beside a side (one corner always open, so never a square), and on one side by the hash a second, smaller
+    clump two out, so a bush is two to four blocks across.
 - **Limbs** are segments. A cell is wood where a segment passes through its cube (a supercover), so a limb steps
   out and then up, face to face, and a bare tree is one skeleton. Their directions come from a table of sixteen,
   not `sin` and `cos`: a Linux server and a Windows client must make the same blocks, and the platforms' maths
   libraries may round the last bit apart. Everything else is `+ - * /`, `round` and `powi(2)`.
+- **Rivers stay open:** a tree whose crown would reach a river column (its rim and half way in, sixteen
+  columns looked at) is not grown, so a river can be waded and swum along. Lakes and the sea may have crowns
+  over their shores.
 - **Warmth:** a row's `warm` keeps it where the baked year's mean air is at least that (`World::year_air`). So
   palms grow on warm beaches and in the rain forest, not on cold shores.
 - **Species:** each new one has its own log and leaves (ids 140 to 151). The leaves are `see = "cutout"` with the
@@ -93,10 +98,11 @@ Option 2.
   | willow | droop | 6–10 | 5 | fork 0.55, limbs 4, depth 1.5, thick |
   | palm | palm | 5–10 | 3 | warm 15 C |
   | bamboo | column | 6–12 | 2 | |
-  | shrub | bush | 1–2 | 1 | |
+  | shrub | bush | 1–2 | 2 | |
 
-  Forests are denser, so crowns meet (about one tree every 7 m in temperate forest, 5.5 m in cold forest).
-  Grassland and savanna stay sparse.
+  Forests are denser, so crowns meet (about one tree every 7 m in temperate forest, 5.5 m in cold forest),
+  with clearings: one patch of four by four spots (16 m) in eight grows no tree, by the hash, so sun reaches
+  the floor. Grassland and savanna stay sparse.
 
   | Biome | Plants (share of candidate spots, one each 4 x 4 columns) |
   |---|---|
@@ -111,7 +117,8 @@ Option 2.
   Spruce, broadleaf, jungle tree and acacia keep the shared `log`.
 - **Checks in `parse`:**
   - Ranges: fork 0.1..0.9, limbs 1..6, bare 0..0.8, depth 0.5..4, warm -30..40 C.
-  - Fork, limbs, depth and thick only on shapes that fork, and bare only on a cone.
+  - Fork, limbs and thick only on shapes that fork, depth only on flat and droop (round crowns size their
+    clumps themselves), and bare only on a cone.
   - A forked tree is at least 3 tall, and a thick one has a radius of at least 2.
   - A tree's height range spans at least three values (one per size).
 
@@ -137,28 +144,33 @@ Option 2.
   - most large trees branch off the trunk, and small crowns are narrower than large ones;
   - conifers grow in tiers with at least two gaps, bare below;
   - a willow hangs below half its height;
-  - palm fronds grow only at the top, bamboo in a clump, and a bush is one layer two or three across.
+  - palm fronds grow only at the top, bamboo in a clump, and a bush is one layer, never the full 3 x 3, and
+    in at least an eighth of hashes four across.
 
-  Red: no branches; then the pillar shrub.
+  Red: no branches; then the pillar shrub; then a square bush (a 3 x 3 of nine).
 - `the_species_grow_in_their_biomes`: the table above, own blocks, palms only where warm.
 - `every_species_grows_in_its_biomes` on a baked planet: each species of a biome common enough is found there,
   and no palm grows under its `warm`. Red: a palm at 15.8 C, under the 18 C first tried.
+- `forests_have_clearings`: one patch of four by four spots in 4 to 12 of temperate forest has no tree. Red:
+  none in 731 patches.
+- The existing `a_walker_follows_a_river_from_spring_to_sea_in_water` went red with the clumped oaks (a
+  bank's oak hung its leaves into the channel at point 566 of 893) and is green again with rivers kept open.
 - `the_limb_table_is_a_circle`.
-- `bad_rows_are_refused` with the new keys and checks. Red: a round tree 1 tall, and a thick one of radius 1.
+- `bad_rows_are_refused` with the new keys and checks. Red: a round tree 1 tall, a thick one of radius 1.
 
 **Cost** (`tree_chunk_cost`, an ignored test):
 - Setup: play profile, one thread, the test planet's 621 chunks over every candidate spot of a forest biome. One
-  measurement in a measure slot (ADR 0096), the median of the runs on the final code but for the last trim (oak
-  and broadleaf a block or two shorter, a sparser willow), which can only lower it.
+  measurement in a measure slot (ADR 0096) on commit d05e7700, the median of three runs (1326, 1408 and 1850 µs
+  cold).
 - "Cold" builds a chunk with its tiles' plant lists uncached; "warm" with them cached.
 
 | Per forest chunk | main | this branch | change |
 |---|---|---|---|
-| generation, cold | 509–585 µs | 1190 µs | about +120 % |
-| generation, warm | 131–172 µs | 133 µs | none |
-| mesh (fast leaves) | 89–137 µs | 139 µs | about +20 % |
-| quads, fast leaves | 1920 | 3285 | +71 % |
-| quads, fancy leaves | 2248 | 6055 | +169 % |
+| generation, cold | 509–585 µs | 1408 µs | about 2.6 times |
+| generation, warm | 131–172 µs | 141 µs | none |
+| mesh (fast leaves) | 89–137 µs | 130 µs | about the same |
+| quads, fast leaves | 1920 | 3112 | +62 % |
+| quads, fancy leaves | 2248 | 6435 | 2.9 times |
 
 **Shots:** `out/flora/<species>-<size>.png`, plus `forest-temperate`, `forest-cold`, `forest-rain` and
 `forest-above`.
@@ -166,7 +178,17 @@ Option 2.
   height. `tree_spots` picks the tree nearest the spawn with a clear line to it, and each forest well inside its
   biome (30 m round all that biome).
 - The magenta sky is the shot mode's clear colour, kept for its crack count.
-- Read against the developer's references 1, 2 and 5: SHOTS
+- Read against the developer's references 1, 2, 5 and 6 (`out/flora/beside-ref6.png` puts oak-large,
+  broadleaf-medium and forest-temperate beside reference 6):
+  - **Oak and broadleaf:** lobed crowns of clumps on limbs spreading from low on the trunk, wider than tall at
+    every size. They are still denser and blockier than reference 6, with less sky between clumps (the small
+    and medium sizes most; see the review). The soft leaf block is the crowns session's.
+  - **Willow:** separate one-block strands of uneven length with the trunk showing.
+  - **Temperate forest at noon:** lit ground with sun patches under a canopy with gaps. Reference 1's walk under
+    trees, after the clearings; it was black before them. From 40 m up, the canopy is broken by clearings.
+  - **Cold and rain forest:** closed and dark-floored but readable. Their stills stand close among trunks.
+  - **Conifers, palms and bamboo:** unchanged in shape this round (see Later). Several of their stills stand
+    in a crowd of other trees, so the scout's clear line is only to the tree's middle.
 
 ## Review (a fresh reviewer of the engine and data diff)
 Found and fixed:
@@ -179,6 +201,9 @@ Found and fixed:
 6. Second review: a forked row 1 or 2 tall would panic in `clamp(1, h - 1)` on a worker thread. It is refused
    now.
 7. Second review: `thick` on a radius of 1 clipped the 2 x 2 trunk to three blocks. It is refused now.
+8. Third review (the clumps): a short tree's clumps reached the ground beside its foot. A clump's lowest
+   leaf is now two over the ground.
+9. Third review: facing branches of neighbouring limbs shared a clump size. Now each has its own.
 
 Answered:
 - **`crowned` rebuilds a tree's limb segments for every cell,** and REACH 6 means each column looks at the trees
@@ -189,6 +214,8 @@ Answered:
   are safe by construction. The branch tips and the willow's strands are sampled, not proven.
 - **A palm at exactly 15.0 C is decided by the last bit of `year_air`.** That is the same risk the biome choice
   already carries, so nothing new.
+- **Small and medium round crowns (radius 2 and 3) are close to one ball:** their clumps overlap heavily and
+  keep every outer leaf. Only crowns of 4 or more get gaps and ragged lobes. A taste call for the developer.
 - **15 C is low for palms** (18 to 20 C is usual for coconuts). 15 C is the bake's own warm band (`t_warm`,
   where savanna and rain forest start), so it is a call for the developer below.
 
@@ -210,12 +237,17 @@ Answered:
   - own logs for the first four species;
   - leaning trunks;
   - palms only on the rain forest's edge;
-  - paintings of the new blocks (part D).
-- **CPU cost:** a forest chunk's first generation about doubles, and a forest has 70 % more quads (2.7 times with
-  fancy leaves). The row in `docs/perf-debt.md` holds this until an optimisation batch.
+  - paintings of the new blocks (part D);
+  - the developer's wider call, not done in this round: conifers as ragged tiers of uneven reach, palms with
+    arching fronds, cactus arms, reed beds, each lopsided by the hash;
+  - far levels draw no plant blocks (only `Tile::trees` for distant trees), so distant shrubs need the
+    distance work's own stand-in.
+- **CPU cost:** a forest chunk's first generation is about 2.6 times main's, and a forest has 62 % more quads
+  (2.9 times with fancy leaves). The row in `docs/perf-debt.md` holds this until an optimisation batch.
 
 ## Calls for the developer to confirm
 - The species per biome and their shares (the table), and the denser forests.
 - Palms from 15 C mean air (the bake's warm band) rather than 18 to 20 C.
 - The willow's wooden withes inside its strands (they carry the winter twigs).
 - Sizes by height: a small tree's crown is two blocks narrower than a large one's.
+- Small round crowns nearly one ball (above).
