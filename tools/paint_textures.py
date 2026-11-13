@@ -36,6 +36,7 @@ class Palette:
         text = path.read_text(encoding="utf-8")
         self.header = [l for l in text.splitlines() if l.startswith("#")]
         self.rows = tomllib.loads(text)["colour"]
+        self.before = {r["name"] for r in self.rows}  # another tool's colours (paint_clutter.py's ramps) stay
         self.added = []
 
     def rgb(self, name):
@@ -840,9 +841,10 @@ def rich_rgb(hue, sat=1.0, light=0.0, n=8):
     return out
 
 
-# the meadow's greens, from reference 4 (a deep saturated green; yellow only in the two lightest, the tips)
-MEADOW = [tuple(v / 255 for v in q) for q in [(6, 40, 4), (10, 58, 6), (16, 78, 9), (22, 96, 11), (34, 116, 15),
-                                              (60, 138, 20), (112, 162, 26), (168, 184, 42)]]
+# the meadow's greens, from reference 4: a deep saturated green, yellow only in the lightest (the tips); little red
+# in the mids, so the plants' climate tint (a multiply, red x0.75 blue x0.5 in a middling climate) keeps them green
+MEADOW = [tuple(v / 255 for v in q) for q in [(6, 40, 4), (10, 58, 6), (16, 78, 9), (22, 96, 11), (30, 116, 14),
+                                              (42, 138, 18), (80, 162, 22), (152, 184, 36)]]
 
 
 def turned(ramp, deg):
@@ -1213,7 +1215,8 @@ def blades_hd(rng, w, h, n, lo, hi, lean=0.35, wide=0.25):
         two = rng.random() < wide
         for i in range(bh):
             t = i / max(1, bh - 1)
-            tone = int(round(0.5 + t ** 1.7 * 6.3 + lift * (0.4 + t * 0.6)))  # mostly mid green, the tip lit
+            # mostly mid green, the tip lit; the root only a step down, as the plants' shader darkens it to x0.45
+            tone = int(round(2 + t ** 1.7 * 5 + lift * (0.4 + t * 0.6)))
             px = int(round(fx)) % w
             hd_put(c, px, h - 1 - i, max(0, min(7, tone)), False)
             if two and i < bh * 0.4:
@@ -1246,7 +1249,7 @@ def ears_hd(rng, w, h):
                 if k % 2 and rng.random() < 0.7:
                     hd_put(c, px + 2 * side, y - 1, 10 + 6, False)
             else:
-                hd_put(c, px, y, 10 + (1 if i < 4 else 3), False)
+                hd_put(c, px, y, 10 + (2 if i < 4 else 3), False)
             fx += lean * (i / sh) ** 2 * 1.5
     return c
 
@@ -1270,7 +1273,7 @@ def fern_hd(rng, w, h):
                 for j in range(1, leaf + 1):
                     hd_put(c, x + side * (j // 3), y - j, 4 + (2 if j > leaf - 2 else 1) + (1 if top > h * 0.7 else 0) - 1, False)
                     hd_put(c, x - side * (j // 3), y + j, 3 + (1 if j < leaf else 0), False)
-            hd_put(c, x, y, 1 if t < 0.15 else 3, False)  # the rib dark only at the root: no outline against the light
+            hd_put(c, x, y, 2 if t < 0.15 else 3, False)  # the rib dark only at the root: no outline against the light
     return c
 
 
@@ -2073,7 +2076,7 @@ def main(argv):
         if len(k) > 6:
             print(f"note: {stem} uses {len(k)} colours", file=sys.stderr)
     # a colour only waiting paintings use joins the palette when their block does
-    early = set(pal.added) - used
+    early = set(pal.added) - used - pal.before
     pal.rows = [r for r in pal.rows if r["name"] not in early]
     pal.added = [a for a in pal.added if a not in early]
     for name in {r.get("ramp") for r in pal.rows if r["name"] in pal.added}:

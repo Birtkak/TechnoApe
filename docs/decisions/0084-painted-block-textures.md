@@ -279,3 +279,15 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
   - The palette now has 526 colours. The model files' boxes are unchanged; only their paintings change.
   - Proof: the sheets `out/flora/plants-hd.png`, `meadow-vs-ref.png` and `clutter.png` (the models' paintings,
     8x), read; `technoape-studio check=1` ok.
+  - **Painted for the plants' shader** (claude/flora-plants, `shader.wgsl`):
+    - The shader tints green pixels (g above r and b) with a per-channel multiply. It is about x(0.75, 0.86, 0.5)
+      in a middling climate; the dry end raises red and cuts blue.
+    - It then darkens every plant to x0.45 at the root.
+    - So a blade's root is now only two tones down (tone = 2 + t^1.7 x 5), and the fern's rib and the stems start
+      at tone 2.
+    - `MEADOW`'s middle tones carry little red, so they stay green and do not turn olive; yellow is in the
+      lightest tone only.
+    - Proof: `out/flora/meadow-lit-vs-ref.png` is the meadow with that tint and depth shading applied, read beside
+      reference 4.
+  - `paint_textures.py` now keeps any colour that was in the palette before its run (`Palette.before`), so the
+    clutter's ramps that `paint_clutter.py` added are not dropped.
