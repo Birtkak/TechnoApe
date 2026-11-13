@@ -318,7 +318,7 @@ pub fn season(up: glam::DVec3, t: f64) -> u8 {
 }
 
 /// Where clutter would lie on level-0 column (i, j) of `tile`'s footprint (tile of face, x, y): the first layer
-/// of generated air over it, and its generated top block and biome; None at a face's last columns, under the sea
+/// of generated air over it, and its generated top block and biome; None under the sea
 /// or in a river or lake. The one ground the mesher and the server ask (ADR 0082).
 pub fn ground(body: &Body, tile: &HeightTile, face: u8, i: i32, j: i32) -> Option<(i32, u16, u8)> {
     ground_under(body, tile, face, i, j, 0.0)
@@ -331,8 +331,7 @@ pub const WADE: f64 = 0.8;
 pub fn ground_under(body: &Body, tile: &HeightTile, face: u8, i: i32, j: i32, depth: f64) -> Option<(i32, u16, u8)> {
     let (x, y) = (i.div_euclid(CS), j.div_euclid(CS));
     let k = (i - x * CS + 1) as usize + (j - y * CS + 1) as usize * P;
-    let r = crate::biomes::REACH;
-    if body.baked_seed().is_none() || i < r || j < r || i >= body.n - r || j >= body.n - r {
+    if body.baked_seed().is_none() {
         return None;
     }
     let z = body.first_air(tile.h[k]);

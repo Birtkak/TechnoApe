@@ -166,7 +166,7 @@ impl Herds {
         for k in 0..n as u64 {
             let (a, r) = (unit(h64(&[hs, 10 + k])) * std::f64::consts::TAU, 1.0 + 5.0 * unit(h64(&[hs, 30 + k])));
             let dk = (d * b.height(d) + (e1 * a.cos() + e2 * a.sin()) * r).normalize();
-            if let Some(feet) = stand(world, dk) {
+            if let Some(feet) = stand_clear(world, dk) {
                 let fwd = phys::tangent(e1 * (a + 1.0).cos() + e2 * (a + 1.0).sin(), dk, e1);
                 herd.animals.push(Animal { id: *next, kind, p: Player::at(feet, fwd), mind: Mind::Stand, until: tick + 20 + k * 7, go: fwd, call: 0 });
                 *next += 1;
@@ -304,7 +304,7 @@ fn drift(world: &World, h: &mut Herd, kinds: &[Kind], seed: u64, tick: u64) {
             if biome(d) != home_biome {
                 continue;
             }
-            let Some(feet) = stand(world, d) else { continue };
+            let Some(feet) = stand_clear(world, d) else { continue };
             let fwd = phys::tangent(way, d, a.p.fwd);
             (a.p, a.mind, a.until, a.go) = (Player::at(feet, fwd), Mind::Stand, tick + 20 + (r(2) * 60.0) as u64, fwd);
             break;
@@ -322,6 +322,11 @@ fn stand(world: &World, d: DVec3) -> Option<DVec3> {
         return None;
     }
     Some(feet)
+}
+
+/// `stand`, where its body is clear too: not in a trunk or under a low crown beside the column (ADR 0100).
+fn stand_clear(world: &World, d: DVec3) -> Option<DVec3> {
+    stand(world, d).filter(|&feet| !phys::blocked(world, feet))
 }
 
 /// The ground's floor radius and the water's depth over it at direction `d`.
@@ -701,6 +706,26 @@ mod tests {
         // the moat is 4 deep; the ground around it rolls by a block or two
         assert!(low > -2.5, "one fell in the moat: {low:.2} m");
         assert!(h.all().zip(&start).any(|(a, _)| (a.p.pos - p).reject_from(up).length() > 2.5), "they did wander inside the ring");
+    }
+
+    /// The soak's seed 79085 put an animal inside a tree (ADR 0100): every herd of the baked small planet, made
+    /// and found again after drifting, stands clear of trunks and crowns.
+    #[test]
+    fn herds_stand_clear_of_trees() {
+        let w = World::baked(256, crate::bodies::columns(1, 256), 79085);
+        let b = &w.bodies[0];
+        let mut h = compiled(79085);
+        let feet: Vec<DVec3> = (0..6).flat_map(|f| (0..4).flat_map(move |i| (0..4).map(move |j| (f, i, j)))).map(|(f, i, j)| b.centre + b.dir(f, 32.0 + 64.0 * i as f64, 32.0 + 64.0 * j as f64) * b.height(b.dir(f, 32.0 + 64.0 * i as f64, 32.0 + 64.0 * j as f64))).collect();
+        for p in &feet {
+            h.wake(&w, *p, 0);
+        }
+        assert!(h.all().count() > 20, "herds were made: {}", h.all().count());
+        let stuck = |h: &Herds| h.all().filter(|a| phys::inside(&w, &a.p)).map(|a| a.id).collect::<Vec<_>>();
+        assert_eq!(stuck(&h), Vec::<u32>::new(), "made inside a block");
+        for p in &feet {
+            h.wake(&w, *p, 5000);
+        }
+        assert_eq!(stuck(&h), Vec::<u32>::new(), "drifted inside a block");
     }
 
     /// The tick's cost with a few hundred animals awake (ADR 0083): players spread over the noise land of the
