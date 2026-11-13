@@ -319,7 +319,9 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
     - `data/plants/meadow ground.png`: three 32 px tiles side by side, a mottled grass top in the meadow's
       greens with lit blade tips and a few petals and seed heads. It is for where the plants session thins
       plants out.
-    - These names and sizes were proposed to the plants session (glass-clutter); its answer may move them.
+    - The plants session (glass-clutter) agreed these names and sizes. `meadow ground` is its still face 0: the grass
+      top fades to it past half the plant distance, and the grass block's sides take it as a fringe near the top.
+      The `.far` paintings are not read yet; far plants still use the near painting.
   - Proof: the sheets `out/flora/plants-hd.png` and `meadow-vs-ref.png` (outline and depth, beside reference 4),
     and `far-vs-ref.png` and `far-plants.png` (distance), all read.
 - **Every mass, and only masses** (the developer, 2026-11-13: "everything biological more or less (things like
@@ -367,3 +369,14 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
     - short grass and tall grass get a fourth outline (`.3`).
   - Proof: `out/flora/reeds.png` (the five reed paintings, a bed with the back row behind, the block) and
     `plants-hd.png`, read.
+- **Shrub in the trees' greens** (the overseer and the developer, from the crowns stills): the shrub read lime
+  beside the trees. A painted block is drawn as painted, with no tint on top, and a shrub stands in full sun.
+  - Its ramps move into the broadleaf family: summer hue 92 to 102, spring 84 to 94, a little less light.
+  - Means of the opaque pixels:
+
+    | Painting | Before | Now | Its tree |
+    |---|---|---|---|
+    | `shrub` | (85,130,27) | (70,136,21) | broadleaf (69,132,19) |
+    | `shrub@spring` | (113,153,36) | (89,148,25) | broadleaf spring (98,145,39) |
+
+  - The far paintings follow.

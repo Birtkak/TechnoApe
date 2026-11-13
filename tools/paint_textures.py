@@ -1784,12 +1784,12 @@ def build(pal, blocks):
                 fruits(f(np.random.default_rng(seed_of(b, v))), g, size), [r, fr]))
         hd(f"{log_b}_side", 3, lambda g, v, r=bark_r, k=t["bark"]: named_canvas(bark_hd(g, k), [r]))
         hd(log_b, 2, lambda g, v, w=wood_r, r=bark_r, h=t.get("hollow", False): named_canvas(end_hd(g, h), {"w": w, "b": r}))
-    shrub_r = RR("shrub", 92, 0.8, 0.0)
+    shrub_r = RR("shrub", 102, 0.9, 0.0)  # the trees' green family: a shrub in full sun read lime at 92
     hd("shrub", 4, lambda g, v: named_canvas(leaf_mass(np.random.default_rng(seed_of("shrub", v)), LEAF_SHAPES["oval"],
                                                        radius=(5, 8), holes=0.08), [shrub_r]))
     hd("shrub@winter", 4, lambda g, v: named_canvas(
         calm(hd_twigs(np.random.default_rng(seed_of("shrub", "winter", v)), WINTER_ROLES[v]), 1, 4), [RR("log bark", 28, 0.35, 0.0)]))
-    for season, ramp in (("spring", RR("shrub spring", 84, 0.8, 0.06)), ("autumn", RR("shrub autumn", 30, 0.85, 0.0))):
+    for season, ramp in (("spring", RR("shrub spring", 94, 0.9, 0.03)), ("autumn", RR("shrub autumn", 30, 0.85, 0.0))):
         hd(f"shrub@{season}", 4, lambda g, v, r=ramp: named_canvas(leaf_mass(np.random.default_rng(seed_of("shrub", v)),
                                                                              LEAF_SHAPES["oval"], radius=(5, 8), holes=0.08), [r]))
     # the reed block: a tuft of blades a block high, its own outline per variant; seasons recolour the same blades
