@@ -176,14 +176,14 @@ acts! {
     Jump "jump" "Jump, swim up, fly up" k(KeyCode::Space), "space" "";
     Down "down" "Fly down" [Some(Bind::Key(KeyCode::ShiftLeft)), Some(Bind::Key(KeyCode::ShiftRight))], "" "";
     RollLeft "roll_left" "Roll left (space)" k(KeyCode::KeyQ), "" "";
-    RollRight "roll_right" "Roll right (space)" k(KeyCode::KeyR), "" "";
+    RollRight "roll_right" "Roll right (space)" k(KeyCode::KeyE), "" "";
     Zoom "zoom" "Zoom" k(KeyCode::KeyC), "zoom" "unzoom";
     Dig "dig" "Dig, scoop" [Some(Bind::Mouse(1)), None], "L" "l";
     Place "place" "Place, pour" [Some(Bind::Mouse(2)), None], "R" "r";
     Hammer "hammer" "Build hammer" k(KeyCode::KeyH), "h" "";
     Shape "shape" "Hammer shape" k(KeyCode::KeyB), "b" "";
     Bucket "bucket" "Bucket" k(KeyCode::KeyV), "v" "";
-    Inventory "inventory" "Inventory" k(KeyCode::KeyE), "inventory" "";
+    Inventory "inventory" "Inventory" k(KeyCode::Tab), "inventory" "";
     Pick "pick" "Pick block (creative)" [Some(Bind::Mouse(3)), None], "pick" "";
     Chat "chat" "Chat" k(KeyCode::KeyT), "t" "";
     Command "command" "Command" k(KeyCode::Slash), "/" "";
@@ -410,6 +410,7 @@ impl Settings {
     /// Reads the file's text: a bad value keeps that row's default, an unknown line is kept as it is.
     pub fn parse(text: &str) -> Settings {
         let mut s = Settings::default();
+        let mut version = 0.0;
         for line in text.lines() {
             let Some((key, v)) = line.split_once('=').map(|(a, b)| (a.trim(), b.trim())) else {
                 if !line.trim().is_empty() && !line.starts_with('#') {
@@ -433,8 +434,19 @@ impl Settings {
             } else if let Some(i) = key.strip_prefix("key.").and_then(|a| ACTS.iter().position(|d| d.key == a)) {
                 let mut it = v.split(',').map(|x| Bind::parse(x.trim()));
                 s.binds[i] = [it.next().flatten(), it.next().flatten()];
-            } else if key != "version" {
+            } else if key == "version" {
+                version = v.parse().unwrap_or(0.0);
+            } else {
                 s.extra.push(line.to_string());
+            }
+        }
+        // version 2 (ADR 0075's call): the inventory moved from E to Tab and roll right from R back to E; a
+        // file still holding those old defaults moves with them, a key the player chose stays
+        if version < 2.0 {
+            for (a, old) in [(Act::Inventory, KeyCode::KeyE), (Act::RollRight, KeyCode::KeyR)] {
+                if s.binds[a as usize] == k(old) {
+                    s.binds[a as usize] = ACTS[a as usize].binds;
+                }
             }
         }
         s
@@ -442,7 +454,7 @@ impl Settings {
 
     /// The file's text: key=value lines, a group per page.
     pub fn text(&self) -> String {
-        let mut out = String::from("version=1\n");
+        let mut out = String::from("version=2\n");
         for (i, d) in DEFS.iter().enumerate() {
             match d.kind {
                 Kind::Choice(c) => out += &format!("{}={}\n", d.key, c[(self.v[i] as usize).min(c.len() - 1)]),
@@ -586,5 +598,22 @@ mod tests {
         s.binds[Act::Back as usize][0] = Some(Bind::Key(KeyCode::KeyQ));
         assert!(s.clashes(Act::Back) && s.clashes(Act::RollLeft) && !s.clashes(Act::Forward));
         assert_eq!(keys(s.key_rows("q")), [Act::Back, Act::RollLeft], "a key's search shows who shares it");
+    }
+
+    #[test]
+    fn the_inventory_is_on_tab_and_an_old_file_moves_to_it() {
+        // the developer's call on ADR 0075: Tab opens the inventory, Q and E roll
+        let (tab, e, r) = (Some(Bind::Key(KeyCode::Tab)), Some(Bind::Key(KeyCode::KeyE)), Some(Bind::Key(KeyCode::KeyR)));
+        let s = Settings::default();
+        assert_eq!((s.binds[Act::Inventory as usize][0], s.binds[Act::RollRight as usize][0]), (tab, e));
+        // a file from before the call holds the old defaults: they move to the new ones
+        let s = Settings::parse("version=1\nkey.inventory=KeyE\nkey.roll_right=KeyR\n");
+        assert_eq!((s.binds[Act::Inventory as usize][0], s.binds[Act::RollRight as usize][0]), (tab, e));
+        // a key the player chose stays, in an old file as in a new one
+        let s = Settings::parse("version=1\nkey.inventory=KeyG\nkey.roll_right=KeyF\n");
+        assert_eq!(s.binds[Act::Inventory as usize][0], Some(Bind::Key(KeyCode::KeyG)));
+        assert_eq!(s.binds[Act::RollRight as usize][0], Some(Bind::Key(KeyCode::KeyF)));
+        let s = Settings::parse(&Settings::parse("version=1\nkey.inventory=KeyE\nkey.roll_right=KeyR\n").text().replace("key.roll_right=KeyE", "key.roll_right=KeyR"));
+        assert_eq!(s.binds[Act::RollRight as usize][0], r, "a file written after the move keeps R as chosen");
     }
 }
