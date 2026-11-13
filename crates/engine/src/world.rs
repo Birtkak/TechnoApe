@@ -665,15 +665,35 @@ impl Body {
     /// The plant at candidate spot (cx, cy) of a face (one each `SPACING` x `SPACING` columns), if one grows
     /// there: on a baked planet, over the sea, its foot inside the face (its crown may reach over the seam, ADR 0100).
     pub fn candidate(&self, face: usize, cx: i32, cy: i32) -> Option<Foot> {
+        self.candidate_of(face, cx, cy, false)
+    }
+    /// `candidate` of the trees alone (`candidate(..).filter(trunk)`, to the bit): a spot that grows no tree is
+    /// turned down before its ground is looked at (the far tiles' canopy, ADR 0100, 0102).
+    pub fn tree_candidate(&self, face: usize, cx: i32, cy: i32) -> Option<Foot> {
+        self.candidate_of(face, cx, cy, true)
+    }
+    fn candidate_of(&self, face: usize, cx: i32, cy: i32, trees: bool) -> Option<Foot> {
         let b = self.baked.as_ref()?;
         let r = mix(b.seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (face as u64) << 58 ^ (cx as u32 as u64) << 29 ^ cy as u32 as u64);
         let (i, j) = (cx * SPACING + (r % SPACING as u64) as i32, cy * SPACING + ((r >> 8) % SPACING as u64) as i32);
         if i < 0 || j < 0 || i >= self.n || j >= self.n {
             return None;
         }
+        let roll = unit(mix(r ^ 0x5eed));
+        // nor a tree in a clearing: one patch of four by four spots in eight, by the hash, so sun reaches a
+        // forest's floor (ADR 0092)
+        let clearing = mix(b.seed.wrapping_mul(0x9e3779b97f4a7c15) ^ (face as u64) << 58 ^ (cx.div_euclid(4) as u32 as u64) << 29 ^ cy.div_euclid(4) as u32 as u64) % 8 == 0;
+        // trees alone: a clearing's, or a roll that picks a tree in no biome, is none before the biome is asked
+        if trees && (clearing || !ROWS.may_tree(roll)) {
+            return None;
+        }
         let d = self.dir(face, i as f64 + 0.5, j as f64 + 0.5);
         let row = &ROWS.biomes[self.biome_at(face, i as f64 + 0.5, j as f64 + 0.5, d)? as usize];
-        let plant = row.plant(unit(mix(r ^ 0x5eed)))?;
+        let plant = row.plant(roll)?;
+        let tree = ROWS.plants[plant].trunk != 0;
+        if trees && !tree || clearing && tree {
+            return None;
+        }
         let h = self.height_at(face, i as f64 + 0.5, j as f64 + 0.5, d, 0);
         let z = self.first_air(h);
         if z as f64 <= self.sea? {
@@ -685,12 +705,6 @@ impl Body {
         }
         // a palm only where the year is warm (ADR 0092)
         if ROWS.plants[plant].warm.is_some_and(|t| self.year_air(face, i, j).is_none_or(|a| a < t)) {
-            return None;
-        }
-        // nor a tree in a clearing: one patch of four by four spots in eight, by the hash, so sun reaches a
-        // forest's floor (ADR 0092)
-        let clearing = mix(b.seed.wrapping_mul(0x9e3779b97f4a7c15) ^ (face as u64) << 58 ^ (cx.div_euclid(4) as u32 as u64) << 29 ^ cy.div_euclid(4) as u32 as u64) % 8 == 0;
-        if clearing && ROWS.plants[plant].trunk != 0 {
             return None;
         }
         // nor a tree whose crown would hang over a river: a river stays open to swim and wade along (the
@@ -834,8 +848,43 @@ impl Body {
     /// leaves. Near a seam the next face's trees reach over it, in their own face's grid (ADR 0100).
     pub fn plants_with(&self, face: usize, i: i32, j: i32, cand: &mut impl FnMut(usize, i32, i32) -> Option<Foot>) -> Vec<(i32, u16)> {
         let mut out: Vec<(i32, u16, bool)> = Vec::new();
+        self.feet_over(face, i, j, cand, |f, p, dx, dz| {
+            p.column(f.h, f.v, dx, dz, |z, (m, wood)| match out.iter_mut().find(|o| o.0 == f.z + z) {
+                Some(o) => {
+                    if wood && !o.2 {
+                        *o = (f.z + z, m, wood);
+                    }
+                }
+                None => out.push((f.z + z, m, wood)),
+            });
+        });
+        out.sort_unstable_by_key(|o| o.0);
+        out.into_iter().map(|o| (o.0, o.1)).collect()
+    }
+    /// The highest of `plants_with`'s blocks, `plants_with(..).last()` to the bit (the test keeps that as its
+    /// reference): each plant's column is walked down from its top and stops at its first block (ADR 0102).
+    pub fn plant_top_with(&self, face: usize, i: i32, j: i32, cand: &mut impl FnMut(usize, i32, i32) -> Option<Foot>) -> Option<(i32, u16)> {
+        let mut best: Option<(i32, u16, bool)> = None;
+        self.feet_over(face, i, j, cand, |f, p, dx, dz| {
+            // (a corner of the square outside the round reach has no block: no crown built for it)
+            if (dx * dx + dz * dz) as f32 > (p.radius * p.radius) as f32 + 0.5 {
+                return;
+            }
+            let crown = p.shape_of(f.h, f.v);
+            if let Some((z, (m, wood))) = (0..=f.h).rev().find_map(|z| p.cell(&crown, f.h, f.v, dx, dz, z).map(|b| (f.z + z, b))) {
+                // the first plant at a layer keeps it unless a later one is wood over its leaves, as in `plants_with`
+                if best.is_none_or(|o| z > o.0 || z == o.0 && wood && !o.2) {
+                    best = Some((z, m, wood));
+                }
+            }
+        });
+        best.map(|o| (o.0, o.1))
+    }
+    /// Each plant (its foot, row and the column's offset from its trunk) whose square reaches level-0 column
+    /// (i, j) of `face`, in spot order: `plants_with`'s walk.
+    fn feet_over(&self, face: usize, i: i32, j: i32, cand: &mut impl FnMut(usize, i32, i32) -> Option<Foot>, mut visit: impl FnMut(&Foot, &crate::biomes::Plant, i32, i32)) {
         if self.baked.is_none() {
-            return Vec::new();
+            return;
         }
         let n = self.n;
         let near = i < REACH || j < REACH || i >= n - REACH || j >= n - REACH;
@@ -856,21 +905,9 @@ impl Body {
                 if dx.abs() > p.radius || dz.abs() > p.radius {
                     continue;
                 }
-                for z in 0..=f.h {
-                    let Some((m, wood)) = p.block(f.h, f.v, dx, dz, z) else { continue };
-                    match out.iter_mut().find(|o| o.0 == f.z + z) {
-                        Some(o) => {
-                            if wood && !o.2 {
-                                *o = (f.z + z, m, wood);
-                            }
-                        }
-                        None => out.push((f.z + z, m, wood)),
-                    }
-                }
+                visit(&f, p, dx, dz);
             }
         }
-        out.sort_unstable_by_key(|o| o.0);
-        out.into_iter().map(|o| (o.0, o.1)).collect()
     }
     /// `plants_with` over level-0 column (i, j): from its cached tile, else computed.
     pub fn col_plants(&self, face: u8, i: i32, j: i32) -> Vec<(i32, u16)> {
@@ -1047,8 +1084,22 @@ impl Body {
         let ta: [f64; P] = std::array::from_fn(|k| self.col_tan(((c0x + k as i32) as f64 + 0.5) * s));
         let tb: [f64; P] = std::array::from_fn(|k| self.col_tan(((c0y + k as i32) as f64 + 0.5) * s));
         let mut t = HeightTile { h: [0.0; P * P], g: [self.ground; P * P], rock: [Rock::NONE; P * P], plants: Vec::new(), biome: [0; P * P], trees: Vec::new(), min: f32::MAX, max: f32::MIN };
-        // the candidate spots the footprint's plants come from, each looked at once
-        let mut spots: FxMap<(usize, i32, i32), Option<Foot>> = FxMap::default();
+        // the candidate spots the footprint's plants come from, each looked at once: this face's within reach of the
+        // footprint in a grid (a hash map a lookup cost more than the far canopy's whole sample, ADR 0102), the rest
+        // (over a seam) in a map; the far tiles ask only for trees
+        let ask: fn(&Body, usize, i32, i32) -> Option<Foot> = if level == 0 { Body::candidate } else { Body::tree_candidate };
+        let (sx, sy) = (((c0x << level) - REACH).div_euclid(SPACING), ((c0y << level) - REACH).div_euclid(SPACING));
+        let sw = (((c0x + P as i32) << level) + REACH).div_euclid(SPACING) - sx + 1;
+        let mut grid: Vec<Option<Option<Foot>>> = vec![None; (sw * sw) as usize];
+        let mut other: FxMap<(usize, i32, i32), Option<Foot>> = FxMap::default();
+        let mut spots = |g: usize, cx: i32, cy: i32| -> Option<Foot> {
+            let (a, b) = (cx - sx, cy - sy);
+            if g == face && (0..sw).contains(&a) && (0..sw).contains(&b) {
+                *grid[(a + b * sw) as usize].get_or_insert_with(|| ask(self, g, cx, cy))
+            } else {
+                *other.entry((g, cx, cy)).or_insert_with(|| ask(self, g, cx, cy))
+            }
+        };
         for v in 0..P {
             for u in 0..P {
                 let (ci, cj) = (c0x + u as i32, c0y + v as i32);
@@ -1064,7 +1115,7 @@ impl Body {
                     (t.g[u + v * P], t.biome[u + v * P]) = self.ground_biome_at(f, pi, pj, d, hv);
                     t.rock[u + v * P] = self.rock_at(f, pi, pj, d);
                     if level == 0 {
-                        for (z, m) in self.plants_with(f, fi, fj, &mut |g, cx, cy| *spots.entry((g, cx, cy)).or_insert_with(|| self.candidate(g, cx, cy))) {
+                        for (z, m) in self.plants_with(f, fi, fj, &mut spots) {
                             t.max = t.max.max(self.layer_r(z as f64 + 1.0) as f32);
                             t.plants.push(((u + v * P) as u16, z, m));
                         }
@@ -1074,8 +1125,7 @@ impl Body {
                         // so a forest reads as one (ADR 0100)
                         let q = 1 << level;
                         let at: &[(i32, i32)] = if level == 1 { &[(1, 1)] } else { &[(q / 4, q / 4), (3 * q / 4, q / 4), (q / 4, 3 * q / 4), (3 * q / 4, 3 * q / 4)] };
-                        let mut trees = |g: usize, cx: i32, cy: i32| spots.entry((g, cx, cy)).or_insert_with(|| self.candidate(g, cx, cy)).filter(|f| ROWS.plants[f.plant].trunk != 0);
-                        let tops = at.iter().filter_map(|&(a, c)| self.plants_with(f, (fi << level) + a, (fj << level) + c, &mut trees).last().copied());
+                        let tops = at.iter().filter_map(|&(a, c)| self.plant_top_with(f, (fi << level) + a, (fj << level) + c, &mut spots));
                         if let Some((z, m)) = tops.max_by_key(|o| o.0) {
                             let top = self.layer_r(z as f64 + 1.0);
                             // not where the coarse column's middle is under water: a lakeside crown would hide the lake
@@ -1090,7 +1140,10 @@ impl Body {
             }
         }
         // the trunks among the spots looked at (this face's only: a seam's columns ask their own face)
-        t.trees = spots.iter().filter(|(k, _)| level == 0 && k.0 == face).filter_map(|(_, f)| f.as_ref()).filter(|f| ROWS.plants[f.plant].trunk != 0).map(|f| (f.i, f.j)).collect();
+        if level == 0 {
+            let mine = grid.iter().flatten().chain(other.iter().filter(|(k, _)| k.0 == face).map(|(_, f)| f));
+            t.trees = mine.flatten().filter(|f| ROWS.plants[f.plant].trunk != 0).map(|f| (f.i, f.j)).collect();
+        }
         t.trees.sort_unstable();
         t
     }
@@ -3357,6 +3410,110 @@ mod baked_tests {
                 }
             }
             assert!(bare > 100 && forest > 50 && raised * 2 >= forest, "level {level}: {raised} of {forest} columns over a trunk stand at a leafy canopy ({bare} bare)");
+        }
+    }
+
+    /// The far tiles' fast canopy (ADR 0102) against its slow reference: `tree_candidate` is `candidate` of the
+    /// trees, `plant_top_with` the last of `plants_with`, at every spot and over trees and seams.
+    #[test]
+    fn the_fast_canopy_matches_the_plants() {
+        let w = world();
+        let b = &w.bodies[0];
+        let (n, s) = (b.n, b.n / SPACING);
+        let (mut trees, mut tops) = (0, 0);
+        for f in 0..6 {
+            for (cx, cy) in (-2..s + 2).flat_map(|cx| (-2..s + 2).map(move |cy| (cx, cy))) {
+                let slow = b.candidate(f, cx, cy).filter(|t| ROWS.plants[t.plant].trunk != 0);
+                assert_eq!(b.tree_candidate(f, cx, cy), slow, "spot {f} {cx} {cy}");
+                trees += slow.is_some() as usize;
+            }
+            // every column of a strip over each seam and a band through the middle
+            let cols = (0..n).step_by(3).flat_map(|i| (0..REACH + 2).chain(n / 2 - 8..n / 2 + 8).chain(n - REACH - 2..n).map(move |j| (i, j)));
+            for (i, j) in cols.flat_map(|(i, j)| [(i, j), (j, i)]) {
+                let slow = b.plants_with(f, i, j, &mut |g, cx, cy| b.candidate(g, cx, cy)).last().copied();
+                assert_eq!(b.plant_top_with(f, i, j, &mut |g, cx, cy| b.candidate(g, cx, cy)), slow, "column {f} {i} {j}");
+                tops += slow.is_some() as usize;
+            }
+        }
+        assert!(trees > 100 && tops > 1000, "{trees} trees, {tops} columns under a plant");
+        // the bound before the biome: a roll that picks a tree in any biome lies in `tree_rolls`
+        for k in 0..100_000 {
+            let roll = k as f32 / 100_000.0;
+            for (bi, row) in ROWS.biomes.iter().enumerate() {
+                if row.plant(roll).is_some_and(|p| ROWS.plants[p].trunk != 0) {
+                    assert!(ROWS.may_tree(roll), "roll {roll} picks a tree in biome {bi}");
+                }
+            }
+        }
+        // and at each interval's ends, and the floats beside them
+        for &(lo, hi) in &ROWS.tree_rolls {
+            // (a roll is in 0..1: `unit`)
+            for roll in [lo, lo.next_up(), hi.next_down(), hi, lo.next_down()].into_iter().filter(|r| (0.0..1.0).contains(r)) {
+                assert_eq!(ROWS.may_tree(roll), ROWS.biomes.iter().any(|row| row.plant(roll).is_some_and(|p| ROWS.plants[p].trunk != 0)), "roll {roll}");
+            }
+        }
+        // two plants whose tops meet in one layer: wood wins over leaves, else the first stays
+        let (spruce, cactus) = (ROWS.plants.iter().position(|p| p.name == "spruce").unwrap(), ROWS.plants.iter().position(|p| p.name == "cactus").unwrap());
+        let (i, j) = (n / 2, n / 2);
+        let leafy = Foot { plant: spruce, h: 8, v: 7, i, j, z: 40 };
+        let wood = Foot { plant: cactus, h: 4, v: 9, i, j, z: 45 };
+        let reed = Foot { plant: ROWS.plants.iter().position(|p| p.name == "reed").unwrap(), ..wood };
+        assert_ne!(ROWS.plants[reed.plant].trunk, ROWS.plants[cactus].trunk);
+        for pair in [[leafy, wood], [wood, leafy], [leafy, Foot { z: 41, ..leafy }], [wood, reed], [reed, wood]] {
+            let feed = || {
+                let mut k = 0;
+                move |_: usize, _: i32, _: i32| {
+                    k += 1;
+                    pair.get(k - 1).copied()
+                }
+            };
+            let slow = b.plants_with(0, i, j, &mut feed()).last().copied();
+            assert_eq!(b.plant_top_with(0, i, j, &mut feed()), slow, "{pair:?}");
+        }
+        // whole tiles from their spot grid against the slow path: a level-0 tile's plants and trunks, a far tile's
+        // canopy, over forest and over a seam
+        let forest: Vec<(usize, i32, i32)> = (0..6).flat_map(|f| (0..s).step_by(9).flat_map(move |cx| (0..s).step_by(9).map(move |cy| (f, cx, cy)))).filter_map(|(f, cx, cy)| b.candidate(f, cx, cy).filter(|t| ROWS.plants[t.plant].trunk != 0).map(|t| (f, t.i, t.j))).step_by(7).chain([(0, 3, n / 2), (2, n / 2, n - 2)]).collect();
+        for level in 0..=4u8 {
+            for &(f, i, j) in &forest {
+                let (x, y) = ((i >> level) / CS, (j >> level) / CS);
+                let t = b.build_tile(f, level, x, y);
+                let mut seen = Vec::new();
+                for (u, v) in (0..P).flat_map(|u| (0..P).map(move |v| (u, v))) {
+                    let (g, fi, fj) = fold(f, x * CS - 1 + u as i32, y * CS - 1 + v as i32, n >> level);
+                    let k = u + v * P;
+                    if level == 0 {
+                        // the slow path, and the trunks of the tile's own face's spots it looked at
+                        let slow = b.plants_with(g, fi, fj, &mut |g, cx, cy| {
+                            let c = b.candidate(g, cx, cy);
+                            if let Some(t) = c.filter(|t| g == f && ROWS.plants[t.plant].trunk != 0) {
+                                seen.push((t.i, t.j));
+                            }
+                            c
+                        });
+                        let fast: Vec<(i32, u16)> = t.plants.iter().filter(|p| p.0 as usize == k).map(|p| (p.1, p.2)).collect();
+                        assert_eq!(fast, slow, "level 0 tile {f} {x} {y} column {u} {v}");
+                    } else {
+                        let q = 1 << level;
+                        let at: &[(i32, i32)] = if level == 1 { &[(1, 1)] } else { &[(q / 4, q / 4), (3 * q / 4, q / 4), (q / 4, 3 * q / 4), (3 * q / 4, 3 * q / 4)] };
+                        let tops = at.iter().filter_map(|&(a, c)| b.plants_with(g, (fi << level) + a, (fj << level) + c, &mut |g, cx, cy| b.candidate(g, cx, cy).filter(|t| ROWS.plants[t.plant].trunk != 0)).last().copied());
+                        let (pi, pj) = ((fi as f64 + 0.5) * q as f64, (fj as f64 + 0.5) * q as f64);
+                        let hv = b.height_at(g, pi, pj, b.dir(g, pi, pj), level);
+                        let mut want = hv;
+                        if let Some((z, _)) = tops.max_by_key(|o| o.0) {
+                            let wet = b.water_at(g as u8, (fi << level) + q / 2, (fj << level) + q / 2).is_some_and(|w| w.0 > b.layer_of(hv));
+                            want = if b.layer_r(z as f64 + 1.0) > hv && !wet { b.layer_r(z as f64 + 1.0) } else { hv };
+                        }
+                        assert_eq!(t.h[k], want, "level {level} tile {f} {x} {y} column {u} {v}");
+                    }
+                }
+                if level == 0 {
+                    seen.sort_unstable();
+                    seen.dedup();
+                    let mut fast = t.trees.clone();
+                    fast.dedup();
+                    assert_eq!(fast, seen, "tile {f} {x} {y} trunks");
+                }
+            }
         }
     }
 

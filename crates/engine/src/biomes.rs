@@ -117,6 +117,16 @@ pub struct Biome {
 pub struct Rows {
     pub plants: Vec<Plant>,
     pub biomes: Vec<Biome>,
+    /// The rolls [lo, hi) that pick a tree (a plant with a trunk) in some biome: a roll outside them grows no
+    /// tree anywhere, so the far canopy turns its spot down before asking the biome (ADR 0102).
+    pub tree_rolls: Vec<(f32, f32)>,
+}
+
+impl Rows {
+    /// Whether `roll` picks a tree in some biome (`tree_rolls`); false, it picks none in any.
+    pub fn may_tree(&self, roll: f32) -> bool {
+        self.tree_rolls.iter().any(|&(lo, hi)| roll >= lo && roll < hi)
+    }
 }
 
 impl Biome {
@@ -134,7 +144,7 @@ impl Biome {
         }
         self.ground[0]
     }
-    /// The plant at a candidate spot, from `roll` (uniform in 0..1).
+    /// The plant at a candidate spot, from `roll` (uniform in 0..1): the first whose share, added up, passes it.
     pub fn plant(&self, roll: f32) -> Option<usize> {
         let mut acc = 0.0;
         for &(p, share) in &self.plants {
@@ -162,6 +172,32 @@ impl Plant {
     /// first layer of air), and whether it is wood (wood wins over leaves where two plants meet). `v` is the
     /// tree's own hash (`world::Foot::v`): where its limbs go and which leaves its crown lets fall (ADR 0092).
     pub fn block(&self, h: i32, v: u32, dx: i32, dz: i32, z: i32) -> Option<(u16, bool)> {
+        self.cell(&self.shape_of(h, v), h, v, dx, dz, z)
+    }
+    /// The limbs and clumps of a tree `h` tall of hash `v`, built once for all its blocks (ADR 0102): `cell` with
+    /// it is `block`, the test's reference.
+    pub(crate) fn shape_of(&self, h: i32, v: u32) -> Crown {
+        match self.shape {
+            Shape::Round => Crown::Clumps(self.clumps(h, v)),
+            Shape::Flat | Shape::Droop => Crown::Lens(self.lens(h, v)),
+            Shape::Column | Shape::Bush | Shape::Cone | Shape::Palm => Crown::None,
+        }
+    }
+    /// `block` at every layer 0..=h of column (dx, dz), lowest first, its crown built once for the column.
+    pub fn column(&self, h: i32, v: u32, dx: i32, dz: i32, mut put: impl FnMut(i32, (u16, bool))) {
+        let r = self.radius;
+        if dx.abs() > r || dz.abs() > r || (dx * dx + dz * dz) as f32 > (r * r) as f32 + 0.5 {
+            return;
+        }
+        let crown = self.shape_of(h, v);
+        for z in 0..=h {
+            if let Some(b) = self.cell(&crown, h, v, dx, dz, z) {
+                put(z, b);
+            }
+        }
+    }
+    /// `block` from the tree's `shape_of`.
+    pub(crate) fn cell(&self, crown: &Crown, h: i32, v: u32, dx: i32, dz: i32, z: i32) -> Option<(u16, bool)> {
         let r = self.radius;
         if z < 0 || z > h || dx.abs() > r || dz.abs() > r || (dx * dx + dz * dz) as f32 > (r * r) as f32 + 0.5 {
             return None;
@@ -203,8 +239,14 @@ impl Plant {
                 };
                 leaf(frond)
             }
-            Shape::Round => self.clumped(h, v, dx, dz, z),
-            Shape::Flat | Shape::Droop => self.crowned(h, v, dx, dz, z),
+            Shape::Round => match crown {
+                Crown::Clumps(g) => self.clumped(g, v, dx, dz, z),
+                _ => unreachable!("a round tree's crown is its clumps"),
+            },
+            Shape::Flat | Shape::Droop => match crown {
+                Crown::Lens(g) => self.crowned(g, h, v, dx, dz, z),
+                _ => unreachable!("a flat or droop tree's crown is its lens"),
+            },
         }
     }
 
@@ -215,16 +257,11 @@ impl Plant {
     /// tall (flat: a pad), its outer leaves falling by the hash but never one whose way in is open. A willow
     /// (droop) is an umbrella whose rim sags, a withe hanging from each limb's middle branch and strands of leaves one
     /// block wide, of uneven lengths, hanging beside the withes from its rim to a block or two over the ground.
-    fn crowned(&self, h: i32, v: u32, dx: i32, dz: i32, z: i32) -> Option<(u16, bool)> {
+    fn lens(&self, h: i32, v: u32) -> Lens {
         // a crown is wider than tall at every size: a smaller one is thinner too
         let cr = self.crown(h) as f32;
         let rim = cr + 0.5;
         let cv = (0.7 * rim).max(1.5).min(self.depth);
-        let d2 = (dx * dx + dz * dz) as f32;
-        // nothing of the tree lies outside its rim: the limbs end inside it (cheap first, for the chunk's sake)
-        if d2 > rim * rim {
-            return None;
-        }
         let droop = self.shape == Shape::Droop;
         let bend = if droop { 1.2 } else { 0.0 };
         // the lens's middle over a column d2 (squared) out from the trunk
@@ -234,13 +271,6 @@ impl Plant {
         let zb = layer(mid(0.0) - cv);
         let fork = ((self.fork * h as f32).round() as i32).min(zb - 1).max(1);
         let large = self.size(h) == 2 && self.thick;
-        // the trunk, and its leader up into the lens to two under its top
-        if (dx, dz) == (0, 0) && z <= layer(mid(0.0)).max(h - 2) {
-            return Some((self.trunk, true));
-        }
-        if large && (0..=1).contains(&dx) && (0..=1).contains(&dz) && z < fork {
-            return Some((self.trunk, true));
-        }
         // the limbs and branches as segments, and where each ends: directions from a table of sixteen, not sin
         // and cos, whose last bit a Linux server and a Windows client may round apart
         let (n, turn) = (self.limbs as i32, (hash(v, 0, 0, 2) % 16) as i32);
@@ -268,7 +298,25 @@ impl Plant {
                 (segs[ns], ns, ends[ne], ne) = ((base, e), ns + 1, e, ne + 1);
             }
         }
-        let (segs, ends) = (&segs[..ns], &ends[..ne]);
+        // the trunk and its leader up into the lens to two under its top
+        Lens { cr, rim, cv, droop, bend, fork, large, leader: layer(mid(0.0)).max(h - 2), segs, ns, ends, ne }
+    }
+    fn crowned(&self, g: &Lens, h: i32, v: u32, dx: i32, dz: i32, z: i32) -> Option<(u16, bool)> {
+        let Lens { cr, rim, cv, droop, bend, fork, large, leader, .. } = *g;
+        let d2 = (dx * dx + dz * dz) as f32;
+        // nothing of the tree lies outside its rim: the limbs end inside it (cheap first, for the chunk's sake)
+        if d2 > rim * rim {
+            return None;
+        }
+        let mid = |d2: f32| h as f32 - cv - bend * d2 / (rim * rim);
+        // the trunk, and its leader up into the lens to two under its top
+        if (dx, dz) == (0, 0) && z <= leader {
+            return Some((self.trunk, true));
+        }
+        if large && (0..=1).contains(&dx) && (0..=1).contains(&dz) && z < fork {
+            return Some((self.trunk, true));
+        }
+        let (segs, ends) = (&g.segs[..g.ns], &g.ends[..g.ne]);
         let c = [dx as f32, dz as f32, z as f32];
         if segs.iter().any(|&(a, b)| on(a, b, c)) || (droop && ends.iter().any(|e| (e[0], e[1]) == (c[0], c[1]) && z >= self.withe(v, e) && (z as f32) < e[2])) {
             return Some((self.trunk, true));
@@ -315,14 +363,11 @@ impl Plant {
     /// clumps are 2 or 2.5 blocks across each way and 0.85 of that up and down, so the crown is
     /// lobed and uneven with sky between its clumps, not one ball. A clump's outer leaves fall by the hash but
     /// never one whose way in is open.
-    fn clumped(&self, h: i32, v: u32, dx: i32, dz: i32, z: i32) -> Option<(u16, bool)> {
+    fn clumps(&self, h: i32, v: u32) -> Clumps {
         // a clump is two blocks across at least, so the smallest crown is too
         let cr = self.crown(h).max(2) as f32;
         // a clump may hang half a block over the crown's radius, but not over the row's
         let rim = (cr + 1.0).min(self.radius.max(2) as f32 + 0.5);
-        if (dx * dx + dz * dz) as f32 > rim * rim {
-            return None;
-        }
         let large = self.size(h) == 2 && self.thick;
         let at = |d: i32, r: f32| ((r * COS16[d.rem_euclid(16) as usize]).round(), (r * COS16[(d + 12).rem_euclid(16) as usize]).round());
         // a clump's size: 2 or 2.5 across each way, never wider than the crown
@@ -348,27 +393,36 @@ impl Plant {
                 (clumps[nc], nc) = (([ex, ez, ze as f32], r), nc + 1);
             }
         }
-        let clumps = &clumps[..nc];
-        let low = clumps.iter().map(|c| c.0[2] as i32).min().unwrap_or(ztop);
+        let low = clumps[..nc].iter().map(|c| c.0[2] as i32).min().unwrap_or(ztop);
         let fork = ((self.fork * h as f32).round() as i32).min(low - 1).max(1);
-        // the wood: the trunk to the top clump, a 2 x 2 foot on a large thick one, the limbs and branches
-        let c = [dx as f32, dz as f32, z as f32];
-        let top = [lx, lz, ztop as f32];
-        if on([0.0, 0.0, 0.0], top, c) || (large && (0..=1).contains(&dx) && (0..=1).contains(&dz) && z < fork) {
-            return Some((self.trunk, true));
-        }
-        // where the limbs leave the trunk: its cell at the fork's layer
+        // where the limbs leave the trunk: its cell at the fork's layer; where each bends to its branches
         let f = fork as f32 / ztop as f32;
         let base = [(lx * f).round(), (lz * f).round(), fork as f32];
+        let mut elbows = [[0f32; 3]; 6];
         for k in 0..n {
             let d = turn + k * 16 / n + (hash(v, k, 0, 3) % 3) as i32 - 1;
-            let ends = &clumps[1 + (k as usize) * (1 + two as usize)..][..1 + two as usize];
-            let elbow = if two {
+            elbows[k as usize] = if two {
                 let (mx, mz) = at(d, 0.5 * cr);
                 [mx, mz, (low - 1).max(fork) as f32]
             } else {
-                ends[0].0
+                clumps[1 + k as usize].0
             };
+        }
+        Clumps { cr, rim, large, top: [lx, lz, ztop as f32], fork, base, two, n: n as usize, clumps, nc, elbows }
+    }
+    fn clumped(&self, g: &Clumps, v: u32, dx: i32, dz: i32, z: i32) -> Option<(u16, bool)> {
+        let Clumps { cr, rim, large, top, fork, base, two, .. } = *g;
+        if (dx * dx + dz * dz) as f32 > rim * rim {
+            return None;
+        }
+        let clumps = &g.clumps[..g.nc];
+        // the wood: the trunk to the top clump, a 2 x 2 foot on a large thick one, the limbs and branches
+        let c = [dx as f32, dz as f32, z as f32];
+        if on([0.0, 0.0, 0.0], top, c) || (large && (0..=1).contains(&dx) && (0..=1).contains(&dz) && z < fork) {
+            return Some((self.trunk, true));
+        }
+        for (k, &elbow) in g.elbows[..g.n].iter().enumerate() {
+            let ends = &clumps[1 + k * (1 + two as usize)..][..1 + two as usize];
             if on(base, elbow, c) || (two && ends.iter().any(|e| on(elbow, e.0, c))) {
                 return Some((self.trunk, true));
             }
@@ -451,6 +505,42 @@ impl Plant {
         let beside = [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|(a, b)| stalk(dx + a, dz + b).is_some_and(|top| z >= top - 3 && z < top));
         (beside && hash(v, dx, dz, z) % 2 == 0).then_some((self.leaves, false))
     }
+}
+
+/// A tree's limbs and clumps, built once for all its blocks (`Plant::shape_of`, ADR 0102).
+pub(crate) enum Crown {
+    None,
+    Clumps(Clumps),
+    Lens(Lens),
+}
+/// A round tree's (`Plant::clumps`): the top clump, then two (one on a small crown) a limb.
+pub(crate) struct Clumps {
+    cr: f32,
+    rim: f32,
+    large: bool,
+    top: [f32; 3],
+    fork: i32,
+    base: [f32; 3],
+    two: bool,
+    n: usize,
+    clumps: [([f32; 3], f32); 13],
+    nc: usize,
+    elbows: [[f32; 3]; 6],
+}
+/// A flat or droop tree's (`Plant::lens`): its lens and limbs as segments, and where each middle branch ends.
+pub(crate) struct Lens {
+    cr: f32,
+    rim: f32,
+    cv: f32,
+    droop: bool,
+    bend: f32,
+    fork: i32,
+    large: bool,
+    leader: i32,
+    segs: [([f32; 3], [f32; 3]); 24],
+    ns: usize,
+    ends: [[f32; 3]; 6],
+    ne: usize,
 }
 
 /// cos(d 22.5 degrees) for d in 0..16, to four places (sin is cos four steps on): the limbs' directions.
@@ -563,7 +653,19 @@ pub fn parse(text: &str) -> Result<Rows, String> {
         }
         biomes.push(Biome { name: b.name, ground, patches, snow_over: b.snow_over, plants, clutter });
     }
-    Ok(Rows { plants, biomes })
+    // each biome's plant intervals as `Biome::plant` accumulates them, to the bit
+    let mut tree_rolls = Vec::new();
+    for b in &biomes {
+        let mut acc = 0.0f32;
+        for &(p, share) in &b.plants {
+            let lo = acc;
+            acc += share;
+            if plants[p].trunk != 0 {
+                tree_rolls.push((lo, acc));
+            }
+        }
+    }
+    Ok(Rows { plants, biomes, tree_rolls })
 }
 
 pub static ROWS: LazyLock<Rows> = LazyLock::new(|| parse(include_str!("../../../data/biomes.toml")).unwrap_or_else(|e| panic!("data/biomes.toml: {e}")));
@@ -611,6 +713,29 @@ mod tests {
             }
         }
         out
+    }
+
+    /// ADR 0102: every block of every plant, at every height and 256 hashes, is what the code before the
+    /// crown was built once a column made it (the hash pinned from that code), and `column` is `block` per layer.
+    #[test]
+    fn plants_are_the_same_block_for_block() {
+        let mut acc = 0u64;
+        for p in &ROWS.plants {
+            for h in p.height[0]..=p.height[1] {
+                for v in hashes() {
+                    for (k, (m, wood)) in tree(p, h, v) {
+                        acc = crate::world::mix(acc ^ ((k.0 as u64 & 0xff) << 40 | (k.1 as u64 & 0xff) << 32 | (k.2 as u64 & 0xff) << 24 | (m as u64) << 1 | wood as u64));
+                    }
+                    for (dx, dz) in (-REACH - 1..=REACH + 1).flat_map(|a| (-REACH - 1..=REACH + 1).map(move |c| (a, c))) {
+                        let mut col = Vec::new();
+                        p.column(h, v, dx, dz, |z, b| col.push((z, b)));
+                        let one: Vec<_> = (0..=h).filter_map(|z| p.block(h, v, dx, dz, z).map(|b| (z, b))).collect();
+                        assert_eq!(col, one, "{} {h} {v} at {dx} {dz}", p.name);
+                    }
+                }
+            }
+        }
+        assert_eq!(acc, 9995231946741101308, "the plants' blocks changed");
     }
 
     /// ADR 0092: a tree is a pure function of its height and hash, inside its footprint (its radius and its
