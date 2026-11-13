@@ -58,7 +58,7 @@ plain dig always works; a drop hurts who is under it. ADR 0093 made a dug rock i
 - Stills (read, `out/mining-cracks/`): `limestone-wall.png` (seams run on through the blocks and step with the
   fold), `granite-wall.png` (two joints crossing a wall 15 blocks wide top to bottom), `dig-pair.png` (the face; a
   dig on a bedding plane, 5 more loosened, a band of 6 rubble blocks where the line was; a plain dig a row lower, the
-  one block). The digs are a stand run's `fxedit=t:di:dj:dl:dig`, the server's rule on the client's world (the
+  one block; with the rubble paintings from main, the rubble reads at once against the wall). The digs are a stand run's `fxedit=t:di:dj:dl:dig`, the server's rule on the client's world (the
   stand's placed blocks are the client's alone); it prints what each dig loosened. In a wall the rubble is held by
   the rock under it and stays in place; it falls where the ground is open (ADR 0079).
 - **Soak** (`technoape-server soak=1 bots=50 minutes=2 seed=1`, play build, measure slot): **ok**, 2,400 ticks in
