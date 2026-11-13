@@ -30,10 +30,11 @@ weird when you placed blocks inside it".
     passed from `vs_sea` and `vs_water` (`WOut.grid`, `face`), evaluated at the middle of each 1/16 m texel, so
     a ripple's facets are the blocks' own pixels. They run on the **sky's clock** (`Globals.water.x`, world time
     mod 3600 s: a `run=view` shot is the same every time), and a river's along its flow (`WOut.gflow`, columns a
-    second, from the reach's fall). They **calm** where a pixel covers more than 4 cm of water and are gone at
+    second, from the reach's fall). The clock **steps** 4 times a second (`WATER_STEPS`), so ripples, foam and falls
+    jump like pixel art instead of gliding (the developer's call, 2026-11-13). They **calm** where a pixel covers more than 4 cm of water and are gone at
     40 cm, so far water is flat: from orbit one blue, no shimmer and no level seam (both levels shade from the
     same grid coordinates and the same rule).
-  - **Clear:** a ray down the view (up to 16 m; nothing met counts as 60 m) gives the way through the water; it takes `exp(-k len)` of the
+  - **Clear:** a ray down the view (up to 16 m; nothing met counts as its reach) gives the way through the water; it takes `exp(-k len)` of the
     light, k = (0.45, 0.12, 0.075) a metre (red goes first). Blended over the bed already drawn: alpha is what of
     the bed does not show, the colour the water's own light (`WATER_FOG` lit by sun and ambient) plus the
     reflection, so shallows show sand and stone, depth turns them blue.
@@ -115,7 +116,6 @@ all fixed. It also noted the surf moves a little with the view's tilt: left, a l
   sooner, never swing); every liquid, world and server test still passes.
 
 ## Calls for the developer to confirm
-- The ripples move smoothly in time; stepping them a few times a second would read more like pixel animation.
 - Foam is a thin broken line that laps between 5 and 35 cm of depth, not surf over the whole shelf.
 - The Low preset does not set Water; Medium and below could take simple.
 - The water's colours (`WATER_FOG`, the absorption) and how fast the fog under water closes (12 m).
