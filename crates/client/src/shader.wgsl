@@ -519,8 +519,13 @@ fn hit_texel(ci: u32, q: vec2u, prim: u32, bc: vec2f, sn: vec3f) -> vec4f {
 fn in_disc(s: vec3f, ar: f32, px: vec2u) -> vec3f {
     let t = normalize(cross(s, select(vec3f(0., 1., 0.), vec3f(1., 0., 0.), abs(s.y) > 0.9)));
     let b = cross(s, t);
-    let r = ar * sqrt(hash2(px));
-    let ph = 2.0 * PI * hash2(px + vec2u(7919u, 104729u));
+    // the point by blue-ish noise, not white: neighbours take far-apart points of the disc, so a penumbra's
+    // dither reads as an even gradient, not grain (bug 2026-11-13_14-24-14)
+    let pf = vec2f(px);
+    let ign = fract(52.9829189 * fract(dot(pf, vec2f(0.06711056, 0.00583715))));
+    let r2 = fract(dot(pf, vec2f(0.7548776662, 0.5698402910)));
+    let r = ar * sqrt(r2);
+    let ph = 2.0 * PI * ign;
     return normalize(s + (t * cos(ph) + b * sin(ph)) * r);
 }
 

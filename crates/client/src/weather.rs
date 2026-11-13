@@ -146,7 +146,7 @@ pub fn strikes(sky: &Sky, seed: i32, d: DVec3, sea: f64, from: f64, to: f64, wit
                 if u(0) >= p || t < from || t >= to {
                     continue;
                 }
-                out.push((t, g.dir_at(f, i as f64 + u(2), j as f64 + u(3)) * (sea + 300.0)));
+                out.push((t, g.dir_at(f, i as f64 + u(2), j as f64 + u(3)) * (sea + 100.0))); // the clouds' base (clouds.wgsl CL_BASE)
             }
         }
     }
@@ -314,7 +314,7 @@ mod tests {
         key(&mut split);
         key(&mut whole);
         assert_eq!(split, whole);
-        assert!(all.iter().all(|x| (x.1.length() - 1300.0).abs() < 1e-6));
+        assert!(all.iter().all(|x| (x.1.length() - 1100.0).abs() < 1e-6));
     }
 
     #[test]

@@ -158,7 +158,8 @@ fn atrous(@builtin(global_invocation_id) id: vec3u) {
 
 // the clouds between the camera and what a pixel shows `dist` metres away along view ray `dir` (0: the sky),
 // premultiplied (rgb) with the share of what is behind them they hide (a): the slab's one or two pieces in
-// front of it, marched in steps of about 8 m (fewer far away), from a point jittered per pixel and frame
+// front of it, marched in steps of about 4 m (fewer far away; 8 m before the clouds came down to 100 m, ADR
+// 0098), from a point jittered per pixel
 fn clouds(px: vec2i, dir: vec3f, dist: f32) -> vec4f {
     let sea = u.ctr.w;
     let steps = u.sun_col.w;
@@ -170,10 +171,15 @@ fn clouds(px: vec2i, dir: vec3f, dist: f32) -> vec4f {
     if (dot(o, o) < sea * sea) { return vec4f(0.0); }
     let d = dir * m;
     let sd = u.sun.xyz * m;
-    let far = select(1e9, dist, dist > 0.0);
+    var far = select(1e9, dist, dist > 0.0);
     let r1 = sea + CL_BASE + CL_THICK;
     let r0 = sea + CL_BASE;
     let b = dot(o, d);
+    // the planet hides what is past it: a ray ends at the sea's sphere. The sea is not in the G-buffer, so past
+    // the ground drawn there the clouds of the planet's far side showed through it (bug 2026-11-13_14-26-57)
+    let hs = b * b - (dot(o, o) - sea * sea);
+    // (the camera is over the sea, above: both crossings ahead or both behind)
+    if (hs > 0.0 && -b - sqrt(hs) > 0.0) { far = min(far, -b - sqrt(hs)); }
     let c1 = dot(o, o) - r1 * r1;
     let h1 = b * b - c1;
     if (h1 <= 0.0) { return vec4f(0.0); }
@@ -195,7 +201,8 @@ fn clouds(px: vec2i, dir: vec3f, dist: f32) -> vec4f {
     if (seg[0].y <= seg[0].x && seg[1].y <= seg[1].x) { return vec4f(0.0); }
     let wind = cl_wind(normalize(o + d * max(seg[0].x, select(seg[1].x, seg[0].x, seg[0].y > seg[0].x))), u.cloud.w);
     // by the pixel alone: nothing accumulates the clouds over frames, so a jitter by the frame would only shimmer
-    let jit = fract(sin(dot(vec2f(px), vec2f(12.9898, 78.233))) * 43758.5453);
+    // (interleaved gradient noise: neighbours start far apart in the step, so a cell's edge reads as a line, not grain)
+    let jit = fract(52.9829189 * fract(dot(vec2f(px), vec2f(0.06711056, 0.00583715))));
     var tr = 1.0;
     var col = vec3f(0.0);
     var first = -1.0;
@@ -203,7 +210,7 @@ fn clouds(px: vec2i, dir: vec3f, dist: f32) -> vec4f {
         let s = seg[k];
         let len = s.y - s.x;
         if (len <= 0.0 || tr < 0.02) { continue; }
-        let n = clamp(ceil(len / max(8.0, s.x * 0.004)), 1.0, steps);
+        let n = clamp(ceil(len / max(4.0, s.x * 0.004)), 1.0, steps);
         let dt = len / n;
         for (var i = 0.0; i < n; i += 1.0) {
             let t = s.x + (i + jit) * dt;
@@ -235,6 +242,34 @@ fn clouds(px: vec2i, dir: vec3f, dist: f32) -> vec4f {
     return vec4f(col, 1.0 - tr);
 }
 
+// the direct light at a pixel, its light (without the albedo) smoothed over the 3x3 around it where the
+// neighbours lie on the same surface (`edge_w`), the albedo put back: the sun's and the lamps' soft shadows are
+// one ray a pixel to a point of the light, dithered (shader.wgsl `in_disc`, `lamp_target`), and this turns the
+// dither into a gradient without blurring the paint (bug 2026-11-13_14-24-14)
+fn direct_smooth(px: vec2i, gb: vec4f) -> vec3f {
+    let d0 = textureLoad(direct_t, px, 0).rgb;
+    // (a pixel that glows or mirrors, its albedo near 0, keeps its own: its light over its albedo means nothing)
+    let a0 = textureLoad(albedo_t, px, 0).rgb;
+    if (gb.w <= 0.0 || max(a0.r, max(a0.g, a0.b)) < 0.05) { return d0; }
+    let p0 = point_at(px, gb.w);
+    let size = vec2i(textureDimensions(gbuf));
+    var k = array<f32, 3>(0.25, 0.5, 0.25);
+    var sum = vec3f(0.0);
+    var ws = 0.0;
+    for (var y = -1; y <= 1; y++) {
+        for (var x = -1; x <= 1; x++) {
+            let q = clamp(px + vec2i(x, y), vec2i(0), size - 1);
+            let gq = gload(gbuf, q);
+            let aq = textureLoad(albedo_t, q, 0).rgb;
+            if (gq.w <= 0.0 || max(aq.r, max(aq.g, aq.b)) < 0.05) { continue; }
+            let w = k[x + 1] * k[y + 1] * edge_w(gb.xyz, p0, gb.w, q, gq);
+            sum += textureLoad(direct_t, q, 0).rgb / max(aq, vec3f(0.02)) * w;
+            ws += w;
+        }
+    }
+    return select(d0, sum / ws * a0, ws > 1e-4);
+}
+
 @vertex
 fn vs_composite(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
     let uv = vec2f(f32((vi << 1u) & 2u), f32(vi & 2u)) * 2.0 - 1.0;
@@ -244,8 +279,8 @@ fn vs_composite(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
 @fragment
 fn fs_composite(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     let px = vec2i(pos.xy);
-    var c = textureLoad(direct_t, px, 0).rgb;
     let gb = gload(gbuf, px);
+    var c = direct_smooth(px, gb);
     if (gb.w > 0.0 && u.cfg.w == 1u) {
         c += textureLoad(albedo_t, px, 0).rgb * u.tune.rgb;
     } else if (gb.w > 0.0) {
