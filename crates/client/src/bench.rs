@@ -225,7 +225,8 @@ impl App {
                 let (b, cc) = (oc.dot(d), oc.dot(oc) - r * r);
                 b * b - cc >= 0.0 && -b + (b * b - cc).sqrt() > 0.0
             };
-            if self.world.bodies.iter().any(|b| hits(b.centre, b.radius - engine::world::AMP - 1.0)) {
+            // (under the lowest ground: the old AMP of 140, not ADR 0105's, which bounds the peaks upward)
+            if self.world.bodies.iter().any(|b| hits(b.centre, b.radius - 141.0)) {
                 cracks += 1;
                 if at.len() < 8 {
                     at.push(format!("[{x},{y}]"));
