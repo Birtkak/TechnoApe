@@ -2720,7 +2720,12 @@ mod baked_tests {
         let map = Arc::new(Map::from_bytes(&std::fs::read(&path).unwrap()).unwrap());
         let w = World::with_map(map.n, 32, map.seed, Some(map.clone()));
         let b = &w.bodies[0];
-        let mut best: Vec<Option<(f64, usize, Foot)>> = vec![None; ROWS.plants.len() * 3];
+        // every spot by species and size, nearest the spawn first
+        let mut all: Vec<Vec<(f64, usize, Foot)>> = vec![Vec::new(); ROWS.plants.len() * 3];
+        // the forests: a spot nearest the spawn of each whose ground 30 m round is all that biome
+        use crate::bake::life::{COLD_FOREST, RAIN_FOREST, TEMPERATE_FOREST};
+        let kinds = [(TEMPERATE_FOREST, "temperate"), (COLD_FOREST, "cold"), (RAIN_FOREST, "rain")];
+        let mut forest: [Option<(f64, usize, Foot)>; 3] = [None; 3];
         for f in 0..6 {
             for cx in 0..b.n / SPACING {
                 for cy in 0..b.n / SPACING {
@@ -2729,35 +2734,71 @@ mod baked_tests {
                     if p.radius == 0 || p.shape == crate::biomes::Shape::Bush {
                         continue;
                     }
-                    let near = b.dir(f, t.i as f64 + 0.5, t.j as f64 + 0.5).dot(b.spawn);
-                    let k = t.plant * 3 + p.size(t.h) as usize;
-                    if best[k].is_none_or(|bb| near > bb.0) {
-                        best[k] = Some((near, f, t));
+                    let d = b.dir(f, t.i as f64 + 0.5, t.j as f64 + 0.5);
+                    let near = d.dot(b.spawn);
+                    all[t.plant * 3 + p.size(t.h) as usize].push((near, f, t));
+                    let here = b.biome_at(f, t.i as f64 + 0.5, t.j as f64 + 0.5, d);
+                    if let Some(q) = kinds.iter().position(|k| Some(k.0) == here) {
+                        let inside = || {
+                            (0..8).all(|a| {
+                                let (si, ci) = (a as f64 * std::f64::consts::FRAC_PI_4).sin_cos();
+                                let (x, y) = (t.i as f64 + 0.5 + 30.0 * ci, t.j as f64 + 0.5 + 30.0 * si);
+                                b.biome_at(f, x, y, b.dir(f, x, y)) == here
+                            })
+                        };
+                        if forest[q].is_none_or(|x| near > x.0) && inside() {
+                            forest[q] = Some((near, f, t));
+                        }
                     }
                 }
             }
         }
-        for (k, found) in best.iter().enumerate() {
-            let Some((near, f, t)) = *found else { continue };
-            let dt = b.dir(f, t.i as f64 + 0.5, t.j as f64 + 0.5);
-            let target = b.centre + dt * (b.layer_r(t.z as f64) + t.h as f64 * 0.5);
-            // from the sun's side at noon (time=225), 10 to 15 m out at eye height, looking up at its middle
-            let sun = w.sky.sun_dir(225.0);
-            let e1 = dt.any_orthonormal_vector();
-            let e2 = dt.cross(e1);
-            let r = b.layer_r(t.z as f64);
-            let dc = (0..8).map(|a| (a as f64 * std::f64::consts::FRAC_PI_4).sin_cos()).map(|(s, c)| (dt * r + (e1 * c + e2 * s) * (10.0 + t.h as f64 * 0.3)).normalize()).max_by(|x, y| x.dot(sun).total_cmp(&y.dot(sun))).unwrap();
-            let eye = 1.7;
+        let sun = w.sky.sun_dir(225.0);
+        // the view from `dc` (a direction from the centre) at `eye` over the ground to `target`
+        let aim = |dc: DVec3, eye: f64, target: DVec3| {
             let pos = b.centre + dc * (b.top(dc) + eye);
             let up = dc;
             let rr = if up.y.abs() > 0.9 { DVec3::Z } else { DVec3::Y };
             let ahead = (rr - up * rr.dot(up)).normalize();
             let fwd = (target - pos).normalize();
-            let pitch = fwd.dot(up).asin().to_degrees();
             let hz = fwd - up * fwd.dot(up);
-            let yaw = hz.dot(up.cross(ahead)).atan2(hz.dot(ahead)).to_degrees();
-            let name = ROWS.plants[k / 3].name.replace(' ', "-");
-            println!("SHOT {name}-{} at={:.6},{:.6},{:.6} eye={eye:.1} yaw={yaw:.1} pitch={pitch:.1}  # h {} {:.0} m from the spawn", ["small", "medium", "large"][k % 3], dc.x, dc.y, dc.z, t.h, near.clamp(-1.0, 1.0).acos() * b.radius);
+            (pos, hz.dot(up.cross(ahead)).atan2(hz.dot(ahead)).to_degrees(), fwd.dot(up).asin().to_degrees())
+        };
+        for (k, list) in all.iter_mut().enumerate() {
+            list.sort_by(|x, y| y.0.total_cmp(&x.0));
+            let p = &ROWS.plants[k / 3];
+            // the nearest of the first forty with a view from the sun's half that nothing stands in: no block
+            // but air on the line from the eye to the tree's middle until its crown
+            let found = list.iter().take(40).find_map(|&(near, f, t)| {
+                let dt = b.dir(f, t.i as f64 + 0.5, t.j as f64 + 0.5);
+                let r = b.layer_r(t.z as f64);
+                let target = b.centre + dt * (r + t.h as f64 * 0.5);
+                let (e1, e2) = (dt.any_orthonormal_vector(), dt.cross(dt.any_orthonormal_vector()));
+                let mut ways: Vec<DVec3> = (0..16).map(|a| (a as f64 * std::f64::consts::PI / 8.0).sin_cos()).map(|(s, c)| (dt * r + (e1 * c + e2 * s) * (10.0 + t.h as f64 * 0.3)).normalize()).filter(|dc| (*dc - dt).dot(sun) > 0.0).collect();
+                ways.sort_by(|x, y| y.dot(sun).total_cmp(&x.dot(sun)));
+                ways.into_iter().find_map(|dc| {
+                    let (pos, yaw, pitch) = aim(dc, 1.7, target);
+                    let len = (target - pos).length() - p.crown(t.h) as f64 - 1.0;
+                    let clear = (1..(len * 2.0) as i32).all(|s| w.block(w.block_at(pos + (target - pos).normalize() * s as f64 * 0.5)) == 0);
+                    clear.then_some((dc, yaw, pitch, near, t))
+                })
+            });
+            let Some((dc, yaw, pitch, near, t)) = found else { continue };
+            let name = p.name.replace(' ', "-");
+            println!("SHOT {name}-{} at={:.6},{:.6},{:.6} eye=1.7 yaw={yaw:.1} pitch={pitch:.1}  # h {} {:.0} m from the spawn", ["small", "medium", "large"][k % 3], dc.x, dc.y, dc.z, t.h, near.clamp(-1.0, 1.0).acos() * b.radius);
+        }
+        // each forest from among its trees looking ahead; the temperate one also from 40 m over them
+        for (q, (_, kind)) in kinds.iter().enumerate() {
+            let Some((_, f, t)) = forest[q] else { continue };
+            let dt = b.dir(f, t.i as f64 + 0.5, t.j as f64 + 0.5);
+            let e1 = dt.any_orthonormal_vector();
+            let dc = (dt * b.layer_r(t.z as f64) + e1 * 3.0).normalize();
+            let far = b.centre + (dt * b.layer_r(t.z as f64) - e1 * 30.0);
+            let (_, yaw, _) = aim(dc, 1.7, far);
+            println!("SHOT forest-{kind} at={:.6},{:.6},{:.6} eye=1.7 yaw={yaw:.1} pitch=8", dc.x, dc.y, dc.z);
+            if q == 0 {
+                println!("SHOT forest-above at={:.6},{:.6},{:.6} eye=40 yaw={yaw:.1} pitch=-40", dc.x, dc.y, dc.z);
+            }
         }
     }
 

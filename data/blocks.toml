@@ -829,7 +829,7 @@ name = "willow log"
 hardness = 2.0
 loose = true
 sound = "dirt"
-colour = [0.36, 0.32, 0.26]
+colour = [0.40, 0.29, 0.19]
 pattern = "plain"
 contrast = 1.6
 

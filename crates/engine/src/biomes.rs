@@ -169,7 +169,12 @@ impl Plant {
         match self.shape {
             Shape::Column if self.leaves == 0 || r == 0 => wood(centre && z < h),
             Shape::Column => self.stalks(h, v, dx, dz, z),
-            Shape::Bush => leaf(centre && z < h),
+            // low and wide: one layer, the middle and most of its four sides, a corner only beside a side
+            Shape::Bush => {
+                let side = |x: i32, y: i32| (x == 0) != (y == 0) && hash(v, x, y, 6) % 4 != 0;
+                let corner = dx != 0 && dz != 0 && hash(v, dx, dz, 6) % 2 == 0 && (side(dx, 0) || side(0, dz));
+                leaf(z == 0 && (centre || side(dx, dz) || corner))
+            }
             Shape::Cone => self.tiers(h, v, dx, dz, z),
             Shape::Palm => {
                 if centre {
@@ -192,24 +197,33 @@ impl Plant {
     }
 
     /// A tree that forks (round, flat, droop): a trunk (2 x 2 on a large `thick` one) to `fork` of its height
-    /// that goes on up the middle; `limbs` limbs that climb out from there, on a crown of three or more blocks to
-    /// about half its radius, each then spreading into three branches; every limb or branch ends in the middle
-    /// of a dome of leaves `depth` thick each way whose rim bends down (flat: does not), its outer leaves
-    /// falling by the hash but never one whose way in is open. A willow (droop) has a withe hanging from each
-    /// end, and curtains of leaves one block wide dropping beside the withes from its cap to a block or two over
-    /// the ground.
+    /// that goes on up the middle; `limbs` limbs that spread from there out to two thirds of the crown's radius,
+    /// under its leaves where they show, each then (on a crown of three or more blocks) parting into three
+    /// branches that reach its rim inside the leaves. The leaves are a lens `depth` thick each way, wider than
+    /// tall (flat: a pad), its outer leaves falling by the hash but never one whose way in is open. A willow
+    /// (droop) is an umbrella whose rim sags, a withe hanging from each limb's middle branch and strands of leaves one
+    /// block wide, of uneven lengths, hanging beside the withes from its rim to a block or two over the ground.
     fn crowned(&self, h: i32, v: u32, dx: i32, dz: i32, z: i32) -> Option<(u16, bool)> {
-        let (cr, cv) = (self.crown(h) as f32, self.depth);
+        // a crown is wider than tall at every size: a smaller one is thinner too
+        let cr = self.crown(h) as f32;
         let rim = cr + 0.5;
-        let bend = if self.shape == Shape::Flat { 0.0 } else { 0.8 };
-        // the dome's middle over a column d2 (squared) out from the trunk
+        let cv = (0.7 * rim).max(1.5).min(self.depth);
+        let d2 = (dx * dx + dz * dz) as f32;
+        // nothing of the tree lies outside its rim: the limbs end inside it (cheap first, for the chunk's sake)
+        if d2 > rim * rim {
+            return None;
+        }
+        let droop = self.shape == Shape::Droop;
+        let bend = if droop { 1.2 } else { 0.0 };
+        // the lens's middle over a column d2 (squared) out from the trunk
         let mid = |d2: f32| h as f32 - cv - bend * d2 / (rim * rim);
         let layer = |z: f32| (z.round() as i32).clamp(1, h - 1);
-        let zb = layer(mid(0.0) - 0.6 * cv);
+        // where the limbs part into branches: just under the lens
+        let zb = layer(mid(0.0) - cv);
         let fork = ((self.fork * h as f32).round() as i32).min(zb - 1).max(1);
         let large = self.size(h) == 2 && self.thick;
-        // the trunk, and its leader up into the dome
-        if (dx, dz) == (0, 0) && z <= layer(mid(0.0)) {
+        // the trunk, and its leader up into the lens to two under its top
+        if (dx, dz) == (0, 0) && z <= layer(mid(0.0)).max(h - 2) {
             return Some((self.trunk, true));
         }
         if large && (0..=1).contains(&dx) && (0..=1).contains(&dz) && z < fork {
@@ -221,17 +235,21 @@ impl Plant {
         let at = |d: i32, r: f32, z: i32| [(r * COS16[d.rem_euclid(16) as usize]).round(), (r * COS16[(d + 12).rem_euclid(16) as usize]).round(), z as f32];
         let reach = (cr - 1.0).max(0.0);
         let end_z = layer(mid(reach * reach));
-        // on the stack: limbs are at most 6 (`parse`), so 24 segments and 18 ends
-        let (mut segs, mut ns, mut ends, mut ne) = ([([0f32; 3], [0f32; 3]); 24], 0, [[0f32; 3]; 18], 0);
+        // on the stack: limbs are at most 6 (`parse`), so 24 segments; a willow's withes hang from each limb's
+        // middle branch, six at most
+        let (mut segs, mut ns, mut ends, mut ne) = ([([0f32; 3], [0f32; 3]); 24], 0, [[0f32; 3]; 6], 0);
         for k in 0..n {
             let d = turn + k * 16 / n + (hash(v, k, 0, 3) % 3) as i32 - 1;
             let base = [0.0, 0.0, fork as f32];
             if cr >= 3.0 {
-                let m = at(d, 0.45 * cr, zb);
+                let m = at(d, 0.65 * cr, zb.min(end_z));
                 (segs[ns], ns) = ((base, m), ns + 1);
                 for j in [-2, 0, 2] {
                     let e = at(d + j, reach, end_z);
-                    (segs[ns], ns, ends[ne], ne) = ((m, e), ns + 1, e, ne + 1);
+                    (segs[ns], ns) = ((m, e), ns + 1);
+                    if j == 0 {
+                        (ends[ne], ne) = (e, ne + 1);
+                    }
                 }
             } else {
                 let e = at(d, reach, end_z);
@@ -239,21 +257,16 @@ impl Plant {
             }
         }
         let (segs, ends) = (&segs[..ns], &ends[..ne]);
-        let droop = self.shape == Shape::Droop;
         let c = [dx as f32, dz as f32, z as f32];
         if segs.iter().any(|&(a, b)| on(a, b, c)) || (droop && ends.iter().any(|e| (e[0], e[1]) == (c[0], c[1]) && z >= self.withe(v, e) && (z as f32) < e[2])) {
             return Some((self.trunk, true));
         }
-        let d2 = (dx * dx + dz * dz) as f32;
-        if d2 > rim * rim {
-            return None;
-        }
-        // how deep in the dome a cell is (0 its middle, 1 its skin), and whether it holds a leaf
+        // how deep in the lens a cell is (0 its middle, 1 its skin), and whether it holds a leaf
         let depth = |x: i32, y: i32, zz: i32| {
             let q = (x * x + y * y) as f32;
             q / (rim * rim) + ((zz as f32 - mid(q)) / cv).powi(2)
         };
-        let dome = |x: i32, y: i32, zz: i32| {
+        let lens = |x: i32, y: i32, zz: i32| {
             let e = depth(x, y, zz);
             if e > 1.0 {
                 return false;
@@ -266,18 +279,17 @@ impl Plant {
             // a small crown keeps its skin whole: ragged, it would be a few leaves
             cr < 4.0 || (hash(v, x, y, zz) % 256 >= 80 && (depth(ix, iy, zz) < 0.6 || depth(x, y, iz) < 0.6))
         };
-        if dome(dx, dz, z) {
+        if lens(dx, dz, z) {
             return Some((self.leaves, false));
         }
-        // a willow's curtain: beside a withe, from just under the cap's lowest leaf down to a block or two over
-        // the ground, some columns bare
-        if droop && d2 >= (cr - 1.5) * (cr - 1.5) {
+        // a willow's strand: on every other column of its rim beside a withe, most of them, from under the
+        // umbrella down to a block or two over the ground, one in four stopping half way
+        if droop && d2 >= (cr - 1.0) * (cr - 1.0) && (dx + dz).rem_euclid(2) == 0 {
             let k = hash(v, dx, dz, 1);
             let withe = ends.iter().any(|e| (e[0] - c[0]).abs() <= 2.0 && (e[1] - c[1]).abs() <= 2.0);
-            if withe && k % 3 != 0 && z >= 1 + (k % 3) as i32 {
-                if (z + 1..=h).any(|zz| dome(dx, dz, zz)) {
-                    return Some((self.leaves, false));
-                }
+            let low = if k % 4 == 0 { h / 2 } else { 1 + (k >> 2) as i32 % 2 };
+            if withe && k % 5 != 0 && z >= low && (z as f32) < mid(d2) {
+                return Some((self.leaves, false));
             }
         }
         None
@@ -465,6 +477,26 @@ mod tests {
         (0..256u64).map(|k| crate::world::mix(k * 0x9e37_79b9 + 1) as u32)
     }
     /// Every block of one tree: (dx, dz, z) -> (block, wood).
+    #[test]
+    #[ignore]
+    fn dbg_tree() {
+        let name = std::env::var("T").unwrap_or("oak".into());
+        let p = ROWS.plants.iter().find(|p| p.name == name).unwrap();
+        for h in [p.height[0], (p.height[0] + p.height[1]) / 2, p.height[1]] {
+            let t = tree(p, h, std::env::var("V").map(|v| u32::from_str_radix(&v, 16).unwrap()).unwrap_or(0x1234567));
+            println!("{name} h={h} size={} crown={}", p.size(h), p.crown(h));
+            for z in (0..=h).rev() {
+                let mut l = String::new();
+                for dx in -7..=7 {
+                    // a side view: the nearest block along dz
+                    let c = (-7..=7).find_map(|dz| t.get(&(dx, dz, z)));
+                    l.push(match c { Some(b) if b.1 => '#', Some(_) => 'o', None => '.' });
+                }
+                println!("{z:3} {l}");
+            }
+        }
+    }
+
     fn tree(p: &Plant, h: i32, v: u32) -> std::collections::BTreeMap<(i32, i32, i32), (u16, bool)> {
         let mut out = std::collections::BTreeMap::new();
         for dx in -REACH - 1..=REACH + 1 {
@@ -571,6 +603,9 @@ mod tests {
                     // not a sheet: most leaves have the crown (leaf or wood) over or under them
                     let thick = leaves.iter().filter(|k| t.contains_key(&(k.0, k.1, k.2 + 1)) || t.contains_key(&(k.0, k.1, k.2 - 1))).count();
                     assert!(p.shape == Shape::Flat || thick * 3 >= leaves.len() * 2, "{} of {h}: a crown over a block thick ({thick} of {} leaves)", p.name, leaves.len());
+                    // a dome, not a ball on a pole: no taller than it is wide (a willow's strands aside)
+                    let tall = span(|k| k.2);
+                    assert!(p.shape == Shape::Droop || tall <= wide, "{} of {h} ({v:x}): a crown {tall} tall and {wide} wide", p.name);
                 }
             }
         }
@@ -603,10 +638,17 @@ mod tests {
         }
         // a willow's rim hangs low, a palm's fronds spread from its top, bamboo stands in a clump of stalks
         let w = named("willow");
-        assert!(hashes().all(|v| tree(w, w.height[1], v).iter().any(|(k, b)| !b.1 && k.2 <= w.height[1] / 2 && (k.0, k.1) != (0, 0))), "a willow hangs");
+        let bare = hashes().find(|&v| !tree(w, w.height[1], v).iter().any(|(k, b)| !b.1 && k.2 <= w.height[1] / 2 && (k.0, k.1) != (0, 0)));
+        assert!(bare.is_none(), "a willow hangs ({bare:x?})");
         let palm = named("palm");
         let t = tree(palm, palm.height[1], 1);
         assert!(t.iter().filter(|(k, b)| !b.1 && k.2 >= palm.height[1] - 1).count() >= 8 && t.iter().all(|(k, b)| b.1 || k.2 >= palm.height[1] - 1), "fronds only at the top");
+        // a bush is low and wide: one layer, two or three blocks across (the overseer: not a pillar)
+        let shrub = named("shrub");
+        for v in hashes() {
+            let t = tree(shrub, shrub.height[1], v);
+            assert!(t.keys().all(|k| k.2 == 0) && t.len() >= 2 && t.keys().any(|k| k.0 != 0 || k.1 != 0), "a low, wide bush ({v:x}): {:?}", t.keys());
+        }
         let bamboo = named("bamboo");
         assert!(hashes().any(|v| tree(bamboo, bamboo.height[1], v).iter().filter(|(k, b)| b.1 && k.2 == 0).count() >= 3), "a clump of stalks");
     }
@@ -637,8 +679,8 @@ mod tests {
             ("height = [7, 14]", "height = [7, 40]", "too tall"),
             ("radius = 3\nbare = 0.15", "radius = 9\nbare = 0.15", "too wide"),
             ("leaves = \"spruce leaves\"", "leaves = \"cheese\"", "no such block"),
-            ("[\"spruce\", 0.24]", "[\"spruce\", 0.99]", "shares over 1"),
-            ("[\"spruce\", 0.24]", "[\"baobab\", 0.2]", "no such plant"),
+            ("[\"spruce\", 0.32]", "[\"spruce\", 0.99]", "shares over 1"),
+            ("[\"spruce\", 0.32]", "[\"baobab\", 0.2]", "no such plant"),
             ("fork = 0.35", "fork = 1.5", "a fork over the top"),
             ("warm = 15.0", "warm = nan", "warm not a number"),
             ("bare = 0.55", "bare = 0.55\nfork = 0.5", "a fork on a cone"),
