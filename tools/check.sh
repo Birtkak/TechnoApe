@@ -15,7 +15,8 @@
 cd "$(dirname "$0")/.."
 export PATH="$HOME/Tools/rust/cargo/bin:$PATH" CARGO_HOME="${CARGO_HOME:-$HOME/Tools/rust/cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/Tools/rust/rustup}"
 mkdir -p out/check
-[ -d out/.lock ] && { echo '{"ok":false,"error":"a benchmark is running (out/.lock)"}'; exit 1; }
+# under `tools/slot.sh measure` the lock is this run's own
+[ -z "${SLOT_HELD:-}" ] && [ -d out/.lock ] && { echo '{"ok":false,"error":"a benchmark is running (out/.lock)"}'; exit 1; }
 FAST=; [ "$1" = fast ] && { FAST=1; shift; }
 ALL="stand fly orbit edit sim fx"
 if [ "$1" = accept-perf ]; then

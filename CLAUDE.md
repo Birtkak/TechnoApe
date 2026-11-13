@@ -144,7 +144,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   change slower on purpose runs `bash tools/check.sh accept-perf` and its commit says why. **Sharing the PC**
   (ADR 0096): `bash tools/slot.sh job <command>` for a build, a test run, a shot or a film (two at a time);
   `bash tools/slot.sh measure <command>` for a speed run or soak whose numbers are kept (alone, holds `out/.lock`);
-  `bash tools/slot.sh quiet bash tools/check.sh fast` for the gate and `tools/bench.sh`, which take the lock themselves.
+  the gate is such a run (`bash tools/slot.sh measure bash tools/check.sh fast`); `bash tools/slot.sh quiet bash tools/bench.sh` for the benchmark, which takes the lock itself.
   One compiler cache serves every worktree (sccache, in the cargo home's `config.toml`, with 6 jobs a cargo). Soak alone: `technoape-server soak=1 bots=50 minutes=10
   seed=1` (a failure prints its repro line and writes `out/soak-fail.rec`). A dedicated server records to `out/rec/` with `record=1` (or `record=file`), else not;
   `technoape-server replay=file until=tick` replays one headless and dumps the players.
