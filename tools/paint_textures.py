@@ -1208,25 +1208,43 @@ def end_hd(rng, hollow=False):
 # plants at 32 px a metre: tones are indices into the plant's ramp, None open; nothing wraps
 
 
+def envelope(rng, w, peaks=(2, 4), low=0.04):
+    """A tuft's outline across its width, 0..1: two or three bulges of their own height with dents between, low
+    at the sides, so no tuft has a flat top or straight sides and every variant has its own."""
+    xs = np.arange(w)
+    env = np.full(w, 0.0)
+    for _ in range(int(rng.integers(*peaks))):
+        cx, wd = rng.uniform(0.3, 0.7) * w, rng.uniform(0.2, 0.32) * w
+        env = np.maximum(env, rng.uniform(0.55, 1.0) * np.exp(-((xs - cx) / wd) ** 2))
+    env = env / env.max() * np.sin(np.pi * (xs + 0.5) / w) ** 0.7  # falls to the sides: a fountain, not a wall
+    return low + (1 - low) * env / env.max()
+
+
 def blades_hd(rng, w, h, n, lo, hi, lean=0.35, wide=0.25):
-    """`n` blades over the whole width (every column first), each from a dark root to a bright tip, curving out;
-    short dark blades behind, tall bright ones in front; a quarter two texels wide at the root."""
+    """`n` blades over the whole width, their heights following the tuft's own outline (`envelope`): a back
+    layer, darker, and a lighter front layer; each blade from a dark root to a bright tip; outer blades lean
+    out, so the sides are not straight; a quarter two texels wide at the root."""
     c = np.full((h, w), None, object)
-    bl = [(x, int(rng.integers(lo, hi + 1))) for x in range(w)]
-    bl += [(int(rng.integers(w)), int(rng.integers(lo, hi + 1))) for _ in range(max(0, n - w))]
-    bl.sort(key=lambda b: b[1])
-    for x, bh in bl:
-        lift = rng.uniform(-1, 1.2)  # this blade's own lightness
-        d, fx = rng.uniform(-lean, lean), float(x)
+    env = envelope(rng, w)
+    # roots in the middle 80 %: the outer blades lean out to the sides, so no side is cut straight
+    xs = [int(round(w * 0.1 + x * 0.8)) for x in range(w)] + [int(rng.integers(w // 10, w - w // 10)) for _ in range(max(0, n - w))]
+    rng.shuffle(xs)
+    half = len(xs) // 2
+    for k, x in enumerate(xs):
+        front = k >= half  # the back layer first, the front over it
+        bh = max(2, int(round((lo * env[x] ** 0.5 + (hi - lo) * env[x]) * rng.uniform(0.6, 1.0))))  # low at the sides too
+        lift = rng.uniform(-0.3, 1.2) if front else rng.uniform(-1.8, -0.6)
+        out = (x - (w - 1) / 2) / (w / 2)  # -1 at the left side, 1 at the right
+        d, fx = out * lean * 1.4 + rng.uniform(-lean, lean) * 0.5, float(x)
         two = rng.random() < wide
         for i in range(bh):
             t = i / max(1, bh - 1)
             # mostly mid green, the tip lit; the root only a step down, as the plants' shader darkens it to x0.45
             tone = int(round(2 + t ** 1.7 * 5 + lift * (0.4 + t * 0.6)))
-            px = int(round(fx)) % w
-            hd_put(c, px, h - 1 - i, max(0, min(7, tone)), False)
+            px = int(round(fx))
+            hd_put(c, px, h - 1 - i, max(1, min(7, tone)), False)
             if two and i < bh * 0.4:
-                hd_put(c, (px + 1) % w, h - 1 - i, max(0, min(7, tone - 1)), False)
+                hd_put(c, px + 1, h - 1 - i, max(1, min(7, tone - 1)), False)
             fx += d * t * 1.8
     return c
 
@@ -1328,8 +1346,14 @@ def bush_hd(rng, w, h, look=None):
     """A round bush of single leaves in clumps on the ground (rich, like the reference's berry bush); `look`
     'fruit' or 'bloom' adds berries or blossom (tones + 10)."""
     ys, xs = np.mgrid[0:h, 0:w]
-    edge = wnoise(rng, 8, max(w, h))[:h, :w] * 0.6 + wnoise(rng, 4, max(w, h))[:h, :w] * 0.4
-    mask = np.hypot((xs - (w - 1) / 2) / (w / 2), (ys - h * 0.62) / (h * 0.62)) + (edge - 0.5) * 0.7 <= 1  # lumpy, not round
+    edge = wnoise(rng, 4, max(w, h))[:h, :w]
+    mask = np.zeros((h, w), bool)
+    lobes = int(rng.integers(2, 4))  # two or three bulges with dents between: no round blob, each variant its own
+    for k in range(lobes):
+        cx = w * (0.5 + (k - (lobes - 1) / 2) * rng.uniform(0.26, 0.34))
+        r = rng.uniform(0.28, 0.36) * w
+        cy = h - r * rng.uniform(0.95, 1.35)
+        mask |= np.hypot(xs - cx, (ys - cy) * 1.1) + (edge - 0.5) * 6 <= r
     mask[h - 1] = mask[h - 2]  # stands on the ground
     c = leaf_mass(rng, LEAF_SHAPES["oval"], (h, w), 9, (6, 10), 1.0, 3, False, mask)
     for y, x in zip(*np.nonzero(mask)):  # the rim against the air takes a mid tone: no painted outline
@@ -1337,6 +1361,9 @@ def bush_hd(rng, w, h, look=None):
                 not (0 <= y + dy < h and 0 <= x + dx < w) or c[y + dy, x + dx] is None
                 for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
             c[y, x] = 3
+    for y, x in zip(*np.nonzero(mask)):  # clearly darker underneath and inside: the lower third loses up to two tones
+        if c[y, x] is not None:
+            c[y, x] = max(1, c[y, x] - int(round(2.2 * max(0.0, (y / h - 0.45) / 0.55) ** 1.3)))
     k = np.random.default_rng(int(rng.integers(1 << 30)))
     if look:
         for _ in range(w * h // 30):
@@ -1679,10 +1706,25 @@ def build(pal, blocks):
     plant_sizes = {"short grass": (32, 13), "tall grass": (32, 32), "wild wheat": (32, 40), "fern": (48, 22),
                    "reeds": (32, 64), "flowers": (32, 16), "berry bush": (40, 40)}
     hues = (0, -7, 6)
+    plant_sizes["meadow ground"] = (96, 32)
+
+    def far(c, k=4):
+        """A quarter-size painting: each 4x4 cell takes its most common colour where a quarter of it is filled, so
+        the outline and the main colours stay and thin details drop out."""
+        h, w = c.shape
+        o = np.full(((h + k - 1) // k, (w + k - 1) // k), None, object)
+        for j in range(o.shape[0]):
+            for i in range(o.shape[1]):
+                cell = [v for v in c[j * k:(j + 1) * k, i * k:(i + 1) * k].flat if v is not None]
+                if len(cell) * 4 >= k * k:
+                    o[j, i] = max(set(cell), key=cell.count)
+        return o
 
     def plant(name, fn):
         w, h = plant_sizes[name.split(".")[0]]
         out[f"plant:{name}"] = [fn(np.random.default_rng(seed_of("plant", name)), w, h)]
+        if "." not in name and name != "meadow ground":  # the far painting, per kind: 8 px a metre
+            out[f"plant:{name}.far"] = [far(out[f"plant:{name}"][0])]
 
     straw = [RR("straw", 46 + d, 0.75, 0.08) for d in hues]
     for k, d in enumerate(hues):
@@ -1694,10 +1736,29 @@ def build(pal, blocks):
         plant(f"fern{sfx}", lambda g, w, h, F=RR("fern" + (f" {k}" if k else ""), 104 + d, 0.9, -0.04):
               named_canvas(fern_hd(g, w, h), [F]))
         plant(f"reeds{sfx}", lambda g, w, h, G=G: named_canvas(reeds_hd(g, w, h), [G, RR("cattail", 22, 0.5, -0.02)]))
+    def meadow_ground(g, w, h, G, P, S):
+        """The grass top where plants thin out (three tiles side by side, each tiling): mottled clumps of the
+        meadow's greens, blade tips as lit specks, a few petals and straw (tones + 10, + 20)."""
+        tiles = []
+        for _ in range(3):
+            n = wnoise(g, 6) * 0.6 + wnoise(g, 3) * 0.4
+            c = np.clip(np.round(1.5 + n * 4.5 + g.normal(0, 0.5, (HD, HD))), 1, 6).astype(int).astype(object)
+            for _ in range(40):  # blade tips
+                x, y = int(g.integers(HD)), int(g.integers(HD))
+                c[y, x], c[(y + 1) % HD, x] = 6, 4
+            for _ in range(4):  # flowers and seed heads
+                x, y = int(g.integers(HD)), int(g.integers(HD))
+                c[y, x] = (10 + 5) if g.random() < 0.6 else (20 + 5)
+                c[y, (x + 1) % HD] = (10 + 3) if g.random() < 0.6 else (20 + 3)
+            tiles.append(c)
+        return named_canvas(np.concatenate(tiles, axis=1), [G, P, S])
+
     petals = [RR("red petal", 2, 0.85, 0.08), RR("yellow petal", 50, 0.95, 0.15), RR("blue petal", 240, 0.6, 0.12)]
     for k, pr in enumerate(petals):
         G = RR("meadow green" + (f" {k}" if k else ""), 0, rgb=turned(MEADOW, hues[k]))
         plant(f"flowers{f'.{k}' if k else ''}", lambda g, w, h, G=G, pr=pr: named_canvas(flowers_hd(g, w, h), [G, pr]))
+    plant("meadow ground", lambda g, w, h: meadow_ground(g, w, h, RR("meadow green", 0, rgb=turned(MEADOW, 0)),
+                                                          petals[1], straw[0]))
     bush_r = RR("berry bush", 104, 0.85, -0.06)
     plant("berry bush", lambda g, w, h: named_canvas(bush_hd(np.random.default_rng(seed_of("berry bush")), w, h), [bush_r]))
     plant("berry bush.1", lambda g, w, h: named_canvas(bush_hd(g, w, h), [RR("berry bush 1", 98, 0.85, -0.05)]))

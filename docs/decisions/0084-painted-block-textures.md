@@ -301,3 +301,24 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
   - Bamboo's nodes are a single step, no longer a stripe.
   - Proof: `out/flora/trunks-9m.png`, every bark as a two-face trunk at the still's scale (about 28 px a metre),
     beside the still's oak, read.
+- **Outline, depth and distance for plants** (the developer, 2026-11-13: plants as the crowns, target
+  `out/flora-refs/6-leaf-block-target.png` with references 3 and 4):
+  - Outline:
+    - A tuft's blade heights follow its own outline (`envelope`): two or three bulges with dents between them,
+      falling to the sides. No tuft has a flat top or straight sides.
+    - Roots sit in the middle 80 % of the plane, and the outer blades lean out.
+    - Each variant draws its own outline.
+    - Bushes are two or three lobes with dents between them, not a round blob.
+  - Depth:
+    - A tuft draws a back layer, darker, then a lighter front layer over it.
+    - A bush keeps the lit upper left of each leaf clump, and loses up to two tones in its lower third, darker
+      underneath and inside.
+  - Distance:
+    - A far painting per plant kind: `data/plants/<name>.far.png`, at 8 px a metre. Each 4x4 cell takes its
+      most common colour where a quarter of it is filled, so the outline and the main colours stay.
+    - `data/plants/meadow ground.png`: three 32 px tiles side by side, a mottled grass top in the meadow's
+      greens with lit blade tips and a few petals and seed heads. It is for where the plants session thins
+      plants out.
+    - These names and sizes were proposed to the plants session (glass-clutter); its answer may move them.
+  - Proof: the sheets `out/flora/plants-hd.png` and `meadow-vs-ref.png` (outline and depth, beside reference 4),
+    and `far-vs-ref.png` and `far-plants.png` (distance), all read.
