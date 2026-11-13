@@ -2389,7 +2389,7 @@ mod tests {
         s.tick();
         let b = s.clients[0].slots.iter().position(|x| x.is_some_and(|x| x.item == ITEMS.named("basket").unwrap())).unwrap() as u16;
         l.send(mv(7, (Holder::Ape, b), (Holder::Ape, items::WORN as u16), 1));
-        l.send(ToServer::Chat("/give stone 1000".into()));
+        l.send(ToServer::Chat("/give snow 1000".into()));
         l.send(mv(8, (Holder::Ape, items::WORN as u16), (Holder::Ape, b), 1));
         s.tick();
         let got = drain(l);
@@ -2902,7 +2902,7 @@ mod tests {
         s.tick();
         assert!((s.world.time - sky::DAY / 8.0).abs() < 0.2, "{}", s.world.time);
         let c = &s.clients.iter().find(|c| c.player.name == "ape").unwrap();
-        assert!(c.creative && items::count(&c.slots, BLOCKS.id("blue lamp")) == 5 && items::count(&c.slots, BLOCKS.id("stone")) == 64);
+        assert!(c.creative && items::count(&c.slots, BLOCKS.id("blue lamp")) == 5 && items::count(&c.slots, BLOCKS.id("stone")) == 16);
         // time runs on from where it was set, and survives a save
         assert!(s.snapshot().tick as f64 / TICK_HZ > sky::DAY / 8.0);
         links[0].send(ToServer::Chat("/time set 10".into()));

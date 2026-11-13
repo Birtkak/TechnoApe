@@ -50,7 +50,13 @@ loose block fell as a pile (ADR 0074).
   (45 us to 1 ms, `docs/benchmarks.md`): at most some 40 jobs a second during a drop, the frame thread only
   swaps them. Resting rubble costs a frame what any block does (it is in the chunk's mesh). CPU: the server's
   tick carries the drop in under 1.5 % of its 50 ms; a quiet mine costs nothing.
-- SOAK
+- **Soak** (`technoape-server soak=1 bots=50 minutes=2 seed=1`, play build, on main c2c05944 merged, in a
+  measure slot): **ok**, 2,400 ticks in 88 s, 221,607 blocks moved (the bots' survival digs leave rubble that
+  falls), 265 heaps; the bots' worlds equal the server's, the replay and a save and load give back the state,
+  the items' and ore ledgers hold. The soak prints no tick p99; the falls' own cost is spike 2's above, and a
+  row in `docs/perf-debt.md` (ADR 0096: measured once, not tuned). A first soak failed on an animal buried by
+  rubble (`animal ... is inside the ground`): the soak now passes an animal inside a falling block that came by an
+  edit, as it passes a player (a buried animal stays until dug out, as a player does).
 
 ## Review (a fresh reviewer read the diff)
 - *A survival dig of rock sounded like a place and showed no break* (rock to its rubble is solid to solid):

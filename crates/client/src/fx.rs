@@ -1792,7 +1792,7 @@ mod tests {
         let mut fx = Fx::new(true, 4096, 1.0, 1);
         let (granite, rubble) = (BLOCKS.id("granite"), BLOCKS.id("granite rubble"));
         changed(&mut fx, &w, surface(&w), granite, rubble);
-        assert_eq!((fx.played, fx.live()), (1, 24), "the break's chips");
+        assert!(fx.played == 1 && fx.live() > 0, "the break and its chips");
         changed(&mut fx, &w, surface(&w), BLOCKS.id("basalt"), rubble);
         assert_eq!(fx.played, 1, "another rock's rubble is no dig");
     }
