@@ -194,3 +194,46 @@ data/models/mushroom.toml
 data/models/mushroom.png
 data/models/berries.toml
 data/models/berries.png
+data/textures/hd/broadleaf leaves.png
+data/textures/hd/broadleaf leaves@spring.png
+data/textures/hd/broadleaf leaves@autumn.png
+data/textures/hd/broadleaf leaves@winter.png
+data/textures/hd/log_side.png
+data/textures/hd/log.png
+data/textures/hd/spruce leaves.png
+data/textures/hd/jungle leaves.png
+data/textures/hd/acacia leaves.png
+data/textures/hd/shrub.png
+data/textures/hd/shrub@winter.png
+data/textures/iron-stained rock.png
+data/textures/copper-stained rock.png
+data/textures/quartz-veined rock.png
+data/textures/greisen.png
+data/textures/bleached rock.png
+data/textures/dolomite.png
+data/textures/stone rubble.png
+data/textures/granite rubble.png
+data/textures/gneiss rubble.png
+data/textures/sandstone rubble.png
+data/textures/shale rubble.png
+data/textures/limestone rubble.png
+data/textures/slate rubble.png
+data/textures/marble rubble.png
+data/textures/quartzite rubble.png
+data/textures/schist rubble.png
+data/textures/tuff rubble.png
+data/textures/andesite rubble.png
+data/textures/basalt rubble.png
+data/textures/gabbro rubble.png
+data/textures/malachite rubble.png
+data/textures/chalcopyrite rubble.png
+data/textures/cassiterite rubble.png
+data/textures/hematite rubble.png
+data/textures/coal rubble.png
+data/textures/galena rubble.png
+data/textures/gold quartz rubble.png
+data/textures/pitchblende rubble.png
+data/textures/anorthosite rubble.png
+data/textures/mare basalt rubble.png
+data/textures/iron-nickel rubble.png
+data/textures/kreep rubble.png

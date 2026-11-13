@@ -9,6 +9,8 @@
 # sides and its foot. `light`: the light it gives, a colour times its strength (0..4, ADR 0022).
 # `joins`: side by side in a wall, its faces glow as one surface, the painted frame only on the outer edge
 # (lamps, ADR 0085).
+# `holds`: [item, chance]: a generated cell of it, never edited, gives that item too when dug in survival, by a
+# roll from the seed and the cell (ADR 0097: flint in gravel).
 # `sound`: its material's sound, a family of rows in data/sounds.toml (stone when it names none).
 # `metal`: how much it reflects like a metal (0..1). `was`: names it had before, so old saves still load.
 # `hardness`: seconds a survival player digs it with bare hands (every solid block; ADR 0034). `loose`:
@@ -136,6 +138,7 @@ name = "gravel"
 hardness = 0.9
 loose = true
 falls = true
+holds = ["flint", 0.25]
 sound = "stone"
 colour = [0.55, 0.53, 0.50]
 pattern = "pebbles"
@@ -890,3 +893,144 @@ colour2 = [0.92, 0.88, 0.80]
 colour3 = [0.60, 0.50, 0.38]
 size = 2
 amount = 0.35
+
+# The trees of ADR 0092 (birch, oak, pine, willow, palm, bamboo): each its own log and leaves, unpainted
+# drafts until data/textures has them (the logs plain bark, not rings: rings on a log's sides read as a
+# post of 2 x 2). Ids 206 on.
+[[block]]
+id = 206
+name = "birch log"
+hardness = 2.0
+loose = true
+sound = "dirt"
+colour = [0.86, 0.84, 0.78]
+pattern = "plain"
+contrast = 1.6
+colour2 = [0.20, 0.18, 0.16]
+
+[[block]]
+id = 207
+name = "birch leaves"
+see = "cutout"
+hardness = 0.3
+loose = true
+soft = true
+sound = "grass"
+colour = [0.42, 0.62, 0.22]
+pattern = "leaves"
+[block.autumn]
+colour = [0.86, 0.72, 0.18]
+[block.winter]
+colour = [0.38, 0.28, 0.18]
+
+[[block]]
+id = 208
+name = "oak log"
+hardness = 2.0
+loose = true
+sound = "dirt"
+colour = [0.32, 0.26, 0.20]
+pattern = "plain"
+contrast = 1.6
+
+[[block]]
+id = 209
+name = "oak leaves"
+see = "cutout"
+hardness = 0.3
+loose = true
+soft = true
+sound = "grass"
+colour = [0.16, 0.38, 0.12]
+pattern = "leaves"
+[block.autumn]
+colour = [0.62, 0.36, 0.12]
+[block.winter]
+colour = [0.38, 0.28, 0.18]
+
+[[block]]
+id = 210
+name = "pine log"
+hardness = 2.0
+loose = true
+sound = "dirt"
+colour = [0.46, 0.26, 0.16]
+pattern = "plain"
+contrast = 1.6
+
+[[block]]
+id = 211
+name = "pine leaves"
+see = "cutout"
+hardness = 0.3
+loose = true
+soft = true
+sound = "grass"
+colour = [0.10, 0.28, 0.20]
+pattern = "leaves"
+
+[[block]]
+id = 212
+name = "willow log"
+hardness = 2.0
+loose = true
+sound = "dirt"
+colour = [0.40, 0.29, 0.19]
+pattern = "plain"
+contrast = 1.6
+
+[[block]]
+id = 213
+name = "willow leaves"
+see = "cutout"
+hardness = 0.3
+loose = true
+soft = true
+sound = "grass"
+colour = [0.46, 0.58, 0.32]
+pattern = "leaves"
+[block.autumn]
+colour = [0.74, 0.70, 0.26]
+[block.winter]
+colour = [0.38, 0.28, 0.18]
+
+[[block]]
+id = 214
+name = "palm log"
+hardness = 2.0
+loose = true
+sound = "dirt"
+colour = [0.62, 0.50, 0.32]
+pattern = "plain"
+contrast = 1.6
+
+[[block]]
+id = 215
+name = "palm leaves"
+see = "cutout"
+hardness = 0.3
+loose = true
+soft = true
+sound = "grass"
+colour = [0.40, 0.60, 0.16]
+pattern = "leaves"
+
+[[block]]
+id = 216
+name = "bamboo"
+hardness = 1.0
+loose = true
+sound = "dirt"
+colour = [0.46, 0.62, 0.22]
+pattern = "rings"
+
+[[block]]
+id = 217
+name = "bamboo leaves"
+see = "cutout"
+hardness = 0.3
+loose = true
+soft = true
+sound = "grass"
+colour = [0.36, 0.62, 0.18]
+pattern = "leaves"

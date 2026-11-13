@@ -4,20 +4,48 @@ at 32 pixels a metre, from data/palette.toml's colours only (ADR 0081). Every fi
 
     python -I tools/paint_clutter.py
 
-The style (the developer's call, 2026-11-12): calm and readable, few colours a piece, clear shapes. A model sits
+The style: clear shapes (the developer, 2026-11-12), in the flora's rich eight-tone ramps (2026-11-13): dark at the
+root and in shade, lit at the tips and on top, no painted outlines (real shadow does that). A model sits
 in its cell with its corner at 0 (x and z 0..32 px, y up from the ground), roughly centred, as the mesher turns it
 about the cell's middle. A plane is a box with no thickness on one axis; its painting has empty pixels.
 """
 import hashlib
-import tomllib
+import sys
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 OUT = DATA / "models"
-PAL = {c["name"]: c["rgb"] for c in tomllib.loads((DATA / "palette.toml").read_text(encoding="utf-8"))["colour"]}
+sys.path.insert(0, str(ROOT / "tools"))
+from paint_textures import MEADOW, Palette, rich_rgb, to8  # noqa: E402  the flora's ramps, one source
+
+RED = [tuple(v / 255 for v in q) for q in [(70, 8, 14), (110, 14, 20), (150, 22, 24), (185, 30, 30), (215, 48, 40),
+                                          (235, 80, 60), (245, 120, 95), (255, 185, 160)]]
+RAMPS = {  # rich ramps, eight tones dark to light, shared with tools/paint_textures.py where the name is the same
+    "meadow green": MEADOW, "fern": rich_rgb(104, 0.9, -0.04), "berry bush": rich_rgb(104, 0.85, -0.06),
+    "berry": RED, "mushroom cap": RED, "mushroom stem": rich_rgb(40, 0.3, 0.22),
+    "red petal": rich_rgb(2, 0.85, 0.08), "yellow petal": rich_rgb(50, 0.95, 0.15),
+    "fallen leaves": rich_rgb(30, 0.85, 0.02), "twig": rich_rgb(28, 0.45, 0.0),
+    "pebble": rich_rgb(210, 0.08, 0.08), "flint": rich_rgb(225, 0.18, -0.02),
+    "flint cortex": rich_rgb(42, 0.22, 0.24),
+}
+
+
+def ramps():
+    pal = Palette(DATA / "palette.toml")
+    for base, tones in RAMPS.items():
+        for i, c in enumerate(tones):
+            if not pal.rgb(f"{base} r{i + 1}"):
+                pal.add(f"{base} r{i + 1}", to8(np.asarray(c, float)), f"{base} rich")
+    if pal.added:
+        pal.save()
+    return {r["name"]: r["rgb"] for r in pal.rows}
+
+
+PAL = ramps()
 
 
 def rgb(name):
@@ -76,77 +104,129 @@ class Model:
         return [f"data/models/{self.name}.toml", f"data/models/{self.name}.png"]
 
 
-def solid(top, side, bottom=None, speck=None, seed=""):
-    """A box painted one colour a face kind, a few specks of another on its sides and top."""
+def R(base, t):
+    """Tone t (0 dark .. 7 light, clamped) of a rich ramp `base`."""
+    return f"{base} r{min(7, max(0, int(round(t)))) + 1}"
+
+
+def rock(ramp, seed, lift=0.0):
+    """A stone or a stick: the top lit, the sides from shade at the ground to light at their top, soft noise, a few
+    glints and pits; the bottom in shade, not black (real shadow darkens it)."""
     def p(face, x, y, w, h):
-        base = {"top": top, "side": side, "bottom": bottom or side}[face]
-        if speck and face != "bottom" and rnd(seed, face, x, y) < 0.18:
-            return speck
-        return base
+        n = (rnd(seed, face, x, y) - 0.5) * 1.6
+        if face == "top":
+            t = 5.2 - 1.2 * (x + y) / max(1, w + h) + n
+        elif face == "bottom":
+            t = 2 + n * 0.5
+        else:
+            t = 2.4 + 2.6 * (1 - y / max(1, h - 1)) + n
+        r = rnd(seed, face, x, y, "g")
+        t = 7 if r < 0.05 and face != "bottom" else (t - 2 if r > 0.95 else t)
+        return R(ramp, t + lift)
     return p
 
 
-def blades(dark, mid, lit, n, seed, lean=0.25):
-    """A plane of grass blades: n tapering blades from the bottom edge, dark at the root, lit at the tip."""
+def flint(seed):
+    """A flint shard (ADR 0097): a dark glassy grey-black face flaked in shallow ripples with a glint, a pale chalky
+    cortex on one long edge of the top and the upper half of the sides; calm, so it reads on grass and on gravel."""
+    def p(face, x, y, w, h):
+        n = (rnd(seed, face, x, y) - 0.5) * 0.8
+        if face == "bottom":
+            return R("flint", 1)
+        if face == "top":
+            if y >= h - 1 or (y >= h - 2 and rnd(seed, "c", x) < 0.5):  # the cortex rind along the far edge
+                return R("flint cortex", 5 + n)
+            ripple = (x + 2 * y) % 4 == 0  # conchoidal ripples, a shade lighter
+            glint = x == w // 2 and y == 1
+            return R("flint", 6 if glint else (3 if ripple else 2) + n)
+        if y < h // 2:  # sides: the cortex above, the glassy core below
+            return R("flint cortex", 4 + n)
+        return R("flint", 1.5 + n)
+    return p
+
+
+def blades(ramp, n, seed, lean=0.25):
+    """A plane of grass blades: n tapering blades from the bottom edge, dark at the root, mostly mid, lit tips."""
     def p(face, x, y, w, h):
         for b in range(n):
             x0 = (b + 0.5) * w / n + (rnd(seed, b) - 0.5) * w / n * 0.8
             top = h * (0.35 + 0.65 * rnd(seed, b, "h"))
-            t = (h - y) / h  # 0 at the root
             if h - y > top:
                 continue
             cx = x0 + (rnd(seed, b, "l") - 0.5) * 2 * lean * (h - y)
             if abs(x + 0.5 - cx) <= max(0.6, 1.2 * (1 - (h - y) / top)):
-                return dark if t < 0.3 else (lit if (h - y) > top * 0.75 else mid)
+                t = (h - y) / top  # 0 at the root, 1 at this blade's tip
+                return R(ramp, 0.4 + t ** 1.7 * 6.4 + (rnd(seed, b, "c") - 0.5) * 1.5)
         return None
     return p
 
 
-def frond(dark, mid, lit, seed):
-    """A fern's plane: a rib from the bottom middle, leaflets either side shortening to the tip."""
+def frond(ramp, seed):
+    """A fern's plane: a rib from the bottom middle, leaflets either side shortening to the tip, lit at their ends."""
     def p(face, x, y, w, h):
         cx, yy = w / 2, h - y  # height over the ground
-        if abs(x + 0.5 - cx) < 0.6 and yy <= h - 1:
-            return dark
+        d = abs(x + 0.5 - cx)
+        if d < 0.6 and yy <= h - 1:
+            return R(ramp, 1 if yy < 3 else 3)
         reach = (w / 2 - 1) * (1 - yy / h) ** 0.6
-        if yy > 2 and yy % 2 < 1 and abs(x + 0.5 - cx) <= reach:
-            return lit if abs(x + 0.5 - cx) > reach - 1.5 else mid
+        if yy > 2 and yy % 2 < 1 and d <= reach:
+            return R(ramp, 3.5 + 3.5 * d / max(1, reach) + (rnd(seed, x, y) - 0.5))
         return None
     return p
 
 
-def flowers(stem, head, eye, seed):
+def flowers(green, petal, seed):
+    """Stems dark at the root, each with a head: petals lit top left, a dark eye."""
     def p(face, x, y, w, h):
         for b in range(3):
             fx = 1.5 + b * (w - 3) / 2
             top = 4 + int(rnd(seed, b) * (h - 5))
             yy = h - 1 - y
-            if abs(x - fx) < 0.6 and yy < top:
-                return stem
-            if abs(x - fx) <= 1.1 and abs(yy - top) <= 1.1:
-                return eye if (abs(x - fx) < 0.6 and abs(yy - top) < 0.6) else head
+            dx, dy = x - fx, yy - top
+            if abs(dx) <= 1.1 and abs(dy) <= 1.1:
+                return R(petal, 1) if abs(dx) < 0.6 and abs(dy) < 0.6 else R(petal, 5 + (1 if dx < 0 else 0) + (1 if dy > 0 else -1))
+            if abs(dx) < 0.6 and yy < top:
+                return R(green, 1 + 3 * yy / top)
         return None
     return p
 
 
-def bush(dark, mid, berry, seed):
+def bush(leaf, berry, seed):
+    """A low bush plane: leaves in soft clumps lit from the top left, berries with a glint; no outline."""
     def p(face, x, y, w, h):
         dx, dy = (x + 0.5 - w / 2) / (w / 2), (h - y - 0.5) / h
-        if dx * dx + (dy - 0.45) ** 2 / 0.3 > 0.55:
+        if dx * dx + (dy - 0.45) ** 2 / 0.3 > 0.55 - (rnd(seed, x, y, "e") - 0.5) * 0.15:
             return None
-        r = rnd(seed, x, y)
-        if r < 0.1:
-            return berry
-        return mid if r < 0.6 else dark
+        if rnd(seed, x // 2, y // 2, "b") < 0.12 and (x + y) % 2 == 0:
+            return R(berry, 6 if rnd(seed, x, y, "g") < 0.3 else 4)
+        clump = rnd(seed, x // 3, y // 3)
+        return R(leaf, 2 + 2.5 * dy - 1.2 * dx + clump * 2.5 + (rnd(seed, x, y) - 0.5))
     return p
 
 
-def leaf(c, vein):
+def leaf(ramp, seed):
+    """A fallen leaf: lit toward its top-left rim, a vein down the middle in shade."""
     def p(face, x, y, w, h):
         dx, dy = (x + 0.5 - w / 2) / (w / 2), (y + 0.5 - h / 2) / (h / 2)
         if dx * dx + dy * dy > 1.0:
             return None
-        return vein if abs(dx) < 0.2 else c
+        if abs(dx) < 0.2:
+            return R(ramp, 2.5)
+        return R(ramp, 4.5 - 1.5 * (dx + dy) + (rnd(seed, x, y) - 0.5))
+    return p
+
+
+def cap(ramp, spots, seed):
+    """A mushroom cap: lit on top with pale spots, its rim in shade, the gills under it the stem's pale shade."""
+    def p(face, x, y, w, h):
+        if face == "bottom":
+            return R(spots, 3 + ((x + y) % 2))
+        if face == "top":
+            if rnd(seed, x, y, "s") < 0.12:
+                return R(spots, 7)
+            d = abs(x + 0.5 - w / 2) / (w / 2) + abs(y + 0.5 - h / 2) / (h / 2)
+            return R(ramp, 6.5 - 2.5 * d + (rnd(seed, x, y) - 0.5))
+        return R(ramp, 4 - 2 * y / max(1, h - 1))
     return p
 
 
@@ -156,45 +236,45 @@ def make():
     for alt, (n, planes) in enumerate([(5, [(0, 0), (90, 0)]), (4, [(30, 1), (100, 2), (160, 3)])]):
         m = Model("grass tuft" + (f".{alt}" if alt else ""))
         for turn, s in planes:
-            m.box((10, 0, 16), (12, 10, 0), blades("grass shade", "grass", "grass lit", n, ("tuft", alt, s)), (0, turn, 0))
+            m.box((10, 0, 16), (12, 10, 0), blades("meadow green", n, ("tuft", alt, s)), (0, turn, 0))
         written += m.write("grass", "crossed planes of blades")
     m = Model("fern")
     for turn in (0, 60, 120):
-        m.box((6, 0, 16), (20, 12, 0), frond("jungle grass shade", "jungle grass", "jungle grass lit", turn), (-20, turn, 0))
+        m.box((6, 0, 16), (20, 12, 0), frond("fern", turn), (-20, turn, 0))
     written += m.write("jungle grass", "three fronds leaning out")
     m = Model("fallen leaves")
-    for k, (x, z, c) in enumerate([(6, 8, "autumn rust"), (16, 14, "autumn orange"), (11, 20, "autumn gold"), (20, 6, "autumn rust")]):
-        m.box((x, 0.5, z), (6, 0, 5), leaf(c, "autumn dark"), (0, 40 * k, 0))
+    for k, (x, z) in enumerate([(6, 8), (16, 14), (11, 20), (20, 6)]):
+        m.box((x, 0.5, z), (6, 0, 5), leaf("fallen leaves", k), (0, 40 * k, 0))
     written += m.write("autumn orange", "flat leaves on the ground")
     m = Model("twigs")
     for k, (x, z, t) in enumerate([(6, 12, 20), (10, 18, -35), (14, 8, 70)]):
-        m.box((x, 0, z), (14, 1, 1), solid("log lit", "log", "log dark", seed=k), (0, t, 0))
+        m.box((x, 0, z), (14, 1, 1), rock("twig", ("twig", k)), (0, t, 0))
     written += m.write("log", "thin sticks crossing")
     m = Model("flowers")
-    for turn, head in ((0, "lamp"), (90, "snow")):
-        m.box((12, 0, 16), (8, 10, 0), flowers("grass shade", head, "autumn gold", turn), (0, turn, 0))
+    for turn, head in ((0, "yellow petal"), (90, "red petal")):
+        m.box((12, 0, 16), (8, 10, 0), flowers("meadow green", head, turn), (0, turn, 0))
     written += m.write("lamp", "crossed planes of stems and heads")
     for alt, stones in enumerate([[(8, 10, 4, 2, 3), (18, 16, 3, 2, 3), (13, 22, 2, 1, 2)], [(10, 12, 3, 2, 4), (19, 9, 2, 1, 2)]]):
         m = Model("pebbles" + (f".{alt}" if alt else ""))
         for k, (x, z, sx, sy, sz) in enumerate(stones):
-            m.box((x, 0, z), (sx, sy, sz), solid("stone lit", "stone", "stone shade", seed=k), (0, 25 * k, 0))
+            m.box((x, 0, z), (sx, sy, sz), rock("pebble", ("pebble", alt, k)), (0, 25 * k, 0))
         written += m.write("stone", "a few small stones")
     m = Model("stick")
-    m.box((7, 0.5, 15), (18, 1, 1), solid("log lit", "log", "log dark", "log wood", "stick"), (0, 15, 4))
+    m.box((7, 0.5, 15), (18, 1, 1), rock("twig", "stick"), (0, 15, 4))
     written += m.write("log", "one stick, lying tilted")
     m = Model("loose stone")
-    m.box((12, 0, 12), (8, 4, 7), solid("stone lit", "stone", "stone shade", "stone shade", "stone"), (0, 20, 6))
+    m.box((12, 0, 12), (8, 4, 7), rock("pebble", "stone", -0.5), (0, 20, 6))
     written += m.write("stone", "a stone the size of a fist, tilted")
     m = Model("flint")
-    m.box((13, 0, 13), (6, 2, 5), solid("slate light", "slate", "slate dark", "slate lit", "flint"), (8, 35, 0))
+    m.box((13, 0, 13), (6, 2, 5), flint("flint"), (8, 35, 0))
     written += m.write("slate", "a dark shard")
     m = Model("mushroom")
-    m.box((15, 0, 15), (2, 4, 2), solid("limestone light", "limestone", seed="stem"))
-    m.box((13, 4, 13), (6, 2, 6), solid("coral", "coral shade", "limestone", "limestone light", "cap"))
+    m.box((15, 0, 15), (2, 4, 2), rock("mushroom stem", "stem", 1.0))
+    m.box((13, 4, 13), (6, 2, 6), cap("mushroom cap", "mushroom stem", "cap"))
     written += m.write("coral", "a stem under a red cap")
     m = Model("berries")
     for turn in (0, 90):
-        m.box((9, 0, 16), (14, 10, 0), bush("shrub dark", "shrub", "coral", turn), (0, turn, 0))
+        m.box((9, 0, 16), (14, 10, 0), bush("berry bush", "berry", turn), (0, turn, 0))
     written += m.write("shrub", "a low bush with red berries")
     return written
 

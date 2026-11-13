@@ -1427,9 +1427,11 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                 // Rubble goes into the slots (mining.md 4: no pile to walk over); with no room for all of it the dig
                 // is refused and the rubble stays a block
                 let (mut slots, mut taken) = (c.slots.clone(), Vec::new());
-                for &(_, old) in cells.iter().filter(|(_, old)| leave(*old) == AIR && BLOCKS.get(*old).is_some_and(|d| d.loose)) {
+                for &(b, old) in cells.iter().filter(|(_, old)| leave(*old) == AIR && BLOCKS.get(*old).is_some_and(|d| d.loose)) {
                     if BLOCKS.get(old).is_none_or(|d| d.rubble_of.is_none()) {
                         drops.push(old);
+                        // what a generated cell holds besides its block (ADR 0097: flint in gravel)
+                        drops.extend(edit::held(&self.world, b, old));
                     } else if items::give(&mut slots, Stack::new(old, 1)) > 0 {
                         return false;
                     } else {
@@ -2558,6 +2560,67 @@ mod tests {
     /// Mining (ADR 0093, mining.md 4): granite dug in survival leaves granite rubble in its cell, which falls
     /// into the open cell under it and blocks the way; digging the rubble puts it into the slots, no pile.
     /// Creative digs it away as before.
+    /// Flint in gravel (ADR 0097): about one generated gravel cell in four holds a flint; a survival dig of one
+    /// gives the gravel and the flint, of another the gravel alone, and gravel put back into the flint's cell
+    /// gives none (no farming). The items' ledger stays even.
+    #[test]
+    fn generated_gravel_holds_flint_and_gravel_put_back_none() {
+        let (tx, rx) = channel();
+        let mut s = Server::baked(1536, 32, 7, rx);
+        let (l, sv) = local();
+        tx.send(sv).unwrap();
+        s.tick();
+        drain(&l);
+        let (gravel, flint) = (BLOCKS.id("gravel"), ITEMS.named("flint").unwrap());
+        // the generated gravel at the top of columns over the sea (alpine ground, river beds)
+        let cells: Vec<Block> = {
+            let b = &s.world.bodies[0];
+            let sea = b.sea.unwrap();
+            (0..6u8)
+                .flat_map(|f| (40..b.n - 40).step_by(3).flat_map(move |i| (40..b.n - 40).step_by(3).map(move |j| (f, i, j))))
+                .filter_map(|(f, i, j)| {
+                    let top = s.world.air_over_ground(0, b.dir(f as usize, i as f64 + 0.5, j as f64 + 0.5));
+                    let c = Block { pos: top.pos - glam::IVec3::Z, ..top };
+                    (c.face == f && c.pos.x == i && c.pos.y == j && c.pos.z as f64 > sea && s.world.block(c) == gravel).then_some(c)
+                })
+                .take(400)
+                .collect()
+        };
+        let with: Vec<Block> = cells.iter().copied().filter(|&c| edit::held(&s.world, c, gravel) == Some(flint)).collect();
+        assert!(cells.len() >= 100, "{} gravel cells", cells.len());
+        let share = with.len() as f64 / cells.len() as f64;
+        assert!((0.15..0.35).contains(&share), "{share} of gravel holds flint");
+        let without = *cells.iter().find(|c| !with.contains(c)).unwrap();
+        let flints = |s: &Server| s.piles.values().flat_map(|p| p.slots.iter().flatten()).filter(|x| x.item == flint).map(|x| x.n as u32).sum::<u32>() + items::count(&s.clients[0].slots, flint);
+        let mut seq = 0;
+        let mut dig = |s: &mut Server, cell: Block| {
+            let b = &s.world.bodies[0];
+            let up = b.dir(cell.face as usize, cell.pos.x as f64 + 0.5, cell.pos.y as f64 + 0.5);
+            let pos = b.centre + up * (b.layer_r(cell.pos.z as f64) + 2.5) + up.any_orthonormal_vector() * 1.5;
+            l.send(ToServer::Move { pos: pos.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+            s.tick();
+            let one = Shape::one(cell);
+            l.send(ToServer::Dig(Some(one)));
+            s.tick();
+            wait(s, edit::dig_time(&s.world, &one) * 1.05);
+            seq += 1;
+            l.send(ToServer::Edit { seq, shape: one, material: AIR });
+            s.tick();
+            let got = drain(&l);
+            assert!(got.contains(&ToClient::Done { seq, ok: true }), "{got:?}");
+        };
+        dig(&mut s, with[0]);
+        assert_eq!(flints(&s), 1, "the flint's cell gives one");
+        dig(&mut s, without);
+        assert_eq!(flints(&s), 1, "the other cell none");
+        s.world.set_block(with[0], gravel);
+        dig(&mut s, with[0]);
+        assert_eq!(flints(&s), 1, "gravel put back holds none");
+        let mut ledger = s.item_ledger();
+        ledger.retain(|x| x.0 != gravel);
+        assert!(ledger.is_empty(), "{ledger:?}");
+    }
+
     #[test]
     fn a_survival_dig_leaves_rock_as_rubble_and_digging_that_takes_it() {
         let (mut s, links) = server_with(1);
