@@ -571,14 +571,17 @@ impl App {
             let k = d.key;
             // the lattice its quads were merged in (ADR 0025 I2), as log2 at bit 16
             let lat = if self.streamer.opts.greedy { self.world.bodies[k.body as usize].lattice(k.level) } else { 1 };
-            let info = k.face as u32 | (k.level as u32) << 3 | (k.body as u32) << 8 | lat.trailing_zeros() << 16;
+            // fast leaves of level 0 (meshed as a shell, no ray_cut): the BLAS's second geometry too, whole blocks
+            // to a ray unless bare, when it takes the twigs (ADR 0090; info bit 18, shader.wgsl `hit_empty`)
+            let shell = k.level == 0 && d.ray_cut == 0 && d.cut > 0;
+            let info = k.face as u32 | (k.level as u32) << 3 | (k.body as u32) << 8 | lat.trailing_zeros() << 16 | (shell as u32) << 18;
             let (ci, new) = self.slots.get(d.off, frame_no);
             assert!((ci as usize) < MAX_CHUNKS, "chunk table full");
             // the cutout blocks' quads (ADR 0088): drawn with their holes open on level 0, fast or fancy (a coarse
-            // level's are one colour, opaque); to a ray they are not opaque only as fancy leaves meshed them, which
-            // alone pay for the BLAS's second geometry (ADR 0069), so fast leaves cast a whole block's shadow. The
-            // mesh says which: a chunk meshed before the setting changed keeps its split until it is meshed again
-            let (draw_cut, ray_cut) = (d.cut, d.ray_cut);
+            // level's are one colour, opaque); to a ray they are the BLAS's second geometry, not opaque: fancy leaves
+            // take their texels, fast ones are whole blocks unless bare (above). The mesh says which: a chunk meshed
+            // before the setting changed keeps its split until it is meshed again
+            let (draw_cut, ray_cut) = (d.cut, if shell { d.cut } else { d.ray_cut });
             if new {
                 table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.still - ray_cut - d.glass, _p: [0; 2] }));
             }
