@@ -1,0 +1,419 @@
+//! Items and slots (ADR 0074, docs/design/items.md steps 1 to 3). Every block kind is an item with its block
+//! id; the rest come from `data/items.toml`, with ids from `ITEM_BASE` up. An inventory is a list of slots and
+//! everything that holds things is one: the ape (the hotbar's 9, the worn pack's slot, the rows it opens) and
+//! a pile on the ground (4). One rule moves a stack between any two slots (`shift`), on the server and in the
+//! client's prediction alike.
+use crate::blocks::BLOCKS;
+use crate::world::Block;
+use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
+
+/// The first id of an item that is not a block: far over any block id (the shader's 8 bits, ADR 0062's 16).
+pub const ITEM_BASE: u16 = 0x8000;
+/// A full slot of a block, and of an item whose row names no `stack`.
+pub const STACK: u16 = 64;
+/// The ape's slots: the hotbar's 9, then the worn pack's, then the rows it opens (at most a frame pack's 27).
+pub const HOTBAR: usize = 9;
+pub const WORN: usize = 9;
+pub const ROWS_AT: usize = 10;
+pub const APE_SLOTS: usize = ROWS_AT + 27;
+/// A pile's slots (items.md: up to 4 stacks a cell).
+pub const PILE_SLOTS: usize = 4;
+/// The creative screen's tabs (ADR 0075).
+pub const TABS: [&str; 6] = ["nature", "rock", "ore", "made", "lamps", "items"];
+
+/// A stack: an item, how many, and 8 bytes its kind gives a meaning (none yet). shortcut: no kind uses the
+/// payload yet (tools' wear, food's day, a vessel's fluid are items.md steps 4 and 6); stacks of equal payload
+/// merge, which is the plain kind's rule.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct Stack {
+    pub item: u16,
+    pub n: u16,
+    pub payload: u64,
+}
+
+impl Stack {
+    pub fn new(item: u16, n: u16) -> Stack {
+        Stack { item, n, payload: 0 }
+    }
+}
+
+pub type Slot = Option<Stack>;
+
+/// What holds slots, as a move names it: the ape itself, the pile in a cell, creative's endless grid of every
+/// item (its slot is the item's id; a stack put there is gone), or the ground ahead (thrown: a new pile).
+/// shortcut: no containers or machines (block entities) yet; they become a holder here, items.md step 5.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+pub enum Holder {
+    Ape,
+    Pile(Block),
+    Grid,
+    Ground,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Row {
+    name: String,
+    #[serde(default = "full")]
+    stack: u16,
+    #[serde(default)]
+    pack: u8,
+    look: String,
+}
+
+fn full() -> u16 {
+    STACK
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct File {
+    #[serde(default)]
+    made: Vec<String>,
+    #[serde(default)]
+    item: Vec<Row>,
+}
+
+pub struct Def {
+    pub id: u16,
+    pub name: String,
+    pub stack: u16,
+    /// Slots it opens worn: 0 for anything that is not a pack.
+    pub pack: u8,
+    /// The block it is drawn as.
+    pub look: u16,
+}
+
+pub struct Items {
+    pub defs: Vec<Def>,
+    /// Each of `TABS` and the items it shows, blocks in id order, then the items in their rows' order.
+    pub tabs: Vec<Vec<u16>>,
+    /// Over the file's text and the blocks' hash: a client of another build refuses to play (`Welcome`).
+    pub hash: u64,
+}
+
+impl Items {
+    /// Reads and checks the items: names unique and no block's, a stack of 1..64, a pack of 9, 18 or 27 slots
+    /// and a stack of one, a known `look` and `made` blocks.
+    pub fn parse(text: &str) -> Result<Items, String> {
+        let f: File = toml::from_str(text).map_err(|e| e.to_string())?;
+        let block = |n: &str| BLOCKS.placeable().find(|d| d.name == n).map(|d| d.id);
+        let mut defs = Vec::new();
+        for (k, r) in f.item.iter().enumerate() {
+            if block(&r.name).is_some() || f.item.iter().filter(|o| o.name == r.name).count() > 1 {
+                return Err(format!("item '{}': the name is a block's or another item's", r.name));
+            }
+            if !(1..=STACK).contains(&r.stack) {
+                return Err(format!("item '{}': stack outside 1..64", r.name));
+            }
+            if r.pack != 0 && (![9, 18, 27].contains(&r.pack) || r.stack != 1) {
+                return Err(format!("item '{}': a pack opens 9, 18 or 27 slots and stacks by one", r.name));
+            }
+            let look = block(&r.look).ok_or(format!("item '{}': no block '{}' to look like", r.name, r.look))?;
+            defs.push(Def { id: ITEM_BASE + k as u16, name: r.name.clone(), stack: r.stack, pack: r.pack, look });
+        }
+        let made: Vec<u16> = f.made.iter().map(|n| block(n).ok_or(format!("made: no block '{n}'"))).collect::<Result<_, _>>()?;
+        let ores: Vec<u16> = crate::ore::MINERALS.kinds.iter().map(|k| k.block).collect();
+        let rocks: Vec<u16> = crate::rock::ROCKS.provinces.iter().flat_map(|p| p.layers.iter().map(|l| l.0)).collect();
+        let mut tabs = vec![Vec::new(); TABS.len()];
+        for d in BLOCKS.placeable() {
+            let t = if d.light != [0.0; 3] {
+                4
+            } else if ores.contains(&d.id) {
+                2
+            } else if rocks.contains(&d.id) {
+                1
+            } else if made.contains(&d.id) {
+                3
+            } else {
+                0
+            };
+            tabs[t].push(d.id);
+        }
+        tabs[5] = defs.iter().map(|d| d.id).collect();
+        Ok(Items { defs, tabs, hash: crate::world::fnv(BLOCKS.hash, text.as_bytes()) })
+    }
+
+    /// An item's row; None for a block or an unknown id.
+    pub fn get(&self, id: u16) -> Option<&Def> {
+        self.defs.get(id.checked_sub(ITEM_BASE)? as usize)
+    }
+
+    /// A placeable block or an item of this build.
+    pub fn known(&self, id: u16) -> bool {
+        self.get(id).is_some() || (id != crate::blocks::AIR && id < ITEM_BASE && BLOCKS.get(id).is_some())
+    }
+
+    pub fn name(&self, id: u16) -> &str {
+        match self.get(id) {
+            Some(d) => &d.name,
+            None => BLOCKS.get(id).filter(|_| id != crate::blocks::AIR).map_or("?", |d| d.name.as_str()),
+        }
+    }
+
+    /// The block or item of this name, any case.
+    pub fn named(&self, name: &str) -> Option<u16> {
+        BLOCKS.placeable().find(|d| d.name.eq_ignore_ascii_case(name)).map(|d| d.id).or_else(|| self.defs.iter().find(|d| d.name.eq_ignore_ascii_case(name)).map(|d| d.id))
+    }
+
+    pub fn stack(&self, id: u16) -> u16 {
+        self.get(id).map_or(STACK, |d| d.stack)
+    }
+
+    /// The block an item is drawn as; a block is itself.
+    pub fn look(&self, id: u16) -> u16 {
+        self.get(id).map_or(id, |d| d.look)
+    }
+
+    /// Every block then every item: what creative's grid holds.
+    pub fn all(&self) -> impl Iterator<Item = u16> + '_ {
+        BLOCKS.placeable().map(|d| d.id).chain(self.defs.iter().map(|d| d.id))
+    }
+
+    /// The items' (id, name) table a save keeps (blocks have their own, `Save::blocks`).
+    pub fn table(&self) -> Vec<(u16, String)> {
+        self.defs.iter().map(|d| (d.id, d.name.clone())).collect()
+    }
+}
+
+pub static ITEMS: LazyLock<Items> = LazyLock::new(|| Items::parse(include_str!("../../../data/items.toml")).unwrap_or_else(|e| panic!("data/items.toml: {e}")));
+
+/// A fresh ape's slots: all empty.
+pub fn ape() -> Vec<Slot> {
+    vec![None; APE_SLOTS]
+}
+
+/// The slots past the worn one an ape may fill now: those its pack opens.
+pub fn open(slots: &[Slot]) -> usize {
+    ROWS_AT + slots.get(WORN).copied().flatten().and_then(|s| ITEMS.get(s.item)).map_or(0, |d| d.pack as usize)
+}
+
+/// The ape's slots things go into, in order: the hotbar, then the open rows.
+pub fn usable(slots: &[Slot]) -> impl Iterator<Item = usize> + Clone + use<> {
+    (0..HOTBAR).chain(ROWS_AT..open(slots).min(slots.len()))
+}
+
+/// Whether an ape's slots keep the rules: every stack of a known item, 1 to its stack size; the worn slot
+/// a pack or nothing; nothing in a row its pack does not open.
+pub fn ape_fits(slots: &[Slot]) -> bool {
+    let worn = slots.get(WORN).copied().flatten();
+    slots.len() == APE_SLOTS && stacks_fit(slots) && worn.is_none_or(|s| ITEMS.get(s.item).is_some_and(|d| d.pack > 0)) && slots[open(slots)..].iter().all(Option::is_none)
+}
+
+/// Every stack of a known item, 1 to its stack size.
+pub fn stacks_fit(slots: &[Slot]) -> bool {
+    slots.iter().flatten().all(|s| ITEMS.known(s.item) && (1..=ITEMS.stack(s.item)).contains(&s.n))
+}
+
+/// Puts `s` into `slots` at the indices `at`: onto stacks of the same item first, then into empty slots.
+/// Returns how many did not fit.
+pub fn add(slots: &mut [Slot], at: impl Iterator<Item = usize> + Clone, s: Stack) -> u16 {
+    let (mut left, max) = (s.n, ITEMS.stack(s.item));
+    for k in at.clone() {
+        if let Some(t) = slots[k].as_mut().filter(|t| t.item == s.item && t.payload == s.payload) {
+            let put = left.min(max.saturating_sub(t.n));
+            (t.n, left) = (t.n + put, left - put);
+        }
+    }
+    for k in at {
+        if left > 0 && slots[k].is_none() {
+            let put = left.min(max);
+            slots[k] = Some(Stack { n: put, ..s });
+            left -= put;
+        }
+    }
+    left
+}
+
+/// Puts `s` into an ape's usable slots (`add`); how many did not fit.
+pub fn give(slots: &mut [Slot], s: Stack) -> u16 {
+    let at = usable(slots);
+    add(slots, at, s)
+}
+
+/// How many of `item` the slots hold.
+pub fn count(slots: &[Slot], item: u16) -> u32 {
+    slots.iter().flatten().filter(|s| s.item == item).map(|s| s.n as u32).sum()
+}
+
+/// Takes `n` of `item` from the slots, the first slots first; all of it or nothing.
+pub fn take(slots: &mut [Slot], item: u16, n: u32) -> bool {
+    if count(slots, item) < n {
+        return false;
+    }
+    let mut left = n;
+    for s in slots.iter_mut() {
+        if let Some(t) = s.as_mut().filter(|t| t.item == item && left > 0) {
+            let k = left.min(t.n as u32) as u16;
+            (t.n, left) = (t.n - k, left - k as u32);
+            if t.n == 0 {
+                *s = None;
+            }
+        }
+    }
+    true
+}
+
+/// A whole number of full stacks (and one less) of `item`, `n` of it: what a dig or a /give hands out.
+pub fn stacks(item: u16, n: u32) -> impl Iterator<Item = Stack> {
+    let max = ITEMS.stack(item) as u32;
+    (0..n.div_ceil(max)).map(move |k| Stack::new(item, (n - k * max).min(max) as u16))
+}
+
+/// The move rule (Minecraft's): `n` of the stack in `from` go to `to`. Into an empty slot they go; onto the
+/// same item as many as it has room for (the rest stay); a whole stack onto another item swaps the two. False
+/// when nothing moved: an empty `from`, `n` of 0 or more than it holds, a part onto another item, a full stack.
+pub fn rule(from: &mut Slot, to: &mut Slot, n: u16) -> bool {
+    let Some(f) = *from else { return false };
+    if n == 0 || n > f.n {
+        return false;
+    }
+    let moved = match *to {
+        None => {
+            *to = Some(Stack { n, ..f });
+            n
+        }
+        Some(t) if t.item == f.item && t.payload == f.payload => {
+            let k = n.min(ITEMS.stack(t.item).saturating_sub(t.n));
+            if k == 0 {
+                return false;
+            }
+            *to = Some(Stack { n: t.n + k, ..t });
+            k
+        }
+        Some(t) if n == f.n => {
+            (*from, *to) = (Some(t), Some(f));
+            return true;
+        }
+        Some(_) => return false,
+    };
+    *from = (f.n > moved).then_some(Stack { n: f.n - moved, ..f });
+    true
+}
+
+/// `rule` between slot `i` of `a` and slot `j` of `b`, or of `a` itself when `b` is None. Indices out of range
+/// move nothing. The caller checks the holders' own rules after it (`ape_fits`).
+pub fn shift(a: &mut [Slot], i: usize, b: Option<&mut [Slot]>, j: usize, n: u16) -> bool {
+    match b {
+        None if i == j || i >= a.len() || j >= a.len() => false,
+        None => {
+            let (mut x, mut y) = (a[i], a[j]);
+            let ok = rule(&mut x, &mut y, n);
+            (a[i], a[j]) = (x, y);
+            ok
+        }
+        Some(b) if i < a.len() && j < b.len() => rule(&mut a[i], &mut b[j], n),
+        Some(_) => false,
+    }
+}
+
+/// An old save's counts of each block (before slots, ADR 0014) as stacks in block id order: the server puts
+/// them into the slots and lays what does not fit at the player's feet.
+pub fn from_counts(counts: &[(u16, u32)]) -> Vec<Slot> {
+    let mut c = counts.to_vec();
+    c.sort_unstable();
+    c.into_iter().flat_map(|(m, n)| stacks(m, n)).map(Some).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stone() -> u16 {
+        BLOCKS.id("stone")
+    }
+
+    #[test]
+    fn every_block_is_an_item_and_names_and_ids_are_unique() {
+        let all: Vec<u16> = ITEMS.all().collect();
+        assert!(BLOCKS.placeable().all(|d| all.contains(&d.id) && ITEMS.name(d.id) == d.name && ITEMS.stack(d.id) == STACK));
+        let mut names: Vec<&str> = all.iter().map(|&i| ITEMS.name(i)).collect();
+        names.sort_unstable();
+        let n = names.len();
+        names.dedup();
+        assert_eq!(names.len(), n, "a name twice");
+        assert!(ITEMS.defs.iter().all(|d| d.id >= ITEM_BASE && (1..=STACK).contains(&d.stack) && BLOCKS.get(d.look).is_some()));
+        // every block and item is in exactly one tab
+        let mut tabbed: Vec<u16> = ITEMS.tabs.concat();
+        tabbed.sort_unstable();
+        let mut want = all.clone();
+        want.sort_unstable();
+        assert_eq!(tabbed, want);
+        assert!(ITEMS.tabs.iter().all(|t| !t.is_empty()), "an empty tab");
+        assert_eq!(ITEMS.named("Hide Pack").and_then(|i| ITEMS.get(i)).map(|d| d.pack), Some(18));
+    }
+
+    #[test]
+    fn bad_rows_are_refused_with_their_name() {
+        for (row, says) in [
+            ("[[item]]\nname='stone'\nlook='stone'", "block's"),
+            ("[[item]]\nname='x'\nstack=65\nlook='stone'", "stack"),
+            ("[[item]]\nname='x'\npack=10\nstack=1\nlook='stone'", "pack"),
+            ("[[item]]\nname='x'\npack=9\nlook='stone'", "pack"),
+            ("[[item]]\nname='x'\nlook='nothing'", "look"),
+            ("made=['nothing']", "made"),
+        ] {
+            let e = Items::parse(row).err().unwrap_or_default();
+            assert!(e.contains(says), "{row}: {e}");
+        }
+    }
+
+    #[test]
+    fn stacks_merge_up_to_their_size_then_fill_empty_slots() {
+        let mut s = ape();
+        assert_eq!(give(&mut s, Stack::new(stone(), 50)), 0);
+        assert_eq!(give(&mut s, Stack::new(stone(), 30)), 0);
+        assert_eq!((s[0], s[1]), (Some(Stack::new(stone(), 64)), Some(Stack::new(stone(), 16))));
+        // nine slots and no pack: 576 fit, the rest is handed back
+        assert_eq!(give(&mut s, Stack::new(stone(), 600)), 600 - (576 - 80));
+        assert!(s[WORN..].iter().all(Option::is_none) && ape_fits(&s));
+        assert!(take(&mut s, stone(), 100) && count(&s, stone()) == 476 && s[0].is_none());
+        assert!(!take(&mut s, stone(), 477) && count(&s, stone()) == 476, "all or nothing");
+    }
+
+    #[test]
+    fn the_move_rule_moves_merges_swaps_or_refuses() {
+        let (d, st) = (BLOCKS.id("dirt"), stone());
+        let mut a: Vec<Slot> = vec![Some(Stack::new(st, 10)), None, Some(Stack::new(d, 60)), Some(Stack::new(d, 10))];
+        assert!(shift(&mut a, 0, None, 1, 4), "a part into an empty slot");
+        assert_eq!((a[0].unwrap().n, a[1].unwrap().n), (6, 4));
+        assert!(shift(&mut a, 3, None, 2, 10), "onto the same item: what has room");
+        assert_eq!((a[2].unwrap().n, a[3].unwrap().n), (64, 6));
+        assert!(!shift(&mut a, 3, None, 2, 6), "onto a full stack: nothing");
+        assert!(!shift(&mut a, 3, None, 0, 3), "a part onto another item: nothing");
+        assert!(shift(&mut a, 3, None, 0, 6), "a whole stack onto another: a swap");
+        assert_eq!((a[0].unwrap().item, a[3].unwrap().item), (d, st));
+        assert!(!shift(&mut a, 0, None, 0, 1) && !shift(&mut a, 9, None, 0, 1) && !shift(&mut a, 1, None, 0, 0) && !shift(&mut a, 1, None, 0, 5));
+        // between two holders
+        let mut pile: Vec<Slot> = vec![None; PILE_SLOTS];
+        assert!(shift(&mut a, 2, Some(&mut pile), 3, 64) && a[2].is_none() && pile[3].unwrap().n == 64);
+    }
+
+    #[test]
+    fn a_pack_opens_its_rows_and_cannot_leave_while_they_hold_things() {
+        let basket = ITEMS.named("basket").unwrap();
+        let mut s = ape();
+        s[0] = Some(Stack::new(basket, 1));
+        // into the worn slot: the rows open
+        assert!(shift(&mut s, 0, None, WORN, 1) && ape_fits(&s) && open(&s) == ROWS_AT + 9);
+        assert_eq!(give(&mut s, Stack::new(stone(), 64 * 18)), 0);
+        assert!(s[ROWS_AT + 8].is_some());
+        // taken off with its rows full: the slots break the rule, so the server refuses the move
+        let mut t = s.clone();
+        t[0] = None;
+        assert!(shift(&mut t, WORN, None, 0, 1) && !ape_fits(&t), "rows full and no pack");
+        // stone in the worn slot breaks the rule too
+        let mut v = ape();
+        v[WORN] = Some(Stack::new(stone(), 1));
+        assert!(!ape_fits(&v));
+    }
+
+    #[test]
+    fn old_counts_become_stacks_in_block_id_order() {
+        let (d, st) = (BLOCKS.id("dirt"), stone());
+        let s = from_counts(&[(st, 70), (d, 3)]);
+        let want = if d < st { vec![Stack::new(d, 3), Stack::new(st, 64), Stack::new(st, 6)] } else { vec![Stack::new(st, 64), Stack::new(st, 6), Stack::new(d, 3)] };
+        assert_eq!(s, want.into_iter().map(Some).collect::<Vec<_>>());
+    }
+}
