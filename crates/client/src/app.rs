@@ -173,6 +173,8 @@ pub(crate) struct App {
     /// When each correction came and how far it moved the player.
     pub(crate) snap_t: Vec<(f64, f64)>,
     pub(crate) last_pos: DVec3,
+    /// Since when visible chunks are drawn coarser than their level with the camera slow (ADR 0073).
+    pub(crate) coarse_since: Option<f64>,
     pub(crate) sheet: Vec<image::RgbaImage>,
     pub(crate) next_cap: f64,
     pub(crate) done: bool,
@@ -263,6 +265,10 @@ pub(crate) struct App {
     /// (a world picked, or back to the title).
     pub(crate) worlds: Vec<String>,
     pub(crate) next: Option<Vec<String>>,
+    /// The window of the session before, taken over at the start (ADR 0073).
+    pub(crate) carried: Option<std::sync::Arc<winit::window::Window>>,
+    /// The most chunks the loading screen saw missing: its bar's whole (ADR 0073).
+    pub(crate) load_peak: u32,
     /// A new world's bake or a server's map on its way, on a worker thread, before the game starts again with
     /// `next` (the title screen draws its bar).
     pub(crate) loading: Option<menu::Loading>,

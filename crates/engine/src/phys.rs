@@ -26,7 +26,7 @@ const FLOAT: f64 = 0.8;
 pub const DT: f64 = 1.0 / 60.0;
 const SUBSTEP: f64 = 0.25;
 /// Creative flight (ADR 0023): the fastest a flying player may ask for, m/s.
-pub const FLY_MAX: f64 = 1000.0;
+pub const FLY_MAX: f64 = 10_000.0;
 const CONTACT: f64 = 0.001;
 /// How far a walk lifts over a snag in the floor, metres: far under a block, so a ledge needs a jump.
 const SKIM: f64 = 0.02;
@@ -323,7 +323,9 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
     }
 
     let total = p.vel * dt;
-    let n = (total.length() / SUBSTEP).ceil().max(1.0);
+    // over every body's top layer nothing can be in the way: one move, not the 670 substeps of 10 km/s
+    let clear = flying && world.altitude(p.pos) > crate::world::AMP + crate::world::BUILD_HEADROOM + HEIGHT + 1.0 + total.length();
+    let n = if clear { 1.0 } else { (total.length() / SUBSTEP).ceil().max(1.0) };
     let d = total / n;
     let (dr, df, du) = (right * d.dot(right), fwd * d.dot(fwd), up * d.dot(up));
     let mut on_ground = false;
@@ -374,6 +376,25 @@ mod tests {
         for _ in 0..(secs * 20.0) as usize {
             step(w, p, inp, 0.05);
         }
+    }
+
+    #[test]
+    fn flight_reaches_ten_km_a_second_and_a_dive_at_it_still_lands() {
+        // bug 2026-11-12_20-56-50: "make flying go up to 10.000 m/s"
+        let w = world();
+        let g = ground(&w);
+        let u = up(&w, g);
+        let start = g + u * 3000.0;
+        let mut p = Player::at(start, tangent(DVec3::X, u, DVec3::Z));
+        let inp = Input { fly: 10_000.0, down: true, ..Default::default() };
+        step(&w, &mut p, &inp, DT);
+        // far over the highest layer the step is one move, and the same move the substeps would make
+        assert!(((start - p.pos).length() - 10_000.0 * DT).abs() < 1e-6, "{} m", (start - p.pos).length());
+        for _ in 0..60 {
+            step(&w, &mut p, &inp, DT);
+        }
+        assert!(!inside(&w, &p) && p.on_ground, "through the ground: {} m from it", (p.pos - g).length());
+        assert!((p.pos - g).length() < 2.0, "{} m from the ground", (p.pos - g).length());
     }
 
     #[test]

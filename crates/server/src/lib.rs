@@ -834,7 +834,7 @@ impl Server {
                 let b = &self.world.bodies[0];
                 let rel = c.phys.pos - b.centre;
                 if self.world.frame_at(c.phys.pos) == 0 && rel.length() > 0.0 {
-                    c.link.send(ToClient::Air(w.here(rel.normalize(), rel.length() - b.sea.unwrap_or(rel.length()))));
+                    c.link.send(ToClient::Air(w.here(rel.normalize(), b.over_sea(c.phys.pos).unwrap_or(0.0))));
                 }
             }
             let shown = (c.vitals.shown(), c.vitals.dead.is_some());
@@ -1814,6 +1814,14 @@ mod tests {
         let view = |s: &Server| s.weather.as_ref().map(|w| (w.view().t, w.view().hash));
         assert_eq!(view(&back), view(&s));
         assert_eq!(view(&s).unwrap().0, 10.0, "the step to 10 s handed over at tick 200 and shown at 220");
+        // the air at the player's height over the sea in metres, not over the sea's layer number (ADR 0072):
+        // the one sent at tick 320 against where the player stands then
+        s.tick();
+        let sent = drain(&c).into_iter().filter_map(|m| if let ToClient::Air(h) = m { Some(h) } else { None }).last().unwrap();
+        let b = &s.world.bodies[0];
+        let pos = s.clients[0].phys.pos;
+        let want = s.weather.as_ref().unwrap().here((pos - b.centre).normalize(), b.over_sea(pos).unwrap());
+        assert!((sent.temp - want.temp).abs() < 0.05, "sent {} C, the air {} m over the sea is {} C", sent.temp, b.over_sea(pos).unwrap(), want.temp);
     }
 
     /// The live rain feeds the rivers (W5, ADR 0059): on a planet with rivers the air hands its runoff to the
