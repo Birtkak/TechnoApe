@@ -205,6 +205,31 @@ data/textures/hd/jungle leaves.png
 data/textures/hd/acacia leaves.png
 data/textures/hd/shrub.png
 data/textures/hd/shrub@winter.png
+data/textures/hd/shrub@spring.png
+data/textures/hd/shrub@autumn.png
+data/textures/hd/reed.png
+data/textures/hd/reed@spring.png
+data/textures/hd/reed@autumn.png
+data/textures/hd/reed@winter.png
+data/textures/hd/cactus_side.png
+data/textures/hd/cactus.png
+data/textures/hd/far/broadleaf leaves.png
+data/textures/hd/far/broadleaf leaves@spring.png
+data/textures/hd/far/broadleaf leaves@autumn.png
+data/textures/hd/far/broadleaf leaves@winter.png
+data/textures/hd/far/spruce leaves.png
+data/textures/hd/far/jungle leaves.png
+data/textures/hd/far/acacia leaves.png
+data/textures/hd/far/shrub.png
+data/textures/hd/far/shrub@winter.png
+data/textures/hd/far/shrub@spring.png
+data/textures/hd/far/shrub@autumn.png
+data/textures/hd/far/reed.png
+data/textures/hd/far/reed@spring.png
+data/textures/hd/far/reed@autumn.png
+data/textures/hd/far/reed@winter.png
+data/textures/hd/far/cactus_side.png
+data/textures/hd/far/cactus.png
 data/textures/iron-stained rock.png
 data/textures/copper-stained rock.png
 data/textures/quartz-veined rock.png

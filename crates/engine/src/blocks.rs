@@ -100,6 +100,9 @@ struct Raw {
     stagger: f32,
     #[serde(default)]
     joins: bool,
+    #[serde(default)]
+    wood: bool,
+    fluff: Option<Fluff>,
     rubble: Option<u16>,
     #[serde(default = "full")]
     stack: u16,
@@ -118,6 +121,45 @@ struct RawTone {
     amount: Option<f32>,
     contrast: Option<f32>,
 }
+/// The fluff of a cutout block (ADR 0090): the planes its faces open on air stand out of the plant, so a crown, a
+/// shrub or a reed bed is a soft mass, not cubes. `fluff` in its row; what it leaves out is the broadleaf's.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Fluff {
+    /// A plane's width in faces, 0..3 (0: no fluff).
+    pub size: f32,
+    /// How far it stands out, metres, 0..1.2 (more at a clump, less in a dent).
+    pub push: f32,
+    /// How far its outer parts hang down, metres a metre out, 0..1.2 (conifers, willows).
+    pub droop: f32,
+    /// Its length over its width, 1..4, along the way from the wood (a frond, a reed's blade).
+    pub long: f32,
+    /// The share of faces that have one, 0..1.
+    pub dense: f32,
+    /// The share of the sun one face of it lets through to a shadow ray, 0..1 (fast leaves; a ray through a crown
+    /// passes two faces or more): the shade under it.
+    pub light: f32,
+}
+
+impl Default for Fluff {
+    fn default() -> Self {
+        Fluff { size: 1.7, push: 0.35, droop: 0.0, long: 1.0, dense: 1.0, light: 0.5 }
+    }
+}
+
+impl Fluff {
+    /// Six bits a number for the shader's look row (`vs_fluff` reads them back): size / 0.05, push / 0.025,
+    /// droop / 0.025, (long - 1) / 0.05, dense * 63.
+    pub fn packed(&self) -> u32 {
+        let q = |v: f32, step: f32| ((v / step).round() as u32).min(63);
+        q(self.size, 0.05) | q(self.push, 0.025) << 6 | q(self.droop, 0.025) << 12 | q(self.long - 1.0, 0.05) << 18 | ((self.dense * 63.0).round() as u32).min(63) << 24
+    }
+
+    fn check(&self) -> bool {
+        (0.0..=3.0).contains(&self.size) && (0.0..=1.2).contains(&self.push) && (0.0..=1.2).contains(&self.droop) && (1.0..=4.0).contains(&self.long) && (0.0..=1.0).contains(&self.dense) && (0.0..=1.0).contains(&self.light)
+    }
+}
+
 /// How a block is seen through (docs/design/see-through-and-boxes.md, ADR 0069): `see` in its row.
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -214,6 +256,10 @@ pub struct Def {
     /// Neighbours of it in a wall join into one surface (lamps, ADR 0085): the mesher tells each face which of its
     /// four sides meet the same block, and the shader reads that side's frame texels from inside instead.
     pub joins: bool,
+    /// Wood a tree grows from (log, branches): a bare crown's twigs start at it (ADR 0090).
+    pub wood: bool,
+    /// A cutout block's fluff (ADR 0090); None for any other.
+    pub fluff: Option<Fluff>,
     /// The loose block a survival dig leaves in its cell (rock and ore, mining.md 4): `<name> rubble`, made from
     /// this row with the id it names. None: the dig takes the block itself.
     pub rubble: Option<u16>,
@@ -324,6 +370,13 @@ impl Registry {
                 let part = |named: Option<[f32; 3]>, rows: Option<[f32; 3]>, made: [f32; 3]| named.or(rows).unwrap_or(made);
                 *o = Tone { colour, colour2: part(s.colour2, r.colour2, darker(colour)), colour3: part(s.colour3, r.colour3, lighter(colour)), amount: s.amount.unwrap_or(amount), contrast: s.contrast.unwrap_or(r.contrast) };
             }
+            if r.fluff.is_some() && r.see != See::Cutout {
+                return Err(format!("block '{}': fluff on a block that is not see = \"cutout\"", r.name));
+            }
+            let fluff = (r.see == See::Cutout).then(|| r.fluff.unwrap_or_default());
+            if fluff.is_some_and(|f| !f.check()) {
+                return Err(format!("block '{}': fluff outside its ranges (size 0..3, push and droop 0..1.2, long 1..4, dense and light 0..1)", r.name));
+            }
             let seasons = (r.spring.is_some() || r.autumn.is_some() || r.winter.is_some()).then_some(seasons);
             if seasons.is_none() && r.stagger != 0.0 {
                 return Err(format!("block '{}': a stagger without a season", r.name));
@@ -334,7 +387,7 @@ impl Registry {
             if r.holds.as_ref().is_some_and(|h| !(h.1 > 0.0 && h.1 <= 1.0) || !r.loose) {
                 return Err(format!("block '{}': holds is for a loose block, with a chance over 0 and at most 1", r.name));
             }
-            let def = Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, falls: r.falls, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger, joins: r.joins, rubble: r.rubble, rubble_of: None, stack: r.stack, holds: r.holds.clone() };
+            let def = Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, falls: r.falls, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger, joins: r.joins, rubble: r.rubble, rubble_of: None, stack: r.stack, holds: r.holds.clone(), wood: r.wood, fluff };
             if let Some(t) = r.rubble {
                 // the twin: the rock's colours in pebbles, loose and falling (ADR 0093)
                 let name = format!("{} rubble", r.name);
@@ -344,7 +397,7 @@ impl Registry {
                 if r.loose || r.falls || !r.solid {
                     return Err(format!("block '{}': only a solid block that is not loose makes rubble", r.name));
                 }
-                defs[t as usize] = Some(Def { id: t, name, pattern: Pattern::Pebbles, size: 2, amount: 0.6, side: t, light: [0.0; 3], was: Vec::new(), hardness: RUBBLE_S, loose: true, falls: true, model: None, see: See::Opaque, seasons: None, stagger: 0.0, joins: false, rubble: None, rubble_of: Some(r.id), holds: None, ..def.clone() });
+                defs[t as usize] = Some(Def { id: t, name, pattern: Pattern::Pebbles, size: 2, amount: 0.6, side: t, light: [0.0; 3], was: Vec::new(), hardness: RUBBLE_S, loose: true, falls: true, model: None, see: See::Opaque, seasons: None, stagger: 0.0, joins: false, rubble: None, rubble_of: Some(r.id), holds: None, wood: false, fluff: None, ..def.clone() });
             }
             if defs[r.id as usize].is_some() {
                 return Err(format!("block id {} is used twice", r.id));
@@ -387,6 +440,11 @@ impl Registry {
         self.get(id).is_some_and(|d| d.joins)
     }
 
+    /// Whether block `id` is a tree's wood (ADR 0090).
+    pub fn wood(&self, id: u16) -> bool {
+        self.get(id).is_some_and(|d| d.wood)
+    }
+
     /// Every block but air, in id order.
     pub fn placeable(&self) -> impl Iterator<Item = &Def> {
         self.defs.iter().flatten().filter(|d| d.id != AIR)
@@ -399,6 +457,41 @@ pub static BLOCKS: LazyLock<Registry> =
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR 0090: a cutout block's fluff is data: a row's `fluff` table, the rest the broadleaf's, packed six bits
+    /// a number for the shader; a row may name none (size 0), a number out of range is refused by name.
+    #[test]
+    fn a_cutout_rows_fluff_is_data_with_defaults_and_packs_for_the_shader() {
+        let row = |extra: &str| format!("[[block]]
+id = 0
+name = \"air\"
+solid = false
+[[block]]
+id = 1
+name = \"leaf\"
+see = \"cutout\"
+colour = [0.2, 0.4, 0.1]
+hardness = 0.3
+{extra}");
+        let r = Registry::parse(&row("")).unwrap();
+        assert_eq!(r.get(1).unwrap().fluff, Some(Fluff::default()));
+        assert_eq!(Fluff::default(), Fluff { size: 1.7, push: 0.35, droop: 0.0, long: 1.0, dense: 1.0, light: 0.5 });
+        let r = Registry::parse(&row("fluff = { size = 1.2, droop = 0.4, long = 2.5, dense = 0.5 }")).unwrap();
+        let f = r.get(1).unwrap().fluff.unwrap();
+        assert_eq!((f.size, f.push, f.droop, f.long, f.dense), (1.2, 0.35, 0.4, 2.5, 0.5));
+        // six bits each, in turn: size / 0.05, push / 0.025, droop / 0.025, (long - 1) / 0.05, dense * 63
+        assert_eq!(f.packed(), 24 | 14 << 6 | 16 << 12 | 30 << 18 | 32 << 24);
+        assert_eq!(Fluff { size: 0.0, ..f }.packed() & 63, 0, "size 0: no fluff");
+        assert!(Registry::parse(&row("fluff = { size = 4.0 }")).err().unwrap().contains("leaf"));
+        assert!(Registry::parse(&row("fluff = { long = 0.5 }")).is_err());
+        assert!(Registry::parse(&row("fluff = { light = 1.5 }")).is_err());
+        assert_eq!(BLOCKS.get(BLOCKS.id("acacia leaves")).unwrap().fluff.unwrap().light, 0.65, "sparse leaves let more through");
+        // an opaque block has none, and naming one is refused
+        assert_eq!(BLOCKS.get(BLOCKS.id("stone")).unwrap().fluff, None);
+        assert!(Registry::parse(&row("fluff = { size = 1.0 }").replace("see = \"cutout\"
+", "")).err().unwrap().contains("cutout"));
+        assert!(BLOCKS.get(BLOCKS.id("spruce leaves")).unwrap().fluff.unwrap().droop > 0.0, "conifers droop");
+    }
 
     #[test]
     fn the_data_file_loads_and_names_what_generation_needs() {

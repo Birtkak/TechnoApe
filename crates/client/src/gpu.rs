@@ -213,7 +213,7 @@ mod texture_layer_tests {
     use super::*;
     use engine::textures::{Face, Painted};
     fn face(c: u8, variants: usize) -> Face {
-        Face { variants: (0..variants).map(|v| [[c, v as u8, 0, 255]; 256]).collect(), mean: [0.0; 3] }
+        Face { variants: (0..variants).map(|v| [[c, v as u8, 0, 255]; 256]).collect(), fine: false, mean: [0.0; 3] }
     }
     // a face that falls back to the block's every-face file shares that file's layers
     #[test]
@@ -447,7 +447,15 @@ pub(crate) struct Gpu {
     pub(crate) pipeline: wgpu::RenderPipeline,
     /// The cutout blocks' quads (ADR 0069): the terrain's, through `fs_cut`, which discards an empty texel, so
     /// the opaque terrain keeps early depth.
-    pub(crate) cut_pipeline: wgpu::RenderPipeline,
+    /// The cutout blocks in two passes around the opaque terrain (ADR 0090): their depth alone first (`fs_cut_depth`
+    /// discards an empty texel and writes nothing else), so the terrain behind a crown is never shaded; then their
+    /// G-buffer where the depth is theirs (`Equal`), with no discard, so each pixel is shaded once with early depth.
+    pub(crate) cut_depth_pipeline: wgpu::RenderPipeline,
+    pub(crate) cut_lit_pipeline: wgpu::RenderPipeline,
+    /// The crowns' fluff (ADR 0090, `vs_fluff`): the cutout quads again as larger planes stood out of the crown,
+    /// in the same two passes.
+    pub(crate) fluff_depth_pipeline: wgpu::RenderPipeline,
+    pub(crate) fluff_lit_pipeline: wgpu::RenderPipeline,
     pub(crate) sky_pipeline: wgpu::RenderPipeline,
     /// The overlays (ADR 0017): ghost lines and the 2D layer, with their vertex and rectangle buffers.
     pub(crate) ghost_pipeline: wgpu::RenderPipeline,
@@ -543,11 +551,11 @@ pub(crate) fn season_here(w: &engine::world::World, pos: glam::DVec3) -> (f64, f
     engine::sky::season_at(w.up_at(pos), w.time)
 }
 
-/// Every block's look from the registry (ADR 0013, 0039, 0045), shader.wgsl `Look`, 64 bytes each: colour rgb,
+/// Every block's look from the registry (ADR 0013, 0039, 0045), shader.wgsl `Look`, 80 bytes each: colour rgb,
 /// pattern | side << 8 | metal << 16 | gives light << 24 | cutout << 25 | glass << 26; colour2, size; colour3, amount; contrast; the painted
-/// faces (16 bits a face: layer | variants - 1 << 12 | painted << 15; top and side in `tex`, the bottom in
-/// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24).
-fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 16]> {
+/// faces (16 bits a face: layer | variants - 1 << 12 | fine << 14 (32 x 32, four layers a variant, ADR 0090) | painted << 15; top and side in `tex`, the bottom in
+/// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24); a cutout block's fluff (`Fluff::packed`, ADR 0090) and its share of light through (f32), two words free.
+fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 20]> {
     (0..4 * 256usize)
             .map(|row| {
                 // four rows a block (ADR 0061): summer (the row's own look), spring, autumn, winter
@@ -571,17 +579,20 @@ fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> 
                         if let Some((_, p, at)) = own.or_else(|| painted.iter().find(|(k, _, _)| *k == (id, 0))) {
                             for (k, face) in p.faces.iter().enumerate() {
                                 if let Some(face) = face {
-                                    tex |= ((at[k] | (face.variants.len() as u32 - 1) << 12 | 1 << 15) as u64) << (16 * k);
+                                    tex |= ((at[k] | (face.variants.len() as u32 / (if face.fine { 4 } else { 1 }) - 1) << 12 | (face.fine as u32) << 14 | 1 << 15) as u64) << (16 * k);
                                 }
                             }
                             let [mr, mg, mb] = p.colour().unwrap_or(d.colour).map(|c| (c * 255.0).round() as u32);
                             mean = mr | mg << 8 | mb << 16 | 1 << 24;
                         }
-                        [r, g, b, info, r2, g2, b2, size, r3, g3, b3, f(tone.amount), f(tone.contrast), tex as u32, mean, (tex >> 32) as u32]
+                        // a cutout block's fluff (ADR 0090, `Fluff::packed`), the same in every season
+                        // and the share of the sun a face of it lets through to a shadow ray
+                        let (fluff, through) = d.fluff.map_or((0, 0.0), |f| (f.packed(), f.light));
+                        [r, g, b, info, r2, g2, b2, size, r3, g3, b3, f(tone.amount), f(tone.contrast), tex as u32, mean, (tex >> 32) as u32, fluff, f(through), 0, 0]
                     }
                     None => {
                         let h = f(0.5);
-                        [h, h, h, (id as u32) << 8, h, h, h, 0, h, h, h, 0, f(1.0), 0, 0, 0]
+                        [h, h, h, (id as u32) << 8, h, h, h, 0, h, h, h, 0, f(1.0), 0, 0, 0, 0, 0, 0, 0]
                     }
                 }
             })
@@ -638,11 +649,16 @@ pub(crate) fn watch<T: Send + 'static>(name: &str, dir: std::path::PathBuf, also
         .spawn(move || {
             let mut seen = None;
             loop {
+                // one folder down too: textures' hd/ (ADR 0090), whose files change without the folder's time
                 let mut now: Vec<_> = std::fs::read_dir(&dir)
                     .into_iter()
                     .flatten()
                     .flatten()
-                    .filter_map(|e| Some((e.file_name(), e.metadata().ok()?.modified().ok()?, e.metadata().ok()?.len())))
+                    .flat_map(|e| {
+                        let sub = e.file_type().is_ok_and(|t| t.is_dir());
+                        std::iter::once(e.path()).chain(sub.then(|| std::fs::read_dir(e.path()).into_iter().flatten().flatten().map(|f| f.path())).into_iter().flatten()).collect::<Vec<_>>()
+                    })
+                    .filter_map(|p| { let m = p.metadata().ok()?; Some((p.into_os_string(), m.modified().ok()?, m.len())) })
                     .collect::<std::collections::BTreeSet<_>>()
                     .into_iter()
                     .collect();
@@ -754,9 +770,9 @@ impl Gpu {
         let indirect = buf("indirect", (MAX_CHUNKS * 80) as u64, U::INDIRECT | U::COPY_DST);
         let wquads = buf("wquads", (MAX_WQUADS * std::mem::size_of::<water::WQuad>()) as u64, U::STORAGE | U::COPY_DST);
         let fx_buf = buf("fx", (MAX_FX * std::mem::size_of::<crate::fx::FxGpu>()) as u64, U::STORAGE | U::COPY_DST);
-        // every block's look from the registry (ADR 0013, 0039), shader.wgsl `Look`, 64 bytes each: colour rgb,
+        // every block's look from the registry (ADR 0013, 0039), shader.wgsl `Look`, 80 bytes each: colour rgb,
         // pattern | side << 8 | metal << 16 | gives light << 24; colour2, size; colour3, amount; contrast
-        let looks = buf("looks", 4 * 256 * 64, U::STORAGE | U::COPY_DST);
+        let looks = buf("looks", 4 * 256 * 80, U::STORAGE | U::COPY_DST);
         queue.write_buffer(&looks, 0, bytemuck::cast_slice(&looks_of(&[])));
         // the painted faces (ADR 0045): 16 x 16 layers, filled by `take_textures` from the watcher's thread
         let tex = buf("block textures", TEX_LAYERS as u64 * 1024, U::STORAGE | U::COPY_DST);
@@ -902,7 +918,7 @@ impl Gpu {
             cache: None,
         });
         // the effects: into the G-buffer as the terrain, with its depth (ADR 0031)
-        let gbuffer_pipeline = |vs: &'static str, fs: &'static str, cull| {
+        let gbuffer_pass = |vs: &'static str, fs: &'static str, cull, colour: bool, compare| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(fs),
                 layout: Some(&layout),
@@ -910,14 +926,14 @@ impl Gpu {
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
                     entry_point: Some(fs),
-                    targets: &gi::TARGETS.map(|f| Some(f.into())),
+                    targets: &gi::TARGETS.map(|f| Some(wgpu::ColorTargetState { format: f, blend: None, write_mask: if colour { wgpu::ColorWrites::ALL } else { wgpu::ColorWrites::empty() } })),
                     compilation_options: Default::default(),
                 }),
                 primitive: wgpu::PrimitiveState { cull_mode: cull, ..Default::default() },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: Some(true),
-                    depth_compare: Some(wgpu::CompareFunction::Greater),
+                    depth_write_enabled: Some(compare == wgpu::CompareFunction::Greater),
+                    depth_compare: Some(compare),
                     stencil: Default::default(),
                     bias: Default::default(),
                 }),
@@ -926,8 +942,12 @@ impl Gpu {
                 cache: None,
             })
         };
+        let gbuffer_pipeline = |vs, fs, cull| gbuffer_pass(vs, fs, cull, true, wgpu::CompareFunction::Greater);
         let fx_pipeline = gbuffer_pipeline("vs_fx", "fs_fx", Some(wgpu::Face::Back));
-        let cut_pipeline = gbuffer_pipeline("vs", "fs_cut", Some(wgpu::Face::Back));
+        let cut_depth_pipeline = gbuffer_pass("vs_cut", "fs_cut_depth", Some(wgpu::Face::Back), false, wgpu::CompareFunction::Greater);
+        let cut_lit_pipeline = gbuffer_pass("vs_cut", "fs_cut_lit", Some(wgpu::Face::Back), true, wgpu::CompareFunction::Equal);
+        let fluff_depth_pipeline = gbuffer_pass("vs_fluff", "fs_fluff_depth", Some(wgpu::Face::Back), false, wgpu::CompareFunction::Greater);
+        let fluff_lit_pipeline = gbuffer_pass("vs_fluff", "fs_fluff_lit", Some(wgpu::Face::Back), true, wgpu::CompareFunction::Equal);
         // still models: either way round (`fs_still` drops the face turned away)
         let still_pipeline = gbuffer_pipeline("vs_still", "fs_still", None);
         // the models (ADR 0047): into the G-buffer with the terrain
@@ -1077,7 +1097,10 @@ impl Gpu {
             surface,
             config,
             pipeline,
-            cut_pipeline,
+            cut_depth_pipeline,
+            cut_lit_pipeline,
+            fluff_depth_pipeline,
+            fluff_lit_pipeline,
             sea_pipeline,
             water_pipeline,
             glass_pipeline,

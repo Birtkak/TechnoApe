@@ -279,6 +279,107 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
   - The palette now has 526 colours. The model files' boxes are unchanged; only their paintings change.
   - Proof: the sheets `out/flora/plants-hd.png`, `meadow-vs-ref.png` and `clutter.png` (the models' paintings,
     8x), read; `technoape-studio check=1` ok.
+  - **Painted for the plants' shader** (claude/flora-plants, `shader.wgsl`):
+    - The shader tints green pixels (g above r and b) with a per-channel multiply. It is about x(0.75, 0.86, 0.5)
+      in a middling climate; the dry end raises red and cuts blue.
+    - It then darkens every plant to x0.45 at the root.
+    - So a blade's root is now only two tones down (tone = 2 + t^1.7 x 5), and the fern's rib and the stems start
+      at tone 2.
+    - `MEADOW`'s middle tones carry little red, so they stay green and do not turn olive; yellow is in the
+      lightest tone only.
+    - Proof: `out/flora/meadow-lit-vs-ref.png` is the meadow with that tint and depth shading applied, read beside
+      reference 4.
+  - `paint_textures.py` now keeps any colour that was in the palette before its run (`Palette.before`), so the
+    clutter's ramps that `paint_clutter.py` added are not dropped.
+- **Calm bark** (the overseer, from the crowns session's in-game still): at 9 m the oak's bark read as black and
+  cream zebra stripes.
+  - Every bark's tones are now squeezed into a narrow band of its ramp (`calm`): ridged and plates 1 to 4 or 1 to
+    5, willow, smooth and palm 2 to 5. That gives two or three close browns or greys, with furrows a little darker.
+  - The ridged bark (oak, broadleaf) is no longer a regular sine wave. Noise stretched along the trunk now carries
+    more of its shape than the waves.
+  - Birch's lenticels are dark grey and fewer.
+  - Bamboo's nodes are a single step, no longer a stripe.
+  - Proof: `out/flora/trunks-9m.png`, every bark as a two-face trunk at the still's scale (about 28 px a metre),
+    beside the still's oak, read.
+- **Outline, depth and distance for plants** (the developer, 2026-11-13: plants as the crowns, target
+  `out/flora-refs/6-leaf-block-target.png` with references 3 and 4):
+  - Outline:
+    - A tuft's blade heights follow its own outline (`envelope`): two or three bulges with dents between them,
+      falling to the sides. No tuft has a flat top or straight sides.
+    - Roots sit in the middle 80 % of the plane, and the outer blades lean out.
+    - Each variant draws its own outline.
+    - Bushes are two or three lobes with dents between them, not a round blob.
+  - Depth:
+    - A tuft draws a back layer, darker, then a lighter front layer over it.
+    - A bush keeps the lit upper left of each leaf clump, and loses up to two tones in its lower third, darker
+      underneath and inside.
+  - Distance:
+    - A far painting per plant kind: `data/plants/<name>.far.png`, at 8 px a metre. Each 4x4 cell takes its
+      most common colour where a quarter of it is filled, so the outline and the main colours stay.
+    - `data/plants/meadow ground.png`: three 32 px tiles side by side, a mottled grass top in the meadow's
+      greens with lit blade tips and a few petals and seed heads. It is for where the plants session thins
+      plants out.
+    - The plants session (glass-clutter) agreed these names and sizes. `meadow ground` is its still face 0: the grass
+      top fades to it past half the plant distance, and the grass block's sides take it as a fringe near the top.
+      The `.far` paintings are not read yet; far plants still use the near painting.
+  - Proof: the sheets `out/flora/plants-hd.png` and `meadow-vs-ref.png` (outline and depth, beside reference 4),
+    and `far-vs-ref.png` and `far-plants.png` (distance), all read.
+- **Every mass, and only masses** (the developer, 2026-11-13: "everything biological more or less (things like
+  single flowers and mushrooms not)"):
+  - Outline, depth and a far version go to every plant that makes a mass: the leaves of every species, grasses,
+    wheat, ferns, reeds, bushes, the shrub, cactus, bamboo and palm fronds.
+  - Single flowers, mushrooms, sticks and stones stay rich but simple, with no far version. `flowers.far` is gone.
+  - New block paintings at 32:
+    - `reed` and its seasons: a stand of blades a block high, its top ragged (each variant's own outline, never
+      under half the block, so a row of reeds has no gaps);
+    - `shrub@spring` and `shrub@autumn`, from the same leaves as the shrub;
+    - `cactus` (the top: eight ribs meeting at a crown, with areoles) and `cactus_side` (four ribs a face, lit on
+      the left, a dark groove between, areoles with pale spines). The ribs line up across variants.
+  - Far block paintings: `data/textures/hd/far/<block>[@season].png`, 8 px a face. They are made the same way as
+    the plants' far paintings, for every leaves block, the shrub, reed and cactus. These names are proposed to
+    the crowns session.
+  - The palette now has 573 colours.
+  - Proof: `out/flora/masses-far.png`, each mass as 2x2 blocks beside its far painting at the same size, read.
+- **One tree, one colour family; clusters that carry** (the crowns review, 2026-11-13):
+  - Winter twigs take the same calm band of the species' bark ramp as its log side (tones 1 to 4). They were the
+    full ramp, and their tips read light tan beside the calmed bark. `broadleaf leaves@winter` and
+    `hd/log_side.png` now share their darkest, middle and lightest colours.
+  - Leaf clusters about a quarter block wide must still read from 10 to 20 m, the developer's target:
+    - only three leaves in ten get a random step of tone, so a clump is no longer speckled;
+    - birch, acacia and bamboo have fewer, larger clumps;
+    - pine has fewer, longer rosettes.
+  - Proof: `out/flora/leaves-10-20m.png`, every species' leaves box-filtered to 28 and 14 px a block (about 10
+    and 20 m in the crowns stills), read. Clusters carry for all but willow, whose strands are its look.
+- **Reeds that differ** (the developer on the in-game stills, 2026-11-13: "the reeds seems a bit flat and too
+  uniform"):
+  - `reeds_hd` paints four kinds (`REED_KINDS`), each with its own stalk count, height and lean:
+    - tall with cattails (`reeds`);
+    - tall without (`.1`);
+    - short and leaning (`.2`);
+    - sparse with one broken stalk folding over (`.3`, new).
+  - Inside each, stalks are two texels wide and of uneven height, lit on the left, with a dark base and a long
+    leaf or two arching off.
+  - Greens vary, with a few dry tan stalks (straw); short blades grow behind as an under-layer.
+  - `reeds.back.png` is the tall kind two tones darker in every ramp (`darker`), for the back row of a bed so it
+    has depth front to back.
+  - The reed block's four variants are the four kinds, a block high. `reed@winter` has three (cattails, leaning,
+    broken), so ADR 0090's winter role pick, which keys on exactly four variants, leaves it alone.
+  - The same stamped look elsewhere:
+    - each fern now has its own number of fronds, spans and lean;
+    - short grass and tall grass get a fourth outline (`.3`).
+  - Proof: `out/flora/reeds.png` (the five reed paintings, a bed with the back row behind, the block) and
+    `plants-hd.png`, read.
+- **Shrub in the trees' greens** (the overseer and the developer, from the crowns stills): the shrub read lime
+  beside the trees. A painted block is drawn as painted, with no tint on top, and a shrub stands in full sun.
+  - Its ramps move into the broadleaf family: summer hue 92 to 102, spring 84 to 94, a little less light.
+  - Means of the opaque pixels:
+
+    | Painting | Before | Now | Its tree |
+    |---|---|---|---|
+    | `shrub` | (85,130,27) | (70,136,21) | broadleaf (69,132,19) |
+    | `shrub@spring` | (113,153,36) | (89,148,25) | broadleaf spring (98,145,39) |
+
+  - The far paintings follow.
 
 ## Mining paintings (2026-11-13, ADR 0093 rubble, ADR 0095 halo, ADR 0097 flint)
 
