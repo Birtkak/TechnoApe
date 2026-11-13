@@ -251,7 +251,7 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
             let phi = hf * 6.2831853;
             // the round mask in the units of a 1.7 plane, whatever its size: an ellipse along a long one
             var mask = 0.5 + (vec2f(su, sv) - 0.5) * (1.7 / spread) / vec2f(long, 1.0);
-            var push = fpush * mix(0.0, 3.0, clump) * select(1.0, 0.35, top) + slope * ((su - 0.5) * cos(phi) + (sv - 0.5) * sin(phi)) + 0.06 * (h - 0.5);
+            var push = fpush * mix(0.0, 2.2, clump) * select(1.0, 0.35, top) + slope * ((su - 0.5) * cos(phi) + (sv - 0.5) * sin(phi)) + 0.06 * (h - 0.5);
             // the corners stood further out (the tilt) hang more: the plane bends down away from the crown
             var hang = max(push, 0.0);
             reach = 1.0;
@@ -299,7 +299,8 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     let rel = brot(b, (place(c, b, local, at) - b.cam_hi) - b.cam_lo);
     o.clip = g.view_proj * vec4f(rel, 1.0);
     o.rel = rel;
-    o.ao = (1.0 - 0.2 * f32(occl)) * shade;
+    // the shade's floor: a crown's shaded side stays green (the target's), never near black
+    o.ao = (1.0 - 0.2 * f32(occl)) * max(shade, 0.6);
     // the texture and the cell from the quad's own corner: in the grown lip, fract() would wrap to the far edge
     // (a dirt line along every grass top edge) and floor() name the neighbour
     o.local = paint;

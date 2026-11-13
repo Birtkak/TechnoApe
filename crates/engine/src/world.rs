@@ -2848,7 +2848,7 @@ mod baked_tests {
         let t0 = std::time::Instant::now();
         let fast: usize = cells.iter().map(|c| crate::mesh::mesh(c, 1).quads.len()).sum();
         let mesh_us = t0.elapsed().as_secs_f64() * 1e6 / cells.len() as f64;
-        let fancy: usize = cells.iter().map(|c| crate::mesh::mesh_cut(c, 1, true, true).quads.len()).sum();
+        let fancy: usize = cells.iter().map(|c| crate::mesh::mesh_cut(c, 1, crate::mesh::Cut::Full, true).quads.len()).sum();
         let n = cells.len() as f64;
         println!("{{\"chunks\":{},\"gen_us_cold\":{cold:.1},\"gen_us_warm\":{warm:.1},\"mesh_us_fast\":{mesh_us:.1},\"quads_fast\":{:.0},\"quads_fancy\":{:.0}}}", cells.len(), fast as f64 / n, fancy as f64 / n);
     }

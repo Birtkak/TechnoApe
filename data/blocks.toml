@@ -247,7 +247,7 @@ colour = [0.36, 0.30, 0.20]
 id = 21
 name = "reed"
 see = "cutout"
-fluff = { size = 0.9, push = 0.1, long = 1.8, dense = 0.7, light = 0.7 }
+fluff = { size = 0.0, light = 0.7 }
 hardness = 0.2
 loose = true
 soft = true
@@ -764,6 +764,7 @@ contrast = 0.3
 [[block]]
 id = 140
 name = "birch log"
+wood = true
 hardness = 2.0
 loose = true
 sound = "dirt"
@@ -776,6 +777,7 @@ colour2 = [0.20, 0.18, 0.16]
 id = 141
 name = "birch leaves"
 see = "cutout"
+fluff = { size = 1.5, push = 0.3, dense = 0.9, light = 0.6 }
 hardness = 0.3
 loose = true
 soft = true
@@ -790,6 +792,7 @@ colour = [0.38, 0.28, 0.18]
 [[block]]
 id = 142
 name = "oak log"
+wood = true
 hardness = 2.0
 loose = true
 sound = "dirt"
@@ -801,6 +804,7 @@ contrast = 1.6
 id = 143
 name = "oak leaves"
 see = "cutout"
+fluff = { light = 0.45 }
 hardness = 0.3
 loose = true
 soft = true
@@ -815,6 +819,7 @@ colour = [0.38, 0.28, 0.18]
 [[block]]
 id = 144
 name = "pine log"
+wood = true
 hardness = 2.0
 loose = true
 sound = "dirt"
@@ -826,6 +831,7 @@ contrast = 1.6
 id = 145
 name = "pine leaves"
 see = "cutout"
+fluff = { size = 1.2, push = 0.22, droop = 0.35, long = 1.4, light = 0.35 }
 hardness = 0.3
 loose = true
 soft = true
@@ -836,6 +842,7 @@ pattern = "leaves"
 [[block]]
 id = 146
 name = "willow log"
+wood = true
 hardness = 2.0
 loose = true
 sound = "dirt"
@@ -847,6 +854,7 @@ contrast = 1.6
 id = 147
 name = "willow leaves"
 see = "cutout"
+fluff = { size = 1.0, push = 0.15, droop = 1.0, long = 2.5, light = 0.6 }
 hardness = 0.3
 loose = true
 soft = true
@@ -861,6 +869,7 @@ colour = [0.38, 0.28, 0.18]
 [[block]]
 id = 148
 name = "palm log"
+wood = true
 hardness = 2.0
 loose = true
 sound = "dirt"
@@ -872,6 +881,7 @@ contrast = 1.6
 id = 149
 name = "palm leaves"
 see = "cutout"
+fluff = { size = 1.2, push = 0.3, droop = 0.6, long = 3.0, light = 0.6 }
 hardness = 0.3
 loose = true
 soft = true
@@ -882,6 +892,7 @@ pattern = "leaves"
 [[block]]
 id = 150
 name = "bamboo"
+wood = true
 hardness = 1.0
 loose = true
 sound = "dirt"
@@ -892,6 +903,7 @@ pattern = "rings"
 id = 151
 name = "bamboo leaves"
 see = "cutout"
+fluff = { size = 1.0, push = 0.25, droop = 0.2, long = 2.2, light = 0.65 }
 hardness = 0.3
 loose = true
 soft = true

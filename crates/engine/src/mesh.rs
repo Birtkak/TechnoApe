@@ -329,7 +329,9 @@ fn twig_bits(r: u8, a: usize) -> u32 {
     if k == 7 {
         return 0;
     }
+    // wood above (+z, k 4) folds the painting like wood behind: hinged there the twigs would hang down as streamers
     let side = match (k / 2 + 3 - a) % 3 {
+        _ if k == 4 => 5,
         0 => 5,
         // an odd world direction is the negative one: the u- or v- side
         1 => 1 + (!k as u32 & 1),
@@ -426,6 +428,7 @@ mod tests {
         }
         c[pidx(10, 11, 11)] = leaves; // beside the log on +y
         c[pidx(20, 20, 20)] = leaves; // alone in the air
+        c[pidx(10, 10, 9)] = leaves; // under the log
         c[pidx(5, 5, 5)] = stone;
         c[pidx(5, 5, 6)] = leaves; // a shrub on the ground
         c[pidx(0, 28, 11)] = log; // in the padding: the neighbour chunk's log and leaf
@@ -449,6 +452,9 @@ mod tests {
             assert_eq!(twig([10, 11, 11], 2), (5, 0), "the log behind the face");
             assert_eq!(twig([10, 11, 11], 4), (3, 0), "+z face of the leaf on +y: the log at -y is v-");
             assert_eq!(twig([20, 20, 20], 4).0, 0, "no wood, no ground");
+            // wood above: the twigs fold from the face's middle (reach up and out), never hang from the top edge
+            assert_eq!(twig([10, 10, 9], 0), (5, 0), "wood above a side face folds");
+            assert_eq!(twig([10, 10, 9], 3), (5, 0));
             assert_eq!(twig([5, 5, 6], 4), (5, 0), "a shrub roots in the ground under it");
             assert_eq!(twig([5, 5, 6], 0), (3, 0), "+x face (u = y, v = z): the ground at -z is v-");
             assert_eq!(twig([1, 29, 11], 4), (1, 1), "rooted through the next chunk's leaf, in the padding");
