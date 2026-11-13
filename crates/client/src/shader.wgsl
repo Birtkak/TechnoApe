@@ -98,7 +98,8 @@ const LAMP_CELL: f32 = 8.0;
 @group(0) @binding(9) var<storage, read> lamp_cells: array<u32>;
 
 struct VOut {
-    @builtin(position) clip: vec4f,
+    // invariant: the cutout blocks' depth and colour passes meet with Equal (ADR 0090)
+    @builtin(position) @invariant clip: vec4f,
     @location(0) local: vec3f,
     @location(1) @interpolate(flat) dir: u32,
     @location(2) @interpolate(flat) mat: u32,
@@ -178,9 +179,10 @@ fn vs_fluff(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
 fn sway(p: vec3f, reach: f32) -> vec2f {
     if (g.water.w == 0.0) { return vec2f(0.0); }
     let amp = min(0.012 + 0.005 * g.water.w, 0.07) * reach;
-    let t = g.water.x;
+    // whole turns an hour (the clock wraps at 3600 s): 1203, 2464, 974 and 2235 turns, about 2.1, 4.3, 1.7, 3.9 rad/s
+    let t = g.water.x * (6.2831853 / 3600.0);
     let ph = dot(p, vec3f(0.61, 0.47, 0.83));
-    return amp * vec2f(sin(t * 2.1 + ph) + 0.4 * sin(t * 4.3 + ph * 2.3), sin(t * 1.7 + ph * 1.3 + 1.0) + 0.4 * sin(t * 3.9 - ph * 1.7));
+    return amp * vec2f(sin(t * 1203.0 + ph) + 0.4 * sin(t * 2464.0 + ph * 2.3), sin(t * 974.0 + ph * 1.3 + 1.0) + 0.4 * sin(t * 2235.0 - ph * 1.7));
 }
 
 fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
@@ -981,7 +983,7 @@ fn paint_texel(painted: u32, cell: vec3i, xy: vec2i, fxy: vec2i, steps: i32) -> 
     let nv = ((painted >> 12u) & 3u) + 1u;
     let hv = hash(cell + vec3i(0, 0, 4099));
     var v = min(u32(hv * f32(nv)), nv - 1u);
-    if (steps > 0 && nv == 4u) { v = u32(steps) + 1u; } else if (steps == 0 && nv == 4u) { v = u32(hv * 2.0); }
+    if (steps > 0 && nv == 4u) { v = u32(steps) + 1u; } else if (steps == 0 && nv == 4u) { v = min(u32(hv * 2.0), 1u); }
     if (((painted >> 14u) & 1u) == 1u) {
         let f = vec2u(clamp(fxy, vec2i(0), vec2i(31)));
         let q = (f.y >> 4u) * 2u + (f.x >> 4u);

@@ -209,7 +209,9 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool)
                         let o = ao(u, v, d);
                         // a joining block's face never merges: each knows its own sides
                         let jm = is_in(joins_t, m);
-                        let merge = lattice > 1 && o == 0 && !jm;
+                        // a cutout block's face never merges either: each carries its own way to wood and its
+                        // own fluff (ADR 0090)
+                        let merge = lattice > 1 && o == 0 && !jm && !(any_cut && is_in(cut_t, m));
                         // a merged quad has one occlusion per corner: only open faces merge
                         let open = |u: usize, v: usize| ao(u, v, d) == 0;
                         let mut w = 1;
@@ -275,43 +277,46 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool)
 /// shrub's twigs grow from the ground. Only in a chunk with cutout blocks, so a short walk over its cells.
 const TWIG_REACH: u8 = 3;
 fn roots(cells: &[u16; P * P * P], cut_t: &[u64; 1024]) -> Vec<u8> {
-    let wood_t: &[u64; 1024] = &WOOD;
+    let (wood_t, glass_t): (&[u64; 1024], &[u64; 1024]) = (&WOOD, &GLASS);
     let step = [1isize, -1, P as isize, -(P as isize), (P * P) as isize, -((P * P) as isize)];
+    // the neighbour of cell i (at x, y, z) the way k, inside the padded grid
+    let next = |i: usize, k: usize| -> Option<usize> {
+        let (x, y, z) = (i % P, i / P % P, i / (P * P));
+        let c = [x, y, z][k / 2];
+        (if k % 2 == 0 { c + 1 < P } else { c > 0 }).then(|| (i as isize + step[k]) as usize)
+    };
     let mut root = vec![7u8; P * P * P];
     let mut ring = Vec::new();
-    let is_cut = |c: u16| c != 0 && is_in(cut_t, c);
-    for z in 1..P - 1 {
-        for y in 1..P - 1 {
-            for x in 1..P - 1 {
-                let i = pidx(x, y, z);
-                if !is_cut(cells[i]) {
-                    continue;
-                }
-                let k = (0..6).find(|&k| is_in(wood_t, cells[(i as isize + step[k]) as usize])).or_else(|| {
-                    let under = cells[i - P * P];
-                    (under != 0 && !is_cut(under)).then_some(5)
-                });
-                if let Some(k) = k {
-                    root[i] = k as u8;
-                    ring.push(i);
-                }
-            }
+    let is_cut = |c: u16| c != 0 && is_in(cut_t, c) && !is_in(glass_t, c);
+    // the padding too: a crown across a chunk's edge roots through its neighbour's cells there.
+    // shortcut: wood more than the padding away is not seen, so a bare crown's blocks at a chunk edge may lose
+    // their twigs; mesh with a halo of TWIG_REACH cells if that shows
+    for i in 0..P * P * P {
+        if !is_cut(cells[i]) {
+            continue;
+        }
+        let k = (0..6).find(|&k| next(i, k).is_some_and(|j| is_in(wood_t, cells[j]))).or_else(|| {
+            let under = cells[next(i, 5)?];
+            (under != 0 && !is_cut(under) && !is_in(glass_t, under)).then_some(5)
+        });
+        if let Some(k) = k {
+            root[i] = k as u8;
+            ring.push(i);
         }
     }
     // outward a ring at a time; a cell takes the first way it is reached by
     for n in 1..TWIG_REACH {
-        let mut next = Vec::new();
+        let mut out = Vec::new();
         for &i in &ring {
-            for (k, st) in step.iter().enumerate() {
-                let j = (i as isize + st) as usize;
-                let (x, y, z) = (j % P, j / P % P, j / (P * P));
-                if root[j] == 7 && (1..P - 1).contains(&x) && (1..P - 1).contains(&y) && (1..P - 1).contains(&z) && is_cut(cells[j]) {
+            for k in 0..6 {
+                let Some(j) = next(i, k) else { continue };
+                if root[j] == 7 && is_cut(cells[j]) {
                     root[j] = (k ^ 1) as u8 | n << 3; // back toward i
-                    next.push(j);
+                    out.push(j);
                 }
             }
         }
-        ring = next;
+        ring = out;
     }
     root
 }
@@ -423,8 +428,13 @@ mod tests {
         c[pidx(20, 20, 20)] = leaves; // alone in the air
         c[pidx(5, 5, 5)] = stone;
         c[pidx(5, 5, 6)] = leaves; // a shrub on the ground
-        for cut in [Cut::Shell, Cut::Full] {
-            let m = mesh_cut(&c, 1, cut, false);
+        c[pidx(0, 28, 11)] = log; // in the padding: the neighbour chunk's log and leaf
+        c[pidx(0, 29, 11)] = leaves;
+        c[pidx(1, 29, 11)] = leaves;
+        for (cut, lattice) in [(Cut::Shell, 1), (Cut::Full, 1), (Cut::Shell, 8), (Cut::Full, 8)] {
+            let m = mesh_cut(&c, lattice, cut, false);
+            // a cutout face never merges: each is one cell's (level 0 meshes on a lattice of up to 8)
+            assert!(m.quads[m.quads.len() - m.cut as usize..].iter().all(|q| (q[0] >> 18) & 1023 == 0), "{cut:?} {lattice}: merged");
             let twig = |at: [usize; 3], dir: u32| {
                 let q = m.quads.iter().find(|q| { let (p, d, _) = face_of(q); p.map(|v| v + 1) == at && d == dir }).unwrap_or_else(|| panic!("no face {dir} at {at:?}"));
                 ((q[1] >> 20) & 7, (q[1] >> 23) & 3)
@@ -441,6 +451,7 @@ mod tests {
             assert_eq!(twig([20, 20, 20], 4).0, 0, "no wood, no ground");
             assert_eq!(twig([5, 5, 6], 4), (5, 0), "a shrub roots in the ground under it");
             assert_eq!(twig([5, 5, 6], 0), (3, 0), "+x face (u = y, v = z): the ground at -z is v-");
+            assert_eq!(twig([1, 29, 11], 4), (1, 1), "rooted through the next chunk's leaf, in the padding");
             // bit 25: the face opens on air, where the client grows its fluff (fancy leaves keep inner faces)
             let open = |at: [usize; 3], dir: u32| m.quads.iter().find(|q| { let (p, d, _) = face_of(q); p.map(|v| v + 1) == at && d == dir }).map(|q| q[1] >> 25 & 1);
             assert_eq!(open([11, 10, 11], 2), Some(1));

@@ -646,11 +646,16 @@ pub(crate) fn watch<T: Send + 'static>(name: &str, dir: std::path::PathBuf, also
         .spawn(move || {
             let mut seen = None;
             loop {
+                // one folder down too: textures' hd/ (ADR 0090), whose files change without the folder's time
                 let mut now: Vec<_> = std::fs::read_dir(&dir)
                     .into_iter()
                     .flatten()
                     .flatten()
-                    .filter_map(|e| Some((e.file_name(), e.metadata().ok()?.modified().ok()?, e.metadata().ok()?.len())))
+                    .flat_map(|e| {
+                        let sub = e.file_type().is_ok_and(|t| t.is_dir());
+                        std::iter::once(e.path()).chain(sub.then(|| std::fs::read_dir(e.path()).into_iter().flatten().flatten().map(|f| f.path())).into_iter().flatten()).collect::<Vec<_>>()
+                    })
+                    .filter_map(|p| { let m = p.metadata().ok()?; Some((p.into_os_string(), m.modified().ok()?, m.len())) })
                     .collect::<std::collections::BTreeSet<_>>()
                     .into_iter()
                     .collect();
