@@ -279,3 +279,50 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
   - The palette now has 526 colours. The model files' boxes are unchanged; only their paintings change.
   - Proof: the sheets `out/flora/plants-hd.png`, `meadow-vs-ref.png` and `clutter.png` (the models' paintings,
     8x), read; `technoape-studio check=1` ok.
+
+## Mining paintings (2026-11-13, ADR 0093 rubble, ADR 0095 halo, ADR 0097 flint)
+
+Block paintings at 16 px in the calm style (not the flora's 32 px), made by `tools/paint_textures.py`.
+
+- **The ore halo**, six blocks. Each is its own painter, and each reads as a host rock that has been changed:
+
+  | Block | Look |
+  |---|---|
+  | iron-stained rock | grey, blotched rust to ochre, stains running down, dark pyrite pits |
+  | copper-stained rock | grey cracks with green malachite smeared beside them, a few blue azurite specks |
+  | quartz-veined rock | dark grey crossed by four or five milky veinlets, one or two texels wide, that jog; the painting carries the veins, as the ADR asked |
+  | greisen | pale grey-green, coarse, glittering with mica, dark cassiterite specks |
+  | bleached rock | cream to off-white and chalky |
+  | dolomite | buff, sugary, with white calcite spar in small vugs |
+
+  Grades: one block is the outer grade for one ore and the inner grade for another, so "stronger" holds per
+  pair of ADR 0095's table. Every inner block is more coloured or more veined than its outer one. Examples:
+  bleached then iron-stained; iron-stained then copper-stained; quartz-veined then greisen.
+- **Rubble**: one painting for every row with `rubble =`, 26 rocks and hard ores, named `<rock> rubble.png`. Each is
+  made from the rock's own painting:
+  - six to eight broken pieces, each a shifted cut of the rock;
+  - one piece in three is a step darker;
+  - near-black gaps between the pieces;
+  - each piece has a rim lit up-left and shaded down-right.
+
+  Details:
+  - Rims step only along the rock's common colours (those covering 6 % of the texels or more). Rare colours, such
+    as gold, chalcopyrite or malachite specks, stay themselves, so a rim never turns gold.
+  - A dark rock (mean luma under 51: coal, basalt) takes its lightest colour for every rim, or its pieces would vanish.
+
+  The result reads loose at a glance next to the solid wall.
+- **Flint**: the clutter model's painting in `tools/paint_clutter.py`. Its faces:
+  - top: dark glassy blue-black flaked in ripples, a glint, and a pale chalky cortex rind along one edge;
+  - sides: cortex above a glassy core.
+
+  New rich ramp: `flint cortex`. The item icon cannot be painted yet: an item's `look` is a block cube and items
+  have no pictures, so `look = "slate"` stays.
+- **The script run**: always with a want list of these block names. A full run would repaint the trees' flora
+  as well.
+- **Palette**: 39 colours added (31 for the blocks, the eight of `flint cortex`); the palette now has 565.
+- **Proof**:
+  - `out/mining/halo.png`: the hosts above the halo blocks;
+  - `out/mining/rubble.png`: each rock beside its rubble;
+  - `out/mining/flint.png`: the flint's faces on grass, gravel, dirt and sand, at true scale;
+  - all were read, and `technoape-studio check=1` is ok.
+- **Not here**: the crack looks of ADR 0094.
