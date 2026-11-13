@@ -840,6 +840,21 @@ def rich_rgb(hue, sat=1.0, light=0.0, n=8):
     return out
 
 
+# the meadow's greens, from reference 4 (a deep saturated green; yellow only in the two lightest, the tips)
+MEADOW = [tuple(v / 255 for v in q) for q in [(6, 40, 4), (10, 58, 6), (16, 78, 9), (22, 96, 11), (34, 116, 15),
+                                              (60, 138, 20), (112, 162, 26), (168, 184, 42)]]
+
+
+def turned(ramp, deg):
+    """A ramp with its hue turned by `deg` degrees (a variant a step off)."""
+    import colorsys
+    out = []
+    for c in ramp:
+        h, l, s_ = colorsys.rgb_to_hls(*c)
+        out.append(colorsys.hls_to_rgb((h + deg / 360) % 1, l, s_))
+    return out
+
+
 def hd_put(c, x, y, v, wrap=True):
     h, w = c.shape
     if wrap:
@@ -1198,7 +1213,7 @@ def blades_hd(rng, w, h, n, lo, hi, lean=0.35, wide=0.25):
         two = rng.random() < wide
         for i in range(bh):
             t = i / max(1, bh - 1)
-            tone = int(round(0.5 + t * 6 + lift * (0.4 + t * 0.6)))
+            tone = int(round(0.5 + t ** 1.7 * 6.3 + lift * (0.4 + t * 0.6)))  # mostly mid green, the tip lit
             px = int(round(fx)) % w
             hd_put(c, px, h - 1 - i, max(0, min(7, tone)), False)
             if two and i < bh * 0.4:
@@ -1254,8 +1269,8 @@ def fern_hd(rng, w, h):
                 leaf = int(round(4.5 * (1 - t) + 0.5))
                 for j in range(1, leaf + 1):
                     hd_put(c, x + side * (j // 3), y - j, 4 + (2 if j > leaf - 2 else 1) + (1 if top > h * 0.7 else 0) - 1, False)
-                    hd_put(c, x - side * (j // 3), y + j, 2 + (1 if j < leaf else 0), False)
-            hd_put(c, x, y, 1, False)
+                    hd_put(c, x - side * (j // 3), y + j, 3 + (1 if j < leaf else 0), False)
+            hd_put(c, x, y, 1 if t < 0.15 else 3, False)  # the rib dark only at the root: no outline against the light
     return c
 
 
@@ -1308,6 +1323,11 @@ def bush_hd(rng, w, h, look=None):
     mask = np.hypot((xs - (w - 1) / 2) / (w / 2), (ys - h * 0.62) / (h * 0.62)) + (edge - 0.5) * 0.7 <= 1  # lumpy, not round
     mask[h - 1] = mask[h - 2]  # stands on the ground
     c = leaf_mass(rng, LEAF_SHAPES["oval"], (h, w), 9, (6, 10), 1.0, 3, False, mask)
+    for y, x in zip(*np.nonzero(mask)):  # the rim against the air takes a mid tone: no painted outline
+        if c[y, x] is not None and c[y, x] < 3 and any(
+                not (0 <= y + dy < h and 0 <= x + dx < w) or c[y + dy, x + dx] is None
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+            c[y, x] = 3
     k = np.random.default_rng(int(rng.integers(1 << 30)))
     if look:
         for _ in range(w * h // 30):
@@ -1658,21 +1678,21 @@ def build(pal, blocks):
     straw = [RR("straw", 46 + d, 0.75, 0.08) for d in hues]
     for k, d in enumerate(hues):
         sfx = f".{k}" if k else ""
-        G = RR("meadow green" + (f" {k}" if k else ""), 104 + d, 0.95, -0.05)
+        G = RR("meadow green" + (f" {k}" if k else ""), 0, rgb=turned(MEADOW, d))
         plant(f"short grass{sfx}", lambda g, w, h, G=G: named_canvas(blades_hd(g, w, h, w * 3, 3, h, 0.45, 0.15), [G]))
         plant(f"tall grass{sfx}", lambda g, w, h, G=G: named_canvas(blades_hd(g, w, h, w * 3, h // 3, h, 0.45), [G]))
         plant(f"wild wheat{sfx}", lambda g, w, h, G=G, S=straw[k]: named_canvas(ears_hd(g, w, h), [G, S]))
-        plant(f"fern{sfx}", lambda g, w, h, F=RR("fern" + (f" {k}" if k else ""), 108 + d, 0.9, 0.0):
+        plant(f"fern{sfx}", lambda g, w, h, F=RR("fern" + (f" {k}" if k else ""), 104 + d, 0.9, -0.04):
               named_canvas(fern_hd(g, w, h), [F]))
         plant(f"reeds{sfx}", lambda g, w, h, G=G: named_canvas(reeds_hd(g, w, h), [G, RR("cattail", 22, 0.5, -0.02)]))
     petals = [RR("red petal", 2, 0.85, 0.08), RR("yellow petal", 50, 0.95, 0.15), RR("blue petal", 240, 0.6, 0.12)]
     for k, pr in enumerate(petals):
-        G = RR("meadow green" + (f" {k}" if k else ""), 104 + hues[k], 0.95, -0.05)
+        G = RR("meadow green" + (f" {k}" if k else ""), 0, rgb=turned(MEADOW, hues[k]))
         plant(f"flowers{f'.{k}' if k else ''}", lambda g, w, h, G=G, pr=pr: named_canvas(flowers_hd(g, w, h), [G, pr]))
-    bush_r = RR("berry bush", 96, 0.85, 0.0)
+    bush_r = RR("berry bush", 104, 0.85, -0.06)
     plant("berry bush", lambda g, w, h: named_canvas(bush_hd(np.random.default_rng(seed_of("berry bush")), w, h), [bush_r]))
-    plant("berry bush.1", lambda g, w, h: named_canvas(bush_hd(g, w, h), [RR("berry bush 1", 90, 0.85, 0.01)]))
-    plant("berry bush.2", lambda g, w, h: named_canvas(bush_hd(g, w, h), [RR("berry bush 2", 102, 0.85, -0.01)]))
+    plant("berry bush.1", lambda g, w, h: named_canvas(bush_hd(g, w, h), [RR("berry bush 1", 98, 0.85, -0.05)]))
+    plant("berry bush.2", lambda g, w, h: named_canvas(bush_hd(g, w, h), [RR("berry bush 2", 110, 0.85, -0.07)]))
     plant("berry bush.bloom", lambda g, w, h: named_canvas(
         bush_hd(np.random.default_rng(seed_of("berry bush")), w, h, "bloom"), [bush_r, blossom_r]))
     plant("berry bush.fruit", lambda g, w, h: named_canvas(

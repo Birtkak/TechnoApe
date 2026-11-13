@@ -260,3 +260,22 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
     - look sheets, read beside the references: `out/flora/species-hd.png`, `walls-a.png`, `walls-b.png`,
       `walls-bark.png`, `plants-hd.png`, `meadow-vs-ref.png`;
     - `technoape-studio check=1` ok (430 colours, 125 textures).
+- **Deeper greens, painted for light** (the overseer and the developer, 2026-11-13):
+  - The meadow's greens are now a fixed ramp, `MEADOW` in `tools/paint_textures.py`, sampled from reference 4:
+    a deep, saturated green, yellow only in the two lightest tones. Blades stay mid green most of their length
+    and are lit only at the tip (tone follows height^1.7). The variants turn its hue by -7 and +6 degrees. The
+    berry bush and the fern sit a step deeper too.
+  - Plants must take real light and shadow, so their painted shadow stays light:
+    - no dark outlines: where the berry bush's mass meets the air the darkest tones are lifted to mid, and the
+      fern's rib is dark only at its root;
+    - dark at the root and bright at the tips.
+  - The clutter models (ADR 0082), painted by `tools/paint_clutter.py`, take the same rich ramps. That tool
+    imports `MEADOW`, `rich_rgb` and the palette from `paint_textures.py`, and adds the twelve ramps it uses to
+    the palette:
+    - stones, sticks and flint: the top lit, the sides from shade at the ground to light, soft noise, glints
+      and pits;
+    - the mushroom: a red cap, lit at the middle, with pale spots and pale gills;
+    - grass, fern, flowers, fallen leaves and the berry bush: as the plants.
+  - The palette now has 526 colours. The model files' boxes are unchanged; only their paintings change.
+  - Proof: the sheets `out/flora/plants-hd.png`, `meadow-vs-ref.png` and `clutter.png` (the models' paintings,
+    8x), read; `technoape-studio check=1` ok.

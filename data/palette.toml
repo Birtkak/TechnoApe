@@ -2152,3 +2152,483 @@ ramp = "shrub rich"
 name = "shrub r8"
 rgb = "#b4d553"
 ramp = "shrub rich"
+
+[[colour]]
+name = "meadow green r1"
+rgb = "#062804"
+ramp = "meadow green rich"
+
+[[colour]]
+name = "meadow green r2"
+rgb = "#0a3a06"
+ramp = "meadow green rich"
+
+[[colour]]
+name = "meadow green r3"
+rgb = "#104e09"
+ramp = "meadow green rich"
+
+[[colour]]
+name = "meadow green r4"
+rgb = "#16600b"
+ramp = "meadow green rich"
+
+[[colour]]
+name = "meadow green r5"
+rgb = "#22740f"
+ramp = "meadow green rich"
+
+[[colour]]
+name = "meadow green r6"
+rgb = "#3c8a14"
+ramp = "meadow green rich"
+
+[[colour]]
+name = "meadow green r7"
+rgb = "#70a21a"
+ramp = "meadow green rich"
+
+[[colour]]
+name = "meadow green r8"
+rgb = "#a8b82a"
+ramp = "meadow green rich"
+
+[[colour]]
+name = "fern r1"
+rgb = "#051604"
+ramp = "fern rich"
+
+[[colour]]
+name = "fern r2"
+rgb = "#0d3007"
+ramp = "fern rich"
+
+[[colour]]
+name = "fern r3"
+rgb = "#195009"
+ramp = "fern rich"
+
+[[colour]]
+name = "fern r4"
+rgb = "#2a7209"
+ramp = "fern rich"
+
+[[colour]]
+name = "fern r5"
+rgb = "#42920f"
+ramp = "fern rich"
+
+[[colour]]
+name = "fern r6"
+rgb = "#5faf17"
+ramp = "fern rich"
+
+[[colour]]
+name = "fern r7"
+rgb = "#7fcc20"
+ramp = "fern rich"
+
+[[colour]]
+name = "fern r8"
+rgb = "#9fda3a"
+ramp = "fern rich"
+
+[[colour]]
+name = "berry bush r1"
+rgb = "#041103"
+ramp = "berry bush rich"
+
+[[colour]]
+name = "berry bush r2"
+rgb = "#0b2606"
+ramp = "berry bush rich"
+
+[[colour]]
+name = "berry bush r3"
+rgb = "#174509"
+ramp = "berry bush rich"
+
+[[colour]]
+name = "berry bush r4"
+rgb = "#27660b"
+ramp = "berry bush rich"
+
+[[colour]]
+name = "berry bush r5"
+rgb = "#3e8511"
+ramp = "berry bush rich"
+
+[[colour]]
+name = "berry bush r6"
+rgb = "#5aa219"
+ramp = "berry bush rich"
+
+[[colour]]
+name = "berry bush r7"
+rgb = "#79bf23"
+ramp = "berry bush rich"
+
+[[colour]]
+name = "berry bush r8"
+rgb = "#9ad336"
+ramp = "berry bush rich"
+
+[[colour]]
+name = "berry r1"
+rgb = "#46080e"
+ramp = "berry rich"
+
+[[colour]]
+name = "berry r2"
+rgb = "#6e0e14"
+ramp = "berry rich"
+
+[[colour]]
+name = "berry r3"
+rgb = "#961618"
+ramp = "berry rich"
+
+[[colour]]
+name = "berry r4"
+rgb = "#b91e1e"
+ramp = "berry rich"
+
+[[colour]]
+name = "berry r5"
+rgb = "#d73028"
+ramp = "berry rich"
+
+[[colour]]
+name = "berry r6"
+rgb = "#eb503c"
+ramp = "berry rich"
+
+[[colour]]
+name = "berry r7"
+rgb = "#f5785f"
+ramp = "berry rich"
+
+[[colour]]
+name = "berry r8"
+rgb = "#ffb9a0"
+ramp = "berry rich"
+
+[[colour]]
+name = "mushroom cap r1"
+rgb = "#46080f"
+ramp = "mushroom cap rich"
+
+[[colour]]
+name = "mushroom cap r2"
+rgb = "#6e0e15"
+ramp = "mushroom cap rich"
+
+[[colour]]
+name = "mushroom cap r3"
+rgb = "#961619"
+ramp = "mushroom cap rich"
+
+[[colour]]
+name = "mushroom cap r4"
+rgb = "#b91e1f"
+ramp = "mushroom cap rich"
+
+[[colour]]
+name = "mushroom cap r5"
+rgb = "#d73029"
+ramp = "mushroom cap rich"
+
+[[colour]]
+name = "mushroom cap r6"
+rgb = "#eb503d"
+ramp = "mushroom cap rich"
+
+[[colour]]
+name = "mushroom cap r7"
+rgb = "#f57860"
+ramp = "mushroom cap rich"
+
+[[colour]]
+name = "mushroom cap r8"
+rgb = "#ffb9a1"
+ramp = "mushroom cap rich"
+
+[[colour]]
+name = "mushroom stem r1"
+rgb = "#62543c"
+ramp = "mushroom stem rich"
+
+[[colour]]
+name = "mushroom stem r2"
+rgb = "#756546"
+ramp = "mushroom stem rich"
+
+[[colour]]
+name = "mushroom stem r3"
+rgb = "#8c7951"
+ramp = "mushroom stem rich"
+
+[[colour]]
+name = "mushroom stem r4"
+rgb = "#a48e5c"
+ramp = "mushroom stem rich"
+
+[[colour]]
+name = "mushroom stem r5"
+rgb = "#b09f75"
+ramp = "mushroom stem rich"
+
+[[colour]]
+name = "mushroom stem r6"
+rgb = "#bcb08e"
+ramp = "mushroom stem rich"
+
+[[colour]]
+name = "mushroom stem r7"
+rgb = "#cac1a7"
+ramp = "mushroom stem rich"
+
+[[colour]]
+name = "mushroom stem r8"
+rgb = "#d8d2c0"
+ramp = "mushroom stem rich"
+
+[[colour]]
+name = "red petal r1"
+rgb = "#490e14"
+ramp = "red petal rich"
+
+[[colour]]
+name = "red petal r2"
+rgb = "#641012"
+ramp = "red petal rich"
+
+[[colour]]
+name = "red petal r3"
+rgb = "#841812"
+ramp = "red petal rich"
+
+[[colour]]
+name = "red petal r4"
+rgb = "#a72512"
+ramp = "red petal rich"
+
+[[colour]]
+name = "red petal r5"
+rgb = "#c43c19"
+ramp = "red petal rich"
+
+[[colour]]
+name = "red petal r6"
+rgb = "#dd5926"
+ramp = "red petal rich"
+
+[[colour]]
+name = "red petal r7"
+rgb = "#de804c"
+ramp = "red petal rich"
+
+[[colour]]
+name = "red petal r8"
+rgb = "#e0a170"
+ramp = "red petal rich"
+
+[[colour]]
+name = "yellow petal r1"
+rgb = "#6b5b0f"
+ramp = "yellow petal rich"
+
+[[colour]]
+name = "yellow petal r2"
+rgb = "#89740f"
+ramp = "yellow petal rich"
+
+[[colour]]
+name = "yellow petal r3"
+rgb = "#ab910e"
+ramp = "yellow petal rich"
+
+[[colour]]
+name = "yellow petal r4"
+rgb = "#d1b20c"
+ramp = "yellow petal rich"
+
+[[colour]]
+name = "yellow petal r5"
+rgb = "#eecd14"
+ramp = "yellow petal rich"
+
+[[colour]]
+name = "yellow petal r6"
+rgb = "#ebd23c"
+ramp = "yellow petal rich"
+
+[[colour]]
+name = "yellow petal r7"
+rgb = "#ead863"
+ramp = "yellow petal rich"
+
+[[colour]]
+name = "yellow petal r8"
+rgb = "#ecdf89"
+ramp = "yellow petal rich"
+
+[[colour]]
+name = "fallen leaves r1"
+rgb = "#2f1a09"
+ramp = "fallen leaves rich"
+
+[[colour]]
+name = "fallen leaves r2"
+rgb = "#49290c"
+ramp = "fallen leaves rich"
+
+[[colour]]
+name = "fallen leaves r3"
+rgb = "#693c0e"
+ramp = "fallen leaves rich"
+
+[[colour]]
+name = "fallen leaves r4"
+rgb = "#8b530f"
+ramp = "fallen leaves rich"
+
+[[colour]]
+name = "fallen leaves r5"
+rgb = "#a96b16"
+ramp = "fallen leaves rich"
+
+[[colour]]
+name = "fallen leaves r6"
+rgb = "#c6861f"
+ramp = "fallen leaves rich"
+
+[[colour]]
+name = "fallen leaves r7"
+rgb = "#d99f32"
+ramp = "fallen leaves rich"
+
+[[colour]]
+name = "fallen leaves r8"
+rgb = "#dbb257"
+ramp = "fallen leaves rich"
+
+[[colour]]
+name = "twig r1"
+rgb = "#1f150f"
+ramp = "twig rich"
+
+[[colour]]
+name = "twig r2"
+rgb = "#342417"
+ramp = "twig rich"
+
+[[colour]]
+name = "twig r3"
+rgb = "#4c3521"
+ramp = "twig rich"
+
+[[colour]]
+name = "twig r4"
+rgb = "#67492a"
+ramp = "twig rich"
+
+[[colour]]
+name = "twig r5"
+rgb = "#7f5e36"
+ramp = "twig rich"
+
+[[colour]]
+name = "twig r6"
+rgb = "#977543"
+ramp = "twig rich"
+
+[[colour]]
+name = "twig r7"
+rgb = "#ae8c52"
+ramp = "twig rich"
+
+[[colour]]
+name = "twig r8"
+rgb = "#b8a06f"
+ramp = "twig rich"
+
+[[colour]]
+name = "pebble r1"
+rgb = "#29292e"
+ramp = "pebble rich"
+
+[[colour]]
+name = "pebble r2"
+rgb = "#36373e"
+ramp = "pebble rich"
+
+[[colour]]
+name = "pebble r3"
+rgb = "#464950"
+ramp = "pebble rich"
+
+[[colour]]
+name = "pebble r4"
+rgb = "#565e64"
+ramp = "pebble rich"
+
+[[colour]]
+name = "pebble r5"
+rgb = "#677577"
+ramp = "pebble rich"
+
+[[colour]]
+name = "pebble r6"
+rgb = "#798a88"
+ramp = "pebble rich"
+
+[[colour]]
+name = "pebble r7"
+rgb = "#8e9c96"
+ramp = "pebble rich"
+
+[[colour]]
+name = "pebble r8"
+rgb = "#a3aea7"
+ramp = "pebble rich"
+
+[[colour]]
+name = "flint r1"
+rgb = "#120f14"
+ramp = "flint rich"
+
+[[colour]]
+name = "flint r2"
+rgb = "#1d1c25"
+ramp = "flint rich"
+
+[[colour]]
+name = "flint r3"
+rgb = "#292b39"
+ramp = "flint rich"
+
+[[colour]]
+name = "flint r4"
+rgb = "#38414e"
+ramp = "flint rich"
+
+[[colour]]
+name = "flint r5"
+rgb = "#475a63"
+ramp = "flint rich"
+
+[[colour]]
+name = "flint r6"
+rgb = "#587778"
+ramp = "flint rich"
+
+[[colour]]
+name = "flint r7"
+rgb = "#698d85"
+ramp = "flint rich"
+
+[[colour]]
+name = "flint r8"
+rgb = "#809e8e"
+ramp = "flint rich"
