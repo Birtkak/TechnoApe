@@ -24,9 +24,10 @@ Option 2.
 
 - `data/blocks.toml`: `joins = true` marks a block whose faces join (lamp, blue lamp); `blocks::Def::joins`.
 - `mesh.rs`: the quad's high word is `material8 | ao8 << 8 | join4 << 16`; for a joining block, `join_sides`
-  sets bit 0..3 (u-, u+, v-, v+) where the in-plane neighbour is the same block and the cell in front of it is
-  air, so its face there is drawn too. A joining block's faces never merge (each knows its own sides). Other
-  blocks pay one bit test a quad; the side work is a cold function out of the loop.
+  sets bit 0..3 (u-, u+, v-, v+) where the in-plane neighbour is the same block and the cell in front of it does
+  not hide its face by the mesher's own culling rule (air, glass, fancy cutout blocks), so its face is drawn
+  too. A joining block's faces never merge (each knows its own sides). Other blocks pay one bit test a quad;
+  the side work is a cold function out of the loop.
 - `shader.wgsl` `texel_a`: with a mask, the texel index is clamped `JOIN_FRAME` (2) texels in from each joined
   side before anything else, so the frame there reads as the glow next to it. It works in the face's u, v
   before the per-face turning, so all six faces agree with the mesher.
@@ -54,4 +55,9 @@ Option 2.
 - The quad's bits 20..31 stay free.
 
 ## Review
-Fresh reviewer: pending at the time of writing; its findings are listed below.
+A fresh reviewer read the diff and the code round it. It found the u, v orientation right on all six faces, the
+padded indexing in range, no other reader of the quad's bits 16+, and the merging rule right. Fixed: a neighbour
+was taken as drawn only with air in front, so lamps behind glass (or fancy leaves) kept their frames and a seam
+could be framed on one side only; it now uses the mesher's culling rule, and the test gained a column along y on
+the -x faces with a pane in front (red, then green). Noted: the test cannot reach the shader's orientation (the
+films show it); a lamp wall stops merging on coarse levels too (a few more far quads).
