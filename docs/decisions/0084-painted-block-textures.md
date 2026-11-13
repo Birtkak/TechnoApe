@@ -348,3 +348,21 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
     - pine has fewer, longer rosettes.
   - Proof: `out/flora/leaves-10-20m.png`, every species' leaves box-filtered to 28 and 14 px a block (about 10
     and 20 m in the crowns stills), read. Clusters carry for all but willow, whose strands are its look.
+- **Reeds that differ** (the developer on the in-game stills, 2026-11-13: "the reeds seems a bit flat and too
+  uniform"):
+  - `reeds_hd` paints four kinds (`REED_KINDS`), each with its own stalk count, height and lean:
+    - tall with cattails (`reeds`);
+    - tall without (`.1`);
+    - short and leaning (`.2`);
+    - sparse with one broken stalk folding over (`.3`, new).
+  - Inside each, stalks are two texels wide and of uneven height, lit on the left, with a dark base and a long
+    leaf or two arching off.
+  - Greens vary, with a few dry tan stalks (straw); short blades grow behind as an under-layer.
+  - `reeds.back.png` is the tall kind two tones darker in every ramp (`darker`), for the back row of a bed so it
+    has depth front to back.
+  - The reed block's four variants are the four kinds, a block high.
+  - The same stamped look elsewhere:
+    - each fern now has its own number of fronds, spans and lean;
+    - short grass and tall grass get a fourth outline (`.3`).
+  - Proof: `out/flora/reeds.png` (the five reed paintings, a bed with the back row behind, the block) and
+    `plants-hd.png`, read.
