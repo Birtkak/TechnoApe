@@ -4,6 +4,7 @@ pub mod biomes;
 pub mod blocks;
 pub mod bodies;
 pub mod caves;
+pub mod clutter;
 pub mod ore;
 pub mod creatures;
 pub mod edit;

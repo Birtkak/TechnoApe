@@ -48,6 +48,9 @@ pub enum ToServer {
     /// rules and applies it whole or not at all (`items::shift`), then answers `Done` with the same `seq` and the
     /// slots as they now are; the client predicts it with the same rule.
     Items { seq: u32, from: (crate::items::Holder, u16), to: (crate::items::Holder, u16), n: u16 },
+    /// Takes the pick-up lying in air cell `at` into the slots (ADR 0082): the server checks reach, that one lies
+    /// there (`clutter::pickup_at`), was not taken and fits, then answers `Done` with the same `seq`.
+    Take { seq: u32, at: crate::world::Block },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -91,6 +94,9 @@ pub enum ToClient {
     /// The live air where this player stands (W3, `weather::Weather::here`), every `AIR_EVERY` ticks on a
     /// planet whose map keeps a climate.
     Air(crate::weather::Here),
+    /// Pick-ups taken (ADR 0082): the cell each lay in and the year (`clutter::year`); every one on join.
+    /// shortcut: every mark to every client, as the piles.
+    Taken(Vec<(crate::world::Block, u32)>),
 }
 
 /// Ticks between the `ToClient::Air` a player is sent (2 s).

@@ -1,0 +1,84 @@
+# Clutter: the small things on the ground (ADR 0082, docs/design/clutter-and-pickups.md; schema and checks in
+# crates/engine/src/clutter.rs). Whether a thing lies on a column, which and how it is turned is a pure function
+# of the seed, the column and the season; only what was taken is saved. Each row's model is
+# data/models/<name>.toml with its painting <name>.png (and alternates <name>.1 to .4), made by
+# tools/paint_clutter.py. A biome lists its clutter in data/biomes.toml as [name, per 100 columns].
+# `kind`: "decoration" (drawn only, thinned by the Clutter setting) or "pickup" (taken by looking and clicking).
+# `gives`: a pick-up's item and how many. `on`: the ground blocks it lies on. `near`: "tree" (within 3 columns of
+# a trunk) or "open" (not). `season`: when it is there (all year if left out). `regrow`: "year" (it comes back
+# each year; left out, it never does).
+
+[[clutter]]
+name = "grass tuft"
+kind = "decoration"
+on = ["grass", "meadow grass", "cold grass", "scrub grass", "savanna grass", "marsh grass"]
+season = ["spring", "summer", "autumn"]
+
+[[clutter]]
+name = "fern"
+kind = "decoration"
+on = ["grass", "jungle grass", "cold grass"]
+near = "tree"
+season = ["spring", "summer", "autumn"]
+
+[[clutter]]
+name = "fallen leaves"
+kind = "decoration"
+on = ["grass", "dirt", "meadow grass"]
+near = "tree"
+season = ["autumn", "winter"]
+
+[[clutter]]
+name = "twigs"
+kind = "decoration"
+on = ["grass", "dirt", "cold grass", "jungle grass", "scrub grass", "savanna grass"]
+
+[[clutter]]
+name = "flowers"
+kind = "decoration"
+on = ["grass", "meadow grass", "tundra grass", "savanna grass"]
+near = "open"
+season = ["spring", "summer"]
+
+[[clutter]]
+name = "pebbles"
+kind = "decoration"
+on = ["grass", "dirt", "sand", "gravel", "tundra grass", "scrub grass", "cold grass", "stone"]
+
+[[clutter]]
+name = "stick"
+kind = "pickup"
+gives = ["stick", 1]
+on = ["grass", "dirt", "cold grass", "jungle grass", "scrub grass", "savanna grass", "meadow grass"]
+near = "tree"
+regrow = "year"
+
+[[clutter]]
+name = "loose stone"
+kind = "pickup"
+gives = ["loose stone", 1]
+on = ["grass", "dirt", "sand", "gravel", "tundra grass", "scrub grass", "cold grass", "meadow grass", "stone"]
+
+[[clutter]]
+name = "flint"
+kind = "pickup"
+gives = ["flint", 1]
+on = ["gravel", "sand", "dirt", "scrub grass", "stone", "tundra grass"]
+
+[[clutter]]
+name = "mushroom"
+kind = "pickup"
+gives = ["mushroom", 1]
+on = ["grass", "cold grass", "jungle grass"]
+near = "tree"
+season = ["autumn"]
+regrow = "year"
+
+[[clutter]]
+name = "berries"
+kind = "pickup"
+gives = ["berries", 3]
+on = ["grass", "meadow grass", "cold grass", "tundra grass"]
+near = "open"
+season = ["summer"]
+regrow = "year"

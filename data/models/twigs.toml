@@ -1,0 +1,26 @@
+# A draft twigs (Claude's, listed in data/drafts.txt): clutter, ADR 0082. Painted
+# boxes at 32 px a metre (thin sticks crossing); made by tools/paint_clutter.py.
+colours = ["log"]
+
+[[part]]
+name = "body"
+box = [1, 1, 1]
+voxels = "."
+
+[[part.boxes]]
+at = [6.0, 0.0, 12.0]
+size = [14, 1, 1]
+turn = [0.0, 20.0, 0.0]
+uv = [0, 0]
+
+[[part.boxes]]
+at = [10.0, 0.0, 18.0]
+size = [14, 1, 1]
+turn = [0.0, -35.0, 0.0]
+uv = [30, 0]
+
+[[part.boxes]]
+at = [14.0, 0.0, 8.0]
+size = [14, 1, 1]
+turn = [0.0, 70.0, 0.0]
+uv = [0, 2]

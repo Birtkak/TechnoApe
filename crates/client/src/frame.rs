@@ -270,6 +270,11 @@ impl App {
                         self.inv = slots;
                     }
                 }
+                Recv::Msg(ToClient::Taken(v)) => {
+                    for (b, y) in v {
+                        self.streamer.take(&self.world, b, y);
+                    }
+                }
                 Recv::Msg(ToClient::Piles(v)) => {
                     for (b, s) in v {
                         if s.is_empty() {
@@ -486,6 +491,10 @@ impl App {
         // the Leaves setting (ADR 0069), or a run's leaves=fancy|fast: level 0 meshed again when it changes
         let fancy = self.args.0.get("leaves").map_or(self.settings.at(S::Leaves) == 1, |v| v == "fancy");
         self.streamer.set_cutout(fancy);
+        // the Clutter setting (ADR 0082), or a run's clutter=off|few|normal|many
+        let level = self.args.0.get("clutter").and_then(|v| ["off", "few", "normal", "many"].iter().position(|n| n == v)).unwrap_or(self.settings.at(S::Clutter));
+        let still = self.gpu.as_ref().unwrap().still.clone();
+        self.streamer.set_clutter(&still, self.world.time, [0.0, 0.25, 1.0, 4.0][level.min(3)]);
         self.streamer.dispatch(&self.world, &mut reqs);
         let sel = ts0.elapsed().as_secs_f64();
         lap!("dispatch");
@@ -503,6 +512,7 @@ impl App {
         let mut sea_args: Vec<DrawArgs> = Vec::new();
         let mut cut_args: Vec<(f32, DrawArgs)> = Vec::new();
         let mut glass_args: Vec<(f32, DrawArgs)> = Vec::new();
+        let mut still_args: Vec<(f32, DrawArgs)> = Vec::new();
         let mut nquads = 0u64;
         let mut insts: Vec<rt::Inst> = Vec::with_capacity(draws.len());
         let frame_no = self.streamer.frame;
@@ -514,9 +524,10 @@ impl App {
             let (ci, new) = self.slots.get(d.off, frame_no);
             assert!((ci as usize) < MAX_CHUNKS, "chunk table full");
             if new {
-                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.cut - d.glass, _p: [0; 2] }));
+                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.still - d.cut - d.glass, _p: [0; 2] }));
             }
-            let land = d.len - d.water;
+            // the still models' quads lie between the land's and the sea's, in no BLAS (ADR 0082)
+            let land = d.len - d.water - d.still;
             if land > 0 {
                 // the cutout and glass quads are the BLAS's second geometry, not opaque (ADR 0069, 0081)
                 insts.push(rt::Inst { off: d.off, land, cut: d.cut + d.glass, base: k.base().into(), info, body: k.body, ci });
@@ -533,12 +544,15 @@ impl App {
                 cut_args.push((d.dist, DrawArgs { vertex_count: d.cut * 6, instance_count: 1, first_vertex: (d.off + opq) * 6, first_instance: ci }));
             }
             if d.glass > 0 {
-                glass_args.push((d.dist, DrawArgs { vertex_count: d.glass * 6, instance_count: 1, first_vertex: (d.off + opq + d.cut) * 6, first_instance: ci }));
+                glass_args.push((d.centre, DrawArgs { vertex_count: d.glass * 6, instance_count: 1, first_vertex: (d.off + opq + d.cut) * 6, first_instance: ci }));
+            }
+            if d.still > 0 {
+                still_args.push((d.dist, DrawArgs { vertex_count: d.still * 6, instance_count: 1, first_vertex: (d.off + land) * 6, first_instance: ci }));
             }
             if d.water > 0 {
                 // vs_sea draws each sea quad in SEA_SUB^2 pieces, one instance each: instance = chunk * pieces + piece
                 let pieces = SEA_SUB * SEA_SUB;
-                sea_args.push(DrawArgs { vertex_count: d.water * 6, instance_count: pieces, first_vertex: (d.off + land) * 6, first_instance: ci * pieces });
+                sea_args.push(DrawArgs { vertex_count: d.water * 6, instance_count: pieces, first_vertex: (d.off + land + d.still) * 6, first_instance: ci * pieces });
             }
             nquads += d.len as u64;
         }
@@ -550,6 +564,8 @@ impl App {
         // glass far to near, so the nearer pane blends over the farther (ADR 0081; inside a chunk unsorted)
         glass_args.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
         let glass_args: Vec<DrawArgs> = glass_args.into_iter().map(|a| a.1).collect();
+        still_args.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+        let still_args: Vec<DrawArgs> = still_args.into_iter().map(|a| a.1).collect();
         // the water mesh when it changed, or the tide moved the sea in its tiles
         self.water.retide(&self.world, self.start.elapsed().as_secs_f32());
         let n = self.water.all.len().min(MAX_WQUADS);
@@ -762,6 +778,9 @@ impl App {
         if !cut_args.is_empty() {
             gpu.queue.write_buffer(&gpu.indirect, (MAX_CHUNKS * 32) as u64, bytemuck::cast_slice(&cut_args));
         }
+        if !still_args.is_empty() {
+            gpu.queue.write_buffer(&gpu.indirect, (MAX_CHUNKS * 64) as u64, bytemuck::cast_slice(&still_args));
+        }
         if !glass_args.is_empty() {
             gpu.queue.write_buffer(&gpu.indirect, (MAX_CHUNKS * 48) as u64, bytemuck::cast_slice(&glass_args));
         }
@@ -884,12 +903,20 @@ impl App {
                     rp.set_pipeline(&gpu.cut_pipeline);
                     rp.multi_draw_indirect(&gpu.indirect, (MAX_CHUNKS * 32) as u64, cut_args.len() as u32);
                 }
+                if !still_args.is_empty() {
+                    rp.set_pipeline(&gpu.still_pipeline);
+                    rp.multi_draw_indirect(&gpu.indirect, (MAX_CHUNKS * 64) as u64, still_args.len() as u32);
+                }
             } else {
                 for d in &args {
                     rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
                 }
                 rp.set_pipeline(&gpu.cut_pipeline);
                 for d in &cut_args {
+                    rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
+                }
+                rp.set_pipeline(&gpu.still_pipeline);
+                for d in &still_args {
                     rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
                 }
             }

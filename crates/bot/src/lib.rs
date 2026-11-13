@@ -45,6 +45,8 @@ pub enum Cmd {
     Take(DVec3, u16, u16, u16),
     Put(u16, DVec3, u16, u16),
     Grab(u16, u16, u16),
+    /// Take the pick-up lying in the cell at this offset from the feet (ADR 0082).
+    Pick(DVec3),
     Quit,
 }
 
@@ -76,6 +78,7 @@ pub fn parse(line: &str) -> Result<Option<Cmd>, String> {
             let item = ITEMS.named(&name).ok_or(format!("no block or item '{name}' in '{line}'"))?;
             Cmd::Grab(item, num(w.len() - 2)? as u16, num(w.len() - 1)? as u16)
         }
+        "pick" => Cmd::Pick(v()?),
         "quit" => Cmd::Quit,
         _ => return Err(format!("unknown command '{}'", w[0])),
     }))
@@ -158,7 +161,7 @@ impl Bot {
                 }
                 Recv::Msg(ToClient::Done { ok, .. }) => self.refused += !ok as u64,
                 Recv::Msg(ToClient::Inventory { slots, .. }) => self.slots = slots,
-                Recv::Msg(ToClient::Vitals { dead: None, .. } | ToClient::Digging { .. } | ToClient::Map { .. } | ToClient::Piles(_)) => {}
+                Recv::Msg(ToClient::Vitals { dead: None, .. } | ToClient::Digging { .. } | ToClient::Map { .. } | ToClient::Piles(_) | ToClient::Taken(_)) => {}
                 // a bot that dies respawns at once (ADR 0040); it builds in creative, so only a switch to
                 // survival can get it there
                 Recv::Msg(ToClient::Vitals { dead: Some(_), .. }) => self.link.send(ToServer::Respawn),
@@ -226,6 +229,10 @@ impl Bot {
                 let m = if let Cmd::Place(_, m) = c { *m } else { 0 };
                 self.seq += 1;
                 self.link.send(ToServer::Edit { seq: self.seq, shape: Shape::one(w.block_at(self.feet() + *d)), material: m });
+            }
+            Cmd::Pick(d) => {
+                self.seq += 1;
+                self.link.send(ToServer::Take { seq: self.seq, at: w.block_at(self.feet() + *d) });
             }
             Cmd::Block(d) => {
                 let b = w.block_at(self.feet() + *d);

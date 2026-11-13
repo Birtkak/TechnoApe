@@ -50,6 +50,8 @@ pub(super) const TOOLS: [(Tool, &str, &str, Key, &str); 12] = [
 ];
 /// The Eraser's tip while the block is opaque: why it is off.
 const ERASER_OFF: &str = "Eraser: only for a cutout block (choose Cutout under Kind); an opaque block has no empty pixels";
+/// A glass block's line in the Kind section, and why its kind is not changed there.
+const GLASS: &str = "Glass: partly clear (ADR 0081), set in data/blocks.toml; the Studio does not paint clearness yet, so its kind is not changed here";
 /// The kinds of block (`see` in data/blocks.toml, ADR 0069): (id, name, what it is for).
 const KINDS: [(See, &str, &str); 2] = [
     (See::Opaque, "Opaque", "Opaque: hides what is behind it, for ground, stone, wood."),
@@ -414,6 +416,9 @@ impl Textures {
     fn set_kind(&mut self, app: &mut App, see: See) {
         if self.kind(app) == see {
             return;
+        }
+        if self.kind(app) == See::Glass {
+            return app.refuse(GLASS);
         }
         let open = self.file(self.face);
         if see == See::Opaque && !self.may_be_opaque(app) {
@@ -1654,7 +1659,8 @@ impl Page for Textures {
             let ui = &mut *sec;
             let (kind, mut pick) = (self.kind(app), None);
             ui.horizontal(|ui| {
-                for (see, name, what) in KINDS {
+                // glass: no chips, its line says why
+                for (see, name, what) in KINDS.into_iter().filter(|_| kind != See::Glass) {
                     let r = look::chip(ui, kind == see, name);
                     crate::drive::mark(ui.ctx(), format!("kind:{}", name.to_lowercase()), r.rect);
                     let help = if see == See::Cutout { format!("{what} Writes see = \"cutout\" to its row in data/blocks.toml; one undo step. The game and this view take a new kind after a rebuild (blocks.toml is built in)") } else { format!("{what} Drops see from its row in data/blocks.toml; the open face's empty pixels are filled with its mean colour; one undo step. The game and this view take a new kind after a rebuild (blocks.toml is built in)") };
@@ -1664,7 +1670,7 @@ impl Page for Textures {
                 }
             });
             // the chosen kind's line; the other's is its chip's tip
-            look::weak(ui, KINDS.iter().find(|k| k.0 == kind).map_or("", |k| k.2));
+            look::weak(ui, KINDS.iter().find(|k| k.0 == kind).map_or(GLASS, |k| k.2));
             if let Some(see) = pick {
                 self.set_kind(app, see);
             }

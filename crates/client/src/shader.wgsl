@@ -297,7 +297,9 @@ fn trace(o: vec3f, db: vec3f, body: u32, tmax: f32, flags: u32) -> RayIntersecti
         let c = rayQueryGetCandidateIntersection(&rq);
         let q = hit_quad(c.instance_custom_data, c.geometry_index, c.primitive_index);
         if (is_glass(q.y)) {
-            let t = hit_texel(c.instance_custom_data, q, c.primitive_index, c.barycentrics);
+            // far glass is drawn in its one colour, half clear: its shadow the same
+            var t = vec4f(seen_colour(q.y & 255u, vec3f(0.0)), 0.45);
+            if (((chunks[c.instance_custom_data].info >> 3u) & 31u) == 0u) { t = hit_texel(c.instance_custom_data, q, c.primitive_index, c.barycentrics); }
             ray_tint *= mix(vec3f(1.0), t.rgb, t.a);
         } else if (!hit_empty(c.instance_custom_data, q, c.primitive_index, c.barycentrics)) {
             rayQueryConfirmIntersection(&rq);
@@ -458,7 +460,8 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
         var to_sun = sd;
         if ((g.opt.x & 1u) == 0u) { to_sun = in_disc(sd, ar, px); }
         let seen = occ * ray(p, n, to_sun, body, 1e5);
-        o.sun = ecl * seen;
+        // (the glint behind a pane takes its share of the tint)
+        o.sun = ecl * seen * dot(ray_tint, vec3f(1.0 / 3.0));
         o.l += (sun_on(body) * ecl + COPPER * copper) * ndl * seen * moon_gain(body) * ray_tint;
     }
     // the moon's light where the sun's is weak, through the same terrain
@@ -839,7 +842,7 @@ fn texel_a(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> ve
     if (py != 0u) { cy = paint_texel(py, cell, x, y); }
     let mixed = mix(c, mix(cx, cy, r.f), sn.y);
     // the empty texels of the season nearest in the mix
-    return vec4f(mixed.rgb, select(0.0, 1.0, mixed.a >= 0.5));
+    return vec4f(mixed.rgb, select(select(0.0, 1.0, mixed.a >= 0.5), mixed.a, is_glass(m0)));
 }
 
 // texel (x, y) of a painted face (`face_paint`): one of its variants by the cell's hash, the same on every face;
@@ -1551,6 +1554,72 @@ fn fs_fx(i: FxOut) -> GOut {
 // in its voxels; w | h << 6; rgba8) placed by the piece's transform straight into the camera's frame. Lit by
 // `light()` where they stand, as the terrain and the effects are; not in the traced scene, so they cast no
 // shadow.
+// ---- still models (ADR 0068, 0081, 0082: clutter) ----
+// A painted box face put in a level-0 chunk's mesh as one quad (`clutter::quad`): the cell x6 y6 z6 and its place
+// in the cell u4 v4 in lo, the face's index in `sfaces` and its turn in sixteenths in hi. Drawn into the G-buffer
+// as the terrain is and lit the same; not traced (no shadow).
+struct SFace { o: vec3f, base: u32, eu: vec3f, pw: u32, ev: vec3f, xy: u32, wh: u32, _a: u32, _b: u32, _c: u32 };
+@group(0) @binding(14) var<storage, read> sfaces: array<SFace>;
+@group(0) @binding(15) var<storage, read> spaint: array<u32>;
+
+// a model direction (x, y up, z) turned by the quad's sixteenths about y, into the chunk's axes: model y is the
+// chunk's z (up), model z its -y, a turn and not a mirror
+fn still_dir(q: vec2u, d: vec3f) -> vec3f {
+    let a = f32((q.y >> 16u) & 15u) * (6.2831853 / 16.0);
+    let r = vec2f(d.x * cos(a) - d.z * sin(a), d.x * sin(a) + d.z * cos(a));
+    return vec3f(r.x, -r.y, d.y);
+}
+
+@vertex
+fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
+    let q = quads[vi / 6u];
+    let fi = q.y & 65535u;
+    let f = sfaces[fi];
+    var cu = array<f32, 6>(0., 1., 1., 0., 1., 0.);
+    var cv = array<f32, 6>(0., 0., 1., 0., 1., 1.);
+    let uv = vec2f(cu[vi % 6u], cv[vi % 6u]);
+    let lo = q.x;
+    let cell = vec3f(f32(lo & 63u), f32((lo >> 6u) & 63u), f32((lo >> 12u) & 63u));
+    // its place in the cell: up to a quarter metre off the middle
+    let off = (vec2f(f32((lo >> 18u) & 15u), f32((lo >> 22u) & 15u)) / 15.0 - 0.5) * 0.5;
+    let m = f.o + f.eu * uv.x + f.ev * uv.y;
+    let local = cell + vec3f(0.5 + off.x, 0.5 + off.y, 0.0) + still_dir(q, m - vec3f(0.5, 0.0, 0.5));
+    let c = chunks[ii];
+    let b = g.bodies[(c.info >> 8u) & 255u];
+    let gp = grid(c, local);
+    let fr = frame_at(c.info & 7u, b, gp.x, gp.y);
+    let n = still_dir(q, cross(f.ev, f.eu));
+    let normal = normalize(normalize(fr.s - fr.n * fr.ta) * n.x + normalize(fr.t - fr.n * fr.tb) * n.y + fr.up * n.z);
+    var o: VOut;
+    let rel = brot(b, (place(c, b, local, cell) - b.cam_hi) - b.cam_lo);
+    o.clip = g.view_proj * vec4f(rel, 1.0);
+    o.rel = rel;
+    o.ao = 1.0;
+    // the painting's pixel, in `local.xy`; the face in `dir`; no block's look (0, air: no light of its own, no metal)
+    o.local = vec3f(vec2f(f32(f.xy & 65535u), f32(f.xy >> 16u)) + uv * vec2f(f32(f.wh & 65535u), f32(f.wh >> 16u)), 0.0);
+    o.dir = fi;
+    o.mat = 0u;
+    o.ci = ii;
+    o.normal = brot(b, normal);
+    return o;
+}
+
+@fragment
+fn fs_still(i: VOut) -> GOut {
+    // a plane is two faces back to back: the one turned away goes (the pipeline culls nothing)
+    if (dot(i.normal, i.rel) > 0.0) {
+        discard;
+    }
+    let f = sfaces[i.dir];
+    let x0 = vec2u(f.xy & 65535u, f.xy >> 16u);
+    let px = clamp(vec2u(max(floor(i.local.xy), vec2f(0.0))), x0, x0 + vec2u(f.wh & 65535u, f.wh >> 16u) - 1u);
+    let t = unpack4x8unorm(spaint[f.base + px.y * f.pw + px.x]);
+    if (t.a < 0.5) {
+        discard;
+    }
+    return terrain_lit(i, t.rgb);
+}
+
 struct MPiece { x0: vec4f, x1: vec4f, x2: vec4f, q0: u32, body: u32, _a: u32, _b: u32 };
 @group(0) @binding(12) var<storage, read> mquads: array<vec4u>;
 @group(0) @binding(13) var<storage, read> mpieces: array<MPiece>;

@@ -14,6 +14,9 @@ pub struct Mesh {
     pub cut: u32,
     /// Glass quads (ADR 0081), after the cutout ones: drawn blended after the light, the BLAS's second geometry.
     pub glass: u32,
+    /// Still model quads (ADR 0068, 0082: clutter), after the glass ones and before the water: their own pipeline,
+    /// not in the BLAS.
+    pub still: u32,
     pub water: u32,
 }
 
@@ -36,20 +39,23 @@ fn is_in(t: &[u64; 1024], c: u16) -> bool {
 /// renderer places vertices by interpolation (`Body::lattice`, ADR 0025 I2); 1 merges nothing. Every solid block
 /// but glass hides the faces behind it: the fast Leaves setting, and every coarse level.
 pub fn mesh(cells: &[u16; P * P * P], lattice: usize) -> Mesh {
-    mesh_cut(cells, lattice, false)
+    mesh_cut(cells, lattice, false, true)
 }
 
 /// `mesh`, and with `cutout` (fancy leaves on level 0, ADR 0069) a face is culled only against an opaque
 /// neighbour, so the faces behind and between cutout blocks stay, and the cutout blocks' quads go last as `cut`.
 /// Glass (ADR 0081) always hides only its own kind and is hidden only by what hides; its quads go after `cut`.
-pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool) -> Mesh {
+/// `glass`: the cells may hold glass. Generation makes none, so a chunk without edits passes false and its fast
+/// first pass looks at no block's kind, as before glass.
+pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool, glass: bool) -> Mesh {
     // cols[a][v*P+u] = bits along axis a; u = (a+1)%3, v = (a+2)%3. opq: the same of the cells that hide what is
     // behind them, and gls of glass, made only for a chunk with glass or (fancy) cutout blocks
     let mut cols = [[0u64; P * P]; 3];
     let mut opq_cols: Vec<[u64; P * P]> = Vec::new();
     let mut gls_cols: Vec<[u64; P * P]> = Vec::new();
     let (see_t, glass_t): (&[u64; 1024], &[u64; 1024]) = (&SEE, &GLASS);
-    let mut any_see = false;
+    let (mut any_see, mut glass_seen) = (false, false);
+    let look = cutout || glass;
     for z in 0..P {
         for y in 0..P {
             for x in 0..P {
@@ -58,14 +64,17 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool) -> Mesh 
                     cols[0][z * P + y] |= 1 << x; // a=x: u=y, v=z
                     cols[1][x * P + z] |= 1 << y; // a=y: u=z, v=x
                     cols[2][y * P + x] |= 1 << z; // a=z: u=x, v=y
-                    any_see |= is_in(see_t, c);
+                    if look && is_in(see_t, c) {
+                        any_see = true;
+                        glass_seen |= glass && is_in(glass_t, c);
+                    }
                 }
             }
         }
     }
     let (mut any_cut, mut any_glass) = (false, false);
-    if any_see {
-        // a second pass, only in a chunk that holds a block seen through
+    if glass_seen || cutout && any_see {
+        // a second pass, only in a chunk with glass, or (fancy) cutout blocks: fast leaves hide like any block
         opq_cols = vec![[0u64; P * P]; 3];
         gls_cols = vec![[0u64; P * P]; 3];
         for z in 0..P {
@@ -221,7 +230,7 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cutout: bool) -> Mesh 
         }
         quads.extend_from_slice(g);
     }
-    Mesh { quads, counts, cut: groups[6].len() as u32, glass: groups[7].len() as u32, water: 0 }
+    Mesh { quads, counts, cut: groups[6].len() as u32, glass: groups[7].len() as u32, still: 0, water: 0 }
 }
 
 #[cfg(test)]
@@ -292,14 +301,14 @@ mod tests {
             h ^= h << 5;
             *v = [0, 0, stone, leaves, leaves, shrub][(h % 6) as usize];
         }
-        let fancy = mesh_cut(&c, 1, true);
+        let fancy = mesh_cut(&c, 1, true, true);
         let mut got: Vec<_> = fancy.quads.iter().map(face_of).collect();
         got.sort();
         assert_eq!(got, faces_one_by_one(&c, |_, n| b.opaque(n)), "fancy");
         let n_opq = fancy.quads.len() - fancy.cut as usize;
         assert!(fancy.cut > 0 && fancy.quads[n_opq..].iter().all(|q| !b.opaque((q[1] & 255) as u16)), "the cutout quads come last");
         assert!(fancy.quads[..n_opq].iter().all(|q| b.opaque((q[1] & 255) as u16)));
-        for fast in [mesh(&c, 1), mesh_cut(&c, 1, false)] {
+        for fast in [mesh(&c, 1), mesh_cut(&c, 1, false, true)] {
             let mut got: Vec<_> = fast.quads.iter().map(face_of).collect();
             got.sort();
             assert_eq!(got, faces_one_by_one(&c, |_, n| n != 0), "fast is the old mesher");
@@ -307,7 +316,7 @@ mod tests {
         }
         // a chunk with no cutout block meshes the same either way
         let rock: Box<[u16; P * P * P]> = Box::new(c.map(|v| if v == 0 { 0 } else { stone }));
-        assert_eq!(mesh_cut(&rock, 8, true).quads, mesh(&rock, 8).quads);
+        assert_eq!(mesh_cut(&rock, 8, true, true).quads, mesh(&rock, 8).quads);
     }
 
     /// ADR 0081: a glass face is culled against an opaque neighbour or the same glass; nothing is culled against
@@ -325,7 +334,7 @@ mod tests {
             *v = [0, 0, stone, leaves, glass, glass, green][(h % 7) as usize];
         }
         for fancy in [true, false] {
-            let m = mesh_cut(&c, 1, fancy);
+            let m = mesh_cut(&c, 1, fancy, true);
             let mut got: Vec<_> = m.quads.iter().map(face_of).collect();
             got.sort();
             // what hides a face: an opaque block (fast: leaves too), or the same glass

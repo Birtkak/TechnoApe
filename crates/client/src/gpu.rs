@@ -452,6 +452,10 @@ pub(crate) struct Gpu {
     pub(crate) fx_pipeline: wgpu::RenderPipeline,
     pub mquads: wgpu::Buffer,
     pub mpieces: wgpu::Buffer,
+    /// The clutter's still models (ADR 0082): their faces and paintings are bindings 14 and 15, the streamer
+    /// lays their quads in level 0's meshes; drawn by `still_pipeline`.
+    pub still: std::sync::Arc<engine::clutter::Still>,
+    pub(crate) still_pipeline: wgpu::RenderPipeline,
     pub(crate) model_pipeline: wgpu::RenderPipeline,
     pub(crate) bind: wgpu::BindGroup,
     pub(crate) globals: wgpu::Buffer,
@@ -731,7 +735,8 @@ impl Gpu {
         let lamps = buf("lamps", (MAX_LAMPS * std::mem::size_of::<LampGpu>()) as u64, U::STORAGE | U::COPY_DST);
         let lamp_cells = buf("lamp cells", (LAMP_GRID_LEN * 4) as u64, U::STORAGE | U::COPY_DST);
         // the terrain's draws, then the sea's at MAX_CHUNKS * 16, the cutout blocks' at MAX_CHUNKS * 32 (ADR 0069), glass at MAX_CHUNKS * 48 (ADR 0081)
-        let indirect = buf("indirect", (MAX_CHUNKS * 64) as u64, U::INDIRECT | U::COPY_DST);
+        // and the still models' at MAX_CHUNKS * 64 (ADR 0082)
+        let indirect = buf("indirect", (MAX_CHUNKS * 80) as u64, U::INDIRECT | U::COPY_DST);
         let wquads = buf("wquads", (MAX_WQUADS * std::mem::size_of::<water::WQuad>()) as u64, U::STORAGE | U::COPY_DST);
         let fx_buf = buf("fx", (MAX_FX * std::mem::size_of::<crate::fx::FxGpu>()) as u64, U::STORAGE | U::COPY_DST);
         // every block's look from the registry (ADR 0013, 0039), shader.wgsl `Look`, 64 bytes each: colour rgb,
@@ -743,6 +748,17 @@ impl Gpu {
         // the models (ADR 0047): their quads, and one transform per part drawn
         let mquads = buf("model quads", (crate::models::MAX_MQUADS * 16) as u64, U::STORAGE | U::COPY_DST);
         let mpieces = buf("model pieces", (crate::models::MAX_PIECES * std::mem::size_of::<crate::models::Piece>()) as u64, U::STORAGE | U::COPY_DST);
+        // the clutter's models, read once at the start (shortcut: not live as the models' are; a restart reads them)
+        let palette = std::fs::read_to_string("data/palette.toml").ok().and_then(|t| engine::palette::Palette::parse(&t).ok()).unwrap_or_else(|| crate::fx::PALETTE.clone());
+        let (still, bad) = engine::clutter::Still::load(std::path::Path::new(&a.get("models", String::from("data/models"))), &palette);
+        for b in bad {
+            eprintln!("clutter: {b}");
+        }
+        let sfaces = buf("still faces", (still.faces.len().max(1) * 64) as u64, U::STORAGE | U::COPY_DST);
+        queue.write_buffer(&sfaces, 0, bytemuck::cast_slice(&still.faces));
+        let spaint = buf("still paintings", (still.paint.len().max(1) * 4) as u64, U::STORAGE | U::COPY_DST);
+        queue.write_buffer(&spaint, 0, bytemuck::cast_slice(&still.paint));
+        let still = std::sync::Arc::new(still);
         let tex_rx = watch_textures(std::path::PathBuf::from(a.get("textures", String::from("data/textures"))));
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
@@ -787,6 +803,8 @@ impl Gpu {
                 storage(11),
                 storage(12),
                 storage(13),
+                storage(14),
+                storage(15),
             ],
         });
         let rt = rt::Rt::new(&device, &shader, &globals, &quads, MAX_CHUNKS as u32);
@@ -806,6 +824,8 @@ impl Gpu {
                 wgpu::BindGroupEntry { binding: 11, resource: tex.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 12, resource: mquads.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 13, resource: mpieces.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 14, resource: sfaces.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 15, resource: spaint.as_entire_binding() },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -841,7 +861,7 @@ impl Gpu {
             cache: None,
         });
         // the effects: into the G-buffer as the terrain, with its depth (ADR 0031)
-        let gbuffer_pipeline = |vs: &'static str, fs: &'static str| {
+        let gbuffer_pipeline = |vs: &'static str, fs: &'static str, cull| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(fs),
                 layout: Some(&layout),
@@ -852,7 +872,7 @@ impl Gpu {
                     targets: &gi::TARGETS.map(|f| Some(f.into())),
                     compilation_options: Default::default(),
                 }),
-                primitive: wgpu::PrimitiveState { cull_mode: Some(wgpu::Face::Back), ..Default::default() },
+                primitive: wgpu::PrimitiveState { cull_mode: cull, ..Default::default() },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
                     depth_write_enabled: Some(true),
@@ -865,10 +885,12 @@ impl Gpu {
                 cache: None,
             })
         };
-        let fx_pipeline = gbuffer_pipeline("vs_fx", "fs_fx");
-        let cut_pipeline = gbuffer_pipeline("vs", "fs_cut");
+        let fx_pipeline = gbuffer_pipeline("vs_fx", "fs_fx", Some(wgpu::Face::Back));
+        let cut_pipeline = gbuffer_pipeline("vs", "fs_cut", Some(wgpu::Face::Back));
+        // still models: either way round (`fs_still` drops the face turned away)
+        let still_pipeline = gbuffer_pipeline("vs_still", "fs_still", None);
         // the models (ADR 0047): into the G-buffer with the terrain
-        let model_pipeline = gbuffer_pipeline("vs_model", "fs_model");
+        let model_pipeline = gbuffer_pipeline("vs_model", "fs_model", Some(wgpu::Face::Back));
         // water: blended over the terrain, tested against its depth but not writing it, seen from both sides
         let liquid = |vs, fs, cull| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1017,6 +1039,8 @@ impl Gpu {
             fx_pipeline,
             mquads,
             mpieces,
+            still,
+            still_pipeline,
             model_pipeline,
             ghost_pipeline,
             ghost_buf,

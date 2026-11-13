@@ -225,6 +225,9 @@ pub struct Server {
     /// Of each item, what digs, places, creative's grid and /give made since the start (or what was held at
     /// the load): the items' ledger (`item_ledger`).
     item_made: BTreeMap<u16, i64>,
+    /// The pick-ups taken (ADR 0082): the cell each lay in and the year, and those taken this tick.
+    taken: BTreeMap<PileKey, u32>,
+    taken_changed: Vec<(Block, u32)>,
 }
 
 impl Server {
@@ -281,6 +284,8 @@ impl Server {
             piles: BTreeMap::new(),
             piles_changed: Vec::new(),
             item_made: BTreeMap::new(),
+            taken: BTreeMap::new(),
+            taken_changed: Vec::new(),
         }
     }
 
@@ -344,6 +349,7 @@ impl Server {
             s.lay(at, over, (0, 0));
         }
         s.piles_changed.clear();
+        s.taken = save.held.taken.iter().map(|(b, y)| (key(*b), *y)).collect();
         s.item_made = s.held_now();
         s.loaded = Some(save);
         s
@@ -378,7 +384,7 @@ impl Server {
             reaches: (self.world.water.rained, self.world.water.reach_extra.iter().map(|(&a, &x)| (a, x)).collect()),
             // after `air`: its `state` takes a job in flight back, which `pending` then names
             rain: (self.world.water.rain_held.iter().map(|(&a, &x)| (a, x)).collect(), self.weather.as_ref().and_then(|w| w.pending(self.tick)), self.world.water.steps),
-            held: save::Held { items: ITEMS.table(), piles: self.piles.iter().map(|(k, p)| (unkey(*k), p.slots.clone())).collect() },
+            held: save::Held { items: ITEMS.table(), piles: self.piles.iter().map(|(k, p)| (unkey(*k), p.slots.clone())).collect(), taken: self.taken.iter().map(|(k, y)| (unkey(*k), *y)).collect() },
         }
     }
 
@@ -559,6 +565,10 @@ impl Server {
             for part in piles.chunks(EDITS_PART) {
                 link.send(ToClient::Piles(part.to_vec()));
             }
+            let taken: Vec<(Block, u32)> = self.taken.iter().map(|(k, y)| (unkey(*k), *y)).collect();
+            for part in taken.chunks(EDITS_PART) {
+                link.send(ToClient::Taken(part.to_vec()));
+            }
             let spawn = self.spawn();
             self.clients.push(Client {
                 link,
@@ -662,6 +672,10 @@ impl Server {
                         // the slots go back either way: they put right a prediction the server refused
                         self.clients[i].done.push((seq, ok));
                         self.clients[i].inv_dirty = true;
+                    }
+                    Recv::Msg(ToServer::Take { seq, at }) => {
+                        let ok = self.take(i, at);
+                        self.clients[i].done.push((seq, ok));
                     }
                     Recv::Msg(ToServer::Bucket { seq, at, fill }) => {
                         let ok = self.bucket(i, at, fill);
@@ -789,6 +803,12 @@ impl Server {
         let cols: Vec<Col> = self.world.water.take_changes().into_iter().map(|w| w.0).collect();
         self.water_changed(&cols);
         self.send_water();
+        if !self.taken_changed.is_empty() {
+            let taken = std::mem::take(&mut self.taken_changed);
+            for c in &self.clients {
+                c.link.send(ToClient::Taken(taken.clone()));
+            }
+        }
         if !self.piles_changed.is_empty() {
             let mut cells = std::mem::take(&mut self.piles_changed);
             cells.sort_unstable_by_key(|b| key(*b));
@@ -1391,6 +1411,30 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
             at = self.world.block_at(mid);
         }
         self.lay(at, stacks, (id, self.tick + THROW_WAIT));
+    }
+
+    /// Client `i` takes the pick-up lying in air cell `at` (`ToServer::Take`, ADR 0082): within `REACH`, one lies
+    /// there and was not taken (or has come back), and all it gives fits in the slots; else nothing changes.
+    fn take(&mut self, i: usize, at: Block) -> bool {
+        let c = &self.clients[i];
+        let t = self.world.time;
+        if c.vitals.dead.is_some() || self.world.block_centre(at).distance(c.phys.pos) > REACH {
+            return false;
+        }
+        let Some(th) = engine::clutter::pickup_at(&self.world, at, t) else { return false };
+        let row = &engine::clutter::CLUTTER[th.row];
+        let year = engine::clutter::year(t);
+        let Some((item, n)) = row.item().filter(|_| engine::clutter::lies(row, self.taken.get(&key(at)).copied(), year)) else { return false };
+        let mut slots = c.slots.clone();
+        if items::stacks(item, n as u32).any(|st| items::give(&mut slots, st) > 0) {
+            return false;
+        }
+        let c = &mut self.clients[i];
+        (c.slots, c.inv_dirty) = (slots, true);
+        *self.item_made.entry(item).or_default() += n as i64;
+        self.taken.insert(key(at), year);
+        self.taken_changed.push((at, year));
+        true
     }
 
     /// Client `i` moves `n` of the stack in `from` to `to` (`ToServer::Items`, ADR 0074): all of it or nothing.

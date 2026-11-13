@@ -121,6 +121,11 @@ impl App {
                     self.link.send(ToServer::Bucket { seq: self.pred.seq(), at: before, fill: a == "L" });
                 }
             }
+            // a pick-up lying over the aimed ground is taken, not dug (ADR 0082): one call, the server answers
+            "L" if self.aim.is_some_and(|(_, before)| self.pickup(before)) => {
+                let at = self.aim.unwrap().1;
+                self.link.send(ToServer::Take { seq: self.pred.seq(), at });
+            }
             "L" | "R" => {
                 let dig = a == "L";
                 if let Some(at) = self.aim.map(|(hit, before)| self.anchor(hit, before, dig)) {
@@ -844,6 +849,19 @@ impl App {
     }
 
     /// Where a press starts: digging takes the aimed block, placing the cell in front of it.
+    /// Whether a pick-up lies in air cell `b`, not taken, and all it gives fits in the slots (ADR 0082): else a
+    /// click digs the ground under it as ever.
+    pub(crate) fn pickup(&self, b: Block) -> bool {
+        use engine::clutter::{lies, pickup_at, year, CLUTTER};
+        let t = self.world.time;
+        let Some(row) = pickup_at(&self.world, b, t).map(|th| &CLUTTER[th.row]) else { return false };
+        let fits = |(item, n): (u16, u16)| {
+            let mut slots = self.inv.clone();
+            !engine::items::stacks(item, n as u32).any(|st| engine::items::give(&mut slots, st) > 0)
+        };
+        lies(row, self.streamer.taken.get(&b).copied(), year(t)) && row.item().is_some_and(fits)
+    }
+
     pub(crate) fn anchor(&self, hit: Block, before: Block, dig: bool) -> Block {
         if dig { hit } else { before }
     }

@@ -1,0 +1,19 @@
+# A draft flowers (Claude's, listed in data/drafts.txt): clutter, ADR 0082. Painted
+# boxes at 32 px a metre (crossed planes of stems and heads); made by tools/paint_clutter.py.
+colours = ["lamp"]
+
+[[part]]
+name = "body"
+box = [1, 1, 1]
+voxels = "."
+
+[[part.boxes]]
+at = [12.0, 0.0, 16.0]
+size = [8, 10, 0]
+uv = [0, 0]
+
+[[part.boxes]]
+at = [12.0, 0.0, 16.0]
+size = [8, 10, 0]
+turn = [0.0, 90.0, 0.0]
+uv = [16, 0]

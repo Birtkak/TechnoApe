@@ -3,7 +3,9 @@ use crate::mesh::{mesh_cut, Mesh};
 use crate::liquid::{Col, TILE};
 use crate::world::{fold, generate, river_quads, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS};
 use glam::{DQuat, DVec3, IVec3, Vec4};
+use crate::clutter::Still;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 use std::time::Instant;
 
 
@@ -66,7 +68,7 @@ impl Alloc {
 enum State {
     Pending,
     Empty,
-    Ready { off: u32, len: u32, water: u32, cut: u32, glass: u32 },
+    Ready { off: u32, len: u32, water: u32, cut: u32, glass: u32, still: u32 },
 }
 
 /// Every chunk the selection visits has a slot (it caches the bounds); only wanted leaves get a mesh.
@@ -110,7 +112,8 @@ pub struct JobResult {
 }
 
 /// One drawable range of the quad buffer: `len` quads, the last `water` of them the sea's surface and the `cut`
-/// before those the glass blocks' (ADR 0081) and the `cut` before those the cutout blocks' (ADR 0069).
+/// before those the still models' (clutter, ADR 0082), the `glass` before those the glass blocks' (ADR 0081) and
+/// the `cut` before those the cutout blocks' (ADR 0069).
 #[derive(Clone, Copy)]
 pub struct DrawChunk {
     pub key: Key,
@@ -119,10 +122,14 @@ pub struct DrawChunk {
     pub water: u32,
     pub cut: u32,
     pub glass: u32,
+    pub still: u32,
     /// Outside the view or behind a horizon: not drawn, only traced.
     pub hidden: bool,
     /// From the camera to its bounding sphere, metres: the draws go near to far (ADR 0025, D).
     pub dist: f32,
+    /// From the camera to its centre, metres: glass blends far to near by it (ADR 0081; `dist` is 0 for every chunk
+    /// round the camera).
+    pub centre: f32,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -201,6 +208,12 @@ pub struct Streamer {
     pub walks: u64,
     /// Quad-buffer offsets released since the client last took them: their BLAS go too (ADR 0025, G).
     pub released: Vec<u32>,
+    /// What level 0 lays its clutter with (ADR 0082): the still models, the sky's time it was last set at (its
+    /// season picks the rows, its year what has come back), that time's (nearest season, year), and the Clutter
+    /// setting's density.
+    pub clutter: (Arc<Still>, f64, (i64, u32), f32),
+    /// The pick-ups taken (ADR 0082): the cell each lay in and the year it was taken, as the server sends them.
+    pub taken: FxMap<Block, u32>,
 }
 
 pub struct View {
@@ -303,6 +316,8 @@ impl Streamer {
             touched: Vec::new(),
             walks: 0,
             released: Vec::new(),
+            clutter: (Arc::new(Still::default()), 0.0, (i64::MIN, 0), 1.0),
+            taken: FxMap::default(),
         }
     }
 
@@ -483,8 +498,8 @@ impl Streamer {
         st.missing += w.missing;
         st.holes += w.holes;
         for (d, bd) in &w.draws {
-            let dist = ((bd.c - view.cam_in(d.key.body)).length() - bd.rad).max(0.0);
-            out.push(DrawChunk { hidden: self.hidden(view, d.key.body, bd), dist: dist as f32, ..*d });
+            let centre = (bd.c - view.cam_in(d.key.body)).length();
+            out.push(DrawChunk { hidden: self.hidden(view, d.key.body, bd), dist: (centre - bd.rad).max(0.0) as f32, centre: centre as f32, ..*d });
         }
         for k in std::mem::take(&mut self.touched) {
             let Some(s) = self.slots.get(&k) else { continue };
@@ -506,15 +521,15 @@ impl Streamer {
         }
         s.drawn_at = (self.frame, out.len() as u32);
         let bd = s.bounds;
-        let (off, len, water, cut, glass) = match s.state {
+        let (off, len, water, cut, glass, still) = match s.state {
             State::Pending => return false,
             State::Empty => return true,
-            State::Ready { off, len, water, cut, glass } => (off, len, water, cut, glass),
+            State::Ready { off, len, water, cut, glass, still } => (off, len, water, cut, glass, still),
         };
         // hidden chunks are listed too: they are not drawn, but they cast shadows (ADR 0022)
         let hidden = hidden.unwrap_or_else(|| self.hidden(view, k.body, &bd));
-        let dist = ((bd.c - view.cam_in(k.body)).length() - bd.rad).max(0.0) as f32;
-        out.push(DrawChunk { key: k, off, len, water, cut, glass, hidden, dist });
+        let centre = (bd.c - view.cam_in(k.body)).length();
+        out.push(DrawChunk { key: k, off, len, water, cut, glass, still, hidden, dist: (centre - bd.rad).max(0.0) as f32, centre: centre as f32 });
         true
     }
 
@@ -539,8 +554,16 @@ impl Streamer {
             }
             let tx = self.tx.clone();
             let bodies = world.bodies.clone();
+            // generation makes no glass: a chunk without edits holds none (`mesh_cut`)
+            let may_glass = !edits.is_empty();
             let greedy = self.opts.greedy;
             let cutout = self.opts.cutout && k.level == 0;
+            // the sky's time the clutter was set at: both hemispheres change season at once (`sky::season_at`)
+            let (still, sky_t, _, density) = self.clutter.clone();
+            // shortcut: every taken mark is looked through for every level-0 job; a map by chunk once a world
+            // holds thousands
+            let near = |b: &&Block| b.body == k.body && b.face == k.face && b.pos.x.div_euclid(CS) == k.pos.x && b.pos.y.div_euclid(CS) == k.pos.y;
+            let taken: Vec<(IVec3, u32)> = if k.level == 0 { self.taken.iter().filter(|(b, _)| near(b)).map(|(b, y)| (b.pos, *y)).collect() } else { Vec::new() };
             // tiles of stored water are the water mesh's; a coarse column lies within one tile up to level 4, and past
             // that a far chunk's sea covers them (shortcut: a flood far away shows as sea level)
             let wet = if 1 << k.level <= TILE { world.water.wet_tiles(k.body, k.face, k.base().x, k.base().y, k.span()) } else { Vec::new() };
@@ -551,13 +574,18 @@ impl Streamer {
                 let body = &bodies[k.body as usize];
                 let gen = generate(body, k, &edits);
                 let mut mesh = match &gen {
-                    Gen::Cells(c) => Some(mesh_cut(c, if greedy { body.lattice(k.level) as usize } else { 1 }, cutout)).filter(|m| !m.quads.is_empty()),
+                    Gen::Cells(c) => Some(mesh_cut(c, if greedy { body.lattice(k.level) as usize } else { 1 }, cutout, may_glass)).filter(|m| !m.quads.is_empty()),
                     _ => None,
                 };
+                if let (Gen::Cells(c), Some(m)) = (&gen, mesh.as_mut()) {
+                    let q = crate::clutter::quads(body, k, c, &edits, &still, sky_t, density, &taken);
+                    m.still = q.len() as u32;
+                    m.quads.extend(q);
+                }
                 let mut sea = sea_quads(body, k, &wet, &gen);
                 sea.extend(river_quads(body, k, &wet, &gen));
                 if !sea.is_empty() {
-                    let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], cut: 0, glass: 0, water: 0 });
+                    let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], cut: 0, glass: 0, still: 0, water: 0 });
                     m.water = sea.len() as u32;
                     m.quads.extend(sea);
                 }
@@ -592,7 +620,7 @@ impl Streamer {
                     upload(off, &m.quads);
                     bytes += m.quads.len() * 8;
                     st.applied_nonempty += 1;
-                    State::Ready { off, len: n, water: m.water, cut: m.cut, glass: m.glass }
+                    State::Ready { off, len: n, water: m.water, cut: m.cut, glass: m.glass, still: m.still }
                 }
             };
             let s = self.slots.get_mut(&r.key).unwrap();
@@ -603,9 +631,9 @@ impl Streamer {
             // a remesh that stays drawn changes only its range: the last walk's list takes it in place; any other
             // change of state can change what the walk picks
             match (s.state, new, &mut self.walk) {
-                (State::Ready { .. }, State::Ready { off, len, water, cut, glass }, Some(w)) if s.drawn_at.0 == self.walk_frame => {
+                (State::Ready { .. }, State::Ready { off, len, water, cut, glass, still }, Some(w)) if s.drawn_at.0 == self.walk_frame => {
                     let d = &mut w.draws[(s.drawn_at.1 - w.first) as usize].0;
-                    (d.off, d.len, d.water, d.cut, d.glass) = (off, len, water, cut, glass);
+                    (d.off, d.len, d.water, d.cut, d.glass, d.still) = (off, len, water, cut, glass, still);
                 }
                 _ => self.dirty = true,
             }
@@ -628,6 +656,30 @@ impl Streamer {
             }
         }
         self.dirty = true;
+    }
+
+    /// The clutter's models, the sky's time and the Clutter setting's density (ADR 0082): level 0 is meshed again
+    /// when the models are new, the year turns into another season or begins again, or the density changes.
+    /// shortcut: every level-0 chunk, though only those with seasonal rows change; by row when it shows in p99.
+    pub fn set_clutter(&mut self, still: &Arc<Still>, t: f64, density: f32) {
+        let quarter = crate::clutter::stamp(t);
+        let c = &self.clutter;
+        if Arc::ptr_eq(&c.0, still) && c.2 == quarter && c.3 == density {
+            return;
+        }
+        self.clutter = (still.clone(), t, quarter, density);
+        for (k, sl) in self.slots.iter_mut() {
+            if k.level == 0 {
+                sl.want_v += 1;
+            }
+        }
+        self.dirty = true;
+    }
+
+    /// A pick-up in cell `b` was taken in `year` (ADR 0082): the chunks that show it are meshed again.
+    pub fn take(&mut self, world: &World, b: Block, year: u32) {
+        self.taken.insert(b, year);
+        self.touch_block(world, Block { pos: b.pos - IVec3::Z, ..b });
     }
 
     /// An edit changed a block: every chunk that samples it, in its cells or its padding, gets a new version.
