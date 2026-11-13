@@ -86,6 +86,45 @@ there; a live water node answers for it and was not found to be wrong: the test 
 (6) lowland biome changes: measured and written here; (7) `for_hash`'s second bake: written here; (8) the cost:
 the perf-debt row; nits fixed (a test's doc comment, comments now false, an assert on the stretch's range).
 
+## Survey of the baked landforms (same round)
+Seeds 1337, 641653600 and 7 on the 4 km planet, version 6: orbit stills `out/tm/s-o<seed>-{a,b,c}.png` (the `b`
+views are on the night side), the range from 400 m, the summit, the far view, and the heights of the maps.
+The bake takes 39 s for the 4 km planet (seed 7, the stretch adds nothing measurable).
+Below: what is weak, the change proposed, how much it would be exaggerated, and its risk. None of it is
+implemented. Every change below either moves the lowland, the rivers or the biomes (so no longer
+"lowland to the bit") or adds a new landform. That makes each one a taste or scope call, not a low-risk win.
+- **Mountain chains:** good now. Arcs along plate edges, branching, rising out of the forest (`a-orbit`,
+  `a-range`). Weak: snow begins at 100 m everywhere (`snow_over`), just over the tree line (58 m), so a range
+  is forest, then snow, with no bare rock band and no change by latitude. Proposal: a snow line from
+  temperature (the air's `cool`), and rock between trees and snow. Exaggeration: none, it is real logic.
+  Risk: the biome data and every view that sees a range. *Taste call.*
+- **River valleys and canyons:** rivers run in the old lowland; the stretch lifts the ridges but cuts no valley
+  into a range, so there are no gorges. Proposal: incise valleys by discharge where the ground was stretched.
+  Exaggeration: 2-3x real depth/width ratio. Risk: changes rivers' beds and lakes; needs its own river tests.
+  *Scope call.*
+- **Deltas and waterfalls:** not seen in the stills; the 45-60 m band is now steeper, so falls may appear
+  where a river leaves a range (not checked).
+- **Coasts:** almost all coasts are forest down to a thin beach. 19 % of seed 1337's land is under 5 m. There are
+  no cliffs, even where a range meets the sea (`a-range`). Proposal: sea cliffs where upland or a range meets
+  the coast, and fjords on cold, high coasts. Exaggeration: cliffs 10-30 m. *Taste call (a new landform).*
+- **Plains vs hills:** half the land is under 14 m (seed 1337; 20 m on 641653600). Mostly plains with low
+  hills; it reads well against the new ranges. No change proposed.
+- **Plateaus and mesas, volcano cones:** none exist. Proposal: mesas in dry provinces, cones on the island arcs.
+  *Taste calls (new landforms).*
+- **Lake basins:** present and found before the stretch (unchanged). No change proposed.
+- **Shelves and the deep sea:** the sea floor is 30-40 m almost everywhere (the 25th to 90th percentile of
+  depth is 29.5-38 m), so the shelf and the abyss barely differ, and the ocean is now ten times shallower than the
+  highest peak is tall. Proposal: deepen the floor beyond the shelf to 80-150 m. Risk: `world::FLOOR` and
+  `SEA_DEPTH`, the water's volume, ores under the sea, views. *Scope call.*
+- **Island arcs:** seeds 7 and 641653600 have long, thin, almost straight island chains across an ocean
+  (`s-o7-c`, `s-o641653600-c`). They read as drawn lines. Proposal: break them into
+  separate islands and volcanoes. *Taste call.*
+- **Rain shadows:** the deserts lie beside seed 1337's range (`a-orbit`), and 2 % of the lowland's biomes moved
+  with the taller ranges. Plausible; no change proposed.
+- **Snow and tree lines:** see the chains above. The ice biome no longer shows on summits (the air's lapse).
+- **Luna's craters:** not surveyed. The still (`s-luna.png`) landed on the night side. Luna's bake is
+  unchanged.
+
 ## Consequences
 - Old worlds keep their terrain; a new world on the same seed has taller mountains on the same lowland.
 - Mountain slopes are up to about 4x steeper over the old 65 m line: more bare rock and gravel by the slope
