@@ -62,6 +62,16 @@ are asked through one rule (`Body::ore_at`) by physics, the mesher and the ledge
 - Halo rock has its row's hardness, not the host's (granite 9, these 6 to 9).
 - Cost: see Measured.
 
+## Measured
+`crates/engine/tests/gen_cost.rs` (play build, one thread, best of four passes, three runs alternating with
+main's build, under `slot.sh measure`): the 6 705 level-0 chunks within a halo's reach of a deep body on the
+4 km planet (seed 1337) take 214 µs a chunk to make against 133 on main, +81 µs (+61 %); 0.54 s of worker CPU
+for all of them, made once as a player nears them. Chunks away from bodies are unchanged. The frame thread and
+the GPU do no new work. Row in `docs/perf-debt.md` (ADR 0096: no optimising during feature work).
+`report=1` (seed 1337, 4 km): `made_hash` 8ecb5dadddbbf9b5 as before; halo blocks per grade, outer then inner:
+deep copper 228 110 / 172 593, tin vein 35 280 / 25 933, banded iron 1 710 832 / 1 567 794, lead pocket
+55 569 / 36 894, gold vein 13 147 / 9 113, uranium 2 474 / 1 477; the seam fix changed none of them on this seed. Ore blocks and ingots per element are as on main.
+
 ## Review
 A fresh reviewer read the engine diff (principle 12). Findings and answers:
 1. *Medium:* `count_halo` counted columns past a face's seam that physics never makes (the copper and banded
@@ -84,3 +94,8 @@ A fresh reviewer read the engine diff (principle 12). Findings and answers:
 - Two grades per mineral, and the reaches above (tuned by playing).
 - Coal without a halo.
 - Halo rock drops itself when dug, like any rock (rubble later, ADR 0087).
+- The halo lies under the 4 m soil band, so it shows only in a dug face, a cave or a cut; at the surface a
+  deep copper or banded iron body is signed by its gossan (ADR 0063), which this does not change. Whether the
+  halo should also show where the band is thin (cliffs, river cuts) is open.
+- The quartz-veined placeholder (the `stone` pattern) reads as dark mottled rock, not veined: the painting
+  should carry it.
