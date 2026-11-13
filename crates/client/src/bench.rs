@@ -142,6 +142,8 @@ pub(crate) struct Samples {
     pub(crate) frames: u64,
     pub(crate) missing_max: u32,
     pub(crate) holes_max: u32,
+    /// The longest a visible chunk was drawn coarser than its level while the camera was slow, s (ADR 0073).
+    pub(crate) coarse_slow_s: f64,
     pub(crate) applied: u64,
     pub(crate) applied_nonempty: u64,
     pub(crate) ram_max: f64,
@@ -311,7 +313,7 @@ impl App {
                 "\"missing_chunks_max\":{},\"holes_max\":{},\"draws_avg\":{:.0},\"quads_avg\":{:.0},\"quad_buffer_mb\":{:.1},",
                 "\"select_ms_p50\":{:.3},\"submit_ms_p50\":{:.3},\"pre_acquire_ms_p50\":{:.3},\"edits_per_s\":{:.0},\"job_us_avg\":{:.0},",
                 "\"edits_sent\":{},\"edits_applied\":{},\"players\":{},\"feet\":[{:.2},{:.2},{:.2}],\"snaps\":{},\"drift_max_m\":{:.2},\"frames\":{},\"capture_stalls\":{},\"speed\":{},\"k\":{},\"greedy\":{},\"horizon\":{},\"mdi\":{},\"prefetch_s\":{},",
-                "\"threads\":{},\"low_workers\":{},\"alloc_fail\":{},\"backend\":\"{}\",\"adapter\":\"{}\",\"spikes\":[{}]}}"
+                "\"coarse_slow_s\":{:.2},\"threads\":{},\"low_workers\":{},\"alloc_fail\":{},\"backend\":\"{}\",\"adapter\":\"{}\",\"spikes\":[{}]}}"
             ),
             self.run,
             a.s("label", ""),
@@ -357,6 +359,7 @@ impl App {
             o.horizon as u8,
             a.get("mdi", 1),
             o.prefetch_s,
+            s.coarse_slow_s,
             rayon::current_num_threads(),
             LOW_WORKERS.load(std::sync::atomic::Ordering::Relaxed),
             self.streamer.alloc_fail,

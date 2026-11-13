@@ -72,8 +72,8 @@ bench=()
 for r in $RUNS; do
   line=$(timeout 170 target/play/technoape.exe run=$r quick=1 2>/dev/null | tail -1)
   bench+=("$line")
-  echo "$line" | python -I -c "import json,sys; d=json.loads(sys.stdin.read()); sys.exit(0 if d['budget_ok'] and (d['run']!='fly' or d['missing_chunks_max']==0) else 1)" 2>/dev/null \
-    || fails+=("bench $r: budget or streaming failed (repro: technoape.exe run=$r quick=1)")
+  echo "$line" | python -I -c "import json,sys; d=json.loads(sys.stdin.read()); sys.exit(0 if d['budget_ok'] and (d['run']!='fly' or d['missing_chunks_max']==0) and d.get('coarse_slow_s', 0) <= 1.0 else 1)" 2>/dev/null \
+    || fails+=("bench $r: budget or streaming failed, or chunks coarse over 1 s with the camera slow (coarse_slow_s, ADR 0073) (repro: technoape.exe run=$r quick=1)")
   if ! echo "$line" | python -I tools/perf.py check $r >/dev/null; then
     more=$(for i in 1 2; do timeout 170 target/play/technoape.exe run=$r quick=1 2>/dev/null | tail -1; done)
     msg=$(printf '%s\n%s\n' "$line" "$more" | python -I tools/perf.py check $r) \

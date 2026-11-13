@@ -426,7 +426,20 @@ impl Streamer {
                 // own children are, so this chunk covers until then and never forever (a chunk meshed as a leaf
                 // from far away would otherwise cover forever once the camera is back), and a camera that nears
                 // the children before they are meshed leaves no hole (ADR 0038 B)
-                let all = covered || kids.iter().all(|c| self.complete(world, view, c, kk));
+                // a child wholly out of view does not hold it either: it would cover the visible children that are in,
+                // over their finer ground, until the hidden ones came last in the queue (bug 2026-11-12_21-00-30)
+                let mut by_view = false;
+                let all = covered
+                    || kids.iter().all(|c| {
+                        self.complete(world, view, c, kk) || (draw && {
+                            let h = self.hidden(view, c.body, &self.slots.get(c).map_or_else(|| world.bodies[c.body as usize].bounds(*c), |s| s.bounds));
+                            by_view |= h;
+                            h
+                        })
+                    });
+                // that choice depends on the look, which a frame that only culls does not check: walk again until
+                // the hidden child is in, or turning round shows its hole (the review of ADR 0073)
+                self.dirty |= by_view && all && !covered;
                 let mut cov = covered;
                 if !all && !covered && draw && self.emit(view, k, None, out) {
                     cov = true;
@@ -494,6 +507,12 @@ impl Streamer {
                 st.requests += 1;
             }
         }
+    }
+
+    /// The drawn, visible chunks this view would split: drawn coarser than their level (ADR 0073, the check
+    /// for F9 report 2026-11-12_21-00-30). Fine while chunks stream in; it must not last once the camera slows.
+    pub fn too_coarse(&self, world: &World, view: &View, draws: &[DrawChunk]) -> u32 {
+        draws.iter().filter(|d| !d.hidden && self.splits(world, view, &d.key, self.opts.k)).count() as u32
     }
 
     /// Append a ready chunk to the draw list, marked hidden if culled; true if it is ready.
@@ -829,6 +848,96 @@ mod tests {
             worst = worst.max(st.holes);
         }
         assert_eq!(worst, 0, "holes in the ground during the flight");
+    }
+
+    #[test]
+    fn a_fast_flight_leaves_no_near_chunk_coarse_once_the_camera_slows() {
+        // F9 report 2026-11-12_21-00-30: flying 100 to 1000 m/s about 125 m up, a large near area stayed at a
+        // coarse level. The client's frame as frame.rs runs it: a walk, the look-ahead every 4th frame, jobs
+        // landing a few a frame; then the camera stops, and within a second every near chunk is at its level.
+        let w = World::new(1536, 64, 1337);
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 1.0, max_inflight: 10 };
+        let mut s = Streamer::new(&w, 1 << 23, opts);
+        let b = &w.bodies[0];
+        let (e1, e2) = (b.spawn.any_orthonormal_vector(), b.spawn.cross(b.spawn.any_orthonormal_vector()));
+        let at = |x: f64, y: f64| {
+            let d = (b.spawn + e1 * (x / b.radius) + e2 * (y / b.radius)).normalize();
+            d * (b.top(d) + 125.0)
+        };
+        settle(&mut s, &w, at(0.0, 0.0));
+        let (mut x, mut y, mut last) = (0.0, 0.0, at(0.0, 0.0));
+        let mut frame = |s: &mut Streamer, cam: DVec3, vel: DVec3| {
+            let view = View::new(cam, [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], &w);
+            let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+            std::thread::sleep(std::time::Duration::from_micros(300));
+            s.apply(usize::MAX, &mut st, |_, _| {});
+            s.frame += 1;
+            s.select(&w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+            let mut ahead = std::mem::take(&mut s.ahead_reqs);
+            if vel.length() > 1.0 && s.frame % 4 == 0 {
+                ahead.clear();
+                let v = View::new(cam + vel * s.opts.prefetch_s, view.planes, &w);
+                s.select(&w, &v, false, 1.5, &mut Vec::new(), &mut ahead, &mut FrameStats::default());
+            }
+            if vel.length() > 1.0 {
+                reqs.extend_from_slice(&ahead);
+            }
+            s.ahead_reqs = ahead;
+            s.dispatch(&w, &mut reqs);
+            if s.frame % 30 == 0 {
+                s.evict(120);
+            }
+            (out, st)
+        };
+        // 8 s at 150 fps: speeds stepping 100 -> 1000 m/s, the heading turning
+        for f in 0..1200 {
+            let speed = 100.0 + 900.0 * ((f / 150) as f64 / 7.0);
+            let heading = f as f64 * 0.004;
+            x += heading.cos() * speed / 150.0;
+            y += heading.sin() * speed / 150.0;
+            let cam = at(x, y);
+            frame(&mut s, cam, (cam - last) * 150.0);
+            last = cam;
+        }
+        // stopped: once nothing is missing or asked for, every near chunk is at its level
+        let out = settle(&mut s, &w, last);
+        let view = View::new(last, [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], &w);
+        let bad: Vec<(Key, f32)> = out.iter().filter(|d| !d.hidden && s.splits(&w, &view, &d.key, 4.0)).map(|d| (d.key, d.dist)).collect();
+        assert_eq!(s.too_coarse(&w, &view, &out) as usize, bad.len());
+        assert!(bad.is_empty(), "{} chunks drawn coarser than their level a second after stopping, e.g. {:?}", bad.len(), &bad[..bad.len().min(5)]);
+    }
+
+    #[test]
+    fn a_coarse_chunk_does_not_cover_once_its_visible_children_are_in() {
+        // F9 report 2026-11-12_21-00-30: a huge coarse chunk drawn over the near ground. A chunk covers while a
+        // child is not meshed; children out of view rank last, so once every visible child was in, the coarse
+        // chunk still covered (and stood over the fine ground) until the hidden ones came, long after
+        let w = World::new(1536, 64, 1337);
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 4 };
+        let mut s = Streamer::new(&w, 1 << 23, opts);
+        let b = &w.bodies[0];
+        settle(&mut s, &w, b.spawn * b.radius * 1.6);
+        // on the ground, looking one way: everything behind the camera is out of view
+        let cam = b.spawn * (b.top(b.spawn) + 2.0);
+        let look = b.spawn.any_orthonormal_vector();
+        let mut planes = [Vec4::new(0.0, 0.0, 0.0, 1.0); 6];
+        planes[0] = Vec4::new(look.x as f32, look.y as f32, look.z as f32, 0.0);
+        let view = View::new(cam, planes, &w);
+        for f in 0..20000 {
+            let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+            std::thread::sleep(std::time::Duration::from_micros(200));
+            s.apply(usize::MAX, &mut st, |_, _| {});
+            s.frame += 1;
+            s.select(&w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+            s.dispatch(&w, &mut reqs);
+            if st.missing == 0 && f > 0 {
+                assert_eq!(s.too_coarse(&w, &view, &out), 0, "every visible child is in, yet coarse chunks are drawn over them (frame {f}, {} still in flight)", s.inflight);
+                // a cover left out for a child out of view depends on the look: the next frame walks again
+                assert!(s.dirty, "a frame that only culls would keep the hole of a hidden child when the camera turns");
+                return;
+            }
+        }
+        panic!("the visible chunks never came in");
     }
 
     #[test]
