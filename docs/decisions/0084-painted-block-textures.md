@@ -119,3 +119,185 @@ shots above. A fresh reviewer read the script (it is over 300 lines). Fixed: the
   ADR 0085 on its own branch.
 - Views that change: `seam` (the canopy) and the season views of the forest (winter: bare crowns; spring,
   summer and autumn: the calmer leaves).
+
+## Flora paintings (2026-11-13, `docs/design/flora.md` part D, ADR 0089)
+The richness of the developer's Vintage Story references, in the calm style above: **each species is told apart
+by its shape first, its colour second.** The colours are picked a step of hue apart around the mid green that a
+climate tint (part B) will multiply, so the tint moves them all and keeps them apart.
+
+- **Leaves** (four variants each, cutouts):
+  - broadleaf: soft round clumps (as before);
+  - oak: big lobed clumps, deep green, with notched rims round its holes;
+  - birch: small light leaves, more open;
+  - willow: hanging strands from the top of the block with long open slits between them, a curtain;
+  - spruce: drooping tiers every five rows;
+  - pine: needle clumps, rosettes lit at the tips, open between;
+  - jungle: big broad ovals with a midrib;
+  - acacia: flat layers of fine leaflets, open slits between;
+  - palm: a rib on the slant with long leaflets hanging from it;
+  - bamboo: slanted lance leaves.
+
+  Holes are few and ragged. Each variant opens from none to its species' share, in clusters that start on the
+  block's edge and wander in. Oak has one big notch, birch five small ones, and spruce and bamboo stretched ones.
+  A cube of leaves stays at most 15 % open, and the script asserts it; the crowns' fluffy planes (part A) give
+  the ragged outline. Two earlier tries failed: holes from a smooth noise field could fall along a whole row,
+  cutting a slit across the block, and round blobs in the middle read as polka dots on a regular grid. Pine and
+  bamboo now have a ground of dark needles or shaded leaves under their clumps and lances; they were 40 to 65 %
+  open. Palm's fronds and willow's curtain stay open as continuous shapes that reach the block's edge: the
+  willow's strands hang from the top edge, so they run on from the block above.
+- **Bark** (`<log>_side`, three variants) and **ends** (`<log>`):
+  - birch: white with dark lenticel dashes;
+  - oak: grey ridges broken across;
+  - pine: big one-tone plates parted by furrows (spruce: small plates);
+  - willow: slanting furrows into diamonds;
+  - jungle: pale with moss;
+  - acacia: grey with orange under-bark;
+  - palm: rings of leaf scars;
+  - bamboo: a jointed green culm, its end a hollow ring.
+- **Seasons:**
+  - The deciduous species (broadleaf, oak, birch, willow) take a spring, an autumn and a bare winter look. Winter
+    branches are in the species' bark colours; birch's twigs are in the log's dark brown.
+  - Blossom is the spring look where it fits: broadleaf with pink-white flowers, birch and willow with catkins.
+  - Fruit is a late-summer look `@fruit`: broadleaf apples, oak acorns, jungle fruit, palm coconuts, ripe berries.
+    No season file holds it yet; part A decides how it is shown. Until then it waits in `out/flora/pending/`.
+- **Small plants as planes** (ADR 0091's format: one upright plane a file in `data/plants/<name>.png`). One
+  pixel is 1/16 m, the block's texel (the overseer's call). Sizes are in `PLANT_SIZES`, width x height in
+  pixels, and were sent to the plants session to read its planes by:
+  - short grass 16x7 and 16x6, tall grass 16x16 and 16x14, wild wheat 16x20, reeds 16x32;
+  - fern 24x11, berry bush 24x20, flowers 16x8.
+
+  A tuft fills its width edge to edge: a blade on every column and more besides, wrapping at the sides, so
+  neighbouring tufts merge into a field as in the references. Each tuft has four tones (shade at the foot, each
+  blade's own tone, a lit or light tip), and tall light blades stand in front of short dark ones.
+  - short grass (and `.1`) a low dense fringe, tall grass (and `.1`), wild wheat (straw ears over a full tuft),
+    fern (six fronds arching out of the middle), reeds two metres tall with cattails;
+  - `flowers` in red and white, `.1` yellow, `.2` blue and white;
+  - the berry bush with its looks `.bloom` (pink-white blossom) and `.fruit` (red berries), all three from the
+    same leaves.
+
+  Greens are the grass block's own ramp, so a meadow and its ground read as one field. The game
+  tints only green pixels (g above r and b), so the greens take the climate's tint and the straw, petals,
+  cattails and fruit keep their colour. On the grass block's side, the top row is mid with a few lit tips; it
+  was all lit and drew a light line under standing blades.
+- **Names** come from the other sessions' lists: the trees session's `out/flora-tree-blocks.txt` is read, and
+  bamboo's stalk is the block `bamboo`. The plants session's `out/flora-plant-paintings.txt` gives the plants'
+  names and sizes. A painting whose block does not exist on the branch, or whose look has no season file, is
+  written to `out/flora/pending/`; so are the plants until `data/plants/` exists, and then they replace the plants
+  session's placeholders. Its colours join the palette only when a file in `data/textures` uses them, so the
+  palette grows with the blocks: +2 now (`blossom`, `catkin`). Rerun the script once the trees and plants
+  branches are on main.
+- **Proof:**
+  - Look sheets, read: `out/flora/species.png` (every species, by season, bark and end, over sky so holes show),
+    `out/flora/plants.png` (each plane at its size, standing on a grass block), and `out/flora/meadow.png` (a
+    field of mixed planes on grass tops, near to far).
+  - `technoape-studio check=1` ok (353 colours, 125 textures).
+  - On a copy of `data/` with the trees session's twelve blocks added, the script writes 152 textures and the
+    check passes (442 colours; +89 for the six new species and their seasons).
+  - The spruce, jungle and acacia barks wait: those trees still share `log`.
+- **Views that change:**
+  - `seam` and the season views: broadleaf leaves now have four variants with round holes, and spruce has tiers;
+  - acacia and jungle canopies;
+  - every view with a grass block's side (its top row).
+- **Winter twigs grow out of the wood** (the developer, 2026-11-13: "not just a block with random sticks
+  flying"):
+  - The bare winter looks (`broadleaf/oak/birch/willow leaves@winter`, `shrub@winter`) are four roles, in file
+    order. Each one's wood is the painting's **bottom edge**:
+    - `root`: one stem from the middle that fans out;
+    - `root off-centre`: the same, leaning across;
+    - `through`: a limb from the bottom edge to the top edge at x 8 with side twigs, so stacked blocks chain;
+    - `tips`: a few fine twigs for the crown's outer blocks.
+  - Limbs taper from three texels to one. They are bark-mid with a dark side, and a thin twig ends in a lit tip.
+  - The script asserts that every texel reaches the bottom edge through its neighbours, so nothing floats.
+    Before the change, the old floating sticks would have failed it, and twigs started mid-air fail it now.
+  - ADR 0090 (crowns, part A) confirms this layout:
+    - a leaf face beside the wood takes `root` or `root off-centre`, two steps away `through`, three steps away
+      `tips`, and none further out;
+    - the face is turned so the bottom edge meets the wood;
+    - where the wood is straight behind the face, the lower half is folded about the middle.
+  - So the root variants fan out low: two limbs leave the stem at rows 12 and 10, and the lower half reads on its
+    own (`out/flora/winter-folded.png`).
+  - A limb now stops where it leaves the painting. A fork from off the canvas could lean back in mid-air, and the
+    no-floating assert caught it.
+  - `out/flora/winter.png` shows each role on its log, and a small crown laid out as the shader turns it.
+- **Fruit** is `@fruit` (late summer, ADR 0090). The script adds `fruit` to its season tags once the engine's
+  season list names it; until then the fruit looks wait.
+- **32 px a metre, rich colour** (the developer, 2026-11-13: "still too low quality of details and colours"):
+  - All flora is painted again at 32 px a metre. Leaves and bark are 32x32 a face, in `data/textures/hd/<block>.png`,
+    named as before (variants side by side, the season tags). The 16x16 files stay where they were. The Studio's
+    check reads only the top folder, so `hd/` does not disturb it; the engine reads it once the crowns session's
+    renderer takes 32 px faces.
+  - Plants are planes at 32 px a metre, width x height in pixels: short grass 32x13, tall grass 32x32, wild wheat
+    32x40, fern 48x22, reeds 32x64, flowers 32x16, berry bush 40x40. Each plant has `.1` and `.2` besides itself:
+    another shape and a hue a few degrees off. The berry bush adds `.bloom` and `.fruit`.
+  - Colour comes from **rich ramps** (`<name> rich` in the palette, `r1`..`r8`), eight tones from very dark to
+    light. The lights are pulled toward warm yellow-green and the shadows pushed toward cool blue-green, sampled
+    from the five pictures in `out/flora-refs`. Non-flora blocks stay calm at 16 px.
+  - Leaves are single leaf shapes (oval, lobed, small, broad, leaflet, lance) stamped in clumps. The clumps are
+    drawn back to front, each lit as a ball from the top left, over a dark accent that shows only in the gaps
+    between them. The clumps are drawn until about 92 % of the mass is covered.
+    - Willow is a curtain of strands, its leaves in pairs.
+    - Spruce is drooping sprays in tiers.
+    - Pine is needle rosettes over a mid-dark ground.
+    - Palm is two or three fronds at their own slant.
+  - Grass blades run from a dark root to a bright tip. Wild wheat is a bushy tuft: dry straw blades and arching
+    stems with nodding, awned ears. Flowers are six heads, big and small, at their own heights. The berry bush
+    is lumpy, with red berries.
+  - Barks:
+    - ridged (oak, broadleaf);
+    - diamond (willow);
+    - plates for pine and spruce: wrapping cells stretched along the trunk, deep furrows between them (a grid of
+      columns read as brick);
+    - birch;
+    - palm rings;
+    - culm (bamboo);
+    - smooth with long fibres (jungle, acacia).
+  - Winter twigs follow the same four roles at 32 px: the `through` limb is at x 16, and the root variants' low
+    limbs leave at rows 25, 21 and 17.
+  - A rich ramp that the script changes is written over in the palette, so a new hue takes effect.
+  - The palette has 430 colours, 77 of them rich ramps for the blocks on this branch; the pending species add
+    theirs when their blocks arrive.
+  - Proof:
+    - look sheets, read beside the references: `out/flora/species-hd.png`, `walls-a.png`, `walls-b.png`,
+      `walls-bark.png`, `plants-hd.png`, `meadow-vs-ref.png`;
+    - `technoape-studio check=1` ok (430 colours, 125 textures).
+- **Deeper greens, painted for light** (the overseer and the developer, 2026-11-13):
+  - The meadow's greens are now a fixed ramp, `MEADOW` in `tools/paint_textures.py`, sampled from reference 4:
+    a deep, saturated green, yellow only in the two lightest tones. Blades stay mid green most of their length
+    and are lit only at the tip (tone follows height^1.7). The variants turn its hue by -7 and +6 degrees. The
+    berry bush and the fern sit a step deeper too.
+  - Plants must take real light and shadow, so their painted shadow stays light:
+    - no dark outlines: where the berry bush's mass meets the air the darkest tones are lifted to mid, and the
+      fern's rib is dark only at its root;
+    - dark at the root and bright at the tips.
+  - The clutter models (ADR 0082), painted by `tools/paint_clutter.py`, take the same rich ramps. That tool
+    imports `MEADOW`, `rich_rgb` and the palette from `paint_textures.py`, and adds the twelve ramps it uses to
+    the palette:
+    - stones, sticks and flint: the top lit, the sides from shade at the ground to light, soft noise, glints
+      and pits;
+    - the mushroom: a red cap, lit at the middle, with pale spots and pale gills;
+    - grass, fern, flowers, fallen leaves and the berry bush: as the plants.
+  - The palette now has 526 colours. The model files' boxes are unchanged; only their paintings change.
+  - Proof: the sheets `out/flora/plants-hd.png`, `meadow-vs-ref.png` and `clutter.png` (the models' paintings,
+    8x), read; `technoape-studio check=1` ok.
+  - **Painted for the plants' shader** (claude/flora-plants, `shader.wgsl`):
+    - The shader tints green pixels (g above r and b) with a per-channel multiply. It is about x(0.75, 0.86, 0.5)
+      in a middling climate; the dry end raises red and cuts blue.
+    - It then darkens every plant to x0.45 at the root.
+    - So a blade's root is now only two tones down (tone = 2 + t^1.7 x 5), and the fern's rib and the stems start
+      at tone 2.
+    - `MEADOW`'s middle tones carry little red, so they stay green and do not turn olive; yellow is in the
+      lightest tone only.
+    - Proof: `out/flora/meadow-lit-vs-ref.png` is the meadow with that tint and depth shading applied, read beside
+      reference 4.
+  - `paint_textures.py` now keeps any colour that was in the palette before its run (`Palette.before`), so the
+    clutter's ramps that `paint_clutter.py` added are not dropped.
+- **Calm bark** (the overseer, from the crowns session's in-game still): at 9 m the oak's bark read as black and
+  cream zebra stripes.
+  - Every bark's tones are now squeezed into a narrow band of its ramp (`calm`): ridged and plates 1 to 4 or 1 to
+    5, willow, smooth and palm 2 to 5. That gives two or three close browns or greys, with furrows a little darker.
+  - The ridged bark (oak, broadleaf) is no longer a regular sine wave. Noise stretched along the trunk now carries
+    more of its shape than the waves.
+  - Birch's lenticels are dark grey and fewer.
+  - Bamboo's nodes are a single step, no longer a stripe.
+  - Proof: `out/flora/trunks-9m.png`, every bark as a two-face trunk at the still's scale (about 28 px a metre),
+    beside the still's oak, read.

@@ -209,3 +209,14 @@ data/plants/wild wheat.2.png
 data/plants/fern.2.png
 data/plants/reeds.2.png
 data/plants/berry bush.2.png
+data/textures/hd/broadleaf leaves.png
+data/textures/hd/broadleaf leaves@spring.png
+data/textures/hd/broadleaf leaves@autumn.png
+data/textures/hd/broadleaf leaves@winter.png
+data/textures/hd/log_side.png
+data/textures/hd/log.png
+data/textures/hd/spruce leaves.png
+data/textures/hd/jungle leaves.png
+data/textures/hd/acacia leaves.png
+data/textures/hd/shrub.png
+data/textures/hd/shrub@winter.png
