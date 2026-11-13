@@ -112,6 +112,11 @@ pub struct Bot {
     air: Option<engine::weather::Here>,
     idle_until: Option<Instant>,
     start: Instant,
+    /// Plays creative (bots start so, ADR 0074); `say /playmode survival` turns it off, and its digs are then held
+    /// for their time as a player's are (ADR 0034, 0097).
+    creative: bool,
+    /// A survival dig held until then, of that shape.
+    digging: Option<(Instant, Shape)>,
     /// The creature kinds by index and the animals the server has this bot see (ADR 0083).
     pub kinds: Vec<String>,
     pub animals: std::collections::BTreeMap<u32, engine::net::Animal>,
@@ -120,7 +125,7 @@ pub struct Bot {
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), kinds: Vec::new(), animals: Default::default() }
+        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, kinds: Vec::new(), animals: Default::default() }
     }
 
     fn feet(&self) -> DVec3 {
@@ -197,6 +202,12 @@ impl Bot {
             return false;
         }
         let Some(w) = self.world.as_ref() else { return true };
+        if let Some((_, shape)) = self.digging.filter(|d| Instant::now() >= d.0) {
+            self.seq += 1;
+            self.link.send(ToServer::Edit { seq: self.seq, shape, material: 0 });
+            self.link.send(ToServer::Dig(None));
+            self.digging = None;
+        }
         if let Some((t, deadline)) = self.target {
             let d = (t - self.pos).reject_from(phys::up(w, self.pos));
             let dist = d.length();
@@ -219,7 +230,7 @@ impl Bot {
 
     /// True while a walk or wait is still going, so the next command has to hold.
     pub fn busy(&self) -> bool {
-        self.target.is_some() || self.idle_until.is_some_and(|u| Instant::now() < u)
+        self.target.is_some() || self.digging.is_some() || self.idle_until.is_some_and(|u| Instant::now() < u)
     }
 
     /// Runs one command; the JSON line it produces, if any. Quit is the caller's to notice.
@@ -236,6 +247,13 @@ impl Bot {
                 (self.flying, self.last_dist, self.target) = (false, f64::MAX, Some((self.pos + *d, give_up)));
             }
             Cmd::Wait(s) => self.idle_until = Some(Instant::now() + Duration::from_secs_f64(*s)),
+            Cmd::Dig(d) if !self.creative => {
+                // held for its time, a little over, then dug (the server checks the hold, ADR 0034)
+                let shape = Shape::one(w.block_at(self.feet() + *d));
+                self.link.send(ToServer::Dig(Some(shape)));
+                let need = engine::edit::dig_time(w, &shape) as f64;
+                self.digging = Some((Instant::now() + Duration::from_secs_f64(need * 1.1 + 0.1), shape));
+            }
             Cmd::Dig(d) | Cmd::Place(d, _) => {
                 let m = if let Cmd::Place(_, m) = c { *m } else { 0 };
                 self.seq += 1;
@@ -267,7 +285,14 @@ impl Bot {
                     self.animals_json()
                 ));
             }
-            Cmd::Say(t) => self.link.send(ToServer::Chat(t.clone())),
+            Cmd::Say(t) => {
+                // the play mode it asks for (the server answers in chat; shortcut: a refusal is not read back)
+                match t.split_whitespace().collect::<Vec<_>>()[..] {
+                    ["/playmode" | "/gamemode", m, ..] => self.creative = !matches!(m.to_lowercase().as_str(), "survival" | "s" | "0"),
+                    _ => {}
+                }
+                self.link.send(ToServer::Chat(t.clone()))
+            }
             Cmd::Slots => {
                 let held: Vec<String> = self.slots.iter().enumerate().filter_map(|(k, s)| s.map(|s| format!("[{k},{:?},{}]", ITEMS.name(s.item), s.n))).collect();
                 return Some(format!("{{\"bot\":\"{}\",\"slots\":[{}]}}", self.name, held.join(",")));
@@ -388,6 +413,38 @@ mod tests {
         assert!(dout[0].contains("\"material\":0"), "{dout:?}");
         assert!(wout[0].contains("\"material\":0") && wout[1].contains("\"material\":0"), "{wout:?}");
         assert!(wout[2].contains("\"players\":2") && wout[2].contains("\"edits_applied\":2"), "{wout:?}");
+    }
+
+    /// Flint by script (ADR 0097): a survival bot digs a generated gravel cell that holds a flint, holding the dig
+    /// for its time as a player does, walks onto the pile, and has the gravel and the flint in its slots.
+    #[test]
+    fn a_survival_bot_digs_flint_out_of_gravel() {
+        let w = World::baked(1536, 32, 7);
+        let b = &w.bodies[0];
+        let (gravel, flint) = (engine::blocks::BLOCKS.id("gravel"), engine::items::ITEMS.named("flint").unwrap());
+        let sea = b.sea.unwrap();
+        let cell = (0..6u8)
+            .flat_map(|f| (40..b.n - 40).step_by(3).flat_map(move |i| (40..b.n - 40).step_by(3).map(move |j| (f, i, j))))
+            .find_map(|(f, i, j)| {
+                let top = w.air_over_ground(0, b.dir(f as usize, i as f64 + 0.5, j as f64 + 0.5));
+                let c = engine::world::Block { pos: top.pos - glam::IVec3::Z, ..top };
+                (c.pos.z as f64 > sea && w.block(c) == gravel && engine::edit::held(&w, c, gravel) == Some(flint)).then_some(c)
+            })
+            .expect("a gravel cell with flint");
+        let up = b.dir(cell.face as usize, cell.pos.x as f64 + 0.5, cell.pos.y as f64 + 0.5);
+        let centre = w.block_centre(cell);
+        let feet = centre + up * 2.0;
+        let d = centre - feet;
+        let (tx, rx) = channel();
+        std::thread::spawn(move || Server::baked(1536, 32, 7, rx).run(200.0, &std::sync::atomic::AtomicBool::new(false)));
+        let (c, s) = local();
+        tx.send(s).unwrap();
+        let mut bot = Bot::new("knapper", c);
+        let mut out = Vec::new();
+        let script = format!("wait 0.5; say /playmode survival; spawn {} {} {}; wait 0.5; dig {} {} {}; wait 0.5; walk {} {} {}; wait 1.5; slots", feet.x, feet.y, feet.z, d.x, d.y, d.z, d.x, d.y, d.z);
+        bot.run(parse_script(&script).unwrap(), None, |l| out.push(l));
+        let line = out.iter().find(|l| l.contains("\"slots\"")).expect("a slots line");
+        assert!(line.contains("\"flint\",1") && line.contains("\"gravel\",1"), "{line} ({} refused)", bot.refused);
     }
 
     /// A bot drives the items (ADR 0074): given stone, it moves some along its slots, throws some, and
