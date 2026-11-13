@@ -118,7 +118,7 @@ fn run_soak(args: &HashMap<String, String>) {
     let t0 = Instant::now();
     match soak::run_warp(seed, &bots, ticks, planet, record, warp) {
         Ok((hash, w)) => println!(
-            "{{\"soak\":\"ok\",\"seed\":{seed},\"bots\":{},\"ticks\":{ticks},\"sim_minutes\":{:.1},\"secs\":{:.2},\"hash\":\"{hash:016x}\",\"water\":{{\"stored_peak\":{},\"awake_peak\":{},\"skipped\":{},\"bytes\":{},\"dams\":{},\"broken\":{}}}}}",
+            "{{\"soak\":\"ok\",\"seed\":{seed},\"bots\":{},\"ticks\":{ticks},\"sim_minutes\":{:.1},\"secs\":{:.2},\"hash\":\"{hash:016x}\",\"water\":{{\"stored_peak\":{},\"awake_peak\":{},\"skipped\":{},\"bytes\":{},\"dams\":{},\"broken\":{}}},\"falls\":{{\"heaps\":{},\"moves\":{}}}}}",
             bots.len(),
             ticks as f64 / TICK_HZ / 60.0,
             t0.elapsed().as_secs_f64(),
@@ -127,7 +127,9 @@ fn run_soak(args: &HashMap<String, String>) {
             w.skipped,
             w.bytes,
             w.dams,
-            w.broken
+            w.broken,
+            w.heaps,
+            w.falls
         ),
         Err(f) => {
             // the shrink can take long: the first failure shows at once

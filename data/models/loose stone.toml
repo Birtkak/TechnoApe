@@ -1,0 +1,14 @@
+# A draft loose stone (Claude's, listed in data/drafts.txt): clutter, ADR 0082. Painted
+# boxes at 32 px a metre (a stone the size of a fist, tilted); made by tools/paint_clutter.py.
+colours = ["stone"]
+
+[[part]]
+name = "body"
+box = [1, 1, 1]
+voxels = "."
+
+[[part.boxes]]
+at = [12.0, 0.0, 12.0]
+size = [8, 4, 7]
+turn = [0.0, 20.0, 6.0]
+uv = [0, 0]

@@ -59,9 +59,14 @@ settings! {
     Reflections "reflections" "Reflections" Kind::Choice(OFF_ON), 1.0;
     Lamps "lamps" "Lamp light" Kind::Choice(&["nearest 16", "nearest 64", "all in range"]), 2.0;
     Particles "particles" "Particles" Kind::Choice(&["few", "normal", "many"]), 1.0;
+    // the weather (ADR 0076): the clouds' steps a ray (and their shadow), the rain's and snow's particles
+    Clouds "clouds" "Clouds" Kind::Choice(&["off", "low", "high"]), 1.0;
+    Rain "rain" "Rain and snow" Kind::Choice(&["off", "light", "full"]), 2.0;
     Textures "textures" "Block textures" Kind::Choice(&["flat colours", "16 px"]), 1.0;
     // fancy: seen through, light through them; fast by default: fancy's fly-through misses ADR 0004's p99 (ADR 0069)
     Leaves "leaves" "Leaves" Kind::Choice(&["fast", "fancy"]), 0.0;
+    // the ground's small things (ADR 0082): pick-ups lie there whatever this says, it thins the rest
+    Clutter "clutter" "Clutter" Kind::Choice(&["off", "few", "normal", "many"]), 2.0;
     Stars "stars" "Stars and galaxy" Kind::Choice(OFF_ON), 1.0;
     Sensitivity "sensitivity" "Mouse sensitivity" Kind::Slider { lo: 0.05, hi: 5.0, step: 0.05, max: 10.0, unit: Unit::Times }, 1.0;
     ZoomSens "zoom_sensitivity" "Zoomed sensitivity" Kind::Slider { lo: 0.25, hi: 3.0, step: 0.05, max: 3.0, unit: Unit::Times }, 1.0;
@@ -72,6 +77,8 @@ settings! {
     UiScale "interface_scale" "Interface scale" Kind::Steps { list: &[0.75, 1.0, 1.25, 1.5, 2.0], lo: 0.5, hi: 3.0 }, 1.0;
     Contrast "high_contrast" "High contrast interface" Kind::Choice(OFF_ON), 0.0;
     Marks "waypoints_shown" "Waypoints shown" Kind::Choice(OFF_ON), 1.0;
+    // the aimed-at outline's rainbow wave (ADR 0073); still holds its colours where they are
+    Outline "outline_colours" "Outline colours" Kind::Choice(&["moving", "still"]), 0.0;
     Volume "volume" "Master volume" VOLUME, 100.0;
     VolWorld "volume_world" "World" VOLUME, 100.0;
     VolSteps "volume_footsteps" "Footsteps" VOLUME, 100.0;
@@ -166,13 +173,15 @@ acts! {
     Jump "jump" "Jump, swim up, fly up" k(KeyCode::Space), "space" "";
     Down "down" "Fly down" [Some(Bind::Key(KeyCode::ShiftLeft)), Some(Bind::Key(KeyCode::ShiftRight))], "" "";
     RollLeft "roll_left" "Roll left (space)" k(KeyCode::KeyQ), "" "";
-    RollRight "roll_right" "Roll right (space)" k(KeyCode::KeyE), "" "";
+    RollRight "roll_right" "Roll right (space)" k(KeyCode::KeyR), "" "";
     Zoom "zoom" "Zoom" k(KeyCode::KeyC), "zoom" "unzoom";
     Dig "dig" "Dig, scoop" [Some(Bind::Mouse(1)), None], "L" "l";
     Place "place" "Place, pour" [Some(Bind::Mouse(2)), None], "R" "r";
     Hammer "hammer" "Build hammer" k(KeyCode::KeyH), "h" "";
     Shape "shape" "Hammer shape" k(KeyCode::KeyB), "b" "";
     Bucket "bucket" "Bucket" k(KeyCode::KeyV), "v" "";
+    Inventory "inventory" "Inventory" k(KeyCode::KeyE), "inventory" "";
+    Pick "pick" "Pick block (creative)" [Some(Bind::Mouse(3)), None], "pick" "";
     Chat "chat" "Chat" k(KeyCode::KeyT), "t" "";
     Command "command" "Command" k(KeyCode::Slash), "/" "";
     Overlay "overlay" "Numbers overlay" k(KeyCode::F3), "f3" "";
@@ -213,7 +222,7 @@ pub enum Row {
 /// The keys page's groups, in order (bugs/2026-11-11_13-13-42); every action is in one.
 const KEY_GROUPS: &[(&str, &[Act])] = &[
     ("Moving", &[Act::Forward, Act::Back, Act::Left, Act::Right, Act::Jump, Act::Down, Act::RollLeft, Act::RollRight]),
-    ("Hands and tools", &[Act::Dig, Act::Place, Act::Hammer, Act::Shape, Act::Bucket]),
+    ("Hands and tools", &[Act::Dig, Act::Place, Act::Hammer, Act::Shape, Act::Bucket, Act::Inventory, Act::Pick]),
     ("Hotbar", &[Act::Slot1, Act::Slot2, Act::Slot3, Act::Slot4, Act::Slot5, Act::Slot6, Act::Slot7, Act::Slot8, Act::Slot9]),
     ("Looking and finding", &[Act::Zoom, Act::Waypoint, Act::Marks, Act::Overlay]),
     ("Chat, time and testing", &[Act::Chat, Act::Command, Act::WarpUp, Act::WarpDown, Act::Bug, Act::Playtest]),
@@ -233,11 +242,11 @@ pub fn page_rows(page: usize) -> Vec<Row> {
     use Row::Set;
     match page {
         0 => vec![Row::Resolution, Set(S::Monitor), Set(S::Display), Set(S::FrameCap), Set(S::BackCap), Set(S::Vsync), Set(S::Fov), Set(S::Brightness)],
-        1 => vec![Row::Preset, Set(S::Detail), Set(S::Shadows), Set(S::Bounce), Set(S::Reflections), Set(S::Lamps), Set(S::Particles), Set(S::Textures), Set(S::Leaves), Set(S::Stars)],
+        1 => vec![Row::Preset, Set(S::Detail), Set(S::Shadows), Set(S::Bounce), Set(S::Reflections), Set(S::Lamps), Set(S::Particles), Set(S::Clouds), Set(S::Rain), Set(S::Textures), Set(S::Leaves), Set(S::Clutter), Set(S::Stars)],
         2 => vec![Set(S::Sensitivity), Set(S::ZoomSens), Set(S::InvertY), Set(S::ZoomMode), Set(S::AutoJump), Set(S::FlyTap)],
         3 => Settings::default().key_rows(""),
         4 => vec![Set(S::Volume), Set(S::VolWorld), Set(S::VolSteps), Set(S::VolUi), Set(S::VolMusic), Set(S::MuteBack), Set(S::SpaceSound)],
-        _ => vec![Set(S::UiScale), Set(S::Contrast), Set(S::Marks), Set(S::ZoomMode), Set(S::AutoJump), Set(S::Textures), Set(S::Brightness)],
+        _ => vec![Set(S::UiScale), Set(S::Contrast), Set(S::Marks), Set(S::Outline), Set(S::ZoomMode), Set(S::AutoJump), Set(S::Textures), Set(S::Brightness)],
     }
 }
 

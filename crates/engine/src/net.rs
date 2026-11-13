@@ -43,6 +43,14 @@ pub enum ToServer {
     /// Send the baked map of this hash (ADR 0043; Terra's or Luna's, ADR 0070): `Welcome` named one this
     /// client has neither in memory nor on disk. Answered by `Map` pieces.
     Map(u64),
+    /// Moves `n` of the stack in `from` to `to` (ADR 0074): each a holder and its slot (`items::Holder`; creative's
+    /// grid takes an item id as its slot, the ground ahead none). The server checks reach, mode and the slots'
+    /// rules and applies it whole or not at all (`items::shift`), then answers `Done` with the same `seq` and the
+    /// slots as they now are; the client predicts it with the same rule.
+    Items { seq: u32, from: (crate::items::Holder, u16), to: (crate::items::Holder, u16), n: u16 },
+    /// Takes the pick-up lying in air cell `at` into the slots (ADR 0082): the server checks reach, that one lies
+    /// there (`clutter::pickup_at`), was not taken and fits, then answers `Done` with the same `seq`.
+    Take { seq: u32, at: crate::world::Block },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -50,8 +58,9 @@ pub enum ToClient {
     /// First message: the world is rebuilt from these numbers, then `Edits` brings what changed. `blocks` is
     /// the block registry's hash (`BLOCKS.hash`): a client from a build with other blocks refuses to play.
     /// `map`: the hash of the baked map the planet stands on (ADR 0043), None for the noise land; a client
-    /// that lacks it asks for it (`fetch_map`). `luna`: Luna's (ADR 0070), None for its hills.
-    Welcome { id: u32, seed: i32, planet_n: i32, moon_n: i32, blocks: u64, map: Option<u64>, luna: Option<u64> },
+    /// that lacks it asks for it (`fetch_map`). `luna`: Luna's (ADR 0070), None for its hills. `items`: the item
+    /// registry's hash (`ITEMS.hash`, ADR 0074), refused the same way as `blocks`.
+    Welcome { id: u32, seed: i32, planet_n: i32, moon_n: i32, blocks: u64, items: u64, map: Option<u64>, luna: Option<u64> },
     /// A piece of the baked map's bytes (`Map::to_bytes`), in order, `pieces` in all.
     Map { piece: u32, pieces: u32, bytes: Vec<u8> },
     Edits(Vec<(Block, u16)>),
@@ -62,9 +71,13 @@ pub enum ToClient {
     /// tick, and the world's time that poses the sky (ADR 0022). The client replays its later inputs from here
     /// (ADR 0019).
     You { step: u32, me: crate::phys::Player, time: f64, warp: f64 },
-    /// This player's mode, every block kind it holds a nonzero count of, and the water in its bucket (units,
-    /// `liquid::U` a block); sent on join and on change.
-    Inventory { creative: bool, counts: Vec<(u16, u32)>, water: u32 },
+    /// This player's mode, its slots (`items::APE_SLOTS`: the hotbar, the worn pack, its rows) and the water in
+    /// its bucket (units, `liquid::U` a block); sent on join, on change and after every `Items`. shortcut: the
+    /// whole list (under 40 slots, a few hundred bytes), not slot deltas, as it changes a few times a second.
+    Inventory { creative: bool, slots: Vec<crate::items::Slot>, water: u32 },
+    /// Piles that changed, each whole (none: it is gone); every pile on join (ADR 0074). shortcut: every pile
+    /// goes to every client; by region, as entities, when littered faces make the list long.
+    Piles(Vec<(Block, Vec<crate::items::Slot>)>),
     /// Tiles of water (ADR 0020), each whole: the tile (`Col::tile`) and its stored columns, (floor, ceil,
     /// units) per gap; a column not listed is as generation gives it. A tile is sent when it changed by more
     /// than the dead band, or settled, since this client last had it: nearest first, within reach and a byte
@@ -85,6 +98,12 @@ pub enum ToClient {
     Kinds(Vec<String>),
     /// The animals near this player that are new to it or changed, and those it no longer sees (ADR 0083).
     Animals { seen: Vec<Animal>, gone: Vec<u32> },
+    /// Pick-ups taken (ADR 0082): the cell each lay in and the year (`clutter::year`); every one on join.
+    /// shortcut: every mark to every client, as the piles.
+    Taken(Vec<(crate::world::Block, u32)>),
+    /// The planet's air as the client draws it (ADR 0076): every column (`all`, on join) or the columns that
+    /// changed (by index), when the grid lands a step at world time `t` or a forced weather changes.
+    Sky { t: f64, all: Vec<crate::weather::Cell>, changed: Vec<(u32, crate::weather::Cell)> },
 }
 
 /// An animal as a client sees it (ADR 0083): `kind` indexes `ToClient::Kinds`, `pos` its feet in body 0's frame,
@@ -301,8 +320,8 @@ mod tests {
         client.send(e.clone());
         assert_eq!(server.rx.recv().unwrap(), ToServer::Hello { name: "bot".into() });
         assert_eq!(server.rx.recv().unwrap(), e);
-        server.send(ToClient::Welcome { id: 1, seed: 7, planet_n: 1536, moon_n: 512, blocks: 9, map: Some(42), luna: Some(43) });
-        assert_eq!(client.rx.recv().unwrap(), ToClient::Welcome { id: 1, seed: 7, planet_n: 1536, moon_n: 512, blocks: 9, map: Some(42), luna: Some(43) });
+        server.send(ToClient::Welcome { id: 1, seed: 7, planet_n: 1536, moon_n: 512, blocks: 9, items: 8, map: Some(42), luna: Some(43) });
+        assert_eq!(client.rx.recv().unwrap(), ToClient::Welcome { id: 1, seed: 7, planet_n: 1536, moon_n: 512, blocks: 9, items: 8, map: Some(42), luna: Some(43) });
         drop(server);
         assert!(client.rx.recv().is_err(), "a dropped peer closes the link");
     }

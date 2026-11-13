@@ -19,6 +19,18 @@ fn copy(from: &Path, to: &Path) {
     }
 }
 
+/// A scratch folder whose `block` has no painting yet (the repository's blocks are painted, ADR 0084).
+fn scratch_unpainted(name: &str, block: &str) -> PathBuf {
+    let dir = scratch(name);
+    for f in std::fs::read_dir(dir.join("data/textures")).unwrap().flatten() {
+        let n = f.file_name().to_string_lossy().into_owned();
+        if n.strip_suffix(".png").is_some_and(|s| s.split(['@']).next().unwrap().trim_end_matches("_top").trim_end_matches("_side").trim_end_matches("_bottom") == block) {
+            std::fs::remove_file(f.path()).unwrap();
+        }
+    }
+    dir
+}
+
 /// A fresh scratch folder with the repository's `data/` in it.
 fn scratch(name: &str) -> PathBuf {
     let dir = root().join("out/drive").join(name);
@@ -399,14 +411,14 @@ fn effects_colour_dir_then_texture_and_model_save_as_the_game_reads_them() {
             "cmd=open:Effects:flames",
             "size=1280x1800",
             "input=click @btn:one_colour; drag @field:red:0.9,0.5 @field:red:0.3,0.5; click @choice:start:cone; drag @field:dir_x:0.5,0.5 @field:dir_x:0.8,0.5; \
-             click @pick:then; click @pick:then:smoke; key Ctrl+S",
+             click @pick:then; click @pick:then:embers; key Ctrl+S",
         ],
     );
     assert!(line.contains("\"unsaved\":[]"), "{line}");
     let r = read();
     assert!(r.gradient.is_empty() && r.colour.is_some_and(|c| c[0] < 0.6), "one colour, its red moved: {:?} {line}", r.colour);
     assert!(r.dir[0] > 0.3 && r.dir[1] == 1.0, "the cone's dir: {:?} {line}", r.dir);
-    assert_eq!(r.then.as_deref(), Some("smoke"), "{line}");
+    assert_eq!(r.then.as_deref(), Some("embers"), "{line}");
     let line = studio(&dir, &["cmd=open:Effects:flames", "size=1280x1800", "input=click @choice:look:texture; click @pick:texture; click @pick:texture:dirt; key Ctrl+S"]);
     assert!(line.contains("\"undo\":[\"look: texture\",\"texture: dirt\"]") && line.contains("\"unsaved\":[]"), "{line}");
     let r = read();
@@ -537,7 +549,7 @@ fn a_season_is_added_painted_and_removed() {
 #[test]
 fn the_pattern_panel_picks_bricks_three_colours_and_a_size() {
     // usability round step 2: pick bricks, set three colours and a size, Use, save; the file passes check=1
-    let dir = scratch("pattern-panel");
+    let dir = scratch_unpainted("pattern-panel", "clay");
     let line = studio(
         &dir,
         &[
@@ -562,7 +574,7 @@ fn the_pattern_panel_picks_bricks_three_colours_and_a_size() {
 #[test]
 fn generate_variants_picks_a_set_and_a_variant_is_removed() {
     // usability round step 3: a set is pending until Use this; the file is then 3 variants (48 px) wide
-    let dir = scratch("variants");
+    let dir = scratch_unpainted("variants", "clay");
     let tex = dir.join("data/textures/clay.png");
     let line = studio(&dir, &["open=clay", "input=click @btn:pattern; click @btn:pat.use; click @btn:variants; click @wall:3; key Ctrl+S"]);
     assert!(line.contains("\"undo\":[\"Start from pattern\"]"), "a picked set is only pending: {line}");
@@ -634,14 +646,14 @@ fn a_block_made_cutout_takes_the_eraser_and_undo_takes_the_kind_back() {
 /// shades, both are painted with and saved, `check=1` passes; an unused colour is removed there, a used one refused.
 #[test]
 fn the_palette_grows_from_the_textures_page() {
-    let dir = scratch("palette-grows");
+    let dir = scratch_unpainted("palette-grows", "dirt");
     let line = studio(
         &dir,
         &[
             "open=dirt",
             "size=1920x1080",
-            // (a toast stands over the inspector's bottom corner for 4 s: `wait 20` lets it go before a click there)
-            "input=click @btn:pattern; click @btn:pat.use; wait 20; move @palette.search; wheel -30; wait 20; click @btn:palette.new;              click @palette.hex; key Ctrl+A; text #8a3fa0; wait 20; click @palette.name; key Ctrl+A; text plum; wait 20;              move @palette.search; wheel -30; wait 20; click @btn:palette.add; wait 20; drag @face:0.08,0.09 @face:0.92,0.09;              move @palette.search; wheel -30; wait 20; click @btn:palette.shades; move @palette.search; wheel -30; wait 20; click @btn:palette.use; wait 20;              move @palette.search; wheel -30; wait 20; click @swatch:plum_darker; drag @face:0.08,0.28 @face:0.92,0.28; key Ctrl+S",
+            // (the swatches scroll to their end, whatever the palette's size; a toast stands over the inspector's bottom corner for 4 s: `wait 20` lets it go before a click there)
+            "input=click @btn:pattern; click @btn:pat.use; wait 20; move @palette.search; wheel -400; wait 20; click @btn:palette.new;              click @palette.hex; key Ctrl+A; text #8a3fa0; wait 20; click @palette.name; key Ctrl+A; text plum; wait 20;              move @palette.search; wheel -400; wait 20; click @btn:palette.add; wait 20; drag @face:0.08,0.09 @face:0.92,0.09;              move @palette.search; wheel -400; wait 20; click @btn:palette.shades; move @palette.search; wheel -400; wait 20; click @btn:palette.use; wait 20;              move @palette.search; wheel -400; wait 20; click @swatch:plum_darker; drag @face:0.08,0.28 @face:0.92,0.28; key Ctrl+S",
         ],
     );
     assert!(line.contains("\"unsaved\":[]"), "{line}");
@@ -656,7 +668,7 @@ fn the_palette_grows_from_the_textures_page() {
     assert_eq!(at(w / 2, w * 28 / 100), rgb("plum darker"), "painted with its shade");
     studio(&dir, &["check=1"]);
     // the unused lightest shade goes; plum, painted in dirt.png, stays with the count
-    let line = studio(&dir, &["open=dirt", "size=1920x1080", "input=move @palette.search; wheel -30; wait 20; click @swatch:plum_lighter; click @btn:palette.remove; wait 20; click @swatch:plum; click @btn:palette.remove; wait"]);
+    let line = studio(&dir, &["open=dirt", "size=1920x1080", "input=move @palette.search; wheel -400; wait 20; click @swatch:plum_lighter; click @btn:palette.remove; wait 20; click @swatch:plum; click @btn:palette.remove; wait"]);
     let pal = std::fs::read_to_string(dir.join("data/palette.toml")).unwrap();
     assert!(!pal.contains("\"plum lighter\"") && pal.contains("name = \"plum\""), "{line}\n{pal}");
 }

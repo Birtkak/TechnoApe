@@ -3,7 +3,9 @@ use crate::mesh::{mesh_cut, Mesh};
 use crate::liquid::{Col, TILE};
 use crate::world::{fold, generate, river_quads, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS};
 use glam::{DQuat, DVec3, IVec3, Vec4};
+use crate::clutter::Still;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 use std::time::Instant;
 
 
@@ -66,7 +68,7 @@ impl Alloc {
 enum State {
     Pending,
     Empty,
-    Ready { off: u32, len: u32, water: u32, cut: u32 },
+    Ready { off: u32, len: u32, water: u32, cut: u32, glass: u32, still: u32 },
 }
 
 /// Every chunk the selection visits has a slot (it caches the bounds); only wanted leaves get a mesh.
@@ -110,7 +112,8 @@ pub struct JobResult {
 }
 
 /// One drawable range of the quad buffer: `len` quads, the last `water` of them the sea's surface and the `cut`
-/// before those the cutout blocks' (ADR 0069).
+/// before those the still models' (clutter, ADR 0082), the `glass` before those the glass blocks' (ADR 0081) and
+/// the `cut` before those the cutout blocks' (ADR 0069).
 #[derive(Clone, Copy)]
 pub struct DrawChunk {
     pub key: Key,
@@ -118,10 +121,15 @@ pub struct DrawChunk {
     pub len: u32,
     pub water: u32,
     pub cut: u32,
+    pub glass: u32,
+    pub still: u32,
     /// Outside the view or behind a horizon: not drawn, only traced.
     pub hidden: bool,
     /// From the camera to its bounding sphere, metres: the draws go near to far (ADR 0025, D).
     pub dist: f32,
+    /// From the camera to its centre, metres: glass blends far to near by it (ADR 0081; `dist` is 0 for every chunk
+    /// round the camera).
+    pub centre: f32,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -200,6 +208,12 @@ pub struct Streamer {
     pub walks: u64,
     /// Quad-buffer offsets released since the client last took them: their BLAS go too (ADR 0025, G).
     pub released: Vec<u32>,
+    /// What level 0 lays its clutter with (ADR 0082): the still models, the sky's time it was last set at (its
+    /// season picks the rows, its year what has come back), that time's (nearest season, year), and the Clutter
+    /// setting's density.
+    pub clutter: (Arc<Still>, f64, (i64, u32), f32),
+    /// The pick-ups taken (ADR 0082): the cell each lay in and the year it was taken, as the server sends them.
+    pub taken: FxMap<Block, u32>,
 }
 
 pub struct View {
@@ -302,6 +316,8 @@ impl Streamer {
             touched: Vec::new(),
             walks: 0,
             released: Vec::new(),
+            clutter: (Arc::new(Still::default()), 0.0, (i64::MIN, 0), 1.0),
+            taken: FxMap::default(),
         }
     }
 
@@ -426,7 +442,20 @@ impl Streamer {
                 // own children are, so this chunk covers until then and never forever (a chunk meshed as a leaf
                 // from far away would otherwise cover forever once the camera is back), and a camera that nears
                 // the children before they are meshed leaves no hole (ADR 0038 B)
-                let all = covered || kids.iter().all(|c| self.complete(world, view, c, kk));
+                // a child wholly out of view does not hold it either: it would cover the visible children that are in,
+                // over their finer ground, until the hidden ones came last in the queue (bug 2026-11-12_21-00-30)
+                let mut by_view = false;
+                let all = covered
+                    || kids.iter().all(|c| {
+                        self.complete(world, view, c, kk) || (draw && {
+                            let h = self.hidden(view, c.body, &self.slots.get(c).map_or_else(|| world.bodies[c.body as usize].bounds(*c), |s| s.bounds));
+                            by_view |= h;
+                            h
+                        })
+                    });
+                // that choice depends on the look, which a frame that only culls does not check: walk again until
+                // the hidden child is in, or turning round shows its hole (the review of ADR 0073)
+                self.dirty |= by_view && all && !covered;
                 let mut cov = covered;
                 if !all && !covered && draw && self.emit(view, k, None, out) {
                     cov = true;
@@ -482,8 +511,8 @@ impl Streamer {
         st.missing += w.missing;
         st.holes += w.holes;
         for (d, bd) in &w.draws {
-            let dist = ((bd.c - view.cam_in(d.key.body)).length() - bd.rad).max(0.0);
-            out.push(DrawChunk { hidden: self.hidden(view, d.key.body, bd), dist: dist as f32, ..*d });
+            let centre = (bd.c - view.cam_in(d.key.body)).length();
+            out.push(DrawChunk { hidden: self.hidden(view, d.key.body, bd), dist: (centre - bd.rad).max(0.0) as f32, centre: centre as f32, ..*d });
         }
         for k in std::mem::take(&mut self.touched) {
             let Some(s) = self.slots.get(&k) else { continue };
@@ -496,6 +525,12 @@ impl Streamer {
         }
     }
 
+    /// The drawn, visible chunks this view would split: drawn coarser than their level (ADR 0073, the check
+    /// for F9 report 2026-11-12_21-00-30). Fine while chunks stream in; it must not last once the camera slows.
+    pub fn too_coarse(&self, world: &World, view: &View, draws: &[DrawChunk]) -> u32 {
+        draws.iter().filter(|d| !d.hidden && self.splits(world, view, &d.key, self.opts.k)).count() as u32
+    }
+
     /// Append a ready chunk to the draw list, marked hidden if culled; true if it is ready.
     fn emit(&mut self, view: &View, k: Key, hidden: Option<bool>, out: &mut Vec<DrawChunk>) -> bool {
         let Some(s) = self.slots.get_mut(&k) else { return false };
@@ -505,15 +540,15 @@ impl Streamer {
         }
         s.drawn_at = (self.frame, out.len() as u32);
         let bd = s.bounds;
-        let (off, len, water, cut) = match s.state {
+        let (off, len, water, cut, glass, still) = match s.state {
             State::Pending => return false,
             State::Empty => return true,
-            State::Ready { off, len, water, cut } => (off, len, water, cut),
+            State::Ready { off, len, water, cut, glass, still } => (off, len, water, cut, glass, still),
         };
         // hidden chunks are listed too: they are not drawn, but they cast shadows (ADR 0022)
         let hidden = hidden.unwrap_or_else(|| self.hidden(view, k.body, &bd));
-        let dist = ((bd.c - view.cam_in(k.body)).length() - bd.rad).max(0.0) as f32;
-        out.push(DrawChunk { key: k, off, len, water, cut, hidden, dist });
+        let centre = (bd.c - view.cam_in(k.body)).length();
+        out.push(DrawChunk { key: k, off, len, water, cut, glass, still, hidden, dist: (centre - bd.rad).max(0.0) as f32, centre: centre as f32 });
         true
     }
 
@@ -538,8 +573,16 @@ impl Streamer {
             }
             let tx = self.tx.clone();
             let bodies = world.bodies.clone();
+            // generation makes no glass: a chunk without edits holds none (`mesh_cut`)
+            let may_glass = !edits.is_empty();
             let greedy = self.opts.greedy;
             let cutout = self.opts.cutout && k.level == 0;
+            // the sky's time the clutter was set at: both hemispheres change season at once (`sky::season_at`)
+            let (still, sky_t, _, density) = self.clutter.clone();
+            // shortcut: every taken mark is looked through for every level-0 job; a map by chunk once a world
+            // holds thousands
+            let near = |b: &&Block| b.body == k.body && b.face == k.face && b.pos.x.div_euclid(CS) == k.pos.x && b.pos.y.div_euclid(CS) == k.pos.y;
+            let taken: Vec<(IVec3, u32)> = if k.level == 0 { self.taken.iter().filter(|(b, _)| near(b)).map(|(b, y)| (b.pos, *y)).collect() } else { Vec::new() };
             // tiles of stored water are the water mesh's; a coarse column lies within one tile up to level 4, and past
             // that a far chunk's sea covers them (shortcut: a flood far away shows as sea level)
             let wet = if 1 << k.level <= TILE { world.water.wet_tiles(k.body, k.face, k.base().x, k.base().y, k.span()) } else { Vec::new() };
@@ -550,13 +593,18 @@ impl Streamer {
                 let body = &bodies[k.body as usize];
                 let gen = generate(body, k, &edits);
                 let mut mesh = match &gen {
-                    Gen::Cells(c) => Some(mesh_cut(c, if greedy { body.lattice(k.level) as usize } else { 1 }, cutout)).filter(|m| !m.quads.is_empty()),
+                    Gen::Cells(c) => Some(mesh_cut(c, if greedy { body.lattice(k.level) as usize } else { 1 }, cutout, may_glass)).filter(|m| !m.quads.is_empty()),
                     _ => None,
                 };
+                if let (Gen::Cells(c), Some(m)) = (&gen, mesh.as_mut()) {
+                    let q = crate::clutter::quads(body, k, c, &edits, &still, sky_t, density, &taken);
+                    m.still = q.len() as u32;
+                    m.quads.extend(q);
+                }
                 let mut sea = sea_quads(body, k, &wet, &gen);
                 sea.extend(river_quads(body, k, &wet, &gen));
                 if !sea.is_empty() {
-                    let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], cut: 0, water: 0 });
+                    let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], cut: 0, glass: 0, still: 0, water: 0 });
                     m.water = sea.len() as u32;
                     m.quads.extend(sea);
                 }
@@ -591,7 +639,7 @@ impl Streamer {
                     upload(off, &m.quads);
                     bytes += m.quads.len() * 8;
                     st.applied_nonempty += 1;
-                    State::Ready { off, len: n, water: m.water, cut: m.cut }
+                    State::Ready { off, len: n, water: m.water, cut: m.cut, glass: m.glass, still: m.still }
                 }
             };
             let s = self.slots.get_mut(&r.key).unwrap();
@@ -602,9 +650,9 @@ impl Streamer {
             // a remesh that stays drawn changes only its range: the last walk's list takes it in place; any other
             // change of state can change what the walk picks
             match (s.state, new, &mut self.walk) {
-                (State::Ready { .. }, State::Ready { off, len, water, cut }, Some(w)) if s.drawn_at.0 == self.walk_frame => {
+                (State::Ready { .. }, State::Ready { off, len, water, cut, glass, still }, Some(w)) if s.drawn_at.0 == self.walk_frame => {
                     let d = &mut w.draws[(s.drawn_at.1 - w.first) as usize].0;
-                    (d.off, d.len, d.water, d.cut) = (off, len, water, cut);
+                    (d.off, d.len, d.water, d.cut, d.glass, d.still) = (off, len, water, cut, glass, still);
                 }
                 _ => self.dirty = true,
             }
@@ -627,6 +675,30 @@ impl Streamer {
             }
         }
         self.dirty = true;
+    }
+
+    /// The clutter's models, the sky's time and the Clutter setting's density (ADR 0082): level 0 is meshed again
+    /// when the models are new, the year turns into another season or begins again, or the density changes.
+    /// shortcut: every level-0 chunk, though only those with seasonal rows change; by row when it shows in p99.
+    pub fn set_clutter(&mut self, still: &Arc<Still>, t: f64, density: f32) {
+        let quarter = crate::clutter::stamp(t);
+        let c = &self.clutter;
+        if Arc::ptr_eq(&c.0, still) && c.2 == quarter && c.3 == density {
+            return;
+        }
+        self.clutter = (still.clone(), t, quarter, density);
+        for (k, sl) in self.slots.iter_mut() {
+            if k.level == 0 {
+                sl.want_v += 1;
+            }
+        }
+        self.dirty = true;
+    }
+
+    /// A pick-up in cell `b` was taken in `year` (ADR 0082): the chunks that show it are meshed again.
+    pub fn take(&mut self, world: &World, b: Block, year: u32) {
+        self.taken.insert(b, year);
+        self.touch_block(world, Block { pos: b.pos - IVec3::Z, ..b });
     }
 
     /// An edit changed a block: every chunk that samples it, in its cells or its padding, gets a new version.
@@ -829,6 +901,96 @@ mod tests {
             worst = worst.max(st.holes);
         }
         assert_eq!(worst, 0, "holes in the ground during the flight");
+    }
+
+    #[test]
+    fn a_fast_flight_leaves_no_near_chunk_coarse_once_the_camera_slows() {
+        // F9 report 2026-11-12_21-00-30: flying 100 to 1000 m/s about 125 m up, a large near area stayed at a
+        // coarse level. The client's frame as frame.rs runs it: a walk, the look-ahead every 4th frame, jobs
+        // landing a few a frame; then the camera stops, and within a second every near chunk is at its level.
+        let w = World::new(1536, 64, 1337);
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 1.0, max_inflight: 10 };
+        let mut s = Streamer::new(&w, 1 << 23, opts);
+        let b = &w.bodies[0];
+        let (e1, e2) = (b.spawn.any_orthonormal_vector(), b.spawn.cross(b.spawn.any_orthonormal_vector()));
+        let at = |x: f64, y: f64| {
+            let d = (b.spawn + e1 * (x / b.radius) + e2 * (y / b.radius)).normalize();
+            d * (b.top(d) + 125.0)
+        };
+        settle(&mut s, &w, at(0.0, 0.0));
+        let (mut x, mut y, mut last) = (0.0, 0.0, at(0.0, 0.0));
+        let mut frame = |s: &mut Streamer, cam: DVec3, vel: DVec3| {
+            let view = View::new(cam, [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], &w);
+            let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+            std::thread::sleep(std::time::Duration::from_micros(300));
+            s.apply(usize::MAX, &mut st, |_, _| {});
+            s.frame += 1;
+            s.select(&w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+            let mut ahead = std::mem::take(&mut s.ahead_reqs);
+            if vel.length() > 1.0 && s.frame % 4 == 0 {
+                ahead.clear();
+                let v = View::new(cam + vel * s.opts.prefetch_s, view.planes, &w);
+                s.select(&w, &v, false, 1.5, &mut Vec::new(), &mut ahead, &mut FrameStats::default());
+            }
+            if vel.length() > 1.0 {
+                reqs.extend_from_slice(&ahead);
+            }
+            s.ahead_reqs = ahead;
+            s.dispatch(&w, &mut reqs);
+            if s.frame % 30 == 0 {
+                s.evict(120);
+            }
+            (out, st)
+        };
+        // 8 s at 150 fps: speeds stepping 100 -> 1000 m/s, the heading turning
+        for f in 0..1200 {
+            let speed = 100.0 + 900.0 * ((f / 150) as f64 / 7.0);
+            let heading = f as f64 * 0.004;
+            x += heading.cos() * speed / 150.0;
+            y += heading.sin() * speed / 150.0;
+            let cam = at(x, y);
+            frame(&mut s, cam, (cam - last) * 150.0);
+            last = cam;
+        }
+        // stopped: once nothing is missing or asked for, every near chunk is at its level
+        let out = settle(&mut s, &w, last);
+        let view = View::new(last, [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], &w);
+        let bad: Vec<(Key, f32)> = out.iter().filter(|d| !d.hidden && s.splits(&w, &view, &d.key, 4.0)).map(|d| (d.key, d.dist)).collect();
+        assert_eq!(s.too_coarse(&w, &view, &out) as usize, bad.len());
+        assert!(bad.is_empty(), "{} chunks drawn coarser than their level a second after stopping, e.g. {:?}", bad.len(), &bad[..bad.len().min(5)]);
+    }
+
+    #[test]
+    fn a_coarse_chunk_does_not_cover_once_its_visible_children_are_in() {
+        // F9 report 2026-11-12_21-00-30: a huge coarse chunk drawn over the near ground. A chunk covers while a
+        // child is not meshed; children out of view rank last, so once every visible child was in, the coarse
+        // chunk still covered (and stood over the fine ground) until the hidden ones came, long after
+        let w = World::new(1536, 64, 1337);
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 4 };
+        let mut s = Streamer::new(&w, 1 << 23, opts);
+        let b = &w.bodies[0];
+        settle(&mut s, &w, b.spawn * b.radius * 1.6);
+        // on the ground, looking one way: everything behind the camera is out of view
+        let cam = b.spawn * (b.top(b.spawn) + 2.0);
+        let look = b.spawn.any_orthonormal_vector();
+        let mut planes = [Vec4::new(0.0, 0.0, 0.0, 1.0); 6];
+        planes[0] = Vec4::new(look.x as f32, look.y as f32, look.z as f32, 0.0);
+        let view = View::new(cam, planes, &w);
+        for f in 0..20000 {
+            let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+            std::thread::sleep(std::time::Duration::from_micros(200));
+            s.apply(usize::MAX, &mut st, |_, _| {});
+            s.frame += 1;
+            s.select(&w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+            s.dispatch(&w, &mut reqs);
+            if st.missing == 0 && f > 0 {
+                assert_eq!(s.too_coarse(&w, &view, &out), 0, "every visible child is in, yet coarse chunks are drawn over them (frame {f}, {} still in flight)", s.inflight);
+                // a cover left out for a child out of view depends on the look: the next frame walks again
+                assert!(s.dirty, "a frame that only culls would keep the hole of a hidden child when the camera turns");
+                return;
+            }
+        }
+        panic!("the visible chunks never came in");
     }
 
     #[test]

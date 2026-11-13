@@ -1,0 +1,19 @@
+# A draft berries (Claude's, listed in data/drafts.txt): clutter, ADR 0082. Painted
+# boxes at 32 px a metre (a low bush with red berries); made by tools/paint_clutter.py.
+colours = ["shrub"]
+
+[[part]]
+name = "body"
+box = [1, 1, 1]
+voxels = "."
+
+[[part.boxes]]
+at = [9.0, 0.0, 16.0]
+size = [14, 10, 0]
+uv = [0, 0]
+
+[[part.boxes]]
+at = [9.0, 0.0, 16.0]
+size = [14, 10, 0]
+turn = [0.0, 90.0, 0.0]
+uv = [28, 0]

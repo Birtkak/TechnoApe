@@ -29,49 +29,6 @@ fn utc_stamps() {
     assert_eq!(utc_stamp(951_782_400), "2000-02-29_00-00-00");
 }
 
-/// Waits up to `limit` for the file the next game process writes once its window shows its first frame, and
-/// removes it: the old window stays over the screen till then, so going between a world and the title never
-/// shows the desktop (ADR 0038). False when it never came: the limit passed, or `gone` says the new process
-/// has ended without showing anything (the wait stops at once then).
-pub fn wait_shown(file: &std::path::Path, limit: std::time::Duration, mut gone: impl FnMut() -> bool) -> bool {
-
-    let end = Instant::now() + limit;
-    loop {
-        if std::fs::remove_file(file).is_ok() {
-            return true;
-        }
-        if Instant::now() >= end || gone() {
-            // (it may have shown and ended between the two looks)
-            return std::fs::remove_file(file).is_ok();
-        }
-        std::thread::sleep(std::time::Duration::from_millis(15));
-    }
-}
-
-#[test]
-fn waits_for_the_next_window() {
-    use std::time::Duration;
-    let f = std::env::temp_dir().join(format!("technoape-shown-test-{}", std::process::id()));
-    let _ = std::fs::remove_file(&f);
-    // nobody writes it: the wait gives up at its limit
-    let t = Instant::now();
-    assert!(!wait_shown(&f, Duration::from_millis(100), || false));
-    assert!(t.elapsed() >= Duration::from_millis(100));
-    // the next process ended without showing anything (it failed to load): no waiting for it
-    let t = Instant::now();
-    assert!(!wait_shown(&f, Duration::from_secs(30), || true));
-    assert!(t.elapsed() < Duration::from_secs(1), "waited {:?} for a process that is gone", t.elapsed());
-    // written a little later: the wait sees it and clears it
-    let g = f.clone();
-    let w = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(50));
-        std::fs::write(g, "").unwrap();
-    });
-    assert!(wait_shown(&f, Duration::from_secs(5), || false));
-    w.join().unwrap();
-    assert!(!f.exists());
-}
-
 pub fn ram_mb() -> f64 {
     let mut c = PROCESS_MEMORY_COUNTERS::default();
     unsafe {
@@ -143,6 +100,12 @@ pub fn meshbench(args: &HashMap<String, String>) {
         }
     }
     let near = at.is_some().then_some(1u32);
+    // clutter=off|few|normal|many (ADR 0082): its quads laid after each mesh, timed apart, in summer (time=)
+    let density = args.get("clutter").and_then(|v| ["off", "few", "normal", "many"].iter().position(|n| n == v)).map_or(1.0, |l| [0.0, 0.25, 1.0, 4.0][l]);
+    let pal = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+    let still = engine::clutter::Still::load(std::path::Path::new("data/models"), &pal).0;
+    let t_sky = args.get("time").and_then(|v| v.parse::<f64>().ok()).unwrap_or(23625.0);
+    let clutter_us = std::sync::Mutex::new((0.0f64, 0usize, 0usize));
     let job = |k: &Key| -> (f64, f64, usize, u8) {
         let t0 = Instant::now();
         let g = generate(b, *k, &[]);
@@ -154,9 +117,14 @@ pub fn meshbench(args: &HashMap<String, String>) {
                 let mut n = 0;
                 for _ in 0..if near.is_some() { 5 } else { 1 } {
                     let t = Instant::now();
-                    n = engine::mesh::mesh_cut(&c, if greedy { b.lattice(0) as usize } else { 1 }, cutout).quads.len();
+                    n = engine::mesh::mesh_cut(&c, if greedy { b.lattice(0) as usize } else { 1 }, cutout, false).quads.len();
                     best = best.min(t.elapsed().as_secs_f64() * 1e6);
                 }
+                let t = Instant::now();
+                let cq = engine::clutter::quads(b, *k, &c, &[], &still, t_sky, density, &[]).len();
+                let mut cu = clutter_us.lock().unwrap();
+                (cu.0, cu.1, cu.2) = (cu.0 + t.elapsed().as_secs_f64() * 1e6, cu.1 + cq, cu.2 + 1);
+                drop(cu);
                 return ((t1 - t0).as_secs_f64() * 1e6, best, n, 2);
             }
             Gen::Empty => (0, 0),
@@ -177,8 +145,9 @@ pub fn meshbench(args: &HashMap<String, String>) {
     let quads = surf.iter().map(|r| r.2).sum::<usize>() as f64 / n;
     let shortcut_us = single.iter().filter(|r| r.3 != 2).map(|r| r.0).sum::<f64>() / single.iter().filter(|r| r.3 != 2).count().max(1) as f64;
     println!(
-        "{{\"run\":\"meshbench\",\"greedy\":{},\"chunks\":{},\"surface_chunks\":{},\"gen_us\":{:.1},\"mesh_us\":{:.1},\"shortcut_us\":{:.1},\"quads_per_chunk\":{:.0},\"bytes_per_chunk\":{:.0},\"single_chunks_per_s\":{:.0},\"parallel_chunks_per_s\":{:.0},\"threads\":{}}}",
+        "{{\"run\":\"meshbench\",\"greedy\":{},\"chunks\":{},\"surface_chunks\":{},\"gen_us\":{:.1},\"mesh_us\":{:.1},\"shortcut_us\":{:.1},\"quads_per_chunk\":{:.0},\"bytes_per_chunk\":{:.0},\"single_chunks_per_s\":{:.0},\"parallel_chunks_per_s\":{:.0},\"threads\":{},\"clutter_us\":{:.1},\"clutter_quads_per_chunk\":{:.0}}}",
         greedy as u8, keys.len(), surf.len(), gen_us, mesh_us, shortcut_us, quads, quads * 8.0,
-        keys.len() as f64 / st, keys.len() as f64 / pt, rayon::current_num_threads()
+        keys.len() as f64 / st, keys.len() as f64 / pt, rayon::current_num_threads(),
+        { let c = clutter_us.lock().unwrap(); c.0 / c.2.max(1) as f64 }, { let c = clutter_us.lock().unwrap(); c.1 as f64 / c.2.max(1) as f64 }
     );
 }

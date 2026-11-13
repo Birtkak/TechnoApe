@@ -79,13 +79,13 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 - Saves (ADR 0016): `run=play` keeps `saves/seed-<seed>-planet-<n>.sav`, the server `saves/server.sav`; both
   carry on from it. `save=file` names another, `save=0` keeps none.
 - Bots: `technoape-bot connect=host n=50 script="wait 1; dig 0.25 -0.5 0.25; block 0.25 -0.5 0.25; report"`
-  runs windowless players on the protocol (commands: spawn, walk, wait, dig, place, block, report, quit;
+  runs windowless players on the protocol (commands: spawn, walk, wait, dig, place, block, report, quit; items: slots, move a b n, drop a n, take dx dy dz k a n, put a dx dy dz k n, grab <item> a n; pick dx dy dz takes a pick-up, ADR 0082;
   `script=-` takes them live from stdin). Output is one JSON line per report or block. Use bots, not a second
   windowed client, for multiplayer checks: two windows on one PC throttle each other (ADR 0006).
 - Play: `technoape.exe run=play onscreen=1` (WASD, space; left click digs a block (in survival held, by its hardness, ADR 0034), right click places one;
   H the build hammer, B its shape, wheel its height; V the bucket, left scoops, right pours;
-  in space the mouse pitches you freely and Q/E roll, gravity rights you as it pulls (ADR 0024); C held zooms 3x;
-  1-9 or the wheel the hotbar; N drops a waypoint and creative shows the compass, where you are and the waypoints
+  in space the mouse pitches you freely and Q/R roll, gravity rights you as it pulls (ADR 0024); C held zooms 3x;
+  1-9 or the wheel the hotbar; E the inventory (ADR 0074, 0075: survival the hotbar and a worn pack's rows, a click lifts and puts, right click halves or puts one, shift-click moves across, outside throws a pile; creative every block and item in tabs and a search, a click takes a stack; middle click picks a block in the world; dug blocks fall as piles, walked over to pick up; `/give basket`, `hide pack`, `frame pack` open 9, 18, 27 slots worn); N drops a waypoint and creative shows the compass, where you are and the waypoints
   (ADR 0030; Esc, Waypoints lists them, a click names, colours and sets where one shows; K hides them, ADR 0036); space swims up in water, ADR 0020; T chats, / runs a command: /time, /playmode, /give,
   /place <block> [face i j layer], /structure <name> [seed] (a file of data/structures five blocks ahead, ADR 0052),
   /spawn <creature>[:speed] (a row of data/creatures.toml walking in place ahead: this player's preview, ADR 0053), /goto terra|luna|sun, /timewarp (. and , step it), /heal, /feed [n], /hurt <points>
@@ -99,7 +99,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   a running game makes a changed `data/sounds.toml` or `data/sounds/` again within a second (`sound_dir=dir` reads both from another folder); `sounds=1` prints every sound in numbers (its bases, chain, `ms`);
   off-screen runs are silent unless `sound=1`, and a play run's JSON counts what it played under `audio`); Tab completes a command, the arrows pick, else the up arrow
   recalls the last line; in creative (/playmode creative) space twice flies, the wheel its speed (not the hotbar) up to
-  1 km/s; F3 the overlay of
+  10 km/s (ADR 0073); F3 the overlay of
   numbers; F9 a bug report; F10 the playtest menu (an eclipse of the sun or of Luna, ADR 0036); Esc the menu: settings in pages (Display, Graphics, Controls, Keys, Sound,
   Accessibility), every key rebindable (Keys: grouped, searchable, a shared key red), kept in `settings.txt`, ADR 0023 and 0028; `dump=1` prints a
   settings file's meaning as JSON). `acts="t:action,..."`

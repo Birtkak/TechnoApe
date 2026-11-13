@@ -43,3 +43,154 @@ data/models/hare.toml
 data/sounds.toml#deer.call
 data/sounds.toml#hare.squeak
 data/herds.toml
+data/textures/dirt.png
+data/textures/sand.png
+data/textures/sand_top.png
+data/textures/snow.png
+data/textures/ice.png
+data/textures/clay.png
+data/textures/clay_side.png
+data/textures/mud.png
+data/textures/copper gravel.png
+data/textures/tin gravel.png
+data/textures/gold gravel.png
+data/textures/grass_top.png
+data/textures/grass_side.png
+data/textures/grass_top@spring.png
+data/textures/grass_side@spring.png
+data/textures/grass_top@autumn.png
+data/textures/grass_side@autumn.png
+data/textures/grass_top@winter.png
+data/textures/grass_side@winter.png
+data/textures/tundra grass_top.png
+data/textures/tundra grass_side.png
+data/textures/tundra grass_top@spring.png
+data/textures/tundra grass_side@spring.png
+data/textures/tundra grass_top@autumn.png
+data/textures/tundra grass_side@autumn.png
+data/textures/tundra grass_top@winter.png
+data/textures/tundra grass_side@winter.png
+data/textures/cold grass_top.png
+data/textures/cold grass_side.png
+data/textures/cold grass_top@spring.png
+data/textures/cold grass_side@spring.png
+data/textures/cold grass_top@autumn.png
+data/textures/cold grass_side@autumn.png
+data/textures/cold grass_top@winter.png
+data/textures/cold grass_side@winter.png
+data/textures/meadow grass_top.png
+data/textures/meadow grass_side.png
+data/textures/meadow grass_top@spring.png
+data/textures/meadow grass_side@spring.png
+data/textures/meadow grass_top@autumn.png
+data/textures/meadow grass_side@autumn.png
+data/textures/meadow grass_top@winter.png
+data/textures/meadow grass_side@winter.png
+data/textures/scrub grass_top.png
+data/textures/scrub grass_side.png
+data/textures/scrub grass_top@spring.png
+data/textures/scrub grass_side@spring.png
+data/textures/scrub grass_top@autumn.png
+data/textures/scrub grass_side@autumn.png
+data/textures/scrub grass_top@winter.png
+data/textures/scrub grass_side@winter.png
+data/textures/savanna grass_top.png
+data/textures/savanna grass_side.png
+data/textures/jungle grass_top.png
+data/textures/jungle grass_side.png
+data/textures/marsh grass_top.png
+data/textures/marsh grass_side.png
+data/textures/marsh grass_top@spring.png
+data/textures/marsh grass_side@spring.png
+data/textures/marsh grass_top@autumn.png
+data/textures/marsh grass_side@autumn.png
+data/textures/marsh grass_top@winter.png
+data/textures/marsh grass_side@winter.png
+data/textures/spruce leaves.png
+data/textures/broadleaf leaves.png
+data/textures/broadleaf leaves@spring.png
+data/textures/broadleaf leaves@autumn.png
+data/textures/broadleaf leaves@winter.png
+data/textures/jungle leaves.png
+data/textures/acacia leaves.png
+data/textures/shrub.png
+data/textures/shrub@spring.png
+data/textures/shrub@autumn.png
+data/textures/shrub@winter.png
+data/textures/reed.png
+data/textures/reed@spring.png
+data/textures/reed@autumn.png
+data/textures/reed@winter.png
+data/textures/cactus_side.png
+data/textures/cactus.png
+data/textures/coral.png
+data/textures/log.png
+data/textures/log_side.png
+data/textures/lamp.png
+data/textures/blue lamp.png
+data/textures/copper.png
+data/textures/stone.png
+data/textures/stone_side.png
+data/textures/granite.png
+data/textures/gneiss.png
+data/textures/sandstone.png
+data/textures/sandstone_side.png
+data/textures/shale.png
+data/textures/shale_side.png
+data/textures/limestone.png
+data/textures/limestone_side.png
+data/textures/slate.png
+data/textures/marble.png
+data/textures/quartzite.png
+data/textures/schist.png
+data/textures/tuff.png
+data/textures/andesite.png
+data/textures/basalt.png
+data/textures/basalt_side.png
+data/textures/gabbro.png
+data/textures/malachite.png
+data/textures/chalcopyrite.png
+data/textures/cassiterite.png
+data/textures/galena.png
+data/textures/pitchblende.png
+data/textures/gold quartz.png
+data/textures/coal.png
+data/textures/coal_side.png
+data/textures/hematite_side.png
+data/textures/hematite.png
+data/textures/bauxite.png
+data/textures/bog iron.png
+data/textures/gossan.png
+data/textures/regolith.png
+data/textures/mare regolith.png
+data/textures/fresh regolith.png
+data/textures/anorthosite.png
+data/textures/mare basalt.png
+data/textures/iron-nickel.png
+data/textures/kreep.png
+data/models/grass tuft.toml
+data/models/grass tuft.png
+data/models/grass tuft.1.toml
+data/models/grass tuft.1.png
+data/models/fern.toml
+data/models/fern.png
+data/models/fallen leaves.toml
+data/models/fallen leaves.png
+data/models/twigs.toml
+data/models/twigs.png
+data/models/flowers.toml
+data/models/flowers.png
+data/models/pebbles.toml
+data/models/pebbles.png
+data/models/pebbles.1.toml
+data/models/pebbles.1.png
+data/models/stick.toml
+data/models/stick.png
+data/models/loose stone.toml
+data/models/loose stone.png
+data/models/flint.toml
+data/models/flint.png
+data/models/mushroom.toml
+data/models/mushroom.png
+data/models/berries.toml
+data/models/berries.png

@@ -1,0 +1,26 @@
+# A draft grass tuft (Claude's, listed in data/drafts.txt): clutter, ADR 0082. Painted
+# boxes at 32 px a metre (crossed planes of blades); made by tools/paint_clutter.py.
+colours = ["grass"]
+
+[[part]]
+name = "body"
+box = [1, 1, 1]
+voxels = "."
+
+[[part.boxes]]
+at = [10.0, 0.0, 16.0]
+size = [12, 10, 0]
+turn = [0.0, 30.0, 0.0]
+uv = [0, 0]
+
+[[part.boxes]]
+at = [10.0, 0.0, 16.0]
+size = [12, 10, 0]
+turn = [0.0, 100.0, 0.0]
+uv = [24, 0]
+
+[[part.boxes]]
+at = [10.0, 0.0, 16.0]
+size = [12, 10, 0]
+turn = [0.0, 160.0, 0.0]
+uv = [0, 10]

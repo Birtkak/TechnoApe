@@ -536,3 +536,36 @@ bus = "world"
 reach = 16
 gain = 0.35
 from = [{ base = "base.chirp", gain = 0.8 }]
+
+# --- the weather (ADR 0076): rain on the open sky, the same heard through a roof, and thunder far off ---
+[[sound]]
+name = "rain"
+bus = "world"
+gain = 0.45
+loop = 4.0
+layer = [
+  { wave = "noise", freq = [2600, 2600], q = 0.6 },
+  { wave = "noise", freq = [700, 700], q = 0.7, gain = 0.5 },
+]
+chain = [{ highpass = 250 }]
+
+[[sound]]
+name = "rain.in"
+bus = "world"
+gain = 0.4
+loop = 4.0
+layer = [{ wave = "noise", freq = [500, 500], q = 0.6 }]
+chain = [{ lowpass = 700 }]
+
+[[sound]]
+name = "thunder"
+bus = "world"
+gain = 1.0
+variants = 4
+layer = [
+  { wave = "noise", freq = [1800, 300], q = 0.8, decay = 0.4, gain = 0.5 },
+  { wave = "noise", freq = [140, 60], q = 0.7, attack = 0.05, decay = 4.0 },
+  { wave = "sine", freq = [55, 35], attack = 0.1, decay = 3.0, gain = 0.6 },
+]
+spread = { lowpass = 400 }
+chain = [{ lowpass = 2500 }]

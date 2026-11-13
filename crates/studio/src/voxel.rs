@@ -560,7 +560,7 @@ pub fn from_texture(m: &mut Model, pal: &Palette, faces: [Option<&Img>; 3]) -> O
         cells[idx(s, c)] = colour_index(m, pal, nearest(pal, common)).unwrap_or(1);
     }
     let name = unique(m.parts.iter().map(|p| p.name.as_str()), "block");
-    m.parts.push(Part { name, parent: String::new(), at: [0; 3], pivot: [4.0, 0.0, 4.0], size: [8, 8, 8], voxels: String::new(), cells });
+    m.parts.push(Part { name, parent: String::new(), at: [0; 3], pivot: [4.0, 0.0, 4.0], size: [8, 8, 8], voxels: String::new(), turn: [0.0; 3], boxes: vec![], cells });
     m.up.push(None);
     Some(m.parts.len() - 1)
 }
@@ -623,7 +623,7 @@ pub fn motion(c: &mut Clip, part: &str, kind: Motion, axis: usize, amount: f32) 
 pub fn add_part(m: &mut Model, parent: Option<usize>) -> usize {
     let name = unique(m.parts.iter().map(|p| p.name.as_str()), "part");
     let parent_name = parent.map_or(String::new(), |k| m.parts[k].name.clone());
-    m.parts.push(Part { name, parent: parent_name, at: [0; 3], pivot: [0.0; 3], size: [4, 4, 4], voxels: String::new(), cells: vec![0; 64] });
+    m.parts.push(Part { name, parent: parent_name, at: [0; 3], pivot: [0.0; 3], size: [4, 4, 4], voxels: String::new(), turn: [0.0; 3], boxes: vec![], cells: vec![0; 64] });
     m.up.push(parent);
     m.parts.len() - 1
 }
@@ -785,7 +785,7 @@ fn filled(name: &str, parent: &str, at: [i32; 3], size: [u32; 3], pivot: [f32; 3
             }
         }
     }
-    Part { name: name.into(), parent: parent.into(), at, pivot, size, voxels: String::new(), cells }
+    Part { name: name.into(), parent: parent.into(), at, pivot, size, voxels: String::new(), turn: [0.0; 3], boxes: vec![], cells }
 }
 
 /// A new model of a starter shape: its parts and pivots set, its colours the palette's by name (one the palette
@@ -906,7 +906,7 @@ pub fn plant(pal: &Palette, kind: &str, seed: u64) -> Model {
             }
         }
     }
-    let mut m = Model { colours, parts: vec![Part { name: "plant".into(), parent: String::new(), at: [0; 3], pivot: [4.0, 0.0, 4.0], size: [8, 8, 8], voxels: String::new(), cells }], points: vec![], clips: vec![], rgb: vec![], up: vec![] };
+    let mut m = Model { colours, parts: vec![Part { name: "plant".into(), parent: String::new(), at: [0; 3], pivot: [4.0, 0.0, 4.0], size: [8, 8, 8], voxels: String::new(), turn: [0.0; 3], boxes: vec![], cells }], points: vec![], clips: vec![], rgb: vec![], up: vec![] };
     m = Model::parse(kind, &text(&m), pal).unwrap_or(m);
     m
 }

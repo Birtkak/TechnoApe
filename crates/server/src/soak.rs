@@ -7,6 +7,7 @@ use crate::save::Save;
 use crate::Server;
 use engine::net::{local, Link, Recv, ToClient, ToServer};
 use engine::blocks::BLOCKS;
+use engine::items::{Holder, ITEMS};
 use engine::phys::{self, Input};
 use engine::world::World;
 use engine::edit::{self, Kind, Predictor, Shape};
@@ -52,6 +53,7 @@ struct Bot {
     dam: Option<(Shape, u64)>,
     dams: u32,
     broken: u32,
+    heaps: u32,
 }
 
 /// A wet point of the baked map's rivers, the way across its channel there and its half width (m), or None
@@ -161,14 +163,31 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
     } else if r < 0.087 {
         b.link.send(ToServer::Creative(b.rng.f() < 0.5));
     } else if r < 0.0875 {
-        let lines = ["hi", "/time", "/time add 30", "/give stone 3", "/give nothing", "/playmode survival", "/bad", "/time set 99:99"];
+        let lines = ["hi", "/time", "/time add 30", "/give stone 3", "/give nothing", "/playmode survival", "/bad", "/time set 99:99", "/give basket", "/give dirt 700"];
         b.link.send(ToServer::Chat(lines[(b.rng.next() % lines.len() as u64) as usize].into()));
     } else if r < 0.1 {
         // the bucket, mostly where it reaches water or air, some of it out of reach or into rock
         let feet = s.clients[me].phys.pos;
         let at = s.world.block_at(feet + b.rng.dir() * b.rng.range(0.0, 5.0));
         b.link.send(ToServer::Bucket { seq: b.pred.seq(), at, fill: b.rng.f() < 0.5 });
-    } else if r < 0.102 && b.dam.is_none() {
+    } else if r < 0.1 + ITEM_SHARE {
+        // items (ADR 0074): moves, splits, throws, piles and creative's grid at random, some onto full or wrong
+        // slots, some from piles out of reach, some of no item; the items' ledger must hold through all of them
+        let pick = |rng: &mut Rng| -> (Holder, u16) {
+            match rng.next() % 8 {
+                0..=3 => (Holder::Ape, (rng.next() % 40) as u16),
+                4 | 5 if !s.piles.is_empty() => (Holder::Pile(crate::unkey(*s.piles.keys().nth((rng.next() % s.piles.len() as u64) as usize).unwrap())), (rng.next() % 5) as u16),
+                6 => {
+                    let all: Vec<u16> = ITEMS.all().collect();
+                    (Holder::Grid, if rng.f() < 0.9 { all[(rng.next() % all.len() as u64) as usize] } else { 0x7fff })
+                }
+                _ => (Holder::Ground, 0),
+            }
+        };
+        let (from, to) = (pick(&mut b.rng), pick(&mut b.rng));
+        let n = (b.rng.next() % 70) as u16;
+        b.link.send(ToServer::Items { seq: b.pred.seq(), from, to, n });
+    } else if r < 0.102 + ITEM_SHARE && b.dam.is_none() {
         // a dam across a river (W5): from its bank, in creative, a plug of stone over the channel's width,
         // broken again some seconds later; the water's count must hold through both
         let Some((d, across, hw)) = river_point(&s.world, &mut b.rng) else { return };
@@ -190,10 +209,33 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
         b.link.send(ToServer::Edit { seq, shape, material: stone });
         b.dam = Some((shape, s.tick + 120 + b.rng.next() % 240));
         b.dams += 1;
+    } else if (0.102 + ITEM_SHARE..0.104 + ITEM_SHARE).contains(&r) {
+        // a heap of sand or gravel beside the bot, in creative, and the ground dug out from under it at once:
+        // it falls into the hole and slides to its angle of rest (ADR 0079)
+        let feet = s.clients[me].phys.pos;
+        let fwd = phys::tangent(b.rng.dir(), phys::up(&s.world, feet), DVec3::X);
+        let at = s.world.block_at(feet + fwd * 3.0);
+        let m = BLOCKS.id(if b.rng.f() < 0.5 { "sand" } else { "gravel" });
+        let heap = Shape { min: at.pos - IVec3::new(1, 1, 0), max: at.pos + IVec3::new(1, 1, 2), ..Shape::one(at) };
+        let hole = Shape { min: at.pos - IVec3::new(1, 1, 3), max: at.pos + IVec3::new(1, 1, -1), ..Shape::one(at) };
+        b.link.send(ToServer::Creative(true));
+        let me = &s.clients[me].phys;
+        for (shape, m) in [(heap, m), (hole, 0)] {
+            let (seq, _) = b.pred.edit(&mut b.world, &shape, m, |w, c| phys::holds(w, me, c));
+            b.link.send(ToServer::Edit { seq, shape, material: m });
+        }
+        b.heaps += 1;
     }
 }
 
+/// The share of a bot's ticks that move items (ADR 0074).
+const ITEM_SHARE: f64 = 0.01;
+
 fn check(s: &Server) -> Result<(), String> {
+    // no item appears or vanishes: what every player and pile holds is what digs, places, the grid and /give made
+    if let Some(&(k, held, made)) = s.item_ledger().first() {
+        return Err(format!("{}: {held} held, {made} made", engine::items::ITEMS.name(k)));
+    }
     // no water appears or vanishes: what differs from the seed is what buckets hold plus what creative made
     if s.water_ledger() != 0 {
         return Err(format!("{} units of water appeared", s.water_ledger()));
@@ -236,6 +278,9 @@ pub struct WaterStats {
     /// Dams bots built across rivers, and broke again (W5, ADR 0059).
     pub dams: u32,
     pub broken: u32,
+    /// Heaps of sand bots dug out from under (ADR 0079), and the blocks that fell or slid.
+    pub heaps: u32,
+    pub falls: u64,
 }
 
 /// Runs `ticks` ticks with the bots `which` (numbers into the seed's endless list of bots) on a planet of
@@ -268,7 +313,7 @@ pub fn run_warp(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Opt
             }
             // an empty input makes it a walker, as in the bot crate
             c.send(ToServer::Input(Input::default()));
-            Bot { rng: Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (k as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)), link: c, world: World::with_maps(planet_n, MOON_N, seed as i32, map.clone(), luna.clone()), pred: Predictor::default(), digging: None, dam: None, dams: 0, broken: 0 }
+            Bot { rng: Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (k as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)), link: c, world: World::with_maps(planet_n, MOON_N, seed as i32, map.clone(), luna.clone()), pred: Predictor::default(), digging: None, dam: None, dams: 0, broken: 0, heaps: 0 }
         })
         .collect();
     s.tick(); // everyone joins
@@ -326,6 +371,7 @@ pub fn run_warp(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Opt
         Ok(b) if b.snapshot() == snap && b.world.hash() == s.world.hash() => {
             (ws.skipped, ws.bytes) = (s.water_skipped, s.water_bytes);
             (ws.dams, ws.broken) = (bots.iter().map(|b| b.dams).sum(), bots.iter().map(|b| b.broken).sum());
+            (ws.heaps, ws.falls) = (bots.iter().map(|b| b.heaps).sum(), s.falls.moves);
             Ok((s.hash(), ws))
         }
         Ok(b) => {

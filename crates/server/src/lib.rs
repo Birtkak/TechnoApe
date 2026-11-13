@@ -12,6 +12,7 @@ pub mod soak;
 use engine::net::{local, Link, Player, Recv, ToClient, ToServer, REACH, TICK_HZ};
 use engine::blocks::{AIR, BLOCKS};
 use engine::edit::{self, Shape};
+use engine::items::{self, Holder, Slot, Stack, ITEMS};
 use engine::phys::{self, Input};
 use engine::liquid::{Col, TILE, U};
 use engine::world::{fnv, Block, FxMap, World};
@@ -100,9 +101,37 @@ fn wanted(tiles: &FxMap<Col, (u64, DVec3)>, near: &FxMap<glam::IVec3, Vec<Col>>,
 
 /// What a save keeps of a connected player.
 fn saved(c: &Client) -> Saved {
-    let inv = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u16, *n)).collect();
-    Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, inv, water: c.water, vitals: c.vitals.clone() }
+    Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, slots: c.slots.clone(), water: c.water, vitals: c.vitals.clone() }
 }
+
+/// A pile's cell as a key that sorts (by body, face, column, layer: the piles' fixed order, items.md).
+type PileKey = (u8, u8, i32, i32, i32);
+fn key(b: Block) -> PileKey {
+    (b.body, b.face, b.pos.x, b.pos.y, b.pos.z)
+}
+fn unkey(k: PileKey) -> Block {
+    Block { body: k.0, face: k.1, pos: glam::IVec3::new(k.2, k.3, k.4) }
+}
+
+/// Things lying in an air cell (ADR 0074): `items::PILE_SLOTS` slots, and the player who threw them with the
+/// tick before which it does not pick them up again (so a throw is not taken straight back).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Pile {
+    pub slots: Vec<Slot>,
+    pub wait: (u32, u64),
+}
+
+/// The most layers a laid pile falls to find its floor.
+const FALL: i32 = 64;
+/// A pile is picked up by a player whose feet are within this of its cell's middle (m), checked every tick.
+const PICK: f64 = 1.5;
+/// A pile can be opened from this far (m).
+const PILE_REACH: f64 = 4.0;
+/// A throw lands this far ahead (m), and its thrower cannot take it back for this many ticks (2 s).
+const THROW: f64 = 2.0;
+const THROW_WAIT: u64 = 40;
+/// The most /give hands out at once: 36 stacks.
+const GIVE_MAX: u32 = 36 * items::STACK as u32;
 
 struct Client {
     link: ServerLink,
@@ -114,10 +143,10 @@ struct Client {
     queue: VecDeque<(u32, Input)>,
     acked: u32,
     credit: u32,
-    /// Creative counts nothing; survival digs into `inv` and places from it (ADR 0014).
+    /// Creative counts nothing; survival digs into piles and places from its slots (ADR 0014, 0074).
     creative: bool,
-    /// How many of each block kind the player holds, by id.
-    inv: Box<[u32; 256]>,
+    /// Its slots (`items::APE_SLOTS`): the hotbar, the worn pack, the rows the pack opens.
+    slots: Vec<Slot>,
     /// The water in its bucket, in units (`liquid::U` is a full bucket).
     water: u32,
     /// The version of each water tile this client has (`Server::tiles`).
@@ -198,6 +227,22 @@ pub struct Server {
     pub herds: engine::herds::Herds,
     /// The herds read beside a save (`read_herds`), until the recorder has logged them.
     herds_loaded: Option<Vec<u8>>,
+    /// Loose blocks awake to fall or slide (ADR 0079).
+    pub falls: engine::fall::Falls,
+    /// The air as clients have been sent it (ADR 0076), the view's hash it was made from (None: make it
+    /// again), and the weather `/weather` forces.
+    sky: Vec<engine::weather::Cell>,
+    sky_at: Option<u64>,
+    force: Option<engine::weather::Force>,
+    /// Every pile on the ground, by cell (ADR 0074), and the cells whose pile changed this tick.
+    piles: BTreeMap<PileKey, Pile>,
+    piles_changed: Vec<Block>,
+    /// Of each item, what digs, places, creative's grid and /give made since the start (or what was held at
+    /// the load): the items' ledger (`item_ledger`).
+    item_made: BTreeMap<u16, i64>,
+    /// The pick-ups taken (ADR 0082): the cell each lay in and the year, and those taken this tick.
+    taken: BTreeMap<PileKey, u32>,
+    taken_changed: Vec<(Block, u32)>,
 }
 
 impl Server {
@@ -253,6 +298,15 @@ impl Server {
             ore_open,
             herds: engine::herds::compiled(seed),
             herds_loaded: None,
+            falls: Default::default(),
+            sky: Vec::new(),
+            sky_at: None,
+            force: None,
+            piles: BTreeMap::new(),
+            piles_changed: Vec::new(),
+            item_made: BTreeMap::new(),
+            taken: BTreeMap::new(),
+            taken_changed: Vec::new(),
         }
     }
 
@@ -278,6 +332,16 @@ impl Server {
         let mut s = Server::on_map(save.planet_n, save.moon_n, save.seed, save.map, save.luna, accept);
         for (b, m) in &save.edits {
             s.world.set_block(*b, *m);
+        }
+        // a block saved mid-fall, or over a hole it had not fallen into yet, carries on (ADR 0079): each falling
+        // block of the edits, and the one over each dug cell when it falls, is looked at once
+        for (b, m) in &save.edits {
+            let over = Block { pos: b.pos + glam::IVec3::Z, ..*b };
+            if BLOCKS.get(*m).is_some_and(|d| d.falls) {
+                s.falls.poke(*b);
+            } else if *m == AIR && BLOCKS.get(s.world.block(over)).is_some_and(|d| d.falls) {
+                s.falls.poke(over);
+            }
         }
         // the clock of the save's last step first (a save's tick is one past it): its water is restored at that
         // step's tide, and the next step retides exactly when the running world's did (ADR 0067)
@@ -315,6 +379,26 @@ impl Server {
             p
         };
         s.absent = save.players.iter().map(|p| (p.name.clone(), moved(p))).collect();
+        // the piles, and the players of a save from before slots (ADR 0074): their stacks into slots, what does
+        // not fit laid at their feet
+        // (any whose slots do not fit: a save from before slots, a pack or a stack made smaller in data/items.toml)
+        s.piles = save.held.piles.iter().filter(|p| items::stacks_fit(&p.1)).map(|(b, slots)| (key(*b), Pile { slots: slots.clone(), wait: (0, 0) })).collect();
+        for (b, slots) in save.held.piles.iter().filter(|p| !items::stacks_fit(&p.1)) {
+            let over: Vec<Stack> = slots.iter().flatten().filter(|s| s.n > 0).flat_map(|s| items::stacks(s.item, s.n as u32).into_iter().map(|t| Stack { payload: s.payload, ..t })).collect();
+            s.lay(*b, over, (0, 0));
+        }
+        let old: Vec<String> = s.absent.iter().filter(|(_, p)| !items::ape_fits(&p.slots)).map(|(n, _)| n.clone()).collect();
+        for n in old {
+            let p = s.absent.get_mut(&n).unwrap();
+            let stacks = std::mem::replace(&mut p.slots, items::ape());
+            let over: Vec<Stack> = stacks.into_iter().flatten().filter_map(|st| Some(Stack { n: items::give(&mut p.slots, st), ..st }).filter(|o| o.n > 0)).collect();
+            let feet = DVec3::from_array(p.pos);
+            let at = s.world.block_at(feet + phys::up(&s.world, feet) * 0.5);
+            s.lay(at, over, (0, 0));
+        }
+        s.piles_changed.clear();
+        s.taken = save.held.taken.iter().map(|(b, y)| (key(*b), *y)).collect();
+        s.item_made = s.held_now();
         s.loaded = Some(save);
         s
     }
@@ -348,6 +432,7 @@ impl Server {
             reaches: (self.world.water.rained, self.world.water.reach_extra.iter().map(|(&a, &x)| (a, x)).collect()),
             // after `air`: its `state` takes a job in flight back, which `pending` then names
             rain: (self.world.water.rain_held.iter().map(|(&a, &x)| (a, x)).collect(), self.weather.as_ref().and_then(|w| w.pending(self.tick)), self.world.water.steps),
+            held: save::Held { items: ITEMS.table(), piles: self.piles.iter().map(|(k, p)| (unkey(*k), p.slots.clone())).collect(), taken: self.taken.iter().map(|(k, y)| (unkey(*k), *y)).collect() },
         }
     }
 
@@ -429,6 +514,7 @@ impl Server {
             h = fnv(h, &postcard::to_allocvec(p).unwrap());
         }
         h = fnv(h, &self.herds.to_bytes());
+        h = fnv(h, &postcard::to_allocvec(&self.piles).unwrap());
         for c in &self.clients {
             let p = &c.phys;
             h = fnv(h, &c.player.id.to_le_bytes());
@@ -440,9 +526,7 @@ impl Server {
             h = fnv(h, &[p.on_ground as u8, c.input.is_some() as u8, c.creative as u8]);
             h = fnv(h, &c.water.to_le_bytes());
             h = fnv(h, &postcard::to_allocvec(&(&c.vitals, c.was.to_array())).unwrap());
-            for n in c.inv.iter() {
-                h = fnv(h, &n.to_le_bytes());
-            }
+            h = fnv(h, &postcard::to_allocvec(&c.slots).unwrap());
             for x in c.player.pos {
                 h = fnv(h, &x.to_bits().to_le_bytes());
             }
@@ -499,6 +583,7 @@ impl Server {
             for (reach, units) in w.tick(self.tick, self.world.time) {
                 self.world.water.rain(reach, units);
             }
+            self.send_sky();
         }
         if self.tick == 0 {
             let [b0, b1] = [&self.world.bodies[0], &self.world.bodies[1]];
@@ -519,7 +604,7 @@ impl Server {
             self.next_id += 1;
             self.log(Ev::Join { tick: self.tick, id });
             let [p, m] = [self.world.bodies[0].n, self.world.bodies[1].n];
-            link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m, blocks: BLOCKS.hash, map: self.map_hash(), luna: self.luna_hash() });
+            link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m, blocks: BLOCKS.hash, items: ITEMS.hash, map: self.map_hash(), luna: self.luna_hash() });
             link.send(ToClient::Kinds(self.herds.kinds.iter().map(|k| k.name.clone()).collect()));
             let all: Vec<(Block, u16)> = self
                 .world
@@ -529,6 +614,17 @@ impl Server {
                 .collect();
             for part in all.chunks(EDITS_PART) {
                 link.send(ToClient::Edits(part.to_vec()));
+            }
+            if !self.sky.is_empty() {
+                link.send(ToClient::Sky { t: self.world.time, all: self.sky.clone(), changed: Vec::new() });
+            }
+            let piles: Vec<(Block, Vec<Slot>)> = self.piles.iter().map(|(k, p)| (unkey(*k), p.slots.clone())).collect();
+            for part in piles.chunks(EDITS_PART) {
+                link.send(ToClient::Piles(part.to_vec()));
+            }
+            let taken: Vec<(Block, u32)> = self.taken.iter().map(|(k, y)| (unkey(*k), *y)).collect();
+            for part in taken.chunks(EDITS_PART) {
+                link.send(ToClient::Taken(part.to_vec()));
             }
             let spawn = self.spawn();
             self.clients.push(Client {
@@ -540,7 +636,7 @@ impl Server {
                 acked: 0,
                 credit: 0,
                 creative: false,
-                inv: Box::new([0; 256]),
+                slots: items::ape(),
                 water: 0,
                 tiles: FxMap::default(),
                 done: Vec::new(),
@@ -583,15 +679,16 @@ impl Server {
                         c.player.name = name;
                         roster = true;
                         // a player the save remembers carries on where it left, with what it held
+                        let mut before = Vec::new();
                         if let Some(sv) = self.absent.remove(&c.player.name) {
+                            // what it got before its name (a /give, a pick-up) is laid where it comes back
+                            before = c.slots.iter_mut().filter_map(Option::take).collect();
                             let p = DVec3::from_array(sv.pos);
                             c.phys = phys::Player::at(p, phys::tangent(DVec3::from_array(sv.fwd.map(f64::from)), phys::up(&self.world, p), DVec3::X));
-                            (c.player.pos, c.player.fwd, c.creative, c.inv_dirty, c.water, c.vitals) = (sv.pos, sv.fwd, sv.creative, true, sv.water, sv.vitals);
-                            c.inv.fill(0);
-                            for (m, n) in sv.inv {
-                                c.inv[m as usize] = n;
-                            }
+                            (c.player.pos, c.player.fwd, c.creative, c.inv_dirty, c.water, c.vitals, c.slots) = (sv.pos, sv.fwd, sv.creative, true, sv.water, sv.vitals, sv.slots);
                         }
+                        let feet = self.clients[i].phys.pos;
+                        self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), before, (0, 0));
                         let line = format!("{} joined", self.clients[i].player.name);
                         self.say(line);
                     }
@@ -628,6 +725,16 @@ impl Server {
                             self.tell_dig(i, None);
                         }
                     }
+                    Recv::Msg(ToServer::Items { seq, from, to, n }) => {
+                        let ok = self.items(i, from, to, n);
+                        // the slots go back either way: they put right a prediction the server refused
+                        self.clients[i].done.push((seq, ok));
+                        self.clients[i].inv_dirty = true;
+                    }
+                    Recv::Msg(ToServer::Take { seq, at }) => {
+                        let ok = self.take(i, at);
+                        self.clients[i].done.push((seq, ok));
+                    }
                     Recv::Msg(ToServer::Bucket { seq, at, fill }) => {
                         let ok = self.bucket(i, at, fill);
                         self.clients[i].done.push((seq, ok));
@@ -639,6 +746,11 @@ impl Server {
                     Recv::Msg(ToServer::Chat(text)) => self.chat(i, &text, &mut changed),
                     Recv::Msg(ToServer::Respawn) => {
                         if self.clients[i].vitals.dead.is_some() {
+                            // what it carried stays where it died (ADR 0047, 0074)
+                            let feet = self.clients[i].phys.pos;
+                            let left: Vec<Stack> = self.clients[i].slots.iter_mut().filter_map(Option::take).collect();
+                            self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), left, (0, 0));
+                            self.clients[i].inv_dirty = true;
                             let p = self.spawn();
                             self.put(i, p, DVec3::X);
                             self.clients[i].vitals = Vitals::default();
@@ -666,7 +778,11 @@ impl Server {
                 self.tell_dig(i, None);
                 roster = true;
                 let c = self.clients.swap_remove(i);
-                if !c.player.name.is_empty() {
+                if c.player.name.is_empty() {
+                    // no name, no save to keep its things in: they stay where it stood
+                    let feet = c.phys.pos;
+                    self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), c.slots.into_iter().flatten().collect(), (0, 0));
+                } else {
                     self.absent.insert(c.player.name.clone(), saved(&c));
                     self.say(format!("{} left", c.player.name));
                 }
@@ -718,6 +834,16 @@ impl Server {
         for line in deaths {
             self.say(line);
         }
+        // loose blocks wake where this tick's edits changed the world, then fall and slide (ADR 0079); never
+        // into a player
+        for (b, _) in &changed {
+            self.falls.wake(&self.world, *b);
+        }
+        let mine = changed.len();
+        if self.falls.awake() > 0 {
+            let held: std::collections::HashSet<Block> = self.clients.iter().flat_map(|c| phys::cells(&self.world, c.phys.pos)).collect();
+            self.falls.step(&mut self.world, self.tick, |_, b| held.contains(&b), &mut changed);
+        }
         // the animals (ADR 0083): woken by the players on Terra, stepped as far as the players were
         let players: Vec<(DVec3, DVec3)> = self.clients.iter().filter(|c| self.world.frame_at(c.phys.pos) == 0).map(|c| (c.phys.pos, c.phys.vel)).collect();
         let age = self.tick0.wrapping_add(self.tick);
@@ -731,13 +857,20 @@ impl Server {
         for b in cols {
             self.world.regap(b);
         }
+        // piles over a dug cell fall, a pile in a placed one rises (ADR 0074); then every player picks up
+        for (b, m) in &changed {
+            self.resettle(Block { pos: b.pos + glam::IVec3::Z * !BLOCKS.solid(*m) as i32, ..*b });
+        }
+        self.pick_up();
         let can = (WATER_BUDGET / self.world.water.awake().max(1)) as u32;
         let wsteps = if can == 0 && self.tick % 4 == 0 { 1 } else { steps.min(can) };
         self.water_skipped += (steps - wsteps) as u64;
         for _ in 0..wsteps {
             self.world.step_water();
         }
-        for part in changed.chunks(EDITS_PART) {
+        // the falls' moves in messages of their own, so no move's two edits are split between two (the client
+        // knows a move by its pair)
+        for part in changed[..mine].chunks(EDITS_PART).chain(changed[mine..].chunks(EDITS_PART)) {
             for c in &self.clients {
                 c.link.send(ToClient::Edits(part.to_vec()));
             }
@@ -745,19 +878,35 @@ impl Server {
         let cols: Vec<Col> = self.world.water.take_changes().into_iter().map(|w| w.0).collect();
         self.water_changed(&cols);
         self.send_water();
+        if !self.taken_changed.is_empty() {
+            let taken = std::mem::take(&mut self.taken_changed);
+            for c in &self.clients {
+                c.link.send(ToClient::Taken(taken.clone()));
+            }
+        }
+        if !self.piles_changed.is_empty() {
+            let mut cells = std::mem::take(&mut self.piles_changed);
+            cells.sort_unstable_by_key(|b| key(*b));
+            cells.dedup();
+            let piles: Vec<(Block, Vec<Slot>)> = cells.into_iter().map(|b| (b, self.piles.get(&key(b)).map_or(Vec::new(), |p| p.slots.clone()))).collect();
+            for c in &self.clients {
+                c.link.send(ToClient::Piles(piles.clone()));
+            }
+        }
         for c in &mut self.clients {
             for (seq, ok) in c.done.drain(..) {
                 c.link.send(ToClient::Done { seq, ok });
             }
             if std::mem::take(&mut c.inv_dirty) {
-                let counts = c.inv.iter().enumerate().filter(|(_, n)| **n > 0).map(|(m, n)| (m as u16, *n)).collect();
-                c.link.send(ToClient::Inventory { creative: c.creative, counts, water: c.water });
+                c.link.send(ToClient::Inventory { creative: c.creative, slots: c.slots.clone(), water: c.water });
             }
             if let Some(w) = self.weather.as_ref().filter(|_| self.tick % engine::net::AIR_EVERY == 0) {
                 let b = &self.world.bodies[0];
                 let rel = c.phys.pos - b.centre;
                 if self.world.frame_at(c.phys.pos) == 0 && rel.length() > 0.0 {
-                    c.link.send(ToClient::Air(w.here(rel.normalize(), rel.length() - b.sea.unwrap_or(rel.length()))));
+                    let d = rel.normalize();
+                    let h = w.here(d, b.over_sea(c.phys.pos).unwrap_or(0.0));
+                    c.link.send(ToClient::Air(self.force.map_or(h, |f| f.here(h, w.view().theta[w.column(d)]))));
                 }
             }
             let shown = (c.vitals.shown(), c.vitals.dead.is_some());
@@ -912,6 +1061,7 @@ impl Server {
                 "  /goto <where>        terra (home: the spawn), luna, or sun",
                 "  /timewarp <n>        the clock n times faster (1 to 10000,",
                 "                       up, down); . and , step it too",
+                "  /weather <what>      clear cloudy rain storm snow, or auto",
                 "  /heal, /feed [n]     full health, full hunger (or n)",
                 "  /hurt <points>       takes health: 2 points a segment",
                 "  /help                this list",
@@ -1018,6 +1168,20 @@ impl Server {
                     None => "usage: /goto terra|luna|sun\n  terra (or home) is the spawn".into(),
                 }
             }
+            Some("weather") => match (w.get(1).map(|s| s.to_lowercase()), &self.weather) {
+                (_, None) => "this world has no air grid".into(),
+                (None, Some(_)) => format!("the weather is {}
+  /weather <{}>", if self.force.is_some() { "forced" } else { "the air's own" }, engine::weather::Force::NAMES),
+                (Some(n), Some(_)) => match engine::weather::Force::named(&n) {
+                    Some(f) => {
+                        self.force = f;
+                        self.sky_at = None;
+                        if f.is_some() { format!("weather forced: {n}") } else { "the air's own weather again".into() }
+                    }
+                    None => format!("not a weather: {n}
+  /weather <{}>", engine::weather::Force::NAMES),
+                },
+            },
             Some("timewarp") | Some("warp") => {
                 let now = self.warp;
                 let to = match w.get(1).map(|s| s.to_lowercase()).as_deref() {
@@ -1047,21 +1211,28 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                 format!("play mode: {}", mode(on))
             }
             Some("give") => {
-                // the count is a last word that is a number; the block name is the words before it
+                // the count is a last word that is a number; the item's name is the words before it
                 let (words, n) = match w.last().and_then(|s| s.parse::<u32>().ok()) {
-                    Some(n) if w.len() > 2 => (&w[1..w.len() - 1], n),
-                    _ => (&w[1..], 64),
+                    Some(n) if w.len() > 2 => (&w[1..w.len() - 1], Some(n)),
+                    _ => (&w[1..], None),
                 };
                 let name = words.join(" ");
-                let Some(d) = block_named(&name) else {
-                    let what = if name.is_empty() { String::new() } else { format!("no block '{name}'\n") };
-                    return format!("{what}usage: /give <block> [count]\nblocks: {}", blocks());
+                let Some(id) = ITEMS.named(&name) else {
+                    let what = if name.is_empty() { String::new() } else { format!("no block or item '{name}'\n") };
+                    let others: Vec<&str> = ITEMS.defs.iter().map(|d| d.name.as_str()).collect();
+                    return format!("{what}usage: /give <block or item> [count]\nblocks: {}\nitems: {}", blocks(), others.join(", "));
                 };
+                // a stack if no count is given; into the slots, what does not fit at the feet (ADR 0074)
+                let n = n.unwrap_or(ITEMS.stack(id) as u32).min(GIVE_MAX);
                 let c = &mut self.clients[i];
-                let held = &mut c.inv[d.id as usize];
-                *held = held.saturating_add(n);
+                let over: Vec<Stack> = items::stacks(id, n).filter_map(|st| Some(Stack { n: items::give(&mut c.slots, st), ..st }).filter(|o| o.n > 0)).collect();
                 c.inv_dirty = true;
-                format!("gave {n} {}: {} held", d.name, *held)
+                let held = items::count(&c.slots, id);
+                *self.item_made.entry(id).or_default() += n as i64;
+                let more = if over.is_empty() { String::new() } else { format!(", {} at your feet", over.iter().map(|s| s.n as u32).sum::<u32>()) };
+                let feet = self.clients[i].phys.pos;
+                self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), over, (0, 0));
+                format!("gave {n} {}: {held} held{more}", ITEMS.name(id))
             }
             Some("place") => {
                 // bugs/2026-11-11_13-03-12: the last four words, when numbers, are F3's "Feet in" (face, i, j,
@@ -1226,7 +1397,8 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         if self.clients[i].vitals.dead.is_some() || !self.valid_shape(shape, m, DVec3::from_array(self.clients[i].player.pos)) {
             return false;
         }
-        // a survival dig is taken once it was held for its time (ADR 0034)
+        // a survival dig is taken once it was held for its time (ADR 0034). shortcut: no tool divides the time
+        // or wears in the stack's payload; items.md step 4, with crafting.md's first recipes
         if m == AIR && !self.clients[i].creative {
             let now = self.clock();
             let held = self.clients[i].hold.held(shape, now);
@@ -1239,24 +1411,284 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         let (world, clients) = (&self.world, &self.clients);
         let cells = edit::changes(world, shape, m, |b| clients.iter().any(|c| phys::holds(world, &c.phys, b)));
         let c = &mut self.clients[i];
+        let mut drops = Vec::new();
         if !c.creative && !cells.is_empty() {
             if m == AIR {
                 // bare hands take only loose blocks; the rest breaks into nothing (shortcut: no tools yet, ADR 0034)
-                for (_, old) in cells.iter().filter(|(_, old)| BLOCKS.get(*old).is_some_and(|d| d.loose)) {
-                    c.inv[*old as usize] = c.inv[*old as usize].saturating_add(1);
-                }
+                drops.extend(cells.iter().filter(|(_, old)| BLOCKS.get(*old).is_some_and(|d| d.loose)).map(|c| c.1));
                 c.vitals.dug(cells.len());
             } else {
-                let Some(left) = c.inv[m as usize].checked_sub(cells.len() as u32) else { return false };
-                c.inv[m as usize] = left;
+                if !items::take(&mut c.slots, m, cells.len() as u32) {
+                    return false;
+                }
+                *self.item_made.entry(m).or_default() -= cells.len() as i64;
             }
             c.inv_dirty = true;
         }
-        for (b, _) in cells {
-            self.world.set_block(b, m);
-            changed.push((b, m));
+        for (b, _) in &cells {
+            self.world.set_block(*b, m);
+            changed.push((*b, m));
+        }
+        if !drops.is_empty() {
+            self.drop_dug(i, &cells, drops);
         }
         true
+    }
+
+    /// What a survival dig took falls to the ground (ADR 0047, 0074): as few piles as hold it, in the dug cells
+    /// nearest the digger, each down to the first floor under it.
+    fn drop_dug(&mut self, i: usize, cells: &[(Block, u16)], dug: Vec<u16>) {
+        let mut counts: BTreeMap<u16, u32> = BTreeMap::new();
+        for m in dug {
+            *counts.entry(m).or_default() += 1;
+            *self.item_made.entry(m).or_default() += 1;
+        }
+        let stacks: Vec<Stack> = counts.into_iter().flat_map(|(m, n)| items::stacks(m, n)).collect();
+        let feet = self.clients[i].phys.pos;
+        let mut near: Vec<(f64, Block)> = cells.iter().map(|(b, _)| (self.world.block_centre(*b).distance_squared(feet), *b)).collect();
+        near.sort_by(|a, b| a.0.total_cmp(&b.0).then(key(a.1).cmp(&key(b.1))));
+        for (part, (_, b)) in stacks.chunks(items::PILE_SLOTS).zip(near) {
+            self.lay(b, part.to_vec(), (0, 0));
+        }
+    }
+
+    /// Lays `stacks` in cell `at` (ADR 0074): out of a solid block upwards, down to the first floor, into that
+    /// cell's pile and, while it has no room, the piles over it. `wait` is the thrower and the tick it may take
+    /// them back from.
+    fn lay(&mut self, mut at: Block, stacks: Vec<Stack>, wait: (u32, u64)) {
+        if stacks.is_empty() {
+            return;
+        }
+        let layers = self.world.bodies[at.body as usize].layers;
+        let solid = |w: &World, b: Block| BLOCKS.solid(w.block(b));
+        while at.pos.z + 1 < layers && solid(&self.world, at) {
+            at.pos.z += 1;
+        }
+        // a fall of at most FALL layers: a throw or a death in space leaves its pile floating there, not a walk
+        // down tens of thousands of layers on the tick thread
+        let lowest = (at.pos.z - FALL).max(0);
+        while at.pos.z > lowest && !solid(&self.world, Block { pos: at.pos - glam::IVec3::Z, ..at }) {
+            at.pos.z -= 1;
+        }
+        for st in stacks {
+            let (mut c, mut left) = (at, st);
+            // shortcut: a column full of piles to the top of the world would lose the rest; nothing nears that
+            while left.n > 0 && c.pos.z < layers {
+                if !solid(&self.world, c) {
+                    let p = self.piles.entry(key(c)).or_insert_with(|| Pile { slots: vec![None; items::PILE_SLOTS], wait: (0, 0) });
+                    let n = items::add(&mut p.slots, 0..items::PILE_SLOTS, left);
+                    if n < left.n && wait.0 != 0 {
+                        p.wait = wait;
+                    }
+                    if p.slots.iter().all(Option::is_none) {
+                        self.piles.remove(&key(c));
+                    }
+                    left.n = n;
+                    self.piles_changed.push(c);
+                }
+                c.pos.z += 1;
+            }
+        }
+    }
+
+    /// The piles from cell `at` up its column, laid again: a dig under them lets them fall, a block placed in
+    /// one lifts it.
+    fn resettle(&mut self, mut at: Block) {
+        let mut column = Vec::new();
+        while let Some(p) = self.piles.remove(&key(at)) {
+            column.push((at, p));
+            at.pos.z += 1;
+        }
+        for (b, p) in column {
+            self.piles_changed.push(b);
+            self.lay(b, p.slots.into_iter().flatten().collect(), p.wait);
+        }
+    }
+
+    /// Every living player takes what its slots have room for from the piles within `PICK` of its feet,
+    /// players in their order, piles in theirs (ADR 0074). shortcut: the cells around the feet are on the
+    /// feet's face, so a pile just over a cube face's edge waits until the player steps across.
+    fn pick_up(&mut self) {
+        let Server { clients, piles, piles_changed, world, tick, .. } = self;
+        for c in clients.iter_mut().filter(|c| c.vitals.dead.is_none()) {
+            let feet = c.phys.pos;
+            let mid = world.block_at(feet + phys::up(world, feet) * 0.5);
+            for (dz, dy, dx) in (-1..=1).flat_map(|z| (-1..=1).flat_map(move |y| (-1..=1).map(move |x| (z, y, x)))) {
+                let b = Block { pos: mid.pos + glam::IVec3::new(dx, dy, dz), ..mid };
+                let Some(p) = piles.get_mut(&key(b)) else { continue };
+                if (p.wait.0 == c.player.id && *tick < p.wait.1) || world.block_centre(b).distance(feet) > PICK {
+                    continue;
+                }
+                let mut took = false;
+                for s in p.slots.iter_mut() {
+                    if let Some(st) = *s {
+                        let left = items::give(&mut c.slots, st);
+                        took |= left < st.n;
+                        *s = Some(Stack { n: left, ..st }).filter(|o| o.n > 0);
+                    }
+                }
+                if took {
+                    c.inv_dirty = true;
+                    piles_changed.push(b);
+                    if p.slots.iter().all(Option::is_none) {
+                        piles.remove(&key(b));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Client `i` throws `stacks` ahead of it (`THROW`), onto the ground there, or at its feet when a wall is
+    /// in the way; it cannot take them back for `THROW_WAIT` ticks.
+    fn throw(&mut self, i: usize, stacks: Vec<Stack>) {
+        let c = &self.clients[i];
+        let (feet, id) = (c.phys.pos, c.player.id);
+        let up = phys::up(&self.world, feet);
+        let ahead = (c.phys.fwd - up * c.phys.fwd.dot(up)).normalize_or_zero();
+        let mid = feet + up * 0.5;
+        let mut at = self.world.block_at(mid + ahead * THROW);
+        if BLOCKS.solid(self.world.block(at)) {
+            at = self.world.block_at(mid);
+        }
+        self.lay(at, stacks, (id, self.tick + THROW_WAIT));
+    }
+
+    /// Client `i` takes the pick-up lying in air cell `at` (`ToServer::Take`, ADR 0082): within `REACH`, one lies
+    /// there and was not taken (or has come back), and all it gives fits in the slots; else nothing changes.
+    fn take(&mut self, i: usize, at: Block) -> bool {
+        let c = &self.clients[i];
+        let t = self.world.time;
+        if c.vitals.dead.is_some() || self.world.block_centre(at).distance(c.phys.pos) > REACH {
+            return false;
+        }
+        let Some(th) = engine::clutter::pickup_at(&self.world, at, t) else { return false };
+        let row = &engine::clutter::CLUTTER[th.row];
+        let year = engine::clutter::year(t);
+        let Some((item, n)) = row.item().filter(|_| engine::clutter::lies(row, self.taken.get(&key(at)).copied(), year)) else { return false };
+        let mut slots = c.slots.clone();
+        if items::stacks(item, n as u32).any(|st| items::give(&mut slots, st) > 0) {
+            return false;
+        }
+        let c = &mut self.clients[i];
+        (c.slots, c.inv_dirty) = (slots, true);
+        *self.item_made.entry(item).or_default() += n as i64;
+        self.taken.insert(key(at), year);
+        self.taken_changed.push((at, year));
+        true
+    }
+
+    /// Client `i` moves `n` of the stack in `from` to `to` (`ToServer::Items`, ADR 0074): all of it or nothing.
+    /// A pile must lie within `PILE_REACH`; creative's grid is creative's; every holder keeps its rules after it.
+    fn items(&mut self, i: usize, from: (Holder, u16), to: (Holder, u16), n: u16) -> bool {
+        let c = &self.clients[i];
+        let (creative, feet) = (c.creative, c.phys.pos);
+        let grid = from.0 == Holder::Grid || to.0 == Holder::Grid;
+        let reach = |h: Holder| !matches!(h, Holder::Pile(b) if !self.piles.contains_key(&key(b)) || self.world.block_centre(b).distance(feet) > PILE_REACH);
+        if c.vitals.dead.is_some() || (grid && !creative) || from.0 == Holder::Ground || !reach(from.0) || !reach(to.0) {
+            return false;
+        }
+        let slots_of = |s: &Server, h: Holder| match h {
+            Holder::Ape => Some(s.clients[i].slots.clone()),
+            Holder::Pile(b) => s.piles.get(&key(b)).map(|p| p.slots.clone()),
+            _ => None,
+        };
+        let (fi, ti) = (from.1 as usize, to.1 as usize);
+        // the holders as they will be (`b` only when it is another holder than `a`), what creative made and
+        // what is thrown
+        let (mut a, mut b): (Option<Vec<Slot>>, Option<Vec<Slot>>) = (slots_of(self, from.0), None);
+        let mut made: Vec<(u16, i64)> = Vec::new();
+        let mut thrown = None;
+        match (from.0, to.0) {
+            (Holder::Grid, _) if !ITEMS.known(from.1) || n == 0 || n > ITEMS.stack(from.1) => return false,
+            (Holder::Grid, Holder::Grid) => return false,
+            (Holder::Grid, Holder::Ground) => {
+                thrown = Some(Stack::new(from.1, n));
+                made.push((from.1, n as i64));
+            }
+            (Holder::Grid, _) => {
+                let Some(mut t) = slots_of(self, to.0) else { return false };
+                let Some(slot) = t.get_mut(ti) else { return false };
+                // creative's endless stack; whatever else lay in that slot is gone
+                if let Some(old) = slot.filter(|o| o.item != from.1) {
+                    made.push((old.item, -(old.n as i64)));
+                    *slot = None;
+                }
+                let before = slot.map_or(0, |o| o.n);
+                if !items::rule(&mut Some(Stack::new(from.1, ITEMS.stack(from.1))), slot, n) {
+                    return false;
+                }
+                made.push((from.1, (slot.unwrap().n - before) as i64));
+                b = Some(t);
+            }
+            (_, Holder::Grid | Holder::Ground) => {
+                let Some(s) = a.as_mut().and_then(|a| a.get_mut(fi)) else { return false };
+                let Some(st) = s.filter(|st| n > 0 && n <= st.n) else { return false };
+                *s = Some(Stack { n: st.n - n, ..st }).filter(|o| o.n > 0);
+                if to.0 == Holder::Grid {
+                    made.push((st.item, -(n as i64)));
+                } else {
+                    thrown = Some(Stack { n, ..st });
+                }
+            }
+            (f, t) if f == t => {
+                if !items::shift(a.as_mut().unwrap(), fi, None, ti, n) {
+                    return false;
+                }
+            }
+            (_, t) => {
+                let Some(mut tb) = slots_of(self, t) else { return false };
+                if !items::shift(a.as_mut().unwrap(), fi, Some(&mut tb), ti, n) {
+                    return false;
+                }
+                b = Some(tb);
+            }
+        }
+        let fits = |h: Holder, s: &Option<Vec<Slot>>| h != Holder::Ape || s.as_ref().is_none_or(|s| items::ape_fits(s));
+        if !fits(from.0, &a) || !fits(to.0, &b) {
+            return false;
+        }
+        for (k, d) in made {
+            *self.item_made.entry(k).or_default() += d;
+        }
+        for (h, s) in [(from.0, a), (to.0, b)] {
+            let Some(s) = s else { continue };
+            match h {
+                Holder::Ape => self.clients[i].slots = s,
+                Holder::Pile(c) => {
+                    if s.iter().all(Option::is_none) {
+                        self.piles.remove(&key(c));
+                    } else {
+                        self.piles.get_mut(&key(c)).unwrap().slots = s;
+                    }
+                    self.piles_changed.push(c);
+                }
+                _ => {}
+            }
+        }
+        if let Some(t) = thrown {
+            self.throw(i, vec![t]);
+        }
+        true
+    }
+
+    /// Of each item, how many every player (online or not) and every pile holds.
+    fn held_now(&self) -> BTreeMap<u16, i64> {
+        let mut h: BTreeMap<u16, i64> = BTreeMap::new();
+        let slots = self.clients.iter().map(|c| &c.slots).chain(self.absent.values().map(|p| &p.slots)).chain(self.piles.values().map(|p| &p.slots));
+        for st in slots.flatten().flatten() {
+            *h.entry(st.item).or_default() += st.n as i64;
+        }
+        h
+    }
+
+    /// The items' conservation law (ADR 0074, fundamentals 4.8): each item whose count over every player and
+    /// pile is not what digs, places, creative's grid and /give made of it, as (item, held, made).
+    /// shortcut: a ledger of items, not of matter; the planet's material ledger (ore-budget.md) counts the
+    /// ground and does not see what is carried or lying in piles yet.
+    pub fn item_ledger(&self) -> Vec<(u16, i64, i64)> {
+        let held = self.held_now();
+        let ids: std::collections::BTreeSet<u16> = held.keys().chain(self.item_made.keys()).copied().collect();
+        ids.into_iter().map(|k| (k, held.get(&k).copied().unwrap_or(0), self.item_made.get(&k).copied().unwrap_or(0))).filter(|(_, a, b)| a != b).collect()
     }
 
     /// The water tiles client `i` has the latest version of.
@@ -1286,6 +1718,37 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
 
     /// Sends every client the water tiles it lacks: within WATER_RANGE, nearest first, until WATER_BYTES.
     /// The rest waits for the next tick, so a big flood reaches a client over a few ticks, near water first.
+    /// The air's columns to every client when the grid landed a step or the forced weather changed (ADR 0076):
+    /// those that moved more than a byte's step since they were sent, so a slow drift does not cost a message
+    /// a column every step.
+    fn send_sky(&mut self) {
+        let Some(w) = &self.weather else { return };
+        if self.sky_at == Some(w.view().hash) {
+            return;
+        }
+        self.sky_at = Some(w.view().hash);
+        let cells = w.cells(self.force.as_ref());
+        if self.sky.len() != cells.len() {
+            self.sky = cells;
+            for c in &self.clients {
+                c.link.send(ToClient::Sky { t: self.world.time, all: self.sky.clone(), changed: Vec::new() });
+            }
+            return;
+        }
+        let mut changed = Vec::new();
+        for (k, (old, new)) in self.sky.iter_mut().zip(&cells).enumerate() {
+            if old.iter().zip(new).any(|(a, b)| a.abs_diff(*b) > 1) {
+                *old = *new;
+                changed.push((k as u32, *new));
+            }
+        }
+        if !changed.is_empty() {
+            for c in &self.clients {
+                c.link.send(ToClient::Sky { t: self.world.time, all: Vec::new(), changed: changed.clone() });
+            }
+        }
+    }
+
     fn send_water(&mut self) {
         // each tile built and measured once a tick, however many clients get it
         let mut built: FxMap<Col, (Vec<engine::liquid::ColWater>, usize)> = FxMap::default();
@@ -1505,6 +1968,19 @@ mod tests {
         (s, links)
     }
 
+    /// Each item and how many of it the slots hold, by id.
+    fn held(slots: &[Slot]) -> Vec<(u16, u32)> {
+        let mut ids: Vec<u16> = slots.iter().flatten().map(|s| s.item).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids.into_iter().map(|m| (m, items::count(slots, m))).collect()
+    }
+
+    /// What every `Inventory` among `got` held (`held`).
+    fn invs(got: &[ToClient]) -> Vec<Vec<(u16, u32)>> {
+        got.iter().filter_map(|m| if let ToClient::Inventory { slots, .. } = m { Some(held(slots)) } else { None }).collect()
+    }
+
     fn drain(l: &Link<ToServer, ToClient>) -> Vec<ToClient> {
         let mut v = Vec::new();
         while let Recv::Msg(m) = l.try_recv() {
@@ -1537,6 +2013,14 @@ mod tests {
         let view = |s: &Server| s.weather.as_ref().map(|w| (w.view().t, w.view().hash));
         assert_eq!(view(&back), view(&s));
         assert_eq!(view(&s).unwrap().0, 10.0, "the step to 10 s handed over at tick 200 and shown at 220");
+        // the air at the player's height over the sea in metres, not over the sea's layer number (ADR 0072):
+        // the one sent at tick 320 against where the player stands then
+        s.tick();
+        let sent = drain(&c).into_iter().filter_map(|m| if let ToClient::Air(h) = m { Some(h) } else { None }).last().unwrap();
+        let b = &s.world.bodies[0];
+        let pos = s.clients[0].phys.pos;
+        let want = s.weather.as_ref().unwrap().here((pos - b.centre).normalize(), b.over_sea(pos).unwrap());
+        assert!((sent.temp - want.temp).abs() < 0.05, "sent {} C, the air {} m over the sea is {} C", sent.temp, b.over_sea(pos).unwrap(), want.temp);
     }
 
     /// The live rain feeds the rivers (W5, ADR 0059): on a planet with rivers the air hands its runoff to the
@@ -1605,6 +2089,58 @@ mod tests {
 
     /// A spot on dry land away from the spawn (out of a new player's reach), 2 m over the middle of a column,
     /// and the air cell on the ground under it (placing fills air only).
+    /// Animals (ADR 0083): a real one spawned by command reaches the player near it as a delta, goes when the
+    /// player leaves, is kept beside the save, and a recording from that save replays with it.
+    #[test]
+    fn animals_reach_the_player_near_them_and_keep_beside_the_save() {
+        let (mut s, links) = server_with(1);
+        let (pole, _) = on_land(&s);
+        links[0].send(ToServer::Hello { name: "a".into() });
+        links[0].send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        links[0].send(ToServer::Chat("/spawn deer live".into()));
+        links[0].send(ToServer::Chat("/spawn unicorn live".into()));
+        for _ in 0..10 {
+            s.tick();
+        }
+        let got = drain(&links[0]);
+        let said: Vec<&String> = got.iter().filter_map(|m| if let ToClient::Chat(t) = m { Some(t) } else { None }).collect();
+        assert!(said.iter().any(|t| t.starts_with("a deer")) && said.iter().any(|t| t.contains("no creature 'unicorn'")), "{said:?}");
+        let kinds = got.iter().find_map(|m| if let ToClient::Kinds(k) = m { Some(k.clone()) } else { None }).expect("kinds on join");
+        let seen: Vec<engine::net::Animal> = got.iter().filter_map(|m| if let ToClient::Animals { seen, .. } = m { Some(seen.clone()) } else { None }).flatten().collect();
+        let deer = seen.iter().find(|a| kinds[a.kind as usize] == "deer" && (DVec3::from_array(a.pos) - pole).length() < 6.0).expect("the spawned deer is seen");
+        // only deltas: a standing deer is not sent again every tick
+        assert!(seen.iter().filter(|a| a.id == deer.id).count() < 10);
+        let far = s.world.bodies[0].centre - (pole - s.world.bodies[0].centre);
+        links[0].send(ToServer::Move { pos: far.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        s.tick();
+        s.tick();
+        assert!(drain(&links[0]).iter().any(|m| matches!(m, ToClient::Animals { gone, .. } if gone.contains(&deer.id))));
+        // kept beside the save, and replayed from it
+        let dir = std::env::temp_dir().join(format!("technoape-herds-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("w.sav");
+        s.autosave = Some((path.clone(), u64::MAX));
+        s.save_now();
+        let (tx, rx) = channel();
+        let mut back = Server::from_save(Save::read(&path).unwrap(), rx);
+        back.read_herds(&path);
+        assert_eq!(back.herds.to_bytes(), s.herds.to_bytes());
+        assert!(back.herds.all().any(|a| a.id == deer.id));
+        let rec = dir.join("w.rec");
+        back.record(&rec).unwrap();
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
+        c.send(ToServer::Hello { name: "a".into() });
+        for _ in 0..60 {
+            back.tick();
+            drain(&c);
+        }
+        let r = replay(&rec, Some(60)).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!((r.diverged, r.checks), (None, 2));
+        assert_eq!(r.server.herds.to_bytes(), back.herds.to_bytes());
+    }
+
     fn on_land(s: &Server) -> (DVec3, Block) {
         let b = &s.world.bodies[0];
         let sea = b.layer_r(b.sea.unwrap());
@@ -1613,6 +2149,39 @@ mod tests {
         let d = b.dir(k.face as usize, k.pos.x as f64 + 0.5, k.pos.y as f64 + 0.5);
         let h = b.height(d);
         (b.centre + d * (h + 2.0), s.world.block_at(b.centre + d * (h + 0.6)))
+    }
+
+    /// Sand on a shelf in the air, the shelf dug out from under it: it falls to the ground, and the other
+    /// player is told each move as two edits (ADR 0079).
+    #[test]
+    fn sand_dug_from_under_falls_and_every_player_sees_it() {
+        let (mut s, links) = server_with(2);
+        let (pole, under) = on_land(&s);
+        let shelf = Block { pos: under.pos + glam::IVec3::new(3, 0, 5), ..under };
+        let over = Block { pos: shelf.pos + glam::IVec3::Z, ..shelf };
+        let (stone, sand) = (BLOCKS.id("stone"), BLOCKS.id("sand"));
+        s.world.set_block(shelf, stone);
+        s.world.set_block(over, sand);
+        links[0].send(ToServer::Creative(true));
+        links[0].send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        s.tick();
+        drain(&links[1]);
+        links[0].send(ToServer::Edit { seq: 1, shape: Shape::one(shelf), material: AIR });
+        let mut got = Vec::new();
+        for _ in 0..80 {
+            s.tick();
+            got.extend(drain(&links[1]));
+        }
+        assert_eq!(s.world.block(over), AIR, "it fell");
+        // where it lies: the one edit that made sand (it may have slid down the slope it landed on)
+        let lands: Vec<Block> = s.world.edits.iter().flat_map(|(k, c)| c.iter().map(move |(p, m)| (Block { body: k.body, face: k.face, pos: *p }, *m))).filter(|(b, m)| *m == sand && s.world.generated_block(*b) != sand).map(|(b, _)| b).collect();
+        assert_eq!(lands.len(), 1, "one sand: {lands:?}");
+        let rest = lands[0];
+        assert!(rest.pos.z < shelf.pos.z && (rest.pos - shelf.pos).abs().max_element() < 8, "under the shelf: {rest:?}");
+        assert!(BLOCKS.solid(s.world.block(Block { pos: rest.pos - glam::IVec3::Z, ..rest })), "on the ground");
+        assert_eq!(s.falls.awake(), 0, "and asleep");
+        let edits: Vec<(Block, u16)> = got.into_iter().filter_map(|m| if let ToClient::Edits(v) = m { Some(v) } else { None }).flatten().collect();
+        assert!(edits.contains(&(over, AIR)) && edits.contains(&(rest, sand)), "{edits:?}");
     }
 
     #[test]
@@ -1660,19 +2229,19 @@ mod tests {
         l.send(ToServer::Edit { seq: 1, shape: brush, material: AIR });
         s.tick();
         assert!(brush.cells().all(|b| s.world.block(b) == AIR));
-        assert_eq!(s.clients[0].inv[stone as usize], 0);
+        assert_eq!(items::count(&s.clients[0].slots, stone), 0);
         l.send(ToServer::Chat("/give stone 8".into()));
         s.tick();
         let got = drain(l);
-        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![], water: 0 }), "sent on join");
-        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![(stone, 8)], water: 0 }));
+        assert!(invs(&got).contains(&vec![]), "sent on join");
+        assert!(invs(&got).contains(&vec![(stone, 8)]));
         // eight dirt are not held, so none of them goes in; the eight stone are
         l.send(ToServer::Edit { seq: 2, shape: brush, material: BLOCKS.id("dirt") });
         l.send(ToServer::Edit { seq: 3, shape: brush, material: stone });
         s.tick();
         let got = drain(l);
         assert!(got.contains(&ToClient::Done { seq: 2, ok: false }) && got.contains(&ToClient::Done { seq: 3, ok: true }));
-        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![], water: 0 }));
+        assert!(invs(&got).contains(&vec![]));
         assert!(brush.cells().all(|b| s.world.block(b) == stone));
         assert_eq!(s.world.edit_count, 8, "the world is as generated again, but the cells stay recorded");
     }
@@ -1695,6 +2264,170 @@ mod tests {
         cell
     }
 
+    /// The piles of `got`'s last `Piles` that names `b`: what it held then.
+    fn pile_in(got: &[ToClient], b: Block) -> Option<Vec<Slot>> {
+        got.iter().rev().find_map(|m| if let ToClient::Piles(v) = m { v.iter().find(|p| p.0 == b).map(|p| p.1.clone()) } else { None })
+    }
+
+    /// A survival player (ADR 0047, 0074): dirt dug falls to the ground as a pile where it was, and walking over
+    /// it picks it up; a pile left lying falls when its floor is dug. The items' ledger holds throughout.
+    #[test]
+    fn a_dug_block_falls_as_a_pile_and_walking_over_it_picks_it_up() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let dirt = over_dirt(&mut s, l);
+        // two dirt blocks under the first, so the pile has something to fall through later
+        let below = Block { pos: dirt.pos - glam::IVec3::Z, ..dirt };
+        s.world.set_block(below, BLOCKS.id("dirt"));
+        let one = Shape::one(dirt);
+        l.send(ToServer::Dig(Some(one)));
+        s.tick();
+        let need = edit::dig_time(&s.world, &one);
+        wait(&mut s, need * 1.05);
+        l.send(ToServer::Edit { seq: 1, shape: one, material: AIR });
+        s.tick();
+        let got = drain(l);
+        let d = BLOCKS.id("dirt");
+        assert!(got.contains(&ToClient::Done { seq: 1, ok: true }), "{got:?}");
+        assert_eq!(pile_in(&got, dirt), Some(vec![Some(Stack::new(d, 1)), None, None, None]), "the pile lies where the block was");
+        assert_eq!((items::count(&s.clients[0].slots, d), s.item_ledger()), (0, vec![]), "2 m up: not picked up yet");
+        // the floor under it dug (creative, so no second pile): it falls a block
+        l.send(ToServer::Creative(true));
+        l.send(ToServer::Edit { seq: 2, shape: Shape::one(below), material: AIR });
+        s.tick();
+        let got = drain(l);
+        assert_eq!((pile_in(&got, dirt), pile_in(&got, below)), (Some(vec![]), Some(vec![Some(Stack::new(d, 1)), None, None, None])));
+        // the player comes down onto it: taken
+        l.send(ToServer::Move { pos: s.world.block_centre(below).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        s.tick();
+        let got = drain(l);
+        assert_eq!((invs(&got).last().cloned(), pile_in(&got, below)), (Some(vec![(d, 1)]), Some(vec![])), "{got:?}");
+        assert!(s.piles.is_empty() && s.item_ledger().is_empty());
+    }
+
+    /// The move message (ADR 0074): within the slots, onto the ground ahead and back, refused for creative's grid in
+    /// survival, for a pile out of reach and for a pack taken off while its rows hold things.
+    #[test]
+    fn moves_follow_the_rule_and_a_refused_one_changes_nothing() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let (pole, _) = on_land(&s);
+        l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        l.send(ToServer::Chat("/give stone 70".into()));
+        s.tick();
+        let stone = BLOCKS.id("stone");
+        let mv = |seq, from, to, n| ToServer::Items { seq, from, to, n };
+        l.send(mv(1, (Holder::Ape, 1), (Holder::Ape, 4), 3));
+        l.send(mv(2, (Holder::Ape, 0), (Holder::Grid, 0), 1));
+        l.send(mv(3, (Holder::Grid, stone), (Holder::Ape, 5), 1));
+        l.send(mv(4, (Holder::Ape, 0), (Holder::Ape, 40), 1));
+        s.tick();
+        let got = drain(l);
+        let done: Vec<bool> = got.iter().filter_map(|m| if let ToClient::Done { ok, .. } = m { Some(*ok) } else { None }).collect();
+        assert_eq!(done, [true, false, false, false]);
+        assert_eq!((s.clients[0].slots[1], s.clients[0].slots[4]), (Some(Stack::new(stone, 3)), Some(Stack::new(stone, 3))));
+        // thrown: two metres ahead, not taken back at once, taken once its wait is over and the player is there
+        l.send(mv(5, (Holder::Ape, 0), (Holder::Ground, 0), 10));
+        s.tick();
+        assert_eq!(items::count(&s.clients[0].slots, stone), 60);
+        let (k, p) = s.piles.iter().next().map(|(k, p)| (*k, p.clone())).expect("a pile");
+        let at = s.world.block_centre(unkey(k));
+        assert!((at.distance(pole) - 2.0).abs() < 2.0 && p.slots[0] == Some(Stack::new(stone, 10)), "{at} from {pole}");
+        assert!(s.item_ledger().is_empty());
+        // out of reach of a pile 4 m off: refused
+        l.send(ToServer::Move { pos: (at + (at - s.world.bodies[0].centre).normalize() * 6.0).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        l.send(mv(6, (Holder::Pile(unkey(k)), 0), (Holder::Ape, 8), 10));
+        s.tick();
+        assert!(drain(l).contains(&ToClient::Done { seq: 6, ok: false }));
+        l.send(ToServer::Move { pos: at.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        s.tick();
+        assert_eq!(items::count(&s.clients[0].slots, stone), 60, "its own throw waits");
+        wait(&mut s, 2.0);
+        assert_eq!((items::count(&s.clients[0].slots, stone), s.piles.len()), (70, 0));
+        // a basket worn opens nine slots; off again while they hold things: refused
+        l.send(ToServer::Chat("/give basket".into()));
+        s.tick();
+        let b = s.clients[0].slots.iter().position(|x| x.is_some_and(|x| x.item == ITEMS.named("basket").unwrap())).unwrap() as u16;
+        l.send(mv(7, (Holder::Ape, b), (Holder::Ape, items::WORN as u16), 1));
+        l.send(ToServer::Chat("/give stone 1000".into()));
+        l.send(mv(8, (Holder::Ape, items::WORN as u16), (Holder::Ape, b), 1));
+        s.tick();
+        let got = drain(l);
+        assert!(got.contains(&ToClient::Done { seq: 7, ok: true }) && got.contains(&ToClient::Done { seq: 8, ok: false }));
+        assert_eq!(items::count(&s.clients[0].slots, stone), 1070, "nine slots and nine more");
+        assert_eq!(s.item_ledger(), vec![], "all given and held");
+    }
+
+    /// Creative's grid (ADR 0075): a click takes a stack of anything, a stack put back is gone; survival has none.
+    #[test]
+    fn creative_takes_from_the_grid_and_puts_back_into_nothing() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let lamp = BLOCKS.id("blue lamp");
+        let pack = ITEMS.named("frame pack").unwrap();
+        l.send(ToServer::Creative(true));
+        let mv = |seq, from, to, n| ToServer::Items { seq, from, to, n };
+        l.send(mv(1, (Holder::Grid, lamp), (Holder::Ape, 2), 64));
+        l.send(mv(2, (Holder::Grid, pack), (Holder::Ape, 3), 2));
+        l.send(mv(3, (Holder::Grid, pack), (Holder::Ape, 3), 1));
+        l.send(mv(4, (Holder::Ape, 2), (Holder::Grid, 0), 14));
+        l.send(mv(5, (Holder::Grid, 0x7fff), (Holder::Ape, 4), 1));
+        s.tick();
+        let done: Vec<bool> = drain(l).iter().filter_map(|m| if let ToClient::Done { ok, .. } = m { Some(*ok) } else { None }).collect();
+        assert_eq!(done, [true, false, true, true, false], "a pack stacks by one; no item 0x7fff");
+        assert_eq!(held(&s.clients[0].slots), vec![(lamp, 50), (pack, 1)]);
+        assert!(s.item_ledger().is_empty());
+        l.send(ToServer::Creative(false));
+        l.send(mv(6, (Holder::Grid, lamp), (Holder::Ape, 5), 1));
+        s.tick();
+        assert!(drain(l).contains(&ToClient::Done { seq: 6, ok: false }));
+    }
+
+    /// A player that leaves before it has a name has no save to keep its things in: they lie where it stood.
+    #[test]
+    fn an_unnamed_leaver_leaves_its_things_lying() {
+        let (mut s, links) = server_with(1);
+        let (pole, _) = on_land(&s);
+        links[0].send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        links[0].send(ToServer::Chat("/give dirt 20".into()));
+        s.tick();
+        drop(links);
+        s.tick();
+        assert!(s.clients.is_empty() && s.piles.len() == 1 && s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    }
+
+    /// A save keeps the piles and the slots, and one from before slots puts what did not fit at its feet.
+    #[test]
+    fn piles_and_slots_are_saved_and_old_counts_overflow_to_the_feet() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let (pole, _) = on_land(&s);
+        l.send(ToServer::Hello { name: "ape".into() });
+        l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        l.send(ToServer::Chat("/give dirt 20".into()));
+        l.send(ToServer::Items { seq: 1, from: (Holder::Ape, 0), to: (Holder::Ground, 0), n: 5 });
+        s.tick();
+        let back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
+        assert_eq!((back.snapshot(), back.piles.len()), (s.snapshot(), 1));
+        let mut old = s.snapshot();
+        old.players[0].slots = items::from_counts(&[(BLOCKS.id("stone"), 64 * 10 + 1)]);
+        let back = Server::from_save(old, channel().1);
+        assert_eq!(held(&back.absent["ape"].slots), vec![(BLOCKS.id("stone"), 64 * 9)]);
+        assert_eq!(back.piles.len(), 2, "the throw's and the overflow's");
+        assert!(back.item_ledger().is_empty());
+        // exactly 37 stacks, as many as the ape has slots, and a stack over its size (a smaller `stack` in
+        // data/items.toml): re-packed all the same, nothing stuck in rows no pack opens, nothing lost
+        let mut old = s.snapshot();
+        old.players[0].slots = items::from_counts(&[(BLOCKS.id("stone"), 64 * 37)]);
+        old.players[0].slots[0] = Some(Stack::new(BLOCKS.id("stone"), 100));
+        let back = Server::from_save(old, channel().1);
+        assert!(items::ape_fits(&back.absent["ape"].slots));
+        assert_eq!(held(&back.absent["ape"].slots), vec![(BLOCKS.id("stone"), 64 * 9)]);
+        assert!(back.item_ledger().is_empty());
+        let n: u32 = back.piles.values().flat_map(|p| p.slots.iter().flatten()).filter(|s| s.item == BLOCKS.id("stone")).map(|s| s.n as u32).sum();
+        assert_eq!(n, 64 * 36 + 100 - 64 * 9, "the rest at its feet");
+    }
+
     #[test]
     fn a_survival_dig_takes_its_time_and_stone_by_hand_gives_nothing() {
         let (mut s, links) = server_with(2);
@@ -1715,13 +2448,13 @@ mod tests {
         // the other player sees the cracks: the shape, how far it was and how fast it goes
         let id = s.clients[0].player.id;
         assert!(drain(&links[1]).iter().any(|m| matches!(m, ToClient::Digging { id: i, at: Some((sh, done, rate)) } if *i == id && *sh == one && *done == 0.0 && (*rate - 1.0 / need).abs() < 1e-6)));
-        // held on for its time: dug, and dirt goes into the inventory
+        // held on for its time: dug, and the dirt falls to the ground as a pile (ADR 0074)
         wait(&mut s, need * 0.6);
         l.send(ToServer::Edit { seq: 3, shape: one, material: AIR });
         s.tick();
         let got = drain(l);
         assert!(got.contains(&ToClient::Done { seq: 3, ok: true }), "{got:?}");
-        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![(BLOCKS.id("dirt"), 1)], water: 0 }), "{got:?}");
+        assert!(pile_in(&got, dirt).is_some_and(|p| p[0] == Some(Stack::new(BLOCKS.id("dirt"), 1))), "{got:?}");
         assert!(drain(&links[1]).contains(&ToClient::Digging { id, at: None }), "the cracks end with the dig");
         // stone by hand: slow, and nothing comes of it (the developer, 2026-11-11)
         let stone = Block { pos: dirt.pos - glam::IVec3::Z, ..dirt };
@@ -1735,7 +2468,7 @@ mod tests {
         s.tick();
         let got = drain(l);
         assert!(got.contains(&ToClient::Done { seq: 4, ok: true }) && s.world.block(stone) == AIR, "{got:?}");
-        assert_eq!(s.clients[0].inv[BLOCKS.id("stone") as usize], 0);
+        assert_eq!(items::count(&s.clients[0].slots, BLOCKS.id("stone")), 0);
         // creative does not wait
         l.send(ToServer::Creative(true));
         let below = Block { pos: stone.pos - glam::IVec3::Z, ..stone };
@@ -1815,7 +2548,7 @@ mod tests {
         let (s, _links) = server_with(0);
         let mut save = s.snapshot();
         let player = |name: &str, at: DVec3| save::Saved {
-            name: name.into(), pos: at.to_array(), fwd: [1.0, 0.0, 0.0], creative: false, inv: vec![(2, 5)], water: 0, vitals: Default::default(),
+            name: name.into(), pos: at.to_array(), fwd: [1.0, 0.0, 0.0], creative: false, slots: items::from_counts(&[(2, 5)]), water: 0, vitals: Default::default(),
         };
         let on_luna = engine::world::OLD_MOON_AT + DVec3::Y * 30.0;
         let in_space = DVec3::new(500.0, 0.0, -1.0e6);
@@ -1826,7 +2559,7 @@ mod tests {
         save.version = 5;
         let old = Server::from_save(save, channel().1);
         assert_eq!(at(&old, "luna"), on_luna - engine::world::OLD_MOON_AT + engine::world::MOON_AT);
-        assert_eq!((at(&old, "space"), &old.absent["space"].inv), (old.spawn(), &vec![(2, 5)]));
+        assert_eq!((at(&old, "space"), held(&old.absent["space"].slots)), (old.spawn(), vec![(2, 5)]));
     }
 
     #[test]
@@ -1866,7 +2599,7 @@ mod tests {
         let r = replay(&rec, None).unwrap();
         std::fs::remove_file(&rec).unwrap();
         assert_eq!((r.diverged, r.checks, r.server.world.hash()), (None, 2, back.world.hash()));
-        assert!(got.contains(&ToClient::Inventory { creative: false, counts: vec![(BLOCKS.id("stone"), 1)], water: 0 }), "{got:?}");
+        assert!(invs(&got).contains(&vec![(BLOCKS.id("stone"), 1)]), "{got:?}");
         assert!(DVec3::from_array(back.clients[0].player.pos).distance(ground + DVec3::Z) < 0.01);
         assert!(Save::from_bytes(b"not a save").is_err());
     }
@@ -2073,7 +2806,7 @@ mod tests {
         s.tick();
         assert!((s.world.time - sky::DAY / 8.0).abs() < 0.2, "{}", s.world.time);
         let c = &s.clients.iter().find(|c| c.player.name == "ape").unwrap();
-        assert!(c.creative && c.inv[BLOCKS.id("blue lamp") as usize] == 5 && c.inv[BLOCKS.id("stone") as usize] == 64);
+        assert!(c.creative && items::count(&c.slots, BLOCKS.id("blue lamp")) == 5 && items::count(&c.slots, BLOCKS.id("stone")) == 64);
         // time runs on from where it was set, and survives a save
         assert!(s.snapshot().tick as f64 / TICK_HZ > sky::DAY / 8.0);
         links[0].send(ToServer::Chat("/time set 10".into()));
@@ -2326,10 +3059,13 @@ mod tests {
         back.tick();
         assert_eq!(back.clients[0].vitals.dead.as_ref(), Some(&cause));
         assert!(vitals_of(&drain(&c)).contains(&(0, 20, Some(cause.clone()))));
-        // a respawn: at the spawn, full again
+        // a respawn: at the spawn, full again, and what it carried left lying where it died (ADR 0047)
+        let dirt = Some(Stack::new(BLOCKS.id("dirt"), 5));
+        back.clients[0].slots[3] = dirt;
         c.send(ToServer::Respawn);
         back.tick();
         let me = &back.clients[0];
+        assert!(held(&me.slots).is_empty() && back.piles.values().any(|p| p.slots[0] == dirt), "{:?}", held(&me.slots));
         assert!(me.phys.pos.distance(back.world.bodies[0].spawn_point()) < 1.0);
         assert_eq!(me.vitals, Vitals::default());
         assert_eq!(vitals_of(&drain(&c)), vec![(20, 20, None)]);
@@ -2446,7 +3182,7 @@ mod tests {
         assert!(s.absent.contains_key("bob"), "a second Hello took nobody's saved state");
         drop(links);
         s.tick();
-        let inv = |n: &str| s.absent[n].inv.clone();
+        let inv = |n: &str| held(&s.absent[n].slots);
         assert_eq!((inv("ape"), inv("ape-2")), (vec![(BLOCKS.id("stone"), 1)], vec![(BLOCKS.id("dirt"), 2)]));
     }
 

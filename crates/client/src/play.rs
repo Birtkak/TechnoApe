@@ -3,7 +3,7 @@ use super::*;
 
 /// The playtest menu's rows (F10, bugs/2026-11-11_13-12-42): a name, its steps and what to look for. A step
 /// is a command as typed in the chat, or `eclipse:sun`, `eclipse:luna` (the clock and the player go to the
-/// next one), `fly:<m/s>` (flying, at that speed), `give:all` (64 of every block). A new thing worth a look
+/// next one), `fly:<m/s>` (flying, at that speed). A new thing worth a look
 /// gets a row here.
 pub(crate) const PLAYTEST: &[(&str, &[&str], &str)] = &[
     ("Eclipse of the sun: Luna in front of Sol", &["eclipse:sun"], ""),
@@ -13,7 +13,7 @@ pub(crate) const PLAYTEST: &[(&str, &[&str], &str)] = &[
     ("Midnight: the moon grey, not red", &["/goto terra", "/time set midnight"], "Find Luna: grey-white, unless an eclipse is on."),
     ("Sunset: the light fading out", &["/goto terra", "/time set sunset"], "The sunlight on the ground should dim smoothly as Sol sets."),
     ("Lamps at night: a kit for a lit room", &["/goto terra", "/time set night", "/give lamp 32", "/give blue lamp 32"], "Dig a room and set lamps into its floor and walls: even light, no hard cones."),
-    ("Every block: 64 of each", &["give:all"], "64 of every block is yours."),
+    ("Every block: creative's inventory", &["/playmode creative"], "E opens every block and item in tabs: a click takes a stack, the middle button picks a block in the world."),
     ("Health and hunger: the bars at 13 and 6", &["/playmode survival", "/heal", "/hurt 7", "/feed 6"], "Two bars over the hotbar: a green cross, an orange stomach. /heal and /feed fill them."),
     ("Low health and an empty stomach", &["/playmode survival", "/heal", "/hurt 17", "/feed 0"], "Health pulses with red corners; hunger is outlined in red and health sinks to 1."),
     ("The death screen", &["/playmode survival", "/heal", "/hurt 20"], "You died: Respawn puts you at the spawn with full bars."),
@@ -120,6 +120,11 @@ impl App {
                 if let Some((_, before)) = self.aim {
                     self.link.send(ToServer::Bucket { seq: self.pred.seq(), at: before, fill: a == "L" });
                 }
+            }
+            // a pick-up lying over the aimed ground is taken, not dug (ADR 0082): one call, the server answers
+            "L" if self.aim.is_some_and(|(_, before)| self.pickup(before)) => {
+                let at = self.aim.unwrap().1;
+                self.link.send(ToServer::Take { seq: self.pred.seq(), at });
             }
             "L" | "R" => {
                 let dig = a == "L";
@@ -261,8 +266,24 @@ impl App {
             "enter" => self.submit(),
             // the menu (ADR 0023): esc opens it, goes back a page or closes it; click:k and rclick:k press button k
             "esc" if self.menu == Some(Menu::Confirm) => self.undo_display(),
+            // the inventory (ADR 0075): its key, a pick in the world, the screen's clicks
+            "inventory" => self.toggle_inventory(),
+            "pick" if self.menu.is_none() => self.pick_block(),
+            "sclick" if self.menu == Some(Menu::Inventory) => self.inv_click(false, true),
+            "rclick" if self.menu == Some(Menu::Inventory) => self.inv_click(true, false),
+            "back" if self.menu == Some(Menu::Inventory) => {
+                self.inv_query.pop();
+                self.inv_scroll = 0;
+            }
+            a if a.starts_with("type:") && self.menu == Some(Menu::Inventory) => {
+                if self.inv_tab == inventory::SEARCH && self.inv_query.chars().count() < 24 {
+                    self.inv_query.extend(a[5..].chars().filter(|c| !c.is_control()));
+                    self.inv_scroll = 0;
+                }
+            }
             "esc" => self.set_menu(match self.menu {
                 None => Some(Menu::Pause),
+                Some(Menu::Inventory) => None,
                 Some(Menu::Pause) | Some(Menu::Confirm) => None,
                 Some(Menu::Settings) => Some(self.home()),
                 Some(Menu::Page(_)) => Some(Menu::Settings),
@@ -346,6 +367,8 @@ impl App {
                 self.pick = Some(0);
             }
             a if a.starts_with("say:") => self.link.send(ToServer::Chat(a[4..].to_string())),
+            // fly:<m/s> as the playtest menu's step: flying at that speed, for scripted flights (ADR 0073)
+            a if a.starts_with("fly:") => (self.flying, self.fly_speed) = (true, a[4..].parse::<f64>().unwrap_or(250.0).clamp(1.0, phys::FLY_MAX)),
             _ => {
                 if let Ok(d) = a.parse::<usize>() {
                     if self.slot != d.clamp(1, 9) - 1 {
@@ -380,11 +403,6 @@ impl App {
             match *step {
                 "eclipse:sun" => self.eclipse(false),
                 "eclipse:luna" => self.eclipse(true),
-                "give:all" => {
-                    for d in BLOCKS.placeable() {
-                        self.link.send(ToServer::Chat(format!("/give {} 64", d.name)));
-                    }
-                }
                 s if s.starts_with("fly:") => (self.flying, self.fly_speed) = (true, s[4..].parse().unwrap_or(250.0)),
                 s => self.link.send(ToServer::Chat(s.to_string())),
             }
@@ -599,11 +617,14 @@ impl App {
         // the ground's air (ADR 0055, W3): the baked year's mean where the map keeps it (the biome's band on an
         // older map), the season and the hour on top
         let (face, fi, fj) = (blk.face as usize, blk.pos.x as f64 + 0.5, blk.pos.y as f64 + 0.5);
+        let ap = engine::bake::air::Params::default();
+        let over_sea = b.over_sea(feet).unwrap_or(0.0);
         let air = match if space || bi != 0 { None } else { b.biome_at(face, fi, fj, up) } {
+            // over the air's top layer there is no air to read (the lapse would pass absolute zero)
+            Some(_) if over_sea > ap.tops[ap.tops.len() - 1] as f64 => format!("none, {:.0} m over the air's top", over_sea - ap.tops[ap.tops.len() - 1] as f64),
             Some(bio) => {
-                let over_sea = b.sea.map_or(0.0, |s| (feet - b.centre).length() - s);
                 let (mean, swing) = match b.climate_at(face, fi, fj) {
-                    Some((theta, swing, _)) => ((theta - engine::bake::air::Params::default().lapse * over_sea.max(0.0) as f32) as f64, swing as f64),
+                    Some((theta, swing, _)) => ((theta - ap.cool(over_sea as f32)) as f64, swing as f64),
                     None => engine::sky::BIOME_CLIMATE[bio as usize],
                 };
                 // the live air (W3) where the server runs it, else the baked year with the season and hour on top
@@ -615,7 +636,7 @@ impl App {
             }
             None => "no air reading here".into(),
         };
-        let sea = b.sea.map_or(String::new(), |s| format!(", {:.1} m over the sea", r - s));
+        let sea = b.over_sea(pos).map_or(String::new(), |h| format!(", {h:.1} m over the sea"));
         let look = match self.aim {
             Some((hit, _)) => format!(
                 "{} (face {}, {} {}, layer {})",
@@ -793,7 +814,7 @@ impl App {
         args.sort();
         let chat: Vec<String> =
             self.chat.iter().rev().take(50).rev().map(|(at, l)| format!("- {:.0} s ago: {l}", at.elapsed().as_secs_f64())).collect();
-        let inv: Vec<String> = self.inv.iter().map(|(m, n)| format!("{} {n}", BLOCKS.get(*m).map_or("?", |d| d.name.as_str()))).collect();
+        let inv: Vec<String> = self.inv.iter().enumerate().filter_map(|(k, s)| s.map(|s| format!("{k}: {} {}", engine::items::ITEMS.name(s.item), s.n))).collect();
         let report = format!(
             "# Bug report {}\n\n{}\n\n## To look at it again\n\n- The view, without the session's edits: `{stand}`\n- The world: {}\n- The session: {}\n\n## State (F3)\n\n{}\n\n{}\n\nInventory: {}; bucket {} units\n\n## Chat and messages\n\n{}\n\n## Arguments\n\n`{}`\n",
             sys::utc_stamp(now),
@@ -833,6 +854,19 @@ impl App {
     }
 
     /// Where a press starts: digging takes the aimed block, placing the cell in front of it.
+    /// Whether a pick-up lies in air cell `b`, not taken, and all it gives fits in the slots (ADR 0082): else a
+    /// click digs the ground under it as ever.
+    pub(crate) fn pickup(&self, b: Block) -> bool {
+        use engine::clutter::{lies, pickup_at, year, CLUTTER};
+        let t = self.world.time;
+        let Some(row) = pickup_at(&self.world, b, t).map(|th| &CLUTTER[th.row]) else { return false };
+        let fits = |(item, n): (u16, u16)| {
+            let mut slots = self.inv.clone();
+            !engine::items::stacks(item, n as u32).any(|st| engine::items::give(&mut slots, st) > 0)
+        };
+        lies(row, self.streamer.taken.get(&b).copied(), year(t)) && row.item().is_some_and(fits)
+    }
+
     pub(crate) fn anchor(&self, hit: Block, before: Block, dig: bool) -> Block {
         if dig { hit } else { before }
     }
@@ -847,13 +881,13 @@ impl App {
         self.tool.shape(&self.world, at, end, false)
     }
 
-    /// The hotbar: every placeable block in id order.
+    /// The block in hotbar slot `k` (ADR 0074): what its stack holds, when that is a block one can place.
     pub(crate) fn slot_block(&self, k: usize) -> Option<u16> {
-        BLOCKS.placeable().nth(k).map(|d| d.id)
+        self.inv.get(k).copied().flatten().map(|s| s.item).filter(|&m| m != AIR && BLOCKS.get(m).is_some())
     }
 
     pub(crate) fn held_count(&self, m: u16) -> u32 {
-        self.inv.iter().find(|(id, _)| *id == m).map_or(0, |(_, n)| *n)
+        engine::items::count(&self.inv, m)
     }
 
     /// Digs or places a shape: predicted here at once (ADR 0015), sent to the server. A survival place this
@@ -1006,6 +1040,27 @@ impl App {
         self.growing.push((self.start.elapsed().as_secs_f64() + GROW_S, b, m, tag, false));
     }
 
+    /// Until the world is in (ADR 0073): the loading screen over it in the same window, its bar the chunks
+    /// still missing against the most there were (the bake's own bar is the title's, ADR 0057).
+    pub(crate) fn loading_screen(&mut self) {
+        let (lw, lh) = self.ui_size();
+        let missing = self.drawn.streaming.0;
+        self.load_peak = self.load_peak.max(missing);
+        let f = if self.load_peak == 0 { 0.0 } else { 1.0 - missing as f32 / self.load_peak as f32 };
+        let mut paint = hud::Paint::new(lw, lh);
+        paint.rect(0.0, 0.0, lw, lh, [0.015, 0.02, 0.035, 1.0], 0);
+        let (bw, bh, y) = ((lw * 0.5).min(720.0), 14.0, lh * 0.55);
+        let x = (lw - bw) / 2.0;
+        paint.text(x, y - 2.0 * hud::LINE - 6.0, "TechnoApe", [1.0, 1.0, 1.0, 0.95]);
+        paint.text(x, y - hud::LINE - 6.0, &format!("Loading the world: {missing} chunks to go  {:.0}%", f * 100.0), [0.8, 0.85, 0.9, 0.95]);
+        paint.rect(x - 2.0, y - 2.0, bw + 4.0, bh + 4.0, [0.0, 0.0, 0.0, 0.6], 0);
+        paint.rect(x, y, bw * f, bh, [0.45, 0.8, 0.4, 0.95], 0);
+        let n = paint.out.len().min(hud::RECTS_MAX);
+        let gpu = self.gpu.as_ref().unwrap();
+        gpu.queue.write_buffer(&gpu.ui_buf, 0, bytemuck::cast_slice(&paint.out[..n]));
+        self.ui_n = n as u32;
+    }
+
     /// Each frame of run=play: scripted acts that are due, the aim, the ghost and the 2D layer.
     pub(crate) fn build(&mut self, p: &Pose, t: f64) {
         while self.acts.last().is_some_and(|(at, _)| *at <= t) {
@@ -1061,12 +1116,13 @@ impl App {
             (self.ghost_n, self.ghost_of) = (verts.len() as u32, ghost);
         }
         let season = crate::gpu::season_here(&self.world, self.me.pos);
-        let slots: Vec<hud::Slot> = (0..9)
-            .filter_map(|k| self.slot_block(k))
-            .map(|m| {
-                let d = BLOCKS.get(m).unwrap();
+        // the hotbar's nine slots as they lie (ADR 0074): an item shows the block it looks like
+        let slots: Vec<Option<hud::Slot>> = (0..engine::items::HOTBAR)
+            .map(|k| {
+                let s = self.inv.get(k).copied().flatten()?;
+                let d = BLOCKS.get(engine::items::ITEMS.look(s.item))?;
                 let (colour, side, pattern) = crate::gpu::shown(d, season);
-                hud::Slot { colour, side, pattern, count: (!self.creative).then(|| self.held_count(m)) }
+                Some(hud::Slot { colour, side, pattern, count: (!self.creative).then_some(s.n as u32) })
             })
             .collect();
         let height = (self.hammer && self.tool.kind != Kind::Box).then_some(self.tool.height);
@@ -1201,13 +1257,17 @@ impl App {
             // over the hotbar's right end (hud::layer: its pane ends 268 px right of the middle)
             paint.text_px(lw / 2.0 + 268.0 - s.len() as f32 * hud::ADV * hud::PX * 0.75, lh - 110.0, &s, [1.0, 1.0, 1.0, 0.9], hud::PX * 0.75);
         }
-        if let Some(m) = self.menu {
+        if self.menu == Some(Menu::Inventory) {
+            self.inv_draw(&mut paint, season);
+            self.menu_boxes.clear();
+        } else if let Some(m) = self.menu {
             let cause = self.dead.clone().unwrap_or_default();
             if m == Menu::Dead {
                 // the world under it darker and a little red, before the menu's own shade
                 paint.rect(0.0, 0.0, lw, lh, [0.22, 0.0, 0.02, 0.4], 0);
             }
             let (title, hint) = match m {
+                Menu::Inventory => unreachable!(),
                 Menu::Dead => ("You died", cause.as_str()),
                 Menu::Title => ("TechnoApe", "Pillars of Simulation Engine"),
                 Menu::Worlds => ("Singleplayer", "A world carries on from its save. Right click or Delete removes one."),

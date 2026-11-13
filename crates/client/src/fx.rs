@@ -59,6 +59,9 @@ pub enum Ground {
     Stop,
     Bounce,
     Die,
+    /// Bounces, then lies in a cell of the fine lattice (12.5 cm) over its floor, on any chip already there
+    /// (ADR 0078).
+    Pile,
 }
 
 /// The numbers are the shader's (`vs_fx`).
@@ -76,6 +79,9 @@ pub enum Look {
     /// as a square with the texture bit.
     Texture = 5,
 }
+
+/// The fine cells' edge, m (vision: eight to a block's edge).
+pub const FINE: f32 = 0.125;
 
 /// Cracked cells drawn a frame at most: a hammer's dig shows its first ones.
 pub const CRACKS: usize = 64;
@@ -525,6 +531,13 @@ impl At {
         at.p -= at.axes[0] * at.half.x;
         at
     }
+    /// A point of body `body` (from its centre, in its frame) moving at v over the floor of the column it is in,
+    /// looked up again as it crosses into others (a raindrop, ADR 0076); None inside a solid block.
+    pub fn falling(world: &World, body: u8, p: DVec3, v: DVec3) -> Option<At> {
+        let b = Block { body, ..world.block_at(world.bodies[body as usize].centre + p) };
+        let (floor, col) = ground(world, b);
+        (floor <= world.bodies[body as usize].layer_r(b.pos.z as f64) as f32).then(|| At { col, ..At::point(body, p, v, floor as f64) })
+    }
     /// A point of body `body` (from its centre, in its frame) moving at v, over a floor at radius `floor`.
     pub fn point(body: u8, p: DVec3, v: DVec3, floor: f64) -> At {
         let up = p.normalize().as_vec3();
@@ -598,6 +611,9 @@ pub struct FxGpu {
 /// runs without `fx=1`) plays nothing, so their pictures repeat.
 pub struct Fx {
     pub on: bool,
+    /// The planet's wind where the camera is, its frame, m/s (ADR 0076): a particle of the planet with drag
+    /// slows toward it rather than to rest, so leaves, smoke and snow drift with the weather.
+    pub wind: Vec3,
     pool: Vec<P>,
     out: Vec<FxGpu>,
     /// Plays `then` rows ask for, where a particle died; kept to reuse its room.
@@ -633,6 +649,58 @@ pub struct Fx {
     pub placed: bool,
     /// What `show` plays for the Studio.
     shown: Option<Handle>,
+    /// The fine cells lying chips hold, kept between steps for its room (ADR 0078).
+    held: std::collections::HashSet<FineCell>,
+    /// A lying chip ended this step: the next looks for chips left over nothing.
+    ended: bool,
+}
+
+/// A fine cell over a column's floor: (body, the column's frame, (across, along, cells up)).
+type FineCell = (u8, [u32; 6], IVec3);
+
+impl Column {
+    /// The column's identity for the fine cells: its whole frame, so no two columns share a key.
+    fn key(&self) -> [u32; 6] {
+        [self.s.x, self.s.y, self.s.z, self.t.x, self.t.y, self.t.z].map(f32::to_bits)
+    }
+}
+
+impl P {
+    /// The fine cell a lying chip is in.
+    fn fine(&self) -> FineCell {
+        let k = ((self.p.length() - self.floor) / FINE).floor() as i32;
+        (self.body, self.col.key(), IVec3::new((self.p.dot(self.col.s) / FINE).floor() as i32, (self.p.dot(self.col.t) / FINE).floor() as i32, k))
+    }
+
+    /// A chip come to rest lies in the fine cell under it, on the chips already there (`held`); over one, it
+    /// rolls to a side cell lower down, as the loose blocks slide (ADR 0079), within its column.
+    fn pile(&mut self, held: &mut std::collections::HashSet<FineCell>) {
+        let (s, t, r) = (self.col.s, self.col.t, self.p.length());
+        let (body, frame) = (self.body, self.col.key());
+        let level = |held: &std::collections::HashSet<FineCell>, a: i32, b: i32| (0..8).find(|k| !held.contains(&(body, frame, IVec3::new(a, b, *k)))).unwrap_or(8);
+        let n = [(self.col.w[0] * r / FINE).floor() as i32, (self.col.w[1] * r / FINE).floor() as i32];
+        let inside = |a: i32, b: i32| (-n[0]..n[0]).contains(&a) && (-n[1]..n[1]).contains(&b);
+        // the cell under it, kept inside its column (a chip at rest a hair past the edge is over this floor)
+        let (mut a, mut b) = (((self.p.dot(s) / FINE).floor() as i32).clamp(-n[0], n[0] - 1), ((self.p.dot(t) / FINE).floor() as i32).clamp(-n[1], n[1] - 1));
+        let mut k = level(held, a, b);
+        for _ in 0..4 {
+            let first = (a + b + k).rem_euclid(4) as usize;
+            let lower = (0..4).map(|d| [(1, 0), (-1, 0), (0, 1), (0, -1)][(first + d) % 4]).map(|(da, db)| (a + da, b + db)).filter(|&(a, b)| inside(a, b)).map(|(a, b)| (a, b, level(held, a, b))).find(|c| c.2 < k);
+            let Some(c) = lower.filter(|_| k > 0) else { break };
+            (a, b, k) = c;
+        }
+        if k == 8 {
+            return; // shortcut: a pile a metre high takes no more; it lies where it fell
+        }
+        held.insert((body, frame, IVec3::new(a, b, k)));
+        // the move along s and t that puts the chip over the cell's middle: s and t need not be square
+        let (da, db, st) = ((a as f32 + 0.5) * FINE - self.p.dot(s), (b as f32 + 0.5) * FINE - self.p.dot(t), s.dot(t));
+        let (ss, tt) = (s.dot(s), t.dot(t));
+        let det = ss * tt - st * st;
+        let p = self.p + s * ((da * tt - db * st) / det) + t * ((db * ss - da * st) / det);
+        self.p = p.normalize() * (self.floor + FINE * (k as f32 + 0.5));
+        (self.size, self.spin, self.angle) = (FINE, 0.0, 0.0);
+    }
 }
 
 /// The cell events a frame that play an effect.
@@ -646,6 +714,7 @@ impl Fx {
         let remap = (0..set.rows.len() as u16).collect();
         Fx {
             on,
+            wind: Vec3::ZERO,
             pool: Vec::with_capacity(cap),
             out: Vec::with_capacity(cap + CRACKS),
             later: Vec::with_capacity(256),
@@ -667,6 +736,8 @@ impl Fx {
             rx: None,
             placed: false,
             shown: None,
+            held: Default::default(),
+            ended: false,
         }
     }
 
@@ -848,6 +919,10 @@ impl Fx {
     pub fn live(&self) -> usize {
         self.pool.len()
     }
+    /// Particles the pool holds at most, and the Particles setting's scale.
+    pub fn cap(&self) -> (usize, f32) {
+        (self.cap, self.scale)
+    }
 
     fn rnd(&mut self) -> f32 {
         let mut r = self.rng;
@@ -1027,6 +1102,27 @@ impl Fx {
         self.emit(world, dt);
         let rows = &self.set.rows;
         let clock = self.clock;
+        // the fine cells the lying chips hold, when a chip may come to lie this step (ADR 0078): one pass
+        let piling = |q: &P| rows[q.row as usize].ground == Ground::Pile;
+        let ended = std::mem::take(&mut self.ended);
+        let mut held = std::mem::take(&mut self.held);
+        held.clear();
+        if ended || self.pool.iter().any(|q| !q.rest && piling(q)) {
+            held.extend(self.pool.iter().filter(|q| q.rest && piling(q)).map(|q| q.fine()));
+        }
+        // a lying chip ended last step: a chip piled over a cell left empty falls again, and so on up (bottom
+        // first), so none hangs on nothing; only the chips `pile` put on the lattice (FINE) are piled
+        if ended {
+            let mut lying: Vec<(i32, usize)> = (0..self.pool.len()).filter(|&i| self.pool[i].rest && self.pool[i].size == FINE && piling(&self.pool[i])).map(|i| (self.pool[i].fine().2.z, i)).filter(|c| c.0 > 0).collect();
+            lying.sort_unstable();
+            for (_, i) in lying {
+                let f = self.pool[i].fine();
+                if !held.contains(&(f.0, f.1, f.2 - IVec3::Z)) {
+                    held.remove(&f);
+                    self.pool[i].rest = false;
+                }
+            }
+        }
         let mut i = 0;
         while i < self.pool.len() {
             let q = &mut self.pool[i];
@@ -1034,7 +1130,8 @@ impl Fx {
             q.age += dt;
             if !q.rest && q.age < q.life {
                 let up = q.p.normalize();
-                q.v += (up * (-g0 * r.gravity) - q.v * r.drag) * dt;
+                let air = if q.body == 0 { self.wind } else { Vec3::ZERO };
+                q.v += (up * (-g0 * r.gravity) + (air - q.v) * r.drag) * dt;
                 // (the rows before ADR 0050 push nothing: their motion stays exactly as it was)
                 if let Some(n) = &r.noise {
                     q.v += (q.push + noise_at(q.p, clock, n) * n.strength) * dt;
@@ -1072,12 +1169,15 @@ impl Fx {
                     q.p -= up * over;
                     match r.ground {
                         Ground::Stop => (q.v, q.rest) = (Vec3::ZERO, true),
-                        Ground::Bounce => {
+                        Ground::Bounce | Ground::Pile => {
                             // a third of the fall back up, half of the slide kept; slow, it lies down
                             q.v = (q.v - up * down) * 0.5 - up * down * 0.3;
                             q.spin *= 0.5;
                             if q.v.length() < 0.4 {
                                 (q.v, q.rest) = (Vec3::ZERO, true);
+                                if r.ground == Ground::Pile && q.col.w[0] > 0.0 {
+                                    q.pile(&mut held);
+                                }
                             }
                         }
                         _ => {
@@ -1093,6 +1193,7 @@ impl Fx {
                 }
             }
             if q.age >= q.life {
+                self.ended |= q.rest && r.ground == Ground::Pile;
                 self.pool.swap_remove(i);
                 continue;
             }
@@ -1146,6 +1247,7 @@ impl Fx {
             self.out.push(FxGpu { p: q.p.to_array(), size, info, angle, a, b });
             i += 1;
         }
+        self.held = held;
         while let Some((t, at)) = self.later.pop() {
             let tag = self.tag();
             self.burst(t, &at, tag);
@@ -1209,6 +1311,12 @@ impl Fx {
         self.cracks += 1;
         let (a, code) = cell_code(b);
         self.out.push(FxGpu { p: [0.0; 3], size: 1.0, info: world.block(b) as u32 | (b.body as u32) << 8 | (Look::Crack as u32) << 10, angle: k.clamp(0.0, 1.0), a, b: code });
+    }
+
+    /// Debris no step moves, drawn after this step's particles until the next step: the piles on the ground
+    /// (ADR 0074).
+    pub fn lay(&mut self, still: impl IntoIterator<Item = FxGpu>) {
+        self.out.extend(still);
     }
 
     /// The particles for the GPU as the last step left them, in a buffer kept from frame to frame.
@@ -1411,7 +1519,7 @@ mod tests {
             let first: Vec<FxGpu> = fx.drawn().to_vec();
             let mut lowest = f32::MAX;
             let mut rest = 0;
-            for k in 0..200 {
+            for k in 0..260 {
                 fx.step(&w, 1.0 / 60.0);
                 if k == 90 {
                     rest = fx.pool.iter().filter(|p| p.rest).count();
@@ -1441,6 +1549,69 @@ mod tests {
             for b in fx.resting(&w) {
                 assert!(!BLOCKS.solid(w.block(b)), "seed {seed}: at rest inside a block at {b:?}");
             }
+        }
+    }
+
+    /// A dug block's chips lie on the fine lattice (ADR 0078): each in a cell of 12.5 cm over the floor, none
+    /// in another's cell, piled up where they fall together.
+    #[test]
+    fn chips_pile_on_the_fine_lattice() {
+        let mut w = world();
+        let c = surface(&w);
+        w.set_block(c, AIR);
+        let at = At::cell(&w, c, BLOCKS.id("stone"));
+        let mut fx = Fx::new(true, 4096, 1.0, 5);
+        for _ in 0..4 {
+            fx.play(id("break"), &at);
+        }
+        for _ in 0..100 {
+            fx.step(&w, 1.0 / 60.0);
+        }
+        let lying: Vec<&P> = fx.pool.iter().filter(|p| p.rest).collect();
+        assert!(lying.len() >= 36, "{} of 48 lie", lying.len());
+        for p in &lying {
+            let over = (p.p.length() - p.floor) / FINE;
+            assert!((over - over.floor() - 0.5).abs() < 0.01, "a chip {over} cells over its floor: not in a cell");
+        }
+        for (k, a) in lying.iter().enumerate() {
+            for b in &lying[k + 1..] {
+                assert!(a.p.distance(b.p) > 0.1, "two chips in one cell: {} apart", a.p.distance(b.p));
+            }
+        }
+        assert!(lying.iter().any(|p| p.p.length() - p.floor > FINE), "nothing piled on another");
+    }
+
+    /// A chip whose support fades first (lives differ) falls on to what is under it: none hangs in the air.
+    #[test]
+    fn a_piled_chip_falls_when_the_one_under_it_is_gone() {
+        let mut w = world();
+        let c = surface(&w);
+        w.set_block(c, AIR);
+        let at = At::cell(&w, c, BLOCKS.id("stone"));
+        let mut fx = Fx::new(true, 4096, 1.0, 5);
+        for _ in 0..4 {
+            fx.play(id("break"), &at);
+        }
+        for _ in 0..100 {
+            fx.step(&w, 1.0 / 60.0);
+        }
+        assert!(fx.pool.iter().any(|p| p.rest && p.fine().2.z > 0), "a pile to test");
+        // the bottom layer goes
+        let mut kept = 0;
+        for p in fx.pool.iter_mut().filter(|p| p.rest) {
+            if p.fine().2.z == 0 {
+                p.age = p.life;
+            } else {
+                kept += 1;
+            }
+        }
+        for _ in 0..40 {
+            fx.step(&w, 1.0 / 60.0);
+        }
+        let lying: Vec<FineCell> = fx.pool.iter().filter(|p| p.rest).map(|p| p.fine()).collect();
+        assert!(lying.len() >= kept, "the chips that fell came to lie again: {} of {kept}", lying.len());
+        for f in &lying {
+            assert!(f.2.z == 0 || lying.contains(&(f.0, f.1, f.2 - IVec3::Z)), "a chip hangs {} cells over its floor on nothing", f.2.z);
         }
     }
 
@@ -1562,8 +1733,10 @@ mod tests {
                     if r < bottom + 0.5 {
                         fell += 1;
                     }
+                    // under its floor (a chip piled on another lies over it: ADR 0078; none hangs, its own test)
                     if p.rest {
-                        let under = w.block_at(w.bodies[0].centre + (p.p * ((r - p.size * 0.5 - 0.05) / r)).as_dvec3());
+                        assert!(r - p.floor < 1.0, "seed {seed}: debris at rest {} over its floor", r - p.floor);
+                        let under = w.block_at(w.bodies[0].centre + (p.p * ((p.floor - 0.05) / r)).as_dvec3());
                         assert!(BLOCKS.solid(w.block(Block { body: 0, ..under })), "seed {seed}: debris at rest in the air, {r} against the pit's bottom {bottom}");
                     }
                 }
@@ -1708,7 +1881,8 @@ mod tests {
             got.push((name, h));
         }
         println!("{got:?}");
-        let want: [u64; 6] = [16124491450335446172, 12728753821768735219, 10756546070781930058, 5885070126393282328, 9628921545010191082, 7602677355907020114];
+        // break's chips pile since ADR 0078
+        let want: [u64; 6] = [17591566305369780750, 12728753821768735219, 10756546070781930058, 5885070126393282328, 9628921545010191082, 7602677355907020114];
         assert_eq!(got.iter().map(|g| g.1).collect::<Vec<_>>(), want);
     }
 
