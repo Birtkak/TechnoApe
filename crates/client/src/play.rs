@@ -163,14 +163,12 @@ impl App {
             "waypoint" => {
                 let (w, at) = (&self.world, self.me.pos);
                 let body = w.frame_at(at);
-                if !self.creative {
-                    self.note("waypoints come with the compass, which is still to be made: /playmode creative has them".into());
-                } else if body == engine::world::INERTIAL {
+                if body == engine::world::INERTIAL {
                     self.note("no waypoints out in space yet: stand on a body".into());
                 } else {
                     let rel = at - w.bodies[body].centre;
                     let name = nav::next_name(&self.waypoints);
-                    let line = format!("{name} at {} on {}", nav::geo_text(nav::geo(rel, self.meridian(body))), w.bodies[body].name);
+                    let line = self.waypoint_line(&name, rel, body);
                     self.waypoints.push(nav::Waypoint::new(name, body, rel, self.waypoints.len()));
                     self.note(line);
                     self.save_waypoints();
@@ -1159,12 +1157,12 @@ impl App {
         if !title {
             hud::chat(&mut paint, &lines, self.typing.as_deref(), caret, at, &hints, self.pick);
         }
-        // the compass and the waypoints (docs/design/navigation.md): creative's for now; in survival they are
-        // earned with the first tool that gives them (the developer, 2026-11-11), which does not exist yet
+        // the compass and the waypoints (docs/design/navigation.md): in both modes; where you are in numbers
+        // only in creative (ADR 0077)
         let mut label_y = 10.0;
         let (eye, fwd) = (p.pos, p.fwd);
         let on = self.world.frame_at(eye);
-        if self.creative && !title && self.menu.is_none() && !self.f3 {
+        if !title && self.menu.is_none() && !self.f3 {
             // each waypoint where it is now in the camera's frame (it may be on another body, or this one in
             // space), and its up there; those its view lets show from here, unless the marks are switched off
             let wd = &self.world;
@@ -1185,7 +1183,7 @@ impl App {
                 let up = rel.normalize();
                 let marks: Vec<(f64, [f32; 3], usize)> = here.iter().map(|(p, at, _)| (nav::bearing(up, *at - eye), colour(p), p.icon)).collect();
                 let heading = nav::bearing(up, fwd);
-                let text = format!("{}  {}  {:.0} m up", b.name, nav::geo_text(nav::geo(rel, self.meridian(on))), rel.length() - b.radius);
+                let text = if self.creative { format!("{}  {}  {:.0} m up", b.name, nav::geo_text(nav::geo(rel, self.meridian(on))), rel.length() - b.radius) } else { b.name.clone() };
                 label_y = hud::compass(&mut paint, heading, &marks, &text) + 10.0;
             }
             // this frame's view, as `frame` makes it after this: from the camera, the up kept off the look

@@ -19,7 +19,12 @@
 - The server now sends the player list once a second as well as on joins and leaves, so the others' positions are current.
 
 ## Calls for the developer to confirm
-- Creative sees the whole planet, survival only what it has seen. Waypoints on the globe stay creative-only, like N and the compass.
+- **Decided (the developer, 2026-11-13):** creative sees the whole planet, survival only what it has seen, and
+  survival has waypoints on the globe too: a click drops one, opens one, a right click takes one away.
+  Recorded with it (defaults, open to change): N and the compass strip follow, so the same waypoints are in
+  every place in both modes; where you are in numbers stays creative's (the compass strip names only the body,
+  the chat's line for a new waypoint has no latitude and longitude, the globe shows none under the pointer), and
+  survival can drop a waypoint on the globe only on land it has charted.
 - Other players show everywhere on the globe (the design's open question: do friends see each other's maps).
 - Seen-mask is client-side beside the save, like waypoints. The client already holds the whole bake to build terrain,
   so this hides nothing it doesn't already have. None for a remote server without a save.
@@ -27,6 +32,9 @@
 
 ## Evidence
 - `cargo test -p client --lib globe`: 9 tests (projection round trip, drag, seen cap vs. the texel-by-texel reference, file, layout).
+- Survival's waypoints, red then green: a survival `run=play acts="4:waypoint"` left no `<save>.waypoints` before,
+  and writes one after; `shots/survival-night-waypoint.png` is the survival globe at midnight, the charted patch,
+  the waypoint, nothing under the pointer.
 - Filmstrips: `prototypes/globe-map/shots/` (sunset terminator through the player, midnight, waypoints, 5x zoom, Luna).
 
 ## Review (fresh subagent, principle 12)
