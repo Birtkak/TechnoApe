@@ -677,7 +677,8 @@ impl App {
         let pull = |d: DVec3, a: f64| [d.x as f32, d.y as f32, d.z as f32, (1.5 * a * per_m) as f32];
         let mut g = Globals {
             tide: [pull(tide.luna, engine::sky::TIDE_LUNA), pull(tide.sun, engine::sky::TIDE_SUN)],
-            water: [(self.world.time.rem_euclid(3600.0)) as f32, fog, deep_light, 0.0],
+            // a shot's ripples stand still: it is taken after as many frames as the PC draws, the clock in wall time
+            water: [if self.shot.is_some() { 0.0 } else { self.world.time.rem_euclid(3600.0) as f32 }, fog, deep_light, 0.0],
             view_proj: vp.to_cols_array_2d(),
             sun: [sun.x, sun.y, sun.z, clock],
             bodies: bytemuck::Zeroable::zeroed(),

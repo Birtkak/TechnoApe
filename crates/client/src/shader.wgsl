@@ -1181,7 +1181,7 @@ fn ripple(p: vec2f, t: f32) -> f32 {
 // what a reflected ray from p sees, lit without rays of its own (the water's pass is the dearest near water,
 // and a shadow in a ripple's reflection is not missed): the terrain it hits in the sun as the water has it
 // (`day`) and the light from around, else the sky. `seen` traces the hit's light (a metal's mirror).
-fn seen_lit(p: vec3f, d: vec3f, body: u32, day: f32, tmax: f32) -> vec3f {
+fn seen_lit(p: vec3f, d: vec3f, body: u32, day: f32, sun: f32, tmax: f32) -> vec3f {
     let bb = g.bodies[body];
     let h = trace(to_body(bb, p), d * mat3x3f(bb.rot0.xyz, bb.rot1.xyz, bb.rot2.xyz), body, tmax, 0u);
     if (h.kind == RAY_QUERY_INTERSECTION_NONE) { return sky_colour(d); }
@@ -1193,11 +1193,13 @@ fn seen_lit(p: vec3f, d: vec3f, body: u32, day: f32, tmax: f32) -> vec3f {
     let hp = p + d * h.t;
     let up = normalize(hp - bb.ctr.xyz);
     let sd = normalize(g.sun_pos.xyz - hp);
-    // a face's normal from its axis, as  has it; a top's is the up
+    // a face's normal from its axis, as `seen` has it; a top's is the up, a bottom's down
     let dir = (q.x >> 28u) & 7u;
     var hn = up;
+    if (dir == 5u) { hn = -up; }
     if (dir / 2u != 2u) { hn = normalize(-d - up * dot(-d, up)); }
-    return seen_colour(m, season(b, hp)) * (sun_on(body) * max(dot(hn, sd), 0.0) * day + ambient(day));
+    // no shadow ray there: the water's own sun stands in, so a pool under a roof mirrors it unlit
+    return seen_colour(m, season(b, hp)) * (sun_on(body) * max(dot(hn, sd), 0.0) * sun * day + ambient(day));
 }
 
 // the moon's body where a reflected ray from p along d meets its sphere: lit by its phase
@@ -1273,7 +1275,7 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
         // only where it shows: looking down the water mirrors 2 to 8 %, and there the sky's colour does (the
         // ray was half the pass's cost on a lake); faded in from there and into the sky's over the last fifth
         // of its reach, so no line shows where the tracing starts or ends
-        let traced = seen_lit(ray_origin(i.rel, n0), r, i.body, l.day, WATER_REACH);
+        let traced = seen_lit(ray_origin(i.rel, n0), r, i.body, l.day, l.sun, WATER_REACH);
         refl = mix(traced, refl, max(smoothstep(0.8 * WATER_MIRROR, WATER_MIRROR, dist), 1.0 - smoothstep(0.08, 0.16, fres)));
     }
     refl += luna_in(i.rel, r, i.body);
@@ -1290,10 +1292,10 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     } else if (mode == 0u) {
         let m = mat3x3f(b.rot0.xyz, b.rot1.xyz, b.rot2.xyz);
         let h = trace(to_body(b, i.rel - v * 0.01), -v * m, i.body, WATER_SEE, 0u);
-        len = select(60.0, h.t + 0.01, h.kind != RAY_QUERY_INTERSECTION_NONE);
+        len = select(WATER_SEE, h.t + 0.01, h.kind != RAY_QUERY_INTERSECTION_NONE);
         // far off the coarse terrain meets the ray at the surface (shelves from 400 m showed as dry grey rock):
         // there, where the ripples have calmed too, at least the simple mode's guessed 3 m
-        len = mix(len, max(len, 3.0 / cos0), smoothstep(0.15, 0.5, foot));
+        len = mix(len, max(len, 3.0 / cos0), smoothstep(150.0, 300.0, dist));
         // the shore: surf where the water is thinnest over what the view meets (its depth there is the way
         // through times the cosine), in a band that laps in and out, broken into texels: dense where it is
         // thinnest, a few flecks over half a metre. (Four short rays across the surface to the banks were
