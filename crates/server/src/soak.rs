@@ -265,7 +265,8 @@ fn check(s: &Server) -> Result<(), String> {
         }
         if c.input.is_some() {
             // (sand and gravel fall on players and bury them: ADR 0079)
-            let loose = |b| BLOCKS.get(s.world.block(b)).is_some_and(|d| !d.solid || d.falls);
+            // (only sand that came there by an edit, a fall: generated dunes still count as blocks)
+            let loose = |b| s.world.edit(b).map_or(!BLOCKS.solid(s.world.block(b)), |m| !BLOCKS.solid(m) || BLOCKS.get(m).is_some_and(|d| d.falls));
             if phys::inside(&s.world, p) && !phys::cells(&s.world, p.pos).all(loose) {
                 return Err(format!("player {id} inside a block at {:?}", p.pos.to_array()));
             }

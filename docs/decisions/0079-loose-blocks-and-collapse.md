@@ -99,6 +99,16 @@ cells' half).
   `vitals::buried_the_breath_lasts_then_a_point_a_second_and_air_starts_it_again`.
 - The soak's "no player inside a block" now passes a player inside sand or gravel only (bots are buried
   where they dig under heaps).
+- **Review** (a fresh reviewer read the diff):
+  - *A buried player could not dig out:* `edit::aim` never aimed at the cell the eye is in, and a box in a
+    block cannot move. Now an eye inside a block aims at that block, whichever way it looks; test
+    `an_eye_inside_a_block_aims_at_that_block`, seen red.
+  - *A respawn kept the old count* (sand on the spawn choked at once): a respawn starts the breath again.
+  - *The soak's exemption let a bot inside generated sand pass:* only sand or gravel that came by an edit
+    is passed.
+  - *Answered, not changed:* the count is not saved or hashed, so a rejoin gives a fresh breath (cheap, and
+    replays from the start agree); a buried player stays where the sand caught them, even mid-jump, the same
+    on the client (the same edits, the same `blocked`).
 - Defaults taken, for the developer to change: 10 s of breath and a point a second; any solid block at the
   eye counts, not only loose ones; the HUD shows no breath bar yet (a follow-up).
 

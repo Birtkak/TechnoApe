@@ -757,6 +757,7 @@ impl Server {
                             let p = self.spawn();
                             self.put(i, p, DVec3::X);
                             self.clients[i].vitals = Vitals::default();
+                            self.clients[i].buried = 0;
                         }
                     }
                     Recv::Msg(ToServer::Dig(at)) => self.dig(i, at),
