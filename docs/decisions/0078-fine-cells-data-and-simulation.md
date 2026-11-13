@@ -38,6 +38,13 @@ spike: `prototypes/fine-cells/`.
   fxedit="0.5:2:0:-1:air,0.6:2:1:-1:air,0.7:2:-1:-1:air,0.8:3:0:-1:air,0.9:3:1:-1:air,1.0:3:-1:-1:air"
   capture_ms=1500 capture_w=960 sheet=out/chips2.png`), read: the dug dirt and grass lie in a heap of
   12.5 cm chips at the bottom of the hole for some seconds, then fade.
+  After the review's fixes the same run (`sheet=out/chips3.png`), read: the chips fly, lie on the hole's
+  floor, and none is left hanging as the lower ones end.
+- **The gate** (`check.sh fast` on d38636e0, main merged): tests, the soak (122 heaps, 107,916 moves) and its
+  replay (hash 1f0f6f7c994497cb, 60 checks) pass; the views pass alone (seam 0.002%, lod 0.026%; seam's
+  3.1% in the gate was a faint shift, no pixel over 16 levels, while other sessions compiled). The speed
+  guard was not held on a quiet PC (sim tick p99 146 ms against 2.4 from compiles beside it); slice (b)
+  costs the server nothing.
 - Cost: the frame thread's `fx` stage; one extra pass over the pool in a step where a chip of a pile row is
   still flying (the pool holds 1,024 to 16,384), a few hash lookups a chip that lies.
 
