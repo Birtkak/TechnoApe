@@ -72,6 +72,8 @@ settings! {
     UiScale "interface_scale" "Interface scale" Kind::Steps { list: &[0.75, 1.0, 1.25, 1.5, 2.0], lo: 0.5, hi: 3.0 }, 1.0;
     Contrast "high_contrast" "High contrast interface" Kind::Choice(OFF_ON), 0.0;
     Marks "waypoints_shown" "Waypoints shown" Kind::Choice(OFF_ON), 1.0;
+    // the aimed-at outline's rainbow wave (ADR 0073); still holds its colours where they are
+    Outline "outline_colours" "Outline colours" Kind::Choice(&["moving", "still"]), 0.0;
     Volume "volume" "Master volume" VOLUME, 100.0;
     VolWorld "volume_world" "World" VOLUME, 100.0;
     VolSteps "volume_footsteps" "Footsteps" VOLUME, 100.0;
@@ -239,7 +241,7 @@ pub fn page_rows(page: usize) -> Vec<Row> {
         2 => vec![Set(S::Sensitivity), Set(S::ZoomSens), Set(S::InvertY), Set(S::ZoomMode), Set(S::AutoJump), Set(S::FlyTap)],
         3 => Settings::default().key_rows(""),
         4 => vec![Set(S::Volume), Set(S::VolWorld), Set(S::VolSteps), Set(S::VolUi), Set(S::VolMusic), Set(S::MuteBack), Set(S::SpaceSound)],
-        _ => vec![Set(S::UiScale), Set(S::Contrast), Set(S::Marks), Set(S::ZoomMode), Set(S::AutoJump), Set(S::Textures), Set(S::Brightness)],
+        _ => vec![Set(S::UiScale), Set(S::Contrast), Set(S::Marks), Set(S::Outline), Set(S::ZoomMode), Set(S::AutoJump), Set(S::Textures), Set(S::Brightness)],
     }
 }
 
