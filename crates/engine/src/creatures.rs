@@ -183,6 +183,11 @@ pub fn parse(file: &str, text: &str, model: &dyn Fn(&str) -> Option<Model>, soun
     Ok(f.creature)
 }
 
+/// The rows unchecked against models and sounds (the server, which loads neither: ADR 0083).
+pub fn rows(text: &str) -> Result<Vec<Creature>, String> {
+    Ok(toml::from_str::<File>(text).map_err(|e| format!("data/creatures.toml: {e}"))?.creature)
+}
+
 /// The file's text of these rows (parse it again to check it).
 pub fn write(rows: &[Creature]) -> String {
     let text = toml::to_string(&File { creature: rows.to_vec() }).expect("creatures always serialise");

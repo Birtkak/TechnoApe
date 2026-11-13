@@ -43,6 +43,8 @@ pub enum Ev {
     Msg { tick: u64, id: u32, m: ToServer },
     Leave { tick: u64, id: u32 },
     Check { tick: u64, hash: u64 },
+    /// Right after `Loaded`: the herds kept beside the save (ADR 0083, `Herds::to_bytes`).
+    Herds(Vec<u8>),
 }
 
 pub type ServerLink = Link<ToClient, ToServer>;
@@ -160,6 +162,8 @@ struct Client {
     sent: Option<((u8, u8), bool)>,
     /// The survival dig it holds (ADR 0034), on the server's clock.
     hold: edit::Hold,
+    /// The animals as this client was last told of them (ADR 0083).
+    animals: FxMap<u32, engine::net::Animal>,
 }
 
 /// Allowance on a survival dig's time for the network: the `Dig` and its `Edit` travel the same way, so most
@@ -219,6 +223,10 @@ pub struct Server {
     air0: i128,
     /// Each ore body's blocks as generated: the ledger's opening (`ore_ledger`).
     pub ore_open: Vec<i64>,
+    /// The animals (ADR 0083): what the seed makes near players and the kept delta of met sites.
+    pub herds: engine::herds::Herds,
+    /// The herds read beside a save (`read_herds`), until the recorder has logged them.
+    herds_loaded: Option<Vec<u8>>,
     /// Loose blocks awake to fall or slide (ADR 0079).
     pub falls: engine::fall::Falls,
     /// The air as clients have been sent it (ADR 0076), the view's hash it was made from (None: make it
@@ -288,6 +296,8 @@ impl Server {
             tick_ms: None,
             map_pieces: HashMap::new(),
             ore_open,
+            herds: engine::herds::compiled(seed),
+            herds_loaded: None,
             falls: Default::default(),
             sky: Vec::new(),
             sky_at: None,
@@ -298,6 +308,23 @@ impl Server {
             taken: BTreeMap::new(),
             taken_changed: Vec::new(),
         }
+    }
+
+    /// The herds kept beside save `save` (`<save>.herds`, ADR 0083): none there is a world where no herd was
+    /// met. A file this build cannot read is refused on stderr and the herds start from the seed.
+    pub fn read_herds(&mut self, save: &Path) {
+        let Ok(b) = std::fs::read(save.with_extension("herds")) else { return };
+        match self.herds.load(&b) {
+            Ok(()) => self.herds_loaded = Some(b),
+            Err(e) => eprintln!("[technoape-server] {}: {e}", save.with_extension("herds").display()),
+        }
+    }
+
+    /// Writes the herds beside the save at `path`, through a temporary file.
+    fn write_herds(bytes: &[u8], path: &Path) -> std::io::Result<()> {
+        let (to, tmp) = (path.with_extension("herds"), path.with_extension("herds.tmp"));
+        std::fs::write(&tmp, bytes)?;
+        std::fs::rename(&tmp, to)
     }
 
     /// A server that carries on from `save` (its seed and planet win over any given elsewhere).
@@ -486,6 +513,7 @@ impl Server {
         for p in self.absent.values() {
             h = fnv(h, &postcard::to_allocvec(p).unwrap());
         }
+        h = fnv(h, &self.herds.to_bytes());
         h = fnv(h, &postcard::to_allocvec(&self.piles).unwrap());
         for c in &self.clients {
             let p = &c.phys;
@@ -539,7 +567,7 @@ impl Server {
             let _ = h.join();
         }
         if let Some((path, _)) = &self.autosave {
-            match self.snapshot().write(path) {
+            match self.snapshot().write(path).and_then(|_| Server::write_herds(&self.herds.to_bytes(), path)) {
                 Ok(()) => eprintln!("[technoape-server] saved to {}", path.display()),
                 Err(e) => eprintln!("[technoape-server] save failed: {e}"),
             }
@@ -564,6 +592,9 @@ impl Server {
             if let Some(save) = self.loaded.take() {
                 self.log(Ev::Loaded(save));
             }
+            if let Some(b) = self.herds_loaded.take() {
+                self.log(Ev::Herds(b));
+            }
         }
         // the player list changed this tick (a join, a name, a leave): it is sent only then
         let mut roster = false;
@@ -574,6 +605,7 @@ impl Server {
             self.log(Ev::Join { tick: self.tick, id });
             let [p, m] = [self.world.bodies[0].n, self.world.bodies[1].n];
             link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m, blocks: BLOCKS.hash, items: ITEMS.hash, map: self.map_hash(), luna: self.luna_hash() });
+            link.send(ToClient::Kinds(self.herds.kinds.iter().map(|k| k.name.clone()).collect()));
             let all: Vec<(Block, u16)> = self
                 .world
                 .edits
@@ -613,6 +645,7 @@ impl Server {
                 was: DVec3::ZERO,
                 sent: None,
                 hold: edit::Hold::default(),
+                animals: FxMap::default(),
             });
         }
         let mut changed: Vec<(Block, u16)> = Vec::new();
@@ -811,6 +844,11 @@ impl Server {
             let held: std::collections::HashSet<Block> = self.clients.iter().flat_map(|c| phys::cells(&self.world, c.phys.pos)).collect();
             self.falls.step(&mut self.world, self.tick, |_, b| held.contains(&b), &mut changed);
         }
+        // the animals (ADR 0083): woken by the players on Terra, stepped as far as the players were
+        let players: Vec<(DVec3, DVec3)> = self.clients.iter().filter(|c| self.world.frame_at(c.phys.pos) == 0).map(|c| (c.phys.pos, c.phys.vel)).collect();
+        let t = self.herds.clock;
+        self.herds.tick(&self.world, &players, t, steps as f64 * phys::DT);
+        self.send_animals(t);
         // water finds the new gaps of every column an edit changed, then flows: as many steps as the physics
         // took, fewer when that would spend more than WATER_BUDGET
         let mut cols: Vec<Block> = changed.iter().map(|(b, _)| Block { pos: glam::IVec3::new(b.pos.x, b.pos.y, 0), ..*b }).collect();
@@ -889,12 +927,12 @@ impl Server {
         if let Some((path, every)) = &self.autosave {
             if self.tick % every == 0 {
                 // the snapshot is taken here, between ticks; serialising and writing are a thread's
-                let (s, path) = (self.snapshot(), path.clone());
+                let (s, path, herds) = (self.snapshot(), path.clone(), self.herds.to_bytes());
                 if let Some(h) = self.saving.take() {
                     let _ = h.join();
                 }
                 self.saving = Some(std::thread::spawn(move || {
-                    if let Err(e) = s.write(&path) {
+                    if let Err(e) = s.write(&path).and_then(|_| Server::write_herds(&herds, &path)) {
                         eprintln!("[technoape-server] save failed: {e}");
                     }
                 }));
@@ -909,6 +947,36 @@ impl Server {
             if let Err(e) = self.rec.as_mut().unwrap().flush() {
                 eprintln!("[technoape-server] recording stopped: {e}");
                 self.rec = None;
+            }
+        }
+    }
+
+    /// Each client's animal deltas (ADR 0083): those within `SEE` new to it, moved over 2 cm or doing
+    /// something else, and the ids it no longer sees.
+    fn send_animals(&mut self, age: u64) {
+        let herds = &self.herds;
+        let world = &self.world;
+        for c in &mut self.clients {
+            let me = c.phys.pos;
+            let on = world.frame_at(me) == 0;
+            let mut seen = Vec::new();
+            let mut here: std::collections::HashSet<u32> = Default::default();
+            for a in herds.awake_animals(age).filter(|a| on && (a.p.pos - me).length() < engine::net::SEE) {
+                here.insert(a.id);
+                let v = engine::net::Animal { id: a.id, kind: a.kind, pos: a.p.pos.to_array(), fwd: a.p.fwd.as_vec3().to_array(), act: a.mind as u8, call: a.call };
+                let old = c.animals.get(&a.id);
+                if old.is_none_or(|o| o.act != v.act || o.call != v.call || (DVec3::from_array(o.pos) - a.p.pos).length() > 0.02) {
+                    c.animals.insert(a.id, v);
+                    seen.push(v);
+                }
+            }
+            let mut gone: Vec<u32> = c.animals.keys().copied().filter(|id| !here.contains(id)).collect();
+            gone.sort_unstable();
+            for id in &gone {
+                c.animals.remove(id);
+            }
+            if !seen.is_empty() || !gone.is_empty() {
+                c.link.send(ToClient::Animals { seen, gone });
             }
         }
     }
@@ -1199,6 +1267,24 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                 self.world.set_block(b, d.id);
                 changed.push((b, d.id));
                 format!("placed {} at face {} {} {}, layer {}", d.name, b.face, b.pos.x, b.pos.y, b.pos.z)
+            }
+            Some("spawn") => {
+                // a real animal three metres ahead (ADR 0083); the client keeps `/spawn <creature>` as its preview
+                let names = self.herds.kinds.iter().map(|k| k.name.as_str()).collect::<Vec<_>>().join(", ");
+                let (Some(name), Some("live"), 3) = (w.get(1), w.get(2).copied(), w.len()) else {
+                    return format!("usage: /spawn <creature> live   a real one three metres ahead. There are: {names}");
+                };
+                let c = &self.clients[i];
+                if self.world.frame_at(c.phys.pos) != 0 {
+                    return "animals live on Terra: /spawn works there".into();
+                }
+                let at = c.phys.pos + c.phys.fwd * 3.0 - self.world.bodies[0].centre;
+                let (fwd, age) = (-c.phys.fwd, self.herds.clock);
+                match self.herds.add(&self.world, name, at.normalize(), fwd, age) {
+                    Some(id) => format!("a {name} (animal {id}) stands three metres ahead"),
+                    None if self.herds.kinds.iter().any(|k| k.name == *name) => "no ground to stand on there (water)".into(),
+                    None => format!("no creature '{name}'. There are: {names}"),
+                }
             }
             Some("structure") => {
                 // A structure file (the Studio's, ADR 0052) stood near the player, to see it in the world: its
@@ -1797,7 +1883,16 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
         // (a recording carries no version of its own; one that starts from an older save is from before
         // 1 m blocks, ADR 0033. shortcut: one that starts from the seed alone is not told apart)
         Some(Ev::Loaded(save)) if save.version < 4 => return Err(std::io::Error::other("a recording of an older world (0.5 m blocks, ADR 0033)")),
-        Some(Ev::Loaded(save)) => (Server::from_save(save.clone(), rx), &evs[2..]),
+        Some(Ev::Loaded(save)) => {
+            let mut s = Server::from_save(save.clone(), rx);
+            match evs.get(2) {
+                Some(Ev::Herds(b)) => {
+                    s.herds.load(b).map_err(std::io::Error::other)?;
+                    (s, &evs[3..])
+                }
+                _ => (s, &evs[2..]),
+            }
+        }
         // shortcut: Start names Terra's map alone, so Luna is this build's bake whenever Terra is baked; a
         // recording made before W6 or with another Luna version replays with other ground there (ADR 0070)
         _ => (Server::on_map(*planet_n, *moon_n, *seed, *map, map.map(|_| engine::bake::luna::get(*seed, *moon_n).hash), rx), &evs[1..]),
@@ -1817,7 +1912,7 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
     for ev in rest {
         let t = match ev {
             Ev::Join { tick, .. } | Ev::Msg { tick, .. } | Ev::Leave { tick, .. } | Ev::Check { tick, .. } => *tick,
-            Ev::Start { .. } | Ev::Loaded(_) => return Err(std::io::Error::other("a Start or Loaded past the start")),
+            Ev::Start { .. } | Ev::Loaded(_) | Ev::Herds(_) => return Err(std::io::Error::other("a Start, Loaded or Herds past the start")),
         };
         run_to(&mut r.server, &links, t);
         if r.server.tick >= until {
@@ -1845,7 +1940,7 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
                     break;
                 }
             }
-            Ev::Start { .. } | Ev::Loaded(_) => unreachable!(),
+            Ev::Start { .. } | Ev::Loaded(_) | Ev::Herds(_) => unreachable!(),
         }
     }
     if until != u64::MAX && r.diverged.is_none() {
@@ -1995,6 +2090,64 @@ mod tests {
 
     /// A spot on dry land away from the spawn (out of a new player's reach), 2 m over the middle of a column,
     /// and the air cell on the ground under it (placing fills air only).
+    /// Animals (ADR 0083): a real one spawned by command reaches the player near it as a delta, goes when the
+    /// player leaves, is kept beside the save, and a recording from that save replays with it.
+    #[test]
+    fn animals_reach_the_player_near_them_and_keep_beside_the_save() {
+        let (mut s, links) = server_with(1);
+        let (pole, _) = on_land(&s);
+        links[0].send(ToServer::Hello { name: "a".into() });
+        links[0].send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        links[0].send(ToServer::Chat("/spawn deer live".into()));
+        links[0].send(ToServer::Chat("/spawn unicorn live".into()));
+        for _ in 0..10 {
+            s.tick();
+        }
+        let got = drain(&links[0]);
+        let said: Vec<&String> = got.iter().filter_map(|m| if let ToClient::Chat(t) = m { Some(t) } else { None }).collect();
+        assert!(said.iter().any(|t| t.starts_with("a deer")) && said.iter().any(|t| t.contains("no creature 'unicorn'")), "{said:?}");
+        let kinds = got.iter().find_map(|m| if let ToClient::Kinds(k) = m { Some(k.clone()) } else { None }).expect("kinds on join");
+        let seen: Vec<engine::net::Animal> = got.iter().filter_map(|m| if let ToClient::Animals { seen, .. } = m { Some(seen.clone()) } else { None }).flatten().collect();
+        let deer = seen.iter().find(|a| kinds[a.kind as usize] == "deer" && (DVec3::from_array(a.pos) - pole).length() < 6.0).expect("the spawned deer is seen");
+        // only deltas: a standing deer is not sent again every tick
+        assert!(seen.iter().filter(|a| a.id == deer.id).count() < 10);
+        // under /timewarp the herds' clock still counts ticks: their looks ahead and minds keep their pace
+        let c0 = s.herds.clock;
+        links[0].send(ToServer::Chat("/timewarp 100".into()));
+        s.tick();
+        s.tick();
+        assert_eq!(s.herds.clock, c0 + 2);
+        let far = s.world.bodies[0].centre - (pole - s.world.bodies[0].centre);
+        links[0].send(ToServer::Move { pos: far.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        s.tick();
+        s.tick();
+        assert!(drain(&links[0]).iter().any(|m| matches!(m, ToClient::Animals { gone, .. } if gone.contains(&deer.id))));
+        // kept beside the save, and replayed from it
+        let dir = std::env::temp_dir().join(format!("technoape-herds-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("w.sav");
+        s.autosave = Some((path.clone(), u64::MAX));
+        s.save_now();
+        let (tx, rx) = channel();
+        let mut back = Server::from_save(Save::read(&path).unwrap(), rx);
+        back.read_herds(&path);
+        assert_eq!(back.herds.to_bytes(), s.herds.to_bytes());
+        assert!(back.herds.all().any(|a| a.id == deer.id));
+        let rec = dir.join("w.rec");
+        back.record(&rec).unwrap();
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
+        c.send(ToServer::Hello { name: "a".into() });
+        for _ in 0..60 {
+            back.tick();
+            drain(&c);
+        }
+        let r = replay(&rec, Some(60)).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!((r.diverged, r.checks), (None, 2));
+        assert_eq!(r.server.herds.to_bytes(), back.herds.to_bytes());
+    }
+
     fn on_land(s: &Server) -> (DVec3, Block) {
         let b = &s.world.bodies[0];
         let sea = b.layer_r(b.sea.unwrap());

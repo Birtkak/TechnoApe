@@ -1,0 +1,157 @@
+# A draft deer (Claude's, listed in data/drafts.txt): a quadruped grazer for data/creatures.toml and
+# data/herds.toml (ADR 0083), facing +z. Its walk is made from its row. Format: docs/design/studio-tools.md "Models".
+colours = ["dirt dark", "dirt", "dirt light", "autumn rust", "stone dark"]
+
+[[part]]
+name = "body"
+parent = ""
+at = [2, 5, 0]
+pivot = [2, 1.5, 4]
+box = [4, 3, 8]
+voxels = """
+cccc
+cccc
+cccc
+cccc
+cccc
+cccc
+cccc
+cccc
+
+cccc
+dddd
+dddd
+dddd
+dddd
+dddd
+dddd
+dddd
+
+bddb
+dddd
+dddd
+dddd
+dddd
+dddd
+dddd
+dddd
+"""
+
+[[part]]
+name = "neck"
+parent = "body"
+at = [1, 2, 6]
+pivot = [1, 0, 1]
+box = [2, 3, 2]
+voxels = """
+dd
+dd
+
+dd
+dd
+
+dd
+dd
+"""
+
+[[part]]
+name = "head"
+parent = "neck"
+at = [0, 3, 0]
+pivot = [1, 0, 1]
+box = [2, 3, 3]
+voxels = """
+dd
+dd
+ee
+
+dd
+ed
+dd
+
+aa
+..
+..
+"""
+
+[[part]]
+name = "leg_fl"
+parent = "body"
+at = [3, -5, 6]
+pivot = [0.5, 5, 0.5]
+box = [1, 5, 1]
+voxels = """
+e
+
+b
+
+b
+
+b
+
+b
+"""
+
+[[part]]
+name = "leg_fr"
+parent = "body"
+at = [0, -5, 6]
+pivot = [0.5, 5, 0.5]
+box = [1, 5, 1]
+voxels = """
+e
+
+b
+
+b
+
+b
+
+b
+"""
+
+[[part]]
+name = "leg_bl"
+parent = "body"
+at = [3, -5, 1]
+pivot = [0.5, 5, 0.5]
+box = [1, 5, 1]
+voxels = """
+e
+
+b
+
+b
+
+b
+
+b
+"""
+
+[[part]]
+name = "leg_br"
+parent = "body"
+at = [0, -5, 1]
+pivot = [0.5, 5, 0.5]
+box = [1, 5, 1]
+voxels = """
+e
+
+b
+
+b
+
+b
+
+b
+"""
+
+[[part]]
+name = "tail"
+parent = "body"
+at = [1, 2, -1]
+pivot = [1, 0.5, 1]
+box = [2, 1, 1]
+voxels = """
+cc
+"""

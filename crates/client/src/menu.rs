@@ -137,6 +137,8 @@ pub(crate) fn remove_world(save: &str) -> std::io::Result<std::path::PathBuf> {
     let stem = from.file_stem().and_then(|s| s.to_str()).unwrap_or("world");
     let to = (1..).map(|n| dir.join(if n == 1 { format!("{stem}.sav") } else { format!("{stem}-{n}.sav") })).find(|p| !p.exists()).unwrap();
     std::fs::rename(from, &to)?;
+    // its animals go with it (ADR 0083), as its waypoints do below
+    let _ = std::fs::rename(from.with_extension("herds"), to.with_extension("herds"));
     // its waypoints go with it, so the next world of that name starts with none and this one keeps its own
     let marks = format!("{save}.waypoints");
     if std::path::Path::new(&marks).exists() {

@@ -518,6 +518,25 @@ chain = [
 ]
 spread = { pitch = 1.5, lowpass = 800, drive = 1.0, reverb = { mix = 0.1 } }
 
+# --- the animals' voices (ADR 0083): played where one stands now and then ---
+[[sound]]
+name = "deer.call"
+bus = "world"
+reach = 40
+gain = 0.6
+from = [{ base = "base.chirp", gain = 0.5 }, { base = "base.hum", gain = 0.4 }]
+chain = [
+  { lowpass = 1600, q = 0.7 },
+  { reverb = 0.4, damping = 0.5, mix = 0.25 },
+]
+
+[[sound]]
+name = "hare.squeak"
+bus = "world"
+reach = 16
+gain = 0.35
+from = [{ base = "base.chirp", gain = 0.8 }]
+
 # --- the weather (ADR 0076): rain on the open sky, the same heard through a roof, and thunder far off ---
 [[sound]]
 name = "rain"

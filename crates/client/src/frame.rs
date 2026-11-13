@@ -253,6 +253,30 @@ impl App {
                     }
                 }
                 Recv::Msg(ToClient::Players(ps)) => (self.players, self.globe.others) = (ps.len(), ps),
+                Recv::Msg(ToClient::Kinds(k)) => {
+                    // shortcut: the creatures file is read here, once on join (small); the server's index wins
+                    let rows = engine::creatures::rows(&std::fs::read_to_string("data/creatures.toml").unwrap_or_default()).unwrap_or_default();
+                    self.kinds = k.iter().map(|n| rows.iter().find(|c| &c.name == n).map(|c| (c.model.clone(), c.voice.clone(), c.scale))).collect();
+                }
+                Recv::Msg(ToClient::Animals { seen, gone }) => {
+                    for id in gone {
+                        self.animals.remove(&id);
+                    }
+                    let now = Instant::now();
+                    for a in seen {
+                        let was = self.animals.get(&a.id).map(|(o, _, _)| *o);
+                        // a new call plays its voice where it stands
+                        if was.is_some_and(|o| o.call != a.call) {
+                            if let Some(Some((_, voice, _))) = self.kinds.get(a.kind as usize).filter(|_| self.world.frame_at(self.me.pos) == 0) {
+                                if !voice.is_empty() {
+                                    self.audio.play(voice, Some(DVec3::from_array(a.pos)), 1.0, 1.0, false);
+                                }
+                            }
+                        }
+                        let from = self.animal_at(a.id, now).unwrap_or(DVec3::from_array(a.pos));
+                        self.animals.insert(a.id, (a, from, now));
+                    }
+                }
                 // another player's dig (ADR 0034): its cracks run on from this
                 Recv::Msg(ToClient::Digging { id, at }) => {
                     let now = self.start.elapsed().as_secs_f64();
@@ -788,7 +812,16 @@ impl App {
             .flatten()
             .and_then(|m| BLOCKS.get(m))
             .map(|d| d.name.clone());
-        self.models.frame(&self.world, &cams, cf, (p.pos, p.fwd, up), self.view.as_ref().map_or(self.start.elapsed().as_secs_f64(), |v| v.t), hand.as_deref(), &mut self.fx, &mut self.audio);
+        let now = Instant::now();
+        let herd: Vec<crate::models::Beast> = self
+            .animals
+            .iter()
+            .filter_map(|(id, (a, _, _))| {
+                let (model, _, scale) = self.kinds.get(a.kind as usize)?.as_ref()?;
+                Some(crate::models::Beast { id: *id, model: model.clone(), act: a.act, pos: self.animal_at(*id, now)?, fwd: DVec3::from_array(a.fwd.map(f64::from)), scale: *scale })
+            })
+            .collect();
+        self.models.frame(&self.world, &cams, cf, (p.pos, p.fwd, up), self.view.as_ref().map_or(self.start.elapsed().as_secs_f64(), |v| v.t), hand.as_deref(), &herd, &mut self.fx, &mut self.audio);
         self.models.upload(&gpu.queue, &gpu.mpieces);
         // the lamps: gathered again when they change or every 10 frames, placed and gridded every frame
         let ec = self.world.lights_rev;
@@ -1252,5 +1285,14 @@ impl App {
         let end = mark;
         self.tail_prev = (end - tail0).as_secs_f64();
         self.frame_end = Some(end);
+    }
+}
+
+impl crate::app::App {
+    /// Where animal `id` is drawn now (ADR 0083): lerped from where it was to its last view over one tick.
+    pub(crate) fn animal_at(&self, id: u32, now: Instant) -> Option<DVec3> {
+        let (a, from, at) = self.animals.get(&id)?;
+        let k = (now.duration_since(*at).as_secs_f64() * engine::net::TICK_HZ).min(1.0);
+        Some(from.lerp(DVec3::from_array(a.pos), k))
     }
 }
