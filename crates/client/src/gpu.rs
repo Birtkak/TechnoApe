@@ -213,7 +213,7 @@ mod texture_layer_tests {
     use super::*;
     use engine::textures::{Face, Painted};
     fn face(c: u8, variants: usize) -> Face {
-        Face { variants: (0..variants).map(|v| [[c, v as u8, 0, 255]; 256]).collect(), mean: [0.0; 3] }
+        Face { variants: (0..variants).map(|v| [[c, v as u8, 0, 255]; 256]).collect(), fine: false, mean: [0.0; 3] }
     }
     // a face that falls back to the block's every-face file shares that file's layers
     #[test]
@@ -447,12 +447,15 @@ pub(crate) struct Gpu {
     pub(crate) pipeline: wgpu::RenderPipeline,
     /// The cutout blocks' quads (ADR 0069): the terrain's, through `fs_cut`, which discards an empty texel, so
     /// the opaque terrain keeps early depth.
-    pub(crate) cut_pipeline: wgpu::RenderPipeline,
     /// The cutout blocks in two passes around the opaque terrain (ADR 0090): their depth alone first (`fs_cut_depth`
     /// discards an empty texel and writes nothing else), so the terrain behind a crown is never shaded; then their
     /// G-buffer where the depth is theirs (`Equal`), with no discard, so each pixel is shaded once with early depth.
     pub(crate) cut_depth_pipeline: wgpu::RenderPipeline,
     pub(crate) cut_lit_pipeline: wgpu::RenderPipeline,
+    /// The crowns' fluff (ADR 0090, `vs_fluff`): the cutout quads again as larger planes stood out of the crown,
+    /// in the same two passes.
+    pub(crate) fluff_depth_pipeline: wgpu::RenderPipeline,
+    pub(crate) fluff_lit_pipeline: wgpu::RenderPipeline,
     pub(crate) sky_pipeline: wgpu::RenderPipeline,
     /// The overlays (ADR 0017): ghost lines and the 2D layer, with their vertex and rectangle buffers.
     pub(crate) ghost_pipeline: wgpu::RenderPipeline,
@@ -550,7 +553,7 @@ pub(crate) fn season_here(w: &engine::world::World, pos: glam::DVec3) -> (f64, f
 
 /// Every block's look from the registry (ADR 0013, 0039, 0045), shader.wgsl `Look`, 64 bytes each: colour rgb,
 /// pattern | side << 8 | metal << 16 | gives light << 24 | cutout << 25 | glass << 26; colour2, size; colour3, amount; contrast; the painted
-/// faces (16 bits a face: layer | variants - 1 << 12 | painted << 15; top and side in `tex`, the bottom in
+/// faces (16 bits a face: layer | variants - 1 << 12 | fine << 14 (32 x 32, four layers a variant, ADR 0090) | painted << 15; top and side in `tex`, the bottom in
 /// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24).
 fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 16]> {
     (0..4 * 256usize)
@@ -576,7 +579,7 @@ fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> 
                         if let Some((_, p, at)) = own.or_else(|| painted.iter().find(|(k, _, _)| *k == (id, 0))) {
                             for (k, face) in p.faces.iter().enumerate() {
                                 if let Some(face) = face {
-                                    tex |= ((at[k] | (face.variants.len() as u32 - 1) << 12 | 1 << 15) as u64) << (16 * k);
+                                    tex |= ((at[k] | (face.variants.len() as u32 / (if face.fine { 4 } else { 1 }) - 1) << 12 | (face.fine as u32) << 14 | 1 << 15) as u64) << (16 * k);
                                 }
                             }
                             let [mr, mg, mb] = p.colour().unwrap_or(d.colour).map(|c| (c * 255.0).round() as u32);
@@ -933,9 +936,10 @@ impl Gpu {
         };
         let gbuffer_pipeline = |vs, fs, cull| gbuffer_pass(vs, fs, cull, true, wgpu::CompareFunction::Greater);
         let fx_pipeline = gbuffer_pipeline("vs_fx", "fs_fx", Some(wgpu::Face::Back));
-        let cut_pipeline = gbuffer_pipeline("vs", "fs_cut", Some(wgpu::Face::Back));
-        let cut_depth_pipeline = gbuffer_pass("vs", "fs_cut_depth", Some(wgpu::Face::Back), false, wgpu::CompareFunction::Greater);
-        let cut_lit_pipeline = gbuffer_pass("vs", "fs_cut_lit", Some(wgpu::Face::Back), true, wgpu::CompareFunction::Equal);
+        let cut_depth_pipeline = gbuffer_pass("vs_cut", "fs_cut_depth", Some(wgpu::Face::Back), false, wgpu::CompareFunction::Greater);
+        let cut_lit_pipeline = gbuffer_pass("vs_cut", "fs_cut_lit", Some(wgpu::Face::Back), true, wgpu::CompareFunction::Equal);
+        let fluff_depth_pipeline = gbuffer_pass("vs_fluff", "fs_fluff_depth", Some(wgpu::Face::Back), false, wgpu::CompareFunction::Greater);
+        let fluff_lit_pipeline = gbuffer_pass("vs_fluff", "fs_fluff_lit", Some(wgpu::Face::Back), true, wgpu::CompareFunction::Equal);
         // still models: either way round (`fs_still` drops the face turned away)
         let still_pipeline = gbuffer_pipeline("vs_still", "fs_still", None);
         // the models (ADR 0047): into the G-buffer with the terrain
@@ -1085,9 +1089,10 @@ impl Gpu {
             surface,
             config,
             pipeline,
-            cut_pipeline,
             cut_depth_pipeline,
             cut_lit_pipeline,
+            fluff_depth_pipeline,
+            fluff_lit_pipeline,
             sea_pipeline,
             water_pipeline,
             glass_pipeline,

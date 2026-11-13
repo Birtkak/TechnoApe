@@ -766,7 +766,8 @@ impl App {
         let mut g = Globals {
             tide: [pull(tide.luna, engine::sky::TIDE_LUNA), pull(tide.sun, engine::sky::TIDE_SUN)],
             // a shot's ripples stand still: it is taken after as many frames as the PC draws, the clock in wall time
-            water: [if self.shot.is_some() { 0.0 } else { self.world.time.rem_euclid(3600.0) as f32 }, fog, deep_light, 0.0],
+            // w: the wind here for the leaves' sway (ADR 0090), a breeze in calm air, none in a shot
+            water: [if self.shot.is_some() { 0.0 } else { self.world.time.rem_euclid(3600.0) as f32 }, fog, deep_light, if self.shot.is_some() { 0.0 } else { 0.5 + blow as f32 }],
             cloud: [0.0; 4],
             view_proj: vp.to_cols_array_2d(),
             sun: [sun.x, sun.y, sun.z, clock],
@@ -1006,6 +1007,8 @@ impl App {
                 multiview_mask: None,
             });
             rp.set_bind_group(0, &gpu.bind, &[]);
+            // the crowns' fluff (ADR 0090); `fluff=0` leaves it out to measure it
+            let fluff = self.args.get("fluff", 1) == 1;
             // the crack detector's shots keep the plain clear colour; so does the Studio's view with no background
             if self.shot.is_none() && !bare {
                 rp.set_pipeline(&gpu.sky_pipeline);
@@ -1017,32 +1020,47 @@ impl App {
             } else if self.args.get("mdi", 1) == 1 {
                 // the cutout blocks' depth first, the terrain, then their colour where their depth is (ADR 0090)
                 let cut_at = (MAX_CHUNKS * 32) as u64;
-                if !cut_args.is_empty() {
+                let n_cut = cut_args.len() as u32;
+                if n_cut > 0 {
                     rp.set_pipeline(&gpu.cut_depth_pipeline);
-                    rp.multi_draw_indirect(&gpu.indirect, cut_at, cut_args.len() as u32);
+                    rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
+                    if fluff {
+                        rp.set_pipeline(&gpu.fluff_depth_pipeline);
+                        rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
+                    }
                     rp.set_pipeline(&gpu.pipeline);
                 }
                 rp.multi_draw_indirect(&gpu.indirect, 0, args.len() as u32);
-                if !cut_args.is_empty() {
+                if n_cut > 0 {
                     rp.set_pipeline(&gpu.cut_lit_pipeline);
-                    rp.multi_draw_indirect(&gpu.indirect, cut_at, cut_args.len() as u32);
+                    rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
+                    if fluff {
+                        rp.set_pipeline(&gpu.fluff_lit_pipeline);
+                        rp.multi_draw_indirect(&gpu.indirect, cut_at, n_cut);
+                    }
                 }
                 if !still_args.is_empty() {
                     rp.set_pipeline(&gpu.still_pipeline);
                     rp.multi_draw_indirect(&gpu.indirect, (MAX_CHUNKS * 64) as u64, still_args.len() as u32);
                 }
             } else {
-                rp.set_pipeline(&gpu.cut_depth_pipeline);
-                for d in &cut_args {
-                    rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
+                let cuts = |rp: &mut wgpu::RenderPass, p: &wgpu::RenderPipeline| {
+                    rp.set_pipeline(p);
+                    for d in &cut_args {
+                        rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
+                    }
+                };
+                cuts(&mut rp, &gpu.cut_depth_pipeline);
+                if fluff {
+                    cuts(&mut rp, &gpu.fluff_depth_pipeline);
                 }
                 rp.set_pipeline(&gpu.pipeline);
                 for d in &args {
                     rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
                 }
-                rp.set_pipeline(&gpu.cut_lit_pipeline);
-                for d in &cut_args {
-                    rp.draw(d.first_vertex..d.first_vertex + d.vertex_count, d.first_instance..d.first_instance + 1);
+                cuts(&mut rp, &gpu.cut_lit_pipeline);
+                if fluff {
+                    cuts(&mut rp, &gpu.fluff_lit_pipeline);
                 }
                 rp.set_pipeline(&gpu.still_pipeline);
                 for d in &still_args {

@@ -248,6 +248,8 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool)
                         let mut j = if jm { join_sides(cells, a, s, u, v, d, m, &hides) } else { 0 };
                         if g == 6 {
                             j |= twig_bits(root[match a { 0 => pidx(d + 1, u + 1, v + 1), 1 => pidx(v + 1, d + 1, u + 1), _ => pidx(u + 1, v + 1, d + 1) }], a) << 4;
+                            // bit 25: it opens on air (the client's fluff grows there only)
+                            j |= ((!occ(u + 1, v + 1, if s == 0 { d + 2 } else { d })) as u32) << 9;
                         }
                         groups[g].push([lo, m as u32 | o << 8 | j << 16]);
                     }
@@ -315,18 +317,18 @@ fn roots(cells: &[u16; P * P * P], cut_t: &[u64; 1024]) -> Vec<u8> {
 }
 
 /// A cell's way to wood (`roots`) as its face of axis `a` carries it: the side of the face it lies on, u-, u+,
-/// v-, v+ (0..4), 4 behind or in front of the face, 7 none; the steps less one above, two bits (bits 20-24 of the
+/// v-, v+ (1..4), 5 behind or in front of the face, 0 none (as every quad of a coarse level); the steps less one above, two bits (bits 20-24 of the
 /// quad's high word).
 fn twig_bits(r: u8, a: usize) -> u32 {
     let k = (r & 7) as usize;
     if k == 7 {
-        return 7;
+        return 0;
     }
     let side = match (k / 2 + 3 - a) % 3 {
-        0 => 4,
+        0 => 5,
         // an odd world direction is the negative one: the u- or v- side
-        1 => !k as u32 & 1,
-        _ => 2 | !k as u32 & 1,
+        1 => 1 + (!k as u32 & 1),
+        _ => 3 + (!k as u32 & 1),
     };
     side | ((r >> 3) as u32) << 3
 }
@@ -403,8 +405,8 @@ mod tests {
         (p, dir, (q[1] & 255) as u16)
     }
 
-    /// ADR 0090: a cutout face carries where its block's way to wood leads (bits 20-22: u-, u+, v-, v+ in the
-    /// face's plane, 4 behind the face, 7 none within three blocks) and how far the wood is (bits 23-24, one less
+    /// ADR 0090: a cutout face carries where its block's way to wood leads (bits 20-22: 1..4 u-, u+, v-, v+ in the
+    /// face's plane, 5 behind the face, 0 none within three blocks) and how far the wood is (bits 23-24, one less
     /// than the steps), so a bare crown's twigs grow from the log; a leaf on the ground roots there.
     #[test]
     fn leaf_faces_know_the_way_to_the_wood() {
@@ -428,17 +430,21 @@ mod tests {
                 ((q[1] >> 20) & 7, (q[1] >> 23) & 3)
             };
             // +y face (a = y: u = z, v = x): the log at -x is v-; +z face (u = x, v = y): u-
-            assert_eq!(twig([11, 10, 11], 2), (2, 0), "{cut:?}");
-            assert_eq!(twig([11, 10, 11], 4), (0, 0));
-            assert_eq!(twig([12, 10, 11], 4), (0, 1), "two steps on, the same way");
-            assert_eq!(twig([13, 10, 11], 5), (0, 2));
-            assert_eq!(twig([14, 10, 11], 4).0, 7, "four steps: none");
-            assert_eq!(twig([14, 10, 11], 0).0, 7);
-            assert_eq!(twig([10, 11, 11], 2), (4, 0), "the log behind the face");
-            assert_eq!(twig([10, 11, 11], 4), (2, 0), "+z face of the leaf on +y: the log at -y is v-");
-            assert_eq!(twig([20, 20, 20], 4).0, 7, "no wood, no ground");
-            assert_eq!(twig([5, 5, 6], 4), (4, 0), "a shrub roots in the ground under it");
-            assert_eq!(twig([5, 5, 6], 0), (2, 0), "+x face (u = y, v = z): the ground at -z is v-");
+            assert_eq!(twig([11, 10, 11], 2), (3, 0), "{cut:?}");
+            assert_eq!(twig([11, 10, 11], 4), (1, 0));
+            assert_eq!(twig([12, 10, 11], 4), (1, 1), "two steps on, the same way");
+            assert_eq!(twig([13, 10, 11], 5), (1, 2));
+            assert_eq!(twig([14, 10, 11], 4).0, 0, "four steps: none");
+            assert_eq!(twig([14, 10, 11], 0).0, 0);
+            assert_eq!(twig([10, 11, 11], 2), (5, 0), "the log behind the face");
+            assert_eq!(twig([10, 11, 11], 4), (3, 0), "+z face of the leaf on +y: the log at -y is v-");
+            assert_eq!(twig([20, 20, 20], 4).0, 0, "no wood, no ground");
+            assert_eq!(twig([5, 5, 6], 4), (5, 0), "a shrub roots in the ground under it");
+            assert_eq!(twig([5, 5, 6], 0), (3, 0), "+x face (u = y, v = z): the ground at -z is v-");
+            // bit 25: the face opens on air, where the client grows its fluff (fancy leaves keep inner faces)
+            let open = |at: [usize; 3], dir: u32| m.quads.iter().find(|q| { let (p, d, _) = face_of(q); p.map(|v| v + 1) == at && d == dir }).map(|q| q[1] >> 25 & 1);
+            assert_eq!(open([11, 10, 11], 2), Some(1));
+            assert_eq!(open([11, 10, 11], 0), if cut == Cut::Full { Some(0) } else { None }, "against a leaf");
         }
     }
 

@@ -155,6 +155,35 @@ fn place(c: Chunk, b: Body, local: vec3f, at: vec3f) -> vec3f {
 
 @vertex
 fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
+    return terrain_vertex(vi, ii, 0u);
+}
+
+// the cutout blocks' quads (ADR 0090): as `vs`, swaying in the wind
+@vertex
+fn vs_cut(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
+    return terrain_vertex(vi, ii, 1u);
+}
+
+// the crowns' fluff (ADR 0090): each cutout face that opens on air (bit 25 of the quad, mesh.rs) again, a plane
+// larger than the face and stood out from it, hinged on the side its wood is (bits 20-22), so a crown is a soft
+// mass and a bare one's twigs fan out of it from the wood; turned per corner by a hash of the place. Not traced.
+@vertex
+fn vs_fluff(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut {
+    return terrain_vertex(vi, ii, 2u);
+}
+
+// how far the leaves sway, in cells of level 0, at a point (`p` in cells, the chunk's grid) of a quad drawn by
+// `vs_cut` or `vs_fluff`: a smooth field of the place and the sky's clock, so faces that share an edge move as
+// one and a fixed view stands still (`g.water.w`, the wind here, is 0 in a shot; frame.rs)
+fn sway(p: vec3f, reach: f32) -> vec2f {
+    if (g.water.w == 0.0) { return vec2f(0.0); }
+    let amp = min(0.012 + 0.005 * g.water.w, 0.07) * reach;
+    let t = g.water.x;
+    let ph = dot(p, vec3f(0.61, 0.47, 0.83));
+    return amp * vec2f(sin(t * 2.1 + ph) + 0.4 * sin(t * 4.3 + ph * 2.3), sin(t * 1.7 + ph * 1.3 + 1.0) + 0.4 * sin(t * 3.9 - ph * 1.7));
+}
+
+fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     let q = quads[vi / 6u];
     let dir = (q.x >> 28u) & 7u;
     let a = dir / 2u;
@@ -162,7 +191,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
     // grown by a millimetre: a merged quad's edge and its neighbours' corners on it are worked out apart, at
     // f32's grain at the body's radius (a quarter millimetre at 4 km), and met with pixel holes of sky between
     // them (bug 2026-11-11_17-38-04, ADR 0041); the overlap closes them, too thin to see as a lip
-    let local = quad_corner(q, k, DRAW_GROW);
+    var local = quad_corner(q, k, DRAW_GROW);
     // the corner in the face's u, v: as quad_corner lays it out
     var cu = array<u32, 6>(0u, 1u, 1u, 0u, 1u, 0u);
     var cv = array<u32, 6>(0u, 0u, 1u, 0u, 1u, 1u);
@@ -171,6 +200,36 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
     if ((dir & 1u) == 1u) { ku = cv[k]; kv = cu[k]; }
     let occl = (q.y >> (8u + 2u * (ku + 2u * kv))) & 3u;
     let c = chunks[ii];
+    var o: VOut;
+    if (mode == 2u && ((q.y >> 25u) & 1u) == 0u) {
+        // no fluff on a face against a block: all six corners at one point, nothing drawn
+        o.clip = vec4f(0.0, 0.0, 0.0, 1.0);
+        return o;
+    }
+    if (mode != 0u) {
+        var reach = 0.5;
+        if (mode == 2u) {
+            let at0 = quad_corner(q, 0u, 0.0);
+            let root = (q.y >> 20u) & 7u;
+            let h = hash(vec3i(floor(at0)) + c.base + vec3i(i32(ku) * 7, i32(kv) * 13, i32(dir) * 31 + 5));
+            var su = 0.5 + (f32(ku) - 0.5) * 1.4;
+            var sv = 0.5 + (f32(kv) - 0.5) * 1.4;
+            var push = 0.22 + 0.2 * h;
+            reach = 1.0;
+            if (root >= 1u && root <= 4u) {
+                // hinged on the wood's side: that edge on the face, the far one stood out
+                let along_u = root < 3u;
+                let along = f32(select(kv, ku, along_u));
+                let out = select(along, 1.0 - along, (root & 1u) == 0u);
+                push = mix(0.02, 0.4, out) + 0.12 * (h - 0.5);
+                let s = select(out * 1.35, 1.0 - out * 1.35, (root & 1u) == 0u);
+                if (along_u) { su = s; } else { sv = s; }
+                reach = 0.4 + out;
+            }
+            local = at0 + axis((a + 1u) % 3u) * su + axis((a + 2u) % 3u) * sv + axis(a) * select(push, -push, (dir & 1u) == 1u);
+        }
+        local += vec3f(sway(vec3f(c.base) + local, reach), 0.0);
+    }
     let b = g.bodies[(c.info >> 8u) & 255u];
     let gp = grid(c, local);
     let f = frame_at(c.info & 7u, b, gp.x, gp.y);
@@ -181,7 +240,6 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VOut 
     if (a == 1u) { normal = normalize(f.t - f.n * f.tb); }
     if ((dir & 1u) == 1u) { normal = -normal; }
 
-    var o: VOut;
     let at = quad_corner(q, 0u, 0.0);
     let rel = brot(b, (place(c, b, local, at) - b.cam_hi) - b.cam_lo);
     o.clip = g.view_proj * vec4f(rel, 1.0);
@@ -842,17 +900,17 @@ fn texel_a(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> ve
     painted = face_paint(m, dir);
     // on a side, x runs left to right as seen from outside and y down from its top edge (t is (y, z) on an x
     // face, (z, x) on a y face; along +y on +x and along +x on -y read rightwards, the other two are turned)
-    var x = ti.x;
-    var y = ti.y;
-    if (dir < 4u) {
-        let on_y = dir / 2u == 1u;
-        x = select(ti.x, ti.y, on_y);
-        y = 15 - select(ti.y, ti.x, on_y);
-        if (dir == 1u || dir == 2u) { x = 15 - x; }
-    }
+    let root = (mat >> 20u) & 7u;
+    let cutout = ((looks[m0].info >> 25u) & 1u) == 1u;
+    let turn = select(0u, root, cutout);
+    let xy = face_xy(ti, t, dir, turn, 15);
+    let x = xy.x;
+    let y = xy.y;
+    // the same at 32 texels a metre, for a fine painting (ADR 0090)
+    let fxy = face_xy(clamp(vec2i(floor(t * 32.0)), vec2i(0), vec2i(31)), t, dir, turn, 31);
     var c: vec4f;
     if (painted != 0u) {
-        c = paint_texel(painted, cell, x, y);
+        c = paint_texel(painted, cell, xy, fxy, -1);
         if (c.a < 0.5 && !is_glass(m)) { c = vec4f(row_seen(m) * 0.6, 0.0); }
     } else {
         let lk = look_in(m, sn);
@@ -872,19 +930,64 @@ fn texel_a(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> ve
     var cy = c;
     let px = face_paint(r.x + m0, dir);
     let py = face_paint(r.y + m0, dir);
-    if (px != 0u) { cx = paint_texel(px, cell, x, y); }
-    if (py != 0u) { cy = paint_texel(py, cell, x, y); }
+    // a bare crown's winter painting picks its variant by the block's place in the crown (ADR 0090, part D's
+    // layout): beside the wood 0 or 1, a step on 2 (a limb through to the next block), two on 3 (tips)
+    let steps = (mat >> 23u) & 3u;
+    let role = cutout && root != 0u;
+    if (px != 0u) { cx = paint_texel(px, cell, xy, fxy, select(-1, i32(steps), role && r.x == 768u)); }
+    if (py != 0u) { cy = paint_texel(py, cell, xy, fxy, select(-1, i32(steps), role && r.y == 768u)); }
     let mixed = mix(c, mix(cx, cy, r.f), sn.y);
+    var a = select(select(0.0, 1.0, mixed.a >= 0.5), mixed.a, is_glass(m0));
+    // bare twigs shorten the further the block is from its wood (bits 23-24: the steps less one), a few blocks
+    // out (or with no wood near) they are gone: a winter crown thins to its edge instead of floating sticks
+    // a bare crown block with no way to wood within three steps draws no twigs: no floating sticks
+    let bare = sn.y * (select(0.0, 1.0 - r.f, r.x == 768u) + select(0.0, r.f, r.y == 768u));
+    if (cutout && root == 0u && bare > 0.5) { a = 0.0; }
     // the empty texels of the season nearest in the mix
-    return vec4f(mixed.rgb, select(select(0.0, 1.0, mixed.a >= 0.5), mixed.a, is_glass(m0)));
+    return vec4f(mixed.rgb, a);
+}
+
+// a face's texel in its painting (`last` 15, or 31 for a fine one): on a side, x runs left to right as seen
+// from outside and y down from its top edge (t is (y, z) on an x face, (z, x) on a y face; along +y on +x and
+// along +x on -y read rightwards, the other two are turned). A cutout block's twigs grow from its wood (ADR 0090,
+// mesh.rs `twig_bits`): its paintings have them rooted on the bottom edge, turned here so that edge lies on the
+// side of the face the wood is on (`root` 1..4: u-, u+, v-, v+), or folded about the middle when the wood is
+// behind the face (5); 0 turns nothing
+fn face_xy(ti: vec2i, t: vec2f, dir: u32, root: u32, last: i32) -> vec2i {
+    if (root == 5u) {
+        return vec2i(ti.x, last - i32(floor(abs(t.y - 0.5) * f32(2 * last + 2))));
+    }
+    if (root != 0u) {
+        let d = select(ti.y, ti.x, root < 3u);
+        return vec2i(select(ti.x, ti.y, root < 3u), select(d, last - d, (root & 1u) == 1u));
+    }
+    var x = ti.x;
+    var y = ti.y;
+    if (dir < 4u) {
+        let on_y = dir / 2u == 1u;
+        x = select(ti.x, ti.y, on_y);
+        y = last - select(ti.y, ti.x, on_y);
+        if (dir == 1u || dir == 2u) { x = last - x; }
+    }
+    return vec2i(x, y);
 }
 
 // texel (x, y) of a painted face (`face_paint`): one of its variants by the cell's hash, the same on every face;
-// a 0 for an empty pixel (a cutout block's, ADR 0069)
-fn paint_texel(painted: u32, cell: vec3i, x: i32, y: i32) -> vec4f {
+// a 0 for an empty pixel (a cutout block's, ADR 0069). A fine painting (bit 14, 32 x 32 a variant as four 16 x 16
+// quarters in turn, ADR 0090) reads `fxy` instead. `steps` >= 0: a bare crown's winter painting of four variants
+// takes its variant by the block's place in the crown (ADR 0090, part D's layout): beside the wood 0 or 1 by the
+// hash, a step on 2 (a limb through), two on 3 (tips)
+fn paint_texel(painted: u32, cell: vec3i, xy: vec2i, fxy: vec2i, steps: i32) -> vec4f {
     let nv = ((painted >> 12u) & 3u) + 1u;
-    let v = min(u32(hash(cell + vec3i(0, 0, 4099)) * f32(nv)), nv - 1u);
-    let p = vec2u(clamp(vec2i(x, y), vec2i(0), vec2i(15)));
+    let hv = hash(cell + vec3i(0, 0, 4099));
+    var v = min(u32(hv * f32(nv)), nv - 1u);
+    if (steps > 0 && nv == 4u) { v = u32(steps) + 1u; } else if (steps == 0 && nv == 4u) { v = u32(hv * 2.0); }
+    if (((painted >> 14u) & 1u) == 1u) {
+        let f = vec2u(clamp(fxy, vec2i(0), vec2i(31)));
+        let q = (f.y >> 4u) * 2u + (f.x >> 4u);
+        return unpack4x8unorm(tex[((painted & 4095u) + v * 4u + q) * 256u + (f.y & 15u) * 16u + (f.x & 15u)]);
+    }
+    let p = vec2u(clamp(xy, vec2i(0), vec2i(15)));
     return unpack4x8unorm(tex[((painted & 4095u) + v) * 256u + p.y * 16u + p.x]);
 }
 
@@ -933,6 +1036,28 @@ fn fs_cut_depth(i: VOut) -> GOut {
 // their G-buffer after the opaque terrain, where the depth pass left theirs (`Equal`): no discard, early depth
 @fragment
 fn fs_cut_lit(i: VOut) -> GOut {
+    return terrain_lit(i, terrain_texel(i).rgb);
+}
+
+// the fluff (`vs_fluff`): its face's painting spread over the larger plane, inside a ragged round of texels
+fn fluff_in(i: VOut) -> bool {
+    let a = i.dir / 2u;
+    let f = fract(i.local);
+    let tx = floor(vec2f(f[(a + 1u) % 3u], f[(a + 2u) % 3u]) * 16.0);
+    let h = hash(vec3i(floor(i.local * 16.0)) + chunks[i.ci].base * 16 + vec3i(3, 9, 27));
+    return length(tx + 0.5 - 8.0) < 6.0 + 2.5 * h;
+}
+
+@fragment
+fn fs_fluff_depth(i: VOut) -> GOut {
+    if (!fluff_in(i) || terrain_texel(i).a < 0.5) {
+        discard;
+    }
+    return GOut(vec4f(0.0), vec4f(0.0), vec2u(0u));
+}
+
+@fragment
+fn fs_fluff_lit(i: VOut) -> GOut {
     return terrain_lit(i, terrain_texel(i).rgb);
 }
 
