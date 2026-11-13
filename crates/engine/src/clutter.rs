@@ -32,8 +32,8 @@ pub enum Near {
 }
 /// How near a trunk `near = "tree"` is, in columns.
 pub const TREE: i32 = 3;
-/// The farthest a row's `water` may reach, columns (a face's own columns within the clutter's margin).
-pub const WATER_MAX: i32 = 3;
+/// The farthest a row's `water` may reach, columns (a face's own columns; a bank and its gravel bar).
+pub const WATER_MAX: i32 = 8;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -181,9 +181,8 @@ pub fn wet_or_over(body: &Body, face: u8, i: i32, j: i32, row: &Row) -> bool {
         return true;
     }
     if let Some(r) = row.water {
-        let wet = |i: i32, j: i32| {
-            body.water_at(face, i, j).is_some() || body.sea.is_some_and(|s| body.first_air(body.col_height(face, i, j)) as f64 <= s)
-        };
+        // water standing over the ground (`water_at` names the sea for every dry column too)
+        let wet = |i: i32, j: i32| body.water_at(face, i, j).is_some_and(|w| w.0 > body.first_air(body.col_height(face, i, j)) as f64);
         if (-r..=r).flat_map(|a| (-r..=r).map(move |c| (i + a, j + c))).any(|(i, j)| (0..body.n).contains(&i) && (0..body.n).contains(&j) && wet(i, j)) {
             return true;
         }
@@ -427,6 +426,12 @@ mod tests {
             for &(i, j) in &found {
                 assert!(wet_or_over(b, f, i, j, &CLUTTER[flint]), "seed {seed}: a flint at ({i}, {j}) neither near water nor over its rock");
             }
+            // the rule picks places: most dry land of the face is neither by water nor over limestone
+            let sea = b.sea.unwrap();
+            let land: Vec<_> = (0..b.n).step_by(13).flat_map(|i| (0..b.n).step_by(13).map(move |j| (i, j))).filter(|&(i, j)| b.first_air(b.col_height(f, i, j)) as f64 > sea + 2.0).collect();
+            let ok = land.iter().filter(|&&(i, j)| wet_or_over(b, f, i, j, &CLUTTER[flint])).count();
+            eprintln!("seed {seed}: {ok} of {} dry columns take flint", land.len());
+            assert!(ok * 2 < land.len(), "seed {seed}: {ok} of {} dry columns take flint", land.len());
         }
     }
 

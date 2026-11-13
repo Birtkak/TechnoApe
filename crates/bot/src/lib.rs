@@ -288,7 +288,11 @@ impl Bot {
             Cmd::Say(t) => {
                 // the play mode it asks for (the server answers in chat; shortcut: a refusal is not read back)
                 match t.split_whitespace().collect::<Vec<_>>()[..] {
-                    ["/playmode" | "/gamemode", m, ..] => self.creative = !matches!(m.to_lowercase().as_str(), "survival" | "s" | "0"),
+                    ["/playmode" | "/gamemode", m, ..] => match m.to_lowercase().as_str() {
+                        "creative" | "c" | "1" => self.creative = true,
+                        "survival" | "s" | "0" => self.creative = false,
+                        _ => {} // the server refuses it and keeps the mode
+                    },
                     _ => {}
                 }
                 self.link.send(ToServer::Chat(t.clone()))
@@ -441,7 +445,7 @@ mod tests {
         tx.send(s).unwrap();
         let mut bot = Bot::new("knapper", c);
         let mut out = Vec::new();
-        let script = format!("wait 0.5; say /playmode survival; spawn {} {} {}; wait 0.5; dig {} {} {}; wait 0.5; walk {} {} {}; wait 1.5; slots", feet.x, feet.y, feet.z, d.x, d.y, d.z, d.x, d.y, d.z);
+        let script = format!("wait 0.5; say /playmode survival; spawn {} {} {}; wait 0.5; dig {} {} {}; wait 0.5; walk {} {} {}; wait 3; slots", feet.x, feet.y, feet.z, d.x, d.y, d.z, d.x, d.y, d.z);
         bot.run(parse_script(&script).unwrap(), None, |l| out.push(l));
         let line = out.iter().find(|l| l.contains("\"slots\"")).expect("a slots line");
         assert!(line.contains("\"flint\",1") && line.contains("\"gravel\",1"), "{line} ({} refused)", bot.refused);
