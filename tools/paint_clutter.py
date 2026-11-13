@@ -145,52 +145,6 @@ def flint(seed):
     return p
 
 
-def blades(ramp, n, seed, lean=0.25):
-    """A plane of grass blades: n tapering blades from the bottom edge, dark at the root, mostly mid, lit tips."""
-    def p(face, x, y, w, h):
-        for b in range(n):
-            x0 = (b + 0.5) * w / n + (rnd(seed, b) - 0.5) * w / n * 0.8
-            top = h * (0.35 + 0.65 * rnd(seed, b, "h"))
-            if h - y > top:
-                continue
-            cx = x0 + (rnd(seed, b, "l") - 0.5) * 2 * lean * (h - y)
-            if abs(x + 0.5 - cx) <= max(0.6, 1.2 * (1 - (h - y) / top)):
-                t = (h - y) / top  # 0 at the root, 1 at this blade's tip
-                return R(ramp, 2 + t ** 1.7 * 5 + (rnd(seed, b, "c") - 0.5) * 1.5)  # the shader darkens the root
-        return None
-    return p
-
-
-def frond(ramp, seed):
-    """A fern's plane: a rib from the bottom middle, leaflets either side shortening to the tip, lit at their ends."""
-    def p(face, x, y, w, h):
-        cx, yy = w / 2, h - y  # height over the ground
-        d = abs(x + 0.5 - cx)
-        if d < 0.6 and yy <= h - 1:
-            return R(ramp, 2 if yy < 3 else 3)
-        reach = (w / 2 - 1) * (1 - yy / h) ** 0.6
-        if yy > 2 and yy % 2 < 1 and d <= reach:
-            return R(ramp, 3.5 + 3.5 * d / max(1, reach) + (rnd(seed, x, y) - 0.5))
-        return None
-    return p
-
-
-def flowers(green, petal, seed):
-    """Stems dark at the root, each with a head: petals lit top left, a dark eye."""
-    def p(face, x, y, w, h):
-        for b in range(3):
-            fx = 1.5 + b * (w - 3) / 2
-            top = 4 + int(rnd(seed, b) * (h - 5))
-            yy = h - 1 - y
-            dx, dy = x - fx, yy - top
-            if abs(dx) <= 1.1 and abs(dy) <= 1.1:
-                return R(petal, 1) if abs(dx) < 0.6 and abs(dy) < 0.6 else R(petal, 5 + (1 if dx < 0 else 0) + (1 if dy > 0 else -1))
-            if abs(dx) < 0.6 and yy < top:
-                return R(green, 2 + 2 * yy / top)
-        return None
-    return p
-
-
 def bush(leaf, berry, seed):
     """A low bush plane: leaves in soft clumps lit from the top left, berries with a glint; no outline."""
     def p(face, x, y, w, h):
@@ -232,16 +186,7 @@ def cap(ramp, spots, seed):
 
 def make():
     written = []
-    # grass tuft: two crossed planes of blades, and an alternate of three
-    for alt, (n, planes) in enumerate([(5, [(0, 0), (90, 0)]), (4, [(30, 1), (100, 2), (160, 3)])]):
-        m = Model("grass tuft" + (f".{alt}" if alt else ""))
-        for turn, s in planes:
-            m.box((10, 0, 16), (12, 10, 0), blades("meadow green", n, ("tuft", alt, s)), (0, turn, 0))
-        written += m.write("grass", "crossed planes of blades")
-    m = Model("fern")
-    for turn in (0, 60, 120):
-        m.box((6, 0, 16), (20, 12, 0), frond("fern", turn), (-20, turn, 0))
-    written += m.write("jungle grass", "three fronds leaning out")
+    # (grass tuft, fern and flowers became plants of planes: tools/paint_plants.py, ADR 0091)
     m = Model("fallen leaves")
     for k, (x, z) in enumerate([(6, 8), (16, 14), (11, 20), (20, 6)]):
         m.box((x, 0.5, z), (6, 0, 5), leaf("fallen leaves", k), (0, 40 * k, 0))
@@ -250,10 +195,6 @@ def make():
     for k, (x, z, t) in enumerate([(6, 12, 20), (10, 18, -35), (14, 8, 70)]):
         m.box((x, 0, z), (14, 1, 1), rock("twig", ("twig", k)), (0, t, 0))
     written += m.write("log", "thin sticks crossing")
-    m = Model("flowers")
-    for turn, head in ((0, "yellow petal"), (90, "red petal")):
-        m.box((12, 0, 16), (8, 10, 0), flowers("meadow green", head, turn), (0, turn, 0))
-    written += m.write("lamp", "crossed planes of stems and heads")
     for alt, stones in enumerate([[(8, 10, 4, 2, 3), (18, 16, 3, 2, 3), (13, 22, 2, 1, 2)], [(10, 12, 3, 2, 4), (19, 9, 2, 1, 2)]]):
         m = Model("pebbles" + (f".{alt}" if alt else ""))
         for k, (x, z, sx, sy, sz) in enumerate(stones):

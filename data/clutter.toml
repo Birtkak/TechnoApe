@@ -3,25 +3,17 @@
 # of the seed, the column and the season; only what was taken is saved. Each row's model is
 # data/models/<name>.toml with its painting <name>.png (and alternates <name>.1 to .4), made by
 # tools/paint_clutter.py. A biome lists its clutter in data/biomes.toml as [name, per 100 columns].
-# `kind`: "decoration" (drawn only, thinned by the Clutter setting) or "pickup" (taken by looking and clicking).
+# `kind`: "decoration" (drawn only, thinned by the Clutter setting), "pickup" (taken by looking and clicking) or
+# "plant" (ADR 0091: crossed painted planes, data/plants/<name>.png at 32 px a metre and alternates <name>.1 to .4,
+# thinned by the Vegetation setting, swayed by the wind and tinted by the climate; a biome lists them under
+# `undergrowth`). `planes`: a plant's crossed planes, 2 to 4 (2 if left out). `looks`: a plant's other paintings
+# <name>.<look>.png and the parts of the year they show in (a season, or "early" or "late" one).
 # `gives`: a pick-up's item and how many. `on`: the ground blocks it lies on. `near`: "tree" (within 3 columns of
-# a trunk) or "open" (not). `season`: when it is there (all year if left out). `regrow`: "year" (it comes back
+# a trunk) or "open" (not). `wades`: a plant that also stands in fresh water up to 0.8 m deep (reeds).
+# `season`: when it is there (all year if left out). `regrow`: "year" (it comes back
 # each year; left out, it never does).
 # `water`: it lies only within that many columns of water (a river, a lake, the sea; 1 to 8), or, with `over`,
 # over one of those rocks (the rock under the soil band); with neither, wherever its ground is (ADR 0097).
-
-[[clutter]]
-name = "grass tuft"
-kind = "decoration"
-on = ["grass", "meadow grass", "cold grass", "scrub grass", "savanna grass", "marsh grass"]
-season = ["spring", "summer", "autumn"]
-
-[[clutter]]
-name = "fern"
-kind = "decoration"
-on = ["grass", "jungle grass", "cold grass"]
-near = "tree"
-season = ["spring", "summer", "autumn"]
 
 [[clutter]]
 name = "fallen leaves"
@@ -34,13 +26,6 @@ season = ["autumn", "winter"]
 name = "twigs"
 kind = "decoration"
 on = ["grass", "dirt", "cold grass", "jungle grass", "scrub grass", "savanna grass"]
-
-[[clutter]]
-name = "flowers"
-kind = "decoration"
-on = ["grass", "meadow grass", "tundra grass", "savanna grass"]
-near = "open"
-season = ["spring", "summer"]
 
 [[clutter]]
 name = "pebbles"
@@ -86,3 +71,56 @@ on = ["grass", "meadow grass", "cold grass", "tundra grass"]
 near = "open"
 season = ["summer"]
 regrow = "year"
+
+# Small plants (ADR 0091): their paintings are placeholders by tools/paint_plants.py.
+[[clutter]]
+name = "short grass"
+kind = "plant"
+on = ["grass", "meadow grass", "cold grass", "scrub grass", "savanna grass", "marsh grass", "jungle grass", "tundra grass"]
+season = ["spring", "summer", "autumn"]
+
+[[clutter]]
+name = "tall grass"
+kind = "plant"
+planes = 3
+on = ["grass", "meadow grass", "cold grass", "scrub grass", "savanna grass"]
+near = "open"
+season = ["spring", "summer", "autumn"]
+
+[[clutter]]
+name = "wild wheat"
+kind = "plant"
+on = ["meadow grass", "savanna grass", "scrub grass"]
+near = "open"
+season = ["summer", "autumn"]
+
+[[clutter]]
+name = "fern"
+kind = "plant"
+planes = 3
+on = ["grass", "jungle grass", "cold grass"]
+near = "tree"
+season = ["spring", "summer", "autumn"]
+
+[[clutter]]
+name = "reeds"
+kind = "plant"
+on = ["mud", "marsh grass", "sand", "gravel", "dirt"]
+wades = true
+season = ["spring", "summer", "autumn"]
+
+[[clutter]]
+name = "flowers"
+kind = "plant"
+on = ["grass", "meadow grass", "tundra grass", "savanna grass"]
+near = "open"
+season = ["spring", "summer"]
+
+[[clutter]]
+name = "berry bush"
+kind = "plant"
+planes = 4
+on = ["grass", "meadow grass", "cold grass"]
+near = "open"
+season = ["spring", "summer", "autumn"]
+looks = { bloom = ["late spring"], fruit = ["late summer"] }

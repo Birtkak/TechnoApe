@@ -56,7 +56,7 @@ impl Gi {
     pub fn new(
         device: &wgpu::Device,
         shader: &wgpu::ShaderModule,
-        shared: [wgpu::BindingResource; 10],
+        shared: [wgpu::BindingResource; 12],
         sky: (&wgpu::TextureView, &wgpu::Sampler),
         screen: wgpu::TextureFormat,
         w: u32,
@@ -99,7 +99,7 @@ impl Gi {
             compilation_options: Default::default(),
             cache: None,
         });
-        let [r0, r1, r2, r3, r5, r8, r9, r11, r14, r15] = shared;
+        let [r0, r1, r2, r3, r5, r8, r9, r11, r14, r15, r16, r17] = shared;
         let trace0 = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &trace.get_bind_group_layout(0),
@@ -116,6 +116,9 @@ impl Gi {
                 // the clouds' map: their shadow where a bounce ray lands (ADR 0076)
                 wgpu::BindGroupEntry { binding: 14, resource: r14 },
                 wgpu::BindGroupEntry { binding: 15, resource: r15 },
+                // the still faces and their paintings: a plant shades a lamp's ray (ADR 0091)
+                wgpu::BindGroupEntry { binding: 16, resource: r16 },
+                wgpu::BindGroupEntry { binding: 17, resource: r17 },
             ],
         });
         fn view(v: &wgpu::TextureView) -> wgpu::BindingResource<'_> {

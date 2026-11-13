@@ -83,6 +83,8 @@ struct Slot {
     leaf_at: u64,
     /// The walk that last drew it, and where in its list.
     drawn_at: (u64, u32),
+    /// The climate at its footprint's corners (`clutter::chunk_climate`, ADR 0091), from its last mesh job.
+    clim: u32,
 }
 
 /// The last LOD walk (ADR 0025, F): which chunks it drew, their bounds, its stats, and the camera in each
@@ -109,6 +111,7 @@ pub struct JobResult {
     pub us: f64,
     /// From the request to a worker taking it up.
     wait_us: f32,
+    clim: u32,
 }
 
 /// One drawable range of the quad buffer: `len` quads, the last `water` of them the sea's surface and the `cut`
@@ -132,6 +135,8 @@ pub struct DrawChunk {
     /// From the camera to its centre, metres: glass blends far to near by it (ADR 0081; `dist` is 0 for every chunk
     /// round the camera).
     pub centre: f32,
+    /// The climate at its footprint's corners (`clutter::chunk_climate`): the grass's and the plants' tint (ADR 0091).
+    pub clim: u32,
 }
 
 #[derive(Default, Clone, Copy)]
@@ -212,8 +217,8 @@ pub struct Streamer {
     pub released: Vec<u32>,
     /// What level 0 lays its clutter with (ADR 0082): the still models, the sky's time it was last set at (its
     /// season picks the rows, its year what has come back), that time's (nearest season, year), and the Clutter
-    /// setting's density.
-    pub clutter: (Arc<Still>, f64, (i64, u32), f32),
+    /// setting's density and the Vegetation setting's (ADR 0091).
+    pub clutter: (Arc<Still>, f64, (i64, u32), [f32; 2]),
     /// The pick-ups taken (ADR 0082): the cell each lay in and the year it was taken, as the server sends them.
     pub taken: FxMap<Block, u32>,
 }
@@ -318,7 +323,7 @@ impl Streamer {
             touched: Vec::new(),
             walks: 0,
             released: Vec::new(),
-            clutter: (Arc::new(Still::default()), 0.0, (i64::MIN, 0), 1.0),
+            clutter: (Arc::new(Still::default()), 0.0, (i64::MIN, 0), [1.0; 2]),
             taken: FxMap::default(),
         }
     }
@@ -420,6 +425,7 @@ impl Streamer {
                 inflight: false,
                 bounds: world.bodies[k.body as usize].bounds(k),
                 leaf_at: 0,
+                clim: 0,
                 drawn_at: (0, 0),
             });
             slot.last_seen = frame;
@@ -541,7 +547,7 @@ impl Streamer {
             s.leaf_at = self.frame;
         }
         s.drawn_at = (self.frame, out.len() as u32);
-        let bd = s.bounds;
+        let (bd, clim) = (s.bounds, s.clim);
         let (off, len, water, cut, ray_cut, glass, still) = match s.state {
             State::Pending => return false,
             State::Empty => return true,
@@ -550,7 +556,7 @@ impl Streamer {
         // hidden chunks are listed too: they are not drawn, but they cast shadows (ADR 0022)
         let hidden = hidden.unwrap_or_else(|| self.hidden(view, k.body, &bd));
         let centre = (bd.c - view.cam_in(k.body)).length();
-        out.push(DrawChunk { key: k, off, len, water, cut, ray_cut, glass, still, hidden, dist: (centre - bd.rad).max(0.0) as f32, centre: centre as f32 });
+        out.push(DrawChunk { key: k, off, len, water, cut, ray_cut, glass, still, hidden, dist: (centre - bd.rad).max(0.0) as f32, centre: centre as f32, clim });
         true
     }
 
@@ -614,7 +620,8 @@ impl Streamer {
                     m.water = sea.len() as u32;
                     m.quads.extend(sea);
                 }
-                let _ = tx.send(JobResult { key: k, version, mesh, us: t.elapsed().as_secs_f64() * 1e6, wait_us });
+                let clim = if mesh.is_some() { crate::clutter::chunk_climate(body, k) } else { 0 };
+                let _ = tx.send(JobResult { key: k, version, mesh, us: t.elapsed().as_secs_f64() * 1e6, wait_us, clim });
             });
         }
         reqs.clear();
@@ -649,6 +656,7 @@ impl Streamer {
                 }
             };
             let s = self.slots.get_mut(&r.key).unwrap();
+            s.clim = r.clim;
             if let State::Ready { off, len, .. } = s.state {
                 self.alloc.release(off, len);
                 self.released.push(off);
@@ -683,10 +691,10 @@ impl Streamer {
         self.dirty = true;
     }
 
-    /// The clutter's models, the sky's time and the Clutter setting's density (ADR 0082): level 0 is meshed again
-    /// when the models are new, the year turns into another season or begins again, or the density changes.
+    /// The clutter's models, the sky's time and the Clutter and Vegetation settings' densities (ADR 0082, 0091): level 0 is meshed again
+    /// when the models are new, the year turns into another part (an eighth, ADR 0091) or begins again, or the density changes.
     /// shortcut: every level-0 chunk, though only those with seasonal rows change; by row when it shows in p99.
-    pub fn set_clutter(&mut self, still: &Arc<Still>, t: f64, density: f32) {
+    pub fn set_clutter(&mut self, still: &Arc<Still>, t: f64, density: [f32; 2]) {
         let quarter = crate::clutter::stamp(t);
         let c = &self.clutter;
         if Arc::ptr_eq(&c.0, still) && c.2 == quarter && c.3 == density {

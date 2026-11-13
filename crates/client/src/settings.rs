@@ -67,6 +67,8 @@ settings! {
     Leaves "leaves" "Leaves" Kind::Choice(&["fast", "fancy"]), 0.0;
     // the ground's small things (ADR 0082): pick-ups lie there whatever this says, it thins the rest
     Clutter "clutter" "Clutter" Kind::Choice(&["off", "few", "normal", "many"]), 2.0;
+    // the plants of planes (ADR 0091): how many, and how far before they shrink into the ground
+    Vegetation "vegetation" "Vegetation" Kind::Choice(&["few", "normal", "many"]), 1.0;
     Stars "stars" "Stars and galaxy" Kind::Choice(OFF_ON), 1.0;
     // off: the old flat sheet; simple: ripples and the sky in it, no rays of its own; traced: the bed seen
     // through it, the world in it, foam at the shore (ADR 0071)
@@ -246,7 +248,7 @@ pub fn page_rows(page: usize) -> Vec<Row> {
     use Row::Set;
     match page {
         0 => vec![Row::Resolution, Set(S::Monitor), Set(S::Display), Set(S::FrameCap), Set(S::BackCap), Set(S::Vsync), Set(S::Fov), Set(S::Brightness)],
-        1 => vec![Row::Preset, Set(S::Detail), Set(S::Shadows), Set(S::Bounce), Set(S::Reflections), Set(S::Lamps), Set(S::Particles), Set(S::Clouds), Set(S::Rain), Set(S::Textures), Set(S::Leaves), Set(S::Water), Set(S::Clutter), Set(S::Stars)],
+        1 => vec![Row::Preset, Set(S::Detail), Set(S::Shadows), Set(S::Bounce), Set(S::Reflections), Set(S::Lamps), Set(S::Particles), Set(S::Clouds), Set(S::Rain), Set(S::Textures), Set(S::Leaves), Set(S::Water), Set(S::Clutter), Set(S::Vegetation), Set(S::Stars)],
         2 => vec![Set(S::Sensitivity), Set(S::ZoomSens), Set(S::InvertY), Set(S::ZoomMode), Set(S::AutoJump), Set(S::FlyTap)],
         3 => Settings::default().key_rows(""),
         4 => vec![Set(S::Volume), Set(S::VolWorld), Set(S::VolSteps), Set(S::VolUi), Set(S::VolMusic), Set(S::MuteBack), Set(S::SpaceSound)],

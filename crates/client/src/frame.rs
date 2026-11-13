@@ -14,7 +14,15 @@ pub(crate) fn frustum_planes(m: Mat4) -> [Vec4; 6] {
     p
 }
 
+/// How far the plants reach at each Vegetation setting, m (ADR 0091): each has its own reach, 55 to 100 % of this,
+/// and shrinks into the ground over the last fifth of it, so they thin and none pops.
+const PLANTS_FAR: [f32; 3] = [48.0, 80.0, 112.0];
+
 impl App {
+    /// The Vegetation setting (ADR 0091), or a run's vegetation=few|normal|many: 0, 1 or 2.
+    pub(crate) fn vegetation(&self) -> usize {
+        self.args.0.get("vegetation").and_then(|v| ["few", "normal", "many"].iter().position(|n| n == v)).unwrap_or(self.settings.at(S::Vegetation)).min(2)
+    }
     pub(crate) fn frame(&mut self) {
         // a new world's bake or a server's map done: the game starts again with it
         self.poll_loading();
@@ -536,7 +544,7 @@ impl App {
         // the Clutter setting (ADR 0082), or a run's clutter=off|few|normal|many
         let level = self.args.0.get("clutter").and_then(|v| ["off", "few", "normal", "many"].iter().position(|n| n == v)).unwrap_or(self.settings.at(S::Clutter));
         let still = self.gpu.as_ref().unwrap().still.clone();
-        self.streamer.set_clutter(&still, self.world.time, [0.0, 0.25, 1.0, 4.0][level.min(3)]);
+        self.streamer.set_clutter(&still, self.world.time, [[0.0, 0.25, 1.0, 4.0][level.min(3)], engine::clutter::VEGETATION[self.vegetation()]]);
         self.streamer.dispatch(&self.world, &mut reqs);
         let sel = ts0.elapsed().as_secs_f64();
         lap!("dispatch");
@@ -567,6 +575,7 @@ impl App {
         let mut nquads = 0u64;
         let mut insts: Vec<rt::Inst> = Vec::with_capacity(draws.len());
         let frame_no = self.streamer.frame;
+        let no_cast = self.args.0.get("plant_shadows").is_some_and(|v| v == "0");
         for d in draws.iter().take(MAX_CHUNKS) {
             let k = d.key;
             // the lattice its quads were merged in (ADR 0025 I2), as log2 at bit 16
@@ -583,13 +592,16 @@ impl App {
             // before the setting changed keeps its split until it is meshed again
             let (draw_cut, ray_cut) = (d.cut, if shell { d.cut } else { d.ray_cut });
             if new {
-                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.still - ray_cut - d.glass, _p: [0; 2] }));
+                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.still - ray_cut - d.glass, clim: d.clim, _p: 0 }));
             }
-            // the still models' quads lie between the land's and the sea's, in no BLAS (ADR 0082)
+            // the still models' and plants' quads lie between the land's and the sea's: they cast shadows (ADR 0091)
             let land = d.len - d.water - d.still;
-            if land > 0 {
-                // the cutout and glass quads are the BLAS's second geometry, not opaque (ADR 0069, 0081)
-                insts.push(rt::Inst { off: d.off, land, cut: ray_cut + d.glass, base: k.base().into(), info, body: k.body, ci });
+            // `plant_shadows=0` leaves them out, to measure what they cost (ADR 0091)
+            let cast = if no_cast { 0 } else { d.still };
+            if land + cast > 0 {
+                // the cutout (as `ray_cut` says), glass and still quads are the BLAS's second geometry, not opaque
+                // (ADR 0069, 0081, 0090, 0091): [cut][glass][still] at the land's end, contiguous whether cut is in or not
+                insts.push(rt::Inst { off: d.off, land: land + cast, cut: ray_cut + d.glass + cast, base: k.base().into(), info, body: k.body, ci });
             }
             if d.hidden {
                 continue;
@@ -772,6 +784,14 @@ impl App {
             // w: the wind here for the leaves' sway (ADR 0090), a breeze in calm air, none in a shot
             water: [if self.shot.is_some() { 0.0 } else { self.world.time.rem_euclid(3600.0) as f32 }, fog, deep_light, if self.shot.is_some() { 0.0 } else { 0.5 + blow as f32 }],
             cloud: [0.0; 4],
+            // the plants' sway and how far they reach (ADR 0091)
+            plants: {
+                let wind = match self.air.filter(|_| cf == 0 && self.shot.is_none()) {
+                    Some(a) => crate::weather::wind_at((p.pos - self.world.bodies[0].centre).normalize(), a.wind).as_vec3(),
+                    None => Vec3::ZERO,
+                };
+                [wind.x, wind.y, wind.z, PLANTS_FAR[self.vegetation()]]
+            },
             view_proj: vp.to_cols_array_2d(),
             sun: [sun.x, sun.y, sun.z, clock],
             bodies: bytemuck::Zeroable::zeroed(),

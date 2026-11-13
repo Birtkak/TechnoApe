@@ -1764,9 +1764,24 @@ rgb = "#f2ccd6"
 ramp = "blossom"
 
 [[colour]]
+name = "catkin shade"
+rgb = "#aaa653"
+ramp = "catkin"
+
+[[colour]]
 name = "catkin"
 rgb = "#d6cc61"
 ramp = "catkin"
+
+[[colour]]
+name = "catkin light"
+rgb = "#eee38e"
+ramp = "catkin"
+
+[[colour]]
+name = "blossom r2"
+rgb = "#ba612a"
+ramp = "blossom rich"
 
 [[colour]]
 name = "blossom r4"
@@ -1774,8 +1789,18 @@ rgb = "#e0499f"
 ramp = "blossom rich"
 
 [[colour]]
+name = "blossom r5"
+rgb = "#dd6be3"
+ramp = "blossom rich"
+
+[[colour]]
 name = "blossom r6"
 rgb = "#b88de6"
+ramp = "blossom rich"
+
+[[colour]]
+name = "blossom r7"
+rgb = "#afafeb"
 ramp = "blossom rich"
 
 [[colour]]
@@ -2759,6 +2784,11 @@ rgb = "#badd64"
 ramp = "reed spring rich"
 
 [[colour]]
+name = "straw r1"
+rgb = "#453e12"
+ramp = "straw rich"
+
+[[colour]]
 name = "straw r2"
 rgb = "#5f5515"
 ramp = "straw rich"
@@ -3092,3 +3122,1458 @@ ramp = "flint cortex rich"
 name = "flint cortex r8"
 rgb = "#d9d6c9"
 ramp = "flint cortex rich"
+
+[[colour]]
+name = "oak leaves shade"
+rgb = "#204f1a"
+ramp = "oak leaves"
+
+[[colour]]
+name = "oak leaves"
+rgb = "#29611f"
+ramp = "oak leaves"
+
+[[colour]]
+name = "oak leaves lit"
+rgb = "#4f7d42"
+ramp = "oak leaves"
+
+[[colour]]
+name = "oak leaves spring shade"
+rgb = "#416825"
+ramp = "oak leaves spring"
+
+[[colour]]
+name = "oak leaves spring"
+rgb = "#52802b"
+ramp = "oak leaves spring"
+
+[[colour]]
+name = "oak leaves spring lit"
+rgb = "#71974c"
+ramp = "oak leaves spring"
+
+[[colour]]
+name = "oak leaves autumn shade"
+rgb = "#7e4b1a"
+ramp = "oak leaves autumn"
+
+[[colour]]
+name = "oak leaves autumn"
+rgb = "#9e5c1f"
+ramp = "oak leaves autumn"
+
+[[colour]]
+name = "oak leaves autumn lit"
+rgb = "#b27942"
+ramp = "oak leaves autumn"
+
+[[colour]]
+name = "oak bark dark"
+rgb = "#3a3836"
+ramp = "oak bark"
+
+[[colour]]
+name = "oak bark shade"
+rgb = "#4d4842"
+ramp = "oak bark"
+
+[[colour]]
+name = "oak bark"
+rgb = "#61594c"
+ramp = "oak bark"
+
+[[colour]]
+name = "oak bark lit"
+rgb = "#7e7767"
+ramp = "oak bark"
+
+[[colour]]
+name = "oak wood dark"
+rgb = "#6b533a"
+ramp = "oak wood"
+
+[[colour]]
+name = "oak wood shade"
+rgb = "#8e6c46"
+ramp = "oak wood"
+
+[[colour]]
+name = "oak wood"
+rgb = "#b28552"
+ramp = "oak wood"
+
+[[colour]]
+name = "oak wood lit"
+rgb = "#c39b6b"
+ramp = "oak wood"
+
+[[colour]]
+name = "birch leaves shade"
+rgb = "#558030"
+ramp = "birch leaves"
+
+[[colour]]
+name = "birch leaves"
+rgb = "#6b9e38"
+ramp = "birch leaves"
+
+[[colour]]
+name = "birch leaves lit"
+rgb = "#87b056"
+ramp = "birch leaves"
+
+[[colour]]
+name = "birch leaves light"
+rgb = "#a7c576"
+ramp = "birch leaves"
+
+[[colour]]
+name = "birch leaves spring shade"
+rgb = "#5d8035"
+ramp = "birch leaves spring"
+
+[[colour]]
+name = "birch leaves spring"
+rgb = "#759e3d"
+ramp = "birch leaves spring"
+
+[[colour]]
+name = "birch leaves spring lit"
+rgb = "#90b05a"
+ramp = "birch leaves spring"
+
+[[colour]]
+name = "birch leaves spring light"
+rgb = "#aec579"
+ramp = "birch leaves spring"
+
+[[colour]]
+name = "birch leaves autumn shade"
+rgb = "#ae9528"
+ramp = "birch leaves autumn"
+
+[[colour]]
+name = "birch leaves autumn"
+rgb = "#dbb82e"
+ramp = "birch leaves autumn"
+
+[[colour]]
+name = "birch leaves autumn lit"
+rgb = "#e6c64e"
+ramp = "birch leaves autumn"
+
+[[colour]]
+name = "birch leaves autumn light"
+rgb = "#f2d670"
+ramp = "birch leaves autumn"
+
+[[colour]]
+name = "birch bark shade"
+rgb = "#aeb0b0"
+ramp = "birch bark"
+
+[[colour]]
+name = "birch bark lit"
+rgb = "#e6e1cc"
+ramp = "birch bark"
+
+[[colour]]
+name = "birch bark light"
+rgb = "#f2ebcd"
+ramp = "birch bark"
+
+[[colour]]
+name = "birch wood dark"
+rgb = "#878070"
+ramp = "birch wood"
+
+[[colour]]
+name = "birch wood shade"
+rgb = "#b2a688"
+ramp = "birch wood"
+
+[[colour]]
+name = "birch wood"
+rgb = "#e0cc9e"
+ramp = "birch wood"
+
+[[colour]]
+name = "birch wood lit"
+rgb = "#ead7a8"
+ramp = "birch wood"
+
+[[colour]]
+name = "willow leaves shade"
+rgb = "#5d7846"
+ramp = "willow leaves"
+
+[[colour]]
+name = "willow leaves"
+rgb = "#759452"
+ramp = "willow leaves"
+
+[[colour]]
+name = "willow leaves lit"
+rgb = "#90a86b"
+ramp = "willow leaves"
+
+[[colour]]
+name = "willow leaves spring shade"
+rgb = "#617c39"
+ramp = "willow leaves spring"
+
+[[colour]]
+name = "willow leaves spring"
+rgb = "#7a9942"
+ramp = "willow leaves spring"
+
+[[colour]]
+name = "willow leaves spring lit"
+rgb = "#94ac5e"
+ramp = "willow leaves spring"
+
+[[colour]]
+name = "willow leaves autumn shade"
+rgb = "#969139"
+ramp = "willow leaves autumn"
+
+[[colour]]
+name = "willow leaves autumn"
+rgb = "#bdb242"
+ramp = "willow leaves autumn"
+
+[[colour]]
+name = "willow leaves autumn lit"
+rgb = "#ccc15e"
+ramp = "willow leaves autumn"
+
+[[colour]]
+name = "willow bark dark"
+rgb = "#3d3a36"
+ramp = "willow bark"
+
+[[colour]]
+name = "willow bark shade"
+rgb = "#514b42"
+ramp = "willow bark"
+
+[[colour]]
+name = "willow bark"
+rgb = "#665c4c"
+ramp = "willow bark"
+
+[[colour]]
+name = "willow bark lit"
+rgb = "#837967"
+ramp = "willow bark"
+
+[[colour]]
+name = "willow wood dark"
+rgb = "#7b705e"
+ramp = "willow wood"
+
+[[colour]]
+name = "willow wood shade"
+rgb = "#a29172"
+ramp = "willow wood"
+
+[[colour]]
+name = "willow wood"
+rgb = "#ccb285"
+ramp = "willow wood"
+
+[[colour]]
+name = "willow wood lit"
+rgb = "#d9c193"
+ramp = "willow wood"
+
+[[colour]]
+name = "pine leaves dark"
+rgb = "#0f2d24"
+ramp = "pine leaves"
+
+[[colour]]
+name = "pine leaves shade"
+rgb = "#143a2c"
+ramp = "pine leaves"
+
+[[colour]]
+name = "pine leaves"
+rgb = "#1a4733"
+ramp = "pine leaves"
+
+[[colour]]
+name = "pine leaves lit"
+rgb = "#426852"
+ramp = "pine leaves"
+
+[[colour]]
+name = "pine bark dark"
+rgb = "#4d2d20"
+ramp = "pine bark"
+
+[[colour]]
+name = "pine bark shade"
+rgb = "#653a28"
+ramp = "pine bark"
+
+[[colour]]
+name = "pine bark"
+rgb = "#80472e"
+ramp = "pine bark"
+
+[[colour]]
+name = "pine bark lit"
+rgb = "#98684e"
+ramp = "pine bark"
+
+[[colour]]
+name = "pine wood dark"
+rgb = "#816d4f"
+ramp = "pine wood"
+
+[[colour]]
+name = "pine wood shade"
+rgb = "#aa8d61"
+ramp = "pine wood"
+
+[[colour]]
+name = "pine wood"
+rgb = "#d6ad70"
+ramp = "pine wood"
+
+[[colour]]
+name = "pine wood lit"
+rgb = "#e2bd83"
+ramp = "pine wood"
+
+[[colour]]
+name = "palm leaves shade"
+rgb = "#517c23"
+ramp = "palm leaves"
+
+[[colour]]
+name = "palm leaves"
+rgb = "#669929"
+ramp = "palm leaves"
+
+[[colour]]
+name = "palm leaves lit"
+rgb = "#83ac4a"
+ramp = "palm leaves"
+
+[[colour]]
+name = "palm leaves light"
+rgb = "#a3c26d"
+ramp = "palm leaves"
+
+[[colour]]
+name = "palm bark dark"
+rgb = "#564a3a"
+ramp = "palm bark"
+
+[[colour]]
+name = "palm bark shade"
+rgb = "#725f46"
+ramp = "palm bark"
+
+[[colour]]
+name = "palm bark"
+rgb = "#8f7552"
+ramp = "palm bark"
+
+[[colour]]
+name = "palm bark lit"
+rgb = "#a58e6b"
+ramp = "palm bark"
+
+[[colour]]
+name = "palm wood dark"
+rgb = "#7b705a"
+ramp = "palm wood"
+
+[[colour]]
+name = "palm wood shade"
+rgb = "#a2916e"
+ramp = "palm wood"
+
+[[colour]]
+name = "palm wood"
+rgb = "#ccb280"
+ramp = "palm wood"
+
+[[colour]]
+name = "palm wood lit"
+rgb = "#d9c18f"
+ramp = "palm wood"
+
+[[colour]]
+name = "bamboo leaves shade"
+rgb = "#498028"
+ramp = "bamboo leaves"
+
+[[colour]]
+name = "bamboo leaves"
+rgb = "#5c9e2e"
+ramp = "bamboo leaves"
+
+[[colour]]
+name = "bamboo leaves lit"
+rgb = "#7ab04e"
+ramp = "bamboo leaves"
+
+[[colour]]
+name = "bamboo leaves light"
+rgb = "#9dc570"
+ramp = "bamboo leaves"
+
+[[colour]]
+name = "bamboo bark dark"
+rgb = "#47632f"
+ramp = "bamboo bark"
+
+[[colour]]
+name = "bamboo bark shade"
+rgb = "#5d8039"
+ramp = "bamboo bark"
+
+[[colour]]
+name = "bamboo bark"
+rgb = "#759e42"
+ramp = "bamboo bark"
+
+[[colour]]
+name = "bamboo bark lit"
+rgb = "#90b05e"
+ramp = "bamboo bark"
+
+[[colour]]
+name = "bamboo bark light"
+rgb = "#aec57c"
+ramp = "bamboo bark"
+
+[[colour]]
+name = "bamboo wood dark"
+rgb = "#848370"
+ramp = "bamboo wood"
+
+[[colour]]
+name = "bamboo wood"
+rgb = "#dbd19e"
+ramp = "bamboo wood"
+
+[[colour]]
+name = "catkin r4"
+rgb = "#b4af19"
+ramp = "catkin rich"
+
+[[colour]]
+name = "catkin r5"
+rgb = "#d1ca21"
+ramp = "catkin rich"
+
+[[colour]]
+name = "catkin r6"
+rgb = "#dbd43d"
+ramp = "catkin rich"
+
+[[colour]]
+name = "catkin r8"
+rgb = "#e1dc84"
+ramp = "catkin rich"
+
+[[colour]]
+name = "oak leaves r1"
+rgb = "#061e08"
+ramp = "oak leaves rich"
+
+[[colour]]
+name = "oak leaves r2"
+rgb = "#09380a"
+ramp = "oak leaves rich"
+
+[[colour]]
+name = "oak leaves r3"
+rgb = "#12570c"
+ramp = "oak leaves rich"
+
+[[colour]]
+name = "oak leaves r4"
+rgb = "#21790d"
+ramp = "oak leaves rich"
+
+[[colour]]
+name = "oak leaves r5"
+rgb = "#389714"
+ramp = "oak leaves rich"
+
+[[colour]]
+name = "oak leaves r6"
+rgb = "#55b41c"
+ramp = "oak leaves rich"
+
+[[colour]]
+name = "oak leaves r7"
+rgb = "#76d027"
+ramp = "oak leaves rich"
+
+[[colour]]
+name = "oak leaves r8"
+rgb = "#98d747"
+ramp = "oak leaves rich"
+
+[[colour]]
+name = "oak bark r2"
+rgb = "#312b24"
+ramp = "oak bark rich"
+
+[[colour]]
+name = "oak bark r3"
+rgb = "#453c32"
+ramp = "oak bark rich"
+
+[[colour]]
+name = "oak bark r4"
+rgb = "#5a4f40"
+ramp = "oak bark rich"
+
+[[colour]]
+name = "oak bark r5"
+rgb = "#6f6350"
+ramp = "oak bark rich"
+
+[[colour]]
+name = "oak wood r1"
+rgb = "#44301d"
+ramp = "oak wood rich"
+
+[[colour]]
+name = "oak wood r2"
+rgb = "#5a4025"
+ramp = "oak wood rich"
+
+[[colour]]
+name = "oak wood r3"
+rgb = "#74532c"
+ramp = "oak wood rich"
+
+[[colour]]
+name = "oak wood r5"
+rgb = "#a97f3f"
+ramp = "oak wood rich"
+
+[[colour]]
+name = "oak wood r6"
+rgb = "#ba9553"
+ramp = "oak wood rich"
+
+[[colour]]
+name = "oak wood r7"
+rgb = "#c3a871"
+ramp = "oak wood rich"
+
+[[colour]]
+name = "oak leaves spring r1"
+rgb = "#0d2f09"
+ramp = "oak leaves spring rich"
+
+[[colour]]
+name = "oak leaves spring r2"
+rgb = "#17490c"
+ramp = "oak leaves spring rich"
+
+[[colour]]
+name = "oak leaves spring r3"
+rgb = "#26690e"
+ramp = "oak leaves spring rich"
+
+[[colour]]
+name = "oak leaves spring r4"
+rgb = "#398b0f"
+ramp = "oak leaves spring rich"
+
+[[colour]]
+name = "oak leaves spring r5"
+rgb = "#53a916"
+ramp = "oak leaves spring rich"
+
+[[colour]]
+name = "oak leaves spring r6"
+rgb = "#72c61f"
+ramp = "oak leaves spring rich"
+
+[[colour]]
+name = "oak leaves spring r7"
+rgb = "#92d932"
+ramp = "oak leaves spring rich"
+
+[[colour]]
+name = "oak leaves spring r8"
+rgb = "#addb57"
+ramp = "oak leaves spring rich"
+
+[[colour]]
+name = "oak leaves autumn r1"
+rgb = "#24130a"
+ramp = "oak leaves autumn rich"
+
+[[colour]]
+name = "oak leaves autumn r2"
+rgb = "#3c210f"
+ramp = "oak leaves autumn rich"
+
+[[colour]]
+name = "oak leaves autumn r3"
+rgb = "#583314"
+ramp = "oak leaves autumn rich"
+
+[[colour]]
+name = "oak leaves autumn r4"
+rgb = "#784719"
+ramp = "oak leaves autumn rich"
+
+[[colour]]
+name = "oak leaves autumn r5"
+rgb = "#945e21"
+ramp = "oak leaves autumn rich"
+
+[[colour]]
+name = "oak leaves autumn r6"
+rgb = "#af762c"
+ramp = "oak leaves autumn rich"
+
+[[colour]]
+name = "oak leaves autumn r7"
+rgb = "#c89039"
+ramp = "oak leaves autumn rich"
+
+[[colour]]
+name = "oak leaves autumn r8"
+rgb = "#cda55b"
+ramp = "oak leaves autumn rich"
+
+[[colour]]
+name = "birch leaves r1"
+rgb = "#1e3409"
+ramp = "birch leaves rich"
+
+[[colour]]
+name = "birch leaves r2"
+rgb = "#2f500b"
+ramp = "birch leaves rich"
+
+[[colour]]
+name = "birch leaves r3"
+rgb = "#46700c"
+ramp = "birch leaves rich"
+
+[[colour]]
+name = "birch leaves r4"
+rgb = "#61930c"
+ramp = "birch leaves rich"
+
+[[colour]]
+name = "birch leaves r5"
+rgb = "#7eb212"
+ramp = "birch leaves rich"
+
+[[colour]]
+name = "birch leaves r6"
+rgb = "#9dcf1b"
+ramp = "birch leaves rich"
+
+[[colour]]
+name = "birch leaves r7"
+rgb = "#b7df32"
+ramp = "birch leaves rich"
+
+[[colour]]
+name = "birch leaves r8"
+rgb = "#c7df58"
+ramp = "birch leaves rich"
+
+[[colour]]
+name = "birch bark r2"
+rgb = "#38332e"
+ramp = "birch bark rich"
+
+[[colour]]
+name = "birch bark r3"
+rgb = "#6b665e"
+ramp = "birch bark rich"
+
+[[colour]]
+name = "birch bark r4"
+rgb = "#a39e94"
+ramp = "birch bark rich"
+
+[[colour]]
+name = "birch bark r6"
+rgb = "#dbd6c9"
+ramp = "birch bark rich"
+
+[[colour]]
+name = "birch bark r7"
+rgb = "#ebe6d9"
+ramp = "birch bark rich"
+
+[[colour]]
+name = "birch bark r8"
+rgb = "#f7f5eb"
+ramp = "birch bark rich"
+
+[[colour]]
+name = "birch wood r1"
+rgb = "#615233"
+ramp = "birch wood rich"
+
+[[colour]]
+name = "birch wood r2"
+rgb = "#77643b"
+ramp = "birch wood rich"
+
+[[colour]]
+name = "birch wood r3"
+rgb = "#8f7944"
+ramp = "birch wood rich"
+
+[[colour]]
+name = "birch wood r5"
+rgb = "#b7a164"
+ramp = "birch wood rich"
+
+[[colour]]
+name = "birch wood r6"
+rgb = "#c1b180"
+ramp = "birch wood rich"
+
+[[colour]]
+name = "birch wood r7"
+rgb = "#ccc19b"
+ramp = "birch wood rich"
+
+[[colour]]
+name = "birch leaves spring r1"
+rgb = "#293d0a"
+ramp = "birch leaves spring rich"
+
+[[colour]]
+name = "birch leaves spring r2"
+rgb = "#3d590c"
+ramp = "birch leaves spring rich"
+
+[[colour]]
+name = "birch leaves spring r3"
+rgb = "#57790d"
+ramp = "birch leaves spring rich"
+
+[[colour]]
+name = "birch leaves spring r4"
+rgb = "#749d0d"
+ramp = "birch leaves spring rich"
+
+[[colour]]
+name = "birch leaves spring r5"
+rgb = "#93bc13"
+ramp = "birch leaves spring rich"
+
+[[colour]]
+name = "birch leaves spring r6"
+rgb = "#b2d81c"
+ramp = "birch leaves spring rich"
+
+[[colour]]
+name = "birch leaves spring r7"
+rgb = "#c4e03a"
+ramp = "birch leaves spring rich"
+
+[[colour]]
+name = "birch leaves spring r8"
+rgb = "#d1e160"
+ramp = "birch leaves spring rich"
+
+[[colour]]
+name = "birch leaves autumn r1"
+rgb = "#3f3309"
+ramp = "birch leaves autumn rich"
+
+[[colour]]
+name = "birch leaves autumn r2"
+rgb = "#5b4a0a"
+ramp = "birch leaves autumn rich"
+
+[[colour]]
+name = "birch leaves autumn r3"
+rgb = "#7c660a"
+ramp = "birch leaves autumn rich"
+
+[[colour]]
+name = "birch leaves autumn r4"
+rgb = "#a18409"
+ramp = "birch leaves autumn rich"
+
+[[colour]]
+name = "birch leaves autumn r5"
+rgb = "#c0a10e"
+ramp = "birch leaves autumn rich"
+
+[[colour]]
+name = "birch leaves autumn r6"
+rgb = "#ddbc17"
+ramp = "birch leaves autumn rich"
+
+[[colour]]
+name = "birch leaves autumn r7"
+rgb = "#e4c936"
+ramp = "birch leaves autumn rich"
+
+[[colour]]
+name = "birch leaves autumn r8"
+rgb = "#e5d15d"
+ramp = "birch leaves autumn rich"
+
+[[colour]]
+name = "willow leaves r1"
+rgb = "#233a0e"
+ramp = "willow leaves rich"
+
+[[colour]]
+name = "willow leaves r2"
+rgb = "#345411"
+ramp = "willow leaves rich"
+
+[[colour]]
+name = "willow leaves r3"
+rgb = "#4a7214"
+ramp = "willow leaves rich"
+
+[[colour]]
+name = "willow leaves r4"
+rgb = "#649316"
+ramp = "willow leaves rich"
+
+[[colour]]
+name = "willow leaves r5"
+rgb = "#80b01e"
+ramp = "willow leaves rich"
+
+[[colour]]
+name = "willow leaves r6"
+rgb = "#9ecc28"
+ramp = "willow leaves rich"
+
+[[colour]]
+name = "willow leaves r7"
+rgb = "#b4d545"
+ramp = "willow leaves rich"
+
+[[colour]]
+name = "willow leaves r8"
+rgb = "#c4d869"
+ramp = "willow leaves rich"
+
+[[colour]]
+name = "willow bark r2"
+rgb = "#2a2621"
+ramp = "willow bark rich"
+
+[[colour]]
+name = "willow bark r3"
+rgb = "#3e382f"
+ramp = "willow bark rich"
+
+[[colour]]
+name = "willow bark r4"
+rgb = "#524b3e"
+ramp = "willow bark rich"
+
+[[colour]]
+name = "willow bark r5"
+rgb = "#675e4e"
+ramp = "willow bark rich"
+
+[[colour]]
+name = "willow bark r6"
+rgb = "#7b725f"
+ramp = "willow bark rich"
+
+[[colour]]
+name = "willow wood r1"
+rgb = "#504026"
+ramp = "willow wood rich"
+
+[[colour]]
+name = "willow wood r2"
+rgb = "#65522e"
+ramp = "willow wood rich"
+
+[[colour]]
+name = "willow wood r3"
+rgb = "#7e6736"
+ramp = "willow wood rich"
+
+[[colour]]
+name = "willow wood r5"
+rgb = "#b2944b"
+ramp = "willow wood rich"
+
+[[colour]]
+name = "willow wood r6"
+rgb = "#bba566"
+ramp = "willow wood rich"
+
+[[colour]]
+name = "willow wood r7"
+rgb = "#c5b583"
+ramp = "willow wood rich"
+
+[[colour]]
+name = "willow leaves spring r1"
+rgb = "#273814"
+ramp = "willow leaves spring rich"
+
+[[colour]]
+name = "willow leaves spring r2"
+rgb = "#38501a"
+ramp = "willow leaves spring rich"
+
+[[colour]]
+name = "willow leaves spring r3"
+rgb = "#4e6b20"
+ramp = "willow leaves spring rich"
+
+[[colour]]
+name = "willow leaves spring r4"
+rgb = "#678926"
+ramp = "willow leaves spring rich"
+
+[[colour]]
+name = "willow leaves spring r5"
+rgb = "#81a330"
+ramp = "willow leaves spring rich"
+
+[[colour]]
+name = "willow leaves spring r6"
+rgb = "#9cbd3c"
+ramp = "willow leaves spring rich"
+
+[[colour]]
+name = "willow leaves spring r7"
+rgb = "#afc65a"
+ramp = "willow leaves spring rich"
+
+[[colour]]
+name = "willow leaves spring r8"
+rgb = "#bfcd79"
+ramp = "willow leaves spring rich"
+
+[[colour]]
+name = "willow leaves autumn r1"
+rgb = "#36350c"
+ramp = "willow leaves autumn rich"
+
+[[colour]]
+name = "willow leaves autumn r2"
+rgb = "#504e10"
+ramp = "willow leaves autumn rich"
+
+[[colour]]
+name = "willow leaves autumn r3"
+rgb = "#6f6c12"
+ramp = "willow leaves autumn rich"
+
+[[colour]]
+name = "willow leaves autumn r4"
+rgb = "#908c14"
+ramp = "willow leaves autumn rich"
+
+[[colour]]
+name = "willow leaves autumn r5"
+rgb = "#aea81c"
+ramp = "willow leaves autumn rich"
+
+[[colour]]
+name = "willow leaves autumn r6"
+rgb = "#c9c226"
+ramp = "willow leaves autumn rich"
+
+[[colour]]
+name = "willow leaves autumn r7"
+rgb = "#d6ce3f"
+ramp = "willow leaves autumn rich"
+
+[[colour]]
+name = "willow leaves autumn r8"
+rgb = "#d9d263"
+ramp = "willow leaves autumn rich"
+
+[[colour]]
+name = "pine leaves r1"
+rgb = "#0c2219"
+ramp = "pine leaves rich"
+
+[[colour]]
+name = "pine leaves r2"
+rgb = "#133924"
+ramp = "pine leaves rich"
+
+[[colour]]
+name = "pine leaves r3"
+rgb = "#19542c"
+ramp = "pine leaves rich"
+
+[[colour]]
+name = "pine leaves r4"
+rgb = "#1f712e"
+ramp = "pine leaves rich"
+
+[[colour]]
+name = "pine leaves r5"
+rgb = "#298c2e"
+ramp = "pine leaves rich"
+
+[[colour]]
+name = "pine leaves r6"
+rgb = "#3ea535"
+ramp = "pine leaves rich"
+
+[[colour]]
+name = "pine leaves r7"
+rgb = "#5ebe43"
+ramp = "pine leaves rich"
+
+[[colour]]
+name = "pine leaves r8"
+rgb = "#85c563"
+ramp = "pine leaves rich"
+
+[[colour]]
+name = "pine bark r2"
+rgb = "#3d2219"
+ramp = "pine bark rich"
+
+[[colour]]
+name = "pine bark r3"
+rgb = "#563221"
+ramp = "pine bark rich"
+
+[[colour]]
+name = "pine bark r4"
+rgb = "#724329"
+ramp = "pine bark rich"
+
+[[colour]]
+name = "pine bark r5"
+rgb = "#8b5934"
+ramp = "pine bark rich"
+
+[[colour]]
+name = "pine bark r6"
+rgb = "#a37041"
+ramp = "pine bark rich"
+
+[[colour]]
+name = "pine wood r1"
+rgb = "#584023"
+ramp = "pine wood rich"
+
+[[colour]]
+name = "pine wood r2"
+rgb = "#6f5129"
+ramp = "pine wood rich"
+
+[[colour]]
+name = "pine wood r3"
+rgb = "#8a662f"
+ramp = "pine wood rich"
+
+[[colour]]
+name = "pine wood r5"
+rgb = "#c09542"
+ramp = "pine wood rich"
+
+[[colour]]
+name = "pine wood r6"
+rgb = "#c6a761"
+ramp = "pine wood rich"
+
+[[colour]]
+name = "pine wood r7"
+rgb = "#ceb87f"
+ramp = "pine wood rich"
+
+[[colour]]
+name = "palm leaves r2"
+rgb = "#254b0a"
+ramp = "palm leaves rich"
+
+[[colour]]
+name = "palm leaves r3"
+rgb = "#396b0c"
+ramp = "palm leaves rich"
+
+[[colour]]
+name = "palm leaves r4"
+rgb = "#518f0c"
+ramp = "palm leaves rich"
+
+[[colour]]
+name = "palm leaves r5"
+rgb = "#6dae12"
+ramp = "palm leaves rich"
+
+[[colour]]
+name = "palm leaves r6"
+rgb = "#8ccb1a"
+ramp = "palm leaves rich"
+
+[[colour]]
+name = "palm leaves r7"
+rgb = "#aade2d"
+ramp = "palm leaves rich"
+
+[[colour]]
+name = "palm leaves r8"
+rgb = "#bedf53"
+ramp = "palm leaves rich"
+
+[[colour]]
+name = "palm bark r2"
+rgb = "#413624"
+ramp = "palm bark rich"
+
+[[colour]]
+name = "palm bark r4"
+rgb = "#715e39"
+ramp = "palm bark rich"
+
+[[colour]]
+name = "palm bark r5"
+rgb = "#887446"
+ramp = "palm bark rich"
+
+[[colour]]
+name = "palm bark r6"
+rgb = "#9f8a55"
+ramp = "palm bark rich"
+
+[[colour]]
+name = "palm wood r1"
+rgb = "#534327"
+ramp = "palm wood rich"
+
+[[colour]]
+name = "palm wood r2"
+rgb = "#69552f"
+ramp = "palm wood rich"
+
+[[colour]]
+name = "palm wood r3"
+rgb = "#826a37"
+ramp = "palm wood rich"
+
+[[colour]]
+name = "palm wood r5"
+rgb = "#b4974d"
+ramp = "palm wood rich"
+
+[[colour]]
+name = "palm wood r6"
+rgb = "#bda76a"
+ramp = "palm wood rich"
+
+[[colour]]
+name = "palm wood r7"
+rgb = "#c7b787"
+ramp = "palm wood rich"
+
+[[colour]]
+name = "bamboo leaves r1"
+rgb = "#143107"
+ramp = "bamboo leaves rich"
+
+[[colour]]
+name = "bamboo leaves r2"
+rgb = "#224d09"
+ramp = "bamboo leaves rich"
+
+[[colour]]
+name = "bamboo leaves r3"
+rgb = "#356e09"
+ramp = "bamboo leaves rich"
+
+[[colour]]
+name = "bamboo leaves r4"
+rgb = "#4d9208"
+ramp = "bamboo leaves rich"
+
+[[colour]]
+name = "bamboo leaves r5"
+rgb = "#69b20d"
+ramp = "bamboo leaves rich"
+
+[[colour]]
+name = "bamboo leaves r6"
+rgb = "#89cf15"
+ramp = "bamboo leaves rich"
+
+[[colour]]
+name = "bamboo leaves r7"
+rgb = "#a8e328"
+ramp = "bamboo leaves rich"
+
+[[colour]]
+name = "bamboo leaves r8"
+rgb = "#bde250"
+ramp = "bamboo leaves rich"
+
+[[colour]]
+name = "bamboo bark r3"
+rgb = "#47671f"
+ramp = "bamboo bark rich"
+
+[[colour]]
+name = "bamboo bark r4"
+rgb = "#5f8525"
+ramp = "bamboo bark rich"
+
+[[colour]]
+name = "bamboo bark r5"
+rgb = "#799f2f"
+ramp = "bamboo bark rich"
+
+[[colour]]
+name = "bamboo bark r6"
+rgb = "#94b93b"
+ramp = "bamboo bark rich"
+
+[[colour]]
+name = "bamboo bark r7"
+rgb = "#aac456"
+ramp = "bamboo bark rich"
+
+[[colour]]
+name = "bamboo bark r8"
+rgb = "#bbcc76"
+ramp = "bamboo bark rich"
+
+[[colour]]
+name = "bamboo wood r1"
+rgb = "#5e5b35"
+ramp = "bamboo wood rich"
+
+[[colour]]
+name = "bamboo wood r5"
+rgb = "#b2ac69"
+ramp = "bamboo wood rich"
+
+[[colour]]
+name = "meadow green 1 r2"
+rgb = "#103a06"
+ramp = "meadow green 1 rich"
+
+[[colour]]
+name = "meadow green 1 r3"
+rgb = "#184e09"
+ramp = "meadow green 1 rich"
+
+[[colour]]
+name = "meadow green 1 r4"
+rgb = "#20600b"
+ramp = "meadow green 1 rich"
+
+[[colour]]
+name = "meadow green 1 r5"
+rgb = "#2a740e"
+ramp = "meadow green 1 rich"
+
+[[colour]]
+name = "meadow green 1 r6"
+rgb = "#388a12"
+ramp = "meadow green 1 rich"
+
+[[colour]]
+name = "meadow green 1 r7"
+rgb = "#60a216"
+ramp = "meadow green 1 rich"
+
+[[colour]]
+name = "meadow green 1 r8"
+rgb = "#a9b824"
+ramp = "meadow green 1 rich"
+
+[[colour]]
+name = "fern 1 r3"
+rgb = "#215009"
+ramp = "fern 1 rich"
+
+[[colour]]
+name = "fern 1 r4"
+rgb = "#357209"
+ramp = "fern 1 rich"
+
+[[colour]]
+name = "fern 1 r5"
+rgb = "#4f920f"
+ramp = "fern 1 rich"
+
+[[colour]]
+name = "fern 1 r6"
+rgb = "#6caf17"
+ramp = "fern 1 rich"
+
+[[colour]]
+name = "fern 1 r7"
+rgb = "#8ccc20"
+ramp = "fern 1 rich"
+
+[[colour]]
+name = "meadow green 2 r2"
+rgb = "#063a07"
+ramp = "meadow green 2 rich"
+
+[[colour]]
+name = "meadow green 2 r3"
+rgb = "#094e09"
+ramp = "meadow green 2 rich"
+
+[[colour]]
+name = "meadow green 2 r4"
+rgb = "#0d600b"
+ramp = "meadow green 2 rich"
+
+[[colour]]
+name = "meadow green 2 r5"
+rgb = "#14740e"
+ramp = "meadow green 2 rich"
+
+[[colour]]
+name = "meadow green 2 r6"
+rgb = "#1e8a12"
+ramp = "meadow green 2 rich"
+
+[[colour]]
+name = "meadow green 2 r7"
+rgb = "#42a216"
+ramp = "meadow green 2 rich"
+
+[[colour]]
+name = "meadow green 2 r8"
+rgb = "#89b824"
+ramp = "meadow green 2 rich"
+
+[[colour]]
+name = "fern 2 r3"
+rgb = "#115009"
+ramp = "fern 2 rich"
+
+[[colour]]
+name = "fern 2 r4"
+rgb = "#207209"
+ramp = "fern 2 rich"
+
+[[colour]]
+name = "fern 2 r5"
+rgb = "#37920f"
+ramp = "fern 2 rich"
+
+[[colour]]
+name = "fern 2 r6"
+rgb = "#53af17"
+ramp = "fern 2 rich"
+
+[[colour]]
+name = "fern 2 r7"
+rgb = "#74cc20"
+ramp = "fern 2 rich"
+
+[[colour]]
+name = "blue petal r2"
+rgb = "#422267"
+ramp = "blue petal rich"
+
+[[colour]]
+name = "blue petal r4"
+rgb = "#2d3fa1"
+ramp = "blue petal rich"
+
+[[colour]]
+name = "blue petal r6"
+rgb = "#51acc7"
+ramp = "blue petal rich"
+
+[[colour]]
+name = "blue petal r8"
+rgb = "#90d5ba"
+ramp = "blue petal rich"
+
+[[colour]]
+name = "berry bush 1 r2"
+rgb = "#102b07"
+ramp = "berry bush 1 rich"
+
+[[colour]]
+name = "berry bush 1 r3"
+rgb = "#1f490a"
+ramp = "berry bush 1 rich"
+
+[[colour]]
+name = "berry bush 1 r4"
+rgb = "#326b0c"
+ramp = "berry bush 1 rich"
+
+[[colour]]
+name = "berry bush 1 r5"
+rgb = "#4b8a12"
+ramp = "berry bush 1 rich"
+
+[[colour]]
+name = "berry bush 1 r6"
+rgb = "#67a71a"
+ramp = "berry bush 1 rich"
+
+[[colour]]
+name = "berry bush 1 r7"
+rgb = "#86c324"
+ramp = "berry bush 1 rich"
+
+[[colour]]
+name = "berry bush 1 r8"
+rgb = "#a4d43a"
+ramp = "berry bush 1 rich"
+
+[[colour]]
+name = "berry bush 2 r2"
+rgb = "#062206"
+ramp = "berry bush 2 rich"
+
+[[colour]]
+name = "berry bush 2 r3"
+rgb = "#104009"
+ramp = "berry bush 2 rich"
+
+[[colour]]
+name = "berry bush 2 r4"
+rgb = "#1d620b"
+ramp = "berry bush 2 rich"
+
+[[colour]]
+name = "berry bush 2 r5"
+rgb = "#338111"
+ramp = "berry bush 2 rich"
+
+[[colour]]
+name = "berry bush 2 r6"
+rgb = "#4e9e19"
+ramp = "berry bush 2 rich"
+
+[[colour]]
+name = "berry bush 2 r7"
+rgb = "#6dba23"
+ramp = "berry bush 2 rich"
+
+[[colour]]
+name = "berry bush 2 r8"
+rgb = "#8fd332"
+ramp = "berry bush 2 rich"

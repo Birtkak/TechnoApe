@@ -168,18 +168,10 @@ data/textures/anorthosite.png
 data/textures/mare basalt.png
 data/textures/iron-nickel.png
 data/textures/kreep.png
-data/models/grass tuft.toml
-data/models/grass tuft.png
-data/models/grass tuft.1.toml
-data/models/grass tuft.1.png
-data/models/fern.toml
-data/models/fern.png
 data/models/fallen leaves.toml
 data/models/fallen leaves.png
 data/models/twigs.toml
 data/models/twigs.png
-data/models/flowers.toml
-data/models/flowers.png
 data/models/pebbles.toml
 data/models/pebbles.png
 data/models/pebbles.1.toml
@@ -194,6 +186,29 @@ data/models/mushroom.toml
 data/models/mushroom.png
 data/models/berries.toml
 data/models/berries.png
+data/plants/short grass.png
+data/plants/short grass.1.png
+data/plants/tall grass.png
+data/plants/tall grass.1.png
+data/plants/wild wheat.png
+data/plants/fern.png
+data/plants/reeds.png
+data/plants/flowers.png
+data/plants/flowers.1.png
+data/plants/flowers.2.png
+data/plants/berry bush.png
+data/plants/berry bush.bloom.png
+data/plants/berry bush.fruit.png
+data/plants/wild wheat.1.png
+data/plants/fern.1.png
+data/plants/reeds.1.png
+data/plants/berry bush.1.png
+data/plants/short grass.2.png
+data/plants/tall grass.2.png
+data/plants/wild wheat.2.png
+data/plants/fern.2.png
+data/plants/reeds.2.png
+data/plants/berry bush.2.png
 data/textures/hd/broadleaf leaves.png
 data/textures/hd/broadleaf leaves@spring.png
 data/textures/hd/broadleaf leaves@autumn.png
@@ -230,6 +245,25 @@ data/textures/hd/far/reed@autumn.png
 data/textures/hd/far/reed@winter.png
 data/textures/hd/far/cactus_side.png
 data/textures/hd/far/cactus.png
+data/plants/short grass.far.png
+data/plants/tall grass.far.png
+data/plants/wild wheat.far.png
+data/plants/fern.far.png
+data/plants/reeds.far.png
+data/plants/meadow ground.png
+data/plants/berry bush.far.png
+data/plants/reeds.3.png
+data/plants/reeds.back.png
+data/plants/short grass.3.png
+data/plants/tall grass.3.png
+data/models/grass tuft.toml
+data/models/grass tuft.png
+data/models/grass tuft.1.toml
+data/models/grass tuft.1.png
+data/models/fern.toml
+data/models/fern.png
+data/models/flowers.toml
+data/models/flowers.png
 data/textures/iron-stained rock.png
 data/textures/copper-stained rock.png
 data/textures/quartz-veined rock.png

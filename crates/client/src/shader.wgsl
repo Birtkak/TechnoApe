@@ -49,10 +49,14 @@ struct Globals {
     // (0: none), w the map's air columns a face edge (0: none yet); y 0 with the clouds off (no shadow, the
     // snow still lies)
     cloud: vec4f,
+    // the plants (ADR 0091, gpu.rs `Globals::plants`): xyz the wind at the camera in body 0's frame, m/s (0 in a
+    // shot), w how far away they have shrunk into the ground, m (the Vegetation setting)
+    plants: vec4f,
 };
 // base in columns and layers; info = face | level << 3 | body << 8; off: its first quad
 // opq: its opaque land quads; the cutout ones follow them, the BLAS's second geometry (ADR 0069)
-struct Chunk { base: vec3i, info: u32, off: u32, opq: u32 };
+// clim: the climate at its footprint's corners (engine clutter::chunk_climate; ADR 0091)
+struct Chunk { base: vec3i, info: u32, off: u32, opq: u32, clim: u32 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
 @group(0) @binding(14) var cl_tex: texture_2d_array<f32>;
@@ -329,8 +333,22 @@ fn expand(@builtin(global_invocation_id) id: vec3u) {
     let bd = builds[id.y];
     if (id.x >= bd.n) { return; }
     let q = quads[bd.off + id.x];
-    let c = Chunk(bd.base, bd.info, bd.off, 0u);
+    let c = Chunk(bd.base, bd.info, bd.off, 0u, 0u);
     let b = g.bodies[(c.info >> 8u) & 255u];
+    if (((q.x >> 28u) & 7u) == 7u) {
+        // a still model's or plant's quad (ADR 0091): where `vs_still` draws it, unswayed, unfaded
+        var cu = array<f32, 6>(0., 1., 1., 0., 1., 0.);
+        var cv = array<f32, 6>(0., 0., 1., 0., 1., 1.);
+        let cell = vec3f(f32(q.x & 63u), f32((q.x >> 6u) & 63u), f32((q.x >> 12u) & 63u));
+        for (var k = 0u; k < 6u; k++) {
+            let p = place(c, b, still_local(q, vec2f(cu[k], cv[k]), c, 1.0), cell);
+            let o = (bd.dst + id.x * 6u + k) * 3u;
+            verts[o] = p.x;
+            verts[o + 1u] = p.y;
+            verts[o + 2u] = p.z;
+        }
+        return;
+    }
     for (var k = 0u; k < 6u; k++) {
         let at = quad_corner(q, 0u, 0.0);
         let p = place(c, b, quad_corner(q, k, GROW), at);
@@ -424,7 +442,17 @@ fn trace(o: vec3f, db: vec3f, body: u32, tmax: f32, flags: u32) -> RayIntersecti
     while (rayQueryProceed(&rq)) {
         let c = rayQueryGetCandidateIntersection(&rq);
         let q = hit_quad(c.instance_custom_data, c.geometry_index, c.primitive_index);
-        if (is_glass(q.y)) {
+        if (((q.x >> 28u) & 7u) == 7u) {
+            // a still model or plant (ADR 0091) shades shadow and lamp rays only: a plant only while it stands
+            // whole (`still_reach`), by its painting, and past `still_skip` from the ray's start, so a swaying
+            // blade does not shade itself
+            let b = g.bodies[body];
+            if ((flags & RAY_FLAG_TERMINATE_ON_FIRST_HIT) != 0u && c.t > still_skip
+                && length((o + db * c.t - b.cam_hi) - b.cam_lo) < still_reach(c.instance_custom_data, q)
+                && still_texel(q, c.primitive_index, c.barycentrics).a >= 0.5) {
+                rayQueryConfirmIntersection(&rq);
+            }
+        } else if (is_glass(q.y)) {
             // far glass is drawn in its one colour, half clear: its shadow the same
             var t = vec4f(seen_colour(q.y & 255u, vec3f(0.0)), 0.45);
             if (((chunks[c.instance_custom_data].info >> 3u) & 31u) == 0u) { t = hit_texel(c.instance_custom_data, q, c.primitive_index, c.barycentrics, sn); }
@@ -1112,7 +1140,58 @@ fn pattern_texel(look: Look, dir: u32, cell: vec3i, x: i32, y: i32, h: f32, tone
 // through `fs` (fast leaves) an empty texel shows the block's colour, darker
 @fragment
 fn fs(i: VOut) -> GOut {
-    return terrain_lit(i, terrain_texel(i).rgb);
+    return terrain_lit(i, ground_tint(i, terrain_texel(i).rgb));
+}
+
+// a grass block's top takes the climate's tint (ADR 0091), as the plants on it do: its green texels by the
+// chunk's climate at the place, no season (its paintings have theirs)
+fn ground_tint(i: VOut, c: vec3f) -> vec3f {
+    if (i.dir > 4u || (looks[i.mat & 255u].info & 255u) != GRASS) { return c; }
+    let ch = chunks[i.ci];
+    let cl = chunk_climate(ch, i.local.xy / 32.0);
+    let tint = climate_tint(cl.x, cl.y, 2u, 0.0);
+    // where the plants have thinned out (from half their far distance) the ground takes the meadow ground's
+    // painting (the textures session's three tiles, one by its column's hash): tall-grass greens, a few
+    // flowers, so from a hill there is no line where plants end
+    let gp = grid(ch, i.local);
+    let d = length(i.rel);
+    let far = smoothstep(still_far() * 0.5, still_far(), d);
+    // past 150 m a pixel spans many texels: the painting fades to its mean colour, no crawling noise
+    let blur = smoothstep(150.0, 300.0, d);
+    if (i.dir == 4u) {
+        if (!leafy(c)) { return c; }
+        if (far <= 0.0) { return c * tint; }
+        let m = mix(meadow_texel(gp.xy), meadow_mean(), blur);
+        return mix(c * tint, m * select(vec3f(1.0), tint, leafy(m)), far);
+    }
+    // a side: the meadow hangs over the step's top third as a fringe, reaching further down with distance until
+    // a far step (and a coarse chunk's, all of whose steps are far) is a grassy ledge, not a band of dirt, so
+    // terraces seen from above read as meadow
+    let low = mix(0.55, 0.0, smoothstep(still_far(), 3.0 * still_far(), d));
+    let t = smoothstep(low, low + 0.3, fract(i.local.z)) * far;
+    if (t <= 0.0) { return c; }
+    let m = mix(meadow_texel(vec2f(gp.x + gp.y, gp.z)), meadow_mean(), blur);
+    return mix(c, m * select(vec3f(1.0), tint, leafy(m)), t);
+}
+
+fn meadow_mean() -> vec3f {
+    return unpack4x8unorm(sfaces[0].mean).rgb;
+}
+
+// const: face 0's flag when it is the meadow ground (engine clutter::MEADOW)
+const MEADOW: u32 = 4u;
+// the meadow ground's texel at grid point p (metres across, 32 px a metre), the tile picked per column
+fn meadow_texel(p: vec2f) -> vec3f {
+    let f = sfaces[0];
+    let w = f.wh & 65535u;
+    let h = f.wh >> 16u;
+    let tiles = max(w / 32u, 1u);
+    let col = vec2i(floor(p)) + vec2i(1 << 20);
+    let tile = min(u32(hash2(vec2u(col)) * f32(tiles)), tiles - 1u);
+    let px = min(vec2u(fract(p) * 32.0), vec2u(min(w, 32u) - 1u, h - 1u)) + vec2u(tile * 32u, 0u);
+    // its painting's top row is the far side: y down
+    let t = unpack4x8unorm(spaint[f.base + (h - 1u - min(px.y, h - 1u)) * f.pw + px.x]);
+    return select(vec3f(0.3, 0.58, 0.2), t.rgb, (f.flags & MEADOW) != 0u);
 }
 
 @fragment
@@ -2067,7 +2146,52 @@ fn fs_fx(i: FxOut) -> GOut {
 // A painted box face put in a level-0 chunk's mesh as one quad (`clutter::quad`): the cell x6 y6 z6 and its place
 // in the cell u4 v4 in lo, the face's index in `sfaces` and its turn in sixteenths in hi. Drawn into the G-buffer
 // as the terrain is and lit the same; not traced (no shadow).
-struct SFace { o: vec3f, base: u32, eu: vec3f, pw: u32, ev: vec3f, xy: u32, wh: u32, _a: u32, _b: u32, _c: u32 };
+// flags: 1 a plant's plane (ADR 0091: both sides drawn, swayed, tinted, faded far away; clutter::PLANT)
+// mean: face 0's (the meadow ground's) mean colour, RGBA8
+struct SFace { o: vec3f, base: u32, eu: vec3f, pw: u32, ev: vec3f, xy: u32, wh: u32, flags: u32, mean: u32, _c: u32 };
+const PLANT: u32 = 1u;
+// and 2 a shrub's: wide, lopsided, seen twice as far (clutter::SHRUB)
+const SHRUB: u32 = 2u;
+
+// The climate's tint of a green pixel (ADR 0091; engine clutter::tint, line for line): heat and wetness 0 to 1,
+// the part of the year (0..8, `year_part`) and how much of a season the place has (0 for the grass block, whose
+// paintings have theirs). Yellow-green where it is dry and warm, deep green where it is wet; a plant also fresh
+// in spring, yellowing from late summer, dull in winter. Leaves can take it the same way.
+fn climate_tint(heat: f32, wet: f32, part: u32, season: f32) -> vec3f {
+    var shift = array<f32, 8>(-0.2, -0.1, 0.0, 0.15, 0.35, 0.5, 0.4, 0.3);
+    let dry = clamp((1.0 - wet) * (0.35 + 0.65 * heat) + shift[part & 7u] * season, 0.0, 1.0);
+    return mix(vec3f(0.62, 0.86, 0.56), vec3f(1.4, 0.86, 0.36), dry * dry) * (1.0 - select(0.0, 0.18 * season, part >= 6u));
+}
+// heat and wetness at `f` (0..1 across the chunk's footprint, x and y) from its corners' bytes: one field over
+// every chunk, whose neighbours share their corners
+fn chunk_climate(c: Chunk, f: vec2f) -> vec2f {
+    let k = clamp(f, vec2f(0.0), vec2f(1.0));
+    var v: array<vec2f, 4>;
+    for (var n = 0u; n < 4u; n++) {
+        let b = (c.clim >> (8u * n)) & 255u;
+        v[n] = vec2f(f32(b & 15u), f32(b >> 4u)) / 15.0;
+    }
+    return mix(mix(v[0], v[1], k.x), mix(v[2], v[3], k.x), k.y);
+}
+// the part of the year (engine clutter::part): early or late half of `season`'s x
+fn year_part(sn: vec3f) -> u32 {
+    return u32(floor((fract(sn.x * 0.25) * 4.0 + 0.5) * 2.0)) & 7u;
+}
+// a painted pixel the tint takes: a green one (flowers, berries and seed heads keep their colour)
+fn leafy(c: vec3f) -> bool { return c.g > c.r && c.g > c.b; }
+
+// A plant's sway (ADR 0091): the wind `w` (camera frame, m/s) bends a point `hm` metres up by its square, in gusts
+// that roll across the land with `place` (columns) and run on the sky's clock, so every client and every shot of
+// the same time sees the same. Leaves can take it the same way.
+fn plant_sway(w: vec3f, hm: f32, place: vec2f, seed: f32) -> vec3f {
+    let speed = length(w);
+    if (speed < 0.01) { return vec3f(0.0); }
+    let t = g.water.x;
+    let ph = dot(place, vec2f(0.31, 0.23)) + seed * 1.5;
+    // periods that divide the clock's hour, so it has no jump
+    let gust = 0.4 + 0.6 * sin(t * 6.2831853 * 0.6 + ph) + 0.2 * sin(t * 6.2831853 * 1.5 + ph * 1.7);
+    return w / speed * min(speed * 0.025, 0.3) * min(hm * hm, 1.5) * gust;
+}
 @group(0) @binding(16) var<storage, read> sfaces: array<SFace>;
 @group(0) @binding(17) var<storage, read> spaint: array<u32>;
 
@@ -2077,6 +2201,71 @@ fn still_dir(q: vec2u, d: vec3f) -> vec3f {
     let a = f32((q.y >> 16u) & 15u) * (6.2831853 / 16.0);
     let r = vec2f(d.x * cos(a) - d.z * sin(a), d.x * sin(a) + d.z * cos(a));
     return vec3f(r.x, -r.y, d.y);
+}
+
+// where a still quad's corner uv lies in its chunk's cells (ADR 0068, 0091): its face's model point, a plant
+// sized by its column's hash and pressed into the ground by `fade` (1 whole), turned and set in its cell
+fn still_local(q: vec2u, uv: vec2f, c: Chunk, fade: f32) -> vec3f {
+    let f = sfaces[q.y & 65535u];
+    let lo = q.x;
+    let cell = vec3f(f32(lo & 63u), f32((lo >> 6u) & 63u), f32((lo >> 12u) & 63u));
+    // its place in the cell: up to a quarter metre off the middle
+    let off = (vec2f(f32((lo >> 18u) & 15u), f32((lo >> 22u) & 15u)) / 15.0 - 0.5) * 0.5;
+    let c0 = vec3f(0.5, 0.0, 0.5);
+    var m = f.o + f.eu * uv.x + f.ev * uv.y - c0;
+    var at = off;
+    if ((f.flags & PLANT) != 0u) {
+        // a plant: its height (h.x) and width (k.z) its own, turned to any angle and set up to a third of a block
+        // off the middle (k), so no row or grid shows from any side
+        let col = c.base.xy + vec2i(cell.xy);
+        let h = hash4(vec3i(col, i32(c.info & 7u)));
+        let k = hash4(vec3i(col, i32(c.info & 7u) + 8));
+        let a = k.w * 6.2831853;
+        var sc = vec3f(0.85 + 0.3 * k.z, 0.8 + 0.4 * h.x, 0.85 + 0.3 * k.z);
+        // a shrub: wider than tall and lopsided, one side fuller than the other
+        if ((f.flags & SHRUB) != 0u) { sc = vec3f(1.1 + 0.4 * k.z, 0.7 + 0.25 * h.x, 0.85 + 0.4 * fract(k.x * 7.31)); }
+        m = vec3f(m.x * cos(a) - m.z * sin(a), m.y, m.x * sin(a) + m.z * cos(a)) * sc;
+        m.y *= fade;
+        at = (k.xy - 0.5) * 0.66;
+    }
+    return cell + vec3f(0.5 + at.x, 0.5 + at.y, 0.0) + still_dir(q, m);
+}
+
+// how far from the eye plants stand (`vs_still` fades them by then)
+fn still_far() -> f32 { return g.plants.w; }
+
+// how far one plant reaches, by its hash y: 55 to 100 % of the far distance, so the plants thin in a hashed
+// order and no ring shows; a shrub twice as far, within the level-0 chunks it is meshed in (about 128 m)
+fn plant_reach(flags: u32, hy: f32) -> f32 {
+    // the cap first, then the hash, so shrubs too thin in a hashed order and do not all end on one ring
+    let far = select(still_far(), min(still_far() * 2.0, 120.0), (flags & SHRUB) != 0u);
+    return far * (0.55 + 0.45 * hy);
+}
+
+// how far from the eye still quad q of chunk-table entry ci casts a shadow: a plant until it starts to shrink
+// (its own reach, as `vs_still`), a model as far as it is drawn
+fn still_reach(ci: u32, q: vec2u) -> f32 {
+    let fl = sfaces[q.y & 65535u].flags;
+    if ((fl & PLANT) == 0u) { return 1e9; }
+    let c = chunks[ci];
+    let h = hash4(vec3i(c.base.xy + vec2i(i32(q.x & 63u), i32((q.x >> 6u) & 63u)), i32(c.info & 7u)));
+    return plant_reach(fl, h.y) * 0.8;
+}
+
+// a shadow ray skips still quads this near its start: a few cm, or for a plant's own pixel (`fs_still`) the
+// sway's reach, as its drawn blade sways off its still copy in the BLAS
+var<private> still_skip: f32 = 0.04;
+
+// the painting's texel of still quad q at a candidate hit's barycentrics bc on its triangle prim
+fn still_texel(q: vec2u, prim: u32, bc: vec2f) -> vec4f {
+    let f = sfaces[q.y & 65535u];
+    var cu = array<f32, 6>(0., 1., 1., 0., 1., 0.);
+    var cv = array<f32, 6>(0., 0., 1., 0., 1., 1.);
+    let t = (prim & 1u) * 3u;
+    let uv = vec2f(cu[t], cv[t]) * (1.0 - bc.x - bc.y) + vec2f(cu[t + 1u], cv[t + 1u]) * bc.x + vec2f(cu[t + 2u], cv[t + 2u]) * bc.y;
+    let wh = vec2u(f.wh & 65535u, f.wh >> 16u);
+    let px = min(vec2u(uv * vec2f(wh)), wh - 1u) + vec2u(f.xy & 65535u, f.xy >> 16u);
+    return unpack4x8unorm(spaint[f.base + px.y * f.pw + px.x]);
 }
 
 @vertex
@@ -2089,23 +2278,40 @@ fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     let uv = vec2f(cu[vi % 6u], cv[vi % 6u]);
     let lo = q.x;
     let cell = vec3f(f32(lo & 63u), f32((lo >> 6u) & 63u), f32((lo >> 12u) & 63u));
-    // its place in the cell: up to a quarter metre off the middle
-    let off = (vec2f(f32((lo >> 18u) & 15u), f32((lo >> 22u) & 15u)) / 15.0 - 0.5) * 0.5;
-    let m = f.o + f.eu * uv.x + f.ev * uv.y;
-    let local = cell + vec3f(0.5 + off.x, 0.5 + off.y, 0.0) + still_dir(q, m - vec3f(0.5, 0.0, 0.5));
     let c = chunks[ii];
     let b = g.bodies[(c.info >> 8u) & 255u];
+    let plant = (f.flags & PLANT) != 0u;
+    var bend = vec3f(0.0);
+    var fade = 1.0;
+    var h = vec4f(0.0);
+    let col = c.base.xy + vec2i(cell.xy);
+    if (plant) {
+        // how far it reaches and its gusts' phase, from its column: the same on every client. It shrinks into
+        // the ground over the last fifth of its own reach (55 to 100 % of the far one): the plants thin, none pops
+        h = hash4(vec3i(col, i32(c.info & 7u)));
+        let d = length(brot(b, (place(c, b, cell + vec3f(0.5, 0.5, 0.0), cell) - b.cam_hi) - b.cam_lo));
+        let d0 = plant_reach(f.flags, h.y);
+        fade = 1.0 - smoothstep(d0 * 0.8, d0, d);
+    }
+    let local = still_local(q, uv, c, fade);
+    if (plant && (c.info >> 8u) == 0u) { bend = plant_sway(brot(b, g.plants.xyz), local.z - cell.z, vec2f(col), h.z); }
     let gp = grid(c, local);
     let fr = frame_at(c.info & 7u, b, gp.x, gp.y);
-    let n = still_dir(q, cross(f.ev, f.eu));
-    let normal = normalize(normalize(fr.s - fr.n * fr.ta) * n.x + normalize(fr.t - fr.n * fr.tb) * n.y + fr.up * n.z);
+    // a plant's plane turns, leans and stretches by its place's hash (`still_local`): its normal from the placed
+    // corners, so the sun side is the drawn plane's
+    let n = select(still_dir(q, cross(f.ev, f.eu)), cross(still_local(q, vec2f(0.0, 1.0), c, 1.0) - still_local(q, vec2f(0.0), c, 1.0), still_local(q, vec2f(1.0, 0.0), c, 1.0) - still_local(q, vec2f(0.0), c, 1.0)), plant);
+    // a plant's planes are lit as the ground under them is, from either side
+    let normal = select(normalize(normalize(fr.s - fr.n * fr.ta) * n.x + normalize(fr.t - fr.n * fr.tb) * n.y + fr.up * n.z), normalize(fr.up), plant);
     var o: VOut;
-    let rel = brot(b, (place(c, b, local, cell) - b.cam_hi) - b.cam_lo);
+    let rel = brot(b, (place(c, b, local, cell) - b.cam_hi) - b.cam_lo) + bend;
     o.clip = g.view_proj * vec4f(rel, 1.0);
     o.rel = rel;
-    o.ao = 1.0;
+    // a plant's plane: how squarely it faces the sun (either side), for `fs_still`'s sun side; 1 for models
+    let np = normalize(normalize(fr.s - fr.n * fr.ta) * n.x + normalize(fr.t - fr.n * fr.tb) * n.y + fr.up * n.z);
+    o.ao = select(1.0, abs(dot(brot(b, np), normalize(g.sun_pos.xyz - rel))), plant);
     // the painting's pixel, in `local.xy`; the face in `dir`; no block's look (0, air: no light of its own, no metal)
-    o.local = vec3f(vec2f(f32(f.xy & 65535u), f32(f.xy >> 16u)) + uv * vec2f(f32(f.wh & 65535u), f32(f.wh >> 16u)), 0.0);
+    // and in `local.z` its cell's x | y << 6, for a plant's climate
+    o.local = vec3f(vec2f(f32(f.xy & 65535u), f32(f.xy >> 16u)) + uv * vec2f(f32(f.wh & 65535u), f32(f.wh >> 16u)), f32(lo & 4095u));
     o.dir = fi;
     o.mat = 0u;
     o.ci = ii;
@@ -2115,16 +2321,41 @@ fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
 
 @fragment
 fn fs_still(i: VOut) -> GOut {
-    // a plane is two faces back to back: the one turned away goes (the pipeline culls nothing)
-    if (dot(i.normal, i.rel) > 0.0) {
+    let f = sfaces[i.dir];
+    let plant = (f.flags & PLANT) != 0u;
+    // a model's plane is two faces back to back: the one turned away goes (the pipeline culls nothing); a plant's
+    // is one face seen from both sides
+    if (!plant && dot(i.normal, i.rel) > 0.0) {
         discard;
     }
-    let f = sfaces[i.dir];
     let x0 = vec2u(f.xy & 65535u, f.xy >> 16u);
     let px = clamp(vec2u(max(floor(i.local.xy), vec2f(0.0))), x0, x0 + vec2u(f.wh & 65535u, f.wh >> 16u) - 1u);
     let t = unpack4x8unorm(spaint[f.base + px.y * f.pw + px.x]);
     if (t.a < 0.5) {
         discard;
+    }
+    if (plant) {
+        // its ground's tint and season, and darker to the root, as grass is in its own shade
+        var col = t.rgb;
+        let c = chunks[i.ci];
+        let cell = u32(i.local.z + 0.5);
+        let cxy = vec2f(f32(cell & 63u), f32((cell >> 6u) & 63u));
+        if (leafy(col)) {
+            let cl = chunk_climate(c, (cxy + 0.5) / 32.0);
+            let sn = season(g.bodies[(c.info >> 8u) & 255u], i.rel);
+            col *= climate_tint(cl.x, cl.y, year_part(sn), sn.y);
+            // each plant a little off its neighbours: warmer or cooler, lighter or darker (its column's hash)
+            let h = hash4(vec3i(c.base.xy + vec2i(cxy), i32(c.info & 7u)));
+            col *= mix(vec3f(0.94, 1.0, 1.06), vec3f(1.06, 1.0, 0.92), h.w) * (0.9 + 0.2 * h.z);
+        }
+        // depth: dark at the root, lit at the tips; the planes of a cross a shade apart by how they are turned
+        let up = 1.0 - (i.local.y - f32(f.xy >> 16u)) / f32(f.wh >> 16u);
+        let turn = abs(f.eu.x) / max(length(f.eu), 1e-4);
+        still_skip = 0.35;
+        // the planes facing the sun lighter, those edge-on to it darker, so a tuft has a sun side
+        var j = i;
+        j.ao = 1.0;
+        return terrain_lit(j, col * mix(0.42, 1.0, clamp(up * 1.3, 0.0, 1.0)) * mix(0.82, 1.0, turn) * mix(0.8, 1.08, i.ao));
     }
     return terrain_lit(i, t.rgb);
 }
