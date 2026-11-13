@@ -942,17 +942,44 @@ fn fs(i: VOut) -> GOut {
 // a grass block's top takes the climate's tint (ADR 0091), as the plants on it do: its green texels by the
 // chunk's climate at the place, no season (its paintings have theirs)
 fn ground_tint(i: VOut, c: vec3f) -> vec3f {
-    if (i.dir != 4u || (looks[i.mat & 255u].info & 255u) != GRASS || !leafy(c)) { return c; }
-    let cl = chunk_climate(chunks[i.ci], i.local.xy / 32.0);
-    // where the plants have thinned out, the ground takes the meadow's tone: darker, as the understorey under
-    // the tufts' lit tops is, and mottled by 2 m patches, so from a hill there is no line where plants end
-    let gp = grid(chunks[i.ci], i.local);
+    if (i.dir > 4u || (looks[i.mat & 255u].info & 255u) != GRASS) { return c; }
+    let ch = chunks[i.ci];
+    let cl = chunk_climate(ch, i.local.xy / 32.0);
+    let tint = climate_tint(cl.x, cl.y, 2u, 0.0);
+    // where the plants have thinned out (from half their far distance) the ground takes the meadow ground's
+    // painting (the textures session's three tiles, one by its column's hash): tall-grass greens, a few
+    // flowers, so from a hill there is no line where plants end
+    let gp = grid(ch, i.local);
     let far = smoothstep(still_far() * 0.5, still_far(), length(i.rel));
+    if (i.dir == 4u) {
+        if (!leafy(c)) { return c; }
+        if (far <= 0.0) { return c * tint; }
+        let m = meadow_texel(gp.xy);
+        return mix(c * tint, m * select(vec3f(1.0), tint, leafy(m)), far);
+    }
+    // a side: the meadow hangs over the step's top third as a fringe, so terraces seen from above do not read
+    // as bare block edges
+    let up = fract(i.local.z);
+    let t = smoothstep(0.55, 0.85, up) * far;
+    if (t <= 0.0) { return c; }
+    let m = meadow_texel(vec2f(gp.x + gp.y, gp.z));
+    return mix(c, m * select(vec3f(1.0), tint, leafy(m)), t);
+}
 
-    // the patches fade to their mean where they would shrink under a pixel (no crawling noise far away)
-    let dist = length(i.rel);
-    let mottle = mix(0.8 + 0.25 * hash2(vec2u(vec2i(floor(gp.xy * 0.5)) + vec2i(1 << 20))), 0.925, smoothstep(150.0, 400.0, dist));
-    return c * climate_tint(cl.x, cl.y, 2u, 0.0) * mix(1.0, mottle * 0.88, far);
+// const: face 0's flag when it is the meadow ground (engine clutter::MEADOW)
+const MEADOW: u32 = 4u;
+// the meadow ground's texel at grid point p (metres across, 32 px a metre), the tile picked per column
+fn meadow_texel(p: vec2f) -> vec3f {
+    let f = sfaces[0];
+    let w = f.wh & 65535u;
+    let h = f.wh >> 16u;
+    let tiles = max(w / 32u, 1u);
+    let col = vec2i(floor(p)) + vec2i(1 << 20);
+    let tile = min(u32(hash2(vec2u(col)) * f32(tiles)), tiles - 1u);
+    let px = min(vec2u(fract(p) * 32.0), vec2u(min(w, 32u) - 1u, h - 1u)) + vec2u(tile * 32u, 0u);
+    // its painting's top row is the far side: y down
+    let t = unpack4x8unorm(spaint[f.base + (h - 1u - min(px.y, h - 1u)) * f.pw + px.x]);
+    return select(vec3f(0.3, 0.58, 0.2), t.rgb, (f.flags & MEADOW) != 0u);
 }
 
 @fragment

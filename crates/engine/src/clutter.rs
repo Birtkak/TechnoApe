@@ -190,10 +190,10 @@ fn choose(h: u64, kinds: &[(Kind, f32)], i: i32, j: i32, biome: u8, ground: u16,
     }
     let (kind, w) = found?;
     // which of that kind, by a second roll over their weights; four plants in five take their patch's roll
-    // (about 7 columns across, ragged at the edges), so a kind grows in drifts of its own
+    // (about 12 columns across, ragged at the edges), so a kind grows in drifts of its own
     let r = if kind == Kind::Plant && unit(mix(h ^ 0xd41f7)) < 0.8 {
         let jig = |k: u64| ((mix(h ^ k) & 3) as i32) - 1;
-        mix(PLANT_ROLL ^ ((i + jig(0x11)).div_euclid(7) as u32 as u64) << 32 ^ (j + jig(0x22)).div_euclid(7) as u32 as u64)
+        mix(PLANT_ROLL ^ ((i + jig(0x11)).div_euclid(12) as u32 as u64) << 32 ^ (j + jig(0x22)).div_euclid(12) as u32 as u64)
     } else {
         mix(h ^ 0x5eed)
     };
@@ -371,6 +371,9 @@ pub const PLANT: u32 = 1;
 /// And a shrub's (a plant of four planes or more): wider than tall, lopsided by its hash, seen twice as far as
 /// the grass (ADR 0091).
 pub const SHRUB: u32 = 2;
+/// The meadow ground's painting (`data/plants/meadow ground.png`, three 32 px tiles): never drawn as a face,
+/// always face 0, the grass tops take it where the plants have thinned (ADR 0091).
+pub const MEADOW: u32 = 4;
 /// A plant's painting's pixels a metre: 32, finer than a block's 16 so a blade reads (the developer's call of
 /// 2026-11-13; its size is its painting's, a column's painting 32 px wide so neighbours merge).
 pub const PLANT_PX: f32 = 32.0;
@@ -421,6 +424,16 @@ impl Still {
     pub fn load(dir: &std::path::Path, plants: &std::path::Path, palette: &Palette) -> (Still, Vec<String>) {
         let mut s = Still::default();
         let mut bad = Vec::new();
+        // face 0: the meadow ground, three 32 px tiles (the shader's `ground_tint` reads it), or a 1 px stand-in
+        let meadow = std::fs::read(plants.join("meadow ground.png")).map_err(|e| e.to_string()).and_then(|b| crate::models::painting(&b, palette));
+        let meadow = meadow.unwrap_or_else(|e| {
+            bad.push(format!("data/plants/meadow ground.png: {e}"));
+            crate::models::Painting { w: 1, h: 1, px: vec![[0x4c, 0x94, 0x33, 255]] }
+        });
+        let face = ([glam::Vec3::ZERO; 3], [0, 0, meadow.w, meadow.h]);
+        if let Err(e) = s.push("meadow ground", &meadow, vec![face], MEADOW) {
+            bad.push(e);
+        }
         for r in CLUTTER.iter() {
             let mut alts = Vec::new();
             let mut looks = Vec::new();
@@ -630,6 +643,9 @@ mod tests {
         assert!(bad.is_empty(), "{bad:?}");
         assert_eq!(s.rows.len(), CLUTTER.len());
         assert!(s.rows.iter().all(|a| !a.is_empty()), "every row has a model or painting");
+        // the meadow ground the far grass tops take is face 0, three 32 px tiles side by side (ADR 0091)
+        assert_eq!(s.faces[0][13], MEADOW, "the meadow ground is face 0");
+        assert_eq!(s.faces[0][12], 96 | 32 << 16, "three tiles of 32 x 32");
         assert!(s.faces.len() < 2000, "{} faces", s.faces.len());
         // in the cell's metres: every corner within a block of the cell (a plant up to 2.5 m high), none of them
         // in pixels or voxels
