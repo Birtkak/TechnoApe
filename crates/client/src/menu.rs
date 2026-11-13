@@ -908,7 +908,7 @@ impl App {
         }
         (self.sel, self.rebind) = (None, None);
         self.menu = m;
-        (self.held, self.mouse) = (None, (0.0, 0.0));
+        (self.held, self.mouse, self.globe.drag) = (None, (0.0, 0.0), None);
         self.keys.clear();
         self.zoomed &= self.settings.at(S::ZoomMode) == 1;
         if self.onscreen {

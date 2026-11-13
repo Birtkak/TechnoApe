@@ -177,7 +177,7 @@ impl ApplicationHandler for App {
                             KeyCode::Enter | KeyCode::NumpadEnter => self.act("go"),
                             KeyCode::Delete => self.act("remove"),
                             // the globe's own key closes it as it opened it
-                            c if self.menu == Some(Menu::Globe) && self.settings.acts_of(Bind::Key(c)).any(|a| a == settings::Act::Map) => self.act("map"),
+                            c if !repeat && self.menu == Some(Menu::Globe) && self.settings.acts_of(Bind::Key(c)).any(|a| a == settings::Act::Map) => self.act("map"),
                             _ => {}
                         }
                     }
@@ -213,7 +213,7 @@ impl ApplicationHandler for App {
                 self.drag = None;
                 self.save_settings();
             }
-            WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } if self.globe.drag.is_some() => self.globe_release(),
+            WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } if self.globe.drag.is_some() && self.menu == Some(Menu::Globe) => self.globe_release(),
             WindowEvent::MouseWheel { delta, .. } if self.menu == Some(Menu::Globe) && !self.texting() => {
                 let y = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y as f64,
@@ -381,7 +381,7 @@ pub fn main() {
     if run != "play" || args.s("mode", "") == "creative" {
         link.send(ToServer::Creative(true)); // the edit benchmark places stone it never dug
     }
-    let (_id, mut world, seed) = match link.rx.recv_timeout(Duration::from_secs(10)) {
+    let (my_id, mut world, seed) = match link.rx.recv_timeout(Duration::from_secs(10)) {
         Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, items, map, luna }) => {
             assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
             assert_eq!(items, engine::items::ITEMS.hash, "the server's build has other items (data/items.toml)");
@@ -507,11 +507,12 @@ pub fn main() {
     let models = models::Models::new(&args);
     // the globe's pictures start on a worker now; what was seen is kept beside the save (ADR 0077); the
     // meridians as `App::meridian` has them
-    let globe = globe::State::new(
+    let mut globe = globe::State::new(
         [world.bodies[0].map().cloned(), world.bodies.get(1).and_then(|b| b.map().cloned())],
         [world.bodies[0].spawn_point() - world.bodies[0].centre, -DVec3::X],
         save_path.as_ref().map(|s| format!("{s}.seen")),
     );
+    globe.id = my_id;
     let mut app = App {
         time0,
         args,

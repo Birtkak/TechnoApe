@@ -244,8 +244,9 @@ pub struct State {
     pub zeros: [DVec3; 2],
     /// When the masks were last written to their file.
     pub saved: std::time::Instant,
-    /// Every player the server lists, with where they are (`ToClient::Players`).
+    /// Every player the server lists, with where they are (`ToClient::Players`), and this player's id in it.
     pub others: Vec<engine::net::Player>,
+    pub id: u32,
 }
 
 impl State {
@@ -267,12 +268,15 @@ impl State {
         let cut = SIZE[0].0 * SIZE[0].1 / 8;
         let seen = [Seen::from_bytes(SIZE[0], bytes.get(..cut).unwrap_or(&[])), Seen::from_bytes(SIZE[1], bytes.get(cut..).unwrap_or(&[]))];
         let view = View { cx: 0.0, cy: 0.0, r: 1.0, lat: 0.0, lon: 0.0 };
-        State { pictures: Some(rx), seen, dirty: (true, false), marked: None, view, zoom: 1.0, body: 0, drag: None, file, zeros, saved: std::time::Instant::now(), others: Vec::new() }
+        State { pictures: Some(rx), seen, dirty: (true, false), marked: None, view, zoom: 1.0, body: 0, drag: None, file, zeros, saved: std::time::Instant::now(), others: Vec::new(), id: 0 }
     }
     /// Writes what was seen to its file when it changed; an error is the caller's to tell.
     pub fn save(&mut self) -> std::io::Result<()> {
         if let (Some(f), true) = (&self.file, self.dirty.1) {
-            std::fs::write(f, [self.seen[0].to_bytes(), self.seen[1].to_bytes()].concat())?;
+            // a new file renamed over the old: a crash while writing never leaves a short one (read as nothing seen)
+            let tmp = format!("{f}.tmp");
+            std::fs::write(&tmp, [self.seen[0].to_bytes(), self.seen[1].to_bytes()].concat())?;
+            std::fs::rename(&tmp, f)?;
             self.dirty.1 = false;
         }
         Ok(())

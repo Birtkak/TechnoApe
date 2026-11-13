@@ -29,6 +29,13 @@
 - `cargo test -p client --lib globe`: 9 tests (projection round trip, drag, seen cap vs. the texel-by-texel reference, file, layout).
 - Filmstrips: `prototypes/globe-map/shots/` (sunset terminator through the player, midnight, waypoints, 5x zoom, Luna).
 
-## Not done
-- Fresh reviewer pass (principle 12), `bash tools/check.sh fast`, views, merge into main, `playtest.sh build`.
-- In-game frame-time numbers for the open globe (expected near zero CPU; GPU one full-screen fragment pass).
+## Review (fresh subagent, principle 12)
+- Fixed: holding M flickered the map open and shut (key repeat reached the menu's close); a drag left over from the
+  globe stole a later left release (the release is the globe's only while it is open, and `set_menu` drops the drag);
+  the seen file is written to `.tmp` and renamed, so a crash cannot shorten it to "nothing seen"; you no longer show
+  twice (the roster is filtered by your id, not by position, which lags the prediction).
+- Answered: the roster each second is about 150 KB/s at 50 bots, kept; marking from orbit is about 1 ms twice a
+  second while moving, within budget, left on the frame thread; Luna is told by its map's version (Luna's count
+  from 101, `bake::luna`), kept; a client joined with `connect=` has no save, so survival's seen-mask lasts a
+  session there, like waypoints (shortcut until per-server files).
+- Confirmed fine: the shader's offsets and head fields against `globe.rs`, the math, the sun's frame, no NaN or index risk.

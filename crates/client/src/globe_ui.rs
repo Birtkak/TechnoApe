@@ -186,7 +186,7 @@ impl App {
         // the other players on this body, small and white with their names
         for o in &g.others {
             let pos = DVec3::from_array(o.pos);
-            if (pos - self.me.pos).length() < 0.5 || w.frame_at(pos) != b {
+            if o.id == g.id || w.frame_at(pos) != b {
                 continue;
             }
             if let Some((x, y)) = at(pos - body.centre) {
