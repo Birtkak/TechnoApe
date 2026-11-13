@@ -15,6 +15,8 @@ pub(crate) const HIT_GAIN: f32 = 0.45;
 pub(crate) const HIT_PITCH: f32 = 1.3;
 /// A placed block grows into place this long (data/effects.toml's grow: its `grow` share of its life).
 pub(crate) const GROW_S: f64 = 0.1;
+/// Seconds between takes of a slump's hiss while blocks keep moving (ADR 0101): about a take's length, so they roll on.
+pub(crate) const SLUMP_S: f64 = 0.45;
 /// The block in hand's bob with the steps (ADR 0031): left and down by its pixels once a footstep, by the
 /// metres walked since the last one (`walked`, which the footsteps' sound keeps).
 pub(crate) const BOB: fx::Track<[f32; 2]> =
@@ -110,6 +112,10 @@ pub(crate) struct App {
     /// Blocks this player placed, growing into place: when their mesh may show (the clock `start`), the cell,
     /// the block, the grow's tag, and whether the mesh was asked for (play.rs `apply`).
     pub(crate) growing: Vec<(f64, Block, u16, u32, bool)>,
+    /// Loose blocks gliding into the cells the server moved them to (ADR 0101), with when each was asked to show
+    /// in the terrain (the clock `start`) once its glide ended; and when the slump's hiss may play again.
+    pub(crate) glides: Vec<(fx::Glide, Option<f64>)>,
+    pub(crate) slump_quiet: f64,
     /// The survival dig (ADR 0034): what is held and kept (on the clock `start`, as the server keeps it on
     /// its own), the last hit, and whether to go on to the next block under the aim; the other players' digs
     /// by id: shape, share done and gained a second as told, when told, their last hit.

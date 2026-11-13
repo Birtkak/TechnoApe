@@ -45,7 +45,8 @@ pub struct Params {
     pub exchange: f32,
     /// air's heat capacity per metre of layer, J/m^3/K
     pub cap_air: f32,
-    /// K per metre the air cools with height near the ground (compressed: a 120 m peak is 12 K colder),
+    /// K per metre the air cools with height near the ground (compressed: a 120 m hill is 12 K colder, a 350 m
+    /// peak 18 K, ADR 0105),
     /// and above 150 m
     pub lapse: f32,
     pub lapse_up: f32,

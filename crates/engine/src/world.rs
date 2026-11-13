@@ -41,8 +41,8 @@ pub const P: usize = 34; // padded edge
 /// Gravity at a body's surface, m/s^2 (ADR 0007, 0024).
 pub const G: f64 = 9.81;
 /// No generated surface lies farther than this from a body's radius (m), plants included: a baked planet's
-/// 120 m peaks (ADR 0042) and its tallest tree.
-pub const AMP: f64 = 140.0;
+/// stretched peaks (350 m on the 4 km planet, ADR 0105; 140 before) and its tallest tree.
+pub const AMP: f64 = 400.0;
 /// The noise land's bound (ADR 0021), AMP before ADR 0043.
 const NOISE_AMP: f64 = 80.0;
 /// The deepest a baked sea floor lies under the sea level, metres: the bake's 60 m would reach `r0`.
@@ -526,7 +526,9 @@ impl Body {
         if let Some(c) = b.map.river(face, i * s, j * s, d, (1u32 << level) as f32) {
             h = h.min(c.cut as f64).max(c.floor as f64);
         }
-        self.radius - SEA_DEPTH + h.clamp(-FLOOR, AMP - SEA_DEPTH - 2.0 - TALLEST as f64)
+        // maps from before ADR 0105's peaks keep the clamp of AMP 140, so their worlds keep their ground to the bit
+        let amp = if b.map.version == crate::bake::VERSION { AMP } else { 140.0 };
+        self.radius - SEA_DEPTH + h.clamp(-FLOOR, amp - SEA_DEPTH - 2.0 - TALLEST as f64)
     }
     /// Face point (i, j) moved by the jitter noise at d, in columns: biome borders and patches wander.
     fn jittered(&self, b: &Baked, i: f64, j: f64, d: DVec3) -> (f64, f64) {
@@ -761,7 +763,7 @@ impl Body {
         }
         self.ore_z = ores
             .iter()
-            .map(|o| if crate::ore::MINERALS.kinds[o.kind as usize].shape.follows_ground() { (self.layer_of(self.radius - AMP - o.at.z - o.h) - 1.0, self.layer_of(self.radius + AMP) + 1.0) } else { (o.at.z - o.h - 1.0 - reach(o), o.at.z + o.h + 1.0 + reach(o)) })
+            .map(|o| if crate::ore::MINERALS.kinds[o.kind as usize].shape.follows_ground() { (self.layer_of((self.radius - AMP - o.at.z - o.h).max(self.r0)) - 1.0, self.layer_of(self.radius + AMP) + 1.0) } else { (o.at.z - o.h - 1.0 - reach(o), o.at.z + o.h + 1.0 + reach(o)) })
             .collect();
         self.ores = ores;
     }
@@ -3546,7 +3548,7 @@ mod baked_tests {
                     let k = (level as i32 - (1.0 / s).log2().round() as i32).max(0) as usize;
                     let p = d * b.radius;
                     let old = old_spline(face, i * s, j * s, k) as f64 + DETAIL_M * bk.detail.get_noise_3d(p.x as f32, p.y as f32, p.z as f32) as f64;
-                    let want = b.radius - SEA_DEPTH + old.clamp(-FLOOR, AMP - SEA_DEPTH - 2.0 - TALLEST as f64);
+                    let want = b.radius - SEA_DEPTH + old.clamp(-FLOOR, 140.0 - SEA_DEPTH - 2.0 - TALLEST as f64);
                     assert_eq!(b.height_at(face, i, j, d, level).to_bits(), want.to_bits(), "face {face} ({i}, {j}) level {level}");
                 }
             }

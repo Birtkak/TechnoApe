@@ -1033,6 +1033,21 @@ impl App {
         }
     }
 
+    /// A loose block the server moved from `from` to `to` (ADR 0101): it glides there, the terrain meshing `to` as
+    /// air meanwhile, and sheds grains of itself; a block already gliding into `from` carries on.
+    pub(crate) fn glide(&mut self, from: Block, to: Block, m: u16) {
+        let now = self.start.elapsed().as_secs_f64();
+        if let Some((g, shown)) = self.glides.iter_mut().find(|(g, _)| g.to == from && g.block == m) {
+            self.streamer.gliding.retain(|b| *b != from);
+            g.chain(to, now);
+            *shown = None;
+        } else {
+            self.glides.push((fx::Glide::new(from, to, m, now), None));
+        }
+        self.streamer.gliding.push(to);
+        self.fx.play(fx::id("grains"), &fx::At::cell(&self.world, from, m));
+    }
+
     /// One placed block grows into place over its cell (ADR 0031); its own mesh waits until the grow is done
     /// (frame.rs).
     pub(crate) fn grow(&mut self, b: Block, m: u16) {

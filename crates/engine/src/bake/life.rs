@@ -243,8 +243,8 @@ pub fn life(b: &Bake, seed: u64, p: &LifeParams) -> Life {
     let theta = upsample(&ga, g, &m.theta);
     let rain = upsample(&ga, g, &m.rain);
     let swing = upsample(&ga, g, &m.swing);
-    let lapse = super::air::Params::default().lapse;
-    let temp: Vec<f32> = (0..n).map(|c| theta[c] - lapse * b.h[c].max(0.0)).collect();
+    let air_p = super::air::Params::default();
+    let temp: Vec<f32> = (0..n).map(|c| theta[c] - air_p.cool(b.h[c])).collect();
     lap("climate to cells", &mut times);
 
     // stage 6: rain less evaporation runs down the receivers (an order upstream first)

@@ -33,6 +33,15 @@ static SEE: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| bits(|id| !crate::bloc
 static GLASS: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| bits(|id| crate::blocks::BLOCKS.glass(id)));
 static JOINS: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| bits(|id| crate::blocks::BLOCKS.joins(id)));
 static WOOD: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| bits(|id| crate::blocks::BLOCKS.wood(id)));
+/// The loose blocks that fall (sand, gravel, rubble; ADR 0079), whose tops are drawn as slopes (ADR 0101). Every
+/// id, not only the placeable: rubble is made by digging.
+static FALLS: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| {
+    let mut t = Box::new([0u64; 1024]);
+    for id in (0..=u16::MAX).filter(|&id| crate::blocks::BLOCKS.get(id).is_some_and(|d| d.falls)) {
+        t[id as usize >> 6] |= 1 << (id & 63);
+    }
+    t
+});
 fn bits(f: impl Fn(u16) -> bool) -> Box<[u64; 1024]> {
     let mut t = Box::new([0u64; 1024]);
     for d in crate::blocks::BLOCKS.placeable().filter(|d| f(d.id)) {
@@ -68,21 +77,23 @@ pub enum Cut {
 /// `glass`: the cells may hold glass. Generation makes none, so a `Solid` chunk without edits passes false and
 /// its first pass looks at no block's kind, as before glass.
 pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool) -> Mesh {
-    mesh_cracked(cells, lattice, cut, glass, None)
+    mesh_cracked(cells, lattice, cut, glass, None, &[])
 }
 
 /// `mesh_cut`, and `cracks` (per cell its joint faces and the bedding line across each side face, `stream::cracks`,
 /// padded as `cells`) draws each crack on the faces beside it: those faces never merge. Bits 20-31 of a quad are the
 /// crack's on rock and the twigs' (ADR 0090) on a cutout block: rock that cracks is never cutout.
-pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool, cracks: Option<&[[u8; 5]; P * P * P]>) -> Mesh {
+/// `held`: padded cells meshed as air that the slopes take as loose blocks (ADR 0101: a block gliding in, drawn by
+/// the client meanwhile), so its neighbours keep the shape they will have when it lands.
+pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool, cracks: Option<&[[u8; 5]; P * P * P]>, held: &[usize]) -> Mesh {
     let cutout = cut != Cut::Solid;
     // cols[a][v*P+u] = bits along axis a; u = (a+1)%3, v = (a+2)%3. opq: the same of the cells that hide what is
     // behind them, and gls of glass, made only for a chunk with glass or (fancy) cutout blocks
     let mut cols = [[0u64; P * P]; 3];
     let mut opq_cols: Vec<[u64; P * P]> = Vec::new();
     let mut gls_cols: Vec<[u64; P * P]> = Vec::new();
-    let (see_t, glass_t): (&[u64; 1024], &[u64; 1024]) = (&SEE, &GLASS);
-    let (mut any_see, mut glass_seen) = (false, false);
+    let (see_t, glass_t, falls_t): (&[u64; 1024], &[u64; 1024], &[u64; 1024]) = (&SEE, &GLASS, &FALLS);
+    let (mut any_see, mut glass_seen, mut any_fall) = (false, false, false);
     for z in 0..P {
         for y in 0..P {
             for x in 0..P {
@@ -95,10 +106,12 @@ pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: b
                         any_see = true;
                         glass_seen |= glass && is_in(glass_t, c);
                     }
+                    any_fall |= is_in(falls_t, c);
                 }
             }
         }
     }
+    let slope = if any_fall { slopes(cells, falls_t, held) } else { None };
     let (mut any_cut, mut any_glass) = (false, false);
     if glass_seen || cutout && any_see {
         // a second pass, only in a chunk with glass or cutout blocks
@@ -169,6 +182,10 @@ pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: b
                             }
                         }
                     }
+                    if let (Some(sl), true) = (&slope, a < 2) {
+                        // a loose block's side against a loose neighbour whose top may slope down there (ADR 0101)
+                        f |= sl.extra[dir][(v + 1) * P + (u + 1)];
+                    }
                     let mut bits = (f >> 1) & 0xFFFF_FFFF;
                     while bits != 0 {
                         let d = bits.trailing_zeros() as usize;
@@ -208,17 +225,24 @@ pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: b
                 }
                 bits
             };
+            // the padded index of the face's cell at plane coordinates (u, v, d), each already + 1
+            let at = |u: usize, v: usize, d: usize| match a {
+                0 => pidx(d, u, v),
+                1 => pidx(v, d, u),
+                _ => pidx(u, v, d),
+            };
+            // the face's lowered corners (ADR 0101): bit du + 2 dv, as the occlusion's corners
+            let drops = |u: usize, v: usize, d: usize| -> u32 {
+                let Some(sl) = &slope else { return 0 };
+                face_drops(sl.drops[at(u + 1, v + 1, d + 1)], dir)
+            };
             // the face's crack edges: its cell's crack faces across the plane's two axes, u-, u+, v-, v+
             let (au, av) = ((a + 1) % 3, (a + 2) % 3);
             // and, on a side face, the bedding line across it (bits 24-31, `crack::bed`)
             let edges = |u: usize, v: usize, d: usize| -> u32 {
                 let Some(k) = cracks else { return 0 };
                 let (u, v, d) = (u + 1, v + 1, d + 1);
-                let k = &k[match a {
-                    0 => pidx(d, u, v),
-                    1 => pidx(v, d, u),
-                    _ => pidx(u, v, d),
-                }];
+                let k = &k[at(u, v, d)];
                 let f = k[0] as u32;
                 let bed = if dir < 4 { k[1 + dir] as u32 } else { 0 };
                 (f >> (2 * au + 1) & 1) | (f >> (2 * au) & 1) << 1 | (f >> (2 * av + 1) & 1) << 2 | (f >> (2 * av) & 1) << 3 | bed << 4
@@ -236,11 +260,13 @@ pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: b
                         // a joining block's face never merges: each knows its own sides
                         let jm = is_in(joins_t, m);
                         let ck = edges(u, v, d);
+                        // a crack's edges win over a slope (both ride on bits 20-23)
+                        let dr = if ck == 0 { drops(u, v, d) } else { 0 };
                         // a cutout block's face never merges either: each carries its own way to wood and its
-                        // own fluff (ADR 0090)
-                        let merge = lattice > 1 && o == 0 && !jm && ck == 0 && !(any_cut && is_in(cut_t, m));
+                        // own fluff (ADR 0090); nor does a sloped one
+                        let merge = lattice > 1 && o == 0 && !jm && ck == 0 && dr == 0 && !(any_cut && is_in(cut_t, m));
                         // a merged quad has one occlusion per corner: only open faces merge
-                        let open = |u: usize, v: usize| ao(u, v, d) == 0 && edges(u, v, d) == 0;
+                        let open = |u: usize, v: usize| ao(u, v, d) == 0 && edges(u, v, d) == 0 && drops(u, v, d) == 0;
                         let mut w = 1;
                         if merge {
                             // never across a lattice line
@@ -266,7 +292,7 @@ pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: b
                             _ => (u, v, dd),
                         };
                         let lo = x as u32 | (y as u32) << 6 | (z as u32) << 12 | ((w - 1) as u32) << 18
-                            | ((h - 1) as u32) << 23 | (dir as u32) << 28;
+                            | ((h - 1) as u32) << 23 | (dir as u32) << 28 | ((dr != 0) as u32) << 31;
                         let g = if any_glass && is_in(glass_t, m) {
                             7
                         } else if any_cut && is_in(cut_t, m) {
@@ -280,7 +306,7 @@ pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: b
                             // bit 25: it opens on air (the client's fluff grows there only)
                             j |= ((!occ(u + 1, v + 1, if s == 0 { d + 2 } else { d })) as u32) << 9;
                         }
-                        groups[g].push([lo, m as u32 | o << 8 | j << 16 | ck << 20]);
+                        groups[g].push([lo, m as u32 | o << 8 | j << 16 | (ck | dr) << 20]);
                     }
                 }
             }
@@ -299,6 +325,88 @@ pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: b
     }
     let n_cut = groups[6].len() as u32;
     Mesh { quads, counts, cut: n_cut, ray_cut: if cut == Cut::Full { n_cut } else { 0 }, fluff: n_fluff, glass: groups[7].len() as u32, still: 0, water: 0 }
+}
+
+/// The slopes of a chunk's loose blocks (ADR 0101), from its padded cells.
+struct Slope {
+    /// Per padded cell, the corners of its top lowered by a cell: bit cx + 2 cy, corner (cx, cy) the grid point
+    /// at x + cx, y + cy.
+    drops: Vec<u8>,
+    /// Side faces drawn although a loose neighbour hides them, per direction 0..4, as the mesher's columns
+    /// (`cols[a]`, bits along the axis): where the neighbour's top may slope away below this block's.
+    extra: Box<[[u64; P * P]; 4]>,
+}
+
+/// A loose block with open air over it draws its top as a slope (ADR 0101): a corner of its top comes down a cell
+/// where the grid point may sink. A point sinks when, of the four cells around it at the block's layer, one is
+/// open, every other one is a loose block, and the four over them are open: a function of the point alone, so
+/// every face that meets there agrees, in this chunk and its neighbours (the padding holds all four). A block
+/// whose four corners would all sink keeps its top (a lone block or a ridge one wide stays a block, not a sheet).
+/// Where a neighbour's top sinks and this one's does not, the side between them shows: each loose block draws its
+/// side toward a loose neighbour where a corner of that side may sink, with its own corners' heights.
+fn slopes(cells: &[u16; P * P * P], falls_t: &[u64; 1024], held: &[usize]) -> Option<Slope> {
+    // a held cell reads as a loose block (`HELD`), though it is meshed as air
+    const HELD: u16 = u16::MAX;
+    let cell = |i: usize| if held.contains(&i) { HELD } else { cells[i] };
+    let loose = |c: u16| c == HELD || c != 0 && is_in(falls_t, c);
+    // grid point (x, y) at the top of layer z: x, y the cell after it, 1..P-1
+    let sinks = |x: usize, y: usize, z: usize| {
+        let around = [(x - 1, y - 1), (x, y - 1), (x - 1, y), (x, y)];
+        around.iter().all(|&(i, j)| cell(pidx(i, j, z + 1)) == 0)
+            && around.iter().any(|&(i, j)| cell(pidx(i, j, z)) == 0)
+            && around.iter().all(|&(i, j)| { let c = cell(pidx(i, j, z)); c == 0 || loose(c) })
+    };
+    let mut out: Option<Slope> = None;
+    for z in 1..P - 1 {
+        for y in 1..P - 1 {
+            for x in 1..P - 1 {
+                if !(cells[pidx(x, y, z)] != 0 && loose(cells[pidx(x, y, z)])) || cell(pidx(x, y, z + 1)) != 0 {
+                    continue;
+                }
+                let mut d = 0u8;
+                for c in 0..4 {
+                    d |= (sinks(x + (c & 1), y + (c >> 1), z) as u8) << c;
+                }
+                // each side (+x, -x, +y, -y) and its two corners
+                let edge = [0b1010u8, 0b0101, 0b1100, 0b0011];
+                let near = [pidx(x + 1, y, z), pidx(x - 1, y, z), pidx(x, y + 1, z), pidx(x, y - 1, z)];
+                let extra: Vec<usize> = (0..4).filter(|&s| d & edge[s] != 0 && loose(cell(near[s]))).collect();
+                if d == 15 {
+                    d = 0;
+                }
+                if d == 0 && extra.is_empty() {
+                    continue;
+                }
+                let sl = out.get_or_insert_with(|| Slope { drops: vec![0; P * P * P], extra: Box::new([[0; P * P]; 4]) });
+                sl.drops[pidx(x, y, z)] = d;
+                for s in extra {
+                    // a = x: u = y, v = z; a = y: u = z, v = x (the mesher's columns)
+                    if s < 2 {
+                        sl.extra[s][z * P + y] |= 1 << x;
+                    } else {
+                        sl.extra[s][x * P + z] |= 1 << y;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// A cell's lowered top corners (`Slope::drops`) as its face `dir` has them: bit du + 2 dv of the face's corner
+/// (u, v as the mesher lays a face's plane out); a side's top edge comes down with the top, its foot never.
+fn face_drops(d: u8, dir: usize) -> u32 {
+    let at = |cx: u32, cy: u32| (d as u32 >> (cx + 2 * cy)) & 1;
+    match dir {
+        4 => d as u32,
+        // +x, -x: u = y, v = z, the top's corners at dv = 1
+        0 => at(1, 0) << 2 | at(1, 1) << 3,
+        1 => at(0, 0) << 2 | at(0, 1) << 3,
+        // +y, -y: u = z, v = x, the top's corners at du = 1
+        2 => at(0, 1) << 1 | at(1, 1) << 3,
+        3 => at(0, 0) << 1 | at(1, 0) << 3,
+        _ => 0,
+    }
 }
 
 /// Each padded cell's way to wood through cutout blocks (ADR 0090): the world direction 0..6 (+x, -x, +y, -y,
@@ -453,7 +561,7 @@ mod tests {
         }
         k[pidx(3, 1, 1)][0] = crate::crack::PL;
         let plain = mesh_cut(&c, 8, Cut::Solid, false);
-        let m = mesh_cracked(&c, 8, Cut::Solid, false, Some(&k));
+        let m = mesh_cracked(&c, 8, Cut::Solid, false, Some(&k), &[]);
         let cracked: Vec<[u32; 2]> = m.quads.iter().copied().filter(|q| q[1] >> 20 != 0).collect();
         assert_eq!(cracked.len(), 2, "{cracked:?}");
         for q in &cracked {
@@ -461,11 +569,11 @@ mod tests {
             assert!([2, 3].contains(&(q[0] >> 28 & 7)), "the y faces");
         }
         assert_eq!(m.quads.len(), plain.quads.len() + 4, "each y face split in three");
-        assert_eq!(mesh_cracked(&c, 8, Cut::Solid, false, None).quads, plain.quads);
+        assert_eq!(mesh_cracked(&c, 8, Cut::Solid, false, None, &[]).quads, plain.quads);
         // a bedding line on the cell's +j face rides on bits 24-31 of that face alone, and stops its merge too
         let mut k = [[0u8; 5]; P * P * P];
         k[pidx(3, 1, 1)][1 + 2] = 0xa5;
-        let m = mesh_cracked(&c, 8, Cut::Solid, false, Some(&k));
+        let m = mesh_cracked(&c, 8, Cut::Solid, false, Some(&k), &[]);
         let lined: Vec<[u32; 2]> = m.quads.iter().copied().filter(|q| q[1] >> 20 != 0).collect();
         assert_eq!(lined.len(), 1, "{lined:?}");
         assert_eq!((lined[0][1] >> 24, lined[0][1] >> 20 & 15, lined[0][0] >> 28 & 7, lined[0][0] >> 18 & 1023), (0xa5, 0, 2, 0));
@@ -647,6 +755,140 @@ mod tests {
             assert!(m.quads[..g0].iter().all(|q| !b.glass((q[1] & 255) as u16)));
             assert!(m.cut > 0, "the cutout quads are grouped fast or fancy");
         }
+    }
+
+    /// A quad's two triangles in cells, as shader.wgsl's `quad_corner` places them (ADR 0101): a sloped quad
+    /// (bit 31) lowers corner (du, dv) by a cell where bit 20 + du + 2 dv is set, and splits along the other
+    /// diagonal when its (0, 0) and (1, 1) corners differ.
+    fn triangles(q: &[u32; 2]) -> [[[i32; 3]; 3]; 2] {
+        let lo = q[0];
+        let p = [(lo & 63) as i32, (lo >> 6 & 63) as i32, (lo >> 12 & 63) as i32];
+        let (w, h, dir, sloped) = ((lo >> 18 & 31) as i32 + 1, (lo >> 23 & 31) as i32 + 1, (lo >> 28 & 7) as usize, lo >> 31 == 1);
+        let drop = |du: u32, dv: u32| if sloped { (q[1] >> (20 + du + 2 * dv) & 1) as i32 } else { 0 };
+        let alt = sloped && drop(0, 0) != drop(1, 1);
+        let (cu, cv) = if alt { ([0, 1, 0, 1, 1, 0], [0, 0, 1, 0, 1, 1]) } else { ([0, 1, 1, 0, 1, 0], [0, 0, 1, 0, 1, 1]) };
+        let a = dir / 2;
+        let corner = |k: usize| {
+            let (du, dv) = if dir % 2 == 1 { (cv[k], cu[k]) } else { (cu[k], cv[k]) };
+            let mut c = p;
+            c[(a + 1) % 3] += du as i32 * w;
+            c[(a + 2) % 3] += dv as i32 * h;
+            c[2] -= drop(du, dv);
+            c
+        };
+        [[corner(0), corner(1), corner(2)], [corner(3), corner(4), corner(5)]]
+    }
+
+    /// ADR 0101: a loose block's top slopes down a cell at the corners where the ground beside it is a step lower;
+    /// a lone block, a ridge one wide and a corner against stone keep theirs; its sides' top edges follow.
+    #[test]
+    fn a_loose_tops_corners_come_down_toward_a_lower_step() {
+        let b = &crate::blocks::BLOCKS;
+        let (stone, sand) = (b.id("stone"), b.id("sand"));
+        let mut c = Box::new([0u16; P * P * P]);
+        for x in 3..30 {
+            for y in 3..30 {
+                c[pidx(x, y, 5)] = stone;
+            }
+        }
+        // a terrace four wide, three deep; a lone block; a ridge one wide; sand against a stone
+        for x in 6..=9 {
+            for y in 6..=8 {
+                c[pidx(x, y, 6)] = sand;
+            }
+        }
+        c[pidx(20, 20, 6)] = sand;
+        for x in 14..=18 {
+            c[pidx(x, 25, 6)] = sand;
+        }
+        c[pidx(20, 12, 6)] = sand;
+        c[pidx(21, 12, 6)] = stone;
+        let m = mesh(&c, 1);
+        let quad = |cell: [usize; 3], dir: u32| *m.quads.iter().find(|q| face_of(q).0 == cell.map(|v| v - 1) && face_of(q).1 == dir).expect("face");
+        let drops = |cell: [usize; 3], dir: u32| {
+            let q = quad(cell, dir);
+            if q[0] >> 31 == 1 { q[1] >> 20 & 15 } else { 0 }
+        };
+        assert_eq!(drops([8, 8, 6], 4), 0b1100, "the +y edge: its two +y corners down");
+        assert_eq!(drops([8, 7, 6], 4), 0, "inside the terrace");
+        assert_eq!(drops([9, 8, 6], 4), 0b1110, "the outer corner: all but the inner corner down");
+        assert_eq!(drops([20, 20, 6], 4), 0, "a lone block stays a block");
+        assert_eq!(drops([16, 25, 6], 4), 0, "a ridge one wide stays");
+        assert_eq!(drops([20, 12, 6], 4), 0b0101, "the corners at the stone stay up");
+        // the side under the +y edge comes down to nothing; the +x side of the outer corner keeps one corner up
+        assert_eq!(drops([8, 8, 6], 2), 0b1010, "a +y side (u = z, v = x): both top corners down");
+        assert_eq!(drops([9, 8, 6], 0), 0b1100, "a +x side (u = y, v = z): both top corners down");        // the drawn corners: the edge's top runs from the cell's top at its back to a cell lower at its front
+        let ts = triangles(&quad([8, 8, 6], 4));
+        let mut zs: Vec<[i32; 3]> = ts.iter().flatten().copied().collect();
+        zs.sort();
+        zs.dedup();
+        assert_eq!(zs, vec![[7, 7, 6], [7, 8, 5], [8, 7, 6], [8, 8, 5]], "the ramp's corners in chunk cells (0-based)");
+        // a block gliding into the edge (meshed as air, held): its neighbour keeps the shape it has with it there
+        c[pidx(7, 8, 6)] = 0;
+        let held = mesh_cracked(&c, 1, Cut::Solid, false, None, &[pidx(7, 8, 6)]);
+        let d = |m: &Mesh| { let q = m.quads.iter().find(|q| face_of(q).0 == [7, 7, 5] && face_of(q).1 == 4).unwrap(); if q[0] >> 31 == 1 { q[1] >> 20 & 15 } else { 0 } };
+        assert_eq!(d(&held), 0b1100, "held: as with the block there");
+        assert_ne!(d(&mesh(&c, 1)), 0b1100, "not held: it slopes toward the hole");
+    }
+
+    /// ADR 0101: with slopes the terrain is still closed: every edge of a drawn triangle is met by another (an even
+    /// count), over random heaps of sand and gravel with stones among them, across the edge between two chunks.
+    #[test]
+    fn slopes_leave_no_gap_within_or_between_chunks() {
+        use std::collections::HashMap;
+        let b = &crate::blocks::BLOCKS;
+        let (stone, sand, gravel) = (b.id("stone"), b.id("sand"), b.id("gravel"));
+        // two chunks along x: padded cells 0..66, the second's padded x 0 the first's 32
+        const W: usize = 66;
+        let mut world = vec![0u16; W * P * P];
+        let wi = |x: usize, y: usize, z: usize| x + y * W + z * W * P;
+        let mut h = 9u32;
+        let mut rnd = |n: u32| {
+            h ^= h << 13;
+            h ^= h >> 17;
+            h ^= h << 5;
+            h % n
+        };
+        for x in 4..62 {
+            for y in 4..30 {
+                world[wi(x, y, 4)] = stone;
+                let top = rnd(4) as usize;
+                for z in 5..5 + top {
+                    world[wi(x, y, z)] = if rnd(9) == 0 { stone } else if rnd(3) == 0 { gravel } else { sand };
+                }
+            }
+        }
+        let mut edges: HashMap<([i32; 3], [i32; 3]), u32> = HashMap::new();
+        let mut sloped = 0;
+        for (k, x0) in [(0, 0), (1, 32)] {
+            let mut c = Box::new([0u16; P * P * P]);
+            for z in 0..P {
+                for y in 0..P {
+                    for x in 0..P {
+                        c[pidx(x, y, z)] = world[wi(x0 + x, y, z)];
+                    }
+                }
+            }
+            let m = mesh(&c, 1);
+            for q in &m.quads {
+                sloped += (q[0] >> 31) as usize;
+                for t in triangles(q) {
+                    let t = t.map(|p| [p[0] + 32 * k, p[1], p[2]]);
+                    let (e1, e2) = (t[1].map(|v| v as i64), t[2].map(|v| v as i64));
+                    let o = t[0].map(|v| v as i64);
+                    let (a, b) = ([e1[0] - o[0], e1[1] - o[1], e1[2] - o[2]], [e2[0] - o[0], e2[1] - o[1], e2[2] - o[2]]);
+                    if [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]] == [0, 0, 0] {
+                        continue; // a side brought down to nothing
+                    }
+                    for (p, r) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                        *edges.entry(if p < r { (p, r) } else { (r, p) }).or_default() += 1;
+                    }
+                }
+            }
+        }
+        assert!(sloped > 100, "{sloped} sloped quads");
+        let open: Vec<_> = edges.iter().filter(|(_, n)| *n % 2 == 1).map(|(e, _)| *e).collect();
+        assert!(open.is_empty(), "{} edges met once, as {:?}", open.len(), &open[..open.len().min(6)]);
     }
 
     #[test]
