@@ -67,8 +67,9 @@ pub(crate) const LAMP_REACH: f64 = 48.0;
 /// middle, each a range into a list of the lamps that reach it: LAMP_R (as in shader.wgsl) or nearer, so a lamp
 /// is listed in at most 7^3 cells.
 pub(crate) const LAMP_G: usize = 32;
-pub(crate) const LAMP_CELL: f32 = 4.0;
-pub(crate) const LAMP_R: f32 = 12.0;
+// (8 m cells since the reach doubled, ADR 0072: a lamp still spans at most 7 cells an axis)
+pub(crate) const LAMP_CELL: f32 = 8.0;
+pub(crate) const LAMP_R: f32 = 24.0;
 pub(crate) const LAMP_GRID_LEN: usize = LAMP_G * LAMP_G * LAMP_G + 1 + MAX_LAMPS * 343;
 
 /// The blocks that give light within LAMP_REACH of the camera, nearest first: (body, middle, light).

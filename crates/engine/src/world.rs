@@ -829,6 +829,10 @@ impl Body {
         n
     }
 
+    /// Metres point `p` is over the sea level (none on a body without a sea).
+    pub fn over_sea(&self, p: DVec3) -> Option<f64> {
+        Some((p - self.centre).length() - self.layer_r(self.sea?))
+    }
     pub fn layer_of(&self, r: f64) -> f64 {
         (r / self.r0).ln() / self.lnq
     }
