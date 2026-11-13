@@ -133,3 +133,8 @@ implemented. Every change below either moves the lowland, the rivers or the biom
   are generated; small bodies (radius under 400 m) never take `generate`'s quick "solid" exit.
 - The fixed views that see the range (`orbit`, `high`, `lod`) change; the low ones change only where a biome
   moved with the climate.
+- The air up to AMP also cost the frame thread: the LOD walk (`Streamer::select`) visited about 4,500 more
+  slots a walk, fly `select` p50 0.73 -> 1.72 ms (bisected to this merge, 7c840305). The walk now passes over
+  a node's children when all are empty leaves for the camera, marking them as their visits would (the slow walk
+  kept as the test's reference, `stream::tests::the_walk_passes_over_empty_leaves_and_picks_the_same`): p50
+  about 1.1 ms. The rest goes only with a ceiling per region, so the walk makes no slots in the air (perf-debt).
