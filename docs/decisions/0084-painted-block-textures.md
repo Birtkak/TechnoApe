@@ -322,3 +322,19 @@ climate tint (part B) will multiply, so the tint moves them all and keeps them a
     - These names and sizes were proposed to the plants session (glass-clutter); its answer may move them.
   - Proof: the sheets `out/flora/plants-hd.png` and `meadow-vs-ref.png` (outline and depth, beside reference 4),
     and `far-vs-ref.png` and `far-plants.png` (distance), all read.
+- **Every mass, and only masses** (the developer, 2026-11-13: "everything biological more or less (things like
+  single flowers and mushrooms not)"):
+  - Outline, depth and a far version go to every plant that makes a mass: the leaves of every species, grasses,
+    wheat, ferns, reeds, bushes, the shrub, cactus, bamboo and palm fronds.
+  - Single flowers, mushrooms, sticks and stones stay rich but simple, with no far version. `flowers.far` is gone.
+  - New block paintings at 32:
+    - `reed` and its seasons: a stand of blades a block high, its top ragged (each variant's own outline, never
+      under half the block, so a row of reeds has no gaps);
+    - `shrub@spring` and `shrub@autumn`, from the same leaves as the shrub;
+    - `cactus` (the top: eight ribs meeting at a crown, with areoles) and `cactus_side` (four ribs a face, lit on
+      the left, a dark groove between, areoles with pale spines). The ribs line up across variants.
+  - Far block paintings: `data/textures/hd/far/<block>[@season].png`, 8 px a face. They are made the same way as
+    the plants' far paintings, for every leaves block, the shrub, reed and cactus. These names are proposed to
+    the crowns session.
+  - The palette now has 573 colours.
+  - Proof: `out/flora/masses-far.png`, each mass as 2x2 blocks beside its far painting at the same size, read.
