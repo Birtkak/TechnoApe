@@ -51,13 +51,21 @@ gravel 336, sand 113, clay 84, rock 18.
 
 ## Measured
 - `col_ground` over all 2.36 M columns of a face of the 1536 planet (release build, best of 3): main 105 ns a
-  column, this branch 172 ns. The first try sampled the slope off the map's spline four times (339 ns); one
-  cell's four neighbours do the same job. That is about 0.08 ms more worker time per level-0 tile of about
-  1,150 columns, on the workers, never the frame thread. Dry columns pay only `water_at`'s quick refusal.
+  column, this branch 142 ns. The first try sampled the slope off the map's spline four times (339 ns); one
+  cell's four neighbours do the same job (172 ns), and the beds' block ids looked up once, not by name per
+  column (142 ns). That is about 0.04 ms more worker time per level-0 tile of about 1,150 columns, on the
+  workers, never the frame thread. Dry columns pay only `water_at`'s quick refusal.
 - The bake is untouched: no time added, the map and its version unchanged. `Map::roughs` takes its slope from
   the same `cell_slope` with the same arithmetic, so a baked map's roughness is unchanged to the bit.
   `made_hash` (caves and ores) and the ore report do not depend on the ground's top blocks, so they are
   unchanged.
+
+Review: a fresh reviewer read the engine diff and found no wrong result. The roughness refactor is bit-identical,
+the coordinates are right at far levels and across seams, the river flow's unscaling matches, and the mesher and
+physics agree. It found two things, both fixed: block ids looked up by name on the hot path, and a steep bed on a
+map without provinces falling back to stone instead of the biome's rock, as `generated_under` does. It also
+noted that `water_at` works out the column's direction again, which `bed` already has. That one is left:
+it costs only on wet columns near water, and avoiding it would mean another variant of `water_tide`.
 
 ## Consequences
 - **Kept bakes** (`saves/bakes`) stay valid: no rebake. **Existing saves** keep their edits; every unedited bed
