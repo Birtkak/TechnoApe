@@ -66,7 +66,20 @@ water, and lets it tint the light that passes it "if the spike's numbers allow".
 - The indirect buffer grows by MAX_CHUNKS * 16 bytes for the glass draws.
 
 ## Measured
-(filled below)
+2026-11-13, play build, dev PC, `run=meshbench at=1125.34,3634.37,1915.81` (the spawn's forest, 6 x 13 x 13
+chunks, best of five each):
+- **The mesher's CPU cost: none.** A first build that tested every solid cell's kind cost 64.4 against main's
+  59.5 us a chunk (+8%); `mesh_cut` now looks at kinds only where glass can be (a chunk with edits: generation
+  makes none) or fancy leaves draw: 60.1 and 60.2 against main's 60.6 and 62.7, 966 quads a chunk either way.
+- Filmstrips read (`out/glass-day.png`, `out/glass-night.png`: a 7 x 7 house of clear panes with a green and an
+  amber one, a lamp inside, `at=0.0347,0.8675,0.4975 eye=4 pitch=-25 yaw=180`): by day the panes read as framed
+  panes and amber and green light lies on the floor inside; by night the lamp lights the frames and the floor.
+- The fast gate after main was merged in: tests, soak and replay ok; stand p99 3.7 ms, fly 6.1, sim 4.7, all in
+  budget; the views differ only by the clutter on the ground (accepted after looking).
 
 ## Review
-(filled below)
+- A fresh reviewer read the glass diff before the checkpoint: seven findings, six fixed in that commit, the
+  seventh is the looking ray's unordered tint above.
+- A second fresh reviewer read the whole branch (glass, boxes, still models, clutter, pick-ups): the quad
+  ranges, indirect regions, BLAS ranges, `SFace` layout and bit packing checked fine; its four bugs are in ADR
+  0082's review. Main's clouds took bindings 14 and 15 in the merge; the still models moved to 16 and 17.
