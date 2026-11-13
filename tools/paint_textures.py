@@ -341,31 +341,52 @@ def dirt(rng, r):
     return c
 
 
-def leaves(rng, r, holes=0.28, cell=3, keys="sml", rough=0.3, dark=0.08):
-    f = field(rng, cell, rough)
-    mask = f >= np.quantile(f, holes)
-    c = levels(f, [r[k] for k in keys], (0.3, 0.45, 0.25), mask)
-    # the edge of a clump under a hole is in shadow
+def leaves(rng, r, holes=0.06, cell=4):
+    """Calm cutout leaves: two close tones in soft clumps, the lit tone on clump tops only, a few holes in one or
+    two blobs. A hole shows the dark inside of the crown (fancy) or the leaf colour darker (fast, the default),
+    so many scattered holes read as a black checker from afar."""
+    f = field(rng, cell, 0.2)
+    gaps = field(rng, 8, 0.0)  # smooth: the holes gather where it is lowest
+    mask = gaps >= np.quantile(gaps, holes)
+    c = levels(f, [r["s"], r["m"], r["l"]], (0.35, 0.5, 0.15), mask)
     for y in range(N):
         for x in range(N):
-            if mask[y, x] and not mask[(y - 1) % N, x] and rng.random() < 0.6:
-                c[y, x] = r["s"]
-            if mask[y, x] and not mask[(y + 1) % N, x] and rng.random() < dark * 6:
-                c[y, x] = r["d"]
+            if mask[y, x] and not mask[(y - 1) % N, x]:
+                c[y, x] = r["s"]  # under a hole: in shadow
     c[~mask] = None
     return c
 
 
-def needles(rng, r, holes=0.16):
+def needles(rng, r, holes=0.06):
     c = np.full((N, N), r["s"], object)
-    for _ in range(26):  # short slanted needles on a dark twig ground
+    for _ in range(22):  # short slanted needles on a shaded twig ground
         x, y = int(rng.integers(N)), int(rng.integers(N))
         d = int(rng.choice((-1, 1)))
         for i in range(3):
             put(c, x + i * d, y + i, r["m"] if i else r["l"])
-    f = field(rng, 3, 0.5)
+    f = field(rng, 4, 0.2)
     c[f < np.quantile(f, holes)] = None
-    specks(c, rng, r["d"], 6)
+    return c
+
+
+def branches(rng, r, limbs=2, twigs=5):
+    """Bare winter crown: a few limbs rising through the block, twigs forking off them, the rest open."""
+    c = np.empty((N, N), object)
+    for _ in range(limbs):
+        x, y, lean = int(rng.integers(N)), N - 1, int(rng.choice((-1, 1)))
+        pts = []
+        for _ in range(N):  # a limb leans out as it rises, as a crown spreads
+            put(c, x, y, r["s"])
+            pts.append((x, y))
+            if rng.random() < 0.45:
+                x += lean
+                put(c, x, y, r["s"])
+            y -= 1
+        for _ in range(twigs):
+            x, y = pts[int(rng.integers(2, len(pts)))]
+            d = int(rng.choice((-1, 1)))
+            for i in range(1, int(rng.integers(3, 6))):
+                put(c, x + i * d, y - i // 2 - (i % 2), r["m"])
     return c
 
 
@@ -533,27 +554,29 @@ def build(pal, blocks):
     # leaves and plants (cutouts)
     leaf_look = {
         "spruce leaves": lambda g, r: needles(g, r),
-        "broadleaf leaves": lambda g, r: leaves(g, r, 0.26, 3),
-        "jungle leaves": lambda g, r: leaves(g, r, 0.2, 5),
-        "acacia leaves": lambda g, r: leaves(g, r, 0.36, 2),
-        "shrub": lambda g, r: leaves(g, r, 0.32, 3),
+        "broadleaf leaves": lambda g, r: leaves(g, r),
+        "jungle leaves": lambda g, r: leaves(g, r, 0.04),
+        "acacia leaves": lambda g, r: leaves(g, r, 0.1, 3),
+        "shrub": lambda g, r: leaves(g, r, 0.08, 3),
         "reed": lambda g, r: blades(g, r),
     }
-    autumn = {"d": "autumn dark", "s": "autumn rust", "m": "autumn orange", "l": "autumn gold",
-              "L": "autumn gold"}
+    # autumn leaves: close steps around the orange (rust to gold was too strong a jump for calm leaves)
+    autumn = {"d": "autumn rust", "L": "autumn gold"}
     for name, fn in leaf_look.items():
         b = defs[name]
         for s in ("summer", "spring", "autumn", "winter"):
             if s != "summer" and s not in b:
                 continue
             if name == "broadleaf leaves" and s == "autumn":
-                r = Ramp(pal, "autumn", names=dict(autumn))
+                r = Ramp(pal, "autumn orange", names=dict(autumn), into="autumn")
             else:
                 r = R(name, b["colour"]) if s == "summer" else R(f"{name} {s}", b[s]["colour"])
             at = "" if s == "summer" else f"@{s}"
-            # every season of a block from one seed: the same leaves change colour, winter loses some
+            # every season of a block from one seed: the same leaves change colour; in winter the deciduous
+            # crowns are bare branches in the bark's colours
             if s == "winter" and name != "reed":
-                tex(f"{name}{at}", 2, lambda g, v, r=r: leaves(np.random.default_rng(seed_of(name, v)), r, 0.6, 3))
+                tex(f"{name}{at}", 2, lambda g, v, n=name: branches(np.random.default_rng(seed_of(n, v)), R("log"),
+                                                                     *((1, 3) if n == "shrub" else (2, 5))))
             else:
                 tex(f"{name}{at}", 2, lambda g, v, r=r, fn=fn: fn(np.random.default_rng(seed_of(name, v)), r))
 

@@ -179,8 +179,18 @@ rgb = "#993a18"
 ramp = "autumn"
 
 [[colour]]
+name = "autumn orange shade"
+rgb = "#92571b"
+ramp = "autumn"
+
+[[colour]]
 name = "autumn orange"
 rgb = "#b86b1f"
+ramp = "autumn"
+
+[[colour]]
+name = "autumn orange lit"
+rgb = "#c88542"
 ramp = "autumn"
 
 [[colour]]
