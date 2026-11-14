@@ -1344,7 +1344,7 @@ fn pack_dir(v: Vec3) -> u32 {
 }
 
 /// A cell as the shader's `block` and `crack` looks find it on the grid: column and face.
-fn cell_code(c: Block) -> (u32, u32) {
+pub(crate) fn cell_code(c: Block) -> (u32, u32) {
     (c.pos.x as u32 & 0x7fff | (c.pos.y as u32 & 0x7fff) << 15, c.pos.z as u32 & 0xffff | (c.face as u32) << 16)
 }
 
