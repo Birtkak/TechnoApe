@@ -254,7 +254,8 @@ impl App {
                         if second {
                             // the block arriving (ADR 0101): it glides in from the cell it left, one hiss a slump
                             let from = v[k - 1].0;
-                            if self.fx.on {
+                            // ADR 0106: glides off with the slopes, the block hops a cell a tick
+                            if self.fx.on && engine::fall::SLOPES_AND_SLIDES {
                                 self.glide(from, b, m);
                             }
                             // a slide, not a fall: a block dropping down a shaft is no slump

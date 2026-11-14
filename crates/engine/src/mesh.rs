@@ -88,6 +88,12 @@ pub fn mesh_cut(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool)
 /// `raw`: the cells before the skirts (`world::generate_raw`), which the slopes read: a skirted padding is a step
 /// down all round the chunk. None reads `cells`.
 pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool, cracks: Option<&[[u8; 5]; P * P * P]>, held: &[usize], raw: Option<&[u16; P * P * P]>) -> Mesh {
+    mesh_as(cells, lattice, cut, glass, cracks, held, raw, crate::fall::SLOPES_AND_SLIDES)
+}
+
+/// `mesh_cracked` with the slopes on or off (ADR 0106: off; the tests keep ADR 0101's slopes running).
+#[allow(clippy::too_many_arguments)]
+fn mesh_as(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool, cracks: Option<&[[u8; 5]; P * P * P]>, held: &[usize], raw: Option<&[u16; P * P * P]>, slopes_on: bool) -> Mesh {
     let cutout = cut != Cut::Solid;
     // cols[a][v*P+u] = bits along axis a; u = (a+1)%3, v = (a+2)%3. opq: the same of the cells that hide what is
     // behind them, and gls of glass, made only for a chunk with glass or (fancy) cutout blocks
@@ -113,7 +119,7 @@ pub fn mesh_cracked(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: b
             }
         }
     }
-    let slope = if any_fall { slopes(raw.unwrap_or(cells), falls_t, held) } else { None };
+    let slope = if any_fall && slopes_on { slopes(raw.unwrap_or(cells), falls_t, held) } else { None };
     let (mut any_cut, mut any_glass) = (false, false);
     if glass_seen || cutout && any_see {
         // a second pass, only in a chunk with glass or cutout blocks
@@ -805,7 +811,7 @@ mod tests {
         }
         c[pidx(20, 12, 6)] = sand;
         c[pidx(21, 12, 6)] = stone;
-        let m = mesh(&c, 1);
+        let m = sloped(&c);
         let quad = |cell: [usize; 3], dir: u32| *m.quads.iter().find(|q| face_of(q).0 == cell.map(|v| v - 1) && face_of(q).1 == dir).expect("face");
         let drops = |cell: [usize; 3], dir: u32| {
             let q = quad(cell, dir);
@@ -827,10 +833,32 @@ mod tests {
         assert_eq!(zs, vec![[7, 7, 6], [7, 8, 5], [8, 7, 6], [8, 8, 5]], "the ramp's corners in chunk cells (0-based)");
         // a block gliding into the edge (meshed as air, held): its neighbour keeps the shape it has with it there
         c[pidx(7, 8, 6)] = 0;
-        let held = mesh_cracked(&c, 1, Cut::Solid, false, None, &[pidx(7, 8, 6)], None);
+        let held = mesh_as(&c, 1, Cut::Solid, false, None, &[pidx(7, 8, 6)], None, true);
         let d = |m: &Mesh| { let q = m.quads.iter().find(|q| face_of(q).0 == [7, 7, 5] && face_of(q).1 == 4).unwrap(); if q[0] >> 31 == 1 { q[1] >> 20 & 15 } else { 0 } };
         assert_eq!(d(&held), 0b1100, "held: as with the block there");
-        assert_ne!(d(&mesh(&c, 1)), 0b1100, "not held: it slopes toward the hole");
+        assert_ne!(d(&sloped(&c)), 0b1100, "not held: it slopes toward the hole");
+    }
+
+    /// `mesh` with ADR 0101's slopes on, whatever the switch says (ADR 0106).
+    fn sloped(c: &[u16; P * P * P]) -> Mesh {
+        mesh_as(c, 1, Cut::Solid, true, None, &[], None, true)
+    }
+
+    /// ADR 0106: with the slopes off, a step of sand on sand meshes as plain blocks: no sloped quad.
+    #[test]
+    fn a_sand_step_has_no_sloped_quad() {
+        let sand = crate::blocks::BLOCKS.id("sand");
+        let mut c = Box::new([0u16; P * P * P]);
+        for x in 3..30 {
+            for y in 3..30 {
+                c[pidx(x, y, 5)] = sand;
+                if x < 16 {
+                    c[pidx(x, y, 6)] = sand;
+                }
+            }
+        }
+        let sloped = mesh(&c, 1).quads.iter().filter(|q| q[0] >> 31 == 1).count();
+        assert_eq!(sloped, 0, "{sloped} sloped quads on a step");
     }
 
     /// ADR 0101: a flat floor of sand stays flat at the chunk's border: `generate` skirts the padding (air under
@@ -845,7 +873,7 @@ mod tests {
         }
         let mut c = raw.clone();
         crate::world::skirt(&mut c);
-        let m = mesh_cracked(&c, 1, Cut::Solid, false, None, &[], Some(&raw));
+        let m = mesh_as(&c, 1, Cut::Solid, false, None, &[], Some(&raw), true);
         let sloped = m.quads.iter().filter(|q| q[0] >> 31 == 1).count();
         assert_eq!(sloped, 0, "{sloped} sloped quads on a flat floor");
     }
@@ -888,7 +916,7 @@ mod tests {
                     }
                 }
             }
-            let m = mesh(&c, 1);
+            let m = super::tests::sloped(&c);
             for q in &m.quads {
                 sloped += (q[0] >> 31) as usize;
                 for t in triangles(q) {

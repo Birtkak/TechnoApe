@@ -58,8 +58,9 @@ use std::sync::{Arc, LazyLock, Mutex, Weak};
 /// anew, and a save names the map it was played on (by hash). 3 keeps the climate (W3) and bakes it over a
 /// year with the sky's seasons; 4 adds the lakes and each river cell's flow (W5, ADR 0059); 5 keeps each cell's
 /// rock province (W4, ADR 0063); 6 stretches the peaks (ADR 0105: the same layout as 5, other heights over
-/// `land::STRETCH_FROM`; a save on a 5 is baked back by `Map::bake_v5`).
-pub const VERSION: u32 = 6;
+/// `land::STRETCH_FROM`; a save on a 5 is baked back by `Map::bake_v5`); 7 lays the polar caps (ADR 0107: the same
+/// layout and ground as 6, ICE on the cold land and sea; a save on a 6 is baked back by `Map::bake_v6`).
+pub const VERSION: u32 = 7;
 
 /// How far in longitude from the +y meridian the spawn may lie, radians (about 26 degrees: 9 am at world
 /// time 0 is then between 7 and 11 am at the spawn). shortcut: until the sky's clock takes the spawn's own
@@ -124,10 +125,14 @@ impl Map {
     }
     /// `bake` with other land parameters (tests: smaller rivers on a small planet).
     pub fn bake_with(seed: i32, n: i32, p: &land::Params) -> Map {
+        Map::bake_life(seed, n, p, &life::LifeParams::default())
+    }
+    /// `bake_with` with other life parameters (the older versions' climate rules).
+    fn bake_life(seed: i32, n: i32, p: &land::Params, lp: &life::LifeParams) -> Map {
         let t = std::time::Instant::now();
         let s = seed as u32 as u64;
         let mut b = land::bake(n as u32, s, p);
-        let l = life::life(&b, s, &life::LifeParams::default());
+        let l = life::life(&b, s, lp);
         let h = b.h.clone();
         let lakes = (0..b.g.n()).filter(|&c| b.lake(c)).map(|c| (c as u32, b.lvl[c])).collect();
         let flow = l.flow.clone();
@@ -144,8 +149,15 @@ impl Map {
     }
     /// The bake of version 5, before the peaks were stretched (ADR 0105): what a save made on one plays on.
     pub fn bake_v5(seed: i32, n: i32) -> Map {
-        let mut m = Map::bake_with(seed, n, &land::Params { peak_extra_m: 0.0, ..Default::default() });
+        let mut m = Map::bake_life(seed, n, &land::Params { peak_extra_m: 0.0, ..Default::default() }, &life::LifeParams::capless());
         m.version = 5;
+        m.finish(&m.to_bytes());
+        m
+    }
+    /// The bake of version 6, before the polar caps (ADR 0107): what a save made on one plays on.
+    pub fn bake_v6(seed: i32, n: i32) -> Map {
+        let mut m = Map::bake_life(seed, n, &land::Params::default(), &life::LifeParams::capless());
+        m.version = 6;
         m.finish(&m.to_bytes());
         m
     }
@@ -172,7 +184,7 @@ impl Map {
         let version = postcard::take_from_bytes::<u32>(b).map_err(|e| format!("not a map: {e}"))?.0;
         let flowless = |r: Vec<(u32, u32, f32)>| r.into_iter().map(|(cell, to, area)| Reach { cell, to, area, flow: 0.0 }).collect();
         let mut m: Map = match version {
-            VERSION | 5 => postcard::from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?,
+            VERSION | 6 | 5 => postcard::from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?,
             luna::VERSION => {
                 let (m, rest) = postcard::take_from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?;
                 Map { tubes: postcard::from_bytes(rest).map_err(|e| format!("not a map's tubes: {e}"))?, ..m }
@@ -204,7 +216,7 @@ impl Map {
         if let Some(c) = &m.climate {
             c.check()?;
         }
-        let known = m.version == VERSION || m.version == luna::VERSION || m.version == 5 || m.version == 4 || m.version == 3 || (m.version == 2 && m.climate.is_none()) || (m.version == 1 && m.rivers.is_empty());
+        let known = m.version == VERSION || m.version == luna::VERSION || m.version == 6 || m.version == 5 || m.version == 4 || m.version == 3 || (m.version == 2 && m.climate.is_none()) || (m.version == 1 && m.rivers.is_empty());
         // a river drains into a neighbouring cell (bytes from a server: a far one would build a huge index)
         let mm = m.m as i32;
         let next_to = |r: &Reach| {
@@ -495,7 +507,7 @@ fn file_v(seed: i32, n: i32, v: u32) -> PathBuf {
 /// The map of (seed, n) if it is in memory or on disk, and its hash is `hash` (any of this version, when
 /// None; a save that names one of version 1 gets that too).
 pub fn find(seed: i32, n: i32, hash: Option<u64>) -> Option<Arc<Map>> {
-    find_in(seed, n, hash, if hash.is_some() { &[VERSION, 5, 4, 3, 2, 1, luna::VERSION] } else { &[VERSION] })
+    find_in(seed, n, hash, if hash.is_some() { &[VERSION, 6, 5, 4, 3, 2, 1, luna::VERSION] } else { &[VERSION] })
 }
 
 /// `find` among maps of these versions.
@@ -527,7 +539,8 @@ pub fn keep(map: Map) -> Arc<Map> {
     m
 }
 
-/// The map a save names by `hash`: from memory or disk, else baked now (a version 5 map is this bake without the
+/// The map a save names by `hash`: from memory or disk, else baked now (a version 6 map is this bake without the
+/// polar caps, a version 5 map is this bake without the
 /// stretched peaks, a 4 that without its rock, a 3 without its lakes and flows, a 2 without its climate too, a 1
 /// without its rivers; none comes back from a bake of another climate); None if the bake makes another map.
 pub fn for_hash(seed: i32, n: i32, hash: u64) -> Option<Arc<Map>> {
@@ -537,6 +550,10 @@ pub fn for_hash(seed: i32, n: i32, hash: u64) -> Option<Arc<Map>> {
     let b = keep(Map::bake(seed, n));
     if b.hash == hash {
         return Some(b);
+    }
+    let b = Map::bake_v6(seed, n);
+    if b.hash == hash {
+        return Some(keep(b));
     }
     let b = Map::bake_v5(seed, n);
     if b.hash == hash {
@@ -681,7 +698,7 @@ mod tests {
     fn every_version_a_save_names_is_baked_back_without_its_file() {
         let (seed, n) = (-79, 256);
         let gone = || {
-            for v in [1, 2, 3, 4, 5, VERSION, luna::VERSION] {
+            for v in [1, 2, 3, 4, 5, 6, VERSION, luna::VERSION] {
                 let _ = std::fs::remove_file(file_v(seed, n, v));
                 LOADED.lock().unwrap().remove(&(seed, n, v));
             }
@@ -696,6 +713,7 @@ mod tests {
         let rivers = || b.rivers.iter().map(|r| (r.cell, r.to, r.area)).collect::<Vec<_>>();
         let layouts = [
             (VERSION, new.to_bytes()),
+            (6, Map::bake_v6(seed, n).to_bytes()),
             (5, b.to_bytes()),
             (4, postcard::to_stdvec(&(4u32, seed, n, b.m, &b.h, &b.biome, b.spawn, &b.rivers, &b.lakes, &b.climate)).unwrap()),
             (3, postcard::to_stdvec(&(3u32, seed, n, b.m, &flat, &b.biome, b.spawn, rivers(), &b.climate)).unwrap()),
@@ -780,6 +798,32 @@ mod tests {
             seen += 1;
         }
         assert!(seen > map.h.len() / 2);
+    }
+
+    /// ADR 0107: both poles carry a cap of ice (biome ICE) on land and on the sea. On the standard planet of two
+    /// seeds (the developer's world's and the tests' 1337; a smaller planet's coarse air has no cold poles) it
+    /// covers 4 to 14 % of the planet, nearly all of it poleward of 55 degrees, and most of each pole's last 10.
+    #[test]
+    fn both_poles_carry_an_ice_cap_on_land_and_sea() {
+        for (seed, n) in [(933105400, 6144), (1337, 6144)] {
+            let m = get(seed, n);
+            let g = grid::Grid::new(m.m as usize, 1.0);
+            let lakes: std::collections::HashSet<u32> = m.lakes.iter().map(|l| l.0).collect();
+            let ocean = |c: usize| m.h[c] < 0.0 && !lakes.contains(&(c as u32));
+            let lat = |c: usize| g.d(c as u32).z.clamp(-1.0, 1.0).asin().to_degrees();
+            let area = |f: &dyn Fn(usize) -> bool| (0..g.n()).filter(|&c| f(c)).map(|c| g.area(c as u32) as f64).sum::<f64>();
+            let all = area(&|_| true);
+            let ice = |c: usize| m.biome[c] == life::ICE;
+            let share = area(&ice) / all;
+            assert!((0.04..0.14).contains(&share), "seed {seed} planet {n}: ice on {:.1} % of the planet", share * 100.0);
+            let polar = area(&|c| ice(c) && lat(c).abs() > 55.0) / area(&ice);
+            assert!(polar > 0.9, "seed {seed} planet {n}: {:.1} % of the ice poleward of 55 degrees", polar * 100.0);
+            for pole in [1.0, -1.0] {
+                let cap = area(&|c| ice(c) && lat(c) * pole > 80.0) / area(&|c| lat(c) * pole > 80.0);
+                assert!(cap > 0.8, "seed {seed} planet {n}: the pole at {pole} is {:.0} % ice", cap * 100.0);
+            }
+            assert!(area(&|c| ice(c) && ocean(c)) > 0.0 && area(&|c| ice(c) && !ocean(c)) > 0.0, "seed {seed} planet {n}: ice on land and sea");
+        }
     }
 
     /// A map of version 2 (before the climate, a save's) reads as it was, without a climate, and gives its own
