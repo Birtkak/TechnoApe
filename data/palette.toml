@@ -5019,44 +5019,44 @@ rgb = "#dbdabd"
 ramp = "snake belly rich"
 
 [[colour]]
-name = "furnace stone r1"
+name = "hearth stone r1"
 rgb = "#292524"
-ramp = "furnace stone rich"
+ramp = "hearth stone rich"
 
 [[colour]]
-name = "furnace stone r2"
+name = "hearth stone r2"
 rgb = "#393431"
-ramp = "furnace stone rich"
+ramp = "hearth stone rich"
 
 [[colour]]
-name = "furnace stone r3"
+name = "hearth stone r3"
 rgb = "#4b4541"
-ramp = "furnace stone rich"
+ramp = "hearth stone rich"
 
 [[colour]]
-name = "furnace stone r4"
+name = "hearth stone r4"
 rgb = "#5e5751"
-ramp = "furnace stone rich"
+ramp = "hearth stone rich"
 
 [[colour]]
-name = "furnace stone r5"
+name = "hearth stone r5"
 rgb = "#716a62"
-ramp = "furnace stone rich"
+ramp = "hearth stone rich"
 
 [[colour]]
-name = "furnace stone r6"
+name = "hearth stone r6"
 rgb = "#857e74"
-ramp = "furnace stone rich"
+ramp = "hearth stone rich"
 
 [[colour]]
-name = "furnace stone r7"
+name = "hearth stone r7"
 rgb = "#979189"
-ramp = "furnace stone rich"
+ramp = "hearth stone rich"
 
 [[colour]]
-name = "furnace stone r8"
+name = "hearth stone r8"
 rgb = "#a9a59e"
-ramp = "furnace stone rich"
+ramp = "hearth stone rich"
 
 [[colour]]
 name = "ember r1"

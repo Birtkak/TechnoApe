@@ -1,0 +1,116 @@
+# A draft furnace (Claude's, listed in data/drafts.txt): a stone body, a copper door that swings open in
+# `work`, and the point `flame` where its fire sits. Format: docs/design/studio-tools.md "Models".
+colours = ["stone dark", "stone", "stone light", "copper", "lamp"]
+
+[[part]]
+name = "body"
+parent = ""
+at = [0, 0, 0]
+pivot = [4, 0, 4]
+box = [8, 6, 8]
+voxels = """
+aaaaaaaa
+aaaaaaaa
+aaaaaaaa
+aaaaaaaa
+aaaaaaaa
+aaaaaaaa
+aaaaaaaa
+aaaaaaaa
+
+bb....bb
+bbeeeebb
+bbbbbbbb
+bbbbbbbb
+bbbbbbbb
+bbbbbbbb
+bbbbbbbb
+bbbbbbbb
+
+bb....bb
+bbeeeebb
+bbbbbbbb
+bbbbbbbb
+bbbbbbbb
+bbbbbbbb
+bbbbbbbb
+bbbbbbbb
+
+bb....bb
+bbeeeebb
+bbbbbbbb
+bbbbbbbb
+bbbbbbbb
+bbbbbbbb
+bbbbbbbb
+bbbbbbbb
+
+cccccccc
+cccccccc
+cccccccc
+cccccccc
+cccccccc
+cccccccc
+cccccccc
+cccccccc
+
+........
+........
+........
+........
+........
+.....dd.
+.....dd.
+........
+"""
+
+[[part]]
+name = "door"
+parent = "body"
+at = [2, 1, 0]
+pivot = [0, 0, 0]
+box = [4, 3, 1]
+voxels = """
+dddd
+
+daad
+
+dddd
+"""
+
+[[point]]
+name = "flame"
+part = "body"
+at = [4, 2, 1]
+
+[[clip]]
+name = "work"
+length = 2.0
+loop = true
+key = [
+  { part = "door", t = 0.0, turn = [0, 0, 0], ease = "smooth" },
+  { part = "door", t = 0.8, turn = [0, 100, 0] },
+  { part = "door", t = 1.2, turn = [0, 100, 0], ease = "smooth" },
+  { part = "door", t = 2.0, turn = [0, 0, 0] },
+]
+event = [{ t = 2.0, sound = "furnace.clank" }, { t = 2.0, effect = "sparks", point = "door" }]
+
+# the top of the copper chimney, and the door's middle (ADR 0050)
+[[point]]
+name = "chimney"
+part = "body"
+at = [6, 6, 6]
+
+[[point]]
+name = "door"
+part = "door"
+at = [2, 1.5, 0]
+
+# working: the door swings, a fire burns inside and smoke rises from the chimney, it hums and glows warm, and the
+# door clanks shut at the end of each swing (the clip's events)
+[[state]]
+name = "working"
+clip = "work"
+effects = [{ effect = "fire", point = "flame" }, { effect = "smoke", point = "chimney" }]
+sound = "furnace.burn"
+light = { point = "flame", colour = "lamp", strength = 0.7 }

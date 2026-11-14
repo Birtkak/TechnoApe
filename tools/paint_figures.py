@@ -31,7 +31,7 @@ RAMPS = {
     "deer coat": rich_rgb(30, 0.62, 0.05), "deer pale": rich_rgb(38, 0.28, 0.26),
     "hare fur": rich_rgb(32, 0.26, 0.05), "hare pale": rich_rgb(40, 0.12, 0.32), "hare pink": rich_rgb(355, 0.45, 0.22),
     "snake scale": rich_rgb(95, 0.55, 0.02), "snake belly": rich_rgb(60, 0.38, 0.22),
-    "furnace stone": rich_rgb(25, 0.08, 0.06), "ember": rich_rgb(22, 1.0, 0.12), "door copper": rich_rgb(20, 0.72, 0.05),
+    "hearth stone": rich_rgb(25, 0.08, 0.06), "ember": rich_rgb(22, 1.0, 0.12), "door copper": rich_rgb(20, 0.72, 0.05),
     "eye": rich_rgb(30, 0.15, -0.03),
 }
 
@@ -326,7 +326,7 @@ def furnace(m):
                 t = 5.4 + n * 0.3
             if soot and s.f in ("-z",) and 6 <= x <= 26 and y >= 10:
                 t -= 2.6 * max(0.0, 1 - abs(x - 16) / 11) * (1.2 - (y - 10) / 12)
-            return R("furnace stone", t)
+            return R("hearth stone", t)
         return p
     def mouth(s):
         # the mouth's back, seen through the open door: embers low, glow above, soot black at its rim
@@ -336,7 +336,7 @@ def furnace(m):
                 return R("ember", 5 + (rnd("ember", int(x), int(y)) - 0.5) * 3)
             return R("ember", 3.2 - (y - 8) / 4 + (rnd("glow", int(x), int(y)) - 0.5))
         return None
-    inner = lambda s: R("furnace stone", 0.3) if (s.f == "+x" and 7 <= s.p[0] <= 8 or s.f == "-x" and 24 <= s.p[0] <= 25 or s.f == "bottom" and s.p[1] >= 15 or s.f == "top" and s.p[1] <= 5) and s.p[2] < 4.5 else None
+    inner = lambda s: R("hearth stone", 0.3) if (s.f == "+x" and 7 <= s.p[0] <= 8 or s.f == "-x" and 24 <= s.p[0] <= 25 or s.f == "bottom" and s.p[1] >= 15 or s.f == "top" and s.p[1] <= 5) and s.p[2] < 4.5 else None
     m.add("body", (0, 0, 4), (32, 20, 28), over(stone("back"), mouth))
     m.add("body", (0, 0, 0), (32, 4, 4), over(stone("sill"), inner))
     m.add("body", (0, 16, 0), (32, 4, 4), over(stone("lintel", True), inner))

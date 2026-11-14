@@ -31,6 +31,13 @@ fn scratch_unpainted(name: &str, block: &str) -> PathBuf {
     dir
 }
 
+/// A scratch folder whose furnace is the voxel one these tests paint (the shipped one is painted boxes, ADR 0116).
+fn scratch_voxel_furnace(name: &str) -> PathBuf {
+    let dir = scratch(name);
+    std::fs::write(dir.join("data/models/furnace.toml"), include_str!("../testdata/furnace_voxels.toml")).unwrap();
+    dir
+}
+
 /// A fresh scratch folder with the repository's `data/` in it.
 fn scratch(name: &str) -> PathBuf {
     let dir = root().join("out/drive").join(name);
@@ -132,7 +139,7 @@ fn models_add_then_undo_leaves_the_model_as_opened() {
 
 #[test]
 fn models_paint_box_part_event_save_and_reparse() {
-    let dir = scratch("models-edit");
+    let dir = scratch_voxel_furnace("models-edit");
     let line = studio(
         &dir,
         &["cmd=open:Models:furnace", "input=key P; click @view:0.5,0.55; key B; drag @view:0.45,0.5 @view:0.55,0.6; click @part:door; drag @event:0 @event:0:-20,0.5; key Ctrl+S"],
@@ -152,7 +159,7 @@ fn models_paint_box_part_event_save_and_reparse() {
 
 #[test]
 fn models_save_keeps_comments_above_a_part_and_a_clip_and_crlf() {
-    let dir = scratch("models-comments");
+    let dir = scratch_voxel_furnace("models-comments");
     let file = dir.join("data/models/furnace.toml");
     let text = std::fs::read_to_string(&file).unwrap().replace("\r\n", "\n");
     let text = text.replacen("[[part]]\nname = \"door\"", "# the door swings in work\n[[part]]\nname = \"door\"", 1).replacen("[[clip]]\nname = \"work\"", "# the clip of the open door\n[[clip]]\nname = \"work\"", 1);
