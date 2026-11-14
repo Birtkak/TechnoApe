@@ -14,6 +14,8 @@ pub const WIDTH: f64 = 0.6;
 pub const HEIGHT: f64 = 1.8;
 pub const EYE: f64 = 1.6;
 pub const WALK: f64 = 4.3;
+/// Sprint (ADR 0118): the forward share of a walk this many times as fast.
+pub const SPRINT: f64 = 1.5;
 /// The push of a jump, m/s, the same on every body: 1.25 m high at G stepped at DT (ADR 0037); higher
 /// where gravity is weaker.
 pub const JUMP: f64 = 4.87;
@@ -71,6 +73,10 @@ pub struct Input {
     /// whose clock is a little off is corrected all the way.
     #[serde(default)]
     pub t: f64,
+    /// Sprint held (ADR 0118): walking, the forward share of the move is `SPRINT` times as fast. Not in this
+    /// struct's bytes, so recordings from before read: it rides `ToServer::Sprints` and `ToServer::Sprint`.
+    #[serde(skip)]
+    pub sprint: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -239,17 +245,22 @@ pub fn sane(inp: &Input) -> bool {
 }
 
 /// One step at the input's own world time (`Input::t`; the world's when 0), the world's clock put back after.
-pub fn step_at(world: &mut World, p: &mut Player, inp: &Input, dt: f64) {
+/// True when it sprinted, as `step`.
+pub fn step_at(world: &mut World, p: &mut Player, inp: &Input, dt: f64) -> bool {
     let now = world.time;
     if inp.t != 0.0 {
         world.time = inp.t;
     }
-    step(world, p, inp, dt);
+    let sprinted = step(world, p, inp, dt);
     world.time = now;
+    sprinted
 }
 
-/// One step of `dt` seconds for one player.
-pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
+/// One step of `dt` seconds for one player. True when it sprinted (ADR 0118): the sprint was applied and the
+/// body went further forward than the walk would have taken it, so a sprint into a wall or in the water is
+/// none. What a sprint's hunger and its wider view go by.
+pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
+    let start = p.pos;
     let (up, pull) = pull(world, p.pos);
     let down = -up;
     let flying = inp.fly > 0.0;
@@ -295,12 +306,20 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
         None => 0.0,
     };
     let mv = DVec3::new(inp.mv[1].clamp(-1.0, 1.0) as f64, 0.0, inp.mv[0].clamp(-1.0, 1.0) as f64);
+    // the forward share of the walk a sprint speeds, 0 for none
+    let mut sprint_share = 0.0;
     if flying {
         // the move and up or down at the asked speed, nothing else
         let vert = inp.jump as i32 as f64 - inp.down as i32 as f64;
         p.vel = ((right * mv.x + fwd * mv.z).clamp_length_max(1.0) + up * vert) * (inp.fly as f64).min(FLY_MAX);
     } else {
-        let wish = (right * mv.x + fwd * mv.z).clamp_length_max(1.0) * WALK * (1.0 - 0.5 * sub);
+        let dir = (right * mv.x + fwd * mv.z).clamp_length_max(1.0);
+        // sprint (ADR 0118): the forward share of the walk, out of the water (wading to the shins still sprints)
+        if inp.sprint && sub < 0.3 && dir.dot(fwd) > 0.0 {
+            sprint_share = dir.dot(fwd);
+        }
+        let dir = dir + fwd * sprint_share * (SPRINT - 1.0);
+        let wish = dir * WALK * (1.0 - 0.5 * sub);
         let mut v_up = p.vel.dot(up) - pull * dt;
         if p.on_ground && inp.jump && sub < 0.3 {
             v_up = JUMP;
@@ -351,9 +370,12 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
     }
     p.on_ground = on_ground || (p.vel.dot(down) >= 0.0 && blocked(world, p.pos + down * (2.0 * CONTACT)));
     // out of a body's sphere of influence, or into one (ADR 0022): the body turns with the frame
+    // (further forward than the walk's share would go in the step, with a twentieth to spare)
+    let sprinted = sprint_share > 0.0 && (p.pos - start).dot(fwd) > WALK * sprint_share * dt * 1.05;
     if let Some(r) = world.reframe(&mut p.pos, &mut p.vel) {
         (p.fwd, p.up) = (r * p.fwd, r * p.up);
     }
+    sprinted
 }
 
 #[cfg(test)]
@@ -726,6 +748,109 @@ mod tests {
                 assert!(moved > 3.5 && !inside(&w, &p), "walked {moved} m in 1 s, way {k}, at {d:?}");
             }
         }
+    }
+
+    /// Sprint (ADR 0118): held, the forward share of the walk is SPRINT times as fast on a level floor; strafe and
+    /// backward stay at the walk, and so do swimming and flight.
+    #[test]
+    fn sprint_is_half_as_fast_again_forward_only() {
+        let mut w = World::new(6144, 256, 1337);
+        let d = w.bodies[0].spawn;
+        let b0 = w.block_at(w.bodies[0].centre + d * (w.bodies[0].height(d) - 0.5));
+        for dx in -12..=12 {
+            for dy in -12..=12 {
+                for dz in 0..=5 {
+                    w.set_block(Block { pos: b0.pos + glam::IVec3::new(dx, dy, dz), ..b0 }, if dz == 0 { 3 } else { 0 });
+                }
+            }
+        }
+        let start = w.block_centre(b0);
+        let u = up(&w, start);
+        let dir = tangent(DVec3::X, u, DVec3::Z);
+        let f = dir.as_vec3().to_array();
+        // the way it went along the look and across it in 60 steps, from standing
+        let go = |mv: [f32; 2], sprint: bool| {
+            let mut p = Player::at(start + u * 0.6, dir);
+            for _ in 0..60 {
+                step(&w, &mut p, &Input { fwd: f, ..Default::default() }, DT);
+            }
+            let s = p.pos;
+            for _ in 0..60 {
+                step(&w, &mut p, &Input { mv, fwd: f, sprint, ..Default::default() }, DT);
+            }
+            ((p.pos - s).dot(dir), (p.pos - s).dot(dir.cross(u)))
+        };
+        let (walk, ran) = (go([1.0, 0.0], false), go([1.0, 0.0], true));
+        assert!((walk.0 - WALK).abs() < 0.05 && (ran.0 - WALK * 1.5).abs() < 0.05, "walk {walk:?}, sprint {ran:?}");
+        for mv in [[0.0, 1.0], [-1.0, 0.0], [0.0, -1.0]] {
+            let (a, b) = (go(mv, false), go(mv, true));
+            assert!((a.0 - b.0).abs() < 1e-9 && (a.1 - b.1).abs() < 1e-9, "{mv:?}: {a:?} against {b:?}");
+        }
+        // a diagonal: its forward share sprints, its strafe does not
+        let (a, b) = (go([1.0, 1.0], false), go([1.0, 1.0], true));
+        assert!((b.0 - a.0 * 1.5).abs() < 0.05 && (b.1 - a.1).abs() < 1e-4, "{a:?} against {b:?}");
+        // flight: the same path with the bit or without
+        let fly = |sprint: bool| {
+            let mut p = Player::at(start + u * 3.0, dir);
+            run(&w, &mut p, &Input { mv: [1.0, 0.0], fwd: f, fly: 20.0, sprint, ..Default::default() }, 1.0);
+            p.pos
+        };
+        assert_eq!(fly(false), fly(true));
+    }
+
+    /// Sprint is no swim: in the sea the bit changes nothing (ADR 0118).
+    #[test]
+    fn sprint_does_nothing_in_the_sea() {
+        let w = World::new(1536, 32, 1);
+        let b = &w.bodies[0];
+        let (i, j) = (0..b.n).step_by(3).flat_map(|i| (0..b.n).step_by(3).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 8.0).unwrap();
+        let d = b.dir(2, i as f64 + 0.5, j as f64 + 0.5);
+        let sea = b.radius - crate::world::SEA_DEPTH;
+        let swim = |sprint: bool| {
+            let mut p = Player::at(d * (sea - 1.0), DVec3::X);
+            run(&w, &mut p, &Input::default(), 5.0);
+            run(&w, &mut p, &Input { mv: [1.0, 0.0], sprint, ..Default::default() }, 2.0);
+            p.pos
+        };
+        assert_eq!(swim(false), swim(true));
+    }
+
+    /// The review of ADR 0118: a step sprinted only when the sprint took the body further: not into a wall,
+    /// not in the sea (its hunger and view go by this).
+    #[test]
+    fn a_sprint_into_a_wall_or_in_the_sea_is_no_sprint() {
+        let mut w = World::new(6144, 256, 1337);
+        let d = w.bodies[0].spawn;
+        let b0 = w.block_at(w.bodies[0].centre + d * (w.bodies[0].height(d) - 0.5));
+        let at = |dx: i32, dz: i32| Block { pos: b0.pos + glam::IVec3::new(dx, 0, dz), ..b0 };
+        for dx in -3..=6 {
+            for dy in -3..=3 {
+                for dz in 0..=4 {
+                    w.set_block(Block { pos: b0.pos + glam::IVec3::new(dx, dy, dz), ..b0 }, if dz == 0 || dx == 3 && dz <= 3 { 3 } else { 0 });
+                }
+            }
+        }
+        let start = w.block_centre(b0);
+        let u = up(&w, start);
+        let dir = (w.block_centre(at(1, 0)) - start).reject_from(u).normalize();
+        let f = dir.as_vec3().to_array();
+        let mut p = Player::at(start + u * 0.6, dir);
+        run(&w, &mut p, &Input { fwd: f, ..Default::default() }, 1.0);
+        let inp = Input { mv: [1.0, 0.0], fwd: f, sprint: true, ..Default::default() };
+        assert!(step(&w, &mut p, &inp, DT), "on the floor it sprints");
+        for _ in 0..120 {
+            step(&w, &mut p, &inp, DT);
+        }
+        assert!(!step(&w, &mut p, &inp, DT), "pressed against the wall it does not");
+        assert!(!step(&w, &mut p, &Input { sprint: false, ..inp }, DT) && !step(&w, &mut p, &Input { mv: [0.0, 1.0], ..inp }, DT), "nor walking, nor strafing");
+        // in the sea
+        let w = World::new(1536, 32, 1);
+        let b = &w.bodies[0];
+        let (i, j) = (0..b.n).step_by(3).flat_map(|i| (0..b.n).step_by(3).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 8.0).unwrap();
+        let d = b.dir(2, i as f64 + 0.5, j as f64 + 0.5);
+        let mut p = Player::at(d * (b.radius - crate::world::SEA_DEPTH - 1.0), DVec3::X);
+        run(&w, &mut p, &Input::default(), 3.0);
+        assert!(!step(&w, &mut p, &Input { mv: [1.0, 0.0], sprint: true, ..Default::default() }, DT), "in the sea it does not");
     }
 
     #[test]

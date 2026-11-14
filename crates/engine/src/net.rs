@@ -58,6 +58,34 @@ pub enum ToServer {
     /// (`items::knaps`) the server counts the strikes, at most one every `items::KNAP_WAIT_S`, and after the item's
     /// `knap` count one of it becomes the item it knaps into. Nothing is answered but the slots.
     Strike(Block),
+    /// `Steps` with each input's sprint bit (ADR 0118), which `Input`'s own bytes leave out so that recordings
+    /// from before still read. `ToServer::steps` picks this or `Steps`; `unpacked` makes it a `Steps` again.
+    Sprints { first: u32, inputs: Vec<(Input, bool)> },
+    /// `Input` with its sprint bit (ADR 0118), for scripts: `ToServer::input` and `unpacked` as above.
+    Sprint(Input, bool),
+}
+
+impl ToServer {
+    /// The predicted steps on the wire: `Sprints` when one of them sprints, else the old `Steps`.
+    pub fn steps(first: u32, inputs: Vec<Input>) -> ToServer {
+        if inputs.iter().any(|i| i.sprint) {
+            ToServer::Sprints { first, inputs: inputs.into_iter().map(|i| (i, i.sprint)).collect() }
+        } else {
+            ToServer::Steps { first, inputs }
+        }
+    }
+    /// A script's input on the wire: `Sprint` when it sprints, else the old `Input`.
+    pub fn input(i: Input) -> ToServer {
+        if i.sprint { ToServer::Sprint(i, true) } else { ToServer::Input(i) }
+    }
+    /// The sprint variants as `Steps` and `Input` with the bit set in each input; anything else as it is.
+    pub fn unpacked(self) -> ToServer {
+        match self {
+            ToServer::Sprints { first, inputs } => ToServer::Steps { first, inputs: inputs.into_iter().map(|(i, sprint)| Input { sprint, ..i }).collect() },
+            ToServer::Sprint(i, sprint) => ToServer::Input(Input { sprint, ..i }),
+            m => m,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -77,7 +105,9 @@ pub enum ToClient {
     /// This player's whole physics state after the step numbered `step` of its `Steps` (0: none yet), every
     /// tick, and the world's time that poses the sky (ADR 0022). The client replays its later inputs from here
     /// (ADR 0019).
-    You { step: u32, me: crate::phys::Player, time: f64, warp: f64 },
+    /// `hunger`: the server's, exactly, after that step (ADR 0118): the client predicts it across its later steps
+    /// with the same drain, so it refuses a sprint at the step the server will.
+    You { step: u32, me: crate::phys::Player, time: f64, warp: f64, hunger: f64 },
     /// This player's mode, its slots (`items::APE_SLOTS`: the hotbar, the worn pack, its rows) and the water in
     /// its bucket (units, `liquid::U` a block); sent on join, on change and after every `Items`. shortcut: the
     /// whole list (under 40 slots, a few hundred bytes), not slot deltas, as it changes a few times a second.
@@ -315,6 +345,23 @@ pub fn complete(line: &str) -> (usize, Vec<String>) {
 mod tests {
     use super::*;
     use glam::IVec3;
+
+    /// The sprint bit (ADR 0118) survives the bytes, and an input in the bytes from before reads as not sprinting.
+    #[test]
+    fn the_sprint_bit_rides_the_wire_and_old_inputs_walk() {
+        let walk = Input { mv: [1.0, 0.25], jump: true, fwd: [1.0, 0.0, 0.0], pitch: 0.3, fly: 0.0, t: 12.5, ..Default::default() };
+        let inputs = vec![walk, Input { sprint: true, ..walk }, walk];
+        let bytes = |m: &ToServer| postcard::to_stdvec(m).unwrap();
+        let back = |m: &ToServer| postcard::from_bytes::<ToServer>(&bytes(m)).unwrap().unpacked();
+        assert_eq!(back(&ToServer::steps(7, inputs.clone())), ToServer::Steps { first: 7, inputs: inputs.clone() });
+        assert!(matches!(ToServer::steps(7, vec![walk]), ToServer::Steps { .. }), "no sprint: the old message");
+        assert_eq!(back(&ToServer::input(inputs[1])), ToServer::Input(inputs[1]));
+        // an `Input` as it was written before the bit: the same fields in the same order
+        let old = (walk.mv, walk.jump, walk.fwd, walk.pitch, walk.turn, walk.tilt, walk.roll, walk.fly, walk.down, walk.t);
+        let read: Input = postcard::from_bytes(&postcard::to_stdvec(&old).unwrap()).unwrap();
+        assert_eq!((read, read.sprint), (walk, false));
+        assert_eq!(postcard::to_stdvec(&inputs[1]).unwrap(), postcard::to_stdvec(&old).unwrap(), "the bit is not in the old bytes");
+    }
 
     #[test]
     fn tcp_round_trip() {

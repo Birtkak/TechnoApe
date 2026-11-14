@@ -58,6 +58,11 @@ pub(crate) struct App {
     pub(crate) spawned: bool,
     /// The server's last word on this player, which `reconcile` and a predicted edit replay from (ADR 0019).
     pub(crate) server_me: Option<phys::Player>,
+    /// Hunger, exactly (ADR 0118): the server's after `server_me`'s step, and as predicted at `me`; the step
+    /// sprinted (the view widens by it).
+    pub(crate) server_hunger: f64,
+    pub(crate) hunger: f64,
+    pub(crate) sprinted: bool,
     /// What a correction moved the drawn position by; it eases out over CORRECT_S.
     pub(crate) smooth: DVec3,
     /// Seconds the last frame spent after present (stats, loading checks), and when it ended: both land in the
@@ -212,6 +217,8 @@ pub(crate) struct App {
     pub(crate) pick: Option<usize>,
     /// C held zooms (3x); this eases towards it, 1 is none.
     pub(crate) zoom: f64,
+    /// Sprint's widening of the view now, degrees (ADR 0118): `play::sprint_fov` eases it.
+    pub(crate) sprint_fov: f64,
     /// The server's clock (/timewarp): its time and warp at its last `You`, and when that came. The sky's
     /// clock runs on at the warp between them and eases onto it, so a fast warp turns the sky smoothly.
     pub(crate) clock: Option<(f64, f64, Instant)>,

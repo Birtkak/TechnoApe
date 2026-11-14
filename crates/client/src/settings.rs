@@ -176,6 +176,7 @@ acts! {
     Left "left" "Left" k(KeyCode::KeyA), "" "";
     Right "right" "Right" k(KeyCode::KeyD), "" "";
     Jump "jump" "Jump, swim up, fly up" k(KeyCode::Space), "space" "";
+    Sprint "sprint" "Sprint (hold)" k(KeyCode::ControlLeft), "" "";
     Down "down" "Fly down" [Some(Bind::Key(KeyCode::ShiftLeft)), Some(Bind::Key(KeyCode::ShiftRight))], "" "";
     RollLeft "roll_left" "Roll left (space)" k(KeyCode::KeyQ), "" "";
     RollRight "roll_right" "Roll right (space)" k(KeyCode::KeyE), "" "";
@@ -227,7 +228,7 @@ pub enum Row {
 
 /// The keys page's groups, in order (bugs/2026-11-11_13-13-42); every action is in one.
 const KEY_GROUPS: &[(&str, &[Act])] = &[
-    ("Moving", &[Act::Forward, Act::Back, Act::Left, Act::Right, Act::Jump, Act::Down, Act::RollLeft, Act::RollRight]),
+    ("Moving", &[Act::Forward, Act::Back, Act::Left, Act::Right, Act::Jump, Act::Sprint, Act::Down, Act::RollLeft, Act::RollRight]),
     ("Hands and tools", &[Act::Dig, Act::Place, Act::Hammer, Act::Shape, Act::Bucket, Act::Inventory, Act::Pick]),
     ("Hotbar", &[Act::Slot1, Act::Slot2, Act::Slot3, Act::Slot4, Act::Slot5, Act::Slot6, Act::Slot7, Act::Slot8, Act::Slot9]),
     ("Looking and finding", &[Act::Zoom, Act::Waypoint, Act::Marks, Act::Map, Act::Overlay]),
@@ -600,6 +601,19 @@ mod tests {
         s.binds[Act::Back as usize][0] = Some(Bind::Key(KeyCode::KeyQ));
         assert!(s.clashes(Act::Back) && s.clashes(Act::RollLeft) && !s.clashes(Act::Forward));
         assert_eq!(keys(s.key_rows("q")), [Act::Back, Act::RollLeft], "a key's search shows who shares it");
+    }
+
+    /// Sprint (ADR 0118): held on Left Ctrl, in the moving group, rebound and kept in the file like any action.
+    #[test]
+    fn sprint_is_on_left_ctrl_and_its_key_is_kept() {
+        let mut s = Settings::default();
+        assert_eq!(s.binds[Act::Sprint as usize][0], Some(Bind::Key(KeyCode::ControlLeft)));
+        assert_eq!(KEY_GROUPS[0].1.iter().filter(|a| **a == Act::Sprint).count(), 1, "among the moving keys");
+        s.binds[Act::Sprint as usize] = [Some(Bind::Key(KeyCode::KeyR)), None];
+        assert!(s.text().contains("key.sprint=KeyR"), "{}", s.text());
+        assert_eq!(Settings::parse(&s.text()).binds[Act::Sprint as usize][0], Some(Bind::Key(KeyCode::KeyR)));
+        s.binds[Act::Sprint as usize][0] = Some(Bind::Key(KeyCode::KeyW));
+        assert!(s.clashes(Act::Sprint) && s.clashes(Act::Forward), "a shared key is marked");
     }
 
     #[test]

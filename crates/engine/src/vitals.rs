@@ -17,6 +17,9 @@ pub const DRAIN: f64 = MAX as f64 / (crate::sky::DAY / phys::DT);
 /// Walking drains this many times as fast; a block dug costs DIG points.
 pub const WALK_DRAIN: f64 = 2.0;
 pub const DIG: f64 = 0.05;
+/// Sprinting (ADR 0118) drains this many times the walk's drain, and stops at SPRINT_FLOOR hunger or less.
+pub const SPRINT_DRAIN: f64 = 3.0;
+pub const SPRINT_FLOOR: f64 = 6.0;
 /// Above this hunger health comes back, a point every REGEN steps (8 s); at none it goes, a point every
 /// STARVE steps (10 s), down to 1.
 pub const FED: f64 = 14.0;
@@ -84,10 +87,15 @@ impl Vitals {
     /// One physics step of a living survival player: hunger drains (twice as fast `walking`), then health
     /// comes back or goes with it.
     pub fn step(&mut self, walking: bool) {
+        self.drain(if walking { WALK_DRAIN } else { 1.0 });
+    }
+
+    /// One step at `rate` times the standing drain (`step`'s, or `rate`'s).
+    pub fn drain(&mut self, rate: f64) {
         if self.dead.is_some() {
             return;
         }
-        self.hunger = (self.hunger - DRAIN * if walking { WALK_DRAIN } else { 1.0 }).max(0.0);
+        self.hunger = drained(self.hunger, rate);
         // shortcut: hunger alone never kills (the floor at 1) because there is no food yet; let it kill once
         // food can be found or made
         let (every, d) = match (self.hunger > FED, self.hunger <= 0.0) {
@@ -103,6 +111,11 @@ impl Vitals {
             self.clock = 0;
             self.health = (self.health as i32 + d) as u8;
         }
+    }
+
+    /// Hunger enough to sprint (ADR 0118): over SPRINT_FLOOR (`gate` asks it of every step).
+    pub fn can_sprint(hunger: f64) -> bool {
+        hunger > SPRINT_FLOOR
     }
 
     /// `n` blocks dug.
@@ -137,10 +150,35 @@ impl Vitals {
     }
 }
 
+/// Hunger after one step at `rate` times the standing drain: the server's `Vitals::drain`, and the client's
+/// prediction of it across the steps the server has not answered (ADR 0118).
+pub fn drained(hunger: f64, rate: f64) -> f64 {
+    (hunger - DRAIN * rate).max(0.0)
+}
+
+/// The drain of one step with `inp` that `sprinted` (what `phys::step` returned): a sprint's, a walk's or
+/// standing's.
+pub fn rate(inp: &Input, sprinted: bool) -> f64 {
+    if sprinted {
+        WALK_DRAIN * SPRINT_DRAIN
+    } else if inp.mv != [0.0, 0.0] {
+        WALK_DRAIN
+    } else {
+        1.0
+    }
+}
+
+/// The input a step takes at this hunger (ADR 0118): the sprint bit only over the floor, or in creative. The
+/// server asks it of each step at the hunger it has then; the client of each step it predicts, at the hunger
+/// it predicts from the server's last word (`ToClient::You`), so both refuse the same step.
+pub fn gate(inp: Input, hunger: f64, creative: bool) -> Input {
+    Input { sprint: inp.sprint && (creative || Vitals::can_sprint(hunger)), ..inp }
+}
+
 /// A dead player's input: the look stays, nothing moves it. The server steps a dead player with this and
 /// so does its client, so the two stay together.
 pub fn still(inp: Input) -> Input {
-    Input { mv: [0.0, 0.0], jump: false, fly: 0.0, down: false, turn: 0.0, tilt: 0.0, roll: 0.0, fwd: [0.0; 3], ..inp }
+    Input { mv: [0.0, 0.0], jump: false, fly: 0.0, down: false, turn: 0.0, tilt: 0.0, roll: 0.0, fwd: [0.0; 3], sprint: false, ..inp }
 }
 
 #[cfg(test)]
@@ -330,7 +368,7 @@ mod tests {
 
     #[test]
     fn a_dead_player_s_input_moves_nothing() {
-        let inp = Input { mv: [1.0, 0.5], jump: true, fly: 30.0, down: true, turn: 0.3, tilt: 0.1, roll: 0.1, fwd: [1.0, 0.0, 0.0], pitch: 0.4, t: 7.0 };
+        let inp = Input { mv: [1.0, 0.5], jump: true, fly: 30.0, down: true, turn: 0.3, tilt: 0.1, roll: 0.1, fwd: [1.0, 0.0, 0.0], pitch: 0.4, t: 7.0, sprint: true };
         assert_eq!(still(inp), Input { pitch: 0.4, t: 7.0, ..Default::default() });
     }
 }

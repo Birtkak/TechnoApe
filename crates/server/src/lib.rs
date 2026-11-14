@@ -679,6 +679,11 @@ impl Server {
                     Recv::Closed => self.log(Ev::Leave { tick, id }),
                     Recv::Empty => {}
                 }
+                // the sprint bit's messages (ADR 0118) as the steps and inputs they carry
+                let r = match r {
+                    Recv::Msg(m) => Recv::Msg(m.unpacked()),
+                    r => r,
+                };
                 match r {
                     // a client names itself once: a second Hello would take another name's saved state
                     Recv::Msg(ToServer::Hello { .. }) if !self.clients[i].player.name.is_empty() => {}
@@ -778,6 +783,7 @@ impl Server {
                     Recv::Msg(ToServer::Dig(at)) => self.dig(i, at),
                     Recv::Msg(ToServer::Hand(k)) => self.clients[i].hand = k.min(items::HOTBAR as u8 - 1),
                     Recv::Msg(ToServer::Strike(at)) => self.strike(i, at),
+                    Recv::Msg(ToServer::Sprints { .. } | ToServer::Sprint(..)) => unreachable!("unpacked above"),
                     Recv::Msg(ToServer::Map(h)) => {
                         if let Some(m) = self.world.bodies.iter().filter_map(|b| b.map()).find(|m| m.hash == h) {
                             // shortcut: any client may ask again; a limit per client when servers go public
@@ -824,9 +830,11 @@ impl Server {
                 for _ in 0..steps {
                     // (a player that died in an earlier step of this tick moves no more in it)
                     let inp = if c.vitals.dead.is_some() { vitals::still(inp) } else { inp };
+                    // a sprint takes hunger over the floor, at the hunger of this step (ADR 0118)
+                    let inp = vitals::gate(inp, c.vitals.hunger, c.creative);
                     let before = c.phys;
-                    phys::step(&self.world, &mut c.phys, &inp, phys::DT);
-                    live(c, &self.world, &before, &inp, &mut deaths);
+                    let sprinted = phys::step(&self.world, &mut c.phys, &inp, phys::DT);
+                    live(c, &self.world, &before, &inp, sprinted, &mut deaths);
                 }
                 c.player.pos = c.phys.pos.to_array();
                 c.player.fwd = c.phys.fwd.as_vec3().to_array();
@@ -836,21 +844,21 @@ impl Server {
                 c.credit = (c.credit + steps).min(CREDIT_MAX);
                 while c.credit > 0 {
                     let Some((seq, inp)) = c.queue.pop_front() else { break };
-                    let mut inp = walk(inp);
+                    let mut inp = vitals::gate(walk(inp), c.vitals.hunger, c.creative);
                     // at the client's time when it is near this clock (it predicted the step then), else at this one
                     let near = 2.0 * self.warp as f64; // two seconds of real time
                     if (inp.t - self.world.time).abs() > near {
                         inp.t = 0.0;
                     }
                     let before = c.phys;
-                    phys::step_at(&mut self.world, &mut c.phys, &inp, phys::DT);
-                    live(c, &self.world, &before, &inp, &mut deaths);
+                    let sprinted = phys::step_at(&mut self.world, &mut c.phys, &inp, phys::DT);
+                    live(c, &self.world, &before, &inp, sprinted, &mut deaths);
                     (c.acked, c.credit, c.player.pitch) = (seq, c.credit - 1, inp.pitch);
                 }
                 c.player.pos = c.phys.pos.to_array();
                 c.player.fwd = c.phys.fwd.as_vec3().to_array();
             }
-            c.link.send(ToClient::You { step: c.acked, me: c.phys, time: self.world.time, warp: self.warp as f64 });
+            c.link.send(ToClient::You { step: c.acked, me: c.phys, time: self.world.time, warp: self.warp as f64, hunger: c.vitals.hunger });
         }
         for line in deaths {
             self.say(line);
@@ -1958,7 +1966,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
 /// After one physics step of client `c` from `before` with `inp` (ADR 0040): the impact it took, if it hit
 /// something solid hard enough, and a step of hunger. Creative has neither: nothing drains, nothing hurts.
 /// A death's line for everyone goes to `deaths`.
-fn live(c: &mut Client, world: &World, before: &phys::Player, inp: &Input, deaths: &mut Vec<String>) {
+fn live(c: &mut Client, world: &World, before: &phys::Player, inp: &Input, sprinted: bool, deaths: &mut Vec<String>) {
     let (now, hit) = vitals::impact(c.was, before, &c.phys, phys::DT);
     c.was = now;
     if c.creative {
@@ -1981,7 +1989,8 @@ fn live(c: &mut Client, world: &World, before: &phys::Player, inp: &Input, death
             }
         }
     }
-    c.vitals.step(inp.mv != [0.0, 0.0]);
+    // (a sprint's drain only for a step that sprinted: not into a wall, not in the water; ADR 0118)
+    c.vitals.drain(vitals::rate(inp, sprinted));
 }
 
 /// What a replay found.
@@ -3155,6 +3164,106 @@ mod tests {
         s.tick();
         assert_eq!((s.clients[0].acked, s.clients[0].queue.len()), (186, 54));
         assert!((start.pos - me.pos).length() > 3.0);
+    }
+
+    /// Sprint (ADR 0118): a survival player sprinting 100 ticks ends where the engine's step puts it and has lost
+    /// the sprint's hunger; at the floor the bit is refused and it walks; creative sprints for nothing.
+    #[test]
+    fn a_sprint_lands_where_predicted_costs_hunger_and_stops_at_the_floor() {
+        let (mut s, links) = server_with(1);
+        drain(&links[0]);
+        let l = &links[0];
+        let mut seq = 0u32;
+        // 100 ticks of sprinting steps sent as a client sends them; `predict` the sprint bit the client steps with
+        let mut go = |s: &mut Server, predict: bool| {
+            let (mut me, mut sprinted) = (s.clients[0].phys, 0);
+            for _ in 0..100 {
+                let t0 = s.world.time + 0.5;
+                // as a client steers: by turning, with a jump now and then
+                let inp = |k: u32, sprint: bool| Input { mv: [1.0, 0.0], jump: k % 40 == 0, turn: if k % 50 == 0 { 0.4 } else { 0.0 }, t: t0 + (k % 3) as f64 * phys::DT, sprint, ..Default::default() };
+                let inputs: Vec<Input> = (seq + 1..seq + 4).map(|k| inp(k, true)).collect();
+                for k in seq + 1..seq + 4 {
+                    sprinted += phys::step_at(&mut s.world, &mut me, &inp(k, predict), phys::DT) as u32;
+                }
+                l.send(ToServer::steps(seq + 1, inputs));
+                seq += 3;
+                s.tick();
+            }
+            let you = drain(l).into_iter().filter_map(|m| if let ToClient::You { me, .. } = m { Some(me) } else { None }).last().unwrap();
+            (you, me, sprinted)
+        };
+        let h0 = s.clients[0].vitals.hunger;
+        let (you, me, sprinted) = go(&mut s, true);
+        assert_eq!(you, me, "the server sprinted where the client predicted");
+        // a sprint's drain for each step that sprinted (not a ledge's, which stopped it), a walk's for the rest
+        let lost = h0 - s.clients[0].vitals.hunger;
+        let want = vitals::DRAIN * vitals::WALK_DRAIN * (sprinted as f64 * 3.0 + (300 - sprinted) as f64);
+        assert!(sprinted > 200 && (lost - want).abs() < 1e-9, "lost {lost}, the rule says {want} ({sprinted} of 300 sprinted)");
+        s.clients[0].vitals.hunger = 6.0;
+        let (you, me, _) = go(&mut s, false);
+        assert_eq!(you, me, "at 6 of 20 the bit is refused and the player walks");
+        l.send(ToServer::Creative(true));
+        s.tick();
+        let h = s.clients[0].vitals.hunger;
+        let (you, me, _) = go(&mut s, true);
+        assert_eq!((you, s.clients[0].vitals.hunger), (me, h), "creative sprints at the floor and for nothing");
+    }
+
+    /// The review of ADR 0118: a client that predicts hunger across its steps with the server's drain refuses the
+    /// sprint at the very step the server does, so a run through the floor reconciles with no correction.
+    #[test]
+    fn a_sprint_through_the_hunger_floor_needs_no_correction() {
+        let (mut s, links) = server_with(1);
+        drain(&links[0]);
+        let l = &links[0];
+        s.clients[0].vitals.hunger = 6.0507; // (the floor falls inside a tick)
+        let (mut me, mut h) = (s.clients[0].phys, 6.0507);
+        let t0 = s.world.time + 0.5;
+        let inp = |k: u32| Input { mv: [1.0, 0.0], jump: k % 40 == 0, turn: if k % 50 == 0 { 0.4 } else { 0.0 }, t: t0 + k as f64 * phys::DT, sprint: true, ..Default::default() };
+        let mut refused = 0;
+        for t in 0..40u32 {
+            let inputs: Vec<Input> = (t * 3 + 1..t * 3 + 4).map(inp).collect();
+            // the client's prediction: each step gated at the hunger it predicts, then drained as the server drains
+            for i in &inputs {
+                let g = vitals::gate(*i, h, false);
+                refused += !g.sprint as u32;
+                let sprinted = phys::step_at(&mut s.world, &mut me, &g, phys::DT);
+                h = vitals::drained(h, vitals::rate(&g, sprinted));
+            }
+            l.send(ToServer::steps(t * 3 + 1, inputs));
+            s.tick();
+            let you = drain(l).into_iter().filter_map(|m| if let ToClient::You { step, me, hunger, .. } = m { Some((step, me, hunger)) } else { None }).last().unwrap();
+            assert_eq!(you, (t * 3 + 3, me, h), "tick {t}: a correction");
+        }
+        assert!(refused > 30 && refused < 110, "the floor was crossed on the way: {refused} steps refused");
+    }
+
+    /// The review of ADR 0118: a sprint held in the sea drains as a walk does (the step did not sprint).
+    #[test]
+    fn a_sprint_held_in_the_sea_drains_as_a_walk() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let b = &s.world.bodies[0];
+        let sea = b.radius - engine::world::SEA_DEPTH;
+        let d = (0..2000)
+            .map(|k| {
+                let z = 1.0 - 2.0 * (k as f64 + 0.5) / 2000.0;
+                let t = k as f64 * 2.4;
+                DVec3::new((1.0 - z * z).sqrt() * t.cos(), z, (1.0 - z * z).sqrt() * t.sin())
+            })
+            .find(|&d| b.height(d) < sea - 3.0)
+            .expect("the planet has sea");
+        l.send(ToServer::Move { pos: (b.centre + d * (sea - 1.0)).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        s.tick();
+        drain(l);
+        let h0 = s.clients[0].vitals.hunger;
+        for t in 0..20u32 {
+            l.send(ToServer::steps(t * 3 + 1, vec![Input { mv: [1.0, 0.0], sprint: true, ..Default::default() }; 3]));
+            s.tick();
+        }
+        let lost = h0 - s.clients[0].vitals.hunger;
+        let walk = 60.0 * vitals::DRAIN * vitals::WALK_DRAIN;
+        assert!((lost - walk).abs() < 1e-9, "lost {lost}, a walk's {walk}");
     }
 
     #[test]
