@@ -373,7 +373,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
     // 12288 the 8 km huge one; 768 the benchmark's 500 m class)
     // warp=0..1: the block grid warped towards the conformal cube-sphere (a trial, ADR 0131). The server's and
     // this client's must be the same: a remote server's is not sent, so it is given here by hand
-    let warp: f64 = args.get("warp", 0.0);
+    let warp: f64 = args.0.get("warp").map_or(0.0, |v| v.parse().expect("warp= is a number 0 to 1"));
     let mut local_server = None;
     let mut tick_log = None;
     let (mut save_path, mut rec_path) = (None, None);
