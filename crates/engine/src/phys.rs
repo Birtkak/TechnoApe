@@ -23,6 +23,18 @@ pub const G: f64 = crate::world::G;
 /// Swimming (ADR 0020): rising speed with jump held, m/s; a body floats with this share of it under water.
 pub const SWIM: f64 = 2.0;
 const FLOAT: f64 = 0.8;
+/// Swimming (ADR 0118): with the eyes under and nothing held the body sinks this fast, m/s; it moves this fast
+/// along the ground's way without a sprint; a sprint strokes along the look at SWIM_FAST, once more than
+/// STROKE_SUB of the body is in. Under water the velocity eases to what is wanted at WATER_EASE a second.
+pub const SINK: f64 = 0.6;
+pub const SWIM_SLOW: f64 = WALK * 0.5;
+pub const SWIM_FAST: f64 = 4.0;
+const STROKE_SUB: f64 = 0.6;
+const WATER_EASE: f64 = 4.0;
+/// Under means the head this far under the surface, m: a body that dips under while floating comes up again.
+const UNDER: f64 = 0.2;
+/// Climbing out of the water onto a bank (ADR 0118), m/s: the push that lifts the feet a block and a half.
+const CLIMB: f64 = 6.0;
 /// The fixed step. The server and every client take the same steps, so the same input gives the same path
 /// at any frame rate or tick rate; each side carries the time that did not fill a step over to the next.
 pub const DT: f64 = 1.0 / 60.0;
@@ -221,6 +233,23 @@ pub fn ledge_ahead(world: &World, p: &Player) -> bool {
     p.on_ground && ledge(world, p, p.vel)
 }
 
+/// Under water (ADR 0118): the head UNDER below the surface; a body already sinking stays under a little
+/// shallower, one rising leaves a little deeper, so a wobbling water level does not flick it between the two.
+fn under(deep: f64, v_up: f64) -> bool {
+    deep > HEIGHT + UNDER + 0.1 || deep > HEIGHT + UNDER - 0.1 && v_up <= 0.0
+}
+
+/// A bank to climb out on along `dir` (ADR 0118): solid just under the water's surface ahead, and room to stand
+/// within 1.5 m over the surface.
+fn bank(world: &World, p: &Player, dir: DVec3, up: DVec3, deep: f64) -> bool {
+    let ahead = p.pos + dir * (WIDTH * 0.5 + 0.3);
+    solid_at(world, ahead + up * (deep - 0.05)) && !blocked(world, ahead + up * (deep + 1.5))
+}
+
+fn solid_at(world: &World, x: DVec3) -> bool {
+    BLOCKS.get(world.block(world.block_at(x))).is_some_and(|d| d.solid)
+}
+
 /// A ledge one block high in the way of moving along `dir`, with room on top of it.
 fn ledge(world: &World, p: &Player, dir: DVec3) -> bool {
     let up = up(world, p.pos);
@@ -300,14 +329,17 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
         (f, f.cross(up).normalize(), up)
     };
 
-    // how much of the body is under water, 0 to 1
-    let sub = match world.water_surface(p.pos + up * 0.05) {
-        Some(r) => ((r - (p.pos - world.bodies[world.nearest(p.pos)].centre).length()) / HEIGHT).clamp(0.0, 1.0),
-        None => 0.0,
-    };
+    // how deep the feet are under the water's surface, and how much of the body is under it, 0 to 1
+    let deep = world.water_surface(p.pos + up * 0.05).map_or(0.0, |r| r - (p.pos - world.bodies[world.nearest(p.pos)].centre).length());
+    let sub = (deep / HEIGHT).clamp(0.0, 1.0);
     let mv = DVec3::new(inp.mv[1].clamp(-1.0, 1.0) as f64, 0.0, inp.mv[0].clamp(-1.0, 1.0) as f64);
     // the forward share of the walk a sprint speeds, 0 for none
     let mut sprint_share = 0.0;
+    // swimming (ADR 0118): a sprint forward with most of the body in strokes along the look; a body already
+    // swimming fast keeps stroking a little shallower, so the switch does not flicker (hysteresis from the speed)
+    let swimming = !p.on_ground && p.vel.length() > SWIM_SLOW + 0.5;
+    let stroke = !flying && inp.sprint && mv.z > 0.0 && sub > if swimming { STROKE_SUB - 0.1 } else { STROKE_SUB };
+    let look = fwd * (inp.pitch as f64).cos() + up * (inp.pitch as f64).sin();
     if flying {
         // the move and up or down at the asked speed, nothing else
         let vert = inp.jump as i32 as f64 - inp.down as i32 as f64;
@@ -320,25 +352,59 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
         }
         let dir = dir + fwd * sprint_share * (SPRINT - 1.0);
         let wish = dir * WALK * (1.0 - 0.5 * sub);
-        let mut v_up = p.vel.dot(up) - pull * dt;
-        if p.on_ground && inp.jump && sub < 0.3 {
-            v_up = JUMP;
-        }
-        if sub > 0.0 {
-            // buoyancy that holds the body FLOAT under, drag, and jump held swims up
-            v_up += G / FLOAT * sub * dt;
-            v_up *= 1.0 - (3.0 * sub * dt).min(1.0);
-            if inp.jump && sub > 0.3 {
-                v_up = v_up.max(SWIM);
+        // climbing OUT: jump held (or a stroke) in real water near the surface, the look not down, against a
+        // bank whose top is at or over the surface and within reach; elsewhere a stroke slides along a wall
+        // (real water: a third of the body in, or still in with water, not a floor, under the feet; a puddle's
+        // jump is the old jump)
+        let climb = (sub > 0.3 || sub > 0.0 && !solid_at(world, p.pos - up * 0.6))
+            && deep <= HEIGHT + UNDER
+            && (inp.jump || stroke)
+            && inp.pitch > -0.3
+            && dir.length() > 0.1
+            && blocked(world, p.pos + up * 0.05 + dir.normalize() * 0.1)
+            && bank(world, p, dir.normalize(), up, deep);
+        if stroke || under(deep, p.vel.dot(up)) {
+            // under water, or stroking: no gravity, no buoyancy; the velocity eases to the stroke along the look,
+            // or to the slow move with jump rising, the down key sinking and nothing a slow sink
+            let want = if stroke {
+                let want = (look * (SWIM_FAST * mv.z) + right * (SWIM_SLOW * mv.x)).clamp_length_max(SWIM_FAST);
+                // at the surface the stroke holds the float line: the look's rise is clipped there (no hop out)
+                let rise = if climb { f64::INFINITY } else { (deep - FLOAT * HEIGHT) * WATER_EASE };
+                want - up * (want.dot(up) - rise).max(0.0)
+            } else {
+                dir * SWIM_SLOW + up * if inp.jump { SWIM } else if inp.down { -SWIM } else { -SINK }
+            };
+            p.vel += (want - p.vel) * (WATER_EASE * dt).min(1.0);
+            if climb {
+                let lift = if ledge(world, p, dir) { CLIMB } else { SWIM };
+                p.vel += up * (lift - p.vel.dot(up)).max(0.0);
             }
-            // a ledge in the way climbs out (W5): a river's bed steps a block under shallow water, where
-            // swimming up never lifts the feet over the step
-            if inp.jump && v_up < JUMP && ledge(world, p, wish) {
+        } else {
+            let mut v_up = p.vel.dot(up) - pull * dt;
+            if p.on_ground && inp.jump && sub < 0.3 {
                 v_up = JUMP;
             }
+            if sub > 0.0 {
+                // buoyancy that holds the body FLOAT under, drag, and jump held swims up
+                v_up += G / FLOAT * sub * dt;
+                v_up *= 1.0 - (3.0 * sub * dt).min(1.0);
+                if inp.jump && sub > 0.3 || climb {
+                    v_up = v_up.max(SWIM);
+                }
+                // the down key dives from the surface, as it sinks under it
+                if inp.down && sub > 0.3 && !inp.jump {
+                    v_up = v_up.min(-SWIM);
+                }
+                // a ledge in the way climbs out (W5): a river's bed steps a block under shallow water, where
+                // swimming up never lifts the feet over the step
+                // (and a bank over the surface, climbed to its edge, is jumped onto: ADR 0118)
+                if (inp.jump || stroke) && v_up < JUMP && ledge(world, p, wish) {
+                    v_up = if climb { CLIMB } else { JUMP };
+                }
+            }
+            // snappy: the horizontal velocity is the wish, on the ground and in the air
+            p.vel = wish + up * v_up;
         }
-        // snappy: the horizontal velocity is the wish, on the ground and in the air
-        p.vel = wish + up * v_up;
     }
 
     let total = p.vel * dt;
@@ -369,9 +435,11 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
         }
     }
     p.on_ground = on_ground || (p.vel.dot(down) >= 0.0 && blocked(world, p.pos + down * (2.0 * CONTACT)));
+    // a sprint went further forward than the walk's share would in the step, with a twentieth to spare; a
+    // stroke moved along the look at all (5 cm/s), not held against a wall
+    let sprinted = sprint_share > 0.0 && (p.pos - start).dot(fwd) > WALK * sprint_share * dt * 1.05
+        || stroke && (p.pos - start).dot(look) > 0.05 * dt;
     // out of a body's sphere of influence, or into one (ADR 0022): the body turns with the frame
-    // (further forward than the walk's share would go in the step, with a twentieth to spare)
-    let sprinted = sprint_share > 0.0 && (p.pos - start).dot(fwd) > WALK * sprint_share * dt * 1.05;
     if let Some(r) = world.reframe(&mut p.pos, &mut p.vel) {
         (p.fwd, p.up) = (r * p.fwd, r * p.up);
     }
@@ -819,27 +887,306 @@ mod tests {
         assert_eq!(fly(false), fly(true));
     }
 
-    /// Sprint is no swim: in the sea the bit changes nothing (ADR 0118).
-    #[test]
-    fn sprint_does_nothing_in_the_sea() {
+    /// A deep spot of the sea on a small planet: the world, the way up there, the sea's surface radius and a
+    /// level way ahead.
+    fn sea() -> (World, DVec3, f64, DVec3) {
         let w = World::new(1536, 32, 1);
         let b = &w.bodies[0];
-        let (i, j) = (0..b.n).step_by(3).flat_map(|i| (0..b.n).step_by(3).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 8.0).unwrap();
+        let (i, j) = (0..b.n).step_by(3).flat_map(|i| (0..b.n).step_by(3).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 12.0).unwrap();
         let d = b.dir(2, i as f64 + 0.5, j as f64 + 0.5);
         let sea = b.radius - crate::world::SEA_DEPTH;
-        let swim = |sprint: bool| {
-            let mut p = Player::at(d * (sea - 1.0), DVec3::X);
-            run(&w, &mut p, &Input::default(), 5.0);
-            run(&w, &mut p, &Input { mv: [1.0, 0.0], sprint, ..Default::default() }, 2.0);
-            p.pos
-        };
-        assert_eq!(swim(false), swim(true));
+        let r = w.water_surface(d * (sea - 3.0)).expect("the sea");
+        let ahead = tangent(DVec3::X, d, DVec3::Z);
+        (w, d, r, ahead)
+    }
+
+    /// Swimming (ADR 0118): with the head under, the body sinks slowly (SINK), not falling; jump held rises at
+    /// SWIM and, let go once the head is out, the body floats with the head out.
+    #[test]
+    fn under_water_the_body_sinks_slowly_and_jump_rises_to_float() {
+        let (w, d, r, ahead) = sea();
+        let mut p = Player::at(d * (r - 5.0), ahead);
+        run(&w, &mut p, &Input::default(), 2.0);
+        let v = p.vel.dot(d);
+        assert!((v + SINK).abs() < 0.05, "sinks at {v} m/s");
+        // from 5 m under (the feet), jump held: up at SWIM, the time to the surface noted
+        let mut q = Player::at(d * (r - 5.0), ahead);
+        let mut t = 0.0;
+        while q.pos.length() + EYE < r && t < 10.0 {
+            step(&w, &mut q, &Input { jump: true, ..Default::default() }, DT);
+            t += DT;
+        }
+        eprintln!("eyes out from 5 m in {t:.2} s");
+        assert!(t < 5.0 / SWIM + 0.5, "{t} s to the surface");
+        // let go: it floats, the head out, and stays so
+        for _ in 0..600 {
+            step(&w, &mut q, &Input::default(), DT);
+        }
+        let feet = r - q.pos.length();
+        assert!(feet > 1.0 && feet < EYE, "floats with the feet {feet} m under, the eyes out");
+        // and holding jump it bobs at the surface, no higher than the body out of it
+        for _ in 0..600 {
+            step(&w, &mut q, &Input { jump: true, ..Default::default() }, DT);
+            let feet = r - q.pos.length();
+            assert!(feet > -0.6 && feet < EYE, "jump held at the surface: feet {feet} m under");
+        }
+        // floating at the surface, the down key dives (the filmstrip found it held the body up)
+        for _ in 0..600 {
+            step(&w, &mut q, &Input::default(), DT);
+        }
+        run(&w, &mut q, &Input { down: true, ..Default::default() }, 2.0);
+        let feet = r - q.pos.length();
+        eprintln!("down held 2 s from floating: feet {feet:.2} m under");
+        assert!(feet > HEIGHT + UNDER + 1.0, "down held at the surface: feet only {feet} m under");
+    }
+
+    /// Sprint under water swims along the look, pitch and all, at SWIM_FAST once it has sped up.
+    #[test]
+    fn a_sprint_swims_along_the_look_at_its_speed() {
+        let (w, d, r, ahead) = sea();
+        for pitch in [-0.6f32, 0.0, 0.5] {
+            let mut p = Player::at(d * (r - 6.0), ahead);
+            let inp = Input { mv: [1.0, 0.0], sprint: true, pitch, fwd: ahead.as_vec3().to_array(), ..Default::default() };
+            run(&w, &mut p, &Input { fwd: inp.fwd, ..Default::default() }, 0.5);
+            for _ in 0..90 {
+                step(&w, &mut p, &inp, DT);
+            }
+            let look = ahead * (pitch as f64).cos() + d * (pitch as f64).sin();
+            let v = p.vel;
+            assert!((v.length() - SWIM_FAST).abs() < 0.1 && v.normalize().dot(look) > 0.999, "pitch {pitch}: {v:?} against {look:?}");
+            // let go, the drag slows it smoothly to the slow sink
+            let before = p.vel.length();
+            step(&w, &mut p, &Input { fwd: inp.fwd, ..Default::default() }, DT);
+            assert!(p.vel.length() < before && p.vel.length() > before * 0.8, "slows smoothly: {before} to {}", p.vel.length());
+        }
+        // without sprint the head-under move is the slow one
+        let mut p = Player::at(d * (r - 6.0), ahead);
+        run(&w, &mut p, &Input { mv: [1.0, 0.0], fwd: ahead.as_vec3().to_array(), ..Default::default() }, 2.0);
+        let across = p.vel.reject_from(d).length();
+        assert!((across - SWIM_SLOW).abs() < 0.05, "{across}");
+    }
+
+    /// Builds a stone floor `depth` m under the surface (a block thick, cells -6..=12 by -6..=6 around the spot; the sea over it is as generated)
+    /// and, from 4 blocks ahead on, a bank up to the first layer at least `bank` m over the surface; the feet's
+    /// start on the floor, the bank's top over the surface and the way to it.
+    fn shore(w: &mut World, d: DVec3, r: f64, depth: f64, bank: Option<f64>) -> (DVec3, f64, DVec3) {
+        let b0 = w.block_at(d * (r - depth - 0.5));
+        let layer_r = |w: &World, l: i32| w.bodies[0].layer_r(l as f64);
+        let top = bank.map(|h| (0..).map(|k| b0.pos.z + k).find(|&l| layer_r(w, l) >= r + h).unwrap());
+        for dx in -6..=12 {
+            for dy in -6..=6 {
+                for dz in -1..=8 {
+                    let c = Block { pos: b0.pos + glam::IVec3::new(dx, dy, dz), ..b0 };
+                    let solid = dz <= 0 || top.is_some_and(|t| dx >= 4 && c.pos.z < t);
+                    if solid {
+                        w.set_block(c, 3);
+                    }
+                }
+            }
+        }
+        // the way across the grid's rows towards the bank
+        let next = Block { pos: b0.pos + glam::IVec3::X, ..b0 };
+        let way = (w.block_centre(next) - w.block_centre(b0)).reject_from(d).normalize();
+        (w.block_centre(b0) + d * 0.5, top.map_or(0.0, |t| layer_r(w, t) - r), way)
+    }
+
+    /// Wading (ADR 0118): on the bottom with the feet in and the head out, it is a walk, slower than on land.
+    #[test]
+    fn wading_in_shallow_water_walks_slower() {
+        // (a block deep too: there the body wades on the bottom, it does not sink or float off)
+        for depth in [0.8, 1.0] {
+            let (mut w, d, r, _) = sea();
+            let (feet, _, dir) = shore(&mut w, d, r, depth, None);
+            let u = up(&w, feet);
+            let f = dir.as_vec3().to_array();
+            let mut p = Player::at(feet + u * 0.01, dir);
+            run(&w, &mut p, &Input { fwd: f, ..Default::default() }, 1.0);
+            assert!(p.on_ground, "{depth} m deep: standing on the bottom");
+            let s = p.pos;
+            for _ in 0..60 {
+                step(&w, &mut p, &Input { mv: [1.0, 0.0], fwd: f, ..Default::default() }, DT);
+            }
+            let v = (p.pos - s).dot(dir);
+            eprintln!("wading {depth} m deep at {v:.2} m/s");
+            assert!(p.on_ground && v > 0.6 * WALK && v < 0.9 * WALK, "{depth} m deep: {v} m/s");
+        }
+    }
+
+    /// Out of the water (ADR 0118): swimming at a bank a block over the surface (its top 0.5 to 1.5 m over it),
+    /// jump held, climbs onto it, and so does a sprint's stroke.
+    #[test]
+    fn swimming_at_a_bank_a_block_high_climbs_out() {
+        let (mut w, d, r, _) = sea();
+        let (feet, bank, dir) = shore(&mut w, d, r, 6.0, Some(0.5));
+        let u = up(&w, feet);
+        let f = dir.as_vec3().to_array();
+        let mut p = Player::at(feet + u * 4.0, dir);
+        // float up to the surface, then at the bank with jump held
+        run(&w, &mut p, &Input { jump: true, fwd: f, ..Default::default() }, 3.0);
+        for sprint in [false, true] {
+            // (the bank is 9 blocks wide: the first steps stood on its top count)
+            let mut q = p;
+            let mut out = None;
+            for k in 0..300 {
+                step(&w, &mut q, &Input { mv: [1.0, 0.0], jump: true, sprint, fwd: f, ..Default::default() }, DT);
+                let (on, over) = ((q.pos - feet).dot(dir), q.pos.length() - r);
+                if q.on_ground && on > 4.0 && (over - bank).abs() < 0.1 {
+                    out = Some(k as f64 * DT);
+                    break;
+                }
+            }
+            eprintln!("sprint {sprint}: out on a bank {bank:.2} m over the surface after {out:?} s");
+            assert!(out.is_some(), "sprint {sprint}: never on the bank {bank} m over the surface, at {:?}", q.pos.length() - r);
+        }
+    }
+
+    /// The review of ADR 0118's swimming: a stroke ahead and to the side together is no faster than one ahead.
+    #[test]
+    fn a_diagonal_stroke_is_no_faster() {
+        let (w, d, r, ahead) = sea();
+        let mut p = Player::at(d * (r - 6.0), ahead);
+        let inp = Input { mv: [1.0, 1.0], sprint: true, fwd: ahead.as_vec3().to_array(), ..Default::default() };
+        for _ in 0..120 {
+            step(&w, &mut p, &inp, DT);
+        }
+        let v = p.vel.length();
+        eprintln!("a diagonal stroke at {v:.2} m/s");
+        assert!(v < SWIM_FAST + 0.02, "a diagonal stroke at {v} m/s");
+    }
+
+    /// The review of ADR 0118's swimming: a stroke down along a cliff face under water slides down it; the
+    /// climb out of the water is no push up there.
+    #[test]
+    fn a_dive_along_a_cliff_keeps_going_down() {
+        let (mut w, d, r, _) = sea();
+        let (feet, _, dir) = shore(&mut w, d, r, 7.0, Some(0.5));
+        let u = up(&w, feet);
+        let f = dir.as_vec3().to_array();
+        let mut p = Player::at(feet + u * 3.5 + dir * 3.0, dir);
+        let inp = Input { mv: [1.0, 0.0], sprint: true, pitch: -0.6, fwd: f, ..Default::default() };
+        let mut last = p.pos.length();
+        for k in 0..90 {
+            step(&w, &mut p, &inp, DT);
+            let h = p.pos.length();
+            assert!(h <= last + 1e-9, "step {k}: up {} m along the cliff", h - last);
+            last = h;
+        }
+    }
+
+    /// The review of ADR 0118's swimming: a stroke at a block-high step of the sea floor, deep under, does not
+    /// throw the body up.
+    #[test]
+    fn a_stroke_at_a_seabed_step_does_not_launch() {
+        let (mut w, d, r, _) = sea();
+        let (feet, _, dir) = shore(&mut w, d, r, 7.0, Some(-6.0));
+        let u = up(&w, feet);
+        let f = dir.as_vec3().to_array();
+        let mut p = Player::at(feet + u * 0.2 + dir * 2.0, dir);
+        let inp = Input { mv: [1.0, 0.0], sprint: true, fwd: f, ..Default::default() };
+        let mut top = 0f64;
+        for _ in 0..120 {
+            step(&w, &mut p, &inp, DT);
+            top = top.max(p.vel.dot(u));
+        }
+        assert!(top < 0.5, "thrown up at {top} m/s");
+    }
+
+    /// The review of ADR 0118's swimming: in a puddle (under the wading depth) a jump at a ledge is the old
+    /// jump, not the climb out of the water.
+    #[test]
+    fn a_jump_at_a_ledge_in_a_puddle_is_the_old_jump() {
+        // on land: a channel two cells long, a block deep, walled round, a ledge a block high at its end, and
+        // water poured into it an eighth of a block deep
+        let mut w = World::new(1536, 32, 1);
+        let d = w.bodies[0].spawn;
+        let g = w.block_at(w.bodies[0].centre + d * (w.bodies[0].height(d) - 0.5));
+        let at = |dx: i32, dy: i32, dz: i32| Block { pos: g.pos + glam::IVec3::new(dx, dy, dz), ..g };
+        for dx in -3..=6 {
+            for dy in -3..=3 {
+                for dz in 0..=4 {
+                    let open = dz >= 2 || dz == 1 && dy == 0 && (dx == 0 || dx == 1);
+                    w.set_block(at(dx, dy, dz), if open { 0 } else { 3 });
+                }
+                w.regap(at(dx, dy, 1));
+            }
+        }
+        let col = |b: Block| crate::liquid::Col::new(b.body, b.face, b.pos.x, b.pos.y);
+        {
+            let World { bodies, edits, water, sky, time, .. } = &mut w;
+            assert!(water.pour(&crate::world::Solid::at(bodies, edits, sky, *time), col(at(0, 0, 1)), at(0, 0, 1).pos.z, crate::liquid::U / 4));
+        }
+        for _ in 0..120 {
+            w.step_water();
+        }
+        let b0 = at(0, 0, 1);
+        let floor = w.bodies[0].layer_r(b0.pos.z as f64);
+        let gap = w.water_surface(w.block_centre(b0) - up(&w, w.block_centre(b0)) * 0.49).map_or(0.0, |s| s - floor);
+        assert!(gap > 0.02 && gap < 0.3 * HEIGHT, "the puddle is {gap} m deep");
+        let next = at(1, 0, 1);
+        let dir = (w.block_centre(next) - w.block_centre(b0)).reject_from(d).normalize();
+        let u = up(&w, w.block_centre(b0));
+        let f = dir.as_vec3().to_array();
+        // (against the ledge, so the jump starts in the water)
+        let mut p = Player::at(w.block_centre(next) + dir * 0.15 - u * 0.45, dir);
+        run(&w, &mut p, &Input { fwd: f, ..Default::default() }, 0.5);
+        assert!(p.on_ground, "standing in the puddle");
+        let (start, mut top, mut stood) = (p.pos.length(), 0f64, 0f64);
+        for _ in 0..90 {
+            step(&w, &mut p, &Input { mv: [1.0, 0.0], jump: true, fwd: f, ..Default::default() }, DT);
+            top = top.max(p.vel.dot(u));
+            if p.on_ground {
+                stood = stood.max(p.pos.length() - start);
+            }
+        }
+        eprintln!("a puddle {gap:.2} m deep: up at {top:.2} m/s, stood {stood:.2} m higher");
+        assert!(top < JUMP + 1e-6, "pushed up at {top} m/s, not a jump's {JUMP}");
+        assert!(stood > 0.9, "never up on the ledge: {stood} m");
+    }
+
+    /// The review of ADR 0118's swimming: a stroke along the surface, looking a little up, holds the float line
+    /// at a steady speed and sprints on every step (no flicker between stroking and floating, no hop out).
+    #[test]
+    fn a_stroke_along_the_surface_is_steady() {
+        let (w, d, r, ahead) = sea();
+        let f = ahead.as_vec3().to_array();
+        let mut p = Player::at(d * (r - FLOAT * HEIGHT), ahead);
+        run(&w, &mut p, &Input { fwd: f, ..Default::default() }, 3.0);
+        let inp = Input { mv: [1.0, 0.0], sprint: true, pitch: 0.3, fwd: f, ..Default::default() };
+        for _ in 0..120 {
+            step(&w, &mut p, &inp, DT);
+        }
+        let mut v0 = None;
+        for k in 0..200 {
+            let a = p.pos;
+            assert!(step(&w, &mut p, &inp, DT), "step {k}: no sprint");
+            let v = (p.pos - a).length() / DT;
+            let v0 = *v0.get_or_insert(v);
+            assert!((v - v0).abs() < 0.05 * v0, "step {k}: {v} m/s against {v0}");
+        }
+        eprintln!("along the surface at {:.2} m/s, the feet {:.2} m under", v0.unwrap(), r - p.pos.length());
+    }
+
+    /// The review of ADR 0118's swimming: a body at rest about the line where floating turns into sinking, under
+    /// a water level that wobbles by 3 cm, stays on one side of it.
+    #[test]
+    fn a_body_at_the_under_line_does_not_flicker() {
+        for d0 in [HEIGHT + UNDER - 0.01, HEIGHT + UNDER + 0.01] {
+            let mut v = 0.0;
+            let first = under(d0, v);
+            for k in 0..60 {
+                let deep = d0 + if k % 2 == 0 { 0.03 } else { -0.03 };
+                let u = under(deep, v);
+                assert_eq!(u, first, "at {d0} m, step {k}: under {u}");
+                // (under, it sinks; floating, buoyancy lifts it)
+                v = if u { -SINK } else { 0.3 };
+            }
+        }
     }
 
     /// The review of ADR 0118: a step sprinted only when the sprint took the body further: not into a wall,
     /// not in the sea (its hunger and view go by this).
     #[test]
-    fn a_sprint_into_a_wall_or_in_the_sea_is_no_sprint() {
+    fn a_sprint_into_a_wall_is_no_sprint_and_a_stroke_is_one() {
         let mut w = World::new(6144, 256, 1337);
         let d = w.bodies[0].spawn;
         let b0 = w.block_at(w.bodies[0].centre + d * (w.bodies[0].height(d) - 0.5));
@@ -871,7 +1218,9 @@ mod tests {
         let d = b.dir(2, i as f64 + 0.5, j as f64 + 0.5);
         let mut p = Player::at(d * (b.radius - crate::world::SEA_DEPTH - 1.0), DVec3::X);
         run(&w, &mut p, &Input::default(), 3.0);
-        assert!(!step(&w, &mut p, &Input { mv: [1.0, 0.0], sprint: true, ..Default::default() }, DT), "in the sea it does not");
+        // floating, a sprint is a stroke (ADR 0118's swimming), which sprints and so drains as one
+        assert!(step(&w, &mut p, &Input { mv: [1.0, 0.0], sprint: true, ..Default::default() }, DT), "in the sea a stroke sprints");
+        assert!(!step(&w, &mut p, &Input { mv: [1.0, 0.0], ..Default::default() }, DT), "a swim without the sprint does not");
     }
 
     #[test]

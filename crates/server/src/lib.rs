@@ -3398,6 +3398,61 @@ mod tests {
         assert_eq!((you, s.clients[0].vitals.hunger), (me, h), "creative sprints at the floor and for nothing");
     }
 
+    /// Swimming (ADR 0118): a dive along the look, a turn under water and a stroke back up to the surface land
+    /// where the client predicted, step for step, and the stroke costs a sprint's hunger.
+    #[test]
+    fn a_dive_turn_and_surfacing_land_where_predicted() {
+        // (a planet whose sea is deeper than the test planet's 4 m)
+        let (tx, rx) = channel();
+        let mut s = Server::new(1536, 32, 1, rx);
+        let (l, sv) = local();
+        tx.send(sv).unwrap();
+        s.tick();
+        let l = &l;
+        let b = &s.world.bodies[0];
+        let sea = b.radius - engine::world::SEA_DEPTH;
+        let d = (0..4000)
+            .map(|k| {
+                let z = 1.0 - 2.0 * (k as f64 + 0.5) / 4000.0;
+                let t = k as f64 * 2.4;
+                DVec3::new((1.0 - z * z).sqrt() * t.cos(), z, (1.0 - z * z).sqrt() * t.sin())
+            })
+            .min_by(|a, c| b.height(*a).total_cmp(&b.height(*c)))
+            .unwrap();
+        assert!(b.height(d) < sea - 6.0, "the deepest sea is {} m", sea - b.height(d));
+        let at = b.centre + d * (sea - 1.0);
+        l.send(ToServer::Move { pos: at.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        s.tick();
+        drain(l);
+        let mut me = s.clients[0].phys;
+        let h0 = s.clients[0].vitals.hunger;
+        let t0 = s.world.time + 0.5;
+        // 2 s down at a pitch of -0.9, a turn, 6 s up at +0.7 with a little strafe: 160 ticks of 3 steps
+        let inp = |k: u32| {
+            let pitch = if k < 120 { -0.9 } else { 0.7 };
+            Input { mv: [1.0, if k >= 120 { 0.2 } else { 0.0 }], sprint: true, pitch, turn: if k == 120 { 1.2 } else { 0.0 }, t: t0 + k as f64 * phys::DT, ..Default::default() }
+        };
+        let (mut deepest, mut strokes) = (0f64, 0);
+        for t in 0..160u32 {
+            let (first, inputs): (u32, Vec<Input>) = (t * 3 + 1, (t * 3 + 1..t * 3 + 4).map(inp).collect());
+            for i in &inputs {
+                strokes += phys::step_at(&mut s.world, &mut me, i, phys::DT) as u32;
+            }
+            deepest = deepest.max(sea - (me.pos - s.world.bodies[0].centre).length());
+            l.send(ToServer::steps(first, inputs));
+            s.tick();
+        }
+        let you = drain(l).into_iter().filter_map(|m| if let ToClient::You { step, me, .. } = m { Some((step, me)) } else { None }).last().unwrap();
+        assert_eq!(you, (480, me), "the server swam where the client predicted");
+        let feet = sea - (me.pos - s.world.bodies[0].centre).length();
+        eprintln!("dived to {deepest:.2} m, came up to {feet:.2} m under");
+        assert!(deepest > 4.0 && feet < 1.8, "dived to {deepest} m and came up to {feet} m under");
+        let lost = h0 - s.clients[0].vitals.hunger;
+        // every step that stroked (or sprinted) drains at the sprint's rate, the rest as a walk
+        let want = vitals::DRAIN * vitals::WALK_DRAIN * (strokes as f64 * vitals::SPRINT_DRAIN + (480 - strokes) as f64);
+        assert!(strokes > 300 && (lost - want).abs() < 1e-9, "lost {lost}, {want} for {strokes} strokes");
+    }
+
     /// The review of ADR 0118: a client that predicts hunger across its steps with the server's drain refuses the
     /// sprint at the very step the server does, so a run through the floor reconciles with no correction.
     #[test]
@@ -3427,9 +3482,10 @@ mod tests {
         assert!(refused > 30 && refused < 110, "the floor was crossed on the way: {refused} steps refused");
     }
 
-    /// The review of ADR 0118: a sprint held in the sea drains as a walk does (the step did not sprint).
+    /// The review of ADR 0118: a sprint held in the sea drains as a sprint only on the steps that stroke along the
+    /// look, the rest (the body not yet deep enough in) as a walk.
     #[test]
-    fn a_sprint_held_in_the_sea_drains_as_a_walk() {
+    fn a_sprint_held_in_the_sea_drains_only_where_it_strokes() {
         let (mut s, links) = server_with(1);
         let l = &links[0];
         let b = &s.world.bodies[0];
@@ -3445,14 +3501,18 @@ mod tests {
         l.send(ToServer::Move { pos: (b.centre + d * (sea - 1.0)).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
         s.tick();
         drain(l);
-        let h0 = s.clients[0].vitals.hunger;
+        let (h0, mut me, mut strokes) = (s.clients[0].vitals.hunger, s.clients[0].phys, 0);
+        let inp = Input { mv: [1.0, 0.0], sprint: true, ..Default::default() };
         for t in 0..20u32 {
-            l.send(ToServer::steps(t * 3 + 1, vec![Input { mv: [1.0, 0.0], sprint: true, ..Default::default() }; 3]));
+            for _ in 0..3 {
+                strokes += phys::step_at(&mut s.world, &mut me, &inp, phys::DT) as u32;
+            }
+            l.send(ToServer::steps(t * 3 + 1, vec![inp; 3]));
             s.tick();
         }
         let lost = h0 - s.clients[0].vitals.hunger;
-        let walk = 60.0 * vitals::DRAIN * vitals::WALK_DRAIN;
-        assert!((lost - walk).abs() < 1e-9, "lost {lost}, a walk's {walk}");
+        let want = vitals::DRAIN * vitals::WALK_DRAIN * (strokes as f64 * vitals::SPRINT_DRAIN + (60 - strokes) as f64);
+        assert!((lost - want).abs() < 1e-9, "lost {lost}, {want} for {strokes} strokes");
     }
 
     #[test]

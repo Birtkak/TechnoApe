@@ -130,7 +130,8 @@ impl App {
                 jump: auto || self.settings.held(&self.keys, Act::Jump) || (self.settings.on(S::AutoJump) && !self.flying && phys::ledge_ahead(&self.world, &self.me)),
                 pitch: self.pitch as f32,
                 fly: if self.flying { self.fly_speed as f32 } else { 0.0 },
-                down: self.flying && self.settings.held(&self.keys, Act::Down),
+                // (walking, only the water reads it: it swims down, ADR 0118)
+                down: self.settings.held(&self.keys, Act::Down),
                 t: self.world.time,
                 // held; each step's prediction refuses it below the floor as the server will (ADR 0118)
                 sprint: !self.flying && self.settings.held(&self.keys, Act::Sprint),
