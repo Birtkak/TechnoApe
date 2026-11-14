@@ -410,8 +410,8 @@ impl Registry {
             if !(1..=crate::items::STACK).contains(&r.stack) {
                 return Err(format!("block '{}': stack outside 1..64", r.name));
             }
-            if r.tool.as_ref().is_some_and(|t| !TOOLS.contains(&t.as_str())) || r.grade > 4 {
-                return Err(format!("block '{}': tool is one of {TOOLS:?} and grade 0..4", r.name));
+            if r.tool.as_ref().is_some_and(|t| !TOOLS.contains(&t.as_str())) || r.grade > 4 || ((r.grade > 0 || r.later) && (r.tool.is_none() || r.loose)) || (r.tool.is_some() && !r.solid) {
+                return Err(format!("block '{}': tool is one of {TOOLS:?} on a solid block, grade 0..4 and later only with a tool on a block that is not loose", r.name));
             }
             if r.holds.as_ref().is_some_and(|h| !(h.1 > 0.0 && h.1 <= 1.0) || !r.loose) {
                 return Err(format!("block '{}': holds is for a loose block, with a chance over 0 and at most 1", r.name));
@@ -558,6 +558,7 @@ hardness = 0.3
         let one = |extra: &str| Registry::parse(&format!("[[block]]\nid = 0\nname = \"air\"\nsolid = false\n[[block]]\nid = 1\nname = \"x\"\nhardness = 1\n{extra}"));
         assert!(one("tool = \"pick\"\ngrade = 2\n").is_ok());
         assert!(one("tool = \"spoon\"\n").is_err_and(|e| e.contains("tool")) && one("tool = \"pick\"\ngrade = 5\n").is_err_and(|e| e.contains("grade")));
+        assert!(one("grade = 1\n").is_err() && one("tool = \"pick\"\nloose = true\nlater = true\n").is_err(), "a grade without a tool, later on a loose block");
     }
 
     /// ADR 0093 (mining.md 4): every rock and hard ore digs into a rubble twin that falls and bare hands take;

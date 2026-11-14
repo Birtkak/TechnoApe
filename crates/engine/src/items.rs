@@ -198,8 +198,8 @@ impl Items {
             defs.push(Def { id: ITEM_BASE + k as u16, name: r.name.clone(), stack: r.stack, pack: r.pack, look, tool, knap: None });
         }
         for m in &f.material {
-            if !(m.speed > 1.0 && m.speed <= 20.0) || !(1..=4).contains(&m.grade) || !(1..=10000).contains(&m.uses) {
-                return Err(format!("material '{}': speed over 1 to 20, grade 1..4, uses 1..10000", m.name));
+            if !(m.speed > 1.0 && m.speed <= 20.0) || !(1..=4).contains(&m.grade) || !(1..=10000).contains(&m.uses) || f.material.iter().filter(|o| o.name == m.name).count() > 1 {
+                return Err(format!("material '{}': speed over 1 to 20, grade 1..4, uses 1..10000, a name used once", m.name));
             }
         }
         for (k, r) in f.item.iter().enumerate() {
@@ -457,6 +457,7 @@ mod tests {
             ("[[material]]\nname='m'\nspeed=2\ngrade=1\nuses=9\n[[item]]\nname='x'\nlook='stone'\ntool='pick'\nhead='m'", "stacks by one"),
             ("[[material]]\nname='m'\nspeed=2\ngrade=1\nuses=9\n[[item]]\nname='x'\nstack=1\nlook='stone'\ntool='spoon'\nhead='m'", "tool"),
             ("[[material]]\nname='m'\nspeed=2\ngrade=9\nuses=9", "grade"),
+            ("[[material]]\nname='m'\nspeed=2\ngrade=1\nuses=9\n[[material]]\nname='m'\nspeed=3\ngrade=1\nuses=9", "once"),
             ("[[item]]\nname='x'\nstack=1\nlook='stone'\ntool='pick'", "both"),
             ("[[item]]\nname='x'\nlook='stone'\nknap=['y', 4]", "knaps into"),
             ("[[item]]\nname='x'\nlook='stone'\nknap=['x', 4]", "strikes"),

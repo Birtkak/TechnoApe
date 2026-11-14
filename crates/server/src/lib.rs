@@ -1457,9 +1457,12 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                         taken.push(old);
                     }
                 }
-                // a dig the tool did costs it a use; its last leaves nothing (ADR 0047, 0110), the ledger's "worn away"
-                if tool.is_some_and(|t| cells.iter().any(|(_, old)| BLOCKS.get(*old).is_some_and(|d| t.fits(d)))) && items::wear(&mut slots[c.hand as usize]) {
-                    *self.item_made.entry(c.slots[c.hand as usize].map_or(AIR, |s| s.item)).or_default() -= 1;
+                // each cell the tool dug costs it a use (a hammer's shape as many); its last leaves nothing (ADR 0047,
+                // 0110), the ledger's "worn away"
+                let fit = tool.map_or(0, |t| cells.iter().filter(|(_, old)| BLOCKS.get(*old).is_some_and(|d| t.fits(d))).count());
+                let worn = c.slots[c.hand as usize].map_or(AIR, |s| s.item);
+                if (0..fit).any(|_| items::wear(&mut slots[c.hand as usize])) {
+                    *self.item_made.entry(worn).or_default() -= 1;
                 }
                 c.slots = slots;
                 for old in taken {
@@ -2838,6 +2841,28 @@ mod tests {
         l.send(ToServer::Edit { seq, shape: one, material: AIR });
         s.tick();
         assert_eq!((s.world.block(cell), used(&s)), (AIR, Some(0)));
+    }
+
+    /// A shape dug at once (the build hammer's) wears the tool a use for every cell it fits (the review of ADR 0110).
+    #[test]
+    fn a_shape_dug_with_a_tool_costs_a_use_a_cell() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let cell = over_dirt(&mut s, l);
+        let next = Block { pos: cell.pos + glam::IVec3::X, ..cell };
+        s.world.set_block(next, BLOCKS.id("dirt"));
+        l.send(ToServer::Chat("/give hand_axe".into()));
+        s.tick();
+        let shape = Shape { min: cell.pos, max: next.pos, ..Shape::one(cell) };
+        let t = ITEMS.get(ITEMS.named("hand axe").unwrap()).unwrap().tool.clone().unwrap();
+        l.send(ToServer::Dig(Some(shape)));
+        s.tick();
+        let need = edit::dig_time_with(&s.world, &shape, Some(&t)) * 1.1;
+        wait(&mut s, need);
+        l.send(ToServer::Edit { seq: 1, shape, material: AIR });
+        s.tick();
+        assert!(drain(l).contains(&ToClient::Done { seq: 1, ok: true }));
+        assert_eq!(s.clients[0].slots[0].map(|x| x.payload), Some(2), "two cells, two uses");
     }
 
     /// A tool's wear is its stack's payload (ADR 0110), so a save keeps it as it keeps the stack.
