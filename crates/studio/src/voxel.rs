@@ -1344,7 +1344,7 @@ key = [
   { part = "tail", t = 0.0, turn = [20, 50, 0] },
 ]
 "#;
-        let m = Model::parse("snake", &(include_str!("../../../data/models/snake.toml").replace("\r\n", "\n") + bend), &p).unwrap();
+        let m = Model::parse("snake", &(include_str!("../testdata/snake_voxels.toml").replace("\r\n", "\n") + bend), &p).unwrap();
         let tail = m.parts.iter().position(|q| q.name == "tail").unwrap();
         assert!(m.parts[tail].at != [0; 3] && m.parts[tail].pivot != [0.0; 3]);
         let poses = m.pose(Some("bend"), 0.0);
