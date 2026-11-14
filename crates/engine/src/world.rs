@@ -38,8 +38,9 @@ pub const BED_STREAM: f64 = 0.05;
 pub const OCEAN: f64 = 0.55;
 pub const CS: i32 = 32; // cells per chunk edge
 pub const P: usize = 34; // padded edge
-/// Gravity at a body's surface, m/s^2 (ADR 0007, 0024).
-pub const G: f64 = 9.81;
+/// Gravity at Terra's surface, m/s^2 (ADR 0007, 0024): twice the Earth's, which felt floaty on 1 m blocks
+/// (the developer, 2026-11-15).
+pub const G: f64 = 19.62;
 /// No generated surface lies farther than this from a body's radius (m), plants included: a baked planet's
 /// stretched peaks (350 m on the 4 km planet, ADR 0105; 140 before) and its tallest tree.
 pub const AMP: f64 = 400.0;

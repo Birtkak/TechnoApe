@@ -34,10 +34,10 @@ fn near(world: &World, b: Block, di: i32, dj: i32, dl: i32) -> Block {
 const SIDES: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 
 /// Cells the fall reaches when it has fallen for `k` ticks of 50 ms from rest: g t^2 / 2 rounded, so the
-/// first cell goes once the block's middle is past the edge (0.32 s), at most one a tick.
+/// first cell goes once the block's middle is past the edge (0.23 s at Terra's G), at most one a tick.
 fn due(k: u32) -> u32 {
     let t = k as f64 / 20.0;
-    (4.905 * t * t + 0.5) as u32
+    (crate::world::G / 2.0 * t * t + 0.5) as u32
 }
 
 #[derive(Default, Debug)]
@@ -196,8 +196,8 @@ mod tests {
         assert_eq!(w.block(top), sand, "it lies on the floor");
         assert_eq!(w.block(up), AIR);
         assert_eq!(f.moves, 6, "a cell a move");
-        // 6 m from rest is 1.1 s: 22 ticks, rounded as `due` does; a block never takes two cells a tick
-        assert!((18..=26).contains(&ticks), "{ticks} ticks");
+        // 6 m from rest at Terra's G is 0.78 s: 16 ticks, rounded as `due` does; a block never takes two cells a tick
+        assert!((13..=19).contains(&ticks), "{ticks} ticks");
         assert_eq!(out.len(), 12, "two edits a move");
     }
 

@@ -3,7 +3,7 @@
 # `count`: particles per event, times the settings' Particles scale (few 0.5, normal 1, many 2).
 # `start`: point (the event's point), block (anywhere in its cell), faces (on its cell's faces).
 # `speed`: m/s, from .. to, in a random direction; `up`: m/s more along the body's up.
-# `gravity`: times the body's pull (radial, phys::G); `drag`: 1/s.
+# `gravity`: times the Earth's pull, 9.81 m/s² (radial; not Terra's heavier phys::G); `drag`: 1/s.
 # `ground`: none, stop (lands and lies), bounce (then lies), die (and plays `then` there), pile (bounces, then
 # lies in a 12.5 cm cell of the fine lattice, on the chips already there, rolling off a step of two; ADR 0078).
 # `life`: s, from .. to. `size`: the edge in m (for `block`, a share of the cell), from .. to;

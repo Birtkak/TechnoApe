@@ -13,7 +13,7 @@
 | walk around at 4.3 m/s | 103 min | 207 min | 4 min |
 | horizon at eye height | 117 m | 165 m | 24 m |
 | sunset moves over the ground (20 min day) | 22 m/s | 44 m/s | – |
-| speed of a surface orbit / one lap | 204 m/s / 131 s | 289 m/s / 185 s | 18 m/s at Luna's 1.9 m/s² |
+| speed of a surface orbit / one lap | 289 m/s / 92 s | 408 m/s / 131 s | 78 m/s at Luna's 5.3 m/s² |
 | surface | 226 km² | 905 km² | 0.4 km² |
 
 - Nobody on foot keeps up with the sunset.
@@ -41,9 +41,9 @@ in a `feel` report (section 4) next to the frame times.
 - Coyote time and a jump buffer of about 100 ms each; sprint about 6.5 m/s with a slight FOV widening;
   crouch never walks off an edge (building on a sphere needs it).
 - Step-up eases the camera over about 80 ms so stairs of half blocks (when the fine cells bring them) do not jitter; a small landing dip.
-- Gravity follows a body's size (ADR 0037): G at Terra's sea level, the square root of the radius ratio on
-  another body (Luna about a fifth: floaty), a little stronger deeper in. One jump push everywhere: 1.25 m
-  on Terra, about 6.5 m on Luna. Changing bodies rolls "up" over at least a second.
+- Gravity follows a body's size (ADR 0037): G at Terra's sea level (19.62 m/s², twice the Earth's), its radius over Terra's on
+  another body (Luna 3.7 times less: floaty), a little stronger deeper in. One jump push everywhere: 1.25 m
+  on Terra, about 4.4 m on Luna. Changing bodies rolls "up" over at least a second.
 - Measured by camera jerk (the third derivative of the camera path) in a walk-over-hills run: steps, seams
   and corrections show up as spikes with a tick number.
 

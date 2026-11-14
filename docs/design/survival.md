@@ -3,8 +3,8 @@
 The first, simple version (ADR 0040); both grow deeper later (food, air, temperature, armour).
 
 - **Health**, 0 to 20 points, ten segments. It falls with an **impact**: the speed the body loses when it hits
-  something solid, in any direction. Up to 7.7 m/s is free (a 3 m fall on Terra), then a point per metre of
-  such a fall; 21 m/s kills from full. A slow landing on Luna costs little or nothing; a fast hit anywhere
+  something solid, in any direction. Up to 10.8 m/s is free (a 3 m fall on Terra), then a point per metre of
+  such a fall; 30 m/s kills from full. A slow landing on Luna costs little or nothing; a fast hit anywhere
   kills. Water breaks a fall.
 - **Hunger**, 0 to 20, drains over one game day standing, twice as fast walking, and a little per block dug.
   It follows the player's own steps, so a time warp does not starve anyone. Above 14 health comes back
