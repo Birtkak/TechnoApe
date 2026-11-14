@@ -466,6 +466,8 @@ fn ray(p: vec3f, n: vec3f, d: vec3f, body: u32, tmax: f32) -> f32 {
 // its texel lets through, so light through a green pane comes out green. (shortcut: candidates come unordered, so
 // a ray that looks also takes the tint of glass beyond what it hits; exact only for shadow rays)
 var<private> ray_tint: vec3f;
+// set while `seen` lights what a ray hit: one shadow ray to the sun and to each lamp is enough there (ADR 0108)
+var<private> one_ray: bool = false;
 // added to a chunk's index for its stills' instance (rt.rs STILL_INST)
 const STILL_INST: u32 = 8388608u;
 fn trace(o: vec3f, db: vec3f, body: u32, tmax: f32, flags: u32) -> RayIntersection {
@@ -562,19 +564,24 @@ fn hit_texel(ci: u32, q: vec2u, prim: u32, bc: vec2f, sn: vec3f) -> vec4f {
 // what the terrain leaves to p of the sun's disc, angular radius ar around direction sd (ADR 0108): rays to two
 // opposite points of the disc, and two across them where those two disagree, so a penumbra is flat steps of a
 // quarter with no noise in it (it was one ray a pixel to a dithered point, bug 2026-11-14_01-59-35); one ray to
-// its middle with sharp shadows. `ray_tint` is left the mean tint of the rays that got out.
+// its middle with sharp shadows, and at a bounce's hit (`one_ray`). `ray_tint` is left the mean tint of the rays
+// that got out. The pairs lie on the disc's diagonals, in a frame of the sun's path over this place (across it and
+// along it, from the local up), so no edge's way is favoured and nothing flips as the sun goes over.
 fn sun_seen(p: vec3f, n: vec3f, sd: vec3f, ar: f32, body: u32) -> f32 {
-    if ((g.opt.x & 1u) != 0u) { return ray(p, n, sd, body, 1e5); }
-    let t = normalize(cross(sd, select(vec3f(0., 1., 0.), vec3f(1., 0., 0.), abs(sd.y) > 0.9)));
+    if ((g.opt.x & 1u) != 0u || one_ray) { return ray(p, n, sd, body, 1e5); }
+    let up = normalize(p - g.bodies[body].ctr.xyz);
+    let across = cross(sd, up);
+    // (the sun straight overhead: any way across)
+    let t = normalize(select(across, cross(sd, select(vec3f(0., 1., 0.), vec3f(1., 0., 0.), abs(sd.y) > 0.9)), dot(across, across) < 1e-6));
     let bt = cross(sd, t);
     // (0.7 of the radius: about the middles of the disc's quarters by area)
-    let r = ar * 0.7;
+    let r = ar * 0.7 * 0.70710678;
     var v = 0.0;
     var k = 0.0;
     var tint = vec3f(0.0);
     for (var i = 0u; i < 4u; i++) {
         if (i == 2u && (v == 0.0 || v == 2.0)) { break; }
-        let s = ray(p, n, normalize(sd + select(t, bt, i >= 2u) * select(r, -r, (i & 1u) == 1u)), body, 1e5);
+        let s = ray(p, n, normalize(sd + (t + bt * select(1.0, -1.0, i >= 2u)) * select(r, -r, (i & 1u) == 1u)), body, 1e5);
         v += s;
         k += 1.0;
         tint += ray_tint * s;
@@ -622,10 +629,11 @@ fn tx_snap(g: vec3f, axis: u32, k: f32) -> vec3f {
     return select((floor(g * k) + 0.5) / k, g, vec3<bool>(axis == 0u, axis == 1u, axis == 2u));
 }
 
-// the random numbers' seed of the texel whose middle is gs: its place, its face and which way the face looks
+// the random numbers' seed of the texel whose middle is gs: its place, its cube face and its normal's axis
 fn tx_seed(f: u32, gs: vec3f, axis: u32, k: f32) -> vec2u {
     var c = vec3i(floor(gs * k));
-    // (the normal's axis: the face's plane, which both blocks either side share; the way it looks tells them apart)
+    // (the normal's axis: the face's plane. The two faces of one plane, looking either way, share a seed: only one
+    // of them is ever drawn, since a face is there only between a block and an open cell)
     c[axis] = i32(round(gs[axis])) * 8 + i32(axis) + 3 * i32(k);
     var v = vec3u(c) * 1664525u + vec3u(1013904223u + f * 977u);
     v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
@@ -741,22 +749,35 @@ fn lamp_target(lp: Lamp, o: vec3f, j: vec3f) -> vec3f {
 
 // what the terrain leaves to p of lamp lp, 0 to 1, as `sun_seen` the sun: rays to two opposite points of the
 // sides p sees, two more across them where those disagree; flat steps of a quarter, no noise (ADR 0108; it was one
-// ray a pixel to a random point). `ray_tint` is left the mean tint of the rays that got out.
+// ray a pixel to a random point). `ray_tint` is left the mean tint of the rays that got out. The jitter moves the
+// end only along the axes p lies within the lamp's box on, so ends can fall together: a point already cast takes
+// that ray's answer, not a ray of its own. At a bounce's hit (`one_ray`) one ray, to the nearest point.
 fn lamp_seen(p: vec3f, n: vec3f, lp: Lamp, body: u32) -> f32 {
     let ro = ray_origin(p, n);
     var js = array<vec3f, 4>(vec3f(0.6), vec3f(-0.6), vec3f(0.6, -0.6, 0.0), vec3f(-0.6, 0.6, 0.0));
+    if (one_ray) { js[0] = vec3f(0.0); }
+    var ends = array<vec3f, 4>(vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
+    var got = array<f32, 4>(0.0, 0.0, 0.0, 0.0);
+    var tints = array<vec3f, 4>(vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
     var v = 0.0;
     var k = 0.0;
     var tint = vec3f(0.0);
     for (var i = 0u; i < 4u; i++) {
-        if (i == 2u && (v == 0.0 || v == 2.0)) { break; }
+        if ((i == 1u && one_ray) || (i == 2u && (v == 0.0 || v == 2.0))) { break; }
         // aimed from where the ray starts: from p, the 2 cm offset carried its end into the lamp by its corners
         // (bug 2026-11-10_19-45-23)
-        let w = lamp_target(lp, ro, js[i]) - ro;
-        let d = length(w);
+        ends[i] = lamp_target(lp, ro, js[i]);
         var s = 1.0;
         ray_tint = vec3f(1.0);
-        if (d >= LAMP_STOP) { s = ray(p, n, w / d, body, d - LAMP_STOP); }
+        var fresh = true;
+        for (var m = 0u; m < i; m++) {
+            if (fresh && all(ends[m] == ends[i])) { s = got[m]; ray_tint = tints[m]; fresh = false; }
+        }
+        let w = ends[i] - ro;
+        let d = length(w);
+        if (fresh && d >= LAMP_STOP) { s = ray(p, n, w / d, body, d - LAMP_STOP); }
+        got[i] = s;
+        tints[i] = ray_tint;
         v += s;
         k += 1.0;
         tint += ray_tint * s;
@@ -901,7 +922,9 @@ fn seen(p: vec3f, d: vec3f, body: u32, px: vec2u, bounce: bool, tmax: f32) -> ve
     if ((q.x >> 31u) == 1u && dir == 4u) { hn = slope_normal(c, b, q, h.primitive_index & 1u); }
     let m = q.y & 255u;
     if (((looks[m].info >> 24u) & 1u) == 1u) { return select(seen_colour(m, vec3f(0.0)), vec3f(0.0), bounce) * tint; }
+    one_ray = true;
     let l = light(p + d * h.t, brot(b, hn), body);
+    one_ray = false;
     // the light from around at the hit: a flat share, the second bounce
     return seen_colour(m, season(b, p + d * h.t)) * (l.l + ambient(l.day) * select(1.0, 0.35, bounce)) * tint;
 }
