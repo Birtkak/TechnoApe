@@ -152,6 +152,12 @@ The developer, on the stills: "keep improving".
    `a_lying_axe_rests_on_the_floor_at_its_size`, seen failing with the model let down 5 cm): nothing wrong in
    the code. It is 4 cm thick lying, so the meadow grass's blades cover it; beside it the stick lies 80 cm
    (clutter's real size) and flint 15 cm.
+6. **Slot pictures read in daylight.** They drew the painting's own sRGB tones (the same space as the cubes,
+   measured: granite's top is its painting's 168,148,140 in the hotbar) shaded down to 0.62 by a light, and the
+   axe's tones are dark (41,43,57 most), lifted only by the world's sun; now the face toward the eye is its
+   own colour and others no less than 0.75 (test `a_picture_shows_its_front_in_its_own_colour`), and the view
+   shows the painted face (`picture_view`: an upright item from its front, a flat one from 70 degrees above,
+   a lump from three-quarters). Stills `out/piles/hotbar_pictures.png`, `out/piles/inv_pictures.png`.
 
 For the developer:
 - The axe's size in a pile (21 cm, under the grass blades), or a larger `item`.

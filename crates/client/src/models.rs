@@ -158,10 +158,9 @@ pub fn load_keeping(dir: &std::path::Path, effects: &std::path::Path, sounds: &s
                 let paint = png.as_ref();
                 // its pictures here, off the frame thread: a slot's from three-quarters above, the ape's nearly level
                 let figure = (name == FIGURE).then(|| crate::sprite::sprite(&model, None, FIGURE_PX, 22.0, 8.0)).flatten();
-                // clutter (painted boxes, lying flat) from higher up, so its painted top shows
-                let pitch = if png.is_some() { 55.0 } else { 30.0 };
-                let pictures = [crate::sprite::sprite(&model, png.as_ref(), ICON_PX, 35.0, pitch), figure];
-                let l = Loaded { pictures, ..Loaded::new(name, model, life, paint) };
+                let mut l = Loaded::new(name, model, life, paint);
+                let (yaw, pitch) = picture_view(&l);
+                l.pictures = [crate::sprite::sprite(&l.model, png.as_ref(), ICON_PX, yaw, pitch), figure];
                 kept.insert(l.name.clone(), l.clone());
                 out.push(l);
             }
@@ -710,6 +709,19 @@ impl Models {
         if !self.pieces.is_empty() {
             queue.write_buffer(buf, 0, bytemuck::cast_slice(&self.pieces));
         }
+    }
+}
+
+/// The view of a model's slot picture (yaw, pitch), so its painted face shows: a painted item standing taller
+/// than wide (the hand axe) from its front (+z, the face the eye sees in hand), a flat one (flint, the stick)
+/// from above as it lies, a painted lump (berries, a stone) from three-quarters above; a voxel model as before.
+fn picture_view(l: &Loaded) -> (f32, f32) {
+    let d = l.bounds[1] - l.bounds[0];
+    match () {
+        _ if l.boxes.is_empty() => (35.0, 30.0),
+        _ if d.y > d.x.max(d.z) => (0.0, 0.0),
+        _ if d.y < 0.4 * d.x.max(d.z) => (35.0, 70.0),
+        _ => (35.0, 55.0),
     }
 }
 
