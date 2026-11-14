@@ -559,19 +559,88 @@ fn hit_texel(ci: u32, q: vec2u, prim: u32, bc: vec2f, sn: vec3f) -> vec4f {
     return texel_a(quad_mat(q), dir, cell, vec2f(f[(a + 1u) % 3u], f[(a + 2u) % 3u]), f.z, sn);
 }
 
-// a direction to a point of a disc of angular radius ar around direction s, from a per-pixel number pair
-fn in_disc(s: vec3f, ar: f32, px: vec2u) -> vec3f {
-    let t = normalize(cross(s, select(vec3f(0., 1., 0.), vec3f(1., 0., 0.), abs(s.y) > 0.9)));
-    let b = cross(s, t);
-    // the point by blue-ish noise, not white: neighbours take far-apart points of the disc, so a penumbra's
-    // dither reads as an even gradient, not grain (bug 2026-11-13_14-24-14)
-    let pf = vec2f(px);
-    let ign = fract(52.9829189 * fract(dot(pf, vec2f(0.06711056, 0.00583715))));
-    let r2 = fract(dot(pf, vec2f(0.7548776662, 0.5698402910)));
-    let r = ar * sqrt(r2);
-    let ph = 2.0 * PI * ign;
-    return normalize(s + (t * cos(ph) + b * sin(ph)) * r);
+// what the terrain leaves to p of the sun's disc, angular radius ar around direction sd (ADR 0108): rays to two
+// opposite points of the disc, and two across them where those two disagree, so a penumbra is flat steps of a
+// quarter with no noise in it (it was one ray a pixel to a dithered point, bug 2026-11-14_01-59-35); one ray to
+// its middle with sharp shadows. `ray_tint` is left the mean tint of the rays that got out.
+fn sun_seen(p: vec3f, n: vec3f, sd: vec3f, ar: f32, body: u32) -> f32 {
+    if ((g.opt.x & 1u) != 0u) { return ray(p, n, sd, body, 1e5); }
+    let t = normalize(cross(sd, select(vec3f(0., 1., 0.), vec3f(1., 0., 0.), abs(sd.y) > 0.9)));
+    let bt = cross(sd, t);
+    // (0.7 of the radius: about the middles of the disc's quarters by area)
+    let r = ar * 0.7;
+    var v = 0.0;
+    var k = 0.0;
+    var tint = vec3f(0.0);
+    for (var i = 0u; i < 4u; i++) {
+        if (i == 2u && (v == 0.0 || v == 2.0)) { break; }
+        let s = ray(p, n, normalize(sd + select(t, bt, i >= 2u) * select(r, -r, (i & 1u) == 1u)), body, 1e5);
+        v += s;
+        k += 1.0;
+        tint += ray_tint * s;
+    }
+    ray_tint = select(vec3f(1.0), tint / v, v > 0.0);
+    return v / k;
 }
+
+// ---- the light's texels (ADR 0108) ----
+// A block face's light is worked out once a texel of its painting: shadow, lamp and bounce rays leave from the
+// texel's middle and take their random numbers from the texel, so every pixel of one texel has one light, a
+// shadow's edge runs along texel borders and no pixel's grain is left (bug 2026-11-14_01-59-35). Free of the
+// globals: gi.rs's test runs this part alone on the GPU.
+
+// a cube face's normal and in-face axes (frame_at's), by bits as clouds.wgsl's `cl_face`: s 1 2 2 0 0 1, t 2 1 0 2 1 0
+fn tx_axis(a: u32) -> vec3f { return vec3f(f32(a == 0u), f32(a == 1u), f32(a == 2u)); }
+fn tx_n(f: u32) -> vec3f { return tx_axis(f >> 1u) * select(1.0, -1.0, (f & 1u) == 1u); }
+fn tx_s(f: u32) -> vec3f { return tx_axis((1065u >> (2u * f)) & 3u); }
+fn tx_t(f: u32) -> vec3f { return tx_axis((390u >> (2u * f)) & 3u); }
+
+// a body's grid: an angle a column, half the columns a face edge, layer 0's radius, the log of a layer's ratio
+struct TxGrid { theta: f32, half_n: f32, r0: f32, lnq: f32 };
+
+// body-frame point q (from the body's centre) as its face and grid coordinates: column i, column j, layer
+struct TxAt { face: u32, g: vec3f };
+fn tx_grid_of(q: vec3f, gr: TxGrid) -> TxAt {
+    let a = abs(q);
+    var f = 4u + select(0u, 1u, q.z < 0.0);
+    if (a.x >= a.y && a.x >= a.z) { f = select(0u, 1u, q.x < 0.0); } else if (a.y >= a.z) { f = 2u + select(0u, 1u, q.y < 0.0); }
+    let dn = dot(q, tx_n(f));
+    let ij = atan(vec2f(dot(q, tx_s(f)), dot(q, tx_t(f))) / dn) / gr.theta + gr.half_n;
+    return TxAt(f, vec3f(ij, log(length(q) / gr.r0) / gr.lnq));
+}
+
+// grid point g of face f in the body's frame (the cube-sphere's own, as `frame_at` and `place` lay it)
+fn tx_point(f: u32, g: vec3f, gr: TxGrid) -> vec3f {
+    let ta = tan((g.xy - gr.half_n) * gr.theta);
+    return normalize(tx_n(f) + tx_s(f) * ta.x + tx_t(f) * ta.y) * (gr.r0 * exp(g.z * gr.lnq));
+}
+
+// grid point g moved to the middle of its texel, k texels a grid unit, along the two axes other than `axis` (the
+// face's normal: 0 column i, 1 column j, 2 the layer), which stays as it is
+fn tx_snap(g: vec3f, axis: u32, k: f32) -> vec3f {
+    return select((floor(g * k) + 0.5) / k, g, vec3<bool>(axis == 0u, axis == 1u, axis == 2u));
+}
+
+// the random numbers' seed of the texel whose middle is gs: its place, its face and which way the face looks
+fn tx_seed(f: u32, gs: vec3f, axis: u32, k: f32) -> vec2u {
+    var c = vec3i(floor(gs * k));
+    // (the normal's axis: the face's plane, which both blocks either side share; the way it looks tells them apart)
+    c[axis] = i32(round(gs[axis])) * 8 + i32(axis) + 3 * i32(k);
+    var v = vec3u(c) * 1664525u + vec3u(1013904223u + f * 977u);
+    v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+    v ^= v >> vec3u(16u);
+    v.x += v.y * v.z; v.y += v.z * v.x;
+    return v.xy;
+}
+
+// the texels a grid unit of the light at a place whose painting has `k0` a grid unit and where one screen pixel
+// spans `px` grid units of the surface: the painting's while a texel spans a pixel or more; past that, halved
+// until one does again, so far away the light is still one a texel of a coarser grid of whole texels and never
+// finer than the pixels, which would only alias and shimmer as the camera moves
+fn tx_k(k0: f32, px: f32) -> f32 {
+    return k0 / exp2(clamp(ceil(log2(max(px * k0, 1e-6))), 0.0, 12.0));
+}
+// ---- end of the light's texels ----
 
 struct Light { l: vec3f, sun: f32, day: f32 };
 
@@ -639,10 +708,10 @@ fn moon_gain(body: u32) -> f32 {
 // in flatter than 30 degrees, and the lamp's light ended there in a hard cone over the walls; a lamp on the
 // ground cast spikes from its own corners (bugs 2026-11-11_13-00-53, 2026-11-10_19-45-23; ADR 0037).
 // Worked in the grid's own coordinates (the face's two angles and the log of the radius, its face the up's
-// largest axis), where the block is a box: o clamped into the lamp's cell and turned back. Jittered per pixel
-// across the box before the clamp (ADR 0072), so the ray ends on a random point of the sides o sees: the lamp
-// is a 1 m light, not a point, and the shadows it casts are soft (the sun's are dithered by pixel the same way).
-fn lamp_target(lp: Lamp, o: vec3f, px: vec2u) -> vec3f {
+// largest axis), where the block is a box: o clamped into the lamp's cell and turned back. Moved by j (-1 to 1 an
+// axis, in parts of the box) before the clamp (ADR 0072), so the rays end on points spread over the sides o sees:
+// the lamp is a 1 m light, not a point, and the shadows it casts are soft (`lamp_seen`, ADR 0108).
+fn lamp_target(lp: Lamp, o: vec3f, j: vec3f) -> vec3f {
     let b = g.bodies[u32(lp.pos.w)];
     let m = mat3x3f(b.rot0.xyz, b.rot1.xyz, b.rot2.xyz);
     let up = normalize(lp.pos.xyz - b.ctr.xyz);
@@ -661,13 +730,38 @@ fn lamp_target(lp: Lamp, o: vec3f, px: vec2u) -> vec3f {
     // the jitter only along the axes o lies within the box on, inset 5 cm: along the others the end stays 2 cm out
     // from the face o sees, and a ray from the floor beside a lamp never ends under that floor
     let inner = vec3f(0.45 * b.theta, 0.45 * b.theta, 0.45 * b.lnq);
-    let j = vec3f(hash2(px + vec2u(3571u, 1931u)), hash2(px + vec2u(6007u, 4421u)), hash2(px + vec2u(8761u, 2287u))) * 2.0 - 1.0;
     let c = select(clamp(q, at - half, at + half), clamp(q + j * inner, at - inner, at + inner), abs(q - at) < inner);
     let tb = normalize(f.n + f.s * tan(c.x) + f.t * tan(c.y)) * exp(c.z);
     return m * tb + b.ctr.xyz;
 }
 
-fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
+// what the terrain leaves to p of lamp lp, 0 to 1, as `sun_seen` the sun: rays to two opposite points of the
+// sides p sees, two more across them where those disagree; flat steps of a quarter, no noise (ADR 0108; it was one
+// ray a pixel to a random point). `ray_tint` is left the mean tint of the rays that got out.
+fn lamp_seen(p: vec3f, n: vec3f, lp: Lamp, body: u32) -> f32 {
+    let ro = ray_origin(p, n);
+    var js = array<vec3f, 4>(vec3f(0.6), vec3f(-0.6), vec3f(0.6, -0.6, 0.0), vec3f(-0.6, 0.6, 0.0));
+    var v = 0.0;
+    var k = 0.0;
+    var tint = vec3f(0.0);
+    for (var i = 0u; i < 4u; i++) {
+        if (i == 2u && (v == 0.0 || v == 2.0)) { break; }
+        // aimed from where the ray starts: from p, the 2 cm offset carried its end into the lamp by its corners
+        // (bug 2026-11-10_19-45-23)
+        let w = lamp_target(lp, ro, js[i]) - ro;
+        let d = length(w);
+        var s = 1.0;
+        ray_tint = vec3f(1.0);
+        if (d >= LAMP_STOP) { s = ray(p, n, w / d, body, d - LAMP_STOP); }
+        v += s;
+        k += 1.0;
+        tint += ray_tint * s;
+    }
+    ray_tint = select(vec3f(1.0), tint / v, v > 0.0);
+    return v / k;
+}
+
+fn light(p: vec3f, n: vec3f, body: u32) -> Light {
     let up = normalize(p - g.bodies[body].ctr.xyz);
     let sd = normalize(g.sun_pos.xyz - p);
     // eclipses: every other body's sphere over the sun's disc; what a body with air hides of it comes round
@@ -690,11 +784,7 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
     // (the sun's light fades as it nears the horizon on a body with air, ADR 0038 C)
     let occ = left_by(body, p, g.sun_pos.xyz, g.sun_pos.w) * sunset(up, sd, body);
     if (ndl > 0.0 && occ > 0.0 && max(ecl, copper) > 0.0) {
-        let ar = g.sun_pos.w / length(g.sun_pos.xyz - p);
-        // soft: towards a point of the sun's disc; sharp: towards its middle
-        var to_sun = sd;
-        if ((g.opt.x & 1u) == 0u) { to_sun = in_disc(sd, ar, px); }
-        var seen = occ * ray(p, n, to_sun, body, 1e5);
+        var seen = occ * sun_seen(p, n, sd, g.sun_pos.w / length(g.sun_pos.xyz - p), body);
         // the planet's clouds (ADR 0076), where the sun is not already hidden
         if (body == 0u && seen > 0.0 && g.cloud.y > 0.0) {
             let b0 = g.bodies[0];
@@ -774,14 +864,8 @@ fn light(p: vec3f, n: vec3f, body: u32, px: vec2u) -> Light {
     var seen_v = 0.0;
     for (var k = 0u; k < LAMP_RAYS; k++) {
         if (top[k] == NONE) { continue; }
-        let lp = lamps[top[k]];
-        // aimed from where the ray starts: from p, the 2 cm offset carried its end into the lamp by its corners
-        // (bug 2026-11-10_19-45-23)
-        let ro = ray_origin(p, n);
-        let v = lamp_target(lp, ro, px + vec2u(k * 7919u, k * 6271u)) - ro;
-        let d = length(v);
-        let vis = select(ray(p, n, v / d, body, d - LAMP_STOP), 1.0, d < LAMP_STOP);
-        o.l += topl[k] * vis * select(ray_tint, vec3f(1.0), d < LAMP_STOP);
+        let vis = lamp_seen(p, n, lamps[top[k]], body);
+        o.l += topl[k] * vis * ray_tint;
         seen_n += 1.0;
         seen_v += vis;
     }
@@ -813,7 +897,7 @@ fn seen(p: vec3f, d: vec3f, body: u32, px: vec2u, bounce: bool, tmax: f32) -> ve
     if ((q.x >> 31u) == 1u && dir == 4u) { hn = slope_normal(c, b, q, h.primitive_index & 1u); }
     let m = q.y & 255u;
     if (((looks[m].info >> 24u) & 1u) == 1u) { return select(seen_colour(m, vec3f(0.0)), vec3f(0.0), bounce) * tint; }
-    let l = light(p + d * h.t, brot(b, hn), body, px);
+    let l = light(p + d * h.t, brot(b, hn), body);
     // the light from around at the hit: a flat share, the second bounce
     return seen_colour(m, season(b, p + d * h.t)) * (l.l + ambient(l.day) * select(1.0, 0.35, bounce)) * tint;
 }
@@ -843,9 +927,28 @@ fn gi_trace(@builtin(global_invocation_id) id: vec3u) {
     let n = gb.xyz;
     let uv = (vec2f(q) + 0.5) / vec2f(size);
     let w = g.inv_vp * vec4f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 1.0, 1.0);
-    let p = normalize(w.xyz / w.w) * gb.w;
+    let vd = normalize(w.xyz / w.w);
+    // the ray leaves from the middle of the texel this pixel shows, with the texel's random numbers (ADR 0108):
+    // the G-buffer has no texel, so it is found from the point on the body's grid and the face from the normal
+    // (the sides are planes of one column through the centre, the tops spheres of one layer)
+    let bb = g.bodies[body];
+    let gr = TxGrid(bb.theta, bb.half_n, bb.r0, bb.lnq);
+    let p0 = vd * gb.w;
+    let tg = tx_grid_of(to_body(bb, p0), gr);
+    let nb = n * mat3x3f(bb.rot0.xyz, bb.rot1.xyz, bb.rot2.xyz);
+    let ta = tan((tg.g.xy - gr.half_n) * gr.theta);
+    let wi = abs(dot(nb, normalize(tx_s(tg.face) - tx_n(tg.face) * ta.x)));
+    let wj = abs(dot(nb, normalize(tx_t(tg.face) - tx_n(tg.face) * ta.y)));
+    let wl = abs(dot(nb, tx_point(tg.face, tg.g, gr) / length(tx_point(tg.face, tg.g, gr))));
+    var axis = 2u;
+    if (wi > wj && wi > wl) { axis = 0u; } else if (wj > wl) { axis = 1u; }
+    // a pixel's footprint there, longer on a face seen edge on (a column is about a metre: grid units)
+    let w1 = g.inv_vp * vec4f(uv.x * 2.0 - 1.0 + 2.0 / f32(size.x), 1.0 - uv.y * 2.0, 1.0, 1.0);
+    let k = tx_k(TEXELS, gb.w * length(normalize(w1.xyz / w1.w) - vd) / max(abs(dot(n, vd)), 0.25));
+    let gs = tx_snap(tg.g, axis, k);
+    let p = p0 + brot(bb, tx_point(tg.face, gs, gr) - tx_point(tg.face, tg.g, gr));
     let f = g.n_lamps.y;
-    let px = q + vec2u(f * 7919u, f * 6271u);
+    let px = tx_seed(tg.face, gs, axis, k) + vec2u(f * 7919u, f * 6271u);
     // a cosine-weighted direction around n
     let t = normalize(cross(n, select(vec3f(0., 1., 0.), vec3f(1., 0., 0.), abs(n.y) > 0.9)));
     let bt = cross(n, t);
@@ -1341,6 +1444,18 @@ fn terrain_lit(i: VOut, col_in: vec3f) -> GOut {
     let body = (c.info >> 8u) & 255u;
     let look = looks[i.mat & 255u];
     let n = normalize(select(i.normal, i.slope.xyz, i.slope.w > 0.5));
+    // where its light is worked out (ADR 0108): the middle of the painting's texel this pixel shows, found on the
+    // grid from `local` (the painting's own point: a swaying crown's light rides with its texels) and moved there
+    // from the pixel's point along the face (`sun_seen` and `lamp_seen` take no random numbers). A coarse level's texels are as large
+    // as it draws them; far away, where a texel is smaller than a pixel, the light's are larger (`tx_k`).
+    // (first: the derivatives need every pixel of the quad here)
+    let fpx = max(length(dpdx(i.rel)), length(dpdy(i.rel)));
+    let b = g.bodies[body];
+    let gr = TxGrid(b.theta, b.half_n, b.r0, b.lnq);
+    let gp = grid(c, i.local);
+    let k = tx_k(TEXELS / f32(1u << ((c.info >> 3u) & 31u)), fpx);
+    let gs = tx_snap(gp, i.dir / 2u, k);
+    let lit_at = i.rel + brot(b, tx_point(c.info & 7u, gs, gr) - tx_point(c.info & 7u, gp, gr));
     var col = col_in;
     // the planet's lying snow (ADR 0076, the air grid's per column): white over what faces up, the face's own
     // pattern showing through where it lies thin
@@ -1369,7 +1484,7 @@ fn terrain_lit(i: VOut, col_in: vec3f) -> GOut {
     // normal for the bounce and the denoiser
     var ln = n;
     if (((look.info >> 25u) & 1u) == 1u) { ln = normalize(n + normalize(i.rel - g.bodies[body].ctr.xyz) * 0.5); }
-    let l = light(i.rel, ln, body, px);
+    let l = light(lit_at, ln, body);
     var out = col * l.l;
     // its own shade darkens its sunlit side too, so a plane facing the sun keeps the painting's greens
     if (((look.info >> 25u) & 1u) == 1u) { out *= i.ao; }
@@ -1400,7 +1515,7 @@ fn fs_glass(i: VOut) -> @location(0) vec4f {
     let body = (chunks[i.ci].info >> 8u) & 255u;
     let v = normalize(-i.rel);
     let n = normalize(i.normal);
-    let l = light(i.rel, n, body, vec2u(i.clip.xy));
+    let l = light(i.rel, n, body);
     let fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
     var col = t.rgb * (l.l + ambient(l.day) + 0.1 * l.day);
     col = mix(col, g.sky.rgb + vec3f(0.17, 0.13, 0.01) * l.day, fres * 0.6);
@@ -1742,7 +1857,7 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
         n = normalize(n0 - (brot(b, fsv[i.face]) * gr.x + brot(b, ftv[i.face]) * gr.y) * k);
         if (dot(n, v) < 0.02) { n = normalize(n + n0 * (0.02 - dot(n, v))); }
     }
-    let l = light(i.rel, n, i.body, px);
+    let l = light(i.rel, n, i.body);
     let cosv = max(dot(n, v), 0.0);
     let fres = 0.02 + 0.98 * pow(1.0 - cosv, 5.0);
     // the water's own light, scattered back from inside it
@@ -1833,7 +1948,7 @@ fn water_old(i: WOut) -> vec4f {
     }
     let facing = max(dot(n, v), 0.0);
     let fres = 0.08 + 0.92 * pow(1.0 - facing, 5.0);
-    let l = light(i.rel, n, i.body, vec2u(i.clip.xy));
+    let l = light(i.rel, n, i.body);
     var col = vec3f(0.06, 0.24, 0.36) * (l.l + ambient(l.day) + 0.1 * l.day);
     // the sky in it, and the sun's glint where the sun reaches
     col = mix(col, g.sky.rgb + vec3f(0.17, 0.13, 0.01) * l.day, fres * 0.7);
@@ -2210,7 +2325,7 @@ fn cracked(i: FxOut) -> bool {
 fn fs_fx(i: FxOut) -> GOut {
     let look = (i.info >> 10u) & 3u;
     if (look == 3u && !cracked(i)) { discard; }
-    let l = light(i.rel, normalize(i.normal), (i.info >> 8u) & 3u, vec2u(i.clip.xy));
+    let l = light(i.rel, normalize(i.normal), (i.info >> 8u) & 3u);
     // a crack shows the block's own texel, dark, as a gap in it
     return fx_out(i, fx_colour(i) * select(1.0, 0.3, look == 3u), l.l);
 }
@@ -2499,6 +2614,6 @@ fn vs_model(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
 
 @fragment
 fn fs_model(i: FxOut) -> GOut {
-    let l = light(i.rel, normalize(i.normal), (i.info >> 8u) & 3u, vec2u(i.clip.xy));
+    let l = light(i.rel, normalize(i.normal), (i.info >> 8u) & 3u);
     return fx_out(i, unpack4x8unorm(i.b).rgb, l.l);
 }

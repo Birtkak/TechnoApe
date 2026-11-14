@@ -417,3 +417,119 @@ impl Gi {
         rp.draw(0..3, 0..1);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use glam::DVec3;
+    use wgpu::util::DeviceExt;
+
+    /// shader.wgsl's free part that finds a pixel's texel (ADR 0108), with a kernel round it: each case a body-frame
+    /// point (xyz) and the face's axis (w); out its texel's middle (xyz) and seed (w, bits).
+    fn texels_on_gpu(cases: &[[f32; 4]], gr: [f32; 4]) -> Vec<[f32; 4]> {
+        let src = include_str!("shader.wgsl");
+        let (a, b) = (src.find("// ---- the light's texels").unwrap(), src.find("// ---- end of the light's texels").unwrap());
+        let wgsl = format!(
+            "{}\n@group(0) @binding(0) var<storage, read> cases: array<vec4f>;\n@group(0) @binding(1) var<storage, read_write> outs: array<vec4f>;\n\
+             @compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id: vec3u) {{\n\
+             let gr = TxGrid({:?}, {:?}, {:?}, {:?});\n let c = cases[id.x];\n let at = tx_grid_of(c.xyz, gr);\n\
+             let gs = tx_snap(at.g, u32(c.w), 16.0);\n outs[id.x] = vec4f(tx_point(at.face, gs, gr), bitcast<f32>(tx_seed(at.face, gs, u32(c.w), 16.0).x));\n}}",
+            &src[a..b],
+            gr[0],
+            gr[1],
+            gr[2],
+            gr[3]
+        );
+        let mut idesc = wgpu::InstanceDescriptor::new_without_display_handle();
+        idesc.backends = wgpu::Backends::VULKAN;
+        let instance = wgpu::Instance::new(idesc);
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).expect("a GPU for the shader's test");
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: None, source: wgpu::ShaderSource::Wgsl(wgsl.into()) });
+        let pipe = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: None,
+            layout: None,
+            module: &module,
+            entry_point: Some("main"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+        let input = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(cases), usage: wgpu::BufferUsages::STORAGE });
+        let size = (cases.len() * 16) as u64;
+        let out = device.create_buffer(&wgpu::BufferDescriptor { label: None, size, usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false });
+        let read = device.create_buffer(&wgpu::BufferDescriptor { label: None, size, usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &pipe.get_bind_group_layout(0),
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: input.as_entire_binding() }, wgpu::BindGroupEntry { binding: 1, resource: out.as_entire_binding() }],
+        });
+        let mut enc = device.create_command_encoder(&Default::default());
+        {
+            let mut cp = enc.begin_compute_pass(&Default::default());
+            cp.set_pipeline(&pipe);
+            cp.set_bind_group(0, &bind, &[]);
+            cp.dispatch_workgroups(cases.len() as u32, 1, 1);
+        }
+        enc.copy_buffer_to_buffer(&out, 0, &read, 0, size);
+        queue.submit([enc.finish()]);
+        read.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
+        let v = bytemuck::cast_slice::<u8, [f32; 4]>(&read.slice(..).get_mapped_range().unwrap()[..]).to_vec();
+        v
+    }
+
+    /// Every pixel of a texel takes its light at one point, the texel's middle, with one seed; the next texel's is
+    /// a texel away with a seed of its own (ADR 0108, bug 2026-11-14_01-59-35): on every cube face of the 4 km
+    /// planet, for all six ways a block face looks, found on the GPU from the body-frame point as `gi_trace` does.
+    #[test]
+    fn the_light_is_one_a_texel() {
+        // the 4 km planet's grid (frame.rs `Body`): 6144 columns a face edge, a layer about a metre at the sea
+        let (n, r0) = (6144.0f64, 3800.0f64);
+        let lnq = (1.0 + 1.0 / r0).ln();
+        let (theta, half) = (std::f64::consts::FRAC_PI_2 / n, n * 0.5);
+        // frame_at's axes
+        let ax = |f: usize| {
+            let e = [DVec3::X, DVec3::Y, DVec3::Z];
+            (e[f / 2] * if f % 2 == 1 { -1.0 } else { 1.0 }, e[[1, 2, 2, 0, 0, 1][f]], e[[2, 1, 0, 2, 1, 0][f]])
+        };
+        let point = |f: usize, g: DVec3| {
+            let (nn, s, t) = ax(f);
+            (nn + s * ((g.x - half) * theta).tan() + t * ((g.y - half) * theta).tan()).normalize() * r0 * (g.z * lnq).exp()
+        };
+        let (mut cases, mut want) = (Vec::new(), Vec::new());
+        for f in 0..6 {
+            for dir in 0..6usize {
+                let axis = dir / 2;
+                // a block face on its cell's low or high side, some way across the cube face; texel (5, 11) of it at
+                // three points inside, then its neighbours along the face's two axes
+                let g0 = DVec3::new(1234.0, 4321.0, 260.0) + DVec3::splat((dir % 2) as f64);
+                let (u, v) = ((axis + 1) % 3, (axis + 2) % 3);
+                let at = |du: f64, dv: f64| {
+                    let mut g = g0;
+                    g[u] += du / 16.0;
+                    g[v] += dv / 16.0;
+                    g
+                };
+                for (du, dv) in [(5.1, 11.1), (5.9, 11.85), (5.5, 11.3), (6.2, 11.5), (5.5, 12.4)] {
+                    let p = point(f, at(du, dv));
+                    cases.push([p.x as f32, p.y as f32, p.z as f32, axis as f32]);
+                }
+                want.extend([(5.5, 11.5), (5.5, 11.5), (5.5, 11.5), (6.5, 11.5), (5.5, 12.5)].map(|(du, dv)| point(f, at(du, dv))));
+            }
+        }
+        let out = texels_on_gpu(&cases, [theta as f32, half as f32, r0 as f32, lnq as f32]);
+        for k in 0..36 {
+            let o = &out[k * 5..k * 5 + 5];
+            let p = |i: usize| DVec3::new(o[i][0] as f64, o[i][1] as f64, o[i][2] as f64);
+            let seed = |i: usize| o[i][3].to_bits();
+            let case = format!("cube face {}, block face {}", k / 6, k % 6);
+            for i in 0..5 {
+                // (f32 at 4 km: half a millimetre a step)
+                let off = (p(i) - want[k * 5 + i]).length();
+                assert!(off < 0.003, "{case}: point {i} lit {off:.4} m from its texel's middle");
+            }
+            assert!(seed(1) == seed(0) && seed(2) == seed(0), "{case}: one seed a texel");
+            assert!(seed(3) != seed(0) && seed(4) != seed(0) && seed(3) != seed(4), "{case}: a texel's neighbours have seeds of their own");
+            assert!((p(3) - p(0)).length() > 0.05, "{case}: the next texel's light is a texel away");
+        }
+    }
+}
