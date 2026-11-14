@@ -779,7 +779,7 @@ impl Streamer {
         }
         // nearest first, as a stable sort hands them out (ties in the order asked), but sorted only as far as the
         // workers take: a flight at detail 8 asks for some 20,000 a frame and sends a handful, and sorting them
-        // all was most of this (`walk_cost`, ADR 0115). The nearest `FIRST` are picked out and sorted; the rest
+        // all was most of this (`walk_cost`, ADR 0120). The nearest `FIRST` are picked out and sorted; the rest
         // only when those did not fill the workers
         const FIRST: usize = 256;
         let mut order: Vec<(f64, u32)> = reqs.iter().enumerate().map(|(i, r)| (r.0, i as u32)).collect();
