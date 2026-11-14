@@ -687,7 +687,12 @@ impl Streamer {
                 if !pending || covered || hidden || stand_in {
                     p += REFINE;
                 }
-                reqs.push((p, k));
+                // a pending chunk is not meshed while the quad buffer is full (`dispatch` passes over it, this same
+                // frame): the drawn walk does not hand it over, thousands a frame at detail 8 in a forest. (The
+                // look-ahead's requests are kept some frames, in which room may come: those are handed over.)
+                if !(draw && pending && self.alloc.full) {
+                    reqs.push((p, k));
+                }
                 st.requests += 1;
             }
             if pending {
@@ -771,16 +776,32 @@ impl Streamer {
             reqs.clear();
             return;
         }
-        // what the loop below would pass over is dropped before the sort, not after: with the quad buffer full
-        // (detail 8 in a forest, ADR 0111) that is thousands of waiting chunks a frame (`walk_cost`); the sort is
-        // stable, so the rest go out in the same order
-        let full = self.alloc.full;
-        reqs.retain(|(_, k)| self.slots.get(k).is_some_and(|s| s.needs_job() && !(full && s.state == State::Pending)));
-        reqs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-        for &(_, k) in reqs.iter() {
+        // nearest first, as a stable sort would hand them out (ties in the order asked), but only as far as the
+        // workers take: a flight at detail 8 asks for some 20,000 a frame and sends a handful, and sorting them
+        // all was most of this (`walk_cost`, ADR 0115)
+        struct Req(f64, u32);
+        impl PartialEq for Req {
+            fn eq(&self, o: &Self) -> bool {
+                self.cmp(o).is_eq()
+            }
+        }
+        impl Eq for Req {}
+        impl PartialOrd for Req {
+            fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
+                Some(self.cmp(o))
+            }
+        }
+        impl Ord for Req {
+            fn cmp(&self, o: &Self) -> std::cmp::Ordering {
+                self.0.partial_cmp(&o.0).unwrap().then(self.1.cmp(&o.1))
+            }
+        }
+        let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<Req>> = reqs.iter().enumerate().map(|(i, r)| std::cmp::Reverse(Req(r.0, i as u32))).collect();
+        while let Some(std::cmp::Reverse(Req(_, i))) = heap.pop() {
             if self.inflight >= self.opts.max_inflight {
                 break;
             }
+            let k = reqs[i as usize].1;
             let Some(s) = self.slots.get_mut(&k) else { continue };
             // a full buffer would refuse a new mesh again: wait until something is released
             if !s.needs_job() || (self.alloc.full && s.state == State::Pending) {
