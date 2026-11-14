@@ -1478,9 +1478,13 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
             c.inv_dirty = true;
         }
         // a survival dig on a crack loosens its neighbours along it into rubble too (ADR 0094), read before the
-        // dig changes the world
+        // dig changes the world; and the roof over an opening it made too wide for its rock (ADR 0112)
         let loose: Vec<(Block, u16)> = if m == AIR && !c.creative {
-            cells.iter().flat_map(|&(b, old)| engine::crack::drop(&self.world, b, old).into_iter().map(move |n| (n, old))).filter(|(n, _)| !cells.iter().any(|c| c.0 == *n)).collect()
+            let mut loose: Vec<(Block, u16)> = cells.iter().flat_map(|&(b, old)| engine::crack::drop(&self.world, b, old).into_iter().map(move |n| (n, old))).filter(|(n, _)| !cells.iter().any(|c| c.0 == *n)).collect();
+            let (dug, open): (Vec<Block>, Vec<Block>) = (cells.iter().map(|c| c.0).collect(), loose.iter().map(|c| c.0).collect());
+            let roof = engine::crack::undercut(&self.world, &dug, &open);
+            loose.extend(roof.into_iter().map(|b| (b, self.world.block(b))));
+            loose
         } else {
             Vec::new()
         };
@@ -3458,6 +3462,52 @@ mod tests {
             assert_eq!(count(&s), 2 + loose.len(), "off the cracks: the one block");
         }
         assert!(s.item_ledger().is_empty());
+    }
+
+    /// ADR 0112 (mining.md 2, undercut and drop): a survival player who digs the last cell of a 3 x 3 room under shale
+    /// (span 1) brings the slab over its centre down as rubble; in creative the roof stays.
+    #[test]
+    fn digging_out_a_room_under_shale_drops_its_roof() {
+        for creative in [false, true] {
+            let (mut s, links) = server_with(1);
+            let l = &links[0];
+            let (pole, under) = on_land(&s);
+            let shale = BLOCKS.id("shale");
+            let rubble = BLOCKS.get(shale).unwrap().rubble.unwrap();
+            // under the ground beside the player: shale 6 deep, a room at its 5th layer dug out but for one corner
+            let cell = |di: i32, dj: i32, dl: i32| Block { pos: under.pos + glam::IVec3::new(di, dj, -dl), ..under };
+            let near: Vec<Block> = (2..=8).flat_map(|di| (-3..=3).flat_map(move |dj| (1..=6).map(move |dl| cell(di, dj, dl)))).collect();
+            for &b in &near {
+                let room = b.pos.z == under.pos.z - 5 && (b.pos.x - under.pos.x - 5).abs() <= 1 && (b.pos.y - under.pos.y).abs() <= 1;
+                s.world.set_block(b, if room { AIR } else { shale });
+            }
+            let last = cell(4, -1, 5);
+            s.world.set_block(last, shale);
+            if creative {
+                l.send(ToServer::Chat("/playmode creative".into()));
+            }
+            l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+            s.tick();
+            let loose = engine::crack::drop(&s.world, last, shale);
+            let slab = engine::crack::undercut(&s.world, &[last], &loose);
+            assert!(!slab.is_empty() && slab.iter().all(|b| (b.pos.x, b.pos.y) == (cell(5, 0, 0).pos.x, cell(5, 0, 0).pos.y)), "{slab:?}");
+            let one = Shape::one(last);
+            l.send(ToServer::Dig(Some(one)));
+            s.tick();
+            let t = edit::dig_time(&s.world, &one) * 1.05;
+            wait(&mut s, t);
+            l.send(ToServer::Edit { seq: 1, shape: one, material: AIR });
+            s.tick();
+            assert!(drain(l).contains(&ToClient::Done { seq: 1, ok: true }));
+            let count = near.iter().filter(|b| s.world.block(**b) == rubble).count();
+            if creative {
+                assert_eq!(count, 0, "creative takes the one block");
+                assert!(slab.iter().all(|b| s.world.block(*b) == shale), "and the roof stays");
+            } else {
+                assert_eq!(count, 1 + loose.len() + slab.len(), "the dug block, its crack's and the slab, as rubble");
+                assert!(s.item_ledger().is_empty());
+            }
+        }
     }
 
     #[test]

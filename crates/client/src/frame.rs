@@ -485,8 +485,9 @@ impl App {
             }
             if m == crate::DIG {
                 let loose = engine::crack::drop(&self.world, b, was);
-                eprintln!("[technoape] dig {:?}: {} more loosened", b.pos, loose.len());
-                for c in std::iter::once(b).chain(loose) {
+                let roof = engine::crack::undercut(&self.world, &[b], &loose);
+                eprintln!("[technoape] dig {:?}: {} more loosened, {} by undercut", b.pos, loose.len(), roof.len());
+                for c in std::iter::once(b).chain(loose).chain(roof) {
                     let old = self.world.block(c);
                     let r = engine::edit::dug(old, true);
                     self.world.set_block(c, r);
