@@ -66,6 +66,9 @@ fn due(k: u32) -> u32 {
 pub struct Falls {
     /// Awake cells, with (ticks it has fallen, cells it has fallen) for a block in flight, (0, 0) otherwise.
     awake: BTreeMap<Key, (u32, u32)>,
+    /// Hanging blocks (a torch, ADR 0117) a falling or sliding block took the cell of: (the cell it came from, the
+    /// hanging block), for the server to drop as items there; the caller empties it.
+    pub knocked: Vec<(Block, u16)>,
     /// Blocks moved and cells visited since the start (counted work, fundamentals).
     pub moves: u64,
     pub visits: u64,
@@ -148,6 +151,11 @@ impl Falls {
                 (0..4).map(|s| SIDES[(r + s) % 4]).map(|(di, dj)| near(world, p, di, dj, 0)).find(|s| open(world, *s) && open(world, near(world, *s, 0, 0, -1))).map(|s| (s, (0, 0)))
             };
             let Some((q, state)) = to else { continue };
+            // a torch in the way is knocked off first (its cell is open: not solid)
+            let was = world.block(q);
+            if BLOCKS.get(was).is_some_and(|d| d.hangs) {
+                self.knocked.push((p, was));
+            }
             world.set_block(p, AIR);
             world.set_block(q, m);
             out.push((p, AIR));
@@ -237,6 +245,45 @@ mod tests {
         assert_eq!(unheld(&w, &[(wall, AIR)]), vec![hung]);
         w.set_block(under, AIR);
         assert_eq!(unheld(&w, &[(under, AIR)]), vec![top], "its floor dug");
+    }
+
+    /// ADR 0117 (review): a block falling or sliding into a torch's cell (open: not solid) knocks it off first,
+    /// noted with the cell the block came from for the server to drop it there; nothing else is noted.
+    #[test]
+    fn a_falling_or_sliding_block_knocks_a_torch_off() {
+        let (stone, sand, torch) = (BLOCKS.id("stone"), BLOCKS.id("sand"), BLOCKS.id("torch"));
+        // sand over a floor torch falls into its cell
+        let (mut w, top) = floor();
+        let up = at(top, 0, 0, 3);
+        w.set_block(top, torch);
+        w.set_block(up, sand);
+        let mut f = Falls::default();
+        f.wake(&w, up);
+        settle(&mut f, &mut w, &mut Vec::new());
+        assert_eq!(w.block(top), sand);
+        assert_eq!(f.knocked, vec![(at(top, 0, 0, 1), torch)], "knocked off from the cell over it");
+        // a pile's top slides into a wall torch's cell, its only open side
+        let (mut w, top) = floor();
+        let (hung, wall) = (at(top, 1, 0, 1), at(top, 2, 0, 1));
+        w.set_block(top, sand);
+        w.set_block(at(top, 0, 0, 1), sand);
+        for (di, dj) in [(-1, 0), (0, 1), (0, -1)] {
+            w.set_block(at(top, di, dj, 1), stone);
+        }
+        w.set_block(wall, stone);
+        w.set_block(hung, torch);
+        let mut f = Falls::default();
+        f.wake(&w, at(top, 0, 0, 1));
+        settle_as(&mut f, &mut w, &mut Vec::new(), true);
+        assert_eq!(w.block(hung), AIR, "the sand slid on down from it");
+        assert_eq!(f.knocked, vec![(at(top, 0, 0, 1), torch)]);
+        // a fall onto stone notes nothing
+        let (mut w, top) = floor();
+        w.set_block(at(top, 0, 0, 2), sand);
+        let mut f = Falls::default();
+        f.wake(&w, at(top, 0, 0, 2));
+        settle(&mut f, &mut w, &mut Vec::new());
+        assert!(f.knocked.is_empty());
     }
 
     #[test]

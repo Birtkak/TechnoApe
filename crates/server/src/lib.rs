@@ -170,6 +170,8 @@ struct Client {
     animals: FxMap<u32, engine::net::Animal>,
     /// The hotbar slot in hand (`ToServer::Hand`, ADR 0110).
     hand: u8,
+    /// The item in hand as the roster last told everyone (ADR 0117): a change sends the roster at once.
+    sent_hand: u16,
     /// Knapping (ADR 0110): the item being struck, the strikes that counted, the tick of the last.
     knap: (u16, u8, u64),
 }
@@ -663,6 +665,7 @@ impl Server {
                 hold: edit::Hold::default(),
                 animals: FxMap::default(),
                 hand: 0,
+                sent_hand: AIR,
                 knap: (0, 0, 0),
             });
         }
@@ -865,13 +868,17 @@ impl Server {
             self.falls.step(&mut self.world, self.tick, &mut changed);
             self.rock_hits(&changed[mine..]);
         }
+        // a torch a falling block took the cell of was knocked off first (ADR 0117): it drops as itself where the
+        // block fell from
+        for (from, m) in std::mem::take(&mut self.falls.knocked) {
+            self.knock_off(from, m);
+        }
         // a hanging block (a torch, ADR 0117) that this tick's edits left with no floor or wall drops as itself
         for b in engine::fall::unheld(&self.world, &changed) {
             let m = self.world.block(b);
             self.world.set_block(b, AIR);
             changed.push((b, AIR));
-            *self.item_made.entry(m).or_default() += 1;
-            self.lay(b, vec![Stack::new(m, 1)], (0, 0));
+            self.knock_off(b, m);
         }
         // the animals (ADR 0083): woken by the players on Terra, stepped as far as the players were
         let players: Vec<(DVec3, DVec3)> = self.clients.iter().filter(|c| self.world.frame_at(c.phys.pos) == 0).map(|c| (c.phys.pos, c.phys.vel)).collect();
@@ -905,6 +912,22 @@ impl Server {
             }
         }
         let cols: Vec<Col> = self.world.water.take_changes().into_iter().map(|w| w.0).collect();
+        // a flame the water reached (a torch, ADR 0117) pops off as itself, in a message of its own
+        // shortcut: every placed model is looked at when any water moved, and once a second; by the changed
+        // columns if torches are many
+        if !cols.is_empty() || self.tick % TICK_HZ as u64 == 0 {
+            let wet: Vec<(Block, u16)> = self.world.models.iter().filter(|(b, id)| BLOCKS.get(**id).is_some_and(|d| d.flame) && self.world.water_surface(self.world.block_centre(**b)).is_some()).map(|(b, id)| (*b, *id)).collect();
+            for &(b, m) in &wet {
+                self.world.set_block(b, AIR);
+                self.knock_off(b, m);
+            }
+            if !wet.is_empty() {
+                let gone: Vec<(Block, u16)> = wet.iter().map(|w| (w.0, AIR)).collect();
+                for c in &self.clients {
+                    c.link.send(ToClient::Edits(gone.clone()));
+                }
+            }
+        }
         self.water_changed(&cols);
         self.send_water();
         if !self.taken_changed.is_empty() {
@@ -946,9 +969,14 @@ impl Server {
         }
         // clients count the list; each one's own position comes in its `You` every tick. The others' come
         // with it once a second too, for the globe map (ADR 0077)
-        if roster || self.tick % TICK_HZ as u64 == 0 {
-            // (with what each holds, ADR 0117: another's held torch lights the world for everyone)
-            let players: Vec<Player> = self.clients.iter().map(|c| Player { hand: c.slots.get(c.hand as usize).copied().flatten().map_or(AIR, |s| s.item), ..c.player.clone() }).collect();
+        // (with what each holds, ADR 0117: another's held torch lights the world for everyone; a change of it is
+        // sent at once)
+        let holds = |c: &Client| c.slots.get(c.hand as usize).copied().flatten().map_or(AIR, |s| s.item);
+        if roster || self.tick % TICK_HZ as u64 == 0 || self.clients.iter().any(|c| c.sent_hand != holds(c)) {
+            for c in &mut self.clients {
+                c.sent_hand = holds(c);
+            }
+            let players: Vec<Player> = self.clients.iter().map(|c| Player { hand: c.sent_hand, ..c.player.clone() }).collect();
             for c in &self.clients {
                 c.link.send(ToClient::Players(players.clone()));
             }
@@ -1599,6 +1627,13 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
     /// Lays `stacks` in cell `at` (ADR 0074): out of a solid block upwards, down to the first floor, into that
     /// cell's pile and, while it has no room, the piles over it. `wait` is the thrower and the tick it may take
     /// them back from.
+    /// A hanging block (a torch, ADR 0117) knocked off its cell, already emptied or taken: one of it lies at `at`,
+    /// counted as made so the ledger stays exact.
+    fn knock_off(&mut self, at: Block, m: u16) {
+        *self.item_made.entry(m).or_default() += 1;
+        self.lay(at, vec![Stack::new(m, 1)], (0, 0));
+    }
+
     fn lay(&mut self, mut at: Block, stacks: Vec<Stack>, wait: (u32, u64)) {
         if stacks.is_empty() {
             return;
@@ -2450,6 +2485,82 @@ mod tests {
         let pile = got.iter().rev().find_map(|m| if let ToClient::Piles(v) = m { v.iter().find(|p| p.1.iter().flatten().any(|st| st.item == torch)).map(|p| p.1.clone()) } else { None });
         assert_eq!(pile, Some(vec![Some(Stack::new(torch, 1)), None, None, None]), "one torch lies");
         assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    }
+
+    /// ADR 0117 (review): a torch a falling block lands in, or that water covers, drops as one torch, the ledger
+    /// exact; a survival player's click takes one at once, as itself.
+    #[test]
+    fn a_torch_is_knocked_off_by_sand_and_water_and_taken_by_hand() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let dirt = over_dirt(&mut s, l);
+        let (torch, stone, sand) = (BLOCKS.id("torch"), BLOCKS.id("stone"), BLOCKS.id("sand"));
+        let at = |di: i32, dl: i32| Block { pos: dirt.pos + glam::IVec3::new(di, 0, dl), ..dirt };
+        for dl in 0..=6 {
+            for di in 1..=3 {
+                s.world.set_block(at(di, dl), AIR);
+            }
+        }
+        s.world.set_block(at(2, 0), stone);
+        s.world.set_block(at(3, 0), stone);
+        l.send(ToServer::Chat("/give torch 2".into()));
+        s.tick();
+        l.send(ToServer::Edit { seq: 1, shape: Shape::one(at(2, 1)), material: torch });
+        l.send(ToServer::Edit { seq: 2, shape: Shape::one(at(3, 1)), material: torch });
+        s.tick();
+        assert_eq!((s.world.block(at(2, 1)), s.world.block(at(3, 1))), (torch, torch));
+        // sand over the first falls into its cell: the torch is knocked off and lies as one
+        s.world.set_block(at(2, 4), sand);
+        s.falls.wake(&s.world, at(2, 4));
+        for _ in 0..40 {
+            s.tick();
+        }
+        assert_eq!(s.world.block(at(2, 1)), sand);
+        let lying = |s: &Server| s.piles.values().flat_map(|p| p.slots.iter().flatten()).filter(|st| st.item == torch).map(|st| st.n as u32).sum::<u32>();
+        assert_eq!(lying(&s), 1, "the knocked-off torch lies");
+        assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+        // a survival click on the second takes it at once (no time held), as one torch
+        drain(l);
+        l.send(ToServer::Edit { seq: 3, shape: Shape::one(at(3, 1)), material: AIR });
+        s.tick();
+        assert!(drain(l).contains(&ToClient::Done { seq: 3, ok: true }));
+        assert_eq!(s.world.block(at(3, 1)), AIR);
+        assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+        // a torch under the sea (put there, as a flood would) pops off within a second
+        let b = &s.world.bodies[0];
+        let sea = b.layer_r(b.sea.unwrap());
+        let d = (0..20000).map(|k| { let z = 1.0 - (k as f64 + 0.5) / 10000.0; let a = k as f64 * 2.399963; let r = (1.0 - z * z).sqrt(); DVec3::new(r * a.cos(), r * a.sin(), z) }).find(|d| b.height(*d) < sea - 4.0).expect("a sea");
+        let wet = s.world.block_at(b.centre + d * (sea - 1.5));
+        s.world.set_block(Block { pos: wet.pos - glam::IVec3::Z, ..wet }, stone);
+        s.world.set_block(wet, torch);
+        for _ in 0..TICK_HZ as u32 {
+            s.tick();
+        }
+        assert_eq!(s.world.block(wet), AIR, "out of the water");
+        assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    }
+
+    /// ADR 0117 (review): taking a torch into the hand sends the roster at once, not at the next second.
+    #[test]
+    fn a_change_of_hand_is_sent_at_once() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        l.send(ToServer::Chat("/give torch 1".into()));
+        s.tick();
+        let k = s.clients[0].slots.iter().position(|x| x.is_some_and(|st| st.item == BLOCKS.id("torch"))).unwrap();
+        // first an empty slot in hand
+        let empty = (0..items::HOTBAR).find(|&j| s.clients[0].slots[j].is_none()).unwrap();
+        l.send(ToServer::Hand(empty as u8));
+        s.tick();
+        while s.tick % TICK_HZ as u64 != 1 {
+            s.tick();
+        }
+        drain(l);
+        assert!(k < items::HOTBAR, "the torch is on the hotbar");
+        l.send(ToServer::Hand(k as u8));
+        s.tick();
+        let hands: Vec<u16> = drain(l).iter().filter_map(|m| if let ToClient::Players(v) = m { Some(v[0].hand) } else { None }).collect();
+        assert_eq!(hands, vec![BLOCKS.id("torch")], "sent in the tick the hand changed");
     }
 
     /// ADR 0117: a torch is never placed in water, held up by a floor or not.
