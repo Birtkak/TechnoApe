@@ -806,7 +806,8 @@ impl App {
         let flash = if title || cf != 0 { 0.0 } else { self.fall.storm(&self.sky, self.seed, &self.world, p.pos, wt, &mut self.audio) };
         self.audio.hold("music.menu", if title { 1.0 } else { 0.0 });
         // a grey sky under cloud, darker in rain (ADR 0076)
-        let grey = here.cover * air;
+        // (by the cover the clouds fill to, clouds.wgsl `cl_cover`: a fair sky of scattered heaps stays blue, ADR 0108)
+        let grey = (here.cover - 1.4 * (here.cover - 0.3).max(0.0) * (1.0 - here.cover)) * air;
         let sky_c = Vec3::new(0.45, 0.65, 0.95).lerp(Vec3::new(0.52, 0.56, 0.62) * (1.0 - 0.45 * wet), grey) * day * air + Vec3::new(0.01, 0.012, 0.025);
         // the bounce light on or off (off: a flat fill from the sky), and the screen's brightness
         let fill = sky_c * 0.35 + Vec3::splat(0.01);
