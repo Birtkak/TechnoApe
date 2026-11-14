@@ -70,4 +70,11 @@ arm the part `arm_r` (1 x 5 x 2 voxels, the light hand at its bottom layer).
 - No bob with the steps for the arm or a model in hand (the cube keeps its bob).
 - The zoom (C) moves the arm as it moves a held model today: it is placed in metres, so it grows on screen.
 
-## Review
+## Review (the overseer read the diff; it wrote the brief, not the code)
+- *Nothing to change.* The arm's piece is pushed after the model's own instances and its draw's count follows, so
+  a herd of the same figure and the bare arm share a draw rightly; a part with no instance and no arm piece makes no
+  draw (`count > 0`); the hand's rules are one tested function.
+- *Answered, not changed:* the arm's one piece is not counted in ADR 0114's per-model reserve against `MAX_PIECES`
+  (one piece at a cap of 65,536); the rest pose is built twice a frame while the hand is empty (two small
+  allocations: for the optimisation batch if it shows); in the first quarter second of a run the swing's age is
+  inside its length, so the hand may strike once at spawn; the death screen now hides a held item too.
