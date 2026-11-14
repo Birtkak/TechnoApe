@@ -103,3 +103,33 @@ leaves flat as their paintings, reed with its holes, the scrollbar, "81 items", 
 - No drag-spread, number keys, pack rows drawn as that pack (items.md "The screen"), unchanged from ADR 0075.
 
 ## Review
+A fresh reviewer read the diff (3fda948f..cac77d0e, crates/). Findings and answers:
+1. **The window did not fit a small UI** (fixed). The settings reach a 640 x 360 window (`width`/`height` lo) at
+   interface scale 3 (`interface_scale` hi; the menu's steps stop at 2), a 213 x 120 UI; 1280 x 720 at 1.5 is
+   853 x 480. Survival's window is 922 x 386 and creative's 574 x 574, so slots went off the screen. `layout` now
+   gives a scale `k` (at most 1) that fits the window with an 8 px margin; the layout is in its own pixels on a
+   canvas 1 / k as large (`inv_draw` draws into a `Paint` of that size, so text and pictures shrink with it) and
+   the pointer is divided by k for hover and clicks (`inv_pointer`). Chosen over dropping rows or moving the
+   ground column: one rule, every part kept, the clicks driven by the same layout. The layout test now runs at
+   213 x 120, 853 x 480, 1280 x 720 and 1920 x 1080 and asserts the panel, every slot, tab and the search field on
+   the screen in UI pixels; seen red first (creative's panel at x = -181). Stills `out/inv/small-survival.png`,
+   `small-creative.png` (1280 x 720 at 1.5), `tiny-creative.png` (640 x 360 at 3: slots about 16 screen px,
+   small but whole); `small-click.png`: a grid click and a hotbar click at 1.5 put grass in hotbar slot 1.
+2. **`grid_items()` twice a frame; `icon` per slot takes the painting lock, scans the models and remakes flat
+   pictures** (answered): features first (principle 14); the three are the ideas of this ADR's
+   `docs/perf-debt.md` row for the optimisation batch.
+3. **Rect count** (checked): `hud::RECTS_MAX` is 32,768 and play.rs uploads `min(len, cap)`, so more would be
+   dropped silently. Counted once with a debug line (removed): the whole HUD with creative's nature tab open is
+   11,153 rects, survival with a pack, six stacks and a tooltip 2,738. The worst grid (54 flat or model pictures
+   of at most 256 runs each) stays under about 15,000; no fix needed.
+4. **`gpu::painting` for fine faces now used by the hotbar, the hand and "looking at"** (checked, one guard
+   added). Hotbar and hand shot before (the old `None`) and after with broadleaf leaves, reed, shrub, oak leaves
+   (`out/inv/fine-before.png`, `fine-after.png`, `fine-zoom.png`): before, flat tones; after, the leaves' painting
+   and the reed's stalks, nearer the world. (a) Thin strokes: the cube's 8 x 8 texels are means of 2 x 2 of the
+   16 px painting already, so a stroke one 32 px pixel wide that the halving drops was never seen there; the reed
+   reads as stalks. (b) A fine face always has a multiple of four variants (`textures::decode_fine`: 32 px high,
+   width a multiple of 32), but the closure now returns `None` for a fine face with fewer than four rather than a
+   stretched quarter. "Looking at" draws the same `hud::cube` with the same painting; not shot apart (`/place`
+   needs a cell), so the hotbar's evidence stands for it.
+5. **`cols - 1` in the search field** (fixed): `saturating_sub`.
+6. **The halve test's hole case** (fixed): two of four there gives their mean, one of four a hole.
