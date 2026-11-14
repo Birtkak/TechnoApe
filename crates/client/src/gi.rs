@@ -50,7 +50,38 @@ pub struct Gi {
     size: (u32, u32),
 }
 
+/// The trace's group 0 from the terrain's resources (`Gi::new`'s `shared`), the TLAS among them
+fn trace0(device: &wgpu::Device, trace: &wgpu::ComputePipeline, shared: [wgpu::BindingResource; 12]) -> wgpu::BindGroup {
+    let [r0, r1, r2, r3, r5, r8, r9, r11, r14, r15, r16, r17] = shared;
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &trace.get_bind_group_layout(0),
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: r0 },
+            wgpu::BindGroupEntry { binding: 1, resource: r1 },
+            wgpu::BindGroupEntry { binding: 2, resource: r2 },
+            wgpu::BindGroupEntry { binding: 3, resource: r3 },
+            wgpu::BindGroupEntry { binding: 5, resource: r5 },
+            wgpu::BindGroupEntry { binding: 8, resource: r8 },
+            wgpu::BindGroupEntry { binding: 9, resource: r9 },
+            // the painted faces: a ray through a cutout block reads its texel (ADR 0069)
+            wgpu::BindGroupEntry { binding: 11, resource: r11 },
+            // the clouds' map: their shadow where a bounce ray lands (ADR 0076)
+            wgpu::BindGroupEntry { binding: 14, resource: r14 },
+            wgpu::BindGroupEntry { binding: 15, resource: r15 },
+            // the still faces and their paintings: a plant shades a lamp's ray (ADR 0091)
+            wgpu::BindGroupEntry { binding: 16, resource: r16 },
+            wgpu::BindGroupEntry { binding: 17, resource: r17 },
+        ],
+    })
+}
+
 impl Gi {
+    /// The trace's terrain resources again, with a new TLAS (rt.rs `grew`).
+    pub fn rebind(&mut self, device: &wgpu::Device, shared: [wgpu::BindingResource; 12]) {
+        self.trace0 = trace0(device, &self.trace, shared);
+    }
+
     /// `shared` is the terrain's resources for the trace's group 0: globals, quads, chunks, looks, TLAS, lamps, lamp cells.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -99,28 +130,7 @@ impl Gi {
             compilation_options: Default::default(),
             cache: None,
         });
-        let [r0, r1, r2, r3, r5, r8, r9, r11, r14, r15, r16, r17] = shared;
-        let trace0 = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &trace.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: r0 },
-                wgpu::BindGroupEntry { binding: 1, resource: r1 },
-                wgpu::BindGroupEntry { binding: 2, resource: r2 },
-                wgpu::BindGroupEntry { binding: 3, resource: r3 },
-                wgpu::BindGroupEntry { binding: 5, resource: r5 },
-                wgpu::BindGroupEntry { binding: 8, resource: r8 },
-                wgpu::BindGroupEntry { binding: 9, resource: r9 },
-                // the painted faces: a ray through a cutout block reads its texel (ADR 0069)
-                wgpu::BindGroupEntry { binding: 11, resource: r11 },
-                // the clouds' map: their shadow where a bounce ray lands (ADR 0076)
-                wgpu::BindGroupEntry { binding: 14, resource: r14 },
-                wgpu::BindGroupEntry { binding: 15, resource: r15 },
-                // the still faces and their paintings: a plant shades a lamp's ray (ADR 0091)
-                wgpu::BindGroupEntry { binding: 16, resource: r16 },
-                wgpu::BindGroupEntry { binding: 17, resource: r17 },
-            ],
-        });
+        let trace0 = trace0(device, &trace, shared);
         fn view(v: &wgpu::TextureView) -> wgpu::BindingResource<'_> {
             wgpu::BindingResource::TextureView(v)
         }

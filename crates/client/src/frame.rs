@@ -1072,8 +1072,10 @@ impl App {
                 ts_use = Some(i);
             }
         }
+        // (its own handle of the query set: `gpu` is taken again below when the TLAS grows)
+        let ts_qs = gpu.ts.as_ref().map(|t| t.0.clone());
         let stamp = |enc: &mut wgpu::CommandEncoder, k: usize| {
-            if let (Some(i), Some((qs, _, _))) = (ts_use, &gpu.ts) {
+            if let (Some(i), Some(qs)) = (ts_use, &ts_qs) {
                 enc.write_timestamp(qs, (i * TS_N + k) as u32);
             }
         };
@@ -1081,6 +1083,13 @@ impl App {
         let rt = self.rt.as_mut().unwrap();
         rt.record(&gpu.device, &gpu.queue, &mut enc, &insts);
         let rt_pending = rt.pending;
+        // a larger TLAS: bound before this frame's passes, which trace it (ADR 0111)
+        if rt.grew {
+            let (g, rt) = (self.gpu.as_mut().unwrap(), self.rt.as_ref().unwrap());
+            g.rebind(&rt.tlas);
+            self.gi.as_mut().unwrap().rebind(&g.device, g.shared(&rt.tlas));
+        }
+        let gpu = self.gpu.as_ref().unwrap();
         self.drawn.rt_pending = rt_pending;
         stamp(&mut enc, 1);
         lap!("rt");

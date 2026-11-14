@@ -536,6 +536,8 @@ pub(crate) struct Gpu {
     pub(crate) still_pipeline: wgpu::RenderPipeline,
     pub(crate) model_pipeline: wgpu::RenderPipeline,
     pub(crate) bind: wgpu::BindGroup,
+    /// `bind`'s layout, for a new TLAS (`rebind`)
+    bgl: wgpu::BindGroupLayout,
     pub(crate) globals: wgpu::Buffer,
     pub(crate) quads: wgpu::Buffer,
     pub(crate) chunks: wgpu::Buffer,
@@ -566,7 +568,63 @@ const TEX_LAYERS: u32 = 2048;
 
 /// What the hotbar and the "looking at" cube show of a painted block: its top's mean and its side's, per look
 /// row (`looks_of`: 256 a season).
-pub(crate) static SHOWN: std::sync::RwLock<[Option<[[f32; 3]; 2]>; 4 * 256]> = std::sync::RwLock::new([None; 4 * 256]);
+/// The terrain's bind group: `b` the buffers globals, quads, chunks, looks, water quads, lamps, lamp cells, effects,
+/// paintings, model quads, model pieces, globe, still faces, still paintings
+#[allow(clippy::too_many_arguments)]
+fn main_bind(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, b: [&wgpu::Buffer; 14], tlas: &wgpu::Tlas, sky: (&wgpu::TextureView, &wgpu::Sampler)) -> wgpu::BindGroup {
+    let [globals, quads, chunks, looks, wquads, lamps, lamp_cells, fx_buf, tex, mquads, mpieces, globe_buf, sfaces, spaint] = b;
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: bgl,
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 1, resource: quads.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 2, resource: chunks.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 3, resource: looks.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 4, resource: wquads.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 5, resource: tlas.as_binding() },
+            wgpu::BindGroupEntry { binding: 8, resource: lamps.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 9, resource: lamp_cells.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 10, resource: fx_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 11, resource: tex.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 12, resource: mquads.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 13, resource: mpieces.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 20, resource: globe_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 14, resource: wgpu::BindingResource::TextureView(sky.0) },
+            wgpu::BindGroupEntry { binding: 15, resource: wgpu::BindingResource::Sampler(sky.1) },
+            wgpu::BindGroupEntry { binding: 16, resource: sfaces.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 17, resource: spaint.as_entire_binding() },
+        ],
+    })
+}
+
+impl Gpu {
+    /// The bounce's share of the terrain's resources (`Gi::new`), with `tlas`.
+    pub(crate) fn shared<'a>(&'a self, tlas: &'a wgpu::Tlas) -> [wgpu::BindingResource<'a>; 12] {
+        [
+            self.globals.as_entire_binding(),
+            self.quads.as_entire_binding(),
+            self.chunks.as_entire_binding(),
+            self.looks.as_entire_binding(),
+            tlas.as_binding(),
+            self.lamps.as_entire_binding(),
+            self.lamp_cells.as_entire_binding(),
+            self.tex.as_entire_binding(),
+            wgpu::BindingResource::TextureView(&self.sky_view),
+            wgpu::BindingResource::Sampler(&self.sky_samp),
+            self.sfaces.as_entire_binding(),
+            self.spaint.as_entire_binding(),
+        ]
+    }
+
+    /// The terrain's bind group again with a new TLAS (rt.rs `grew`, ADR 0111).
+    pub(crate) fn rebind(&mut self, tlas: &wgpu::Tlas) {
+        let b = [&self.globals, &self.quads, &self.chunks, &self.looks, &self.wquads, &self.lamps, &self.lamp_cells, &self.fx_buf, &self.tex, &self.mquads, &self.mpieces, &self.globe_buf, &self.sfaces, &self.spaint];
+        self.bind = main_bind(&self.device, &self.bgl, b, tlas, (&self.sky_view, &self.sky_samp));
+    }
+}
+
+pub(crate) static SHOWN:std::sync::RwLock<[Option<[[f32; 3]; 2]>; 4 * 256]> = std::sync::RwLock::new([None; 4 * 256]);
 
 /// A painted block's top and side (their first variants) as `hud::cube` draws them, by block id.
 static PAINTING: std::sync::RwLock<Vec<(u16, [Option<engine::textures::Pixels>; 2])>> = std::sync::RwLock::new(Vec::new());
@@ -938,29 +996,7 @@ impl Gpu {
             ],
         });
         let rt = rt::Rt::new(&device, &shader, &globals, &quads, &sfaces, MAX_CHUNKS as u32);
-        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &bgl,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: quads.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: chunks.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: looks.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 4, resource: wquads.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 5, resource: rt.tlas.as_binding() },
-                wgpu::BindGroupEntry { binding: 8, resource: lamps.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 9, resource: lamp_cells.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 10, resource: fx_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 11, resource: tex.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 12, resource: mquads.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 13, resource: mpieces.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 20, resource: globe_buf.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 14, resource: wgpu::BindingResource::TextureView(&sky_view) },
-                wgpu::BindGroupEntry { binding: 15, resource: wgpu::BindingResource::Sampler(&sky_samp) },
-                wgpu::BindGroupEntry { binding: 16, resource: sfaces.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 17, resource: spaint.as_entire_binding() },
-            ],
-        });
+        let bind = main_bind(&device, &bgl, [&globals, &quads, &chunks, &looks, &wquads, &lamps, &lamp_cells, &fx_buf, &tex, &mquads, &mpieces, &globe_buf, &sfaces, &spaint], &rt.tlas, (&sky_view, &sky_samp));
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[Some(&bgl)],
@@ -1188,6 +1224,7 @@ impl Gpu {
             fx_pipeline,
             mquads,
             mpieces,
+            bgl,
             still,
             still_depth_pipeline,
             still_pipeline,
