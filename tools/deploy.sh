@@ -13,7 +13,7 @@ version="$(git rev-parse --short HEAD) $(date '+%Y-%m-%d %H:%M')"
 
 if [[ "$what" != client ]]; then
   # the committed source only: no saves, bakes or build output
-  git archive HEAD Cargo.toml Cargo.lock .cargo crates data deploy | ssh "root@$HOST" "rm -rf $DIR/src && mkdir -p $DIR/src && tar -x -C $DIR/src"
+  git archive HEAD Cargo.toml Cargo.lock .cargo crates data deploy | ssh "root@$HOST" "rm -rf $DIR/src && mkdir -p $DIR/src && tar -xm -C $DIR/src"
   ssh "root@$HOST" "cd $DIR/src && docker build -f deploy/Dockerfile -t technoape-server . > $DIR/build.log 2>&1 || { tail -40 $DIR/build.log; exit 1; }
     docker rm -f technoape-server >/dev/null 2>&1
     docker run -d --name technoape-server --network host --restart unless-stopped \
