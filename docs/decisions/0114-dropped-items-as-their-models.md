@@ -36,7 +36,11 @@ clutter model in hand was wrong**: nothing was drawn in hand for flint (the log 
 - Engine (`crates/engine/src/models.rs`): `Model::item: Option<f32>`, checked in `check`; `ITEM_M = 0.35`;
   `Bx::pixel_quads` and `Bx::frame`. The Studio's two `Model {..}` literals gain `item: None`.
 - Client: `Loaded::new` meshes the parts and then the boxes from the model's `.png` (read in `load_keeping` and
-  checked as the clutter checks it; no painting, no boxes drawn), and keeps the rest bounds. `Models::frame`
+  checked as the clutter checks it), and keeps the rest bounds. A model with painted boxes whose painting is
+  missing, unreadable or too small for its boxes is refused like a refused `.toml`: a reload keeps its last good
+  model with one stderr line, a first load draws it not (`painting_of`). "Has a model" means it has at least one
+  quad to draw (`drawn`, one place for the hand, the pile and the inventory's picture), so a model that loads
+  with nothing to draw lies as its cube, and nothing is drawn in hand. `Models::frame`
   appends each box's pose, uses `item` for the hand, and draws `Models::piles`. `crates/client/src/piles.rs` (new)
   holds `lay` (the pure map from piles to model instances and leftover cubes) and `App::lay_piles`, moved out of
   `inventory.rs` (only that function and `PILE_DRAWN` left it). A stack whose item or block name is a loaded model
@@ -47,11 +51,15 @@ clutter model in hand was wrong**: nothing was drawn in hand for flint (the log 
 - Flint gets `item = 0.6`: a 12 cm shard in hand and in a pile. `item` sizes a painted model in hand and in a
   pile alike; the clutter on the ground (`clutter::Still`) never reads it, so the flint lying in the world stays
   19 cm.
-- In hand a model is held by its rest bounds' middle (the cell's middle before), so a flat thing that lies low in
-  its cell is not under the screen's edge; a flat one (height under half its width) is tipped 60 degrees to show
-  the eye its top.
+- In hand a painted-box model is held by its rest bounds' middle (the cell's middle before), so a flat thing that
+  lies low in its cell is not under the screen's edge; a flat one (height under 0.4 of its width: flint and the
+  stick) is tipped 60 degrees to show the eye its top (`Loaded::held`). A voxel model (a creature, the furnace)
+  is held by its cell exactly as on main.
 - The Studio's model view copies the open model's `.png` beside the `studio.toml` it hands the renderer, so
-  painted boxes show there too (they were drawn nowhere in it before).
+  painted boxes show there too (they were drawn nowhere in it before): written as `studio.png.part` and renamed,
+  and handed over again when the painting's modified time changes, not only the model.
+- A pile's stacks reserve their pieces per model, whole: a model whose instances would pass `MAX_PIECES` is left
+  out entirely for that frame, never drawn in part.
 
 ## Evidence
 - Tests, each seen failing first: `models::tests::a_boxs_painting_becomes_one_quad_a_pixel_on_its_face`,
@@ -60,8 +68,8 @@ clutter model in hand was wrong**: nothing was drawn in hand for flint (the log 
   (client). `cargo test -p client` 142 passed; engine models 15 passed.
 - Stills (`out/piles/`, off-screen `run=play planet=768 seed=1`, items thrown through the inventory's acts):
   `before.png` (the same pile with `models=` an empty folder: four cubes), `after.png` (the hand axe lying on its
-  face, the stick, granite's cube; the flint is behind the cube from this side), `flint_lying.png`,
-  `hand_axe_in_hand.png`, `flint_in_hand.png` (tipped, wholly over the hotbar's edge), `inventory_slots.png`
+  face, the flint, the stick, granite's cube), `flint_lying.png`,
+  `hand_axe_in_hand.png`, `axe_in_hand_sun.png`, `flint_in_hand.png` (tipped, wholly over the hotbar's edge), `inventory_slots.png`
   (main's slot pictures of the hand axe, flint, stick and granite), `studio_flint.png`, `studio_hand_axe_crop.png`.
 - Cost: `docs/perf-debt.md` row "Dropped items as models (0114)".
 
@@ -69,6 +77,7 @@ clutter model in hand was wrong**: nothing was drawn in hand for flint (the log 
 - The painted axe's `item = 0.3` (21 cm) and flint's `item = 0.6` (12 cm in hand and in a pile).
 - Clutter models keep their real size in a pile; voxel models lie at 0.35 a cell unless they say.
 - A standing item lies on its face; a block's model (a furnace) stands as it stands in the world.
+- Flint and the stick tipped 60 degrees in hand; the other painted items upright, by their middle.
 
 ## Shortcuts
 - A box quad per pixel, never merged (shortcut: merge runs of one colour per face when quads grow tight).
@@ -78,3 +87,39 @@ clutter model in hand was wrong**: nothing was drawn in hand for flint (the log 
 - The stack in a pile is never drawn bigger for a larger count.
 
 ## Review
+A fresh reviewer read the diff. Findings and what was done:
+1. **A model that loads but draws nothing hid its pile** (a painted model whose `.png` was missing or refused
+   loaded with no quads; `has` said yes, so the pile drew nothing and the hand nothing). Fixed: `drawn` (at least
+   one quad) is the one test for the hand, the pile and the inventory's picture; such a model lies as its cube.
+   Test `a_model_with_nothing_to_draw_is_its_cube`.
+2. **Studio view: a repainted `.png` was not handed over, and a half-written one could be read.** Today a refused
+   `.toml` on reload keeps the last good model with one stderr line; a refused painting now does the same (test
+   `a_painted_model_without_a_good_painting_is_refused`: missing, half the bytes, boxes outside the painting;
+   a voxel model reads without one). The view's key holds the painting's modified time, and the copy is written
+   to `studio.png.part` and renamed.
+3. **Hold by the middle and the tip reached every model in hand.** Now only painted-box models are moved, and
+   only flat ones tipped; the 0.5 line tipped the loose stone (a lump, 0.49), so it is 0.4. In hand today
+   (models with an item or block of their name; no row of `data/blocks.toml` names a `model =`):
+   berries moved; flint moved, tipped; hand axe moved; loose stone moved; mushroom moved; stick moved, tipped.
+   All six drew nothing in hand on main (their boxes were never meshed there), so none of them moves away from a
+   picture the developer has seen. Ape, boar, deer, hare, snake, leaf, furnace (voxel) are unchanged, and fallen
+   leaves, pebbles, pebbles.1, twigs (clutter) never come into a hand. The furnace has no block or item of its
+   name, so it cannot be held: no before/after shot is possible; instead tests hold the boar against main's own
+   formula (`a_voxel_model_in_hand_is_held_as_before`) and check every in-hand model's hold
+   (`only_flat_painted_models_are_tipped_in_hand`: voxel ones identity, the tipped set flint and stick, seen
+   failing with the loose stone at 0.5).
+4. **Limits (answered, not optimised, principle 14).** Box quads are one a pixel against the shared
+   `MAX_MQUADS` = 65,536; when the models pass it, the first model over (by file order) is dropped whole with one
+   stderr line. Today all 17 models are 4,352 quads (6.6 %). `lay` makes a `String` per stack and scans the
+   model list per stack per frame, and `pose()` plus the box extension allocate per instance; costs are in the
+   perf-debt row. Pieces: one per non-empty part an instance; the hand axe is 6 (its painted boxes), so 200
+   axe piles are 1,200 of `MAX_PIECES` = 65,536; a four-stack pile of axe, flint, stick and a block is 8. A model
+   reaching `MAX_PIECES` mid-way was drawn in part; fixed by reserving per model (left out whole).
+5. **Tests.** The box test had every `turn` zero: `a_turned_boxs_pixel_quads_lie_on_its_faces_as_the_clutter_draws_them`
+   checks a box turned [8, 35, 0] and a plane turned [0, 90, 12] (both its faces) against `Bx::faces`, seen
+   failing with the turn taken out of `Bx::frame`. `a_painted_box_model_is_drawn_in_hand` now derives its box,
+   its middle and its bounds from the loaded flint, not from numbers copied from `flint.toml`.
+6. **Stills re-shot** with today's flint and axe: `out/piles/after.png` (the pile from the far side: flint,
+   stick, granite's cube and the hand axe all in view; the cube still hides part of the stick),
+   `out/piles/axe_in_hand_sun.png` (noon, over grass: the axe reads blue-grey with lighter edges and a white
+   tip, not dark, so the recipe's tones are unchanged).
