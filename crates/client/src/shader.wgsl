@@ -616,8 +616,9 @@ fn tx_point(f: u32, g: vec3f, gr: TxGrid) -> vec3f {
 }
 
 // grid point g moved to the middle of its texel, k texels a grid unit, along the two axes other than `axis` (the
-// face's normal: 0 column i, 1 column j, 2 the layer), which stays as it is
+// face's normal: 0 column i, 1 column j, 2 the layer), which stays as it is; k 0 leaves the point
 fn tx_snap(g: vec3f, axis: u32, k: f32) -> vec3f {
+    if (k <= 0.0) { return g; }
     return select((floor(g * k) + 0.5) / k, g, vec3<bool>(axis == 0u, axis == 1u, axis == 2u));
 }
 
@@ -636,9 +637,12 @@ fn tx_seed(f: u32, gs: vec3f, axis: u32, k: f32) -> vec2u {
 // the texels a grid unit of the light at a place whose painting has `k0` a grid unit and where one screen pixel
 // spans `px` grid units of the surface: the painting's while a texel spans a pixel or more; past that, halved
 // until one does again, so far away the light is still one a texel of a coarser grid of whole texels and never
-// finer than the pixels, which would only alias and shimmer as the camera moves
+// finer than the pixels, which would only alias and shimmer as the camera moves. Never larger than a block (nor a
+// coarse level's painted texel): a light texel of many blocks would put its point in a terrace step or the air,
+// so past that it is 0, the pixel's own point (`tx_snap` leaves it)
 fn tx_k(k0: f32, px: f32) -> f32 {
-    return k0 / exp2(clamp(ceil(log2(max(px * k0, 1e-6))), 0.0, 12.0));
+    let e = max(ceil(log2(max(px * k0, 1e-6))), 0.0);
+    return select(k0 / exp2(e), 0.0, e > max(log2(k0), 0.0));
 }
 // ---- end of the light's texels ----
 
@@ -944,11 +948,13 @@ fn gi_trace(@builtin(global_invocation_id) id: vec3u) {
     if (wi > wj && wi > wl) { axis = 0u; } else if (wj > wl) { axis = 1u; }
     // a pixel's footprint there, longer on a face seen edge on (a column is about a metre: grid units)
     let w1 = g.inv_vp * vec4f(uv.x * 2.0 - 1.0 + 2.0 / f32(size.x), 1.0 - uv.y * 2.0, 1.0, 1.0);
-    let k = tx_k(TEXELS, gb.w * length(normalize(w1.xyz / w1.w) - vd) / max(abs(dot(n, vd)), 0.25));
+    // only a block face snaps: a slope, a plant, a model or an effect (a normal off the grid's axes) keeps its pixel's
+    var k = 0.0;
+    if (max(wi, max(wj, wl)) > 0.99) { k = tx_k(TEXELS, gb.w * length(normalize(w1.xyz / w1.w) - vd) / max(abs(dot(n, vd)), 0.25)); }
     let gs = tx_snap(tg.g, axis, k);
     let p = p0 + brot(bb, tx_point(tg.face, gs, gr) - tx_point(tg.face, tg.g, gr));
     let f = g.n_lamps.y;
-    let px = tx_seed(tg.face, gs, axis, k) + vec2u(f * 7919u, f * 6271u);
+    let px = select(q, tx_seed(tg.face, gs, axis, k), k > 0.0) + vec2u(f * 7919u, f * 6271u);
     // a cosine-weighted direction around n
     let t = normalize(cross(n, select(vec3f(0., 1., 0.), vec3f(1., 0., 0.), abs(n.y) > 0.9)));
     let bt = cross(n, t);
@@ -1313,7 +1319,7 @@ fn pattern_texel(look: Look, dir: u32, cell: vec3i, x: i32, y: i32, h: f32, tone
 // through `fs` (fast leaves) an empty texel shows the block's colour, darker
 @fragment
 fn fs(i: VOut) -> GOut {
-    return terrain_lit(i, ground_tint(i, terrain_texel(i).rgb));
+    return terrain_lit(i, ground_tint(i, terrain_texel(i).rgb), foot(i.rel));
 }
 
 // a grass block's top takes the climate's tint (ADR 0091), as the plants on it do: its green texels by the
@@ -1369,11 +1375,13 @@ fn meadow_texel(p: vec2f) -> vec3f {
 
 @fragment
 fn fs_cut(i: VOut) -> GOut {
+    // (before the discard: the derivatives need every pixel of the quad)
+    let fpx = foot(i.rel);
     let c = terrain_texel(i);
     if (c.a < 0.5) {
         discard;
     }
-    return terrain_lit(i, c.rgb);
+    return terrain_lit(i, c.rgb, fpx);
 }
 
 // the cutout blocks' depth pass (ADR 0090): the same holes as `fs_cut`, nothing written but the depth
@@ -1389,7 +1397,7 @@ fn fs_cut_depth(i: VOut) -> GOut {
 // their G-buffer after the opaque terrain, where the depth pass left theirs (`Equal`): no discard, early depth
 @fragment
 fn fs_cut_lit(i: VOut) -> GOut {
-    return terrain_lit(i, terrain_texel(i).rgb);
+    return terrain_lit(i, terrain_texel(i).rgb, foot(i.rel));
 }
 
 // the fluff (`vs_fluff`, ADR 0099): the card keeps the face (its corners rounded) and, past its edges, lobes of
@@ -1416,7 +1424,7 @@ fn fs_fluff_depth(i: VOut) -> GOut {
 
 @fragment
 fn fs_fluff_lit(i: VOut) -> GOut {
-    return terrain_lit(i, terrain_texel(i).rgb);
+    return terrain_lit(i, terrain_texel(i).rgb, foot(i.rel));
 }
 
 fn terrain_texel(i: VOut) -> vec4f {
@@ -1439,23 +1447,31 @@ fn terrain_texel(i: VOut) -> vec4f {
     return vec4f(col.rgb, select(col.a, 1.0, (g.opt.x & 4u) != 0u && !is_glass(i.mat)));
 }
 
-fn terrain_lit(i: VOut, col_in: vec3f) -> GOut {
+// a pixel's footprint on the surface (`terrain_lit`'s `fpx`): taken where every pixel of the quad is still there
+fn foot(p: vec3f) -> f32 { return max(length(dpdx(p)), length(dpdy(p))); }
+
+// `fpx` the pixel's footprint (`foot`), or below 0 for a pixel lit where it is: a still's `local` and `dir` are its
+// painting's and its face's index, not the grid's
+fn terrain_lit(i: VOut, col_in: vec3f, fpx: f32) -> GOut {
     let c = chunks[i.ci];
     let body = (c.info >> 8u) & 255u;
     let look = looks[i.mat & 255u];
-    let n = normalize(select(i.normal, i.slope.xyz, i.slope.w > 0.5));
+    let sloped = i.slope.w > 0.5;
+    let n = normalize(select(i.normal, i.slope.xyz, sloped));
     // where its light is worked out (ADR 0108): the middle of the painting's texel this pixel shows, found on the
     // grid from `local` (the painting's own point: a swaying crown's light rides with its texels) and moved there
     // from the pixel's point along the face (`sun_seen` and `lamp_seen` take no random numbers). A coarse level's texels are as large
-    // as it draws them; far away, where a texel is smaller than a pixel, the light's are larger (`tx_k`).
-    // (first: the derivatives need every pixel of the quad here)
-    let fpx = max(length(dpdx(i.rel)), length(dpdy(i.rel)));
+    // as it draws them; far away, where a texel is smaller than a pixel, the light's are larger (`tx_k`). A slope
+    // (its face is not the grid's) and a still keep the pixel's point.
     let b = g.bodies[body];
-    let gr = TxGrid(b.theta, b.half_n, b.r0, b.lnq);
-    let gp = grid(c, i.local);
-    let k = tx_k(TEXELS / f32(1u << ((c.info >> 3u) & 31u)), fpx);
-    let gs = tx_snap(gp, i.dir / 2u, k);
-    let lit_at = i.rel + brot(b, tx_point(c.info & 7u, gs, gr) - tx_point(c.info & 7u, gp, gr));
+    var lit_at = i.rel;
+    if (fpx >= 0.0 && !sloped) {
+        let gr = TxGrid(b.theta, b.half_n, b.r0, b.lnq);
+        let gp = grid(c, i.local);
+        let k = tx_k(TEXELS / f32(1u << ((c.info >> 3u) & 31u)), fpx);
+        let gs = tx_snap(gp, i.dir / 2u, k);
+        lit_at = i.rel + brot(b, tx_point(c.info & 7u, gs, gr) - tx_point(c.info & 7u, gp, gr));
+    }
     var col = col_in;
     // the planet's lying snow (ADR 0076, the air grid's per column): white over what faces up, the face's own
     // pattern showing through where it lies thin
@@ -2582,9 +2598,9 @@ fn fs_still(i: VOut) -> GOut {
         // the planes facing the sun lighter, those edge-on to it darker, so a tuft has a sun side
         var j = i;
         j.ao = 1.0;
-        return terrain_lit(j, col * mix(0.42, 1.0, clamp(up * 1.3, 0.0, 1.0)) * mix(0.82, 1.0, turn) * mix(0.8, 1.08, i.ao));
+        return terrain_lit(j, col * mix(0.42, 1.0, clamp(up * 1.3, 0.0, 1.0)) * mix(0.82, 1.0, turn) * mix(0.8, 1.08, i.ao), -1.0);
     }
-    return terrain_lit(i, t.rgb);
+    return terrain_lit(i, t.rgb, -1.0);
 }
 
 struct MPiece { x0: vec4f, x1: vec4f, x2: vec4f, q0: u32, body: u32, _a: u32, _b: u32 };

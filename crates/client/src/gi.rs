@@ -423,16 +423,15 @@ mod tests {
     use glam::DVec3;
     use wgpu::util::DeviceExt;
 
-    /// shader.wgsl's free part that finds a pixel's texel (ADR 0108), with a kernel round it: each case a body-frame
-    /// point (xyz) and the face's axis (w); out its texel's middle (xyz) and seed (w, bits).
-    fn texels_on_gpu(cases: &[[f32; 4]], gr: [f32; 4]) -> Vec<[f32; 4]> {
+    /// shader.wgsl's free part that finds a pixel's texel (ADR 0108), with a kernel round it whose `body` reads
+    /// `cases[id.x]` (a vec4f) and writes `outs[id.x]`; None, with the reason printed, on a PC without a Vulkan GPU.
+    fn texels_on_gpu(cases: &[[f32; 4]], gr: [f32; 4], body: &str) -> Option<Vec<[f32; 4]>> {
         let src = include_str!("shader.wgsl");
         let (a, b) = (src.find("// ---- the light's texels").unwrap(), src.find("// ---- end of the light's texels").unwrap());
         let wgsl = format!(
             "{}\n@group(0) @binding(0) var<storage, read> cases: array<vec4f>;\n@group(0) @binding(1) var<storage, read_write> outs: array<vec4f>;\n\
              @compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id: vec3u) {{\n\
-             let gr = TxGrid({:?}, {:?}, {:?}, {:?});\n let c = cases[id.x];\n let at = tx_grid_of(c.xyz, gr);\n\
-             let gs = tx_snap(at.g, u32(c.w), 16.0);\n outs[id.x] = vec4f(tx_point(at.face, gs, gr), bitcast<f32>(tx_seed(at.face, gs, u32(c.w), 16.0).x));\n}}",
+             let gr = TxGrid({:?}, {:?}, {:?}, {:?});\n let c = cases[id.x];\n{body}\n}}",
             &src[a..b],
             gr[0],
             gr[1],
@@ -442,7 +441,10 @@ mod tests {
         let mut idesc = wgpu::InstanceDescriptor::new_without_display_handle();
         idesc.backends = wgpu::Backends::VULKAN;
         let instance = wgpu::Instance::new(idesc);
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).expect("a GPU for the shader's test");
+        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+            eprintln!("skipped: no Vulkan GPU to run the shader's texels on");
+            return None;
+        };
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: None, source: wgpu::ShaderSource::Wgsl(wgsl.into()) });
         let pipe = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -474,8 +476,11 @@ mod tests {
         read.slice(..).map_async(wgpu::MapMode::Read, |_| {});
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
         let v = bytemuck::cast_slice::<u8, [f32; 4]>(&read.slice(..).get_mapped_range().unwrap()[..]).to_vec();
-        v
+        Some(v)
     }
+
+    const SNAP: &str = " let at = tx_grid_of(c.xyz, gr);\n let gs = tx_snap(at.g, u32(c.w), 16.0);\n \
+                        outs[id.x] = vec4f(tx_point(at.face, gs, gr), bitcast<f32>(tx_seed(at.face, gs, u32(c.w), 16.0).x));";
 
     /// Every pixel of a texel takes its light at one point, the texel's middle, with one seed; the next texel's is
     /// a texel away with a seed of its own (ADR 0108, bug 2026-11-14_01-59-35): on every cube face of the 4 km
@@ -516,7 +521,12 @@ mod tests {
                 want.extend([(5.5, 11.5), (5.5, 11.5), (5.5, 11.5), (6.5, 11.5), (5.5, 12.5)].map(|(du, dv)| point(f, at(du, dv))));
             }
         }
-        let out = texels_on_gpu(&cases, [theta as f32, half as f32, r0 as f32, lnq as f32]);
+        // and one a hair from a cube face's edge, where the faces' grids meet
+        let p = point(0, DVec3::new(n - 0.03, 3000.3, 260.0));
+        cases.push([p.x as f32, p.y as f32, p.z as f32, 2.0]);
+        let Some(out) = texels_on_gpu(&cases, [theta as f32, half as f32, r0 as f32, lnq as f32], SNAP) else { return };
+        let off = (DVec3::new(out[180][0] as f64, out[180][1] as f64, out[180][2] as f64) - point(0, DVec3::new(n - 0.5 / 16.0, 3000.28125, 260.0))).length();
+        assert!(off < 0.003, "by a cube face's edge: lit {off:.4} m from its texel's middle");
         for k in 0..36 {
             let o = &out[k * 5..k * 5 + 5];
             let p = |i: usize| DVec3::new(o[i][0] as f64, o[i][1] as f64, o[i][2] as f64);
@@ -530,6 +540,36 @@ mod tests {
             assert!(seed(1) == seed(0) && seed(2) == seed(0), "{case}: one seed a texel");
             assert!(seed(3) != seed(0) && seed(4) != seed(0) && seed(3) != seed(4), "{case}: a texel's neighbours have seeds of their own");
             assert!((p(3) - p(0)).length() > 0.05, "{case}: the next texel's light is a texel away");
+        }
+    }
+
+    /// The light's texels a grid unit (`tx_k`): the painting's up close, halved where a pixel spans more, never larger
+    /// than a block or a coarse level's painted texel; past that 0, the pixel's own point (the review of ADR 0108).
+    #[test]
+    fn a_light_texel_is_never_larger_than_a_block() {
+        // (k0, a pixel's footprint in grid units) -> k
+        let cases = [(16.0, 0.01, 16.0), (16.0, 0.2, 4.0), (16.0, 1.0, 1.0), (16.0, 1.5, 0.0), (16.0, 300.0, 0.0), (1.0, 0.5, 1.0), (1.0, 2.0, 0.0), (0.5, 1.0, 0.5), (0.5, 3.0, 0.0)];
+        let input: Vec<[f32; 4]> = cases.iter().map(|&(k0, px, _)| [k0, px, 0.0, 0.0]).collect();
+        let Some(out) = texels_on_gpu(&input, [1.0, 1.0, 1.0, 1.0], " outs[id.x] = vec4f(tx_k(c.x, c.y));") else { return };
+        for (o, (k0, px, want)) in out.iter().zip(cases) {
+            assert_eq!(o[0], want, "tx_k({k0}, {px})");
+        }
+        // and k 0 leaves the point where it is
+        let Some(out) = texels_on_gpu(&[[3.3, 4.7, 5.1, 2.0]], [1.0, 1.0, 1.0, 1.0], " outs[id.x] = vec4f(tx_snap(c.xyz, 2u, 0.0), 0.0);") else { return };
+        assert_eq!(&out[0][..3], &[3.3, 4.7, 5.1]);
+    }
+
+    /// A still's `local` and `dir` hold its painting's pixel and its face's index, not the grid's: `fs_still` lights
+    /// it where it is (`terrain_lit`'s footprint below 0), never on texels found from those (the review of ADR 0108)
+    #[test]
+    fn stills_are_lit_where_they_are() {
+        let src = include_str!("shader.wgsl");
+        let body = &src[src.find("fn fs_still(").unwrap()..];
+        let body = &body[..body.find("\n}\n").unwrap()];
+        let calls: Vec<&str> = body.match_indices("terrain_lit(").map(|(i, _)| &body[i..i + body[i..].find(';').unwrap()]).collect();
+        assert!(!calls.is_empty());
+        for c in calls {
+            assert!(c.ends_with(", -1.0)"), "fs_still lights on the grid: {c}");
         }
     }
 }
