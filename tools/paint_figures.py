@@ -243,10 +243,13 @@ def boar(m):
 
 
 def deer(m):
-    tan = coat("deer coat", "deer", base=3.0, streak=0.6)
+    # a darker back than the other coats (lit less on top, a dark line along the spine), so the pale belly,
+    # throat and rump stand out
+    tan = coat("deer coat", "deer", base=2.4, top=0.8, streak=0.5)
+    spine = lambda s: R("deer coat", 1.6 + (rnd("spine", int(s.p[2])) - 0.5) * 0.3) if s.f == "top" and abs(s.p[0] - 8) < 2.5 else None
     pale_belly = lambda s: R("deer pale", 4.5 + s.up()) if s.f == "bottom" or (s.f in ("+x", "-x") and s.p[1] < 2.5) else None
     rump = lambda s: R("deer pale", 5 + (rnd("rump", int(s.p[0]), int(s.p[1])) - 0.5)) if s.f == "-z" and (s.p[0] - 8) ** 2 / 42 + (s.p[1] - 6) ** 2 / 30 < 1 else None
-    m.add("body", (0, 0, 0), (16, 12, 32), over(tan, rump, pale_belly))
+    m.add("body", (0, 0, 0), (16, 12, 32), over(tan, rump, pale_belly, spine))
     throat = lambda s: R("deer pale", 4.6) if s.f == "+z" and 2 <= s.p[0] <= 6 else None
     m.add("neck", (0, 0, 0), (8, 12, 8), over(tan, throat))
     eyes = lambda s: (eye("+x", 5.5, 6.5, 0.8)(s) or eye("-x", 5.5, 6.5, 0.8)(s))
@@ -288,14 +291,15 @@ def snake(m):
     def scales(part):
         def p(s):
             z = s.p[2] + along[part]
-            n = (rnd("snake", part, s.f, int(s.p[0]), int(s.p[1]), int(s.p[2])) - 0.5) * 0.6
+            n = (rnd("snake", part, s.f, int(s.p[0]), int(s.p[1]), int(s.p[2])) - 0.5) * 0.3
             if s.f == "bottom" or (s.f in ("+x", "-x") and s.p[1] < 1.5):
                 return R("snake belly", 4.2 + ((int(z) % 2) * 0.6) + n)
-            d = abs(s.p[0] - 4) + abs((z % 8) - 4) if s.f == "top" else 4 + abs((z % 8) - 4) - (s.p[1] - 1)
-            if d < 2.2:
-                return R("snake scale", 0.6 + n)  # the diamond's dark heart
-            if d < 3.2:
-                return R("snake belly", 5.4 + n)  # its pale rim
+            # one large dark blotch every 16 px along the back, edged a shade darker than the scales round it
+            d = abs(s.p[0] - 4) * 1.4 + abs((z % 16) - 8) if s.f == "top" else 8 + abs((z % 16) - 8) - 2 * (s.p[1] - 1)
+            if d < 5.0:
+                return R("snake scale", 1.2 + n)
+            if d < 6.0:
+                return R("snake scale", 2.6 + n)
             return R("snake scale", (4.4 if s.f == "top" else 2.4 + 2 * s.up()) + n)
         return p
     eyes = lambda s: (eye("+x", 6.5, 5.5, 0.6)(s) or eye("-x", 6.5, 5.5, 0.6)(s))
