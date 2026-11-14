@@ -880,7 +880,9 @@ mod tests {
         // the boar's row alone: the rows after it name models this test does not load
         let row = &text[text.find("[[creature]]\nname = \"boar\"").unwrap()..];
         let row = &row[..row[1..].find("[[creature]]").map_or(row.len(), |i| i + 1)];
-        creature_walk(&mut list, "boar", &row.replace("scale = 1.0", &format!("scale = {scale:?}")));
+        // (the row with its `scale` line set, whatever the data file gives the boar)
+        let row: String = row.lines().map(|l| if l.starts_with("scale = ") { format!("scale = {scale:?}\n") } else { format!("{l}\n") }).collect();
+        creature_walk(&mut list, "boar", &row);
         let w = World::new(768, 256, 1);
         let b = &w.bodies[0];
         let cell = w.block_at(b.spawn * (b.height(b.spawn) + 0.1));
