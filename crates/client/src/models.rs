@@ -43,7 +43,14 @@ pub struct Loaded {
     pub quads: Vec<Vec<[u32; 4]>>,
     /// How large it is drawn, about its cell's floor centre: a creature's `scale` (ADR 0053), else 1.
     pub scale: f32,
+    /// Its pictures for the inventory (ADR 0113): a slot's, and the ape's large one (`FIGURE` only).
+    pub pictures: [Option<crate::sprite::Sprite>; 2],
 }
+
+/// The model the inventory shows large, standing, and the pixels of its picture and of a slot's.
+pub const FIGURE: &str = "ape";
+pub const FIGURE_PX: u16 = 176;
+pub const ICON_PX: u16 = 40;
 
 /// A quad as `vs_model` reads it: corner x | y << 6 | z << 12 | dir << 18; w | h << 6; rgba8.
 pub fn pack(q: &Quad, rgb: [u8; 3]) -> [u32; 4] {
@@ -91,7 +98,13 @@ pub fn load_keeping(dir: &std::path::Path, effects: &std::path::Path, sounds: &s
         match std::fs::read_to_string(&f).map_err(|e| format!("{shown}: {e}")).and_then(|t| parse_life(&shown, &t, &palette, &effect, &sound)) {
             Ok((model, life)) => {
                 let quads = model.parts.iter().map(|p| mesh(p).iter().map(|q| pack(q, model.rgb[q.colour as usize])).collect()).collect();
-                let l = Loaded { name, model, life, quads, scale: 1.0 };
+                // its pictures here, off the frame thread: a slot's from three-quarters above, the ape's nearly level
+                let png = std::fs::read(dir.join(format!("{name}.png"))).ok().and_then(|b| engine::models::painting(&b, &palette).ok());
+                let figure = (name == FIGURE).then(|| crate::sprite::sprite(&model, None, FIGURE_PX, 22.0, 8.0)).flatten();
+                // clutter (painted boxes, lying flat) from higher up, so its painted top shows
+                let pitch = if png.is_some() { 55.0 } else { 30.0 };
+                let pictures = [crate::sprite::sprite(&model, png.as_ref(), ICON_PX, 35.0, pitch), figure];
+                let l = Loaded { name, model, life, quads, scale: 1.0, pictures };
                 kept.insert(l.name.clone(), l.clone());
                 out.push(l);
             }
@@ -341,6 +354,11 @@ impl Models {
         set(self, Some(spec.to_string()));
         self.show(Some((c.model.clone(), Some("walk".into()))), cell);
         Ok(format!("{name} walks in place three blocks ahead of you: a preview, for your eyes only. /spawn alone takes it away"))
+    }
+
+    /// A model's picture by its name: 0 a slot's, 1 the ape's large one (ADR 0113).
+    pub fn picture(&self, name: &str, k: usize) -> Option<&crate::sprite::Sprite> {
+        self.list.iter().find(|(l, _)| l.name == name).and_then(|(l, _)| l.pictures[k].as_ref())
     }
 
     pub fn has(&self, name: &str) -> bool {
@@ -652,7 +670,7 @@ mod tests {
         }
         let (model, life) = parse_life("furnace.toml", &text, &p, &|_| true, &|_| true).unwrap();
         assert_eq!(life.states.iter().find(|s| s.name == "working").unwrap().effects.is_empty(), !effects);
-        Loaded { name: "furnace".into(), model, life, quads: Vec::new(), scale: 1.0 }
+        Loaded { name: "furnace".into(), model, life, quads: Vec::new(), scale: 1.0, pictures: Default::default() }
     }
 
     /// The furnace working on the planet for a second, then `change` done to the models, then 30 s more: the
@@ -710,7 +728,7 @@ mod tests {
     fn boar_drawn(scale: f32, view: Option<f32>, in_hand: bool, place: Option<([f32; 2], f32)>) -> (Vec<Piece>, u32) {
         let p = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
         let (model, life) = parse_life("boar.toml", include_str!("../../../data/models/boar.toml"), &p, &|_| true, &|_| true).unwrap();
-        let mut list = vec![Loaded { name: "boar".into(), quads: vec![Vec::new(); model.parts.len()], model, life, scale: 1.0 }];
+        let mut list = vec![Loaded { name: "boar".into(), quads: vec![Vec::new(); model.parts.len()], model, life, scale: 1.0, pictures: Default::default() }];
         let text = include_str!("../../../data/creatures.toml").replace("\r\n", "\n");
         // the boar's row alone: the rows after it name models this test does not load
         let row = &text[text.find("[[creature]]\nname = \"boar\"").unwrap()..];
@@ -756,7 +774,7 @@ mod tests {
         let cell = w.block_at(b.spawn * (b.height(b.spawn) + 0.1));
         let mut m = Models::new(&crate::Args([("models".to_string(), "no/such/folder".to_string())].into_iter().collect()));
         let parts = (0..model.parts.len()).map(|_| (0, 1)).collect();
-        m.list = vec![(Loaded { name: "boar".into(), quads: vec![Vec::new(); model.parts.len()], model, life, scale: 1.0 }, parts)];
+        m.list = vec![(Loaded { name: "boar".into(), quads: vec![Vec::new(); model.parts.len()], model, life, scale: 1.0, pictures: Default::default() }, parts)];
         for (bad, why) in [("ape", "no creature 'ape'"), ("boar:fast", "metres a second")] {
             let e = m.spawn_from(bad, row, cell).unwrap_err();
             assert!(e.contains(why), "{bad}: {e}");
