@@ -158,6 +158,12 @@ The developer, on the stills: "keep improving".
    own colour and others no less than 0.75 (test `a_picture_shows_its_front_in_its_own_colour`), and the view
    shows the painted face (`picture_view`: an upright item from its front, a flat one from 70 degrees above,
    a lump from three-quarters). Stills `out/piles/hotbar_pictures.png`, `out/piles/inv_pictures.png`.
+7. **Dropped tools larger (the developer's call, 2026-11-14: "make dropped tools larger").** A stack whose
+   item row has `tool` lies at `TOOL_LYING` = 2 times its item size (the hand axe 42 cm long, 8 cm thick),
+   still on the floor, in the middle of its cell's quarter so that turned any way it stays inside it; in hand,
+   in slots and for flint, the stick and blocks nothing changes. Test `a_lying_axe_rests_on_the_floor_at_its_size`
+   (42 cm as a tool, 21 cm not; seen failing at 21 cm). Still `out/piles/blocks_front.png`: the axe lies
+   clearly over the meadow grass beside the 0.2 m blocks.
 
 For the developer:
 - The axe's size in a pile (21 cm, under the grass blades), or a larger `item`.

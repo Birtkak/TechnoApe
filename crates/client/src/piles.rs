@@ -19,6 +19,8 @@ const BLOCK_M: f32 = 0.2;
 pub struct Lying {
     pub name: String,
     pub item: bool,
+    /// A tool (its item row has `tool`): it lies larger (`models::TOOL_LYING`), in the middle of its quarter.
+    pub tool: bool,
     pub body: u8,
     pub p: Vec3,
     pub axes: [Vec3; 3],
@@ -38,11 +40,14 @@ pub(crate) fn lay(world: &World, piles: &std::collections::HashMap<Block, Vec<Sl
         let seed = b.pos.x as u32 ^ (b.pos.y as u32).rotate_left(11) ^ (b.pos.z as u32).rotate_left(22);
         for (k, s) in slots.iter().enumerate().filter_map(|(k, s)| Some((k, (*s)?))) {
             let side = [(-0.15, -0.15), (0.15, 0.1), (-0.1, 0.17), (0.17, -0.15)][k % 4];
+            let tool = engine::items::tool(Some(s)).is_some();
+            // a tool lies twice its size (`TOOL_LYING`): in its quarter's middle, so turned any way it stays inside it
+            let side = if tool { (0.25f32.copysign(side.0), 0.25f32.copysign(side.1)) } else { side };
             let floor = at.p + at.axes[1] * side.0 + at.axes[2] * side.1;
             let name = ITEMS.name(s.item);
             if has(name) {
                 let turn = (seed.wrapping_mul(2654435761) >> 8) as f32 / (1 << 24) as f32 * std::f32::consts::TAU + k as f32 * 1.9;
-                models.push(Lying { name: name.to_string(), item: s.item >= ITEM_BASE, body: b.body, p: floor, axes: at.axes, turn });
+                models.push(Lying { name: name.to_string(), item: s.item >= ITEM_BASE, tool, body: b.body, p: floor, axes: at.axes, turn });
                 continue;
             }
             // the block's own cell look (its painting, as the world draws it) shrunk about the cell's middle, moved
@@ -85,7 +90,7 @@ mod tests {
     #[test]
     fn a_pile_draws_its_models_and_cubes_for_the_rest() {
         let (models, cubes) = pile(&["hand axe", "flint"], 1.0);
-        assert_eq!(models.iter().map(|m| (m.name.as_str(), m.item)).collect::<Vec<_>>(), [("hand axe", true), ("flint", true)]);
+        assert_eq!(models.iter().map(|m| (m.name.as_str(), m.item, m.tool)).collect::<Vec<_>>(), [("hand axe", true, true), ("flint", true, false)]);
         assert_eq!(cubes.len(), 1, "granite: a block's look is its cube");
         assert_eq!(cubes[0].info & 255, ITEMS.look(ITEMS.named("granite").unwrap()) as u32 & 255);
         // drawn as the block's own cell look (its painting, as the world has it; ADR 0114 second round), 0.2 m,

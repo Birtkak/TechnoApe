@@ -103,6 +103,10 @@ impl Loaded {
 
 /// The model the inventory shows large, standing, and the pixels of its picture and of a slot's.
 pub const FIGURE: &str = "ape";
+
+/// A tool lying in a pile is drawn this many times its item size, so it is found in the grass (the developer's
+/// call of 2026-11-14: "make dropped tools larger"); in hand and in slots it keeps its size.
+pub const TOOL_LYING: f32 = 2.0;
 pub const FIGURE_PX: u16 = 176;
 pub const ICON_PX: u16 = 40;
 
@@ -657,7 +661,7 @@ impl Models {
         for p in &self.piles {
             let Some(m) = drawn(&self.list, &p.name) else { continue };
             let l = &self.list[m].0;
-            let s = l.model.item.unwrap_or(if l.boxes.is_empty() { engine::models::ITEM_M } else { 1.0 });
+            let s = l.model.item.unwrap_or(if l.boxes.is_empty() { engine::models::ITEM_M } else { 1.0 }) * if p.tool { TOOL_LYING } else { 1.0 };
             let [lo, hi] = l.bounds;
             let d = hi - lo;
             let lay = if p.item && d.y > d.x.max(d.z) { Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2) } else { Mat4::IDENTITY };
@@ -942,7 +946,7 @@ mod tests {
         m.list = vec![(Loaded::new("boar".into(), model, life, None), parts)];
         if pile {
             let at = crate::fx::At::floor_of(&w, w.air_over_ground(0, b.spawn));
-            m.piles = vec![crate::piles::Lying { name: "boar".into(), item: true, body: 0, p: at.p, axes: at.axes, turn: 0.3 }];
+            m.piles = vec![crate::piles::Lying { name: "boar".into(), item: true, tool: false, body: 0, p: at.p, axes: at.axes, turn: 0.3 }];
         }
         let (mut fx, mut audio) = (crate::fx::Fx::new(true, 64, 1.0, 1), crate::audio::Audio::new());
         let eye = (b.centre + b.spawn * (b.height(b.spawn) + 2.0), DVec3::X, b.spawn);
@@ -1103,9 +1107,20 @@ mod tests {
     }
 
     /// ADR 0114 second round: the hand axe lying in a pile rests on the ground's top (its lowest quad corner at the
-    /// floor, not in it) and is its `item` size long (0.3 m a cell: about 21 cm).
+    /// floor, not in it); a tool lies at `TOOL_LYING` times its `item` size (the developer's call: about 42 cm),
+    /// anything else at its item size.
     #[test]
     fn a_lying_axe_rests_on_the_floor_at_its_size() {
+        for (tool, k) in [(true, TOOL_LYING), (false, 1.0)] {
+            let (low, span, long) = lying_axe(tool);
+            assert!(low.abs() < 0.005, "tool {tool}: its lowest corner {low} m from the floor");
+            assert!((span - long * k).abs() < 0.03 * k, "tool {tool}: {span} m long on the ground, its item size {long}");
+        }
+    }
+
+    /// The hand axe lying alone (as a tool or not): its lowest corner over the floor, its length on the ground,
+    /// its item size's length.
+    fn lying_axe(tool: bool) -> (f32, f32, f32) {
         let pal = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
         let (model, life) = parse_life("hand axe.toml", include_str!("../../../data/models/hand axe.toml"), &pal, &|_| true, &|_| true).unwrap();
         let paint = engine::models::painting(include_bytes!("../../../data/models/hand axe.png"), &pal).unwrap();
@@ -1119,7 +1134,7 @@ mod tests {
         let quads: Vec<[u32; 4]> = l.quads.concat();
         m.list = vec![(l, parts.clone())];
         let floor = crate::fx::At::floor_of(&w, w.air_over_ground(0, b.spawn));
-        m.piles = vec![crate::piles::Lying { name: "hand axe".into(), item: true, body: 0, p: floor.p, axes: floor.axes, turn: 0.7 }];
+        m.piles = vec![crate::piles::Lying { name: "hand axe".into(), item: true, tool, body: 0, p: floor.p, axes: floor.axes, turn: 0.7 }];
         let (mut fx, mut audio) = (crate::fx::Fx::new(true, 64, 1.0, 1), crate::audio::Audio::new());
         let eye = (b.centre + b.spawn * (b.height(b.spawn) + 2.0), DVec3::X, b.spawn);
         m.frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], 0, eye, 0.0, None, &[], &mut fx, &mut audio);
@@ -1144,9 +1159,8 @@ mod tests {
                 }
             }
         }
-        assert!(low.abs() < 0.005, "its lowest corner {low} m from the floor");
         let span = pts.iter().flat_map(|a| pts.iter().map(move |b| (*a - *b).length())).fold(0.0, f32::max);
-        assert!((span - long).abs() < 0.03, "{span} m long on the ground, its item size {long}");
+        (low, span, long)
     }
 
     /// The Studio's overlay draws the model in square metres about the eye it sends: the renderer's frame for
