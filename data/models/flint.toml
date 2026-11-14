@@ -1,6 +1,7 @@
 # A draft flint (Claude's, listed in data/drafts.txt): clutter, ADR 0082. Painted
 # boxes at 32 px a metre (a dark shard); made by tools/paint_clutter.py.
 colours = ["slate"]
+item = 0.6
 
 [[part]]
 name = "body"

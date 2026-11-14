@@ -155,7 +155,7 @@ def axe(seed, top, cortex=False):
         if face != "side":
             return R("flint", 2 + n)
         mid = abs(x - w // 2)
-        t = 6 if x in (0, w - 1) else 5 if mid == 0 else 3.5 if (mid + y + top) % 3 == 0 else 2.2
+        t = 4.5 if x in (0, w - 1) else 5 if mid == 0 else 3.5 if (mid + y + top) % 3 == 0 else 2.2
         return R("flint", t + n)
     return p
 
@@ -225,7 +225,8 @@ def make():
     written += m.write("stone", "a stone of two fists, tilted")
     m = Model("flint")
     m.box((13, 0, 13), (6, 2, 5), flint("flint"), (8, 35, 0))
-    written += m.write("slate", "a dark shard")
+    # a cell 0.6 m as an item (ADR 0114): a 12 cm shard in hand and in a pile; the ground's clutter keeps its 19 cm
+    written += m.write("slate", "a dark shard", item=0.6)
     m = Model("mushroom")
     m.box((15, 0, 15), (2, 4, 2), rock("mushroom stem", "stem", 1.0))
     m.box((13, 4, 13), (6, 2, 6), cap("mushroom cap", "mushroom stem", "cap"))
