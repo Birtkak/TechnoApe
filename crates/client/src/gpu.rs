@@ -112,9 +112,10 @@ pub(crate) fn held_lamp(world: &World, d: Option<&engine::blocks::Def>, cf: u8, 
 }
 
 /// The lamps the other players hold (ADR 0117): from each one's roster entry (`net::Player::hand`, once a
-/// second), at its hand as `held_lamp` puts this player's, its eye 1.5 m over its feet; `me` is left out.
+/// second), at its hand as `held_lamp` puts this player's, its eye 1.5 m over its feet, each with its holder's
+/// id; `me` is left out.
 /// (shortcut: a light moves with the roster's once a second; with the players' own moves when they are sent)
-pub(crate) fn others_lamps(world: &World, others: &[engine::net::Player], me: u32) -> Vec<(u8, DVec3, [f32; 3])> {
+pub(crate) fn others_lamps(world: &World, others: &[engine::net::Player], me: u32) -> Vec<(u32, (u8, DVec3, [f32; 3]))> {
     others
         .iter()
         .filter(|o| o.id != me && o.hand != 0)
@@ -124,7 +125,7 @@ pub(crate) fn others_lamps(world: &World, others: &[engine::net::Player], me: u3
             let up = (pos - world.bodies.get(body)?.centre).normalize_or(DVec3::Z);
             let fwd = DVec3::from_array(o.fwd.map(f64::from));
             let fwd = (fwd - up * fwd.dot(up)).normalize_or(up.any_orthonormal_vector());
-            held_lamp(world, engine::blocks::BLOCKS.get(o.hand), body as u8, pos + up * 1.5, fwd, up)
+            held_lamp(world, engine::blocks::BLOCKS.get(o.hand), body as u8, pos + up * 1.5, fwd, up).map(|l| (o.id, l))
         })
         .collect()
 }
@@ -191,7 +192,8 @@ mod lamp_tests {
         let torch = b.id("torch");
         let got = others_lamps(&w, &[p(1, torch), p(2, torch), p(3, 0), p(4, b.id("dirt"))], 1);
         assert_eq!(got.len(), 1, "player 2's only: {got:?}");
-        let (body, at, light) = got[0];
+        let (id, (body, at, light)) = got[0];
+        assert_eq!(id, 2);
         assert_eq!((body, light), (0, b.get(torch).unwrap().light));
         let h = (at - feet).dot(up);
         assert!((0.9..1.5).contains(&h) && (at - feet).length() < 1.6, "at its hand: {h} m up");

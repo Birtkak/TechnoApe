@@ -912,6 +912,27 @@ impl App {
             cams[bi] = (c + b.centre, m.as_dmat3());
         }
         gpu.take_textures();
+        // the players' bodies in the traced scene (ADR 0118): this one's while playing, the roster's near, and
+        // `bodies=n` more round the camera for a measure or a still; `proxy=0` none
+        let near_cams: Vec<DVec3> = cams.iter().map(|c| c.0).collect();
+        let proxies = if self.args.get("proxy", 1u32) == 0 {
+            Vec::new()
+        } else {
+            let me = (self.run == "play" && self.home() != Menu::Title).then(|| (self.globe.id, self.me.pos, p.fwd));
+            let extra: usize = self.args.get("bodies", 0usize);
+            let side = up.any_orthonormal_vector();
+            let fake = (0..extra).map(|k| {
+                let a = k as f64 * 2.399963;
+                let r = 3.0 + (k % 8) as f64;
+                let d = (side * a.cos() + up.cross(side) * a.sin()) * r;
+                engine::net::Player { id: u32::MAX - k as u32, name: String::new(), pos: (p.pos - up * phys::EYE + d).to_array(), fwd: (-d).normalize().as_vec3().to_array(), pitch: 0.0, hand: 0 }
+            });
+            let others: Vec<engine::net::Player> = self.globe.others.iter().cloned().chain(fake).collect();
+            crate::proxy::near(&self.world, me, &others, &near_cams)
+        };
+        self.models.hand = crate::proxy::holder(&proxies, self.globe.id) as u32;
+        // (the ape's parts, the bodies' one shape; a box of the player's size before it loads)
+        let proxy_tris = crate::proxy::triangles(&self.models.list.iter().find(|l| l.0.name == crate::models::FIGURE).map_or_else(crate::proxy::plain, |l| crate::proxy::boxes(&l.0.model)));
         // the models (ADR 0047): the watcher's newest, then this frame's pieces (timed under "table")
         self.models.take(&gpu.queue, &gpu.mquads);
         let hand = hand_shown(self.run == "play", self.hammer || self.bucket, self.f3, self.home(), self.menu)
@@ -946,13 +967,17 @@ impl App {
             .then(|| self.slot_block(self.slot))
             .flatten()
             .and_then(|m| crate::gpu::held_lamp(&self.world, BLOCKS.get(m), cf as u8, p.pos, p.fwd, up));
-        let others = crate::gpu::others_lamps(&self.world, &self.globe.others, self.globe.id);
+        let others_held = crate::gpu::others_lamps(&self.world, &self.globe.others, self.globe.id);
+        let others: Vec<_> = others_held.iter().map(|o| o.1).collect();
+        // a held lamp's rays pass through its holder's body (ADR 0118): its place in the proxies plus one
+        let holders: Vec<(DVec3, f32)> = held.iter().map(|h| (h.1, crate::proxy::holder(&proxies, self.globe.id))).chain(others_held.iter().map(|o| (o.1 .1, crate::proxy::holder(&proxies, o.0)))).collect();
         let lamps: Vec<LampGpu> = crate::gpu::cap_lamps(self.lamps.iter().chain(self.fx.lamps()).chain(self.models.lamps()).chain(held.as_ref()).chain(&others), &near, cap)
             .iter()
             .map(|&(bi, x, l)| {
                 let (cam, m) = cams[bi as usize];
                 let v = (m * (x - cam)).as_vec3();
-                LampGpu { pos: [v.x, v.y, v.z, bi as f32], col: [l[0], l[1], l[2], 0.0] }
+                let w = holders.iter().find(|h| h.0 == x).map_or(0.0, |h| h.1);
+                LampGpu { pos: [v.x, v.y, v.z, bi as f32], col: [l[0], l[1], l[2], w] }
             })
             .collect();
         g.n_lamps[0] = lamps.len() as u32;
@@ -1086,7 +1111,7 @@ impl App {
         };
         stamp(&mut enc, 0);
         let rt = self.rt.as_mut().unwrap();
-        rt.record(&gpu.device, &gpu.queue, &mut enc, &insts);
+        rt.record(&gpu.device, &gpu.queue, &mut enc, &insts, &proxy_tris, &proxies);
         let rt_pending = rt.pending;
         // a larger TLAS: bound before this frame's passes, which trace it (ADR 0111)
         if rt.grew {

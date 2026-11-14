@@ -470,6 +470,10 @@ var<private> ray_tint: vec3f;
 var<private> one_ray: bool = false;
 // added to a chunk's index for its stills' instance (rt.rs STILL_INST)
 const STILL_INST: u32 = 8388608u;
+// added to a player's place in the list for its body's instance (rt.rs PROXY_INST, ADR 0118): shadow and lamp
+// rays only; `skip_proxy` the one they pass through (a lamp's holder, the camera's own for its hand), else NONE
+const PROXY_INST: u32 = 4194304u;
+var<private> skip_proxy: u32 = 0xffffffffu;
 fn trace(o: vec3f, db: vec3f, body: u32, tmax: f32, flags: u32) -> RayIntersection {
     var rq: ray_query;
     ray_tint = vec3f(1.0);
@@ -480,6 +484,10 @@ fn trace(o: vec3f, db: vec3f, body: u32, tmax: f32, flags: u32) -> RayIntersecti
     let sn = season_in(g.bodies[body], o);
     while (rayQueryProceed(&rq)) {
         let c = rayQueryGetCandidateIntersection(&rq);
+        if (c.instance_custom_data >= PROXY_INST && c.instance_custom_data < STILL_INST) {
+            if (c.instance_custom_data != skip_proxy) { rayQueryConfirmIntersection(&rq); }
+            continue;
+        }
         let q = hit_quad(c.instance_custom_data, c.geometry_index, c.primitive_index);
         if (((q.x >> 28u) & 7u) == 7u) {
             // a still model or plant (ADR 0091) shades shadow and lamp rays only: a plant only while it stands
@@ -889,7 +897,12 @@ fn light(p: vec3f, n: vec3f, body: u32) -> Light {
     var seen_v = 0.0;
     for (var k = 0u; k < LAMP_RAYS; k++) {
         if (top[k] == NONE) { continue; }
+        // a held lamp's rays pass through its holder's body (ADR 0118)
+        let keep = skip_proxy;
+        let lw = lamps[top[k]].col.w;
+        if (lw > 0.0) { skip_proxy = PROXY_INST + u32(lw) - 1u; }
         let vis = lamp_seen(p, n, lamps[top[k]], body);
+        skip_proxy = keep;
         o.l += topl[k] * vis * ray_tint;
         seen_n += 1.0;
         seen_v += vis;
@@ -2648,6 +2661,8 @@ fn vs_model(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     o.normal = vec3f(dot(m.x0, n), dot(m.x1, n), dot(m.x2, n));
     o.info = m.body << 8u;
     o.b = q.z;
+    // in hand (models.rs): the body it passes through, plus one (ADR 0118)
+    o.a = m._a;
     return o;
 }
 
@@ -2694,6 +2709,7 @@ fn fs_shade(i: FxOut) -> GOut {
 
 @fragment
 fn fs_model(i: FxOut) -> GOut {
+    if (i.a > 0u) { skip_proxy = PROXY_INST + i.a - 1u; }
     let l = light(i.rel, normalize(i.normal), (i.info >> 8u) & 3u);
     return fx_out(i, unpack4x8unorm(i.b).rgb, l.l);
 }

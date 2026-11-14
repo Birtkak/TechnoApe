@@ -16,6 +16,7 @@ pub use hud::font_cells;
 mod menu;
 pub mod models;
 mod piles;
+mod proxy;
 mod play;
 mod nav;
 mod rt;

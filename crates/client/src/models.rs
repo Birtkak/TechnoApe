@@ -320,6 +320,9 @@ pub struct Models {
     spec_scale: Option<f32>,
     /// The Studio's view: where the shown model stands from its cell and how it is turned (`show_place`).
     spec_place: Mat4,
+    /// The body the bare arm and the held item pass through on their way to the sun and the lamps (ADR 0118):
+    /// the camera's own player's place in the proxy list plus one, 0 none.
+    pub hand: u32,
     /// The state "" a clip with events plays in without a state: that clip and nothing else.
     clip_state: State,
     /// Placed model cells asked into a state (`set_state`), and the states playing.
@@ -378,6 +381,7 @@ impl Models {
             spec_state: state,
             spec_scale: None,
             spec_place: Mat4::IDENTITY,
+            hand: 0,
             states: Default::default(),
             runs: Default::default(),
             held: Vec::new(),
@@ -718,6 +722,8 @@ impl Models {
         }
         // in hand (ADR 0115): the item, or with none the figure's bare right arm, both on the one swing
         let mut bare: Option<(usize, usize, Mat4)> = None;
+        // the held item's model and place in its instances
+        let mut held: Option<(usize, usize)> = None;
         if let Some(h) = hand {
             let (_, fwd, up) = eye;
             let right = fwd.cross(up).normalize();
@@ -737,6 +743,7 @@ impl Models {
                         let s = self.list[m].0.model.item.unwrap_or(engine::models::ITEM_M) as f64;
                         let o = fwd * 0.8 + right * 0.42 - up * 0.36 - (right + up - fwd) * (s * 0.5);
                         let x = DMat4::from_cols((right * s).extend(0.0), (up * s).extend(0.0), (-fwd * s).extend(0.0), o.extend(1.0));
+                        held = Some((m, inst[m].len()));
                         inst[m].push((idle(m), t, (turn * x).as_mat4() * self.list[m].0.held(), cf as u32, 1.0));
                     }
                 }
@@ -818,11 +825,12 @@ impl Models {
                 let first = self.pieces.len() as u32;
                 for (k, (_, _, x, body, s)) in list.iter().enumerate() {
                     let r = (*x * sc(*s) * poses[k][pi]).transpose();
-                    self.pieces.push(Piece { x: [r.x_axis.to_array(), r.y_axis.to_array(), r.z_axis.to_array()], q0: *q0, body: *body, _p: [0; 2] });
+                    let hand = if held == Some((m, k)) { self.hand } else { 0 };
+                    self.pieces.push(Piece { x: [r.x_axis.to_array(), r.y_axis.to_array(), r.z_axis.to_array()], q0: *q0, body: *body, _p: [hand, 0] });
                 }
                 if let Some((_, _, x)) = bare.filter(|_| pi < rest.len() && arm(owner(pi))) {
                     let r = (x * rest[pi]).transpose();
-                    self.pieces.push(Piece { x: [r.x_axis.to_array(), r.y_axis.to_array(), r.z_axis.to_array()], q0: *q0, body: cf as u32, _p: [0; 2] });
+                    self.pieces.push(Piece { x: [r.x_axis.to_array(), r.y_axis.to_array(), r.z_axis.to_array()], q0: *q0, body: cf as u32, _p: [self.hand, 0] });
                 }
                 let count = self.pieces.len() as u32 - first;
                 if count > 0 {
