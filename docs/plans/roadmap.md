@@ -69,8 +69,11 @@ In this order unless the developer says otherwise (the developer's order of 2026
    (`docs/design/mining.md`), an overhang open to the sky does not drop. Then the list below, skipping what
    the rows above already built.
 
-   **Queued by the developer, 2026-11-14** (after the inventory's look and the models of dropped items, which
-   are in work on `claude/inventory-look` and `claude/pile-models`):
+   **Merged 2026-11-14:** the inventory's look (ADR 0113) and dropped items as their models, painted tools,
+   pictures in the hotbar and contact shadows under piles (ADR 0114); pick-ups thinned by 30 %.
+   **In work:** the bare hand when nothing is held (`claude/bare-hand`), then an optimisation batch down
+   `docs/perf-debt.md` in its own session (`claude/opt-1114`).
+   **Queued by the developer, 2026-11-14:**
    - **Things on the ground are aimed at themselves** (stones, sticks, flint, mushrooms, berries; ADR 0082 takes
      them by a click on the ground under them): a hit test on the thing's own boxes, the aim's outline on it,
      a left click mines it, and a held right click picks it up.
