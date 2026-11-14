@@ -1,5 +1,6 @@
 # A draft boar (Claude's, listed in data/drafts.txt): a quadruped for data/creatures.toml (ADR 0053), facing +z.
 # Its walk is made from its row, not keyed here. Format: docs/design/studio-tools.md "Models".
+# Painted boxes at 32 px a metre (ADR 0116), made by tools/paint_figures.py; the voxels stay empty.
 colours = ["dirt dark", "dirt", "dirt light", "stone dark", "stone light"]
 
 [[part]]
@@ -9,27 +10,32 @@ at = [2, 2, 1]
 pivot = [2, 1.5, 3]
 box = [4, 3, 6]
 voxels = """
-cccc
-cccc
-cccc
-cccc
-cccc
-cccc
+....
+....
+....
+....
+....
+....
 
-bbbb
-bbbb
-bbbb
-bbbb
-bbbb
-bbbb
+....
+....
+....
+....
+....
+....
 
-abba
-aaaa
-aaaa
-aaaa
-aaaa
-abba
+....
+....
+....
+....
+....
+....
 """
+
+[[part.boxes]]
+at = [0.0, 0.0, 0.0]
+size = [16, 12, 24]
+uv = [0, 0]
 
 [[part]]
 name = "head"
@@ -38,18 +44,48 @@ at = [0, 0, 6]
 pivot = [2, 1.5, 0]
 box = [4, 3, 3]
 voxels = """
-bbbb
-bbbb
-ecce
+....
+....
+....
 
-bbbb
-bbbb
-cddc
+....
+....
+....
 
-aaaa
-dbbd
-bbbb
+....
+....
+....
 """
+
+[[part.boxes]]
+at = [0.0, 0.0, 0.0]
+size = [16, 12, 12]
+uv = [0, 36]
+
+[[part.boxes]]
+at = [4.0, 1.0, 12.0]
+size = [8, 6, 4]
+uv = [0, 60]
+
+[[part.boxes]]
+at = [2.0, 2.0, 13.0]
+size = [1, 5, 1]
+uv = [40, 60]
+
+[[part.boxes]]
+at = [13.0, 2.0, 13.0]
+size = [1, 5, 1]
+uv = [44, 60]
+
+[[part.boxes]]
+at = [1.0, 12.0, 2.0]
+size = [3, 3, 2]
+uv = [48, 60]
+
+[[part.boxes]]
+at = [12.0, 12.0, 2.0]
+size = [3, 3, 2]
+uv = [58, 60]
 
 [[part]]
 name = "leg_fl"
@@ -58,10 +94,15 @@ at = [3, -2, 4]
 pivot = [0.5, 2, 0.5]
 box = [1, 2, 1]
 voxels = """
-d
+.
 
-a
+.
 """
+
+[[part.boxes]]
+at = [0.0, 0.0, 0.0]
+size = [4, 8, 4]
+uv = [56, 36]
 
 [[part]]
 name = "leg_fr"
@@ -70,10 +111,15 @@ at = [0, -2, 4]
 pivot = [0.5, 2, 0.5]
 box = [1, 2, 1]
 voxels = """
-d
+.
 
-a
+.
 """
+
+[[part.boxes]]
+at = [0.0, 0.0, 0.0]
+size = [4, 8, 4]
+uv = [72, 36]
 
 [[part]]
 name = "leg_bl"
@@ -82,10 +128,15 @@ at = [3, -2, 1]
 pivot = [0.5, 2, 0.5]
 box = [1, 2, 1]
 voxels = """
-d
+.
 
-a
+.
 """
+
+[[part.boxes]]
+at = [0.0, 0.0, 0.0]
+size = [4, 8, 4]
+uv = [88, 36]
 
 [[part]]
 name = "leg_br"
@@ -94,10 +145,15 @@ at = [0, -2, 1]
 pivot = [0.5, 2, 0.5]
 box = [1, 2, 1]
 voxels = """
-d
+.
 
-a
+.
 """
+
+[[part.boxes]]
+at = [0.0, 0.0, 0.0]
+size = [4, 8, 4]
+uv = [104, 36]
 
 [[part]]
 name = "tail"
@@ -106,6 +162,17 @@ at = [2, 2, -2]
 pivot = [0.5, 0.5, 2]
 box = [1, 1, 2]
 voxels = """
-a
-a
+.
+.
 """
+
+[[part.boxes]]
+at = [1.0, 1.0, 2.0]
+size = [2, 2, 6]
+uv = [24, 60]
+
+[[part.boxes]]
+at = [1.0, 0.0, 0.0]
+size = [2, 3, 2]
+uv = [68, 60]
+

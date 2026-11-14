@@ -1,6 +1,7 @@
 # A draft snake (Claude's, listed in data/drafts.txt): a chain of parts for the snake plan of
 # data/creatures.toml (ADR 0053), facing +z. Each part is the child of the one before it, so the walk's wave
 # runs from the head down. Format: docs/design/studio-tools.md "Models".
+# Painted boxes at 32 px a metre (ADR 0116), made by tools/paint_figures.py; the voxels stay empty.
 colours = ["grass dark", "grass", "grass light"]
 
 [[part]]
@@ -10,12 +11,17 @@ at = [3, 0, 6]
 pivot = [1, 1, 0]
 box = [2, 2, 2]
 voxels = """
-bb
-bb
+..
+..
 
-cc
-bb
+..
+..
 """
+
+[[part.boxes]]
+at = [0.0, 0.0, 0.0]
+size = [8, 7, 8]
+uv = [0, 0]
 
 [[part]]
 name = "neck"
@@ -24,12 +30,17 @@ at = [0, 0, -2]
 pivot = [1, 1, 2]
 box = [2, 2, 2]
 voxels = """
-aa
-bb
+..
+..
 
-bb
-aa
+..
+..
 """
+
+[[part.boxes]]
+at = [0.5, 0.0, 0.0]
+size = [7, 7, 8]
+uv = [32, 0]
 
 [[part]]
 name = "middle"
@@ -38,12 +49,17 @@ at = [0, 0, -2]
 pivot = [1, 1, 2]
 box = [2, 2, 2]
 voxels = """
-bb
-aa
+..
+..
 
-aa
-bb
+..
+..
 """
+
+[[part.boxes]]
+at = [0.5, 0.0, 0.0]
+size = [7, 6, 8]
+uv = [62, 0]
 
 [[part]]
 name = "tail"
@@ -52,6 +68,17 @@ at = [0, 0, -2]
 pivot = [1, 1, 2]
 box = [2, 1, 2]
 voxels = """
-ab
-ba
+..
+..
 """
+
+[[part.boxes]]
+at = [1.0, 0.0, 4.0]
+size = [6, 5, 4]
+uv = [92, 0]
+
+[[part.boxes]]
+at = [2.0, 0.0, 0.0]
+size = [4, 3, 4]
+uv = [112, 0]
+

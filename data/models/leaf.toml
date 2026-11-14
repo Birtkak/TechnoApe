@@ -1,10 +1,17 @@
 # A draft leaf (Claude's, listed in data/drafts.txt): the look of the `leaves` effect (data/effects.toml).
+# Painted boxes at 32 px a metre (ADR 0116), made by tools/paint_figures.py; the voxels stay empty.
 colours = ["grass dark", "grass"]
 
 [[part]]
 name = "leaf"
 box = [3, 1, 2]
 voxels = """
-.ab
-ab.
+...
+...
 """
+
+[[part.boxes]]
+at = [0.0, 2.0, 0.0]
+size = [12, 0, 8]
+uv = [0, 0]
+
