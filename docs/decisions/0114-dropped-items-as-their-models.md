@@ -124,6 +124,40 @@ A fresh reviewer read the diff. Findings and what was done:
    `out/piles/axe_in_hand_sun.png` (noon, over grass: the axe reads blue-grey with lighter edges and a white
    tip, not dark, so the recipe's tones are unchanged).
 
+A fresh reviewer read the second round (`ce9df050..HEAD`, the shader with it). The shade pipeline, the hotbar's
+cost a frame, `hud::cube`'s callers and the glide path were found right. Its findings:
+7. **A shade over air.** `lay` asked for `See::Opaque`, which air has by default, so a pile over a dug-out cell
+   still darkened what was behind it. Now the block below must be `BLOCKS.opaque` and `solid`. Test
+   `a_pile_shades_only_solid_dry_opaque_ground_once` goes through `lay` (air, glass, leaves, water, solid
+   ground), seen failing on air. It also found that "none under water" never worked: the water was asked for
+   at the floor itself, the top of the block below, which holds none. It is now asked 5 cm up (seen failing
+   on water first).
+8. **The hotbar's dim for an empty count.** Not needed: no stack of 0 reaches the slots. `items::take` and
+   `items::rule` empty the slot when the count reaches 0, the server sends only what they leave, a lifted part
+   is taken off only in the inventory's own view (which skips `n == 0`), and creative shows no count. The old
+   0.35 dim drew nothing in practice.
+9. **A wide tooltip over its slot.** One fitting neither right nor left was pushed back over its slot. It now
+   stands above the slot (below it when there is no room), its middle over the slot's, inside the panel. The
+   test adds a 300 px tip on the hotbar's first, middle and last columns at the layout test's sizes, seen
+   failing at 213 x 120.
+10. **`TOOL_LYING`'s claim.** "Turned any way it stays inside its quarter" held only up to a footprint
+    half-diagonal of 0.25 m. A thing lying in a pile is now shrunk (`Lying::fit`) so its turned footprint stays
+    inside its cell, and its shadow uses the shrunk footprint. Tests `a_long_tool_shrinks_to_fit_its_cell` (a
+    made-up 0.8 m footprint) and `a_lying_axe_rests_on_the_floor_at_its_size` (half the size at fit 0.5), seen
+    failing before the fit was applied.
+11. **Cells and metres.** On the equi-angular grid a cell is 0.707 to 1 times as wide as one at the face's
+    middle (computed for the 4 km planet, 6,144 columns a face edge). A block cube placed 0.17 cells out
+    therefore stood up to 5 cm (its far edge 8 cm) from a shadow placed in metres, over one 3 cm texel. All
+    placement in `lay` is now in cells turned into metres by the cell's own half widths (`At::half`). The
+    models' places, their fit and the shadow's hold inside the cell all use them.
+12. **Shades multiplied where they overlapped.** A pile holds `items::PILE_SLOTS` (4) stacks at most: the
+    server makes and saves no other size. Still, its four shades overlapped near the middle and multiplied down
+    to about 0.25. Now a pile has one shade, round all its stacks' footprints (centred on their bounds, sized
+    to the farthest), so nothing under it falls below half the light. Still `out/piles/shade_stone_review.png`
+    (granite at noon, four stacks: hand axe, granite, meadow grass, broadleaf leaves). It shows one soft round
+    patch under the pile, darkest between the stacks, no darker spots, and the axe's far end on lighter
+    ground.
+
 ## Second round (look only)
 The developer, on the stills: "keep improving".
 1. **The hotbar shows pictures.** `hud::layer` hands each filled slot's square (the inventory's: 40 px, 6 in)
@@ -137,7 +171,7 @@ The developer, on the stills: "keep improving".
    20, as a glide); no shader change. Test in `a_pile_draws_its_models_and_cubes_for_the_rest`. Stills
    `out/piles/blocks_front.png`, `out/piles/blocks_side.png` (granite, meadow grass, broadleaf leaves, the axe).
 3. **Contact shadow (the developer's call, 2026-11-14: "make cheap contact shadow for the little small
-   things").** Under every stack in a pile, model or block, one flat square on its cell's floor darkens the
+   things").** Under every pile (one round all its stacks since the review, item 12), one flat square on its cell's floor darkens the
    albedo (so the sun, lamps and sky all see a darker floor there) in rings of whole ground texels, half the
    light at its middle and none at its edge. `piles::shade` places it: middle on the 32 a metre texel grid, half
    width the lying footprint's (`Models::lying_half`; a block's 0.2 m cube by its diagonal) times 1.15 plus one

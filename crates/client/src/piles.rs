@@ -25,6 +25,8 @@ pub struct Lying {
     pub p: Vec3,
     pub axes: [Vec3; 3],
     pub turn: f32,
+    /// Its scale's share kept (at most 1): shrunk so its footprint stays inside its cell however it is turned.
+    pub fit: f32,
 }
 
 /// The piles within `PILE_DRAWN` of `me` as drawn: the stacks whose item or block names a model (`footprint`: its
@@ -39,23 +41,29 @@ pub(crate) fn lay(world: &World, piles: &std::collections::HashMap<Block, Vec<Sl
             continue;
         }
         let at = fx::At::floor_of(world, *b);
-        // no shadow on a see-through floor (glass, leaves) or under water
-        let below = Block { pos: b.pos - glam::IVec3::Z, ..*b };
-        let opaque = engine::blocks::BLOCKS.get(world.block(below)).is_some_and(|d| d.see == engine::blocks::See::Opaque);
-        let dry = world.water_surface(world.bodies[b.body as usize].centre + at.p.as_dvec3()).is_none_or(|s| s <= at.p.length() as f64 + 1e-3);
-        let open = opaque && dry;
+        // no shadow over air (dug out from under it), on a see-through floor (glass, leaves) or under water
+        let below = world.block(Block { pos: b.pos - glam::IVec3::Z, ..*b });
+        let solid = engine::blocks::BLOCKS.opaque(below) && engine::blocks::BLOCKS.solid(below);
+        // asked a few centimetres up: the floor itself is the top of the block below, which holds no water
+        let dry = world.water_surface(world.bodies[b.body as usize].centre + (at.p + at.axes[0] * 0.05).as_dvec3()).is_none_or(|s| s <= at.p.length() as f64 + 1e-3);
+        // each stack's footprint on the floor, in metres from the cell's middle: one shadow round them all
+        let mut feet: Vec<((f32, f32), f32)> = Vec::new();
         let seed = b.pos.x as u32 ^ (b.pos.y as u32).rotate_left(11) ^ (b.pos.z as u32).rotate_left(22);
         for (k, s) in slots.iter().enumerate().filter_map(|(k, s)| Some((k, (*s)?))) {
             let side = [(-0.15, -0.15), (0.15, 0.1), (-0.1, 0.17), (0.17, -0.15)][k % 4];
             let tool = engine::items::tool(Some(s)).is_some();
-            // a tool lies twice its size (`TOOL_LYING`): in its quarter's middle, so turned any way it stays inside it
+            // a tool lies twice its size (`TOOL_LYING`): in its quarter's middle
             let side = if tool { (0.25f32.copysign(side.0), 0.25f32.copysign(side.1)) } else { side };
-            let floor = at.p + at.axes[1] * side.0 + at.axes[2] * side.1;
+            // in cells, as the cubes are placed: a cell is 0.7 to 1 m across by where it is on its face
+            let off = (side.0 * 2.0 * at.half.y, side.1 * 2.0 * at.half.z);
+            let floor = at.p + at.axes[1] * off.0 + at.axes[2] * off.1;
             let name = ITEMS.name(s.item);
             if let Some(half) = footprint(name, s.item >= ITEM_BASE, tool) {
-                shades.extend(shade(&at, side, half, open));
+                // shrunk so that turned any way its footprint stays inside its cell (a long tool, a narrow cell)
+                let fit = ((at.half.y - off.0.abs()).min(at.half.z - off.1.abs()) / half).min(1.0);
+                feet.push((off, half * fit));
                 let turn = (seed.wrapping_mul(2654435761) >> 8) as f32 / (1 << 24) as f32 * std::f32::consts::TAU + k as f32 * 1.9;
-                models.push(Lying { name: name.to_string(), item: s.item >= ITEM_BASE, tool, body: b.body, p: floor, axes: at.axes, turn });
+                models.push(Lying { name: name.to_string(), item: s.item >= ITEM_BASE, tool, body: b.body, p: floor, axes: at.axes, turn, fit });
                 continue;
             }
             // the block's own cell look (its painting, as the world draws it) shrunk about the cell's middle, moved
@@ -63,7 +71,14 @@ pub(crate) fn lay(world: &World, piles: &std::collections::HashMap<Block, Vec<Sl
             let info = ITEMS.look(s.item) as u32 | (b.body as u32) << 8 | (fx::Look::Block as u32) << 10 | 1 << 20;
             let (a, code) = fx::cell_code(*b);
             still.push(FxGpu { p: [side.0, side.1, BLOCK_M / 2.0 - 0.5], size: BLOCK_M, info, angle: 0.0, a, b: code });
-            shades.extend(shade(&at, side, BLOCK_M * std::f32::consts::FRAC_1_SQRT_2, open));
+            feet.push((off, BLOCK_M * std::f32::consts::FRAC_1_SQRT_2 * 2.0 * at.half.y.max(at.half.z)));
+        }
+        if !feet.is_empty() {
+            let lo = feet.iter().fold((f32::MAX, f32::MAX), |m, ((x, y), h)| (m.0.min(x - h), m.1.min(y - h)));
+            let hi = feet.iter().fold((f32::MIN, f32::MIN), |m, ((x, y), h)| (m.0.max(x + h), m.1.max(y + h)));
+            let mid = ((lo.0 + hi.0) / 2.0, (lo.1 + hi.1) / 2.0);
+            let half = feet.iter().map(|((x, y), h)| (x - mid.0).hypot(y - mid.1) + h).fold(0.0, f32::max);
+            shades.extend(shade(&at, mid, half, solid && dry));
         }
     }
     (models, still, shades)
@@ -72,17 +87,18 @@ pub(crate) fn lay(world: &World, piles: &std::collections::HashMap<Block, Vec<Sl
 /// The ground's texels a metre: a contact shadow steps in them, as the shadows do (ADR 0108).
 const TEXELS: f32 = 32.0;
 
-/// A contact shadow under a thing lying at `off` (in cells along the floor's axes) from the middle of the floor
-/// `at`, its footprint `half` metres from its middle (ADR 0114 second round): a square `vs_shade` draws flat on
-/// the floor, `size` its half width, darkening the albedo under it in rings of whole texels (`fs_shade`). Its
-/// middle on the ground's texel grid, its half width the footprint's and a little more in whole texels, held
-/// inside its cell (so it never hangs over a step); None where the floor is see-through or under water (`open`
-/// false).
+/// A contact shadow under a pile whose stacks lie within `half` metres of `off` (metres along the floor's axes
+/// from the middle of the floor `at`; ADR 0114 second round): a square `vs_shade` draws flat on the floor, `size`
+/// its half width, darkening the albedo under it in rings of whole texels (`fs_shade`). One a pile, as shades
+/// that overlapped would multiply darker. Its middle on the ground's texel grid, its half width the footprint's
+/// and a little more in whole texels, held inside its cell (so it never hangs over a step); None where the floor
+/// is not solid, is see-through or under water (`open` false).
 pub(crate) fn shade(at: &fx::At, off: (f32, f32), half: f32, open: bool) -> Option<FxGpu> {
     let snap = |v: f32| (v * TEXELS).round() / TEXELS;
-    let (x, y) = (snap(off.0.clamp(-0.45, 0.45)), snap(off.1.clamp(-0.45, 0.45)));
+    let (hy, hz) = (at.half.y, at.half.z);
+    let (x, y) = (snap(off.0.clamp(-0.9 * hy, 0.9 * hy)), snap(off.1.clamp(-0.9 * hz, 0.9 * hz)));
     let r = ((half * 1.15 * TEXELS).ceil() + 1.0) / TEXELS;
-    let r = r.min(0.5 - x.abs()).min(0.5 - y.abs());
+    let r = r.min(((hy - x.abs()).min(hz - y.abs()) * TEXELS).floor() / TEXELS);
     let p = at.p + at.axes[1] * x + at.axes[2] * y;
     (open && r > 0.0).then(|| FxGpu { p: p.to_array(), size: r, info: (at.body as u32) << 8, angle: 0.0, a: fx::pack_dir(at.axes[1]), b: 0 })
 }
@@ -130,13 +146,59 @@ mod tests {
             for v in [x, y, s.size] {
                 assert!((v * TEXELS - (v * TEXELS).round()).abs() < 1e-3, "{v} on the texel grid");
             }
-            assert!(x.abs() + s.size <= 0.5 + 1e-4 && y.abs() + s.size <= 0.5 + 1e-4, "inside its cell: {x} {y} {}", s.size);
+            assert!(x.abs() + s.size <= at.half.y + 1e-4 && y.abs() + s.size <= at.half.z + 1e-4, "inside its cell: {x} {y} {}", s.size);
             if off.0.abs() + half * 1.1 < 0.45 {
                 assert!(s.size >= half * 1.1, "{} round a footprint of {half}", s.size);
             }
             assert_eq!(s.info >> 8 & 3, at.body as u32);
         }
         assert_eq!(shade(&at, (0.0, 0.0), 0.1, false), None, "none on glass or in water");
+    }
+
+    /// ADR 0114 review: through `lay` itself, a pile on solid opaque dry ground gets one contact shadow for all
+    /// its stacks (overlapping shades would multiply darker), none over air (dug out from under it), glass,
+    /// leaves or under water.
+    #[test]
+    fn a_pile_shades_only_solid_dry_opaque_ground_once() {
+        use engine::blocks::{AIR, BLOCKS};
+        use engine::liquid::{Ground, OPEN, U};
+        let id = |n: &str| ITEMS.named(n).unwrap();
+        let slots = vec![Some(Stack::new(id("hand axe"), 1)), Some(Stack::new(id("granite"), 3)), Some(Stack::new(id("flint"), 2)), Some(Stack::new(id("granite"), 1))];
+        let shades = |under: Option<u16>, wet: bool| {
+            let mut w = World::new(768, 256, 1);
+            let b = w.air_over_ground(0, w.bodies[0].spawn);
+            if let Some(m) = under {
+                w.set_block(Block { pos: b.pos - glam::IVec3::Z, ..b }, m);
+            }
+            if wet {
+                let floor = w.ground().gaps(World::col(b)).last().unwrap().0;
+                w.water.set_column(&(World::col(b), vec![(floor, OPEN, U)]));
+            }
+            let piles = [(b, slots.clone())].into_iter().collect();
+            lay(&w, &piles, w.block_centre(b), &|n, _, _| ["hand axe", "flint"].contains(&n).then_some(0.2)).2
+        };
+        for (what, under, wet) in [("air", Some(AIR), false), ("glass", Some(BLOCKS.id("glass")), false), ("leaves", Some(BLOCKS.id("broadleaf leaves")), false), ("water", None, true)] {
+            assert!(shades(under, wet).is_empty(), "none over {what}");
+        }
+        assert_eq!(shades(None, false).len(), 1, "one shade for the pile's four stacks");
+    }
+
+    /// ADR 0114 review: a thing whose footprint would reach past its cell (a made-up long tool) is shrunk to fit
+    /// it, turned any way, and its shadow follows the shrunk footprint.
+    #[test]
+    fn a_long_tool_shrinks_to_fit_its_cell() {
+        let w = World::new(768, 256, 1);
+        let b = w.air_over_ground(0, w.bodies[0].spawn);
+        let at = fx::At::floor_of(&w, b);
+        let slots = vec![Some(Stack::new(ITEMS.named("hand axe").unwrap(), 1))];
+        let piles = [(b, slots)].into_iter().collect();
+        let (long, footprint) = (0.8, |_: &str, _, _| Some(0.8));
+        let (m, _, s) = lay(&w, &piles, w.block_centre(b), &footprint);
+        let d = m[0].p - at.p;
+        let (x, y) = (d.dot(at.axes[1]).abs(), d.dot(at.axes[2]).abs());
+        let half = long * m[0].fit;
+        assert!(m[0].fit < 1.0 && x + half <= at.half.y + 1e-4 && y + half <= at.half.z + 1e-4, "inside its cell: fit {} at {x} {y}", m[0].fit);
+        assert!(s[0].size <= ((half * 1.15 * TEXELS).ceil() + 1.0) / TEXELS + 1e-4, "its shadow the shrunk footprint's: {}", s[0].size);
     }
 
     /// ADR 0114: a stack whose item has a loaded model lies as that model, the rest are cubes; the same pile is

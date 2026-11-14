@@ -615,15 +615,39 @@ fn a_tooltip_stands_beside_its_slot_inside_the_panel() {
         assert!(x >= panel[0] && x + w <= panel[0] + panel[2] && y >= panel[1] && y + h <= panel[1] + panel[3], "{t:?} outside {panel:?}");
         assert!(y >= b[1] - 4.0 && y + h <= b[1] + b[3] + 4.0, "in its slot's band, under any heading: {t:?} {b:?}");
     }
+    // the review: a wide tip (a long second line) on the hotbar's middle and edge columns, at the layout test's
+    // sizes, fits neither beside; it stands above (or below) its slot, inside the window, never over the slot
+    for (lw, lh) in [(640.0 / 3.0, 120.0), (1280.0 / 1.5, 480.0), (1280.0, 720.0)] {
+        for creative in [true, false] {
+            let l = layout(lw, lh, creative, &[], 0, items::ROWS_AT, None);
+            let hot: Vec<[f32; 4]> = l.spots.iter().filter(|s| s.0 == Holder::Ape && (s.1 as usize) < items::HOTBAR).map(|s| s.2).collect();
+            for b in [hot[0], hot[4], hot[8]] {
+                let (w, h) = (300.0, 44.0);
+                let (x, y) = tip_place(b, w, h, l.panel);
+                let t = [x, y, w, h];
+                let p = l.panel;
+                assert!(!over(t, b), "{lw}x{lh}: {t:?} covers its slot {b:?}");
+                assert!(x >= p[0] && x + w <= p[0] + p[2] && y >= p[1] && y + h <= p[1] + p[3], "{lw}x{lh}: {t:?} outside {p:?}");
+            }
+        }
+    }
 }
 
 /// Where the tooltip of `w` x `h` for slot `b` stands (`a_tooltip_stands_beside_its_slot_inside_the_panel`): right
-/// of the slot, its middle at the slot's, else left of it; held inside `panel`.
+/// of the slot, its middle at the slot's, else left of it; too wide for either, above it (below when there is no
+/// room above), its middle over the slot's; held inside `panel`.
 fn tip_place(b: [f32; 4], w: f32, h: f32, panel: [f32; 4]) -> (f32, f32) {
-    let right = b[0] + b[2] + 6.0;
-    let x = if right + w <= panel[0] + panel[2] - 4.0 { right } else { b[0] - 6.0 - w };
+    let (right, left) = (b[0] + b[2] + 6.0, b[0] - 6.0 - w);
     let y = (b[1] + (b[3] - h) / 2.0).clamp(panel[1] + 4.0, panel[1] + panel[3] - h - 4.0);
-    (x.max(panel[0] + 4.0), y)
+    if right + w <= panel[0] + panel[2] - 4.0 {
+        return (right, y);
+    }
+    if left >= panel[0] + 4.0 {
+        return (left, y);
+    }
+    let x = (b[0] + (b[2] - w) / 2.0).clamp(panel[0] + 4.0, (panel[0] + panel[2] - w - 4.0).max(panel[0] + 4.0));
+    let above = b[1] - 6.0 - h;
+    (x, if above >= panel[1] + 4.0 { above } else { b[1] + b[3] + 6.0 })
 }
 
 #[test]

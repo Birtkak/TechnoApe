@@ -117,7 +117,8 @@ impl Loaded {
 pub const FIGURE: &str = "ape";
 
 /// A tool lying in a pile is drawn this many times its item size, so it is found in the grass (the developer's
-/// call of 2026-11-14: "make dropped tools larger"); in hand and in slots it keeps its size.
+/// call of 2026-11-14: "make dropped tools larger"); in hand and in slots it keeps its size. A footprint that
+/// would then reach past its cell is shrunk to fit it (`Lying::fit`, `piles::lay`).
 pub const TOOL_LYING: f32 = 2.0;
 pub const FIGURE_PX: u16 = 176;
 pub const ICON_PX: u16 = 40;
@@ -685,7 +686,7 @@ impl Models {
             let (up, x) = (p.axes[0].as_dvec3(), p.axes[1].as_dvec3());
             let o = world.bodies[p.body as usize].centre + p.p.as_dvec3() - cam;
             let cell = (DMat4::from_mat3(turn) * DMat4::from_cols(x.extend(0.0), up.extend(0.0), x.cross(up).extend(0.0), o.extend(1.0))).as_mat4();
-            inst[m].push((idle(m), t, cell * Mat4::from_rotation_y(p.turn) * Mat4::from_scale(Vec3::splat(s)) * Mat4::from_translation(off) * lay, p.body as u32, 1.0));
+            inst[m].push((idle(m), t, cell * Mat4::from_rotation_y(p.turn) * Mat4::from_scale(Vec3::splat(s * p.fit)) * Mat4::from_translation(off) * lay, p.body as u32, 1.0));
         }
         for (m, list) in inst.iter().enumerate() {
             if list.is_empty() {
@@ -959,7 +960,7 @@ mod tests {
         m.list = vec![(Loaded::new("boar".into(), model, life, None), parts)];
         if pile {
             let at = crate::fx::At::floor_of(&w, w.air_over_ground(0, b.spawn));
-            m.piles = vec![crate::piles::Lying { name: "boar".into(), item: true, tool: false, body: 0, p: at.p, axes: at.axes, turn: 0.3 }];
+            m.piles = vec![crate::piles::Lying { name: "boar".into(), item: true, tool: false, body: 0, p: at.p, axes: at.axes, turn: 0.3, fit: 1.0 }];
         }
         let (mut fx, mut audio) = (crate::fx::Fx::new(true, 64, 1.0, 1), crate::audio::Audio::new());
         let eye = (b.centre + b.spawn * (b.height(b.spawn) + 2.0), DVec3::X, b.spawn);
@@ -1124,8 +1125,8 @@ mod tests {
     /// anything else at its item size.
     #[test]
     fn a_lying_axe_rests_on_the_floor_at_its_size() {
-        for (tool, k) in [(true, TOOL_LYING), (false, 1.0)] {
-            let (low, span, long) = lying_axe(tool);
+        for (tool, fit, k) in [(true, 1.0, TOOL_LYING), (false, 1.0, 1.0), (true, 0.5, TOOL_LYING * 0.5)] {
+            let (low, span, long) = lying_axe(tool, fit);
             assert!(low.abs() < 0.005, "tool {tool}: its lowest corner {low} m from the floor");
             assert!((span - long * k).abs() < 0.03 * k, "tool {tool}: {span} m long on the ground, its item size {long}");
         }
@@ -1133,7 +1134,7 @@ mod tests {
 
     /// The hand axe lying alone (as a tool or not): its lowest corner over the floor, its length on the ground,
     /// its item size's length.
-    fn lying_axe(tool: bool) -> (f32, f32, f32) {
+    fn lying_axe(tool: bool, fit: f32) -> (f32, f32, f32) {
         let pal = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
         let (model, life) = parse_life("hand axe.toml", include_str!("../../../data/models/hand axe.toml"), &pal, &|_| true, &|_| true).unwrap();
         let paint = engine::models::painting(include_bytes!("../../../data/models/hand axe.png"), &pal).unwrap();
@@ -1147,7 +1148,7 @@ mod tests {
         let quads: Vec<[u32; 4]> = l.quads.concat();
         m.list = vec![(l, parts.clone())];
         let floor = crate::fx::At::floor_of(&w, w.air_over_ground(0, b.spawn));
-        m.piles = vec![crate::piles::Lying { name: "hand axe".into(), item: true, tool, body: 0, p: floor.p, axes: floor.axes, turn: 0.7 }];
+        m.piles = vec![crate::piles::Lying { name: "hand axe".into(), item: true, tool, body: 0, p: floor.p, axes: floor.axes, turn: 0.7, fit }];
         let (mut fx, mut audio) = (crate::fx::Fx::new(true, 64, 1.0, 1), crate::audio::Audio::new());
         let eye = (b.centre + b.spawn * (b.height(b.spawn) + 2.0), DVec3::X, b.spawn);
         m.frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], 0, eye, 0.0, None, &[], &mut fx, &mut audio);
