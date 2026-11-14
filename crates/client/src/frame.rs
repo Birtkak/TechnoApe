@@ -912,7 +912,7 @@ impl App {
             cams[bi] = (c + b.centre, m.as_dmat3());
         }
         gpu.take_textures();
-        // the players' bodies in the traced scene (ADR 0118): this one's while playing, the roster's near, and
+        // the players' bodies in the traced scene (ADR 0119): this one's while playing, the roster's near, and
         // `bodies=n` more round the camera for a measure or a still; `proxy=0` none
         let near_cams: Vec<DVec3> = cams.iter().map(|c| c.0).collect();
         let proxies = if self.args.get("proxy", 1u32) == 0 {
@@ -969,7 +969,7 @@ impl App {
             .and_then(|m| crate::gpu::held_lamp(&self.world, BLOCKS.get(m), cf as u8, p.pos, p.fwd, up));
         let others_held = crate::gpu::others_lamps(&self.world, &self.globe.others, self.globe.id);
         let others: Vec<_> = others_held.iter().map(|o| o.1).collect();
-        // a held lamp's rays pass through its holder's body (ADR 0118): its place in the proxies plus one
+        // a held lamp's rays pass through its holder's body (ADR 0119): its place in the proxies plus one
         let holders: Vec<(DVec3, f32)> = held.iter().map(|h| (h.1, crate::proxy::holder(&proxies, self.globe.id))).chain(others_held.iter().map(|o| (o.1 .1, crate::proxy::holder(&proxies, o.0)))).collect();
         let lamps: Vec<LampGpu> = crate::gpu::cap_lamps(self.lamps.iter().chain(self.fx.lamps()).chain(self.models.lamps()).chain(held.as_ref()).chain(&others), &near, cap)
             .iter()

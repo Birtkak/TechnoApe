@@ -17,7 +17,7 @@ const BUILD_QUADS: u32 = 1 << 17;
 const BUILDS_MAX: usize = 256;
 /// Added to a still instance's custom index (shader.wgsl `STILL_INST`): its quads start at the chunk's `sto`.
 const STILL_INST: u32 = 1 << 23;
-/// Added to a player's place in the proxy list for its body's instance (ADR 0118, shader.wgsl `PROXY_INST`).
+/// Added to a player's place in the proxy list for its body's instance (ADR 0119, shader.wgsl `PROXY_INST`).
 const PROXY_INST: u32 = 1 << 22;
 /// A chunk first built within this many metres of the camera has its stills split off: past every plant's reach
 /// (96 m at most). In a stand every near chunk is; flying, the chunks come in from farther and few are.
@@ -87,7 +87,7 @@ pub struct Rt {
     pub grew: bool,
     /// Whether instances were ever left out for want of a slot (said once on stderr).
     overflowed: bool,
-    /// The players' bodies (ADR 0118): the triangles their one BLAS was built from, it, and the instances last built.
+    /// The players' bodies (ADR 0119): the triangles their one BLAS was built from, it, and the instances last built.
     proxy_tris: Vec<[f32; 3]>,
     proxy_blas: Option<(wgpu::Buffer, wgpu::Blas)>,
     proxies: Vec<crate::proxy::Proxy>,
@@ -148,7 +148,7 @@ impl Rt {
     }
 
     /// Build the missing BLAS within the budget, and the TLAS from every chunk that has one when that set or a
-    /// BLAS in it changed; and the players' bodies (ADR 0118), `tris` their one shape, after the chunks.
+    /// BLAS in it changed; and the players' bodies (ADR 0119), `tris` their one shape, after the chunks.
     pub fn record(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, insts: &[Inst], tris: &[[f32; 3]], proxies: &[crate::proxy::Proxy]) {
         let mut todo: Vec<Build> = Vec::new();
         let mut sizes = Vec::new();

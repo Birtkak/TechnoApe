@@ -1,4 +1,4 @@
-//! The players' bodies in the traced scene (ADR 0118): a few boxes from the ape's parts at rest, one small BLAS
+//! The players' bodies in the traced scene (ADR 0119): a few boxes from the ape's parts at rest, one small BLAS
 //! shared by every player, one TLAS instance a player near the camera (rt.rs), seen by shadow and lamp rays only
 //! (mask `16 << body`, shader.wgsl `PROXY_INST`), so a body shades the ground under the sun and the lamps and
 //! is never drawn, nor met by a look or the bounce. The camera's own player is the first; a lamp held by a
@@ -103,7 +103,7 @@ mod tests {
         engine::models::parse_life("ape.toml", include_str!("../../../data/models/ape.toml"), &pal, &|_| true, &|_| true).unwrap().0
     }
 
-    /// ADR 0118: the ape's parts at rest, one box each, stand on the floor as tall as the player and no wider
+    /// ADR 0119: the ape's parts at rest, one box each, stand on the floor as tall as the player and no wider
     /// than a block, its front +z.
     #[test]
     fn the_proxy_is_the_apes_parts_standing_in_the_players_box() {

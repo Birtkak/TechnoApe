@@ -470,7 +470,7 @@ var<private> ray_tint: vec3f;
 var<private> one_ray: bool = false;
 // added to a chunk's index for its stills' instance (rt.rs STILL_INST)
 const STILL_INST: u32 = 8388608u;
-// added to a player's place in the list for its body's instance (rt.rs PROXY_INST, ADR 0118): shadow and lamp
+// added to a player's place in the list for its body's instance (rt.rs PROXY_INST, ADR 0119): shadow and lamp
 // rays only; `skip_proxy` the one they pass through (a lamp's holder, the camera's own for its hand), else NONE
 const PROXY_INST: u32 = 4194304u;
 var<private> skip_proxy: u32 = 0xffffffffu;
@@ -897,7 +897,7 @@ fn light(p: vec3f, n: vec3f, body: u32) -> Light {
     var seen_v = 0.0;
     for (var k = 0u; k < LAMP_RAYS; k++) {
         if (top[k] == NONE) { continue; }
-        // a held lamp's rays pass through its holder's body (ADR 0118)
+        // a held lamp's rays pass through its holder's body (ADR 0119)
         let keep = skip_proxy;
         let lw = lamps[top[k]].col.w;
         if (lw > 0.0) { skip_proxy = PROXY_INST + u32(lw) - 1u; }
@@ -2661,7 +2661,7 @@ fn vs_model(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     o.normal = vec3f(dot(m.x0, n), dot(m.x1, n), dot(m.x2, n));
     o.info = m.body << 8u;
     o.b = q.z;
-    // in hand (models.rs): the body it passes through, plus one (ADR 0118)
+    // in hand (models.rs): the body it passes through, plus one (ADR 0119)
     o.a = m._a;
     return o;
 }

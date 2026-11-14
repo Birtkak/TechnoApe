@@ -320,7 +320,7 @@ pub struct Models {
     spec_scale: Option<f32>,
     /// The Studio's view: where the shown model stands from its cell and how it is turned (`show_place`).
     spec_place: Mat4,
-    /// The body the bare arm and the held item pass through on their way to the sun and the lamps (ADR 0118):
+    /// The body the bare arm and the held item pass through on their way to the sun and the lamps (ADR 0119):
     /// the camera's own player's place in the proxy list plus one, 0 none.
     pub hand: u32,
     /// The state "" a clip with events plays in without a state: that clip and nothing else.
