@@ -239,28 +239,28 @@ fn ledge(world: &World, p: &Player, dir: DVec3) -> bool {
     solid(0.5 * BLOCK) && !solid(1.5 * BLOCK) && !solid(2.5 * BLOCK)
 }
 
-/// The input sprints (ADR 0118): the bit, a move forward, and no flight. What drains a sprint's hunger.
-pub fn sprints(inp: &Input) -> bool {
-    inp.sprint && inp.mv[0] > 0.0 && inp.fly <= 0.0
-}
-
 /// An input any side may step with: finite numbers only.
 pub fn sane(inp: &Input) -> bool {
     inp.fwd.iter().chain(inp.mv.iter()).chain([&inp.pitch, &inp.fly, &inp.turn, &inp.tilt, &inp.roll]).all(|c| c.is_finite()) && inp.t.is_finite()
 }
 
 /// One step at the input's own world time (`Input::t`; the world's when 0), the world's clock put back after.
-pub fn step_at(world: &mut World, p: &mut Player, inp: &Input, dt: f64) {
+/// True when it sprinted, as `step`.
+pub fn step_at(world: &mut World, p: &mut Player, inp: &Input, dt: f64) -> bool {
     let now = world.time;
     if inp.t != 0.0 {
         world.time = inp.t;
     }
-    step(world, p, inp, dt);
+    let sprinted = step(world, p, inp, dt);
     world.time = now;
+    sprinted
 }
 
-/// One step of `dt` seconds for one player.
-pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
+/// One step of `dt` seconds for one player. True when it sprinted (ADR 0118): the sprint was applied and the
+/// body went further forward than the walk would have taken it, so a sprint into a wall or in the water is
+/// none. What a sprint's hunger and its wider view go by.
+pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
+    let start = p.pos;
     let (up, pull) = pull(world, p.pos);
     let down = -up;
     let flying = inp.fly > 0.0;
@@ -306,6 +306,8 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
         None => 0.0,
     };
     let mv = DVec3::new(inp.mv[1].clamp(-1.0, 1.0) as f64, 0.0, inp.mv[0].clamp(-1.0, 1.0) as f64);
+    // the forward share of the walk a sprint speeds, 0 for none
+    let mut sprint_share = 0.0;
     if flying {
         // the move and up or down at the asked speed, nothing else
         let vert = inp.jump as i32 as f64 - inp.down as i32 as f64;
@@ -313,7 +315,10 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
     } else {
         let dir = (right * mv.x + fwd * mv.z).clamp_length_max(1.0);
         // sprint (ADR 0118): the forward share of the walk, out of the water (wading to the shins still sprints)
-        let dir = if inp.sprint && sub < 0.3 { dir + fwd * dir.dot(fwd).max(0.0) * (SPRINT - 1.0) } else { dir };
+        if inp.sprint && sub < 0.3 && dir.dot(fwd) > 0.0 {
+            sprint_share = dir.dot(fwd);
+        }
+        let dir = dir + fwd * sprint_share * (SPRINT - 1.0);
         let wish = dir * WALK * (1.0 - 0.5 * sub);
         let mut v_up = p.vel.dot(up) - pull * dt;
         if p.on_ground && inp.jump && sub < 0.3 {
@@ -365,9 +370,12 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) {
     }
     p.on_ground = on_ground || (p.vel.dot(down) >= 0.0 && blocked(world, p.pos + down * (2.0 * CONTACT)));
     // out of a body's sphere of influence, or into one (ADR 0022): the body turns with the frame
+    // (further forward than the walk's share would go in the step, with a twentieth to spare)
+    let sprinted = sprint_share > 0.0 && (p.pos - start).dot(fwd) > WALK * sprint_share * dt * 1.05;
     if let Some(r) = world.reframe(&mut p.pos, &mut p.vel) {
         (p.fwd, p.up) = (r * p.fwd, r * p.up);
     }
+    sprinted
 }
 
 #[cfg(test)]
@@ -805,6 +813,44 @@ mod tests {
             p.pos
         };
         assert_eq!(swim(false), swim(true));
+    }
+
+    /// The review of ADR 0118: a step sprinted only when the sprint took the body further: not into a wall,
+    /// not in the sea (its hunger and view go by this).
+    #[test]
+    fn a_sprint_into_a_wall_or_in_the_sea_is_no_sprint() {
+        let mut w = World::new(6144, 256, 1337);
+        let d = w.bodies[0].spawn;
+        let b0 = w.block_at(w.bodies[0].centre + d * (w.bodies[0].height(d) - 0.5));
+        let at = |dx: i32, dz: i32| Block { pos: b0.pos + glam::IVec3::new(dx, 0, dz), ..b0 };
+        for dx in -3..=6 {
+            for dy in -3..=3 {
+                for dz in 0..=4 {
+                    w.set_block(Block { pos: b0.pos + glam::IVec3::new(dx, dy, dz), ..b0 }, if dz == 0 || dx == 3 && dz <= 3 { 3 } else { 0 });
+                }
+            }
+        }
+        let start = w.block_centre(b0);
+        let u = up(&w, start);
+        let dir = (w.block_centre(at(1, 0)) - start).reject_from(u).normalize();
+        let f = dir.as_vec3().to_array();
+        let mut p = Player::at(start + u * 0.6, dir);
+        run(&w, &mut p, &Input { fwd: f, ..Default::default() }, 1.0);
+        let inp = Input { mv: [1.0, 0.0], fwd: f, sprint: true, ..Default::default() };
+        assert!(step(&w, &mut p, &inp, DT), "on the floor it sprints");
+        for _ in 0..120 {
+            step(&w, &mut p, &inp, DT);
+        }
+        assert!(!step(&w, &mut p, &inp, DT), "pressed against the wall it does not");
+        assert!(!step(&w, &mut p, &Input { sprint: false, ..inp }, DT) && !step(&w, &mut p, &Input { mv: [0.0, 1.0], ..inp }, DT), "nor walking, nor strafing");
+        // in the sea
+        let w = World::new(1536, 32, 1);
+        let b = &w.bodies[0];
+        let (i, j) = (0..b.n).step_by(3).flat_map(|i| (0..b.n).step_by(3).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 8.0).unwrap();
+        let d = b.dir(2, i as f64 + 0.5, j as f64 + 0.5);
+        let mut p = Player::at(d * (b.radius - crate::world::SEA_DEPTH - 1.0), DVec3::X);
+        run(&w, &mut p, &Input::default(), 3.0);
+        assert!(!step(&w, &mut p, &Input { mv: [1.0, 0.0], sprint: true, ..Default::default() }, DT), "in the sea it does not");
     }
 
     #[test]

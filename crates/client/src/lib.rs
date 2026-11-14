@@ -239,7 +239,14 @@ impl ApplicationHandler for App {
                 self.act(&format!("globe:zoom:{}", 1.25f64.powf(y)));
             }
             WindowEvent::Resized(size) if (self.run == "play" && self.onscreen) || self.run == "view" => self.resize(size.width, size.height),
-            WindowEvent::Focused(f) => self.focused = f,
+            WindowEvent::Focused(f) => {
+                self.focused = f;
+                // a key held as the window lost the keyboard is never seen let go (the review of ADR 0118: Ctrl
+                // through an alt-tab sprinted on)
+                if !f {
+                    self.keys.clear();
+                }
+            }
             WindowEvent::MouseInput { state: ElementState::Pressed, button, .. } if self.menu.is_some() && !self.texting() => {
                 if self.rebind.is_some() {
                     if let Some(b) = mouse_bind(button) {
@@ -573,6 +580,9 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         unsent: 1,
         spawned: false,
         server_me: None,
+        server_hunger: engine::vitals::MAX as f64,
+        hunger: engine::vitals::MAX as f64,
+        sprinted: false,
         smooth: DVec3::ZERO,
         debt: 0.0,
         drift_max: 0.0,

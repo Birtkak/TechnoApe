@@ -22,10 +22,12 @@ drains per physics step, twice as fast walking.
    bit and a replay reads it. An old recording has only the old variants: every input reads as not sprinting.
 2. **Toggle, double-tap W, hold.** Hold only (the brief's call). Toggle and double-tap were left out; either is a
    client-only change later (the bit stays the same).
-3. **Who enforces the hunger floor.** The server refuses the bit (survival, hunger at 6 or less) before the step;
-   the client predicts the same rule from the whole points the server shows it. `ceil(h) > 6` is exactly `h > 6`,
-   so the two only part for the few steps between the server crossing the floor and its `Vitals` arriving (one
-   small correction, once, when a sprint runs out).
+3. **Who enforces the hunger floor.** (a) The server refuses the bit, and the client guesses from the whole points
+   it is shown: a round trip late, a correction at every crossing (what was first built; the review). (b) A
+   "tired" flag in `You` the client obeys: still late by the steps in flight. (c) **Chosen, exact:** `You` carries
+   the server's hunger to the bit after its last answered step; `vitals::gate` refuses the bit at the hunger of
+   each step, on the server at the hunger it has then and on the client at the hunger it predicts by draining each
+   predicted step as the server does (`vitals::drained`, `vitals::rate`), so both refuse the same step.
 
 ## Decision (sprint)
 | what | number |
@@ -36,12 +38,13 @@ drains per physics step, twice as fast walking.
 | drain | the walk's drain times **3** (`vitals::SPRINT_DRAIN`): 6x standing, a point every 15 s; full to the floor in 3.5 min of sprinting |
 | floor | no sprint at hunger **6** of 20 or less (`vitals::SPRINT_FLOOR`) |
 | key | "Sprint (hold)", default **Left Ctrl**, in Keys > Moving; rebindable, kept as `key.sprint=` in `settings.txt`, red when shared |
-| view | +**8** degrees of field of view, eased linearly in and out over **0.15 s**, while the predicted body moves faster than 1.2 walks over the ground (a refused or blocked sprint does not widen it) |
+| view | +**8** degrees of field of view, eased linearly in and out over **0.15 s**, while the last predicted step sprinted |
 
 - `phys::step`: the move's direction (clamped to 1) gains `fwd * max(0, dir . fwd) * 0.5` when `sprint` is set and
   under 0.3 of the body is under water. The fly branch never reads it.
-- `phys::sprints(inp)` (the bit, forward, no flight) is what the server's `live` drains at
-  `WALK_DRAIN * SPRINT_DRAIN`; `Vitals::drain(rate)` is the old `step` with the rate named.
+- `phys::step` returns whether the step **sprinted**: the sprint was applied and the body went further forward
+  than the walk's share would have (by a twentieth), so a sprint into a wall, up a ledge or in the water is none.
+  The drain (`vitals::rate`: a sprint's, a walk's or standing's) and the wider view both go by it.
 - Bots: `sprint on` / `sprint off`; every `walk` after `on` sprints. The soak's random walkers set the bit on 30 %
   of their inputs (its own random draw, last, so the rest of each input is drawn as before).
 - `acts=`: `key+:ControlLeft` holds it through the bindings, as any key.
@@ -55,9 +58,9 @@ drains per physics step, twice as fast walking.
   survival sprinting steps with turns and jumps, sent as `Sprints`, land on the client's prediction to the bit;
   hunger lost 0.333 points (seen red at 0.111, the walk's rate, before the drain); at hunger 6 the bit is refused
   and the player lands on a walking prediction; creative sprints at the floor and loses nothing.
-- Bot (`a_sprinting_bot_takes_two_thirds_of_the_walk_s_time`, real time, 24 m there and back over the test
-  planet's hills): walked in 5.79 to 5.91 s, sprinted in 4.08 s (0.69 to 0.70 of the walk; seen red at 1.02 with
-  the bit not sent).
+- Bot, first by real time (24 m there and back over the test planet's hills): walked in 5.79 to 5.91 s, sprinted
+  in 4.08 s (seen red at 1.02 with the bit not sent); after the review by server ticks
+  (`a_sprinting_bot_covers_half_as_much_again_in_the_same_ticks`): 11.08 m walked, 16.76 m sprinted in 60 ticks (1.51).
 - Wire (`the_sprint_bit_rides_the_wire_and_old_inputs_walk`): the bit survives postcard through `Sprints` and
   `Sprint`; an `Input` in the old field order reads as not sprinting, and a sprinting `Input`'s own bytes equal
   the old ones.
@@ -77,8 +80,23 @@ drains per physics step, twice as fast walking.
   no new field in `Player`, which the wire and the hash carry).
 
 ## Shortcuts
-- shortcut: the floor is checked once per server tick on the hunger at its start, not per step: at most three
-  steps late, once.
-- The bot's sprint test times real seconds (two thirds within 0.08); a loaded PC can make it flaky.
+- shortcut: a dig's hunger (`Vitals::dug`) is not predicted: a dig within a few steps of the floor can still cost
+  one correction there.
 
 ## Review
+A fresh reviewer read `727df052..566ca39b`. The wire, the recordings, speed cheating, creative and the key binding
+were found right. Fixed, each with a test seen red first where it could be:
+- *The drain charged a sprint that did nothing* (in water, into a wall): `phys::step` now says whether it sprinted
+  and the drain goes by that (`a_sprint_into_a_wall_or_in_the_sea_is_no_sprint`, red on the wall;
+  `a_sprint_held_in_the_sea_drains_as_a_walk`, red at 0.0667 against a walk's 0.0222).
+- *The floor rubber-banded at every crossing*: checked once a tick on the tick's starting hunger by the server
+  (a catch-up tick ran up to CREDIT_MAX steps on it), and by the client a round trip late. Now per step on both
+  sides, the client predicting the server's exact hunger (option 3 c above);
+  `a_sprint_through_the_hunger_floor_needs_no_correction` (40 ticks through 6.0, every `You` equal to the
+  prediction in place, hunger and step; red at the crossing tick 15 before).
+- *Ctrl held through an alt-tab sprinted on*: losing the focus clears the held keys, as opening a menu does. No
+  test: the window event path has none, and the change is the one line.
+- *The view widened on any speed over 1.2 walks* (a slide, a refused sprint downhill): it goes by the step's own
+  "sprinted".
+- *The bot's sprint test timed real seconds on a live server thread*: it now steps a server and the bot in turn
+  and compares the ground covered in 60 ticks (not seen red: a test made sturdier, not a fix).

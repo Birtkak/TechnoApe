@@ -58,6 +58,11 @@ pub(crate) struct App {
     pub(crate) spawned: bool,
     /// The server's last word on this player, which `reconcile` and a predicted edit replay from (ADR 0019).
     pub(crate) server_me: Option<phys::Player>,
+    /// Hunger, exactly (ADR 0118): the server's after `server_me`'s step, and as predicted at `me`; the step
+    /// sprinted (the view widens by it).
+    pub(crate) server_hunger: f64,
+    pub(crate) hunger: f64,
+    pub(crate) sprinted: bool,
     /// What a correction moved the drawn position by; it eases out over CORRECT_S.
     pub(crate) smooth: DVec3,
     /// Seconds the last frame spent after present (stats, loading checks), and when it ended: both land in the

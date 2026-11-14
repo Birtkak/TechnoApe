@@ -90,12 +90,12 @@ impl Vitals {
         self.drain(if walking { WALK_DRAIN } else { 1.0 });
     }
 
-    /// One step at `rate` times the standing drain (`step`'s, or a sprint's `WALK_DRAIN * SPRINT_DRAIN`).
+    /// One step at `rate` times the standing drain (`step`'s, or `rate`'s).
     pub fn drain(&mut self, rate: f64) {
         if self.dead.is_some() {
             return;
         }
-        self.hunger = (self.hunger - DRAIN * rate).max(0.0);
+        self.hunger = drained(self.hunger, rate);
         // shortcut: hunger alone never kills (the floor at 1) because there is no food yet; let it kill once
         // food can be found or made
         let (every, d) = match (self.hunger > FED, self.hunger <= 0.0) {
@@ -113,8 +113,7 @@ impl Vitals {
         }
     }
 
-    /// Hunger enough to sprint (ADR 0118): over SPRINT_FLOOR. The client asks the same of the whole points it is
-    /// shown (`ceil(h) > 6` is `h > 6`), so its prediction refuses where the server does.
+    /// Hunger enough to sprint (ADR 0118): over SPRINT_FLOOR (`gate` asks it of every step).
     pub fn can_sprint(hunger: f64) -> bool {
         hunger > SPRINT_FLOOR
     }
@@ -149,6 +148,31 @@ impl Vitals {
     pub fn shown(&self) -> (u8, u8) {
         (self.health, self.hunger.ceil() as u8)
     }
+}
+
+/// Hunger after one step at `rate` times the standing drain: the server's `Vitals::drain`, and the client's
+/// prediction of it across the steps the server has not answered (ADR 0118).
+pub fn drained(hunger: f64, rate: f64) -> f64 {
+    (hunger - DRAIN * rate).max(0.0)
+}
+
+/// The drain of one step with `inp` that `sprinted` (what `phys::step` returned): a sprint's, a walk's or
+/// standing's.
+pub fn rate(inp: &Input, sprinted: bool) -> f64 {
+    if sprinted {
+        WALK_DRAIN * SPRINT_DRAIN
+    } else if inp.mv != [0.0, 0.0] {
+        WALK_DRAIN
+    } else {
+        1.0
+    }
+}
+
+/// The input a step takes at this hunger (ADR 0118): the sprint bit only over the floor, or in creative. The
+/// server asks it of each step at the hunger it has then; the client of each step it predicts, at the hunger
+/// it predicts from the server's last word (`ToClient::You`), so both refuse the same step.
+pub fn gate(inp: Input, hunger: f64, creative: bool) -> Input {
+    Input { sprint: inp.sprint && (creative || Vitals::can_sprint(hunger)), ..inp }
 }
 
 /// A dead player's input: the look stays, nothing moves it. The server steps a dead player with this and

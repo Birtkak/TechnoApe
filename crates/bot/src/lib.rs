@@ -522,25 +522,34 @@ mod tests {
         assert!(line.contains("[0,\"stone\",5]") && line.contains("[4,\"stone\",3]") && line.contains("[2,\"blue lamp\",64]"), "{line}");
     }
 
-    /// Sprint by script (ADR 0118): a survival bot covers 12 m sprinting in about two thirds of the time walking.
+    /// Sprint by script (ADR 0118): over the same 60 server ticks from the same spawn, a survival bot told to
+    /// sprint covers half as much ground again as one that walks (ticks, not seconds: the review of ADR 0118).
     #[test]
-    fn a_sprinting_bot_takes_two_thirds_of_the_walk_s_time() {
-        let (tx, rx) = channel();
-        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(200.0, &std::sync::atomic::AtomicBool::new(false)));
-        let (c, s) = local();
-        tx.send(s).unwrap();
-        let mut b = Bot::new("runner", c);
-        b.run(parse_script("wait 0.5; say /playmode survival; wait 1").unwrap(), None, |_| {});
-        let mut timed = |script: &str| {
-            let t = Instant::now();
-            b.run(parse_script(script).unwrap(), None, |_| {});
-            t.elapsed().as_secs_f64()
+    fn a_sprinting_bot_covers_half_as_much_again_in_the_same_ticks() {
+        let covered = |sprint: bool| {
+            let (tx, rx) = channel();
+            let mut s = Server::new(256, 32, 1, rx);
+            let (c, sv) = local();
+            tx.send(sv).unwrap();
+            let mut b = Bot::new("runner", c);
+            let tick = |b: &mut Bot, s: &mut Server, n: usize| {
+                for _ in 0..n {
+                    b.tick();
+                    s.tick();
+                }
+            };
+            tick(&mut b, &mut s, 20);
+            b.exec(&Cmd::Say("/playmode survival".into()));
+            b.exec(&Cmd::Sprint(sprint));
+            tick(&mut b, &mut s, 40);
+            let from = b.pos;
+            b.exec(&Cmd::Walk(DVec3::X * 30.0));
+            tick(&mut b, &mut s, 60);
+            (b.pos - from).reject_from(phys::up(b.world.as_ref().unwrap(), b.pos)).length()
         };
-        // there and back over the same ground, so the hills cost both the same
-        let walk = timed("walk 12 0 0") + timed("walk -12 0 0");
-        let sprint = timed("sprint on; walk 12 0 0") + timed("walk -12 0 0");
-        eprintln!("24 m: walked in {walk:.2} s, sprinted in {sprint:.2} s");
-        assert!((sprint / walk - 2.0 / 3.0).abs() < 0.08, "walked in {walk:.2} s, sprinted in {sprint:.2} s");
+        let (walk, sprint) = (covered(false), covered(true));
+        eprintln!("60 ticks: walked {walk:.2} m, sprinted {sprint:.2} m");
+        assert!((sprint / walk - 1.5).abs() < 0.1, "walked {walk:.2} m, sprinted {sprint:.2} m");
     }
 
     #[test]

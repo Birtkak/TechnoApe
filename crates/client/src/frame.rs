@@ -132,13 +132,12 @@ impl App {
                 fly: if self.flying { self.fly_speed as f32 } else { 0.0 },
                 down: self.flying && self.settings.held(&self.keys, Act::Down),
                 t: self.world.time,
-                // the server's rule, on the hunger it last sent (ADR 0118): over the floor, or creative
-                sprint: !self.flying && self.settings.held(&self.keys, Act::Sprint) && (self.creative || engine::vitals::Vitals::can_sprint(self.vitals.1 as f64)),
+                // held; each step's prediction refuses it below the floor as the server will (ADR 0118)
+                sprint: !self.flying && self.settings.held(&self.keys, Act::Sprint),
                 ..Default::default()
             };
-            // a sprint widens the view while the body really goes faster than a walk (not a refused or blocked one)
-            let fast = !self.flying && self.me.vel.reject_from(phys::up(&self.world, self.me.pos)).length() > phys::WALK * 1.2;
-            self.sprint_fov = crate::play::sprint_fov(self.sprint_fov, fast, dt);
+            // a sprint widens the view while the last step sprinted (not a refused or blocked one)
+            self.sprint_fov = crate::play::sprint_fov(self.sprint_fov, self.sprinted && !self.flying, dt);
             // nothing moves before the server says where this player starts
             self.debt = if self.spawned { self.debt + dt.min(0.1) } else { 0.0 };
             while self.debt >= phys::DT {
@@ -151,7 +150,8 @@ impl App {
                 }
                 let f0 = self.world.frame_at(self.me.pos);
                 let in_air = !self.me.on_ground;
-                phys::step(&self.world, &mut self.me, &inp, phys::DT);
+                let drains = !self.creative && self.dead.is_none();
+                self.sprinted = crate::play::predict(&mut self.world, &mut self.me, &mut self.hunger, self.creative, drains, &inp);
                 // the metres fallen since the ground was left (a flight or a swim is no fall)
                 // (nothing is added in the step that changes the frame the place is told in: `prev` is still
                 // in the old one)
@@ -331,13 +331,13 @@ impl App {
                         self.digs.push((id, s, done, rate, now, now - HIT_S));
                     }
                 }
-                Recv::Msg(ToClient::You { step, me, time, warp }) if self.run == "play" => {
+                Recv::Msg(ToClient::You { step, me, time, warp, hunger }) if self.run == "play" => {
                     // the first, or a jump (/time set): straight there
                     if self.clock.is_none_or(|(_, w, _)| (time - self.world.time).abs() > 2.0 * w.max(warp) + 1.0) {
                         self.world.time = time;
                     }
                     self.clock = Some((time, warp, Instant::now()));
-                    self.reconcile(step, me, t)
+                    self.reconcile(step, me, hunger, t)
                 }
                 Recv::Msg(ToClient::You { .. }) => {}
                 Recv::Msg(ToClient::Inventory { creative, slots, water }) => {

@@ -105,7 +105,9 @@ pub enum ToClient {
     /// This player's whole physics state after the step numbered `step` of its `Steps` (0: none yet), every
     /// tick, and the world's time that poses the sky (ADR 0022). The client replays its later inputs from here
     /// (ADR 0019).
-    You { step: u32, me: crate::phys::Player, time: f64, warp: f64 },
+    /// `hunger`: the server's, exactly, after that step (ADR 0118): the client predicts it across its later steps
+    /// with the same drain, so it refuses a sprint at the step the server will.
+    You { step: u32, me: crate::phys::Player, time: f64, warp: f64, hunger: f64 },
     /// This player's mode, its slots (`items::APE_SLOTS`: the hotbar, the worn pack, its rows) and the water in
     /// its bucket (units, `liquid::U` a block); sent on join, on change and after every `Items`. shortcut: the
     /// whole list (under 40 slots, a few hundred bytes), not slot deltas, as it changes a few times a second.
