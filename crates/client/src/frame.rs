@@ -795,7 +795,10 @@ impl App {
         let blow = here.wind[0].hypot(here.wind[1]) as f64;
         let wind = if title { 0.0 } else { (0.05 + over_air.clamp(0.0, 400.0) / 400.0 * 0.3 + self.me.vel.length() / 50.0 + blow / 20.0).min(1.0) as f32 * air };
         self.audio.hold("wind", wind);
-        let wet = (here.rain / 6.0).sqrt().min(1.0) * air;
+        // (no rain heard over the clouds it falls from, ADR 0108)
+        let b0 = &self.world.bodies[0];
+        let cloud_k = b0.sea.map_or(1.0, |s| crate::weather::from_cloud((p.pos - b0.centre).length() - b0.layer_r(s))) as f32;
+        let wet = (here.rain / 6.0).sqrt().min(1.0) * air * cloud_k;
         let rain_on = self.settings.at(S::Rain) > 0 && here.temp >= 0.0 && here.rain >= 0.3;
         let open = self.fall.open;
         self.audio.hold("rain", if rain_on { wet * open } else { 0.0 });

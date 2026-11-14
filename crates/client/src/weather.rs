@@ -99,6 +99,17 @@ impl Sky {
     }
 }
 
+/// The clouds' slab over the sea, metres: its base and its thickness (clouds.wgsl `CL_BASE`, `CL_THICK`; a test
+/// holds the two files to one number).
+pub const CL_BASE: f64 = 250.0;
+pub const CL_THICK: f64 = 64.0;
+
+/// The share of today's rain or snow that falls at `over_sea` metres over the sea level (ADR 0108): all of it under
+/// the clouds' base, thinning through the slab, none over its top, since a drop comes out of a cloud.
+pub fn from_cloud(over_sea: f64) -> f64 {
+    ((CL_BASE + CL_THICK - over_sea) / CL_THICK).clamp(0.0, 1.0)
+}
+
 /// Rain heavier than this, mm an hour, is a storm: it lightens (ADR 0076).
 pub const STORM: f32 = 8.0;
 /// Seconds a slot of lightning lasts: each stormy column may strike once a slot.
@@ -146,7 +157,7 @@ pub fn strikes(sky: &Sky, seed: i32, d: DVec3, sea: f64, from: f64, to: f64, wit
                 if u(0) >= p || t < from || t >= to {
                     continue;
                 }
-                out.push((t, g.dir_at(f, i as f64 + u(2), j as f64 + u(3)) * (sea + 250.0))); // the clouds' base (clouds.wgsl CL_BASE)
+                out.push((t, g.dir_at(f, i as f64 + u(2), j as f64 + u(3)) * (sea + CL_BASE)));
             }
         }
     }
@@ -194,6 +205,7 @@ impl Fall {
         let wind = wind_at(up, here.wind);
         let s = up.any_orthonormal_vector();
         let t = up.cross(s);
+        let sea = b.sea.map(|s| b.layer_r(s));
         let (row, sea_row) = if snow { ("snow", "snow.sea") } else { ("rain", "rain.sea") };
         while self.acc >= 1.0 {
             self.acc -= 1.0;
@@ -208,6 +220,12 @@ impl Fall {
             let h = height + self.rnd() * 5.0;
             // started upwind of where it lands by as far as the wind carries it in its fall
             let land = rel + (s * a.cos() + t * a.sin()) * r;
+            // none starts over the clouds, fewer inside them (ADR 0108)
+            // (under the base no number is drawn: the drops there fall as before)
+            let k = sea.map_or(1.0, |sea| from_cloud((land + up * h).length() - sea));
+            if k < 1.0 && self.rnd() >= k {
+                continue;
+            }
             let Some(mut at) = crate::fx::At::falling(world, 0, land + up * h - wind * (h / speed), wind - up * speed) else {
                 self.open -= self.open * 0.01;
                 continue;
@@ -315,6 +333,23 @@ mod tests {
         key(&mut whole);
         assert_eq!(split, whole);
         assert!(all.iter().all(|x| (x.1.length() - 1250.0).abs() < 1e-6));
+    }
+
+    /// Rain and snow come out of the clouds (bug 2026-11-14_01-55-53, snow over the clouds at 327 m): none over
+    /// the slab's top, thinning inside it, all of today's under its base; and the slab is the shader's.
+    #[test]
+    fn precipitation_falls_only_from_the_cloud_layer_down() {
+        assert_eq!(from_cloud(327.0), 0.0, "over the top");
+        assert_eq!(from_cloud(CL_BASE + CL_THICK), 0.0);
+        assert_eq!(from_cloud(CL_BASE + CL_THICK * 0.5), 0.5, "half way up the slab");
+        assert_eq!(from_cloud(CL_BASE), 1.0);
+        assert_eq!(from_cloud(3.0), 1.0, "under the clouds as before");
+        assert_eq!(from_cloud(-40.0), 1.0, "under the sea level");
+        let wgsl = include_str!("clouds.wgsl");
+        for (name, v) in [("CL_BASE", CL_BASE), ("CL_THICK", CL_THICK)] {
+            let line = wgsl.lines().find(|l| l.starts_with(&format!("const {name}: f32 = "))).unwrap();
+            assert_eq!(line.trim_end_matches(';').rsplit(' ').next().unwrap().parse::<f64>().unwrap(), v, "{name}");
+        }
     }
 
     #[test]
