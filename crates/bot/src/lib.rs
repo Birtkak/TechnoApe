@@ -111,19 +111,22 @@ pub struct Bot {
     seq: u32,
     id: u32,
     flying: bool,
-    /// The walk: where to, and when to give up.
-    target: Option<(DVec3, Instant)>,
+    /// The server's ticks seen (one `You` a tick): the bot's clock. Its waits, walks and held digs count these,
+    /// not wall time, so a server slowed by a busy PC is waited for (the gate's tests under load).
+    ticks: u64,
+    /// The walk: where to, and the tick to give up at.
+    target: Option<(DVec3, u64)>,
     last_dist: f64,
     notes: Vec<String>,
     /// The live air where it stands, as the server last sent it (W3).
     air: Option<engine::weather::Here>,
-    idle_until: Option<Instant>,
+    idle_until: Option<u64>,
     start: Instant,
     /// Plays creative (bots start so, ADR 0074); `say /playmode survival` turns it off, and its digs are then held
     /// for their time as a player's are (ADR 0034, 0097).
     creative: bool,
-    /// A survival dig held until then, of that shape.
-    digging: Option<(Instant, Shape)>,
+    /// A survival dig held until that tick, of that shape.
+    digging: Option<(u64, Shape)>,
     /// The hotbar slot in hand (`hold`).
     hand: u8,
     /// The creature kinds by index and the animals the server has this bot see (ADR 0083).
@@ -134,7 +137,12 @@ pub struct Bot {
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, kinds: Vec::new(), animals: Default::default() }
+        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, kinds: Vec::new(), animals: Default::default() }
+    }
+
+    /// The tick `s` seconds of the server's time from now.
+    fn after(&self, s: f64) -> u64 {
+        self.ticks + (s * TICK_HZ).ceil() as u64
     }
 
     fn feet(&self) -> DVec3 {
@@ -172,6 +180,7 @@ impl Bot {
                 // the list comes when it changes; this bot's own place every tick in `You`
                 Recv::Msg(ToClient::Players(p)) => self.players = p.len(),
                 Recv::Msg(ToClient::You { me, .. }) => {
+                    self.ticks += 1;
                     if !self.flying {
                         self.pos = me.pos;
                     }
@@ -211,7 +220,7 @@ impl Bot {
             return false;
         }
         let Some(w) = self.world.as_ref() else { return true };
-        if let Some((_, shape)) = self.digging.filter(|d| Instant::now() >= d.0) {
+        if let Some((_, shape)) = self.digging.filter(|d| self.ticks >= d.0) {
             self.seq += 1;
             self.link.send(ToServer::Edit { seq: self.seq, shape, material: 0 });
             self.link.send(ToServer::Dig(None));
@@ -220,7 +229,7 @@ impl Bot {
         if let Some((t, deadline)) = self.target {
             let d = (t - self.pos).reject_from(phys::up(w, self.pos));
             let dist = d.length();
-            let late = Instant::now() > deadline;
+            let late = self.ticks > deadline;
             if dist < ARRIVE || late {
                 if late {
                     self.notes.push(format!("{{\"bot\":\"{}\",\"walk\":\"gave up\",\"left\":{:.2}}}", self.name, dist));
@@ -239,7 +248,7 @@ impl Bot {
 
     /// True while a walk or wait is still going, so the next command has to hold.
     pub fn busy(&self) -> bool {
-        self.target.is_some() || self.digging.is_some() || self.idle_until.is_some_and(|u| Instant::now() < u)
+        self.target.is_some() || self.digging.is_some() || self.idle_until.is_some_and(|u| self.ticks < u)
     }
 
     /// Runs one command; the JSON line it produces, if any. Quit is the caller's to notice.
@@ -252,17 +261,17 @@ impl Bot {
             }
             Cmd::Walk(d) => {
                 // three times the time the distance takes, and 2 s: enough for hills, not for a cliff
-                let give_up = Instant::now() + Duration::from_secs_f64(d.length() / phys::WALK * 3.0 + 2.0);
+                let give_up = self.after(d.length() / phys::WALK * 3.0 + 2.0);
                 (self.flying, self.last_dist, self.target) = (false, f64::MAX, Some((self.pos + *d, give_up)));
             }
-            Cmd::Wait(s) => self.idle_until = Some(Instant::now() + Duration::from_secs_f64(*s)),
+            Cmd::Wait(s) => self.idle_until = Some(self.after(*s)),
             Cmd::Dig(d) if !self.creative => {
                 // held for its time, a little over, then dug (the server checks the hold, ADR 0034)
                 let shape = Shape::one(w.block_at(self.feet() + *d));
                 self.link.send(ToServer::Dig(Some(shape)));
                 let tool = engine::items::tool(self.slots.get(self.hand as usize).copied().flatten());
                 let need = engine::edit::dig_time_with(w, &shape, tool) as f64;
-                self.digging = Some((Instant::now() + Duration::from_secs_f64(need * 1.1 + 0.1), shape));
+                self.digging = Some((self.after(need * 1.1 + 0.1), shape));
             }
             Cmd::Dig(d) | Cmd::Place(d, _) => {
                 let m = if let Cmd::Place(_, m) = c { *m } else { 0 };
@@ -389,6 +398,9 @@ mod tests {
     use server::Server;
     use std::sync::mpsc::channel;
 
+    // These servers tick at the game's own rate (they ran at 200 Hz): a bot's clock is the server's ticks, 20 a
+    // second, so a script's `wait 0.5` is ten ticks, however long a busy PC takes over them.
+
     #[test]
     fn parse_script_and_errors() {
         let s = parse_script("spawn 1 2 3; wait 0.5\n# a comment\ndig 0 -1 0; place 1 0 0 3; block 1 0 0; report; quit").unwrap();
@@ -405,7 +417,7 @@ mod tests {
     #[test]
     fn one_bot_digs_and_the_other_sees_the_hole() {
         let (tx, rx) = channel();
-        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(200.0, &std::sync::atomic::AtomicBool::new(false)));
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(TICK_HZ, &std::sync::atomic::AtomicBool::new(false)));
         let mut bots: Vec<Bot> = ["digger", "watcher"]
             .iter()
             .map(|n| {
@@ -457,7 +469,7 @@ mod tests {
         let feet = centre + up * 2.0;
         let d = centre - feet;
         let (tx, rx) = channel();
-        std::thread::spawn(move || Server::baked(1536, 32, 7, rx).run(200.0, &std::sync::atomic::AtomicBool::new(false)));
+        std::thread::spawn(move || Server::baked(1536, 32, 7, rx).run(TICK_HZ, &std::sync::atomic::AtomicBool::new(false)));
         let (c, s) = local();
         tx.send(s).unwrap();
         let mut bot = Bot::new("knapper", c);
@@ -473,7 +485,7 @@ mod tests {
     #[test]
     fn a_survival_bot_knaps_a_hand_axe_and_digs_with_it() {
         let (tx, rx) = channel();
-        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(200.0, &std::sync::atomic::AtomicBool::new(false)));
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(TICK_HZ, &std::sync::atomic::AtomicBool::new(false)));
         let (c, s) = local();
         tx.send(s).unwrap();
         let mut bot = Bot::new("knapper", c);
@@ -499,7 +511,7 @@ mod tests {
     #[test]
     fn a_bot_moves_throws_and_reports_its_slots() {
         let (tx, rx) = channel();
-        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(200.0, &std::sync::atomic::AtomicBool::new(false)));
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(TICK_HZ, &std::sync::atomic::AtomicBool::new(false)));
         let (c, s) = local();
         tx.send(s).unwrap();
         let mut b = Bot::new("hauler", c);
@@ -512,7 +524,7 @@ mod tests {
     #[test]
     fn a_bot_lands_and_walks_ten_metres_over_the_ground() {
         let (tx, rx) = channel();
-        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(200.0, &std::sync::atomic::AtomicBool::new(false)));
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(TICK_HZ, &std::sync::atomic::AtomicBool::new(false)));
         let (c, s) = local();
         tx.send(s).unwrap();
         let mut b = Bot::new("walker", c);
