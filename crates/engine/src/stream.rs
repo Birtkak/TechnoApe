@@ -85,6 +85,112 @@ struct Slot {
     drawn_at: (u64, u32),
     /// The climate at its footprint's corners (`clutter::chunk_climate`, ADR 0091), from its last mesh job.
     clim: u32,
+    key: Key,
+    /// Its children's places in the slab by child number: `UNKNOWN` until looked up, `NONE` when it has no slot.
+    kids: [u32; 8],
+    /// False once evicted: its place in the slab waits for another chunk.
+    live: bool,
+    /// `Streamer::complete_at`'s answer for the walk of that number (`Streamer::walk_no`).
+    complete: (u64, bool),
+}
+
+/// No slot (`Slot::kids`, a walk's stack: not made yet).
+const NONE: u32 = u32::MAX;
+/// A child not looked up yet (`Slot::kids`).
+const UNKNOWN: u32 = u32::MAX - 1;
+
+/// The slots by key, and in a slab where each knows its children's places: the walk follows those instead of
+/// hashing a key per look (a walk at detail 8 was some 55,000 hashed look-ups; `walk_cost`).
+#[derive(Default)]
+struct Slots {
+    index: FxMap<Key, u32>,
+    slab: Vec<Slot>,
+    free: Vec<u32>,
+}
+
+/// `k`'s parent and which of its children `k` is (`Key::child`).
+fn parent(k: &Key) -> (Key, usize) {
+    (Key { level: k.level + 1, pos: k.pos >> 1, ..*k }, ((k.pos.x & 1) | (k.pos.y & 1) << 1 | (k.pos.z & 1) << 2) as usize)
+}
+
+impl Slots {
+    fn id(&self, k: &Key) -> Option<u32> {
+        self.index.get(k).copied()
+    }
+    fn get(&self, k: &Key) -> Option<&Slot> {
+        self.id(k).map(|i| &self.slab[i as usize])
+    }
+    fn get_mut(&mut self, k: &Key) -> Option<&mut Slot> {
+        self.id(k).map(|i| &mut self.slab[i as usize])
+    }
+    fn at(&self, i: u32) -> &Slot {
+        &self.slab[i as usize]
+    }
+    fn at_mut(&mut self, i: u32) -> &mut Slot {
+        &mut self.slab[i as usize]
+    }
+    fn len(&self) -> usize {
+        self.index.len()
+    }
+    #[cfg(test)]
+    fn iter(&self) -> impl Iterator<Item = (&Key, &Slot)> {
+        self.slab.iter().filter(|s| s.live).map(|s| (&s.key, s))
+    }
+    fn iter_mut(&mut self) -> impl Iterator<Item = (Key, &mut Slot)> {
+        self.slab.iter_mut().filter(|s| s.live).map(|s| (s.key, s))
+    }
+    /// `k`'s place, its slot made pending (with `bounds`) if it had none.
+    fn make(&mut self, k: Key, frame: u64, bounds: impl FnOnce() -> Bounds) -> u32 {
+        if let Some(i) = self.id(&k) {
+            return i;
+        }
+        let slot = Slot { state: State::Pending, last_seen: frame, want_v: 0, shown_v: 0, inflight: false, bounds: bounds(), leaf_at: 0, clim: 0, drawn_at: (0, 0), key: k, kids: [UNKNOWN; 8], live: true, complete: (0, false) };
+        let i = match self.free.pop() {
+            Some(i) => {
+                self.slab[i as usize] = slot;
+                i
+            }
+            None => {
+                self.slab.push(slot);
+                self.slab.len() as u32 - 1
+            }
+        };
+        self.index.insert(k, i);
+        let (p, ci) = parent(&k);
+        if let Some(p) = self.id(&p) {
+            self.slab[p as usize].kids[ci] = i;
+        }
+        i
+    }
+    /// The place of child `ci` (key `c`) of the slot at `p`, or `NONE`.
+    fn kid(&self, p: u32, ci: usize, c: &Key) -> u32 {
+        match self.slab[p as usize].kids[ci] {
+            UNKNOWN => self.id(c).unwrap_or(NONE),
+            i => i,
+        }
+    }
+    /// Drops the slots `keep` turns down; their parents forget them.
+    fn retain(&mut self, mut keep: impl FnMut(&mut Slot) -> bool) {
+        for i in 0..self.slab.len() {
+            if self.slab[i].live && !keep(&mut self.slab[i]) {
+                let k = self.slab[i].key;
+                self.slab[i].live = false;
+                self.index.remove(&k);
+                self.free.push(i as u32);
+                let (p, ci) = parent(&k);
+                if let Some(p) = self.id(&p) {
+                    self.slab[p as usize].kids[ci] = NONE;
+                }
+            }
+        }
+    }
+}
+
+impl std::ops::Index<&Key> for Slots {
+    type Output = Slot;
+    fn index(&self, k: &Key) -> &Slot {
+        &self.slab[self.index[k] as usize]
+    }
 }
 
 /// The last LOD walk (ADR 0025, F): which chunks it drew, their bounds, its stats, and the camera in each
@@ -196,7 +302,7 @@ fn sampling(world: &World, b: Block, levels: u32) -> Vec<Key> {
 }
 
 pub struct Streamer {
-    slots: FxMap<Key, Slot>,
+    slots: Slots,
     tx: Sender<JobResult>,
     rx: Receiver<JobResult>,
     pub inflight: usize,
@@ -235,6 +341,8 @@ pub struct Streamer {
     visits: u64,
     /// Walk every empty leaf one by one, as before the shortcut: the test's reference.
     slow_walk: bool,
+    /// Counts the walks of both kinds (drawn and look-ahead): what a slot's remembered `complete` is for.
+    walk_no: u64,
 }
 
 pub struct View {
@@ -318,7 +426,7 @@ impl Streamer {
             }
         }
         Streamer {
-            slots: FxMap::default(),
+            slots: Slots::default(),
             tx,
             rx,
             inflight: 0,
@@ -343,6 +451,7 @@ impl Streamer {
             gliding: Vec::new(),
             visits: 0,
             slow_walk: false,
+            walk_no: 0,
         }
     }
 
@@ -372,6 +481,36 @@ impl Streamer {
                     let c = k.child(i);
                     !Self::in_band(world, c) || self.complete(world, view, &c, kk)
                 }))
+    }
+
+    /// `complete` for the slot at `id` (`NONE`: by its key), remembered per slot for this walk: every level asked
+    /// it of the whole subtree under each child again (most of a walk at detail 8, `walk_cost`). Within one walk
+    /// the answer cannot change: no job is applied, the camera and `kk` are one, and a slot the walk makes is
+    /// pending, as a missing one counts.
+    fn complete_at(&mut self, world: &World, view: &View, k: &Key, id: u32, kk: f64) -> bool {
+        if id == NONE {
+            return self.complete(world, view, k, kk);
+        }
+        let s = self.slots.at(id);
+        if s.state != State::Pending {
+            return true;
+        }
+        if s.complete.0 == self.walk_no {
+            return s.complete.1;
+        }
+        let bd = s.bounds;
+        let splits = k.level > 0 && ((bd.c - view.cam_in(k.body)).length() - bd.rad).max(0.0) < kk * k.edge();
+        let done = splits
+            && (0..8).all(|i| {
+                let c = k.child(i);
+                !Self::in_band(world, c) || {
+                    let ci = self.slots.kid(id, i as usize, &c);
+                    self.slots.at_mut(id).kids[i as usize] = ci;
+                    self.complete_at(world, view, &c, ci, kk)
+                }
+            });
+        self.slots.at_mut(id).complete = (self.walk_no, done);
+        done
     }
 
     /// Every in-band child of `k` has a mesh, or has children that all do, down to the finest level.
@@ -435,25 +574,18 @@ impl Streamer {
             self.walk_frame = self.frame;
             self.walks += 1;
         }
+        self.walk_no += 1;
         let (first, missing0, holes0) = (out.len(), st.missing, st.holes);
-        let mut stack: Vec<(Key, bool)> = self.roots.iter().map(|k| (*k, false)).collect();
+        // (chunk, covered, its slot's place when its parent knew it)
+        let mut stack: Vec<(Key, bool, u32)> = self.roots.iter().map(|k| (*k, false, NONE)).collect();
         // The look-ahead splits 10 % earlier: its camera is a straight-line guess, and a chunk the real camera
         // only grazes (a few frames inside the split distance) would otherwise never be requested ahead.
         let kk = if draw { self.opts.k } else { self.opts.k * 1.1 };
         let frame = self.frame;
-        while let Some((k, covered)) = stack.pop() {
+        while let Some((k, covered, id)) = stack.pop() {
             self.visits += 1;
-            let slot = self.slots.entry(k).or_insert_with(|| Slot {
-                state: State::Pending,
-                last_seen: frame,
-                want_v: 0,
-                shown_v: 0,
-                inflight: false,
-                bounds: world.bodies[k.body as usize].bounds(k),
-                leaf_at: 0,
-                clim: 0,
-                drawn_at: (0, 0),
-            });
+            let id = if id == NONE { self.slots.make(k, frame, || world.bodies[k.body as usize].bounds(k)) } else { id };
+            let slot = self.slots.at_mut(id);
             slot.last_seen = frame;
             let (bd, needs_job, pending) = (slot.bounds, slot.needs_job(), slot.state == State::Pending);
             let d = ((bd.c - view.cam_in(k.body)).length() - bd.rad).max(0.0);
@@ -462,12 +594,17 @@ impl Streamer {
                     // split only because of the look-ahead margin: the real camera may still want this chunk itself
                     reqs.push((d * prio_mul + REFINE, k));
                 }
-                let mut kids = [k; 8];
+                // the children in the band, and each one's slot (the slow walk looks every one up by its key)
+                let mut kids = [(k, NONE); 8];
                 let mut nk = 0;
                 for i in 0..8 {
                     let c = k.child(i);
                     if Self::in_band(world, c) {
-                        kids[nk] = c;
+                        let ci = if self.slow_walk { NONE } else { self.slots.kid(id, i as usize, &c) };
+                        if !self.slow_walk {
+                            self.slots.at_mut(id).kids[i as usize] = ci;
+                        }
+                        kids[nk] = (c, ci);
                         nk += 1;
                     }
                 }
@@ -483,7 +620,7 @@ impl Streamer {
                 let (mut by_view, mut all, mut empty_leaves) = (false, true, !self.slow_walk);
                 if self.slow_walk && !covered {
                     // the walk before the shortcut, the test's reference
-                    all = kids.iter().all(|c| {
+                    all = kids.iter().all(|(c, _)| {
                         self.complete(world, view, c, kk) || (draw && {
                             let h = self.hidden(view, c.body, &self.slots.get(c).map_or_else(|| world.bodies[c.body as usize].bounds(*c), |s| s.bounds));
                             by_view |= h;
@@ -491,19 +628,20 @@ impl Streamer {
                         })
                     });
                 }
-                for c in kids.iter().filter(|_| !self.slow_walk) {
-                    let s = self.slots.get(c);
+                let fast = !self.slow_walk;
+                for (c, ci) in kids.iter().filter(|_| fast) {
+                    let s = (*ci != NONE).then(|| self.slots.at(*ci));
                     empty_leaves &= s.is_some_and(|s| {
                         s.state == State::Empty
                             && !s.needs_job()
                             && !(c.level > 0 && ((s.bounds.c - view.cam_in(c.body)).length() - s.bounds.rad).max(0.0) < kk * c.edge())
                     });
                     // as `all` over the children, stopping at the first that neither draws nor is out of view
+                    let bounds = s.map(|s| s.bounds);
                     if all && !covered {
-                        all = s.is_some_and(|s| s.state != State::Pending)
-                            || self.complete(world, view, c, kk)
+                        all = self.complete_at(world, view, c, *ci, kk)
                             || (draw && {
-                                let h = self.hidden(view, c.body, &s.map_or_else(|| world.bodies[c.body as usize].bounds(*c), |s| s.bounds));
+                                let h = self.hidden(view, c.body, &bounds.unwrap_or_else(|| world.bodies[c.body as usize].bounds(*c)));
                                 by_view |= h;
                                 h
                             });
@@ -514,14 +652,14 @@ impl Streamer {
                 // the hidden child is in, or turning round shows its hole (the review of ADR 0073)
                 self.look_dirty |= by_view && all && !covered;
                 let mut cov = covered;
-                if !all && !covered && draw && self.emit(view, k, None, out) {
+                if !all && !covered && draw && self.emit_at(view, id, None, out) {
                     cov = true;
                 }
                 // such children would draw and ask for nothing: marked as their visits would, not visited
                 if empty_leaves {
                     let at = out.len() as u32;
-                    for c in kids {
-                        let s = self.slots.get_mut(c).unwrap();
+                    for (_, ci) in kids {
+                        let s = self.slots.at_mut(*ci);
                         s.last_seen = frame;
                         if draw && !cov {
                             (s.leaf_at, s.drawn_at) = (frame, (frame, at));
@@ -529,8 +667,8 @@ impl Streamer {
                     }
                     continue;
                 }
-                for &c in kids {
-                    stack.push((c, cov));
+                for &(c, ci) in kids {
+                    stack.push((c, cov, ci));
                 }
                 continue;
             }
@@ -564,7 +702,7 @@ impl Streamer {
                     }
                 }
             } else if draw && !covered {
-                self.emit(view, k, Some(hidden), out);
+                self.emit_at(view, id, Some(hidden), out);
             }
         }
         if draw {
@@ -602,7 +740,13 @@ impl Streamer {
 
     /// Append a ready chunk to the draw list, marked hidden if culled; true if it is ready.
     fn emit(&mut self, view: &View, k: Key, hidden: Option<bool>, out: &mut Vec<DrawChunk>) -> bool {
-        let Some(s) = self.slots.get_mut(&k) else { return false };
+        self.slots.id(&k).is_some_and(|id| self.emit_at(view, id, hidden, out))
+    }
+
+    /// `emit` for the slot at `id`.
+    fn emit_at(&mut self, view: &View, id: u32, hidden: Option<bool>, out: &mut Vec<DrawChunk>) -> bool {
+        let s = self.slots.at_mut(id);
+        let k = s.key;
         s.last_seen = self.frame;
         if hidden.is_some() {
             s.leaf_at = self.frame;
@@ -835,7 +979,7 @@ impl Streamer {
         let f = self.walk_frame;
         let (alloc, released) = (&mut self.alloc, &mut self.released);
         let n = self.slots.len();
-        self.slots.retain(|_, s| {
+        self.slots.retain(|s| {
             let keep = s.inflight || f.saturating_sub(s.last_seen) < age;
             if !keep {
                 if let State::Ready { off, len, .. } = s.state {
@@ -939,7 +1083,7 @@ mod tests {
         rayon::scope(|_| {}); // the worker pool starts on its first use: not a cost of the first edit
         let make =|s: &mut Streamer, w: &World, b: Block| {
             for k in sampling(w, b, !0) {
-                s.slots.entry(k).or_insert_with(|| Slot { state: State::Pending, last_seen: 0, want_v: 0, shown_v: 0, inflight: false, bounds: w.bodies[0].bounds(k), leaf_at: 0, clim: 0, drawn_at: (0, 0) });
+                s.slots.make(k, 0, || w.bodies[0].bounds(k));
             }
         };
         // one edit: the server's delta applied, its chunks touched and meshed again
@@ -1002,7 +1146,7 @@ mod tests {
         let base = (top.pos - IVec3::new(0, 0, 3)).div_euclid(IVec3::splat(16)) * 16;
         let at = |d: IVec3| Block { pos: base + d, ..top };
         for k in sampling(&w, at(IVec3::ZERO), !0) {
-            s.slots.entry(k).or_insert_with(|| Slot { state: State::Pending, last_seen: 0, want_v: 0, shown_v: 0, inflight: false, bounds: w.bodies[0].bounds(k), leaf_at: 0, clim: 0, drawn_at: (0, 0) });
+            s.slots.make(k, 0, || w.bodies[0].bounds(k));
         }
         let edit = |w: &mut World, s: &mut Streamer, b: Block, m: u16| {
             s.touched.clear();
@@ -1355,6 +1499,69 @@ mod tests {
                 assert_eq!((&fast.0, &fast.1, &fast.2), (&slow.0, &slow.1, &slow.2), "draw {draw}: the walks differ");
                 // the look-ahead splits 10 % further out, so fewer of its children are leaves
                 assert!(fast.3 * 3 < slow.3 * 2, "draw {draw}: {} visits against the slow walk's {}", fast.3, slow.3);
+            }
+        }
+    }
+
+    /// The slab's links: a slot made after its parent is linked into it, one made before is found by its key;
+    /// an evicted child is forgotten by its parent, and its place in the slab taken by the next slot made.
+    #[test]
+    fn a_slot_knows_its_children_through_making_and_eviction() {
+        let bd = || Bounds { c: DVec3::ZERO, rad: 1.0 };
+        let p = Key { body: 0, face: 2, level: 3, pos: IVec3::new(5, 6, 1) };
+        let mut s = Slots::default();
+        // a child made before its parent: looked up by key until the walk writes the link
+        let early = s.make(p.child(6), 0, bd);
+        let pi = s.make(p, 0, bd);
+        assert_eq!(s.at(pi).kids, [UNKNOWN; 8]);
+        assert_eq!(s.kid(pi, 6, &p.child(6)), early);
+        assert_eq!(s.kid(pi, 1, &p.child(1)), NONE);
+        s.at_mut(pi).kids[1] = NONE; // as the walk remembers a missing child
+        // made after: linked at once, over a remembered NONE
+        let late = s.make(p.child(1), 0, bd);
+        assert_eq!((s.at(pi).kids[1], s.kid(pi, 1, &p.child(1))), (late, late));
+        assert_eq!(s.make(p.child(1), 0, bd), late, "made once");
+        for i in 0..8 {
+            assert_eq!(parent(&p.child(i)), (p, i as usize));
+        }
+        // evicted: gone by key, its parent forgets it, its place is free for the next
+        s.at_mut(pi).kids[6] = early;
+        s.retain(|sl| sl.key != p.child(6));
+        assert!(s.get(&p.child(6)).is_none() && s.len() == 2);
+        assert_eq!(s.kid(pi, 6, &p.child(6)), NONE);
+        let other = s.make(p.child(3), 0, bd);
+        assert_eq!(other, early, "the freed place is used again");
+        assert_eq!((s.kid(pi, 3, &p.child(3)), s.kid(pi, 6, &p.child(6))), (other, NONE), "no link left to the place's old chunk");
+        assert_eq!(s.iter().count(), 3);
+    }
+
+    /// What a walk costs at detail 4 and 8, settled and after a move that leaves chunks waiting (a flight)
+    /// (cargo test -p engine --profile play --lib walk_cost -- --ignored --nocapture).
+    #[test]
+    #[ignore]
+    fn walk_cost() {
+        let w = World::new(1536, 64, 1337);
+        let b = &w.bodies[0];
+        let ground = b.spawn_point() + b.spawn * 1.7;
+        for k in [4.0, 8.0] {
+            let opts = Opts { k, greedy: true, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
+            let mut s = Streamer::new(&w, 1 << 24, opts);
+            settle(&mut s, &w, ground);
+            for (what, cam) in [("settled", ground), ("moved", ground + b.spawn.any_orthonormal_vector() * 60.0 + b.spawn * 30.0)] {
+                let view = View::new(cam, [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], &w);
+                let mut cost = |slow: bool| {
+                    let (v0, t, n) = (s.visits, Instant::now(), 200);
+                    let mut drawn = 0;
+                    for _ in 0..n {
+                        (s.slow_walk, s.dirty, s.frame) = (slow, true, s.frame + 1);
+                        let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+                        s.select(&w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+                        drawn = out.len();
+                    }
+                    format!("{{\"us\":{:.0},\"visits\":{},\"drawn\":{drawn}}}", t.elapsed().as_secs_f64() * 1e6 / n as f64, (s.visits - v0) / n)
+                };
+                let (fast, slow) = (cost(false), cost(true));
+                println!("{{\"walk_cost\":{{\"k\":{k},\"camera\":\"{what}\",\"slots\":{},\"walk\":{fast},\"slow_walk\":{slow}}}}}", s.slots.len());
             }
         }
     }
