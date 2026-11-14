@@ -69,6 +69,14 @@ In this order unless the developer says otherwise (the developer's order of 2026
    (`docs/design/mining.md`), an overhang open to the sky does not drop. Then the list below, skipping what
    the rows above already built.
 
+   **Queued by the developer, 2026-11-14** (after the inventory's look and the models of dropped items, which
+   are in work on `claude/inventory-look` and `claude/pile-models`):
+   - **Things on the ground are aimed at themselves** (stones, sticks, flint, mushrooms, berries; ADR 0082 takes
+     them by a click on the ground under them): a hit test on the thing's own boxes, the aim's outline on it,
+     a left click mines it, and a held right click picks it up.
+   - **Grass and the other plants get a hit box** so they can be mined, and give **plant fibre** (a new item;
+     `crafting.md` wants it for cord and hafting).
+
 1. **What the world's stages left open** (`docs/plans/worldgen-plan.md`):
    - W2b, the globe map (`docs/design/navigation.md` part 3): spike first;
    - the shader's 8 bits of material, before the block list passes 255 (ADR 0062's `shortcut:`);
