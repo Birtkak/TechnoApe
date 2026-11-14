@@ -412,16 +412,19 @@ impl Streamer {
         // last walk's chunks for this look instead (ADR 0025, F)
         let cams: Vec<DVec3> = (0..world.bodies.len()).map(|b| view.cam_in(b as u8)).collect();
         if draw {
-            let still = self.walk.as_ref().is_some_and(|w| {
-                w.cams.iter().zip(&cams).zip(world.bodies.iter()).all(|((a, b), body)| {
-                    // 4 m near a body, more the higher over it: the moon's orbit alone does not force a walk
-                    let over = (b.length() - body.radius).max(0.0);
-                    (*a - *b).length() < 4.0 + 0.01 * over
+            // 4 m near a body, more the higher over it: the moon's orbit alone does not force a walk
+            let within = |slack: f64| {
+                self.walk.as_ref().is_some_and(|w| {
+                    w.cams.iter().zip(&cams).zip(world.bodies.iter()).all(|((a, b), body)| {
+                        (*a - *b).length() < slack + 0.01 * (b.length() - body.radius).max(0.0)
+                    })
                 })
-            });
-            // (a hidden child's left-out cover: only a new look can show its hole; a walk for the same one picks the
-            // same, and at detail 8 one that never came, its quad buffer full, walked 6 ms every frame, ADR 0111)
-            let turned = self.look_dirty && self.walk.as_ref().is_some_and(|w| w.planes != view.planes);
+            };
+            let still = within(4.0);
+            // (a hidden child's left-out cover: only a new look or place can show its hole; a walk for the same one
+            // picks the same, and at detail 8 one that never came, its quad buffer full, walked 6 ms every frame,
+            // ADR 0111)
+            let turned = self.look_dirty && (!within(0.0) || self.walk.as_ref().is_some_and(|w| w.planes != view.planes));
             if still && !self.dirty && !turned {
                 self.cull(view, prio_mul, out, reqs, st);
                 return;
@@ -1296,6 +1299,11 @@ mod tests {
                 s.frame += 1;
                 s.select(&w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
                 assert_eq!(s.walks, walks, "the same look walked again");
+                // a step aside (under the 4 m a still camera allows) can bring the hidden child into view too
+                s.frame += 1;
+                s.select(&w, &View::new(cam + look, planes, &w), true, 1.0, &mut out, &mut reqs, &mut st);
+                assert_eq!(s.walks, walks + 1, "a frame that only culls would keep the hole of a hidden child when the camera steps aside");
+                let walks = s.walks;
                 let mut turned = planes;
                 turned[0] = -planes[0];
                 s.frame += 1;
