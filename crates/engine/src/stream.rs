@@ -96,6 +96,8 @@ struct Walk {
     missing: u32,
     holes: u32,
     cams: Vec<DVec3>,
+    /// The look it was walked for (`View::planes`).
+    planes: [Vec4; 6],
 }
 
 impl Slot {
@@ -213,6 +215,8 @@ pub struct Streamer {
     walk_frame: u64,
     /// A job was applied or a slot evicted since the last walk: the next frame walks.
     dirty: bool,
+    /// The last walk left a cover out for a child out of view: the next frame that looks another way walks.
+    look_dirty: bool,
     /// Slots touched since the last frame.
     touched: Vec<Key>,
     /// Walks done, for the benchmark line.
@@ -330,6 +334,7 @@ impl Streamer {
             walk: None,
             walk_frame: 0,
             dirty: true,
+            look_dirty: false,
             touched: Vec::new(),
             walks: 0,
             released: Vec::new(),
@@ -414,11 +419,15 @@ impl Streamer {
                     (*a - *b).length() < 4.0 + 0.01 * over
                 })
             });
-            if still && !self.dirty {
+            // (a hidden child's left-out cover: only a new look can show its hole; a walk for the same one picks the
+            // same, and at detail 8 one that never came, its quad buffer full, walked 6 ms every frame, ADR 0111)
+            let turned = self.look_dirty && self.walk.as_ref().is_some_and(|w| w.planes != view.planes);
+            if still && !self.dirty && !turned {
                 self.cull(view, prio_mul, out, reqs, st);
                 return;
             }
             self.dirty = false;
+            self.look_dirty = false;
             self.touched.clear();
             self.walk_frame = self.frame;
             self.walks += 1;
@@ -500,7 +509,7 @@ impl Streamer {
                 let all = covered || all;
                 // that choice depends on the look, which a frame that only culls does not check: walk again until
                 // the hidden child is in, or turning round shows its hole (the review of ADR 0073)
-                self.dirty |= by_view && all && !covered;
+                self.look_dirty |= by_view && all && !covered;
                 let mut cov = covered;
                 if !all && !covered && draw && self.emit(view, k, None, out) {
                     cov = true;
@@ -557,7 +566,7 @@ impl Streamer {
         }
         if draw {
             let draws = out[first..].iter().map(|d| (*d, self.slots[&d.key].bounds)).collect();
-            self.walk = Some(Walk { draws, first: first as u32, missing: st.missing - missing0, holes: st.holes - holes0, cams });
+            self.walk = Some(Walk { draws, first: first as u32, missing: st.missing - missing0, holes: st.holes - holes0, cams, planes: view.planes });
         }
     }
 
@@ -1280,8 +1289,18 @@ mod tests {
             s.dispatch(&w, &mut reqs);
             if st.missing == 0 && f > 0 {
                 assert_eq!(s.too_coarse(&w, &view, &out), 0, "every visible child is in, yet coarse chunks are drawn over them (frame {f}, {} still in flight)", s.inflight);
-                // a cover left out for a child out of view depends on the look: the next frame walks again
-                assert!(s.dirty, "a frame that only culls would keep the hole of a hidden child when the camera turns");
+                // a cover left out for a child out of view depends on the look: a frame that turns walks again, one
+                // that looks the same way culls (it walked every frame while the hidden child waited, ADR 0111)
+                let walks = s.walks;
+                let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+                s.frame += 1;
+                s.select(&w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+                assert_eq!(s.walks, walks, "the same look walked again");
+                let mut turned = planes;
+                turned[0] = -planes[0];
+                s.frame += 1;
+                s.select(&w, &View::new(cam, turned, &w), true, 1.0, &mut out, &mut reqs, &mut st);
+                assert_eq!(s.walks, walks + 1, "a frame that only culls would keep the hole of a hidden child when the camera turns");
                 return;
             }
         }
