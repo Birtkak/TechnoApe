@@ -1090,6 +1090,53 @@ mod tests {
         }
     }
 
+    /// ADR 0114 second round: the hand axe lying in a pile rests on the ground's top (its lowest quad corner at the
+    /// floor, not in it) and is its `item` size long (0.3 m a cell: about 21 cm).
+    #[test]
+    fn a_lying_axe_rests_on_the_floor_at_its_size() {
+        let pal = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        let (model, life) = parse_life("hand axe.toml", include_str!("../../../data/models/hand axe.toml"), &pal, &|_| true, &|_| true).unwrap();
+        let paint = engine::models::painting(include_bytes!("../../../data/models/hand axe.png"), &pal).unwrap();
+        let l = Loaded::new("hand axe".into(), model, life, Some(&paint));
+        let long = (l.bounds[1] - l.bounds[0]).max_element() * l.model.item.unwrap();
+        let w = World::new(768, 256, 1);
+        let b = &w.bodies[0];
+        let mut m = Models::new(&crate::Args([("models".to_string(), "no/such/folder".to_string())].into_iter().collect()));
+        let mut at = 0;
+        let parts: Vec<(u32, u32)> = l.quads.iter().map(|q| { at += q.len() as u32; (at - q.len() as u32, q.len() as u32) }).collect();
+        let quads: Vec<[u32; 4]> = l.quads.concat();
+        m.list = vec![(l, parts.clone())];
+        let floor = crate::fx::At::floor_of(&w, w.air_over_ground(0, b.spawn));
+        m.piles = vec![crate::piles::Lying { name: "hand axe".into(), item: true, body: 0, p: floor.p, axes: floor.axes, turn: 0.7 }];
+        let (mut fx, mut audio) = (crate::fx::Fx::new(true, 64, 1.0, 1), crate::audio::Audio::new());
+        let eye = (b.centre + b.spawn * (b.height(b.spawn) + 2.0), DVec3::X, b.spawn);
+        m.frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], 0, eye, 0.0, None, &[], &mut fx, &mut audio);
+        let (up, base) = (floor.axes[0], b.centre.as_vec3() + floor.p);
+        let (mut low, mut pts) = (f32::MAX, vec![]);
+        for pc in &m.pieces {
+            let (q0, n) = *parts.iter().find(|p| p.0 == pc.q0 && p.1 > 0).unwrap();
+            for q in &quads[q0 as usize..(q0 + n) as usize] {
+                let dir = q[0] >> 18 & 7;
+                let a = (dir / 2) as usize;
+                let mut c = Vec3::new((q[0] & 63) as f32, (q[0] >> 6 & 63) as f32, (q[0] >> 12 & 63) as f32);
+                c[a] += if dir & 1 == 0 { 1.0 } else { 0.0 };
+                let (e1, e2) = ((a + 1) % 3, (a + 2) % 3);
+                for (u, v) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
+                    let mut p = c;
+                    p[e1] += u * (q[1] & 63) as f32;
+                    p[e2] += v * (q[1] >> 6 & 63) as f32;
+                    let v4 = p.extend(1.0);
+                    let r = Vec3::new(Vec4::from(pc.x[0]).dot(v4), Vec4::from(pc.x[1]).dot(v4), Vec4::from(pc.x[2]).dot(v4)) - base;
+                    low = low.min(r.dot(up));
+                    pts.push(r - up * r.dot(up));
+                }
+            }
+        }
+        assert!(low.abs() < 0.005, "its lowest corner {low} m from the floor");
+        let span = pts.iter().flat_map(|a| pts.iter().map(move |b| (*a - *b).length())).fold(0.0, f32::max);
+        assert!((span - long).abs() < 0.03, "{span} m long on the ground, its item size {long}");
+    }
+
     /// The Studio's overlay draws the model in square metres about the eye it sends: the renderer's frame for
     /// the camera and the shown model must be square too, or the two drift apart away from the look-at point
     /// (a cell of the cube-sphere is skewed and not quite 1 m; the bug: edges and box a voxel off a long model).
