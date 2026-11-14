@@ -11,6 +11,10 @@ use std::collections::BTreeMap;
 /// about 3.5 ms of the 50 ms tick.
 pub const BUDGET: usize = 1024;
 
+/// ADR 0101's slides of a pile's top, sloped tops on loose blocks (`mesh`) and glides of moved blocks (client):
+/// off for now (ADR 0106, the developer: "just have sand and gravel fall down"); true brings all three back.
+pub const SLOPES_AND_SLIDES: bool = false;
+
 /// (body, face, layer, i, j): layer first, so a tick visits bottom up and a stack falls together.
 type Key = (u8, u8, i32, i32, i32);
 
@@ -70,6 +74,11 @@ impl Falls {
     /// a step of two (ADR 0101), else sleeps. A player is no floor: it falls through the player's cells and buries them (the developer,
     /// 2026-11-13; the server takes their breath). Each move is two edits, pushed to `out`.
     pub fn step(&mut self, world: &mut World, tick: u64, out: &mut Vec<(Block, u16)>) {
+        self.step_as(world, tick, out, SLOPES_AND_SLIDES)
+    }
+
+    /// `step` with the slides on or off (the tests keep ADR 0101's rule running).
+    pub(crate) fn step_as(&mut self, world: &mut World, tick: u64, out: &mut Vec<(Block, u16)>, slides: bool) {
         let mut now = std::mem::take(&mut self.awake);
         let mut visits = 0;
         while let Some((k, (t, fell))) = now.pop_first() {
@@ -108,7 +117,7 @@ impl Falls {
                 // riding on a block in flight that waited this tick (it was visited first): it waits with it
                 self.awake.insert(k, s);
                 continue;
-            } else if !open(world, near(world, p, 0, 0, 1)) {
+            } else if !slides || !open(world, near(world, p, 0, 0, 1)) {
                 // calmer (ADR 0101): only a pile's top slides; a block with anything on it holds
                 continue;
             } else {
@@ -160,9 +169,14 @@ mod tests {
     }
 
     fn settle(f: &mut Falls, w: &mut World, out: &mut Vec<(Block, u16)>) -> u64 {
+        settle_as(f, w, out, SLOPES_AND_SLIDES)
+    }
+
+    /// ADR 0101's slide tests run with the slides on, whatever the switch says.
+    fn settle_as(f: &mut Falls, w: &mut World, out: &mut Vec<(Block, u16)>, slides: bool) -> u64 {
         let mut tick = 0;
         while f.awake() > 0 {
-            f.step(w, tick, out);
+            f.step_as(w, tick, out, slides);
             tick += 1;
             assert!(tick < 2000, "never settled");
         }
@@ -260,7 +274,7 @@ mod tests {
             w.set_block(at(top, 0, 0, l), sand);
             f.wake(&w, at(top, 0, 0, l));
         }
-        settle(&mut f, &mut w, &mut out);
+        settle_as(&mut f, &mut w, &mut out, true);
         let h = |di: i32, dj: i32| (0..6).filter(|l| w.block(at(top, di, dj, *l)) == sand).count() as i32;
         let n: i32 = (-3..=3).flat_map(|di| (-3..=3).map(move |dj| (di, dj))).map(|(di, dj)| h(di, dj)).sum();
         assert_eq!(n, 5, "no block made or lost");
@@ -301,7 +315,7 @@ mod tests {
                 w.set_block(at(top, 0, 0, l), sand);
                 f.wake(&w, at(top, 0, 0, l));
             }
-            settle(&mut f, &mut w, &mut Vec::new());
+            settle_as(&mut f, &mut w, &mut Vec::new(), true);
             // a step of two: the top slides one over (a move) and falls a cell (another)
             assert_eq!(f.moves, moves, "a step of {h}");
             let hs: Vec<usize> = (0..3).map(|i| (0..4).filter(|l| w.block(at(top, i, 0, *l)) == sand).count()).collect();
@@ -324,7 +338,7 @@ mod tests {
         let mut out = Vec::new();
         let mut tick = 0;
         while f.awake() > 0 {
-            f.step(&mut w, tick, &mut out);
+            f.step_as(&mut w, tick, &mut out, true);
             tick += 1;
             // the first column's sand is one unbroken stack on the floor after every tick
             let ls: Vec<i32> = (0..8).filter(|l| w.block(at(top, 0, 0, *l)) == sand).collect();
@@ -339,12 +353,12 @@ mod tests {
             f.wake(&w, at(top, 0, 0, l));
         }
         w.set_block(at(top, 0, 0, 3), stone);
-        settle(&mut f, &mut w, &mut Vec::new());
+        settle_as(&mut f, &mut w, &mut Vec::new(), true);
         assert_eq!(f.moves, 0, "sand under a stone slid out");
         // the stone taken: the sand under it is the top now, woken, and slides
         w.set_block(at(top, 0, 0, 3), AIR);
         f.wake(&w, at(top, 0, 0, 3));
-        settle(&mut f, &mut w, &mut Vec::new());
+        settle_as(&mut f, &mut w, &mut Vec::new(), true);
         assert!(f.moves > 0, "the new top never woke");
     }
 
@@ -360,9 +374,37 @@ mod tests {
             w.set_block(at(top, 0, 0, l), sand);
             f.wake(&w, at(top, 0, 0, l));
         }
-        settle(&mut f, &mut w, &mut Vec::new());
+        settle_as(&mut f, &mut w, &mut Vec::new(), true);
         let hs: Vec<usize> = (0..4).map(|i| (0..8).filter(|l| w.block(at(top, i, 0, *l)) == sand).count()).collect();
         assert_eq!(hs, vec![1, 1, 1, 1]);
+    }
+
+    /// ADR 0106: with the slides off, a sand column over a dug hole falls straight down and the sand around it
+    /// stays where it is: no move is sideways.
+    #[test]
+    fn a_column_over_a_dug_hole_falls_straight_and_its_neighbours_stay() {
+        let (mut w, top) = floor();
+        let sand = BLOCKS.id("sand");
+        for l in 0..3 {
+            for di in -1..=1 {
+                for dj in -1..=1 {
+                    w.set_block(at(top, di, dj, l), sand);
+                }
+            }
+        }
+        let hole = at(top, 0, 0, -1);
+        w.set_block(hole, AIR);
+        let mut f = Falls::default();
+        f.wake(&w, hole);
+        let mut out = Vec::new();
+        settle(&mut f, &mut w, &mut out);
+        assert!(f.moves > 0, "the column fell");
+        assert!(out.chunks(2).all(|m| m[0].0.pos.truncate() == m[1].0.pos.truncate()), "a move went sideways");
+        for (di, dj) in (-1..=1).flat_map(|i| (-1..=1).map(move |j| (i, j))).filter(|&p| p != (0, 0)) {
+            assert!((0..3).all(|l| w.block(at(top, di, dj, l)) == sand), "the neighbour {di},{dj} moved");
+        }
+        assert!((0..3).all(|l| w.block(at(top, 0, 0, l)) == AIR), "the column is gone from over the hole");
+        assert_eq!(sand_made(&w), 27, "no block made or lost");
     }
 
     #[test]

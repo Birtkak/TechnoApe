@@ -243,9 +243,10 @@ fn clouds(px: vec2i, dir: vec3f, dist: f32) -> vec4f {
 }
 
 // the direct light at a pixel, its light (without the albedo) smoothed over the 3x3 around it where the
-// neighbours lie on the same surface (`edge_w`), the albedo put back: the sun's and the lamps' soft shadows are
-// one ray a pixel to a point of the light, dithered (shader.wgsl `in_disc`, `lamp_target`), and this turns the
-// dither into a gradient without blurring the paint (bug 2026-11-13_14-24-14)
+// neighbours lie on the same surface (`edge_w`), the albedo put back: it turned the soft shadows' per-pixel
+// dither into a gradient without blurring the paint (bug 2026-11-13_14-24-14). Since ADR 0108 the direct light
+// has no dither (a texel's light is flat, shader.wgsl `sun_seen`, `lamp_seen`): this only softens a texel step's
+// edge by a pixel. Kept until stills show it can go.
 fn direct_smooth(px: vec2i, gb: vec4f) -> vec3f {
     let d0 = textureLoad(direct_t, px, 0).rgb;
     // (a pixel that glows or mirrors, its albedo near 0, keeps its own: its light over its albedo means nothing)

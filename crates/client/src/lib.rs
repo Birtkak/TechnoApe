@@ -442,6 +442,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         }
         other => panic!("no welcome from the server: {other:?}"),
     };
+    // the far chunks' summary of the edits is the client's (ADR 0109)
+    world.open_far();
     // the waypoints live beside the save (shortcut: none without one, and none per remote server yet)
     let waypoint_file = save_path.as_ref().map(|s| format!("{s}.waypoints"));
     // the server spawns players on the +y pole; the client starts its prediction there too
@@ -604,6 +606,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         aim: None,
         held: None,
         slot: 0,
+        hand_sent: None,
+        struck: f64::MIN,
         held_name: (usize::MAX, Instant::now()),
         fx,
         models,

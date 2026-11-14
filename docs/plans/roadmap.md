@@ -96,8 +96,8 @@ In this order unless the developer says otherwise (the developer's order of 2026
   - **a finite sea:** water taken from a planet lowers its sea level, and later its clouds, until it is gone;
   - **a planet scanner:** it tells how much copper (or anything) a body still holds.
 - Gravity that falls off with distance and orbits; the first megaproject.
-- **Big builds seen from afar:** a far chunk point-samples edits, so a structure thinner than a coarse cell
-  vanishes from orbit; keep a per-level summary of edits.
+- ~~**Big builds seen from afar**~~ done (ADR 0109): a coarse cell takes a placed block anywhere in it, and a
+  far lamp glows. Left: a far lamp's light on the ground around it.
 - **Builds in free space** (a ring around Luna, a structure around the sun) need their own grid, as ships do:
   a body's grid ends at its build headroom (ADR 0021).
 - **The planet's air after weather** (ADR 0010): pollution (smoke and waste in air, water and soil; filters

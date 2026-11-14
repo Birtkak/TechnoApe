@@ -254,7 +254,8 @@ impl App {
                         if second {
                             // the block arriving (ADR 0101): it glides in from the cell it left, one hiss a slump
                             let from = v[k - 1].0;
-                            if self.fx.on {
+                            // ADR 0106: glides off with the slopes, the block hops a cell a tick
+                            if self.fx.on && engine::fall::SLOPES_AND_SLIDES {
                                 self.glide(from, b, m);
                             }
                             // a slide, not a fall: a block dropping down a shaft is no slump
@@ -338,6 +339,14 @@ impl App {
                     (self.creative, self.bucket_water) = (creative, water);
                     // the slots once every move sent is answered: until then the prediction stands
                     if self.items_pending.is_empty() && slots.len() == engine::items::APE_SLOTS {
+                        // a tool on its last use gone from its slot wore out (ADR 0110): its snap and a few chips
+                        let worn = self.inv.iter().zip(&slots).find(|(a, b)| engine::items::left(**a) == Some(1) && b.is_none_or(|b| Some(b.item) != a.map(|a| a.item))).and_then(|(a, _)| *a);
+                        if let Some(worn) = worn.filter(|_| !self.creative) {
+                            let feet = self.me.pos;
+                            let ahead = self.world.block_at(feet + phys::up(&self.world, feet) * 1.2 + self.me.fwd * 0.6);
+                            self.audio.play("tool.break", None, 1.0, 1.0, false);
+                            self.fx.play(fx::id("knap"), &fx::At::cell(&self.world, ahead, engine::items::ITEMS.look(worn.item)));
+                        }
                         self.inv = slots;
                     }
                 }
@@ -476,8 +485,9 @@ impl App {
             }
             if m == crate::DIG {
                 let loose = engine::crack::drop(&self.world, b, was);
-                eprintln!("[technoape] dig {:?}: {} more loosened", b.pos, loose.len());
-                for c in std::iter::once(b).chain(loose) {
+                let roof = engine::crack::undercut(&self.world, &[b], &loose);
+                eprintln!("[technoape] dig {:?}: {} more loosened, {} by undercut", b.pos, loose.len(), roof.len());
+                for c in std::iter::once(b).chain(loose).chain(roof) {
                     let old = self.world.block(c);
                     let r = engine::edit::dug(old, true);
                     self.world.set_block(c, r);
@@ -795,7 +805,11 @@ impl App {
         let blow = here.wind[0].hypot(here.wind[1]) as f64;
         let wind = if title { 0.0 } else { (0.05 + over_air.clamp(0.0, 400.0) / 400.0 * 0.3 + self.me.vel.length() / 50.0 + blow / 20.0).min(1.0) as f32 * air };
         self.audio.hold("wind", wind);
-        let wet = (here.rain / 6.0).sqrt().min(1.0) * air;
+        // (no rain heard over the clouds it falls from, ADR 0108: weighed where the drops start)
+        let b0 = &self.world.bodies[0];
+        let from = (p.pos - b0.centre).length() + crate::weather::RAIN_UP + 2.5;
+        let cloud_k = b0.sea.map_or(1.0, |s| crate::weather::from_cloud(from - b0.layer_r(s))) as f32;
+        let wet = (here.rain / 6.0).sqrt().min(1.0) * air * cloud_k;
         let rain_on = self.settings.at(S::Rain) > 0 && here.temp >= 0.0 && here.rain >= 0.3;
         let open = self.fall.open;
         self.audio.hold("rain", if rain_on { wet * open } else { 0.0 });
@@ -803,7 +817,8 @@ impl App {
         let flash = if title || cf != 0 { 0.0 } else { self.fall.storm(&self.sky, self.seed, &self.world, p.pos, wt, &mut self.audio) };
         self.audio.hold("music.menu", if title { 1.0 } else { 0.0 });
         // a grey sky under cloud, darker in rain (ADR 0076)
-        let grey = here.cover * air;
+        // (by the cover the clouds fill to, clouds.wgsl `cl_cover`: a fair sky of scattered heaps stays blue, ADR 0108)
+        let grey = crate::weather::cl_cover(here.cover) * air;
         let sky_c = Vec3::new(0.45, 0.65, 0.95).lerp(Vec3::new(0.52, 0.56, 0.62) * (1.0 - 0.45 * wet), grey) * day * air + Vec3::new(0.01, 0.012, 0.025);
         // the bounce light on or off (off: a flat fill from the sky), and the screen's brightness
         let fill = sky_c * 0.35 + Vec3::splat(0.01);
@@ -897,10 +912,9 @@ impl App {
         // the models (ADR 0047): the watcher's newest, then this frame's pieces (timed under "table")
         self.models.take(&gpu.queue, &gpu.mquads);
         let hand = (self.run == "play" && !self.hammer && !self.bucket && !self.f3 && self.home() != Menu::Title)
-            .then(|| self.slot_block(self.slot))
+            .then(|| self.inv.get(self.slot).copied().flatten())
             .flatten()
-            .and_then(|m| BLOCKS.get(m))
-            .map(|d| d.name.clone());
+            .map(|s| engine::items::ITEMS.name(s.item).to_string());
         let now = Instant::now();
         let herd: Vec<crate::models::Beast> = self
             .animals
@@ -1059,8 +1073,10 @@ impl App {
                 ts_use = Some(i);
             }
         }
+        // (its own handle of the query set: `gpu` is taken again below when the TLAS grows)
+        let ts_qs = gpu.ts.as_ref().map(|t| t.0.clone());
         let stamp = |enc: &mut wgpu::CommandEncoder, k: usize| {
-            if let (Some(i), Some((qs, _, _))) = (ts_use, &gpu.ts) {
+            if let (Some(i), Some(qs)) = (ts_use, &ts_qs) {
                 enc.write_timestamp(qs, (i * TS_N + k) as u32);
             }
         };
@@ -1068,6 +1084,13 @@ impl App {
         let rt = self.rt.as_mut().unwrap();
         rt.record(&gpu.device, &gpu.queue, &mut enc, &insts);
         let rt_pending = rt.pending;
+        // a larger TLAS: bound before this frame's passes, which trace it (ADR 0111)
+        if rt.grew {
+            let (g, rt) = (self.gpu.as_mut().unwrap(), self.rt.as_ref().unwrap());
+            g.rebind(&rt.tlas);
+            self.gi.as_mut().unwrap().rebind(&g.device, g.shared(&rt.tlas));
+        }
+        let gpu = self.gpu.as_ref().unwrap();
         self.drawn.rt_pending = rt_pending;
         stamp(&mut enc, 1);
         lap!("rt");

@@ -87,10 +87,10 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 - Saves (ADR 0016): `run=play` keeps `saves/seed-<seed>-planet-<n>.sav`, the server `saves/server.sav`; both
   carry on from it. `save=file` names another, `save=0` keeps none.
 - Bots: `technoape-bot connect=host n=50 script="wait 1; dig 0.25 -0.5 0.25; block 0.25 -0.5 0.25; report"`
-  runs windowless players on the protocol (commands: spawn, walk, wait, dig, place, block, report, quit; items: slots, move a b n, drop a n, take dx dy dz k a n, put a dx dy dz k n, grab <item> a n; pick dx dy dz takes a pick-up, ADR 0082;
+  runs windowless players on the protocol (commands: spawn, walk, wait, dig, place, block, report, quit; items: slots, move a b n, drop a n, take dx dy dz k a n, put a dx dy dz k n, grab <item> a n; pick dx dy dz takes a pick-up, ADR 0082; hold k the hotbar slot in hand, strike dx dy dz strikes it on a block (knapping), ADR 0110;
   `script=-` takes them live from stdin). Output is one JSON line per report or block. Use bots, not a second
   windowed client, for multiplayer checks: two windows on one PC throttle each other (ADR 0006).
-- Play: `technoape.exe run=play onscreen=1` (WASD, space; left click digs a block (in survival held, by its hardness, ADR 0034), right click places one;
+- Play: `technoape.exe run=play onscreen=1` (WASD, space; left click digs a block (in survival held, by its hardness, ADR 0034), right click places one (in survival with flint in hand, on rock, it strikes: 4 strikes knap a hand axe, `/give hand_axe`; the tool in hand digs its blocks in hardness / speed and wears out, ADR 0110);
   H the build hammer, B its shape, wheel its height; V the bucket, left scoops, right pours;
   in space the mouse pitches you freely and Q/E roll, gravity rights you as it pulls (ADR 0024); C held zooms 3x;
   1-9 or the wheel the hotbar; Tab the inventory (ADR 0074, 0075: survival the hotbar and a worn pack's rows, a click lifts and puts, right click halves or puts one, shift-click moves across, outside throws a pile; creative every block and item in tabs and a search, a click takes a stack; middle click picks a block in the world; dug blocks fall as piles, walked over to pick up; in survival rock and hard ore leave their rubble, a falling block dug again into the slots, ADR 0093; `/give basket`, `hide pack`, `frame pack` open 9, 18, 27 slots worn); N drops a waypoint and creative shows the compass, where you are and the waypoints

@@ -51,6 +51,13 @@ pub enum ToServer {
     /// Takes the pick-up lying in air cell `at` into the slots (ADR 0082): the server checks reach, that one lies
     /// there (`clutter::pickup_at`), was not taken and fits, then answers `Done` with the same `seq`.
     Take { seq: u32, at: crate::world::Block },
+    /// The hotbar slot in hand, 0..8 (ADR 0110): the tool a survival dig uses (`items::tool`) and the stone a
+    /// `Strike` knaps. Sent on join and on every change of slot; the server takes slot 0 until it comes.
+    Hand(u8),
+    /// The place button on block `at` with a knapping stone in hand, in survival (ADR 0110): on hard rock
+    /// (`items::knaps`) the server counts the strikes, at most one every `items::KNAP_WAIT_S`, and after the item's
+    /// `knap` count one of it becomes the item it knaps into. Nothing is answered but the slots.
+    Strike(Block),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

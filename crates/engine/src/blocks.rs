@@ -108,9 +108,16 @@ struct Raw {
     bedding: f32,
     #[serde(default)]
     joints: u16,
+    #[serde(default)]
+    span: u16,
     #[serde(default = "full")]
     stack: u16,
     holds: Option<(String, f32)>,
+    tool: Option<String>,
+    #[serde(default)]
+    grade: u8,
+    #[serde(default)]
+    later: bool,
     spring: Option<RawTone>,
     autumn: Option<RawTone>,
     winter: Option<RawTone>,
@@ -198,6 +205,9 @@ fn yes() -> bool {
 fn full() -> u16 {
     crate::items::STACK
 }
+/// The kinds of tool a block may name (items.md "Tools"; saw and wrench come later).
+pub const TOOLS: [&str; 5] = ["axe", "pick", "shovel", "hammer", "knife"];
+
 /// Seconds a rubble block takes by hand (mining.md: fast).
 pub const RUBBLE_S: f32 = 0.5;
 fn grey() -> [f32; 3] {
@@ -271,8 +281,17 @@ pub struct Def {
     pub bedding: f32,
     /// Massive rock: about how many columns between its joints, 0 for none.
     pub joints: u16,
+    /// Bedded rock that drops by undercut (ADR 0112): the columns a roof of it carries from its support, 0 never.
+    pub span: u16,
     /// The rock or ore a rubble block is of; None for any other block.
     pub rubble_of: Option<u16>,
+    /// The kind of tool that digs it faster (`TOOLS`, items.md "Tools"; ADR 0110), None for air and water.
+    pub tool: Option<String>,
+    /// The least grade of that tool that takes it when it is not loose (0 hands, 1 stone, 2 copper and bronze,
+    /// 3 iron, 4 steel).
+    pub grade: u8,
+    /// No tool of its grade can be made yet: the data test lets it wait.
+    pub later: bool,
     /// How many make a full slot (ADR 0074), 1..64.
     pub stack: u16,
     /// What a generated, never-edited cell of it may hold besides itself, and the chance (ADR 0097: flint in
@@ -392,13 +411,19 @@ impl Registry {
             if !(r.bedding == 0.0 || (1.0..=50.0).contains(&r.bedding)) || r.joints == 1 || r.joints > 100 || (r.bedding > 0.0 || r.joints > 0) && r.rubble.is_none() {
                 return Err(format!("block '{}': bedding 1..50 m, joints 2..100 columns, and only on a rock that makes rubble", r.name));
             }
+            if r.span > 16 || r.span > 0 && r.bedding == 0.0 {
+                return Err(format!("block '{}': span 1..16 columns, only on bedded rock", r.name));
+            }
             if !(1..=crate::items::STACK).contains(&r.stack) {
                 return Err(format!("block '{}': stack outside 1..64", r.name));
+            }
+            if r.tool.as_ref().is_some_and(|t| !TOOLS.contains(&t.as_str())) || r.grade > 4 || ((r.grade > 0 || r.later) && (r.tool.is_none() || r.loose)) || (r.tool.is_some() && !r.solid) {
+                return Err(format!("block '{}': tool is one of {TOOLS:?} on a solid block, grade 0..4 and later only with a tool on a block that is not loose", r.name));
             }
             if r.holds.as_ref().is_some_and(|h| !(h.1 > 0.0 && h.1 <= 1.0) || !r.loose) {
                 return Err(format!("block '{}': holds is for a loose block, with a chance over 0 and at most 1", r.name));
             }
-            let def = Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, falls: r.falls, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger, joins: r.joins, rubble: r.rubble, rubble_of: None, stack: r.stack, holds: r.holds.clone(), wood: r.wood, fluff, bedding: r.bedding, joints: r.joints };
+            let def = Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, falls: r.falls, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger, joins: r.joins, rubble: r.rubble, rubble_of: None, stack: r.stack, holds: r.holds.clone(), tool: r.tool.clone(), grade: r.grade, later: r.later, wood: r.wood, fluff, bedding: r.bedding, joints: r.joints, span: r.span };
             if let Some(t) = r.rubble {
                 // the twin: the rock's colours in pebbles, loose and falling (ADR 0093)
                 let name = format!("{} rubble", r.name);
@@ -408,7 +433,7 @@ impl Registry {
                 if r.loose || r.falls || !r.solid {
                     return Err(format!("block '{}': only a solid block that is not loose makes rubble", r.name));
                 }
-                defs[t as usize] = Some(Def { id: t, name, pattern: Pattern::Pebbles, size: 2, amount: 0.6, side: t, light: [0.0; 3], was: Vec::new(), hardness: RUBBLE_S, loose: true, falls: true, model: None, see: See::Opaque, seasons: None, stagger: 0.0, joins: false, rubble: None, rubble_of: Some(r.id), holds: None, wood: false, fluff: None, bedding: 0.0, joints: 0, ..def.clone() });
+                defs[t as usize] = Some(Def { id: t, name, pattern: Pattern::Pebbles, size: 2, amount: 0.6, side: t, light: [0.0; 3], was: Vec::new(), hardness: RUBBLE_S, loose: true, falls: true, model: None, see: See::Opaque, seasons: None, stagger: 0.0, joins: false, rubble: None, rubble_of: Some(r.id), holds: None, tool: Some("shovel".into()), grade: 0, later: false, wood: false, fluff: None, bedding: 0.0, joints: 0, span: 0, ..def.clone() });
             }
             if defs[r.id as usize].is_some() {
                 return Err(format!("block id {} is used twice", r.id));
@@ -524,6 +549,25 @@ hardness = 0.3
         assert!(!stone.loose && stone.hardness > 5.0, "stone is slow by hand and gives nothing");
     }
 
+    /// ADR 0110 (items.md "Tools"): every solid block names the kind of tool that digs it; soil and sand a
+    /// shovel, wood and leaves an axe, rock a pick with a grade, rubble a shovel; air none. A bad kind or a grade
+    /// over 4 is refused.
+    #[test]
+    fn every_solid_block_names_its_tool() {
+        for d in BLOCKS.placeable() {
+            assert!(d.tool.is_some(), "{} names no tool", d.name);
+        }
+        assert!(BLOCKS.get(AIR).unwrap().tool.is_none());
+        let tool = |n: &str| BLOCKS.get(BLOCKS.id(n)).map(|d| (d.tool.clone().unwrap_or_default(), d.grade)).unwrap();
+        for (n, t, g) in [("dirt", "shovel", 0), ("sand", "shovel", 0), ("gravel", "shovel", 0), ("log", "axe", 0), ("oak leaves", "axe", 0), ("stone", "pick", 1), ("granite", "pick", 1), ("stone rubble", "shovel", 0)] {
+            assert_eq!(tool(n), (t.to_string(), g), "{n}");
+        }
+        let one = |extra: &str| Registry::parse(&format!("[[block]]\nid = 0\nname = \"air\"\nsolid = false\n[[block]]\nid = 1\nname = \"x\"\nhardness = 1\n{extra}"));
+        assert!(one("tool = \"pick\"\ngrade = 2\n").is_ok());
+        assert!(one("tool = \"spoon\"\n").is_err_and(|e| e.contains("tool")) && one("tool = \"pick\"\ngrade = 5\n").is_err_and(|e| e.contains("grade")));
+        assert!(one("grade = 1\n").is_err() && one("tool = \"pick\"\nloose = true\nlater = true\n").is_err(), "a grade without a tool, later on a loose block");
+    }
+
     /// ADR 0093 (mining.md 4): every rock and hard ore digs into a rubble twin that falls and bare hands take;
     /// soil, sand, wood and leaves do not; rock, rubble and ore stack to 16.
     #[test]
@@ -566,6 +610,10 @@ loose = true
         assert!(rock("stack = 0
 ").is_err() && rock("stack = 65
 ").is_err());
+        // a span (ADR 0112): only on bedded rock, 1..16 columns; shale 1, limestone and sandstone 2, massive rock none
+        assert!(rock("rubble = 2\nbedding = 2\nspan = 2\n").is_ok() && rock("rubble = 2\nspan = 2\n").is_err() && rock("rubble = 2\nbedding = 2\nspan = 17\n").is_err());
+        let span = |n: &str| BLOCKS.get(BLOCKS.id(n)).unwrap().span;
+        assert_eq!(["shale", "limestone", "sandstone", "granite", "basalt", "stone"].map(span), [1, 2, 2, 0, 0, 0]);
         // a second drop (ADR 0097): a loose block's, a chance in (0, 1]
         assert!(rock("loose = true
 holds = [\"flint\", 0.25]

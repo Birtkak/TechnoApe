@@ -142,9 +142,11 @@ radius = 2
 
 [[biome]]
 name = "ice"
-top = "ice"
-band = "snow"
+# an ice sheet under its snow, blue ice where the wind scours it bare (ADR 0107); the sea's sheet is ice
+top = "snow"
+band = "ice"
 rock = "stone"
+patches = [["ice", 0.2]]
 
 [[biome]]
 name = "tundra"

@@ -1,0 +1,31 @@
+# A draft hand axe (Claude's, listed in data/drafts.txt; ADR 0110): a knapped flint, a teardrop standing point
+# up with its butt in the fist, the flaked face to the eye. Drawn in hand only (in a slot and a pile it is the
+# cube of its `look`). Shown at the in-hand scale of any model (a cell is 0.35 m there), so it is larger than
+# life in voxels: about 22 by 30 cm on screen. For the Studio to repaint.
+colours = ["stone dark", "stone", "stone light"]
+
+[[part]]
+name = "body"
+box = [5, 7, 2]
+voxels = """
+.aaa.
+.aaa.
+
+abcba
+aaaaa
+
+abccb
+aaaaa
+
+acbcb
+aaaaa
+
+.bcb.
+.aaa.
+
+.bcb.
+.aaa.
+
+..b..
+..a..
+"""

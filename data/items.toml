@@ -41,6 +41,30 @@ look = "stone"
 name = "flint"
 stack = 16
 look = "slate"
+# knapping (ADR 0110): struck this many times on hard rock (a block a pick digs and hands do not take) with the
+# place button in survival, one flint becomes the item named
+knap = ["hand axe", 4]
+
+# Tools (ADR 0110, items.md "Tools"): `tool` is the kind (axe, pick, shovel, hammer, knife, or "any": counts as
+# every kind) and `head` its material, a [[material]] row whose numbers it digs by: `speed` (dig time is
+# hardness / speed on a block whose `tool` is its kind; else the bare-hand time), `grade` (1 stone, 2 copper and
+# bronze, 3 iron, 4 steel: it takes a block that is not loose of at most that grade) and `uses` (digs; a dig
+# costs one, at none it is gone and leaves nothing). A tool stacks by one.
+# shortcut: one material; hafted axes, picks and shovels (a head and a handle) wait for crafting.md's process
+# runner, and may then haft this row's numbers up.
+[[material]]
+name = "flint"
+speed = 2.0
+grade = 1
+uses = 40
+
+# The first tool: a flint knapped on rock (ADR 0110), unhafted, so every kind at once, slow and soon worn
+[[item]]
+name = "hand axe"
+stack = 1
+look = "slate"
+tool = "any"
+head = "flint"
 
 [[item]]
 name = "mushroom"

@@ -78,6 +78,12 @@ fn a_dig_under_the_feet_moves_the_prediction_as_the_server_will() {
 }
 
 /// The hotbar slot (0 to 8) the wheel turns to from `slot`: on to the next when it turns down, round the end.
+/// How much of a tool's life is left, 0..1, for the bar on its slot (ADR 0110); None for any other stack.
+pub(crate) fn wear(s: engine::items::Stack) -> Option<f32> {
+    let uses = engine::items::tool(Some(s))?.uses;
+    Some(engine::items::left(Some(s))? as f32 / uses as f32)
+}
+
 pub(crate) fn wheel_slot(slot: usize, down: bool) -> usize {
     (slot + if down { 1 } else { 8 }) % 9
 }
@@ -126,6 +132,8 @@ impl App {
                 let at = self.aim.unwrap().1;
                 self.link.send(ToServer::Take { seq: self.pred.seq(), at });
             }
+            // knapping by doing (ADR 0110): the place button with a knapping stone in hand on hard rock strikes it
+            "R" if self.knap_target().is_some() => self.strike(),
             "L" | "R" => {
                 let dig = a == "L";
                 if let Some(at) = self.aim.map(|(hit, before)| self.anchor(hit, before, dig)) {
@@ -886,6 +894,39 @@ impl App {
         self.inv.get(k).copied().flatten().map(|s| s.item).filter(|&m| m != AIR && BLOCKS.get(m).is_some())
     }
 
+    /// The tool in hand, in survival (ADR 0110): what a dig's time comes from, as the server's does.
+    pub(crate) fn hand_tool(&self) -> Option<&'static engine::items::Tool> {
+        engine::items::tool(self.inv.get(self.slot).copied().flatten()).filter(|_| !self.creative)
+    }
+
+    /// The hard rock aimed at while a knapping stone is in hand in survival, bare-handed (ADR 0110).
+    pub(crate) fn knap_target(&self) -> Option<Block> {
+        let st = self.inv.get(self.slot).copied().flatten()?;
+        let (hit, _) = self.aim?;
+        let rock = BLOCKS.get(self.world.block(hit)).is_some_and(engine::items::knaps);
+        (rock && !self.creative && !self.hammer && engine::items::ITEMS.get(st.item)?.knap.is_some()).then_some(hit)
+    }
+
+    /// A strike of the knapping stone on the aimed rock (ADR 0110): told to the server, which counts it and swaps
+    /// the stone for what it knaps into; heard and seen here at once, a few chips of the rock and the knock. No
+    /// more than one every `items::KNAP_WAIT_S` and a tick, so a strike shown is never one the server's own wait
+    /// drops for jitter.
+    fn strike(&mut self) {
+        let now = self.start.elapsed().as_secs_f64();
+        let Some(hit) = self.knap_target().filter(|_| now - self.struck >= engine::items::KNAP_WAIT_S + 1.0 / engine::net::TICK_HZ) else { return };
+        self.struck = now;
+        // the slot in hand first: a press in the same frame as a change of slot strikes with the new one
+        if self.hand_sent != Some(self.slot) {
+            self.link.send(ToServer::Hand(self.slot as u8));
+            self.hand_sent = Some(self.slot);
+        }
+        self.link.send(ToServer::Strike(hit));
+        let m = self.world.block(hit);
+        self.fx.play(fx::id("knap"), &fx::At::cell(&self.world, hit, m));
+        self.audio.play("knap", Some(self.world.block_centre(hit)), 1.0, 1.0, false);
+        self.dip = fx::Track { tween: fx::Tween::new(now, 0.18, fx::Curve::Pulse), from: [0.0; 2], to: [-46.0, 60.0] };
+    }
+
     pub(crate) fn held_count(&self, m: u16) -> u32 {
         engine::items::count(&self.inv, m)
     }
@@ -954,6 +995,11 @@ impl App {
     /// counts it), hits every `HIT_S`, and goes once it has its `edit::dig_time`; held on, the block under the
     /// aim is next.
     pub(crate) fn dig_step(&mut self, now: f64) {
+        // the slot in hand, for the server's tool (ADR 0110)
+        if self.hand_sent != Some(self.slot) {
+            self.link.send(ToServer::Hand(self.slot as u8));
+            self.hand_sent = Some(self.slot);
+        }
         if std::mem::take(&mut self.dig_again) {
             if let Some((hit, before)) = self.aim {
                 let a = self.anchor(hit, before, true);
@@ -973,7 +1019,7 @@ impl App {
             self.dig_hit = now;
             self.hit(&s);
         }
-        if self.hold.held(&s, now) >= edit::dig_time(&self.world, &s) {
+        if self.hold.held(&s, now) >= edit::dig_time_with(&self.world, &s, self.hand_tool()) {
             self.hold.done();
             self.apply(&s, true);
             (self.held, self.dig_again) = (None, true);
@@ -996,8 +1042,9 @@ impl App {
     /// while they keep their time, and the other players' digs run on from what the server told, with their
     /// hits.
     pub(crate) fn cracks(&mut self, now: f64) {
+        let tool = self.hand_tool();
         let (world, fx) = (&self.world, &mut self.fx);
-        let share = |s: &Shape, held: f32| (held / edit::dig_time(world, s).max(1e-3)).min(1.0);
+        let share = |s: &Shape, held: f32| (held / edit::dig_time_with(world, s, tool).max(1e-3)).min(1.0);
         let mut draw = |s: &Shape, k: f32| {
             for c in s.cells().filter(|c| BLOCKS.solid(world.block(*c))).take(fx::CRACKS) {
                 fx.crack(world, c, k);
@@ -1138,7 +1185,7 @@ impl App {
                 let s = self.inv.get(k).copied().flatten()?;
                 let d = BLOCKS.get(engine::items::ITEMS.look(s.item))?;
                 let (colour, side, pattern) = crate::gpu::shown(d, season);
-                Some(hud::Slot { colour, side, pattern, painted: crate::gpu::painting(d), count: (!self.creative).then_some(s.n as u32) })
+                Some(hud::Slot { colour, side, pattern, painted: crate::gpu::painting(d), count: (!self.creative).then_some(s.n as u32), wear: wear(s) })
             })
             .collect();
         let height = (self.hammer && self.tool.kind != Kind::Box).then_some(self.tool.height);
@@ -1151,7 +1198,7 @@ impl App {
             self.held_name = (self.slot, Instant::now());
         }
         let shown = (2.5 - self.held_name.1.elapsed().as_secs_f32()).clamp(0.0, 0.5) * 2.0;
-        let held = self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)).map(|d| (d.name.clone(), shown));
+        let held = self.inv.get(self.slot).copied().flatten().map(|s| (engine::items::ITEMS.name(s.item).to_string(), shown));
         let mut rects = if title { Vec::new() } else { hud::layer(lw, lh, &slots, self.slot, self.creative, height, held.as_ref().map(|h| (h.0.as_str(), h.1))) };
         if !title && !self.creative {
             // health and hunger over the hotbar (ADR 0040): survival's, and how it is told from creative

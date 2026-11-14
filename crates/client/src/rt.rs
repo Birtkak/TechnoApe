@@ -24,6 +24,12 @@ const SPLIT_M: f32 = 128.0;
 /// run's frame thread 0.5 ms at p99 for 4096 more, 2 ms for twice as many (wgpu's build), so a split takes a
 /// slot no chunk uses this frame. Past either a chunk keeps its stills in its land's BLAS, which is only slower.
 const SPLIT_MAX: usize = 4096;
+/// The TLAS's first size in instances (ADR 0111). wgpu walks every slot of a TLAS on each build, filled or not
+/// (its wrapper and wgpu-core each make a list of `max_instances` entries): at the chunk table's 65536 a build cost
+/// the frame thread about 2.7 ms whatever was in it, and up to 14 ms (orbit's one frame of 25 ms in the gate). It
+/// starts this small and doubles when the instances outgrow it (`tlas_size`), a new TLAS the bind groups take
+/// (`grew`).
+const TLAS_FIRST: usize = 4096;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -72,23 +78,37 @@ pub struct Rt {
     split_n: usize,
     /// What each TLAS slot holds: (mesh offset, custom index, mask).
     slots: Vec<(u32, u32, u8)>,
-    /// The TLAS's slots.
+    /// The TLAS's slots now, and at most (the chunk table's, which the splits' room is counted against).
     cap: usize,
+    max: usize,
+    /// The TLAS was made again this frame, larger: whatever binds it must bind the new one.
+    pub grew: bool,
     /// Whether instances were ever left out for want of a slot (said once on stderr).
     overflowed: bool,
 }
 
+/// The TLAS's size for `need` instances when it has `cap` slots and may have `max`: as it is while they fit, else
+/// twice what they need, a power of two
+fn tlas_size(need: usize, cap: usize, max: usize) -> usize {
+    if need <= cap { cap } else { (need * 2).next_power_of_two().min(max) }
+}
+
+fn new_tlas(device: &wgpu::Device, cap: usize) -> wgpu::Tlas {
+    device.create_tlas(&wgpu::CreateTlasDescriptor {
+        label: Some("terrain"),
+        // a chunk's terrain and its stills
+        max_instances: cap as u32,
+        flags: wgpu::AccelerationStructureFlags::PREFER_FAST_TRACE,
+        update_mode: wgpu::AccelerationStructureUpdateMode::Build,
+    })
+}
+
 impl Rt {
-    /// `sfaces`: the still faces, which place a still quad (ADR 0091).
+    /// `sfaces`: the still faces, which place a still quad (ADR 0091). `max`: the TLAS's slots at most.
     pub fn new(device: &wgpu::Device, shader: &wgpu::ShaderModule, globals: &wgpu::Buffer, quads: &wgpu::Buffer, sfaces: &wgpu::Buffer, max: u32) -> Rt {
         use wgpu::BufferUsages as U;
-        let tlas = device.create_tlas(&wgpu::CreateTlasDescriptor {
-            label: Some("terrain"),
-            // a chunk's terrain and its stills
-            max_instances: max,
-            flags: wgpu::AccelerationStructureFlags::PREFER_FAST_TRACE,
-            update_mode: wgpu::AccelerationStructureUpdateMode::Build,
-        });
+        let cap = TLAS_FIRST.min(max as usize);
+        let tlas = new_tlas(device, cap);
         let buf = |label, size: u64, usage| device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size, usage, mapped_at_creation: false });
         let builds = buf("builds", (BUILDS_MAX * std::mem::size_of::<Build>()) as u64, U::STORAGE | U::COPY_DST);
         let verts = buf("rt-verts", BUILD_QUADS as u64 * 6 * 12, U::STORAGE | U::BLAS_INPUT);
@@ -111,7 +131,7 @@ impl Rt {
                 wgpu::BindGroupEntry { binding: 16, resource: sfaces.as_entire_binding() },
             ],
         });
-        Rt { tlas, expand, bind, builds, verts, blas: HashMap::new(), n: 0, built: Vec::new(), tlas_builds: 0, pending: 0, split_n: 0, slots: Vec::new(), cap: max as usize, overflowed: false }
+        Rt { tlas, expand, bind, builds, verts, blas: HashMap::new(), n: 0, built: Vec::new(), tlas_builds: 0, pending: 0, split_n: 0, slots: Vec::new(), cap, max: max as usize, grew: false, overflowed: false }
     }
 
     /// New quads were written at `off`: a BLAS from there is stale.
@@ -132,7 +152,8 @@ impl Rt {
         self.pending = 0;
         // whether a chunk's stills are (to be) a BLAS of their own: once split, while it has stills; else when first
         // built near and there is room
-        let most = SPLIT_MAX.min(self.cap.saturating_sub(insts.len()));
+        let most = SPLIT_MAX.min(self.max.saturating_sub(insts.len()));
+        self.grew = false;
         let split = |b: Option<&(u32, Option<wgpu::Blas>, Option<wgpu::Blas>)>, c: &Inst, split_n: usize| {
             let was = b.is_some_and(|b| b.2.is_some());
             c.still > 0 && (was || b.is_none() && c.dist < SPLIT_M && split_n < most)
@@ -200,7 +221,16 @@ impl Rt {
             now.push((c.off, c.ci, c.body));
         }
         // a new BLAS at an offset the last build had is a change too; the TLAS is built at least once before use
-        let rebuild = !todo.is_empty() || now != self.built || self.tlas_builds == 0;
+        let mut rebuild = !todo.is_empty() || now != self.built || self.tlas_builds == 0;
+        // the slots they take (a split chunk two): a TLAS too small for them is made again larger, every slot new
+        let need = now.len() + now.iter().filter(|(off, ..)| self.blas[off].2.is_some()).count();
+        let size = tlas_size(need, self.cap, self.max);
+        if size != self.cap {
+            eprintln!("[technoape] the traced terrain's TLAS grows to {size} slots ({need} wanted)");
+            self.tlas = new_tlas(device, size);
+            (self.cap, self.n, self.grew, rebuild) = (size, 0, true, true);
+            self.slots.clear();
+        }
         if rebuild {
             // a slot is written only when what it holds changed: the same mesh's same BLAS stays (a BLAS made this
             // frame is new even at an old offset)
@@ -270,5 +300,20 @@ impl Rt {
         if rebuild {
             enc.build_acceleration_structures(entries.iter(), std::iter::once(&self.tlas));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// The TLAS keeps its size while the instances fit, and outgrown takes twice their need, never past the most
+    #[test]
+    fn the_tlas_grows_to_twice_its_need_and_no_further_than_the_most() {
+        use super::tlas_size;
+        assert_eq!(tlas_size(100, 4096, 65536), 4096);
+        assert_eq!(tlas_size(4096, 4096, 65536), 4096);
+        assert_eq!(tlas_size(4097, 4096, 65536), 16384);
+        assert_eq!(tlas_size(9000, 16384, 65536), 16384);
+        assert_eq!(tlas_size(40000, 16384, 65536), 65536);
+        assert_eq!(tlas_size(70000, 65536, 65536), 65536);
     }
 }

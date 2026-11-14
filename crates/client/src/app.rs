@@ -102,6 +102,10 @@ pub(crate) struct App {
     pub(crate) aim: Option<(Block, Block)>,
     pub(crate) held: Option<(bool, Block, Block)>,
     pub(crate) slot: usize,
+    /// The slot the server was last told is in hand (`ToServer::Hand`, ADR 0110), and when this player last
+    /// struck a knapping stone (the start clock's seconds).
+    pub(crate) hand_sent: Option<usize>,
+    pub(crate) struck: f64,
     /// The effects (ADR 0031): the particle pool and the particles drawn this frame; the block in hand's dip
     /// (a track, from the clock `start`); `walked` bobs it.
     pub(crate) fx: fx::Fx,

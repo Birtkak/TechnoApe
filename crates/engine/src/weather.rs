@@ -145,10 +145,11 @@ impl Force {
             "rain" => f(0.95, 4.0, 3.0),
             "storm" => f(1.0, 20.0, 12.0),
             "snow" => Force { temp: Some(-6.0), snow: Some(1.0), ..f(0.9, 3.0, 2.0) },
-            _ => return None,
+            // a dry sky of that cover share, 0 to 1, for the clouds' stills (ADR 0108)
+            _ => f(name.parse().ok().filter(|c: &f32| (0.0..=1.0).contains(c))?, 0.0, 0.0),
         }))
     }
-    pub const NAMES: &'static str = "clear, cloudy, rain, storm, snow, auto";
+    pub const NAMES: &'static str = "clear, cloudy, rain, storm, snow, auto, or a cover 0 to 1";
     fn wind(&self, w: [f32; 2]) -> [f32; 2] {
         let s = w[0].hypot(w[1]);
         if s >= self.wind {
@@ -589,6 +590,8 @@ mod tests {
         assert_eq!(w.cells(None), live, "the force is in what is sent only");
         assert_eq!(Force::named("auto"), Some(None));
         assert_eq!(Force::named("hail"), None);
+        assert_eq!(Force::named("0.3").unwrap().unwrap().cover, 0.3, "a cover share, dry");
+        assert_eq!(Force::named("1.5"), None);
     }
 
     /// The live cover's spread on Terra, for tuning the clouds' look: `cargo test --release -p engine -- --ignored cover_spread --nocapture`

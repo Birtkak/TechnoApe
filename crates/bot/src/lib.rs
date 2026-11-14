@@ -13,6 +13,8 @@
 //!   slots               report every slot held  move a b n         n from slot a to slot b
 //!   drop a n            throw n from slot a     take dx dy dz k a n  n from slot k of the pile there to a
 //!   put a dx dy dz k n  n from slot a to slot k of the pile there  grab item a n  creative's grid: n into a
+//! Tools (ADR 0110): `hold k` takes hotbar slot k in hand (a survival dig uses its tool); `strike dx dy dz` strikes
+//! what is in hand on that block (the place button with flint: knapping). `slots` gives a tool's digs left too.
 use engine::edit::Shape;
 use engine::items::{Holder, Slot, ITEMS};
 use engine::net::{Link, Recv, ToClient, ToServer, TICK_HZ};
@@ -47,6 +49,9 @@ pub enum Cmd {
     Grab(u16, u16, u16),
     /// Take the pick-up lying in the cell at this offset from the feet (ADR 0082).
     Pick(DVec3),
+    /// Hotbar slot k in hand; strike what is in hand on the block at this offset (ADR 0110).
+    Hold(u8),
+    Strike(DVec3),
     Quit,
 }
 
@@ -79,6 +84,8 @@ pub fn parse(line: &str) -> Result<Option<Cmd>, String> {
             Cmd::Grab(item, num(w.len() - 2)? as u16, num(w.len() - 1)? as u16)
         }
         "pick" => Cmd::Pick(v()?),
+        "hold" => Cmd::Hold(num(1)? as u8),
+        "strike" => Cmd::Strike(v()?),
         "quit" => Cmd::Quit,
         _ => return Err(format!("unknown command '{}'", w[0])),
     }))
@@ -117,6 +124,8 @@ pub struct Bot {
     creative: bool,
     /// A survival dig held until then, of that shape.
     digging: Option<(Instant, Shape)>,
+    /// The hotbar slot in hand (`hold`).
+    hand: u8,
     /// The creature kinds by index and the animals the server has this bot see (ADR 0083).
     pub kinds: Vec<String>,
     pub animals: std::collections::BTreeMap<u32, engine::net::Animal>,
@@ -125,7 +134,7 @@ pub struct Bot {
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, kinds: Vec::new(), animals: Default::default() }
+        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, kinds: Vec::new(), animals: Default::default() }
     }
 
     fn feet(&self) -> DVec3 {
@@ -251,7 +260,8 @@ impl Bot {
                 // held for its time, a little over, then dug (the server checks the hold, ADR 0034)
                 let shape = Shape::one(w.block_at(self.feet() + *d));
                 self.link.send(ToServer::Dig(Some(shape)));
-                let need = engine::edit::dig_time(w, &shape) as f64;
+                let tool = engine::items::tool(self.slots.get(self.hand as usize).copied().flatten());
+                let need = engine::edit::dig_time_with(w, &shape, tool) as f64;
                 self.digging = Some((Instant::now() + Duration::from_secs_f64(need * 1.1 + 0.1), shape));
             }
             Cmd::Dig(d) | Cmd::Place(d, _) => {
@@ -259,6 +269,11 @@ impl Bot {
                 self.seq += 1;
                 self.link.send(ToServer::Edit { seq: self.seq, shape: Shape::one(w.block_at(self.feet() + *d)), material: m });
             }
+            Cmd::Hold(k) => {
+                self.hand = *k;
+                self.link.send(ToServer::Hand(*k));
+            }
+            Cmd::Strike(d) => self.link.send(ToServer::Strike(w.block_at(self.feet() + *d))),
             Cmd::Pick(d) => {
                 self.seq += 1;
                 self.link.send(ToServer::Take { seq: self.seq, at: w.block_at(self.feet() + *d) });
@@ -298,7 +313,9 @@ impl Bot {
                 self.link.send(ToServer::Chat(t.clone()))
             }
             Cmd::Slots => {
-                let held: Vec<String> = self.slots.iter().enumerate().filter_map(|(k, s)| s.map(|s| format!("[{k},{:?},{}]", ITEMS.name(s.item), s.n))).collect();
+                // a tool's digs left as a fourth number
+                let left = |s: Option<engine::items::Stack>| engine::items::left(s).map_or(String::new(), |n| format!(",{n}"));
+                let held: Vec<String> = self.slots.iter().enumerate().filter_map(|(k, s)| s.map(|st| format!("[{k},{:?},{}{}]", ITEMS.name(st.item), st.n, left(*s)))).collect();
                 return Some(format!("{{\"bot\":\"{}\",\"slots\":[{}]}}", self.name, held.join(",")));
             }
             Cmd::Shift(..) | Cmd::Drop(..) | Cmd::Take(..) | Cmd::Put(..) | Cmd::Grab(..) => {
@@ -449,6 +466,32 @@ mod tests {
         bot.run(parse_script(&script).unwrap(), None, |l| out.push(l));
         let line = out.iter().find(|l| l.contains("\"slots\"")).expect("a slots line");
         assert!(line.contains("\"flint\",1") && line.contains("\"gravel\",1"), "{line} ({} refused)", bot.refused);
+    }
+
+    /// Knapping and the first tool by script (ADR 0110): a survival bot strikes flint four times on granite under
+    /// its feet, holds the hand axe it became, digs the granite with it in the axe's time, and has one use less.
+    #[test]
+    fn a_survival_bot_knaps_a_hand_axe_and_digs_with_it() {
+        let (tx, rx) = channel();
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(200.0, &std::sync::atomic::AtomicBool::new(false)));
+        let (c, s) = local();
+        tx.send(s).unwrap();
+        let mut bot = Bot::new("knapper", c);
+        let w = World::new(256, 32, 1);
+        let h = w.bodies[0].height(DVec3::Y);
+        // granite in the ground a metre beside the feet (/place by face, i, j, layer: not under the bot)
+        let (d, at) = ("1.0 -0.5 0.25", w.block_at(DVec3::new(1.25, h - 0.5, 0.5)));
+        let mut out = Vec::new();
+        let strikes = format!("strike {d}; wait 0.5; ").repeat(4);
+        let script = format!("wait 0.5; say /playmode survival; spawn 0.25 {h} 0.25; wait 0.5; say /place granite {} {} {} {}; say /give flint 2; hold 0; wait 0.5; slots; {strikes}slots; hold 1; dig {d}; wait 0.5; slots; block {d}", at.face, at.pos.x, at.pos.y, at.pos.z);
+        bot.run(parse_script(&script).unwrap(), None, |l| out.push(l));
+        let slots: Vec<&String> = out.iter().filter(|l| l.contains("\"slots\"")).collect();
+        let uses = ITEMS.get(ITEMS.named("hand axe").unwrap()).unwrap().tool.as_ref().unwrap().uses;
+        assert!(slots[0].contains("[0,\"flint\",2]"), "{out:?}");
+        assert!(slots[1].contains(&format!("[0,\"flint\",1]")) && slots[1].contains(&format!("[1,\"hand axe\",1,{uses}]")), "{out:?}");
+        assert!(slots[2].contains(&format!("[1,\"hand axe\",1,{}]", uses - 1)), "{out:?} ({} refused)", bot.refused);
+        let rubble = engine::blocks::BLOCKS.id("granite rubble");
+        assert!(out.last().unwrap().contains(&format!("\"material\":{rubble}")), "{out:?}");
     }
 
     /// A bot drives the items (ADR 0074): given stone, it moves some along its slots, throws some, and

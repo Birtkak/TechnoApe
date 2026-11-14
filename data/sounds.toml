@@ -581,3 +581,24 @@ layer = [
 ]
 spread = { lowpass = 400 }
 chain = [{ lowpass = 2500 }]
+
+# --- tools (ADR 0110): a flint struck on rock, a hard bright knock with a crack of the flake coming away; a
+# worn-out tool's last dig, a dull snap and a crunch. Claude's drafts, made from the bases ---
+[[sound]]
+name = "knap"
+bus = "world"
+reach = 24
+gain = 0.75
+variants = 4
+pitch = 0.12
+from = [{ base = "base.click", gain = 1.0 }, { base = "base.crack", gain = 0.8, delay = 0.01 }, { base = "base.thud", gain = 0.4 }]
+chain = [{ pitch = 3 }, { highpass = 300 }]
+
+[[sound]]
+name = "tool.break"
+bus = "world"
+gain = 0.8
+variants = 2
+pitch = 0.06
+from = [{ base = "base.crack", gain = 1.0 }, { base = "base.crunch", gain = 0.7, delay = 0.03 }, { base = "base.thud", gain = 0.5 }]
+chain = [{ pitch = -3 }, { lowpass = 4000, q = 0.7 }]

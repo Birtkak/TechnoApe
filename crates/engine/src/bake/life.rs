@@ -82,6 +82,13 @@ pub struct LifeParams {
     /// rain bounds, mm a day: cold (tundra, grassland, forest), temperate (desert, scrub, grass, forest),
     /// warm (desert, scrub, savanna, rain forest)
     pub r_cold: [f32; 2],
+    /// the polar caps (ADR 0107): the air model's poles are a few degrees under 0 the year round (its sea keeps
+    /// them mild and it has no ice to brighten them), so for ice the year's mean counts `polar_k` K colder at
+    /// the pole, nothing equatorward of `polar_from` degrees (linear between); land under `t_ice` so counted is
+    /// an ice sheet, sea under `t_sea_ice` carries sea ice. `polar_k` 0 and `t_sea_ice` -inf: no caps (version 6).
+    pub polar_from: f32,
+    pub polar_k: f32,
+    pub t_sea_ice: f32,
     pub r_temp: [f32; 3],
     pub r_warm: [f32; 3],
     /// alpine over this height, metres; beach within this many metres of the sea and under this height
@@ -114,6 +121,9 @@ impl Default for LifeParams {
             t_cold: 5.0,
             t_warm: 15.0,
             r_cold: [0.06, 0.12],
+            polar_from: 55.0,
+            polar_k: 20.0,
+            t_sea_ice: -8.0,
             r_temp: [0.08, 0.16, 0.32],
             r_warm: [0.12, 0.25, 0.7],
             alpine_m: 58.0,
@@ -123,6 +133,13 @@ impl Default for LifeParams {
             reef_t: 21.0,
             reef_m: 12.0,
         }
+    }
+}
+
+impl LifeParams {
+    /// The rules before the polar caps (bake versions up to 6, ADR 0107).
+    pub fn capless() -> LifeParams {
+        LifeParams { polar_k: 0.0, t_sea_ice: f32::NEG_INFINITY, ..LifeParams::default() }
     }
 }
 
@@ -353,7 +370,13 @@ pub fn life(b: &Bake, seed: u64, p: &LifeParams) -> Life {
         .map(|c| {
             let d = g.d(c as u32);
             let tt = temp[c] + p.blend_t * at(&nt, d, f);
+            // the year's mean as the ice counts it (ADR 0107)
+            let lat = d.z.clamp(-1.0, 1.0).asin().to_degrees().abs() as f32;
+            let cold = tt - p.polar_k * ((lat - p.polar_from) / (90.0 - p.polar_from)).max(0.0);
             if b.ocean[c] {
+                if cold < p.t_sea_ice {
+                    return ICE;
+                }
                 let depth = -b.h[c];
                 return if depth > p.shelf_m {
                     DEEP
@@ -365,7 +388,7 @@ pub fn life(b: &Bake, seed: u64, p: &LifeParams) -> Life {
             }
             let rr = rain[c] * (p.blend_rain * at(&nr, d, f)).exp();
             let h = b.h[c];
-            if tt < p.t_ice {
+            if cold < p.t_ice {
                 ICE
             } else if h > p.alpine_m {
                 ALPINE
@@ -387,6 +410,21 @@ pub fn life(b: &Bake, seed: u64, p: &LifeParams) -> Life {
             }
         })
         .collect();
+    if std::env::var("LIFEDBG").is_ok() {
+        // the year's mean air by latitude, land and sea apart, and the ice's share (ADR 0107)
+        for lo in (0..90).step_by(10) {
+            let band = |sea: bool| -> Vec<usize> { (0..n).filter(|&c| b.ocean[c] == sea && !lake[c] && (lo as f64..lo as f64 + 10.0).contains(&g.d(c as u32).z.clamp(-1.0, 1.0).asin().to_degrees().abs())).collect() };
+            for sea in [false, true] {
+                let cs = band(sea);
+                let mut tv: Vec<f32> = cs.iter().map(|&c| temp[c]).collect();
+                if tv.is_empty() { continue; }
+                tv.sort_by(f32::total_cmp);
+                let q = |f: f64| tv[((tv.len() - 1) as f64 * f) as usize];
+                let ice = cs.iter().filter(|&&c| biome[c] == ICE).count() as f64 / cs.len() as f64;
+                eprintln!("lat {lo:>2}..{:>2} {}: {} cells, T p10 {:.1} p50 {:.1} p90 {:.1}, ice {ice:.3}", lo + 10, if sea { "sea " } else { "land" }, cs.len(), q(0.1), q(0.5), q(0.9));
+            }
+        }
+    }
     lap("biomes", &mut times);
     let climate = super::climate::Climate { m: ma as u32, r: g.r, ground, water, theta: m.theta, swing: m.swing, rain: m.rain, state: air.state() };
     Life { temp, swing, rain, flow, wet, soil, biome, climate, times }
@@ -401,7 +439,10 @@ pub fn shares(b: &Bake, l: &Life) -> [f64; 15] {
             continue;
         }
         let ar = b.g.area(c as u32) as f64;
-        a[l.biome[c] as usize] += ar;
+        // sea ice (ICE over the sea, ADR 0107) is no land biome's share
+        if !(b.ocean[c] && l.biome[c] == ICE) {
+            a[l.biome[c] as usize] += ar;
+        }
         if b.ocean[c] { sea += ar } else { land += ar }
     }
     for (k, v) in a.iter_mut().enumerate() {
