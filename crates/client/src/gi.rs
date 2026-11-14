@@ -563,7 +563,7 @@ mod tests {
     /// it where it is (`terrain_lit`'s footprint below 0), never on texels found from those (the review of ADR 0108)
     #[test]
     fn stills_are_lit_where_they_are() {
-        let src = include_str!("shader.wgsl");
+        let src = include_str!("shader.wgsl").replace("\r\n", "\n"); // a checkout with CRLF has no "\n}\n"
         let body = &src[src.find("fn fs_still(").unwrap()..];
         let body = &body[..body.find("\n}\n").unwrap()];
         let calls: Vec<&str> = body.match_indices("terrain_lit(").map(|(i, _)| &body[i..i + body[i..].find(';').unwrap()]).collect();
