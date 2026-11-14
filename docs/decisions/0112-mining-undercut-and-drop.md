@@ -77,7 +77,15 @@ fall; ADR 0094's `rock_hits` hurts a head a falling rock passes.
   judge.
 - Near a cube face's edge the flood's axes turn (as 0094's drop); the server alone decides, so no desync.
 
-## Review
+## Review (the overseer read the diff; it wrote the rule, not the code)
+- *Order and repeats:* the hash map is only looked up, never walked, so server and client give one list; a slab
+  cannot hold a dug or loosened cell, nor a cell twice (a roof cell is over an open cell, a slab's column is not open
+  one layer up). Nothing to change.
+- *Answered, not changed:* a slot cut into a cliff or a bench is open to the sky, so its flood hits the cap and the
+  overhang never drops: this slice drops roofs of closed rooms only. A dig at the surface pays the capped flood
+  (82 us on average, 2 ms at worst, on the server's tick, not a frame): the speed debt's row.
+- *The still is weak evidence:* seen from above in dim light, the dropped cells read as a small dark patch. The
+  tests carry the rule; a better picture waits for the developer's own play.
 
 ## Consequences
 - The weak roof (mining.md 3, props) can build on `span`: a prop is a wall to the flood.
