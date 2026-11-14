@@ -1362,10 +1362,10 @@ impl Gpu {
         eprintln!("[technoape] textures: {blocks} blocks painted, {} season looks, {} layers", placed.len() - blocks, layers.len());
         self.queue.write_buffer(&self.looks, 0, bytemuck::cast_slice(&looks_of(&placed)));
         *SHOWN.write().unwrap() = shown;
-        PAINT_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         // a fine face (ADR 0090): its first 32 x 32 variant (four quarters) halved to 16 x 16 (ADR 0113)
         let first = |f: &Option<engine::textures::Face>| f.as_ref().and_then(|f| match (f.fine, f.variants.len()) { (true, 4..) => Some(halve(&f.variants[..4])), (true, _) => None, _ => f.variants.first().copied() });
         *PAINTING.write().unwrap() = placed.iter().filter(|((_, q), _, _)| *q == 0).map(|((id, _), p, _)| (*id, [first(&p.faces[0]), first(&p.faces[1])])).collect();
+        PAINT_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub(crate) fn upload(&self, off: u32, q: &[[u32; 2]]) {
