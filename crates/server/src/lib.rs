@@ -168,6 +168,17 @@ struct Client {
     hold: edit::Hold,
     /// The animals as this client was last told of them (ADR 0083).
     animals: FxMap<u32, engine::net::Animal>,
+    /// The hotbar slot in hand (`ToServer::Hand`, ADR 0110).
+    hand: u8,
+    /// Knapping (ADR 0110): the item being struck, the strikes that counted, the tick of the last.
+    knap: (u16, u8, u64),
+}
+
+impl Client {
+    /// The tool in hand, in survival (ADR 0110).
+    fn tool(&self) -> Option<&'static items::Tool> {
+        items::tool(self.slots.get(self.hand as usize).copied().flatten()).filter(|_| !self.creative)
+    }
 }
 
 /// Allowance on a survival dig's time for the network: the `Dig` and its `Edit` travel the same way, so most
@@ -651,6 +662,8 @@ impl Server {
                 sent: None,
                 hold: edit::Hold::default(),
                 animals: FxMap::default(),
+                hand: 0,
+                knap: (0, 0, 0),
             });
         }
         let mut changed: Vec<(Block, u16)> = Vec::new();
@@ -763,6 +776,8 @@ impl Server {
                         }
                     }
                     Recv::Msg(ToServer::Dig(at)) => self.dig(i, at),
+                    Recv::Msg(ToServer::Hand(k)) => self.clients[i].hand = k.min(items::HOTBAR as u8 - 1),
+                    Recv::Msg(ToServer::Strike(at)) => self.strike(i, at),
                     Recv::Msg(ToServer::Map(h)) => {
                         if let Some(m) = self.world.bodies.iter().filter_map(|b| b.map()).find(|m| m.hash == h) {
                             // shortcut: any client may ask again; a limit per client when servers go public
@@ -1384,7 +1399,8 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         if !c.hold.on(at, now) {
             return;
         }
-        let told = at.map(|s| (s, edit::dig_time(world, &s))).filter(|(_, need)| *need > 0.0).map(|(s, need)| (s, (c.hold.held(&s, now) / need).min(1.0), 1.0 / need));
+        let tool = c.tool();
+        let told = at.map(|s| (s, edit::dig_time_with(world, &s, tool))).filter(|(_, need)| *need > 0.0).map(|(s, need)| (s, (c.hold.held(&s, now) / need).min(1.0), 1.0 / need));
         self.tell_dig(i, told);
     }
 
@@ -1404,12 +1420,14 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         if self.clients[i].vitals.dead.is_some() || !self.valid_shape(shape, m, DVec3::from_array(self.clients[i].player.pos)) {
             return false;
         }
-        // a survival dig is taken once it was held for its time (ADR 0034). shortcut: no tool divides the time
-        // or wears in the stack's payload; items.md step 4, with crafting.md's first recipes
+        // a survival dig is taken once it was held for its time (ADR 0034), with the tool in hand (ADR 0110).
+        // shortcut: the time held counts whatever was in hand meanwhile, so a tool taken up at the end of a
+        // bare-hand hold digs at once; a hold per tool when that matters
+        let tool = self.clients[i].tool();
         if m == AIR && !self.clients[i].creative {
             let now = self.clock();
             let held = self.clients[i].hold.held(shape, now);
-            let need = edit::dig_time(&self.world, shape);
+            let need = edit::dig_time_with(&self.world, shape, tool);
             if held + DIG_LAG_S + need * DIG_LAG_SHARE < need {
                 return false;
             }
@@ -1423,11 +1441,12 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         let mut drops = Vec::new();
         if !c.creative && !cells.is_empty() {
             if m == AIR {
-                // bare hands take only loose blocks; the rest breaks into nothing (shortcut: no tools yet, ADR 0034).
-                // Rubble goes into the slots (mining.md 4: no pile to walk over); with no room for all of it the dig
-                // is refused and the rubble stays a block
+                // bare hands take only loose blocks; the rest breaks into nothing unless the tool in hand takes it
+                // (ADR 0034, 0110; rock leaves its rubble either way). Rubble goes into the slots (mining.md 4: no
+                // pile to walk over); with no room for all of it the dig is refused and the rubble stays a block
                 let (mut slots, mut taken) = (c.slots.clone(), Vec::new());
-                for &(b, old) in cells.iter().filter(|(_, old)| leave(*old) == AIR && BLOCKS.get(*old).is_some_and(|d| d.loose)) {
+                let takes = |d: &engine::blocks::Def| d.loose || tool.is_some_and(|t| t.takes(d));
+                for &(b, old) in cells.iter().filter(|(_, old)| leave(*old) == AIR && BLOCKS.get(*old).is_some_and(takes)) {
                     if BLOCKS.get(old).is_none_or(|d| d.rubble_of.is_none()) {
                         drops.push(old);
                         // what a generated cell holds besides its block (ADR 0097: flint in gravel)
@@ -1437,6 +1456,10 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                     } else {
                         taken.push(old);
                     }
+                }
+                // a dig the tool did costs it a use; its last leaves nothing (ADR 0047, 0110), the ledger's "worn away"
+                if tool.is_some_and(|t| cells.iter().any(|(_, old)| BLOCKS.get(*old).is_some_and(|d| t.fits(d)))) && items::wear(&mut slots[c.hand as usize]) {
+                    *self.item_made.entry(c.slots[c.hand as usize].map_or(AIR, |s| s.item)).or_default() -= 1;
                 }
                 c.slots = slots;
                 for old in taken {
@@ -1469,6 +1492,46 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
             self.drop_dug(i, &cells, drops);
         }
         true
+    }
+
+    /// Client i strikes what is in hand on block `at` (`ToServer::Strike`, ADR 0110): a survival player alive,
+    /// within reach, a knapping stone in hand and hard rock there; a strike sooner than `KNAP_WAIT_S` after the
+    /// last that counted, or of another item, does not count (another item starts again). At the item's `knap`
+    /// count one of it becomes the item it knaps into, in its slot when that empties, else where it fits, else at
+    /// the feet.
+    fn strike(&mut self, i: usize, at: Block) {
+        let tick = self.tick;
+        let wait = (items::KNAP_WAIT_S * TICK_HZ).round() as u64;
+        let feet = self.clients[i].phys.pos;
+        let rock = self.valid_shape(&Shape::one(at), AIR, feet) && BLOCKS.get(self.world.block(at)).is_some_and(items::knaps);
+        let c = &mut self.clients[i];
+        let k = c.hand as usize;
+        let Some(st) = c.slots[k].filter(|_| rock && !c.creative && c.vitals.dead.is_none()) else { return };
+        let Some((into, strikes)) = ITEMS.get(st.item).and_then(|d| d.knap) else { return };
+        if c.knap.0 != st.item {
+            c.knap = (st.item, 0, 0);
+        } else if c.knap.1 > 0 && tick < c.knap.2 + wait {
+            return;
+        }
+        c.knap = (st.item, c.knap.1 + 1, tick);
+        if c.knap.1 < strikes {
+            return;
+        }
+        c.knap.1 = 0;
+        c.slots[k] = (st.n > 1).then_some(Stack { n: st.n - 1, ..st });
+        let made = Stack::new(into, 1);
+        let over = if c.slots[k].is_none() {
+            c.slots[k] = Some(made);
+            0
+        } else {
+            items::give(&mut c.slots, made)
+        };
+        c.inv_dirty = true;
+        *self.item_made.entry(st.item).or_default() -= 1;
+        *self.item_made.entry(into).or_default() += 1;
+        if over > 0 {
+            self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), vec![made], (0, 0));
+        }
     }
 
     /// A falling rock that moved into a survival player's head this tick hits it (ADR 0094: a drop hurts who is
@@ -2671,6 +2734,129 @@ mod tests {
         l.send(ToServer::Edit { seq: 3, shape: Shape::one(deeper), material: AIR });
         s.tick();
         assert_eq!(s.world.block(deeper), AIR);
+    }
+
+    /// Knapping by doing (ADR 0110): flint in hand struck on hard rock; strikes on soil count nothing, strikes
+    /// closer than `KNAP_WAIT_S` count once, and the fourth that counts makes one flint a hand axe.
+    #[test]
+    fn flint_struck_four_times_on_rock_becomes_a_hand_axe() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let cell = over_dirt(&mut s, l);
+        let (flint, axe) = (ITEMS.named("flint").unwrap(), ITEMS.named("hand axe").unwrap());
+        l.send(ToServer::Chat("/give flint 2".into()));
+        l.send(ToServer::Hand(0));
+        s.tick();
+        let strike = |s: &mut Server, n: usize, secs: f32| {
+            for _ in 0..n {
+                l.send(ToServer::Strike(cell));
+                wait(s, secs);
+            }
+        };
+        strike(&mut s, 6, 0.5);
+        assert_eq!(held(&s.clients[0].slots), vec![(flint, 2)], "soil knaps nothing");
+        s.world.set_block(cell, BLOCKS.id("granite"));
+        // eight strikes in 0.8 s count as two
+        strike(&mut s, 8, 0.1);
+        assert_eq!(held(&s.clients[0].slots), vec![(flint, 2)], "the wait between strikes holds");
+        strike(&mut s, 2, 0.5);
+        assert_eq!(held(&s.clients[0].slots), vec![(flint, 1), (axe, 1)]);
+        assert_eq!(items::left(s.clients[0].slots.iter().flatten().copied().find(|x| x.item == axe)), Some(ITEMS.get(axe).unwrap().tool.as_ref().unwrap().uses));
+        assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+        // creative knaps nothing
+        l.send(ToServer::Creative(true));
+        strike(&mut s, 5, 0.5);
+        assert_eq!(held(&s.clients[0].slots), vec![(flint, 1), (axe, 1)]);
+    }
+
+    /// The tool in hand (ADR 0110): the hand axe digs a pick's block in `hardness / speed`, which bare hands
+    /// cannot; it takes a block hands only break (dolomite: no rubble, so it lies as a pile) but not one over its
+    /// grade (copper); every dig costs one use, and at the last it is gone with the ledger exact. Creative is as it
+    /// was: an instant dig that wears nothing.
+    #[test]
+    fn the_hand_axe_digs_faster_takes_more_and_wears_out() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let cell = over_dirt(&mut s, l);
+        let axe = ITEMS.named("hand axe").unwrap();
+        let t = ITEMS.get(axe).unwrap().tool.clone().unwrap();
+        l.send(ToServer::Chat("/give hand_axe".into()));
+        s.tick();
+        let mut seq = 0;
+        let mut dig = |s: &mut Server, b: Block, secs: f32| {
+            seq += 1;
+            let one = Shape::one(b);
+            l.send(ToServer::Dig(Some(one)));
+            s.tick();
+            wait(s, secs);
+            l.send(ToServer::Edit { seq, shape: one, material: AIR });
+            s.tick();
+            l.send(ToServer::Dig(None));
+            drain(l).contains(&ToClient::Done { seq, ok: true })
+        };
+        let granite = BLOCKS.id("granite");
+        s.world.set_block(cell, granite);
+        let one = Shape::one(cell);
+        let (hand, with) = (edit::dig_time(&s.world, &one), edit::dig_time_with(&s.world, &one, Some(&t)));
+        assert!((with - hand / t.speed).abs() < 1e-4 && with < hand, "{with} s against {hand} s");
+        // in hand slot 1 (empty): bare hands, too soon
+        l.send(ToServer::Hand(1));
+        assert!(!dig(&mut s, cell, with * 1.1), "bare hands in the axe's time");
+        // the half-dug cell's kept seconds run out first
+        wait(&mut s, edit::DIG_KEEP_S + 1.0);
+        l.send(ToServer::Hand(0));
+        assert!(dig(&mut s, cell, with * 1.1) && s.world.block(cell) == BLOCKS.id("granite rubble"), "the axe in its time, and rock leaves its rubble");
+        let used = |s: &Server| s.clients[0].slots[0].map(|x| x.payload);
+        assert_eq!(used(&s), Some(1));
+        // a block hands only break: the axe takes it whole
+        let dolomite = BLOCKS.id("dolomite");
+        s.world.set_block(cell, dolomite);
+        let n = edit::dig_time_with(&s.world, &one, Some(&t)) * 1.1;
+        assert!(dig(&mut s, cell, n));
+        let piled = |s: &Server, m: u16| s.piles.values().flat_map(|p| p.slots.iter().flatten()).filter(|x| x.item == m).count();
+        assert_eq!(piled(&s, dolomite), 1, "dolomite lies dug");
+        // over its grade: broken, nothing
+        let copper = BLOCKS.id("copper");
+        s.world.set_block(cell, copper);
+        let n = edit::dig_time_with(&s.world, &one, Some(&t)) * 1.1;
+        assert!(dig(&mut s, cell, n) && s.world.block(cell) == AIR);
+        assert_eq!(piled(&s, copper), 0, "copper wants grade 2");
+        assert_eq!(used(&s), Some(3));
+        // the last use: gone, leaving nothing, and the ledger knows
+        s.clients[0].slots[0].as_mut().unwrap().payload = t.uses as u64 - 1;
+        s.world.set_block(cell, BLOCKS.id("dirt"));
+        let n = edit::dig_time_with(&s.world, &one, Some(&t)) * 1.1;
+        assert!(dig(&mut s, cell, n));
+        assert_eq!(s.clients[0].slots[0], None, "worn away");
+        assert!(s.item_ledger().iter().all(|x| x.0 != axe), "{:?}", s.item_ledger());
+        // creative: instant, and its axe wears nothing
+        l.send(ToServer::Chat("/give hand_axe".into()));
+        l.send(ToServer::Creative(true));
+        s.tick();
+        s.world.set_block(cell, granite);
+        seq += 1;
+        l.send(ToServer::Edit { seq, shape: one, material: AIR });
+        s.tick();
+        assert_eq!((s.world.block(cell), used(&s)), (AIR, Some(0)));
+    }
+
+    /// A tool's wear is its stack's payload (ADR 0110), so a save keeps it as it keeps the stack.
+    #[test]
+    fn a_save_keeps_a_tools_wear() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        l.send(ToServer::Hello { name: "ape".into() });
+        l.send(ToServer::Chat("/give hand_axe".into()));
+        s.tick();
+        s.clients[0].slots[0].as_mut().unwrap().payload = 7;
+        drop(links);
+        s.tick();
+        let path = std::env::temp_dir().join(format!("technoape-wear-{}.sav", std::process::id()));
+        s.snapshot().write(&path).unwrap();
+        let back = Server::from_save(Save::read(&path).unwrap(), channel().1);
+        std::fs::remove_file(&path).unwrap();
+        let st = back.absent["ape"].slots[0].unwrap();
+        assert_eq!((st.item, st.payload, items::left(Some(st))), (ITEMS.named("hand axe").unwrap(), 7, Some(ITEMS.get(st.item).unwrap().tool.as_ref().unwrap().uses - 7)));
     }
 
     #[test]
