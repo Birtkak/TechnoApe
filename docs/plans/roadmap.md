@@ -3,7 +3,7 @@
 Direction: ADR 0001 (planets first), 0002 (our own Rust + wgpu engine and what it does), 0003 (cube-sphere
 grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read those first.
 
-Brought up to date 2026-11-12. The world's stages are staged and tracked in `docs/plans/worldgen-plan.md`;
+Brought up to date 2026-11-14. The world's stages are staged and tracked in `docs/plans/worldgen-plan.md`;
 this file says what is done, what is in work and what comes next, in order.
 
 ## Done
@@ -46,11 +46,27 @@ this file says what is done, what is in work and what comes next, in order.
 - **An audit of the whole repo (2026-11-12):** fifteen findings in the server, the protocol, saves, the
   engine's core and the client's frame, all fixed with tests.
 
-## In work (2026-11-12)
-- **Tides** (W5, second half, ADR 0067): 1 m at springs, following Luna, on `claude/w5-tides-3fb3e0`; ready to merge.
+- **2026-11-12 to 11-14** (each row's ADR says what was built and what it left open):
+  - tides (0067); items' slots, piles and the inventory screens (0074, 0075); visible weather: clouds, rain,
+    snow (0076, 0105); the globe map (0077); fine cells (0078); loose blocks and collapse (0079);
+  - see-through and cutout blocks, glass and box models (0068, 0069, 0081); clutter and pick-ups (0082);
+    peaceful animals in herds (0083); painted block textures (0084); joined lamps (0085);
+  - mining: read the rock, rubble, cracks and drops, the ore halo (0087, 0093, 0094, 0095); flint (0097);
+  - flora: fluffy crowns, plants of planes, trees with branches, forest in the far chunks (0088 to 0092,
+    0099, 0100); taller mountains (0105);
+  - features first, speed in batches (0096, `docs/perf-debt.md`); the first batches (0102, 0103, 0104).
+
+## In work (2026-11-14)
+- **The bug round of 11-14** (six F9 reports): powders only fall (0106), polar ice caps (0107), shadows
+  snapped to texels, no rain or snow above the clouds, looser clouds (0108), builds seen from afar (0109).
+  The forest's frame time at 2560 x 1440 goes to the next optimisation batch, which measures at that size too.
 
 ## Next
-In this order unless the developer says otherwise.
+In this order unless the developer says otherwise (the developer's order of 2026-11-14 first).
+
+0. **First tools from flint** (ADR 0097; `crafting.md`, `items.md`): the developer wants to play-test them;
+   items have no pictures yet. Then **mining slice (c)**: undercut and drop, crack paintings
+   (`docs/design/mining.md`). Then the list below, skipping what the rows above already built.
 
 1. **What the world's stages left open** (`docs/plans/worldgen-plan.md`):
    - W2b, the globe map (`docs/design/navigation.md` part 3): spike first;
