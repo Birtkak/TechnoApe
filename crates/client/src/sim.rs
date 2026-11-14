@@ -28,7 +28,7 @@ pub fn start(accept: Sender<ServerLink>, n: usize, seed: u64) {
                 Bot::new(&format!("sim{i}"), c)
             })
             .collect();
-        // xorshift; the choices still differ from run to run, as `busy()` runs on the wall clock
+        // xorshift; the choices still differ from run to run, as the bots' own loop runs on the wall clock
         let mut rng = seed.wrapping_mul(0x9e3779b97f4a7c15) | 1;
         let mut f = move || {
             rng ^= rng << 13;

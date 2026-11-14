@@ -628,6 +628,8 @@ impl Gpu {
 pub(crate) static SHOWN:std::sync::RwLock<[Option<[[f32; 3]; 2]>; 4 * 256]> = std::sync::RwLock::new([None; 4 * 256]);
 
 /// A painted block's top and side (their first variants) as `hud::cube` draws them, by block id.
+/// Counts the textures' reloads: what a kept look (`hud::Looks`) was made from.
+pub(crate) static PAINT_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static PAINTING: std::sync::RwLock<Vec<(u16, [Option<engine::textures::Pixels>; 2])>> = std::sync::RwLock::new(Vec::new());
 
 /// The painting of block `d`'s top and side for `hud::cube` (bug 2026-11-13_14-31-01: in hand as placed).
@@ -1363,6 +1365,7 @@ impl Gpu {
         // a fine face (ADR 0090): its first 32 x 32 variant (four quarters) halved to 16 x 16 (ADR 0113)
         let first = |f: &Option<engine::textures::Face>| f.as_ref().and_then(|f| match (f.fine, f.variants.len()) { (true, 4..) => Some(halve(&f.variants[..4])), (true, _) => None, _ => f.variants.first().copied() });
         *PAINTING.write().unwrap() = placed.iter().filter(|((_, q), _, _)| *q == 0).map(|((id, _), p, _)| (*id, [first(&p.faces[0]), first(&p.faces[1])])).collect();
+        PAINT_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub(crate) fn upload(&self, off: u32, q: &[[u32; 2]]) {
