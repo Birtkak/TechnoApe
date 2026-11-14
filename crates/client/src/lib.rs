@@ -27,6 +27,10 @@ mod view;
 mod water;
 mod weather;
 
+/// The quad buffer in millions of quads (8 bytes each; `quad_cap_m=` on a run): 32 since ADR 0120. At 16 a forest
+/// at detail 8 filled it (127 of its 128 MB wanted, first-fit leaves gaps) and some 3,800 chunks never came.
+const QUAD_CAP_M: u32 = 32;
+
 use app::*;
 use bench::*;
 use gpu::*;
@@ -107,7 +111,7 @@ impl ApplicationHandler for App {
             let _ = window.set_cursor_grab(CursorGrabMode::Confined).or_else(|_| window.set_cursor_grab(CursorGrabMode::Locked));
             window.set_cursor_visible(false);
         }
-        let cap: u32 = self.args.get("quad_cap_m", 16u32) * 1_000_000;
+        let cap: u32 = self.args.get("quad_cap_m", QUAD_CAP_M) * 1_000_000;
         let (gpu, rt, gi) = Gpu::new(window, &self.args, cap);
         self.gpu = Some(gpu);
         self.rt = Some(rt);
@@ -523,7 +527,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         prefetch_s: args.get("prefetch", 0.5),
         max_inflight: args.get("inflight", threads * 4),
     };
-    let cap: u32 = args.get("quad_cap_m", 16u32) * 1_000_000;
+    let cap: u32 = args.get("quad_cap_m", QUAD_CAP_M) * 1_000_000;
     let streamer = Streamer::new(&world, cap, opts);
     el.set_control_flow(ControlFlow::Poll);
     let lines_on = run == "play" && args.s("lines", "") == "stdin";

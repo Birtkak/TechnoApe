@@ -142,9 +142,13 @@ tolerance with no cracks. The four failures, and what a second look found:
   max 9.0; sim p99 6.6, max 10.8) and inside the baseline. `accept-perf` was not run: at 1080p the batch moves
   nothing past the spread.
 
-## Options that change the look or the memory (not taken; the developer's call)
+## Options that change the look or the memory (the developer's call)
 
-Measured on today's play build, 2560 x 1440, 2 runs each:
+Measured on today's play build, 2560 x 1440, 2 runs each. **The quad buffer was taken** (the developer,
+2026-11-14): 32 M quads is the default (`QUAD_CAP_M`, `quad_cap_m=` on a run). Every run holds 128 MB more
+buffer; `tests/perf/baseline.json` takes the new `gpu_alloc_mb` only (+92 to +111 MB a run: stand 541 -> 647,
+sim 812 -> 917), its speed numbers kept, as the accepting runs shared the PC. The two shadow and leaf options
+are not taken:
 
 | Option | Effect |
 |---|---|
@@ -154,9 +158,9 @@ Measured on today's play build, 2560 x 1440, 2 runs each:
 
 ## Consequences
 
-- The walk costs about 40 % less at every detail; at detail 8 in flight it is still 4 ms a frame, on every
-  frame the camera moves 4 m or a job lands. Left, ranked: the bigger quad buffer (above; the missing chunks
-  are also seen), a ceiling per region so the walk makes no slots in the air (perf-debt, ADR 0105's row), and
+- The walk costs about 40 % less at every detail; at detail 8 in flight it is still 2.6 ms a frame with the
+  32 M buffer (4 ms without), on every frame the camera moves 4 m or a job lands. Left, ranked: a ceiling per
+  region so the walk makes no slots in the air (perf-debt, ADR 0105's row), and
   walking on a worker with the frame thread only culling.
 - The forest at 1440p stays GPU-bound: ADR 0111's list (sun rays once a texel in a pass of their own) is
   unchanged and is the next GPU batch.
