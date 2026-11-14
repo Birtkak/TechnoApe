@@ -1,6 +1,6 @@
 # 0094 – Mining (b): cracks in the rock and the drop along them
 
-- **Status:** accepted (slice (b) of `docs/design/mining.md`, ADR 0087); slice (c), undercut, follows here
+- **Status:** accepted (slice (b) of `docs/design/mining.md`, ADR 0087); slice (c), undercut, is ADR 0112
 - **Date:** 2026-11-13
 
 ## Context
