@@ -56,8 +56,9 @@ drop's spawn point draws against it (no draw under the base, so drops there are 
 sound at the head is scaled by it. `CL_BASE`/`CL_THICK` live in weather.rs too; a test holds them to clouds.wgsl's
 numbers (the lightning's height used a bare 250).
 
-Clouds: `cl_cover` maps the air grid's share to the cover the cells fill to, `max(c^1.7, 0.6 c)` (0.3 → 0.18,
-0.6 → 0.42, 0.95 → 0.92), in the clouds, their shadow field and the sky's grey (frame.rs). A cell's edge fades over
+Clouds: `cl_cover` maps the air grid's share to the cover the cells fill to, `c - 1.4 max(c - 0.3, 0) (1 - c)`
+(0.3 → 0.3, 0.6 → 0.43, 0.95 → 0.90), in the clouds, their shadow field and the sky's grey (frame.rs through
+`weather::cl_cover`, which a test holds to the shader's line). A cell's edge fades over
 a margin of 0.15 (was 0.04), and the light falloff `CL_K` is 0.09 again (0.14 since ADR 0098): bodies are softer and
 thin edges are see-through. The shadow is `1 - 0.8 smoothstep(field)`, so a cloud's thin edge lets most of the sun
 through and a thick body still takes 80 %.
@@ -89,6 +90,49 @@ composite and the clouds:
   (a cheap screen-space test on the G-buffer); skip the penumbra rays past `tx_k`'s first doubling, where a texel
   step is under a pixel anyway; cap the cloud march at a lower transmittance where the slab is thin.
 - Not accepted into `tests/perf/baseline.json` (the gate was not run on this branch).
+
+After the review's fixes (c9b03232), measured again the same way, before (ffc9f557) and after in one series:
+
+| run | gbuffer | trace | screen | GPU total p50 / p99 | frame p50 / p99 |
+|---|---|---|---|---|---|
+| stand quick, 1920 x 1080 | 0.75 → 1.44 | 0.12 → 0.14 | 1.53 → 1.83 | 2.91 → 3.73 / 3.10 → 4.06 | 3.43 → 4.17 / 4.17 → 4.80 |
+| stand quick, 2560 x 1440 | 1.35 → 2.13 | 0.20 → 0.23 | 2.72 → 3.23 | 4.81 → 6.36 / 5.10 → 6.86 | 5.43 → 6.82 / 6.10 → 7.68 |
+| fly quick, 1920 x 1080 | 2.94 → 3.30 | 0.43 → 0.52 | 1.18 → 1.43 | 4.94 → 5.75 / 6.24 → 7.18 | 5.49 → 6.22 / 9.18 → 9.77 |
+| fly quick, 2560 x 1440 | 4.34 → 4.81 | 0.81 → 1.02 | 1.93 → 2.40 | 7.78 → 8.84 / 9.73 → 10.8 | 8.20 → 9.34 / 13.1 → 14.1 |
+
+- `gbuffer` near the ground costs more than in the first round (+0.7 ms against +0.3 at 1080p stand). Not
+  pinned down (ADR 0096: measured once, not optimised); suspects are `lamp_seen`'s arrays of ends, answers and
+  tints (registers in the largest fragment shader, even where no lamp shines) and the diagonal sun pairs
+  disagreeing more often in grass. `trace` is +0.1 to +0.2 ms in fly though `seen` now casts fewer rays: plants
+  and slopes keep per-pixel seeds, so the history converges less evenly; not looked into.
+- Frame p99 stays under 16.7 ms on all four (fly 1440p 14.1 in this series; the 18.2 of the first round was that
+  run's own spike).
+
+## Review
+A fresh reviewer read the first three commits. Its findings and what was done:
+
+- **Stills lit on garbage texels (must).** `fs_still` handed `terrain_lit` a VOut whose `local`/`dir` are the
+  painting's pixel and an `sfaces` index; the dotted pattern on the reed at noon. `terrain_lit` takes the
+  pixel's footprint, below 0 for "light where you are"; `fs_still` passes -1, a test holds it.
+- **Light texels larger than a block (must).** `tx_k` now stops at a block (or a coarse level's painted texel)
+  and past that returns 0, the pixel's own point; a GPU test holds the cap.
+- **Slopes snapped (must).** Sloped tops keep the pixel's point; `gi_trace` snaps only where the normal is within
+  about 8 degrees of a grid axis (no slope, plant, model or effect snaps), and keeps the pixel's seed there.
+- **Sun pairs leaned on a direction and flipped at |sd.y| = 0.9 (should).** The pairs lie on the disc's
+  diagonals in a frame from the local up (across the sun's path), which turns smoothly over the day. A thin
+  occluder between the four points is still missed far away, where its true shadow is faint anyway.
+- **Lamp ends repeated (should).** A repeated end takes the earlier ray's answer; at a bounce's hit (`seen`) one
+  ray to the sun and one a lamp (`one_ray`), as before this ADR.
+- **Bounce texel blotches (should).** Not seen: the bug's save at night with a held lamp and a daytime walk over
+  grass show no texel-sized blotches or flicker in the bounce.
+- **`cl_cover` in the ADR (should)** fixed above; frame.rs calls `weather::cl_cover`, a test holds it to the shader.
+- **Notes.** Derivatives before `fs_cut`'s discard (`fs_still` needs none now); the GPU test skips with a reason
+  without Vulkan and covers a cube face's edge; the rain's sound weighs `from_cloud` where drops start
+  (`RAIN_UP` + 2.5 m); `tx_seed`'s comment says only the axis goes in (only one face of a plane is drawn).
+
+The developer's grain (bug `01-59-35`, the save with a lamp in hand) was the held lamp's one random shadow ray a
+pixel: speckle over the lit dirt wall and logs. With the texel light it is flat texels
+(`out/bugs-1114/shadow-bug-*`).
 
 ## Consequences
 - Shadows read as pixel art: a tree's shadow on grass has stepped edges along texel borders.
