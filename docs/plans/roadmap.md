@@ -56,17 +56,18 @@ this file says what is done, what is in work and what comes next, in order.
     0099, 0100); taller mountains (0105);
   - features first, speed in batches (0096, `docs/perf-debt.md`); the first batches (0102, 0103, 0104).
 
-## In work (2026-11-14)
-- **The bug round of 11-14** (six F9 reports): powders only fall (0106), polar ice caps (0107), shadows
-  snapped to texels, no rain or snow above the clouds, looser clouds (0108), builds seen from afar (0109).
-  The forest's frame time at 2560 x 1440 goes to the next optimisation batch, which measures at that size too.
+- **Merged 2026-11-14:** the bug round of six F9 reports: powders only fall (0106), polar ice caps (0107),
+  shadows snapped to texels, no rain or snow above the clouds, looser clouds (0108), builds seen from afar
+  (0109); the first tools from flint (0110); the 1440p speed batch (0111: the forest at 2560 x 1440 is still
+  GPU-bound at 12 to 17 ms); mining slice (c), undercut and drop (0112: roofs of closed rooms only).
 
 ## Next
 In this order unless the developer says otherwise (the developer's order of 2026-11-14 first).
 
-0. **First tools from flint** (ADR 0097; `crafting.md`, `items.md`): the developer wants to play-test them;
-   items have no pictures yet. Then **mining slice (c)**: undercut and drop, crack paintings
-   (`docs/design/mining.md`). Then the list below, skipping what the rows above already built.
+0. **The developer play-tests** the flint tools (ADR 0110) and the undercut (ADR 0112: its spans and the
+   room-only rule are calls to confirm). Open beside it: items have no pictures yet, the crack paintings
+   (`docs/design/mining.md`), an overhang open to the sky does not drop. Then the list below, skipping what
+   the rows above already built.
 
 1. **What the world's stages left open** (`docs/plans/worldgen-plan.md`):
    - W2b, the globe map (`docs/design/navigation.md` part 3): spike first;
