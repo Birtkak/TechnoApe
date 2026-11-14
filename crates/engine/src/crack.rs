@@ -151,6 +151,97 @@ pub fn drop(world: &World, b: Block, block: u16) -> Vec<Block> {
     out
 }
 
+/// Cells of an opening an undercut's flood takes at most (ADR 0112).
+pub const OPEN: usize = 128;
+/// Roof cells one dig drops by undercut at most.
+pub const UNDERCUT_MAX: usize = 48;
+/// Cells of rock a slab over an opening cell is at most, its roof cell with them.
+pub const SLAB: usize = 4;
+
+/// What a survival dig of the cells `dug` brings down by undercut (mining.md 2, ADR 0112), read before the dig
+/// changes the world: `dug` and the cells `drop` loosened with them count as open. The opening at each dug cell's
+/// layer is flooded (4 neighbours, across face edges, in a fixed order); an opening cell `d` steps from its nearest
+/// wall drops the rock over it when that rock has a `span` under `d`: its roof cell and the same rock over it up to
+/// its first bedding plane, at most `SLAB` cells. In flood order, at most `UNDERCUT_MAX`.
+pub fn undercut(world: &World, dug: &[Block], loose: &[Block]) -> Vec<Block> {
+    let open = |c: Block| dug.contains(&c) || loose.contains(&c) || !BLOCKS.solid(world.block(c));
+    let up = |c: Block| Block { pos: c.pos + IVec3::Z, ..c };
+    let (mut out, mut flooded) = (Vec::new(), Vec::new());
+    for &b in dug {
+        if flooded.contains(&b) {
+            continue;
+        }
+        let n = world.bodies[b.body as usize].n;
+        let side = |c: Block, s: IVec3| {
+            let (f, i, j) = fold(c.face as usize, c.pos.x + s.x, c.pos.y + s.y, n);
+            Block { body: c.body, face: f as u8, pos: IVec3::new(i, j, c.pos.z) }
+        };
+        let steps = [IVec3::X, -IVec3::X, IVec3::Y, -IVec3::Y];
+        // the opening, breadth first; a cell beside a wall is 1 step from leaving it
+        let (mut cells, mut at, mut d) = (vec![b], std::collections::HashMap::from([(b, 0usize)]), vec![0u32]);
+        let mut k = 0;
+        while k < cells.len() {
+            for &s in &steps {
+                let c = side(cells[k], s);
+                if !open(c) {
+                    d[k] = 1;
+                } else if !at.contains_key(&c) {
+                    at.insert(c, cells.len());
+                    cells.push(c);
+                    d.push(0);
+                }
+            }
+            k += 1;
+            // shortcut: an opening over `OPEN` cells (a cave, open sky) drops nothing; judge it when big rooms matter
+            if cells.len() > OPEN {
+                break;
+            }
+        }
+        flooded.extend_from_slice(&cells);
+        if cells.len() > OPEN {
+            continue;
+        }
+        // every cell's steps to the nearest wall, from the cells beside one
+        let mut queue: std::collections::VecDeque<usize> = (0..cells.len()).filter(|&k| d[k] == 1).collect();
+        while let Some(k) = queue.pop_front() {
+            for &s in &steps {
+                if let Some(&m) = at.get(&side(cells[k], s)) {
+                    if d[m] == 0 {
+                        d[m] = d[k] + 1;
+                        queue.push_back(m);
+                    }
+                }
+            }
+        }
+        for (k, &c) in cells.iter().enumerate() {
+            let roof = up(c);
+            if open(roof) {
+                continue;
+            }
+            let rock = world.block(roof);
+            // a closed opening has a wall, so every cell has its d; 0 only if none was found
+            if BLOCKS.get(rock).is_none_or(|r| r.rubble.is_none() || r.span == 0 || d[k] <= r.span as u32) {
+                continue;
+            }
+            let mut c = roof;
+            for _ in 0..SLAB {
+                if out.len() >= UNDERCUT_MAX {
+                    return out;
+                }
+                out.push(c);
+                if of(world, c) & PL != 0 {
+                    break;
+                }
+                c = up(c);
+                if open(c) || world.block(c) != rock {
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -251,6 +342,99 @@ mod tests {
         let of_us = s.elapsed().as_secs_f64() * 1e6 / on.len() as f64;
         println!("{{\"drop_cost\":{{\"digs\":{},\"dropped_mean\":{:.2},\"mean_us\":{:.1},\"worst_us\":{:.1},\"crack_lookup_us\":{of_us:.2},\"search_cap\":{SEARCH}}}}}", on.len(), dropped as f64 / on.len() as f64, mean * 1e6, worst * 1e6);
         assert!(on.len() > 100);
+    }
+
+    /// A room `w` x `h` columns at layer 1 of a block of `rock` (walls 2 thick, floor 1, roof 5), dug out but for
+    /// its corner cell (-w/2, -h/2): the world, the cell at an offset, and that last cell.
+    fn room(rock: u16, w: i32, h: i32) -> (World, impl Fn(i32, i32, i32) -> Block, Block) {
+        let mut world = World::new(512, 32, 5);
+        let g = world.air_over_ground(0, DVec3::new(0.3, 0.5, 0.8).normalize());
+        let base = Block { pos: g.pos + IVec3::Z * 4, ..g };
+        let cell = move |di: i32, dj: i32, dl: i32| Block { pos: base.pos + IVec3::new(di, dj, dl), ..base };
+        let (i0, j0) = (-w / 2, -h / 2);
+        for di in i0 - 2..i0 + w + 2 {
+            for dj in j0 - 2..j0 + h + 2 {
+                for dl in 0..7 {
+                    let inside = dl == 1 && (i0..i0 + w).contains(&di) && (j0..j0 + h).contains(&dj) && (di, dj) != (i0, j0);
+                    world.set_block(cell(di, dj, dl), if inside { AIR } else { rock });
+                }
+            }
+        }
+        (world, cell, cell(i0, j0, 1))
+    }
+
+    /// ADR 0112 (mining.md 2, undercut and drop): the slab over column (di, dj) of a room: its roof cell and the rock
+    /// over it up to its first bedding plane, at most 4.
+    fn slab(w: &World, cell: impl Fn(i32, i32, i32) -> Block, di: i32, dj: i32) -> Vec<Block> {
+        let mut out = Vec::new();
+        for dl in 2..6 {
+            out.push(cell(di, dj, dl));
+            if of(w, cell(di, dj, dl)) & PL != 0 {
+                break;
+            }
+        }
+        out
+    }
+
+    /// ADR 0112: a room wider than the rock's span under its roof drops the slab over the cells farther than the span
+    /// from a wall: shale (span 1) over 3 x 3 the centre, limestone (span 2) over a 3-wide gallery nothing and over
+    /// 5 x 5 the centre; granite never; a room over the search cap nothing; the same list every time.
+    #[test]
+    fn an_undercut_drops_the_roof_past_its_span() {
+        let (shale, lime, granite) = (BLOCKS.id("shale"), BLOCKS.id("limestone"), BLOCKS.id("granite"));
+        let (w, cell, last) = room(shale, 3, 3);
+        let got = undercut(&w, &[last], &[]);
+        let want = slab(&w, &cell, 0, 0);
+        assert!(!want.is_empty() && want.len() <= 4 && of(&w, *want.last().unwrap()) & PL != 0, "a slab to its bedding plane: {want:?}");
+        assert_eq!(got, want, "the centre column's slab and nothing else");
+        assert_eq!(undercut(&w, &[last], &[]), got, "the same list each run");
+        assert!(undercut(&w, &[cell(0, 0, 6)], &[]).is_empty(), "a dig in solid rock opens nothing");
+
+        let (w, _, last) = room(lime, 3, 20);
+        assert!(undercut(&w, &[last], &[]).is_empty(), "a 3-wide gallery stands under limestone");
+        let (w, cell, last) = room(lime, 5, 5);
+        assert_eq!(undercut(&w, &[last], &[]), slab(&w, &cell, 0, 0), "5 x 5: the centre comes down");
+        let (w, _, last) = room(granite, 5, 5);
+        assert!(undercut(&w, &[last], &[]).is_empty(), "granite stands by itself");
+        let (w, _, last) = room(shale, 13, 13);
+        assert!(undercut(&w, &[last], &[]).is_empty(), "an opening over the cap drops nothing");
+        // the cells the same dig loosened count as open: the corner's neighbour left in place, loosened, still drops it
+        let (mut w, cell, last) = room(shale, 3, 3);
+        w.set_block(cell(0, -1, 1), shale);
+        assert!(undercut(&w, &[last], &[]).is_empty(), "a pillar beside the centre holds it");
+        assert_eq!(undercut(&w, &[last], &[cell(0, -1, 1)]), slab(&w, &cell, 0, 0));
+    }
+
+    /// ADR 0112: an undercut's flood over generated ground on the 4 km planet, for digs in buried rock (an opening of
+    /// one cell, the common dig) and at the top of a column (open sky beside: the flood runs to its cap, the worst)
+    /// (cargo test -p engine --profile play --lib undercut_cost -- --ignored --nocapture).
+    #[test]
+    #[ignore]
+    fn undercut_cost() {
+        let w = World::baked(6144, crate::bodies::columns(1, 6144), 1337);
+        let body = &w.bodies[0];
+        let (mut buried, mut top) = (Vec::new(), Vec::new());
+        for face in 0..6u8 {
+            for i in (0..body.n).step_by(97) {
+                for j in (0..body.n).step_by(89) {
+                    let h = body.layer_of(body.col_height(face, i, j)) as i32;
+                    let b = |z: i32| Block { body: 0, face, pos: IVec3::new(i, j, z) };
+                    top.extend((h - 2..=h).rev().map(b).find(|&c| BLOCKS.solid(w.block(c))));
+                    buried.extend((h - 60..h - 6).step_by(9).map(b).filter(|&c| BLOCKS.solid(w.block(c))));
+                }
+            }
+        }
+        let run = |digs: &[Block]| {
+            let (t, mut worst, mut dropped) = (std::time::Instant::now(), 0f64, 0usize);
+            for &b in digs {
+                let s = std::time::Instant::now();
+                dropped += undercut(&w, &[b], &[]).len();
+                worst = worst.max(s.elapsed().as_secs_f64());
+            }
+            format!("{{\"digs\":{},\"dropped\":{dropped},\"mean_us\":{:.1},\"worst_us\":{:.1}}}", digs.len(), t.elapsed().as_secs_f64() * 1e6 / digs.len() as f64, worst * 1e6)
+        };
+        println!("{{\"undercut_cost\":{{\"buried\":{},\"top\":{},\"open_cap\":{OPEN}}}}}", run(&buried), run(&top));
+        assert!(buried.len() > 100 && top.len() > 100);
     }
 
     /// A wall of granite: a dig on a joint takes 2..5 more of the granite on that joint, never another block, never

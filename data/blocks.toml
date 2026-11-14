@@ -27,6 +27,8 @@
 # make a full slot (1..64, 64 if left out; rock, rubble and ore 16). Ids 160..199 are kept for rubble.
 # `bedding`: layered rock's metres between bedding planes; `joints`: massive rock's columns between joints, on
 # average (ADR 0094, mining.md 2): a survival dig on one loosens its neighbours along it into rubble.
+# `span` (bedded rock only, 1..16): the columns a roof of it carries from its support; a survival dig that opens
+# a room wider under it drops the roof's slab, up to its bedding plane, as rubble (ADR 0112). None: it never drops.
 # `soft`: sound passes it without an echo (leaves, a shrub, reed),
 # so it is no wall to the cave reverb (ADR 0054). `see`: "cutout" for a block seen through, its pixels
 # wholly there or wholly empty (alpha 0 in its painting; the `leaves` pattern has holes), opaque without it (ADR 0069).
@@ -463,6 +465,7 @@ grade = 1
 rubble = 163
 stack = 16
 bedding = 3.0
+span = 2
 colour = [0.80, 0.66, 0.46]
 pattern = "plain"
 colour2 = [0.62, 0.48, 0.32]
@@ -478,6 +481,7 @@ grade = 1
 rubble = 164
 stack = 16
 bedding = 1.5
+span = 1
 colour = [0.34, 0.34, 0.37]
 pattern = "plain"
 colour2 = [0.22, 0.22, 0.25]
@@ -493,6 +497,7 @@ grade = 1
 rubble = 165
 stack = 16
 bedding = 2.5
+span = 2
 colour = [0.80, 0.78, 0.70]
 pattern = "plain"
 colour2 = [0.62, 0.60, 0.53]
