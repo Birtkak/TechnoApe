@@ -250,7 +250,7 @@ def deer(m):
     throat = lambda s: R("deer pale", 4.6) if s.f == "+z" and 2 <= s.p[0] <= 6 else None
     m.add("neck", (0, 0, 0), (8, 12, 8), over(tan, throat))
     eyes = lambda s: (eye("+x", 5.5, 6.5, 0.8)(s) or eye("-x", 5.5, 6.5, 0.8)(s))
-    nose = lambda s: R("eye", 1.2) if s.f in ("+z", "top") and s.p[2] > 10.5 and s.p[1] > 2 else None
+    nose = lambda s: R("eye", 1.2) if (s.f == "+z" and abs(s.p[0] - 4) < 1.6 and 4 < s.p[1] < 6.5) or (s.f == "top" and s.p[2] > 11 and abs(s.p[0] - 4) < 1.6) else None
     chin = lambda s: R("deer pale", 4.8) if s.f in ("+z", "bottom", "+x", "-x") and s.p[1] < 1.5 else None
     m.add("head", (0, 0, 0), (8, 8, 12), over(tan, eyes, nose, chin))
     m.add("head", (0, 8, 0), (8, 4, 5), tan)
