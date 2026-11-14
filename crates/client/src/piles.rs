@@ -27,16 +27,23 @@ pub struct Lying {
     pub turn: f32,
 }
 
-/// The piles within `PILE_DRAWN` of `me` as drawn: the stacks whose item or block names a model (`has`) as models,
-/// the others as cubes of their look among the particles. Up to four stacks a cell, each at its own corner, turned
-/// by the cell's hash, so a pile looks the same every frame and unlike its neighbour.
-pub(crate) fn lay(world: &World, piles: &std::collections::HashMap<Block, Vec<Slot>>, me: DVec3, has: &dyn Fn(&str) -> bool) -> (Vec<Lying>, Vec<FxGpu>) {
-    let (mut models, mut still) = (Vec::new(), Vec::new());
+/// The piles within `PILE_DRAWN` of `me` as drawn: the stacks whose item or block names a model (`footprint`: its
+/// lying footprint's half width in metres, by name, whether an item, whether a tool) as models, the others as
+/// cubes of their look among the particles, and a contact shadow under each (`shade`). Up to four stacks a cell,
+/// each at its own corner, turned by the cell's hash, so a pile looks the same every frame and unlike its
+/// neighbour.
+pub(crate) fn lay(world: &World, piles: &std::collections::HashMap<Block, Vec<Slot>>, me: DVec3, footprint: &dyn Fn(&str, bool, bool) -> Option<f32>) -> (Vec<Lying>, Vec<FxGpu>, Vec<FxGpu>) {
+    let (mut models, mut still, mut shades) = (Vec::new(), Vec::new(), Vec::new());
     for (b, slots) in piles {
         if world.block_centre(*b).distance(me) > PILE_DRAWN {
             continue;
         }
         let at = fx::At::floor_of(world, *b);
+        // no shadow on a see-through floor (glass, leaves) or under water
+        let below = Block { pos: b.pos - glam::IVec3::Z, ..*b };
+        let opaque = engine::blocks::BLOCKS.get(world.block(below)).is_some_and(|d| d.see == engine::blocks::See::Opaque);
+        let dry = world.water_surface(world.bodies[b.body as usize].centre + at.p.as_dvec3()).is_none_or(|s| s <= at.p.length() as f64 + 1e-3);
+        let open = opaque && dry;
         let seed = b.pos.x as u32 ^ (b.pos.y as u32).rotate_left(11) ^ (b.pos.z as u32).rotate_left(22);
         for (k, s) in slots.iter().enumerate().filter_map(|(k, s)| Some((k, (*s)?))) {
             let side = [(-0.15, -0.15), (0.15, 0.1), (-0.1, 0.17), (0.17, -0.15)][k % 4];
@@ -45,7 +52,8 @@ pub(crate) fn lay(world: &World, piles: &std::collections::HashMap<Block, Vec<Sl
             let side = if tool { (0.25f32.copysign(side.0), 0.25f32.copysign(side.1)) } else { side };
             let floor = at.p + at.axes[1] * side.0 + at.axes[2] * side.1;
             let name = ITEMS.name(s.item);
-            if has(name) {
+            if let Some(half) = footprint(name, s.item >= ITEM_BASE, tool) {
+                shades.extend(shade(&at, side, half, open));
                 let turn = (seed.wrapping_mul(2654435761) >> 8) as f32 / (1 << 24) as f32 * std::f32::consts::TAU + k as f32 * 1.9;
                 models.push(Lying { name: name.to_string(), item: s.item >= ITEM_BASE, tool, body: b.body, p: floor, axes: at.axes, turn });
                 continue;
@@ -55,18 +63,40 @@ pub(crate) fn lay(world: &World, piles: &std::collections::HashMap<Block, Vec<Sl
             let info = ITEMS.look(s.item) as u32 | (b.body as u32) << 8 | (fx::Look::Block as u32) << 10 | 1 << 20;
             let (a, code) = fx::cell_code(*b);
             still.push(FxGpu { p: [side.0, side.1, BLOCK_M / 2.0 - 0.5], size: BLOCK_M, info, angle: 0.0, a, b: code });
+            shades.extend(shade(&at, side, BLOCK_M * std::f32::consts::FRAC_1_SQRT_2, open));
         }
     }
-    (models, still)
+    (models, still, shades)
+}
+
+/// The ground's texels a metre: a contact shadow steps in them, as the shadows do (ADR 0108).
+const TEXELS: f32 = 32.0;
+
+/// A contact shadow under a thing lying at `off` (in cells along the floor's axes) from the middle of the floor
+/// `at`, its footprint `half` metres from its middle (ADR 0114 second round): a square `vs_shade` draws flat on
+/// the floor, `size` its half width, darkening the albedo under it in rings of whole texels (`fs_shade`). Its
+/// middle on the ground's texel grid, its half width the footprint's and a little more in whole texels, held
+/// inside its cell (so it never hangs over a step); None where the floor is see-through or under water (`open`
+/// false).
+pub(crate) fn shade(at: &fx::At, off: (f32, f32), half: f32, open: bool) -> Option<FxGpu> {
+    let snap = |v: f32| (v * TEXELS).round() / TEXELS;
+    let (x, y) = (snap(off.0.clamp(-0.45, 0.45)), snap(off.1.clamp(-0.45, 0.45)));
+    let r = ((half * 1.15 * TEXELS).ceil() + 1.0) / TEXELS;
+    let r = r.min(0.5 - x.abs()).min(0.5 - y.abs());
+    let p = at.p + at.axes[1] * x + at.axes[2] * y;
+    (open && r > 0.0).then(|| FxGpu { p: p.to_array(), size: r, info: (at.body as u32) << 8, angle: 0.0, a: fx::pack_dir(at.axes[1]), b: 0 })
 }
 
 impl App {
     /// This frame's piles: the models to `Models::frame`, the cubes laid among the particles.
     pub(crate) fn lay_piles(&mut self) {
         let models = &self.models;
-        let (lying, still) = lay(&self.world, &self.piles, self.me.pos, &|n| models.has(n));
+        let (lying, still, shades) = lay(&self.world, &self.piles, self.me.pos, &|n, item, tool| models.lying_half(n, item, tool));
         self.models.piles = lying;
         self.fx.lay(still);
+        // last in the buffer: `vs_shade` draws them after the particles (frame.rs)
+        self.fx.shades = shades.len();
+        self.fx.lay(shades);
     }
 }
 
@@ -82,7 +112,31 @@ mod tests {
         let slots = vec![Some(Stack::new(id("hand axe"), 1)), Some(Stack::new(id("granite"), 3)), None, Some(Stack::new(id("flint"), 2))];
         let piles = [(b, slots)].into_iter().collect();
         let me = w.block_centre(b) + (w.block_centre(b) - w.bodies[0].centre).normalize().any_orthonormal_vector() * me_off;
-        lay(&w, &piles, me, &|n| has.contains(&n))
+        let (m, c, _) = lay(&w, &piles, me, &|n, _, _| has.contains(&n).then_some(0.1));
+        (m, c)
+    }
+
+    /// ADR 0114 second round: a contact shadow sits on the texel grid, a little larger than the footprint in
+    /// whole texels, inside its cell, and is not made on a see-through floor or under water.
+    #[test]
+    fn a_contact_shadow_is_snapped_sized_and_kept_in_its_cell() {
+        let w = World::new(768, 256, 1);
+        let at = fx::At::floor_of(&w, w.air_over_ground(0, w.bodies[0].spawn));
+        for (off, half) in [((0.0, 0.0), 0.1), ((-0.153, 0.171), 0.12), ((0.25, -0.25), 0.24), ((0.4, 0.4), 0.3)] {
+            let s = shade(&at, off, half, true).expect("a shadow on open ground");
+            let d = Vec3::from(s.p) - at.p;
+            let (x, y) = (d.dot(at.axes[1]), d.dot(at.axes[2]));
+            assert!(d.dot(at.axes[0]).abs() < 1e-4, "on the floor: {d}");
+            for v in [x, y, s.size] {
+                assert!((v * TEXELS - (v * TEXELS).round()).abs() < 1e-3, "{v} on the texel grid");
+            }
+            assert!(x.abs() + s.size <= 0.5 + 1e-4 && y.abs() + s.size <= 0.5 + 1e-4, "inside its cell: {x} {y} {}", s.size);
+            if off.0.abs() + half * 1.1 < 0.45 {
+                assert!(s.size >= half * 1.1, "{} round a footprint of {half}", s.size);
+            }
+            assert_eq!(s.info >> 8 & 3, at.body as u32);
+        }
+        assert_eq!(shade(&at, (0.0, 0.0), 0.1, false), None, "none on glass or in water");
     }
 
     /// ADR 0114: a stack whose item has a loaded model lies as that model, the rest are cubes; the same pile is

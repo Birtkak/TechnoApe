@@ -616,6 +616,8 @@ pub struct Fx {
     pub wind: Vec3,
     pool: Vec<P>,
     out: Vec<FxGpu>,
+    /// How many of `out`'s last are contact shadows (`piles::shade`, drawn by `vs_shade`).
+    pub shades: usize,
     /// Plays `then` rows ask for, where a particle died; kept to reuse its room.
     later: Vec<(u16, At)>,
     cap: usize,
@@ -717,6 +719,7 @@ impl Fx {
             wind: Vec3::ZERO,
             pool: Vec::with_capacity(cap),
             out: Vec::with_capacity(cap + CRACKS),
+            shades: 0,
             later: Vec::with_capacity(256),
             cap,
             scale,
@@ -1096,6 +1099,7 @@ impl Fx {
         }
         self.events = 0;
         self.out.clear();
+        self.shades = 0;
         self.mout.clear();
         self.cracks = 0;
         self.clock += dt;
@@ -1338,7 +1342,7 @@ fn seed_axis(a: u32) -> Vec3 {
 }
 
 /// A direction as three 10-bit numbers for the shader (`unpack_dir` in shader.wgsl).
-fn pack_dir(v: Vec3) -> u32 {
+pub(crate) fn pack_dir(v: Vec3) -> u32 {
     let d = v.normalize_or(Vec3::Y).to_array().map(|x| ((x * 0.5 + 0.5) * 1023.0).round() as u32);
     d[0] | d[1] << 10 | d[2] << 20
 }

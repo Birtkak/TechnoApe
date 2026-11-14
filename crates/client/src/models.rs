@@ -53,6 +53,18 @@ pub struct Loaded {
 }
 
 impl Loaded {
+    /// How it lies in a pile (ADR 0114): its scale (the item's size, a model of painted boxes at its real size
+    /// unless its file says, a tool `TOOL_LYING` times), its turn (an item standing taller than it is wide laid
+    /// down on its face, +z up) and its bounds so turned.
+    pub fn lying(&self, item: bool, tool: bool) -> (f32, Mat4, [Vec3; 2]) {
+        let s = self.model.item.unwrap_or(if self.boxes.is_empty() { engine::models::ITEM_M } else { 1.0 }) * if tool { TOOL_LYING } else { 1.0 };
+        let [lo, hi] = self.bounds;
+        let d = hi - lo;
+        let lay = if item && d.y > d.x.max(d.z) { Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2) } else { Mat4::IDENTITY };
+        let (a, b) = (lay.transform_point3(lo), lay.transform_point3(hi));
+        (s, lay, [a.min(b), a.max(b)])
+    }
+
     /// How it sits in its cell in hand: a painted model (clutter, painted items) by its rest bounds' middle in the
     /// cell's middle (a flint lies low in its cell, under the screen's edge), a flat one tipped 60 degrees to show
     /// the eye its top; a voxel model (a creature, a block's) as before, by its cell (ADR 0114).
@@ -424,6 +436,13 @@ impl Models {
         drawn(&self.list, name).and_then(|m| self.list[m].0.pictures[k].as_ref())
     }
 
+    /// The half width in metres of model `name`'s footprint lying in a pile, whichever way it is turned (its
+    /// contact shadow's, `piles::shade`); None when no model of that name has anything to draw.
+    pub fn lying_half(&self, name: &str, item: bool, tool: bool) -> Option<f32> {
+        let (s, _, [a, b]) = self.list[drawn(&self.list, name)?].0.lying(item, tool);
+        Some(0.5 * s * (b.x - a.x).hypot(b.z - a.z))
+    }
+
     /// Whether a model of this name is loaded with something to draw (ADR 0114: a painted one whose painting is
     /// missing or refused has none): the one test the hand, a pile and a slot's picture make.
     pub fn has(&self, name: &str) -> bool {
@@ -660,13 +679,7 @@ impl Models {
         // cell's up, its rest bounds centred on its place and resting on the floor
         for p in &self.piles {
             let Some(m) = drawn(&self.list, &p.name) else { continue };
-            let l = &self.list[m].0;
-            let s = l.model.item.unwrap_or(if l.boxes.is_empty() { engine::models::ITEM_M } else { 1.0 }) * if p.tool { TOOL_LYING } else { 1.0 };
-            let [lo, hi] = l.bounds;
-            let d = hi - lo;
-            let lay = if p.item && d.y > d.x.max(d.z) { Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2) } else { Mat4::IDENTITY };
-            let (a, b) = (lay.transform_point3(lo), lay.transform_point3(hi));
-            let (a, b) = (a.min(b), a.max(b));
+            let (s, lay, [a, b]) = self.list[m].0.lying(p.item, p.tool);
             let off = Vec3::new(-(a.x + b.x) * 0.5, -a.y, -(a.z + b.z) * 0.5);
             let (cam, turn) = cams[p.body as usize];
             let (up, x) = (p.axes[0].as_dvec3(), p.axes[1].as_dvec3());
@@ -1028,7 +1041,7 @@ mod tests {
         assert!(m.picture("flint", 0).is_none(), "no picture in a slot either");
         let cell = w.air_over_ground(0, b.spawn);
         let piles = [(cell, vec![Some(engine::items::Stack::new(engine::items::ITEMS.named("flint").unwrap(), 1))])].into_iter().collect();
-        let (lying, cubes) = crate::piles::lay(&w, &piles, w.block_centre(cell), &|n| m.has(n));
+        let (lying, cubes, _) = crate::piles::lay(&w, &piles, w.block_centre(cell), &|n, i, t| m.lying_half(n, i, t));
         assert_eq!((lying.len(), cubes.len()), (0, 1), "its cube in the pile");
         let (mut fx, mut audio) = (crate::fx::Fx::new(true, 64, 1.0, 1), crate::audio::Audio::new());
         let eye = (b.centre + b.spawn * (b.height(b.spawn) + 2.0), DVec3::X, b.spawn);

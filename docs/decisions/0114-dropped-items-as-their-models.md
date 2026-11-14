@@ -136,11 +136,28 @@ The developer, on the stills: "keep improving".
    painting) shrunk to 0.2 m about the cell's middle and moved in cells to its corner and onto the floor (bit
    20, as a glide); no shader change. Test in `a_pile_draws_its_models_and_cubes_for_the_rest`. Stills
    `out/piles/blocks_front.png`, `out/piles/blocks_side.png` (granite, meadow grass, broadleaf leaves, the axe).
-3. **Contact shadow: skipped.** Nothing cheap exists: fx, clutter and creatures cast none (models and particles
-   are outside the traced scene), and the G-buffer has no blending for a soft dark patch; a dark fx square
-   would be a hard tile. Real shadows for models need them in the traced scene (their quads in an acceleration
-   structure beside the chunks', refit as they move) or a decal pass that darkens the lit image under each
-   instance after lighting.
+3. **Contact shadow (the developer's call, 2026-11-14: "make cheap contact shadow for the little small
+   things").** Under every stack in a pile, model or block, one flat square on its cell's floor darkens the
+   albedo (so the sun, lamps and sky all see a darker floor there) in rings of whole ground texels, half the
+   light at its middle and none at its edge. `piles::shade` places it: middle on the 32 a metre texel grid, half
+   width the lying footprint's (`Models::lying_half`; a block's 0.2 m cube by its diagonal) times 1.15 plus one
+   texel, held inside its cell so it never hangs over a step or a stair, none on a see-through floor (glass,
+   leaves) or under water. It is in the fx buffer after the particles (`Fx::shades`), so it vanishes with its
+   pile the frame the pile goes; no setting. Clutter (sticks, stones as still models) needs none: its quads are
+   already in the traced scene (`rt.rs`, the still models' BLAS) and cast real shadows.
+   Chosen (a) a write mask: `gpu.rs` `shade_pipeline` blends multiply (`Dst * src`) into the albedo's colour only,
+   the albedo's alpha (the body) and the light, normal/gbuf targets masked off, depth tested `Greater`, not
+   written. Shader: `vs_shade` and `fs_shade` (`shader.wgsl`, new, before `fs_model`) build the square from the
+   particle (`size` half width, `a` the floor's first axis) and pull its depth one centimetre nearer as a cell
+   look does, so it shows where the floor is nearest and is hidden behind grass blades, the thing itself and
+   walls; no existing shader line changed. `frame.rs` draws the last `shade_n` of the fx instances with it.
+   Lost: (b) a dithered cutout writes black albedo texels in a pattern, a dotted patch that crawls when the
+   camera moves; (c) a decal after lighting needs the depth read back and a pass of its own over the lit
+   image, more code and cost for the same look. Test `a_contact_shadow_is_snapped_sized_and_kept_in_its_cell`
+   (seen failing with `shade` returning nothing). Stills `out/piles/shade_before.png` / `shade_after.png`
+   (meadow grass, 9 am), `shade_grass_noon.png`, `shade_grass_sunset.png`, `shade_stone_noon.png`,
+   `shade_stone_sunset.png` (granite); film `shade_film.png` (a slow pan, every frame read: no flicker, no
+   z-fight). Cost: `docs/perf-debt.md`, the 0114 row.
 4. **Inventory polish.** The tooltip stands right of its slot (else left), its middle at the slot's, inside
    the panel (test `a_tooltip_stands_beside_its_slot_inside_the_panel`). A cutout block is its cube with the
    painting's empty texels left open (`hud::cube` no longer fills a hole with the tone; tests
@@ -166,7 +183,8 @@ The developer, on the stills: "keep improving".
    clearly over the meadow grass beside the 0.2 m blocks.
 
 For the developer:
-- The axe's size in a pile (21 cm, under the grass blades), or a larger `item`.
+- The contact shadow's darkness (half the light at its middle) and size (the footprint and 15 %).
+- Flint's slot picture still reads as a slab (one box; it needs repainting).
 - Reed is a cube in its slot as in the world (it was a flat tile).
 - A cutout block's slot picture shows the summer painting (shortcut: the season's tint the flat picture had is
   not on the cube's painting).
