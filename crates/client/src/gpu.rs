@@ -105,8 +105,28 @@ pub(crate) fn cap_lamps<'a>(all: impl Iterator<Item = &'a (u8, DVec3, [f32; 3])>
 
 /// The lamp of the block in hand (bug 2026-11-13_14-31-01): a block that gives light lights the world from the
 /// hand, 0.4 m ahead of the eye and 0.3 m under it, as `cap_lamps` takes it (body `cf`, world place, light).
-pub(crate) fn held_lamp(d: Option<&engine::blocks::Def>, cf: u8, eye: DVec3, fwd: DVec3, up: DVec3) -> Option<(u8, DVec3, [f32; 3])> {
-    d.filter(|d| d.light != [0.0; 3]).map(|d| (cf, eye + fwd * 0.4 - up * 0.3, d.light))
+/// A flame (a torch, ADR 0117) under water there is out: none.
+pub(crate) fn held_lamp(world: &World, d: Option<&engine::blocks::Def>, cf: u8, eye: DVec3, fwd: DVec3, up: DVec3) -> Option<(u8, DVec3, [f32; 3])> {
+    let at = eye + fwd * 0.4 - up * 0.3;
+    d.filter(|d| d.light != [0.0; 3] && !(d.flame && world.water_surface(at).is_some())).map(|d| (cf, at, d.light))
+}
+
+/// The lamps the other players hold (ADR 0117): from each one's roster entry (`net::Player::hand`, once a
+/// second), at its hand as `held_lamp` puts this player's, its eye 1.5 m over its feet; `me` is left out.
+/// (shortcut: a light moves with the roster's once a second; with the players' own moves when they are sent)
+pub(crate) fn others_lamps(world: &World, others: &[engine::net::Player], me: u32) -> Vec<(u8, DVec3, [f32; 3])> {
+    others
+        .iter()
+        .filter(|o| o.id != me && o.hand != 0)
+        .filter_map(|o| {
+            let pos = DVec3::from_array(o.pos);
+            let body = world.frame_at(pos);
+            let up = (pos - world.bodies.get(body)?.centre).normalize_or(DVec3::Z);
+            let fwd = DVec3::from_array(o.fwd.map(f64::from));
+            let fwd = (fwd - up * fwd.dot(up)).normalize_or(up.any_orthonormal_vector());
+            held_lamp(world, engine::blocks::BLOCKS.get(o.hand), body as u8, pos + up * 1.5, fwd, up)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -129,13 +149,52 @@ mod lamp_tests {
     #[test]
     fn a_held_lamp_gives_light_from_the_hand() {
         let b = &engine::blocks::BLOCKS;
-        let (eye, fwd, up) = (DVec3::new(0.0, 0.0, 100.0), DVec3::X, DVec3::Z);
-        let lamp = b.get(b.id("lamp")).unwrap();
-        let (body, at, light) = held_lamp(Some(lamp), 0, eye, fwd, up).expect("a lamp gives light");
-        assert_eq!((body, light), (0, lamp.light));
-        assert!((at - eye).length() < 1.0 && (at - eye).dot(fwd) > 0.0, "in hand, ahead of the eye: {at}");
-        assert!(held_lamp(b.get(b.id("dirt")), 0, eye, fwd, up).is_none(), "dirt gives none");
-        assert!(held_lamp(None, 0, eye, fwd, up).is_none(), "an empty hand none");
+        let w = World::new(768, 256, 1);
+        let up = w.bodies[0].spawn;
+        let eye = w.bodies[0].centre + up * (w.bodies[0].height(up) + 1.6);
+        let fwd = up.any_orthonormal_vector();
+        for name in ["lamp", "torch"] {
+            let lamp = b.get(b.id(name)).unwrap();
+            let (body, at, light) = held_lamp(&w, Some(lamp), 0, eye, fwd, up).expect("it gives light");
+            assert_eq!((body, light), (0, lamp.light), "{name}: by its row");
+            assert!((at - eye).length() < 1.0 && (at - eye).dot(fwd) > 0.0, "in hand, ahead of the eye: {at}");
+        }
+        assert!(held_lamp(&w, b.get(b.id("dirt")), 0, eye, fwd, up).is_none(), "dirt gives none");
+        assert!(held_lamp(&w, None, 0, eye, fwd, up).is_none(), "an empty hand none");
+    }
+
+    /// ADR 0117: a torch held under water is out; a lamp there stays lit.
+    #[test]
+    fn a_held_torch_is_out_under_water() {
+        let b = &engine::blocks::BLOCKS;
+        let w = World::new(768, 256, 1);
+        let body = &w.bodies[0];
+        let sea = body.layer_r(body.sea.unwrap());
+        // (a spiral of directions over the whole planet, the first over deep sea)
+        let d = (0..20000).map(|k| { let z = 1.0 - (k as f64 + 0.5) / 10000.0; let a = k as f64 * 2.399963; let r = (1.0 - z * z).sqrt(); DVec3::new(r * a.cos(), r * a.sin(), z) }).find(|d| body.height(*d) < sea - 4.0).expect("a sea");
+        let eye = body.centre + d * (sea - 1.0);
+        let fwd = d.any_orthonormal_vector();
+        assert!(w.water_surface(eye + fwd * 0.4 - d * 0.3).is_some(), "the hand is under water");
+        assert!(held_lamp(&w, b.get(b.id("torch")), 0, eye, fwd, d).is_none(), "the torch is out");
+        assert!(held_lamp(&w, b.get(b.id("lamp")), 0, eye, fwd, d).is_some(), "the lamp is lit");
+    }
+
+    /// ADR 0117: another player's held torch is a lamp in this client's list, at its hand; this player's own
+    /// roster entry and an empty or dark hand are none.
+    #[test]
+    fn another_players_held_torch_is_a_lamp_here() {
+        let b = &engine::blocks::BLOCKS;
+        let w = World::new(768, 256, 1);
+        let up = w.bodies[0].spawn;
+        let feet = w.bodies[0].centre + up * w.bodies[0].height(up);
+        let p = |id: u32, hand: u16| engine::net::Player { id, name: format!("p{id}"), pos: feet.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0, hand };
+        let torch = b.id("torch");
+        let got = others_lamps(&w, &[p(1, torch), p(2, torch), p(3, 0), p(4, b.id("dirt"))], 1);
+        assert_eq!(got.len(), 1, "player 2's only: {got:?}");
+        let (body, at, light) = got[0];
+        assert_eq!((body, light), (0, b.get(torch).unwrap().light));
+        let h = (at - feet).dot(up);
+        assert!((0.9..1.5).contains(&h) && (at - feet).length() < 1.6, "at its hand: {h} m up");
     }
 }
 

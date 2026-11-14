@@ -139,6 +139,9 @@ pub struct Player {
     pub pos: [f64; 3],
     pub fwd: [f32; 3],
     pub pitch: f32,
+    /// The item in its hand (its selected slot's; 0 none), sent with the roster once a second (ADR 0117): a
+    /// client lights the world from another player's held torch or lamp by it.
+    pub hand: u16,
 }
 
 /// The download's stage name in `bake::Progress`.
