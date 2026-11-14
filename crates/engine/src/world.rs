@@ -11,7 +11,7 @@ use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use glam::{DQuat, DVec3, IVec3};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
-use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
+use std::f64::consts::{FRAC_PI_2, PI};
 use std::sync::Arc;
 
 pub const BLOCK: f64 = 1.0;
@@ -176,6 +176,9 @@ pub struct Body {
     pub r0: f64,
     /// Each layer is exp(lnq) times thicker than the one below.
     pub lnq: f64,
+    /// The block grid's warp towards the conformal cube-sphere (a trial, ADR 0131; `warp.rs`): 0 today's
+    /// equi-angular grid, to the bit; 1 square block tops everywhere. Set before the body is given its map.
+    pub warp: f64,
     /// Layers 0..layers are streamed (terrain plus build headroom).
     pub layers: i32,
     noise: FastNoiseLite,
@@ -405,7 +408,7 @@ impl Body {
         // small bodies keep half their radius; the deep ground lies under the old floor, layer for layer
         let r0 = (radius - CRUST.min(radius * 0.5)) * (-lnq * deep_layers(n) as f64).exp();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, layers, noise, sea: None, land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
+        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, warp: 0.0, layers, noise, sea: None, land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
     }
     /// The body on a baked map (ADR 0043): its heights, biomes, ground and plants, and its spawn.
     pub fn with_map(mut self, map: Arc<Map>) -> Self {
@@ -455,7 +458,9 @@ impl Body {
                 let c = c as usize;
                 let (f, i, j) = (c / (m * m), c % m, (c / m) % m);
                 let ground = b.radius - SEA_DEPTH + map.h[c] as f64;
-                Cave { face: f as u8, at: DVec3::new((i as f64 + 0.5) * k, (j as f64 + 0.5) * k, b.layer_of(ground - depth as f64)), r: r as f64 }
+                // (the map's cell in the block grid, which the warp moves, ADR 0131)
+                let (ci, cj) = b.unwarp_col((i as f64 + 0.5) * k, (j as f64 + 0.5) * k);
+                Cave { face: f as u8, at: DVec3::new(ci, cj, b.layer_of(ground - depth as f64)), r: r as f64 }
             })
             .collect();
         // (a map without rock provinces gets none of W4's caves: the tubes are all of Luna's)
@@ -473,7 +478,35 @@ impl Body {
         let [nn, s, t] = AX[f].map(|v| v.as_dvec3());
         let dn = d.dot(nn);
         let col = |w: f64| ((w / dn).atan() / FRAC_PI_2 * 2.0 + 1.0) * 0.5 * self.n as f64;
-        (f, col(d.dot(s)), col(d.dot(t)))
+        if self.warp == 0.0 {
+            return (f, col(d.dot(s)), col(d.dot(t)));
+        }
+        let (i, j) = self.unwarp_col(col(d.dot(s)), col(d.dot(t)));
+        (f, i, j)
+    }
+    /// Face point (i, j) of the block grid in columns as the equi-angular grid's columns: where `dir` lays it, and
+    /// where the baked map (which is equi-angular by direction) is read for it. Itself with no warp.
+    pub fn warp_col(&self, i: f64, j: f64) -> (f64, f64) {
+        if self.warp == 0.0 {
+            return (i, j);
+        }
+        let h = self.n as f64 * 0.5;
+        let (v, _) = crate::warp::at((i - h) / h, (j - h) / h);
+        (i + self.warp * h * v[0], j + self.warp * h * v[1])
+    }
+    /// `warp_col`'s inverse: the block grid's point at the equi-angular grid's point (i, j).
+    pub fn unwarp_col(&self, i: f64, j: f64) -> (f64, f64) {
+        if self.warp == 0.0 {
+            return (i, j);
+        }
+        let h = self.n as f64 * 0.5;
+        let (a, b) = crate::warp::unwarp((i - h) / h, (j - h) / h, self.warp);
+        (h + a * h, h + b * h)
+    }
+    /// Block-grid face point (i, j) as a point of the baked map's cells (`s` its cells a column).
+    fn map_xy(&self, s: f64, i: f64, j: f64) -> (f64, f64) {
+        let (x, y) = self.warp_col(i, j);
+        (x * s, y * s)
     }
     /// The water generation puts over column (i, j) of a face (W5, ADR 0059): its top as a layer coordinate,
     /// the account it books against (`liquid::Ground::reach`), and for a river its flow per column of width
@@ -490,10 +523,11 @@ impl Body {
         let sea = self.sea.map(|s| (s + tide.zip(d).map_or(0.0, |(t, d)| self.tide_layers(t, d)), crate::liquid::SEA, None));
         let Some(b) = &self.baked else { return sea };
         let s = b.map.m as f64 / self.n as f64;
-        if !b.map.maybe_wet(face as usize, ci * s, cj * s) {
+        let (mx, my) = self.map_xy(s, ci, cj);
+        if !b.map.maybe_wet(face as usize, mx, my) {
             return sea;
         }
-        let Some(w) = b.map.water(face as usize, ci * s, cj * s, d.unwrap_or_else(|| self.dir(face as usize, ci, cj))) else { return sea };
+        let Some(w) = b.map.water(face as usize, mx, my, d.unwrap_or_else(|| self.dir(face as usize, ci, cj))) else { return sea };
         let top = self.layer_of(self.radius - SEA_DEPTH + w.level as f64);
         if sea.is_some_and(|s| s.0 >= top) {
             return sea;
@@ -510,6 +544,8 @@ impl Body {
         let s = b.map.m as f64 / self.n as f64;
         let k = (level as i32 - (1.0 / s).log2().round() as i32).max(0) as usize;
         let p = d * self.radius;
+        // (below, i and j only say where the map is read)
+        let (i, j) = self.warp_col(i, j);
         let noise = || b.detail.get_noise_3d(p.x as f32, p.y as f32, p.z as f32) as f64;
         let mut h = if b.map.version == 1 {
             // a map of version 1: the uniform detail of ADR 0043, to the bit
@@ -545,28 +581,32 @@ impl Body {
         let b = self.baked.as_ref()?;
         let (x, y) = self.jittered(b, i, j, d);
         let s = b.map.m as f64 / self.n as f64;
-        Some(b.map.biome(face, x * s, y * s))
+        let (x, y) = self.map_xy(s, x, y);
+        Some(b.map.biome(face, x, y))
     }
     /// The baked year's climate at face point (i, j) in columns (`bake::Map::climate_at`): potential
     /// temperature C, day swing K, rain mm a day; None without a map that keeps one.
     pub fn climate_at(&self, face: usize, i: f64, j: f64) -> Option<(f32, f32, f32)> {
         let b = self.baked.as_ref()?;
         let s = b.map.m as f64 / self.n as f64;
-        b.map.climate_at(face, i * s, j * s)
+        let (x, y) = self.map_xy(s, i, j);
+        b.map.climate_at(face, x, y)
     }
     /// The baked year's mean air at the ground of column (face, i, j), C: what the bake chose the biome by
     /// (`bake::Map::temp`). None without a map that keeps a climate.
     pub fn year_air(&self, face: usize, i: i32, j: i32) -> Option<f32> {
         let b = self.baked.as_ref()?;
         let s = b.map.m as f64 / self.n as f64;
-        b.map.temp(face, (i as f64 + 0.5) * s, (j as f64 + 0.5) * s)
+        let (x, y) = self.map_xy(s, i as f64 + 0.5, j as f64 + 0.5);
+        b.map.temp(face, x, y)
     }
     /// The rock's temperature at layer z of column (face, i, j), C (ADR 0063): the year's mean air at the
     /// ground, and the province's `heat` a metre deeper under it. None without a map's climate and rock.
     pub fn heat(&self, face: u8, i: i32, j: i32, z: f64) -> Option<f32> {
         let b = self.baked.as_ref()?;
         let s = b.map.m as f64 / self.n as f64;
-        let air = b.map.temp(face as usize, (i as f64 + 0.5) * s, (j as f64 + 0.5) * s)?;
+        let (x, y) = self.map_xy(s, i as f64 + 0.5, j as f64 + 0.5);
+        let air = b.map.temp(face as usize, x, y)?;
         let p = ROCKS.provinces.get(self.col_rock(face, i, j).province as usize)?;
         Some(air + p.heat * (self.col_height(face, i, j) - self.layer_r(z)).max(0.0) as f32)
     }
@@ -576,7 +616,8 @@ impl Body {
         let Some(b) = &self.baked else { return Rock::NONE };
         let (x, y) = self.jittered(b, i, j, d);
         let s = b.map.m as f64 / self.n as f64;
-        let Some(p) = b.map.rock(face, x * s, y * s) else { return Rock::NONE };
+        let (mx, my) = self.map_xy(s, x, y);
+        let Some(p) = b.map.rock(face, mx, my) else { return Rock::NONE };
         let [amp, width] = ROCKS.provinces[p as usize].fold;
         let q = d * (self.radius / width as f64);
         let wave = b.fold.get_noise_3d(q.x as f32, q.y as f32, q.z as f32);
@@ -603,7 +644,8 @@ impl Body {
         let Some(b) = &self.baked else { return (self.ground, 0) };
         let (x, y) = self.jittered(b, i, j, d);
         let s = b.map.m as f64 / self.n as f64;
-        let biome = b.map.biome(face, x * s, y * s);
+        let (mx, my) = self.map_xy(s, x, y);
+        let biome = b.map.biome(face, mx, my);
         let row = &ROWS.biomes[biome as usize];
         let cell = ((x / PATCH).floor() as i64 as u64) ^ ((y / PATCH).floor() as i64 as u64).wrapping_mul(0x9e3779b97f4a7c15);
         let roll = unit(mix(b.seed ^ cell ^ (face as u64) << 56));
@@ -634,7 +676,8 @@ impl Body {
         }
         // the slope of the map's cell: the ground's lie, not a column's step
         let s = b.map.m as f64 / self.n as f64;
-        let slope = b.map.slope(face, i * s, j * s) as f64;
+        let (mx, my) = self.map_xy(s, i, j);
+        let slope = b.map.slope(face, mx, my) as f64;
         let bed = if slope > BED_STEEP || (!sea && river.is_none() && biome == life::ALPINE) {
             // the biome's rock where there is no province, as `generated_under` has it under the band
             let rock = ROCKS.at(self.rock_at(face, i, j, d), h as f32, ground[2]);
@@ -877,13 +920,17 @@ impl Body {
         let s = b.map.m as f64 / self.n as f64;
         let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
         // most columns: no ice cell within the biome's jitter
-        let ice = |di: f64, dj: f64| b.map.biome(face, (ci + di) * s, (cj + dj) * s) == crate::bake::life::ICE;
+        let ice = |di: f64, dj: f64| {
+            let (x, y) = self.map_xy(s, ci + di, cj + dj);
+            b.map.biome(face, x, y) == crate::bake::life::ICE
+        };
         if !(ice(-JITTER, -JITTER) || ice(JITTER, -JITTER) || ice(-JITTER, JITTER) || ice(JITTER, JITTER) || ice(0.0, 0.0)) {
             return None;
         }
         let d = self.dir(face, ci, cj);
         let (x, y) = self.jittered(b, ci, cj, d);
-        if b.map.biome(face, x * s, y * s) != crate::bake::life::ICE {
+        let (mx, my) = self.map_xy(s, x, y);
+        if b.map.biome(face, mx, my) != crate::bake::life::ICE {
             return None;
         }
         let (top, _, river) = self.water_at(face as u8, i, j)?;
@@ -1071,6 +1118,10 @@ impl Body {
     }
     /// Unit direction of grid point (i, j) on a face, in columns (i = 3.5 is the middle of column 3).
     pub fn dir(&self, face: usize, i: f64, j: f64) -> DVec3 {
+        if self.warp == 0.0 {
+            return self.dir_tan(face, self.col_tan(i), self.col_tan(j));
+        }
+        let (i, j) = self.warp_col(i, j);
         self.dir_tan(face, self.col_tan(i), self.col_tan(j))
     }
     /// `dir` from its two tangents: a tile computes them once per row and column, to the same bits.
@@ -1140,7 +1191,8 @@ impl Body {
                 let (ci, cj) = (c0x + u as i32, c0y + v as i32);
                 // columns past a seam belong to the neighbouring face
                 let (f, fi, fj) = fold(face, ci, cj, nl);
-                let d = if (f, fi, fj) == (face, ci, cj) { self.dir_tan(face, ta[u], tb[v]) } else { self.dir(f, (fi as f64 + 0.5) * s, (fj as f64 + 0.5) * s) };
+                // (the warped grid is not separable: its directions a point each)
+                let d = if (f, fi, fj) == (face, ci, cj) && self.warp == 0.0 { self.dir_tan(face, ta[u], tb[v]) } else { self.dir(f, (fi as f64 + 0.5) * s, (fj as f64 + 0.5) * s) };
                 let (pi, pj) = ((fi as f64 + 0.5) * s, (fj as f64 + 0.5) * s);
                 let hv = self.height_at(f, pi, pj, d, level);
                 t.min = t.min.min(hv as f32);
@@ -1436,7 +1488,11 @@ impl World {
     }
     /// The world of a new game: the planet and Luna baked (ADR 0043, 0070), from memory, the disk or baked now.
     pub fn baked(planet_n: i32, moon_n: i32, seed: i32) -> Self {
-        World::with_maps(planet_n, moon_n, seed, Some(crate::bake::get(seed, planet_n)), Some(crate::bake::luna::get(seed, moon_n)))
+        World::baked_warp(planet_n, moon_n, seed, 0.0)
+    }
+    /// `baked` with every body's block grid warped by `warp` (the conformal grid's trial, ADR 0131).
+    pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64) -> Self {
+        World::with_maps_warp(planet_n, moon_n, seed, Some(crate::bake::get(seed, planet_n)), Some(crate::bake::luna::get(seed, moon_n)), warp)
     }
     /// The planet on `map` when one is given (its seed and size must be these), else on the noise land; Luna
     /// on its hills.
@@ -1445,13 +1501,18 @@ impl World {
     }
     /// `with_map`, and Luna on `luna` when one is given (`bake::luna`).
     pub fn with_maps(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>, luna: Option<Arc<Map>>) -> Self {
+        World::with_maps_warp(planet_n, moon_n, seed, map, luna, 0.0)
+    }
+    /// `with_maps` with every body's block grid warped by `warp` (ADR 0131): 0 is today's grid.
+    pub fn with_maps_warp(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>, luna: Option<Arc<Map>>, warp: f64) -> Self {
         assert_eq!(BODIES.len(), 2, "the sky (sky.rs) poses a planet and one moon");
+        assert!((0.0..=1.0).contains(&warp), "warp= is 0 to 1");
         let bodies: Vec<Body> = BODIES
             .iter()
             .enumerate()
             .map(|(i, row)| {
                 let mut b = Body::new(if i == 0 { DVec3::ZERO } else { MOON_AT }, [planet_n, moon_n][i], seed + i as i32);
-                (b.name, b.air, b.ground) = (row.name.clone(), row.air, row.ground);
+                (b.name, b.air, b.ground, b.warp) = (row.name.clone(), row.air, row.ground, warp);
                 match (&map, row.generator) {
                     (Some(m), Generator::Continents) if i == 0 => b.with_map(m.clone()),
                     (_, Generator::Continents) => b.with_continents(seed + i as i32),
@@ -1682,10 +1743,9 @@ impl World {
         } else {
             4 + (v.z < 0.0) as usize
         };
-        let [n, s, t] = AX[face].map(|x| x.as_dvec3());
-        let d = v.dot(n);
-        let col = |w: f64| ((w / d).atan() / FRAC_PI_4 + 1.0) * 0.5 * b.n as f64;
-        (bi, face, DVec3::new(col(v.dot(s)), col(v.dot(t)), b.layer_of(v.length())))
+        // `Body::locate`'s columns (the same bits as this worked out for itself before the warp, ADR 0131)
+        let (_, i, j) = b.locate(v);
+        (bi, face, DVec3::new(i, j, b.layer_of(v.length())))
     }
     /// World position of the middle of a block.
     pub fn block_centre(&self, b: Block) -> DVec3 {
@@ -2209,8 +2269,23 @@ pub fn river_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2
         return Vec::new();
     }
     // no river line or lake under the chunk and its ring: nothing to look up column by column
-    let cell = |c: i32| (c as f64 * b.map.m as f64 / body.n as f64).floor() as i32;
-    let (x0, y0, x1, y1) = (cell(base.x - s) - 1, cell(base.y - s) - 1, cell(base.x + key.span() + s) + 1, cell(base.y + key.span() + s) + 1);
+    let cell = |c: f64| (c * b.map.m as f64 / body.n as f64).floor() as i32;
+    let (lo, hi) = ((base.x - s) as f64, (base.x + key.span() + s) as f64);
+    let (lo_j, hi_j) = ((base.y - s) as f64, (base.y + key.span() + s) as f64);
+    let (x0, y0, x1, y1) = if body.warp == 0.0 {
+        (cell(lo) - 1, cell(lo_j) - 1, cell(hi) + 1, cell(hi_j) + 1)
+    } else {
+        // the warp bends the footprint's edges in the map: their points' bounds, 9 an edge
+        let (mut a, mut c) = ((f64::MAX, f64::MAX), (f64::MIN, f64::MIN));
+        for k in 0..=8 {
+            let t = k as f64 / 8.0;
+            for (i, j) in [(lo + (hi - lo) * t, lo_j), (lo + (hi - lo) * t, hi_j), (lo, lo_j + (hi_j - lo_j) * t), (hi, lo_j + (hi_j - lo_j) * t)] {
+                let (x, y) = body.warp_col(i, j);
+                (a, c) = ((a.0.min(x), a.1.min(y)), (c.0.max(x), c.1.max(y)));
+            }
+        }
+        (cell(a.0) - 1, cell(a.1) - 1, cell(c.0) + 1, cell(c.1) + 1)
+    };
     // nor a level in the chunk's layers: a chunk above or under the water's surface draws none of it
     let Some((lo, hi)) = b.map.wet_near(key.face as usize, x0, y0, x1, y1) else { return Vec::new() };
     let layer = |v: f32| body.layer_of(body.radius - SEA_DEPTH + v as f64);
@@ -3338,6 +3413,27 @@ mod baked_tests {
 
     fn world() -> World {
         World::with_map(512, 32, 5, Some(MAP.clone()))
+    }
+
+    /// The warp (ADR 0131) moves the block grid over the land, not the land: the bake is read by direction, so a
+    /// column's ground on the warped grid is the unwarped world's ground along that column's direction.
+    #[test]
+    fn the_warp_moves_the_blocks_not_the_land() {
+        let (w0, w1) = (world(), World::with_maps_warp(512, 32, 5, Some(MAP.clone()), None, 1.0));
+        let (b0, b1) = (&w0.bodies[0], &w1.bodies[0]);
+        let n = b1.n;
+        let mut worst: f64 = 0.0;
+        for f in 0..6u8 {
+            for (i, j) in [(3, 3), (40, 7), (n / 2, n / 2), (n - 5, n / 3), (n - 2, n - 2), (n / 4, n - 30), (120, 300)] {
+                let d = b1.dir(f as usize, i as f64 + 0.5, j as f64 + 0.5);
+                worst = worst.max((b1.col_height(f, i, j) - b0.height(d)).abs());
+                worst = worst.max((b1.height(d) - b0.height(d)).abs());
+                // and the tile builder's, which works out the warped directions itself
+                let t = b1.tile(f, 0, i / CS, j / CS);
+                worst = worst.max((t.h[(i % CS + 1) as usize + (j % CS + 1) as usize * P] - b0.height(d)).abs());
+            }
+        }
+        assert!(worst < 1e-6, "the ground moved by {worst} m");
     }
 
     /// A scouting tool, not a check: on the 4 km planet (seed 1337), the large tree of each species nearest the

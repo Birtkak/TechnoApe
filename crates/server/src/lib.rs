@@ -269,6 +269,11 @@ impl Server {
     pub fn baked(planet_n: i32, moon_n: i32, seed: i32, accept: Receiver<ServerLink>) -> Server {
         Server::with_world(World::baked(planet_n, moon_n, seed), seed, accept)
     }
+    /// `baked` on the block grid warped by `warp` (the conformal grid's trial, ADR 0131; `warp=`). The warp is in
+    /// no save and no message: a client must be given the same `warp=`.
+    pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64, accept: Receiver<ServerLink>) -> Server {
+        Server::with_world(World::baked_warp(planet_n, moon_n, seed, warp), seed, accept)
+    }
     /// A server on the map of this hash (None: the noise land) and Luna on the map of `luna` (None: its hills);
     /// a bake is redone if it is not kept. A map that comes out other than the hash stops the game, as a save
     /// this build cannot read does: its edits belong to other ground, and the next autosave would write over

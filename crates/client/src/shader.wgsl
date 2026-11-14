@@ -184,10 +184,22 @@ fn place(c: Chunk, b: Body, local: vec3f, at: vec3f) -> vec3f {
     let st = n * s;
     // the four columns' directions from one frame: the cube's axes are shared, only the tangents differ
     let f = frame_at(c.info & 7u, b, g0.x, g0.y);
-    let ta1 = tan((g0.x + st - b.half_n) * b.theta);
-    let tb1 = tan((g0.y + st - b.half_n) * b.theta);
-    let u0 = mix(f.up, normalize(f.n + f.s * ta1 + f.t * f.tb), t.x);
-    let u1 = mix(normalize(f.n + f.s * f.ta + f.t * tb1), normalize(f.n + f.s * ta1 + f.t * tb1), t.x);
+    var u0: vec3f;
+    var u1: vec3f;
+    if (b.rot0.w == 0.0) {
+        let ta1 = tan((g0.x + st - b.half_n) * b.theta);
+        let tb1 = tan((g0.y + st - b.half_n) * b.theta);
+        u0 = mix(f.up, normalize(f.n + f.s * ta1 + f.t * f.tb), t.x);
+        u1 = mix(normalize(f.n + f.s * f.ta + f.t * tb1), normalize(f.n + f.s * ta1 + f.t * tb1), t.x);
+    } else {
+        // the warped grid (ADR 0131) is not separable: each corner's two tangents
+        let gr = body_grid(b);
+        let t10 = tx_tan(vec2f(g0.x + st, g0.y), gr);
+        let t01 = tx_tan(vec2f(g0.x, g0.y + st), gr);
+        let t11 = tx_tan(vec2f(g0.x + st, g0.y + st), gr);
+        u0 = mix(f.up, normalize(f.n + f.s * t10.x + f.t * t10.y), t.x);
+        u1 = mix(normalize(f.n + f.s * t01.x + f.t * t01.y), normalize(f.n + f.s * t11.x + f.t * t11.y), t.x);
+    }
     let r = mix(b.r0 * exp(g0.z * b.lnq), b.r0 * exp((g0.z + st) * b.lnq), t.z);
     return mix(u0, u1, t.y) * r;
 }
@@ -325,8 +337,8 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
     let r = b.r0 * exp(gp.z * b.lnq);
     // the sides of a column are planes through the body's centre; its top is the sphere
     var normal = f.up;
-    if (a == 0u) { normal = normalize(f.s - f.n * f.ta); }
-    if (a == 1u) { normal = normalize(f.t - f.n * f.tb); }
+    if (a == 0u) { normal = f.si; }
+    if (a == 1u) { normal = f.sj; }
     if ((dir & 1u) == 1u) { normal = -normal; }
     if (sloped && dir == 4u) {
         // a slope: its triangle's own normal (ADR 0101), as the traced geometry has it; its painting laid flat
@@ -602,8 +614,85 @@ fn tx_n(f: u32) -> vec3f { return tx_axis(f >> 1u) * select(1.0, -1.0, (f & 1u) 
 fn tx_s(f: u32) -> vec3f { return tx_axis((1065u >> (2u * f)) & 3u); }
 fn tx_t(f: u32) -> vec3f { return tx_axis((390u >> (2u * f)) & 3u); }
 
-// a body's grid: an angle a column, half the columns a face edge, layer 0's radius, the log of a layer's ratio
-struct TxGrid { theta: f32, half_n: f32, r0: f32, lnq: f32 };
+// a body's grid: an angle a column, half the columns a face edge, layer 0's radius, the log of a layer's ratio, and
+// the block grid's warp towards the conformal grid (ADR 0131; 0 the equi-angular grid of ADR 0003, to the bit)
+struct TxGrid { theta: f32, half_n: f32, r0: f32, lnq: f32, warp: f32 };
+
+// the warp's table (engine warp.rs, the same bytes): 193 x 193 texels of (da, db), x along b and y along a. Bilinear by
+// hand (rg32float is not filterable), on |a| and |b| with the signs put back as the engine does, so the two faces of a
+// seam find its points from the same texels. `ab` the face point in -1..1; the warped point and its derivatives
+@group(0) @binding(18) var warp_t: texture_2d<f32>;
+struct Warp { ab: vec2f, da: vec2f, db: vec2f };
+fn warp_at(ab: vec2f, w: f32) -> Warp {
+    let sg = select(vec2f(1.0), vec2f(-1.0), ab < vec2f(0.0));
+    let x = (min(abs(ab), vec2f(1.0)) + 1.0) * 96.0;
+    let i0 = min(vec2i(floor(x)), vec2i(191));
+    let fr = x - vec2f(i0);
+    let t00 = textureLoad(warp_t, vec2i(i0.y, i0.x), 0).xy;
+    let t10 = textureLoad(warp_t, vec2i(i0.y, i0.x + 1), 0).xy;
+    let t01 = textureLoad(warp_t, vec2i(i0.y + 1, i0.x), 0).xy;
+    let t11 = textureLoad(warp_t, vec2i(i0.y + 1, i0.x + 1), 0).xy;
+    let v = mix(mix(t00, t10, fr.x), mix(t01, t11, fr.x), fr.y);
+    // (constant past the face's edge)
+    let k = select(vec2f(96.0), vec2f(0.0), abs(ab) >= vec2f(1.0));
+    let dva = mix(t10 - t00, t11 - t01, fr.y) * k.x;
+    let dvb = mix(t01 - t00, t11 - t10, fr.x) * k.y;
+    let s = sg.x * sg.y;
+    return Warp(ab + w * sg * v, vec2f(1.0, 0.0) + w * vec2f(dva.x, s * dva.y), vec2f(0.0, 1.0) + w * vec2f(s * dvb.x, dvb.y));
+}
+
+// the two tangents of grid point g's direction on its cube face
+fn tx_tan(g: vec2f, gr: TxGrid) -> vec2f {
+    if (gr.warp == 0.0) { return tan((g - gr.half_n) * gr.theta); }
+    return tan(warp_at((g - gr.half_n) / gr.half_n, gr.warp).ab * 0.78539816);
+}
+
+// the warp undone: the grid point whose direction the equi-angular grid has at `ij` (ADR 0131). One fixed-point step,
+// then Newton on the bilinear cell: three steps leave under 0.005 of a column anywhere on the face, a twelfth of a
+// light texel (engine warp.rs `the_shaders_three_newton_steps_suffice`; two leave 1.4 columns near a corner)
+const WARP_STEPS: u32 = 3u;
+fn tx_unwarp(ij: vec2f, gr: TxGrid) -> vec2f {
+    let t = (ij - gr.half_n) / gr.half_n;
+    var x = 2.0 * t - warp_at(t, gr.warp).ab;
+    for (var k = 0u; k < WARP_STEPS; k++) {
+        let wp = warp_at(x, gr.warp);
+        let r = wp.ab - t;
+        let det = wp.da.x * wp.db.y - wp.db.x * wp.da.y;
+        x -= vec2f(wp.db.y * r.x - wp.db.x * r.y, wp.da.x * r.y - wp.da.y * r.x) / det;
+    }
+    return x * gr.half_n + gr.half_n;
+}
+
+// grid point g's direction, its columns' two sides' normals (each pointing on along its column index: a side is the
+// surface through the centre along the grid's other line) and its tangents; with no warp the planes of ADR 0003
+struct TxFrame { up: vec3f, si: vec3f, sj: vec3f, ta: f32, tb: f32 };
+fn tx_frame(f: u32, g: vec2f, gr: TxGrid) -> TxFrame {
+    let n = tx_n(f);
+    let s = tx_s(f);
+    let t = tx_t(f);
+    if (gr.warp == 0.0) {
+        let ta = tan((g - gr.half_n) * gr.theta);
+        return TxFrame(normalize(n + s * ta.x + t * ta.y), normalize(s - n * ta.x), normalize(t - n * ta.y), ta.x, ta.y);
+    }
+    let wp = warp_at((g - gr.half_n) / gr.half_n, gr.warp);
+    let ta = tan(wp.ab * 0.78539816);
+    let p = n + s * ta.x + t * ta.y;
+    // the cube plane's point moved a column along i and along j (common factors left out)
+    let sec = 1.0 + ta * ta;
+    let pi = s * (sec.x * wp.da.x) + t * (sec.y * wp.da.y);
+    let pj = s * (sec.x * wp.db.x) + t * (sec.y * wp.db.y);
+    let ni = normalize(cross(p, pj));
+    let nj = normalize(cross(pi, p));
+    return TxFrame(normalize(p), ni * select(-1.0, 1.0, dot(ni, pi) >= 0.0), nj * select(-1.0, 1.0, dot(nj, pj) >= 0.0), ta.x, ta.y);
+}
+
+// body-frame point q as face f's grid coordinates: column i, column j, layer (q need not be over face f)
+fn tx_grid_on(q: vec3f, f: u32, gr: TxGrid) -> vec3f {
+    let dn = dot(q, tx_n(f));
+    var ij = atan(vec2f(dot(q, tx_s(f)), dot(q, tx_t(f))) / dn) / gr.theta + gr.half_n;
+    if (gr.warp != 0.0) { ij = tx_unwarp(ij, gr); }
+    return vec3f(ij, log(length(q) / gr.r0) / gr.lnq);
+}
 
 // body-frame point q (from the body's centre) as its face and grid coordinates: column i, column j, layer
 struct TxAt { face: u32, g: vec3f };
@@ -611,14 +700,12 @@ fn tx_grid_of(q: vec3f, gr: TxGrid) -> TxAt {
     let a = abs(q);
     var f = 4u + select(0u, 1u, q.z < 0.0);
     if (a.x >= a.y && a.x >= a.z) { f = select(0u, 1u, q.x < 0.0); } else if (a.y >= a.z) { f = 2u + select(0u, 1u, q.y < 0.0); }
-    let dn = dot(q, tx_n(f));
-    let ij = atan(vec2f(dot(q, tx_s(f)), dot(q, tx_t(f))) / dn) / gr.theta + gr.half_n;
-    return TxAt(f, vec3f(ij, log(length(q) / gr.r0) / gr.lnq));
+    return TxAt(f, tx_grid_on(q, f, gr));
 }
 
 // grid point g of face f in the body's frame (the cube-sphere's own, as `frame_at` and `place` lay it)
 fn tx_point(f: u32, g: vec3f, gr: TxGrid) -> vec3f {
-    let ta = tan((g.xy - gr.half_n) * gr.theta);
+    let ta = tx_tan(g.xy, gr);
     return normalize(tx_n(f) + tx_s(f) * ta.x + tx_t(f) * ta.y) * (gr.r0 * exp(g.z * gr.lnq));
 }
 
@@ -733,6 +820,19 @@ fn lamp_target(lp: Lamp, o: vec3f, j: vec3f) -> vec3f {
     if (a.x >= a.y && a.x >= a.z) { axis = 0u; } else if (a.y >= a.z) { axis = 1u; }
     let f = frame_at(axis * 2u + select(0u, 1u, ub[axis] < 0.0), b, 0.0, 0.0);
     let r = length(lp.pos.xyz - b.ctr.xyz);
+    if (b.rot0.w != 0.0) {
+        // the warped grid (ADR 0131): its angles are not the block's box, its own coordinates are
+        let fc = axis * 2u + select(0u, 1u, ub[axis] < 0.0);
+        let gr = body_grid(b);
+        let ga = tx_grid_on(ub * r, fc, gr);
+        let gq = tx_grid_on((o - b.ctr.xyz) * m, fc, gr);
+        // half a cell each way and 2 cm (at a column's mean width: near a cube corner, where they are a third of
+        // that, rather less)
+        let gh = vec3f(0.5 + 0.02 / (r * b.theta), 0.5 + 0.02 / (r * b.theta), 0.5 + 0.02 / (r * b.lnq));
+        let gin = vec3f(0.45);
+        let gc = select(clamp(gq, ga - gh, ga + gh), clamp(gq + j * gin, ga - gin, ga + gin), abs(gq - ga) < gin);
+        return m * tx_point(fc, gc, gr) + b.ctr.xyz;
+    }
     let at = vec3f(atan(dot(ub, f.s) / dot(ub, f.n)), atan(dot(ub, f.t) / dot(ub, f.n)), log(r));
     let ob = (o - b.ctr.xyz) * m;
     let ro = length(ob);
@@ -916,8 +1016,8 @@ fn seen(p: vec3f, d: vec3f, body: u32, px: vec2u, bounce: bool, tmax: f32) -> ve
     let gp = grid(c, quad_corner(q, 0u, 0.0));
     let f = frame_at(c.info & 7u, b, gp.x, gp.y);
     var hn = f.up;
-    if (a == 0u) { hn = normalize(f.s - f.n * f.ta); }
-    if (a == 1u) { hn = normalize(f.t - f.n * f.tb); }
+    if (a == 0u) { hn = f.si; }
+    if (a == 1u) { hn = f.sj; }
     if ((dir & 1u) == 1u) { hn = -hn; }
     if ((q.x >> 31u) == 1u && dir == 4u) { hn = slope_normal(c, b, q, h.primitive_index & 1u); }
     let m = q.y & 255u;
@@ -959,13 +1059,13 @@ fn gi_trace(@builtin(global_invocation_id) id: vec3u) {
     // the G-buffer has no texel, so it is found from the point on the body's grid and the face from the normal
     // (the sides are planes of one column through the centre, the tops spheres of one layer)
     let bb = g.bodies[body];
-    let gr = TxGrid(bb.theta, bb.half_n, bb.r0, bb.lnq);
+    let gr = body_grid(bb);
     let p0 = vd * gb.w;
     let tg = tx_grid_of(to_body(bb, p0), gr);
     let nb = n * mat3x3f(bb.rot0.xyz, bb.rot1.xyz, bb.rot2.xyz);
-    let ta = tan((tg.g.xy - gr.half_n) * gr.theta);
-    let wi = abs(dot(nb, normalize(tx_s(tg.face) - tx_n(tg.face) * ta.x)));
-    let wj = abs(dot(nb, normalize(tx_t(tg.face) - tx_n(tg.face) * ta.y)));
+    let tf = tx_frame(tg.face, tg.g.xy, gr);
+    let wi = abs(dot(nb, tf.si));
+    let wj = abs(dot(nb, tf.sj));
     let wl = abs(dot(nb, tx_point(tg.face, tg.g, gr) / length(tx_point(tg.face, tg.g, gr))));
     var axis = 2u;
     if (wi > wj && wi > wl) { axis = 0u; } else if (wj > wl) { axis = 1u; }
@@ -1489,7 +1589,7 @@ fn terrain_lit(i: VOut, col_in: vec3f, fpx: f32) -> GOut {
     let b = g.bodies[body];
     var lit_at = i.rel;
     if (fpx >= 0.0 && !sloped) {
-        let gr = TxGrid(b.theta, b.half_n, b.r0, b.lnq);
+        let gr = body_grid(b);
         let gp = grid(c, i.local);
         let k = tx_k(TEXELS / f32(1u << ((c.info >> 3u) & 31u)), fpx);
         let gs = tx_snap(gp, i.dir / 2u, k);
@@ -1620,8 +1720,13 @@ struct WOut {
     @location(7) @interpolate(flat) face: u32,
 };
 
-// the outward direction at grid point (gi, gj) of a face, and the face's normal and in-face axes
-struct Frame { up: vec3f, n: vec3f, s: vec3f, t: vec3f, ta: f32, tb: f32 };
+// the outward direction at grid point (gi, gj) of a face, the face's normal and in-face axes, the tangents, and the
+// normals of its column's sides along i and along j (planes through the centre; the warp's surfaces, ADR 0131)
+struct Frame { up: vec3f, n: vec3f, s: vec3f, t: vec3f, ta: f32, tb: f32, si: vec3f, sj: vec3f };
+// a body's grid as the light's texels take it (`TxGrid`): the warp rides in rot0.w
+fn body_grid(b: Body) -> TxGrid {
+    return TxGrid(b.theta, b.half_n, b.r0, b.lnq, b.rot0.w);
+}
 // a vector in the body's frame, in the camera's
 fn brot(b: Body, v: vec3f) -> vec3f {
     return mat3x3f(b.rot0.xyz, b.rot1.xyz, b.rot2.xyz) * v;
@@ -1635,9 +1740,20 @@ fn frame_at(face: u32, b: Body, gi: f32, gj: f32) -> Frame {
     f.n = fnv[face];
     f.s = fsv[face];
     f.t = ftv[face];
+    if (b.rot0.w != 0.0) {
+        let x = tx_frame(face, vec2f(gi, gj), body_grid(b));
+        f.ta = x.ta;
+        f.tb = x.tb;
+        f.up = x.up;
+        f.si = x.si;
+        f.sj = x.sj;
+        return f;
+    }
     f.ta = tan((gi - b.half_n) * b.theta);
     f.tb = tan((gj - b.half_n) * b.theta);
     f.up = normalize(f.n + f.s * f.ta + f.t * f.tb);
+    f.si = normalize(f.s - f.n * f.ta);
+    f.sj = normalize(f.t - f.n * f.tb);
     return f;
 }
 
@@ -1771,9 +1887,9 @@ fn vs_water(@builtin(vertex_index) vi: u32) -> WOut {
         let gj = (hh.z + hh.w - hh.x - hh.y) * 0.5;
         normal = normalize(f.up - (f.s * gi + f.t * gj) * k);
     } else if (kind <= 2u) {
-        normal = normalize(f.s - f.n * f.ta) * select(-1.0, 1.0, kind == 2u);
+        normal = f.si * select(-1.0, 1.0, kind == 2u);
     } else {
-        normal = normalize(f.t - f.n * f.tb) * select(-1.0, 1.0, kind == 4u);
+        normal = f.sj * select(-1.0, 1.0, kind == 4u);
     }
     var o = wout(bi, f.up, z, normal, u32(kind != 0u));
     o.grid = vec3f(f32(q.i) + du, f32(q.j) + dv, z);
@@ -2224,8 +2340,8 @@ fn vs_fx(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> Fx
         pb = f.up * (b.r0 * exp(gp.z * b.lnq));
         let a = dir / 2u;
         nb = f.up;
-        if (a == 0u) { nb = normalize(f.s - f.n * f.ta); }
-        if (a == 1u) { nb = normalize(f.t - f.n * f.tb); }
+        if (a == 0u) { nb = f.si; }
+        if (a == 1u) { nb = f.sj; }
         if ((dir & 1u) == 1u) { nb = -nb; }
         o.uvw = c;
     } else if (look == 1u && face != 2u) {
@@ -2553,13 +2669,13 @@ fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
         n = cross(still_dir(q, turned(t, f.ev)), still_dir(q, turned(t, f.eu)));
     }
     // a plant's planes are lit as the ground under them is, from either side
-    let normal = select(normalize(normalize(fr.s - fr.n * fr.ta) * n.x + normalize(fr.t - fr.n * fr.tb) * n.y + fr.up * n.z), normalize(fr.up), plant);
+    let normal = select(normalize(fr.si * n.x + fr.sj * n.y + fr.up * n.z), normalize(fr.up), plant);
     var o: VOut;
     let rel = brot(b, (place(c, b, local, cell) - b.cam_hi) - b.cam_lo) + bend;
     o.clip = g.view_proj * vec4f(rel, 1.0);
     o.rel = rel;
     // a plant's plane: how squarely it faces the sun (either side), for `fs_still`'s sun side; 1 for models
-    let np = normalize(normalize(fr.s - fr.n * fr.ta) * n.x + normalize(fr.t - fr.n * fr.tb) * n.y + fr.up * n.z);
+    let np = normalize(fr.si * n.x + fr.sj * n.y + fr.up * n.z);
     o.ao = select(1.0, abs(dot(brot(b, np), normalize(g.sun_pos.xyz - rel))), plant);
     // the painting's pixel, in `local.xy`; the face in `dir`; no block's look (0, air: no light of its own, no metal)
     // and in `local.z` its cell's x | y << 6, for a plant's climate

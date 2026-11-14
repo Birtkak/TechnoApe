@@ -370,6 +370,9 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
     // the world comes from the server: a remote one (connect=host[:port]) or a local one on its own thread
     // (planet= and moon= are columns per face edge, 1 m each, ADR 0033: 6144 is the 4 km planet, the standard;
     // 12288 the 8 km huge one; 768 the benchmark's 500 m class)
+    // warp=0..1: the block grid warped towards the conformal cube-sphere (a trial, ADR 0131). The server's and
+    // this client's must be the same: a remote server's is not sent, so it is given here by hand
+    let warp: f64 = args.get("warp", 0.0);
     let mut local_server = None;
     let mut tick_log = None;
     let (mut save_path, mut rec_path) = (None, None);
@@ -388,6 +391,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
             let rec = args.0.get("record").cloned().or((args.get("onscreen", 0) == 1).then(|| format!("out/rec/play-{unix}.rec")));
             // saves (ADR 0016): play keeps one per seed and planet under saves/, save= names another, save=0 none
             let save = args.0.get("save").cloned().or((run == "play").then(|| format!("saves/seed-{seed}-planet-{planet}.sav"))).filter(|s| s != "0");
+            assert!(warp == 0.0 || save.is_none(), "warp= is a trial: run it with save=0, the warp is kept in no save");
             let mut server = match save.as_deref().map(std::path::Path::new).filter(|p| p.exists()) {
                 Some(p) => {
                     // a save this build cannot read stops the game rather than being overwritten
@@ -397,7 +401,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
                     s.read_herds(p);
                     s
                 }
-                None => Server::baked(planet, moon, seed, accept_rx),
+                None => Server::baked_warp(planet, moon, seed, warp, accept_rx),
             };
             server.autosave = save.clone().map(|p| (p.into(), 30 * TICK_HZ as u64));
             save_path = save;
@@ -451,7 +455,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
             }
             let map = map.map(|h| kept.map_or_else(|| engine::net::fetch_map(&mut link, seed, planet_n, h), Ok).unwrap_or_else(|e| panic!("{e}")));
             let luna = luna.map(|h| luna_kept.map_or_else(|| engine::net::fetch_map(&mut link, seed, moon_n, h), Ok).unwrap_or_else(|e| panic!("{e}")));
-            (id, World::with_maps(planet_n, moon_n, seed, map, luna), seed)
+            (id, World::with_maps_warp(planet_n, moon_n, seed, map, luna, warp), seed)
         }
         other => panic!("no welcome from the server: {other:?}"),
     };

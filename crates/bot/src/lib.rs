@@ -108,6 +108,8 @@ pub struct Bot {
     pub name: String,
     pub link: Link<ToServer, ToClient>,
     pub world: Option<World>,
+    /// The block grid's warp (ADR 0131's trial): the server's, given by hand (`warp=`), set before the welcome.
+    pub warp: f64,
     /// The feet: where the server has this bot, or where it put itself with `spawn`.
     pub pos: DVec3,
     pub players: usize,
@@ -154,7 +156,7 @@ const SILENT: Duration = Duration::from_secs(120);
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, kinds: Vec::new(), animals: Default::default() }
+        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, kinds: Vec::new(), animals: Default::default() }
     }
 
     /// The tick `s` seconds of the server's time from now.
@@ -180,7 +182,7 @@ impl Bot {
                     // the baked map (ADR 0043): shared with a server in this process, from the disk, or fetched
                     let map = map.map(|h| engine::net::fetch_map(&mut self.link, seed, planet_n, h).unwrap_or_else(|e| panic!("{e}")));
                     let luna = luna.map(|h| engine::net::fetch_map(&mut self.link, seed, moon_n, h).unwrap_or_else(|e| panic!("{e}")));
-                    let w = World::with_maps(planet_n, moon_n, seed, map, luna);
+                    let w = World::with_maps_warp(planet_n, moon_n, seed, map, luna, self.warp);
                     self.id = id;
                     // the server spawns players just over the +y pole; an empty input makes this one a
                     // walker, so it lands there

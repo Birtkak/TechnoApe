@@ -55,6 +55,9 @@ fn main() {
     // saves (ADR 0016): save= names the file, carried on from when it exists; save=0 keeps none.
     // shortcut: Ctrl-C loses up to the 30 s since the last save; `stop` on stdin is the way to end it
     let save = args.get("save").cloned().unwrap_or_else(|| "saves/server.sav".into());
+    // warp=0..1: the conformal grid's trial (ADR 0131), on a new world only, kept in no save
+    let warp: f64 = args.get("warp").map_or(0.0, |v| v.parse().expect("warp= is a number 0 to 1"));
+    assert!(warp == 0.0 || save == "0", "warp= is a trial: run it with save=0, the warp is kept in no save");
     let mut server = match Some(Path::new(&save)).filter(|p| save != "0" && p.exists()) {
         Some(p) => {
             let s = server::save::Save::read(p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
@@ -65,7 +68,7 @@ fn main() {
         }
         None => {
             let planet = num("planet", engine::bodies::BODIES[0].n);
-            Server::baked(planet, num("moon", engine::bodies::columns(1, planet)), num("seed", 1337), rx)
+            Server::baked_warp(planet, num("moon", engine::bodies::columns(1, planet)), num("seed", 1337), warp, rx)
         }
     };
     server.autosave = (save != "0").then(|| (save.clone().into(), 30 * TICK_HZ as u64));

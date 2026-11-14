@@ -51,8 +51,8 @@ pub struct Gi {
 }
 
 /// The trace's group 0 from the terrain's resources (`Gi::new`'s `shared`), the TLAS among them
-fn trace0(device: &wgpu::Device, trace: &wgpu::ComputePipeline, shared: [wgpu::BindingResource; 12]) -> wgpu::BindGroup {
-    let [r0, r1, r2, r3, r5, r8, r9, r11, r14, r15, r16, r17] = shared;
+fn trace0(device: &wgpu::Device, trace: &wgpu::ComputePipeline, shared: [wgpu::BindingResource; 13]) -> wgpu::BindGroup {
+    let [r0, r1, r2, r3, r5, r8, r9, r11, r14, r15, r16, r17, r18] = shared;
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
         layout: &trace.get_bind_group_layout(0),
@@ -72,13 +72,15 @@ fn trace0(device: &wgpu::Device, trace: &wgpu::ComputePipeline, shared: [wgpu::B
             // the still faces and their paintings: a plant shades a lamp's ray (ADR 0091)
             wgpu::BindGroupEntry { binding: 16, resource: r16 },
             wgpu::BindGroupEntry { binding: 17, resource: r17 },
+            // the warp's table: the texels' grid (ADR 0131)
+            wgpu::BindGroupEntry { binding: 18, resource: r18 },
         ],
     })
 }
 
 impl Gi {
     /// The trace's terrain resources again, with a new TLAS (rt.rs `grew`).
-    pub fn rebind(&mut self, device: &wgpu::Device, shared: [wgpu::BindingResource; 12]) {
+    pub fn rebind(&mut self, device: &wgpu::Device, shared: [wgpu::BindingResource; 13]) {
         self.trace0 = trace0(device, &self.trace, shared);
     }
 
@@ -87,7 +89,7 @@ impl Gi {
     pub fn new(
         device: &wgpu::Device,
         shader: &wgpu::ShaderModule,
-        shared: [wgpu::BindingResource; 12],
+        shared: [wgpu::BindingResource; 13],
         sky: (&wgpu::TextureView, &wgpu::Sampler),
         screen: wgpu::TextureFormat,
         w: u32,
@@ -435,18 +437,20 @@ mod tests {
 
     /// shader.wgsl's free part that finds a pixel's texel (ADR 0108), with a kernel round it whose `body` reads
     /// `cases[id.x]` (a vec4f) and writes `outs[id.x]`; None, with the reason printed, on a PC without a Vulkan GPU.
-    fn texels_on_gpu(cases: &[[f32; 4]], gr: [f32; 4], body: &str) -> Option<Vec<[f32; 4]>> {
+    fn texels_on_gpu(cases: &[[f32; 4]], gr: [f32; 5], body: &str) -> Option<Vec<[f32; 4]>> {
         let src = include_str!("shader.wgsl");
         let (a, b) = (src.find("// ---- the light's texels").unwrap(), src.find("// ---- end of the light's texels").unwrap());
         let wgsl = format!(
             "{}\n@group(0) @binding(0) var<storage, read> cases: array<vec4f>;\n@group(0) @binding(1) var<storage, read_write> outs: array<vec4f>;\n\
              @compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id: vec3u) {{\n\
-             let gr = TxGrid({:?}, {:?}, {:?}, {:?});\n let c = cases[id.x];\n{body}\n}}",
+             let gr = TxGrid({:?}, {:?}, {:?}, {:?}, {:?});\n let c = cases[id.x];\n{body}\n\
+             if (c.w > 1e30) {{ outs[id.x] = textureLoad(warp_t, vec2i(0), 0); }}\n}}",
             &src[a..b],
             gr[0],
             gr[1],
             gr[2],
-            gr[3]
+            gr[3],
+            gr[4]
         );
         let mut idesc = wgpu::InstanceDescriptor::new_without_display_handle();
         idesc.backends = wgpu::Backends::VULKAN;
@@ -472,7 +476,12 @@ mod tests {
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &pipe.get_bind_group_layout(0),
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: input.as_entire_binding() }, wgpu::BindGroupEntry { binding: 1, resource: out.as_entire_binding() }],
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: input.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: out.as_entire_binding() },
+                // (every run binds the warp's table: the body above reads it, so the layout has it, ADR 0131)
+                wgpu::BindGroupEntry { binding: 18, resource: wgpu::BindingResource::TextureView(&crate::gpu::warp_view(&device, &queue)) },
+            ],
         });
         let mut enc = device.create_command_encoder(&Default::default());
         {
@@ -534,7 +543,7 @@ mod tests {
         // and one a hair from a cube face's edge, where the faces' grids meet
         let p = point(0, DVec3::new(n - 0.03, 3000.3, 260.0));
         cases.push([p.x as f32, p.y as f32, p.z as f32, 2.0]);
-        let Some(out) = texels_on_gpu(&cases, [theta as f32, half as f32, r0 as f32, lnq as f32], SNAP) else { return };
+        let Some(out) = texels_on_gpu(&cases, [theta as f32, half as f32, r0 as f32, lnq as f32, 0.0], SNAP) else { return };
         let off = (DVec3::new(out[180][0] as f64, out[180][1] as f64, out[180][2] as f64) - point(0, DVec3::new(n - 0.5 / 16.0, 3000.28125, 260.0))).length();
         assert!(off < 0.003, "by a cube face's edge: lit {off:.4} m from its texel's middle");
         for k in 0..36 {
@@ -553,6 +562,43 @@ mod tests {
         }
     }
 
+    /// The shader's warped grid (ADR 0131) is the engine's: `tx_point` lays a grid point where `Body::dir` does, and
+    /// `tx_grid_of` finds it again, on every face of the 4 km planet at warp 1, by its edges and corners too. The run
+    /// is the shader's own code on the GPU, against the engine's f64.
+    #[test]
+    fn the_warped_grid_on_the_gpu_is_the_engines() {
+        let mut b = engine::world::Body::new(DVec3::ZERO, 6144, 1);
+        b.warp = 1.0;
+        let n = b.n as f64;
+        let gr = [(std::f64::consts::FRAC_PI_2 / n) as f32, (n * 0.5) as f32, b.r0 as f32, b.lnq as f32, 1.0];
+        let at = [0.5, 1.75, 40.25, 700.5, n / 2.0 + 0.3, n - 300.5, n - 1.5, n - 0.25];
+        let (mut cases, mut want) = (Vec::new(), Vec::new());
+        for f in 0..6 {
+            for &i in &at {
+                for &j in &at {
+                    let z = 260.0 + (i * 7.0 + j) % 3.0;
+                    cases.push([i as f32, j as f32, z as f32, f as f32]);
+                    want.push((f, DVec3::new(i, j, z), b.dir(f, i, j) * b.layer_r(z)));
+                }
+            }
+        }
+        let Some(out) = texels_on_gpu(&cases, gr, " outs[id.x] = vec4f(tx_point(u32(c.w), c.xyz, gr), 0.0);") else { return };
+        let mut back = Vec::new();
+        for (k, (_, _, p)) in want.iter().enumerate() {
+            let o = DVec3::new(out[k][0] as f64, out[k][1] as f64, out[k][2] as f64);
+            // (f32 at 4 km: half a millimetre a step)
+            assert!((o - *p).length() < 0.003, "case {k}: the shader lays it {:.4} m off", (o - *p).length());
+            back.push([p.x as f32, p.y as f32, p.z as f32, 0.0]);
+        }
+        let Some(out) = texels_on_gpu(&back, gr, " let at = tx_grid_of(c.xyz, gr);\n outs[id.x] = vec4f(at.g, f32(at.face));") else { return };
+        for (k, (f, g, _)) in want.iter().enumerate() {
+            let o = DVec3::new(out[k][0] as f64, out[k][1] as f64, out[k][2] as f64);
+            assert!(out[k][3] as usize == *f, "case {k}: found on face {}, not {f}", out[k][3]);
+            // a texel is 1/16 of a column; WARP_STEPS leaves under 0.005 (engine warp.rs), f32 a few ten-thousandths
+            assert!((o - *g).abs().max_element() < 6e-3, "case {k}: the shader finds {o} for {g}");
+        }
+    }
+
     /// The light's texels a grid unit (`tx_k`): the painting's up close, halved where a pixel spans more, never larger
     /// than a block or a coarse level's painted texel; past that 0, the pixel's own point (the review of ADR 0108).
     #[test]
@@ -560,12 +606,12 @@ mod tests {
         // (k0, a pixel's footprint in grid units) -> k
         let cases = [(16.0, 0.01, 16.0), (16.0, 0.2, 4.0), (16.0, 1.0, 1.0), (16.0, 1.5, 0.0), (16.0, 300.0, 0.0), (1.0, 0.5, 1.0), (1.0, 2.0, 0.0), (0.5, 1.0, 0.5), (0.5, 3.0, 0.0)];
         let input: Vec<[f32; 4]> = cases.iter().map(|&(k0, px, _)| [k0, px, 0.0, 0.0]).collect();
-        let Some(out) = texels_on_gpu(&input, [1.0, 1.0, 1.0, 1.0], " outs[id.x] = vec4f(tx_k(c.x, c.y));") else { return };
+        let Some(out) = texels_on_gpu(&input, [1.0, 1.0, 1.0, 1.0, 0.0], " outs[id.x] = vec4f(tx_k(c.x, c.y));") else { return };
         for (o, (k0, px, want)) in out.iter().zip(cases) {
             assert_eq!(o[0], want, "tx_k({k0}, {px})");
         }
         // and k 0 leaves the point where it is
-        let Some(out) = texels_on_gpu(&[[3.3, 4.7, 5.1, 2.0]], [1.0, 1.0, 1.0, 1.0], " outs[id.x] = vec4f(tx_snap(c.xyz, 2u, 0.0), 0.0);") else { return };
+        let Some(out) = texels_on_gpu(&[[3.3, 4.7, 5.1, 2.0]], [1.0, 1.0, 1.0, 1.0, 0.0], " outs[id.x] = vec4f(tx_snap(c.xyz, 2u, 0.0), 0.0);") else { return };
         assert_eq!(&out[0][..3], &[3.3, 4.7, 5.1]);
     }
 

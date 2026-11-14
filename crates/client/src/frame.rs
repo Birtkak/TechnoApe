@@ -911,7 +911,8 @@ impl App {
                 half_n: b.n as f32 * 0.5,
                 // shortcut: only the planet (body 0) has seasons; a second planet needs its own year in `Sky`
                 _p: [b.sea.map_or(-1.0, |s| (s + if bi == 0 { tide.base * per_m } else { 0.0 }) as f32), if bi == 0 { self.season_year(engine::sky::season_at(DVec3::Z, self.world.time).0) as f32 } else { -1.0 }],
-                rot: [col(m.x_axis), col(m.y_axis), col(m.z_axis)],
+                // (rot0.w: the block grid's warp, ADR 0131; the shader's `body_grid`)
+                rot: [[m.x_axis.x, m.x_axis.y, m.x_axis.z, b.warp as f32], col(m.y_axis), col(m.z_axis)],
                 ctr: { let v = (m.as_dmat3() * -c).as_vec3(); [v.x, v.y, v.z, b.radius as f32] },
             };
             cams[bi] = (c + b.centre, m.as_dmat3());
