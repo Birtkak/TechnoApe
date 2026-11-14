@@ -1,39 +1,39 @@
 {
   "stand": {
-    "work_ms": 0.69,
-    "gpu_ms_p50": 3.71,
-    "job_us_avg": 895,
+    "work_ms": 1.012,
+    "gpu_ms_p50": 3.725,
+    "job_us_avg": 930,
     "gpu_alloc_mb": 647
   },
   "fly": {
-    "work_ms": 0.671,
-    "gpu_ms_p50": 3.535,
-    "job_us_avg": 567,
+    "work_ms": 0.947,
+    "gpu_ms_p50": 3.555,
+    "job_us_avg": 602,
     "gpu_alloc_mb": 766
   },
   "orbit": {
-    "work_ms": 0.476,
-    "gpu_ms_p50": 1.512,
-    "job_us_avg": 674,
-    "gpu_alloc_mb": 787
+    "work_ms": 0.538,
+    "gpu_ms_p50": 1.528,
+    "job_us_avg": 719,
+    "gpu_alloc_mb": 785
   },
   "edit": {
-    "work_ms": 3.579,
-    "gpu_ms_p50": 5.199,
-    "job_us_avg": 1000,
+    "work_ms": 2.012,
+    "gpu_ms_p50": 5.475,
+    "job_us_avg": 983,
     "gpu_alloc_mb": 922
   },
   "sim": {
-    "work_ms": 0.901,
-    "gpu_ms_p50": 4.888,
-    "job_us_avg": 1055,
+    "work_ms": 1.044,
+    "gpu_ms_p50": 5.077,
+    "job_us_avg": 1128,
     "gpu_alloc_mb": 917,
-    "tick_ms_p99": 4.2
+    "tick_ms_p99": 3.987
   },
   "fx": {
-    "work_ms": 1.091,
-    "gpu_ms_p50": 3.698,
-    "job_us_avg": 896,
+    "work_ms": 1.391,
+    "gpu_ms_p50": 3.703,
+    "job_us_avg": 919,
     "gpu_alloc_mb": 647
   }
 }
