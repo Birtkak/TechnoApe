@@ -150,6 +150,9 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   `technoape-server replay=file until=tick` replays one headless and dumps the players.
   `technoape-server report=1 seed= planet=` prints what the ground holds (ADR 0063): provinces, caves, heat, every
   mineral's bodies, blocks, ingots against `ore-budget.md`, nearest distance and depth, and `made_hash`.
+- **The home server** (ADR 0130): `bash tools/deploy.sh [all|server|client]` builds the committed source in Docker
+  on the box and restarts the container, and uploads `build/TechnoApe.exe` with `data/` as the friends' zip; the page
+  `http://100.124.84.125:7780` (Tailscale) shows the server's output and the download. `python -I deploy/web_test.py`.
 - Viewpoints: `bash tools/views.sh` renders `tests/views/views.txt` and compares by number (cracks, pixels);
   after a deliberate visual change, look at `out/views/*.png`, then `bash tools/views.sh accept`.
 - Full benchmark: `bash tools/bench.sh` (about 8 min for the 4 km planet and filmstrips; add `base` or `huge` for
