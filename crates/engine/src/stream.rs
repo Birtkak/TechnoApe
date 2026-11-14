@@ -766,6 +766,16 @@ impl Streamer {
     }
 
     pub fn dispatch(&mut self, world: &World, reqs: &mut Vec<(f64, Key)>) {
+        // no worker free: nothing goes out, whatever the order
+        if self.inflight >= self.opts.max_inflight {
+            reqs.clear();
+            return;
+        }
+        // what the loop below would pass over is dropped before the sort, not after: with the quad buffer full
+        // (detail 8 in a forest, ADR 0111) that is thousands of waiting chunks a frame (`walk_cost`); the sort is
+        // stable, so the rest go out in the same order
+        let full = self.alloc.full;
+        reqs.retain(|(_, k)| self.slots.get(k).is_some_and(|s| s.needs_job() && !(full && s.state == State::Pending)));
         reqs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
         for &(_, k) in reqs.iter() {
             if self.inflight >= self.opts.max_inflight {
@@ -1503,6 +1513,44 @@ mod tests {
         }
     }
 
+    /// `dispatch` drops what cannot go out before it sorts: the jobs that go out are still the nearest that need
+    /// one, in order, each chunk once though both walks asked for it, and none while no worker is free.
+    #[test]
+    fn dispatch_sends_the_nearest_that_need_a_job_once_each() {
+        let w = World::new(1536, 64, 1337);
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 8 };
+        let mut s = Streamer::new(&w, 1 << 22, opts);
+        let view = View::new(w.bodies[0].spawn_point() + w.bodies[0].spawn * 1.7, [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], &w);
+        let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+        s.frame += 1;
+        s.select(&w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+        // asked twice, as by the look-ahead, and for a chunk without a slot
+        let twice = reqs.clone();
+        reqs.extend(twice);
+        reqs.push((0.0, Key { body: 0, face: 0, level: 0, pos: IVec3::new(-9, -9, -9) }));
+        // the reference: sorted first (stable), then each taken once while a worker is free
+        let mut sorted = reqs.clone();
+        sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        let mut want: Vec<Key> = Vec::new();
+        for (_, k) in &sorted {
+            if want.len() < 8 && s.slots.get(k).is_some_and(|sl| sl.needs_job()) && !want.contains(k) {
+                want.push(*k);
+            }
+        }
+        assert_eq!(want.len(), 8, "{} asked", reqs.len());
+        s.dispatch(&w, &mut reqs);
+        let mut got: Vec<Key> = s.slots.iter().filter(|(_, sl)| sl.inflight).map(|(k, _)| *k).collect();
+        let key = |k: &Key| (k.face, k.level, k.pos.x, k.pos.y, k.pos.z);
+        got.sort_by_key(key);
+        want.sort_by_key(key);
+        assert_eq!(got, want);
+        assert!(reqs.is_empty());
+        // no worker free: nothing more goes out, and the list is emptied all the same
+        let mut more = sorted.clone();
+        s.dispatch(&w, &mut more);
+        assert!(more.is_empty() && s.inflight == 8);
+    }
+
     /// The slab's links: a slot made after its parent is linked into it, one made before is found by its key;
     /// an evicted child is forgotten by its parent, and its place in the slab taken by the next slot made.
     #[test]
@@ -1564,6 +1612,35 @@ mod tests {
                 println!("{{\"walk_cost\":{{\"k\":{k},\"camera\":\"{what}\",\"slots\":{},\"walk\":{fast},\"slow_walk\":{slow}}}}}", s.slots.len());
             }
         }
+        // a quad buffer too small for detail 8, as in a forest (ADR 0111): the chunks that never come stay pending
+        let opts = Opts { k: 8.0, greedy: true, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
+        let mut s = Streamer::new(&w, 1 << 19, opts);
+        let view = View::new(ground, [Vec4::new(0.0, 0.0, 0.0, 1.0); 6], &w);
+        let (mut missing, mut asked) = (0, 0);
+        for f in 0..3000 {
+            let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+            s.apply(usize::MAX, &mut st, |_, _| {});
+            (s.frame, s.dirty) = (s.frame + 1, true);
+            s.select(&w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+            (missing, asked) = (st.missing, reqs.len());
+            s.dispatch(&w, &mut reqs);
+            if s.alloc_fail > 0 && s.idle() && f > 200 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let (t, n, v0) = (Instant::now(), 200, s.visits);
+        let mut td = 0.0;
+        for _ in 0..n {
+            (s.dirty, s.frame) = (true, s.frame + 1);
+            let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+            s.select(&w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+            let d = Instant::now();
+            s.dispatch(&w, &mut reqs);
+            td += d.elapsed().as_secs_f64();
+        }
+        let total = t.elapsed().as_secs_f64();
+        println!("{{\"walk_cost\":{{\"k\":8,\"camera\":\"buffer full\",\"slots\":{},\"missing\":{missing},\"asked\":{asked},\"alloc_fail\":{},\"walk_us\":{:.0},\"dispatch_us\":{:.0},\"visits\":{}}}}}", s.slots.len(), s.alloc_fail, (total - td) * 1e6 / n as f64, td * 1e6 / n as f64, (s.visits - v0) / n);
     }
 
     #[test]
