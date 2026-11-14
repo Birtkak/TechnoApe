@@ -34,7 +34,13 @@ falling leaf (the `leaves` effect's model) were still flat-coloured voxels, a co
   quads with room to spare. The Studio's voxel tests read the old voxel snake and furnace from `testdata/`.
 
 ## Evidence
-(see the report and out/figures/)
+Stills (play build, 768 planet, seed 1; `out/figures/`, not committed): `<name>.png` before | after pairs for
+the ape, boar, deer, hare and snake; `deer_close_zoom.png` (after the nose fix and the darker back),
+`snake_close_zoom.png` (the calmer 16 px blotches), `furnace_f1.png`, `deer_walk.png` and `ape_walk.png`,
+`arm_swing.png` (the bare arm mid-swing at noon), `inventory.png` (the painted ape).
+
+Costs (`docs/perf-debt.md`): 200 deer or apes, GPU p50 +0.5-0.6 ms against the voxel models (G-buffer +0.6-0.7);
+24,328 model quads of 65,536.
 
 ## For the developer to confirm
 - The look of each figure; the worst is named in the report.
@@ -43,3 +49,5 @@ falling leaf (the `leaves` effect's model) were still flat-coloured voxels, a co
 - A pixel a quad (ADR 0114's): the furnace is 6,912 quads for a block-sized thing.
 
 ## Review
+The fresh review of ADR 0117 read this round too (`1bbeb76f..claude/painted-figures`): it found the figures, the
+bare arm's box mapping and `painted_item()` right; no findings against them.
