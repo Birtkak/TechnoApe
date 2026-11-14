@@ -435,6 +435,10 @@ impl Models {
             let dir = format!("{DIR}/models");
             let _ = std::fs::create_dir_all(&dir);
             // the unsaved copy with its life, so a state plays before it is saved
+            // and its painting, so its painted boxes are drawn too (ADR 0114); none, none left from another model
+            if std::fs::copy(format!("{MODELS}/{name}.png"), format!("{dir}/studio.png")).is_err() {
+                let _ = std::fs::remove_file(format!("{dir}/studio.png"));
+            }
             if std::fs::write(format!("{dir}/studio.toml"), voxel::text_life(&shown, life)).is_ok() {
                 self.gen += 1;
                 self.written = now;

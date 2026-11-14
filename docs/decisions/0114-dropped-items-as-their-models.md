@@ -42,7 +42,16 @@ clutter model in hand was wrong**: nothing was drawn in hand for flint (the log 
   `inventory.rs` (only that function and `PILE_DRAWN` left it). A stack whose item or block name is a loaded model
   lies as that model; any other keeps the cube of its look; past 64 m nothing; no count in the world.
 - The painted hand axe (the overseer's recipe in `tools/paint_clutter.py`, 13 x 22 px point up) gets
-  `item = 0.3`: 21 cm long in hand and in a pile (at the clutter default of 1 it lay 69 cm long).
+  `item = 0.3`: 21 cm long in hand and in a pile (at the clutter default of 1 it lay 69 cm long). Its boxes'
+  edge columns are tone 4.5, under the ridge's 5, so the ridge is the lightest line (at 6 they striped it).
+- Flint gets `item = 0.6`: a 12 cm shard in hand and in a pile. `item` sizes a painted model in hand and in a
+  pile alike; the clutter on the ground (`clutter::Still`) never reads it, so the flint lying in the world stays
+  19 cm.
+- In hand a model is held by its rest bounds' middle (the cell's middle before), so a flat thing that lies low in
+  its cell is not under the screen's edge; a flat one (height under half its width) is tipped 60 degrees to show
+  the eye its top.
+- The Studio's model view copies the open model's `.png` beside the `studio.toml` it hands the renderer, so
+  painted boxes show there too (they were drawn nowhere in it before).
 
 ## Evidence
 - Tests, each seen failing first: `models::tests::a_boxs_painting_becomes_one_quad_a_pixel_on_its_face`,
@@ -52,12 +61,12 @@ clutter model in hand was wrong**: nothing was drawn in hand for flint (the log 
 - Stills (`out/piles/`, off-screen `run=play planet=768 seed=1`, items thrown through the inventory's acts):
   `before.png` (the same pile with `models=` an empty folder: four cubes), `after.png` (the hand axe lying on its
   face, the stick, granite's cube; the flint is behind the cube from this side), `flint_lying.png`,
-  `hand_axe_in_hand.png`, `flint_in_hand.png`.
+  `hand_axe_in_hand.png`, `flint_in_hand.png` (tipped, wholly over the hotbar's edge), `inventory_slots.png`
+  (main's slot pictures of the hand axe, flint, stick and granite), `studio_flint.png`, `studio_hand_axe_crop.png`.
 - Cost: `docs/perf-debt.md` row "Dropped items as models (0114)".
 
 ## For the developer to confirm
-- The painted axe's `item = 0.3` (21 cm); flint in hand at the default 0.35 is small and half under the screen's
-  edge (a 19 cm shard drawn at 0.35 of its size): give flint an `item` (about 1) if it should read in hand.
+- The painted axe's `item = 0.3` (21 cm) and flint's `item = 0.6` (12 cm in hand and in a pile).
 - Clutter models keep their real size in a pile; voxel models lie at 0.35 a cell unless they say.
 - A standing item lies on its face; a block's model (a furnace) stands as it stands in the world.
 

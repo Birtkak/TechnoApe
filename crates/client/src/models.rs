@@ -10,7 +10,7 @@
 use engine::blocks::BLOCKS;
 use engine::models::{events_between, mesh, parse_life, Life, Model, Quad, State, VOXEL};
 use engine::world::{Block, World};
-use glam::{DMat3, DMat4, DVec3, Mat4, Vec3};
+use glam::{DMat3, DMat4, DVec3, Mat4, Vec3, Vec4};
 use std::sync::mpsc::Receiver;
 
 /// The quads of every model at once, 16 bytes each (1 MB).
@@ -632,7 +632,13 @@ impl Models {
             let s = self.list[m].0.model.item.unwrap_or(engine::models::ITEM_M) as f64;
             let o = fwd * 0.8 + right * 0.42 - up * 0.36 - (right + up - fwd) * (s * 0.5);
             let x = DMat4::from_cols((right * s).extend(0.0), (up * s).extend(0.0), (-fwd * s).extend(0.0), o.extend(1.0));
-            inst[m].push((idle(m), t, (DMat4::from_mat3(cams[cf].1) * x).as_mat4(), cf as u32, 1.0));
+            // its rest bounds' middle in the cell's middle (a flint lies low in its cell, under the screen's edge),
+            // and a flat thing tipped 60 degrees to show the eye its top (ADR 0114)
+            let [lo, hi] = self.list[m].0.bounds;
+            let d = hi - lo;
+            let tip = if d.y < 0.5 * d.x.max(d.z) { Mat4::from_rotation_x(60f32.to_radians()) } else { Mat4::IDENTITY };
+            let held = Mat4::from_translation(Vec3::splat(0.5) - tip.transform_point3((lo + hi) * 0.5)) * tip;
+            inst[m].push((idle(m), t, (DMat4::from_mat3(cams[cf].1) * x).as_mat4() * held, cf as u32, 1.0));
         }
         // the stacks lying in piles (ADR 0114): at the item's size (a model of painted boxes at its real size unless
         // its file says), an item standing taller than it is wide laid down on its face (+z up), turned about the
@@ -917,6 +923,15 @@ mod tests {
         let eye = (b.centre + b.spawn * (b.height(b.spawn) + 2.0), DVec3::X, b.spawn);
         m.frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], 0, eye, 0.0, Some("flint"), &[], &mut fx, &mut audio);
         assert_eq!(m.draws.iter().map(|d| (d.count, d.quads > 0)).collect::<Vec<_>>(), [(1, true)], "the box drawn once, in hand");
+        // its middle where the hand holds things (not low in its cell, under the screen's edge), its painted top
+        // turned to the eye as a flat thing is held up to be seen
+        let p = m.pieces[m.draws[0].first as usize];
+        let at = |v: Vec4| Vec3::new(Vec4::from(p.x[0]).dot(v), Vec4::from(p.x[1]).dot(v), Vec4::from(p.x[2]).dot(v));
+        let (fwd, up) = (eye.1, eye.2);
+        let right = fwd.cross(up).normalize();
+        let hold = (fwd * 0.8 + right * 0.42 - right.cross(fwd) * 0.36).as_vec3();
+        assert!((at(Vec4::new(3.0, 1.0, 2.5, 1.0)) - hold).length() < 0.03, "{} against {hold}", at(Vec4::new(3.0, 1.0, 2.5, 1.0)));
+        assert!(at(Vec4::Y).normalize().dot(-fwd.as_vec3()) > 0.6, "top to the eye: {}", at(Vec4::Y));
     }
 
     /// ADR 0114: a model's `item` is the size of its cell in hand, in place of the fixed 0.35 m; a pile lays it at
