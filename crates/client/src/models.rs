@@ -113,6 +113,39 @@ impl Loaded {
     }
 }
 
+/// What is shown in hand at the lower right (ADR 0115): the item or block by name (drawn when a model has its
+/// name), or with `None` the bare arm of the `FIGURE`; `swing` how far through its swing, 0 at rest, 1 at its
+/// peak.
+#[derive(Clone, Copy, Debug)]
+pub struct Hand<'a> {
+    pub item: Option<&'a str>,
+    pub swing: f32,
+}
+
+/// One swing of the hand (ADR 0115): this long, seconds; as long as a survival dig's hit, so a held dig swings on.
+pub const SWING_S: f64 = 0.25;
+
+/// How far through its swing the hand is `age` seconds after a dig, place, strike or pick-up: 0 at rest and at
+/// its end, 1 once, early (a quick strike, an eased return).
+pub fn swing(age: f64) -> f32 {
+    let x = age / SWING_S;
+    if !(0.0..1.0).contains(&x) {
+        return 0.0;
+    }
+    (std::f64::consts::PI * (1.0 - (1.0 - x) * (1.0 - x))).sin() as f32
+}
+
+/// The bare arm in hand (ADR 0115), in the eye's frame (metres ahead, right, up): where its hand's end is, and
+/// the way from there to the shoulder, below and right, out of the view. The developer's call; tuned by eye.
+const ARM_HAND: [f64; 3] = [0.55, 0.30, -0.30];
+const ARM_WAY: [f64; 3] = [-0.75, 0.5, -0.45];
+/// The figure's part shown as the bare arm, and its length in voxels (ape.toml's `arm_r`: 5 tall).
+const ARM: &str = "arm_r";
+const ARM_LEN: f32 = 5.0;
+/// The swing at its peak: turned down about the shoulder, and in toward the look, radians.
+const SWING_DOWN: f64 = 0.9;
+const SWING_IN: f64 = 0.3;
+
 /// The model the inventory shows large, standing, and the pixels of its picture and of a slot's.
 pub const FIGURE: &str = "ape";
 
@@ -477,10 +510,10 @@ impl Models {
     }
 
     /// This frame's pieces and draws, uploaded. `cams`: per body the camera there and the turn into the
-    /// camera's frame (frame.rs); `eye`: the camera's place, look and up in body `cf`'s frame; `hand`: the
-    /// block in hand by name, drawn at the lower right when a model has its name.
+    /// camera's frame (frame.rs); `eye`: the camera's place, look and up in body `cf`'s frame; `hand`: what is
+    /// held at the lower right, None when nothing is shown there (ADR 0115).
     #[allow(clippy::too_many_arguments)]
-    pub fn frame(&mut self, world: &World, cams: &[(DVec3, DMat3)], cf: usize, eye: (DVec3, DVec3, DVec3), t: f64, hand: Option<&str>, herd: &[Beast], fx: &mut crate::fx::Fx, audio: &mut crate::audio::Audio) {
+    pub fn frame(&mut self, world: &World, cams: &[(DVec3, DMat3)], cf: usize, eye: (DVec3, DVec3, DVec3), t: f64, hand: Option<Hand>, herd: &[Beast], fx: &mut crate::fx::Fx, audio: &mut crate::audio::Audio) {
         self.pieces.clear();
         self.draws.clear();
         self.lamps.clear();
@@ -666,14 +699,46 @@ impl Models {
             let x = DMat4::from_mat3(turn) * DMat4::from_cols(r.x_axis.extend(0.0), r.y_axis.extend(0.0), r.z_axis.extend(0.0), (world.bodies[p.body as usize].centre + p.p.as_dvec3() - cam).extend(1.0)) * DMat4::from_translation(-foot.as_dvec3());
             inst[m].push((idle(m), t, x.as_mat4(), p.body as u32, 1.0));
         }
-        if let Some(m) = hand.and_then(|n| drawn(&self.list, n)) {
+        // in hand (ADR 0115): the item, or with none the figure's bare right arm, both on the one swing
+        let mut bare: Option<(usize, usize, Mat4)> = None;
+        if let Some(h) = hand {
             let (_, fwd, up) = eye;
             let right = fwd.cross(up).normalize();
             let up = right.cross(fwd);
-            let s = self.list[m].0.model.item.unwrap_or(engine::models::ITEM_M) as f64;
-            let o = fwd * 0.8 + right * 0.42 - up * 0.36 - (right + up - fwd) * (s * 0.5);
-            let x = DMat4::from_cols((right * s).extend(0.0), (up * s).extend(0.0), (-fwd * s).extend(0.0), o.extend(1.0));
-            inst[m].push((idle(m), t, (DMat4::from_mat3(cams[cf].1) * x).as_mat4() * self.list[m].0.held(), cf as u32, 1.0));
+            let eye_m = |v: [f64; 3]| fwd * v[0] + right * v[1] + up * v[2];
+            let (hand_at, way) = (eye_m(ARM_HAND), eye_m(ARM_WAY).normalize());
+            // the swing turns about the shoulder: down past the look, and a little in
+            let shoulder = hand_at + way * (ARM_LEN * engine::models::VOXEL) as f64;
+            let sw = h.swing as f64;
+            let turn = DMat4::from_mat3(cams[cf].1)
+                * DMat4::from_translation(shoulder)
+                * DMat4::from_axis_angle(up, SWING_IN * sw)
+                * DMat4::from_axis_angle(right, -SWING_DOWN * sw)
+                * DMat4::from_translation(-shoulder);
+            match h.item {
+                Some(n) => {
+                    if let Some(m) = drawn(&self.list, n) {
+                        let s = self.list[m].0.model.item.unwrap_or(engine::models::ITEM_M) as f64;
+                        let o = fwd * 0.8 + right * 0.42 - up * 0.36 - (right + up - fwd) * (s * 0.5);
+                        let x = DMat4::from_cols((right * s).extend(0.0), (up * s).extend(0.0), (-fwd * s).extend(0.0), o.extend(1.0));
+                        inst[m].push((idle(m), t, (turn * x).as_mat4() * self.list[m].0.held(), cf as u32, 1.0));
+                    }
+                }
+                None => {
+                    let m = drawn(&self.list, FIGURE);
+                    if let Some((m, a)) = m.and_then(|m| Some((m, self.list[m].0.model.parts.iter().position(|p| p.name == ARM)?))) {
+                        // the arm's voxels to the eye's frame: its length (+y, hand to shoulder) along `way`, its
+                        // width level across it; then the model's metres to the arm's voxels at rest
+                        let v = engine::models::VOXEL as f64;
+                        let ax = up.cross(way).normalize();
+                        let az = ax.cross(way);
+                        let o = hand_at - (ax * 0.5 + az) * v;
+                        let x = DMat4::from_cols((ax * v).extend(0.0), (way * v).extend(0.0), (az * v).extend(0.0), o.extend(1.0));
+                        let rest = self.list[m].0.model.pose(None, 0.0)[a].as_dmat4() * DMat4::from_scale(DVec3::splat(v));
+                        bare = Some((m, a, (turn * x * rest.inverse()).as_mat4()));
+                    }
+                }
+            }
         }
         // the stacks lying in piles (ADR 0114): at the item's size (a model of painted boxes at its real size unless
         // its file says), an item standing taller than it is wide laid down on its face (+z up), turned about the
@@ -689,10 +754,23 @@ impl Models {
             inst[m].push((idle(m), t, cell * Mat4::from_rotation_y(p.turn) * Mat4::from_scale(Vec3::splat(s * p.fit)) * Mat4::from_translation(off) * lay, p.body as u32, 1.0));
         }
         for (m, list) in inst.iter().enumerate() {
-            if list.is_empty() {
+            let bare = bare.filter(|b| b.0 == m);
+            if list.is_empty() && bare.is_none() {
                 continue;
             }
             let (l, parts) = &self.list[m];
+            // the bare arm: its part and the parts hung from it, at rest
+            let arm = |mut i: usize| loop {
+                match bare {
+                    Some((_, a, _)) if i == a => break true,
+                    Some(_) => match l.model.up.get(i).copied().flatten() {
+                        Some(k) => i = k,
+                        None => break false,
+                    },
+                    None => break false,
+                }
+            };
+            let rest = if bare.is_some() { l.model.pose(None, 0.0) } else { Vec::new() };
             // a model past the pieces' room is not drawn at all, never in part
             if self.pieces.len() + list.len() * parts.iter().filter(|p| p.1 > 0).count() > MAX_PIECES {
                 continue;
@@ -717,7 +795,14 @@ impl Models {
                     let r = (*x * sc(*s) * poses[k][pi]).transpose();
                     self.pieces.push(Piece { x: [r.x_axis.to_array(), r.y_axis.to_array(), r.z_axis.to_array()], q0: *q0, body: *body, _p: [0; 2] });
                 }
-                self.draws.push(Draw { quads: *nq, first, count: list.len() as u32 });
+                if let Some((_, _, x)) = bare.filter(|_| pi < rest.len() && arm(pi)) {
+                    let r = (x * rest[pi]).transpose();
+                    self.pieces.push(Piece { x: [r.x_axis.to_array(), r.y_axis.to_array(), r.z_axis.to_array()], q0: *q0, body: cf as u32, _p: [0; 2] });
+                }
+                let count = self.pieces.len() as u32 - first;
+                if count > 0 {
+                    self.draws.push(Draw { quads: *nq, first, count });
+                }
             }
         }
     }
@@ -896,7 +981,7 @@ mod tests {
         let cams = vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()];
         let mut t = 0.0;
         while t < 2.0 {
-            m.frame(&w, &cams, 0, eye, t, in_hand.then_some("boar"), &[], &mut fx, &mut audio);
+            m.frame(&w, &cams, 0, eye, t, in_hand.then_some(Hand { item: Some("boar"), swing: 0.0 }), &[], &mut fx, &mut audio);
             t += 1.0 / 60.0;
         }
         let n = m.draws[0].count as usize;
@@ -964,7 +1049,7 @@ mod tests {
         }
         let (mut fx, mut audio) = (crate::fx::Fx::new(true, 64, 1.0, 1), crate::audio::Audio::new());
         let eye = (b.centre + b.spawn * (b.height(b.spawn) + 2.0), DVec3::X, b.spawn);
-        m.frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], 0, eye, 0.0, Some("boar"), &[], &mut fx, &mut audio);
+        m.frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], 0, eye, 0.0, Some(Hand { item: Some("boar"), swing: 0.0 }), &[], &mut fx, &mut audio);
         m.pieces[..m.draws[0].count as usize].to_vec()
     }
 
@@ -992,7 +1077,7 @@ mod tests {
         m.list = vec![(l, parts)];
         let (mut fx, mut audio) = (crate::fx::Fx::new(true, 64, 1.0, 1), crate::audio::Audio::new());
         let eye = (b.centre + b.spawn * (b.height(b.spawn) + 2.0), DVec3::X, b.spawn);
-        m.frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], 0, eye, 0.0, Some("flint"), &[], &mut fx, &mut audio);
+        m.frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], 0, eye, 0.0, Some(Hand { item: Some("flint"), swing: 0.0 }), &[], &mut fx, &mut audio);
         assert_eq!(m.draws.iter().map(|d| (d.count, d.quads > 0)).collect::<Vec<_>>(), [(1, true)], "the box drawn once, in hand");
         // its middle where the hand holds things (not low in its cell, under the screen's edge), its painted top
         // turned to the eye as a flat thing is held up to be seen
@@ -1046,7 +1131,7 @@ mod tests {
         assert_eq!((lying.len(), cubes.len()), (0, 1), "its cube in the pile");
         let (mut fx, mut audio) = (crate::fx::Fx::new(true, 64, 1.0, 1), crate::audio::Audio::new());
         let eye = (b.centre + b.spawn * (b.height(b.spawn) + 2.0), DVec3::X, b.spawn);
-        m.frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], 0, eye, 0.0, Some("flint"), &[], &mut fx, &mut audio);
+        m.frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], 0, eye, 0.0, Some(Hand { item: Some("flint"), swing: 0.0 }), &[], &mut fx, &mut audio);
         assert!(m.draws.is_empty(), "nothing in hand");
     }
 
@@ -1066,7 +1151,7 @@ mod tests {
         m.list = vec![(l, parts)];
         let (mut fx, mut audio) = (crate::fx::Fx::new(true, 64, 1.0, 1), crate::audio::Audio::new());
         let eye = (b.centre + b.spawn * (b.height(b.spawn) + 2.0), DVec3::X, b.spawn);
-        m.frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], 0, eye, 0.0, Some("boar"), &[], &mut fx, &mut audio);
+        m.frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], 0, eye, 0.0, Some(Hand { item: Some("boar"), swing: 0.0 }), &[], &mut fx, &mut audio);
         // main's hold: the cell's corner so that its middle is at the hand's point, its axes 0.35 m
         let (fwd, up) = (eye.1, eye.2);
         let right = fwd.cross(up).normalize();
@@ -1258,5 +1343,73 @@ want {want:?}");
         assert_eq!(alive_after(|m| m.list.clear()), 0);
         // and with nothing changed it burns on
         assert!(alive_after(|_| ()) > 0);
+    }
+
+    /// The ape loaded, each part's quads at its index times 1000 (so a piece names its part), and `hand` drawn:
+    /// the pieces and the eye's look, up and right.
+    fn ape_hand(hand: Option<Hand>) -> (Models, Loaded, [DVec3; 3]) {
+        let pal = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        let load = || {
+            let (model, life) = parse_life("ape.toml", include_str!("../../../data/models/ape.toml"), &pal, &|_| true, &|_| true).unwrap();
+            Loaded::new(FIGURE.into(), model, life, None)
+        };
+        let l = load();
+        let w = World::new(768, 256, 1);
+        let b = &w.bodies[0];
+        let mut m = Models::new(&crate::Args([("models".to_string(), "no/such/folder".to_string())].into_iter().collect()));
+        let parts = l.quads.iter().enumerate().map(|(i, q)| (i as u32 * 1000, q.len() as u32)).collect();
+        m.list = vec![(l, parts)];
+        let (mut fx, mut audio) = (crate::fx::Fx::new(true, 64, 1.0, 1), crate::audio::Audio::new());
+        let up = b.spawn;
+        let fwd = up.any_orthonormal_vector();
+        let eye = (b.centre + up * (b.height(up) + 2.0), fwd, up);
+        m.frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], 0, eye, 0.0, hand, &[], &mut fx, &mut audio);
+        (m, load(), [fwd, up, fwd.cross(up)])
+    }
+
+    /// The hand's end of the arm (its first layer's middle, ape.toml: the light hand at y = 0) in the camera's frame.
+    fn hand_end(p: &Piece) -> DVec3 {
+        let r = Mat4::from_cols(Vec4::from(p.x[0]), Vec4::from(p.x[1]), Vec4::from(p.x[2]), Vec4::W).transpose();
+        r.transform_point3(Vec3::new(0.5, 0.0, 1.0)).as_dvec3()
+    }
+
+    /// ADR 0115: with nothing in hand the ape's own right arm is drawn, once, and nothing else of the ape; low at
+    /// the right, ahead of the eye.
+    #[test]
+    fn an_empty_hand_draws_the_figures_arm_only() {
+        let (m, l, [fwd, up, right]) = ape_hand(Some(Hand { item: None, swing: 0.0 }));
+        let arm = l.model.parts.iter().position(|p| p.name == "arm_r").unwrap() as u32;
+        assert_eq!(m.pieces.iter().map(|p| p.q0).collect::<Vec<_>>(), [arm * 1000], "the right arm, once");
+        let h = hand_end(&m.pieces[0]);
+        assert!(h.dot(fwd) > 0.2 && h.dot(right) > 0.0 && h.dot(up) < 0.0, "ahead, right and low: {h}");
+    }
+
+    /// ADR 0115: nothing shown in hand (a hidden HUD, the death screen) draws no arm.
+    #[test]
+    fn no_hand_draws_no_arm() {
+        assert!(ape_hand(None).0.pieces.is_empty());
+    }
+
+    /// ADR 0115: the swing moves the arm forward and down at its peak and puts it back at its end.
+    #[test]
+    fn the_swing_moves_the_arm_down_and_back() {
+        let at = |s: f32| hand_end(&ape_hand(Some(Hand { item: None, swing: s })).0.pieces[0]);
+        let (_, _, [_, up, _]) = ape_hand(None);
+        let (rest, peak) = (at(0.0), at(1.0));
+        assert!(peak.dot(up) < rest.dot(up) - 0.1, "down at the peak: {rest} then {peak}");
+        assert!((at(swing(SWING_S)) - rest).length() < 1e-6, "back at the end");
+    }
+
+    /// ADR 0115: a swing is 0 at rest and at its end and peaks once; a new event (its age 0 again) restarts it.
+    #[test]
+    fn a_swing_peaks_once_and_ends_at_rest() {
+        assert_eq!((swing(-1.0), swing(0.0), swing(SWING_S), swing(9.0)), (0.0, 0.0, 0.0, 0.0));
+        let s: Vec<f32> = (0..=100).map(|k| swing(SWING_S * k as f64 / 100.0)).collect();
+        let top = s.iter().cloned().fold(0.0, f32::max);
+        assert!(top > 0.99, "it reaches its peak: {top}");
+        let turns = s.windows(3).filter(|w| (w[1] - w[0]) * (w[2] - w[1]) < 0.0).count();
+        assert_eq!(turns, 1, "up once, then down");
+        // the hand is half way through when the next dig comes: its age is 0 again, the swing starts over
+        assert!(swing(SWING_S * 0.5) > 0.0 && swing(0.0) == 0.0);
     }
 }
