@@ -114,6 +114,9 @@ pub struct Bot {
     /// The server's ticks seen (one `You` a tick): the bot's clock. Its waits, walks and held digs count these,
     /// not wall time, so a server slowed by a busy PC is waited for (the gate's tests under load).
     ticks: u64,
+    /// When the server last sent anything: one that keeps the link open but ticks no more (stalled, suspended)
+    /// would hold a wait forever, so after `SILENT` of nothing the bot takes it for gone.
+    heard: Instant,
     /// The walk: where to, and the tick to give up at.
     target: Option<(DVec3, u64)>,
     last_dist: f64,
@@ -134,10 +137,14 @@ pub struct Bot {
     pub animals: std::collections::BTreeMap<u32, engine::net::Animal>,
 }
 
+/// A server silent this long is taken for gone (it sends `You` every tick; a baked world's first map takes
+/// some tens of seconds to make).
+const SILENT: Duration = Duration::from_secs(120);
+
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, kinds: Vec::new(), animals: Default::default() }
+        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, kinds: Vec::new(), animals: Default::default() }
     }
 
     /// The tick `s` seconds of the server's time from now.
@@ -152,7 +159,11 @@ impl Bot {
     /// Takes everything the server sent; false once the server is gone.
     pub fn receive(&mut self) -> bool {
         loop {
-            match self.link.try_recv() {
+            let got = self.link.try_recv();
+            if !matches!(got, Recv::Empty | Recv::Closed) {
+                self.heard = Instant::now();
+            }
+            match got {
                 Recv::Msg(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, items, map, luna }) => {
                     assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
                     assert_eq!(items, engine::items::ITEMS.hash, "the server's build has other items (data/items.toml)");
@@ -208,7 +219,7 @@ impl Bot {
                         }
                     }
                 }
-                Recv::Empty => return true,
+                Recv::Empty => return self.heard.elapsed() < SILENT,
                 Recv::Closed => return false,
             }
         }
