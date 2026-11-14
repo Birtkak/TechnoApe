@@ -2651,6 +2651,47 @@ fn vs_model(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     return o;
 }
 
+// a contact shadow under a thing lying in a pile (ADR 0114; piles::shade): a square flat on its cell's floor,
+// `size` its half width in metres, the floor's first axis in `a`; a centimetre nearer in depth only, as a cell
+// look, so it passes where the floor shows and fails behind grass blades, the thing itself and walls
+@vertex
+fn vs_shade(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> FxOut {
+    let q = fxp[ii];
+    let b = g.bodies[(q.info >> 8u) & 3u];
+    var cx = array<f32, 6>(-1., 1., 1., -1., 1., -1.);
+    var cy = array<f32, 6>(-1., -1., 1., -1., 1., 1.);
+    let k = vi % 6u;
+    let up = normalize(q.p);
+    let s = normalize(vec3f(f32(q.a & 1023u), f32((q.a >> 10u) & 1023u), f32((q.a >> 20u) & 1023u)) / 511.5 - 1.0);
+    let t = normalize(cross(up, s));
+    let pb = q.p + (s * cx[k] + t * cy[k]) * q.size;
+    var o: FxOut;
+    let rel = brot(b, (pb - b.cam_hi) - b.cam_lo);
+    o.rel = rel;
+    o.clip = g.view_proj * vec4f(rel, 1.0);
+    let near = g.view_proj * vec4f(rel * max(1.0 - 0.01 / length(rel), 0.0), 1.0);
+    o.clip.z = near.z / near.w * o.clip.w;
+    o.normal = brot(b, up);
+    o.uvw = vec3f(cx[k], cy[k], 0.0) * q.size;
+    o.info = q.info;
+    o.k = q.size;
+    return o;
+}
+
+// the shadow's darkness, multiplied into the albedo only (gpu.rs `shade_pipeline`: the other targets are masked
+// off), in rings of whole ground texels (32 a metre, as ADR 0108's shadows): half the light at its middle, none
+// at its edge
+@fragment
+fn fs_shade(i: FxOut) -> GOut {
+    let l = (floor(i.uvw.xy * 32.0) + 0.5) / 32.0;
+    let r = length(l) / i.k;
+    if (r >= 1.0) { discard; }
+    let d = 1.0 - 0.5 * (1.0 - smoothstep(0.25, 1.0, r));
+    var o: GOut;
+    o.albedo = vec4f(d, d, d, 1.0);
+    return o;
+}
+
 @fragment
 fn fs_model(i: FxOut) -> GOut {
     let l = light(i.rel, normalize(i.normal), (i.info >> 8u) & 3u);

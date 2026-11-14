@@ -112,6 +112,8 @@ pub(crate) struct App {
     /// The voxel models and this frame's draws of them (ADR 0047).
     pub(crate) models: models::Models,
     pub(crate) fx_n: u32,
+    /// How many of the last `fx_n` are contact shadows (`vs_shade`, ADR 0114).
+    pub(crate) shade_n: u32,
     pub(crate) dip: fx::Track<[f32; 2]>,
     /// Blocks this player placed, growing into place: when their mesh may show (the clock `start`), the cell,
     /// the block, the grow's tag, and whether the mesh was asked for (play.rs `apply`).

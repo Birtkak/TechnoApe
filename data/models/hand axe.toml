@@ -1,35 +1,39 @@
-# A draft hand axe (Claude's, listed in data/drafts.txt; ADR 0110): a knapped flint, a teardrop standing point
-# up with its butt in the fist: dark flint, a pale ridge between the flake scars up to the point, and the chalk
-# rind left on the butt. The second row of each layer is the face the eye sees in hand (the first draft had its
-# flakes on the far side). Shown at the in-hand scale of any model (a cell is 0.35 m there), so it is larger
-# than life in voxels: about 22 by 35 cm on screen. For the Studio to repaint.
-colours = ["flint r3", "flint r4", "flint r5", "flint r6", "limestone light", "pebble r8"]
+# A draft hand axe (Claude's, listed in data/drafts.txt): clutter, ADR 0082. Painted
+# boxes at 32 px a metre (a knapped flint teardrop, point up); made by tools/paint_clutter.py.
+colours = ["slate"]
+item = 0.3
 
 [[part]]
 name = "body"
-box = [5, 8, 2]
-voxels = """
-.aea.
-.eee.
+box = [1, 1, 1]
+voxels = "."
 
-aaeaa
-beeec
+[[part.boxes]]
+at = [12.0, 0.0, 14.5]
+size = [8, 3, 3]
+uv = [0, 0]
 
-aaaaa
-bcdfb
+[[part.boxes]]
+at = [10.0, 3.0, 14.0]
+size = [12, 5, 4]
+uv = [22, 0]
 
-aaaaa
-cdfcb
+[[part.boxes]]
+at = [11.0, 8.0, 14.0]
+size = [10, 5, 4]
+uv = [0, 9]
 
-aaaaa
-bcfdc
+[[part.boxes]]
+at = [12.5, 13.0, 14.5]
+size = [7, 4, 3]
+uv = [28, 9]
 
-.aaa.
-.cfd.
+[[part.boxes]]
+at = [14.0, 17.0, 15.0]
+size = [4, 3, 2]
+uv = [48, 9]
 
-.aaa.
-.dfc.
-
-..a..
-..f..
-"""
+[[part.boxes]]
+at = [15.0, 20.0, 15.0]
+size = [2, 2, 2]
+uv = [0, 18]

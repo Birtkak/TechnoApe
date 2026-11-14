@@ -1179,14 +1179,9 @@ impl App {
             (self.ghost_n, self.ghost_of) = (verts.len() as u32, ghost);
         }
         let season = crate::gpu::season_here(&self.world, self.me.pos);
-        // the hotbar's nine slots as they lie (ADR 0074): an item shows the block it looks like
+        // the hotbar's nine slots as they lie (ADR 0074), each drawn as the inventory draws it (ADR 0114)
         let slots: Vec<Option<hud::Slot>> = (0..engine::items::HOTBAR)
-            .map(|k| {
-                let s = self.inv.get(k).copied().flatten()?;
-                let d = BLOCKS.get(engine::items::ITEMS.look(s.item))?;
-                let (colour, side, pattern) = crate::gpu::shown(d, season);
-                Some(hud::Slot { colour, side, pattern, painted: crate::gpu::painting(d), count: (!self.creative).then_some(s.n as u32), wear: wear(s) })
-            })
+            .map(|k| self.inv.get(k).copied().flatten().map(|s| hud::Slot { count: (!self.creative).then_some(s.n as u32), wear: wear(s) }))
             .collect();
         let height = (self.hammer && self.tool.kind != Kind::Box).then_some(self.tool.height);
         // the title menu shows the orbit view and itself only
@@ -1199,7 +1194,11 @@ impl App {
         }
         let shown = (2.5 - self.held_name.1.elapsed().as_secs_f32()).clamp(0.0, 0.5) * 2.0;
         let held = self.inv.get(self.slot).copied().flatten().map(|s| (engine::items::ITEMS.name(s.item).to_string(), shown));
-        let mut rects = if title { Vec::new() } else { hud::layer(lw, lh, &slots, self.slot, self.creative, height, held.as_ref().map(|h| (h.0.as_str(), h.1))) };
+        let mut rects = if title { Vec::new() } else { hud::layer(lw, lh, &slots, self.slot, self.creative, height, held.as_ref().map(|h| (h.0.as_str(), h.1)), &mut |p, k, x, y, size| {
+                if let Some(s) = self.inv.get(k).copied().flatten() {
+                    self.look_of(p, s.item, x, y, size, season);
+                }
+            }) };
         if !title && !self.creative {
             // health and hunger over the hotbar (ADR 0040): survival's, and how it is told from creative
             let mut p = hud::Paint::new(lw, lh);

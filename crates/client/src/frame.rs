@@ -725,6 +725,7 @@ impl App {
         lap!("table");
         // the effects (ADR 0031): the water's spray, every particle moved on, the pool to the GPU
         self.fx_n = 0;
+        self.shade_n = 0;
         if self.fx.on {
             self.fx.follow(self.settings.at(S::Particles));
             self.water.spray(&self.world, dt as f32, &mut self.fx);
@@ -747,6 +748,8 @@ impl App {
                 gpu.queue.write_buffer(&gpu.fx_buf, 0, bytemuck::cast_slice(&d[..k]));
             }
             self.fx_n = k as u32;
+            // the contact shadows lie last (piles::lay); those the cap cut off are not drawn
+            self.shade_n = self.fx.shades.saturating_sub(d.len() - k) as u32;
             if measuring {
                 self.samples.fx_live += k as u64;
             }
@@ -1192,7 +1195,11 @@ impl App {
                 });
                 rp.set_bind_group(0, &gpu.bind, &[]);
                 rp.set_pipeline(&gpu.fx_pipeline);
-                rp.draw(0..36, 0..self.fx_n);
+                rp.draw(0..36, 0..self.fx_n - self.shade_n);
+                if self.shade_n > 0 {
+                    rp.set_pipeline(&gpu.shade_pipeline);
+                    rp.draw(0..6, self.fx_n - self.shade_n..self.fx_n);
+                }
             }
             stamp(&mut enc, 3);
             gi.record(&gpu.queue, &mut enc, vp, p.pos, cf, self.shot.is_some(), tune, cl, &mut |e, k| stamp(e, 4 + k));

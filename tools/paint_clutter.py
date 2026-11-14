@@ -86,7 +86,7 @@ class Model:
                     if c:
                         self.cells[(x0 + x, y0 + y)] = rgb(c)
 
-    def write(self, colours, note):
+    def write(self, colours, note, item=None):
         h = max(1, self.y + self.row)
         img = Image.new("RGBA", (self.w, h), (0, 0, 0, 0))
         for (x, y), c in self.cells.items():
@@ -94,7 +94,7 @@ class Model:
         img.save(OUT / f"{self.name}.png")
         lines = [f"# A draft {self.name.split('.')[0]} (Claude's, listed in data/drafts.txt): clutter, ADR 0082. Painted",
                  f"# boxes at 32 px a metre ({note}); made by tools/paint_clutter.py.",
-                 f"colours = [\"{colours}\"]", "", "[[part]]", "name = \"body\"", "box = [1, 1, 1]", "voxels = \".\""]
+                 f"colours = [\"{colours}\"]"] + ([f"item = {item}"] if item else []) + ["", "[[part]]", "name = \"body\"", "box = [1, 1, 1]", "voxels = \".\""]
         for at, size, turn, uv in self.boxes:
             lines += ["", "[[part.boxes]]", f"at = [{', '.join(str(float(a)) for a in at)}]", f"size = [{', '.join(map(str, size))}]"]
             if any(turn):
@@ -142,6 +142,21 @@ def flint(seed):
         if y < h // 2:  # sides: the cortex above, the glassy core below
             return R("flint cortex", 4 + n)
         return R("flint", 1.5 + n)
+    return p
+
+
+def axe(seed, top, cortex=False):
+    """A knapped hand axe's flaked face (ADR 0110), `top` pixels under its point: dark flint, a pale ridge up the
+    middle, flake scars curving away from it, the cut edge catching the light; `cortex`: the chalk rind on the butt."""
+    def p(face, x, y, w, h):
+        n = (rnd(seed, face, x, y + top) - 0.5) * 0.8
+        if cortex and (y >= 1 or rnd(seed, "c", x) < 0.5):
+            return R("flint cortex", 4.5 + n)
+        if face != "side":
+            return R("flint", 2 + n)
+        mid = abs(x - w // 2)
+        t = 4.5 if x in (0, w - 1) else 5 if mid == 0 else 3.5 if (mid + y + top) % 3 == 0 else 2.2
+        return R("flint", t + n)
     return p
 
 
@@ -210,7 +225,8 @@ def make():
     written += m.write("stone", "a stone of two fists, tilted")
     m = Model("flint")
     m.box((13, 0, 13), (6, 2, 5), flint("flint"), (8, 35, 0))
-    written += m.write("slate", "a dark shard")
+    # a cell 0.6 m as an item (ADR 0114): a 12 cm shard in hand and in a pile; the ground's clutter keeps its 19 cm
+    written += m.write("slate", "a dark shard", item=0.6)
     m = Model("mushroom")
     m.box((15, 0, 15), (2, 4, 2), rock("mushroom stem", "stem", 1.0))
     m.box((13, 4, 13), (6, 2, 6), cap("mushroom cap", "mushroom stem", "cap"))
@@ -219,6 +235,12 @@ def make():
     for turn in (0, 90):
         m.box((9, 0, 16), (14, 10, 0), bush("berry bush", "berry", turn), (0, turn, 0))
     written += m.write("shrub", "a low bush with red berries")
+    # the hand axe (ADR 0110), standing point up as the hand holds it, its flaked face to +z (the eye in hand)
+    m = Model("hand axe")
+    for x, y, z, sx, sy, sz in [(12, 0, 14.5, 8, 3, 3), (10, 3, 14, 12, 5, 4), (11, 8, 14, 10, 5, 4), (12.5, 13, 14.5, 7, 4, 3), (14, 17, 15, 4, 3, 2), (15, 20, 15, 2, 2, 2)]:
+        m.box((x, y, z), (sx, sy, sz), axe("hand axe", 22 - y - sy, y == 0))
+    # one cell 0.3 m as an item (ADR 0114): about 21 cm long in hand and lying in a pile
+    written += m.write("slate", "a knapped flint teardrop, point up", item=0.3)
     return written
 
 

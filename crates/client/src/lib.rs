@@ -15,6 +15,7 @@ mod inventory;
 pub use hud::font_cells;
 mod menu;
 pub mod models;
+mod piles;
 mod play;
 mod nav;
 mod rt;
@@ -613,6 +614,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         fx,
         models,
         fx_n: 0,
+        shade_n: 0,
         dip: fx::Track { tween: fx::Tween::new(-10.0, 0.18, fx::Curve::Pulse), from: [0.0; 2], to: [0.0; 2] },
         growing: Vec::new(),
         glides: Vec::new(),

@@ -526,6 +526,7 @@ pub(crate) struct Gpu {
     /// The effects (ADR 0031): the particles, drawn into the G-buffer lit per pixel.
     pub(crate) fx_buf: wgpu::Buffer,
     pub(crate) fx_pipeline: wgpu::RenderPipeline,
+    pub(crate) shade_pipeline: wgpu::RenderPipeline,
     pub mquads: wgpu::Buffer,
     pub mpieces: wgpu::Buffer,
     /// The clutter's still models (ADR 0082): their faces and paintings are bindings 16 and 17, the streamer
@@ -1098,6 +1099,35 @@ impl Gpu {
         };
         let gbuffer_pipeline = |vs, fs, cull| gbuffer_pass(vs, fs, cull, true, wgpu::CompareFunction::Greater);
         let fx_pipeline = gbuffer_pipeline("vs_fx", "fs_fx", Some(wgpu::Face::Back));
+        // the contact shadows under lying things (ADR 0114): multiplied into the albedo's colour only, where the
+        // floor is the nearest thing (depth tested, not written); the light, the normal and the depth untouched
+        let multiply = wgpu::BlendComponent { src_factor: wgpu::BlendFactor::Dst, dst_factor: wgpu::BlendFactor::Zero, operation: wgpu::BlendOperation::Add };
+        let shade_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("fs_shade"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_shade"), buffers: &[], compilation_options: Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_shade"),
+                targets: &[
+                    Some(wgpu::ColorTargetState { format: gi::TARGETS[0], blend: None, write_mask: wgpu::ColorWrites::empty() }),
+                    Some(wgpu::ColorTargetState { format: gi::TARGETS[1], blend: Some(wgpu::BlendState { color: multiply, alpha: wgpu::BlendComponent::REPLACE }), write_mask: wgpu::ColorWrites::COLOR }),
+                    Some(wgpu::ColorTargetState { format: gi::TARGETS[2], blend: None, write_mask: wgpu::ColorWrites::empty() }),
+                ],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Greater),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
         let cut_depth_pipeline = gbuffer_pass("vs_cut", "fs_cut_depth", Some(wgpu::Face::Back), false, wgpu::CompareFunction::Greater);
         let cut_lit_pipeline = gbuffer_pass("vs_cut", "fs_cut_lit", Some(wgpu::Face::Back), true, wgpu::CompareFunction::Equal);
         let fluff_depth_pipeline = gbuffer_pass("vs_fluff", "fs_fluff_depth", Some(wgpu::Face::Back), false, wgpu::CompareFunction::Greater);
@@ -1264,6 +1294,7 @@ impl Gpu {
             wquads,
             fx_buf,
             fx_pipeline,
+            shade_pipeline,
             mquads,
             mpieces,
             bgl,

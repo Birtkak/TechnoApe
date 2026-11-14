@@ -834,7 +834,12 @@ pub fn cube(rect: &mut dyn FnMut(f32, f32, f32, f32, [f32; 4], u32), x: f32, y: 
         for j in 0..n {
             // the top: a diamond lattice, each texel a brick; the far ones first, the near ones over them
             let h = noise(i, j, 0);
-            let c = painted[0].and_then(|p| pixel(p, i, j, 1.0)).unwrap_or_else(|| paint(top, h, if pattern == 1 && h > 0.9 { 1.15 } else { 1.0 }));
+            // a painting's empty texel is a hole (a cutout's: leaves), not the tone
+            let c = match painted[0] {
+                Some(p) => pixel(p, i, j, 1.0),
+                None => Some(paint(top, h, if pattern == 1 && h > 0.9 { 1.15 } else { 1.0 })),
+            };
+            let Some(c) = c else { continue };
             rect(x + (nf - 1.0 + i as f32 - j as f32) * u, y + (i + j) as f32 * u / 2.0, 2.0 * u, u, c, 0);
         }
     }
@@ -848,21 +853,19 @@ pub fn cube(rect: &mut dyn FnMut(f32, f32, f32, f32, [f32; 4], u32), x: f32, y: 
             ] {
                 // grass hangs two to four texels over a grass block's sides
                 let c = if pattern == 1 && k < fringe { top } else { side };
-                let c = painted[1].and_then(|p| pixel(p, i, k, shade)).unwrap_or_else(|| paint(c, noise(i, k, face), shade));
+                let c = match painted[1] {
+                    Some(p) => pixel(p, i, k, shade),
+                    None => Some(paint(c, noise(i, k, face), shade)),
+                };
+                let Some(c) = c else { continue };
                 rect(cx, cy + k as f32 * u, u, u, c, 0);
             }
         }
     }
 }
 
+/// One hotbar slot's numbers; its look is drawn by `layer`'s caller (the inventory's choice, ADR 0114).
 pub struct Slot {
-    pub colour: [f32; 3],
-    /// The colour of its sides (a grass block's are another block's).
-    pub side: [f32; 3],
-    /// Its pattern (`engine::blocks::Pattern as u8`): plain, grass, stone.
-    pub pattern: u8,
-    /// Its painting's top and side (`gpu::painting`), shown in place of its tones.
-    pub painted: [Option<engine::textures::Pixels>; 2],
     pub count: Option<u32>,
     /// A tool's life left, 0..1 (ADR 0110): a bar along the slot's foot.
     pub wear: Option<f32>,
@@ -895,7 +898,9 @@ pub fn glass(p: &mut Paint, x: f32, y: f32, w: f32, h: f32) {
 
 /// Crosshair and hotbar for a `w` x `h` pixel screen. `tool_height` shows beside the hotbar for cylinders
 /// and cones; `held` is the name of the block in hand and how strongly it shows (it fades after a change).
-pub fn layer(w: f32, h: f32, slots: &[Option<Slot>], selected: usize, creative: bool, tool_height: Option<i32>, held: Option<(&str, f32)>) -> Vec<Rect> {
+/// `look(p, k, x, y, size)` draws slot k's stack in that square, as the inventory draws it.
+#[allow(clippy::too_many_arguments)]
+pub fn layer(w: f32, h: f32, slots: &[Option<Slot>], selected: usize, creative: bool, tool_height: Option<i32>, held: Option<(&str, f32)>, look: &mut dyn FnMut(&mut Paint, usize, f32, f32, f32)) -> Vec<Rect> {
     let mut p = Paint::new(w, h);
     let (cx, cy) = (w / 2.0, h / 2.0);
     // the crosshair: four short arms round a gap and a dot, each on a dark edge so it shows on snow and in
@@ -939,8 +944,7 @@ pub fn layer(w: f32, h: f32, slots: &[Option<Slot>], selected: usize, creative: 
         // the key that takes it, small in the corner
         digits(&mut p, x + 4.0 + 6.0, y + 4.0 + 7.5, k as u32 + 1, 1.5, if on { CYAN } else { [0.62, 0.72, 0.82, 0.7] });
         if let Some(Some(sl)) = slots.get(k) {
-            let dim = if sl.count == Some(0) { 0.35 } else { 1.0 };
-            cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x + 10.0, y + 12.0, 32.0, sl.colour, sl.side, sl.pattern, dim, [sl.painted[0].as_ref(), sl.painted[1].as_ref()]);
+            look(&mut p, k, x + 6.0, y + 6.0, size - 12.0);
             if let Some(left) = sl.wear {
                 wear_bar(&mut p, x + 6.0, y + size - 8.0, size - 12.0, left);
             } else if let Some(c) = sl.count {
@@ -1169,7 +1173,7 @@ mod tests {
 
     #[test]
     fn survival_shows_no_mode_word_and_creative_does() {
-        let word = |creative| layer(1280.0, 720.0, &[], 0, creative, None, None).iter().filter(|r| r.glyph == 'C' as u32).count();
+        let word = |creative| layer(1280.0, 720.0, &[], 0, creative, None, None, &mut |_, _, _, _, _| {}).iter().filter(|r| r.glyph == 'C' as u32).count();
         assert_eq!((word(true), word(false)), (2, 0));
     }
     use engine::world::Block;
@@ -1252,12 +1256,13 @@ mod tests {
             assert!(tops.iter().any(|r| r.colour[0] > 0.9) && tops.iter().any(|r| r.colour[0] < 0.6), "size {size}: in both its reds");
             assert!(p.out[n..].iter().all(|r| r.colour[2] > 0.4 && r.colour[0] < 0.1), "size {size}: the sides are the blue painting");
         }
-        // a cutout's empty pixels count for nothing: an empty top falls back to the block's tones
+        // a cutout's empty pixels count for nothing: an empty top is a hole, the unpainted sides the block's tones
+        // (ADR 0114 second round; it fell back to the tones before)
         let empty: engine::textures::Pixels = [[0, 0, 0, 0]; 256];
         let mut p = Paint::new(400.0, 400.0);
         let mut rect = |x: f32, y: f32, w: f32, h: f32, c: [f32; 4], g: u32| p.rect(x, y, w, h, c, g);
         cube(&mut rect, 10.0, 10.0, 32.0, [0.2, 0.8, 0.2], [0.5; 3], 0, 1.0, [Some(&empty), None]);
-        assert!(p.out[..64].iter().all(|r| r.colour[1] > 0.5), "the empty top in the block's green");
+        assert_eq!(p.out.len(), 2 * 64, "the sides only");
     }
 
     #[test]
@@ -1415,12 +1420,39 @@ mod tests {
         assert!(c.out.iter().all(|r| r.xy.iter().all(|v| (-1.0..=1.0).contains(v))));
     }
 
+    /// ADR 0114 second round: a painting's empty texels are holes in the cube (leaves), not its tone.
+    #[test]
+    fn a_cutout_paintings_holes_stay_open_in_the_cube() {
+        let count = |px: &engine::textures::Pixels| {
+            let mut n = 0;
+            cube(&mut |_, _, _, _, _, _| n += 1, 0.0, 0.0, 40.0, [0.3; 3], [0.3; 3], 0, 1.0, [Some(px), Some(px)]);
+            n
+        };
+        let full = [[40, 120, 30, 255]; 256];
+        let mut holed = full;
+        for k in 0..128 {
+            holed[k] = [0; 4];
+        }
+        assert_eq!(count(&full), 3 * 64);
+        assert_eq!(count(&holed), 3 * 32, "the empty half of each face is not drawn");
+    }
+
     #[test]
     fn the_layer_has_a_crosshair_and_nine_slots() {
-        let slots = [Some(Slot { colour: [0.5; 3], side: [0.4; 3], pattern: 2, painted: [None; 2], count: Some(12), wear: None })];
-        let r = layer(1280.0, 720.0, &slots, 0, false, None, Some(("Grass", 1.0)));
+        let slots = [Some(Slot { count: Some(12), wear: None }), None, Some(Slot { count: None, wear: Some(0.5) })];
+        // each slot's look is drawn by the caller (the inventory's own choice of picture, flat painting or cube),
+        // in the square the inventory gives a slot: 6 px in from its edge
+        let mut asked = vec![];
+        let r = layer(1280.0, 720.0, &slots, 0, false, None, Some(("Grass", 1.0)), &mut |p, k, x, y, s| {
+            asked.push((k, x, y, s));
+            p.rect(x, y, s, s, [1.0, 0.0, 1.0, 1.0], 0);
+        });
         assert!(r.len() >= 2 + 1 + 9 * 2 + 4, "{}", r.len());
         assert!(r.iter().all(|r| r.xy[0] < r.xy[2] && r.xy[1] < r.xy[3] && r.xy.iter().all(|v| (-1.0..=1.0).contains(v))));
         assert!(r.iter().any(|r| r.glyph == 2) && r.iter().any(|r| r.glyph == 3), "the count 12 as digits");
+        assert_eq!(asked.iter().map(|a| a.0).collect::<Vec<_>>(), [0, 2], "the filled slots only");
+        assert_eq!(asked[0].3, 40.0, "the inventory's square in a 52 px slot");
+        assert!((asked[1].1 - asked[0].1 - 2.0 * 58.0).abs() < 1e-3, "two slots on");
+        assert_eq!(r.iter().filter(|r| r.colour == [1.0, 0.0, 1.0, 1.0]).count(), 2, "what it drew is in the layer");
     }
 }

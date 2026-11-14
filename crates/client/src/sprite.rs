@@ -78,17 +78,14 @@ pub fn sprite(m: &Model, paint: Option<&Painting>, n: u16, yaw: f32, pitch: f32)
     let k = (nf - 2.0) / (hi.x - lo.x).max(hi.y - lo.y).max(1e-6);
     let mid = (lo + hi) * 0.5;
     let to_px = |p: Vec3| (nf / 2.0 + (p.x - mid.x) * k, nf / 2.0 - (p.y - mid.y) * k, p.z);
-    let light = Vec3::new(-0.35, 0.8, 0.5).normalize();
     let mut depth = vec![f32::MIN; n as usize * n as usize];
     let mut px = vec![[0u8; 4]; n as usize * n as usize];
     for &(o, eu, ev, colour, rect) in &faces {
         let (o, eu, ev) = (view * o, view * eu, view * ev);
-        // a face lit by the light whichever side the eye sees (a painted plane shows both)
-        let mut normal = eu.cross(ev).normalize_or_zero();
-        if normal.z < 0.0 {
-            normal = -normal;
-        }
-        let shade = 0.62 + 0.38 * normal.dot(light).max(0.0);
+        // the face toward the eye in its own colour, a face turned away a little darker (0.75 edge on): a slot
+        // reads like the item in daylight (it was 0.62 to 1 by a light, so a dark painting went near black)
+        let normal = eu.cross(ev).normalize_or_zero();
+        let shade = 0.75 + 0.25 * normal.z.abs();
         // samples half a pixel apart or closer, so no pixel of the face is missed
         let steps = |e: Vec3| ((e.x * e.x + e.y * e.y).sqrt() * k * 2.0).ceil().max(1.0) as u32;
         let (su, sv) = (steps(eu), steps(ev));
@@ -137,34 +134,20 @@ pub fn sprite(m: &Model, paint: Option<&Painting>, n: u16, yaw: f32, pitch: f32)
     (!runs.is_empty()).then_some(Sprite { n, runs })
 }
 
-/// A block's painting flat and upright, as a cutout block (leaves, a shrub, reed; ADR 0069) is seen: its 16 x 16
-/// pixels with the empty ones left out, each tinted by `tint` (the season's colour over summer's).
-pub fn flat(p: &engine::textures::Pixels, tint: [f32; 3]) -> Sprite {
-    let mut runs = Vec::new();
-    for y in 0..16u16 {
-        let mut x = 0;
-        while x < 16 {
-            let c = p[(y * 16 + x) as usize];
-            let w = (x..16).take_while(|&k| p[(y * 16 + k) as usize] == c).count() as u16;
-            if c[3] > 0 {
-                let t = [0, 1, 2].map(|k| (c[k] as f32 * tint[k]).min(255.0) as u8);
-                runs.push((x, y, w, [t[0], t[1], t[2], c[3]]));
-            }
-            x += w;
+/// ADR 0114 second round: a slot picture reads like the item in daylight: the face toward the eye in the model's
+/// own colour, the others a little darker, none under 0.7 of it (they were shaded down to 0.62).
+#[test]
+fn a_picture_shows_its_front_in_its_own_colour() {
+    let m = model("colours = [\"copper\"]\n[[part]]\nname = \"a\"\nbox = [1, 1, 1]\nvoxels = \"a\"\n");
+    let rgb = m.rgb[0];
+    let front = sprite(&m, None, 16, 0.0, 0.0).unwrap();
+    let c = front.at(8, 8).unwrap();
+    assert!((0..3).all(|k| (c[k] as i32 - rgb[k] as i32).abs() <= 1), "the front {c:?} against {rgb:?}");
+    for (yaw, pitch) in [(35.0, 30.0), (35.0, 55.0), (0.0, 70.0)] {
+        for &(_, _, _, c) in &sprite(&m, None, 16, yaw, pitch).unwrap().runs {
+            assert!((0..3).all(|k| c[k] as f32 >= rgb[k] as f32 * 0.7 - 1.0 && c[k] <= rgb[k]), "{yaw} {pitch}: {c:?} against {rgb:?}");
         }
     }
-    Sprite { n: 16, runs }
-}
-
-#[test]
-fn a_painting_seen_flat_leaves_its_empty_pixels_out() {
-    let mut p = [[40, 120, 30, 255]; 256];
-    p[0] = [0; 4];
-    p[17] = [0; 4];
-    let s = flat(&p, [1.0; 3]);
-    assert_eq!((s.at(0, 0), s.at(1, 1)), (None, None), "the holes stay holes");
-    assert_eq!(s.at(5, 5), Some([40, 120, 30, 255]));
-    assert_eq!(flat(&p, [0.5, 1.0, 1.0]).at(5, 5), Some([20, 120, 30, 255]), "tinted by the season");
 }
 
 #[cfg(test)]
