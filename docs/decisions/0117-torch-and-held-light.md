@@ -46,7 +46,20 @@ first that needs a neighbour to hold it, and the first light that moves with a p
 - No recipe: `/give torch` and creative's lamps tab. Roadmap: the torch's recipe with crafting.
 
 ## Evidence
-(filled below with the stills and numbers)
+Stills (play build, 768 planet, seed 1; `out/torch/`, not committed):
+- `play_flame.png`: a torch placed by a survival right click at midnight, 8 frames of 300 ms. The flame plays
+  in `run=play` and flickers (`play_flame_zoom.png`: a pale core with orange tongues that change frame to frame);
+  the ground around is lit warm; the aim outline is the torch's cell.
+- `wall_side.png` (`wall_side_zoom.png`): a torch with no floor, held by the block beside it, leans from it with
+  its foot at the block; seen partly end-on, the lean reads as about 15-20 degrees.
+- `held_walk.png`: walking at midnight with a torch in hand, 6 frames of 400 ms: the warm pool moves ahead over
+  the ground with the player.
+- `../figures/inventory.png`: five torches in the first slot (the model as the icon) and one in hand.
+- Not shot: a torch lying dropped after a click in play (at the shot's spot the aim stops at the meadow grass in
+  front of the torch; the server test takes it by a survival click and counts one torch).
+
+Costs (`docs/perf-debt.md`): 200 torches in view take the frame from 5.6 to 24 ms p99 without effects and 44
+with them (two lamps a torch with effects on); one held light +0.8 ms GPU.
 
 ## Shortcuts
 - `shortcut:` another player's held light moves at the roster's 1 Hz; per tick when players are drawn moving.
