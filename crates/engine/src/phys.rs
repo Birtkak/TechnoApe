@@ -160,9 +160,17 @@ pub fn cells(world: &World, pos: DVec3) -> impl Iterator<Item = Block> + '_ {
     let (bi, face, g) = world.grid_at(pos);
     let b = &world.bodies[bi];
     let (hw, ht) = (WIDTH * 0.5 / BLOCK, HEIGHT / BLOCK);
+    // on the warped grid (ADR 0131) a column can be a third of a metre: the box's half width in the columns here
+    let (hi, hj) = if b.warp == 0.0 {
+        (hw, hw)
+    } else {
+        let r = b.layer_r(g.z);
+        let wide = |di: f64, dj: f64| (b.dir(face, g.x + di, g.y + dj) - b.dir(face, g.x - di, g.y - dj)).length() * r;
+        (WIDTH * 0.5 / wide(0.5, 0.0), WIDTH * 0.5 / wide(0.0, 0.5))
+    };
     // a cell [k, k + 1) overlaps the open interval (lo, hi) when k < hi and k + 1 > lo
     let span = |lo: f64, hi: f64| (lo.floor() as i32)..(hi.ceil() as i32);
-    let (is, js, ls) = (span(g.x - hw, g.x + hw), span(g.y - hw, g.y + hw), span(g.z, g.z + ht));
+    let (is, js, ls) = (span(g.x - hi, g.x + hi), span(g.y - hj, g.y + hj), span(g.z, g.z + ht));
     is.flat_map(move |i| {
         let ls = ls.clone();
         js.clone().flat_map(move |j| {

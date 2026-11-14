@@ -27,6 +27,30 @@ pub(crate) fn depth_view(device: &wgpu::Device) -> wgpu::TextureView {
         .create_view(&Default::default())
 }
 
+/// The conformal grid's warp table (ADR 0131, engine `warp.rs`): rg32float, x along b, y along a, read with
+/// `textureLoad` (binding 18 of the terrain's group 0; the shader's `warp_at`).
+pub(crate) fn warp_view(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureView {
+    use wgpu::util::DeviceExt;
+    let n = engine::warp::N as u32;
+    device
+        .create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: Some("warp"),
+                size: wgpu::Extent3d { width: n, height: n, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rg32Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            engine::warp::BYTES,
+        )
+        .create_view(&Default::default())
+}
+
 /// Where a frame is copied to be read back: filmstrips, shots, the bug report's screenshot.
 pub(crate) fn capture_buf(device: &wgpu::Device) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
@@ -553,6 +577,8 @@ pub(crate) struct Gpu {
     pub(crate) sky_tex: wgpu::Texture,
     pub(crate) sky_view: wgpu::TextureView,
     pub(crate) sky_samp: wgpu::Sampler,
+    /// The warp's table (`warp_view`).
+    pub(crate) warp_view: wgpu::TextureView,
     pub(crate) window: Arc<Window>,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
@@ -633,7 +659,7 @@ const TEX_LAYERS: u32 = 2048;
 /// The terrain's bind group: `b` the buffers globals, quads, chunks, looks, water quads, lamps, lamp cells, effects,
 /// paintings, model quads, model pieces, globe, still faces, still paintings
 #[allow(clippy::too_many_arguments)]
-fn main_bind(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, b: [&wgpu::Buffer; 14], tlas: &wgpu::Tlas, sky: (&wgpu::TextureView, &wgpu::Sampler)) -> wgpu::BindGroup {
+fn main_bind(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, b: [&wgpu::Buffer; 14], tlas: &wgpu::Tlas, sky: (&wgpu::TextureView, &wgpu::Sampler), warp: &wgpu::TextureView) -> wgpu::BindGroup {
     let [globals, quads, chunks, looks, wquads, lamps, lamp_cells, fx_buf, tex, mquads, mpieces, globe_buf, sfaces, spaint] = b;
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
@@ -656,13 +682,14 @@ fn main_bind(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, b: [&wgpu::Buff
             wgpu::BindGroupEntry { binding: 15, resource: wgpu::BindingResource::Sampler(sky.1) },
             wgpu::BindGroupEntry { binding: 16, resource: sfaces.as_entire_binding() },
             wgpu::BindGroupEntry { binding: 17, resource: spaint.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 18, resource: wgpu::BindingResource::TextureView(warp) },
         ],
     })
 }
 
 impl Gpu {
     /// The bounce's share of the terrain's resources (`Gi::new`), with `tlas`.
-    pub(crate) fn shared<'a>(&'a self, tlas: &'a wgpu::Tlas) -> [wgpu::BindingResource<'a>; 12] {
+    pub(crate) fn shared<'a>(&'a self, tlas: &'a wgpu::Tlas) -> [wgpu::BindingResource<'a>; 13] {
         [
             self.globals.as_entire_binding(),
             self.quads.as_entire_binding(),
@@ -676,13 +703,14 @@ impl Gpu {
             wgpu::BindingResource::Sampler(&self.sky_samp),
             self.sfaces.as_entire_binding(),
             self.spaint.as_entire_binding(),
+            wgpu::BindingResource::TextureView(&self.warp_view),
         ]
     }
 
     /// The terrain's bind group again with a new TLAS (rt.rs `grew`, ADR 0111).
     pub(crate) fn rebind(&mut self, tlas: &wgpu::Tlas) {
         let b = [&self.globals, &self.quads, &self.chunks, &self.looks, &self.wquads, &self.lamps, &self.lamp_cells, &self.fx_buf, &self.tex, &self.mquads, &self.mpieces, &self.globe_buf, &self.sfaces, &self.spaint];
-        self.bind = main_bind(&self.device, &self.bgl, b, tlas, (&self.sky_view, &self.sky_samp));
+        self.bind = main_bind(&self.device, &self.bgl, b, tlas, (&self.sky_view, &self.sky_samp), &self.warp_view);
     }
 }
 
@@ -1045,6 +1073,7 @@ impl Gpu {
         });
         let sky_view = sky_tex.create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
         let sky_samp = device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..Default::default() });
+        let warp_view = warp_view(&device, &queue);
         let tex_rx = watch_textures(std::path::PathBuf::from(a.get("textures", String::from("data/textures"))));
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
@@ -1099,10 +1128,16 @@ impl Gpu {
                 wgpu::BindGroupLayoutEntry { binding: 15, visibility: wgpu::ShaderStages::VERTEX_FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
                 storage(16),
                 storage(17),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 18,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+                    count: None,
+                },
             ],
         });
-        let rt = rt::Rt::new(&device, &shader, &globals, &quads, &sfaces, MAX_CHUNKS as u32);
-        let bind = main_bind(&device, &bgl, [&globals, &quads, &chunks, &looks, &wquads, &lamps, &lamp_cells, &fx_buf, &tex, &mquads, &mpieces, &globe_buf, &sfaces, &spaint], &rt.tlas, (&sky_view, &sky_samp));
+        let rt = rt::Rt::new(&device, &shader, &globals, &quads, &sfaces, &warp_view, MAX_CHUNKS as u32);
+        let bind = main_bind(&device, &bgl, [&globals, &quads, &chunks, &looks, &wquads, &lamps, &lamp_cells, &fx_buf, &tex, &mquads, &mpieces, &globe_buf, &sfaces, &spaint], &rt.tlas, (&sky_view, &sky_samp), &warp_view);
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[Some(&bgl)],
@@ -1329,6 +1364,7 @@ impl Gpu {
                 wgpu::BindingResource::Sampler(&sky_samp),
                 sfaces.as_entire_binding(),
                 spaint.as_entire_binding(),
+                wgpu::BindingResource::TextureView(&warp_view),
             ],
             (&sky_view, &sky_samp),
             format,
@@ -1336,6 +1372,7 @@ impl Gpu {
             h(),
         );
         let gpu = Gpu {
+            warp_view,
             sky_tex,
             sky_view,
             sky_samp,

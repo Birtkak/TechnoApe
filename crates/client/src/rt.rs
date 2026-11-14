@@ -111,7 +111,7 @@ fn new_tlas(device: &wgpu::Device, cap: usize) -> wgpu::Tlas {
 
 impl Rt {
     /// `sfaces`: the still faces, which place a still quad (ADR 0091). `max`: the TLAS's slots at most.
-    pub fn new(device: &wgpu::Device, shader: &wgpu::ShaderModule, globals: &wgpu::Buffer, quads: &wgpu::Buffer, sfaces: &wgpu::Buffer, max: u32) -> Rt {
+    pub fn new(device: &wgpu::Device, shader: &wgpu::ShaderModule, globals: &wgpu::Buffer, quads: &wgpu::Buffer, sfaces: &wgpu::Buffer, warp: &wgpu::TextureView, max: u32) -> Rt {
         use wgpu::BufferUsages as U;
         let cap = TLAS_FIRST.min(max as usize);
         let tlas = new_tlas(device, cap);
@@ -135,6 +135,8 @@ impl Rt {
                 wgpu::BindGroupEntry { binding: 6, resource: builds.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 7, resource: verts.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 16, resource: sfaces.as_entire_binding() },
+                // the warp's table: `place` lays the grid (ADR 0131)
+                wgpu::BindGroupEntry { binding: 18, resource: wgpu::BindingResource::TextureView(warp) },
             ],
         });
         Rt { tlas, expand, bind, builds, verts, blas: HashMap::new(), n: 0, built: Vec::new(), tlas_builds: 0, pending: 0, split_n: 0, slots: Vec::new(), cap, max: max as usize, grew: false, overflowed: false, proxy_tris: Vec::new(), proxy_blas: None, proxies: Vec::new() }
