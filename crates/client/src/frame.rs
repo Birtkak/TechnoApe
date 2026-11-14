@@ -795,9 +795,10 @@ impl App {
         let blow = here.wind[0].hypot(here.wind[1]) as f64;
         let wind = if title { 0.0 } else { (0.05 + over_air.clamp(0.0, 400.0) / 400.0 * 0.3 + self.me.vel.length() / 50.0 + blow / 20.0).min(1.0) as f32 * air };
         self.audio.hold("wind", wind);
-        // (no rain heard over the clouds it falls from, ADR 0108)
+        // (no rain heard over the clouds it falls from, ADR 0108: weighed where the drops start)
         let b0 = &self.world.bodies[0];
-        let cloud_k = b0.sea.map_or(1.0, |s| crate::weather::from_cloud((p.pos - b0.centre).length() - b0.layer_r(s))) as f32;
+        let from = (p.pos - b0.centre).length() + crate::weather::RAIN_UP + 2.5;
+        let cloud_k = b0.sea.map_or(1.0, |s| crate::weather::from_cloud(from - b0.layer_r(s))) as f32;
         let wet = (here.rain / 6.0).sqrt().min(1.0) * air * cloud_k;
         let rain_on = self.settings.at(S::Rain) > 0 && here.temp >= 0.0 && here.rain >= 0.3;
         let open = self.fall.open;
@@ -807,7 +808,7 @@ impl App {
         self.audio.hold("music.menu", if title { 1.0 } else { 0.0 });
         // a grey sky under cloud, darker in rain (ADR 0076)
         // (by the cover the clouds fill to, clouds.wgsl `cl_cover`: a fair sky of scattered heaps stays blue, ADR 0108)
-        let grey = (here.cover - 1.4 * (here.cover - 0.3).max(0.0) * (1.0 - here.cover)) * air;
+        let grey = crate::weather::cl_cover(here.cover) * air;
         let sky_c = Vec3::new(0.45, 0.65, 0.95).lerp(Vec3::new(0.52, 0.56, 0.62) * (1.0 - 0.45 * wet), grey) * day * air + Vec3::new(0.01, 0.012, 0.025);
         // the bounce light on or off (off: a flat fill from the sky), and the screen's brightness
         let fill = sky_c * 0.35 + Vec3::splat(0.01);

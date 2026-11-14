@@ -110,6 +110,16 @@ pub fn from_cloud(over_sea: f64) -> f64 {
     ((CL_BASE + CL_THICK - over_sea) / CL_THICK).clamp(0.0, 1.0)
 }
 
+/// How high over the camera rain drops start, metres: from `RAIN_UP` to 5 m over it (`Fall::drops`); the rain's
+/// sound is weighed by `from_cloud` at their middle, so it is heard where drops are drawn.
+pub const RAIN_UP: f64 = 11.0;
+
+/// The cover the clouds fill to at the air grid's share `c` (clouds.wgsl `cl_cover`; a test holds the two to one
+/// line): a fair sky's scattered heaps stay small, an overcast one closes (ADR 0108).
+pub fn cl_cover(c: f32) -> f32 {
+    c - 1.4 * (c - 0.3).max(0.0) * (1.0 - c)
+}
+
 /// Rain heavier than this, mm an hour, is a storm: it lightens (ADR 0076).
 pub const STORM: f32 = 8.0;
 /// Seconds a slot of lightning lasts: each stormy column may strike once a slot.
@@ -201,7 +211,7 @@ impl Fall {
             return;
         }
         self.acc = (self.acc + rate * dt).min(200.0);
-        let (speed, height, radius) = if snow { (1.6, 6.0, 14.0) } else { (9.0, 11.0, 20.0) };
+        let (speed, height, radius) = if snow { (1.6, 6.0, 14.0) } else { (9.0, RAIN_UP, 20.0) };
         let wind = wind_at(up, here.wind);
         let s = up.any_orthonormal_vector();
         let t = up.cross(s);
@@ -349,6 +359,17 @@ mod tests {
         for (name, v) in [("CL_BASE", CL_BASE), ("CL_THICK", CL_THICK)] {
             let line = wgsl.lines().find(|l| l.starts_with(&format!("const {name}: f32 = "))).unwrap();
             assert_eq!(line.trim_end_matches(';').rsplit(' ').next().unwrap().parse::<f64>().unwrap(), v, "{name}");
+        }
+    }
+
+    /// The sky's grey (frame.rs) and the clouds (clouds.wgsl) take one cover: `cl_cover` is the shader's line.
+    #[test]
+    fn the_sky_greys_by_the_clouds_own_cover() {
+        let wgsl = include_str!("clouds.wgsl");
+        let body = &wgsl[wgsl.find("fn cl_cover(c: f32) -> f32 {").unwrap()..];
+        assert_eq!(body.lines().nth(1).unwrap().trim(), "return c - 1.4 * max(c - 0.3, 0.0) * (1.0 - c);", "clouds.wgsl's cl_cover changed: change weather::cl_cover with it");
+        for (c, want) in [(0.0, 0.0), (0.3, 0.3), (0.6, 0.432), (0.95, 0.9045), (1.0, 1.0)] {
+            assert!((cl_cover(c) - want).abs() < 1e-5, "cl_cover({c}) = {}", cl_cover(c));
         }
     }
 
