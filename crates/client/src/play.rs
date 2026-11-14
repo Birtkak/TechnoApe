@@ -77,6 +77,30 @@ fn a_dig_under_the_feet_moves_the_prediction_as_the_server_will() {
     assert!(got.pos.distance(truth.pos) < 1e-9, "the prediction is {:.3} m from the server's", got.pos.distance(truth.pos));
 }
 
+/// Sprint widens the view this much, degrees, eased in and out over SPRINT_EASE seconds (ADR 0118).
+pub(crate) const SPRINT_FOV: f64 = 8.0;
+const SPRINT_EASE: f64 = 0.15;
+
+/// Sprint's widening `dt` seconds on from `cur`, towards SPRINT_FOV while `on`, else none.
+pub(crate) fn sprint_fov(cur: f64, on: bool, dt: f64) -> f64 {
+    let (want, most) = (if on { SPRINT_FOV } else { 0.0 }, SPRINT_FOV * dt / SPRINT_EASE);
+    cur + (want - cur).clamp(-most, most)
+}
+
+#[test]
+fn the_sprint_view_eases_to_eight_degrees_and_back() {
+    let run = |mut v: f64, on: bool, n: usize| {
+        for _ in 0..n {
+            v = sprint_fov(v, on, 1.0 / 120.0);
+        }
+        v
+    };
+    assert!((run(0.0, true, 9) - 4.0).abs() < 1e-9, "half way at 0.075 s: {}", run(0.0, true, 9));
+    assert!((run(0.0, true, 18) - 8.0).abs() < 1e-9, "all of it at 0.15 s: {}", run(0.0, true, 18));
+    assert_eq!(run(8.0, true, 100), 8.0, "and no further");
+    assert!((run(8.0, false, 18)).abs() < 1e-9, "back in 0.15 s: {}", run(8.0, false, 18));
+}
+
 /// The hotbar slot (0 to 8) the wheel turns to from `slot`: on to the next when it turns down, round the end.
 /// How much of a tool's life is left, 0..1, for the bar on its slot (ADR 0110); None for any other stack.
 pub(crate) fn wear(s: engine::items::Stack) -> Option<f32> {
@@ -492,9 +516,9 @@ impl App {
         self.typing.as_deref().map_or(Vec::new(), |t| complete(t).1)
     }
 
-    /// The field of view drawn now, in degrees: the setting's, narrowed by the zoom.
+    /// The field of view drawn now, in degrees: the setting's, widened by a sprint, narrowed by the zoom.
     pub(crate) fn fov(&self) -> f64 {
-        2.0 * ((self.settings.get(S::Fov).to_radians() / 2.0).tan() / self.zoom).atan().to_degrees()
+        2.0 * (((self.settings.get(S::Fov) + self.sprint_fov).to_radians() / 2.0).tan() / self.zoom).atan().to_degrees()
     }
 
     /// A text is being written (the chat or the bug report's form), or F9 waits for its frame: keys and the

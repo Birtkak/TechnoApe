@@ -15,6 +15,7 @@
 //!   put a dx dy dz k n  n from slot a to slot k of the pile there  grab item a n  creative's grid: n into a
 //! Tools (ADR 0110): `hold k` takes hotbar slot k in hand (a survival dig uses its tool); `strike dx dy dz` strikes
 //! what is in hand on that block (the place button with flint: knapping). `slots` gives a tool's digs left too.
+//! Sprint (ADR 0118): `sprint on` makes every walk after it a sprint, `sprint off` a walk again.
 use engine::edit::Shape;
 use engine::items::{Holder, Slot, ITEMS};
 use engine::net::{Link, Recv, ToClient, ToServer, TICK_HZ};
@@ -52,6 +53,8 @@ pub enum Cmd {
     /// Hotbar slot k in hand; strike what is in hand on the block at this offset (ADR 0110).
     Hold(u8),
     Strike(DVec3),
+    /// Walks from now on sprint, or not (ADR 0118).
+    Sprint(bool),
     Quit,
 }
 
@@ -86,6 +89,11 @@ pub fn parse(line: &str) -> Result<Option<Cmd>, String> {
         "pick" => Cmd::Pick(v()?),
         "hold" => Cmd::Hold(num(1)? as u8),
         "strike" => Cmd::Strike(v()?),
+        "sprint" => match w.get(1).copied() {
+            Some("on") => Cmd::Sprint(true),
+            Some("off") => Cmd::Sprint(false),
+            _ => return Err(format!("sprint on or off in '{line}'")),
+        },
         "quit" => Cmd::Quit,
         _ => return Err(format!("unknown command '{}'", w[0])),
     }))
@@ -126,6 +134,8 @@ pub struct Bot {
     digging: Option<(Instant, Shape)>,
     /// The hotbar slot in hand (`hold`).
     hand: u8,
+    /// Its walks sprint (`sprint on`).
+    sprint: bool,
     /// The creature kinds by index and the animals the server has this bot see (ADR 0083).
     pub kinds: Vec<String>,
     pub animals: std::collections::BTreeMap<u32, engine::net::Animal>,
@@ -134,7 +144,7 @@ pub struct Bot {
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, kinds: Vec::new(), animals: Default::default() }
+        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, kinds: Vec::new(), animals: Default::default() }
     }
 
     fn feet(&self) -> DVec3 {
@@ -230,7 +240,7 @@ impl Bot {
             } else {
                 // jump when the last tick brought it no closer: a ledge is in the way
                 let jump = dist > self.last_dist - 0.02;
-                self.link.send(ToServer::Input(Input { mv: [1.0, 0.0], jump, fwd: (d / dist).as_vec3().to_array(), pitch: 0.0, ..Default::default() }));
+                self.link.send(ToServer::input(Input { mv: [1.0, 0.0], jump, fwd: (d / dist).as_vec3().to_array(), pitch: 0.0, sprint: self.sprint, ..Default::default() }));
             }
             self.last_dist = dist;
         }
@@ -274,6 +284,7 @@ impl Bot {
                 self.link.send(ToServer::Hand(*k));
             }
             Cmd::Strike(d) => self.link.send(ToServer::Strike(w.block_at(self.feet() + *d))),
+            Cmd::Sprint(on) => self.sprint = *on,
             Cmd::Pick(d) => {
                 self.seq += 1;
                 self.link.send(ToServer::Take { seq: self.seq, at: w.block_at(self.feet() + *d) });
@@ -399,6 +410,8 @@ mod tests {
         assert_eq!(items[5], Cmd::Grab(engine::blocks::BLOCKS.id("blue lamp"), 2, 64));
         assert!(parse("grab nothing 1 2").is_err());
         assert!(parse("fly 1 2 3").is_err());
+        assert_eq!((parse("sprint on"), parse("sprint off")), (Ok(Some(Cmd::Sprint(true))), Ok(Some(Cmd::Sprint(false)))));
+        assert!(parse("sprint").is_err());
         assert!(parse("walk 1 x 3").is_err());
     }
 
@@ -507,6 +520,27 @@ mod tests {
         b.run(parse_script("wait 0.5; say /give stone 10; wait 0.3; move 0 4 3; drop 0 2; grab blue lamp 2 64; wait 0.3; slots").unwrap(), None, |l| out.push(l));
         let line = out.iter().find(|l| l.contains("\"slots\"")).expect("a slots line");
         assert!(line.contains("[0,\"stone\",5]") && line.contains("[4,\"stone\",3]") && line.contains("[2,\"blue lamp\",64]"), "{line}");
+    }
+
+    /// Sprint by script (ADR 0118): a survival bot covers 12 m sprinting in about two thirds of the time walking.
+    #[test]
+    fn a_sprinting_bot_takes_two_thirds_of_the_walk_s_time() {
+        let (tx, rx) = channel();
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(200.0, &std::sync::atomic::AtomicBool::new(false)));
+        let (c, s) = local();
+        tx.send(s).unwrap();
+        let mut b = Bot::new("runner", c);
+        b.run(parse_script("wait 0.5; say /playmode survival; wait 1").unwrap(), None, |_| {});
+        let mut timed = |script: &str| {
+            let t = Instant::now();
+            b.run(parse_script(script).unwrap(), None, |_| {});
+            t.elapsed().as_secs_f64()
+        };
+        // there and back over the same ground, so the hills cost both the same
+        let walk = timed("walk 12 0 0") + timed("walk -12 0 0");
+        let sprint = timed("sprint on; walk 12 0 0") + timed("walk -12 0 0");
+        eprintln!("24 m: walked in {walk:.2} s, sprinted in {sprint:.2} s");
+        assert!((sprint / walk - 2.0 / 3.0).abs() < 0.08, "walked in {walk:.2} s, sprinted in {sprint:.2} s");
     }
 
     #[test]

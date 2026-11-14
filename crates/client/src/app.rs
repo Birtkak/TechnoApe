@@ -210,6 +210,8 @@ pub(crate) struct App {
     pub(crate) pick: Option<usize>,
     /// C held zooms (3x); this eases towards it, 1 is none.
     pub(crate) zoom: f64,
+    /// Sprint's widening of the view now, degrees (ADR 0118): `play::sprint_fov` eases it.
+    pub(crate) sprint_fov: f64,
     /// The server's clock (/timewarp): its time and warp at its last `You`, and when that came. The sky's
     /// clock runs on at the warp between them and eases onto it, so a fast warp turns the sky smoothly.
     pub(crate) clock: Option<(f64, f64, Instant)>,

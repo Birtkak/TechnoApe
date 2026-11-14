@@ -17,6 +17,9 @@ pub const DRAIN: f64 = MAX as f64 / (crate::sky::DAY / phys::DT);
 /// Walking drains this many times as fast; a block dug costs DIG points.
 pub const WALK_DRAIN: f64 = 2.0;
 pub const DIG: f64 = 0.05;
+/// Sprinting (ADR 0118) drains this many times the walk's drain, and stops at SPRINT_FLOOR hunger or less.
+pub const SPRINT_DRAIN: f64 = 3.0;
+pub const SPRINT_FLOOR: f64 = 6.0;
 /// Above this hunger health comes back, a point every REGEN steps (8 s); at none it goes, a point every
 /// STARVE steps (10 s), down to 1.
 pub const FED: f64 = 14.0;
@@ -84,10 +87,15 @@ impl Vitals {
     /// One physics step of a living survival player: hunger drains (twice as fast `walking`), then health
     /// comes back or goes with it.
     pub fn step(&mut self, walking: bool) {
+        self.drain(if walking { WALK_DRAIN } else { 1.0 });
+    }
+
+    /// One step at `rate` times the standing drain (`step`'s, or a sprint's `WALK_DRAIN * SPRINT_DRAIN`).
+    pub fn drain(&mut self, rate: f64) {
         if self.dead.is_some() {
             return;
         }
-        self.hunger = (self.hunger - DRAIN * if walking { WALK_DRAIN } else { 1.0 }).max(0.0);
+        self.hunger = (self.hunger - DRAIN * rate).max(0.0);
         // shortcut: hunger alone never kills (the floor at 1) because there is no food yet; let it kill once
         // food can be found or made
         let (every, d) = match (self.hunger > FED, self.hunger <= 0.0) {
@@ -103,6 +111,12 @@ impl Vitals {
             self.clock = 0;
             self.health = (self.health as i32 + d) as u8;
         }
+    }
+
+    /// Hunger enough to sprint (ADR 0118): over SPRINT_FLOOR. The client asks the same of the whole points it is
+    /// shown (`ceil(h) > 6` is `h > 6`), so its prediction refuses where the server does.
+    pub fn can_sprint(hunger: f64) -> bool {
+        hunger > SPRINT_FLOOR
     }
 
     /// `n` blocks dug.
@@ -140,7 +154,7 @@ impl Vitals {
 /// A dead player's input: the look stays, nothing moves it. The server steps a dead player with this and
 /// so does its client, so the two stay together.
 pub fn still(inp: Input) -> Input {
-    Input { mv: [0.0, 0.0], jump: false, fly: 0.0, down: false, turn: 0.0, tilt: 0.0, roll: 0.0, fwd: [0.0; 3], ..inp }
+    Input { mv: [0.0, 0.0], jump: false, fly: 0.0, down: false, turn: 0.0, tilt: 0.0, roll: 0.0, fwd: [0.0; 3], sprint: false, ..inp }
 }
 
 #[cfg(test)]
@@ -330,7 +344,7 @@ mod tests {
 
     #[test]
     fn a_dead_player_s_input_moves_nothing() {
-        let inp = Input { mv: [1.0, 0.5], jump: true, fly: 30.0, down: true, turn: 0.3, tilt: 0.1, roll: 0.1, fwd: [1.0, 0.0, 0.0], pitch: 0.4, t: 7.0 };
+        let inp = Input { mv: [1.0, 0.5], jump: true, fly: 30.0, down: true, turn: 0.3, tilt: 0.1, roll: 0.1, fwd: [1.0, 0.0, 0.0], pitch: 0.4, t: 7.0, sprint: true };
         assert_eq!(still(inp), Input { pitch: 0.4, t: 7.0, ..Default::default() });
     }
 }

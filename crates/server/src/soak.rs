@@ -122,17 +122,17 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
         let d = rng.dir();
         // now and then flying, which only creative bots may
         let fly = if rng.f() < 0.1 { rng.range(1.0, 40.0) as f32 } else { 0.0 };
-        Input { mv: [rng.range(-1.0, 1.0) as f32, rng.range(-1.0, 1.0) as f32], jump: rng.f() < 0.3, fwd: d.as_vec3().to_array(), pitch: 0.0, turn: rng.range(-0.1, 0.1) as f32, tilt: rng.range(-0.05, 0.05) as f32, roll: rng.range(-0.05, 0.05) as f32, fly, down: rng.f() < 0.3, t: 0.0 }
+        Input { mv: [rng.range(-1.0, 1.0) as f32, rng.range(-1.0, 1.0) as f32], jump: rng.f() < 0.3, fwd: d.as_vec3().to_array(), pitch: 0.0, turn: rng.range(-0.1, 0.1) as f32, tilt: rng.range(-0.05, 0.05) as f32, roll: rng.range(-0.05, 0.05) as f32, fly, down: rng.f() < 0.3, t: 0.0, sprint: rng.f() < 0.3 }
     };
     if r < 0.05 {
-        b.link.send(ToServer::Input(walk(&mut b.rng)));
+        b.link.send(ToServer::input(walk(&mut b.rng)));
     } else if r < 0.055 {
         // the teleport is the test's device, not the thing under test: it only lands where there is room
         let p = spot(&s.world, &mut b.rng);
         let fwd = phys::tangent(DVec3::X, phys::up(&s.world, p), DVec3::Z);
         if !phys::blocked(&s.world, p) {
             b.link.send(ToServer::Move { pos: p.to_array(), fwd: fwd.as_vec3().to_array(), pitch: 0.0 });
-            b.link.send(ToServer::Input(walk(&mut b.rng)));
+            b.link.send(ToServer::input(walk(&mut b.rng)));
         }
     } else if r < 0.085 {
         let feet = s.clients[me].phys.pos;

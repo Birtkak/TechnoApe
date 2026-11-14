@@ -132,8 +132,13 @@ impl App {
                 fly: if self.flying { self.fly_speed as f32 } else { 0.0 },
                 down: self.flying && self.settings.held(&self.keys, Act::Down),
                 t: self.world.time,
+                // the server's rule, on the hunger it last sent (ADR 0118): over the floor, or creative
+                sprint: !self.flying && self.settings.held(&self.keys, Act::Sprint) && (self.creative || engine::vitals::Vitals::can_sprint(self.vitals.1 as f64)),
                 ..Default::default()
             };
+            // a sprint widens the view while the body really goes faster than a walk (not a refused or blocked one)
+            let fast = !self.flying && self.me.vel.reject_from(phys::up(&self.world, self.me.pos)).length() > phys::WALK * 1.2;
+            self.sprint_fov = crate::play::sprint_fov(self.sprint_fov, fast, dt);
             // nothing moves before the server says where this player starts
             self.debt = if self.spawned { self.debt + dt.min(0.1) } else { 0.0 };
             while self.debt >= phys::DT {
@@ -399,7 +404,7 @@ impl App {
             if self.run == "play" {
                 let inputs: Vec<Input> = self.steps.iter().filter(|s| s.0 >= self.unsent).map(|s| s.1).collect();
                 if !inputs.is_empty() {
-                    self.link.send(ToServer::Steps { first: self.unsent, inputs });
+                    self.link.send(ToServer::steps(self.unsent, inputs));
                     self.unsent = self.next_step;
                 }
             } else {

@@ -679,6 +679,11 @@ impl Server {
                     Recv::Closed => self.log(Ev::Leave { tick, id }),
                     Recv::Empty => {}
                 }
+                // the sprint bit's messages (ADR 0118) as the steps and inputs they carry
+                let r = match r {
+                    Recv::Msg(m) => Recv::Msg(m.unpacked()),
+                    r => r,
+                };
                 match r {
                     // a client names itself once: a second Hello would take another name's saved state
                     Recv::Msg(ToServer::Hello { .. }) if !self.clients[i].player.name.is_empty() => {}
@@ -778,6 +783,7 @@ impl Server {
                     Recv::Msg(ToServer::Dig(at)) => self.dig(i, at),
                     Recv::Msg(ToServer::Hand(k)) => self.clients[i].hand = k.min(items::HOTBAR as u8 - 1),
                     Recv::Msg(ToServer::Strike(at)) => self.strike(i, at),
+                    Recv::Msg(ToServer::Sprints { .. } | ToServer::Sprint(..)) => unreachable!("unpacked above"),
                     Recv::Msg(ToServer::Map(h)) => {
                         if let Some(m) = self.world.bodies.iter().filter_map(|b| b.map()).find(|m| m.hash == h) {
                             // shortcut: any client may ask again; a limit per client when servers go public
@@ -815,9 +821,10 @@ impl Server {
         let mut deaths = Vec::new();
         for c in &mut self.clients {
             // flight is creative's (ADR 0023); a dead player's input moves nothing (ADR 0040)
-            let (creative, dead) = (c.creative, c.vitals.dead.is_some());
+            // and a sprint takes hunger over the floor in survival (ADR 0118)
+            let (creative, dead, fed) = (c.creative, c.vitals.dead.is_some(), Vitals::can_sprint(c.vitals.hunger));
             let walk = move |inp: Input| {
-                let inp = if creative { inp } else { Input { fly: 0.0, ..inp } };
+                let inp = if creative { inp } else { Input { fly: 0.0, sprint: inp.sprint && fed, ..inp } };
                 if dead { vitals::still(inp) } else { inp }
             };
             if let Some(inp) = c.input.map(walk) {
@@ -1981,7 +1988,7 @@ fn live(c: &mut Client, world: &World, before: &phys::Player, inp: &Input, death
             }
         }
     }
-    c.vitals.step(inp.mv != [0.0, 0.0]);
+    c.vitals.drain(if phys::sprints(inp) { vitals::WALK_DRAIN * vitals::SPRINT_DRAIN } else if inp.mv != [0.0, 0.0] { vitals::WALK_DRAIN } else { 1.0 });
 }
 
 /// What a replay found.
@@ -3155,6 +3162,48 @@ mod tests {
         s.tick();
         assert_eq!((s.clients[0].acked, s.clients[0].queue.len()), (186, 54));
         assert!((start.pos - me.pos).length() > 3.0);
+    }
+
+    /// Sprint (ADR 0118): a survival player sprinting 100 ticks ends where the engine's step puts it and has lost
+    /// the sprint's hunger; at the floor the bit is refused and it walks; creative sprints for nothing.
+    #[test]
+    fn a_sprint_lands_where_predicted_costs_hunger_and_stops_at_the_floor() {
+        let (mut s, links) = server_with(1);
+        drain(&links[0]);
+        let l = &links[0];
+        let mut seq = 0u32;
+        // 100 ticks of sprinting steps sent as a client sends them; `predict` the sprint bit the client steps with
+        let mut go = |s: &mut Server, predict: bool| {
+            let mut me = s.clients[0].phys;
+            for _ in 0..100 {
+                let t0 = s.world.time + 0.5;
+                // as a client steers: by turning, with a jump now and then
+                let inp = |k: u32, sprint: bool| Input { mv: [1.0, 0.0], jump: k % 40 == 0, turn: if k % 50 == 0 { 0.4 } else { 0.0 }, t: t0 + (k % 3) as f64 * phys::DT, sprint, ..Default::default() };
+                let inputs: Vec<Input> = (seq + 1..seq + 4).map(|k| inp(k, true)).collect();
+                for k in seq + 1..seq + 4 {
+                    phys::step_at(&mut s.world, &mut me, &inp(k, predict), phys::DT);
+                }
+                l.send(ToServer::steps(seq + 1, inputs));
+                seq += 3;
+                s.tick();
+            }
+            let you = drain(l).into_iter().filter_map(|m| if let ToClient::You { me, .. } = m { Some(me) } else { None }).last().unwrap();
+            (you, me)
+        };
+        let h0 = s.clients[0].vitals.hunger;
+        let (you, me) = go(&mut s, true);
+        assert_eq!(you, me, "the server sprinted where the client predicted");
+        let lost = h0 - s.clients[0].vitals.hunger;
+        let want = 300.0 * vitals::DRAIN * vitals::WALK_DRAIN * 3.0;
+        assert!((lost - want).abs() < 1e-9, "lost {lost}, the rule says {want}");
+        s.clients[0].vitals.hunger = 6.0;
+        let (you, me) = go(&mut s, false);
+        assert_eq!(you, me, "at 6 of 20 the bit is refused and the player walks");
+        l.send(ToServer::Creative(true));
+        s.tick();
+        let h = s.clients[0].vitals.hunger;
+        let (you, me) = go(&mut s, true);
+        assert_eq!((you, s.clients[0].vitals.hunger), (me, h), "creative sprints at the floor and for nothing");
     }
 
     #[test]

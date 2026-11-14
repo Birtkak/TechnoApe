@@ -670,6 +670,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         recall: None,
         pick: None,
         zoom: 1.0,
+        sprint_fov: 0.0,
         clock: None,
         f3: false,
         recent: VecDeque::new(),
