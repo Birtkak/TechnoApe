@@ -201,6 +201,27 @@ spin = 0.6
 name = "fire"
 rows = ["flames", "embers", "smoke"]
 
+# a torch's flame (ADR 0117): the fire's flames small, on the torch's head; its glow flickers as a lamp over the
+# torch block's own steady light
+[[effect]]
+name = "torch flame"
+rate = 40
+start = "box"
+box = [0.05, 0.02, 0.05]
+speed = [0.0, 0.05]
+up = 0.15
+gravity = 0.0
+rise = 0.6
+drag = 2.0
+life = [0.3, 0.5]
+size = [0.07, 0.12]
+size_curve = [[0.0, 0.7], [0.2, 1.0], [1.0, 0.1]]
+look = "square"
+gradient = [[0.0, "lamp"], [0.35, "copper"], [0.8, "copper dark"], [1.0, "stone dark"]]
+glow = 1.5
+noise = { strength = 0.6, scale = 0.1, speed = 2.0 }
+spin = 2.0
+
 # a hot strike: a cone of streaks that die where they land
 [[effect]]
 name = "sparks"

@@ -242,6 +242,8 @@ impl App {
                 }
             }
             "nudge+" | "nudge-" => self.nudge(a == "nudge-"),
+            // pitch:deg looks up or down, a scripted shot's aim (the mouse's look)
+            a if a.starts_with("pitch:") => self.pitch = a[6..].parse::<f64>().map_or(self.pitch, |d| d.to_radians().clamp(-1.55, 1.55)),
             a if a.starts_with("scroll:") => self.scroll_by(a[7..].parse().unwrap_or(0)),
             a if a.starts_with("bind:") => self.bind_to(Bind::parse(&a[5..])),
             // key+:name and key-:name press and let go of a key or button itself (KeyW, Mouse1), through the
@@ -1050,6 +1052,15 @@ impl App {
             if let Some((hit, before)) = self.aim {
                 let a = self.anchor(hit, before, true);
                 self.held = Some((true, a, a));
+            }
+        }
+        // a block with no dig time (a torch, ADR 0117) goes at the click in survival too, as itself
+        if let Some((true, at, end)) = self.held.filter(|_| !self.creative && self.aim.is_some()) {
+            if let Some(s) = self.shape(true, at, end).filter(|s| s.fits(&self.world) && edit::dig_time(&self.world, s) == 0.0 && s.cells().any(|c| self.world.block(c) != AIR)) {
+                self.apply(&s, true);
+                self.swung(now);
+                (self.held, self.dig_again) = (None, false);
+                return;
             }
         }
         let want = match self.held {

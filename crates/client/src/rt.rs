@@ -17,6 +17,8 @@ const BUILD_QUADS: u32 = 1 << 17;
 const BUILDS_MAX: usize = 256;
 /// Added to a still instance's custom index (shader.wgsl `STILL_INST`): its quads start at the chunk's `sto`.
 const STILL_INST: u32 = 1 << 23;
+/// Added to a player's place in the proxy list for its body's instance (ADR 0119, shader.wgsl `PROXY_INST`).
+const PROXY_INST: u32 = 1 << 22;
 /// A chunk first built within this many metres of the camera has its stills split off: past every plant's reach
 /// (96 m at most). In a stand every near chunk is; flying, the chunks come in from farther and few are.
 const SPLIT_M: f32 = 128.0;
@@ -85,6 +87,10 @@ pub struct Rt {
     pub grew: bool,
     /// Whether instances were ever left out for want of a slot (said once on stderr).
     overflowed: bool,
+    /// The players' bodies (ADR 0119): the triangles their one BLAS was built from, it, and the instances last built.
+    proxy_tris: Vec<[f32; 3]>,
+    proxy_blas: Option<(wgpu::Buffer, wgpu::Blas)>,
+    proxies: Vec<crate::proxy::Proxy>,
 }
 
 /// The TLAS's size for `need` instances when it has `cap` slots and may have `max`: as it is while they fit, else
@@ -131,7 +137,7 @@ impl Rt {
                 wgpu::BindGroupEntry { binding: 16, resource: sfaces.as_entire_binding() },
             ],
         });
-        Rt { tlas, expand, bind, builds, verts, blas: HashMap::new(), n: 0, built: Vec::new(), tlas_builds: 0, pending: 0, split_n: 0, slots: Vec::new(), cap, max: max as usize, grew: false, overflowed: false }
+        Rt { tlas, expand, bind, builds, verts, blas: HashMap::new(), n: 0, built: Vec::new(), tlas_builds: 0, pending: 0, split_n: 0, slots: Vec::new(), cap, max: max as usize, grew: false, overflowed: false, proxy_tris: Vec::new(), proxy_blas: None, proxies: Vec::new() }
     }
 
     /// New quads were written at `off`: a BLAS from there is stale.
@@ -142,8 +148,8 @@ impl Rt {
     }
 
     /// Build the missing BLAS within the budget, and the TLAS from every chunk that has one when that set or a
-    /// BLAS in it changed.
-    pub fn record(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, insts: &[Inst]) {
+    /// BLAS in it changed; and the players' bodies (ADR 0119), `tris` their one shape, after the chunks.
+    pub fn record(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, insts: &[Inst], tris: &[[f32; 3]], proxies: &[crate::proxy::Proxy]) {
         let mut todo: Vec<Build> = Vec::new();
         let mut sizes = Vec::new();
         let mut quads = 0;
@@ -220,10 +226,26 @@ impl Rt {
             }
             now.push((c.off, c.ci, c.body));
         }
-        // a new BLAS at an offset the last build had is a change too; the TLAS is built at least once before use
-        let mut rebuild = !todo.is_empty() || now != self.built || self.tlas_builds == 0;
-        // the slots they take (a split chunk two): a TLAS too small for them is made again larger, every slot new
-        let need = now.len() + now.iter().filter(|(off, ..)| self.blas[off].2.is_some()).count();
+        // the bodies' shape, made again when the ape changed (not flagged opaque: a lamp's ray passes its holder's)
+        let proxy_new = !tris.is_empty() && tris != self.proxy_tris.as_slice();
+        if proxy_new {
+            use wgpu::util::DeviceExt;
+            let buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("proxy"), contents: bytemuck::cast_slice(tris), usage: wgpu::BufferUsages::BLAS_INPUT });
+            let size = wgpu::BlasTriangleGeometrySizeDescriptor { vertex_format: wgpu::VertexFormat::Float32x3, vertex_count: tris.len() as u32, index_format: None, index_count: None, flags: wgpu::AccelerationStructureGeometryFlags::empty() };
+            let blas = device.create_blas(
+                &wgpu::CreateBlasDescriptor { label: Some("proxy"), flags: wgpu::AccelerationStructureFlags::PREFER_FAST_TRACE, update_mode: wgpu::AccelerationStructureUpdateMode::Build },
+                wgpu::BlasGeometrySizeDescriptors::Triangles { descriptors: vec![size] },
+            );
+            self.proxy_blas = Some((buf, blas));
+            self.proxy_tris = tris.to_vec();
+        }
+        let proxies = if self.proxy_blas.is_some() { proxies } else { &[] };
+        // a new BLAS at an offset the last build had is a change too; the TLAS is built at least once before use;
+        // a body that moved is one (shortcut: a TLAS build each frame a body moves; a second small TLAS for the
+        // bodies if that shows in the frame thread's cost)
+        let mut rebuild = !todo.is_empty() || now != self.built || self.tlas_builds == 0 || proxy_new || proxies != self.proxies.as_slice();
+        // the slots they take (a split chunk two, a body one): a TLAS too small for them is made again larger, every slot new
+        let need = now.len() + now.iter().filter(|(off, ..)| self.blas[off].2.is_some()).count() + proxies.len();
         let size = tlas_size(need, self.cap, self.max);
         if size != self.cap {
             eprintln!("[technoape] the traced terrain's TLAS grows to {size} slots ({need} wanted)");
@@ -259,6 +281,20 @@ impl Rt {
                     n += 1;
                 }
             }
+            // the bodies after the chunks, each written every build (they move)
+            if let Some((_, blas)) = &self.proxy_blas {
+                for (k, p) in proxies.iter().enumerate().take(self.cap.saturating_sub(n)) {
+                    self.tlas[n] = Some(wgpu::TlasInstance::new(blas, p.x, PROXY_INST + k as u32, 16u8 << p.body));
+                    let slot = (u32::MAX, PROXY_INST + k as u32, 16u8 << p.body);
+                    if n < self.slots.len() {
+                        self.slots[n] = slot;
+                    } else {
+                        self.slots.push(slot);
+                    }
+                    n += 1;
+                }
+            }
+            self.proxies = proxies.to_vec();
             for i in n..self.n {
                 self.tlas[i] = None;
             }
@@ -286,7 +322,12 @@ impl Rt {
                 })
                 .collect()
         }
-        let mut entries: Vec<wgpu::BlasBuildEntry> = Vec::with_capacity(todo.len() * 2);
+        let proxy_size;
+        let mut entries: Vec<wgpu::BlasBuildEntry> = Vec::with_capacity(todo.len() * 2 + 1);
+        if let (true, Some((buf, blas))) = (proxy_new, &self.proxy_blas) {
+            proxy_size = [(tris.len() as u32 / 6, wgpu::BlasTriangleGeometrySizeDescriptor { vertex_format: wgpu::VertexFormat::Float32x3, vertex_count: tris.len() as u32, index_format: None, index_count: None, flags: wgpu::AccelerationStructureGeometryFlags::empty() })];
+            entries.push(wgpu::BlasBuildEntry { blas, geometry: wgpu::BlasGeometries::TriangleGeometries(geometries(buf, 0, &proxy_size)) });
+        }
         for (b, (size, still)) in todo.iter().zip(&sizes) {
             let (_, land, sb) = &self.blas[&b.off];
             if let Some(blas) = land {

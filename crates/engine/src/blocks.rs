@@ -92,6 +92,10 @@ struct Raw {
     #[serde(default)]
     falls: bool,
     #[serde(default)]
+    hangs: bool,
+    #[serde(default)]
+    flame: bool,
+    #[serde(default)]
     soft: bool,
     model: Option<String>,
     #[serde(default)]
@@ -254,6 +258,11 @@ pub struct Def {
     pub loose: bool,
     /// It falls when the cell under it opens and slides off a step of two (sand, gravel; ADR 0079).
     pub falls: bool,
+    /// It needs a solid block under it or beside it (a torch, ADR 0117): placed only there, dropped as itself
+    /// when the last one goes (`fall::held_from`).
+    pub hangs: bool,
+    /// A fire (a torch, ADR 0117): out under water, held or placed; its light and flame then are none.
+    pub flame: bool,
     /// Sound passes it without an echo (leaves, a shrub, reed): no wall to the cave reverb (ADR 0054).
     pub soft: bool,
     /// The model (`data/models/<model>.toml`, ADR 0047) drawn in its cell in place of the cube; the cell
@@ -420,10 +429,13 @@ impl Registry {
             if r.tool.as_ref().is_some_and(|t| !TOOLS.contains(&t.as_str())) || r.grade > 4 || ((r.grade > 0 || r.later) && (r.tool.is_none() || r.loose)) || (r.tool.is_some() && !r.solid) {
                 return Err(format!("block '{}': tool is one of {TOOLS:?} on a solid block, grade 0..4 and later only with a tool on a block that is not loose", r.name));
             }
+            if r.hangs && (r.solid || r.falls) {
+                return Err(format!("block '{}': hangs is for a block that is not solid and does not fall", r.name));
+            }
             if r.holds.as_ref().is_some_and(|h| !(h.1 > 0.0 && h.1 <= 1.0) || !r.loose) {
                 return Err(format!("block '{}': holds is for a loose block, with a chance over 0 and at most 1", r.name));
             }
-            let def = Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, falls: r.falls, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger, joins: r.joins, rubble: r.rubble, rubble_of: None, stack: r.stack, holds: r.holds.clone(), tool: r.tool.clone(), grade: r.grade, later: r.later, wood: r.wood, fluff, bedding: r.bedding, joints: r.joints, span: r.span };
+            let def = Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, falls: r.falls, hangs: r.hangs, flame: r.flame, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger, joins: r.joins, rubble: r.rubble, rubble_of: None, stack: r.stack, holds: r.holds.clone(), tool: r.tool.clone(), grade: r.grade, later: r.later, wood: r.wood, fluff, bedding: r.bedding, joints: r.joints, span: r.span };
             if let Some(t) = r.rubble {
                 // the twin: the rock's colours in pebbles, loose and falling (ADR 0093)
                 let name = format!("{} rubble", r.name);
@@ -433,7 +445,7 @@ impl Registry {
                 if r.loose || r.falls || !r.solid {
                     return Err(format!("block '{}': only a solid block that is not loose makes rubble", r.name));
                 }
-                defs[t as usize] = Some(Def { id: t, name, pattern: Pattern::Pebbles, size: 2, amount: 0.6, side: t, light: [0.0; 3], was: Vec::new(), hardness: RUBBLE_S, loose: true, falls: true, model: None, see: See::Opaque, seasons: None, stagger: 0.0, joins: false, rubble: None, rubble_of: Some(r.id), holds: None, tool: Some("shovel".into()), grade: 0, later: false, wood: false, fluff: None, bedding: 0.0, joints: 0, span: 0, ..def.clone() });
+                defs[t as usize] = Some(Def { id: t, name, pattern: Pattern::Pebbles, size: 2, amount: 0.6, side: t, light: [0.0; 3], was: Vec::new(), hardness: RUBBLE_S, loose: true, falls: true, hangs: false, flame: false, model: None, see: See::Opaque, seasons: None, stagger: 0.0, joins: false, rubble: None, rubble_of: Some(r.id), holds: None, tool: Some("shovel".into()), grade: 0, later: false, wood: false, fluff: None, bedding: 0.0, joints: 0, span: 0, ..def.clone() });
             }
             if defs[r.id as usize].is_some() {
                 return Err(format!("block id {} is used twice", r.id));
@@ -540,7 +552,8 @@ hardness = 0.3
 
     #[test]
     fn every_solid_block_takes_its_time_and_bare_hands_take_only_loose_things() {
-        for d in BLOCKS.placeable() {
+        // a block that is not solid (a torch, ADR 0117) goes at once
+        for d in BLOCKS.placeable().filter(|d| d.solid) {
             assert!(d.hardness > 0.0 && d.hardness <= 60.0, "{}: {} s", d.name, d.hardness);
         }
         let get = |n: &str| BLOCKS.get(BLOCKS.id(n)).unwrap().clone();
@@ -554,7 +567,7 @@ hardness = 0.3
     /// over 4 is refused.
     #[test]
     fn every_solid_block_names_its_tool() {
-        for d in BLOCKS.placeable() {
+        for d in BLOCKS.placeable().filter(|d| d.solid) {
             assert!(d.tool.is_some(), "{} names no tool", d.name);
         }
         assert!(BLOCKS.get(AIR).unwrap().tool.is_none());
@@ -632,11 +645,11 @@ holds = [\"flint\", 1.5]
         }
     }
 
-    /// ADR 0069: the plants are seen through, and of the rest only glass (ADR 0081).
+    /// ADR 0069: the plants are seen through, and of the rest only glass (ADR 0081) and a torch (ADR 0117).
     #[test]
     fn leaves_shrub_and_reed_are_cutout() {
         for d in BLOCKS.placeable().filter(|d| !d.name.ends_with("glass")) {
-            let plant = d.name.ends_with("leaves") || ["shrub", "reed"].contains(&d.name.as_str());
+            let plant = d.name.ends_with("leaves") || ["shrub", "reed", "torch"].contains(&d.name.as_str());
             assert_eq!(d.see == See::Cutout, plant, "{}", d.name);
             assert_eq!(BLOCKS.opaque(d.id), !plant, "{}", d.name);
         }
@@ -740,7 +753,16 @@ see = \"glass\"
     fn a_row_may_name_a_model() {
         let r = Registry::parse("[[block]]\nid = 0\nname = \"air\"\nsolid = false\n[[block]]\nid = 1\nname = \"furnace\"\nhardness = 3\nmodel = \"furnace\"\n").unwrap();
         assert_eq!(r.get(1).unwrap().model.as_deref(), Some("furnace"));
-        assert!(BLOCKS.placeable().all(|d| d.model.is_none()), "no row of data/blocks.toml uses a model yet");
+        // ADR 0117: the torch is the one row with a model: walked through, seen through, a warm light weaker than
+        // the lamp's, hangs on a floor or a wall, a flame, broken by hand into itself, a full stack of 64
+        let with: Vec<&str> = BLOCKS.placeable().filter(|d| d.model.is_some()).map(|d| d.name.as_str()).collect();
+        assert_eq!(with, ["torch"]);
+        let (t, lamp) = (BLOCKS.get(BLOCKS.id("torch")).unwrap(), BLOCKS.get(BLOCKS.id("lamp")).unwrap());
+        assert_eq!(t.model.as_deref(), Some("torch"));
+        assert!(!t.solid && t.see == See::Cutout && t.hangs && t.flame && t.loose && t.stack == 64);
+        assert!(t.light.iter().zip(lamp.light).all(|(a, b)| *a > 0.0 && *a < b) && t.light[0] > t.light[2] * 2.0, "warm, weaker than the lamp: {:?}", t.light);
+        assert!(!lamp.flame && !lamp.hangs);
+        assert!(Registry::parse("[[block]]\nid = 0\nname = \"air\"\nsolid = false\n[[block]]\nid = 1\nname = \"x\"\nhardness = 1\nhangs = true\n").is_err(), "a solid block never hangs");
     }
 
     #[test]

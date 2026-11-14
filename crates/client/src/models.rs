@@ -57,7 +57,7 @@ impl Loaded {
     /// unless its file says, a tool `TOOL_LYING` times), its turn (an item standing taller than it is wide laid
     /// down on its face, +z up) and its bounds so turned.
     pub fn lying(&self, item: bool, tool: bool) -> (f32, Mat4, [Vec3; 2]) {
-        let s = self.model.item.unwrap_or(if self.boxes.is_empty() { engine::models::ITEM_M } else { 1.0 }) * if tool { TOOL_LYING } else { 1.0 };
+        let s = self.model.item.unwrap_or(if !self.painted_item() { engine::models::ITEM_M } else { 1.0 }) * if tool { TOOL_LYING } else { 1.0 };
         let [lo, hi] = self.bounds;
         let d = hi - lo;
         let lay = if item && d.y > d.x.max(d.z) { Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2) } else { Mat4::IDENTITY };
@@ -69,7 +69,7 @@ impl Loaded {
     /// cell's middle (a flint lies low in its cell, under the screen's edge), a flat one tipped 60 degrees to show
     /// the eye its top; a voxel model (a creature, a block's) as before, by its cell (ADR 0114).
     pub fn held(&self) -> Mat4 {
-        if self.boxes.is_empty() {
+        if !self.painted_item() {
             return Mat4::IDENTITY;
         }
         let [lo, hi] = self.bounds;
@@ -77,6 +77,13 @@ impl Loaded {
         // flat: under 0.4 of its width (flint 0.34, the stick 0.15; the loose stone, a lump, 0.49 is not)
         let tip = if d.y < 0.4 * d.x.max(d.z) { Mat4::from_rotation_x(60f32.to_radians()) } else { Mat4::IDENTITY };
         Mat4::from_translation(Vec3::splat(0.5) - tip.transform_point3((lo + hi) * 0.5)) * tip
+    }
+
+    /// A painted item (clutter, a hand axe): painted boxes in one rigid part, held, laid and pictured by its
+    /// bounds (ADR 0114). A figure of several parts (a creature, the furnace) is so by its cell as a voxel model
+    /// is, painted or not (ADR 0116).
+    pub fn painted_item(&self) -> bool {
+        !self.boxes.is_empty() && self.model.parts.len() == 1
     }
 
     /// A model meshed: its parts' voxels, then its painted boxes from `paint` (its `.png`; none, no boxes drawn).
@@ -207,12 +214,8 @@ pub fn load_keeping(dir: &std::path::Path, effects: &std::path::Path, sounds: &s
         let read = std::fs::read_to_string(&f).map_err(|e| format!("{shown}: {e}")).and_then(|t| parse_life(&shown, &t, &palette, &effect, &sound));
         match read.and_then(|(m, l)| painting_of(&m, png(), &palette).map_err(|e| format!("{}: {e}", shown.replace(".toml", ".png"))).map(|p| (m, l, p))) {
             Ok((model, life, png)) => {
-                let paint = png.as_ref();
-                // its pictures here, off the frame thread: a slot's from three-quarters above, the ape's nearly level
-                let figure = (name == FIGURE).then(|| crate::sprite::sprite(&model, None, FIGURE_PX, 22.0, 8.0)).flatten();
-                let mut l = Loaded::new(name, model, life, paint);
-                let (yaw, pitch) = picture_view(&l);
-                l.pictures = [crate::sprite::sprite(&l.model, png.as_ref(), ICON_PX, yaw, pitch), figure];
+                let mut l = Loaded::new(name, model, life, png.as_ref());
+                l.pictures = pictures(&l, png.as_ref());
                 kept.insert(l.name.clone(), l.clone());
                 out.push(l);
             }
@@ -317,6 +320,9 @@ pub struct Models {
     spec_scale: Option<f32>,
     /// The Studio's view: where the shown model stands from its cell and how it is turned (`show_place`).
     spec_place: Mat4,
+    /// The body the bare arm and the held item pass through on their way to the sun and the lamps (ADR 0119):
+    /// the camera's own player's place in the proxy list plus one, 0 none.
+    pub hand: u32,
     /// The state "" a clip with events plays in without a state: that clip and nothing else.
     clip_state: State,
     /// Placed model cells asked into a state (`set_state`), and the states playing.
@@ -377,6 +383,7 @@ impl Models {
             spec_state: state,
             spec_scale: None,
             spec_place: Mat4::IDENTITY,
+            hand: 0,
             states: Default::default(),
             runs: Default::default(),
             held: Vec::new(),
@@ -572,6 +579,16 @@ impl Models {
                 asked.push((*b, m, st.as_str(), t));
             }
         }
+        // a placed model with a state `placed` plays it while near and asked into no other (a torch's flame, ADR
+        // 0117); a flame under water is out
+        for (b, id) in &world.models {
+            let Some(d) = BLOCKS.get(*id).filter(|_| !self.states.contains_key(b)) else { continue };
+            let Some(m) = d.model.as_deref().and_then(by_name).filter(|m| self.list[*m].0.life.states.iter().any(|s| s.name == PLACED)) else { continue };
+            let c = world.block_centre(*b);
+            if (c - cams[b.body as usize].0).length() < NEAR_M && !(d.flame && world.water_surface(c).is_some()) {
+                asked.push((*b, m, PLACED, t));
+            }
+        }
         // each one's clip and time, for the drawing below
         let mut posed: std::collections::HashMap<Block, (Option<usize>, f64)> = Default::default();
         let mut held: Vec<(String, f32)> = Vec::new();
@@ -595,8 +612,9 @@ impl Models {
             let poses = l.model.pose(ci.map(|c| l.model.clips[c].name.as_str()), ct as f32);
             // (the shown model's cells in the view's square frame, as it is drawn)
             let [o, x, y, z] = if self.spec.is_some() && self.cells.contains(&b) { view_axes(world, b) } else { cell_axes(world, b) };
+            let lean = lean(world, b);
             let place = |p: Vec3| {
-                let p = FLOOR + (p - FLOOR) * l.scale;
+                let p = lean.transform_point3(FLOOR + (p - FLOOR) * l.scale);
                 o + x * p.x as f64 + y * p.y as f64 + z * p.z as f64
             };
             let point = |n: Option<&str>| place(n.and_then(|n| l.model.point_at(&poses, n)).unwrap_or(FLOOR));
@@ -675,6 +693,7 @@ impl Models {
             let Some(m) = BLOCKS.get(*id).and_then(|d| d.model.as_deref()).and_then(by_name) else { continue };
             let x = cell_frame(world, cams, *b);
             if (x.w_axis.truncate().length() as f64) < NEAR_M {
+                let x = x * lean(world, *b);
                 let (c, t) = posed.get(b).copied().unwrap_or((idle(m), t));
                 inst[m].push((c, t, x, b.body as u32, 1.0));
             }
@@ -707,6 +726,8 @@ impl Models {
         }
         // in hand (ADR 0115): the item, or with none the figure's bare right arm, both on the one swing
         let mut bare: Option<(usize, usize, Mat4)> = None;
+        // the held item's model and place in its instances
+        let mut held: Option<(usize, usize)> = None;
         if let Some(h) = hand {
             let (_, fwd, up) = eye;
             let right = fwd.cross(up).normalize();
@@ -726,6 +747,7 @@ impl Models {
                         let s = self.list[m].0.model.item.unwrap_or(engine::models::ITEM_M) as f64;
                         let o = fwd * 0.8 + right * 0.42 - up * 0.36 - (right + up - fwd) * (s * 0.5);
                         let x = DMat4::from_cols((right * s).extend(0.0), (up * s).extend(0.0), (-fwd * s).extend(0.0), o.extend(1.0));
+                        held = Some((m, inst[m].len()));
                         inst[m].push((idle(m), t, (turn * x).as_mat4() * self.list[m].0.held(), cf as u32, 1.0));
                     }
                 }
@@ -775,7 +797,16 @@ impl Models {
                     None => break false,
                 }
             };
-            let rest = if bare.is_some() { l.model.pose(None, 0.0) } else { Vec::new() };
+            // (its painted boxes after its parts, as `poses` below: a box is the bare arm's when its part is)
+            let rest = match bare {
+                Some(_) => {
+                    let mut r = l.model.pose(None, 0.0);
+                    r.extend(l.boxes.iter().map(|(part, f)| r[*part] * *f).collect::<Vec<_>>());
+                    r
+                }
+                None => Vec::new(),
+            };
+            let owner = |pi: usize| l.boxes.get(pi.wrapping_sub(l.model.parts.len())).map_or(pi, |b| b.0);
             // a model past the pieces' room is not drawn at all, never in part
             if self.pieces.len() + list.len() * parts.iter().filter(|p| p.1 > 0).count() > MAX_PIECES {
                 continue;
@@ -798,11 +829,12 @@ impl Models {
                 let first = self.pieces.len() as u32;
                 for (k, (_, _, x, body, s)) in list.iter().enumerate() {
                     let r = (*x * sc(*s) * poses[k][pi]).transpose();
-                    self.pieces.push(Piece { x: [r.x_axis.to_array(), r.y_axis.to_array(), r.z_axis.to_array()], q0: *q0, body: *body, _p: [0; 2] });
+                    let hand = if held == Some((m, k)) { self.hand } else { 0 };
+                    self.pieces.push(Piece { x: [r.x_axis.to_array(), r.y_axis.to_array(), r.z_axis.to_array()], q0: *q0, body: *body, _p: [hand, 0] });
                 }
-                if let Some((_, _, x)) = bare.filter(|_| pi < rest.len() && arm(pi)) {
+                if let Some((_, _, x)) = bare.filter(|_| pi < rest.len() && arm(owner(pi))) {
                     let r = (x * rest[pi]).transpose();
-                    self.pieces.push(Piece { x: [r.x_axis.to_array(), r.y_axis.to_array(), r.z_axis.to_array()], q0: *q0, body: cf as u32, _p: [0; 2] });
+                    self.pieces.push(Piece { x: [r.x_axis.to_array(), r.y_axis.to_array(), r.z_axis.to_array()], q0: *q0, body: cf as u32, _p: [self.hand, 0] });
                 }
                 let count = self.pieces.len() as u32 - first;
                 if count > 0 {
@@ -826,11 +858,19 @@ impl Models {
 fn picture_view(l: &Loaded) -> (f32, f32) {
     let d = l.bounds[1] - l.bounds[0];
     match () {
-        _ if l.boxes.is_empty() => (35.0, 30.0),
+        _ if !l.painted_item() => (35.0, 30.0),
         _ if d.y > d.x.max(d.z) => (0.0, 0.0),
         _ if d.y < 0.4 * d.x.max(d.z) => (35.0, 70.0),
         _ => (35.0, 55.0),
     }
+}
+
+/// Its pictures, made off the frame thread: a slot's (`picture_view`), and for the `FIGURE` the inventory's large
+/// one, nearly level; both from its painting when it has painted boxes.
+fn pictures(l: &Loaded, paint: Option<&engine::models::Painting>) -> [Option<crate::sprite::Sprite>; 2] {
+    let (yaw, pitch) = picture_view(l);
+    let figure = (l.name == FIGURE).then(|| crate::sprite::sprite(&l.model, paint, FIGURE_PX, 22.0, 8.0)).flatten();
+    [crate::sprite::sprite(&l.model, paint, ICON_PX, yaw, pitch), figure]
 }
 
 /// A model's painting from its file's bytes: none for a model without painted boxes whose painting is missing or
@@ -843,6 +883,31 @@ fn painting_of(m: &Model, bytes: Option<Vec<u8>>, palette: &engine::palette::Pal
         Ok(p) => Ok(Some(p)),
         Err(e) if boxes => Err(e),
         Err(_) => Ok(None),
+    }
+}
+
+/// The state a placed model plays by itself when it has one (ADR 0117: a torch's flame).
+pub const PLACED: &str = "placed";
+
+/// A hanging block's model in its cell (ADR 0117): standing on a floor as it is; held from a side, its foot
+/// moved to that wall and its top leaned 30 degrees out from it. `from` is `fall::held_from`'s (di, dj, dl); the
+/// model's x is the grid's j and its z the grid's i (`cell_axes`).
+pub fn hang(from: Option<(i32, i32, i32)>) -> Mat4 {
+    match from {
+        Some((di, dj, 0)) => {
+            let wall = Vec3::new(dj as f32, 0.0, di as f32);
+            let mid = Vec3::new(0.5, 0.0, 0.5);
+            Mat4::from_translation(mid + wall * 0.36 + Vec3::Y * 0.2) * Mat4::from_axis_angle(Vec3::Y.cross(-wall), 30f32.to_radians()) * Mat4::from_translation(-mid)
+        }
+        _ => Mat4::IDENTITY,
+    }
+}
+
+/// The lean of the model placed in cell `b`: `hang` of where it is held from when its block hangs, else none.
+fn lean(world: &World, b: Block) -> Mat4 {
+    match world.models.get(&b).and_then(|id| BLOCKS.get(*id)) {
+        Some(d) if d.hangs => hang(engine::fall::held_from(world, b)),
+        _ => Mat4::IDENTITY,
     }
 }
 
@@ -958,10 +1023,8 @@ mod tests {
     /// As `boar_walking`, the Studio's view scale `view` given after `show`, and the boar in hand too: the first
     /// part's pieces (in its cell, then in hand) and the step sounds played.
     fn boar_drawn(scale: f32, view: Option<f32>, in_hand: bool, place: Option<([f32; 2], f32)>) -> (Vec<Piece>, u32) {
-        let p = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
-        let (model, life) = parse_life("boar.toml", include_str!("../../../data/models/boar.toml"), &p, &|_| true, &|_| true).unwrap();
         // (meshed, with its real bounds: what the hand reads)
-        let mut list = vec![Loaded::new("boar".into(), model, life, None)];
+        let mut list = vec![shipped("boar")];
         let text = include_str!("../../../data/creatures.toml").replace("\r\n", "\n");
         // the boar's row alone: the rows after it name models this test does not load
         let row = &text[text.find("[[creature]]\nname = \"boar\"").unwrap()..];
@@ -1040,14 +1103,13 @@ mod tests {
 
     /// The boar's first part drawn once in hand, its file's `item` set to `item`; and, with `pile`, lying in a pile.
     fn in_hand(item: Option<f32>, pile: bool) -> Vec<Piece> {
-        let p = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
-        let (mut model, life) = parse_life("boar.toml", include_str!("../../../data/models/boar.toml"), &p, &|_| true, &|_| true).unwrap();
-        model.item = item;
+        let mut l = shipped("boar");
+        l.model.item = item;
         let w = World::new(768, 256, 1);
         let b = &w.bodies[0];
         let mut m = Models::new(&crate::Args([("models".to_string(), "no/such/folder".to_string())].into_iter().collect()));
-        let parts = (0..model.parts.len()).map(|_| (0, 1)).collect();
-        m.list = vec![(Loaded::new("boar".into(), model, life, None), parts)];
+        let parts = (0..l.model.parts.len()).map(|_| (0, 1)).collect();
+        m.list = vec![(l, parts)];
         if pile {
             let at = crate::fx::At::floor_of(&w, w.air_over_ground(0, b.spawn));
             m.piles = vec![crate::piles::Lying { name: "boar".into(), item: true, tool: false, body: 0, p: at.p, axes: at.axes, turn: 0.3, fit: 1.0 }];
@@ -1112,8 +1174,13 @@ mod tests {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(include_bytes!("../../../data/models/pebbles.png"));
         assert!(painting_of(&stone, Some(bytes), &pal).is_err(), "its boxes outside the painting");
-        let boar = Model::parse("boar.toml", include_str!("../../../data/models/boar.toml"), &pal).unwrap();
-        assert!(painting_of(&boar, None, &pal).unwrap().is_none(), "a voxel model needs none");
+        let voxels = Model::parse("cube.toml", "colours = [\"copper\"]
+[[part]]
+name = \"a\"
+box = [1, 1, 1]
+voxels = \"a\"
+", &pal).unwrap();
+        assert!(painting_of(&voxels, None, &pal).unwrap().is_none(), "a voxel model needs none");
     }
 
     /// Review of ADR 0114: a model that loads but has nothing to draw (a painted one without its painting) is no
@@ -1145,8 +1212,8 @@ mod tests {
     #[test]
     fn a_voxel_model_in_hand_is_held_as_before() {
         let p = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
-        let (model, life) = parse_life("boar.toml", include_str!("../../../data/models/boar.toml"), &p, &|_| true, &|_| true).unwrap();
-        let l = Loaded::new("boar".into(), model, life, None);
+        let _ = p;
+        let l = shipped("boar");
         assert!(l.bounds[1].x > l.bounds[0].x, "real bounds");
         let first = l.quads.iter().position(|q| !q.is_empty()).unwrap();
         let w = World::new(768, 256, 1);
@@ -1166,7 +1233,9 @@ mod tests {
         let x = DMat4::from_cols((right * s).extend(0.0), (up * s).extend(0.0), (-fwd * s).extend(0.0), o.extend(1.0)).as_mat4();
         let l = &m.list[0].0;
         let idle = l.model.clips.iter().find(|c| c.name == "idle").map(|c| c.name.as_str());
-        let want = (x * l.model.pose(idle, 0.0)[first]).transpose();
+        let mut pose = l.model.pose(idle, 0.0);
+        pose.extend(l.boxes.iter().map(|(part, f)| pose[*part] * *f).collect::<Vec<_>>());
+        let want = (x * pose[first]).transpose();
         let got = m.pieces[m.draws[0].first as usize];
         for (r, row) in [want.x_axis, want.y_axis, want.z_axis].iter().enumerate() {
             assert!((Vec4::from(got.x[r]) - *row).length() < 1e-4, "row {r}: {:?} against {row}", got.x[r]);
@@ -1180,14 +1249,14 @@ mod tests {
         let pal = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/models");
         let mut tipped = vec![];
-        for name in ["berries", "flint", "hand axe", "loose stone", "mushroom", "stick", "boar", "furnace", "ape"] {
+        for name in ["berries", "flint", "hand axe", "loose stone", "mushroom", "stick", "boar", "furnace", "ape", "deer"] {
             let text = std::fs::read_to_string(dir.join(format!("{name}.toml"))).unwrap();
             let (model, life) = parse_life(&format!("{name}.toml"), &text, &pal, &|_| true, &|_| true).unwrap();
             let png = painting_of(&model, std::fs::read(dir.join(format!("{name}.png"))).ok(), &pal).unwrap();
             let l = Loaded::new(name.into(), model, life, png.as_ref());
             let h = l.held();
-            if l.boxes.is_empty() {
-                assert_eq!(h, Mat4::IDENTITY, "{name}: a voxel model is held by its cell as on main");
+            if !l.painted_item() {
+                assert_eq!(h, Mat4::IDENTITY, "{name}: a voxel model or a painted figure is held by its cell as on main");
             } else if h.y_axis.y < 0.99 {
                 tipped.push(name);
             }
@@ -1356,7 +1425,8 @@ want {want:?}");
         let pal = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
         let load = || {
             let (model, life) = parse_life("ape.toml", include_str!("../../../data/models/ape.toml"), &pal, &|_| true, &|_| true).unwrap();
-            Loaded::new(FIGURE.into(), model, life, None)
+            let paint = painting_of(&model, Some(include_bytes!("../../../data/models/ape.png").to_vec()), &pal).unwrap();
+            Loaded::new(FIGURE.into(), model, life, paint.as_ref())
         };
         let l = load();
         let w = World::new(768, 256, 1);
@@ -1372,26 +1442,40 @@ want {want:?}");
         (m, load(), [fwd, up, fwd.cross(up)])
     }
 
-    /// The hand's end of the arm (its first layer's middle, ape.toml: the light hand at y = 0) in the camera's frame.
-    fn hand_end(p: &Piece) -> DVec3 {
-        let r = Mat4::from_cols(Vec4::from(p.x[0]), Vec4::from(p.x[1]), Vec4::from(p.x[2]), Vec4::W).transpose();
-        r.transform_point3(Vec3::new(0.5, 0.0, 1.0)).as_dvec3()
+    /// A piece's transform in the arm's own voxels: a box's piece (the painted ape, ADR 0116) is its part's pose
+    /// times its box's frame, so that frame is taken off again. The first piece is the arm's first box.
+    fn arm_voxels(m: &Models, k: usize) -> Mat4 {
+        let p = &m.pieces[k];
+        let l = &m.list[0].0;
+        let part = l.model.parts.len();
+        let b = (p.q0 / 1000) as usize - part;
+        Mat4::from_cols(Vec4::from(p.x[0]), Vec4::from(p.x[1]), Vec4::from(p.x[2]), Vec4::W).transpose() * l.boxes[b].1.inverse()
+    }
+
+    /// The hand's end of the arm (its first layer's middle, ape.toml's arm_r box: the hand at y = 0) in the
+    /// camera's frame.
+    fn hand_end(m: &Models) -> DVec3 {
+        arm_voxels(m, 0).transform_point3(Vec3::new(0.5, 0.0, 1.0)).as_dvec3()
     }
 
     /// ADR 0115: with nothing in hand the ape's own right arm is drawn, once, and nothing else of the ape; low at
-    /// the right, ahead of the eye.
+    /// the right, ahead of the eye. ADR 0116: the painted ape's arm is its boxes (the forearm, palm, fingers and
+    /// thumb), every one of them and nothing else.
     #[test]
     fn an_empty_hand_draws_the_figures_arm_only() {
         let (m, l, [fwd, up, right]) = ape_hand(Some(Hand { item: None, swing: 0.0 }));
-        let arm = l.model.parts.iter().position(|p| p.name == "arm_r").unwrap() as u32;
-        assert_eq!(m.pieces.iter().map(|p| p.q0).collect::<Vec<_>>(), [arm * 1000], "the right arm, once");
-        let h = hand_end(&m.pieces[0]);
+        let arm = l.model.parts.iter().position(|p| p.name == "arm_r").unwrap();
+        let want: Vec<u32> = l.boxes.iter().enumerate().filter(|(_, b)| b.0 == arm).map(|(k, _)| (l.model.parts.len() + k) as u32 * 1000).collect();
+        assert!(want.len() >= 3, "the arm is boxes: {want:?}");
+        assert_eq!(m.pieces.iter().map(|p| p.q0).collect::<Vec<_>>(), want, "the right arm's boxes, once each");
+        let h = hand_end(&m);
         assert!(h.dot(fwd) > 0.2 && h.dot(right) > 0.0 && h.dot(up) < 0.0, "ahead, right and low: {h}");
-        // at the ape's own size: its 5 voxels, 0.625 m from hand to shoulder
-        let p = &m.pieces[0];
-        let r = Mat4::from_cols(Vec4::from(p.x[0]), Vec4::from(p.x[1]), Vec4::from(p.x[2]), Vec4::W).transpose();
-        let len = (r.transform_point3(Vec3::new(0.5, 5.0, 1.0)).as_dvec3() - h).length();
-        assert!((len - 0.625).abs() < 1e-3, "the arm {len} m long");
+        // at the ape's own size: its 5 voxels, 0.625 m from hand to shoulder, every box on the one arm
+        for k in 0..m.pieces.len() {
+            let r = arm_voxels(&m, k);
+            let len = (r.transform_point3(Vec3::new(0.5, 5.0, 1.0)).as_dvec3() - h).length();
+            assert!((len - 0.625).abs() < 1e-3, "box {k}: the arm {len} m long");
+        }
     }
 
     /// ADR 0115: nothing shown in hand (a hidden HUD, the death screen) draws no arm.
@@ -1404,7 +1488,7 @@ want {want:?}");
     /// pose turned it down and the arm left the screen for a third of the swing), and puts it back at its end.
     #[test]
     fn the_swing_strikes_toward_the_aim_and_back() {
-        let at = |s: f32| hand_end(&ape_hand(Some(Hand { item: None, swing: s })).0.pieces[0]);
+        let at = |s: f32| hand_end(&ape_hand(Some(Hand { item: None, swing: s })).0);
         let (_, _, [fwd, up, _]) = ape_hand(None);
         let off = |p: DVec3| p.angle_between(fwd);
         let (rest, peak) = (at(0.0), at(1.0));
@@ -1428,5 +1512,103 @@ want {want:?}");
         assert_eq!(turns, 1, "up once, then down");
         // the hand is half way through when the next dig comes: its age is 0 again, the swing starts over
         assert!(swing(SWING_S * 0.5) > 0.0 && swing(0.0) == 0.0);
+    }
+
+    /// ADR 0117: a torch on a floor stands as its model; one held from a wall has its foot at that wall and its
+    /// top out from it, from the blocks alone (`fall::held_from`, which the server's rule reads too).
+    #[test]
+    fn a_wall_torch_leans_out_from_its_wall() {
+        assert_eq!(hang(Some((0, 0, -1))), Mat4::IDENTITY);
+        assert_eq!(hang(None), Mat4::IDENTITY);
+        for (di, dj) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let m = hang(Some((di, dj, 0)));
+            let wall = Vec3::new(dj as f32, 0.0, di as f32);
+            let (foot, top) = (m.transform_point3(Vec3::new(0.5, 0.0, 0.5)), m.transform_point3(Vec3::new(0.5, 0.65, 0.5)));
+            assert!((foot - Vec3::new(0.5, 0.0, 0.5)).dot(wall) > 0.3, "{wall}: its foot by the wall: {foot}");
+            assert!((top - foot).dot(wall) < -0.2 && (top - foot).y > 0.5, "{wall}: its top out from it: {top}");
+            assert!((0..3).all(|a| (-0.01..1.01).contains(&foot[a]) && (-0.01..1.01).contains(&top[a])), "{wall}: inside its cell: {foot} {top}");
+        }
+        // the client's drawing reads the placed cell's own world: a wall to -i
+        let mut w = World::new(768, 256, 1);
+        let b = &w.bodies[0];
+        let cell = w.air_over_ground(0, b.spawn);
+        let up = Block { pos: cell.pos + glam::IVec3::new(0, 0, 3), ..cell };
+        for (di, dj, dl) in [(0, 0, -1), (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0)] {
+            w.set_block(Block { pos: up.pos + glam::IVec3::new(di, dj, dl), ..up }, engine::blocks::AIR);
+        }
+        w.set_block(Block { pos: up.pos - glam::IVec3::X, ..up }, BLOCKS.id("stone"));
+        w.set_block(up, BLOCKS.id("torch"));
+        assert_eq!(lean(&w, up), hang(Some((-1, 0, 0))));
+    }
+
+    /// A model of `data/models` loaded as `load` loads it: its painting, its boxes, its pictures.
+    fn shipped(name: &str) -> Loaded {
+        let pal = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/models");
+        let text = std::fs::read_to_string(dir.join(format!("{name}.toml"))).unwrap();
+        let (model, life) = parse_life(&format!("{name}.toml"), &text, &pal, &|_| true, &|_| true).unwrap();
+        let png = painting_of(&model, std::fs::read(dir.join(format!("{name}.png"))).ok(), &pal).unwrap();
+        let mut l = Loaded::new(name.into(), model, life, png.as_ref());
+        l.pictures = pictures(&l, png.as_ref());
+        l
+    }
+
+    /// ADR 0116: a painted box on a part the walk moves (the deer's front leg) is drawn by that part's pose at
+    /// each time, not by its rest: what stays fixed between two times is only the cell's frame.
+    #[test]
+    fn a_painted_box_follows_its_part_through_a_walk() {
+        let mut list = vec![shipped("deer")];
+        let text = include_str!("../../../data/creatures.toml").replace("\r\n", "\n");
+        let row = &text[text.find("[[creature]]\nname = \"deer\"").unwrap()..];
+        let row = &row[..row[1..].find("[[creature]]").map_or(row.len(), |i| i + 1)];
+        creature_walk(&mut list, "deer", row);
+        let l = list.remove(0);
+        let (n, leg) = (l.model.parts.len(), l.model.parts.iter().position(|p| p.name == "leg_fl").unwrap());
+        let b = l.boxes.iter().position(|x| x.0 == leg).unwrap();
+        let frame = l.boxes[b].1;
+        let w = World::new(768, 256, 1);
+        let body = &w.bodies[0];
+        let cell = w.block_at(body.spawn * (body.height(body.spawn) + 0.1));
+        let mut m = Models::new(&crate::Args([("models".to_string(), "no/such/folder".to_string())].into_iter().collect()));
+        let parts = l.quads.iter().enumerate().map(|(i, q)| (i as u32 * 1000, q.len() as u32)).collect();
+        m.list = vec![(l, parts)];
+        m.show(Some(("deer".into(), Some("walk".into()))), cell);
+        let (mut fx, mut audio) = (crate::fx::Fx::new(true, 64, 1.0, 1), crate::audio::Audio::new());
+        let eye = (body.centre + body.spawn * (body.height(body.spawn) + 2.0), DVec3::X, body.spawn);
+        let cams = vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()];
+        let mut at = |t: f64| {
+            m.frame(&w, &cams, 0, eye, t, None, &[], &mut fx, &mut audio);
+            let p = m.pieces.iter().find(|p| p.q0 == (n + b) as u32 * 1000).expect("the leg's box drawn");
+            let got = Mat4::from_cols(Vec4::from(p.x[0]), Vec4::from(p.x[1]), Vec4::from(p.x[2]), Vec4::W).transpose();
+            let pose = m.list[0].0.model.pose(Some("walk"), t as f32)[leg];
+            (got, got * frame.inverse() * pose.inverse())
+        };
+        let ((a, cell_a), (c, cell_c)) = (at(0.1), at(0.35));
+        assert!(!a.abs_diff_eq(c, 1e-3), "the leg's box moved between the two times");
+        assert!(cell_a.abs_diff_eq(cell_c, 1e-3), "and moved as its leg did:\n{cell_a}\n{cell_c}");
+    }
+
+    /// ADR 0116: the inventory's large ape is drawn from its painting (it was made without one, and the painted
+    /// ape's voxels are empty).
+    #[test]
+    fn the_inventorys_figure_is_its_painting() {
+        let l = shipped(FIGURE);
+        let fig = l.pictures[1].as_ref().expect("the figure's picture");
+        let filled: usize = fig.runs.iter().map(|r| r.2 as usize).sum();
+        assert!(filled > (FIGURE_PX as usize).pow(2) / 8, "it fills its square: {filled} px");
+        assert!(l.pictures[0].is_some(), "and a slot's");
+    }
+
+    /// ADR 0116: every model of `data/models` together stays under `MAX_MQUADS` with 30 % to spare.
+    #[test]
+    fn every_shipped_model_fits_the_quads_with_room_to_spare() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/models");
+        let mut total = 0;
+        for f in std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "toml")) {
+            let l = shipped(&f.file_stem().unwrap().to_string_lossy());
+            assert!(l.quads.iter().any(|q| !q.is_empty()), "{}: nothing to draw", l.name);
+            total += l.quads.iter().map(Vec::len).sum::<usize>();
+        }
+        assert!(total * 10 <= MAX_MQUADS * 7, "{total} quads of {MAX_MQUADS}");
     }
 }

@@ -674,4 +674,27 @@ mod tests {
         let rows = parse("data/creatures.toml", include_str!("../../../data/creatures.toml"), &model, &|_| true).unwrap();
         assert!(rows.iter().any(|c| c.plan == Plan::Quadruped) && rows.iter().any(|c| c.plan == Plan::Biped));
     }
+
+    /// ADR 0116: every shipped creature is painted boxes: each part its row moves (legs, arms, head, tail) carries
+    /// boxes, the model's painting reads and holds every box, and the ape's `arm_r` (the bare arm, ADR 0115) too.
+    #[test]
+    fn the_shipped_creatures_are_painted_on_every_part_they_move() {
+        let p = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        let model = |n: &str| std::fs::read_to_string(format!("../../data/models/{n}.toml")).ok().and_then(|t| Model::parse(n, &t, &p).ok());
+        let rows = parse("data/creatures.toml", include_str!("../../../data/creatures.toml"), &model, &|_| true).unwrap();
+        for c in &rows {
+            let m = model(&c.model).unwrap();
+            let png = std::fs::read(format!("../../data/models/{}.png", c.model)).unwrap_or_else(|_| panic!("{}: no painting", c.model));
+            let paint = crate::models::painting(&png, &p).unwrap();
+            m.check_painting(&paint).unwrap();
+            let named = c.legs.iter().chain(&c.arms).chain([&c.head, &c.tail]).filter(|n| !n.is_empty());
+            for n in named.chain(spine(&m).iter().map(|s| s.to_string()).collect::<Vec<_>>().iter()) {
+                let part = m.parts.iter().find(|q| &q.name == n).unwrap();
+                assert!(!part.boxes.is_empty(), "{}: part '{n}' has no painted boxes", c.model);
+                assert!(part.cells.iter().all(|&v| v == 0), "{}: part '{n}' still has voxels", c.model);
+            }
+        }
+        let ape = model("ape").unwrap();
+        assert!(ape.parts.iter().find(|q| q.name == "arm_r").is_some_and(|q| q.boxes.len() >= 3), "the bare arm: a forearm, a hand, fingers");
+    }
 }
