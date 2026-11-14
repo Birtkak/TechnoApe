@@ -323,29 +323,3 @@ fn icon(p: &mut hud::Paint, s: Stack, x: f32, y: f32, size: f32, season: (f64, f
 }
 
 use hud::CYAN;
-
-/// Piles farther than this are not drawn: a quarter-metre cube is a few pixels there.
-const PILE_DRAWN: f64 = 64.0;
-
-impl App {
-    /// The piles on the ground as small cubes of what they hold (ADR 0074), one a stack, laid among this
-    /// frame's particles: still debris, turned by the cell so a pile looks the same each frame.
-    pub(crate) fn lay_piles(&mut self) {
-        let me = self.me.pos;
-        let mut still = Vec::new();
-        for (b, slots) in &self.piles {
-            if self.world.block_centre(*b).distance(me) > PILE_DRAWN {
-                continue;
-            }
-            let at = fx::At::floor_of(&self.world, *b);
-            let seed = b.pos.x as u32 ^ (b.pos.y as u32).rotate_left(11) ^ (b.pos.z as u32).rotate_left(22);
-            for (k, s) in slots.iter().enumerate().filter_map(|(k, s)| Some((k, (*s)?))) {
-                let side = [(-0.15, -0.15), (0.15, 0.1), (-0.1, 0.17), (0.17, -0.15)][k % 4];
-                let p = at.p + at.axes[0] * 0.13 + at.axes[1] * side.0 + at.axes[2] * side.1;
-                let info = ITEMS.look(s.item) as u32 | (b.body as u32) << 8;
-                still.push(fx::FxGpu { p: p.to_array(), size: 0.25, info, angle: k as f32 * 0.7, a: seed.wrapping_add(k as u32), b: 0 });
-            }
-        }
-        self.fx.lay(still);
-    }
-}

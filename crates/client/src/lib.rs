@@ -15,6 +15,7 @@ mod inventory;
 pub use hud::font_cells;
 mod menu;
 pub mod models;
+mod piles;
 mod play;
 mod nav;
 mod rt;

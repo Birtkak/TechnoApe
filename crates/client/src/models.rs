@@ -43,6 +43,46 @@ pub struct Loaded {
     pub quads: Vec<Vec<[u32; 4]>>,
     /// How large it is drawn, about its cell's floor centre: a creature's `scale` (ADR 0053), else 1.
     pub scale: f32,
+    /// Its painted boxes as quads of a pixel (ADR 0113), after its parts' in `quads`: each box's part and its
+    /// `Bx::frame`.
+    pub boxes: Vec<(usize, Mat4)>,
+    /// Where it is at rest in its cell's metres, the lowest corner and the highest (what a pile lays down).
+    pub bounds: [Vec3; 2],
+}
+
+impl Loaded {
+    /// A model meshed: its parts' voxels, then its painted boxes from `paint` (its `.png`; none, no boxes drawn).
+    pub fn new(name: String, model: Model, life: Life, paint: Option<&engine::models::Painting>) -> Loaded {
+        let mut quads: Vec<Vec<[u32; 4]>> = model.parts.iter().map(|p| mesh(p).iter().map(|q| pack(q, model.rgb[q.colour as usize])).collect()).collect();
+        let mut boxes = Vec::new();
+        for (i, p) in model.parts.iter().enumerate() {
+            for b in p.boxes.iter().filter(|_| paint.is_some()) {
+                quads.push(b.pixel_quads(paint.unwrap()).iter().map(|(q, c)| pack(q, *c)).collect());
+                boxes.push((i, b.frame()));
+            }
+        }
+        // the corners of every quad's cell at rest
+        let rest = model.pose(None, 0.0);
+        let mut bounds = [Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)];
+        for (k, qs) in quads.iter().enumerate() {
+            let m = if k < rest.len() { rest[k] } else { rest[boxes[k - rest.len()].0] * boxes[k - rest.len()].1 };
+            for q in qs {
+                let at = Vec3::new((q[0] & 63) as f32, (q[0] >> 6 & 63) as f32, (q[0] >> 12 & 63) as f32);
+                // (as `vs_model` spans it: one voxel deep, w and h along the next two axes)
+                let a = (q[0] >> 18 & 7) as usize / 2;
+                let mut ext = Vec3::ONE;
+                (ext[(a + 1) % 3], ext[(a + 2) % 3]) = ((q[1] & 63) as f32, (q[1] >> 6 & 63) as f32);
+                for c in 0..8 {
+                    let p = m.transform_point3(at + ext * Vec3::new((c & 1) as f32, (c >> 1 & 1) as f32, (c >> 2) as f32));
+                    bounds = [bounds[0].min(p), bounds[1].max(p)];
+                }
+            }
+        }
+        if bounds[0].x > bounds[1].x {
+            bounds = [Vec3::ZERO; 2];
+        }
+        Loaded { name, model, life, quads, scale: 1.0, boxes, bounds }
+    }
 }
 
 /// A quad as `vs_model` reads it: corner x | y << 6 | z << 12 | dir << 18; w | h << 6; rgba8.
@@ -90,8 +130,10 @@ pub fn load_keeping(dir: &std::path::Path, effects: &std::path::Path, sounds: &s
         let shown = f.display().to_string().replace('\\', "/");
         match std::fs::read_to_string(&f).map_err(|e| format!("{shown}: {e}")).and_then(|t| parse_life(&shown, &t, &palette, &effect, &sound)) {
             Ok((model, life)) => {
-                let quads = model.parts.iter().map(|p| mesh(p).iter().map(|q| pack(q, model.rgb[q.colour as usize])).collect()).collect();
-                let l = Loaded { name, model, life, quads, scale: 1.0 };
+                // a model of painted boxes (clutter, ADR 0081): its painting too, as the clutter reads it
+                let paint = model.parts.iter().any(|p| !p.boxes.is_empty()).then(|| std::fs::read(dir.join(format!("{name}.png")))).and_then(Result::ok);
+                let paint = paint.and_then(|b| engine::models::painting(&b, &palette).ok()).filter(|p| model.check_painting(p).is_ok());
+                let l = Loaded::new(name, model, life, paint.as_ref());
                 kept.insert(l.name.clone(), l.clone());
                 out.push(l);
             }
@@ -208,6 +250,8 @@ pub struct Models {
     cells: Vec<Block>,
     pieces: Vec<Piece>,
     pub draws: Vec<Draw>,
+    /// This frame's stacks lying in piles as models (`piles::lay`, ADR 0113).
+    pub piles: Vec<crate::piles::Lying>,
     /// `take` swapped in new models since the last frame.
     reloaded: bool,
 }
@@ -260,6 +304,7 @@ impl Models {
             cells: Vec::new(),
             pieces: Vec::new(),
             draws: Vec::new(),
+            piles: Vec::new(),
             reloaded: false,
         }
     }
@@ -567,10 +612,29 @@ impl Models {
             let (_, fwd, up) = eye;
             let right = fwd.cross(up).normalize();
             let up = right.cross(fwd);
-            let s = 0.35;
+            let s = self.list[m].0.model.item.unwrap_or(engine::models::ITEM_M) as f64;
             let o = fwd * 0.8 + right * 0.42 - up * 0.36 - (right + up - fwd) * (s * 0.5);
             let x = DMat4::from_cols((right * s).extend(0.0), (up * s).extend(0.0), (-fwd * s).extend(0.0), o.extend(1.0));
             inst[m].push((idle(m), t, (DMat4::from_mat3(cams[cf].1) * x).as_mat4(), cf as u32, 1.0));
+        }
+        // the stacks lying in piles (ADR 0113): at the item's size (a model of painted boxes at its real size unless
+        // its file says), an item standing taller than it is wide laid down on its face (+z up), turned about the
+        // cell's up, its rest bounds centred on its place and resting on the floor
+        for p in &self.piles {
+            let Some(m) = by_name(&p.name) else { continue };
+            let l = &self.list[m].0;
+            let s = l.model.item.unwrap_or(if l.boxes.is_empty() { engine::models::ITEM_M } else { 1.0 });
+            let [lo, hi] = l.bounds;
+            let d = hi - lo;
+            let lay = if p.item && d.y > d.x.max(d.z) { Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2) } else { Mat4::IDENTITY };
+            let (a, b) = (lay.transform_point3(lo), lay.transform_point3(hi));
+            let (a, b) = (a.min(b), a.max(b));
+            let off = Vec3::new(-(a.x + b.x) * 0.5, -a.y, -(a.z + b.z) * 0.5);
+            let (cam, turn) = cams[p.body as usize];
+            let (up, x) = (p.axes[0].as_dvec3(), p.axes[1].as_dvec3());
+            let o = world.bodies[p.body as usize].centre + p.p.as_dvec3() - cam;
+            let cell = (DMat4::from_mat3(turn) * DMat4::from_cols(x.extend(0.0), up.extend(0.0), x.cross(up).extend(0.0), o.extend(1.0))).as_mat4();
+            inst[m].push((idle(m), t, cell * Mat4::from_rotation_y(p.turn) * Mat4::from_scale(Vec3::splat(s)) * Mat4::from_translation(off) * lay, p.body as u32, 1.0));
         }
         for (m, list) in inst.iter().enumerate() {
             if list.is_empty() {
@@ -579,7 +643,15 @@ impl Models {
             let (l, parts) = &self.list[m];
             // each one's scale about its cell's floor centre (a creature's in its cells only, never in hand or as a particle)
             let sc = |s: f32| Mat4::from_translation(FLOOR) * Mat4::from_scale(Vec3::splat(s)) * Mat4::from_translation(-FLOOR);
-            let poses: Vec<Vec<Mat4>> = list.iter().map(|(c, t, _, _, _)| l.model.pose(c.map(|c| l.model.clips[c].name.as_str()), *t as f32)).collect();
+            // (then each painted box's: its part's, then the box's own frame)
+            let poses: Vec<Vec<Mat4>> = list
+                .iter()
+                .map(|(c, t, _, _, _)| {
+                    let mut p = l.model.pose(c.map(|c| l.model.clips[c].name.as_str()), *t as f32);
+                    p.extend(l.boxes.iter().map(|(part, f)| p[*part] * *f).collect::<Vec<_>>());
+                    p
+                })
+                .collect();
             for (pi, (q0, nq)) in parts.iter().enumerate() {
                 if *nq == 0 || self.pieces.len() + list.len() > MAX_PIECES {
                     continue;
@@ -652,7 +724,7 @@ mod tests {
         }
         let (model, life) = parse_life("furnace.toml", &text, &p, &|_| true, &|_| true).unwrap();
         assert_eq!(life.states.iter().find(|s| s.name == "working").unwrap().effects.is_empty(), !effects);
-        Loaded { name: "furnace".into(), model, life, quads: Vec::new(), scale: 1.0 }
+        Loaded { name: "furnace".into(), model, life, quads: Vec::new(), scale: 1.0, boxes: vec![], bounds: [Vec3::ZERO; 2] }
     }
 
     /// The furnace working on the planet for a second, then `change` done to the models, then 30 s more: the
@@ -710,7 +782,7 @@ mod tests {
     fn boar_drawn(scale: f32, view: Option<f32>, in_hand: bool, place: Option<([f32; 2], f32)>) -> (Vec<Piece>, u32) {
         let p = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
         let (model, life) = parse_life("boar.toml", include_str!("../../../data/models/boar.toml"), &p, &|_| true, &|_| true).unwrap();
-        let mut list = vec![Loaded { name: "boar".into(), quads: vec![Vec::new(); model.parts.len()], model, life, scale: 1.0 }];
+        let mut list = vec![Loaded { name: "boar".into(), quads: vec![Vec::new(); model.parts.len()], model, life, scale: 1.0, boxes: vec![], bounds: [Vec3::ZERO; 2] }];
         let text = include_str!("../../../data/creatures.toml").replace("\r\n", "\n");
         // the boar's row alone: the rows after it name models this test does not load
         let row = &text[text.find("[[creature]]\nname = \"boar\"").unwrap()..];
@@ -756,7 +828,7 @@ mod tests {
         let cell = w.block_at(b.spawn * (b.height(b.spawn) + 0.1));
         let mut m = Models::new(&crate::Args([("models".to_string(), "no/such/folder".to_string())].into_iter().collect()));
         let parts = (0..model.parts.len()).map(|_| (0, 1)).collect();
-        m.list = vec![(Loaded { name: "boar".into(), quads: vec![Vec::new(); model.parts.len()], model, life, scale: 1.0 }, parts)];
+        m.list = vec![(Loaded { name: "boar".into(), quads: vec![Vec::new(); model.parts.len()], model, life, scale: 1.0, boxes: vec![], bounds: [Vec3::ZERO; 2] }, parts)];
         for (bad, why) in [("ape", "no creature 'ape'"), ("boar:fast", "metres a second")] {
             let e = m.spawn_from(bad, row, cell).unwrap_err();
             assert!(e.contains(why), "{bad}: {e}");
@@ -784,6 +856,64 @@ mod tests {
         for r in 0..3 {
             assert!((axis_len(&two[0], r) / axis_len(&one[0], r) - 2.0).abs() < 1e-3, "the cell's axis {r}");
             assert!((axis_len(&two[1], r) / axis_len(&one[1], r) - 1.0).abs() < 1e-3, "in hand, axis {r}: {} then {}", axis_len(&one[1], r), axis_len(&two[1], r));
+        }
+    }
+
+    /// The boar's first part drawn once in hand, its file's `item` set to `item`; and, with `pile`, lying in a pile.
+    fn in_hand(item: Option<f32>, pile: bool) -> Vec<Piece> {
+        let p = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        let (mut model, life) = parse_life("boar.toml", include_str!("../../../data/models/boar.toml"), &p, &|_| true, &|_| true).unwrap();
+        model.item = item;
+        let w = World::new(768, 256, 1);
+        let b = &w.bodies[0];
+        let mut m = Models::new(&crate::Args([("models".to_string(), "no/such/folder".to_string())].into_iter().collect()));
+        let parts = (0..model.parts.len()).map(|_| (0, 1)).collect();
+        m.list = vec![(Loaded::new("boar".into(), model, life, None), parts)];
+        if pile {
+            let at = crate::fx::At::floor_of(&w, w.air_over_ground(0, b.spawn));
+            m.piles = vec![crate::piles::Lying { name: "boar".into(), item: true, body: 0, p: at.p, axes: at.axes, turn: 0.3 }];
+        }
+        let (mut fx, mut audio) = (crate::fx::Fx::new(true, 64, 1.0, 1), crate::audio::Audio::new());
+        let eye = (b.centre + b.spawn * (b.height(b.spawn) + 2.0), DVec3::X, b.spawn);
+        m.frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], 0, eye, 0.0, Some("boar"), &[], &mut fx, &mut audio);
+        m.pieces[..m.draws[0].count as usize].to_vec()
+    }
+
+    /// ADR 0113: a model of painted boxes (flint, clutter) has a quad a pixel for an instance, on all six faces of
+    /// its box, and is drawn in hand (ADR 0110 said so; before this nothing was drawn).
+    #[test]
+    fn a_painted_box_model_is_drawn_in_hand() {
+        let pal = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        let (model, life) = parse_life("flint.toml", include_str!("../../../data/models/flint.toml"), &pal, &|_| true, &|_| true).unwrap();
+        let paint = engine::models::painting(include_bytes!("../../../data/models/flint.png"), &pal).unwrap();
+        let l = Loaded::new("flint".into(), model, life, Some(&paint));
+        assert_eq!((l.quads.len(), l.boxes.len()), (2, 1), "its part (one empty voxel), then its box");
+        let dirs: std::collections::BTreeSet<u32> = l.quads[1].iter().map(|q| q[0] >> 18 & 7).collect();
+        assert_eq!(dirs.len(), 6, "six faces");
+        assert!(l.bounds[0].y < 0.02 && l.bounds[1].y < 0.15 && l.bounds[0].x > 0.3, "lies in its cell's middle: {:?}", l.bounds);
+        let w = World::new(768, 256, 1);
+        let b = &w.bodies[0];
+        let mut m = Models::new(&crate::Args([("models".to_string(), "no/such/folder".to_string())].into_iter().collect()));
+        let parts = l.quads.iter().map(|q| (0, q.len() as u32)).collect();
+        m.list = vec![(l, parts)];
+        let (mut fx, mut audio) = (crate::fx::Fx::new(true, 64, 1.0, 1), crate::audio::Audio::new());
+        let eye = (b.centre + b.spawn * (b.height(b.spawn) + 2.0), DVec3::X, b.spawn);
+        m.frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], 0, eye, 0.0, Some("flint"), &[], &mut fx, &mut audio);
+        assert_eq!(m.draws.iter().map(|d| (d.count, d.quads > 0)).collect::<Vec<_>>(), [(1, true)], "the box drawn once, in hand");
+    }
+
+    /// ADR 0113: a model's `item` is the size of its cell in hand, in place of the fixed 0.35 m; a pile lays it at
+    /// the same size.
+    #[test]
+    fn a_models_item_size_is_its_size_in_hand_and_in_a_pile() {
+        let (plain, small) = (in_hand(None, false), in_hand(Some(0.2), false));
+        for r in 0..3 {
+            assert!((axis_len(&small[0], r) / axis_len(&plain[0], r) - 0.2 / 0.35).abs() < 1e-3, "axis {r}: {} then {}", axis_len(&plain[0], r), axis_len(&small[0], r));
+        }
+        let lying = in_hand(Some(0.2), true);
+        assert_eq!(lying.len(), 2, "in hand and in the pile");
+        for r in 0..3 {
+            assert!((axis_len(&lying[1], r) / axis_len(&small[0], r) - 1.0).abs() < 1e-3, "lying, axis {r}");
         }
     }
 
