@@ -71,6 +71,9 @@ pub fn image(map: &Map, zero: DVec3, size: (usize, usize)) -> Vec<u32> {
             let (c, z) = (cells[k], height[k]);
             let mut rgb = if luna {
                 LUNA[(map.biome[c].saturating_sub(engine::bake::luna::HIGHLAND) as usize).min(6)].map(f32::from)
+            } else if map.biome[c] == engine::bake::life::ICE {
+                // the polar caps over land, lake and sea alike (ADR 0107)
+                engine::bake::life::BIOMES[0].1.map(f32::from)
             } else if lake.contains(&(c as u32)) {
                 [60.0, 120.0, 190.0]
             } else if z < 0.0 {

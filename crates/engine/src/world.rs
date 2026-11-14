@@ -527,7 +527,7 @@ impl Body {
             h = h.min(c.cut as f64).max(c.floor as f64);
         }
         // maps from before ADR 0105's peaks keep the clamp of AMP 140, so their worlds keep their ground to the bit
-        let amp = if b.map.version == crate::bake::VERSION { AMP } else { 140.0 };
+        let amp = if b.map.version == crate::bake::VERSION || b.map.version == 6 { AMP } else { 140.0 };
         self.radius - SEA_DEPTH + h.clamp(-FLOOR, amp - SEA_DEPTH - 2.0 - TALLEST as f64)
     }
     /// Face point (i, j) moved by the jitter noise at d, in columns: biome borders and patches wander.
@@ -858,8 +858,43 @@ impl Body {
                 None => out.push((f.z + z, m, wood)),
             });
         });
+        if let Some((z, m)) = self.ice_sheet(face, i, j) {
+            out.push((z, m, false));
+        }
         out.sort_unstable_by_key(|o| o.0);
         out.into_iter().map(|o| (o.0, o.1)).collect()
+    }
+    /// The sheet on the sea or a lake of level-0 column (i, j) (ADR 0107): its water's top layer and its block
+    /// where the column's biome is ice and the water stands over the ground, None elsewhere (a river runs open).
+    /// The sheet fills the layer the surface lies in, an eighth of a block proud of the sea; its block is the ice
+    /// biome's top as on land (snow, patches of bare ice), so the cap reads white from orbit.
+    pub(crate) fn ice_sheet(&self, face: usize, i: i32, j: i32) -> Option<(i32, u16)> {
+        let b = self.baked.as_ref()?;
+        // maps before the caps (and Luna's) keep their ground to the bit: no sheet on an old map's icy lakes
+        if !(7..100).contains(&b.map.version) {
+            return None;
+        }
+        let s = b.map.m as f64 / self.n as f64;
+        let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
+        // most columns: no ice cell within the biome's jitter
+        let ice = |di: f64, dj: f64| b.map.biome(face, (ci + di) * s, (cj + dj) * s) == crate::bake::life::ICE;
+        if !(ice(-JITTER, -JITTER) || ice(JITTER, -JITTER) || ice(-JITTER, JITTER) || ice(JITTER, JITTER) || ice(0.0, 0.0)) {
+            return None;
+        }
+        let d = self.dir(face, ci, cj);
+        let (x, y) = self.jittered(b, ci, cj, d);
+        if b.map.biome(face, x * s, y * s) != crate::bake::life::ICE {
+            return None;
+        }
+        let (top, _, river) = self.water_at(face as u8, i, j)?;
+        let z = top.floor() as i32;
+        if river.is_some() || self.height_at(face, ci, cj, d, 0) >= self.layer_r(z as f64) {
+            return None;
+        }
+        // the patches' roll of `ground_biome_at`
+        let cell = ((x / PATCH).floor() as i64 as u64) ^ ((y / PATCH).floor() as i64 as u64).wrapping_mul(0x9e3779b97f4a7c15);
+        let roll = unit(mix(b.seed ^ cell ^ (face as u64) << 56));
+        Some((z, ROWS.biomes[crate::bake::life::ICE as usize].top(roll, 0.0)))
     }
     /// The highest of `plants_with`'s blocks, `plants_with(..).last()` to the bit (the test keeps that as its
     /// reference): each plant's column is walked down from its top and stops at its first block (ADR 0102).
@@ -1131,6 +1166,17 @@ impl Body {
                             // not where the coarse column's middle is under water: a lakeside crown would hide the lake
                             let wet = self.water_at(f as u8, (fi << level) + q / 2, (fj << level) + q / 2).is_some_and(|w| w.0 > self.layer_of(hv));
                             if top > hv && !wet {
+                                (t.h[u + v * P], t.g[u + v * P], t.rock[u + v * P]) = (top, [m; 3], Rock::NONE);
+                                t.max = t.max.max(top as f32);
+                            }
+                        }
+                        // the ice on a polar sea or lake is the far ground, as the canopy is (ADR 0107)
+                        if let Some((z, m)) = self.ice_sheet(f, (fi << level) + q / 2, (fj << level) + q / 2) {
+                            // at least up to the middle of the coarse cell the sheet lies in, or that cell stays air
+                            // and the far sheet sinks under the sea's surface
+                            let mid = (z.div_euclid(q) as f64 + 0.5) * q as f64 + 0.01;
+                            let top = self.layer_r((z as f64 + 1.0).max(mid));
+                            if top > t.h[u + v * P] {
                                 (t.h[u + v * P], t.g[u + v * P], t.rock[u + v * P]) = (top, [m; 3], Rock::NONE);
                                 t.max = t.max.max(top as f32);
                             }
@@ -3679,6 +3725,45 @@ mod baked_tests {
         let sea = b.layer_r(b.sea.unwrap());
         assert!(b.height(b.spawn) > sea + 1.0, "the spawn is on land");
         assert!(b.col_height(2, 3, 4) - b.radius < AMP && b.radius - b.col_height(2, 3, 4) < AMP);
+    }
+
+    /// ADR 0107: on the developer's world the polar sea carries a sheet of ice one block thick at its surface, over
+    /// open water, and the far tiles show it; nowhere else is there ice over air (no sheet over land or in a cave).
+    #[test]
+    fn the_polar_sea_carries_a_sheet_of_ice_over_open_water() {
+        let w = World::with_map(6144, 32, 933105400, Some(crate::bake::get(933105400, 6144)));
+        let b = &w.bodies[0];
+        // the sheet is the ice biome's top: snow, or a patch of bare ice
+        let (snow, ice) = (BLOCKS.id("snow"), BLOCKS.id("ice"));
+        let sheet = |m: u16| m == snow || m == ice;
+        let sea = b.sea.unwrap().floor() as i32;
+        let (mut sheets, mut looked) = (0, 0);
+        // face 4 is the +z pole's
+        for i in (0..b.n).step_by(61) {
+            for j in (0..b.n).step_by(61) {
+                let at = |z: i32| w.generated_block(Block { body: 0, face: 4, pos: IVec3::new(i, j, z) });
+                looked += 1;
+                if let Some((z, m)) = b.ice_sheet(4, i, j) {
+                    assert!(sheet(m), "column {i},{j}: a sheet of {m}");
+                    assert_eq!((at(z - 1), at(z), at(z + 1)), (AIR, m, AIR), "column {i},{j}: water, the sheet, air");
+                    assert!(b.water_at(4, i, j).unwrap().0 > z as f64, "column {i},{j}: the water's surface lies in the sheet");
+                    sheets += 1;
+                } else {
+                    assert!((sea - 3..sea + 3).all(|z| !(sheet(at(z)) && at(z - 1) == AIR)), "column {i},{j}: a sheet over air");
+                }
+            }
+        }
+        assert!(sheets * 20 > looked, "{sheets} sheets of {looked} columns of the pole's face");
+        // the far tiles: a level-3 tile over the frozen sea stands at the sheet's top, in ice
+        let (i, j) = (0..b.n).step_by(61).flat_map(|i| (0..b.n).step_by(61).map(move |j| (i, j))).find(|&(i, j)| b.ice_sheet(4, i, j).is_some()).unwrap();
+        let q = 8;
+        let t = b.tile(4, 3, (i / q).div_euclid(CS), (j / q).div_euclid(CS));
+        assert!(t.g.iter().any(|g| sheet(g[0]) && g[2] == g[0]), "a far tile over the frozen sea shows the sheet");
+        // a map from before the caps grows no sheet, even where its biome is ice (its icy lakes): its ground holds
+        let mut old = Map::from_bytes(&crate::bake::get(933105400, 6144).to_bytes()).unwrap();
+        old.version = 6;
+        let w6 = World::with_map(6144, 32, 933105400, Some(Arc::new(old)));
+        assert_eq!(w6.bodies[0].ice_sheet(4, i, j), None, "a version 6 map");
     }
 
     /// A map of version 1 keeps the uniform detail of ADR 0043 to the bit, at every level: a save on it holds
