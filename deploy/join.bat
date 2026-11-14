@@ -8,12 +8,15 @@ echo Updating TechnoApe...
 curl -f -m 900 %URL%/TechnoApe.zip -o update.zip || goto play
 rem one block: cmd has read all of it before tar replaces this file
 (
-  rmdir /s /q data 2>nul
-  tar -xf update.zip --strip-components 1 || (echo The update failed: close the game and start this again. & pause & exit /b 1)
+  rem data\ is replaced whole, so a file the new build dropped is gone; a failed update puts the old one back
+  rmdir /s /q data.old 2>nul
+  ren data data.old 2>nul
+  tar -xf update.zip --strip-components 1 || (rmdir /s /q data 2>nul & ren data.old data & echo The update failed: close the game and start this again. & pause & exit /b 1)
+  rmdir /s /q data.old 2>nul
   del update.zip version.new 2>nul
-  start "" TechnoApe.exe run=play onscreen=1 connect=100.124.84.125:7777 name=%USERNAME% %*
+  start "" TechnoApe.exe run=play onscreen=1 connect=100.124.84.125:7777 "name=%USERNAME%" %*
   exit /b
 )
 :play
 del version.new 2>nul
-start "" TechnoApe.exe run=play onscreen=1 connect=100.124.84.125:7777 name=%USERNAME% %*
+start "" TechnoApe.exe run=play onscreen=1 connect=100.124.84.125:7777 "name=%USERNAME%" %*

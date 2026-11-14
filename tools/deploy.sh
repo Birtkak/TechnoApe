@@ -15,8 +15,8 @@ if [[ "$what" != client ]]; then
   # the committed source only: no saves, bakes or build output
   git archive HEAD Cargo.toml Cargo.lock .cargo crates data deploy | ssh "root@$HOST" "rm -rf $DIR/src && mkdir -p $DIR/src && tar -xm -C $DIR/src"
   ssh "root@$HOST" "cd $DIR/src && docker build -f deploy/Dockerfile -t technoape-server . > $DIR/build.log 2>&1 || { tail -40 $DIR/build.log; exit 1; }
-    docker rm -f technoape-server >/dev/null 2>&1
-    docker run -d --name technoape-server --network host --restart unless-stopped       --stop-timeout 30 --label net.unraid.docker.webui=http://$HOST:7780/ \
+    docker stop technoape-server >/dev/null 2>&1; docker rm -f technoape-server >/dev/null 2>&1
+    docker run -d --name technoape-server --network host --restart unless-stopped       --stop-timeout 60 --label net.unraid.docker.webui=http://$HOST:7780/ \
       -v $DIR/data:/data -v /etc/localtime:/etc/localtime:ro technoape-server"
 fi
 
@@ -36,7 +36,8 @@ if [[ "$what" != server ]]; then
   ssh "root@$HOST" "mkdir -p $DIR/data/client"
   # the zip under another name first: a download in flight never gets half a file
   scp -q out/deploy/TechnoApe.zip "root@$HOST:$DIR/data/client/TechnoApe.zip.new"
-  scp -q out/deploy/version.txt "root@$HOST:$DIR/data/client/version.txt"
   ssh "root@$HOST" "mv $DIR/data/client/TechnoApe.zip.new $DIR/data/client/TechnoApe.zip"
+  # the version after its zip: a launcher never sees a version whose zip is not there yet
+  scp -q out/deploy/version.txt "root@$HOST:$DIR/data/client/version.txt"
 fi
 echo "deployed $what ($version): http://$HOST:7780"

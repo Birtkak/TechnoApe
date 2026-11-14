@@ -1,7 +1,7 @@
 //! The dedicated server: `technoape-server listen=0.0.0.0:7777 planet=6144 seed=1337` (moon= overrides Luna's size, `bodies::columns`).
 //! Prints one JSON line every 5 s: tick, players, edits. With `record=1` it records the session to
 //! `out/rec/server-<unix s>.rec` (`record=file` elsewhere; by default not at all). It saves every 30 s to `saves/server.sav` (`save=file`,
-//! `save=0` not at all) and carries on from that save when it exists.
+//! `save=0` not at all) and carries on from that save when it exists. A line `stop` on its stdin saves and ends it.
 //!
 //! Test harness (ADR 0011), each printing one JSON line and exiting 1 on a failure:
 //! - `soak=1 bots=50 minutes=10 seed=1 planet=256` fast-forwards seeded random bots and checks invariants every
@@ -39,9 +39,21 @@ fn main() {
         return run_replay(path, args.get("until").and_then(|v| v.parse().ok()));
     }
     let listen = args.get("listen").cloned().unwrap_or_else(|| format!("0.0.0.0:{DEFAULT_PORT}"));
+    // `stop` typed in the terminal, or written by the container's wrapper on docker stop (ADR 0130), saves
+    // and ends the server. The end of stdin does not: a server started without one runs on.
+    // Read from the start, so a stop during the bake is taken once the world is up.
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stopped = stop.clone();
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lines().map_while(Result::ok) {
+            if line.trim() == "stop" {
+                stopped.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+    });
     let (tx, rx) = channel();
     // saves (ADR 0016): save= names the file, carried on from when it exists; save=0 keeps none.
-    // shortcut: Ctrl-C loses up to the 30 s since the last save; a shutdown command comes with server admin
+    // shortcut: Ctrl-C loses up to the 30 s since the last save; `stop` on stdin is the way to end it
     let save = args.get("save").cloned().unwrap_or_else(|| "saves/server.sav".into());
     let mut server = match Some(Path::new(&save)).filter(|p| save != "0" && p.exists()) {
         Some(p) => {
@@ -79,6 +91,11 @@ fn main() {
     let mut next = Instant::now();
     let mut report = Instant::now();
     loop {
+        if stop.load(std::sync::atomic::Ordering::Relaxed) {
+            server.save_now();
+            eprintln!("[technoape-server] stopped");
+            return;
+        }
         server.tick();
         if report.elapsed() >= Duration::from_secs(5) {
             report = Instant::now();
