@@ -1378,8 +1378,9 @@ pub struct World {
     /// with `open_ledger` before any edit; None where nothing counts it (a client).
     pub ore_left: Option<Vec<i64>>,
     /// Per chunk of every level, the block each edited cell shows (ADR 0109), kept up to date per edit: what a
-    /// mesh job reads, so the frame thread only hands it the shared maps.
-    pub far: FxMap<Key, FarChunk>,
+    /// mesh job reads, so the frame thread only hands it the shared maps. The client's, opened with `open_far`;
+    /// None where nothing meshes far chunks (the server), and then level 0 reads the edits.
+    pub far: Option<FxMap<Key, FarChunk>>,
 }
 
 impl World {
@@ -1432,7 +1433,7 @@ impl World {
             models: FxMap::default(),
             water: Liquids::default(),
             ore_left: None,
-            far: FxMap::default(),
+            far: None,
         }
     }
     /// Opens the ore ledger: every body of the planet as generated (`ore::count`), before any edit.
@@ -1824,13 +1825,19 @@ impl World {
     pub fn far_snap(&self, k: Key) -> FarSnap {
         let nl = self.bodies[k.body as usize].n >> k.level;
         let mut maps = Vec::new();
-        if self.far.is_empty() {
+        if self.far.as_ref().map_or(self.edits.is_empty(), |f| f.is_empty()) {
             return FarSnap { key: k, nl, maps };
         }
+        // without the summary (a server's World) level 0 reads the edits, a copy each; coarser levels none
+        let get = |kk: &Key| match &self.far {
+            Some(f) => f.get(kk).map(|c| c.picks.clone()),
+            None if kk.level == 0 => self.edits.get(kk).map(|m| Arc::new(m.clone())),
+            None => None,
+        };
         let mut take = |kk: Key| {
-            if let Some(f) = self.far.get(&kk) {
-                if !maps.iter().any(|(m, _)| *m == kk) {
-                    maps.push((kk, f.picks.clone()));
+            if !maps.iter().any(|(m, _)| *m == kk) {
+                if let Some(p) = get(&kk) {
+                    maps.push((kk, p));
                 }
             }
         };
@@ -1851,17 +1858,34 @@ impl World {
         }
         FarSnap { key: k, nl, maps }
     }
-    /// Block b's edit went from `old` to `new`: the cell that holds it at every level adds it up again (ADR 0109).
-    fn far_edit(&mut self, b: Block, old: Option<u16>, new: Option<u16>) {
-        if old == new {
-            return;
+    /// Opens the far cells' summary (the client's, ADR 0109), from the edits already made.
+    pub fn open_far(&mut self) {
+        self.far = Some(FxMap::default());
+        let edits: Vec<(Block, u16)> = self.edits.iter().flat_map(|(k, c)| c.iter().map(move |(p, m)| (Block { body: k.body, face: k.face, pos: *p }, *m))).collect();
+        for (b, m) in edits {
+            self.far_edit(b, None, Some(m));
         }
-        for level in 0..=self.bodies[b.body as usize].root_level {
+    }
+    /// The levels whose far cells block b's last edit changed, as bits (level 0 always): the chunks
+    /// `Streamer::touch_block` meshes again. All when not known (no summary, or the edit was taken back).
+    pub fn far_levels(&self, b: Block) -> u32 {
+        self.far.as_ref().and_then(|f| f.get(&b.chunk())?.changed.get(&b.pos).copied()).map_or(!0, |m| m | 1)
+    }
+    /// Block b's edit went from `old` to `new`: the cell that holds it at every level adds it up again, and the
+    /// levels whose pick changed are kept for `far_levels` (ADR 0109).
+    fn far_edit(&mut self, b: Block, old: Option<u16>, new: Option<u16>) {
+        let root = self.bodies[b.body as usize].root_level;
+        let Some(far) = self.far.as_mut() else { return };
+        let mut changed = 0u32;
+        for level in (0..=root).filter(|_| old != new) {
             let s = 1i32 << level;
             let cell = b.pos.div_euclid(IVec3::splat(s));
             let k = Key { body: b.body, face: b.face, level, pos: cell.div_euclid(IVec3::splat(CS)) };
-            let fc = self.far.entry(k).or_default();
+            let fc = far.entry(k).or_default();
             let pick = if level == 0 {
+                if new.is_none() {
+                    fc.changed.remove(&b.pos);
+                }
                 new
             } else {
                 let sum = fc.cells.entry(cell).or_default();
@@ -1881,6 +1905,7 @@ impl World {
                 pick
             };
             if fc.picks.get(&cell).copied() != pick {
+                changed |= 1 << level;
                 let p = Arc::make_mut(&mut fc.picks);
                 match pick {
                     Some(m) => p.insert(cell, m),
@@ -1888,8 +1913,11 @@ impl World {
                 };
             }
             if fc.cells.is_empty() && fc.picks.is_empty() {
-                self.far.remove(&k);
+                far.remove(&k);
             }
+        }
+        if new.is_some() {
+            far.get_mut(&b.chunk()).expect("an edit's level 0 chunk").changed.insert(b.pos, changed);
         }
     }
 }
@@ -1934,16 +1962,21 @@ impl CellSum {
                     self.counts.swap_remove(i);
                 }
             }
-            None => self.counts.push((m, d as u32)),
+            None => {
+                debug_assert!(d > 0, "block {m} taken from a cell that counts none");
+                self.counts.push((m, d as u32))
+            }
         }
     }
 }
 
-/// One chunk's far cells: their sums (levels over 0) and the block each shows.
+/// One chunk's far cells: their sums (levels over 0) and the block each shows; at level 0, per edited block,
+/// the levels its last edit changed (`World::far_levels`).
 #[derive(Default)]
 pub struct FarChunk {
     cells: FxMap<IVec3, CellSum>,
     pub picks: Picks,
+    changed: FxMap<IVec3, u32>,
 }
 
 /// What a mesh job needs of the edits (ADR 0109): the picks of the chunks its padded cells lie in, taken on the
@@ -2556,6 +2589,7 @@ mod tests {
     #[test]
     fn a_thin_tower_shows_in_coarse_cells_and_goes_when_dug() {
         let mut w = World::new(1536, 64, 1337);
+        w.open_far();
         let lamp = BLOCKS.id("lamp");
         // a column off every coarse cell's middle (i, j even and not both on a middle): ground + 40 up, 60 blocks
         let (i, j) = (100, 98);
@@ -2620,6 +2654,7 @@ mod tests {
     #[test]
     fn a_dig_at_the_middle_beats_placed_blocks_in_the_cell() {
         let mut w = World::new(1536, 64, 1337);
+        w.open_far();
         let lamp = BLOCKS.id("lamp");
         let c = IVec3::new(25, 24, (air_at(&w, 100, 96) - 60) / 4); // a level 2 cell under the ground
         assert_ne!(far_cell(&w, 0, c, 2), AIR, "the ground");
@@ -2639,6 +2674,7 @@ mod tests {
             let s = 1i32 << level;
             for (n, m, want) in [(s, lamp, lamp), (s - 1, lamp, AIR), (1, lamp, AIR), (s, glass, AIR)] {
                 let mut w = World::new(1536, 64, 1337);
+        w.open_far();
                 let c = IVec3::new(100, 96, air_at(&w, 100, 96)).div_euclid(IVec3::splat(s));
                 // a line up the cell's corner column, off its middle
                 for z in 0..n {
@@ -2658,6 +2694,7 @@ mod tests {
         let mut shown = Vec::new();
         for turn in 0..4 {
             let mut w = World::new(1536, 64, 1337);
+        w.open_far();
             let c = IVec3::new(96, 96, air_at(&w, 96, 96)).div_euclid(IVec3::splat(8));
             for &(d, m) in &cells {
                 w.set_block(Block { body: 0, face: 0, pos: c * 8 + d }, m);
@@ -2681,6 +2718,118 @@ mod tests {
         for name in ["glass", "jungle leaves"] {
             assert!(!far_counts(&BLOCKS, BLOCKS.id(name)), "{name}");
         }
+    }
+
+    /// The far summary in a form to compare: per chunk, its picks and its cells' sums, sorted.
+    fn far_digest(w: &World) -> Vec<String> {
+        let mut out: Vec<String> = w
+            .far
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|(k, c)| {
+                let mut picks: Vec<_> = c.picks.iter().map(|(p, m)| (p.to_array(), *m)).collect();
+                picks.sort_unstable();
+                let mut cells: Vec<_> = c
+                    .cells
+                    .iter()
+                    .map(|(p, s)| {
+                        let mut n = s.counts.clone();
+                        n.sort_unstable();
+                        (p.to_array(), s.mid, n)
+                    })
+                    .collect();
+                cells.sort_unstable();
+                format!("{:?} {:?} {picks:?} {cells:?}", (k.body, k.face, k.level), k.pos.to_array())
+            })
+            .collect();
+        out.sort_unstable();
+        out
+    }
+
+    /// ADR 0109: a counted block overwritten in place moves its count; taken back (`put_edit(b, None)`, a
+    /// prediction's rollback) its count and entry go; with every edit taken back the summary is empty.
+    #[test]
+    fn far_sums_follow_overwrites_and_take_backs() {
+        let (lamp, granite) = (BLOCKS.id("lamp"), BLOCKS.id("granite"));
+        let mut w = World::new(1536, 64, 1337);
+        w.open_far();
+        let c = IVec3::new(100, 96, air_at(&w, 100, 96)).div_euclid(IVec3::splat(4));
+        let line: Vec<Block> = (0..4).map(|z| Block { body: 0, face: 0, pos: c * 4 + IVec3::new(0, 0, z) }).collect();
+        line.iter().for_each(|&b| w.set_block(b, lamp));
+        assert_eq!(far_cell(&w, 0, c, 2), lamp);
+        w.set_block(line[3], granite);
+        let k = Key { body: 0, face: 0, level: 2, pos: c.div_euclid(IVec3::splat(CS)) };
+        let mut n = w.far.as_ref().unwrap()[&k].cells[&c].counts.clone();
+        n.sort_unstable();
+        assert_eq!(n, vec![(lamp, 3), (granite, 1)], "the overwritten block's count moved");
+        assert_eq!(far_cell(&w, 0, c, 2), lamp);
+        w.put_edit(line[3], None);
+        assert_eq!(w.far.as_ref().unwrap()[&k].cells[&c].counts, vec![(lamp, 3)], "taken back");
+        assert_eq!(far_cell(&w, 0, c, 2), AIR, "three of four");
+        let mut three = World::new(1536, 64, 1337);
+        three.open_far();
+        line[..3].iter().for_each(|&b| three.set_block(b, lamp));
+        assert_eq!(far_digest(&w), far_digest(&three));
+        line.iter().for_each(|&b| w.put_edit(b, None));
+        assert!(w.far.as_ref().unwrap().is_empty(), "every edit taken back: {:?}", far_digest(&w));
+    }
+
+    /// ADR 0109: the summary is the same whatever order the edits came in, and built at once from the edits
+    /// (`open_far` on a loaded world) as edit by edit.
+    #[test]
+    fn the_far_summary_does_not_depend_on_edit_order_or_on_loading() {
+        let ids = [BLOCKS.id("lamp"), BLOCKS.id("granite"), BLOCKS.id("glass"), AIR];
+        let base = IVec3::new(96, 96, air_at(&World::new(1536, 64, 1337), 96, 96) - 44);
+        let edits: Vec<(Block, u16)> = (0..600)
+            .map(|i: i32| {
+                let d = IVec3::new(i % 10, i / 10 % 6, i / 60);
+                (Block { body: 0, face: 0, pos: base + d }, ids[(i.wrapping_mul(2654435761u32 as i32) >> 7).rem_euclid(4) as usize])
+            })
+            .collect();
+        let world = |order: &mut dyn Iterator<Item = &(Block, u16)>, open_first: bool| {
+            let mut w = World::new(1536, 64, 1337);
+            if open_first {
+                w.open_far();
+            }
+            order.for_each(|&(b, m)| w.set_block(b, m));
+            if !open_first {
+                w.open_far();
+            }
+            far_digest(&w)
+        };
+        let forward = world(&mut edits.iter(), true);
+        assert!(forward.len() > 4);
+        assert_eq!(world(&mut edits.iter().rev(), true), forward, "in reverse");
+        assert_eq!(world(&mut edits.iter().step_by(2).chain(edits.iter().skip(1).step_by(2)), true), forward, "evens, then odds");
+        assert_eq!(world(&mut edits.iter(), false), forward, "on load");
+    }
+
+    /// ADR 0109: a level 2 cell on a cube-face seam shows the same block in its own face's chunk and in the
+    /// padding of the chunk across the seam.
+    #[test]
+    fn a_far_cell_on_a_seam_shows_the_same_from_both_faces() {
+        let lamp = BLOCKS.id("lamp");
+        let mut w = World::new(256, 32, 1337);
+        w.open_far();
+        let nl = 256 >> 2;
+        let cz = w.bodies[0].layer_of(w.bodies[0].radius) as i32 / 4;
+        // the level 2 cell just past face 0's i = 0 edge, at j = 40 (cells)
+        let (f, ci, cj) = fold(0, -1, 40, nl);
+        let theirs_cell = IVec3::new(ci, cj, cz);
+        for z in 0..4 {
+            w.set_block(Block { body: 0, face: f as u8, pos: theirs_cell * 4 + IVec3::new(1, 1, z) }, lamp);
+        }
+        let shows = |face: u8, at: IVec3| {
+            // the chunk whose cells or padding hold `at`: the one of its in-face neighbour
+            let k = Key { body: 0, face, level: 2, pos: at.max(IVec3::ZERO).div_euclid(IVec3::splat(CS)) };
+            let q = at - (k.pos * CS - 1);
+            let i = pidx(q.x as usize, q.y as usize, q.z as usize) as u32;
+            w.edits_for(k).iter().find(|e| e.0 == i).map(|e| e.1)
+        };
+        assert_eq!(shows(f as u8, theirs_cell), Some(lamp), "in its own face's chunk");
+        // face 0's chunk at the edge holds it in its padding, at cell (-1, 40)
+        assert_eq!(shows(0, IVec3::new(-1, 40, cz)), Some(lamp), "in the padding across the seam");
     }
 
     #[test]

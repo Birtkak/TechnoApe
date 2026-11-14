@@ -162,12 +162,12 @@ pub fn hide_models(edits: &mut [(u32, u16)], reg: &crate::blocks::Registry) {
 /// Added to a request's distance when something is already drawn there: every hole goes first.
 const REFINE: f64 = 1e9;
 
-/// The chunks, at every level (or only `level`), whose cells or padding sample block `b`.
-fn sampling(world: &World, b: Block, level: Option<u8>) -> Vec<Key> {
+/// The chunks, at the levels whose bits are set in `levels`, whose cells or padding sample block `b`.
+fn sampling(world: &World, b: Block, levels: u32) -> Vec<Key> {
     let body = &world.bodies[b.body as usize];
     let mut keys = Vec::new();
     for l in 0..=body.root_level {
-        if level.is_some_and(|only| only != l) {
+        if levels >> l & 1 == 0 {
             continue;
         }
         // a placed block anywhere in a coarse cell can change it, not only its middle (ADR 0109)
@@ -793,7 +793,8 @@ impl Streamer {
 
     /// An edit changed a block: every chunk that samples it, in its cells or its padding, gets a new version.
     pub fn touch_block(&mut self, world: &World, b: Block) {
-        for k in sampling(world, b, None) {
+        // coarse chunks only where a far cell changed (ADR 0109)
+        for k in sampling(world, b, world.far_levels(b)) {
             if let Some(sl) = self.slots.get_mut(&k) {
                 sl.want_v += 1;
                 self.touched.push(k);
@@ -814,7 +815,7 @@ impl Streamer {
     /// True when every full-detail chunk that samples block `b` draws its latest version: an edit there is
     /// on screen (the feel report's click-to-change, fundamentals section 1).
     pub fn shows(&self, world: &World, b: Block) -> bool {
-        sampling(world, b, Some(0)).iter().all(|k| self.slots.get(k).is_none_or(|s| s.shown_v >= s.want_v))
+        sampling(world, b, 1).iter().all(|k| self.slots.get(k).is_none_or(|s| s.shown_v >= s.want_v))
     }
 
     pub fn evict(&mut self, age: u64) {
@@ -889,6 +890,7 @@ mod tests {
         use crate::blocks::{AIR, BLOCKS};
         use std::time::Instant;
         let mut w = World::new(6144, 1664, 1337);
+        w.open_far();
         let top = w.air_over_ground(0, w.bodies[0].spawn);
         let (granite, rubble, lamp) = (BLOCKS.id("granite"), BLOCKS.id("gravel"), BLOCKS.id("lamp"));
         let at = |d: IVec3| Block { pos: top.pos + d, ..top };
@@ -924,7 +926,7 @@ mod tests {
         let mut s = Streamer::new(&w, 1 << 22, opts);
         rayon::scope(|_| {}); // the worker pool starts on its first use: not a cost of the first edit
         let make =|s: &mut Streamer, w: &World, b: Block| {
-            for k in sampling(w, b, None) {
+            for k in sampling(w, b, !0) {
                 s.slots.entry(k).or_insert_with(|| Slot { state: State::Pending, last_seen: 0, want_v: 0, shown_v: 0, inflight: false, bounds: w.bodies[0].bounds(k), leaf_at: 0, clim: 0, drawn_at: (0, 0) });
             }
         };
@@ -973,6 +975,38 @@ mod tests {
         eprintln!("[far_edit_cost] {out}");
     }
 
+    /// ADR 0109: an edit meshes a coarse chunk again only where a far cell's pick changed: a dig off the middle
+    /// of a cell that counts nothing bumps no coarse slot; the block that completes a line of s in a level 2
+    /// cell bumps that level's chunk.
+    #[test]
+    fn an_edit_bumps_only_the_coarse_slots_whose_cells_changed() {
+        let lamp = crate::blocks::BLOCKS.id("lamp");
+        let mut w = World::new(1536, 64, 1337);
+        w.open_far();
+        let top = w.air_over_ground(0, w.bodies[0].spawn);
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
+        let mut s = Streamer::new(&w, 1 << 20, opts);
+        // a cell of every level over the spot, its slots loaded
+        let base = (top.pos - IVec3::new(0, 0, 3)).div_euclid(IVec3::splat(16)) * 16;
+        let at = |d: IVec3| Block { pos: base + d, ..top };
+        for k in sampling(&w, at(IVec3::ZERO), !0) {
+            s.slots.entry(k).or_insert_with(|| Slot { state: State::Pending, last_seen: 0, want_v: 0, shown_v: 0, inflight: false, bounds: w.bodies[0].bounds(k), leaf_at: 0, clim: 0, drawn_at: (0, 0) });
+        }
+        let edit = |w: &mut World, s: &mut Streamer, b: Block, m: u16| {
+            s.touched.clear();
+            w.set_block(b, m);
+            s.touch_block(w, b);
+            let mut l: Vec<u8> = s.touched.iter().map(|k| k.level).collect();
+            l.dedup();
+            l
+        };
+        assert_eq!(edit(&mut w, &mut s, at(IVec3::new(0, 1, 0)), crate::blocks::AIR), vec![0], "a dig off every middle");
+        for z in 0..3 {
+            edit(&mut w, &mut s, at(IVec3::new(1, 0, z)), lamp);
+        }
+        assert!(edit(&mut w, &mut s, at(IVec3::new(1, 0, 3)), lamp).contains(&2), "the fourth lamp of a level 2 cell");
+    }
+
     /// ADR 0109: every chunk whose edits change after an edit is meshed again: at levels 0 to 4, a block that
     /// turns a corner cell of a chunk (the cell already holding s - 1 placed blocks) changes the edits of that
     /// chunk and the seven around the corner, and `sampling` names them all.
@@ -980,6 +1014,7 @@ mod tests {
     fn every_chunk_an_edit_changes_is_sampled() {
         let lamp = crate::blocks::BLOCKS.id("lamp");
         let mut w = World::new(1536, 64, 1337);
+        w.open_far();
         let top = w.air_over_ground(0, w.bodies[0].spawn);
         for level in 0..=4u8 {
             let s = 1i32 << level;
@@ -999,7 +1034,7 @@ mod tests {
                 let before: Vec<_> = around.iter().map(|&k| sorted(&w, k)).collect();
                 let b = Block { body: 0, face: top.face, pos: cell * s + IVec3::new(0, 0, s - 1) };
                 w.set_block(b, lamp);
-                let keys = sampling(&w, b, None);
+                let keys = sampling(&w, b, !0);
                 let mut changed = 0;
                 for (k, e) in around.iter().zip(&before) {
                     if sorted(&w, *k) != *e {
@@ -1018,7 +1053,7 @@ mod tests {
     fn a_block_off_the_middle_is_sampled_at_every_level() {
         let w = World::new(256, 32, 1337);
         let b = Block { body: 0, face: 0, pos: IVec3::new(100, 98, 3000) };
-        let keys = sampling(&w, b, None);
+        let keys = sampling(&w, b, !0);
         for l in 0..=w.bodies[0].root_level {
             let own = Key { body: 0, face: 0, level: l, pos: b.pos.div_euclid(IVec3::splat(1 << l)).div_euclid(IVec3::splat(CS)) };
             assert!(keys.contains(&own), "level {l}");
@@ -1031,7 +1066,7 @@ mod tests {
     fn a_corner_block_is_sampled_by_the_diagonal_chunks() {
         let w = World::new(1536, 64, 1337);
         let b = Block { body: 0, face: 2, pos: IVec3::new(5 * CS, 9 * CS, 2 * CS) };
-        let keys = sampling(&w, b, Some(0));
+        let keys = sampling(&w, b, 1);
         for (x, y, z) in (4..=5).flat_map(|x| (8..=9).flat_map(move |y| (1..=2).map(move |z| (x, y, z)))) {
             let k = Key { body: 0, face: 2, level: 0, pos: IVec3::new(x, y, z) };
             assert!(keys.contains(&k), "{k:?} not among {keys:?}");
