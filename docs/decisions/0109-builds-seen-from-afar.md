@@ -57,14 +57,20 @@ shows over the generated block.
 **The frame thread.** `World::far` holds, per chunk of every level, the cells' sums and an
 `Arc<FxMap<cell, block>>` of what each shows (level 0: the edits themselves). `set_block` updates one cell a
 level (about 12 levels on the 4 km planet), and the picks map is copied on write only when a mesh job still
-holds it. `Streamer::dispatch` takes `far_snap` (the picks of the chunk, its 26 neighbours and, at a seam,
+holds it. It is the client's: `World::far` is an `Option` the client opens (`open_far`, which also builds it
+from a loaded world's edits), as the server opens `ore_left`. The server never meshes far chunks and keeps
+none; without it `edits_for` reads level 0 from the edits (a copy of each chunk's map, as a pick-up's
+`clutter::pickup_at` asks) and coarse levels see no edits. `Streamer::dispatch` takes `far_snap` (the picks of the chunk, its 26 neighbours and, at a seam,
 the neighbouring face's chunks: a few dozen lookups and `Arc` clones); the worker gathers them
 (`FarSnap::edits`), hides models and holds gliding cells. The seam strips now read the neighbouring face's
 picks too, so the first round's seam shortcut is gone.
 
 `stream::sampling` (which chunks to mesh again after an edit) names the coarse cell that holds the block at
-every level; a cell off its chunk's sides names only its own chunk (no folds), and the dedup looks only at
-the level's own keys. `touch_block` bumps every loaded slot it names; a slot that is loaded but not drawn
+the levels asked; a cell off its chunk's sides names only its own chunk (no folds), and the dedup looks only
+at the level's own keys. `far_edit` keeps, per edited block, the levels whose pick its last edit changed, and
+`touch_block` asks `sampling` for those and level 0 only (`World::far_levels`; all levels when it does not
+know, as after a take-back): a dig off a middle, or a block that does not change a cell's count past s,
+meshes no coarse chunk again. `touch_block` bumps every loaded slot it names; a slot that is loaded but not drawn
 (an ancestor of what is drawn) is not meshed for it: only a walk or a cull that draws it again requests the
 job, so edits under a far chunk cost nothing until it is shown.
 
@@ -89,6 +95,18 @@ round's rule, the order and sampling tests against a mutation: a tie to the last
 - `world::tests::a_coarse_cell_does_not_depend_on_the_order_of_its_edits` (a tie, four orders).
 - `stream::tests::every_chunk_an_edit_changes_is_sampled`: levels 0-4, both corners of a chunk, the eight
   chunks whose edits change are all in `sampling`.
+- `stream::tests::an_edit_bumps_only_the_coarse_slots_whose_cells_changed`: a dig off every middle bumps
+  level 0 only; the lamp completing a line of 4 bumps level 2 (red against the second round).
+- `server::tests::the_server_world_keeps_no_far_summary`: no summary on the server's World, the same state
+  hash as a client World with it (red against the second round).
+- `world::tests::far_sums_follow_overwrites_and_take_backs`: an overwrite moves a count, `put_edit(b, None)`
+  takes it back, the summary equals one built without the taken-back edit, and is empty once every edit is
+  taken back.
+- `world::tests::the_far_summary_does_not_depend_on_edit_order_or_on_loading`: 600 edits forward, reversed,
+  evens then odds, and `open_far` after loading them, the same summary.
+- `world::tests::a_far_cell_on_a_seam_shows_the_same_from_both_faces` (level 2).
+- These last three passed on first run: each was seen red against a mutation (no count taken back, a tie to
+  the last edit, the seam strip finding nothing).
 - The existing `padding_across_a_seam_matches_the_neighbouring_chunk` caught a missing chunk layer in the
   first `far_snap`.
 - Stills of the bug's own view on a copy of its save, play build: `out/bugs-1114/tower-before.png` (`build/`
@@ -100,23 +118,30 @@ round's rule, the order and sampling tests against a mutation: a tie to the last
 
 **The benchmark** `stream::tests::far_edit_cost` (ignored; `cargo test -p engine --profile play --lib
 far_edit_cost -- --ignored --nocapture`): 235,805 edits in a 160 x 160 x 12 place on the 4 km planet (a quarry
-of digs and gravel, granite, lamp posts), then one edit, then a 20k-cell batch, on the calling thread:
+of digs and gravel, granite, lamp posts), then one edit, then a 20k-cell batch, all on the calling thread.
+The same benchmark run at each commit (the engine's `world.rs` and `stream.rs` of that commit), the better of
+two runs, play build, a shared machine (about 30 % noise):
 
-| | first round (a550035d) | this ADR |
-|---|---|---|
-| setting the 236k edits | 20 ms | 91-150 ms |
-| `edits_for`, level 0 chunk (2558 cells) | 787 us | 172 us, on the worker; the frame thread's `far_snap` is a few us |
-| `edits_for`, level 4 chunk | 5272 us | 1 us |
-| `edits_for`, level 6 chunk | 4969 us | 0 us |
-| one edit: set, touch, dispatch of its 11 chunks | 40.8 ms | 2 + 2 + 32 us |
-| 20k-cell batch: set / touch / dispatch (55 chunks) | 24.9 ms set and touched / 80.2 ms | 9.6 / 9.7 / 0.7 ms |
+| | ffc9f557 (before ADR 0109) | a550035d (first round) | 5a7daf4f (this ADR) |
+|---|---|---|---|
+| setting the 236k edits (a load) | 15 ms | 15 ms | 207 ms |
+| `edits_for`, level 0 chunk (2558 cells) | 731 us | 475 us | 271 us, on the worker |
+| `edits_for`, level 4 chunk | 668 us (60 cells) | 4089 us (132) | 2 us (132) |
+| `edits_for`, level 6 chunk | 954 us (1 cell) | 4700 us (12) | 1 us (12) |
+| one edit: set / touch / dispatch | 1 / 3 / 1536 us (2 chunks) | 1 / 3 / 39227 us (11 chunks) | 6 / 1 / 18 us (1 chunk) |
+| 20k-cell batch: set / touch / dispatch | 1.6 / 4.3 / 18.7 ms (34 chunks) | 1.6 / 22.8 / 68.2 ms (55) | 18.7 / 5.7 / 0.1 ms (46) |
+| 20k-cell batch, frame thread in all | 24.6 ms | 92.6 ms | 24.5 ms |
 
-(the first round's numbers without a warm worker pool, which added about 0.3 ms to its one edit; machine
-shared, about 30 % noise.) What is left on the frame thread is a few microseconds a dispatched chunk and
-about 1 us an edited cell (set and touch), so a 20k-cell batch in one frame still costs some 20 ms: as much as
-before ADR 0109's first round, whose touch skipped most levels but whose set was not cheaper. Memory: the
-picks repeat the edits at level 0, and each coarser level adds about an eighth: some tens of MB for 236k
-edits, on the server too.
+The dispatch is the frame thread's share of a mesh job only (`far_snap` now, the whole `edits_for` before);
+the job's own gathering moved to a worker.
+
+**New cost against ffc9f557**, all on the client: keeping the summary, about 1 us an edited cell in
+`set_block` (some 12 levels of map work; 0.08 us before), so a 20k-cell batch spends 17 ms more setting cells
+and a load of 236k edits 0.2 s more; memory for the summary, the picks repeating the edits at level 0 and
+each coarser level about an eighth more, some tens of MB for 236k edits; more coarse chunks meshed on the
+workers where far cells really change. Won back against ffc9f557: the dispatch (`edits_for` walked the edits
+on the frame thread before ADR 0109 too: 0.7-1.5 ms a chunk in this place), so one edit is 25 us instead of
+1.5 ms, and a 20k-cell batch costs the frame thread the same in all. The server pays nothing new.
 
 **The runs** (first round, one measurement each, play build, `bash tools/slot.sh measure`, against
 `tests/perf/baseline.json`):
@@ -146,7 +171,7 @@ top cell holds fewer than s lamps.
 
 - An edit now meshes again the chunk that holds it at every level that is drawn (before: only where it hit a
   middle, one edit in 2^3L at level L).
-- A save of many edits loads more slowly (about 0.5 us an edit for the sums).
+- A save of many edits loads more slowly on the client (about 1 us an edit for the sums); the server not.
 - Not changed: the save format, the wire (the client builds its far cells from the same edits), old saves
   (they hold edits as before and now show them from afar).
 - The roadmap's "Big builds seen from afar" is done for builds on a body's grid; builds in free space are not,
