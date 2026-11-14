@@ -10,7 +10,7 @@
 use engine::blocks::BLOCKS;
 use engine::models::{events_between, mesh, parse_life, Life, Model, Quad, State, VOXEL};
 use engine::world::{Block, World};
-use glam::{DMat3, DMat4, DVec3, Mat4, Vec3, Vec4};
+use glam::{DMat3, DMat4, DVec3, Mat4, Vec3};
 use std::sync::mpsc::Receiver;
 
 /// The quads of every model at once, 16 bytes each (1 MB).
@@ -772,6 +772,7 @@ fn frame_of([o, x, y, z]: [DVec3; 4], cams: &[(DVec3, DMat3)], b: Block) -> Mat4
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glam::Vec4;
 
     fn furnace(effects: bool) -> Loaded {
         let p = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();

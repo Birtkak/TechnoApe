@@ -506,9 +506,21 @@ impl App {
     /// 0113), else the cube of its block (an item: of the block it looks like, with a mark of the accent in its
     /// corner); its count over one when `count`, or a tool's wear.
     fn icon(&self, p: &mut hud::Paint, s: Stack, x: f32, y: f32, size: f32, season: (f64, f64), count: bool) {
-        let block = (s.item < items::ITEM_BASE).then(|| BLOCKS.get(s.item)).flatten();
+        self.look_of(p, s.item, x, y, size, season);
+        if let Some(left) = crate::play::wear(s).filter(|_| count) {
+            hud::wear_bar(p, x + 2.0, y + size, size - 4.0, left);
+        } else if count && s.n > 1 {
+            let t = s.n.to_string();
+            let px = hud::PX * 0.75;
+            p.text_px(x + size + 2.0 - t.len() as f32 * hud::ADV * px, y + size - 8.0, &t, [1.0; 4], px);
+        }
+    }
+
+    /// `item`'s look in a square of `size` at (x, y), for the inventory and the hotbar alike (`look`).
+    pub(crate) fn look_of(&self, p: &mut hud::Paint, item: u16, x: f32, y: f32, size: f32, season: (f64, f64)) {
+        let block = (item < items::ITEM_BASE).then(|| BLOCKS.get(item)).flatten();
         let pt = block.map_or([None; 2], crate::gpu::painting);
-        match look(s.item, block, &pt, &|n| self.models.picture(n, 0).is_some()) {
+        match look(item, block, &pt, &|n| self.models.picture(n, 0).is_some()) {
             Look::Model(name) => {
                 if let Some(pic) = self.models.picture(name, 0) {
                     pic.draw(&mut |x, y, w, h, c| p.rect(x, y, w, h, c, 0), x, y, size);
@@ -523,22 +535,15 @@ impl App {
                 crate::sprite::flat(&px, tint).draw(&mut |x, y, w, h, c| p.rect(x, y, w, h, c, 0), x, y, size);
             }
             Look::Cube => {
-                let Some(d) = BLOCKS.get(ITEMS.look(s.item)) else { return };
+                let Some(d) = BLOCKS.get(ITEMS.look(item)) else { return };
                 let (colour, side, pattern) = crate::gpu::shown(d, season);
                 let pt = crate::gpu::painting(d);
                 let k = size * 0.8;
                 hud::cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x + (size - k) / 2.0, y + (size - k) / 2.0, k, colour, side, pattern, 1.0, [pt[0].as_ref(), pt[1].as_ref()]);
-                if s.item >= items::ITEM_BASE {
+                if item >= items::ITEM_BASE {
                     p.rect(x - 2.0, y - 2.0, 7.0, 7.0, CYAN, 0);
                 }
             }
-        }
-        if let Some(left) = crate::play::wear(s).filter(|_| count) {
-            hud::wear_bar(p, x + 2.0, y + size, size - 4.0, left);
-        } else if count && s.n > 1 {
-            let t = s.n.to_string();
-            let px = hud::PX * 0.75;
-            p.text_px(x + size + 2.0 - t.len() as f32 * hud::ADV * px, y + size - 8.0, &t, [1.0; 4], px);
         }
     }
 }
