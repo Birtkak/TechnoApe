@@ -606,6 +606,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         aim: None,
         held: None,
         slot: 0,
+        hand_sent: None,
+        struck: f64::MIN,
         held_name: (usize::MAX, Instant::now()),
         fx,
         models,

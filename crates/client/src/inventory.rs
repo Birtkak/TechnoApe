@@ -313,7 +313,9 @@ fn icon(p: &mut hud::Paint, s: Stack, x: f32, y: f32, size: f32, season: (f64, f
     if s.item >= items::ITEM_BASE {
         p.rect(x - 6.0, y - 6.0, 8.0, 8.0, CYAN, 0);
     }
-    if count && s.n > 1 {
+    if let Some(left) = crate::play::wear(s) {
+        hud::wear_bar(p, x - 2.0, y + size + 2.0, size + 4.0, left);
+    } else if count && s.n > 1 {
         let t = s.n.to_string();
         let px = hud::PX * 0.75;
         p.text_px(x + size + 6.0 - t.len() as f32 * hud::ADV * px, y + size - 4.0, &t, [1.0; 4], px);

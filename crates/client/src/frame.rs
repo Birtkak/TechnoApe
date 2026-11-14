@@ -339,6 +339,14 @@ impl App {
                     (self.creative, self.bucket_water) = (creative, water);
                     // the slots once every move sent is answered: until then the prediction stands
                     if self.items_pending.is_empty() && slots.len() == engine::items::APE_SLOTS {
+                        // a tool on its last use gone from its slot wore out (ADR 0110): its snap and a few chips
+                        let worn = self.inv.iter().zip(&slots).find(|(a, b)| engine::items::left(**a) == Some(1) && b.is_none_or(|b| Some(b.item) != a.map(|a| a.item))).and_then(|(a, _)| *a);
+                        if let Some(worn) = worn.filter(|_| !self.creative) {
+                            let feet = self.me.pos;
+                            let ahead = self.world.block_at(feet + phys::up(&self.world, feet) * 1.2 + self.me.fwd * 0.6);
+                            self.audio.play("tool.break", None, 1.0, 1.0, false);
+                            self.fx.play(fx::id("knap"), &fx::At::cell(&self.world, ahead, engine::items::ITEMS.look(worn.item)));
+                        }
                         self.inv = slots;
                     }
                 }
@@ -903,10 +911,9 @@ impl App {
         // the models (ADR 0047): the watcher's newest, then this frame's pieces (timed under "table")
         self.models.take(&gpu.queue, &gpu.mquads);
         let hand = (self.run == "play" && !self.hammer && !self.bucket && !self.f3 && self.home() != Menu::Title)
-            .then(|| self.slot_block(self.slot))
+            .then(|| self.inv.get(self.slot).copied().flatten())
             .flatten()
-            .and_then(|m| BLOCKS.get(m))
-            .map(|d| d.name.clone());
+            .map(|s| engine::items::ITEMS.name(s.item).to_string());
         let now = Instant::now();
         let herd: Vec<crate::models::Beast> = self
             .animals

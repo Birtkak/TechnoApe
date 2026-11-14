@@ -122,6 +122,22 @@ shrink = 0.5
 look = "debris"
 spin = 9.0
 
+# a knapping strike (ADR 0110): sharp flakes off the struck rock's faces, quicker and more of them than a dig's
+# hit; a worn-out tool's last dig throws them too
+[[effect]]
+name = "knap"
+count = 6
+start = "faces"
+speed = [1.0, 2.2]
+up = 1.2
+drag = 0.4
+ground = "bounce"
+life = [0.4, 0.7]
+size = [0.03, 0.07]
+shrink = 0.5
+look = "debris"
+spin = 12.0
+
 # ---- drafts (Claude's, ADR 0050, listed in data/drafts.txt): the Effects page's presets ----
 
 # a fire on the floor of its cell: flames that lick up, embers that drift off, smoke that curls away
