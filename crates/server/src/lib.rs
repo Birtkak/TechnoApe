@@ -3499,6 +3499,23 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
     }
 
+    /// ADR 0109: the far cells' summary is the client's (its far chunks); the server's World keeps none, and
+    /// its state hash is the one a world with the summary has.
+    #[test]
+    fn the_server_world_keeps_no_far_summary() {
+        let (mut s, _links) = server_with(0);
+        let mut client = World::new(256, 32, 1);
+        client.open_far();
+        for z in 0..8 {
+            let b = Block { body: 0, face: 0, pos: glam::IVec3::new(100, 98, 3000 + z) };
+            s.world.set_block(b, BLOCKS.id("lamp"));
+            client.set_block(b, BLOCKS.id("lamp"));
+        }
+        assert!(s.world.far.is_none(), "the server keeps no far summary");
+        assert!(client.far.as_ref().is_some_and(|f| !f.is_empty()));
+        assert_eq!(s.world.hash(), client.hash());
+    }
+
     /// A world of more edited cells than one `Edits` part carries reaches a joining client whole, in parts
     /// that each stay under the TCP frame limit.
     #[test]

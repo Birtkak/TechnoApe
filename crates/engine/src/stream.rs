@@ -162,28 +162,30 @@ pub fn hide_models(edits: &mut [(u32, u16)], reg: &crate::blocks::Registry) {
 /// Added to a request's distance when something is already drawn there: every hole goes first.
 const REFINE: f64 = 1e9;
 
-/// The chunks, at every level (or only `level`), whose cells or padding sample block `b`.
-fn sampling(world: &World, b: Block, level: Option<u8>) -> Vec<Key> {
+/// The chunks, at the levels whose bits are set in `levels`, whose cells or padding sample block `b`.
+fn sampling(world: &World, b: Block, levels: u32) -> Vec<Key> {
     let body = &world.bodies[b.body as usize];
     let mut keys = Vec::new();
     for l in 0..=body.root_level {
-        if level.is_some_and(|only| only != l) {
+        if levels >> l & 1 == 0 {
             continue;
         }
-        let s = 1i32 << l;
-        let q = b.pos - s / 2; // coarse cells sample the block in their middle
-        if q.x.rem_euclid(s) | q.y.rem_euclid(s) | q.z.rem_euclid(s) != 0 {
-            continue;
-        }
-        let cell = q.div_euclid(IVec3::splat(s));
+        // a placed block anywhere in a coarse cell can change it, not only its middle (ADR 0109)
+        let cell = b.pos.div_euclid(IVec3::splat(1i32 << l));
         let own = Key { body: b.body, face: b.face, level: l, pos: cell.div_euclid(IVec3::splat(CS)) };
+        let start = keys.len(); // keys of other levels never match
         keys.push(own);
+        // a cell off its chunk's sides is padding of no other chunk
+        let local = cell.rem_euclid(IVec3::splat(CS));
+        if local.cmpgt(IVec3::ZERO).all() && local.cmplt(IVec3::splat(CS - 1)).all() {
+            continue;
+        }
         // all 26 neighbours: the mesher's corner shading reads the diagonal padding too
         for i in 0..27 {
             let c = cell + IVec3::new(i % 3 - 1, i / 3 % 3 - 1, i / 9 - 1);
             let (f, ci, cj) = fold(b.face as usize, c.x, c.y, body.n >> l);
             let k = Key { face: f as u8, pos: IVec3::new(ci, cj, c.z).div_euclid(IVec3::splat(CS)), ..own };
-            if k != own && !keys.contains(&k) {
+            if !keys[start..].contains(&k) {
                 keys.push(k);
             }
         }
@@ -621,11 +623,9 @@ impl Streamer {
             s.inflight = true;
             self.inflight += 1;
             let version = s.want_v;
-            // a cell whose block is a model is drawn by the client's models, not meshed (ADR 0047)
-            let mut edits = world.edits_for(k);
-            if !world.models.is_empty() {
-                hide_models(&mut edits, &crate::blocks::BLOCKS);
-            }
+            // the edits are gathered on the worker from shared maps: the frame thread only looks them up (ADR 0109)
+            let snap = world.far_snap(k);
+            let models = !world.models.is_empty();
             // a gliding cell is air to the mesher, a loose block to its neighbours' slopes (ADR 0101)
             let mut held = Vec::new();
             if k.level == 0 {
@@ -633,16 +633,14 @@ impl Streamer {
                 for b in self.gliding.iter().filter(|b| (b.body, b.face) == (k.body, k.face)) {
                     let q = b.pos - c0;
                     if q.cmpge(IVec3::ZERO).all() && q.cmplt(IVec3::splat(P as i32)).all() {
-                        let i = pidx(q.x as usize, q.y as usize, q.z as usize);
-                        edits.iter_mut().filter(|e| e.0 == i as u32).for_each(|e| e.1 = crate::blocks::AIR);
-                        held.push(i);
+                        held.push(pidx(q.x as usize, q.y as usize, q.z as usize));
                     }
                 }
             }
             let tx = self.tx.clone();
             let bodies = world.bodies.clone();
             // generation makes no glass: a chunk without edits holds none (`mesh_cut`)
-            let may_glass = !edits.is_empty();
+            let may_glass = !snap.is_empty();
             let greedy = self.opts.greedy;
             let cutout = match (k.level, self.opts.cutout) {
                 (0, true) => crate::mesh::Cut::Full,
@@ -662,6 +660,12 @@ impl Streamer {
             rayon::spawn(move || {
                 let t = Instant::now();
                 let wait_us = (t - queued).as_secs_f32() * 1e6;
+                let mut edits = snap.edits();
+                // a cell whose block is a model is drawn by the client's models, not meshed (ADR 0047)
+                if models {
+                    hide_models(&mut edits, &crate::blocks::BLOCKS);
+                }
+                edits.iter_mut().filter(|e| held.contains(&(e.0 as usize))).for_each(|e| e.1 = crate::blocks::AIR);
                 let body = &bodies[k.body as usize];
                 // the slopes read the padding before its skirts (ADR 0101)
                 let mut gen = generate_raw(body, k, &edits);
@@ -789,7 +793,8 @@ impl Streamer {
 
     /// An edit changed a block: every chunk that samples it, in its cells or its padding, gets a new version.
     pub fn touch_block(&mut self, world: &World, b: Block) {
-        for k in sampling(world, b, None) {
+        // coarse chunks only where a far cell changed (ADR 0109)
+        for k in sampling(world, b, world.far_levels(b)) {
             if let Some(sl) = self.slots.get_mut(&k) {
                 sl.want_v += 1;
                 self.touched.push(k);
@@ -810,7 +815,7 @@ impl Streamer {
     /// True when every full-detail chunk that samples block `b` draws its latest version: an edit there is
     /// on screen (the feel report's click-to-change, fundamentals section 1).
     pub fn shows(&self, world: &World, b: Block) -> bool {
-        sampling(world, b, Some(0)).iter().all(|k| self.slots.get(k).is_none_or(|s| s.shown_v >= s.want_v))
+        sampling(world, b, 1).iter().all(|k| self.slots.get(k).is_none_or(|s| s.shown_v >= s.want_v))
     }
 
     pub fn evict(&mut self, age: u64) {
@@ -876,13 +881,192 @@ mod tests {
         let _ = row(crate::blocks::BLOCKS.id("limestone"));
     }
 
+    /// ADR 0109's benchmark: what the frame thread pays for far builds in a world of about 200k edits in one
+    /// place (a quarry of digs and rubble, buildings, lamp posts). `cargo test -p engine --profile play --lib
+    /// far_edit_cost -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn far_edit_cost() {
+        use crate::blocks::{AIR, BLOCKS};
+        use std::time::Instant;
+        let mut w = World::new(6144, 1664, 1337);
+        w.open_far();
+        let top = w.air_over_ground(0, w.bodies[0].spawn);
+        let (granite, rubble, lamp) = (BLOCKS.id("granite"), BLOCKS.id("gravel"), BLOCKS.id("lamp"));
+        let at = |d: IVec3| Block { pos: top.pos + d, ..top };
+        let t = Instant::now();
+        let mut n = 0;
+        for x in -80..80i32 {
+            for y in -80..80i32 {
+                for z in -8..4i32 {
+                    let h = (x.wrapping_mul(73856093) ^ y.wrapping_mul(19349663) ^ z.wrapping_mul(83492791)) as u32 % 100;
+                    let m = match () {
+                        _ if x % 16 == 0 && y % 16 == 0 => lamp,
+                        _ if z < 0 => if h < 70 { AIR } else { rubble },
+                        _ if h < 30 => granite,
+                        _ => continue,
+                    };
+                    w.set_block(at(IVec3::new(x, y, z)), m);
+                    n += 1;
+                }
+            }
+        }
+        let load_ms = t.elapsed().as_secs_f64() * 1e3;
+        let mut out = format!("{n} edits set in {load_ms:.0} ms");
+        for level in [0u8, 4, 6] {
+            let k = Key { body: 0, face: top.face, level, pos: top.pos.div_euclid(IVec3::splat(1 << level)).div_euclid(IVec3::splat(CS)) };
+            let t = Instant::now();
+            let mut len = 0;
+            for _ in 0..20 {
+                len = w.edits_for(k).len();
+            }
+            out += &format!("; edits_for level {level}: {:.0} us ({len} cells)", t.elapsed().as_secs_f64() * 1e6 / 20.0);
+        }
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 1 << 16 };
+        let mut s = Streamer::new(&w, 1 << 22, opts);
+        rayon::scope(|_| {}); // the worker pool starts on its first use: not a cost of the first edit
+        let make =|s: &mut Streamer, w: &World, b: Block| {
+            for k in sampling(w, b, !0) {
+                s.slots.entry(k).or_insert_with(|| Slot { state: State::Pending, last_seen: 0, want_v: 0, shown_v: 0, inflight: false, bounds: w.bodies[0].bounds(k), leaf_at: 0, clim: 0, drawn_at: (0, 0) });
+            }
+        };
+        // one edit: the server's delta applied, its chunks touched and meshed again
+        let b = at(IVec3::new(3, 5, 1));
+        make(&mut s, &w, b);
+        let t = Instant::now();
+        w.set_block(b, granite);
+        let t1 = Instant::now();
+        s.touch_block(&w, b);
+        let t2 = Instant::now();
+        let touched = s.touched.len();
+        let mut reqs: Vec<(f64, Key)> = s.touched.iter().map(|k| (0.0, *k)).collect();
+        s.dispatch(&w, &mut reqs);
+        let us = |a: Instant, b: Instant| (b - a).as_secs_f64() * 1e6;
+        out += &format!("; one edit: set {:.0} us, touch {:.0} us, dispatch {:.0} us for {touched} chunks", us(t, t1), us(t1, t2), us(t2, Instant::now()));
+        while !s.idle() {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            s.apply(usize::MAX, &mut FrameStats::default(), |_, _| {});
+        }
+        // a brush or a server batch of 20k cells: set and touched per cell, then one dispatch
+        let cells: Vec<Block> = (0..20_000).map(|i| at(IVec3::new(i % 141 - 70, i / 141 - 70, 6))).collect();
+        cells.iter().for_each(|&b| make(&mut s, &w, b));
+        s.touched.clear();
+        let t = Instant::now();
+        for &b in &cells {
+            w.set_block(b, granite);
+        }
+        let set_us = t.elapsed().as_secs_f64() * 1e6;
+        let t = Instant::now();
+        for &b in &cells {
+            s.touch_block(&w, b);
+        }
+        let touch_us = t.elapsed().as_secs_f64() * 1e6;
+        let mut reqs: Vec<(f64, Key)> = s.touched.iter().map(|k| (0.0, *k)).collect();
+        reqs.sort_by_key(|r| (r.1.level, r.1.pos.x, r.1.pos.y, r.1.pos.z));
+        reqs.dedup_by_key(|r| r.1);
+        let t = Instant::now();
+        let jobs = reqs.len();
+        s.dispatch(&w, &mut reqs);
+        out += &format!("; 20k-cell batch: set {:.1} ms, touched {:.1} ms, dispatch {:.1} ms for {jobs} chunks", set_us / 1e3, touch_us / 1e3, t.elapsed().as_secs_f64() * 1e3);
+        while !s.idle() {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            s.apply(usize::MAX, &mut FrameStats::default(), |_, _| {});
+        }
+        eprintln!("[far_edit_cost] {out}");
+    }
+
+    /// ADR 0109: an edit meshes a coarse chunk again only where a far cell's pick changed: a dig off the middle
+    /// of a cell that counts nothing bumps no coarse slot; the block that completes a line of s in a level 2
+    /// cell bumps that level's chunk.
+    #[test]
+    fn an_edit_bumps_only_the_coarse_slots_whose_cells_changed() {
+        let lamp = crate::blocks::BLOCKS.id("lamp");
+        let mut w = World::new(1536, 64, 1337);
+        w.open_far();
+        let top = w.air_over_ground(0, w.bodies[0].spawn);
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
+        let mut s = Streamer::new(&w, 1 << 20, opts);
+        // a cell of every level over the spot, its slots loaded
+        let base = (top.pos - IVec3::new(0, 0, 3)).div_euclid(IVec3::splat(16)) * 16;
+        let at = |d: IVec3| Block { pos: base + d, ..top };
+        for k in sampling(&w, at(IVec3::ZERO), !0) {
+            s.slots.entry(k).or_insert_with(|| Slot { state: State::Pending, last_seen: 0, want_v: 0, shown_v: 0, inflight: false, bounds: w.bodies[0].bounds(k), leaf_at: 0, clim: 0, drawn_at: (0, 0) });
+        }
+        let edit = |w: &mut World, s: &mut Streamer, b: Block, m: u16| {
+            s.touched.clear();
+            w.set_block(b, m);
+            s.touch_block(w, b);
+            let mut l: Vec<u8> = s.touched.iter().map(|k| k.level).collect();
+            l.dedup();
+            l
+        };
+        assert_eq!(edit(&mut w, &mut s, at(IVec3::new(0, 1, 0)), crate::blocks::AIR), vec![0], "a dig off every middle");
+        for z in 0..3 {
+            edit(&mut w, &mut s, at(IVec3::new(1, 0, z)), lamp);
+        }
+        assert!(edit(&mut w, &mut s, at(IVec3::new(1, 0, 3)), lamp).contains(&2), "the fourth lamp of a level 2 cell");
+    }
+
+    /// ADR 0109: every chunk whose edits change after an edit is meshed again: at levels 0 to 4, a block that
+    /// turns a corner cell of a chunk (the cell already holding s - 1 placed blocks) changes the edits of that
+    /// chunk and the seven around the corner, and `sampling` names them all.
+    #[test]
+    fn every_chunk_an_edit_changes_is_sampled() {
+        let lamp = crate::blocks::BLOCKS.id("lamp");
+        let mut w = World::new(1536, 64, 1337);
+        w.open_far();
+        let top = w.air_over_ground(0, w.bodies[0].spawn);
+        for level in 0..=4u8 {
+            let s = 1i32 << level;
+            let k0 = Key { body: 0, face: top.face, level, pos: top.pos.div_euclid(IVec3::splat(s * CS)) };
+            for corner in [IVec3::ZERO, IVec3::splat(CS - 1)] {
+                let cell = k0.pos * CS + corner;
+                let around: Vec<Key> = (0..27).map(|i| Key { pos: k0.pos + IVec3::new(i % 3 - 1, i / 3 % 3 - 1, i / 9 - 1), ..k0 }).collect();
+                let sorted = |w: &World, k: Key| {
+                    let mut e = w.edits_for(k);
+                    e.sort_unstable();
+                    e
+                };
+                // s - 1 blocks up the cell's corner column, then the s-th
+                for z in 0..s - 1 {
+                    w.set_block(Block { body: 0, face: top.face, pos: cell * s + IVec3::new(0, 0, z) }, lamp);
+                }
+                let before: Vec<_> = around.iter().map(|&k| sorted(&w, k)).collect();
+                let b = Block { body: 0, face: top.face, pos: cell * s + IVec3::new(0, 0, s - 1) };
+                w.set_block(b, lamp);
+                let keys = sampling(&w, b, !0);
+                let mut changed = 0;
+                for (k, e) in around.iter().zip(&before) {
+                    if sorted(&w, *k) != *e {
+                        changed += 1;
+                        assert!(keys.contains(k), "level {level}: {k:?} changed but is not sampled");
+                    }
+                }
+                assert_eq!(changed, 8, "level {level} corner {corner}: the cell's chunk and the seven around it");
+            }
+        }
+    }
+
+    /// Any block, not only a cell's middle, is sampled by the coarse chunk that holds it (ADR 0109): an edit
+    /// off the middle can change a far cell, so that chunk is meshed again.
+    #[test]
+    fn a_block_off_the_middle_is_sampled_at_every_level() {
+        let w = World::new(256, 32, 1337);
+        let b = Block { body: 0, face: 0, pos: IVec3::new(100, 98, 3000) };
+        let keys = sampling(&w, b, !0);
+        for l in 0..=w.bodies[0].root_level {
+            let own = Key { body: 0, face: 0, level: l, pos: b.pos.div_euclid(IVec3::splat(1 << l)).div_euclid(IVec3::splat(CS)) };
+            assert!(keys.contains(&own), "level {l}");
+        }
+    }
+
     /// A block in a chunk's corner cell is in the padding of all seven chunks around that corner: the
     /// diagonal ones read it for their corner shading.
     #[test]
     fn a_corner_block_is_sampled_by_the_diagonal_chunks() {
         let w = World::new(1536, 64, 1337);
         let b = Block { body: 0, face: 2, pos: IVec3::new(5 * CS, 9 * CS, 2 * CS) };
-        let keys = sampling(&w, b, Some(0));
+        let keys = sampling(&w, b, 1);
         for (x, y, z) in (4..=5).flat_map(|x| (8..=9).flat_map(move |y| (1..=2).map(move |z| (x, y, z)))) {
             let k = Key { body: 0, face: 2, level: 0, pos: IVec3::new(x, y, z) };
             assert!(keys.contains(&k), "{k:?} not among {keys:?}");
