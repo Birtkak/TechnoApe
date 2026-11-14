@@ -300,3 +300,4 @@ data/textures/anorthosite rubble.png
 data/textures/mare basalt rubble.png
 data/textures/iron-nickel rubble.png
 data/textures/kreep rubble.png
+data/models/hand axe.png
