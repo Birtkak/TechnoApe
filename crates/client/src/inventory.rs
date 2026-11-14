@@ -45,6 +45,9 @@ pub(crate) struct Layout {
     /// Survival: the pile's room. Both: the hotbar's row.
     pub ground: [f32; 4],
     pub hot: [f32; 4],
+    /// UI pixels a pixel of this layout: below 1 where the window would not fit the UI, so the whole screen is
+    /// drawn smaller (every part above is in the layout's pixels; the pointer is divided by it).
+    pub k: f32,
 }
 
 fn inside(b: [f32; 4], (x, y): (f32, f32)) -> bool {
@@ -65,6 +68,10 @@ pub(crate) fn layout(lw: f32, lh: f32, creative: bool, grid: &[u16], scroll: usi
         (APE_W + 28.0 + wide + 28.0 + 2.0 * step - GAP, HEAD + 3.0 * step - GAP + 20.0 + HEAD + SIZE)
     };
     let (pw, ph) = (iw + 2.0 * PAD, TITLE_H + ih + 18.0 + 8.0 * HINT_PX + 18.0);
+    // a UI too small for the window (a small window at a large interface scale) draws all of it smaller, so every
+    // slot stays on the screen and takes its click
+    l.k = (lw / (pw + 16.0)).min(lh / (ph + 16.0)).min(1.0);
+    let (lw, lh) = (lw / l.k, lh / l.k);
     let (left, top) = (((lw - pw) / 2.0).floor(), ((lh - ph) / 2.0).max(8.0).floor());
     l.panel = [left, top, pw, ph];
     let (x0, ct) = (left + PAD, top + TITLE_H);
@@ -111,13 +118,20 @@ fn the_screens_put_every_slot_apart_and_inside_the_panel() {
     let pile = Block { body: 0, face: 0, pos: glam::IVec3::ZERO };
     let within = |o: [f32; 4], b: [f32; 4]| inside(o, (b[0], b[1])) && inside(o, (b[0] + b[2] - 1.0, b[1] + b[3] - 1.0));
     let over = |a: [f32; 4], b: [f32; 4]| a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
-    for (lw, lh) in [(1280.0, 720.0), (1920.0, 1080.0)] {
+    // the settings' smallest window (640 x 360) at their largest interface scale (3), a 1280 x 720 window at 1.5,
+    // and the usual sizes
+    for (lw, lh) in [(640.0 / 3.0, 120.0), (1280.0 / 1.5, 480.0), (1280.0, 720.0), (1920.0, 1080.0)] {
         for (creative, open, pile) in [(true, items::ROWS_AT, None), (false, items::ROWS_AT, None), (false, items::APE_SLOTS, Some(pile))] {
             let l = layout(lw, lh, creative, &grid, 0, open, pile);
             let at = format!("{lw}x{lh} creative {creative}");
             let want = if creative { grid.len().min(GRID_ROWS * COLS) + 9 } else { 9 + 1 + (open - items::ROWS_AT) + pile.map_or(0, |_| 4) };
             assert_eq!(l.spots.len(), want);
-            assert!(within([0.0, 0.0, lw, lh], l.panel), "{at}: the panel off the screen");
+            // everything that takes a click on the screen, in UI pixels
+            let shown = |b: [f32; 4]| b.map(|v| v * l.k);
+            assert!(l.k > 0.0 && l.k <= 1.0, "{at}: scale {}", l.k);
+            for b in std::iter::once(l.panel).chain(l.spots.iter().map(|s| s.2)).chain(l.tabs.iter().copied()) {
+                assert!(within([0.0, 0.0, lw, lh], shown(b)), "{at}: {b:?} off the screen at scale {}", l.k);
+            }
             for (k, a) in l.spots.iter().enumerate() {
                 let b = a.2;
                 assert!(within(l.panel, b), "{at}: slot {k} out of the panel");
@@ -165,6 +179,11 @@ impl App {
         layout(lw, lh, self.creative, &self.grid_items(), self.inv_scroll, items::open(&self.inv), self.pile_near())
     }
 
+    /// The pointer in the layout's pixels (`Layout::k`).
+    fn inv_pointer(&self, l: &Layout) -> (f32, f32) {
+        (self.pointer.0 / l.k, self.pointer.1 / l.k)
+    }
+
     /// What lies in a slot as this client has it; creative's grid holds a full stack of anything.
     fn slot_at(&self, h: Holder, i: u16) -> Slot {
         match h {
@@ -192,7 +211,7 @@ impl App {
     /// drawn as that pack, no container beside the slots; items.md "The screen", when players miss them.
     pub(crate) fn inv_click(&mut self, right: bool, shift: bool) {
         let l = self.inv_layout();
-        let p = self.pointer;
+        let p = self.inv_pointer(&l);
         // a lifted stack the server took away meanwhile (a pile picked up, a refused move): let go
         if let Some((h, i, n)) = self.lifted {
             if self.slot_at(h, i).is_none_or(|s| s.n < n) {
@@ -308,9 +327,16 @@ impl App {
     /// The screen over the world (ADR 0113): the window in the Esc menu's glass, its title row, its sections
     /// under small headings, the slots and what they hold (pictures of their models where there are some),
     /// survival's ape, the lifted stack at the pointer and a tooltip on the one under it.
-    pub(crate) fn inv_draw(&self, p: &mut hud::Paint, season: (f64, f64)) {
+    pub(crate) fn inv_draw(&self, out: &mut hud::Paint, season: (f64, f64)) {
         let l = self.inv_layout();
-        let pointer = self.pointer;
+        // drawn on a canvas 1 / k as large over the same screen: all of it smaller when the UI is small
+        let mut scaled = hud::Paint::new(out.w / l.k, out.h / l.k);
+        self.inv_draw_in(&mut scaled, &l, season);
+        out.out.extend(scaled.out);
+    }
+
+    fn inv_draw_in(&self, p: &mut hud::Paint, l: &Layout, season: (f64, f64)) {
+        let pointer = self.inv_pointer(l);
         let [px0, py0, pw, _] = l.panel;
         // the world a little darker under it, as under the menu
         p.rect(0.0, 0.0, p.w, p.h, [0.0, 0.01, 0.03, 0.35], 0);
@@ -331,7 +357,7 @@ impl App {
                 p.rect(b[0], b[1], b[2], b[3], [0.01, 0.03, 0.06, 0.95], 0);
                 edge(p, *b, if on { CYAN } else { [1.0, 1.0, 1.0, 0.16] });
                 let cols = ((b[2] - 16.0) / (hud::ADV * hud::PX)) as usize;
-                let q: String = self.inv_query.chars().rev().take(cols - 1).collect::<Vec<_>>().into_iter().rev().collect();
+                let q: String = self.inv_query.chars().rev().take(cols.saturating_sub(1)).collect::<Vec<_>>().into_iter().rev().collect();
                 if q.is_empty() && !on {
                     p.text_px(b[0] + 8.0, b[1] + 8.0, "Search...", dim, hud::PX);
                 } else {
@@ -370,7 +396,7 @@ impl App {
                 p.text(l.rows[0] + (l.rows[2] - hud::text_width(&s)) / 2.0, l.rows[1] + l.rows[3] / 2.0 - 10.0, &s, dim);
             }
         } else {
-            self.ape_draw(p, &l, season);
+            self.ape_draw(p, l, season);
             let worn = self.inv.get(items::WORN).copied().flatten().and_then(|s| ITEMS.get(s.item));
             match worn {
                 Some(d) => head(p, l.rows[0], l.rows[1], &format!("{} - {} slots", d.name, d.pack)),
