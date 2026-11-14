@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Puts the game on the home server (ADR 0130): `bash tools/deploy.sh` does both halves, so they match;
-# `server` builds the committed source in Docker there and restarts the container, `client` uploads
-# build/TechnoApe.exe with data/ as the zip the web page (http://$HOST:7780) hands out.
+# `server` builds the committed source in Docker there and restarts the container, `client` builds the friends' client and
+# uploads it with data/ and the launcher as the zip the web page (http://$HOST:7780) hands out.
 # HOST is the server's Tailscale address: it works from anywhere the tailnet does.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -16,18 +16,23 @@ if [[ "$what" != client ]]; then
   git archive HEAD Cargo.toml Cargo.lock .cargo crates data deploy | ssh "root@$HOST" "rm -rf $DIR/src && mkdir -p $DIR/src && tar -xm -C $DIR/src"
   ssh "root@$HOST" "cd $DIR/src && docker build -f deploy/Dockerfile -t technoape-server . > $DIR/build.log 2>&1 || { tail -40 $DIR/build.log; exit 1; }
     docker rm -f technoape-server >/dev/null 2>&1
-    docker run -d --name technoape-server --network host --restart unless-stopped \
+    docker run -d --name technoape-server --network host --restart unless-stopped       --stop-timeout 30 --label net.unraid.docker.webui=http://$HOST:7780/ \
       -v $DIR/data:/data -v /etc/localtime:/etc/localtime:ro technoape-server"
 fi
 
 if [[ "$what" != server ]]; then
+  # the friends' build: any CPU with AVX2 (2013 on) and no Visual C++ runtime to install, not this PC's own CPU
+  export PATH="$HOME/Tools/rust/cargo/bin:$PATH" CARGO_HOME="$HOME/Tools/rust/cargo" RUSTUP_HOME="$HOME/Tools/rust/rustup"
+  RUSTFLAGS="-C target-cpu=x86-64-v3 -C target-feature=+crt-static" cargo build --profile play -p client --target-dir target/friends
   stage=out/deploy/TechnoApe
   rm -rf out/deploy && mkdir -p "$stage"
-  cp build/TechnoApe.exe "$stage/"
+  cp target/friends/play/technoape.exe "$stage/TechnoApe.exe"
   cp -r data "$stage/data"
-  printf '@echo off\r\ncd /d "%%~dp0"\r\nstart "" TechnoApe.exe run=play onscreen=1 connect=%s:7777 name=%%USERNAME%%\r\n' "$HOST" > "$stage/Join Tower.bat"
+  echo "$version" > "$stage/version.txt"
+  cp "$stage/version.txt" out/deploy/version.txt
+  # the launcher updates the folder from the page before it joins (deploy/join.bat)
+  sed -e "s/100\.124\.84\.125/$HOST/g" -e 's/\r$//' -e 's/$/\r/' deploy/join.bat > "$stage/Join Tower.bat"
   python -I -c "import shutil; shutil.make_archive('out/deploy/TechnoApe', 'zip', 'out/deploy', 'TechnoApe')"
-  echo "$version" > out/deploy/version.txt
   ssh "root@$HOST" "mkdir -p $DIR/data/client"
   # the zip under another name first: a download in flight never gets half a file
   scp -q out/deploy/TechnoApe.zip "root@$HOST:$DIR/data/client/TechnoApe.zip.new"

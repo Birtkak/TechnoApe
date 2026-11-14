@@ -26,6 +26,7 @@ try:
     page = get("/").decode()
     assert "abc1234 &lt;test&gt;" in page and "/TechnoApe.zip" in page, page
     assert get("/TechnoApe.zip") == b"PK-stand-in"
+    assert get("/version.txt") == b"abc1234 <test>"
     try:
         get("/../web.py")
         raise AssertionError("served a path outside the three")
