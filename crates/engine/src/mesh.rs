@@ -918,7 +918,7 @@ mod tests {
             }
             let m = super::tests::sloped(&c);
             for q in &m.quads {
-                sloped +=(q[0] >> 31) as usize;
+                sloped += (q[0] >> 31) as usize;
                 for t in triangles(q) {
                     let t = t.map(|p| [p[0] + 32 * k, p[1], p[2]]);
                     let (e1, e2) = (t[1].map(|v| v as i64), t[2].map(|v| v as i64));

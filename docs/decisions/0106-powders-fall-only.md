@@ -43,6 +43,11 @@ gaps between chunks) now call `step_as`/`mesh_as` with the switch on, so they st
   the overseer's call after looking.
 - Revisit: when a better fix for powders is found (finer cells, a real angle of rest), start from the switch.
 
+## Review (principle 12)
+A fresh reviewer read the diff with the task (with ADR 0107's): the switch is clean (the only sideways branch,
+the slope pass at every level through `mesh_cracked`, the glide and so `Streamer::gliding`, the hiss only on
+sideways moves); one lost space in a test, fixed.
+
 ## Cost
 `run=fly quick=1`, play build, one run (`bash tools/slot.sh measure`, the PC shared with other agents' builds):
 
