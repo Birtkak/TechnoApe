@@ -669,6 +669,13 @@ fn a_fine_face_halved_keeps_its_quarters_in_place_and_its_holes() {
     assert_eq!(h[0], [10, 20, 30, 255]);
     assert_eq!(h[15], [200, 100, 50, 255], "the top right quarter at the top right");
     assert_eq!(h[8 * 16], [0; 4], "three of four empty: a hole");
+    // two of four there: a pixel, the mean of the two
+    let mut q = [[[0u8; 4]; 256]; 4];
+    q[3][0] = [100, 0, 0, 255];
+    q[3][17] = [200, 50, 0, 255];
+    assert_eq!(halve(&q)[8 * 16 + 8], [150, 25, 0, 255], "two of four: there");
+    q[3][17] = [0; 4];
+    assert_eq!(halve(&q)[8 * 16 + 8], [0; 4], "one of four: a hole");
 }
 
 /// A block as the hotbar's cubes draw it in the season `sn` where the player stands (`season_here`): top
@@ -1323,7 +1330,7 @@ impl Gpu {
         self.queue.write_buffer(&self.looks, 0, bytemuck::cast_slice(&looks_of(&placed)));
         *SHOWN.write().unwrap() = shown;
         // a fine face (ADR 0090): its first 32 x 32 variant (four quarters) halved to 16 x 16 (ADR 0113)
-        let first = |f: &Option<engine::textures::Face>| f.as_ref().map(|f| if f.fine && f.variants.len() >= 4 { halve(&f.variants[..4]) } else { f.variants[0] });
+        let first = |f: &Option<engine::textures::Face>| f.as_ref().and_then(|f| match (f.fine, f.variants.len()) { (true, 4..) => Some(halve(&f.variants[..4])), (true, _) => None, _ => f.variants.first().copied() });
         *PAINTING.write().unwrap() = placed.iter().filter(|((_, q), _, _)| *q == 0).map(|((id, _), p, _)| (*id, [first(&p.faces[0]), first(&p.faces[1])])).collect();
     }
 
