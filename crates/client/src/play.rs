@@ -168,6 +168,7 @@ impl App {
             "L" if self.aim.is_some_and(|(_, before)| self.pickup(before)) => {
                 let at = self.aim.unwrap().1;
                 self.link.send(ToServer::Take { seq: self.pred.seq(), at });
+                self.swung(self.start.elapsed().as_secs_f64());
             }
             // knapping by doing (ADR 0110): the place button with a knapping stone in hand on hard rock strikes it
             "R" if self.knap_target().is_some() => self.strike(),
@@ -961,7 +962,14 @@ impl App {
         let m = self.world.block(hit);
         self.fx.play(fx::id("knap"), &fx::At::cell(&self.world, hit, m));
         self.audio.play("knap", Some(self.world.block_centre(hit)), 1.0, 1.0, false);
-        self.dip = fx::Track { tween: fx::Tween::new(now, 0.18, fx::Curve::Pulse), from: [0.0; 2], to: [-46.0, 60.0] };
+        self.swung(now);
+    }
+
+    /// One swing of the hand (ADR 0115): a dig, a place, a strike, a pick-up, each hit of a held dig; the block
+    /// drawn in hand dips on it (ADR 0031), a model in hand or the bare arm strikes in toward the aim (models.rs). A new one
+    /// starts it over.
+    pub(crate) fn swung(&mut self, now: f64) {
+        self.dip = fx::Track { tween: fx::Tween::new(now, crate::models::SWING_S, fx::Curve::Pulse), from: [0.0; 2], to: [-46.0, 60.0] };
     }
 
     pub(crate) fn held_count(&self, m: u16) -> u32 {
@@ -991,7 +999,7 @@ impl App {
         }
         // what the player sees of it at once (ADR 0031): the hand dips, the cells break or place with their effects
         let now = self.start.elapsed().as_secs_f64();
-        self.dip = fx::Track { tween: fx::Tween::new(now, 0.18, fx::Curve::Pulse), from: [0.0; 2], to: [-46.0, 60.0] };
+        self.swung(now);
         // the cells' deltas, as the server's are (frame.rs): each its effect, the first its sound, heard the
         // frame of the click (fundamentals.md)
         let me = &self.me;
@@ -1056,6 +1064,7 @@ impl App {
         if now - self.dig_hit >= HIT_S {
             self.dig_hit = now;
             self.hit(&s);
+            self.swung(now);
         }
         if self.hold.held(&s, now) >= edit::dig_time_with(&self.world, &s, self.hand_tool()) {
             self.hold.done();

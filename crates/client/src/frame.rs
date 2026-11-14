@@ -919,10 +919,9 @@ impl App {
         gpu.take_textures();
         // the models (ADR 0047): the watcher's newest, then this frame's pieces (timed under "table")
         self.models.take(&gpu.queue, &gpu.mquads);
-        let hand = (self.run == "play" && !self.hammer && !self.bucket && !self.f3 && self.home() != Menu::Title)
-            .then(|| self.inv.get(self.slot).copied().flatten())
-            .flatten()
-            .map(|s| engine::items::ITEMS.name(s.item).to_string());
+        let hand = hand_shown(self.run == "play", self.hammer || self.bucket, self.f3, self.home(), self.menu)
+            .then(|| self.inv.get(self.slot).copied().flatten().map(|s| engine::items::ITEMS.name(s.item).to_string()));
+        let swing = crate::models::swing(self.start.elapsed().as_secs_f64() - self.dip.tween.start);
         let now = Instant::now();
         let herd: Vec<crate::models::Beast> = self
             .animals
@@ -932,7 +931,7 @@ impl App {
                 Some(crate::models::Beast { id: *id, model: model.clone(), act: a.act, pos: self.animal_at(*id, now)?, fwd: DVec3::from_array(a.fwd.map(f64::from)), scale: *scale })
             })
             .collect();
-        self.models.frame(&self.world, &cams, cf, (p.pos, p.fwd, up), self.view.as_ref().map_or(self.start.elapsed().as_secs_f64(), |v| v.t), hand.as_deref(), &herd, &mut self.fx, &mut self.audio);
+        self.models.frame(&self.world, &cams, cf, (p.pos, p.fwd, up), self.view.as_ref().map_or(self.start.elapsed().as_secs_f64(), |v| v.t), hand.as_ref().map(|n| crate::models::Hand { item: n.as_deref(), swing }), &herd, &mut self.fx, &mut self.audio);
         self.models.upload(&gpu.queue, &gpu.mpieces);
         // the lamps: gathered again when they change or every 10 frames, placed and gridded every frame
         let ec = self.world.lights_rev;
@@ -1437,9 +1436,28 @@ impl crate::app::App {
     }
 }
 
+/// Whether anything is shown in hand at the lower right (ADR 0115): in play, no hammer or bucket up, no F3, not
+/// the title's world, not dead.
+fn hand_shown(play: bool, tool: bool, f3: bool, home: Menu, menu: Option<Menu>) -> bool {
+    play && !tool && !f3 && home != Menu::Title && menu != Some(Menu::Dead)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR 0115: the hand (an item or the bare arm) shows in play, not with a tool of its own up, the numbers'
+    /// overlay, the title's world behind its menu, or the death screen.
+    #[test]
+    fn the_hand_shows_in_play_only() {
+        assert!(hand_shown(true, false, false, Menu::Pause, None));
+        assert!(hand_shown(true, false, false, Menu::Pause, Some(Menu::Inventory)), "as the held item does today");
+        assert!(!hand_shown(false, false, false, Menu::Pause, None), "not in a benchmark run");
+        assert!(!hand_shown(true, true, false, Menu::Pause, None), "the hammer or the bucket up");
+        assert!(!hand_shown(true, false, true, Menu::Pause, None), "F3");
+        assert!(!hand_shown(true, false, false, Menu::Title, None), "the title's world");
+        assert!(!hand_shown(true, false, false, Menu::Pause, Some(Menu::Dead)), "dead");
+    }
 
     #[test]
     fn indexed_quads_draw_both_triangles_of_every_split_with_its_own_provoking_corner() {
