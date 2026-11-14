@@ -18,7 +18,7 @@ pub const WALK: f64 = 4.3;
 pub const SPRINT: f64 = 1.5;
 /// The push of a jump, m/s, the same on every body: 1.25 m high at G stepped at DT (ADR 0037); higher
 /// where gravity is weaker.
-pub const JUMP: f64 = 4.87;
+pub const JUMP: f64 = 6.84;
 pub const G: f64 = crate::world::G;
 /// Swimming (ADR 0020): rising speed with jump held, m/s; a body floats with this share of it under water.
 pub const SWIM: f64 = 2.0;
@@ -41,7 +41,7 @@ pub const HOLD: f64 = 8.0;
 pub const NEAR: f64 = 1500.0;
 /// Out of a hold the mouse's pitch turns the body itself and Q/E roll it, where the pull is under FREE_G or
 /// has not righted the body to within FREE_TILT yet; otherwise it tilts the head over the body's horizon.
-pub const FREE_G: f64 = 1.0;
+pub const FREE_G: f64 = G / 9.81;
 pub const FREE_TILT: f64 = 0.1;
 
 /// What a player wants this tick: `mv` is forward and right in -1..1, `pitch` the head's look over the body's
@@ -629,6 +629,27 @@ mod tests {
         let (hl, gl) = peak(&w, 1);
         eprintln!("Terra: {h:.3} m at {g:.3} m/s^2; Luna: {hl:.2} m at {gl:.3} m/s^2");
         assert!(gl < G / 3.0 && hl > 4.0 && (hl * gl / (h * g) - 1.0).abs() < 0.03, "Luna: {hl} m at {gl}");
+    }
+
+    /// Terra pulls twice as hard as the Earth (the developer, 2026-11-15: the Earth's felt floaty): a jump is
+    /// still a block and a quarter, over in 0.71 s instead of 1.0 s.
+    #[test]
+    fn terra_pulls_twice_the_earths_and_a_jump_is_quicker() {
+        assert!((G - 2.0 * 9.81).abs() < 1e-9, "{G}");
+        let w = World::new(6144, crate::bodies::columns(1, 6144), 1337);
+        let b = &w.bodies[0];
+        let mut p = Player::at(b.centre + b.spawn * (b.height(b.spawn) + 3.0), DVec3::X);
+        for _ in 0..240 {
+            step(&w, &mut p, &Input::default(), DT);
+        }
+        step(&w, &mut p, &Input { jump: true, ..Default::default() }, DT);
+        let mut steps = 1;
+        while !p.on_ground && steps < 600 {
+            step(&w, &mut p, &Input::default(), DT);
+            steps += 1;
+        }
+        let air = steps as f64 * DT;
+        assert!((air - 0.71).abs() < 0.04, "{air} s in the air");
     }
 
     /// Gravity (ADR 0037, 0041): G at Terra's sea level whatever its size, its radius over

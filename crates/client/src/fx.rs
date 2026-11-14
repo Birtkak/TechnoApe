@@ -1089,7 +1089,9 @@ impl Fx {
     /// Moves every particle on by dt: the body's pull towards its centre, drag, the floor of its column; the
     /// dead go, the living are packed for the GPU (`drawn`) in the same pass.
     pub fn step(&mut self, world: &World, dt: f32) {
-        let g0 = engine::phys::G as f32;
+        // the Earth's pull, not `phys::G`: the effects were tuned by eye before Terra got heavier (2026-11-15), and a
+        // row's `gravity` is a share of this
+        let g0 = 9.81f32;
         // the file changed: its rows in, or why not
         if let Some(got) = self.rx.as_ref().and_then(|rx| rx.try_iter().last()) {
             match got.and_then(|set| self.swap(set)) {

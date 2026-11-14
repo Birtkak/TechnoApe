@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 pub const MAX: u8 = 20;
 /// The impact scale, in metres of a fall on Terra: a hit at the speed a SAFE_FALL lands at costs nothing,
 /// and each metre of such a fall more costs a point. In speed: points = v^2 / (2 G) - SAFE_FALL, rounded,
-/// with G Terra's pull at the surface (`phys::G`): 7.7 m/s is free, 21 m/s (a 23 m fall) kills from full.
+/// with G Terra's pull at the surface (`phys::G`): 10.8 m/s is free, 30 m/s (a 23 m fall) kills from full.
 pub const SAFE_FALL: f64 = 3.0;
 /// Hunger lost per physics step standing: the whole of it in one game day.
 pub const DRAIN: f64 = MAX as f64 / (crate::sky::DAY / phys::DT);
@@ -197,7 +197,7 @@ mod tests {
         assert_eq!((impact_damage(0.0), t(1.2), t(3.0), impact_damage(safe_speed())), (0, 0, 0, 0));
         assert_eq!((t(4.0), t(8.0), t(13.0)), (1, 5, 10));
         assert_eq!(t(23.0), MAX, "about 23 m kills from full");
-        assert!((impact_damage(21.0) as i32 - 20).abs() <= 1, "21 m/s kills: {}", impact_damage(21.0));
+        assert!((impact_damage(30.0) as i32 - 20).abs() <= 1, "30 m/s kills: {}", impact_damage(30.0));
         assert_eq!(impact_damage(1e6), u8::MAX, "a hit at orbital speed saturates");
     }
 
