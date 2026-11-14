@@ -1032,6 +1032,34 @@ key = [
         assert!(p.frame().transform_vector3(Vec3::Z).length() < 0.1 * k);
     }
 
+    /// Review of ADR 0114: a turned box's pixel quads, placed by `frame`, lie where the chunk's still quads put its
+    /// faces (`Bx::faces`): each pixel's middle on its face, for a box and for a plane's two faces.
+    #[test]
+    fn a_turned_boxs_pixel_quads_lie_on_its_faces_as_the_clutter_draws_them() {
+        for b in [Bx { at: [13.0, 0.0, 13.0], size: [6, 2, 5], turn: [8.0, 35.0, 0.0], uv: [0, 0] }, Bx { at: [9.0, 0.5, 16.0], size: [4, 3, 0], turn: [0.0, 90.0, 12.0], uv: [0, 0] }] {
+            let [w, h] = [b.rects().iter().map(|r| r[0] + r[2]).max().unwrap(), b.rects().iter().map(|r| r[1] + r[3]).max().unwrap()];
+            let paint = Painting { w, h, px: vec![[1, 2, 3, 255]; (w * h) as usize] };
+            let q = b.pixel_quads(&paint);
+            // each face's pixels in `faces`' order, v then u, as `pixel_quads` lays them
+            let want: Vec<Vec3> = b
+                .faces()
+                .iter()
+                .flat_map(|&(o, eu, ev, r)| (0..r[3]).flat_map(move |v| (0..r[2]).map(move |u| o + eu * ((u as f32 + 0.5) / r[2] as f32) + ev * ((v as f32 + 0.5) / r[3] as f32))))
+                .map(|p| p * (PIXEL / VOXEL))
+                .collect();
+            assert_eq!(q.len(), want.len(), "{b:?}");
+            let f = b.frame();
+            for ((q, _), want) in q.iter().zip(&want) {
+                // the quad's middle on its face: the cell's middle, moved half a cell out along its normal
+                let a = q.dir as usize / 2;
+                let mut mid = Vec3::from(q.at.map(f32::from)) + 0.5;
+                mid[a] += if q.dir % 2 == 0 { 0.5 } else { -0.5 };
+                let got = f.transform_point3(mid);
+                assert!((got - *want).length() < 0.02, "{b:?} dir {}: {got} against {want}", q.dir);
+            }
+        }
+    }
+
     /// ADR 0114: `item`, one cell's size as an item, is 0.05 to 1 m, named when refused; absent it is not written.
     #[test]
     fn an_items_size_is_held_to_its_range_and_absent_is_not_written() {

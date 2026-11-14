@@ -181,7 +181,7 @@ pub struct Models {
     tex_block: String,
     part_name: String,
     /// What the renderer was last given: the model's name, edit count, slice, and how often it was written.
-    written: Option<(String, u64, Option<f32>)>,
+    written: Option<(String, u64, Option<f32>, Option<std::time::SystemTime>)>,
     gen: u64,
     /// One history step for a whole drag of a value.
     merging: Option<String>,
@@ -425,7 +425,9 @@ impl Models {
         };
         let rev = self.docs[&name].rev;
         let top = self.layer_top();
-        let now = Some((name.clone(), rev, top));
+        // (and its painting's time: a repainted .png is handed over again with the model unchanged)
+        let painted = std::fs::metadata(format!("{MODELS}/{name}.png")).and_then(|m| m.modified()).ok();
+        let now = Some((name.clone(), rev, top, painted));
         if self.written != now {
             let (m, life) = (&self.docs[&name].m, &self.docs[&name].life);
             let shown = match top {
@@ -435,9 +437,11 @@ impl Models {
             let dir = format!("{DIR}/models");
             let _ = std::fs::create_dir_all(&dir);
             // the unsaved copy with its life, so a state plays before it is saved
-            // and its painting, so its painted boxes are drawn too (ADR 0114); none, none left from another model
-            if std::fs::copy(format!("{MODELS}/{name}.png"), format!("{dir}/studio.png")).is_err() {
-                let _ = std::fs::remove_file(format!("{dir}/studio.png"));
+            // and its painting, so its painted boxes are drawn too (ADR 0114), written whole under another name and
+            // renamed, so the renderer never reads half of it; none, none left from another model
+            let (tmp, png) = (format!("{dir}/studio.png.part"), format!("{dir}/studio.png"));
+            if std::fs::copy(format!("{MODELS}/{name}.png"), &tmp).and_then(|_| std::fs::rename(&tmp, &png)).is_err() {
+                let _ = std::fs::remove_file(&png);
             }
             if std::fs::write(format!("{dir}/studio.toml"), voxel::text_life(&shown, life)).is_ok() {
                 self.gen += 1;
