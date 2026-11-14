@@ -622,8 +622,13 @@ impl Models {
             let floor = body.layer_r(b.pos.z as f64);
             let at = |p: DVec3| crate::fx::At::point(b.body, p - body.centre, DVec3::ZERO, floor);
             if run.fx.is_empty() {
+                // a placed block that gives light is its own lamp: its effects' glow adds none (ADR 0117)
+                let lit = world.models.get(&b).and_then(|id| BLOCKS.get(*id)).is_some_and(|d| d.light != [0.0; 3]);
                 for e in &s.effects {
                     if let Some(h) = fx.start(&e.effect, &at(point(Some(&e.point)))) {
+                        if lit {
+                            fx.unlit(h);
+                        }
                         run.fx.push((h, e.point.clone()));
                     }
                 }
@@ -1539,6 +1544,36 @@ want {want:?}");
         w.set_block(Block { pos: up.pos - glam::IVec3::X, ..up }, BLOCKS.id("stone"));
         w.set_block(up, BLOCKS.id("torch"));
         assert_eq!(lean(&w, up), hang(Some((-1, 0, 0))));
+    }
+
+    /// ADR 0117: a torch is one light. Placed, its block's light, with effects on or off (its flame's glow adds
+    /// no lamp of its own); held, the hand's lamp only.
+    #[test]
+    fn a_torch_is_one_light_placed_or_held() {
+        let mut w = World::new(768, 256, 1);
+        let cell = w.air_over_ground(0, w.bodies[0].spawn);
+        w.set_block(cell, BLOCKS.id("torch"));
+        let c = w.block_centre(cell);
+        let cams = vec![(c, DMat3::IDENTITY); w.bodies.len()];
+        let eye = (c + DVec3::X * 2.0, -DVec3::X, (c - w.bodies[0].centre).normalize());
+        for on in [true, false] {
+            let mut m = Models::new(&crate::Args([("models".to_string(), "no/such/folder".to_string())].into_iter().collect()));
+            let l = shipped("torch");
+            let parts = l.quads.iter().map(|q| (0, q.len() as u32)).collect();
+            m.list = vec![(l, parts)];
+            let (mut fx, mut audio) = (crate::fx::Fx::new(on, 4096, 1.0, 1), crate::audio::Audio::new());
+            for k in 0..5 {
+                m.frame(&w, &cams, 0, eye, k as f64 * 0.1, None, &[], &mut fx, &mut audio);
+                fx.step(&w, 0.1);
+            }
+            assert!(!on || fx.live() > 0, "its flame plays");
+            let n = w.lights.keys().filter(|b| **b == cell).count() + fx.lamps().len() + m.lamps().len();
+            assert_eq!(n, 1, "placed, effects {on}: one lamp (block {:?}, fx {:?}, states {:?})", w.lights.get(&cell), fx.lamps(), m.lamps());
+            m.frame(&w, &cams, 0, eye, 1.0, Some(Hand { item: Some("torch"), swing: 0.0 }), &[], &mut fx, &mut audio);
+            fx.step(&w, 0.1);
+            let held = crate::gpu::held_lamp(&w, BLOCKS.get(BLOCKS.id("torch")), 0, eye.0, eye.1, eye.2);
+            assert_eq!(held.iter().count() + m.lamps().len(), 1, "held: the hand's lamp alone");
+        }
     }
 
     /// A model of `data/models` loaded as `load` loads it: its painting, its boxes, its pictures.

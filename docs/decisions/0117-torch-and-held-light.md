@@ -58,8 +58,17 @@ Stills (play build, 768 planet, seed 1; `out/torch/`, not committed):
 - Not shot: a torch lying dropped after a click in play (at the shot's spot the aim stops at the meadow grass in
   front of the torch; the server test takes it by a survival click and counts one torch).
 
-Costs (`docs/perf-debt.md`): 200 torches in view take the frame from 5.6 to 24 ms p99 without effects and 44
-with them (two lamps a torch with effects on); one held light +0.8 ms GPU.
+Costs (`docs/perf-debt.md`): 200 torches in view (a checkerboard on a 20 x 20 floor) take the frame from 6.2 to
+28.4 ms p99 with effects off and 29.1 with them (before the one-light fix 43.7: two lamps a torch with effects
+on); 200 lamp blocks on the same cells 18.2; one held light +0.8 ms GPU.
+
+**One light (round 3, after the costs).** A placed block that gives light is its own lamp: the effects its model's
+state starts glow with no lamp of their own (`Fx::unlit`, the particles as bright as before). A held torch was
+already one lamp (`gpu::held_lamp`; the hand plays no state). Test `a_torch_is_one_light_placed_or_held` (seen
+failing first: block light and the flame's glow, 2). `out/torch/one_light_pair.png`: the same placed torch at
+midnight before | after, the flame and the lit ground alike. A torch's light costs more than a lamp block's for the
+same count because a lamp block's faces take no light and hide the ground under them; the lamp's reach is one
+for all (24 m), so nothing was set; a reach per lamp is the idea in the perf-debt row.
 
 ## Shortcuts
 - `shortcut:` another player's held light moves at the roster's 1 Hz; per tick when players are drawn moving.
