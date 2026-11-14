@@ -15,7 +15,8 @@
 //!   put a dx dy dz k n  n from slot a to slot k of the pile there  grab item a n  creative's grid: n into a
 //! Tools (ADR 0110): `hold k` takes hotbar slot k in hand (a survival dig uses its tool); `strike dx dy dz` strikes
 //! what is in hand on that block (the place button with flint: knapping). `slots` gives a tool's digs left too.
-//! Sprint (ADR 0118): `sprint on` makes every walk after it a sprint, `sprint off` a walk again.
+//! Sprint (ADR 0118): `sprint on` makes every walk after it a sprint, `sprint off` a walk again. A walk looks at
+//! its target, so in water a sprint swims to it, down or up as well (a dive, a lake's crossing at the surface).
 use engine::edit::Shape;
 use engine::items::{Holder, Slot, ITEMS};
 use engine::net::{Link, Recv, ToClient, ToServer, TICK_HZ};
@@ -228,8 +229,11 @@ impl Bot {
             self.digging = None;
         }
         if let Some((t, deadline)) = self.target {
-            let d = (t - self.pos).reject_from(phys::up(w, self.pos));
+            let up = phys::up(w, self.pos);
+            let d = (t - self.pos).reject_from(up);
             let dist = d.length();
+            // the look at the target (a swim's stroke follows it; a walk ignores it)
+            let pitch = (t - self.pos).dot(up).atan2(dist).clamp(-1.5, 1.5) as f32;
             let late = Instant::now() > deadline;
             if dist < ARRIVE || late {
                 if late {
@@ -240,7 +244,7 @@ impl Bot {
             } else {
                 // jump when the last tick brought it no closer: a ledge is in the way
                 let jump = dist > self.last_dist - 0.02;
-                self.link.send(ToServer::input(Input { mv: [1.0, 0.0], jump, fwd: (d / dist).as_vec3().to_array(), pitch: 0.0, sprint: self.sprint, ..Default::default() }));
+                self.link.send(ToServer::input(Input { mv: [1.0, 0.0], jump, fwd: (d / dist).as_vec3().to_array(), pitch, sprint: self.sprint, ..Default::default() }));
             }
             self.last_dist = dist;
         }
@@ -550,6 +554,43 @@ mod tests {
         let (walk, sprint) = (covered(false), covered(true));
         eprintln!("60 ticks: walked {walk:.2} m, sprinted {sprint:.2} m");
         assert!((sprint / walk - 1.5).abs() < 0.1, "walked {walk:.2} m, sprinted {sprint:.2} m");
+    }
+
+    /// Swimming by script (ADR 0118): a sprinting bot set down in the sea swims 15 m across it at the stroke's
+    /// speed and arrives.
+    #[test]
+    fn a_sprinting_bot_swims_across_the_sea() {
+        let w = World::new(256, 32, 1);
+        let b = &w.bodies[0];
+        let sea = b.radius - engine::world::SEA_DEPTH;
+        // a way 15 m long over sea at least 3 m deep
+        let (d, way) = (0..4000)
+            .map(|k| {
+                let z = 1.0 - 2.0 * (k as f64 + 0.5) / 4000.0;
+                let t = k as f64 * 2.4;
+                DVec3::new((1.0 - z * z).sqrt() * t.cos(), z, (1.0 - z * z).sqrt() * t.sin())
+            })
+            .find_map(|d| {
+                let a = phys::tangent(DVec3::X, d, DVec3::Z);
+                (0..=18).all(|k| b.height((d * sea + a * k as f64).normalize()) < sea - 3.0).then_some((d, a))
+            })
+            .expect("open sea");
+        let (at, go) = (b.centre + d * (sea - 1.0), way * 15.0);
+        let (tx, rx) = channel();
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(200.0, &std::sync::atomic::AtomicBool::new(false)));
+        let (c, s) = local();
+        tx.send(s).unwrap();
+        let mut bot = Bot::new("swimmer", c);
+        let mut out = Vec::new();
+        bot.run(parse_script(&format!("wait 0.5; spawn {} {} {}; wait 0.5; sprint on", at.x, at.y, at.z)).unwrap(), None, |l| out.push(l));
+        let (from, t) = (bot.pos, Instant::now());
+        bot.run(parse_script(&format!("walk {} {} {}", go.x, go.y, go.z)).unwrap(), None, |l| out.push(l));
+        let secs = t.elapsed().as_secs_f64();
+        let up = phys::up(bot.world.as_ref().unwrap(), bot.pos);
+        let crossed = (bot.pos - from).reject_from(up).length();
+        eprintln!("swam {crossed:.2} m in {secs:.2} s");
+        assert!(out.iter().all(|l| !l.contains("gave up")) && crossed > 14.0, "{crossed} m in {secs} s: {out:?}");
+        assert!(secs < 15.0 / phys::SWIM_SLOW, "faster than the slow swim: {secs} s");
     }
 
     #[test]
