@@ -139,12 +139,14 @@ pub fn swing(age: f64) -> f32 {
 /// the way from there to the shoulder, below and right, out of the view. The developer's call; tuned by eye.
 const ARM_HAND: [f64; 3] = [0.55, 0.30, -0.30];
 const ARM_WAY: [f64; 3] = [-0.75, 0.5, -0.45];
-/// The figure's part shown as the bare arm, and its length in voxels (ape.toml's `arm_r`: 5 tall).
+/// The figure's part shown as the bare arm (ape.toml's `arm_r`), with any part hung from it.
 const ARM: &str = "arm_r";
-const ARM_LEN: f32 = 5.0;
-/// The swing at its peak: turned down about the shoulder, and in toward the look, radians.
-const SWING_DOWN: f64 = 0.9;
-const SWING_IN: f64 = 0.3;
+/// The swing at its peak: the hand moved this share of the way to a point `SWING_AIM` times its own distance
+/// ahead on the look, and chopped down about itself, radians (turned down about the shoulder, the arm left the
+/// view).
+const SWING_REACH: f64 = 0.45;
+const SWING_AIM: f64 = 1.4;
+const SWING_CHOP: f64 = 0.35;
 
 /// The model the inventory shows large, standing, and the pixels of its picture and of a slot's.
 pub const FIGURE: &str = "ape";
@@ -707,14 +709,13 @@ impl Models {
             let up = right.cross(fwd);
             let eye_m = |v: [f64; 3]| fwd * v[0] + right * v[1] + up * v[2];
             let (hand_at, way) = (eye_m(ARM_HAND), eye_m(ARM_WAY).normalize());
-            // the swing turns about the shoulder: down past the look, and a little in
-            let shoulder = hand_at + way * (ARM_LEN * engine::models::VOXEL) as f64;
+            // the swing: the hand thrust toward the aim (a point ahead on the look) and chopped down about itself
             let sw = h.swing as f64;
+            let aim = fwd * ARM_HAND[0] * SWING_AIM;
             let turn = DMat4::from_mat3(cams[cf].1)
-                * DMat4::from_translation(shoulder)
-                * DMat4::from_axis_angle(up, SWING_IN * sw)
-                * DMat4::from_axis_angle(right, -SWING_DOWN * sw)
-                * DMat4::from_translation(-shoulder);
+                * DMat4::from_translation(hand_at + (aim - hand_at) * SWING_REACH * sw)
+                * DMat4::from_axis_angle(right, -SWING_CHOP * sw)
+                * DMat4::from_translation(-hand_at);
             match h.item {
                 Some(n) => {
                     if let Some(m) = drawn(&self.list, n) {
@@ -734,7 +735,7 @@ impl Models {
                         let az = ax.cross(way);
                         let o = hand_at - (ax * 0.5 + az) * v;
                         let x = DMat4::from_cols((ax * v).extend(0.0), (way * v).extend(0.0), (az * v).extend(0.0), o.extend(1.0));
-                        let rest = self.list[m].0.model.pose(None, 0.0)[a].as_dmat4() * DMat4::from_scale(DVec3::splat(v));
+                        let rest = self.list[m].0.model.pose(None, 0.0)[a].as_dmat4();
                         bare = Some((m, a, (turn * x * rest.inverse()).as_mat4()));
                     }
                 }
@@ -1382,6 +1383,11 @@ want {want:?}");
         assert_eq!(m.pieces.iter().map(|p| p.q0).collect::<Vec<_>>(), [arm * 1000], "the right arm, once");
         let h = hand_end(&m.pieces[0]);
         assert!(h.dot(fwd) > 0.2 && h.dot(right) > 0.0 && h.dot(up) < 0.0, "ahead, right and low: {h}");
+        // at the ape's own size: its 5 voxels, 0.625 m from hand to shoulder
+        let p = &m.pieces[0];
+        let r = Mat4::from_cols(Vec4::from(p.x[0]), Vec4::from(p.x[1]), Vec4::from(p.x[2]), Vec4::W).transpose();
+        let len = (r.transform_point3(Vec3::new(0.5, 5.0, 1.0)).as_dvec3() - h).length();
+        assert!((len - 0.625).abs() < 1e-3, "the arm {len} m long");
     }
 
     /// ADR 0115: nothing shown in hand (a hidden HUD, the death screen) draws no arm.
@@ -1390,13 +1396,20 @@ want {want:?}");
         assert!(ape_hand(None).0.pieces.is_empty());
     }
 
-    /// ADR 0115: the swing moves the arm forward and down at its peak and puts it back at its end.
+    /// ADR 0115: the swing strikes the hand in toward the aim at its peak, never out of the view (the first
+    /// pose turned it down and the arm left the screen for a third of the swing), and puts it back at its end.
     #[test]
-    fn the_swing_moves_the_arm_down_and_back() {
+    fn the_swing_strikes_toward_the_aim_and_back() {
         let at = |s: f32| hand_end(&ape_hand(Some(Hand { item: None, swing: s })).0.pieces[0]);
-        let (_, _, [_, up, _]) = ape_hand(None);
+        let (_, _, [fwd, up, _]) = ape_hand(None);
+        let off = |p: DVec3| p.angle_between(fwd);
         let (rest, peak) = (at(0.0), at(1.0));
-        assert!(peak.dot(up) < rest.dot(up) - 0.1, "down at the peak: {rest} then {peak}");
+        assert!(off(peak) < off(rest) - 0.1, "nearer the aim at the peak: {rest} then {peak}");
+        // the view's half height is 35 degrees: the hand stays inside it all the way
+        for k in 0..=10 {
+            let p = at(k as f32 / 10.0);
+            assert!(p.dot(up) / p.dot(fwd) > -32f64.to_radians().tan(), "in view at {k}/10: {p}");
+        }
         assert!((at(swing(SWING_S)) - rest).length() < 1e-6, "back at the end");
     }
 

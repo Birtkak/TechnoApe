@@ -929,7 +929,7 @@ impl App {
     }
 
     /// One swing of the hand (ADR 0115): a dig, a place, a strike, a pick-up, each hit of a held dig; the block
-    /// drawn in hand dips on it (ADR 0031), a model in hand or the bare arm turns down (models.rs). A new one
+    /// drawn in hand dips on it (ADR 0031), a model in hand or the bare arm strikes in toward the aim (models.rs). A new one
     /// starts it over.
     pub(crate) fn swung(&mut self, now: f64) {
         self.dip = fx::Track { tween: fx::Tween::new(now, crate::models::SWING_S, fx::Curve::Pulse), from: [0.0; 2], to: [-46.0, 60.0] };
