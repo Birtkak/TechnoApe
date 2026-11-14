@@ -121,7 +121,9 @@ pub struct Bot {
     id: u32,
     flying: bool,
     /// The walk: where to, and when to give up.
-    target: Option<(DVec3, Instant)>,
+    /// Where a walk goes and the tick it gives up at (ticks, not seconds: a test steps the server by hand).
+    target: Option<(DVec3, u64)>,
+    ticks: u64,
     last_dist: f64,
     notes: Vec<String>,
     /// The live air where it stands, as the server last sent it (W3).
@@ -145,7 +147,7 @@ pub struct Bot {
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, kinds: Vec::new(), animals: Default::default() }
+        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), ticks: 0, creative: true, digging: None, hand: 0, sprint: false, kinds: Vec::new(), animals: Default::default() }
     }
 
     fn feet(&self) -> DVec3 {
@@ -221,6 +223,7 @@ impl Bot {
         if !self.receive() {
             return false;
         }
+        self.ticks += 1;
         let Some(w) = self.world.as_ref() else { return true };
         if let Some((_, shape)) = self.digging.filter(|d| Instant::now() >= d.0) {
             self.seq += 1;
@@ -234,7 +237,7 @@ impl Bot {
             let dist = d.length();
             // the look at the target (a swim's stroke follows it; a walk ignores it)
             let pitch = (t - self.pos).dot(up).atan2(dist).clamp(-1.5, 1.5) as f32;
-            let late = Instant::now() > deadline;
+            let late = self.ticks > deadline;
             if dist < ARRIVE || late {
                 if late {
                     self.notes.push(format!("{{\"bot\":\"{}\",\"walk\":\"gave up\",\"left\":{:.2}}}", self.name, dist));
@@ -266,7 +269,7 @@ impl Bot {
             }
             Cmd::Walk(d) => {
                 // three times the time the distance takes, and 2 s: enough for hills, not for a cliff
-                let give_up = Instant::now() + Duration::from_secs_f64(d.length() / phys::WALK * 3.0 + 2.0);
+                let give_up = self.ticks + ((d.length() / phys::WALK * 3.0 + 2.0) * TICK_HZ) as u64;
                 (self.flying, self.last_dist, self.target) = (false, f64::MAX, Some((self.pos + *d, give_up)));
             }
             Cmd::Wait(s) => self.idle_until = Some(Instant::now() + Duration::from_secs_f64(*s)),
@@ -576,20 +579,36 @@ mod tests {
             })
             .expect("open sea");
         let (at, go) = (b.centre + d * (sea - 1.0), way * 15.0);
+        // the server stepped by hand, a tick for each of the bot's (ticks, not seconds: the review of ADR 0118)
         let (tx, rx) = channel();
-        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(200.0, &std::sync::atomic::AtomicBool::new(false)));
-        let (c, s) = local();
-        tx.send(s).unwrap();
+        let mut s = Server::new(256, 32, 1, rx);
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
         let mut bot = Bot::new("swimmer", c);
-        let mut out = Vec::new();
-        bot.run(parse_script(&format!("wait 0.5; spawn {} {} {}; wait 0.5; sprint on", at.x, at.y, at.z)).unwrap(), None, |l| out.push(l));
-        let (from, t) = (bot.pos, Instant::now());
-        bot.run(parse_script(&format!("walk {} {} {}", go.x, go.y, go.z)).unwrap(), None, |l| out.push(l));
-        let secs = t.elapsed().as_secs_f64();
+        let tick = |b: &mut Bot, s: &mut Server| {
+            b.tick();
+            s.tick();
+        };
+        for _ in 0..20 {
+            tick(&mut bot, &mut s);
+        }
+        bot.exec(&Cmd::Spawn(at));
+        bot.exec(&Cmd::Sprint(true));
+        for _ in 0..20 {
+            tick(&mut bot, &mut s);
+        }
+        let from = bot.pos;
+        bot.exec(&Cmd::Walk(go));
+        let mut n = 0;
+        while bot.target.is_some() && n < 1000 {
+            tick(&mut bot, &mut s);
+            n += 1;
+        }
+        let secs = n as f64 / TICK_HZ;
         let up = phys::up(bot.world.as_ref().unwrap(), bot.pos);
         let crossed = (bot.pos - from).reject_from(up).length();
-        eprintln!("swam {crossed:.2} m in {secs:.2} s");
-        assert!(out.iter().all(|l| !l.contains("gave up")) && crossed > 14.0, "{crossed} m in {secs} s: {out:?}");
+        eprintln!("swam {crossed:.2} m in {n} ticks ({secs:.2} s)");
+        assert!(bot.notes.iter().all(|l| !l.contains("gave up")) && crossed > 14.0, "{crossed} m in {n} ticks: {:?}", bot.notes);
         assert!(secs < 15.0 / phys::SWIM_SLOW, "faster than the slow swim: {secs} s");
     }
 

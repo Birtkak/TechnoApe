@@ -98,9 +98,9 @@ All in `phys::step`, so the server and the prediction agree as before (no new fi
 |---|---|---|
 | wading | on the bottom, the head out | a walk at `WALK * (1 - sub / 2)` (3.38 m/s 0.8 and 1 m deep), jumps as on land; a sprint still sprints with under 0.3 of the body in |
 | floating | in, the head out, no stroke | as ADR 0020: buoyancy holds 0.8 of the body under; jump swims up at 2 m/s and bobs at the surface; the down key dives at 2 m/s |
-| under | the feet more than `HEIGHT + UNDER` (2.0 m) under, no stroke | no gravity or buoyancy; the velocity eases (rate 4/s) to the ground's way at `SWIM_SLOW` (2.15 m/s) plus up 2 m/s on jump, down 2 m/s on the down key (Shift, now "Fly down, swim down"), else a slow sink of `SINK` 0.6 m/s |
-| stroke | sprint and forward with more than 0.6 of the body in | the velocity eases (4/s) to the look, pitch included, at `SWIM_FAST` 4 m/s (strafe at 2.15): look down to dive, up to surface; let go, it eases back to the slow move and the sink |
-| climbing out | in the water, jump held (or a stroke) and a wall ahead at the feet | up at least 2 m/s along the bank; at a ledge (its top within reach) the push is `CLIMB` 6 m/s, which lifts the feet over a bank a block high |
+| under | the feet more than `HEIGHT + UNDER` (2.0 m) under, no stroke (with hysteresis: a sinking body stays under to 1.9 m, a rising one leaves at 2.1 m) | no gravity or buoyancy; the velocity eases (rate 4/s) to the ground's way at `SWIM_SLOW` (2.15 m/s) plus up 2 m/s on jump, down 2 m/s on the down key (Shift, now "Fly down, swim down"), else a slow sink of `SINK` 0.6 m/s |
+| stroke | sprint and forward with more than 0.6 of the body in (0.5 once swimming fast, off the ground) | the velocity eases (4/s) to the look, pitch included, at `SWIM_FAST` 4 m/s (strafe at 2.15, the two together clamped to 4): look down to dive, up to surface; at the surface the look's rise is clipped at the float line (0.8 of the body under), so the stroke runs along it; let go, it eases back to the slow move and the sink |
+| climbing out | jump held (or a stroke) in real water (0.3 of the body in, or water, not a floor, under the feet) near the surface (not under), the look not down (pitch over -0.3), a wall ahead at the feet whose top is at or over the surface with room to stand within 1.5 m over it | up at least 2 m/s along the bank; at a ledge the push is `CLIMB` 6 m/s, which lifts the feet over a bank a block high. Elsewhere a stroke slides along a wall, and in a puddle jump is the old jump |
 
 The numbers are calls (taste, the developer may change them; each is one constant in `phys.rs`):
 | constant | value | what it sets |
@@ -150,6 +150,15 @@ never swam with jump at a wall in water and never held the down key while floati
 whose players went under water, or swam at a wall with jump, or held down while floating **replays differently from
 the first such step on**: a behaviour change, its replay diverges there.
 
+### Known: a rare correction while water moves
+The client's water levels can lag the server's by up to a tick while water flows, so near a moving surface a step's
+`sub`, its mode and `sprinted` (and with it the hunger drain) can differ for a step on the two sides; the next
+`You` reconciles it. A known source of a rare correction while water is moving; no change.
+
+### Soak hashes
+Bots now send a pitch with every walk (the look at their target, for the stroke). The state hash includes the
+pitch, so soak hashes differ from those before this branch even where the physics on land does not.
+
 ## Review
 A fresh reviewer read `727df052..566ca39b`. The wire, the recordings, speed cheating, creative and the key binding
 were found right. Fixed, each with a test seen red first where it could be:
@@ -167,3 +176,22 @@ were found right. Fixed, each with a test seen red first where it could be:
   "sprinted".
 - *The bot's sprint test timed real seconds on a live server thread*: it now steps a server and the bot in turn
   and compares the ground covered in 60 ticks (not seen red: a test made sturdier, not a fix).
+
+### Review of swimming
+A fresh reviewer read `fbd37313..claude/swimming`. Pitch and NaN, creative flight, dead players, fall damage, the
+hunger floor and recordings that never touch water were found right. Fixed, each test seen red on the code before:
+- *A stroke forward and to the side was faster* (4.54 m/s): the stroke's wanted velocity is clamped to `SWIM_FAST`
+  (`a_diagonal_stroke_is_no_faster`).
+- *The climb push fired at any wall in water*: a dive along a cliff was thrown up (`a_dive_along_a_cliff_keeps_going_down`,
+  red: 3 cm up a step), a block-high step of the sea floor launched the body at 6 m/s
+  (`a_stroke_at_a_seabed_step_does_not_launch`), and a jump at a ledge in a puddle 11 cm deep got the 6 m/s push
+  instead of the jump's 4.87 (`a_jump_at_a_ledge_in_a_puddle_is_the_old_jump`). The climb is now a climb out only
+  (the table above); `swimming_at_a_bank_a_block_high_climbs_out` still climbs out in 1.77 s and 1.5 s.
+- *Stroking at the surface flickered* (rise out, fall back to floating, speed and hunger alternating): the stroke
+  holds the float line, and the stroke and under switches have hysteresis, taken from the body's speed and its
+  vertical velocity (state the body already has: no new field in `Player`, nothing new on the wire or in a save).
+  `a_stroke_along_the_surface_is_steady` (200 steps at 3.82 m/s looking 0.3 up, within 5 %, each one sprinted; red
+  at its first step) and `a_body_at_the_under_line_does_not_flicker` (1.99 m and 2.01 m under a level wobbling by
+  3 cm; red at 1.99 m).
+- *The bot's swim test and its "gave up" deadline used wall time*: the deadline counts the bot's ticks (one a server
+  tick) and the test steps a server by hand (not seen red: a test made sturdier).
