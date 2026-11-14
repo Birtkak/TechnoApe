@@ -123,3 +123,38 @@ A fresh reviewer read the diff. Findings and what was done:
    stick, granite's cube and the hand axe all in view; the cube still hides part of the stick),
    `out/piles/axe_in_hand_sun.png` (noon, over grass: the axe reads blue-grey with lighter edges and a white
    tip, not dark, so the recipe's tones are unchanged).
+
+## Second round (look only)
+The developer, on the stills: "keep improving".
+1. **The hotbar shows pictures.** `hud::layer` hands each filled slot's square (the inventory's: 40 px, 6 in)
+   to its caller, which draws it through the inventory's own choice (`App::look_of`: model picture, else cube);
+   counts and wear stay the hotbar's. Test `the_layer_has_a_crosshair_and_nine_slots` (seen failing with the
+   call left out). Still `out/piles/hotbar.png`.
+2. **A pile's block is the block.** It was a debris cube: 2 x 2 texels of a random place of its block, tilted
+   about a random axis, 0.25 m an edge (its size was right; it read large beside the slim axe, nearer the
+   camera and tilted). It is now the block's own whole-cell look (`Look::Block`, the world's texels and
+   painting) shrunk to 0.2 m about the cell's middle and moved in cells to its corner and onto the floor (bit
+   20, as a glide); no shader change. Test in `a_pile_draws_its_models_and_cubes_for_the_rest`. Stills
+   `out/piles/blocks_front.png`, `out/piles/blocks_side.png` (granite, meadow grass, broadleaf leaves, the axe).
+3. **Contact shadow: skipped.** Nothing cheap exists: fx, clutter and creatures cast none (models and particles
+   are outside the traced scene), and the G-buffer has no blending for a soft dark patch; a dark fx square
+   would be a hard tile. Real shadows for models need them in the traced scene (their quads in an acceleration
+   structure beside the chunks', refit as they move) or a decal pass that darkens the lit image under each
+   instance after lighting.
+4. **Inventory polish.** The tooltip stands right of its slot (else left), its middle at the slot's, inside
+   the panel (test `a_tooltip_stands_beside_its_slot_inside_the_panel`). A cutout block is its cube with the
+   painting's empty texels left open (`hud::cube` no longer fills a hole with the tone; tests
+   `a_cutout_paintings_holes_stay_open_in_the_cube`, `a_slot_shows_a_block_as_the_world_does`): every block
+   with `see = "cutout"` is a cube in the world, reed too, so none stays flat and `sprite::flat` goes. A model
+   picture keeps 3 px inside its square. The worn pack stands wider than the shoulders and over them. Stills
+   `out/piles/inv_survival.png` (frame pack worn, the tooltip on hotbar slot 1), `out/piles/inv_creative_nature.png`.
+5. **The lying axe.** It rests on the ground's top and lies 21 cm long, its `item` size (test
+   `a_lying_axe_rests_on_the_floor_at_its_size`, seen failing with the model let down 5 cm): nothing wrong in
+   the code. It is 4 cm thick lying, so the meadow grass's blades cover it; beside it the stick lies 80 cm
+   (clutter's real size) and flint 15 cm.
+
+For the developer:
+- The axe's size in a pile (21 cm, under the grass blades), or a larger `item`.
+- Reed is a cube in its slot as in the world (it was a flat tile).
+- A cutout block's slot picture shows the summer painting (shortcut: the season's tint the flat picture had is
+  not on the cube's painting).
