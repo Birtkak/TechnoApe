@@ -21,8 +21,9 @@ const CL_THICK: f32 = 64.0;
 const CL_SUB: f32 = 8.0;
 const CL_PI: f32 = 3.14159265;
 // a filled cell's light falloff: 1 - exp(-CL_K * metres) of the light behind it is stopped
-// (0.14, was 0.09: a cell's edge is crisper, less of it half seen through; bug 2026-11-13_14-38-44)
-const CL_K: f32 = 0.14;
+// (0.14, was 0.09: a cell's edge is crisper, less of it half seen through; bug 2026-11-13_14-38-44; 0.09 again
+// with the softer edges of ADR 0108: "unforgivingly dense", bug 2026-11-14_02-03-05)
+const CL_K: f32 = 0.09;
 
 struct ClFace { n: vec3f, s: vec3f, t: vec3f };
 // (axes by bits, not local arrays: an array indexed at run time spills to slow memory on most GPUs)
@@ -62,6 +63,13 @@ fn cl_hash(p: vec3i) -> f32 {
 
 // what every cell's number is raised by: the sky a little more open than the cover says (bug 2026-11-13_14-38-44)
 const CL_OPEN: f32 = 0.06;
+
+// the cover the cells fill to from the air grid's share: as it says up to 0.3, lower in the middle, so a fair sky
+// is scattered heaps with blue between and only a share near 1 closes it (bug 2026-11-14_02-03-05: "bunched up and
+// unforgivingly dense"; ADR 0108). 0.6 fills as 0.43 did, 0.8 as 0.66, 0.95 as 0.91. frame.rs greys the sky by the same.
+fn cl_cover(c: f32) -> f32 {
+    return c - 1.4 * max(c - 0.3, 0.0) * (1.0 - c);
+}
 
 // the cell's own number: a clump noise over four cells and the cell's own, so clouds come in heaps
 fn cl_number(f: u32, c: vec2i) -> f32 {
@@ -103,12 +111,14 @@ fn cl_sample(q: vec3f, sea: f32, wind: vec3f, cfg: vec4f) -> ClS {
         let c = vec2i(floor(p - off));
         let mid = (vec2f(c) + 0.5 + off) / CL_SUB;
         let t = cl_map(at.f, mid, m, 0u);
+        let cover = cl_cover(t.r);
         // (a cell's number is CL_OPEN or more: under it no cell fills, and its hashes are skipped; exact)
-        if (t.r <= CL_OPEN) { continue; }
-        let margin = t.r - cl_number(at.f, c);
-        // the more the cover beats the cell's number, the taller the cell; a thin cell is a soft one
+        if (cover <= CL_OPEN) { continue; }
+        let margin = cover - cl_number(at.f, c);
+        // the more the cover beats the cell's number, the taller the cell; a thin cell is a soft one, and a cloud's
+        // edge cells thin enough to see through (0.15 wide, was 0.04: a hard edge, ADR 0108)
         if (margin > 0.0 && h < 0.3 + margin * 2.0) {
-            o.d += wk * smoothstep(0.0, 0.04, margin);
+            o.d += wk * smoothstep(0.0, 0.15, margin);
             o.rain += wk * t.g;
         }
     }
@@ -140,7 +150,7 @@ fn cl_soft(q: vec3f, sea: f32, cfg: vec4f) -> f32 {
     let east = normalize(cross(vec3f(0.0, 0.0, 1.0), up) + vec3f(1e-6, 0.0, 0.0));
     let wind = east * w.x + cross(up, east) * w.y;
     let wf = vec2f(dot(wind, fa.s), dot(wind, fa.t)) / (sea * CL_PI * 0.5 / m) * CL_SUB;
-    let cover = tx.r;
+    let cover = cl_cover(tx.r);
     // (open sky: the margin below is -0.15 or less whatever the clump, so nothing; exact)
     if (cover <= CL_OPEN) { return 0.0; }
     var d = 0.0;
@@ -163,7 +173,9 @@ fn cl_shadow(p: vec3f, sd: vec3f, sea: f32, cfg: vec4f) -> f32 {
     if (c > 0.0) { return 1.0; }
     let t = -b + sqrt(b * b - c);
     let q = p + sd * t;
-    return 1.0 - 0.8 * cl_soft(q, sea, cfg);
+    // (a cloud's thin edge lets the sun through: the shade deepens with the field, 0.8 under a thick body; ADR 0108)
+    let s = cl_soft(q, sea, cfg);
+    return 1.0 - 0.8 * s * s * (3.0 - 2.0 * s);
 }
 
 // lying snow at body-frame direction d, 0 to 1 (the share of SNOW_TOP in weather.rs)
