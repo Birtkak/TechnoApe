@@ -65,7 +65,7 @@ this file says what is done, what is in work and what comes next, in order.
 In this order unless the developer says otherwise (the developer's order of 2026-11-14 first).
 
 0. **The developer play-tests** the flint tools (ADR 0110) and the undercut (ADR 0112: its spans and the
-   room-only rule are calls to confirm). Open beside it: items have no pictures yet, the crack paintings
+   room-only rule are calls to confirm). Open beside it: the inventory's new look (ADR 0113), the crack paintings
    (`docs/design/mining.md`), an overhang open to the sky does not drop. Then the list below, skipping what
    the rows above already built.
 
