@@ -1812,21 +1812,20 @@ impl World {
         if self.edits.is_empty() {
             return out;
         }
-        // coarse cells point-sample the block in their middle
+        // a coarse cell samples the block in its middle, but a placed block anywhere in it wins over air there
+        // (ADR 0109): every edit in range is gathered as (cell, block, is the middle), then each cell picks
         let s = 1i32 << k.level;
         let half = s / 2;
         let c0 = k.pos * CS - 1; // padded cell (0, 0, 0) in cells of this level
         let lo = c0 * s;
         let hi = lo + IVec3::splat(P as i32 * s);
+        let mut all = Vec::new();
         let mut take = |m: &FxMap<IVec3, u16>| {
             for (b, v) in m {
-                let q = *b - lo - half;
-                if q.x.rem_euclid(s) | q.y.rem_euclid(s) | q.z.rem_euclid(s) != 0 {
-                    continue;
-                }
-                let q = q.div_euclid(IVec3::splat(s));
-                if q.cmpge(IVec3::ZERO).all() && q.cmplt(IVec3::splat(P as i32)).all() {
-                    out.push((pidx(q.x as usize, q.y as usize, q.z as usize) as u32, *v));
+                let q = *b - lo;
+                let c = q.div_euclid(IVec3::splat(s));
+                if c.cmpge(IVec3::ZERO).all() && c.cmplt(IVec3::splat(P as i32)).all() {
+                    all.push((pidx(c.x as usize, c.y as usize, c.z as usize) as u32, *v, q.rem_euclid(IVec3::splat(s)) == IVec3::splat(half)));
                 }
             }
         };
@@ -1850,7 +1849,9 @@ impl World {
                 }
             }
         }
-        // padded strips past a seam sample the neighbouring face
+        pick_cells(&mut all, &mut out);
+        // padded strips past a seam sample the neighbouring face (shortcut: their middle block only, so a thin
+        // build in a coarse cell right at a seam may be missing from the neighbour's padding; fine unless seen)
         let nl = self.bodies[k.body as usize].n >> k.level;
         let pm = P as i32 - 1;
         let mut strip = |x: i32, y: i32| {
@@ -1873,6 +1874,31 @@ impl World {
             }
         }
         out
+    }
+}
+
+/// One edit per cell from a cell's edits (cell, block, at its middle) (ADR 0109): a placed block at the middle;
+/// else the most common placed block in the cell (ties the lower id, so the order the edits come in never
+/// matters: server and client agree); else a dig at the middle; else none (the generated cell). A dig off the
+/// middle never shows from afar.
+fn pick_cells(all: &mut [(u32, u16, bool)], out: &mut Vec<(u32, u16)>) {
+    all.sort_unstable();
+    for g in all.chunk_by(|a, b| a.0 == b.0) {
+        let mid = g.iter().find(|e| e.2).map(|e| e.1);
+        let mut best = (0, AIR);
+        for run in g.chunk_by(|a, b| a.1 == b.1).filter(|r| r[0].1 != AIR) {
+            if run.len() > best.0 {
+                best = (run.len(), run[0].1);
+            }
+        }
+        let m = match mid {
+            Some(m) if m != AIR => Some(m),
+            _ if best.0 > 0 => Some(best.1),
+            m => m,
+        };
+        if let Some(m) = m {
+            out.push((g[0].0, m));
+        }
     }
 }
 
@@ -2427,6 +2453,56 @@ mod tests {
     }
 
     use super::*;
+
+    /// The coarse cells that hold the blocks of `tower`, at levels 1 to 4 (bug 2026-11-14_02-01-35, ADR 0109).
+    fn tower_cells(w: &World, tower: &[Block]) -> Vec<(u8, u16)> {
+        let body = &w.bodies[0];
+        let mut out = Vec::new();
+        for level in 1..=4u8 {
+            let s = 1i32 << level;
+            for b in tower {
+                let cell = b.pos.div_euclid(IVec3::splat(s));
+                let k = Key { body: 0, face: b.face, level, pos: cell.div_euclid(IVec3::splat(CS)) };
+                let q = cell - (k.pos * CS - 1);
+                let m = match generate(body, k, &w.edits_for(k)) {
+                    Gen::Cells(c) => c[pidx(q.x as usize, q.y as usize, q.z as usize)],
+                    Gen::Empty => 0,
+                    Gen::Solid => u16::MAX,
+                };
+                out.push((level, m));
+            }
+        }
+        out
+    }
+
+    /// A one-block-wide tower stays in the far chunks' coarse cells, though no cell's middle lies on it; dug
+    /// away, it is gone from them again.
+    #[test]
+    fn a_thin_tower_shows_in_coarse_cells_and_goes_when_dug() {
+        let mut w = World::new(256, 32, 1337);
+        let lamp = BLOCKS.id("lamp");
+        // a column off every coarse cell's middle (i, j even and not both on a middle): ground + 40 up, 60 blocks
+        let (i, j) = (100, 98);
+        let body = &w.bodies[0];
+        let mut z = body.layer_of(body.radius - 100.0) as i32;
+        while w.block(Block { body: 0, face: 0, pos: IVec3::new(i, j, z) }) != AIR {
+            z += 1;
+        }
+        let tower: Vec<Block> = (z + 40..z + 100).map(|z| Block { body: 0, face: 0, pos: IVec3::new(i, j, z) }).collect();
+        assert!(tower_cells(&w, &tower).iter().all(|&(_, m)| m == AIR), "the air the tower goes in");
+        for &b in &tower {
+            w.set_block(b, lamp);
+        }
+        for (level, m) in tower_cells(&w, &tower) {
+            assert_eq!(m, lamp, "level {level}: the tower's cell");
+        }
+        for &b in &tower {
+            w.set_block(b, AIR);
+        }
+        for (level, m) in tower_cells(&w, &tower) {
+            assert_eq!(m, AIR, "level {level}: the dug tower's cell");
+        }
+    }
 
     #[test]
     fn fold_steps_over_a_seam_and_back() {

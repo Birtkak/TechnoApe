@@ -170,12 +170,8 @@ fn sampling(world: &World, b: Block, level: Option<u8>) -> Vec<Key> {
         if level.is_some_and(|only| only != l) {
             continue;
         }
-        let s = 1i32 << l;
-        let q = b.pos - s / 2; // coarse cells sample the block in their middle
-        if q.x.rem_euclid(s) | q.y.rem_euclid(s) | q.z.rem_euclid(s) != 0 {
-            continue;
-        }
-        let cell = q.div_euclid(IVec3::splat(s));
+        // a placed block anywhere in a coarse cell can change it, not only its middle (ADR 0109)
+        let cell = b.pos.div_euclid(IVec3::splat(1i32 << l));
         let own = Key { body: b.body, face: b.face, level: l, pos: cell.div_euclid(IVec3::splat(CS)) };
         keys.push(own);
         // all 26 neighbours: the mesher's corner shading reads the diagonal padding too
@@ -874,6 +870,19 @@ mod tests {
         assert!(joints >= 2, "{joints} joint sides along {} columns", P - 2);
         assert!((1..P - 1).all(|y| g[pidx(5, y, 5)][1..] == [0; 4]), "granite has no bedding");
         let _ = row(crate::blocks::BLOCKS.id("limestone"));
+    }
+
+    /// Any block, not only a cell's middle, is sampled by the coarse chunk that holds it (ADR 0109): an edit
+    /// off the middle can change a far cell, so that chunk is meshed again.
+    #[test]
+    fn a_block_off_the_middle_is_sampled_at_every_level() {
+        let w = World::new(256, 32, 1337);
+        let b = Block { body: 0, face: 0, pos: IVec3::new(100, 98, 3000) };
+        let keys = sampling(&w, b, None);
+        for l in 0..=w.bodies[0].root_level {
+            let own = Key { body: 0, face: 0, level: l, pos: b.pos.div_euclid(IVec3::splat(1 << l)).div_euclid(IVec3::splat(CS)) };
+            assert!(keys.contains(&own), "level {l}");
+        }
     }
 
     /// A block in a chunk's corner cell is in the padding of all seven chunks around that corner: the
