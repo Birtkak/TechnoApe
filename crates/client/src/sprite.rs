@@ -137,36 +137,6 @@ pub fn sprite(m: &Model, paint: Option<&Painting>, n: u16, yaw: f32, pitch: f32)
     (!runs.is_empty()).then_some(Sprite { n, runs })
 }
 
-/// A block's painting flat and upright, as a cutout block (leaves, a shrub, reed; ADR 0069) is seen: its 16 x 16
-/// pixels with the empty ones left out, each tinted by `tint` (the season's colour over summer's).
-pub fn flat(p: &engine::textures::Pixels, tint: [f32; 3]) -> Sprite {
-    let mut runs = Vec::new();
-    for y in 0..16u16 {
-        let mut x = 0;
-        while x < 16 {
-            let c = p[(y * 16 + x) as usize];
-            let w = (x..16).take_while(|&k| p[(y * 16 + k) as usize] == c).count() as u16;
-            if c[3] > 0 {
-                let t = [0, 1, 2].map(|k| (c[k] as f32 * tint[k]).min(255.0) as u8);
-                runs.push((x, y, w, [t[0], t[1], t[2], c[3]]));
-            }
-            x += w;
-        }
-    }
-    Sprite { n: 16, runs }
-}
-
-#[test]
-fn a_painting_seen_flat_leaves_its_empty_pixels_out() {
-    let mut p = [[40, 120, 30, 255]; 256];
-    p[0] = [0; 4];
-    p[17] = [0; 4];
-    let s = flat(&p, [1.0; 3]);
-    assert_eq!((s.at(0, 0), s.at(1, 1)), (None, None), "the holes stay holes");
-    assert_eq!(s.at(5, 5), Some([40, 120, 30, 255]));
-    assert_eq!(flat(&p, [0.5, 1.0, 1.0]).at(5, 5), Some([20, 120, 30, 255]), "tinted by the season");
-}
-
 #[cfg(test)]
 fn model(text: &str) -> Model {
     let palette = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();

@@ -441,7 +441,7 @@ impl App {
             if let Some(s) = st.filter(|s| s.n > 0) {
                 self.icon(p, s, b[0] + 6.0, b[1] + 6.0, 40.0, season, h != Holder::Grid);
                 if lit {
-                    hover = Some((h, s));
+                    hover = Some((h, s, b));
                 }
             }
         }
@@ -449,13 +449,12 @@ impl App {
             if let Some(s) = self.slot_at(fh, fi) {
                 self.icon(p, Stack { n, ..s }, pointer.0 - 20.0, pointer.1 - 20.0, 40.0, season, true);
             }
-        } else if let Some((h, s)) = hover {
+        } else if let Some((h, s, b)) = hover {
             let name = ITEMS.name(s.item);
             let more = tip(h, s);
             let w = hud::text_width(name).max(more.as_ref().map_or(0.0, |m| m.chars().count() as f32 * hud::ADV * small)) + 20.0;
             let th = hud::LINE + 8.0 + if more.is_some() { 16.0 } else { 0.0 };
-            // kept on the screen
-            let (x, y) = ((pointer.0 + 16.0).min(p.w - w - 4.0), (pointer.1 - th - 6.0).max(4.0));
+            let (x, y) = tip_place(b, w, th, l.panel);
             hud::glass(p, x, y, w, th);
             p.text(x + 10.0, y + 5.0, name, [0.97, 0.97, 0.97, 1.0]);
             if let Some(m) = more {
@@ -486,8 +485,9 @@ impl App {
         let pack = pack.map(|(d, n)| (crate::gpu::shown(d, season).0, n as f32 / COLS as f32));
         if let Some((c, rows)) = pack {
             // the pack behind it, larger the more rows it opens, standing out over and beside the shoulders
-            let (pw, top) = (size * (0.34 + 0.04 * rows), y + size * (0.27 - 0.025 * rows));
-            p.rect(cx - pw / 2.0, top, pw, size * 0.3, [c[0] * 0.75, c[1] * 0.75, c[2] * 0.75, 1.0], 0);
+            // wider than the shoulders (the body is half the picture wide) and over them, so it shows from the front
+            let (pw, top) = (size * (0.6 + 0.04 * rows), y + size * (0.25 - 0.02 * rows));
+            p.rect(cx - pw / 2.0, top, pw, size * 0.34, [c[0] * 0.75, c[1] * 0.75, c[2] * 0.75, 1.0], 0);
             p.rect(cx - pw / 2.0, top, pw, 4.0, [c[0], c[1], c[2], 1.0], 0);
         }
         fig.draw(&mut |x, y, w, h, c| p.rect(x, y, w, h, c, 0), x, y, size);
@@ -519,20 +519,12 @@ impl App {
     /// `item`'s look in a square of `size` at (x, y), for the inventory and the hotbar alike (`look`).
     pub(crate) fn look_of(&self, p: &mut hud::Paint, item: u16, x: f32, y: f32, size: f32, season: (f64, f64)) {
         let block = (item < items::ITEM_BASE).then(|| BLOCKS.get(item)).flatten();
-        let pt = block.map_or([None; 2], crate::gpu::painting);
-        match look(item, block, &pt, &|n| self.models.picture(n, 0).is_some()) {
+        match look(item, block, &|n| self.models.picture(n, 0).is_some()) {
             Look::Model(name) => {
+                // 3 px in from the square's edge: a picture is fitted to its own edges (flint fills it)
                 if let Some(pic) = self.models.picture(name, 0) {
-                    pic.draw(&mut |x, y, w, h, c| p.rect(x, y, w, h, c, 0), x, y, size);
+                    pic.draw(&mut |x, y, w, h, c| p.rect(x, y, w, h, c, 0), x + 3.0, y + 3.0, size - 6.0);
                 }
-            }
-            Look::Flat(px) => {
-                // the season the world shows, as the painting's colour over summer's (shortcut: a season's own
-                // painting is not drawn, gpu::painting holds summer's; made each frame, 256 pixels)
-                let d = block.unwrap();
-                let (now, summer) = (crate::gpu::shown(d, season).1, crate::gpu::shown(d, (0.0, 0.0)).1);
-                let tint = std::array::from_fn(|k| if summer[k] > 0.0 { now[k] / summer[k] } else { 1.0 });
-                crate::sprite::flat(&px, tint).draw(&mut |x, y, w, h, c| p.rect(x, y, w, h, c, 0), x, y, size);
             }
             Look::Cube => {
                 let Some(d) = BLOCKS.get(ITEMS.look(item)) else { return };
@@ -553,26 +545,20 @@ impl App {
 enum Look {
     /// The picture of the model of this name: an item's own (by its name), a block's `model`.
     Model(&'static str),
-    /// A cutout block's painting, flat and upright (leaves, a shrub, reed).
-    Flat(engine::textures::Pixels),
-    /// The cube of its block, or of the block an item looks like.
+    /// The cube of its block, or of the block an item looks like; a cutout's (leaves) with its painting's holes.
     Cube,
 }
 
-/// The look of `item` (`block` its def when it is a block, `painted` that block's paintings, `has` whether a
-/// model of a name has a picture).
-fn look(item: u16, block: Option<&'static engine::blocks::Def>, painted: &[Option<engine::textures::Pixels>; 2], has: &dyn Fn(&str) -> bool) -> Look {
+/// The look of `item` (`block` its def when it is a block, `has` whether a model of a name has a picture).
+fn look(item: u16, block: Option<&'static engine::blocks::Def>, has: &dyn Fn(&str) -> bool) -> Look {
     let name: &'static str = ITEMS.name(item);
     if has(name) {
         return Look::Model(name);
     }
     let Some(d) = block else { return Look::Cube };
-    if let Some(m) = d.model.as_deref().filter(|m| has(m)) {
-        return Look::Model(m);
-    }
-    match painted[1].or(painted[0]) {
-        Some(px) if d.see == engine::blocks::See::Cutout => Look::Flat(px),
-        _ => Look::Cube,
+    match d.model.as_deref().filter(|m| has(m)) {
+        Some(m) => Look::Model(m),
+        None => Look::Cube,
     }
 }
 
@@ -580,15 +566,13 @@ fn look(item: u16, block: Option<&'static engine::blocks::Def>, painted: &[Optio
 fn a_slot_shows_a_block_as_the_world_does() {
     let leaves = BLOCKS.get(ITEMS.named("broadleaf leaves").unwrap()).unwrap();
     let granite = BLOCKS.get(ITEMS.named("granite").unwrap()).unwrap();
-    let mut px = [[40, 120, 30, 255]; 256];
-    px[3] = [0; 4];
     let none = |_: &str| false;
-    assert_eq!(look(leaves.id, Some(leaves), &[None, Some(px)], &none), Look::Flat(px), "a cutout block: its painting, holes and all");
-    assert_eq!(look(leaves.id, Some(leaves), &[None, None], &none), Look::Cube, "unpainted: its cube");
-    assert_eq!(look(granite.id, Some(granite), &[Some(px), Some(px)], &none), Look::Cube, "a solid block keeps its cube");
+    // ADR 0114 second round: a cutout block is a cube in the world, so its cube (hud::cube leaves its holes open)
+    assert_eq!(look(leaves.id, Some(leaves), &none), Look::Cube, "a cutout block: its cube, holes and all");
+    assert_eq!(look(granite.id, Some(granite), &none), Look::Cube, "a solid block keeps its cube");
     let axe = ITEMS.named("hand axe").unwrap();
-    assert_eq!(look(axe, None, &[None, None], &|n| n == "hand axe"), Look::Model("hand axe"));
-    assert_eq!(look(axe, None, &[None, None], &none), Look::Cube, "no picture yet: the cube of its look");
+    assert_eq!(look(axe, None, &|n| n == "hand axe"), Look::Model("hand axe"));
+    assert_eq!(look(axe, None, &none), Look::Cube, "no picture yet: the cube of its look");
 }
 
 /// A one pixel edge round a box.
@@ -614,6 +598,32 @@ fn tip(h: Holder, s: Stack) -> Option<String> {
         Holder::Grid => Some(format!("stacks to {stack}")),
         _ => Some(format!("{} of {stack}", s.n)),
     }
+}
+
+/// ADR 0114 second round: a tooltip of `w` x `h` beside slot `b`, never over it nor over a heading (which stand
+/// over a section's first row): right of the slot, its middle at the slot's, else left of it at the panel's right
+/// edge; held inside `panel`.
+#[test]
+fn a_tooltip_stands_beside_its_slot_inside_the_panel() {
+    let panel = [100.0, 50.0, 800.0, 500.0];
+    let over = |a: [f32; 4], b: [f32; 4]| a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
+    for b in [[120.0, 70.0, 52.0, 52.0], [500.0, 300.0, 52.0, 52.0], [828.0, 300.0, 52.0, 52.0], [828.0, 478.0, 52.0, 52.0], [120.0, 478.0, 52.0, 52.0]] {
+        let (w, h) = (180.0, 44.0);
+        let (x, y) = tip_place(b, w, h, panel);
+        let t = [x, y, w, h];
+        assert!(!over(t, b), "{t:?} covers its slot {b:?}");
+        assert!(x >= panel[0] && x + w <= panel[0] + panel[2] && y >= panel[1] && y + h <= panel[1] + panel[3], "{t:?} outside {panel:?}");
+        assert!(y >= b[1] - 4.0 && y + h <= b[1] + b[3] + 4.0, "in its slot's band, under any heading: {t:?} {b:?}");
+    }
+}
+
+/// Where the tooltip of `w` x `h` for slot `b` stands (`a_tooltip_stands_beside_its_slot_inside_the_panel`): right
+/// of the slot, its middle at the slot's, else left of it; held inside `panel`.
+fn tip_place(b: [f32; 4], w: f32, h: f32, panel: [f32; 4]) -> (f32, f32) {
+    let right = b[0] + b[2] + 6.0;
+    let x = if right + w <= panel[0] + panel[2] - 4.0 { right } else { b[0] - 6.0 - w };
+    let y = (b[1] + (b[3] - h) / 2.0).clamp(panel[1] + 4.0, panel[1] + panel[3] - h - 4.0);
+    (x.max(panel[0] + 4.0), y)
 }
 
 #[test]

@@ -834,7 +834,12 @@ pub fn cube(rect: &mut dyn FnMut(f32, f32, f32, f32, [f32; 4], u32), x: f32, y: 
         for j in 0..n {
             // the top: a diamond lattice, each texel a brick; the far ones first, the near ones over them
             let h = noise(i, j, 0);
-            let c = painted[0].and_then(|p| pixel(p, i, j, 1.0)).unwrap_or_else(|| paint(top, h, if pattern == 1 && h > 0.9 { 1.15 } else { 1.0 }));
+            // a painting's empty texel is a hole (a cutout's: leaves), not the tone
+            let c = match painted[0] {
+                Some(p) => pixel(p, i, j, 1.0),
+                None => Some(paint(top, h, if pattern == 1 && h > 0.9 { 1.15 } else { 1.0 })),
+            };
+            let Some(c) = c else { continue };
             rect(x + (nf - 1.0 + i as f32 - j as f32) * u, y + (i + j) as f32 * u / 2.0, 2.0 * u, u, c, 0);
         }
     }
@@ -848,7 +853,11 @@ pub fn cube(rect: &mut dyn FnMut(f32, f32, f32, f32, [f32; 4], u32), x: f32, y: 
             ] {
                 // grass hangs two to four texels over a grass block's sides
                 let c = if pattern == 1 && k < fringe { top } else { side };
-                let c = painted[1].and_then(|p| pixel(p, i, k, shade)).unwrap_or_else(|| paint(c, noise(i, k, face), shade));
+                let c = match painted[1] {
+                    Some(p) => pixel(p, i, k, shade),
+                    None => Some(paint(c, noise(i, k, face), shade)),
+                };
+                let Some(c) = c else { continue };
                 rect(cx, cy + k as f32 * u, u, u, c, 0);
             }
         }
@@ -1247,12 +1256,13 @@ mod tests {
             assert!(tops.iter().any(|r| r.colour[0] > 0.9) && tops.iter().any(|r| r.colour[0] < 0.6), "size {size}: in both its reds");
             assert!(p.out[n..].iter().all(|r| r.colour[2] > 0.4 && r.colour[0] < 0.1), "size {size}: the sides are the blue painting");
         }
-        // a cutout's empty pixels count for nothing: an empty top falls back to the block's tones
+        // a cutout's empty pixels count for nothing: an empty top is a hole, the unpainted sides the block's tones
+        // (ADR 0114 second round; it fell back to the tones before)
         let empty: engine::textures::Pixels = [[0, 0, 0, 0]; 256];
         let mut p = Paint::new(400.0, 400.0);
         let mut rect = |x: f32, y: f32, w: f32, h: f32, c: [f32; 4], g: u32| p.rect(x, y, w, h, c, g);
         cube(&mut rect, 10.0, 10.0, 32.0, [0.2, 0.8, 0.2], [0.5; 3], 0, 1.0, [Some(&empty), None]);
-        assert!(p.out[..64].iter().all(|r| r.colour[1] > 0.5), "the empty top in the block's green");
+        assert_eq!(p.out.len(), 2 * 64, "the sides only");
     }
 
     #[test]
@@ -1408,6 +1418,23 @@ mod tests {
         chat(&mut c, &[(30.0, "old")], Some("/ti"), true, 1, &["time".to_string(), "timewarp".to_string()], Some(1));
         assert!(c.out.len() - n > 2 * 12, "the bar and both completions");
         assert!(c.out.iter().all(|r| r.xy.iter().all(|v| (-1.0..=1.0).contains(v))));
+    }
+
+    /// ADR 0114 second round: a painting's empty texels are holes in the cube (leaves), not its tone.
+    #[test]
+    fn a_cutout_paintings_holes_stay_open_in_the_cube() {
+        let count = |px: &engine::textures::Pixels| {
+            let mut n = 0;
+            cube(&mut |_, _, _, _, _, _| n += 1, 0.0, 0.0, 40.0, [0.3; 3], [0.3; 3], 0, 1.0, [Some(px), Some(px)]);
+            n
+        };
+        let full = [[40, 120, 30, 255]; 256];
+        let mut holed = full;
+        for k in 0..128 {
+            holed[k] = [0; 4];
+        }
+        assert_eq!(count(&full), 3 * 64);
+        assert_eq!(count(&holed), 3 * 32, "the empty half of each face is not drawn");
     }
 
     #[test]
