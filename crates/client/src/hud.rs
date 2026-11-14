@@ -864,6 +864,15 @@ pub struct Slot {
     /// Its painting's top and side (`gpu::painting`), shown in place of its tones.
     pub painted: [Option<engine::textures::Pixels>; 2],
     pub count: Option<u32>,
+    /// A tool's life left, 0..1 (ADR 0110): a bar along the slot's foot.
+    pub wear: Option<f32>,
+}
+
+/// A tool's bar of life left (ADR 0110): `w` wide at (x, y), green when new through amber to red near its end.
+pub fn wear_bar(p: &mut Paint, x: f32, y: f32, w: f32, left: f32) {
+    let k = left.clamp(0.0, 1.0);
+    p.rect(x, y, w, 4.0, [0.0, 0.0, 0.0, 0.7], 0);
+    p.rect(x, y, (w * k).max(1.0), 4.0, [1.0 - k * 0.7, 0.35 + k * 0.5, 0.2, 1.0], 0);
 }
 
 /// A box with its corners cut by two pixels: full width less the corners, and the two steps in.
@@ -932,7 +941,9 @@ pub fn layer(w: f32, h: f32, slots: &[Option<Slot>], selected: usize, creative: 
         if let Some(Some(sl)) = slots.get(k) {
             let dim = if sl.count == Some(0) { 0.35 } else { 1.0 };
             cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x + 10.0, y + 12.0, 32.0, sl.colour, sl.side, sl.pattern, dim, [sl.painted[0].as_ref(), sl.painted[1].as_ref()]);
-            if let Some(c) = sl.count {
+            if let Some(left) = sl.wear {
+                wear_bar(&mut p, x + 6.0, y + size - 8.0, size - 12.0, left);
+            } else if let Some(c) = sl.count {
                 digits(&mut p, x + size - 3.0, y + size - 3.0, c, 2.0, [1.0, 1.0, 1.0, 1.0]);
             }
         }
@@ -1406,7 +1417,7 @@ mod tests {
 
     #[test]
     fn the_layer_has_a_crosshair_and_nine_slots() {
-        let slots = [Some(Slot { colour: [0.5; 3], side: [0.4; 3], pattern: 2, painted: [None; 2], count: Some(12) })];
+        let slots = [Some(Slot { colour: [0.5; 3], side: [0.4; 3], pattern: 2, painted: [None; 2], count: Some(12), wear: None })];
         let r = layer(1280.0, 720.0, &slots, 0, false, None, Some(("Grass", 1.0)));
         assert!(r.len() >= 2 + 1 + 9 * 2 + 4, "{}", r.len());
         assert!(r.iter().all(|r| r.xy[0] < r.xy[2] && r.xy[1] < r.xy[3] && r.xy.iter().all(|v| (-1.0..=1.0).contains(v))));
