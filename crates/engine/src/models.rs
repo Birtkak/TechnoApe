@@ -15,6 +15,8 @@ pub const PIXEL: f32 = 1.0 / 32.0;
 /// design's first guess).
 pub const MAX_PAINT: u32 = 128;
 pub const MAX_BOXES: usize = 64;
+/// A model's cell drawn as an item when its file sets no `item`, metres (the in-hand size before ADR 0113).
+pub const ITEM_M: f32 = 0.35;
 /// The letters of the voxel rows, in the order of `colours`; '.' is empty.
 pub const LETTERS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
@@ -23,6 +25,11 @@ pub const LETTERS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXY
 pub struct Model {
     /// Palette names; a voxel's letter picks one.
     pub colours: Vec<String>,
+    /// How large one cell (8 voxels) of it is drawn as an item, in hand and lying in a pile, metres (ADR 0113):
+    /// 0.05 to 1; absent, `ITEM_M` in hand, and in a pile that too or, for a model of painted boxes (clutter, which
+    /// lies at its real size), 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item: Option<f32>,
     #[serde(default, rename = "part", skip_serializing_if = "Vec::is_empty")]
     pub parts: Vec<Part>,
     #[serde(default, rename = "point", skip_serializing_if = "Vec::is_empty")]
@@ -288,6 +295,9 @@ impl Model {
     fn check(&mut self, palette: &Palette) -> Result<(), String> {
         if self.colours.len() > LETTERS.len() {
             return Err(format!("{} colours, at most {}", self.colours.len(), LETTERS.len()));
+        }
+        if let Some(s) = self.item.filter(|s| !(0.05..=1.0).contains(s)) {
+            return Err(format!("item = {s}: one cell of an item is drawn 0.05 to 1 m"));
         }
         self.rgb = self
             .colours
@@ -658,6 +668,50 @@ impl Bx {
         [[u + sz + sx, v + sz, sz, sy], [u, v + sz, sz, sy], [u + sz, v, sx, sz], [u + sz + sx, v, sx, sz], [u + sz, v + sz, sx, sy], [u + 2 * sz + sx, v + sz, sx, sy]]
     }
 
+    /// Its painting as quads of one pixel each in a grid of its own pixels (corner at 0, before its turn; a plane's
+    /// thin axis one pixel thick), each with its pixel's colour, empty pixels none: what `vs_model` draws with
+    /// `frame` (ADR 0113, a model of painted boxes in hand or in a pile). None past the quad's 6 bits a side.
+    pub fn pixel_quads(&self, p: &Painting) -> Vec<(Quad, [u8; 3])> {
+        let g = self.size.map(|v| v.max(1));
+        if g.iter().any(|&v| v > 63) {
+            return Vec::new();
+        }
+        let s = Vec3::from(self.size.map(|v| v as f32));
+        let r = self.rects();
+        let thin = self.size.iter().position(|&v| v == 0);
+        let (x, y, z) = (Vec3::X, Vec3::Y, Vec3::Z);
+        // `faces`' corners and edges with the corner at 0 and no turn, in the order of `vs_model`'s dir: +x -x +y -y +z -z
+        let all = [(s, -z * s.z, -y * s.y), (Vec3::new(0.0, s.y, 0.0), z * s.z, -y * s.y), (Vec3::new(0.0, s.y, 0.0), x * s.x, z * s.z), (Vec3::new(0.0, 0.0, s.z), x * s.x, -z * s.z), (Vec3::new(0.0, s.y, s.z), x * s.x, -y * s.y), (Vec3::new(s.x, s.y, 0.0), -x * s.x, -y * s.y)];
+        let mut out = Vec::new();
+        for (k, &(o, eu, ev)) in all.iter().enumerate() {
+            if thin.is_some_and(|a| k / 2 != a) {
+                continue;
+            }
+            let [rx, ry, rw, rh] = if thin.is_some() { r[k & !1] } else { r[k] };
+            for (u, v) in (0..rh).flat_map(|v| (0..rw).map(move |u| (u, v))) {
+                let Some(c) = p.px.get(((ry + v) * p.w + rx + u) as usize).filter(|c| c[3] != 0) else { continue };
+                let at = o + eu * ((u as f32 + 0.5) / rw as f32) + ev * ((v as f32 + 0.5) / rh as f32);
+                let mut cell = [0u8; 3];
+                for a in 0..3 {
+                    cell[a] = if a == k / 2 { if k % 2 == 0 { g[a] as u8 - 1 } else { 0 } } else { (at[a].floor().max(0.0) as u32).min(g[a] - 1) as u8 };
+                }
+                out.push((Quad { at: cell, dir: k as u8, w: 1, h: 1, colour: 0 }, [c[0], c[1], c[2]]));
+            }
+        }
+        out
+    }
+
+    /// From `pixel_quads`' grid to its part's voxels: at its corner, turned about its middle, a plane flattened.
+    pub fn frame(&self) -> Mat4 {
+        let s = Vec3::from(self.size.map(|v| v as f32));
+        let at = Vec3::from(self.at);
+        let mid = at + s * 0.5;
+        let t = self.turn.map(f32::to_radians);
+        let rot = Mat4::from_rotation_z(t[2]) * Mat4::from_rotation_y(t[1]) * Mat4::from_rotation_x(t[0]);
+        let flat = Vec3::from(self.size.map(|v| if v == 0 { 0.02 } else { 1.0 }));
+        Mat4::from_scale(Vec3::splat(PIXEL / VOXEL)) * Mat4::from_translation(mid) * rot * Mat4::from_translation(at - mid) * Mat4::from_scale(flat)
+    }
+
     /// Its faces in pixels, as `BoxFace` lays them out, turned about its middle; a plane's two.
     fn faces(&self) -> Vec<(Vec3, Vec3, Vec3, [u32; 4])> {
         let p0 = Vec3::from(self.at);
@@ -951,6 +1005,48 @@ key = [
         let t = boxed(vec![Bx { at: [0.0; 3], size: [4, 4, 4], turn: [0.0, 90.0, 0.0], uv: [0, 0] }]).box_faces();
         let centre = t.iter().map(|x| x.o + 0.5 * (x.eu + x.ev)).sum::<Vec3>() / 6.0;
         assert!((centre - Vec3::splat(0.5)).length() < 1e-4, "{centre}");
+    }
+
+    /// ADR 0113: a box's painting as one quad a pixel, on the face the pixel paints, in its colour; an empty pixel
+    /// none; a plane both sides; `frame` puts the grid at the box's corner in its part's voxels.
+    #[test]
+    fn a_boxs_painting_becomes_one_quad_a_pixel_on_its_face() {
+        // a 2 x 1 x 1 box: the net is 2 (sz + sx) = 6 by sz + sy = 2, each pixel its own colour
+        let paint = Painting { w: 6, h: 2, px: (0..12).map(|k| [k as u8 * 10, 1, 2, 255]).collect() };
+        let b = Bx { at: [4.0, 0.0, 8.0], size: [2, 1, 1], turn: [0.0; 3], uv: [0, 0] };
+        let q = b.pixel_quads(&paint);
+        assert_eq!(q.len(), 2 * (2 + 2 + 1), "every pixel of the six faces");
+        assert!(q.iter().all(|(q, _)| q.at[0] < 2 && q.at[1] < 1 && q.at[2] < 1 && (q.w, q.h) == (1, 1)));
+        // +x (dir 0) is rectangle [u + sz + sx, v + sz, sz, sy] = [3, 1, 1, 1]: pixel 3 + 6 * 1 = 9, at x = 1
+        let px = q.iter().find(|(q, _)| q.dir == 0).unwrap();
+        assert_eq!((px.0.at, px.1), ([1, 0, 0], [90, 1, 2]));
+        assert_eq!(q.iter().filter(|(q, _)| q.dir == 1).map(|(q, _)| q.at).collect::<Vec<_>>(), [[0, 0, 0]], "-x at x = 0");
+        let k = PIXEL / VOXEL;
+        assert!((b.frame().transform_point3(Vec3::ZERO) - Vec3::new(4.0, 0.0, 8.0) * k).length() < 1e-5);
+        assert!((b.frame().transform_point3(Vec3::new(2.0, 1.0, 1.0)) - Vec3::new(6.0, 1.0, 9.0) * k).length() < 1e-5);
+        // a plane with one empty pixel: three pixels a side, both sides; the thin axis flattened by `frame`
+        let mut paint = Painting { w: 4, h: 2, px: vec![[5, 5, 5, 255]; 8] };
+        paint.px[0] = [0; 4];
+        let p = Bx { at: [0.0; 3], size: [2, 2, 0], turn: [0.0; 3], uv: [0, 0] };
+        assert_eq!(p.pixel_quads(&paint).len(), 2 * 3);
+        assert!(p.frame().transform_vector3(Vec3::Z).length() < 0.1 * k);
+    }
+
+    /// ADR 0113: `item`, one cell's size as an item, is 0.05 to 1 m, named when refused; absent it is not written.
+    #[test]
+    fn an_items_size_is_held_to_its_range_and_absent_is_not_written() {
+        let with = |v: &str| format!("item = {v}\n{BOX}");
+        for bad in ["0.01", "2.0"] {
+            let e = Model::parse("t", &with(bad), &palette()).unwrap_err();
+            assert!(e.contains("item"), "{bad}: {e}");
+        }
+        assert_eq!(Model::parse("t", &with("0.2"), &palette()).unwrap().item, Some(0.2));
+        let m = Model::parse("t", BOX, &palette()).unwrap();
+        assert_eq!(m.item, None);
+        assert!(!m.write().contains("item"), "{}", m.write());
+        assert_eq!(Model::parse("t", &m.write(), &palette()).unwrap(), m);
+        let m2 = Model::parse("t", &with("0.2"), &palette()).unwrap();
+        assert_eq!(Model::parse("t", &m2.write(), &palette()).unwrap(), m2, "written back as read");
     }
 
     /// ADR 0081: a painting holds palette colours, empty or whole pixels, at most MAX_PAINT a side; a box's faces lie

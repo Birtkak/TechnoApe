@@ -831,7 +831,7 @@ pub fn starter(pal: &Palette, kind: &str) -> Option<Model> {
         }
         _ => return None,
     };
-    let m = Model { colours, parts, points: vec![], clips: vec![], rgb: vec![], up: vec![] };
+    let m = Model { colours, item: None, parts, points: vec![], clips: vec![], rgb: vec![], up: vec![] };
     Model::parse(kind, &text(&m), pal).ok()
 }
 
@@ -906,7 +906,7 @@ pub fn plant(pal: &Palette, kind: &str, seed: u64) -> Model {
             }
         }
     }
-    let mut m = Model { colours, parts: vec![Part { name: "plant".into(), parent: String::new(), at: [0; 3], pivot: [4.0, 0.0, 4.0], size: [8, 8, 8], voxels: String::new(), turn: [0.0; 3], boxes: vec![], cells }], points: vec![], clips: vec![], rgb: vec![], up: vec![] };
+    let mut m = Model { colours, item: None, parts: vec![Part { name: "plant".into(), parent: String::new(), at: [0; 3], pivot: [4.0, 0.0, 4.0], size: [8, 8, 8], voxels: String::new(), turn: [0.0; 3], boxes: vec![], cells }], points: vec![], clips: vec![], rgb: vec![], up: vec![] };
     m = Model::parse(kind, &text(&m), pal).unwrap_or(m);
     m
 }
