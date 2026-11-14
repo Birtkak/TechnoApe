@@ -298,6 +298,8 @@ pub struct Models {
     pub piles: Vec<crate::piles::Lying>,
     /// `take` swapped in new models since the last frame.
     reloaded: bool,
+    /// Counts the sets of models taken: what a kept look (`hud::Looks`) was made from.
+    pub gen: u64,
 }
 
 impl Models {
@@ -350,6 +352,7 @@ impl Models {
             draws: Vec::new(),
             piles: Vec::new(),
             reloaded: false,
+            gen: 0,
         }
     }
 
@@ -473,6 +476,7 @@ impl Models {
             queue.write_buffer(buf, 0, bytemuck::cast_slice(&quads));
         }
         self.reloaded = true;
+        self.gen += 1;
         eprintln!("[technoape] models: {} loaded, {} quads", self.list.len(), quads.len());
     }
 

@@ -517,7 +517,26 @@ impl App {
     }
 
     /// `item`'s look in a square of `size` at (x, y), for the inventory and the hotbar alike (`look`).
+    /// Its rects are kept (`hud::Looks`) by all they are made from: the item, its block's colours this season,
+    /// the textures and models loaded, the square's and the screen's size.
     pub(crate) fn look_of(&self, p: &mut hud::Paint, item: u16, x: f32, y: f32, size: f32, season: (f64, f64)) {
+        let (colour, side, pattern) = BLOCKS.get(ITEMS.look(item)).map_or(([0.0; 3], [0.0; 3], 0), |d| crate::gpu::shown(d, season));
+        let two = |a: f32, b: f32| a.to_bits() as u64 | (b.to_bits() as u64) << 32;
+        let key = [
+            item as u64 | (pattern as u64) << 16,
+            two(colour[0], colour[1]),
+            two(colour[2], side[0]),
+            two(side[1], side[2]),
+            crate::gpu::PAINT_GEN.load(Ordering::Relaxed),
+            self.models.gen,
+            two(size, p.w),
+            p.h.to_bits() as u64,
+        ];
+        self.looks.borrow_mut().draw(key, p, x, y, |q| self.look_at(q, item, 0.0, 0.0, size, season));
+    }
+
+    /// `look_of`, drawn: the reference its kept rects are made from.
+    fn look_at(&self, p: &mut hud::Paint, item: u16, x: f32, y: f32, size: f32, season: (f64, f64)) {
         let block = (item < items::ITEM_BASE).then(|| BLOCKS.get(item)).flatten();
         match look(item, block, &|n| self.models.picture(n, 0).is_some()) {
             Look::Model(name) => {

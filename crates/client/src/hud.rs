@@ -89,6 +89,31 @@ pub struct Paint {
     pub out: Vec<Rect>,
 }
 
+/// The rects of the looks drawn in slots (a block's cube is 192 of them, a model's picture one a run), kept by
+/// what they are made from and laid at each slot by moving them: the hotbar drew nine every frame of play and
+/// creative's inventory 63 (`hud_cost`).
+#[derive(Default)]
+pub struct Looks(std::collections::HashMap<[u64; 8], Vec<Rect>>);
+
+impl Looks {
+    /// The look of `key` with its square's corner at (x, y) into `p`: made by `make` at (0, 0) the first time
+    /// (`key` names all that `make` draws from, and `p`'s size).
+    pub fn draw(&mut self, key: [u64; 8], p: &mut Paint, x: f32, y: f32, make: impl FnOnce(&mut Paint)) {
+        // a look that changes all the time (a seasonal block's colour through the year) leaves its old ones behind
+        if self.0.len() >= 512 && !self.0.contains_key(&key) {
+            self.0.clear();
+        }
+        let (w, h) = (p.w, p.h);
+        let rects = self.0.entry(key).or_insert_with(|| {
+            let mut q = Paint::new(w, h);
+            make(&mut q);
+            q.out
+        });
+        let (dx, dy) = (x / w * 2.0, -(y / h * 2.0));
+        p.out.extend(rects.iter().map(|r| Rect { xy: [r.xy[0] + dx, r.xy[1] + dy, r.xy[2] + dx, r.xy[3] + dy], ..*r }));
+    }
+}
+
 /// The places and the colours their names are written in: Terra green, Luna a light grey, Sol yellow.
 /// shortcut: a table here; a colour per row of data/bodies.toml when there are more bodies than these.
 pub const PLACES: [(&str, [f32; 3]); 3] = [("Terra", [0.42, 0.86, 0.45]), ("Luna", [0.82, 0.84, 0.88]), ("Sol", [1.0, 0.85, 0.25])];
@@ -1132,6 +1157,72 @@ const STOMACH: [&str; 28] = [
 mod tests {
     use super::*;
     use engine::edit::Kind;
+
+    /// A look drawn through `Looks` lies where drawing it there directly puts it, to a thousandth of a pixel, the
+    /// first time and from the kept rects; another key is another look; it is made once.
+    #[test]
+    fn a_kept_look_lies_where_it_is_drawn() {
+        let px = [[120u8, 110, 90, 255]; 256];
+        let direct = |x: f32, y: f32, top: [f32; 3]| {
+            let mut p = Paint::new(1280.0, 720.0);
+            cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x, y, 32.0, top, [0.5, 0.4, 0.3], 1, 1.0, [Some(&px), None]);
+            p.rect(x - 2.0, y - 2.0, 7.0, 7.0, CYAN, 0);
+            p.out
+        };
+        let mut looks = Looks::default();
+        let mut made = 0;
+        for (x, y, top, key) in [(100.0, 50.0, [0.4, 0.6, 0.3], 1u64), (733.0, 641.0, [0.4, 0.6, 0.3], 1), (0.0, 0.0, [0.4, 0.6, 0.3], 1), (300.0, 200.0, [0.9, 0.1, 0.1], 2)] {
+            let mut p = Paint::new(1280.0, 720.0);
+            p.rect(1.0, 1.0, 1.0, 1.0, CYAN, 0); // what was drawn before stays
+            looks.draw([key; 8], &mut p, x, y, |q| {
+                made += 1;
+                q.out = direct(0.0, 0.0, top);
+            });
+            let want = direct(x, y, top);
+            assert_eq!(p.out.len(), want.len() + 1);
+            for (a, b) in p.out[1..].iter().zip(&want) {
+                assert!((0..4).all(|k| (a.xy[k] - b.xy[k]).abs() < 2e-6), "{:?} against {:?} at ({x}, {y})", a.xy, b.xy);
+                assert_eq!((a.colour, a.glyph), (b.colour, b.glyph));
+            }
+        }
+        assert_eq!(made, 2, "made once a key");
+    }
+
+    /// What the hotbar costs a frame of play on the frame thread (ADR 0114: nine slots' cubes, 192 rects each), and
+    /// 63 cubes as creative's inventory shows (cargo test -p client --profile play --lib hud_cost -- --ignored --nocapture).
+    #[test]
+    #[ignore]
+    fn hud_cost() {
+        let px = [[120u8, 110, 90, 255]; 256];
+        let slots: Vec<Option<Slot>> = (0..9).map(|k| Some(Slot { count: Some(k + 2), wear: None })).collect();
+        let mut looks = Looks::default();
+        for (what, painted, kept) in [("tones", None, false), ("painted", Some(&px), false), ("painted, kept", Some(&px), true)] {
+            let mut cubes = |p: &mut Paint, slot: usize, x: f32, y: f32, size: f32| {
+                let k = size * 0.8;
+                let draw = |p: &mut Paint, x: f32, y: f32| cube(&mut |x, y, w, h, c, g| p.rect(x, y, w, h, c, g), x + (size - k) / 2.0, y + (size - k) / 2.0, k, [0.4, 0.6, 0.3], [0.5, 0.4, 0.3], 1, 1.0, [painted, painted]);
+                match kept {
+                    true => looks.draw([slot as u64, size.to_bits() as u64, 0, 0, 0, 0, 0, 0], p, x, y, |q| draw(q, 0.0, 0.0)),
+                    false => draw(p, x, y),
+                }
+            };
+            let (t, n) = (std::time::Instant::now(), 2000);
+            let mut rects = 0;
+            for _ in 0..n {
+                rects = std::hint::black_box(layer(1280.0, 720.0, &slots, 3, false, None, Some(("granite", 1.0)), &mut cubes)).len();
+            }
+            let hotbar = t.elapsed().as_secs_f64() * 1e6 / n as f64;
+            let t = std::time::Instant::now();
+            let mut grid = 0;
+            for _ in 0..n {
+                let mut p = Paint::new(1280.0, 720.0);
+                for k in 0..63 {
+                    cubes(&mut p, k, 20.0 + (k % 9) as f32 * 58.0, 20.0 + (k / 9) as f32 * 58.0, 40.0);
+                }
+                grid = std::hint::black_box(p.out).len();
+            }
+            println!("{{\"hud_cost\":{{\"cubes\":\"{what}\",\"hotbar_us\":{hotbar:.1},\"hotbar_rects\":{rects},\"grid63_us\":{:.1},\"grid63_rects\":{grid}}}}}", t.elapsed().as_secs_f64() * 1e6 / n as f64);
+        }
+    }
 
     #[test]
     fn the_vitals_are_two_bars_as_long_as_what_is_left_and_warn_when_low() {
