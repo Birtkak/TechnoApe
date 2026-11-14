@@ -687,10 +687,11 @@ impl Streamer {
                 if !pending || covered || hidden || stand_in {
                     p += REFINE;
                 }
-                // a pending chunk is not meshed while the quad buffer is full (`dispatch` passes over it, this same
-                // frame): the drawn walk does not hand it over, thousands a frame at detail 8 in a forest. (The
-                // look-ahead's requests are kept some frames, in which room may come: those are handed over.)
-                if !(draw && pending && self.alloc.full) {
+                // a pending chunk is not meshed while the quad buffer is full (`dispatch` passes over it): it is not
+                // handed over, thousands a frame at detail 8 in a forest. For the drawn walk that changes nothing
+                // (`dispatch` runs this same frame); the look-ahead's requests are kept up to `prefetch_every`
+                // frames, so when room comes its pending chunks are asked for that many frames later at most
+                if !(pending && self.alloc.full) {
                     reqs.push((p, k));
                 }
                 st.requests += 1;
@@ -776,116 +777,115 @@ impl Streamer {
             reqs.clear();
             return;
         }
-        // nearest first, as a stable sort would hand them out (ties in the order asked), but only as far as the
+        // nearest first, as a stable sort hands them out (ties in the order asked), but sorted only as far as the
         // workers take: a flight at detail 8 asks for some 20,000 a frame and sends a handful, and sorting them
-        // all was most of this (`walk_cost`, ADR 0115)
-        struct Req(f64, u32);
-        impl PartialEq for Req {
-            fn eq(&self, o: &Self) -> bool {
-                self.cmp(o).is_eq()
-            }
+        // all was most of this (`walk_cost`, ADR 0115). The nearest `FIRST` are picked out and sorted; the rest
+        // only when those did not fill the workers
+        const FIRST: usize = 256;
+        let mut order: Vec<(f64, u32)> = reqs.iter().enumerate().map(|(i, r)| (r.0, i as u32)).collect();
+        let by = |a: &(f64, u32), b: &(f64, u32)| a.0.partial_cmp(&b.0).unwrap().then(a.1.cmp(&b.1));
+        let first = FIRST.min(order.len());
+        if first < order.len() {
+            order.select_nth_unstable_by(first, by);
         }
-        impl Eq for Req {}
-        impl PartialOrd for Req {
-            fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
-                Some(self.cmp(o))
-            }
-        }
-        impl Ord for Req {
-            fn cmp(&self, o: &Self) -> std::cmp::Ordering {
-                self.0.partial_cmp(&o.0).unwrap().then(self.1.cmp(&o.1))
-            }
-        }
-        let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<Req>> = reqs.iter().enumerate().map(|(i, r)| std::cmp::Reverse(Req(r.0, i as u32))).collect();
-        while let Some(std::cmp::Reverse(Req(_, i))) = heap.pop() {
+        let mut done = 0;
+        for end in [first, order.len()] {
             if self.inflight >= self.opts.max_inflight {
                 break;
             }
-            let k = reqs[i as usize].1;
-            let Some(s) = self.slots.get_mut(&k) else { continue };
-            // a full buffer would refuse a new mesh again: wait until something is released
-            if !s.needs_job() || (self.alloc.full && s.state == State::Pending) {
-                continue; // requested by both traversals, or a kept look-ahead request that is done
-            }
-            s.inflight = true;
-            self.inflight += 1;
-            let version = s.want_v;
-            // the edits are gathered on the worker from shared maps: the frame thread only looks them up (ADR 0109)
-            let snap = world.far_snap(k);
-            let models = !world.models.is_empty();
-            // a gliding cell is air to the mesher, a loose block to its neighbours' slopes (ADR 0101)
-            let mut held = Vec::new();
-            if k.level == 0 {
-                let c0 = k.pos * CS - 1; // padded cell (0, 0, 0)
-                for b in self.gliding.iter().filter(|b| (b.body, b.face) == (k.body, k.face)) {
-                    let q = b.pos - c0;
-                    if q.cmpge(IVec3::ZERO).all() && q.cmplt(IVec3::splat(P as i32)).all() {
-                        held.push(pidx(q.x as usize, q.y as usize, q.z as usize));
+            order[done..end].sort_unstable_by(by);
+            let part = done..end;
+            done = end;
+            for &(_, i) in &order[part] {
+                if self.inflight >= self.opts.max_inflight {
+                    break;
+                }
+                let k = reqs[i as usize].1;
+                let Some(s) = self.slots.get_mut(&k) else { continue };
+                // a full buffer would refuse a new mesh again: wait until something is released
+                if !s.needs_job() || (self.alloc.full && s.state == State::Pending) {
+                    continue; // requested by both traversals, or a kept look-ahead request that is done
+                }
+                s.inflight = true;
+                self.inflight += 1;
+                let version = s.want_v;
+                // the edits are gathered on the worker from shared maps: the frame thread only looks them up (ADR 0109)
+                let snap = world.far_snap(k);
+                let models = !world.models.is_empty();
+                // a gliding cell is air to the mesher, a loose block to its neighbours' slopes (ADR 0101)
+                let mut held = Vec::new();
+                if k.level == 0 {
+                    let c0 = k.pos * CS - 1; // padded cell (0, 0, 0)
+                    for b in self.gliding.iter().filter(|b| (b.body, b.face) == (k.body, k.face)) {
+                        let q = b.pos - c0;
+                        if q.cmpge(IVec3::ZERO).all() && q.cmplt(IVec3::splat(P as i32)).all() {
+                            held.push(pidx(q.x as usize, q.y as usize, q.z as usize));
+                        }
                     }
                 }
-            }
-            let tx = self.tx.clone();
-            let bodies = world.bodies.clone();
-            // generation makes no glass: a chunk without edits holds none (`mesh_cut`)
-            let may_glass = !snap.is_empty();
-            let greedy = self.opts.greedy;
-            let cutout = match (k.level, self.opts.cutout) {
-                (0, true) => crate::mesh::Cut::Full,
-                (0, false) => crate::mesh::Cut::Shell,
-                _ => crate::mesh::Cut::Solid,
-            };
-            // the sky's time the clutter was set at: both hemispheres change season at once (`sky::season_at`)
-            let (still, sky_t, _, density) = self.clutter.clone();
-            // shortcut: every taken mark is looked through for every level-0 job; a map by chunk once a world
-            // holds thousands
-            let near = |b: &&Block| b.body == k.body && b.face == k.face && b.pos.x.div_euclid(CS) == k.pos.x && b.pos.y.div_euclid(CS) == k.pos.y;
-            let taken: Vec<(IVec3, u32)> = if k.level == 0 { self.taken.iter().filter(|(b, _)| near(b)).map(|(b, y)| (b.pos, *y)).collect() } else { Vec::new() };
-            // tiles of stored water are the water mesh's; a coarse column lies within one tile up to level 4, and past
-            // that a far chunk's sea covers them (shortcut: a flood far away shows as sea level)
-            let wet = if 1 << k.level <= TILE { world.water.wet_tiles(k.body, k.face, k.base().x, k.base().y, k.span()) } else { Vec::new() };
-            let queued = Instant::now();
-            rayon::spawn(move || {
-                let t = Instant::now();
-                let wait_us = (t - queued).as_secs_f32() * 1e6;
-                let mut edits = snap.edits();
-                // a cell whose block is a model is drawn by the client's models, not meshed (ADR 0047)
-                if models {
-                    hide_models(&mut edits, &crate::blocks::BLOCKS);
-                }
-                edits.iter_mut().filter(|e| held.contains(&(e.0 as usize))).for_each(|e| e.1 = crate::blocks::AIR);
-                let body = &bodies[k.body as usize];
-                // the slopes read the padding before its skirts (ADR 0101)
-                let mut gen = generate_raw(body, k, &edits);
-                let raw = match &mut gen {
-                    Gen::Cells(c) => {
-                        let raw = c.clone();
-                        skirt(c);
-                        Some(raw)
-                    }
-                    _ => None,
+                let tx = self.tx.clone();
+                let bodies = world.bodies.clone();
+                // generation makes no glass: a chunk without edits holds none (`mesh_cut`)
+                let may_glass = !snap.is_empty();
+                let greedy = self.opts.greedy;
+                let cutout = match (k.level, self.opts.cutout) {
+                    (0, true) => crate::mesh::Cut::Full,
+                    (0, false) => crate::mesh::Cut::Shell,
+                    _ => crate::mesh::Cut::Solid,
                 };
-                let mut mesh = match &gen {
-                    Gen::Cells(c) => {
-                        let cracks = if k.level == 0 { cracks(body, k, c) } else { None };
-                        Some(mesh_cracked(c, if greedy { body.lattice(k.level) as usize } else { 1 }, cutout, may_glass, cracks.as_deref(), &held, raw.as_deref())).filter(|m| !m.quads.is_empty())
+                // the sky's time the clutter was set at: both hemispheres change season at once (`sky::season_at`)
+                let (still, sky_t, _, density) = self.clutter.clone();
+                // shortcut: every taken mark is looked through for every level-0 job; a map by chunk once a world
+                // holds thousands
+                let near = |b: &&Block| b.body == k.body && b.face == k.face && b.pos.x.div_euclid(CS) == k.pos.x && b.pos.y.div_euclid(CS) == k.pos.y;
+                let taken: Vec<(IVec3, u32)> = if k.level == 0 { self.taken.iter().filter(|(b, _)| near(b)).map(|(b, y)| (b.pos, *y)).collect() } else { Vec::new() };
+                // tiles of stored water are the water mesh's; a coarse column lies within one tile up to level 4, and past
+                // that a far chunk's sea covers them (shortcut: a flood far away shows as sea level)
+                let wet = if 1 << k.level <= TILE { world.water.wet_tiles(k.body, k.face, k.base().x, k.base().y, k.span()) } else { Vec::new() };
+                let queued = Instant::now();
+                rayon::spawn(move || {
+                    let t = Instant::now();
+                    let wait_us = (t - queued).as_secs_f32() * 1e6;
+                    let mut edits = snap.edits();
+                    // a cell whose block is a model is drawn by the client's models, not meshed (ADR 0047)
+                    if models {
+                        hide_models(&mut edits, &crate::blocks::BLOCKS);
                     }
-                    _ => None,
-                };
-                if let (Gen::Cells(c), Some(m)) = (&gen, mesh.as_mut()) {
-                    let q = crate::clutter::quads(body, k, c, &edits, &still, sky_t, density, &taken);
-                    m.still = q.len() as u32;
-                    m.quads.extend(q);
-                }
-                let mut sea = sea_quads(body, k, &wet, &gen);
-                sea.extend(river_quads(body, k, &wet, &gen));
-                if !sea.is_empty() {
-                    let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], cut: 0, ray_cut: 0, fluff: 0, glass: 0, still: 0, water: 0 });
-                    m.water = sea.len() as u32;
-                    m.quads.extend(sea);
-                }
-                let clim = if mesh.is_some() { crate::clutter::chunk_climate(body, k) } else { 0 };
-                let _ = tx.send(JobResult { key: k, version, mesh, us: t.elapsed().as_secs_f64() * 1e6, wait_us, clim });
-            });
+                    edits.iter_mut().filter(|e| held.contains(&(e.0 as usize))).for_each(|e| e.1 = crate::blocks::AIR);
+                    let body = &bodies[k.body as usize];
+                    // the slopes read the padding before its skirts (ADR 0101)
+                    let mut gen = generate_raw(body, k, &edits);
+                    let raw = match &mut gen {
+                        Gen::Cells(c) => {
+                            let raw = c.clone();
+                            skirt(c);
+                            Some(raw)
+                        }
+                        _ => None,
+                    };
+                    let mut mesh = match &gen {
+                        Gen::Cells(c) => {
+                            let cracks = if k.level == 0 { cracks(body, k, c) } else { None };
+                            Some(mesh_cracked(c, if greedy { body.lattice(k.level) as usize } else { 1 }, cutout, may_glass, cracks.as_deref(), &held, raw.as_deref())).filter(|m| !m.quads.is_empty())
+                        }
+                        _ => None,
+                    };
+                    if let (Gen::Cells(c), Some(m)) = (&gen, mesh.as_mut()) {
+                        let q = crate::clutter::quads(body, k, c, &edits, &still, sky_t, density, &taken);
+                        m.still = q.len() as u32;
+                        m.quads.extend(q);
+                    }
+                    let mut sea = sea_quads(body, k, &wet, &gen);
+                    sea.extend(river_quads(body, k, &wet, &gen));
+                    if !sea.is_empty() {
+                        let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], cut: 0, ray_cut: 0, fluff: 0, glass: 0, still: 0, water: 0 });
+                        m.water = sea.len() as u32;
+                        m.quads.extend(sea);
+                    }
+                    let clim = if mesh.is_some() { crate::clutter::chunk_climate(body, k) } else { 0 };
+                    let _ = tx.send(JobResult { key: k, version, mesh, us: t.elapsed().as_secs_f64() * 1e6, wait_us, clim });
+                });
+            }
         }
         reqs.clear();
     }
@@ -1552,6 +1552,16 @@ mod tests {
         // the reference: sorted first (stable), then each taken once while a worker is free
         let mut sorted = reqs.clone();
         sorted.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        // the nearest 300 chunks are at work already, so the eight that go out lie past the first that
+        // `dispatch` sorts
+        let mut busy: Vec<Key> = Vec::new();
+        for (_, k) in &sorted {
+            if busy.len() < 300 && !busy.contains(k) && s.slots.get(k).is_some() {
+                busy.push(*k);
+                s.slots.get_mut(k).unwrap().inflight = true;
+            }
+        }
+        assert_eq!(busy.len(), 300);
         let mut want: Vec<Key> = Vec::new();
         for (_, k) in &sorted {
             if want.len() < 8 && s.slots.get(k).is_some_and(|sl| sl.needs_job()) && !want.contains(k) {
@@ -1560,7 +1570,7 @@ mod tests {
         }
         assert_eq!(want.len(), 8, "{} asked", reqs.len());
         s.dispatch(&w, &mut reqs);
-        let mut got: Vec<Key> = s.slots.iter().filter(|(_, sl)| sl.inflight).map(|(k, _)| *k).collect();
+        let mut got: Vec<Key> = s.slots.iter().filter(|(k, sl)| sl.inflight && !busy.contains(k)).map(|(k, _)| *k).collect();
         let key = |k: &Key| (k.face, k.level, k.pos.x, k.pos.y, k.pos.z);
         got.sort_by_key(key);
         want.sort_by_key(key);
