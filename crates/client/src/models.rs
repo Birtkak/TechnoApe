@@ -571,6 +571,16 @@ impl Models {
                 asked.push((*b, m, st.as_str(), t));
             }
         }
+        // a placed model with a state `placed` plays it while near and asked into no other (a torch's flame, ADR
+        // 0117); a flame under water is out
+        for (b, id) in &world.models {
+            let Some(d) = BLOCKS.get(*id).filter(|_| !self.states.contains_key(b)) else { continue };
+            let Some(m) = d.model.as_deref().and_then(by_name).filter(|m| self.list[*m].0.life.states.iter().any(|s| s.name == PLACED)) else { continue };
+            let c = world.block_centre(*b);
+            if (c - cams[b.body as usize].0).length() < NEAR_M && !(d.flame && world.water_surface(c).is_some()) {
+                asked.push((*b, m, PLACED, t));
+            }
+        }
         // each one's clip and time, for the drawing below
         let mut posed: std::collections::HashMap<Block, (Option<usize>, f64)> = Default::default();
         let mut held: Vec<(String, f32)> = Vec::new();
@@ -594,8 +604,9 @@ impl Models {
             let poses = l.model.pose(ci.map(|c| l.model.clips[c].name.as_str()), ct as f32);
             // (the shown model's cells in the view's square frame, as it is drawn)
             let [o, x, y, z] = if self.spec.is_some() && self.cells.contains(&b) { view_axes(world, b) } else { cell_axes(world, b) };
+            let lean = lean(world, b);
             let place = |p: Vec3| {
-                let p = FLOOR + (p - FLOOR) * l.scale;
+                let p = lean.transform_point3(FLOOR + (p - FLOOR) * l.scale);
                 o + x * p.x as f64 + y * p.y as f64 + z * p.z as f64
             };
             let point = |n: Option<&str>| place(n.and_then(|n| l.model.point_at(&poses, n)).unwrap_or(FLOOR));
@@ -674,6 +685,7 @@ impl Models {
             let Some(m) = BLOCKS.get(*id).and_then(|d| d.model.as_deref()).and_then(by_name) else { continue };
             let x = cell_frame(world, cams, *b);
             if (x.w_axis.truncate().length() as f64) < NEAR_M {
+                let x = x * lean(world, *b);
                 let (c, t) = posed.get(b).copied().unwrap_or((idle(m), t));
                 inst[m].push((c, t, x, b.body as u32, 1.0));
             }
@@ -859,6 +871,31 @@ fn painting_of(m: &Model, bytes: Option<Vec<u8>>, palette: &engine::palette::Pal
         Ok(p) => Ok(Some(p)),
         Err(e) if boxes => Err(e),
         Err(_) => Ok(None),
+    }
+}
+
+/// The state a placed model plays by itself when it has one (ADR 0117: a torch's flame).
+pub const PLACED: &str = "placed";
+
+/// A hanging block's model in its cell (ADR 0117): standing on a floor as it is; held from a side, its foot
+/// moved to that wall and its top leaned 30 degrees out from it. `from` is `fall::held_from`'s (di, dj, dl); the
+/// model's x is the grid's j and its z the grid's i (`cell_axes`).
+pub fn hang(from: Option<(i32, i32, i32)>) -> Mat4 {
+    match from {
+        Some((di, dj, 0)) => {
+            let wall = Vec3::new(dj as f32, 0.0, di as f32);
+            let mid = Vec3::new(0.5, 0.0, 0.5);
+            Mat4::from_translation(mid + wall * 0.36 + Vec3::Y * 0.2) * Mat4::from_axis_angle(Vec3::Y.cross(-wall), 30f32.to_radians()) * Mat4::from_translation(-mid)
+        }
+        _ => Mat4::IDENTITY,
+    }
+}
+
+/// The lean of the model placed in cell `b`: `hang` of where it is held from when its block hangs, else none.
+fn lean(world: &World, b: Block) -> Mat4 {
+    match world.models.get(&b).and_then(|id| BLOCKS.get(*id)) {
+        Some(d) if d.hangs => hang(engine::fall::held_from(world, b)),
+        _ => Mat4::IDENTITY,
     }
 }
 
@@ -1463,6 +1500,33 @@ want {want:?}");
         assert_eq!(turns, 1, "up once, then down");
         // the hand is half way through when the next dig comes: its age is 0 again, the swing starts over
         assert!(swing(SWING_S * 0.5) > 0.0 && swing(0.0) == 0.0);
+    }
+
+    /// ADR 0117: a torch on a floor stands as its model; one held from a wall has its foot at that wall and its
+    /// top out from it, from the blocks alone (`fall::held_from`, which the server's rule reads too).
+    #[test]
+    fn a_wall_torch_leans_out_from_its_wall() {
+        assert_eq!(hang(Some((0, 0, -1))), Mat4::IDENTITY);
+        assert_eq!(hang(None), Mat4::IDENTITY);
+        for (di, dj) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let m = hang(Some((di, dj, 0)));
+            let wall = Vec3::new(dj as f32, 0.0, di as f32);
+            let (foot, top) = (m.transform_point3(Vec3::new(0.5, 0.0, 0.5)), m.transform_point3(Vec3::new(0.5, 0.65, 0.5)));
+            assert!((foot - Vec3::new(0.5, 0.0, 0.5)).dot(wall) > 0.3, "{wall}: its foot by the wall: {foot}");
+            assert!((top - foot).dot(wall) < -0.2 && (top - foot).y > 0.5, "{wall}: its top out from it: {top}");
+            assert!((0..3).all(|a| (-0.01..1.01).contains(&foot[a]) && (-0.01..1.01).contains(&top[a])), "{wall}: inside its cell: {foot} {top}");
+        }
+        // the client's drawing reads the placed cell's own world: a wall to -i
+        let mut w = World::new(768, 256, 1);
+        let b = &w.bodies[0];
+        let cell = w.air_over_ground(0, b.spawn);
+        let up = Block { pos: cell.pos + glam::IVec3::new(0, 0, 3), ..cell };
+        for (di, dj, dl) in [(0, 0, -1), (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0)] {
+            w.set_block(Block { pos: up.pos + glam::IVec3::new(di, dj, dl), ..up }, engine::blocks::AIR);
+        }
+        w.set_block(Block { pos: up.pos - glam::IVec3::X, ..up }, BLOCKS.id("stone"));
+        w.set_block(up, BLOCKS.id("torch"));
+        assert_eq!(lean(&w, up), hang(Some((-1, 0, 0))));
     }
 
     /// A model of `data/models` loaded as `load` loads it: its painting, its boxes, its pictures.

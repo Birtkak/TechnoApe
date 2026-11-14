@@ -644,7 +644,7 @@ impl Server {
             let spawn = self.spawn();
             self.clients.push(Client {
                 link,
-                player: Player { id, name: String::new(), pos: spawn.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 },
+                player: Player { id, name: String::new(), pos: spawn.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0, hand: 0 },
                 phys: phys::Player::at(spawn, DVec3::X),
                 input: None,
                 queue: VecDeque::new(),
@@ -865,6 +865,14 @@ impl Server {
             self.falls.step(&mut self.world, self.tick, &mut changed);
             self.rock_hits(&changed[mine..]);
         }
+        // a hanging block (a torch, ADR 0117) that this tick's edits left with no floor or wall drops as itself
+        for b in engine::fall::unheld(&self.world, &changed) {
+            let m = self.world.block(b);
+            self.world.set_block(b, AIR);
+            changed.push((b, AIR));
+            *self.item_made.entry(m).or_default() += 1;
+            self.lay(b, vec![Stack::new(m, 1)], (0, 0));
+        }
         // the animals (ADR 0083): woken by the players on Terra, stepped as far as the players were
         let players: Vec<(DVec3, DVec3)> = self.clients.iter().filter(|c| self.world.frame_at(c.phys.pos) == 0).map(|c| (c.phys.pos, c.phys.vel)).collect();
         let t = self.herds.clock;
@@ -939,7 +947,8 @@ impl Server {
         // clients count the list; each one's own position comes in its `You` every tick. The others' come
         // with it once a second too, for the globe map (ADR 0077)
         if roster || self.tick % TICK_HZ as u64 == 0 {
-            let players: Vec<Player> = self.clients.iter().map(|c| c.player.clone()).collect();
+            // (with what each holds, ADR 0117: another's held torch lights the world for everyone)
+            let players: Vec<Player> = self.clients.iter().map(|c| Player { hand: c.slots.get(c.hand as usize).copied().flatten().map_or(AIR, |s| s.item), ..c.player.clone() }).collect();
             for c in &self.clients {
                 c.link.send(ToClient::Players(players.clone()));
             }
@@ -1435,6 +1444,10 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
         // a solid block never goes where it would trap a player
         let (world, clients) = (&self.world, &self.clients);
         let cells = edit::changes(world, shape, m, |b| clients.iter().any(|c| phys::holds(world, &c.phys, b)));
+        // a block that hangs (a torch, ADR 0117) goes only where a floor or a wall holds it, and never into water
+        if BLOCKS.get(m).is_some_and(|d| d.hangs) && cells.iter().any(|&(b, _)| engine::fall::held_from(world, b).is_none() || world.water_surface(world.block_centre(b)).is_some()) {
+            return false;
+        }
         let c = &mut self.clients[i];
         // a survival dig of rock or ore leaves its rubble in the cell (ADR 0093)
         let leave = |old: u16| if m == AIR { edit::dug(old, !c.creative) } else { m };
@@ -2393,6 +2406,71 @@ mod tests {
         assert!(invs(&got).contains(&vec![]));
         assert!(brush.cells().all(|b| s.world.block(b) == stone));
         assert_eq!(s.world.edit_count, 8, "the world is as generated again, but the cells stay recorded");
+    }
+
+    /// ADR 0117: a torch goes onto a floor or beside a wall, never into the open air or into water; a survival
+    /// player pays one for it, and its wall dug it drops as one torch in a pile, the items' ledger exact.
+    #[test]
+    fn a_torch_needs_a_floor_or_a_wall_and_drops_when_it_goes() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let dirt = over_dirt(&mut s, l);
+        let (torch, stone) = (BLOCKS.id("torch"), BLOCKS.id("stone"));
+        let at = |di: i32, dl: i32| Block { pos: dirt.pos + glam::IVec3::new(di, 0, dl), ..dirt };
+        // a column of air two over, a stone floor at its foot and a stone wall beside it higher up
+        for dl in 0..=6 {
+            for di in 1..=3 {
+                s.world.set_block(at(di, dl), AIR);
+            }
+        }
+        s.world.set_block(at(2, 0), stone);
+        s.world.set_block(at(3, 3), stone);
+        l.send(ToServer::Chat("/give torch 3".into()));
+        s.tick();
+        drain(l);
+        let (floor, wall, open) = (at(2, 1), at(2, 3), at(2, 5));
+        for (seq, b) in [(1, floor), (2, wall), (3, open)] {
+            l.send(ToServer::Edit { seq, shape: Shape::one(b), material: torch });
+        }
+        s.tick();
+        let got = drain(l);
+        for (seq, ok) in [(1, true), (2, true), (3, false)] {
+            assert!(got.contains(&ToClient::Done { seq, ok }), "{seq}: {ok}");
+        }
+        assert_eq!((s.world.block(floor), s.world.block(wall), s.world.block(open)), (torch, torch, AIR));
+        assert_eq!(items::count(&s.clients[0].slots, torch), 1, "two paid for, the third kept");
+        assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+        // the wall dug (creative, so it leaves no pile of its own): the torch on it drops as one torch
+        l.send(ToServer::Creative(true));
+        l.send(ToServer::Edit { seq: 4, shape: Shape::one(at(3, 3)), material: AIR });
+        s.tick();
+        let got = drain(l);
+        assert_eq!(s.world.block(wall), AIR, "nothing holds it");
+        assert_eq!(s.world.block(floor), torch, "the floor's stays");
+        let pile = got.iter().rev().find_map(|m| if let ToClient::Piles(v) = m { v.iter().find(|p| p.1.iter().flatten().any(|st| st.item == torch)).map(|p| p.1.clone()) } else { None });
+        assert_eq!(pile, Some(vec![Some(Stack::new(torch, 1)), None, None, None]), "one torch lies");
+        assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    }
+
+    /// ADR 0117: a torch is never placed in water, held up by a floor or not.
+    #[test]
+    fn a_torch_is_never_placed_in_water() {
+        let (mut s, links) = server_with(1);
+        let l = &links[0];
+        let b = &s.world.bodies[0];
+        let sea = b.layer_r(b.sea.unwrap());
+        // (a spiral of directions over the whole planet, the first over deep sea)
+        let d = (0..20000).map(|k| { let z = 1.0 - (k as f64 + 0.5) / 10000.0; let a = k as f64 * 2.399963; let r = (1.0 - z * z).sqrt(); DVec3::new(r * a.cos(), r * a.sin(), z) }).find(|d| b.height(*d) < sea - 4.0).expect("a sea");
+        let wet = s.world.block_at(b.centre + d * (sea - 1.5));
+        assert!(s.world.water_surface(s.world.block_centre(wet)).is_some(), "the cell is under water");
+        s.world.set_block(Block { pos: wet.pos - glam::IVec3::Z, ..wet }, BLOCKS.id("stone"));
+        l.send(ToServer::Creative(true));
+        l.send(ToServer::Move { pos: (s.world.block_centre(wet) + d * 3.0).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        s.tick();
+        l.send(ToServer::Edit { seq: 1, shape: Shape::one(wet), material: BLOCKS.id("torch") });
+        s.tick();
+        assert!(drain(l).contains(&ToClient::Done { seq: 1, ok: false }));
+        assert_eq!(s.world.block(wet), AIR);
     }
 
     /// Ticks for `s` seconds.

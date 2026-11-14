@@ -1,0 +1,32 @@
+# A draft torch (Claude's, listed in data/drafts.txt): data/blocks.toml's `torch` (ADR 0117), a stick about 60 cm
+# tall with a charred head bound in cord, standing in the middle of its cell; a wall's leans (crates/client models.rs).
+# Painted boxes at 32 px a metre (ADR 0116), made by tools/paint_figures.py; the voxels stay empty.
+colours = ["log"]
+item = 0.6
+
+[[part]]
+name = "body"
+box = [1, 1, 1]
+voxels = """
+.
+"""
+
+[[part.boxes]]
+at = [15.0, 0.0, 15.0]
+size = [2, 15, 2]
+uv = [0, 0]
+
+[[part.boxes]]
+at = [14.5, 15.0, 14.5]
+size = [3, 6, 3]
+uv = [8, 0]
+
+# the flame's place, on the head's top, and the state a placed one plays (ADR 0050): its small fire
+[[point]]
+name = "flame"
+part = "body"
+at = [4.0, 5.3, 4.0]
+
+[[state]]
+name = "placed"
+effects = [{ effect = "torch flame", point = "flame" }]

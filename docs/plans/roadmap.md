@@ -97,6 +97,7 @@ In this order unless the developer says otherwise (the developer's order of 2026
    (ADR 0017: capture, name, paste, materials paid from storage).
 6. **Crafting and the first machines** (`crafting.md`), then **networks** (`networks.md`: shafts first, then
    pipes and wires on one engine).
+   With crafting: the torch's recipe (ADR 0117; the torch is only `/give torch` and creative until then).
 7. **The dedicated server on the home server and auto-update** (ADR 0005); AI players; the jetpack and the
    climb to orbit, with the attitude ball (`navigation.md` part 4).
 

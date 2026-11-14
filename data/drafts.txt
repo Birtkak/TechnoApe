@@ -308,3 +308,5 @@ data/models/hare.png
 data/models/snake.png
 data/models/furnace.png
 data/models/leaf.png
+data/models/torch.toml
+data/models/torch.png

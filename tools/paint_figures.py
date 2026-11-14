@@ -71,6 +71,7 @@ class Figure(pc.Model):
         self.want = []  # (part, at, size, paint)
         self.parts = {}
         self.quads = 0
+        self.base = ""  # a new model's file before its boxes (its rig, points, states)
 
     def add(self, part, at, size, paint):
         assert max(size) <= MAX_SIDE, f"{self.name} {part}: a box {size} over {MAX_SIDE} px; split it"
@@ -112,7 +113,7 @@ class Figure(pc.Model):
         """The model's own file with its voxels emptied and its boxes after each part's voxels."""
         self.lay()
         path = OUT / f"{self.name}.toml"
-        text = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+        text = (path.read_text(encoding="utf-8") if path.exists() else self.base).replace("\r\n", "\n")
         text = re.sub(r"\n\[\[part\.boxes\]\]\n(?:[a-z]+ = .*\n)*", "\n", text)  # a run before
         sizes = {p["name"]: p["box"] for p in tomllib.loads(text)["part"]}
         assert set(self.parts) <= set(sizes), f"{self.name}: boxes on parts it lacks: {set(self.parts) - set(sizes)}"
@@ -144,7 +145,7 @@ class Figure(pc.Model):
 
 # ---------------------------------------------------------------- recipes
 
-def coat(ramp, seed, base=3.0, top=2.4, streak=0.7):
+def coat(ramp, seed, base=3.0, top=2.4, streak=0.45):
     """Fur or hide: lit on top, from shade at a box's foot to light at its top, soft strands down the sides."""
     def p(s):
         x, y, z = (int(v) for v in s.p)
@@ -155,7 +156,7 @@ def coat(ramp, seed, base=3.0, top=2.4, streak=0.7):
             t = base - 1.2
         else:
             t = base - 0.8 + 2.0 * s.up() + (rnd(seed, "st", x, z, y // 3) - 0.5) * streak * 1.6
-        return R(ramp, t + n * 0.5)
+        return R(ramp, t + n * 0.3)
     return p
 
 
@@ -365,10 +366,49 @@ def leaf(m):
     m.add("leaf", (0, 2, 0), (12, 0, 8), p)
 
 
+TORCH = """# A draft torch (Claude's, listed in data/drafts.txt): data/blocks.toml's `torch` (ADR 0117), a stick about 60 cm
+# tall with a charred head bound in cord, standing in the middle of its cell; a wall's leans (crates/client models.rs).
+colours = ["log"]
+item = 0.6
+
+[[part]]
+name = "body"
+box = [1, 1, 1]
+voxels = "."
+
+# the flame's place, on the head's top, and the state a placed one plays (ADR 0050): its small fire
+[[point]]
+name = "flame"
+part = "body"
+at = [4.0, 5.3, 4.0]
+
+[[state]]
+name = "placed"
+effects = [{ effect = "torch flame", point = "flame" }]
+"""
+
+
+def torch(m):
+    """A torch (ADR 0117): a pale stick darker toward its foot, a head of charred wraps under cord bands, its top
+    glowing embers."""
+    m.base = TORCH
+    stick = lambda s: R("twig", 2.2 + 3.0 * s.up() + (rnd("stick", s.f, int(s.p[1])) - 0.5) * 0.8) if s.f != "bottom" else R("twig", 1)
+    m.add("body", (15, 0, 15), (2, 15, 2), stick)
+
+    def head(s):
+        y = s.q[1]
+        if s.f == "top":
+            return R("ember", 4.5 + (rnd("coal", int(s.p[0]), int(s.p[2])) - 0.5) * 3)
+        if int(y) in (1, 3):
+            return R("twig", 5.2)  # the cord
+        return R("eye", 0.8 + (rnd("char", s.f, int(s.q[0] + s.q[2]), int(y)) - 0.5) * 1.2 + 0.4 * (y > 4))
+    m.add("body", (14.5, 15, 14.5), (3, 6, 3), head)
+
+
 def make():
     ramps()
     written, total = [], 0
-    for name, recipe in [("ape", ape), ("boar", boar), ("deer", deer), ("hare", hare), ("snake", snake), ("furnace", furnace), ("leaf", leaf)]:
+    for name, recipe in [("ape", ape), ("boar", boar), ("deer", deer), ("hare", hare), ("snake", snake), ("furnace", furnace), ("leaf", leaf), ("torch", torch)]:
         m = Figure(name)
         recipe(m)
         written += m.write()

@@ -33,6 +33,28 @@ fn near(world: &World, b: Block, di: i32, dj: i32, dl: i32) -> Block {
 
 const SIDES: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
 
+/// Where a block that hangs (a torch, ADR 0117) is held from, as (di, dj, dl): the cell under it when that is
+/// solid, else its first solid side of +i, -i, +j, -j; None when nothing holds it. Read from the blocks alone,
+/// so the server's rule and every client's drawing (which wall it leans from) agree.
+pub fn held_from(world: &World, b: Block) -> Option<(i32, i32, i32)> {
+    let solid = |(di, dj, dl): (i32, i32, i32)| BLOCKS.solid(world.block(near(world, b, di, dj, dl)));
+    std::iter::once((0, 0, -1)).chain(SIDES.iter().map(|&(i, j)| (i, j, 0))).find(|&o| solid(o))
+}
+
+/// The blocks that hang next to the cells in `changed` that nothing holds any more: each drops as itself.
+pub fn unheld(world: &World, changed: &[(Block, u16)]) -> Vec<Block> {
+    let mut out = Vec::new();
+    for (b, _) in changed {
+        for (di, dj, dl) in [(0, 0, 1), (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 0)] {
+            let n = near(world, *b, di, dj, dl);
+            if BLOCKS.get(world.block(n)).is_some_and(|d| d.hangs) && held_from(world, n).is_none() && !out.contains(&n) {
+                out.push(n);
+            }
+        }
+    }
+    out
+}
+
 /// Cells the fall reaches when it has fallen for `k` ticks of 50 ms from rest: g t^2 / 2 rounded, so the
 /// first cell goes once the block's middle is past the edge (0.32 s), at most one a tick.
 fn due(k: u32) -> u32 {
@@ -181,6 +203,40 @@ mod tests {
             assert!(tick < 2000, "never settled");
         }
         tick
+    }
+
+    /// ADR 0117: a hanging block is held from the floor under it first, else from its first solid side of +i, -i,
+    /// +j, -j, else from nothing; the answer is the blocks' alone, so two worlds built alike agree.
+    #[test]
+    fn a_torch_is_held_from_its_floor_then_its_first_wall() {
+        let stone = BLOCKS.id("stone");
+        let built = |walls: &[(i32, i32)]| {
+            let (mut w, top) = floor();
+            for &(di, dj) in walls {
+                w.set_block(at(top, di, dj, 3), stone);
+            }
+            (held_from(&w, top), held_from(&w, at(top, 0, 0, 3)))
+        };
+        assert_eq!(built(&[]), (Some((0, 0, -1)), None), "on the floor; in the open air nothing");
+        assert_eq!(built(&[(0, 1), (-1, 0)]), (Some((0, 0, -1)), Some((-1, 0, 0))), "-i before +j");
+        assert_eq!(built(&[(0, -1), (0, 1), (1, 0)]), (Some((0, 0, -1)), Some((1, 0, 0))));
+        assert_eq!(built(&[(0, -1)]), built(&[(0, -1)]), "the same from the same blocks");
+    }
+
+    /// ADR 0117: a torch whose wall or floor is dug is found unheld by the change; one still held is not.
+    #[test]
+    fn a_torch_whose_support_goes_is_unheld() {
+        let (mut w, top) = floor();
+        let (stone, torch) = (BLOCKS.id("stone"), BLOCKS.id("torch"));
+        let (wall, hung, under) = (at(top, 1, 0, 2), at(top, 0, 0, 2), at(top, 0, 0, -1));
+        w.set_block(wall, stone);
+        w.set_block(hung, torch);
+        w.set_block(top, torch);
+        assert!(unheld(&w, &[(wall, stone), (hung, torch)]).is_empty());
+        w.set_block(wall, AIR);
+        assert_eq!(unheld(&w, &[(wall, AIR)]), vec![hung]);
+        w.set_block(under, AIR);
+        assert_eq!(unheld(&w, &[(under, AIR)]), vec![top], "its floor dug");
     }
 
     #[test]
