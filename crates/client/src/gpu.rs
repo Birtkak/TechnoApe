@@ -636,6 +636,48 @@ pub(crate) fn painting(d: &engine::blocks::Def) -> [Option<engine::textures::Pix
     PAINTING.read().unwrap().iter().find(|(id, _)| *id == d.id).map_or([None; 2], |p| p.1)
 }
 
+/// A fine face's 32 x 32 variant from its quarters (top left, top right, bottom left, bottom right) at 16 x 16:
+/// each pixel the mean of the 2 x 2 there, there when at least two of them are (a cutout's holes stay).
+pub(crate) fn halve(q: &[engine::textures::Pixels]) -> engine::textures::Pixels {
+    let mut out = [[0u8; 4]; 256];
+    for (k, o) in out.iter_mut().enumerate() {
+        let (x, y) = (k % 16, k / 16);
+        let quarter = &q[(y / 8) * 2 + x / 8];
+        let (mut c, mut n) = ([0u32; 3], 0u32);
+        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+            let p = quarter[((y % 8) * 2 + dy) * 16 + (x % 8) * 2 + dx];
+            if p[3] > 0 {
+                (0..3).for_each(|m| c[m] += p[m] as u32);
+                n += 1;
+            }
+        }
+        if n >= 2 {
+            *o = [(c[0] / n) as u8, (c[1] / n) as u8, (c[2] / n) as u8, 255];
+        }
+    }
+    out
+}
+
+#[test]
+fn a_fine_face_halved_keeps_its_quarters_in_place_and_its_holes() {
+    let mut q = [[[10, 20, 30, 255]; 256]; 4];
+    q[1] = [[200, 100, 50, 255]; 256];
+    q[2][0] = [0; 4];
+    q[2][1] = [0; 4];
+    q[2][16] = [0; 4];
+    let h = halve(&q);
+    assert_eq!(h[0], [10, 20, 30, 255]);
+    assert_eq!(h[15], [200, 100, 50, 255], "the top right quarter at the top right");
+    assert_eq!(h[8 * 16], [0; 4], "three of four empty: a hole");
+    // two of four there: a pixel, the mean of the two
+    let mut q = [[[0u8; 4]; 256]; 4];
+    q[3][0] = [100, 0, 0, 255];
+    q[3][17] = [200, 50, 0, 255];
+    assert_eq!(halve(&q)[8 * 16 + 8], [150, 25, 0, 255], "two of four: there");
+    q[3][17] = [0; 4];
+    assert_eq!(halve(&q)[8 * 16 + 8], [0; 4], "one of four: a hole");
+}
+
 /// A block as the hotbar's cubes draw it in the season `sn` where the player stands (`season_here`): top
 /// colour, side colour, pattern; a painted block in its faces' means with plain noise (ADR 0045), any other in
 /// its colours (a grass block's sides are its `side` block's), each mixed by the season as shader.wgsl
@@ -1287,8 +1329,8 @@ impl Gpu {
         eprintln!("[technoape] textures: {blocks} blocks painted, {} season looks, {} layers", placed.len() - blocks, layers.len());
         self.queue.write_buffer(&self.looks, 0, bytemuck::cast_slice(&looks_of(&placed)));
         *SHOWN.write().unwrap() = shown;
-        // shortcut: a fine face (ADR 0090) keeps its tones, its variant 0 is a quarter; draw its four quarters if wanted
-        let first = |f: &Option<engine::textures::Face>| f.as_ref().filter(|f| !f.fine).map(|f| f.variants[0]);
+        // a fine face (ADR 0090): its first 32 x 32 variant (four quarters) halved to 16 x 16 (ADR 0113)
+        let first = |f: &Option<engine::textures::Face>| f.as_ref().and_then(|f| match (f.fine, f.variants.len()) { (true, 4..) => Some(halve(&f.variants[..4])), (true, _) => None, _ => f.variants.first().copied() });
         *PAINTING.write().unwrap() = placed.iter().filter(|((_, q), _, _)| *q == 0).map(|((id, _), p, _)| (*id, [first(&p.faces[0]), first(&p.faces[1])])).collect();
     }
 

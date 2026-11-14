@@ -15,7 +15,7 @@ pub const PIXEL: f32 = 1.0 / 32.0;
 /// design's first guess).
 pub const MAX_PAINT: u32 = 128;
 pub const MAX_BOXES: usize = 64;
-/// A model's cell drawn as an item when its file sets no `item`, metres (the in-hand size before ADR 0113).
+/// A model's cell drawn as an item when its file sets no `item`, metres (the in-hand size before ADR 0114).
 pub const ITEM_M: f32 = 0.35;
 /// The letters of the voxel rows, in the order of `colours`; '.' is empty.
 pub const LETTERS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -25,7 +25,7 @@ pub const LETTERS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXY
 pub struct Model {
     /// Palette names; a voxel's letter picks one.
     pub colours: Vec<String>,
-    /// How large one cell (8 voxels) of it is drawn as an item, in hand and lying in a pile, metres (ADR 0113):
+    /// How large one cell (8 voxels) of it is drawn as an item, in hand and lying in a pile, metres (ADR 0114):
     /// 0.05 to 1; absent, `ITEM_M` in hand, and in a pile that too or, for a model of painted boxes (clutter, which
     /// lies at its real size), 1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -670,7 +670,7 @@ impl Bx {
 
     /// Its painting as quads of one pixel each in a grid of its own pixels (corner at 0, before its turn; a plane's
     /// thin axis one pixel thick), each with its pixel's colour, empty pixels none: what `vs_model` draws with
-    /// `frame` (ADR 0113, a model of painted boxes in hand or in a pile). None past the quad's 6 bits a side.
+    /// `frame` (ADR 0114, a model of painted boxes in hand or in a pile). None past the quad's 6 bits a side.
     pub fn pixel_quads(&self, p: &Painting) -> Vec<(Quad, [u8; 3])> {
         let g = self.size.map(|v| v.max(1));
         if g.iter().any(|&v| v > 63) {
@@ -1007,7 +1007,7 @@ key = [
         assert!((centre - Vec3::splat(0.5)).length() < 1e-4, "{centre}");
     }
 
-    /// ADR 0113: a box's painting as one quad a pixel, on the face the pixel paints, in its colour; an empty pixel
+    /// ADR 0114: a box's painting as one quad a pixel, on the face the pixel paints, in its colour; an empty pixel
     /// none; a plane both sides; `frame` puts the grid at the box's corner in its part's voxels.
     #[test]
     fn a_boxs_painting_becomes_one_quad_a_pixel_on_its_face() {
@@ -1032,7 +1032,7 @@ key = [
         assert!(p.frame().transform_vector3(Vec3::Z).length() < 0.1 * k);
     }
 
-    /// ADR 0113: `item`, one cell's size as an item, is 0.05 to 1 m, named when refused; absent it is not written.
+    /// ADR 0114: `item`, one cell's size as an item, is 0.05 to 1 m, named when refused; absent it is not written.
     #[test]
     fn an_items_size_is_held_to_its_range_and_absent_is_not_written() {
         let with = |v: &str| format!("item = {v}\n{BOX}");

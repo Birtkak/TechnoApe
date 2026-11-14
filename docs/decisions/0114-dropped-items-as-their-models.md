@@ -1,4 +1,4 @@
-# 0113 – Dropped items drawn as their models; painted boxes on the instance path; an item's size
+# 0114 – Dropped items drawn as their models; painted boxes on the instance path; an item's size
 
 - **Status:** proposed (built; waits for the developer's look and merge)
 - **Date:** 2026-11-14
@@ -53,7 +53,7 @@ clutter model in hand was wrong**: nothing was drawn in hand for flint (the log 
   `before.png` (the same pile with `models=` an empty folder: four cubes), `after.png` (the hand axe lying on its
   face, the stick, granite's cube; the flint is behind the cube from this side), `flint_lying.png`,
   `hand_axe_in_hand.png`, `flint_in_hand.png`.
-- Cost: `docs/perf-debt.md` row "Dropped items as models (0113)".
+- Cost: `docs/perf-debt.md` row "Dropped items as models (0114)".
 
 ## For the developer to confirm
 - The painted axe's `item = 0.3` (21 cm); flint in hand at the default 0.35 is small and half under the screen's

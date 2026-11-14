@@ -238,7 +238,7 @@ def make():
     m = Model("hand axe")
     for x, y, z, sx, sy, sz in [(12, 0, 14.5, 8, 3, 3), (10, 3, 14, 12, 5, 4), (11, 8, 14, 10, 5, 4), (12.5, 13, 14.5, 7, 4, 3), (14, 17, 15, 4, 3, 2), (15, 20, 15, 2, 2, 2)]:
         m.box((x, y, z), (sx, sy, sz), axe("hand axe", 22 - y - sy, y == 0))
-    # one cell 0.3 m as an item (ADR 0113): about 21 cm long in hand and lying in a pile
+    # one cell 0.3 m as an item (ADR 0114): about 21 cm long in hand and lying in a pile
     written += m.write("slate", "a knapped flint teardrop, point up", item=0.3)
     return written
 

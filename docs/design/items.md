@@ -107,6 +107,11 @@ feel, which the developer chose for digging (ADR 0034).
 - The mouse works as in Minecraft, since those habits are free to reuse: click lifts a stack, right
   click half, shift-click sends it across, a drag spreads it. The number keys send to a hotbar slot.
 - Each row a pack adds is drawn as that pack's row, so a glance says what dropping the pack would cost.
+- Its look (ADR 0113): one window in the menu's glass. Survival: the ape standing (wearing its pack) over the
+  worn slot and health and hunger | the pack's rows under its name over the hotbar | the ground. Creative: an
+  always-visible search on the title row, the tabs, a 9 x 6 grid with a scrollbar and a count, the hotbar. A slot
+  shows a thing as the world does: a model's picture, a cutout block's painting, else the cube; a tooltip says a
+  tool's uses, what a pack opens, a stack's count.
 - Off-screen it is reachable by `acts=` (`point`, `click`, a key through the bindings) and the JSON of a
   play run lists the slots. Bots get `take`, `put`, `drop` and `slots` (a report line).
 

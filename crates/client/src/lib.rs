@@ -20,6 +20,7 @@ mod play;
 mod nav;
 mod rt;
 mod settings;
+pub mod sprite;
 mod sim;
 mod sys;
 mod view;

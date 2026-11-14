@@ -127,7 +127,7 @@ The file, `data/models/<name>.toml`:
 ```toml
 colours = ["stone dark", "stone", "copper"]   # game palette names; at most 62 per model
 item = 0.3                 # optional: one cell's size in metres as an item, in hand and in a pile (0.05..1;
-                           # absent: 0.35 in hand; in a pile 0.35, or 1 for a model of painted boxes; ADR 0113)
+                           # absent: 0.35 in hand; in a pile 0.35, or 1 for a model of painted boxes; ADR 0114)
 
 [[part]]
 name = "body"
@@ -161,7 +161,7 @@ key = [
   one transform per part, lit by the light of the cell it stands in. A block row may name `model = "x"`:
   the model is drawn in the cell in place of the cube (the cell still collides as a whole block for now).
   The item in the hand is a model when one of the block's name exists, and so is a stack lying in a pile (a
-  standing item laid on its face; ADR 0113); painted boxes are drawn there too, a quad a pixel. Clip `idle`
+  standing item laid on its face; ADR 0114); painted boxes are drawn there too, a quad a pixel. Clip `idle`
   loops when present.
 - Files reload live, as textures do.
 

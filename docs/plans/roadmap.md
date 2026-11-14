@@ -65,9 +65,17 @@ this file says what is done, what is in work and what comes next, in order.
 In this order unless the developer says otherwise (the developer's order of 2026-11-14 first).
 
 0. **The developer play-tests** the flint tools (ADR 0110) and the undercut (ADR 0112: its spans and the
-   room-only rule are calls to confirm). Open beside it: items have no pictures yet, the crack paintings
+   room-only rule are calls to confirm). Open beside it: the inventory's new look (ADR 0113), the crack paintings
    (`docs/design/mining.md`), an overhang open to the sky does not drop. Then the list below, skipping what
    the rows above already built.
+
+   **Queued by the developer, 2026-11-14** (after the inventory's look and the models of dropped items, which
+   are in work on `claude/inventory-look` and `claude/pile-models`):
+   - **Things on the ground are aimed at themselves** (stones, sticks, flint, mushrooms, berries; ADR 0082 takes
+     them by a click on the ground under them): a hit test on the thing's own boxes, the aim's outline on it,
+     a left click mines it, and a held right click picks it up.
+   - **Grass and the other plants get a hit box** so they can be mined, and give **plant fibre** (a new item; the
+     developer, 2026-11-14: it is for cord and for hafting tools. Write it into `crafting.md` when built).
 
 1. **What the world's stages left open** (`docs/plans/worldgen-plan.md`):
    - W2b, the globe map (`docs/design/navigation.md` part 3): spike first;

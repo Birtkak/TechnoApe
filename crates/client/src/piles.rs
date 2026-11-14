@@ -1,4 +1,4 @@
-//! The piles on the ground (ADR 0074, 0082, 0113): each stack drawn as the model of its item's or block's name
+//! The piles on the ground (ADR 0074, 0082, 0114): each stack drawn as the model of its item's or block's name
 //! when one is loaded, lying at its place in the cell; else as the small cube of what it looks like.
 use crate::app::App;
 use crate::fx::{self, FxGpu};
@@ -74,7 +74,7 @@ mod tests {
         lay(&w, &piles, me, &|n| has.contains(&n))
     }
 
-    /// ADR 0113: a stack whose item has a loaded model lies as that model, the rest are cubes; the same pile is
+    /// ADR 0114: a stack whose item has a loaded model lies as that model, the rest are cubes; the same pile is
     /// turned the same each time; past `PILE_DRAWN` nothing; a model not loaded falls back to the cube.
     #[test]
     fn a_pile_draws_its_models_and_cubes_for_the_rest() {
