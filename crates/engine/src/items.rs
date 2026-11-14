@@ -60,10 +60,23 @@ struct Row {
     #[serde(default)]
     pack: u8,
     look: String,
+    tool: Option<String>,
+    head: Option<String>,
+    knap: Option<(String, u8)>,
 }
 
 fn full() -> u16 {
     STACK
+}
+
+/// A tool head's material (items.md "Tools", ADR 0110): what every tool of it digs like.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Material {
+    name: String,
+    speed: f32,
+    grade: u8,
+    uses: u16,
 }
 
 #[derive(Deserialize)]
@@ -72,7 +85,34 @@ struct File {
     #[serde(default)]
     made: Vec<String>,
     #[serde(default)]
+    material: Vec<Material>,
+    #[serde(default)]
     item: Vec<Row>,
+}
+
+/// A tool (ADR 0110): its kind (`blocks::TOOLS`; None counts as every kind, the unhafted hand axe) and its head
+/// material's numbers.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tool {
+    pub kind: Option<String>,
+    /// Dig time is `hardness / speed` on a block whose `tool` is its kind.
+    pub speed: f32,
+    /// It takes a block that is not loose when this is at least the block's grade.
+    pub grade: u8,
+    /// Digs before it is worn away (each costs one); a stack's payload counts those it has had.
+    pub uses: u16,
+}
+
+impl Tool {
+    /// It is the kind of tool block `d` names.
+    pub fn fits(&self, d: &crate::blocks::Def) -> bool {
+        d.tool.is_some() && self.kind.as_ref().is_none_or(|k| d.tool.as_ref() == Some(k))
+    }
+
+    /// It takes block `d` whole when `d` is not loose: the right kind, of at least its grade.
+    pub fn takes(&self, d: &crate::blocks::Def) -> bool {
+        self.fits(d) && self.grade >= d.grade
+    }
 }
 
 pub struct Def {
@@ -83,6 +123,39 @@ pub struct Def {
     pub pack: u8,
     /// The block it is drawn as.
     pub look: u16,
+    pub tool: Option<Tool>,
+    /// Struck this many times on hard rock (`knaps`) it becomes that item, one of it at a time.
+    pub knap: Option<(u16, u8)>,
+}
+
+/// Seconds between two strikes that count (ADR 0110): holding or hammering the button does not knap faster.
+pub const KNAP_WAIT_S: f64 = 0.4;
+
+/// Hard rock, what a knapper strikes on: a block a pick digs that bare hands do not take (not soil, wood,
+/// gravel or rubble).
+pub fn knaps(d: &crate::blocks::Def) -> bool {
+    d.tool.as_deref() == Some("pick") && !d.loose
+}
+
+/// The tool a stack is, if it is one.
+pub fn tool(s: Option<Stack>) -> Option<&'static Tool> {
+    ITEMS.get(s?.item)?.tool.as_ref()
+}
+
+/// The digs a tool's stack has left: its uses less the payload (the digs it has had); None for any other stack.
+pub fn left(s: Option<Stack>) -> Option<u16> {
+    Some(tool(s)?.uses.saturating_sub(s?.payload.min(u16::MAX as u64) as u16))
+}
+
+/// One dig's wear on the tool in `slot`: true when that was its last and it is gone, leaving nothing (ADR 0047).
+pub fn wear(slot: &mut Slot) -> bool {
+    let Some(s) = slot.as_mut().filter(|s| tool(Some(**s)).is_some()) else { return false };
+    s.payload += 1;
+    if left(Some(*s)) == Some(0) {
+        *slot = None;
+        return true;
+    }
+    false
 }
 
 pub struct Items {
@@ -111,7 +184,32 @@ impl Items {
                 return Err(format!("item '{}': a pack opens 9, 18 or 27 slots and stacks by one", r.name));
             }
             let look = block(&r.look).ok_or(format!("item '{}': no block '{}' to look like", r.name, r.look))?;
-            defs.push(Def { id: ITEM_BASE + k as u16, name: r.name.clone(), stack: r.stack, pack: r.pack, look });
+            let tool = match (&r.tool, &r.head) {
+                (None, None) => None,
+                (Some(kind), Some(head)) => {
+                    let m = f.material.iter().find(|m| &m.name == head).ok_or(format!("item '{}': no material '{head}' for its head", r.name))?;
+                    if !(crate::blocks::TOOLS.contains(&kind.as_str()) || kind == "any") || r.stack != 1 {
+                        return Err(format!("item '{}': a tool is one of {:?} or \"any\", and stacks by one", r.name, crate::blocks::TOOLS));
+                    }
+                    Some(Tool { kind: (kind != "any").then(|| kind.clone()), speed: m.speed, grade: m.grade, uses: m.uses })
+                }
+                _ => return Err(format!("item '{}': a tool names both its kind and its head", r.name)),
+            };
+            defs.push(Def { id: ITEM_BASE + k as u16, name: r.name.clone(), stack: r.stack, pack: r.pack, look, tool, knap: None });
+        }
+        for m in &f.material {
+            if !(m.speed > 1.0 && m.speed <= 20.0) || !(1..=4).contains(&m.grade) || !(1..=10000).contains(&m.uses) {
+                return Err(format!("material '{}': speed over 1 to 20, grade 1..4, uses 1..10000", m.name));
+            }
+        }
+        for (k, r) in f.item.iter().enumerate() {
+            if let Some((into, n)) = &r.knap {
+                let to = defs.iter().find(|d| &d.name == into).map(|d| d.id).ok_or(format!("item '{}': knaps into no item '{into}'", r.name))?;
+                if !(1..=20).contains(n) || to == defs[k].id {
+                    return Err(format!("item '{}': knap takes 1..20 strikes into another item", r.name));
+                }
+                defs[k].knap = Some((to, *n));
+            }
         }
         let made: Vec<u16> = f.made.iter().map(|n| block(n).ok_or(format!("made: no block '{n}'"))).collect::<Result<_, _>>()?;
         let ores: Vec<u16> = crate::ore::MINERALS.kinds.iter().map(|k| k.block).collect();
@@ -152,8 +250,9 @@ impl Items {
         }
     }
 
-    /// The block or item of this name, any case.
+    /// The block or item of this name, any case; `_` stands for a space (`/give hand_axe`).
     pub fn named(&self, name: &str) -> Option<u16> {
+        let name = &name.replace('_', " ");
         BLOCKS.placeable().find(|d| d.name.eq_ignore_ascii_case(name)).map(|d| d.id).or_else(|| self.defs.iter().find(|d| d.name.eq_ignore_ascii_case(name)).map(|d| d.id))
     }
 
@@ -354,10 +453,58 @@ mod tests {
             ("[[item]]\nname='x'\npack=9\nlook='stone'", "pack"),
             ("[[item]]\nname='x'\nlook='nothing'", "look"),
             ("made=['nothing']", "made"),
+            ("[[item]]\nname='x'\nstack=1\nlook='stone'\ntool='pick'\nhead='bone'", "material"),
+            ("[[material]]\nname='m'\nspeed=2\ngrade=1\nuses=9\n[[item]]\nname='x'\nlook='stone'\ntool='pick'\nhead='m'", "stacks by one"),
+            ("[[material]]\nname='m'\nspeed=2\ngrade=1\nuses=9\n[[item]]\nname='x'\nstack=1\nlook='stone'\ntool='spoon'\nhead='m'", "tool"),
+            ("[[material]]\nname='m'\nspeed=2\ngrade=9\nuses=9", "grade"),
+            ("[[item]]\nname='x'\nstack=1\nlook='stone'\ntool='pick'", "both"),
+            ("[[item]]\nname='x'\nlook='stone'\nknap=['y', 4]", "knaps into"),
+            ("[[item]]\nname='x'\nlook='stone'\nknap=['x', 4]", "strikes"),
         ] {
             let e = Items::parse(row).err().unwrap_or_default();
             assert!(e.contains(says), "{row}: {e}");
         }
+    }
+
+    /// ADR 0110 (items.md "Tests"): every block that is not loose names a tool, and a tool of that kind (or of
+    /// every kind) and of at least its grade exists, or the block says it waits for a `later` one; every block a
+    /// tool kind names is one of `blocks::TOOLS`.
+    #[test]
+    fn every_block_that_is_not_loose_has_a_tool_that_takes_it_or_waits() {
+        let tools: Vec<&Tool> = ITEMS.defs.iter().filter_map(|d| d.tool.as_ref()).collect();
+        assert!(!tools.is_empty(), "no tool in data/items.toml");
+        for d in BLOCKS.placeable().filter(|d| !d.loose) {
+            assert!(d.tool.as_deref().is_some_and(|t| crate::blocks::TOOLS.contains(&t)), "{} names no tool", d.name);
+            let reached = tools.iter().any(|t| t.takes(d));
+            assert!(reached != d.later, "{}: a tool takes it {reached}, later {}", d.name, d.later);
+        }
+        // the first tool, from flint (ADR 0110): every kind at grade 1, faster than hands, a few dozen digs
+        let axe = ITEMS.named("hand_axe").and_then(|i| ITEMS.get(i)).expect("a hand axe");
+        let t = axe.tool.as_ref().unwrap();
+        assert!(t.kind.is_none() && t.grade == 1 && t.speed > 1.0 && axe.stack == 1);
+        assert_eq!(ITEMS.get(ITEMS.named("flint").unwrap()).unwrap().knap, Some((axe.id, 4)));
+    }
+
+    /// A tool's payload counts its digs (ADR 0110): it wears one a dig and is gone at its last, leaving nothing.
+    #[test]
+    fn a_tool_wears_one_use_a_dig_and_is_gone_at_its_last() {
+        let axe = ITEMS.named("hand axe").unwrap();
+        let uses = ITEMS.get(axe).unwrap().tool.as_ref().unwrap().uses;
+        let mut slot = Some(Stack::new(axe, 1));
+        assert_eq!(left(slot), Some(uses));
+        for k in 1..uses {
+            assert!(!wear(&mut slot), "gone after {k}");
+            assert_eq!(left(slot), Some(uses - k));
+        }
+        assert!(wear(&mut slot) && slot.is_none());
+        // a stack that is no tool wears nothing
+        let mut stone = Some(Stack::new(BLOCKS.id("stone"), 3));
+        assert!(!wear(&mut stone) && stone == Some(Stack::new(BLOCKS.id("stone"), 3)) && left(stone).is_none());
+        // the block it digs: every kind fits; stone is the hand axe's to take, copper waits for grade 2
+        let t = tool(Some(Stack::new(axe, 1))).unwrap();
+        let get = |n: &str| BLOCKS.get(BLOCKS.id(n)).unwrap();
+        assert!(t.takes(get("stone")) && t.fits(get("log")) && t.fits(get("copper")) && !t.takes(get("copper")));
+        assert!(knaps(get("granite")) && !knaps(get("gravel")) && !knaps(get("dirt")) && !knaps(get("log")) && !knaps(get("stone rubble")));
     }
 
     #[test]
