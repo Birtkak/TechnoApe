@@ -134,6 +134,19 @@ impl Herds {
         Ok(Herds { kinds, by_biome, seed, sites: BTreeMap::new(), next: 1, awake: 0, clock: 0 })
     }
 
+    /// The files changed under a running server (ADR 0134): the kinds' speeds and the herds' shares are the new
+    /// ones from now on, the animals alive stay. Ok(false) when nothing changed. Refused, with nothing changed,
+    /// when a kind is gone or moved: an animal is its kind's place in this list, on the wire and in a save.
+    pub fn reload(&mut self, creatures: &str, herds: &str) -> Result<bool, String> {
+        let new = Herds::parse(creatures, herds, self.seed)?;
+        if let Some(k) = self.kinds.iter().enumerate().find(|(i, k)| new.kinds.get(*i).is_none_or(|n| n.name != k.name)) {
+            return Err(format!("data/creatures.toml: creature '{}' is gone or moved: a running world may hold it", k.1.name));
+        }
+        let same = self.kinds == new.kinds && self.by_biome == new.by_biome;
+        (self.kinds, self.by_biome) = (new.kinds, new.by_biome);
+        Ok(!same)
+    }
+
     /// The site direction `d` (from body 0's centre) lies in.
     pub fn site_of(world: &World, d: DVec3) -> Site {
         let (f, i, j) = world.bodies[0].locate(d);
@@ -472,6 +485,25 @@ mod tests {
     /// A tick at noon at the spawn (the clock's 0 is 9 am there): the sky's time is set to it.
     fn noon(w: &mut World) {
         w.time = 1800.0 * 3.0 / 24.0;
+    }
+
+    /// ADR 0134: the files changed under a running server: the speeds are the new ones, the animals alive stay,
+    /// and a file that takes a kind away or moves it is refused (an animal is its kind's place in the list).
+    #[test]
+    fn a_reload_changes_the_speeds_and_keeps_the_animals() {
+        let (c, hf) = (include_str!("../../../data/creatures.toml").replace("\r\n", "\n"), include_str!("../../../data/herds.toml"));
+        let mut h = herds();
+        h.next = 7;
+        let boar = h.kinds.iter().position(|k| k.name == "boar").unwrap();
+        assert_eq!(h.reload(&c, hf), Ok(false), "the same files are no change");
+        let at = c.find("name = \"boar\"").unwrap();
+        let faster = format!("{}{}", &c[..at], c[at..].replacen("run_speed = 5.0", "run_speed = 9.5", 1));
+        assert_eq!(h.reload(&faster, hf), Ok(true));
+        assert_eq!((h.kinds[boar].run, h.next), (9.5, 7), "the new speed, the herds as they were");
+        let cut = c.find("[[creature]]\nname = \"boar\"").unwrap();
+        let gone = format!("{}{}", &c[..cut], &c[cut + c[cut + 1..].find("[[creature]]").unwrap() + 1..]);
+        let e = h.reload(&gone, hf).unwrap_err();
+        assert!(e.contains("boar") && h.kinds[boar].run == 9.5, "{e}");
     }
 
     #[test]

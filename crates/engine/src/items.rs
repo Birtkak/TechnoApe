@@ -6,7 +6,6 @@
 use crate::blocks::BLOCKS;
 use crate::world::Block;
 use serde::{Deserialize, Serialize};
-use std::sync::LazyLock;
 
 /// The first id of an item that is not a block: far over any block id (the shader's 8 bits, ADR 0062's 16).
 pub const ITEM_BASE: u16 = 0x8000;
@@ -276,7 +275,8 @@ impl Items {
     }
 }
 
-pub static ITEMS: LazyLock<Items> = LazyLock::new(|| Items::parse(include_str!("../../../data/items.toml")).unwrap_or_else(|e| panic!("data/items.toml: {e}")));
+/// The item rows in force, made over the blocks in force (`live::apply`, ADR 0134).
+pub static ITEMS: crate::live::Live<Items> = crate::live::Live::new(|| Items::parse(crate::live::ITEMS_TOML).unwrap_or_else(|e| panic!("data/items.toml: {e}")));
 
 /// A fresh ape's slots: all empty.
 pub fn ape() -> Vec<Slot> {

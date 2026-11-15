@@ -217,6 +217,14 @@ impl Bot {
                 Recv::Msg(ToClient::Vitals { dead: Some(_), .. }) => self.link.send(ToServer::Respawn),
                 Recv::Msg(ToClient::Air(h)) => self.air = Some(h),
                 Recv::Msg(ToClient::Kinds(k)) => self.kinds = k,
+                Recv::Msg(ToClient::Defs { blocks, items }) => {
+                    if let Err(e) = engine::live::apply(&blocks, &items) {
+                        eprintln!("[technoape] data: the server's rows refused, the rows before stay: {e}");
+                    }
+                    if let Some(w) = self.world.as_mut() {
+                        w.refresh_defs();
+                    }
+                }
                 Recv::Msg(ToClient::Animals { seen, gone }) => {
                     for id in gone {
                         self.animals.remove(&id);

@@ -72,6 +72,7 @@ fn main() {
         }
     };
     server.autosave = (save != "0").then(|| (save.clone().into(), 30 * TICK_HZ as u64));
+    server.live_data = true;
     let unix = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
     if let Some(rec) = record_path(args.get("record").map(String::as_str), unix) {
         match server.record(Path::new(&rec)) {

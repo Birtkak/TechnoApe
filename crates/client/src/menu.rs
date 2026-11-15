@@ -1005,7 +1005,12 @@ impl Loading {
             engine::bake::report("connecting", 0.0);
             let mut link: Link<ToServer, ToClient> = net::tcp(std::net::TcpStream::connect(&addr).map_err(|e| format!("{addr}: {e}"))?).map_err(|e| format!("{addr}: {e}"))?;
             link.send(ToServer::Hello { name });
-            match link.rx.recv_timeout(Duration::from_secs(10)) {
+            // (a server whose rows were reloaded sends them first, ADR 0134: the joining run takes them)
+            let mut first = link.rx.recv_timeout(Duration::from_secs(10));
+            if let Ok(ToClient::Defs { .. }) = first {
+                first = link.rx.recv_timeout(Duration::from_secs(10));
+            }
+            match first {
                 Ok(ToClient::Welcome { seed, planet_n, moon_n, map: Some(h), luna, .. }) => {
                     engine::bake::report(engine::net::DOWNLOAD, 0.0);
                     engine::net::fetch_map(&mut link, seed, planet_n, h)?;

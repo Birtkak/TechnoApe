@@ -405,6 +405,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
                 None => Server::baked_warp(planet, moon, seed, warp, accept_rx),
             };
             server.autosave = save.clone().map(|p| (p.into(), 30 * TICK_HZ as u64));
+            server.live_data = true;
             save_path = save;
             if let Some(r) = rec.filter(|r| r != "0") {
                 rec_path = Some(r.clone());
@@ -437,7 +438,13 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
     if run != "play" || args.s("mode", "") == "creative" {
         link.send(ToServer::Creative(true)); // the edit benchmark places stone it never dug
     }
-    let (my_id, mut world, seed) = match link.rx.recv_timeout(Duration::from_secs(10)) {
+    // a server whose block and item files are not the build's sends them first (ADR 0134)
+    let mut first = link.rx.recv_timeout(Duration::from_secs(10));
+    if let Ok(ToClient::Defs { blocks, items }) = &first {
+        engine::live::apply(blocks, items).unwrap_or_else(|e| panic!("the server's rows: {e}"));
+        first = link.rx.recv_timeout(Duration::from_secs(10));
+    }
+    let (my_id, mut world, seed) = match first {
         Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, items, map, luna }) => {
             assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
             assert_eq!(items, engine::items::ITEMS.hash, "the server's build has other items (data/items.toml)");

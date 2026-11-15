@@ -133,7 +133,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   `fx=1` (ADR 0031; `fx_cap=` the pool, the Particles setting few/normal/many), and
   `fxedit=t:di:dj:dl:block,...` (`air` to dig, `dig` a survival dig by the crack rule, ADR 0094) edits cells at t seconds to film a break or a place;
   `fxplay=name[:n]` starts a lasting effect or group (`fire`, `smoke`, ...) n times on the ground ahead and
-  `model=name@state` plays a model's state (clip, effects, sound, light; ADR 0050); `data/effects.toml` reloads live (`effects=file` another; `bash tools/reload-check.sh` times all four kinds' reloads end to end);
+  `model=name@state` plays a model's state (clip, effects, sound, light; ADR 0050); `data/effects.toml` reloads live (`effects=file` another; `bash tools/reload-check.sh` times all four kinds' reloads end to end); `data/blocks.toml`, `items.toml`, `creatures.toml` and `herds.toml` reload live too (ADR 0134: a row changed or added, never removed, renamed or moved; `python -I tools/live-check.py` times it);
   `capture_ms=2500 sheet=out/x.png` writes a filmstrip, `capture_w=1280` makes its frames large. Read the sheet.
 - **The gate:** `bash tools/check.sh` (about 4.5 min, 5.5 after a release build; the soak and its replay run beside the tests and the fixed viewpoints: tests, a soak, its replay, the quick benchmark, the fixed
   viewpoints and a played run's feel report, ADR 0018) prints
