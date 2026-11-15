@@ -813,15 +813,10 @@ pub(crate) fn season_here(w: &engine::world::World, pos: glam::DVec3) -> (f64, f
     engine::sky::season_at(w.up_at(pos), w.time)
 }
 
-/// Cutout blocks' fluff set live by the Studio's sliders (the view's `fluff`, ADR 0134) over their rows' until the
-/// process ends: `looks_of` takes them, so a texture reload keeps them.
-static FLUFF_LIVE: std::sync::RwLock<Vec<(u16, engine::blocks::Fluff)>> = std::sync::RwLock::new(Vec::new());
-
-/// Block `id`'s fluff from now on, over its row's (a block that has none, not cutout, keeps none).
-fn live_fluff(id: u16, f: engine::blocks::Fluff) {
-    let mut live = FLUFF_LIVE.write().unwrap();
-    live.retain(|(b, _)| *b != id);
-    live.push((id, f));
+/// Where block `id`'s fluff and light go in the looks buffer, in bytes, one per season (a look row is 20 words; they
+/// are its 17th and 18th), and the words.
+fn fluff_words(id: u16, f: engine::blocks::Fluff) -> [(u64, [u32; 2]); 4] {
+    std::array::from_fn(|season| (((season as u64 * 256 + id as u64) * 20 + 16) * 4, [f.packed(), f.light.to_bits()]))
 }
 
 /// Every block's look from the registry (ADR 0013, 0039, 0045), shader.wgsl `Look`, 80 bytes each: colour rgb,
@@ -860,8 +855,7 @@ fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> 
                         }
                         // a cutout block's fluff (ADR 0090, `Fluff::packed`), the same in every season
                         // and the share of the sun a face of it lets through to a shadow ray
-                        let live = FLUFF_LIVE.read().unwrap().iter().find(|(b, _)| *b == id).map(|(_, f)| *f);
-                        let (fluff, through) = d.fluff.map(|f| live.unwrap_or(f)).map_or((0, 0.0), |f| (f.packed(), f.light));
+                        let (fluff, through) = d.fluff.map_or((0, 0.0), |f| (f.packed(), f.light));
                         [r, g, b, info, r2, g2, b2, size, r3, g3, b3, f(tone.amount), f(tone.contrast), tex as u32, mean, (tex >> 32) as u32, fluff, f(through), 0, 0]
                     }
                     None => {
@@ -1481,13 +1475,12 @@ impl Gpu {
         PAINT_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
-    /// A cutout block's fluff live (the view's `fluff`): its four look rows' fluff and light words written now.
+    /// A cutout block's fluff drawn so while a Studio slider is dragged (the view's `fluff`): its four look rows'
+    /// fluff and light words written over. Nothing keeps it: the next `looks_of` (a texture or row reload, as the
+    /// let-go slider's save is) writes the row's own numbers back.
     pub(crate) fn set_fluff(&self, id: u16, f: engine::blocks::Fluff) {
-        live_fluff(id, f);
-        let words = [f.packed(), f.light.to_bits()];
-        for season in 0..4 {
-            // (a look row is 20 words; fluff and light are its 17th and 18th)
-            self.queue.write_buffer(&self.looks, ((season * 256 + id as u64) * 20 + 16) * 4, bytemuck::cast_slice(&words));
+        for (at, words) in fluff_words(id, f) {
+            self.queue.write_buffer(&self.looks, at, bytemuck::cast_slice(&words));
         }
     }
 
@@ -1521,21 +1514,27 @@ mod watch_tests {
 mod look_tests {
     use engine::blocks::BLOCKS;
 
-    /// The Studio's fluff sliders (the view's `fluff`): a cutout block's fluff set live is its look rows' in every
-    /// season, and stays when the looks are made again (a texture reload); other blocks keep their rows'.
+    /// The Studio's fluff sliders (the view's `fluff`): the words written over the looks buffer land on the block's
+    /// fluff and light in every season and nowhere else; with the row's own numbers they change nothing.
     #[test]
-    fn a_live_fluff_is_the_blocks_look_in_every_season() {
+    fn a_dragged_fluff_lands_on_the_blocks_look_in_every_season() {
         let reed = BLOCKS.id("reed");
-        let f = engine::blocks::Fluff { size: 2.5, push: 0.5, droop: 0.25, long: 2.0, dense: 0.5, light: 0.25 };
-        super::live_fluff(reed, f);
+        let own = BLOCKS.get(reed).unwrap().fluff.unwrap();
         let t = super::looks_of(&[]);
-        for s in 0..4 {
-            assert_eq!([t[s * 256 + reed as usize][16], t[s * 256 + reed as usize][17]], [f.packed(), f.light.to_bits()], "season {s}");
-        }
-        let stone = BLOCKS.id("stone") as usize;
-        // (the live numbers are the process's: reed's own back, for any test after this one)
-        super::live_fluff(reed, BLOCKS.get(reed).unwrap().fluff.unwrap());
-        assert_eq!(t[stone][16], 0, "an opaque block has no fluff");
+        let write = |f| {
+            let mut words: Vec<u32> = t.iter().flatten().copied().collect();
+            for (at, w) in super::fluff_words(reed, f) {
+                words[at as usize / 4..at as usize / 4 + 2].copy_from_slice(&w);
+            }
+            words
+        };
+        let flat: Vec<u32> = t.iter().flatten().copied().collect();
+        assert!(write(own) == flat, "the row's own fluff is what looks_of wrote");
+        let f = engine::blocks::Fluff { size: 2.5, push: 0.5, droop: 0.25, long: 2.0, dense: 0.5, light: 0.25 };
+        let w = write(f);
+        let changed: Vec<usize> = (0..w.len()).filter(|i| w[*i] != flat[*i]).collect();
+        let expect: Vec<usize> = (0..4).flat_map(|s| [(s * 256 + reed as usize) * 20 + 16, (s * 256 + reed as usize) * 20 + 17]).collect();
+        assert_eq!(changed, expect, "reed's fluff and light words in the four seasons");
     }
 
     /// ADR 0061: four rows a block, the row's own (summer) first, then spring, autumn, winter; a block without
