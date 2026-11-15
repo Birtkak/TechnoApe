@@ -96,7 +96,9 @@ pub(super) fn paint_canvas(ui: &mut Ui, rect: Rect, img: &Img, id: &str, outline
     if img.w == 0 || img.h == 0 {
         return None;
     }
-    let k = ((rect.width() - 2.0 * GAP) / img.w as f32).min((rect.height() - 2.0 * GAP) / img.h as f32).floor().clamp(1.0, 24.0);
+    // (whole pixels a pixel while it fits so, else what fits: a wide model painting beside the view)
+    let k = ((rect.width() - 2.0 * GAP) / img.w as f32).min((rect.height() - 2.0 * GAP) / img.h as f32).clamp(1.0, 24.0);
+    let k = if k >= 4.0 { k.floor() } else { k };
     let at = rect.center() - Vec2::new(img.w as f32, img.h as f32) * k / 2.0;
     let r = ui.interact(rect, egui::Id::unique(id), Sense::click_and_drag());
     let p = ui.painter_at(rect);
@@ -271,7 +273,7 @@ impl Plants {
         // a name of no row in the file as it is now and of no painting on disk, so nothing is written over
         let taken = crate::rows::spans(&std::fs::read_to_string(FILE).unwrap_or_default()).iter().any(|s| s.header == "clutter" && s.name == name) || Path::new(&format!("{DIR}/{name}.png")).exists();
         if name.is_empty() || name.contains(['.', '"', '/', '\\']) || self.plants.contains_key(&name) || taken {
-            return app.refuse(format!("\"{name}\": a plant needs a new name without . \" / or \\"));
+            return app.refuse(format!("Plant not added: \"{name}\" is empty, in use, or has a . \" / or \\ in it. Type another name."));
         }
         let img = sprout(&app.pal);
         let paints = BTreeMap::from([(name.clone(), PDoc { img, hist: History::default(), saved: None, rev: 0 })]);
@@ -285,7 +287,7 @@ impl Plants {
         let Some(name) = self.open.clone() else { return };
         let Some(p) = self.plants.get_mut(&name) else { return };
         let Some(stem) = (1..=engine::clutter::ALTERNATES).map(|k| format!("{name}.{k}")).find(|s| !p.paints.contains_key(s)) else {
-            return app.refuse(format!("{name} has all {} alternates", engine::clutter::ALTERNATES));
+            return app.refuse(format!("No alternate added: {name} already has all {}.", engine::clutter::ALTERNATES));
         };
         let Some(img) = p.paints.get(&self.file).map(|d| d.img.clone()) else { return };
         p.paints.insert(stem.clone(), PDoc { img, hist: History::default(), saved: None, rev: 0 });
@@ -388,7 +390,7 @@ impl Page for Plants {
                 self.file = self.plants[id].paints.keys().next().cloned().unwrap_or_default();
             }
         } else if let Some(e) = id.strip_prefix("(refused) ") {
-            app.refuse(e.to_string());
+            app.refuse(format!("Can't open {id}: {e}"));
         }
     }
     fn commands(&self, _app: &App) -> Vec<Cmd> {

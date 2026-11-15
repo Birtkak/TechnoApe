@@ -3,7 +3,7 @@
 //! (x, y up, z); the camera and rays are in the model's metres (the cell's edge is 1, its corner 0), as the game
 //! draws it.
 use crate::art::Img;
-use engine::models::{encode, Clip, Ease, Event, Key, Life, Model, Part, Point, LETTERS, MAX_BOX, VOXEL};
+use engine::models::{encode, Clip, Ease, Event, Key, Life, Model, Part, Point, VOXEL};
 use engine::palette::Palette;
 use glam::{IVec3, Mat4, Vec3};
 
@@ -100,27 +100,6 @@ pub const VIEWS: [(&str, &str, f32, f32); 6] = [
     ("bottom", "Bottom", 0.0, -1.56),
 ];
 
-/// What a ray meets: a voxel's face (`solid`), or the cell where it enters a part's box; `n` the face's outward
-/// normal (zero from inside the box), `t` how far along the ray.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Hit {
-    pub part: usize,
-    pub cell: IVec3,
-    pub n: IVec3,
-    pub solid: bool,
-    pub t: f32,
-}
-impl Hit {
-    /// The cell an add fills: beside the voxel met, or the empty cell entered.
-    pub fn target(&self) -> IVec3 {
-        if self.solid {
-            self.cell + self.n
-        } else {
-            self.cell
-        }
-    }
-}
-
 fn size(p: &Part) -> IVec3 {
     IVec3::from(p.size.map(|v| v as i32))
 }
@@ -138,244 +117,45 @@ pub fn get(p: &Part, c: IVec3) -> u8 {
         0
     }
 }
-fn set(p: &mut Part, c: IVec3, v: u8) -> bool {
-    if !inside(p, c) || get(p, c) == v {
-        return false;
-    }
-    let s = size(p);
-    p.cells[idx(s, c)] = v;
-    true
+/// A painted box's face under a ray: its part, its place in `Model::box_faces`, the painting's pixel there, and the
+/// point (the model's metres).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PaintHit {
+    pub part: usize,
+    pub face: usize,
+    pub x: usize,
+    pub y: usize,
+    pub at: Vec3,
 }
 
-/// A ray into one part posed by `pose` (its voxels to the model's metres), stepped voxel by voxel.
-fn pick_part(p: &Part, pose: Mat4, o: Vec3, d: Vec3) -> Option<Hit> {
-    let inv = pose.inverse();
-    let (o, d) = (inv.transform_point3(o), inv.transform_vector3(d));
-    let s = size(p).as_vec3();
-    let (mut t0, mut t1, mut axis) = (f32::NEG_INFINITY, f32::INFINITY, None);
-    for a in 0..3 {
-        if d[a].abs() < 1e-9 {
-            if o[a] < 0.0 || o[a] > s[a] {
-                return None;
-            }
+/// The painted pixel under a ray (in the model's metres, `poses` from `Model::pose`), as the game draws the
+/// boxes (`Model::box_faces`): the nearest face whose pixel there is painted, else the nearest face (an empty
+/// pixel is painted too, when nothing painted is behind it).
+pub fn pick_paint(m: &Model, poses: &[Mat4], paint: &Img, o: Vec3, d: Vec3) -> Option<PaintHit> {
+    let mut best: [Option<(f32, PaintHit)>; 2] = [None, None];
+    for (face, f) in m.box_faces().into_iter().enumerate() {
+        let Some(pose) = poses.get(f.part) else { continue };
+        let (fo, eu, ev) = (pose.transform_point3(f.o), pose.transform_vector3(f.eu), pose.transform_vector3(f.ev));
+        let [rx, ry, rw, rh] = f.rect.map(|v| v as usize);
+        let n = eu.cross(ev);
+        // (only a face turned toward the ray: the one the game draws, its back culled)
+        if rw == 0 || rh == 0 || d.dot(n) <= 1e-12 {
             continue;
         }
-        let (mut u, mut v) = (-o[a] / d[a], (s[a] - o[a]) / d[a]);
-        if u > v {
-            std::mem::swap(&mut u, &mut v);
+        let t = (fo - o).dot(n) / d.dot(n);
+        let q = o + d * t - fo;
+        let (s, r) = (q.dot(eu) / eu.length_squared(), q.dot(ev) / ev.length_squared());
+        if t <= 0.0 || !(0.0..1.0).contains(&s) || !(0.0..1.0).contains(&r) {
+            continue;
         }
-        if u > t0 {
-            (t0, axis) = (u, Some(a));
-        }
-        t1 = t1.min(v);
-    }
-    if t1 < t0.max(0.0) {
-        return None;
-    }
-    let t = t0.max(0.0);
-    let mut n = IVec3::ZERO;
-    if let (true, Some(a)) = (t0 > 0.0, axis) {
-        n[a] = if d[a] > 0.0 { -1 } else { 1 };
-    }
-    let mut c = (o + d * t + d.normalize() * 1e-4).floor().as_ivec3().clamp(IVec3::ZERO, size(p) - 1);
-    let first = (c, n);
-    let step = IVec3::new(d.x.signum() as i32, d.y.signum() as i32, d.z.signum() as i32);
-    let (mut tmax, mut delta) = (Vec3::INFINITY, Vec3::INFINITY);
-    for a in 0..3 {
-        if d[a].abs() >= 1e-9 {
-            let edge = c[a] as f32 + if step[a] > 0 { 1.0 } else { 0.0 };
-            tmax[a] = (edge - o[a]) / d[a];
-            delta[a] = 1.0 / d[a].abs();
+        let (x, y) = (rx + ((s * rw as f32) as usize).min(rw - 1), ry + ((r * rh as f32) as usize).min(rh - 1));
+        let Some(c) = paint.px.get(y * paint.w + x).filter(|_| x < paint.w) else { continue };
+        let k = (*c != crate::art::EMPTY) as usize;
+        if best[k].is_none_or(|(bt, _)| t < bt) {
+            best[k] = Some((t, PaintHit { part: f.part, face, x, y, at: o + d * t }));
         }
     }
-    let mut tt = t;
-    loop {
-        if get(p, c) != 0 {
-            return Some(Hit { part: 0, cell: c, n, solid: true, t: tt });
-        }
-        let a = if tmax.x <= tmax.y && tmax.x <= tmax.z { 0 } else if tmax.y <= tmax.z { 1 } else { 2 };
-        tt = tmax[a];
-        c[a] += step[a];
-        n = IVec3::ZERO;
-        n[a] = -step[a];
-        tmax[a] += delta[a];
-        if !inside(p, c) {
-            break;
-        }
-    }
-    Some(Hit { part: 0, cell: first.0, n: first.1, solid: false, t })
-}
-
-/// The voxel face under a ray (in the model's metres, `poses` from `Model::pose`): the nearest voxel of any part,
-/// or of `only`; missing every voxel, where it enters the box of `only` (or the nearest box).
-pub fn pick(m: &Model, poses: &[Mat4], only: Option<usize>, o: Vec3, d: Vec3) -> Option<Hit> {
-    let hits: Vec<Hit> = (0..m.parts.len())
-        .filter(|&i| only.is_none_or(|k| k == i))
-        .filter_map(|i| pick_part(&m.parts[i], poses[i], o, d).map(|h| Hit { part: i, ..h }))
-        .collect();
-    let best = |solid: bool| hits.iter().filter(|h| h.solid == solid).min_by(|a, b| a.t.total_cmp(&b.t)).copied();
-    best(true).or_else(|| best(false))
-}
-
-/// Where a ray meets the plane at the foot of part `p`'s row `layer` (its cells, posed by `pose`): the cell of that
-/// row it lands in (`n` up, `solid` whether a voxel is there), whatever stands above. Layer mode's clicks, and the
-/// floor's (row 0) where no voxel is under the pointer. None: the ray runs along the plane, away from it, or lands
-/// farther from the box than a part may grow.
-pub fn pick_layer(p: &Part, pose: Mat4, layer: i32, o: Vec3, d: Vec3) -> Option<Hit> {
-    let inv = pose.inverse();
-    let (o, d) = (inv.transform_point3(o), inv.transform_vector3(d));
-    if d.y.abs() < 1e-6 {
-        return None;
-    }
-    let t = (layer as f32 - o.y) / d.y;
-    if t < 0.0 {
-        return None;
-    }
-    let at = o + d * t;
-    let cell = IVec3::new(at.x.floor() as i32, layer, at.z.floor() as i32);
-    let reach = MAX_BOX as i32;
-    if cell.cmplt(IVec3::splat(-reach)).any() || cell.cmpge(size(p) + reach).any() {
-        return None;
-    }
-    // (t in the posed ray's units: the pose is a scale and a turn, so the order of hits along it is kept)
-    Some(Hit { part: 0, cell, n: IVec3::Y, solid: get(p, cell) != 0, t })
-}
-
-/// The six face normals, in the order `exposed` numbers them.
-pub const NORMALS: [IVec3; 6] = [IVec3::X, IVec3::NEG_X, IVec3::Y, IVec3::NEG_Y, IVec3::Z, IVec3::NEG_Z];
-
-/// The faces of part `p`'s voxels with no voxel beside them: the cell and its `NORMALS` index.
-pub fn exposed(p: &Part) -> Vec<(IVec3, usize)> {
-    let s = size(p);
-    let mut out = vec![];
-    for y in 0..s.y {
-        for z in 0..s.z {
-            for x in 0..s.x {
-                let c = IVec3::new(x, y, z);
-                if get(p, c) != 0 {
-                    out.extend((0..6).filter(|&k| get(p, c + NORMALS[k]) == 0).map(|k| (c, k)));
-                }
-            }
-        }
-    }
-    out
-}
-
-/// A cell's face toward `n`, its four corners in the cell's units, round its edge.
-pub fn face_quad(cell: IVec3, n: IVec3) -> [Vec3; 4] {
-    let a = (0..3).find(|&k| n[k] != 0).unwrap_or(1);
-    let (u, v) = ((a + 1) % 3, (a + 2) % 3);
-    let mut base = cell.as_vec3();
-    if n[a] > 0 {
-        base[a] += 1.0;
-    }
-    let (mut du, mut dv) = (Vec3::ZERO, Vec3::ZERO);
-    du[u] = 1.0;
-    dv[v] = 1.0;
-    [base, base + du, base + du + dv, base + dv]
-}
-
-/// Box, line and fill work on the plane of the face first clicked: where a ray meets that layer of cells.
-pub fn on_plane(pose: Mat4, first: &Hit, o: Vec3, d: Vec3) -> Option<IVec3> {
-    let inv = pose.inverse();
-    let (o, d) = (inv.transform_point3(o), inv.transform_vector3(d));
-    let at = first.target();
-    let a = (0..3).find(|&a| first.n[a] != 0).unwrap_or(1);
-    if d[a].abs() < 1e-6 {
-        return None;
-    }
-    let t = (at[a] as f32 + 0.5 - o[a]) / d[a];
-    if t < 0.0 {
-        return None;
-    }
-    let mut c = (o + d * t).floor().as_ivec3();
-    c[a] = at[a];
-    Some(c)
-}
-
-/// Grows part `i`'s box to hold `c` (at most `MAX_BOX` a side). A box grown below 0 moves its corner, pivot,
-/// children and points with it, so nothing moves in the cell. The shift added to its cells; none: too big.
-pub fn grow(m: &mut Model, i: usize, c: IVec3) -> Option<IVec3> {
-    let s = size(&m.parts[i]);
-    let (lo, hi) = (c.min(IVec3::ZERO), (c + 1).max(s));
-    let new = hi - lo;
-    if new.cmpgt(IVec3::splat(MAX_BOX as i32)).any() {
-        return None;
-    }
-    if new == s {
-        return Some(IVec3::ZERO);
-    }
-    let shift = -lo;
-    let p = &mut m.parts[i];
-    let mut cells = vec![0u8; (new.x * new.y * new.z) as usize];
-    for y in 0..s.y {
-        for z in 0..s.z {
-            for x in 0..s.x {
-                let at = IVec3::new(x, y, z);
-                cells[idx(new, at + shift)] = p.cells[idx(s, at)];
-            }
-        }
-    }
-    p.cells = cells;
-    p.size = new.as_uvec3().to_array();
-    p.at = (IVec3::from(p.at) - shift).to_array();
-    let f = shift.as_vec3();
-    p.pivot = (Vec3::from(p.pivot) + f).to_array();
-    let name = p.name.clone();
-    for q in m.parts.iter_mut().filter(|q| q.parent == name) {
-        q.at = (IVec3::from(q.at) + shift).to_array();
-    }
-    for pt in m.points.iter_mut().filter(|pt| pt.part == name) {
-        pt.at = (Vec3::from(pt.at) + f).to_array();
-    }
-    Some(shift)
-}
-
-/// What a tool does to its cells.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Op {
-    /// Fills with a colour's place + 1, growing the box.
-    Add(u8),
-    Remove,
-    /// Recolours voxels that are there.
-    Paint(u8),
-}
-
-/// `op` on cells of part `i` (given before any growing); whether anything changed.
-pub fn apply(m: &mut Model, i: usize, cells: &[IVec3], op: Op) -> bool {
-    let (mut shift, mut changed) = (IVec3::ZERO, false);
-    for &c in cells {
-        let c = c + shift;
-        changed |= match op {
-            Op::Add(k) => match grow(m, i, c) {
-                Some(s) => {
-                    shift += s;
-                    set(&mut m.parts[i], c + s, k)
-                }
-                None => false,
-            },
-            Op::Remove => set(&mut m.parts[i], c, 0),
-            Op::Paint(k) => get(&m.parts[i], c) != 0 && set(&mut m.parts[i], c, k),
-        };
-    }
-    changed
-}
-
-/// The cells with their twins across the box's middle in x and in z.
-pub fn mirrored(size: [u32; 3], cells: &[IVec3], mx: bool, mz: bool) -> Vec<IVec3> {
-    let (sx, sz) = (size[0] as i32, size[2] as i32);
-    let mut out: Vec<IVec3> = vec![];
-    for &c in cells {
-        let fx = IVec3::new(sx - 1 - c.x, c.y, c.z);
-        let fz = IVec3::new(c.x, c.y, sz - 1 - c.z);
-        let both = IVec3::new(sx - 1 - c.x, c.y, sz - 1 - c.z);
-        for (on, v) in [(true, c), (mx, fx), (mz, fz), (mx && mz, both)] {
-            if on && !out.contains(&v) {
-                out.push(v);
-            }
-        }
-    }
-    out
+    best[1].or(best[0]).map(|(_, h)| h)
 }
 
 /// Every cell of the box between two corners.
@@ -392,177 +172,8 @@ pub fn rect(a: IVec3, b: IVec3) -> Vec<IVec3> {
     v
 }
 
-/// The cells of a straight line, each touching the last.
-pub fn line(a: IVec3, b: IVec3) -> Vec<IVec3> {
-    let d = b - a;
-    let n = d.abs().max_element().max(1);
-    let mut v: Vec<IVec3> = (0..=n).map(|k| a + (d.as_vec3() * k as f32 / n as f32).round().as_ivec3()).collect();
-    v.dedup();
-    v
-}
-
-/// The cells of `start`'s layer across `axis` joined to it with its value (a voxel's colour, or empty).
-pub fn fill_plane(p: &Part, start: IVec3, axis: usize) -> Vec<IVec3> {
-    if !inside(p, start) {
-        return vec![];
-    }
-    let want = get(p, start);
-    let (u, v) = ((axis + 1) % 3, (axis + 2) % 3);
-    let mut seen = vec![start];
-    let mut todo = vec![start];
-    while let Some(c) = todo.pop() {
-        for (a, s) in [(u, 1), (u, -1), (v, 1), (v, -1)] {
-            let mut n = c;
-            n[a] += s;
-            if inside(p, n) && get(p, n) == want && !seen.contains(&n) {
-                seen.push(n);
-                todo.push(n);
-            }
-        }
-    }
-    seen
-}
-
-/// The model with every voxel whose middle stands above `top` (the model's voxels, at rest) hidden: the slice.
-pub fn sliced(m: &Model, poses: &[Mat4], top: f32) -> Model {
-    let mut out = m.clone();
-    for (i, p) in out.parts.iter_mut().enumerate() {
-        let s = size(p);
-        for y in 0..s.y {
-            for z in 0..s.z {
-                for x in 0..s.x {
-                    let c = IVec3::new(x, y, z);
-                    if poses[i].transform_point3(c.as_vec3() + 0.5).y / VOXEL > top {
-                        p.cells[idx(s, c)] = 0;
-                    }
-                }
-            }
-        }
-    }
-    out
-}
-
-/// Moves the voxels of a selection (corners `a`, `b`) by `by`; what would leave the box is dropped.
-/// (shortcut: a move does not grow the box; grow it with an add first when that is wanted)
-pub fn move_sel(m: &mut Model, i: usize, a: IVec3, b: IVec3, by: IVec3) -> bool {
-    let p = &mut m.parts[i];
-    let held: Vec<(IVec3, u8)> = rect(a, b).into_iter().map(|c| (c, get(p, c))).filter(|(_, v)| *v != 0).collect();
-    let mut changed = false;
-    for (c, _) in &held {
-        changed |= set(p, *c, 0);
-    }
-    for (c, v) in held {
-        changed |= set(p, c + by, v);
-    }
-    changed
-}
-
-/// Pulls the selection's face on side `n` out by `k` layers (its voxels copied outwards, the box grown to hold
-/// them); the selection grown over them.
-pub fn extrude(m: &mut Model, i: usize, a: IVec3, b: IVec3, n: IVec3, k: i32) -> (IVec3, IVec3) {
-    let (mut lo, mut hi) = (a.min(b), a.max(b));
-    let Some(ax) = (0..3).find(|&x| n[x] != 0) else { return (lo, hi) };
-    let face = if n[ax] > 0 { hi[ax] } else { lo[ax] };
-    let layer: Vec<(IVec3, u8)> = rect(lo, hi).into_iter().filter(|c| c[ax] == face).map(|c| (c, get(&m.parts[i], c))).filter(|(_, v)| *v != 0).collect();
-    let mut shift = IVec3::ZERO;
-    for step in 1..=k.max(0) {
-        for &(c, v) in &layer {
-            let at = c + n * step + shift;
-            if let Some(s) = grow(m, i, at) {
-                shift += s;
-                set(&mut m.parts[i], at + s, v);
-            }
-        }
-    }
-    let mut end = if n[ax] > 0 { hi } else { lo };
-    end[ax] += n[ax] * k.max(0);
-    (lo, hi) = (lo.min(end) + shift, hi.max(end) + shift);
-    (lo, hi)
-}
-
-/// The place + 1 of a palette colour in the model's colours, added when missing; none: not a palette colour, or
-/// the model has all 62.
-pub fn colour_index(m: &mut Model, pal: &Palette, rgb: [u8; 3]) -> Option<u8> {
-    if let Some(k) = m.rgb.iter().position(|&c| c == rgb) {
-        return Some(k as u8 + 1);
-    }
-    let c = &pal.colours[pal.find(rgb)?];
-    if m.colours.len() >= LETTERS.len() {
-        return None;
-    }
-    m.colours.push(c.name.clone());
-    m.rgb.push(rgb);
-    Some(m.colours.len() as u8)
-}
-
-/// Shade by light: every voxel stepped along its ramp by how open it is (of its 26 neighbours, how many are
-/// empty, against the 9 a flat face has), lighter with the sky above it, darker over an empty underside; `k` the
-/// strength, at most two steps. Voxels on no ramp keep their colour. How many changed.
-pub fn shade_by_light(m: &mut Model, pal: &Palette, only: Option<usize>, k: f32) -> usize {
-    let mut changes: Vec<(usize, IVec3, [u8; 3])> = vec![];
-    for (i, p) in m.parts.iter().enumerate().filter(|(i, _)| only.is_none_or(|o| o == *i)) {
-        let s = size(p);
-        for c in rect(IVec3::ZERO, s - 1) {
-            let v = get(p, c);
-            if v == 0 {
-                continue;
-            }
-            let open = rect(IVec3::splat(-1), IVec3::ONE).into_iter().filter(|d| *d != IVec3::ZERO && get(p, c + *d) == 0).count();
-            if open == 0 {
-                continue;
-            }
-            let (up, down) = (get(p, c + IVec3::Y) == 0, get(p, c - IVec3::Y) == 0);
-            let score = (open as f32 - 9.0) / 26.0 + if up { 0.35 } else { 0.0 } - if down && !up { 0.35 } else { 0.0 };
-            let steps = (score * k).round().clamp(-2.0, 2.0) as i32;
-            let rgb = m.rgb[v as usize - 1];
-            if let Some(to) = pal.step(rgb, steps).filter(|t| *t != rgb) {
-                changes.push((i, c, to));
-            }
-        }
-    }
-    let mut n = 0;
-    for (i, c, to) in changes {
-        if let Some(v) = colour_index(m, pal, to) {
-            n += set(&mut m.parts[i], c, v) as usize;
-        }
-    }
-    n
-}
-
-/// The palette colour nearest a colour.
-fn nearest(pal: &Palette, c: [u8; 3]) -> [u8; 3] {
-    let d = |a: [u8; 3]| (0..3).map(|k| (a[k] as i32 - c[k] as i32).pow(2)).sum::<i32>();
-    pal.colours.iter().map(|p| p.rgb).min_by_key(|&p| d(p)).unwrap_or(c)
-}
-
 fn unique<'a>(names: impl Iterator<Item = &'a str> + Clone, base: &str) -> String {
     (1..).map(|k| if k == 1 { base.to_string() } else { format!("{base} {k}") }).find(|n| !names.clone().any(|m| m == n)).unwrap()
-}
-
-/// From a texture: a block's painted faces (top, side, bottom; a missing one falls back to the side, then the
-/// top) become a new 8-voxel cube to carve; each voxel takes the face it is nearest, the commoner colour of its
-/// 2 x 2 pixels there. The new part's place; none with nothing painted.
-/// (shortcut: which way a side's pixels run is this function's own choice, not checked against the game's texel
-/// turn of ADR 0047; check it when a carved block is set beside the real one)
-pub fn from_texture(m: &mut Model, pal: &Palette, faces: [Option<&Img>; 3]) -> Option<usize> {
-    let top = faces[0].or(faces[1])?;
-    let side = faces[1].unwrap_or(top);
-    let bottom = faces[2].unwrap_or(side);
-    let mut cells = vec![0u8; 512];
-    let s = IVec3::splat(8);
-    for c in rect(IVec3::ZERO, s - 1) {
-        let (x, y, z) = (c.x, c.y, c.z);
-        // nearest face first, top first on a tie: (distance, image, u, v)
-        let opts = [(7 - y, top, x, z), (x, side, z, 7 - y), (7 - x, side, 7 - z, 7 - y), (z, side, 7 - x, 7 - y), (7 - z, side, x, 7 - y), (y, bottom, x, 7 - z)];
-        let (_, img, u, v) = *opts.iter().min_by_key(|o| o.0).unwrap();
-        let px: Vec<[u8; 3]> = [(0, 0), (1, 0), (0, 1), (1, 1)].iter().map(|(a, b)| img.get(0, (u * 2 + a) as usize, (v * 2 + b) as usize)).collect();
-        let common = *px.iter().max_by_key(|p| (px.iter().filter(|q| q == p).count(), std::cmp::Reverse(px.iter().position(|q| q == *p)))).unwrap();
-        cells[idx(s, c)] = colour_index(m, pal, nearest(pal, common)).unwrap_or(1);
-    }
-    let name = unique(m.parts.iter().map(|p| p.name.as_str()), "block");
-    m.parts.push(Part { name, parent: String::new(), at: [0; 3], pivot: [4.0, 0.0, 4.0], size: [8, 8, 8], voxels: String::new(), turn: [0.0; 3], boxes: vec![], cells });
-    m.up.push(None);
-    Some(m.parts.len() - 1)
 }
 
 /// Sets a part's key at `t` in a clip: the key there changed, or a new one (eased smoothly) put in order.
@@ -945,7 +556,7 @@ pub fn check_models(dir: &std::path::Path, pal: &Palette) -> (usize, Vec<String>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use engine::models::{sample, VOXEL};
+    use engine::models::sample;
 
     fn pal() -> Palette {
         Palette::parse(
@@ -954,27 +565,38 @@ mod tests {
         .unwrap()
     }
     const BOX: &str = "colours = [\"stone\", \"copper\"]\n\n[[part]]\nname = \"body\"\nbox = [2, 2, 2]\nvoxels = \"\"\"\na.\n..\n\n..\n..\n\"\"\"\n\n[[part]]\nname = \"door\"\nparent = \"body\"\nat = [2, 0, 0]\nbox = [1, 1, 1]\nvoxels = \"\"\"\nb\n\"\"\"\n\n[[point]]\nname = \"flame\"\npart = \"body\"\nat = [1, 1, 0]\n\n[[clip]]\nname = \"work\"\nlength = 2.0\n";
+    /// A ray onto a painted box lands on the pixel of its painting the game draws there: the top's from above, the
+    /// front's (+z) from the front, a pixel off the middle the pixel off its net's middle.
+    #[test]
+    fn a_ray_on_a_painted_box_finds_the_pixel_drawn_there() {
+        let text = "colours = [\"stone\"]\n[[part]]\nname = \"p\"\nbox = [1, 1, 1]\nvoxels = \".\"\n[[part.boxes]]\nat = [0, 0, 0]\nsize = [8, 8, 8]\nuv = [0, 0]\n";
+        let m = Model::parse("b", text, &pal()).unwrap();
+        let poses = m.pose(None, 0.0);
+        let paint = Img { w: 32, h: 16, px: vec![[128; 3]; 32 * 16] };
+        // 8 px is 0.25 m: the top's middle at (0.125, 0.25, 0.125); a little toward +x and +z
+        let px = engine::models::PIXEL;
+        let top = pick_paint(&m, &poses, &paint, Vec3::new(4.5 * px, 1.0, 4.5 * px), -Vec3::Y).expect("the top");
+        assert_eq!((top.part, top.x, top.y), (0, 12, 4), "the top's net is (8, 0) 8 x 8, x along +x, y along +z");
+        assert!((top.at.y - 0.25).abs() < 1e-4, "{:?}", top.at);
+        let front = pick_paint(&m, &poses, &paint, Vec3::new(2.5 * px, 6.5 * px, 1.0), -Vec3::Z).expect("the front");
+        assert!((8..16).contains(&front.x) && (8..16).contains(&front.y), "the front's net is (8, 8): {front:?}");
+        assert!(pick_paint(&m, &poses, &paint, Vec3::new(1.0, 1.0, 1.0), -Vec3::Y).is_none(), "a ray beside it misses");
+        // a plane (no thickness in z): from behind, the face seen is its back, the same rectangle mirrored in x
+        let plane = text.replace("size = [8, 8, 8]", "size = [8, 8, 0]");
+        let m = Model::parse("p", &plane, &pal()).unwrap();
+        let at = |z: f32| Vec3::new(1.5 * px, 4.5 * px, z);
+        let front = pick_paint(&m, &poses, &paint, at(1.0), -Vec3::Z).expect("its front");
+        let back = pick_paint(&m, &poses, &paint, at(-1.0), Vec3::Z).expect("its back");
+        assert_eq!(front.y, back.y, "{front:?} {back:?}");
+        assert_eq!(front.x + back.x, 7, "mirrored about the rectangle's middle (its net starts at x 0): {front:?} {back:?}");
+    }
+
     fn model() -> Model {
         Model::parse("box.toml", BOX, &pal()).unwrap()
     }
     fn near(a: Vec3, b: Vec3) {
         assert!(a.distance(b) < 1e-3, "{a} vs {b}");
     }
-    fn solid(p: &Part) -> Vec<IVec3> {
-        let s = IVec3::from(p.size.map(|v| v as i32));
-        let mut v = vec![];
-        for y in 0..s.y {
-            for z in 0..s.z {
-                for x in 0..s.x {
-                    if get(p, IVec3::new(x, y, z)) != 0 {
-                        v.push(IVec3::new(x, y, z));
-                    }
-                }
-            }
-        }
-        v
-    }
-
     #[test]
     fn the_orbit_looks_at_its_target_and_its_rays_meet_what_it_projects() {
         let o = Orbit { target: Vec3::new(0.5, 0.2, 0.5), yaw: 0.7, pitch: 0.4, dist: 3.0 };
@@ -1044,181 +666,6 @@ mod tests {
     }
 
     #[test]
-    fn picking_finds_the_face_under_the_ray_or_where_it_enters_the_box() {
-        let m = model();
-        let poses = m.pose(None, 0.0);
-        let v = VOXEL;
-        // straight down onto the body's voxel (0, 0, 0): its top face
-        let h = pick(&m, &poses, None, Vec3::new(0.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
-        assert_eq!((h.part, h.cell, h.n, h.solid), (0, IVec3::ZERO, IVec3::Y, true));
-        assert_eq!(h.target(), IVec3::Y);
-        // down beside it: no voxel, so the cell it enters the body's box by, on top
-        let h = pick(&m, &poses, Some(0), Vec3::new(1.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
-        assert_eq!((h.cell, h.n, h.solid), (IVec3::new(1, 1, 0), IVec3::Y, false));
-        assert_eq!(h.target(), IVec3::new(1, 1, 0));
-        // the door (a child at x = 2) from the +x side, and only the door when it is the one chosen
-        let h = pick(&m, &poses, None, Vec3::new(1.0, 0.5 * v, 0.5 * v), -Vec3::X).unwrap();
-        assert_eq!((h.part, h.cell, h.n), (1, IVec3::ZERO, IVec3::X));
-        // a miss
-        assert_eq!(pick(&m, &poses, None, Vec3::new(5.0, 5.0, 5.0), Vec3::Y), None);
-        // a turned part is picked where it is drawn: the door turned 90 degrees about y at its corner
-        let mut m2 = m.clone();
-        m2.clips[0].key.push(Key { part: "door".into(), t: 0.0, shift: [0.0; 3], turn: [0.0, 90.0, 0.0], ease: Ease::Linear });
-        let poses = m2.pose(Some("work"), 0.0);
-        // the door's voxel now lies at x 2..3, z -1..0: from above at its middle
-        let h = pick(&m2, &poses, Some(1), Vec3::new(2.5 * v, 1.0, -0.5 * v), -Vec3::Y).unwrap();
-        assert!(h.solid && h.part == 1, "{h:?}");
-        // the plane of the first face: a ray from elsewhere lands on the same layer
-        let first = pick(&m, &m.pose(None, 0.0), Some(0), Vec3::new(0.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
-        let c = on_plane(m.pose(None, 0.0)[0], &first, Vec3::new(1.5 * v, 1.0, 1.5 * v), Vec3::new(0.0, -1.0, 0.0)).unwrap();
-        assert_eq!(c, IVec3::new(1, 1, 1));
-    }
-
-    #[test]
-    fn picking_on_a_layer_lands_on_its_plane_whatever_stands_above() {
-        let m = model();
-        let poses = m.pose(None, 0.0);
-        let (body, v) = (&m.parts[0], VOXEL);
-        // from above beside the voxel (0, 0, 0): row 0's empty cell (1, 0, 0), though the box's top is nearer
-        let h = pick_layer(body, poses[0], 0, Vec3::new(1.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
-        assert_eq!((h.cell, h.n, h.solid), (IVec3::new(1, 0, 0), IVec3::Y, false));
-        // straight down onto the voxel itself: that cell, solid
-        let h = pick_layer(body, poses[0], 0, Vec3::new(0.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
-        assert_eq!((h.cell, h.solid), (IVec3::ZERO, true));
-        // row 1 over it: the empty cell above, the voxel under the plane does not stop the click
-        let h = pick_layer(body, poses[0], 1, Vec3::new(0.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
-        assert_eq!((h.cell, h.solid), (IVec3::new(0, 1, 0), false));
-        // a slanted ray lands where it crosses the plane: from (0.5, 1 + 3, 0.5) voxels down and along +x by 1 a voxel
-        let o = Vec3::new(0.5 * v, 3.0 * v, 0.5 * v);
-        let h = pick_layer(body, poses[0], 0, o, Vec3::new(1.0, -1.0, 0.0).normalize()).unwrap();
-        assert_eq!(h.cell, IVec3::new(3, 0, 0), "outside the box: a cell the add grows the box to");
-        // the same ray on row 1 crosses its plane a voxel sooner
-        assert_eq!(pick_layer(body, poses[0], 1, o, Vec3::new(1.0, -1.0, 0.0).normalize()).unwrap().cell, IVec3::new(2, 1, 0));
-        // from below, up through the floor
-        let h = pick_layer(body, poses[0], 0, Vec3::new(1.5 * v, -1.0, 1.5 * v), Vec3::Y).unwrap();
-        assert_eq!(h.cell, IVec3::new(1, 0, 1));
-        // along the plane, away from it, or far off: nothing
-        assert_eq!(pick_layer(body, poses[0], 0, Vec3::new(0.0, 0.5 * v, 0.0), Vec3::X), None);
-        assert_eq!(pick_layer(body, poses[0], 0, Vec3::new(0.0, 1.0, 0.0), Vec3::Y), None);
-        assert_eq!(pick_layer(body, poses[0], 0, Vec3::new(0.0, 1.0, 0.0), Vec3::new(1.0, -0.01, 0.0).normalize()), None);
-        // the door, a child at x = 2: its own row 0, in its own cells
-        let h = pick_layer(&m.parts[1], poses[1], 0, Vec3::new(2.5 * v, 1.0, 0.5 * v), -Vec3::Y).unwrap();
-        assert_eq!((h.cell, h.solid), (IVec3::ZERO, true));
-    }
-
-    #[test]
-    fn exposed_faces_are_the_ones_with_no_voxel_beside_them() {
-        let mut m = model();
-        assert_eq!(exposed(&m.parts[0]).len(), 6, "one voxel: six faces");
-        apply(&mut m, 0, &[IVec3::new(1, 0, 0)], Op::Add(1));
-        let e = exposed(&m.parts[0]);
-        assert_eq!(e.len(), 10, "two side by side: the faces between them hidden");
-        assert!(!e.contains(&(IVec3::ZERO, 0)) && e.contains(&(IVec3::ZERO, 1)));
-        let q = face_quad(IVec3::new(1, 0, 0), IVec3::X);
-        assert!(q.iter().all(|c| c.x == 2.0) && q.contains(&Vec3::new(2.0, 1.0, 1.0)));
-        assert!(face_quad(IVec3::ZERO, IVec3::NEG_Y).iter().all(|c| c.y == 0.0));
-    }
-
-    #[test]
-    fn adding_outside_the_box_grows_it_and_nothing_moves_in_the_cell() {
-        let mut m = model();
-        let before = m.pose(None, 0.0)[1].transform_point3(Vec3::ZERO);
-        let flame = m.points[0].at;
-        // one voxel to the -x of the body: the box grows to 3 wide, its corner one voxel lower in x
-        assert!(apply(&mut m, 0, &[IVec3::new(-1, 0, 0)], Op::Add(2)));
-        let b = &m.parts[0];
-        assert_eq!((b.size, b.at, b.pivot), ([3, 2, 2], [-1, 0, 0], [1.0, 0.0, 0.0]));
-        assert_eq!(solid(b), vec![IVec3::new(0, 0, 0), IVec3::new(1, 0, 0)]);
-        assert_eq!(get(b, IVec3::ZERO), 2);
-        // the door (its child) and the flame (its point) stay where they were in the cell
-        assert_eq!(m.parts[1].at, [3, 0, 0]);
-        near(m.pose(None, 0.0)[1].transform_point3(Vec3::ZERO), before);
-        assert_eq!(m.points[0].at, [flame[0] + 1.0, flame[1], flame[2]]);
-        // never past 32
-        assert!(!apply(&mut m, 0, &[IVec3::new(40, 0, 0)], Op::Add(1)));
-        // remove and paint
-        assert!(apply(&mut m, 0, &[IVec3::ZERO], Op::Remove));
-        assert!(!apply(&mut m, 0, &[IVec3::new(2, 1, 1)], Op::Paint(2)), "paint only colours voxels that are there");
-        assert!(apply(&mut m, 0, &[IVec3::new(1, 0, 0)], Op::Paint(2)));
-        assert_eq!(solid(&m.parts[0]), vec![IVec3::new(1, 0, 0)]);
-        assert_eq!(get(&m.parts[0], IVec3::new(1, 0, 0)), 2);
-    }
-
-    #[test]
-    fn mirror_box_line_and_fill_choose_their_cells() {
-        let m = mirrored([4, 1, 4], &[IVec3::new(0, 0, 1)], true, true);
-        assert_eq!(m, vec![IVec3::new(0, 0, 1), IVec3::new(3, 0, 1), IVec3::new(0, 0, 2), IVec3::new(3, 0, 2)]);
-        assert_eq!(mirrored([4, 1, 4], &[IVec3::new(0, 0, 0)], true, false).len(), 2);
-        assert_eq!(rect(IVec3::new(2, 0, 1), IVec3::new(0, 0, 0)).len(), 6);
-        let l = line(IVec3::ZERO, IVec3::new(3, 0, 1));
-        assert_eq!(l.len(), 4);
-        assert_eq!((l[0], l[3]), (IVec3::ZERO, IVec3::new(3, 0, 1)));
-        assert!(l.windows(2).all(|w| (w[1] - w[0]).abs().max_element() == 1), "no gaps: {l:?}");
-        // fill the empty cells of the bottom layer joined to (1, 0, 0): three of four, the layer above untouched
-        let p = model().parts[0].clone();
-        let f = fill_plane(&p, IVec3::new(1, 0, 0), 1);
-        assert_eq!(f.len(), 3);
-        assert!(f.iter().all(|c| c.y == 0));
-    }
-
-    #[test]
-    fn a_selection_moves_and_a_face_of_it_extrudes() {
-        let mut m = model();
-        assert!(move_sel(&mut m, 0, IVec3::ZERO, IVec3::ZERO, IVec3::new(1, 1, 1)));
-        assert_eq!(solid(&m.parts[0]), vec![IVec3::new(1, 1, 1)]);
-        // pull the voxel's +y face up by 2: the box grows to hold it
-        let (a, b) = extrude(&mut m, 0, IVec3::new(1, 1, 1), IVec3::new(1, 1, 1), IVec3::Y, 2);
-        assert_eq!(solid(&m.parts[0]), vec![IVec3::new(1, 1, 1), IVec3::new(1, 2, 1), IVec3::new(1, 3, 1)]);
-        assert_eq!((a, b), (IVec3::new(1, 1, 1), IVec3::new(1, 3, 1)));
-        assert_eq!(m.parts[0].size, [2, 4, 2]);
-    }
-
-    #[test]
-    fn shade_by_light_lightens_open_tops_and_darkens_undersides_along_the_ramp() {
-        let p = pal();
-        // a 3 x 3 x 3 cube of stone with one voxel standing on top in the middle
-        let mut text = String::from("colours = [\"stone\"]\n\n[[part]]\nname = \"c\"\nbox = [3, 4, 3]\nvoxels = \"\"\"\n");
-        text += "aaa\naaa\naaa\n\naaa\naaa\naaa\n\naaa\naaa\naaa\n\n...\n.a.\n...\n\"\"\"\n";
-        let mut m = Model::parse("c.toml", &text, &p).unwrap();
-        let n = shade_by_light(&mut m, &p, None, 3.0);
-        assert!(n > 0);
-        let name = |m: &Model, c: IVec3| m.colours[get(&m.parts[0], c) as usize - 1].clone();
-        assert_eq!(name(&m, IVec3::new(1, 3, 1)), "stone light", "the top voxel, open on five sides");
-        assert_eq!(name(&m, IVec3::new(0, 2, 0)), "stone light", "a top corner");
-        assert_eq!(name(&m, IVec3::new(1, 0, 1)), "stone dark", "the underside");
-        assert_eq!(name(&m, IVec3::new(1, 1, 0)), "stone", "the middle of a side");
-        assert_eq!(name(&m, IVec3::new(1, 1, 1)), "stone", "inside: never seen");
-        // every colour is a palette name: the file still reads
-        assert!(Model::parse("c.toml", &text_of(&m), &p).is_ok());
-    }
-    fn text_of(m: &Model) -> String {
-        text(m)
-    }
-
-    #[test]
-    fn a_painted_block_becomes_an_eight_voxel_cube_of_its_commoner_colours() {
-        let p = pal();
-        let mut m = model();
-        let (g, c) = ([0x80; 3], [0xb8, 0x73, 0x33]);
-        let mut top = Img::filled(1, g);
-        // the top's texels (0, 0), (1, 0), (0, 1) copper: its corner 2 x 2 is copper by three to one
-        for (x, y) in [(0, 0), (1, 0), (0, 1)] {
-            crate::art::pencil(&mut top, 0, x, y, c, false);
-        }
-        let side = Img::filled(1, [0x40; 3]);
-        let i = from_texture(&mut m, &p, [Some(&top), Some(&side), None]).unwrap();
-        let part = &m.parts[i];
-        assert_eq!(part.size, [8, 8, 8]);
-        assert_eq!(part.cells.iter().filter(|&&v| v == 0).count(), 0, "a whole cube");
-        let col = |c: IVec3| m.colours[get(part, c) as usize - 1].clone();
-        assert_eq!(col(IVec3::new(0, 7, 0)), "copper");
-        assert_eq!(col(IVec3::new(4, 7, 4)), "stone");
-        assert_eq!(col(IVec3::new(0, 3, 4)), "stone dark", "a side");
-        assert_eq!(col(IVec3::new(4, 0, 4)), "stone dark", "no bottom painted: the side's");
-        assert!(Model::parse("b.toml", &text(&m), &p).is_ok());
-    }
-
-    #[test]
     fn a_key_is_set_at_a_time_and_replaced_there() {
         let mut m = model();
         let c = &mut m.clips[0];
@@ -1271,54 +718,6 @@ mod tests {
         assert_ne!(m.points[k].name, m.points[0].name);
         let again = Model::parse("box.toml", &text(&m), &pal()).unwrap();
         assert_eq!(again.parts.len(), 3);
-    }
-
-    #[test]
-    fn the_slice_hides_what_is_above_its_height() {
-        let mut m = model();
-        apply(&mut m, 0, &[IVec3::new(0, 1, 0)], Op::Add(1));
-        let s = sliced(&m, &m.pose(None, 0.0), 1.0);
-        assert_eq!(solid(&s.parts[0]), vec![IVec3::ZERO]);
-        assert_eq!(solid(&s.parts[1]), vec![IVec3::ZERO]);
-        assert_eq!(solid(&sliced(&m, &m.pose(None, 0.0), 2.0).parts[0]).len(), 2);
-    }
-
-    /// A click lands on the voxel drawn under the pointer: the snake's tail (a child of a child, `at` and pivot
-    /// not 0) bent by a clip, picked through the middle of each of its voxels as the renderer draws them (the
-    /// same `Model::pose`, every voxel's own corners).
-    #[test]
-    fn a_click_lands_on_the_posed_voxel_of_a_child_part() {
-        let p = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
-        let bend = r#"
-[[clip]]
-name = "bend"
-length = 1.0
-key = [
-  { part = "neck", t = 0.0, turn = [0, 40, 0] },
-  { part = "middle", t = 0.0, turn = [0, -30, 10] },
-  { part = "tail", t = 0.0, turn = [20, 50, 0] },
-]
-"#;
-        let m = Model::parse("snake", &(include_str!("../testdata/snake_voxels.toml").replace("\r\n", "\n") + bend), &p).unwrap();
-        let tail = m.parts.iter().position(|q| q.name == "tail").unwrap();
-        assert!(m.parts[tail].at != [0; 3] && m.parts[tail].pivot != [0.0; 3]);
-        let poses = m.pose(Some("bend"), 0.0);
-        assert!(!poses[tail].abs_diff_eq(m.pose(None, 0.0)[tail], 1e-3), "the clip moves the tail");
-        let eye = Vec3::new(0.4, 1.6, -0.9);
-        let q = &m.parts[tail];
-        let mut seen = 0;
-        for c in (0..q.cells.len() as i32).map(|k| IVec3::new(k % q.size[0] as i32, k / q.size[0] as i32 % q.size[1] as i32, k / (q.size[0] * q.size[1]) as i32)).filter(|c| get(q, *c) != 0) {
-            let mid = poses[tail].transform_point3(c.as_vec3() + 0.5);
-            let h = pick(&m, &poses, None, eye, (mid - eye).normalize()).expect("a hit");
-            // the voxel under the pointer, or one drawn in front of it on the same line
-            if h.part == tail && h.cell == c {
-                seen += 1;
-            } else {
-                let front = poses[h.part].transform_point3(h.cell.as_vec3() + 0.5);
-                assert!(front.distance(eye) < mid.distance(eye), "{c} picked as {} {} behind it", m.parts[h.part].name, h.cell);
-            }
-        }
-        assert!(seen > 0, "no voxel of the tail seen from the eye");
     }
 
     #[test]

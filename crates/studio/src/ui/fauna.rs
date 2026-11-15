@@ -327,7 +327,7 @@ impl Page for Fauna {
             self.wall = None;
             self.speed = self.docs[id].c.walk_speed;
         } else if let Some(e) = &self.refused {
-            app.refuse(e.clone());
+            app.refuse(format!("Can't open {id}: {e}"));
         }
     }
 

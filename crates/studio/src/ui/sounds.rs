@@ -363,7 +363,7 @@ impl Sounds {
     fn begin_import(&mut self, app: &mut App, path: &str) {
         let path = path.trim().trim_matches('"');
         if path.is_empty() {
-            app.refuse("Give the sound file's path, or drop the file on the page");
+            app.refuse("Nothing to import: type the sound file's path, or drop the file on the page.");
             return;
         }
         // shortcut: decoded on the frame thread (a few seconds of sound in well under a second); a worker when long files are common
@@ -379,7 +379,7 @@ impl Sounds {
                 self.stop();
                 self.import = Some(im);
             }
-            Err(e) => app.refuse(format!("Not imported: {e}")),
+            Err(e) => app.refuse(format!("Sound not imported: {e}")),
         }
     }
 
@@ -394,7 +394,7 @@ impl Sounds {
         let rel = if as_base {
             let b = im.base.trim();
             if b.is_empty() || b.contains(['/', '\\', '"']) || self.docs.contains_key(b) || self.file_bases.iter().any(|f| f == b) {
-                app.refuse(format!("'{b}' is taken (a row or a base) or not a name"));
+                app.refuse(format!("Not used: '{b}' is empty, has a / \\ or \" in it, or another sound already has that name. Type another base name."));
                 return;
             }
             format!("base/{b}.wav")
@@ -402,13 +402,13 @@ impl Sounds {
             match import::take_name(std::path::Path::new(REC), &row) {
                 Some(n) => n,
                 None => {
-                    app.refuse(format!("{row} has its {} takes: none added", import::TAKES + 1));
+                    app.refuse(format!("Not used: {row} already has all {} takes. Remove one first.", import::TAKES + 1));
                     return;
                 }
             }
         };
         if im.out.is_empty() {
-            app.refuse("Not used: nothing is left between the handles");
+            app.refuse("Not used: the selection is empty. Drag the handles apart to keep some sound.");
             return;
         }
         let path = format!("{REC}/{rel}");
@@ -438,7 +438,7 @@ impl Sounds {
         let (path, before, after) = &w.wav;
         let (want, put) = if on { (before.as_deref(), Some(after.as_slice())) } else { (Some(after.as_slice()), before.as_deref()) };
         if std::fs::read(path).ok().as_deref() != want {
-            return Err(format!("{path} changed since: left as it is"));
+            return Err(format!("{path} was changed outside the Studio since, so it is left as it is"));
         }
         let text = std::fs::read_to_string(import::CREDITS).unwrap_or_default();
         let (file, row_before, row_after) = &w.credit;
@@ -902,10 +902,10 @@ impl Sounds {
                 if look::tip(r.clone(), "The new row's name; Enter renames it (a row in the file keeps its name: the game plays it by name)", "").lost_focus() && self.name_edit != name {
                     let to = self.name_edit.trim().to_string();
                     if self.wrote.iter().any(|w| w.row == name) {
-                        app.refuse(format!("{name} has an import under its name: it keeps the name"));
+                        app.refuse(format!("Not renamed: {name} has an imported sound under its name. Keep the name."));
                         self.name_edit = name.clone();
                     } else if to.is_empty() || self.docs.contains_key(&to) || to.contains('"') {
-                        app.refuse(format!("'{to}' is taken or not a name"));
+                        app.refuse(format!("Not renamed: '{to}' is empty, has a \" in it, or another sound already has that name."));
                         self.name_edit = name.clone();
                     } else {
                         let mut d = self.docs.remove(&name).unwrap();

@@ -121,10 +121,10 @@ pub fn names(ramp: &str, n: usize) -> Vec<String> {
 pub fn add(pal: &mut Palette, ramp: &str, colours: &[[u8; 3]]) -> Result<(), String> {
     let ramp = ramp.trim();
     if ramp.is_empty() || ramp != ramp.to_lowercase() {
-        return Err(format!("ramp name '{ramp}' must be lower case and not empty"));
+        return Err(format!("Ramp name '{ramp}' must be lower case and not empty"));
     }
     if pal.colours.iter().any(|c| c.ramp.as_deref() == Some(ramp)) {
-        return Err(format!("there is a ramp '{ramp}' already"));
+        return Err(format!("A ramp named '{ramp}' already exists. Choose another name."));
     }
     let taken: Vec<[u8; 3]> = pal.colours.iter().map(|c| c.rgb).collect();
     let mut cs = colours.to_vec();
@@ -142,7 +142,7 @@ pub fn add(pal: &mut Palette, ramp: &str, colours: &[[u8; 3]]) -> Result<(), Str
 pub fn set(pal: &mut Palette, ramp: &str, colours: &[[u8; 3]]) -> Result<Vec<([u8; 3], [u8; 3])>, String> {
     let run = pal.ramp(ramp);
     if run.len() != colours.len() {
-        return Err(format!("ramp '{ramp}' has {} colours, not {}", run.len(), colours.len()));
+        return Err(format!("Ramp '{ramp}' has {} colours, not {}. Make the new ramp the same length.", run.len(), colours.len()));
     }
     let taken: Vec<[u8; 3]> = pal.colours.iter().enumerate().filter(|(i, _)| !run.contains(i)).map(|(_, c)| c.rgb).collect();
     let mut cs = colours.to_vec();

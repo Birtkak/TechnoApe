@@ -340,6 +340,13 @@ impl Viewport {
         self.say("state", line.clone(), line);
     }
 
+    /// A cutout block's fluff for the renderer to draw now (its `fluff`, ADR 0134), before it is written to the
+    /// block's row and built into the game.
+    pub fn fluff(&mut self, id: u16, f: engine::blocks::Fluff) {
+        let v = format!("{id} {} {} {} {} {} {}", f.size, f.push, f.droop, f.long, f.dense, f.light);
+        self.say("fluff", v.clone(), format!("fluff {v}"));
+    }
+
     /// Everything the page set, sent; frames asked for; the newest frame taken.
     fn pump(&mut self, ctx: &egui::Context, w: u32, h: u32) {
         if matches!(self.state, State::Off) {

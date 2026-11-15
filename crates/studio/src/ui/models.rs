@@ -1,58 +1,43 @@
 //! The Models page (docs/design/studio-tools.md "The Models page", ADR 0049): `data/models/*.toml` drawn by the
-//! game's renderer ([`Viewport`]), edited with voxel tools, parts and pivots, points and a timeline of keys. The
-//! editing is `voxel`'s, pure and tested; this maps the pointer and keys to it.
+//! game's renderer ([`Viewport`]), figures of painted boxes (ADR 0116): painted on the model or on its painting,
+//! with parts and pivots, points, states and a timeline of keys. The editing is `voxel`'s, pure and tested; this
+//! maps the pointer and keys to it.
 use super::look::{self, c32, GAP};
 use super::textures::palette_picker;
 use super::viewport::{ModelCam, Viewport, DIR};
 use super::{App, Cmd, FileRow, Page, Thumb, DRAFTS};
 use crate::art::{self, History, Img};
 use crate::shell::Flags;
-use crate::voxel::{self, Hit, Motion, Op, Orbit, MOTIONS, VIEWS};
+use crate::voxel::{self, Motion, Orbit, PaintHit, MOTIONS, VIEWS};
 use eframe::egui::{self, Color32, Key, Modifiers, Pos2, Rect, RichText, Sense, Stroke, Ui, Vec2};
 use engine::models::{parse_life, sample, Clip, Ease, Event, Life, Light, Model, State, StateEffect};
-use engine::models::VOXEL;
-use glam::{IVec3, Mat4, Vec3};
+use glam::{Mat4, Vec3};
 use std::collections::BTreeMap;
 
 pub const MODELS: &str = "data/models";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Tool {
-    Add,
     Paint,
     Pick,
-    Box,
-    Line,
-    Fill,
-    Select,
     Pivot,
     Point,
 }
 /// Each tool: its command id, name, key and what it does.
-pub(super) const TOOLS: [(Tool, &str, &str, Key, &str); 9] = [
-    (Tool::Add, "add", "Add", Key::A, "left click adds a voxel of the first colour on the face under the pointer, right click removes one"),
-    (Tool::Paint, "paint", "Paint", Key::P, "left click paints a voxel the first colour, right the second"),
-    (Tool::Pick, "pick", "Picker", Key::I, "left click takes a voxel's colour as the first, right as the second"),
-    (Tool::Box, "box", "Box", Key::B, "drag a box on the plane of the face first clicked: left adds, right removes"),
-    (Tool::Line, "line", "Line", Key::L, "drag a line on the plane of the face first clicked: left adds, right removes"),
-    (Tool::Fill, "fill", "Fill", Key::G, "left click recolours the joined run of one colour on that face's layer, right removes it"),
-    (Tool::Select, "select", "Select", Key::S, "drag a box of voxels; the arrows and Shift + Page Up/Down move it; drag one of its faces to pull it out"),
-    (Tool::Pivot, "pivot", "Pivot", Key::V, "drag the cross: the point the part turns about"),
-    (Tool::Point, "point", "Point", Key::O, "click a face to add a point there; drag a point's cross to move it"),
+pub(super) const TOOLS: [(Tool, &str, &str, Key, &str); 4] = [
+    (Tool::Paint, "paint", "Paint", Key::P, "paint on the model in the view, or on the painting beside it: left the first colour, right the second (the Eraser empties pixels)"),
+    (Tool::Pick, "pick", "Picker", Key::I, "left click takes the colour under the pointer as the first, right as the second"),
+    (Tool::Pivot, "pivot", "Pivot", Key::V, "drag the yellow cross: the point the part turns about"),
+    (Tool::Point, "point", "Point", Key::O, "click the model to add a point there (where a state's effects and light sit); drag a point's cross to move it"),
 ];
 
 /// What each mouse button does with a tool, in the view's bar.
 fn buttons(tool: Tool) -> &'static str {
     match tool {
-        Tool::Add => "left adds a voxel, right removes one",
-        Tool::Paint => "left paints a voxel the first colour, right the second",
-        Tool::Pick => "left takes a voxel's colour as the first, right as the second",
-        Tool::Box => "left drag adds a box, right drag removes one",
-        Tool::Line => "left drag adds a line, right drag removes one",
-        Tool::Fill => "left recolours the joined run, right removes it",
-        Tool::Select => "left drag selects a box; drag one of its faces to pull it out",
+        Tool::Paint => "left paints the first colour, right the second",
+        Tool::Pick => "left takes the colour as the first, right as the second",
         Tool::Pivot => "left drag moves the yellow cross, the point the part turns about",
-        Tool::Point => "left adds a point on a face; drag a point's cross to move it",
+        Tool::Point => "left click adds a point on the model; drag a point's cross to move it",
     }
 }
 
@@ -61,17 +46,17 @@ struct MDoc {
     m: Model,
     /// Its states and clip events (ADR 0050), kept through every edit and undo with the model.
     life: Life,
-    hist: History<(Model, Life)>,
+    /// One undo for the model, its life and its painting (a stroke a step).
+    hist: History<(Model, Life, Img)>,
     saved: Option<String>,
     rev: u64,
     /// The file's text as opened: its comments and line ends are kept when it is saved (`write_keeping`).
     old: String,
-    /// Its painting `<name>.png` (ADR 0081, 0116), 0 x 0 for none; as on disk; its own undo (a stroke a step).
+    /// Its painting `<name>.png` (ADR 0081, 0116), 0 x 0 for none; as on disk.
     paint: Img,
     paint_saved: Option<Img>,
     /// Why its `.png` on disk was refused: it is never written over.
     paint_refused: Option<String>,
-    paint_hist: History<Img>,
 }
 impl MDoc {
     /// A file's text as the page opens it (its effects and sounds are checked on save, not here).
@@ -81,7 +66,7 @@ impl MDoc {
         let paint_refused = read.as_ref().and_then(|r| r.as_ref().err().cloned());
         let paint_saved = read.and_then(|r| r.ok()).map(|p| Img { w: p.w as usize, h: p.h as usize, px: p.px.iter().map(|c| if c[3] == 0 { art::EMPTY } else { [c[0], c[1], c[2]] }).collect() });
         let paint = paint_saved.clone().unwrap_or(NO_PAINT);
-        let mut d = MDoc { m, life, hist: History::default(), saved: None, rev: 0, old: text.to_string(), paint, paint_saved, paint_refused, paint_hist: History::default() };
+        let mut d = MDoc { m, life, hist: History::default(), saved: None, rev: 0, old: text.to_string(), paint, paint_saved, paint_refused };
         d.saved = Some(d.text());
         Ok(d)
     }
@@ -89,11 +74,11 @@ impl MDoc {
     fn text(&self) -> String {
         voxel::text_keeping(&self.old, &self.m, &self.life)
     }
-    /// An undo, redo or step back on the model and its life together.
-    fn step(&mut self, f: impl FnOnce(&mut History<(Model, Life)>, &mut (Model, Life)) -> bool) -> bool {
-        let mut now = (self.m.clone(), std::mem::take(&mut self.life));
+    /// An undo, redo or step back on the model, its life and its painting together.
+    fn step(&mut self, f: impl FnOnce(&mut History<(Model, Life, Img)>, &mut (Model, Life, Img)) -> bool) -> bool {
+        let mut now = (self.m.clone(), std::mem::take(&mut self.life), std::mem::replace(&mut self.paint, NO_PAINT));
         let done = f(&mut self.hist, &mut now);
-        (self.m, self.life) = now;
+        (self.m, self.life, self.paint) = now;
         done
     }
     fn dirty(&self) -> bool {
@@ -126,7 +111,7 @@ fn restore(docs: &mut BTreeMap<String, MDoc>, files: Vec<(String, Vec<u8>)>, pal
         match (new, docs.get_mut(&name)) {
             (Err(e), _) => errors.push((f, b, e)),
             (Ok(new), Some(d)) => {
-                let before = (std::mem::replace(&mut d.m, new.m), std::mem::replace(&mut d.life, new.life));
+                let before = (std::mem::replace(&mut d.m, new.m), std::mem::replace(&mut d.life, new.life), d.paint.clone());
                 d.hist.push(before, "Recovered");
                 d.rev += 1;
             }
@@ -138,23 +123,15 @@ fn restore(docs: &mut BTreeMap<String, MDoc>, files: Vec<(String, Vec<u8>)>, pal
     errors
 }
 
-/// A drag in the view: where it began, with which button.
+/// A drag in the view: what it moves (a pivot, a point).
 #[derive(Clone, Copy)]
 struct Drag {
-    hit: Hit,
-    from: Pos2,
-    right: bool,
-    /// What it moves: a pivot, a point, a selection's face.
     what: Grab,
-    /// Begun on a plane (the layer's, the floor's): its end is where the pointer meets that plane too.
-    plane: bool,
 }
 #[derive(Clone, Copy, PartialEq)]
 enum Grab {
-    Cells,
     Pivot,
     Point(usize),
-    Face,
 }
 
 pub struct Models {
@@ -164,20 +141,9 @@ pub struct Models {
     tool: Tool,
     first: [u8; 3],
     second: [u8; 3],
-    mirror: (bool, bool),
-    /// Layer mode: the chosen part's row whose plane the clicks land on; the rows above it are dimmed.
-    layer: Option<i32>,
-    /// The hover came from a plane (the layer's, or the floor's where no voxel is under the pointer).
-    on_plane: bool,
-    /// Thin dark lines between voxels.
-    edges: bool,
-    /// What the overlay draws of the voxels, found for its key: the faces the eye sees (in metres, for the
-    /// edges) and the dimmed rows above the layer (far first, with their colour); and whether it is the view's now.
-    faces: (String, Vec<[Vec3; 4]>, Vec<([Vec3; 4], [u8; 3])>),
-    faces_now: bool,
-    sel: Option<(IVec3, IVec3)>,
     drag: Option<Drag>,
-    hover: Option<Hit>,
+    /// The painted pixel under the pointer in the view.
+    hover: Option<PaintHit>,
     clip: Option<usize>,
     t: f32,
     playing: bool,
@@ -192,16 +158,12 @@ pub struct Models {
     show_block: bool,
     show_player: bool,
     show_grid: bool,
-    strength: f32,
-    tex_block: String,
     part_name: String,
-    /// What the renderer was last given: the model's name, edit count, slice, and how often it was written.
-    written: Option<(String, u64, Option<f32>, Option<std::time::SystemTime>)>,
+    /// What the renderer was last given: the model's name, edit count, and when its painting was written.
+    written: Option<(String, u64, Option<std::time::SystemTime>)>,
     gen: u64,
     /// One history step for a whole drag of a value.
     merging: Option<String>,
-    /// The model before [`Self::colour`] added a colour to it: the next edit's undo step starts there.
-    pre: Option<(Model, Life)>,
     /// The names a state or event may pick: `data/effects.toml`'s rows and groups, `data/sounds.toml`'s rows.
     effects: Vec<String>,
     sounds: Vec<String>,
@@ -217,7 +179,7 @@ pub struct Models {
     /// When the files on disk were last looked at, and a model changed there under unsaved work (its name).
     looked: f64,
     ask: Option<String>,
-    /// The painting's eraser, and a stroke on it under way (one undo step).
+    /// The Paint tool's eraser, and a stroke under way (one undo step).
     erase: bool,
     stroking: bool,
 }
@@ -241,16 +203,9 @@ impl Models {
             open: docs.keys().next().cloned(),
             docs,
             part: 0,
-            tool: Tool::Add,
+            tool: Tool::Paint,
             first: at(1),
             second: at(0),
-            mirror: (false, false),
-            layer: None,
-            on_plane: false,
-            edges: true,
-            faces: Default::default(),
-            faces_now: false,
-            sel: None,
             drag: None,
             hover: None,
             clip: None,
@@ -264,13 +219,10 @@ impl Models {
             show_block: false,
             show_player: false,
             show_grid: true,
-            strength: 3.0,
-            tex_block: String::new(),
             part_name: String::new(),
             written: None,
             gen: 0,
             merging: None,
-            pre: None,
             effects: std::fs::read_to_string(super::effects::EFFECTS).ok().and_then(|t| client::fx::parse_set(&t, &app.pal).ok()).map_or(vec![], |s| s.names().into_iter().map(String::from).collect()),
             sounds: std::fs::read_to_string("data/sounds.toml").ok().and_then(|t| client::audio::parse(&t).ok()).map_or(vec![], |r| r.into_iter().map(|r| r.name).collect()),
             state: None,
@@ -297,7 +249,7 @@ impl Models {
     fn opened(&mut self) {
         let (parts, clip) = self.m().map_or((0, None), |m| (m.parts.len(), (!m.clips.is_empty()).then_some(0)));
         self.part = self.part.min(parts.saturating_sub(1));
-        (self.clip, self.t, self.key, self.sel, self.drag, self.playing) = (clip, 0.0, None, None, None, false);
+        (self.clip, self.t, self.key, self.drag, self.playing) = (clip, 0.0, None, None, false);
         let states = self.doc().map_or(0, |d| d.life.states.len());
         (self.state, self.playing_state, self.event) = ((states > 0).then_some(0), None, None);
         self.part_name = self.m().and_then(|m| m.parts.get(self.part)).map_or(String::new(), |p| p.name.clone());
@@ -318,9 +270,8 @@ impl Models {
     fn edit_life(&mut self, app: &mut App, name: &str, f: impl FnOnce(&mut Model, &mut Life, &engine::palette::Palette) -> bool) {
         let pal = app.pal.clone();
         let merge = self.merging.as_deref() == Some(name);
-        let pre = self.pre.take();
         let Some(d) = self.open.as_ref().and_then(|n| self.docs.get_mut(n)) else { return };
-        let before = pre.unwrap_or_else(|| (d.m.clone(), d.life.clone()));
+        let before = (d.m.clone(), d.life.clone(), d.paint.clone());
         if f(&mut d.m, &mut d.life, &pal) {
             voxel::fit_life(&d.m, &mut d.life);
             if (&d.m, &d.life) != (&before.0, &before.1) {
@@ -330,7 +281,7 @@ impl Models {
                 d.rev += 1;
             }
         } else {
-            (d.m, d.life) = before;
+            (d.m, d.life, _) = before;
         }
     }
     fn edit_life_merged(&mut self, app: &mut App, name: &str, f: impl FnOnce(&mut Model, &mut Life, &engine::palette::Palette) -> bool) {
@@ -343,85 +294,88 @@ impl Models {
         self.merging = Some(name.into());
     }
 
-    /// One edit of the open model's painting; `merge` keeps a stroke one step of the painting's own undo.
-    fn edit_paint(&mut self, name: &str, merge: bool, f: impl FnOnce(&mut Img)) {
-        let Some(d) = self.open.as_ref().and_then(|n| self.docs.get_mut(n)) else { return };
+    /// One edit of the open model's painting; `merge` keeps a stroke one undo step.
+    /// Whether it changed the painting.
+    fn edit_paint(&mut self, name: &str, merge: bool, f: impl FnOnce(&mut Img)) -> bool {
+        let Some(d) = self.open.as_ref().and_then(|n| self.docs.get_mut(n)) else { return false };
         let before = d.paint.clone();
         f(&mut d.paint);
-        if d.paint != before {
-            if !merge {
-                d.paint_hist.push(before, name);
-            }
-            d.rev += 1;
+        if d.paint == before {
+            return false;
         }
+        if !merge {
+            d.hist.push((d.m.clone(), d.life.clone(), before), name);
+        }
+        d.rev += 1;
+        true
     }
-    /// A change of boxes that also grows the painting (`voxel::add_box`, `voxel::voxels_to_boxes`): the model's
-    /// step and the painting's step together, or a refusal and neither.
+    /// A change of boxes that also grows the painting (`voxel::add_box`, `voxel::voxels_to_boxes`): one step for
+    /// both, or a refusal and neither.
     fn box_edit(&mut self, app: &mut App, name: &str, f: impl FnOnce(&mut Model, &mut Img) -> Result<(), String>) {
         let Some(d) = self.doc() else { return };
         let (mut m, mut paint) = (d.m.clone(), d.paint.clone());
         match f(&mut m, &mut paint) {
-            Ok(()) => {
-                self.edit(app, name, |mm, _| {
-                    *mm = m;
-                    true
-                });
-                self.edit_paint(name, false, |p| *p = paint);
+            Ok(()) => self.edit(app, name, |mm, _| {
+                *mm = m;
+                true
+            }),
+            Err(e) => return app.refuse(format!("{name}: not done. {e}")),
+        }
+        if let Some(d) = self.open.as_ref().and_then(|n| self.docs.get_mut(n)) {
+            if d.paint != paint {
+                // (the model's step above holds the painting as it was: one undo takes both back)
+                if d.hist.undo.last().is_none_or(|s| s.name != name) {
+                    d.hist.push((d.m.clone(), d.life.clone(), d.paint.clone()), name);
+                }
+                d.paint = paint;
+                d.rev += 1;
             }
-            Err(e) => app.refuse(e),
         }
     }
 
-    /// The model's painting: the open part's box nets outlined, left paints the first colour, right the second.
-    fn painting(&mut self, ui: &mut Ui) {
+    /// One pixel painted (left the first colour, right the second, the eraser empties it); a stroke is one step.
+    fn dab(&mut self, x: usize, y: usize, left: bool) {
+        let c = if self.erase { art::EMPTY } else if left { self.first } else { self.second };
+        let merge = self.stroking;
+        // (a stroke merges only once its first change made it a step: one begun on a pixel already that colour does
+        // not fold into the step before it)
+        self.stroking |= self.edit_paint(if self.erase { "Erase" } else { "Paint" }, merge, |img| {
+            if x < img.w && y < img.h {
+                img.px[y * img.w + x] = c;
+            }
+        });
+    }
+
+    /// The model's painting, flat, filling `rect`: the open part's box nets outlined, and the pixel under the
+    /// pointer in the view lit; the tool works here as on the model.
+    fn painting(&mut self, ui: &mut Ui, rect: Rect) {
         let Some(d) = self.doc() else { return };
+        let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(egui::Layout::top_down(egui::Align::Min)));
+        let ui = &mut ui;
         if d.paint.w == 0 {
-            look::weak(ui, "No painting yet: Add a box (Part) or Voxels to painted boxes (Model) starts one.");
+            look::weak(ui, "No painting yet: Add a box (inspector, Part) starts one.");
             return;
         }
         let img = d.paint.clone();
-        let outline: Vec<[u32; 4]> = d.m.parts.get(self.part).map_or(vec![], |p| p.boxes.iter().flat_map(|b| b.rects()).collect());
-        let (undo, redo) = (!d.paint_hist.undo.is_empty(), !d.paint_hist.redo.is_empty());
-        ui.horizontal_wrapped(|ui| {
-            look::tip(look::toggle(ui, &mut self.erase, "Eraser"), "Both buttons empty a pixel", "");
-            if look::tip(ui.add_enabled(undo, egui::Button::new("Undo stroke")), "The painting has its own undo, a stroke a step", "").clicked() {
-                self.paint_undo(true);
-            }
-            if look::tip(ui.add_enabled(redo, egui::Button::new("Redo stroke")), "Redo the stroke undone", "").clicked() {
-                self.paint_undo(false);
-            }
-        });
-        let w = ui.available_width();
-        let k = ((w - 2.0 * GAP) / img.w as f32).floor().clamp(1.0, 8.0);
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(w, img.h as f32 * k + 2.0 * GAP), Sense::hover());
-        let hit = super::plants::paint_canvas(ui, rect, &img, "model painting", &outline, "Left paints the first colour, right the second; the yellow nets are the open part's boxes");
+        let mut outline: Vec<[u32; 4]> = d.m.parts.get(self.part).map_or(vec![], |p| p.boxes.iter().flat_map(|b| b.rects()).collect());
+        if let Some(h) = self.hover {
+            outline.push([h.x as u32, h.y as u32, 1, 1]);
+        }
+        look::weak(ui, format!("Painting, {} x {} px. Yellow: the open part's boxes.", img.w, img.h));
+        let r = ui.available_rect_before_wrap();
+        let hit = super::plants::paint_canvas(ui, r, &img, "model painting", &outline, "The model's painting: the tool works here as on the model");
+        crate::drive::mark(ui.ctx(), "painting", r);
         if let Some((x, y, left)) = hit {
-            let c = if self.erase { art::EMPTY } else if left { self.first } else { self.second };
-            let merge = self.stroking;
-            self.edit_paint(if self.erase { "Erase" } else { "Paint" }, merge, |img| img.px[y * img.w + x] = c);
+            match self.tool {
+                Tool::Pick => {
+                    if let Some(c) = Some(img.px[y * img.w + x]).filter(|c| *c != art::EMPTY) {
+                        *(if left { &mut self.first } else { &mut self.second }) = c;
+                    }
+                }
+                Tool::Paint => self.dab(x, y, left),
+                _ => {}
+            }
         }
-        self.stroking = hit.is_some();
-        look::weak(ui, format!("{} x {} px: 4 a voxel, 32 a metre. A box's net: its top and bottom above, its four sides below.", img.w, img.h));
-    }
-    fn paint_undo(&mut self, undo: bool) {
-        let Some(d) = self.open.as_ref().and_then(|n| self.docs.get_mut(n)) else { return };
-        if if undo { d.paint_hist.undo(&mut d.paint) } else { d.paint_hist.redo(&mut d.paint) } {
-            d.rev += 1;
-        }
-    }
-
-    fn colour(&mut self, app: &mut App, rgb: [u8; 3]) -> Option<u8> {
-        let pal = app.pal.clone();
-        let d = self.open.as_ref().and_then(|n| self.docs.get_mut(n))?;
-        let before = (d.m.colours.len(), (d.m.clone(), d.life.clone()));
-        let k = voxel::colour_index(&mut d.m, &pal, rgb);
-        if d.m.colours.len() != before.0 && self.pre.is_none() {
-            self.pre = Some(before.1);
-        }
-        if k.is_none() {
-            app.refuse("That colour is not in the palette, or the model holds 62 colours already");
-        }
-        k
     }
 
     fn save(&mut self, app: &mut App) {
@@ -466,12 +420,16 @@ impl Models {
         }
     }
 
-    /// A new model named after `base` (a free name: "post", "post 2", ...), made by `make` from that name's
-    /// number (a plant's seed: "tuft 3" is seed 3); none made, nothing opens.
-    fn new_model(&mut self, base: &str, make: impl FnOnce(u64) -> Option<Model>) {
-        let (k, name) = (1u64..).map(|k| (k, if k == 1 { base.to_string() } else { format!("{base} {k}") })).find(|(_, n)| !self.docs.contains_key(n) && !std::path::Path::new(&format!("{MODELS}/{n}.toml")).exists()).unwrap();
-        let Some(m) = make(k) else { return };
-        self.docs.insert(name.clone(), MDoc { m, life: Life::default(), hist: History::default(), saved: None, rev: 0, old: String::new(), paint: NO_PAINT, paint_saved: None, paint_refused: None, paint_hist: History::default() });
+    /// A new figure named after `base` (a free name: "post", "post 2", ...) from starter shape `kind`: its parts
+    /// made painted boxes in their colours, to paint (ADR 0116). None made, nothing opens.
+    fn new_model(&mut self, app: &mut App, base: &str, kind: &str) {
+        let name = (1u64..).map(|k| if k == 1 { base.to_string() } else { format!("{base} {k}") }).find(|n| !self.docs.contains_key(n) && !std::path::Path::new(&format!("{MODELS}/{n}.toml")).exists()).unwrap();
+        let Some(mut m) = voxel::starter(&app.pal, kind) else { return app.refuse(format!("No new model: there is no starter shape '{kind}'")) };
+        let mut paint = NO_PAINT;
+        if let Err(e) = voxel::voxels_to_boxes(&mut m, &mut paint) {
+            return app.refuse(format!("No new model: the {kind} could not be made of painted boxes ({e})"));
+        }
+        self.docs.insert(name.clone(), MDoc { m, life: Life::default(), hist: History::default(), saved: None, rev: 0, old: String::new(), paint, paint_saved: None, paint_refused: None });
         self.open = Some(name);
         self.part = 0;
         self.choosing = false;
@@ -484,10 +442,10 @@ impl Models {
         ui.add_space(GAP);
         if self.m().is_none() {
             look::heading(ui, "No model yet: click a shape to start from");
-            look::weak(ui, "It opens in the view. There a left click adds a voxel of the chosen colour, a right click removes one, and a right drag turns the view.");
+            look::weak(ui, "It opens as painted boxes, one a part. Paint on it in the view or on its painting beside it; a right drag turns the view.");
         } else {
             look::heading(ui, "New model: click a shape to start from");
-            look::weak(ui, "It opens as a new model beside the others, to recolour and reshape; the open one is kept as it is.");
+            look::weak(ui, "It opens as a new model of painted boxes beside the others, to paint and shape; the open one is kept as it is.");
         }
         ui.add_space(GAP);
         for (id, label, help) in voxel::STARTERS {
@@ -509,23 +467,18 @@ impl Models {
         }
     }
 
-    /// The open model as the renderer reads it (sliced), written when it changed.
+    /// The open model as the renderer reads it, written when it changed.
     fn feed_view(&mut self, app: &mut App) {
         let Some(name) = self.open.clone() else {
             app.view.show_model(None, None, 0.0);
             return;
         };
         let rev = self.docs[&name].rev;
-        let top = self.layer_top();
         // (and its painting's time: a repainted .png is handed over again with the model unchanged)
         let painted = std::fs::metadata(format!("{MODELS}/{name}.png")).and_then(|m| m.modified()).ok();
-        let now = Some((name.clone(), rev, top, painted));
+        let now = Some((name.clone(), rev, painted));
         if self.written != now {
-            let (m, life) = (&self.docs[&name].m, &self.docs[&name].life);
-            let shown = match top {
-                Some(s) => voxel::sliced(m, &m.pose(None, 0.0), s),
-                None => m.clone(),
-            };
+            let (shown, life) = (&self.docs[&name].m, &self.docs[&name].life);
             let dir = format!("{DIR}/models");
             let _ = std::fs::create_dir_all(&dir);
             // the unsaved copy with its life, so a state plays before it is saved
@@ -536,7 +489,7 @@ impl Models {
             if paint.w == 0 || std::fs::write(&tmp, art::encode(paint)).and_then(|_| std::fs::rename(&tmp, &png)).is_err() {
                 let _ = std::fs::remove_file(&png);
             }
-            if std::fs::write(format!("{dir}/studio.toml"), voxel::text_life(&shown, life)).is_ok() {
+            if std::fs::write(format!("{dir}/studio.toml"), voxel::text_life(shown, life)).is_ok() {
                 self.gen += 1;
                 self.written = now;
             }
@@ -548,33 +501,29 @@ impl Models {
         app.view.place = if self.show_block { "0:-2:0:stone".into() } else { String::new() };
     }
 
-    /// The box of a part's cells `lo`..=`hi` in the model's metres, posed as drawn.
-    fn cells_box(&self, part: usize, lo: IVec3, hi: IVec3) -> Option<(Vec3, Vec3)> {
-        let pose = *self.poses().get(part)?;
-        let (lo, hi) = (lo.min(hi).as_vec3(), lo.max(hi).as_vec3() + 1.0);
-        let pts = (0..8).map(|k: u8| pose.transform_point3(Vec3::new([lo.x, hi.x][(k & 1) as usize], [lo.y, hi.y][(k >> 1 & 1) as usize], [lo.z, hi.z][(k >> 2 & 1) as usize])));
-        Some(pts.fold((Vec3::INFINITY, Vec3::NEG_INFINITY), |(a, b), p| (a.min(p), b.max(p))))
+    /// A part's painted boxes' corners in the model's metres, posed as drawn (a part of none: its voxel box's).
+    fn part_corners(&self, part: usize) -> Vec<Vec3> {
+        let (Some(m), Some(pose)) = (self.m(), self.poses().get(part).copied()) else { return vec![] };
+        let faces: Vec<_> = m.box_faces().into_iter().filter(|f| f.part == part).collect();
+        if faces.is_empty() {
+            let s = m.parts.get(part).map_or(Vec3::ONE, |p| Vec3::from(p.size.map(|v| v as f32)));
+            return (0..8).map(|k: u8| pose.transform_point3(Vec3::new([0.0, s.x][(k & 1) as usize], [0.0, s.y][(k >> 1 & 1) as usize], [0.0, s.z][(k >> 2 & 1) as usize]))).collect();
+        }
+        faces.iter().flat_map(|f| [f.o, f.o + f.eu, f.o + f.ev, f.o + f.eu + f.ev]).map(|p| pose.transform_point3(p)).collect()
     }
-    /// A part's whole box, in metres.
+    /// A part's bounds, in metres.
     fn part_box(&self, part: usize) -> Option<(Vec3, Vec3)> {
-        let s = self.m()?.parts.get(part)?.size;
-        self.cells_box(part, IVec3::ZERO, IVec3::from(s.map(|v| v as i32)) - 1)
+        let c = self.part_corners(part);
+        (!c.is_empty()).then(|| c.iter().fold((Vec3::INFINITY, Vec3::NEG_INFINITY), |(a, b), p| (a.min(*p), b.max(*p))))
     }
-    /// What the view turns about: the selection's middle, else the model's.
+    /// What the view turns about: the model's middle.
     fn turn_point(&self) -> Option<Vec3> {
-        let b = match self.sel {
-            Some((a, b)) => self.cells_box(self.part, a, b),
-            None => (0..self.m()?.parts.len()).filter_map(|i| self.part_box(i)).reduce(|(a, b), (c, d)| (a.min(c), b.max(d))),
-        }?;
+        let b = (0..self.m()?.parts.len()).filter_map(|i| self.part_box(i)).reduce(|(a, b), (c, d)| (a.min(c), b.max(d)))?;
         Some((b.0 + b.1) / 2.0)
     }
-    /// F: the selection, else the chosen part, fills the view.
+    /// F: the chosen part fills the view.
     fn frame(&mut self, app: &App) {
-        let b = match self.sel {
-            Some((a, b)) => self.cells_box(self.part, a, b),
-            None => self.part_box(self.part),
-        };
-        if let Some((lo, hi)) = b {
+        if let Some((lo, hi)) = self.part_box(self.part) {
             self.orbit.frame(lo, hi, app.view.half_height());
         }
     }
@@ -641,101 +590,19 @@ impl Models {
             if look::tip(look::chip(&mut b, self.flat, "Flat"), "A flat view: no perspective, so rows and sizes line up (again for perspective)", "5").clicked() {
                 self.flat = !self.flat;
             }
-            if look::tip(b.button(RichText::new("Frame").small()), "Fill the view with the selection, else the chosen part", "F").clicked() {
+            if look::tip(b.button(RichText::new("Frame").small()), "Fill the view with the chosen part", "F").clicked() {
                 self.frame(app);
             }
         }
     }
 
-    /// Layer mode's height in the model's voxels, at rest: the rows above the chosen part's layer row are hidden.
-    fn layer_top(&self) -> Option<f32> {
-        let l = self.layer?;
-        let pose = *self.m()?.pose(None, 0.0).get(self.part)?;
-        Some(pose.transform_point3(Vec3::new(0.0, l as f32 + 1.0, 0.0)).y / VOXEL)
-    }
-
-    /// Where a left click adds and which voxel a right click removes, for a hover.
-    fn aims(&self, h: Hit) -> (Option<IVec3>, Option<IVec3>) {
-        let add = if self.on_plane { (!h.solid).then_some(h.cell) } else { Some(h.target()) };
-        (add, h.solid.then_some(h.cell))
-    }
-
-    /// The faces the overlay draws, found again when the model, the layer, the pose or the eye changed: the ones
-    /// the eye sees of the shown voxels (the layer's rows and under), for the edges, and the rows above the layer.
-    /// While a button is held (the view turning) they are not found again and not drawn.
-    /// shortcut: a face counts as seen by its middle, so one half hidden draws whole; clip per edge if it shows.
-    /// shortcut: the layer's rows are cut at rest (`layer_top`) and the faces drawn posed: a clip scrubbed away from
-    /// rest moves the plane and the faces off the cut; leave layer mode for that, or cut posed, when it matters.
-    fn find_faces(&mut self, view: &Viewport, held: bool) {
-        let Some(rev) = self.doc().map(|d| d.rev) else { return };
-        let eye = view.cam().eye();
-        let key = format!("{:?} {} {:?} {:?} {:?} {} {}", self.open, rev, self.layer_top(), eye, self.clip, self.t, self.edges);
-        self.faces_now = self.faces.0 == key;
-        if self.faces_now || held {
-            return;
-        }
-        let d = self.doc().unwrap();
-        let poses = self.poses();
-        let facing = |i: usize, q: &[Vec3; 4], n: IVec3| poses[i].transform_vector3(n.as_vec3()).dot(eye - (q[0] + q[2]) / 2.0) > 0.0;
-        let m = match self.layer_top() {
-            Some(top) => voxel::sliced(&d.m, &d.m.pose(None, 0.0), top),
-            None => d.m.clone(),
-        };
-        let mut edges = vec![];
-        for (i, p) in m.parts.iter().enumerate().filter(|_| self.edges) {
-            for (c, k) in voxel::exposed(p) {
-                let n = voxel::NORMALS[k];
-                let q = voxel::face_quad(c, n).map(|v| poses[i].transform_point3(v));
-                // facing the eye, and the first face a ray to its middle meets
-                if facing(i, &q, n) && voxel::pick(&m, &poses, None, eye, ((q[0] + q[2]) / 2.0 - eye).normalize()).is_some_and(|h| h.solid && h.part == i && h.cell == c && h.n == n) {
-                    edges.push(q);
-                }
-            }
-        }
-        let mut dim = vec![];
-        if self.layer.is_some() {
-            for (i, (a, b)) in d.m.parts.iter().zip(&m.parts).enumerate() {
-                let mut above = a.clone();
-                for (c, k) in above.cells.iter_mut().zip(&b.cells) {
-                    if *k != 0 {
-                        *c = 0;
-                    }
-                }
-                for (c, k) in voxel::exposed(&above) {
-                    let q = voxel::face_quad(c, voxel::NORMALS[k]).map(|v| poses[i].transform_point3(v));
-                    if facing(i, &q, voxel::NORMALS[k]) {
-                        let rgb = d.m.rgb.get(voxel::get(&above, c) as usize - 1).copied().unwrap_or([128; 3]);
-                        dim.push((((q[0] + q[2]) / 2.0).distance(eye), q, rgb));
-                    }
-                }
-            }
-            dim.sort_by(|a, b| b.0.total_cmp(&a.0));
-        }
-        self.faces = (key, edges, dim.into_iter().map(|(_, q, c)| (q, c)).collect());
-        self.faces_now = true;
-    }
-
-    /// The bar in the view's top left, always: the tool and what the buttons do, how the view moves, and what
-    /// is on (layer, mirror, flat).
+    /// The bar in the view's top left, always: the tool and what the buttons do, and how the view moves.
     fn view_bar(&self, ui: &Ui, view: Rect) {
         let name = TOOLS.iter().find(|t| t.0 == self.tool).map_or("", |t| t.2);
-        let turn = if matches!(self.tool, Tool::Box | Tool::Line) { "Alt + left drag turns" } else { "Right drag (or Alt + left) turns" };
-        let mut lines = vec![format!("{name}: {}.", buttons(self.tool)), format!("{turn}, middle drag pans, the wheel zooms.")];
-        let mut on = vec![];
-        if let Some(l) = self.layer {
-            on.push(format!("Layer: row {l}, clicks land on its plane (Page Up/Down move it)"));
-        }
-        match self.mirror {
-            (true, true) => on.push("Mirror x and z".into()),
-            (true, false) => on.push("Mirror x".into()),
-            (false, true) => on.push("Mirror z".into()),
-            _ => {}
-        }
+        let tool = if self.erase && self.tool == Tool::Paint { "both buttons erase".to_string() } else { buttons(self.tool).to_string() };
+        let mut lines = vec![format!("{name}: {tool}."), "Right drag turns, middle drag pans, wheel zooms.".to_string()];
         if self.flat {
-            on.push("Flat view".into());
-        }
-        if !on.is_empty() {
-            lines.push(on.join(". ") + ".");
+            lines.push("Flat view.".into());
         }
         let p = ui.painter_at(view);
         let font = egui::FontId::proportional(look::SMALL);
@@ -760,238 +627,122 @@ impl Models {
 
     /// The pointer in the view: what each tool does.
     fn pointer(&mut self, app: &mut App, resp: &egui::Response) {
-        let Some(m) = self.m().cloned() else { return };
+        let Some(d) = self.doc() else { return };
+        let (m, paint) = (d.m.clone(), d.paint.clone());
         if self.drag.is_some() && !resp.ctx.input(|i| i.pointer.any_down()) && !resp.drag_stopped() {
             (self.drag, self.merging) = (None, None);
         }
-        let poses = self.poses();
-        let part = self.part.min(m.parts.len().saturating_sub(1));
-        let pos = resp.hover_pos().or(resp.interact_pointer_pos());
-        let ray = pos.and_then(|p| app.view.ray(p));
         if m.parts.is_empty() {
             self.hover = None;
             return;
         }
-        // layer mode: the layer's plane; else the voxel under the pointer, else the floor, else where the ray enters the box
-        let on = |l: i32| ray.and_then(|(o, d)| voxel::pick_layer(&m.parts[part], poses[part], l, o, d)).map(|h| Hit { part, ..h });
-        (self.hover, self.on_plane) = match self.layer {
-            Some(l) => (on(l), true),
-            None => match (ray.and_then(|(o, d)| voxel::pick(&m, &poses, Some(part), o, d)), on(0)) {
-                (Some(h), _) if h.solid => (Some(h), false),
-                // (only on the floor's drawn grid: a click far off never grows the part)
-                (_, Some(f)) if on_grid(&m.parts[part], f.cell) => (Some(f), true),
-                (h, _) if h.is_some_and(|h| h.solid) => (h, false),
-                (h, _) => (h, false),
-            },
-        };
-        let pose = poses[part];
-        // the status line's middle: the cell under the pointer, the part's box and the part, and the voxel's colour
+        let poses = self.poses();
+        let part = self.part.min(m.parts.len() - 1);
+        let pos = resp.hover_pos().or(resp.interact_pointer_pos());
+        let ray = pos.and_then(|p| app.view.ray(p));
+        self.hover = ray.and_then(|(o, d)| voxel::pick_paint(&m, &poses, &paint, o, d));
+        // the status line's middle: the part and the painting's pixel under the pointer, and its colour
         app.pointer = match self.hover {
             Some(h) => {
-                let (c, p) = (h.cell, &m.parts[part]);
-                let what = match voxel::get(p, c) {
-                    0 if !voxel::inside(p, c) => "outside the box: an add grows it".to_string(),
-                    0 => "empty".to_string(),
-                    v => m.colours.get(v as usize - 1).cloned().unwrap_or_default(),
-                };
-                format!("x {} y {} z {} of {} x {} x {}, part {}: {what}", c.x, c.y, c.z, p.size[0], p.size[1], p.size[2], p.name)
+                let c = paint.px[h.y * paint.w + h.x];
+                let colour = if c == art::EMPTY { "empty".to_string() } else { app.pal.colours.iter().find(|p| p.rgb == c).map_or(format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2]), |p| p.name.clone()) };
+                format!("part {}, painting x {} y {}: {colour}", m.parts[h.part].name, h.x, h.y)
             }
             None => String::new(),
         };
         let screen = |p: Vec3| app.view.to_screen(p);
+        let pose = poses[part];
         let pivot_at = screen(pose.transform_point3(Vec3::from(m.parts[part].pivot)));
         if let Some(q) = pivot_at {
             crate::drive::mark(&resp.ctx, "pivot", Rect::from_center_size(q, Vec2::splat(2.0)));
         }
         let point_at: Vec<Option<Pos2>> = m.points.iter().map(|pt| m.parts.iter().position(|p| p.name == pt.part).and_then(|i| screen(poses[i].transform_point3(Vec3::from(pt.at))))).collect();
-        // a press starts a drag (or is a click when let go where it began); Alt + left drag turns the view instead
         let alt = resp.ctx.input(|i| i.modifiers.alt);
-        let pressed = (resp.drag_started_by(egui::PointerButton::Primary) && !alt) || resp.drag_started_by(egui::PointerButton::Secondary);
-        if pressed && self.drag.is_none() {
-            let right = resp.drag_started_by(egui::PointerButton::Secondary);
+        // Paint: a left press paints, and a drag goes on painting (one step); right clicks paint the second colour
+        if self.tool == Tool::Paint && !alt {
+            let held = resp.ctx.input(|i| i.pointer.primary_down()) && (resp.is_pointer_button_down_on() || resp.dragged_by(egui::PointerButton::Primary));
+            if let Some(h) = self.hover.filter(|_| held) {
+                self.dab(h.x, h.y, true);
+            } else if let Some(h) = self.hover.filter(|_| resp.secondary_clicked()) {
+                self.stroking = false;
+                self.dab(h.x, h.y, false);
+            }
+            app.view.left_turns = false;
+            return;
+        }
+        // a press of the pivot's or a point's cross starts a drag of it; Alt + left drag turns the view instead
+        if resp.drag_started_by(egui::PointerButton::Primary) && !alt && self.drag.is_none() {
             let from = resp.interact_pointer_pos().unwrap_or_default();
             let near = |p: Option<Pos2>| p.is_some_and(|p| p.distance(from) < 12.0);
             let what = match self.tool {
                 Tool::Pivot if near(pivot_at) => Some(Grab::Pivot),
                 Tool::Point => point_at.iter().position(|p| near(*p)).map(Grab::Point),
-                Tool::Box | Tool::Line => Some(Grab::Cells),
-                Tool::Select if !right => {
-                    let on_face = self.sel.zip(self.hover).is_some_and(|((a, b), h)| h.solid && h.cell.cmpge(a.min(b)).all() && h.cell.cmple(a.max(b)).all());
-                    Some(if on_face { Grab::Face } else { Grab::Cells })
-                }
                 _ => None,
             };
-            // right drags turn the view, except for the tools that remove with them
-            let takes_right = matches!(self.tool, Tool::Box | Tool::Line);
-            if let (Some(what), Some(h)) = (what, self.hover.or(Some(Hit { part, cell: IVec3::ZERO, n: IVec3::Y, solid: false, t: 0.0 }))) {
-                if !right || takes_right {
-                    // (a plane's hit stays on its plane: the drag's cells are on that row)
-                    let hit = if right || self.on_plane { Hit { solid: false, ..h } } else { h };
-                    if what != Grab::Cells || self.hover.is_some() {
-                        self.drag = Some(Drag { hit, from, right, what, plane: self.on_plane });
-                    }
-                }
-            }
+            self.drag = what.map(|what| Drag { what });
         }
         app.view.left_turns = false;
         if let (Some(dr), Some((o, d))) = (self.drag, ray) {
-            let now = resp.interact_pointer_pos().unwrap_or(dr.from);
-            match dr.what {
-                Grab::Pivot | Grab::Point(_) => {
-                    // in the plane through it facing the eye, to half voxels
-                    let at = match dr.what {
-                        Grab::Point(k) => {
-                            let i = m.parts.iter().position(|p| p.name == m.points[k].part).unwrap_or(0);
-                            (poses[i], Vec3::from(m.points[k].at))
-                        }
-                        _ => (pose, Vec3::from(m.parts[part].pivot)),
-                    };
-                    let world = at.0.transform_point3(at.1);
-                    let f = (self.orbit.target - self.orbit.eye()).normalize();
-                    let t = (world - o).dot(f) / d.dot(f);
-                    let local = at.0.inverse().transform_point3(o + d * t);
-                    let snap = ((local * 2.0).round() / 2.0).to_array();
-                    match dr.what {
-                        Grab::Point(k) => self.edit_merged(app, "Move a point", |m, _| {
-                            m.points[k].at = snap;
-                            true
-                        }),
-                        _ => self.edit_merged(app, "Move the pivot", |m, _| {
-                            m.parts[part].pivot = snap;
-                            true
-                        }),
-                    }
+            // in the plane through it facing the eye, to half voxels
+            let at = match dr.what {
+                Grab::Point(k) => {
+                    let i = m.parts.iter().position(|p| p.name == m.points[k].part).unwrap_or(0);
+                    (poses[i], Vec3::from(m.points[k].at))
                 }
-                _ => {}
+                Grab::Pivot => (pose, Vec3::from(m.parts[part].pivot)),
+            };
+            let world = at.0.transform_point3(at.1);
+            let f = (self.orbit.target - self.orbit.eye()).normalize();
+            let t = (world - o).dot(f) / d.dot(f);
+            let local = at.0.inverse().transform_point3(o + d * t);
+            let snap = ((local * 2.0).round() / 2.0).to_array();
+            match dr.what {
+                Grab::Point(k) => self.edit_merged(app, "Move a point", |m, _| {
+                    m.points[k].at = snap;
+                    true
+                }),
+                Grab::Pivot => self.edit_merged(app, "Move the pivot", |m, _| {
+                    m.parts[part].pivot = snap;
+                    true
+                }),
             }
             if resp.drag_stopped() {
-                let end = if dr.plane { voxel::pick_layer(&m.parts[part], pose, dr.hit.cell.y, o, d).map(|h| h.cell) } else { voxel::on_plane(pose, &dr.hit, o, d) };
-                let col = if dr.right { None } else { Some(self.first) };
-                match (dr.what, self.tool, end) {
-                    (Grab::Cells, Tool::Box | Tool::Line, Some(end)) => {
-                        let a = dr.hit.target();
-                        let cells = if self.tool == Tool::Box { voxel::rect(a, end) } else { voxel::line(a, end) };
-                        self.cells(app, if self.tool == Tool::Box { "Box" } else { "Line" }, &cells, col);
-                    }
-                    (Grab::Cells, Tool::Select, Some(end)) => {
-                        let a = if dr.hit.solid { dr.hit.cell } else { dr.hit.target() };
-                        let mut end = end;
-                        let ax = (0..3).find(|&k| dr.hit.n[k] != 0).unwrap_or(1);
-                        end[ax] = a[ax];
-                        self.sel = Some((a, end));
-                    }
-                    (Grab::Face, _, _) => {
-                        // how many voxels the drag went along the face's normal, on screen
-                        let c = pose.transform_point3(dr.hit.cell.as_vec3() + 0.5);
-                        let step = app.view.to_screen(c).zip(app.view.to_screen(pose.transform_point3(dr.hit.cell.as_vec3() + 0.5 + dr.hit.n.as_vec3())));
-                        if let (Some((p0, p1)), Some((a, b))) = (step, self.sel) {
-                            let dir = p1 - p0;
-                            let k = ((now - dr.from).dot(dir) / dir.length_sq().max(1.0)).round() as i32;
-                            if k > 0 {
-                                let n = dr.hit.n;
-                                let mut out = (a, b);
-                                self.edit(app, "Extrude", |m, _| {
-                                    out = voxel::extrude(m, part, a, b, n, k);
-                                    true
-                                });
-                                self.sel = Some(out);
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-                self.drag = None;
-                self.merging = None;
+                (self.drag, self.merging) = (None, None);
             }
             return;
         }
         let (left, right) = (resp.clicked() && !alt, resp.secondary_clicked());
-        if !(left || right) {
-            return;
-        }
-        let Some(h) = self.hover else { return };
+        let Some(h) = self.hover.filter(|_| left || right) else { return };
         match self.tool {
-            Tool::Add | Tool::Box | Tool::Line if left => {
-                if let Some(c) = self.aims(h).0 {
-                    self.cells(app, "Add", &[c], Some(self.first));
-                }
-            }
-            Tool::Add | Tool::Box | Tool::Line if right && h.solid => self.cells(app, "Remove", &[h.cell], None),
-            Tool::Paint if h.solid => {
-                let c = if left { self.first } else { self.second };
-                if let Some(k) = self.colour(app, c) {
-                    let cells = voxel::mirrored(m_size(self, part), &[h.cell], self.mirror.0, self.mirror.1);
-                    self.edit(app, "Paint", |m, _| voxel::apply(m, part, &cells, Op::Paint(k)));
-                }
-            }
-            Tool::Pick if h.solid => {
-                if let Some(m) = self.m() {
-                    let v = voxel::get(&m.parts[part], h.cell) as usize;
-                    if let Some(c) = m.rgb.get(v.wrapping_sub(1)).copied() {
-                        *(if left { &mut self.first } else { &mut self.second }) = c;
-                    }
-                }
-            }
-            Tool::Fill if h.solid => {
-                let ax = (0..3).find(|&k| h.n[k] != 0).unwrap_or(1);
-                let cells = voxel::fill_plane(&self.m().unwrap().parts[part], h.cell, ax);
-                if left {
-                    if let Some(k) = self.colour(app, self.first) {
-                        let cells = voxel::mirrored(m_size(self, part), &cells, self.mirror.0, self.mirror.1);
-                        self.edit(app, "Fill", |m, _| voxel::apply(m, part, &cells, Op::Paint(k)));
-                    }
-                } else {
-                    self.cells(app, "Remove a fill", &cells, None);
+            Tool::Pick => {
+                let c = paint.px[h.y * paint.w + h.x];
+                if c != art::EMPTY {
+                    *(if left { &mut self.first } else { &mut self.second }) = c;
                 }
             }
             Tool::Point if left => {
-                let at = (h.target().as_vec3() + 0.5 - h.n.as_vec3() * 0.5).to_array();
+                // on the face clicked, in its part's voxels, to half voxels
+                let local = poses[h.part].inverse().transform_point3(h.at);
+                let at = ((local * 2.0).round() / 2.0).to_array();
+                let mut made = 0;
                 self.edit(app, "Add a point", |m, _| {
-                    voxel::add_point(m, part, at);
+                    made = voxel::add_point(m, h.part, at);
                     true
                 });
+                self.point = Some(made);
             }
             _ => {}
         }
     }
 
-    /// Adds (a colour) or removes (none) cells of the chosen part, mirrored as set.
-    fn cells(&mut self, app: &mut App, name: &str, cells: &[IVec3], colour: Option<[u8; 3]>) {
-        let part = self.part;
-        let cells = voxel::mirrored(m_size(self, part), cells, self.mirror.0, self.mirror.1);
-        let op = match colour {
-            Some(c) => match self.colour(app, c) {
-                Some(k) => Op::Add(k),
-                None => return,
-            },
-            None => Op::Remove,
-        };
-        let mut grew = false;
-        self.edit(app, name, |m, _| {
-            let ok = voxel::apply(m, part, &cells, op);
-            grew = ok && cells.iter().any(|c| !voxel::inside(&m.parts[part], *c));
-            ok
-        });
-        if matches!(op, Op::Add(_)) && !grew && cells.iter().any(|c| c.cmplt(IVec3::ZERO).any() || c.cmpge(IVec3::splat(32)).any()) {
-            app.toast("A part is at most 32 voxels a side");
-        }
-    }
-
-    /// The view's guides: the grid, the part's box, the pivot and points, the selection, the player.
+    /// The view's guides: the floor's grid, the chosen part's boxes, the pixel under the pointer, the pivot and
+    /// points, the player.
     fn overlay(&self, p: &egui::Painter, view: &Viewport) {
         let Some(m) = self.m() else { return };
         let poses = self.poses();
         let line = |a: Vec3, b: Vec3, s: Stroke| {
             if let (Some(a), Some(b)) = (view.to_screen(a), view.to_screen(b)) {
                 p.line_segment([a, b], s);
-            }
-        };
-        let cube = |pose: Mat4, lo: Vec3, hi: Vec3, s: Stroke| {
-            let c = |x: f32, y: f32, z: f32| pose.transform_point3(Vec3::new(x, y, z));
-            for (a, b) in [((0, 0, 0), (1, 0, 0)), ((0, 0, 0), (0, 1, 0)), ((0, 0, 0), (0, 0, 1)), ((1, 1, 1), (0, 1, 1)), ((1, 1, 1), (1, 0, 1)), ((1, 1, 1), (1, 1, 0)), ((1, 0, 0), (1, 1, 0)), ((1, 0, 0), (1, 0, 1)), ((0, 1, 0), (1, 1, 0)), ((0, 1, 0), (0, 1, 1)), ((0, 0, 1), (1, 0, 1)), ((0, 0, 1), (0, 1, 1))] {
-                let pick = |k: (i32, i32, i32)| Vec3::new(if k.0 == 0 { lo.x } else { hi.x }, if k.1 == 0 { lo.y } else { hi.y }, if k.2 == 0 { lo.z } else { hi.z });
-                let (u, v) = (pick(a), pick(b));
-                line(c(u.x, u.y, u.z), c(v.x, v.y, v.z), s);
             }
         };
         if self.show_grid {
@@ -1014,86 +765,29 @@ impl Models {
         }
         let Some(part) = m.parts.get(self.part) else { return };
         let pose = poses[self.part];
-        let size = Vec3::from(part.size.map(|v| v as f32));
-        let eye = view.cam().eye();
-        let poly = |q: [Vec3; 4], fill: Color32, s: Stroke| {
-            let pts: Option<Vec<Pos2>> = q.iter().map(|c| view.to_screen(*c)).collect();
-            if let Some(pts) = pts {
-                p.add(egui::Shape::convex_polygon(pts, fill, s));
-            }
-        };
-        // the part's floor (in layer mode the layer's plane) in voxel lines, the 1 m lines heavier
-        if self.show_grid || self.layer.is_some() {
-            let y = self.layer.unwrap_or(0) as f32;
-            let s = IVec3::from(part.size.map(|v| v as i32));
-            let (lo, hi) = (IVec3::new(-GRID, 0, -GRID), IVec3::new(s.x + GRID, 0, s.z + GRID));
-            let tint = if self.layer.is_some() { look::ACCENT } else { Color32::WHITE };
-            for ax in [0, 2] {
-                let (a0, a1, b0, b1) = if ax == 0 { (lo.x, hi.x, lo.z, hi.z) } else { (lo.z, hi.z, lo.x, hi.x) };
-                for k in a0..=a1 {
-                    let at = |b: i32| pose.transform_point3(if ax == 0 { Vec3::new(k as f32, y, b as f32) } else { Vec3::new(b as f32, y, k as f32) });
-                    let heavy = ((at(b0)[ax] / VOXEL).round() as i32).rem_euclid(8) == 0;
-                    let s = if heavy { Stroke::new(1.5, tint.gamma_multiply(0.5)) } else { Stroke::new(1.0, tint.gamma_multiply(0.15)) };
-                    line(at(b0), at(b1), s);
-                }
+        // the chosen part's boxes, outlined
+        let s = Stroke::new(1.0, look::ACCENT.gamma_multiply(0.6));
+        for f in m.box_faces().into_iter().filter(|f| f.part == self.part) {
+            let q = [f.o, f.o + f.eu, f.o + f.eu + f.ev, f.o + f.ev].map(|v| pose.transform_point3(v));
+            for i in 0..4 {
+                line(q[i], q[(i + 1) % 4], s);
             }
         }
-        if self.faces_now {
-            // the rows above the layer, dimmed: hidden in the view, drawn here faint, the far faces first
-            for (q, rgb) in &self.faces.2 {
-                poly(*q, Color32::from_rgba_unmultiplied(rgb[0], rgb[1], rgb[2], 60), Stroke::new(1.0, Color32::from_white_alpha(18)));
-            }
-            // the edges: thin dark lines round every face the eye sees
-            for q in &self.faces.1 {
-                for i in 0..4 {
-                    line(q[i], q[(i + 1) % 4], Stroke::new(1.0, Color32::from_black_alpha(120)));
-                }
-            }
-        }
-        cube(pose, Vec3::ZERO, size, Stroke::new(1.0, look::ACCENT.gamma_multiply(0.6)));
-        // the mirror's planes, through the part's middle
-        for (on, ax) in [(self.mirror.0, 0), (self.mirror.1, 2)] {
-            if on {
-                let mut q = [Vec3::ZERO, Vec3::new(0.0, size.y, 0.0), Vec3::new(0.0, size.y, 0.0), Vec3::ZERO];
-                let other = 2 - ax;
-                (q[2][other], q[3][other]) = (size[other], size[other]);
-                for c in &mut q {
-                    c[ax] = size[ax] / 2.0;
-                }
-                poly(q.map(|c| pose.transform_point3(c)), look::ACCENT.gamma_multiply(0.12), Stroke::new(1.5, look::ACCENT.gamma_multiply(0.7)));
-            }
-        }
-        if let Some((a, b)) = self.sel {
-            let (lo, hi) = (a.min(b).as_vec3(), a.max(b).as_vec3() + 1.0);
-            cube(pose, lo, hi, Stroke::new(2.0, look::DRAFT));
-        }
+        // the pixel under the pointer, outlined in the colour it would take
         if let Some(h) = self.hover.filter(|_| self.drag.is_none()) {
-            let (add, remove) = self.aims(h);
-            let twins = |c: IVec3| voxel::mirrored(part.size, &[c], self.mirror.0, self.mirror.1);
-            // the face under the pointer, lit: the voxel's, or the plane's cell
-            let lit = if self.on_plane { voxel::face_quad(h.cell, IVec3::NEG_Y) } else { voxel::face_quad(h.cell, if h.solid { h.n } else { -h.n }) };
-            poly(lit.map(|v| pose.transform_point3(v)), Color32::from_white_alpha(60), Stroke::NONE);
-            match self.tool {
-                Tool::Add | Tool::Box | Tool::Line => {
-                    // a ghost voxel in the chosen colour where a left click adds, half see-through
-                    for c in add.map_or(vec![], twins) {
-                        let [r, g, b] = self.first;
-                        for n in voxel::NORMALS {
-                            let q = voxel::face_quad(c, n).map(|v| pose.transform_point3(v));
-                            if pose.transform_vector3(n.as_vec3()).dot(eye - (q[0] + q[2]) / 2.0) > 0.0 {
-                                poly(q, Color32::from_rgba_unmultiplied(r, g, b, 150), Stroke::NONE);
-                            }
-                        }
-                        // its outline light, so a colour like the ground's still shows
-                        cube(pose, c.as_vec3(), c.as_vec3() + 1.0, Stroke::new(1.5, Color32::from_white_alpha(210)));
-                    }
-                    // the voxel a right click removes, outlined red
-                    for c in remove.map_or(vec![], twins) {
-                        cube(pose, c.as_vec3(), c.as_vec3() + 1.0, Stroke::new(2.0, Color32::from_rgb(235, 60, 50)));
-                    }
+            if let Some(f) = m.box_faces().get(h.face).filter(|f| h.x as u32 >= f.rect[0] && h.y as u32 >= f.rect[1]) {
+                let (u, v) = ((h.x as u32 - f.rect[0]) as f32, (h.y as u32 - f.rect[1]) as f32);
+                let (eu, ev) = (f.eu / f.rect[2] as f32, f.ev / f.rect[3] as f32);
+                let o = f.o + eu * u + ev * v;
+                let q = [o, o + eu, o + eu + ev, o + ev].map(|c| poses[f.part].transform_point3(c));
+                let col = match self.tool {
+                    Tool::Paint if self.erase => Color32::from_rgb(235, 60, 50),
+                    Tool::Paint => c32(self.first),
+                    _ => Color32::WHITE,
+                };
+                for i in 0..4 {
+                    line(q[i], q[(i + 1) % 4], Stroke::new(2.0, col));
                 }
-                _ if h.solid => cube(pose, h.cell.as_vec3(), h.cell.as_vec3() + 1.0, Stroke::new(1.5, c32(self.first))),
-                _ => {}
             }
         }
         let cross = |at: Option<Pos2>, col: Color32, big: f32| {
@@ -1115,29 +809,20 @@ impl Models {
         }
     }
 
-    /// The 2D preview until the game's renderer is up: the model's faces, flat shaded, far ones first.
+    /// The 2D preview until the game's renderer is up: the boxes' faces, each in its painting's middle colour,
+    /// flat shaded, far ones first.
     fn sketch(&self, p: &egui::Painter, view: &Viewport) {
-        let Some(m) = self.m() else { return };
+        let Some(d) = self.doc() else { return };
         let poses = self.poses();
         let eye = view.orbit.eye();
         let mut faces = vec![];
-        for (i, part) in m.parts.iter().enumerate() {
-            for q in engine::models::mesh(part) {
-                let a = (q.dir / 2) as usize;
-                let (u, v) = ((a + 1) % 3, (a + 2) % 3);
-                let mut base = Vec3::new(q.at[0] as f32, q.at[1] as f32, q.at[2] as f32);
-                if q.dir % 2 == 0 {
-                    base[a] += 1.0;
-                }
-                let (mut du, mut dv) = (Vec3::ZERO, Vec3::ZERO);
-                du[u] = q.w as f32;
-                dv[v] = q.h as f32;
-                let corners = [base, base + du, base + du + dv, base + dv].map(|c| poses[i].transform_point3(c));
-                let mid = (corners[0] + corners[2]) / 2.0;
-                let shade = [0.8, 0.7, 1.0, 0.5, 0.9, 0.75][q.dir as usize];
-                let rgb = m.rgb[q.colour as usize].map(|c| (c as f32 * shade) as u8);
-                faces.push((mid.distance(eye), corners, rgb));
-            }
+        for f in d.m.box_faces() {
+            let [x, y, w, h] = f.rect.map(|v| v as usize);
+            let Some(&rgb) = d.paint.px.get((y + h / 2) * d.paint.w + x + w / 2).filter(|c| x + w / 2 < d.paint.w && **c != art::EMPTY) else { continue };
+            let corners = [f.o, f.o + f.eu, f.o + f.eu + f.ev, f.o + f.ev].map(|c| poses[f.part].transform_point3(c));
+            let n = (corners[1] - corners[0]).cross(corners[3] - corners[0]).normalize_or_zero();
+            let shade = 0.6 + 0.4 * n.y.abs().max(n.z.abs() * 0.8);
+            faces.push((((corners[0] + corners[2]) / 2.0).distance(eye), corners, rgb.map(|c| (c as f32 * shade) as u8)));
         }
         faces.sort_by(|a, b| b.0.total_cmp(&a.0));
         for (_, c, rgb) in faces {
@@ -1409,7 +1094,6 @@ impl Models {
             }
             ui.end_row();
         });
-        look::weak(ui, format!("box {} x {} x {} voxels (grows as you add)", part.size[0], part.size[1], part.size[2]));
         // its painted boxes (ADR 0081, 0116): corner, size and turn in pixels (4 a voxel), where the net lies
         let (mut change, mut remove) = (None, None);
         for (j, b) in part.boxes.iter().enumerate() {
@@ -1518,7 +1202,6 @@ impl Models {
                     if look::tip(r, "Choose this part: the tools edit only it", "").clicked() {
                         self.part = i;
                         self.part_name = m.parts[i].name.clone();
-                        self.sel = None;
                     }
                 });
             }
@@ -1534,17 +1217,6 @@ impl Models {
             }
         });
     }
-}
-
-/// Within the floor grid the view draws under a part: its box and 4 cells round it.
-fn on_grid(p: &engine::models::Part, c: IVec3) -> bool {
-    let s = IVec3::from(p.size.map(|v| v as i32));
-    c.x >= -GRID && c.z >= -GRID && c.x < s.x + GRID && c.z < s.z + GRID
-}
-const GRID: i32 = 4;
-
-fn m_size(s: &Models, part: usize) -> [u32; 3] {
-    s.m().and_then(|m| m.parts.get(part)).map_or([1; 3], |p| p.size)
 }
 
 impl Page for Models {
@@ -1576,8 +1248,7 @@ impl Page for Models {
 
     fn commands(&self, _app: &App) -> Vec<Cmd> {
         let mut v: Vec<Cmd> = TOOLS.iter().map(|(_, id, name, k, help)| Cmd::new(format!("tool.{id}"), format!("Tool: {name}"), *help).key(Modifiers::NONE, *k)).collect();
-        v.push(Cmd::new("mirror.x", "Mirror in x on or off", "every edit also on the far side of the part's middle in x").key(Modifiers::NONE, Key::X));
-        v.push(Cmd::new("mirror.z", "Mirror in z on or off", "every edit also on the far side of the part's middle in z").key(Modifiers::NONE, Key::Z));
+        v.push(Cmd::new("erase", "Eraser on or off", "the Paint tool empties pixels instead").key(Modifiers::NONE, Key::E));
         v.push(Cmd::new("undo", "Undo", "undo the last change to this model").key(Modifiers::COMMAND, Key::Z));
         v.push(Cmd::new("redo", "Redo", "redo what was undone").key(Modifiers::COMMAND, Key::Y));
         v.push(Cmd::new("save", "Save the model", "write it (checked by the game's reader first) and take it off the drafts list").key(Modifiers::COMMAND, Key::S));
@@ -1585,24 +1256,13 @@ impl Page for Models {
         for (id, label, help) in voxel::STARTERS {
             v.push(Cmd::new(format!("new:{id}"), format!("New model: {label}"), help));
         }
-        v.push(Cmd::new("boxes", "Voxels to painted boxes", "every part's voxels become one painted box of its size in its main colour, to paint (ADR 0116)"));
         v.push(Cmd::new("box.add", "Add a box", "a painted box of 8 px a side on the open part, its net below the painting"));
         v.push(Cmd::new("play", "Play or pause", "the clip in the view").key(Modifiers::NONE, Key::Space));
-        v.push(Cmd::new("shade", "Shade by light", "every voxel along its ramp by how open it is: open sides lighter, crevices and undersides darker"));
         v.push(Cmd::new("clip.new", "New clip", "a new clip of one second, looping"));
         v.push(Cmd::new("part.add", "Add a part", "a new empty part, a root"));
         v.push(Cmd::new("part.child", "Add a child part", "a new empty part hanging on the chosen one"));
         v.push(Cmd::new("motion", "Ready-made motion", "fill the clip's keys of the chosen part with the motion set in the inspector"));
-        for (id, k, what) in [("left", Key::ArrowLeft, "-x"), ("right", Key::ArrowRight, "+x"), ("up", Key::ArrowUp, "-z"), ("down", Key::ArrowDown, "+z"), ("raise", Key::PageUp, "+y"), ("lower", Key::PageDown, "-y")] {
-            // (Page Up/Down alone move the layer)
-            let mods = if matches!(id, "raise" | "lower") { Modifiers::SHIFT } else { Modifiers::NONE };
-            v.push(Cmd::new(format!("sel.{id}"), format!("Move the selection {what}"), "one voxel").key(mods, k));
-        }
-        v.push(Cmd::new("layer.on", "Layer mode on or off", "clicks land on one row's plane, the rows above are dimmed: build floor by floor, or work inside"));
-        v.push(Cmd::new("layer.up", "Layer up", "layer mode's plane a row up (turns layer mode on)").key(Modifiers::NONE, Key::PageUp));
-        v.push(Cmd::new("layer.down", "Layer down", "layer mode's plane a row down (turns layer mode on)").key(Modifiers::NONE, Key::PageDown));
-        v.push(Cmd::new("edges", "Edges on or off", "thin dark lines between voxels, so a face of one colour still reads as voxels"));
-        v.push(Cmd::new("sel.none", "Select nothing", "drop the selection").key(Modifiers::NONE, Key::Escape));
+        v.push(Cmd::new("cancel", "Cancel", "back to the open model from the new model's shapes").key(Modifiers::NONE, Key::Escape));
         // (the first key that matches runs, and a plain key matches with Shift held too: the Shift views first)
         for (k, (id, name, ..)) in VIEWS.iter().enumerate().rev() {
             let key = [Key::Num1, Key::Num3, Key::Num7][k / 2];
@@ -1610,7 +1270,7 @@ impl Page for Models {
             v.push(Cmd::new(format!("view:{id}"), format!("View from the {}", name.to_lowercase()), "look at the model from that side (the view cube's face)").key(mods, key));
         }
         v.push(Cmd::new("view.flat", "Flat view on or off", "no perspective, so rows and sizes line up").key(Modifiers::NONE, Key::Num5));
-        v.push(Cmd::new("view.frame", "Frame", "fill the view with the selection, else the chosen part").key(Modifiers::NONE, Key::F));
+        v.push(Cmd::new("view.frame", "Frame", "fill the view with the chosen part").key(Modifiers::NONE, Key::F));
         v
     }
 
@@ -1620,7 +1280,7 @@ impl Page for Models {
             return;
         }
         // with an argument (the command box and shot=): part:<name>, clip:<name>, time:<s>, motion:<kind>,
-        // fromtex:<block>, layer:<row or off>, sel:x;y;z;x;y;z, scene:<grass|cave|none>, hour:<h>, cam:yaw;pitch;dist
+        // new:<shape>, scene:<grass|cave|none>, hour:<h>, cam:yaw;pitch;dist, show:<block|player|grid>
         if let Some((cmd, arg)) = id.split_once(':') {
             let m = self.m().cloned();
             match cmd {
@@ -1647,36 +1307,13 @@ impl Page for Models {
                 }
                 "event" => self.event = arg.parse().ok(),
                 "point" => self.point = arg.parse().ok(),
-                "layer" | "slice" => self.layer = arg.parse().ok(),
                 "motion" => {
                     if let Some(k) = MOTIONS.iter().find(|x| format!("{:?}", x.0).eq_ignore_ascii_case(arg)) {
                         self.motion = (k.0, self.motion.1, k.3);
                         self.run(app, "motion");
                     }
                 }
-                "fromtex" => {
-                    self.tex_block = arg.into();
-                    let faces: Vec<Option<art::Img>> = (1..4).map(|f| app.docs.get(&art::file_name(arg, f)).or(app.docs.get(&art::file_name(arg, 0))).map(|d| d.img.clone())).collect();
-                    let mut made = None;
-                    self.edit(app, "From a texture", |m, pal| {
-                        made = voxel::from_texture(m, pal, [faces[0].as_ref(), faces[1].as_ref(), faces[2].as_ref()]);
-                        made.is_some()
-                    });
-                    match made {
-                        Some(i) => {
-                            self.part = i;
-                            self.part_name = self.m().map_or(String::new(), |m| m.parts[i].name.clone());
-                        }
-                        None => app.refuse(format!("{arg} has no painted faces to start from")),
-                    }
-                }
-                "sel" => {
-                    let n: Vec<i32> = arg.split(';').filter_map(|x| x.parse().ok()).collect();
-                    if let [a, b, c, d, e, f] = n[..] {
-                        self.sel = Some((IVec3::new(a, b, c), IVec3::new(d, e, f)));
-                    }
-                }
-                "new" => self.new_model(arg, |_| voxel::starter(&app.pal, arg)),
+                "new" => self.new_model(app, arg, arg),
                 "view" => {
                     if let Some(k) = VIEWS.iter().position(|v| v.0 == arg) {
                         self.orbit.look_from(k);
@@ -1701,15 +1338,13 @@ impl Page for Models {
         }
         let part = self.part;
         match id {
-            "mirror.x" => self.mirror.0 = !self.mirror.0,
-            "mirror.z" => self.mirror.1 = !self.mirror.1,
+            "erase" => self.erase = !self.erase,
             "play" => self.playing = !self.playing && self.clip.is_some(),
             "save" => self.save(app),
             "box.add" => {
                 let (part, c) = (self.part, self.first);
                 self.box_edit(app, "Add a box", |m, p| voxel::add_box(m, p, part, [8, 8, 8], c));
             }
-            "boxes" => self.box_edit(app, "Voxels to painted boxes", |m, p| voxel::voxels_to_boxes(m, p).map(|_| ())),
             "new" => self.choosing = true,
             "undo" | "redo" => {
                 if let Some(d) = self.open.as_ref().and_then(|n| self.docs.get_mut(n)) {
@@ -1719,15 +1354,6 @@ impl Page for Models {
                     }
                 }
                 self.opened_keep();
-            }
-            "shade" => {
-                let k = self.strength;
-                let mut n = 0;
-                self.edit(app, "Shade by light", |m, pal| {
-                    n = voxel::shade_by_light(m, pal, Some(part), k);
-                    n > 0
-                });
-                app.toast(format!("Shade by light: {n} voxels stepped along their ramps"));
             }
             "clip.new" => {
                 let mut at = None;
@@ -1762,47 +1388,28 @@ impl Page for Models {
                     true
                 });
             }
-            "sel.none" => (self.sel, self.choosing) = (None, false),
+            "cancel" => self.choosing = false,
             "view.flat" => self.flat = !self.flat,
-            "layer.on" => self.layer = if self.layer.is_some() { None } else { Some(0) },
-            "layer.up" | "layer.down" => {
-                let l = self.layer.map_or(0, |l| l + if id == "layer.up" { 1 } else { -1 });
-                // (not below row 0: an add there would grow the box down and leave the plane a row under it)
-                self.layer = Some(l.clamp(0, m_size(self, part)[1] as i32));
-            }
-            "edges" => self.edges = !self.edges,
             "view.frame" => self.frame(app),
-            _ => {
-                if let (Some(dir), Some((a, b))) = (id.strip_prefix("sel."), self.sel) {
-                    let by = match dir {
-                        "left" => IVec3::NEG_X,
-                        "right" => IVec3::X,
-                        "up" => IVec3::NEG_Z,
-                        "down" => IVec3::Z,
-                        "raise" => IVec3::Y,
-                        _ => IVec3::NEG_Y,
-                    };
-                    self.edit(app, "Move the selection", |m, _| voxel::move_sel(m, part, a, b, by));
-                    self.sel = Some((a + by, b + by));
-                }
-            }
+            _ => {}
         }
     }
 
     fn more_keys(&self) -> Vec<(&'static str, &'static str)> {
         vec![
-            ("Right drag", "turn the view about the selection, else the model's middle (Box and Line: removes)"),
+            ("Right drag", "turn the view about the model's middle"),
             ("Alt + left drag", "turn the view, for a hand without a middle or right button"),
             ("Middle drag", "pan the view"),
             ("Wheel", "zoom toward the pointer"),
-            ("Left click", "the tool's first action (add, paint, pick)"),
-            ("Right click", "the tool's second action (remove, second colour)"),
+            ("Left click or drag", "the tool's first action (paint, pick, add a point)"),
+            ("Right click", "the tool's second action (the second colour)"),
         ]
     }
 
     fn work(&mut self, ui: &mut Ui, app: &mut App) {
         if !ui.input(|i| i.pointer.any_down()) && self.drag.is_none() {
             self.merging = None;
+            self.stroking = false;
         }
         if self.playing {
             let dt = ui.input(|i| i.stable_dt).min(0.1);
@@ -1845,15 +1452,20 @@ impl Page for Models {
         let view_share = ((total - timeline_h - GAP) / total.max(1.0)).clamp(0.1, 0.9);
         let view_h = look::split(ui, "view", view_share, total) - GAP;
         app.view.orbit = self.orbit;
-        app.view.model = Some(ModelCam { flat: self.flat, pivot: self.turn_point(), right_turns: !matches!(self.tool, Tool::Box | Tool::Line) });
+        app.view.model = Some(ModelCam { flat: self.flat, pivot: self.turn_point(), right_turns: true });
+        // the view on the left, the model's painting on the right: paint on either
+        let (full, top) = (ui.available_width(), ui.cursor().min);
+        let paint_w = if self.doc().is_some_and(|d| d.paint.w > 0) { (full * 0.5).floor() } else { 0.0 };
         let resp = {
             let me = &*self;
-            app.view.ui(ui, view_h, |p, v, _| me.sketch(p, v))
+            ui.allocate_ui(Vec2::new(full - paint_w, view_h), |ui| app.view.ui(ui, view_h, |p, v, _| me.sketch(p, v))).inner
         };
+        if paint_w > 0.0 {
+            self.painting(ui, Rect::from_min_size(Pos2::new(top.x + full - paint_w + GAP, top.y), Vec2::new(paint_w - GAP, view_h)));
+        }
         self.orbit = app.view.orbit;
         self.pointer(app, &resp);
         let painter = ui.painter_at(resp.rect);
-        self.find_faces(&app.view, ui.input(|i| i.pointer.any_down()));
         self.overlay(&painter, &app.view);
         self.view_cube(ui, app, resp.rect);
         self.view_bar(ui, resp.rect);
@@ -1864,9 +1476,9 @@ impl Page for Models {
     }
 
     fn inspector(&mut self, ui: &mut Ui, app: &mut App) {
-        if let Some(mut sec) = look::section(ui, "Tools") {
+        if let Some(mut sec) = look::section(ui, "Paint") {
             let ui = &mut *sec;
-            let w = ((ui.available_width() - 8.0) / 3.0).floor() - 1.0;
+            let w = ((ui.available_width() - 12.0) / 4.0).floor() - 1.0;
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = Vec2::splat(4.0);
                 for (t, _, name, k, help) in TOOLS {
@@ -1876,102 +1488,25 @@ impl Page for Models {
                 }
             });
             ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = Vec2::splat(4.0);
-                look::tip(look::toggle(ui, &mut self.mirror.0, "Mirror x X"), "Every edit also on the far side of the part's middle in x", "X");
-                look::tip(look::toggle(ui, &mut self.mirror.1, "Mirror z Z"), "Every edit also on the far side of the part's middle in z", "Z");
+                look::tip(look::toggle(ui, &mut self.erase, "Eraser E"), "Paint empties pixels instead: a see-through hole in the box", "E");
+                look::weak(ui, "Ctrl+Z undoes a stroke");
+            });
+            // (the palette scrolls in a box of its own, so the states below it stay in reach)
+            egui::ScrollArea::vertical().id_salt("models palette").max_height(240.0).show(ui, |ui| {
+                palette_picker(ui, "models", &app.pal, &mut self.first, &mut self.second);
             });
         }
-        if let Some(mut sec) = look::section(ui, "Colours") {
+        if let Some(mut sec) = look::section(ui, "States") {
             let ui = &mut *sec;
-            palette_picker(ui, "models", &app.pal, &mut self.first, &mut self.second);
-            if let Some(n) = self.m().map(|m| m.colours.len()) {
-                let max = super::grow::MODEL_MAX;
-                let t = RichText::new(format!("This model: {n} of {max} colours")).small();
-                let r = ui.label(if n + 6 >= max { t.color(look::DRAFT) } else { t.weak() });
-                look::tip(r, &format!("A model's voxel rows have one letter per colour, so one model holds at most {max}; the palette itself has no limit"), "");
-            }
-        }
-        if let Some(mut sec) = look::section(ui, "Model") {
-            let ui = &mut *sec;
-            ui.horizontal(|ui| {
-                if look::tip(ui.button("New model"), "Start a new model from a shape: a block, a slab, a post, a tool or a creature", "Ctrl+N").clicked() {
-                    self.run(app, "new");
-                }
-                if look::tip(ui.button("Voxels to painted boxes"), "Every part's voxels become one painted box of its size, in its main colour, to paint: how the game's figures are made (ADR 0116)", "").clicked() {
-                    self.run(app, "boxes");
-                }
-            });
-            ui.horizontal(|ui| {
-                if look::tip(ui.button("Shade by light"), "Every voxel of the part along its ramp by how open it is: open tops lighter, crevices and undersides darker", "").clicked() {
-                    self.run(app, "shade");
-                }
-                ui.spacing_mut().slider_width = (ui.available_width() - 60.0).max(40.0);
-                look::tip(ui.add(egui::Slider::new(&mut self.strength, 1.0..=6.0).fixed_decimals(1)), "How strongly: more steps along the ramp", "");
-            });
-            let painted: Vec<String> = app.reg.placeable().map(|d| d.name.clone()).filter(|n| (0..4).any(|f| app.docs.contains_key(&art::file_name(n, f)))).collect();
-            ui.horizontal(|ui| {
-                let w = (ui.available_width() - 70.0).max(60.0);
-                let r = egui::ComboBox::from_id_salt("from texture").selected_text(if self.tex_block.is_empty() { "a painted block" } else { &self.tex_block }).width(w).show_ui(ui, |ui| {
-                    if painted.is_empty() {
-                        look::weak(ui, "no block is painted yet");
-                    }
-                    for n in &painted {
-                        ui.selectable_value(&mut self.tex_block, n.clone(), n);
-                    }
-                });
-                look::tip(r.response, "A painted block to start a part from", "");
-                if look::tip(ui.add_enabled(!self.tex_block.is_empty(), egui::Button::new("Carve")), "From a texture: the block's faces become a new 8-voxel cube part to carve", "").clicked() {
-                    let b = self.tex_block.clone();
-                    self.run(app, &format!("fromtex:{b}"));
-                }
-            });
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = Vec2::splat(4.0);
-                if look::tip(look::chip(ui, self.layer.is_some(), "Layer"), "Layer mode: clicks land on one row's plane and the rows above are dimmed: build floor by floor, or work inside", "").clicked() {
-                    self.run(app, "layer.on");
-                }
-                if let Some(l) = self.layer {
-                    if look::tip(ui.small_button("Down"), "The layer a row down", "PgDn").clicked() {
-                        self.run(app, "layer.down");
-                    }
-                    look::weak(ui, format!("row {l}"));
-                    if look::tip(ui.small_button("Up"), "The layer a row up", "PgUp").clicked() {
-                        self.run(app, "layer.up");
-                    }
-                }
-            });
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = Vec2::splat(4.0);
-                look::weak(ui, "Look from");
-                for (k, (id, name, ..)) in VIEWS.iter().enumerate() {
-                    let key = format!("{}{}", if k % 2 == 1 { "Shift+" } else { "" }, ["1", "3", "7"][k / 2]);
-                    if look::tip(ui.small_button(*name), &format!("Look at the model from the {} (the view cube's face)", name.to_lowercase()), &key).clicked() {
-                        self.run(app, &format!("view:{id}"));
-                    }
-                }
-            });
-            ui.horizontal_wrapped(|ui| {
-                look::tip(look::toggle(ui, &mut self.show_block, "1 m block"), "A real stone block two cells away, for scale", "");
-                look::tip(look::toggle(ui, &mut self.show_player, "Player"), "A player's outline (0.6 x 1.8 m) beside the cell", "");
-                look::tip(look::toggle(ui, &mut self.show_grid, "Grid"), "The floor's voxel lines under the part, the 1 m lines heavier", "");
-                look::tip(look::toggle(ui, &mut self.edges, "Edges"), "Thin dark lines between voxels, so a face of one colour still reads as voxels", "");
-            });
+            self.states_inspector(ui, app);
         }
         if let Some(mut sec) = look::section(ui, "Part") {
             let ui = &mut *sec;
             self.part_inspector(ui, app);
         }
-        if let Some(mut sec) = look::section(ui, "Painting") {
-            let ui = &mut *sec;
-            self.painting(ui);
-        }
         if let Some(mut sec) = look::section(ui, "Point") {
             let ui = &mut *sec;
             self.point_inspector(ui, app);
-        }
-        if let Some(mut sec) = look::section(ui, "States") {
-            let ui = &mut *sec;
-            self.states_inspector(ui, app);
         }
         if let Some(mut sec) = look::section(ui, "Ready-made motion") {
             let ui = &mut *sec;
@@ -1996,12 +1531,26 @@ impl Page for Models {
                 }
             });
         }
-        if let Some((a, b)) = self.sel {
-            if let Some(mut sec) = look::section(ui, "Selection") {
-                let ui = &mut *sec;
-                let (lo, hi) = (a.min(b), a.max(b));
-                look::weak(ui, format!("{} x {} x {} voxels; the arrows and Shift + Page Up/Down move it, a drag on one of its faces pulls it out", hi.x - lo.x + 1, hi.y - lo.y + 1, hi.z - lo.z + 1));
+        if let Some(mut sec) = look::section(ui, "Model") {
+            let ui = &mut *sec;
+            if look::tip(ui.button("New model"), "Start a new figure of painted boxes from a shape: a block, a slab, a post, a tool or a creature", "Ctrl+N").clicked() {
+                self.run(app, "new");
             }
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::splat(4.0);
+                look::weak(ui, "Look from");
+                for (k, (id, name, ..)) in VIEWS.iter().enumerate() {
+                    let key = format!("{}{}", if k % 2 == 1 { "Shift+" } else { "" }, ["1", "3", "7"][k / 2]);
+                    if look::tip(ui.small_button(*name), &format!("Look at the model from the {} (the view cube's face)", name.to_lowercase()), &key).clicked() {
+                        self.run(app, &format!("view:{id}"));
+                    }
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
+                look::tip(look::toggle(ui, &mut self.show_block, "1 m block"), "A real stone block two cells away, for scale", "");
+                look::tip(look::toggle(ui, &mut self.show_player, "Player"), "A player's outline (0.6 x 1.8 m) beside the cell", "");
+                look::tip(look::toggle(ui, &mut self.show_grid, "Grid"), "The floor's 1 m lines", "");
+            });
         }
     }
 
@@ -2113,7 +1662,7 @@ mod tests {
         let edited = d.text();
         assert!(d.dirty());
         let m = d.m.clone();
-        docs.insert("post".into(), MDoc { m, life: Life::default(), hist: History::default(), saved: None, rev: 0, old: String::new(), paint: NO_PAINT, paint_saved: None, paint_refused: None, paint_hist: History::default() });
+        docs.insert("post".into(), MDoc { m, life: Life::default(), hist: History::default(), saved: None, rev: 0, old: String::new(), paint: NO_PAINT, paint_saved: None, paint_refused: None });
         let t0 = Instant::now();
         let mut r = Recovery::new(&root, "models", Duration::from_secs(3));
         assert!(r.keep(t0, || kept(&docs)));
@@ -2414,8 +1963,8 @@ impl Models {
         let path = format!("{MODELS}/{name}.toml");
         let Some(fresh) = std::fs::read_to_string(&path).ok().and_then(|t| MDoc::load(&path, &t, &app.pal).ok()) else { return };
         let Some(d) = self.docs.get_mut(name) else { return };
-        d.hist.push((d.m.clone(), d.life.clone()), "Reload from disk");
-        (d.m, d.life, d.saved) = (fresh.m, fresh.life, fresh.saved);
+        d.hist.push((d.m.clone(), d.life.clone(), d.paint.clone()), "Reload from disk");
+        (d.m, d.life, d.saved, d.paint, d.paint_saved, d.paint_refused) = (fresh.m, fresh.life, fresh.saved, fresh.paint, fresh.paint_saved, fresh.paint_refused);
         d.rev += 1;
         if self.open.as_deref() == Some(name) {
             self.opened_keep();

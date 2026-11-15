@@ -320,7 +320,7 @@ pub fn decode_as(bytes: &[u8], see: See) -> Result<Img, String> {
 pub fn save(path: &Path, img: &Img, new: bool) -> Result<(), String> {
     let why = |e: std::io::Error| format!("{}: {e}", path.display());
     if new && path.exists() {
-        return Err(format!("{}: on disk but not loaded (refused or made since), not replaced", path.display()));
+        return Err(format!("{}: not saved, a file with that name is already on disk (it was refused on load or made since). Rename the texture or delete that file.", path.display()));
     }
     let tmp = path.with_extension("png.tmp");
     std::fs::write(&tmp, encode(img)).map_err(why)?;
@@ -445,7 +445,7 @@ pub fn remap(img: &mut Img, pairs: &[([u8; 3], [u8; 3])]) -> bool {
 /// "Swap ramp": repaints a texture from one ramp to another of the same length, colour for colour.
 pub fn swap_ramp(img: &mut Img, from: &[[u8; 3]], to: &[[u8; 3]]) -> Result<bool, String> {
     if from.len() != to.len() {
-        return Err(format!("the ramps differ in length ({} and {} colours)", from.len(), to.len()));
+        return Err(format!("the two ramps have {} and {} colours; pick ramps with the same number", from.len(), to.len()));
     }
     Ok(remap(img, &from.iter().copied().zip(to.iter().copied()).collect::<Vec<_>>()))
 }

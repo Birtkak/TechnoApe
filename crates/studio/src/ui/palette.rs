@@ -71,19 +71,19 @@ pub struct PalettePage {
 /// wrote (it would be lost), or a colour that goes is in use (`uses`: the files that use an rgb).
 fn refusal(disk: &str, wrote: Option<&str>, now: &Palette, back: &Palette, uses: impl Fn([u8; 3]) -> Vec<String>) -> Option<String> {
     if wrote.is_some_and(|w| w != disk) {
-        return Some(format!("{PAL} changed on disk since this page wrote it: not undone (that change would be lost)"));
+        return Some(format!("Not undone: {PAL} changed on disk since this page wrote it, and undoing would lose that change. Reload the Studio first."));
     }
     now.colours.iter().filter(|c| !back.colours.iter().any(|b| b.name == c.name)).find_map(|c| {
         let used = uses(c.rgb);
-        (!used.is_empty()).then(|| format!("Not undone: it removes {}, which {} use(s): repaint them first", c.name, used.join(", ")))
+        (!used.is_empty()).then(|| format!("Not undone: it would remove {}, which {} still use. Repaint them first.", c.name, used.join(", ")))
     })
 }
 
 /// Removes colour `name` unless a file uses it (`used`: the files that do); the refusal says how many.
 fn remove_colour(pal: &mut Palette, name: &str, used: &[String]) -> Result<Colour, String> {
-    let i = pal.colours.iter().position(|c| c.name == name).ok_or(format!("there is no colour '{name}' in the palette"))?;
+    let i = pal.colours.iter().position(|c| c.name == name).ok_or(format!("No colour named '{name}' in the palette"))?;
     if !used.is_empty() {
-        return Err(format!("{name} is not removed: {} file(s) use it ({}); repaint them first", used.len(), used.join(", ")));
+        return Err(format!("{name} is not removed: {} file(s) use it ({}). Repaint them first.", used.len(), used.join(", ")));
     }
     Ok(pal.colours.remove(i))
 }
@@ -163,10 +163,10 @@ impl PalettePage {
         let (text, draft) = now.clone();
         let why = match Palette::parse(&text) {
             Ok(pal) => match refusal(&disk, self.wrote.as_deref(), &app.pal, &pal, |rgb| Self::uses(app, rgb)) {
-                None => std::fs::write(PAL, &text).map(|_| pal).map_err(|e| format!("{PAL} not written: {e}")),
+                None => std::fs::write(PAL, &text).map(|_| pal).map_err(|e| format!("Palette not written to {PAL}: {e}")),
                 Some(why) => Err(why),
             },
-            Err(e) => Err(format!("{PAL}: {e}")),
+            Err(e) => Err(format!("Not changed: {PAL} would not read afterwards: {e}")),
         };
         let pal = match why {
             Ok(p) => p,
@@ -235,7 +235,7 @@ impl PalettePage {
             if let Some(d) = app.docs.get_mut(&n) {
                 d.saved = std::fs::read(art::tex_path(std::path::Path::new(TEX), &n)).ok().and_then(|b| art::decode(&b).ok());
             }
-            app.refuse(format!("Not written: {why}"));
+            app.refuse(format!("Texture not repainted on disk: {why}. It shows as unsaved; Save writes it."));
         }
     }
 
@@ -273,7 +273,7 @@ impl PalettePage {
             if let Some(d) = app.docs.get_mut(&n) {
                 d.saved = std::fs::read(art::tex_path(std::path::Path::new(TEX), &n)).ok().and_then(|b| art::decode(&b).ok());
             }
-            app.refuse(format!("Not written: {why}"));
+            app.refuse(format!("Texture not repainted on disk: {why}. It shows as unsaved; Save writes it."));
         }
     }
 
@@ -538,7 +538,7 @@ impl PalettePage {
                             self.set_colour(app, rgb);
                             self.flush(app);
                         }
-                        None => app.refuse(format!("'{}' is not #rrggbb", self.hex)),
+                        None => app.refuse(format!("'{}' is not a colour. Type it as #rrggbb, six hex digits.", self.hex)),
                     }
                     self.select(app, self.sel);
                 }
@@ -722,15 +722,15 @@ impl Page for PalettePage {
                 Some(n) if n == id[5..] => {
                     self.step(app, true);
                 }
-                n => app.refuse(format!("Not undone: the palette's last change is {}", n.map_or("none".into(), |n| format!("'{n}' (the Palette page's history has them all)")))),
+                n => app.refuse(format!("Not undone: the palette's last change is {}", n.map_or("none".into(), |n| format!("'{n}' (see the Palette page's history)")))),
             },
             _ if id.starts_with("add:") => match id[4..].rsplit_once('=').map(|(n, h)| (n, hex(h))) {
                 Some((n, Some(rgb))) => self.add_named(app, n, rgb, &format!("Add {n}")),
-                _ => app.refuse(format!("not a colour: {id}")),
+                _ => app.refuse(format!("Not a colour: {id}. Use #rrggbb.")),
             },
             _ if id.starts_with("remove:") || id.starts_with("shades:") => {
                 let name = &id[id.find(':').unwrap() + 1..];
-                let Some(i) = app.pal.colours.iter().position(|c| c.name == name) else { return app.refuse(format!("there is no colour '{name}' in the palette")) };
+                let Some(i) = app.pal.colours.iter().position(|c| c.name == name) else { return app.refuse(format!("No colour named '{name}' in the palette")) };
                 self.select(app, i);
                 if id.starts_with("remove:") {
                     self.remove(app, &format!("Remove {name}"));

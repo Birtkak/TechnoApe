@@ -215,7 +215,7 @@ impl App {
         if art::drafts(&text) != self.drafts {
             match std::fs::write(DRAFTS, &text) {
                 Ok(()) => self.watch.note(std::path::Path::new(DRAFTS)),
-                Err(e) => self.refuse(format!("{DRAFTS}: {e}")),
+                Err(e) => self.refuse(format!("Drafts list not saved to {DRAFTS}: {e}")),
             }
             self.drafts = art::drafts(&text);
         }
@@ -231,7 +231,7 @@ impl App {
                     self.write_drafts(text);
                 }
             }
-            Err(e) => self.refuse(format!("{PAL} not saved: {e}")),
+            Err(e) => self.refuse(format!("Palette not saved to {PAL}: {e}")),
         }
         self.check();
     }
@@ -418,7 +418,7 @@ impl Studio {
             quiet: false,
         };
         for r in refused {
-            app.refuse(format!("Refused on load: {r}"));
+            app.refuse(format!("Skipped on load: {r}. Fix or delete that file."));
         }
         app.check();
         let mut pages: Vec<Box<dyn Page>> = vec![Box::new(textures::Textures::new(&app)), Box::new(palette::PalettePage::new(&app)), Box::new(models::Models::new(&app)), Box::new(sounds::Sounds::new(&app)), Box::new(effects::Effects::new(&app)), Box::new(structures::Structures::new(&app)), Box::new(plants::Plants::new(&app))];
@@ -527,7 +527,7 @@ impl Studio {
             match (line, g.stdin.as_mut()) {
                 (Some(l), Some(i)) => match writeln!(i, "{l}").and_then(|_| i.flush()) {
                     Ok(()) => self.app.toast(format!("Sent to the game: {l}")),
-                    Err(e) => self.app.refuse(format!("Try in game: the running game took no line ({e})")),
+                    Err(e) => self.app.refuse(format!("Try in game: could not send to the running game ({e}). Close it and try again.")),
                 },
                 _ => self.app.toast("The game is running: it shows a saved file within a second"),
             }
@@ -538,7 +538,7 @@ impl Studio {
                 self.game = Some(g);
                 self.app.toast(format!("Started the game: {}", args[4..args.len() - 1].join(" ")));
             }
-            Err(e) => self.app.refuse(format!("Try in game: {e}")),
+            Err(e) => self.app.refuse(format!("The game did not start: {e}. Build it first (bash tools/playtest.sh build).")),
         }
     }
 
@@ -1334,8 +1334,8 @@ impl Studio {
                             let dir = std::path::Path::new(crate::recover::DIR).join(format!("{page}-refused"));
                             let kept = std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(dir.join(&f), &b));
                             self.app.refuse(match kept {
-                                Ok(()) => format!("Not restored: {f}: {why}. Its text is kept in {}", dir.join(&f).display()),
-                                Err(e) => format!("Not restored: {f}: {why} (and not set aside: {e})"),
+                                Ok(()) => format!("Could not restore {f}: {why}. Your copy is kept in {}", dir.join(&f).display()),
+                                Err(e) => format!("Could not restore {f}: {why}. It could not be kept either: {e}"),
                             });
                         }
                         self.app.toast(format!("Restored as unsaved work: {}", names.join(", ")));

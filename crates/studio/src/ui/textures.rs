@@ -49,9 +49,9 @@ pub(super) const TOOLS: [(Tool, &str, &str, Key, &str); 12] = [
     (Tool::Eraser, "eraser", "Eraser", Key::X, "Eraser: left or right makes pixels empty, holes the faces behind show through; any paint fills them again"),
 ];
 /// The Eraser's tip while the block is opaque: why it is off.
-const ERASER_OFF: &str = "Eraser: only for a cutout block (choose Cutout under Kind); an opaque block has no empty pixels";
+const ERASER_OFF: &str = "The eraser only works on a cutout block, and this one is opaque. Choose Cutout under Kind to use it.";
 /// A glass block's line in the Kind section, and why its kind is not changed there.
-const GLASS: &str = "Glass: partly clear (ADR 0081), set in data/blocks.toml; the Studio does not paint clearness yet, so its kind is not changed here";
+const GLASS: &str = "Can't change the kind of a glass block here: the Studio cannot paint clearness yet. Edit its row in data/blocks.toml by hand.";
 /// The kinds of block (`see` in data/blocks.toml, ADR 0069): (id, name, what it is for).
 const KINDS: [(See, &str, &str); 2] = [
     (See::Opaque, "Opaque", "Opaque: hides what is behind it, for ground, stone, wood."),
@@ -298,7 +298,7 @@ impl Textures {
             let c = d.colour.map(crate::rows::num).join(", ");
             match Self::save_season_look(&self.block, q, Some(&format!("colour = [{c}]\n"))) {
                 Ok(reg) => app.reg = reg,
-                Err(e) => return app.refuse(e),
+                Err(e) => return app.refuse(format!("Season not added, nothing written to {}: {e}", super::BLOCKS)),
             }
         }
         let name = engine::blocks::SEASONS[q];
@@ -318,14 +318,14 @@ impl Textures {
             for path in [format!("{TEX}/{}/{n}", engine::textures::HD), format!("{TEX}/{n}")] {
                 if std::path::Path::new(&path).exists() {
                     if let Err(e) = std::fs::remove_file(&path) {
-                        app.refuse(format!("{path}: {e}"));
+                        app.refuse(format!("Could not delete {path}: {e}. Close whatever uses it and press Remove again."));
                     }
                 }
             }
         }
         match Self::save_season_look(&self.block, q, None) {
             Ok(reg) => app.reg = reg,
-            Err(e) => return app.refuse(e),
+            Err(e) => return app.refuse(format!("The season's look was not removed from {}: {e}", super::BLOCKS)),
         }
         app.toast(format!("{}: {} removed, the base look again", self.block, engine::blocks::SEASONS[q]));
     }
@@ -431,7 +431,7 @@ impl Textures {
                 true
             }
             Err(e) => {
-                app.refuse(e);
+                app.refuse(format!("Kind not changed, nothing written: {e}"));
                 false
             }
         }
@@ -448,6 +448,7 @@ impl Textures {
             (&mut f.size, "size", 0.0..=3.0, "A card's width in faces; 0 none"),
             (&mut f.push, "push", 0.0..=1.2, "How far it stands out, metres"),
             (&mut f.droop, "droop", 0.0..=1.2, "How far its outer parts hang down, metres a metre out (conifers, willows)"),
+            (&mut f.long, "long", 1.0..=4.0, "A card's length over its width, along the way from the wood: a frond, a reed's blade"),
             (&mut f.dense, "dense", 0.0..=1.0, "The share of open faces that have one"),
             (&mut f.light, "light", 0.0..=1.0, "The sun one card lets through to the shade under the crown"),
         ] {
@@ -457,7 +458,9 @@ impl Textures {
                 done |= r.drag_stopped() || (r.changed() && !r.dragged());
             });
         }
-        look::weak(ui, "Written to its row in data/blocks.toml when let go; the game and this view show it after a rebuild (blocks.toml is built in).");
+        look::weak(ui, "The view shows it as you move a slider (a block the game already has as cutout). Let go and it is written to data/blocks.toml; the game itself shows it after a rebuild (blocks.toml is built in).");
+        // (the renderer draws the numbers now; it is told only when they change)
+        app.view.fluff(d.id, f);
         self.fluff_now = Some((self.block.clone(), f));
         if done {
             self.fluff_now = None;
@@ -473,9 +476,15 @@ impl Textures {
                 Ok(new) => {
                     app.reg = crate::rows::blocks(&new).0;
                     app.note(path);
-                    app.toast(format!("Wrote {block}'s fluff; a rebuild shows it"));
+                    app.toast(format!("Wrote {block}'s fluff to data/blocks.toml; the game shows it after a rebuild"));
                 }
-                Err(e) => app.refuse(e),
+                Err(e) => {
+                    // (the view back to the numbers on file)
+                    if let Some(old) = d.fluff {
+                        app.view.fluff(d.id, old);
+                    }
+                    app.refuse(format!("Fluff not saved: {e}"));
+                }
             }
         }
     }
@@ -524,7 +533,7 @@ impl Textures {
         let open = self.file(self.face);
         let others: Vec<String> = (0..4).flat_map(|q| (0..4).map(move |f| (q, f))).map(|(q, f)| art::season_file(&self.block, f, q)).filter(|n| *n != open && app.docs.get(n).is_some_and(|d| d.img.holes())).collect();
         if !others.is_empty() {
-            app.refuse(format!("Opaque: {} {} empty pixels; fill them first (Fill on an empty pixel), only the open face's are filled for you", others.join(", "), if others.len() == 1 { "has" } else { "have" }));
+            app.refuse(format!("Can't make it opaque: {} still {} see-through pixels. Fill them (Fill tool on an empty pixel), then choose Opaque again.", others.join(", "), if others.len() == 1 { "has" } else { "have" }));
         }
         others.is_empty()
     }
@@ -747,13 +756,13 @@ impl Textures {
                 let face = tools::from_picture(w, h, &px, &app.pal);
                 self.put_variant(app, "Start from a picture", face);
             }
-            Err(e) => app.refuse(format!("{path}: {e}")),
+            Err(e) => app.refuse(format!("Can't start from {path}: {e}")),
         }
     }
 
     fn copy_block(&mut self, app: &mut App, block: &str) {
         let Some((img, _)) = Self::face_img(app, block, self.face) else {
-            return app.refuse(format!("{block} has no painted texture to copy"));
+            return app.refuse(format!("Nothing to copy: {block} has no painted texture yet."));
         };
         let img = img.clone();
         self.edit(app, &format!("Copy from {block}"), |me, _, _| *me = img);
@@ -770,7 +779,7 @@ impl Textures {
             }
         });
         match err {
-            Some(e) => app.refuse(format!("Swap ramp {from} to {to}: {e}")),
+            Some(e) => app.refuse(format!("Ramp not swapped ({from} to {to}): {e}")),
             None => app.toast(format!("Swapped the ramp {from} for {to}")),
         }
     }
@@ -1045,7 +1054,7 @@ impl Textures {
                         continue;
                     }
                     Tool::Gradient if app.pal.between(self.first, self.second).is_none() => {
-                        app.refuse("Gradient: the first and second colour must be on one ramp");
+                        app.refuse("No gradient: the first and second colour must come from the same ramp. Pick both from one ramp.");
                         continue;
                     }
                     Tool::Select => match self.sel.filter(|s| s.contains((x, y))) {
@@ -1509,7 +1518,7 @@ impl Page for Textures {
                     d.hist.push(std::mem::replace(&mut d.img, wider), "Add a variant");
                     self.variant = n;
                 } else {
-                    app.refuse("A texture holds at most 4 variants (64 px wide)");
+                    app.refuse("No variant added: a texture holds at most 4 (64 px wide). Remove one first.");
                 }
             }
             "variants" => self.open_wall(app),

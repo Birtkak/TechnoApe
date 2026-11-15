@@ -502,7 +502,7 @@ impl Page for Structures {
             self.open = Some(id.into());
             (self.wall, self.drag, self.sel, self.layer) = (None, None, None, 0);
         } else if let Some(e) = self.refused.get(id) {
-            app.refuse(e.clone());
+            app.refuse(format!("Can't open {id}: {e}"));
         }
     }
 

@@ -32,13 +32,6 @@ fn scratch_unpainted(name: &str, block: &str) -> PathBuf {
     dir
 }
 
-/// A scratch folder whose furnace is the voxel one these tests paint (the shipped one is painted boxes, ADR 0116).
-fn scratch_voxel_furnace(name: &str) -> PathBuf {
-    let dir = scratch(name);
-    std::fs::write(dir.join("data/models/furnace.toml"), include_str!("../testdata/furnace_voxels.toml")).unwrap();
-    dir
-}
-
 /// A fresh scratch folder with the repository's `data/` in it.
 fn scratch(name: &str) -> PathBuf {
     let dir = root().join("out/drive").join(name);
@@ -130,22 +123,23 @@ fn models_tree_never_covers_the_files_at_scale_2() {
 }
 
 #[test]
-fn models_add_then_undo_leaves_the_model_as_opened() {
+fn models_paint_then_undo_leaves_the_model_as_opened() {
     let dir = scratch("models-undo");
-    // orbit, add a voxel, remove it, scrub the timeline, undo both edits: nothing is left to save
-    let line = studio(&dir, &["cmd=open:Models:furnace", "input=drag @view:0.5,0.5 @view:0.7,0.5; click @view:0.5,0.55; click right @view:0.5,0.55; drag @timeline:0.2,0.5 @timeline:0.6,0.5; key Ctrl+Z; key Ctrl+Z"]);
-    assert!(line.contains("\"undo\":[],\"redo\":[\"Add\",\"Remove\"]"), "{line}");
-    assert!(line.contains("\"unsaved\":[]"), "undone back to the start, yet unsaved (a colour the add took stays): {line}");
+    // paint on the model (the default tool), the second colour on the painting beside it, scrub the timeline,
+    // undo both strokes: nothing is left to save
+    let line = studio(&dir, &["cmd=open:Models:furnace", "input=click @view:0.5,0.55; click right @painting:0.5,0.5; drag @timeline:0.2,0.5 @timeline:0.6,0.5; key Ctrl+Z; key Ctrl+Z"]);
+    assert!(line.contains("\"undo\":[],\"redo\":[\"Paint\",\"Paint\"]"), "{line}");
+    assert!(line.contains("\"unsaved\":[]"), "undone back to the start, yet unsaved: {line}");
 }
 
 #[test]
 fn models_paint_box_part_event_save_and_reparse() {
-    let dir = scratch_voxel_furnace("models-edit");
+    let dir = scratch("models-edit");
     let line = studio(
         &dir,
-        &["cmd=open:Models:furnace", "input=key P; click @view:0.5,0.55; key B; drag @view:0.45,0.5 @view:0.55,0.6; click @part:door; drag @event:0 @event:0:-20,0.5; key Ctrl+S"],
+        &["cmd=open:Models:furnace", "input=key P; click @view:0.5,0.55; drag @view:0.45,0.5 @view:0.55,0.6; click @part:door; drag @event:0 @event:0:-20,0.5; key Ctrl+S"],
     );
-    assert!(line.contains("\"undo\":[\"Paint\",\"Box\",\"Move an event\"]"), "a quick drag of an event marker does not move it: {line}");
+    assert!(line.contains("\"undo\":[\"Paint\",\"Paint\",\"Move an event\"]"), "a click and a stroke on the model, then a quick drag of an event marker: {line}");
     assert!(line.contains("\"unsaved\":[]"), "{line}");
     // the game's reader takes the saved file, states and events intact; the leading comment kept
     let text = std::fs::read_to_string(dir.join("data/models/furnace.toml")).unwrap();
@@ -160,7 +154,7 @@ fn models_paint_box_part_event_save_and_reparse() {
 
 #[test]
 fn models_save_keeps_comments_above_a_part_and_a_clip_and_crlf() {
-    let dir = scratch_voxel_furnace("models-comments");
+    let dir = scratch("models-comments");
     let file = dir.join("data/models/furnace.toml");
     let text = std::fs::read_to_string(&file).unwrap().replace("\r\n", "\n");
     let text = text.replacen("[[part]]\nname = \"door\"", "# the door swings in work\n[[part]]\nname = \"door\"", 1).replacen("[[clip]]\nname = \"work\"", "# the clip of the open door\n[[clip]]\nname = \"work\"", 1);
@@ -324,21 +318,12 @@ fn palette_undo_leaves_the_files_as_they_were() {
     assert_eq!(std::fs::read(&pal_path).unwrap(), pal0, "add and move undone, yet the palette changed: {line}");
 }
 
-/// A slab of stone 8 x 2 x 8 voxels with one voxel of copper in its top at x 4, z 4 (only its top face shows),
-/// and an empty layer over it.
-const PROBE: &str = "colours = [\"stone\", \"copper\"]\n\n[[part]]\nname = \"slab\"\nbox = [8, 3, 8]\nvoxels = \"\"\"\n";
-
-fn probe_model() -> String {
-    let layer = |row: &dyn Fn(usize) -> &'static str| (0..8).map(|z| format!("{}\n", row(z))).collect::<String>();
-    format!("{PROBE}{}\n{}\n{}\"\"\"\n", layer(&|_| "aaaaaaaa"), layer(&|z| if z == 4 { "aaaabaaa" } else { "aaaaaaaa" }), layer(&|_| "........"))
-}
-
 /// The game's view live (`technoape run=view`, a release build: a debug one bakes the planet for minutes). Run it
 /// with `cargo build --release -p client` (hold `out/.lock`), then
 /// `cargo test -p studio --test drive -- --ignored models_live_view`.
 #[test]
 #[ignore = "needs target/release/technoape.exe; see the doc comment"]
-fn models_live_view_a_click_adds_on_the_face_seen_and_a_drag_turns_it() {
+fn models_live_view_a_click_paints_the_model_and_a_drag_turns_it() {
     let exe = root().join("target/release/technoape.exe");
     assert!(exe.is_file(), "no {}: cargo build --release -p client", exe.display());
     let dir = scratch("models-live");
@@ -347,43 +332,23 @@ fn models_live_view_a_click_adds_on_the_face_seen_and_a_drag_turns_it() {
     for e in std::fs::read_dir(root().join("saves/bakes")).into_iter().flatten().flatten() {
         std::fs::copy(e.path(), dir.join("saves/bakes").join(e.file_name())).unwrap();
     }
-    std::fs::write(dir.join("data/models/probe.toml"), probe_model()).unwrap();
     let renderer = format!("renderer={}", exe.display());
     let run = |args: &[&str]| {
-        let out = Command::new(env!("CARGO_BIN_EXE_technoape-studio")).current_dir(&dir).args([renderer.as_str(), "size=1280x800", "cmd=open:Models:probe"]).args(args).output().unwrap();
+        let out = Command::new(env!("CARGO_BIN_EXE_technoape-studio")).current_dir(&dir).args([renderer.as_str(), "size=1280x800", "cmd=open:Models:furnace"]).args(args).output().unwrap();
         let line = String::from_utf8_lossy(&out.stdout).into_owned();
         assert!(out.status.success(), "{line}{}", String::from_utf8_lossy(&out.stderr));
         line
     };
-    // the view as the game draws it: where the copper voxel shows
     let a = dir.join("a.png");
     let line0 = run(&[&format!("shot={}", a.display()), "rects=1"]);
     assert!(line0.contains("\"view\":{\"up\":true"), "the game's view never came up: {line0}");
     let v = rect(&line0, "view");
     let (w, _, px) = png(&a);
-    let (mut n, mut sx, mut sy) = (0.0, 0.0, 0.0);
-    for y in v[1] as u32..v[3] as u32 {
-        for x in v[0] as u32..v[2] as u32 {
-            let p = &px[((y * w + x) * 4) as usize..][..3];
-            let (r, g, b) = (p[0] as i32, p[1] as i32, p[2] as i32);
-            if r - b > 90 && r - g > 50 {
-                (n, sx, sy) = (n + 1.0, sx + x as f32, sy + y as f32);
-            }
-        }
-    }
-    assert!(n > 10.0, "no copper voxel in the view's picture ({n} pixels): {line0}");
-    let (cx, cy) = (sx / n, sy / n);
-    // a click there with the Add tool: the new voxel sits on it
-    let line = run(&[&format!("input=key A; click {cx:.1} {cy:.1}; key Ctrl+S"), "shot=-"]);
-    assert!(line.contains("\"undo\":[\"Add\"]") && line.contains("\"unsaved\":[]"), "{line}");
-    let pal = engine::palette::Palette::parse(&std::fs::read_to_string(dir.join("data/palette.toml")).unwrap()).unwrap();
-    let m = engine::models::Model::parse("probe", &std::fs::read_to_string(dir.join("data/models/probe.toml")).unwrap(), &pal).unwrap();
-    let p = &m.parts[0];
-    let [sx, _, sz] = p.size.map(|v| v as usize);
-    let added: Vec<[usize; 3]> = (0..p.cells.len()).filter(|&i| i / (sx * sz) == 2 && p.cells[i] != 0).map(|i| [i % sx, i / (sx * sz), i / sx % sz]).collect();
-    assert_eq!(added.len(), 1, "one voxel added over the slab: {added:?}");
-    let [x, _, z] = added[0];
-    assert_eq!([x, z], [4, 4], "the click on the copper voxel's top (at {cx:.0}, {cy:.0}, {n} pixels) added beside another");
+    // a click on the model's middle paints a pixel of its painting, saved with it
+    let before = std::fs::read(dir.join("data/models/furnace.png")).unwrap();
+    let line = run(&["input=key P; click @view:0.5,0.55; key Ctrl+S", "shot=-"]);
+    assert!(line.contains("\"undo\":[\"Paint\"]") && line.contains("\"unsaved\":[]"), "{line}");
+    assert_ne!(std::fs::read(dir.join("data/models/furnace.png")).unwrap(), before, "the painting on disk did not change");
     // a right drag turns the camera, and the game draws it turned
     let b = dir.join("b.png");
     let line2 = run(&[&format!("shot={}", b.display()), "input=drag @view:0.5,0.5 @view:0.75,0.4 right"]);
