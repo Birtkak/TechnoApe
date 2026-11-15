@@ -340,8 +340,8 @@ impl Viewport {
         self.say("state", line.clone(), line);
     }
 
-    /// A cutout block's fluff for the renderer to draw now (its `fluff`, ADR 0134), before it is written to the
-    /// block's row and built into the game.
+    /// A cutout block's fluff for the renderer to draw while a slider is dragged (its `fluff`, ADR 0135), before the
+    /// row is saved and reloaded. A renderer without the command logs it as unknown and shows the saved row.
     pub fn fluff(&mut self, id: u16, f: engine::blocks::Fluff) {
         let v = format!("{id} {} {} {} {} {} {}", f.size, f.push, f.droop, f.long, f.dense, f.light);
         self.say("fluff", v.clone(), format!("fluff {v}"));

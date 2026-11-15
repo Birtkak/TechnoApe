@@ -438,7 +438,7 @@ impl Textures {
     }
 
     /// "Fluff": the crown's cards over a cutout block's open faces (ADR 0090, 0099), written to its row when a
-    /// slider is let go; the game and this view take them after a rebuild, as a kind.
+    /// slider is let go; a running game and this view take the saved row within a second (ADR 0134 live rows).
     fn fluff(&mut self, ui: &mut Ui, app: &mut App) {
         let Some(d) = self.def(app) else { return };
         // (the numbers moved so far: a slider's last frame no longer moves it, so the write takes these)
@@ -458,7 +458,7 @@ impl Textures {
                 done |= r.drag_stopped() || (r.changed() && !r.dragged());
             });
         }
-        look::weak(ui, "The view shows it as you move a slider (a block the game already has as cutout). Let go and it is written to data/blocks.toml; the game itself shows it after a rebuild (blocks.toml is built in).");
+        look::weak(ui, "Let go of a slider and it is written to data/blocks.toml; a running game and this view show it within about a second.");
         // (the renderer draws the numbers now; it is told only when they change)
         app.view.fluff(d.id, f);
         self.fluff_now = Some((self.block.clone(), f));
@@ -476,7 +476,7 @@ impl Textures {
                 Ok(new) => {
                     app.reg = crate::rows::blocks(&new).0;
                     app.note(path);
-                    app.toast(format!("Wrote {block}'s fluff to data/blocks.toml; the game shows it after a rebuild"));
+                    app.toast(format!("Wrote {block}'s fluff to data/blocks.toml; a running game shows it within a second"));
                 }
                 Err(e) => {
                     // (the view back to the numbers on file)
@@ -1747,7 +1747,7 @@ impl Page for Textures {
                 for (see, name, what) in KINDS.into_iter().filter(|_| kind != See::Glass) {
                     let r = look::chip(ui, kind == see, name);
                     crate::drive::mark(ui.ctx(), format!("kind:{}", name.to_lowercase()), r.rect);
-                    let help = if see == See::Cutout { format!("{what} Writes see = \"cutout\" to its row in data/blocks.toml; one undo step. The game and this view take a new kind after a rebuild (blocks.toml is built in)") } else { format!("{what} Drops see from its row in data/blocks.toml; the open face's empty pixels are filled with its mean colour; one undo step. The game and this view take a new kind after a rebuild (blocks.toml is built in)") };
+                    let help = if see == See::Cutout { format!("{what} Writes see = \"cutout\" to its row in data/blocks.toml; one undo step. A running game and this view take it within a second") } else { format!("{what} Drops see from its row in data/blocks.toml; the open face's empty pixels are filled with its mean colour; one undo step. A running game and this view take it within a second") };
                     if look::tip(r, &help, "").clicked() {
                         pick = Some(see);
                     }

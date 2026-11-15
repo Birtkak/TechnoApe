@@ -1,8 +1,9 @@
-# 0134 – The Studio paints figures on the model, shows fluff live, and says plainly what went wrong
+# 0135 – The Studio paints figures on the model, shows fluff live, and says plainly what went wrong
 
 - **Status:** accepted for the Studio (merged, tool tier); proposed for the view's `fluff` command (`crates/client`,
-  branch `claude/view-live-fluff`, waits for the developer, CLAUDE.md principle 13). Until it is merged the Studio's
-  renderer logs "unknown command" for `fluff` and the view shows the built-in fluff.
+  branch `claude/view-live-fluff`, a taste call for the developer, CLAUDE.md principle 13). Until it is merged the
+  Studio's renderer logs "unknown command" for `fluff` while a slider is dragged; the saved row shows within a second
+  either way (ADR 0134). Numbered 0135: ADR 0134 (the live definitions) landed the same day under that number.
 - **Date:** 2026-11-15
 
 ## Context
@@ -36,19 +37,21 @@ showed a change until a rebuild.
   are made painted boxes at once (`voxels_to_boxes`). Removed: the voxel tools, mirror, layer mode, edges, the
   selection, Shade by light, Carve from a texture, Voxels to painted boxes, the colour count, and their `voxel.rs`
   functions and tests; the voxel test files `furnace_voxels.toml`, `snake_voxels.toml`. The game still reads voxels.
-- **Fluff live:** the view takes `fluff <id> size push droop long dense light` (`view.rs`); `Gpu::set_fluff` keeps it
-  in `FLUFF_LIVE` (read by `looks_of`, so a texture reload keeps it) and writes the block's four season rows. The
-  Studio sends it as a slider moves (`Viewport::fluff`); letting go writes the row as before. A `long` slider is
-  added. The game itself still shows it after a rebuild.
+- **Fluff live:** letting a slider go writes the row as before, and since ADR 0134 a running game and the view take
+  the saved row within a second. While a slider is dragged (proposed, the branch) the view takes
+  `fluff <id> size push droop long dense light` (`view.rs`) and `Gpu::set_fluff` writes the block's fluff and light
+  words in its four season rows (`fluff_words`). Nothing keeps them: the next `looks_of` (the let-go save's reload)
+  writes the row's own back. (A first version kept them in a static that `looks_of` read; with rows reloading live
+  that would have hidden a later edit of the file, so it was cut.) A `long` slider is added.
 - **Messages:** about 45 refusals reworded to say what did not happen, why, and what to do (text only).
 
 ## Consequences
-- Evidence: `a_ray_on_a_painted_box_finds_the_pixel_drawn_there` (red: not built), `a_live_fluff_is_the_blocks_look_in_every_season`
-  (red: not built); the drive tests paint the shipped furnace (`models_paint_then_undo_leaves_the_model_as_opened`,
+- Evidence: `a_ray_on_a_painted_box_finds_the_pixel_drawn_there` (red: not built), on the branch
+  `a_dragged_fluff_lands_on_the_blocks_look_in_every_season` (red: the words one off); the drive tests paint the shipped furnace (`models_paint_then_undo_leaves_the_model_as_opened`,
   the edit and comments tests). `cargo test -p studio -p client`: client 176, studio 111 unit and 29 drive pass.
   Shots read: `out/st2/models3.png` (the ape, Paint, the hovered pixel `leg_r x 46 y 34` lit on model and
   painting); reed's Block view at fluff size 0 and 3 differs in 5382 of 55500 pixels, two runs at the same size in 32.
-- A renderer built before this prints "unknown command" for `fluff` and draws the built-in numbers.
+- A renderer without the branch prints "unknown command" for `fluff` and draws the saved numbers.
 - Shortcuts: the painting beside the view is drawn at a fractional scale under 4 px a pixel (a wide painting);
   a hover pixel on a face whose painting rectangle is empty still paints (a hole can be filled). Painting on the
   model paints one pixel at a time (no brush size).
@@ -58,7 +61,11 @@ A fresh reviewer (Opus) read the whole diff: nothing serious; the look-row offse
 game, only by the view's command) are right. Fixed: a stroke begun on a pixel already its colour merged into the
 step before it (`edit_paint` now says whether it changed, a stroke merges only after its first change); the painting
 beside the view painted with the Pivot and Point tools; `pick_paint` took back faces, so a plane seen from behind
-painted the mirrored pixel (now only faces turned to the ray, test extended, red seen); the fluff test left reed's
-live numbers set for later tests in the process (put back); a refused fluff write left the view on unsaved numbers
-(sent back) and the hint now says the view takes only blocks the game has as cutout. Left: after the renderer
-restarts only the open block's live fluff is sent again.
+painted the mirrored pixel (now only faces turned to the ray, test extended, red seen); a refused fluff write left the view on unsaved numbers
+(sent back). The cut-down branch had its own fresh review: see below.
+
+The cut-down branch (`claude/view-live-fluff`, 2a74fe93) had a fresh reviewer (Opus): offsets, the id range (no
+block over 255) and the test are right. Fixed: the command took missing or non-finite numbers as they came (now
+six finite numbers, clamped to the sliders' ranges), and said "no cutout block" when it had no GPU. Answered: a
+let-go that saves nothing new (the same text, or a refused file) moves no reload, but the Studio sends the row's
+numbers to the view as soon as the slider stops, so no dragged value stays drawn.
