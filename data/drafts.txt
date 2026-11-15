@@ -259,14 +259,6 @@ data/plants/reeds.3.png
 data/plants/reeds.back.png
 data/plants/short grass.3.png
 data/plants/tall grass.3.png
-data/models/grass tuft.toml
-data/models/grass tuft.png
-data/models/grass tuft.1.toml
-data/models/grass tuft.1.png
-data/models/fern.toml
-data/models/fern.png
-data/models/flowers.toml
-data/models/flowers.png
 data/textures/iron-stained rock.png
 data/textures/copper-stained rock.png
 data/textures/quartz-veined rock.png

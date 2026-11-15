@@ -10,7 +10,7 @@ pub const DRAFT: Color32 = Color32::from_rgb(214, 160, 70);
 pub const BAD: Color32 = Color32::from_rgb(225, 85, 80);
 pub const GOOD: Color32 = Color32::from_rgb(110, 190, 120);
 /// A colour per page, for its tab and its inspector's section marks: where you are. Never for what is chosen.
-pub const PAGES: [(&str, Color32); 7] = [
+pub const PAGES: [(&str, Color32); 8] = [
     ("Textures", Color32::from_rgb(64, 186, 170)),
     ("Palette", Color32::from_rgb(214, 108, 180)),
     ("Models", Color32::from_rgb(150, 124, 236)),
@@ -18,6 +18,7 @@ pub const PAGES: [(&str, Color32); 7] = [
     ("Effects", Color32::from_rgb(236, 132, 66)),
     ("Structures", Color32::from_rgb(190, 150, 110)),
     ("Fauna", Color32::from_rgb(232, 104, 128)),
+    ("Plants", Color32::from_rgb(120, 196, 96)),
 ];
 pub fn page_colour(name: &str) -> Color32 {
     PAGES.iter().find(|p| p.0 == name).map_or(ACCENT, |p| p.1)

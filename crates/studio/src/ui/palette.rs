@@ -225,7 +225,7 @@ impl PalettePage {
         }
         let (done, failed) = art::remap_dir(std::path::Path::new(TEX), pairs);
         for n in &done {
-            app.note(&format!("{TEX}/{n}"));
+            app.note(&art::tex_path(std::path::Path::new(TEX), n).to_string_lossy());
         }
         if !done.is_empty() {
             app.toast(format!("Repainted {} texture file(s)", done.len()));
@@ -233,7 +233,7 @@ impl PalettePage {
         for (n, why) in failed {
             // that file still holds the old colours on disk: it shows as not saved, so a save writes it
             if let Some(d) = app.docs.get_mut(&n) {
-                d.saved = std::fs::read(format!("{TEX}/{n}")).ok().and_then(|b| art::decode(&b).ok());
+                d.saved = std::fs::read(art::tex_path(std::path::Path::new(TEX), &n)).ok().and_then(|b| art::decode(&b).ok());
             }
             app.refuse(format!("Not written: {why}"));
         }
@@ -266,12 +266,12 @@ impl PalettePage {
         self.save(app, true, "Colour");
         let (done, failed) = art::repaint_dir(std::path::Path::new(TEX), from, to);
         for n in &done {
-            app.note(&format!("{TEX}/{n}"));
+            app.note(&art::tex_path(std::path::Path::new(TEX), n).to_string_lossy());
         }
         app.toast(format!("{} {} to {}: repainted {} file(s)", app.pal.colours[self.sel].name, to_hex(from), to_hex(to), done.len()));
         for (n, why) in failed {
             if let Some(d) = app.docs.get_mut(&n) {
-                d.saved = std::fs::read(format!("{TEX}/{n}")).ok().and_then(|b| art::decode(&b).ok());
+                d.saved = std::fs::read(art::tex_path(std::path::Path::new(TEX), &n)).ok().and_then(|b| art::decode(&b).ok());
             }
             app.refuse(format!("Not written: {why}"));
         }

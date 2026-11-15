@@ -184,6 +184,21 @@ impl Fauna {
         self.merging = Some(name.into());
     }
 
+    /// A new creature: the open one's row under a free name made from `base` (its model when it names a model),
+    /// unsaved, to give its own model in Body.
+    fn new_creature(&mut self, base: &str) {
+        let Some(mut c) = self.doc().map(|d| d.c.clone()) else { return };
+        let base = if base.is_empty() { c.name.clone() } else { base.to_string() };
+        let name = (1..).map(|k| if k == 1 { base.clone() } else { format!("{base} {k}") }).find(|n| !self.docs.contains_key(n)).unwrap();
+        if self.models.contains_key(&base) {
+            c.model = base;
+        }
+        c.name = name.clone();
+        self.docs.insert(name.clone(), CDoc { c, hist: History::default(), saved: None });
+        self.open = Some(name);
+        self.wall = None;
+    }
+
     fn save(&mut self, app: &mut App) {
         let Some(name) = self.open.clone() else { return };
         let c = self.docs[&name].c.clone();
@@ -321,6 +336,7 @@ impl Page for Fauna {
             Cmd::new("save", "Save the creature", "rewrite its row of data/creatures.toml (checked by the game's reader) and take it off the drafts list").key(Modifiers::COMMAND, Key::S),
             Cmd::new("undo", "Undo", "undo the last change to this creature").key(Modifiers::COMMAND, Key::Z),
             Cmd::new("redo", "Redo", "redo what was undone").key(Modifiers::COMMAND, Key::Y),
+            Cmd::new("new", "New creature", "the open creature's row copied under a new name, to give its own model (Body) and save"),
             Cmd::new("stand", "Stand", "the speed to 0: the idle").key(Modifiers::NONE, Key::Num0),
             Cmd::new("walk", "Walk", "the speed to its walking speed").key(Modifiers::NONE, Key::Num1),
             Cmd::new("run", "Run", "the speed to its running speed").key(Modifiers::NONE, Key::Num2),
@@ -343,6 +359,7 @@ impl Page for Fauna {
                     }
                 }
                 "hour" => app.view.hour = arg.parse().unwrap_or(app.view.hour),
+                "new" => self.new_creature(arg),
                 _ => {}
             }
             return;
@@ -350,6 +367,7 @@ impl Page for Fauna {
         let row = self.doc().map(|d| d.c.clone());
         match id {
             "save" => self.save(app),
+            "new" => self.new_creature(""),
             "undo" | "redo" => {
                 if let Some(d) = self.open.as_ref().and_then(|n| self.docs.get_mut(n)) {
                     let _ = if id == "undo" { d.hist.undo(&mut d.c) } else { d.hist.redo(&mut d.c) };
@@ -446,6 +464,9 @@ impl Page for Fauna {
         egui::ScrollArea::vertical().id_salt("fauna").max_height((ui.available_height() - if self.wall.is_some() { 330.0 } else { 4.0 }).max(120.0)).show(ui, |ui| {
             if let Some(mut sec) = look::section(ui, "Body") {
                 let ui = &mut *sec;
+                if look::tip(ui.button("New creature"), "This creature's row copied under a new name: pick its model here, then save", "").clicked() {
+                    self.run(app, "new");
+                }
                 look::row(ui, "model", |ui| {
                     egui::ComboBox::from_id_salt("model").selected_text(&n.model).width((ui.available_width() - 8.0).max(60.0)).show_ui(ui, |ui| {
                         for k in self.models.keys() {

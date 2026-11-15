@@ -367,12 +367,33 @@ pub fn pngs(dir: &Path) -> Vec<String> {
     v
 }
 
+/// Every texture of a textures folder by name: its PNGs and those of `hd/`, which the game reads in their
+/// namesakes' place (ADR 0090).
+pub fn textures(dir: &Path) -> Vec<String> {
+    let mut v = pngs(dir);
+    v.extend(pngs(&dir.join(engine::textures::HD)));
+    v.sort();
+    v.dedup();
+    v
+}
+
+/// The file the game reads for texture `name`: `hd/<name>` when there is one, else `<name>`.
+pub fn tex_path(dir: &Path, name: &str) -> std::path::PathBuf {
+    let hd = dir.join(engine::textures::HD).join(name);
+    if hd.exists() {
+        hd
+    } else {
+        dir.join(name)
+    }
+}
+
 /// `check=1` over a folder: how many files passed, and each refusal.
 pub fn check_dir(dir: &Path, pal: &Palette, reg: &Registry) -> (usize, Vec<String>) {
     let (mut ok, mut bad) = (0, vec![]);
-    for n in pngs(dir) {
-        let path = format!("{}/{n}", dir.display()).replace('\\', "/");
-        match std::fs::read(dir.join(&n)).map_err(|e| format!("{path}: {e}")).and_then(|b| check_file(&path, &b, pal, reg)) {
+    for n in textures(dir) {
+        let file = tex_path(dir, &n);
+        let path = file.display().to_string().replace('\\', "/");
+        match std::fs::read(&file).map_err(|e| format!("{path}: {e}")).and_then(|b| check_file(&path, &b, pal, reg)) {
             Ok(_) => ok += 1,
             Err(e) => bad.push(e),
         }
@@ -397,10 +418,10 @@ pub fn repaint(img: &mut Img, from: [u8; 3], to: [u8; 3]) -> bool {
 /// write (each with why; the others are still repainted).
 pub fn repaint_dir(dir: &Path, from: [u8; 3], to: [u8; 3]) -> (Vec<String>, Vec<(String, String)>) {
     let (mut done, mut failed) = (vec![], vec![]);
-    for n in pngs(dir) {
-        let Ok(mut img) = std::fs::read(dir.join(&n)).map_err(|e| e.to_string()).and_then(|b| decode(&b)) else { continue };
+    for n in textures(dir) {
+        let Ok(mut img) = std::fs::read(tex_path(dir, &n)).map_err(|e| e.to_string()).and_then(|b| decode(&b)) else { continue };
         if repaint(&mut img, from, to) {
-            match save(&dir.join(&n), &img, false) {
+            match save(&tex_path(dir, &n), &img, false) {
                 Ok(()) => done.push(n),
                 Err(e) => failed.push((n, e)),
             }
@@ -432,10 +453,10 @@ pub fn swap_ramp(img: &mut Img, from: &[[u8; 3]], to: &[[u8; 3]]) -> Result<bool
 /// [`remap`] over every texture in `dir`, as [`repaint_dir`] does for one colour.
 pub fn remap_dir(dir: &Path, pairs: &[([u8; 3], [u8; 3])]) -> (Vec<String>, Vec<(String, String)>) {
     let (mut done, mut failed) = (vec![], vec![]);
-    for n in pngs(dir) {
-        let Ok(mut img) = std::fs::read(dir.join(&n)).map_err(|e| e.to_string()).and_then(|b| decode(&b)) else { continue };
+    for n in textures(dir) {
+        let Ok(mut img) = std::fs::read(tex_path(dir, &n)).map_err(|e| e.to_string()).and_then(|b| decode(&b)) else { continue };
         if remap(&mut img, pairs) {
-            match save(&dir.join(&n), &img, false) {
+            match save(&tex_path(dir, &n), &img, false) {
                 Ok(()) => done.push(n),
                 Err(e) => failed.push((n, e)),
             }
@@ -729,6 +750,27 @@ mod tests {
         assert_eq!(ok, 1);
         assert_eq!(bad.len(), 1);
         assert!(bad[0].ends_with("/rock_side.png: pixel (18, 5) is #010203, not a palette colour"), "{bad:?}");
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    /// The game reads `hd/<name>` in place of `<name>` (ADR 0090): the Studio lists, reads, checks and repaints
+    /// that file, and one only in `hd/` too.
+    #[test]
+    fn a_fine_painting_in_hd_is_the_one_opened_and_repainted() {
+        let (p, r) = (pal(), reg());
+        let d = temp("hd");
+        std::fs::create_dir_all(d.join("hd")).unwrap();
+        std::fs::write(d.join("rock.png"), encode(&Img::filled(1, A))).unwrap();
+        std::fs::write(d.join("hd").join("rock.png"), encode(&Img::sized(1, 2 * S, A))).unwrap();
+        std::fs::write(d.join("hd").join("rock_top.png"), encode(&Img::sized(1, 2 * S, A))).unwrap();
+        assert_eq!(textures(&d), vec!["rock.png", "rock_top.png"]);
+        assert_eq!(tex_path(&d, "rock.png"), d.join("hd").join("rock.png"));
+        assert_eq!(check_dir(&d, &p, &r), (2, vec![]));
+        let (done, failed) = repaint_dir(&d, A, B);
+        assert!(done.len() == 2 && failed.is_empty(), "{done:?} {failed:?}");
+        let fine = decode(&std::fs::read(d.join("hd").join("rock.png")).unwrap()).unwrap();
+        assert!(fine.h == 2 * S && fine.px.iter().all(|c| *c == B), "the hd file repainted");
+        assert!(decode(&std::fs::read(d.join("rock.png")).unwrap()).unwrap().px.iter().all(|c| *c == A), "its shadowed namesake left");
         let _ = std::fs::remove_dir_all(d);
     }
 

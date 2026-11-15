@@ -8,6 +8,7 @@ mod grow;
 mod models;
 mod effects;
 mod palette;
+mod plants;
 mod sounds;
 mod structures;
 mod textures;
@@ -23,6 +24,8 @@ use look::{GAP, ROW};
 use std::collections::BTreeMap;
 
 pub const TEX: &str = "data/textures";
+/// The fine paintings the game reads in their namesakes' place (ADR 0090).
+const TEX_HD: &str = "data/textures/hd";
 pub const PAL: &str = "data/palette.toml";
 pub const DRAFTS: &str = "data/drafts.txt";
 pub const BLOCKS: &str = "data/blocks.toml";
@@ -194,11 +197,12 @@ impl App {
         for f in files {
             let Some(d) = self.docs.get_mut(&f) else { continue };
             let path = format!("{TEX}/{f}");
-            match art::save(std::path::Path::new(&path), &d.img, d.saved.is_none()) {
+            let file = art::tex_path(std::path::Path::new(TEX), &f);
+            match art::save(&file, &d.img, d.saved.is_none()) {
                 Ok(()) => {
                     d.saved = Some(d.img.clone());
                     drafts = art::set_draft(&drafts, &path, false);
-                    self.watch.note(std::path::Path::new(&path));
+                    self.watch.note(&file);
                     self.toast(format!("Saved {f}"));
                 }
                 Err(e) => self.refuse(format!("Not saved: {e}")),
@@ -254,7 +258,7 @@ impl App {
                 if let Ok(t) = std::fs::read_to_string(BLOCKS) {
                     (self.reg, self.reg_problems) = crate::rows::blocks(&t);
                 }
-            } else if let Some(name) = s.strip_prefix(&format!("{TEX}/")).filter(|n| n.ends_with(".png")) {
+            } else if let Some(name) = s.strip_prefix(&format!("{TEX}/{}/", engine::textures::HD)).or(s.strip_prefix(&format!("{TEX}/"))).filter(|n| n.ends_with(".png")) {
                 self.outside_texture(name);
             }
         }
@@ -264,7 +268,7 @@ impl App {
         !changed.is_empty()
     }
     fn disk(name: &str) -> Option<Img> {
-        std::fs::read(format!("{TEX}/{name}")).ok().and_then(|b| art::decode(&b).ok())
+        std::fs::read(art::tex_path(std::path::Path::new(TEX), name)).ok().and_then(|b| art::decode(&b).ok())
     }
     fn outside_texture(&mut self, name: &str) {
         let disk = App::disk(name);
@@ -386,8 +390,8 @@ impl Studio {
         let pal = Palette::parse(&std::fs::read_to_string(PAL).map_err(|e| format!("{PAL}: {e}"))?).map_err(|e| format!("{PAL}: {e}"))?;
         let mut docs = BTreeMap::new();
         let mut refused = vec![];
-        for n in art::pngs(std::path::Path::new(TEX)) {
-            match std::fs::read(format!("{TEX}/{n}")).map_err(|e| e.to_string()).and_then(|b| art::decode(&b)) {
+        for n in art::textures(std::path::Path::new(TEX)) {
+            match std::fs::read(art::tex_path(std::path::Path::new(TEX), &n)).map_err(|e| e.to_string()).and_then(|b| art::decode(&b)) {
                 Ok(img) => {
                     docs.insert(n, Doc::loaded(img));
                 }
@@ -407,7 +411,7 @@ impl Studio {
             reg_problems,
             pointer: String::new(),
             toasts: vec![],
-            watch: Watch::new(&[PAL, DRAFTS, BLOCKS, sounds::SOUNDS, effects::EFFECTS, fauna::FILE], &[TEX, structures::DIR, models::MODELS]),
+            watch: Watch::new(&[PAL, DRAFTS, BLOCKS, sounds::SOUNDS, effects::EFFECTS, fauna::FILE], &[TEX, TEX_HD, structures::DIR, models::MODELS]),
             asks: vec![],
             now: 0.0,
             view: viewport::Viewport::new(),
@@ -417,7 +421,7 @@ impl Studio {
             app.refuse(format!("Refused on load: {r}"));
         }
         app.check();
-        let mut pages: Vec<Box<dyn Page>> = vec![Box::new(textures::Textures::new(&app)), Box::new(palette::PalettePage::new(&app)), Box::new(models::Models::new(&app)), Box::new(sounds::Sounds::new(&app)), Box::new(effects::Effects::new(&app)), Box::new(structures::Structures::new(&app))];
+        let mut pages: Vec<Box<dyn Page>> = vec![Box::new(textures::Textures::new(&app)), Box::new(palette::PalettePage::new(&app)), Box::new(models::Models::new(&app)), Box::new(sounds::Sounds::new(&app)), Box::new(effects::Effects::new(&app)), Box::new(structures::Structures::new(&app)), Box::new(plants::Plants::new(&app))];
         pages.push(Box::new(fauna::Fauna::new(&app)));
         if let Some(b) = open {
             pages[0].open(&mut app, b);
@@ -854,7 +858,7 @@ impl Studio {
                         // a tab wears its page's colour: a line under it, and its fill when open
                         let (on, c) = (self.page == i, look::page_colour(name));
                         let text = RichText::new(name).strong();
-                        let r = ui.add(egui::Button::new(if on { text.color(Color32::WHITE) } else { text }).fill(if on { c.gamma_multiply(0.35) } else { Color32::TRANSPARENT }).min_size(Vec2::new(if narrow { 0.0 } else { 90.0 }, 26.0)));
+                        let r = ui.add(egui::Button::new(if on { text.color(Color32::WHITE) } else { text }).fill(if on { c.gamma_multiply(0.35) } else { Color32::TRANSPARENT }).min_size(Vec2::new(if narrow { 0.0 } else { 64.0 }, 26.0)));
                         let line = Rect::from_min_max(Pos2::new(r.rect.min.x + 4.0, r.rect.max.y - 2.0), Pos2::new(r.rect.max.x - 4.0, r.rect.max.y));
                         ui.painter().rect_filled(line, 1.0, if on { c } else { c.gamma_multiply(0.45) });
                         crate::drive::mark(ui.ctx(), format!("tab:{name}"), r.rect);

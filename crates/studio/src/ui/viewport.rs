@@ -208,8 +208,12 @@ impl Viewport {
             return None;
         }
         let own = std::env::current_exe().ok().map(|e| e.with_file_name("technoape.exe"));
-        let list = [RENDERER.get().map(std::path::PathBuf::from), Some("target/release/technoape.exe".into()), own, Some("build/TechnoApe.exe".into())];
-        list.into_iter().flatten().find(|p| p.is_file())
+        if let Some(r) = RENDERER.get().map(std::path::PathBuf::from).filter(|p| p.is_file()) {
+            return Some(r);
+        }
+        // the newest game: a release build left from days ago draws an older game (no painted figures)
+        let list = [Some("target/release/technoape.exe".into()), own, Some("build/TechnoApe.exe".into())];
+        list.into_iter().flatten().filter_map(|p: std::path::PathBuf| Some((std::fs::metadata(&p).ok()?.modified().ok()?, p))).max_by_key(|(t, _)| *t).map(|(_, p)| p)
     }
 
     fn start(&mut self, w: u32, h: u32) {

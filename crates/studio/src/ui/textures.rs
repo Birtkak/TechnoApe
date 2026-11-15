@@ -72,6 +72,17 @@ pub fn kind_row(text: &str, block: &str, see: See) -> Option<String> {
     Some(k.text())
 }
 
+/// Block `block`'s row with `fluff` (its crown's cards, ADR 0090, 0099) set to `f`, every number written;
+/// None when the file has no such row.
+pub fn fluff_row(text: &str, block: &str, f: engine::blocks::Fluff) -> Option<String> {
+    let span = crate::rows::spans(text).into_iter().find(|s| s.header == "block" && s.name == block)?;
+    let mut k = crate::rows::Keys::parse(&text[span.at]);
+    let n = crate::rows::num;
+    let v = format!("{{ size = {}, push = {}, droop = {}, long = {}, dense = {}, light = {} }}", n(f.size), n(f.push), n(f.droop), n(f.long), n(f.dense), n(f.light));
+    k.set_after("fluff", Some(v), &["see", "name"]);
+    Some(k.text())
+}
+
 struct Stroke {
     button: PointerButton,
     tool: Tool,
@@ -86,6 +97,8 @@ struct Stroke {
 }
 
 pub struct Textures {
+    /// The Fluff section's numbers being moved, for that block, until written.
+    fluff_now: Option<(String, engine::blocks::Fluff)>,
     block: String,
     /// The season painted (`engine::blocks::SEASONS`): 1, summer, is the base files.
     season: usize,
@@ -169,6 +182,7 @@ impl Textures {
             block: String::new(),
             season: 1,
             looks: Default::default(),
+            fluff_now: None,
             face: 0,
             variant: 0,
             tool: Tool::Pencil,
@@ -300,10 +314,12 @@ impl Textures {
         for f in 0..4 {
             let n = art::season_file(&self.block, f, q);
             app.docs.remove(&n);
-            let path = format!("{TEX}/{n}");
-            if std::path::Path::new(&path).exists() {
-                if let Err(e) = std::fs::remove_file(&path) {
-                    app.refuse(format!("{path}: {e}"));
+            // both: the hd/ one the game reads and its namesake, which would be read once that is gone
+            for path in [format!("{TEX}/{}/{n}", engine::textures::HD), format!("{TEX}/{n}")] {
+                if std::path::Path::new(&path).exists() {
+                    if let Err(e) = std::fs::remove_file(&path) {
+                        app.refuse(format!("{path}: {e}"));
+                    }
                 }
             }
         }
@@ -417,6 +433,49 @@ impl Textures {
             Err(e) => {
                 app.refuse(e);
                 false
+            }
+        }
+    }
+
+    /// "Fluff": the crown's cards over a cutout block's open faces (ADR 0090, 0099), written to its row when a
+    /// slider is let go; the game and this view take them after a rebuild, as a kind.
+    fn fluff(&mut self, ui: &mut Ui, app: &mut App) {
+        let Some(d) = self.def(app) else { return };
+        // (the numbers moved so far: a slider's last frame no longer moves it, so the write takes these)
+        let mut f = self.fluff_now.as_ref().filter(|(b, _)| *b == self.block).map(|(_, f)| *f).unwrap_or(d.fluff.unwrap_or(engine::blocks::Fluff { size: 0.0, ..Default::default() }));
+        let mut done = false;
+        for (v, name, range, help) in [
+            (&mut f.size, "size", 0.0..=3.0, "A card's width in faces; 0 none"),
+            (&mut f.push, "push", 0.0..=1.2, "How far it stands out, metres"),
+            (&mut f.droop, "droop", 0.0..=1.2, "How far its outer parts hang down, metres a metre out (conifers, willows)"),
+            (&mut f.dense, "dense", 0.0..=1.0, "The share of open faces that have one"),
+            (&mut f.light, "light", 0.0..=1.0, "The sun one card lets through to the shade under the crown"),
+        ] {
+            look::row(ui, name, |ui| {
+                let r = look::tip(ui.add(egui::Slider::new(v, range).fixed_decimals(2)), help, "");
+                crate::drive::mark(ui.ctx(), format!("fluff:{name}"), r.rect);
+                done |= r.drag_stopped() || (r.changed() && !r.dragged());
+            });
+        }
+        look::weak(ui, "Written to its row in data/blocks.toml when let go; the game and this view show it after a rebuild (blocks.toml is built in).");
+        self.fluff_now = Some((self.block.clone(), f));
+        if done {
+            self.fluff_now = None;
+        }
+        if done && Some(f) != d.fluff {
+            let path = super::BLOCKS;
+            let block = self.block.clone();
+            let res = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}")).and_then(|old| {
+                let row = fluff_row(&old, &block, f).ok_or(format!("{path}: no row for {block}"))?;
+                crate::rows::save(path, "block", &block, &row, |t| engine::blocks::Registry::parse(t).map(|_| ()))
+            });
+            match res {
+                Ok(new) => {
+                    app.reg = crate::rows::blocks(&new).0;
+                    app.note(path);
+                    app.toast(format!("Wrote {block}'s fluff; a rebuild shows it"));
+                }
+                Err(e) => app.refuse(e),
             }
         }
     }
@@ -1691,6 +1750,12 @@ impl Page for Textures {
                 self.set_kind(app, see);
             }
         }
+        if self.kind(app) == See::Cutout {
+            if let Some(mut sec) = look::section(ui, "Fluff") {
+                let ui = &mut *sec;
+                self.fluff(ui, app);
+            }
+        }
         let kind = self.kind(app);
         if let Some(mut sec) = look::section(ui, "Tools") {
             let ui = &mut *sec;
@@ -1898,6 +1963,29 @@ mod tests {
     use super::*;
 
     const BLOCKS: &str = "# a comment\r\n[[block]]\r\nid = 0\r\nname = \"air\"\r\nsolid = false\r\n\r\n[[block]]\r\nid = 1\r\nname = \"leaf\"\r\nhardness = 1\r\n# kept\r\n\r\n[block.autumn]\r\ncolour = [0.5, 0.2, 0.1]\r\n";
+
+    /// The Fluff section writes the crown's cards to the block's row, as the game's reader takes them.
+    #[test]
+    fn fluff_is_written_to_the_row_and_read_back() {
+        let text = "[[block]]
+id = 0
+name = \"air\"
+solid = false
+
+[[block]]
+id = 2
+name = \"leaf\"
+see = \"cutout\"
+hardness = 1
+fluff = { size = 1.2, light = 0.3 }
+";
+        let f = engine::blocks::Fluff { size: 2.0, push: 0.4, droop: 0.25, long: 1.4, dense: 0.8, light: 0.3 };
+        let row = fluff_row(text, "leaf", f).unwrap();
+        let new = crate::rows::put(text, "block", "leaf", &row);
+        let reg = engine::blocks::Registry::parse(&new).unwrap();
+        assert_eq!(reg.get(reg.id("leaf")).unwrap().fluff, Some(f));
+        assert!(fluff_row(text, "stone", f).is_none());
+    }
 
     #[test]
     fn the_kind_is_written_to_the_blocks_row_and_back() {

@@ -764,12 +764,11 @@ pub fn events_mut<'a>(life: &'a mut Life, clip: &str) -> &'a mut Vec<Event> {
 }
 
 /// The starter shapes a new model begins from (docs/design/studio.md "The bar"): id, the button's word, its tip.
-pub const STARTERS: [(&str, &str, &str); 6] = [
+pub const STARTERS: [(&str, &str, &str); 5] = [
     ("block", "Block", "a whole 1 m block, 8 x 8 x 8 voxels, to carve and recolour"),
     ("slab", "Slab", "half a block: 8 x 4 x 8 voxels"),
     ("post", "Post", "a post 2 voxels thick and a block high, in the block's middle"),
     ("tool", "Tool", "a handle with a head on top, as a pick or a hammer: two parts, the head hanging on the handle"),
-    ("plant", "Plant cross", "two crossed panes in a block, as grass and flowers stand"),
     ("creature", "Creature", "a body, a head and four legs, each a part with its pivot where it turns, facing front (+z)"),
 ];
 
@@ -813,10 +812,6 @@ pub fn starter(pal: &Palette, kind: &str) -> Option<Model> {
             let (wood, head) = (col("dirt dark"), col("stone"));
             vec![filled("handle", "", [4, 0, 4], [1, 7, 1], [0.5, 0.0, 0.5], |_| wood), filled("head", "handle", [-2, 6, 0], [5, 2, 1], [2.5, 1.0, 0.5], |_| head)]
         }
-        "plant" => {
-            let shades = [col("grass dark"), col("grass"), col("grass light")];
-            vec![filled("plant", "", [0; 3], [8, 8, 8], [4.0, 0.0, 4.0], |c| if c.x == c.z || c.x == 7 - c.z { shades[(c.y * 3 / 8) as usize] } else { 0 })]
-        }
         "creature" => {
             let (body, head, leg, eye) = (col("dirt"), col("dirt light"), col("dirt dark"), col("stone dark"));
             let mut v = vec![
@@ -835,84 +830,57 @@ pub fn starter(pal: &Palette, kind: &str) -> Option<Model> {
     Model::parse(kind, &text(&m), pal).ok()
 }
 
-/// The small plants grown as models (docs/design/studio-tools.md "Structures and flora": tufts and flowers
-/// are models, trees are structures).
-pub const PLANTS: [&str; 3] = ["tuft", "flower", "mushroom"];
+/// The longest side of a painted box the game draws, model pixels (a quad's 6-bit size, ADR 0116).
+pub const BOX_SIDE: u32 = 63;
 
-/// A small plant of a kind from a seed: an ordinary one-part model in a block's box, to finish by hand.
-/// The colours are the palette's by name; one the palette lacks falls to its first.
-pub fn plant(pal: &Palette, kind: &str, seed: u64) -> Model {
-    let mut r = crate::wall::Rng::new(seed ^ 0x9e37_79b9_7f4a_7c15);
-    let mut colours: Vec<String> = vec![];
-    let mut cells = vec![0u8; 512];
-    let mut col = |name: &str| -> u8 {
-        let name = pal.colours.iter().find(|c| c.name == name).or(pal.colours.first()).map_or(name.to_string(), |c| c.name.clone());
-        (colours.iter().position(|c| *c == name).unwrap_or_else(|| {
-            colours.push(name);
-            colours.len() - 1
-        }) + 1) as u8
-    };
-    let mut put = |x: i32, y: i32, z: i32, c: u8| {
-        if [x, y, z].iter().all(|v| (0..8).contains(v)) {
-            cells[(x + 8 * (z + 8 * y)) as usize] = c;
-        }
-    };
-    match kind {
-        "flower" => {
-            let (stem, leaf) = (col("grass"), col("grass dark"));
-            let h = 3 + r.below(3) as i32;
-            for y in 0..h {
-                put(4, y, 4, stem);
-            }
-            let side = [(1, 0), (-1, 0), (0, 1), (0, -1)];
-            let (dx, dz) = side[r.below(4)];
-            put(4 + dx, 1, 4 + dz, leaf);
-            let petals = ["regolith light", "blue lamp light", "copper light", "lamp light"][r.below(4)];
-            let (petal, heart) = (col(petals), col(if petals == "lamp light" { "copper" } else { "lamp" }));
-            put(4, h, 4, heart);
-            for (dx, dz) in side {
-                put(4 + dx, h, 4 + dz, petal);
-            }
-        }
-        "mushroom" => {
-            let stem = col("regolith light");
-            let cap = col(["copper", "dirt", "lamp dark"][r.below(3)]);
-            let (h, wide) = (2 + r.below(2) as i32, r.below(2) as i32);
-            for y in 0..h {
-                put(4, y, 4, stem);
-            }
-            for dx in -1 - wide..=1 + wide {
-                for dz in -1 - wide..=1 + wide {
-                    // a wide cap has its corners off and a smaller crown on top
-                    if wide == 0 || dx.abs() + dz.abs() < 4 {
-                        put(4 + dx, h, 4 + dz, cap);
-                    }
-                    if wide == 1 && dx.abs() < 2 && dz.abs() < 2 {
-                        put(4 + dx, h + 1, 4 + dz, cap);
-                    }
-                }
-            }
-        }
-        // a tuft: blades of grass, darker at the foot, the taller ones leaning out at the tip
-        _ => {
-            let shades = [col("grass dark"), col("grass"), col("grass light")];
-            for _ in 0..5 + r.below(4) {
-                let (x, z, h) = (1 + r.below(6) as i32, 1 + r.below(6) as i32, 2 + r.below(5) as i32);
-                let lean = [(1, 0), (-1, 0), (0, 1), (0, -1), (0, 0)][r.below(5)];
-                for y in 0..h {
-                    let out = (y * 2 > h + 1) as i32;
-                    put(x + lean.0 * out, y, z + lean.1 * out, shades[(y * 3 / h) as usize]);
-                }
+/// A painted box of `size` px added to part `part` at its corner, its net laid below the painting (which grows to
+/// hold it, at most `MAX_PAINT` a side) and filled with `c`, so it shows at once.
+pub fn add_box(m: &mut Model, paint: &mut Img, part: usize, size: [u32; 3], c: [u8; 3]) -> Result<(), String> {
+    if let Some(v) = size.iter().find(|&&v| v > BOX_SIDE) {
+        return Err(format!("a box side of {v} px: the game draws at most {BOX_SIDE}"));
+    }
+    let [sx, sy, sz] = size;
+    let (w, h) = (paint.w.max((2 * (sx + sz)) as usize), paint.h + (sz + sy) as usize);
+    let max = engine::models::MAX_PAINT as usize;
+    if w > max || h > max {
+        return Err(format!("the painting would be {w} x {h} px, at most {max} a side"));
+    }
+    let b = engine::models::Bx { at: [0.0; 3], size, turn: [0.0; 3], uv: [0, paint.h as u32] };
+    let p = m.parts.get_mut(part).ok_or("no such part")?;
+    let mut grown = Img { w, h, px: vec![crate::art::EMPTY; w * h] };
+    for y in 0..paint.h {
+        grown.px[y * w..y * w + paint.w].copy_from_slice(&paint.px[y * paint.w..(y + 1) * paint.w]);
+    }
+    for [x, y, rw, rh] in b.rects() {
+        for yy in y..y + rh {
+            for xx in x..x + rw {
+                grown.px[yy as usize * w + xx as usize] = c;
             }
         }
     }
-    let mut m = Model { colours, item: None, parts: vec![Part { name: "plant".into(), parent: String::new(), at: [0; 3], pivot: [4.0, 0.0, 4.0], size: [8, 8, 8], voxels: String::new(), turn: [0.0; 3], boxes: vec![], cells }], points: vec![], clips: vec![], rgb: vec![], up: vec![] };
-    m = Model::parse(kind, &text(&m), pal).unwrap_or(m);
-    m
+    p.boxes.push(b);
+    *paint = grown;
+    Ok(())
+}
+
+/// Every part's voxels made one painted box of the part's size (4 px a voxel), its faces in the part's most
+/// used colour, and the voxels emptied: a voxel starter becomes a figure to paint (ADR 0116). How many parts.
+pub fn voxels_to_boxes(m: &mut Model, paint: &mut Img) -> Result<usize, String> {
+    let mut n = 0;
+    for i in 0..m.parts.len() {
+        let mut count = [0usize; 256];
+        m.parts[i].cells.iter().filter(|v| **v != 0).for_each(|v| count[*v as usize] += 1);
+        let Some(k) = (1..256).filter(|k| count[*k] > 0).max_by_key(|k| count[*k]) else { continue };
+        let c = m.rgb.get(k - 1).copied().unwrap_or([128; 3]);
+        add_box(m, paint, i, m.parts[i].size.map(|v| v * 4), c).map_err(|e| format!("{}: {e}", m.parts[i].name))?;
+        m.parts[i].cells.iter_mut().for_each(|v| *v = 0);
+        n += 1;
+    }
+    Ok(n)
 }
 
 /// The files column's picture: the model at rest seen from the front (+z), 16 x 16.
-pub fn thumb(m: &Model) -> Img {
+pub fn thumb(m: &Model, paint: Option<&Img>) -> Img {
     let bg = [26, 28, 32];
     let mut img = Img::filled(1, bg);
     let poses = m.pose(None, 0.0);
@@ -923,6 +891,15 @@ pub fn thumb(m: &Model) -> Img {
             if v != 0 {
                 vox.push((poses[i].transform_point3(c.as_vec3() + 0.5) / VOXEL, m.rgb.get(v as usize - 1).copied().unwrap_or([200; 3])));
             }
+        }
+    }
+    // a painted box's faces, a point a pixel (ADR 0116)
+    for ([o, eu, ev], r) in paint.map_or(vec![], |_| m.rest_faces()) {
+        let p = paint.unwrap();
+        for (u, v) in (0..r[3]).flat_map(|v| (0..r[2]).map(move |u| (u, v))) {
+            let (x, y) = ((r[0] + u) as usize, (r[1] + v) as usize);
+            let Some(&c) = p.px.get(y * p.w + x).filter(|c| x < p.w && **c != crate::art::EMPTY) else { continue };
+            vox.push(((o + eu * ((u as f32 + 0.5) / r[2] as f32) + ev * ((v as f32 + 0.5) / r[3] as f32)) / VOXEL, c));
         }
     }
     if vox.is_empty() {
@@ -1306,28 +1283,6 @@ mod tests {
         assert_eq!(solid(&sliced(&m, &m.pose(None, 0.0), 2.0).parts[0]).len(), 2);
     }
 
-    #[test]
-    fn a_small_plant_grows_from_its_seed_on_the_floor_and_reads_back() {
-        let p = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
-        for kind in PLANTS {
-            let grown: Vec<Model> = (1..=12).map(|seed| plant(&p, kind, seed)).collect();
-            for (m, seed) in grown.iter().zip(1u64..) {
-                let part = &m.parts[0];
-                assert_eq!(part.cells, plant(&p, kind, seed).parts[0].cells, "{kind} {seed}: the same from the same seed");
-                assert!(part.cells[..64].iter().any(|c| *c != 0), "{kind} {seed}: it stands on the floor");
-                assert!(part.cells[64..].iter().any(|c| *c != 0), "{kind} {seed}: it rises from it");
-                assert!(m.colours.len() >= 2 && m.colours.iter().all(|c| p.colours.iter().any(|k| k.name == *c)), "{kind} {seed}: palette colours, {:?}", m.colours);
-                let again = Model::parse("plant.toml", &text(m), &p).unwrap();
-                assert_eq!((again.parts[0].cells.clone(), again.rgb.len()), (part.cells.clone(), m.colours.len()), "{kind} {seed}");
-            }
-            let mut shapes: Vec<&Vec<u8>> = grown.iter().map(|m| &m.parts[0].cells).collect();
-            shapes.sort();
-            shapes.dedup();
-            assert!(shapes.len() >= 4, "{kind}: seeds differ, {} shapes of 12", shapes.len());
-        }
-        assert!(plant(&p, "flower", 1).colours.len() >= 4, "a flower: stem, leaf, heart, petals");
-    }
-
     /// A click lands on the voxel drawn under the pointer: the snake's tail (a child of a child, `at` and pivot
     /// not 0) bent by a clip, picked through the middle of each of its voxels as the renderer draws them (the
     /// same `Model::pose`, every voxel's own corners).
@@ -1386,7 +1341,7 @@ key = [
                     assert!(at.cmpgt(Vec3::ZERO).all() && at.cmplt(Vec3::ONE).all(), "{kind}: {} {c} at {at}", q.name);
                 }
             }
-            assert!(thumb(&m).px.iter().any(|c| *c != [26, 28, 32]), "{kind}: an empty thumbnail");
+            assert!(thumb(&m, None).px.iter().any(|c| *c != [26, 28, 32]), "{kind}: an empty thumbnail");
         }
         let c = starter(&p, "creature").unwrap();
         assert_eq!(c.parts.iter().map(|q| q.name.as_str()).collect::<Vec<_>>(), ["body", "head", "leg_fl", "leg_fr", "leg_bl", "leg_br"]);
@@ -1396,13 +1351,38 @@ key = [
         assert!(starter(&p, "nothing").is_none());
     }
 
+    /// A creature from nothing: the starter's voxels become painted boxes the game's reader takes with their
+    /// painting, and the files column shows the painting.
+    #[test]
+    fn a_voxel_starter_becomes_a_painted_figure() {
+        let p = pal();
+        let mut m = starter(&p, "creature").unwrap();
+        let mut paint = Img { w: 0, h: 0, px: vec![] };
+        assert_eq!(voxels_to_boxes(&mut m, &mut paint).unwrap(), 6);
+        let again = Model::parse("new.toml", &text(&m), &p).unwrap();
+        assert!(again.parts.iter().all(|q| q.cells.iter().all(|c| *c == 0) && q.boxes.len() == 1), "voxels emptied, a box each");
+        assert_eq!(again.parts[0].boxes[0].size, [16, 12, 20], "4 px a voxel");
+        let bytes = crate::art::encode(&paint);
+        let painting = engine::models::painting(&bytes, &p).unwrap();
+        again.check_painting(&painting).unwrap();
+        assert!(!again.rest_faces().is_empty());
+        assert!(thumb(&again, Some(&paint)).px.iter().any(|c| *c != [26, 28, 32]), "the thumbnail shows the painting");
+        // another box on the head grows the painting under the others
+        let h = paint.h;
+        add_box(&mut m, &mut paint, 1, [4, 4, 2], [0x40; 3]).unwrap();
+        assert_eq!((m.parts[1].boxes.len(), m.parts[1].boxes[1].uv), (2, [0, h as u32]));
+        assert!(paint.h == h + 6 && paint.px[(h + 2) * paint.w + 3] == [0x40; 3]);
+        assert!(add_box(&mut m, &mut paint, 0, [64, 4, 4], [0x40; 3]).unwrap_err().contains("63"));
+        assert!(add_box(&mut m, &mut paint, 0, [60, 60, 60], [0x40; 3]).is_err(), "the painting would pass 128");
+    }
+
     #[test]
     fn a_new_model_reads_its_text_back_and_has_a_thumbnail() {
         let p = pal();
         let m = starter(&p, "block").unwrap();
         let again = Model::parse("new.toml", &text(&m), &p).unwrap();
         assert_eq!(again.parts[0].cells, m.parts[0].cells);
-        let t = thumb(&m);
+        let t = thumb(&m, None);
         assert_eq!((t.w, t.px.len()), (16, 256));
         assert!(t.px.iter().any(|&c| c == [0x40, 0x40, 0x40] || c == [0x80; 3]), "the model's colour shows");
     }

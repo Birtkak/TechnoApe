@@ -5,7 +5,7 @@ use super::look::{self, c32, GAP};
 use super::textures::palette_picker;
 use super::viewport::{ModelCam, Viewport, DIR};
 use super::{App, Cmd, FileRow, Page, Thumb, DRAFTS};
-use crate::art::{self, History};
+use crate::art::{self, History, Img};
 use crate::shell::Flags;
 use crate::voxel::{self, Hit, Motion, Op, Orbit, MOTIONS, VIEWS};
 use eframe::egui::{self, Color32, Key, Modifiers, Pos2, Rect, RichText, Sense, Stroke, Ui, Vec2};
@@ -66,12 +66,22 @@ struct MDoc {
     rev: u64,
     /// The file's text as opened: its comments and line ends are kept when it is saved (`write_keeping`).
     old: String,
+    /// Its painting `<name>.png` (ADR 0081, 0116), 0 x 0 for none; as on disk; its own undo (a stroke a step).
+    paint: Img,
+    paint_saved: Option<Img>,
+    /// Why its `.png` on disk was refused: it is never written over.
+    paint_refused: Option<String>,
+    paint_hist: History<Img>,
 }
 impl MDoc {
     /// A file's text as the page opens it (its effects and sounds are checked on save, not here).
     fn load(path: &str, text: &str, pal: &engine::palette::Palette) -> Result<MDoc, String> {
         let (m, life) = parse_life(path, text, pal, &|_| true, &|_| true)?;
-        let mut d = MDoc { m, life, hist: History::default(), saved: None, rev: 0, old: text.to_string() };
+        let read = path.strip_suffix(".toml").and_then(|p| std::fs::read(format!("{p}.png")).ok()).map(|b| engine::models::painting(&b, pal));
+        let paint_refused = read.as_ref().and_then(|r| r.as_ref().err().cloned());
+        let paint_saved = read.and_then(|r| r.ok()).map(|p| Img { w: p.w as usize, h: p.h as usize, px: p.px.iter().map(|c| if c[3] == 0 { art::EMPTY } else { [c[0], c[1], c[2]] }).collect() });
+        let paint = paint_saved.clone().unwrap_or(NO_PAINT);
+        let mut d = MDoc { m, life, hist: History::default(), saved: None, rev: 0, old: text.to_string(), paint, paint_saved, paint_refused, paint_hist: History::default() };
         d.saved = Some(d.text());
         Ok(d)
     }
@@ -87,9 +97,14 @@ impl MDoc {
         done
     }
     fn dirty(&self) -> bool {
-        self.saved.as_deref() != Some(self.text().as_str())
+        self.saved.as_deref() != Some(self.text().as_str()) || self.paint_dirty()
+    }
+    fn paint_dirty(&self) -> bool {
+        self.paint.w > 0 && self.paint_saved.as_ref() != Some(&self.paint)
     }
 }
+
+const NO_PAINT: Img = Img { w: 0, h: 0, px: vec![] };
 
 /// The unsaved models as files for the recovery set (`recover.rs`): `<name>.toml` and the text a save writes.
 fn kept(docs: &BTreeMap<String, MDoc>) -> Vec<(String, Vec<u8>)> {
@@ -202,6 +217,9 @@ pub struct Models {
     /// When the files on disk were last looked at, and a model changed there under unsaved work (its name).
     looked: f64,
     ask: Option<String>,
+    /// The painting's eraser, and a stroke on it under way (one undo step).
+    erase: bool,
+    stroking: bool,
 }
 
 impl Models {
@@ -263,6 +281,8 @@ impl Models {
             moving_event: false,
             looked: 0.0,
             ask: None,
+            erase: false,
+            stroking: false,
         };
         s.opened();
         s
@@ -323,6 +343,73 @@ impl Models {
         self.merging = Some(name.into());
     }
 
+    /// One edit of the open model's painting; `merge` keeps a stroke one step of the painting's own undo.
+    fn edit_paint(&mut self, name: &str, merge: bool, f: impl FnOnce(&mut Img)) {
+        let Some(d) = self.open.as_ref().and_then(|n| self.docs.get_mut(n)) else { return };
+        let before = d.paint.clone();
+        f(&mut d.paint);
+        if d.paint != before {
+            if !merge {
+                d.paint_hist.push(before, name);
+            }
+            d.rev += 1;
+        }
+    }
+    /// A change of boxes that also grows the painting (`voxel::add_box`, `voxel::voxels_to_boxes`): the model's
+    /// step and the painting's step together, or a refusal and neither.
+    fn box_edit(&mut self, app: &mut App, name: &str, f: impl FnOnce(&mut Model, &mut Img) -> Result<(), String>) {
+        let Some(d) = self.doc() else { return };
+        let (mut m, mut paint) = (d.m.clone(), d.paint.clone());
+        match f(&mut m, &mut paint) {
+            Ok(()) => {
+                self.edit(app, name, |mm, _| {
+                    *mm = m;
+                    true
+                });
+                self.edit_paint(name, false, |p| *p = paint);
+            }
+            Err(e) => app.refuse(e),
+        }
+    }
+
+    /// The model's painting: the open part's box nets outlined, left paints the first colour, right the second.
+    fn painting(&mut self, ui: &mut Ui) {
+        let Some(d) = self.doc() else { return };
+        if d.paint.w == 0 {
+            look::weak(ui, "No painting yet: Add a box (Part) or Voxels to painted boxes (Model) starts one.");
+            return;
+        }
+        let img = d.paint.clone();
+        let outline: Vec<[u32; 4]> = d.m.parts.get(self.part).map_or(vec![], |p| p.boxes.iter().flat_map(|b| b.rects()).collect());
+        let (undo, redo) = (!d.paint_hist.undo.is_empty(), !d.paint_hist.redo.is_empty());
+        ui.horizontal_wrapped(|ui| {
+            look::tip(look::toggle(ui, &mut self.erase, "Eraser"), "Both buttons empty a pixel", "");
+            if look::tip(ui.add_enabled(undo, egui::Button::new("Undo stroke")), "The painting has its own undo, a stroke a step", "").clicked() {
+                self.paint_undo(true);
+            }
+            if look::tip(ui.add_enabled(redo, egui::Button::new("Redo stroke")), "Redo the stroke undone", "").clicked() {
+                self.paint_undo(false);
+            }
+        });
+        let w = ui.available_width();
+        let k = ((w - 2.0 * GAP) / img.w as f32).floor().clamp(1.0, 8.0);
+        let (rect, _) = ui.allocate_exact_size(Vec2::new(w, img.h as f32 * k + 2.0 * GAP), Sense::hover());
+        let hit = super::plants::paint_canvas(ui, rect, &img, "model painting", &outline, "Left paints the first colour, right the second; the yellow nets are the open part's boxes");
+        if let Some((x, y, left)) = hit {
+            let c = if self.erase { art::EMPTY } else if left { self.first } else { self.second };
+            let merge = self.stroking;
+            self.edit_paint(if self.erase { "Erase" } else { "Paint" }, merge, |img| img.px[y * img.w + x] = c);
+        }
+        self.stroking = hit.is_some();
+        look::weak(ui, format!("{} x {} px: 4 a voxel, 32 a metre. A box's net: its top and bottom above, its four sides below.", img.w, img.h));
+    }
+    fn paint_undo(&mut self, undo: bool) {
+        let Some(d) = self.open.as_ref().and_then(|n| self.docs.get_mut(n)) else { return };
+        if if undo { d.paint_hist.undo(&mut d.paint) } else { d.paint_hist.redo(&mut d.paint) } {
+            d.rev += 1;
+        }
+    }
+
     fn colour(&mut self, app: &mut App, rgb: [u8; 3]) -> Option<u8> {
         let pal = app.pal.clone();
         let d = self.open.as_ref().and_then(|n| self.docs.get_mut(n))?;
@@ -344,8 +431,22 @@ impl Models {
         let path = format!("{MODELS}/{name}.toml");
         // the game's own reader first: a model it would refuse is never written (its effects and sounds too)
         let (fx, snd) = (&self.effects, &self.sounds);
-        if let Err(e) = parse_life(&path, &text, &app.pal, &|n| fx.is_empty() || fx.iter().any(|x| x == n), &|n| snd.is_empty() || snd.iter().any(|x| x == n)) {
-            return app.refuse(format!("Not saved: {e}"));
+        let m = match parse_life(&path, &text, &app.pal, &|n| fx.is_empty() || fx.iter().any(|x| x == n), &|n| snd.is_empty() || snd.iter().any(|x| x == n)) {
+            Ok((m, _)) => m,
+            Err(e) => return app.refuse(format!("Not saved: {e}")),
+        };
+        // its painting too, held to the game's reader and to every box's net, before anything is written
+        let png = format!("{MODELS}/{name}.png");
+        if let Some(e) = d.paint_refused.as_ref().filter(|_| d.paint_dirty()) {
+            return app.refuse(format!("Not saved: {png} is on disk but refused ({e}); fix or remove it first"));
+        }
+        if d.paint_dirty() {
+            let read = engine::models::painting(&art::encode(&d.paint), &app.pal).and_then(|p| m.check_painting(&p));
+            if let Err(e) = read.and_then(|_| art::save(std::path::Path::new(&png), &d.paint, false)) {
+                return app.refuse(format!("Not saved: {png}: {e}"));
+            }
+            d.paint_saved = Some(d.paint.clone());
+            app.note(&png);
         }
         let _ = std::fs::create_dir_all(MODELS);
         let tmp = format!("{path}.tmp");
@@ -370,7 +471,7 @@ impl Models {
     fn new_model(&mut self, base: &str, make: impl FnOnce(u64) -> Option<Model>) {
         let (k, name) = (1u64..).map(|k| (k, if k == 1 { base.to_string() } else { format!("{base} {k}") })).find(|(_, n)| !self.docs.contains_key(n) && !std::path::Path::new(&format!("{MODELS}/{n}.toml")).exists()).unwrap();
         let Some(m) = make(k) else { return };
-        self.docs.insert(name.clone(), MDoc { m, life: Life::default(), hist: History::default(), saved: None, rev: 0, old: String::new() });
+        self.docs.insert(name.clone(), MDoc { m, life: Life::default(), hist: History::default(), saved: None, rev: 0, old: String::new(), paint: NO_PAINT, paint_saved: None, paint_refused: None, paint_hist: History::default() });
         self.open = Some(name);
         self.part = 0;
         self.choosing = false;
@@ -400,15 +501,6 @@ impl Models {
                 ui.allocate_ui_with_layout(Vec2::new(ui.available_width(), 28.0), egui::Layout::top_down(egui::Align::Min), |ui| ui.add(egui::Label::new(RichText::new(help).small().weak()).wrap()));
             });
         }
-        ui.add_space(GAP);
-        ui.horizontal_wrapped(|ui| {
-            look::weak(ui, "Or grow a small plant:");
-            for kind in voxel::PLANTS {
-                if look::tip(ui.button(kind), "A small plant grown as a new model, to finish by hand; again grows another", "").clicked() {
-                    self.run(app, &format!("plant:{kind}"));
-                }
-            }
-        });
         if self.m().is_some() {
             ui.add_space(GAP);
             if look::tip(ui.button("Cancel"), "Back to the open model", "Esc").clicked() {
@@ -440,7 +532,8 @@ impl Models {
             // and its painting, so its painted boxes are drawn too (ADR 0114), written whole under another name and
             // renamed, so the renderer never reads half of it; none, none left from another model
             let (tmp, png) = (format!("{dir}/studio.png.part"), format!("{dir}/studio.png"));
-            if std::fs::copy(format!("{MODELS}/{name}.png"), &tmp).and_then(|_| std::fs::rename(&tmp, &png)).is_err() {
+            let paint = &self.docs[&name].paint;
+            if paint.w == 0 || std::fs::write(&tmp, art::encode(paint)).and_then(|_| std::fs::rename(&tmp, &png)).is_err() {
                 let _ = std::fs::remove_file(&png);
             }
             if std::fs::write(format!("{dir}/studio.toml"), voxel::text_life(&shown, life)).is_ok() {
@@ -1317,6 +1410,51 @@ impl Models {
             ui.end_row();
         });
         look::weak(ui, format!("box {} x {} x {} voxels (grows as you add)", part.size[0], part.size[1], part.size[2]));
+        // its painted boxes (ADR 0081, 0116): corner, size and turn in pixels (4 a voxel), where the net lies
+        let (mut change, mut remove) = (None, None);
+        for (j, b) in part.boxes.iter().enumerate() {
+            let mut nb = b.clone();
+            egui::Grid::new(("part box", j)).num_columns(4).spacing(Vec2::new(4.0, 2.0)).show(ui, |ui| {
+                look::label(ui, &format!("box {} at", j + 1));
+                for v in &mut nb.at {
+                    look::tip(ui.add(egui::DragValue::new(v).speed(0.25)), "Its corner in the part, pixels (4 a voxel)", "");
+                }
+                ui.end_row();
+                look::label(ui, "size");
+                for v in &mut nb.size {
+                    look::tip(ui.add(egui::DragValue::new(v).range(0..=voxel::BOX_SIDE)), "Pixels a side, at most 63; 0 makes it a plane", "");
+                }
+                ui.end_row();
+                look::label(ui, "turn");
+                for v in &mut nb.turn {
+                    ui.add(egui::DragValue::new(v).speed(1.0).suffix("°"));
+                }
+                ui.end_row();
+                look::label(ui, "net at");
+                for v in &mut nb.uv {
+                    look::tip(ui.add(egui::DragValue::new(v).range(0..=engine::models::MAX_PAINT)), "Where its net starts in the painting", "");
+                }
+                if look::tip(ui.small_button("Remove"), "Remove this box (its pixels stay in the painting)", "").clicked() {
+                    remove = Some(j);
+                }
+                ui.end_row();
+            });
+            if nb != *b {
+                change = Some((j, nb));
+            }
+        }
+        if let Some((j, nb)) = change {
+            self.edit_merged(app, "Change a box", |m, _| {
+                m.parts[i].boxes[j] = nb;
+                true
+            });
+        }
+        if let Some(j) = remove {
+            self.edit(app, "Remove a box", |m, _| {
+                m.parts[i].boxes.remove(j);
+                true
+            });
+        }
         // the part's move and turn at the timeline's time: a change sets a key there
         if let Some(ci) = self.clip.filter(|c| *c < m.clips.len()) {
             let (mut mv, mut tn) = sample(&m.clips[ci], &part.name, self.t);
@@ -1349,6 +1487,9 @@ impl Models {
             }
             if look::tip(ui.button("Add a child"), "A new empty part hanging on this one", "").clicked() {
                 self.run(app, "part.child");
+            }
+            if look::tip(ui.button("Add a box"), "A painted box of 8 px a side on this part, its net added below the painting in the first colour", "").clicked() {
+                self.run(app, "box.add");
             }
         });
     }
@@ -1416,7 +1557,7 @@ impl Page for Models {
             .iter()
             .map(|(n, d)| {
                 let path = format!("{MODELS}/{n}.toml");
-                FileRow { id: n.clone(), label: n.clone(), thumb: Thumb::Img(voxel::thumb(&d.m)), flags: Flags { made: d.saved.is_some(), dirty: d.dirty(), draft: app.is_draft(&path), problem: app.has_problem(&path) } }
+                FileRow { id: n.clone(), label: n.clone(), thumb: Thumb::Img(voxel::thumb(&d.m, (d.paint.w > 0).then_some(&d.paint))), flags: Flags { made: d.saved.is_some(), dirty: d.dirty(), draft: app.is_draft(&path), problem: app.has_problem(&path) } }
             })
             .collect()
     }
@@ -1440,13 +1581,12 @@ impl Page for Models {
         v.push(Cmd::new("undo", "Undo", "undo the last change to this model").key(Modifiers::COMMAND, Key::Z));
         v.push(Cmd::new("redo", "Redo", "redo what was undone").key(Modifiers::COMMAND, Key::Y));
         v.push(Cmd::new("save", "Save the model", "write it (checked by the game's reader first) and take it off the drafts list").key(Modifiers::COMMAND, Key::S));
-        v.push(Cmd::new("new", "New model", "choose a shape to start from: a block, a slab, a post, a tool, a plant cross or a creature").key(Modifiers::COMMAND, Key::N));
+        v.push(Cmd::new("new", "New model", "choose a shape to start from: a block, a slab, a post, a tool or a creature").key(Modifiers::COMMAND, Key::N));
         for (id, label, help) in voxel::STARTERS {
             v.push(Cmd::new(format!("new:{id}"), format!("New model: {label}"), help));
         }
-        for kind in voxel::PLANTS {
-            v.push(Cmd::new(format!("plant:{kind}"), format!("New {kind}"), "a small plant grown as a new model, to finish by hand; again grows another"));
-        }
+        v.push(Cmd::new("boxes", "Voxels to painted boxes", "every part's voxels become one painted box of its size in its main colour, to paint (ADR 0116)"));
+        v.push(Cmd::new("box.add", "Add a box", "a painted box of 8 px a side on the open part, its net below the painting"));
         v.push(Cmd::new("play", "Play or pause", "the clip in the view").key(Modifiers::NONE, Key::Space));
         v.push(Cmd::new("shade", "Shade by light", "every voxel along its ramp by how open it is: open sides lighter, crevices and undersides darker"));
         v.push(Cmd::new("clip.new", "New clip", "a new clip of one second, looping"));
@@ -1536,7 +1676,6 @@ impl Page for Models {
                         self.sel = Some((IVec3::new(a, b, c), IVec3::new(d, e, f)));
                     }
                 }
-                "plant" if voxel::PLANTS.contains(&arg) => self.new_model(arg, |k| Some(voxel::plant(&app.pal, arg, k))),
                 "new" => self.new_model(arg, |_| voxel::starter(&app.pal, arg)),
                 "view" => {
                     if let Some(k) = VIEWS.iter().position(|v| v.0 == arg) {
@@ -1566,6 +1705,11 @@ impl Page for Models {
             "mirror.z" => self.mirror.1 = !self.mirror.1,
             "play" => self.playing = !self.playing && self.clip.is_some(),
             "save" => self.save(app),
+            "box.add" => {
+                let (part, c) = (self.part, self.first);
+                self.box_edit(app, "Add a box", |m, p| voxel::add_box(m, p, part, [8, 8, 8], c));
+            }
+            "boxes" => self.box_edit(app, "Voxels to painted boxes", |m, p| voxel::voxels_to_boxes(m, p).map(|_| ())),
             "new" => self.choosing = true,
             "undo" | "redo" => {
                 if let Some(d) = self.open.as_ref().and_then(|n| self.docs.get_mut(n)) {
@@ -1750,19 +1894,12 @@ impl Page for Models {
         if let Some(mut sec) = look::section(ui, "Model") {
             let ui = &mut *sec;
             ui.horizontal(|ui| {
-                if look::tip(ui.button("New model"), "Start a new model from a shape: a block, a slab, a post, a tool, a plant cross or a creature", "Ctrl+N").clicked() {
+                if look::tip(ui.button("New model"), "Start a new model from a shape: a block, a slab, a post, a tool or a creature", "Ctrl+N").clicked() {
                     self.run(app, "new");
                 }
-                ui.menu_button("Plant…", |ui| {
-                    for kind in voxel::PLANTS {
-                        if ui.button(kind).clicked() {
-                            self.run(app, &format!("plant:{kind}"));
-                            ui.close();
-                        }
-                    }
-                })
-                .response
-                .on_hover_text("A small plant grown as a new model, to finish by hand; again grows another");
+                if look::tip(ui.button("Voxels to painted boxes"), "Every part's voxels become one painted box of its size, in its main colour, to paint: how the game's figures are made (ADR 0116)", "").clicked() {
+                    self.run(app, "boxes");
+                }
             });
             ui.horizontal(|ui| {
                 if look::tip(ui.button("Shade by light"), "Every voxel of the part along its ramp by how open it is: open tops lighter, crevices and undersides darker", "").clicked() {
@@ -1823,6 +1960,10 @@ impl Page for Models {
         if let Some(mut sec) = look::section(ui, "Part") {
             let ui = &mut *sec;
             self.part_inspector(ui, app);
+        }
+        if let Some(mut sec) = look::section(ui, "Painting") {
+            let ui = &mut *sec;
+            self.painting(ui);
         }
         if let Some(mut sec) = look::section(ui, "Point") {
             let ui = &mut *sec;
@@ -1972,7 +2113,7 @@ mod tests {
         let edited = d.text();
         assert!(d.dirty());
         let m = d.m.clone();
-        docs.insert("post".into(), MDoc { m, life: Life::default(), hist: History::default(), saved: None, rev: 0, old: String::new() });
+        docs.insert("post".into(), MDoc { m, life: Life::default(), hist: History::default(), saved: None, rev: 0, old: String::new(), paint: NO_PAINT, paint_saved: None, paint_refused: None, paint_hist: History::default() });
         let t0 = Instant::now();
         let mut r = Recovery::new(&root, "models", Duration::from_secs(3));
         assert!(r.keep(t0, || kept(&docs)));

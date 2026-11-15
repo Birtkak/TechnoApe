@@ -22,7 +22,8 @@ fn copy(from: &Path, to: &Path) {
 /// A scratch folder whose `block` has no painting yet (the repository's blocks are painted, ADR 0084).
 fn scratch_unpainted(name: &str, block: &str) -> PathBuf {
     let dir = scratch(name);
-    for f in std::fs::read_dir(dir.join("data/textures")).unwrap().flatten() {
+    // (and its fine painting in hd/, which the game reads in the namesake's place)
+    for f in std::fs::read_dir(dir.join("data/textures")).unwrap().flatten().chain(std::fs::read_dir(dir.join("data/textures/hd")).into_iter().flatten().flatten()) {
         let n = f.file_name().to_string_lossy().into_owned();
         if n.strip_suffix(".png").is_some_and(|s| s.split(['@']).next().unwrap().trim_end_matches("_top").trim_end_matches("_side").trim_end_matches("_bottom") == block) {
             std::fs::remove_file(f.path()).unwrap();
