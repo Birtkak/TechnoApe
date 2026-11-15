@@ -179,7 +179,17 @@ impl App {
                 }
                 // `state name`: the shown model in that state (its clip, effects at points, sound, light); `state -` none
                 Some("state") => self.models.show_state(f.get(1).filter(|n| **n != "-").copied()),
-                Some("reset") => places.extend(v.orig.keys().map(|p| (Block { pos: *p, ..v.feet }, None))),
+                // `fluff id size push droop long dense light`: a cutout block's fluff drawn so now (the Studio's
+                // sliders, ADR 0134), before it is written to its row and built in
+                Some("fluff") => {
+                    let id = f.get(1).and_then(|s| s.parse::<u16>().ok()).filter(|id| engine::blocks::BLOCKS.get(*id).is_some_and(|d| d.fluff.is_some()));
+                    let fl = engine::blocks::Fluff { size: num(2) as f32, push: num(3) as f32, droop: num(4) as f32, long: num(5) as f32, dense: num(6) as f32, light: num(7) as f32 };
+                    match (id, &self.gpu) {
+                        (Some(id), Some(g)) => g.set_fluff(id, fl),
+                        _ => eprintln!("[technoape] view: {line:?}: no cutout block of that id"),
+                    }
+                }
+                Some("reset") =>places.extend(v.orig.keys().map(|p| (Block { pos: *p, ..v.feet }, None))),
                 Some("size") => {
                     if let Some(g) = &self.gpu {
                         let [w, h] = view_size(num(1), num(2), g.device.limits().max_texture_dimension_2d);

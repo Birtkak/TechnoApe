@@ -813,6 +813,17 @@ pub(crate) fn season_here(w: &engine::world::World, pos: glam::DVec3) -> (f64, f
     engine::sky::season_at(w.up_at(pos), w.time)
 }
 
+/// Cutout blocks' fluff set live by the Studio's sliders (the view's `fluff`, ADR 0134) over their rows' until the
+/// process ends: `looks_of` takes them, so a texture reload keeps them.
+static FLUFF_LIVE: std::sync::RwLock<Vec<(u16, engine::blocks::Fluff)>> = std::sync::RwLock::new(Vec::new());
+
+/// Block `id`'s fluff from now on, over its row's (a block that has none, not cutout, keeps none).
+fn live_fluff(id: u16, f: engine::blocks::Fluff) {
+    let mut live = FLUFF_LIVE.write().unwrap();
+    live.retain(|(b, _)| *b != id);
+    live.push((id, f));
+}
+
 /// Every block's look from the registry (ADR 0013, 0039, 0045), shader.wgsl `Look`, 80 bytes each: colour rgb,
 /// pattern | side << 8 | metal << 16 | gives light << 24 | cutout << 25 | glass << 26; colour2, size; colour3, amount; contrast; the painted
 /// faces (16 bits a face: layer | variants - 1 << 12 | fine << 14 (32 x 32, four layers a variant, ADR 0090) | painted << 15; top and side in `tex`, the bottom in
@@ -849,7 +860,8 @@ fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> 
                         }
                         // a cutout block's fluff (ADR 0090, `Fluff::packed`), the same in every season
                         // and the share of the sun a face of it lets through to a shadow ray
-                        let (fluff, through) = d.fluff.map_or((0, 0.0), |f| (f.packed(), f.light));
+                        let live = FLUFF_LIVE.read().unwrap().iter().find(|(b, _)| *b == id).map(|(_, f)| *f);
+                        let (fluff, through) = d.fluff.map(|f| live.unwrap_or(f)).map_or((0, 0.0), |f| (f.packed(), f.light));
                         [r, g, b, info, r2, g2, b2, size, r3, g3, b3, f(tone.amount), f(tone.contrast), tex as u32, mean, (tex >> 32) as u32, fluff, f(through), 0, 0]
                     }
                     None => {
@@ -1469,6 +1481,16 @@ impl Gpu {
         PAINT_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// A cutout block's fluff live (the view's `fluff`): its four look rows' fluff and light words written now.
+    pub(crate) fn set_fluff(&self, id: u16, f: engine::blocks::Fluff) {
+        live_fluff(id, f);
+        let words = [f.packed(), f.light.to_bits()];
+        for season in 0..4 {
+            // (a look row is 20 words; fluff and light are its 17th and 18th)
+            self.queue.write_buffer(&self.looks, ((season * 256 + id as u64) * 20 + 16) * 4, bytemuck::cast_slice(&words));
+        }
+    }
+
     pub(crate) fn upload(&self, off: u32, q: &[[u32; 2]]) {
         self.queue.write_buffer(&self.quads, off as u64 * 8, bytemuck::cast_slice(q));
     }
@@ -1498,6 +1520,23 @@ mod watch_tests {
 #[cfg(test)]
 mod look_tests {
     use engine::blocks::BLOCKS;
+
+    /// The Studio's fluff sliders (the view's `fluff`): a cutout block's fluff set live is its look rows' in every
+    /// season, and stays when the looks are made again (a texture reload); other blocks keep their rows'.
+    #[test]
+    fn a_live_fluff_is_the_blocks_look_in_every_season() {
+        let reed = BLOCKS.id("reed");
+        let f = engine::blocks::Fluff { size: 2.5, push: 0.5, droop: 0.25, long: 2.0, dense: 0.5, light: 0.25 };
+        super::live_fluff(reed, f);
+        let t = super::looks_of(&[]);
+        for s in 0..4 {
+            assert_eq!([t[s * 256 + reed as usize][16], t[s * 256 + reed as usize][17]], [f.packed(), f.light.to_bits()], "season {s}");
+        }
+        let stone = BLOCKS.id("stone") as usize;
+        // (the live numbers are the process's: reed's own back, for any test after this one)
+        super::live_fluff(reed, BLOCKS.get(reed).unwrap().fluff.unwrap());
+        assert_eq!(t[stone][16], 0, "an opaque block has no fluff");
+    }
 
     /// ADR 0061: four rows a block, the row's own (summer) first, then spring, autumn, winter; a block without
     /// seasons is the same row four times with nothing over its size's 8 bits, so the shader leaves it alone.
