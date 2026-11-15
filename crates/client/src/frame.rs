@@ -925,7 +925,9 @@ impl App {
         let proxies = if self.args.get("proxy", 1u32) == 0 {
             Vec::new()
         } else {
-            let me = (self.run == "play" && self.home() != Menu::Title).then(|| (self.globe.id, self.me.pos, p.fwd));
+            // where the camera is drawn (eased between two physics steps), not the last step's raw place: else the
+            // shadow runs a step ahead of its body and trails it in a fast flight (the review of ADR 0119)
+            let me = (self.run == "play" && self.home() != Menu::Title).then(|| (self.globe.id, p.pos - up * phys::EYE, p.fwd));
             let extra: usize = self.args.get("bodies", 0usize);
             let side = up.any_orthonormal_vector();
             let fake = (0..extra).map(|k| {
