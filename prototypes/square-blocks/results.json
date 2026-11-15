@@ -1,0 +1,192 @@
+{
+ "N": 6144,
+ "R_m": 4245.4,
+ "table_K": 192,
+ "grids": {
+  "w0.00": {
+   "block_size_m": {
+    "face_centre": 1.085,
+    "edge_middle": 0.913,
+    "smallest_beyond_30m_of_a_corner": 0.913,
+    "largest": 1.085
+   },
+   "top_stretch": {
+    "worst": 1.73,
+    "pct_over_1.1": 72.7,
+    "pct_over_1.25": 40.0
+   },
+   "skew_deg": {
+    "worst": 29.9,
+    "pct_over_5": 54.1,
+    "pct_over_15": 16.3
+   },
+   "block_stretch_with_1m_height": {
+    "worst_beyond_30m": 1.72,
+    "pct_over_1.1": 72.7,
+    "pct_over_1.25": 40.0,
+    "pct_over_1.5": 4.8
+   },
+   "size_pct": {
+    "under_0.9m": 0.0,
+    "under_0.75m": 0.0,
+    "under_0.5m": 0.0
+   },
+   "corner_law": {
+    "size_exponent": 0.002,
+    "m_from_corner_where_block_is": {
+     "0.75m": 0.0,
+     "0.5m": 0.0,
+     "0.25m": 0.0
+    }
+   }
+  },
+  "w0.25": {
+   "block_size_m": {
+    "face_centre": 1.095,
+    "edge_middle": 0.949,
+    "smallest_beyond_30m_of_a_corner": 0.788,
+    "largest": 1.095
+   },
+   "top_stretch": {
+    "worst": 1.72,
+    "pct_over_1.1": 63.4,
+    "pct_over_1.25": 21.7
+   },
+   "skew_deg": {
+    "worst": 29.5,
+    "pct_over_5": 44.0,
+    "pct_over_15": 7.5
+   },
+   "block_stretch_with_1m_height": {
+    "worst_beyond_30m": 1.65,
+    "pct_over_1.1": 63.4,
+    "pct_over_1.25": 21.7,
+    "pct_over_1.5": 0.6
+   },
+   "size_pct": {
+    "under_0.9m": 3.4,
+    "under_0.75m": 0.0,
+    "under_0.5m": 0.0
+   },
+   "corner_law": {
+    "size_exponent": 0.049,
+    "m_from_corner_where_block_is": {
+     "0.75m": 0.0,
+     "0.5m": 0.0,
+     "0.25m": 0.0
+    }
+   }
+  },
+  "w0.50": {
+   "block_size_m": {
+    "face_centre": 1.105,
+    "edge_middle": 0.983,
+    "smallest_beyond_30m_of_a_corner": 0.627,
+    "largest": 1.105
+   },
+   "top_stretch": {
+    "worst": 1.69,
+    "pct_over_1.1": 45.8,
+    "pct_over_1.25": 3.7
+   },
+   "skew_deg": {
+    "worst": 28.9,
+    "pct_over_5": 28.9,
+    "pct_over_15": 1.3
+   },
+   "block_stretch_with_1m_height": {
+    "worst_beyond_30m": 1.98,
+    "pct_over_1.1": 50.8,
+    "pct_over_1.25": 5.7,
+    "pct_over_1.5": 0.6
+   },
+   "size_pct": {
+    "under_0.9m": 7.4,
+    "under_0.75m": 0.4,
+    "under_0.5m": 0.0
+   },
+   "corner_law": {
+    "size_exponent": 0.105,
+    "m_from_corner_where_block_is": {
+     "0.75m": 162.4,
+     "0.5m": 3.4,
+     "0.25m": 0.0
+    }
+   }
+  },
+  "w0.75": {
+   "block_size_m": {
+    "face_centre": 1.114,
+    "edge_middle": 1.015,
+    "smallest_beyond_30m_of_a_corner": 0.497,
+    "largest": 1.114
+   },
+   "top_stretch": {
+    "worst": 1.65,
+    "pct_over_1.1": 7.5,
+    "pct_over_1.25": 0.1
+   },
+   "skew_deg": {
+    "worst": 27.5,
+    "pct_over_5": 7.7,
+    "pct_over_15": 0.0
+   },
+   "block_stretch_with_1m_height": {
+    "worst_beyond_30m": 2.32,
+    "pct_over_1.1": 25.9,
+    "pct_over_1.25": 4.7,
+    "pct_over_1.5": 0.9
+   },
+   "size_pct": {
+    "under_0.9m": 9.4,
+    "under_0.75m": 1.3,
+    "under_0.5m": 0.0
+   },
+   "corner_law": {
+    "size_exponent": 0.171,
+    "m_from_corner_where_block_is": {
+     "0.75m": 337.1,
+     "0.5m": 31.7,
+     "0.25m": 0.6
+    }
+   }
+  },
+  "w1.00": {
+   "block_size_m": {
+    "face_centre": 1.124,
+    "edge_middle": 1.046,
+    "smallest_beyond_30m_of_a_corner": 0.374,
+    "largest": 1.124
+   },
+   "top_stretch": {
+    "worst": 1.53,
+    "pct_over_1.1": 0.0,
+    "pct_over_1.25": 0.0
+   },
+   "skew_deg": {
+    "worst": 23.6,
+    "pct_over_5": 0.0,
+    "pct_over_15": 0.0
+   },
+   "block_stretch_with_1m_height": {
+    "worst_beyond_30m": 2.73,
+    "pct_over_1.1": 24.6,
+    "pct_over_1.25": 3.9,
+    "pct_over_1.5": 0.9
+   },
+   "size_pct": {
+    "under_0.9m": 10.4,
+    "under_0.75m": 2.3,
+    "under_0.5m": 0.1
+   },
+   "corner_law": {
+    "size_exponent": 0.247,
+    "m_from_corner_where_block_is": {
+     "0.75m": 453.1,
+     "0.5m": 87.5,
+     "0.25m": 5.3
+    }
+   }
+  }
+ }
+}
