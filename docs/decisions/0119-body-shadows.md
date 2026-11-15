@@ -70,3 +70,13 @@ Option 2 (`crates/client/src/proxy.rs`).
 ## Consequences
 - A torch on the floor throws a passer-by's shadow on the wall; a held torch does not shade its holder.
 - Animals' shadows and moving limbs wait for a cheaper way to keep moving things in the traced scene.
+
+## Review (a fresh reader, 2026-11-15, after the merge into main)
+- **Fixed:** the own body stood at the last physics step's raw place, a step ahead of the drawn camera; it stands
+  under the drawn eye now.
+- **Open, cost** (`docs/perf-debt.md`): the own body turns with the look, so a mouse move while standing still
+  rebuilds the whole TLAS, every chunk instance written again: paid nearly every frame in play, not only "while a
+  body moves". Idea: snap the yaw or the place before comparing.
+- **Open, suspected, not seen:** water and particles inside the own torso's box send their sun and lamp rays out
+  through its inside faces, so a swimmer looking down may see a dark rectangle at the waterline.
+- **Open, minor:** the death screen keeps the body's shadow.
