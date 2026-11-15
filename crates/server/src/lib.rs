@@ -242,6 +242,8 @@ pub struct Server {
     pub ore_open: Vec<i64>,
     /// The animals (ADR 0083): what the seed makes near players and the kept delta of met sites.
     pub herds: engine::herds::Herds,
+    /// The data files as last looked at (`watch_defs`): each one's time and size.
+    defs_seen: Option<[Option<(std::time::SystemTime, u64)>; 4]>,
     /// The herds read beside a save (`read_herds`), until the recorder has logged them.
     herds_loaded: Option<Vec<u8>>,
     /// Loose blocks awake to fall or slide (ADR 0079).
@@ -319,6 +321,7 @@ impl Server {
             map_pieces: HashMap::new(),
             ore_open,
             herds: engine::herds::compiled(seed),
+            defs_seen: None,
             herds_loaded: None,
             falls: Default::default(),
             sky: Vec::new(),
@@ -596,7 +599,47 @@ impl Server {
         }
     }
 
+    /// Live definitions (ADR 0134): once a second the block, item, creature and herd files of `data/` are
+    /// looked at (four stats); a changed one is read and put in force here and on every client, a bad one is
+    /// named on stderr and the rows before stay. No `data/` folder beside the server: the build's rows.
+    /// shortcut: read and parsed on the tick thread (about a millisecond for 25 kB); a recording keeps no
+    /// reload, so a session that reloaded replays with the build's rows.
+    fn watch_defs(&mut self) {
+        let dir = std::path::Path::new("data");
+        let seen = ["blocks.toml", "items.toml", "creatures.toml", "herds.toml"].map(|f| std::fs::metadata(dir.join(f)).ok().and_then(|m| Some((m.modified().ok()?, m.len()))));
+        if seen.iter().any(|s| s.is_none()) || self.defs_seen == Some(seen) {
+            return;
+        }
+        self.defs_seen = Some(seen);
+        match engine::live::load(dir) {
+            Ok(false) => {}
+            Ok(true) => {
+                self.world.refresh_defs();
+                let (blocks, items) = engine::live::reloaded().expect("just applied");
+                for c in &self.clients {
+                    c.link.send(ToClient::Defs { blocks: blocks.clone(), items: items.clone() });
+                }
+                eprintln!("[server] data: blocks and items reloaded");
+            }
+            Err(e) => eprintln!("[server] data: refused, the rows before stay: {e}"),
+        }
+        let read = |f: &str| std::fs::read_to_string(dir.join(f)).map_err(|e| format!("data/{f}: {e}"));
+        match read("creatures.toml").and_then(|c| self.herds.reload(&c, &read("herds.toml")?)) {
+            Ok(false) => {}
+            Ok(true) => {
+                for c in &self.clients {
+                    c.link.send(ToClient::Kinds(self.herds.kinds.iter().map(|k| k.name.clone()).collect()));
+                }
+                eprintln!("[server] data: creatures and herds reloaded");
+            }
+            Err(e) => eprintln!("[server] data: refused, the rows before stay: {e}"),
+        }
+    }
+
     pub fn tick(&mut self) {
+        if self.tick % TICK_HZ as u64 == 0 {
+            self.watch_defs();
+        }
         // the sky's clock: the world's age, which a save carries on (ADR 0022)
         self.tick0 = self.tick0.wrapping_add(self.warp - 1);
         self.world.time = self.tick0.wrapping_add(self.tick) as f64 / TICK_HZ;
@@ -626,6 +669,9 @@ impl Server {
             self.next_id += 1;
             self.log(Ev::Join { tick: self.tick, id });
             let [p, m] = [self.world.bodies[0].n, self.world.bodies[1].n];
+            if let Some((blocks, items)) = engine::live::reloaded() {
+                link.send(ToClient::Defs { blocks, items });
+            }
             link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m, blocks: BLOCKS.hash, items: ITEMS.hash, map: self.map_hash(), luna: self.luna_hash() });
             link.send(ToClient::Kinds(self.herds.kinds.iter().map(|k| k.name.clone()).collect()));
             let all: Vec<(Block, u16)> = self

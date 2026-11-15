@@ -387,6 +387,12 @@ impl App {
                 Recv::Msg(ToClient::Air(h)) => self.air = Some(h),
                 Recv::Msg(ToClient::Sky { t, all, changed }) => self.sky.take(t, all, changed),
                 Recv::Msg(ToClient::Welcome { .. } | ToClient::Map { .. }) => {}
+                // (what was derived from the old rows follows `live::rev`, below, whoever applied them)
+                Recv::Msg(ToClient::Defs { blocks, items }) => {
+                    if let Err(e) = engine::live::apply(&blocks, &items) {
+                        eprintln!("[technoape] data: the server's rows refused, the rows before stay: {e}");
+                    }
+                }
                 Recv::Msg(ToClient::Chat(text)) => {
                     for line in text.lines() {
                         eprintln!("[chat] {line}");
@@ -614,6 +620,11 @@ impl App {
         lap!("select");
         // the Leaves setting (ADR 0069), or a run's leaves=fancy|fast: level 0 meshed again when it changes
         let fancy = self.args.0.get("leaves").map_or(self.settings.at(S::Leaves) == 1, |v| v == "fancy");
+        // the block rows changed under the game (ADR 0134): this world's lights and models of placed blocks
+        // again, then every chunk meshed again
+        if self.streamer.set_defs(engine::live::rev()) {
+            self.world.refresh_defs();
+        }
         self.streamer.set_cutout(fancy);
         // the Clutter setting (ADR 0082), or a run's clutter=off|few|normal|many
         let level = self.args.0.get("clutter").and_then(|v| ["off", "few", "normal", "many"].iter().position(|n| n == v)).unwrap_or(self.settings.at(S::Clutter));

@@ -96,6 +96,9 @@ pub enum ToClient {
     /// that lacks it asks for it (`fetch_map`). `luna`: Luna's (ADR 0070), None for its hills. `items`: the item
     /// registry's hash (`ITEMS.hash`, ADR 0074), refused the same way as `blocks`.
     Welcome { id: u32, seed: i32, planet_n: i32, moon_n: i32, blocks: u64, items: u64, map: Option<u64>, luna: Option<u64> },
+    /// The block and item files' text in force on the server (`live::apply`, ADR 0134): to everyone when the
+    /// server reloads them, and before `Welcome` to a client that joins a server whose files are not the build's.
+    Defs { blocks: String, items: String },
     /// A piece of the baked map's bytes (`Map::to_bytes`), in order, `pieces` in all.
     Map { piece: u32, pieces: u32, bytes: Vec<u8> },
     Edits(Vec<(Block, u16)>),

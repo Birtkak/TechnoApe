@@ -1877,6 +1877,30 @@ impl World {
             self.models.remove(&b);
         }
     }
+    /// The block rows changed under a running world (`live::apply`, ADR 0134): what `set_block` derived from
+    /// them per placed block, its light and whether it is drawn as a model, is derived again.
+    /// shortcut: every edit is walked on the caller's thread (about a millisecond per 50,000 edits); on a
+    /// worker when a reload must not cost a frame.
+    pub fn refresh_defs(&mut self) {
+        let (mut lights, mut models) = (FxMap::default(), FxMap::default());
+        for (k, cells) in &self.edits {
+            for (p, &m) in cells {
+                let Some(d) = BLOCKS.get(m) else { continue };
+                let b = Block { body: k.body, face: k.face, pos: *p };
+                if d.light != [0.0; 3] {
+                    lights.insert(b, d.light);
+                }
+                if d.model.is_some() {
+                    models.insert(b, m);
+                }
+            }
+        }
+        if lights != self.lights {
+            self.lights = lights;
+            self.lights_rev += 1;
+        }
+        self.models = models;
+    }
     /// Puts back what `edit` returned: an edit, or (None) the generated block with no edit recorded.
     pub fn put_edit(&mut self, b: Block, e: Option<u16>) {
         match e {

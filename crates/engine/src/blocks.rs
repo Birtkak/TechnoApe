@@ -1,8 +1,8 @@
 //! The block registry: every block's id, name and look, from `data/blocks.toml` (ADR 0013). The file is built
-//! into the binary, so a client and a server from one build agree; `Welcome` carries `BLOCKS.hash` so builds
-//! that do not agree refuse each other.
+//! into the binary, so a client and a server from one build agree, and may be reloaded in a running game
+//! (`live::apply`, ADR 0134: the server sends its files to its clients); `Welcome` carries `BLOCKS.hash` so
+//! builds whose rows still do not agree refuse each other.
 use serde::Deserialize;
-use std::sync::LazyLock;
 
 /// A block id (ADR 0062): 16 bits, of which the registry uses the low 8 until the shader reads more.
 pub const AIR: u16 = 0;
@@ -499,8 +499,9 @@ impl Registry {
     }
 }
 
-pub static BLOCKS: LazyLock<Registry> =
-    LazyLock::new(|| Registry::parse(include_str!("../../../data/blocks.toml")).unwrap_or_else(|e| panic!("data/blocks.toml: {e}")));
+/// The block rows in force: the compiled-in file until a reload (`live::apply`, ADR 0134).
+pub static BLOCKS: crate::live::Live<Registry> =
+    crate::live::Live::new(|| Registry::parse(crate::live::BLOCKS_TOML).unwrap_or_else(|e| panic!("data/blocks.toml: {e}")));
 
 #[cfg(test)]
 mod tests {

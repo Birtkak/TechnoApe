@@ -925,6 +925,9 @@ pub(crate) fn watch<T: Send + 'static>(name: &str, dir: std::path::PathBuf, also
                     .into_iter()
                     .collect();
                 now.extend(also.iter().filter_map(|f| Some((f.as_os_str().to_owned(), f.metadata().ok()?.modified().ok()?, f.metadata().ok()?.len()))));
+                // and the block and item rows (ADR 0134): what is made here is made over them (a block's looks,
+                // a row's model), so it is made again when they are reloaded
+                now.push((std::ffi::OsString::from("live rows"), std::time::UNIX_EPOCH, engine::live::rev()));
                 if seen.as_ref() != Some(&now) {
                     let (set, any) = load(&dir);
                     if (seen.is_some() || any) && tx.send(set).is_err() {

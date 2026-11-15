@@ -321,6 +321,8 @@ pub struct Streamer {
     walk_frame: u64,
     /// A job was applied or a slot evicted since the last walk: the next frame walks.
     dirty: bool,
+    /// The block rows these meshes were asked from (`live::rev`, ADR 0134).
+    defs_rev: u64,
     /// The last walk left a cover out for a child out of view: the next frame that looks another way walks.
     look_dirty: bool,
     /// Slots touched since the last frame.
@@ -442,6 +444,7 @@ impl Streamer {
             walk: None,
             walk_frame: 0,
             dirty: true,
+            defs_rev: crate::live::rev(),
             look_dirty: false,
             touched: Vec::new(),
             walks: 0,
@@ -937,6 +940,20 @@ impl Streamer {
             s.shown_v = r.version;
             st.applied += 1;
         }
+    }
+
+    /// The block rows changed (`live::rev`, ADR 0134): every slot gets a new version, so it is meshed again from
+    /// the new rows while the old mesh stays drawn. True when they did: the caller's own tables are due too.
+    pub fn set_defs(&mut self, rev: u64) -> bool {
+        if self.defs_rev == rev {
+            return false;
+        }
+        self.defs_rev = rev;
+        for (_, sl) in self.slots.iter_mut() {
+            sl.want_v += 1;
+        }
+        self.dirty = true;
+        true
     }
 
     /// Fancy or fast leaves (ADR 0069): every level-0 slot gets a new version, so it is meshed again the new way
