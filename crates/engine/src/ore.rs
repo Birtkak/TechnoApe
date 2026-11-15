@@ -285,7 +285,11 @@ pub fn place(b: &Body, seed: u64) -> Vec<OreBody> {
     let (sf, si, sj) = b.locate(b.spawn);
     // the river cells over the sea, by face, at their columns, with the way they flow
     let m = map.m as usize;
-    let cell_at = |c: u32| ((c as usize / (m * m)), ((c as usize % m) as f64 + 0.5) * n / m as f64, (((c as usize / m) % m) as f64 + 0.5) * n / m as f64);
+    // (a map cell's middle in the block grid, which the warp moves, ADR 0131)
+    let cell_at = |c: u32| {
+        let (i, j) = b.unwarp_col(((c as usize % m) as f64 + 0.5) * n / m as f64, (((c as usize / m) % m) as f64 + 0.5) * n / m as f64);
+        ((c as usize / (m * m)), i, j)
+    };
     let rivers: Vec<(usize, f64, f64, f64)> = map
         .rivers
         .iter()

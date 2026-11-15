@@ -24,5 +24,6 @@ pub mod stream;
 pub mod structures;
 pub mod textures;
 pub mod vitals;
+pub mod warp;
 pub mod weather;
 pub mod world;

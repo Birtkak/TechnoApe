@@ -581,6 +581,8 @@ struct Emitter {
     at: At,
     /// Particles owed by the rate, not yet whole.
     due: f64,
+    /// Glows without a lamp of its own (`unlit`): a placed block's flame, whose block is the light.
+    unlit: bool,
 }
 
 /// A particle with a model look, for models.rs to draw: its row, body, place (body frame, from the centre), its
@@ -820,7 +822,7 @@ impl Fx {
         for r in rows {
             self.burst(r, at, h);
             // a count-only row too, so `restart` knows it; `emit` passes it by
-            self.emitters.push(Emitter { handle: h, row: r, at: *at, due: 0.0 });
+            self.emitters.push(Emitter { handle: h, row: r, at: *at, due: 0.0, unlit: false });
         }
         Some(Handle(h))
     }
@@ -828,6 +830,12 @@ impl Fx {
     /// A lasting effect's new place (it follows a moving part); its particles already out fly on.
     pub fn moved(&mut self, h: Handle, at: &At) {
         self.emitters.iter_mut().filter(|e| e.handle == h.0).for_each(|e| e.at = *at);
+    }
+
+    /// A lasting effect's glow gives no lamp from now on, its particles as bright as before (ADR 0117: a placed
+    /// torch's flame, whose block already is the light).
+    pub fn unlit(&mut self, h: Handle) {
+        self.emitters.iter_mut().filter(|e| e.handle == h.0).for_each(|e| e.unlit = true);
     }
 
     /// Stops a lasting effect: no more particles; those out live their lives.
@@ -1089,7 +1097,9 @@ impl Fx {
     /// Moves every particle on by dt: the body's pull towards its centre, drag, the floor of its column; the
     /// dead go, the living are packed for the GPU (`drawn`) in the same pass.
     pub fn step(&mut self, world: &World, dt: f32) {
-        let g0 = engine::phys::G as f32;
+        // the Earth's pull, not `phys::G`: the effects were tuned by eye before Terra got heavier (2026-11-15), and a
+        // row's `gravity` is a share of this
+        let g0 = 9.81f32;
         // the file changed: its rows in, or why not
         if let Some(got) = self.rx.as_ref().and_then(|rx| rx.try_iter().last()) {
             match got.and_then(|set| self.swap(set)) {
@@ -1280,7 +1290,7 @@ impl Fx {
             for _ in 0..n as usize {
                 self.spawn(r, e.row, &e.at, e.handle);
             }
-            if r.glow > 0.0 {
+            if r.glow > 0.0 && !e.unlit {
                 let c = if r.grad.is_empty() { r.colour.unwrap_or([1.0; 3]) } else { r.grad.iter().fold([0.0; 3], |s, g| [0, 1, 2].map(|k| s[k] + g.1[k] / r.grad.len() as f32)) };
                 let mut c = c.map(|v| v * r.glow * 0.25);
                 if let Some(z) = &r.noise {

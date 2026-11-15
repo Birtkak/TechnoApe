@@ -225,7 +225,8 @@ pub fn aim(world: &World, eye: DVec3, dir: DVec3, reach: f64) -> Option<(Block, 
         if b == prev {
             continue;
         }
-        if b.pos.z >= 0 && BLOCKS.solid(world.block(b)) {
+        // a block drawn as a model (a torch, ADR 0117) is aimed at by its cell, though rays and walkers pass it
+        if b.pos.z >= 0 && BLOCKS.get(world.block(b)).is_some_and(|d| d.solid || d.model.is_some()) {
             return Some((b, prev));
         }
         prev = b;
@@ -515,6 +516,20 @@ mod tests {
         assert!(BLOCKS.solid(w.block(hit)) && !BLOCKS.solid(w.block(before)));
         assert_eq!((hit.pos.x, hit.pos.y, hit.pos.z + 1), (before.pos.x, before.pos.y, before.pos.z));
         assert!(aim(&w, ground + glam::DVec3::Z * 1.6, glam::DVec3::Z, 8.0).is_none(), "nothing in the sky");
+    }
+
+    /// ADR 0117 (review): a torch is aimed at by its cell, so a click breaks it and the cell before it takes a
+    /// place; the ray does not go on to the ground behind it.
+    #[test]
+    fn a_torch_is_aimed_at_not_through() {
+        let mut w = World::new(256, 32, 1);
+        let ground = w.bodies[0].centre + glam::DVec3::Z * w.bodies[0].height(glam::DVec3::Z);
+        let eye = ground + glam::DVec3::Z * 1.6;
+        let (floor, before) = aim(&w, eye, -glam::DVec3::Z, 8.0).unwrap();
+        w.set_block(before, BLOCKS.id("torch"));
+        let (hit, front) = aim(&w, eye, -glam::DVec3::Z, 8.0).unwrap();
+        assert_eq!(hit, before, "the torch, not the floor {floor:?} under it");
+        assert_eq!(front.pos, before.pos + IVec3::Z, "the cell over it takes a place");
     }
 
     /// Buried to the eyes (sand fallen on the head, ADR 0079): the block the eye is in is the one aimed at, so

@@ -4577,3 +4577,643 @@ ramp = "berry bush 2 rich"
 name = "berry bush 2 r8"
 rgb = "#8fd332"
 ramp = "berry bush 2 rich"
+
+[[colour]]
+name = "ape fur r1"
+rgb = "#22110c"
+ramp = "ape fur rich"
+
+[[colour]]
+name = "ape fur r2"
+rgb = "#391e12"
+ramp = "ape fur rich"
+
+[[colour]]
+name = "ape fur r3"
+rgb = "#552d18"
+ramp = "ape fur rich"
+
+[[colour]]
+name = "ape fur r4"
+rgb = "#723f1e"
+ramp = "ape fur rich"
+
+[[colour]]
+name = "ape fur r5"
+rgb = "#8d5528"
+ramp = "ape fur rich"
+
+[[colour]]
+name = "ape fur r6"
+rgb = "#a76d33"
+ramp = "ape fur rich"
+
+[[colour]]
+name = "ape fur r7"
+rgb = "#c08641"
+ramp = "ape fur rich"
+
+[[colour]]
+name = "ape fur r8"
+rgb = "#c69e62"
+ramp = "ape fur rich"
+
+[[colour]]
+name = "boar bristle r1"
+rgb = "#0d0908"
+ramp = "boar bristle rich"
+
+[[colour]]
+name = "boar bristle r2"
+rgb = "#201712"
+ramp = "boar bristle rich"
+
+[[colour]]
+name = "boar bristle r3"
+rgb = "#36281e"
+ramp = "boar bristle rich"
+
+[[colour]]
+name = "boar bristle r4"
+rgb = "#4d3a29"
+ramp = "boar bristle rich"
+
+[[colour]]
+name = "boar bristle r5"
+rgb = "#644e37"
+ramp = "boar bristle rich"
+
+[[colour]]
+name = "boar bristle r6"
+rgb = "#7b6346"
+ramp = "boar bristle rich"
+
+[[colour]]
+name = "boar bristle r7"
+rgb = "#927956"
+ramp = "boar bristle rich"
+
+[[colour]]
+name = "boar bristle r8"
+rgb = "#a48f6a"
+ramp = "boar bristle rich"
+
+[[colour]]
+name = "boar snout r1"
+rgb = "#462625"
+ramp = "boar snout rich"
+
+[[colour]]
+name = "boar snout r2"
+rgb = "#5a322e"
+ramp = "boar snout rich"
+
+[[colour]]
+name = "boar snout r3"
+rgb = "#724138"
+ramp = "boar snout rich"
+
+[[colour]]
+name = "boar snout r4"
+rgb = "#8c5242"
+ramp = "boar snout rich"
+
+[[colour]]
+name = "boar snout r5"
+rgb = "#a3674f"
+ramp = "boar snout rich"
+
+[[colour]]
+name = "boar snout r6"
+rgb = "#b18166"
+ramp = "boar snout rich"
+
+[[colour]]
+name = "boar snout r7"
+rgb = "#bc9a82"
+ramp = "boar snout rich"
+
+[[colour]]
+name = "boar snout r8"
+rgb = "#c9b29c"
+ramp = "boar snout rich"
+
+[[colour]]
+name = "tusk r1"
+rgb = "#7a6d4d"
+ramp = "tusk rich"
+
+[[colour]]
+name = "tusk r2"
+rgb = "#8d7f57"
+ramp = "tusk rich"
+
+[[colour]]
+name = "tusk r3"
+rgb = "#a29364"
+ramp = "tusk rich"
+
+[[colour]]
+name = "tusk r4"
+rgb = "#b1a479"
+ramp = "tusk rich"
+
+[[colour]]
+name = "tusk r5"
+rgb = "#bdb491"
+ramp = "tusk rich"
+
+[[colour]]
+name = "tusk r6"
+rgb = "#cac4a9"
+ramp = "tusk rich"
+
+[[colour]]
+name = "tusk r7"
+rgb = "#d8d4c2"
+ramp = "tusk rich"
+
+[[colour]]
+name = "tusk r8"
+rgb = "#e7e5da"
+ramp = "tusk rich"
+
+[[colour]]
+name = "deer coat r1"
+rgb = "#352212"
+ramp = "deer coat rich"
+
+[[colour]]
+name = "deer coat r2"
+rgb = "#4d3118"
+ramp = "deer coat rich"
+
+[[colour]]
+name = "deer coat r3"
+rgb = "#68441e"
+ramp = "deer coat rich"
+
+[[colour]]
+name = "deer coat r4"
+rgb = "#875923"
+ramp = "deer coat rich"
+
+[[colour]]
+name = "deer coat r5"
+rgb = "#a1712d"
+ramp = "deer coat rich"
+
+[[colour]]
+name = "deer coat r6"
+rgb = "#bb8939"
+ramp = "deer coat rich"
+
+[[colour]]
+name = "deer coat r7"
+rgb = "#c69e54"
+ramp = "deer coat rich"
+
+[[colour]]
+name = "deer coat r8"
+rgb = "#cdb174"
+ramp = "deer coat rich"
+
+[[colour]]
+name = "deer pale r1"
+rgb = "#6d5d45"
+ramp = "deer pale rich"
+
+[[colour]]
+name = "deer pale r2"
+rgb = "#806e4f"
+ramp = "deer pale rich"
+
+[[colour]]
+name = "deer pale r3"
+rgb = "#97815b"
+ramp = "deer pale rich"
+
+[[colour]]
+name = "deer pale r4"
+rgb = "#a9956c"
+ramp = "deer pale rich"
+
+[[colour]]
+name = "deer pale r5"
+rgb = "#b6a684"
+ramp = "deer pale rich"
+
+[[colour]]
+name = "deer pale r6"
+rgb = "#c3b89c"
+ramp = "deer pale rich"
+
+[[colour]]
+name = "deer pale r7"
+rgb = "#d0c9b5"
+ramp = "deer pale rich"
+
+[[colour]]
+name = "deer pale r8"
+rgb = "#dfdbce"
+ramp = "deer pale rich"
+
+[[colour]]
+name = "hare fur r1"
+rgb = "#2b231c"
+ramp = "hare fur rich"
+
+[[colour]]
+name = "hare fur r2"
+rgb = "#3d3327"
+ramp = "hare fur rich"
+
+[[colour]]
+name = "hare fur r3"
+rgb = "#534434"
+ramp = "hare fur rich"
+
+[[colour]]
+name = "hare fur r4"
+rgb = "#6a5840"
+ramp = "hare fur rich"
+
+[[colour]]
+name = "hare fur r5"
+rgb = "#806c4f"
+ramp = "hare fur rich"
+
+[[colour]]
+name = "hare fur r6"
+rgb = "#95825f"
+ramp = "hare fur rich"
+
+[[colour]]
+name = "hare fur r7"
+rgb = "#a59575"
+ramp = "hare fur rich"
+
+[[colour]]
+name = "hare fur r8"
+rgb = "#b3a88e"
+ramp = "hare fur rich"
+
+[[colour]]
+name = "hare pale r1"
+rgb = "#726b5f"
+ramp = "hare pale rich"
+
+[[colour]]
+name = "hare pale r2"
+rgb = "#837b6b"
+ramp = "hare pale rich"
+
+[[colour]]
+name = "hare pale r3"
+rgb = "#958c7b"
+ramp = "hare pale rich"
+
+[[colour]]
+name = "hare pale r4"
+rgb = "#a59e8e"
+ramp = "hare pale rich"
+
+[[colour]]
+name = "hare pale r5"
+rgb = "#b5b0a3"
+ramp = "hare pale rich"
+
+[[colour]]
+name = "hare pale r6"
+rgb = "#c5c2b8"
+ramp = "hare pale rich"
+
+[[colour]]
+name = "hare pale r7"
+rgb = "#d6d4ce"
+ramp = "hare pale rich"
+
+[[colour]]
+name = "hare pale r8"
+rgb = "#e8e7e3"
+ramp = "hare pale rich"
+
+[[colour]]
+name = "hare pink r1"
+rgb = "#626b33"
+ramp = "hare pink rich"
+
+[[colour]]
+name = "hare pink r3"
+rgb = "#9b5142"
+ramp = "hare pink rich"
+
+[[colour]]
+name = "hare pink r2"
+rgb = "#816a3a"
+ramp = "hare pink rich"
+
+[[colour]]
+name = "hare pink r4"
+rgb = "#b64a6e"
+ramp = "hare pink rich"
+
+[[colour]]
+name = "hare pink r5"
+rgb = "#bf66b0"
+ramp = "hare pink rich"
+
+[[colour]]
+name = "hare pink r6"
+rgb = "#b183c8"
+ramp = "hare pink rich"
+
+[[colour]]
+name = "hare pink r7"
+rgb = "#a79fd2"
+ramp = "hare pink rich"
+
+[[colour]]
+name = "hare pink r8"
+rgb = "#bbc6dd"
+ramp = "hare pink rich"
+
+[[colour]]
+name = "snake scale r1"
+rgb = "#162810"
+ramp = "snake scale rich"
+
+[[colour]]
+name = "snake scale r2"
+rgb = "#233f17"
+ramp = "snake scale rich"
+
+[[colour]]
+name = "snake scale r3"
+rgb = "#35591e"
+ramp = "snake scale rich"
+
+[[colour]]
+name = "snake scale r4"
+rgb = "#497525"
+ramp = "snake scale rich"
+
+[[colour]]
+name = "snake scale r5"
+rgb = "#618f30"
+ramp = "snake scale rich"
+
+[[colour]]
+name = "snake scale r6"
+rgb = "#7ba83c"
+ramp = "snake scale rich"
+
+[[colour]]
+name = "snake scale r7"
+rgb = "#96bb50"
+ramp = "snake scale rich"
+
+[[colour]]
+name = "snake scale r8"
+rgb = "#abc36f"
+ramp = "snake scale rich"
+
+[[colour]]
+name = "snake belly r1"
+rgb = "#666737"
+ramp = "snake belly rich"
+
+[[colour]]
+name = "snake belly r2"
+rgb = "#7b7c40"
+ramp = "snake belly rich"
+
+[[colour]]
+name = "snake belly r3"
+rgb = "#949449"
+ramp = "snake belly rich"
+
+[[colour]]
+name = "snake belly r4"
+rgb = "#aead53"
+ramp = "snake belly rich"
+
+[[colour]]
+name = "snake belly r5"
+rgb = "#b8b76d"
+ramp = "snake belly rich"
+
+[[colour]]
+name = "snake belly r6"
+rgb = "#c3c188"
+ramp = "snake belly rich"
+
+[[colour]]
+name = "snake belly r7"
+rgb = "#cecda3"
+ramp = "snake belly rich"
+
+[[colour]]
+name = "snake belly r8"
+rgb = "#dbdabd"
+ramp = "snake belly rich"
+
+[[colour]]
+name = "hearth stone r1"
+rgb = "#292524"
+ramp = "hearth stone rich"
+
+[[colour]]
+name = "hearth stone r2"
+rgb = "#393431"
+ramp = "hearth stone rich"
+
+[[colour]]
+name = "hearth stone r3"
+rgb = "#4b4541"
+ramp = "hearth stone rich"
+
+[[colour]]
+name = "hearth stone r4"
+rgb = "#5e5751"
+ramp = "hearth stone rich"
+
+[[colour]]
+name = "hearth stone r5"
+rgb = "#716a62"
+ramp = "hearth stone rich"
+
+[[colour]]
+name = "hearth stone r6"
+rgb = "#857e74"
+ramp = "hearth stone rich"
+
+[[colour]]
+name = "hearth stone r7"
+rgb = "#979189"
+ramp = "hearth stone rich"
+
+[[colour]]
+name = "hearth stone r8"
+rgb = "#a9a59e"
+ramp = "hearth stone rich"
+
+[[colour]]
+name = "ember r1"
+rgb = "#60230b"
+ramp = "ember rich"
+
+[[colour]]
+name = "ember r2"
+rgb = "#7e310b"
+ramp = "ember rich"
+
+[[colour]]
+name = "ember r3"
+rgb = "#a14309"
+ramp = "ember rich"
+
+[[colour]]
+name = "ember r4"
+rgb = "#c85806"
+ramp = "ember rich"
+
+[[colour]]
+name = "ember r5"
+rgb = "#e7730b"
+ramp = "ember rich"
+
+[[colour]]
+name = "ember r6"
+rgb = "#ef9029"
+ramp = "ember rich"
+
+[[colour]]
+name = "ember r7"
+rgb = "#eda952"
+ramp = "ember rich"
+
+[[colour]]
+name = "ember r8"
+rgb = "#ecc079"
+ramp = "ember rich"
+
+[[colour]]
+name = "door copper r1"
+rgb = "#38190f"
+ramp = "door copper rich"
+
+[[colour]]
+name = "door copper r2"
+rgb = "#512614"
+ramp = "door copper rich"
+
+[[colour]]
+name = "door copper r3"
+rgb = "#6e3618"
+ramp = "door copper rich"
+
+[[colour]]
+name = "door copper r4"
+rgb = "#8f491b"
+ramp = "door copper rich"
+
+[[colour]]
+name = "door copper r5"
+rgb = "#ab6024"
+ramp = "door copper rich"
+
+[[colour]]
+name = "door copper r6"
+rgb = "#c5792f"
+ramp = "door copper rich"
+
+[[colour]]
+name = "door copper r7"
+rgb = "#cf934b"
+ramp = "door copper rich"
+
+[[colour]]
+name = "door copper r8"
+rgb = "#d4ab6d"
+ramp = "door copper rich"
+
+[[colour]]
+name = "eye r1"
+rgb = "#110f0d"
+ramp = "eye rich"
+
+[[colour]]
+name = "eye r2"
+rgb = "#221e1a"
+ramp = "eye rich"
+
+[[colour]]
+name = "eye r3"
+rgb = "#352f29"
+ramp = "eye rich"
+
+[[colour]]
+name = "eye r4"
+rgb = "#4a4137"
+ramp = "eye rich"
+
+[[colour]]
+name = "eye r5"
+rgb = "#5e5548"
+ramp = "eye rich"
+
+[[colour]]
+name = "eye r6"
+rgb = "#736959"
+ramp = "eye rich"
+
+[[colour]]
+name = "eye r7"
+rgb = "#877d6a"
+ramp = "eye rich"
+
+[[colour]]
+name = "eye r8"
+rgb = "#99917f"
+ramp = "eye rich"
+
+[[colour]]
+name = "ape skin r1"
+rgb = "#4f2e1c"
+ramp = "ape skin rich"
+
+[[colour]]
+name = "ape skin r2"
+rgb = "#673e22"
+ramp = "ape skin rich"
+
+[[colour]]
+name = "ape skin r3"
+rgb = "#835028"
+ramp = "ape skin rich"
+
+[[colour]]
+name = "ape skin r4"
+rgb = "#a1652d"
+ramp = "ape skin rich"
+
+[[colour]]
+name = "ape skin r5"
+rgb = "#bb7d37"
+ramp = "ape skin rich"
+
+[[colour]]
+name = "ape skin r6"
+rgb = "#c79451"
+ramp = "ape skin rich"
+
+[[colour]]
+name = "ape skin r7"
+rgb = "#cea971"
+ramp = "ape skin rich"
+
+[[colour]]
+name = "ape skin r8"
+rgb = "#d5bd90"
+ramp = "ape skin rich"

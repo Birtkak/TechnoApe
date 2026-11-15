@@ -27,6 +27,30 @@ pub(crate) fn depth_view(device: &wgpu::Device) -> wgpu::TextureView {
         .create_view(&Default::default())
 }
 
+/// The conformal grid's warp table (ADR 0131, engine `warp.rs`): rg32float, x along b, y along a, read with
+/// `textureLoad` (binding 18 of the terrain's group 0; the shader's `warp_at`).
+pub(crate) fn warp_view(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureView {
+    use wgpu::util::DeviceExt;
+    let n = engine::warp::N as u32;
+    device
+        .create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: Some("warp"),
+                size: wgpu::Extent3d { width: n, height: n, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rg32Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            engine::warp::BYTES,
+        )
+        .create_view(&Default::default())
+}
+
 /// Where a frame is copied to be read back: filmstrips, shots, the bug report's screenshot.
 pub(crate) fn capture_buf(device: &wgpu::Device) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
@@ -105,8 +129,29 @@ pub(crate) fn cap_lamps<'a>(all: impl Iterator<Item = &'a (u8, DVec3, [f32; 3])>
 
 /// The lamp of the block in hand (bug 2026-11-13_14-31-01): a block that gives light lights the world from the
 /// hand, 0.4 m ahead of the eye and 0.3 m under it, as `cap_lamps` takes it (body `cf`, world place, light).
-pub(crate) fn held_lamp(d: Option<&engine::blocks::Def>, cf: u8, eye: DVec3, fwd: DVec3, up: DVec3) -> Option<(u8, DVec3, [f32; 3])> {
-    d.filter(|d| d.light != [0.0; 3]).map(|d| (cf, eye + fwd * 0.4 - up * 0.3, d.light))
+/// A flame (a torch, ADR 0117) under water there is out: none.
+pub(crate) fn held_lamp(world: &World, d: Option<&engine::blocks::Def>, cf: u8, eye: DVec3, fwd: DVec3, up: DVec3) -> Option<(u8, DVec3, [f32; 3])> {
+    let at = eye + fwd * 0.4 - up * 0.3;
+    d.filter(|d| d.light != [0.0; 3] && !(d.flame && world.water_surface(at).is_some())).map(|d| (cf, at, d.light))
+}
+
+/// The lamps the other players hold (ADR 0117): from each one's roster entry (`net::Player::hand`, once a
+/// second), at its hand as `held_lamp` puts this player's, its eye 1.5 m over its feet, each with its holder's
+/// id; `me` is left out.
+/// (shortcut: a light moves with the roster's once a second; with the players' own moves when they are sent)
+pub(crate) fn others_lamps(world: &World, others: &[engine::net::Player], me: u32) -> Vec<(u32, (u8, DVec3, [f32; 3]))> {
+    others
+        .iter()
+        .filter(|o| o.id != me && o.hand != 0)
+        .filter_map(|o| {
+            let pos = DVec3::from_array(o.pos);
+            let body = world.frame_at(pos);
+            let up = (pos - world.bodies.get(body)?.centre).normalize_or(DVec3::Z);
+            let fwd = DVec3::from_array(o.fwd.map(f64::from));
+            let fwd = (fwd - up * fwd.dot(up)).normalize_or(up.any_orthonormal_vector());
+            held_lamp(world, engine::blocks::BLOCKS.get(o.hand), body as u8, pos + up * 1.5, fwd, up).map(|l| (o.id, l))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -129,13 +174,53 @@ mod lamp_tests {
     #[test]
     fn a_held_lamp_gives_light_from_the_hand() {
         let b = &engine::blocks::BLOCKS;
-        let (eye, fwd, up) = (DVec3::new(0.0, 0.0, 100.0), DVec3::X, DVec3::Z);
-        let lamp = b.get(b.id("lamp")).unwrap();
-        let (body, at, light) = held_lamp(Some(lamp), 0, eye, fwd, up).expect("a lamp gives light");
-        assert_eq!((body, light), (0, lamp.light));
-        assert!((at - eye).length() < 1.0 && (at - eye).dot(fwd) > 0.0, "in hand, ahead of the eye: {at}");
-        assert!(held_lamp(b.get(b.id("dirt")), 0, eye, fwd, up).is_none(), "dirt gives none");
-        assert!(held_lamp(None, 0, eye, fwd, up).is_none(), "an empty hand none");
+        let w = World::new(768, 256, 1);
+        let up = w.bodies[0].spawn;
+        let eye = w.bodies[0].centre + up * (w.bodies[0].height(up) + 1.6);
+        let fwd = up.any_orthonormal_vector();
+        for name in ["lamp", "torch"] {
+            let lamp = b.get(b.id(name)).unwrap();
+            let (body, at, light) = held_lamp(&w, Some(lamp), 0, eye, fwd, up).expect("it gives light");
+            assert_eq!((body, light), (0, lamp.light), "{name}: by its row");
+            assert!((at - eye).length() < 1.0 && (at - eye).dot(fwd) > 0.0, "in hand, ahead of the eye: {at}");
+        }
+        assert!(held_lamp(&w, b.get(b.id("dirt")), 0, eye, fwd, up).is_none(), "dirt gives none");
+        assert!(held_lamp(&w, None, 0, eye, fwd, up).is_none(), "an empty hand none");
+    }
+
+    /// ADR 0117: a torch held under water is out; a lamp there stays lit.
+    #[test]
+    fn a_held_torch_is_out_under_water() {
+        let b = &engine::blocks::BLOCKS;
+        let w = World::new(768, 256, 1);
+        let body = &w.bodies[0];
+        let sea = body.layer_r(body.sea.unwrap());
+        // (a spiral of directions over the whole planet, the first over deep sea)
+        let d = (0..20000).map(|k| { let z = 1.0 - (k as f64 + 0.5) / 10000.0; let a = k as f64 * 2.399963; let r = (1.0 - z * z).sqrt(); DVec3::new(r * a.cos(), r * a.sin(), z) }).find(|d| body.height(*d) < sea - 4.0).expect("a sea");
+        let eye = body.centre + d * (sea - 1.0);
+        let fwd = d.any_orthonormal_vector();
+        assert!(w.water_surface(eye + fwd * 0.4 - d * 0.3).is_some(), "the hand is under water");
+        assert!(held_lamp(&w, b.get(b.id("torch")), 0, eye, fwd, d).is_none(), "the torch is out");
+        assert!(held_lamp(&w, b.get(b.id("lamp")), 0, eye, fwd, d).is_some(), "the lamp is lit");
+    }
+
+    /// ADR 0117: another player's held torch is a lamp in this client's list, at its hand; this player's own
+    /// roster entry and an empty or dark hand are none.
+    #[test]
+    fn another_players_held_torch_is_a_lamp_here() {
+        let b = &engine::blocks::BLOCKS;
+        let w = World::new(768, 256, 1);
+        let up = w.bodies[0].spawn;
+        let feet = w.bodies[0].centre + up * w.bodies[0].height(up);
+        let p = |id: u32, hand: u16| engine::net::Player { id, name: format!("p{id}"), pos: feet.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0, hand };
+        let torch = b.id("torch");
+        let got = others_lamps(&w, &[p(1, torch), p(2, torch), p(3, 0), p(4, b.id("dirt"))], 1);
+        assert_eq!(got.len(), 1, "player 2's only: {got:?}");
+        let (id, (body, at, light)) = got[0];
+        assert_eq!(id, 2);
+        assert_eq!((body, light), (0, b.get(torch).unwrap().light));
+        let h = (at - feet).dot(up);
+        assert!((0.9..1.5).contains(&h) && (at - feet).length() < 1.6, "at its hand: {h} m up");
     }
 }
 
@@ -492,6 +577,8 @@ pub(crate) struct Gpu {
     pub(crate) sky_tex: wgpu::Texture,
     pub(crate) sky_view: wgpu::TextureView,
     pub(crate) sky_samp: wgpu::Sampler,
+    /// The warp's table (`warp_view`).
+    pub(crate) warp_view: wgpu::TextureView,
     pub(crate) window: Arc<Window>,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
@@ -572,7 +659,7 @@ const TEX_LAYERS: u32 = 2048;
 /// The terrain's bind group: `b` the buffers globals, quads, chunks, looks, water quads, lamps, lamp cells, effects,
 /// paintings, model quads, model pieces, globe, still faces, still paintings
 #[allow(clippy::too_many_arguments)]
-fn main_bind(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, b: [&wgpu::Buffer; 14], tlas: &wgpu::Tlas, sky: (&wgpu::TextureView, &wgpu::Sampler)) -> wgpu::BindGroup {
+fn main_bind(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, b: [&wgpu::Buffer; 14], tlas: &wgpu::Tlas, sky: (&wgpu::TextureView, &wgpu::Sampler), warp: &wgpu::TextureView) -> wgpu::BindGroup {
     let [globals, quads, chunks, looks, wquads, lamps, lamp_cells, fx_buf, tex, mquads, mpieces, globe_buf, sfaces, spaint] = b;
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
@@ -595,13 +682,14 @@ fn main_bind(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, b: [&wgpu::Buff
             wgpu::BindGroupEntry { binding: 15, resource: wgpu::BindingResource::Sampler(sky.1) },
             wgpu::BindGroupEntry { binding: 16, resource: sfaces.as_entire_binding() },
             wgpu::BindGroupEntry { binding: 17, resource: spaint.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 18, resource: wgpu::BindingResource::TextureView(warp) },
         ],
     })
 }
 
 impl Gpu {
     /// The bounce's share of the terrain's resources (`Gi::new`), with `tlas`.
-    pub(crate) fn shared<'a>(&'a self, tlas: &'a wgpu::Tlas) -> [wgpu::BindingResource<'a>; 12] {
+    pub(crate) fn shared<'a>(&'a self, tlas: &'a wgpu::Tlas) -> [wgpu::BindingResource<'a>; 13] {
         [
             self.globals.as_entire_binding(),
             self.quads.as_entire_binding(),
@@ -615,13 +703,14 @@ impl Gpu {
             wgpu::BindingResource::Sampler(&self.sky_samp),
             self.sfaces.as_entire_binding(),
             self.spaint.as_entire_binding(),
+            wgpu::BindingResource::TextureView(&self.warp_view),
         ]
     }
 
     /// The terrain's bind group again with a new TLAS (rt.rs `grew`, ADR 0111).
     pub(crate) fn rebind(&mut self, tlas: &wgpu::Tlas) {
         let b = [&self.globals, &self.quads, &self.chunks, &self.looks, &self.wquads, &self.lamps, &self.lamp_cells, &self.fx_buf, &self.tex, &self.mquads, &self.mpieces, &self.globe_buf, &self.sfaces, &self.spaint];
-        self.bind = main_bind(&self.device, &self.bgl, b, tlas, (&self.sky_view, &self.sky_samp));
+        self.bind = main_bind(&self.device, &self.bgl, b, tlas, (&self.sky_view, &self.sky_samp), &self.warp_view);
     }
 }
 
@@ -984,6 +1073,7 @@ impl Gpu {
         });
         let sky_view = sky_tex.create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
         let sky_samp = device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..Default::default() });
+        let warp_view = warp_view(&device, &queue);
         let tex_rx = watch_textures(std::path::PathBuf::from(a.get("textures", String::from("data/textures"))));
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
@@ -1038,10 +1128,16 @@ impl Gpu {
                 wgpu::BindGroupLayoutEntry { binding: 15, visibility: wgpu::ShaderStages::VERTEX_FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
                 storage(16),
                 storage(17),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 18,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+                    count: None,
+                },
             ],
         });
-        let rt = rt::Rt::new(&device, &shader, &globals, &quads, &sfaces, MAX_CHUNKS as u32);
-        let bind = main_bind(&device, &bgl, [&globals, &quads, &chunks, &looks, &wquads, &lamps, &lamp_cells, &fx_buf, &tex, &mquads, &mpieces, &globe_buf, &sfaces, &spaint], &rt.tlas, (&sky_view, &sky_samp));
+        let rt = rt::Rt::new(&device, &shader, &globals, &quads, &sfaces, &warp_view, MAX_CHUNKS as u32);
+        let bind = main_bind(&device, &bgl, [&globals, &quads, &chunks, &looks, &wquads, &lamps, &lamp_cells, &fx_buf, &tex, &mquads, &mpieces, &globe_buf, &sfaces, &spaint], &rt.tlas, (&sky_view, &sky_samp), &warp_view);
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[Some(&bgl)],
@@ -1268,6 +1364,7 @@ impl Gpu {
                 wgpu::BindingResource::Sampler(&sky_samp),
                 sfaces.as_entire_binding(),
                 spaint.as_entire_binding(),
+                wgpu::BindingResource::TextureView(&warp_view),
             ],
             (&sky_view, &sky_samp),
             format,
@@ -1275,6 +1372,7 @@ impl Gpu {
             h(),
         );
         let gpu = Gpu {
+            warp_view,
             sky_tex,
             sky_view,
             sky_samp,

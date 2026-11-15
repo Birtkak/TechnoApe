@@ -8,7 +8,7 @@ use super::*;
 pub(crate) const PLAYTEST: &[(&str, &[&str], &str)] = &[
     ("Eclipse of the sun: Luna in front of Sol", &["eclipse:sun"], ""),
     ("Eclipse of Luna: in Terra's shadow", &["eclipse:luna"], ""),
-    ("On Luna: 3.7 times less gravity, Terra overhead", &["/playmode creative", "/goto luna"], "A jump is about 4.6 m here. Terra's night side should fade in, with no hard line."),
+    ("On Luna: 3.7 times less gravity, Terra overhead", &["/playmode creative", "/goto luna"], "A jump is about 4.4 m here. Terra's night side should fade in, with no hard line."),
     ("Fast flight: 1000 m/s over Terra", &["/playmode creative", "/goto terra", "fly:1000"], "Fly low and turn hard: the ground should never vanish."),
     ("Midnight: the moon grey, not red", &["/goto terra", "/time set midnight"], "Find Luna: grey-white, unless an eclipse is on."),
     ("Sunset: the light fading out", &["/goto terra", "/time set sunset"], "The sunlight on the ground should dim smoothly as Sol sets."),
@@ -168,6 +168,7 @@ impl App {
             "L" if self.aim.is_some_and(|(_, before)| self.pickup(before)) => {
                 let at = self.aim.unwrap().1;
                 self.link.send(ToServer::Take { seq: self.pred.seq(), at });
+                self.swung(self.start.elapsed().as_secs_f64());
             }
             // knapping by doing (ADR 0110): the place button with a knapping stone in hand on hard rock strikes it
             "R" if self.knap_target().is_some() => self.strike(),
@@ -241,6 +242,8 @@ impl App {
                 }
             }
             "nudge+" | "nudge-" => self.nudge(a == "nudge-"),
+            // pitch:deg looks up or down, a scripted shot's aim (the mouse's look)
+            a if a.starts_with("pitch:") => self.pitch = a[6..].parse::<f64>().map_or(self.pitch, |d| d.to_radians().clamp(-1.55, 1.55)),
             a if a.starts_with("scroll:") => self.scroll_by(a[7..].parse().unwrap_or(0)),
             a if a.starts_with("bind:") => self.bind_to(Bind::parse(&a[5..])),
             // key+:name and key-:name press and let go of a key or button itself (KeyW, Mouse1), through the
@@ -961,7 +964,14 @@ impl App {
         let m = self.world.block(hit);
         self.fx.play(fx::id("knap"), &fx::At::cell(&self.world, hit, m));
         self.audio.play("knap", Some(self.world.block_centre(hit)), 1.0, 1.0, false);
-        self.dip = fx::Track { tween: fx::Tween::new(now, 0.18, fx::Curve::Pulse), from: [0.0; 2], to: [-46.0, 60.0] };
+        self.swung(now);
+    }
+
+    /// One swing of the hand (ADR 0115): a dig, a place, a strike, a pick-up, each hit of a held dig; the block
+    /// drawn in hand dips on it (ADR 0031), a model in hand or the bare arm strikes in toward the aim (models.rs). A new one
+    /// starts it over.
+    pub(crate) fn swung(&mut self, now: f64) {
+        self.dip = fx::Track { tween: fx::Tween::new(now, crate::models::SWING_S, fx::Curve::Pulse), from: [0.0; 2], to: [-46.0, 60.0] };
     }
 
     pub(crate) fn held_count(&self, m: u16) -> u32 {
@@ -991,7 +1001,7 @@ impl App {
         }
         // what the player sees of it at once (ADR 0031): the hand dips, the cells break or place with their effects
         let now = self.start.elapsed().as_secs_f64();
-        self.dip = fx::Track { tween: fx::Tween::new(now, 0.18, fx::Curve::Pulse), from: [0.0; 2], to: [-46.0, 60.0] };
+        self.swung(now);
         // the cells' deltas, as the server's are (frame.rs): each its effect, the first its sound, heard the
         // frame of the click (fundamentals.md)
         let me = &self.me;
@@ -1044,6 +1054,15 @@ impl App {
                 self.held = Some((true, a, a));
             }
         }
+        // a block with no dig time (a torch, ADR 0117) goes at the click in survival too, as itself
+        if let Some((true, at, end)) = self.held.filter(|_| !self.creative && self.aim.is_some()) {
+            if let Some(s) = self.shape(true, at, end).filter(|s| s.fits(&self.world) && edit::dig_time(&self.world, s) == 0.0 && s.cells().any(|c| self.world.block(c) != AIR)) {
+                self.apply(&s, true);
+                self.swung(now);
+                (self.held, self.dig_again) = (None, false);
+                return;
+            }
+        }
         let want = match self.held {
             Some((true, at, end)) if !self.creative && self.aim.is_some() => self.shape(true, at, end).filter(|s| s.fits(&self.world) && edit::dig_time(&self.world, s) > 0.0),
             _ => None,
@@ -1056,6 +1075,7 @@ impl App {
         if now - self.dig_hit >= HIT_S {
             self.dig_hit = now;
             self.hit(&s);
+            self.swung(now);
         }
         if self.hold.held(&s, now) >= edit::dig_time_with(&self.world, &s, self.hand_tool()) {
             self.hold.done();

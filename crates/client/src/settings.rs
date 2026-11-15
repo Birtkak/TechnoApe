@@ -177,7 +177,7 @@ acts! {
     Right "right" "Right" k(KeyCode::KeyD), "" "";
     Jump "jump" "Jump, swim up, fly up" k(KeyCode::Space), "space" "";
     Sprint "sprint" "Sprint (hold)" k(KeyCode::ControlLeft), "" "";
-    Down "down" "Fly down" [Some(Bind::Key(KeyCode::ShiftLeft)), Some(Bind::Key(KeyCode::ShiftRight))], "" "";
+    Down "down" "Fly down, swim down" [Some(Bind::Key(KeyCode::ShiftLeft)), Some(Bind::Key(KeyCode::ShiftRight))], "" "";
     RollLeft "roll_left" "Roll left (space)" k(KeyCode::KeyQ), "" "";
     RollRight "roll_right" "Roll right (space)" k(KeyCode::KeyE), "" "";
     Zoom "zoom" "Zoom" k(KeyCode::KeyC), "zoom" "unzoom";

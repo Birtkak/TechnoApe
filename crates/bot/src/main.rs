@@ -18,6 +18,8 @@ fn main() {
     let addr = if addr.contains(':') { addr } else { format!("{addr}:{DEFAULT_PORT}") };
     let n: usize = args.get("n").and_then(|v| v.parse().ok()).unwrap_or(1);
     let name = args.get("name").cloned().unwrap_or_else(|| "bot".into());
+    // warp=: the server's block-grid warp (ADR 0131), which no message carries
+    let warp: f64 = args.get("warp").map_or(0.0, |v| v.parse().expect("warp= is a number 0 to 1"));
     let script_arg = args.get("script").cloned().unwrap_or_else(|| "report".into());
     let live = script_arg == "-";
     let script = if live {
@@ -50,6 +52,7 @@ fn main() {
             let lock = out_lock.clone();
             std::thread::spawn(move || {
                 let mut b = Bot::new(&bot_name, link);
+                b.warp = warp;
                 b.run(script, rx, |l| {
                     let _g = lock.lock().unwrap();
                     println!("{l}");

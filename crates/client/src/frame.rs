@@ -130,7 +130,8 @@ impl App {
                 jump: auto || self.settings.held(&self.keys, Act::Jump) || (self.settings.on(S::AutoJump) && !self.flying && phys::ledge_ahead(&self.world, &self.me)),
                 pitch: self.pitch as f32,
                 fly: if self.flying { self.fly_speed as f32 } else { 0.0 },
-                down: self.flying && self.settings.held(&self.keys, Act::Down),
+                // (walking, only the water reads it: it swims down, ADR 0118)
+                down: self.settings.held(&self.keys, Act::Down),
                 t: self.world.time,
                 // held; each step's prediction refuses it below the floor as the server will (ADR 0118)
                 sprint: !self.flying && self.settings.held(&self.keys, Act::Sprint),
@@ -911,18 +912,39 @@ impl App {
                 half_n: b.n as f32 * 0.5,
                 // shortcut: only the planet (body 0) has seasons; a second planet needs its own year in `Sky`
                 _p: [b.sea.map_or(-1.0, |s| (s + if bi == 0 { tide.base * per_m } else { 0.0 }) as f32), if bi == 0 { self.season_year(engine::sky::season_at(DVec3::Z, self.world.time).0) as f32 } else { -1.0 }],
-                rot: [col(m.x_axis), col(m.y_axis), col(m.z_axis)],
+                // (rot0.w: the block grid's warp, ADR 0131; the shader's `body_grid`)
+                rot: [[m.x_axis.x, m.x_axis.y, m.x_axis.z, b.warp as f32], col(m.y_axis), col(m.z_axis)],
                 ctr: { let v = (m.as_dmat3() * -c).as_vec3(); [v.x, v.y, v.z, b.radius as f32] },
             };
             cams[bi] = (c + b.centre, m.as_dmat3());
         }
         gpu.take_textures();
+        // the players' bodies in the traced scene (ADR 0119): this one's while playing, the roster's near, and
+        // `bodies=n` more round the camera for a measure or a still; `proxy=0` none
+        let near_cams: Vec<DVec3> = cams.iter().map(|c| c.0).collect();
+        let proxies = if self.args.get("proxy", 1u32) == 0 {
+            Vec::new()
+        } else {
+            let me = (self.run == "play" && self.home() != Menu::Title).then(|| (self.globe.id, self.me.pos, p.fwd));
+            let extra: usize = self.args.get("bodies", 0usize);
+            let side = up.any_orthonormal_vector();
+            let fake = (0..extra).map(|k| {
+                let a = k as f64 * 2.399963;
+                let r = 3.0 + (k % 8) as f64;
+                let d = (side * a.cos() + up.cross(side) * a.sin()) * r;
+                engine::net::Player { id: u32::MAX - k as u32, name: String::new(), pos: (p.pos - up * phys::EYE + d).to_array(), fwd: (-d).normalize().as_vec3().to_array(), pitch: 0.0, hand: 0 }
+            });
+            let others: Vec<engine::net::Player> = self.globe.others.iter().cloned().chain(fake).collect();
+            crate::proxy::near(&self.world, me, &others, &near_cams)
+        };
+        self.models.hand = crate::proxy::holder(&proxies, self.globe.id) as u32;
+        // (the ape's parts, the bodies' one shape; a box of the player's size before it loads)
+        let proxy_tris = crate::proxy::triangles(&self.models.list.iter().find(|l| l.0.name == crate::models::FIGURE).map_or_else(crate::proxy::plain, |l| crate::proxy::boxes(&l.0.model)));
         // the models (ADR 0047): the watcher's newest, then this frame's pieces (timed under "table")
         self.models.take(&gpu.queue, &gpu.mquads);
-        let hand = (self.run == "play" && !self.hammer && !self.bucket && !self.f3 && self.home() != Menu::Title)
-            .then(|| self.inv.get(self.slot).copied().flatten())
-            .flatten()
-            .map(|s| engine::items::ITEMS.name(s.item).to_string());
+        let hand = hand_shown(self.run == "play", self.hammer || self.bucket, self.f3, self.home(), self.menu)
+            .then(|| self.inv.get(self.slot).copied().flatten().map(|s| engine::items::ITEMS.name(s.item).to_string()));
+        let swing = crate::models::swing(self.start.elapsed().as_secs_f64() - self.dip.tween.start);
         let now = Instant::now();
         let herd: Vec<crate::models::Beast> = self
             .animals
@@ -932,7 +954,7 @@ impl App {
                 Some(crate::models::Beast { id: *id, model: model.clone(), act: a.act, pos: self.animal_at(*id, now)?, fwd: DVec3::from_array(a.fwd.map(f64::from)), scale: *scale })
             })
             .collect();
-        self.models.frame(&self.world, &cams, cf, (p.pos, p.fwd, up), self.view.as_ref().map_or(self.start.elapsed().as_secs_f64(), |v| v.t), hand.as_deref(), &herd, &mut self.fx, &mut self.audio);
+        self.models.frame(&self.world, &cams, cf, (p.pos, p.fwd, up), self.view.as_ref().map_or(self.start.elapsed().as_secs_f64(), |v| v.t), hand.as_ref().map(|n| crate::models::Hand { item: n.as_deref(), swing }), &herd, &mut self.fx, &mut self.audio);
         self.models.upload(&gpu.queue, &gpu.mpieces);
         // the lamps: gathered again when they change or every 10 frames, placed and gridded every frame
         let ec = self.world.lights_rev;
@@ -945,18 +967,24 @@ impl App {
         // the lamps of the world, then the glowing lasting effects' and the models' states' (ADR 0050)
         let near: Vec<DVec3> = cams.iter().map(|c| c.0).collect();
         let cap = [16, 64, MAX_LAMPS][self.settings.at(S::Lamps)];
-        // and the block in hand's, when it gives light (only this player's: the protocol does not carry what others hold)
-        // (none between the bodies, in the inertial frame: lamps belong to a body)
-        let held = (self.run == "play" && !self.hammer && !self.bucket && self.home() != Menu::Title && cf < self.world.bodies.len())
+        // and the block in hand's, when it gives light, while the hand is there (not on the title or the death
+        // screen, nor with a tool of its own up), and the other players' (their roster's hands, ADR 0117); none
+        // between the bodies, in the inertial frame: lamps belong to a body
+        let held = (hand_shown(self.run == "play", self.hammer || self.bucket, false, self.home(), self.menu) && cf < self.world.bodies.len())
             .then(|| self.slot_block(self.slot))
             .flatten()
-            .and_then(|m| crate::gpu::held_lamp(BLOCKS.get(m), cf as u8, p.pos, p.fwd, up));
-        let lamps: Vec<LampGpu> = crate::gpu::cap_lamps(self.lamps.iter().chain(self.fx.lamps()).chain(self.models.lamps()).chain(held.as_ref()), &near, cap)
+            .and_then(|m| crate::gpu::held_lamp(&self.world, BLOCKS.get(m), cf as u8, p.pos, p.fwd, up));
+        let others_held = crate::gpu::others_lamps(&self.world, &self.globe.others, self.globe.id);
+        let others: Vec<_> = others_held.iter().map(|o| o.1).collect();
+        // a held lamp's rays pass through its holder's body (ADR 0119): its place in the proxies plus one
+        let holders: Vec<(DVec3, f32)> = held.iter().map(|h| (h.1, crate::proxy::holder(&proxies, self.globe.id))).chain(others_held.iter().map(|o| (o.1 .1, crate::proxy::holder(&proxies, o.0)))).collect();
+        let lamps: Vec<LampGpu> = crate::gpu::cap_lamps(self.lamps.iter().chain(self.fx.lamps()).chain(self.models.lamps()).chain(held.as_ref()).chain(&others), &near, cap)
             .iter()
             .map(|&(bi, x, l)| {
                 let (cam, m) = cams[bi as usize];
                 let v = (m * (x - cam)).as_vec3();
-                LampGpu { pos: [v.x, v.y, v.z, bi as f32], col: [l[0], l[1], l[2], 0.0] }
+                let w = holders.iter().find(|h| h.0 == x).map_or(0.0, |h| h.1);
+                LampGpu { pos: [v.x, v.y, v.z, bi as f32], col: [l[0], l[1], l[2], w] }
             })
             .collect();
         g.n_lamps[0] = lamps.len() as u32;
@@ -1090,7 +1118,7 @@ impl App {
         };
         stamp(&mut enc, 0);
         let rt = self.rt.as_mut().unwrap();
-        rt.record(&gpu.device, &gpu.queue, &mut enc, &insts);
+        rt.record(&gpu.device, &gpu.queue, &mut enc, &insts, &proxy_tris, &proxies);
         let rt_pending = rt.pending;
         // a larger TLAS: bound before this frame's passes, which trace it (ADR 0111)
         if rt.grew {
@@ -1437,9 +1465,28 @@ impl crate::app::App {
     }
 }
 
+/// Whether anything is shown in hand at the lower right (ADR 0115): in play, no hammer or bucket up, no F3, not
+/// the title's world, not dead.
+fn hand_shown(play: bool, tool: bool, f3: bool, home: Menu, menu: Option<Menu>) -> bool {
+    play && !tool && !f3 && home != Menu::Title && menu != Some(Menu::Dead)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ADR 0115: the hand (an item or the bare arm) shows in play, not with a tool of its own up, the numbers'
+    /// overlay, the title's world behind its menu, or the death screen.
+    #[test]
+    fn the_hand_shows_in_play_only() {
+        assert!(hand_shown(true, false, false, Menu::Pause, None));
+        assert!(hand_shown(true, false, false, Menu::Pause, Some(Menu::Inventory)), "as the held item does today");
+        assert!(!hand_shown(false, false, false, Menu::Pause, None), "not in a benchmark run");
+        assert!(!hand_shown(true, true, false, Menu::Pause, None), "the hammer or the bucket up");
+        assert!(!hand_shown(true, false, true, Menu::Pause, None), "F3");
+        assert!(!hand_shown(true, false, false, Menu::Title, None), "the title's world");
+        assert!(!hand_shown(true, false, false, Menu::Pause, Some(Menu::Dead)), "dead");
+    }
 
     #[test]
     fn indexed_quads_draw_both_triangles_of_every_split_with_its_own_provoking_corner() {
