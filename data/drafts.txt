@@ -14,7 +14,6 @@ data/sounds.toml#base.rumble
 data/sounds.toml#base.chirp
 data/sounds.toml#base.growl
 data/sounds.toml#base.scrape
-data/sounds.toml#furnace.burn
 data/sounds.toml#furnace.clank
 data/models/leaf.toml
 data/effects.toml#fire

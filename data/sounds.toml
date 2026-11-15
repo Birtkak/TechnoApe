@@ -504,11 +504,11 @@ bus = "world"
 reach = 16
 gain = 0.5
 loop = 4.0
-from = [{ base = "base.hum", gain = 0.6 }, { base = "base.rumble", gain = 0.8 }, { base = "base.hiss", gain = 0.25 }]
+from = [{ base = "base.hum", gain = 0.6, delay = 0.62 }, { base = "base.rumble", gain = 0.65, delay = 0.77 }, { base = "base.hiss", gain = 2, delay = 2 }]
 chain = [
   { lowpass = 1800, q = 0.7 },
-  { tremolo = 3.0, depth = 0.25 },
-  { reverb = 0.3, damping = 0.6, mix = 0.2 },
+  { tremolo = 17.6, depth = 0.25 },
+  { reverb = 0.532, damping = 0.6, mix = 0.2 },
 ]
 spread = { lowpass = 300 }
 
