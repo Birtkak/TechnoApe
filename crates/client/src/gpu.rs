@@ -813,6 +813,12 @@ pub(crate) fn season_here(w: &engine::world::World, pos: glam::DVec3) -> (f64, f
     engine::sky::season_at(w.up_at(pos), w.time)
 }
 
+/// Where block `id`'s fluff and light go in the looks buffer, in bytes, one per season (a look row is 20 words; they
+/// are its 17th and 18th), and the words.
+fn fluff_words(id: u16, f: engine::blocks::Fluff) -> [(u64, [u32; 2]); 4] {
+    std::array::from_fn(|season| (((season as u64 * 256 + id as u64) * 20 + 16) * 4, [f.packed(), f.light.to_bits()]))
+}
+
 /// Every block's look from the registry (ADR 0013, 0039, 0045), shader.wgsl `Look`, 80 bytes each: colour rgb,
 /// pattern | side << 8 | metal << 16 | gives light << 24 | cutout << 25 | glass << 26; colour2, size; colour3, amount; contrast; the painted
 /// faces (16 bits a face: layer | variants - 1 << 12 | fine << 14 (32 x 32, four layers a variant, ADR 0090) | painted << 15; top and side in `tex`, the bottom in
@@ -1469,6 +1475,15 @@ impl Gpu {
         PAINT_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// A cutout block's fluff drawn so while a Studio slider is dragged (the view's `fluff`): its four look rows'
+    /// fluff and light words written over. Nothing keeps it: the next `looks_of` (a texture or row reload, as the
+    /// let-go slider's save is) writes the row's own numbers back.
+    pub(crate) fn set_fluff(&self, id: u16, f: engine::blocks::Fluff) {
+        for (at, words) in fluff_words(id, f) {
+            self.queue.write_buffer(&self.looks, at, bytemuck::cast_slice(&words));
+        }
+    }
+
     pub(crate) fn upload(&self, off: u32, q: &[[u32; 2]]) {
         self.queue.write_buffer(&self.quads, off as u64 * 8, bytemuck::cast_slice(q));
     }
@@ -1498,6 +1513,29 @@ mod watch_tests {
 #[cfg(test)]
 mod look_tests {
     use engine::blocks::BLOCKS;
+
+    /// The Studio's fluff sliders (the view's `fluff`): the words written over the looks buffer land on the block's
+    /// fluff and light in every season and nowhere else; with the row's own numbers they change nothing.
+    #[test]
+    fn a_dragged_fluff_lands_on_the_blocks_look_in_every_season() {
+        let reed = BLOCKS.id("reed");
+        let own = BLOCKS.get(reed).unwrap().fluff.unwrap();
+        let t = super::looks_of(&[]);
+        let write = |f| {
+            let mut words: Vec<u32> = t.iter().flatten().copied().collect();
+            for (at, w) in super::fluff_words(reed, f) {
+                words[at as usize / 4..at as usize / 4 + 2].copy_from_slice(&w);
+            }
+            words
+        };
+        let flat: Vec<u32> = t.iter().flatten().copied().collect();
+        assert!(write(own) == flat, "the row's own fluff is what looks_of wrote");
+        let f = engine::blocks::Fluff { size: 2.5, push: 0.5, droop: 0.25, long: 2.0, dense: 0.5, light: 0.25 };
+        let w = write(f);
+        let changed: Vec<usize> = (0..w.len()).filter(|i| w[*i] != flat[*i]).collect();
+        let expect: Vec<usize> = (0..4).flat_map(|s| [(s * 256 + reed as usize) * 20 + 16, (s * 256 + reed as usize) * 20 + 17]).collect();
+        assert_eq!(changed, expect, "reed's fluff and light words in the four seasons");
+    }
 
     /// ADR 0061: four rows a block, the row's own (summer) first, then spring, autumn, winter; a block without
     /// seasons is the same row four times with nothing over its size's 8 bits, so the shader leaves it alone.
