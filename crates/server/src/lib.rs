@@ -244,6 +244,9 @@ pub struct Server {
     pub herds: engine::herds::Herds,
     /// The data files as last looked at (`watch_defs`): each one's time and size.
     defs_seen: Option<[Option<(std::time::SystemTime, u64)>; 4]>,
+    /// Whether `data/` is watched (`watch_defs`): the game's servers; never a soak, a replay or a test, which
+    /// run on the build's rows whatever lies beside them.
+    pub live_data: bool,
     /// The herds read beside a save (`read_herds`), until the recorder has logged them.
     herds_loaded: Option<Vec<u8>>,
     /// Loose blocks awake to fall or slide (ADR 0079).
@@ -322,6 +325,7 @@ impl Server {
             ore_open,
             herds: engine::herds::compiled(seed),
             defs_seen: None,
+            live_data: false,
             herds_loaded: None,
             falls: Default::default(),
             sky: Vec::new(),
@@ -637,7 +641,7 @@ impl Server {
     }
 
     pub fn tick(&mut self) {
-        if self.tick % TICK_HZ as u64 == 0 {
+        if self.live_data && self.tick % TICK_HZ as u64 == 0 {
             self.watch_defs();
         }
         // the sky's clock: the world's age, which a save carries on (ADR 0022)

@@ -35,6 +35,10 @@ impl<T> Live<T> {
         // SAFETY: as above
         unsafe { &*p }
     }
+    /// Made again by its own maker: for a value derived from another `Live` that changed.
+    pub fn again(&self) {
+        self.set((self.init)());
+    }
     pub fn set(&self, v: T) {
         self.cur.store(Box::leak(Box::new(v)), Ordering::Release);
     }
@@ -66,8 +70,8 @@ pub fn reloaded() -> Option<(String, String)> {
 
 /// Puts the two files' text in force: Ok(true) when the rows changed, Ok(false) when they are what was in
 /// force already. An error names the file and the row and changes nothing: a file that does not parse, or one
-/// that drops a block or an item the world may hold (rows are added and changed, never taken away, while a
-/// world is up).
+/// that drops, renames or moves a block or an item the world may hold (rows are added and changed in place
+/// while a world is up).
 pub fn apply(blocks: &str, items: &str) -> Result<bool, String> {
     let mut texts = TEXTS.lock().unwrap();
     let (was_b, was_i) = texts.as_ref().map_or((BLOCKS_TOML, ITEMS_TOML), |t| (t.0.as_str(), t.1.as_str()));
@@ -77,8 +81,9 @@ pub fn apply(blocks: &str, items: &str) -> Result<bool, String> {
     }
     let new = crate::blocks::Registry::parse(blocks).map_err(|e| format!("data/blocks.toml: {e}"))?;
     let old = crate::blocks::BLOCKS.now();
-    if let Some(d) = old.placeable().find(|d| new.get(d.id).is_none()) {
-        return Err(format!("data/blocks.toml: block {} ('{}') is gone: a running world may hold it", d.id, d.name));
+    // a world holds a block by its id and the code asks for some by name: a row keeps both
+    if let Some(d) = old.placeable().find(|d| new.get(d.id).is_none_or(|n| n.name != d.name)) {
+        return Err(format!("data/blocks.toml: block {} ('{}') is gone or renamed: a running world may hold it", d.id, d.name));
     }
     let old_items = crate::items::ITEMS.now();
     // the items are parsed against the new blocks (a block is an item too), so the blocks go in first; a bad
@@ -97,6 +102,7 @@ pub fn apply(blocks: &str, items: &str) -> Result<bool, String> {
         return Err(undo(format!("data/items.toml: item {id} ('{}') is gone or moved: a running world may hold it", old_items.name(id))));
     }
     crate::items::ITEMS.set(new_items);
+    crate::mesh::tables_again();
     *texts = Some((blocks.to_string(), items.to_string()));
     REV.fetch_add(1, Ordering::AcqRel);
     Ok(true)

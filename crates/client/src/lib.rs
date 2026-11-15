@@ -405,6 +405,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
                 None => Server::baked_warp(planet, moon, seed, warp, accept_rx),
             };
             server.autosave = save.clone().map(|p| (p.into(), 30 * TICK_HZ as u64));
+            server.live_data = true;
             save_path = save;
             if let Some(r) = rec.filter(|r| r != "0") {
                 rec_path = Some(r.clone());

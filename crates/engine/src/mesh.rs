@@ -5,7 +5,6 @@
 //! block's face (lamps) has join4 << 16: the sides u-, u+, v-, v+ that meet the same block's open face (ADR 0085);
 //! a face of cracked rock has crack4 << 20: the sides u-, u+, v-, v+ that run along a crack (ADR 0094).
 use crate::world::{pidx, CS, P};
-use std::sync::LazyLock;
 
 /// Quads of one chunk, grouped by face direction (0..6 = +x,-x,+y,-y,+z,-z), then `cut` quads of cutout blocks
 /// (ADR 0069: drawn by the pipeline that discards, their own geometry in the chunk's BLAS), then `water` quads of
@@ -29,19 +28,28 @@ pub struct Mesh {
 
 /// One bit per block id, set for a block that is not opaque (cutout or glass, `blocks::See`): the mesher's inner
 /// loop reads this, not the row. `GLASS`: the same for glass alone (ADR 0081).
-static SEE: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| bits(|id| !crate::blocks::BLOCKS.opaque(id)));
-static GLASS: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| bits(|id| crate::blocks::BLOCKS.glass(id)));
-static JOINS: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| bits(|id| crate::blocks::BLOCKS.joins(id)));
-static WOOD: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| bits(|id| crate::blocks::BLOCKS.wood(id)));
+static SEE: crate::live::Live<Box<[u64; 1024]>> = crate::live::Live::new(|| bits(|id| !crate::blocks::BLOCKS.opaque(id)));
+static GLASS: crate::live::Live<Box<[u64; 1024]>> = crate::live::Live::new(|| bits(|id| crate::blocks::BLOCKS.glass(id)));
+static JOINS: crate::live::Live<Box<[u64; 1024]>> = crate::live::Live::new(|| bits(|id| crate::blocks::BLOCKS.joins(id)));
+static WOOD: crate::live::Live<Box<[u64; 1024]>> = crate::live::Live::new(|| bits(|id| crate::blocks::BLOCKS.wood(id)));
 /// The loose blocks that fall (sand, gravel, rubble; ADR 0079), whose tops are drawn as slopes (ADR 0101). Every
 /// id, not only the placeable: rubble is made by digging.
-static FALLS: LazyLock<Box<[u64; 1024]>> = LazyLock::new(|| {
+static FALLS: crate::live::Live<Box<[u64; 1024]>> = crate::live::Live::new(|| {
     let mut t = Box::new([0u64; 1024]);
     for id in (0..=u16::MAX).filter(|&id| crate::blocks::BLOCKS.get(id).is_some_and(|d| d.falls)) {
         t[id as usize >> 6] |= 1 << (id & 63);
     }
     t
 });
+/// The block rows were reloaded (`live::apply`, ADR 0134): the tables above are made again from them, before
+/// the chunks are meshed again.
+pub(crate) fn tables_again() {
+    SEE.again();
+    GLASS.again();
+    JOINS.again();
+    WOOD.again();
+    FALLS.again();
+}
 fn bits(f: impl Fn(u16) -> bool) -> Box<[u64; 1024]> {
     let mut t = Box::new([0u64; 1024]);
     for d in crate::blocks::BLOCKS.placeable().filter(|d| f(d.id)) {
@@ -956,4 +964,11 @@ mod tests {
         assert_eq!((ao >> 4) & 0b11, 2); // the wall beside and diagonal
         assert_eq!(top(1, 10) >> 8, 0, "open floor");
     }
+}
+
+/// How many blocks each of the mesher's tables holds (see-through, glass, joining, wood, falling): for the test
+/// that they follow a reload of the rows (ADR 0134).
+#[doc(hidden)]
+pub fn table_counts() -> [u32; 5] {
+    [&SEE, &GLASS, &JOINS, &WOOD, &FALLS].map(|t| t.iter().map(|w| w.count_ones()).sum())
 }
