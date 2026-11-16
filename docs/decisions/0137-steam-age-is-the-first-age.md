@@ -20,13 +20,14 @@ The developer's calls, 2026-11-16:
   generator** (a steam engine turning a dynamo).
 - The alloy stays **bronze**.
 - Iron stays inside the Steam Age: the dynamo needs its magnets.
-- Home is no megaproject any more. The Works stays as the Steam Age's.
+- Home is no megaproject any more. The Works stays as the Steam Age's, renamed **POWER!**.
 - **Three furnaces**, each one placed block with a plain window (in, fuel, out, heat): the crucible to
   1100 C, the bloomery to 1400 C, the blast furnace to 1600 C. The blast furnace gets a multiblock
   version later that reaches 2200 C (a hot blast), for speed.
 
 ## Consequences
 - The pit kiln, the digging stick and the hammer stone are no steps of their own; charcoal comes with bronze.
-- Copper is melted in a furnace block with a window, not in an open fire: the rule "every process starts in
-  the world" (a proposal) gives way here.
+- The proposed rule "every process starts in the world and ends in a machine" is dropped (the developer,
+  2026-11-16): copper is melted in a furnace block with a window from the start. `crafting.md` still lists a
+  world route beside each machine; those are now optional and that doc wants a pass.
 - Needs a block with a window and an inventory, which the game does not have yet.

@@ -9,7 +9,8 @@
 ## Three ideas carry it
 
 ### 1. A process is a condition the world can meet, or a machine can
-`progression.md` rule 2: every process starts in the world and ends in a machine. So a recipe never names
+A process may happen in the world or in a machine; it need not start in the world (the developer dropped
+that rule on 2026-11-16, ADR 0137: the crucible is a block with a window from the start). A recipe never names
 a machine. It names a **process** and its **conditions**, and anything that provides them runs it:
 
 | Process | In the world (starter) | In a machine (later) | The condition it needs |
@@ -78,8 +79,7 @@ condition steady whatever the weather, which is exactly why you build one.
 | hours 3-6 | boiler, steam engine, wooden then bronze cogs; crusher, saw, bellows on one shaft | wood, water, bronze | the shaft machines |
 | hours 6-10 | farm and oven; water wheel or windmill; bloomery iron; lodestone; the dynamo | bog iron, a river or a windy ridge | the starter ends at LV |
 
-The megaprojects at its two ends are measurements (progression): **Home** is a room's temperature over
-a night; **The Works** is ingots out of a line over a day with no ape's input counted.
+The megaproject at its end is a measurement (progression; Home is none any more, ADR 0137): **POWER!** is ingots out of a line over a day with no ape's input counted.
 
 ## Machines as data
 - A machine is a block entity (`world-data.md`) with ports onto networks (`networks.md`) and one or more

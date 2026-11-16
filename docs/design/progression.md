@@ -15,19 +15,16 @@ planet judges by its result, not its shape. Orbit and Luna are visited about hal
 second half. After the moon base an **exotic resource** opens the space technology that leaves the planet,
 and by then a whole moon or planet can be **mined out and drained**. Power stays the main thing to the end.
 
-Three rules keep the tiers from becoming a list:
+Two rules keep the tiers from becoming a list:
 1. **Every need starts as a chore and ends as a factory** (ADR 0008).
-2. **Every process starts in the world and ends in a machine** (*proposal*): ore is first washed in a real
-   stream, dried in the real sun, melted in a real fire. The machine that comes later is that process in a
-   box, and an ape learns by seeing it happen.
-3. **The Steam Age teaches the whole game.** Boil water, turn a shaft: its fire, boiler and cogs are
+2. **The Steam Age teaches the whole game.** Boil water, turn a shaft: its fire, boiler and cogs are
    the inside of every later power plant. A reactor is a hotter fire under a bigger boiler.
 
 ## The ages at a glance
 
 | Age | Hours | Need it tames | Megaproject and its rule |
 |---|---|---|---|
-| **Steam Age** | 0 to 7-10 | warmth, water, hunger (a farm and a mill) | **The Works:** one shaft drives a line that turns raw ore into ingots for a full day with no ape touching it. |
+| **Steam Age** | 0 to 7-10 | warmth, water, hunger (a farm and a mill) | **POWER!:** one shaft drives a line that turns raw ore into ingots for a full day with no ape touching it. |
 | **LV** | 10-15 more | food (cold storage), light | **Steady grid:** a set power held for a full day and night. A rain-fed dam, steam on grown charcoal, wind and batteries: your design. |
 | **MV** | 15-20 | distance: ore from other faces | **Ring railway:** a closed track that goes once around the planet. |
 | **HV** | 20-25 | the night, everywhere; clean air | **Power ring:** a set power, without burning fuel, for three full days. A ring of panels, big storage, or a tower at a pole that always sees the sun. |
