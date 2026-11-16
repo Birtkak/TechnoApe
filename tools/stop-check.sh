@@ -2,7 +2,7 @@
 # Claude Code Stop hook (.claude/settings.json): a session that edited code under crates/ may not end its
 # turn while `cargo test` fails for the crates changed since the last pass and those that depend on them.
 # Exit 2 sends the failures back to the session; exit 0 lets it stop.
-# It stays out of the way of sessions that only wrote docs, of a running benchmark, and of a tree that
+# It stays out of the way of sessions that only wrote docs, of a running benchmark or build, and of a tree that
 # already passed. Self-test: bash tools/stop-check.sh selftest
 cd "$(dirname "$0")/.." || exit 0
 export PATH="$HOME/Tools/rust/cargo/bin:$PATH" CARGO_HOME="${CARGO_HOME:-$HOME/Tools/rust/cargo}" RUSTUP_HOME="${RUSTUP_HOME:-$HOME/Tools/rust/rustup}"
@@ -33,7 +33,13 @@ pick() {
   echo $(for c in $sel; do echo "-p $c"; done)
 }
 
+# A process list on stdin (tasklist's or ps's) -> 0 when a build or test run is already going: another session's
+# or an agent's cargo. Running beside it only ran this check out of its time and named tests that had not failed.
+busy() { grep -Eqi '(^|[/\\ ])(cargo|rustc)(\.exe)?( |$)'; }
+
 if [ "$1" = selftest ]; then
+  printf 'explorer.exe  1 Console\nrustc.exe  2 Console\n' | busy || { echo "FAIL: a running rustc was not seen"; exit 1; }
+  printf 'explorer.exe  1 Console\ncargo-fmt-helper  3\n' | busy && { echo "FAIL: an idle PC was called busy"; exit 1; }
   d=$(mktemp -d); trap 'rm -rf "$d"' EXIT
   echo '{"type":"tool_use","name":"Edit","input":{"file_path":"C:\\\\x\\\\crates\\\\engine\\\\src\\\\mesh.rs"}}' >"$d/code.jsonl"
   echo '{"type":"tool_use","name":"Edit","input":{"file_path":"C:\\\\x\\\\docs\\\\a.md","content":"about crates/engine"}}' >"$d/docs.jsonl"
@@ -70,8 +76,13 @@ fi
 pass() { printf '%s\n%s\n' "$sum" "$(git rev-parse HEAD)" >$stamp; exit 0; }
 [ -z "$args" ] && pass
 
+{ tasklist 2>/dev/null || ps -e; } | busy && exit 0
+
 mkdir -p out
-if timeout 280 cargo test $args >out/stop-check.log 2>&1; then pass; fi
+timeout 280 cargo test $args >out/stop-check.log 2>&1; rc=$?
+[ $rc = 0 ] && pass
+# out of time is no verdict (124): nothing failed, nothing passed, so no stamp and the next turn tries again
+[ $rc = 124 ] && exit 0
 { echo "cargo test $args fails (out/stop-check.log). Fix it, or say plainly why it cannot pass, before ending the turn:"
   grep -E '^test .* FAILED$|^error|panicked at' out/stop-check.log | head -15; } >&2
 exit 2
