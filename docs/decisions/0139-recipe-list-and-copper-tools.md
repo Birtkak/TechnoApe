@@ -1,6 +1,6 @@
-# NNNN – Hand crafting by a recipe list, and the copper tools
+# 0139 – Hand crafting by a recipe list, and the copper tools
 
-- **Status:** proposed (built; waits for the developer's play-test and merge)
+- **Status:** accepted for the recipes, the craft message and the copper tools; the list in the inventory is superseded: the developer chose a crafting grid on 2026-11-16, after this was built. The list stays until the grid replaces it.
 - **Date:** 2026-11-16
 
 ## Context
