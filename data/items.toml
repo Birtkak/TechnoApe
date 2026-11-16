@@ -57,6 +57,9 @@ name = "flint"
 speed = 2.0
 grade = 1
 uses = 40
+# `prospect`: how far a prospecting strike with a tool of it hears ore, metres (ADR 0138;
+# 0 or left out: it does not prospect; at most 64). The place button with a pick or an every-kind tool on rock.
+prospect = 16
 
 # The first tool: a flint knapped on rock (ADR 0110), unhafted, so every kind at once, slow and soon worn
 [[item]]
@@ -73,3 +76,41 @@ look = "coral"
 [[item]]
 name = "berries"
 look = "coral"
+
+# Ore samples (ADR 0138): loose bits lying on the ground over an ore body
+# (data/minerals.toml `sample`, data/clutter.toml), taken by hand. They hold no metal.
+# shortcut: samples are only a sign for now; nuggets become smeltable with the copper age's recipes.
+[[item]]
+name = "copper nugget"
+stack = 16
+look = "copper"
+
+[[item]]
+name = "tin pebble"
+stack = 16
+look = "cassiterite"
+
+[[item]]
+name = "iron pebble"
+stack = 16
+look = "hematite"
+
+[[item]]
+name = "coal lump"
+stack = 16
+look = "coal"
+
+[[item]]
+name = "lead pebble"
+stack = 16
+look = "galena"
+
+[[item]]
+name = "gold nugget"
+stack = 16
+look = "gold quartz"
+
+[[item]]
+name = "pitchblende pebble"
+stack = 16
+look = "pitchblende"

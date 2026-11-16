@@ -1,0 +1,21 @@
+# A draft tin pebble (Claude's, listed in data/drafts.txt): clutter, ADR 0082. Painted
+# boxes at 32 px a metre (a lump of ore lying loose); made by tools/paint_clutter.py.
+colours = ["cassiterite"]
+item = 0.4
+
+[[part]]
+name = "body"
+box = [1, 1, 1]
+voxels = "."
+
+[[part.boxes]]
+at = [11.0, 0.0, 12.0]
+size = [8, 4, 7]
+turn = [0.0, 25.0, 5.0]
+uv = [0, 0]
+
+[[part.boxes]]
+at = [14.0, 3.0, 13.0]
+size = [4, 3, 4]
+turn = [0.0, 60.0, 0.0]
+uv = [30, 0]

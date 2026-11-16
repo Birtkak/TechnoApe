@@ -57,6 +57,8 @@ fn minerals(w: &World) -> Vec<String> {
     let halo = engine::ore::count_halo(b);
     for (k, kind) in MINERALS.kinds.iter().enumerate() {
         let l = line(&format!("kind {}", kind.name), &|o| o.kind as usize == k, None);
+        // the samples lying over its bodies (ADR 0138)
+        let l = if kind.sample.is_some() { format!("{}, \"samples\": {}}}", &l[..l.len() - 1], samples(b, k)) } else { l };
         if kind.halo.is_empty() {
             out.push(l);
             continue;
@@ -65,6 +67,30 @@ fn minerals(w: &World) -> Vec<String> {
         out.push(format!("{}, \"halo_blocks\": {{{}}}}}", &l[..l.len() - 1], grades.join(", ")));
     }
     out
+}
+
+/// The samples of kind k lying on the generated ground over its bodies' spreads (`clutter::sample`), each column
+/// once.
+fn samples(b: &engine::world::Body, k: usize) -> usize {
+    use engine::world::CS;
+    let (Some(seed), Some(row)) = (b.baked_seed(), engine::clutter::SAMPLES[k]) else { return 0 };
+    let mut cols = std::collections::BTreeSet::new();
+    let mut tiles = std::collections::HashMap::new();
+    for o in b.ores.iter().filter(|o| o.kind as usize == k) {
+        let r = o.a.max(o.b).max(engine::ore::SAMPLE_SPREAD_M).ceil() as i32 + 1;
+        let (ci, cj) = (o.at.x as i32, o.at.y as i32);
+        for (i, j) in (ci - r..=ci + r).flat_map(|i| (cj - r..=cj + r).map(move |j| (i, j))) {
+            if !(0..b.n).contains(&i) || !(0..b.n).contains(&j) || o.spread(i, j).is_none() {
+                continue;
+            }
+            let tile = tiles.entry((i.div_euclid(CS), j.div_euclid(CS))).or_insert_with(|| b.tile(o.face, 0, i.div_euclid(CS), j.div_euclid(CS)));
+            if engine::clutter::ground(b, tile, o.face, i, j).is_some() && engine::clutter::sample(b, seed, o.face, i, j).is_some_and(|t| t.row == row) {
+                cols.insert((o.face, i, j));
+            }
+        }
+        tiles.clear();
+    }
+    cols.len()
 }
 
 /// The caves and ore bodies as made, as one number: a Linux server and a Windows client must print the same

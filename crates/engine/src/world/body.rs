@@ -419,7 +419,8 @@ impl Body {
         // a body's halo reaches past it (ADR 0095)
         let reach = |o: &crate::ore::OreBody| crate::ore::MINERALS.kinds[o.kind as usize].halo_m * (1.0 + crate::ore::FRAY);
         for (k, o) in ores.iter().enumerate() {
-            let r = o.a.max(o.b) + 2.0 + reach(o);
+            // and its samples' spread on the ground over it
+            let r = o.a.max(o.b).max(crate::ore::SAMPLE_SPREAD_M) + 2.0 + reach(o);
             let span = |v: f64| ((v - r).floor() as i32).div_euclid(CS)..=((v + r).floor() as i32).div_euclid(CS);
             for x in span(o.at.x) {
                 for y in span(o.at.y) {
@@ -434,7 +435,7 @@ impl Body {
         self.ores = ores;
     }
     /// The ore bodies that reach level-0 footprint (x, y) of a face, by index.
-    pub(super) fn tile_ores(&self, face: u8, x: i32, y: i32) -> &[u32] {
+    pub(crate) fn tile_ores(&self, face: u8, x: i32, y: i32) -> &[u32] {
         self.ore_tiles.get(&(face, x, y)).map_or(&[], |v| v.as_slice())
     }
     /// The ore spans [lo, hi) of column (face, i, j), whose ground is at radius `ground`, and their bodies,

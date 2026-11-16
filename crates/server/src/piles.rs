@@ -124,6 +124,10 @@ impl Server {
     /// count one of it becomes the item it knaps into, in its slot when that empties, else where it fits, else at
     /// the feet.
     pub(super) fn strike(&mut self, i: usize, at: Block) {
+        // a prospecting tool in hand prospects; a knapping stone knaps
+        if let Some(range) = self.clients[i].tool().and_then(|t| t.prospects()) {
+            return self.prospect(i, at, range);
+        }
         let tick = self.tick;
         let wait = (items::KNAP_WAIT_S * TICK_HZ).round() as u64;
         let feet = self.clients[i].phys.pos;
@@ -156,6 +160,29 @@ impl Server {
         if over > 0 {
             self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), vec![made], (0, 0));
         }
+    }
+
+    /// Client i strikes the prospecting tool in hand on block `at` (ADR 0138): alive,
+    /// within reach, hard rock there (`items::knaps`: rock, ore, the altered rocks), at most one every
+    /// `items::PROSPECT_WAIT_S`. It costs the tool a use (its last leaves nothing) and only that player is
+    /// answered, with what `ore::prospect` hears within the tool's `range`.
+    fn prospect(&mut self, i: usize, at: Block, range: f64) {
+        let wait = (items::PROSPECT_WAIT_S * TICK_HZ).round() as u64;
+        let feet = self.clients[i].phys.pos;
+        let rock = self.valid_shape(&Shape::one(at), AIR, feet) && BLOCKS.get(self.world.block(at)).is_some_and(items::knaps);
+        let (tick, c) = (self.tick, &self.clients[i]);
+        if !rock || c.vitals.dead.is_some() || c.prospected.is_some_and(|t| tick < t + wait) {
+            return;
+        }
+        let heard = engine::ore::prospect(&self.world, at, range);
+        let c = &mut self.clients[i];
+        let k = c.hand as usize;
+        let worn = c.slots[k].map_or(AIR, |s| s.item);
+        if items::wear(&mut c.slots[k]) {
+            *self.item_made.entry(worn).or_default() -= 1;
+        }
+        (c.prospected, c.inv_dirty) = (Some(tick), true);
+        c.link.send(ToClient::Prospect(heard));
     }
 
     /// A falling rock that moved into a survival player's head this tick hits it (ADR 0094: a drop hurts who is

@@ -386,6 +386,14 @@ impl App {
                 }
                 Recv::Msg(ToClient::Air(h)) => self.air = Some(h),
                 Recv::Msg(ToClient::Sky { t, all, changed }) => self.sky.take(t, all, changed),
+                // a prospecting strike's answer (ADR 0138): a line to read, and the knock
+                // rings higher the stronger the best band
+                Recv::Msg(ToClient::Prospect(v)) => {
+                    let line = if v.is_empty() { "the rock rings empty".to_string() } else { v.iter().map(|(e, b)| format!("{e}: {}", engine::ore::BANDS.get(*b as usize).unwrap_or(&"?"))).collect::<Vec<_>>().join(", ") };
+                    let pitch = v.first().map_or(0.85, |(_, b)| 1.0 + 0.12 * (*b as f32 + 1.0));
+                    self.audio.play("knap", Some(self.struck_at), 1.0, pitch, false);
+                    self.chat_line(line);
+                }
                 Recv::Msg(ToClient::Welcome { .. } | ToClient::Map { .. }) => {}
                 // (what was derived from the old rows follows `live::rev`, below, whoever applied them)
                 Recv::Msg(ToClient::Defs { blocks, items }) => {

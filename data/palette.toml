@@ -5217,3 +5217,283 @@ ramp = "ape skin rich"
 name = "ape skin r8"
 rgb = "#d5bd90"
 ramp = "ape skin rich"
+
+[[colour]]
+name = "copper nugget r1"
+rgb = "#35190d"
+ramp = "copper nugget rich"
+
+[[colour]]
+name = "copper nugget r2"
+rgb = "#4e2612"
+ramp = "copper nugget rich"
+
+[[colour]]
+name = "copper nugget r3"
+rgb = "#6c3615"
+ramp = "copper nugget rich"
+
+[[colour]]
+name = "copper nugget r4"
+rgb = "#8d4a18"
+ramp = "copper nugget rich"
+
+[[colour]]
+name = "copper nugget r5"
+rgb = "#a96120"
+ramp = "copper nugget rich"
+
+[[colour]]
+name = "copper nugget r6"
+rgb = "#c47b2b"
+ramp = "copper nugget rich"
+
+[[colour]]
+name = "copper nugget r7"
+rgb = "#d19444"
+ramp = "copper nugget rich"
+
+[[colour]]
+name = "copper nugget r8"
+rgb = "#d5ab67"
+ramp = "copper nugget rich"
+
+[[colour]]
+name = "tin pebble r1"
+rgb = "#120e0c"
+ramp = "tin pebble rich"
+
+[[colour]]
+name = "tin pebble r2"
+rgb = "#241d18"
+ramp = "tin pebble rich"
+
+[[colour]]
+name = "tin pebble r3"
+rgb = "#392d24"
+ramp = "tin pebble rich"
+
+[[colour]]
+name = "tin pebble r4"
+rgb = "#504031"
+ramp = "tin pebble rich"
+
+[[colour]]
+name = "tin pebble r5"
+rgb = "#665340"
+ramp = "tin pebble rich"
+
+[[colour]]
+name = "tin pebble r6"
+rgb = "#7b6850"
+ramp = "tin pebble rich"
+
+[[colour]]
+name = "tin pebble r7"
+rgb = "#917e60"
+ramp = "tin pebble rich"
+
+[[colour]]
+name = "tin pebble r8"
+rgb = "#a29277"
+ramp = "tin pebble rich"
+
+[[colour]]
+name = "iron pebble r1"
+rgb = "#210d0d"
+ramp = "iron pebble rich"
+
+[[colour]]
+name = "iron pebble r2"
+rgb = "#371714"
+ramp = "iron pebble rich"
+
+[[colour]]
+name = "iron pebble r3"
+rgb = "#51241c"
+ramp = "iron pebble rich"
+
+[[colour]]
+name = "iron pebble r4"
+rgb = "#6e3323"
+ramp = "iron pebble rich"
+
+[[colour]]
+name = "iron pebble r5"
+rgb = "#88472d"
+ramp = "iron pebble rich"
+
+[[colour]]
+name = "iron pebble r6"
+rgb = "#a15e3a"
+ramp = "iron pebble rich"
+
+[[colour]]
+name = "iron pebble r7"
+rgb = "#b97748"
+ramp = "iron pebble rich"
+
+[[colour]]
+name = "iron pebble r8"
+rgb = "#c19367"
+ramp = "iron pebble rich"
+
+[[colour]]
+name = "coal lump r1"
+rgb = "#0a0a0b"
+ramp = "coal lump rich"
+
+[[colour]]
+name = "coal lump r2"
+rgb = "#18181a"
+ramp = "coal lump rich"
+
+[[colour]]
+name = "coal lump r3"
+rgb = "#27282c"
+ramp = "coal lump rich"
+
+[[colour]]
+name = "coal lump r4"
+rgb = "#383b3f"
+ramp = "coal lump rich"
+
+[[colour]]
+name = "coal lump r5"
+rgb = "#495052"
+ramp = "coal lump rich"
+
+[[colour]]
+name = "coal lump r6"
+rgb = "#5c6565"
+ramp = "coal lump rich"
+
+[[colour]]
+name = "coal lump r7"
+rgb = "#6e7976"
+ramp = "coal lump rich"
+
+[[colour]]
+name = "coal lump r8"
+rgb = "#828d86"
+ramp = "coal lump rich"
+
+[[colour]]
+name = "lead pebble r1"
+rgb = "#252329"
+ramp = "lead pebble rich"
+
+[[colour]]
+name = "lead pebble r2"
+rgb = "#303139"
+ramp = "lead pebble rich"
+
+[[colour]]
+name = "lead pebble r3"
+rgb = "#40434c"
+ramp = "lead pebble rich"
+
+[[colour]]
+name = "lead pebble r4"
+rgb = "#4f5860"
+ramp = "lead pebble rich"
+
+[[colour]]
+name = "lead pebble r5"
+rgb = "#607073"
+ramp = "lead pebble rich"
+
+[[colour]]
+name = "lead pebble r6"
+rgb = "#728785"
+ramp = "lead pebble rich"
+
+[[colour]]
+name = "lead pebble r7"
+rgb = "#879992"
+ramp = "lead pebble rich"
+
+[[colour]]
+name = "lead pebble r8"
+rgb = "#9caaa2"
+ramp = "lead pebble rich"
+
+[[colour]]
+name = "gold nugget r1"
+rgb = "#4c3b0b"
+ramp = "gold nugget rich"
+
+[[colour]]
+name = "gold nugget r2"
+rgb = "#69520c"
+ramp = "gold nugget rich"
+
+[[colour]]
+name = "gold nugget r3"
+rgb = "#8a6d0b"
+ramp = "gold nugget rich"
+
+[[colour]]
+name = "gold nugget r4"
+rgb = "#af8b0a"
+ramp = "gold nugget rich"
+
+[[colour]]
+name = "gold nugget r5"
+rgb = "#cea70f"
+ramp = "gold nugget rich"
+
+[[colour]]
+name = "gold nugget r6"
+rgb = "#e8c11c"
+ramp = "gold nugget rich"
+
+[[colour]]
+name = "gold nugget r7"
+rgb = "#e6c943"
+ramp = "gold nugget rich"
+
+[[colour]]
+name = "gold nugget r8"
+rgb = "#e7d26a"
+ramp = "gold nugget rich"
+
+[[colour]]
+name = "pitchblende pebble r1"
+rgb = "#0e0d0b"
+ramp = "pitchblende pebble rich"
+
+[[colour]]
+name = "pitchblende pebble r2"
+rgb = "#1f1c18"
+ramp = "pitchblende pebble rich"
+
+[[colour]]
+name = "pitchblende pebble r3"
+rgb = "#322d26"
+ramp = "pitchblende pebble rich"
+
+[[colour]]
+name = "pitchblende pebble r4"
+rgb = "#474035"
+ramp = "pitchblende pebble rich"
+
+[[colour]]
+name = "pitchblende pebble r5"
+rgb = "#5b5345"
+ramp = "pitchblende pebble rich"
+
+[[colour]]
+name = "pitchblende pebble r6"
+rgb = "#706856"
+ramp = "pitchblende pebble rich"
+
+[[colour]]
+name = "pitchblende pebble r7"
+rgb = "#857c68"
+ramp = "pitchblende pebble rich"
+
+[[colour]]
+name = "pitchblende pebble r8"
+rgb = "#97907c"
+ramp = "pitchblende pebble rich"

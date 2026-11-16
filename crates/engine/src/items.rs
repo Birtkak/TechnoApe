@@ -76,6 +76,8 @@ struct Material {
     speed: f32,
     grade: u8,
     uses: u16,
+    #[serde(default)]
+    prospect: f32,
 }
 
 #[derive(Deserialize)]
@@ -100,9 +102,23 @@ pub struct Tool {
     pub grade: u8,
     /// Digs before it is worn away (each costs one); a stack's payload counts those it has had.
     pub uses: u16,
+    /// How far a prospecting strike of it hears ore, metres (ADR 0138); 0: it
+    /// does not prospect.
+    pub prospect: f32,
 }
 
+/// The longest a material's `prospect` may reach, metres.
+pub const PROSPECT_MAX: f32 = 64.0;
+/// Seconds between two prospecting strikes that are answered.
+pub const PROSPECT_WAIT_S: f64 = 1.0;
+
 impl Tool {
+    /// A prospecting strike's range with it, metres: a pick's or an every-kind tool's whose head reaches; None
+    /// for any other.
+    pub fn prospects(&self) -> Option<f64> {
+        (self.prospect > 0.0 && self.kind.as_deref().is_none_or(|k| k == "pick")).then_some(self.prospect as f64)
+    }
+
     /// It is the kind of tool block `d` names.
     pub fn fits(&self, d: &crate::blocks::Def) -> bool {
         d.tool.is_some() && self.kind.as_ref().is_none_or(|k| d.tool.as_ref() == Some(k))
@@ -190,7 +206,7 @@ impl Items {
                     if !(crate::blocks::TOOLS.contains(&kind.as_str()) || kind == "any") || r.stack != 1 {
                         return Err(format!("item '{}': a tool is one of {:?} or \"any\", and stacks by one", r.name, crate::blocks::TOOLS));
                     }
-                    Some(Tool { kind: (kind != "any").then(|| kind.clone()), speed: m.speed, grade: m.grade, uses: m.uses })
+                    Some(Tool { kind: (kind != "any").then(|| kind.clone()), speed: m.speed, grade: m.grade, uses: m.uses, prospect: m.prospect })
                 }
                 _ => return Err(format!("item '{}': a tool names both its kind and its head", r.name)),
             };
@@ -199,6 +215,9 @@ impl Items {
         for m in &f.material {
             if !(m.speed > 1.0 && m.speed <= 20.0) || !(1..=4).contains(&m.grade) || !(1..=10000).contains(&m.uses) || f.material.iter().filter(|o| o.name == m.name).count() > 1 {
                 return Err(format!("material '{}': speed over 1 to 20, grade 1..4, uses 1..10000, a name used once", m.name));
+            }
+            if !(0.0..=PROSPECT_MAX).contains(&m.prospect) {
+                return Err(format!("material '{}': prospect 0 to {PROSPECT_MAX} m", m.name));
             }
         }
         for (k, r) in f.item.iter().enumerate() {
@@ -211,6 +230,12 @@ impl Items {
             }
         }
         let made: Vec<u16> = f.made.iter().map(|n| block(n).ok_or(format!("made: no block '{n}'"))).collect::<Result<_, _>>()?;
+        // a mineral's sample lies on the ground as an item of this file (the minerals' rows read before these)
+        for k in &crate::ore::MINERALS.kinds {
+            if let Some(s) = k.sample.as_ref().filter(|s| !defs.iter().any(|d| &d.name == *s)) {
+                return Err(format!("kind '{}' (data/minerals.toml): sample '{s}' is no item", k.name));
+            }
+        }
         let ores: Vec<u16> = crate::ore::MINERALS.kinds.iter().map(|k| k.block).collect();
         let rocks: Vec<u16> = crate::rock::ROCKS.provinces.iter().flat_map(|p| p.layers.iter().map(|l| l.0)).collect();
         let mut tabs = vec![Vec::new(); TABS.len()];
@@ -461,10 +486,27 @@ mod tests {
             ("[[item]]\nname='x'\nstack=1\nlook='stone'\ntool='pick'", "both"),
             ("[[item]]\nname='x'\nlook='stone'\nknap=['y', 4]", "knaps into"),
             ("[[item]]\nname='x'\nlook='stone'\nknap=['x', 4]", "strikes"),
+            ("[[material]]\nname='m'\nspeed=2\ngrade=1\nuses=9\nprospect=-1", "prospect"),
+            ("[[material]]\nname='m'\nspeed=2\ngrade=1\nuses=9\nprospect=500", "prospect"),
         ] {
             let e = Items::parse(row).err().unwrap_or_default();
             assert!(e.contains(says), "{row}: {e}");
         }
+        // a mineral's sample (data/minerals.toml) names an item of this file
+        let text = include_str!("../../../data/items.toml").replace("\r\n", "\n").replace("name = \"gold nugget\"", "name = \"gold flake\"");
+        let e = Items::parse(&text).err().unwrap_or_default();
+        assert!(e.contains("sample 'gold nugget'"), "{e}");
+    }
+
+    /// Prospecting (ADR 0138): the hand axe, of flint, hears ore 16 m off; a pick or
+    /// an every-kind tool prospects, an axe does not, nor a head of no reach.
+    #[test]
+    fn a_flint_tool_prospects_sixteen_metres() {
+        let axe = ITEMS.get(ITEMS.named("hand axe").unwrap()).unwrap().tool.clone().unwrap();
+        assert_eq!(axe.prospects(), Some(16.0));
+        assert_eq!(Tool { kind: Some("axe".into()), ..axe.clone() }.prospects(), None);
+        assert_eq!(Tool { kind: Some("pick".into()), ..axe.clone() }.prospects(), Some(16.0));
+        assert_eq!(Tool { prospect: 0.0, ..axe }.prospects(), None);
     }
 
     /// ADR 0110 (items.md "Tests"): every block that is not loose names a tool, and a tool of that kind (or of

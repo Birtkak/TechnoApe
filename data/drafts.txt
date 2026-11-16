@@ -301,3 +301,17 @@ data/models/furnace.png
 data/models/leaf.png
 data/models/torch.toml
 data/models/torch.png
+data/models/copper nugget.toml
+data/models/copper nugget.png
+data/models/tin pebble.toml
+data/models/tin pebble.png
+data/models/iron pebble.toml
+data/models/iron pebble.png
+data/models/coal lump.toml
+data/models/coal lump.png
+data/models/lead pebble.toml
+data/models/lead pebble.png
+data/models/gold nugget.toml
+data/models/gold nugget.png
+data/models/pitchblende pebble.toml
+data/models/pitchblende pebble.png

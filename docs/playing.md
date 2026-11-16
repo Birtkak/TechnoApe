@@ -2,7 +2,7 @@
 
 Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file every session loads.
 
-- Play: `technoape.exe run=play onscreen=1` (WASD, space; left click digs a block (in survival held, by its hardness, ADR 0034), right click places one (in survival with flint in hand, on rock, it strikes: 4 strikes knap a hand axe, `/give hand_axe`; the tool in hand digs its blocks in hardness / speed and wears out, ADR 0110);
+- Play: `technoape.exe run=play onscreen=1` (WASD, space; left click digs a block (in survival held, by its hardness, ADR 0034), right click places one (in survival with flint in hand, on rock, it strikes: 4 strikes knap a hand axe, `/give hand_axe`; the tool in hand digs its blocks in hardness / speed and wears out, ADR 0110; with the hand axe or a pick in hand right click on rock or ore prospects, once a second, a use each: the chat names the ore within its head's `prospect` metres, rich, strong, some or traces, or the rock rings empty; loose ore samples, nuggets and pebbles, lie over every body, taken by hand, ADR 0138);
   H the build hammer, B its shape, wheel its height; V the bucket, left scoops, right pours;
   in space the mouse pitches you freely and Q/E roll, gravity rights you as it pulls (ADR 0024); C held zooms 3x;
   1-9 or the wheel the hotbar; Tab the inventory (ADR 0074, 0075: survival the hotbar and a worn pack's rows, a click lifts and puts, right click halves or puts one, shift-click moves across, outside throws a pile; creative every block and item in tabs and a search, a click takes a stack; middle click picks a block in the world; dug blocks fall as piles, walked over to pick up; in survival rock and hard ore leave their rubble, a falling block dug again into the slots, ADR 0093; `/give basket`, `hide pack`, `frame pack` open 9, 18, 27 slots worn); N drops a waypoint and creative shows the compass, where you are and the waypoints
@@ -27,3 +27,5 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   `lines=stdin` runs each line another program writes to the game as if typed and sent (the Studio's Try in game),
   `seconds=` ends a play run, `settings=out/x.txt` keeps the real settings out of it), and a
   filmstrip shows the result.
+- Bots (`technoape-bot`): `prospect dx dy dz` strikes the prospecting tool in hand on that block and prints the answer
+  as one JSON line, `{"bot":..,"prospect":[["copper","strong"],..]}` (empty: nothing in range); `hold k` first.

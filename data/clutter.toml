@@ -72,6 +72,50 @@ near = "open"
 season = ["summer"]
 regrow = "year"
 
+# Ore samples (ADR 0138): no biome lists them and `on` is empty; they lie over the ore
+# bodies whose kind names them as its `sample` (data/minerals.toml), on any dry ground, and are taken once.
+[[clutter]]
+name = "copper nugget"
+kind = "pickup"
+gives = ["copper nugget", 1]
+on = []
+
+[[clutter]]
+name = "tin pebble"
+kind = "pickup"
+gives = ["tin pebble", 1]
+on = []
+
+[[clutter]]
+name = "iron pebble"
+kind = "pickup"
+gives = ["iron pebble", 1]
+on = []
+
+[[clutter]]
+name = "coal lump"
+kind = "pickup"
+gives = ["coal lump", 1]
+on = []
+
+[[clutter]]
+name = "lead pebble"
+kind = "pickup"
+gives = ["lead pebble", 1]
+on = []
+
+[[clutter]]
+name = "gold nugget"
+kind = "pickup"
+gives = ["gold nugget", 1]
+on = []
+
+[[clutter]]
+name = "pitchblende pebble"
+kind = "pickup"
+gives = ["pitchblende pebble", 1]
+on = []
+
 # Small plants (ADR 0091): their paintings are placeholders by tools/paint_plants.py.
 [[clutter]]
 name = "short grass"

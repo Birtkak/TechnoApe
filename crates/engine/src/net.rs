@@ -57,6 +57,8 @@ pub enum ToServer {
     /// The place button on block `at` with a knapping stone in hand, in survival (ADR 0110): on hard rock
     /// (`items::knaps`) the server counts the strikes, at most one every `items::KNAP_WAIT_S`, and after the item's
     /// `knap` count one of it becomes the item it knaps into. Nothing is answered but the slots.
+    /// With a prospecting tool in hand (`items::Tool::prospects`) it is a prospecting strike instead: at most one
+    /// every `items::PROSPECT_WAIT_S`, a use of the tool, answered with `ToClient::Prospect`.
     Strike(Block),
     /// `Steps` with each input's sprint bit (ADR 0118), which `Input`'s own bytes leave out so that recordings
     /// from before still read. `ToServer::steps` picks this or `Steps`; `unpacked` makes it a `Steps` again.
@@ -144,6 +146,9 @@ pub enum ToClient {
     /// The planet's air as the client draws it (ADR 0076): every column (`all`, on join) or the columns that
     /// changed (by index), when the grid lands a step at world time `t` or a forced weather changes.
     Sky { t: f64, all: Vec<crate::weather::Cell>, changed: Vec<(u32, crate::weather::Cell)> },
+    /// The answer to this player's prospecting `Strike` (ADR 0138): each element
+    /// heard and its band (`ore::BANDS`), strongest first (`ore::prospect`); empty: the rock rings empty.
+    Prospect(Vec<(String, u8)>),
 }
 
 /// An animal as a client sees it (ADR 0083): `kind` indexes `ToClient::Kinds`, `pos` its feet in body 0's frame,

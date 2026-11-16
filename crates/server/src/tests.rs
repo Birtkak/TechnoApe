@@ -1100,6 +1100,99 @@ fn a_player_digs_an_ore_body_out_and_its_ledger_reaches_zero() {
     assert_eq!((s.world.ore_left.clone(), s.ore_ledger()), (Some(vec![0]), vec![]), "dug out");
 }
 
+/// Prospecting (ADR 0138): the hand axe struck on rock over a lead lump 3.5 m down
+/// answers that player "lead: strong" and costs a use; a strike sooner than a second after is not answered and
+/// costs nothing; soil and creative answer nothing; a body the ledger has dug out leaves the rock ringing empty.
+#[test]
+fn a_prospecting_strike_hears_the_ore_below_and_costs_a_use() {
+    use engine::ore::{OreBody, MINERALS};
+    let mut world = World::new(256, 32, 1);
+    let b0 = &world.bodies[0];
+    let top = world.air_over_ground(0, DVec3::Z);
+    let ground = b0.centre + b0.dir(top.face as usize, top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5) * b0.col_height(top.face, top.pos.x, top.pos.y);
+    let kind = MINERALS.kinds.iter().position(|k| k.name == "lead pocket").unwrap() as u16;
+    let lump = OreBody { kind, face: top.face, at: DVec3::new(top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5, top.pos.z as f64 - 6.0), a: 2.5, b: 2.5, h: 2.0, angle: 0.0 };
+    std::sync::Arc::get_mut(&mut world.bodies).unwrap()[0].set_ores(vec![lump]);
+    let (tx, rx) = channel();
+    let mut s = Server::with_world(world, 1, rx);
+    let (l, sv) = local();
+    tx.send(sv).unwrap();
+    s.tick();
+    l.send(ToServer::Hello { name: "prospector".into() });
+    l.send(ToServer::Move { pos: (ground + (ground - s.world.bodies[0].centre).normalize()).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    let cell = Block { pos: top.pos - glam::IVec3::Z, ..top };
+    s.world.set_block(cell, BLOCKS.id("granite"));
+    l.send(ToServer::Chat("/give hand_axe 1".into()));
+    l.send(ToServer::Hand(0));
+    s.tick();
+    drain(&l);
+    let axe = ITEMS.named("hand axe").unwrap();
+    let uses = ITEMS.get(axe).unwrap().tool.as_ref().unwrap().uses;
+    let strike = |s: &mut Server| {
+        l.send(ToServer::Strike(cell));
+        s.tick();
+        drain(&l).into_iter().filter_map(|m| if let ToClient::Prospect(v) = m { Some(v) } else { None }).collect::<Vec<_>>()
+    };
+    let lead = vec![("lead".to_string(), 2u8)];
+    assert_eq!(strike(&mut s), vec![lead.clone()]);
+    wait(&mut s, 0.5);
+    assert!(strike(&mut s).is_empty(), "a second strike within the second is not answered");
+    wait(&mut s, 0.6);
+    assert_eq!(strike(&mut s), vec![lead]);
+    let left = |s: &Server| items::left(s.clients[0].slots.iter().flatten().copied().find(|x| x.item == axe));
+    assert_eq!(left(&s), Some(uses - 2), "a use a strike answered");
+    s.world.set_block(cell, BLOCKS.id("dirt"));
+    wait(&mut s, 1.1);
+    assert!(strike(&mut s).is_empty(), "soil is not struck");
+    s.world.set_block(cell, BLOCKS.id("granite"));
+    s.world.ore_left = Some(vec![0]);
+    wait(&mut s, 1.1);
+    assert_eq!(strike(&mut s), vec![vec![]], "dug out: the rock rings empty");
+    l.send(ToServer::Creative(true));
+    wait(&mut s, 1.1);
+    assert!(strike(&mut s).is_empty(), "creative does not prospect");
+    assert_eq!(left(&s), Some(uses - 3));
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+}
+
+/// Ore samples (ADR 0138): a sample lying over a body is taken by hand like any
+/// pick-up, once; the ore ledger does not move, and the items' ledger counts the sample as made.
+#[test]
+fn an_ore_sample_is_taken_once_and_the_ore_ledger_holds() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked(1536, 32, 7, rx);
+    let (l, sv) = local();
+    tx.send(sv).unwrap();
+    s.tick();
+    drain(&l);
+    let open = s.world.ore_left.clone();
+    let (at, row) = {
+        let b = &s.world.bodies[0];
+        b.ores.iter().filter_map(|o| Some((o, engine::clutter::SAMPLES[o.kind as usize]?))).find_map(|(o, row)| {
+            o.columns().find_map(|(i, j)| {
+                let tile = b.tile(o.face, 0, i.div_euclid(engine::world::CS), j.div_euclid(engine::world::CS));
+                let (z, _, _) = engine::clutter::ground(b, &tile, o.face, i, j)?;
+                let at = Block { body: 0, face: o.face, pos: glam::IVec3::new(i, j, z) };
+                engine::clutter::pickup_at(&s.world, at, 0.0).filter(|t| t.row == row).map(|_| (at, row))
+            })
+        }).expect("a sample over a body")
+    };
+    let item = engine::clutter::CLUTTER[row].item().unwrap().0;
+    let b = &s.world.bodies[0];
+    let up = b.dir(at.face as usize, at.pos.x as f64 + 0.5, at.pos.y as f64 + 0.5);
+    let pos = b.centre + up * (b.layer_r(at.pos.z as f64) + 0.5) + up.any_orthonormal_vector() * 1.5;
+    l.send(ToServer::Move { pos: pos.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    s.tick();
+    l.send(ToServer::Take { seq: 1, at });
+    l.send(ToServer::Take { seq: 2, at });
+    s.tick();
+    let got = drain(&l);
+    assert!(got.contains(&ToClient::Done { seq: 1, ok: true }) && got.contains(&ToClient::Done { seq: 2, ok: false }), "{got:?}");
+    assert_eq!(items::count(&s.clients[0].slots, item), 1);
+    assert_eq!(s.world.ore_left, open, "a sample holds no ore");
+    assert!(s.ore_ledger().is_empty() && s.item_ledger().is_empty(), "{:?} {:?}", s.ore_ledger(), s.item_ledger());
+}
+
 /// A bucket scoops a block of sea and pours it back; creative water is counted as made. Through all of it,
 /// a save and a load, not a unit appears or vanishes (the ledger stays 0).
 #[test]
