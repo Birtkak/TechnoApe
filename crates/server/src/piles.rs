@@ -208,16 +208,19 @@ impl Server {
     }
 
     /// Client i uses block `at` (`ToServer::Use`): alive, within `BENCH_REACH`, a block with a window. A workbench
-    /// opens its 3 x 3. shortcut: the workbench is the one window; a machine's adds its slots here.
+    /// opens its 3 x 3; a furnace its window (draft ADR crucible), sent as it is at once and while it changes.
     pub(super) fn use_block(&mut self, i: usize, at: Block) {
         if !self.exists(at) {
             return;
         }
         let near = self.world.block_centre(at).distance(self.clients[i].phys.pos) <= items::BENCH_REACH;
         let window = BLOCKS.get(self.world.block(at)).and_then(|d| d.window.as_deref());
+        let furnace = self.reaches_furnace(at, self.clients[i].phys.pos);
         let c = &mut self.clients[i];
         if near && c.vitals.dead.is_none() && window == Some("workbench") {
             c.bench = Some(at);
+        } else if furnace && c.vitals.dead.is_none() {
+            (c.furnace, c.sent_furnace) = (Some(at), None);
         }
     }
 
@@ -231,7 +234,7 @@ impl Server {
     /// leave): its window closes and every cell goes into the usable slots, what does not fit at its feet.
     pub(super) fn uncraft(&mut self, i: usize) {
         let c = &mut self.clients[i];
-        c.bench = None;
+        (c.bench, c.furnace) = (None, None);
         let cells: Vec<Stack> = c.slots[items::CRAFT_AT..].iter_mut().filter_map(Option::take).collect();
         if cells.is_empty() {
             return;
@@ -434,7 +437,11 @@ impl Server {
         let c = &self.clients[i];
         let (creative, feet) = (c.creative, c.phys.pos);
         let grid = from.0 == Holder::Grid || to.0 == Holder::Grid;
-        let reach = |h: Holder| !matches!(h, Holder::Pile(b) if !self.piles.contains_key(&key(b)) || self.world.block_centre(b).distance(feet) > PILE_REACH);
+        let reach = |h: Holder| match h {
+            Holder::Pile(b) => self.piles.contains_key(&key(b)) && self.world.block_centre(b).distance(feet) <= PILE_REACH,
+            Holder::Furnace(b) => self.reaches_furnace(b, feet),
+            _ => true,
+        };
         if c.vitals.dead.is_some() || (grid && !creative) || from.0 == Holder::Ground || !reach(from.0) || !reach(to.0) {
             return false;
         }
@@ -446,6 +453,7 @@ impl Server {
         let slots_of = |s: &Server, h: Holder| match h {
             Holder::Ape => Some(s.clients[i].slots.clone()),
             Holder::Pile(b) => s.piles.get(&key(b)).map(|p| p.slots.clone()),
+            Holder::Furnace(b) => Some(s.furnace_slots(b)),
             _ => None,
         };
         let (fi, ti) = (from.1 as usize, to.1 as usize);
@@ -499,7 +507,12 @@ impl Server {
                 b = Some(tb);
             }
         }
-        let fits = |h: Holder, s: &Option<Vec<Slot>>| h != Holder::Ape || s.as_ref().is_none_or(|s| items::ape_fits(s));
+        // a furnace keeps its slots' rules too: fuel, mould, nothing put into what comes out
+        let fits = |h: Holder, s: &Option<Vec<Slot>>| match h {
+            Holder::Ape => s.as_ref().is_none_or(|s| items::ape_fits(s)),
+            Holder::Furnace(fb) => s.as_ref().is_none_or(|s| engine::furnace::fits(s, &self.furnace_slots(fb), &engine::recipes::RECIPES)),
+            _ => true,
+        };
         if !fits(from.0, &a) || !fits(to.0, &b) {
             return false;
         }
@@ -518,6 +531,7 @@ impl Server {
                     }
                     self.piles_changed.push(c);
                 }
+                Holder::Furnace(fb) => self.furnaces.entry(key(fb)).or_default().slots = s,
                 _ => {}
             }
         }

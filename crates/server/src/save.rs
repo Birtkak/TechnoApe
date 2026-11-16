@@ -28,8 +28,9 @@ use std::path::Path;
 /// loads with none. 13 keeps slots in place of counts (ADR 0074): each player's stacks, the items' names (an
 /// item's id is given at load, so a save maps its ids by name) and the piles on the ground; a 12 or older loads
 /// its counts into slots in block id order, and what does not fit lies at the player's feet (`Server::from_save`).
-/// 14 keeps the pick-ups taken (ADR 0082); a 13 loads with none taken.
-pub const VERSION: u32 = 14;
+/// 14 keeps the pick-ups taken (ADR 0082); a 13 loads with none taken. 15 keeps the furnaces (draft ADR crucible:
+/// each one's slots, heat, fire, work and choice); a 14 loads with none.
+pub const VERSION: u32 = 15;
 
 /// The rain each reach holds (`Liquids::rain_held`), an air job back but not shown yet as (ticks till it
 /// shows, its view) (`Weather::pending`), and the water's steps (`Liquids::steps`: once a second the reaches
@@ -85,6 +86,16 @@ pub struct Held {
     pub items: Vec<(u16, String)>,
     pub piles: Vec<(Block, Vec<Slot>)>,
     /// The pick-ups taken (ADR 0082): the cell each lay in and the year, sorted by cell; none before 14.
+    pub taken: Vec<(Block, u32)>,
+    /// The furnaces (draft ADR crucible), sorted by cell; none before 15.
+    pub furnaces: Vec<(Block, engine::furnace::Furnace)>,
+}
+
+/// `Held` as version 14 keeps it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct Held14 {
+    pub items: Vec<(u16, String)>,
+    pub piles: Vec<(Block, Vec<Slot>)>,
     pub taken: Vec<(Block, u32)>,
 }
 
@@ -158,7 +169,12 @@ impl Save {
         let v13 = || postcard::take_from_bytes::<Save<Saved, Option<u64>, Option<engine::bake::air::State>, Reaches, Option<u64>, Rain, Held13>>(b).ok().filter(|(s, rest)| rest.is_empty() && s.version == 13).map(|(s, _)| s);
         let now = postcard::from_bytes::<Save>(b).ok().filter(|s| s.version == VERSION).or_else(|| {
             let Save { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held } = v13()?;
-            Some(Save { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held: Held { items: held.items, piles: held.piles, taken: Vec::new() } })
+            Some(Save { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held: Held { items: held.items, piles: held.piles, taken: Vec::new(), furnaces: Vec::new() } })
+        });
+        let v14 = || postcard::take_from_bytes::<Save<Saved, Option<u64>, Option<engine::bake::air::State>, Reaches, Option<u64>, Rain, Held14>>(b).ok().filter(|(s, rest)| rest.is_empty() && s.version == 14).map(|(s, _)| s);
+        let now = now.or_else(|| {
+            let Save { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held } = v14()?;
+            Some(Save { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held: Held { items: held.items, piles: held.piles, taken: held.taken, furnaces: Vec::new() } })
         });
         let v12 = || postcard::take_from_bytes::<Old>(b).ok().filter(|(s, rest)| rest.is_empty() && s.version == 12).map(|(s, _)| s);
         // nothing left over: W6's pre-merge builds wrote a 10 with `luna` after it, on the old crust (ADR 0070)
@@ -228,14 +244,14 @@ impl Save {
             .map(|(id, name)| ITEMS.named(name).filter(|&n| n >= ITEM_BASE).map(|n| (*id, n)).ok_or(format!("item {id} was '{name}' in the save; data/items.toml no longer has it")))
             .collect::<Result<_, _>>()?;
         let Save { players, held, .. } = &mut s;
-        for st in players.iter_mut().flat_map(|p| p.slots.iter_mut()).chain(held.piles.iter_mut().flat_map(|p| p.1.iter_mut())).flatten() {
+        for st in players.iter_mut().flat_map(|p| p.slots.iter_mut()).chain(held.piles.iter_mut().flat_map(|p| p.1.iter_mut())).chain(held.furnaces.iter_mut().flat_map(|f| f.1.slots.iter_mut())).flatten() {
             if st.item >= ITEM_BASE {
                 st.item = ids.iter().find(|m| m.0 == st.item).ok_or(format!("the save holds item {}, which its table does not name", st.item))?.1;
             }
         }
         // a stack over its item's size (a smaller `stack` in data/items.toml) loads: the server re-packs it
         let known = |v: &[Slot]| v.iter().flatten().all(|s| ITEMS.known(s.item));
-        if !players.iter().all(|p| known(&p.slots)) || !held.piles.iter().all(|p| p.1.len() == items::PILE_SLOTS && known(&p.1)) {
+        if !players.iter().all(|p| known(&p.slots)) || !held.piles.iter().all(|p| p.1.len() == items::PILE_SLOTS && known(&p.1)) || !held.furnaces.iter().all(|f| known(&f.1.slots)) {
             return Err("the save holds a stack of an unknown block".into());
         }
         held.items = ITEMS.table();
@@ -272,7 +288,7 @@ mod tests {
 
     fn save(version: u32, blocks: Vec<(u16, String)>) -> Save {
         let b = Block { body: 0, face: 1, pos: IVec3::new(3, 4, 5) };
-        Save { version, seed: 9, planet_n: 256, moon_n: 32, blocks, edits: vec![(b, 0)], players: Vec::new(), water: Vec::new(), made: 0, removed: 0, sea_extra: 0, tick: 7, map: Some(0x5eed), air: None, reaches: Reaches::default(), luna: None, rain: Rain::default(), held: Held { items: if version >= 13 { ITEMS.table() } else { Vec::new() }, piles: Vec::new(), taken: Vec::new() } }
+        Save { version, seed: 9, planet_n: 256, moon_n: 32, blocks, edits: vec![(b, 0)], players: Vec::new(), water: Vec::new(), made: 0, removed: 0, sea_extra: 0, tick: 7, map: Some(0x5eed), air: None, reaches: Reaches::default(), luna: None, rain: Rain::default(), held: Held { items: if version >= 13 { ITEMS.table() } else { Vec::new() }, piles: Vec::new(), taken: Vec::new(), furnaces: Vec::new() } }
     }
 
     /// The same save in the layout of versions 6 and 7: no air.
@@ -323,7 +339,7 @@ mod tests {
         let mut s = Save { planet_n: n, moon_n: m, edits: vec![(at(0, 70), 0), (at(1, 70), 0)], water: vec![(col, vec![(60, 62, 5), (70, engine::liquid::OPEN, 0)])], ..save(9, registry()) };
         let mut bytes = s.to_bytes();
         let n = bytes.len();
-        assert_eq!(bytes.split_off(n - 7), vec![0; 7], "a 9 has no `luna` (a None's one byte), `rain` (three: none, none, 0) nor `held` (three empty lists)");
+        assert_eq!(bytes.split_off(n - 8), vec![0; 8], "a 9 has no `luna` (a None's one byte), `rain` (three: none, none, 0) nor `held` (four empty lists)");
         let old = Save::from_bytes(&bytes).unwrap();
         assert_eq!(old.edits, vec![(at(0, 216), 0), (at(1, 70), 0)]);
         assert_eq!(old.water, vec![(col, vec![(206, 208, 5), (216, engine::liquid::OPEN, 0)])]);
@@ -455,7 +471,7 @@ mod tests {
         let mut slots = items::ape();
         (slots[0], slots[1]) = (Some(Stack::new(stone, 5)), Some(Stack::new(basket + 7, 1)));
         let cell = Block { body: 0, face: 2, pos: IVec3::new(1, 2, 3) };
-        let held = Held { items: vec![(basket + 7, "basket".into())], piles: vec![(cell, vec![Some(Stack::new(basket + 7, 1)), None, None, None])], taken: vec![(cell, 3)] };
+        let held = Held { items: vec![(basket + 7, "basket".into())], piles: vec![(cell, vec![Some(Stack::new(basket + 7, 1)), None, None, None])], taken: vec![(cell, 3)], furnaces: Vec::new() };
         let s = Save { players: vec![p(slots)], held, ..save(VERSION, registry()) };
         let back = Save::from_bytes(&s.to_bytes()).expect("loads");
         assert_eq!((back.players[0].slots[1], back.held.piles[0].1[0]), (Some(Stack::new(basket, 1)), Some(Stack::new(basket, 1))));
@@ -481,5 +497,20 @@ mod tests {
         let v13 = Save { version: 13, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held: Held13 { items: held.items, piles: held.piles } };
         let back = Save::from_bytes(&postcard::to_allocvec(&v13).unwrap()).expect("version 13 loads");
         assert_eq!((back.version, back.held.taken), (13, Vec::new()));
+    }
+
+    /// 15 keeps the furnaces (draft ADR crucible), their items mapped by name as the slots'; a 14 loads with none.
+    #[test]
+    fn the_furnaces_are_kept_and_a_14_has_none() {
+        let (cell, ingot) = (Block { body: 0, face: 2, pos: IVec3::new(1, 2, 3) }, ITEMS.named("copper ingot").unwrap());
+        let mut s = save(VERSION, registry());
+        let mut f = engine::furnace::Furnace { heat: 900.5, burn: 3.25, flame: 1150.0, work: 1.5, doing: Some("copper from gravel".into()), choice: Some("cast pick head".into()), ..Default::default() };
+        f.slots[3] = Some(items::Stack::new(ingot, 2));
+        s.held.furnaces = vec![(cell, f)];
+        assert_eq!(Save::from_bytes(&s.to_bytes()).expect("loads"), s);
+        let Save { seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, .. } = s;
+        let v14 = Save { version: 14, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held: Held14 { items: held.items, piles: held.piles, taken: vec![(cell, 4)] } };
+        let back = Save::from_bytes(&postcard::to_allocvec(&v14).unwrap()).expect("version 14 loads");
+        assert_eq!((back.version, back.held.taken, back.held.furnaces), (14, vec![(cell, 4)], Vec::new()));
     }
 }

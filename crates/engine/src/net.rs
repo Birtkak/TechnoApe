@@ -78,6 +78,9 @@ pub enum ToServer {
     /// The inventory screen closed: the grid's cells go back into the slots (what does not fit at the feet) and a
     /// window opened by `Use` closes.
     Close,
+    /// The cast the furnace at `at` works its ingots into (a `cast` row's name), or none (draft ADR crucible):
+    /// alive, within `items::BENCH_REACH`, a furnace there and a cast it reaches. Answered by its `Furnace`.
+    Choose { at: Block, cast: Option<String> },
 }
 
 impl ToServer {
@@ -162,6 +165,12 @@ pub enum ToClient {
     /// The answer to this player's prospecting `Strike` (ADR 0138): each element
     /// heard and its band (`ore::BANDS`), strongest first (`ore::prospect`); empty: the rock rings empty.
     Prospect(Vec<(String, u8)>),
+    /// The furnace this player has open (`Use`, draft ADR crucible) as it is now: its slots, heat, fire, work and
+    /// choice; sent on opening and on every tick it changes while open.
+    Furnace { at: Block, f: crate::furnace::Furnace },
+    /// Furnaces whose fire was lit (true) or went out, to everyone; every burning one on join: the model's
+    /// `working` state (its fire, smoke, sound and light) plays while it burns.
+    Fires(Vec<(Block, bool)>),
 }
 
 /// An animal as a client sees it (ADR 0083): `kind` indexes `ToClient::Kinds`, `pos` its feet in body 0's frame,

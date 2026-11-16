@@ -394,6 +394,18 @@ impl App {
                     self.audio.play("knap", Some(self.struck_at), 1.0, pitch, false);
                     self.chat_line(line);
                 }
+                // a furnace's window, and the fires burning in the world (draft ADR crucible): the model's `working`
+                // state plays while one burns (its fire, smoke, sound and light)
+                Recv::Msg(ToClient::Furnace { at, f }) => {
+                    if self.furnace.as_ref().is_some_and(|o| o.0 == at) {
+                        self.furnace = Some((at, f));
+                    }
+                }
+                Recv::Msg(ToClient::Fires(v)) => {
+                    for (b, on) in v {
+                        self.models.set_state(b, on.then_some("working"));
+                    }
+                }
                 Recv::Msg(ToClient::Welcome { .. } | ToClient::Map { .. }) => {}
                 // (what was derived from the old rows follows `live::rev`, below, whoever applied them)
                 Recv::Msg(ToClient::Defs { blocks, items }) => {

@@ -70,6 +70,8 @@ impl Server {
             item_made: BTreeMap::new(),
             taken: BTreeMap::new(),
             taken_changed: Vec::new(),
+            furnaces: BTreeMap::new(),
+            fires_changed: Vec::new(),
         }
     }
 
@@ -163,8 +165,17 @@ impl Server {
             let at = s.world.block_at(feet + phys::up(&s.world, feet) * 0.5);
             s.lay(at, over, (0, 0));
         }
+        // the furnaces (draft ADR crucible): one whose stacks no longer fit lays them where it stands, as a pile's
+        for (b, f) in &save.held.furnaces {
+            if items::stacks_fit(&f.slots) && f.slots.len() == engine::furnace::SLOTS {
+                s.furnaces.insert(key(*b), f.clone());
+            } else {
+                let over: Vec<Stack> = f.slots.iter().flatten().filter(|s| s.n > 0).flat_map(|s| items::stacks(s.item, s.n as u32).into_iter().map(|t| Stack { payload: s.payload, ..t })).collect();
+                s.lay(*b, over, (0, 0));
+            }
+        }
         s.piles_changed.clear();
-        s.taken = save.held.taken.iter().map(|(b, y)| (key(*b), *y)).collect();
+        s.taken =save.held.taken.iter().map(|(b, y)| (key(*b), *y)).collect();
         s.item_made = s.held_now();
         s.loaded = Some(save);
         s
@@ -199,7 +210,7 @@ impl Server {
             reaches: (self.world.water.rained, self.world.water.reach_extra.iter().map(|(&a, &x)| (a, x)).collect()),
             // after `air`: its `state` takes a job in flight back, which `pending` then names
             rain: (self.world.water.rain_held.iter().map(|(&a, &x)| (a, x)).collect(), self.weather.as_ref().and_then(|w| w.pending(self.tick)), self.world.water.steps),
-            held: save::Held { items: ITEMS.table(), piles: self.piles.iter().map(|(k, p)| (unkey(*k), p.slots.clone())).collect(), taken: self.taken.iter().map(|(k, y)| (unkey(*k), *y)).collect() },
+            held: save::Held { items: ITEMS.table(), piles: self.piles.iter().map(|(k, p)| (unkey(*k), p.slots.clone())).collect(), taken: self.taken.iter().map(|(k, y)| (unkey(*k), *y)).collect(), furnaces: self.furnaces.iter().map(|(k, f)| (unkey(*k), f.clone())).collect() },
         }
     }
 
@@ -282,6 +293,7 @@ impl Server {
         }
         h = fnv(h, &self.herds.to_bytes());
         h = fnv(h, &postcard::to_allocvec(&self.piles).unwrap());
+        h = fnv(h, &postcard::to_allocvec(&self.furnaces).unwrap());
         for c in &self.clients {
             let p = &c.phys;
             h = fnv(h, &c.player.id.to_le_bytes());

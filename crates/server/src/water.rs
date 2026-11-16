@@ -5,7 +5,7 @@ impl Server {
     /// Of each item, how many every player (online or not) and every pile holds.
     pub(super) fn held_now(&self) -> BTreeMap<u16, i64> {
         let mut h: BTreeMap<u16, i64> = BTreeMap::new();
-        let slots = self.clients.iter().map(|c| &c.slots).chain(self.absent.values().map(|p| &p.slots)).chain(self.piles.values().map(|p| &p.slots));
+        let slots = self.clients.iter().map(|c| &c.slots).chain(self.absent.values().map(|p| &p.slots)).chain(self.piles.values().map(|p| &p.slots)).chain(self.furnaces.values().map(|f| &f.slots));
         for st in slots.flatten().flatten() {
             *h.entry(st.item).or_default() += st.n as i64;
         }

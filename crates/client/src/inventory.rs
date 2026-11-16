@@ -66,6 +66,10 @@ pub(crate) struct Layout {
     pub view: [f32; 4],
     pub pattern: [f32; 4],
     pub fill: [f32; 4],
+    /// A furnace's window (draft ADR crucible), in the crafting grid's room: its heat bar and the casts to choose
+    /// from (its four slots are spots of `Holder::Furnace`, the output's at `out`).
+    pub heat: [f32; 4],
+    pub casts: Vec<[f32; 4]>,
     /// UI pixels a pixel of this layout: below 1 where the window would not fit the UI, so the whole screen is
     /// drawn smaller (every part above is in the layout's pixels; the pointer is divided by it).
     pub k: f32,
@@ -80,8 +84,10 @@ fn inside(b: [f32; 4], (x, y): (f32, f32)) -> bool {
 /// over the worn slot | the rows the worn pack opens (`open`, `items::open`) over the hotbar | a pile's 4 slots |
 /// the crafting grid (its 3 x 3 when `three`, at a workbench; else its 2 x 2) and its output; under the hotbar the
 /// recipe viewer: a search field over `grid`'s items from row `scroll` on, and beside them the recipe shown.
+/// At a furnace (`furnace`: its block and how many casts it offers) its window takes the grid's room: what goes in
+/// and the mould, an arrow to what comes out, the fuel under them, the heat's bar and a row of casts.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn layout(lw: f32, lh: f32, creative: bool, grid: &[u16], scroll: usize, open: usize, pile: Option<Block>, three: bool) -> Layout {
+pub(crate) fn layout(lw: f32, lh: f32, creative: bool, grid: &[u16], scroll: usize, open: usize, pile: Option<Block>, three: bool, furnace: Option<(Block, usize)>) -> Layout {
     let step = SIZE + GAP;
     let wide = COLS as f32 * step - GAP;
     let vstep = VSIZE + VGAP;
@@ -130,10 +136,22 @@ pub(crate) fn layout(lw: f32, lh: f32, creative: bool, grid: &[u16], scroll: usi
         let cx = l.ground[0] + l.ground[2] + 28.0;
         let side = if three { 3.0 } else { 2.0 };
         l.craft = [cx, ct + HEAD, side * step - GAP, side * step - GAP];
-        for k in (0..items::CRAFT).filter(|&k| three || items::in_two(k)) {
-            l.spots.push((Holder::Ape, (items::CRAFT_AT + k) as u16, [cx + (k % 3) as f32 * step, l.craft[1] + (k / 3) as f32 * step, SIZE, SIZE]));
+        if let Some((b, casts)) = furnace {
+            use engine::furnace::{FUEL, IN, MOULD, OUT};
+            let y0 = ct + HEAD;
+            l.craft = [cx, y0, CRAFT_W, 3.0 * step - GAP];
+            l.out = [cx + CRAFT_W - SIZE, y0, SIZE, SIZE];
+            for (k, at) in [(IN, [cx, y0]), (MOULD, [cx + step, y0]), (FUEL, [cx, y0 + 2.0 * step]), (OUT, [l.out[0], l.out[1]])] {
+                l.spots.push((Holder::Furnace(b), k as u16, [at[0], at[1], SIZE, SIZE]));
+            }
+            l.heat = [cx, y0 + 3.0 * step - GAP + 14.0, CRAFT_W, 10.0];
+            l.casts = (0..casts).map(|k| [cx + k as f32 * vstep, l.heat[1] + 30.0, VSIZE, VSIZE]).collect();
+        } else {
+            for k in (0..items::CRAFT).filter(|&k| three || items::in_two(k)) {
+                l.spots.push((Holder::Ape, (items::CRAFT_AT + k) as u16, [cx + (k % 3) as f32 * step, l.craft[1] + (k / 3) as f32 * step, SIZE, SIZE]));
+            }
+            l.out = [cx + 3.0 * step - GAP + 34.0, l.craft[1] + (l.craft[3] - SIZE) / 2.0, SIZE, SIZE];
         }
-        l.out = [cx + 3.0 * step - GAP + 34.0, l.craft[1] + (l.craft[3] - SIZE) / 2.0, SIZE, SIZE];
         // the recipe viewer, under the hotbar: the search, the items in view; the recipe under the pile and the grid
         let vy = hot_y + SIZE + 20.0 + HEAD;
         l.search = [mx, vy, SEARCH_W, 30.0];
@@ -164,18 +182,22 @@ fn the_screens_put_every_slot_apart_and_inside_the_panel() {
     // the settings' smallest window (640 x 360) at their largest interface scale (3), a 1280 x 720 window at 1.5,
     // and the usual sizes
     for (lw, lh) in [(640.0 / 3.0, 120.0), (1280.0 / 1.5, 480.0), (1280.0, 720.0), (1920.0, 1080.0)] {
-        for (creative, open, pile, three) in [(true, items::ROWS_AT, None, false), (false, items::ROWS_AT, None, false), (false, items::APE_SLOTS, Some(pile), true)] {
-            let l = layout(lw, lh, creative, &grid, 0, open, pile, three);
+        // and a crucible's window (draft ADR crucible): its four slots, the heat's bar and five casts
+        for (creative, open, pile, three, furnace) in [(true, items::ROWS_AT, None, false, None), (false, items::ROWS_AT, None, false, None), (false, items::APE_SLOTS, Some(pile), true, None), (false, items::APE_SLOTS, Some(pile), false, Some((pile, 5)))] {
+            let l = layout(lw, lh, creative, &grid, 0, open, pile, three, furnace);
             // survival's crafting output, the viewer's search, items, pattern and Fill: in the panel and on the screen,
             // apart, over no slot
             assert_eq!(l.list.len(), if creative { 0 } else { grid.len().min(VCOLS * VROWS) }, "{lw}x{lh}");
-            let boxes: Vec<[f32; 4]> = if creative { vec![] } else { [l.out, l.search, l.pattern, l.fill].into_iter().chain(l.list.iter().map(|v| v.1)).collect() };
+            assert_eq!(l.casts.len(), furnace.map_or(0, |f| f.1));
+            let out = if furnace.is_some() { vec![l.heat] } else { vec![l.out] };
+            let boxes: Vec<[f32; 4]> = if creative { vec![] } else { out.into_iter().chain([l.search, l.pattern, l.fill]).chain(l.list.iter().map(|v| v.1)).chain(l.casts.iter().copied()).collect() };
             for (k, b) in boxes.iter().enumerate() {
                 assert!(within(l.panel, *b) && within([0.0, 0.0, lw, lh], b.map(|v| v * l.k)), "{lw}x{lh}: box {k} {b:?} out of the panel or the screen");
                 assert!(boxes[..k].iter().all(|o| !over(*o, *b)) && l.spots.iter().all(|s| !over(s.2, *b)), "{lw}x{lh}: box {k} over another");
             }
             let at = format!("{lw}x{lh} creative {creative}");
-            let want = if creative { grid.len().min(GRID_ROWS * COLS) + 9 } else { 9 + 1 + (open - items::ROWS_AT) + pile.map_or(0, |_| 4) + if three { 9 } else { 4 } };
+            let cells = if furnace.is_some() { 4 } else if three { 9 } else { 4 };
+            let want = if creative { grid.len().min(GRID_ROWS * COLS) + 9 } else { 9 + 1 + (open - items::ROWS_AT) + pile.map_or(0, |_| 4) + cells };
             assert_eq!(l.spots.len(), want);
             // everything that takes a click on the screen, in UI pixels
             let shown = |b: [f32; 4]| b.map(|v| v * l.k);
@@ -217,7 +239,7 @@ impl App {
         let named = ITEMS.all().filter(|&i| ITEMS.name(i).to_lowercase().contains(&q));
         if self.crafting() {
             let mut v: Vec<u16> = named.collect();
-            v.sort_by_key(|&i| RECIPES.making(i).is_none());
+            v.sort_by_key(|&i| RECIPES.making(i).is_none() && RECIPES.work_making(i).is_none());
             return v;
         }
         if self.inv_tab < TABS.len() {
@@ -228,7 +250,14 @@ impl App {
 
     /// Whether the screen is survival's, with the crafting grid and the viewer: in survival, or at a workbench.
     pub(crate) fn crafting(&self) -> bool {
-        !self.creative || self.bench.is_some()
+        !self.creative || self.bench.is_some() || self.furnace.is_some()
+    }
+
+    /// The open furnace's row (`recipes::FurnaceDef`) and the casts it offers, in its window's order.
+    fn furnace_def(&self) -> Option<(&'static engine::recipes::FurnaceDef, Vec<&'static engine::recipes::Work>)> {
+        let (b, _) = self.furnace.as_ref()?;
+        let d = RECIPES.furnace(self.world.block(*b))?;
+        Some((d, RECIPES.casts(d.top).collect()))
     }
 
     /// The rows the grid or the viewer scrolls by at most.
@@ -249,14 +278,18 @@ impl App {
     pub(crate) fn use_block(&mut self) {
         let Some(b) = self.use_target() else { return };
         self.link.send(ToServer::Use(b));
-        self.bench = Some(b);
+        if RECIPES.furnace(self.world.block(b)).is_some() {
+            self.furnace = Some((b, Default::default()));
+        } else {
+            self.bench = Some(b);
+        }
         self.lifted = None;
         self.set_menu(Some(Menu::Inventory));
     }
 
-    /// The workbench open is gone or out of reach: its screen closes (the server puts the cells away too).
+    /// The workbench or furnace open is gone or out of reach: its screen closes (the server puts the cells away too).
     pub(crate) fn bench_left(&self) -> bool {
-        self.bench.is_some_and(|b| BLOCKS.get(self.world.block(b)).is_none_or(|d| d.window.is_none()) || self.world.block_centre(b).distance(self.me.pos) > items::BENCH_REACH)
+        self.bench.or(self.furnace.as_ref().map(|f| f.0)).is_some_and(|b| BLOCKS.get(self.world.block(b)).is_none_or(|d| d.window.is_none()) || self.world.block_centre(b).distance(self.me.pos) > items::BENCH_REACH)
     }
 
     /// Fill (the viewer's button): the recipe shown laid out in the grid from what the slots hold, one make's worth,
@@ -278,7 +311,8 @@ impl App {
 
     pub(crate) fn inv_layout(&self) -> Layout {
         let (lw, lh) = self.ui_size();
-        layout(lw, lh, !self.crafting(), &self.grid_items(), self.inv_scroll, items::open(&self.inv), self.pile_near(), self.bench.is_some())
+        let furnace = self.furnace.as_ref().map(|f| (f.0, self.furnace_def().map_or(0, |d| d.1.len())));
+        layout(lw, lh, !self.crafting(), &self.grid_items(), self.inv_scroll, items::open(&self.inv), self.pile_near(), self.bench.is_some(), furnace)
     }
 
     /// The pointer in the layout's pixels (`Layout::k`).
@@ -293,6 +327,7 @@ impl App {
             Holder::Pile(b) => self.piles.get(&b).and_then(|p| p.get(i as usize).copied().flatten()),
             Holder::Grid => Some(Stack::new(i, ITEMS.stack(i))),
             Holder::Ground => None,
+            Holder::Furnace(b) => self.furnace.as_ref().filter(|f| f.0 == b).and_then(|f| f.1.slots.get(i as usize).copied().flatten()),
         }
     }
 
@@ -334,8 +369,16 @@ impl App {
             if inside(l.fill, p) {
                 return self.fill();
             }
+            // a furnace's cast: chosen, or (clicked again) none
+            if let (Some(k), Some((b, f)), Some((_, casts))) = (l.casts.iter().position(|c| inside(*c, p)), self.furnace.as_ref(), self.furnace_def()) {
+                let name = casts[k].name.clone();
+                let cast = (f.choice.as_ref() != Some(&name)).then_some(name);
+                self.link.send(ToServer::Choose { at: *b, cast });
+                self.audio.play("ui.tick", None, 1.0, 1.0, false);
+                return;
+            }
             // the output: one made, with shift as many as the cells hold (the server makes them and sends the slots)
-            if inside(l.out, p) {
+            if inside(l.out, p) && self.furnace.is_none() {
                 if let Some(r) = RECIPES.matched(&self.inv, self.bench.is_some()).filter(|_| self.lifted.is_none()) {
                     self.link.send(ToServer::Craft { recipe: r.name.clone(), n: if shift { u16::MAX } else { 1 } });
                     self.audio.play("ui.tick", None, 1.0, 1.0, false);
@@ -386,6 +429,12 @@ impl App {
     /// the hotbar, from a pile or the grid into the ape; the first slot of the same item with room, else the
     /// first empty one.
     fn across(&self, h: Holder, i: u16, st: Stack) -> Option<(Holder, u16)> {
+        // a furnace open: from the ape's own slots into it, a fuel to its fuel, a mould to its mould, else in
+        if let (Holder::Ape, Some((b, f))) = (h, self.furnace.as_ref()) {
+            use engine::furnace::{FUEL, IN, MOULD};
+            let k = if RECIPES.fuel(st.item).is_some() { FUEL } else if RECIPES.mould(st.item) { MOULD } else { IN };
+            return f.slots[k].is_none_or(|t| t.item == st.item).then_some((Holder::Furnace(*b), k as u16));
+        }
         let hot = (h, (i as usize) < items::HOTBAR) == (Holder::Ape, true);
         let to: Vec<usize> = match h {
             Holder::Ape if i as usize >= CRAFT_AT => items::usable(&self.inv).collect(),
@@ -466,7 +515,7 @@ impl App {
         hud::brackets(p, [px0 - 4.0, py0 - 4.0, pw + 8.0, l.panel[3] + 8.0], 14.0, false, CYAN);
         // the title row: the accent's bar and the name, as the menu's pages; a hairline under it
         p.rect(px0 + PAD, py0 + 13.0, 3.0, 24.0, CYAN, 0);
-        let title = if self.bench.is_some() { "WORKBENCH" } else if self.creative { "CREATIVE" } else { "INVENTORY" };
+        let title = if self.furnace.is_some() { "CRUCIBLE" } else if self.bench.is_some() { "WORKBENCH" } else if self.creative { "CREATIVE" } else { "INVENTORY" };
         p.text_px(px0 + PAD + 14.0, py0 + 13.0, title, [1.0; 4], hud::PX * 1.5);
         p.rect(px0 + PAD, py0 + TITLE_H - 6.0, pw - 2.0 * PAD, 1.0, [CYAN[0], CYAN[1], CYAN[2], 0.25], 0);
         let head = |p: &mut hud::Paint, x: f32, y: f32, s: &str| p.text_px(x, y - 18.0, &s.to_uppercase(), [CYAN[0], CYAN[1], CYAN[2], 0.85], hud::PX * 0.75);
@@ -599,22 +648,26 @@ impl App {
         let (small, dim) = (hud::PX * 0.75, [0.55, 0.62, 0.7, 0.9]);
         let faint = [0.55, 0.62, 0.7, 0.6];
         let three = self.bench.is_some();
-        head(p, l.craft[0], l.craft[1], if three { "Workbench 3 x 3" } else { "Craft 2 x 2" });
-        // the arrow from the grid's 3 x 3 room to the output
-        let (ax, ay) = (l.out[0] - 30.0, l.out[1] + SIZE / 2.0);
-        p.rect(ax, ay - 1.5, 18.0, 3.0, [CYAN[0], CYAN[1], CYAN[2], 0.6], 0);
-        for k in 0..5 {
-            let k = k as f32;
-            p.rect(ax + 18.0 + k * 1.6, ay - 6.0 + k * 1.2, 1.6, 12.0 - k * 2.4, [CYAN[0], CYAN[1], CYAN[2], 0.6], 0);
-        }
-        let made = RECIPES.matched(&self.inv, three);
-        let lit = made.is_some() && self.lifted.is_none() && inside(l.out, pointer);
-        let o = l.out;
-        p.rect(o[0], o[1], o[2], o[3], if lit { [0.17, 0.24, 0.33, 1.0] } else { [0.07, 0.1, 0.15, 0.9] }, 0);
-        edge(p, o, if made.is_some() { [CYAN[0], CYAN[1], CYAN[2], 0.7] } else { [1.0, 1.0, 1.0, 0.14] });
-        if let Some(r) = made {
-            self.icon(p, Stack::new(r.out.0, r.out.1), o[0] + 6.0, o[1] + 6.0, 40.0, season, true);
-            p.text_px(o[0], o[1] + SIZE + 6.0, ITEMS.name(r.out.0), dim, small);
+        if self.furnace.is_some() {
+            self.furnace_draw(p, l, season, pointer);
+        } else {
+            head(p, l.craft[0], l.craft[1], if three { "Workbench 3 x 3" } else { "Craft 2 x 2" });
+            // the arrow from the grid's 3 x 3 room to the output
+            let (ax, ay) = (l.out[0] - 30.0, l.out[1] + SIZE / 2.0);
+            p.rect(ax, ay - 1.5, 18.0, 3.0, [CYAN[0], CYAN[1], CYAN[2], 0.6], 0);
+            for k in 0..5 {
+                let k = k as f32;
+                p.rect(ax + 18.0 + k * 1.6, ay - 6.0 + k * 1.2, 1.6, 12.0 - k * 2.4, [CYAN[0], CYAN[1], CYAN[2], 0.6], 0);
+            }
+            let made = RECIPES.matched(&self.inv, three);
+            let lit = made.is_some() && self.lifted.is_none() && inside(l.out, pointer);
+            let o = l.out;
+            p.rect(o[0], o[1], o[2], o[3], if lit { [0.17, 0.24, 0.33, 1.0] } else { [0.07, 0.1, 0.15, 0.9] }, 0);
+            edge(p, o, if made.is_some() { [CYAN[0], CYAN[1], CYAN[2], 0.7] } else { [1.0, 1.0, 1.0, 0.14] });
+            if let Some(r) = made {
+                self.icon(p, Stack::new(r.out.0, r.out.1), o[0] + 6.0, o[1] + 6.0, 40.0, season, true);
+                p.text_px(o[0], o[1] + SIZE + 6.0, ITEMS.name(r.out.0), dim, small);
+            }
         }
         // the viewer: the search field (lit while it takes the keys), the items
         let s = l.search;
@@ -633,7 +686,7 @@ impl App {
         for &(id, b) in &l.list {
             let lit = inside(b, pointer) || self.viewing == Some(id);
             p.rect(b[0], b[1], b[2], b[3], if lit { [0.17, 0.24, 0.33, 1.0] } else { [0.07, 0.1, 0.15, 0.9] }, 0);
-            edge(p, b, if self.viewing == Some(id) { CYAN } else { [1.0, 1.0, 1.0, if RECIPES.making(id).is_some() { 0.2 } else { 0.07 }] });
+            edge(p, b, if self.viewing == Some(id) { CYAN } else { [1.0, 1.0, 1.0, if RECIPES.making(id).is_some() || RECIPES.work_making(id).is_some() { 0.2 } else { 0.07 }] });
             self.icon(p, Stack::new(id, 1), b[0] + 4.0, b[1] + 4.0, VSIZE - 8.0, season, false);
         }
         if l.list.is_empty() {
@@ -650,6 +703,29 @@ impl App {
             return;
         };
         p.text_px(tx, pt[1] + 4.0, &fit(ITEMS.name(item)), [1.0; 4], small);
+        // a furnace's work (draft ADR crucible): what goes in (and the mould) in the pattern's first cells, the
+        // furnace and heat it needs; several works of one output shown in turn; Fill lays nothing for it
+        let works: Vec<&engine::recipes::Work> = RECIPES.works.iter().filter(|w| w.out.0 == item).collect();
+        if let (None, false) = (RECIPES.making(item), works.is_empty()) {
+            let w = works[self.start.elapsed().as_secs() as usize % works.len()];
+            for (k, it) in std::iter::once(Some((w.input.0, w.input.1))).chain([w.mould.map(|m| (m, 1))]).enumerate() {
+                let b = [pt[0] + k as f32 * (PSIZE + VGAP), pt[1], PSIZE, PSIZE];
+                p.rect(b[0], b[1], b[2], b[3], [0.07, 0.1, 0.15, 0.9], 0);
+                edge(p, b, [1.0, 1.0, 1.0, 0.1]);
+                if let Some((i, n)) = it {
+                    self.icon(p, Stack::new(i, n), b[0] + 3.0, b[1] + 3.0, PSIZE - 6.0, season, true);
+                }
+            }
+            let at = RECIPES.furnaces.iter().filter(|f| f.top >= w.heat).map(|f| ITEMS.name(f.block)).next().unwrap_or("no furnace yet");
+            p.text_px(tx, pt[1] + 22.0, &fit(&format!("makes {}{}", w.out.1, if w.mould.is_some() { ", mould kept" } else { "" })), dim, small);
+            p.text_px(tx, pt[1] + 40.0, &fit(&format!("in a {at}, at {:.0} C", w.heat)), faint, small);
+            p.text_px(tx, pt[1] + 58.0, &fit(&format!("{:.0} s", w.secs)), faint, small);
+            let f = l.fill;
+            hud::cut(p, f[0], f[1], f[2], f[3], [0.09, 0.12, 0.17, 0.5]);
+            let label = "No fill";
+            p.text_px(f[0] + (f[2] - hud::text_width(label)) / 2.0, f[1] + 8.0, label, [0.5, 0.55, 0.6, 0.5], hud::PX);
+            return;
+        }
         let Some(r) = RECIPES.making(item) else {
             p.text_px(tx, pt[1] + 22.0, &fit(&source(item)), dim, small);
             return;
@@ -682,6 +758,68 @@ impl App {
             p.text_flat(lx, f[1] + 8.0, label, [0.01, 0.06, 0.12, 1.0], hud::PX);
         } else {
             p.text_px(lx, f[1] + 8.0, label, if need { [0.5, 0.55, 0.6, 0.5] } else { [0.9, 0.95, 1.0, 1.0] }, hud::PX);
+        }
+    }
+
+    /// A furnace's window in the grid's room (draft ADR crucible): its slots' headings, the arrow to what comes out
+    /// filling with the work done, the fire's seconds and the heat as a number and a bar marked where the work
+    /// needs it, and the casts to choose from (the chosen one lit, its ingots under it).
+    fn furnace_draw(&self, p: &mut hud::Paint, l: &Layout, season: (f64, f64), pointer: (f32, f32)) {
+        use engine::furnace::{FUEL, IN, MOULD};
+        let head = |p: &mut hud::Paint, x: f32, y: f32, s: &str| p.text_px(x, y - 18.0, &s.to_uppercase(), [CYAN[0], CYAN[1], CYAN[2], 0.85], hud::PX * 0.75);
+        let (small, dim, faint) = (hud::PX * 0.75, [0.55, 0.62, 0.7, 0.9], [0.55, 0.62, 0.7, 0.6]);
+        let (Some((_, f)), Some((def, casts))) = (self.furnace.as_ref(), self.furnace_def()) else { return };
+        let spot = |k: usize| l.spots.iter().find(|s| matches!(s.0, Holder::Furnace(_)) && s.1 as usize == k).map_or([0.0; 4], |s| s.2);
+        let (i, m, u) = (spot(IN), spot(MOULD), spot(FUEL));
+        head(p, i[0], i[1], "In");
+        head(p, m[0], m[1], "Mould");
+        head(p, l.out[0], l.out[1], "Out");
+        head(p, u[0], u[1], "Fuel");
+        let want = f.wants(def, &RECIPES);
+        // the arrow from the mould to what comes out, filling with the work's seconds
+        let (ax, ay, aw) = (m[0] + SIZE + 12.0, i[1] + SIZE / 2.0, l.out[0] - 22.0 - (m[0] + SIZE + 12.0));
+        p.rect(ax, ay - 2.0, aw, 4.0, [1.0, 1.0, 1.0, 0.1], 0);
+        let done = want.map_or(0.0, |w| (f.work / w.secs).clamp(0.0, 1.0));
+        p.rect(ax, ay - 2.0, aw * done, 4.0, [1.0, 0.6, 0.25, 0.95], 0);
+        for k in 0..5 {
+            let k = k as f32;
+            p.rect(ax + aw + k * 1.6, ay - 6.0 + k * 1.2, 1.6, 12.0 - k * 2.4, if done >= 1.0 { [1.0, 0.6, 0.25, 0.95] } else { [CYAN[0], CYAN[1], CYAN[2], 0.6] }, 0);
+        }
+        let doing = match want {
+            Some(w) if f.heat >= w.heat => format!("{} {:.0} %", ITEMS.name(w.out.0), done * 100.0),
+            Some(w) => format!("{}: needs {:.0} C", ITEMS.name(w.out.0), w.heat),
+            None if f.slots[IN].is_some_and(|s| RECIPES.works.iter().any(|w| w.mould.is_some() && w.input.0 == s.item)) => "choose a cast below".into(),
+            None => "nothing to work".into(),
+        };
+        // under the in and mould slots: beside the arrow it ran over the out slot and the window's edge
+        p.text_px(i[0], i[1] + SIZE + 8.0, &doing, dim, small);
+        // the fire beside the fuel: its seconds left, or out
+        let fire = if f.burning() { format!("fire: {:.0} s left", f.burn.ceil()) } else { "fire out".into() };
+        p.text_px(u[0] + SIZE + 14.0, u[1] + 6.0, &fire, if f.burning() { [1.0, 0.7, 0.35, 1.0] } else { faint }, small);
+        p.text_px(u[0] + SIZE + 14.0, u[1] + 26.0, &format!("heat {:.0} C of {:.0}", f.heat, def.top), [1.0; 4], small);
+        // the heat's bar, marked at what the work needs
+        let h = l.heat;
+        p.rect(h[0], h[1], h[2], h[3], [1.0, 1.0, 1.0, 0.08], 0);
+        let share = |c: f32| ((c - engine::furnace::AIR_C) / (def.top - engine::furnace::AIR_C)).clamp(0.0, 1.0);
+        p.rect(h[0], h[1], h[2] * share(f.heat), h[3], [1.0, 0.45 + 0.25 * share(f.heat), 0.2, 0.95], 0);
+        if let Some(w) = want {
+            let x = h[0] + h[2] * share(w.heat);
+            p.rect(x - 1.0, h[1] - 4.0, 2.0, h[3] + 8.0, [1.0; 4], 0);
+            p.text_px((x - 50.0).max(h[0]), h[1] - 16.0, &format!("{:.0} C", w.heat), faint, small);
+        }
+        // the casts
+        for (k, (c, b)) in casts.iter().zip(&l.casts).enumerate() {
+            let on = f.choice.as_deref() == Some(c.name.as_str());
+            let lit = inside(*b, pointer);
+            p.rect(b[0], b[1], b[2], b[3], if on { [0.17, 0.24, 0.33, 1.0] } else if lit { [0.12, 0.17, 0.24, 1.0] } else { [0.07, 0.1, 0.15, 0.9] }, 0);
+            edge(p, *b, if on { CYAN } else { [1.0, 1.0, 1.0, 0.14] });
+            self.icon(p, Stack::new(c.out.0, 1), b[0] + 4.0, b[1] + 4.0, VSIZE - 8.0, season, false);
+            if k == 0 {
+                head(p, b[0], b[1], "Cast (click to choose)");
+            }
+        }
+        if let Some(c) = casts.iter().find(|c| f.choice.as_deref() == Some(c.name.as_str())) {
+            p.text_px(l.casts[0][0], l.casts[0][1] + VSIZE + 6.0, &format!("{}: {} ingots", ITEMS.name(c.out.0), c.input.1), dim, small);
         }
     }
 
@@ -861,7 +999,7 @@ fn a_tooltip_stands_beside_its_slot_inside_the_panel() {
     // sizes, fits neither beside; it stands above (or below) its slot, inside the window, never over the slot
     for (lw, lh) in [(640.0 / 3.0, 120.0), (1280.0 / 1.5, 480.0), (1280.0, 720.0)] {
         for creative in [true, false] {
-            let l = layout(lw, lh, creative, &[], 0, items::ROWS_AT, None, false);
+            let l = layout(lw, lh, creative, &[], 0, items::ROWS_AT, None, false, None);
             let hot: Vec<[f32; 4]> = l.spots.iter().filter(|s| s.0 == Holder::Ape && (s.1 as usize) < items::HOTBAR).map(|s| s.2).collect();
             for b in [hot[0], hot[4], hot[8]] {
                 let (w, h) = (300.0, 44.0);

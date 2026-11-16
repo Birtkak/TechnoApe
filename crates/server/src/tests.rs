@@ -2452,3 +2452,239 @@ fn a_block_that_does_not_exist_is_refused_not_indexed() {
         assert!(s.clients[0].bench.is_none());
     }
 }
+
+/// The crucible's tests (draft ADR crucible): `n` survival players on land beside a crucible two cells off
+/// (within `BENCH_REACH`), and its cell.
+fn at_crucible(n: usize) -> (Server, Vec<Link<ToServer, ToClient>>, Block, DVec3) {
+    let (mut s, links) = server_with(n);
+    let (pole, under) = on_land(&s);
+    for l in &links {
+        l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    }
+    let at = Block { pos: under.pos + glam::IVec3::new(2, 0, 1), ..under };
+    s.world.set_block(at, BLOCKS.id("crucible"));
+    s.tick();
+    (s, links, at, pole)
+}
+
+/// Gives player `i` n of `item` (/give) and moves them into slot k of the furnace at `at`.
+fn feed(s: &mut Server, l: &Link<ToServer, ToClient>, i: usize, at: Block, item: &str, n: u16, k: u16) {
+    let id = ITEMS.named(item).unwrap();
+    l.send(ToServer::Chat(format!("/give {} {n}", item.replace(' ', "_"))));
+    s.tick();
+    let a = (0..items::APE_SLOTS).find(|&a| s.clients[i].slots[a].is_some_and(|t| t.item == id && t.n >= n)).unwrap();
+    l.send(ToServer::Items { seq: 1, from: (Holder::Ape, a as u16), to: (Holder::Furnace(at), k), n });
+    s.tick();
+}
+
+fn furnace_of(s: &Server, at: Block) -> engine::furnace::Furnace {
+    s.furnaces.get(&key(at)).cloned().unwrap_or_default()
+}
+
+/// A crucible used and fed copper gravel and a log melts it at 1085 C into ingots, the open window told the heat
+/// as it rises, everyone told the fire; a mould and a cast chosen make a pick head and keep the mould. The
+/// items' ledger is exact at every step; the fire goes out and the heat falls when the work is done.
+#[test]
+fn a_crucible_melts_gravel_and_casts_a_head_with_the_ledger_exact() {
+    use engine::furnace::{FUEL, IN, MOULD, OUT};
+    let (mut s, links, at, _) = at_crucible(2);
+    let l = &links[0];
+    let id = |n: &str| ITEMS.named(n).unwrap();
+    l.send(ToServer::Use(at));
+    s.tick();
+    assert_eq!(s.clients[0].furnace, Some(at));
+    feed(&mut s, l, 0, at, "copper gravel", 4, IN as u16);
+    drain(&links[1]);
+    assert!(!furnace_of(&s, at).burning(), "no fuel, no fire");
+    // the log in: the fire is lit and everyone hears of it; the window's heat rises
+    feed(&mut s, l, 0, at, "oak log", 2, FUEL as u16);
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    assert!(drain(&links[1]).iter().any(|m| matches!(m, ToClient::Fires(v) if v.contains(&(at, true)))));
+    drain(l);
+    wait(&mut s, 5.0);
+    let heats: Vec<f32> = drain(l).iter().filter_map(|m| if let ToClient::Furnace { at: b, f } = m { (*b == at).then_some(f.heat) } else { None }).collect();
+    assert!(heats.len() > 50 && heats.windows(2).all(|w| w[1] > w[0]) && heats[0] < 1085.0, "{heats:?}");
+    // two ingots by 10.7 + 2 x 8 s, the next log not lit
+    wait(&mut s, 22.0);
+    let f = furnace_of(&s, at);
+    assert_eq!((f.slots[IN], f.slots[OUT], f.slots[FUEL]), (None, Some(Stack::new(id("copper ingot"), 2)), Some(Stack::new(id("oak log"), 1))), "{f:?}");
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    // the ingots back into the input, a mould, the pick head chosen: one head, the mould kept
+    l.send(ToServer::Items { seq: 1, from: (Holder::Furnace(at), OUT as u16), to: (Holder::Furnace(at), IN as u16), n: 2 });
+    s.tick();
+    l.send(ToServer::Chat("/give clay 2".into()));
+    s.tick();
+    let clay = (0..9).find(|&k| s.clients[0].slots[k].is_some_and(|t| t.item == id("clay"))).unwrap();
+    shift(&mut s, l, clay, items::CRAFT_AT, 1);
+    shift(&mut s, l, clay, items::CRAFT_AT + 1, 1);
+    l.send(ToServer::Craft { recipe: "clay mould".into(), n: 1 });
+    s.tick();
+    let m = (0..9).find(|&k| s.clients[0].slots[k].is_some_and(|t| t.item == id("clay mould"))).unwrap();
+    l.send(ToServer::Items { seq: 1, from: (Holder::Ape, m as u16), to: (Holder::Furnace(at), MOULD as u16), n: 1 });
+    l.send(ToServer::Choose { at, cast: Some("cast pick head".into()) });
+    wait(&mut s, 6.0);
+    let f = furnace_of(&s, at);
+    assert_eq!((f.slots[IN], f.slots[OUT], f.slots[MOULD]), (None, Some(Stack::new(id("copper pick head"), 1)), Some(Stack::new(id("clay mould"), 1))), "{f:?}");
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    // the head taken out; nothing put into the output; the fire out and the heat back at the air's in time
+    l.send(ToServer::Items { seq: 1, from: (Holder::Furnace(at), OUT as u16), to: (Holder::Ape, 8), n: 1 });
+    s.tick();
+    assert_eq!(s.clients[0].slots[8], Some(Stack::new(id("copper pick head"), 1)));
+    l.send(ToServer::Items { seq: 1, from: (Holder::Ape, 8), to: (Holder::Furnace(at), OUT as u16), n: 1 });
+    s.tick();
+    assert_eq!(furnace_of(&s, at).slots[OUT], None);
+    drain(&links[1]);
+    wait(&mut s, 120.0);
+    let f = furnace_of(&s, at);
+    assert!(!f.burning() && f.heat == engine::furnace::AIR_C, "{f:?}");
+    assert!(drain(&links[1]).iter().any(|m| matches!(m, ToClient::Fires(v) if v.contains(&(at, false)))));
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+}
+
+/// The cost of 200 burning crucibles on the server's tick, once (principle 14): `cargo test --release -p server
+/// two_hundred_crucibles -- --ignored --nocapture`. Prints ms per tick without and with them.
+#[test]
+#[ignore]
+fn two_hundred_crucibles_cost() {
+    use engine::furnace::{FUEL, IN};
+    let (mut s, _links, at, _) = at_crucible(1);
+    let time = |s: &mut Server| {
+        let t = std::time::Instant::now();
+        for _ in 0..600 {
+            s.tick();
+        }
+        t.elapsed().as_secs_f64() * 1e3 / 600.0
+    };
+    let bare = time(&mut s);
+    for k in 0..200 {
+        let b = Block { pos: at.pos + glam::IVec3::new(k % 20, 0, 3 + k / 20), ..at };
+        s.world.set_block(b, BLOCKS.id("crucible"));
+        let mut f = engine::furnace::Furnace::default();
+        f.slots[IN] = Some(Stack::new(ITEMS.named("copper gravel").unwrap(), 64));
+        f.slots[FUEL] = Some(Stack::new(ITEMS.named("oak log").unwrap(), 64));
+        s.furnaces.insert(key(b), f);
+    }
+    s.tick();
+    let burning = s.furnaces.values().filter(|f| f.burning()).count();
+    let with = time(&mut s);
+    println!("{{\"crucibles\":{burning},\"tick_ms_bare\":{bare:.4},\"tick_ms_with\":{with:.4},\"per_crucible_us\":{:.3}}}", (with - bare) * 1e3 / burning as f64);
+    assert_eq!(burning, 200);
+}
+
+/// Two players at one crucible: both may fill it and take from it, and each open window sees the other's move.
+#[test]
+fn two_players_work_one_crucible() {
+    let (mut s, links, at, _) = at_crucible(2);
+    for l in &links {
+        l.send(ToServer::Use(at));
+    }
+    s.tick();
+    feed(&mut s, &links[0], 0, at, "copper gravel", 2, 0);
+    feed(&mut s, &links[1], 1, at, "copper gravel", 3, 0);
+    let gravel = Stack::new(ITEMS.named("copper gravel").unwrap(), 5);
+    assert_eq!(furnace_of(&s, at).slots[0], Some(gravel));
+    for l in &links {
+        let seen = drain(l).into_iter().filter_map(|m| if let ToClient::Furnace { f, .. } = m { Some(f.slots[0]) } else { None }).last();
+        assert_eq!(seen, Some(Some(gravel)));
+    }
+    links[1].send(ToServer::Items { seq: 1, from: (Holder::Furnace(at), 0), to: (Holder::Ape, 5), n: 5 });
+    s.tick();
+    assert_eq!((furnace_of(&s, at).slots[0], s.clients[1].slots[5]), (None, Some(gravel)));
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+}
+
+/// A crucible dug with all four slots full drops everything it held and itself; nothing is lost, the ledger exact.
+#[test]
+fn a_crucible_dug_full_drops_all_it_held() {
+    let (mut s, links, at, _) = at_crucible(1);
+    let l = &links[0];
+    let id = |n: &str| ITEMS.named(n).unwrap();
+    // (flint in: nothing to work, so no log burns while it is dug)
+    let held: [(&str, u16); 4] = [("flint", 3), ("oak log", 2), ("clay mould", 1), ("copper ingot", 4)];
+    let mut f = engine::furnace::Furnace::default();
+    for (k, (n, c)) in held.iter().enumerate() {
+        f.slots[k] = Some(Stack::new(id(n), *c));
+        *s.item_made.entry(id(n)).or_default() += *c as i64;
+    }
+    s.furnaces.insert(key(at), f);
+    assert!(s.item_ledger().is_empty());
+    let one = Shape::one(at);
+    l.send(ToServer::Dig(Some(one)));
+    s.tick();
+    let need = edit::dig_time(&s.world, &one);
+    wait(&mut s, need + 0.2);
+    l.send(ToServer::Edit { seq: 1, shape: one, material: AIR });
+    s.tick();
+    assert_eq!(s.world.block(at), AIR);
+    assert!(s.furnaces.is_empty());
+    let all: Vec<(u16, u32)> = {
+        let mut m: BTreeMap<u16, u32> = BTreeMap::new();
+        for st in s.piles.values().flat_map(|p| p.slots.iter().flatten()).chain(s.clients[0].slots.iter().flatten()) {
+            *m.entry(st.item).or_default() += st.n as u32;
+        }
+        m.into_iter().collect()
+    };
+    for (n, c) in held.iter().chain(&[("crucible", 1)]) {
+        assert!(all.contains(&(id(n), *c as u32)), "{n} x {c}: {all:?}");
+    }
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+}
+
+/// A save mid-melt loads to the same furnace (slots, heat, fire, work) and both carry on alike; the ledger holds.
+#[test]
+fn a_save_mid_melt_carries_on() {
+    let (mut s, links, at, _) = at_crucible(1);
+    feed(&mut s, &links[0], 0, at, "copper nugget", 8, 0);
+    feed(&mut s, &links[0], 0, at, "pine log", 1, 1);
+    wait(&mut s, 14.0);
+    let f = furnace_of(&s, at);
+    assert!(f.burning() && f.heat >= 1085.0 && f.work > 0.0 && f.slots[3].is_none(), "{f:?}");
+    let mut back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
+    assert_eq!(furnace_of(&back, at), f);
+    assert!(back.item_ledger().is_empty(), "{:?}", back.item_ledger());
+    for _ in 0..200 {
+        s.tick();
+        back.tick();
+    }
+    assert_eq!(furnace_of(&back, at), furnace_of(&s, at));
+    assert!(furnace_of(&back, at).slots[3].is_some_and(|o| o.n >= 1));
+    assert!(back.item_ledger().is_empty(), "{:?}", back.item_ledger());
+}
+
+/// A furnace's slots and choice are reached only within `BENCH_REACH` of a crucible there: a use, a move or a
+/// choice from 20 m, at a block that is no crucible, or at a made-up block, changes nothing and opens nothing.
+#[test]
+fn a_far_or_made_up_crucible_is_refused() {
+    let (mut s, links, at, pole) = at_crucible(1);
+    let l = &links[0];
+    l.send(ToServer::Chat("/give copper_gravel 4".into()));
+    s.tick();
+    let near = s.clients[0].slots.clone();
+    let tries = |s: &mut Server, b: Block| {
+        l.send(ToServer::Use(b));
+        l.send(ToServer::Items { seq: 1, from: (Holder::Ape, 0), to: (Holder::Furnace(b), 0), n: 4 });
+        l.send(ToServer::Choose { at: b, cast: Some("cast pick head".into()) });
+        s.tick();
+    };
+    let under = Block { pos: at.pos - glam::IVec3::Z, ..at };
+    for b in [under, Block { body: 9, ..at }, Block { face: 7, ..at }, Block { pos: glam::IVec3::new(-1, 0, 1 << 20), ..at }] {
+        tries(&mut s, b);
+    }
+    let away = pole + DVec3::X * 20.0;
+    l.send(ToServer::Move { pos: away.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    s.tick();
+    tries(&mut s, at);
+    assert!(s.furnaces.is_empty() && s.clients[0].furnace.is_none() && s.clients[0].slots == near);
+    // a cast that is no cast is refused at the crucible too
+    l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    l.send(ToServer::Choose { at, cast: Some("copper from gravel".into()) });
+    s.tick();
+    assert!(furnace_of(&s, at).choice.is_none());
+    // and walking away closes an open one
+    l.send(ToServer::Use(at));
+    s.tick();
+    assert_eq!(s.clients[0].furnace, Some(at));
+    l.send(ToServer::Move { pos: away.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    s.tick();
+    assert!(s.clients[0].furnace.is_none());
+}
