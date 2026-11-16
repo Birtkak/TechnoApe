@@ -28,7 +28,7 @@ const SEARCH_W: f32 = 220.0;
 /// The hints' text size, and each screen's (short enough to fit its window).
 const HINT_PX: f32 = hud::PX * 0.75;
 const HINT_SURVIVAL: &str = "Click: lift, put    Right click: half, one    Shift-click: across, take all made    Click outside: throw";
-/// Survival's crafting column (draft ADR crafting-grid): the 3 x 3's room, the arrow's, the output's.
+/// Survival's crafting column (ADR 0140): the 3 x 3's room, the arrow's, the output's.
 const CRAFT_W: f32 = 3.0 * (SIZE + GAP) - GAP + 34.0 + SIZE;
 /// The recipe viewer under the slots: its items' squares, how many a row and how many rows in view (the wheel
 /// scrolls them), and the squares of the recipe's pattern.
@@ -237,7 +237,7 @@ impl App {
         self.grid_items().len().div_ceil(cols).saturating_sub(rows)
     }
 
-    /// The block aimed at whose place button opens a window (draft ADR crafting-grid): a use, which comes before
+    /// The block aimed at whose place button opens a window (ADR 0140): a use, which comes before
     /// a strike or a place against it, alive and within `items::BENCH_REACH` of the feet, as the server's rule.
     pub(crate) fn use_target(&self) -> Option<Block> {
         let (hit, _) = self.aim.filter(|_| self.dead.is_none())?;
@@ -592,7 +592,7 @@ impl App {
     }
 
     /// The crafting grid's heading, its arrow and output (what the cells hold now), and the recipe viewer: the
-    /// search, the items, and the recipe of the one clicked with its Fill button (draft ADR crafting-grid).
+    /// search, the items, and the recipe of the one clicked with its Fill button (ADR 0140).
     /// shortcut: a "hold to analyze" explainer for complicated items would stand in the recipe's panel, under Fill.
     fn craft_draw(&self, p: &mut hud::Paint, l: &Layout, season: (f64, f64), pointer: (f32, f32)) {
         let head = |p: &mut hud::Paint, x: f32, y: f32, s: &str| p.text_px(x, y - 18.0, &s.to_uppercase(), [CYAN[0], CYAN[1], CYAN[2], 0.85], hud::PX * 0.75);
@@ -906,7 +906,7 @@ fn a_tooltip_says_a_tools_uses_and_what_a_pack_opens() {
 /// The red of a grid cell, or a pattern's cell, whose item the slots lack.
 const RED: [f32; 4] = [0.5, 0.1, 0.09, 0.9];
 
-/// Fill (draft ADR crafting-grid): the moves, (from, to, n) within the ape's slots in order, that lay one make of
+/// Fill (ADR 0140): the moves, (from, to, n) within the ape's slots in order, that lay one make of
 /// `r` in the grid from its top left: first what lies in a cell the pattern does not want there goes back into the
 /// usable slots, then one of a wanted item from them into each pattern cell not holding one already. Also the cells
 /// whose items the slots lack (nothing is moved for them). None when `r` needs the bench and only the 2 x 2 is open.

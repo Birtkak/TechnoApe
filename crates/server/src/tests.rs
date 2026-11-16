@@ -948,7 +948,7 @@ fn shift(s: &mut Server, l: &Link<ToServer, ToClient>, a: usize, b: usize, n: u1
     s.tick();
 }
 
-/// The crafting grid (draft ADR crafting-grid): the pattern moved into the grid's cells is taken as its output,
+/// The crafting grid (ADR 0140): the pattern moved into the grid's cells is taken as its output,
 /// as many of n times as the cells hold and the slots have room for; another recipe's name, an empty grid or no
 /// room changes nothing. The ledger is exact throughout; creative crafts the same way.
 #[test]
@@ -998,7 +998,7 @@ fn the_grid_makes_its_pattern_from_its_cells_or_nothing_changes() {
     assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
 }
 
-/// The workbench (draft ADR crafting-grid): the grid's cells outside the 2 x 2 take nothing until the player uses
+/// The workbench (ADR 0140): the grid's cells outside the 2 x 2 take nothing until the player uses
 /// a workbench within `BENCH_REACH` (a use from too far, or of another block, opens nothing); there a pick is
 /// made in the far column. Walking away puts the cells back into the pack and the far column refuses again.
 #[test]
@@ -1054,7 +1054,7 @@ fn the_bench_cells_count_only_at_a_workbench() {
     assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
 }
 
-/// What lies in the grid's cells is never lost (draft ADR crafting-grid): closing the screen puts it back into
+/// What lies in the grid's cells is never lost (ADR 0140): closing the screen puts it back into
 /// the pack, what does not fit at the feet; so does a death and a leave; a save keeps it in the cells and the
 /// join after puts it into the pack; a save from before the grid (37 slots) loads with empty cells.
 #[test]
@@ -2435,4 +2435,20 @@ fn a_closed_link_removes_the_player() {
     drop(links.remove(0));
     s.tick();
     assert_eq!(s.players(), 1);
+}
+
+/// Review of the crafting grid (2026-11-16): a client names a block; one on no body, no face or outside the grid
+/// must be refused, not indexed (a made-up `Use` or `Take` took the server down).
+#[test]
+fn a_block_that_does_not_exist_is_refused_not_indexed() {
+    let (mut s, links) = server_with(1);
+    let (pole, under) = on_land(&s);
+    links[0].send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    s.tick();
+    for bad in [Block { body: 9, ..under }, Block { face: 7, ..under }, Block { pos: glam::IVec3::new(-1, 0, 1 << 20), ..under }] {
+        links[0].send(ToServer::Use(bad));
+        links[0].send(ToServer::Take { seq: 1, at: bad });
+        s.tick();
+        assert!(s.clients[0].bench.is_none());
+    }
 }

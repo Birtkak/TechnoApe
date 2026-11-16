@@ -160,7 +160,7 @@ pub(crate) struct App {
     pub(crate) inv_query: String,
     pub(crate) inv_scroll: usize,
     pub(crate) shift: bool,
-    /// The crafting grid (draft ADR crafting-grid): the workbench used, while its screen is open; the item the
+    /// The crafting grid (ADR 0140): the workbench used, while its screen is open; the item the
     /// recipe viewer shows; the grid's cells the last Fill found nothing for (drawn red until they get an item).
     pub(crate) bench: Option<Block>,
     pub(crate) viewing: Option<u16>,

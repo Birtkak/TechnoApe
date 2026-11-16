@@ -16,7 +16,7 @@ pub const HOTBAR: usize = 9;
 pub const WORN: usize = 9;
 pub const ROWS_AT: usize = 10;
 pub const APE_SLOTS: usize = ROWS_AT + 27;
-/// The crafting grid's cells (draft ADR crafting-grid): the 9 slots after those, a 3 x 3 row by row (cell k at
+/// The crafting grid's cells (ADR 0140): the 9 slots after those, a 3 x 3 row by row (cell k at
 /// `CRAFT_AT + k`, row k / 3, column k % 3). The inventory's 2 x 2 is its top left; the rest count at a workbench.
 /// Real slots of the player, so moves, saves and the ledger see them; nothing goes into or out of them but by a
 /// move or a make (`give`, `count` and `take` keep to the first `APE_SLOTS`).

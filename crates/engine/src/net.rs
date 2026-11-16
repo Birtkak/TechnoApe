@@ -65,13 +65,13 @@ pub enum ToServer {
     Sprints { first: u32, inputs: Vec<(Input, bool)> },
     /// `Input` with its sprint bit (ADR 0118), for scripts: `ToServer::input` and `unpacked` as above.
     Sprint(Input, bool),
-    /// Takes the crafting grid's output up to `n` times (draft ADR crafting-grid; ADR 0139's make-by-name is gone):
+    /// Takes the crafting grid's output up to `n` times (ADR 0140; ADR 0139's make-by-name is gone):
     /// alive, either mode, the grid's cells (`items::CRAFT_AT`) holding the recipe of this name, the 3 x 3 only at a
     /// workbench (`Use`). Each make takes one item from every full cell and puts the output into the slots, all or
     /// nothing (`recipes::make`); it stops when the cells no longer hold it or the output has no room. The name
     /// guards against a grid that changed since the client drew its output. Answered by the slots (`Inventory`).
     Craft { recipe: String, n: u16 },
-    /// The place button on block `at` that opens a window (`blocks::Def::window`, draft ADR crafting-grid): within
+    /// The place button on block `at` that opens a window (`blocks::Def::window`, ADR 0140): within
     /// `items::BENCH_REACH` and alive, the server opens it for this player (a workbench: the grid's 3 x 3 counts
     /// while it stays within reach). Nothing is answered.
     Use(Block),

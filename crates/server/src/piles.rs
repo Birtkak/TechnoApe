@@ -192,7 +192,7 @@ impl Server {
         c.link.send(ToClient::Prospect(heard));
     }
 
-    /// Client i takes its crafting grid's output up to `n` times (`ToServer::Craft`, draft ADR crafting-grid):
+    /// Client i takes its crafting grid's output up to `n` times (`ToServer::Craft`, ADR 0140):
     /// alive, in either mode, the cells holding the recipe named `recipe` (the 3 x 3 only at a workbench); as many
     /// as the cells hold and the slots have room for (`recipes::make`), the ledger moving with them.
     pub(super) fn craft(&mut self, i: usize, recipe: &str, n: u16) {
@@ -210,6 +210,9 @@ impl Server {
     /// Client i uses block `at` (`ToServer::Use`): alive, within `BENCH_REACH`, a block with a window. A workbench
     /// opens its 3 x 3. shortcut: the workbench is the one window; a machine's adds its slots here.
     pub(super) fn use_block(&mut self, i: usize, at: Block) {
+        if !self.exists(at) {
+            return;
+        }
         let near = self.world.block_centre(at).distance(self.clients[i].phys.pos) <= items::BENCH_REACH;
         let window = BLOCKS.get(self.world.block(at)).and_then(|d| d.window.as_deref());
         let c = &mut self.clients[i];
@@ -406,7 +409,7 @@ impl Server {
     pub(super) fn take(&mut self, i: usize, at: Block) -> bool {
         let c = &self.clients[i];
         let t = self.world.time;
-        if c.vitals.dead.is_some() || self.world.block_centre(at).distance(c.phys.pos) > REACH {
+        if c.vitals.dead.is_some() || !self.exists(at) || self.world.block_centre(at).distance(c.phys.pos) > REACH {
             return false;
         }
         let Some(th) = engine::clutter::pickup_at(&self.world, at, t) else { return false };
@@ -435,7 +438,7 @@ impl Server {
         if c.vitals.dead.is_some() || (grid && !creative) || from.0 == Holder::Ground || !reach(from.0) || !reach(to.0) {
             return false;
         }
-        // the grid's cells outside the 2 x 2 take something only at a workbench (draft ADR crafting-grid)
+        // the grid's cells outside the 2 x 2 take something only at a workbench (ADR 0140)
         let bench_cell = |(h, k): (Holder, u16)| h == Holder::Ape && (k as usize) >= items::CRAFT_AT && !items::in_two(k as usize - items::CRAFT_AT);
         if (bench_cell(to) || bench_cell(from)) && !self.at_bench(i) {
             return false;

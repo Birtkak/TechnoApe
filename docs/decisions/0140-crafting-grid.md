@@ -1,4 +1,4 @@
-# draft – A shaped crafting grid, the workbench, and a recipe viewer
+# 0140 – A crafting grid, a workbench and a recipe viewer
 
 - **Status:** proposed; supersedes ADR 0139's recipe list (its recipes' first format, `ToServer::Craft` by name as a make, and the Make column). ADR 0139's copper tools and `leaves` stand.
 - **Date:** 2026-11-16

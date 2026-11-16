@@ -1,4 +1,4 @@
-//! Recipes of the crafting grid (`data/recipes.toml`; draft ADR crafting-grid, superseding ADR 0139's list): a
+//! Recipes of the crafting grid (`data/recipes.toml`; ADR 0140, superseding ADR 0139's list): a
 //! shaped pattern of items and what it makes. The grid is 9 of the player's own slots (`items::CRAFT_AT`): the
 //! inventory's 2 x 2 is its top left, a workbench's 3 x 3 all of it. The wire names a recipe by its name.
 use crate::items::{self, Items, Slot, Stack, CRAFT, CRAFT_AT, ITEMS};

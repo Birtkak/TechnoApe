@@ -159,7 +159,7 @@ impl App {
     /// m:dx:dy turns the look.
     pub(crate) fn act(&mut self, a: &str) {
         match a {
-            // a block with a window (a workbench, draft ADR crafting-grid): the place button uses it, whatever is in
+            // a block with a window (a workbench, ADR 0140): the place button uses it, whatever is in
             // hand, before a pour, a strike or a place against it
             "R" if self.use_target().is_some() => self.use_block(),
             "L" | "R" if self.bucket => {
@@ -322,7 +322,7 @@ impl App {
             "pick" if self.menu.is_none() => self.pick_block(),
             "sclick" if self.menu == Some(Menu::Inventory) => self.inv_click(false, true),
             "rclick" if self.menu == Some(Menu::Inventory) => self.inv_click(true, false),
-            // the recipe viewer by script (draft ADR crafting-grid): view:<item> shows its recipe, fill presses Fill
+            // the recipe viewer by script (ADR 0140): view:<item> shows its recipe, fill presses Fill
             a if a.starts_with("view:") && self.menu == Some(Menu::Inventory) => {
                 (self.viewing, self.lack) = (engine::items::ITEMS.named(&a[5..].replace('_', " ")), Vec::new());
             }
@@ -1229,7 +1229,7 @@ impl App {
             self.note(l);
         }
         self.aim = edit::aim(&self.world, p.pos, p.fwd, AIM_REACH);
-        // a workbench gone or left out of reach closes its screen (draft ADR crafting-grid)
+        // a workbench gone or left out of reach closes its screen (ADR 0140)
         if self.menu == Some(Menu::Inventory) && self.bench_left() {
             self.set_menu(None);
         }

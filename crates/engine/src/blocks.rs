@@ -307,7 +307,7 @@ pub struct Def {
     /// What a generated, never-edited cell of it may hold besides itself, and the chance (ADR 0097: flint in
     /// gravel): an item by name, as the items' rows read these (`edit::held` resolves it).
     pub holds: Option<(String, f32)>,
-    /// The window the place button opens on it (`WINDOWS`, draft ADR crafting-grid): a use of the block, not a
+    /// The window the place button opens on it (`WINDOWS`, ADR 0140): a use of the block, not a
     /// place against it. None for most blocks.
     pub window: Option<String>,
 }

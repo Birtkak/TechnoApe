@@ -18,7 +18,7 @@
 //! Prospecting (ADR 0138): `prospect dx dy dz` strikes the prospecting tool in hand on
 //! that block and waits (up to 2 s) for the answer, one JSON line: `{"bot":..,"prospect":[["copper","strong"],..]}`,
 //! an empty list when the rock rings empty.
-//! Crafting (draft ADR crafting-grid), as a player does: the grid's cells are slots 37 to 45 (`items::CRAFT_AT`, a
+//! Crafting (ADR 0140), as a player does: the grid's cells are slots 37 to 45 (`items::CRAFT_AT`, a
 //! 3 x 3 row by row; 37, 38, 40, 41 the inventory's 2 x 2), filled by `move`; `craft [n]` takes the output n times
 //! (1 if left out; as many as the cells hold). `use dx dy dz` uses the block there (a workbench opens its 3 x 3),
 //! `close` closes the screen (the cells back into the pack). `slots` shows what came of it after a tick.
@@ -582,7 +582,7 @@ mod tests {
         assert!(out.last().unwrap().contains(&format!("\"material\":{rubble}")), "{out:?}");
     }
 
-    /// Crafting by script, end to end (draft ADR crafting-grid): a survival bot moves four logs into the 2 x 2 and
+    /// Crafting by script, end to end (ADR 0140): a survival bot moves four logs into the 2 x 2 and
     /// takes a workbench, places it, uses it, lays a copper pick head over a stick in the far column (the bench's
     /// alone), takes a pick and digs copper with it (grade 2): one use less.
     #[test]

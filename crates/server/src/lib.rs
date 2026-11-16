@@ -156,7 +156,7 @@ struct Client {
     creative: bool,
     /// Its slots (`items::SLOTS`): the hotbar, the worn pack, the rows the pack opens, the crafting grid's cells.
     slots: Vec<Slot>,
-    /// The workbench it opened (`ToServer::Use`, draft ADR crafting-grid): its grid's 3 x 3 counts while that is
+    /// The workbench it opened (`ToServer::Use`, ADR 0140): its grid's 3 x 3 counts while that is
     /// within `items::BENCH_REACH` (`Server::at_bench`).
     bench: Option<Block>,
     /// The water in its bucket, in units (`liquid::U` is a full bucket).
