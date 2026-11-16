@@ -174,7 +174,7 @@ impl Server {
         if !rock || c.vitals.dead.is_some() || c.prospected.is_some_and(|t| tick < t + wait) {
             return;
         }
-        let heard = engine::ore::prospect(&self.world, at, range);
+        let heard = engine::ore::prospect(&self.world, at, range, &self.ore_open);
         let c = &mut self.clients[i];
         let k = c.hand as usize;
         let worn = c.slots[k].map_or(AIR, |s| s.item);
