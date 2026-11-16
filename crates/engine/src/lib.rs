@@ -11,6 +11,7 @@ pub mod creatures;
 pub mod edit;
 pub mod herds;
 pub mod fall;
+pub mod furnace;
 pub mod items;
 pub mod liquid;
 pub mod live;

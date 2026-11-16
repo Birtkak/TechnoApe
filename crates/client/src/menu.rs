@@ -921,7 +921,7 @@ impl App {
         // crafting-grid)
         if self.menu == Some(Menu::Inventory) && m != Some(Menu::Inventory) {
             self.link.send(ToServer::Close);
-            (self.bench, self.lack) = (None, Vec::new());
+            (self.bench, self.furnace, self.lack) = (None, None, Vec::new());
         }
         self.menu = m;
         (self.held, self.mouse, self.globe.drag) = (None, (0.0, 0.0), None);

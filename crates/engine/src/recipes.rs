@@ -24,12 +24,84 @@ struct Row {
     out: (String, u16),
 }
 
+/// A furnace's work (ADR 0141): a `melt` or a `cast` row.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkRow {
+    name: String,
+    #[serde(rename = "in")]
+    input: (String, u16),
+    mould: Option<String>,
+    out: (String, u16),
+    heat: f32,
+    seconds: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FuelRow {
+    item: String,
+    seconds: f32,
+    heat: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FurnaceRow {
+    block: String,
+    top: f32,
+    rise: f32,
+    fall: f32,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct File {
     #[serde(default)]
     recipe: Vec<Row>,
+    #[serde(default)]
+    melt: Vec<WorkRow>,
+    #[serde(default)]
+    cast: Vec<WorkRow>,
+    #[serde(default)]
+    fuel: Vec<FuelRow>,
+    #[serde(default)]
+    furnace: Vec<FurnaceRow>,
 }
+
+/// What a furnace works (ADR 0141): `in` of one item in its input slot becomes `out` once it has
+/// been at least `heat` (C) for `secs`. A cast needs `mould` in the mould slot (kept) and to be the one chosen.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Work {
+    pub name: String,
+    pub input: (u16, u16),
+    pub mould: Option<u16>,
+    pub out: (u16, u16),
+    pub heat: f32,
+    pub secs: f32,
+}
+
+/// A fuel: one item burns `secs`, its fire heading for `heat` (C).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Fuel {
+    pub item: u16,
+    pub secs: f32,
+    pub heat: f32,
+}
+
+/// A furnace block: its fire's heat is held to `top`; heat rises `rise` and falls `fall` C a second.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FurnaceDef {
+    pub block: u16,
+    pub top: f32,
+    pub rise: f32,
+    pub fall: f32,
+}
+
+/// The hottest a fire, a work or a furnace may name (C).
+pub const HEAT_MAX: f32 = 4000.0;
+/// The longest a work or a fuel may take (s).
+pub const SECS_MAX: f32 = 600.0;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Recipe {
@@ -44,6 +116,10 @@ pub struct Recipe {
 
 pub struct Recipes {
     pub rows: Vec<Recipe>,
+    /// The furnaces' melts, then their casts (ADR 0141).
+    pub works: Vec<Work>,
+    pub fuels: Vec<Fuel>,
+    pub furnaces: Vec<FurnaceDef>,
 }
 
 /// The grid's 9 cells as items, row by row (`items::CRAFT_AT`).
@@ -144,8 +220,95 @@ impl Recipes {
             }
             rows.push(me);
         }
-        Ok(Recipes { rows })
+        let (works, fuels, furnaces) = works(&f, items, &rows)?;
+        Ok(Recipes { rows, works, fuels, furnaces })
     }
+
+    /// The furnace work that makes `item`, if one does (the viewer's).
+    pub fn work_making(&self, item: u16) -> Option<&Work> {
+        self.works.iter().find(|w| w.out.0 == item)
+    }
+
+    /// The furnace that block `m` is, if it is one.
+    pub fn furnace(&self, m: u16) -> Option<&FurnaceDef> {
+        self.furnaces.iter().find(|f| f.block == m)
+    }
+
+    pub fn fuel(&self, item: u16) -> Option<&Fuel> {
+        self.fuels.iter().find(|f| f.item == item)
+    }
+
+    /// Whether `item` is a mould: some cast names it.
+    pub fn mould(&self, item: u16) -> bool {
+        self.works.iter().any(|w| w.mould == Some(item))
+    }
+
+    /// The casts a furnace of `top` C can work, in the file's order: what its window offers to choose from.
+    pub fn casts(&self, top: f32) -> impl Iterator<Item = &Work> {
+        self.works.iter().filter(move |w| w.mould.is_some() && w.heat <= top)
+    }
+}
+
+/// Reads and checks the furnaces' rows (ADR 0141), refused with the row's name: an unknown item or
+/// block, an amount of 0, a heat or seconds out of range, a melt with a mould or a cast without, a work that
+/// makes its own input or mould, a name any other recipe or work has, two melts of one input, a fuel twice, a
+/// furnace whose block opens no crucible's window.
+fn works(f: &File, items: &Items, grid: &[Recipe]) -> Result<(Vec<Work>, Vec<Fuel>, Vec<FurnaceDef>), String> {
+    let item = |who: &str, n: &str| items.named(n).ok_or(format!("'{who}': no item '{n}'"));
+    let heat = |who: &str, h: f32| if h > 0.0 && h <= HEAT_MAX { Ok(h) } else { Err(format!("'{who}': a heat over 0 to {HEAT_MAX} C")) };
+    let secs = |who: &str, s: f32| if s > 0.0 && s <= SECS_MAX { Ok(s) } else { Err(format!("'{who}': seconds over 0 to {SECS_MAX}")) };
+    let mut works: Vec<Work> = Vec::new();
+    for (r, cast) in f.melt.iter().map(|r| (r, false)).chain(f.cast.iter().map(|r| (r, true))) {
+        let who = format!("{} '{}'", if cast { "cast" } else { "melt" }, r.name);
+        let bad = |why: &str| Err(format!("{who}: {why}"));
+        let (input, out) = ((item(&who, &r.input.0)?, r.input.1), (item(&who, &r.out.0)?, r.out.1));
+        if input.1 == 0 || out.1 == 0 {
+            return bad("an amount of 0");
+        }
+        let mould = r.mould.as_ref().map(|m| item(&who, m)).transpose()?;
+        if mould.is_some() != cast {
+            return bad("a cast names its mould, a melt none");
+        }
+        if out.0 == input.0 || Some(out.0) == mould {
+            return bad("it makes its own input or mould");
+        }
+        let named = |n: &str| n.eq_ignore_ascii_case(&r.name);
+        if grid.iter().any(|g| named(&g.name)) || f.melt.iter().chain(&f.cast).filter(|o| named(&o.name)).count() > 1 {
+            return bad("the name used twice");
+        }
+        if !cast && works.iter().any(|w| w.input.0 == input.0) {
+            return bad("two melts of one input");
+        }
+        works.push(Work { name: r.name.clone(), input, mould, out, heat: heat(&who, r.heat)?, secs: secs(&who, r.seconds)? });
+    }
+    let mut fuels: Vec<Fuel> = Vec::new();
+    for r in &f.fuel {
+        let who = format!("fuel '{}'", r.item);
+        let it = item(&who, &r.item)?;
+        if fuels.iter().any(|o| o.item == it) {
+            return Err(format!("{who}: the item twice"));
+        }
+        fuels.push(Fuel { item: it, secs: secs(&who, r.seconds)?, heat: heat(&who, r.heat)? });
+    }
+    let mut furnaces: Vec<FurnaceDef> = Vec::new();
+    for r in &f.furnace {
+        let who = format!("furnace '{}'", r.block);
+        let d = crate::blocks::BLOCKS.placeable().find(|d| d.name == r.block).ok_or(format!("{who}: no block '{}'", r.block))?;
+        if d.window.as_deref() != Some("crucible") {
+            return Err(format!("{who}: its block opens no crucible's window"));
+        }
+        if furnaces.iter().any(|o| o.block == d.id) {
+            return Err(format!("{who}: the block twice"));
+        }
+        if !(r.rise > 0.0 && r.fall > 0.0) {
+            return Err(format!("{who}: rise and fall over 0"));
+        }
+        furnaces.push(FurnaceDef { block: d.id, top: heat(&format!("{who} top"), r.top)?, rise: r.rise, fall: r.fall });
+    }
+    Ok((works, fuels, furnaces))
+}
+
+impl Recipes {
 
     /// The recipe of this name, any case; `_` stands for a space.
     pub fn named(&self, name: &str) -> Option<&Recipe> {
@@ -309,6 +472,61 @@ mod tests {
         }
         // an upside-down pattern is another recipe
         assert!(Recipes::parse(&format!("{ok}{}", row("q", "'S', 'H'", "H='flint', S='stick'", "['log', 1]")), &ITEMS).is_ok());
+    }
+
+    /// Draft ADR crucible: the crucible is a ring of 8 clay (a bench recipe), the mould two clay by hand; the
+    /// furnace, its fuels, melts and casts read.
+    #[test]
+    fn the_crucible_needs_the_bench_and_its_rows_read() {
+        let c = RECIPES.named("crucible").unwrap();
+        assert!(c.bench() && c.out == (id("crucible"), 1) && c.cells.iter().filter(|k| k.is_some()).count() == 8 && c.cells[4].is_none());
+        let m = RECIPES.named("clay mould").unwrap();
+        assert!(!m.bench() && m.out == (id("clay mould"), 1) && (m.w, m.h) == (2, 1));
+        let f = RECIPES.furnace(id("crucible")).unwrap();
+        assert_eq!((f.top, f.rise > 0.0, f.fall > 0.0), (1100.0, true, true));
+        assert!(RECIPES.mould(id("clay mould")) && !RECIPES.mould(id("clay")));
+        assert!(RECIPES.fuel(id("pine log")).is_some() && RECIPES.fuel(id("copper ingot")).is_none());
+        assert_eq!(RECIPES.work_making(id("copper ingot")).map(|w| w.heat), Some(1085.0));
+        assert_eq!(RECIPES.work_making(id("copper hammer head")).map(|w| (w.input.1, w.mould)), Some((3, Some(id("clay mould")))));
+    }
+
+    #[test]
+    fn bad_furnace_rows_are_refused_with_their_name() {
+        let melt = |name: &str, inp: &str, out: &str, more: &str| format!("[[melt]]\nname='{name}'\nin={inp}\nout={out}\nheat=1085\nseconds=8\n{more}");
+        let cast = |name: &str, more: &str| format!("[[cast]]\nname='{name}'\nin=['copper ingot', 2]\nout=['copper pick head', 1]\nheat=1085\nseconds=5\n{more}");
+        let ok = format!("{}{}", melt("m", "['copper gravel', 2]", "['copper ingot', 1]", ""), cast("c", "mould='clay mould'\n"));
+        let r = Recipes::parse(&ok, &ITEMS).unwrap();
+        assert_eq!(r.works.len(), 2);
+        let furnace = |block: &str, top: &str| format!("[[furnace]]\nblock='{block}'\ntop={top}\nrise=100\nfall=25\n");
+        let fuel = |item: &str, s: &str, h: &str| format!("[[fuel]]\nitem='{item}'\nseconds={s}\nheat={h}\n");
+        assert!(Recipes::parse(&format!("{}{}", furnace("crucible", "1100"), fuel("stick", "8", "700")), &ITEMS).is_ok());
+        for (text, who, says) in [
+            (melt("m", "['spoon', 2]", "['copper ingot', 1]", ""), "'m'", "no item 'spoon'"),
+            (melt("m", "['copper gravel', 0]", "['copper ingot', 1]", ""), "'m'", "amount"),
+            (melt("m", "['copper gravel', 2]", "['copper ingot', 0]", ""), "'m'", "amount"),
+            (melt("m", "['copper gravel', 2]", "['copper gravel', 1]", ""), "'m'", "its own"),
+            (melt("m", "['copper gravel', 2]", "['copper ingot', 1]", "mould='clay mould'\n"), "'m'", "mould"),
+            (cast("c", ""), "'c'", "mould"),
+            (cast("c", "mould='copper pick head'\n"), "'c'", "its own"),
+            (melt("m", "['copper gravel', 2]", "['copper ingot', 1]", "").replace("heat=1085", "heat=0"), "'m'", "heat"),
+            (melt("m", "['copper gravel', 2]", "['copper ingot', 1]", "").replace("heat=1085", "heat=9000"), "'m'", "heat"),
+            (melt("m", "['copper gravel', 2]", "['copper ingot', 1]", "").replace("seconds=8", "seconds=0"), "'m'", "seconds"),
+            (format!("{ok}{}", cast("c", "mould='clay mould'\n")), "'c'", "twice"),
+            (melt("workbench", "['copper gravel', 2]", "['copper ingot', 1]", "").replace("[[melt]]", "[[recipe]]\nname='workbench'\ngrid=['L']\nkey={L='log'}\nout=['stick', 1]\n[[melt]]"), "'workbench'", "twice"),
+            (format!("{ok}{}", melt("n", "['copper gravel', 4]", "['copper ingot', 2]", "")), "'n'", "one input"),
+            (fuel("spoon", "8", "700"), "'spoon'", "no item"),
+            (format!("{}{}", fuel("stick", "8", "700"), fuel("stick", "9", "700")), "'stick'", "twice"),
+            (fuel("stick", "0", "700"), "'stick'", "seconds"),
+            (fuel("stick", "8", "-1"), "'stick'", "heat"),
+            (furnace("spoon", "1100"), "'spoon'", "no block"),
+            (furnace("workbench", "1100"), "'workbench'", "crucible"),
+            (furnace("crucible", "0"), "'crucible'", "top"),
+            (format!("{}{}", furnace("crucible", "1100"), furnace("crucible", "1400")), "'crucible'", "twice"),
+            (furnace("crucible", "1100").replace("rise=100", "rise=0"), "'crucible'", "rise"),
+        ] {
+            let e = Recipes::parse(&text, &ITEMS).err().unwrap_or_default();
+            assert!(e.contains(says) && e.contains(who), "{text}: {e}");
+        }
     }
 
     #[test]

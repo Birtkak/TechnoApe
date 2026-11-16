@@ -664,6 +664,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         inv_scroll: 0,
         shift: false,
         bench: None,
+        furnace: None,
         viewing: None,
         lack: Vec::new(),
         bucket_water: 0,

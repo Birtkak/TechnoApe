@@ -327,6 +327,20 @@ impl App {
                 (self.viewing, self.lack) = (engine::items::ITEMS.named(&a[5..].replace('_', " ")), Vec::new());
             }
             "fill" if self.menu == Some(Menu::Inventory) => self.fill(),
+            // a furnace by script (ADR 0141): sslot:k shift-clicks the ape's slot k (into the furnace open),
+            // cast:<name> chooses its cast as a click on it does
+            a if a.starts_with("sslot:") && self.menu == Some(Menu::Inventory) => {
+                let l = self.inv_layout();
+                if let Some(b) = a[6..].parse::<u16>().ok().and_then(|k| l.spots.iter().find(|s| (s.0, s.1) == (engine::items::Holder::Ape, k))) {
+                    self.pointer = ((b.2[0] + 8.0) * l.k, (b.2[1] + 8.0) * l.k);
+                    self.inv_click(false, true);
+                }
+            }
+            a if a.starts_with("cast:") => {
+                if let Some(b) = self.furnace.as_ref().map(|f| f.0) {
+                    self.link.send(ToServer::Choose { at: b, cast: Some(a[5..].replace('_', " ")) });
+                }
+            }
             "back" if self.menu == Some(Menu::Inventory) => {
                 self.inv_query.pop();
                 self.inv_scroll = 0;

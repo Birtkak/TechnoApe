@@ -60,6 +60,10 @@ impl Server {
             for part in taken.chunks(EDITS_PART) {
                 link.send(ToClient::Taken(part.to_vec()));
             }
+            let fires = self.fires();
+            if !fires.is_empty() {
+                link.send(ToClient::Fires(fires));
+            }
             let spawn = self.spawn();
             self.clients.push(Client {
                 link,
@@ -86,6 +90,8 @@ impl Server {
                 knap: (0, 0, 0),
                 prospected: None,
                 bench: None,
+                furnace: None,
+                sent_furnace: None,
             });
         }
         let mut changed: Vec<(Block, u16)> = Vec::new();
@@ -210,6 +216,7 @@ impl Server {
                     Recv::Msg(ToServer::Craft { recipe, n }) => self.craft(i, &recipe, n),
                     Recv::Msg(ToServer::Use(at)) => self.use_block(i, at),
                     Recv::Msg(ToServer::Close) => self.uncraft(i),
+                    Recv::Msg(ToServer::Choose { at, cast }) => self.choose(i, at, cast),
                     Recv::Msg(ToServer::Sprints { .. } | ToServer::Sprint(..)) => unreachable!("unpacked above"),
                     Recv::Msg(ToServer::Map(h)) => {
                         if let Some(m) = self.world.bodies.iter().filter_map(|b| b.map()).find(|m| m.hash == h) {
@@ -331,6 +338,8 @@ impl Server {
         for (b, m) in &changed {
             self.resettle(Block { pos: b.pos + glam::IVec3::Z * !BLOCKS.solid(*m) as i32, ..*b });
         }
+        // the furnaces burn and work; one dug lays what it held (ADR 0141)
+        self.furnaces();
         self.pick_up();
         let can = (WATER_BUDGET / self.world.water.awake().max(1)) as u32;
         let wsteps = if can == 0 && self.tick % 4 == 0 { 1 } else { steps.min(can) };

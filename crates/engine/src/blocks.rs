@@ -312,9 +312,9 @@ pub struct Def {
     pub window: Option<String>,
 }
 
-/// The windows a block may open: the workbench's (the inventory with the 3 x 3 grid). shortcut: one kind; a
-/// machine with its own slots (the crucible) adds its name here and its holder on the server.
-pub const WINDOWS: [&str; 1] = ["workbench"];
+/// The windows a block may open: the workbench's (the inventory with the 3 x 3 grid) and a furnace's (its
+/// four slots in the world and its heat, ADR 0141; its numbers are a `furnace` row of data/recipes.toml).
+pub const WINDOWS: [&str; 2] = ["workbench", "crucible"];
 
 impl Def {
     /// Its look in season `s`: 0 summer (the row's own), 1 spring, 2 autumn, 3 winter, the rows of the
@@ -767,8 +767,10 @@ see = \"glass\"
         assert_eq!(r.get(1).unwrap().model.as_deref(), Some("furnace"));
         // ADR 0117: the torch is the one row with a model: walked through, seen through, a warm light weaker than
         // the lamp's, hangs on a floor or a wall, a flame, broken by hand into itself, a full stack of 64
+        // and the crucible, drawn with the furnace model (ADR 0141), solid
         let with: Vec<&str> = BLOCKS.placeable().filter(|d| d.model.is_some()).map(|d| d.name.as_str()).collect();
-        assert_eq!(with, ["torch"]);
+        assert_eq!(with, ["torch", "crucible"]);
+        assert!(BLOCKS.get(BLOCKS.id("crucible")).is_some_and(|d| d.solid && d.model.as_deref() == Some("furnace")));
         let (t, lamp) = (BLOCKS.get(BLOCKS.id("torch")).unwrap(), BLOCKS.get(BLOCKS.id("lamp")).unwrap());
         assert_eq!(t.model.as_deref(), Some("torch"));
         assert!(!t.solid && t.see == See::Cutout && t.hangs && t.flame && t.loose && t.stack == 64);
@@ -782,12 +784,15 @@ see = \"glass\"
     #[test]
     fn the_workbench_opens_its_window_and_other_windows_are_refused() {
         let with: Vec<(&str, &str)> = BLOCKS.placeable().filter_map(|d| Some((d.name.as_str(), d.window.as_deref()?))).collect();
-        assert_eq!(with, [("workbench", "workbench")]);
+        assert_eq!(with, [("workbench", "workbench"), ("crucible", "crucible")]);
         let b = BLOCKS.get(BLOCKS.id("workbench")).unwrap();
         assert!(b.solid && b.loose && !b.falls && b.tool.as_deref() == Some("axe") && !crate::items::knaps(b));
+        // the crucible (ADR 0141): loose, so hands take it back; no knapping on it
+        let c = BLOCKS.get(BLOCKS.id("crucible")).unwrap();
+        assert!(c.solid && c.loose && !c.falls && !crate::items::knaps(c));
         let row = |more: &str| Registry::parse(&format!("[[block]]\nid = 0\nname = \"air\"\nsolid = false\n[[block]]\nid = 1\nname = \"x\"\nhardness = 1\n{more}"));
-        assert!(row("window = \"workbench\"\n").is_ok());
-        for bad in ["window = \"crucible\"\n", "window = \"workbench\"\nsolid = false\n", "window = \"workbench\"\nfalls = true\n"] {
+        assert!(row("window = \"workbench\"\n").is_ok() && row("window = \"crucible\"\n").is_ok());
+        for bad in ["window = \"kiln\"\n", "window = \"workbench\"\nsolid = false\n", "window = \"workbench\"\nfalls = true\n"] {
             assert!(row(bad).err().is_some_and(|e| e.contains("block 'x'") && e.contains("window")), "{bad}");
         }
     }

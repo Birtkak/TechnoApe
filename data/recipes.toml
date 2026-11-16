@@ -6,6 +6,7 @@
 # `key`: each letter's item, or a list of items any of which will do. Every letter used, none undefined.
 # `out`: [item, n]. Items are named as data/items.toml or data/blocks.toml name them. A make takes one item from
 # every cell of the pattern. No two recipes may match the same grid, and none makes what it takes.
+# The furnaces' rows (`furnace`, `fuel`, `melt`, `cast`; ADR 0141) follow the grid's.
 
 # The workbench: four logs, any kind.
 [[recipe]]
@@ -14,8 +15,8 @@ grid = ["LL", "LL"]
 key = { L = ["log", "birch log", "oak log", "pine log", "willow log", "palm log"] }
 out = ["workbench", 1]
 
-# The copper tools (the Steam Age's first half hour): a head above a stick. Heads and ingots come from /give
-# until the crucible casts them (costs for that run: pick 2 ingots, axe 2, shovel 1, knife 1, hammer 3).
+# The copper tools (the Steam Age's first half hour): a head above a stick. The crucible casts the heads
+# (the casts below: pick 2 ingots, axe 2, shovel 1, knife 1, hammer 3).
 [[recipe]]
 name = "copper pick"
 grid = ["H", "S"]
@@ -45,3 +46,140 @@ name = "copper hammer"
 grid = ["H", "S"]
 key = { H = "copper hammer head", S = "stick" }
 out = ["copper hammer", 1]
+
+# The crucible: eight clay round an empty middle, so at a workbench (3 x 3).
+[[recipe]]
+name = "crucible"
+grid = ["CCC", "C C", "CCC"]
+key = { C = "clay" }
+out = ["crucible", 1]
+
+# The clay mould: two clay side by side, by hand. A cast keeps it.
+[[recipe]]
+name = "clay mould"
+grid = ["CC"]
+key = { C = "clay" }
+out = ["clay mould", 1]
+
+# Furnaces: a block whose window is a furnace's (data/blocks.toml `window`), its fire held to `top` (C); the
+# heat rises `rise` and falls `fall` C a second (down to the air's 20 C with no fire). A furnace works every melt
+# and cast whose `heat` is at most its top. The bloomery (1400) and the blast furnace (1600) are rows here later.
+[[furnace]]
+block = "crucible"
+top = 1100
+rise = 100
+fall = 25
+
+# Fuels: one item burns `seconds`, its fire heading for `heat` (C). A furnace lights the next one only while it
+# has something to work.
+[[fuel]]
+item = "stick"
+seconds = 8
+heat = 700
+
+[[fuel]]
+item = "log"
+seconds = 40
+heat = 1150
+
+[[fuel]]
+item = "birch log"
+seconds = 40
+heat = 1150
+
+[[fuel]]
+item = "oak log"
+seconds = 40
+heat = 1150
+
+[[fuel]]
+item = "pine log"
+seconds = 40
+heat = 1150
+
+[[fuel]]
+item = "willow log"
+seconds = 40
+heat = 1150
+
+[[fuel]]
+item = "palm log"
+seconds = 40
+heat = 1150
+
+[[fuel]]
+item = "coal lump"
+seconds = 80
+heat = 1300
+
+# Melts: `in` = [item, n] in the input slot becomes `out` after `seconds` at `heat` (C) or more; no two melts
+# of one input. Copper melts at 1085. shortcut: one ore rubble makes one ingot; a crusher later gives more.
+[[melt]]
+name = "copper from nuggets"
+in = ["copper nugget", 4]
+out = ["copper ingot", 1]
+heat = 1085
+seconds = 8
+
+[[melt]]
+name = "copper from gravel"
+in = ["copper gravel", 2]
+out = ["copper ingot", 1]
+heat = 1085
+seconds = 8
+
+[[melt]]
+name = "copper from malachite"
+in = ["malachite rubble", 1]
+out = ["copper ingot", 1]
+heat = 1085
+seconds = 8
+
+[[melt]]
+name = "copper from chalcopyrite"
+in = ["chalcopyrite rubble", 1]
+out = ["copper ingot", 1]
+heat = 1085
+seconds = 8
+
+# Casts: `in` in the input slot, the `mould` in the mould slot (kept: moulds last forever), and the cast chosen
+# in the window, which offers them in this order. With none chosen, or no mould, the ingots stay.
+[[cast]]
+name = "cast pick head"
+in = ["copper ingot", 2]
+mould = "clay mould"
+out = ["copper pick head", 1]
+heat = 1085
+seconds = 5
+
+[[cast]]
+name = "cast axe head"
+in = ["copper ingot", 2]
+mould = "clay mould"
+out = ["copper axe head", 1]
+heat = 1085
+seconds = 5
+
+[[cast]]
+name = "cast shovel head"
+in = ["copper ingot", 1]
+mould = "clay mould"
+out = ["copper shovel head", 1]
+heat = 1085
+seconds = 5
+
+[[cast]]
+name = "cast knife blade"
+in = ["copper ingot", 1]
+mould = "clay mould"
+out = ["copper knife blade", 1]
+heat = 1085
+seconds = 5
+
+[[cast]]
+name = "cast hammer head"
+in = ["copper ingot", 3]
+mould = "clay mould"
+out = ["copper hammer head", 1]
+heat = 1085
+seconds = 5

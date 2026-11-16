@@ -22,6 +22,9 @@
 //! 3 x 3 row by row; 37, 38, 40, 41 the inventory's 2 x 2), filled by `move`; `craft [n]` takes the output n times
 //! (1 if left out; as many as the cells hold). `use dx dy dz` uses the block there (a workbench opens its 3 x 3),
 //! `close` closes the screen (the cells back into the pack). `slots` shows what came of it after a tick.
+//! Furnaces (ADR 0141): `use dx dy dz` on a crucible opens its window; `put` and `take` at its cell reach
+//! its slots (0 what goes in, 1 the fuel, 2 the mould, 3 what comes out) in place of a pile's; `cast dx dy dz name`
+//! chooses its cast (`cast dx dy dz` alone none); `furnace` reports the open one: slots, heat, fire and work.
 //! Sprint (ADR 0118): `sprint on` makes every walk after it a sprint, `sprint off` a walk again. A walk looks at
 //! its target, so in water a sprint swims to it, down or up as well (a dive, a lake's crossing at the surface).
 use engine::edit::Shape;
@@ -68,6 +71,9 @@ pub enum Cmd {
     Craft(u16),
     Use(DVec3),
     Close,
+    /// Choose the cast of the furnace at this offset (None: none); report the open furnace.
+    Cast(DVec3, Option<String>),
+    Furnace,
     /// Walks from now on sprint, or not (ADR 0118).
     Sprint(bool),
     Quit,
@@ -109,6 +115,8 @@ pub fn parse(line: &str) -> Result<Option<Cmd>, String> {
         "craft" => Cmd::Craft(num(1)? as u16),
         "use" => Cmd::Use(v()?),
         "close" => Cmd::Close,
+        "cast" => Cmd::Cast(v()?, (w.len() > 4).then(|| w[4..].join(" "))),
+        "furnace" => Cmd::Furnace,
         "sprint" => match w.get(1).copied() {
             Some("on") => Cmd::Sprint(true),
             Some("off") => Cmd::Sprint(false),
@@ -169,6 +177,8 @@ pub struct Bot {
     /// The creature kinds by index and the animals the server has this bot see (ADR 0083).
     pub kinds: Vec<String>,
     pub animals: std::collections::BTreeMap<u32, engine::net::Animal>,
+    /// The furnace whose window is open, as the server last sent it.
+    pub furnace: Option<(engine::world::Block, engine::furnace::Furnace)>,
 }
 
 /// A server silent this long is taken for gone (it sends `You` every tick; a baked world's first map takes
@@ -178,7 +188,7 @@ const SILENT: Duration = Duration::from_secs(120);
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default() }
+        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default(), furnace: None }
     }
 
     /// The tick `s` seconds of the server's time from now.
@@ -252,7 +262,8 @@ impl Bot {
                     }
                     self.animals.extend(seen.into_iter().map(|a| (a.id, a)));
                 }
-                Recv::Msg(ToClient::Sky { .. }) => {}
+                Recv::Msg(ToClient::Sky { .. } | ToClient::Fires(_)) => {}
+                Recv::Msg(ToClient::Furnace { at, f }) => self.furnace = Some((at, f)),
                 Recv::Msg(ToClient::Prospect(v)) => {
                     let heard: Vec<String> = v.iter().map(|(e, b)| format!("[{e:?},{:?}]", engine::ore::BANDS.get(*b as usize).unwrap_or(&"?"))).collect();
                     self.notes.push(format!("{{\"bot\":{:?},\"prospect\":[{}]}}", self.name, heard.join(",")));
@@ -357,6 +368,12 @@ impl Bot {
             }
             Cmd::Use(d) => self.link.send(ToServer::Use(w.block_at(self.feet() + *d))),
             Cmd::Close => self.link.send(ToServer::Close),
+            Cmd::Cast(d, cast) => self.link.send(ToServer::Choose { at: w.block_at(self.feet() + *d), cast: cast.clone() }),
+            Cmd::Furnace => {
+                let Some((_, f)) = &self.furnace else { return Some(format!("{{\"bot\":{:?},\"furnace\":null}}", self.name)) };
+                let slots: Vec<String> = f.slots.iter().enumerate().filter_map(|(k, s)| s.map(|st| format!("[{k},{:?},{}]", ITEMS.name(st.item), st.n))).collect();
+                return Some(format!("{{\"bot\":{:?},\"furnace\":{{\"slots\":[{}],\"heat\":{:.1},\"burning\":{},\"work\":{:.2},\"choice\":{:?}}}}}", self.name, slots.join(","), f.heat, f.burning(), f.work, f.choice));
+            }
             Cmd::Pick(d) => {
                 self.seq += 1;
                 self.link.send(ToServer::Take { seq: self.seq, at: w.block_at(self.feet() + *d) });
@@ -402,7 +419,11 @@ impl Bot {
                 return Some(format!("{{\"bot\":\"{}\",\"slots\":[{}]}}", self.name, held.join(",")));
             }
             Cmd::Shift(..) | Cmd::Drop(..) | Cmd::Take(..) | Cmd::Put(..) | Cmd::Grab(..) => {
-                let pile = |d: &DVec3| Holder::Pile(w.block_at(self.feet() + *d));
+                // a furnace's cell reaches its slots, any other a pile's
+                let pile = |d: &DVec3| {
+                    let b = w.block_at(self.feet() + *d);
+                    if engine::recipes::RECIPES.furnace(w.block(b)).is_some() { Holder::Furnace(b) } else { Holder::Pile(b) }
+                };
                 let (from, to, n) = match c {
                     Cmd::Shift(a, b, n) => ((Holder::Ape, *a), (Holder::Ape, *b), *n),
                     Cmd::Drop(a, n) => ((Holder::Ape, *a), (Holder::Ground, 0), *n),
@@ -616,6 +637,51 @@ mod tests {
         assert!(blocks[1].contains("\"material\":0"), "{out:?}");
         assert!(parse("craft 3").unwrap() == Some(Cmd::Craft(3)) && parse("craft").unwrap() == Some(Cmd::Craft(1)) && parse("close").unwrap() == Some(Cmd::Close));
         assert!(parse("craft copper pick").is_err(), "crafting by name is gone");
+    }
+
+    /// The copper age end to end (ADR 0141): a survival bot given logs, clay, copper gravel and a stick
+    /// makes a workbench, at it a crucible and by hand a clay mould; fed gravel and logs the crucible melts two
+    /// ingots, which cast with the mould into a pick head; the head on the stick is a copper pick, which digs.
+    #[test]
+    fn a_survival_bot_melts_gravel_casts_a_head_and_digs_with_the_pick() {
+        let (tx, rx) = channel();
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(TICK_HZ, &std::sync::atomic::AtomicBool::new(false)));
+        let (c, s) = local();
+        tx.send(s).unwrap();
+        let mut bot = Bot::new("founder", c);
+        let w = World::new(256, 32, 1);
+        let h = w.bodies[0].height(DVec3::Y);
+        let (d, at) = ("1.0 -0.5 0.25", w.block_at(DVec3::new(1.25, h - 0.5, 0.5)));
+        let (bench, wb) = ("-1.5 0.5 0.25", engine::blocks::BLOCKS.id("workbench"));
+        let (cru, cb) = ("0.25 0.5 -1.5", engine::blocks::BLOCKS.id("crucible"));
+        let g = engine::items::CRAFT_AT;
+        let ring: String = [0, 1, 2, 3, 5, 6, 7, 8].iter().map(|k| format!("move 1 {} 1; ", g + k)).collect();
+        let script = format!(
+            "wait 0.5; say /playmode survival; spawn 0.25 {h} 0.25; wait 0.5; say /place copper {} {} {} {}; \
+             say /give oak_log 6; say /give clay 10; say /give copper_gravel 4; say /give stick 1; wait 0.5; \
+             move 0 {g} 1; move 0 {} 1; move 0 {} 1; move 0 {} 1; wait 0.5; craft; wait 0.5; place {bench} {wb}; wait 0.5; use {bench}; wait 0.3; \
+             {ring}wait 0.5; craft; wait 0.5; place {cru} {cb}; wait 0.5; block {cru}; \
+             move 1 {g} 1; move 1 {} 1; wait 0.5; craft; wait 0.5; slots; \
+             use {cru}; wait 0.3; put 2 {cru} 0 4; put 0 {cru} 1 2; put 1 {cru} 2 1; cast {cru} cast pick head; wait 28; furnace; \
+             take {cru} 3 5 2; wait 0.3; put 5 {cru} 0 2; wait 6; furnace; take {cru} 3 6 1; wait 0.3; \
+             move 6 {g} 1; move 3 {} 1; wait 0.5; craft; wait 0.5; slots; hold 0; dig {d}; wait 0.5; slots; block {d}",
+            at.face, at.pos.x, at.pos.y, at.pos.z, g + 1, g + 3, g + 4, g + 1, g + 3
+        );
+        let mut out = Vec::new();
+        bot.run(parse_script(&script).unwrap(), None, |l| out.push(l));
+        let slots: Vec<&String> = out.iter().filter(|l| l.contains("\"slots\"") && !l.contains("furnace")).collect();
+        let furnace: Vec<&String> = out.iter().filter(|l| l.contains("\"furnace\"")).collect();
+        let blocks: Vec<&String> = out.iter().filter(|l| l.contains("\"material\"")).collect();
+        let uses = ITEMS.get(ITEMS.named("copper pick").unwrap()).unwrap().tool.as_ref().unwrap().uses;
+        assert!(blocks[0].contains(&format!("\"material\":{cb}")), "the crucible placed: {out:?}");
+        assert!(slots[0].contains("\"clay mould\",1") && !slots[0].contains("\"clay\""), "{out:?}");
+        assert!(furnace[0].contains("[3,\"copper ingot\",2]") && !furnace[0].contains("gravel") && furnace[0].contains("\"burning\":true"), "{out:?}");
+        assert!(furnace[1].contains("[3,\"copper pick head\",1]") && furnace[1].contains("[2,\"clay mould\",1]"), "{out:?}");
+        assert!(slots[1].contains(&format!("\"copper pick\",1,{uses}]")) && !slots[1].contains("head"), "{out:?}");
+        assert!(slots[2].contains(&format!("\"copper pick\",1,{}]", uses - 1)), "{out:?} ({} refused)", bot.refused);
+        assert!(blocks[1].contains("\"material\":0"), "{out:?}");
+        assert!(parse("cast 1 0 0 cast pick head").unwrap() == Some(Cmd::Cast(DVec3::new(1.0, 0.0, 0.0), Some("cast pick head".into()))));
+        assert!(parse("cast 1 0 0").unwrap() == Some(Cmd::Cast(DVec3::X, None)));
     }
 
     /// Prospecting by script (ADR 0138): a survival bot given a hand axe strikes granite

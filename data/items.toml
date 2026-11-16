@@ -194,3 +194,9 @@ look = "copper"
 tool = "hammer"
 head = "copper"
 leaves = "stick"
+
+# The crucible's mould (ADR 0141): two clay side by side in the 2 x 2. It lasts forever: a cast keeps it.
+[[item]]
+name = "clay mould"
+stack = 16
+look = "clay"

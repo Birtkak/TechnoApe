@@ -1213,3 +1213,20 @@ sound = "dirt"
 colour = [0.55, 0.40, 0.24]
 colour2 = [0.36, 0.25, 0.14]
 pattern = "planks"
+
+# The crucible (ADR 0141): the first furnace. Eight clay round an empty middle at a workbench make
+# it; the place button on it opens its window (what goes in, the fuel, the mould, what comes out, its heat).
+# Drawn with the furnace model (data/models/furnace.toml), whose `working` state plays while its fire burns;
+# collides as a whole block. Its top heat, its fuels, melts and casts are rows of data/recipes.toml.
+[[block]]
+id = 219
+name = "crucible"
+window = "crucible"
+model = "furnace"
+hardness = 3.0
+tool = "pick"
+loose = true
+sound = "stone"
+colour = [0.62, 0.50, 0.42]
+colour2 = [0.42, 0.33, 0.27]
+pattern = "bricks"
