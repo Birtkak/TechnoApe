@@ -65,6 +65,10 @@ pub enum ToServer {
     Sprints { first: u32, inputs: Vec<(Input, bool)> },
     /// `Input` with its sprint bit (ADR 0118), for scripts: `ToServer::input` and `unpacked` as above.
     Sprint(Input, bool),
+    /// Makes the recipe of this name (`recipes::RECIPES`, by name so rows may be added) up to `n` times by hand
+    /// (draft ADR recipe-list-and-copper-tools): alive, survival or creative; as many as the slots hold the inputs
+    /// for and have room for the output (`recipes::craft`). Answered by the slots (`Inventory`).
+    Craft { recipe: String, n: u16 },
 }
 
 impl ToServer {

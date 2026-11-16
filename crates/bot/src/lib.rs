@@ -18,6 +18,8 @@
 //! Prospecting (ADR 0138): `prospect dx dy dz` strikes the prospecting tool in hand on
 //! that block and waits (up to 2 s) for the answer, one JSON line: `{"bot":..,"prospect":[["copper","strong"],..]}`,
 //! an empty list when the rock rings empty.
+//! Crafting (draft ADR recipe-list-and-copper-tools): `craft <recipe> [n]` makes a recipe of data/recipes.toml by
+//! hand n times (1 if left out; as many as the slots allow); `slots` shows what came of it after a tick.
 //! Sprint (ADR 0118): `sprint on` makes every walk after it a sprint, `sprint off` a walk again. A walk looks at
 //! its target, so in water a sprint swims to it, down or up as well (a dive, a lake's crossing at the surface).
 use engine::edit::Shape;
@@ -59,6 +61,8 @@ pub enum Cmd {
     Strike(DVec3),
     /// A prospecting strike on the block at this offset, waiting for its answer.
     Prospect(DVec3),
+    /// Make a recipe by hand, n times (draft ADR recipe-list-and-copper-tools).
+    Craft(String, u16),
     /// Walks from now on sprint, or not (ADR 0118).
     Sprint(bool),
     Quit,
@@ -96,6 +100,13 @@ pub fn parse(line: &str) -> Result<Option<Cmd>, String> {
         "hold" => Cmd::Hold(num(1)? as u8),
         "strike" => Cmd::Strike(v()?),
         "prospect" => Cmd::Prospect(v()?),
+        "craft" => {
+            // the recipe's name may have spaces; a number last is how many
+            let n = w.last().filter(|_| w.len() > 2).and_then(|s| s.parse::<u16>().ok());
+            let name = w[1..w.len() - n.map_or(0, |_| 1)].join(" ");
+            let r = engine::recipes::RECIPES.named(&name).ok_or(format!("no recipe '{name}' in '{line}'"))?;
+            Cmd::Craft(r.name.clone(), n.unwrap_or(1))
+        }
         "sprint" => match w.get(1).copied() {
             Some("on") => Cmd::Sprint(true),
             Some("off") => Cmd::Sprint(false),
@@ -336,6 +347,7 @@ impl Bot {
                 self.asking = Some(self.after(2.0));
             }
             Cmd::Sprint(on) => self.sprint = *on,
+            Cmd::Craft(r, n) => self.link.send(ToServer::Craft { recipe: r.clone(), n: *n }),
             Cmd::Pick(d) => {
                 self.seq += 1;
                 self.link.send(ToServer::Take { seq: self.seq, at: w.block_at(self.feet() + *d) });
@@ -559,6 +571,29 @@ mod tests {
         assert!(slots[2].contains(&format!("[1,\"hand axe\",1,{}]", uses - 1)), "{out:?} ({} refused)", bot.refused);
         let rubble = engine::blocks::BLOCKS.id("granite rubble");
         assert!(out.last().unwrap().contains(&format!("\"material\":{rubble}")), "{out:?}");
+    }
+
+    /// Crafting by script (draft ADR recipe-list-and-copper-tools): a survival bot given a copper pick head and two
+    /// sticks crafts a copper pick, digs copper with it (grade 2) and has one use less and a stick left.
+    #[test]
+    fn a_survival_bot_crafts_a_copper_pick_and_digs_copper() {
+        let (tx, rx) = channel();
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(TICK_HZ, &std::sync::atomic::AtomicBool::new(false)));
+        let (c, s) = local();
+        tx.send(s).unwrap();
+        let mut bot = Bot::new("smith", c);
+        let w = World::new(256, 32, 1);
+        let h = w.bodies[0].height(DVec3::Y);
+        let (d, at) = ("1.0 -0.5 0.25", w.block_at(DVec3::new(1.25, h - 0.5, 0.5)));
+        let mut out = Vec::new();
+        let script = format!("wait 0.5; say /playmode survival; spawn 0.25 {h} 0.25; wait 0.5; say /place copper {} {} {} {}; say /give copper_pick_head 1; say /give stick 2; wait 0.5; craft copper pick 3; wait 0.5; slots; hold 0; dig {d}; wait 0.5; slots; block {d}", at.face, at.pos.x, at.pos.y, at.pos.z);
+        bot.run(parse_script(&script).unwrap(), None, |l| out.push(l));
+        let slots: Vec<&String> = out.iter().filter(|l| l.contains("\"slots\"")).collect();
+        let uses = ITEMS.get(ITEMS.named("copper pick").unwrap()).unwrap().tool.as_ref().unwrap().uses;
+        assert!(slots[0].contains(&format!("[0,\"copper pick\",1,{uses}]")) && slots[0].contains("[1,\"stick\",1]") && !slots[0].contains("head"), "{out:?}");
+        assert!(slots[1].contains(&format!("[0,\"copper pick\",1,{}]", uses - 1)), "{out:?} ({} refused)", bot.refused);
+        assert!(out.last().unwrap().contains("\"material\":0"), "{out:?}");
+        assert!(parse("craft copper spoon").is_err() && parse("craft copper_pick").unwrap() == Some(Cmd::Craft("copper pick".into(), 1)));
     }
 
     /// Prospecting by script (ADR 0138): a survival bot given a hand axe strikes granite

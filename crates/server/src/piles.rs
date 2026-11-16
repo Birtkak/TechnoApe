@@ -80,6 +80,10 @@ impl Server {
                 let worn = c.slots[c.hand as usize].map_or(AIR, |s| s.item);
                 if (0..fit).any(|_| items::wear(&mut slots[c.hand as usize])) {
                     *self.item_made.entry(worn).or_default() -= 1;
+                    // what it leaves (a metal tool's stick) is in its slot now
+                    if let Some(l) = slots[c.hand as usize] {
+                        *self.item_made.entry(l.item).or_default() += 1;
+                    }
                 }
                 c.slots = slots;
                 for old in taken {
@@ -180,9 +184,26 @@ impl Server {
         let worn = c.slots[k].map_or(AIR, |s| s.item);
         if items::wear(&mut c.slots[k]) {
             *self.item_made.entry(worn).or_default() -= 1;
+            if let Some(l) = c.slots[k] {
+                *self.item_made.entry(l.item).or_default() += 1;
+            }
         }
         (c.prospected, c.inv_dirty) = (Some(tick), true);
         c.link.send(ToClient::Prospect(heard));
+    }
+
+    /// Client i makes the hand recipe named `recipe` up to `n` times (`ToServer::Craft`, draft ADR
+    /// recipe-list-and-copper-tools): alive, in either mode; as many as its slots hold the inputs for and have
+    /// room for the output (`recipes::craft`), the ledger moving with them. An unknown name makes nothing.
+    pub(super) fn craft(&mut self, i: usize, recipe: &str, n: u16) {
+        let c = &mut self.clients[i];
+        let Some(r) = engine::recipes::RECIPES.named(recipe).filter(|r| r.process == "hand" && c.vitals.dead.is_none()) else { return };
+        let made = engine::recipes::craft(&mut c.slots, r, n as u32) as i64;
+        for &(m, k) in &r.inp {
+            *self.item_made.entry(m).or_default() -= made * k as i64;
+        }
+        *self.item_made.entry(r.out.0).or_default() += made * r.out.1 as i64;
+        c.inv_dirty = true;
     }
 
     /// A falling rock that moved into a survival player's head this tick hits it (ADR 0094: a drop hurts who is

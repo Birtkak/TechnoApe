@@ -1,0 +1,38 @@
+# Recipes (draft ADR recipe-list-and-copper-tools; schema and checks in crates/engine/src/recipes.rs).
+# `name`: what the list shows and the wire and the bot name it by (`craft copper_pick`), once each.
+# `process`: who makes it. Only "hand" is run now: the inventory's recipe list, one click one make
+# (`ToServer::Craft`). shortcut: the crucible adds "melt" and "cast" with its window; no format change.
+# `in`: [item, n] pairs, each item once; `out`: [item, n]. Items are named as data/items.toml or
+# data/blocks.toml name them. A recipe never makes what it takes.
+
+# The copper tools (the Steam Age's first half hour): a head and a stick. Heads and ingots come from /give
+# until the crucible casts them (costs for that run: pick 2 ingots, axe 2, shovel 1, knife 1, hammer 3).
+[[recipe]]
+name = "copper pick"
+process = "hand"
+in = [["copper pick head", 1], ["stick", 1]]
+out = ["copper pick", 1]
+
+[[recipe]]
+name = "copper axe"
+process = "hand"
+in = [["copper axe head", 1], ["stick", 1]]
+out = ["copper axe", 1]
+
+[[recipe]]
+name = "copper shovel"
+process = "hand"
+in = [["copper shovel head", 1], ["stick", 1]]
+out = ["copper shovel", 1]
+
+[[recipe]]
+name = "copper knife"
+process = "hand"
+in = [["copper knife blade", 1], ["stick", 1]]
+out = ["copper knife", 1]
+
+[[recipe]]
+name = "copper hammer"
+process = "hand"
+in = [["copper hammer head", 1], ["stick", 1]]
+out = ["copper hammer", 1]

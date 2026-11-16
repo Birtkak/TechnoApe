@@ -87,7 +87,6 @@ name = "copper"
 hardness = 15.0
 tool = "pick"
 grade = 2
-later = true
 sound = "metal"
 colour = [0.85, 0.52, 0.32]
 metal = 0.6

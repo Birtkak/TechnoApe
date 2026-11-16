@@ -49,9 +49,8 @@ knap = ["hand axe", 4]
 # every kind) and `head` its material, a [[material]] row whose numbers it digs by: `speed` (dig time is
 # hardness / speed on a block whose `tool` is its kind; else the bare-hand time), `grade` (1 stone, 2 copper and
 # bronze, 3 iron, 4 steel: it takes a block that is not loose of at most that grade) and `uses` (digs; a dig
-# costs one, at none it is gone and leaves nothing). A tool stacks by one.
-# shortcut: one material; hafted axes, picks and shovels (a head and a handle) wait for crafting.md's process
-# runner, and may then haft this row's numbers up.
+# costs one, at none it is gone and leaves its `leaves`, or nothing). A tool stacks by one. Copper's hafted
+# tools are at the end of the file.
 [[material]]
 name = "flint"
 speed = 2.0
@@ -114,3 +113,84 @@ look = "gold quartz"
 name = "pitchblende pebble"
 stack = 16
 look = "pitchblende"
+
+# Copper (the Steam Age's first half hour; draft ADR recipe-list-and-copper-tools). Ingots and heads come
+# from /give until the crucible casts them; a head and a stick make the tool by hand (data/recipes.toml).
+# `leaves`: what a tool leaves in its slot when its last use wears it away (a metal head's stick; the hand
+# axe leaves nothing).
+[[material]]
+name = "copper"
+speed = 4.0
+grade = 2
+uses = 160
+prospect = 24
+
+[[item]]
+name = "copper ingot"
+look = "copper"
+
+[[item]]
+name = "copper pick head"
+stack = 16
+look = "copper"
+
+[[item]]
+name = "copper axe head"
+stack = 16
+look = "copper"
+
+[[item]]
+name = "copper shovel head"
+stack = 16
+look = "copper"
+
+[[item]]
+name = "copper knife blade"
+stack = 16
+look = "copper"
+
+[[item]]
+name = "copper hammer head"
+stack = 16
+look = "copper"
+
+[[item]]
+name = "copper pick"
+stack = 1
+look = "copper"
+tool = "pick"
+head = "copper"
+leaves = "stick"
+
+[[item]]
+name = "copper axe"
+stack = 1
+look = "copper"
+tool = "axe"
+head = "copper"
+leaves = "stick"
+
+[[item]]
+name = "copper shovel"
+stack = 1
+look = "copper"
+tool = "shovel"
+head = "copper"
+leaves = "stick"
+
+[[item]]
+name = "copper knife"
+stack = 1
+look = "copper"
+tool = "knife"
+head = "copper"
+leaves = "stick"
+
+# shortcut: no block names `tool = "hammer"`, so it digs as bare hands and never wears; it waits for smithing
+[[item]]
+name = "copper hammer"
+stack = 1
+look = "copper"
+tool = "hammer"
+head = "copper"
+leaves = "stick"

@@ -62,6 +62,7 @@ struct Row {
     tool: Option<String>,
     head: Option<String>,
     knap: Option<(String, u8)>,
+    leaves: Option<String>,
 }
 
 fn full() -> u16 {
@@ -105,6 +106,8 @@ pub struct Tool {
     /// How far a prospecting strike of it hears ore, metres (ADR 0138); 0: it
     /// does not prospect.
     pub prospect: f32,
+    /// What its last use leaves in its slot (a metal tool's stick); None: nothing.
+    pub leaves: Option<u16>,
 }
 
 /// The longest a material's `prospect` may reach, metres.
@@ -162,12 +165,13 @@ pub fn left(s: Option<Stack>) -> Option<u16> {
     Some(tool(s)?.uses.saturating_sub(s?.payload.min(u16::MAX as u64) as u16))
 }
 
-/// One dig's wear on the tool in `slot`: true when that was its last and it is gone, leaving nothing (ADR 0047).
+/// One dig's wear on the tool in `slot`: true when that was its last and it is gone (ADR 0047), leaving in the
+/// slot one of what its row `leaves` (a metal tool's stick), else nothing; the caller's ledger counts both.
 pub fn wear(slot: &mut Slot) -> bool {
     let Some(s) = slot.as_mut().filter(|s| tool(Some(**s)).is_some()) else { return false };
     s.payload += 1;
     if left(Some(*s)) == Some(0) {
-        *slot = None;
+        *slot = tool(Some(*s)).and_then(|t| t.leaves).map(|l| Stack::new(l, 1));
         return true;
     }
     false
@@ -206,7 +210,7 @@ impl Items {
                     if !(crate::blocks::TOOLS.contains(&kind.as_str()) || kind == "any") || r.stack != 1 {
                         return Err(format!("item '{}': a tool is one of {:?} or \"any\", and stacks by one", r.name, crate::blocks::TOOLS));
                     }
-                    Some(Tool { kind: (kind != "any").then(|| kind.clone()), speed: m.speed, grade: m.grade, uses: m.uses, prospect: m.prospect })
+                    Some(Tool { kind: (kind != "any").then(|| kind.clone()), speed: m.speed, grade: m.grade, uses: m.uses, prospect: m.prospect, leaves: None })
                 }
                 _ => return Err(format!("item '{}': a tool names both its kind and its head", r.name)),
             };
@@ -227,6 +231,11 @@ impl Items {
                     return Err(format!("item '{}': knap takes 1..20 strikes into another item", r.name));
                 }
                 defs[k].knap = Some((to, *n));
+            }
+            if let Some(l) = &r.leaves {
+                let to = block(l).or_else(|| defs.iter().find(|d| &d.name == l).map(|d| d.id)).ok_or(format!("item '{}': leaves no item '{l}'", r.name))?;
+                let t = defs[k].tool.as_mut().ok_or(format!("item '{}': only a tool leaves something when worn", r.name))?;
+                t.leaves = Some(to);
             }
         }
         let made: Vec<u16> = f.made.iter().map(|n| block(n).ok_or(format!("made: no block '{n}'"))).collect::<Result<_, _>>()?;
@@ -488,6 +497,8 @@ mod tests {
             ("[[item]]\nname='x'\nlook='stone'\nknap=['x', 4]", "strikes"),
             ("[[material]]\nname='m'\nspeed=2\ngrade=1\nuses=9\nprospect=-1", "prospect"),
             ("[[material]]\nname='m'\nspeed=2\ngrade=1\nuses=9\nprospect=500", "prospect"),
+            ("[[material]]\nname='m'\nspeed=2\ngrade=1\nuses=9\n[[item]]\nname='x'\nstack=1\nlook='stone'\ntool='pick'\nhead='m'\nleaves='nothing'", "leaves"),
+            ("[[item]]\nname='x'\nlook='stone'\nleaves='stone'", "leaves"),
         ] {
             let e = Items::parse(row).err().unwrap_or_default();
             assert!(e.contains(says), "{row}: {e}");
@@ -548,6 +559,30 @@ mod tests {
         let get = |n: &str| BLOCKS.get(BLOCKS.id(n)).unwrap();
         assert!(t.takes(get("stone")) && t.fits(get("log")) && t.fits(get("copper")) && !t.takes(get("copper")));
         assert!(knaps(get("granite")) && !knaps(get("gravel")) && !knaps(get("dirt")) && !knaps(get("log")) && !knaps(get("stone rubble")));
+    }
+
+    /// Copper (draft ADR recipe-list-and-copper-tools): each hafted copper tool is its kind at speed 4, grade 2 and
+    /// 160 uses, takes every block of its kind up to grade 2, and leaves a stick at its last use; the hammer fits no
+    /// block yet (none names it); the pick prospects 24 m.
+    #[test]
+    fn copper_tools_take_grade_two_of_their_kind_and_leave_a_stick() {
+        let stick = ITEMS.named("stick").unwrap();
+        for (name, kind) in [("copper pick", "pick"), ("copper axe", "axe"), ("copper shovel", "shovel"), ("copper knife", "knife"), ("copper hammer", "hammer")] {
+            let id = ITEMS.named(name).unwrap_or_else(|| panic!("no {name}"));
+            let t = tool(Some(Stack::new(id, 1))).unwrap();
+            assert_eq!((t.kind.as_deref(), t.speed, t.grade, t.uses, t.leaves), (Some(kind), 4.0, 2, 160, Some(stick)), "{name}");
+            let of_kind: Vec<_> = BLOCKS.placeable().filter(|d| d.tool.as_deref() == Some(kind)).collect();
+            assert_eq!(of_kind.is_empty(), kind == "hammer", "{name}");
+            assert!(of_kind.iter().all(|d| t.fits(d) && t.takes(d) == (d.grade <= 2)), "{name}");
+            let mut slot = Some(Stack::new(id, 1));
+            for k in 1..t.uses {
+                assert!(!wear(&mut slot), "{name} gone after {k}");
+            }
+            assert!(wear(&mut slot) && slot == Some(Stack::new(stick, 1)), "{name}: {slot:?}");
+        }
+        let pick = tool(Some(Stack::new(ITEMS.named("copper pick").unwrap(), 1))).unwrap();
+        assert!(pick.takes(BLOCKS.get(BLOCKS.id("copper")).unwrap()) && pick.prospects() == Some(24.0));
+        assert_eq!(tool(Some(Stack::new(ITEMS.named("hand axe").unwrap(), 1))).unwrap().leaves, None);
     }
 
     #[test]
