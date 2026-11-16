@@ -1,5 +1,5 @@
 # A draft pitchblende pebble (Claude's, listed in data/drafts.txt): clutter, ADR 0082. Painted
-# boxes at 32 px a metre (a lump of ore lying loose); made by tools/paint_clutter.py.
+# boxes at 32 px a metre (black rounded lumps with a yellow crust); made by tools/paint_clutter.py.
 colours = ["pitchblende"]
 item = 0.4
 
@@ -11,11 +11,16 @@ voxels = "."
 [[part.boxes]]
 at = [11.0, 0.0, 12.0]
 size = [8, 4, 7]
-turn = [0.0, 25.0, 5.0]
+turn = [0.0, 25.0, 0.0]
 uv = [0, 0]
 
 [[part.boxes]]
-at = [14.0, 3.0, 13.0]
-size = [4, 3, 4]
-turn = [0.0, 60.0, 0.0]
+at = [13.0, 3.0, 13.0]
+size = [5, 3, 4]
+turn = [0.0, 40.0, 0.0]
 uv = [30, 0]
+
+[[part.boxes]]
+at = [17.0, 2.0, 15.0]
+size = [3, 3, 3]
+uv = [48, 0]

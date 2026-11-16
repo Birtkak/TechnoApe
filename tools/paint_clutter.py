@@ -35,7 +35,7 @@ RAMPS = {  # rich ramps, eight tones dark to light, shared with tools/paint_text
 # ore samples (ADR draft-ore-samples-and-prospecting): a lump of each, in its mineral's colour; the block it looks
 # like as an item
 SAMPLES = [("copper nugget", "copper"), ("tin pebble", "cassiterite"), ("iron pebble", "hematite"), ("coal lump", "coal"), ("lead pebble", "galena"), ("gold nugget", "gold quartz"), ("pitchblende pebble", "pitchblende")]
-RAMPS.update({"copper nugget": rich_rgb(22, 0.75, 0.04), "tin pebble": rich_rgb(25, 0.25, -0.03), "iron pebble": rich_rgb(8, 0.55, 0.0), "coal lump": rich_rgb(220, 0.06, -0.05), "lead pebble": rich_rgb(215, 0.1, 0.06), "gold nugget": rich_rgb(46, 0.95, 0.08), "pitchblende pebble": rich_rgb(35, 0.15, -0.04)})
+RAMPS.update({"verdigris": rich_rgb(165, 0.5, 0.1), "copper nugget": rich_rgb(22, 0.75, 0.04), "tin pebble": rich_rgb(25, 0.25, -0.03), "iron pebble": rich_rgb(8, 0.55, 0.0), "coal lump": rich_rgb(220, 0.06, -0.05), "lead pebble": rich_rgb(215, 0.1, 0.06), "gold nugget": rich_rgb(46, 0.95, 0.08), "pitchblende pebble": rich_rgb(35, 0.15, -0.04)})
 
 
 def ramps():
@@ -130,6 +130,29 @@ def rock(ramp, seed, lift=0.0):
     return p
 
 
+def stone(seed, ramp="pebble", moss=0.0):
+    """A worn stone (repainted 2026-11-16): the top lit and paler toward its middle, the sides from light under the
+    top to shade at the ground and darker at their corners, so stacked boxes read as one round stone; fine grain,
+    a few pale crystals and dark pits, one hairline crack across the top; `moss`: the share of the top's far edge
+    grown over."""
+    def p(face, x, y, w, h):
+        n = (rnd(seed, face, x, y) - 0.5) * 1.1
+        r = rnd(seed, face, x, y, "g")
+        if face == "bottom":
+            return R(ramp, 1.5 + n * 0.4)
+        rim = min(x, w - 1 - x) == 0
+        if face == "top":
+            if moss and y <= 1 and rnd(seed, "moss", x // 2, y) < moss:
+                return R("meadow green", 2.5 + 2 * rnd(seed, "m", x, y))
+            if x == w // 2 + (y // 2) % 2 and y < 0.7 * h and w > 4:
+                return R(ramp, 1.5)
+            t = 5.4 - (1.0 if rim or min(y, h - 1 - y) == 0 else 0) + n
+        else:
+            t = 4.6 - 2.6 * y / max(1, h - 1) - (0.8 if rim else 0) + n
+        return R(ramp, 7 if r < 0.04 else t - 2 if r > 0.95 else t)
+    return p
+
+
 def flint(seed):
     """A flint shard (ADR 0097): a dark glassy grey-black face flaked in shallow ripples with a glint, a pale chalky
     cortex on one long edge of the top and the upper half of the sides; calm, so it reads on grass and on gravel."""
@@ -203,8 +226,139 @@ def cap(ramp, spots, seed):
     return p
 
 
-def make():
+def spotted(base, ramp, share, tone=5):
+    """`base`'s painting with a share of its pixels (never the bottom's) stained in `ramp`: verdigris on native
+    copper, the yellow crust on pitchblende."""
+    def make(seed):
+        b = base(seed)
+        def p(face, x, y, w, h):
+            if face != "bottom" and rnd(seed, face, x // 2, y // 2, "stain") < share:
+                return R(ramp, tone + (rnd(seed, face, x, y) - 0.5) * 2)
+            return b(face, x, y, w, h)
+        return p
+    return make
+
+
+def crystal(ramp, dim=0.0):
+    """Flat crystal faces: each face one calm tone (the top brightest, the sides stepping darker round the box), its
+    upper and left edge a line of light, no noise: galena's cut look, and with `dim` tones off cassiterite's dark one."""
+    def make(seed):
+        def p(face, x, y, w, h):
+            if face == "bottom":
+                return R(ramp, 1 - dim)
+            if face == "top":
+                return R(ramp, 7 - dim / 2 if x == 0 or y == 0 else 5.5 - dim)
+            base = 2.5 + 2 * rnd(seed, "face", w, h)
+            return R(ramp, 6.5 - dim / 2 if y == 0 or x == 0 else base - dim - 1.2 * y / max(1, h - 1))
+        return p
+    return make
+
+
+def glossy(ramp):
+    """Dull black with a hard shine: dark all over, thin diagonal streaks of light where a broken face catches
+    the sun (coal, pitchblende)."""
+    def make(seed):
+        def p(face, x, y, w, h):
+            n = (rnd(seed, face, x, y) - 0.5) * 0.8
+            if face == "bottom":
+                return R(ramp, 0.5)
+            k = int(rnd(seed, face, "k") * 5)
+            return R(ramp, 6.5 if (x + y + k) % 6 == 0 and rnd(seed, face, x, y, "s") < 0.7 else (2.4 if face == "top" else 1.4) + n)
+        return p
+    return make
+
+
+def banded(ramp, other):
+    """Wavy beds of two rocks, a few pixels each (banded iron: red hematite and grey chert)."""
+    def make(seed):
+        def p(face, x, y, w, h):
+            n = (rnd(seed, face, x, y) - 0.5) * 1.2
+            bed = (y + (x + int(3 * rnd(seed, face))) // 4) % 4
+            lit = 5 if face == "top" else 2 if face == "bottom" else 4.2 - 1.8 * y / max(1, h - 1)
+            return R(other if bed == 0 else ramp, lit + (1 if bed == 2 else 0) + n)
+        return p
+    return make
+
+
+def lump(name, lift=0.0):
+    return lambda seed: rock(name, seed, lift)
+
+
+# The ore samples (ADR 0138), each to be told from the others at a glance on the ground and in a slot: its boxes
+# (x, y, z, sx, sy, sz, turn, painting) and a note for its file.
+ORE = {
+    "copper nugget": ([(11, 0, 12, 8, 3, 7, (0, 25, 5), spotted(lump("copper nugget"), "verdigris", 0.16)),
+                       (13, 2, 14, 5, 3, 4, (0, 60, 0), spotted(lump("copper nugget", 0.8), "verdigris", 0.1)),
+                       (17, 1, 11, 4, 3, 3, (0, 10, 8), lump("copper nugget", 1.2))], "knobbly native copper, green where it weathered"),
+    "tin pebble": ([(12, 0, 12, 8, 3, 8, (0, 20, 0), crystal("tin pebble", 2.5)), (13, 3, 13, 6, 2, 6, (0, 20, 0), crystal("tin pebble", 2.5)),
+                    (14, 5, 14, 4, 2, 4, (0, 20, 0), crystal("tin pebble", 2.5)), (15, 7, 15, 2, 1, 2, (0, 20, 0), crystal("tin pebble", 2.5))], "a squat dark crystal stepping to a point"),
+    "iron pebble": ([(11, 0, 12, 10, 3, 8, (0, 15, 0), banded("iron pebble", "pebble")), (12, 3, 13, 8, 2, 6, (0, 15, 0), banded("iron pebble", "pebble"))], "a rounded stone in red and grey beds"),
+    "coal lump": ([(11, 0, 11, 9, 5, 8, (0, 30, 4), glossy("coal lump")), (15, 4, 13, 5, 3, 5, (6, 55, 0), glossy("coal lump"))], "a blocky black lump with a hard shine"),
+    "lead pebble": ([(11, 0, 13, 6, 6, 6, (0, 10, 0), crystal("lead pebble")), (16, 0, 10, 5, 5, 5, (0, 35, 0), crystal("lead pebble")),
+                     (14, 5, 13, 4, 4, 4, (0, 50, 0), crystal("lead pebble"))], "silver cubes grown into each other"),
+    "gold nugget": ([(13, 0, 13, 6, 3, 5, (0, 30, 6), lump("gold nugget", 1.5)), (15, 2, 14, 3, 2, 3, (0, 70, 0), lump("gold nugget", 2.2))], "a small bright nugget"),
+    "pitchblende pebble": ([(11, 0, 12, 8, 4, 7, (0, 25, 0), spotted(glossy("pitchblende pebble"), "yellow petal", 0.07, 6)),
+                            (13, 3, 13, 5, 3, 4, (0, 40, 0), spotted(glossy("pitchblende pebble"), "yellow petal", 0.07, 6)),
+                            (17, 2, 15, 3, 3, 3, (0, 0, 0), glossy("pitchblende pebble"))], "black rounded lumps with a yellow crust"),
+}
+
+
+def metal(seed, edge=None):
+    """Cast copper (ADR 0139): warm and calm, lit from the top left with one bright streak down each side face, the
+    bottom rows in shade, a rare pit from the mould; `edge`: "x+", "x-" or "y+", the side whose last pixels are a
+    worked edge and catch the light (a blade, a pick's point)."""
+    def p(face, x, y, w, h):
+        n = (rnd(seed, face, x, y) - 0.5) * 0.7
+        if face == "top":
+            return R("copper nugget", 5.6 + n)
+        if face == "bottom":
+            return R("copper nugget", 1.8 + n * 0.5)
+        t = 4.6 - 2.2 * y / max(1, h - 1) - 0.8 * x / max(1, w - 1) + n
+        if w > 2 and x == max(1, w // 4):  # the streak
+            t += 1.4
+        if (edge == "x+" and x >= w - 1) or (edge == "x-" and x == 0) or (edge == "y+" and y == 0):
+            t = 6.6 + n
+        if rnd(seed, face, x, y, "pit") > 0.97:
+            t -= 2
+        return R("copper nugget", t)
+    return p
+
+
+# The copper age's things (ADR 0139), each standing as the hand holds it, its face to +z (the eye in hand): the
+# head's boxes (x, y, z, sx, sy, sz, edge), the handle's height (a stick 2 px thick up the middle; 0 for none) and
+# the size of its cell as an item, metres. A head alone is its tool's head set down on the ground.
+COPPER = {
+    "pick": ([(11, 23, 14.5, 10, 4, 3, None), (6, 21, 15, 5, 3, 2, None), (21, 21, 15, 5, 3, 2, None),
+              (3, 19, 15, 3, 2, 2, "x-"), (26, 19, 15, 3, 2, 2, "x+")], 27, 0.9),
+    "axe": ([(13, 19, 14.5, 9, 7, 3, None), (22, 17, 15, 4, 11, 2, "x+")], 27, 0.9),
+    "shovel": ([(11, 18, 15, 10, 2, 2, None), (11, 20, 15.5, 10, 5, 1, None), (12, 25, 15.5, 8, 2, 1, None),
+                (13, 27, 15.5, 6, 2, 1, None), (14, 29, 15.5, 4, 1, 1, "y+")], 19, 0.9),
+    "knife": ([(14.5, 7, 15.5, 3, 8, 1, "x+"), (15, 15, 15.5, 2, 3, 1, "x+"), (15.5, 18, 15.5, 1, 2, 1, "y+")], 7, 0.5),
+    "hammer": ([(10, 21, 13.5, 12, 6, 5, None)], 26, 0.9),
+}
+HEADS = {"pick": "copper pick head", "axe": "copper axe head", "shovel": "copper shovel head", "knife": "copper knife blade", "hammer": "copper hammer head"}
+
+
+def copper():
     written = []
+    for kind, (boxes, handle, cell) in COPPER.items():
+        low = min(b[1] for b in boxes)
+        for name, shaft, drop, size in [(f"copper {kind}", handle, 0, cell), (HEADS[kind], 0, low, 0.45)]:
+            m = Model(name)
+            if shaft:
+                m.box((15, 0, 15), (2, shaft, 2), rock("twig", (name, "shaft")))
+            for k, (x, y, z, sx, sy, sz, edge) in enumerate(boxes):
+                m.box((x, y - drop, z), (sx, sy, sz), metal((kind, k), edge))
+            written += m.write("copper", f"cast copper{', on a stick' if shaft else ', the head alone'}", item=size)
+    m = Model("copper ingot")
+    m.box((10, 0, 13), (12, 4, 6), metal("ingot"))
+    m.box((11, 4, 14), (10, 1, 4), metal("ingot top"))
+    written += m.write("copper", "a cast bar, narrower on top", item=0.4)
+    return written
+
+
+def make():
+    written = copper()
     # (grass tuft, fern and flowers became plants of planes: tools/paint_plants.py, ADR 0091)
     m = Model("fallen leaves")
     for k, (x, z) in enumerate([(6, 8), (16, 14), (11, 20), (20, 6)]):
@@ -219,16 +373,25 @@ def make():
     for alt, stones in enumerate([[(6, 8, 10, 5, 8), (19, 16, 7, 4, 7), (12, 22, 5, 3, 4)], [(8, 10, 11, 6, 9), (21, 7, 6, 3, 5)]]):
         m = Model("pebbles" + (f".{alt}" if alt else ""))
         for k, (x, z, sx, sy, sz) in enumerate(stones):
-            m.box((x, 0, z), (sx, sy, sz), rock("pebble", ("pebble", alt, k)), (0, 25 * k, 0))
+            # a base and a smaller cap on it: a rounded stone, not a brick
+            low = max(2, sy - 2)
+            m.box((x, 0, z), (sx, low, sz), stone(("pebble", alt, k)), (0, 25 * k, 0))
+            if sx > 4:
+                m.box((x + 1, low, z + 1), (sx - 2, sy - low, sz - 2), stone(("pebble", alt, k, "cap")), (0, 25 * k, 0))
         written += m.write("stone", "a few stones")
     m = Model("stick")
     m.box((3, 1, 15), (26, 2, 2), rock("twig", "stick"), (0, 15, 4))
     written += m.write("log", "one stick, lying tilted")
     m = Model("loose stone")
-    m.box((10, 0, 10), (12, 6, 10), rock("pebble", "stone", -0.5), (0, 20, 6))
+    for k, (x, y, z, sx, sy, sz) in enumerate([(10, 0, 10, 12, 4, 10), (11, 4, 11, 10, 2, 8), (13, 6, 12, 6, 1, 5)]):
+        m.box((x, y, z), (sx, sy, sz), stone(("stone", k), moss=0.5 if k == 2 else 0.25), (0, 20, 0))
     written += m.write("stone", "a stone of two fists, tilted")
     m = Model("flint")
-    m.box((13, 0, 13), (6, 2, 5), flint("flint"), (8, 35, 0))
+    # a broken nodule: the chalky rind round it, the dark glassy break at one end, a chip beside it
+    m.box((12, 0, 13), (6, 3, 5), stone("flint rind", "flint cortex"), (0, 35, 0))
+    m.box((13, 3, 14), (3, 1, 3), stone("flint ridge", "flint cortex"), (0, 35, 0))
+    m.box((16.5, 0, 13.5), (3, 3, 4), flint("flint"), (0, 35, 0))
+    m.box((10, 0, 19), (3, 1, 2), flint("chip"), (0, 80, 0))
     # a cell 0.6 m as an item (ADR 0114): a 12 cm shard in hand and in a pile; the ground's clutter keeps its 19 cm
     written += m.write("slate", "a dark shard", item=0.6)
     m = Model("mushroom")
@@ -247,9 +410,10 @@ def make():
     written += m.write("slate", "a knapped flint teardrop, point up", item=0.3)
     for name, look in SAMPLES:
         m = Model(name)
-        m.box((11, 0, 12), (8, 4, 7), rock(name, (name, 0)), (0, 25, 5))
-        m.box((14, 3, 13), (4, 3, 4), rock(name, (name, 1), 0.5), (0, 60, 0))
-        written += m.write(look, "a lump of ore lying loose", item=0.4)
+        shape, note = ORE[name]
+        for k, (x, y, z, sx, sy, sz, turn, paint) in enumerate(shape):
+            m.box((x, y, z), (sx, sy, sz), paint((name, k)), turn)
+        written += m.write(look, note, item=0.4)
     return written
 
 

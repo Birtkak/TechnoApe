@@ -315,3 +315,25 @@ data/models/gold nugget.toml
 data/models/gold nugget.png
 data/models/pitchblende pebble.toml
 data/models/pitchblende pebble.png
+data/models/copper pick.toml
+data/models/copper pick.png
+data/models/copper pick head.toml
+data/models/copper pick head.png
+data/models/copper axe.toml
+data/models/copper axe.png
+data/models/copper axe head.toml
+data/models/copper axe head.png
+data/models/copper shovel.toml
+data/models/copper shovel.png
+data/models/copper shovel head.toml
+data/models/copper shovel head.png
+data/models/copper knife.toml
+data/models/copper knife.png
+data/models/copper knife blade.toml
+data/models/copper knife blade.png
+data/models/copper hammer.toml
+data/models/copper hammer.png
+data/models/copper hammer head.toml
+data/models/copper hammer head.png
+data/models/copper ingot.toml
+data/models/copper ingot.png

@@ -1134,16 +1134,17 @@ mod tests {
         let pal = engine::palette::Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
         let (model, life) = parse_life("flint.toml", include_str!("../../../data/models/flint.toml"), &pal, &|_| true, &|_| true).unwrap();
         let paint = engine::models::painting(include_bytes!("../../../data/models/flint.png"), &pal).unwrap();
-        // what the file says, so the test follows a repainted flint: its parts, its one box, that box's middle
-        let (parts, bx) = (model.parts.len(), model.parts[0].boxes[0].clone());
+        // what the file says, so the test follows a repainted flint (four boxes since 2026-11-16): its parts, its
+        // boxes, the first box's middle
+        let (parts, n, bx) = (model.parts.len(), model.parts[0].boxes.len(), model.parts[0].boxes[0].clone());
         let size = Vec3::from(bx.size.map(|v| v.max(1) as f32));
         let mid = bx.frame().transform_point3(size * 0.5);
         let l = Loaded::new("flint".into(), model, life, Some(&paint));
-        assert_eq!((l.quads.len(), l.boxes.len()), (parts + 1, 1), "its part (one empty voxel), then its box");
+        assert_eq!((l.quads.len(), l.boxes.len()), (parts + n, n), "its part (one empty voxel), then its boxes");
         let dirs: std::collections::BTreeSet<u32> = l.quads[parts].iter().map(|q| q[0] >> 18 & 7).collect();
         assert_eq!(dirs.len(), 6, "six faces");
-        let centre = (l.bounds[0] + l.bounds[1]) * 0.5;
-        assert!((centre - mid * engine::models::VOXEL).length() < 0.02, "its bounds about its box: {:?} against {}", l.bounds, mid * engine::models::VOXEL);
+        let (centre, half) = ((l.bounds[0] + l.bounds[1]) * 0.5, (l.bounds[1] - l.bounds[0]).length() * 0.5);
+        assert!((centre - mid * engine::models::VOXEL).length() < 0.02 + if n == 1 { 0.0 } else { half }, "its bounds about its boxes: {:?} against {}", l.bounds, mid * engine::models::VOXEL);
         let w = World::new(768, 256, 1);
         let b = &w.bodies[0];
         let mut m = Models::new(&crate::Args([("models".to_string(), "no/such/folder".to_string())].into_iter().collect()));
@@ -1152,7 +1153,8 @@ mod tests {
         let (mut fx, mut audio) = (crate::fx::Fx::new(true, 64, 1.0, 1), crate::audio::Audio::new());
         let eye = (b.centre + b.spawn * (b.height(b.spawn) + 2.0), DVec3::X, b.spawn);
         m.frame(&w, &vec![(DVec3::ZERO, DMat3::IDENTITY); w.bodies.len()], 0, eye, 0.0, Some(Hand { item: Some("flint"), swing: 0.0 }), &[], &mut fx, &mut audio);
-        assert_eq!(m.draws.iter().map(|d| (d.count, d.quads > 0)).collect::<Vec<_>>(), [(1, true)], "the box drawn once, in hand");
+        assert_eq!(m.draws.iter().map(|d| d.count as usize).sum::<usize>(), n, "each box drawn once, in hand");
+        assert!(m.draws.iter().all(|d| d.quads > 0));
         // its middle where the hand holds things (not low in its cell, under the screen's edge), its painted top
         // turned to the eye as a flat thing is held up to be seen
         let p = m.pieces[m.draws[0].first as usize];
@@ -1161,7 +1163,8 @@ mod tests {
         let right = fwd.cross(up).normalize();
         let hold = (fwd * 0.8 + right * 0.42 - right.cross(fwd) * 0.36).as_vec3();
         let mid = size.extend(2.0) * 0.5;
-        assert!((at(mid) - hold).length() < 0.03, "{} against {hold}", at(mid));
+        // (the model's middle is held there: a box of several lies within the model's half size of it)
+        assert!((at(mid) - hold).length() < 0.03 + if n == 1 { 0.0 } else { half }, "{} against {hold}", at(mid));
         assert!(at(Vec4::Y).normalize().dot(-fwd.as_vec3()) > 0.6, "top to the eye: {}", at(Vec4::Y));
     }
 

@@ -1,5 +1,5 @@
 # A draft copper nugget (Claude's, listed in data/drafts.txt): clutter, ADR 0082. Painted
-# boxes at 32 px a metre (a lump of ore lying loose); made by tools/paint_clutter.py.
+# boxes at 32 px a metre (knobbly native copper, green where it weathered); made by tools/paint_clutter.py.
 colours = ["copper"]
 item = 0.4
 
@@ -10,12 +10,18 @@ voxels = "."
 
 [[part.boxes]]
 at = [11.0, 0.0, 12.0]
-size = [8, 4, 7]
+size = [8, 3, 7]
 turn = [0.0, 25.0, 5.0]
 uv = [0, 0]
 
 [[part.boxes]]
-at = [14.0, 3.0, 13.0]
-size = [4, 3, 4]
+at = [13.0, 2.0, 14.0]
+size = [5, 3, 4]
 turn = [0.0, 60.0, 0.0]
 uv = [30, 0]
+
+[[part.boxes]]
+at = [17.0, 1.0, 11.0]
+size = [4, 3, 3]
+turn = [0.0, 10.0, 8.0]
+uv = [48, 0]
