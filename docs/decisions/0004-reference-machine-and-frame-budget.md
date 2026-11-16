@@ -5,7 +5,7 @@
 
 ## Context
 The game should run perfectly on the developer's PC, a 2020-era mid-range gaming PC, and with lower settings
-on weaker ones. A budget is only worth something if it is measured honestly: the old Godot game's first
+on weaker ones. A budget is only worth something if it is measured honestly: the old game's first
 numbers were optimistic (engine-smoothed frame times, capture stalls counted, load not finished, native heaps
 missing from the RAM figure).
 

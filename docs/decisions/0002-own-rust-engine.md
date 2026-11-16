@@ -5,29 +5,28 @@
 
 ## Context
 ADR 0001 left the engine to two spikes on one shared benchmark (a planet and moon, `docs/plans/roadmap.md`):
-p14 drew it with our own renderer inside Godot 4.7.2, p15 in a small engine of our own in Rust + wgpu. The rule
-was "our own engine unless Godot proves itself". Both spikes live on their own branches with README and results:
-p14 on `claude/suspicious-taussig-3df52e`, p15 on `claude/p15-engine-spike-251147`.
+p14 drew it with our own renderer inside a ready-made engine, p15 in a small engine of our own in Rust + wgpu. The rule
+was "our own engine unless the ready-made one proves itself". Both spikes lived on their own branches, deleted on 2026-11-16 (the tips: p14 `61fa82d0`, p15 `6a442e9d`).
 
 Measured on the reference machine (ADR 0004), release builds, median of 3 reps:
 
-| | p14 Godot + own renderer | p15 Rust + wgpu |
+| | p14 ready-made engine + own renderer | p15 Rust + wgpu |
 |---|---|---|
 | stand fps / p99 ms | 1,588 / 1.15 | 2,033 / 0.81 |
 | fly fps / missing chunks | 1,497 / 232 (**fails the gate**) | 1,650 / 0 |
 | edit fps / CPU p99 ms | 575 / 4.80 | 1,587 / 0.84 |
 | RAM / VRAM MB | 695 / 146 | 148 / 495 |
 
-Both held the frame budget and neither showed holes, but Godot failed the flight gate and spent 5x the CPU on
+Both held the frame budget and neither showed holes, but p14 failed the flight gate and spent 5x the CPU on
 edits. Most of the renderer's speed comes from its design (binary greedy meshing, 8-byte quads in one buffer,
-front-to-back order, horizon culling). A profile of the old Godot game showed its worst frames (62-79 ms) came
+front-to-back order, horizon culling). A profile of the old game showed its worst frames (62-79 ms) came
 from moving the simulation window on the main thread, not from rendering: the new design must keep such work
 off the frame from the start.
 
 ## Decision
 - **The game is built on our own engine in Rust with wgpu**, starting from the p15 spike's renderer and
   streamer.
-- **Everything is new.** No code, data or content from the old Godot game is carried over or ported; it
+- **Everything is new.** No code, data or content from the old game is carried over or ported; it
   stays in git history only.
 - **Gameplay is Rust; content is data.** No script language. Items, recipes, machines, materials and biomes
   are data files with a schema and tests.

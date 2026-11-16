@@ -7,9 +7,8 @@ Brought up to date 2026-11-14. The world's stages are staged and tracked in `doc
 this file says what is done, what is in work and what comes next, in order.
 
 ## Done
-- **Engine choice (2026-11-09):** a Godot spike (p14) and a Rust + wgpu spike (p15) drew the same benchmark;
-  Rust won (ADR 0002). Both live on their own branches: p15 on `claude/p15-engine-spike-251147`, p14 on
-  `claude/suspicious-taussig-3df52e`.
+- **Engine choice (2026-11-09):** a ready-made-engine spike (p14) and a Rust + wgpu spike (p15) drew the same benchmark;
+  Rust won (ADR 0002). Both spikes lived on their own branches, deleted on 2026-11-16 (the tips: p14 `61fa82d0`, p15 `6a442e9d`).
 - **Sphere grid (2026-11-09):** equi-angular cube-sphere, seams shown as the planet's grain (ADR 0003).
 - **Engine base (2026-11-10):** `crates/engine` (world, meshing, streaming; no GPU) and `crates/client`
   (window, renderer, benchmark runs). Numbers: `docs/benchmarks.md`.

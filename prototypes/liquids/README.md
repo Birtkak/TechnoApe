@@ -2,7 +2,7 @@
 
 **Question.** Which water model gives real speeds and waves, stays cheap when much of it moves, counts every
 drop exactly (the water cycle, ADR 0010), and costs nothing when it is still? Earlier attempts (the dropped
-Godot game) lagged with lots of water, looked jumpy while it updated, and flowed unrealistically slowly.
+game) lagged with lots of water, looked jumpy while it updated, and flowed unrealistically slowly.
 Answer taken in ADR 0020.
 
 **Answer.** Use **shallow water on the columns' air runs** (`crates/engine/src/liquid.rs`):

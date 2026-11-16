@@ -1,5 +1,5 @@
 // Dumps the exposed faces of 0.5 m quad-prism blocks on the equi-angular cube-sphere around a point, with
-// noise terrain, for the Godot look check (godot/look.gd). Geometric radial layers: layer l sits at R(1+B/R)^l.
+// noise terrain, for the look check. Geometric radial layers: layer l sits at R(1+B/R)^l.
 // Output: one quad per line "mat nx ny nz x y z x y z x y z x y z" in metres relative to the view point.
 //   mat: 0 grass top, 1 dirt side, 2 stone side/top, 3 sand top; +4 = top on a face seam, +8 = cube corner cell, +16 = on the marked row
 #include "warp.h"

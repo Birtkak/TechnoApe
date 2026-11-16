@@ -5,7 +5,7 @@ to orbit and over to Luna. Our own engine, the Pillars of Simulation Engine, in 
 from day one (a dedicated Linux server on the home server over Tailscale, singleplayer is a local server). Solo developer; Claude Code does
 most implementation, the developer steers, plays and decides.
 
-**Fresh start (2026-11-09).** An earlier flat-world game in Godot was dropped and deleted from the repo. Its
+**Fresh start (2026-11-09).** An earlier flat-world game was dropped and deleted from the repo. Its
 code, data and decisions do not apply; do not look for them or rebuild them from git history unless the
 developer asks.
 

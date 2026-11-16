@@ -181,7 +181,6 @@ g++ -std=c++17 -O2 -o test.exe test.cpp && ./test.exe
 g++ -std=c++17 -O2 -march=native -o measure.exe measure.cpp && mkdir -p out && ./measure.exe
 python -I render.py   # numpy + Pillow
 g++ -std=c++17 -O2 -march=native -fopenmp -o smooth.exe smooth.cpp && ./smooth.exe 192   # ~1 min, needs libgomp on PATH
-bash relaxed_all.sh   # the relaxed-grid measurements
 ```
 
 The tests cover, for cubes N ∈ {1, 2, 3, 8, 17, 64}:

@@ -4,7 +4,7 @@
 - **Date:** 2026-11-14
 
 ## Context
-The container on the home server still ran the dropped Godot game. The developer wants the Rust server there,
+The container on the home server still ran the dropped game. The developer wants the Rust server there,
 a page that shows its terminal output, and a download of the newest build for friends to play-test, all on
 Tailscale addresses so it works from anywhere (ADR 0005).
 

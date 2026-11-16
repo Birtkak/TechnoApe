@@ -4,7 +4,7 @@
 - **Date:** 2026-11-08 (proposed), accepted 2026-11-09 with ADR 0002 and 0003
 
 ## Context
-TechnoApe started (October 2026) as a Godot game on a flat world of 12.5 cm voxels with no LOD. Performance
+TechnoApe started (October 2026) as a game on a flat world of 12.5 cm voxels with no LOD. Performance
 capped it: 12.5 cm voxels are 512x the cells of 1 m blocks per volume and about 64x the surface to mesh, so
 every metre of view and every metre flown cost full detail, and the simulation was locked in a small bubble.
 Small voxels, a long view without LOD and fast travel cannot all be had at once.

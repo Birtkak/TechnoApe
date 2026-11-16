@@ -6,7 +6,7 @@
 ## Context
 Water must flow at real speed, with waves, and look smooth while it updates. It must cost nothing when it
 is still, and stay affordable when much of it moves. It must count every drop exactly, because the water
-cycle (ADR 0010) moves water around the planet and must neither lose nor make any. The dropped Godot game
+cycle (ADR 0010) moves water around the planet and must neither lose nor make any. The dropped game
 lagged with lots of water, looked jumpy, and flowed too slowly.
 
 Taste calls by the developer:
