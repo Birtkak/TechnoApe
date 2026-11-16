@@ -5537,3 +5537,43 @@ ramp = "verdigris rich"
 name = "verdigris r8"
 rgb = "#93cc8e"
 ramp = "verdigris rich"
+
+[[colour]]
+name = "fired clay r1"
+rgb = "#58493c"
+ramp = "fired clay rich"
+
+[[colour]]
+name = "fired clay r2"
+rgb = "#6b5947"
+ramp = "fired clay rich"
+
+[[colour]]
+name = "fired clay r3"
+rgb = "#806b53"
+ramp = "fired clay rich"
+
+[[colour]]
+name = "fired clay r4"
+rgb = "#977f5f"
+ramp = "fired clay rich"
+
+[[colour]]
+name = "fired clay r5"
+rgb = "#a69375"
+ramp = "fired clay rich"
+
+[[colour]]
+name = "fired clay r6"
+rgb = "#b4a68d"
+ramp = "fired clay rich"
+
+[[colour]]
+name = "fired clay r7"
+rgb = "#c2b8a5"
+ramp = "fired clay rich"
+
+[[colour]]
+name = "fired clay r8"
+rgb = "#d1cbbd"
+ramp = "fired clay rich"

@@ -35,7 +35,7 @@ RAMPS = {  # rich ramps, eight tones dark to light, shared with tools/paint_text
 # ore samples (ADR draft-ore-samples-and-prospecting): a lump of each, in its mineral's colour; the block it looks
 # like as an item
 SAMPLES = [("copper nugget", "copper"), ("tin pebble", "cassiterite"), ("iron pebble", "hematite"), ("coal lump", "coal"), ("lead pebble", "galena"), ("gold nugget", "gold quartz"), ("pitchblende pebble", "pitchblende")]
-RAMPS.update({"verdigris": rich_rgb(165, 0.5, 0.1), "copper nugget": rich_rgb(22, 0.75, 0.04), "tin pebble": rich_rgb(25, 0.25, -0.03), "iron pebble": rich_rgb(8, 0.55, 0.0), "coal lump": rich_rgb(220, 0.06, -0.05), "lead pebble": rich_rgb(215, 0.1, 0.06), "gold nugget": rich_rgb(46, 0.95, 0.08), "pitchblende pebble": rich_rgb(35, 0.15, -0.04)})
+RAMPS.update({"fired clay": rich_rgb(32, 0.24, 0.2), "ember": rich_rgb(18, 1.0, 0.1), "verdigris": rich_rgb(165, 0.5, 0.1), "copper nugget": rich_rgb(22, 0.75, 0.04), "tin pebble": rich_rgb(25, 0.25, -0.03), "iron pebble": rich_rgb(8, 0.55, 0.0), "coal lump": rich_rgb(220, 0.06, -0.05), "lead pebble": rich_rgb(215, 0.1, 0.06), "gold nugget": rich_rgb(46, 0.95, 0.08), "pitchblende pebble": rich_rgb(35, 0.15, -0.04)})
 
 
 def ramps():
@@ -357,8 +357,83 @@ def copper():
     return written
 
 
+def clay(seed, inside=None):
+    """Hand-built fired clay (the crucible, ADR 0141): coils laid round and smoothed, so a darker line every few
+    rows, wavering; paler and drier toward the top, soot under the rim, a crack or two; the top face the rim's
+    lit flat."""
+    def p(face, x, y, w, h):
+        n = (rnd(seed, face, x, y) - 0.5) * 0.9
+        if face == "top":  # `inside`: the painting of what lies in the pot, seen between the rim's boxes
+            return inside(face, x, y, w, h) if inside else R("fired clay", 5.6 + n)
+        if face == "bottom":
+            return R("fired clay", 1.5)
+        t = 4.6 - 2.0 * y / max(1, h - 1) + n
+        if (y + (x // 5 + int(2 * rnd(seed, face))) % 2) % 4 == 3:  # a coil's seam
+            t -= 1.3
+        if y <= 1 and h > 6:  # soot the fire left under the rim
+            t -= 2.2 - y
+        if w > 8 and x == int(w * (0.3 + 0.4 * rnd(seed, face, "crack"))) + (y // 3) % 2 and y < h * 0.55:
+            t = 1.0
+        return R("fired clay", t)
+    return p
+
+
+def coals(seed):
+    """A bed of charcoal seen from above: black lumps with the fire glowing in the gaps between them."""
+    def p(face, x, y, w, h):
+        if face != "top":
+            return R("coal lump", 2)
+        lump = rnd(seed, x // 3, y // 3)
+        gap = x % 3 == 0 or y % 3 == 0
+        if gap or lump < 0.25:
+            return R("ember", 4.5 + 3 * rnd(seed, x, y))
+        return R("coal lump", 1.5 + 2 * rnd(seed, x, y, "c"))
+    return p
+
+
+def hole(seed):
+    return lambda face, x, y, w, h: R("coal lump", 0.5) if face == "side" else R("fired clay", 2)
+
+
+def crucible():
+    """The crucible furnace as a block's model (ADR 0141, the developer's picture of 2026-11-16): a squat clay
+    cylinder a little under a block wide, eight-sided from three crossed boxes, a thick rim round an open top, the
+    charcoal glowing inside, the blowpipe's hole low on the front. Its `working` state: fire and smoke from the
+    top, the furnace's sound, a warm light (the points are in the model's voxels, 4 px each)."""
+    m = Model("crucible", w=128)  # a painting is at most 128 px a side: the boxes below are ordered to fit its shelves
+    for k, (x, z, sx, sz) in enumerate([(6, 6, 20, 20), (4, 9, 24, 14), (9, 4, 14, 24)]):
+        m.box((x, 0, z), (sx, 13, sz), clay(("wall", k), coals(("coals", k))))
+    for k, (x, z, sx, sz) in enumerate([(8, 5, 16, 3), (8, 24, 16, 3)]):
+        m.box((x, 13, z), (sx, 2, sz), clay(("rim", k)))
+    m.box((14, 3, 3.5), (4, 4, 1), hole("hole"))
+    for k, (x, z, sx, sz) in enumerate([(5, 8, 3, 16), (24, 8, 3, 16)]):
+        m.box((x, 13, z), (sx, 2, sz), clay(("rim", 2 + k)))
+    files = m.write("clay", "a clay crucible furnace, its coals glowing in the open top")
+    path = OUT / "crucible.toml"
+    path.write_text(path.read_text(encoding="utf-8").replace("clutter, ADR 0082", "a block's model, ADR 0141") + """
+# the top of the coals, and a little over the rim (ADR 0050)
+[[point]]
+name = "flame"
+part = "body"
+at = [4, 3.25, 4]
+
+[[point]]
+name = "chimney"
+part = "body"
+at = [4, 4.25, 4]
+
+# working: a fire burns on the coals and smoke rises, it hums and glows warm
+[[state]]
+name = "working"
+effects = [{ effect = "fire", point = "flame" }, { effect = "smoke", point = "chimney" }]
+sound = "furnace.burn"
+light = { point = "flame", colour = "lamp", strength = 0.7 }
+""", encoding="utf-8")
+    return files
+
+
 def make():
-    written = copper()
+    written = copper() + crucible()
     # (grass tuft, fern and flowers became plants of planes: tools/paint_plants.py, ADR 0091)
     m = Model("fallen leaves")
     for k, (x, z) in enumerate([(6, 8), (16, 14), (11, 20), (20, 6)]):

@@ -1,0 +1,66 @@
+# A draft crucible (Claude's, listed in data/drafts.txt): a block's model, ADR 0141. Painted
+# boxes at 32 px a metre (a clay crucible furnace, its coals glowing in the open top); made by tools/paint_clutter.py.
+colours = ["clay"]
+
+[[part]]
+name = "body"
+box = [1, 1, 1]
+voxels = "."
+
+[[part.boxes]]
+at = [6.0, 0.0, 6.0]
+size = [20, 13, 20]
+uv = [0, 0]
+
+[[part.boxes]]
+at = [4.0, 0.0, 9.0]
+size = [24, 13, 14]
+uv = [0, 33]
+
+[[part.boxes]]
+at = [9.0, 0.0, 4.0]
+size = [14, 13, 24]
+uv = [0, 60]
+
+[[part.boxes]]
+at = [8.0, 13.0, 5.0]
+size = [16, 2, 3]
+uv = [76, 60]
+
+[[part.boxes]]
+at = [8.0, 13.0, 24.0]
+size = [16, 2, 3]
+uv = [0, 97]
+
+[[part.boxes]]
+at = [14.0, 3.0, 3.5]
+size = [4, 4, 1]
+uv = [38, 97]
+
+[[part.boxes]]
+at = [5.0, 13.0, 8.0]
+size = [3, 2, 16]
+uv = [48, 97]
+
+[[part.boxes]]
+at = [24.0, 13.0, 8.0]
+size = [3, 2, 16]
+uv = [86, 97]
+
+# the top of the coals, and a little over the rim (ADR 0050)
+[[point]]
+name = "flame"
+part = "body"
+at = [4, 3.25, 4]
+
+[[point]]
+name = "chimney"
+part = "body"
+at = [4, 4.25, 4]
+
+# working: a fire burns on the coals and smoke rises, it hums and glows warm
+[[state]]
+name = "working"
+effects = [{ effect = "fire", point = "flame" }, { effect = "smoke", point = "chimney" }]
+sound = "furnace.burn"
+light = { point = "flame", colour = "lamp", strength = 0.7 }

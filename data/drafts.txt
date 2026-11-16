@@ -337,3 +337,5 @@ data/models/copper hammer head.toml
 data/models/copper hammer head.png
 data/models/copper ingot.toml
 data/models/copper ingot.png
+data/models/crucible.toml
+data/models/crucible.png
