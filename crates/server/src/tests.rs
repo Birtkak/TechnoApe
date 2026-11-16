@@ -1145,13 +1145,16 @@ fn a_prospecting_strike_hears_the_ore_below_and_costs_a_use() {
     wait(&mut s, 1.1);
     assert!(strike(&mut s).is_empty(), "soil is not struck");
     s.world.set_block(cell, BLOCKS.id("granite"));
+    s.world.ore_left = Some(vec![s.ore_open[0] / 2 - 1]);
+    wait(&mut s, 1.1);
+    assert_eq!(strike(&mut s), vec![vec![("lead".to_string(), 1u8)]], "over half mined: a band weaker");
     s.world.ore_left = Some(vec![0]);
     wait(&mut s, 1.1);
     assert_eq!(strike(&mut s), vec![vec![]], "dug out: the rock rings empty");
     l.send(ToServer::Creative(true));
     wait(&mut s, 1.1);
     assert!(strike(&mut s).is_empty(), "creative does not prospect");
-    assert_eq!(left(&s), Some(uses - 3));
+    assert_eq!(left(&s), Some(uses - 4));
     assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
 }
 

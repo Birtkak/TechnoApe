@@ -412,6 +412,8 @@ pub const PROSPECT_NAMES: usize = 3;
 pub fn band(d: f64, r: f64) -> Option<u8> {
     [r / 8.0, r / 3.0, r * 2.0 / 3.0, r].iter().position(|&e| d < e).map(|k| 3 - k as u8)
 }
+/// A mined body fades: with the share of its ore left under each of these its band drops one more (ADR 0138).
+pub const FADE: [f64; 3] = [1.0 / 2.0, 1.0 / 8.0, 1.0 / 32.0];
 
 /// Metres from point `p` to the surface of the ellipsoid of half axes `e` about the origin; 0 inside.
 pub fn to_surface(p: [f64; 3], e: [f64; 3]) -> f64 {
@@ -436,19 +438,22 @@ pub fn to_surface(p: [f64; 3], e: [f64; 3]) -> f64 {
 
 /// What a prospecting strike on cell `at` of `w` with a tool of `range` metres hears: per element with ore left
 /// in the ground (the ledger's count, when it is open) within range of the cell, its band, strongest first, at
-/// most `PROSPECT_NAMES`; empty for none. No direction. shortcut: only the struck face's bodies; one across a
+/// most `PROSPECT_NAMES`; empty for none. A body fades by `FADE` with its ledger count over `open`, its blocks as
+/// generated (the server's `ore_open`). No direction. shortcut: only the struck face's bodies; one across a
 /// face's seam is not heard (bodies keep `SEAM` columns from it).
-pub fn prospect(w: &crate::world::World, at: crate::world::Block, range: f64) -> Vec<(String, u8)> {
+pub fn prospect(w: &crate::world::World, at: crate::world::Block, range: f64, open: &[i64]) -> Vec<(String, u8)> {
     let Some(b) = w.bodies.get(at.body as usize) else { return Vec::new() };
     let (i, j, z) = (at.pos.x, at.pos.y, at.pos.z);
     let mut near: Vec<(String, u8)> = Vec::new();
     for (k, o) in b.ores.iter().enumerate() {
         let kind = &MINERALS.kinds[o.kind as usize];
-        let gone = at.body == 0 && w.ore_left.as_ref().is_some_and(|l| l.get(k).is_some_and(|&n| n <= 0));
-        if kind.gives.is_empty() || gone || o.face != at.face || (i as f64 + 0.5 - o.at.x).hypot(j as f64 + 0.5 - o.at.y) > o.a.max(o.b) + range {
+        let left = w.ore_left.as_ref().and_then(|l| l.get(k)).filter(|_| at.body == 0);
+        let share = left.map_or(1.0, |&n| n as f64 / open.get(k).map_or(n, |&t| t).max(1) as f64);
+        if kind.gives.is_empty() || share <= 0.0 || o.face != at.face || (i as f64 + 0.5 - o.at.x).hypot(j as f64 + 0.5 - o.at.y) > o.a.max(o.b) + range {
             continue;
         }
-        let Some(band) = band(o.distance(b, i, j, z), range) else { continue };
+        let fade = FADE.iter().filter(|&&f| share < f).count() as u8;
+        let Some(band) = band(o.distance(b, i, j, z), range).and_then(|n| n.checked_sub(fade)) else { continue };
         match near.iter_mut().find(|n| n.0 == kind.gives) {
             Some(n) => n.1 = n.1.max(band),
             None => near.push((kind.gives.clone(), band)),
@@ -599,7 +604,7 @@ mod tests {
         // a tin vein standing 10 m beside the lead along i, a metre thin across i
         let tin = OreBody { kind: kind("tin vein"), face: f, at: DVec3::new(i as f64 + 10.5, j as f64 + 0.5, z as f64 + 0.5), a: 10.0, b: 1.0, h: 6.0, angle: std::f64::consts::FRAC_PI_2 };
         std::sync::Arc::get_mut(&mut w.bodies).unwrap()[0].set_ores(vec![lead, tin]);
-        let hear = |w: &World, dz: i32| prospect(w, Block { body: 0, face: f, pos: glam::IVec3::new(i, j, z + dz) }, 16.0);
+        let hear = |w: &World, dz: i32| prospect(w, Block { body: 0, face: f, pos: glam::IVec3::new(i, j, z + dz) }, 16.0, &[100, 100]);
         let s = |v: &[(&str, u8)]| v.iter().map(|(n, b)| (n.to_string(), *b)).collect::<Vec<_>>();
         // the tin is 9 m off at the lead's middle (some), farther as the strike rises
         assert_eq!(hear(&w, 0), s(&[("lead", 3), ("tin", 1)]));
@@ -608,6 +613,15 @@ mod tests {
         assert_eq!(hear(&w, 13)[0], ("lead".to_string(), 1));
         assert_eq!(hear(&w, 18)[0], ("lead".to_string(), 0));
         assert_eq!(hear(&w, 25), s(&[]));
+        // the lead half left: unchanged; 90 % mined: two bands down at its heart, its rim silent
+        w.ore_left = Some(vec![50, 100]);
+        assert_eq!(hear(&w, 0), s(&[("lead", 3), ("tin", 1)]));
+        w.ore_left = Some(vec![10, 100]);
+        assert_eq!(hear(&w, 0), s(&[("lead", 1), ("tin", 1)]));
+        assert_eq!(hear(&w, 13), s(&[("tin", 0)]));
+        // under 1/32: three down, the heart rings traces; under 1/2 one down
+        w.ore_left = Some(vec![3, 49]);
+        assert_eq!(hear(&w, 0), s(&[("lead", 0), ("tin", 0)]));
         // the lead dug out: only the tin
         w.ore_left = Some(vec![0, 100]);
         assert_eq!(hear(&w, 0), s(&[("tin", 1)]));

@@ -43,6 +43,12 @@ the three strongest, no direction. The client shows "copper: strong, tin: traces
 the chat, chips the face at once and plays the knock on the answer, higher the stronger the best band. The bot's
 `prospect dx dy dz` prints `{"bot":..,"prospect":[["copper","strong"]]}`.
 
+A mined body fades (the developer's report, 2026-11-16: a body dug almost empty still rang rich from inside its
+own void). The distance is still to the body as generated, but its band drops with the share of its ore still in
+the ground, the ledger's `left` over the server's opening count (`ore_open`): at 1/2 or more unchanged, under 1/2
+one band down, under 1/8 two, under 1/32 three; a band below traces is no answer. So the heart of a nearly empty
+body rings traces and its edge nothing. Deterministic, no wire or save change.
+
 | Number | Value | Where |
 | --- | --- | --- |
 | Samples a square metre at a body's middle | 1 / 40 | `ore::SAMPLE_EVERY_M2` |
@@ -52,6 +58,7 @@ the chat, chips the face at once and plays the knock on the answer, higher the s
 | Longest range a material may have | 64 m | `items::PROSPECT_MAX` |
 | Seconds between answered strikes | 1 | `items::PROSPECT_WAIT_S` |
 | Band edges | R/8, R/3, 2R/3, R | `ore::band` |
+| Share of a body left under which it drops one, two, three bands | 1/2, 1/8, 1/32 | `ore::FADE` |
 | Elements an answer names | 3 | `ore::PROSPECT_NAMES` |
 | The knock's pitch | 0.85 empty, 1 + 0.12 (band + 1) | `crates/client/src/frame.rs` |
 
