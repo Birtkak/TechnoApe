@@ -6,8 +6,9 @@
   first playable (roadmap step 1).
 
 ## The spine
-You are an ape with bare hands on a small, finite planet. A **starter** of 7-10 hours takes you from stone
-and fire (copper after about an hour) to steam and turning cogs. From then on the game runs on **electricity
+You are an ape with bare hands on a small, finite planet. The **Steam Age** of 7-10 hours takes you from
+flint and fire (copper after about half an hour) to steam, turning cogs and the first steam generator
+(ADR 0137). From then on the game runs on **electricity
 in tiers** (LV, MV, HV, ...), as in GregTech: the same system all the way up, with better cables, machines
 and sources. Each tier tames a survival need and ends in **a megaproject you design yourself**, which the
 planet judges by its result, not its shape. Orbit and Luna are visited about halfway; living there is the
@@ -19,15 +20,14 @@ Three rules keep the tiers from becoming a list:
 2. **Every process starts in the world and ends in a machine** (*proposal*): ore is first washed in a real
    stream, dried in the real sun, melted in a real fire. The machine that comes later is that process in a
    box, and an ape learns by seeing it happen.
-3. **The starter teaches the whole game.** Boil water, turn a shaft: the starter's fire, boiler and cogs are
+3. **The Steam Age teaches the whole game.** Boil water, turn a shaft: its fire, boiler and cogs are
    the inside of every later power plant. A reactor is a hotter fire under a bigger boiler.
 
 ## The ages at a glance
 
 | Age | Hours | Need it tames | Megaproject and its rule |
 |---|---|---|---|
-| **Starter: stone** | 0-1 | warmth, water | **Home:** a closed room that stays above freezing through a whole night, with water and food inside. Ends the nomad start. |
-| **Starter: steam and cogs** | 1 to 7-10 | hunger (a farm and a mill) | **The Works:** one shaft drives a line that turns raw ore into ingots for a full day with no ape touching it. |
+| **Steam Age** | 0 to 7-10 | warmth, water, hunger (a farm and a mill) | **The Works:** one shaft drives a line that turns raw ore into ingots for a full day with no ape touching it. |
 | **LV** | 10-15 more | food (cold storage), light | **Steady grid:** a set power held for a full day and night. A rain-fed dam, steam on grown charcoal, wind and batteries: your design. |
 | **MV** | 15-20 | distance: ore from other faces | **Ring railway:** a closed track that goes once around the planet. |
 | **HV** | 20-25 | the night, everywhere; clean air | **Power ring:** a set power, without burning fuel, for three full days. A ring of panels, big storage, or a tower at a pole that always sees the sun. |
@@ -35,39 +35,49 @@ Three rules keep the tiers from becoming a list:
 | **IV** | 30-40 | every need, in sealed rooms | **Moon base:** keeps an ape alive on Luna for a set time with nothing delivered, and sends a set tonnage of ore to the planet. Unlocks the exotic resource. |
 | **Exotic** | open | closed loops: nothing is carried in | **The Ark:** a ship with a living room that sustains itself and a drive fed by the exotic liquid. Leads to the next planet. |
 
-- Starter to HV is one planet and the three networks: the game up to the first visit to space, and the
+- The Steam Age to HV is one planet and the three networks: the game up to the first visit to space, and the
   content target after the first playable.
 - IV and the exotic age need Luna as a place to live and, for the Ark, a destination.
 - The hours are the developer's scale (2026-11-09): about 110-150 hours to the moon base.
-- The metals, confirmed by the developer: copper in the first hour, bronze through the steam age, iron at
-  its end, steel as the gate to MV.
+- The metals, confirmed by the developer: copper in the first half hour, bronze through the Steam Age (not
+  brass: the planet has tin and no zinc, and bronze is what early metal and steam fittings really were), iron
+  at its end, steel as the gate to MV.
 
 ## Milestones per age
 What each big step is and what it gives you. The last milestone of an age opens the next.
 
-### Starter, part one: stone (the first hour)
+### The Steam Age (until 7-10 hours)
+There is no stone age of its own (the developer, 2026-11-16; ADR 0137): flint tools, fire and copper are the
+Steam Age's first half hour, so the hours go to steam, cogs and logistics.
 
 | Milestone | What it is | What it gives |
 |---|---|---|
-| **Fire** | sticks, tinder and a spark from two stones | warmth, light, cooked food, fired clay; the night stops being deadly |
-| **Stone tools** | a knapped hand axe, a digging stick, a hammer stone | wood and rock at brush speed; bare hands only take loose things |
-| **Clay pot** | shaped by hand, fired in the fire | carried water: you can leave the pond |
-| **Pit kiln and charcoal** | a hole, wood, a cover of earth | heat enough to melt metal |
-| **Copper** | nuggets washed out of a stream bed, melted, cast in a clay mould | metal tools, and the stuff of boilers, pipes and wires. About one hour in. |
-
-### Starter, part two: steam and cogs (until 7-10 hours)
-
-| Milestone | What it is | What it gives |
-|---|---|---|
-| **Tin and bronze** | tin is a walk away, not at your door; melted with copper | the first journey; bronze for boilers, pipes and gears |
+| **Flint tools** | sticks, loose stones and flint picked up; a hand axe and a knife knapped by striking | wood, reeds and hides; bare hands only take loose things |
+| **Fire** | sticks, tinder and a spark | warmth, light, cooked food, fired clay; the night stops being deadly |
+| **Crucible and copper** | a clay crucible furnace (below); nuggets washed out of a stream bed, melted and cast in a clay mould | a pick, an axe, a pot: real mining starts. About half an hour in. |
+| **Tin and bronze** | tin is a walk away, not at your door; charcoal for the heat; melted with copper in the crucible | the first journey; bronze for boilers, pipes and gears |
 | **Hand crank and pump** | your muscle turns a shaft; the shaft lifts water | water uphill into a tank; the same crank turns a millstone (flour, and crushed ore that gives more metal) |
-| **Boiler and steam engine** | pumped water over a firebox; steam pushes a piston | a shaft that turns without you: the first thing that works while you are away |
+| **Boiler and steam engine** | pumped water over a firebox; steam pushes a piston; a dry boiler bursts | a shaft that turns without you: the first thing that works while you are away |
 | **Cogs, shafts, gearboxes** | wood first, bronze later | one engine drives many machines; trade speed for force |
 | **Shaft machines** | crusher, saw, bellows, trip hammer, fan, a slow conveyor | planks, plates, more metal per ore, items that move without hands |
 | **Farm, mill and oven** | crops on rain or a dug channel | food goes from a chore to a small line |
-| **Water wheel and windmill** | rotation from the stream and the wind | power without fuel, at the mercy of the weather |
-| **Iron** | a bloomery blown by shaft bellows | iron tools, a hand cart on rails, and with lodestone the magnets a dynamo needs |
-| **Dynamo** | magnets and copper windings on a shaft | LV. The starter is over. |
+| **Iron** | a bloomery furnace (below) blown by shaft bellows; lodestone | iron tools, a hand cart on rails, and the magnets a dynamo needs |
+| **Steam generator** | a steam engine turning a dynamo of magnets and copper windings | the first electricity: LV. The Steam Age is over. |
+
+A water wheel and a windmill are side power, not a step: rotation without fuel, at the mercy of the weather.
+
+**The three furnaces** (the developer, 2026-11-16). Each is one block you place and open, with a plain
+window as a furnace has in other block games: what goes in, the fuel, what comes out, and its heat. A furnace
+only works what its heat reaches.
+
+| Furnace | Heat | Works | When |
+|---|---|---|---|
+| **Crucible** | 1100 C | copper (melts at 1085 C), tin, bronze, gold | the first half hour |
+| **Bloomery** | 1400 C | iron as a bloom: it never melts (1538 C), it is hammered | the end of the Steam Age |
+| **Blast furnace** | 2200 C | molten iron, steel | LV, with an electric blower; a multiblock one later makes more at a time |
+
+*Open:* 2200 C is the flame of a modern hot blast; a charcoal blast furnace runs near 1600 C. The number
+matters once something needs more than 1600 C.
 
 ### LV
 
@@ -188,9 +198,9 @@ Where each one bites:
 
 | System | First felt | Becomes a problem | Tamed by |
 |---|---|---|---|
-| Water cycle | Starter: the boiler's pond refills in the rain | LV: a dam is only as good as its rain | MV: reservoirs, pumps, cooling towers |
-| Weather | Starter: rain kills the fire, the wind is cold | LV: wind and cloud make power unsteady (**Steady grid**) | HV: storage and lines around the planet |
-| Pollution | Starter: smoke in a closed room | MV: coal and steel, smog, bad rain on the crops | HV: filters and clean power (**Power ring**) |
+| Water cycle | Steam Age: the boiler's pond refills in the rain | LV: a dam is only as good as its rain | MV: reservoirs, pumps, cooling towers |
+| Weather | Steam Age: rain kills the fire, the wind is cold | LV: wind and cloud make power unsteady (**Steady grid**) | HV: storage and lines around the planet |
+| Pollution | Steam Age: smoke in a closed room | MV: coal and steel, smog, bad rain on the crops | HV: filters and clean power (**Power ring**) |
 | Radiation | EV: first orbit, the suit | IV: reactors, a moon without air | IV: shielding, bases under rock, waste stores |
 
 Cost and checks:
@@ -250,8 +260,8 @@ planet.
 Dawn at a face centre, near water. Thirst comes first, then food (`needs.md`). Night arrives after ten
 minutes: dark and cold. The honest answers: build a fire and a shelter (costs wood and time), or find a cave,
 which is warm. Following the day is not one: on the 4 km Terra the sunset moves at 22 m/s, and nobody on
-foot keeps up (it was 5.6 m/s on the 1 km planet this was first written for). Home, the first megaproject,
-is the moment the ape stops fearing the night.
+foot keeps up (it was 5.6 m/s on the 1 km planet this was first written for). Home, the sleeping place beside
+a fire, is the moment the ape stops fearing the night; it is no megaproject any more (ADR 0137).
 
 ## Open (taste calls for later)
 - ~~How an ape learns~~ decided in ADR 0027: by doing and seeing, nothing locked (`journal.md`).

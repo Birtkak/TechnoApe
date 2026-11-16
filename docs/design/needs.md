@@ -79,7 +79,7 @@ days: `open-questions.md`'s "thirst twice, food once", with hunger's built rates
   fire warms the cells within a few blocks, and "sheltered" is a roof within a few blocks overhead (one
   column lookup). The air grid and rooms replace the formula later without changing what the player
   learned.
-- Chore to factory: the fire, Home (the first megaproject is this need's measurement), a heated base, the
+- Chore to factory: the fire, Home, a heated base, the
   suit and the sealed habitat.
 
 ### Breath

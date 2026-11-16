@@ -58,7 +58,7 @@ dig into it, build factories on it, and fly up to orbit and over to its moon wit
   - **Megaprojects pull the ages:** each tech age ends in a planet-scale build that changes the world.
   - **Planet size is a parameter:** 4 km as standard, 8 km for the huge one (ADR 0021).
 - Progression (ADR 0009, proposal of the tiers in `progression.md`): **you are an ape** that starts with bare
-  hands; a **starter** of stone, fire, steam and cogs (an hour to copper, 7-10 hours to electricity); then
+  hands; a **Steam Age** of flint, fire, steam and cogs (half an hour to copper, 7-10 hours to electricity); then
   **electricity in GregTech-style tiers**, quite realistic; **released steam returns as rain**; megaprojects
   are **free-form, judged by a rule**; orbit and Luna are **visited about halfway, lived on late**; after
   the moon base an **exotic resource** feeds the space technology that leaves the planet; late in the game a
