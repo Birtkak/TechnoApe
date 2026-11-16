@@ -165,7 +165,7 @@ impl Server {
             let at = s.world.block_at(feet + phys::up(&s.world, feet) * 0.5);
             s.lay(at, over, (0, 0));
         }
-        // the furnaces (draft ADR crucible): one whose stacks no longer fit lays them where it stands, as a pile's
+        // the furnaces (ADR 0141): one whose stacks no longer fit lays them where it stands, as a pile's
         for (b, f) in &save.held.furnaces {
             if items::stacks_fit(&f.slots) && f.slots.len() == engine::furnace::SLOTS {
                 s.furnaces.insert(key(*b), f.clone());
@@ -293,7 +293,10 @@ impl Server {
         }
         h = fnv(h, &self.herds.to_bytes());
         h = fnv(h, &postcard::to_allocvec(&self.piles).unwrap());
-        h = fnv(h, &postcard::to_allocvec(&self.furnaces).unwrap());
+        // only when there is one: an empty list's byte would change the hash of every recording from before the crucible
+        if !self.furnaces.is_empty() {
+            h = fnv(h, &postcard::to_allocvec(&self.furnaces).unwrap());
+        }
         for c in &self.clients {
             let p = &c.phys;
             h = fnv(h, &c.player.id.to_le_bytes());

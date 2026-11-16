@@ -22,7 +22,7 @@
 //! 3 x 3 row by row; 37, 38, 40, 41 the inventory's 2 x 2), filled by `move`; `craft [n]` takes the output n times
 //! (1 if left out; as many as the cells hold). `use dx dy dz` uses the block there (a workbench opens its 3 x 3),
 //! `close` closes the screen (the cells back into the pack). `slots` shows what came of it after a tick.
-//! Furnaces (draft ADR crucible): `use dx dy dz` on a crucible opens its window; `put` and `take` at its cell reach
+//! Furnaces (ADR 0141): `use dx dy dz` on a crucible opens its window; `put` and `take` at its cell reach
 //! its slots (0 what goes in, 1 the fuel, 2 the mould, 3 what comes out) in place of a pile's; `cast dx dy dz name`
 //! chooses its cast (`cast dx dy dz` alone none); `furnace` reports the open one: slots, heat, fire and work.
 //! Sprint (ADR 0118): `sprint on` makes every walk after it a sprint, `sprint off` a walk again. A walk looks at
@@ -639,7 +639,7 @@ mod tests {
         assert!(parse("craft copper pick").is_err(), "crafting by name is gone");
     }
 
-    /// The copper age end to end (draft ADR crucible): a survival bot given logs, clay, copper gravel and a stick
+    /// The copper age end to end (ADR 0141): a survival bot given logs, clay, copper gravel and a stick
     /// makes a workbench, at it a crucible and by hand a clay mould; fed gravel and logs the crucible melts two
     /// ingots, which cast with the mould into a pick head; the head on the stick is a copper pick, which digs.
     #[test]

@@ -394,7 +394,7 @@ impl App {
                     self.audio.play("knap", Some(self.struck_at), 1.0, pitch, false);
                     self.chat_line(line);
                 }
-                // a furnace's window, and the fires burning in the world (draft ADR crucible): the model's `working`
+                // a furnace's window, and the fires burning in the world (ADR 0141): the model's `working`
                 // state plays while one burns (its fire, smoke, sound and light)
                 Recv::Msg(ToClient::Furnace { at, f }) => {
                     if self.furnace.as_ref().is_some_and(|o| o.0 == at) {

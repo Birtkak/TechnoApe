@@ -208,7 +208,7 @@ impl Server {
     }
 
     /// Client i uses block `at` (`ToServer::Use`): alive, within `BENCH_REACH`, a block with a window. A workbench
-    /// opens its 3 x 3; a furnace its window (draft ADR crucible), sent as it is at once and while it changes.
+    /// opens its 3 x 3; a furnace its window (ADR 0141), sent as it is at once and while it changes.
     pub(super) fn use_block(&mut self, i: usize, at: Block) {
         if !self.exists(at) {
             return;

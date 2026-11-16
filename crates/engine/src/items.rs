@@ -58,7 +58,7 @@ pub type Slot = Option<Stack>;
 
 /// What holds slots, as a move names it: the ape itself, the pile in a cell, creative's endless grid of every
 /// item (its slot is the item's id; a stack put there is gone), or the ground ahead (thrown: a new pile).
-/// A furnace's four slots in the world, by its block (draft ADR crucible: `furnace::Furnace`; slot `furnace::IN` on).
+/// A furnace's four slots in the world, by its block (ADR 0141: `furnace::Furnace`; slot `furnace::IN` on).
 /// shortcut: no containers (chests) yet; they become a holder here, items.md step 5.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 pub enum Holder {

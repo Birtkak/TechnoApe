@@ -160,7 +160,7 @@ struct Client {
     /// The workbench it opened (`ToServer::Use`, ADR 0140): its grid's 3 x 3 counts while that is
     /// within `items::BENCH_REACH` (`Server::at_bench`).
     bench: Option<Block>,
-    /// The furnace whose window it opened (`ToServer::Use`, draft ADR crucible), while within `BENCH_REACH`, and
+    /// The furnace whose window it opened (`ToServer::Use`, ADR 0141), while within `BENCH_REACH`, and
     /// the furnace as it was last sent (`ToClient::Furnace`).
     furnace: Option<Block>,
     sent_furnace: Option<engine::furnace::Furnace>,
@@ -282,7 +282,7 @@ pub struct Server {
     /// The pick-ups taken (ADR 0082): the cell each lay in and the year, and those taken this tick.
     taken: BTreeMap<PileKey, u32>,
     taken_changed: Vec<(Block, u32)>,
-    /// Every furnace that holds something, burns, is warm or has a cast chosen, by its block (draft ADR crucible);
+    /// Every furnace that holds something, burns, is warm or has a cast chosen, by its block (ADR 0141);
     /// one missing is a fresh one. And the fires lit or gone out this tick, told to everyone.
     furnaces: BTreeMap<PileKey, engine::furnace::Furnace>,
     fires_changed: Vec<(Block, bool)>,

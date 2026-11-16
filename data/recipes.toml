@@ -6,7 +6,7 @@
 # `key`: each letter's item, or a list of items any of which will do. Every letter used, none undefined.
 # `out`: [item, n]. Items are named as data/items.toml or data/blocks.toml name them. A make takes one item from
 # every cell of the pattern. No two recipes may match the same grid, and none makes what it takes.
-# The furnaces' rows (`furnace`, `fuel`, `melt`, `cast`; draft ADR crucible) follow the grid's.
+# The furnaces' rows (`furnace`, `fuel`, `melt`, `cast`; ADR 0141) follow the grid's.
 
 # The workbench: four logs, any kind.
 [[recipe]]

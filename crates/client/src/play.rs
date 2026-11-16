@@ -327,7 +327,7 @@ impl App {
                 (self.viewing, self.lack) = (engine::items::ITEMS.named(&a[5..].replace('_', " ")), Vec::new());
             }
             "fill" if self.menu == Some(Menu::Inventory) => self.fill(),
-            // a furnace by script (draft ADR crucible): sslot:k shift-clicks the ape's slot k (into the furnace open),
+            // a furnace by script (ADR 0141): sslot:k shift-clicks the ape's slot k (into the furnace open),
             // cast:<name> chooses its cast as a click on it does
             a if a.starts_with("sslot:") && self.menu == Some(Menu::Inventory) => {
                 let l = self.inv_layout();

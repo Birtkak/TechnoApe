@@ -66,7 +66,7 @@ pub(crate) struct Layout {
     pub view: [f32; 4],
     pub pattern: [f32; 4],
     pub fill: [f32; 4],
-    /// A furnace's window (draft ADR crucible), in the crafting grid's room: its heat bar and the casts to choose
+    /// A furnace's window (ADR 0141), in the crafting grid's room: its heat bar and the casts to choose
     /// from (its four slots are spots of `Holder::Furnace`, the output's at `out`).
     pub heat: [f32; 4],
     pub casts: Vec<[f32; 4]>,
@@ -182,7 +182,7 @@ fn the_screens_put_every_slot_apart_and_inside_the_panel() {
     // the settings' smallest window (640 x 360) at their largest interface scale (3), a 1280 x 720 window at 1.5,
     // and the usual sizes
     for (lw, lh) in [(640.0 / 3.0, 120.0), (1280.0 / 1.5, 480.0), (1280.0, 720.0), (1920.0, 1080.0)] {
-        // and a crucible's window (draft ADR crucible): its four slots, the heat's bar and five casts
+        // and a crucible's window (ADR 0141): its four slots, the heat's bar and five casts
         for (creative, open, pile, three, furnace) in [(true, items::ROWS_AT, None, false, None), (false, items::ROWS_AT, None, false, None), (false, items::APE_SLOTS, Some(pile), true, None), (false, items::APE_SLOTS, Some(pile), false, Some((pile, 5)))] {
             let l = layout(lw, lh, creative, &grid, 0, open, pile, three, furnace);
             // survival's crafting output, the viewer's search, items, pattern and Fill: in the panel and on the screen,
@@ -703,7 +703,7 @@ impl App {
             return;
         };
         p.text_px(tx, pt[1] + 4.0, &fit(ITEMS.name(item)), [1.0; 4], small);
-        // a furnace's work (draft ADR crucible): what goes in (and the mould) in the pattern's first cells, the
+        // a furnace's work (ADR 0141): what goes in (and the mould) in the pattern's first cells, the
         // furnace and heat it needs; several works of one output shown in turn; Fill lays nothing for it
         let works: Vec<&engine::recipes::Work> = RECIPES.works.iter().filter(|w| w.out.0 == item).collect();
         if let (None, false) = (RECIPES.making(item), works.is_empty()) {
@@ -761,7 +761,7 @@ impl App {
         }
     }
 
-    /// A furnace's window in the grid's room (draft ADR crucible): its slots' headings, the arrow to what comes out
+    /// A furnace's window in the grid's room (ADR 0141): its slots' headings, the arrow to what comes out
     /// filling with the work done, the fire's seconds and the heat as a number and a bar marked where the work
     /// needs it, and the casts to choose from (the chosen one lit, its ingots under it).
     fn furnace_draw(&self, p: &mut hud::Paint, l: &Layout, season: (f64, f64), pointer: (f32, f32)) {

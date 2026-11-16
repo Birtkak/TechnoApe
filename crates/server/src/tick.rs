@@ -338,7 +338,7 @@ impl Server {
         for (b, m) in &changed {
             self.resettle(Block { pos: b.pos + glam::IVec3::Z * !BLOCKS.solid(*m) as i32, ..*b });
         }
-        // the furnaces burn and work; one dug lays what it held (draft ADR crucible)
+        // the furnaces burn and work; one dug lays what it held (ADR 0141)
         self.furnaces();
         self.pick_up();
         let can = (WATER_BUDGET / self.world.water.awake().max(1)) as u32;

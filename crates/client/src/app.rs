@@ -163,7 +163,7 @@ pub(crate) struct App {
     /// The crafting grid (ADR 0140): the workbench used, while its screen is open; the item the
     /// recipe viewer shows; the grid's cells the last Fill found nothing for (drawn red until they get an item).
     pub(crate) bench: Option<Block>,
-    /// The furnace used (draft ADR crucible), while its window is open, as the server last sent it.
+    /// The furnace used (ADR 0141), while its window is open, as the server last sent it.
     pub(crate) furnace: Option<(Block, engine::furnace::Furnace)>,
     pub(crate) viewing: Option<u16>,
     pub(crate) lack: Vec<usize>,

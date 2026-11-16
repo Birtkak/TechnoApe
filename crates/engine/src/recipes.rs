@@ -24,7 +24,7 @@ struct Row {
     out: (String, u16),
 }
 
-/// A furnace's work (draft ADR crucible): a `melt` or a `cast` row.
+/// A furnace's work (ADR 0141): a `melt` or a `cast` row.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WorkRow {
@@ -69,7 +69,7 @@ struct File {
     furnace: Vec<FurnaceRow>,
 }
 
-/// What a furnace works (draft ADR crucible): `in` of one item in its input slot becomes `out` once it has
+/// What a furnace works (ADR 0141): `in` of one item in its input slot becomes `out` once it has
 /// been at least `heat` (C) for `secs`. A cast needs `mould` in the mould slot (kept) and to be the one chosen.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Work {
@@ -116,7 +116,7 @@ pub struct Recipe {
 
 pub struct Recipes {
     pub rows: Vec<Recipe>,
-    /// The furnaces' melts, then their casts (draft ADR crucible).
+    /// The furnaces' melts, then their casts (ADR 0141).
     pub works: Vec<Work>,
     pub fuels: Vec<Fuel>,
     pub furnaces: Vec<FurnaceDef>,
@@ -249,7 +249,7 @@ impl Recipes {
     }
 }
 
-/// Reads and checks the furnaces' rows (draft ADR crucible), refused with the row's name: an unknown item or
+/// Reads and checks the furnaces' rows (ADR 0141), refused with the row's name: an unknown item or
 /// block, an amount of 0, a heat or seconds out of range, a melt with a mould or a cast without, a work that
 /// makes its own input or mould, a name any other recipe or work has, two melts of one input, a fuel twice, a
 /// furnace whose block opens no crucible's window.

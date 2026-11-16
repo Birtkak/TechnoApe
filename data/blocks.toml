@@ -1214,7 +1214,7 @@ colour = [0.55, 0.40, 0.24]
 colour2 = [0.36, 0.25, 0.14]
 pattern = "planks"
 
-# The crucible (draft ADR crucible): the first furnace. Eight clay round an empty middle at a workbench make
+# The crucible (ADR 0141): the first furnace. Eight clay round an empty middle at a workbench make
 # it; the place button on it opens its window (what goes in, the fuel, the mould, what comes out, its heat).
 # Drawn with the furnace model (data/models/furnace.toml), whose `working` state plays while its fire burns;
 # collides as a whole block. Its top heat, its fuels, melts and casts are rows of data/recipes.toml.

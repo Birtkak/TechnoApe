@@ -1,4 +1,4 @@
-//! A furnace placed in the world (draft ADR crucible): its four slots (what goes in, the fuel, the mould, what
+//! A furnace placed in the world (ADR 0141): its four slots (what goes in, the fuel, the mould, what
 //! comes out), its heat and the fire burning in it. The server steps it every tick; a client draws the same
 //! struct in its window. The rows it works by are `recipes::RECIPES`' `melt`, `cast`, `fuel` and `furnace`.
 use crate::items::{Slot, Stack, ITEMS};

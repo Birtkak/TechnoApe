@@ -1,4 +1,4 @@
-//! Server: furnaces in the world (draft ADR crucible): their slots, fires and work, stepped every tick.
+//! Server: furnaces in the world (ADR 0141): their slots, fires and work, stepped every tick.
 use super::*;
 use engine::furnace::Furnace;
 use engine::recipes::RECIPES;

@@ -28,7 +28,7 @@ use std::path::Path;
 /// loads with none. 13 keeps slots in place of counts (ADR 0074): each player's stacks, the items' names (an
 /// item's id is given at load, so a save maps its ids by name) and the piles on the ground; a 12 or older loads
 /// its counts into slots in block id order, and what does not fit lies at the player's feet (`Server::from_save`).
-/// 14 keeps the pick-ups taken (ADR 0082); a 13 loads with none taken. 15 keeps the furnaces (draft ADR crucible:
+/// 14 keeps the pick-ups taken (ADR 0082); a 13 loads with none taken. 15 keeps the furnaces (ADR 0141:
 /// each one's slots, heat, fire, work and choice); a 14 loads with none.
 pub const VERSION: u32 = 15;
 
@@ -87,7 +87,7 @@ pub struct Held {
     pub piles: Vec<(Block, Vec<Slot>)>,
     /// The pick-ups taken (ADR 0082): the cell each lay in and the year, sorted by cell; none before 14.
     pub taken: Vec<(Block, u32)>,
-    /// The furnaces (draft ADR crucible), sorted by cell; none before 15.
+    /// The furnaces (ADR 0141), sorted by cell; none before 15.
     pub furnaces: Vec<(Block, engine::furnace::Furnace)>,
 }
 
@@ -499,7 +499,7 @@ mod tests {
         assert_eq!((back.version, back.held.taken), (13, Vec::new()));
     }
 
-    /// 15 keeps the furnaces (draft ADR crucible), their items mapped by name as the slots'; a 14 loads with none.
+    /// 15 keeps the furnaces (ADR 0141), their items mapped by name as the slots'; a 14 loads with none.
     #[test]
     fn the_furnaces_are_kept_and_a_14_has_none() {
         let (cell, ingot) = (Block { body: 0, face: 2, pos: IVec3::new(1, 2, 3) }, ITEMS.named("copper ingot").unwrap());

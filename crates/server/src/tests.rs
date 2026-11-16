@@ -2453,7 +2453,7 @@ fn a_block_that_does_not_exist_is_refused_not_indexed() {
     }
 }
 
-/// The crucible's tests (draft ADR crucible): `n` survival players on land beside a crucible two cells off
+/// The crucible's tests (ADR 0141): `n` survival players on land beside a crucible two cells off
 /// (within `BENCH_REACH`), and its cell.
 fn at_crucible(n: usize) -> (Server, Vec<Link<ToServer, ToClient>>, Block, DVec3) {
     let (mut s, links) = server_with(n);

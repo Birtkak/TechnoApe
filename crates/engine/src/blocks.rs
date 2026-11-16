@@ -313,7 +313,7 @@ pub struct Def {
 }
 
 /// The windows a block may open: the workbench's (the inventory with the 3 x 3 grid) and a furnace's (its
-/// four slots in the world and its heat, draft ADR crucible; its numbers are a `furnace` row of data/recipes.toml).
+/// four slots in the world and its heat, ADR 0141; its numbers are a `furnace` row of data/recipes.toml).
 pub const WINDOWS: [&str; 2] = ["workbench", "crucible"];
 
 impl Def {
@@ -767,7 +767,7 @@ see = \"glass\"
         assert_eq!(r.get(1).unwrap().model.as_deref(), Some("furnace"));
         // ADR 0117: the torch is the one row with a model: walked through, seen through, a warm light weaker than
         // the lamp's, hangs on a floor or a wall, a flame, broken by hand into itself, a full stack of 64
-        // and the crucible, drawn with the furnace model (draft ADR crucible), solid
+        // and the crucible, drawn with the furnace model (ADR 0141), solid
         let with: Vec<&str> = BLOCKS.placeable().filter(|d| d.model.is_some()).map(|d| d.name.as_str()).collect();
         assert_eq!(with, ["torch", "crucible"]);
         assert!(BLOCKS.get(BLOCKS.id("crucible")).is_some_and(|d| d.solid && d.model.as_deref() == Some("furnace")));
@@ -787,7 +787,7 @@ see = \"glass\"
         assert_eq!(with, [("workbench", "workbench"), ("crucible", "crucible")]);
         let b = BLOCKS.get(BLOCKS.id("workbench")).unwrap();
         assert!(b.solid && b.loose && !b.falls && b.tool.as_deref() == Some("axe") && !crate::items::knaps(b));
-        // the crucible (draft ADR crucible): loose, so hands take it back; no knapping on it
+        // the crucible (ADR 0141): loose, so hands take it back; no knapping on it
         let c = BLOCKS.get(BLOCKS.id("crucible")).unwrap();
         assert!(c.solid && c.loose && !c.falls && !crate::items::knaps(c));
         let row = |more: &str| Registry::parse(&format!("[[block]]\nid = 0\nname = \"air\"\nsolid = false\n[[block]]\nid = 1\nname = \"x\"\nhardness = 1\n{more}"));

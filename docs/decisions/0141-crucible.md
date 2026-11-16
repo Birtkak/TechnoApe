@@ -1,4 +1,4 @@
-# draft – The crucible: the first furnace
+# 0141 – The crucible: the first furnace
 
 - **Status:** proposed
 - **Date:** 2026-11-16
