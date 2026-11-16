@@ -1,4 +1,4 @@
-# Recipes of the crafting grid (draft ADR crafting-grid; schema and checks in crates/engine/src/recipes.rs).
+# Recipes of the crafting grid (ADR 0140; schema and checks in crates/engine/src/recipes.rs).
 # `name`: what the viewer shows and the wire names it by, once each.
 # `grid`: the pattern, rows top to bottom, one letter a cell, a space an empty cell; at most 3 x 3, rows of one
 # length, no empty row or column at its edge. It may lie anywhere in the grid and mirrored left to right;
