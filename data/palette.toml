@@ -5497,3 +5497,43 @@ ramp = "pitchblende pebble rich"
 name = "pitchblende pebble r8"
 rgb = "#97907c"
 ramp = "pitchblende pebble rich"
+
+[[colour]]
+name = "verdigris r1"
+rgb = "#1d3c44"
+ramp = "verdigris rich"
+
+[[colour]]
+name = "verdigris r2"
+rgb = "#25585a"
+ramp = "verdigris rich"
+
+[[colour]]
+name = "verdigris r3"
+rgb = "#2c7468"
+ramp = "verdigris rich"
+
+[[colour]]
+name = "verdigris r4"
+rgb = "#349070"
+ramp = "verdigris rich"
+
+[[colour]]
+name = "verdigris r5"
+rgb = "#3fa971"
+ramp = "verdigris rich"
+
+[[colour]]
+name = "verdigris r6"
+rgb = "#53ba71"
+ramp = "verdigris rich"
+
+[[colour]]
+name = "verdigris r7"
+rgb = "#71c37a"
+ramp = "verdigris rich"
+
+[[colour]]
+name = "verdigris r8"
+rgb = "#93cc8e"
+ramp = "verdigris rich"

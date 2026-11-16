@@ -1,5 +1,5 @@
 # A draft lead pebble (Claude's, listed in data/drafts.txt): clutter, ADR 0082. Painted
-# boxes at 32 px a metre (a lump of ore lying loose); made by tools/paint_clutter.py.
+# boxes at 32 px a metre (silver cubes grown into each other); made by tools/paint_clutter.py.
 colours = ["galena"]
 item = 0.4
 
@@ -9,13 +9,19 @@ box = [1, 1, 1]
 voxels = "."
 
 [[part.boxes]]
-at = [11.0, 0.0, 12.0]
-size = [8, 4, 7]
-turn = [0.0, 25.0, 5.0]
+at = [11.0, 0.0, 13.0]
+size = [6, 6, 6]
+turn = [0.0, 10.0, 0.0]
 uv = [0, 0]
 
 [[part.boxes]]
-at = [14.0, 3.0, 13.0]
-size = [4, 3, 4]
-turn = [0.0, 60.0, 0.0]
-uv = [30, 0]
+at = [16.0, 0.0, 10.0]
+size = [5, 5, 5]
+turn = [0.0, 35.0, 0.0]
+uv = [24, 0]
+
+[[part.boxes]]
+at = [14.0, 5.0, 13.0]
+size = [4, 4, 4]
+turn = [0.0, 50.0, 0.0]
+uv = [44, 0]
