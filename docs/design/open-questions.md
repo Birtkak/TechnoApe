@@ -19,8 +19,8 @@
 ### What the hostile creatures are
 The call makes danger a part of the game beside cold, night and hunger. Still open:
 1. **Wild predators only, made bolder:** packs at night, things in caves and deep water. No new lore.
-2. **Something tied to the Indigenti's swarm** (*recommended*, `lore.md`): what the self-replicating
-   machines leave or release. One story explains the creatures and the monument; the threat grows as the ape
+2. **Decided 2026-11-16:** something tied to the Indigenti's swarm, kept in the crater (`lore.md`). The text below is the earlier proposal: pieces of the swarm that did not
+   destroy themselves and rewrote their code, deep in the crater. One story explains the creatures and the monument; the threat grows as the ape
    digs deeper and reaches farther, so it scales with the tiers and has a reason to care about factories
    (noise, smoke, power).
 3. **Raiders:** other apes or troops. Reads well with the AI troop, but needs believable AI early.
@@ -30,10 +30,10 @@ Luna; how much of an evening is fighting against building (*recommended:* a pres
 away, as every need is, not a second game).
 
 ### Where the swarm's work stands
-The corner landmarks are dropped (ADR 0106), so the monument and anything else the swarm built need a new
-placement rule. Open, with the story's other questions in `lore.md`: one first-touch monument near the
-spawn or somewhere to find; whether more structures exist and where (by distance, by biome, deep under
-ground); whether they are diggable on a planet that can be mined out; whether Luna holds any.
+Answered 2026-11-16 (`lore.md`): one **crater from the surface to the real core** and one **huge monolith**,
+both visible from orbit, and the empty swarm ship in orbit. Still open: where they stand relative to the
+spawn, whether the monolith can be dug or entered, and the crater's shape. The crater to the core needs deeper
+shells than the grid has today (`lore.md`, "What it needs from the engine").
 
 ### Luna at 1 km
 - Its orbit's distance (30 km *proposed*), and with it how wide a total eclipse's band is on Terra.
