@@ -1086,7 +1086,15 @@ impl Gpu {
         let tex_rx = watch_textures(std::path::PathBuf::from(a.get("textures", String::from("data/textures"))));
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
-            source: wgpu::ShaderSource::Wgsl(concat!(include_str!("shader.wgsl"), include_str!("clouds.wgsl")).into()),
+            source: wgpu::ShaderSource::Wgsl(concat!(
+                include_str!("shader_vertex.wgsl"),
+                include_str!("shader_light.wgsl"),
+                include_str!("shader.wgsl"),
+                include_str!("shader_water.wgsl"),
+                include_str!("shader_sky_fx.wgsl"),
+                include_str!("shader_models.wgsl"),
+                include_str!("clouds.wgsl")
+            ).into()),
         });
         let storage = |b| wgpu::BindGroupLayoutEntry {
             binding: b,

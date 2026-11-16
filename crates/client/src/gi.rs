@@ -438,7 +438,7 @@ mod tests {
     /// shader.wgsl's free part that finds a pixel's texel (ADR 0108), with a kernel round it whose `body` reads
     /// `cases[id.x]` (a vec4f) and writes `outs[id.x]`; None, with the reason printed, on a PC without a Vulkan GPU.
     fn texels_on_gpu(cases: &[[f32; 4]], gr: [f32; 5], body: &str) -> Option<Vec<[f32; 4]>> {
-        let src = include_str!("shader.wgsl");
+        let src = include_str!("shader_light.wgsl");
         let (a, b) = (src.find("// ---- the light's texels").unwrap(), src.find("// ---- end of the light's texels").unwrap());
         let wgsl = format!(
             "{}\n@group(0) @binding(0) var<storage, read> cases: array<vec4f>;\n@group(0) @binding(1) var<storage, read_write> outs: array<vec4f>;\n\
@@ -619,7 +619,7 @@ mod tests {
     /// it where it is (`terrain_lit`'s footprint below 0), never on texels found from those (the review of ADR 0108)
     #[test]
     fn stills_are_lit_where_they_are() {
-        let src = include_str!("shader.wgsl").replace("\r\n", "\n"); // a checkout with CRLF has no "\n}\n"
+        let src = include_str!("shader_models.wgsl").replace("\r\n", "\n"); // a checkout with CRLF has no "\n}\n"
         let body = &src[src.find("fn fs_still(").unwrap()..];
         let body = &body[..body.find("\n}\n").unwrap()];
         let calls: Vec<&str> = body.match_indices("terrain_lit(").map(|(i, _)| &body[i..i + body[i..].find(';').unwrap()]).collect();
