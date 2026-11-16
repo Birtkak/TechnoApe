@@ -180,9 +180,33 @@ impl Thing {
 #[allow(clippy::too_many_arguments)]
 pub fn pick(body: &Body, seed: u64, face: u8, i: i32, j: i32, biome: u8, ground: u16, season: u8, density: f32, trees: &[(i32, i32)]) -> Option<Thing> {
     let h = roll(seed, face, i, j);
+    // a sample over an ore body first: it lies on any ground (ADR draft-ore-samples-and-prospecting)
+    if let Some(t) = sample(body, seed, face, i, j) {
+        return Some(t);
+    }
     // a model's place rule (ADR 0097: near water, over a rock) last
     choose(h, &[(Kind::Pickup, 1.0), (Kind::Decoration, density)], i, j, biome, ground, season, trees).filter(|t| wet_or_over(body, face, i, j, &CLUTTER[t.row]))
 }
+
+/// Per mineral kind (`ore::MINERALS`), the pick-up row that gives its `sample`: the row of a sample lying on
+/// the ground over its bodies (ADR draft-ore-samples-and-prospecting).
+pub static SAMPLES: LazyLock<Vec<Option<usize>>> = LazyLock::new(|| {
+    let gives = |s: &String| CLUTTER.iter().position(|r| r.kind == Kind::Pickup && r.gives.as_ref().is_some_and(|g| &g.0 == s));
+    crate::ore::MINERALS.kinds.iter().map(|k| k.sample.as_ref().map(|s| gives(s).unwrap_or_else(|| panic!("data/clutter.toml: no pick-up gives '{s}', kind '{}''s sample", k.name)))).collect()
+});
+
+/// The sample lying on column (face, i, j), if one does: a roll per body whose spread (`OreBody::spread`)
+/// covers it, against `1 - q` over `ore::SAMPLE_EVERY_M2`, so densest over the middle and none at the rim.
+pub fn sample(body: &Body, seed: u64, face: u8, i: i32, j: i32) -> Option<Thing> {
+    let h = roll(seed, face, i, j);
+    body.tile_ores(face, i.div_euclid(CS), j.div_euclid(CS)).iter().find_map(|&k| {
+        let o = &body.ores[k as usize];
+        let row = SAMPLES[o.kind as usize]?;
+        let q = o.spread(i, j)?;
+        ((unit(mix(h ^ SAMPLE_ROLL ^ k as u64)) as f64) < (1.0 - q) / crate::ore::SAMPLE_EVERY_M2).then_some(Thing { row, h })
+    })
+}
+const SAMPLE_ROLL: u64 = 0x5a3b_1e00_0063;
 
 /// The plant that grows on the column (ADR 0091), as `pick` but by its own roll at `vegetation` times the
 /// biome's weights (`VEGETATION`): neither the Clutter setting nor a seasonal model moves a plant, and a lower
@@ -601,6 +625,8 @@ pub fn quads(body: &Body, key: Key, cells: &[u16; P * P * P], edits: &[(u32, u16
         return out;
     }
     let year = year(t);
+    // ore bodies under the chunk: its columns may hold a sample whatever the biome's roll
+    let ores = !body.tile_ores(key.face, key.pos.x, key.pos.y).is_empty();
     let mut edited = [false; P * P];
     for &(c, _) in edits {
         edited[c as usize % (P * P)] = true;
@@ -613,7 +639,7 @@ pub fn quads(body: &Body, key: Key, cells: &[u16; P * P * P], edits: &[(u32, u16
             }
             let (i, j) = (c0.x + u as i32, c0.y + v as i32);
             // the roll first: one hash turns most columns away before the ground's lookups
-            if !may(seed, key.face, i, j, tile.biome[u + v * P], density) {
+            if !may(seed, key.face, i, j, tile.biome[u + v * P], density) && (!ores || sample(body, seed, key.face, i, j).is_none()) {
                 continue;
             }
             // shallow fresh water too: a wading plant (reeds) stands in it, nothing else does
@@ -737,6 +763,45 @@ mod tests {
             eprintln!("seed {seed}: {ok} of {} dry columns take flint", land.len());
             assert!(ok * 2 < land.len(), "seed {seed}: {ok} of {} dry columns take flint", land.len());
         }
+    }
+
+    /// Ore samples (ADR draft-ore-samples-and-prospecting): every kind's sample has a pick-up row; over the bodies
+    /// of the kinds that have one their item lies loose on the dry ground, about `SAMPLE_EVERY_M2` apart at the
+    /// middle and thinning to none at the spread's rim, and none lies off every body's spread.
+    #[test]
+    fn samples_lie_over_the_bodies_and_not_away_from_them() {
+        use crate::ore::{MINERALS, SAMPLE_EVERY_M2, SAMPLE_SPREAD_M};
+        use crate::world::{Block, World};
+        for k in &MINERALS.kinds {
+            if let Some(s) = &k.sample {
+                assert!(SAMPLES[MINERALS.kinds.iter().position(|o| o.name == k.name).unwrap()].is_some_and(|r| CLUTTER[r].gives.as_ref().is_some_and(|g| &g.0 == s) && CLUTTER[r].kind == Kind::Pickup), "{}: a pick-up row gives '{s}'", k.name);
+            }
+        }
+        let w = World::baked(1536, 32, 7);
+        let b = &w.bodies[0];
+        let (mut seen, mut want, mut kinds) = (0usize, 0.0f64, std::collections::BTreeSet::new());
+        for o in &b.ores {
+            let Some(row) = SAMPLES[o.kind as usize] else { continue };
+            let r = (o.a.max(o.b).max(SAMPLE_SPREAD_M) + 8.0).ceil() as i32;
+            let (ci, cj) = (o.at.x as i32, o.at.y as i32);
+            for (i, j) in (ci - r..=ci + r).flat_map(|i| (cj - r..=cj + r).map(move |j| (i, j))).filter(|&(i, j)| (0..b.n).contains(&i) && (0..b.n).contains(&j)) {
+                let tile = b.tile(o.face, 0, i.div_euclid(CS), j.div_euclid(CS));
+                let Some((z, _, _)) = ground(b, &tile, o.face, i, j) else { continue };
+                let here = pickup_at(&w, Block { body: 0, face: o.face, pos: IVec3::new(i, j, z) }, 0.0).is_some_and(|t| t.row == row);
+                let others = b.ores.iter().any(|p| p.kind == o.kind && p != o && p.face == o.face && p.spread(i, j).is_some());
+                match o.spread(i, j) {
+                    Some(q) => {
+                        want += (1.0 - q) / SAMPLE_EVERY_M2;
+                        seen += here as usize;
+                        kinds.insert(o.kind);
+                    }
+                    None => assert!(!here || others, "{}: a sample at ({i}, {j}) off its body's spread", MINERALS.kinds[o.kind as usize].name),
+                }
+            }
+        }
+        eprintln!("{seen} samples over {} kinds' bodies, {want:.1} expected", kinds.len());
+        assert!(kinds.len() >= 3 && want > 20.0, "{} kinds, {want} expected", kinds.len());
+        assert!((0.7..1.4).contains(&(seen as f64 / want)), "{seen} samples, {want:.1} expected");
     }
 
     #[test]

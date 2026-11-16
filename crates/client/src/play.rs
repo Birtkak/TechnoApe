@@ -171,7 +171,7 @@ impl App {
                 self.swung(self.start.elapsed().as_secs_f64());
             }
             // knapping by doing (ADR 0110): the place button with a knapping stone in hand on hard rock strikes it
-            "R" if self.knap_target().is_some() => self.strike(),
+            "R" if self.knap_target().is_some() || self.prospect_target().is_some() => self.strike(),
             "L" | "R" => {
                 let dig = a == "L";
                 if let Some(at) = self.aim.map(|(hit, before)| self.anchor(hit, before, dig)) {
@@ -947,13 +947,23 @@ impl App {
         (rock && !self.creative && !self.hammer && engine::items::ITEMS.get(st.item)?.knap.is_some()).then_some(hit)
     }
 
+    /// The hard rock aimed at while a prospecting tool is in hand in survival (ADR draft-ore-samples-and-prospecting).
+    pub(crate) fn prospect_target(&self) -> Option<Block> {
+        let (hit, _) = self.aim?;
+        let rock = BLOCKS.get(self.world.block(hit)).is_some_and(engine::items::knaps);
+        (rock && !self.hammer && self.hand_tool()?.prospects().is_some()).then_some(hit)
+    }
+
     /// A strike of the knapping stone on the aimed rock (ADR 0110): told to the server, which counts it and swaps
     /// the stone for what it knaps into; heard and seen here at once, a few chips of the rock and the knock. No
     /// more than one every `items::KNAP_WAIT_S` and a tick, so a strike shown is never one the server's own wait
     /// drops for jitter.
     fn strike(&mut self) {
         let now = self.start.elapsed().as_secs_f64();
-        let Some(hit) = self.knap_target().filter(|_| now - self.struck >= engine::items::KNAP_WAIT_S + 1.0 / engine::net::TICK_HZ) else { return };
+        // or of a prospecting tool (ADR draft-ore-samples-and-prospecting): the server's answer brings its knock
+        let prospect = self.prospect_target();
+        let wait = if prospect.is_some() { engine::items::PROSPECT_WAIT_S } else { engine::items::KNAP_WAIT_S };
+        let Some(hit) = prospect.or(self.knap_target()).filter(|_| now - self.struck >= wait + 1.0 / engine::net::TICK_HZ) else { return };
         self.struck = now;
         // the slot in hand first: a press in the same frame as a change of slot strikes with the new one
         if self.hand_sent != Some(self.slot) {
@@ -963,7 +973,10 @@ impl App {
         self.link.send(ToServer::Strike(hit));
         let m = self.world.block(hit);
         self.fx.play(fx::id("knap"), &fx::At::cell(&self.world, hit, m));
-        self.audio.play("knap", Some(self.world.block_centre(hit)), 1.0, 1.0, false);
+        self.struck_at = self.world.block_centre(hit);
+        if prospect.is_none() {
+            self.audio.play("knap", Some(self.struck_at), 1.0, 1.0, false);
+        }
         self.swung(now);
     }
 

@@ -84,6 +84,7 @@ impl Server {
                 hand: 0,
                 sent_hand: AIR,
                 knap: (0, 0, 0),
+                prospected: None,
             });
         }
         let mut changed: Vec<(Block, u16)> = Vec::new();

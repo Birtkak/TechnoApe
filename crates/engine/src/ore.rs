@@ -79,6 +79,7 @@ struct RawKind {
     halo: Vec<String>,
     #[serde(default)]
     halo_m: f64,
+    sample: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -107,6 +108,9 @@ pub struct Kind {
     pub halo: Vec<u16>,
     /// How far out the halo reaches from the ore, metres.
     pub halo_m: f64,
+    /// The item that lies loose on the ground over its bodies (a sample, clutter's), by name: the items' rows
+    /// read these, so `items::Items::parse` holds it to a row.
+    pub sample: Option<String>,
 }
 
 /// The farthest any halo reaches, metres: `World::set_ores` registers a body this much wider.
@@ -147,13 +151,13 @@ impl Minerals {
                 return Err(format!("kind '{}': a halo is for a body at a depth, one to three grades, halo_m over 0 and at most {HALO_MAX}", r.name));
             }
             let halo = r.halo.iter().map(|h| block(&r.name, h)).collect::<Result<Vec<u16>, String>>()?;
-            kinds.push(Kind { name: r.name.clone(), block: block(&r.name, &r.block)?, gives: r.gives.clone(), shape: r.shape, count: r.count, blocks: r.blocks, depth: r.depth, provinces, host, biomes, near: r.near, gravel, gossan: r.gossan, halo, halo_m: r.halo_m });
+            kinds.push(Kind { name: r.name.clone(), block: block(&r.name, &r.block)?, gives: r.gives.clone(), shape: r.shape, count: r.count, blocks: r.blocks, depth: r.depth, provinces, host, biomes, near: r.near, gravel, gossan: r.gossan, halo, halo_m: r.halo_m, sample: r.sample.clone() });
         }
         if kinds.iter().map(|k| &k.name).collect::<std::collections::BTreeSet<_>>().len() != kinds.len() {
             return Err("two kinds share a name".into());
         }
         let gossan = kinds.len();
-        kinds.push(Kind { name: "gossan".into(), block: BLOCKS.id("gossan"), gives: String::new(), shape: Shape::Blanket, count: 0, blocks: 1, depth: [0.5, 0.5], provinces: Vec::new(), host: None, biomes: Vec::new(), near: None, gravel: None, gossan: 0.0, halo: Vec::new(), halo_m: 0.0 });
+        kinds.push(Kind { name: "gossan".into(), block: BLOCKS.id("gossan"), gives: String::new(), shape: Shape::Blanket, count: 0, blocks: 1, depth: [0.5, 0.5], provinces: Vec::new(), host: None, biomes: Vec::new(), near: None, gravel: None, gossan: 0.0, halo: Vec::new(), halo_m: 0.0, sample: None });
         Ok(Minerals { kinds, gossan })
     }
 }
@@ -245,6 +249,20 @@ impl OreBody {
         let (c, s) = (self.angle.cos(), self.angle.sin());
         let (u, v) = (dx * c + dy * s, dy * c - dx * s);
         (u.abs() < self.a + r && v.abs() < self.b + r).then(|| ((self.at.z - self.h - r).floor() as i32, (self.at.z + self.h + r).ceil() as i32 + 1))
+    }
+    /// Where column (i, j) lies across its samples' spread (its footprint, each half axis at least
+    /// `SAMPLE_SPREAD_M`): 0 at its middle, 1 at the rim; None outside.
+    pub fn spread(&self, i: i32, j: i32) -> Option<f64> {
+        OreBody { a: self.a.max(SAMPLE_SPREAD_M), b: self.b.max(SAMPLE_SPREAD_M), ..*self }.across(i, j)
+    }
+    /// Metres from cell (i, j, z) of `body` to its surface, 0 inside.
+    pub fn distance(&self, body: &Body, i: i32, j: i32, z: i32) -> f64 {
+        let (u, v, mut w) = self.local(i, j, z);
+        if MINERALS.kinds[self.kind as usize].shape.follows_ground() {
+            // its middle is `at.z` metres under the ground of each column
+            w = self.at.z - (body.col_height(self.face, i, j) - body.layer_r(z as f64 + 0.5));
+        }
+        to_surface([u, v, w], [self.a, self.b, self.h])
     }
     /// Its footprint's columns, a column to spare.
     pub fn columns(&self) -> impl Iterator<Item = (i32, i32)> {
@@ -377,6 +395,70 @@ pub fn place(b: &Body, seed: u64) -> Vec<OreBody> {
     out
 }
 
+/// One sample lies on this many square metres of ground at the middle of a body's footprint, thinning to none at
+/// its rim (ADR draft-ore-samples-and-prospecting; the developer's to tune).
+pub const SAMPLE_EVERY_M2: f64 = 40.0;
+/// Samples spread at least this far from a body's middle line, metres: a vein two metres thin still shows.
+pub const SAMPLE_SPREAD_M: f64 = 6.0;
+
+/// A prospecting strike's bands, weakest first: an element's nearest body within `range` gives the band its
+/// distance falls in (`band`).
+pub const BANDS: [&str; 4] = ["traces", "some", "strong", "rich"];
+/// The most elements an answer names.
+pub const PROSPECT_NAMES: usize = 3;
+
+/// The band (index of `BANDS`) of a body `d` metres off for a tool of range `r`: rich under r/8, strong under
+/// r/3, some under 2r/3, traces under r; None from r on.
+pub fn band(d: f64, r: f64) -> Option<u8> {
+    [r / 8.0, r / 3.0, r * 2.0 / 3.0, r].iter().position(|&e| d < e).map(|k| 3 - k as u8)
+}
+
+/// Metres from point `p` to the surface of the ellipsoid of half axes `e` about the origin; 0 inside.
+pub fn to_surface(p: [f64; 3], e: [f64; 3]) -> f64 {
+    let p = p.map(f64::abs);
+    if (0..3).map(|k| (p[k] / e[k]).powi(2)).sum::<f64>() <= 1.0 {
+        return 0.0;
+    }
+    // the nearest point is x_k = e_k^2 p_k / (t + e_k^2) for the t >= 0 where it lies on the surface (the sum
+    // falls with t; at t = |e p| it is at most 1): bisected
+    let f = |t: f64| (0..3).map(|k| (e[k] * p[k] / (t + e[k] * e[k])).powi(2)).sum::<f64>();
+    let (mut lo, mut hi) = (0.0, (0..3).map(|k| (e[k] * p[k]).powi(2)).sum::<f64>().sqrt());
+    for _ in 0..64 {
+        let mid = 0.5 * (lo + hi);
+        if f(mid) > 1.0 {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    (0..3).map(|k| (p[k] - e[k] * e[k] * p[k] / (hi + e[k] * e[k])).powi(2)).sum::<f64>().sqrt()
+}
+
+/// What a prospecting strike on cell `at` of `w` with a tool of `range` metres hears: per element with ore left
+/// in the ground (the ledger's count, when it is open) within range of the cell, its band, strongest first, at
+/// most `PROSPECT_NAMES`; empty for none. No direction. shortcut: only the struck face's bodies; one across a
+/// face's seam is not heard (bodies keep `SEAM` columns from it).
+pub fn prospect(w: &crate::world::World, at: crate::world::Block, range: f64) -> Vec<(String, u8)> {
+    let Some(b) = w.bodies.get(at.body as usize) else { return Vec::new() };
+    let (i, j, z) = (at.pos.x, at.pos.y, at.pos.z);
+    let mut near: Vec<(String, u8)> = Vec::new();
+    for (k, o) in b.ores.iter().enumerate() {
+        let kind = &MINERALS.kinds[o.kind as usize];
+        let gone = at.body == 0 && w.ore_left.as_ref().is_some_and(|l| l.get(k).is_some_and(|&n| n <= 0));
+        if kind.gives.is_empty() || gone || o.face != at.face || (i as f64 + 0.5 - o.at.x).hypot(j as f64 + 0.5 - o.at.y) > o.a.max(o.b) + range {
+            continue;
+        }
+        let Some(band) = band(o.distance(b, i, j, z), range) else { continue };
+        match near.iter_mut().find(|n| n.0 == kind.gives) {
+            Some(n) => n.1 = n.1.max(band),
+            None => near.push((kind.gives.clone(), band)),
+        }
+    }
+    near.sort_by(|x, y| y.1.cmp(&x.1).then(x.0.cmp(&y.0)));
+    near.truncate(PROSPECT_NAMES);
+    near
+}
+
 /// What a body holds in the ground: blocks and the ingots they give.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Held {
@@ -479,5 +561,55 @@ mod tests {
         assert!(Minerals::parse(&bad).unwrap_err().contains("a halo is for"));
         let bad = include_str!("../../../data/minerals.toml").replace("\"greisen\"", "\"greisen stone\"");
         assert!(Minerals::parse(&bad).unwrap_err().contains("no solid block 'greisen stone'"));
+    }
+
+    /// The distance to an ellipsoid's surface is the nearest of its points, a sphere's and a thin vein's alike.
+    #[test]
+    fn the_distance_to_a_body_is_to_its_nearest_point() {
+        assert!((to_surface([8.0, 0.0, 0.0], [5.0; 3]) - 3.0).abs() < 1e-6);
+        assert_eq!(to_surface([1.0, 2.0, -1.0], [5.0; 3]), 0.0);
+        for (p, e) in [([20.0, 3.0, 0.0], [24.0, 1.0, 14.0]), ([-30.0, 2.0, 9.0], [24.0, 1.0, 14.0]), ([3.0, 4.0, 5.0], [8.0, 6.0, 1.5])] {
+            let mut best = f64::MAX;
+            for a in 0..=600 {
+                for b in 0..=600 {
+                    let (th, ph) = (a as f64 / 600.0 * std::f64::consts::PI, b as f64 / 600.0 * std::f64::consts::TAU);
+                    let q = [e[0] * th.sin() * ph.cos(), e[1] * th.sin() * ph.sin(), e[2] * th.cos()];
+                    best = best.min(((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt());
+                }
+            }
+            let d = to_surface(p, e);
+            assert!((d - best).abs() < 0.05, "{p:?} to {e:?}: {d}, sampled {best}");
+        }
+    }
+
+    /// A prospecting strike (ADR draft-ore-samples-and-prospecting) hears each element's nearest body by band:
+    /// rich under R/8, strong under R/3, some under 2R/3, traces under R, nothing beyond, the strongest first; a
+    /// body the ledger has dug out says nothing.
+    #[test]
+    fn a_strike_hears_the_bands_by_distance() {
+        use crate::world::{Block, World};
+        assert_eq!([1.0, 4.0, 8.0, 13.0, 16.0].map(|d| band(d, 16.0)), [Some(3), Some(2), Some(1), Some(0), None]);
+        let mut w = World::new(256, 32, 1);
+        let b = &w.bodies[0];
+        let (f, i, j) = b.locate(b.spawn);
+        let (f, i, j) = (f as u8, i as i32, j as i32);
+        let z = b.layer_of(b.col_height(f, i, j)) as i32 - 40;
+        let kind = |n: &str| MINERALS.kinds.iter().position(|k| k.name == n).unwrap() as u16;
+        let lead = OreBody { kind: kind("lead pocket"), face: f, at: DVec3::new(i as f64 + 0.5, j as f64 + 0.5, z as f64 + 0.5), a: 5.0, b: 5.0, h: 5.0, angle: 0.0 };
+        // a tin vein standing 10 m beside the lead along i, a metre thin across i
+        let tin = OreBody { kind: kind("tin vein"), face: f, at: DVec3::new(i as f64 + 10.5, j as f64 + 0.5, z as f64 + 0.5), a: 10.0, b: 1.0, h: 6.0, angle: std::f64::consts::FRAC_PI_2 };
+        std::sync::Arc::get_mut(&mut w.bodies).unwrap()[0].set_ores(vec![lead, tin]);
+        let hear = |w: &World, dz: i32| prospect(w, Block { body: 0, face: f, pos: glam::IVec3::new(i, j, z + dz) }, 16.0);
+        let s = |v: &[(&str, u8)]| v.iter().map(|(n, b)| (n.to_string(), *b)).collect::<Vec<_>>();
+        // the tin is 9 m off at the lead's middle (some), farther as the strike rises
+        assert_eq!(hear(&w, 0), s(&[("lead", 3), ("tin", 1)]));
+        assert_eq!(hear(&w, 6), s(&[("lead", 3), ("tin", 1)]));
+        assert_eq!(hear(&w, 9)[0], ("lead".to_string(), 2));
+        assert_eq!(hear(&w, 13)[0], ("lead".to_string(), 1));
+        assert_eq!(hear(&w, 18)[0], ("lead".to_string(), 0));
+        assert_eq!(hear(&w, 25), s(&[]));
+        // the lead dug out: only the tin
+        w.ore_left = Some(vec![0, 100]);
+        assert_eq!(hear(&w, 0), s(&[("tin", 1)]));
     }
 }

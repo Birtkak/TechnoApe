@@ -14,6 +14,10 @@
 # `gossan`: rusty ground over each body, that many metres across (a sign of a deep body).
 # `halo`: the altered rock around a body at a depth (ADR 0095), its grades outermost first (blocks), the last
 #   next to the ore; `halo_m`: how far out it reaches, metres from the ore. Host rock with a look: no metal.
+# `sample`: an item (data/items.toml) lying loose on the ground over each body, densest over its middle
+#   (ADR draft-ore-samples-and-prospecting; the density is `ore::SAMPLE_EVERY_M2`): for the bodies that show at the
+#   ground as no gravel. A sample holds no metal: the ledger never counts it.
+#   shortcut: samples are only a sign for now; nuggets become smeltable with the copper age's recipes.
 
 [[kind]]
 name = "copper gravel"
@@ -36,6 +40,7 @@ blocks = 4000
 depth = [1.5, 1.5]
 provinces = ["folded belt", "volcanic arc", "shield"]
 gravel = "copper gravel"
+sample = "copper nugget"
 
 [[kind]]
 name = "deep copper"
@@ -50,6 +55,7 @@ near = [1000.0, 3000.0]
 gossan = 30.0
 halo = ["iron-stained rock", "copper-stained rock"]
 halo_m = 8.0
+sample = "copper nugget"
 
 [[kind]]
 name = "tin vein"
@@ -65,6 +71,7 @@ near = [800.0, 1500.0]
 gravel = "tin gravel"
 halo = ["quartz-veined rock", "greisen"]
 halo_m = 4.0
+sample = "tin pebble"
 
 [[kind]]
 name = "tin gravel"
@@ -101,6 +108,7 @@ near = [3000.0, 1e9]
 gossan = 60.0
 halo = ["bleached rock", "iron-stained rock"]
 halo_m = 6.0
+sample = "iron pebble"
 
 [[kind]]
 name = "coal seam"
@@ -113,6 +121,7 @@ depth = [5.0, 20.0]
 provinces = ["basin"]
 host = "shale"
 near = [0.0, 1500.0]
+sample = "coal lump"
 
 [[kind]]
 name = "bauxite"
@@ -138,6 +147,7 @@ host = "limestone"
 near = [1000.0, 3000.0]
 halo = ["dolomite", "iron-stained rock"]
 halo_m = 4.0
+sample = "lead pebble"
 
 [[kind]]
 name = "gold vein"
@@ -151,6 +161,7 @@ provinces = ["folded belt"]
 gravel = "gold gravel"
 halo = ["bleached rock", "quartz-veined rock"]
 halo_m = 3.0
+sample = "gold nugget"
 
 [[kind]]
 name = "gold gravel"
@@ -174,3 +185,4 @@ provinces = ["shield"]
 host = "granite"
 halo = ["bleached rock", "iron-stained rock"]
 halo_m = 3.0
+sample = "pitchblende pebble"

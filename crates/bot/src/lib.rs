@@ -15,6 +15,9 @@
 //!   put a dx dy dz k n  n from slot a to slot k of the pile there  grab item a n  creative's grid: n into a
 //! Tools (ADR 0110): `hold k` takes hotbar slot k in hand (a survival dig uses its tool); `strike dx dy dz` strikes
 //! what is in hand on that block (the place button with flint: knapping). `slots` gives a tool's digs left too.
+//! Prospecting (ADR draft-ore-samples-and-prospecting): `prospect dx dy dz` strikes the prospecting tool in hand on
+//! that block and waits (up to 2 s) for the answer, one JSON line: `{"bot":..,"prospect":[["copper","strong"],..]}`,
+//! an empty list when the rock rings empty.
 //! Sprint (ADR 0118): `sprint on` makes every walk after it a sprint, `sprint off` a walk again. A walk looks at
 //! its target, so in water a sprint swims to it, down or up as well (a dive, a lake's crossing at the surface).
 use engine::edit::Shape;
@@ -54,6 +57,8 @@ pub enum Cmd {
     /// Hotbar slot k in hand; strike what is in hand on the block at this offset (ADR 0110).
     Hold(u8),
     Strike(DVec3),
+    /// A prospecting strike on the block at this offset, waiting for its answer.
+    Prospect(DVec3),
     /// Walks from now on sprint, or not (ADR 0118).
     Sprint(bool),
     Quit,
@@ -90,6 +95,7 @@ pub fn parse(line: &str) -> Result<Option<Cmd>, String> {
         "pick" => Cmd::Pick(v()?),
         "hold" => Cmd::Hold(num(1)? as u8),
         "strike" => Cmd::Strike(v()?),
+        "prospect" => Cmd::Prospect(v()?),
         "sprint" => match w.get(1).copied() {
             Some("on") => Cmd::Sprint(true),
             Some("off") => Cmd::Sprint(false),
@@ -145,6 +151,8 @@ pub struct Bot {
     hand: u8,
     /// Its walks sprint (`sprint on`).
     sprint: bool,
+    /// A prospecting strike's answer awaited until that tick.
+    asking: Option<u64>,
     /// The creature kinds by index and the animals the server has this bot see (ADR 0083).
     pub kinds: Vec<String>,
     pub animals: std::collections::BTreeMap<u32, engine::net::Animal>,
@@ -157,7 +165,7 @@ const SILENT: Duration = Duration::from_secs(120);
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, kinds: Vec::new(), animals: Default::default() }
+        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default() }
     }
 
     /// The tick `s` seconds of the server's time from now.
@@ -232,6 +240,11 @@ impl Bot {
                     self.animals.extend(seen.into_iter().map(|a| (a.id, a)));
                 }
                 Recv::Msg(ToClient::Sky { .. }) => {}
+                Recv::Msg(ToClient::Prospect(v)) => {
+                    let heard: Vec<String> = v.iter().map(|(e, b)| format!("[{e:?},{:?}]", engine::ore::BANDS.get(*b as usize).unwrap_or(&"?"))).collect();
+                    self.notes.push(format!("{{\"bot\":{:?},\"prospect\":[{}]}}", self.name, heard.join(",")));
+                    self.asking = None;
+                }
                 Recv::Msg(ToClient::Chat(t)) => self.notes.push(format!("{{\"bot\":{:?},\"chat\":{t:?}}}", self.name)),
                 Recv::Msg(ToClient::Water(v)) => {
                     if let Some(w) = self.world.as_mut() {
@@ -283,7 +296,7 @@ impl Bot {
 
     /// True while a walk or wait is still going, so the next command has to hold.
     pub fn busy(&self) -> bool {
-        self.target.is_some() || self.digging.is_some() || self.idle_until.is_some_and(|u| self.ticks < u)
+        self.target.is_some() || self.digging.is_some() || self.asking.is_some_and(|u| self.ticks < u) || self.idle_until.is_some_and(|u| self.ticks < u)
     }
 
     /// Runs one command; the JSON line it produces, if any. Quit is the caller's to notice.
@@ -318,6 +331,10 @@ impl Bot {
                 self.link.send(ToServer::Hand(*k));
             }
             Cmd::Strike(d) => self.link.send(ToServer::Strike(w.block_at(self.feet() + *d))),
+            Cmd::Prospect(d) => {
+                self.link.send(ToServer::Strike(w.block_at(self.feet() + *d)));
+                self.asking = Some(self.after(2.0));
+            }
             Cmd::Sprint(on) => self.sprint = *on,
             Cmd::Pick(d) => {
                 self.seq += 1;
@@ -542,6 +559,29 @@ mod tests {
         assert!(slots[2].contains(&format!("[1,\"hand axe\",1,{}]", uses - 1)), "{out:?} ({} refused)", bot.refused);
         let rubble = engine::blocks::BLOCKS.id("granite rubble");
         assert!(out.last().unwrap().contains(&format!("\"material\":{rubble}")), "{out:?}");
+    }
+
+    /// Prospecting by script (ADR draft-ore-samples-and-prospecting): a survival bot given a hand axe strikes granite
+    /// beside its feet and prints the answer as one JSON line (no ore on the noise land: the rock rings empty); a
+    /// strike sooner than a second after is not answered, and each answered one costs the axe a use.
+    #[test]
+    fn a_survival_bot_prospects_and_prints_the_answer() {
+        let (tx, rx) = channel();
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(TICK_HZ, &std::sync::atomic::AtomicBool::new(false)));
+        let (c, s) = local();
+        tx.send(s).unwrap();
+        let mut bot = Bot::new("prospector", c);
+        let w = World::new(256, 32, 1);
+        let h = w.bodies[0].height(DVec3::Y);
+        let (d, at) = ("1.0 -0.5 0.25", w.block_at(DVec3::new(1.25, h - 0.5, 0.5)));
+        let mut out = Vec::new();
+        let script = format!("wait 0.5; say /playmode survival; spawn 0.25 {h} 0.25; wait 0.5; say /place granite {} {} {} {}; say /give hand_axe 1; hold 0; wait 0.5; prospect {d}; strike {d}; wait 1.1; prospect {d}; slots", at.face, at.pos.x, at.pos.y, at.pos.z);
+        bot.run(parse_script(&script).unwrap(), None, |l| out.push(l));
+        let heard: Vec<&String> = out.iter().filter(|l| l.contains("\"prospect\"")).collect();
+        assert_eq!(heard.len(), 2, "{out:?}");
+        assert!(heard.iter().all(|l| l.contains("\"prospect\":[]")), "{out:?}");
+        let uses = ITEMS.get(ITEMS.named("hand axe").unwrap()).unwrap().tool.as_ref().unwrap().uses;
+        assert!(out.last().unwrap().contains(&format!("[0,\"hand axe\",1,{}]", uses - 2)), "{out:?}");
     }
 
     /// A bot drives the items (ADR 0074): given stone, it moves some along its slots, throws some, and

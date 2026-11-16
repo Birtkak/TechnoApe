@@ -181,6 +181,8 @@ struct Client {
     sent_hand: u16,
     /// Knapping (ADR 0110): the item being struck, the strikes that counted, the tick of the last.
     knap: (u16, u8, u64),
+    /// The tick of its last prospecting strike that was answered (ADR draft-ore-samples-and-prospecting).
+    prospected: Option<u64>,
 }
 
 impl Client {

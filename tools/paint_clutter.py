@@ -32,6 +32,10 @@ RAMPS = {  # rich ramps, eight tones dark to light, shared with tools/paint_text
     "pebble": rich_rgb(210, 0.08, 0.08), "flint": rich_rgb(225, 0.18, -0.02),
     "flint cortex": rich_rgb(42, 0.22, 0.24),
 }
+# ore samples (ADR draft-ore-samples-and-prospecting): a lump of each, in its mineral's colour; the block it looks
+# like as an item
+SAMPLES = [("copper nugget", "copper"), ("tin pebble", "cassiterite"), ("iron pebble", "hematite"), ("coal lump", "coal"), ("lead pebble", "galena"), ("gold nugget", "gold quartz"), ("pitchblende pebble", "pitchblende")]
+RAMPS.update({"copper nugget": rich_rgb(22, 0.75, 0.04), "tin pebble": rich_rgb(25, 0.25, -0.03), "iron pebble": rich_rgb(8, 0.55, 0.0), "coal lump": rich_rgb(220, 0.06, -0.05), "lead pebble": rich_rgb(215, 0.1, 0.06), "gold nugget": rich_rgb(46, 0.95, 0.08), "pitchblende pebble": rich_rgb(35, 0.15, -0.04)})
 
 
 def ramps():
@@ -241,6 +245,11 @@ def make():
         m.box((x, y, z), (sx, sy, sz), axe("hand axe", 22 - y - sy, y == 0))
     # one cell 0.3 m as an item (ADR 0114): about 21 cm long in hand and lying in a pile
     written += m.write("slate", "a knapped flint teardrop, point up", item=0.3)
+    for name, look in SAMPLES:
+        m = Model(name)
+        m.box((11, 0, 12), (8, 4, 7), rock(name, (name, 0)), (0, 25, 5))
+        m.box((14, 3, 13), (4, 3, 4), rock(name, (name, 1), 0.5), (0, 60, 0))
+        written += m.write(look, "a lump of ore lying loose", item=0.4)
     return written
 
 
