@@ -130,6 +130,29 @@ def rock(ramp, seed, lift=0.0):
     return p
 
 
+def stone(seed, ramp="pebble", moss=0.0):
+    """A worn stone (repainted 2026-11-16): the top lit and paler toward its middle, the sides from light under the
+    top to shade at the ground and darker at their corners, so stacked boxes read as one round stone; fine grain,
+    a few pale crystals and dark pits, one hairline crack across the top; `moss`: the share of the top's far edge
+    grown over."""
+    def p(face, x, y, w, h):
+        n = (rnd(seed, face, x, y) - 0.5) * 1.1
+        r = rnd(seed, face, x, y, "g")
+        if face == "bottom":
+            return R(ramp, 1.5 + n * 0.4)
+        rim = min(x, w - 1 - x) == 0
+        if face == "top":
+            if moss and y <= 1 and rnd(seed, "moss", x // 2, y) < moss:
+                return R("meadow green", 2.5 + 2 * rnd(seed, "m", x, y))
+            if x == w // 2 + (y // 2) % 2 and y < 0.7 * h and w > 4:
+                return R(ramp, 1.5)
+            t = 5.4 - (1.0 if rim or min(y, h - 1 - y) == 0 else 0) + n
+        else:
+            t = 4.6 - 2.6 * y / max(1, h - 1) - (0.8 if rim else 0) + n
+        return R(ramp, 7 if r < 0.04 else t - 2 if r > 0.95 else t)
+    return p
+
+
 def flint(seed):
     """A flint shard (ADR 0097): a dark glassy grey-black face flaked in shallow ripples with a glint, a pale chalky
     cortex on one long edge of the top and the upper half of the sides; calm, so it reads on grass and on gravel."""
@@ -350,16 +373,25 @@ def make():
     for alt, stones in enumerate([[(6, 8, 10, 5, 8), (19, 16, 7, 4, 7), (12, 22, 5, 3, 4)], [(8, 10, 11, 6, 9), (21, 7, 6, 3, 5)]]):
         m = Model("pebbles" + (f".{alt}" if alt else ""))
         for k, (x, z, sx, sy, sz) in enumerate(stones):
-            m.box((x, 0, z), (sx, sy, sz), rock("pebble", ("pebble", alt, k)), (0, 25 * k, 0))
+            # a base and a smaller cap on it: a rounded stone, not a brick
+            low = max(2, sy - 2)
+            m.box((x, 0, z), (sx, low, sz), stone(("pebble", alt, k)), (0, 25 * k, 0))
+            if sx > 4:
+                m.box((x + 1, low, z + 1), (sx - 2, sy - low, sz - 2), stone(("pebble", alt, k, "cap")), (0, 25 * k, 0))
         written += m.write("stone", "a few stones")
     m = Model("stick")
     m.box((3, 1, 15), (26, 2, 2), rock("twig", "stick"), (0, 15, 4))
     written += m.write("log", "one stick, lying tilted")
     m = Model("loose stone")
-    m.box((10, 0, 10), (12, 6, 10), rock("pebble", "stone", -0.5), (0, 20, 6))
+    for k, (x, y, z, sx, sy, sz) in enumerate([(10, 0, 10, 12, 4, 10), (11, 4, 11, 10, 2, 8), (13, 6, 12, 6, 1, 5)]):
+        m.box((x, y, z), (sx, sy, sz), stone(("stone", k), moss=0.5 if k == 2 else 0.25), (0, 20, 0))
     written += m.write("stone", "a stone of two fists, tilted")
     m = Model("flint")
-    m.box((13, 0, 13), (6, 2, 5), flint("flint"), (8, 35, 0))
+    # a broken nodule: the chalky rind round it, the dark glassy break at one end, a chip beside it
+    m.box((12, 0, 13), (6, 3, 5), stone("flint rind", "flint cortex"), (0, 35, 0))
+    m.box((13, 3, 14), (3, 1, 3), stone("flint ridge", "flint cortex"), (0, 35, 0))
+    m.box((16.5, 0, 13.5), (3, 3, 4), flint("flint"), (0, 35, 0))
+    m.box((10, 0, 19), (3, 1, 2), flint("chip"), (0, 80, 0))
     # a cell 0.6 m as an item (ADR 0114): a 12 cm shard in hand and in a pile; the ground's clutter keeps its 19 cm
     written += m.write("slate", "a dark shard", item=0.6)
     m = Model("mushroom")
