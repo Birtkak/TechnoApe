@@ -1,6 +1,7 @@
 # 0027 – Luna at 1 km, learning by doing, hostile creatures, made things at the corners
 
-- **Status:** accepted
+- **Status:** accepted; the **corners decision is superseded by ADR 0106** (no made things at the cube corners;
+  the rest stands)
 - **Date:** 2026-11-10 (developer's calls in a design session)
 
 ## Context

@@ -50,7 +50,7 @@ The cube-sphere's cost is its 12 seams and 8 corners:
   - **Footprints:** a machine footprint may not cover a corner cell. A W x W footprint stamps as a regular
     patch everywhere else, across seams included.
   - **The 8 corners are landmarks:** world gen puts a peak, crater or deep lake on each, with something worth
-    finding there.
+    finding there. *(Dropped by ADR 0106: the corners are ordinary ground; nothing is placed there.)*
   - **Spawn** sits at a face centre, far from every seam.
 
 ## Not taken
@@ -70,4 +70,4 @@ The cube-sphere's cost is its 12 seams and 8 corners:
 - **Seam fold** at chunk borders: the sim, meshing and server chunks pay it only on seam chunks (0.5% of
   cells at R = 300 m).
 - **Long straight builds** turn at seams; build tools show the seam before the player commits.
-- **Open:** what the corner landmarks are (content, later). The block look is settled (ADR 0002).
+- ~~**Open:** what the corner landmarks are~~ dropped by ADR 0106. The block look is settled (ADR 0002).

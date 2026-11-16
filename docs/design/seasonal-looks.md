@@ -1,6 +1,6 @@
 # Seasonal looks: one block, a look per season
 
-- **Status:** design proposal, 2026-11-12, for an Opus coding session. The developer's call (2026-11-12):
+- **Status:** design proposal, 2026-11-12, for an Opus coding session; **built (ADR 0061)**. The developer's call (2026-11-12):
   living blocks such as grass and leaves stay **one block with one name**, and their colour and look depend on
   the season; the Studio paints the seasons of a block. Everything else here is a routine technical default
   until spiked.

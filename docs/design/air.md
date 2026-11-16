@@ -1,6 +1,7 @@
 # The planet's air: one coarse grid for heat, water, wind and dirt
 
-- **Status:** design proposal, 2026-11-10, for the spike ADR 0010 asks for. The developer's calls are in
+- **Status:** design proposal, 2026-11-10, for the spike ADR 0010 asks for. **Built:** the grid runs live on the
+  server (ADR 0060) and its weather is drawn (clouds, rain, wind, snow; ADR 0076). Pollution and radiation are not. The developer's calls are in
   ADR 0010 (the four systems exist, planet-wide) and ADR 0026 (seasons; the bake's climate uses this
   model). Everything below is a routine technical default until the spike has measured it. The constants
   are tuning and belong in `data/air.toml`.

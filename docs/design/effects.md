@@ -1,8 +1,8 @@
 # Effects: one system for particles and motion
 
 - **Status:** design proposal, 2026-11-11 (the developer: "implement an animation and particles system
-  directly in the engine itself so all future particles and animations will use that"). Nothing here is
-  built. The coding session spikes it, measures it and writes ADR 0031.
+  directly in the engine itself so all future particles and animations will use that"). **Built since:**
+  the particle and effect system (ADR 0031) and models with clips, effects, sound and light (ADR 0050).
 - Today's one-offs, which move onto it: the water's splash droplets (`crates/client/src/water.rs`), the
   sparks and the dip of the block in hand (`hud::sparks`, `App::acted`), the menu's slide (`hud::menu`).
 

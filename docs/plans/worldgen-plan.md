@@ -51,6 +51,7 @@ walking a river;
   with no holes; mesh job time per level against the optimisation pass's numbers.
 
 ### W2b. The globe map (after W2; `docs/design/navigation.md` part 3)
+**Status (2026-11-16): built and merged 2026-11-13 (ADR 0077, with waypoints in survival).**
 - The bake's coarse map drawn as one textured sphere the player turns, zooms and clicks to set a waypoint
   (ADR 0030 has the coordinates, the compass and the waypoints it builds on).
 - It fills in as the player sees the world: a seen-mask per coarse cell, kept beside the save.

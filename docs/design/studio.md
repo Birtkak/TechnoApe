@@ -1,8 +1,9 @@
 # TechnoApe Studio: our own tool for the game's looks
 
 - **Status:** design, 2026-11-11 (the developer: "our own little voxel blender", so the game's looks are
-  made by hand and not by AI; the name is the developer's). Steps 1 to 3 are being built. The coding
-  agents spike each step, measure it and write the ADRs that follow ADR 0044.
+  made by hand and not by AI; the name is the developer's). Built: the texture, model, sound,
+  effect, structure and fauna pages and the usability rounds (ADR 0044 to 0066, 0080); the see-through and box
+  tools are in `see-through-and-boxes.md`.
 - The developer's calls (2026-11-11): block textures and voxel models first, particles and trees and
   structures later; 12.5 cm model voxels (first 1/16 m, changed the same evening); models have simple moving parts from the first version; Claude may make
   drafts, the developer redoes them.
