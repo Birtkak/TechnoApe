@@ -1,6 +1,7 @@
 # Finding your way: coordinates, the compass, waypoints, the map
 
-- **Status:** parts 1 and 2 built 2026-11-11 (ADR 0030); parts 3 and 4 are proposals.
+- **Status:** parts 1 and 2 built 2026-11-11 (ADR 0030); part 3, the globe map, built and merged 2026-11-13
+  (ADR 0077, with waypoints in survival); part 4 (the attitude ball and the climb to orbit) is a proposal.
 - The developer's question: block coordinates as in a flat world do not fit small spinning planets with a
   moon and the space between. What then?
 

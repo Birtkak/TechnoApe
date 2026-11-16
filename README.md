@@ -1,9 +1,11 @@
 # TechnoApe
 
-A first-person survival and automation game on small spherical planets of 0.5 m blocks, built on its own
+A first-person survival and automation game on small spherical planets of 1 m blocks, built on its own
 engine in Rust + wgpu with an AI-assisted workflow.
 
-Status: **fresh start (2026-11-09).** Engine base and client/server split done; the first playable is in progress.
+Status: **in development (fresh start 2026-11-09).** The first playable is done: Terra and Luna are baked from a
+seed, with rivers, tides, weather, plants and animals, survival and an inventory. Machines, crafting and the
+journey to orbit are next (`docs/plans/roadmap.md`). The story is in `docs/design/lore.md`.
 
 ## Layout
 

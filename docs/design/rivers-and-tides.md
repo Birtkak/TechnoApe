@@ -1,6 +1,7 @@
 # Rivers at rest, and a sea that follows Luna
 
-- **Status:** design proposal, 2026-11-10, for the two spikes of `worldgen-plan.md` W5. The developer's
+- **Status:** design proposal, 2026-11-10, for the two spikes of `worldgen-plan.md` W5. **Built:** rivers and
+  lakes with counted water (ADR 0059) and the tides (ADR 0067). The developer's
   calls: rivers and lakes hold real counted water (ADR 0020, 0026) and tides follow Luna (ADR 0026).
   The tide's height is decided (2026-11-12): **1 m between low and high at springs**, one number in the
   body's data. Rivers and lakes are built before tides (the developer, 2026-11-12); until W3's air grid

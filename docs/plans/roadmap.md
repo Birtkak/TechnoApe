@@ -3,8 +3,10 @@
 Direction: ADR 0001 (planets first), 0002 (our own Rust + wgpu engine and what it does), 0003 (cube-sphere
 grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read those first.
 
-Brought up to date 2026-11-14. The world's stages are staged and tracked in `docs/plans/worldgen-plan.md`;
-this file says what is done, what is in work and what comes next, in order.
+Brought up to date 2026-11-16 (it stood at 2026-11-12 before; main is at 2026-11-14). The world's stages are
+staged and tracked in `docs/plans/worldgen-plan.md`; this file says what is done, what is in work and what
+comes next, in order. How work is done: features first, speed in batches (ADR 0096, CLAUDE.md principle 14);
+the debt is `docs/perf-debt.md`. The story is `docs/design/lore.md`.
 
 ## Done
 - **Engine choice (2026-11-09):** a ready-made-engine spike (p14) and a Rust + wgpu spike (p15) drew the same benchmark;
@@ -40,6 +42,27 @@ this file says what is done, what is in work and what comes next, in order.
     them (ADR 0059, save version 12);
   - W6: Luna's own bake, with ice in the polar shadow, and a full Luna that reads bright from Terra
     (ADR 0027, 0070).
+- **Looks and the living world (2026-11-12 to 14)**, all merged to main:
+  - **Weather made visible** (ADR 0076): clouds, rain, wind, storms and snow from the live air grid; the
+    water's look (ADR 0071) and beds under water (ADR 0086); taller mountains and clouds at 250 m (ADR 0105);
+    sky, shadow and hand fixes (ADR 0072, 0098).
+  - **Navigation part 3** (ADR 0077): the globe map, with waypoints in survival.
+  - **Tides** (ADR 0067), built after the rivers and lakes of W5.
+  - **Items and inventory** (ADR 0074, 0075): slots, packs, piles and the survival and creative screens;
+    pick-ups and clutter on the ground (ADR 0082); flint (ADR 0097).
+  - **See-through blocks and box models** (ADR 0068, 0069, 0081): cutout leaves, glass, still models in the
+    chunk mesh; joined lamps (ADR 0085).
+  - **Flora** (ADR 0088 to 0092, 0099, 0100): fluffy crowns, plants of crossed planes, trees with branches,
+    denser forests, forests in the far chunks and over the face seams; painted at 32 pixels per metre.
+  - **Peaceful animals** (ADR 0083): herds computed from the seed, drifting while nobody is near.
+  - **Mining** (ADR 0087, 0093, 0094, 0095): rubble that blocks the way, stacks of 16, cracks and the drop along
+    them, the changed rock around ore bodies. Slice (c), undercut and drop, is not built.
+  - **The reacting world, first parts** (ADR 0078, 0079, 0101): the dig's chips on the fine lattice, loose
+    blocks that fall and slide, powders as slopes. Chiselling and collapse are not built.
+  - **Painted block textures** (ADR 0084), **the Studio's usability rounds and a palette that grows**
+    (ADR 0064 to 0066, 0080), the light bug round (ADR 0072), streaming and LOD fixes (ADR 0073).
+  - **Optimisation batches** (ADR 0102 to 0104): the CPU batch, the G-buffer batch, rays and clouds. The
+    speed of the 11-13 round is the baseline now; open rows are in `docs/perf-debt.md`.
 - **The Studio** (ADR 0044, 0046, 0049, 0051): textures from a palette, models, sounds, effects, structures
   and fauna pages, tied to the running game.
 - **An audit of the whole repo (2026-11-12):** fifteen findings in the server, the protocol, saves, the
@@ -59,6 +82,12 @@ this file says what is done, what is in work and what comes next, in order.
   shadows snapped to texels, no rain or snow above the clouds, looser clouds (0108), builds seen from afar
   (0109); the first tools from flint (0110); the 1440p speed batch (0111: the forest at 2560 x 1440 is still
   GPU-bound at 12 to 17 ms); mining slice (c), undercut and drop (0112: roofs of closed rooms only).
+
+## In work (2026-11-16)
+- **The story** (`docs/design/lore.md`): the Indigenti, the uplifted ape and the fuel ladder, set down on
+  2026-11-16. The ending is open on purpose; the corner landmarks of ADR 0027 are dropped (ADR 0136).
+  `progression.md` is rewritten when the story is settled.
+- Nothing else is known to be in work on a branch; this file is updated when a session starts one.
 
 ## Next
 In this order unless the developer says otherwise (the developer's order of 2026-11-14 first).
@@ -80,25 +109,25 @@ In this order unless the developer says otherwise (the developer's order of 2026
      developer, 2026-11-14: it is for cord and for hafting tools. Write it into `crafting.md` when built).
 
 1. **What the world's stages left open** (`docs/plans/worldgen-plan.md`):
-   - W2b, the globe map (`docs/design/navigation.md` part 3): spike first;
-   - the shader's 8 bits of material, before the block list passes 255 (ADR 0062's `shortcut:`);
-   - looks the developer makes in the Studio: each rock's and ore's, the rivers' and waterfalls', Luna's.
-2. **Items, needs and the journal** (designs of 2026-11-11, calls in ADR 0047; nothing built): items steps
-   1-3 (slots, piles, the screen), needs steps 1-3 (thirst, breath, death's cost), the journal's steps 1-3
-   (events, `look:` and `have:`, the book); then the process runner of `crafting.md` brings tools, food and
-   `do:`/`see:` together. ADR 0027: the ape learns by doing, Terra has animals and hostile creatures, the
-   cube corners hold something made.
-3. **Visible weather** (ADR 0010; the air grid already runs): clouds, rain, wind, storms; snow on the
-   ground with it (`seasonal-looks.md` leaves it to the weather).
-4. **Fine cells** (breaking, sand, debris), chiselled blocks, felled trees; then **W7, living plants**, which
-   waits for them.
-5. **World physics** (ADR 0017: loose blocks fall and slide, unsupported builds collapse) and **blueprints**
-   (ADR 0017: capture, name, paste, materials paid from storage).
+   - the shader's 8 bits of material, before the block list passes 255 (ADR 0062's `shortcut:`; block ids reach 217
+     of 255);
+   - looks the developer makes in the Studio: each rock's and ore's, the rivers' and waterfalls', Luna's;
+   - the Studio's box tools (step 5 of `see-through-and-boxes.md`).
+2. **Needs and the journal** (designs of 2026-11-11, calls in ADR 0047; items are built, these are not):
+   needs steps 1-3 (thirst, breath, death's cost; today only health and hunger and the breath held when buried),
+   the journal's steps 1-3 (events, `look:` and `have:`, the book); then the process runner of `crafting.md`
+   brings tools, food and `do:`/`see:` together. ADR 0027: the ape learns by doing, Terra has animals and
+   hostile creatures. What the creatures are waits on the story (`lore.md`, `open-questions.md`).
+3. **Mining's slice (c)**, undercut and drop, and blasting later (`docs/design/mining.md`).
+4. **Fine cells, chiselled blocks and collapse** (`docs/design/fine-cells.md`; chips and falling blocks are
+   built), felled trees; then **W7, living plants**, which waits for them.
+5. **Blueprints** (ADR 0017: capture, name, paste, materials paid from storage) and building collapse.
 6. **Crafting and the first machines** (`crafting.md`), then **networks** (`networks.md`: shafts first, then
    pipes and wires on one engine).
    With crafting: the torch's recipe (ADR 0117; the torch is only `/give torch` and creative until then).
-7. **The dedicated server on the home server and auto-update** (ADR 0005); AI players; the jetpack and the
-   climb to orbit, with the attitude ball (`navigation.md` part 4).
+7. **The dedicated server on the home server and auto-update** (ADR 0005); AI players (the troop); the jetpack
+   and the climb to orbit, with the attitude ball (`navigation.md` part 4).
+8. **Optimisation batches** whenever `docs/perf-debt.md` grows past what playing can bear (ADR 0096).
 
 ## Later
 - **On the material ledger** (the developer, 2026-11-10; opened by W4's ores, exact through every dig and
@@ -110,6 +139,9 @@ In this order unless the developer says otherwise (the developer's order of 2026
 - Gravity that falls off with distance and orbits; the first megaproject.
 - ~~**Big builds seen from afar**~~ done (ADR 0109): a coarse cell takes a placed block anywhere in it, and a
   far lamp glows. Left: a far lamp's light on the ground around it.
+- **The fuel ages and two more systems** (`lore.md`): chemical, then fusion, then antimatter; Alpha Centauri
+  and the Indigenti's star as places to go. This changes `progression.md`'s exotic age and shortens the
+  early game to make room; it needs its own plan once the story is settled.
 - **Builds in free space** (a ring around Luna, a structure around the sun) need their own grid, as ships do:
   a body's grid ends at its build headroom (ADR 0021).
 - **The planet's air after weather** (ADR 0010): pollution (smoke and waste in air, water and soil; filters

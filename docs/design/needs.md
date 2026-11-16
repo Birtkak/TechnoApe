@@ -1,7 +1,7 @@
 # The ape's body: thirst, food, warmth, air, and what death costs
 
 - **Status:** design proposal, 2026-11-11. `survival.md` and ADR 0040 are what is built (health, hunger,
-  impact, a death screen); this is where they grow, in the order the engine can carry it. The developer's
+  impact, a death screen; since ADR 0079 also the breath held when buried in sand); this is where they grow, in the order the engine can carry it. The developer's
   calls: survival is harsh, and every need starts as a chore and ends as a factory (ADR 0008). Lines
   marked *taste call* are open; the numbers are starting points for the first playtest and belong in
   `data/needs.toml`.

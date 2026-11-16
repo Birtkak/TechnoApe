@@ -1,6 +1,8 @@
 # See-through blocks and textured box models
 
-- **Status:** design, 2026-11-12. Steps 1 (the spike, ADR 0068) and 2 (cutout blocks, ADR 0069) are built. Each step starts with a measured spike and gets its ADR
+- **Status:** design, 2026-11-12. Built: steps 1 (the spike, ADR 0068), 2 (cutout blocks, ADR 0069), 3, 4 and 6
+  (glass and box models, ADR 0081) and 7 (clutter and pick-ups, ADR 0082). Not built: step 5, the Studio's box
+  tools. Each step starts with a measured spike and gets its ADR
   from the coding session.
 - **The developer's calls (2026-11-12):** "I want see-through leaves anyways and I want detailed forest floor
   clutter later and see-through glass, so I'd suggest integrating textured boxes and make it a big nice

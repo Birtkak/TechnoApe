@@ -1,6 +1,7 @@
 # Clutter and pick-ups: what lies on the ground
 
-- **Status:** design, 2026-11-12. Nothing is built. It is step 7 of `see-through-and-boxes.md`, split in two:
+- **Status:** design, 2026-11-12; **built 2026-11-13 (ADR 0082)**: clutter computed from the seed and pick-ups
+  taken by looking and clicking (bots' `pick`). Open items below are still open. It is step 7 of `see-through-and-boxes.md`, split in two:
   **7a clutter** (decoration) needs that document's step 6 (still models in the chunk mesh); **7b pick-ups**
   also needs items to exist (`items.md`, a proposal: today only blocks can be owned).
 - **The developer's calls (2026-11-12):** living things regrow, stones do not; a pick-up is taken by looking

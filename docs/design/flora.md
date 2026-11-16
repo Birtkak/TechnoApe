@@ -1,11 +1,14 @@
 # Flora: trees, shrubs and grass that look alive
 
-- **Status:** design, 2026-11-13 (the developer's calls of that day; ADR 0089). Nothing here is built.
+- **Status:** design, 2026-11-13 (the developer's calls of that day; ADR 0089). **Built since, the same
+  day:** the fluffy crowns (ADR 0088, 0090, 0099), the plants of crossed planes (ADR 0091) and the trees with
+  branches and denser forests (ADR 0092); forests reach the far chunks and cross face seams (ADR 0100). Costs
+  are rows in `docs/perf-debt.md`.
 - **Reference:** Vintage Story (the developer's five screenshots): soft ragged crowns with branches showing
   inside, layered conifers, many species, meadows of tall grass and flowers as crossed planes, berry bushes,
   yellow-green dry land against deep green wet land.
-- **From:** ADR 0069 (cutout blocks, fast and fancy leaves), ADR 0088 (fast leaves with open holes: built on
-  branch `claude/open-leaf-holes`, not merged), ADR 0082 (clutter: still models in the chunk mesh, computed
+- **From:** ADR 0069 (cutout blocks, fast and fancy leaves), ADR 0088 (fast leaves with open holes: built, merged
+  with ADR 0090), ADR 0082 (clutter: still models in the chunk mesh, computed
   from the seed), ADR 0084 (calm, readable textures), ADR 0076 (the weather's wind), `seasonal-looks.md`,
   `biomes.toml`'s plants (`cone`, `round`, `flat`, `bush`, `column`).
 

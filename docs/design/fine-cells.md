@@ -1,6 +1,8 @@
 # Fine cells and the reacting world
 
-- **Status:** design, 2026-11-12. Roadmap items 4 and 5. ADR 0078 (fine cells' data and simulation) and
+- **Status:** design, 2026-11-12. Roadmap items 4 and 5. **Built so far:** the dig's chips on the fine lattice
+  (ADR 0078), loose blocks that fall and slide (ADR 0079, calmer rule and slopes in ADR 0101); material fine cells,
+  chiselling and collapse are not. ADR 0078 (fine cells' data and simulation) and
   ADR 0079 (loose blocks and collapse). The spike: `prototypes/fine-cells/README.md`.
 - **From:** vision ("blocks are solid and cheap; where something happens they break into fine 12.5 cm cells
   (debris, sand, splashes) and settle back"), fundamentals 2.2 ("this block is fine cells" lives in the

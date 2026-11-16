@@ -1,7 +1,8 @@
 # World generation and the living world: Terra and Luna
 
 - **Status:** design, 2026-11-10. The developer's calls are in ADR 0026; everything marked *proposal* or
-  listed under "Taste calls still open" is not decided. Nothing here is built.
+  listed under "Taste calls still open" is not decided. **Built 2026-11-11 to 13:** stages W0 to W6 (plan: `docs/plans/worldgen-plan.md`), tides, rivers and
+  lakes; living plants (W7) are not.
 - **Names:** the planet is **Terra**, its moon is **Luna** (the developer, 2026-11-10).
 - **Comes after** the optimisation pass (`docs/plans/optimization-handoff.md`); its package E, the height
   cache, is the seam this plugs into.
@@ -160,8 +161,7 @@ Each mineral has a rule for where it forms, so finding one teaches where to look
 
 ## Luna
 Luna is about 1 km in radius (ADR 0027; 177 m before): 14 km² of surface, so the stages below have room.
-Each body's 8 cube corners hold something made (ADR 0027): the bake keeps those sites clear and places
-the structures; what they are is in `open-questions.md`.
+(The 8 cube corners were to hold something made; dropped by ADR 0136, the bake treats them as any ground.)
 
 No air, no water cycle, no plates. Its bake is a different, shorter pipeline:
 

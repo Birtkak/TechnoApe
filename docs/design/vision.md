@@ -70,8 +70,12 @@ dig into it, build factories on it, and fly up to orbit and over to its moon wit
 - The tiers themselves: `progression.md` proposes Starter, LV, MV, HV, EV, IV and an exotic tier, with a
   megaproject each; the exotic resource's name and rule.
 - Decided in ADR 0027: the ape learns by doing and seeing (`journal.md`), Terra has animals and hostile
-  creatures, the 8 cube corners hold something made. What the creatures and the made things are is open
-  (`open-questions.md`).
+  creatures. (The 8 cube corners were to hold something made; dropped by ADR 0136.) What the hostile
+  creatures are is open (`open-questions.md`).
+- **The story** (`lore.md`, 2026-11-16): the Indigenti's swarm binds the first ape to touch its monument;
+  three systems (Sol, Alpha Centauri, the Indigenti's star) and a fuel ladder of chemical, fusion and
+  antimatter. The ending is left open on purpose. `progression.md` still describes the single exotic age and
+  is rewritten once the story is settled.
 - AI players as the ape's troop.
 - How fast needs drain, and what death costs (proposed in `needs.md`); how the ape carries (`items.md`).
 - Magic or wands: dropped for now, may return later.

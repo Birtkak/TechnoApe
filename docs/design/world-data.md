@@ -1,7 +1,7 @@
 # World data: what a block is, and who may ask
 
 - **Status:** design proposal, 2026-11-10. Routine technical calls with their reasons; each part gets its
-  ADR and benchmark when it is built (`worldgen-plan.md` W4 builds most of it). No taste calls in here.
+  ADR and benchmark when it is built (`worldgen-plan.md` W4 built most of it, ADR 0062 and 0063). No taste calls in here.
 - **Why now:** Terra's rocks, caves and ore (ADR 0026) make a block depend on column and layer; machines,
   dense bases and a planet that can be mined out (ADR 0009) all land on the same structures. Decided
   piecemeal, the mesher, the physics and the water end up with three answers to "what is here".
