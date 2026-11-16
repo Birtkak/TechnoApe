@@ -102,7 +102,7 @@ pub struct Tool {
     pub grade: u8,
     /// Digs before it is worn away (each costs one); a stack's payload counts those it has had.
     pub uses: u16,
-    /// How far a prospecting strike of it hears ore, metres (ADR draft-ore-samples-and-prospecting); 0: it
+    /// How far a prospecting strike of it hears ore, metres (ADR 0138); 0: it
     /// does not prospect.
     pub prospect: f32,
 }
@@ -498,7 +498,7 @@ mod tests {
         assert!(e.contains("sample 'gold nugget'"), "{e}");
     }
 
-    /// Prospecting (ADR draft-ore-samples-and-prospecting): the hand axe, of flint, hears ore 16 m off; a pick or
+    /// Prospecting (ADR 0138): the hand axe, of flint, hears ore 16 m off; a pick or
     /// an every-kind tool prospects, an axe does not, nor a head of no reach.
     #[test]
     fn a_flint_tool_prospects_sixteen_metres() {

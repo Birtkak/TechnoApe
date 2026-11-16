@@ -111,7 +111,7 @@ pub(crate) struct App {
     /// struck a knapping stone (the start clock's seconds).
     pub(crate) hand_sent: Option<usize>,
     pub(crate) struck: f64,
-    /// Where the last prospecting strike fell: its answer's knock plays there (ADR draft-ore-samples-and-prospecting).
+    /// Where the last prospecting strike fell: its answer's knock plays there (ADR 0138).
     pub(crate) struck_at: glam::DVec3,
     /// The effects (ADR 0031): the particle pool and the particles drawn this frame; the block in hand's dip
     /// (a track, from the clock `start`); `walked` bobs it.

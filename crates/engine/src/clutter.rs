@@ -180,7 +180,7 @@ impl Thing {
 #[allow(clippy::too_many_arguments)]
 pub fn pick(body: &Body, seed: u64, face: u8, i: i32, j: i32, biome: u8, ground: u16, season: u8, density: f32, trees: &[(i32, i32)]) -> Option<Thing> {
     let h = roll(seed, face, i, j);
-    // a sample over an ore body first: it lies on any ground (ADR draft-ore-samples-and-prospecting)
+    // a sample over an ore body first: it lies on any ground (ADR 0138)
     if let Some(t) = sample(body, seed, face, i, j) {
         return Some(t);
     }
@@ -189,7 +189,7 @@ pub fn pick(body: &Body, seed: u64, face: u8, i: i32, j: i32, biome: u8, ground:
 }
 
 /// Per mineral kind (`ore::MINERALS`), the pick-up row that gives its `sample`: the row of a sample lying on
-/// the ground over its bodies (ADR draft-ore-samples-and-prospecting).
+/// the ground over its bodies (ADR 0138).
 pub static SAMPLES: LazyLock<Vec<Option<usize>>> = LazyLock::new(|| {
     let gives = |s: &String| CLUTTER.iter().position(|r| r.kind == Kind::Pickup && r.gives.as_ref().is_some_and(|g| &g.0 == s));
     crate::ore::MINERALS.kinds.iter().map(|k| k.sample.as_ref().map(|s| gives(s).unwrap_or_else(|| panic!("data/clutter.toml: no pick-up gives '{s}', kind '{}''s sample", k.name)))).collect()
@@ -765,7 +765,7 @@ mod tests {
         }
     }
 
-    /// Ore samples (ADR draft-ore-samples-and-prospecting): every kind's sample has a pick-up row; over the bodies
+    /// Ore samples (ADR 0138): every kind's sample has a pick-up row; over the bodies
     /// of the kinds that have one their item lies loose on the dry ground, about `SAMPLE_EVERY_M2` apart at the
     /// middle and thinning to none at the spread's rim, and none lies off every body's spread.
     #[test]
@@ -788,7 +788,7 @@ mod tests {
                 let tile = b.tile(o.face, 0, i.div_euclid(CS), j.div_euclid(CS));
                 let Some((z, _, _)) = ground(b, &tile, o.face, i, j) else { continue };
                 let here = pickup_at(&w, Block { body: 0, face: o.face, pos: IVec3::new(i, j, z) }, 0.0).is_some_and(|t| t.row == row);
-                let others = b.ores.iter().any(|p| p.kind == o.kind && p != o && p.face == o.face && p.spread(i, j).is_some());
+                let others = b.ores.iter().any(|p| SAMPLES[p.kind as usize] == Some(row) && p != o && p.face == o.face && p.spread(i, j).is_some());
                 match o.spread(i, j) {
                     Some(q) => {
                         want += (1.0 - q) / SAMPLE_EVERY_M2;

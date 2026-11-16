@@ -57,7 +57,7 @@ name = "flint"
 speed = 2.0
 grade = 1
 uses = 40
-# `prospect`: how far a prospecting strike with a tool of it hears ore, metres (ADR draft-ore-samples-and-prospecting;
+# `prospect`: how far a prospecting strike with a tool of it hears ore, metres (ADR 0138;
 # 0 or left out: it does not prospect; at most 64). The place button with a pick or an every-kind tool on rock.
 prospect = 16
 
@@ -77,7 +77,7 @@ look = "coral"
 name = "berries"
 look = "coral"
 
-# Ore samples (ADR draft-ore-samples-and-prospecting): loose bits lying on the ground over an ore body
+# Ore samples (ADR 0138): loose bits lying on the ground over an ore body
 # (data/minerals.toml `sample`, data/clutter.toml), taken by hand. They hold no metal.
 # shortcut: samples are only a sign for now; nuggets become smeltable with the copper age's recipes.
 [[item]]

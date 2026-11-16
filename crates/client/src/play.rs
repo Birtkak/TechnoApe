@@ -947,7 +947,7 @@ impl App {
         (rock && !self.creative && !self.hammer && engine::items::ITEMS.get(st.item)?.knap.is_some()).then_some(hit)
     }
 
-    /// The hard rock aimed at while a prospecting tool is in hand in survival (ADR draft-ore-samples-and-prospecting).
+    /// The hard rock aimed at while a prospecting tool is in hand in survival (ADR 0138).
     pub(crate) fn prospect_target(&self) -> Option<Block> {
         let (hit, _) = self.aim?;
         let rock = BLOCKS.get(self.world.block(hit)).is_some_and(engine::items::knaps);
@@ -960,7 +960,7 @@ impl App {
     /// drops for jitter.
     fn strike(&mut self) {
         let now = self.start.elapsed().as_secs_f64();
-        // or of a prospecting tool (ADR draft-ore-samples-and-prospecting): the server's answer brings its knock
+        // or of a prospecting tool (ADR 0138): the server's answer brings its knock
         let prospect = self.prospect_target();
         let wait = if prospect.is_some() { engine::items::PROSPECT_WAIT_S } else { engine::items::KNAP_WAIT_S };
         let Some(hit) = prospect.or(self.knap_target()).filter(|_| now - self.struck >= wait + 1.0 / engine::net::TICK_HZ) else { return };

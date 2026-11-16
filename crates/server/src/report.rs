@@ -57,7 +57,7 @@ fn minerals(w: &World) -> Vec<String> {
     let halo = engine::ore::count_halo(b);
     for (k, kind) in MINERALS.kinds.iter().enumerate() {
         let l = line(&format!("kind {}", kind.name), &|o| o.kind as usize == k, None);
-        // the samples lying over its bodies (ADR draft-ore-samples-and-prospecting)
+        // the samples lying over its bodies (ADR 0138)
         let l = if kind.sample.is_some() { format!("{}, \"samples\": {}}}", &l[..l.len() - 1], samples(b, k)) } else { l };
         if kind.halo.is_empty() {
             out.push(l);

@@ -146,7 +146,7 @@ pub enum ToClient {
     /// The planet's air as the client draws it (ADR 0076): every column (`all`, on join) or the columns that
     /// changed (by index), when the grid lands a step at world time `t` or a forced weather changes.
     Sky { t: f64, all: Vec<crate::weather::Cell>, changed: Vec<(u32, crate::weather::Cell)> },
-    /// The answer to this player's prospecting `Strike` (ADR draft-ore-samples-and-prospecting): each element
+    /// The answer to this player's prospecting `Strike` (ADR 0138): each element
     /// heard and its band (`ore::BANDS`), strongest first (`ore::prospect`); empty: the rock rings empty.
     Prospect(Vec<(String, u8)>),
 }

@@ -386,7 +386,7 @@ impl App {
                 }
                 Recv::Msg(ToClient::Air(h)) => self.air = Some(h),
                 Recv::Msg(ToClient::Sky { t, all, changed }) => self.sky.take(t, all, changed),
-                // a prospecting strike's answer (ADR draft-ore-samples-and-prospecting): a line to read, and the knock
+                // a prospecting strike's answer (ADR 0138): a line to read, and the knock
                 // rings higher the stronger the best band
                 Recv::Msg(ToClient::Prospect(v)) => {
                     let line = if v.is_empty() { "the rock rings empty".to_string() } else { v.iter().map(|(e, b)| format!("{e}: {}", engine::ore::BANDS.get(*b as usize).unwrap_or(&"?"))).collect::<Vec<_>>().join(", ") };

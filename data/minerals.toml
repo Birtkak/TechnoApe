@@ -15,7 +15,7 @@
 # `halo`: the altered rock around a body at a depth (ADR 0095), its grades outermost first (blocks), the last
 #   next to the ore; `halo_m`: how far out it reaches, metres from the ore. Host rock with a look: no metal.
 # `sample`: an item (data/items.toml) lying loose on the ground over each body, densest over its middle
-#   (ADR draft-ore-samples-and-prospecting; the density is `ore::SAMPLE_EVERY_M2`): for the bodies that show at the
+#   (ADR 0138; the density is `ore::SAMPLE_EVERY_M2`): for the bodies that show at the
 #   ground as no gravel. A sample holds no metal: the ledger never counts it.
 #   shortcut: samples are only a sign for now; nuggets become smeltable with the copper age's recipes.
 

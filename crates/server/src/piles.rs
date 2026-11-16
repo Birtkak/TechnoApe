@@ -162,7 +162,7 @@ impl Server {
         }
     }
 
-    /// Client i strikes the prospecting tool in hand on block `at` (ADR draft-ore-samples-and-prospecting): alive,
+    /// Client i strikes the prospecting tool in hand on block `at` (ADR 0138): alive,
     /// within reach, hard rock there (`items::knaps`: rock, ore, the altered rocks), at most one every
     /// `items::PROSPECT_WAIT_S`. It costs the tool a use (its last leaves nothing) and only that player is
     /// answered, with what `ore::prospect` hears within the tool's `range`.

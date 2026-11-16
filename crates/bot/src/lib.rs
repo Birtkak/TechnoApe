@@ -15,7 +15,7 @@
 //!   put a dx dy dz k n  n from slot a to slot k of the pile there  grab item a n  creative's grid: n into a
 //! Tools (ADR 0110): `hold k` takes hotbar slot k in hand (a survival dig uses its tool); `strike dx dy dz` strikes
 //! what is in hand on that block (the place button with flint: knapping). `slots` gives a tool's digs left too.
-//! Prospecting (ADR draft-ore-samples-and-prospecting): `prospect dx dy dz` strikes the prospecting tool in hand on
+//! Prospecting (ADR 0138): `prospect dx dy dz` strikes the prospecting tool in hand on
 //! that block and waits (up to 2 s) for the answer, one JSON line: `{"bot":..,"prospect":[["copper","strong"],..]}`,
 //! an empty list when the rock rings empty.
 //! Sprint (ADR 0118): `sprint on` makes every walk after it a sprint, `sprint off` a walk again. A walk looks at
@@ -561,7 +561,7 @@ mod tests {
         assert!(out.last().unwrap().contains(&format!("\"material\":{rubble}")), "{out:?}");
     }
 
-    /// Prospecting by script (ADR draft-ore-samples-and-prospecting): a survival bot given a hand axe strikes granite
+    /// Prospecting by script (ADR 0138): a survival bot given a hand axe strikes granite
     /// beside its feet and prints the answer as one JSON line (no ore on the noise land: the rock rings empty); a
     /// strike sooner than a second after is not answered, and each answered one costs the axe a use.
     #[test]

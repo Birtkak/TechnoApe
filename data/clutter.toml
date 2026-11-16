@@ -72,7 +72,7 @@ near = "open"
 season = ["summer"]
 regrow = "year"
 
-# Ore samples (ADR draft-ore-samples-and-prospecting): no biome lists them and `on` is empty; they lie over the ore
+# Ore samples (ADR 0138): no biome lists them and `on` is empty; they lie over the ore
 # bodies whose kind names them as its `sample` (data/minerals.toml), on any dry ground, and are taken once.
 [[clutter]]
 name = "copper nugget"

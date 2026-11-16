@@ -1100,7 +1100,7 @@ fn a_player_digs_an_ore_body_out_and_its_ledger_reaches_zero() {
     assert_eq!((s.world.ore_left.clone(), s.ore_ledger()), (Some(vec![0]), vec![]), "dug out");
 }
 
-/// Prospecting (ADR draft-ore-samples-and-prospecting): the hand axe struck on rock over a lead lump 3.5 m down
+/// Prospecting (ADR 0138): the hand axe struck on rock over a lead lump 3.5 m down
 /// answers that player "lead: strong" and costs a use; a strike sooner than a second after is not answered and
 /// costs nothing; soil and creative answer nothing; a body the ledger has dug out leaves the rock ringing empty.
 #[test]
@@ -1155,7 +1155,7 @@ fn a_prospecting_strike_hears_the_ore_below_and_costs_a_use() {
     assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
 }
 
-/// Ore samples (ADR draft-ore-samples-and-prospecting): a sample lying over a body is taken by hand like any
+/// Ore samples (ADR 0138): a sample lying over a body is taken by hand like any
 /// pick-up, once; the ore ledger does not move, and the items' ledger counts the sample as made.
 #[test]
 fn an_ore_sample_is_taken_once_and_the_ore_ledger_holds() {

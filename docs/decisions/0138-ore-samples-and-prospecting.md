@@ -1,4 +1,4 @@
-# NNNN – Ore samples and prospecting
+# 0138 – Ore samples on the ground and a prospecting strike
 
 - **Status:** proposed
 - **Date:** 2026-11-16

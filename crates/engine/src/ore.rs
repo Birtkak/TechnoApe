@@ -396,7 +396,7 @@ pub fn place(b: &Body, seed: u64) -> Vec<OreBody> {
 }
 
 /// One sample lies on this many square metres of ground at the middle of a body's footprint, thinning to none at
-/// its rim (ADR draft-ore-samples-and-prospecting; the developer's to tune).
+/// its rim (ADR 0138; the developer's to tune).
 pub const SAMPLE_EVERY_M2: f64 = 40.0;
 /// Samples spread at least this far from a body's middle line, metres: a vein two metres thin still shows.
 pub const SAMPLE_SPREAD_M: f64 = 6.0;
@@ -582,7 +582,7 @@ mod tests {
         }
     }
 
-    /// A prospecting strike (ADR draft-ore-samples-and-prospecting) hears each element's nearest body by band:
+    /// A prospecting strike (ADR 0138) hears each element's nearest body by band:
     /// rich under R/8, strong under R/3, some under 2R/3, traces under R, nothing beyond, the strongest first; a
     /// body the ledger has dug out says nothing.
     #[test]
