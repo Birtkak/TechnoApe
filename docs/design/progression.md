@@ -74,10 +74,7 @@ only works what its heat reaches.
 |---|---|---|---|
 | **Crucible** | 1100 C | copper (melts at 1085 C), tin, bronze, gold | the first half hour |
 | **Bloomery** | 1400 C | iron as a bloom: it never melts (1538 C), it is hammered | the end of the Steam Age |
-| **Blast furnace** | 2200 C | molten iron, steel | LV, with an electric blower; a multiblock one later makes more at a time |
-
-*Open:* 2200 C is the flame of a modern hot blast; a charcoal blast furnace runs near 1600 C. The number
-matters once something needs more than 1600 C.
+| **Blast furnace** | 1600 C | molten iron, steel | LV, with an electric blower; a multiblock one later reaches 2200 C (a hot blast) and makes more at a time |
 
 ### LV
 
