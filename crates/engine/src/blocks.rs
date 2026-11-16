@@ -767,10 +767,10 @@ see = \"glass\"
         assert_eq!(r.get(1).unwrap().model.as_deref(), Some("furnace"));
         // ADR 0117: the torch is the one row with a model: walked through, seen through, a warm light weaker than
         // the lamp's, hangs on a floor or a wall, a flame, broken by hand into itself, a full stack of 64
-        // and the crucible, drawn with the furnace model (ADR 0141), solid
+        // and the crucible, drawn with its own model (ADR 0141), solid
         let with: Vec<&str> = BLOCKS.placeable().filter(|d| d.model.is_some()).map(|d| d.name.as_str()).collect();
         assert_eq!(with, ["torch", "crucible"]);
-        assert!(BLOCKS.get(BLOCKS.id("crucible")).is_some_and(|d| d.solid && d.model.as_deref() == Some("furnace")));
+        assert!(BLOCKS.get(BLOCKS.id("crucible")).is_some_and(|d| d.solid && d.model.as_deref() == Some("crucible")));
         let (t, lamp) = (BLOCKS.get(BLOCKS.id("torch")).unwrap(), BLOCKS.get(BLOCKS.id("lamp")).unwrap());
         assert_eq!(t.model.as_deref(), Some("torch"));
         assert!(!t.solid && t.see == See::Cutout && t.hangs && t.flame && t.loose && t.stack == 64);

@@ -423,10 +423,10 @@ fn effects_colour_dir_then_texture_and_model_save_as_the_game_reads_them() {
     assert!(line.contains("\"undo\":[\"look: texture\",\"texture: dirt\"]") && line.contains("\"unsaved\":[]"), "{line}");
     let r = read();
     assert_eq!((r.look, r.texture.as_deref(), r.model.as_deref()), (client::fx::Look::Texture, Some("dirt"), None));
-    let line = studio(&dir, &["cmd=open:Effects:flames", "size=1280x1800", "input=click @choice:look:model; click @pick:model; click @pick:model:furnace; key Ctrl+S"]);
+    let line = studio(&dir, &["cmd=open:Effects:flames", "size=1280x1800", "input=click @choice:look:model; click @pick:model; click @pick:model:boar; key Ctrl+S"]);
     assert!(line.contains("\"unsaved\":[]"), "{line}");
     let r = read();
-    assert_eq!((r.look, r.texture.as_deref(), r.model.as_deref(), r.glow), (client::fx::Look::Model, None, Some("furnace"), 0.0), "{line}");
+    assert_eq!((r.look, r.texture.as_deref(), r.model.as_deref(), r.glow), (client::fx::Look::Model, None, Some("boar"), 0.0), "{line}");
 }
 
 /// A creature row of a creatures.toml as the game reads it.
