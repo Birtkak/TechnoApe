@@ -16,9 +16,9 @@ fn server_with(n: usize) -> (Server, Vec<Link<ToServer, ToClient>>) {
     (s, links)
 }
 
-/// Each item and how many of it the slots hold, by id.
+/// Each item and how many of it the slots hold, by id (an ape's grid cells not counted, as `items::count`).
 fn held(slots: &[Slot]) -> Vec<(u16, u32)> {
-    let mut ids: Vec<u16> = slots.iter().flatten().map(|s| s.item).collect();
+    let mut ids: Vec<u16> = slots.iter().take(items::APE_SLOTS).flatten().map(|s| s.item).collect();
     ids.sort_unstable();
     ids.dedup();
     ids.into_iter().map(|m| (m, items::count(slots, m))).collect()
@@ -289,7 +289,7 @@ fn survival_digs_into_the_inventory_and_pays_for_what_it_places() {
     }
     assert_eq!((items::count(&s.clients[0].slots, stone), items::count(&s.clients[0].slots, rubble)), (0, 8));
     assert!(s.item_ledger().is_empty() && s.piles.is_empty(), "into the slots, not a pile");
-    s.clients[0].slots = vec![None; items::APE_SLOTS];
+    s.clients[0].slots = items::ape();
     s.item_made.clear();
     l.send(ToServer::Chat("/give stone 8".into()));
     s.tick();
@@ -522,7 +522,8 @@ fn moves_follow_the_rule_and_a_refused_one_changes_nothing() {
     l.send(mv(1, (Holder::Ape, 1), (Holder::Ape, 4), 3));
     l.send(mv(2, (Holder::Ape, 0), (Holder::Grid, 0), 1));
     l.send(mv(3, (Holder::Grid, stone), (Holder::Ape, 5), 1));
-    l.send(mv(4, (Holder::Ape, 0), (Holder::Ape, 40), 1));
+    // past every slot (40 was before the crafting grid's cells took 37..45)
+    l.send(mv(4, (Holder::Ape, 0), (Holder::Ape, items::SLOTS as u16), 1));
     s.tick();
     let got = drain(l);
     let done: Vec<bool> = got.iter().filter_map(|m| if let ToClient::Done { ok, .. } = m { Some(*ok) } else { None }).collect();
@@ -941,50 +942,192 @@ fn a_save_keeps_a_tools_wear() {
     assert_eq!((st.item, st.payload, items::left(Some(st))), (ITEMS.named("hand axe").unwrap(), 7, Some(ITEMS.get(st.item).unwrap().tool.as_ref().unwrap().uses - 7)));
 }
 
-/// Hand crafting (draft ADR recipe-list-and-copper-tools): `Craft` makes a recipe as many of n times as the
-/// inputs allow and the output fits; one that lacks an input, has no room or names no recipe changes nothing.
-/// The ledger is exact throughout; creative crafts the same way.
+/// Moves `n` from slot `a` to slot `b` of the ape, as the client sends it, and a tick.
+fn shift(s: &mut Server, l: &Link<ToServer, ToClient>, a: usize, b: usize, n: u16) {
+    l.send(ToServer::Items { seq: 1, from: (Holder::Ape, a as u16), to: (Holder::Ape, b as u16), n });
+    s.tick();
+}
+
+/// The crafting grid (draft ADR crafting-grid): the pattern moved into the grid's cells is taken as its output,
+/// as many of n times as the cells hold and the slots have room for; another recipe's name, an empty grid or no
+/// room changes nothing. The ledger is exact throughout; creative crafts the same way.
 #[test]
-fn a_head_and_a_stick_make_a_copper_pick_by_hand_or_nothing_changes() {
+fn the_grid_makes_its_pattern_from_its_cells_or_nothing_changes() {
     let (mut s, links) = server_with(1);
     let l = &links[0];
     let id = |n: &str| ITEMS.named(n).unwrap();
-    let (stick, pick, flint) = (id("stick"), id("copper pick"), id("flint"));
+    let (head, stick, pick, flint) = (id("copper pick head"), id("stick"), id("copper pick"), id("flint"));
     l.send(ToServer::Chat("/give copper_pick_head 2".into()));
     l.send(ToServer::Chat("/give stick 3".into()));
     s.tick();
+    // the head above the sticks, in the 2 x 2's right column
+    shift(&mut s, l, 0, items::CRAFT_AT + 1, 2);
+    shift(&mut s, l, 1, items::CRAFT_AT + 4, 3);
+    assert_eq!((s.clients[0].slots[items::CRAFT_AT + 1], s.clients[0].slots[items::CRAFT_AT + 4]), (Some(Stack::new(head, 2)), Some(Stack::new(stick, 3))));
     let craft = |s: &mut Server, recipe: &str, n: u16| {
         l.send(ToServer::Craft { recipe: recipe.into(), n });
         s.tick();
-        held(&s.clients[0].slots)
+        (held(&s.clients[0].slots), engine::recipes::grid(&s.clients[0].slots))
     };
-    // three asked: two made, the third lacks a head
-    let mut want = vec![(stick, 1), (pick, 2)];
-    want.sort_unstable();
-    assert_eq!(craft(&mut s, "copper pick", 3), want);
+    assert_eq!(craft(&mut s, "copper axe", 1).0, vec![], "the grid holds no axe: nothing");
+    // three asked: two made, then the head's cell is empty
+    let (got, cells) = craft(&mut s, "copper pick", 3);
+    assert_eq!((got, cells[1], cells[4]), (vec![(pick, 2)], None, Some(stick)));
     assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
-    assert_eq!(craft(&mut s, "copper pick", 1), want, "no head: nothing");
-    assert_eq!(craft(&mut s, "copper spoon", 1), want, "no such recipe: nothing");
-    // no room: every usable slot full and neither input's stack emptied by the make
-    l.send(ToServer::Chat("/give copper_pick_head 2".into()));
-    l.send(ToServer::Chat("/give stick 1".into()));
+    assert_eq!(craft(&mut s, "copper pick", 1).0, vec![(pick, 2)], "no head: nothing");
+    // no room: every usable slot full
+    l.send(ToServer::Chat("/give copper_pick_head 1".into()));
     s.tick();
+    let k = (0..items::HOTBAR).find(|&k| s.clients[0].slots[k].is_some_and(|t| t.item == head)).unwrap();
+    shift(&mut s, l, k, items::CRAFT_AT + 1, 1);
     for k in items::usable(&s.clients[0].slots.clone()) {
         if s.clients[0].slots[k].is_none() {
             s.clients[0].slots[k] = Some(Stack::new(flint, 16));
             *s.item_made.entry(flint).or_default() += 16;
         }
     }
-    let full = held(&s.clients[0].slots);
-    assert_eq!(craft(&mut s, "copper pick", 1), full, "no room: nothing");
-    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    let full = s.clients[0].slots.clone();
+    craft(&mut s, "copper pick", 1);
+    assert_eq!(s.clients[0].slots, full, "no room: nothing");
     // creative alike, once room is made
     s.clients[0].slots[8] = None;
     *s.item_made.entry(flint).or_default() -= 16;
     l.send(ToServer::Creative(true));
     s.tick();
-    assert!(craft(&mut s, "copper_pick", 1).contains(&(pick, 3)));
+    assert!(craft(&mut s, "copper pick", 1).0.contains(&(pick, 3)));
     assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+}
+
+/// The workbench (draft ADR crafting-grid): the grid's cells outside the 2 x 2 take nothing until the player uses
+/// a workbench within `BENCH_REACH` (a use from too far, or of another block, opens nothing); there a pick is
+/// made in the far column. Walking away puts the cells back into the pack and the far column refuses again.
+#[test]
+fn the_bench_cells_count_only_at_a_workbench() {
+    let (mut s, links) = server_with(1);
+    let l = &links[0];
+    let id = |n: &str| ITEMS.named(n).unwrap();
+    let (pole, under) = on_land(&s);
+    l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    let bench = Block { pos: under.pos + glam::IVec3::new(2, 0, 1), ..under };
+    s.world.set_block(bench, BLOCKS.id("workbench"));
+    l.send(ToServer::Chat("/give copper_pick_head 1".into()));
+    l.send(ToServer::Chat("/give stick 1".into()));
+    s.tick();
+    let far = |s: &Server| (s.clients[0].slots[items::CRAFT_AT + 2], s.clients[0].slots[items::CRAFT_AT + 5]);
+    shift(&mut s, l, 0, items::CRAFT_AT + 2, 1);
+    assert_eq!(far(&s), (None, None), "no bench open: the far column takes nothing");
+    // a use of another block, or of the bench from too far, opens nothing
+    l.send(ToServer::Use(under));
+    s.tick();
+    shift(&mut s, l, 0, items::CRAFT_AT + 2, 1);
+    assert_eq!(far(&s), (None, None));
+    let away = pole + DVec3::X * 20.0;
+    l.send(ToServer::Move { pos: away.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    l.send(ToServer::Use(bench));
+    l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    s.tick();
+    shift(&mut s, l, 0, items::CRAFT_AT + 2, 1);
+    assert_eq!(far(&s), (None, None), "used from 20 m: nothing opened");
+    // at the bench: the head over the stick in the far column makes a pick
+    l.send(ToServer::Use(bench));
+    s.tick();
+    shift(&mut s, l, 0, items::CRAFT_AT + 2, 1);
+    shift(&mut s, l, 1, items::CRAFT_AT + 5, 1);
+    assert_eq!(far(&s), (Some(Stack::new(id("copper pick head"), 1)), Some(Stack::new(id("stick"), 1))));
+    l.send(ToServer::Craft { recipe: "copper pick".into(), n: 1 });
+    s.tick();
+    assert_eq!(held(&s.clients[0].slots), vec![(id("copper pick"), 1)]);
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    // walking away: what lies in the cells goes back into the pack, and the far column refuses again
+    l.send(ToServer::Chat("/give stick 2".into()));
+    s.tick();
+    let k = (0..items::HOTBAR).find(|&k| s.clients[0].slots[k].is_some_and(|t| t.item == id("stick"))).unwrap();
+    shift(&mut s, l, k, items::CRAFT_AT + 8, 2);
+    assert_eq!(s.clients[0].slots[items::CRAFT_AT + 8], Some(Stack::new(id("stick"), 2)));
+    l.send(ToServer::Move { pos: away.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    s.tick();
+    assert_eq!((engine::recipes::grid(&s.clients[0].slots), items::count(&s.clients[0].slots, id("stick"))), ([None; items::CRAFT], 2));
+    l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    s.tick();
+    shift(&mut s, l, k, items::CRAFT_AT + 2, 1);
+    assert_eq!(far(&s), (None, None), "the bench closed when it was left");
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+}
+
+/// What lies in the grid's cells is never lost (draft ADR crafting-grid): closing the screen puts it back into
+/// the pack, what does not fit at the feet; so does a death and a leave; a save keeps it in the cells and the
+/// join after puts it into the pack; a save from before the grid (37 slots) loads with empty cells.
+#[test]
+fn the_cells_go_back_on_close_death_and_leaving_and_a_save_keeps_them() {
+    let (mut s, links) = server_with(1);
+    let l = &links[0];
+    let id = |n: &str| ITEMS.named(n).unwrap();
+    let (stick, flint, log) = (id("stick"), id("flint"), id("oak log"));
+    let (pole, _) = on_land(&s);
+    l.send(ToServer::Hello { name: "ape".into() });
+    l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    l.send(ToServer::Chat("/give stick 5".into()));
+    s.tick();
+    let cell = |s: &Server, k: usize| s.clients[0].slots[items::CRAFT_AT + k];
+    // close: back into the pack
+    shift(&mut s, l, 0, items::CRAFT_AT, 5);
+    assert_eq!((cell(&s, 0), items::count(&s.clients[0].slots, stick)), (Some(Stack::new(stick, 5)), 0));
+    l.send(ToServer::Close);
+    s.tick();
+    assert_eq!((cell(&s, 0), items::count(&s.clients[0].slots, stick)), (None, 5));
+    // close with a full pack: the sticks at the feet, nothing lost
+    shift(&mut s, l, 0, items::CRAFT_AT + 3, 5);
+    for k in items::usable(&s.clients[0].slots.clone()) {
+        s.clients[0].slots[k] = Some(Stack::new(flint, 16));
+        *s.item_made.entry(flint).or_default() += 16;
+    }
+    l.send(ToServer::Close);
+    s.tick();
+    let lying = |s: &Server, m: u16| s.piles.values().flat_map(|p| p.slots.iter().flatten()).filter(|x| x.item == m).map(|x| x.n as u32).sum::<u32>();
+    assert_eq!((cell(&s, 3), lying(&s, stick)), (None, 5));
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    // a death: the cells into the pack at once (the pack lies where it fell after the respawn, ADR 0040)
+    for k in items::usable(&s.clients[0].slots.clone()) {
+        s.clients[0].slots[k] = None;
+        *s.item_made.entry(flint).or_default() -= 16;
+    }
+    l.send(ToServer::Chat("/give oak_log 4".into()));
+    s.tick();
+    shift(&mut s, l, 0, items::CRAFT_AT + 4, 4);
+    l.send(ToServer::Chat("/hurt 40".into()));
+    s.tick();
+    assert!(s.clients[0].vitals.dead.is_some());
+    assert_eq!((cell(&s, 4), items::count(&s.clients[0].slots, log)), (None, 4));
+    l.send(ToServer::Respawn);
+    s.tick();
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    // a save with logs in a cell keeps them there; the join after puts them into the pack
+    l.send(ToServer::Chat("/give oak_log 3".into()));
+    s.tick();
+    shift(&mut s, l, 0, items::CRAFT_AT + 1, 3);
+    let save = Save::from_bytes(&s.snapshot().to_bytes()).unwrap();
+    assert_eq!(save.players[0].slots[items::CRAFT_AT + 1], Some(Stack::new(log, 3)));
+    let (tx, rx) = channel();
+    let mut back = Server::from_save(save, rx);
+    assert!(back.item_ledger().is_empty(), "{:?}", back.item_ledger());
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    c.send(ToServer::Hello { name: "ape".into() });
+    back.tick();
+    assert_eq!((back.clients[0].slots[items::CRAFT_AT + 1], items::count(&back.clients[0].slots, log)), (None, 3));
+    assert!(back.item_ledger().is_empty(), "{:?}", back.item_ledger());
+    // a leave: into the pack before the save remembers it
+    shift(&mut s, l, 0, items::CRAFT_AT, 3);
+    drop(links);
+    s.tick();
+    assert_eq!((s.absent["ape"].slots[items::CRAFT_AT], items::count(&s.absent["ape"].slots, log)), (None, 3));
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    // a save from before the grid: 37 slots, the cells empty
+    let mut old = s.snapshot();
+    old.players[0].slots.truncate(items::APE_SLOTS);
+    let back = Server::from_save(old, channel().1);
+    assert_eq!((back.absent["ape"].slots.len(), items::count(&back.absent["ape"].slots, log)), (items::SLOTS, 3));
+    assert!(back.item_ledger().is_empty(), "{:?}", back.item_ledger());
 }
 
 /// Each copper tool (draft ADR recipe-list-and-copper-tools) digs a block of its kind in `hardness / speed`

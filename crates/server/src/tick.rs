@@ -85,6 +85,7 @@ impl Server {
                 sent_hand: AIR,
                 knap: (0, 0, 0),
                 prospected: None,
+                bench: None,
             });
         }
         let mut changed: Vec<(Block, u16)> = Vec::new();
@@ -133,6 +134,8 @@ impl Server {
                         }
                         let feet = self.clients[i].phys.pos;
                         self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), before, (0, 0));
+                        // a grid a save kept full (it was saved while the screen was open) goes into the pack
+                        self.uncraft(i);
                         let line = format!("{} joined", self.clients[i].player.name);
                         self.say(line);
                     }
@@ -205,6 +208,8 @@ impl Server {
                     Recv::Msg(ToServer::Hand(k)) => self.clients[i].hand = k.min(items::HOTBAR as u8 - 1),
                     Recv::Msg(ToServer::Strike(at)) => self.strike(i, at),
                     Recv::Msg(ToServer::Craft { recipe, n }) => self.craft(i, &recipe, n),
+                    Recv::Msg(ToServer::Use(at)) => self.use_block(i, at),
+                    Recv::Msg(ToServer::Close) => self.uncraft(i),
                     Recv::Msg(ToServer::Sprints { .. } | ToServer::Sprint(..)) => unreachable!("unpacked above"),
                     Recv::Msg(ToServer::Map(h)) => {
                         if let Some(m) = self.world.bodies.iter().filter_map(|b| b.map()).find(|m| m.hash == h) {
@@ -226,6 +231,7 @@ impl Server {
             } else {
                 self.tell_dig(i, None);
                 roster = true;
+                self.uncraft(i);
                 let c = self.clients.swap_remove(i);
                 if c.player.name.is_empty() {
                     // no name, no save to keep its things in: they stay where it stood
@@ -237,6 +243,7 @@ impl Server {
                 }
             }
         }
+        self.benches();
         self.debt += self.dt;
         let steps = ((self.debt + 1e-9) / phys::DT) as u32;
         self.debt -= steps as f64 * phys::DT;

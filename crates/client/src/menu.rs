@@ -525,8 +525,7 @@ impl App {
     /// The window of rows moves by `d` (the wheel).
     pub(crate) fn scroll_by(&mut self, d: i32) {
         if self.menu == Some(Menu::Inventory) {
-            let most = self.grid_items().len().div_ceil(9).saturating_sub(inventory::GRID_ROWS);
-            self.inv_scroll = (self.inv_scroll as i32 + d).clamp(0, most as i32) as usize;
+            self.inv_scroll = (self.inv_scroll as i32 + d).clamp(0, self.inv_scroll_most() as i32) as usize;
             return;
         }
         let most = self.menu_items().len().saturating_sub(self.menu_fit());
@@ -918,6 +917,12 @@ impl App {
             self.edit = None;
         }
         (self.sel, self.rebind) = (None, None);
+        // the inventory closing puts the crafting grid away on the server and closes a workbench (draft ADR
+        // crafting-grid)
+        if self.menu == Some(Menu::Inventory) && m != Some(Menu::Inventory) {
+            self.link.send(ToServer::Close);
+            (self.bench, self.lack) = (None, Vec::new());
+        }
         self.menu = m;
         (self.held, self.mouse, self.globe.drag) = (None, (0.0, 0.0), None);
         self.keys.clear();

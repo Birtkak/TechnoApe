@@ -192,18 +192,63 @@ impl Server {
         c.link.send(ToClient::Prospect(heard));
     }
 
-    /// Client i makes the hand recipe named `recipe` up to `n` times (`ToServer::Craft`, draft ADR
-    /// recipe-list-and-copper-tools): alive, in either mode; as many as its slots hold the inputs for and have
-    /// room for the output (`recipes::craft`), the ledger moving with them. An unknown name makes nothing.
+    /// Client i takes its crafting grid's output up to `n` times (`ToServer::Craft`, draft ADR crafting-grid):
+    /// alive, in either mode, the cells holding the recipe named `recipe` (the 3 x 3 only at a workbench); as many
+    /// as the cells hold and the slots have room for (`recipes::make`), the ledger moving with them.
     pub(super) fn craft(&mut self, i: usize, recipe: &str, n: u16) {
+        let three = self.at_bench(i);
         let c = &mut self.clients[i];
-        let Some(r) = engine::recipes::RECIPES.named(recipe).filter(|r| r.process == "hand" && c.vitals.dead.is_none()) else { return };
-        let made = engine::recipes::craft(&mut c.slots, r, n as u32) as i64;
-        for &(m, k) in &r.inp {
-            *self.item_made.entry(m).or_default() -= made * k as i64;
+        let Some(r) = engine::recipes::RECIPES.matched(&c.slots, three).filter(|r| r.name == recipe && c.vitals.dead.is_none()) else { return };
+        let (made, used) = engine::recipes::make(&mut c.slots, r, n as u32);
+        for m in used {
+            *self.item_made.entry(m).or_default() -= 1;
         }
-        *self.item_made.entry(r.out.0).or_default() += made * r.out.1 as i64;
+        *self.item_made.entry(r.out.0).or_default() += made as i64 * r.out.1 as i64;
         c.inv_dirty = true;
+    }
+
+    /// Client i uses block `at` (`ToServer::Use`): alive, within `BENCH_REACH`, a block with a window. A workbench
+    /// opens its 3 x 3. shortcut: the workbench is the one window; a machine's adds its slots here.
+    pub(super) fn use_block(&mut self, i: usize, at: Block) {
+        let near = self.world.block_centre(at).distance(self.clients[i].phys.pos) <= items::BENCH_REACH;
+        let window = BLOCKS.get(self.world.block(at)).and_then(|d| d.window.as_deref());
+        let c = &mut self.clients[i];
+        if near && c.vitals.dead.is_none() && window == Some("workbench") {
+            c.bench = Some(at);
+        }
+    }
+
+    /// Whether client i's workbench is open: it used one that is still there and within `BENCH_REACH`.
+    pub(super) fn at_bench(&self, i: usize) -> bool {
+        let c = &self.clients[i];
+        c.bench.is_some_and(|b| BLOCKS.get(self.world.block(b)).is_some_and(|d| d.window.as_deref() == Some("workbench")) && self.world.block_centre(b).distance(c.phys.pos) <= items::BENCH_REACH)
+    }
+
+    /// Client i's crafting grid is put away (`ToServer::Close`, a walk away from the bench, a death, a join, a
+    /// leave): its window closes and every cell goes into the usable slots, what does not fit at its feet.
+    pub(super) fn uncraft(&mut self, i: usize) {
+        let c = &mut self.clients[i];
+        c.bench = None;
+        let cells: Vec<Stack> = c.slots[items::CRAFT_AT..].iter_mut().filter_map(Option::take).collect();
+        if cells.is_empty() {
+            return;
+        }
+        c.inv_dirty = true;
+        let over: Vec<Stack> = cells.into_iter().filter_map(|st| Some(Stack { n: items::give(&mut c.slots, st), ..st }).filter(|o| o.n > 0)).collect();
+        let feet = c.phys.pos;
+        self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), over, (0, 0));
+    }
+
+    /// Every player's grid as the rules want it each tick: put away from a dead player, and from one whose
+    /// workbench went or was left out of reach.
+    pub(super) fn benches(&mut self) {
+        for i in 0..self.clients.len() {
+            let c = &self.clients[i];
+            let full = c.slots[items::CRAFT_AT..].iter().any(Option::is_some);
+            if (c.vitals.dead.is_some() && (full || c.bench.is_some())) || (c.bench.is_some() && !self.at_bench(i)) {
+                self.uncraft(i);
+            }
+        }
     }
 
     /// A falling rock that moved into a survival player's head this tick hits it (ADR 0094: a drop hurts who is
@@ -388,6 +433,11 @@ impl Server {
         let grid = from.0 == Holder::Grid || to.0 == Holder::Grid;
         let reach = |h: Holder| !matches!(h, Holder::Pile(b) if !self.piles.contains_key(&key(b)) || self.world.block_centre(b).distance(feet) > PILE_REACH);
         if c.vitals.dead.is_some() || (grid && !creative) || from.0 == Holder::Ground || !reach(from.0) || !reach(to.0) {
+            return false;
+        }
+        // the grid's cells outside the 2 x 2 take something only at a workbench (draft ADR crafting-grid)
+        let bench_cell = |(h, k): (Holder, u16)| h == Holder::Ape && (k as usize) >= items::CRAFT_AT && !items::in_two(k as usize - items::CRAFT_AT);
+        if (bench_cell(to) || bench_cell(from)) && !self.at_bench(i) {
             return false;
         }
         let slots_of = |s: &Server, h: Holder| match h {

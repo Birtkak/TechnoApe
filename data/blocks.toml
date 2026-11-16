@@ -1199,3 +1199,17 @@ soft = true
 sound = "grass"
 colour = [0.36, 0.62, 0.18]
 pattern = "leaves"
+
+# The workbench (draft ADR crafting-grid): four logs make it; the place button on it opens the inventory with the
+# 3 x 3 crafting grid. The existing planks pattern; no texture of its own yet.
+[[block]]
+id = 218
+name = "workbench"
+window = "workbench"
+hardness = 2.5
+tool = "axe"
+loose = true
+sound = "dirt"
+colour = [0.55, 0.40, 0.24]
+colour2 = [0.36, 0.25, 0.14]
+pattern = "planks"
