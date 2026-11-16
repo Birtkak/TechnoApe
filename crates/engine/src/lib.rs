@@ -19,6 +19,7 @@ pub mod models;
 pub mod net;
 pub mod palette;
 pub mod phys;
+pub mod recipes;
 pub mod rock;
 pub mod sky;
 pub mod stream;

@@ -26,7 +26,10 @@ const APE_H: f32 = 196.0;
 const SEARCH_W: f32 = 220.0;
 /// The hints' text size, and each screen's (short enough to fit its window).
 const HINT_PX: f32 = hud::PX * 0.75;
-const HINT_SURVIVAL: &str = "Click: lift, put    Right click: half, one    Shift-click: across    Click outside: throw";
+const HINT_SURVIVAL: &str = "Click: lift, put    Right click: half, one    Shift-click: across, make all    Click outside: throw";
+/// Survival's recipe list (draft ADR recipe-list-and-copper-tools): its column's width and a row's height.
+const MAKE_W: f32 = 340.0;
+const MAKE_H: f32 = 40.0;
 const HINT_CREATIVE: &str = "Click: a stack  Right: one  Shift: to hotbar  Wheel: more";
 
 /// Where the screen's parts lie, in UI pixels: each slot with its holder and index (creative's grid: the
@@ -45,6 +48,9 @@ pub(crate) struct Layout {
     /// Survival: the pile's room. Both: the hotbar's row.
     pub ground: [f32; 4],
     pub hot: [f32; 4],
+    /// Survival: the recipe list's column, and each row shown with its index in `recipes::RECIPES`.
+    pub list: [f32; 4],
+    pub make: Vec<(usize, [f32; 4])>,
     /// UI pixels a pixel of this layout: below 1 where the window would not fit the UI, so the whole screen is
     /// drawn smaller (every part above is in the layout's pixels; the pointer is divided by it).
     pub k: f32,
@@ -56,8 +62,10 @@ fn inside(b: [f32; 4], (x, y): (f32, f32)) -> bool {
 
 /// The screen on a `lw` x `lh` UI: one window in the middle. Creative: the title and the search field, the
 /// tabs, `grid`'s items from row `scroll` on with a scrollbar, the hotbar under a divider. Survival: the ape
-/// over the worn slot | the rows the worn pack opens (`open`, `items::open`) over the hotbar | a pile's 4 slots.
-pub(crate) fn layout(lw: f32, lh: f32, creative: bool, grid: &[u16], scroll: usize, open: usize, pile: Option<Block>) -> Layout {
+/// over the worn slot | the rows the worn pack opens (`open`, `items::open`) over the hotbar | a pile's 4 slots |
+/// the recipes of `make` (indices into `recipes::RECIPES`), as many rows as the column holds.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn layout(lw: f32, lh: f32, creative: bool, grid: &[u16], scroll: usize, open: usize, pile: Option<Block>, make: &[usize]) -> Layout {
     let step = SIZE + GAP;
     let wide = COLS as f32 * step - GAP;
     let mut l = Layout::default();
@@ -65,7 +73,7 @@ pub(crate) fn layout(lw: f32, lh: f32, creative: bool, grid: &[u16], scroll: usi
     let (iw, ih) = if creative {
         (wide + 14.0, 30.0 + 12.0 + GRID_ROWS as f32 * step - GAP + 40.0 + SIZE)
     } else {
-        (APE_W + 28.0 + wide + 28.0 + 2.0 * step - GAP, HEAD + 3.0 * step - GAP + 20.0 + HEAD + SIZE)
+        (APE_W + 28.0 + wide + 28.0 + 2.0 * step - GAP + 28.0 + MAKE_W, HEAD + 3.0 * step - GAP + 20.0 + HEAD + SIZE)
     };
     let (pw, ph) = (iw + 2.0 * PAD, TITLE_H + ih + 18.0 + 8.0 * HINT_PX + 18.0);
     // a UI too small for the window (a small window at a large interface scale) draws all of it smaller, so every
@@ -101,6 +109,13 @@ pub(crate) fn layout(lw: f32, lh: f32, creative: bool, grid: &[u16], scroll: usi
                 l.spots.push((Holder::Pile(b), k as u16, [l.ground[0] + (k % 2) as f32 * step, l.ground[1] + (k / 2) as f32 * step, SIZE, SIZE]));
             }
         }
+        // the recipe list: a row a recipe down the right-hand column
+        // shortcut: the rows the column holds (6) and no more; a scroll when there are more hand recipes
+        l.list = [l.ground[0] + l.ground[2] + 28.0, ct + HEAD, MAKE_W, ih - HEAD];
+        let rows = ((l.list[3] + 4.0) / (MAKE_H + 4.0)) as usize;
+        for (k, &r) in make.iter().take(rows).enumerate() {
+            l.make.push((r, [l.list[0], l.list[1] + k as f32 * (MAKE_H + 4.0), MAKE_W, MAKE_H]));
+        }
     }
     let hx = if creative { x0 } else { x0 + APE_W + 28.0 };
     l.hot = [hx, hot_y, wide, SIZE];
@@ -122,7 +137,15 @@ fn the_screens_put_every_slot_apart_and_inside_the_panel() {
     // and the usual sizes
     for (lw, lh) in [(640.0 / 3.0, 120.0), (1280.0 / 1.5, 480.0), (1280.0, 720.0), (1920.0, 1080.0)] {
         for (creative, open, pile) in [(true, items::ROWS_AT, None), (false, items::ROWS_AT, None), (false, items::APE_SLOTS, Some(pile))] {
-            let l = layout(lw, lh, creative, &grid, 0, open, pile);
+            let make: Vec<usize> = (0..10).collect();
+            let l = layout(lw, lh, creative, &grid, 0, open, pile, &make);
+            // survival's recipe rows: in the panel, apart, over no slot
+            assert_eq!(l.make.len(), if creative { 0 } else { 6 }, "{lw}x{lh}");
+            for (k, m) in l.make.iter().enumerate() {
+                assert!(within(l.panel, m.1) && within(l.list, m.1), "{lw}x{lh}: recipe row {k} out of the panel");
+                assert!(l.make[..k].iter().all(|o| !over(o.1, m.1)) && l.spots.iter().all(|s| !over(s.2, m.1)), "{lw}x{lh}: recipe row {k} over another");
+                assert!(within([0.0, 0.0, lw, lh], m.1.map(|v| v * l.k)), "{lw}x{lh}: recipe row {k} off the screen");
+            }
             let at = format!("{lw}x{lh} creative {creative}");
             let want = if creative { grid.len().min(GRID_ROWS * COLS) + 9 } else { 9 + 1 + (open - items::ROWS_AT) + pile.map_or(0, |_| 4) };
             assert_eq!(l.spots.len(), want);
@@ -176,7 +199,15 @@ impl App {
 
     pub(crate) fn inv_layout(&self) -> Layout {
         let (lw, lh) = self.ui_size();
-        layout(lw, lh, self.creative, &self.grid_items(), self.inv_scroll, items::open(&self.inv), self.pile_near())
+        layout(lw, lh, self.creative, &self.grid_items(), self.inv_scroll, items::open(&self.inv), self.pile_near(), &self.make_list())
+    }
+
+    /// The hand recipes as the list shows them: those the slots can make now first, each part in the file's order.
+    pub(crate) fn make_list(&self) -> Vec<usize> {
+        let rows = &engine::recipes::RECIPES.rows;
+        let mut l: Vec<usize> = (0..rows.len()).filter(|&k| rows[k].process == "hand").collect();
+        l.sort_by_key(|&k| rows[k].makeable(&self.inv) == 0);
+        l
     }
 
     /// The pointer in the layout's pixels (`Layout::k`).
@@ -220,6 +251,17 @@ impl App {
         }
         if let Some(k) = l.tabs.iter().position(|b| inside(*b, p)) {
             (self.inv_tab, self.inv_scroll) = (k, 0);
+            return;
+        }
+        // a recipe's row: one made, or with shift as many as the slots hold the inputs for (the server makes those
+        // that fit and sends the slots back)
+        if let Some(&(k, _)) = l.make.iter().find(|m| self.lifted.is_none() && inside(m.1, p)) {
+            let r = &engine::recipes::RECIPES.rows[k];
+            let can = r.makeable(&self.inv).min(u16::MAX as u32) as u16;
+            if can > 0 {
+                self.link.send(ToServer::Craft { recipe: r.name.clone(), n: if shift { can } else { 1 } });
+                self.audio.play("ui.tick", None, 1.0, 1.0, false);
+            }
             return;
         }
         let spot = l.spots.iter().find(|s| inside(s.2, p)).map(|s| (s.0, s.1));
@@ -409,6 +451,26 @@ impl App {
             }
             head(p, l.hot[0], l.hot[1], "Hotbar");
             head(p, l.ground[0], l.ground[1], "On the ground");
+            // the recipe list: what can be made now bright and first; the rest dim, with what they lack
+            head(p, l.list[0], l.list[1], "Make");
+            for &(k, b) in &l.make {
+                let r = &engine::recipes::RECIPES.rows[k];
+                let can = r.makeable(&self.inv);
+                let lit = can > 0 && self.lifted.is_none() && inside(b, pointer);
+                p.rect(b[0], b[1], b[2], b[3], if lit { [0.17, 0.24, 0.33, 1.0] } else { [0.07, 0.1, 0.15, if can > 0 { 0.9 } else { 0.5 }] }, 0);
+                edge(p, b, if lit { [CYAN[0], CYAN[1], CYAN[2], 0.7] } else { [1.0, 1.0, 1.0, if can > 0 { 0.14 } else { 0.06 }] });
+                self.icon(p, Stack::new(r.out.0, r.out.1), b[0] + 4.0, b[1] + 4.0, MAKE_H - 8.0, season, true);
+                let cols = ((b[2] - MAKE_H - 8.0) / (hud::ADV * small)) as usize;
+                let fit = |s: String| if s.chars().count() > cols { s.chars().take(cols.saturating_sub(2)).collect::<String>() + ".." } else { s };
+                let more = if can > 0 {
+                    format!("ready: {can}")
+                } else {
+                    let lack: Vec<String> = r.missing(&self.inv).iter().map(|&(m, n)| format!("{n} {}", ITEMS.name(m))).collect();
+                    format!("needs {}", lack.join(", "))
+                };
+                p.text_px(b[0] + MAKE_H + 4.0, b[1] + 4.0, &fit(ITEMS.name(r.out.0).to_string()),if can > 0 { [1.0; 4] } else { dim }, small);
+                p.text_px(b[0] + MAKE_H + 4.0, b[1] + 22.0, &fit(more), if can > 0 { [CYAN[0], CYAN[1], CYAN[2], 0.9] } else { [0.55, 0.62, 0.7, 0.6] }, small);
+            }
             if self.pile_near().is_none() {
                 p.text_px(l.ground[0], l.ground[1] + 4.0, "Nothing near", [0.55, 0.62, 0.7, 0.6], small);
             }
@@ -641,7 +703,7 @@ fn a_tooltip_stands_beside_its_slot_inside_the_panel() {
     // sizes, fits neither beside; it stands above (or below) its slot, inside the window, never over the slot
     for (lw, lh) in [(640.0 / 3.0, 120.0), (1280.0 / 1.5, 480.0), (1280.0, 720.0)] {
         for creative in [true, false] {
-            let l = layout(lw, lh, creative, &[], 0, items::ROWS_AT, None);
+            let l = layout(lw, lh, creative, &[], 0, items::ROWS_AT, None, &[]);
             let hot: Vec<[f32; 4]> = l.spots.iter().filter(|s| s.0 == Holder::Ape && (s.1 as usize) < items::HOTBAR).map(|s| s.2).collect();
             for b in [hot[0], hot[4], hot[8]] {
                 let (w, h) = (300.0, 44.0);

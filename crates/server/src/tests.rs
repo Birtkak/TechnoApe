@@ -941,6 +941,115 @@ fn a_save_keeps_a_tools_wear() {
     assert_eq!((st.item, st.payload, items::left(Some(st))), (ITEMS.named("hand axe").unwrap(), 7, Some(ITEMS.get(st.item).unwrap().tool.as_ref().unwrap().uses - 7)));
 }
 
+/// Hand crafting (draft ADR recipe-list-and-copper-tools): `Craft` makes a recipe as many of n times as the
+/// inputs allow and the output fits; one that lacks an input, has no room or names no recipe changes nothing.
+/// The ledger is exact throughout; creative crafts the same way.
+#[test]
+fn a_head_and_a_stick_make_a_copper_pick_by_hand_or_nothing_changes() {
+    let (mut s, links) = server_with(1);
+    let l = &links[0];
+    let id = |n: &str| ITEMS.named(n).unwrap();
+    let (stick, pick, flint) = (id("stick"), id("copper pick"), id("flint"));
+    l.send(ToServer::Chat("/give copper_pick_head 2".into()));
+    l.send(ToServer::Chat("/give stick 3".into()));
+    s.tick();
+    let craft = |s: &mut Server, recipe: &str, n: u16| {
+        l.send(ToServer::Craft { recipe: recipe.into(), n });
+        s.tick();
+        held(&s.clients[0].slots)
+    };
+    // three asked: two made, the third lacks a head
+    let mut want = vec![(stick, 1), (pick, 2)];
+    want.sort_unstable();
+    assert_eq!(craft(&mut s, "copper pick", 3), want);
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    assert_eq!(craft(&mut s, "copper pick", 1), want, "no head: nothing");
+    assert_eq!(craft(&mut s, "copper spoon", 1), want, "no such recipe: nothing");
+    // no room: every usable slot full and neither input's stack emptied by the make
+    l.send(ToServer::Chat("/give copper_pick_head 2".into()));
+    l.send(ToServer::Chat("/give stick 1".into()));
+    s.tick();
+    for k in items::usable(&s.clients[0].slots.clone()) {
+        if s.clients[0].slots[k].is_none() {
+            s.clients[0].slots[k] = Some(Stack::new(flint, 16));
+            *s.item_made.entry(flint).or_default() += 16;
+        }
+    }
+    let full = held(&s.clients[0].slots);
+    assert_eq!(craft(&mut s, "copper pick", 1), full, "no room: nothing");
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    // creative alike, once room is made
+    s.clients[0].slots[8] = None;
+    *s.item_made.entry(flint).or_default() -= 16;
+    l.send(ToServer::Creative(true));
+    s.tick();
+    assert!(craft(&mut s, "copper_pick", 1).contains(&(pick, 3)));
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+}
+
+/// Each copper tool (draft ADR recipe-list-and-copper-tools) digs a block of its kind in `hardness / speed`
+/// and wears a use; the pick takes copper (grade 2) whole, and a tool's last use leaves a stick in its slot,
+/// the ledger exact. A save keeps the crafted tools and their wear.
+#[test]
+fn copper_tools_dig_their_kind_take_copper_and_leave_a_stick() {
+    let (mut s, links) = server_with(1);
+    let l = &links[0];
+    l.send(ToServer::Hello { name: "ape".into() });
+    let cell = over_dirt(&mut s, l);
+    let one = Shape::one(cell);
+    let mut seq = 0;
+    let mut dig = |s: &mut Server, secs: f32| {
+        seq += 1;
+        l.send(ToServer::Dig(Some(one)));
+        s.tick();
+        wait(s, secs);
+        l.send(ToServer::Edit { seq, shape: one, material: AIR });
+        s.tick();
+        l.send(ToServer::Dig(None));
+        drain(l).contains(&ToClient::Done { seq, ok: true })
+    };
+    let kinds = [("copper pick", "granite"), ("copper axe", "log"), ("copper shovel", "dirt"), ("copper knife", "shrub")];
+    for (tool, _) in kinds {
+        l.send(ToServer::Chat(format!("/give {}", tool.replace(' ', "_"))));
+    }
+    s.tick();
+    for (k, (tool, block)) in kinds.into_iter().enumerate() {
+        let t = ITEMS.get(ITEMS.named(tool).unwrap()).unwrap().tool.clone().unwrap();
+        l.send(ToServer::Hand(k as u8));
+        s.world.set_block(cell, BLOCKS.id(block));
+        let (hand, with) = (edit::dig_time(&s.world, &one), edit::dig_time_with(&s.world, &one, Some(&t)));
+        assert!((with - hand / 4.0).abs() < 1e-4, "{tool} on {block}: {with} s against {hand} s");
+        assert!(dig(&mut s, with * 1.1) && s.world.block(cell) != BLOCKS.id(block), "{tool} digs {block} in its time");
+        assert_eq!(s.clients[0].slots[k].map(|x| (x.item, x.payload)), Some((ITEMS.named(tool).unwrap(), 1)), "{tool} wore a use");
+        s.world.set_block(cell, AIR);
+    }
+    // the pick takes copper whole, and its last use leaves a stick
+    let pick = ITEMS.get(ITEMS.named("copper pick").unwrap()).unwrap().tool.clone().unwrap();
+    l.send(ToServer::Hand(0));
+    let copper = BLOCKS.id("copper");
+    s.world.set_block(cell, copper);
+    let need = edit::dig_time_with(&s.world, &one, Some(&pick)) * 1.1;
+    assert!(dig(&mut s, need));
+    let piled = s.piles.values().flat_map(|p| p.slots.iter().flatten()).filter(|x| x.item == copper).count();
+    assert_eq!(piled, 1, "copper lies dug");
+    s.clients[0].slots[0].as_mut().unwrap().payload = pick.uses as u64 - 1;
+    s.world.set_block(cell, BLOCKS.id("granite"));
+    let need = edit::dig_time_with(&s.world, &one, Some(&pick)) * 1.1;
+    assert!(dig(&mut s, need));
+    let stick = ITEMS.named("stick").unwrap();
+    assert_eq!(s.clients[0].slots[0], Some(Stack::new(stick, 1)), "worn away, the stick left");
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    // a save keeps the tools and their wear
+    let kept: Vec<Slot> = s.clients[0].slots.clone();
+    drop(links);
+    s.tick();
+    let path = std::env::temp_dir().join(format!("technoape-copper-{}.sav", std::process::id()));
+    s.snapshot().write(&path).unwrap();
+    let back = Server::from_save(Save::read(&path).unwrap(), channel().1);
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(back.absent["ape"].slots, kept);
+}
+
 #[test]
 fn a_half_dug_block_waits_five_seconds_for_its_digger() {
     let (mut s, links) = server_with(1);

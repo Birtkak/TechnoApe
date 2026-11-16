@@ -204,6 +204,7 @@ impl Server {
                     Recv::Msg(ToServer::Dig(at)) => self.dig(i, at),
                     Recv::Msg(ToServer::Hand(k)) => self.clients[i].hand = k.min(items::HOTBAR as u8 - 1),
                     Recv::Msg(ToServer::Strike(at)) => self.strike(i, at),
+                    Recv::Msg(ToServer::Craft { recipe, n }) => self.craft(i, &recipe, n),
                     Recv::Msg(ToServer::Sprints { .. } | ToServer::Sprint(..)) => unreachable!("unpacked above"),
                     Recv::Msg(ToServer::Map(h)) => {
                         if let Some(m) = self.world.bodies.iter().filter_map(|b| b.map()).find(|m| m.hash == h) {
