@@ -1,2 +1,6 @@
 *.sh text eol=lf
 docs/perf-debt.md merge=union
+# Baselines are accepted on main only: a merge keeps this side, then `bash tools/views.sh accept` or
+# `bash tools/check.sh accept-perf` on main (needs `git config merge.ours.driver true`, set once a clone).
+tests/views/*.png merge=ours
+tests/perf/baseline.json merge=ours
