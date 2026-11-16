@@ -65,10 +65,19 @@ pub enum ToServer {
     Sprints { first: u32, inputs: Vec<(Input, bool)> },
     /// `Input` with its sprint bit (ADR 0118), for scripts: `ToServer::input` and `unpacked` as above.
     Sprint(Input, bool),
-    /// Makes the recipe of this name (`recipes::RECIPES`, by name so rows may be added) up to `n` times by hand
-    /// (draft ADR recipe-list-and-copper-tools): alive, survival or creative; as many as the slots hold the inputs
-    /// for and have room for the output (`recipes::craft`). Answered by the slots (`Inventory`).
+    /// Takes the crafting grid's output up to `n` times (ADR 0140; ADR 0139's make-by-name is gone):
+    /// alive, either mode, the grid's cells (`items::CRAFT_AT`) holding the recipe of this name, the 3 x 3 only at a
+    /// workbench (`Use`). Each make takes one item from every full cell and puts the output into the slots, all or
+    /// nothing (`recipes::make`); it stops when the cells no longer hold it or the output has no room. The name
+    /// guards against a grid that changed since the client drew its output. Answered by the slots (`Inventory`).
     Craft { recipe: String, n: u16 },
+    /// The place button on block `at` that opens a window (`blocks::Def::window`, ADR 0140): within
+    /// `items::BENCH_REACH` and alive, the server opens it for this player (a workbench: the grid's 3 x 3 counts
+    /// while it stays within reach). Nothing is answered.
+    Use(Block),
+    /// The inventory screen closed: the grid's cells go back into the slots (what does not fit at the feet) and a
+    /// window opened by `Use` closes.
+    Close,
 }
 
 impl ToServer {
@@ -117,7 +126,7 @@ pub enum ToClient {
     /// `hunger`: the server's, exactly, after that step (ADR 0118): the client predicts it across its later steps
     /// with the same drain, so it refuses a sprint at the step the server will.
     You { step: u32, me: crate::phys::Player, time: f64, warp: f64, hunger: f64 },
-    /// This player's mode, its slots (`items::APE_SLOTS`: the hotbar, the worn pack, its rows) and the water in
+    /// This player's mode, its slots (`items::SLOTS`: the hotbar, the worn pack, its rows, the grid) and the water in
     /// its bucket (units, `liquid::U` a block); sent on join, on change and after every `Items`. shortcut: the
     /// whole list (under 40 slots, a few hundred bytes), not slot deltas, as it changes a few times a second.
     Inventory { creative: bool, slots: Vec<crate::items::Slot>, water: u32 },

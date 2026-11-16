@@ -344,7 +344,7 @@ impl App {
                 Recv::Msg(ToClient::Inventory { creative, slots, water }) => {
                     (self.creative, self.bucket_water) = (creative, water);
                     // the slots once every move sent is answered: until then the prediction stands
-                    if self.items_pending.is_empty() && slots.len() == engine::items::APE_SLOTS {
+                    if self.items_pending.is_empty() && slots.len() == engine::items::SLOTS {
                         // a tool on its last use gone from its slot wore out (ADR 0110): its snap and a few chips
                         let worn = self.inv.iter().zip(&slots).find(|(a, b)| engine::items::left(**a) == Some(1) && b.is_none_or(|b| Some(b.item) != a.map(|a| a.item))).and_then(|(a, _)| *a);
                         if let Some(worn) = worn.filter(|_| !self.creative) {

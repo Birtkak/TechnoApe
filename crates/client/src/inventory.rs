@@ -4,7 +4,8 @@
 //! and the next puts it down (a right click one of it); shift-click sends it across; a click outside the
 //! panel throws it. Every move is one `ToServer::Items`, predicted here with the server's rule (ADR 0074).
 use super::*;
-use engine::items::{self, Holder, Slot, Stack, ITEMS, TABS};
+use engine::items::{self, Holder, Slot, Stack, CRAFT, CRAFT_AT, ITEMS, TABS};
+use engine::recipes::{Recipe, RECIPES};
 
 const SIZE: f32 = 52.0;
 const GAP: f32 = 6.0;
@@ -26,10 +27,16 @@ const APE_H: f32 = 196.0;
 const SEARCH_W: f32 = 220.0;
 /// The hints' text size, and each screen's (short enough to fit its window).
 const HINT_PX: f32 = hud::PX * 0.75;
-const HINT_SURVIVAL: &str = "Click: lift, put    Right click: half, one    Shift-click: across, make all    Click outside: throw";
-/// Survival's recipe list (draft ADR recipe-list-and-copper-tools): its column's width and a row's height.
-const MAKE_W: f32 = 340.0;
-const MAKE_H: f32 = 40.0;
+const HINT_SURVIVAL: &str = "Click: lift, put    Right click: half, one    Shift-click: across, take all made    Click outside: throw";
+/// Survival's crafting column (ADR 0140): the 3 x 3's room, the arrow's, the output's.
+const CRAFT_W: f32 = 3.0 * (SIZE + GAP) - GAP + 34.0 + SIZE;
+/// The recipe viewer under the slots: its items' squares, how many a row and how many rows in view (the wheel
+/// scrolls them), and the squares of the recipe's pattern.
+const VSIZE: f32 = 40.0;
+const VGAP: f32 = 4.0;
+pub(crate) const VCOLS: usize = 11;
+pub(crate) const VROWS: usize = 2;
+const PSIZE: f32 = 36.0;
 const HINT_CREATIVE: &str = "Click: a stack  Right: one  Shift: to hotbar  Wheel: more";
 
 /// Where the screen's parts lie, in UI pixels: each slot with its holder and index (creative's grid: the
@@ -48,9 +55,17 @@ pub(crate) struct Layout {
     /// Survival: the pile's room. Both: the hotbar's row.
     pub ground: [f32; 4],
     pub hot: [f32; 4],
-    /// Survival: the recipe list's column, and each row shown with its index in `recipes::RECIPES`.
-    pub list: [f32; 4],
-    pub make: Vec<(usize, [f32; 4])>,
+    /// Survival: the crafting grid's room (its cells are spots of the ape's `items::CRAFT_AT` on) and the output's
+    /// square.
+    pub craft: [f32; 4],
+    pub out: [f32; 4],
+    /// Survival: the recipe viewer: its search field, each item in view with its square, the room they fill, the
+    /// recipe's pattern (3 x 3 squares) and the Fill button.
+    pub search: [f32; 4],
+    pub list: Vec<(u16, [f32; 4])>,
+    pub view: [f32; 4],
+    pub pattern: [f32; 4],
+    pub fill: [f32; 4],
     /// UI pixels a pixel of this layout: below 1 where the window would not fit the UI, so the whole screen is
     /// drawn smaller (every part above is in the layout's pixels; the pointer is divided by it).
     pub k: f32,
@@ -63,17 +78,19 @@ fn inside(b: [f32; 4], (x, y): (f32, f32)) -> bool {
 /// The screen on a `lw` x `lh` UI: one window in the middle. Creative: the title and the search field, the
 /// tabs, `grid`'s items from row `scroll` on with a scrollbar, the hotbar under a divider. Survival: the ape
 /// over the worn slot | the rows the worn pack opens (`open`, `items::open`) over the hotbar | a pile's 4 slots |
-/// the recipes of `make` (indices into `recipes::RECIPES`), as many rows as the column holds.
+/// the crafting grid (its 3 x 3 when `three`, at a workbench; else its 2 x 2) and its output; under the hotbar the
+/// recipe viewer: a search field over `grid`'s items from row `scroll` on, and beside them the recipe shown.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn layout(lw: f32, lh: f32, creative: bool, grid: &[u16], scroll: usize, open: usize, pile: Option<Block>, make: &[usize]) -> Layout {
+pub(crate) fn layout(lw: f32, lh: f32, creative: bool, grid: &[u16], scroll: usize, open: usize, pile: Option<Block>, three: bool) -> Layout {
     let step = SIZE + GAP;
     let wide = COLS as f32 * step - GAP;
+    let vstep = VSIZE + VGAP;
     let mut l = Layout::default();
     // the content's width and height under the title row (the hint's line under that)
     let (iw, ih) = if creative {
         (wide + 14.0, 30.0 + 12.0 + GRID_ROWS as f32 * step - GAP + 40.0 + SIZE)
     } else {
-        (APE_W + 28.0 + wide + 28.0 + 2.0 * step - GAP + 28.0 + MAKE_W, HEAD + 3.0 * step - GAP + 20.0 + HEAD + SIZE)
+        (APE_W + 28.0 + wide + 28.0 + 2.0 * step - GAP + 28.0 + CRAFT_W, HEAD + 3.0 * step - GAP + 20.0 + HEAD + SIZE + 20.0 + HEAD + 38.0 + VROWS as f32 * vstep - VGAP)
     };
     let (pw, ph) = (iw + 2.0 * PAD, TITLE_H + ih + 18.0 + 8.0 * HINT_PX + 18.0);
     // a UI too small for the window (a small window at a large interface scale) draws all of it smaller, so every
@@ -109,13 +126,24 @@ pub(crate) fn layout(lw: f32, lh: f32, creative: bool, grid: &[u16], scroll: usi
                 l.spots.push((Holder::Pile(b), k as u16, [l.ground[0] + (k % 2) as f32 * step, l.ground[1] + (k / 2) as f32 * step, SIZE, SIZE]));
             }
         }
-        // the recipe list: a row a recipe down the right-hand column
-        // shortcut: the rows the column holds (6) and no more; a scroll when there are more hand recipes
-        l.list = [l.ground[0] + l.ground[2] + 28.0, ct + HEAD, MAKE_W, ih - HEAD];
-        let rows = ((l.list[3] + 4.0) / (MAKE_H + 4.0)) as usize;
-        for (k, &r) in make.iter().take(rows).enumerate() {
-            l.make.push((r, [l.list[0], l.list[1] + k as f32 * (MAKE_H + 4.0), MAKE_W, MAKE_H]));
+        // the crafting grid: the ape's own slots from items::CRAFT_AT, row by row; the output right of the 3 x 3's room
+        let cx = l.ground[0] + l.ground[2] + 28.0;
+        let side = if three { 3.0 } else { 2.0 };
+        l.craft = [cx, ct + HEAD, side * step - GAP, side * step - GAP];
+        for k in (0..items::CRAFT).filter(|&k| three || items::in_two(k)) {
+            l.spots.push((Holder::Ape, (items::CRAFT_AT + k) as u16, [cx + (k % 3) as f32 * step, l.craft[1] + (k / 3) as f32 * step, SIZE, SIZE]));
         }
+        l.out = [cx + 3.0 * step - GAP + 34.0, l.craft[1] + (l.craft[3] - SIZE) / 2.0, SIZE, SIZE];
+        // the recipe viewer, under the hotbar: the search, the items in view; the recipe under the pile and the grid
+        let vy = hot_y + SIZE + 20.0 + HEAD;
+        l.search = [mx, vy, SEARCH_W, 30.0];
+        l.view = [mx, vy + 38.0, wide, VROWS as f32 * vstep - VGAP];
+        for (k, &id) in grid.iter().skip(scroll * VCOLS).take(VROWS * VCOLS).enumerate() {
+            l.list.push((id, [mx + (k % VCOLS) as f32 * vstep, l.view[1] + (k / VCOLS) as f32 * vstep, VSIZE, VSIZE]));
+        }
+        let pw3 = 3.0 * (PSIZE + VGAP) - VGAP;
+        l.pattern = [l.ground[0], vy, pw3, pw3];
+        l.fill = [l.ground[0] + pw3 + 20.0, vy + pw3 - 30.0, 96.0, 30.0];
     }
     let hx = if creative { x0 } else { x0 + APE_W + 28.0 };
     l.hot = [hx, hot_y, wide, SIZE];
@@ -136,18 +164,18 @@ fn the_screens_put_every_slot_apart_and_inside_the_panel() {
     // the settings' smallest window (640 x 360) at their largest interface scale (3), a 1280 x 720 window at 1.5,
     // and the usual sizes
     for (lw, lh) in [(640.0 / 3.0, 120.0), (1280.0 / 1.5, 480.0), (1280.0, 720.0), (1920.0, 1080.0)] {
-        for (creative, open, pile) in [(true, items::ROWS_AT, None), (false, items::ROWS_AT, None), (false, items::APE_SLOTS, Some(pile))] {
-            let make: Vec<usize> = (0..10).collect();
-            let l = layout(lw, lh, creative, &grid, 0, open, pile, &make);
-            // survival's recipe rows: in the panel, apart, over no slot
-            assert_eq!(l.make.len(), if creative { 0 } else { 6 }, "{lw}x{lh}");
-            for (k, m) in l.make.iter().enumerate() {
-                assert!(within(l.panel, m.1) && within(l.list, m.1), "{lw}x{lh}: recipe row {k} out of the panel");
-                assert!(l.make[..k].iter().all(|o| !over(o.1, m.1)) && l.spots.iter().all(|s| !over(s.2, m.1)), "{lw}x{lh}: recipe row {k} over another");
-                assert!(within([0.0, 0.0, lw, lh], m.1.map(|v| v * l.k)), "{lw}x{lh}: recipe row {k} off the screen");
+        for (creative, open, pile, three) in [(true, items::ROWS_AT, None, false), (false, items::ROWS_AT, None, false), (false, items::APE_SLOTS, Some(pile), true)] {
+            let l = layout(lw, lh, creative, &grid, 0, open, pile, three);
+            // survival's crafting output, the viewer's search, items, pattern and Fill: in the panel and on the screen,
+            // apart, over no slot
+            assert_eq!(l.list.len(), if creative { 0 } else { grid.len().min(VCOLS * VROWS) }, "{lw}x{lh}");
+            let boxes: Vec<[f32; 4]> = if creative { vec![] } else { [l.out, l.search, l.pattern, l.fill].into_iter().chain(l.list.iter().map(|v| v.1)).collect() };
+            for (k, b) in boxes.iter().enumerate() {
+                assert!(within(l.panel, *b) && within([0.0, 0.0, lw, lh], b.map(|v| v * l.k)), "{lw}x{lh}: box {k} {b:?} out of the panel or the screen");
+                assert!(boxes[..k].iter().all(|o| !over(*o, *b)) && l.spots.iter().all(|s| !over(s.2, *b)), "{lw}x{lh}: box {k} over another");
             }
             let at = format!("{lw}x{lh} creative {creative}");
-            let want = if creative { grid.len().min(GRID_ROWS * COLS) + 9 } else { 9 + 1 + (open - items::ROWS_AT) + pile.map_or(0, |_| 4) };
+            let want = if creative { grid.len().min(GRID_ROWS * COLS) + 9 } else { 9 + 1 + (open - items::ROWS_AT) + pile.map_or(0, |_| 4) + if three { 9 } else { 4 } };
             assert_eq!(l.spots.len(), want);
             // everything that takes a click on the screen, in UI pixels
             let shown = |b: [f32; 4]| b.map(|v| v * l.k);
@@ -182,13 +210,64 @@ fn the_screens_put_every_slot_apart_and_inside_the_panel() {
 }
 
 impl App {
-    /// The items creative's grid shows on the open tab: a tab's own, or every one whose name holds the search.
+    /// The items creative's grid shows on the open tab: a tab's own, or every one whose name holds the search. On
+    /// the crafting screen the recipe viewer's: every one whose name holds the search, those with a recipe first.
     pub(crate) fn grid_items(&self) -> Vec<u16> {
+        let q = self.inv_query.to_lowercase();
+        let named = ITEMS.all().filter(|&i| ITEMS.name(i).to_lowercase().contains(&q));
+        if self.crafting() {
+            let mut v: Vec<u16> = named.collect();
+            v.sort_by_key(|&i| RECIPES.making(i).is_none());
+            return v;
+        }
         if self.inv_tab < TABS.len() {
             return ITEMS.tabs[self.inv_tab].clone();
         }
-        let q = self.inv_query.to_lowercase();
-        ITEMS.all().filter(|&i| ITEMS.name(i).to_lowercase().contains(&q)).collect()
+        named.collect()
+    }
+
+    /// Whether the screen is survival's, with the crafting grid and the viewer: in survival, or at a workbench.
+    pub(crate) fn crafting(&self) -> bool {
+        !self.creative || self.bench.is_some()
+    }
+
+    /// The rows the grid or the viewer scrolls by at most.
+    pub(crate) fn inv_scroll_most(&self) -> usize {
+        let (cols, rows) = if self.crafting() { (VCOLS, VROWS) } else { (COLS, GRID_ROWS) };
+        self.grid_items().len().div_ceil(cols).saturating_sub(rows)
+    }
+
+    /// The block aimed at whose place button opens a window (ADR 0140): a use, which comes before
+    /// a strike or a place against it, alive and within `items::BENCH_REACH` of the feet, as the server's rule.
+    pub(crate) fn use_target(&self) -> Option<Block> {
+        let (hit, _) = self.aim.filter(|_| self.dead.is_none())?;
+        let near = self.world.block_centre(hit).distance(self.me.pos) <= items::BENCH_REACH;
+        (near && BLOCKS.get(self.world.block(hit))?.window.is_some()).then_some(hit)
+    }
+
+    /// The place button on a workbench: the server opens it, and the inventory opens with the 3 x 3.
+    pub(crate) fn use_block(&mut self) {
+        let Some(b) = self.use_target() else { return };
+        self.link.send(ToServer::Use(b));
+        self.bench = Some(b);
+        self.lifted = None;
+        self.set_menu(Some(Menu::Inventory));
+    }
+
+    /// The workbench open is gone or out of reach: its screen closes (the server puts the cells away too).
+    pub(crate) fn bench_left(&self) -> bool {
+        self.bench.is_some_and(|b| BLOCKS.get(self.world.block(b)).is_none_or(|d| d.window.is_none()) || self.world.block_centre(b).distance(self.me.pos) > items::BENCH_REACH)
+    }
+
+    /// Fill (the viewer's button): the recipe shown laid out in the grid from what the slots hold, one make's worth,
+    /// through the ordinary moves (`fill_plan`); the cells it found nothing for are drawn red.
+    pub(crate) fn fill(&mut self) {
+        let Some(r) = self.viewing.and_then(|i| RECIPES.making(i)) else { return };
+        let Some((moves, lack)) = fill_plan(&self.inv, r, self.bench.is_some()) else { return };
+        for (a, b, n) in moves {
+            self.send_items((Holder::Ape, a as u16), (Holder::Ape, b as u16), n);
+        }
+        self.lack = lack;
     }
 
     /// The nearest pile in reach of the feet, if any.
@@ -199,15 +278,7 @@ impl App {
 
     pub(crate) fn inv_layout(&self) -> Layout {
         let (lw, lh) = self.ui_size();
-        layout(lw, lh, self.creative, &self.grid_items(), self.inv_scroll, items::open(&self.inv), self.pile_near(), &self.make_list())
-    }
-
-    /// The hand recipes as the list shows them: those the slots can make now first, each part in the file's order.
-    pub(crate) fn make_list(&self) -> Vec<usize> {
-        let rows = &engine::recipes::RECIPES.rows;
-        let mut l: Vec<usize> = (0..rows.len()).filter(|&k| rows[k].process == "hand").collect();
-        l.sort_by_key(|&k| rows[k].makeable(&self.inv) == 0);
-        l
+        layout(lw, lh, !self.crafting(), &self.grid_items(), self.inv_scroll, items::open(&self.inv), self.pile_near(), self.bench.is_some())
     }
 
     /// The pointer in the layout's pixels (`Layout::k`).
@@ -253,16 +324,24 @@ impl App {
             (self.inv_tab, self.inv_scroll) = (k, 0);
             return;
         }
-        // a recipe's row: one made, or with shift as many as the slots hold the inputs for (the server makes those
-        // that fit and sends the slots back)
-        if let Some(&(k, _)) = l.make.iter().find(|m| self.lifted.is_none() && inside(m.1, p)) {
-            let r = &engine::recipes::RECIPES.rows[k];
-            let can = r.makeable(&self.inv).min(u16::MAX as u32) as u16;
-            if can > 0 {
-                self.link.send(ToServer::Craft { recipe: r.name.clone(), n: if shift { can } else { 1 } });
-                self.audio.play("ui.tick", None, 1.0, 1.0, false);
+        if self.crafting() {
+            // the viewer's search field takes the keys until a click elsewhere
+            self.inv_tab = if inside(l.search, p) { SEARCH } else { 0 };
+            if let Some(&(id, _)) = l.list.iter().find(|v| inside(v.1, p)) {
+                (self.viewing, self.lack) = (Some(id), Vec::new());
+                return;
             }
-            return;
+            if inside(l.fill, p) {
+                return self.fill();
+            }
+            // the output: one made, with shift as many as the cells hold (the server makes them and sends the slots)
+            if inside(l.out, p) {
+                if let Some(r) = RECIPES.matched(&self.inv, self.bench.is_some()).filter(|_| self.lifted.is_none()) {
+                    self.link.send(ToServer::Craft { recipe: r.name.clone(), n: if shift { u16::MAX } else { 1 } });
+                    self.audio.play("ui.tick", None, 1.0, 1.0, false);
+                }
+                return;
+            }
         }
         let spot = l.spots.iter().find(|s| inside(s.2, p)).map(|s| (s.0, s.1));
         match (self.lifted, spot) {
@@ -309,6 +388,7 @@ impl App {
     fn across(&self, h: Holder, i: u16, st: Stack) -> Option<(Holder, u16)> {
         let hot = (h, (i as usize) < items::HOTBAR) == (Holder::Ape, true);
         let to: Vec<usize> = match h {
+            Holder::Ape if i as usize >= CRAFT_AT => items::usable(&self.inv).collect(),
             Holder::Ape if hot => (items::ROWS_AT..items::open(&self.inv)).collect(),
             Holder::Ape => (0..items::HOTBAR).collect(),
             _ => items::usable(&self.inv).collect(),
@@ -386,7 +466,8 @@ impl App {
         hud::brackets(p, [px0 - 4.0, py0 - 4.0, pw + 8.0, l.panel[3] + 8.0], 14.0, false, CYAN);
         // the title row: the accent's bar and the name, as the menu's pages; a hairline under it
         p.rect(px0 + PAD, py0 + 13.0, 3.0, 24.0, CYAN, 0);
-        p.text_px(px0 + PAD + 14.0, py0 + 13.0, if self.creative { "CREATIVE" } else { "INVENTORY" }, [1.0; 4], hud::PX * 1.5);
+        let title = if self.bench.is_some() { "WORKBENCH" } else if self.creative { "CREATIVE" } else { "INVENTORY" };
+        p.text_px(px0 + PAD + 14.0, py0 + 13.0, title, [1.0; 4], hud::PX * 1.5);
         p.rect(px0 + PAD, py0 + TITLE_H - 6.0, pw - 2.0 * PAD, 1.0, [CYAN[0], CYAN[1], CYAN[2], 0.25], 0);
         let head = |p: &mut hud::Paint, x: f32, y: f32, s: &str| p.text_px(x, y - 18.0, &s.to_uppercase(), [CYAN[0], CYAN[1], CYAN[2], 0.85], hud::PX * 0.75);
         let dim = [0.55, 0.62, 0.7, 0.9];
@@ -420,7 +501,7 @@ impl App {
                 p.text_px(tx, b[1] + 8.0, name, [0.8, 0.86, 0.92, 1.0], hud::PX);
             }
         }
-        if self.creative {
+        if !self.crafting() {
             // the grid's scrollbar, its count, and the divider over the hotbar
             let all = self.grid_items();
             let total = all.len().div_ceil(COLS).max(1);
@@ -451,26 +532,7 @@ impl App {
             }
             head(p, l.hot[0], l.hot[1], "Hotbar");
             head(p, l.ground[0], l.ground[1], "On the ground");
-            // the recipe list: what can be made now bright and first; the rest dim, with what they lack
-            head(p, l.list[0], l.list[1], "Make");
-            for &(k, b) in &l.make {
-                let r = &engine::recipes::RECIPES.rows[k];
-                let can = r.makeable(&self.inv);
-                let lit = can > 0 && self.lifted.is_none() && inside(b, pointer);
-                p.rect(b[0], b[1], b[2], b[3], if lit { [0.17, 0.24, 0.33, 1.0] } else { [0.07, 0.1, 0.15, if can > 0 { 0.9 } else { 0.5 }] }, 0);
-                edge(p, b, if lit { [CYAN[0], CYAN[1], CYAN[2], 0.7] } else { [1.0, 1.0, 1.0, if can > 0 { 0.14 } else { 0.06 }] });
-                self.icon(p, Stack::new(r.out.0, r.out.1), b[0] + 4.0, b[1] + 4.0, MAKE_H - 8.0, season, true);
-                let cols = ((b[2] - MAKE_H - 8.0) / (hud::ADV * small)) as usize;
-                let fit = |s: String| if s.chars().count() > cols { s.chars().take(cols.saturating_sub(2)).collect::<String>() + ".." } else { s };
-                let more = if can > 0 {
-                    format!("ready: {can}")
-                } else {
-                    let lack: Vec<String> = r.missing(&self.inv).iter().map(|&(m, n)| format!("{n} {}", ITEMS.name(m))).collect();
-                    format!("needs {}", lack.join(", "))
-                };
-                p.text_px(b[0] + MAKE_H + 4.0, b[1] + 4.0, &fit(ITEMS.name(r.out.0).to_string()),if can > 0 { [1.0; 4] } else { dim }, small);
-                p.text_px(b[0] + MAKE_H + 4.0, b[1] + 22.0, &fit(more), if can > 0 { [CYAN[0], CYAN[1], CYAN[2], 0.9] } else { [0.55, 0.62, 0.7, 0.6] }, small);
-            }
+            self.craft_draw(p, l, season, pointer);
             if self.pile_near().is_none() {
                 p.text_px(l.ground[0], l.ground[1] + 4.0, "Nothing near", [0.55, 0.62, 0.7, 0.6], small);
             }
@@ -485,7 +547,9 @@ impl App {
         for &(h, i, b) in &l.spots {
             let lit = inside(b, pointer);
             let on = (h, i as usize) == (Holder::Ape, self.slot);
-            p.rect(b[0], b[1], b[2], b[3], if lit { [0.17, 0.24, 0.33, 1.0] } else { [0.07, 0.1, 0.15, 0.9] }, 0);
+            // a grid cell the last Fill found nothing for, while it is still empty: red
+            let lacks = h == Holder::Ape && (i as usize) >= CRAFT_AT && self.lack.contains(&(i as usize - CRAFT_AT)) && self.slot_at(h, i).is_none();
+            p.rect(b[0], b[1], b[2], b[3], if lacks { RED } else if lit { [0.17, 0.24, 0.33, 1.0] } else { [0.07, 0.1, 0.15, 0.9] }, 0);
             p.rect(b[0] + 1.0, b[1] + 1.0, b[2] - 2.0, 1.0, [1.0, 1.0, 1.0, 0.07], 0);
             edge(p, b, if on { CYAN } else if lit { [CYAN[0], CYAN[1], CYAN[2], 0.7] } else { [1.0, 1.0, 1.0, 0.14] });
             if on {
@@ -523,8 +587,102 @@ impl App {
                 p.text_px(x + 10.0, y + hud::LINE + 4.0, &m, dim, small);
             }
         }
-        let hint = if self.creative { HINT_CREATIVE } else { HINT_SURVIVAL };
+        let hint = if self.crafting() { HINT_SURVIVAL } else { HINT_CREATIVE };
         p.text_px(l.hint[0], l.hint[1], hint, [0.62, 0.72, 0.82, 0.8], HINT_PX);
+    }
+
+    /// The crafting grid's heading, its arrow and output (what the cells hold now), and the recipe viewer: the
+    /// search, the items, and the recipe of the one clicked with its Fill button (ADR 0140).
+    /// shortcut: a "hold to analyze" explainer for complicated items would stand in the recipe's panel, under Fill.
+    fn craft_draw(&self, p: &mut hud::Paint, l: &Layout, season: (f64, f64), pointer: (f32, f32)) {
+        let head = |p: &mut hud::Paint, x: f32, y: f32, s: &str| p.text_px(x, y - 18.0, &s.to_uppercase(), [CYAN[0], CYAN[1], CYAN[2], 0.85], hud::PX * 0.75);
+        let (small, dim) = (hud::PX * 0.75, [0.55, 0.62, 0.7, 0.9]);
+        let faint = [0.55, 0.62, 0.7, 0.6];
+        let three = self.bench.is_some();
+        head(p, l.craft[0], l.craft[1], if three { "Workbench 3 x 3" } else { "Craft 2 x 2" });
+        // the arrow from the grid's 3 x 3 room to the output
+        let (ax, ay) = (l.out[0] - 30.0, l.out[1] + SIZE / 2.0);
+        p.rect(ax, ay - 1.5, 18.0, 3.0, [CYAN[0], CYAN[1], CYAN[2], 0.6], 0);
+        for k in 0..5 {
+            let k = k as f32;
+            p.rect(ax + 18.0 + k * 1.6, ay - 6.0 + k * 1.2, 1.6, 12.0 - k * 2.4, [CYAN[0], CYAN[1], CYAN[2], 0.6], 0);
+        }
+        let made = RECIPES.matched(&self.inv, three);
+        let lit = made.is_some() && self.lifted.is_none() && inside(l.out, pointer);
+        let o = l.out;
+        p.rect(o[0], o[1], o[2], o[3], if lit { [0.17, 0.24, 0.33, 1.0] } else { [0.07, 0.1, 0.15, 0.9] }, 0);
+        edge(p, o, if made.is_some() { [CYAN[0], CYAN[1], CYAN[2], 0.7] } else { [1.0, 1.0, 1.0, 0.14] });
+        if let Some(r) = made {
+            self.icon(p, Stack::new(r.out.0, r.out.1), o[0] + 6.0, o[1] + 6.0, 40.0, season, true);
+            p.text_px(o[0], o[1] + SIZE + 6.0, ITEMS.name(r.out.0), dim, small);
+        }
+        // the viewer: the search field (lit while it takes the keys), the items
+        let s = l.search;
+        let on = self.inv_tab == SEARCH;
+        head(p, s[0], s[1], "Recipes");
+        p.rect(s[0], s[1], s[2], s[3], [0.01, 0.03, 0.06, 0.95], 0);
+        edge(p, s, if on { CYAN } else { [1.0, 1.0, 1.0, 0.16] });
+        let q = &self.inv_query;
+        let caret = self.start.elapsed().as_millis() / 500 % 2 == 0;
+        if q.is_empty() && !on {
+            p.text_px(s[0] + 8.0, s[1] + 8.0, "Search...", dim, hud::PX);
+        } else {
+            p.text_px(s[0] + 8.0, s[1] + 8.0, &if on && caret { format!("{q}_") } else { q.clone() }, [1.0; 4], hud::PX);
+        }
+        p.text_px(s[0] + s[2] + 12.0, s[1] + 10.0, "click an item for its recipe", faint, small);
+        for &(id, b) in &l.list {
+            let lit = inside(b, pointer) || self.viewing == Some(id);
+            p.rect(b[0], b[1], b[2], b[3], if lit { [0.17, 0.24, 0.33, 1.0] } else { [0.07, 0.1, 0.15, 0.9] }, 0);
+            edge(p, b, if self.viewing == Some(id) { CYAN } else { [1.0, 1.0, 1.0, if RECIPES.making(id).is_some() { 0.2 } else { 0.07 }] });
+            self.icon(p, Stack::new(id, 1), b[0] + 4.0, b[1] + 4.0, VSIZE - 8.0, season, false);
+        }
+        if l.list.is_empty() {
+            p.text_px(l.view[0], l.view[1] + 8.0, &format!("Nothing named '{q}'"), dim, small);
+        }
+        // the recipe shown: its pattern from the top left of a 3 x 3, red where the slots hold none of a cell's items
+        let pt = l.pattern;
+        let (tx, cols) = (l.fill[0], ((l.panel[0] + l.panel[2] - PAD - l.fill[0]) / (hud::ADV * small)) as usize);
+        let fit = |s: &str| if s.chars().count() > cols { s.chars().take(cols.saturating_sub(2)).collect::<String>() + ".." } else { s.to_string() };
+        head(p, pt[0], pt[1], "Recipe");
+        let Some(item) = self.viewing else {
+            p.text_px(tx, pt[1] + 4.0, &fit("Click an item to see"), faint, small);
+            p.text_px(tx, pt[1] + 22.0, &fit("how it is made"), faint, small);
+            return;
+        };
+        p.text_px(tx, pt[1] + 4.0, &fit(ITEMS.name(item)), [1.0; 4], small);
+        let Some(r) = RECIPES.making(item) else {
+            p.text_px(tx, pt[1] + 22.0, &fit(&source(item)), dim, small);
+            return;
+        };
+        let carried = |any: &Vec<u16>| any.iter().copied().find(|&i| items::count(&self.inv, i) > 0 || engine::recipes::grid(&self.inv).contains(&Some(i)));
+        let t = self.start.elapsed().as_secs() as usize;
+        for k in 0..CRAFT {
+            let (row, col) = (k / 3, k % 3);
+            let b = [pt[0] + col as f32 * (PSIZE + VGAP), pt[1] + row as f32 * (PSIZE + VGAP), PSIZE, PSIZE];
+            let cell = (row < r.h && col < r.w).then(|| r.cells[row * r.w + col].as_ref()).flatten();
+            let has = cell.and_then(carried);
+            p.rect(b[0], b[1], b[2], b[3], if cell.is_some() && has.is_none() { RED } else { [0.07, 0.1, 0.15, 0.9] }, 0);
+            edge(p, b, [1.0, 1.0, 1.0, 0.1]);
+            // a cell of alternatives shows the one carried, else each in turn
+            if let Some(any) = cell {
+                self.icon(p, Stack::new(has.unwrap_or(any[t % any.len()]), 1), b[0] + 3.0, b[1] + 3.0, PSIZE - 6.0, season, false);
+            }
+        }
+        let n = if r.out.1 > 1 { format!("makes {}", r.out.1) } else { "makes 1".into() };
+        p.text_px(tx, pt[1] + 22.0, &fit(&n), dim, small);
+        let need = r.bench() && !three;
+        p.text_px(tx, pt[1] + 40.0, &fit(if r.bench() { "needs a workbench" } else { "by hand, 2 x 2" }), if need { [1.0, 0.55, 0.45, 0.95] } else { faint }, small);
+        // Fill: dim while the recipe needs the bench and only the 2 x 2 is open
+        let f = l.fill;
+        let lit = !need && inside(f, pointer);
+        hud::cut(p, f[0], f[1], f[2], f[3], if need { [0.09, 0.12, 0.17, 0.5] } else if lit { CYAN } else { [0.16, 0.22, 0.3, 1.0] });
+        let label = "Fill";
+        let lx = f[0] + (f[2] - hud::text_width(label)) / 2.0;
+        if lit {
+            p.text_flat(lx, f[1] + 8.0, label, [0.01, 0.06, 0.12, 1.0], hud::PX);
+        } else {
+            p.text_px(lx, f[1] + 8.0, label, if need { [0.5, 0.55, 0.6, 0.5] } else { [0.9, 0.95, 1.0, 1.0] }, hud::PX);
+        }
     }
 
     /// Survival's ape on its dark inset (ADR 0113): its picture standing and facing out, a worn pack's colour
@@ -703,7 +861,7 @@ fn a_tooltip_stands_beside_its_slot_inside_the_panel() {
     // sizes, fits neither beside; it stands above (or below) its slot, inside the window, never over the slot
     for (lw, lh) in [(640.0 / 3.0, 120.0), (1280.0 / 1.5, 480.0), (1280.0, 720.0)] {
         for creative in [true, false] {
-            let l = layout(lw, lh, creative, &[], 0, items::ROWS_AT, None, &[]);
+            let l = layout(lw, lh, creative, &[], 0, items::ROWS_AT, None, false);
             let hot: Vec<[f32; 4]> = l.spots.iter().filter(|s| s.0 == Holder::Ape && (s.1 as usize) < items::HOTBAR).map(|s| s.2).collect();
             for b in [hot[0], hot[4], hot[8]] {
                 let (w, h) = (300.0, 44.0);
@@ -743,6 +901,96 @@ fn a_tooltip_says_a_tools_uses_and_what_a_pack_opens() {
     assert_eq!(tip(Holder::Ape, Stack::new(pack, 1)).as_deref(), Some("worn: opens 27 slots"));
     assert_eq!(tip(Holder::Ape, Stack::new(granite, 12)), Some(format!("12 of {}", ITEMS.stack(granite))));
     assert_eq!(tip(Holder::Grid, Stack::new(granite, 64)), Some(format!("stacks to {}", ITEMS.stack(granite))));
+}
+
+/// The red of a grid cell, or a pattern's cell, whose item the slots lack.
+const RED: [f32; 4] = [0.5, 0.1, 0.09, 0.9];
+
+/// Fill (ADR 0140): the moves, (from, to, n) within the ape's slots in order, that lay one make of
+/// `r` in the grid from its top left: first what lies in a cell the pattern does not want there goes back into the
+/// usable slots, then one of a wanted item from them into each pattern cell not holding one already. Also the cells
+/// whose items the slots lack (nothing is moved for them). None when `r` needs the bench and only the 2 x 2 is open.
+pub(crate) fn fill_plan(slots: &[Slot], r: &Recipe, three: bool) -> Option<(Vec<(usize, usize, u16)>, Vec<usize>)> {
+    if r.bench() && !three {
+        return None;
+    }
+    let want = |k: usize| (k / 3 < r.h && k % 3 < r.w).then(|| r.cells[k / 3 * r.w + k % 3].as_ref()).flatten();
+    let (mut s, mut moves, mut lack) = (slots.to_vec(), Vec::new(), Vec::new());
+    for k in 0..CRAFT {
+        let at = CRAFT_AT + k;
+        let Some(st) = s[at].filter(|st| !want(k).is_some_and(|any| any.contains(&st.item))) else { continue };
+        let room = |t: Slot| t.is_some_and(|t| t.item == st.item && t.payload == st.payload && t.n + st.n <= ITEMS.stack(t.item));
+        let to = items::usable(&s).find(|&j| room(s[j])).or_else(|| items::usable(&s).find(|&j| s[j].is_none()));
+        if let Some(j) = to.filter(|&j| items::shift(&mut s, at, None, j, st.n)) {
+            moves.push((at, j, st.n));
+        }
+    }
+    for k in 0..CRAFT {
+        let Some(any) = want(k).filter(|_| s[CRAFT_AT + k].is_none()) else { continue };
+        match items::usable(&s).find(|&j| s[j].is_some_and(|t| any.contains(&t.item))) {
+            Some(j) if items::shift(&mut s, j, None, CRAFT_AT + k, 1) => moves.push((j, CRAFT_AT + k, 1)),
+            _ => lack.push(k),
+        }
+    }
+    Some((moves, lack))
+}
+
+#[test]
+fn fill_lays_a_recipe_from_the_slots_and_marks_what_is_lacking() {
+    let id = |n: &str| ITEMS.named(n).unwrap();
+    let pick = RECIPES.named("copper pick").unwrap();
+    let mut s = items::ape();
+    items::give(&mut s, Stack::new(id("copper pick head"), 2));
+    items::give(&mut s, Stack::new(id("stick"), 3));
+    // flint in a cell the pick does not want goes back first
+    s[CRAFT_AT + 4] = Some(Stack::new(id("flint"), 2));
+    let (moves, lack) = fill_plan(&s, pick, false).unwrap();
+    assert_eq!((moves.len(), lack), (3, vec![]));
+    for (a, b, n) in moves {
+        assert!(items::shift(&mut s, a, None, b, n) && items::ape_fits(&s));
+    }
+    assert_eq!(RECIPES.matched(&s, false), Some(pick), "the grid now holds the pick");
+    assert_eq!((s[CRAFT_AT], s[CRAFT_AT + 3], s[CRAFT_AT + 4]), (Some(Stack::new(id("copper pick head"), 1)), Some(Stack::new(id("stick"), 1)), None));
+    assert_eq!(items::count(&s, id("flint")), 2);
+    assert_eq!(fill_plan(&s, pick, false), Some((vec![], vec![])), "filled already: nothing to move");
+    // no stick: the head goes in, the stick's cell is lacking
+    let mut s = items::ape();
+    items::give(&mut s, Stack::new(id("copper pick head"), 1));
+    assert_eq!(fill_plan(&s, pick, false), Some((vec![(0, CRAFT_AT, 1)], vec![3])));
+    // any log for the workbench's four cells, from two kinds
+    let mut s = items::ape();
+    items::give(&mut s, Stack::new(id("oak log"), 3));
+    items::give(&mut s, Stack::new(id("pine log"), 5));
+    let (moves, lack) = fill_plan(&s, RECIPES.named("workbench").unwrap(), false).unwrap();
+    assert_eq!((moves.iter().map(|m| m.1 - CRAFT_AT).collect::<Vec<_>>(), lack), (vec![0, 1, 3, 4], vec![]));
+    // a recipe that needs the bench: nothing with the 2 x 2, laid out at a bench
+    let t = engine::recipes::Recipes::parse("[[recipe]]\nname='tall'\ngrid=['S', 'S', 'S']\nkey={S='stick'}\nout=['hand axe', 1]\n", &ITEMS).unwrap();
+    assert_eq!(fill_plan(&s, &t.rows[0], false), None);
+    assert_eq!(fill_plan(&s, &t.rows[0], true).map(|f| f.1), Some(vec![0, 3, 6]));
+}
+
+/// Where an item with no recipe comes from, when the data knows: knapped from a stone, held in a block dug, left
+/// by digging rock; else only that it has no recipe.
+fn source(item: u16) -> String {
+    if let Some(from) = ITEMS.all().find(|&i| ITEMS.get(i).and_then(|d| d.knap).is_some_and(|k| k.0 == item)) {
+        return format!("no recipe: knapped from {} on rock", ITEMS.name(from));
+    }
+    let name = ITEMS.name(item);
+    if let Some(b) = BLOCKS.placeable().find(|d| d.holds.as_ref().is_some_and(|h| h.0 == name)) {
+        return format!("no recipe: found digging {}", b.name);
+    }
+    if let Some(rock) = BLOCKS.get(item).and_then(|d| d.rubble_of) {
+        return format!("no recipe: left by digging {}", BLOCKS.get(rock).map_or("rock", |d| d.name.as_str()));
+    }
+    "no recipe".into()
+}
+
+#[test]
+fn an_item_with_no_recipe_says_where_it_comes_from_if_the_data_knows() {
+    assert_eq!(source(ITEMS.named("hand axe").unwrap()), "no recipe: knapped from flint on rock");
+    assert_eq!(source(ITEMS.named("flint").unwrap()), "no recipe: found digging gravel");
+    assert_eq!(source(ITEMS.named("granite rubble").unwrap()), "no recipe: left by digging granite");
+    assert_eq!(source(ITEMS.named("stick").unwrap()), "no recipe");
 }
 
 use hud::CYAN;

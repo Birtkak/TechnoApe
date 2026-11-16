@@ -155,7 +155,7 @@ impl ApplicationHandler for App {
                 }
                 if self.menu == Some(Menu::Inventory) && state == ElementState::Pressed {
                     // the inventory (ADR 0075): its key or Esc closes it; on creative's search tab the keys type
-                    let search = self.creative && self.inv_tab == inventory::SEARCH;
+                    let search = self.inv_tab == inventory::SEARCH;
                     let own = self.settings.acts_of(Bind::Key(code)).any(|a| a == settings::Act::Inventory);
                     // its key closes it even while searching, unless that key types a letter there
                     let types = search && text.as_ref().is_some_and(|t| !t.chars().any(char::is_control));
@@ -663,6 +663,9 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         inv_query: String::new(),
         inv_scroll: 0,
         shift: false,
+        bench: None,
+        viewing: None,
+        lack: Vec::new(),
         bucket_water: 0,
         air: None,
         sky: Default::default(),

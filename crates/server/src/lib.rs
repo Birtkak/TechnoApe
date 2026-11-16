@@ -154,8 +154,11 @@ struct Client {
     credit: u32,
     /// Creative counts nothing; survival digs into piles and places from its slots (ADR 0014, 0074).
     creative: bool,
-    /// Its slots (`items::APE_SLOTS`): the hotbar, the worn pack, the rows the pack opens.
+    /// Its slots (`items::SLOTS`): the hotbar, the worn pack, the rows the pack opens, the crafting grid's cells.
     slots: Vec<Slot>,
+    /// The workbench it opened (`ToServer::Use`, ADR 0140): its grid's 3 x 3 counts while that is
+    /// within `items::BENCH_REACH` (`Server::at_bench`).
+    bench: Option<Block>,
     /// The water in its bucket, in units (`liquid::U` is a full bucket).
     water: u32,
     /// The version of each water tile this client has (`Server::tiles`).

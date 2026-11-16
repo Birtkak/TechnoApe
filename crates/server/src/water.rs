@@ -148,6 +148,12 @@ impl Server {
 
     /// The trust boundary: a box within the size limits on a face that exists, a known block, every cell
     /// within the player's reach.
+    /// A block a client named is one of the world's: its body, its face and its cell exist. Asked before anything
+    /// indexes by it (a made-up `Use` or `Take` took the server down; the review of the crafting grid).
+    pub(super) fn exists(&self, b: Block) -> bool {
+        self.world.bodies.get(b.body as usize).is_some_and(|w| b.face < 6 && (0..w.n).contains(&b.pos.x) && (0..w.n).contains(&b.pos.y) && (0..w.layers).contains(&b.pos.z))
+    }
+
     pub(super) fn valid_shape(&self, s: &Shape, m: u16, at: DVec3) -> bool {
         s.fits(&self.world)
             && BLOCKS.get(m).is_some()

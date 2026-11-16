@@ -122,6 +122,7 @@ struct Raw {
     grade: u8,
     #[serde(default)]
     later: bool,
+    window: Option<String>,
     spring: Option<RawTone>,
     autumn: Option<RawTone>,
     winter: Option<RawTone>,
@@ -306,7 +307,14 @@ pub struct Def {
     /// What a generated, never-edited cell of it may hold besides itself, and the chance (ADR 0097: flint in
     /// gravel): an item by name, as the items' rows read these (`edit::held` resolves it).
     pub holds: Option<(String, f32)>,
+    /// The window the place button opens on it (`WINDOWS`, ADR 0140): a use of the block, not a
+    /// place against it. None for most blocks.
+    pub window: Option<String>,
 }
+
+/// The windows a block may open: the workbench's (the inventory with the 3 x 3 grid). shortcut: one kind; a
+/// machine with its own slots (the crucible) adds its name here and its holder on the server.
+pub const WINDOWS: [&str; 1] = ["workbench"];
 
 impl Def {
     /// Its look in season `s`: 0 summer (the row's own), 1 spring, 2 autumn, 3 winter, the rows of the
@@ -435,7 +443,10 @@ impl Registry {
             if r.holds.as_ref().is_some_and(|h| !(h.1 > 0.0 && h.1 <= 1.0) || !r.loose) {
                 return Err(format!("block '{}': holds is for a loose block, with a chance over 0 and at most 1", r.name));
             }
-            let def = Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, falls: r.falls, hangs: r.hangs, flame: r.flame, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger, joins: r.joins, rubble: r.rubble, rubble_of: None, stack: r.stack, holds: r.holds.clone(), tool: r.tool.clone(), grade: r.grade, later: r.later, wood: r.wood, fluff, bedding: r.bedding, joints: r.joints, span: r.span };
+            let def = Def { id: r.id, name: r.name.clone(), solid: r.solid, colour: r.colour, pattern: r.pattern, colour2: r.colour2.unwrap_or(darker(r.colour)), colour3: r.colour3.unwrap_or(lighter(r.colour)), size, amount, contrast: r.contrast, side, light: r.light, metal: r.metal, was: r.was.clone(), sound: r.sound.clone(), hardness: r.hardness, loose: r.loose, falls: r.falls, hangs: r.hangs, flame: r.flame, soft: r.soft, model: r.model.clone(), see: r.see, seasons, stagger: r.stagger, joins: r.joins, rubble: r.rubble, rubble_of: None, stack: r.stack, holds: r.holds.clone(), tool: r.tool.clone(), grade: r.grade, later: r.later, wood: r.wood, fluff, bedding: r.bedding, joints: r.joints, span: r.span, window: r.window.clone() };
+            if r.window.as_ref().is_some_and(|w| !WINDOWS.contains(&w.as_str()) || !r.solid || r.falls) {
+                return Err(format!("block '{}': window is one of {WINDOWS:?}, on a solid block that does not fall", r.name));
+            }
             if let Some(t) = r.rubble {
                 // the twin: the rock's colours in pebbles, loose and falling (ADR 0093)
                 let name = format!("{} rubble", r.name);
@@ -764,6 +775,21 @@ see = \"glass\"
         assert!(t.light.iter().zip(lamp.light).all(|(a, b)| *a > 0.0 && *a < b) && t.light[0] > t.light[2] * 2.0, "warm, weaker than the lamp: {:?}", t.light);
         assert!(!lamp.flame && !lamp.hangs);
         assert!(Registry::parse("[[block]]\nid = 0\nname = \"air\"\nsolid = false\n[[block]]\nid = 1\nname = \"x\"\nhardness = 1\nhangs = true\n").is_err(), "a solid block never hangs");
+    }
+
+    /// Draft ADR crafting-grid: the workbench is the one block with a window, an axe's, loose so hands take it back;
+    /// a window of another name, or on a block that is not solid or falls, is refused with the row's name.
+    #[test]
+    fn the_workbench_opens_its_window_and_other_windows_are_refused() {
+        let with: Vec<(&str, &str)> = BLOCKS.placeable().filter_map(|d| Some((d.name.as_str(), d.window.as_deref()?))).collect();
+        assert_eq!(with, [("workbench", "workbench")]);
+        let b = BLOCKS.get(BLOCKS.id("workbench")).unwrap();
+        assert!(b.solid && b.loose && !b.falls && b.tool.as_deref() == Some("axe") && !crate::items::knaps(b));
+        let row = |more: &str| Registry::parse(&format!("[[block]]\nid = 0\nname = \"air\"\nsolid = false\n[[block]]\nid = 1\nname = \"x\"\nhardness = 1\n{more}"));
+        assert!(row("window = \"workbench\"\n").is_ok());
+        for bad in ["window = \"crucible\"\n", "window = \"workbench\"\nsolid = false\n", "window = \"workbench\"\nfalls = true\n"] {
+            assert!(row(bad).err().is_some_and(|e| e.contains("block 'x'") && e.contains("window")), "{bad}");
+        }
     }
 
     #[test]

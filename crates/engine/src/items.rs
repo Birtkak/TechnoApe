@@ -16,6 +16,23 @@ pub const HOTBAR: usize = 9;
 pub const WORN: usize = 9;
 pub const ROWS_AT: usize = 10;
 pub const APE_SLOTS: usize = ROWS_AT + 27;
+/// The crafting grid's cells (ADR 0140): the 9 slots after those, a 3 x 3 row by row (cell k at
+/// `CRAFT_AT + k`, row k / 3, column k % 3). The inventory's 2 x 2 is its top left; the rest count at a workbench.
+/// Real slots of the player, so moves, saves and the ledger see them; nothing goes into or out of them but by a
+/// move or a make (`give`, `count` and `take` keep to the first `APE_SLOTS`).
+pub const CRAFT_AT: usize = APE_SLOTS;
+pub const CRAFT: usize = 9;
+/// Every slot a player has.
+pub const SLOTS: usize = CRAFT_AT + CRAFT;
+
+/// How far from the feet a workbench (a block with a window) may be, to the middle of its cell, for its use and
+/// while its 3 x 3 counts: the server's rule, which the client keeps too.
+pub const BENCH_REACH: f64 = 6.0;
+
+/// Whether grid cell k (0..9) is in the inventory's 2 x 2.
+pub fn in_two(k: usize) -> bool {
+    k % 3 < 2 && k / 3 < 2
+}
 /// A pile's slots (items.md: up to 4 stacks a cell).
 pub const PILE_SLOTS: usize = 4;
 /// The creative screen's tabs (ADR 0075).
@@ -312,9 +329,9 @@ impl Items {
 /// The item rows in force, made over the blocks in force (`live::apply`, ADR 0134).
 pub static ITEMS: crate::live::Live<Items> = crate::live::Live::new(|| Items::parse(crate::live::ITEMS_TOML).unwrap_or_else(|e| panic!("data/items.toml: {e}")));
 
-/// A fresh ape's slots: all empty.
+/// A fresh ape's slots, the grid's cells with them: all empty.
 pub fn ape() -> Vec<Slot> {
-    vec![None; APE_SLOTS]
+    vec![None; SLOTS]
 }
 
 /// The slots past the worn one an ape may fill now: those its pack opens.
@@ -328,10 +345,10 @@ pub fn usable(slots: &[Slot]) -> impl Iterator<Item = usize> + Clone + use<> {
 }
 
 /// Whether an ape's slots keep the rules: every stack of a known item, 1 to its stack size; the worn slot
-/// a pack or nothing; nothing in a row its pack does not open.
+/// a pack or nothing; nothing in a row its pack does not open (the grid's cells take anything).
 pub fn ape_fits(slots: &[Slot]) -> bool {
     let worn = slots.get(WORN).copied().flatten();
-    slots.len() == APE_SLOTS && stacks_fit(slots) && worn.is_none_or(|s| ITEMS.get(s.item).is_some_and(|d| d.pack > 0)) && slots[open(slots)..].iter().all(Option::is_none)
+    slots.len() == SLOTS && stacks_fit(slots) && worn.is_none_or(|s| ITEMS.get(s.item).is_some_and(|d| d.pack > 0)) && slots[open(slots)..APE_SLOTS].iter().all(Option::is_none)
 }
 
 /// Every stack of a known item, 1 to its stack size.
@@ -365,9 +382,9 @@ pub fn give(slots: &mut [Slot], s: Stack) -> u16 {
     add(slots, at, s)
 }
 
-/// How many of `item` the slots hold.
+/// How many of `item` the slots hold (an ape's grid cells not counted).
 pub fn count(slots: &[Slot], item: u16) -> u32 {
-    slots.iter().flatten().filter(|s| s.item == item).map(|s| s.n as u32).sum()
+    slots.iter().take(APE_SLOTS).flatten().filter(|s| s.item == item).map(|s| s.n as u32).sum()
 }
 
 /// Takes `n` of `item` from the slots, the first slots first; all of it or nothing.
@@ -376,7 +393,7 @@ pub fn take(slots: &mut [Slot], item: u16, n: u32) -> bool {
         return false;
     }
     let mut left = n;
-    for s in slots.iter_mut() {
+    for s in slots.iter_mut().take(APE_SLOTS) {
         if let Some(t) = s.as_mut().filter(|t| t.item == item && left > 0) {
             let k = left.min(t.n as u32) as u16;
             (t.n, left) = (t.n - k, left - k as u32);

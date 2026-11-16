@@ -150,6 +150,10 @@ impl Server {
             let over: Vec<Stack> = slots.iter().flatten().filter(|s| s.n > 0).flat_map(|s| items::stacks(s.item, s.n as u32).into_iter().map(|t| Stack { payload: s.payload, ..t })).collect();
             s.lay(*b, over, (0, 0));
         }
+        // a save from before the crafting grid (ADR 0140) has no cells: empty ones
+        for p in s.absent.values_mut().filter(|p| p.slots.len() == items::APE_SLOTS) {
+            p.slots.resize(items::SLOTS, None);
+        }
         let old: Vec<String> = s.absent.iter().filter(|(_, p)| !items::ape_fits(&p.slots)).map(|(n, _)| n.clone()).collect();
         for n in old {
             let p = s.absent.get_mut(&n).unwrap();

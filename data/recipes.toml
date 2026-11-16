@@ -1,38 +1,47 @@
-# Recipes (draft ADR recipe-list-and-copper-tools; schema and checks in crates/engine/src/recipes.rs).
-# `name`: what the list shows and the wire and the bot name it by (`craft copper_pick`), once each.
-# `process`: who makes it. Only "hand" is run now: the inventory's recipe list, one click one make
-# (`ToServer::Craft`). shortcut: the crucible adds "melt" and "cast" with its window; no format change.
-# `in`: [item, n] pairs, each item once; `out`: [item, n]. Items are named as data/items.toml or
-# data/blocks.toml name them. A recipe never makes what it takes.
+# Recipes of the crafting grid (ADR 0140; schema and checks in crates/engine/src/recipes.rs).
+# `name`: what the viewer shows and the wire names it by, once each.
+# `grid`: the pattern, rows top to bottom, one letter a cell, a space an empty cell; at most 3 x 3, rows of one
+# length, no empty row or column at its edge. It may lie anywhere in the grid and mirrored left to right;
+# every cell outside it must be empty. One wider or taller than 2 needs the workbench's 3 x 3.
+# `key`: each letter's item, or a list of items any of which will do. Every letter used, none undefined.
+# `out`: [item, n]. Items are named as data/items.toml or data/blocks.toml name them. A make takes one item from
+# every cell of the pattern. No two recipes may match the same grid, and none makes what it takes.
 
-# The copper tools (the Steam Age's first half hour): a head and a stick. Heads and ingots come from /give
+# The workbench: four logs, any kind.
+[[recipe]]
+name = "workbench"
+grid = ["LL", "LL"]
+key = { L = ["log", "birch log", "oak log", "pine log", "willow log", "palm log"] }
+out = ["workbench", 1]
+
+# The copper tools (the Steam Age's first half hour): a head above a stick. Heads and ingots come from /give
 # until the crucible casts them (costs for that run: pick 2 ingots, axe 2, shovel 1, knife 1, hammer 3).
 [[recipe]]
 name = "copper pick"
-process = "hand"
-in = [["copper pick head", 1], ["stick", 1]]
+grid = ["H", "S"]
+key = { H = "copper pick head", S = "stick" }
 out = ["copper pick", 1]
 
 [[recipe]]
 name = "copper axe"
-process = "hand"
-in = [["copper axe head", 1], ["stick", 1]]
+grid = ["H", "S"]
+key = { H = "copper axe head", S = "stick" }
 out = ["copper axe", 1]
 
 [[recipe]]
 name = "copper shovel"
-process = "hand"
-in = [["copper shovel head", 1], ["stick", 1]]
+grid = ["H", "S"]
+key = { H = "copper shovel head", S = "stick" }
 out = ["copper shovel", 1]
 
 [[recipe]]
 name = "copper knife"
-process = "hand"
-in = [["copper knife blade", 1], ["stick", 1]]
+grid = ["H", "S"]
+key = { H = "copper knife blade", S = "stick" }
 out = ["copper knife", 1]
 
 [[recipe]]
 name = "copper hammer"
-process = "hand"
-in = [["copper hammer head", 1], ["stick", 1]]
+grid = ["H", "S"]
+key = { H = "copper hammer head", S = "stick" }
 out = ["copper hammer", 1]
