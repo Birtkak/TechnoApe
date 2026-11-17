@@ -412,6 +412,7 @@ impl App {
                         self.furnace = Some((at, f.whole()));
                     }
                 }
+                Recv::Msg(ToClient::Marks { death, home }) => self.marks = crate::nav::game_marks(&self.world, death, home),
                 Recv::Msg(ToClient::Fires(v)) => {
                     for (b, on) in v {
                         self.models.set_state(b, on.then_some("working"));

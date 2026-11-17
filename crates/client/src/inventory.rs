@@ -436,6 +436,14 @@ impl App {
         (near && BLOCKS.get(self.world.block(hit))?.window.is_some()).then_some(hit)
     }
 
+    /// The bed aimed at that the place button would claim with the hand empty (draft death's cost; the server
+    /// judges it again, `play::claims` orders it last).
+    pub(crate) fn bed_target(&self) -> Option<Block> {
+        let (hit, _) = self.aim.filter(|_| self.dead.is_none() && self.hand_empty())?;
+        let near = self.world.block_centre(hit).distance(self.me.pos) <= items::BENCH_REACH;
+        (near && engine::vitals::sleeping_place(&self.world, hit)).then_some(hit)
+    }
+
     /// The place button on a block with a window: the server opens it, and its window opens (not the inventory).
     pub(crate) fn use_block(&mut self) {
         let Some(b) = self.use_target() else { return };

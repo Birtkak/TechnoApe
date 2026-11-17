@@ -12,7 +12,7 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   (survival's health and hunger, ADR 0040: impacts hurt, hunger drains, the bars over the hotbar are
   survival's; thirst, docs/design/needs.md: the blue drop's bar over hunger's, empty in 20 minutes standing and 10
   walking, then a point of health every 10 s, to death; right click held with nothing in hand on water within 6 m
-  drinks, full in 2 s; the sea is salt and does nothing, a river, a lake or water poured on land is fresh; breath, needs.md: a pale bar over health's only while it is short, 30 s with the head under water or above the air (1,500 m; Luna has none), 10 s buried, then a point of health a second, to "drowned", "ran out of air" or "was buried"; 2 s of air brings it back; at 0 health the death screen's `click:0` respawns), /help; /sound <name> plays a row of `data/sounds.toml` (ADR 0032:
+  drinks, full in 2 s; the sea is salt and does nothing, a river, a lake or water poured on land is fresh; breath, needs.md: a pale bar over health's only while it is short, 30 s with the head under water or above the air (1,500 m; Luna has none), 10 s buried, then a point of health a second, to "drowned", "ran out of air" or "was buried"; 2 s of air brings it back; at 0 health the death screen's `click:0` respawns; death's cost, draft: what was carried lies in a pile where the ape died, a bone-white "Death" waypoint on it until it is emptied; right click with an empty hand on a leaves block with a torch beside it, two empty cells over it, out of the water and in sight claims it as a sleeping place (after a pick-up or a drink there) ("you will wake here", a green "Home" waypoint), and a respawn wakes there while it stands, else at the spawn), /help; /sound <name> plays a row of `data/sounds.toml` (ADR 0032:
   a recording `data/sounds/<name>.wav` replaces the code-made one; a painting `data/textures/<block>[_top|_side|_bottom].png`
   replaces a block's pattern, live within a second, a refused file named on stderr (ADR 0045; `textures=dir` reads another folder); a model `data/models/<name>.toml` (ADR 0047, voxels of 1/8 m)
   is drawn where a block row names `model =` and in hand for a block of its name, live the same way (`models=dir`; `model=name[:clip]` on any run
@@ -30,7 +30,7 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   `seconds=` ends a play run, `settings=out/x.txt` keeps the real settings out of it), and a
   filmstrip shows the result.
 - Bots (`technoape-bot`): `drink dx dy dz` holds the use button on the water there for 2.5 s; `report` carries
-  `"vitals":[health,hunger,thirst,breath]`. `prospect dx dy dz` strikes the prospecting tool in hand on that block and prints the answer
+  `"vitals":[health,hunger,thirst,breath]`, `"death"` and `"home"` the centres of its death pile's cell and its sleeping place (null without); `use dx dy dz` on a bed claims it. `prospect dx dy dz` strikes the prospecting tool in hand on that block and prints the answer
   as one JSON line, `{"bot":..,"prospect":[["copper","strong"],..]}` (empty: nothing in range); `hold k` first.
   Crafting as a player does: the grid's cells are slots 37 to 45 (a 3 x 3 row by row; 37, 38, 40, 41 the 2 x 2),
   filled by `move a b n`; `craft [n]` takes the output n times (1 if left out); `use dx dy dz` uses the block there
