@@ -247,19 +247,16 @@ impl App {
             match self.link.try_recv() {
                 Recv::Msg(ToClient::Edits(v)) => {
                     let mut heard = 0;
-                    let mut moved = false;
                     let (mut slid, mut slid_at) = (0u32, None);
-                    for (k, &(b, m)) in v.iter().enumerate() {
-                        // a loose block's fall (ADR 0079) is two edits in a row, the block gone from one cell and
-                        // in the next, side by side (the server sends moves in messages of their own): it breaks
-                        // nothing and places nothing. shortcut: a move across a face's edge plays its break and place
-                        // (a few cells of the planet); pair by the fold when anyone notices
-                        let second = std::mem::take(&mut moved);
-                        let fall = second || (m == engine::blocks::AIR && v.get(k + 1).is_some_and(|&(q, n)| engine::blocks::BLOCKS.get(n).is_some_and(|d| d.falls) && (q.body, q.face) == (b.body, b.face) && (q.pos - b.pos).abs().element_sum() == 1 && self.world.block(b) == n));
-                        moved = fall && m == engine::blocks::AIR;
-                        if second {
+                    for &(b, m) in &v {
+                        // the cell's delta as the tick's events said (draft-event-list): a dig or a place plays its
+                        // effect and, for up to three cells of an edit, its sound (another player's digging and
+                        // building; this player's own were seen and heard at the click); a loose block's move
+                        // (ADR 0079) breaks nothing and places nothing
+                        let hear = heard < 3 && self.loaded_at.is_some();
+                        let (shows, was, then) = fx::server_cell(&mut self.fx, &mut self.pred, &mut self.world, &mut self.pending, b, m, hear);
+                        if let Some(fx::Then::Glide(from)) = then {
                             // the block arriving (ADR 0101): it glides in from the cell it left, one hiss a slump
-                            let from = v[k - 1].0;
                             // ADR 0106: glides off with the slopes, the block hops a cell a tick
                             if self.fx.on && engine::fall::SLOPES_AND_SLIDES {
                                 self.glide(from, b, m);
@@ -270,10 +267,6 @@ impl App {
                                 slid_at.get_or_insert(b);
                             }
                         }
-                        // the cell's delta: its effect and, for up to three cells of an edit, its sound (another
-                        // player's digging and building; this player's own were seen and heard at the click)
-                        let hear = heard < 3 && self.loaded_at.is_some() && !fall;
-                        let (shows, was) = if fall { (self.pred.server(&mut self.world, b, m), None) } else { fx::server_edit(&mut self.fx, &mut self.pred, &mut self.world, b, m, hear) };
                         if shows {
                             self.streamer.touch_block(&self.world, b);
                             if let Some(was) = was.filter(|_| hear) {
@@ -349,15 +342,18 @@ impl App {
                     (self.creative, self.bucket_water) = (creative, water);
                     // the slots once every move sent is answered: until then the prediction stands
                     if self.items_pending.is_empty() && slots.len() == engine::items::SLOTS {
-                        // a tool on its last use gone from its slot wore out (ADR 0110): its snap and a few chips
-                        let worn = self.inv.iter().zip(&slots).find(|(a, b)| engine::items::left(**a) == Some(1) && b.is_none_or(|b| Some(b.item) != a.map(|a| a.item))).and_then(|(a, _)| *a);
-                        if let Some(worn) = worn.filter(|_| !self.creative) {
-                            let feet = self.me.pos;
-                            let ahead = self.world.block_at(feet + phys::up(&self.world, feet) * 1.2 + self.me.fwd * 0.6);
-                            self.audio.play("tool.break", None, 1.0, 1.0, false);
-                            self.fx.play(fx::id("knap"), &fx::At::cell(&self.world, ahead, engine::items::ITEMS.look(worn.item)));
-                        }
                         self.inv = slots;
+                    }
+                }
+                // what happened this tick (draft-event-list): the cells of the edits that follow, and this
+                // player's own tool wearing out (ADR 0110): its snap and a few chips
+                Recv::Msg(ToClient::Events(v)) => {
+                    self.pending.take(&v);
+                    for item in fx::worn(&v, self.globe.id) {
+                        let feet = self.me.pos;
+                        let ahead = self.world.block_at(feet + phys::up(&self.world, feet) * 1.2 + self.me.fwd * 0.6);
+                        self.audio.play("tool.break", None, 1.0, 1.0, false);
+                        self.fx.play(fx::id("knap"), &fx::At::cell(&self.world, ahead, engine::items::ITEMS.look(item)));
                     }
                 }
                 Recv::Msg(ToClient::Taken(v)) => {

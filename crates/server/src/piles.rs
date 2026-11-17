@@ -36,7 +36,7 @@ impl Server {
         // a survival dig is taken once it was held for its time (ADR 0034), with the tool in hand (ADR 0110).
         // shortcut: the time held counts whatever was in hand meanwhile, so a tool taken up at the end of a
         // bare-hand hold digs at once; a hold per tool when that matters
-        let tool = self.clients[i].tool();
+        let (tool, id) = (self.clients[i].tool(), self.clients[i].player.id);
         if m == AIR && !self.clients[i].creative {
             let now = self.clock();
             let held = self.clients[i].hold.held(shape, now);
@@ -80,6 +80,7 @@ impl Server {
                 let worn = c.slots[c.hand as usize].map_or(AIR, |s| s.item);
                 if (0..fit).any(|_| items::wear(&mut slots[c.hand as usize])) {
                     *self.item_made.entry(worn).or_default() -= 1;
+                    self.events.push(Event::Worn { item: worn, by: id });
                     // what it leaves (a metal tool's stick) is in its slot now
                     if let Some(l) = slots[c.hand as usize] {
                         *self.item_made.entry(l.item).or_default() += 1;
@@ -110,10 +111,11 @@ impl Server {
             Vec::new()
         };
         for &(b, old) in cells.iter().chain(&loose) {
-            let m = leave(old);
-            if self.world.block(b) != m {
+            let (m, was) = (leave(old), self.world.block(b));
+            if was != m {
                 self.world.set_block(b, m);
                 changed.push((b, m));
+                self.events.push(Event::Edit { at: b, was, now: m, by: Some(id) });
             }
         }
         if !drops.is_empty() {
@@ -184,6 +186,7 @@ impl Server {
         let worn = c.slots[k].map_or(AIR, |s| s.item);
         if items::wear(&mut c.slots[k]) {
             *self.item_made.entry(worn).or_default() -= 1;
+            self.events.push(Event::Worn { item: worn, by: c.player.id });
             if let Some(l) = c.slots[k] {
                 *self.item_made.entry(l.item).or_default() += 1;
             }
@@ -205,6 +208,9 @@ impl Server {
         }
         *self.item_made.entry(r.out.0).or_default() += made as i64 * r.out.1 as i64;
         c.inv_dirty = true;
+        if made > 0 {
+            self.events.push(Event::Craft { recipe: r.name.clone(), n: made as u32, by: c.player.id });
+        }
     }
 
     /// Client i uses block `at` (`ToServer::Use`): alive, within `BENCH_REACH`, a block with a window. A workbench
@@ -278,7 +284,15 @@ impl Server {
             }
         }
         for line in deaths {
+            self.died(&line);
             self.say(line);
+        }
+    }
+
+    /// The death announced by `line` is an event: of the player whose death it is (draft-event-list).
+    pub(super) fn died(&mut self, line: &str) {
+        if let Some(c) = self.clients.iter().find(|c| c.vitals.dead.as_deref() == Some(line)) {
+            self.events.push(Event::Died { by: c.player.id });
         }
     }
 
@@ -433,6 +447,7 @@ impl Server {
         let c = &mut self.clients[i];
         (c.slots, c.inv_dirty) = (slots, true);
         *self.item_made.entry(item).or_default() += n as i64;
+        self.events.push(Event::Taken { at, row: th.row as u16, by: c.player.id });
         if row.kind == Kind::Plant {
             self.world.set_block(at, AIR);
             for c in &self.clients {

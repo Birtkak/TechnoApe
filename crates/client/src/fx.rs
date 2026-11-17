@@ -6,6 +6,7 @@
 //! onto a value.
 use engine::blocks::BLOCKS;
 use engine::edit::Predictor;
+use engine::events::Event;
 use engine::palette::Palette;
 use engine::world::{Block, World};
 use glam::{DVec3, IVec3, Vec3};
@@ -1436,6 +1437,57 @@ pub fn server_edit(fx: &mut Fx, pred: &mut Predictor, world: &mut World, b: Bloc
     (shows, was)
 }
 
+/// What the server said happened to the cells of the edits that follow (`ToClient::Events`, sent before a
+/// tick's `Edits`; draft-event-list): a cell an `Edit` event names plays its break or place and is heard
+/// (`server_edit`), the cell a `Fall` came to glides in from the one it left, and a cell no event names (the
+/// cell a fall left, a joining client's edits) changes without a sound or an effect.
+#[derive(Default)]
+pub struct Pending(std::collections::HashMap<Block, Vec<Then>>);
+
+/// What a server edit of a cell shows (`Pending`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Then {
+    Edit,
+    Glide(Block),
+}
+
+impl Pending {
+    /// A tick's events. Whatever an earlier tick's left over goes: its edits came before these events.
+    pub fn take(&mut self, events: &[Event]) {
+        self.0.clear();
+        for e in events {
+            match *e {
+                Event::Edit { at, .. } => self.0.entry(at).or_default().push(Then::Edit),
+                Event::Fall { from, to, .. } => self.0.entry(to).or_default().push(Then::Glide(from)),
+                _ => {}
+            }
+        }
+    }
+    /// The next of the events for cell `b`, for the server's next edit of it.
+    pub fn cell(&mut self, b: Block) -> Option<Then> {
+        let v = self.0.get_mut(&b)?;
+        let t = v.remove(0);
+        if v.is_empty() {
+            self.0.remove(&b);
+        }
+        Some(t)
+    }
+}
+
+/// The tools that wore out in player `me`'s own hand among a tick's events (ADR 0110): each plays its snap.
+pub fn worn(events: &[Event], me: u32) -> Vec<u16> {
+    events.iter().filter_map(|e| if let Event::Worn { item, by } = *e { (by == me).then_some(item) } else { None }).collect()
+}
+
+/// The server's edit of cell `b` to `m` as the tick's events said (`Pending`): one an `Edit` event named plays
+/// and, if `hear` may, reads the cell for its sound (`server_edit`); any other changes the world silently.
+/// Whether it shows, what the cell was (when read) and what the events said.
+pub fn server_cell(fx: &mut Fx, pred: &mut Predictor, world: &mut World, pending: &mut Pending, b: Block, m: u16, hear: bool) -> (bool, Option<u16>, Option<Then>) {
+    let then = pending.cell(b);
+    let (shows, was) = if then == Some(Then::Edit) { server_edit(fx, pred, world, b, m, hear) } else { (pred.server(world, b, m), None) };
+    (shows, was, then)
+}
+
 // ---- motion ----
 
 // the design's curves (docs/design/effects.md, Motion); the hand uses Pulse, content the others
@@ -1869,6 +1921,43 @@ mod tests {
         let was = w.block(deepest);
         assert_eq!(server_edit(&mut off, &mut pred, &mut w, deepest, AIR, true), (true, Some(was)));
         assert_eq!(off.played, 0);
+    }
+
+    /// The event list (draft-event-list): another player's dig plays its break and is heard because the tick's
+    /// events said it was a dig, and only then; a fall's two cells and an edit no event names change silently.
+    #[test]
+    fn a_server_edit_plays_and_is_heard_only_as_the_events_say() {
+        let mut w = world();
+        let mut pred = Predictor::default();
+        let mut fx = Fx::new(true, 4096, 1.0, 1);
+        let mut pending = Pending::default();
+        let a = surface(&w);
+        let cell = |k: i32| {
+            let b = Block { pos: a.pos + IVec3::new(3 * k, 0, 0), ..a };
+            Block { pos: IVec3::new(b.pos.x, b.pos.y, surface_z(&w, b)), ..b }
+        };
+        let (dug, quiet, from) = (cell(1), cell(2), cell(3));
+        let to = Block { pos: from.pos + IVec3::Z, ..from };
+        let was = w.block(dug);
+        pending.take(&[Event::Edit { at: dug, was, now: AIR, by: Some(2) }, Event::Fall { from, to, block: was }]);
+        // the dig: its break, and the cell read for its sound
+        assert_eq!(server_cell(&mut fx, &mut pred, &mut w, &mut pending, dug, AIR, true), (true, Some(was), Some(Then::Edit)));
+        assert_eq!(fx.played, 1);
+        // no event for it: the world changes, nothing plays, nothing is read
+        assert_eq!(server_cell(&mut fx, &mut pred, &mut w, &mut pending, quiet, AIR, true), (true, None, None));
+        // the fall: the cell left is silent, the one come to glides in from it
+        assert_eq!(server_cell(&mut fx, &mut pred, &mut w, &mut pending, from, AIR, true).2, None);
+        assert_eq!(server_cell(&mut fx, &mut pred, &mut w, &mut pending, to, was, true).2, Some(Then::Glide(from)));
+        assert_eq!(fx.played, 1, "one break in all");
+        // a cell dug and placed in one tick: an event each, in order; the next tick's events drop what was left
+        pending.take(&[Event::Edit { at: dug, was: AIR, now: was, by: None }, Event::Edit { at: dug, was, now: AIR, by: None }]);
+        assert_eq!((pending.cell(dug), pending.cell(dug), pending.cell(dug)), (Some(Then::Edit), Some(Then::Edit), None));
+        pending.take(&[Event::Edit { at: quiet, was, now: AIR, by: None }]);
+        pending.take(&[]);
+        assert_eq!(pending.cell(quiet), None);
+        // a tool worn out snaps for the player whose hand it was in, not for another
+        let ev = [Event::Worn { item: 40, by: 2 }, Event::Worn { item: 41, by: 3 }, Event::Died { by: 2 }];
+        assert_eq!((worn(&ev, 2), worn(&ev, 9)), (vec![40], vec![]));
     }
 
     /// ADR 0093: a survival dig of rock leaves its rubble, solid to solid; it breaks (one effect), it does not place.

@@ -72,6 +72,7 @@ impl Server {
             taken_changed: Vec::new(),
             furnaces: BTreeMap::new(),
             fires_changed: Vec::new(),
+            events: Vec::new(),
         }
     }
 
