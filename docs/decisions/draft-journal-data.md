@@ -31,7 +31,12 @@ runner, `look:` and `have:`. The book is step 3; `do:`, `see:` and `need:` come 
 - **`have:`** is judged on the server at the end of the tick, after the events, when the slots changed this
   tick (`inv_dirty`, the same flag that sends `Inventory`): every stack in the slots, the crafting grid's
   cells too, raises its rows. Every way an item arrives (a pick-up, a dig, a craft, a take from a pile or a
-  furnace, `/give`, a save loaded) sets that flag, so none is missed and nothing is hooked into each.
+  furnace, `/give`, a save loaded) sets that flag, so none is missed and nothing is hooked into each. The
+  slots are judged also on the tick the ape's name arrives, since what it got before its name (a `/give`, a
+  pick-up) changed on a tick it was not judged. Items carried over from creative count once the ape is in
+  survival: having it is having it.
+  `have:` names are written as `data/items.toml` writes them; '_' (which `/give hand_axe` reads as a space)
+  is refused, so a search for an item's name finds the triggers on it.
 - **`look:`**: the server runs `edit::aim` from the player's eye (feet + up x 1.6) along the look it holds
   (the body's `fwd` turned by `Player::pitch`, from `Move`, `Input` and `Steps`), 8 m as a client aims, every
   10 ticks (twice a second), and raises the rows of the block it meets. That look lags the client's by the
@@ -45,10 +50,12 @@ runner, `look:` and `have:`. The book is step 3; `do:`, `see:` and `need:` come 
   save's restore all reach the client the same way. Its owner only.
 - **Save 19:** each saved player gains `journal: Vec<(String, State)>`, the entries not unknown by name in the
   file's order. An 18 or older loads with every entry unknown (the 18 path is a new reader; the 17, 16 and 12
-  paths gain an empty journal). An entry the file no longer has is forgotten at load, with a line on stderr,
-  rather than refusing the save: the entries are drafts and will be renamed.
+  paths gain an empty journal). An entry the file does not have (renamed, a typo) is kept aside on the player
+  (`Client::kept`): not sent, not raised by triggers, saved again untouched, so a name put back or a typo
+  fixed finds its state again; the save is not refused, since the entries are drafts.
 - **State hash:** a client's journal is hashed when any entry is not unknown, and an absent player's saved
-  bytes leave out an empty journal's byte, so a recording without the journal keeps its hash.
+  bytes leave out an empty journal's byte (they are then the 18 layout's), so a recording without the
+  journal keeps its hash (`an_empty_journal_leaves_the_state_hash_as_before`).
 - **Client:** no book; the chat shows "Journal: <question>" for an entry noticed and "Journal: learned
   <title>" for one known, nothing for the first message (the journal it joined with). `/journal` lists the
   entries and `/journal <entry> unknown|noticed|known` sets one, for trying it.
@@ -75,10 +82,18 @@ runner, `look:` and `have:`. The book is step 3; `do:`, `see:` and `need:` come 
 ## Consequences
 - The journal works for blocks and items before any process exists; the starter's entries (step 4) replace
   the drafts and add `do:` and `see:` through the event list.
-- `/journal` is open to every player, like `/thirst`; it goes to the operator role with them.
+- `/journal` is open to every player, like `/thirst`; it goes behind the operator role together with
+  `/give`, `/heal`, `/hurt` and `/playmode`.
 - Not live: `data/journal.toml` is read once (recipes are not live either); a reload would need each ape's
   states kept by name and the clients told.
 - Instincts (journal.md: drink, eat, pick up, dig, strike two stones known at the start) are not built: no
   entries for them yet.
 - The design's "the crosshair rested on it" is read as "is on it at a half-second check"; a rest of some
   time is a taste call.
+
+## Calls for the developer
+- A creative ape learns nothing; what it carried over counts when it switches to survival (having it is having
+  it).
+- "The crosshair rested on it" is read as "on it at a half-second check".
+- The notices are chat lines ("Journal: <question>", "Journal: learned <title>"), no sound, until the book.
+- The opening's entries are of age "steam"; the design's example said "stone".

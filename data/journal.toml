@@ -9,7 +9,9 @@
 #   have:<item>          that block or item (data/items.toml) is in the ape's slots
 # `do:`, `see:` and `need:` come with the process runner (journal.md, step 4).
 # `age`: the age it belongs to (docs/design/progression.md): steam, lv, mv, hv, ev, iv or exotic.
-# Saves keep each ape's entries by name: renaming one forgets it in every save.
+# Saves keep each ape's entries by name. A save's entry this file does not have (renamed, a typo) is kept
+# aside, unseen, and saved again; named so here again, it is found with its state. A rename therefore starts
+# every ape over on that entry unless the old name comes back.
 
 [[entry]]
 name = "flint"

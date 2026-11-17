@@ -3547,6 +3547,47 @@ fn the_journal_costs_little_a_player() {
     assert!(us < 200.0, "{us} us a player");
 }
 
+/// The slots an ape arrives with count for `have:` (draft ADR journal-data): what it got before its name, and
+/// a returning ape's saved slots with an empty journal (a save from before the journal).
+#[test]
+fn the_slots_an_ape_arrives_with_teach_it() {
+    use engine::journal::State::*;
+    let (mut s, links) = server_with(2);
+    let (new, back) = (&links[0], &links[1]);
+    let flint = ITEMS.named("flint").unwrap();
+    new.send(ToServer::Chat("/give flint 1".into()));
+    s.tick();
+    assert_eq!(held(&s.clients[0].slots), vec![(flint, 1)], "given before its name");
+    let mut sv = saved(&s.clients[1]);
+    sv.slots[3] = Some(items::Stack { item: flint, n: 1, payload: 0 });
+    s.absent.insert("bob".into(), sv);
+    new.send(ToServer::Hello { name: "ape".into() });
+    back.send(ToServer::Hello { name: "bob".into() });
+    s.tick();
+    for (k, c) in s.clients.iter().enumerate() {
+        assert_eq!(c.journal[engine::journal::JOURNAL.index("flint").unwrap()], Known, "client {k}");
+    }
+}
+
+/// The state hash of a server whose journals are all empty is the hash from before the journal (draft ADR
+/// journal-data), so old recordings replay: an absent player hashes as the 18 layout (no journal field), and a
+/// present one's journal of unknowns adds nothing; one entry noticed changes it.
+#[test]
+fn an_empty_journal_leaves_the_state_hash_as_before() {
+    let (mut s, links) = server_with(1);
+    links[0].send(ToServer::Hello { name: "ape".into() });
+    s.tick();
+    let p = saved(&s.clients[0]);
+    let old = save::Saved::<engine::vitals::Vitals, save::Marks, ()> { name: p.name.clone(), pos: p.pos, fwd: p.fwd, creative: p.creative, slots: p.slots.clone(), water: p.water, vitals: p.vitals.clone(), marks: p.marks.clone(), journal: () };
+    assert_eq!(state::hashed(&p), postcard::to_allocvec(&old).unwrap(), "an absent player as before the journal");
+    let h = s.hash();
+    s.clients[0].journal.clear();
+    assert_eq!(s.hash(), h, "a journal of unknowns adds nothing to the hash");
+    s.clients[0].journal = engine::journal::JOURNAL.fresh();
+    s.clients[0].journal[0] = engine::journal::State::Noticed;
+    assert_ne!(s.hash(), h);
+}
+
 /// The journal changes among `got` (draft ADR journal-data), one list a message.
 fn journals(got: &[ToClient]) -> Vec<Vec<(String, engine::journal::State)>> {
     got.iter().filter_map(|m| if let ToClient::Journal(v) = m { Some(v.clone()) } else { None }).collect()

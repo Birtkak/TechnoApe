@@ -99,7 +99,10 @@ impl Journal {
                     let name = what.strip_prefix("block:").ok_or(format!("trigger '{t}': look: names a block, as look:block:clay"))?;
                     BLOCKS.placeable().find(|d| d.name == name).map(|d| Trigger::Look(d.id)).ok_or(format!("trigger '{t}': data/blocks.toml has no block '{name}'"))
                 }
-                "have" => items.named(what).filter(|_| !what.contains('_')).map(Trigger::Have).ok_or(format!("trigger '{t}': data/items.toml has no block or item '{what}'")),
+                // `named` reads '_' as a space for typed commands (/give hand_axe); the file writes names as
+                // data/items.toml does, so a search for a row by its name finds its triggers
+                "have" if what.contains('_') => Err(format!("trigger '{t}': write the name as data/items.toml does, with spaces, not '_'")),
+                "have" => items.named(what).map(Trigger::Have).ok_or(format!("trigger '{t}': data/items.toml has no block or item '{what}'")),
                 "do" | "see" | "need" => Err(format!("trigger '{t}': {kind}: comes with the process runner (journal.md, step 4)")),
                 _ => Err(format!("trigger '{t}': no kind '{kind}' (look:, have:)")),
             }
@@ -172,21 +175,23 @@ impl Journal {
         }
     }
 
-    /// What a save keeps: each entry not unknown by name, in the file's order.
-    pub fn saved(&self, s: &[State]) -> Vec<(String, State)> {
-        self.entries.iter().zip(s).filter(|(_, t)| **t != State::Unknown).map(|(e, t)| (e.name.clone(), *t)).collect()
+    /// What a save keeps: each entry not unknown by name, in the file's order, then `kept` (the save's
+    /// entries this file does not have, `load`) as they came.
+    pub fn saved(&self, s: &[State], kept: &[(String, State)]) -> Vec<(String, State)> {
+        self.entries.iter().zip(s).filter(|(_, t)| **t != State::Unknown).map(|(e, t)| (e.name.clone(), *t)).chain(kept.iter().cloned()).collect()
     }
 
-    /// A save's entries as states; one the file no longer has is forgotten.
-    pub fn load(&self, v: &[(String, State)]) -> Vec<State> {
-        let mut s = self.fresh();
+    /// A save's entries as states, and those this file does not have, kept for the next save untouched: an
+    /// entry renamed back, or a typo fixed, finds its state again.
+    pub fn load(&self, v: &[(String, State)]) -> (Vec<State>, Vec<(String, State)>) {
+        let (mut s, mut kept) = (self.fresh(), Vec::new());
         for (name, t) in v {
             match self.index(name) {
                 Some(k) => s[k] = *t,
-                None => eprintln!("[technoape] the journal entry '{name}' of a save is no longer in data/journal.toml: forgotten"),
+                None => kept.push((name.clone(), *t)),
             }
         }
-        s
+        (s, kept)
     }
 }
 
@@ -223,6 +228,7 @@ mod tests {
         bad("noticed_by = [\"look:block:no such block\"]", "no block 'no such block'");
         bad("noticed_by = [\"look:clay\"]", "look: names a block");
         bad("noticed_by = [\"have:no such item\"]", "no block or item 'no such item'");
+        bad("noticed_by = [\"have:hand_axe\"]", "with spaces, not '_'");
         bad("noticed_by = [\"see:process:dry:clay\"]", "step 4");
         bad("noticed_by = [\"smell:clay\"]", "no kind 'smell'");
         bad("noticed_by = [\"clay\"]", "has no kind");
@@ -265,8 +271,22 @@ mod tests {
         assert_eq!(s, [State::Known, State::Noticed], "a look does not lower it");
         j.had(&mut s, flint);
         assert_eq!(s, [State::Known, State::Known]);
-        assert_eq!(j.saved(&s), [("a".to_string(), State::Known), ("b".to_string(), State::Known)]);
-        assert_eq!(j.load(&[("b".into(), State::Noticed), ("gone".into(), State::Known)]), [State::Unknown, State::Noticed], "a name no longer there is forgotten");
+        assert_eq!(j.saved(&s, &[]), [("a".to_string(), State::Known), ("b".to_string(), State::Known)]);
+    }
+
+    /// An entry the file does not have (renamed, or a typo) is kept through a load and a save untouched, and a
+    /// file that has it again finds its state.
+    #[test]
+    fn an_entry_the_file_lacks_survives_a_load_and_a_save() {
+        let b = ROW.replace("\"a\"", "\"b\"");
+        let both = Journal::parse(&format!("{ROW}known_by = [\"have:flint\"]\n{b}known_by = [\"have:flint\"]\n"), &ITEMS).unwrap();
+        let only_b = Journal::parse(&format!("{b}known_by = [\"have:flint\"]\n"), &ITEMS).unwrap();
+        let first = vec![("a".to_string(), State::Known), ("b".to_string(), State::Noticed)];
+        let (s, kept) = only_b.load(&first);
+        assert_eq!((&s[..], &kept[..]), (&[State::Noticed][..], &[("a".to_string(), State::Known)][..]), "a kept aside, not a state");
+        let again = only_b.saved(&s, &kept);
+        let (s, kept) = both.load(&again);
+        assert_eq!((s, kept.len()), (vec![State::Known, State::Noticed], 0), "back in the file: a is known again");
     }
 
     /// The state's bytes on the wire and on disk (draft ADR journal-data): a change here breaks old saves.

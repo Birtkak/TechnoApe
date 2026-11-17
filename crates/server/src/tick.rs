@@ -94,6 +94,7 @@ impl Server {
                 prospected: None,
                 journal: engine::journal::JOURNAL.fresh(),
                 told: None,
+                kept: Vec::new(),
                 bench: None,
                 furnace: None,
                 sent_furnace: None,
@@ -142,7 +143,7 @@ impl Server {
                             let p = DVec3::from_array(sv.pos);
                             c.phys = phys::Player::at(p, phys::tangent(DVec3::from_array(sv.fwd.map(f64::from)), phys::up(&self.world, p), DVec3::X));
                             (c.player.pos, c.player.fwd, c.creative, c.inv_dirty, c.water, c.vitals, c.slots, c.marks) = (sv.pos, sv.fwd, sv.creative, true, sv.water, sv.vitals, sv.slots, sv.marks);
-                            c.journal = engine::journal::JOURNAL.load(&sv.journal);
+                            (c.journal, c.kept) = engine::journal::JOURNAL.load(&sv.journal);
                         }
                         let feet = self.clients[i].phys.pos;
                         self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), before, (0, 0));
@@ -511,7 +512,8 @@ impl Server {
         let look = self.tick % LOOK_EVERY == 0;
         let world = &self.world;
         for c in self.clients.iter_mut().filter(|c| !c.creative && c.vitals.dead.is_none() && !c.player.name.is_empty()) {
-            if c.inv_dirty {
+            // and on the tick its name came (`told` none yet): what it held before is no change of this tick
+            if c.inv_dirty || c.told.is_none() {
                 for s in c.slots.iter().flatten() {
                     j.had(&mut c.journal, s.item);
                 }

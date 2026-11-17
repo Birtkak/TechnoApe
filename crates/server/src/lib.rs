@@ -110,7 +110,7 @@ fn wanted(tiles: &FxMap<Col, (u64, DVec3)>, near: &FxMap<glam::IVec3, Vec<Col>>,
 
 /// What a save keeps of a connected player.
 fn saved(c: &Client) -> Saved {
-    Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, slots: c.slots.clone(), water: c.water, vitals: c.vitals.clone(), marks: c.marks.clone(), journal: engine::journal::JOURNAL.saved(&c.journal) }
+    Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, slots: c.slots.clone(), water: c.water, vitals: c.vitals.clone(), marks: c.marks.clone(), journal: engine::journal::JOURNAL.saved(&c.journal, &c.kept) }
 }
 
 /// A pile's cell as a key that sorts (by body, face, column, layer: the piles' fixed order, items.md).
@@ -206,6 +206,8 @@ struct Client {
     /// told of it (None: nothing yet).
     journal: Vec<engine::journal::State>,
     told: Option<Vec<engine::journal::State>>,
+    /// Its save's journal entries data/journal.toml does not have (renamed, a typo), saved again untouched.
+    kept: Vec<(String, engine::journal::State)>,
 }
 
 impl Client {
