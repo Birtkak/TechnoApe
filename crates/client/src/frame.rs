@@ -398,7 +398,7 @@ impl App {
                 // state plays while one burns (its fire, smoke, sound and light)
                 Recv::Msg(ToClient::Furnace { at, f }) => {
                     if self.furnace.as_ref().is_some_and(|o| o.0 == at) {
-                        self.furnace = Some((at, f));
+                        self.furnace = Some((at, f.whole()));
                     }
                 }
                 Recv::Msg(ToClient::Fires(v)) => {

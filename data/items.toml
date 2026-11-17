@@ -195,6 +195,89 @@ tool = "hammer"
 head = "copper"
 leaves = "stick"
 
+# Tin and bronze (ADR 0142): tin melts from its pebbles, gravel and rubble; three copper
+# ingots and one tin melt together into four of bronze, cast and hafted as copper is.
+# shortcut: bronze's items are drawn in copper's colours until their models are painted.
+[[item]]
+name = "tin ingot"
+look = "cassiterite"
+
+[[material]]
+name = "bronze"
+speed = 5.0
+grade = 2
+uses = 400
+prospect = 32
+
+[[item]]
+name = "bronze ingot"
+look = "copper"
+
+[[item]]
+name = "bronze pick head"
+stack = 16
+look = "copper"
+
+[[item]]
+name = "bronze axe head"
+stack = 16
+look = "copper"
+
+[[item]]
+name = "bronze shovel head"
+stack = 16
+look = "copper"
+
+[[item]]
+name = "bronze knife blade"
+stack = 16
+look = "copper"
+
+[[item]]
+name = "bronze hammer head"
+stack = 16
+look = "copper"
+
+[[item]]
+name = "bronze pick"
+stack = 1
+look = "copper"
+tool = "pick"
+head = "bronze"
+leaves = "stick"
+
+[[item]]
+name = "bronze axe"
+stack = 1
+look = "copper"
+tool = "axe"
+head = "bronze"
+leaves = "stick"
+
+[[item]]
+name = "bronze shovel"
+stack = 1
+look = "copper"
+tool = "shovel"
+head = "bronze"
+leaves = "stick"
+
+[[item]]
+name = "bronze knife"
+stack = 1
+look = "copper"
+tool = "knife"
+head = "bronze"
+leaves = "stick"
+
+[[item]]
+name = "bronze hammer"
+stack = 1
+look = "copper"
+tool = "hammer"
+head = "bronze"
+leaves = "stick"
+
 # The crucible's mould (ADR 0141): two clay side by side in the 2 x 2. It lasts forever: a cast keeps it.
 [[item]]
 name = "clay mould"

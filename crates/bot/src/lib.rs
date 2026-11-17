@@ -23,8 +23,8 @@
 //! (1 if left out; as many as the cells hold). `use dx dy dz` uses the block there (a workbench opens its 3 x 3),
 //! `close` closes the screen (the cells back into the pack). `slots` shows what came of it after a tick.
 //! Furnaces (ADR 0141): `use dx dy dz` on a crucible opens its window; `put` and `take` at its cell reach
-//! its slots (0 what goes in, 1 the fuel, 2 the mould, 3 what comes out) in place of a pile's; `cast dx dy dz name`
-//! chooses its cast (`cast dx dy dz` alone none); `furnace` reports the open one: slots, heat, fire and work.
+//! its slots (0 what goes in, 1 the fuel, 2 the mould, 3 what comes out, 4 the second input for an alloy) in place
+//! of a pile's; `cast dx dy dz name` chooses its cast's shape by any row of it (`cast dx dy dz` alone none); `furnace` reports the open one: slots, heat, fire and work.
 //! Sprint (ADR 0118): `sprint on` makes every walk after it a sprint, `sprint off` a walk again. A walk looks at
 //! its target, so in water a sprint swims to it, down or up as well (a dive, a lake's crossing at the surface).
 use engine::edit::Shape;
@@ -682,6 +682,30 @@ mod tests {
         assert!(blocks[1].contains("\"material\":0"), "{out:?}");
         assert!(parse("cast 1 0 0 cast pick head").unwrap() == Some(Cmd::Cast(DVec3::new(1.0, 0.0, 0.0), Some("cast pick head".into()))));
         assert!(parse("cast 1 0 0").unwrap() == Some(Cmd::Cast(DVec3::X, None)));
+    }
+
+    /// Draft ADR tin-and-bronze: a bot puts copper ingots into a crucible's second input (slot 4) and tin into
+    /// the first, and the furnace it reports has melted them into bronze.
+    #[test]
+    fn a_survival_bot_alloys_bronze_through_the_second_input() {
+        let (tx, rx) = channel();
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(TICK_HZ, &std::sync::atomic::AtomicBool::new(false)));
+        let (c, s) = local();
+        tx.send(s).unwrap();
+        let mut bot = Bot::new("alloyer", c);
+        let w = World::new(256, 32, 1);
+        let h = w.bodies[0].height(DVec3::Y);
+        let (d, at) = ("1.0 -0.5 0.25", w.block_at(DVec3::new(1.25, h - 0.5, 0.5)));
+        let script = format!(
+            "wait 0.5; say /playmode survival; spawn 0.25 {h} 0.25; wait 0.5; say /place crucible {} {} {} {}; \
+             say /give copper_ingot 3; say /give tin_ingot 1; say /give oak_log 1; wait 0.5; \
+             use {d}; wait 0.3; put 0 {d} 4 3; put 1 {d} 0 1; put 2 {d} 1 1; wait 26; furnace",
+            at.face, at.pos.x, at.pos.y, at.pos.z
+        );
+        let mut out = Vec::new();
+        bot.run(parse_script(&script).unwrap(), None, |l| out.push(l));
+        let f = out.iter().find(|l| l.contains("\"furnace\"")).expect("a furnace line");
+        assert!(f.contains("[3,\"bronze ingot\",4]") && !f.contains("tin") && !f.contains("copper"), "{out:?}");
     }
 
     /// Prospecting by script (ADR 0138): a survival bot given a hand axe strikes granite

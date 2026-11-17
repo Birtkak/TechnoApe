@@ -2541,6 +2541,37 @@ fn a_crucible_melts_gravel_and_casts_a_head_with_the_ledger_exact() {
     assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
 }
 
+/// Draft ADR tin-and-bronze: over the wire, copper ingots into the second input and tin into the first melt
+/// into bronze; a cast chosen by copper's row name casts a bronze head from it. The ledger is exact throughout.
+#[test]
+fn a_crucible_alloys_bronze_from_both_inputs_and_casts_it_by_shape() {
+    use engine::furnace::{FUEL, IN, IN2, MOULD, OUT};
+    let (mut s, links, at, _) = at_crucible(1);
+    let l = &links[0];
+    let id = |n: &str| ITEMS.named(n).unwrap();
+    l.send(ToServer::Use(at));
+    s.tick();
+    feed(&mut s, l, 0, at, "copper ingot", 3, IN2 as u16);
+    feed(&mut s, l, 0, at, "oak log", 1, FUEL as u16);
+    wait(&mut s, 30.0);
+    assert!(!furnace_of(&s, at).burning() && furnace_of(&s, at).slots[OUT].is_none(), "copper alone: nothing");
+    feed(&mut s, l, 0, at, "tin ingot", 1, IN as u16);
+    wait(&mut s, 30.0);
+    let f = furnace_of(&s, at);
+    assert_eq!((f.slots[IN], f.slots[IN2], f.slots[OUT]), (None, None, Some(Stack::new(id("bronze ingot"), 4))), "{f:?}");
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+    // the window told the second input as it changed
+    assert!(drain(l).iter().any(|m| matches!(m, ToClient::Furnace { f, .. } if f.slots[IN2] == Some(Stack::new(id("copper ingot"), 3)))));
+    l.send(ToServer::Items { seq: 1, from: (Holder::Furnace(at), OUT as u16), to: (Holder::Furnace(at), IN as u16), n: 4 });
+    feed(&mut s, l, 0, at, "clay mould", 1, MOULD as u16);
+    feed(&mut s, l, 0, at, "oak log", 1, FUEL as u16);
+    l.send(ToServer::Choose { at, cast: Some("cast pick head".into()) });
+    wait(&mut s, 30.0);
+    let f = furnace_of(&s, at);
+    assert_eq!((f.slots[IN], f.slots[OUT]), (None, Some(Stack::new(id("bronze pick head"), 2))), "{f:?}");
+    assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
+}
+
 /// The cost of 200 burning crucibles on the server's tick, once (principle 14): `cargo test --release -p server
 /// two_hundred_crucibles -- --ignored --nocapture`. Prints ms per tick without and with them.
 #[test]
@@ -2593,14 +2624,14 @@ fn two_players_work_one_crucible() {
     assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
 }
 
-/// A crucible dug with all four slots full drops everything it held and itself; nothing is lost, the ledger exact.
+/// A crucible dug with all five slots full drops everything it held and itself; nothing is lost, the ledger exact.
 #[test]
 fn a_crucible_dug_full_drops_all_it_held() {
     let (mut s, links, at, _) = at_crucible(1);
     let l = &links[0];
     let id = |n: &str| ITEMS.named(n).unwrap();
-    // (flint in: nothing to work, so no log burns while it is dug)
-    let held: [(&str, u16); 4] = [("flint", 3), ("oak log", 2), ("clay mould", 1), ("copper ingot", 4)];
+    // (flint and tin in: nothing to work, so no log burns while it is dug)
+    let held: [(&str, u16); 5] = [("flint", 3), ("oak log", 2), ("clay mould", 1), ("copper ingot", 4), ("tin ingot", 2)];
     let mut f = engine::furnace::Furnace::default();
     for (k, (n, c)) in held.iter().enumerate() {
         f.slots[k] = Some(Stack::new(id(n), *c));
