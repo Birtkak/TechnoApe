@@ -146,10 +146,11 @@ fn every_playtest_row_is_made_of_steps_the_game_knows() {
         }
     }
 
-/// Whether press `a` acts on the aimed pick-up (ADR 0144): the dig button whatever is in hand, the
-/// place button only with the hand empty, so a place, a strike or a window keeps its button.
-pub(crate) fn on_thing(a: &str, aimed: bool, hand_empty: bool) -> bool {
-    aimed && (a == "L" || a == "R" && hand_empty)
+/// Whether press `a` acts on the aimed thing (ADR 0144, draft-plant-fibre): the dig button whatever is in hand
+/// (a plant is cut), the place button only on a pick-up and with the hand empty, so a place, a strike, a drink or
+/// a window keeps its button.
+pub(crate) fn on_thing(a: &str, aimed: bool, plant: bool, hand_empty: bool) -> bool {
+    aimed && (a == "L" || a == "R" && hand_empty && !plant)
 }
 
 /// The place button held on a pick-up (ADR 0144): `picking` (its cell, the clock at the press) at clock
@@ -172,8 +173,8 @@ pub(crate) fn drinks(thing_aimed: bool, water: bool) -> bool {
 #[test]
 fn a_pick_up_in_the_water_wins_over_drinking() {
     // aimed at a thing lying in the water with the hand empty: the pick-up, not the drink
-    assert!(on_thing("R", true, true) && !drinks(true, true));
-    assert!(drinks(false, true) && !on_thing("R", false, true), "no thing: the drink");
+    assert!(on_thing("R", true, false, true) && !drinks(true, true));
+    assert!(drinks(false, true) && !on_thing("R", false, false, true), "no thing: the drink");
     assert!(!drinks(false, false));
 }
 
@@ -181,9 +182,11 @@ fn a_pick_up_in_the_water_wins_over_drinking() {
 fn a_held_place_button_picks_a_thing_up_once_with_the_hand_empty() {
     let b = Block { body: 0, face: 2, pos: IVec3::new(5, 6, 7) };
     let other = Block { pos: IVec3::new(6, 6, 7), ..b };
-    assert!(on_thing("L", true, false) && on_thing("L", true, true), "the dig button takes it whatever is in hand");
-    assert!(on_thing("R", true, true) && !on_thing("R", true, false), "the place button only with the hand empty");
-    assert!(!on_thing("L", false, true) && !on_thing("R", false, true), "nothing aimed at");
+    assert!(on_thing("L", true, false, false) && on_thing("L", true, false, true), "the dig button takes it whatever is in hand");
+    assert!(on_thing("R", true, false, true) && !on_thing("R", true, false, false), "the place button only with the hand empty");
+    assert!(!on_thing("L", false, false, true) && !on_thing("R", false, false, true), "nothing aimed at");
+    assert!(on_thing("L", true, true, false) && on_thing("L", true, true, true), "a plant is cut by the dig button");
+    assert!(!on_thing("R", true, true, true), "the place button does not pick a plant");
     // held: nothing before PICK_HOLD, the take once at it, then nothing more
     let p = Some((b, 10.0));
     assert_eq!(pick_step(p, Some(b), true, 10.0 + PICK_HOLD * 0.5), (p, None));
@@ -215,8 +218,8 @@ impl App {
             "R" if self.use_target().is_some() => self.use_block(),
             // a pick-up aimed at by its own faces (ADR 0144): the dig button takes it at once (it has
             // no dig rule), the place button held `PICK_HOLD` with the hand empty picks it up
-            "L" | "R" if on_thing(a, self.aim_thing.is_some(), self.hand_empty()) => {
-                let b = self.aim_thing.unwrap();
+            "L" | "R" if on_thing(a, self.aim_thing.is_some(), self.aim_plant(), self.hand_empty()) => {
+                let b = self.aim_thing.unwrap().0;
                 if a == "L" {
                     self.take(b);
                 } else {
@@ -224,7 +227,7 @@ impl App {
                 }
             }
             // the place button with nothing in hand on water drinks while held (ADR 0145)
-            "R" if drinks(self.aim_thing.is_some(), self.drink_target().is_some()) => self.drinking = true,
+            "R" if drinks(self.aim_thing.is_some() && !self.aim_plant(), self.drink_target().is_some()) => self.drinking = true,
             "r" if self.drinking => self.drinking = false,
             "L" | "R" if self.bucket => {
                 if let Some((_, before)) = self.aim {
@@ -1003,17 +1006,23 @@ impl App {
         !self.hammer && !self.bucket && self.inv.get(self.slot).copied().flatten().is_none()
     }
 
-    /// Whether a pick-up lies in air cell `b`, not taken, and all it gives fits in the slots (ADR 0082): else a
-    /// click does what it does on the block behind.
-    pub(crate) fn pickup(&self, b: Block) -> bool {
-        use engine::clutter::{lies, pickup_at, year, CLUTTER};
-        let t = self.world.time;
-        let Some(row) = pickup_at(&self.world, b, t).map(|th| &CLUTTER[th.row]) else { return false };
+    /// Whether all that taking `th` gives fits in the slots (ADR 0082; a plant that gives nothing is cut all the
+    /// same, draft-plant-fibre): else a click does what it does on the block behind.
+    pub(crate) fn fits(&self, th: &engine::clutter::Thing) -> bool {
+        let row = &engine::clutter::CLUTTER[th.row];
         let fits = |(item, n): (u16, u16)| {
             let mut slots = self.inv.clone();
             !engine::items::stacks(item, n as u32).any(|st| engine::items::give(&mut slots, st) > 0)
         };
-        lies(row, self.streamer.taken.get(&b).copied(), year(t)) && row.item().is_some_and(fits)
+        match row.item() {
+            Some(g) => fits(g),
+            None => row.kind == engine::clutter::Kind::Plant,
+        }
+    }
+
+    /// The aimed thing is a plant (draft-plant-fibre).
+    pub(crate) fn aim_plant(&self) -> bool {
+        self.aim_thing.is_some_and(|(_, th)| engine::clutter::CLUTTER[th.row].kind == engine::clutter::Kind::Plant)
     }
 
     pub(crate) fn anchor(&self, hit: Block, before: Block, dig: bool) -> Block {
@@ -1342,10 +1351,11 @@ impl App {
         let lies = |b: Block, th: &engine::clutter::Thing| engine::clutter::lies(&engine::clutter::CLUTTER[th.row], self.streamer.taken.get(&b).copied(), engine::clutter::year(t));
         // only one a click would take (not with the bucket, not when it does not fit, not one being taken): else
         // the click, and the outline, are the block's behind it
-        let thing = engine::clutter::aim_thing(&self.world, still, p.pos, p.fwd, AIM_REACH, t, lies).map(|a| a.0);
-        self.aim_thing = thing.filter(|&b| !self.bucket && self.taking.is_none_or(|k| k.0 != b) && self.pickup(b));
+        let vegetation = engine::clutter::VEGETATION[self.vegetation()];
+        let thing = engine::clutter::aim_thing(&self.world, still, p.pos, p.fwd, AIM_REACH, t, vegetation, lies);
+        self.aim_thing = thing.filter(|(b, th)| !self.bucket && self.taking.is_none_or(|k| k.0 != *b) && self.fits(th));
         // the place button held on one pick-up picks it up; looking off it lets go
-        let (picking, take) = pick_step(self.picking, self.aim_thing, self.hand_empty(), self.start.elapsed().as_secs_f64());
+        let (picking, take) = pick_step(self.picking, self.aim_thing.map(|a| a.0), self.hand_empty(), self.start.elapsed().as_secs_f64());
         self.picking = picking;
         if let Some(b) = take {
             self.take(b);
@@ -1382,7 +1392,7 @@ impl App {
         let gpu = self.gpu.as_ref().unwrap();
         if ghost != self.ghost_of || thing != self.ghost_thing {
             let verts = match thing {
-                Some(b) => hud::thing_ghost(&self.world, &gpu.still, b, [255, 255, 255, 150]),
+                Some((b, th)) => hud::thing_ghost(&self.world, &gpu.still, b, &th, [255, 255, 255, 150]),
                 None => ghost.map(|(s, c)| hud::ghost(&self.world, &s, c)).unwrap_or_default(),
             };
             gpu.queue.write_buffer(&gpu.ghost_buf, 0, bytemuck::cast_slice(&verts));

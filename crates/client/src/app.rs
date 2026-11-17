@@ -110,7 +110,7 @@ pub(crate) struct App {
     pub(crate) held: Option<(bool, Block, Block)>,
     /// The pick-up the crosshair is on by its own faces, nearer than `aim`'s block, that a click would take
     /// (ADR 0144): its cell.
-    pub(crate) aim_thing: Option<Block>,
+    pub(crate) aim_thing: Option<(Block, engine::clutter::Thing)>,
     /// A take sent and not answered: its cell and seq (a refusing `ToClient::Done`, or its `Taken`, lets it go).
     pub(crate) taking: Option<(Block, u32)>,
     /// The place button held on a pick-up: its cell and the clock at the press; taken after `PICK_HOLD`.
@@ -205,7 +205,7 @@ pub(crate) struct App {
     /// What the overlay buffers hold: the ghost's shape and colour, its vertex count, the rectangle count.
     pub(crate) ghost_of: Option<(Shape, [u8; 4])>,
     /// Or the pick-up whose outline they hold.
-    pub(crate) ghost_thing: Option<Block>,
+    pub(crate) ghost_thing: Option<(Block, engine::clutter::Thing)>,
     pub(crate) ghost_n: u32,
     pub(crate) ui_n: u32,
     /// acts=: scripted input for checks without hands, as (seconds after load, action), soonest last.

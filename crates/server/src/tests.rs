@@ -1475,14 +1475,14 @@ fn a_take_aimed_at_a_thing_takes_it_and_one_aimed_past_it_does_not() {
         let up = b.dir(f as usize, i as f64 + 0.5, j as f64 + 0.5);
         let eye = w.block_centre(at) + up * 1.8 + up.any_orthonormal_vector() * 0.3;
         let mid = engine::clutter::thing_faces(w, &still, at, &th).iter().flatten().sum::<DVec3>() / (engine::clutter::thing_faces(w, &still, at, &th).len() * 3) as f64;
-        if aim_thing(w, &still, eye, (mid - eye).normalize(), 8.0, 0.0, |_, _| true).map(|a| a.0) != Some(at) {
+        if aim_thing(w, &still, eye, (mid - eye).normalize(), 8.0, 0.0, 0.0, |_, _| true).map(|a| a.0) != Some(at) {
             continue;
         }
         // past it: the ground of a neighbour column where nothing lies, the block ray's cell before it
         for (di, dj) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
             let side = Block { pos: at.pos + glam::IVec3::new(di, dj, 0), ..at };
             let dir = (w.block_centre(side) - up * 0.45 - eye).normalize();
-            if pickup_at(w, side, 0.0).is_some() || aim_thing(w, &still, eye, dir, 8.0, 0.0, |_, _| true).is_some() {
+            if pickup_at(w, side, 0.0).is_some() || aim_thing(w, &still, eye, dir, 8.0, 0.0, 0.0, |_, _| true).is_some() {
                 continue;
             }
             if let Some((_, before)) = engine::edit::aim(w, eye, dir, 8.0) {
@@ -1503,6 +1503,62 @@ fn a_take_aimed_at_a_thing_takes_it_and_one_aimed_past_it_does_not() {
     s.tick();
     assert!(drain(&l).contains(&ToClient::Done { seq: 2, ok: true }), "aimed at it: taken");
     assert_eq!(items::count(&s.clients[0].slots, item), 1);
+}
+
+/// A plant cut (draft-plant-fibre): a take named at a plant that gives fibre puts the fibre in the slots, sends
+/// the cell to everyone as an edit, leaves nothing there to cut again, and the save keeps it cut.
+#[test]
+fn a_plant_cut_gives_fibre_is_gone_for_everyone_and_stays_gone_in_the_save() {
+    use engine::clutter::{thing_at, Kind, CLUTTER, VEGETATION};
+    let (tx, rx) = channel();
+    let mut s = Server::baked(1536, 32, 7, rx);
+    let (l, sv) = local();
+    tx.send(sv).unwrap();
+    let (l2, sv2) = local();
+    tx.send(sv2).unwrap();
+    s.tick();
+    drain(&l);
+    drain(&l2);
+    let veg = VEGETATION[2];
+    let (at, th) = {
+        let w = &s.world;
+        let b = &w.bodies[0];
+        let (f, si, sj) = b.locate(b.spawn);
+        let (f, si, sj) = (f as u8, si as i32, sj as i32);
+        (-60..=60)
+            .flat_map(|a| (-60..=60).map(move |c| (si + a, sj + c)))
+            .find_map(|(i, j)| {
+                let tile = b.tile(f, 0, i.div_euclid(engine::world::CS), j.div_euclid(engine::world::CS));
+                let (z, _, _) = engine::clutter::ground_under(b, &tile, f, i, j, engine::clutter::WADE)?;
+                let at = Block { body: 0, face: f, pos: glam::IVec3::new(i, j, z) };
+                let th = thing_at(w, at, 0.0, veg, false, |_, _| true)?;
+                (CLUTTER[th.row].kind == Kind::Plant && CLUTTER[th.row].item().is_some()).then_some((at, th))
+            })
+            .expect("a plant giving fibre near the spawn")
+    };
+    let (fibre, n) = CLUTTER[th.row].item().unwrap();
+    assert_eq!(fibre, items::ITEMS.named("plant fibre").unwrap());
+    let b = &s.world.bodies[0];
+    let up = b.dir(at.face as usize, at.pos.x as f64 + 0.5, at.pos.y as f64 + 0.5);
+    let pos = b.centre + up * (b.layer_r(at.pos.z as f64) + 0.5) + up.any_orthonormal_vector() * 1.5;
+    l.send(ToServer::Move { pos: pos.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    s.tick();
+    l.send(ToServer::Take { seq: 1, at });
+    s.tick();
+    let got = drain(&l);
+    assert!(got.contains(&ToClient::Done { seq: 1, ok: true }), "{got:?}");
+    assert_eq!(items::count(&s.clients[0].slots, fibre), n as u32);
+    assert!(drain(&l2).iter().any(|m| matches!(m, ToClient::Edits(v) if v.contains(&(at, engine::blocks::AIR)))), "the other player is sent the cut");
+    assert!(thing_at(&s.world, at, 0.0, veg, false, |_, _| true).is_none(), "nothing left to cut");
+    l.send(ToServer::Take { seq: 2, at });
+    s.tick();
+    assert!(drain(&l).contains(&ToClient::Done { seq: 2, ok: false }), "a second cut takes nothing");
+    assert_eq!(items::count(&s.clients[0].slots, fibre), n as u32);
+    let path = std::env::temp_dir().join(format!("technoape-fibre-{}.sav", std::process::id()));
+    s.snapshot().write(&path).unwrap();
+    let back = Server::from_save(Save::read(&path).unwrap(), channel().1);
+    std::fs::remove_file(&path).unwrap();
+    assert!(thing_at(&back.world, at, 0.0, veg, false, |_, _| true).is_none(), "the save keeps it cut");
 }
 
 /// A bucket scoops a block of sea and pours it back; creative water is counted as made. Through all of it,

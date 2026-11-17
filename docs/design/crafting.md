@@ -75,12 +75,16 @@ what comes out, and the condition it holds now (ADR 0137).
 
 | When | The ape | Needs from the world | Process |
 |---|---|---|---|
-| 0-10 min | drinks, eats what grows, picks up sticks, flint, loose stones; knaps a hand axe and a knife | fresh water, plants, a stream bed | knap |
+| 0-10 min | drinks, eats what grows, picks up sticks, flint, loose stones, cuts plant fibre; knaps a hand axe and a knife | fresh water, plants, a stream bed | knap |
 | 10-20 min | lights a fire before night; digs clay and builds the crucible | tinder, dry wood, a floodplain's clay | fire |
 | 20-30 min | pans copper nuggets, melts them in the crucible, casts a pick and an axe | the stream's gravel | wash, melt, cast |
 | to hour 2 | walks to tin, burns charcoal, makes bronze; a hand crank lifts water and turns a millstone | the tin vein a walk away, wood | melt (two metals), mill |
 | hours 2-6 | boiler, steam engine, wooden then bronze cogs; crusher, saw, bellows on one shaft; farm and oven | wood, water, bronze | the shaft machines |
 | hours 6-10 | the bloomery, iron and lodestone; the steam generator | bog iron | the age ends at LV |
+
+**Plant fibre** (the developer, 2026-11-14; draft-plant-fibre): cut by hand from the small plants (grass, ferns,
+reeds; how many from which is `gives` in `data/clutter.toml`). It is for **cord** and for **hafting tools**: a
+head bound to its handle. Neither recipe exists yet; when cord and hafting are designed, they take fibre.
 
 The megaproject at its end is a measurement (`progression.md`): **POWER!** is ingots out of a line over a
 day with no ape's input counted.

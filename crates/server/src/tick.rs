@@ -186,7 +186,7 @@ impl Server {
                         self.clients[i].inv_dirty = true;
                     }
                     Recv::Msg(ToServer::Take { seq, at }) => {
-                        let ok = self.take(i, at);
+                        let ok = self.take(i, at, &mut changed);
                         self.clients[i].done.push((seq, ok));
                     }
                     Recv::Msg(ToServer::Bucket { seq, at, fill }) => {

@@ -365,3 +365,5 @@ data/models/tin ingot.toml
 data/models/tin ingot.png
 data/models/workbench.toml
 data/models/workbench.png
+data/models/plant fibre.toml
+data/models/plant fibre.png
