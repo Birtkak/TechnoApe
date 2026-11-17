@@ -2079,7 +2079,7 @@ fn sand_at_the_feet_only_does_not_hurt() {
 }
 
 fn vitals_of(got: &[ToClient]) -> Vec<(u8, u8, Option<String>)> {
-    got.iter().filter_map(|m| if let ToClient::Vitals { health, hunger, dead } = m { Some((*health, *hunger, dead.clone())) } else { None }).collect()
+    got.iter().filter_map(|m| if let ToClient::Vitals { health, hunger, dead, .. } = m { Some((*health, *hunger, dead.clone())) } else { None }).collect()
 }
 
 fn chats(got: &[ToClient]) -> Vec<String> {
@@ -2247,6 +2247,58 @@ fn structure_stands_a_structure_file_near_the_player_and_refuses_what_is_no_name
     assert!(got.iter().any(|m| matches!(m, ToClient::Edits { .. })), "no edits were sent");
     assert!([1, 2, 4, 5].iter().all(|i| a[*i].starts_with("usage: /structure")), "{a:?}");
     assert!(a[3].starts_with("no structure 'no_such'"), "{a:?}");
+}
+
+/// needs.md step 1: the use button held on fresh water within reach fills thirst in two seconds and the
+/// client is told; held on the sea (salt), on water out of reach, or let go, it gives nothing.
+#[test]
+fn a_player_drinks_fresh_water_and_not_the_sea() {
+    let (mut s, links) = server_with(1);
+    let l = &links[0];
+    l.send(ToServer::Hello { name: "ape".into() });
+    l.send(ToServer::Input(Input::default()));
+    s.tick();
+    // a pit two deep on land filled by hand, and a cell of the sea
+    let b = &s.world.bodies[0];
+    let (sea, centre) = (b.layer_r(b.sea.unwrap()), b.centre);
+    let dirs = || (0..20000).map(|k| { let z = 1.0 - (k as f64 + 0.5) / 10000.0; let a = k as f64 * 2.399963; let r = (1.0 - z * z).sqrt(); DVec3::new(r * a.cos(), r * a.sin(), z) });
+    let d = dirs().find(|d| b.height(*d) < sea - 4.0).expect("a sea");
+    let land = dirs().find(|d| b.height(*d) > sea + 6.0).expect("land");
+    let salt = s.world.block_at(centre + d * (sea - 1.5));
+    let top = s.world.air_over_ground(0, land);
+    let pit = [Block { pos: top.pos - glam::IVec3::Z, ..top }, Block { pos: top.pos - glam::IVec3::Z * 2, ..top }];
+    for c in pit {
+        s.world.set_block(c, AIR);
+        s.world.regap(c);
+    }
+    let World { bodies, edits, water, sky, time, .. } = &mut s.world;
+    assert!(water.pour(&engine::world::Solid::at(bodies, edits, sky, *time), World::col(pit[1]), pit[1].pos.z, 2 * engine::liquid::U));
+    let fresh = pit[1];
+    let stand = |s: &mut Server, at: Block| {
+        let p = s.world.block_centre(at) + phys::up(&s.world, s.world.block_centre(at)) * 1.5;
+        (s.clients[0].phys.pos, s.clients[0].phys.vel) = (p, DVec3::ZERO);
+    };
+    let sip = |s: &mut Server, at: Option<Block>, secs: f64| {
+        l.send(ToServer::Drink(at));
+        for _ in 0..(secs * TICK_HZ) as u32 {
+            s.tick();
+        }
+        s.clients[0].vitals.thirst
+    };
+    stand(&mut s, fresh);
+    s.clients[0].vitals.thirst = 0.0;
+    drain(l);
+    let half = sip(&mut s, Some(fresh), 1.0);
+    assert!((9.0..=10.5).contains(&half), "half in a second: {half}");
+    assert_eq!(sip(&mut s, Some(fresh), 2.0), vitals::MAX as f64, "full in two");
+    let told: Vec<u8> = drain(l).iter().filter_map(|m| if let ToClient::Vitals { thirst, .. } = m { Some(*thirst) } else { None }).collect();
+    assert_eq!(told.last(), Some(&vitals::MAX), "the client is told: {told:?}");
+    s.clients[0].vitals.thirst = 5.0;
+    assert!(sip(&mut s, None, 1.0) < 5.0, "let go, nothing");
+    stand(&mut s, salt);
+    s.clients[0].vitals.thirst = 5.0;
+    assert!(sip(&mut s, Some(salt), 1.0) < 5.0, "the sea is salt");
+    assert!(sip(&mut s, Some(fresh), 1.0) < 5.0, "the pond is out of reach");
 }
 
 #[test]

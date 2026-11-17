@@ -134,6 +134,15 @@ impl World {
         let l = self.water.surface_at(&self.ground(), World::col(b), g.z)?;
         Some(self.bodies[bi].layer_r(l))
     }
+    /// Whether the water in cell b is the sea's, salt (docs/design/needs.md): the generated sea is; the bake's
+    /// rivers and lakes and water poured on land are fresh.
+    /// shortcut: told from generation, not carried by the water, so sea water led or poured inland is fresh;
+    /// a bit on the water's columns once water is carried far (pipes, the pot) or mixes
+    pub fn salt(&self, b: Block) -> bool {
+        let (g, c) = (self.ground(), World::col(b));
+        let (lo, hi) = g.generated(c);
+        lo < hi && g.reach(c) == crate::liquid::SEA
+    }
     pub fn edit(&self, b: Block) -> Option<u16> {
         self.edits.get(&b.chunk()).and_then(|m| m.get(&b.pos)).copied()
     }

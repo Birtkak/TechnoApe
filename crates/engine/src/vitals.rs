@@ -28,6 +28,13 @@ pub const STARVE: u32 = (10.0 / phys::DT) as u32;
 /// Buried to the eyes (sand fallen on the head, ADR 0079): the breath held, in steps, then a point a second.
 pub const BREATH: u32 = (10.0 / phys::DT) as u32;
 pub const CHOKE: u32 = (1.0 / phys::DT) as u32;
+/// Thirst (docs/design/needs.md) lost per physics step standing: the whole of it in two thirds of a game day
+/// (1,200 s); it takes hunger's rate (`rate`: a walk twice, a sprint more).
+pub const THIRST_DRAIN: f64 = MAX as f64 / (crate::sky::DAY * 2.0 / 3.0 / phys::DT);
+/// Thirst a step of drinking fresh water gives: empty to full in two seconds.
+pub const DRINK: f64 = MAX as f64 / (2.0 / phys::DT);
+/// At no thirst health goes a point every PARCH steps (10 s), to death.
+pub const PARCH: u32 = (10.0 / phys::DT) as u32;
 
 /// The fastest impact that costs nothing, m/s.
 pub fn safe_speed() -> f64 {
@@ -75,11 +82,14 @@ pub struct Vitals {
     pub clock: u32,
     /// How the player died, while it is dead (health 0); a respawn clears it.
     pub dead: Option<String>,
+    pub thirst: f64,
+    /// Steps since empty thirst last cost a point.
+    pub dry: u32,
 }
 
 impl Default for Vitals {
     fn default() -> Vitals {
-        Vitals { health: MAX, hunger: MAX as f64, clock: 0, dead: None }
+        Vitals { health: MAX, hunger: MAX as f64, clock: 0, dead: None, thirst: MAX as f64, dry: 0 }
     }
 }
 
@@ -99,7 +109,8 @@ impl Vitals {
         // shortcut: hunger alone never kills (the floor at 1) because there is no food yet; let it kill once
         // food can be found or made
         let (every, d) = match (self.hunger > FED, self.hunger <= 0.0) {
-            (true, _) if self.health < MAX => (REGEN, 1i32),
+            // (no healing while thirst is empty, however fed: `parch` takes health then)
+            (true, _) if self.health < MAX && self.thirst > 0.0 => (REGEN, 1i32),
             (_, true) if self.health > 1 => (STARVE, -1),
             _ => {
                 self.clock = 0;
@@ -110,6 +121,31 @@ impl Vitals {
         if self.clock >= every {
             self.clock = 0;
             self.health = (self.health as i32 + d) as u8;
+        }
+    }
+
+    /// One step of thirst at `rate` times its standing drain; at none a point of health goes every PARCH
+    /// steps, to death by `cause`. True when that killed.
+    pub fn parch(&mut self, rate: f64, cause: impl FnOnce() -> String) -> bool {
+        if self.dead.is_some() {
+            return false;
+        }
+        self.thirst = (self.thirst - THIRST_DRAIN * rate).max(0.0);
+        if self.thirst > 0.0 {
+            self.dry = 0;
+            return false;
+        }
+        self.dry += 1;
+        self.dry >= PARCH && {
+            self.dry = 0;
+            self.hurt(1, cause)
+        }
+    }
+
+    /// One step of drinking fresh water (the caller asks `World::salt`: the sea's does nothing).
+    pub fn drink(&mut self) {
+        if self.dead.is_none() {
+            self.thirst = (self.thirst + DRINK).min(MAX as f64);
         }
     }
 
@@ -144,9 +180,9 @@ impl Vitals {
         *held >= BREATH && (*held - BREATH) % CHOKE == 0 && self.hurt(1, cause)
     }
 
-    /// What the HUD shows: health, and hunger in whole points (a point started counts).
-    pub fn shown(&self) -> (u8, u8) {
-        (self.health, self.hunger.ceil() as u8)
+    /// What the HUD shows: health, and hunger and thirst in whole points (a point started counts).
+    pub fn shown(&self) -> (u8, u8, u8) {
+        (self.health, self.hunger.ceil() as u8, self.thirst.ceil() as u8)
     }
 }
 
@@ -361,9 +397,68 @@ mod tests {
         assert_eq!((v.health, v.dead.as_deref()), (0, Some("ape hit the ground at 30 m/s")));
         assert!(!v.hurt(3, || "again".into()), "the dead die once");
         assert_eq!(v.dead.as_deref(), Some("ape hit the ground at 30 m/s"));
-        let h = v.hunger;
+        let (h, th) = (v.hunger, v.thirst);
         v.step(true);
-        assert_eq!((v.health, v.hunger), (0, h), "nothing drains a dead player");
+        v.parch(2.0, || "again".into());
+        assert_eq!((v.health, v.hunger, v.thirst), (0, h, th), "nothing drains a dead player");
+    }
+
+    /// needs.md: thirst lasts two thirds of a day standing (1,200 s), a third walking.
+    #[test]
+    fn thirst_lasts_two_thirds_of_a_day_standing_and_a_third_walking() {
+        let steps = |s: f64| (s / phys::DT).round() as u32;
+        let mut v = Vitals::default();
+        for _ in 0..steps(600.0) {
+            v.parch(1.0, || "thirst".into());
+        }
+        assert!((v.thirst - 10.0).abs() < 1e-6, "{}", v.thirst);
+        let mut w = Vitals::default();
+        for _ in 0..steps(600.0) {
+            w.parch(WALK_DRAIN, || "thirst".into());
+        }
+        assert!(w.thirst.abs() < 1e-6, "{}", w.thirst);
+        assert_eq!(w.health, MAX, "empty only just now: nothing lost yet");
+    }
+
+    /// Drinking fresh water fills thirst in two seconds, never over full; the dead do not drink.
+    #[test]
+    fn drinking_fills_thirst_in_two_seconds() {
+        let mut v = Vitals { thirst: 0.0, ..Default::default() };
+        for _ in 0..(1.0 / phys::DT).round() as u32 {
+            v.drink();
+        }
+        assert!((v.thirst - 10.0).abs() < 1e-6, "half in a second: {}", v.thirst);
+        for _ in 0..(5.0 / phys::DT) as u32 {
+            v.drink();
+        }
+        assert_eq!(v.thirst, MAX as f64);
+        let mut d = Vitals { thirst: 3.0, health: 0, dead: Some("gone".into()), ..Default::default() };
+        d.drink();
+        assert_eq!(d.thirst, 3.0);
+    }
+
+    /// needs.md: empty thirst costs a point every 10 s, to death (an ape that never drinks nor eats dies at
+    /// 1,400 s), and no health comes back while it is empty, however fed.
+    #[test]
+    fn empty_thirst_costs_a_point_every_ten_seconds_and_kills() {
+        let mut v = Vitals { thirst: 0.0, health: 5, ..Default::default() };
+        for _ in 0..PARCH - 1 {
+            assert!(!v.parch(1.0, || "ape died of thirst".into()));
+            v.drain(1.0);
+        }
+        assert_eq!(v.health, 5, "not yet, and full hunger does not heal");
+        v.parch(1.0, || "ape died of thirst".into());
+        assert_eq!(v.health, 4, "a point at 10 s");
+        let killed = (0..PARCH * 10).any(|_| v.parch(1.0, || "ape died of thirst".into()));
+        assert!(killed && v.dead.as_deref() == Some("ape died of thirst"), "{v:?}");
+        let mut v = Vitals::default();
+        let mut t = 0u32;
+        while v.dead.is_none() && t < 10_000_000 {
+            v.drain(1.0);
+            v.parch(1.0, || "thirst".into());
+            t += 1;
+        }
+        assert!((t as f64 * phys::DT - 1400.0).abs() < 1.0, "dies at {} s", t as f64 * phys::DT);
     }
 
     #[test]

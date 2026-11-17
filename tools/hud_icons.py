@@ -1,6 +1,6 @@
-"""The two signs of the vitals, 28 x 28 each, drawn from shapes: a mask, then its outline (o), body (#),
+"""The three signs of the vitals, 28 x 28 each, drawn from shapes: a mask, then its outline (o), body (#),
 light (+) and shade (-). Writes a preview and prints the rows for
-crates/client/src/hud.rs (CROSS, STOMACH): `python -I tools/hud_icons.py out/icons.png`."""
+crates/client/src/hud.rs (CROSS, STOMACH, DROP): `python -I tools/hud_icons.py out/icons.png`."""
 import sys
 from PIL import Image, ImageDraw, ImageChops, ImageFilter
 N, K = 28, 8  # drawn K times as large, then sampled, so curves come out even
@@ -29,6 +29,11 @@ def cross(d, k):
     d.rounded_rectangle([10 * k, 2 * k, 18 * k, 26 * k], radius=2 * k, fill=255)
     d.rounded_rectangle([2 * k, 10 * k, 26 * k, 18 * k], radius=2 * k, fill=255)
 
+def drop(d, k):
+    # a water drop (thirst): a round foot and a point at the top
+    d.ellipse([6 * k, 10 * k, 22 * k, 26 * k], fill=255)
+    d.polygon([(14 * k, 1.5 * k), (7.2 * k, 15 * k), (20.8 * k, 15 * k)], fill=255)
+
 def tones(m, light_at):
     px = m.load()
     inside = lambda x, y: 0 <= x < N and 0 <= y < N and px[x, y] > 0
@@ -52,8 +57,9 @@ def tones(m, light_at):
 ICONS = {
     'CROSS': (tones(mask_from(cross), [(12.5, 5.5, 1.6, 2.6), (5.5, 12.5, 2.6, 1.4)]), (92, 242, 158)),
     'STOMACH': (tones(mask_from(stomach), [(19, 8.6, 4.0, 1.6), (22.8, 10.8, 1.1, 1.3), (8.2, 3.0, 1.1, 1.5)]), (255, 178, 56)),
+    'DROP': (tones(mask_from(drop), [(10.5, 17.0, 1.4, 2.6)]), (84, 170, 255)),
 }
-out = Image.new('RGB', (2 * 300, 300), (16, 26, 39))
+out = Image.new('RGB', (len(ICONS) * 300, 300), (16, 26, 39))
 for k, (name, (rows, c)) in enumerate(ICONS.items()):
     col = {'o': tuple(int(v * 0.26) for v in c), '#': c, '-': tuple(int(v * 0.8) for v in c), '+': tuple(int(v * 0.6 + 102) for v in c)}
     im = Image.new('RGB', (N, N), (16, 26, 39))

@@ -370,7 +370,7 @@ impl App {
                         }
                     }
                 }
-                Recv::Msg(ToClient::Vitals { health, hunger, dead }) => self.vitals_in(health, hunger, dead),
+                Recv::Msg(ToClient::Vitals { health, hunger, thirst, dead }) => self.vitals_in(health, hunger, thirst, dead),
                 Recv::Msg(ToClient::Water(v)) => {
                     let mut ts = Vec::with_capacity(v.len());
                     for (t, cols) in &v {

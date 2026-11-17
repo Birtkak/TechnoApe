@@ -83,6 +83,7 @@ impl Server {
                 buried: 0,
                 was: DVec3::ZERO,
                 sent: None,
+                drink: None,
                 hold: edit::Hold::default(),
                 animals: FxMap::default(),
                 hand: 0,
@@ -211,6 +212,7 @@ impl Server {
                         }
                     }
                     Recv::Msg(ToServer::Dig(at)) => self.dig(i, at),
+                    Recv::Msg(ToServer::Drink(at)) => self.clients[i].drink = at,
                     Recv::Msg(ToServer::Hand(k)) => self.clients[i].hand = k.min(items::HOTBAR as u8 - 1),
                     Recv::Msg(ToServer::Strike(at)) => self.strike(i, at),
                     Recv::Msg(ToServer::Craft { recipe, n }) => self.craft(i, &recipe, n),
@@ -407,7 +409,7 @@ impl Server {
             let shown = (c.vitals.shown(), c.vitals.dead.is_some());
             if c.sent != Some(shown) {
                 c.sent = Some(shown);
-                c.link.send(ToClient::Vitals { health: shown.0 .0, hunger: shown.0 .1, dead: c.vitals.dead.clone() });
+                c.link.send(ToClient::Vitals { health: shown.0 .0, hunger: shown.0 .1, thirst: shown.0 .2, dead: c.vitals.dead.clone() });
             }
         }
         // clients count the list; each one's own position comes in its `You` every tick. The others' come
@@ -481,4 +483,12 @@ fn live(c: &mut Client, world: &World, before: &phys::Player, inp: &Input, sprin
     }
     // (a sprint's drain only for a step that sprinted: not into a wall, not in the water; ADR 0118)
     c.vitals.drain(vitals::rate(inp, sprinted));
+    if c.vitals.parch(vitals::rate(inp, sprinted), || format!("{name} died of thirst")) {
+        deaths.extend(c.vitals.dead.clone());
+    }
+    // the use button held on fresh water within reach (docs/design/needs.md)
+    // shortcut: a mouthful takes no water from the world; the ledger counts it once the water cycle gives it back
+    if c.drink.is_some_and(|b| world.block_centre(b).distance(c.phys.pos) <= items::BENCH_REACH && world.water_surface(world.block_centre(b)).is_some() && !world.salt(b)) {
+        c.vitals.drink();
+    }
 }

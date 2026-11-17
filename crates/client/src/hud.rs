@@ -979,7 +979,7 @@ pub fn layer(w: f32, h: f32, slots: &[Option<Slot>], selected: usize, creative: 
     }
     // what is in hand by name, over the bar, and the mode as a small word at its left end
     // (in survival over the health and hunger rows, `vitals`)
-    let ly = y0 - pad - 34.0 - if creative { 0.0 } else { VITALS_H + 10.0 };
+    let ly = y0 - pad - 34.0 - if creative { 0.0 } else { 2.0 * VITALS_H + 18.0 };
     if let Some((name, a)) = held.filter(|h| h.1 > 0.0) {
         let tw = text_width(name);
         p.rect(cx - tw / 2.0 - 10.0, ly, tw + 20.0, LINE + 6.0, [PANEL[0], PANEL[1], PANEL[2], PANEL[3] * a], 0);
@@ -1003,6 +1003,7 @@ pub const VITALS_H: f32 = 32.0;
 /// A lit cell of health, of hunger, a dark one, and the warning colour.
 pub const HEALTH: [f32; 4] = [0.36, 0.95, 0.62, 1.0];
 pub const HUNGER: [f32; 4] = [1.0, 0.7, 0.22, 1.0];
+pub const THIRST: [f32; 4] = [0.33, 0.67, 1.0, 1.0];
 pub const WARN: [f32; 4] = [1.0, 0.36, 0.26, 1.0];
 /// How long a lost point flashes, seconds.
 pub const FLASH_S: f32 = 0.6;
@@ -1014,14 +1015,17 @@ pub const FLASH_S: f32 = 0.6;
 /// change the bars", then look B of three). `ages` is, for each, how long ago it last fell and from what:
 /// the stretch lost flashes for FLASH_S. At 4 points or less health's bar pulses slowly and its corners
 /// turn the warning colour; hunger at none is outlined in it. `t` is the clock the pulse runs on.
-pub fn vitals(p: &mut Paint, (health, hunger): (u8, u8), ages: [(f32, u8); 2], t: f32) {
+/// Thirst (docs/design/needs.md) is a third pane like hunger's, over it, with a drop for its sign.
+/// shortcut: placed and coloured as plain structure; its look is still to be settled with the developer
+pub fn vitals(p: &mut Paint, (health, hunger, thirst): (u8, u8, u8), ages: [(f32, u8); 3], t: f32) {
     let contrast = CONTRAST.load(std::sync::atomic::Ordering::Relaxed);
-    let (cx, y0) = (p.w / 2.0, p.h - 52.0 - 22.0 - 10.0 - 8.0 - VITALS_H);
+    let (cx, low_y) = (p.w / 2.0, p.h - 52.0 - 22.0 - 10.0 - 8.0 - VITALS_H);
     let (pw, track, bar_h) = (262.0, VITALS_TRACK, 12.0);
     let dark = if contrast { [0.24, 0.28, 0.34, 1.0] } else { [0.10, 0.14, 0.19, 0.9] };
     let max = engine::vitals::MAX as f32;
-    for (k, (value, lit)) in [(health, HEALTH), (hunger, HUNGER)].into_iter().enumerate() {
-        let right = k == 1;
+    for (k, (value, lit)) in [(health, HEALTH), (hunger, HUNGER), (thirst, THIRST)].into_iter().enumerate() {
+        let right = k >= 1;
+        let y0 = if k == 2 { low_y - VITALS_H - 8.0 } else { low_y };
         let x = if right { cx + 6.0 } else { cx - 6.0 - pw };
         glass(p, x, y0, pw, VITALS_H);
         let low = !right && value <= 4 && value > 0;
@@ -1048,7 +1052,7 @@ pub fn vitals(p: &mut Paint, (health, hunger): (u8, u8), ages: [(f32, u8); 2], t
             (0, false) => dark,
             _ => [lit[0], lit[1], lit[2], pulse],
         };
-        let rows: &[&str] = if right { &STOMACH } else { &CROSS };
+        let rows: &[&str] = [&CROSS[..], &STOMACH[..], &DROP[..]][k];
         let px = SIGN / rows.len() as f32;
         let tone = |k: f32, white: f32| [sign[0] * k + white, sign[1] * k + white, sign[2] * k + white, sign[3]];
         for (j, row) in rows.iter().enumerate() {
@@ -1152,6 +1156,37 @@ const STOMACH: [&str; 28] = [
     ".oo--oo.....................",
     "...oo.......................",
 ];
+#[rustfmt::skip]
+const DROP: [&str; 28] = [
+    "............................",
+    "............................",
+    ".............oo.............",
+    ".............oo.............",
+    "............o#-o............",
+    "............o#-o............",
+    "...........o###-o...........",
+    "...........o###-o...........",
+    "..........o#####-o..........",
+    "..........o#####-o..........",
+    ".........o#######-o.........",
+    ".........o#######-o.........",
+    "........o#########-o........",
+    ".......o###########-o.......",
+    ".......o###########-o.......",
+    "......o###++########-o......",
+    "......o###++########-o......",
+    "......o###++########-o......",
+    "......o###++########-o......",
+    "......o###++########-o......",
+    "......o############--o......",
+    ".......o###########-o.......",
+    ".......o-#########--o.......",
+    "........o--#####---o........",
+    ".........oo------oo.........",
+    "...........oooooo...........",
+    "............................",
+    "............................",
+];
 
 #[cfg(test)]
 mod tests {
@@ -1226,9 +1261,10 @@ mod tests {
 
     #[test]
     fn the_vitals_are_two_bars_as_long_as_what_is_left_and_warn_when_low() {
+        // (thirst full: its own bar is checked at the end)
         let draw = |v: (u8, u8), ages: [(f32, u8); 2]| {
             let mut p = Paint::new(1280.0, 720.0);
-            vitals(&mut p, v, ages, 0.3);
+            vitals(&mut p, (v.0, v.1, 20), [ages[0], ages[1], (10.0, 0)], 0.3);
             p.out
         };
         let old = [(10.0, 0); 2];
@@ -1245,12 +1281,13 @@ mod tests {
         // each has its sign: its body is a run or more on most of its 28 rows
         assert!((1 + 14..=1 + 60).contains(&n(&r, HEALTH)) && (1 + 14..=1 + 60).contains(&n(&r, HUNGER)), "{} {}", n(&r, HEALTH), n(&r, HUNGER));
         // (each character is drawn with its shadow)
-        assert_eq!(r.iter().filter(|q| q.glyph != 0).count(), 2 * (2 + 2), "13 and 20");
+        assert_eq!(r.iter().filter(|q| q.glyph != 0).count(), 2 * (2 + 2 + 2), "13, 20 and 20");
         assert_eq!(n(&r, WARN), 0, "nothing to warn of");
         assert!(r.iter().all(|q| q.xy.iter().all(|v| (-1.0..=1.0).contains(v))), "on screen");
         // over the hotbar: every rect above its pane (which starts 84 px from the bottom), the signs too
         assert!(r.iter().all(|q| (1.0 - q.xy[1]) / 2.0 * 720.0 <= 720.0 - 84.0 + 0.01));
         const _: () = assert!(SIGN + 4.0 <= VITALS_H, "a sign fits inside its pane");
+        assert_eq!(DROP.iter().map(|r| r.len()).collect::<Vec<_>>(), vec![28; 28]);
         // a drop from 20 to 13 flashes the stretch lost, then not
         let white = [1.0, 1.0, 1.0, 0.95];
         let f = draw((13, 20), [(0.05, 20), (10.0, 0)]);
@@ -1260,6 +1297,15 @@ mod tests {
         let r = draw((3, 0), old);
         assert!(n(&r, WARN) >= 4 + 8 + 4 + 8, "{}", n(&r, WARN));
         assert_eq!(n(&r, HUNGER), 0);
+        // thirst (needs.md): a third bar as long as what is left, its pane over hunger's, outlined when empty
+        let mut p = Paint::new(1280.0, 720.0);
+        vitals(&mut p, (20, 20, 6), [(10.0, 0); 3], 0.3);
+        assert!((bar(&p.out, THIRST) - VITALS_TRACK * 6.0 / 20.0).abs() < 0.01, "6 of 20: {}", bar(&p.out, THIRST));
+        let top = |c: [f32; 4]| p.out.iter().filter(|q| q.colour == c).map(|q| q.xy[1]).fold(f32::MIN, f32::max);
+        assert!(top(THIRST) > top(HUNGER) + 2.0 * VITALS_H / 720.0, "over hunger's pane");
+        let mut q = Paint::new(1280.0, 720.0);
+        vitals(&mut q, (20, 20, 0), [(10.0, 0); 3], 0.3);
+        assert!(n(&q.out, WARN) >= 4 + 8, "{}", n(&q.out, WARN));
     }
 
     #[test]

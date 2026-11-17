@@ -170,7 +170,12 @@ fn act(b: &mut Bot, s: &Server, me: usize) {
         // the bucket, mostly where it reaches water or air, some of it out of reach or into rock
         let feet = s.clients[me].phys.pos;
         let at = s.world.block_at(feet + b.rng.dir() * b.rng.range(0.0, 5.0));
-        b.link.send(ToServer::Bucket { seq: b.pred.seq(), at, fill: b.rng.f() < 0.5 });
+        // or a drink there (needs.md), held on, or let go
+        match b.rng.f() {
+            f if f < 0.2 => b.link.send(ToServer::Drink(Some(at))),
+            f if f < 0.3 => b.link.send(ToServer::Drink(None)),
+            _ => b.link.send(ToServer::Bucket { seq: b.pred.seq(), at, fill: b.rng.f() < 0.5 }),
+        }
     } else if r < 0.1 + ITEM_SHARE {
         // items (ADR 0074): moves, splits, throws, piles and creative's grid at random, some onto full or wrong
         // slots, some from piles out of reach, some of no item; the items' ledger must hold through all of them
@@ -265,6 +270,11 @@ fn check(s: &Server) -> Result<(), String> {
         let b = &s.world.bodies[s.world.nearest(p.pos)];
         if (p.pos - b.centre).length() < b.r0 {
             return Err(format!("player {id} under the core at {:?}", p.pos));
+        }
+        // no need outside 0..20 (needs.md)
+        let max = engine::vitals::MAX as f64;
+        if !((0.0..=max).contains(&c.vitals.hunger) && (0.0..=max).contains(&c.vitals.thirst)) {
+            return Err(format!("player {id}'s needs out of range: {:?}", c.vitals));
         }
         if c.input.is_some() {
             // (sand and gravel fall on players and bury them: ADR 0079)

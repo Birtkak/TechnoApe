@@ -115,6 +115,7 @@ impl Server {
                 "                       up, down); . and , step it too",
                 "  /weather <what>      clear cloudy rain storm snow, or auto",
                 "  /heal, /feed [n]     full health, full hunger (or n)",
+                "  /thirst [n]          full thirst (or n)",
                 "  /hurt <points>       takes health: 2 points a segment",
                 "  /help                this list",
                 "Creative: double space flies, the wheel sets the speed.",
@@ -167,7 +168,7 @@ impl Server {
             }
             // shortcut: until there is food and harm of more kinds, these let the overlay and the death screen be
             // tried (ADR 0040); they go to the operator role with the others
-            Some(cmd @ ("heal" | "feed" | "hurt")) => {
+            Some(cmd @ ("heal" | "feed" | "thirst" | "hurt")) => {
                 let c = &mut self.clients[i];
                 if c.vitals.dead.is_some() {
                     return "you are dead: respawn first".into();
@@ -191,6 +192,18 @@ impl Server {
                             format!("hunger {n} of {}", vitals::MAX)
                         }
                         _ => format!("usage: /feed [0 to {}]", vitals::MAX),
+                    },
+                    // the same for thirst: /thirst 0 shows it empty
+                    "thirst" => match w.get(1).map(|s| s.parse::<u8>()) {
+                        None => {
+                            c.vitals.thirst = vitals::MAX as f64;
+                            "thirst full".into()
+                        }
+                        Some(Ok(n)) if n <= vitals::MAX => {
+                            c.vitals.thirst = n as f64;
+                            format!("thirst {n} of {}", vitals::MAX)
+                        }
+                        _ => format!("usage: /thirst [0 to {}]", vitals::MAX),
                     },
                     _ => {
                         let Some(n) = w.get(1).and_then(|s| s.parse::<u32>().ok()).filter(|n| *n > 0) else {

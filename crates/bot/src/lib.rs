@@ -27,6 +27,8 @@
 //! of a pile's; `cast dx dy dz name` chooses its cast's shape by any row of it (`cast dx dy dz` alone none); `furnace` reports the open one: slots, heat, fire and work.
 //! Sprint (ADR 0118): `sprint on` makes every walk after it a sprint, `sprint off` a walk again. A walk looks at
 //! its target, so in water a sprint swims to it, down or up as well (a dive, a lake's crossing at the surface).
+//! Thirst (docs/design/needs.md): `drink dx dy dz` holds the use button on the water there for 2.5 s (fresh water
+//! fills the bar, the sea's does nothing); `report` gives `vitals` as [health, hunger, thirst].
 use engine::edit::Shape;
 use engine::items::{Holder, Slot, ITEMS};
 use engine::net::{Link, Recv, ToClient, ToServer, TICK_HZ};
@@ -76,8 +78,13 @@ pub enum Cmd {
     Furnace,
     /// Walks from now on sprint, or not (ADR 0118).
     Sprint(bool),
+    /// Drink from the water at this offset, held for `DRINK_S`.
+    Drink(DVec3),
     Quit,
 }
+
+/// A bot's drink is held this long: a little over the two seconds that fill thirst.
+const DRINK_S: f64 = 2.5;
 
 /// Parses one command; `None` for an empty line or a comment, an error message for a bad one.
 pub fn parse(line: &str) -> Result<Option<Cmd>, String> {
@@ -117,6 +124,7 @@ pub fn parse(line: &str) -> Result<Option<Cmd>, String> {
         "close" => Cmd::Close,
         "cast" => Cmd::Cast(v()?, (w.len() > 4).then(|| w[4..].join(" "))),
         "furnace" => Cmd::Furnace,
+        "drink" => Cmd::Drink(v()?),
         "sprint" => match w.get(1).copied() {
             Some("on") => Cmd::Sprint(true),
             Some("off") => Cmd::Sprint(false),
@@ -179,6 +187,10 @@ pub struct Bot {
     pub animals: std::collections::BTreeMap<u32, engine::net::Animal>,
     /// The furnace whose window is open, as the server last sent it.
     pub furnace: Option<(engine::world::Block, engine::furnace::Furnace)>,
+    /// Health, hunger and thirst as the server last sent them.
+    pub vitals: (u8, u8, u8),
+    /// A drink held until that tick.
+    drinking: Option<u64>,
 }
 
 /// A server silent this long is taken for gone (it sends `You` every tick; a baked world's first map takes
@@ -188,7 +200,7 @@ const SILENT: Duration = Duration::from_secs(120);
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default(), furnace: None }
+        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default(), furnace: None, vitals: (20, 20, 20), drinking: None }
     }
 
     /// The tick `s` seconds of the server's time from now.
@@ -242,10 +254,15 @@ impl Bot {
                 }
                 Recv::Msg(ToClient::Done { ok, .. }) => self.refused += !ok as u64,
                 Recv::Msg(ToClient::Inventory { slots, .. }) => self.slots = slots,
-                Recv::Msg(ToClient::Vitals { dead: None, .. } | ToClient::Digging { .. } | ToClient::Map { .. } | ToClient::Piles(_) | ToClient::Taken(_)) => {}
+                Recv::Msg(ToClient::Digging { .. } | ToClient::Map { .. } | ToClient::Piles(_) | ToClient::Taken(_)) => {}
                 // a bot that dies respawns at once (ADR 0040); it builds in creative, so only a switch to
                 // survival can get it there
-                Recv::Msg(ToClient::Vitals { dead: Some(_), .. }) => self.link.send(ToServer::Respawn),
+                Recv::Msg(ToClient::Vitals { health, hunger, thirst, dead }) => {
+                    self.vitals = (health, hunger, thirst);
+                    if dead.is_some() {
+                        self.link.send(ToServer::Respawn);
+                    }
+                }
                 Recv::Msg(ToClient::Air(h)) => self.air = Some(h),
                 Recv::Msg(ToClient::Kinds(k)) => self.kinds = k,
                 Recv::Msg(ToClient::Defs { blocks, items }) => {
@@ -295,6 +312,10 @@ impl Bot {
             self.link.send(ToServer::Dig(None));
             self.digging = None;
         }
+        if self.drinking.is_some_and(|u| self.ticks >= u) {
+            self.link.send(ToServer::Drink(None));
+            self.drinking = None;
+        }
         if let Some((t, deadline)) = self.target {
             let up = phys::up(w, self.pos);
             let d = (t - self.pos).reject_from(up);
@@ -320,7 +341,7 @@ impl Bot {
 
     /// True while a walk or wait is still going, so the next command has to hold.
     pub fn busy(&self) -> bool {
-        self.target.is_some() || self.digging.is_some() || self.asking.is_some_and(|u| self.ticks < u) || self.idle_until.is_some_and(|u| self.ticks < u)
+        self.target.is_some() || self.digging.is_some() || self.drinking.is_some() || self.asking.is_some_and(|u| self.ticks < u) || self.idle_until.is_some_and(|u| self.ticks < u)
     }
 
     /// Runs one command; the JSON line it produces, if any. Quit is the caller's to notice.
@@ -360,6 +381,10 @@ impl Bot {
                 self.asking = Some(self.after(2.0));
             }
             Cmd::Sprint(on) => self.sprint = *on,
+            Cmd::Drink(d) => {
+                self.link.send(ToServer::Drink(Some(w.block_at(self.feet() + *d))));
+                self.drinking = Some(self.after(DRINK_S));
+            }
             // the recipe the cells hold as this bot has them (the 3 x 3: the server judges whether a bench is open)
             Cmd::Craft(n) => {
                 if let Some(r) = engine::recipes::RECIPES.matched(&self.slots, true) {
@@ -387,7 +412,7 @@ impl Bot {
             }
             Cmd::Report => {
                 return Some(format!(
-                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{},\"air\":{},\"animals\":{}}}",
+                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{},\"vitals\":[{},{},{}],\"air\":{},\"animals\":{}}}",
                     self.name,
                     self.start.elapsed().as_secs_f64(),
                     self.pos.x,
@@ -396,6 +421,9 @@ impl Bot {
                     self.players,
                     self.edits_applied,
                     self.refused,
+                    self.vitals.0,
+                    self.vitals.1,
+                    self.vitals.2,
                     self.air.map_or("null".into(), |a| format!("{{\"temp\":{:.2},\"rain_mm_h\":{:.3},\"cover\":{:.2},\"wind\":[{:.2},{:.2}]}}", a.temp, a.rain, a.cover, a.wind[0], a.wind[1])),
                     self.animals_json()
                 ));
@@ -543,6 +571,41 @@ mod tests {
         assert!(dout[0].contains("\"material\":0"), "{dout:?}");
         assert!(wout[0].contains("\"material\":0") && wout[1].contains("\"material\":0"), "{wout:?}");
         assert!(wout[2].contains("\"players\":2") && wout[2].contains("\"edits_applied\":2"), "{wout:?}");
+    }
+
+    /// Thirst through the protocol (docs/design/needs.md): a survival bot made thirsty drinks from a pond poured
+    /// into a pit beside the spawn and its report shows the bar full again.
+    #[test]
+    fn a_thirsty_bot_drinks_from_a_pond_and_reports_its_thirst() {
+        let h = World::new(256, 32, 1).bodies[0].height(DVec3::Y);
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let mut s = Server::new(256, 32, 1, rx);
+            // a pit 3 x 3 and two deep, its middle 2.5 m along +x from the pole, filled by hand
+            let w = &mut s.world;
+            let mid = w.air_over_ground(0, (DVec3::Y * h + DVec3::X * 2.5).normalize());
+            for (di, dj, dz) in (-1..=1).flat_map(|i| (-1..=1).flat_map(move |j| [(i, j, 1), (i, j, 2)])) {
+                let c = engine::world::Block { pos: mid.pos + glam::IVec3::new(di, dj, -dz), ..mid };
+                w.set_block(c, 0);
+                w.regap(c);
+            }
+            for (di, dj) in (-1..=1).flat_map(|i| (-1..=1).map(move |j| (i, j))) {
+                let c = engine::world::Block { pos: mid.pos + glam::IVec3::new(di, dj, -2), ..mid };
+                let World { bodies, edits, water, sky, time, .. } = &mut s.world;
+                water.pour(&engine::world::Solid::at(bodies, edits, sky, *time), World::col(c), c.pos.z, 2 * engine::liquid::U);
+            }
+            s.run(TICK_HZ, &std::sync::atomic::AtomicBool::new(false))
+        });
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
+        let mut bot = Bot::new("drinker", c);
+        let mut out = Vec::new();
+        let script = format!("spawn 0 {h} 0; say /playmode survival; walk 0 0 0; wait 1; say /thirst 2; wait 0.3; report; drink 2.5 -1.5 0; wait 0.2; report");
+        bot.run(parse_script(&script).unwrap(), None, |l| out.push(l));
+        let reports: Vec<&String> = out.iter().filter(|l| l.contains("\"vitals\"")).collect();
+        assert_eq!(reports.len(), 2, "{out:?}");
+        assert!(reports[0].contains("\"vitals\":[20,20,2]"), "thirsty first: {}", reports[0]);
+        assert!(reports[1].contains("\"vitals\":[20,20,20]"), "full after the drink: {}", reports[1]);
     }
 
     /// Flint by script (ADR 0097): a survival bot digs a generated gravel cell that holds a flint, holding the dig

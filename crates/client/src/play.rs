@@ -15,6 +15,7 @@ pub(crate) const PLAYTEST: &[(&str, &[&str], &str)] = &[
     ("Lamps at night: a kit for a lit room", &["/goto terra", "/time set night", "/give lamp 32", "/give blue lamp 32"], "Dig a room and set lamps into its floor and walls: even light, no hard cones."),
     ("Every block: creative's inventory", &["/playmode creative"], "E opens every block and item in tabs: a click takes a stack, the middle button picks a block in the world."),
     ("Health and hunger: the bars at 13 and 6", &["/playmode survival", "/heal", "/hurt 7", "/feed 6"], "Two bars over the hotbar: a green cross, an orange stomach. /heal and /feed fill them."),
+    ("Thirst: the third bar at 6", &["/playmode survival", "/heal", "/feed 20", "/thirst 6"], "A blue drop over the hunger bar. The place button held on fresh water with no block in hand fills it in two seconds; the sea is salt."),
     ("Low health and an empty stomach", &["/playmode survival", "/heal", "/hurt 17", "/feed 0"], "Health pulses with red corners; hunger is outlined in red and health sinks to 1."),
     ("The death screen", &["/playmode survival", "/heal", "/hurt 20"], "You died: Respawn puts you at the spawn with full bars."),
     ("Impact: fly up in creative, then fall in survival", &["/playmode creative", "/goto terra", "fly:20"], "Fly up 10 m or more, type /playmode survival, and fall: the faster you hit, the more it costs. 21 m/s kills."),
@@ -136,7 +137,7 @@ fn every_playtest_row_is_made_of_steps_the_game_knows() {
                     Some(("fly", v)) => v.parse::<f64>().is_ok_and(|v| (1.0..=phys::FLY_MAX).contains(&v)),
                     Some(("give", w)) => w == "all",
                     _ => ["/playmode creative", "/playmode survival", "/goto terra", "/goto luna", "/heal"].contains(s)
-                        || ["/hurt ", "/feed "].iter().any(|c| s.strip_prefix(c).is_some_and(|n| n.parse::<u8>().is_ok_and(|n| n <= 20)))
+                        || ["/hurt ", "/feed ", "/thirst "].iter().any(|c| s.strip_prefix(c).is_some_and(|n| n.parse::<u8>().is_ok_and(|n| n <= 20)))
                         || s.strip_prefix("/time set ").is_some_and(|w| ["sunrise", "day", "noon", "sunset", "night", "midnight"].contains(&w))
                         || s.strip_prefix("/give ").and_then(|r| r.rsplit_once(' ')).is_some_and(|(b, n)| BLOCKS.placeable().any(|d| d.name == b) && n.parse::<u32>().is_ok()),
                 };
@@ -162,6 +163,9 @@ impl App {
             // a block with a window (a workbench, ADR 0140): the place button uses it, whatever is in
             // hand, before a pour, a strike or a place against it
             "R" if self.use_target().is_some() => self.use_block(),
+            // the place button with no block in hand on water drinks while held (docs/design/needs.md)
+            "R" if self.drink_target().is_some() => self.drinking = true,
+            "r" if self.drinking => self.drinking = false,
             "L" | "R" if self.bucket => {
                 if let Some((_, before)) = self.aim {
                     self.link.send(ToServer::Bucket { seq: self.pred.seq(), at: before, fill: a == "L" });
@@ -523,7 +527,7 @@ impl App {
 
     /// The server's health and hunger for this player (ADR 0040): a drop flashes and health's is heard;
     /// death opens the death screen, the respawn closes it.
-    pub(crate) fn vitals_in(&mut self, health: u8, hunger: u8, dead: Option<String>) {
+    pub(crate) fn vitals_in(&mut self, health: u8, hunger: u8, thirst: u8, dead: Option<String>) {
         let now = Instant::now();
         if health < self.vitals.0 {
             self.flash[0] = (now, self.vitals.0);
@@ -532,7 +536,10 @@ impl App {
         if hunger < self.vitals.1 {
             self.flash[1] = (now, self.vitals.1);
         }
-        (self.vitals, self.health_min) = ((health, hunger), self.health_min.min(health));
+        if thirst < self.vitals.2 {
+            self.flash[2] = (now, self.vitals.2);
+        }
+        (self.vitals, self.health_min) = ((health, hunger, thirst), self.health_min.min(health));
         match dead {
             Some(cause) if self.dead.is_none() => {
                 eprintln!("[technoape] {cause}");
@@ -799,9 +806,9 @@ impl App {
                 "Player",
                 {
                     // ADR 0040: points of 20, two to a segment; creative has neither
-                    let (hp, food) = self.vitals;
+                    let (hp, food, drink) = self.vitals;
                     let of = |v: u8, low: bool| if self.creative { ("none in creative".to_string(), 0) } else { (format!("{v} of 20"), if v == 0 { 3 } else if low { 2 } else { 1 }) };
-                    let ((h, ht), (f, ft)) = (of(hp, hp <= 4), of(food, food <= 4));
+                    let ((h, ht), (f, ft), (d, dt)) = (of(hp, hp <= 4), of(food, food <= 4), of(drink, drink <= 4));
                     let h = match &self.dead {
                         Some(c) => format!("dead: {c}"),
                         None if !self.creative => format!("{h}, lowest {}", self.health_min),
@@ -811,6 +818,7 @@ impl App {
                         ("Mode", if self.creative { "creative" } else { "survival" }.into(), 0),
                         ("Health", h, ht),
                         ("Hunger", f, ft),
+                        ("Thirst", d, dt),
                         ("Tool", tool, 0),
                         ("Slot", format!("{}: {block}", self.slot + 1), 0),
                     ]
@@ -956,6 +964,15 @@ impl App {
         self.inv.get(k).copied().flatten().map(|s| s.item).filter(|&m| m != AIR && BLOCKS.get(m).is_some())
     }
 
+    /// The water cell the place button drinks from (docs/design/needs.md): in survival, alive, no bucket and
+    /// no block in hand, the cell before the aimed block under water and within `items::BENCH_REACH`, as the
+    /// server's rule (which also refuses the sea's: salt).
+    pub(crate) fn drink_target(&self) -> Option<Block> {
+        let (_, before) = self.aim.filter(|_| !self.creative && self.dead.is_none() && !self.bucket && self.slot_block(self.slot).is_none())?;
+        let c = self.world.block_centre(before);
+        (c.distance(self.me.pos) <= engine::items::BENCH_REACH && self.world.water_surface(c).is_some()).then_some(before)
+    }
+
     /// The tool in hand, in survival (ADR 0110): what a dig's time comes from, as the server's does.
     pub(crate) fn hand_tool(&self) -> Option<&'static engine::items::Tool> {
         engine::items::tool(self.inv.get(self.slot).copied().flatten()).filter(|_| !self.creative)
@@ -1082,6 +1099,12 @@ impl App {
         if self.hand_sent != Some(self.slot) {
             self.link.send(ToServer::Hand(self.slot as u8));
             self.hand_sent = Some(self.slot);
+        }
+        // the drink held, on the cell aimed at now: the server is told when that changes
+        let drink = self.drink_target().filter(|_| self.drinking);
+        if drink != self.drink_sent {
+            self.link.send(ToServer::Drink(drink));
+            self.drink_sent = drink;
         }
         if std::mem::take(&mut self.dig_again) {
             if let Some((hit, before)) = self.aim {

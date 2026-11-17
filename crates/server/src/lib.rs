@@ -178,7 +178,9 @@ struct Client {
     was: DVec3,
     /// Steps the head has been in a solid block (buried, ADR 0079; not saved: a load starts the breath anew).
     buried: u32,
-    sent: Option<((u8, u8), bool)>,
+    sent: Option<((u8, u8, u8), bool)>,
+    /// The water cell the use button is held on (`ToServer::Drink`); not saved.
+    drink: Option<Block>,
     /// The survival dig it holds (ADR 0034), on the server's clock.
     hold: edit::Hold,
     /// The animals as this client was last told of them (ADR 0083).
