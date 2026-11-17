@@ -244,6 +244,8 @@ pub(crate) enum Menu {
     Globe,
     /// The inventory (ADR 0075, inventory.rs): its own screen of slots, no buttons.
     Inventory,
+    /// The journal's book (J, draft ADR journal-book, book.rs): its own screen, no buttons.
+    Book,
 }
 
 /// Window sizes the settings offer, those that fit the monitor.
@@ -346,7 +348,7 @@ impl App {
     pub(crate) fn menu_items(&self) -> Vec<String> {
         let s = &self.settings;
         match self.menu {
-            None | Some(Menu::Inventory) => Vec::new(),
+            None | Some(Menu::Inventory) | Some(Menu::Book) => Vec::new(),
             Some(Menu::Title) => vec!["Singleplayer".into(), "Settings".into(), "Quit game".into()],
             Some(Menu::Worlds) => {
                 let names = self.worlds.iter().zip(&self.world_notes).map(|(p, n)| format!("{}   {n}", p.trim_start_matches("saves/").trim_end_matches(".sav")));
@@ -465,6 +467,9 @@ impl App {
         if self.menu == Some(Menu::Inventory) {
             return self.inv_click(back, self.shift);
         }
+        if self.menu == Some(Menu::Book) {
+            return self.book_click();
+        }
         let (x, y) = self.pointer;
         let v = self.menu_boxes.iter().position(|b| x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3]);
         // a click anywhere but on the row typed into keeps what was typed, as Enter does
@@ -527,6 +532,9 @@ impl App {
         if self.menu == Some(Menu::Inventory) {
             self.inv_scroll = (self.inv_scroll as i32 + d).clamp(0, self.inv_scroll_most() as i32) as usize;
             return;
+        }
+        if self.menu == Some(Menu::Book) {
+            return self.book_scroll(d);
         }
         let most = self.menu_items().len().saturating_sub(self.menu_fit());
         self.scroll = (self.scroll as i32 + d).clamp(0, most as i32) as usize;
@@ -928,6 +936,9 @@ impl App {
         }
         self.menu = m;
         (self.held, self.mouse, self.globe.drag) = (None, (0.0, 0.0), None);
+        if let Some(msg) = crate::play::let_go(m, &mut self.picking, &mut self.drinking, &mut self.drink_sent) {
+            self.link.send(msg);
+        }
         self.keys.clear();
         self.zoomed &= self.settings.at(S::ZoomMode) == 1;
         if self.onscreen {

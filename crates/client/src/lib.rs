@@ -3,6 +3,7 @@
 mod app;
 pub mod audio;
 mod bench;
+mod book;
 pub mod frame;
 pub mod fx;
 mod gi;
@@ -200,6 +201,7 @@ impl ApplicationHandler for App {
                             KeyCode::Delete => self.act("remove"),
                             // the globe's own key closes it as it opened it
                             c if !repeat && self.menu == Some(Menu::Globe) && self.settings.acts_of(Bind::Key(c)).any(|a| a == settings::Act::Map) => self.act("map"),
+                            c if !repeat && self.menu == Some(Menu::Book) && self.settings.acts_of(Bind::Key(c)).any(|a| a == settings::Act::Journal) => self.act("journal"),
                             _ => {}
                         }
                     }
@@ -716,7 +718,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         recent: VecDeque::new(),
         waypoints: waypoint_file.as_deref().and_then(|f| std::fs::read_to_string(f).ok()).map_or(Vec::new(), |t| nav::parse(&t)),
         marks: Vec::new(),
-        journal_told: false,
+        book: Default::default(),
         globe,
         waypoint_file,
         key_query: String::new(),

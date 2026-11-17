@@ -164,6 +164,30 @@ pub(crate) fn pick_step(picking: Option<(Block, f64)>, aim: Option<Block>, hand_
     }
 }
 
+/// What a menu opening (`m`, the book's J or the inventory's Tab among them) does to the place button's holds:
+/// a pick-up held and a drink held let go, since their button's release is not seen while a menu is open (the
+/// review of draft journal-book: a thing was taken with the book open, a drink ran on after it closed). The
+/// message that tells the server the drink ended, if one was sent.
+pub(crate) fn let_go(m: Option<Menu>, picking: &mut Option<(Block, f64)>, drinking: &mut bool, drink_sent: &mut Option<Block>) -> Option<ToServer> {
+    m?;
+    (*picking, *drinking) = (None, false);
+    drink_sent.take().map(|_| ToServer::Drink(None))
+}
+
+#[test]
+fn a_menu_opening_lets_go_of_a_held_pick_up_and_drink() {
+    let b = Block { body: 0, face: 2, pos: glam::IVec3::new(1, 2, 3) };
+    for m in [Menu::Book, Menu::Inventory] {
+        let (mut picking, mut drinking, mut sent) = (Some((b, 1.0)), true, Some(b));
+        assert_eq!(let_go(Some(m), &mut picking, &mut drinking, &mut sent), Some(ToServer::Drink(None)), "{m:?}: the server told");
+        assert_eq!((picking, drinking, sent), (None, false, None), "{m:?}: both let go");
+        // nothing held, nothing said; a held pick-up after its menu closed (none opening) is kept
+        assert_eq!(let_go(Some(m), &mut picking, &mut drinking, &mut sent), None);
+        let mut picking = Some((b, 1.0));
+        assert_eq!((let_go(None, &mut picking, &mut drinking, &mut sent), picking), (None, Some((b, 1.0))));
+    }
+}
+
 /// Whether the place button drinks (ADR 0145): on water in reach with nothing in hand (`drink_target`), unless a
 /// pick-up is aimed at, which wins (`on_thing`): a thing lying in or by the water is picked up, not drunk past.
 pub(crate) fn drinks(thing_aimed: bool, water: bool) -> bool {
@@ -402,6 +426,13 @@ impl App {
             "esc" if self.menu == Some(Menu::Confirm) => self.undo_display(),
             // the inventory (ADR 0075): its key, a pick in the world, the screen's clicks
             "inventory" => self.toggle_inventory(),
+            // the journal's book (draft ADR journal-book): its key; entry:<name> chooses an entry in it (acts=)
+            "journal" => self.toggle_book(),
+            a if a.starts_with("entry:") && self.menu == Some(Menu::Book) => {
+                if let Some(k) = engine::journal::JOURNAL.index(&a[6..]) {
+                    self.book.select(k);
+                }
+            }
             "pick" if self.menu.is_none() => self.pick_block(),
             "sclick" if self.menu == Some(Menu::Inventory) => self.inv_click(false, true),
             "rclick" if self.menu == Some(Menu::Inventory) => self.inv_click(true, false),
@@ -436,7 +467,7 @@ impl App {
             }
             "esc" => self.set_menu(match self.menu {
                 None => Some(Menu::Pause),
-                Some(Menu::Inventory) => None,
+                Some(Menu::Inventory) | Some(Menu::Book) => None,
                 Some(Menu::Pause) | Some(Menu::Confirm) => None,
                 Some(Menu::Settings) => Some(self.home()),
                 Some(Menu::Page(_)) => Some(Menu::Settings),
@@ -1559,6 +1590,9 @@ impl App {
         } else if self.menu == Some(Menu::Inventory) {
             self.inv_draw(&mut paint, season);
             self.menu_boxes.clear();
+        } else if self.menu == Some(Menu::Book) {
+            self.book_draw(&mut paint);
+            self.menu_boxes.clear();
         } else if let Some(m) = self.menu {
             let cause = self.dead.clone().unwrap_or_default();
             if m == Menu::Dead {
@@ -1566,7 +1600,7 @@ impl App {
                 paint.rect(0.0, 0.0, lw, lh, [0.22, 0.0, 0.02, 0.4], 0);
             }
             let (title, hint) = match m {
-                Menu::Inventory => unreachable!(),
+                Menu::Inventory | Menu::Book => unreachable!(),
                 Menu::Dead => ("You died", cause.as_str()),
                 Menu::Title => ("TechnoApe", "Pillars of Simulation Engine"),
                 Menu::Worlds => ("Singleplayer", "A world carries on from its save. Right click or Delete removes one."),
