@@ -266,6 +266,10 @@ impl Body {
         let h = self.n as f64 * 0.5;
         ((i - h) * th).tan()
     }
+    /// `tile` if it is built already, else None: the frame thread's lookups, which never build one (principle 8).
+    pub fn tile_if_built(&self, face: u8, level: u8, x: i32, y: i32) -> Option<Arc<HeightTile>> {
+        self.tiles.map.lock().unwrap().get(&(face, level, x, y)).map(|e| e.0.clone())
+    }
     /// The height tile under chunk footprint (face, level, x, y), built here on a miss. Only workers and the
     /// server call it: on the frame thread use `col_height`, which never builds one.
     pub fn tile(&self, face: u8, level: u8, x: i32, y: i32) -> Arc<HeightTile> {

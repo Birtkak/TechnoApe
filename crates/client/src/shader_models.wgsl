@@ -66,7 +66,8 @@ fn still_dir(q: vec2u, d: vec3f) -> vec3f {
 }
 
 // where a still quad's corner uv lies in its chunk's cells (ADR 0068, 0091): its face's model point, a plant
-// sized by its column's hash and pressed into the ground by `fade` (1 whole), turned and set in its cell
+// sized by its column's hash and pressed into the ground by `fade` (1 whole), turned and set in its cell; a
+// model's placing is repeated by hand in clutter.rs `thing_faces` (the aim at things on the ground): change both
 fn still_local(q: vec2u, uv: vec2f, c: Chunk, fade: f32) -> vec3f {
     let f = sfaces[q.y & 65535u];
     let lo = q.x;
