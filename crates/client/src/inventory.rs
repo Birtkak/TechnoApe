@@ -137,11 +137,12 @@ pub(crate) fn layout(lw: f32, lh: f32, creative: bool, grid: &[u16], scroll: usi
         let side = if three { 3.0 } else { 2.0 };
         l.craft = [cx, ct + HEAD, side * step - GAP, side * step - GAP];
         if let Some((b, casts)) = furnace {
-            use engine::furnace::{FUEL, IN, MOULD, OUT};
+            use engine::furnace::{FUEL, IN, IN2, MOULD, OUT};
             let y0 = ct + HEAD;
             l.craft = [cx, y0, CRAFT_W, 3.0 * step - GAP];
             l.out = [cx + CRAFT_W - SIZE, y0, SIZE, SIZE];
-            for (k, at) in [(IN, [cx, y0]), (MOULD, [cx + step, y0]), (FUEL, [cx, y0 + 2.0 * step]), (OUT, [l.out[0], l.out[1]])] {
+            // the two inputs side by side, the arrow to the out slot; the fuel under them, the mould under the out
+            for (k, at) in [(IN, [cx, y0]), (IN2, [cx + step, y0]), (MOULD, [l.out[0], y0 + 2.0 * step]), (FUEL, [cx, y0 + 2.0 * step]), (OUT, [l.out[0], l.out[1]])] {
                 l.spots.push((Holder::Furnace(b), k as u16, [at[0], at[1], SIZE, SIZE]));
             }
             l.heat = [cx, y0 + 3.0 * step - GAP + 14.0, CRAFT_W, 10.0];
@@ -182,7 +183,7 @@ fn the_screens_put_every_slot_apart_and_inside_the_panel() {
     // the settings' smallest window (640 x 360) at their largest interface scale (3), a 1280 x 720 window at 1.5,
     // and the usual sizes
     for (lw, lh) in [(640.0 / 3.0, 120.0), (1280.0 / 1.5, 480.0), (1280.0, 720.0), (1920.0, 1080.0)] {
-        // and a crucible's window (ADR 0141): its four slots, the heat's bar and five casts
+        // and a crucible's window (ADR 0141): its five slots, the heat's bar and five casts
         for (creative, open, pile, three, furnace) in [(true, items::ROWS_AT, None, false, None), (false, items::ROWS_AT, None, false, None), (false, items::APE_SLOTS, Some(pile), true, None), (false, items::APE_SLOTS, Some(pile), false, Some((pile, 5)))] {
             let l = layout(lw, lh, creative, &grid, 0, open, pile, three, furnace);
             // survival's crafting output, the viewer's search, items, pattern and Fill: in the panel and on the screen,
@@ -196,7 +197,7 @@ fn the_screens_put_every_slot_apart_and_inside_the_panel() {
                 assert!(boxes[..k].iter().all(|o| !over(*o, *b)) && l.spots.iter().all(|s| !over(s.2, *b)), "{lw}x{lh}: box {k} over another");
             }
             let at = format!("{lw}x{lh} creative {creative}");
-            let cells = if furnace.is_some() { 4 } else if three { 9 } else { 4 };
+            let cells = if furnace.is_some() { engine::furnace::SLOTS } else if three { 9 } else { 4 };
             let want = if creative { grid.len().min(GRID_ROWS * COLS) + 9 } else { 9 + 1 + (open - items::ROWS_AT) + pile.map_or(0, |_| 4) + cells };
             assert_eq!(l.spots.len(), want);
             // everything that takes a click on the screen, in UI pixels
@@ -231,6 +232,21 @@ fn the_screens_put_every_slot_apart_and_inside_the_panel() {
     }
 }
 
+/// The viewer's cells for a furnace's work, left to right: its input, an alloy's second input beside it, the
+/// mould last (an empty cell where it has none).
+fn work_cells(w: &engine::recipes::Work) -> Vec<Option<(u16, u16)>> {
+    std::iter::once(Some(w.input)).chain(w.with.map(Some)).chain([w.mould.map(|m| (m, 1))]).collect()
+}
+
+#[test]
+fn the_viewer_shows_both_of_an_alloys_inputs() {
+    let id = |n: &str| ITEMS.named(n).unwrap();
+    let bronze = RECIPES.works.iter().find(|w| w.out.0 == id("bronze ingot") && w.mould.is_none()).unwrap();
+    assert_eq!(work_cells(bronze), [Some((id("copper ingot"), 3)), Some((id("tin ingot"), 1)), None]);
+    let cast = RECIPES.work_making(id("bronze pick head")).unwrap();
+    assert_eq!(work_cells(cast), [Some((id("bronze ingot"), 2)), Some((id("clay mould"), 1))]);
+}
+
 impl App {
     /// The items creative's grid shows on the open tab: a tab's own, or every one whose name holds the search. On
     /// the crafting screen the recipe viewer's: every one whose name holds the search, those with a recipe first.
@@ -253,11 +269,12 @@ impl App {
         !self.creative || self.bench.is_some() || self.furnace.is_some()
     }
 
-    /// The open furnace's row (`recipes::FurnaceDef`) and the casts it offers, in its window's order.
+    /// The open furnace's row (`recipes::FurnaceDef`) and the casts it offers, each shape once (the first row of
+    /// it: the metal in the input slot picks the row that runs), in its window's order.
     fn furnace_def(&self) -> Option<(&'static engine::recipes::FurnaceDef, Vec<&'static engine::recipes::Work>)> {
         let (b, _) = self.furnace.as_ref()?;
         let d = RECIPES.furnace(self.world.block(*b))?;
-        Some((d, RECIPES.casts(d.top).collect()))
+        Some((d, RECIPES.shapes(d.top)))
     }
 
     /// The rows the grid or the viewer scrolls by at most.
@@ -372,7 +389,8 @@ impl App {
             // a furnace's cast: chosen, or (clicked again) none
             if let (Some(k), Some((b, f)), Some((_, casts))) = (l.casts.iter().position(|c| inside(*c, p)), self.furnace.as_ref(), self.furnace_def()) {
                 let name = casts[k].name.clone();
-                let cast = (f.choice.as_ref() != Some(&name)).then_some(name);
+                let on = f.choice.as_deref().and_then(|c| RECIPES.shape(c)) == casts[k].shape.as_deref();
+                let cast = (!on).then_some(name);
                 self.link.send(ToServer::Choose { at: *b, cast });
                 self.audio.play("ui.tick", None, 1.0, 1.0, false);
                 return;
@@ -429,11 +447,13 @@ impl App {
     /// the hotbar, from a pile or the grid into the ape; the first slot of the same item with room, else the
     /// first empty one.
     fn across(&self, h: Holder, i: u16, st: Stack) -> Option<(Holder, u16)> {
-        // a furnace open: from the ape's own slots into it, a fuel to its fuel, a mould to its mould, else in
+        // a furnace open: from the ape's own slots into it, a fuel to its fuel, a mould to its mould, else into the
+        // first input that holds it or is empty
         if let (Holder::Ape, Some((b, f))) = (h, self.furnace.as_ref()) {
-            use engine::furnace::{FUEL, IN, MOULD};
-            let k = if RECIPES.fuel(st.item).is_some() { FUEL } else if RECIPES.mould(st.item) { MOULD } else { IN };
-            return f.slots[k].is_none_or(|t| t.item == st.item).then_some((Holder::Furnace(*b), k as u16));
+            use engine::furnace::{FUEL, IN, IN2, MOULD};
+            let fits = |k: usize| f.slots[k].is_none_or(|t| t.item == st.item);
+            let k = if RECIPES.fuel(st.item).is_some() { FUEL } else if RECIPES.mould(st.item) { MOULD } else if !fits(IN) || f.slots[IN2].is_some_and(|t| t.item == st.item) { IN2 } else { IN };
+            return fits(k).then_some((Holder::Furnace(*b), k as u16));
         }
         let hot = (h, (i as usize) < items::HOTBAR) == (Holder::Ape, true);
         let to: Vec<usize> = match h {
@@ -703,12 +723,12 @@ impl App {
             return;
         };
         p.text_px(tx, pt[1] + 4.0, &fit(ITEMS.name(item)), [1.0; 4], small);
-        // a furnace's work (ADR 0141): what goes in (and the mould) in the pattern's first cells, the
+        // a furnace's work (ADR 0141): what goes in (both of an alloy's, and the mould) in the pattern's first cells, the
         // furnace and heat it needs; several works of one output shown in turn; Fill lays nothing for it
         let works: Vec<&engine::recipes::Work> = RECIPES.works.iter().filter(|w| w.out.0 == item).collect();
         if let (None, false) = (RECIPES.making(item), works.is_empty()) {
             let w = works[self.start.elapsed().as_secs() as usize % works.len()];
-            for (k, it) in std::iter::once(Some((w.input.0, w.input.1))).chain([w.mould.map(|m| (m, 1))]).enumerate() {
+            for (k, it) in work_cells(w).into_iter().enumerate() {
                 let b = [pt[0] + k as f32 * (PSIZE + VGAP), pt[1], PSIZE, PSIZE];
                 p.rect(b[0], b[1], b[2], b[3], [0.07, 0.1, 0.15, 0.9], 0);
                 edge(p, b, [1.0, 1.0, 1.0, 0.1]);
@@ -765,19 +785,19 @@ impl App {
     /// filling with the work done, the fire's seconds and the heat as a number and a bar marked where the work
     /// needs it, and the casts to choose from (the chosen one lit, its ingots under it).
     fn furnace_draw(&self, p: &mut hud::Paint, l: &Layout, season: (f64, f64), pointer: (f32, f32)) {
-        use engine::furnace::{FUEL, IN, MOULD};
+        use engine::furnace::{FUEL, IN, IN2, MOULD};
         let head = |p: &mut hud::Paint, x: f32, y: f32, s: &str| p.text_px(x, y - 18.0, &s.to_uppercase(), [CYAN[0], CYAN[1], CYAN[2], 0.85], hud::PX * 0.75);
         let (small, dim, faint) = (hud::PX * 0.75, [0.55, 0.62, 0.7, 0.9], [0.55, 0.62, 0.7, 0.6]);
         let (Some((_, f)), Some((def, casts))) = (self.furnace.as_ref(), self.furnace_def()) else { return };
         let spot = |k: usize| l.spots.iter().find(|s| matches!(s.0, Holder::Furnace(_)) && s.1 as usize == k).map_or([0.0; 4], |s| s.2);
-        let (i, m, u) = (spot(IN), spot(MOULD), spot(FUEL));
-        head(p, i[0], i[1], "In");
+        let (i, j, m, u) = (spot(IN), spot(IN2), spot(MOULD), spot(FUEL));
+        head(p, i[0], i[1], "In (two to alloy)");
         head(p, m[0], m[1], "Mould");
         head(p, l.out[0], l.out[1], "Out");
         head(p, u[0], u[1], "Fuel");
         let want = f.wants(def, &RECIPES);
-        // the arrow from the mould to what comes out, filling with the work's seconds
-        let (ax, ay, aw) = (m[0] + SIZE + 12.0, i[1] + SIZE / 2.0, l.out[0] - 22.0 - (m[0] + SIZE + 12.0));
+        // the arrow from the second input to what comes out, filling with the work's seconds
+        let (ax, ay, aw) = (j[0] + SIZE + 12.0, i[1] + SIZE / 2.0, l.out[0] - 22.0 - (j[0] + SIZE + 12.0));
         p.rect(ax, ay - 2.0, aw, 4.0, [1.0, 1.0, 1.0, 0.1], 0);
         let done = want.map_or(0.0, |w| (f.work / w.secs).clamp(0.0, 1.0));
         p.rect(ax, ay - 2.0, aw * done, 4.0, [1.0, 0.6, 0.25, 0.95], 0);
@@ -788,15 +808,16 @@ impl App {
         let doing = match want {
             Some(w) if f.heat >= w.heat => format!("{} {:.0} %", ITEMS.name(w.out.0), done * 100.0),
             Some(w) => format!("{}: needs {:.0} C", ITEMS.name(w.out.0), w.heat),
-            None if f.slots[IN].is_some_and(|s| RECIPES.works.iter().any(|w| w.mould.is_some() && w.input.0 == s.item)) => "choose a cast below".into(),
+            None if f.slots[IN].or(f.slots[IN2]).is_some_and(|s| RECIPES.works.iter().any(|w| w.mould.is_some() && w.input.0 == s.item)) => "choose a cast below".into(),
             None => "nothing to work".into(),
         };
         // under the in and mould slots: beside the arrow it ran over the out slot and the window's edge
         p.text_px(i[0], i[1] + SIZE + 8.0, &doing, dim, small);
         // the fire beside the fuel: its seconds left, or out
-        let fire = if f.burning() { format!("fire: {:.0} s left", f.burn.ceil()) } else { "fire out".into() };
+        // (short: the mould slot stands at the row's end)
+        let fire = if f.burning() { format!("fire {:.0} s left", f.burn.ceil()) } else { "fire out".into() };
         p.text_px(u[0] + SIZE + 14.0, u[1] + 6.0, &fire, if f.burning() { [1.0, 0.7, 0.35, 1.0] } else { faint }, small);
-        p.text_px(u[0] + SIZE + 14.0, u[1] + 26.0, &format!("heat {:.0} C of {:.0}", f.heat, def.top), [1.0; 4], small);
+        p.text_px(u[0] + SIZE + 14.0, u[1] + 26.0, &format!("{:.0} C of {:.0}", f.heat, def.top), [1.0; 4], small);
         // the heat's bar, marked at what the work needs
         let h = l.heat;
         p.rect(h[0], h[1], h[2], h[3], [1.0, 1.0, 1.0, 0.08], 0);
@@ -807,18 +828,22 @@ impl App {
             p.rect(x - 1.0, h[1] - 4.0, 2.0, h[3] + 8.0, [1.0; 4], 0);
             p.text_px((x - 50.0).max(h[0]), h[1] - 16.0, &format!("{:.0} C", w.heat), faint, small);
         }
-        // the casts
+        // the casts, each shape once, drawn as the row the metal in an input slot would run (else the first)
+        let chosen = f.choice.as_deref().and_then(|c| RECIPES.shape(c));
+        let metal = |c: &'static engine::recipes::Work| {
+            RECIPES.casts(def.top).find(|w| w.shape == c.shape && [IN, IN2].iter().any(|&k| f.slots[k].is_some_and(|s| s.item == w.input.0))).unwrap_or(c)
+        };
         for (k, (c, b)) in casts.iter().zip(&l.casts).enumerate() {
-            let on = f.choice.as_deref() == Some(c.name.as_str());
+            let on = chosen.is_some() && chosen == c.shape.as_deref();
             let lit = inside(*b, pointer);
             p.rect(b[0], b[1], b[2], b[3], if on { [0.17, 0.24, 0.33, 1.0] } else if lit { [0.12, 0.17, 0.24, 1.0] } else { [0.07, 0.1, 0.15, 0.9] }, 0);
             edge(p, *b, if on { CYAN } else { [1.0, 1.0, 1.0, 0.14] });
-            self.icon(p, Stack::new(c.out.0, 1), b[0] + 4.0, b[1] + 4.0, VSIZE - 8.0, season, false);
+            self.icon(p, Stack::new(metal(c).out.0, 1), b[0] + 4.0, b[1] + 4.0, VSIZE - 8.0, season, false);
             if k == 0 {
                 head(p, b[0], b[1], "Cast (click to choose)");
             }
         }
-        if let Some(c) = casts.iter().find(|c| f.choice.as_deref() == Some(c.name.as_str())) {
+        if let Some(c) = casts.iter().find(|c| chosen.is_some() && chosen == c.shape.as_deref()).map(|c| metal(c)) {
             p.text_px(l.casts[0][0], l.casts[0][1] + VSIZE + 6.0, &format!("{}: {} ingots", ITEMS.name(c.out.0), c.input.1), dim, small);
         }
     }
