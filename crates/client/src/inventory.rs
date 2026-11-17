@@ -686,8 +686,8 @@ impl App {
         let [px0, py0, pw, _] = l.panel;
         // the world a little darker under it, as under the menu
         p.rect(0.0, 0.0, p.w, p.h, [0.0, 0.01, 0.03, 0.35], 0);
-        // glass over a dark underlay: labels read over bright grass (the developer's shots, 2026-11-17)
-        hud::cut(p, l.panel[0], l.panel[1], l.panel[2], l.panel[3], [hud::PANEL[0], hud::PANEL[1], hud::PANEL[2], 0.75]);
+        // glass over an opaque underlay: no world shows through a window (the developer, 2026-11-17)
+        hud::cut(p, l.panel[0], l.panel[1], l.panel[2], l.panel[3], [hud::PANEL[0], hud::PANEL[1], hud::PANEL[2], 1.0]);
         hud::glass(p, l.panel[0], l.panel[1], l.panel[2], l.panel[3]);
         hud::brackets(p, [px0 - 4.0, py0 - 4.0, pw + 8.0, l.panel[3] + 8.0], 14.0, false, CYAN);
         // the title row: the accent's bar and the name, as the menu's pages; a hairline under it
