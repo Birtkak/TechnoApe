@@ -27,7 +27,7 @@
 //! of a pile's; `cast dx dy dz name` chooses its cast's shape by any row of it (`cast dx dy dz` alone none); `furnace` reports the open one: slots, heat, fire and work.
 //! Sprint (ADR 0118): `sprint on` makes every walk after it a sprint, `sprint off` a walk again. A walk looks at
 //! its target, so in water a sprint swims to it, down or up as well (a dive, a lake's crossing at the surface).
-//! Thirst (docs/design/needs.md): `drink dx dy dz` holds the use button on the water there for 2.5 s (fresh water
+//! Thirst (ADR 0145, docs/design/needs.md): `drink dx dy dz` holds the use button on the water there for 2.5 s (fresh water
 //! fills the bar, the sea's does nothing); `report` gives `vitals` as [health, hunger, thirst].
 use engine::edit::Shape;
 use engine::items::{Holder, Slot, ITEMS};
@@ -573,7 +573,7 @@ mod tests {
         assert!(wout[2].contains("\"players\":2") && wout[2].contains("\"edits_applied\":2"), "{wout:?}");
     }
 
-    /// Thirst through the protocol (docs/design/needs.md): a survival bot made thirsty drinks from a pond poured
+    /// Thirst through the protocol (ADR 0145): a survival bot made thirsty drinks from a pond poured
     /// into a pit beside the spawn and its report shows the bar full again.
     #[test]
     fn a_thirsty_bot_drinks_from_a_pond_and_reports_its_thirst() {

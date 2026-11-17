@@ -81,7 +81,7 @@ pub enum ToServer {
     /// The cast the furnace at `at` works its ingots into (a `cast` row's name), or none (ADR 0141):
     /// alive, within `items::BENCH_REACH`, a furnace there and a cast it reaches. Answered by its `Furnace`.
     Choose { at: Block, cast: Option<String> },
-    /// The use button held on the water in cell `at`, or let go (none; docs/design/needs.md): while it is held,
+    /// The use button held on the water in cell `at`, or let go (none; ADR 0145): while it is held,
     /// alive, in survival, nothing in hand, within `items::BENCH_REACH` and the water there fresh (`World::salt`,
     /// judged when the cell comes), each of the player's physics steps drinks (`Vitals::drink`). Sent on a
     /// change, as `Dig`; death lets go.
@@ -148,7 +148,7 @@ pub enum ToClient {
     Water(Vec<(crate::liquid::Col, Vec<crate::liquid::ColWater>)>),
     /// A line for the chat (ADR 0023): a player's words, an answer to a command, someone joining or leaving.
     Chat(String),
-    /// This player's health, hunger and thirst, 0 to `vitals::MAX` (ADR 0040, docs/design/needs.md), and how it
+    /// This player's health, hunger and thirst, 0 to `vitals::MAX` (ADR 0040, 0145), and how it
     /// died while it is dead; sent on join and when what the HUD shows changes.
     Vitals { health: u8, hunger: u8, thirst: u8, dead: Option<String> },
     /// Another player's dig (ADR 0034): the shape, the share of it done when this was sent and the share it

@@ -163,6 +163,20 @@ pub(crate) fn pick_step(picking: Option<(Block, f64)>, aim: Option<Block>, hand_
     }
 }
 
+/// Whether the place button drinks (ADR 0145): on water in reach with nothing in hand (`drink_target`), unless a
+/// pick-up is aimed at, which wins (`on_thing`): a thing lying in or by the water is picked up, not drunk past.
+pub(crate) fn drinks(thing_aimed: bool, water: bool) -> bool {
+    water && !thing_aimed
+}
+
+#[test]
+fn a_pick_up_in_the_water_wins_over_drinking() {
+    // aimed at a thing lying in the water with the hand empty: the pick-up, not the drink
+    assert!(on_thing("R", true, true) && !drinks(true, true));
+    assert!(drinks(false, true) && !on_thing("R", false, true), "no thing: the drink");
+    assert!(!drinks(false, false));
+}
+
 #[test]
 fn a_held_place_button_picks_a_thing_up_once_with_the_hand_empty() {
     let b = Block { body: 0, face: 2, pos: IVec3::new(5, 6, 7) };
@@ -196,6 +210,9 @@ impl App {
     /// m:dx:dy turns the look.
     pub(crate) fn act(&mut self, a: &str) {
         match a {
+            // a block with a window (a workbench, ADR 0140): the place button uses it, whatever is in
+            // hand, before a pick-up, a drink, a pour, a strike or a place against it
+            "R" if self.use_target().is_some() => self.use_block(),
             // a pick-up aimed at by its own faces (ADR 0144): the dig button takes it at once (it has
             // no dig rule), the place button held `PICK_HOLD` with the hand empty picks it up
             "L" | "R" if on_thing(a, self.aim_thing.is_some(), self.hand_empty()) => {
@@ -206,11 +223,8 @@ impl App {
                     self.picking = Some((b, self.start.elapsed().as_secs_f64()));
                 }
             }
-            // a block with a window (a workbench, ADR 0140): the place button uses it, whatever is in
-            // hand, before a pour, a strike or a place against it
-            "R" if self.use_target().is_some() => self.use_block(),
-            // the place button with nothing in hand on water drinks while held (docs/design/needs.md)
-            "R" if self.drink_target().is_some() => self.drinking = true,
+            // the place button with nothing in hand on water drinks while held (ADR 0145)
+            "R" if drinks(self.aim_thing.is_some(), self.drink_target().is_some()) => self.drinking = true,
             "r" if self.drinking => self.drinking = false,
             "L" | "R" if self.bucket => {
                 if let Some((_, before)) = self.aim {
@@ -1021,11 +1035,11 @@ impl App {
         self.inv.get(k).copied().flatten().map(|s| s.item).filter(|&m| m != AIR && BLOCKS.get(m).is_some())
     }
 
-    /// The water cell the place button drinks from (docs/design/needs.md): in survival, alive, no bucket and
+    /// The water cell the place button drinks from (ADR 0145): in survival, alive, no bucket and
     /// nothing at all in hand (a knapping stone or a tool strikes instead), the cell before the aimed block under
     /// water and within `items::BENCH_REACH`, as the server's rule (which also refuses the sea's: salt).
     pub(crate) fn drink_target(&self) -> Option<Block> {
-        let (_, before) = self.aim.filter(|_| !self.creative && self.dead.is_none() && !self.bucket && self.inv.get(self.slot).copied().flatten().is_none())?;
+        let (_, before) = self.aim.filter(|_| !self.creative && self.dead.is_none() && self.hand_empty())?;
         let c = self.world.block_centre(before);
         (c.distance(self.me.pos) <= engine::items::BENCH_REACH && self.world.water_surface(c).is_some()).then_some(before)
     }

@@ -1032,7 +1032,7 @@ pub const FLASH_S: f32 = 0.6;
 /// change the bars", then look B of three). `ages` is, for each, how long ago it last fell and from what:
 /// the stretch lost flashes for FLASH_S. At 4 points or less health's bar pulses slowly and its corners
 /// turn the warning colour; hunger at none is outlined in it. `t` is the clock the pulse runs on.
-/// Thirst (docs/design/needs.md) is a third pane like hunger's, over it, with a drop for its sign.
+/// Thirst (ADR 0145, docs/design/needs.md) is a third pane like hunger's, over it, with a drop for its sign.
 /// shortcut: placed and coloured as plain structure; its look is still to be settled with the developer
 pub fn vitals(p: &mut Paint, (health, hunger, thirst): (u8, u8, u8), ages: [(f32, u8); 3], t: f32) {
     let contrast = CONTRAST.load(std::sync::atomic::Ordering::Relaxed);

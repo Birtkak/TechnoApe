@@ -31,7 +31,7 @@ use std::path::Path;
 /// 14 keeps the pick-ups taken (ADR 0082); a 13 loads with none taken. 15 keeps the furnaces (ADR 0141:
 /// each one's slots, heat, fire, work and choice); a 14 loads with none. 16 gives a furnace its second input
 /// (ADR 0142: five slots); a 15 is read as a 16 is, its furnaces' fifth slot empty. 17 keeps each player's thirst
-/// (draft ADR thirst); a 16 or older loads its players with thirst full.
+/// (ADR 0145); a 16 or older loads its players with thirst full.
 pub const VERSION: u32 = 17;
 
 /// The rain each reach holds (`Liquids::rain_held`), an air job back but not shown yet as (ticks till it
@@ -580,7 +580,7 @@ mod tests {
         assert!(VERSION > 15);
     }
 
-    /// 17 keeps a player's thirst (draft ADR thirst); a 16, from before it, loads its players as they were
+    /// 17 keeps a player's thirst (ADR 0145); a 16, from before it, loads its players as they were
     /// with thirst full.
     #[test]
     fn a_16s_players_load_with_thirst_full_and_this_version_keeps_it() {

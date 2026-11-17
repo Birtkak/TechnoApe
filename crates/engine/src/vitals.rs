@@ -28,7 +28,7 @@ pub const STARVE: u32 = (10.0 / phys::DT) as u32;
 /// Buried to the eyes (sand fallen on the head, ADR 0079): the breath held, in steps, then a point a second.
 pub const BREATH: u32 = (10.0 / phys::DT) as u32;
 pub const CHOKE: u32 = (1.0 / phys::DT) as u32;
-/// Thirst (docs/design/needs.md) lost per physics step standing: the whole of it in two thirds of a game day
+/// Thirst (ADR 0145, docs/design/needs.md) lost per physics step standing: the whole of it in two thirds of a game day
 /// (1,200 s); it takes hunger's rate (`rate`: a walk twice, a sprint more).
 pub const THIRST_DRAIN: f64 = MAX as f64 / (crate::sky::DAY * 2.0 / 3.0 / phys::DT);
 /// Thirst a step of drinking fresh water gives: empty to full in two seconds.

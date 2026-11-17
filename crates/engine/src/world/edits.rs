@@ -134,7 +134,7 @@ impl World {
         let l = self.water.surface_at(&self.ground(), World::col(b), g.z)?;
         Some(self.bodies[bi].layer_r(l))
     }
-    /// Whether the water in cell b is the sea's, salt (docs/design/needs.md): the generated sea is; the bake's
+    /// Whether the water in cell b is the sea's, salt (ADR 0145): the generated sea is; the bake's
     /// rivers and lakes and water poured on land are fresh.
     /// shortcut: told from generation, not carried by the water, so sea water led or poured inland is fresh;
     /// a bit on the water's columns once water is carried far (pipes, the pot) or mixes

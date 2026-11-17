@@ -486,7 +486,7 @@ fn live(c: &mut Client, world: &World, before: &phys::Player, inp: &Input, sprin
     if c.vitals.parch(vitals::rate(inp, sprinted), || format!("{name} died of thirst")) {
         deaths.extend(c.vitals.dead.clone());
     }
-    // the use button held with a truly empty hand on fresh water within reach (docs/design/needs.md)
+    // the use button held with a truly empty hand on fresh water within reach (ADR 0145)
     // shortcut: a mouthful takes no water from the world; the ledger counts it once the water cycle gives it back
     // (death lets go, whatever killed: a command, an impact, thirst)
     if c.vitals.dead.is_some() {

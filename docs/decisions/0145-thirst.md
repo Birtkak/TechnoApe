@@ -1,6 +1,6 @@
-# NNNN – Thirst and drinking (needs step 1)
+# 0145 – Thirst and drinking (needs step 1)
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-11-17
 
 ## Context
@@ -26,6 +26,8 @@ Option 2. The numbers, needs.md's starting points:
 - Save version 17 keeps thirst; 16 and older load their players with thirst full (`Vitals16`).
 - `/thirst [n]` sets it, as `/feed`.
 
+- The place button's order: a block's window (ADR 0140) first, then a pick-up aimed at by its own faces (ADR
+  0144: a thing lying in or by the water is picked up, not drunk past), then water in reach drinks.
 - Only a truly empty hand drinks (a knapping stone or a tool strikes), on the client and the server; death and
   the respawn let go of a held drink. The server judges a cell fresh once when the held cell comes, not every
   step.
