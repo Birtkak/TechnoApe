@@ -487,7 +487,10 @@ impl Server {
         *self.item_made.entry(item).or_default() += n as i64;
         self.events.push(Event::Taken { at, row: th.row as u16, by: c.player.id });
         if row.kind == Kind::Plant {
+            // the cell was air and stays air: its event is an edit of nothing, as the client heard it before the
+            // list (no break, no sound), sent ahead of its edit as every edit's is
             self.world.set_block(at, AIR);
+            self.send_events(&[Event::Edit { at, was: AIR, now: AIR, by: Some(self.clients[i].player.id) }]);
             for c in &self.clients {
                 c.link.send(ToClient::Edits(vec![(at, AIR)]));
             }

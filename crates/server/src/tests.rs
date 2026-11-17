@@ -42,10 +42,10 @@ fn events(got: &[ToClient]) -> Vec<Event> {
     got.iter().filter_map(|m| if let ToClient::Events(v) = m { Some(v.clone()) } else { None }).flatten().collect()
 }
 
-/// The event list (draft-event-list): a dig is an event, with what was there and who dug, sent to the digger
-/// and to a player near, before the edit that shows it; a player beyond `PERCEIVE` gets the edit only.
+/// The event list (draft-event-list): a dig is an event, with what was there and who dug, sent to every player
+/// before the edit that shows it, far ones too; a death is told only within `PERCEIVE`.
 #[test]
-fn a_dig_is_an_event_for_those_near_before_its_edit_and_none_for_one_far() {
+fn a_dig_is_an_event_for_every_player_before_its_edit_and_a_death_only_near() {
     let (mut s, links) = server_with(3);
     let (pole, over) = on_land(&s);
     let under = Block { pos: over.pos - glam::IVec3::Z, ..over };
@@ -68,11 +68,66 @@ fn a_dig_is_an_event_for_those_near_before_its_edit_and_none_for_one_far() {
         let got = drain(l);
         let edit = got.iter().position(|m| matches!(m, ToClient::Edits(v) if v.contains(&(under, AIR)))).expect("everyone is sent the edit");
         let told = got.iter().position(|m| matches!(m, ToClient::Events(v) if v.contains(&dug)));
-        if k < 2 {
-            assert!(told.is_some_and(|e| e < edit), "{k}: the event before its edit: {got:?}");
-        } else {
-            assert!(events(&got).is_empty(), "far: no event");
-        }
+        // (the review: an edit's and a fall's event go wherever their edit goes, far too, as before the list
+        // every edit played for every client)
+        assert!(told.is_some_and(|e| e < edit), "{k}: the event before its edit: {got:?}");
+    }
+    // the other kinds only within PERCEIVE: a death near the pole is not told high over it
+    let id = s.clients[0].player.id;
+    s.send_events(&[Event::Died { by: id }]);
+    let told: Vec<bool> = links.iter().map(|l| !events(&drain(l)).is_empty()).collect();
+    assert_eq!(told, vec![true, true, false]);
+}
+
+/// The review of the event list: a tick's events, more than one message holds, come in parts of at most
+/// `EDITS_PART`, in order, every one of them.
+#[test]
+fn many_events_come_in_parts_in_order() {
+    let (s, links) = server_with(1);
+    let at = |k: i32| Block { body: 0, face: 0, pos: glam::IVec3::new(k % 256, (k / 256) % 256, 200) };
+    let ev: Vec<Event> = (0..EDITS_PART as i32 + 5).map(|k| Event::Edit { at: at(k), was: AIR, now: 1, by: None }).collect();
+    drain(&links[0]);
+    s.send_events(&ev);
+    let parts: Vec<Vec<Event>> = drain(&links[0]).into_iter().filter_map(|m| if let ToClient::Events(v) = m { Some(v) } else { None }).collect();
+    assert!(parts.len() > 1 && parts.iter().all(|p| p.len() <= EDITS_PART), "{:?}", parts.iter().map(Vec::len).collect::<Vec<_>>());
+    assert_eq!(parts.concat(), ev);
+}
+
+/// The review of the event list: a falling stack of three (the lowest moves first, each above it into the
+/// cell the one under it left, `Falls::step`), through the protocol: every move is a `Fall` sent before its
+/// edits, and the edit that brings its block to its cell comes after the edit that emptied the cell.
+#[test]
+fn a_falling_stack_is_a_fall_for_each_move_before_its_edits() {
+    let (mut s, links) = server_with(2);
+    let (pole, under) = on_land(&s);
+    let shelf = Block { pos: under.pos + glam::IVec3::new(3, 0, 5), ..under };
+    let at = |k: i32| Block { pos: shelf.pos + glam::IVec3::Z * k, ..shelf };
+    let (stone, sand, gravel) = (BLOCKS.id("stone"), BLOCKS.id("sand"), BLOCKS.id("gravel"));
+    s.world.set_block(shelf, stone);
+    for (k, m) in [(1, sand), (2, sand), (3, gravel)] {
+        s.world.set_block(at(k), m);
+    }
+    links[0].send(ToServer::Creative(true));
+    links[0].send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    s.tick();
+    drain(&links[1]);
+    links[0].send(ToServer::Edit { seq: 1, shape: Shape::one(shelf), material: AIR });
+    let mut got = Vec::new();
+    for _ in 0..80 {
+        s.tick();
+        got.extend(drain(&links[1]));
+    }
+    let falls: Vec<(usize, Block, Block, u16)> = got.iter().enumerate().filter_map(|(i, m)| if let ToClient::Events(v) = m { Some((i, v.clone())) } else { None }).flat_map(|(i, v)| v.into_iter().filter_map(move |e| if let Event::Fall { from, to, block } = e { Some((i, from, to, block)) } else { None })).collect();
+    assert!(falls.iter().any(|f| f.3 == gravel) && falls.iter().filter(|f| f.3 == sand).count() >= 2, "every block of the stack fell: {falls:?}");
+    // in the first tick of the fall, the three move together: the stack's cells each emptied and filled
+    let first: Vec<_> = falls.iter().filter(|f| f.0 == falls[0].0).collect();
+    assert_eq!(first.iter().map(|f| (f.1, f.2, f.3)).collect::<Vec<_>>(), vec![(at(1), shelf, sand), (at(2), at(1), sand), (at(3), at(2), gravel)], "lowest first");
+    for &(i, from, to, block) in &falls {
+        // the edits after the event's message, up to the next events
+        let edits: Vec<(Block, u16)> = got[i + 1..].iter().take_while(|m| !matches!(m, ToClient::Events(_))).filter_map(|m| if let ToClient::Edits(v) = m { Some(v.clone()) } else { None }).flatten().collect();
+        let left = edits.iter().position(|e| *e == (from, AIR)).unwrap_or_else(|| panic!("{from:?} left: {edits:?}"));
+        let came = edits.iter().position(|e| *e == (to, block)).unwrap_or_else(|| panic!("{to:?} came: {edits:?}"));
+        assert_eq!(came, left + 1, "a move's two edits side by side: {from:?} -> {to:?}");
     }
 }
 
@@ -1745,7 +1800,12 @@ fn a_plant_cut_gives_fibre_is_gone_for_everyone_and_stays_gone_in_the_save() {
     s.tick();
     let got = drain(&l);
     assert!(got.contains(&ToClient::Done { seq: 1, ok: true }), "{got:?}");
-    assert_eq!(events(&got), vec![Event::Taken { at, row: th.row as u16, by: s.clients[0].player.id }], "a cut is an event (draft-event-list)");
+    // a cut is an event; and its cell's edit too, sent before the edit (the review: as every edit's; the cell was
+    // air and is air, so as before the list nothing breaks and nothing is heard)
+    let by = s.clients[0].player.id;
+    assert_eq!(events(&got), vec![Event::Edit { at, was: engine::blocks::AIR, now: engine::blocks::AIR, by: Some(by) }, Event::Taken { at, row: th.row as u16, by }], "{got:?}");
+    let first = |p: &dyn Fn(&ToClient) -> bool| got.iter().position(p).unwrap();
+    assert!(first(&|m| matches!(m, ToClient::Events(_))) < first(&|m| matches!(m, ToClient::Edits(v) if v.contains(&(at, engine::blocks::AIR)))));
     assert_eq!(items::count(&s.clients[0].slots, fibre), n as u32);
     assert!(drain(&l2).iter().any(|m| matches!(m, ToClient::Edits(v) if v.contains(&(at, engine::blocks::AIR)))), "the other player is sent the cut");
     assert!(thing_at(&s.world, at, 0.0, veg, false, |_, _| true).is_none(), "nothing left to cut");

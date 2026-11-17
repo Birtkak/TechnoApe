@@ -246,43 +246,33 @@ impl App {
         loop {
             match self.link.try_recv() {
                 Recv::Msg(ToClient::Edits(v)) => {
-                    let mut heard = 0;
-                    let (mut slid, mut slid_at) = (0u32, None);
-                    for &(b, m) in &v {
-                        // the cell's delta as the tick's events said (draft-event-list): a dig or a place plays its
-                        // effect and, for up to three cells of an edit, its sound (another player's digging and
-                        // building; this player's own were seen and heard at the click); a loose block's move
-                        // (ADR 0079) breaks nothing and places nothing
-                        let hear = heard < 3 && self.loaded_at.is_some();
-                        let (shows, was, then) = fx::server_cell(&mut self.fx, &mut self.pred, &mut self.world, &mut self.pending, b, m, hear);
-                        if let Some(fx::Then::Glide(from)) = then {
-                            // the block arriving (ADR 0101): it glides in from the cell it left, one hiss a slump
-                            // ADR 0106: glides off with the slopes, the block hops a cell a tick
-                            if self.fx.on && engine::fall::SLOPES_AND_SLIDES {
-                                self.glide(from, b, m);
-                            }
-                            // a slide, not a fall: a block dropping down a shaft is no slump
-                            if b.pos.z == from.pos.z {
-                                slid += 1;
-                                slid_at.get_or_insert(b);
-                            }
+                    // each cell's delta as the tick's events said (draft-event-list, `fx::server_edits`): a dig or a
+                    // place plays its effect and, for up to three cells of a message, its sound (another player's
+                    // digging and building; this player's own were seen and heard at the click); a loose block's
+                    // move (ADR 0079) breaks nothing and places nothing, the block arriving glides in from the cell
+                    // it left (ADR 0101; ADR 0106: with the slopes, a cell a tick), one hiss a slump
+                    let a = fx::server_edits(&mut self.fx, &mut self.pred, &mut self.world, &mut self.pending, &v, self.loaded_at.is_some());
+                    if self.fx.on && engine::fall::SLOPES_AND_SLIDES {
+                        for &(from, to, m) in &a.glides {
+                            self.glide(from, to, m);
                         }
-                        if shows {
-                            self.streamer.touch_block(&self.world, b);
-                            if let Some(was) = was.filter(|_| hear) {
-                                heard += self.heard(b, was, m, false) as u32;
-                            }
-                        }
-                        self.edits_applied += 1;
-                        if measuring {
-                            self.samples.edits += 1;
-                        }
+                    }
+                    // (after the glides: a gliding cell is meshed as air meanwhile)
+                    for &b in &a.shown {
+                        self.streamer.touch_block(&self.world, b);
+                    }
+                    for &(b, was, m) in &a.heard {
+                        self.heard(b, was, m, false);
+                    }
+                    self.edits_applied += v.len() as u64;
+                    if measuring {
+                        self.samples.edits += v.len() as u64;
                     }
                     // a slump is one rolling hiss: a take at most every SLUMP_S while blocks keep moving, louder
                     // the more move at once, never one a block
                     let now = self.start.elapsed().as_secs_f64();
-                    if let Some(b) = slid_at.filter(|_| now >= self.slump_quiet && self.loaded_at.is_some()) {
-                        self.audio.play("slump", Some(self.world.block_centre(b)), (0.4 + 0.1 * slid as f32).min(1.0), 1.0, false);
+                    if let Some(b) = a.slid_at.filter(|_| now >= self.slump_quiet && self.loaded_at.is_some()) {
+                        self.audio.play("slump", Some(self.world.block_centre(b)), (0.4 + 0.1 * a.slid as f32).min(1.0), 1.0, false);
                         self.slump_quiet = now + crate::app::SLUMP_S;
                     }
                 }

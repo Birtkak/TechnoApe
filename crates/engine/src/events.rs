@@ -49,8 +49,8 @@ impl Event {
     }
 }
 
-/// A client is sent the events within this many metres of it (`net::SEE`, as the animals), and every one that
-/// happened to itself; beyond it no effect shows and no sound carries (a sound's reach is at most 40 m).
+/// A client is sent every `Edit` and `Fall` (their edits go to everyone), and of the other kinds those within
+/// this many metres of it (`net::SEE`, as the animals) and every one that happened to itself.
 pub const PERCEIVE: f64 = crate::net::SEE;
 
 #[cfg(test)]

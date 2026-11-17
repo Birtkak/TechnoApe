@@ -493,21 +493,27 @@ impl Server {
         }
     }
 
-    /// Each client is sent, in their order, the events it can perceive (draft-event-list): those within
-    /// `events::PERCEIVE` of it (where a player's own happened, where that player is) and every one of its own.
+    /// Each client is sent, in their order and in parts of at most `EDITS_PART`, the events it can perceive
+    /// (draft-event-list): every `Edit` and `Fall`, as their edits go to every client (the effects of a cave-in
+    /// 300 m off played before the list, and play still), and of the rest those within `events::PERCEIVE` of
+    /// it (where a player's own happened, where that player is) and every one of its own.
     pub(super) fn send_events(&self, events: &[Event]) {
         if events.is_empty() {
             return;
         }
         for c in &self.clients {
             let near = |p: DVec3| p.distance(c.phys.pos) <= engine::events::PERCEIVE;
-            let sees = |e: &Event| match e.cell() {
-                Some(b) => near(self.world.block_centre(b)),
-                None => e.by().and_then(|id| self.clients.iter().find(|o| o.player.id == id)).is_some_and(|o| near(o.phys.pos)),
+            let sees = |e: &Event| match e {
+                Event::Edit { .. } | Event::Fall { .. } => true,
+                _ if e.by() == Some(c.player.id) => true,
+                _ => match e.cell() {
+                    Some(b) => near(self.world.block_centre(b)),
+                    None => e.by().and_then(|id| self.clients.iter().find(|o| o.player.id == id)).is_some_and(|o| near(o.phys.pos)),
+                },
             };
-            let v: Vec<Event> = events.iter().filter(|e| e.by() == Some(c.player.id) || sees(e)).cloned().collect();
-            if !v.is_empty() {
-                c.link.send(ToClient::Events(v));
+            let v: Vec<Event> = events.iter().filter(|e| sees(e)).cloned().collect();
+            for part in v.chunks(EDITS_PART) {
+                c.link.send(ToClient::Events(part.to_vec()));
             }
         }
     }
