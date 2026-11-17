@@ -408,17 +408,24 @@ impl Server {
     }
 
     /// Client `i` takes the pick-up lying in air cell `at` (`ToServer::Take`, ADR 0082): within `REACH`, one lies
-    /// there and was not taken (or has come back), and all it gives fits in the slots; else nothing changes.
+    /// there and was not taken (or has come back), and all it gives fits in the slots; else nothing changes. With
+    /// no pick-up there in any season it cuts the plant growing there (ADR 0147, `clutter::thing_at`), at
+    /// the most Vegetation any client draws: what it gives must fit, and the cell is written as air, an edit that
+    /// hides the column's clutter for everyone and in the save. It is sent at once, not through the tick's
+    /// `changed`: air stays air, so no water is regapped or woken and nothing falls.
     pub(super) fn take(&mut self, i: usize, at: Block) -> bool {
+        use engine::clutter::{Kind, CLUTTER, VEGETATION};
         let c = &self.clients[i];
         let t = self.world.time;
         if c.vitals.dead.is_some() || !self.exists(at) || self.world.block_centre(at).distance(c.phys.pos) > REACH {
             return false;
         }
-        let Some(th) = engine::clutter::pickup_at(&self.world, at, t) else { return false };
-        let row = &engine::clutter::CLUTTER[th.row];
         let year = engine::clutter::year(t);
-        let Some((item, n)) = row.item().filter(|_| engine::clutter::lies(row, self.taken.get(&key(at)).copied(), year)) else { return false };
+        let lies = |b: Block, th: &engine::clutter::Thing| engine::clutter::lies(&CLUTTER[th.row], self.taken.get(&key(b)).copied(), year);
+        let Some(th) = engine::clutter::thing_at(&self.world, at, t, VEGETATION[VEGETATION.len() - 1], false, lies) else { return false };
+        let row = &CLUTTER[th.row];
+        // what it gives, an item that exists, or nothing is taken or cut (a plant is never cut for nothing)
+        let Some((item, n)) = row.item() else { return false };
         let mut slots = c.slots.clone();
         if items::stacks(item, n as u32).any(|st| items::give(&mut slots, st) > 0) {
             return false;
@@ -426,8 +433,15 @@ impl Server {
         let c = &mut self.clients[i];
         (c.slots, c.inv_dirty) = (slots, true);
         *self.item_made.entry(item).or_default() += n as i64;
-        self.taken.insert(key(at), year);
-        self.taken_changed.push((at, year));
+        if row.kind == Kind::Plant {
+            self.world.set_block(at, AIR);
+            for c in &self.clients {
+                c.link.send(ToClient::Edits(vec![(at, AIR)]));
+            }
+        } else {
+            self.taken.insert(key(at), year);
+            self.taken_changed.push((at, year));
+        }
         true
     }
 

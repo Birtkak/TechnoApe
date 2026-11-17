@@ -76,6 +76,12 @@ look = "coral"
 name = "berries"
 look = "coral"
 
+# Cut from the small plants (data/clutter.toml `gives` on a plant, ADR 0147): for cord and for hafting
+# tools (docs/design/crafting.md).
+[[item]]
+name = "plant fibre"
+look = "grass"
+
 # Ore samples (ADR 0138): loose bits lying on the ground over an ore body
 # (data/minerals.toml `sample`, data/clutter.toml), taken by hand. They hold no metal.
 # shortcut: samples are only a sign for now; nuggets become smeltable with the copper age's recipes.

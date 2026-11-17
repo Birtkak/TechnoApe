@@ -8,7 +8,7 @@
 # thinned by the Vegetation setting, swayed by the wind and tinted by the climate; a biome lists them under
 # `undergrowth`). `planes`: a plant's crossed planes, 2 to 4 (2 if left out). `looks`: a plant's other paintings
 # <name>.<look>.png and the parts of the year they show in (a season, or "early" or "late" one).
-# `gives`: a pick-up's item and how many. `on`: the ground blocks it lies on. `near`: "tree" (within 3 columns of
+# `gives`: a pick-up's item and how many; on a plant, what cutting it gives (ADR 0147; none if left out). `on`: the ground blocks it lies on. `near`: "tree" (within 3 columns of
 # a trunk) or "open" (not). `wades`: a plant that also stands in fresh water up to 0.8 m deep (reeds).
 # `season`: when it is there (all year if left out). `regrow`: "year" (it comes back
 # each year; left out, it never does).
@@ -120,12 +120,14 @@ on = []
 [[clutter]]
 name = "short grass"
 kind = "plant"
+gives = ["plant fibre", 1]
 on = ["grass", "meadow grass", "cold grass", "scrub grass", "savanna grass", "marsh grass", "jungle grass", "tundra grass"]
 season = ["spring", "summer", "autumn"]
 
 [[clutter]]
 name = "tall grass"
 kind = "plant"
+gives = ["plant fibre", 2]
 planes = 3
 on = ["grass", "meadow grass", "cold grass", "scrub grass", "savanna grass"]
 near = "open"
@@ -141,6 +143,7 @@ season = ["summer", "autumn"]
 [[clutter]]
 name = "fern"
 kind = "plant"
+gives = ["plant fibre", 1]
 planes = 3
 on = ["grass", "jungle grass", "cold grass"]
 near = "tree"
@@ -149,6 +152,7 @@ season = ["spring", "summer", "autumn"]
 [[clutter]]
 name = "reeds"
 kind = "plant"
+gives = ["plant fibre", 2]
 on = ["mud", "marsh grass", "sand", "gravel", "dirt"]
 wades = true
 season = ["spring", "summer", "autumn"]

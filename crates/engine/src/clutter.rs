@@ -107,9 +107,9 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
         }
         let on = r.on.iter().map(|n| crate::blocks::BLOCKS.placeable().find(|d| &d.name == n).map(|d| d.id).ok_or(format!("{who}: no block '{n}'"))).collect::<Result<Vec<_>, _>>()?;
         let gives = match (&r.gives, r.kind) {
-            (Some((n, k)), Kind::Pickup) if *k >= 1 => Some((n.clone(), *k)),
+            (Some((n, k)), Kind::Pickup | Kind::Plant) if *k >= 1 => Some((n.clone(), *k)),
             (None, Kind::Decoration | Kind::Plant) => None,
-            _ => return Err(format!("{who}: a pick-up gives an item and at least one, a decoration nothing")),
+            _ => return Err(format!("{who}: a pick-up gives an item and at least one, a plant may (when cut), a decoration nothing")),
         };
         let mut seasons = if r.season.is_empty() { 15 } else { 0 };
         for s in &r.season {
@@ -406,26 +406,64 @@ pub fn pickup_at(world: &World, b: Block, t: f64) -> Option<Thing> {
 
 /// `pickup_at`; `built` asks only height tiles already built (the frame thread's aim): None on a miss.
 fn pickup(world: &World, b: Block, t: f64, built: bool) -> Option<Thing> {
+    let c = column(world, b, built, 0.0)?;
+    pick_in(&c, b, season(c.0.dir(b.face as usize, b.pos.x as f64 + 0.5, b.pos.y as f64 + 0.5), t))
+}
+
+/// A column as `column` gives it.
+type Column<'a> = (&'a Body, u64, std::sync::Arc<HeightTile>, u16, u8, bool);
+
+/// The pick-up `pick` puts on column `c` (of cell `b`) in `season`; none where fresh water stands, as `quads`.
+fn pick_in(c: &Column, b: Block, season: u8) -> Option<Thing> {
+    let (body, seed, tile, top, biome, wet) = c;
+    let th = pick(body, *seed, b.face, b.pos.x, b.pos.y, *biome, *top, season, 1.0, &tile.trees)?;
+    (CLUTTER[th.row].kind == Kind::Pickup && !wet).then_some(th)
+}
+
+/// What a click on air cell `b` reaches (ADR 0082, 0144, ADR 0147): the pick-up lying there (`lies`: not
+/// taken), else the plant growing there at Vegetation `density` that gives a known item. A plant is never reached
+/// on a column that holds a pick-up in any season, taken or not: cutting it (an air edit on the column) would
+/// hide that pick-up for good. `built` as `pickup`.
+pub fn thing_at(world: &World, b: Block, t: f64, density: f32, built: bool, lies: impl Fn(Block, &Thing) -> bool) -> Option<Thing> {
+    let c = column(world, b, built, WADE)?;
+    let p8 = part(c.0.dir(b.face as usize, b.pos.x as f64 + 0.5, b.pos.y as f64 + 0.5), t);
+    if let Some(p) = pick_in(&c, b, p8 / 2) {
+        return lies(b, &p).then_some(p);
+    }
+    if (0..4).any(|s| pick_in(&c, b, s).is_some()) {
+        return None;
+    }
+    let (_, seed, tile, top, biome, wet) = &c;
+    plant(*seed, b.face, b.pos.x, b.pos.y, *biome, *top, p8 / 2, density, &tile.trees).filter(|g| (!wet || CLUTTER[g.row].wades) && CLUTTER[g.row].item().is_some())
+}
+
+/// The column of air cell `b` as clutter asks it (ADR 0082): its body, seed, tile, generated top block, biome and
+/// whether fresh water (at most `wade` deep) stands over it; None unless `b` is the first air over the generated
+/// ground, untouched, with no edit on the column in the ground cell's chunk (which lays its clutter).
+fn column(world: &World, b: Block, built: bool, wade: f64) -> Option<Column<'_>> {
     let body = world.bodies.get(b.body as usize)?;
     let seed = body.baked_seed()?;
     let (i, j) = (b.pos.x, b.pos.y);
     let (x, y) = (i.div_euclid(CS), j.div_euclid(CS));
     let tile = if built { body.tile_if_built(b.face, 0, x, y)? } else { body.tile(b.face, 0, x, y) };
-    let (z, top, biome) = ground(body, &tile, b.face, i, j)?;
+    let (z, top, biome) = ground_under(body, &tile, b.face, i, j, wade)?;
     let under = Block { pos: b.pos - IVec3::Z, ..b };
     if z != b.pos.z || world.block(b) != 0 || world.block(under) != top {
         return None;
     }
-    // the chunk that lays it (the ground cell's) shows none on a column it holds an edit in
     let key = Key { body: b.body, face: b.face, level: 0, pos: under.pos.div_euclid(IVec3::splat(CS)) };
     let c0 = key.pos * CS - 1;
     let col = (i - c0.x) as usize + (j - c0.y) as usize * P;
     if world.edits_for(key).iter().any(|&(c, _)| c as usize % (P * P) == col) {
         return None;
     }
-    let up = body.dir(b.face as usize, i as f64 + 0.5, j as f64 + 0.5);
-    pick(body, seed, b.face, i, j, biome, top, season(up, t), 1.0, &tile.trees).filter(|th| CLUTTER[th.row].kind == Kind::Pickup)
+    let wet = body.water_at(b.face, i, j).is_some_and(|w| z as f64 <= w.0);
+    Some((body, seed, tile, top, biome, wet))
 }
+
+/// A plant's hit box in its cell (ADR 0147): the middle of the cell this wide each way of its middle,
+/// as high as its painting; its planes turn and shift by a hash only the shader draws.
+pub const PLANT_BOX: f64 = 0.35;
 
 /// The faces of `th` lying in air cell `b` as they are drawn (its alternate's in `still`), each as its corner and
 /// the ends of its two edges in the world: shader_models.wgsl `still_local`'s turn and place in the cell, the cell
@@ -441,6 +479,19 @@ pub fn thing_faces(world: &World, still: &Still, b: Block, th: &Thing) -> Vec<[g
     let corner = |d: glam::DVec3| body.centre + body.dir(b.face as usize, p.x + d.x, p.y + d.y) * body.layer_r(p.z + d.z);
     let o = corner(glam::DVec3::ZERO);
     let (ex, ey, ez) = (corner(glam::DVec3::X) - o, corner(glam::DVec3::Y) - o, corner(glam::DVec3::Z) - o);
+    if CLUTTER[th.row].kind == Kind::Plant {
+        // its box: as high as the alternate's planes reach (their corners' model y, metres = cells)
+        let (first, n) = alts[a];
+        let top = still.faces[first as usize..(first + n) as usize]
+            .iter()
+            .flat_map(|f| {
+                let y = |k: usize| f32::from_bits(f[k + 1]);
+                [y(0), y(0) + y(4), y(0) + y(8), y(0) + y(4) + y(8)]
+            })
+            .fold(0.0f32, f32::max) as f64;
+        let k = |n: usize| corner(glam::DVec3::new(0.5 + PLANT_BOX * if n & 1 == 1 { 1.0 } else { -1.0 }, 0.5 + PLANT_BOX * if n & 2 == 2 { 1.0 } else { -1.0 }, if n & 4 == 4 { top } else { 0.0 }));
+        return [[0, 1, 2], [4, 5, 6], [0, 1, 4], [2, 3, 6], [0, 2, 4], [1, 3, 5]].map(|[o, u, v]| [k(o), k(u), k(v)]).to_vec();
+    }
     let (s, c) = (turn as f64 * std::f64::consts::TAU / 16.0).sin_cos();
     let off = |k: u32| (k as f64 / 15.0 - 0.5) * 0.5;
     // model x, y (up), z about its middle, turned about y: model y is the cell's up, model z its -j
@@ -459,12 +510,14 @@ pub fn thing_faces(world: &World, still: &Still, b: Block, th: &Thing) -> Vec<[g
         .collect()
 }
 
-/// The pick-up the ray from `eye` along unit `dir` meets on its own faces within `reach` metres, before any block
-/// `edit::aim` would stop at (ADR 0144): its air cell and itself. `lies` says whether one found
-/// still lies there (not taken). A ray through a thing's cell that misses its faces goes on to what is behind.
+/// The thing (`thing_at`: a pick-up, else a plant at Vegetation `density`) the ray from `eye` along unit `dir` meets
+/// on its own faces (a plant's box) within `reach` metres, before any block `edit::aim` would stop at (ADR 0144,
+/// ADR 0147): its air cell and itself. `lies` says whether a pick-up found still lies there (not taken).
+/// A ray through a thing's cell that misses its faces goes on to what is behind.
 /// shortcut: only the cells the ray passes are asked, so a face reaching over its cell's side is hit only from
 /// within the cell; the models stay inside theirs but for a turned corner.
-pub fn aim_thing(world: &World, still: &Still, eye: glam::DVec3, dir: glam::DVec3, reach: f64, t: f64, lies: impl Fn(Block, &Thing) -> bool) -> Option<(Block, Thing)> {
+#[allow(clippy::too_many_arguments)]
+pub fn aim_thing(world: &World, still: &Still, eye: glam::DVec3, dir: glam::DVec3, reach: f64, t: f64, density: f32, lies: impl Fn(Block, &Thing) -> bool) -> Option<(Block, Thing)> {
     let hits = |[o, a, c]: &[glam::DVec3; 3]| {
         let (eu, ev) = (*a - *o, *c - *o);
         let den = dir.dot(eu.cross(ev));
@@ -488,7 +541,7 @@ pub fn aim_thing(world: &World, still: &Still, eye: glam::DVec3, dir: glam::DVec
             return None;
         }
         // only tiles already built: a miss is no thing there this frame (it runs on the frame thread)
-        if let Some(th) = pickup(world, b, t, true).filter(|th| lies(b, th)) {
+        if let Some(th) = thing_at(world, b, t, density, true, &lies) {
             if thing_faces(world, still, b, &th).iter().any(hits) {
                 return Some((b, th));
             }
@@ -854,18 +907,18 @@ mod tests {
             // the aim builds no height tile (it runs on the frame thread): in a world that has built none yet it
             // finds nothing, and once the tile is there it finds the thing
             let fresh = World::with_map(1536, 32, 5, Some(map.clone()));
-            assert!(aim_thing(&fresh, &still, eye, at_it, 8.0, 0.0, |_, _| true).is_none(), "no tile built: nothing aimed at");
+            assert!(aim_thing(&fresh, &still, eye, at_it, 8.0, 0.0, 0.0, |_, _| true).is_none(), "no tile built: nothing aimed at");
             assert!(fresh.bodies[0].tile_if_built(f, 0, i.div_euclid(CS), j.div_euclid(CS)).is_none(), "the aim built no tile");
             assert_eq!(
-aim_thing(&w, &still, eye, at_it, 8.0, 0.0, |_, _| true).map(|a| a.0), Some(at), "{}: aimed at its middle", CLUTTER[th.row].name);
-            assert!(aim_thing(&w, &still, eye, at_it, (mid - eye).length() * 0.5, 0.0, |_, _| true).is_none(), "out of reach");
-            assert!(aim_thing(&w, &still, eye, at_it, 8.0, 0.0, |_, _| false).is_none(), "taken");
+aim_thing(&w, &still, eye, at_it, 8.0, 0.0, 0.0, |_, _| true).map(|a| a.0), Some(at), "{}: aimed at its middle", CLUTTER[th.row].name);
+            assert!(aim_thing(&w, &still, eye, at_it, (mid - eye).length() * 0.5, 0.0, 0.0, |_, _| true).is_none(), "out of reach");
+            assert!(aim_thing(&w, &still, eye, at_it, 8.0, 0.0, 0.0, |_, _| false).is_none(), "taken");
             // the floor's corner farthest from it, inside its cell: the ray falls to the ground block
             let p = at.pos.as_dvec3();
             let floor = [(0.05, 0.05), (0.95, 0.05), (0.05, 0.95), (0.95, 0.95)].map(|(u, v)| b.centre + b.dir(f as usize, p.x + u, p.y + v) * b.layer_r(p.z));
             let far = floor.into_iter().max_by(|a, c| a.distance(mid).total_cmp(&c.distance(mid))).unwrap();
             let beside = (far - eye).normalize();
-            assert!(aim_thing(&w, &still, eye, beside, 8.0, 0.0, |_, _| true).is_none(), "{}: beside it", CLUTTER[th.row].name);
+            assert!(aim_thing(&w, &still, eye, beside, 8.0, 0.0, 0.0, |_, _| true).is_none(), "{}: beside it", CLUTTER[th.row].name);
             assert_eq!(crate::edit::aim(&w, eye, beside, 8.0).map(|a| a.0), Some(under), "beside it the ground is aimed at");
             if tried >= 8 {
                 break;
@@ -877,9 +930,65 @@ aim_thing(&w, &still, eye, at_it, 8.0, 0.0, |_, _| true).map(|a| a.0), Some(at),
         let e = b.centre + b.spawn * (b.height(b.spawn) + 1.6);
         for k in 0..n {
             let d = (-b.spawn + DVec3::new(0.3, (k % 7) as f64 * 0.1, 0.2)).normalize();
-            std::hint::black_box(aim_thing(&w, &still, e, d, 8.0, 0.0, |_, _| true));
+            std::hint::black_box(aim_thing(&w, &still, e, d, 8.0, 0.0, VEGETATION[2], |_, _| true));
         }
         eprintln!("aim_thing: {:.1} us a call", t0.elapsed().as_secs_f64() * 1e6 / n as f64);
+    }
+
+    /// A plant is aimed at by its hit box (ADR 0147): from above at its middle it is hit before the
+    /// ground; from the side at its cell's floor corner, outside the box, the ray falls to the ground block; at a
+    /// Vegetation that does not draw it, it is not aimed at.
+    #[test]
+    fn a_plant_is_aimed_at_by_its_box() {
+        use crate::bake::Map;
+        use glam::DVec3;
+        use std::sync::Arc;
+        let w = World::with_map(1536, 32, 5, Some(Arc::new(Map::bake(5, 1536))));
+        let pal = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
+        let still = Still::load(&data.join("models"), &data.join("plants"), &pal).0;
+        let b = &w.bodies[0];
+        let (f, si, sj) = b.locate(b.spawn);
+        let (f, si, sj) = (f as u8, si as i32, sj as i32);
+        let (mut tried, mut beside, mut fibre) = (0, 0, 0);
+        for (i, j) in (-60..=60).flat_map(|a| (-60..=60).map(move |c| (si + a, sj + c))) {
+            let tile = b.tile(f, 0, i.div_euclid(CS), j.div_euclid(CS));
+            let Some((z, _, _)) = ground_under(b, &tile, f, i, j, WADE) else { continue };
+            let at = Block { body: 0, face: f, pos: IVec3::new(i, j, z) };
+            let Some(th) = thing_at(&w, at, 0.0, 1.0, false, |_, _| true) else { continue };
+            if CLUTTER[th.row].kind != Kind::Plant {
+                continue;
+            }
+            fibre += CLUTTER[th.row].item().is_some() as usize;
+            let under = Block { pos: at.pos - IVec3::Z, ..at };
+            let faces = thing_faces(&w, &still, at, &th);
+            assert_eq!(faces.len(), 6, "{}: a box", CLUTTER[th.row].name);
+            let mid = faces.iter().flatten().sum::<DVec3>() / 18.0;
+            let up = b.dir(f as usize, i as f64 + 0.5, j as f64 + 0.5);
+            let eye = w.block_centre(at) + up * 1.8 + up.any_orthonormal_vector() * 0.3;
+            let at_it = (mid - eye).normalize();
+            if crate::edit::aim(&w, eye, at_it, 8.0).map(|a| a.0) != Some(under) {
+                continue;
+            }
+            tried += 1;
+            let name = &CLUTTER[th.row].name;
+            assert_eq!(aim_thing(&w, &still, eye, at_it, 8.0, 0.0, 1.0, |_, _| true), Some((at, th)), "{name}: aimed at its middle");
+            assert!(aim_thing(&w, &still, eye, at_it, 8.0, 0.0, 0.0, |_, _| true).is_none(), "{name}: not drawn, not aimed at");
+            // from the side, 1.5 m out past a floor corner and 0.6 m up, at that corner
+            let p = at.pos.as_dvec3();
+            let point = |u: f64, v: f64, l: f64| b.centre + b.dir(f as usize, p.x + u, p.y + v) * b.layer_r(p.z + l);
+            let corner = point(0.04, 0.04, 0.0);
+            let side = point(-1.0, -1.0, 0.6);
+            let dir = (corner - side).normalize();
+            if crate::edit::aim(&w, side, dir, 8.0).map(|a| a.0) == Some(under) {
+                beside += 1;
+                assert_ne!(aim_thing(&w, &still, side, dir, 8.0, 0.0, 1.0, |_, _| true).map(|a| a.0), Some(at), "{name}: beside its box");
+            }
+            if tried >= 12 {
+                break;
+            }
+        }
+        assert!(tried >= 3 && beside >= 1 && fibre >= 1, "{tried} plants looked at, {beside} from the side, {fibre} giving fibre");
     }
 
     /// Flint (ADR 0097) lies where a new player looks first: near the spawn of every seed, at least `NEAR` within
@@ -962,8 +1071,9 @@ aim_thing(&w, &still, eye, at_it, 8.0, 0.0, |_, _| true).map(|a| a.0), Some(at),
         let rows = &*CLUTTER;
         assert!(rows.iter().filter(|r| r.kind == Kind::Decoration).count() >= 3);
         assert!(crate::biomes::ROWS.biomes.iter().filter(|b| !b.clutter.is_empty()).count() >= 4);
-        for r in rows.iter().filter(|r| r.kind == Kind::Pickup) {
-            assert!(r.item().is_some(), "{}: gives an item of data/items.toml", r.name);
+        // every row that gives something (a pick-up always, a plant when cut) names an item of data/items.toml
+        for r in rows.iter().filter(|r| r.kind == Kind::Pickup || r.gives.is_some()) {
+            assert!(r.item().is_some(), "{}: gives {:?}, an item of data/items.toml", r.name, r.gives);
         }
         let bad = |t: &str| parse(t).is_err();
         assert!(bad("[[clutter]]\nname = \"x\"\nkind = \"decoration\"\non = [\"no such block\"]\n"));

@@ -516,6 +516,12 @@ def make():
     for turn in (0, 90):
         m.box((9, 0, 16), (14, 10, 0), bush("berry bush", "berry", turn), (0, turn, 0))
     written += m.write("shrub", "a low bush with red berries")
+    # plant fibre (ADR 0147): an item only, cut from grass, ferns and reeds; a bundle of stems, tied
+    m = Model("plant fibre")
+    for k, (z, t) in enumerate([(13, -14), (15, 2), (17, 16), (19, -4)]):
+        m.box((4, 0.5 + k % 2, z), (24, 1, 1), rock("meadow green", ("fibre", k)), (0, t, 0))
+    m.box((15, 0, 12), (2, 3, 9), rock("twig", "fibre tie"))
+    written += m.write("grass", "a bundle of stems, tied in the middle", item=0.5)
     # the hand axe (ADR 0110), standing point up as the hand holds it, its flaked face to +z (the eye in hand)
     m = Model("hand axe")
     for x, y, z, sx, sy, sz in [(12, 0, 14.5, 8, 3, 3), (10, 3, 14, 12, 5, 4), (11, 8, 14, 10, 5, 4), (12.5, 13, 14.5, 7, 4, 3), (14, 17, 15, 4, 3, 2), (15, 20, 15, 2, 2, 2)]:
