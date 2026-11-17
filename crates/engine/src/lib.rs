@@ -14,6 +14,7 @@ pub mod herds;
 pub mod fall;
 pub mod furnace;
 pub mod items;
+pub mod journal;
 pub mod liquid;
 pub mod live;
 pub mod mesh;

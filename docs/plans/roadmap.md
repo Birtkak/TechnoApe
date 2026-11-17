@@ -118,7 +118,7 @@ In this order unless the developer says otherwise (the developer's order of 2026
    needs steps 1-3 (thirst, breath, death's cost; step 1, thirst and drinking, is done: ADR 0145; step 2, breath, is done: ADR 0146; step 3, death's cost (the death pile's waypoint, the sleeping place), is on a branch: `ADR 0148.md`; today also
    health and hunger and the breath held when buried),
    the journal's steps 1-3 (events, `look:` and `have:`, the book; step 1, the event list with the effects
-   and sounds of edits, falls and worn tools moved onto it, is on a branch: `ADR 0149.md`); then the process runner of `crafting.md`
+   and sounds of edits, falls and worn tools moved onto it, is done: ADR 0149; step 2, the data, state, message and save with `look:` and `have:`, is on a branch: `draft-journal-data.md`); then the process runner of `crafting.md`
    brings tools, food and `do:`/`see:` together. ADR 0027: the ape learns by doing, Terra has animals and
    hostile creatures. What the creatures are waits on the story (`lore.md`, `open-questions.md`).
 3. **Mining's slice (c)**, undercut and drop, and blasting later (`docs/design/mining.md`).

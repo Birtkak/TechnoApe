@@ -1376,7 +1376,7 @@ fn players_of_a_save_before_the_frames_moved_are_moved_with_them() {
     let (s, _links) = server_with(0);
     let mut save = s.snapshot();
     let player = |name: &str, at: DVec3| save::Saved {
-        name: name.into(), pos: at.to_array(), fwd: [1.0, 0.0, 0.0], creative: false, slots: items::from_counts(&[(2, 5)]), water: 0, vitals: Default::default(), marks: Default::default(),
+        name: name.into(), pos: at.to_array(), fwd: [1.0, 0.0, 0.0], creative: false, slots: items::from_counts(&[(2, 5)]), water: 0, vitals: Default::default(), marks: Default::default(), journal: Vec::new(),
     };
     let on_luna = engine::world::OLD_MOON_AT + DVec3::Y * 30.0;
     let in_space = DVec3::new(500.0, 0.0, -1.0e6);
@@ -3518,4 +3518,86 @@ fn creative_never_dies_so_never_leaves_a_pile() {
 fn the_marks_message_keeps_its_tag() {
     let at = Block { body: 0, face: 2, pos: glam::IVec3::new(1, 2, 3) };
     assert_eq!(postcard::to_allocvec(&ToClient::Marks { death: Some(at), home: None }).unwrap(), vec![21, 1, 0, 2, 2, 4, 6, 0]);
+}
+
+/// The journal's cost (draft ADR journal-data): 50 named survival apes looking at the ground with full slots,
+/// on a look tick with every inventory changed (its dearest tick), timed; `--release` for the number.
+#[test]
+fn the_journal_costs_little_a_player() {
+    let (mut s, links) = server_with(50);
+    let (pole, _) = on_land(&s);
+    for (k, l) in links.iter().enumerate() {
+        l.send(ToServer::Hello { name: format!("ape{k}") });
+        l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: -1.55 });
+        l.send(ToServer::Chat("/give stone 2304".into()));
+    }
+    s.tick();
+    assert!(s.clients.iter().all(|c| !c.creative && c.slots.iter().take(9).all(|x| x.is_some())), "survival, the hotbar full");
+    let n = 200;
+    let t0 = std::time::Instant::now();
+    for _ in 0..n {
+        s.tick = 0;
+        for c in &mut s.clients {
+            c.inv_dirty = true;
+        }
+        s.learn();
+    }
+    let us = t0.elapsed().as_secs_f64() * 1e6 / (n * 50) as f64;
+    eprintln!("the journal: {us:.2} us a player on a look tick with its slots changed");
+    assert!(us < 200.0, "{us} us a player");
+}
+
+/// The journal changes among `got` (draft ADR journal-data), one list a message.
+fn journals(got: &[ToClient]) -> Vec<Vec<(String, engine::journal::State)>> {
+    got.iter().filter_map(|m| if let ToClient::Journal(v) = m { Some(v.clone()) } else { None }).collect()
+}
+
+/// The journal (draft ADR journal-data): a named survival ape is told its whole journal once, then each
+/// change, and the other player nothing. A flint in its slots makes flint known and notices the hand axe it
+/// points at; the clay its look meets (the look the server holds, judged twice a second) notices clay, and
+/// clay in the slots makes it known; a command sets a state; a creative ape learns nothing. The journal is in
+/// the state hash and a player's save, and a returning player is told the journal it left with.
+#[test]
+fn the_journal_learns_from_the_slots_and_the_look_and_tells_only_its_owner() {
+    use engine::journal::State::{self, *};
+    let (mut s, links) = server_with(3);
+    let (l, friend, late) = (&links[0], &links[1], &links[2]);
+    l.send(ToServer::Hello { name: "ape".into() });
+    friend.send(ToServer::Hello { name: "friend".into() });
+    let cell = over_dirt(&mut s, l);
+    assert!(journals(&drain(friend)) == vec![vec![]], "a new ape is told its empty journal once");
+    let e = |v: &[(&str, State)]| v.iter().map(|(n, t)| (n.to_string(), *t)).collect::<Vec<_>>();
+    l.send(ToServer::Chat("/give flint 1".into()));
+    s.tick();
+    assert_eq!(journals(&drain(l)), vec![e(&[("flint", Known), ("hand-axe", Noticed)])]);
+    // the look: straight down at the cell under its feet, made clay
+    s.world.set_block(cell, BLOCKS.id("clay"));
+    wait(&mut s, 0.6);
+    assert!(journals(&drain(l)).is_empty(), "looking ahead, not at it");
+    l.send(ToServer::Move { pos: s.clients[0].phys.pos.to_array(), fwd: [1.0, 0.0, 0.0], pitch: -1.55 });
+    wait(&mut s, 0.6);
+    assert_eq!(journals(&drain(l)), vec![e(&[("clay", Noticed)])]);
+    l.send(ToServer::Chat("/give clay 1".into()));
+    s.tick();
+    assert_eq!(journals(&drain(l)), vec![e(&[("clay", Known), ("crucible", Noticed)])], "known, and what it points at noticed");
+    assert!(journals(&drain(friend)).is_empty(), "the other player is told nothing of it");
+    // a command sets one; the hash holds the journal
+    let h = s.hash();
+    l.send(ToServer::Chat("/journal flint unknown".into()));
+    s.tick();
+    assert_eq!(journals(&drain(l)), vec![e(&[("flint", Unknown)])]);
+    assert_ne!(s.hash(), h, "the journal is in the state hash");
+    let sv = saved(&s.clients[0]);
+    assert_eq!(sv.journal, e(&[("hand-axe", Noticed), ("clay", Known), ("crucible", Noticed)]));
+    // creative learns nothing
+    friend.send(ToServer::Chat("/playmode creative".into()));
+    friend.send(ToServer::Chat("/give flint 1".into()));
+    wait(&mut s, 0.6);
+    assert!(journals(&drain(friend)).is_empty() && s.clients[1].journal.iter().all(|t| *t == Unknown), "creative learns nothing");
+    // back from the save: the whole journal, at once
+    s.absent.insert("bob".into(), sv.clone());
+    late.send(ToServer::Hello { name: "bob".into() });
+    s.tick();
+    // (and the flint it still holds is known again: its slots came with it)
+    assert_eq!(journals(&drain(late)), vec![e(&[("flint", Known), ("hand-axe", Noticed), ("clay", Known), ("crucible", Noticed)])], "a returning ape is told its journal once");
 }

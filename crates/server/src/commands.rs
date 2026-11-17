@@ -117,6 +117,8 @@ impl Server {
                 "  /heal, /feed [n]     full health, full hunger (or n)",
                 "  /thirst [n]          full thirst (or n)",
                 "  /hurt <points>       takes health: 2 points a segment",
+                "  /journal [entry      your journal's entries; sets one",
+                "    unknown|noticed|known]  (known notices what it points at)",
                 "  /help                this list",
                 "Creative: double space flies, the wheel sets the speed.",
             ]
@@ -165,6 +167,24 @@ impl Server {
                 let what = if to.is_some() { "time set to" } else { "it is" };
                 let m = (h * 60.0).round() as u32 % (24 * 60);
                 format!("{what} day {day}, {:02}:{:02} at the spawn (world time {t:.0} s)", m / 60, m % 60)
+            }
+            // for trying the journal (draft ADR journal-data) until the book shows it
+            Some("journal") => {
+                let j = &*engine::journal::JOURNAL;
+                let c = &mut self.clients[i];
+                match (w.get(1), w.get(2).and_then(|s| engine::journal::State::named(&s.to_lowercase()))) {
+                    (None, _) => j.entries.iter().zip(&c.journal).map(|(e, s)| format!("{}: {}", e.name, s.name())).collect::<Vec<_>>().join("
+"),
+                    (Some(name), Some(to)) => match j.index(name) {
+                        Some(k) => {
+                            c.journal[k] = engine::journal::State::Unknown;
+                            j.raise(&mut c.journal, k, to);
+                            format!("{name}: {}", to.name())
+                        }
+                        None => format!("no journal entry '{name}': {}", j.entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>().join(", ")),
+                    },
+                    _ => "usage: /journal [<entry> unknown|noticed|known]".into(),
+                }
             }
             // shortcut: until there is food and harm of more kinds, these let the overlay and the death screen be
             // tried (ADR 0040); they go to the operator role with the others

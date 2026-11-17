@@ -183,6 +183,9 @@ pub enum ToClient {
     /// What happened this tick that this player can perceive (`events`, ADR 0149), in the tick's
     /// order; sent before the tick's `Edits`, so the client knows which of their cells were digs and falls.
     Events(Vec<crate::events::Event>),
+    /// This player's journal entries that changed state (`journal`, draft ADR journal-data), by name; once
+    /// it has its name (`Hello`), every entry not unknown, then each change at the end of its tick.
+    Journal(Vec<(String, crate::journal::State)>),
 }
 
 /// An animal as a client sees it (ADR 0083): `kind` indexes `ToClient::Kinds`, `pos` its feet in body 0's frame,

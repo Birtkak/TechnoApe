@@ -110,7 +110,7 @@ fn wanted(tiles: &FxMap<Col, (u64, DVec3)>, near: &FxMap<glam::IVec3, Vec<Col>>,
 
 /// What a save keeps of a connected player.
 fn saved(c: &Client) -> Saved {
-    Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, slots: c.slots.clone(), water: c.water, vitals: c.vitals.clone(), marks: c.marks.clone() }
+    Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, slots: c.slots.clone(), water: c.water, vitals: c.vitals.clone(), marks: c.marks.clone(), journal: engine::journal::JOURNAL.saved(&c.journal) }
 }
 
 /// A pile's cell as a key that sorts (by body, face, column, layer: the piles' fixed order, items.md).
@@ -143,6 +143,10 @@ const THROW: f64 = 2.0;
 const THROW_WAIT: u64 = 40;
 /// The most /give hands out at once: 36 stacks.
 const GIVE_MAX: u32 = 36 * items::STACK as u32;
+/// The journal's `look:` (draft ADR journal-data) is judged this often, in ticks (twice a second), from the
+/// player's look as the server holds it, as far as a client aims.
+const LOOK_EVERY: u64 = 10;
+const LOOK_REACH: f64 = 8.0;
 
 struct Client {
     link: ServerLink,
@@ -198,6 +202,10 @@ struct Client {
     knap: (u16, u8, u64),
     /// The tick of its last prospecting strike that was answered (ADR 0138).
     prospected: Option<u64>,
+    /// Its journal (draft ADR journal-data): a state per entry of `JOURNAL`, saved; what its client was last
+    /// told of it (None: nothing yet).
+    journal: Vec<engine::journal::State>,
+    told: Option<Vec<engine::journal::State>>,
 }
 
 impl Client {

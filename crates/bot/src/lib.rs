@@ -82,6 +82,9 @@ pub enum Cmd {
     Sprint(bool),
     /// Drink from the water at this offset, held for `DRINK_S`.
     Drink(DVec3),
+    /// Look at the middle of the block at this offset from the feet, until the next walk (the server's
+    /// journal reads the look, draft ADR journal-data).
+    Look(DVec3),
     Quit,
 }
 
@@ -127,6 +130,7 @@ pub fn parse(line: &str) -> Result<Option<Cmd>, String> {
         "cast" => Cmd::Cast(v()?, (w.len() > 4).then(|| w[4..].join(" "))),
         "furnace" => Cmd::Furnace,
         "drink" => Cmd::Drink(v()?),
+        "look" => Cmd::Look(v()?),
         "sprint" => match w.get(1).copied() {
             Some("on") => Cmd::Sprint(true),
             Some("off") => Cmd::Sprint(false),
@@ -195,6 +199,8 @@ pub struct Bot {
     pub marks: (Option<engine::world::Block>, Option<engine::world::Block>),
     /// A drink held until that tick.
     drinking: Option<u64>,
+    /// Its journal's entries not unknown, as the server last told them (draft ADR journal-data).
+    pub journal: std::collections::BTreeMap<String, engine::journal::State>,
 }
 
 /// A server silent this long is taken for gone (it sends `You` every tick; a baked world's first map takes
@@ -204,7 +210,7 @@ const SILENT: Duration = Duration::from_secs(120);
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default(), furnace: None, vitals: (20, 20, 20, 20), marks: (None, None), drinking: None }
+        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default(), furnace: None, vitals: (20, 20, 20, 20), marks: (None, None), drinking: None, journal: Default::default() }
     }
 
     /// The tick `s` seconds of the server's time from now.
@@ -268,6 +274,12 @@ impl Bot {
                     }
                 }
                 Recv::Msg(ToClient::Marks { death, home }) => self.marks = (death, home),
+                Recv::Msg(ToClient::Journal(v)) => {
+                    for (name, s) in v {
+                        self.journal.insert(name, s);
+                    }
+                    self.journal.retain(|_, s| *s != engine::journal::State::Unknown);
+                }
                 Recv::Msg(ToClient::Air(h)) => self.air = Some(h),
                 Recv::Msg(ToClient::Kinds(k)) => self.kinds = k,
                 Recv::Msg(ToClient::Defs { blocks, items }) => {
@@ -404,6 +416,13 @@ impl Bot {
                 let slots: Vec<String> = f.slots.iter().enumerate().filter_map(|(k, s)| s.map(|st| format!("[{k},{:?},{}]", ITEMS.name(st.item), st.n))).collect();
                 return Some(format!("{{\"bot\":{:?},\"furnace\":{{\"slots\":[{}],\"heat\":{:.1},\"burning\":{},\"work\":{:.2},\"choice\":{:?}}}}}", self.name, slots.join(","), f.heat, f.burning(), f.work, f.choice));
             }
+            Cmd::Look(d) => {
+                let up = phys::up(w, self.pos);
+                let to = w.block_centre(w.block_at(self.feet() + *d)) - (self.pos + up * phys::EYE);
+                let flat = to.reject_from(up);
+                let pitch = to.dot(up).atan2(flat.length()).clamp(-1.55, 1.55) as f32;
+                self.link.send(ToServer::Input(Input { fwd: flat.normalize_or(DVec3::X).as_vec3().to_array(), pitch, ..Default::default() }));
+            }
             Cmd::Pick(d) => {
                 self.seq += 1;
                 self.link.send(ToServer::Take { seq: self.seq, at: w.block_at(self.feet() + *d) });
@@ -417,7 +436,7 @@ impl Bot {
             }
             Cmd::Report => {
                 return Some(format!(
-                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{},\"vitals\":[{},{},{},{}],\"death\":{},\"home\":{},\"air\":{},\"animals\":{}}}",
+                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{},\"vitals\":[{},{},{},{}],\"death\":{},\"home\":{},\"air\":{},\"animals\":{},\"journal\":{{{}}}}}",
                     self.name,
                     self.start.elapsed().as_secs_f64(),
                     self.pos.x,
@@ -433,7 +452,8 @@ impl Bot {
                     self.mark_json(self.marks.0),
                     self.mark_json(self.marks.1),
                     self.air.map_or("null".into(), |a| format!("{{\"temp\":{:.2},\"rain_mm_h\":{:.3},\"cover\":{:.2},\"wind\":[{:.2},{:.2}]}}", a.temp, a.rain, a.cover, a.wind[0], a.wind[1])),
-                    self.animals_json()
+                    self.animals_json(),
+                    self.journal.iter().map(|(n, s)| format!("{n:?}:{:?}", s.name())).collect::<Vec<_>>().join(",")
                 ));
             }
             Cmd::Say(t) => {
@@ -710,6 +730,28 @@ mod tests {
         assert!(slots[2].contains(&format!("[1,\"hand axe\",1,{}]", uses - 1)), "{out:?} ({} refused)", bot.refused);
         let rubble = engine::blocks::BLOCKS.id("granite rubble");
         assert!(out.last().unwrap().contains(&format!("\"material\":{rubble}")), "{out:?}");
+    }
+
+    /// The journal by script (draft ADR journal-data): a survival bot given a flint reports flint known and the
+    /// hand axe it points at noticed; one that looks at clay a metre beside it reports clay noticed, and not
+    /// before it looked.
+    #[test]
+    fn a_survival_bot_learns_flint_by_having_it_and_notices_clay_by_looking() {
+        let (tx, rx) = channel();
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(TICK_HZ, &std::sync::atomic::AtomicBool::new(false)));
+        let (c, s) = local();
+        tx.send(s).unwrap();
+        let mut bot = Bot::new("learner", c);
+        let w = World::new(256, 32, 1);
+        let h = w.bodies[0].height(DVec3::Y);
+        let (d, at) = ("1.0 -0.5 0.25", w.block_at(DVec3::new(1.25, h - 0.5, 0.5)));
+        let mut out = Vec::new();
+        let script = format!("wait 0.5; say /playmode survival; spawn 0.25 {h} 0.25; wait 0.5; report; say /give flint 1; say /place clay {} {} {} {}; wait 1; report; look {d}; wait 1; report", at.face, at.pos.x, at.pos.y, at.pos.z);
+        bot.run(parse_script(&script).unwrap(), None, |l| out.push(l));
+        let reports: Vec<&String> = out.iter().filter(|l| l.contains("\"journal\"")).collect();
+        assert!(reports[0].contains("\"journal\":{}"), "{out:?}");
+        assert!(reports[1].contains("\"journal\":{\"flint\":\"known\",\"hand-axe\":\"noticed\"}"), "{out:?}");
+        assert!(reports[2].contains("\"journal\":{\"clay\":\"noticed\",\"flint\":\"known\",\"hand-axe\":\"noticed\"}"), "{out:?}");
     }
 
     /// Crafting by script, end to end (ADR 0140): a survival bot moves four logs into the 2 x 2 and
