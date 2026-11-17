@@ -401,10 +401,16 @@ pub fn lies(row: &Row, taken: Option<u32>, now: u32) -> bool {
 /// The pick-up of air cell `b` at time `t`, taken or not: the server's check and the client's aim, which ask
 /// the ground, the edits and the season as the mesher does (ADR 0082). None if no pick-up lies there.
 pub fn pickup_at(world: &World, b: Block, t: f64) -> Option<Thing> {
+    pickup(world, b, t, false)
+}
+
+/// `pickup_at`; `built` asks only height tiles already built (the frame thread's aim): None on a miss.
+fn pickup(world: &World, b: Block, t: f64, built: bool) -> Option<Thing> {
     let body = world.bodies.get(b.body as usize)?;
     let seed = body.baked_seed()?;
     let (i, j) = (b.pos.x, b.pos.y);
-    let tile = body.tile(b.face, 0, i.div_euclid(CS), j.div_euclid(CS));
+    let (x, y) = (i.div_euclid(CS), j.div_euclid(CS));
+    let tile = if built { body.tile_if_built(b.face, 0, x, y)? } else { body.tile(b.face, 0, x, y) };
     let (z, top, biome) = ground(body, &tile, b.face, i, j)?;
     let under = Block { pos: b.pos - IVec3::Z, ..b };
     if z != b.pos.z || world.block(b) != 0 || world.block(under) != top {
@@ -423,7 +429,8 @@ pub fn pickup_at(world: &World, b: Block, t: f64) -> Option<Thing> {
 
 /// The faces of `th` lying in air cell `b` as they are drawn (its alternate's in `still`), each as its corner and
 /// the ends of its two edges in the world: shader_models.wgsl `still_local`'s turn and place in the cell, the cell
-/// taken as flat between its corners (well under a millimetre off on a 1 m cell).
+/// taken as flat between its corners (well under a millimetre off on a 1 m cell). Kept in step with `still_local`
+/// and `quads`' (alternate, turn, du, dv) by hand: the shader cannot run in a test.
 pub fn thing_faces(world: &World, still: &Still, b: Block, th: &Thing) -> Vec<[glam::DVec3; 3]> {
     let (Some(body), Some(alts)) = (world.bodies.get(b.body as usize), still.rows.get(th.row)) else { return Vec::new() };
     if alts.is_empty() {
@@ -480,7 +487,8 @@ pub fn aim_thing(world: &World, still: &Still, eye: glam::DVec3, dir: glam::DVec
         if b.pos.z >= 0 && crate::blocks::BLOCKS.get(world.block(b)).is_some_and(|d| d.solid || d.model.is_some()) {
             return None;
         }
-        if let Some(th) = pickup_at(world, b, t).filter(|th| lies(b, th)) {
+        // only tiles already built: a miss is no thing there this frame (it runs on the frame thread)
+        if let Some(th) = pickup(world, b, t, true).filter(|th| lies(b, th)) {
             if thing_faces(world, still, b, &th).iter().any(hits) {
                 return Some((b, th));
             }
@@ -805,7 +813,8 @@ mod tests {
         use crate::bake::Map;
         use glam::DVec3;
         use std::sync::Arc;
-        let w = World::with_map(1536, 32, 5, Some(Arc::new(Map::bake(5, 1536))));
+        let map = Arc::new(Map::bake(5, 1536));
+        let w = World::with_map(1536, 32, 5, Some(map.clone()));
         let pal = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
         let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
         let still = Still::load(&data.join("models"), &data.join("plants"), &pal).0;
@@ -821,6 +830,18 @@ mod tests {
             let under = Block { pos: at.pos - IVec3::Z, ..at };
             let faces = thing_faces(&w, &still, at, &th);
             assert!(!faces.is_empty(), "{}: faces", CLUTTER[th.row].name);
+            // read from the packed table as `Still::push` wrote it: each face, in the grid's cells (the shader
+            // places in cells, so metres follow the column's size), as long and wide as its words say, and the
+            // thing in its cell, on its floor
+            let (alt, ..) = th.shape(still.rows[th.row].len());
+            let first = still.rows[th.row][alt].0 as usize;
+            let grid = |p: DVec3| w.grid_at(p).2 - at.pos.as_dvec3();
+            for (k, [o, u, v]) in faces.iter().enumerate() {
+                let word = |n: usize| glam::Vec3::new(f32::from_bits(still.faces[first + k][n]), f32::from_bits(still.faces[first + k][n + 1]), f32::from_bits(still.faces[first + k][n + 2])).length() as f64;
+                let (g, gu, gv) = (grid(*o), grid(*u), grid(*v));
+                assert!(((gu - g).length() - word(4)).abs() < 2e-3 && ((gv - g).length() - word(8)).abs() < 2e-3, "face {k}: its edges' lengths {} {} against {} {}", (gu - g).length(), (gv - g).length(), word(4), word(8));
+                assert!(g.min_element() > -0.3 && g.x < 1.3 && g.y < 1.3 && g.z > -0.05, "face {k} lies in its cell, on its floor: {g:?}");
+            }
             let mid = faces.iter().flatten().sum::<DVec3>() / (faces.len() * 3) as f64;
             let up = b.dir(f as usize, i as f64 + 0.5, j as f64 + 0.5);
             let eye = w.block_centre(at) + up * 1.8 + up.any_orthonormal_vector() * 0.3;
@@ -830,7 +851,13 @@ mod tests {
             }
             tried += 1;
             let at_it = (mid - eye).normalize();
-            assert_eq!(aim_thing(&w, &still, eye, at_it, 8.0, 0.0, |_, _| true).map(|a| a.0), Some(at), "{}: aimed at its middle", CLUTTER[th.row].name);
+            // the aim builds no height tile (it runs on the frame thread): in a world that has built none yet it
+            // finds nothing, and once the tile is there it finds the thing
+            let fresh = World::with_map(1536, 32, 5, Some(map.clone()));
+            assert!(aim_thing(&fresh, &still, eye, at_it, 8.0, 0.0, |_, _| true).is_none(), "no tile built: nothing aimed at");
+            assert!(fresh.bodies[0].tile_if_built(f, 0, i.div_euclid(CS), j.div_euclid(CS)).is_none(), "the aim built no tile");
+            assert_eq!(
+aim_thing(&w, &still, eye, at_it, 8.0, 0.0, |_, _| true).map(|a| a.0), Some(at), "{}: aimed at its middle", CLUTTER[th.row].name);
             assert!(aim_thing(&w, &still, eye, at_it, (mid - eye).length() * 0.5, 0.0, |_, _| true).is_none(), "out of reach");
             assert!(aim_thing(&w, &still, eye, at_it, 8.0, 0.0, |_, _| false).is_none(), "taken");
             // the floor's corner farthest from it, inside its cell: the ray falls to the ground block

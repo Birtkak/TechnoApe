@@ -634,6 +634,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         aim: None,
         held: None,
         aim_thing: None,
+        taking: None,
         picking: None,
         slot: 0,
         hand_sent: None,

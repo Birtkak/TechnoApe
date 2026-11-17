@@ -145,6 +145,42 @@ fn every_playtest_row_is_made_of_steps_the_game_knows() {
         }
     }
 
+/// Whether press `a` acts on the aimed pick-up (draft-aim-at-things): the dig button whatever is in hand, the
+/// place button only with the hand empty, so a place, a strike or a window keeps its button.
+pub(crate) fn on_thing(a: &str, aimed: bool, hand_empty: bool) -> bool {
+    aimed && (a == "L" || a == "R" && hand_empty)
+}
+
+/// The place button held on a pick-up (draft-aim-at-things): `picking` (its cell, the clock at the press) at clock
+/// `now`, the aim on `aim`: let go when the aim left it or the hand took something, the cell to take once held
+/// `PICK_HOLD`, else kept.
+pub(crate) fn pick_step(picking: Option<(Block, f64)>, aim: Option<Block>, hand_empty: bool, now: f64) -> (Option<(Block, f64)>, Option<Block>) {
+    match picking {
+        Some((b, _)) if aim != Some(b) || !hand_empty => (None, None),
+        Some((b, t0)) if now - t0 >= PICK_HOLD => (None, Some(b)),
+        p => (p, None),
+    }
+}
+
+#[test]
+fn a_held_place_button_picks_a_thing_up_once_with_the_hand_empty() {
+    let b = Block { body: 0, face: 2, pos: IVec3::new(5, 6, 7) };
+    let other = Block { pos: IVec3::new(6, 6, 7), ..b };
+    assert!(on_thing("L", true, false) && on_thing("L", true, true), "the dig button takes it whatever is in hand");
+    assert!(on_thing("R", true, true) && !on_thing("R", true, false), "the place button only with the hand empty");
+    assert!(!on_thing("L", false, true) && !on_thing("R", false, true), "nothing aimed at");
+    // held: nothing before PICK_HOLD, the take once at it, then nothing more
+    let p = Some((b, 10.0));
+    assert_eq!(pick_step(p, Some(b), true, 10.0 + PICK_HOLD * 0.5), (p, None));
+    let (p2, took) = pick_step(p, Some(b), true, 10.0 + PICK_HOLD);
+    assert_eq!((p2, took), (None, Some(b)));
+    assert_eq!(pick_step(p2, Some(b), true, 11.0), (None, None), "once");
+    // the aim left it, or the hand took something: let go, even past the time
+    assert_eq!(pick_step(p, Some(other), true, 12.0), (None, None));
+    assert_eq!(pick_step(p, None, true, 12.0), (None, None));
+    assert_eq!(pick_step(p, Some(b), false, 12.0), (None, None));
+}
+
 #[test]
 fn the_wheel_steps_through_the_hotbar_round_its_ends() {
     // bugs/2026-11-11_13-14-13
@@ -160,10 +196,14 @@ impl App {
     pub(crate) fn act(&mut self, a: &str) {
         match a {
             // a pick-up aimed at by its own faces (draft-aim-at-things): the dig button takes it at once (it has
-            // no dig rule), the place button held `PICK_HOLD` picks it up; the server answers either
-            "L" if !self.bucket && self.aim_thing.is_some_and(|b| self.pickup(b)) => self.take(self.aim_thing.unwrap()),
-            "R" if !self.bucket && self.aim_thing.is_some_and(|b| self.pickup(b)) => {
-                self.picking = Some((self.aim_thing.unwrap(), self.start.elapsed().as_secs_f64()));
+            // no dig rule), the place button held `PICK_HOLD` with the hand empty picks it up
+            "L" | "R" if on_thing(a, self.aim_thing.is_some(), self.hand_empty()) => {
+                let b = self.aim_thing.unwrap();
+                if a == "L" {
+                    self.take(b);
+                } else {
+                    self.picking = Some((b, self.start.elapsed().as_secs_f64()));
+                }
             }
             // a block with a window (a workbench, ADR 0140): the place button uses it, whatever is in
             // hand, before a pour, a strike or a place against it
@@ -927,10 +967,18 @@ impl App {
     }
 
     /// Where a press starts: digging takes the aimed block, placing the cell in front of it.
-    /// Takes the pick-up in air cell `at` (ADR 0082): one call, the server answers.
+    /// Takes the pick-up in air cell `at` (ADR 0082): one call, the server answers; until it refuses, or the
+    /// thing is gone, the cell is not aimed at again, so one click sends one take.
     pub(crate) fn take(&mut self, at: Block) {
-        self.link.send(ToServer::Take { seq: self.pred.seq(), at });
+        let seq = self.pred.seq();
+        self.link.send(ToServer::Take { seq, at });
+        self.taking = Some((at, seq));
         self.swung(self.start.elapsed().as_secs_f64());
+    }
+
+    /// Nothing in the hotbar slot in hand, no hammer and no bucket (draft-aim-at-things).
+    pub(crate) fn hand_empty(&self) -> bool {
+        !self.hammer && !self.bucket && self.inv.get(self.slot).copied().flatten().is_none()
     }
 
     /// Whether a pick-up lies in air cell `b`, not taken, and all it gives fits in the slots (ADR 0082): else a
@@ -1255,16 +1303,15 @@ impl App {
         let t = self.world.time;
         let still = &self.gpu.as_ref().unwrap().still;
         let lies = |b: Block, th: &engine::clutter::Thing| engine::clutter::lies(&engine::clutter::CLUTTER[th.row], self.streamer.taken.get(&b).copied(), engine::clutter::year(t));
-        self.aim_thing = engine::clutter::aim_thing(&self.world, still, p.pos, p.fwd, AIM_REACH, t, lies).map(|a| a.0);
+        // only one a click would take (not with the bucket, not when it does not fit, not one being taken): else
+        // the click, and the outline, are the block's behind it
+        let thing = engine::clutter::aim_thing(&self.world, still, p.pos, p.fwd, AIM_REACH, t, lies).map(|a| a.0);
+        self.aim_thing = thing.filter(|&b| !self.bucket && self.taking.is_none_or(|k| k.0 != b) && self.pickup(b));
         // the place button held on one pick-up picks it up; looking off it lets go
-        let now = self.start.elapsed().as_secs_f64();
-        match self.picking {
-            Some((b, _)) if self.aim_thing != Some(b) => self.picking = None,
-            Some((b, t0)) if now - t0 >= PICK_HOLD => {
-                self.picking = None;
-                self.take(b);
-            }
-            _ => {}
+        let (picking, take) = pick_step(self.picking, self.aim_thing, self.hand_empty(), self.start.elapsed().as_secs_f64());
+        self.picking = picking;
+        if let Some(b) = take {
+            self.take(b);
         }
         // a workbench gone or left out of reach closes its screen (ADR 0140)
         if self.menu == Some(Menu::Inventory) && self.bench_left() {
@@ -1292,7 +1339,7 @@ impl App {
             };
             (s, colour)
         });
-        // a pick-up aimed at, nothing held: the white outline is on the thing (draft-aim-at-things)
+        // a pick-up a click would take, nothing held: the white outline is on the thing (draft-aim-at-things)
         let thing = self.aim_thing.filter(|_| self.held.is_none());
         let ghost = ghost.filter(|_| thing.is_none());
         let gpu = self.gpu.as_ref().unwrap();

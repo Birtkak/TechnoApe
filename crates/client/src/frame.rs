@@ -293,8 +293,12 @@ impl App {
                         self.slump_quiet = now + crate::app::SLUMP_S;
                     }
                 }
-                Recv::Msg(ToClient::Done { seq, .. }) => {
+                Recv::Msg(ToClient::Done { seq, ok }) => {
                     self.items_pending.retain(|s| *s != seq);
+                    // a take refused may be tried again (draft-aim-at-things); one taken lies there no more
+                    if !ok && self.taking.is_some_and(|k| k.1 == seq) {
+                        self.taking = None;
+                    }
                     for b in self.pred.done(&mut self.world, seq) {
                         self.streamer.touch_block(&self.world, b);
                     }
@@ -359,6 +363,10 @@ impl App {
                 Recv::Msg(ToClient::Taken(v)) => {
                     for (b, y) in v {
                         self.streamer.take(&self.world, b, y);
+                        // its take is answered: the cell is marked taken now
+                        if self.taking.is_some_and(|k| k.0 == b) {
+                            self.taking = None;
+                        }
                     }
                 }
                 Recv::Msg(ToClient::Piles(v)) => {

@@ -108,8 +108,11 @@ pub(crate) struct App {
     pub(crate) bucket: bool,
     pub(crate) aim: Option<(Block, Block)>,
     pub(crate) held: Option<(bool, Block, Block)>,
-    /// The pick-up the crosshair is on by its own faces, nearer than `aim`'s block (draft-aim-at-things): its cell.
+    /// The pick-up the crosshair is on by its own faces, nearer than `aim`'s block, that a click would take
+    /// (draft-aim-at-things): its cell.
     pub(crate) aim_thing: Option<Block>,
+    /// A take sent and not answered: its cell and seq (a refusing `ToClient::Done`, or its `Taken`, lets it go).
+    pub(crate) taking: Option<(Block, u32)>,
     /// The place button held on a pick-up: its cell and the clock at the press; taken after `PICK_HOLD`.
     pub(crate) picking: Option<(Block, f64)>,
     pub(crate) slot: usize,
