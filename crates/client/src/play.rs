@@ -1006,18 +1006,13 @@ impl App {
         !self.hammer && !self.bucket && self.inv.get(self.slot).copied().flatten().is_none()
     }
 
-    /// Whether all that taking `th` gives fits in the slots (ADR 0082; a plant that gives nothing is cut all the
-    /// same, draft-plant-fibre): else a click does what it does on the block behind.
+    /// Whether all that taking or cutting `th` gives fits in the slots (ADR 0082, draft-plant-fibre): else a click
+    /// does what it does on the block behind.
     pub(crate) fn fits(&self, th: &engine::clutter::Thing) -> bool {
-        let row = &engine::clutter::CLUTTER[th.row];
-        let fits = |(item, n): (u16, u16)| {
+        engine::clutter::CLUTTER[th.row].item().is_some_and(|(item, n)| {
             let mut slots = self.inv.clone();
             !engine::items::stacks(item, n as u32).any(|st| engine::items::give(&mut slots, st) > 0)
-        };
-        match row.item() {
-            Some(g) => fits(g),
-            None => row.kind == engine::clutter::Kind::Plant,
-        }
+        })
     }
 
     /// The aimed thing is a plant (draft-plant-fibre).

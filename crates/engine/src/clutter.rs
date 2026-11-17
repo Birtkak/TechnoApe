@@ -406,36 +406,41 @@ pub fn pickup_at(world: &World, b: Block, t: f64) -> Option<Thing> {
 
 /// `pickup_at`; `built` asks only height tiles already built (the frame thread's aim): None on a miss.
 fn pickup(world: &World, b: Block, t: f64, built: bool) -> Option<Thing> {
-    let (body, seed, tile, top, biome, _) = column(world, b, built, 0.0)?;
-    let (i, j) = (b.pos.x, b.pos.y);
-    let up = body.dir(b.face as usize, i as f64 + 0.5, j as f64 + 0.5);
-    pick(body, seed, b.face, i, j, biome, top, season(up, t), 1.0, &tile.trees).filter(|th| CLUTTER[th.row].kind == Kind::Pickup)
+    let c = column(world, b, built, 0.0)?;
+    pick_in(&c, b, season(c.0.dir(b.face as usize, b.pos.x as f64 + 0.5, b.pos.y as f64 + 0.5), t))
 }
 
-/// The plant growing in air cell `b` at time `t` at Vegetation `density` (ADR 0091), as `quads` lays it: in fresh
-/// water only one that wades. `built` as `pickup`.
-fn plant_in(world: &World, b: Block, t: f64, density: f32, built: bool) -> Option<Thing> {
-    let (body, seed, tile, top, biome, wet) = column(world, b, built, WADE)?;
-    let (i, j) = (b.pos.x, b.pos.y);
-    let p8 = part(body.dir(b.face as usize, i as f64 + 0.5, j as f64 + 0.5), t);
-    plant(seed, b.face, i, j, biome, top, p8 / 2, density, &tile.trees).filter(|g| !wet || CLUTTER[g.row].wades)
+/// A column as `column` gives it.
+type Column<'a> = (&'a Body, u64, std::sync::Arc<HeightTile>, u16, u8, bool);
+
+/// The pick-up `pick` puts on column `c` (of cell `b`) in `season`; none where fresh water stands, as `quads`.
+fn pick_in(c: &Column, b: Block, season: u8) -> Option<Thing> {
+    let (body, seed, tile, top, biome, wet) = c;
+    let th = pick(body, *seed, b.face, b.pos.x, b.pos.y, *biome, *top, season, 1.0, &tile.trees)?;
+    (CLUTTER[th.row].kind == Kind::Pickup && !wet).then_some(th)
 }
 
 /// What a click on air cell `b` reaches (ADR 0082, 0144, draft-plant-fibre): the pick-up lying there (`lies`: not
-/// taken), else the plant growing there at Vegetation `density`. A plant under a pick-up is reached once the
-/// pick-up is taken: cutting it (an edit on the column) would hide the pick-up too. `built` as `pickup`.
+/// taken), else the plant growing there at Vegetation `density` that gives a known item. A plant is never reached
+/// on a column that holds a pick-up in any season, taken or not: cutting it (an air edit on the column) would
+/// hide that pick-up for good. `built` as `pickup`.
 pub fn thing_at(world: &World, b: Block, t: f64, density: f32, built: bool, lies: impl Fn(Block, &Thing) -> bool) -> Option<Thing> {
-    match pickup(world, b, t, built) {
-        Some(p) if lies(b, &p) => Some(p),
-        _ => plant_in(world, b, t, density, built),
+    let c = column(world, b, built, WADE)?;
+    let p8 = part(c.0.dir(b.face as usize, b.pos.x as f64 + 0.5, b.pos.y as f64 + 0.5), t);
+    if let Some(p) = pick_in(&c, b, p8 / 2) {
+        return lies(b, &p).then_some(p);
     }
+    if (0..4).any(|s| pick_in(&c, b, s).is_some()) {
+        return None;
+    }
+    let (_, seed, tile, top, biome, wet) = &c;
+    plant(*seed, b.face, b.pos.x, b.pos.y, *biome, *top, p8 / 2, density, &tile.trees).filter(|g| (!wet || CLUTTER[g.row].wades) && CLUTTER[g.row].item().is_some())
 }
 
 /// The column of air cell `b` as clutter asks it (ADR 0082): its body, seed, tile, generated top block, biome and
 /// whether fresh water (at most `wade` deep) stands over it; None unless `b` is the first air over the generated
 /// ground, untouched, with no edit on the column in the ground cell's chunk (which lays its clutter).
-#[allow(clippy::type_complexity)]
-fn column(world: &World, b: Block, built: bool, wade: f64) -> Option<(&Body, u64, std::sync::Arc<HeightTile>, u16, u8, bool)> {
+fn column(world: &World, b: Block, built: bool, wade: f64) -> Option<Column<'_>> {
     let body = world.bodies.get(b.body as usize)?;
     let seed = body.baked_seed()?;
     let (i, j) = (b.pos.x, b.pos.y);
@@ -1066,8 +1071,9 @@ aim_thing(&w, &still, eye, at_it, 8.0, 0.0, 0.0, |_, _| true).map(|a| a.0), Some
         let rows = &*CLUTTER;
         assert!(rows.iter().filter(|r| r.kind == Kind::Decoration).count() >= 3);
         assert!(crate::biomes::ROWS.biomes.iter().filter(|b| !b.clutter.is_empty()).count() >= 4);
-        for r in rows.iter().filter(|r| r.kind == Kind::Pickup) {
-            assert!(r.item().is_some(), "{}: gives an item of data/items.toml", r.name);
+        // every row that gives something (a pick-up always, a plant when cut) names an item of data/items.toml
+        for r in rows.iter().filter(|r| r.kind == Kind::Pickup || r.gives.is_some()) {
+            assert!(r.item().is_some(), "{}: gives {:?}, an item of data/items.toml", r.name, r.gives);
         }
         let bad = |t: &str| parse(t).is_err();
         assert!(bad("[[clutter]]\nname = \"x\"\nkind = \"decoration\"\non = [\"no such block\"]\n"));

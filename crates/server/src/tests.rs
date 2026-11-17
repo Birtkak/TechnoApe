@@ -1505,6 +1505,145 @@ fn a_take_aimed_at_a_thing_takes_it_and_one_aimed_past_it_does_not() {
     assert_eq!(items::count(&s.clients[0].slots, item), 1);
 }
 
+/// What clutter a column holds at time 0, for the plant tests (draft-plant-fibre): its air cell over the ground, a
+/// pick-up lying there now, whether a pick-up lies there in any season, and the plant at the most Vegetation. Columns within `r` of the spawn, near first.
+struct Col0 {
+    at: Block,
+    now: Option<engine::clutter::Thing>,
+    any: bool,
+    plant: Option<engine::clutter::Thing>,
+}
+fn columns_near_spawn(s: &Server, r: i32) -> Vec<Col0> {
+    use engine::clutter::{pick, pickup_at, plant, Kind, CLUTTER, VEGETATION, WADE};
+    let w = &s.world;
+    let b = &w.bodies[0];
+    let seed = b.baked_seed().unwrap();
+    let (f, si, sj) = b.locate(b.spawn);
+    let (f, si, sj) = (f as u8, si as i32, sj as i32);
+    let mut cells: Vec<(i32, i32)> = (-r..=r).flat_map(|a| (-r..=r).map(move |c| (si + a, sj + c))).collect();
+    cells.sort_by_key(|&(i, j)| (i - si).pow(2) + (j - sj).pow(2));
+    cells
+        .into_iter()
+        .filter_map(|(i, j)| {
+            let tile = b.tile(f, 0, i.div_euclid(engine::world::CS), j.div_euclid(engine::world::CS));
+            let (z, top, biome) = engine::clutter::ground_under(b, &tile, f, i, j, WADE)?;
+            let at = Block { body: 0, face: f, pos: glam::IVec3::new(i, j, z) };
+            // the first air over the generated ground (not a trunk's cell)
+            if w.block(at) != 0 || w.block(Block { pos: at.pos - glam::IVec3::Z, ..at }) != top {
+                return None;
+            }
+            let wet = b.water_at(f, i, j).is_some_and(|w| z as f64 <= w.0);
+            let any = !wet && (0..4).any(|k| pick(b, seed, f, i, j, biome, top, k, 1.0, &tile.trees).is_some_and(|t| CLUTTER[t.row].kind == Kind::Pickup));
+            let up = b.dir(f as usize, i as f64 + 0.5, j as f64 + 0.5);
+            let plant = plant(seed, f, i, j, biome, top, engine::clutter::part(up, 0.0) / 2, VEGETATION[2], &tile.trees).filter(|g| !wet || CLUTTER[g.row].wades);
+            Some(Col0 { at, now: pickup_at(w, at, 0.0), any, plant })
+        })
+        .collect()
+}
+
+/// A server with one player standing beside air cell `at`, and that player's link.
+fn beside(at_of: impl Fn(&Server) -> Block) -> (Server, Link<ToServer, ToClient>, Block) {
+    beside_in(7, |s| Some(at_of(s))).unwrap()
+}
+
+/// As `beside` on the world of `seed`, None when `at_of` finds nothing there.
+fn beside_in(seed: i32, at_of: impl Fn(&Server) -> Option<Block>) -> Option<(Server, Link<ToServer, ToClient>, Block)> {
+    let (tx, rx) = channel();
+    let mut s = Server::baked(1536, 32, seed, rx);
+    let (l, sv) = local();
+    tx.send(sv).unwrap();
+    s.tick();
+    drain(&l);
+    let at = at_of(&s)?;
+    let b = &s.world.bodies[0];
+    let up = b.dir(at.face as usize, at.pos.x as f64 + 0.5, at.pos.y as f64 + 0.5);
+    let pos = b.centre + up * (b.layer_r(at.pos.z as f64) + 0.5) + up.any_orthonormal_vector() * 1.5;
+    l.send(ToServer::Move { pos: pos.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    s.tick();
+    drain(&l);
+    Some((s, l, at))
+}
+
+/// A take, a tick: whether the server took or cut, and whether it sent an edit.
+fn take_once(s: &mut Server, l: &Link<ToServer, ToClient>, seq: u32, at: Block) -> (bool, bool) {
+    l.send(ToServer::Take { seq, at });
+    s.tick();
+    let got = drain(l);
+    (got.contains(&ToClient::Done { seq, ok: true }), got.iter().any(|m| matches!(m, ToClient::Edits(v) if v.iter().any(|e| e.0 == at))))
+}
+
+/// A plant on a column that holds a pick-up in any season is not cut (draft-plant-fibre): the cut's air edit would
+/// hide the pick-up for good. The stone under the grass is taken, and the grass then refused; a grass whose
+/// column's pick-up is out in another season is refused now. A plant that gives nothing (flowers, wild wheat, a
+/// berry bush) is not cut either: no edit, nothing in the slots.
+#[test]
+fn a_plant_over_a_pick_up_or_giving_nothing_is_not_cut() {
+    use engine::clutter::CLUTTER;
+    let gives = |c: &Col0| c.plant.is_some_and(|p| CLUTTER[p.row].item().is_some());
+    // the stone under the grass: taken, then the grass is refused
+    let (mut s, l, at) = beside(|s| columns_near_spawn(s, 80).into_iter().find(|c| c.now.is_some() && gives(c)).expect("a pick-up under a plant that gives").at);
+    assert_eq!(take_once(&mut s, &l, 1, at), (true, false), "the pick-up is taken");
+    assert_eq!(take_once(&mut s, &l, 2, at), (false, false), "the plant over a taken pick-up is not cut");
+    // a pick-up of another season: the plant is refused now
+    let (mut s, l, at) = beside(|s| columns_near_spawn(s, 80).into_iter().find(|c| c.now.is_none() && c.any && gives(c)).expect("a plant on a column with a pick-up in another season").at);
+    assert_eq!(take_once(&mut s, &l, 1, at), (false, false), "a column whose pick-up is out in another season keeps its plant");
+    // a plant that gives nothing
+    let (mut s, l, at) = beside(|s| columns_near_spawn(s, 80).into_iter().find(|c| !c.any && c.plant.is_some() && !gives(c)).expect("a plant that gives nothing").at);
+    assert_eq!(take_once(&mut s, &l, 1, at), (false, false), "a plant that gives nothing is not cut");
+    assert!(s.clients[0].slots.iter().all(|x| x.is_none()), "nothing given");
+}
+
+/// Reeds standing in water are cut (draft-plant-fibre): the fibre arrives and the water in and around the cell is
+/// as it was, nothing woken.
+#[test]
+fn reeds_in_water_are_cut_and_the_water_is_unchanged() {
+    use engine::clutter::CLUTTER;
+    // reeds grow only in wetland, rare on the small planet: every face's fresh water columns (asked first:
+    // cheap), seed after seed
+    let (mut s, l, at) = (1..40)
+        .find_map(|seed| {
+            beside_in(seed, |s| {
+                let w = &s.world;
+                let b = &w.bodies[0];
+                let n = b.n;
+                (0..6u8)
+                    .flat_map(|f| (0..n).flat_map(move |i| (0..n).map(move |j| (f, i, j))))
+                    .filter(|&(f, i, j)| b.water_at(f, i, j).is_some_and(|w| w.1 != engine::liquid::SEA))
+                    .find_map(|(f, i, j)| {
+                        let tile = b.tile(f, 0, i.div_euclid(engine::world::CS), j.div_euclid(engine::world::CS));
+                        let (z, _, _) = engine::clutter::ground_under(b, &tile, f, i, j, engine::clutter::WADE)?;
+                        let at = Block { body: 0, face: f, pos: glam::IVec3::new(i, j, z) };
+                        let th = engine::clutter::thing_at(w, at, 0.0, engine::clutter::VEGETATION[2], false, |_, _| true)?;
+                        (CLUTTER[th.row].wades && b.water_at(f, i, j).is_some_and(|w| z as f64 <= w.0)).then_some(at)
+                    })
+            })
+        })
+        .expect("reeds in water");
+    // the water in and around the cell, as the game sees it: a stored column's surface, else generation's
+    let around = |s: &Server| {
+        use engine::liquid::Ground;
+        let w = &s.world;
+        let g = engine::world::Solid::at(&w.bodies, &w.edits, &w.sky, w.time);
+        let mut v = Vec::new();
+        for (di, dj) in (-1..=1).flat_map(|a| (-1..=1).map(move |c| (a, c))) {
+            let c = engine::world::World::col(Block { pos: at.pos + glam::IVec3::new(di, dj, 0), ..at });
+            let (lo, hi) = g.generated(c);
+            v.push(match w.water.column(c) {
+                Some(mut n) => n.find(|n| n.water > 0).map(|n| n.surface()),
+                None => (lo < hi).then_some(hi),
+            });
+        }
+        (v, w.water.counted())
+    };
+    let (before, awake) = (around(&s), s.world.water.awake());
+    assert!(before.0[4].is_some(), "water over the reeds' cell");
+    let (fibre, n) = CLUTTER[engine::clutter::thing_at(&s.world, at, 0.0, engine::clutter::VEGETATION[2], false, |_, _| true).unwrap().row].item().unwrap();
+    assert_eq!(take_once(&mut s, &l, 1, at), (true, true), "the reeds are cut");
+    assert_eq!(items::count(&s.clients[0].slots, fibre), n as u32);
+    assert_eq!(around(&s), before, "the water in and around the cell is as it was");
+    assert!(s.world.water.awake() <= awake, "nothing woken: {} awake, {awake} before", s.world.water.awake());
+}
+
 /// A plant cut (draft-plant-fibre): a take named at a plant that gives fibre puts the fibre in the slots, sends
 /// the cell to everyone as an edit, leaves nothing there to cut again, and the save keeps it cut.
 #[test]

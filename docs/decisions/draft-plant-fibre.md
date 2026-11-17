@@ -30,20 +30,31 @@ How a plant is hit:
   `thing_faces`, which for a plant are its box's six faces. The frame thread still asks only built height tiles.
   The outline goes on the box.
 - **Clicks:** left click cuts a plant, whatever is in hand, if what it gives fits. The right click does not pick
-  up a plant, so a reed by the water still lets you drink. A plant under a lying pick-up is reached only once the
-  pick-up is taken, since the cut would hide the pick-up too.
+  up a plant, so a reed by the water still lets you drink.
+- **What can be cut:** only a plant whose row gives an item that exists, on a column that holds no pick-up in any
+  season, taken or not. The cut's air edit hides all of a column's clutter, so cutting there would delete a
+  pick-up for good: one that regrows next year, or one whose season has not come. A plant that gives nothing
+  (wild wheat, flowers, the berry bush) is not aimed at and the server refuses it.
 - **Wire:** the same `ToServer::Take { seq, at }`. The server checks reach, finds no pick-up and finds the plant,
-  gives what it gives (all of it must fit) and writes the cell as air (an edit, pushed to the tick's changes). A
+  gives what it gives (all of it must fit) and writes the cell as air (an edit sent to every client at once, not through the tick's changes: air stays air,
+  so the water is not regapped and nothing is woken; through the changes, a cut among reeds moved water). A
   bot's `pick dx dy dz` cuts a plant the same way.
 - **Data:** `gives` is allowed on a plant row (none if left out). Short grass and fern give 1 `plant fibre`;
-  tall grass and reeds give 2. Wild wheat, flowers and the berry bush give nothing and are cut all the same. A
-  new item `plant fibre` comes with a draft model (`data/models/plant fibre.*` by `tools/paint_clutter.py`,
+  tall grass and reeds give 2. Wild wheat, flowers and the berry bush give nothing and cannot be cut. A data test
+  holds every `gives` to an item of `data/items.toml`. A new item `plant fibre` comes with a draft model (`data/models/plant fibre.*` by `tools/paint_clutter.py`,
   listed in `data/drafts.txt`).
 - **Design:** `crafting.md` names fibre for cord and hafting; no recipe takes it yet.
 
 ## Consequences
-- A cut plant never grows back, and the cut also clears a decoration on that column. Each cut is one edit in the
-  save.
+What stays open:
+- A cut plant never grows back. The cut also clears a decoration on that column.
+- Each cut is one air edit in the save, with no bound.
+- Around a half-season boundary the client's clock can be on one side and the server's on the other. The client
+  then aims at a plant the server no longer has, and the Take is refused.
+- The server allows the highest Vegetation, so a bot can cut a plant that a client on a lower setting does not
+  draw.
+
+Also:
 - The box is the same for every plant of a row and its alternates' height; it does not follow the hashed shift
   or the sway.
 - Cost: `aim_thing` about 3.7 us a call with plants at the most Vegetation (the engine test's timing, unoptimised
