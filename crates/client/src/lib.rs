@@ -677,6 +677,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         vitals: (engine::vitals::MAX, engine::vitals::MAX, engine::vitals::MAX),
         health_min: engine::vitals::MAX,
         flash: [(Instant::now() - Duration::from_secs(10), 0); 3],
+        breath: engine::vitals::MAX,
         drink_sent: None,
         drinking: false,
         dead: None,

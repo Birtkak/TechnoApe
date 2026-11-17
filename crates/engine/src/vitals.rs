@@ -25,9 +25,58 @@ pub const SPRINT_FLOOR: f64 = 6.0;
 pub const FED: f64 = 14.0;
 pub const REGEN: u32 = (8.0 / phys::DT) as u32;
 pub const STARVE: u32 = (10.0 / phys::DT) as u32;
-/// Buried to the eyes (sand fallen on the head, ADR 0079): the breath held, in steps, then a point a second.
-pub const BREATH: u32 = (10.0 / phys::DT) as u32;
+/// Out of breath, a point of health goes every CHOKE steps (a second), to death (ADR 0079, needs.md "Breath").
 pub const CHOKE: u32 = (1.0 / phys::DT) as u32;
+/// Breath comes back from none to full in this many seconds of air (needs.md).
+pub const BREATHE_S: f64 = 2.0;
+
+/// Why the head cannot breathe (needs.md "Breath"): buried to the eyes (ADR 0079), under water, or above the
+/// air (`world::AIR_TOP_M` over a body with air, so anywhere on Luna). One breath and one choke rule for all.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Choke {
+    Buried,
+    Water,
+    Space,
+}
+
+impl Choke {
+    /// How long the breath lasts, seconds: buried, a mouth full of sand, ADR 0079's 10 s; else needs.md's 30.
+    pub fn lasts(self) -> f64 {
+        match self {
+            Choke::Buried => 10.0,
+            Choke::Water | Choke::Space => 30.0,
+        }
+    }
+    /// The death it gives, for the death screen and the chat.
+    pub fn death(self, name: &str) -> String {
+        match self {
+            Choke::Buried => format!("{name} was buried"),
+            Choke::Water => format!("{name} drowned"),
+            Choke::Space => format!("{name} ran out of air"),
+        }
+    }
+}
+
+/// The breath (needs.md): 0 to MAX points like the other needs, and the steps since none last cost a point. It
+/// is the server's per player and not saved: a load starts it anew, as ADR 0079's buried count.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Breath {
+    pub left: f64,
+    pub clock: u32,
+}
+
+impl Default for Breath {
+    fn default() -> Breath {
+        Breath { left: MAX as f64, clock: 0 }
+    }
+}
+
+impl Breath {
+    /// What the HUD shows, whole points (a point started counts); the bar shows while it is under MAX.
+    pub fn shown(&self) -> u8 {
+        self.left.ceil() as u8
+    }
+}
 /// Thirst (ADR 0145, docs/design/needs.md) lost per physics step standing: the whole of it in two thirds of a game day
 /// (1,200 s); it takes hunger's rate (`rate`: a walk twice, a sprint more).
 pub const THIRST_DRAIN: f64 = MAX as f64 / (crate::sky::DAY * 2.0 / 3.0 / phys::DT);
@@ -173,11 +222,24 @@ impl Vitals {
         self.dead.is_some()
     }
 
-    /// One step with the head `under` a solid block or not; `held` counts the steps under so far (out, it
-    /// starts again). The breath lasts `BREATH`, then a point goes every `CHOKE`. True when that killed.
-    pub fn smother(&mut self, held: &mut u32, under: bool, cause: impl FnOnce() -> String) -> bool {
-        *held = if under { *held + 1 } else { 0 };
-        *held >= BREATH && (*held - BREATH) % CHOKE == 0 && self.hurt(1, cause)
+    /// One step of breath `b` with the head in what it `under` cannot breathe, or in air (None). Under, the
+    /// breath lasts `Choke::lasts`, then a point of health goes every `CHOKE`, to the death `Choke::death` of
+    /// `name` gives; in air it comes back in `BREATHE_S`. True when that killed.
+    pub fn smother(&mut self, b: &mut Breath, under: Option<Choke>, name: &str) -> bool {
+        let Some(c) = under else {
+            b.left = (b.left + MAX as f64 / (BREATHE_S / phys::DT)).min(MAX as f64);
+            b.clock = 0;
+            return false;
+        };
+        b.left -= MAX as f64 / (c.lasts() / phys::DT);
+        // (a hair over none is none: the last step of a breath lands there to within rounding)
+        if b.left > 1e-9 {
+            return false;
+        }
+        b.left = 0.0;
+        let hit = b.clock % CHOKE == 0;
+        b.clock += 1;
+        hit && self.hurt(1, || c.death(name))
     }
 
     /// What the HUD shows: health, and hunger and thirst in whole points (a point started counts).
@@ -367,25 +429,56 @@ mod tests {
         assert_eq!(v.health, MAX, "never over full");
     }
 
+    /// Steps in `s` seconds.
+    fn steps(s: f64) -> u32 {
+        (s / phys::DT).round() as u32
+    }
+
+    /// needs.md "Breath", one rule for three causes: the breath lasts (10 s buried, ADR 0079; 30 s under water
+    /// or above the air), then a point a second, to the cause's own death.
     #[test]
-    fn buried_the_breath_lasts_then_a_point_a_second_and_air_starts_it_again() {
-        let mut v = Vitals::default();
-        let mut held = 0;
-        for _ in 0..BREATH - 1 {
-            v.smother(&mut held, true, || "buried".into());
+    fn each_cause_holds_its_breath_then_costs_a_point_a_second_to_its_own_death() {
+        for (c, lasts, death) in [(Choke::Buried, 10.0, "ape was buried"), (Choke::Water, 30.0, "ape drowned"), (Choke::Space, 30.0, "ape ran out of air")] {
+            let (mut v, mut b) = (Vitals::default(), Breath::default());
+            for _ in 0..steps(lasts) - 1 {
+                assert!(!v.smother(&mut b, Some(c), "ape"));
+            }
+            assert!(v.health == MAX && b.left > 0.0 && b.shown() == 1, "{c:?}: the breath held, its last point left: {b:?}");
+            for _ in 0..1 + 3 * CHOKE {
+                v.smother(&mut b, Some(c), "ape");
+            }
+            assert_eq!((v.health, b.shown()), (MAX - 4, 0), "{c:?}: then a point a second");
+            let killed = (0..100 * CHOKE).any(|_| v.smother(&mut b, Some(c), "ape"));
+            assert!(killed && v.dead.as_deref() == Some(death), "{c:?}: {:?}", v.dead);
         }
-        assert_eq!(v.health, MAX, "the breath held");
-        v.smother(&mut held, false, || "buried".into());
-        for _ in 0..BREATH - 1 {
-            v.smother(&mut held, true, || "buried".into());
+    }
+
+    /// Air starts the count again: the breath comes back in 2 s (needs.md), and a whole breath is held anew.
+    #[test]
+    fn air_brings_the_breath_back_in_two_seconds_and_the_count_starts_again() {
+        let (mut v, mut b) = (Vitals::default(), Breath::default());
+        for _ in 0..steps(30.0) - 1 {
+            v.smother(&mut b, Some(Choke::Water), "ape");
         }
-        assert_eq!(v.health, MAX, "a breath of air starts the count again");
-        for _ in 0..1 + 3 * CHOKE {
-            v.smother(&mut held, true, || "buried".into());
+        for _ in 0..steps(1.0) {
+            v.smother(&mut b, None, "ape");
         }
-        assert_eq!(v.health, MAX - 4, "then a point a second");
-        let killed = (0..100 * CHOKE).any(|_| v.smother(&mut held, true, || "ape was buried".into()));
-        assert!(killed && v.dead.as_deref() == Some("ape was buried"));
+        assert!((b.left - 10.0).abs() < 0.05, "half back in a second: {}", b.left);
+        for _ in 0..steps(1.0) {
+            v.smother(&mut b, None, "ape");
+        }
+        assert_eq!(b, Breath::default(), "full in two");
+        for _ in 0..steps(30.0) - 1 {
+            v.smother(&mut b, Some(Choke::Water), "ape");
+        }
+        assert_eq!(v.health, MAX, "a whole breath held again");
+        // a breath cut short by air before it ran out: the choke's clock starts anew too
+        let mut d = Breath::default();
+        for _ in 0..steps(10.0) + CHOKE / 2 {
+            v.smother(&mut d, Some(Choke::Buried), "ape");
+        }
+        v.smother(&mut d, None, "ape");
+        assert_eq!(d.clock, 0);
     }
 
     #[test]

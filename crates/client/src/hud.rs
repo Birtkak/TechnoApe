@@ -1103,6 +1103,28 @@ pub fn vitals(p: &mut Paint, (health, hunger, thirst): (u8, u8, u8), ages: [(f32
         brackets(p, [x - 3.0, y0 - 3.0, pw + 6.0, VITALS_H + 6.0], 7.0, warn, if warn { WARN } else { CYAN });
     }
 }
+/// The breath bar (needs step 2): only while the breath is held or coming back, a pane over health's
+/// with a bar as long as what is left. Plain for now; its look is the overseer's.
+pub fn breath(p: &mut Paint, value: u8) {
+    let max = engine::vitals::MAX;
+    if value >= max {
+        return;
+    }
+    let (cx, low_y) = (p.w / 2.0, p.h - 52.0 - 22.0 - 10.0 - 8.0 - VITALS_H);
+    let (pw, track, bar_h) = (262.0, VITALS_TRACK, 12.0);
+    let (x, y0) = (cx - 6.0 - pw, low_y - VITALS_H - 8.0);
+    glass(p, x, y0, pw, VITALS_H);
+    let (tx, by) = (x + 36.0, y0 + (VITALS_H - bar_h) / 2.0);
+    p.rect(tx, by, track, bar_h, [0.10, 0.14, 0.19, 0.9], 0);
+    if value > 0 {
+        p.rect(tx, by, track * value as f32 / max as f32, bar_h, BREATH, 0);
+    }
+    let n = value.to_string();
+    p.text(x + pw - 8.0 - text_width(&n), y0 + 9.0, &n, [1.0, 1.0, 1.0, 0.9]);
+    brackets(p, [x - 3.0, y0 - 3.0, pw + 6.0, VITALS_H + 6.0], 7.0, value <= 4, if value <= 4 { WARN } else { CYAN });
+}
+/// The breath bar's colour.
+pub const BREATH: [f32; 4] = [0.75, 0.92, 1.0, 1.0];
 /// A sign's side, in pixels.
 pub const SIGN: f32 = 28.0;
 /// How long a full bar is, in pixels.
@@ -1323,6 +1345,27 @@ mod tests {
         let mut q = Paint::new(1280.0, 720.0);
         vitals(&mut q, (20, 20, 0), [(10.0, 0); 3], 0.3);
         assert!(n(&q.out, WARN) >= 4 + 8, "{}", n(&q.out, WARN));
+    }
+
+    #[test]
+    fn the_breath_bar_shows_only_while_the_breath_is_short_over_healths_pane() {
+        let draw = |b: u8| {
+            let mut p = Paint::new(1280.0, 720.0);
+            breath(&mut p, b);
+            p.out
+        };
+        assert!(draw(engine::vitals::MAX).is_empty(), "a full breath shows nothing");
+        let r = draw(7);
+        let bar = r.iter().filter(|q| q.colour == BREATH).map(|q| (q.xy[2] - q.xy[0]) * 640.0).fold(0.0f32, f32::max);
+        assert!((bar - VITALS_TRACK * 7.0 / 20.0).abs() < 0.01, "7 of 20: {bar}");
+        // on the left, above health's pane (as thirst is above hunger's)
+        let mut v = Paint::new(1280.0, 720.0);
+        vitals(&mut v, (20, 20, 20), [(10.0, 0); 3], 0.3);
+        let top = |r: &[Rect], c: [f32; 4]| r.iter().filter(|q| q.colour == c).map(|q| q.xy[1]).fold(f32::MIN, f32::max);
+        // (half a pane at least: the bar sits in the middle of its pane, health's sign fills its own)
+        assert!(top(&r, BREATH) > top(&v.out, HEALTH) + VITALS_H / 720.0);
+        assert!(r.iter().all(|q| q.xy[0] < 0.0), "left of the middle");
+        assert!(draw(0).iter().any(|q| q.colour == WARN), "out of breath warns");
     }
 
     #[test]

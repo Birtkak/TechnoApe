@@ -176,9 +176,9 @@ struct Client {
     /// what the client was last told of them.
     vitals: Vitals,
     was: DVec3,
-    /// Steps the head has been in a solid block (buried, ADR 0079; not saved: a load starts the breath anew).
-    buried: u32,
-    sent: Option<((u8, u8, u8), bool)>,
+    /// The breath (draft breath: buried, under water, above the air; not saved: a load starts it anew, ADR 0079).
+    breath: vitals::Breath,
+    sent: Option<((u8, u8, u8), u8, bool)>,
     /// The water cell the use button is held on (`ToServer::Drink`) and whether it holds fresh water, judged
     /// once when the cell comes (`Server::hold_drink`); not saved, let go on death.
     drink: Option<(Block, bool)>,

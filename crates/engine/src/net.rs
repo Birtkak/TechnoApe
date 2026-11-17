@@ -148,9 +148,10 @@ pub enum ToClient {
     Water(Vec<(crate::liquid::Col, Vec<crate::liquid::ColWater>)>),
     /// A line for the chat (ADR 0023): a player's words, an answer to a command, someone joining or leaving.
     Chat(String),
-    /// This player's health, hunger and thirst, 0 to `vitals::MAX` (ADR 0040, 0145), and how it
-    /// died while it is dead; sent on join and when what the HUD shows changes.
-    Vitals { health: u8, hunger: u8, thirst: u8, dead: Option<String> },
+    /// This player's health, hunger, thirst and breath, 0 to `vitals::MAX` (ADR 0040, 0145, draft breath; the
+    /// HUD shows breath only under MAX), and how it died while it is dead; sent on join and when what the HUD
+    /// shows changes.
+    Vitals { health: u8, hunger: u8, thirst: u8, breath: u8, dead: Option<String> },
     /// Another player's dig (ADR 0034): the shape, the share of it done when this was sent and the share it
     /// gains a second (the client runs the cracks on from those), or none when it stopped or finished.
     Digging { id: u32, at: Option<(Shape, f32, f32)> },

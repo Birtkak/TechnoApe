@@ -378,7 +378,10 @@ impl App {
                         }
                     }
                 }
-                Recv::Msg(ToClient::Vitals { health, hunger, thirst, dead }) => self.vitals_in(health, hunger, thirst, dead),
+                Recv::Msg(ToClient::Vitals { health, hunger, thirst, breath, dead }) => {
+                    self.breath = breath;
+                    self.vitals_in(health, hunger, thirst, dead)
+                },
                 Recv::Msg(ToClient::Water(v)) => {
                     let mut ts = Vec::with_capacity(v.len());
                     for (t, cols) in &v {
@@ -833,7 +836,7 @@ impl App {
             .filter(|&i| self.world.bodies[i].air)
             .map(|i| (x - self.world.pose(i, wt).centre).length() - self.world.bodies[i].radius)
             .fold(f64::MAX, f64::min);
-        let air = (1.0 - over_air.max(0.0) / 1500.0).clamp(0.0, 1.0) as f32;
+        let air = (1.0 - over_air.max(0.0) / engine::world::AIR_TOP_M).clamp(0.0, 1.0) as f32;
         // what the head hears (docs/design/sound.md): where it is, how much the air here carries (the
         // settings' "Sound in space"), dull under water; the volumes; and the wind, with height and speed
         self.audio.ear = [p.pos, p.fwd.cross(p.up).normalize_or_zero(), p.up, p.fwd];

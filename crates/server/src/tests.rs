@@ -2381,6 +2381,42 @@ fn a_player_drinks_fresh_water_and_not_the_sea() {
     assert!(s.clients[0].vitals.thirst < 5.0, "no drink after the respawn");
 }
 
+/// Breath through the protocol (draft breath): held under the sea, the breath goes in 30 s and then health a
+/// point a second, and the client is told both; surfaced, the breath is back in 2 s; held under, it drowns.
+#[test]
+fn under_water_the_breath_goes_then_health_and_air_brings_it_back() {
+    let (mut s, links) = server_with(1);
+    let l = &links[0];
+    l.send(ToServer::Hello { name: "ape".into() });
+    l.send(ToServer::Input(Input::default()));
+    s.tick();
+    let b = &s.world.bodies[0];
+    let (sea, centre) = (b.layer_r(b.sea.unwrap()), b.centre);
+    let dirs = || (0..20000).map(|k| { let z = 1.0 - (k as f64 + 0.5) / 10000.0; let a = k as f64 * 2.399963; let r = (1.0 - z * z).sqrt(); DVec3::new(r * a.cos(), r * a.sin(), z) });
+    let d = dirs().find(|d| b.height(*d) < sea - 4.0).expect("a sea");
+    let land = dirs().find(|d| b.height(*d) > sea + 6.0).expect("land");
+    // (the dry spot in the open air over the land, clear of any plant)
+    let (deep, dry) = (centre + d * (b.height(d) + 0.1), centre + land * (b.height(land) + 4.0));
+    let hold = |s: &mut Server, at: DVec3, secs: f64| {
+        for _ in 0..(secs * TICK_HZ) as u32 {
+            (s.clients[0].phys.pos, s.clients[0].phys.vel) = (at, DVec3::ZERO);
+            s.tick();
+        }
+    };
+    let breaths = |got: &[ToClient]| got.iter().filter_map(|m| if let ToClient::Vitals { breath, .. } = m { Some(*breath) } else { None }).collect::<Vec<u8>>();
+    drain(l);
+    hold(&mut s, deep, 29.0);
+    let got = drain(l);
+    assert!(s.clients[0].vitals.health == vitals::MAX && breaths(&got).last().is_some_and(|&b| b > 0 && b < 5), "held: {:?}", breaths(&got));
+    hold(&mut s, deep, 5.0);
+    let h = s.clients[0].vitals.health;
+    assert!((15..=17).contains(&h) && breaths(&drain(l)).last() == Some(&0), "then a point a second: health {h}");
+    hold(&mut s, dry, 2.5);
+    assert_eq!((s.clients[0].vitals.health, breaths(&drain(l)).last()), (h, Some(&vitals::MAX)), "air: the breath back in 2 s");
+    hold(&mut s, deep, 60.0);
+    assert_eq!(s.clients[0].vitals.dead.as_deref(), Some("ape drowned"));
+}
+
 /// The review: `ToServer::Drink` keeps its tag on the wire (postcard numbers variants in order: appended
 /// last, after `Choose`, it is 21).
 #[test]

@@ -543,3 +543,15 @@ fn the_sea_is_salt_and_a_pond_on_land_is_fresh() {
     assert!(w.water_surface(w.block_centre(pit[1])).is_some(), "the pit holds water");
     assert!(!w.salt(pit[1]), "a pond on land is fresh");
 }
+
+/// needs.md "Breath": the air ends AIR_TOP_M over Terra; Luna has none, so its ground is above the air.
+#[test]
+fn the_air_ends_1500_m_over_terra_and_luna_has_none() {
+    let w = World::new(256, 32, 1);
+    let (t, l) = (&w.bodies[0], &w.bodies[1]);
+    let ground = t.centre + DVec3::Y * t.radius;
+    assert!(w.over_air(ground + DVec3::Y * 2.0).abs() < 50.0, "on the ground: {}", w.over_air(ground));
+    assert!(w.over_air(ground + DVec3::Y * (AIR_TOP_M - 10.0)) < AIR_TOP_M);
+    assert!(w.over_air(ground + DVec3::Y * (AIR_TOP_M + 10.0)) > AIR_TOP_M);
+    assert!(w.over_air(l.centre + DVec3::Y * (l.radius + 2.0)) > AIR_TOP_M, "Luna's ground has no air");
+}

@@ -401,11 +401,12 @@ impl App {
         if self.run == "play" {
             // ADR 0040: health and hunger at the end, the lowest health, and whether the player is dead
             stages += &format!(
-                "\"vitals\":{{\"creative\":{},\"health\":{},\"hunger\":{},\"thirst\":{},\"health_min\":{},\"dead\":{}}},",
+                "\"vitals\":{{\"creative\":{},\"health\":{},\"hunger\":{},\"thirst\":{},\"breath\":{},\"health_min\":{},\"dead\":{}}},",
                 self.creative,
                 self.vitals.0,
                 self.vitals.1,
                 self.vitals.2,
+                self.breath,
                 self.health_min,
                 self.dead.as_ref().map_or("null".into(), |c| format!("{c:?}"))
             );
