@@ -80,7 +80,7 @@ impl Server {
                 done: Vec::new(),
                 inv_dirty: true,
                 vitals: Vitals::default(),
-                buried: 0,
+                breath: vitals::Breath::default(),
                 was: DVec3::ZERO,
                 sent: None,
                 drink: None,
@@ -208,7 +208,7 @@ impl Server {
                             let p = self.spawn();
                             self.put(i, p, DVec3::X);
                             self.clients[i].vitals = Vitals::default();
-                            (self.clients[i].buried, self.clients[i].drink) = (0, None);
+                            (self.clients[i].breath, self.clients[i].drink) = (vitals::Breath::default(), None);
                         }
                     }
                     Recv::Msg(ToServer::Dig(at)) => self.dig(i, at),
@@ -406,10 +406,10 @@ impl Server {
                     c.link.send(ToClient::Air(self.force.map_or(h, |f| f.here(h, w.view().theta[w.column(d)]))));
                 }
             }
-            let shown = (c.vitals.shown(), c.vitals.dead.is_some());
+            let shown = (c.vitals.shown(), c.breath.shown(), c.vitals.dead.is_some());
             if c.sent != Some(shown) {
                 c.sent = Some(shown);
-                c.link.send(ToClient::Vitals { health: shown.0 .0, hunger: shown.0 .1, thirst: shown.0 .2, dead: c.vitals.dead.clone() });
+                c.link.send(ToClient::Vitals { health: shown.0 .0, hunger: shown.0 .1, thirst: shown.0 .2, breath: shown.1, dead: c.vitals.dead.clone() });
             }
         }
         // clients count the list; each one's own position comes in its `You` every tick. The others' come
@@ -462,13 +462,23 @@ fn live(c: &mut Client, world: &World, before: &phys::Player, inp: &Input, sprin
     let (now, hit) = vitals::impact(c.was, before, &c.phys, phys::DT);
     c.was = now;
     if c.creative {
-        c.buried = 0;
+        c.breath = vitals::Breath::default();
         return;
     }
     let name = if c.player.name.is_empty() { "?" } else { c.player.name.as_str() };
     let up = phys::up(world, c.phys.pos);
-    let under = BLOCKS.solid(world.block(world.block_at(c.phys.pos + up * phys::EYE)));
-    if c.vitals.smother(&mut c.buried, under, || format!("{name} was buried")) {
+    // what the head cannot breathe in (draft breath): sand to the eyes, water over them, or no air above
+    let eye = c.phys.pos + up * phys::EYE;
+    let under = if BLOCKS.solid(world.block(world.block_at(eye))) {
+        Some(vitals::Choke::Buried)
+    } else if world.water_surface(eye).is_some() {
+        Some(vitals::Choke::Water)
+    } else if world.over_air(eye) > engine::world::AIR_TOP_M {
+        Some(vitals::Choke::Space)
+    } else {
+        None
+    };
+    if c.vitals.smother(&mut c.breath, under, name) {
         deaths.extend(c.vitals.dead.clone());
     }
     if hit > vitals::safe_speed() {

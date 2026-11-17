@@ -457,6 +457,9 @@ pub const OLD_MOON_AT: DVec3 = DVec3::new(1.0e6, 0.0, 0.0);
 pub const INERTIAL_AT: DVec3 = DVec3::new(0.0, 0.0, -1.0e10);
 /// The inertial frame's index; the bodies' frames are their indices.
 pub const INERTIAL: usize = usize::MAX;
+/// Where the air ends, metres over a body with air (needs.md "Breath": 1,500 m, where the sky thins to none):
+/// above it the ape cannot breathe (`World::over_air`).
+pub const AIR_TOP_M: f64 = 1500.0;
 
 pub struct World {
     pub bodies: Arc<Vec<Body>>,

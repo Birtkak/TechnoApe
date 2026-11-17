@@ -188,6 +188,8 @@ pub(crate) struct App {
     /// and from what (the lost cells flash), and how this player died while it is dead.
     pub(crate) vitals: (u8, u8, u8),
     pub(crate) health_min: u8,
+    /// The breath as the server last sent it: 20 while breathing, less under water, buried or over the air.
+    pub(crate) breath: u8,
     pub(crate) flash: [(Instant, u8); 3],
     /// The water cell the use button drinks from, as the server was last told (`ToServer::Drink`), and
     /// whether the use button is held to drink.

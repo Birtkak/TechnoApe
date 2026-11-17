@@ -876,6 +876,7 @@ impl App {
                         ("Health", h, ht),
                         ("Hunger", f, ft),
                         ("Thirst", d, dt),
+                        ("Breath", format!("{} of 20", self.breath), if self.breath == 0 { 3 } else if self.breath < 20 { 2 } else { 0 }),
                         ("Tool", tool, 0),
                         ("Slot", format!("{}: {block}", self.slot + 1), 0),
                     ]
@@ -1414,6 +1415,7 @@ impl App {
             let mut p = hud::Paint::new(lw, lh);
             let ages = self.flash.map(|(at, from)| (at.elapsed().as_secs_f32(), from));
             hud::vitals(&mut p, self.vitals, ages, self.start.elapsed().as_secs_f32());
+            hud::breath(&mut p, self.breath);
             rects.extend(p.out);
         }
         // the text over it (ADR 0023): F3's numbers, the chat, the bug report's form

@@ -28,7 +28,8 @@
 //! Sprint (ADR 0118): `sprint on` makes every walk after it a sprint, `sprint off` a walk again. A walk looks at
 //! its target, so in water a sprint swims to it, down or up as well (a dive, a lake's crossing at the surface).
 //! Thirst (ADR 0145, docs/design/needs.md): `drink dx dy dz` holds the use button on the water there for 2.5 s (fresh water
-//! fills the bar, the sea's does nothing); `report` gives `vitals` as [health, hunger, thirst].
+//! fills the bar, the sea's does nothing); `report` gives `vitals` as [health, hunger, thirst, breath] (breath:
+//! draft breath, full in air).
 use engine::edit::Shape;
 use engine::items::{Holder, Slot, ITEMS};
 use engine::net::{Link, Recv, ToClient, ToServer, TICK_HZ};
@@ -188,7 +189,7 @@ pub struct Bot {
     /// The furnace whose window is open, as the server last sent it.
     pub furnace: Option<(engine::world::Block, engine::furnace::Furnace)>,
     /// Health, hunger and thirst as the server last sent them.
-    pub vitals: (u8, u8, u8),
+    pub vitals: (u8, u8, u8, u8),
     /// A drink held until that tick.
     drinking: Option<u64>,
 }
@@ -200,7 +201,7 @@ const SILENT: Duration = Duration::from_secs(120);
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default(), furnace: None, vitals: (20, 20, 20), drinking: None }
+        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default(), furnace: None, vitals: (20, 20, 20, 20), drinking: None }
     }
 
     /// The tick `s` seconds of the server's time from now.
@@ -257,8 +258,8 @@ impl Bot {
                 Recv::Msg(ToClient::Digging { .. } | ToClient::Map { .. } | ToClient::Piles(_) | ToClient::Taken(_)) => {}
                 // a bot that dies respawns at once (ADR 0040); it builds in creative, so only a switch to
                 // survival can get it there
-                Recv::Msg(ToClient::Vitals { health, hunger, thirst, dead }) => {
-                    self.vitals = (health, hunger, thirst);
+                Recv::Msg(ToClient::Vitals { health, hunger, thirst, breath, dead }) => {
+                    self.vitals = (health, hunger, thirst, breath);
                     if dead.is_some() {
                         self.link.send(ToServer::Respawn);
                     }
@@ -412,7 +413,7 @@ impl Bot {
             }
             Cmd::Report => {
                 return Some(format!(
-                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{},\"vitals\":[{},{},{}],\"air\":{},\"animals\":{}}}",
+                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{},\"vitals\":[{},{},{},{}],\"air\":{},\"animals\":{}}}",
                     self.name,
                     self.start.elapsed().as_secs_f64(),
                     self.pos.x,
@@ -424,6 +425,7 @@ impl Bot {
                     self.vitals.0,
                     self.vitals.1,
                     self.vitals.2,
+                    self.vitals.3,
                     self.air.map_or("null".into(), |a| format!("{{\"temp\":{:.2},\"rain_mm_h\":{:.3},\"cover\":{:.2},\"wind\":[{:.2},{:.2}]}}", a.temp, a.rain, a.cover, a.wind[0], a.wind[1])),
                     self.animals_json()
                 ));
@@ -604,8 +606,38 @@ mod tests {
         bot.run(parse_script(&script).unwrap(), None, |l| out.push(l));
         let reports: Vec<&String> = out.iter().filter(|l| l.contains("\"vitals\"")).collect();
         assert_eq!(reports.len(), 2, "{out:?}");
-        assert!(reports[0].contains("\"vitals\":[20,20,2]"), "thirsty first: {}", reports[0]);
-        assert!(reports[1].contains("\"vitals\":[20,20,20]"), "full after the drink: {}", reports[1]);
+        assert!(reports[0].contains("\"vitals\":[20,20,2,20]"), "thirsty first: {}", reports[0]);
+        assert!(reports[1].contains("\"vitals\":[20,20,20,20]"), "full after the drink: {}", reports[1]);
+    }
+
+    /// Breath through the protocol (draft breath): a survival bot on the sea bed loses its breath in 30 s and
+    /// then health; walked out onto the land its breath is back in 2 s.
+    #[test]
+    fn a_bot_under_water_loses_its_breath_then_health_and_air_brings_it_back() {
+        let w = World::new(256, 32, 1);
+        let b = &w.bodies[0];
+        let sea = b.layer_r(b.sea.unwrap());
+        let dirs = || (0..20000).map(|k| { let z = 1.0 - (k as f64 + 0.5) / 10000.0; let a = k as f64 * 2.399963; let r = (1.0 - z * z).sqrt(); DVec3::new(r * a.cos(), r * a.sin(), z) });
+        let d = dirs().find(|d| b.height(*d) < sea - 4.0).expect("a sea");
+        let land = dirs().find(|d| b.height(*d) > sea + 6.0).expect("land");
+        let (deep, dry) = (b.centre + d * (b.height(d) + 0.1), b.centre + land * (b.height(land) + 1.0));
+        let (tx, rx) = channel();
+        std::thread::spawn(move || Server::new(256, 32, 1, rx).run(TICK_HZ, &std::sync::atomic::AtomicBool::new(false)));
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
+        let mut bot = Bot::new("diver", c);
+        let mut out = Vec::new();
+        let script = format!(
+            "say /playmode survival; spawn {} {} {}; walk 0 0 0; wait 33; report; spawn {} {} {}; walk 0 0 0; wait 2.5; report",
+            deep.x, deep.y, deep.z, dry.x, dry.y, dry.z
+        );
+        bot.run(parse_script(&script).unwrap(), None, |l| out.push(l));
+        let vitals = |l: &str| -> Vec<u8> { l.split("\"vitals\":[").nth(1).unwrap().split(']').next().unwrap().split(',').map(|x| x.parse().unwrap()).collect() };
+        let r: Vec<Vec<u8>> = out.iter().filter(|l| l.contains("\"vitals\"")).map(|l| vitals(l)).collect();
+        assert_eq!(r.len(), 2, "{out:?}");
+        assert!(r[0][3] == 0 && r[0][0] < 20, "under: no breath, health going: {:?}", r[0]);
+        // (a point may still go in the tick between the report and the teleport)
+        assert!(r[1][3] == 20 && r[1][0] + 1 >= r[0][0], "out: the breath back, no more health gone: {:?} {:?}", r[0], r[1]);
     }
 
     /// Flint by script (ADR 0097): a survival bot digs a generated gravel cell that holds a flint, holding the dig

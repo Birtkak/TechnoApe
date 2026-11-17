@@ -131,6 +131,12 @@ impl World {
         let f = self.frame_at(p);
         self.pose(f, self.time).to_inertial(self.nominal(f), p)
     }
+    /// How high point p (shared coordinates) is over the nearest body with air (data/bodies.toml), metres over
+    /// its radius, now; f64::MAX with no such body. The air ends `AIR_TOP_M` up.
+    pub fn over_air(&self, p: DVec3) -> f64 {
+        let x = self.to_inertial(p);
+        (0..self.bodies.len()).filter(|&i| self.bodies[i].air).map(|i| (x - self.pose(i, self.time).centre).length() - self.bodies[i].radius).fold(f64::MAX, f64::min)
+    }
     /// An inertial position in frame `f`'s shared coordinates, now.
     pub fn from_inertial(&self, f: usize, x: DVec3) -> DVec3 {
         self.pose(f, self.time).from_inertial(self.nominal(f), x)

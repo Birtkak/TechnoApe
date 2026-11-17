@@ -273,8 +273,8 @@ fn check(s: &Server) -> Result<(), String> {
         }
         // no need outside 0..20 (needs.md)
         let max = engine::vitals::MAX as f64;
-        if !((0.0..=max).contains(&c.vitals.hunger) && (0.0..=max).contains(&c.vitals.thirst)) {
-            return Err(format!("player {id}'s needs out of range: {:?}", c.vitals));
+        if !((0.0..=max).contains(&c.vitals.hunger) && (0.0..=max).contains(&c.vitals.thirst) && (0.0..=max).contains(&c.breath.left)) {
+            return Err(format!("player {id}'s needs out of range: {:?} breath {}", c.vitals, c.breath.left));
         }
         if c.input.is_some() {
             // (sand and gravel fall on players and bury them: ADR 0079)
