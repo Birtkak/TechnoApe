@@ -61,6 +61,8 @@ pub(crate) struct App {
     /// The step after which this player's last edit was predicted, and the server takes it (ADR 0015): its
     /// words on earlier steps are not reconciled.
     pub(crate) edit_after: u32,
+    /// The server's words in a row that `takes_answer` left out.
+    pub(crate) skipped: u32,
     /// Hunger, exactly (ADR 0118): the server's after `server_me`'s step, and as predicted at `me`; the step
     /// sprinted (the view widens by it).
     pub(crate) server_hunger: f64,

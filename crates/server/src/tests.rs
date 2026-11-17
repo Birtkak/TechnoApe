@@ -3707,3 +3707,25 @@ fn a_place_is_kept_clear_of_where_the_steps_before_it_took_the_player() {
     wait(&mut s, 1.0);
     assert_eq!(s.world.block(cell), AIR, "stone placed in the cell the player had walked into");
 }
+
+/// The review: steps taken ahead of the credit at an edit stop at its floor, so a flood of a second of steps
+/// and an edit, again and again in one tick, takes no more steps in that tick than a full queue and the credit.
+#[test]
+fn a_flood_of_steps_and_edits_takes_a_bounded_number_of_steps() {
+    let (mut s, links) = server_with(1);
+    let l = &links[0];
+    let (pole, over) = on_land(&s);
+    l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    s.tick();
+    let before = s.clients[0].acked;
+    let mut first = before + 1;
+    for k in 0..MSGS_PER_TICK as u32 / 2 {
+        l.send(ToServer::Steps { first, inputs: vec![Input { mv: [1.0, 0.0], ..Default::default() }; QUEUE_MAX] });
+        // refused (survival, nothing held), which must not matter
+        l.send(ToServer::Edit { seq: k + 1, shape: Shape::one(over), material: BLOCKS.id("stone") });
+        first += QUEUE_MAX as u32;
+    }
+    s.tick();
+    let taken = (s.clients[0].acked - before) as usize;
+    assert!(taken <= QUEUE_MAX + CREDIT_MAX as usize, "{taken} steps in one tick");
+}

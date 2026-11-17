@@ -51,6 +51,39 @@ pub(crate) fn replay(world: &mut World, server: phys::Player, (mut hunger, creat
     (me, hunger)
 }
 
+/// Answers in a row from before this player's last edit that are left out (half a second at TICK_HZ): edits
+/// faster than the round trip would else leave every one out.
+pub(crate) const SKIPS_MAX: u32 = 10;
+
+/// Whether the server's answer for `step` moves the player (ADR 0019): `off` the move, `skipped` the answers
+/// in a row not taken.
+pub(crate) fn takes_answer(step: u32, edit_after: u32, off: f64, skipped: u32) -> bool {
+    // (one from before the last edit replays pre-edit steps in the edited world, so it is left out, unless it is
+    // a teleport or a respawn, or too many in a row were)
+    (step.wrapping_sub(edit_after) as i32) >= 0 || off >= 2.0 || skipped >= SKIPS_MAX
+}
+
+#[test]
+fn an_answer_from_before_an_edit_moves_the_player_only_when_it_must() {
+    // past the edit, or exactly at it: taken
+    assert!(takes_answer(100, 100, 0.3, 0) && takes_answer(101, 100, 0.3, 0));
+    // from before it: its replay would run pre-edit steps in the edited world
+    assert!(!takes_answer(97, 100, 0.3, 0));
+    // a teleport or a respawn is never left out
+    assert!(takes_answer(97, 100, 50.0, 0));
+    // edits faster than the round trip: every answer is from before the last one, so after a while one goes through
+    let mut skipped = 0;
+    let mut taken = false;
+    for k in 0..100u32 {
+        if takes_answer(100 + k * 5, 103 + k * 5, 0.3, skipped) {
+            taken = true;
+            break;
+        }
+        skipped += 1;
+    }
+    assert!(taken && skipped <= SKIPS_MAX, "{skipped} answers in a row left out");
+}
+
 /// Sprint widens the view this much, degrees, eased in and out over SPRINT_EASE seconds (ADR 0118).
 pub(crate) const SPRINT_FOV: f64 = 8.0;
 const SPRINT_EASE: f64 = 0.15;
@@ -1644,11 +1677,6 @@ impl App {
     /// where that lands is where this player is. A difference is a correction, drawn eased out unless it is a
     /// jump of metres (a teleport, a respawn). The first answer places the player.
     pub(crate) fn reconcile(&mut self, step: u32, server: phys::Player, hunger: f64, t: f64) {
-        // a word from before the server took this player's last edit: the steps after it were taken here in the
-        // world without the edit, and replaying them in this one would differ by it; the next word is past it
-        if self.spawned && (step.wrapping_sub(self.edit_after) as i32) < 0 {
-            return;
-        }
         self.server_hunger = hunger;
         if !self.spawned {
             (self.me, self.prev, self.spawned, self.hunger) = (server, server.pos, true, hunger);
@@ -1660,6 +1688,12 @@ impl App {
         let (me, h) = replay(&mut self.world, server, (hunger, self.creative, !self.creative && self.dead.is_none()), &self.steps);
         self.hunger = h;
         let off = self.me.pos - me.pos;
+        // a word from before the server took this player's last edit moves it only when it must (`takes_answer`)
+        if !takes_answer(step, self.edit_after, off.length(), self.skipped) {
+            self.skipped += 1;
+            return;
+        }
+        self.skipped = 0;
         if off.length() >= 2.0 {
             // a teleport (/goto, a respawn): the look is the server's, in the frame it lands in, level; the
             // steps not answered yet only turn it

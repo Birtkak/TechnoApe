@@ -180,11 +180,13 @@ impl Server {
                     Recv::Msg(ToServer::Edit { seq, shape, material }) => {
                         // the steps the client took before this edit came before it: they are taken first, so the
                         // edit falls between the same two steps here as in its prediction (ADR 0015, 0019). Taken
-                        // ahead of the credit, which goes below 0 and holds the next steps back as long.
+                        // ahead of the credit, which goes below 0 and holds the next steps back as long, down to a
+                        // floor of a full queue: a client in step with real time stays far above it, a flood of steps and edits stops
+                        // there (at most QUEUE_MAX + CREDIT_MAX steps a tick) and its edits fall ahead of the rest.
                         let (c, warp) = (&mut self.clients[i], self.warp);
                         if c.input.is_none() && !c.queue.is_empty() {
                             let dead = c.vitals.dead.is_some();
-                            while queued_step(c, &mut self.world, warp, dead, &mut deaths) {
+                            while c.credit > -(QUEUE_MAX as i32) && queued_step(c, &mut self.world, warp, dead, &mut deaths) {
                                 c.credit -= 1;
                             }
                             c.player.pos = c.phys.pos.to_array();
