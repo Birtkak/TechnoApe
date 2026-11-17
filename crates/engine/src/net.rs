@@ -82,8 +82,9 @@ pub enum ToServer {
     /// alive, within `items::BENCH_REACH`, a furnace there and a cast it reaches. Answered by its `Furnace`.
     Choose { at: Block, cast: Option<String> },
     /// The use button held on the water in cell `at`, or let go (none; docs/design/needs.md): while it is held,
-    /// alive, in survival, within `items::BENCH_REACH` and the water there fresh (`World::salt`), each of the
-    /// player's physics steps drinks (`Vitals::drink`). Sent on a change, as `Dig`.
+    /// alive, in survival, nothing in hand, within `items::BENCH_REACH` and the water there fresh (`World::salt`,
+    /// judged when the cell comes), each of the player's physics steps drinks (`Vitals::drink`). Sent on a
+    /// change, as `Dig`; death lets go.
     Drink(Option<Block>),
 }
 

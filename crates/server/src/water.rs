@@ -146,6 +146,21 @@ impl Server {
         ok
     }
 
+    /// Client `i`'s use button held on cell `at` to drink, or let go (`ToServer::Drink`): whether the cell holds
+    /// fresh water is judged here, once a cell, not every step it is held.
+    /// shortcut: water that drains or comes while the button stays on one cell keeps the first verdict
+    pub(super) fn hold_drink(&mut self, i: usize, at: Option<Block>) {
+        if self.clients[i].drink.map(|d| d.0) == at {
+            return;
+        }
+        let w = &self.world;
+        let fresh = |b: Block| {
+            let inside = w.bodies.get(b.body as usize).is_some_and(|d| b.face < 6 && (0..d.n).contains(&b.pos.x) && (0..d.n).contains(&b.pos.y) && (0..d.layers).contains(&b.pos.z));
+            inside && w.water_surface(w.block_centre(b)).is_some() && !w.salt(b)
+        };
+        self.clients[i].drink = at.map(|b| (b, fresh(b)));
+    }
+
     /// The trust boundary: a box within the size limits on a face that exists, a known block, every cell
     /// within the player's reach.
     /// A block a client named is one of the world's: its body, its face and its cell exist. Asked before anything

@@ -330,6 +330,12 @@ mod tests {
         Save { version, seed: 9, planet_n: 256, moon_n: 32, blocks, edits: vec![(b, 0)], players: Vec::new(), water: Vec::new(), made: 0, removed: 0, sea_extra: 0, tick: 7, map: Some(0x5eed), air: None, reaches: Reaches::default(), luna: None, rain: Rain::default(), held: Held { items: if version >= 13 { ITEMS.table() } else { Vec::new() }, piles: Vec::new(), taken: Vec::new(), furnaces: Vec::new() } }
     }
 
+    /// A hurt player in the vitals' layout of 16 and older, and the vitals it loads with: the same, thirst full.
+    fn old_player() -> (Saved<Vitals16>, Vitals) {
+        let v = Vitals16 { health: 7, hunger: 3.5, clock: 11, dead: None };
+        (Saved { name: "ape".into(), pos: [1.0, 2.0, 3.0], fwd: [1.0, 0.0, 0.0], creative: false, slots: items::ape(), water: 5, vitals: v.clone() }, v.into())
+    }
+
     /// The same save in the layout of versions 6 and 7: no air.
     fn without_air(s: &Save) -> Vec<u8> {
         let Save { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, .. } = s.clone();
@@ -532,10 +538,11 @@ mod tests {
         let mut s = save(VERSION, registry());
         s.held.taken = vec![(cell, 3)];
         assert_eq!(Save::from_bytes(&s.to_bytes()).expect("loads").held.taken, vec![(cell, 3)]);
-        let Save { seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, .. } = s;
-        let v13 = Save { version: 13, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held: Held13 { items: held.items, piles: held.piles } };
+        let Save { seed, planet_n, moon_n, blocks, edits, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, .. } = s;
+        let (p, v) = old_player();
+        let v13 = Save { version: 13, seed, planet_n, moon_n, blocks, edits, players: vec![p], water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held: Held13 { items: held.items, piles: held.piles } };
         let back = Save::from_bytes(&postcard::to_allocvec(&v13).unwrap()).expect("version 13 loads");
-        assert_eq!((back.version, back.held.taken), (13, Vec::new()));
+        assert_eq!((back.version, back.held.taken, &back.players[0].vitals), (13, Vec::new(), &v));
     }
 
     /// 15 keeps the furnaces (ADR 0141), their items mapped by name as the slots'; a 14 loads with none.
@@ -547,10 +554,11 @@ mod tests {
         f.slots[3] = Some(items::Stack::new(ingot, 2));
         s.held.furnaces = vec![(cell, f)];
         assert_eq!(Save::from_bytes(&s.to_bytes()).expect("loads"), s);
-        let Save { seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, .. } = s;
-        let v14 = Save { version: 14, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held: Held14 { items: held.items, piles: held.piles, taken: vec![(cell, 4)] } };
+        let Save { seed, planet_n, moon_n, blocks, edits, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, .. } = s;
+        let (p, v) = old_player();
+        let v14 = Save { version: 14, seed, planet_n, moon_n, blocks, edits, players: vec![p], water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held: Held14 { items: held.items, piles: held.piles, taken: vec![(cell, 4)] } };
         let back = Save::from_bytes(&postcard::to_allocvec(&v14).unwrap()).expect("version 14 loads");
-        assert_eq!((back.version, back.held.taken, back.held.furnaces), (14, vec![(cell, 4)], Vec::new()));
+        assert_eq!((back.version, back.held.taken, back.held.furnaces, &back.players[0].vitals), (14, vec![(cell, 4)], Vec::new(), &v));
     }
 
     /// 16 keeps a furnace's second input (ADR 0142); a 15's furnaces had four slots and load with
@@ -561,7 +569,12 @@ mod tests {
         let mut s = save(15, registry());
         let old = vec![Some(items::Stack::new(gravel, 2)), None, None, Some(items::Stack::new(ingot, 1))];
         s.held.furnaces = vec![(cell, engine::furnace::Furnace { slots: old.clone(), heat: 700.0, doing: Some("copper from gravel".into()), ..Default::default() })];
-        let back = Save::from_bytes(&s.to_bytes()).expect("version 15 loads");
+        // (its players in the vitals' old layout)
+        let Save { version, seed, planet_n, moon_n, blocks, edits, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, .. } = s;
+        let (p, v) = old_player();
+        let v15: Save<Saved<Vitals16>> = Save { version, seed, planet_n, moon_n, blocks, edits, players: vec![p], water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held };
+        let back = Save::from_bytes(&postcard::to_allocvec(&v15).unwrap()).expect("version 15 loads");
+        assert_eq!(back.players[0].vitals, v);
         let f = &back.held.furnaces[0].1;
         assert_eq!((back.version, f.slots.len(), &f.slots[..4], f.slots[engine::furnace::IN2], f.heat), (15, engine::furnace::SLOTS, &old[..], None, 700.0));
         assert!(VERSION > 15);

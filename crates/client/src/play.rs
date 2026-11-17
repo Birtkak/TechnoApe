@@ -15,7 +15,7 @@ pub(crate) const PLAYTEST: &[(&str, &[&str], &str)] = &[
     ("Lamps at night: a kit for a lit room", &["/goto terra", "/time set night", "/give lamp 32", "/give blue lamp 32"], "Dig a room and set lamps into its floor and walls: even light, no hard cones."),
     ("Every block: creative's inventory", &["/playmode creative"], "E opens every block and item in tabs: a click takes a stack, the middle button picks a block in the world."),
     ("Health and hunger: the bars at 13 and 6", &["/playmode survival", "/heal", "/hurt 7", "/feed 6"], "Two bars over the hotbar: a green cross, an orange stomach. /heal and /feed fill them."),
-    ("Thirst: the third bar at 6", &["/playmode survival", "/heal", "/feed 20", "/thirst 6"], "A blue drop over the hunger bar. The place button held on fresh water with no block in hand fills it in two seconds; the sea is salt."),
+    ("Thirst: the third bar at 6", &["/playmode survival", "/heal", "/feed 20", "/thirst 6"], "A blue drop over the hunger bar. The place button held on fresh water with nothing in hand fills it in two seconds; the sea is salt."),
     ("Low health and an empty stomach", &["/playmode survival", "/heal", "/hurt 17", "/feed 0"], "Health pulses with red corners; hunger is outlined in red and health sinks to 1."),
     ("The death screen", &["/playmode survival", "/heal", "/hurt 20"], "You died: Respawn puts you at the spawn with full bars."),
     ("Impact: fly up in creative, then fall in survival", &["/playmode creative", "/goto terra", "fly:20"], "Fly up 10 m or more, type /playmode survival, and fall: the faster you hit, the more it costs. 21 m/s kills."),
@@ -163,7 +163,7 @@ impl App {
             // a block with a window (a workbench, ADR 0140): the place button uses it, whatever is in
             // hand, before a pour, a strike or a place against it
             "R" if self.use_target().is_some() => self.use_block(),
-            // the place button with no block in hand on water drinks while held (docs/design/needs.md)
+            // the place button with nothing in hand on water drinks while held (docs/design/needs.md)
             "R" if self.drink_target().is_some() => self.drinking = true,
             "r" if self.drinking => self.drinking = false,
             "L" | "R" if self.bucket => {
@@ -543,7 +543,7 @@ impl App {
         match dead {
             Some(cause) if self.dead.is_none() => {
                 eprintln!("[technoape] {cause}");
-                (self.dead, self.flying) = (Some(cause), false);
+                (self.dead, self.flying, self.drinking) = (Some(cause), false, false);
                 self.set_menu(Some(Menu::Dead));
             }
             None if self.dead.is_some() => {
@@ -965,10 +965,10 @@ impl App {
     }
 
     /// The water cell the place button drinks from (docs/design/needs.md): in survival, alive, no bucket and
-    /// no block in hand, the cell before the aimed block under water and within `items::BENCH_REACH`, as the
-    /// server's rule (which also refuses the sea's: salt).
+    /// nothing at all in hand (a knapping stone or a tool strikes instead), the cell before the aimed block under
+    /// water and within `items::BENCH_REACH`, as the server's rule (which also refuses the sea's: salt).
     pub(crate) fn drink_target(&self) -> Option<Block> {
-        let (_, before) = self.aim.filter(|_| !self.creative && self.dead.is_none() && !self.bucket && self.slot_block(self.slot).is_none())?;
+        let (_, before) = self.aim.filter(|_| !self.creative && self.dead.is_none() && !self.bucket && self.inv.get(self.slot).copied().flatten().is_none())?;
         let c = self.world.block_centre(before);
         (c.distance(self.me.pos) <= engine::items::BENCH_REACH && self.world.water_surface(c).is_some()).then_some(before)
     }

@@ -11,7 +11,7 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   /spawn <creature>[:speed] (a row of data/creatures.toml walking in place ahead: this player's preview, ADR 0053; `/spawn <creature> live` a real animal, ADR 0083: herds by biome from `data/herds.toml`, bots' `report` lists the animals near), /goto terra|luna|sun, /timewarp (. and , step it), /heal, /feed [n], /thirst [n], /hurt <points>
   (survival's health and hunger, ADR 0040: impacts hurt, hunger drains, the bars over the hotbar are
   survival's; thirst, docs/design/needs.md: the blue drop's bar over hunger's, empty in 20 minutes standing and 10
-  walking, then a point of health every 10 s, to death; right click held with no block in hand on water within 6 m
+  walking, then a point of health every 10 s, to death; right click held with nothing in hand on water within 6 m
   drinks, full in 2 s; the sea is salt and does nothing, a river, a lake or water poured on land is fresh; at 0 health the death screen's `click:0` respawns), /help; /sound <name> plays a row of `data/sounds.toml` (ADR 0032:
   a recording `data/sounds/<name>.wav` replaces the code-made one; a painting `data/textures/<block>[_top|_side|_bottom].png`
   replaces a block's pattern, live within a second, a refused file named on stderr (ADR 0045; `textures=dir` reads another folder); a model `data/models/<name>.toml` (ADR 0047, voxels of 1/8 m)

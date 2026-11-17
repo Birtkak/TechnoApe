@@ -2299,6 +2299,38 @@ fn a_player_drinks_fresh_water_and_not_the_sea() {
     s.clients[0].vitals.thirst = 5.0;
     assert!(sip(&mut s, Some(salt), 1.0) < 5.0, "the sea is salt");
     assert!(sip(&mut s, Some(fresh), 1.0) < 5.0, "the pond is out of reach");
+    // the review: only a truly empty hand drinks (a knapping stone or a tool in hand strikes instead)
+    stand(&mut s, fresh);
+    sip(&mut s, None, 0.1);
+    let hand = s.clients[0].hand as usize;
+    s.clients[0].slots[hand] = Some(items::Stack::new(ITEMS.named("flint").unwrap(), 1));
+    s.clients[0].vitals.thirst = 5.0;
+    assert!(sip(&mut s, Some(fresh), 1.0) < 5.0, "something in hand: no drink");
+    s.clients[0].slots[hand] = None;
+    assert!(sip(&mut s, None, 0.1) < 5.0);
+    // and a drink held does not outlive a death: the respawned ape is not drinking
+    l.send(ToServer::Drink(Some(fresh)));
+    l.send(ToServer::Chat("/hurt 40".into()));
+    s.tick();
+    assert!(s.clients[0].vitals.dead.is_some() && s.clients[0].drink.is_none(), "death lets go");
+    l.send(ToServer::Respawn);
+    l.send(ToServer::Input(Input::default()));
+    s.tick();
+    stand(&mut s, fresh);
+    s.clients[0].vitals.thirst = 5.0;
+    for _ in 0..TICK_HZ as u32 {
+        s.tick();
+    }
+    assert!(s.clients[0].vitals.thirst < 5.0, "no drink after the respawn");
+}
+
+/// The review: `ToServer::Drink` keeps its tag on the wire (postcard numbers variants in order: appended
+/// last, after `Choose`, it is 21).
+#[test]
+fn the_drink_message_keeps_its_tag() {
+    let at = Block { body: 0, face: 2, pos: glam::IVec3::new(1, 2, 3) };
+    assert_eq!(postcard::to_allocvec(&ToServer::Drink(Some(at))).unwrap(), vec![21, 1, 0, 2, 2, 4, 6]);
+    assert_eq!(postcard::to_allocvec(&ToServer::Drink(None)).unwrap(), vec![21, 0]);
 }
 
 #[test]

@@ -208,11 +208,11 @@ impl Server {
                             let p = self.spawn();
                             self.put(i, p, DVec3::X);
                             self.clients[i].vitals = Vitals::default();
-                            self.clients[i].buried = 0;
+                            (self.clients[i].buried, self.clients[i].drink) = (0, None);
                         }
                     }
                     Recv::Msg(ToServer::Dig(at)) => self.dig(i, at),
-                    Recv::Msg(ToServer::Drink(at)) => self.clients[i].drink = at,
+                    Recv::Msg(ToServer::Drink(at)) => self.hold_drink(i, at),
                     Recv::Msg(ToServer::Hand(k)) => self.clients[i].hand = k.min(items::HOTBAR as u8 - 1),
                     Recv::Msg(ToServer::Strike(at)) => self.strike(i, at),
                     Recv::Msg(ToServer::Craft { recipe, n }) => self.craft(i, &recipe, n),
@@ -486,9 +486,14 @@ fn live(c: &mut Client, world: &World, before: &phys::Player, inp: &Input, sprin
     if c.vitals.parch(vitals::rate(inp, sprinted), || format!("{name} died of thirst")) {
         deaths.extend(c.vitals.dead.clone());
     }
-    // the use button held on fresh water within reach (docs/design/needs.md)
+    // the use button held with a truly empty hand on fresh water within reach (docs/design/needs.md)
     // shortcut: a mouthful takes no water from the world; the ledger counts it once the water cycle gives it back
-    if c.drink.is_some_and(|b| world.block_centre(b).distance(c.phys.pos) <= items::BENCH_REACH && world.water_surface(world.block_centre(b)).is_some() && !world.salt(b)) {
+    // (death lets go, whatever killed: a command, an impact, thirst)
+    if c.vitals.dead.is_some() {
+        c.drink = None;
+    }
+    let empty = c.slots.get(c.hand as usize).copied().flatten().is_none();
+    if c.drink.is_some_and(|(b, fresh)| fresh && empty && world.block_centre(b).distance(c.phys.pos) <= items::BENCH_REACH) {
         c.vitals.drink();
     }
 }
