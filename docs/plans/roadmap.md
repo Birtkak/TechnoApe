@@ -104,7 +104,7 @@ In this order unless the developer says otherwise (the developer's order of 2026
    **Queued by the developer, 2026-11-14:**
    - **Things on the ground are aimed at themselves** (stones, sticks, flint, mushrooms, berries; ADR 0082 takes
      them by a click on the ground under them): a hit test on the thing's own boxes, the aim's outline on it,
-     a left click mines it, and a held right click picks it up.
+     a left click mines it, and a held right click picks it up. *Done 2026-11-17 (draft-aim-at-things).*
    - **Grass and the other plants get a hit box** so they can be mined, and give **plant fibre** (a new item; the
      developer, 2026-11-14: it is for cord and for hafting tools. Write it into `crafting.md` when built).
 

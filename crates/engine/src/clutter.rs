@@ -421,6 +421,74 @@ pub fn pickup_at(world: &World, b: Block, t: f64) -> Option<Thing> {
     pick(body, seed, b.face, i, j, biome, top, season(up, t), 1.0, &tile.trees).filter(|th| CLUTTER[th.row].kind == Kind::Pickup)
 }
 
+/// The faces of `th` lying in air cell `b` as they are drawn (its alternate's in `still`), each as its corner and
+/// the ends of its two edges in the world: shader_models.wgsl `still_local`'s turn and place in the cell, the cell
+/// taken as flat between its corners (well under a millimetre off on a 1 m cell).
+pub fn thing_faces(world: &World, still: &Still, b: Block, th: &Thing) -> Vec<[glam::DVec3; 3]> {
+    let (Some(body), Some(alts)) = (world.bodies.get(b.body as usize), still.rows.get(th.row)) else { return Vec::new() };
+    if alts.is_empty() {
+        return Vec::new();
+    }
+    let (a, turn, du, dv) = th.shape(alts.len());
+    let p = b.pos.as_dvec3();
+    let corner = |d: glam::DVec3| body.centre + body.dir(b.face as usize, p.x + d.x, p.y + d.y) * body.layer_r(p.z + d.z);
+    let o = corner(glam::DVec3::ZERO);
+    let (ex, ey, ez) = (corner(glam::DVec3::X) - o, corner(glam::DVec3::Y) - o, corner(glam::DVec3::Z) - o);
+    let (s, c) = (turn as f64 * std::f64::consts::TAU / 16.0).sin_cos();
+    let off = |k: u32| (k as f64 / 15.0 - 0.5) * 0.5;
+    // model x, y (up), z about its middle, turned about y: model y is the cell's up, model z its -j
+    let place = |m: glam::Vec3| {
+        let d = m.as_dvec3() - glam::DVec3::new(0.5, 0.0, 0.5);
+        let (rx, rz) = (d.x * c - d.z * s, d.x * s + d.z * c);
+        o + ex * (0.5 + off(du) + rx) + ey * (0.5 + off(dv) - rz) + ez * d.y
+    };
+    let (first, n) = alts[a];
+    still.faces[first as usize..(first + n) as usize]
+        .iter()
+        .map(|f| {
+            let v = |k: usize| glam::Vec3::new(f32::from_bits(f[k]), f32::from_bits(f[k + 1]), f32::from_bits(f[k + 2]));
+            [place(v(0)), place(v(0) + v(4)), place(v(0) + v(8))]
+        })
+        .collect()
+}
+
+/// The pick-up the ray from `eye` along unit `dir` meets on its own faces within `reach` metres, before any block
+/// `edit::aim` would stop at (draft-aim-at-things): its air cell and itself. `lies` says whether one found
+/// still lies there (not taken). A ray through a thing's cell that misses its faces goes on to what is behind.
+/// shortcut: only the cells the ray passes are asked, so a face reaching over its cell's side is hit only from
+/// within the cell; the models stay inside theirs but for a turned corner.
+pub fn aim_thing(world: &World, still: &Still, eye: glam::DVec3, dir: glam::DVec3, reach: f64, t: f64, lies: impl Fn(Block, &Thing) -> bool) -> Option<(Block, Thing)> {
+    let hits = |[o, a, c]: &[glam::DVec3; 3]| {
+        let (eu, ev) = (*a - *o, *c - *o);
+        let den = dir.dot(eu.cross(ev));
+        let d = (*o - eye).dot(eu.cross(ev)) / den;
+        let q = eye + dir * d - *o;
+        let (uu, uv, vv, qu, qv) = (eu.dot(eu), eu.dot(ev), ev.dot(ev), q.dot(eu), q.dot(ev));
+        let det = uu * vv - uv * uv;
+        let (x, y) = ((qu * vv - qv * uv) / det, (qv * uu - qu * uv) / det);
+        den.abs() > 1e-12 && (0.0..=reach).contains(&d) && (0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y)
+    };
+    let mut prev = None;
+    let mut s = 0.0;
+    while s < reach {
+        let b = world.block_at(eye + dir * s);
+        s += 0.05;
+        if prev == Some(b) {
+            continue;
+        }
+        prev = Some(b);
+        if b.pos.z >= 0 && crate::blocks::BLOCKS.get(world.block(b)).is_some_and(|d| d.solid || d.model.is_some()) {
+            return None;
+        }
+        if let Some(th) = pickup_at(world, b, t).filter(|th| lies(b, th)) {
+            if thing_faces(world, still, b, &th).iter().any(hits) {
+                return Some((b, th));
+            }
+        }
+    }
+    None
+}
+
 /// The still models' faces (ADR 0068, 0081): every face of every clutter row's model and alternates once, at rest
 /// in the cell's metres, with the paintings they read; what the GPU holds and the mesher indexes.
 #[derive(Default)]
@@ -727,6 +795,64 @@ mod tests {
         }
         let dx = |k: usize| f[k].0[0].x + f[k].0[0].z - (f[k].0[0] + f[k].0[2]).x - (f[k].0[0] + f[k].0[2]).z;
         assert!(dx(0).signum() != dx(1).signum() || dx(1).signum() != dx(2).signum(), "they lean by turns");
+    }
+
+    /// A thing on the ground is aimed at by its own faces (draft-aim-at-things): a ray at it hits it before the
+    /// ground behind; one through its cell beside it falls to the ground block; past the reach, or taken, it is
+    /// not aimed at.
+    #[test]
+    fn a_thing_is_aimed_at_by_its_own_faces() {
+        use crate::bake::Map;
+        use glam::DVec3;
+        use std::sync::Arc;
+        let w = World::with_map(1536, 32, 5, Some(Arc::new(Map::bake(5, 1536))));
+        let pal = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
+        let still = Still::load(&data.join("models"), &data.join("plants"), &pal).0;
+        let b = &w.bodies[0];
+        let (f, si, sj) = b.locate(b.spawn);
+        let (f, si, sj) = (f as u8, si as i32, sj as i32);
+        let mut tried = 0;
+        for (i, j) in (-60..=60).flat_map(|a| (-60..=60).map(move |c| (si + a, sj + c))) {
+            let tile = b.tile(f, 0, i.div_euclid(CS), j.div_euclid(CS));
+            let Some((z, _, _)) = ground(b, &tile, f, i, j) else { continue };
+            let at = Block { body: 0, face: f, pos: IVec3::new(i, j, z) };
+            let Some(th) = pickup_at(&w, at, 0.0) else { continue };
+            let under = Block { pos: at.pos - IVec3::Z, ..at };
+            let faces = thing_faces(&w, &still, at, &th);
+            assert!(!faces.is_empty(), "{}: faces", CLUTTER[th.row].name);
+            let mid = faces.iter().flatten().sum::<DVec3>() / (faces.len() * 3) as f64;
+            let up = b.dir(f as usize, i as f64 + 0.5, j as f64 + 0.5);
+            let eye = w.block_centre(at) + up * 1.8 + up.any_orthonormal_vector() * 0.3;
+            // from above the cell: open sky between (no leaves), the block ray meets the ground under
+            if crate::edit::aim(&w, eye, (mid - eye).normalize(), 8.0).map(|a| a.0) != Some(under) {
+                continue;
+            }
+            tried += 1;
+            let at_it = (mid - eye).normalize();
+            assert_eq!(aim_thing(&w, &still, eye, at_it, 8.0, 0.0, |_, _| true).map(|a| a.0), Some(at), "{}: aimed at its middle", CLUTTER[th.row].name);
+            assert!(aim_thing(&w, &still, eye, at_it, (mid - eye).length() * 0.5, 0.0, |_, _| true).is_none(), "out of reach");
+            assert!(aim_thing(&w, &still, eye, at_it, 8.0, 0.0, |_, _| false).is_none(), "taken");
+            // the floor's corner farthest from it, inside its cell: the ray falls to the ground block
+            let p = at.pos.as_dvec3();
+            let floor = [(0.05, 0.05), (0.95, 0.05), (0.05, 0.95), (0.95, 0.95)].map(|(u, v)| b.centre + b.dir(f as usize, p.x + u, p.y + v) * b.layer_r(p.z));
+            let far = floor.into_iter().max_by(|a, c| a.distance(mid).total_cmp(&c.distance(mid))).unwrap();
+            let beside = (far - eye).normalize();
+            assert!(aim_thing(&w, &still, eye, beside, 8.0, 0.0, |_, _| true).is_none(), "{}: beside it", CLUTTER[th.row].name);
+            assert_eq!(crate::edit::aim(&w, eye, beside, 8.0).map(|a| a.0), Some(under), "beside it the ground is aimed at");
+            if tried >= 8 {
+                break;
+            }
+        }
+        assert!(tried >= 3, "{tried} things looked at");
+        // the cost, once (the client aims once a frame): from the eye at the spawn, down and ahead
+        let (n, t0) = (2000, std::time::Instant::now());
+        let e = b.centre + b.spawn * (b.height(b.spawn) + 1.6);
+        for k in 0..n {
+            let d = (-b.spawn + DVec3::new(0.3, (k % 7) as f64 * 0.1, 0.2)).normalize();
+            std::hint::black_box(aim_thing(&w, &still, e, d, 8.0, 0.0, |_, _| true));
+        }
+        eprintln!("aim_thing: {:.1} us a call", t0.elapsed().as_secs_f64() * 1e6 / n as f64);
     }
 
     /// Flint (ADR 0097) lies where a new player looks first: near the spawn of every seed, at least `NEAR` within

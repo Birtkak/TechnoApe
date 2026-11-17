@@ -7,6 +7,8 @@ pub(crate) const CORRECT_S: f64 = 0.1;
 /// How much C held magnifies.
 pub(crate) const ZOOM: f64 = 3.0;
 pub(crate) const AIM_REACH: f64 = 8.0;
+/// How long the place button is held on a pick-up before it is picked up, seconds (draft-aim-at-things).
+pub(crate) const PICK_HOLD: f64 = 0.3;
 /// Metres between two footsteps: one every 0.42 s at a walk.
 pub(crate) const STEP_M: f64 = 1.8;
 /// A survival dig's hits (ADR 0034): one every HIT_S held, chips and the dig's sound, softer and higher.
@@ -106,6 +108,10 @@ pub(crate) struct App {
     pub(crate) bucket: bool,
     pub(crate) aim: Option<(Block, Block)>,
     pub(crate) held: Option<(bool, Block, Block)>,
+    /// The pick-up the crosshair is on by its own faces, nearer than `aim`'s block (draft-aim-at-things): its cell.
+    pub(crate) aim_thing: Option<Block>,
+    /// The place button held on a pick-up: its cell and the clock at the press; taken after `PICK_HOLD`.
+    pub(crate) picking: Option<(Block, f64)>,
     pub(crate) slot: usize,
     /// The slot the server was last told is in hand (`ToServer::Hand`, ADR 0110), and when this player last
     /// struck a knapping stone (the start clock's seconds).
@@ -191,6 +197,8 @@ pub(crate) struct App {
     pub(crate) tick_log: Option<Arc<std::sync::Mutex<Vec<f32>>>>,
     /// What the overlay buffers hold: the ghost's shape and colour, its vertex count, the rectangle count.
     pub(crate) ghost_of: Option<(Shape, [u8; 4])>,
+    /// Or the pick-up whose outline they hold.
+    pub(crate) ghost_thing: Option<Block>,
     pub(crate) ghost_n: u32,
     pub(crate) ui_n: u32,
     /// acts=: scripted input for checks without hands, as (seconds after load, action), soonest last.
