@@ -177,6 +177,9 @@ pub enum ToClient {
     /// Furnaces whose fire was lit (true) or went out, to everyone; every burning one on join: the model's
     /// `working` state (its fire, smoke, sound and light) plays while it burns.
     Fires(Vec<(Block, bool)>),
+    /// This player's two marks from the game (needs.md "What death costs"): the cell of the pile its last death
+    /// left, until that pile is empty, and its sleeping place, where a respawn wakes it; sent when they change.
+    Marks { death: Option<Block>, home: Option<Block> },
 }
 
 /// An animal as a client sees it (ADR 0083): `kind` indexes `ToClient::Kinds`, `pos` its feet in body 0's frame,

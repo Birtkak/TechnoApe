@@ -84,6 +84,31 @@ pub const COLOUR_NAMES: [&str; 6] = ["red", "amber", "green", "sky blue", "viole
 /// The icons a waypoint's tag and compass mark can have (`hud::icon` draws them).
 pub const ICONS: [&str; 4] = ["diamond", "square", "plus", "ring"];
 
+/// The death mark's own colour (needs.md: "in the death's own colour"), none of the player's: bone white.
+pub const DEATH: [f32; 3] = [0.93, 0.9, 0.82];
+
+/// The death mark's colour index: none of COLOURS'.
+pub const DEATH_K: usize = usize::MAX;
+
+/// A waypoint's colour: its place in COLOURS (wrapped), or the death's.
+pub fn colour(k: usize) -> [f32; 3] {
+    if k == DEATH_K { DEATH } else { COLOURS[k % COLOURS.len()] }
+}
+
+/// The game's marks for this player as the server sent them (needs.md "What death costs"): Death at its last
+/// death's pile, Home at its sleeping place; seen from anywhere, as the pile may lie on another body.
+pub fn game_marks(w: &engine::world::World, death: Option<engine::world::Block>, home: Option<engine::world::Block>) -> Vec<Waypoint> {
+    // (the death a plus, Home a square, in ICONS)
+    [(death, "Death", DEATH_K, 2), (home, "Home", 2, 1)]
+        .into_iter()
+        .filter_map(|(b, name, colour, icon)| {
+            let b = b?;
+            let body = b.body as usize;
+            Some(Waypoint { name: name.into(), body, rel: w.block_centre(b) - w.bodies[body].centre, colour, icon, view: View::Always })
+        })
+        .collect()
+}
+
 /// The first "Waypoint N" not taken.
 pub fn next_name(list: &[Waypoint]) -> String {
     (1..).map(|n| format!("Waypoint {n}")).find(|n| list.iter().all(|w| &w.name != n)).unwrap()
@@ -203,6 +228,19 @@ mod tests {
         assert!(geo(up + e * 0.01, zero).1 > 0.0);
         // at the pole north is still a direction, not a NaN
         assert!(bearing(DVec3::Z, DVec3::X).is_finite());
+    }
+
+    #[test]
+    fn the_games_marks_are_death_in_its_own_colour_and_home_where_the_server_puts_them() {
+        let w = engine::world::World::new(256, 32, 1);
+        let (pile, bed) = (w.air_over_ground(0, DVec3::Y), w.air_over_ground(1, DVec3::X));
+        let m = game_marks(&w, Some(pile), Some(bed));
+        assert_eq!(m.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["Death", "Home"]);
+        assert_eq!((m[0].body, m[1].body), (0, 1));
+        assert!((m[0].rel + w.bodies[0].centre).distance(w.block_centre(pile)) < 1e-9);
+        assert_eq!((colour(m[0].colour), m[0].view), (DEATH, View::Always));
+        assert!(COLOURS.iter().all(|c| *c != DEATH), "death has its own colour");
+        assert!(game_marks(&w, None, None).is_empty());
     }
 
     #[test]

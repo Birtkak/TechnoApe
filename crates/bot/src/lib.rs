@@ -29,7 +29,8 @@
 //! its target, so in water a sprint swims to it, down or up as well (a dive, a lake's crossing at the surface).
 //! Thirst (ADR 0145, docs/design/needs.md): `drink dx dy dz` holds the use button on the water there for 2.5 s (fresh water
 //! fills the bar, the sea's does nothing); `report` gives `vitals` as [health, hunger, thirst, breath] (breath:
-//! draft breath, full in air).
+//! draft breath, full in air). Death's cost (draft): `report` gives `death` and `home`, the centres of its death
+//! pile's cell and its sleeping place (null without); `use dx dy dz` on a bed of leaves beside a torch claims it.
 use engine::edit::Shape;
 use engine::items::{Holder, Slot, ITEMS};
 use engine::net::{Link, Recv, ToClient, ToServer, TICK_HZ};
@@ -190,6 +191,8 @@ pub struct Bot {
     pub furnace: Option<(engine::world::Block, engine::furnace::Furnace)>,
     /// Health, hunger and thirst as the server last sent them.
     pub vitals: (u8, u8, u8, u8),
+    /// Its death mark and sleeping place as the server last sent them (draft death's cost).
+    pub marks: (Option<engine::world::Block>, Option<engine::world::Block>),
     /// A drink held until that tick.
     drinking: Option<u64>,
 }
@@ -201,7 +204,7 @@ const SILENT: Duration = Duration::from_secs(120);
 impl Bot {
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default(), furnace: None, vitals: (20, 20, 20, 20), drinking: None }
+        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default(), furnace: None, vitals: (20, 20, 20, 20), marks: (None, None), drinking: None }
     }
 
     /// The tick `s` seconds of the server's time from now.
@@ -264,6 +267,7 @@ impl Bot {
                         self.link.send(ToServer::Respawn);
                     }
                 }
+                Recv::Msg(ToClient::Marks { death, home }) => self.marks = (death, home),
                 Recv::Msg(ToClient::Air(h)) => self.air = Some(h),
                 Recv::Msg(ToClient::Kinds(k)) => self.kinds = k,
                 Recv::Msg(ToClient::Defs { blocks, items }) => {
@@ -413,7 +417,7 @@ impl Bot {
             }
             Cmd::Report => {
                 return Some(format!(
-                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{},\"vitals\":[{},{},{},{}],\"air\":{},\"animals\":{}}}",
+                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{},\"vitals\":[{},{},{},{}],\"death\":{},\"home\":{},\"air\":{},\"animals\":{}}}",
                     self.name,
                     self.start.elapsed().as_secs_f64(),
                     self.pos.x,
@@ -426,6 +430,8 @@ impl Bot {
                     self.vitals.1,
                     self.vitals.2,
                     self.vitals.3,
+                    self.mark_json(self.marks.0),
+                    self.mark_json(self.marks.1),
                     self.air.map_or("null".into(), |a| format!("{{\"temp\":{:.2},\"rain_mm_h\":{:.3},\"cover\":{:.2},\"wind\":[{:.2},{:.2}]}}", a.temp, a.rain, a.cover, a.wind[0], a.wind[1])),
                     self.animals_json()
                 ));
@@ -468,6 +474,14 @@ impl Bot {
             Cmd::Quit => {}
         }
         None
+    }
+
+    /// A mark's cell centre as [x,y,z], or null.
+    fn mark_json(&self, m: Option<engine::world::Block>) -> String {
+        m.zip(self.world.as_ref()).map_or("null".into(), |(b, w)| {
+            let c = w.block_centre(b);
+            format!("[{:.2},{:.2},{:.2}]", c.x, c.y, c.z)
+        })
     }
 
     /// The animals it sees (ADR 0083): how many, and the nearest five with kind, distance and what they do.
@@ -941,5 +955,37 @@ mod tests {
         let w = b.world.as_ref().unwrap();
         let up = phys::up(w, b.pos);
         assert!(!phys::blocked(w, b.pos) && phys::blocked(w, b.pos - up * 0.05), "feet on the ground at {:?}", b.pos);
+    }
+
+    /// Death's cost through the protocol (draft): a bot claims a bed of leaves beside a torch, dies with what it
+    /// carries, and its report shows the death mark where it died and its pos on the bed it woke at.
+    #[test]
+    fn a_bot_that_dies_reports_its_death_mark_and_wakes_on_its_bed() {
+        let h = World::new(256, 32, 1).bodies[0].height(DVec3::Y);
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let mut s = Server::new(256, 32, 1, rx);
+            let w = &mut s.world;
+            let bed = w.air_over_ground(0, (DVec3::Y * h + DVec3::X * 4.5).normalize());
+            for z in 1..4 {
+                w.set_block(engine::world::Block { pos: bed.pos + glam::IVec3::Z * z, ..bed }, 0);
+            }
+            w.set_block(bed, engine::blocks::BLOCKS.id("oak leaves"));
+            w.set_block(engine::world::Block { pos: bed.pos + glam::IVec3::new(1, 0, 0), ..bed }, engine::blocks::BLOCKS.id("torch"));
+            s.run(TICK_HZ, &std::sync::atomic::AtomicBool::new(false))
+        });
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
+        let mut bot = Bot::new("sleeper", c);
+        let mut out = Vec::new();
+        let script = format!("spawn 0 {h} 0; say /playmode survival; walk 0 0 0; wait 0.5; use 4.5 0.5 0; say /give oak_log 5; wait 0.5; say /hurt 40; wait 1; report");
+        bot.run(parse_script(&script).unwrap(), None, |l| out.push(l));
+        let r = out.iter().find(|l| l.contains("\"death\"")).unwrap_or_else(|| panic!("{out:?}"));
+        let num = |key: &str| -> Vec<f64> { r.split(&format!("\"{key}\":[")).nth(1).unwrap_or_else(|| panic!("{key} in {r}")).split(']').next().unwrap().split(',').map(|x| x.parse().unwrap()).collect() };
+        let (pos, death, home) = (num("pos"), num("death"), num("home"));
+        let at = |v: &[f64]| DVec3::new(v[0], v[1], v[2]);
+        assert!(at(&death).distance(DVec3::new(0.0, h, 0.0)) < 2.0, "the death mark where it died: {r}");
+        assert!(at(&pos).distance(at(&home)) < 2.0, "woke on its bed: {r}");
+        assert!(at(&home).distance(DVec3::new(4.5, h, 0.0)) < 2.0, "the bed claimed: {r}");
     }
 }

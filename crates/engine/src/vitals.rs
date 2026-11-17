@@ -279,10 +279,38 @@ pub fn still(inp: Input) -> Input {
     Input { mv: [0.0, 0.0], jump: false, fly: 0.0, down: false, turn: 0.0, tilt: 0.0, roll: 0.0, fwd: [0.0; 3], sprint: false, ..inp }
 }
 
+/// A sleeping place (needs.md "What death costs"): a bed of leaves (any leaves block) with a fire in one of
+/// the 26 cells around it. shortcut: a torch is the only fire until the cooking fire (needs step 4), and
+/// only the bed's own face is looked at; the fire block joins here when it comes.
+pub fn sleeping_place(w: &crate::world::World, bed: crate::world::Block) -> bool {
+    let is = |b: crate::world::Block, f: fn(&str) -> bool| crate::blocks::BLOCKS.get(w.block(b)).is_some_and(|d| f(&d.name));
+    is(bed, |n| n.ends_with(" leaves"))
+        && (-1..=1).flat_map(|x| (-1..=1).flat_map(move |y| (-1..=1).map(move |z| glam::IVec3::new(x, y, z)))).any(|d| d != glam::IVec3::ZERO && is(crate::world::Block { pos: bed.pos + d, ..bed }, |n| n == "torch"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::world::World;
+
+    #[test]
+    fn a_bed_of_leaves_beside_a_fire_is_a_sleeping_place() {
+        use crate::blocks::BLOCKS;
+        let mut w = World::new(256, 32, 1);
+        let bed = w.air_over_ground(0, glam::DVec3::Y);
+        let at = |d: glam::IVec3| crate::world::Block { pos: bed.pos + d, ..bed };
+        let (leaves, torch, stone) = (BLOCKS.id("oak leaves"), BLOCKS.id("torch"), BLOCKS.id("stone"));
+        w.set_block(bed, leaves);
+        assert!(!sleeping_place(&w, bed), "leaves alone are no sleeping place");
+        w.set_block(at(glam::IVec3::new(1, 1, 0)), torch);
+        assert!(sleeping_place(&w, bed), "a torch beside it (corner too)");
+        w.set_block(bed, stone);
+        assert!(!sleeping_place(&w, bed), "stone is no bed");
+        w.set_block(bed, leaves);
+        w.set_block(at(glam::IVec3::new(1, 1, 0)), crate::blocks::AIR);
+        w.set_block(at(glam::IVec3::new(2, 0, 0)), torch);
+        assert!(!sleeping_place(&w, bed), "a torch two cells off is not beside it");
+    }
 
     /// The speed a fall of `h` metres lands at under a pull of `g`.
     fn from(h: f64, g: f64) -> f64 {

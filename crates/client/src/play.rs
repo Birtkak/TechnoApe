@@ -1447,6 +1447,7 @@ impl App {
             let here: Vec<(&nav::Waypoint, DVec3, DVec3)> = self
                 .waypoints
                 .iter()
+                .chain(&self.marks)
                 .filter(|p| p.body < wd.bodies.len() && self.settings.on(S::Marks))
                 .map(|p| {
                     let (rot, off) = wd.place(p.body, on);
@@ -1454,7 +1455,7 @@ impl App {
                 })
                 .filter(|(p, at, _)| p.shown(on, at.distance(eye)))
                 .collect();
-            let colour = |p: &nav::Waypoint| nav::COLOURS[p.colour % nav::COLOURS.len()];
+            let colour = |p: &nav::Waypoint| nav::colour(p.colour);
             if on != engine::world::INERTIAL {
                 let b = &wd.bodies[on];
                 let rel = eye - b.centre;

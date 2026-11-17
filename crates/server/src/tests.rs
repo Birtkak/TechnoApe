@@ -1264,7 +1264,7 @@ fn players_of_a_save_before_the_frames_moved_are_moved_with_them() {
     let (s, _links) = server_with(0);
     let mut save = s.snapshot();
     let player = |name: &str, at: DVec3| save::Saved {
-        name: name.into(), pos: at.to_array(), fwd: [1.0, 0.0, 0.0], creative: false, slots: items::from_counts(&[(2, 5)]), water: 0, vitals: Default::default(),
+        name: name.into(), pos: at.to_array(), fwd: [1.0, 0.0, 0.0], creative: false, slots: items::from_counts(&[(2, 5)]), water: 0, vitals: Default::default(), marks: Default::default(),
     };
     let on_luna = engine::world::OLD_MOON_AT + DVec3::Y * 30.0;
     let in_space = DVec3::new(500.0, 0.0, -1.0e6);
@@ -3090,4 +3090,162 @@ fn a_far_or_made_up_crucible_is_refused() {
     l.send(ToServer::Move { pos: away.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
     s.tick();
     assert!(s.clients[0].furnace.is_none());
+}
+
+/// The items as (item, count) over some slots.
+fn counted<'a>(slots: impl Iterator<Item = &'a Slot>) -> std::collections::BTreeMap<u16, u32> {
+    let mut m = std::collections::BTreeMap::new();
+    for st in slots.flatten() {
+        *m.entry(st.item).or_insert(0) += st.n as u32;
+    }
+    m
+}
+
+/// The last marks a client was told of.
+fn marks_of(got: &[ToClient]) -> Option<(Option<Block>, Option<Block>)> {
+    got.iter().filter_map(|m| if let ToClient::Marks { death, home } = m { Some((*death, *home)) } else { None }).last()
+}
+
+/// Death's cost (needs.md, ADR 0047): what a survival ape carried lies where it died, exactly that, nothing lost
+/// or made, on the ground, on the sea bed, in the air and out of the block it was buried in; its client is told
+/// the pile's cell as its death mark, which goes when another empties the pile.
+#[test]
+fn a_death_leaves_exactly_what_was_carried_in_a_marked_pile_wherever_it_died() {
+    let (mut s, links) = server_with(2);
+    let (l, other) = (&links[0], &links[1]);
+    l.send(ToServer::Hello { name: "ape".into() });
+    other.send(ToServer::Hello { name: "other".into() });
+    l.send(ToServer::Input(Input::default()));
+    other.send(ToServer::Input(Input::default()));
+    s.tick();
+    l.send(ToServer::Chat("/playmode survival".into()));
+    s.tick();
+    let b = &s.world.bodies[0];
+    let (sea, centre) = (b.layer_r(b.sea.unwrap()), b.centre);
+    let dirs = || (0..20000).map(|k| { let z = 1.0 - (k as f64 + 0.5) / 10000.0; let a = k as f64 * 2.399963; let r = (1.0 - z * z).sqrt(); DVec3::new(r * a.cos(), r * a.sin(), z) });
+    let d = dirs().find(|d| b.height(*d) < sea - 4.0).expect("a sea");
+    // (dry land away from the spawn, where the respawned ape would pick its pile up at once)
+    let land = dirs().find(|d| b.height(*d) > sea + 6.0 && (*d - DVec3::Y).length() > 0.2).expect("land");
+    let ground = centre + land * (b.height(land) + 0.1);
+    let up = phys::up(&s.world, ground);
+    let places = [("ground", ground), ("sea bed", centre + d * (b.height(d) + 0.1)), ("air", ground + up * 200.0), ("buried", ground)];
+    let hold = |s: &mut Server, at: DVec3| {
+        (s.clients[0].phys.pos, s.clients[0].phys.vel) = (at, DVec3::ZERO);
+        s.tick();
+    };
+    let mut cell = None;
+    for (name, at) in places {
+        l.send(ToServer::Chat("/give oak_log 5".into()));
+        hold(&mut s, at);
+        if name == "buried" {
+            let stone = BLOCKS.id("stone");
+            for h in [0.5, 1.5] {
+                let c = s.world.block_at(at + up * h);
+                s.world.set_block(c, stone);
+            }
+        }
+        let carried = counted(s.clients[0].slots.iter());
+        assert!(!carried.is_empty(), "{name}: it carries something");
+        let lying = counted(s.piles.values().flat_map(|p| p.slots.iter()));
+        l.send(ToServer::Chat("/hurt 40".into()));
+        hold(&mut s, at);
+        assert!(s.clients[0].vitals.dead.is_some(), "{name}: dead");
+        drain(l);
+        l.send(ToServer::Respawn);
+        s.tick();
+        let now = counted(s.piles.values().flat_map(|p| p.slots.iter()));
+        let added: std::collections::BTreeMap<u16, u32> = now.iter().map(|(k, n)| (*k, n - lying.get(k).copied().unwrap_or(0))).filter(|(_, n)| *n > 0).collect();
+        assert_eq!(added, carried, "{name}: the piles hold exactly what it carried");
+        assert!(s.clients[0].slots.iter().all(Option::is_none), "{name}: it wakes with empty hands");
+        assert!(s.item_ledger().is_empty(), "{name}: {:?}", s.item_ledger());
+        let (death, _) = marks_of(&drain(l)).expect("its marks are told");
+        let c = death.expect("a death mark");
+        assert!(s.piles.contains_key(&key(c)), "{name}: the mark is on its pile");
+        assert!(!BLOCKS.solid(s.world.block(c)), "{name}: the pile lies in an open cell");
+        assert!(s.world.block_centre(c).distance(at) < 3.0 || name == "air", "{name}: where it died");
+        cell = Some(c);
+    }
+    // another player empties the last pile: the mark goes
+    let c = cell.unwrap();
+    for _ in 0..5 {
+        (s.clients[1].phys.pos, s.clients[1].phys.vel) = (s.world.block_centre(c), DVec3::ZERO);
+        s.tick();
+    }
+    assert!(!(0..DEATH_COLUMN).any(|k| s.piles.contains_key(&key(Block { pos: c.pos + glam::IVec3::Z * k, ..c }))), "taken");
+    assert_eq!(marks_of(&drain(l)).map(|m| m.0), Some(None), "the death mark goes with its pile");
+}
+
+/// The sleeping place (needs.md): the use button on a bed of leaves beside a fire claims it, a respawn wakes the
+/// ape on it while it stands, and at the spawn once it is gone.
+#[test]
+fn a_respawn_wakes_at_the_claimed_sleeping_place_while_it_stands_else_at_the_spawn() {
+    let (mut s, links) = server_with(1);
+    let l = &links[0];
+    l.send(ToServer::Hello { name: "ape".into() });
+    l.send(ToServer::Input(Input::default()));
+    s.tick();
+    l.send(ToServer::Chat("/playmode survival".into()));
+    s.tick();
+    let spawn = s.spawn();
+    let feet = s.world.block_at(spawn + phys::up(&s.world, spawn) * 0.5);
+    let at = |d: glam::IVec3| Block { pos: feet.pos + d, ..feet };
+    let (bed, torch) = (at(glam::IVec3::new(3, 0, 0)), at(glam::IVec3::new(4, 0, 0)));
+    for z in 1..4 {
+        s.world.set_block(at(glam::IVec3::new(3, 0, z)), AIR);
+    }
+    s.world.set_block(bed, BLOCKS.id("oak leaves"));
+    s.world.set_block(torch, BLOCKS.id("torch"));
+    drain(l);
+    l.send(ToServer::Use(bed));
+    s.tick();
+    let got = drain(l);
+    assert!(got.iter().any(|m| matches!(m, ToClient::Chat(t) if t == "you will wake here")), "claimed");
+    assert_eq!(marks_of(&got), Some((None, Some(bed))));
+    let die = |s: &mut Server| {
+        l.send(ToServer::Chat("/hurt 40".into()));
+        s.tick();
+        l.send(ToServer::Respawn);
+        s.tick();
+        s.clients[0].phys.pos
+    };
+    let woke = die(&mut s);
+    assert!(woke.distance(s.world.block_centre(at(glam::IVec3::new(3, 0, 1)))) < 0.01, "on the bed: {woke:?}");
+    // the fire gone, it is no sleeping place: the spawn, and the mark goes
+    s.world.set_block(torch, AIR);
+    drain(l);
+    let woke = die(&mut s);
+    assert!(woke.distance(s.spawn()) < 0.01, "at the spawn: {woke:?}");
+    assert_eq!(marks_of(&drain(l)).map(|m| m.1), Some(None));
+}
+
+/// Creative loses nothing (needs.md: creative is unhurt): held under the sea it does not drown, and so never
+/// leaves a pile.
+#[test]
+fn creative_never_dies_so_never_leaves_a_pile() {
+    let (mut s, links) = server_with(1);
+    let l = &links[0];
+    l.send(ToServer::Hello { name: "ape".into() });
+    l.send(ToServer::Input(Input::default()));
+    s.tick();
+    l.send(ToServer::Chat("/playmode creative".into()));
+    l.send(ToServer::Chat("/hurt 40".into()));
+    s.tick();
+    let b = &s.world.bodies[0];
+    let (sea, centre) = (b.layer_r(b.sea.unwrap()), b.centre);
+    let dirs = || (0..20000).map(|k| { let z = 1.0 - (k as f64 + 0.5) / 10000.0; let a = k as f64 * 2.399963; let r = (1.0 - z * z).sqrt(); DVec3::new(r * a.cos(), r * a.sin(), z) });
+    let d = dirs().find(|d| b.height(*d) < sea - 4.0).expect("a sea");
+    let deep = centre + d * (b.height(d) + 0.1);
+    let slots = s.clients[0].slots.clone();
+    for _ in 0..(60.0 * TICK_HZ) as u32 {
+        (s.clients[0].phys.pos, s.clients[0].phys.vel) = (deep, DVec3::ZERO);
+        s.tick();
+    }
+    assert!(s.clients[0].vitals.dead.is_none() && s.clients[0].slots == slots && s.piles.is_empty());
+}
+
+/// `ToClient::Marks` keeps its tag on the wire (appended last, after `Fires`: 21).
+#[test]
+fn the_marks_message_keeps_its_tag() {
+    let at = Block { body: 0, face: 2, pos: glam::IVec3::new(1, 2, 3) };
+    assert_eq!(postcard::to_allocvec(&ToClient::Marks { death: Some(at), home: None }).unwrap(), vec![21, 1, 0, 2, 2, 4, 6, 0]);
 }

@@ -433,13 +433,18 @@ impl App {
     pub(crate) fn use_target(&self) -> Option<Block> {
         let (hit, _) = self.aim.filter(|_| self.dead.is_none())?;
         let near = self.world.block_centre(hit).distance(self.me.pos) <= items::BENCH_REACH;
-        (near && BLOCKS.get(self.world.block(hit))?.window.is_some()).then_some(hit)
+        // a window, or with the hand empty a sleeping place to claim (needs.md; the server judges it again)
+        let bed = || self.hand_empty() && engine::vitals::sleeping_place(&self.world, hit);
+        (near && (BLOCKS.get(self.world.block(hit))?.window.is_some() || bed())).then_some(hit)
     }
 
     /// The place button on a block with a window: the server opens it, and its window opens (not the inventory).
     pub(crate) fn use_block(&mut self) {
         let Some(b) = self.use_target() else { return };
         self.link.send(ToServer::Use(b));
+        if BLOCKS.get(self.world.block(b)).is_none_or(|d| d.window.is_none()) {
+            return; // a bed claimed: the server answers in chat, no window opens
+        }
         if RECIPES.furnace(self.world.block(b)).is_some() {
             self.furnace = Some((b, Default::default()));
         } else {

@@ -109,7 +109,7 @@ fn wanted(tiles: &FxMap<Col, (u64, DVec3)>, near: &FxMap<glam::IVec3, Vec<Col>>,
 
 /// What a save keeps of a connected player.
 fn saved(c: &Client) -> Saved {
-    Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, slots: c.slots.clone(), water: c.water, vitals: c.vitals.clone() }
+    Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, slots: c.slots.clone(), water: c.water, vitals: c.vitals.clone(), marks: c.marks }
 }
 
 /// A pile's cell as a key that sorts (by body, face, column, layer: the piles' fixed order, items.md).
@@ -131,6 +131,8 @@ pub struct Pile {
 
 /// The most layers a laid pile falls to find its floor.
 const FALL: i32 = 64;
+/// The cells over a death's pile its mark looks in: as many piles as every slot of an ape fills, and one.
+const DEATH_COLUMN: i32 = (items::SLOTS.div_ceil(items::PILE_SLOTS) + 1) as i32;
 /// A pile is picked up by a player whose feet are within this of its cell's middle (m), checked every tick.
 const PICK: f64 = 1.5;
 /// Points a falling rock takes from the head it falls through (ADR 0094).
@@ -178,6 +180,9 @@ struct Client {
     was: DVec3,
     /// The breath (draft breath: buried, under water, above the air; not saved: a load starts it anew, ADR 0079).
     breath: vitals::Breath,
+    /// Its death mark and sleeping place (draft death's cost), saved; what its client was last told of them.
+    marks: save::Marks,
+    sent_marks: Option<save::Marks>,
     sent: Option<((u8, u8, u8), u8, bool)>,
     /// The water cell the use button is held on (`ToServer::Drink`) and whether it holds fresh water, judged
     /// once when the cell comes (`Server::hold_drink`); not saved, let go on death.

@@ -216,11 +216,16 @@ impl Server {
         let near = self.world.block_centre(at).distance(self.clients[i].phys.pos) <= items::BENCH_REACH;
         let window = BLOCKS.get(self.world.block(at)).and_then(|d| d.window.as_deref());
         let furnace = self.reaches_furnace(at, self.clients[i].phys.pos);
+        let bed = near && vitals::sleeping_place(&self.world, at);
         let c = &mut self.clients[i];
         if near && c.vitals.dead.is_none() && window == Some("workbench") {
             c.bench = Some(at);
         } else if furnace && c.vitals.dead.is_none() {
             (c.furnace, c.sent_furnace) = (Some(at), None);
+        } else if bed && c.vitals.dead.is_none() && c.marks.home != Some(at) {
+            // a sleeping place claimed (needs.md): a respawn wakes it here while it stands
+            c.marks.home = Some(at);
+            c.link.send(ToClient::Chat("you will wake here".into()));
         }
     }
 
@@ -299,9 +304,6 @@ impl Server {
         }
     }
 
-    /// Lays `stacks` in cell `at` (ADR 0074): out of a solid block upwards, down to the first floor, into that
-    /// cell's pile and, while it has no room, the piles over it. `wait` is the thrower and the tick it may take
-    /// them back from.
     /// A hanging block (a torch, ADR 0117) knocked off its cell, already emptied or taken: one of it lies at `at`,
     /// counted as made so the ledger stays exact.
     pub(super) fn knock_off(&mut self, at: Block, m: u16) {
@@ -309,9 +311,12 @@ impl Server {
         self.lay(at, vec![Stack::new(m, 1)], (0, 0));
     }
 
-    pub(super) fn lay(&mut self, mut at: Block, stacks: Vec<Stack>, wait: (u32, u64)) {
+    /// Lays `stacks` in cell `at` (ADR 0074): out of a solid block upwards, down to the first floor, into that
+    /// cell's pile and, while it has no room, the piles over it. `wait` is the thrower and the tick it may take
+    /// them back from. The cell they settled in, None when there was nothing to lay.
+    pub(super) fn lay(&mut self, mut at: Block, stacks: Vec<Stack>, wait: (u32, u64)) -> Option<Block> {
         if stacks.is_empty() {
-            return;
+            return None;
         }
         let layers = self.world.bodies[at.body as usize].layers;
         let solid = |w: &World, b: Block| BLOCKS.solid(w.block(b));
@@ -343,6 +348,7 @@ impl Server {
                 c.pos.z += 1;
             }
         }
+        Some(at)
     }
 
     /// The piles from cell `at` up its column, laid again: a dig under them lets them fall, a block placed in
