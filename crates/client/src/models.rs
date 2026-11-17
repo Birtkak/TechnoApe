@@ -13,8 +13,8 @@ use engine::world::{Block, World};
 use glam::{DMat3, DMat4, DVec3, Mat4, Vec3};
 use std::sync::mpsc::Receiver;
 
-/// The quads of every model at once, 16 bytes each (1 MB).
-pub const MAX_MQUADS: usize = 1 << 16;
+/// The quads of every model at once, 16 bytes each (2 MB; doubled when the Steam Age's models passed 70 % of 1 MB).
+pub const MAX_MQUADS: usize = 1 << 17;
 /// One transform per part of every model drawn in a frame, 64 bytes each (4 MB). (shortcut: every instance is
 /// posed on the frame thread, about 0.3 us each; pose on rayon or the GPU when thousands run at once, ADR 0047)
 pub const MAX_PIECES: usize = 1 << 16;
