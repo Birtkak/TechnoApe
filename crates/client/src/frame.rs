@@ -432,11 +432,7 @@ impl App {
         }
         if (now - self.last_move).as_secs_f64() >= 1.0 / TICK_HZ {
             if self.run == "play" {
-                let inputs: Vec<Input> = self.steps.iter().filter(|s| s.0 >= self.unsent).map(|s| s.1).collect();
-                if !inputs.is_empty() {
-                    self.link.send(ToServer::steps(self.unsent, inputs));
-                    self.unsent = self.next_step;
-                }
+                self.send_steps();
             } else {
                 // the benchmark runs fly: the camera position is sent as the player's position
                 self.link.send(ToServer::Move { pos: p.pos.to_array(), fwd: p.fwd.as_vec3().to_array(), pitch: 0.0 });

@@ -3642,3 +3642,90 @@ fn the_journal_learns_from_the_slots_and_the_look_and_tells_only_its_owner() {
     // (and the flint it still holds is known again: its slots came with it)
     assert_eq!(journals(&drain(late)), vec![e(&[("flint", Known), ("hand-axe", Noticed), ("clay", Known), ("crucible", Noticed)])], "a returning ape is told its journal once");
 }
+
+/// The feel run's correction after a dig (ADR 0015, 0019): the steps a client sent before its edit were taken
+/// in the world before it, so the server takes them before the edit too, however few of them it had stepped
+/// when the edit came. It had stepped none of them here, dug first, and they fell where the client stood.
+#[test]
+fn the_steps_sent_before_an_edit_are_taken_before_it() {
+    let (mut s, links) = server_with(1);
+    let l = &links[0];
+    let (pole, over) = on_land(&s);
+    let ground = Block { pos: over.pos - glam::IVec3::Z, ..over };
+    l.send(ToServer::Creative(true));
+    l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    s.tick();
+    // steps standing, all taken: it lands on the ground
+    l.send(ToServer::Steps { first: s.clients[0].acked + 1, inputs: vec![Input::default(); QUEUE_MAX] });
+    wait(&mut s, 2.0);
+    drain(l);
+    assert!(s.clients[0].phys.on_ground && s.clients[0].queue.is_empty() && s.world.block(ground) != AIR);
+    // what the client predicted: six steps standing on the ground, then the dig under its feet
+    let (first, inputs) = (s.clients[0].acked + 1, vec![Input::default(); 6]);
+    let mut truth = s.clients[0].phys;
+    for inp in &inputs {
+        phys::step_at(&mut s.world, &mut truth, inp, phys::DT);
+    }
+    let last = first + inputs.len() as u32 - 1;
+    l.send(ToServer::Steps { first, inputs });
+    l.send(ToServer::Edit { seq: 1, shape: Shape::one(ground), material: AIR });
+    for _ in 0..20 {
+        s.tick();
+        if s.clients[0].acked == last {
+            break;
+        }
+    }
+    assert!(drain(l).contains(&ToClient::Done { seq: 1, ok: true }));
+    assert_eq!((s.clients[0].acked, s.world.block(ground)), (last, AIR));
+    let d = s.clients[0].phys.pos.distance(truth.pos);
+    assert!(d < 1e-9, "after step {last} the server's player is {d:.3} m from where the client's steps took it");
+}
+
+/// The same for a place (the feel run's hammer box over the feet): a cell the player walked into before the
+/// place is kept clear on the server as in the client's prediction, judged where the steps took it.
+#[test]
+fn a_place_is_kept_clear_of_where_the_steps_before_it_took_the_player() {
+    let (mut s, links) = server_with(1);
+    let l = &links[0];
+    let (pole, _) = on_land(&s);
+    l.send(ToServer::Creative(true));
+    l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    s.tick();
+    l.send(ToServer::Steps { first: s.clients[0].acked + 1, inputs: vec![Input::default(); QUEUE_MAX] });
+    wait(&mut s, 2.0);
+    drain(l);
+    // half a second walking ahead, then stone placed in the cell its body is in by then
+    let (first, inputs) = (s.clients[0].acked + 1, vec![Input { mv: [1.0, 0.0], ..Default::default() }; 30]);
+    let (start, mut truth) = (s.clients[0].phys, s.clients[0].phys);
+    for inp in &inputs {
+        phys::step_at(&mut s.world, &mut truth, inp, phys::DT);
+    }
+    let cell = s.world.block_at(truth.pos + phys::up(&s.world, truth.pos) * 0.5);
+    assert!(s.world.block(cell) == AIR && phys::holds(&s.world, &truth, cell) && !phys::holds(&s.world, &start, cell));
+    l.send(ToServer::Steps { first, inputs });
+    l.send(ToServer::Edit { seq: 1, shape: Shape::one(cell), material: BLOCKS.id("stone") });
+    wait(&mut s, 1.0);
+    assert_eq!(s.world.block(cell), AIR, "stone placed in the cell the player had walked into");
+}
+
+/// The review: steps taken ahead of the credit at an edit stop at its floor, so a flood of a second of steps
+/// and an edit, again and again in one tick, takes no more steps in that tick than a full queue and the credit.
+#[test]
+fn a_flood_of_steps_and_edits_takes_a_bounded_number_of_steps() {
+    let (mut s, links) = server_with(1);
+    let l = &links[0];
+    let (pole, over) = on_land(&s);
+    l.send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    s.tick();
+    let before = s.clients[0].acked;
+    let mut first = before + 1;
+    for k in 0..MSGS_PER_TICK as u32 / 2 {
+        l.send(ToServer::Steps { first, inputs: vec![Input { mv: [1.0, 0.0], ..Default::default() }; QUEUE_MAX] });
+        // refused (survival, nothing held), which must not matter
+        l.send(ToServer::Edit { seq: k + 1, shape: Shape::one(over), material: BLOCKS.id("stone") });
+        first += QUEUE_MAX as u32;
+    }
+    s.tick();
+    let taken = (s.clients[0].acked - before) as usize;
+    assert!(taken <= QUEUE_MAX + CREDIT_MAX as usize, "{taken} steps in one tick");
+}

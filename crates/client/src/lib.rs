@@ -393,7 +393,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
             let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
             let rec = args.0.get("record").cloned().or((args.get("onscreen", 0) == 1).then(|| format!("out/rec/play-{unix}.rec")));
             // saves (ADR 0016): play keeps one per seed and planet under saves/, save= names another, save=0 none
-            let save = args.0.get("save").cloned().or((run == "play").then(|| format!("saves/seed-{seed}-planet-{planet}.sav"))).filter(|s| s != "0");
+            // (creatures=0 keeps no save: its empty herds would be written over the save's)
+            let save = args.0.get("save").cloned().or((run == "play").then(|| format!("saves/seed-{seed}-planet-{planet}.sav"))).filter(|s| s != "0" && args.get("creatures", 1) != 0);
             assert!(warp == 0.0 || save.is_none(), "warp= is a trial: run it with save=0, the warp is kept in no save");
             let mut server = match save.as_deref().map(std::path::Path::new).filter(|p| p.exists()) {
                 Some(p) => {
@@ -408,6 +409,13 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
             };
             server.autosave = save.clone().map(|p| (p.into(), 30 * TICK_HZ as u64));
             server.live_data = true;
+            // creatures=0: herds with no rows, so no animal is ever made; the fixed viewpoints' animals stood
+            // wherever the ticks of a slow or quick load had walked them (the kinds stay: the wire's list is the
+            // same). No live data then: its first look would read herds.toml back in.
+            if args.get("creatures", 1) == 0 {
+                server.herds = engine::herds::Herds::parse(include_str!("../../../data/creatures.toml"), "", seed).unwrap();
+                server.live_data = false;
+            }
             save_path = save;
             if let Some(r) = rec.filter(|r| r != "0") {
                 rec_path = Some(r.clone());
@@ -597,7 +605,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         next_step: 1,
         unsent: 1,
         spawned: false,
-        server_me: None,
+        edit_after: 0,
+        skipped: 0,
         server_hunger: engine::vitals::MAX as f64,
         hunger: engine::vitals::MAX as f64,
         sprinted: false,

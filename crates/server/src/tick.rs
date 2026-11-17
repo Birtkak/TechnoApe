@@ -101,6 +101,7 @@ impl Server {
             });
         }
         let mut changed: Vec<(Block, u16)> = Vec::new();
+        let mut deaths = Vec::new();
         let mut i = 0;
         while i < self.clients.len() {
             let mut open = true;
@@ -177,6 +178,20 @@ impl Server {
                         }
                     }
                     Recv::Msg(ToServer::Edit { seq, shape, material }) => {
+                        // the steps the client took before this edit came before it: they are taken first, so the
+                        // edit falls between the same two steps here as in its prediction (ADR 0015, 0019). Taken
+                        // ahead of the credit, which goes below 0 and holds the next steps back as long, down to a
+                        // floor of a full queue: a client in step with real time stays far above it, a flood of steps and edits stops
+                        // there (at most QUEUE_MAX + CREDIT_MAX steps a tick) and its edits fall ahead of the rest.
+                        let (c, warp) = (&mut self.clients[i], self.warp);
+                        if c.input.is_none() && !c.queue.is_empty() {
+                            let dead = c.vitals.dead.is_some();
+                            while c.credit > -(QUEUE_MAX as i32) && queued_step(c, &mut self.world, warp, dead, &mut deaths) {
+                                c.credit -= 1;
+                            }
+                            c.player.pos = c.phys.pos.to_array();
+                            c.player.fwd = c.phys.fwd.as_vec3().to_array();
+                        }
                         let ok = self.edit(i, &shape, material, &mut changed);
                         self.clients[i].done.push((seq, ok));
                         // the dig is done: its hold ends, and the others' cracks with it
@@ -274,7 +289,6 @@ impl Server {
         self.debt += self.dt;
         let steps = ((self.debt + 1e-9) / phys::DT) as u32;
         self.debt -= steps as f64 * phys::DT;
-        let mut deaths = Vec::new();
         for c in &mut self.clients {
             // flight is creative's (ADR 0023); a dead player's input moves nothing (ADR 0040)
             let (creative, dead) = (c.creative, c.vitals.dead.is_some());
@@ -297,19 +311,9 @@ impl Server {
                 c.player.pitch = inp.pitch;
             } else {
                 // each step once, at most as fast as real time; a late batch catches up within CREDIT_MAX
-                c.credit = (c.credit + steps).min(CREDIT_MAX);
-                while c.credit > 0 {
-                    let Some((seq, inp)) = c.queue.pop_front() else { break };
-                    let mut inp = vitals::gate(walk(inp), c.vitals.hunger, c.creative);
-                    // at the client's time when it is near this clock (it predicted the step then), else at this one
-                    let near = 2.0 * self.warp as f64; // two seconds of real time
-                    if (inp.t - self.world.time).abs() > near {
-                        inp.t = 0.0;
-                    }
-                    let before = c.phys;
-                    let sprinted = phys::step_at(&mut self.world, &mut c.phys, &inp, phys::DT);
-                    live(c, &self.world, &before, &inp, sprinted, &mut deaths);
-                    (c.acked, c.credit, c.player.pitch) = (seq, c.credit - 1, inp.pitch);
+                c.credit = (c.credit + steps as i32).min(CREDIT_MAX);
+                while c.credit > 0 && queued_step(c, &mut self.world, self.warp, dead, &mut deaths) {
+                    c.credit -= 1;
                 }
                 c.player.pos = c.phys.pos.to_array();
                 c.player.fwd = c.phys.fwd.as_vec3().to_array();
@@ -559,6 +563,24 @@ impl Server {
 /// After one physics step of client `c` from `before` with `inp` (ADR 0040): the impact it took, if it hit
 /// something solid hard enough, and a step of hunger. Creative has neither: nothing drains, nothing hurts.
 /// A death's line for everyone goes to `deaths`.
+/// Takes client `c`'s next queued step, if any (`dead`: as it was when the tick's steps began).
+fn queued_step(c: &mut Client, world: &mut World, warp: u64, dead: bool, deaths: &mut Vec<String>) -> bool {
+    let Some((seq, inp)) = c.queue.pop_front() else { return false };
+    let inp = if c.creative { inp } else { Input { fly: 0.0, ..inp } };
+    let inp = if dead { vitals::still(inp) } else { inp };
+    let mut inp = vitals::gate(inp, c.vitals.hunger, c.creative);
+    // at the client's time when it is near this clock (it predicted the step then), else at this one
+    let near = 2.0 * warp as f64; // two seconds of real time
+    if (inp.t - world.time).abs() > near {
+        inp.t = 0.0;
+    }
+    let before = c.phys;
+    let sprinted = phys::step_at(world, &mut c.phys, &inp, phys::DT);
+    live(c, world, &before, &inp, sprinted, deaths);
+    (c.acked, c.player.pitch) = (seq, inp.pitch);
+    true
+}
+
 fn live(c: &mut Client, world: &World, before: &phys::Player, inp: &Input, sprinted: bool, deaths: &mut Vec<String>) {
     let (now, hit) = vitals::impact(c.was, before, &c.phys, phys::DT);
     c.was = now;
