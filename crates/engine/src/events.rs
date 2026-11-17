@@ -25,13 +25,16 @@ pub enum Event {
     Fire { at: Block, on: bool },
     /// Player `by` died (ADR 0040).
     Died { by: u32 },
+    /// What dead player `by` carried was laid where it died, at its respawn (needs.md "What death costs"): `at`
+    /// the first cell of its piles, the death mark's.
+    Laid { at: Block, by: u32 },
 }
 
 impl Event {
     /// Where it happened, a cell; None when it happened to a player (`by`), where that player is.
     pub fn cell(&self) -> Option<Block> {
         match self {
-            Event::Edit { at, .. } | Event::Taken { at, .. } | Event::Fire { at, .. } => Some(*at),
+            Event::Edit { at, .. } | Event::Taken { at, .. } | Event::Fire { at, .. } | Event::Laid { at, .. } => Some(*at),
             Event::Fall { to, .. } => Some(*to),
             Event::Worn { .. } | Event::Craft { .. } | Event::Died { .. } => None,
         }
@@ -40,7 +43,7 @@ impl Event {
     pub fn by(&self) -> Option<u32> {
         match self {
             Event::Edit { by, .. } => *by,
-            Event::Worn { by, .. } | Event::Taken { by, .. } | Event::Craft { by, .. } | Event::Died { by } => Some(*by),
+            Event::Worn { by, .. } | Event::Taken { by, .. } | Event::Craft { by, .. } | Event::Died { by } | Event::Laid { by, .. } => Some(*by),
             Event::Fall { .. } | Event::Fire { .. } => None,
         }
     }
@@ -71,14 +74,16 @@ mod tests {
             (Event::Craft { recipe: "cord".into(), n: 2, by: 7 }, vec![4, 4, b'c', b'o', b'r', b'd', 2, 7]),
             (Event::Fire { at, on: true }, vec![5, 0, 2, 6, 7, 144, 3, 1]),
             (Event::Died { by: 7 }, vec![6, 7]),
+            (Event::Laid { at, by: 7 }, vec![7, 0, 2, 6, 7, 144, 3, 7]),
         ];
         for (e, want) in cases {
             assert_eq!(bytes(e.clone()), want, "{e:?}");
             assert_eq!(postcard::from_bytes::<Event>(&want).unwrap(), e);
         }
-        // the message is ToClient's last (21), after Fires: the 21 before it keep their bytes
+        // the message is ToClient's last (22), after Marks: the 22 before it keep their bytes
         let m = crate::net::ToClient::Events(vec![Event::Died { by: 7 }]);
-        assert_eq!(postcard::to_stdvec(&m).unwrap(), vec![21, 1, 6, 7]);
+        assert_eq!(postcard::to_stdvec(&m).unwrap(), vec![22, 1, 6, 7]);
         assert_eq!(postcard::to_stdvec(&crate::net::ToClient::Fires(vec![])).unwrap(), vec![20, 0]);
+        assert_eq!(postcard::to_stdvec(&crate::net::ToClient::Marks { death: None, home: None }).unwrap(), vec![21, 0, 0]);
     }
 }

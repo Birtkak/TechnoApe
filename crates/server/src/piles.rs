@@ -1,6 +1,12 @@
 //! Server: digs, strikes, edits, rubble, piles and moving items.
 use super::*;
 
+/// Whether nothing solid but `except` lies on the straight line from `a` to `b` (looked at every 5 cm).
+fn clear_line(w: &World, a: DVec3, b: DVec3, except: Block) -> bool {
+    let n = ((b - a).length() / 0.05).ceil().max(1.0) as usize;
+    (0..=n).map(|k| w.block_at(a + (b - a) * (k as f64 / n as f64))).all(|c| c == except || !BLOCKS.solid(w.block(c)))
+}
+
 impl Server {
     /// Client i holds its dig on `at` now, or on nothing (ADR 0034; `edit::Hold` keeps a left shape's
     /// seconds), and the others are told.
@@ -222,11 +228,25 @@ impl Server {
         let near = self.world.block_centre(at).distance(self.clients[i].phys.pos) <= items::BENCH_REACH;
         let window = BLOCKS.get(self.world.block(at)).and_then(|d| d.window.as_deref());
         let furnace = self.reaches_furnace(at, self.clients[i].phys.pos);
+        let leaves = BLOCKS.get(self.world.block(at)).is_some_and(|d| d.name.ends_with(" leaves"));
+        // a bed claimed only in sight: nothing solid on the straight line from the eye to where the ape would
+        // stand on it (not through a wall into another's room)
+        let p = self.clients[i].phys.pos;
+        let bed = leaves && vitals::sleeping_place(&self.world, at) && clear_line(&self.world, p + phys::up(&self.world, p) * phys::EYE, vitals::wake_at(&self.world, at), at);
         let c = &mut self.clients[i];
         if near && c.vitals.dead.is_none() && window == Some("workbench") {
             c.bench = Some(at);
         } else if furnace && c.vitals.dead.is_none() {
             (c.furnace, c.sent_furnace) = (Some(at), None);
+        } else if near && leaves && c.vitals.dead.is_none() && c.marks.home != Some(at) {
+            // a sleeping place claimed (needs.md): a respawn wakes it here while it stands
+            let answer = if bed {
+                c.marks.home = Some(at);
+                "you will wake here"
+            } else {
+                "no sleeping place: leaves with a torch beside them, room to stand on them, out of the water and in sight"
+            };
+            c.link.send(ToClient::Chat(answer.into()));
         }
     }
 
@@ -283,6 +303,7 @@ impl Server {
                 }
             }
         }
+        // a burial's death is an event too (`Died`, as in `tick`)
         for line in deaths {
             self.died(&line);
             self.say(line);
@@ -313,9 +334,6 @@ impl Server {
         }
     }
 
-    /// Lays `stacks` in cell `at` (ADR 0074): out of a solid block upwards, down to the first floor, into that
-    /// cell's pile and, while it has no room, the piles over it. `wait` is the thrower and the tick it may take
-    /// them back from.
     /// A hanging block (a torch, ADR 0117) knocked off its cell, already emptied or taken: one of it lies at `at`,
     /// counted as made so the ledger stays exact.
     pub(super) fn knock_off(&mut self, at: Block, m: u16) {
@@ -323,9 +341,12 @@ impl Server {
         self.lay(at, vec![Stack::new(m, 1)], (0, 0));
     }
 
-    pub(super) fn lay(&mut self, mut at: Block, stacks: Vec<Stack>, wait: (u32, u64)) {
+    /// Lays `stacks` in cell `at` (ADR 0074): out of a solid block upwards, down to the first floor, into that
+    /// cell's pile and, while it has no room, the piles over it. `wait` is the thrower and the tick it may take
+    /// them back from. The cells something went into, lowest first.
+    pub(super) fn lay(&mut self, mut at: Block, stacks: Vec<Stack>, wait: (u32, u64)) -> Vec<Block> {
         if stacks.is_empty() {
-            return;
+            return Vec::new();
         }
         let layers = self.world.bodies[at.body as usize].layers;
         let solid = |w: &World, b: Block| BLOCKS.solid(w.block(b));
@@ -338,6 +359,7 @@ impl Server {
         while at.pos.z > lowest && !solid(&self.world, Block { pos: at.pos - glam::IVec3::Z, ..at }) {
             at.pos.z -= 1;
         }
+        let mut into = Vec::new();
         for st in stacks {
             let (mut c, mut left) = (at, st);
             // shortcut: a column full of piles to the top of the world would lose the rest; nothing nears that
@@ -345,6 +367,9 @@ impl Server {
                 if !solid(&self.world, c) {
                     let p = self.piles.entry(key(c)).or_insert_with(|| Pile { slots: vec![None; items::PILE_SLOTS], wait: (0, 0) });
                     let n = items::add(&mut p.slots, 0..items::PILE_SLOTS, left);
+                    if n < left.n && !into.contains(&c) {
+                        into.push(c);
+                    }
                     if n < left.n && wait.0 != 0 {
                         p.wait = wait;
                     }
@@ -357,6 +382,8 @@ impl Server {
                 c.pos.z += 1;
             }
         }
+        into.sort_by_key(|b| b.pos.z);
+        into
     }
 
     /// The piles from cell `at` up its column, laid again: a dig under them lets them fall, a block placed in
@@ -369,7 +396,18 @@ impl Server {
         }
         for (b, p) in column {
             self.piles_changed.push(b);
-            self.lay(b, p.slots.into_iter().flatten().collect(), p.wait);
+            let to = self.lay(b, p.slots.into_iter().flatten().collect(), p.wait);
+            // a death's mark on this pile goes where it went (online or not)
+            let marks = self.clients.iter_mut().map(|c| &mut c.marks).chain(self.absent.values_mut().map(|p| &mut p.marks));
+            for m in marks.filter(|m| m.death.contains(&b)) {
+                m.death.retain(|d| *d != b);
+                for t in &to {
+                    if !m.death.contains(t) {
+                        m.death.push(*t);
+                    }
+                }
+                m.death.sort_by_key(|d| d.pos.z);
+            }
         }
     }
 

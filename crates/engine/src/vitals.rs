@@ -279,10 +279,73 @@ pub fn still(inp: Input) -> Input {
     Input { mv: [0.0, 0.0], jump: false, fly: 0.0, down: false, turn: 0.0, tilt: 0.0, roll: 0.0, fwd: [0.0; 3], sprint: false, ..inp }
 }
 
+/// A sleeping place (needs.md "What death costs"): a bed of leaves (any leaves block) with a fire in one of
+/// the 26 cells around it, where the ape fits: the two cells over it empty (no block, no torch) and its eye,
+/// standing there, out of the water. shortcut: a torch is the only fire until the cooking fire (needs step 4),
+/// and only the bed's own face is looked at; the fire block joins here when it comes.
+pub fn sleeping_place(w: &crate::world::World, bed: crate::world::Block) -> bool {
+    let is = |b: crate::world::Block, f: fn(&str) -> bool| crate::blocks::BLOCKS.get(w.block(b)).is_some_and(|d| f(&d.name));
+    let over = |k: i32| crate::world::Block { pos: bed.pos + glam::IVec3::Z * k, ..bed };
+    let feet = wake_at(w, bed);
+    let eye = feet + (feet - w.block_centre(bed)).normalize() * phys::EYE;
+    is(bed, |n| n.ends_with(" leaves"))
+        && (1..=2).all(|k| w.block(over(k)) == crate::blocks::AIR)
+        && w.water_surface(eye).is_none()
+        && (-1..=1).flat_map(|x| (-1..=1).flat_map(move |y| (-1..=1).map(move |z| glam::IVec3::new(x, y, z)))).any(|d| d != glam::IVec3::ZERO && is(crate::world::Block { pos: bed.pos + d, ..bed }, |n| n == "torch"))
+}
+
+/// Where an ape wakes on its bed: its feet just over the bed's top, in the cell over it.
+pub fn wake_at(w: &crate::world::World, bed: crate::world::Block) -> DVec3 {
+    let (top, mid) = (w.block_centre(crate::world::Block { pos: bed.pos + glam::IVec3::Z, ..bed }), w.block_centre(bed));
+    top + (mid - top) * 0.45
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::world::World;
+
+    #[test]
+    fn a_bed_of_leaves_beside_a_fire_is_a_sleeping_place() {
+        use crate::blocks::BLOCKS;
+        let mut w = World::new(256, 32, 1);
+        let bed = w.air_over_ground(0, glam::DVec3::Y);
+        let at = |d: glam::IVec3| crate::world::Block { pos: bed.pos + d, ..bed };
+        let (leaves, torch, stone) = (BLOCKS.id("oak leaves"), BLOCKS.id("torch"), BLOCKS.id("stone"));
+        w.set_block(bed, leaves);
+        assert!(!sleeping_place(&w, bed), "leaves alone are no sleeping place");
+        w.set_block(at(glam::IVec3::new(1, 1, 0)), torch);
+        assert!(sleeping_place(&w, bed), "a torch beside it (corner too)");
+        w.set_block(bed, stone);
+        assert!(!sleeping_place(&w, bed), "stone is no bed");
+        w.set_block(bed, leaves);
+        w.set_block(at(glam::IVec3::new(1, 1, 0)), crate::blocks::AIR);
+        w.set_block(at(glam::IVec3::new(2, 0, 0)), torch);
+        assert!(!sleeping_place(&w, bed), "a torch two cells off is not beside it");
+        // the review: the ape must fit on it. A torch on top (beside the bed, but where the body goes), a block
+        // placed on it, and a bed under water are no sleeping place
+        w.set_block(at(glam::IVec3::new(2, 0, 0)), crate::blocks::AIR);
+        let top = at(glam::IVec3::Z);
+        w.set_block(top, torch);
+        assert!(!sleeping_place(&w, bed), "a torch on top");
+        w.set_block(top, crate::blocks::AIR);
+        w.set_block(at(glam::IVec3::new(1, 0, 0)), torch);
+        assert!(sleeping_place(&w, bed));
+        w.set_block(at(glam::IVec3::new(0, 0, 2)), stone);
+        assert!(!sleeping_place(&w, bed), "a block over it, where the head goes");
+        w.set_block(at(glam::IVec3::new(0, 0, 2)), crate::blocks::AIR);
+        let b = &w.bodies[0];
+        let sea = b.layer_r(b.sea.unwrap());
+        let d = (0..20000).map(|k| { let z = 1.0 - (k as f64 + 0.5) / 10000.0; let a = k as f64 * 2.399963; let r = (1.0 - z * z).sqrt(); glam::DVec3::new(r * a.cos(), r * a.sin(), z) }).find(|d| b.height(*d) < sea - 4.0).expect("a sea");
+        let wet = w.air_over_ground(0, d);
+        let wet = crate::world::Block { pos: wet.pos - glam::IVec3::Z, ..wet };
+        w.set_block(wet, leaves);
+        w.set_block(crate::world::Block { pos: wet.pos + glam::IVec3::X, ..wet }, torch);
+        assert!(!sleeping_place(&w, wet), "a bed under water");
+        // where the ape wakes: its feet on the bed's top, inside the cell over it
+        let (feet, over) = (wake_at(&w, bed), w.block_centre(top));
+        assert!(feet.distance(over) < 0.5 && feet.distance(w.block_centre(bed)) > 0.5 && w.block_at(feet) == top, "{feet:?}");
+    }
 
     /// The speed a fall of `h` metres lands at under a pull of `g`.
     fn from(h: f64, g: f64) -> f64 {

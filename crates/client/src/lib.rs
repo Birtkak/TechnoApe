@@ -715,6 +715,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         f3: false,
         recent: VecDeque::new(),
         waypoints: waypoint_file.as_deref().and_then(|f| std::fs::read_to_string(f).ok()).map_or(Vec::new(), |t| nav::parse(&t)),
+        marks: Vec::new(),
         globe,
         waypoint_file,
         key_query: String::new(),

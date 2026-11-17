@@ -48,6 +48,7 @@ Option 1.
 | 4 | `Craft` | `recipe, n, by` |
 | 5 | `Fire` | `at, on` |
 | 6 | `Died` | `by` |
+| 7 | `Laid` | `at, by` (what a dead player carried, laid at its respawn; `at` the death mark's first cell) |
 
 **Where they are raised.** The server's systems push the events into one list on the server, in the tick's
 order, and the list is sent and cleared once a tick.
@@ -61,6 +62,7 @@ order, and the list is sent and cleared once a tick.
 | `Craft` | `craft`, when something was made |
 | `Fire` | `furnaces`, beside `Fires` |
 | `Died` | where a death is already announced (`live`'s lines in the tick and `rock_hits`), by the player whose cause it is; that code's logic is unchanged |
+| `Laid` | the tick's Respawn arm, when `lay` filled a cell (ADR 0148) |
 
 **Who is sent what.** A client gets the events within `PERCEIVE` (80 m, the animals' `SEE`) of it, and every one
 of its own. An event that happened to a player (`Worn`, `Craft`, `Died`) counts as where that player is.
@@ -79,7 +81,7 @@ replay makes the same events. Neither the recording nor the state hash holds the
 the same as main's.
 
 ## Consequences
-- **Old clients.** postcard knows no variant 21, so an older client's link ends at its first `Events` message
+- **Old clients.** `Events` is `ToClient`'s variant 22, after `Marks` (ADR 0148). postcard knows no variant 22, so an older client's link ends at its first `Events` message
   (that is the first edit near it). Clients from before this change cannot play on a server with it. The
   friends' zip updates itself (ADR 0130).
 - **What plays differently, all of it edge cases.**

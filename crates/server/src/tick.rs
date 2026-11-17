@@ -81,6 +81,8 @@ impl Server {
                 inv_dirty: true,
                 vitals: Vitals::default(),
                 breath: vitals::Breath::default(),
+                marks: save::Marks::default(),
+                sent_marks: (None, None),
                 was: DVec3::ZERO,
                 sent: None,
                 drink: None,
@@ -137,7 +139,7 @@ impl Server {
                             before = c.slots.iter_mut().filter_map(Option::take).collect();
                             let p = DVec3::from_array(sv.pos);
                             c.phys = phys::Player::at(p, phys::tangent(DVec3::from_array(sv.fwd.map(f64::from)), phys::up(&self.world, p), DVec3::X));
-                            (c.player.pos, c.player.fwd, c.creative, c.inv_dirty, c.water, c.vitals, c.slots) = (sv.pos, sv.fwd, sv.creative, true, sv.water, sv.vitals, sv.slots);
+                            (c.player.pos, c.player.fwd, c.creative, c.inv_dirty, c.water, c.vitals, c.slots, c.marks) = (sv.pos, sv.fwd, sv.creative, true, sv.water, sv.vitals, sv.slots, sv.marks);
                         }
                         let feet = self.clients[i].phys.pos;
                         self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), before, (0, 0));
@@ -200,12 +202,24 @@ impl Server {
                     Recv::Msg(ToServer::Chat(text)) => self.chat(i, &text, &mut changed),
                     Recv::Msg(ToServer::Respawn) => {
                         if self.clients[i].vitals.dead.is_some() {
-                            // what it carried stays where it died (ADR 0047, 0074)
+                            // what it carried stays where it died, marked until the pile is empty (ADR 0047, 0074,
+                            // needs.md); creative loses nothing because it cannot die
                             let feet = self.clients[i].phys.pos;
                             let left: Vec<Stack> = self.clients[i].slots.iter_mut().filter_map(Option::take).collect();
-                            self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), left, (0, 0));
+                            // (with nothing carried the last death's mark stays)
+                            let laid = self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), left, (0, 0));
+                            if let Some(&at) = laid.first() {
+                                self.events.push(Event::Laid { at, by: self.clients[i].player.id });
+                            }
+                            if !laid.is_empty() {
+                                self.clients[i].marks.death = laid;
+                            }
                             self.clients[i].inv_dirty = true;
-                            let p = self.spawn();
+                            // it wakes at its sleeping place while it is one and the ape fits on it, else at the
+                            // spawn, and forgets it
+                            let home = self.clients[i].marks.home.filter(|b| vitals::sleeping_place(&self.world, *b));
+                            self.clients[i].marks.home = home;
+                            let p = home.map_or_else(|| self.spawn(), |b| vitals::wake_at(&self.world, b));
                             self.put(i, p, DVec3::X);
                             self.clients[i].vitals = Vitals::default();
                             (self.clients[i].breath, self.clients[i].drink) = (vitals::Breath::default(), None);
@@ -298,6 +312,8 @@ impl Server {
             }
             c.link.send(ToClient::You { step: c.acked, me: c.phys, time: self.world.time, warp: self.warp as f64, hunger: c.vitals.hunger });
         }
+        // a death is an event (`Died`), and so is the pile its respawn lays (`Laid`, the Respawn arm)
+        // shortcut: neither has an effect or a sound yet; one each when the developer asks for them
         for line in deaths {
             self.died(&line);
             self.say(line);
@@ -425,6 +441,14 @@ impl Server {
             if c.sent != Some(shown) {
                 c.sent = Some(shown);
                 c.link.send(ToClient::Vitals { health: shown.0 .0, hunger: shown.0 .1, thirst: shown.0 .2, breath: shown.1, dead: c.vitals.dead.clone() });
+            }
+            // the death mark goes with its piles (needs.md): a cell emptied leaves it at once, so a pile laid there
+            // later does not keep it; `resettle` moves the cells with the piles
+            c.marks.death.retain(|d| self.piles.contains_key(&key(*d)));
+            let now = (c.marks.death.first().copied(), c.marks.home);
+            if c.sent_marks != now {
+                c.sent_marks = now;
+                c.link.send(ToClient::Marks { death: now.0, home: now.1 });
             }
         }
         // clients count the list; each one's own position comes in its `You` every tick. The others' come

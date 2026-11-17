@@ -110,7 +110,7 @@ fn wanted(tiles: &FxMap<Col, (u64, DVec3)>, near: &FxMap<glam::IVec3, Vec<Col>>,
 
 /// What a save keeps of a connected player.
 fn saved(c: &Client) -> Saved {
-    Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, slots: c.slots.clone(), water: c.water, vitals: c.vitals.clone() }
+    Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, slots: c.slots.clone(), water: c.water, vitals: c.vitals.clone(), marks: c.marks.clone() }
 }
 
 /// A pile's cell as a key that sorts (by body, face, column, layer: the piles' fixed order, items.md).
@@ -179,6 +179,9 @@ struct Client {
     was: DVec3,
     /// The breath (draft breath: buried, under water, above the air; not saved: a load starts it anew, ADR 0079).
     breath: vitals::Breath,
+    /// Its death mark and sleeping place (draft death's cost), saved; what its client was last told of them.
+    marks: save::Marks,
+    sent_marks: (Option<Block>, Option<Block>),
     sent: Option<((u8, u8, u8), u8, bool)>,
     /// The water cell the use button is held on (`ToServer::Drink`) and whether it holds fresh water, judged
     /// once when the cell comes (`Server::hold_drink`); not saved, let go on death.

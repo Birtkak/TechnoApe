@@ -257,6 +257,8 @@ pub(crate) struct App {
     /// The places the player marked and the file they are kept in (beside the save; none without one).
     pub(crate) waypoints: Vec<nav::Waypoint>,
     pub(crate) waypoint_file: Option<String>,
+    /// The game's marks for this player (Death, Home), as the server last sent them (`nav::game_marks`).
+    pub(crate) marks: Vec<nav::Waypoint>,
     /// The globe map (M, ADR 0077).
     pub(crate) globe: crate::globe::State,
     /// What the keys page's search holds (bugs/2026-11-11_13-13-42); a new page starts it empty.
