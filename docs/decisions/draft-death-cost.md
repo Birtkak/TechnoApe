@@ -21,22 +21,37 @@ Option 2, as needs.md says:
   ADR 0074). Out of a block it was buried in, it goes upwards. In water it falls to the bed. In the air it falls
   at most `FALL` (64) layers, so a death high in the air or in space leaves its pile floating. The items' ledger
   holds: nothing is lost or made. Anyone may take from it.
-- **The death mark.** It is the cell the pile settled in, and it is kept while a pile lies in that cell or in the
-  `DEATH_COLUMN` cells above it (every slot of an ape's worth of piles, plus one). It goes once the pile is
-  emptied. Only the last death is marked. On the HUD it is a "Death" waypoint in its own colour (bone white, which
-  no player waypoint uses) with a plus icon, seen from any body, since the pile may lie on Luna.
-- **The sleeping place.** The use button (right click) with an empty hand on a bed of leaves claims it. The server
-  answers "you will wake here", and the HUD shows a green "Home" waypoint. A respawn wakes the ape standing on
-  the bed while the bed is still a sleeping place. Once it is not, the ape wakes at Terra's spawn and Home is
-  forgotten. Waking on Luna works if the bed is there.
+- **The death mark.** It is the list of cells the death's things went into, lowest first (`lay` returns them; a
+  death with many stacks fills a column of piles). A cell leaves the list once its pile is gone, and the mark goes
+  when the list is empty. Because a cell leaves at once, a pile laid there later by anyone does not bring the mark
+  back. When a pile falls or is lifted (`resettle`, after a dig under it or a block placed in it), its cells in
+  every player's list, online or absent, move with it. Only the last death that laid anything is marked. The client
+  is sent the lowest cell. On the HUD it is a "Death" waypoint in its own colour (bone white, which no player
+  waypoint uses) with a plus icon, seen from any body, since the pile may lie on Luna.
+- **The sleeping place.** A bed of leaves beside a fire, where the ape fits. The two cells over the bed hold no
+  block (so no torch on top), and the eye of an ape standing on it is out of the water. The use button (right click)
+  with an empty hand claims it, last of the button's uses: a window first, then a pick-up (ADR 0144), then a drink
+  (ADR 0145), then the bed (`play::claims`). The server claims it only within reach and in sight: nothing solid on
+  the straight line from the eye to where the ape would stand on it, so not through a wall into another's room.
+  - Why a line and not the server's aim: the server holds the look a tick behind, from the client's inputs, as
+    ADR 0144 found for pick-ups. The line needs no look and gives the same answer on a replay.
+  - The server answers "you will wake here", or "no sleeping place: ..." for leaves that do not qualify. The HUD
+    shows a green "Home" waypoint.
+  - A respawn wakes the ape with its feet on the bed (`vitals::wake_at`) while the bed still qualifies. A block
+    placed on it, water over it, or the fire gone sends the ape to Terra's spawn, and Home is forgotten. Waking on
+    Luna works if the bed is there. Two players may share one bed.
 - **Creative loses nothing.** It cannot die: `/hurt` is refused and breath is reset in creative, so it never
   leaves a pile. This is tested.
+- **What else the ape held:** a workbench's grid goes into the ape's pack at death (`uncraft`) and so into the pile.
+  A crucible's slots are the crucible's, so death only closes its window. There is no item on a cursor on the
+  server (a move is one message from slot to slot). An ape that leaves while dead keeps its things in the save, with
+  its name, and lays them when it comes back and respawns. Tests cover the grid and the leave with the ledger exact.
 - **Save version 18** keeps both marks per player. 17 and older load with neither (they wake at the spawn). A
   test covers 17, and the 16 path too; 15 to 4 go through the same mappings their tests already cover.
 
 ## Calls to confirm (the design leaves them open)
 - **What counts as a bed of leaves beside a fire:** any `* leaves` block with a torch in one of the 26 cells
-  around it. A torch is the only fire until the cooking fire (needs step 4), which joins
+  around it and room to stand on it. A torch is the only fire until the cooking fire (needs step 4), which joins
   `vitals::sleeping_place` when it comes. Only the bed's own cube face is looked at.
 - **How it is claimed:** the use button with an empty hand on the bed, no sleep and no night skipped (needs.md: a
   shared world has one clock).
@@ -55,7 +70,10 @@ Option 2, as needs.md says:
 - The soak: bots that die respawn as before, and their piles lie where they died. Piles are bounded by the items'
   ledger: a death lays only what was carried and makes nothing, which the soak's ledger check asserts every
   check. No pile is ever removed by time (items.md: nothing despawns).
-- `shortcut:` a pile that falls when dug under takes the mark away with it (the mark looks only at its own
-  column). No effect or sound plays at a death's pile yet: that waits for the journal's event list.
+- No effect or sound plays at a death or its pile yet: a `shortcut:` where deaths are announced names the
+  journal events ("died", "pile laid") that should raise them.
+- A pile left floating after its 64-layer fall is simply a pile in the air. It does not block building (a pile is
+  never solid; a block placed in its cell lifts it). Reaching it to pick it up takes flight or a pillar built up
+  to it.
 - Left open: rooms and habitats as sleeping places (needs.md: later), the globe map's view of the game marks, and
   a waypoint shared in chat.

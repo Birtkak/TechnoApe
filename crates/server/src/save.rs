@@ -140,11 +140,11 @@ fn thirsty(ps: Vec<Saved<Vitals16, ()>>) -> Vec<Saved> {
     ps.into_iter().map(|p| Saved { name: p.name, pos: p.pos, fwd: p.fwd, creative: p.creative, slots: p.slots, water: p.water, vitals: p.vitals.into(), marks: Marks::default() }).collect()
 }
 
-/// A player's marks from the game (draft death's cost): the cell of the pile its last death left, until that
-/// pile is empty, and the sleeping place it claimed.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+/// A player's marks from the game (draft death's cost): the cells its last death's things were laid in, lowest first,
+/// those that still hold a pile (moved with them when they fall), and the sleeping place it claimed.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Marks {
-    pub death: Option<Block>,
+    pub death: Vec<Block>,
     pub home: Option<Block>,
 }
 
@@ -624,11 +624,11 @@ mod tests {
         let Save { seed, planet_n, moon_n, blocks, edits, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, .. } = save(17, registry());
         let v17: Save<Saved<Vitals, ()>> = Save { version: 17, seed, planet_n, moon_n, blocks, edits, players: vec![p], water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held };
         let back = Save::from_bytes(&postcard::to_allocvec(&v17).unwrap()).expect("version 17 loads");
-        assert_eq!((back.version, &back.players[0].vitals, back.players[0].water, back.players[0].marks), (17, &hurt, 5, Marks::default()));
+        assert_eq!((back.version, &back.players[0].vitals, back.players[0].water, &back.players[0].marks), (17, &hurt, 5, &Marks::default()));
         let mut now = back.clone();
         now.version = VERSION;
         let (death, home) = (Block { body: 1, face: 3, pos: IVec3::new(4, 5, 6) }, Block { body: 0, face: 2, pos: IVec3::new(7, 8, 9) });
-        now.players[0].marks = Marks { death: Some(death), home: Some(home) };
+        now.players[0].marks = Marks { death: vec![death, Block { pos: death.pos + IVec3::Z, ..death }], home: Some(home) };
         assert_eq!(Save::from_bytes(&now.to_bytes()).unwrap().players[0].marks, now.players[0].marks);
         // the 16 and older paths too
         let (old, _) = old_player();

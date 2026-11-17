@@ -170,6 +170,21 @@ pub(crate) fn drinks(thing_aimed: bool, water: bool) -> bool {
     water && !thing_aimed
 }
 
+/// Whether the place button claims the aimed bed (draft death's cost): only when no window (checked before),
+/// no pick-up and no drink takes the press, so a thing lying on a bed or water before leaves keeps its button.
+pub(crate) fn claims(thing_aimed: bool, water: bool, bed: bool) -> bool {
+    bed && !thing_aimed && !water
+}
+
+#[test]
+fn a_bed_is_claimed_only_when_no_pick_up_or_drink_takes_the_button() {
+    assert!(!claims(true, false, true), "a thing lying on the bed is picked up");
+    assert!(!claims(false, true, true), "water before the leaves is drunk");
+    assert!(claims(false, false, true) && !claims(false, false, false));
+    // and the pick-up and the drink still have it
+    assert!(on_thing("R", true, false, true) && drinks(false, true));
+}
+
 #[test]
 fn a_pick_up_in_the_water_wins_over_drinking() {
     // aimed at a thing lying in the water with the hand empty: the pick-up, not the drink
@@ -228,6 +243,10 @@ impl App {
             }
             // the place button with nothing in hand on water drinks while held (ADR 0145)
             "R" if drinks(self.aim_thing.is_some() && !self.aim_plant(), self.drink_target().is_some()) => self.drinking = true,
+            // a sleeping place claimed (draft death's cost): last of the uses, the server answers in chat
+            "R" if claims(self.aim_thing.is_some() && !self.aim_plant(), self.drink_target().is_some(), self.bed_target().is_some()) => {
+                self.link.send(ToServer::Use(self.bed_target().unwrap()));
+            }
             "r" if self.drinking => self.drinking = false,
             "L" | "R" if self.bucket => {
                 if let Some((_, before)) = self.aim {
