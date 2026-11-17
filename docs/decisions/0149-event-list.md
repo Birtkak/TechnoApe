@@ -1,4 +1,4 @@
-# Draft – The event list
+# 0149 – The event list
 
 - **Status:** accepted (the journal's step 1, `docs/design/journal.md`)
 - **Date:** 2026-11-17
