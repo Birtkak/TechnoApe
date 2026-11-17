@@ -40,12 +40,17 @@ const CRAFT2_W: f32 = 2.0 * (SIZE + GAP) - GAP + 34.0 + SIZE;
 const VSIZE: f32 = 40.0;
 const VGAP: f32 = 4.0;
 pub(crate) const VCOLS: usize = 5;
-pub(crate) const VROWS: usize = 6;
+pub(crate) const VROWS: usize = 7;
 const PSIZE: f32 = 36.0;
 const VPAD: f32 = 16.0;
 const DOCK_W: f32 = VCOLS as f32 * (VSIZE + VGAP) - VGAP + 2.0 * VPAD;
 const TEXT_LINES: usize = 5;
 const TEXT_LH: f32 = 18.0;
+/// A block window: the room between its own part's inset and the player's slots under it.
+const OWN_GAP: f32 = 12.0;
+/// The dark inset behind a block window's own part, and how far it reaches round it.
+const INSET: [f32; 4] = [0.0, 0.01, 0.03, 0.45];
+const INSET_PAD: f32 = 4.0;
 const HINT_CREATIVE: &str = "Click: a stack  Right: one  Shift: to hotbar  Wheel: more";
 
 /// Which window is open: creative's grid, survival's own inventory, or a block's window (the developer,
@@ -81,6 +86,8 @@ pub(crate) struct Layout {
     /// a furnace's top part.
     pub craft: [f32; 4],
     pub out: [f32; 4],
+    /// A block window: the inset behind its own part.
+    pub own: [f32; 4],
     /// The recipe viewer, docked right (none in creative): its room, its search field, each item in view with its
     /// square, the room they fill, the recipe's pattern (3 x 3 squares), the Fill button (none at a furnace, which
     /// has no grid) and the lines of text under them.
@@ -148,11 +155,14 @@ pub(crate) fn layout(lw: f32, lh: f32, screen: Screen, grid: &[u16], scroll: usi
     // the pack's rows (three rows' room) over the hotbar
     let pack_h = HEAD + 3.0 * step - GAP + 20.0 + HEAD + SIZE;
     let (tw, th) = top(screen, 0.0, 0.0, &mut Layout::default());
+    // a block's window shows only the rows the worn pack opens (none: the hotbar alone under the block's part)
+    let n_rows = open.saturating_sub(items::ROWS_AT).div_ceil(COLS) as f32;
+    let rows_h = if n_rows == 0.0 { 0.0 } else { HEAD + n_rows * step - GAP + 20.0 };
     // the content's width and height under the title row (the hint's line under that)
     let (iw, ih) = match screen {
         Screen::Creative => (wide + 14.0, 30.0 + 12.0 + GRID_ROWS as f32 * step - GAP + 40.0 + SIZE),
         Screen::Inventory => (APE_W + SEP + wide + SEP + CRAFT2_W, pack_h),
-        _ => (wide, th + 8.0 + pack_h),
+        _ => (wide, INSET_PAD + th + INSET_PAD + OWN_GAP + rows_h + HEAD + SIZE),
     };
     let (pw, ph) = (iw + 2.0 * PAD, TITLE_H + ih + 18.0 + 8.0 * HINT_PX + 18.0);
     // the viewer's width and the height its parts need
@@ -200,9 +210,11 @@ pub(crate) fn layout(lw: f32, lh: f32, screen: Screen, grid: &[u16], scroll: usi
             l.out = [cx + 2.0 * step - GAP + 34.0, l.craft[1] + (l.craft[3] - SIZE) / 2.0, SIZE, SIZE];
         }
         _ => {
-            top(screen, x0 + ((wide - tw) / 2.0).floor(), ct, &mut l);
-            l.rows = [x0, ct + th + 8.0 + HEAD, wide, 3.0 * step - GAP];
-            (hx, hot_y) = (x0, l.rows[1] + l.rows[3] + 20.0 + HEAD);
+            top(screen, x0 + ((wide - tw) / 2.0).floor(), ct + INSET_PAD, &mut l);
+            l.own = [x0, ct, wide, INSET_PAD + th + INSET_PAD];
+            let under = ct + l.own[3] + OWN_GAP;
+            l.rows = [x0, under + HEAD, wide, (n_rows * step - GAP).max(0.0)];
+            (hx, hot_y) = (x0, under + rows_h + HEAD);
         }
     }
     if screen != Screen::Creative {
@@ -674,6 +686,8 @@ impl App {
         let [px0, py0, pw, _] = l.panel;
         // the world a little darker under it, as under the menu
         p.rect(0.0, 0.0, p.w, p.h, [0.0, 0.01, 0.03, 0.35], 0);
+        // glass over a dark underlay: labels read over bright grass (the developer's shots, 2026-11-17)
+        hud::cut(p, l.panel[0], l.panel[1], l.panel[2], l.panel[3], [hud::PANEL[0], hud::PANEL[1], hud::PANEL[2], 0.75]);
         hud::glass(p, l.panel[0], l.panel[1], l.panel[2], l.panel[3]);
         hud::brackets(p, [px0 - 4.0, py0 - 4.0, pw + 8.0, l.panel[3] + 8.0], 14.0, false, CYAN);
         // the title row: the accent's bar and the name, as the menu's pages; a hairline under it
@@ -739,6 +753,8 @@ impl App {
             let worn = self.inv.get(items::WORN).copied().flatten().and_then(|s| ITEMS.get(s.item));
             match worn {
                 Some(d) => head(p, l.rows[0], l.rows[1], &format!("{} - {} slots", d.name, d.pack)),
+                // a block's window has no room for a pack not worn
+                None if self.screen() != Screen::Inventory => {}
                 None => {
                     head(p, l.rows[0], l.rows[1], "Pack");
                     let s = "No pack worn";
@@ -747,6 +763,10 @@ impl App {
                 }
             }
             head(p, l.hot[0], l.hot[1], "Hotbar");
+            if l.own[2] > 0.0 {
+                p.rect(l.own[0], l.own[1], l.own[2], l.own[3], INSET, 0);
+                edge(p, l.own, [CYAN[0], CYAN[1], CYAN[2], 0.18]);
+            }
             self.top_draw(p, l, season, pointer);
             self.viewer_draw(p, l, season, pointer);
         }
@@ -883,6 +903,7 @@ impl App {
         // the recipe shown: its pattern from the top left of a 3 x 3, red where the slots hold none of a cell's
         // items; its lines under it
         let pt = l.pattern;
+        p.rect(pt[0], pt[1] - HEAD - 8.0, l.text[2], 1.0, [CYAN[0], CYAN[1], CYAN[2], 0.25], 0);
         head(p, pt[0], pt[1], "Recipe");
         let mut lines: Vec<(String, [f32; 4])> = Vec::new();
         // Fill: none at a furnace; dim for a furnace's work, or while the recipe needs the bench and only the 2 x 2 is open
@@ -910,7 +931,8 @@ impl App {
                         }
                         let at = RECIPES.furnaces.iter().filter(|f| f.top >= w.heat).map(|f| ITEMS.name(f.block)).next().unwrap_or("no furnace yet");
                         lines.push((format!("makes {}{}", w.out.1, if w.mould.is_some() { ", mould kept" } else { "" }), dim));
-                        lines.push((format!("in a {at}, at {:.0} C, {:.0} s", w.heat, w.secs), faint));
+                        lines.push((format!("in a {at}"), faint));
+                        lines.push((format!("at {:.0} C, {:.0} s", w.heat, w.secs), faint));
                     }
                     None => {
                         lines.push((source(item), dim));
