@@ -912,6 +912,9 @@ impl App {
         }
         if m != self.menu {
             self.scroll = 0;
+            // the viewer shares this with creative's grid: a block's window opened after scrolling there began
+            // rows down its list (ADR 0143's review)
+            self.inv_scroll = 0;
             self.menu_since = Instant::now();
             self.key_query.clear();
             self.edit = None;
