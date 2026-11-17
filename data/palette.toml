@@ -5657,3 +5657,43 @@ ramp = "tin rich"
 name = "tin r8"
 rgb = "#c4c9c6"
 ramp = "tin rich"
+
+[[colour]]
+name = "bench wood r1"
+rgb = "#352417"
+ramp = "bench wood rich"
+
+[[colour]]
+name = "bench wood r2"
+rgb = "#4b341f"
+ramp = "bench wood rich"
+
+[[colour]]
+name = "bench wood r3"
+rgb = "#654627"
+ramp = "bench wood rich"
+
+[[colour]]
+name = "bench wood r4"
+rgb = "#815b2e"
+ramp = "bench wood rich"
+
+[[colour]]
+name = "bench wood r5"
+rgb = "#9a713a"
+ramp = "bench wood rich"
+
+[[colour]]
+name = "bench wood r6"
+rgb = "#b28947"
+ramp = "bench wood rich"
+
+[[colour]]
+name = "bench wood r7"
+rgb = "#bd9d63"
+ramp = "bench wood rich"
+
+[[colour]]
+name = "bench wood r8"
+rgb = "#c6b080"
+ramp = "bench wood rich"

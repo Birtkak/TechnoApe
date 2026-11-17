@@ -769,7 +769,7 @@ see = \"glass\"
         // the lamp's, hangs on a floor or a wall, a flame, broken by hand into itself, a full stack of 64
         // and the crucible, drawn with its own model (ADR 0141), solid
         let with: Vec<&str> = BLOCKS.placeable().filter(|d| d.model.is_some()).map(|d| d.name.as_str()).collect();
-        assert_eq!(with, ["torch", "crucible"]);
+        assert_eq!(with, ["torch", "workbench", "crucible"]);
         assert!(BLOCKS.get(BLOCKS.id("crucible")).is_some_and(|d| d.solid && d.model.as_deref() == Some("crucible")));
         let (t, lamp) = (BLOCKS.get(BLOCKS.id("torch")).unwrap(), BLOCKS.get(BLOCKS.id("lamp")).unwrap());
         assert_eq!(t.model.as_deref(), Some("torch"));

@@ -363,3 +363,5 @@ data/models/bronze ingot.toml
 data/models/bronze ingot.png
 data/models/tin ingot.toml
 data/models/tin ingot.png
+data/models/workbench.toml
+data/models/workbench.png

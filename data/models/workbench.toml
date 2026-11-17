@@ -1,0 +1,65 @@
+# A draft workbench (Claude's, listed in data/drafts.txt): a block's model, ADR 0140. Painted
+# boxes at 32 px a metre (a plank table on four legs, a hand axe and a stick on it); made by tools/paint_clutter.py.
+colours = ["log"]
+
+[[part]]
+name = "body"
+box = [1, 1, 1]
+voxels = "."
+
+[[part.boxes]]
+at = [1.0, 26.0, 1.0]
+size = [30, 4, 30]
+uv = [0, 0]
+
+[[part.boxes]]
+at = [2.0, 0.0, 2.0]
+size = [4, 26, 4]
+uv = [0, 34]
+
+[[part.boxes]]
+at = [26.0, 0.0, 2.0]
+size = [4, 26, 4]
+uv = [16, 34]
+
+[[part.boxes]]
+at = [2.0, 0.0, 26.0]
+size = [4, 26, 4]
+uv = [32, 34]
+
+[[part.boxes]]
+at = [26.0, 0.0, 26.0]
+size = [4, 26, 4]
+uv = [48, 34]
+
+[[part.boxes]]
+at = [6.0, 9.0, 3.0]
+size = [20, 3, 2]
+uv = [64, 34]
+
+[[part.boxes]]
+at = [6.0, 9.0, 27.0]
+size = [20, 3, 2]
+uv = [0, 64]
+
+[[part.boxes]]
+at = [3.0, 9.0, 6.0]
+size = [2, 3, 20]
+uv = [44, 64]
+
+[[part.boxes]]
+at = [27.0, 9.0, 6.0]
+size = [2, 3, 20]
+uv = [0, 87]
+
+[[part.boxes]]
+at = [7.0, 30.0, 9.0]
+size = [7, 2, 5]
+turn = [0.0, 25.0, 0.0]
+uv = [44, 87]
+
+[[part.boxes]]
+at = [17.0, 30.0, 18.0]
+size = [10, 1, 2]
+turn = [0.0, -30.0, 0.0]
+uv = [68, 87]

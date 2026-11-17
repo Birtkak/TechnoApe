@@ -1201,11 +1201,12 @@ colour = [0.36, 0.62, 0.18]
 pattern = "leaves"
 
 # The workbench (ADR 0140): four logs make it; the place button on it opens the inventory with the
-# 3 x 3 crafting grid. The existing planks pattern; no texture of its own yet.
+# 3 x 3 crafting grid. Drawn with its own model (data/models/workbench.toml, tools/paint_clutter.py); the planks pattern is its look as an item.
 [[block]]
 id = 218
 name = "workbench"
 window = "workbench"
+model = "workbench"
 hardness = 2.5
 tool = "axe"
 loose = true

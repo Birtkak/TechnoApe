@@ -35,7 +35,7 @@ RAMPS = {  # rich ramps, eight tones dark to light, shared with tools/paint_text
 # ore samples (ADR draft-ore-samples-and-prospecting): a lump of each, in its mineral's colour; the block it looks
 # like as an item
 SAMPLES = [("copper nugget", "copper"), ("tin pebble", "cassiterite"), ("iron pebble", "hematite"), ("coal lump", "coal"), ("lead pebble", "galena"), ("gold nugget", "gold quartz"), ("pitchblende pebble", "pitchblende")]
-RAMPS.update({"fired clay": rich_rgb(32, 0.24, 0.2), "ember": rich_rgb(18, 1.0, 0.1), "verdigris": rich_rgb(165, 0.5, 0.1), "bronze": rich_rgb(31, 0.8, 0.06), "tin": rich_rgb(212, 0.06, 0.2), "copper nugget": rich_rgb(22, 0.75, 0.04), "tin pebble": rich_rgb(25, 0.25, -0.03), "iron pebble": rich_rgb(8, 0.55, 0.0), "coal lump": rich_rgb(220, 0.06, -0.05), "lead pebble": rich_rgb(215, 0.1, 0.06), "gold nugget": rich_rgb(46, 0.95, 0.08), "pitchblende pebble": rich_rgb(35, 0.15, -0.04)})
+RAMPS.update({"fired clay": rich_rgb(32, 0.24, 0.2), "ember": rich_rgb(18, 1.0, 0.1), "verdigris": rich_rgb(165, 0.5, 0.1), "bench wood": rich_rgb(30, 0.5, 0.06), "bronze": rich_rgb(31, 0.8, 0.06), "tin": rich_rgb(212, 0.06, 0.2), "copper nugget": rich_rgb(22, 0.75, 0.04), "tin pebble": rich_rgb(25, 0.25, -0.03), "iron pebble": rich_rgb(8, 0.55, 0.0), "coal lump": rich_rgb(220, 0.06, -0.05), "lead pebble": rich_rgb(215, 0.1, 0.06), "gold nugget": rich_rgb(46, 0.95, 0.08), "pitchblende pebble": rich_rgb(35, 0.15, -0.04)})
 
 
 def ramps():
@@ -436,8 +436,43 @@ light = { point = "flame", colour = "lamp", strength = 0.7 }
     return files
 
 
+def wood(seed, plank=0):
+    """Sawn wood: grain in short streaks along x, lit from above; `plank`: a top face's boards, a dark seam every
+    that many pixels, their ends staggered."""
+    def p(face, x, y, w, h):
+        n = (rnd(seed, face, x // 4, y) - 0.5) * 1.2 + (rnd(seed, face, x, y) - 0.5) * 0.5
+        if face == "bottom":
+            return R("bench wood", 1.8)
+        if face == "top":
+            t = 5.2 + n
+            if plank and (y % plank == plank - 1 or (x + 11 * (y // plank)) % 17 == 0):
+                t -= 2.0
+            return R("bench wood", t)
+        return R("bench wood", 4.6 - 2.0 * y / max(1, h - 1) + n * 0.8)
+    return p
+
+
+def workbench():
+    """The workbench as a block's model (ADR 0140): a heavy table a block wide, a plank top on four legs with a rail
+    between them, a hand axe and a stick left lying on it."""
+    m = Model("workbench", w=128)  # ordered to fit the painting's shelves, 128 px a side at most
+    m.box((1, 26, 1), (30, 4, 30), wood("top", 6))
+    for k, (x, z) in enumerate([(2, 2), (26, 2), (2, 26), (26, 26)]):
+        m.box((x, 0, z), (4, 26, 4), wood(("leg", k)))
+    for k, z in enumerate([3, 27]):
+        m.box((6, 9, z), (20, 3, 2), wood(("rail", k)))
+    for k, x in enumerate([3, 27]):
+        m.box((x, 9, 6), (2, 3, 20), wood(("rail", 2 + k)))
+    m.box((7, 30, 9), (7, 2, 5), axe("bench axe", True), (0, 25, 0))
+    m.box((17, 30, 18), (10, 1, 2), rock("twig", "bench stick"), (0, -30, 0))
+    files = m.write("log", "a plank table on four legs, a hand axe and a stick on it")
+    path = OUT / "workbench.toml"
+    path.write_text(path.read_text(encoding="utf-8").replace("clutter, ADR 0082", "a block's model, ADR 0140"), encoding="utf-8")
+    return files
+
+
 def make():
-    written = cast() + cast("bronze", "bronze") + ingot("tin", "tin", "cassiterite") + crucible()
+    written = cast() + cast("bronze", "bronze") + ingot("tin", "tin", "cassiterite") + crucible() + workbench()
     # (grass tuft, fern and flowers became plants of planes: tools/paint_plants.py, ADR 0091)
     m = Model("fallen leaves")
     for k, (x, z) in enumerate([(6, 8), (16, 14), (11, 20), (20, 6)]):
