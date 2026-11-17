@@ -47,6 +47,37 @@ grid = ["H", "S"]
 key = { H = "copper hammer head", S = "stick" }
 out = ["copper hammer", 1]
 
+# The bronze tools (draft ADR tin-and-bronze): as copper's, a head above a stick.
+[[recipe]]
+name = "bronze pick"
+grid = ["H", "S"]
+key = { H = "bronze pick head", S = "stick" }
+out = ["bronze pick", 1]
+
+[[recipe]]
+name = "bronze axe"
+grid = ["H", "S"]
+key = { H = "bronze axe head", S = "stick" }
+out = ["bronze axe", 1]
+
+[[recipe]]
+name = "bronze shovel"
+grid = ["H", "S"]
+key = { H = "bronze shovel head", S = "stick" }
+out = ["bronze shovel", 1]
+
+[[recipe]]
+name = "bronze knife"
+grid = ["H", "S"]
+key = { H = "bronze knife blade", S = "stick" }
+out = ["bronze knife", 1]
+
+[[recipe]]
+name = "bronze hammer"
+grid = ["H", "S"]
+key = { H = "bronze hammer head", S = "stick" }
+out = ["bronze hammer", 1]
+
 # The crucible: eight clay round an empty middle, so at a workbench (3 x 3).
 [[recipe]]
 name = "crucible"
@@ -142,10 +173,45 @@ out = ["copper ingot", 1]
 heat = 1085
 seconds = 8
 
-# Casts: `in` in the input slot, the `mould` in the mould slot (kept: moulds last forever), and the cast chosen
-# in the window, which offers them in this order. With none chosen, or no mould, the ingots stay.
+# Tin melts at 232 (draft ADR tin-and-bronze); its rubble is a dug cassiterite block's.
+[[melt]]
+name = "tin from pebbles"
+in = ["tin pebble", 4]
+out = ["tin ingot", 1]
+heat = 232
+seconds = 4
+
+[[melt]]
+name = "tin from gravel"
+in = ["tin gravel", 2]
+out = ["tin ingot", 1]
+heat = 232
+seconds = 4
+
+[[melt]]
+name = "tin from cassiterite"
+in = ["cassiterite rubble", 1]
+out = ["tin ingot", 1]
+heat = 232
+seconds = 4
+
+# Alloys: `with` = [item, n] is a second input. Both are needed, one in each of the two input slots, either
+# order. A melt or cast of one input runs only while the other input slot is empty, so what runs is never in
+# doubt; no two melts take one input (or one pair of inputs).
+[[melt]]
+name = "bronze"
+in = ["copper ingot", 3]
+with = ["tin ingot", 1]
+out = ["bronze ingot", 4]
+heat = 1085
+seconds = 12
+
+# Casts: `in` in the input slot, the `mould` in the mould slot (kept: moulds last forever), and the cast's
+# `shape` chosen in the window, which offers each shape once, in this order; the metal in the input slot picks
+# the row of that shape. With none chosen, or no mould, the ingots stay.
 [[cast]]
 name = "cast pick head"
+shape = "pick head"
 in = ["copper ingot", 2]
 mould = "clay mould"
 out = ["copper pick head", 1]
@@ -154,6 +220,7 @@ seconds = 5
 
 [[cast]]
 name = "cast axe head"
+shape = "axe head"
 in = ["copper ingot", 2]
 mould = "clay mould"
 out = ["copper axe head", 1]
@@ -162,6 +229,7 @@ seconds = 5
 
 [[cast]]
 name = "cast shovel head"
+shape = "shovel head"
 in = ["copper ingot", 1]
 mould = "clay mould"
 out = ["copper shovel head", 1]
@@ -170,6 +238,7 @@ seconds = 5
 
 [[cast]]
 name = "cast knife blade"
+shape = "knife blade"
 in = ["copper ingot", 1]
 mould = "clay mould"
 out = ["copper knife blade", 1]
@@ -178,8 +247,54 @@ seconds = 5
 
 [[cast]]
 name = "cast hammer head"
+shape = "hammer head"
 in = ["copper ingot", 3]
 mould = "clay mould"
 out = ["copper hammer head", 1]
 heat = 1085
+seconds = 5
+
+[[cast]]
+name = "cast bronze pick head"
+shape = "pick head"
+in = ["bronze ingot", 2]
+mould = "clay mould"
+out = ["bronze pick head", 1]
+heat = 950
+seconds = 5
+
+[[cast]]
+name = "cast bronze axe head"
+shape = "axe head"
+in = ["bronze ingot", 2]
+mould = "clay mould"
+out = ["bronze axe head", 1]
+heat = 950
+seconds = 5
+
+[[cast]]
+name = "cast bronze shovel head"
+shape = "shovel head"
+in = ["bronze ingot", 1]
+mould = "clay mould"
+out = ["bronze shovel head", 1]
+heat = 950
+seconds = 5
+
+[[cast]]
+name = "cast bronze knife blade"
+shape = "knife blade"
+in = ["bronze ingot", 1]
+mould = "clay mould"
+out = ["bronze knife blade", 1]
+heat = 950
+seconds = 5
+
+[[cast]]
+name = "cast bronze hammer head"
+shape = "hammer head"
+in = ["bronze ingot", 3]
+mould = "clay mould"
+out = ["bronze hammer head", 1]
+heat = 950
 seconds = 5

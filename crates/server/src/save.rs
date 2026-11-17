@@ -29,8 +29,9 @@ use std::path::Path;
 /// item's id is given at load, so a save maps its ids by name) and the piles on the ground; a 12 or older loads
 /// its counts into slots in block id order, and what does not fit lies at the player's feet (`Server::from_save`).
 /// 14 keeps the pick-ups taken (ADR 0082); a 13 loads with none taken. 15 keeps the furnaces (ADR 0141:
-/// each one's slots, heat, fire, work and choice); a 14 loads with none.
-pub const VERSION: u32 = 15;
+/// each one's slots, heat, fire, work and choice); a 14 loads with none. 16 gives a furnace its second input
+/// (draft ADR tin-and-bronze: five slots); a 15 is read as a 16 is, its furnaces' fifth slot empty.
+pub const VERSION: u32 = 16;
 
 /// The rain each reach holds (`Liquids::rain_held`), an air job back but not shown yet as (ticks till it
 /// shows, its view) (`Weather::pending`), and the water's steps (`Liquids::steps`: once a second the reaches
@@ -167,7 +168,7 @@ impl Save {
     /// Reads a save and checks it is this version (or 4 or 5, carried over) and its blocks are this build's blocks.
     pub fn from_bytes(b: &[u8]) -> Result<Save, String> {
         let v13 = || postcard::take_from_bytes::<Save<Saved, Option<u64>, Option<engine::bake::air::State>, Reaches, Option<u64>, Rain, Held13>>(b).ok().filter(|(s, rest)| rest.is_empty() && s.version == 13).map(|(s, _)| s);
-        let now = postcard::from_bytes::<Save>(b).ok().filter(|s| s.version == VERSION).or_else(|| {
+        let now = postcard::from_bytes::<Save>(b).ok().filter(|s| s.version == VERSION || s.version == 15).or_else(|| {
             let Save { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held } = v13()?;
             Some(Save { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held: Held { items: held.items, piles: held.piles, taken: Vec::new(), furnaces: Vec::new() } })
         });
@@ -244,6 +245,10 @@ impl Save {
             .map(|(id, name)| ITEMS.named(name).filter(|&n| n >= ITEM_BASE).map(|n| (*id, n)).ok_or(format!("item {id} was '{name}' in the save; data/items.toml no longer has it")))
             .collect::<Result<_, _>>()?;
         let Save { players, held, .. } = &mut s;
+        // a 15's furnaces had four slots: the second input, appended, starts empty
+        for f in held.furnaces.iter_mut().filter(|f| f.1.slots.len() == 4) {
+            f.1.slots.push(None);
+        }
         for st in players.iter_mut().flat_map(|p| p.slots.iter_mut()).chain(held.piles.iter_mut().flat_map(|p| p.1.iter_mut())).chain(held.furnaces.iter_mut().flat_map(|f| f.1.slots.iter_mut())).flatten() {
             if st.item >= ITEM_BASE {
                 st.item = ids.iter().find(|m| m.0 == st.item).ok_or(format!("the save holds item {}, which its table does not name", st.item))?.1;
@@ -512,5 +517,19 @@ mod tests {
         let v14 = Save { version: 14, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held: Held14 { items: held.items, piles: held.piles, taken: vec![(cell, 4)] } };
         let back = Save::from_bytes(&postcard::to_allocvec(&v14).unwrap()).expect("version 14 loads");
         assert_eq!((back.version, back.held.taken, back.held.furnaces), (14, vec![(cell, 4)], Vec::new()));
+    }
+
+    /// 16 keeps a furnace's second input (draft ADR tin-and-bronze); a 15's furnaces had four slots and load with
+    /// that one empty, all they held where it was.
+    #[test]
+    fn a_15s_furnaces_load_with_their_second_input_empty() {
+        let (cell, gravel, ingot) = (Block { body: 0, face: 2, pos: IVec3::new(1, 2, 3) }, ITEMS.named("copper gravel").unwrap(), ITEMS.named("copper ingot").unwrap());
+        let mut s = save(15, registry());
+        let old = vec![Some(items::Stack::new(gravel, 2)), None, None, Some(items::Stack::new(ingot, 1))];
+        s.held.furnaces = vec![(cell, engine::furnace::Furnace { slots: old.clone(), heat: 700.0, doing: Some("copper from gravel".into()), ..Default::default() })];
+        let back = Save::from_bytes(&s.to_bytes()).expect("version 15 loads");
+        let f = &back.held.furnaces[0].1;
+        assert_eq!((back.version, f.slots.len(), &f.slots[..4], f.slots[engine::furnace::IN2], f.heat), (15, engine::furnace::SLOTS, &old[..], None, 700.0));
+        assert!(VERSION > 15);
     }
 }

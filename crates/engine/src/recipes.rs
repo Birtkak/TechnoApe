@@ -31,7 +31,11 @@ struct WorkRow {
     name: String,
     #[serde(rename = "in")]
     input: (String, u16),
+    /// A melt's second input, in the other input slot (draft ADR tin-and-bronze).
+    with: Option<(String, u16)>,
     mould: Option<String>,
+    /// A cast's shape: the window offers each shape once, the metal in the input slot picks the row.
+    shape: Option<String>,
     out: (String, u16),
     heat: f32,
     seconds: f32,
@@ -69,13 +73,17 @@ struct File {
     furnace: Vec<FurnaceRow>,
 }
 
-/// What a furnace works (ADR 0141): `in` of one item in its input slot becomes `out` once it has
-/// been at least `heat` (C) for `secs`. A cast needs `mould` in the mould slot (kept) and to be the one chosen.
+/// What a furnace works (ADR 0141): `in` of one item in an input slot becomes `out` once it has
+/// been at least `heat` (C) for `secs`. A melt `with` a second input needs both, one in each input slot, in
+/// either order; a work of one input runs only while the other input slot is empty, so what runs is never in
+/// doubt (draft ADR tin-and-bronze). A cast needs `mould` in the mould slot (kept) and its `shape` chosen.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Work {
     pub name: String,
     pub input: (u16, u16),
+    pub with: Option<(u16, u16)>,
     pub mould: Option<u16>,
+    pub shape: Option<String>,
     pub out: (u16, u16),
     pub heat: f32,
     pub secs: f32,
@@ -243,16 +251,33 @@ impl Recipes {
         self.works.iter().any(|w| w.mould == Some(item))
     }
 
-    /// The casts a furnace of `top` C can work, in the file's order: what its window offers to choose from.
+    /// The casts a furnace of `top` C can work, in the file's order.
     pub fn casts(&self, top: f32) -> impl Iterator<Item = &Work> {
         self.works.iter().filter(move |w| w.mould.is_some() && w.heat <= top)
+    }
+
+    /// The first cast of each shape a furnace of `top` C can work: what its window offers to choose from.
+    pub fn shapes(&self, top: f32) -> Vec<&Work> {
+        let mut v: Vec<&Work> = Vec::new();
+        for w in self.casts(top) {
+            if !v.iter().any(|o| o.shape == w.shape) {
+                v.push(w);
+            }
+        }
+        v
+    }
+
+    /// The shape of the cast named `name` (a chosen cast: any row of that shape stands for all of them).
+    pub fn shape(&self, name: &str) -> Option<&str> {
+        self.works.iter().find(|w| w.name == name)?.shape.as_deref()
     }
 }
 
 /// Reads and checks the furnaces' rows (ADR 0141), refused with the row's name: an unknown item or
 /// block, an amount of 0, a heat or seconds out of range, a melt with a mould or a cast without, a work that
-/// makes its own input or mould, a name any other recipe or work has, two melts of one input, a fuel twice, a
-/// furnace whose block opens no crucible's window.
+/// makes its own input or mould, a name any other recipe or work has, two melts of one input (or one pair of
+/// inputs, either order), a second input on a cast or the same as the first, a cast without a shape or a melt
+/// with one, two casts of one shape and input, a fuel twice, a furnace whose block opens no crucible's window.
 fn works(f: &File, items: &Items, grid: &[Recipe]) -> Result<(Vec<Work>, Vec<Fuel>, Vec<FurnaceDef>), String> {
     let item = |who: &str, n: &str| items.named(n).ok_or(format!("'{who}': no item '{n}'"));
     let heat = |who: &str, h: f32| if h > 0.0 && h <= HEAT_MAX { Ok(h) } else { Err(format!("'{who}': a heat over 0 to {HEAT_MAX} C")) };
@@ -269,17 +294,35 @@ fn works(f: &File, items: &Items, grid: &[Recipe]) -> Result<(Vec<Work>, Vec<Fue
         if mould.is_some() != cast {
             return bad("a cast names its mould, a melt none");
         }
-        if out.0 == input.0 || Some(out.0) == mould {
+        let with = match &r.with {
+            Some((n, k)) => Some((item(&who, n)?, *k)),
+            None => None,
+        };
+        if with.is_some_and(|w| w.1 == 0) {
+            return bad("an amount of 0");
+        }
+        if cast && with.is_some() || with.is_some_and(|w| w.0 == input.0) {
+            return bad("a second input only on a melt, and another item than the first");
+        }
+        if cast != r.shape.is_some() {
+            return bad("a cast names its shape, a melt none");
+        }
+        if out.0 == input.0 || Some(out.0) == mould || with.is_some_and(|w| w.0 == out.0) {
             return bad("it makes its own input or mould");
         }
         let named = |n: &str| n.eq_ignore_ascii_case(&r.name);
         if grid.iter().any(|g| named(&g.name)) || f.melt.iter().chain(&f.cast).filter(|o| named(&o.name)).count() > 1 {
             return bad("the name used twice");
         }
-        if !cast && works.iter().any(|w| w.input.0 == input.0) {
+        // a melt's inputs as a pair, either order: no two melts of one
+        let pair = |a: u16, b: Option<u16>| b.map_or((a, None), |b| (a.min(b), Some(a.max(b))));
+        if !cast && works.iter().any(|w| w.mould.is_none() && pair(w.input.0, w.with.map(|x| x.0)) == pair(input.0, with.map(|x| x.0))) {
             return bad("two melts of one input");
         }
-        works.push(Work { name: r.name.clone(), input, mould, out, heat: heat(&who, r.heat)?, secs: secs(&who, r.seconds)? });
+        if cast && works.iter().any(|w| w.shape == r.shape && w.input.0 == input.0) {
+            return bad("two casts of one shape and input");
+        }
+        works.push(Work { name: r.name.clone(), input, with, mould, shape: r.shape.clone(), out, heat: heat(&who, r.heat)?, secs: secs(&who, r.seconds)? });
     }
     let mut fuels: Vec<Fuel> = Vec::new();
     for r in &f.fuel {
@@ -377,7 +420,9 @@ mod tests {
 
     #[test]
     fn the_recipes_read_the_copper_tools_are_a_head_above_a_stick_and_four_logs_a_workbench() {
-        for (tool, head) in [("copper pick", "copper pick head"), ("copper axe", "copper axe head"), ("copper shovel", "copper shovel head"), ("copper knife", "copper knife blade"), ("copper hammer", "copper hammer head")] {
+        let tools = ["pick", "axe", "shovel", "knife", "hammer"].into_iter().zip(["pick head", "axe head", "shovel head", "knife blade", "hammer head"]);
+        for (tool, head) in ["copper", "bronze"].into_iter().flat_map(|m| tools.clone().map(move |(t, h)| (format!("{m} {t}"), format!("{m} {h}")))) {
+            let (tool, head) = (tool.as_str(), head.as_str());
             let r = RECIPES.named(&tool.replace(' ', "_")).unwrap_or_else(|| panic!("no recipe {tool}"));
             assert_eq!((r.w, r.h, r.cells.clone(), r.out), (1, 2, vec![Some(vec![id(head)]), Some(vec![id("stick")])], (id(tool), 1)));
             assert!(!r.bench() && RECIPES.making(id(tool)) == Some(r));
@@ -494,9 +539,13 @@ mod tests {
     fn bad_furnace_rows_are_refused_with_their_name() {
         let melt = |name: &str, inp: &str, out: &str, more: &str| format!("[[melt]]\nname='{name}'\nin={inp}\nout={out}\nheat=1085\nseconds=8\n{more}");
         let cast = |name: &str, more: &str| format!("[[cast]]\nname='{name}'\nin=['copper ingot', 2]\nout=['copper pick head', 1]\nheat=1085\nseconds=5\n{more}");
-        let ok = format!("{}{}", melt("m", "['copper gravel', 2]", "['copper ingot', 1]", ""), cast("c", "mould='clay mould'\n"));
+        let ok = format!("{}{}", melt("m", "['copper gravel', 2]", "['copper ingot', 1]", ""), cast("c", "mould='clay mould'\nshape='pick'\n"));
         let r = Recipes::parse(&ok, &ITEMS).unwrap();
         assert_eq!(r.works.len(), 2);
+        // draft ADR tin-and-bronze: a melt of two inputs, and one of either of them alone, read
+        let alloy = |name: &str, inp: &str, with: &str| melt(name, inp, "['bronze ingot', 4]", &format!("with={with}\n"));
+        let two = alloy("a", "['copper ingot', 3]", "['tin ingot', 1]");
+        assert_eq!(Recipes::parse(&format!("{two}{}", melt("t", "['tin ingot', 1]", "['flint', 1]", "")), &ITEMS).map(|r| r.works[0].with), Ok(Some((id("tin ingot"), 1))));
         let furnace = |block: &str, top: &str| format!("[[furnace]]\nblock='{block}'\ntop={top}\nrise=100\nfall=25\n");
         let fuel = |item: &str, s: &str, h: &str| format!("[[fuel]]\nitem='{item}'\nseconds={s}\nheat={h}\n");
         assert!(Recipes::parse(&format!("{}{}", furnace("crucible", "1100"), fuel("stick", "8", "700")), &ITEMS).is_ok());
@@ -506,8 +555,20 @@ mod tests {
             (melt("m", "['copper gravel', 2]", "['copper ingot', 0]", ""), "'m'", "amount"),
             (melt("m", "['copper gravel', 2]", "['copper gravel', 1]", ""), "'m'", "its own"),
             (melt("m", "['copper gravel', 2]", "['copper ingot', 1]", "mould='clay mould'\n"), "'m'", "mould"),
-            (cast("c", ""), "'c'", "mould"),
-            (cast("c", "mould='copper pick head'\n"), "'c'", "its own"),
+            (cast("c", "shape='pick'\n"), "'c'", "mould"),
+            (cast("c", "mould='copper pick head'\nshape='pick'\n"), "'c'", "its own"),
+            // a second input: unknown, of 0, on a cast, the first again, its own output; a cast with no shape
+            // or two of one shape and input; two melts of one pair, either order
+            (alloy("a", "['copper ingot', 3]", "['spoon', 1]"), "'a'", "no item 'spoon'"),
+            (alloy("a", "['copper ingot', 3]", "['tin ingot', 0]"), "'a'", "amount"),
+            (alloy("a", "['copper ingot', 3]", "['copper ingot', 1]"), "'a'", "second input"),
+            (alloy("a", "['copper ingot', 3]", "['bronze ingot', 1]"), "'a'", "its own"),
+            (cast("c", "mould='clay mould'\nshape='pick'\nwith=['tin ingot', 1]\n"), "'c'", "second input"),
+            (cast("c", "mould='clay mould'\n"), "'c'", "shape"),
+            (melt("m", "['copper gravel', 2]", "['copper ingot', 1]", "shape='pick'\n"), "'m'", "shape"),
+            (format!("{ok}{}", cast("d", "mould='clay mould'\nshape='pick'\n").replace("copper pick head", "copper axe head")), "'d'", "one shape"),
+            (format!("{two}{}", alloy("b", "['tin ingot', 1]", "['copper ingot', 3]")), "'b'", "one input"),
+            (format!("{two}{}", alloy("b", "['copper ingot', 2]", "['tin ingot', 2]")), "'b'", "one input"),
             (melt("m", "['copper gravel', 2]", "['copper ingot', 1]", "").replace("heat=1085", "heat=0"), "'m'", "heat"),
             (melt("m", "['copper gravel', 2]", "['copper ingot', 1]", "").replace("heat=1085", "heat=9000"), "'m'", "heat"),
             (melt("m", "['copper gravel', 2]", "['copper ingot', 1]", "").replace("seconds=8", "seconds=0"), "'m'", "seconds"),
