@@ -5577,3 +5577,83 @@ ramp = "fired clay rich"
 name = "fired clay r8"
 rgb = "#d1cbbd"
 ramp = "fired clay rich"
+
+[[colour]]
+name = "bronze r1"
+rgb = "#3f240e"
+ramp = "bronze rich"
+
+[[colour]]
+name = "bronze r2"
+rgb = "#593411"
+ramp = "bronze rich"
+
+[[colour]]
+name = "bronze r3"
+rgb = "#784814"
+ramp = "bronze rich"
+
+[[colour]]
+name = "bronze r4"
+rgb = "#995f16"
+ramp = "bronze rich"
+
+[[colour]]
+name = "bronze r5"
+rgb = "#b7781d"
+ramp = "bronze rich"
+
+[[colour]]
+name = "bronze r6"
+rgb = "#d29227"
+ramp = "bronze rich"
+
+[[colour]]
+name = "bronze r7"
+rgb = "#d8a748"
+ramp = "bronze rich"
+
+[[colour]]
+name = "bronze r8"
+rgb = "#dbb96c"
+ramp = "bronze rich"
+
+[[colour]]
+name = "tin r1"
+rgb = "#48464d"
+ramp = "tin rich"
+
+[[colour]]
+name = "tin r2"
+rgb = "#54555d"
+ramp = "tin rich"
+
+[[colour]]
+name = "tin r3"
+rgb = "#64686f"
+ramp = "tin rich"
+
+[[colour]]
+name = "tin r4"
+rgb = "#747d82"
+ramp = "tin rich"
+
+[[colour]]
+name = "tin r5"
+rgb = "#879294"
+ramp = "tin rich"
+
+[[colour]]
+name = "tin r6"
+rgb = "#9ba5a4"
+ramp = "tin rich"
+
+[[colour]]
+name = "tin r7"
+rgb = "#b0b7b4"
+ramp = "tin rich"
+
+[[colour]]
+name = "tin r8"
+rgb = "#c4c9c6"
+ramp = "tin rich"

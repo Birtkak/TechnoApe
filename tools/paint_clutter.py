@@ -35,7 +35,7 @@ RAMPS = {  # rich ramps, eight tones dark to light, shared with tools/paint_text
 # ore samples (ADR draft-ore-samples-and-prospecting): a lump of each, in its mineral's colour; the block it looks
 # like as an item
 SAMPLES = [("copper nugget", "copper"), ("tin pebble", "cassiterite"), ("iron pebble", "hematite"), ("coal lump", "coal"), ("lead pebble", "galena"), ("gold nugget", "gold quartz"), ("pitchblende pebble", "pitchblende")]
-RAMPS.update({"fired clay": rich_rgb(32, 0.24, 0.2), "ember": rich_rgb(18, 1.0, 0.1), "verdigris": rich_rgb(165, 0.5, 0.1), "copper nugget": rich_rgb(22, 0.75, 0.04), "tin pebble": rich_rgb(25, 0.25, -0.03), "iron pebble": rich_rgb(8, 0.55, 0.0), "coal lump": rich_rgb(220, 0.06, -0.05), "lead pebble": rich_rgb(215, 0.1, 0.06), "gold nugget": rich_rgb(46, 0.95, 0.08), "pitchblende pebble": rich_rgb(35, 0.15, -0.04)})
+RAMPS.update({"fired clay": rich_rgb(32, 0.24, 0.2), "ember": rich_rgb(18, 1.0, 0.1), "verdigris": rich_rgb(165, 0.5, 0.1), "bronze": rich_rgb(31, 0.8, 0.06), "tin": rich_rgb(212, 0.06, 0.2), "copper nugget": rich_rgb(22, 0.75, 0.04), "tin pebble": rich_rgb(25, 0.25, -0.03), "iron pebble": rich_rgb(8, 0.55, 0.0), "coal lump": rich_rgb(220, 0.06, -0.05), "lead pebble": rich_rgb(215, 0.1, 0.06), "gold nugget": rich_rgb(46, 0.95, 0.08), "pitchblende pebble": rich_rgb(35, 0.15, -0.04)})
 
 
 def ramps():
@@ -303,16 +303,16 @@ ORE = {
 }
 
 
-def metal(seed, edge=None):
+def metal(seed, edge=None, ramp="copper nugget"):
     """Cast copper (ADR 0139): warm and calm, lit from the top left with one bright streak down each side face, the
     bottom rows in shade, a rare pit from the mould; `edge`: "x+", "x-" or "y+", the side whose last pixels are a
     worked edge and catch the light (a blade, a pick's point)."""
     def p(face, x, y, w, h):
         n = (rnd(seed, face, x, y) - 0.5) * 0.7
         if face == "top":
-            return R("copper nugget", 5.6 + n)
+            return R(ramp, 5.6 + n)
         if face == "bottom":
-            return R("copper nugget", 1.8 + n * 0.5)
+            return R(ramp, 1.8 + n * 0.5)
         t = 4.6 - 2.2 * y / max(1, h - 1) - 0.8 * x / max(1, w - 1) + n
         if w > 2 and x == max(1, w // 4):  # the streak
             t += 1.4
@@ -320,7 +320,7 @@ def metal(seed, edge=None):
             t = 6.6 + n
         if rnd(seed, face, x, y, "pit") > 0.97:
             t -= 2
-        return R("copper nugget", t)
+        return R(ramp, t)
     return p
 
 
@@ -339,22 +339,26 @@ COPPER = {
 HEADS = {"pick": "copper pick head", "axe": "copper axe head", "shovel": "copper shovel head", "knife": "copper knife blade", "hammer": "copper hammer head"}
 
 
-def copper():
+def cast(metal_name="copper", ramp="copper nugget", look="copper"):
+    """A metal's five tools, their heads and its ingot, in `ramp` (copper, ADR 0139; bronze as copper's shapes)."""
     written = []
     for kind, (boxes, handle, cell) in COPPER.items():
         low = min(b[1] for b in boxes)
-        for name, shaft, drop, size in [(f"copper {kind}", handle, 0, cell), (HEADS[kind], 0, low, 0.45)]:
+        for name, shaft, drop, size in [(f"{metal_name} {kind}", handle, 0, cell), (HEADS[kind].replace("copper", metal_name), 0, low, 0.45)]:
             m = Model(name)
             if shaft:
                 m.box((15, 0, 15), (2, shaft, 2), rock("twig", (name, "shaft")))
             for k, (x, y, z, sx, sy, sz, edge) in enumerate(boxes):
-                m.box((x, y - drop, z), (sx, sy, sz), metal((kind, k), edge))
-            written += m.write("copper", f"cast copper{', on a stick' if shaft else ', the head alone'}", item=size)
-    m = Model("copper ingot")
-    m.box((10, 0, 13), (12, 4, 6), metal("ingot"))
-    m.box((11, 4, 14), (10, 1, 4), metal("ingot top"))
-    written += m.write("copper", "a cast bar, narrower on top", item=0.4)
-    return written
+                m.box((x, y - drop, z), (sx, sy, sz), metal((kind, k), edge, ramp))
+            written += m.write(look, f"cast {metal_name}{', on a stick' if shaft else ', the head alone'}", item=size)
+    return written + ingot(metal_name, ramp, look)
+
+
+def ingot(metal_name, ramp, look):
+    m = Model(f"{metal_name} ingot")
+    m.box((10, 0, 13), (12, 4, 6), metal("ingot", None, ramp))
+    m.box((11, 4, 14), (10, 1, 4), metal("ingot top", None, ramp))
+    return m.write(look, "a cast bar, narrower on top", item=0.4)
 
 
 def clay(seed, inside=None):
@@ -433,7 +437,7 @@ light = { point = "flame", colour = "lamp", strength = 0.7 }
 
 
 def make():
-    written = copper() + crucible()
+    written = cast() + cast("bronze", "bronze") + ingot("tin", "tin", "cassiterite") + crucible()
     # (grass tuft, fern and flowers became plants of planes: tools/paint_plants.py, ADR 0091)
     m = Model("fallen leaves")
     for k, (x, z) in enumerate([(6, 8), (16, 14), (11, 20), (20, 6)]):

@@ -339,3 +339,27 @@ data/models/copper ingot.toml
 data/models/copper ingot.png
 data/models/crucible.toml
 data/models/crucible.png
+data/models/bronze pick.toml
+data/models/bronze pick.png
+data/models/bronze pick head.toml
+data/models/bronze pick head.png
+data/models/bronze axe.toml
+data/models/bronze axe.png
+data/models/bronze axe head.toml
+data/models/bronze axe head.png
+data/models/bronze shovel.toml
+data/models/bronze shovel.png
+data/models/bronze shovel head.toml
+data/models/bronze shovel head.png
+data/models/bronze knife.toml
+data/models/bronze knife.png
+data/models/bronze knife blade.toml
+data/models/bronze knife blade.png
+data/models/bronze hammer.toml
+data/models/bronze hammer.png
+data/models/bronze hammer head.toml
+data/models/bronze hammer head.png
+data/models/bronze ingot.toml
+data/models/bronze ingot.png
+data/models/tin ingot.toml
+data/models/tin ingot.png
