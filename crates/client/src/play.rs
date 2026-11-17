@@ -51,46 +51,6 @@ pub(crate) fn replay(world: &mut World, server: phys::Player, (mut hunger, creat
     (me, hunger)
 }
 
-/// The player just after this client predicted an edit: the server takes the steps it has not answered after
-/// the edit, so they are taken again in the edited world now, not when its next word comes as a correction.
-pub(crate) fn after_edit(world: &mut World, server: Option<phys::Player>, walker: (f64, bool, bool), steps: &VecDeque<(u32, Input)>, me: phys::Player) -> phys::Player {
-    server.map_or(me, |s| replay(world, s, walker, steps).0)
-}
-
-#[test]
-fn a_dig_under_the_feet_moves_the_prediction_as_the_server_will() {
-    // the feel run's correction (gate on bd6e422): the server takes the steps it has not answered after the
-    // dig, so they fall; the prediction had them standing until the server's next word said otherwise
-    let mut w = World::new(256, 32, 1337);
-    let b = &w.bodies[0];
-    let feet = b.spawn * (b.height(b.spawn) + 0.6);
-    let up = phys::up(&w, feet);
-    let mut server = phys::Player::at(feet + up * 2.0, phys::tangent(DVec3::X, up, DVec3::Z));
-    for _ in 0..60 {
-        phys::step_at(&mut w, &mut server, &Input::default(), phys::DT);
-    }
-    assert!(server.on_ground);
-    // six steps taken here and not answered yet, standing
-    let steps: VecDeque<(u32, Input)> = (1..=6).map(|k| (k, Input::default())).collect();
-    let walker = (20.0, false, true);
-    let me = replay(&mut w, server, walker, &steps).0;
-    // the ground under the whole body
-    let side = phys::tangent(DVec3::X, up, DVec3::Z);
-    let across = up.cross(side);
-    for (a, c) in [(-1.0, -1.0), (-1.0, 0.0), (-1.0, 1.0), (0.0, -1.0), (0.0, 0.0), (0.0, 1.0), (1.0, -1.0), (1.0, 0.0), (1.0, 1.0)] {
-        let under = w.block_at(me.pos - up * 0.5 + side * (a * 0.6) + across * (c * 0.6));
-        w.set_block(under, AIR);
-    }
-    // the server: the dig, then those six steps
-    let mut truth = server;
-    for (_, inp) in &steps {
-        phys::step_at(&mut w, &mut truth, inp, phys::DT);
-    }
-    assert!(truth.pos.distance(me.pos) > 0.01, "the dig must change those steps");
-    let got = after_edit(&mut w, Some(server), walker, &steps, me);
-    assert!(got.pos.distance(truth.pos) < 1e-9, "the prediction is {:.3} m from the server's", got.pos.distance(truth.pos));
-}
-
 /// Sprint widens the view this much, degrees, eased in and out over SPRINT_EASE seconds (ADR 0118).
 pub(crate) const SPRINT_FOV: f64 = 8.0;
 const SPRINT_EASE: f64 = 0.15;
@@ -1203,17 +1163,10 @@ impl App {
                 self.clicks.push((self.streamer.frame, Instant::now(), cells));
             }
         }
-        // the player's own edit moves it at once, eased like a correction but not counted as one.
-        // shortcut: steps the server took before the edit came, whose answer is still on its way, are taken
-        // again here as if after it (a one-frame window locally, a round trip remote); an edit that names its
-        // step, applied by the server after that step, closes it
-        let walker = (self.server_hunger, self.creative, !self.creative && self.dead.is_none());
-        let me = after_edit(&mut self.world, self.server_me, walker, &self.steps, self.me);
-        let off = self.me.pos - me.pos;
-        if off.length() > 0.001 && off.length() < 2.0 {
-            (self.smooth, self.prev, self.me) = (self.smooth + off, self.prev - off, me);
-            self.path.clear();
-        }
+        // the steps taken so far go first: the server takes every step sent before an edit before it, so the
+        // edit falls after step `edit_after` there as here (ADR 0015, 0019)
+        self.send_steps();
+        self.edit_after = self.next_step.wrapping_sub(1);
         self.link.send(ToServer::Edit { seq, shape: *s, material: m });
     }
 
@@ -1678,11 +1631,25 @@ impl App {
         }
     }
 
+    /// Sends the steps not sent yet (ADR 0019).
+    pub(crate) fn send_steps(&mut self) {
+        let inputs: Vec<Input> = self.steps.iter().filter(|s| s.0 >= self.unsent).map(|s| s.1).collect();
+        if !inputs.is_empty() {
+            self.link.send(ToServer::steps(self.unsent, inputs));
+            self.unsent = self.next_step;
+        }
+    }
+
     /// The server's state after step `step` (ADR 0019): the steps it has not taken yet are replayed from it, and
     /// where that lands is where this player is. A difference is a correction, drawn eased out unless it is a
     /// jump of metres (a teleport, a respawn). The first answer places the player.
     pub(crate) fn reconcile(&mut self, step: u32, server: phys::Player, hunger: f64, t: f64) {
-        (self.server_me, self.server_hunger) = (Some(server), hunger);
+        // a word from before the server took this player's last edit: the steps after it were taken here in the
+        // world without the edit, and replaying them in this one would differ by it; the next word is past it
+        if self.spawned && (step.wrapping_sub(self.edit_after) as i32) < 0 {
+            return;
+        }
+        self.server_hunger = hunger;
         if !self.spawned {
             (self.me, self.prev, self.spawned, self.hunger) = (server, server.pos, true, hunger);
             self.steps.retain(|s| s.0 > step);

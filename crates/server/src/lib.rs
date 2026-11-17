@@ -60,7 +60,7 @@ pub type ServerLink = Link<ToClient, ToServer>;
 
 /// `Steps` a player may have waiting (one second), and steps it may take in one tick after a late batch.
 const QUEUE_MAX: usize = 60;
-const CREDIT_MAX: u32 = 12;
+const CREDIT_MAX: i32 = 12;
 
 /// Water steps (1/60 s each, at one node) a tick may spend: about 7 ms. Past it the water slows down instead of
 /// the server falling behind (ADR 0020).
@@ -157,7 +157,7 @@ struct Client {
     /// `Steps` not taken yet, by number; the number of the last one taken; how many steps it may take now.
     queue: VecDeque<(u32, Input)>,
     acked: u32,
-    credit: u32,
+    credit: i32,
     /// Creative counts nothing; survival digs into piles and places from its slots (ADR 0014, 0074).
     creative: bool,
     /// Its slots (`items::SLOTS`): the hotbar, the worn pack, the rows the pack opens, the crafting grid's cells.

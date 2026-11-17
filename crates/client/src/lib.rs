@@ -604,7 +604,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         next_step: 1,
         unsent: 1,
         spawned: false,
-        server_me: None,
+        edit_after: 0,
         server_hunger: engine::vitals::MAX as f64,
         hunger: engine::vitals::MAX as f64,
         sprinted: false,

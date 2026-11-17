@@ -58,8 +58,9 @@ pub(crate) struct App {
     pub(crate) next_step: u32,
     pub(crate) unsent: u32,
     pub(crate) spawned: bool,
-    /// The server's last word on this player, which `reconcile` and a predicted edit replay from (ADR 0019).
-    pub(crate) server_me: Option<phys::Player>,
+    /// The step after which this player's last edit was predicted, and the server takes it (ADR 0015): its
+    /// words on earlier steps are not reconciled.
+    pub(crate) edit_after: u32,
     /// Hunger, exactly (ADR 0118): the server's after `server_me`'s step, and as predicted at `me`; the step
     /// sprinted (the view widens by it).
     pub(crate) server_hunger: f64,
