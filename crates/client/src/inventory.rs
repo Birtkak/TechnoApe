@@ -355,7 +355,7 @@ fn the_screens_put_every_slot_apart_and_inside_the_panel() {
 }
 
 /// `s` in lines of at most `cols` characters, broken between words (a word longer than a line cut).
-fn wrap(s: &str, cols: usize) -> Vec<String> {
+pub(crate) fn wrap(s: &str, cols: usize) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for w in s.split_whitespace() {
         let w: String = w.chars().take(cols).collect();

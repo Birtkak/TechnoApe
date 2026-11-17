@@ -259,8 +259,8 @@ pub(crate) struct App {
     pub(crate) waypoint_file: Option<String>,
     /// The game's marks for this player (Death, Home), as the server last sent them (`nav::game_marks`).
     pub(crate) marks: Vec<nav::Waypoint>,
-    /// The server has sent this player's journal once (`frame::journal_notes`).
-    pub(crate) journal_told: bool,
+    /// The journal as the server told it, and the book's own state (book.rs).
+    pub(crate) book: crate::book::Book,
     /// The globe map (M, ADR 0077).
     pub(crate) globe: crate::globe::State,
     /// What the keys page's search holds (bugs/2026-11-11_13-13-42); a new page starts it empty.

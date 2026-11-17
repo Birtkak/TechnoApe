@@ -402,6 +402,13 @@ impl App {
             "esc" if self.menu == Some(Menu::Confirm) => self.undo_display(),
             // the inventory (ADR 0075): its key, a pick in the world, the screen's clicks
             "inventory" => self.toggle_inventory(),
+            // the journal's book (draft ADR journal-book): its key; entry:<name> chooses an entry in it (acts=)
+            "journal" => self.toggle_book(),
+            a if a.starts_with("entry:") && self.menu == Some(Menu::Book) => {
+                if let Some(k) = engine::journal::JOURNAL.index(&a[6..]) {
+                    self.book.select(k);
+                }
+            }
             "pick" if self.menu.is_none() => self.pick_block(),
             "sclick" if self.menu == Some(Menu::Inventory) => self.inv_click(false, true),
             "rclick" if self.menu == Some(Menu::Inventory) => self.inv_click(true, false),
@@ -436,7 +443,7 @@ impl App {
             }
             "esc" => self.set_menu(match self.menu {
                 None => Some(Menu::Pause),
-                Some(Menu::Inventory) => None,
+                Some(Menu::Inventory) | Some(Menu::Book) => None,
                 Some(Menu::Pause) | Some(Menu::Confirm) => None,
                 Some(Menu::Settings) => Some(self.home()),
                 Some(Menu::Page(_)) => Some(Menu::Settings),
@@ -1559,6 +1566,9 @@ impl App {
         } else if self.menu == Some(Menu::Inventory) {
             self.inv_draw(&mut paint, season);
             self.menu_boxes.clear();
+        } else if self.menu == Some(Menu::Book) {
+            self.book_draw(&mut paint);
+            self.menu_boxes.clear();
         } else if let Some(m) = self.menu {
             let cause = self.dead.clone().unwrap_or_default();
             if m == Menu::Dead {
@@ -1566,7 +1576,7 @@ impl App {
                 paint.rect(0.0, 0.0, lw, lh, [0.22, 0.0, 0.02, 0.4], 0);
             }
             let (title, hint) = match m {
-                Menu::Inventory => unreachable!(),
+                Menu::Inventory | Menu::Book => unreachable!(),
                 Menu::Dead => ("You died", cause.as_str()),
                 Menu::Title => ("TechnoApe", "Pillars of Simulation Engine"),
                 Menu::Worlds => ("Singleplayer", "A world carries on from its save. Right click or Delete removes one."),
