@@ -511,3 +511,35 @@ fn bounds_hold_the_chunk() {
         }
     }
 }
+
+/// needs.md's salt bit: the generated sea is salt, water poured into a pit on land is fresh (and so are the
+/// bake's rivers and lakes: their columns book against a reach, not the sea).
+#[test]
+fn the_sea_is_salt_and_a_pond_on_land_is_fresh() {
+    let mut w = World::new(256, 32, 1);
+    let b = &w.bodies[0];
+    let sea = b.layer_r(b.sea.unwrap());
+    let dirs = || {
+        (0..20000).map(|k| {
+            let z = 1.0 - (k as f64 + 0.5) / 10000.0;
+            let a = k as f64 * 2.399963;
+            let r = (1.0 - z * z).sqrt();
+            DVec3::new(r * a.cos(), r * a.sin(), z)
+        })
+    };
+    let d = dirs().find(|d| b.height(*d) < sea - 4.0).expect("a sea");
+    let wet = w.block_at(b.centre + d * (sea - 1.5));
+    assert!(w.water_surface(w.block_centre(wet)).is_some() && w.salt(wet), "the sea is salt");
+    // a pit two deep on land, well over the sea, filled by hand
+    let land = dirs().find(|d| b.height(*d) > sea + 6.0).expect("land");
+    let top = w.air_over_ground(0, land);
+    let pit = [Block { pos: top.pos - IVec3::Z, ..top }, Block { pos: top.pos - IVec3::Z * 2, ..top }];
+    for c in pit {
+        w.set_block(c, AIR);
+        w.regap(c);
+    }
+    let World { bodies, edits, water, sky, time, .. } = &mut w;
+    assert!(water.pour(&Solid::at(bodies, edits, sky, *time), World::col(pit[1]), pit[1].pos.z, 2 * crate::liquid::U));
+    assert!(w.water_surface(w.block_centre(pit[1])).is_some(), "the pit holds water");
+    assert!(!w.salt(pit[1]), "a pond on land is fresh");
+}

@@ -81,6 +81,11 @@ pub enum ToServer {
     /// The cast the furnace at `at` works its ingots into (a `cast` row's name), or none (ADR 0141):
     /// alive, within `items::BENCH_REACH`, a furnace there and a cast it reaches. Answered by its `Furnace`.
     Choose { at: Block, cast: Option<String> },
+    /// The use button held on the water in cell `at`, or let go (none; ADR 0145): while it is held,
+    /// alive, in survival, nothing in hand, within `items::BENCH_REACH` and the water there fresh (`World::salt`,
+    /// judged when the cell comes), each of the player's physics steps drinks (`Vitals::drink`). Sent on a
+    /// change, as `Dig`; death lets go.
+    Drink(Option<Block>),
 }
 
 impl ToServer {
@@ -143,9 +148,9 @@ pub enum ToClient {
     Water(Vec<(crate::liquid::Col, Vec<crate::liquid::ColWater>)>),
     /// A line for the chat (ADR 0023): a player's words, an answer to a command, someone joining or leaving.
     Chat(String),
-    /// This player's health and hunger, 0 to `vitals::MAX` (ADR 0040), and how it died while it is dead;
-    /// sent on join and when what the HUD shows changes.
-    Vitals { health: u8, hunger: u8, dead: Option<String> },
+    /// This player's health, hunger and thirst, 0 to `vitals::MAX` (ADR 0040, 0145), and how it
+    /// died while it is dead; sent on join and when what the HUD shows changes.
+    Vitals { health: u8, hunger: u8, thirst: u8, dead: Option<String> },
     /// Another player's dig (ADR 0034): the shape, the share of it done when this was sent and the share it
     /// gains a second (the client runs the cracks on from those), or none when it stopped or finished.
     Digging { id: u32, at: Option<(Shape, f32, f32)> },
@@ -358,7 +363,7 @@ pub fn complete(line: &str) -> (usize, Vec<String>) {
             let names: Vec<String> = crate::bodies::BODIES.iter().flat_map(|r| std::iter::once(r.name.to_lowercase()).chain(r.words.clone())).collect();
             let places: Vec<&str> = names.iter().map(String::as_str).chain(["sun"]).collect();
             let words: &[&str] = match (first, before.get(1).map(String::as_str), before.len()) {
-                (None, _, _) => &["time", "playmode", "give", "place", "goto", "timewarp", "heal", "feed", "hurt", "help"],
+                (None, _, _) => &["time", "playmode", "give", "place", "goto", "timewarp", "heal", "feed", "thirst", "hurt", "help"],
                 (Some("timewarp" | "warp"), None, 1) => &["1", "10", "100", "1000", "10000", "up", "down"],
                 (Some("time"), None, 1) => &["set", "add"],
                 (Some("time"), Some("set"), 2) => &["sunrise", "day", "noon", "sunset", "night", "midnight", "spring", "summer", "autumn", "winter"],
@@ -484,7 +489,7 @@ mod tests {
     #[test]
     fn commands_complete() {
         let c = |l: &str| complete(l);
-        assert_eq!(c("/"), (1, ["time", "playmode", "give", "place", "goto", "timewarp", "heal", "feed", "hurt", "help"].map(String::from).to_vec()));
+        assert_eq!(c("/"), (1, ["time", "playmode", "give", "place", "goto", "timewarp", "heal", "feed", "thirst", "hurt", "help"].map(String::from).to_vec()));
         assert_eq!(c("/h"), (1, ["heal", "hurt", "help"].map(String::from).to_vec()));
         assert_eq!(c("/g"), (1, vec!["give".to_string(), "goto".to_string()]));
         assert_eq!(c("/time "), (6, vec!["set".to_string(), "add".to_string()]));

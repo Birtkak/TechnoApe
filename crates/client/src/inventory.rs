@@ -783,6 +783,7 @@ impl App {
             let max = engine::vitals::MAX;
             p.text_px(wb[0] + SIZE + 14.0, wb[1] + 8.0, &format!("Health {}/{max}", self.vitals.0), hud::HEALTH, small);
             p.text_px(wb[0] + SIZE + 14.0, wb[1] + 30.0, &format!("Hunger {}/{max}", self.vitals.1), hud::HUNGER, small);
+            p.text_px(wb[0] + SIZE + 14.0, wb[1] + 52.0, &format!("Thirst {}/{max}", self.vitals.2), hud::THIRST, small);
         }
         let mut hover = None;
         for &(h, i, b) in &l.spots {
