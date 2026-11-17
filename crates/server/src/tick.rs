@@ -208,6 +208,9 @@ impl Server {
                             let left: Vec<Stack> = self.clients[i].slots.iter_mut().filter_map(Option::take).collect();
                             // (with nothing carried the last death's mark stays)
                             let laid = self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), left, (0, 0));
+                            if let Some(&at) = laid.first() {
+                                self.events.push(Event::Laid { at, by: self.clients[i].player.id });
+                            }
                             if !laid.is_empty() {
                                 self.clients[i].marks.death = laid;
                             }
@@ -309,9 +312,10 @@ impl Server {
             }
             c.link.send(ToClient::You { step: c.acked, me: c.phys, time: self.world.time, warp: self.warp as f64, hunger: c.vitals.hunger });
         }
-        // shortcut: a death is only a line of chat, and the pile its respawn lays is silent; both become journal
-        // events ("died", "pile laid") with an effect and a sound once journal.md step 1's event list is in main
+        // a death is an event (`Died`), and so is the pile its respawn lays (`Laid`, the Respawn arm)
+        // shortcut: neither has an effect or a sound yet; one each when the developer asks for them
         for line in deaths {
+            self.died(&line);
             self.say(line);
         }
         // loose blocks wake where this tick's edits changed the world, then fall and slide (ADR 0079), through
@@ -324,6 +328,16 @@ impl Server {
             self.falls.step(&mut self.world, self.tick, &mut changed);
             self.rock_hits(&changed[mine..]);
         }
+        // each move is two edits, the cell left then the cell come to (`Falls::step`). shortcut: a move across a
+        // face's edge is the cell's dig and place, as the client drew it before the list; a fall when noticed
+        for p in changed[mine..].chunks_exact(2) {
+            let ((from, _), (to, block)) = (p[0], p[1]);
+            self.events.extend(if (from.body, from.face) == (to.body, to.face) {
+                vec![Event::Fall { from, to, block }]
+            } else {
+                vec![Event::Edit { at: from, was: block, now: AIR, by: None }, Event::Edit { at: to, was: AIR, now: block, by: None }]
+            });
+        }
         // a torch a falling block took the cell of was knocked off first (ADR 0117): it drops as itself where the
         // block fell from
         for (from, m) in std::mem::take(&mut self.falls.knocked) {
@@ -334,6 +348,7 @@ impl Server {
             let m = self.world.block(b);
             self.world.set_block(b, AIR);
             changed.push((b, AIR));
+            self.events.push(Event::Edit { at: b, was: m, now: AIR, by: None });
             self.knock_off(b, m);
         }
         // the animals (ADR 0083): woken by the players on Terra, stepped as far as the players were
@@ -362,8 +377,10 @@ impl Server {
         for _ in 0..wsteps {
             self.world.step_water();
         }
-        // the falls' moves in messages of their own, so no move's two edits are split between two (the client
-        // knows a move by its pair)
+        // what happened, before the edits that show it
+        let events = std::mem::take(&mut self.events);
+        self.send_events(&events);
+        // the falls' moves in messages of their own, so no move's two edits are split between two
         for part in changed[..mine].chunks(EDITS_PART).chain(changed[mine..].chunks(EDITS_PART)) {
             for c in &self.clients {
                 c.link.send(ToClient::Edits(part.to_vec()));
@@ -380,6 +397,7 @@ impl Server {
                 self.knock_off(b, m);
             }
             if !wet.is_empty() {
+                self.send_events(&wet.iter().map(|&(at, was)| Event::Edit { at, was, now: AIR, by: None }).collect::<Vec<_>>());
                 let gone: Vec<(Block, u16)> = wet.iter().map(|w| (w.0, AIR)).collect();
                 for c in &self.clients {
                     c.link.send(ToClient::Edits(gone.clone()));
@@ -471,6 +489,31 @@ impl Server {
             if let Err(e) = self.rec.as_mut().unwrap().flush() {
                 eprintln!("[technoape-server] recording stopped: {e}");
                 self.rec = None;
+            }
+        }
+    }
+
+    /// Each client is sent, in their order and in parts of at most `EDITS_PART`, the events it can perceive
+    /// (ADR 0149): every `Edit` and `Fall`, as their edits go to every client (the effects of a cave-in
+    /// 300 m off played before the list, and play still), and of the rest those within `events::PERCEIVE` of
+    /// it (where a player's own happened, where that player is) and every one of its own.
+    pub(super) fn send_events(&self, events: &[Event]) {
+        if events.is_empty() {
+            return;
+        }
+        for c in &self.clients {
+            let near = |p: DVec3| p.distance(c.phys.pos) <= engine::events::PERCEIVE;
+            let sees = |e: &Event| match e {
+                Event::Edit { .. } | Event::Fall { .. } => true,
+                _ if e.by() == Some(c.player.id) => true,
+                _ => match e.cell() {
+                    Some(b) => near(self.world.block_centre(b)),
+                    None => e.by().and_then(|id| self.clients.iter().find(|o| o.player.id == id)).is_some_and(|o| near(o.phys.pos)),
+                },
+            };
+            let v: Vec<Event> = events.iter().filter(|e| sees(e)).cloned().collect();
+            for part in v.chunks(EDITS_PART) {
+                c.link.send(ToClient::Events(part.to_vec()));
             }
         }
     }

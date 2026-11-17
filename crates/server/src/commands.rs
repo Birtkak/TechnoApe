@@ -328,8 +328,10 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                 if BLOCKS.solid(d.id) && self.clients.iter().any(|c| phys::holds(world, &c.phys, b)) {
                     return "a player stands there: a solid block would trap them".into();
                 }
+                let was = self.world.block(b);
                 self.world.set_block(b, d.id);
                 changed.push((b, d.id));
+                self.events.push(Event::Edit { at: b, was, now: d.id, by: Some(self.clients[i].player.id) });
                 format!("placed {} at face {} {} {}, layer {}", d.name, b.face, b.pos.x, b.pos.y, b.pos.z)
             }
             Some("spawn") => {
@@ -411,9 +413,12 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                     .map(|(d, id)| (Block { pos: foot.pos + glam::IVec3::new(d[2], d[0], d[1]), ..foot }, id))
                     .filter(|(b, id)| Shape::one(*b).fits(world) && !(BLOCKS.solid(*id) && held.contains(b)))
                     .collect();
-                for (b, id) in &put {
-                    self.world.set_block(*b, *id);
-                    changed.push((*b, *id));
+                let by = Some(self.clients[i].player.id);
+                for &(b, id) in &put {
+                    let was = self.world.block(b);
+                    self.world.set_block(b, id);
+                    changed.push((b, id));
+                    self.events.push(Event::Edit { at: b, was, now: id, by });
                 }
                 format!("placed {name}: {} blocks, five ahead of you at face {} {} {}, layer {}", put.len(), foot.face, foot.pos.x, foot.pos.y, foot.pos.z)
             }

@@ -37,6 +37,100 @@ fn drain(l: &Link<ToServer, ToClient>) -> Vec<ToClient> {
     v
 }
 
+/// The events among `got`, in order (ADR 0149).
+fn events(got: &[ToClient]) -> Vec<Event> {
+    got.iter().filter_map(|m| if let ToClient::Events(v) = m { Some(v.clone()) } else { None }).flatten().collect()
+}
+
+/// The event list (ADR 0149): a dig is an event, with what was there and who dug, sent to every player
+/// before the edit that shows it, far ones too; a death is told only within `PERCEIVE`.
+#[test]
+fn a_dig_is_an_event_for_every_player_before_its_edit_and_a_death_only_near() {
+    let (mut s, links) = server_with(3);
+    let (pole, over) = on_land(&s);
+    let under = Block { pos: over.pos - glam::IVec3::Z, ..over };
+    let b = &s.world.bodies[0];
+    // high over the pole, in the air
+    let far = b.centre + (pole - b.centre) * 2.0;
+    for (l, p) in links.iter().zip([pole, pole + DVec3::X * 3.0, far]) {
+        l.send(ToServer::Creative(true));
+        l.send(ToServer::Move { pos: p.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    }
+    s.tick();
+    links.iter().for_each(|l| drop(drain(l)));
+    assert!(s.clients[2].phys.pos.distance(pole) > engine::events::PERCEIVE + 10.0);
+    let was = s.world.block(under);
+    assert_ne!(was, AIR);
+    links[0].send(ToServer::Edit { seq: 1, shape: Shape::one(under), material: AIR });
+    s.tick();
+    let dug = Event::Edit { at: under, was, now: AIR, by: Some(s.clients[0].player.id) };
+    for (k, l) in links.iter().enumerate() {
+        let got = drain(l);
+        let edit = got.iter().position(|m| matches!(m, ToClient::Edits(v) if v.contains(&(under, AIR)))).expect("everyone is sent the edit");
+        let told = got.iter().position(|m| matches!(m, ToClient::Events(v) if v.contains(&dug)));
+        // (the review: an edit's and a fall's event go wherever their edit goes, far too, as before the list
+        // every edit played for every client)
+        assert!(told.is_some_and(|e| e < edit), "{k}: the event before its edit: {got:?}");
+    }
+    // the other kinds only within PERCEIVE: a death near the pole is not told high over it
+    let id = s.clients[0].player.id;
+    s.send_events(&[Event::Died { by: id }]);
+    let told: Vec<bool> = links.iter().map(|l| !events(&drain(l)).is_empty()).collect();
+    assert_eq!(told, vec![true, true, false]);
+}
+
+/// The review of the event list: a tick's events, more than one message holds, come in parts of at most
+/// `EDITS_PART`, in order, every one of them.
+#[test]
+fn many_events_come_in_parts_in_order() {
+    let (s, links) = server_with(1);
+    let at = |k: i32| Block { body: 0, face: 0, pos: glam::IVec3::new(k % 256, (k / 256) % 256, 200) };
+    let ev: Vec<Event> = (0..EDITS_PART as i32 + 5).map(|k| Event::Edit { at: at(k), was: AIR, now: 1, by: None }).collect();
+    drain(&links[0]);
+    s.send_events(&ev);
+    let parts: Vec<Vec<Event>> = drain(&links[0]).into_iter().filter_map(|m| if let ToClient::Events(v) = m { Some(v) } else { None }).collect();
+    assert!(parts.len() > 1 && parts.iter().all(|p| p.len() <= EDITS_PART), "{:?}", parts.iter().map(Vec::len).collect::<Vec<_>>());
+    assert_eq!(parts.concat(), ev);
+}
+
+/// The review of the event list: a falling stack of three (the lowest moves first, each above it into the
+/// cell the one under it left, `Falls::step`), through the protocol: every move is a `Fall` sent before its
+/// edits, and the edit that brings its block to its cell comes after the edit that emptied the cell.
+#[test]
+fn a_falling_stack_is_a_fall_for_each_move_before_its_edits() {
+    let (mut s, links) = server_with(2);
+    let (pole, under) = on_land(&s);
+    let shelf = Block { pos: under.pos + glam::IVec3::new(3, 0, 5), ..under };
+    let at = |k: i32| Block { pos: shelf.pos + glam::IVec3::Z * k, ..shelf };
+    let (stone, sand, gravel) = (BLOCKS.id("stone"), BLOCKS.id("sand"), BLOCKS.id("gravel"));
+    s.world.set_block(shelf, stone);
+    for (k, m) in [(1, sand), (2, sand), (3, gravel)] {
+        s.world.set_block(at(k), m);
+    }
+    links[0].send(ToServer::Creative(true));
+    links[0].send(ToServer::Move { pos: pole.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    s.tick();
+    drain(&links[1]);
+    links[0].send(ToServer::Edit { seq: 1, shape: Shape::one(shelf), material: AIR });
+    let mut got = Vec::new();
+    for _ in 0..80 {
+        s.tick();
+        got.extend(drain(&links[1]));
+    }
+    let falls: Vec<(usize, Block, Block, u16)> = got.iter().enumerate().filter_map(|(i, m)| if let ToClient::Events(v) = m { Some((i, v.clone())) } else { None }).flat_map(|(i, v)| v.into_iter().filter_map(move |e| if let Event::Fall { from, to, block } = e { Some((i, from, to, block)) } else { None })).collect();
+    assert!(falls.iter().any(|f| f.3 == gravel) && falls.iter().filter(|f| f.3 == sand).count() >= 2, "every block of the stack fell: {falls:?}");
+    // in the first tick of the fall, the three move together: the stack's cells each emptied and filled
+    let first: Vec<_> = falls.iter().filter(|f| f.0 == falls[0].0).collect();
+    assert_eq!(first.iter().map(|f| (f.1, f.2, f.3)).collect::<Vec<_>>(), vec![(at(1), shelf, sand), (at(2), at(1), sand), (at(3), at(2), gravel)], "lowest first");
+    for &(i, from, to, block) in &falls {
+        // the edits after the event's message, up to the next events
+        let edits: Vec<(Block, u16)> = got[i + 1..].iter().take_while(|m| !matches!(m, ToClient::Events(_))).filter_map(|m| if let ToClient::Edits(v) = m { Some(v.clone()) } else { None }).flatten().collect();
+        let left = edits.iter().position(|e| *e == (from, AIR)).unwrap_or_else(|| panic!("{from:?} left: {edits:?}"));
+        let came = edits.iter().position(|e| *e == (to, block)).unwrap_or_else(|| panic!("{to:?} came: {edits:?}"));
+        assert_eq!(came, left + 1, "a move's two edits side by side: {from:?} -> {to:?}");
+    }
+}
+
 /// The live air (W3): a server on a baked map runs it, sends each player the air where it stands every
 /// `AIR_EVERY` ticks, and a save carries it on to the same weather as the server that kept running.
 #[test]
@@ -234,8 +328,15 @@ fn sand_dug_from_under_falls_and_every_player_sees_it() {
     assert!(rest.pos.z < shelf.pos.z && (rest.pos - shelf.pos).abs().max_element() < 8, "under the shelf: {rest:?}");
     assert!(BLOCKS.solid(s.world.block(Block { pos: rest.pos - glam::IVec3::Z, ..rest })), "on the ground");
     assert_eq!(s.falls.awake(), 0, "and asleep");
-    let edits: Vec<(Block, u16)> = got.into_iter().filter_map(|m| if let ToClient::Edits(v) = m { Some(v) } else { None }).flatten().collect();
+    let edits: Vec<(Block, u16)> = got.iter().filter_map(|m| if let ToClient::Edits(v) = m { Some(v.clone()) } else { None }).flatten().collect();
     assert!(edits.contains(&(over, AIR)) && edits.contains(&(rest, sand)), "{edits:?}");
+    // the events (ADR 0149): the shelf's dig, then every move a fall, from the sand's cell to where it lies
+    let ev = events(&got);
+    assert_eq!(ev.first(), Some(&Event::Edit { at: shelf, was: stone, now: AIR, by: Some(s.clients[0].player.id) }), "{ev:?}");
+    let falls: Vec<(Block, Block, u16)> = ev.iter().filter_map(|e| if let Event::Fall { from, to, block } = *e { Some((from, to, block)) } else { None }).collect();
+    assert!(falls.first().is_some_and(|f| f.0 == over) && falls.last().is_some_and(|f| f.1 == rest) && falls.iter().all(|f| f.2 == sand), "{falls:?}");
+    assert!(falls.windows(2).all(|w| w[0].1 == w[1].0), "one cell to the next: {falls:?}");
+    assert_eq!(ev.len(), falls.len() + 1, "nothing else: {ev:?}");
 }
 
 #[test]
@@ -346,6 +447,9 @@ fn a_torch_needs_a_floor_or_a_wall_and_drops_when_it_goes() {
     let got = drain(l);
     assert_eq!(s.world.block(wall), AIR, "nothing holds it");
     assert_eq!(s.world.block(floor), torch, "the floor's stays");
+    // the dig is the player's event, the torch's drop the world's (ADR 0149)
+    let by = Some(s.clients[0].player.id);
+    assert_eq!(events(&got), vec![Event::Edit { at: at(3, 3), was: stone, now: AIR, by }, Event::Edit { at: wall, was: torch, now: AIR, by: None }]);
     let pile = got.iter().rev().find_map(|m| if let ToClient::Piles(v) = m { v.iter().find(|p| p.1.iter().flatten().any(|st| st.item == torch)).map(|p| p.1.clone()) } else { None });
     assert_eq!(pile, Some(vec![Some(Stack::new(torch, 1)), None, None, None]), "one torch lies");
     assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
@@ -843,7 +947,7 @@ fn the_hand_axe_digs_faster_takes_more_and_wears_out() {
     let t = ITEMS.get(axe).unwrap().tool.clone().unwrap();
     l.send(ToServer::Chat("/give hand_axe".into()));
     s.tick();
-    let mut seq = 0;
+    let (mut seq, mut seen) = (0, Vec::new());
     let mut dig = |s: &mut Server, b: Block, secs: f32| {
         seq += 1;
         let one = Shape::one(b);
@@ -853,7 +957,9 @@ fn the_hand_axe_digs_faster_takes_more_and_wears_out() {
         l.send(ToServer::Edit { seq, shape: one, material: AIR });
         s.tick();
         l.send(ToServer::Dig(None));
-        drain(l).contains(&ToClient::Done { seq, ok: true })
+        let got = drain(l);
+        seen.extend(events(&got));
+        got.contains(&ToClient::Done { seq, ok: true })
     };
     let granite = BLOCKS.id("granite");
     s.world.set_block(cell, granite);
@@ -890,6 +996,9 @@ fn the_hand_axe_digs_faster_takes_more_and_wears_out() {
     assert!(dig(&mut s, cell, n));
     assert_eq!(s.clients[0].slots[0], None, "worn away");
     assert!(s.item_ledger().iter().all(|x| x.0 != axe), "{:?}", s.item_ledger());
+    // the wear is an event, once, at the last use (ADR 0149: the client's snap plays from it)
+    let worn: Vec<&Event> = seen.iter().filter(|e| matches!(e, Event::Worn { .. })).collect();
+    assert_eq!(worn, vec![&Event::Worn { item: axe, by: s.clients[0].player.id }]);
     // creative: instant, and its axe wears nothing
     l.send(ToServer::Chat("/give hand_axe".into()));
     l.send(ToServer::Creative(true));
@@ -965,14 +1074,17 @@ fn the_grid_makes_its_pattern_from_its_cells_or_nothing_changes() {
     shift(&mut s, l, 1, items::CRAFT_AT + 4, 3);
     assert_eq!((s.clients[0].slots[items::CRAFT_AT + 1], s.clients[0].slots[items::CRAFT_AT + 4]), (Some(Stack::new(head, 2)), Some(Stack::new(stick, 3))));
     let craft = |s: &mut Server, recipe: &str, n: u16| {
+        drain(l);
         l.send(ToServer::Craft { recipe: recipe.into(), n });
         s.tick();
         (held(&s.clients[0].slots), engine::recipes::grid(&s.clients[0].slots))
     };
     assert_eq!(craft(&mut s, "copper axe", 1).0, vec![], "the grid holds no axe: nothing");
+    assert!(events(&drain(l)).is_empty(), "nothing made, no event");
     // three asked: two made, then the head's cell is empty
     let (got, cells) = craft(&mut s, "copper pick", 3);
     assert_eq!((got, cells[1], cells[4]), (vec![(pick, 2)], None, Some(stick)));
+    assert_eq!(events(&drain(l)), vec![Event::Craft { recipe: "copper pick".into(), n: 2, by: s.clients[0].player.id }], "a craft is an event (ADR 0149)");
     assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
     assert_eq!(craft(&mut s, "copper pick", 1).0, vec![(pick, 2)], "no head: nothing");
     // no room: every usable slot full
@@ -1501,7 +1613,9 @@ fn a_take_aimed_at_a_thing_takes_it_and_one_aimed_past_it_does_not() {
     assert_eq!(items::count(&s.clients[0].slots, item), 0);
     l.send(ToServer::Take { seq: 2, at });
     s.tick();
-    assert!(drain(&l).contains(&ToClient::Done { seq: 2, ok: true }), "aimed at it: taken");
+    let got = drain(&l);
+    assert!(got.contains(&ToClient::Done { seq: 2, ok: true }), "aimed at it: taken");
+    assert_eq!(events(&got), vec![Event::Taken { at, row: th.row as u16, by: s.clients[0].player.id }], "a take is an event (ADR 0149)");
     assert_eq!(items::count(&s.clients[0].slots, item), 1);
 }
 
@@ -1686,6 +1800,12 @@ fn a_plant_cut_gives_fibre_is_gone_for_everyone_and_stays_gone_in_the_save() {
     s.tick();
     let got = drain(&l);
     assert!(got.contains(&ToClient::Done { seq: 1, ok: true }), "{got:?}");
+    // a cut is an event; and its cell's edit too, sent before the edit (the review: as every edit's; the cell was
+    // air and is air, so as before the list nothing breaks and nothing is heard)
+    let by = s.clients[0].player.id;
+    assert_eq!(events(&got), vec![Event::Edit { at, was: engine::blocks::AIR, now: engine::blocks::AIR, by: Some(by) }, Event::Taken { at, row: th.row as u16, by }], "{got:?}");
+    let first = |p: &dyn Fn(&ToClient) -> bool| got.iter().position(p).unwrap();
+    assert!(first(&|m| matches!(m, ToClient::Events(_))) < first(&|m| matches!(m, ToClient::Edits(v) if v.contains(&(at, engine::blocks::AIR)))));
     assert_eq!(items::count(&s.clients[0].slots, fibre), n as u32);
     assert!(drain(&l2).iter().any(|m| matches!(m, ToClient::Edits(v) if v.contains(&(at, engine::blocks::AIR)))), "the other player is sent the cut");
     assert!(thing_at(&s.world, at, 0.0, veg, false, |_, _| true).is_none(), "nothing left to cut");
@@ -2402,7 +2522,9 @@ fn death_stops_the_player_tells_everyone_and_lasts_until_a_respawn() {
     assert_eq!(drop_from(&mut s, &links[0], 45.0), 0);
     let cause = s.clients[0].vitals.dead.clone().expect("dead");
     assert!(cause.starts_with("ape hit the ground at ") && cause.ends_with(" m/s"), "{cause}");
-    assert!(chats(&drain(&links[1])).contains(&cause), "everyone is told");
+    let got = drain(&links[1]);
+    assert!(chats(&got).contains(&cause), "everyone is told");
+    assert_eq!(events(&got), vec![Event::Died { by: s.clients[0].player.id }], "a death is an event (ADR 0149)");
     assert!(vitals_of(&drain(&links[0])).contains(&(0, 20, Some(cause.clone()))));
     // dead, it moves nothing and edits nothing
     let at = s.clients[0].phys.pos;
@@ -2439,7 +2561,10 @@ fn death_stops_the_player_tells_everyone_and_lasts_until_a_respawn() {
     assert!(held(&me.slots).is_empty() && back.piles.values().any(|p| p.slots[0] == dirt), "{:?}", held(&me.slots));
     assert!(me.phys.pos.distance(back.world.bodies[0].spawn_point()) < 1.0);
     assert_eq!(me.vitals, Vitals::default());
-    assert_eq!(vitals_of(&drain(&c)), vec![(20, 20, None)]);
+    let got = drain(&c);
+    assert_eq!(vitals_of(&got), vec![(20, 20, None)]);
+    // the pile laid is an event, at the death mark's cell (ADR 0149)
+    assert_eq!(events(&got), vec![Event::Laid { at: me.marks.death[0], by: me.player.id }]);
 }
 
 #[test]
@@ -2871,7 +2996,9 @@ fn a_crucible_melts_gravel_and_casts_a_head_with_the_ledger_exact() {
     // the log in: the fire is lit and everyone hears of it; the window's heat rises
     feed(&mut s, l, 0, at, "oak log", 2, FUEL as u16);
     assert!(s.item_ledger().is_empty(), "{:?}", s.item_ledger());
-    assert!(drain(&links[1]).iter().any(|m| matches!(m, ToClient::Fires(v) if v.contains(&(at, true)))));
+    let got = drain(&links[1]);
+    assert!(got.iter().any(|m| matches!(m, ToClient::Fires(v) if v.contains(&(at, true)))));
+    assert!(events(&got).contains(&Event::Fire { at, on: true }), "a fire lit is an event (ADR 0149)");
     drain(l);
     wait(&mut s, 5.0);
     let heats: Vec<f32> = drain(l).iter().filter_map(|m| if let ToClient::Furnace { at: b, f } = m { (*b == at).then_some(f.heat) } else { None }).collect();

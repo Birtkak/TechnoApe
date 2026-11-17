@@ -650,6 +650,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         growing: Vec::new(),
         glides: Vec::new(),
         slump_quiet: 0.0,
+        pending: Default::default(),
         hold: edit::Hold::default(),
         dig_hit: 0.0,
         dig_again: false,

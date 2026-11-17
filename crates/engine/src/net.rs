@@ -180,6 +180,9 @@ pub enum ToClient {
     /// This player's two marks from the game (needs.md "What death costs"): the cell of the pile its last death
     /// left, until that pile is empty, and its sleeping place, where a respawn wakes it; sent when they change.
     Marks { death: Option<Block>, home: Option<Block> },
+    /// What happened this tick that this player can perceive (`events`, ADR 0149), in the tick's
+    /// order; sent before the tick's `Edits`, so the client knows which of their cells were digs and falls.
+    Events(Vec<crate::events::Event>),
 }
 
 /// An animal as a client sees it (ADR 0083): `kind` indexes `ToClient::Kinds`, `pos` its feet in body 0's frame,

@@ -284,7 +284,7 @@ impl Bot {
                     }
                     self.animals.extend(seen.into_iter().map(|a| (a.id, a)));
                 }
-                Recv::Msg(ToClient::Sky { .. } | ToClient::Fires(_)) => {}
+                Recv::Msg(ToClient::Sky { .. } | ToClient::Fires(_) | ToClient::Events(_)) => {}
                 Recv::Msg(ToClient::Furnace { at, f }) => self.furnace = Some((at, f)),
                 Recv::Msg(ToClient::Prospect(v)) => {
                     let heard: Vec<String> = v.iter().map(|(e, b)| format!("[{e:?},{:?}]", engine::ore::BANDS.get(*b as usize).unwrap_or(&"?"))).collect();

@@ -138,6 +138,8 @@ pub(crate) struct App {
     /// in the terrain (the clock `start`) once its glide ended; and when the slump's hiss may play again.
     pub(crate) glides: Vec<(fx::Glide, Option<f64>)>,
     pub(crate) slump_quiet: f64,
+    /// What the tick's events said of the cells of the server's edits that follow them (ADR 0149).
+    pub(crate) pending: fx::Pending,
     /// The survival dig (ADR 0034): what is held and kept (on the clock `start`, as the server keeps it on
     /// its own), the last hit, and whether to go on to the next block under the aim; the other players' digs
     /// by id: shape, share done and gained a second as told, when told, their last hit.

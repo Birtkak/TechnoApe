@@ -12,6 +12,7 @@ pub mod soak;
 use engine::net::{local, Link, Player, Recv, ToClient, ToServer, REACH, TICK_HZ};
 use engine::blocks::{AIR, BLOCKS};
 use engine::edit::{self, Shape};
+use engine::events::Event;
 use engine::items::{self, Holder, Slot, Stack, ITEMS};
 use engine::phys::{self, Input};
 use engine::liquid::{Col, TILE, U};
@@ -292,6 +293,9 @@ pub struct Server {
     /// one missing is a fresh one. And the fires lit or gone out this tick, told to everyone.
     furnaces: BTreeMap<PileKey, engine::furnace::Furnace>,
     fires_changed: Vec<(Block, bool)>,
+    /// What happened this tick (`engine::events`, ADR 0149), in the order the tick's systems pushed it;
+    /// sent to the clients that perceive it before the tick's edits, then cleared.
+    events: Vec<engine::events::Event>,
 }
 
 #[cfg(test)]

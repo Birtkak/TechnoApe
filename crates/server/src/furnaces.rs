@@ -69,6 +69,7 @@ impl Server {
         }
         if !self.fires_changed.is_empty() {
             let fires = std::mem::take(&mut self.fires_changed);
+            self.events.extend(fires.iter().map(|&(at, on)| Event::Fire { at, on }));
             for c in &self.clients {
                 c.link.send(ToClient::Fires(fires.clone()));
             }

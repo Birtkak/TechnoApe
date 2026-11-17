@@ -9,6 +9,7 @@ pub mod crack;
 pub mod ore;
 pub mod creatures;
 pub mod edit;
+pub mod events;
 pub mod herds;
 pub mod fall;
 pub mod furnace;
