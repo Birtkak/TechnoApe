@@ -1,6 +1,6 @@
 # 0150 – The journal's data, state, message and save (journal step 2)
 
-- **Status:** accepted (on a branch)
+- **Status:** accepted
 - **Date:** 2026-11-17
 
 ## Context
