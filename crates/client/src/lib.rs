@@ -408,6 +408,13 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
             };
             server.autosave = save.clone().map(|p| (p.into(), 30 * TICK_HZ as u64));
             server.live_data = true;
+            // creatures=0: herds with no rows, so no animal is ever made; the fixed viewpoints' animals stood
+            // wherever the ticks of a slow or quick load had walked them (the kinds stay: the wire's list is the
+            // same). No live data then: its first look would read herds.toml back in.
+            if args.get("creatures", 1) == 0 {
+                server.herds = engine::herds::Herds::parse(include_str!("../../../data/creatures.toml"), "", seed).unwrap();
+                server.live_data = false;
+            }
             save_path = save;
             if let Some(r) = rec.filter(|r| r != "0") {
                 rec_path = Some(r.clone());

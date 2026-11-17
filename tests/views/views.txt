@@ -3,18 +3,19 @@
 # tests/views/<name>.png. Allowed cracks above 0 are known bugs, each with its note; the gate fails on more.
 # Every view's weather is forced clear (ADR 0073): a fresh server's grid steps on its wall clock, so a slow load
 # met other clouds, and their cell shadows and grey sky made the same view differ by up to 40 %.
-seam   | 0 | at=-1,1,-0.85 eye=3 pitch=-20 weather=clear
-corner | 0 | at=-1,1,-1 eye=4 pitch=-30 weather=clear
-lod    | 0 | at=0.3,1,0.2 eye=120 pitch=-35 weather=clear
-high   | 0 | at=0.2,1,0.1 eye=400 pitch=-50 weather=clear
-orbit  | 0 | at=0,1,0 eye=2500 pitch=-89 weather=clear
-coast  | 0 | at=-0.1210,0.9926,0 eye=8 pitch=-20 yaw=90 weather=clear
+# No creatures either (creatures=0): the animals walked as many ticks as the load took, 0.6 to 0.8 % of a season view.
+seam   | 0 | at=-1,1,-0.85 eye=3 pitch=-20 weather=clear creatures=0
+corner | 0 | at=-1,1,-1 eye=4 pitch=-30 weather=clear creatures=0
+lod    | 0 | at=0.3,1,0.2 eye=120 pitch=-35 weather=clear creatures=0
+high   | 0 | at=0.2,1,0.1 eye=400 pitch=-50 weather=clear creatures=0
+orbit  | 0 | at=0,1,0 eye=2500 pitch=-89 weather=clear creatures=0
+coast  | 0 | at=-0.1210,0.9926,0 eye=8 pitch=-20 yaw=90 weather=clear creatures=0
 # the water close up (ADR 0071): the river by the spawn and the lake beside it
-river  | 0 | at=0.080732,0.845149,0.528398 eye=5 pitch=-45 yaw=30 weather=clear
-lake   | 0 | at=0.078043,0.849093,0.522447 eye=6 pitch=-30 yaw=0 weather=clear
+river  | 0 | at=0.080732,0.845149,0.528398 eye=5 pitch=-45 yaw=30 weather=clear creatures=0
+lake   | 0 | at=0.078043,0.849093,0.522447 eye=6 pitch=-30 yaw=0 weather=clear creatures=0
 # W3's seasons (ADR 0060): the spawn's forest (about 30 degrees north) at noon of each season, looking south:
 # the shadows shorten to summer and lengthen to winter
-season-spring | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=225 weather=clear
-season-summer | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=23625 weather=clear
-season-autumn | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=48825 weather=clear
-season-winter | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=72225 weather=clear
+season-spring | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=225 weather=clear creatures=0
+season-summer | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=23625 weather=clear creatures=0
+season-autumn | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=48825 weather=clear creatures=0
+season-winter | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=72225 weather=clear creatures=0
