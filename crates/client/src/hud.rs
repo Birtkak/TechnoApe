@@ -663,6 +663,23 @@ pub fn bug_form(p: &mut Paint, text: &str, caret: bool) {
     }
 }
 
+/// The edges of every face of the pick-up lying in air cell `b` (ADR 0144): the outline on the thing.
+pub fn thing_ghost(world: &World, still: &engine::clutter::Still, b: engine::world::Block, colour: [u8; 4]) -> Vec<GhostVert> {
+    let Some(th) = engine::clutter::pickup_at(world, b, world.time) else { return Vec::new() };
+    let c = world.bodies[b.body as usize].centre;
+    let v = |p: glam::DVec3| GhostVert { pos: (p - c).as_vec3().to_array(), body: b.body as u32, colour };
+    let mut out = Vec::new();
+    for [o, u, e] in engine::clutter::thing_faces(world, still, b, &th) {
+        let q = [o, u, u + e - o, e];
+        for k in 0..4 {
+            out.push(v(q[k]));
+            out.push(v(q[(k + 1) % 4]));
+        }
+    }
+    out.truncate(GHOST_MAX);
+    out
+}
+
 /// The edges of every face of the shape that has no shape cell beside it: its outline on the curved grid.
 pub fn ghost(world: &World, s: &Shape, colour: [u8; 4]) -> Vec<GhostVert> {
     let cells: FxMap<IVec3, ()> = s.cells().map(|b| (b.pos, ())).collect();

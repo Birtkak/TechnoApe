@@ -1448,6 +1448,63 @@ fn an_ore_sample_is_taken_once_and_the_ore_ledger_holds() {
     assert!(s.ore_ledger().is_empty() && s.item_ledger().is_empty(), "{:?} {:?}", s.ore_ledger(), s.item_ledger());
 }
 
+/// Things on the ground aimed at by their own faces (ADR 0144): a take aimed past a pick-up, at the
+/// ground beside it, names a cell where nothing lies and the server refuses it; one aimed at it takes it.
+#[test]
+fn a_take_aimed_at_a_thing_takes_it_and_one_aimed_past_it_does_not() {
+    use engine::clutter::{aim_thing, pickup_at, Still, CLUTTER};
+    let (tx, rx) = channel();
+    let mut s = Server::baked(1536, 32, 7, rx);
+    let (l, sv) = local();
+    tx.send(sv).unwrap();
+    s.tick();
+    drain(&l);
+    let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
+    let pal = engine::palette::Palette::parse(&std::fs::read_to_string(data.join("palette.toml")).unwrap()).unwrap();
+    let still = Still::load(&data.join("models"), &data.join("plants"), &pal).0;
+    let w = &s.world;
+    let b = &w.bodies[0];
+    let (f, si, sj) = b.locate(b.spawn);
+    let (f, si, sj) = (f as u8, si as i32, sj as i32);
+    let mut found = None;
+    'search: for (i, j) in (-80..=80).flat_map(|a| (-80..=80).map(move |c| (si + a, sj + c))) {
+        let tile = b.tile(f, 0, i.div_euclid(engine::world::CS), j.div_euclid(engine::world::CS));
+        let Some((z, _, _)) = engine::clutter::ground(b, &tile, f, i, j) else { continue };
+        let at = Block { body: 0, face: f, pos: glam::IVec3::new(i, j, z) };
+        let Some(th) = pickup_at(w, at, 0.0) else { continue };
+        let up = b.dir(f as usize, i as f64 + 0.5, j as f64 + 0.5);
+        let eye = w.block_centre(at) + up * 1.8 + up.any_orthonormal_vector() * 0.3;
+        let mid = engine::clutter::thing_faces(w, &still, at, &th).iter().flatten().sum::<DVec3>() / (engine::clutter::thing_faces(w, &still, at, &th).len() * 3) as f64;
+        if aim_thing(w, &still, eye, (mid - eye).normalize(), 8.0, 0.0, |_, _| true).map(|a| a.0) != Some(at) {
+            continue;
+        }
+        // past it: the ground of a neighbour column where nothing lies, the block ray's cell before it
+        for (di, dj) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let side = Block { pos: at.pos + glam::IVec3::new(di, dj, 0), ..at };
+            let dir = (w.block_centre(side) - up * 0.45 - eye).normalize();
+            if pickup_at(w, side, 0.0).is_some() || aim_thing(w, &still, eye, dir, 8.0, 0.0, |_, _| true).is_some() {
+                continue;
+            }
+            if let Some((_, before)) = engine::edit::aim(w, eye, dir, 8.0) {
+                found = Some((at, th, eye - up * engine::phys::EYE, before));
+                break 'search;
+            }
+        }
+    }
+    let (at, th, feet, past) = found.expect("a pick-up with open ground beside it near the spawn");
+    let item = CLUTTER[th.row].item().unwrap().0;
+    l.send(ToServer::Move { pos: feet.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    s.tick();
+    l.send(ToServer::Take { seq: 1, at: past });
+    s.tick();
+    assert!(drain(&l).contains(&ToClient::Done { seq: 1, ok: false }), "aimed past it: refused");
+    assert_eq!(items::count(&s.clients[0].slots, item), 0);
+    l.send(ToServer::Take { seq: 2, at });
+    s.tick();
+    assert!(drain(&l).contains(&ToClient::Done { seq: 2, ok: true }), "aimed at it: taken");
+    assert_eq!(items::count(&s.clients[0].slots, item), 1);
+}
+
 /// A bucket scoops a block of sea and pours it back; creative water is counted as made. Through all of it,
 /// a save and a load, not a unit appears or vanishes (the ledger stays 0).
 #[test]
