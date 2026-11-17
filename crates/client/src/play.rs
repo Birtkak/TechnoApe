@@ -164,6 +164,30 @@ pub(crate) fn pick_step(picking: Option<(Block, f64)>, aim: Option<Block>, hand_
     }
 }
 
+/// What a menu opening (`m`, the book's J or the inventory's Tab among them) does to the place button's holds:
+/// a pick-up held and a drink held let go, since their button's release is not seen while a menu is open (the
+/// review of draft journal-book: a thing was taken with the book open, a drink ran on after it closed). The
+/// message that tells the server the drink ended, if one was sent.
+pub(crate) fn let_go(m: Option<Menu>, picking: &mut Option<(Block, f64)>, drinking: &mut bool, drink_sent: &mut Option<Block>) -> Option<ToServer> {
+    m?;
+    (*picking, *drinking) = (None, false);
+    drink_sent.take().map(|_| ToServer::Drink(None))
+}
+
+#[test]
+fn a_menu_opening_lets_go_of_a_held_pick_up_and_drink() {
+    let b = Block { body: 0, face: 2, pos: glam::IVec3::new(1, 2, 3) };
+    for m in [Menu::Book, Menu::Inventory] {
+        let (mut picking, mut drinking, mut sent) = (Some((b, 1.0)), true, Some(b));
+        assert_eq!(let_go(Some(m), &mut picking, &mut drinking, &mut sent), Some(ToServer::Drink(None)), "{m:?}: the server told");
+        assert_eq!((picking, drinking, sent), (None, false, None), "{m:?}: both let go");
+        // nothing held, nothing said; a held pick-up after its menu closed (none opening) is kept
+        assert_eq!(let_go(Some(m), &mut picking, &mut drinking, &mut sent), None);
+        let mut picking = Some((b, 1.0));
+        assert_eq!((let_go(None, &mut picking, &mut drinking, &mut sent), picking), (None, Some((b, 1.0))));
+    }
+}
+
 /// Whether the place button drinks (ADR 0145): on water in reach with nothing in hand (`drink_target`), unless a
 /// pick-up is aimed at, which wins (`on_thing`): a thing lying in or by the water is picked up, not drunk past.
 pub(crate) fn drinks(thing_aimed: bool, water: bool) -> bool {
