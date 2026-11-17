@@ -290,7 +290,7 @@ impl Server {
         let w = &self.world.water;
         h = fnv(h, &postcard::to_allocvec(&(w.all(), self.made, self.removed, w.sea_extra, &w.reach_extra, &w.rain_held, w.rained)).unwrap());
         for p in self.absent.values() {
-            h = fnv(h, &postcard::to_allocvec(p).unwrap());
+            h = fnv(h, &hashed(p));
         }
         h = fnv(h, &self.herds.to_bytes());
         h = fnv(h, &postcard::to_allocvec(&self.piles).unwrap());
@@ -310,6 +310,10 @@ impl Server {
             h = fnv(h, &c.water.to_le_bytes());
             h = fnv(h, &postcard::to_allocvec(&(&c.vitals, c.was.to_array())).unwrap());
             h = fnv(h, &postcard::to_allocvec(&c.slots).unwrap());
+            // only when it holds something: the same for the recordings from before the journal
+            if c.journal.iter().any(|s| *s != engine::journal::State::Unknown) {
+                h = fnv(h, &postcard::to_allocvec(&c.journal).unwrap());
+            }
             for x in c.player.pos {
                 h = fnv(h, &x.to_bits().to_le_bytes());
             }
@@ -393,4 +397,14 @@ impl Server {
             Err(e) => eprintln!("[server] data: refused, the rows before stay: {e}"),
         }
     }
+}
+
+/// An absent player's bytes in the state hash: its save's, an empty journal's byte left out, so the hash of
+/// every recording from before the journal (draft ADR journal-data) holds.
+pub(crate) fn hashed(p: &save::Saved) -> Vec<u8> {
+    let mut b = postcard::to_allocvec(p).unwrap();
+    if p.journal.is_empty() {
+        b.pop();
+    }
+    b
 }

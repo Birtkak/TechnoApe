@@ -92,6 +92,9 @@ impl Server {
                 sent_hand: AIR,
                 knap: (0, 0, 0),
                 prospected: None,
+                journal: engine::journal::JOURNAL.fresh(),
+                told: None,
+                kept: Vec::new(),
                 bench: None,
                 furnace: None,
                 sent_furnace: None,
@@ -140,6 +143,7 @@ impl Server {
                             let p = DVec3::from_array(sv.pos);
                             c.phys = phys::Player::at(p, phys::tangent(DVec3::from_array(sv.fwd.map(f64::from)), phys::up(&self.world, p), DVec3::X));
                             (c.player.pos, c.player.fwd, c.creative, c.inv_dirty, c.water, c.vitals, c.slots, c.marks) = (sv.pos, sv.fwd, sv.creative, true, sv.water, sv.vitals, sv.slots, sv.marks);
+                            (c.journal, c.kept) = engine::journal::JOURNAL.load(&sv.journal);
                         }
                         let feet = self.clients[i].phys.pos;
                         self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), before, (0, 0));
@@ -421,6 +425,7 @@ impl Server {
                 c.link.send(ToClient::Piles(piles.clone()));
             }
         }
+        self.learn();
         for c in &mut self.clients {
             for (seq, ok) in c.done.drain(..) {
                 c.link.send(ToClient::Done { seq, ok });
@@ -449,6 +454,12 @@ impl Server {
             if c.sent_marks != now {
                 c.sent_marks = now;
                 c.link.send(ToClient::Marks { death: now.0, home: now.1 });
+            }
+            // the journal once it has its name (a save's comes with it): all of it first, then what changed
+            if !c.player.name.is_empty() && c.told.as_ref() != Some(&c.journal) {
+                let was = c.told.replace(c.journal.clone());
+                let changed = engine::journal::JOURNAL.entries.iter().zip(&c.journal).enumerate().filter(|(k, (_, s))| was.as_ref().map_or(**s != engine::journal::State::Unknown, |w| w[*k] != **s));
+                c.link.send(ToClient::Journal(changed.map(|(_, (e, s))| (e.name.clone(), *s)).collect()));
             }
         }
         // clients count the list; each one's own position comes in its `You` every tick. The others' come
@@ -489,6 +500,32 @@ impl Server {
             if let Err(e) = self.rec.as_mut().unwrap().flush() {
                 eprintln!("[technoape-server] recording stopped: {e}");
                 self.rec = None;
+            }
+        }
+    }
+
+    /// The journal's triggers (draft ADR journal-data), once a tick after the events: `have:` from the slots
+    /// when they changed, `look:` from the block the player's look meets every `LOOK_EVERY` ticks. Not for a
+    /// creative player (its slots are a builder's), a dead one, or one without its name yet.
+    pub(super) fn learn(&mut self) {
+        let j = &*engine::journal::JOURNAL;
+        let look = self.tick % LOOK_EVERY == 0;
+        let world = &self.world;
+        for c in self.clients.iter_mut().filter(|c| !c.creative && c.vitals.dead.is_none() && !c.player.name.is_empty()) {
+            // and on the tick its name came (`told` none yet): what it held before is no change of this tick
+            if c.inv_dirty || c.told.is_none() {
+                for s in c.slots.iter().flatten() {
+                    j.had(&mut c.journal, s.item);
+                }
+            }
+            if look {
+                let p = &c.phys;
+                let up = p.body_up(phys::up(world, p.pos));
+                let pitch = c.player.pitch as f64;
+                let dir = (p.fwd * pitch.cos() + up * pitch.sin()).normalize_or_zero();
+                if let Some((hit, _)) = edit::aim(world, p.pos + up * phys::EYE, dir, LOOK_REACH) {
+                    j.looked(&mut c.journal, world.block(hit));
+                }
             }
         }
     }

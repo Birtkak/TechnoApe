@@ -1,0 +1,68 @@
+# The journal (docs/design/journal.md, draft ADR journal-data; schema and checks in crates/engine/src/journal.rs).
+# DRAFTS: these entries and their words are Claude's first try at the things the game has today, to be
+# rewritten with the starter's entries (journal.md, step 4).
+#
+# An entry is unknown, noticed (the player sees its question) or known (its text). A trigger in `noticed_by`
+# notices it, one in `known_by` makes it known; a known entry notices every entry it `points_at`.
+# Triggers so far:
+#   look:block:<block>   the crosshair is on that block (data/blocks.toml), looked at twice a second
+#   have:<item>          that block or item (data/items.toml) is in the ape's slots
+# `do:`, `see:` and `need:` come with the process runner (journal.md, step 4).
+# `age`: the age it belongs to (docs/design/progression.md): steam, lv, mv, hv, ev, iv or exotic.
+# Saves keep each ape's entries by name. A save's entry this file does not have (renamed, a typo) is kept
+# aside, unseen, and saved again; named so here again, it is found with its state. A rename therefore starts
+# every ape over on that entry unless the old name comes back.
+
+[[entry]]
+name = "flint"
+age = "steam"
+title = "Flint"
+question = "A grey stone with a glassy skin. It rings when struck."
+text = "Flint breaks into edges sharper than any other stone. Struck with another stone, it can be shaped."
+known_by = ["have:flint"]
+points_at = ["hand-axe"]
+
+[[entry]]
+name = "hand-axe"
+age = "steam"
+title = "Hand axe"
+question = "Struck the right way, could a flint hold an edge?"
+text = "A flint struck on a stone until one side is a blade: it cuts wood and digs faster than bare hands."
+known_by = ["have:hand axe"]
+
+[[entry]]
+name = "plant-fibre"
+age = "steam"
+title = "Plant fibre"
+question = "The reeds bend and do not break."
+text = "Tall grass and reeds cut by hand give fibre: strands to tie, braid and weave."
+noticed_by = ["look:block:reed"]
+known_by = ["have:plant fibre"]
+
+[[entry]]
+name = "clay"
+age = "steam"
+title = "Clay"
+question = "Sticky earth that keeps the print of a hand."
+text = "Clay is soft when wet and holds any shape it is given. Dug, it can be formed."
+noticed_by = ["look:block:clay"]
+known_by = ["have:clay"]
+points_at = ["crucible"]
+
+[[entry]]
+name = "copper"
+age = "steam"
+title = "Copper"
+question = "Green stones in the stream bed. Heavy."
+text = "The green stone holds copper: heated in a crucible with charcoal it gives soft red metal."
+noticed_by = ["look:block:malachite", "look:block:copper gravel", "have:copper nugget", "have:malachite"]
+known_by = ["have:copper ingot"]
+points_at = ["crucible"]
+
+[[entry]]
+name = "crucible"
+age = "steam"
+title = "Crucible"
+question = "A pot that does not crack in the fire might hold molten stone."
+text = "A crucible of clay stands in the fire and holds what melts: ore and charcoal in, metal out."
+known_by = ["have:crucible"]

@@ -399,6 +399,11 @@ impl App {
                     }
                 }
                 Recv::Msg(ToClient::Marks { death, home }) => self.marks = crate::nav::game_marks(&self.world, death, home),
+                Recv::Msg(ToClient::Journal(v)) => {
+                    for line in journal_notes(&mut self.journal_told, &v) {
+                        self.chat_line(line);
+                    }
+                }
                 Recv::Msg(ToClient::Fires(v)) => {
                     for (b, on) in v {
                         self.models.set_state(b, on.then_some("working"));
@@ -1502,9 +1507,39 @@ fn hand_shown(play: bool, tool: bool, f3: bool, home: Menu, menu: Option<Menu>) 
     play && !tool && !f3 && home != Menu::Title && menu != Some(Menu::Dead)
 }
 
+/// The chat's lines for a `Journal` message (draft ADR journal-data; the book is to come): a question noticed,
+/// an entry learned. The first message after joining is the journal as it was, and says nothing.
+fn journal_notes(told: &mut bool, v: &[(String, engine::journal::State)]) -> Vec<String> {
+    use engine::journal::{State, JOURNAL};
+    if !std::mem::replace(told, true) {
+        return Vec::new();
+    }
+    v.iter()
+        .filter_map(|(name, s)| {
+            let e = &JOURNAL.entries[JOURNAL.index(name)?];
+            match s {
+                State::Noticed => Some(format!("Journal: {}", e.question)),
+                State::Known => Some(format!("Journal: learned {}", e.title.to_lowercase())),
+                State::Unknown => None,
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The journal's notices (draft ADR journal-data): nothing for the journal a joining player already had,
+    /// then a line for each question and each entry learned, none for one cleared or of another build.
+    #[test]
+    fn the_journal_notes_what_changed_after_the_first_message() {
+        use engine::journal::State::*;
+        let mut told = false;
+        assert!(journal_notes(&mut told, &[("flint".into(), Known)]).is_empty(), "the journal as it was");
+        let lines = journal_notes(&mut told, &[("clay".into(), Known), ("crucible".into(), Noticed), ("flint".into(), Unknown), ("gone".into(), Known)]);
+        assert_eq!(lines, ["Journal: learned clay", "Journal: A pot that does not crack in the fire might hold molten stone."]);
+    }
 
     /// ADR 0115: the hand (an item or the bare arm) shows in play, not with a tool of its own up, the numbers'
     /// overlay, the title's world behind its menu, or the death screen.
