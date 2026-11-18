@@ -53,3 +53,9 @@ only: nothing on the server, the wire or a save changes.
   frames would be 32 MB of VRAM.
 - No Studio UI yet: a row's `map` and `[sway]` are written by hand; the Effects page keeps them on Save.
 - Leaves (`sway` in `shader_vertex.wgsl`) keep their own motion.
+- Found on the way: plants had not swayed at all on the land. `plant_sway`'s gate read `c.info >> 8` as the
+  body, but bits 16-18 hold the lattice and the shell, so the test failed on every planet chunk. It is now
+  `(c.info >> 8) & 255`. Since this fix the sines sway too, so "without `[sway]` as before" means the same
+  sines, now actually seen.
+- The map smoke drifts sideways and stays lower than the old value noise, whose upward part lifted the
+  plume. Kept at 0.8 / 4 m; a higher `rise` on the row is the developer's call.
