@@ -214,13 +214,14 @@ struct File {
 }
 
 /// The rows and groups a pool plays, the sway, and the fields of the maps the rows name (`with_fields`: none
-/// until a watcher has worked them out).
+/// until a watcher has worked them out); `by_row` each row's field, made by `Fx::swap`.
 #[derive(Clone, Debug, Default)]
 pub struct Set {
     pub rows: Vec<Row>,
     pub groups: Vec<Group>,
     pub sway: Option<Sway>,
     pub fields: Vec<(String, Arc<Field>)>,
+    pub by_row: Vec<Option<Arc<Field>>>,
 }
 
 /// The maps compiled in, for a game without `data/maps/` beside it (the friends' zip, the tests): a file there
@@ -232,10 +233,18 @@ pub fn maps_dir() -> &'static Path {
     Path::new("data/maps")
 }
 
-/// Map `name`'s text and the map, from `maps` or else compiled in; a missing or refused map named.
+/// The maps compiled in and no folder: what the built-in set (`SET`) is checked against, so a map saved
+/// refused in `data/maps/` cannot stop the game starting.
+pub fn built_in_maps() -> &'static Path {
+    Path::new("")
+}
+
+/// Map `name`'s text and the map, from `maps` or else compiled in (only compiled in for `built_in_maps`); a
+/// missing or refused map named.
 pub fn read_map(maps: &Path, name: &str, palette: &Palette) -> Result<(String, Map), String> {
     let file = maps.join(format!("{name}.toml"));
-    let text = std::fs::read_to_string(&file).ok().or_else(|| BUILT_IN_MAPS.iter().find(|m| m.0 == name).map(|m| m.1.to_string())).ok_or(format!("no map '{name}' in {}", maps.display()))?;
+    let on_disk = (!maps.as_os_str().is_empty()).then(|| std::fs::read_to_string(&file).ok()).flatten();
+    let text = on_disk.or_else(|| BUILT_IN_MAPS.iter().find(|m| m.0 == name).map(|m| m.1.to_string())).ok_or(format!("no map '{name}' in {}", maps.display()))?;
     let m = engine::map::parse(&format!("map '{name}'"), &text, palette)?;
     Ok((text, m))
 }
@@ -271,6 +280,38 @@ pub fn load(file: &Path, maps: &Path, palette: &Palette, kept: &mut Kept) -> Res
     let text = std::fs::read_to_string(file).map_err(|_| format!("{shown}: not found"))?;
     let set = parse_set_in(&text, palette, maps).map_err(|e| format!("{shown}: {e}"))?;
     Ok(with_fields(set, maps, palette, kept))
+}
+
+/// The plants' wind (`[sway]`): its field, the field as the GPU's texels (two signed bytes a push, made on the
+/// watcher's thread so the frame thread only uploads) and the metres one tile of it covers.
+#[derive(Clone, Debug)]
+pub struct Wind {
+    pub field: Arc<Field>,
+    pub texels: Arc<Vec<i8>>,
+    pub tile: f32,
+}
+
+/// The sway watcher's load: `[sway]` of `effects` and the map it names in `maps`; none without `[sway]`. `kept`:
+/// the last map's text and wind, so an unchanged map is not worked out again.
+pub fn read_sway(effects: &Path, maps: &Path, palette: &Palette, kept: &mut Option<(String, Wind)>) -> Result<Option<Wind>, String> {
+    let shown = effects.display().to_string().replace('\\', "/");
+    let t: toml::Table = std::fs::read_to_string(effects).map_err(|e| format!("{shown}: {e}"))?.parse().map_err(|e| format!("{shown}: {e}"))?;
+    let Some(s) = t.get("sway") else { return Ok(None) };
+    let s: Sway = s.clone().try_into().map_err(|e| format!("{shown}: sway: {e}"))?;
+    if !(s.tile.is_finite() && s.tile > 0.0) {
+        return Err(format!("{shown}: sway: tile {} is not metres over 0", s.tile));
+    }
+    let (text, m) = read_map(maps, &s.map, palette)?;
+    if let Some((_, w)) = kept.as_ref().filter(|k| k.0 == text) {
+        return Ok(Some(Wind { tile: s.tile, ..w.clone() }));
+    }
+    let t0 = std::time::Instant::now();
+    let field = Arc::new(Field::new(&s.map, m)?);
+    let texels = Arc::new(field.push.iter().flat_map(|p| p.map(|x| (x.clamp(-1.0, 1.0) * 127.0).round() as i8)).collect());
+    eprintln!("[technoape] sway: map '{}' worked out in {:.0} ms", s.map, t0.elapsed().as_secs_f64() * 1000.0);
+    let w = Wind { field, texels, tile: s.tile };
+    *kept = Some((text, w.clone()));
+    Ok(Some(w))
 }
 
 impl Set {
@@ -335,7 +376,7 @@ pub fn parse_set_in(text: &str, palette: &Palette, maps: &Path) -> Result<Set, S
     if let Some(g) = gn.iter().enumerate().find(|(i, g)| gn[..*i].contains(g)) {
         return Err(format!("group {} twice", g.1));
     }
-    Ok(Set { rows, groups, sway, fields: Vec::new() })
+    Ok(Set { rows, groups, sway, fields: Vec::new(), by_row: Vec::new() })
 }
 
 /// One row's checks; every refusal names it and why. `names`: the rows its `then` may name; `maps`: where the
@@ -475,8 +516,12 @@ pub fn parse_row(text: &str, set: &Set) -> Result<Row, String> {
     Ok(r)
 }
 
-/// The built-in set: the file as compiled in.
-pub static SET: LazyLock<Set> = LazyLock::new(|| parse_set(include_str!("../../../data/effects.toml"), &PALETTE).expect("data/effects.toml"));
+/// The built-in set: the file as compiled in, checked against the maps compiled in (a map on disk is the
+/// watcher's to read: refused, it is named and this set stays).
+pub static SET: LazyLock<Set> = LazyLock::new(built_in_set);
+fn built_in_set() -> Set {
+    parse_set_in(include_str!("../../../data/effects.toml"), &PALETTE, built_in_maps()).expect("data/effects.toml")
+}
 /// Its rows: what `id` names (the code's own effects).
 pub static ROWS: LazyLock<Vec<Row>> = LazyLock::new(|| SET.rows.clone());
 
@@ -862,17 +907,34 @@ impl Fx {
     pub fn watch(&mut self, file: std::path::PathBuf) {
         let pal_file = std::path::PathBuf::from("data/palette.toml");
         let kept = std::cell::RefCell::new(Kept::new());
+        let there = file.exists();
         self.rx = Some(crate::gpu::watch("effects", maps_dir().to_path_buf(), vec![file.clone(), pal_file.clone()], move |maps| {
             let palette = std::fs::read_to_string(&pal_file).ok().and_then(|t| Palette::parse(&t).ok()).unwrap_or_else(|| PALETTE.clone());
             let set = load(&file, maps, &palette, &mut kept.borrow_mut());
             let found = file.exists();
             (set, found)
         }));
+        // its first load waited for here (loading, not the frame loop): a map row pushes from the first frame, so
+        // pictures repeat (ADR 0031); a missing file sends none
+        if there {
+            if let Some(got) = self.rx.as_ref().and_then(|rx| rx.recv().ok()) {
+                self.took(got);
+            }
+        }
+    }
+
+    /// The watcher's load swapped in, or its refusal named (the rows before stay).
+    fn took(&mut self, got: Result<Set, String>) {
+        match got.and_then(|set| self.swap(set)) {
+            Ok(()) => eprintln!("[technoape] effects: {} rows, {} groups read", self.set.rows.len(), self.set.groups.len()),
+            Err(e) => eprintln!("[technoape] effects: {e}; the rows before stay"),
+        }
     }
 
     /// A new set of rows: the living particles and lasting effects keep theirs by name (those whose row is gone
     /// go). Refused when it lacks a row the code plays (`id`'s).
-    pub fn swap(&mut self, set: Set) -> Result<(), String> {
+    pub fn swap(&mut self, mut set: Set) -> Result<(), String> {
+        set.by_row = set.rows.iter().map(|r| r.noise.as_ref()?.map.as_ref().and_then(|m| set.fields.iter().find(|f| f.0 == *m)).map(|f| f.1.clone())).collect();
         let remap: Vec<u16> = ROWS.iter().map(|r| set.rows.iter().position(|m| m.name == r.name).map_or(NO, |i| i as u16)).collect();
         if let Some(k) = remap.iter().position(|&i| i == NO) {
             return Err(format!("effect {} is played by the game itself: keep it", ROWS[k].name));
@@ -1214,10 +1276,7 @@ impl Fx {
         let g0 = 9.81f32;
         // the file changed: its rows in, or why not
         if let Some(got) = self.rx.as_ref().and_then(|rx| rx.try_iter().last()) {
-            match got.and_then(|set| self.swap(set)) {
-                Ok(()) => eprintln!("[technoape] effects: {} rows, {} groups read", self.set.rows.len(), self.set.groups.len()),
-                Err(e) => eprintln!("[technoape] effects: {e}; the rows before stay"),
-            }
+            self.took(got);
         }
         self.events = 0;
         self.out.clear();
@@ -1228,8 +1287,8 @@ impl Fx {
         self.emit(world, dt);
         let rows = &self.set.rows;
         let clock = self.clock;
-        // each row's map field, once a watcher has worked it out (a row naming one pushes nothing before)
-        let fields: Vec<Option<&Field>> = rows.iter().map(|r| r.noise.as_ref()?.map.as_ref()).map(|m| m.and_then(|m| self.set.fields.iter().find(|f| f.0 == *m)).map(|f| &*f.1)).collect();
+        // each row's map field (`swap` made the list; a row naming a map not worked out pushes nothing)
+        let fields = &self.set.by_row;
         // the fine cells the lying chips hold, when a chip may come to lie this step (ADR 0078): one pass
         let piling = |q: &P| rows[q.row as usize].ground == Ground::Pile;
         let ended = std::mem::take(&mut self.ended);
@@ -1261,7 +1320,7 @@ impl Fx {
                 let air = if q.body == 0 { self.wind } else { Vec3::ZERO };
                 q.v += (up * (-g0 * r.gravity) + (air - q.v) * r.drag) * dt;
                 // (the rows before ADR 0050 push nothing: their motion stays exactly as it was)
-                if let Some(f) = fields[q.row as usize] {
+                if let Some(f) = fields.get(q.row as usize).and_then(|f| f.as_deref()) {
                     q.v += (q.push + field_push(q.p, clock, r.noise.as_ref().unwrap(), f)) * dt;
                 } else if let Some(n) = r.noise.as_ref().filter(|n| n.map.is_none()) {
                     q.v += (q.push + noise_at(q.p, clock, n) * n.strength) * dt;
@@ -2424,6 +2483,52 @@ mod tests {
         let along = (Vec3::X - up * up.x).normalize();
         assert!(q.v.dot(along) > 0.5 * 2.0 * 0.5 * 0.9, "pushed along +x on the ground: {:?}", q.v);
         assert!(q.v.dot(up).abs() < 1e-4 * q.v.length(), "no push along up: {}", q.v.dot(up));
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    /// A map saved refused on disk (here a number map as `smoke swirl`) refuses the file's rows read against that
+    /// folder, but the built-in set is checked against the compiled-in maps only: the game still starts.
+    #[test]
+    fn a_refused_map_on_disk_leaves_the_built_in_set_building() {
+        let d = maps_dir("refused");
+        let shipped = include_str!("../../../data/maps/smoke swirl.toml");
+        std::fs::write(d.join("maps/smoke swirl.toml"), shipped.replace("in = \"curl\"", "in = \"soften\"")).unwrap();
+        let e = parse_set_in(include_str!("../../../data/effects.toml"), &PALETTE, &d.join("maps")).unwrap_err();
+        assert!(e.contains("effect smoke") && e.contains("smoke swirl"), "{e}");
+        let set = parse_set_in(include_str!("../../../data/effects.toml"), &PALETTE, built_in_maps()).unwrap();
+        assert!(set.rows.iter().any(|r| r.noise.as_ref().is_some_and(|n| n.map.as_deref() == Some("smoke swirl"))));
+        built_in_set();
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    /// The fields are in from the first frame: `watch` waits for the watcher's first load (part of loading, not
+    /// the frame loop), so a map row pushes from its first step and pictures repeat (ADR 0031).
+    #[test]
+    fn the_fields_are_in_before_the_first_step() {
+        let d = maps_dir("first");
+        let file = d.join("effects.toml");
+        std::fs::write(&file, include_str!("../../../data/effects.toml")).unwrap();
+        let mut fx = Fx::new(true, 64, 1.0, 1);
+        fx.watch(file);
+        let smoke = fx.set.rows.iter().position(|r| r.name == "smoke").unwrap();
+        assert!(fx.set.by_row.get(smoke).is_some_and(|f| f.is_some()), "the smoke's field is in once watch returns");
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    /// `[sway] tile` of 0 or under (inf texture coordinates in the shader) is refused by the sway's watcher, named.
+    #[test]
+    fn the_sways_watcher_refuses_a_tile_not_over_zero() {
+        let d = maps_dir("tile");
+        let file = d.join("effects.toml");
+        let mut kept = None;
+        for tile in ["0.0", "-4.0"] {
+            std::fs::write(&file, format!("[sway]\nmap = 't push'\ntile = {tile}\n")).unwrap();
+            let e = read_sway(&file, &d.join("maps"), &PALETTE, &mut kept).map(|w| w.is_some()).unwrap_err();
+            assert!(e.contains("tile"), "{e}");
+        }
+        std::fs::write(&file, "[sway]\nmap = 't push'\ntile = 48.0\n").unwrap();
+        let w = read_sway(&file, &d.join("maps"), &PALETTE, &mut kept).unwrap().unwrap();
+        assert_eq!(w.texels.len(), w.field.push.len() * 2);
         let _ = std::fs::remove_dir_all(d);
     }
 

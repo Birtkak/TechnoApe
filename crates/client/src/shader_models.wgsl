@@ -58,8 +58,12 @@ fn plant_sway(w: vec3f, hm: f32, place: vec2f, seed: f32, up: vec3f) -> vec3f {
         // frame k's middle at k + 0.5 of the third axis, as engine `Field::at` has frame k at its loop's k-th step
         let at = vec3f(place * g.sway.x, fract(t * g.sway.y / 3600.0) + 0.5 / f32(textureDimensions(sway_t).z));
         let m = textureSampleLevel(sway_t, sway_s, at, 0.0).xy;
-        let dir = w / speed;
-        return amp * (dir * (0.4 + 0.8 * m.x) + normalize(cross(up, dir)) * 0.8 * m.y);
+        // the wind along the ground only: a wind (near) along up has no across, and `normalize` of nothing is NaN
+        let flat = w - up * dot(w, up);
+        let fs = length(flat);
+        if (fs < 0.01) { return vec3f(0.0); }
+        let dir = flat / fs;
+        return amp * (dir * (0.4 + 0.8 * m.x) + cross(up, dir) * 0.8 * m.y);
     }
     let ph = dot(place, vec2f(0.31, 0.23)) + seed * 1.5;
     // periods that divide the clock's hour, so it has no jump

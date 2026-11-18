@@ -54,8 +54,13 @@ only: nothing on the server, the wire or a save changes.
 - No Studio UI yet: a row's `map` and `[sway]` are written by hand; the Effects page keeps them on Save.
 - Leaves (`sway` in `shader_vertex.wgsl`) keep their own motion.
 - Found on the way: plants had not swayed at all on the land. `plant_sway`'s gate read `c.info >> 8` as the
-  body, but bits 16-18 hold the lattice and the shell, so the test failed on every planet chunk. It is now
-  `(c.info >> 8) & 255`. Since this fix the sines sway too, so "without `[sway]` as before" means the same
-  sines, now actually seen.
+  body, but `frame.rs` packs log2(lattice) << 16 and the shell << 18 into `info`, and a level-0 chunk's lattice
+  is 8 (bits 16-17 = 3), so the test failed on every planet chunk. It is now `(c.info >> 8) & 255`: the body
+  mask makes the plants sway again. Since this fix the sines sway too, so "without `[sway]` as before" means
+  the same sines, now actually seen.
+- Both watchers' first loads are waited for at loading (`Fx::watch`, `Gpu::new`), so a map's field is in from
+  the first frame; the built-in set (`fx::SET`) is checked against the compiled-in maps only, so a map saved
+  refused in `data/maps/` is named on stderr and cannot stop the game starting. A sway map's texels are made on
+  its watcher; the frame thread only uploads them.
 - The map smoke drifts sideways and stays lower than the old value noise, whose upward part lifted the
   plume. Kept at 0.8 / 4 m; a higher `rise` on the row is the developer's call.
