@@ -31,22 +31,86 @@ fn kind_colour(k: Data) -> Color32 {
     }
 }
 
-// a node's box: its band, its picture, a row a pin
-const W: f32 = 184.0;
-const HEAD: f32 = 24.0;
+// a node's box: its band, its picture, then a row each for its words, its numbers and its input pins
+const W: f32 = 210.0;
+const HEAD: f32 = 26.0;
 const PIC: f32 = 72.0;
-const PIN_ROW: f32 = 26.0;
+const ROW_H: f32 = 24.0;
 /// A pin is drawn 12 points across and hit 20 across.
 const PIN_R: f32 = 6.0;
 const REACH: f32 = 10.0;
 
 /// A node's box in the graph, its output pin and its input pins.
 pub fn geom(n: &map::Node) -> (Rect, Pos2, Vec<Pos2>) {
-    let top = Pos2::new(n.at[0], n.at[1]);
-    let pins = n.spec().pins.len();
-    let r = Rect::from_min_size(top, Vec2::new(W, HEAD + PIC + GAP + pins as f32 * PIN_ROW + GAP * 0.5));
-    let ins = (0..pins).map(|p| Pos2::new(r.min.x, top.y + HEAD + PIC + GAP + (p as f32 + 0.5) * PIN_ROW)).collect();
+    let (top, s) = (Pos2::new(n.at[0], n.at[1]), n.spec());
+    let first = s.words.len() + s.nums.len();
+    let rows = first + s.pins.len();
+    let r = Rect::from_min_size(top, Vec2::new(W, HEAD + PIC + GAP + rows as f32 * ROW_H));
+    let ins = (0..s.pins.len()).map(|p| Pos2::new(r.min.x, row_rect(r, first + p).center().y)).collect();
     (r, Pos2::new(r.max.x, top.y + HEAD + PIC * 0.5), ins)
+}
+
+/// The part of the graph to show so the nodes in `b` fill about 80 % of an `area` (the Scene fits it in),
+/// never zoomed in past 1.5.
+fn framed(b: Rect, area: Vec2) -> Rect {
+    let z = (area.x * 0.8 / b.width()).min(area.y * 0.8 / b.height()).min(1.5);
+    Rect::from_center_size(b.center(), area / z)
+}
+
+/// A node's k-th row under its picture.
+fn row_rect(r: Rect, k: usize) -> Rect {
+    Rect::from_min_size(Pos2::new(r.min.x + 12.0, r.min.y + HEAD + PIC + GAP * 0.5 + k as f32 * ROW_H + 2.0), Vec2::new(W - 22.0, ROW_H - 4.0))
+}
+
+/// A number on a node as Blender draws one: its name left, its value right, over a rail lit up to it; a drag
+/// sideways changes it. The new value while it is dragged.
+fn num_row(ui: &Ui, r: Rect, id: Id, name: &str, v: f32, (min, max, whole): (f32, f32, bool), legible: bool) -> (egui::Response, Option<f32>) {
+    let resp = ui.interact(r, id, Sense::drag());
+    let p = ui.painter();
+    p.rect_filled(r, 4.0, Color32::from_gray(28));
+    let t = ((v - min) / (max - min)).clamp(0.0, 1.0);
+    let lit = if resp.hovered() || resp.dragged() { 0.6 } else { 0.4 };
+    p.rect_filled(Rect::from_min_size(r.min, Vec2::new(r.width() * t, r.height())), 4.0, look::ACCENT.gamma_multiply(lit));
+    if legible {
+        let font = FontId::proportional(look::BODY);
+        p.text(r.left_center() + Vec2::new(6.0, 0.0), Align2::LEFT_CENTER, name, font.clone(), Color32::from_gray(225));
+        p.text(r.right_center() - Vec2::new(6.0, 0.0), Align2::RIGHT_CENTER, if whole { format!("{v:.0}") } else { format!("{v:.2}") }, font, Color32::WHITE);
+    }
+    let start = ui.ctx().data_mut(|d| {
+        if resp.drag_started() {
+            d.insert_temp(id, v);
+        }
+        d.get_temp::<f32>(id)
+    });
+    let new = resp.total_drag_delta().zip(start).map(|(d, s)| {
+        // a long range (a seed) a step every 4 points, else the rail's width is the whole range
+        let per = if whole && max - min > 64.0 { 0.25 } else { (max - min) / r.width() };
+        let x = (s + d.x * per).clamp(min, max);
+        if whole { x.round() } else { x }
+    });
+    (resp, new.filter(|x| *x != v))
+}
+
+/// A choice as a drop-down; the word picked.
+fn word_box(ui: &mut Ui, salt: impl std::hash::Hash + std::fmt::Debug, cur: &str, choices: &[String], width: f32) -> (egui::Response, Option<String>) {
+    let mut set = None;
+    let r = egui::ComboBox::from_id_salt(salt).width(width).selected_text(if cur.is_empty() { "chosen colours" } else { cur }).show_ui(ui, |ui| {
+        for w in choices {
+            let r = ui.selectable_label(w == cur, w);
+            if ui.is_rect_visible(r.rect) {
+                crate::drive::mark(ui.ctx(), format!("choice:{w}"), r.rect);
+            }
+            if r.clicked() {
+                set = Some(w.clone());
+            }
+        }
+    });
+    (r.response, set.filter(|w| w != cur))
+}
+
+/// A word's choices: its kind's list, or the palette's ramps.
+fn choices(words: &[&str], pal: &engine::palette::Palette) -> Vec<String> {
+    if words.is_empty() { pal.ramps().into_iter().map(|r| r.0).collect() } else { words.iter().map(|w| w.to_string()).collect() }
 }
 
 /// A pin: a node's output (`pin` None; the out has none) or one of its inputs.
@@ -130,6 +194,8 @@ pub struct Maps {
     /// The part of the graph in view (the Scene's).
     view: Rect,
     frame_all: bool,
+    /// The view framed by itself and the area it was framed for; gone once the view is moved by hand.
+    fitted: Option<(Rect, Vec2)>,
     drag: Drag,
     adding: Option<Adding>,
     tiled: bool,
@@ -170,6 +236,7 @@ impl Maps {
             pinned: None,
             view: Rect::ZERO,
             frame_all: true,
+            fitted: None,
             drag: Drag::None,
             adding: None,
             tiled: false,
@@ -351,9 +418,22 @@ impl Maps {
 
     /// The graph: wires under the nodes, each node its band, picture, pins and the sliders of its unplugged
     /// pins; what the pointer does with them.
-    fn graph_ui(&mut self, ui: &mut Ui) -> TSTransform {
+    fn graph_ui(&mut self, ui: &mut Ui, pal: &engine::palette::Palette) -> TSTransform {
         let ctx = ui.ctx().clone();
         let tr = ctx.layer_transform_to_global(ui.layer_id()).unwrap_or_default();
+        // rows' text and drop-downs hide where they could not be read
+        let legible = tr.scaling >= 0.45;
+        // a faint dot grid that moves with the graph, so a pan or a zoom is seen
+        let seen = ui.clip_rect();
+        let mut step = 32.0;
+        while seen.area() / (step * step) > 6000.0 {
+            step *= 2.0;
+        }
+        for gx in (seen.min.x / step).floor() as i32..=(seen.max.x / step).ceil() as i32 {
+            for gy in (seen.min.y / step).floor() as i32..=(seen.max.y / step).ceil() as i32 {
+                ui.painter().circle_filled(Pos2::new(gx as f32 * step, gy as f32 * step), 1.2 / tr.scaling.max(0.5), Color32::from_gray(52));
+            }
+        }
         let mark = |name: String, r: Rect| crate::drive::mark(&ctx, name, tr * r);
         let pointer = ctx.input(|i| i.pointer.latest_pos()).map(|p| tr.inverse() * p);
         let m = self.doc().expect("open").m.clone();
@@ -382,11 +462,12 @@ impl Maps {
             let band = Rect::from_min_size(r.min, Vec2::new(W, HEAD));
             let gc = GROUPS.iter().find(|g| g.0 == s.group).map_or(Color32::GRAY, |g| g.1);
             p.rect_filled(band, egui::CornerRadius { nw: 5, ne: 5, sw: 0, se: 0 }, gc.gamma_multiply(0.75));
+            // its name strong, its kind weak after it
             let mut job = egui::text::LayoutJob::simple_singleline(n.id.clone(), font.clone(), Color32::WHITE);
             if n.id != s.kind {
-                job.append(s.kind, 6.0, egui::TextFormat::simple(font.clone(), Color32::from_gray(200)));
+                job.append(s.kind, 8.0, egui::TextFormat::simple(font.clone(), Color32::from_gray(170)));
             }
-            job.wrap = egui::text::TextWrapping::truncate_at_width(W - 36.0);
+            job.wrap = egui::text::TextWrapping::truncate_at_width(W - 34.0);
             let g = p.layout_job(job);
             p.galley(band.left_center() + Vec2::new(GAP, -g.size().y / 2.0), g, Color32::WHITE);
             p.rect_stroke(*r, 5.0, if on { Stroke::new(2.0, look::ACCENT) } else { Stroke::new(1.0, Color32::from_gray(70)) }, egui::StrokeKind::Outside);
@@ -407,26 +488,57 @@ impl Maps {
             if look::tip(pr, if pinned { "Pinned: the preview shows this node whatever is chosen; a click lets it go" } else { "Pin: the preview keeps showing this node while you tune others" }, "P").clicked() {
                 self.pinned = if pinned { None } else { Some(i) };
             }
-            // the input rows: a pin, its name, and its slider while nothing is plugged in
-            for (k, (pin, at)) in n.pins.iter().zip(ins).enumerate() {
-                let (name, pk, _) = s.pins[k];
-                let row = Rect::from_min_max(Pos2::new(r.min.x + 14.0, at.y - PIN_ROW / 2.0 + 2.0), Pos2::new(r.max.x - GAP, at.y + PIN_ROW / 2.0 - 2.0));
-                p.text(Pos2::new(row.min.x, at.y), Align2::LEFT_CENTER, name, font.clone(), Color32::from_gray(200));
-                if let (Pin::Value(v), false) = (pin, pk == Data::Dir) {
-                    let mut v = *v;
-                    let sr = Rect::from_min_max(Pos2::new(row.min.x + 44.0, row.min.y), row.max);
-                    let resp = ui.scope_builder(egui::UiBuilder::new().max_rect(sr), |ui| {
-                        ui.spacing_mut().slider_width = (sr.width() - 48.0).max(20.0);
-                        ui.spacing_mut().interact_size.x = 40.0;
-                        ui.add(egui::Slider::new(&mut v, 0.0..=1.0).max_decimals(2))
-                    });
-                    mark(format!("slider:{}:{name}", n.id), sr);
-                    if look::tip(resp.inner, &format!("{name} while nothing is plugged in; plug a wire in and the wire gives it"), "").changed() {
-                        self.edit(&format!("Move {name}"), true, |m| {
-                            m.set_num(i, name, v);
-                        });
-                    }
+            // a press on a row chooses its node too
+            let mut pressed = false;
+            // the rows, as on Blender's nodes: its choices as drop-downs, its numbers as sliders, then its input
+            // pins, each with its slider while nothing is plugged in
+            for (k, (name, words)) in s.words.iter().enumerate() {
+                let rr = row_rect(*r, k);
+                mark(format!("row:{}:{name}", n.id), rr);
+                if !legible {
+                    continue;
                 }
+                let (resp, set) = ui.scope_builder(egui::UiBuilder::new().max_rect(rr), |ui| word_box(ui, ("map node word", i, k), &n.words[k], &choices(words, pal), rr.width() - 8.0)).inner;
+                pressed |= look::tip(resp, &format!("{name}: what this node does with it"), "").is_pointer_button_down_on();
+                if let Some(w) = set {
+                    self.edit(&format!("{name} {w}"), false, |m| {
+                        let _ = m.set_word(i, name, &w, pal);
+                    });
+                }
+            }
+            for (k, sl) in s.nums.iter().enumerate() {
+                let rr = row_rect(*r, s.words.len() + k);
+                mark(format!("row:{}:{}", n.id, sl.name), rr);
+                let (resp, new) = num_row(ui, rr, ui.scope_id().with(("num", i, k)), sl.name, n.nums[k], (sl.min, sl.max, sl.whole), legible);
+                pressed |= look::tip(resp, &format!("{}: {} to {}; drag sideways to change it", sl.name, sl.min, sl.max), "").is_pointer_button_down_on();
+                if let Some(v) = new {
+                    self.edit(&format!("Move {}", sl.name), true, |m| {
+                        m.set_num(i, sl.name, v);
+                    });
+                }
+            }
+            for (k, pin) in n.pins.iter().enumerate() {
+                let (name, pk, _) = s.pins[k];
+                let rr = row_rect(*r, s.words.len() + s.nums.len() + k);
+                mark(format!("row:{}:{name}", n.id), rr);
+                match pin {
+                    Pin::Value(v) if pk != Data::Dir => {
+                        let (resp, new) = num_row(ui, rr, ui.scope_id().with(("pinv", i, k)), name, *v, (0.0, 1.0, false), legible);
+                        pressed |= look::tip(resp, &format!("{name} while nothing is plugged in; plug a wire in and the wire gives it"), "").is_pointer_button_down_on();
+                        if let Some(v) = new {
+                            self.edit(&format!("Move {name}"), true, |m| {
+                                m.set_num(i, name, v);
+                            });
+                        }
+                    }
+                    _ if legible => {
+                        p.text(rr.left_center() + Vec2::new(6.0, 0.0), Align2::LEFT_CENTER, name, font.clone(), Color32::from_gray(200));
+                    }
+                    _ => {}
+                }
+            }
+            if pressed && !on {
+                self.chosen = vec![i];
             }
             // the pins over everything of the node, so they are what a press near them takes
             let pin_kind = |k: Option<usize>| match k {
@@ -597,6 +709,9 @@ impl Maps {
         for (k, sl) in s.nums.iter().enumerate() {
             let mut v = n.nums[k];
             look::row(ui, sl.name, |ui| {
+                // room for the reset at the row's end
+                ui.spacing_mut().interact_size.x = 56.0;
+                ui.spacing_mut().slider_width = (ui.available_width() - 56.0 - 70.0 - 12.0).max(24.0);
                 let slider = egui::Slider::new(&mut v, sl.min..=sl.max).max_decimals(2);
                 let r = ui.add(if sl.whole { slider.integer() } else { slider });
                 crate::drive::mark(ui.ctx(), format!("num:{}", sl.name), r.rect);
@@ -605,8 +720,8 @@ impl Maps {
                         m.set_num(i, sl.name, v);
                     });
                 }
-                // (it does not fit beside the slider: it goes under it)
-                if n.nums[k] != sl.def && look::tip(look::chip(ui, false, "reset"), &format!("{} back to {} as new", sl.name, sl.def), "").clicked() {
+                let r = ui.add_enabled(n.nums[k] != sl.def, egui::Button::new("reset").small());
+                if look::tip(r, &format!("{} back to {} as new", sl.name, sl.def), "").clicked() {
                     self.edit(&format!("Reset {}", sl.name), false, |m| {
                         m.set_num(i, sl.name, sl.def);
                     });
@@ -618,19 +733,10 @@ impl Maps {
             let mut set = None;
             look::row(ui, name, |ui| {
                 if words.is_empty() {
-                    let r = egui::ComboBox::from_id_salt(("map word", *name)).selected_text(if cur.is_empty() { "chosen colours" } else { &cur }).show_ui(ui, |ui| {
-                        for (ramp, _) in app.pal.ramps() {
-                            let r = ui.selectable_label(ramp == cur, &ramp);
-                            if ui.is_rect_visible(r.rect) {
-                                crate::drive::mark(ui.ctx(), format!("word:{name}:{ramp}"), r.rect);
-                            }
-                            if r.clicked() {
-                                set = Some(ramp);
-                            }
-                        }
-                    });
-                    crate::drive::mark(ui.ctx(), format!("word:{name}"), r.response.rect);
-                    look::tip(r.response, "The palette ramp the number runs along, dark to light", "");
+                    let (r, w) = word_box(ui, ("map word", *name), &cur, &choices(words, &app.pal), 160.0);
+                    set = w;
+                    crate::drive::mark(ui.ctx(), format!("word:{name}"), r.rect);
+                    look::tip(r, "The palette ramp the number runs along, dark to light", "");
                 } else {
                     for w in *words {
                         let r = look::chip(ui, cur == *w, w);
@@ -798,22 +904,22 @@ impl Page for Maps {
             return;
         };
         self.sync();
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(&name).strong());
-            ui.add(egui::Label::new(RichText::new("right click or Space adds a node; drag a pin to wire it; F frames everything").small().weak()).truncate());
-        });
+        ui.label(RichText::new(&name).strong());
         // the work area scrolls: the graph takes what is in view of it, not its whole width
         let outer = Rect::from_min_max(ui.cursor().min, ui.clip_rect().max);
         crate::drive::mark(ui.ctx(), "graph", outer);
         ui.painter().rect_filled(outer, 4.0, ui.visuals().extreme_bg_color);
-        if self.frame_all || self.view == Rect::ZERO {
+        // framed on open and on F, and again while the area settles or is resized, until the view is moved
+        let refit = self.fitted.is_some_and(|(v, s)| v == self.view && s != outer.size());
+        let auto = std::mem::take(&mut self.frame_all) || self.view == Rect::ZERO || refit;
+        if auto {
             let m = &self.doc().unwrap().m;
-            self.view = m.nodes.iter().map(|n| geom(n).0).reduce(|a, b| a.union(b)).unwrap_or(Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0))).expand(60.0);
-            self.frame_all = false;
+            self.view = framed(m.nodes.iter().map(|n| geom(n).0).reduce(|a, b| a.union(b)).unwrap_or(Rect::from_min_size(Pos2::ZERO, Vec2::splat(200.0))), outer.size());
         }
         let mut view = self.view;
         let scene = egui::Scene::new().zoom_range(0.2..=2.0).max_inner_size(Vec2::splat(1e5)).drag_pan_buttons(egui::DragPanButtons::MIDDLE).scroll_zooms(true);
-        let r = ui.scope_builder(egui::UiBuilder::new().max_rect(outer), |ui| scene.show(ui, &mut view, |ui| self.graph_ui(ui))).inner;
+        let r = ui.scope_builder(egui::UiBuilder::new().max_rect(outer), |ui| scene.show(ui, &mut view, |ui| self.graph_ui(ui, &app.pal))).inner;
+        self.fitted = if auto { Some((view, outer.size())) } else { self.fitted.filter(|f| f.0 == view) };
         self.view = view;
         self.area = (outer, r.inner);
         // the empty graph: a drag draws a box, a click chooses nothing, a right click adds a node
@@ -1008,6 +1114,17 @@ mod tests {
         assert_eq!(pin_at(&m, r.center()), None, "the middle of a node is no pin");
         assert_eq!(pin_at(&m, geom(&m.nodes[out]).1), None, "the out gives nothing");
         assert!(REACH * 2.0 >= 12.0 && PIN_R * 2.0 >= 12.0, "pins 12 points across at least");
+    }
+
+    #[test]
+    fn a_graph_opens_framed() {
+        let area = Vec2::new(800.0, 600.0);
+        // a wide strip fills 80 % of the width
+        let v = framed(Rect::from_min_size(Pos2::ZERO, Vec2::new(1000.0, 200.0)), area);
+        assert!((area.x / v.width() * 1000.0 - 640.0).abs() < 0.5, "{v:?}");
+        // a lone node is not blown up past 1.5
+        let v = framed(Rect::from_min_size(Pos2::ZERO, Vec2::new(100.0, 100.0)), area);
+        assert!((area.x / v.width() - 1.5).abs() < 1e-4 && v.center() == Pos2::new(50.0, 50.0), "{v:?}");
     }
 
     #[test]

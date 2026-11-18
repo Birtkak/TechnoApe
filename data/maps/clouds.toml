@@ -15,7 +15,7 @@ speed = 0
 [[node]]
 id = "levels"
 kind = "levels"
-at = [220, 0]
+at = [270, 0]
 low = 0.3
 high = 0.8
 contrast = 1
@@ -24,5 +24,5 @@ in = "noise"
 [[node]]
 id = "out"
 kind = "out"
-at = [440, 0]
+at = [540, 0]
 in = "levels"

@@ -697,3 +697,14 @@ fn maps_add_wire_slide_save() {
     studio(&dir, &["check=1"]);
     assert!(!std::fs::read_to_string(dir.join("data/drafts.txt")).unwrap().contains("maps/clouds.toml"), "saved: no longer a draft");
 }
+
+/// A node's numbers stand on it, as Blender's do: a drag on a row changes the number, one undo step a drag.
+#[test]
+fn maps_node_rows() {
+    let dir = scratch("maps-rows");
+    let line = studio(&dir, &["size=1600x900", "cmd=open:Maps:clouds", "input=drag @row:noise:octaves:0.1,0.5 @row:noise:octaves:0.9,0.5; key Ctrl+S"]);
+    let text = std::fs::read_to_string(dir.join("data/maps/clouds.toml")).unwrap();
+    let noise = text.split("[[node]]").find(|n| n.contains("id = \"noise\"")).unwrap().to_string();
+    assert!(noise.contains("octaves = 8"), "dragged to the right end: {line}\n{noise}");
+    assert_eq!(line.matches("Move octaves").count(), 1, "one step a drag: {line}");
+}

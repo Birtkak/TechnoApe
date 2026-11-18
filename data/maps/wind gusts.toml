@@ -15,7 +15,7 @@ speed = 1
 [[node]]
 id = "drift"
 kind = "move"
-at = [220, 0]
+at = [270, 0]
 shift_x = 0
 shift_y = 0
 repeat = 1
@@ -27,12 +27,12 @@ in = "gusts"
 [[node]]
 id = "push"
 kind = "slope"
-at = [440, 0]
+at = [0, 280]
 strength = 3
 in = "drift"
 
 [[node]]
 id = "out"
 kind = "out"
-at = [660, 0]
+at = [270, 280]
 in = "push"

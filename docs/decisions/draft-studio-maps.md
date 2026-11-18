@@ -61,6 +61,13 @@ Options 1 and 4, worked out on the CPU.
 - **Speed:** node pictures are 64 px, worked out in the frame (`Graph::update` reworks only what is after a
   changed number). The inspector's full-size picture is worked out on a worker thread; the node's 64 px
   picture stands in until it comes.
+- **Numbers on the node, as Blender's:** each number, and each unplugged pin's, is a row on the node (name
+  left, value right, a lit rail; a sideways drag moves it relative to where it was, a seed one step every 4
+  points, else the row's width is the whole range; one undo step a drag). Choices are drop-downs on the node.
+  The inspector shows the same numbers with a reset at each row's end. Rows' text hides under zoom 0.45. A
+  click on a number does not type into it (yet).
+- **Framing:** on open and on F the nodes fill about 80 % of the graph area, zoom at most 1.5; refitted while
+  the area settles or is resized, until the view is moved by hand. A dot grid moves with the graph.
 - **Space adds a node** (the design also gave Space+drag to pan; one key cannot do both, the middle button pans).
 - **The page bar** hides the Studio's title when the tabs would not fit in one row, so nine tabs stay one row
   at 1600 x 900 at 133 %; at 1920 x 1080 nothing changes.
