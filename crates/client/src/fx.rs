@@ -2212,6 +2212,28 @@ mod tests {
         assert_ne!(noise_at(p, 2.0, &n), noise_at(p, 3.0, &n));
     }
 
+    /// A row without `map` moves through the value noise exactly as before the game read maps: the drawn bytes of
+    /// a fire's flames and smoke over two seconds, hashed, as the code before it made them.
+    #[test]
+    fn a_noise_row_without_a_map_moves_exactly_as_before() {
+        let w = world();
+        let at = At::point(0, DVec3::new(0.0, 2000.0, 0.0), DVec3::ZERO, 0.0);
+        let rows = "[[effect]]\nname='t flames'\nrate=45\nstart='box'\nbox=[0.4,0.05,0.4]\nspeed=[0.0,0.15]\nup=0.4\ngravity=0.0\nrise=1.2\ndrag=1.5\nlife=[0.45,0.8]\nsize=[0.1,0.2]\nlook='square'\ncolour=[1,0.5,0]\nnoise={ strength=2.5, scale=0.3, speed=1.5 }\nspin=2.0\n\n[[effect]]\nname='t smoke'\nrate=6\nstart='box'\nbox=[0.3,0.1,0.3]\nspeed=[0.05,0.2]\nup=0.6\ngravity=0.0\nrise=0.25\nspread=0.08\ndrag=0.5\nlife=[2.5,4.0]\nsize=[0.1,0.18]\nlook='square'\ncolour=[0.3,0.3,0.3]\nnoise={ strength=0.8, scale=0.8 }\n";
+        let mut got = Vec::new();
+        for name in ["t flames", "t smoke"] {
+            let mut fx = pool_with(rows, 1.0);
+            fx.start(name, &at).unwrap();
+            let mut h = engine::world::FNV0;
+            for _ in 0..120 {
+                fx.step(&w, 1.0 / 60.0);
+                h = engine::world::fnv(h, bytemuck::cast_slice(fx.drawn()));
+            }
+            got.push(h);
+        }
+        println!("{got:?}");
+        assert_eq!(got, [9210340065840107319u64, 3809945637352739919]);
+    }
+
     const LASTING: &str = "[[effect]]\nname='t flames'\nrate=10\nlife=[5,5]\nsize=[0.1,0.1]\nlook='square'\ncolour=[1,0.5,0]\ngravity=0\nglow=2\n\n[[effect]]\nname='t smoke'\ncount=2\nrate=4\nlife=[5,5]\nsize=[0.1,0.1]\nlook='square'\ncolour=[0.3,0.3,0.3]\ngravity=0\nrise=0.5\nspread=0.2\n\n[[group]]\nname='t fire'\nrows=['t flames','t smoke']\n";
 
     fn pool_with(text: &str, scale: f32) -> Fx {
