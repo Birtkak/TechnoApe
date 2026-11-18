@@ -1436,8 +1436,8 @@ fn a_saved_player_comes_back_with_what_it_held() {
 /// generation 1 it has the arcs' tuff, told 2 their basalt flows over part of them, and the same rock in every
 /// column of every other province.
 #[test]
-fn a_client_told_generation_1_or_2_builds_that_worlds_rock() {
-    let worlds = [1u8, engine::world::GENERATION].map(|gen| {
+fn a_client_told_generation_1_2_or_3_builds_that_worlds_rock() {
+    let worlds = [1u8, 2, 3].map(|gen| {
         let (tx, rx) = channel();
         let mut s = Server::baked_warp(1536, 32, 7, 0.0, gen, rx);
         let (c, sv) = local();
@@ -1449,9 +1449,13 @@ fn a_client_told_generation_1_or_2_builds_that_worlds_rock() {
         });
         let (seed, planet_n, moon_n, told) = welcome.expect("a welcome");
         assert_eq!(told, gen, "the welcome says the world's generation");
-        // as the bot and the client do on a welcome
-        World::with_grid(planet_n, moon_n, seed, Some(engine::bake::get(seed, planet_n)), None, 0.0, told)
+        // as the bot and the client do on a welcome: the same ground as the server's, caves and all
+        let w = World::with_grid(planet_n, moon_n, seed, Some(engine::bake::get(seed, planet_n)), None, 0.0, told);
+        assert!(w.bodies[0].caves == s.world.bodies[0].caves, "generation {gen}: the client's caves differ from the server's");
+        w
     });
+    // generation 3 is generation 2's rock with karst in it
+    assert!(worlds[2].bodies[0].caves != worlds[1].bodies[0].caves, "generation 3 has the caves of 2");
     let (b1, b2) = (&worlds[0].bodies[0], &worlds[1].bodies[0]);
     let (mut arc, mut other) = (0, 0);
     for f in 0..6u8 {
@@ -1475,7 +1479,7 @@ fn a_client_told_generation_1_or_2_builds_that_worlds_rock() {
 /// generation 0 on the old floor, 1 and 2 on the deep grid, 2 with its own ground; a dig in each at the same cell.
 #[test]
 fn a_recording_replays_with_its_generation() {
-    for gen in [0, 1, engine::world::GENERATION] {
+    for gen in [0, 1, 2, 3] {
         let (tx, rx) = channel();
         let mut s = Server::baked_warp(1536, 32, 7, 0.0, gen, rx);
         let rec = std::env::temp_dir().join(format!("technoape-test-{}-{gen}.rec", std::process::id()));

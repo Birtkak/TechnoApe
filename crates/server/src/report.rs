@@ -32,8 +32,8 @@ pub fn report(w: &World) -> String {
     // the caves and the crust's ore bodies alone: the hash of the same world before the mantle's minerals
     let crust: Vec<engine::ore::OreBody> = b.ores.iter().copied().filter(|o| !engine::ore::MINERALS.kinds[o.kind as usize].deep()).collect();
     format!(
-        "{{\"seed\": {}, \"planet\": {}, \"gen\": {}, \"spawn\": [{:.5}, {:.5}, {:.5}], \"made_hash\": \"{:016x}\", \"made_hash_crust\": \"{:016x}\", \"provinces\": {{{}}}, \"flows\": {{{}}}, \"caves\": {{\"balls\": {}, \"in_limestone\": {}, \"in_basalt\": {}, \"depth_m\": [{:.1}, {:.1}], \"open_to_the_sky\": {}, \"kinds\": {{{}}}}}, \"heat_c_under_the_spawn\": [{:.1}, {:.1}], \"pressure_mpa_under_the_spawn\": [{:.3}, {:.3}], \"deep\": {{{}}}, \"minerals\": {{{}}}}}",
-        map.seed, map.n, b.gen, b.spawn.x, b.spawn.y, b.spawn.z, made_hash(&b.caves, &b.ores), made_hash(&b.caves, &crust), provinces.join(", "), flows(b).join(", "), b.caves.len(), in_lime, b.caves.len() - in_lime, dmin, dmax, open, kinds(b).join(", "), heat(ground), heat(0.0), pressure(ground), pressure(0.0), deep.join(", "), minerals(w).join(", ")
+        "{{\"seed\": {}, \"planet\": {}, \"gen\": {}, \"spawn\": [{:.5}, {:.5}, {:.5}], \"made_hash\": \"{:016x}\", \"made_hash_crust\": \"{:016x}\", \"provinces\": {{{}}}, \"flows\": {{{}}}, \"limestone\": {}, \"caves\": {{\"balls\": {}, \"in_limestone\": {}, \"in_basalt\": {}, \"depth_m\": [{:.1}, {:.1}], \"open_to_the_sky\": {}, \"kinds\": {{{}}}}}, \"heat_c_under_the_spawn\": [{:.1}, {:.1}], \"pressure_mpa_under_the_spawn\": [{:.3}, {:.3}], \"deep\": {{{}}}, \"minerals\": {{{}}}}}",
+        map.seed, map.n, b.gen, b.spawn.x, b.spawn.y, b.spawn.z, made_hash(&b.caves, &b.ores), made_hash(&b.caves, &crust), provinces.join(", "), flows(b).join(", "), limestone(b), b.caves.len(), in_lime, b.caves.len() - in_lime, dmin, dmax, open, kinds(b).join(", "), heat(ground), heat(0.0), pressure(ground), pressure(0.0), deep.join(", "), minerals(w).join(", ")
     )
 }
 
@@ -54,7 +54,10 @@ fn kinds(b: &engine::world::Body) -> Vec<String> {
         .map(|(k, kind)| {
             let of: Vec<&engine::caves::System> = sys.iter().filter(|s| s.kind as usize == k).collect();
             let open: std::collections::HashSet<(u8, i32, i32, i32)> = of.iter().flat_map(|s| s.balls.iter().flat_map(|c| cells(b, c).into_iter().map(move |(i, j, z)| (c.face, i, j, z)))).collect();
-            let mut lengths: Vec<f64> = of.iter().map(|s| s.axis.windows(2).map(|p| (p[1] - p[0]).truncate().length()).sum::<f64>()).collect();
+            let karst = kind.shape == engine::caves::Shape::Karst;
+            // (a karst's axis jumps from each passage to the next)
+            let length_of = |s: &engine::caves::System| s.axis.windows(2).map(|p| (p[1] - p[0]).truncate().length()).filter(|&d| !karst || d < 1.5).sum::<f64>();
+            let mut lengths: Vec<f64> = of.iter().map(|s| length_of(s)).collect();
             lengths.sort_by(f64::total_cmp);
             let length: f64 = lengths.iter().sum();
             let median = lengths.get(lengths.len() / 2).copied().unwrap_or(0.0);
@@ -78,7 +81,7 @@ fn kinds(b: &engine::world::Body) -> Vec<String> {
                     format!("at={:.6},{:.6},{:.6} depth={depth:.1} yaw={yaw:.0} pitch={pitch:.0}", up.x, up.y, up.z)
                 };
                 let tube = engine::caves::CAVES.kinds[s.kind as usize].shape == engine::caves::Shape::Tube;
-                let before = s.axis[o.0.saturating_sub(if tube { 5 } else { 10 })];
+                let before = s.axis[o.0.saturating_sub(if tube { 5 } else if karst { 16 } else { 10 })];
                 let outside = look(before, p, 0.0, -45.0);
                 // inside: the middle of the open column nearest q, feet on its lowest open cell
                 let inside = |q: glam::DVec3, toward: glam::DVec3, pitch: f64| {
@@ -91,14 +94,51 @@ fn kinds(b: &engine::world::Body) -> Vec<String> {
                 };
                 // a tube's station farthest along its axis from every opening, looking on along it
                 let gap = |k: usize| s.openings.iter().map(|o| if k < o.0 { o.0 - k } else { k.saturating_sub(o.1) }).min().unwrap_or(usize::MAX);
-                let far = (0..s.axis.len().saturating_sub(6)).max_by_key(|&k| gap(k)).filter(|_| tube);
+                let far = (0..s.axis.len().saturating_sub(6)).max_by_key(|&k| gap(k)).filter(|_| tube || karst);
                 let closed = far.map_or("none".to_string(), |k| format!("{} (axis point {k} of {}, {} from an opening)", inside(s.axis[k], s.axis[k + 5], 0.0), s.axis.len(), gap(k)));
+                // a karst's hall nearest the spawn (of any system): its middle column, feet on its floor
+                let hall = of.iter().flat_map(|s| s.halls.iter().map(move |&h| (s.face, s.balls[h]))).min_by(|x, y| {
+                    let d = |c: &(u8, engine::world::Cave)| b.dir(c.0 as usize, c.1.at.x, c.1.at.y).angle_between(b.spawn);
+                    d(x).total_cmp(&d(y))
+                });
+                let hall = hall.map_or("none".to_string(), |(hf, c)| {
+                    let (i, j) = (c.at.x.floor() as i32, c.at.y.floor() as i32);
+                    let (lo, hi) = c.span(i, j).unwrap();
+                    let up = b.dir(hf as usize, i as f64 + 0.5, j as f64 + 0.5);
+                    format!("at={:.6},{:.6},{:.6} depth={:.1} yaw=0 pitch=5 ({:.0} m from the spawn, {:.0} m across, {} m tall)", up.x, up.y, up.z, b.ground_r(hf as usize, i as f64 + 0.5, j as f64 + 0.5) - b.layer_r(lo as f64), b.radius * up.angle_between(b.spawn), 2.0 * c.r, hi - lo)
+                });
                 let inside = if tube { inside(s.axis[(o.1 + 15).min(s.axis.len() - 1)], p, 10.0) } else { inside(p, s.axis[(k + 4).min(s.axis.len() - 1)], 75.0) };
-                format!("{{\"m\": {:.0}, \"at\": [{:.6}, {:.6}, {:.6}], \"depth_m\": {:.1}, \"outside\": \"{outside}\", \"inside\": \"{inside}\", \"closed\": \"{closed}\"}}", away(s, o), d.x, d.y, d.z, b.ground_r(f, p.x, p.y) - p.z)
+                format!("{{\"m\": {:.0}, \"at\": [{:.6}, {:.6}, {:.6}], \"depth_m\": {:.1}, \"outside\": \"{outside}\", \"inside\": \"{inside}\", \"closed\": \"{closed}\", \"hall\": \"{hall}\"}}", away(s, o), d.x, d.y, d.z, b.ground_r(f, p.x, p.y) - p.z)
             });
+            // a karst's systems: its halls, and its largest system's passages and the depth of their floors
+            let largest = of.iter().max_by(|x, y| length_of(x).total_cmp(&length_of(y))).map_or("null".to_string(), |s| {
+                let (lo, hi) = s.axis.iter().map(|q| b.ground_r(s.face as usize, q.x, q.y) - q.z).fold((f64::MAX, f64::MIN), |(l, h), d| (l.min(d), h.max(d)));
+                format!("{{\"length_m\": {:.0}, \"depth_m\": [{lo:.1}, {hi:.1}], \"halls\": {}, \"sinkholes\": {}}}", length_of(s), s.halls.len(), s.openings.len())
+            });
+            let near = if karst { format!("{near}, \"halls\": {}, \"largest\": {largest}", of.iter().map(|s| s.halls.len()).sum::<usize>()) } else { near };
             format!("\"{}\": {{\"caves\": {}, \"open_cells\": {}, \"length_m\": {length:.0}, \"median_m\": {median:.0}, \"openings\": {}, \"nearest_opening\": {near}}}", kind.name, of.len(), open.len(), of.iter().map(|s| s.openings.len()).sum::<usize>())
         }))
         .collect()
+}
+
+/// Limestone on the land (columns over the sea, every 8th each way): the share of the land with it right under
+/// the soil band (where a sinkhole can open), and with it at the water table (where a karst passage can run).
+fn limestone(b: &engine::world::Body) -> String {
+    let (sea, lime) = (b.radius - engine::world::SEA_DEPTH, engine::blocks::BLOCKS.id("limestone"));
+    let (mut land, mut band, mut table) = (0u64, 0u64, 0u64);
+    for f in 0..6u8 {
+        for i in (4..b.n).step_by(8) {
+            for j in (4..b.n).step_by(8) {
+                let (r, g) = (b.col_rock(f, i, j), b.col_height(f, i, j));
+                if g > sea {
+                    land += 1;
+                    band += (b.rock(r, (g - 4.5) as f32, 0) == lime) as u64;
+                    table += (b.rock(r, (sea + engine::caves::water_table(b, f as usize, i as f64 + 0.5, j as f64 + 0.5) + 1.0) as f32, 0) == lime) as u64;
+                }
+            }
+        }
+    }
+    format!("{{\"land_under_the_soil\": {:.3}, \"land_at_the_water_table\": {:.3}}}", band as f64 / land as f64, table as f64 / land as f64)
 }
 
 /// Each province with a lava flow (`data/rocks.toml` `flow`): the share of its land (columns over the sea, every
