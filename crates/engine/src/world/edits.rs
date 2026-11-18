@@ -89,7 +89,7 @@ impl World {
                 return body.halo_block(k, g);
             }
             let r = body.layer_r(b.pos.z as f64 + 0.5) as f32;
-            return ROCKS.at(body.col_rock(b.face, b.pos.x, b.pos.y), r, ground[2]);
+            return body.rock(body.col_rock(b.face, b.pos.x, b.pos.y), r, ground[2]);
         }
         material(depth, &ground)
     }

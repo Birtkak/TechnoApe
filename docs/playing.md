@@ -41,3 +41,7 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
 - Looking at something (`run=stand`, CLAUDE.md): `weather=clear` (or another `/weather` name) forces the weather from
   the start, `creatures=0` makes the local server keep no animals (no herd is made, live data is off, no save is read or written), so a fixed
   viewpoint is the same picture however long its load took (both on every line of `tests/views/views.txt`).
+  `depth=m` stands m metres under the ground, in the rock (a new world's grid goes 1243 m down through the
+  mantle, ADR 0152): `place=` with `air` digs the room around the stand cell, lamps light it, e.g.
+  `run=stand depth=1000 place=0:0:0:air,0:0:1:air,0:0:2:air,1:0:1:lamp,...`. `mantle=0` (the game, the server and
+  its `report=1`) makes a new world on the 192 m floor of the worlds from before.

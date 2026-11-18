@@ -3,13 +3,15 @@
 # those provinces, in the bake's order, and their names must match it.
 # `layers`: the province's rocks top down, each [block, metres]. The first layer's top lies `datum` metres
 # over the sea (and above it the first layer goes on up to the soil); the last layer's metres are 0: it goes
-# to the bottom of the crust (192 m). A valley cuts down through the layers, and a cliff shows their bands.
+# to the bottom of the crust (192 m), where `mantle` takes over. A valley cuts down through the layers, and a cliff shows their bands.
 # `fold`: [metres, wavelength in metres]: how far the layers wave up and down and how wide the waves are.
 # `heat`: how much warmer the rock is a metre deeper, degrees C (the year's mean air at the surface on top).
 # `caves`: "limestone" (water-cut systems along the water table, where limestone holds it), "tubes" (lava
 # tubes a few metres under basalt ground: a rift's, or an island's of oceanic crust) or "none".
 
 datum = 60.0
+# The rock under the crust, in every province, on a planet whose grid goes down through the mantle (ADR 0152).
+mantle = "peridotite"
 
 [[province]]
 name = "shield"

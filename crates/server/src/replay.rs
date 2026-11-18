@@ -46,8 +46,10 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
             }
         }
         // shortcut: Start names Terra's map alone, so Luna is this build's bake whenever Terra is baked; a
-        // recording made before W6 or with another Luna version replays with other ground there (ADR 0070)
-        _ => (Server::on_map(*planet_n, *moon_n, *seed, *map, map.map(|_| engine::bake::luna::get(*seed, *moon_n).hash), rx), &evs[1..]),
+        // recording made before W6 or with another Luna version replays with other ground there (ADR 0070).
+        // A recording from the seed is a new world's, on the deep grid (ADR 0152). shortcut: one made before the
+        // mantle replays on it too, its layers off by the mantle's; Start would have to say it
+        _ => (Server::on_map(*planet_n, *moon_n, *seed, *map, map.map(|_| engine::bake::luna::get(*seed, *moon_n).hash), true, rx), &evs[1..]),
     };
     s.dt = *dt;
     let mut links: HashMap<u32, Link<ToServer, ToClient>> = HashMap::new();

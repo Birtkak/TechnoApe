@@ -3729,3 +3729,45 @@ fn a_flood_of_steps_and_edits_takes_a_bounded_number_of_steps() {
     let taken = (s.clients[0].acked - before) as usize;
     assert!(taken <= QUEUE_MAX + CREDIT_MAX as usize, "{taken} steps in one tick");
 }
+
+/// The mantle (ADR 0152): on a new world a player in a hollow at the planet's floor, hundreds of metres down,
+/// digs a cell and is sent it back; a dig under the floor is refused. The save keeps the deep grid and the dug
+/// cell; a save from before (no mantle) loads on its 192 m floor with its edits at the layers they were at.
+#[test]
+fn a_player_digs_at_the_mantles_floor_and_not_under_it() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked(1536, 32, 7, rx);
+    let b = &s.world.bodies[0];
+    assert!(b.mantle > 0, "a new world's planet has a mantle");
+    let (f, i, j) = b.locate(b.spawn);
+    let (f, i, j) = (f as u8, i as i32, j as i32);
+    let at = |di: i32, z: i32| Block { body: 0, face: f, pos: glam::IVec3::new(i + di, j, z) };
+    let feet = b.centre + b.dir(f as usize, i as f64 + 0.5, j as f64 + 0.5) * (b.layer_r(1.0) + 0.05);
+    let depth = b.radius - b.layer_r(1.0);
+    for z in 1..5 {
+        s.world.set_block(at(0, z), AIR);
+    }
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    s.tick();
+    drain(&c);
+    c.send(ToServer::Move { pos: feet.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    c.send(ToServer::Creative(true));
+    let (wall, under) = (at(1, 2), at(0, -1));
+    assert!(BLOCKS.solid(s.world.block(wall)), "the hollow's wall is rock");
+    c.send(ToServer::Edit { seq: 1, shape: Shape::one(wall), material: AIR });
+    c.send(ToServer::Edit { seq: 2, shape: Shape::one(under), material: AIR });
+    s.tick();
+    let got = drain(&c);
+    assert!(got.contains(&ToClient::Done { seq: 1, ok: true }) && got.contains(&ToClient::Edits(vec![(wall, AIR)])), "{depth:.0} m down: {:?}", got.iter().filter(|m| matches!(m, ToClient::Done { .. })).collect::<Vec<_>>());
+    assert!(got.contains(&ToClient::Done { seq: 2, ok: false }), "a dig under the floor is refused");
+    assert!(depth > 300.0, "{depth} m");
+    // the save keeps the deep grid; one from before the mantle loads on today's floor, its cells where they were
+    let snap = s.snapshot();
+    let back = Server::from_save(Save::from_bytes(&snap.to_bytes()).unwrap(), channel().1);
+    assert_eq!((back.world.bodies[0].mantle, back.world.block(wall)), (s.world.bodies[0].mantle, AIR));
+    let old = Server::from_save(Save::from_bytes(&Save { mantle: false, ..snap }.to_bytes()).unwrap(), channel().1);
+    let ob = &old.world.bodies[0];
+    assert_eq!((ob.mantle, ob.r0.to_bits(), ob.layers), (0, engine::world::Body::new(ob.centre, ob.n, 7).r0.to_bits(), engine::world::Body::new(ob.centre, ob.n, 7).layers));
+    assert_eq!((old.world.edit(wall), old.world.edit(at(0, 3))), (Some(AIR), Some(AIR)));
+}

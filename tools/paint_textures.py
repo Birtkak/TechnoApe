@@ -2058,6 +2058,8 @@ def build(pal, blocks):
     rock("basalt", basalt_top, basalt_side)
     gb = R("gabbro")
     rock("gabbro", lambda g, v: granite(g, v, gb, 4, 9))
+    pd = R("peridotite")  # the mantle's rock (ADR 0152): gabbro's grain, darker and greener
+    rock("peridotite", lambda g, v: granite(g, v, pd, 5, 7))
 
     # ores, each on its host
     ma = R("malachite")

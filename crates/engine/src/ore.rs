@@ -227,7 +227,8 @@ impl OreBody {
     /// it and not in the body: grade g reaches `halo_m` (1 - g / grades) out, each cell's reach frayed by a hash
     /// of the cell so a grade's edge is ragged (two grades mix over 30 % of the reach where they meet). The
     /// richest grade lies next to the ore.
-    pub fn halo_grade(&self, face: u8, i: i32, j: i32, z: i32) -> Option<usize> {
+    /// `mantle`: the body's mantle layers, taken off z for the hash.
+    pub fn halo_grade(&self, face: u8, i: i32, j: i32, z: i32, mantle: i32) -> Option<usize> {
         let kind = &MINERALS.kinds[self.kind as usize];
         let n = kind.halo.len();
         if n == 0 {
@@ -237,7 +238,7 @@ impl OreBody {
         if !self.grown(p, kind.halo_m * (1.0 + FRAY)) || self.grown(p, 0.0) {
             return None;
         }
-        let h = crate::world::mix(0x4a10 ^ (face as u64) << 58 ^ (i as u32 as u64) << 29 ^ (j as u32 as u64) ^ (z as u32 as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+        let h = crate::world::mix(0x4a10 ^ (face as u64) << 58 ^ (i as u32 as u64) << 29 ^ (j as u32 as u64) ^ ((z - mantle) as u32 as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
         let fray = (crate::world::unit(h) as f64 - 0.5) * 2.0 * FRAY;
         (0..n).rev().find(|&g| self.grown(p, kind.halo_m * (1.0 - g as f64 / n as f64 - fray)))
     }
