@@ -434,12 +434,12 @@ impl Body {
             return None;
         }
         // nor over a cave's open mouth (a skylight, a slot), on a planet with the mantle (generation 1 came in on
-        // the mantle flag; a rule new since asks `self.gen`, ADR draft-generation-number-and-arc-basalt)
+        // the mantle flag; a rule new since asks `self.gen`, ADR 0160-generation-number-and-arc-basalt)
         if self.mantle > 0 && self.col_caves(face as u8, i, j).iter().any(|&(lo, hi)| (lo..hi).contains(&(z - 1))) {
             return None;
         }
         // nor, from generation 2, a plant whose crown hangs over a cave's open mouth: a skylight is seen from the
-        // sky (ADR draft-generation-number-and-arc-basalt). Columns without a cave cost a tile lookup.
+        // sky (ADR 0160-generation-number-and-arc-basalt). Columns without a cave cost a tile lookup.
         if self.gen >= 2 {
             let r = ROWS.plants[plant].radius;
             for (di, dj) in (-r..=r).flat_map(|a| (-r..=r).map(move |c| (a, c))) {

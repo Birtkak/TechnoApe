@@ -423,7 +423,7 @@ impl Probe<'_> {
     }
 }
 
-/// A lava tube of a world of generation 2 (ADR draft-generation-number-and-arc-basalt): one round passage, its
+/// A lava tube of a world of generation 2 (ADR 0160-generation-number-and-arc-basalt): one round passage, its
 /// width drawn per tube and waving slowly along it, its lower third filled flat (a ball of the radius, cut a third
 /// of the radius under its middle), a few metres under the ground. A start first climbs the ground's slope up the
 /// basalt (a tube runs from high on its flow), then it runs downhill as `tube` does, gently winding, and also ends
@@ -749,7 +749,7 @@ pub fn make(b: &Body, seed: u64) -> Vec<Cave> {
         }
     }
     // (generation 1 came in on the mantle flag, and these gates stay on it: the same worlds. A rule new since asks
-    // `b.gen`, ADR draft-generation-number-and-arc-basalt; the kinds of a generation are chosen in `systems_of`)
+    // `b.gen`, ADR 0160-generation-number-and-arc-basalt; the kinds of a generation are chosen in `systems_of`)
     if b.mantle > 0 {
         out.extend(systems(b, seed).into_iter().flat_map(|s| s.balls));
     }

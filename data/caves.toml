@@ -14,7 +14,7 @@
 # `spacing`: one candidate start every this many columns each way on a face; `chance`: the share that grow one.
 # `width`, `height`, `length`: [least, most] metres, drawn per cave.
 # `generations` (optional): [least, most] of the worlds' generations it is made in (`Body::gen`, ADR
-#   draft-generation-number-and-arc-basalt); every generation from 1 when left out. A row's place in the file seeds
+#   0160-generation-number-and-arc-basalt); every generation from 1 when left out. A row's place in the file seeds
 #   it: add new rows at the end, and give an old row an end rather than changing it, so older worlds keep theirs.
 # Tubes: `skylight` metres between roof collapses open to the sky (at least one a tube), `trench` the chance the
 #   stretch at a skylight has fallen in over 20 to 50 m, `branch` the chance a branch leaves, per 100 m.

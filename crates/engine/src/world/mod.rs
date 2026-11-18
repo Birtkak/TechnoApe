@@ -99,7 +99,7 @@ pub fn deep_layers(n: i32) -> i32 {
 pub const MANTLE_STEP: i32 = 256;
 
 /// A new world's generation (`Body::gen`): 1 the mantle and the caves by rock (ADR 0152, 0159), 2 the arcs'
-/// basalt flows and lava tubes as one round passage (ADR draft-generation-number-and-arc-basalt).
+/// basalt flows and lava tubes as one round passage (ADR 0160-generation-number-and-arc-basalt).
 pub const GENERATION: u8 = 2;
 
 /// Refuses a world of a generation newer than this build's: it would generate other ground under the edits.
@@ -258,7 +258,7 @@ pub struct Body {
     /// a body of a save from before and every other body none. Layer z here is layer z - mantle of the body
     /// without it, at the same radius.
     pub mantle: i32,
-    /// The world's generation (ADR draft-generation-number-and-arc-basalt): which generation rules its ground
+    /// The world's generation (ADR 0160-generation-number-and-arc-basalt): which generation rules its ground
     /// was made by, kept in its save and sent to every client. 0 the worlds before the mantle, 1 the mantle's
     /// (ADR 0154), `GENERATION` a new world's. A rule new in a generation asks `gen >=` it. Set on the planet only.
     pub gen: u8,

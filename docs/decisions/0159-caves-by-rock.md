@@ -148,5 +148,5 @@ top of the arc's layers (real arcs have basaltic flows: Lava Beds in the Cascade
   placed block other than the rock rule, and adding one is a second path for every reader); tubes across face
   seams; caves at coarse levels (as before); karst rivers, magma, sea caves, deep caverns, decorations.
 - Shortcut: the kinds ride on the mantle flag; give worlds a generation number when the next generation rule needs it.
-- Done since in draft-generation-number-and-arc-basalt: worlds carry a generation number; generation 2 gives the arcs
+- Done since in 0160-generation-number-and-arc-basalt: worlds carry a generation number; generation 2 gives the arcs
   basalt flows and remakes the lava tube as one round passage (this row is kept for generation 1).

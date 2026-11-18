@@ -1432,7 +1432,7 @@ fn a_saved_player_comes_back_with_what_it_held() {
     assert!(Save::from_bytes(b"not a save").is_err());
 }
 
-/// A client or a bot builds its world from the welcome (ADR draft-generation-number-and-arc-basalt): told
+/// A client or a bot builds its world from the welcome (ADR 0160-generation-number-and-arc-basalt): told
 /// generation 1 it has the arcs' tuff, told 2 their basalt flows over part of them, and the same rock in every
 /// column of every other province.
 #[test]
@@ -1471,7 +1471,7 @@ fn a_client_told_generation_1_or_2_builds_that_worlds_rock() {
     assert!(arc > 50 && other > 10_000, "{arc} arc columns differ, {other} others the same");
 }
 
-/// A recording from the seed replays on the grid and by the generation it was made by (ADR 0152; ADR draft-generation-number-and-arc-basalt):
+/// A recording from the seed replays on the grid and by the generation it was made by (ADR 0152; ADR 0160-generation-number-and-arc-basalt):
 /// generation 0 on the old floor, 1 and 2 on the deep grid, 2 with its own ground; a dig in each at the same cell.
 #[test]
 fn a_recording_replays_with_its_generation() {

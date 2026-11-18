@@ -36,7 +36,7 @@ use std::path::Path;
 /// (draft ADR journal-data); an 18 or older loads its players with every entry unknown. 20 says whether the
 /// planet's grid goes down through the mantle (ADR 0154, 0152): a new world's does; a 19 or older
 /// keeps its 192 m floor and every layer index it holds, and so does such a world written again as a 20. 21 keeps
-/// the world's generation (`Body::gen`, ADR draft-generation-number-and-arc-basalt) in its place: a 20 reads as
+/// the world's generation (`Body::gen`, ADR 0160-generation-number-and-arc-basalt) in its place: a 20 reads as
 /// generation 1 with the mantle and 0 without.
 pub const VERSION: u32 = 21;
 
@@ -676,7 +676,7 @@ mod tests {
         assert_eq!(back, Save { version: 19, gen: 0, ..deep });
     }
 
-    /// 21 keeps the world's generation (`Body::gen`, ADR draft-generation-number-and-arc-basalt) and a new save
+    /// 21 keeps the world's generation (`Body::gen`, ADR 0160-generation-number-and-arc-basalt) and a new save
     /// round-trips it; a 20, which said only whether the planet has the mantle, loads as generation 1 with it and
     /// 0 without, all else as it was.
     #[test]

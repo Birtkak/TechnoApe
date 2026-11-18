@@ -1433,7 +1433,7 @@ fn ground_hash(w: &World) -> u64 {
 }
 
 /// Worlds of generation 0 (no mantle) and 1 (the mantle, ADR 0154) generate as they did before the generation
-/// number (ADR draft-generation-number-and-arc-basalt): their caves, ores and rock, to the bit. A regression lock:
+/// number (ADR 0160-generation-number-and-arc-basalt): their caves, ores and rock, to the bit. A regression lock:
 /// the numbers were recorded on the code before the number existed.
 #[test]
 fn generations_0_and_1_generate_as_before() {
@@ -1441,7 +1441,7 @@ fn generations_0_and_1_generate_as_before() {
     assert_eq!(got, [15709614112514717112, 4328838127608172666], "generation 0 and 1 of the 1536 planet");
 }
 
-/// Basalt flows (ADR draft-generation-number-and-arc-basalt): a province whose row of `data/rocks.toml` states a
+/// Basalt flows (ADR 0160-generation-number-and-arc-basalt): a province whose row of `data/rocks.toml` states a
 /// `flow` (the volcanic arc) has that rock from the ground down its `thick` metres over part of its land, in a
 /// world of generation 2: about its `share`, by the seed, and its own layers under it. No other province changes,
 /// and a world of generation 1 has no flow anywhere: every reader asks `Body::rock`, so its rock is the old.
@@ -1489,7 +1489,7 @@ fn round_tubes(sys: &[crate::caves::System]) -> Vec<&crate::caves::System> {
     sys.iter().filter(|s| CAVES.kinds[s.kind as usize].shape == Shape::Tube && CAVES.kinds[s.kind as usize].generations[0] >= 2).collect()
 }
 
-/// A lava tube of generation 2 is one round passage (ADR draft-generation-number-and-arc-basalt): cut across its
+/// A lava tube of generation 2 is one round passage (ADR 0160-generation-number-and-arc-basalt): cut across its
 /// axis every 5 m (away from its openings and from any other cave), the generated air of the world is one opening
 /// (no rock between two open columns), its open columns' middles at most 7 m apart, its floor flat (the middle
 /// columns' lowest open cell within a layer of the axis's) and its roof an arch (no column higher than one

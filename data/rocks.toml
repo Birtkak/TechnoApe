@@ -8,7 +8,7 @@
 # `heat`: how much warmer the rock is a metre deeper, degrees C (the year's mean air at the surface on top).
 # `caves`: "limestone" (water-cut systems along the water table, where limestone holds it), "tubes" (lava
 # tubes a few metres under basalt ground: a rift's, or an island's of oceanic crust) or "none".
-# `flow` (optional; worlds of generation 2 on, ADR draft-generation-number-and-arc-basalt): lava flows lying over
+# `flow` (optional; worlds of generation 2 on, ADR 0160-generation-number-and-arc-basalt): lava flows lying over
 # the province's layers: `rock` from the ground down `thick` metres, over about `share` of its ground, in fields some
 # `width` metres across (patchy, by the seed). A real arc volcano is andesite and tuff with basalt flows down its
 # flanks (the Cascades' Lava Beds, Etna); the flows are where its lava tubes run (data/caves.toml).
