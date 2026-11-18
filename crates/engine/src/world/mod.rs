@@ -70,6 +70,14 @@ const HILLS: f64 = 30.0;
 pub const CRUST: f64 = 64.0;
 /// How deep the ground goes (W4, ADR 0063): at least this far under the radius.
 pub const DEEP: f64 = 192.0;
+/// The mantle's rock is asked for only under this many metres over `DEEP` (`Body::rock`): the crust's floor
+/// rises about 40 m under the hottest rift, so above this it is crust everywhere.
+pub const MANTLE_LIFT: f64 = 64.0;
+/// One atmosphere, MPa, and fresh water's density, kg/m3 (`Body::pressure`).
+pub const ATM: f64 = 0.101_325;
+pub const WATER_DENSITY: f64 = 1000.0;
+/// The width of the slow wave on the mantle's boundaries, metres (`Rock::wobble`).
+const WOBBLE_M: f64 = 600.0;
 
 /// The layers under the old 64 m `CRUST` on a body of `n` columns per face edge, so the crust is `DEEP` m: on
 /// one big enough to keep half its radius (Terra, and Luna from the 4 km planet up), else none. Every layer

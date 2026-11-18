@@ -31,12 +31,38 @@ impl Body {
         self
     }
     /// The rock at radius r of a column of rock `rock`, `fallback` the biome's (ADR 0063): the one rule the
-    /// mesher's fill and `generated_under` ask; under the crust of a body with a mantle, the mantle's rock.
+    /// mesher's fill and `generated_under` ask. On a body with a mantle, under about 192 m the mantle's rock
+    /// that has formed there (ADR 0158): by the pressure and heat of the column at sea level
+    /// (isostasy: the same at a radius under hill and sea), the province's heat under the column's air, each
+    /// boundary moved by the column's wobble.
     pub fn rock(&self, rock: Rock, r: f32, fallback: u16) -> u16 {
-        if self.mantle > 0 && (r as f64) < self.radius - DEEP {
-            return ROCKS.mantle;
+        if self.mantle > 0 && (r as f64) < self.radius - DEEP + MANTLE_LIFT {
+            let sea = self.radius - SEA_DEPTH;
+            let heat = rock.air + ROCKS.provinces.get(rock.province as usize).map_or(0.0, |p| p.heat) * (sea - r as f64).max(0.0) as f32;
+            let p = ATM + self.rock_weight(sea, r as f64 - rock.wobble as f64);
+            if let Some(m) = ROCKS.deep(p as f32, heat) {
+                return m;
+            }
         }
         ROCKS.at(rock, r, fallback)
+    }
+    /// The weight of the rock between radius r and the ground at radius `ground` over it, MPa: the crust's density
+    /// above the crust's 192 m, the mantle's under it, with the gravity inside the body (ADR 0152) in closed form.
+    /// shortcut: the planet's surface g (`G`) on every body; Luna's would be smaller, when her deep is generated.
+    pub fn rock_weight(&self, ground: f64, r: f64) -> f64 {
+        let moho = self.radius - DEEP;
+        let w = |lo: f64, hi: f64, rho: f32| if hi > lo { rho as f64 * G * self.radius * 1e-6 * super::frames::pull_integral(lo / self.radius, hi / self.radius) } else { 0.0 };
+        w(r.max(moho), ground, ROCKS.density) + w(r, ground.min(moho), ROCKS.mantle_density)
+    }
+    /// The pressure at layer z of column (face, i, j), MPa (ADR 0158): the weight of what lies
+    /// above as generated (its rock, the water over its ground) and 1 atmosphere at the top. None without a
+    /// map, as `heat`. Generated only: a dig does not change it.
+    pub fn pressure(&self, face: u8, i: i32, j: i32, z: f64) -> Option<f32> {
+        self.baked.as_ref()?;
+        let (ground, r) = (self.col_height(face, i, j), self.layer_r(z));
+        let top = self.water_at(face, i, j).map_or(ground, |w| self.layer_r(w.0).max(ground));
+        let water = WATER_DENSITY * G * 1e-6 * (top - r.max(ground)).max(0.0);
+        Some((ATM + water + self.rock_weight(ground, r)) as f32)
     }
     /// The body on a baked map (ADR 0043): its heights, biomes, ground and plants, and its spawn.
     pub fn with_map(mut self, map: Arc<Map>) -> Self {
@@ -249,7 +275,15 @@ impl Body {
         let [amp, width] = ROCKS.provinces[p as usize].fold;
         let q = d * (self.radius / width as f64);
         let wave = b.fold.get_noise_3d(q.x as f32, q.y as f32, q.z as f32);
-        Rock { province: p, top: (self.radius - SEA_DEPTH + ROCKS.datum as f64 + (amp * wave) as f64) as f32 }
+        let top = (self.radius - SEA_DEPTH + ROCKS.datum as f64 + (amp * wave) as f64) as f32;
+        if self.mantle == 0 {
+            return Rock { province: p, top, ..Rock::NONE };
+        }
+        // the mantle's: the year's air over the column's middle, as `heat` reads it, and a slow wave of its own
+        let (ax, ay) = self.map_xy(s, i, j);
+        let q = d * (self.radius / WOBBLE_M);
+        let wobble = ROCKS.wobble * b.fold.get_noise_3d(q.x as f32 + 911.0, q.y as f32 - 377.0, q.z as f32 + 143.0);
+        Rock { province: p, top, air: b.map.temp(face, ax, ay).unwrap_or(0.0), wobble }
     }
     /// The rock of level-0 column (i, j): from its tile when one is cached, else computed (as `col_height`).
     pub fn col_rock(&self, face: u8, i: i32, j: i32) -> Rock {

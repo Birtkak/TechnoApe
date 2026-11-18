@@ -80,6 +80,8 @@ struct RawKind {
     #[serde(default)]
     halo_m: f64,
     sample: Option<String>,
+    pressure: Option<[f64; 2]>,
+    heat: Option<[f64; 2]>,
 }
 
 #[derive(Deserialize)]
@@ -111,6 +113,17 @@ pub struct Kind {
     /// The item that lies loose on the ground over its bodies (a sample, clutter's), by name: the items' rows
     /// read these, so `items::Items::parse` holds it to a row.
     pub sample: Option<String>,
+    /// Where it forms (ADR 0158): a body only where `Body::pressure` (MPa) and `Body::heat`
+    /// (C) at its middle lie in these [min, max]. A kind with a window forms in the mantle, on a body with one.
+    pub pressure: Option<[f64; 2]>,
+    pub heat: Option<[f64; 2]>,
+}
+
+impl Kind {
+    /// It has a window of pressure or heat: it forms deep, its bodies are not cut at the crust's old floor.
+    pub fn deep(&self) -> bool {
+        self.pressure.is_some() || self.heat.is_some()
+    }
 }
 
 /// The farthest any halo reaches, metres: `World::set_ores` registers a body this much wider.
@@ -140,8 +153,19 @@ impl Minerals {
                     _ => return Err(format!("kind '{}': '{g}' is no gravel kind", r.name)),
                 },
             };
-            if !(r.depth[0] >= 0.0 && r.depth[0] <= r.depth[1] && r.depth[1] <= 180.0) || r.near.is_some_and(|n| !(n[0] >= 0.0 && n[0] < n[1])) || r.blocks == 0 || r.gives.is_empty() {
-                return Err(format!("kind '{}': depth 0..180 m in order, near in order, blocks over 0, gives an element", r.name));
+            let deep = r.pressure.is_some() || r.heat.is_some();
+            let window = |w: Option<[f64; 2]>, lo: f64, hi: f64| w.is_none_or(|w| lo <= w[0] && w[0] < w[1] && w[1] <= hi);
+            if !window(r.pressure, 0.0, 1000.0) || !window(r.heat, -50.0, 2000.0) || deep && (r.shape.follows_ground() || !r.halo.is_empty() || r.gossan > 0.0 || r.gravel.is_some()) {
+                return Err(format!("kind '{}': a window is [min, max], min under max, pressure 0..1000 MPa, heat -50..2000 C, for a body at a depth with no halo, gossan or gravel", r.name));
+            }
+            // (after the gossan's index: the crust's kinds and the bodies they place are as before the windows)
+            if !deep && kinds.iter().any(|k: &Kind| k.deep()) {
+                return Err(format!("kind '{}': the kinds with a window come last", r.name));
+            }
+            // the mantle's kinds lie down to its floor; the crust's to 180 m
+            let floor = if deep { 1400.0 } else { 180.0 };
+            if !(r.depth[0] >= 0.0 && r.depth[0] <= r.depth[1] && r.depth[1] <= floor) || r.near.is_some_and(|n| !(n[0] >= 0.0 && n[0] < n[1])) || r.blocks == 0 || r.gives.is_empty() {
+                return Err(format!("kind '{}': depth 0..{floor} m in order, near in order, blocks over 0, gives an element", r.name));
             }
             if r.host.is_some() && r.shape.follows_ground() {
                 return Err(format!("kind '{}': a host rock is for a body at a depth, not one under the ground", r.name));
@@ -151,13 +175,14 @@ impl Minerals {
                 return Err(format!("kind '{}': a halo is for a body at a depth, one to three grades, halo_m over 0 and at most {HALO_MAX}", r.name));
             }
             let halo = r.halo.iter().map(|h| block(&r.name, h)).collect::<Result<Vec<u16>, String>>()?;
-            kinds.push(Kind { name: r.name.clone(), block: block(&r.name, &r.block)?, gives: r.gives.clone(), shape: r.shape, count: r.count, blocks: r.blocks, depth: r.depth, provinces, host, biomes, near: r.near, gravel, gossan: r.gossan, halo, halo_m: r.halo_m, sample: r.sample.clone() });
+            kinds.push(Kind { name: r.name.clone(), block: block(&r.name, &r.block)?, gives: r.gives.clone(), shape: r.shape, count: r.count, blocks: r.blocks, depth: r.depth, provinces, host, biomes, near: r.near, gravel, gossan: r.gossan, halo, halo_m: r.halo_m, sample: r.sample.clone(), pressure: r.pressure, heat: r.heat });
         }
         if kinds.iter().map(|k| &k.name).collect::<std::collections::BTreeSet<_>>().len() != kinds.len() {
             return Err("two kinds share a name".into());
         }
-        let gossan = kinds.len();
-        kinds.push(Kind { name: "gossan".into(), block: BLOCKS.id("gossan"), gives: String::new(), shape: Shape::Blanket, count: 0, blocks: 1, depth: [0.5, 0.5], provinces: Vec::new(), host: None, biomes: Vec::new(), near: None, gravel: None, gossan: 0.0, halo: Vec::new(), halo_m: 0.0, sample: None });
+        // the gossan after the crust's kinds, before the deep ones: its index (in every body of it) is as before
+        let gossan = kinds.iter().position(|k| k.deep()).unwrap_or(kinds.len());
+        kinds.insert(gossan, Kind { name: "gossan".into(), block: BLOCKS.id("gossan"), gives: String::new(), shape: Shape::Blanket, count: 0, blocks: 1, depth: [0.5, 0.5], provinces: Vec::new(), host: None, biomes: Vec::new(), near: None, gravel: None, gossan: 0.0, halo: Vec::new(), halo_m: 0.0, sample: None, pressure: None, heat: None });
         Ok(Minerals { kinds, gossan })
     }
 }
@@ -191,13 +216,15 @@ impl OreBody {
         let q = self.across(i, j)?;
         let hh = self.h * (1.0 - q).sqrt();
         // the layers whose middles lie inside: z + 0.5 between the two ends
-        let (bot, top) = if MINERALS.kinds[self.kind as usize].shape.follows_ground() {
+        let kind = &MINERALS.kinds[self.kind as usize];
+        let (bot, top) = if kind.shape.follows_ground() {
             (body.layer_of(ground - (self.at.z + hh)), body.layer_of(ground - (self.at.z - hh)))
         } else {
             (self.at.z - hh, self.at.z + hh)
         };
-        // no ore under the old worlds' floor: the mantle holds none (ADR 0152)
-        let (lo, hi) = (((bot - 0.5).ceil() as i32).max(body.mantle), (top - 0.5).floor() as i32 + 1);
+        // no crust's ore under the old worlds' floor (ADR 0152): the mantle holds only the kinds that form there
+        let floor = if kind.deep() { 0 } else { body.mantle };
+        let (lo, hi) = (((bot - 0.5).ceil() as i32).max(floor), (top - 0.5).floor() as i32 + 1);
         (lo < hi).then_some((lo, hi))
     }
     /// Ingots an ore block gives at column (i, j): 3 in its middle, 2 further out, 1 at its rim (ore-budget.md).
@@ -337,7 +364,8 @@ pub fn place(b: &Body, seed: u64) -> Vec<OreBody> {
         Some(ground)
     };
     for (k, kind) in MINERALS.kinds.iter().enumerate() {
-        let want = if kind.count == 0 { 0 } else { ((kind.count as f64 * scale).round() as u32).max(1) };
+        // the mantle's kinds on a body with a mantle only
+        let want = if kind.count == 0 || kind.deep() && b.mantle == 0 { 0 } else { ((kind.count as f64 * scale).round() as u32).max(1) };
         let mut rng = Rng(seed ^ 0x0e0e ^ (k as u64) << 40);
         let (a, w, h) = kind.shape.axes(kind.blocks as f64);
         let (mut placed, mut tries) = (0, 0);
@@ -369,9 +397,17 @@ pub fn place(b: &Body, seed: u64) -> Vec<OreBody> {
             let z = if kind.shape.follows_ground() { depth } else { b.layer_of(ground - depth) };
             if let Some(host) = kind.host {
                 let rock = b.rock_at(face, i, j, b.dir(face, i, j));
-                if ROCKS.at(rock, b.layer_r(z) as f32, 0) != host {
+                // (the crust's kinds by the crust's layers alone, as before the mantle's rocks)
+                let here = if kind.deep() { b.rock(rock, b.layer_r(z) as f32, 0) } else { ROCKS.at(rock, b.layer_r(z) as f32, 0) };
+                if here != host {
                     continue;
                 }
+            }
+            // where the field at its middle lies in its window
+            let (ci, cj) = (i.floor() as i32, j.floor() as i32);
+            let inside = |w: Option<[f64; 2]>, v: Option<f32>| w.is_none_or(|w| v.is_some_and(|v| (w[0]..w[1]).contains(&(v as f64))));
+            if kind.deep() && !(inside(kind.pressure, b.pressure(face as u8, ci, cj, z)) && inside(kind.heat, b.heat(face as u8, ci, cj, z))) {
+                continue;
             }
             out.push(OreBody { kind: k as u16, face: face as u8, at: DVec3::new(i, j, z), a, b: w, h, angle });
             placed += 1;
@@ -579,6 +615,14 @@ mod tests {
         assert!(Minerals::parse(&bad).unwrap_err().contains("a halo is for"));
         let bad = include_str!("../../../data/minerals.toml").replace("\"greisen\"", "\"greisen stone\"");
         assert!(Minerals::parse(&bad).unwrap_err().contains("no solid block 'greisen stone'"));
+        // a window out of order or out of range, and a crust's kind after a deep one
+        for (from, to, says) in [("heat = [0.0, 110.0]", "heat = [110.0, 0.0]", "a window"), ("pressure = [36.0, 56.0]", "pressure = [-5.0, 56.0]", "a window"), ("heat = [0.0, 110.0]", "heat = [0.0, 110.0]\n\n[[kind]]\nname = \"late\"\nblock = \"coal\"\ngives = \"coal\"\nshape = \"seam\"\ncount = 1\nblocks = 10\ndepth = [5.0, 9.0]\nprovinces = [\"basin\"]", "come last")] {
+            let bad = include_str!("../../../data/minerals.toml").replace(from, to);
+            assert!(Minerals::parse(&bad).unwrap_err().contains(says), "{from} -> {to}");
+        }
+        // the gossan's index is the crust's kinds' count, the deep kinds after it
+        let m = &*MINERALS;
+        assert!(m.kinds[..m.gossan].iter().all(|k| !k.deep()) && m.kinds[m.gossan + 1..].iter().all(Kind::deep) && m.kinds.iter().any(Kind::deep));
     }
 
     /// The distance to an ellipsoid's surface is the nearest of its points, a sphere's and a thin vein's alike.

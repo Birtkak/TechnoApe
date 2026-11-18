@@ -5717,3 +5717,53 @@ ramp = "peridotite"
 name = "peridotite lit"
 rgb = "#485044"
 ramp = "peridotite"
+
+[[colour]]
+name = "ringwoodite dark"
+rgb = "#0f1a3d"
+ramp = "ringwoodite"
+
+[[colour]]
+name = "ringwoodite shade"
+rgb = "#14214b"
+ramp = "ringwoodite"
+
+[[colour]]
+name = "ringwoodite"
+rgb = "#1a2957"
+ramp = "ringwoodite"
+
+[[colour]]
+name = "ringwoodite lit"
+rgb = "#424e6f"
+ramp = "ringwoodite"
+
+[[colour]]
+name = "bridgmanite dark"
+rgb = "#221812"
+ramp = "bridgmanite"
+
+[[colour]]
+name = "bridgmanite shade"
+rgb = "#2d1f16"
+ramp = "bridgmanite"
+
+[[colour]]
+name = "bridgmanite"
+rgb = "#38261a"
+ramp = "bridgmanite"
+
+[[colour]]
+name = "bridgmanite lit"
+rgb = "#5c4c3e"
+ramp = "bridgmanite"
+
+[[colour]]
+name = "diamond"
+rgb = "#1f2e5c"
+ramp = "diamond"
+
+[[colour]]
+name = "diamond light"
+rgb = "#747c8b"
+ramp = "diamond"
