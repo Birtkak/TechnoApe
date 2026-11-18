@@ -17,6 +17,7 @@ pub mod items;
 pub mod journal;
 pub mod liquid;
 pub mod live;
+pub mod map;
 pub mod mesh;
 pub mod models;
 pub mod net;

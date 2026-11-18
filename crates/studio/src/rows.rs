@@ -248,17 +248,9 @@ impl Keys {
     }
 }
 
-/// A number as a row writes it: no more digits than it needs (3 below 10, 1 below 100, none above).
-pub fn num(v: f32) -> String {
-    let d = if v.abs() >= 100.0 { 0 } else if v.abs() >= 10.0 { 1 } else { 3 };
-    let s = format!("{v:.d$}");
-    let s = if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s };
-    if s == "-0" {
-        "0".into()
-    } else {
-        s
-    }
-}
+/// A number as a row writes it: no more digits than it needs (3 below 10, 1 below 100, none above); the engine
+/// has it since the map's file writer moved there.
+pub use engine::map::num;
 
 /// `data/blocks.toml` as the Studio opens it: the game's own reader when it takes the file, else every row it
 /// can take, a field it does not know left out and a row it refuses left out, each named (the Problems list).
