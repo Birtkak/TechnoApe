@@ -1,6 +1,6 @@
-# NNNN – The mantle: a new world's grid goes down to R/√2
+# 0154 – The mantle: a new world's grid goes down to R/√2
 
-- **Status:** proposed (step 1 of ADR 0152)
+- **Status:** accepted (step 1 of ADR 0152; merged under principle 15, the developer plays it after)
 - **Date:** 2026-11-18
 
 ## Context
