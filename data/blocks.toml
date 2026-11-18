@@ -639,6 +639,42 @@ colour3 = [0.25, 0.32, 0.22]
 size = 2
 amount = 0.4
 
+# The mantle's deeper rocks (draft-pressure-and-formation, data/rocks.toml `[[mantle.rock]]`): they form by
+# pressure and heat, harder with depth. Looks, hardness and grades are drafts.
+# ringwoodite: the transition zone, olivine turned spinel under pressure; deep blue, as it really is.
+[[block]]
+id = 59
+name = "ringwoodite"
+hardness = 12.0
+tool = "pick"
+grade = 2
+rubble = 192
+stack = 16
+colour = [0.10, 0.16, 0.34]
+pattern = "speckle"
+colour2 = [0.05, 0.09, 0.22]
+colour3 = [0.22, 0.32, 0.55]
+size = 2
+amount = 0.4
+
+# bridgmanite: the lower mantle down to its floor; dark brown. Grade 3 (an iron pick, which no item is yet:
+# `later`), so the lower mantle waits for the iron age.
+[[block]]
+id = 60
+name = "bridgmanite"
+hardness = 15.0
+tool = "pick"
+grade = 3
+later = true
+rubble = 193
+stack = 16
+colour = [0.22, 0.15, 0.10]
+pattern = "speckle"
+colour2 = [0.13, 0.09, 0.06]
+colour3 = [0.36, 0.26, 0.18]
+size = 2
+amount = 0.4
+
 # The ores and the signs over them (W4, ADR 0063; data/minerals.toml places them). Looks are drafts too.
 
 [[block]]
@@ -847,6 +883,24 @@ pattern = "plain"
 colour2 = [0.38, 0.18, 0.08]
 colour3 = [0.72, 0.45, 0.22]
 contrast = 1.3
+
+# diamond in ringwoodite (draft-pressure-and-formation; data/minerals.toml's one kind with a window): bright
+# crystals in the transition zone's blue rock. A draft look.
+[[block]]
+id = 61
+name = "diamond"
+hardness = 13.0
+tool = "pick"
+grade = 2
+rubble = 194
+stack = 16
+sound = "stone"
+colour = [0.12, 0.18, 0.36]
+pattern = "speckle"
+colour2 = [0.05, 0.09, 0.22]
+colour3 = [0.90, 0.95, 1.00]
+size = 1
+amount = 0.3
 
 # a torch (ADR 0117): a stick with a burning head, warm and weaker than the lamp; it stands on a floor or leans from
 # a wall (`hangs`); walked through, broken by hand at once; no recipe yet (creative and /give)

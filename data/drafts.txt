@@ -372,3 +372,9 @@ data/textures/peridotite rubble.png
 data/maps/clouds.toml
 data/maps/wind gusts.toml
 data/maps/smoke swirl.toml
+data/textures/ringwoodite.png
+data/textures/bridgmanite.png
+data/textures/diamond.png
+data/textures/ringwoodite rubble.png
+data/textures/bridgmanite rubble.png
+data/textures/diamond rubble.png

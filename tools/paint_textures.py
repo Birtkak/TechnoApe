@@ -2060,6 +2060,10 @@ def build(pal, blocks):
     rock("gabbro", lambda g, v: granite(g, v, gb, 4, 9))
     pd = R("peridotite")  # the mantle's rock (ADR 0152): gabbro's grain, darker and greener
     rock("peridotite", lambda g, v: granite(g, v, pd, 5, 7))
+    rw = R("ringwoodite")  # the transition zone (draft-pressure-and-formation): deep blue, the same grain
+    rock("ringwoodite", lambda g, v: granite(g, v, rw, 5, 7))
+    bm = R("bridgmanite")  # the lower mantle: dark brown, finer
+    rock("bridgmanite", lambda g, v: granite(g, v, bm, 6, 5))
 
     # ores, each on its host
     ma = R("malachite")
@@ -2094,6 +2098,8 @@ def build(pal, blocks):
             put(c, x, y, pb["l"])
         return c
     tex("pitchblende", 3, pitchblende)
+    dm = R("diamond")  # small bright crystals in ringwoodite (draft-pressure-and-formation)
+    tex("diamond", 3, lambda g, v: crystals(granite(g, v, rw, 5, 7), g, dm, 4, "cube", "L", "m", "L", (1, 2)))
     gq = R("gold quartz")
 
     def gold_quartz(g, v):

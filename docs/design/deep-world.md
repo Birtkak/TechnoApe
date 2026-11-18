@@ -24,7 +24,13 @@ depth, like heat, until something is dug.
 - **Liquids:** water and liquid metal under pressure rise in a bore or burst into a tunnel cut below their level.
 - **Rock:** deep openings need support, more with depth (ADR 0079's collapse rule, scaled by pressure).
 - **The ape and machines:** a pressure limit per suit and machine tier, gating the dig with heat.
-- **Rock and ore kinds:** which form at which depth (diamond only under high pressure).
+- **Rock and ore kinds:** which form at which depth (diamond only under high pressure). *Built*
+  (`docs/decisions/draft-pressure-and-formation.md`): `Body::pressure` is the generated weight above a cell
+  (rock by zone density, water, one atmosphere at the top, the gravity inside the body), about 10 MPa at the
+  crust's floor and 82 MPa at the mantle's under the 4 km planet's spawn. The mantle's rocks take over by
+  pressure and heat (`data/rocks.toml` `[[mantle.rock]]`, each boundary moving with the province's heat), and a
+  mineral may name a pressure and heat window (`data/minerals.toml`): diamond, in the transition zone under the
+  cold provinces. Digging does not change pressure yet; air, liquids, collapse and suits do not read it yet.
 
 ## 1. The grid to the centre
 **Layered** (ADR 0152; the developer chose it over shells with seams, which they found ugly, and chose the
@@ -50,8 +56,8 @@ A large core (the developer, 2026-11-18), the crust exaggerated as `worldgen.md`
 
 | Zone | Radius | What it is |
 |---|---|---|
-| Crust | top 192 m | today's provinces, rocks, ore and caves (ADR 0063) |
-| Mantle | down to 3.0 km from the centre (1.2 km deep) | dense dark rock (peridotite), hot, few ores, rare deep caverns, magma under volcanic provinces |
+| Crust | top 192 m, its floor waving by a few tens of metres (thinner under hot rifts and arcs) | today's provinces, rocks, ore and caves (ADR 0063) |
+| Mantle | down to 3.0 km from the centre (1.2 km deep) | three rocks by pressure and heat, each boundary moving with the province's heat (built, draft): peridotite (upper mantle, dark olive), ringwoodite (the transition zone, deep blue; thinner under hot provinces) and bridgmanite (the lower mantle to the floor, dark brown), harder going down; diamond in the ringwoodite under the cold provinces. *Proposal still:* rare deep caverns, magma under volcanic provinces |
 | Outer core | 3.0 km to 0.8 km | **liquid iron and nickel**: a sea of metal, the field's source |
 | Inner core | the last 0.8 km | solid metal; the heavy metals of `lore.md` (osmium, iridium) |
 

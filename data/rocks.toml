@@ -3,15 +3,47 @@
 # those provinces, in the bake's order, and their names must match it.
 # `layers`: the province's rocks top down, each [block, metres]. The first layer's top lies `datum` metres
 # over the sea (and above it the first layer goes on up to the soil); the last layer's metres are 0: it goes
-# to the bottom of the crust (192 m), where `mantle` takes over. A valley cuts down through the layers, and a cliff shows their bands.
+# to the bottom of the crust (about 192 m), where the mantle takes over. A valley cuts down through the layers, and a cliff shows their bands.
 # `fold`: [metres, wavelength in metres]: how far the layers wave up and down and how wide the waves are.
 # `heat`: how much warmer the rock is a metre deeper, degrees C (the year's mean air at the surface on top).
 # `caves`: "limestone" (water-cut systems along the water table, where limestone holds it), "tubes" (lava
 # tubes a few metres under basalt ground: a rift's, or an island's of oceanic crust) or "none".
 
 datum = 60.0
-# The rock under the crust, in every province, on a planet whose grid goes down through the mantle (ADR 0152).
-mantle = "peridotite"
+# The crust's rock, kg/m3: the weight over a point (`Body::pressure`, MPa) is the rock and water above it with
+# the gravity inside the body (ADR 0152), and 1 atmosphere at the ground.
+density = 2700.0
+
+# The mantle under the crust, on a planet whose grid goes down through it (ADR 0152; draft-pressure-and-formation).
+# `density`: its rock's, kg/m3. Each [[mantle.rock]] takes over, going down, where the pressure of the column at
+# sea level (the same at a radius under hill and sea: isostasy) reaches `pressure` MPa at `heat` C, and `slope`
+# MPa more for each degree the column is warmer there (a phase boundary's Clapeyron slope: over 0 a hot province
+# has it deeper, under 0 shallower). The heat is the province's (`heat` a metre under the year's mean air). The
+# first row ends the crust; rows go down in order. `wobble`: metres every boundary waves by, slowly, by the seed.
+[mantle]
+density = 3300.0
+wobble = 4.0
+
+# The crust's floor, about 192 m down: thinner under hot rifts and arcs, thicker under the cold shields.
+[[mantle.rock]]
+block = "peridotite"
+pressure = 10.07
+heat = 42.0
+slope = -0.04
+
+# The transition zone (olivine turned spinel): deeper where it is hot.
+[[mantle.rock]]
+block = "ringwoodite"
+pressure = 33.0
+heat = 95.0
+slope = 0.03
+
+# The lower mantle down to the floor (ringwoodite broken down to perovskite): shallower where it is hot.
+[[mantle.rock]]
+block = "bridgmanite"
+pressure = 56.7
+heat = 148.0
+slope = -0.03
 
 [[province]]
 name = "shield"

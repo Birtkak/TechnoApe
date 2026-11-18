@@ -19,6 +19,26 @@ fn pull_inside(x: f64) -> f64 {
     }
 }
 
+/// `pull_inside` integrated from x0 to x1 (x0 <= x1), closed form: `Body::pressure`'s weight of a column is its
+/// density times the surface's g and radius times this.
+pub(crate) fn pull_integral(x0: f64, x1: f64) -> f64 {
+    let a3 = CORE.powi(3);
+    let m = CORE_DENSE * a3 + 1.0 - a3;
+    // an antiderivative of each piece, joined where they meet
+    let f = |x: f64| {
+        let inner = |x: f64| CORE_DENSE * x * x / (2.0 * m);
+        let shell = |x: f64| inner(CORE) + ((CORE_DENSE - 1.0) * a3 * (1.0 / CORE - 1.0 / x) + (x * x - CORE * CORE) / 2.0) / m;
+        if x < CORE {
+            inner(x)
+        } else if x < 1.0 {
+            shell(x)
+        } else {
+            shell(1.0) + 1.0 - 1.0 / x
+        }
+    };
+    f(x1) - f(x0)
+}
+
 impl World {
     /// The bodies of `data/bodies.toml` (Terra and Luna), with `planet_n` and `moon_n` columns per face edge.
     pub fn new(planet_n: i32, moon_n: i32, seed: i32) -> Self {

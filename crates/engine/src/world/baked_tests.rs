@@ -981,12 +981,12 @@ static MAP_1536: LazyLock<Arc<Map>> = LazyLock::new(|| Arc::new(Map::bake(5, 153
 
 /// One generated block for every reader (ADR 0062) at any depth: in a column from over the ground down to the
 /// floor of a planet on the deep grid, the mesher's fill, `generated_under`, the physics' solid test and the
-/// water's gaps agree cell by cell; under the crust's 192 m the rock is the mantle's in the mesher and in physics.
+/// water's gaps agree cell by cell; under the crust's floor (about 192 m) the rock is the mantle's in the mesher and in physics.
 #[test]
 fn the_readers_agree_from_the_surface_to_the_mantles_floor() {
     let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, true);
     let b = &w.bodies[0];
-    let mantle = ROCKS.mantle;
+    let mantle: Vec<u16> = ROCKS.mantle.iter().map(|d| d.block).collect();
     let (f, i, j) = b.locate(b.spawn);
     let (face, x, y) = (f as u8, i as i32 / CS, j as i32 / CS);
     let top = (b.layer_of(b.radius + AMP) as i32).div_euclid(CS);
@@ -1017,12 +1017,13 @@ fn the_readers_agree_from_the_surface_to_the_mantles_floor() {
                         bad.push(format!("({i}, {j}, {z}): mesh {mesh}, physics {phys}, water open {open}"));
                     }
                     let r = b.layer_r(z as f64 + 0.5);
-                    if r < b.radius - DEEP - 1.0 {
+                    // (the crust's floor waves round 192 m: a few tens of metres, never past these)
+                    if r < b.radius - DEEP - 30.0 {
                         deep += 1;
-                        if phys != mantle {
+                        if !mantle.contains(&phys) {
                             bad.push(format!("({i}, {j}, {z}) {} m down: {phys}, not the mantle's", b.radius - r));
                         }
-                    } else if r > b.radius - DEEP + 1.0 && phys == mantle {
+                    } else if r > b.radius - DEEP + MANTLE_LIFT && mantle.contains(&phys) {
                         shallow += 1;
                     }
                 }
@@ -1078,4 +1079,120 @@ fn gravity_grows_down_to_the_core_and_falls_to_nothing_at_the_centre() {
     assert!((at(a + 1e-6) - at(a - 1e-6)).abs() < 1e-4 && (at(1.0 - 1e-6) - 1.0).abs() < 1e-4, "it joins on at the core's edge and the surface");
     let old_floor = at(1.0 - 192.0 / r);
     assert!(old_floor > 1.0 && old_floor < 1.003, "192 m down, an old world's floor: {old_floor} g");
+}
+
+/// The weight of the rock (draft-pressure-and-formation) is the crust's 2700 kg/m3 and the mantle's 3300 under
+/// the world's own gravity, summed metre by metre by hand: at the mantle's floor of the 4 km planet under a
+/// column at sea level within 1 %, and the same in closed form part way down.
+#[test]
+fn the_rock_weighs_what_the_gravity_inside_says_down_to_the_mantles_floor() {
+    let w = World::new(6144, crate::bodies::columns(1, 6144), 1);
+    let b = Body::new(DVec3::ZERO, 6144, 1).with_mantle();
+    let sea = b.radius - SEA_DEPTH;
+    let d = DVec3::new(0.3, 1.0, -0.2).normalize();
+    let by_hand = |to: f64| {
+        let (mut p, mut r) = (ATM, sea);
+        while r > to {
+            let dr = (r - to).min(0.01);
+            let rho = if r - dr * 0.5 > b.radius - DEEP { 2700.0 } else { 3300.0 };
+            p += rho * w.gravity(d * (r - dr * 0.5)).length() * dr * 1e-6;
+            r -= dr;
+        }
+        p
+    };
+    for to in [b.radius - 100.0, b.radius - DEEP, b.radius - 700.0, b.layer_r(0.0)] {
+        let (want, got) = (by_hand(to), ATM + b.rock_weight(sea, to));
+        eprintln!("{:.0} m down: {got:.3} MPa, by hand {want:.3}", b.radius - to);
+        assert!((got / want - 1.0).abs() < 0.01, "{} m down: {got} MPa, by hand {want}", b.radius - to);
+    }
+    let floor = ATM + b.rock_weight(sea, b.layer_r(0.0));
+    assert!((70.0..90.0).contains(&floor), "{floor} MPa at the floor");
+}
+
+/// The pressure field (draft-pressure-and-formation): 1 atmosphere at a land column's ground, growing with every
+/// layer down to the floor, and more at a sea floor than at a land column's ground by the water over it.
+#[test]
+fn pressure_is_one_atmosphere_at_the_ground_and_grows_going_down() {
+    let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, true);
+    let b = &w.bodies[0];
+    let (f, i, j) = b.locate(b.spawn);
+    let (f, i, j) = (f as u8, i as i32, j as i32);
+    let ground = b.layer_of(b.col_height(f, i, j));
+    let at = |z: f64| b.pressure(f, i, j, z).unwrap();
+    assert!((at(ground) - 0.101_325).abs() < 1e-4, "{} MPa at the ground", at(ground));
+    assert_eq!(at(ground + 5.0), at(ground), "the air over it weighs nothing here");
+    let mut last = at(ground);
+    for z in (0..ground as i32).rev() {
+        let p = at(z as f64 + 0.5);
+        assert!(p > last, "layer {z}: {p} MPa, not over {last}");
+        last = p;
+    }
+    // a sea floor: the nearest column on the spawn's face under 3 m or more of the sea
+    let sea = (0..b.n).step_by(16).flat_map(|i| (0..b.n).step_by(16).map(move |j| (i, j))).find(|&(i, j)| b.water_at(f, i, j).is_some_and(|w| b.layer_r(w.0) - b.col_height(f, i, j) > 3.0)).expect("a sea");
+    let (top, floor) = (b.layer_r(b.water_at(f, sea.0, sea.1).unwrap().0), b.col_height(f, sea.0, sea.1));
+    let p = b.pressure(f, sea.0, sea.1, b.layer_of(floor)).unwrap();
+    let want = 0.101_325 + 1000.0 * G * (top - floor) * 1e-6;
+    assert!(p > at(ground) && (p as f64 - want).abs() < 1e-3, "the sea floor {} m down: {p} MPa, not {want}", top - floor);
+    assert_eq!(World::with_grid(1536, 32, 5, None, None, 0.0, true).bodies[0].pressure(f, i, j, 10.0), None, "no map: none, as heat");
+}
+
+/// A mantle boundary (draft-pressure-and-formation) lies where the column's pressure reaches the row's at the heat
+/// there: under a hot rift deeper than under a cold shield (ringwoodite, slope over 0), shallower for bridgmanite
+/// and the crust's floor (under 0), by the slope times the heat between them over how fast the pressure grows.
+#[test]
+fn a_mantle_boundary_moves_with_the_provinces_heat_by_its_slope() {
+    use crate::bake::rock::{RIFT, SHIELD};
+    let b = Body::new(DVec3::ZERO, 6144, 1).with_mantle();
+    let sea = b.radius - SEA_DEPTH;
+    let column = |p: u8| Rock { province: p, top: 0.0, air: 15.0, wobble: 0.0 };
+    let heat = |p: u8, r: f64| 15.0 + ROCKS.provinces[p as usize].heat as f64 * (sea - r);
+    for (k, deep) in ROCKS.mantle.iter().enumerate() {
+        // the first layer, going down, of this rock or a deeper one
+        let foot = |p: u8| {
+            let z = (0..b.layers).rev().find(|&z| ROCKS.mantle[k..].iter().any(|d| d.block == b.rock(column(p), b.layer_r(z as f64 + 0.5) as f32, 0))).unwrap();
+            b.layer_r(z as f64 + 0.5)
+        };
+        let (hot, cold) = (foot(RIFT), foot(SHIELD));
+        // where the pressure meets the row's, a layer to spare
+        for (p, r) in [(RIFT, hot), (SHIELD, cold)] {
+            let (got, want) = (ATM + b.rock_weight(sea, r), deep.at(heat(p, r) as f32) as f64);
+            assert!(got >= want && got - want < 0.1, "{}: {got} MPa at its top, the row says {want}", BLOCKS.get(deep.block).unwrap().name);
+        }
+        // the shift: the slope's MPa over the pressure's growth a metre less the slope's with heat
+        let grow = (b.rock_weight(sea, hot - 1.0) - b.rock_weight(sea, hot)) as f64;
+        let dh = ROCKS.provinces[RIFT as usize].heat as f64 * (sea - hot) - ROCKS.provinces[SHIELD as usize].heat as f64 * (sea - cold);
+        let want = deep.slope as f64 * dh / grow;
+        eprintln!("{}: {:.1} m under the rift, {:.1} under the shield", BLOCKS.get(deep.block).unwrap().name, b.radius - hot, b.radius - cold);
+        assert!(((cold - hot) - want).abs() < 2.0 && (cold - hot).abs() > 15.0, "{}: {} m deeper under the rift, the data says {want}", BLOCKS.get(deep.block).unwrap().name, cold - hot);
+    }
+}
+
+/// A mineral with a window (draft-pressure-and-formation): diamond on the 4 km planet forms only where the field
+/// at a body's middle is in its window, so under the cold provinces, never under a rift or an arc, never in the
+/// crust; the crust's kinds come first and are those of a world without it; the ledger counts it.
+#[test]
+fn diamond_forms_only_in_its_window_and_the_ledger_counts_it() {
+    use crate::ore::{cells, MINERALS};
+    let mut w = World::with_grid(6144, 32, 1, Some(crate::bake::shared(1, 6144)), None, 0.0, true);
+    let b = &w.bodies[0];
+    let k = MINERALS.kinds.iter().position(|k| k.name == "diamond").unwrap();
+    let kind = &MINERALS.kinds[k];
+    let ds: Vec<usize> = (0..b.ores.len()).filter(|&o| b.ores[o].kind as usize == k).collect();
+    assert!(!ds.is_empty() && ds.len() <= kind.count as usize, "{} bodies", ds.len());
+    assert!(ds.iter().all(|&o| o >= b.ores.len() - ds.len()), "the deep kinds' bodies come after the crust's");
+    for &o in &ds {
+        let d = &b.ores[o];
+        let (f, i, j, z) = (d.face, d.at.x.floor() as i32, d.at.y.floor() as i32, d.at.z);
+        let (p, t) = (b.pressure(f, i, j, z).unwrap() as f64, b.heat(f, i, j, z).unwrap() as f64);
+        let province = b.col_rock(f, i, j).province;
+        assert!(![crate::bake::rock::RIFT, crate::bake::rock::ARC].contains(&province), "a diamond under province {province}");
+        assert!((36.0..56.0).contains(&p) && (0.0..110.0).contains(&t), "a diamond at {p} MPa, {t} C");
+        assert!(b.layer_r(z) < b.radius - DEEP - 100.0, "in the mantle");
+        assert!(!cells(b, o).is_empty(), "it holds its blocks");
+    }
+    w.open_ledger();
+    let left = w.ore_left.as_ref().unwrap();
+    for &o in &ds {
+        assert_eq!(left[o], cells(&w.bodies[0], o).len() as i64, "the ledger counts diamond body {o}");
+    }
 }
