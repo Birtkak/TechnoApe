@@ -1248,7 +1248,7 @@ fn karsts(sys: &[crate::caves::System]) -> Vec<&crate::caves::System> {
 }
 
 /// The 768 planet has no mantle (`mantle_layers` 0), so no kind of `data/caves.toml`: at generation 3 it keeps
-/// ADR 0063's limestone worm and tube worm exactly as at generation 2 (the review of draft-karst-caves).
+/// ADR 0063's limestone worm and tube worm exactly as at generation 2 (the review of 0161-karst-caves).
 #[test]
 fn a_small_planet_without_the_mantle_keeps_its_old_caves_at_generation_3() {
     let map = Arc::new(Map::bake(5, 768));
@@ -1258,7 +1258,7 @@ fn a_small_planet_without_the_mantle_keeps_its_old_caves_at_generation_3() {
     assert!(!c2.is_empty() && c2 == c3, "{} caves at generation 2, {} at 3", c2.len(), c3.len());
 }
 
-/// Karst (draft-karst-caves) is made from generation 3 only, and only in a province with limestone in its
+/// Karst (0161-karst-caves) is made from generation 3 only, and only in a province with limestone in its
 /// layers; from generation 3 ADR 0063's old limestone worm is not made, below it it is.
 #[test]
 fn karst_is_made_only_in_limestone_provinces_and_only_from_generation_3() {
@@ -1681,7 +1681,7 @@ fn ground_hash(w: &World) -> u64 {
 }
 
 /// Worlds of generation 0 (no mantle) and 1 (the mantle, ADR 0154) generate as they did before the generation
-/// number (ADR 0160-generation-number-and-arc-basalt), and generation 2 as before karst (draft-karst-caves): their
+/// number (ADR 0160-generation-number-and-arc-basalt), and generation 2 as before karst (0161-karst-caves): their
 /// caves, ores and rock, to the bit. A regression lock: the numbers were recorded on the code before each change.
 #[test]
 fn generations_0_1_and_2_generate_as_before() {

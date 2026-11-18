@@ -1,7 +1,7 @@
 //! Caves by rock (W4, ADR 0063; `docs/design/worldgen.md`, "Caves follow rock"): water-cut systems that
 //! wander along the water table through limestone and come out where a valley cuts down to it, and lava tubes
 //! a few metres under rift basalt; from generation 3 the karst of `data/caves.toml` in their place
-//! (draft-karst-caves). Made from the map and the seed when a planet loads, on the server and every
+//! (0161-karst-caves). Made from the map and the seed when a planet loads, on the server and every
 //! client alike, as balls of air (`world::Cave`) that the readers ask through `Body::col_caves`.
 use crate::rock::{Caves, Rock, ROCKS};
 use crate::world::{Body, Cave, SEA_DEPTH};
@@ -322,7 +322,7 @@ impl Probe<'_> {
                 return false;
             }
             let r = b.layer_r(z as f64 + 0.5);
-            // a karst is dry: nothing of it under the water table (draft-karst-caves)
+            // a karst is dry: nothing of it under the water table (0161-karst-caves)
             if kind.shape == Shape::Karst && r < self.table(i, j) {
                 return false;
             }
@@ -700,7 +700,7 @@ const HALLS: usize = 80;
 /// The most a karst floor steps up or down between neighbouring columns, layers: what a player climbs.
 pub const STEP: i32 = 1;
 
-/// A dry karst system near (i, j) (generation 3, draft-karst-caves): a main passage from there down the slope of
+/// A dry karst system near (i, j) (generation 3, 0161-karst-caves): a main passage from there down the slope of
 /// the water table (toward the valley or the coast it drains to) at or just over the table, near-level, with
 /// branches up the slope (tributaries) and a hall where one leaves it; a passage ends where its limestone, its
 /// depth window under the ground or the dry ground ends, where its floor would fall under the table, near water, a
@@ -1007,7 +1007,7 @@ pub fn make(b: &Body, seed: u64) -> Vec<Cave> {
     let (sf, si, sj) = b.locate(b.spawn);
     let n = b.n;
     // from generation 3 a planet with the mantle has the karst of data/caves.toml in the limestone instead
-    // (draft-karst-caves); the tubes here are only a planet's without the mantle, so such a planet makes none here
+    // (0161-karst-caves); the tubes here are only a planet's without the mantle, so such a planet makes none here
     // (one without the mantle, a small one, has no kind of data/caves.toml and keeps both worms)
     for face in (0..6).filter(|_| b.gen < 3 || b.mantle == 0) {
         for cy in 0..n / SPACING {

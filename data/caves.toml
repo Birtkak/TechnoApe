@@ -74,7 +74,7 @@ trench = 0.2
 branch = 0.3
 slope = 0.008
 
-# Dry karst from generation 3 (draft-karst-caves): rain water dissolved the limestone along its joints and beds
+# Dry karst from generation 3 (0161-karst-caves): rain water dissolved the limestone along its joints and beds
 # down to the water table (caves.rs `water_table`). A system is a main passage that runs down the table's slope
 # toward the valley or coast it drains to, near-level at or just above the table, with tributary branches up the
 # slope; a hall where a branch joins; sinkholes (a bowl in the ground and a shaft down to the passage) where the
