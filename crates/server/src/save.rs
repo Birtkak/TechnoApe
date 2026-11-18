@@ -34,7 +34,7 @@ use std::path::Path;
 /// (ADR 0145); a 16 or older loads its players with thirst full. 18 keeps each player's death mark and sleeping place
 /// (draft death's cost, `Marks`); a 17 or older loads its players with neither. 19 keeps each player's journal
 /// (draft ADR journal-data); an 18 or older loads its players with every entry unknown. 20 says whether the
-/// planet's grid goes down through the mantle (draft ADR the-mantle, ADR 0152): a new world's does; a 19 or older
+/// planet's grid goes down through the mantle (ADR 0154, 0152): a new world's does; a 19 or older
 /// keeps its 192 m floor and every layer index it holds, and so does such a world written again as a 20.
 pub const VERSION: u32 = 20;
 
