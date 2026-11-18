@@ -8,7 +8,8 @@
 #   "fissure" (a crack along the border between two provinces: narrow and tall, blind or open at the surface).
 # `hosts`: the rocks it may be cut in, block names of `data/rocks.toml`'s layers.
 # `provinces`: the provinces it may lie in, names of `data/rocks.toml`.
-# `depth`: [m, m] under the ground: its roof at least the first, its floor at most the second (a skylight, a
+# `depth`: [m, m] under the ground: its roof at least the first (under the 4 m soil band: a kind is cut in rock), its
+#   floor at most the second (a skylight, a
 #   trench and an open slot break the roof on purpose).
 # `spacing`: one candidate start every this many columns each way on a face; `chance`: the share that grow one.
 # `width`, `height`, `length`: [least, most] metres, drawn per cave.
@@ -22,7 +23,7 @@ name = "lava tube"
 shape = "tube"
 hosts = ["basalt"]
 provinces = ["rift", "volcanic arc"]
-depth = [1.5, 14.0]
+depth = [4.5, 16.0]
 spacing = 48
 chance = 0.8
 width = [3.0, 8.0]
@@ -38,10 +39,10 @@ name = "fissure"
 shape = "fissure"
 hosts = ["granite", "gneiss", "schist", "quartzite", "andesite", "basalt", "gabbro"]
 provinces = ["shield", "basin", "folded belt", "volcanic arc", "rift"]
-depth = [2.0, 64.0]
+depth = [4.5, 64.0]
 spacing = 256
 chance = 0.7
 width = [1.0, 2.0]
-height = [10.0, 60.0]
+height = [10.0, 58.0]
 length = [80.0, 300.0]
 open = 0.35

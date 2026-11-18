@@ -1224,32 +1224,62 @@ fn col_of(p: DVec3) -> (i32, i32) {
     (p.x.floor() as i32, p.y.floor() as i32)
 }
 
-/// A cave of a kind (`data/caves.toml`) is cut only where the rock rule (`Body::rock`) gives one of its hosts, in a
-/// column of one of its provinces: every cell under the ground of every ball of every kind's caves.
+/// A cave of a kind (`data/caves.toml`) is cut only in one of its hosts, in a column of one of its provinces: every
+/// cell under the ground of every ball of every kind's caves is, in the same world without them, a host block as
+/// generated (ore or its halo counts: ore is placed after the caves); the soil band only where that ball breaks
+/// through the ground in that column (a skylight, a trench, an open slot).
 #[test]
 fn a_cave_kind_opens_only_its_host_rock_in_its_provinces() {
     let (w, sys) = dense_caves();
+    let mut w0 = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, true);
+    let old: Vec<Cave> = w0.bodies[0].caves.iter().copied().filter(|c| c.kind == Cave::BALL).collect();
+    Arc::get_mut(&mut w0.bodies).unwrap()[0].set_caves(old);
     let b = &w.bodies[0];
     let kinds = &crate::caves::CAVES.kinds;
     for (k, kind) in kinds.iter().enumerate() {
         let n = sys.iter().filter(|s| s.kind as usize == k).count();
         assert!(n >= 3, "{}: {n} made on the 1536 planet", kind.name);
     }
-    let (mut bad, mut n) = (Vec::new(), 0);
+    let (mut bad, mut n, mut soil) = (Vec::new(), 0, 0);
     for s in &sys {
         let kind = &kinds[s.kind as usize];
         for c in &s.balls {
             for (i, j, z) in crate::caves::cells(b, c) {
                 n += 1;
-                let rock = b.col_rock(c.face, i, j);
-                let m = b.rock(rock, b.layer_r(z as f64 + 0.5) as f32, 0);
-                if !kind.hosts.contains(&m) || !kind.provinces.contains(&rock.province) {
-                    bad.push(format!("{} ({i}, {j}, {z}): {} in province {}", kind.name, BLOCKS.get(m).map_or("?", |d| d.name.as_str()), rock.province));
+                let ground = b.col_height(c.face, i, j);
+                let m = w0.generated_block(Block { body: 0, face: c.face, pos: IVec3::new(i, j, z) });
+                let breaks = c.span(i, j).is_some_and(|(_, hi)| hi as f64 > b.layer_of(ground));
+                let band = ground - b.layer_r(z as f64 + 0.5) < 4.0;
+                let ore = w0.bodies[0].ore_at(c.face, i, j, z, ground).is_some() || b.halo_at(c.face, i, j, z).is_some();
+                soil += (band && breaks) as usize;
+                let ok = if band { breaks } else { kind.hosts.contains(&m) || ore };
+                if !ok || !kind.provinces.contains(&b.col_rock(c.face, i, j).province) {
+                    bad.push(format!("{} ({i}, {j}, {z}) {:.1} m down: {}", kind.name, ground - b.layer_r(z as f64 + 0.5), BLOCKS.get(m).map_or("?", |d| d.name.as_str())));
                 }
             }
         }
     }
-    assert!(n > 20_000 && bad.is_empty(), "{} of {n} cells outside their hosts, e.g. {:?}", bad.len(), &bad[..bad.len().min(4)]);
+    assert!(n > 20_000 && soil > 0 && bad.is_empty(), "{} of {n} cells outside their hosts ({soil} in the soil of openings), e.g. {:?}", bad.len(), &bad[..bad.len().min(4)]);
+}
+
+/// No open cell of a kind's cave lies in or beside a column that holds generated water (sea, lake, river): a cave
+/// there would drain it through `Solid::gaps`.
+#[test]
+fn a_cave_kind_keeps_clear_of_water() {
+    let (w, sys) = dense_caves();
+    let b = &w.bodies[0];
+    let wet = |f: u8, i: i32, j: i32| b.water_at(f, i, j).is_some_and(|x| b.layer_r(x.0) > b.col_height(f, i, j));
+    let mut bad = Vec::new();
+    for s in &sys {
+        for c in &s.balls {
+            for (i, j, z) in crate::caves::cells(b, c) {
+                if (-1..=1).any(|a| (-1..=1).any(|d| wet(c.face, i + a, j + d))) {
+                    bad.push((i, j, z));
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{} cave cells under or beside water, e.g. {:?}", bad.len(), &bad[..bad.len().min(4)]);
 }
 
 /// Lava tubes (deep-world.md 4): 3 to 8 m wide, their floor never rising downhill (the axis's floor radius exactly;

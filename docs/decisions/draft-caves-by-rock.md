@@ -40,10 +40,14 @@ surface). An unknown rock or province, a window out of order or past the crust's
 its window, a tube's field on a fissure are refused with the row's name.
 
 **The host rule.** Every ball of a kind is checked before it is kept: every cell it hollows under the ground
-(`caves::cells`, `col_caves`'s rule) must be one of the kind's hosts by `Body::rock` (the one rock rule), in a column
-of one of its provinces. A tube ends at the first ball that fails (it ends where the basalt ends); a fissure leaves
-that ball out (the crack does not open in soft rock) and goes on. The soil band over a host counts as the host
-(the rock rule gives the first layer up to the soil), so a skylight or slot opens through the soil.
+(`caves::cells`, `col_caves`'s rule) must be, as generated without the cave, one of the kind's hosts: rock by
+`Body::rock` under the 4 m soil band (the band is the biome's ground, not rock), in a column of one of its provinces.
+Only an opening (a skylight shaft, a trench, an open slot) may cut the band, and only in the columns where it breaks
+the ground; so tube roofs and blind fissure tops lie at least 4.5 m down. No cell may lie under or beside (the eight
+columns round) a column with generated water over its ground. A tube ends at the first ball that fails (it ends where
+the basalt ends); a fissure leaves that ball out (the crack does not open in soft rock) and goes on. Ore is placed
+after the caves, so a cave cell is never ore. (Review, round 2: the first version asked `Body::rock` in the band
+too, which names the province's rock there, and checked water on the axis column only.)
 
 **Lava tubes** (basalt; rift and volcanic arc). Real ones are the drained channels of pahoehoe flows: they run
 downhill a few metres under the ground, 3 to 8 m wide, flat-floored, roofed by the flow's crust, hundreds of
@@ -85,7 +89,7 @@ reaches a seam ends.
 | | Lava tube | Fissure |
 |---|---|---|
 | Starts | one per 48 x 48 columns of rift or arc, 80 % | one per 256 x 256 columns, 70 %, on a border within 24 m |
-| Size | 3-8 m wide, 2.5-5 m tall, roof 1.5-3.5 m down | 1-2 m wide, 10-60 m tall, top 2-5 m down |
+| Size | 3-8 m wide, 2.5-5 m tall, roof 4.5-6.5 m down | 1-2 m wide, 10-58 m tall, top 4.5-7.5 m down |
 | Length | up to 150-700 m (ends earlier by the ground) | 80-300 m (fewer where soft rock leaves gaps) |
 | Openings | a skylight every ~200 m, 20 % of them trenches | 35 % open over 10-40 m |
 
@@ -93,16 +97,16 @@ Seed 1, planet 6144 (`technoape-server report=1 seed=1 planet=6144`, the `caves.
 
 | | mantle=0 | with the mantle (before) | with the mantle (after) |
 |---|---|---|---|
-| made_hash | 0926f028ddcd85a7 | f283474fb9f15012 | 2e43836cf7857e0a |
+| made_hash | 0926f028ddcd85a7 | f283474fb9f15012 | 37b2d1b1006b66f7 (2e43836cf7857e0a before review round 2) |
 | made_hash, mantle=0, after | 0926f028ddcd85a7 (the same) | | |
-| lava tubes | | | 8, 841 m, 16 593 open cells, 8 skylights; nearest 2042 m from the spawn |
-| fissures | | | 122, 11 087 m, 277 433 open cells, 27 open stretches; nearest 832 m |
+| lava tubes | | | 7, 762 m, 15 679 open cells, 7 skylights; nearest 2048 m from the spawn (was 8, 841 m) |
+| fissures | | | 122, 11 282 m, 272 502 open cells, 22 open stretches; nearest 833 m (was 27 open) |
 
 Go there (seed 1, planet 6144; `report=1` prints these as `nearest_opening.outside` / `.inside`):
-- the nearest tube's skylight from the ground: `technoape.exe run=stand seed=1 planet=6144 at=-0.437975,0.772072,0.460524 yaw=62 pitch=-45`
-- inside it, 15 m on, looking back up the tube: `run=stand seed=1 planet=6144 at=-0.440049,0.773794,0.455631 depth=11.0 yaw=-119 pitch=10 place=0:0:-1:lamp,0:0:3:lamp`
-- the nearest open fissure, from the ground: `run=stand seed=1 planet=6144 at=-0.117730,0.751328,0.649343 yaw=-166 pitch=-45`
-- at its bottom looking up: `run=stand seed=1 planet=6144 at=-0.117236,0.748744,0.652410 depth=48.1 yaw=-170 pitch=75 place=0:0:-1:lamp`
+- the nearest tube's skylight from the ground: `technoape.exe run=stand seed=1 planet=6144 at=-0.441413,0.770047,0.460632 yaw=-82 pitch=-45`
+- inside it, 15 m on, looking back up the tube: `run=stand seed=1 planet=6144 at=-0.438024,0.772069,0.460483 depth=12.2 yaw=165 pitch=5 place=<lamps every 4 cells, 2 up>`
+- the nearest open fissure, from the ground: `run=stand seed=1 planet=6144 at=-0.117184,0.748415,0.652796 yaw=-171 pitch=-30 (on the open slot itself)`
+- at its bottom looking up: `run=stand seed=1 planet=6144 at=-0.117184,0.748415,0.652796 depth=47.1 yaw=-171 pitch=75 place=0:0:-1:lamp`
 
 **Lava tubes are rare on seed 1, and why.** The rift is 0.6 % of the surface and lies as a low coastal strip, its
 ground 9 m under to 8 m over the sea at the starts; most tubes end within 20-40 m by the sea rule or a river, or at
@@ -116,13 +120,16 @@ top of the arc's layers (real arcs have basaltic flows: Lava Beds in the Cascade
 | Check | Result |
 |---|---|
 | `caves::tests::the_caves_file_loads_and_a_broken_one_is_refused_and_says_why` | red first (no hosts: no checks), green |
-| `a_cave_kind_opens_only_its_host_rock_in_its_provinces` (dense 1536 planet: every cell of every ball) | red (no caves made), green |
+| `a_cave_kind_opens_only_its_host_rock_in_its_provinces` (dense 1536 planet: every cell of every ball, as generated in the same world without them) | red (no caves made), green; round 2 rewritten on the generated block: red, 50 029 of 2.47 M cells in the soil band ("stone" 1.5-3.3 m down under tube roofs), green |
+| `a_cave_kind_keeps_clear_of_water` (no cell under or beside a wet column) | round 2: red, 40 360 cells; green |
+| the file test: 17 kinds, a tube of 20 m | round 2: red on the 20 m tube loading (the 17-kind case after it was not reached, so not seen red on its own), green |
 | `lava_tubes_run_downhill_and_open_to_the_sky_at_skylights` (axis floor exact; lowest cell within 1 layer; openings <= 1.3 x spacing; skylight air from floor to ground) | red (no tubes), then red on a plant standing in a skylight, green |
 | `fissures_follow_province_borders_and_are_tall_and_narrow` (within 16 m of a border, <= 2 m wide, >= 10 m tall) | red (none), then red at 9 m tall, green |
 | `a_cave_is_the_same_whichever_chunk_asks_first_and_runs_on_across_a_chunk_border` | red (no tube), then red comparing the skirted padding, green on `generate_raw` |
 | `without_the_mantle_the_caves_are_the_ones_from_before` (count and hash of the 1536 planet's caves, recorded before the change) | green before and after |
 | `report=1 seed=1 planet=6144 mantle=0` made_hash | 0926f028ddcd85a7 before and after |
-| Cost | 0.14 s a planet load (`caves.kinds.made_s`, once on the server and every client); `run=fly quick=1 seed=1 planet=6144`, play build, twice each: job time after load 380 / 378 us before, 380 / 374 after (no change seen; the flight crosses no new cave), frame p99 3.96-4.04 against 4.01-4.14 ms |
+| Cost | 0.30 s a planet load after review round 2 (0.14 before; the water check over every ball's footprint), `caves.kinds.made_s`, once on the server and every client; world load 0.5 -> 0.8 s; `run=fly quick=1 seed=1 planet=6144`, play build, twice each: job time after load 380 / 378 us before, 380 / 374 after (no change seen; the flight crosses no new cave), frame p99 3.96-4.04 against 4.01-4.14 ms |
+| Stills, round 2 (`out/caves/tube-in3.png`, `fis-sky6.png`, `tube-sky3.png`, 1280 wide) | tube interior with lamps every 4 cells: a wide lit hall, flat floor, stepped walls and roof, a wall block close on the right; the new nearest skylight from the ground: a bush and forest floor, no hole seen; the fissure from its own open column: dark forest floor, no slot seen |
 | Stills (the lines above) | tube skylight from the ground: a dark pit some 4-5 m across in the forest floor, dim under the canopy; inside with two lamps: a tunnel about 5 m wide with a flat floor and a stepped low arch, running on into the dark (the skylight's light is not seen from 15 m back); fissure from the ground: **not seen** in four tries (rain forest: grass, trunks and crowns in the way); fissure from its bottom: a narrow slot between two walls rising to a bright opening at the top |
 | `bash tools/views.sh` (play build) | ok: no cracks, diffs 0 to 0.24 % (season-winter), no cave mouth visible in any; baselines not touched |
 
@@ -131,6 +138,12 @@ top of the arc's layers (real arcs have basaltic flows: Lava Beds in the Cascade
   water (the limestone worm as a row, sinkholes, and the karst water ADR 0059 would need: springs), **sea caves**
   (at cliffs on the sea, cut at sea level; small and local), **magma** (chambers under arcs and rifts, a heat source:
   needs lava as a liquid), **deep caverns** (the mantle's, rare: geodes, gas, aquifers).
+- Not done (review): the shaft and the tube's neighbouring balls (whose floor is the heap's lower slope) cut a
+  crater into the top of the skylight heap: the union takes the lowest floor of the balls over a column.
+- Not done (review): the tube and fissure walks use the platform's atan2, sin and cos over hundreds of compounding
+  steps, so a Linux server and a Windows client could carve different caves (the old worm had the same exposure,
+  over fewer steps). `made_hash` compares them; fixed-point headings or the caves sent by the server would close it.
+- At most 16 kinds (a kind's seed keeps 4 bits); a kind shorter than 40 balls' length is refused at load.
 - Not done: skylight rubble as the `basalt rubble` block (the heap is uncut basalt: generation has no path for a
   placed block other than the rock rule, and adding one is a second path for every reader); tubes across face
   seams; caves at coarse levels (as before); karst rivers, magma, sea caves, deep caverns, decorations.

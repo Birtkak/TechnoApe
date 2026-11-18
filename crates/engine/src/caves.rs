@@ -117,7 +117,9 @@ impl Kinds {
             range("depth", k.depth, 0.0, crate::world::DEEP)?;
             range("width", k.width, 0.5, 20.0)?;
             range("height", k.height, 1.0, k.depth[1] - k.depth[0])?;
-            range("length", k.length, 10.0, 5000.0)?;
+            // a cave of fewer than MIN_RUN balls is not made: a tube's are a metre apart, a fissure's half a metre
+            let step = if k.shape == Shape::Tube { 1.0 } else { 0.5 };
+            range(&format!("length (at least {} m)", MIN_RUN as f64 * step), k.length, MIN_RUN as f64 * step, 5000.0)?;
             if !(32..=4096).contains(&k.spacing) || !(0.0..=1.0).contains(&k.chance) {
                 return Err(format!("kind '{name}': spacing 32..4096 columns, chance 0..1"));
             }
@@ -143,8 +145,9 @@ impl Kinds {
             };
             kinds.push(Kind { name: k.name, shape: k.shape, hosts, provinces, depth: k.depth, spacing: k.spacing, chance: k.chance, width: k.width, height: k.height, length: k.length, skylight, trench, branch, slope, open });
         }
-        if kinds.len() >= Cave::BALL as usize {
-            return Err("too many kinds".into());
+        // a kind's starts are seeded with 4 bits of its index (`systems_of`)
+        if kinds.len() > 16 {
+            return Err(format!("{} kinds: at most 16", kinds.len()));
         }
         Ok(Kinds { kinds })
     }
@@ -213,13 +216,21 @@ pub fn systems_of(b: &Body, seed: u64, kinds: &[Kind]) -> Vec<System> {
 struct Probe<'a> {
     b: &'a Body,
     face: u8,
-    cols: HashMap<(i32, i32), (Rock, f64)>,
+    cols: HashMap<(i32, i32), (Rock, f64, bool)>,
 }
 
+/// The soil band's thickness at level 0, metres: `generated_under` and `generate` lay the biome's ground there,
+/// not rock.
+const BAND: f64 = 4.0;
+
 impl Probe<'_> {
-    fn col(&mut self, i: i32, j: i32) -> (Rock, f64) {
+    /// Column (i, j)'s rock, ground radius, and whether generated water stands over its ground.
+    fn col(&mut self, i: i32, j: i32) -> (Rock, f64, bool) {
         let (b, f) = (self.b, self.face);
-        *self.cols.entry((i, j)).or_insert_with(|| (b.col_rock(f, i, j), b.col_height(f, i, j)))
+        *self.cols.entry((i, j)).or_insert_with(|| {
+            let ground = b.col_height(f, i, j);
+            (b.col_rock(f, i, j), ground, b.water_at(f, i, j).is_some_and(|w| b.layer_r(w.0) > ground))
+        })
     }
     /// Too near a face's seam (a ball is cut there, `col_caves`; the slope is read 4 columns out) or the spawn.
     fn off(&self, i: f64, j: f64, r: f64) -> bool {
@@ -229,17 +240,22 @@ impl Probe<'_> {
     }
     /// Water stands over the ground of column (i, j): the sea, a lake or a river would flood an opening there.
     fn wet(&mut self, i: f64, j: f64) -> bool {
-        let (ci, cj) = (i.floor() as i32, j.floor() as i32);
-        let ground = self.col(ci, cj).1;
-        self.b.water_at(self.face, ci, cj).is_some_and(|w| self.b.layer_r(w.0) > ground)
+        self.col(i.floor() as i32, j.floor() as i32).2
     }
-    /// Whether every cell ball c hollows under the ground is one of the kind's hosts by the rock rule
-    /// (`Body::rock`), in a column of one of its provinces.
-    fn fits(&mut self, c: &Cave, kind: &Kind) -> bool {
+    /// Whether ball c may be cut: every cell it hollows under the ground is, as generated without it, one of the
+    /// kind's hosts (rock by `Body::rock` under the soil band), in a column of one of its provinces, with no
+    /// generated water over that column or the eight round it (a cave there would drain it). An `opening` (a
+    /// skylight, a trench, an open slot) may also cut the soil band, in the columns where it breaks the ground.
+    fn fits(&mut self, c: &Cave, kind: &Kind, opening: bool) -> bool {
         let b = self.b;
         for (i, j, z) in cells_with(b, c, |i, j| self.col(i, j).1) {
-            let rock = self.col(i, j).0;
-            if !kind.provinces.contains(&rock.province) || !kind.hosts.contains(&b.rock(rock, b.layer_r(z as f64 + 0.5) as f32, 0)) {
+            let (rock, ground, _) = self.col(i, j);
+            if !kind.provinces.contains(&rock.province) || (-1..=1).any(|a| (-1..=1).any(|d| self.col(i + a, j + d).2)) {
+                return false;
+            }
+            let r = b.layer_r(z as f64 + 0.5);
+            let ok = if ground - r < BAND { opening && c.span(i, j).is_some_and(|(_, hi)| hi as f64 > b.layer_of(ground)) } else { kind.hosts.contains(&b.rock(rock, r as f32, 0)) };
+            if !ok {
                 return false;
             }
         }
@@ -293,7 +309,7 @@ fn tube(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, mut i: f64, mut j: f64
             break;
         }
         let c = Cave { face, at: DVec3::new(i, j, b.layer_of(f) + fl), r, h: hz, floor: fl, kind: k };
-        if !p.fits(&c, kind) {
+        if !p.fits(&c, kind, false) {
             break;
         }
         floor = Some(f);
@@ -333,7 +349,7 @@ fn tube(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, mut i: f64, mut j: f64
             let zc = b.layer_of(q.z) + fl;
             shaft.push(Cave { face, at: DVec3::new(q.x, q.y, zg), r: r * if trench { 0.9 } else { 0.8 }, h: 1.6 * (zg - zc), floor: zg - zc, kind: k });
         }
-        if axis[s..=e].iter().any(|q| p.wet(q.x, q.y)) || !shaft.iter().all(|c| p.fits(c, kind)) {
+        if axis[s..=e].iter().any(|q| p.wet(q.x, q.y)) || !shaft.iter().all(|c| p.fits(c, kind, true)) {
             continue;
         }
         // the roof that fell: a heap under the opening, its foot the tube's radius and 3 m out
@@ -408,7 +424,7 @@ fn fissure(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, mut i: f64, mut j: 
         let foot = (top.max(0.0) + (tall * (0.8 + 0.2 * (d / 41.0 + ph2).sin())).max(kind.height[0] + 1.0)).min(kind.depth[1]);
         let mid = ground - (top + foot) / 2.0;
         let c = Cave { face, at: DVec3::new(i, j, b.layer_of(mid)), r, h: (foot - top) / 2.0, floor: (foot - top) / 2.0, kind: k };
-        if p.fits(&c, kind) {
+        if p.fits(&c, kind, top < 0.0) {
             axis.push(DVec3::new(i, j, mid));
             balls.push(c);
             if top < 0.0 {
@@ -460,15 +476,22 @@ mod tests {
             ("hosts = [\"basalt\"]", "hosts = [\"basalts\"]", "no rock 'basalts'"),
             ("hosts = [\"basalt\"]", "hosts = [\"dirt\"]", "no rock 'dirt'"),
             ("provinces = [\"rift\"", "provinces = [\"rifts\"", "no province 'rifts'"),
-            ("depth = [1.5, 14.0]", "depth = [14.0, 1.5]", "depth"),
-            ("depth = [1.5, 14.0]", "depth = [1.5, 400.0]", "depth"),
+            ("depth = [4.5, 16.0]", "depth = [16.0, 4.5]", "depth"),
+            ("depth = [4.5, 16.0]", "depth = [4.5, 400.0]", "depth"),
             ("width = [3.0, 8.0]", "width = [8.0, 3.0]", "width"),
             ("skylight = 200.0\n", "", "skylight"),
             ("open = 0.35\n", "open = 0.35\nskylight = 9.0\n", "only a tube"),
+            ("length = [150.0, 700.0]", "length = [20.0, 700.0]", "at least 40"),
         ] {
             let e = Kinds::parse(&good.replacen(from, to, 1)).err().unwrap_or_else(|| panic!("{from} -> {to} loads"));
             assert!(e.contains(says), "{from} -> {to}: {e}");
         }
+        // a kind's seed keeps 4 bits for it: 16 kinds at most
+        let fissure = &good[good.rfind("[[kind]]").unwrap()..];
+        let many = good.clone() + &fissure.repeat(15);
+        let e = Kinds::parse(&many).err().expect("17 kinds load");
+        assert!(e.contains("at most 16"), "{e}");
+        assert!(Kinds::parse(&(good.clone() + &fissure.repeat(14))).is_ok(), "16 kinds are refused");
     }
 }
 
