@@ -42,7 +42,7 @@ air = false
 size = 3.7
 orbit = 60.0
 kind = "rocky"
-# Terra's numbers on Luna, so she generates and pulls as she did (draft-planet-interior); hers at the next
+# Terra's numbers on Luna, so she generates and pulls as she did (0162-planet-interior); hers at the next
 # generation: a small core (the Moon's is about 0.2), her own pull weighing her rock
 iron = 0.7071067811865476
 density = [2700.0, 3300.0, 7920.0]

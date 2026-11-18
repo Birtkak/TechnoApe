@@ -1,4 +1,4 @@
-//! Terra's and Luna's interiors from their rows (draft-planet-interior) against the numbers of the build before
+//! Terra's and Luna's interiors from their rows (0162-planet-interior) against the numbers of the build before
 //! them (main at 63c92f37, the 4 km planet and its 1664 moon, generation 1), recorded by that build: the pull
 //! to 1e-12 (only physics reads it), the weight of rock to the bit (it decides the mantle's rock and ores).
 use super::*;
@@ -76,7 +76,8 @@ fn terra_and_luna_pull_and_weigh_as_before() {
             assert_eq!(got.to_bits(), p, "body {i} at {r} m: {got} MPa, {} before", f64::from_bits(p));
         }
     }
-    println!("the pull bit for bit: Terra {} of 12, Luna {} of 12", same[0], same[1]);
+    // Terra's pull to the bit: recordings made earlier replay through it; Luna's comes from her mass since ADR 0162
+    assert_eq!(same[0], 12, "Terra's pull changed in its last bits: old recordings would drift on replay");
     // the grid and the metal sea as before
     let t = &w.bodies[0];
     assert_eq!((t.mantle, t.core, t.r0, w.bodies[1].r0), (1280, Some(0.0), 2997.758007435433, 957.2101009194489));

@@ -37,7 +37,7 @@ pub fn report(w: &World) -> String {
     )
 }
 
-/// Each body's interior as derived from its row (draft-planet-interior): its zones' outer radius (m) and
+/// Each body's interior as derived from its row (0162-planet-interior): its zones' outer radius (m) and
 /// density (kg/m3), mass (kg), the pull at the ground (m/s^2), the liquid core's volume (m^3) and share, and the
 /// magnetic field over Terra's.
 fn interior(w: &World) -> Vec<String> {

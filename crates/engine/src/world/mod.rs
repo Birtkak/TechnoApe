@@ -268,7 +268,7 @@ pub struct Body {
     /// The liquid metal sea's level under the mantle as a layer coordinate (draft the metal sea): one level for the
     /// whole body, generated and stored nowhere, like `sea`; a body with a mantle has it at the bottom of layer 0.
     pub core: Option<f64>,
-    /// What lies under its ground, from its row (draft-planet-interior): zones, mass, gravity, the weight of rock.
+    /// What lies under its ground, from its row (0162-planet-interior): zones, mass, gravity, the weight of rock.
     pub interior: Interior,
     /// Continents and oceans (ADR 0021): the planet has them, the moon is all hills.
     land: Option<Box<Land>>,

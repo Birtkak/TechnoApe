@@ -34,7 +34,7 @@ impl World {
     pub fn with_grid(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>, luna: Option<Arc<Map>>, warp: f64, gen: u8) -> Self {
         assert_eq!(BODIES.len(), 2, "the sky (sky.rs) poses a planet and one moon");
         assert!((0.0..=1.0).contains(&warp), "warp= is 0 to 1");
-        // every body's interior from its row, its pull scaled by the first's (draft-planet-interior)
+        // every body's interior from its row, its pull scaled by the first's (0162-planet-interior)
         let mut first: Option<Interior> = None;
         let bodies: Vec<Body> = BODIES
             .iter()

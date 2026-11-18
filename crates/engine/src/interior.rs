@@ -1,4 +1,4 @@
-//! A body's interior (planet-model.md step 1, draft-planet-interior): its zones, mass, gravity at any radius, the
+//! A body's interior (planet-model.md step 1, 0162-planet-interior): its zones, mass, gravity at any radius, the
 //! weight of its rock and its magnetic field, derived once from its row's makeup (`bodies::Makeup`) and its radius
 //! and kept on the `Body` (`Body::interior`), so no reader recomputes them and none keeps a number of its own.
 use crate::bodies::Makeup;
@@ -78,7 +78,7 @@ impl Interior {
     }
     /// The pull at x = r / R over the pull at the ground (ADR 0152): the square law outside; inside, the metal
     /// core's and the rock's over it, growing going down to the core's top, then falling evenly to nothing at the
-    /// centre. The crust is reckoned at the mantle's density here (ADR 0152's one shell; draft-planet-interior).
+    /// centre. The crust is reckoned at the mantle's density here (ADR 0152's one shell; 0162-planet-interior).
     pub fn pull(&self, x: f64) -> f64 {
         let (a3, m) = (self.a3, self.norm);
         if x >= 1.0 {

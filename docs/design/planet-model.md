@@ -112,7 +112,7 @@ inside a sphere of influence. The model is shaped now so real orbits need no sec
 - What it must not break: the perfect eclipses (Luna's size and distance against the sun's), tides, day length.
 
 ## Build order (*proposal*; one feature a run, each keeps earlier worlds bit for bit)
-1. **Built (draft-planet-interior):** the row and the derived module, proving nothing changed. `bodies.toml`
+1. **Built (0162-planet-interior):** the row and the derived module, proving nothing changed. `bodies.toml`
    gained `kind`, `iron`, `heat`, `density` (and Luna's stopgap `weight_g`); `interior.rs` derives the zones,
    mass, gravity at any radius, the weight of rock and pressure, the liquid core and the field (a value in
    `report=1`), replacing the constants; Terra and Luna come out identical (hash and bit locks). Left for later
