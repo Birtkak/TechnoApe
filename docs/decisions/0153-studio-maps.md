@@ -1,6 +1,6 @@
-# NNNN – Studio maps: the file, tiling and looping, CPU evaluation
+# 0153 – Studio maps: the file, tiling and looping, CPU evaluation
 
-- **Status:** proposed (the Maps page as built, steps 1 to 3 of `docs/design/studio-maps.md`)
+- **Status:** accepted (the Maps page as built, steps 1 to 3 of `docs/design/studio-maps.md`)
 - **Date:** 2026-11-18
 
 ## Context

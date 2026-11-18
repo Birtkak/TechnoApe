@@ -1,4 +1,4 @@
-//! Maps (docs/design/studio-maps.md, ADR draft-studio-maps): `data/maps/<name>.toml`, a graph of nodes that
+//! Maps (docs/design/studio-maps.md, ADR 0153): `data/maps/<name>.toml`, a graph of nodes that
 //! makes a small picture which tiles and may loop. Read, check, write, and the working out on the CPU, each
 //! node's picture kept until something before it changes. Every generator lies on a lattice that wraps at the
 //! picture's edge and, when it moves, along time too, so every map tiles and every animated map loops.

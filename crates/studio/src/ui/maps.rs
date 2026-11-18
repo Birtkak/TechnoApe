@@ -1,4 +1,4 @@
-//! The Maps page (docs/design/studio-maps.md, ADR draft-studio-maps): a map's node graph on `egui::Scene` to
+//! The Maps page (docs/design/studio-maps.md, ADR 0153): a map's node graph on `egui::Scene` to
 //! wire and tune, the preview of the chosen or pinned node, its numbers. The map, its checks and its working
 //! out are `map`'s; this draws and edits them.
 use super::look::{self, GAP};
