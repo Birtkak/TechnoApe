@@ -323,3 +323,34 @@ fn an_update_reworks_only_what_changed() {
     g.pic(o, 0, 32);
     assert_eq!(g.worked, 8, "a new node: worked out anew");
 }
+
+#[test]
+fn a_field_of_wind_gusts_tiles_and_loops() {
+    let f = Field::new("wind gusts", starter("wind gusts")).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!((f.side, f.frames, f.seconds), (128, 32, 4.0));
+    assert_eq!(f.push.len(), 128 * 128 * 32);
+    let mut most = 0.0f32;
+    for k in 0..200 {
+        let (u, v, t) = (k as f32 * 0.137, k as f32 * 0.071 - 3.0, k as f32 * 0.093);
+        let a = f.at(u, v, t);
+        most = most.max(a[0].hypot(a[1]));
+        // a whole tile on, or a whole loop on, is the same push
+        for b in [f.at(u + 1.0, v, t), f.at(u, v - 2.0, t), f.at(u, v, t + f.seconds), f.at(u - 3.0, v + 1.0, t - 2.0 * f.seconds)] {
+            assert!((a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3, "{a:?} {b:?} at {u} {v} {t}");
+        }
+        // between pixels and frames it runs on smoothly
+        let n = f.at(u + 0.1 / 128.0, v, t + 0.001);
+        assert!((a[0] - n[0]).abs() < 0.05 && (a[1] - n[1]).abs() < 0.05, "a jump {a:?} {n:?}");
+    }
+    assert!(most > 0.3 && most <= 1.0 + 1e-4, "it pushes, at most 1: {most}");
+    // on a pixel's middle at a frame's start it is that pixel
+    let px = f.push[(5 * 128 + 7) + 3 * 128 * 128];
+    let at = f.at(7.5 / 128.0, 5.5 / 128.0, 3.0 * 4.0 / 32.0);
+    assert!((at[0] - px[0]).abs() < 1e-5 && (at[1] - px[1]).abs() < 1e-5, "{at:?} {px:?}");
+}
+
+#[test]
+fn a_number_map_is_no_field() {
+    let e = Field::new("clouds", starter("clouds")).unwrap_err();
+    assert_eq!(e, "map 'clouds' gives a number, not a direction: wire a Slope or Curl node before its Out");
+}

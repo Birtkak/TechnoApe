@@ -718,6 +718,59 @@ impl Graph {
     }
 }
 
+impl Map {
+    /// What its out is fed: what the map can be used for.
+    pub fn gives(&self) -> Data {
+        let (_, kinds) = self.order().expect("a map that was read is checked");
+        kinds[self.nodes.iter().position(|n| n.spec().kind == "out").expect("one out")]
+    }
+}
+
+/// A direction map's whole loop as the game reads it (draft-game-reads-maps): `frames` pictures `side` a side
+/// over `seconds`, the push per pixel (x across, y down the picture, each -1..1), by frame, then row.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Field {
+    pub side: usize,
+    pub frames: usize,
+    pub seconds: f32,
+    pub push: Vec<[f32; 2]>,
+}
+
+impl Field {
+    /// Works the map out at its size, every frame (tens of milliseconds: a worker's or watcher's work, never
+    /// the frame thread's); a map whose out is not a direction is refused, `name` named.
+    pub fn new(name: &str, map: Map) -> Result<Field, String> {
+        let kind = map.gives();
+        if kind != Dir {
+            return Err(format!("map '{name}' gives {}, not a direction: wire a Slope or Curl node before its Out", kind.name()));
+        }
+        let (side, frames, seconds) = (map.size, map.frames, map.seconds);
+        let mut g = Graph::new(map);
+        let o = g.out();
+        let push = (0..frames).flat_map(|k| g.pic(o, k, side).iter().map(|c| [c[0], c[1]]).collect::<Vec<_>>()).collect();
+        Ok(Field { side, frames, seconds, push })
+    }
+
+    /// The push at (u, v) in tiles and t in seconds: between pixels and between frames, wrapping in all three,
+    /// so it tiles and loops exactly.
+    pub fn at(&self, u: f32, v: f32, t: f32) -> [f32; 2] {
+        let s = self.side as i64;
+        let (x, y, z) = (u * s as f32 - 0.5, v * s as f32 - 0.5, t / self.seconds * self.frames as f32);
+        let (x0, y0, z0) = (x.floor(), y.floor(), z.floor());
+        let (fx, fy, fz) = (x - x0, y - y0, z - z0);
+        let mut out = [0.0; 2];
+        for k in 0..8 {
+            let (dx, dy, dz) = (k & 1, k >> 1 & 1, k >> 2 & 1);
+            let w = if dx == 1 { fx } else { 1.0 - fx } * if dy == 1 { fy } else { 1.0 - fy } * if dz == 1 { fz } else { 1.0 - fz };
+            let i = (z0 as i64 + dz).rem_euclid(self.frames as i64) * s * s + (y0 as i64 + dy).rem_euclid(s) * s + (x0 as i64 + dx).rem_euclid(s);
+            let p = self.push[i as usize];
+            out[0] += w * p[0];
+            out[1] += w * p[1];
+        }
+        out
+    }
+}
+
 fn next_stamp() -> u64 {
     static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
