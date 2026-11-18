@@ -25,7 +25,7 @@ depth, like heat, until something is dug.
 - **Rock:** deep openings need support, more with depth (ADR 0079's collapse rule, scaled by pressure).
 - **The ape and machines:** a pressure limit per suit and machine tier, gating the dig with heat.
 - **Rock and ore kinds:** which form at which depth (diamond only under high pressure). *Built*
-  (`docs/decisions/draft-pressure-and-formation.md`): `Body::pressure` is the generated weight above a cell
+  (`docs/decisions/0158-pressure-and-formation.md`): `Body::pressure` is the generated weight above a cell
   (rock by zone density, water, one atmosphere at the top, the gravity inside the body), about 10 MPa at the
   crust's floor and 82 MPa at the mantle's under the 4 km planet's spawn. The mantle's rocks take over by
   pressure and heat (`data/rocks.toml` `[[mantle.rock]]`, each boundary moving with the province's heat), and a

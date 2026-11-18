@@ -1,6 +1,6 @@
 # NNNN – Pressure as a field, and rock and minerals that form by pressure and heat
 
-- **Status:** proposed (the content is a draft for the developer)
+- **Status:** accepted as mechanics; the content (rocks, colours, hardness, diamond) is a draft for the developer
 - **Date:** 2026-11-18
 
 ## Context

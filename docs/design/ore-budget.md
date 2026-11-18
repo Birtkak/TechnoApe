@@ -54,7 +54,7 @@ aluminium and steel by the thousand.
 | lead, zinc, silver | 35,000 | 20 pockets in limestone |
 | gold | 4,000 | 8 quartz veins and their gravels |
 | uranium | 1,000 | 3 bodies |
-| diamond | 480 | 8 small bodies of 60 in the mantle's ringwoodite, 560 to 900 m down, only where the pressure is 36 to 56 MPa and the rock under 110 C: under the cold old shields and basins, never under rifts and arcs; mantle worlds only (draft-pressure-and-formation, a draft: no recipe or use yet) |
+| diamond | 480 | 8 small bodies of 60 in the mantle's ringwoodite, 560 to 900 m down, only where the pressure is 36 to 56 MPa and the rock under 110 C: under the cold old shields and basins, never under rifts and arcs; mantle worlds only (ADR 0158, a draft: no recipe or use yet) |
 
 All of it together covers well under 1 % of Terra's 102 km² of land. Ore is rare by area and generous by
 amount: finding a body is an event, and one body feeds a factory for hours. That is what makes the signs

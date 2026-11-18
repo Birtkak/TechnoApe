@@ -1081,7 +1081,7 @@ fn gravity_grows_down_to_the_core_and_falls_to_nothing_at_the_centre() {
     assert!(old_floor > 1.0 && old_floor < 1.003, "192 m down, an old world's floor: {old_floor} g");
 }
 
-/// The weight of the rock (draft-pressure-and-formation) is the crust's 2700 kg/m3 and the mantle's 3300 under
+/// The weight of the rock (ADR 0158) is the crust's 2700 kg/m3 and the mantle's 3300 under
 /// the world's own gravity, summed metre by metre by hand: at the mantle's floor of the 4 km planet under a
 /// column at sea level within 1 %, and the same in closed form part way down.
 #[test]
@@ -1109,7 +1109,7 @@ fn the_rock_weighs_what_the_gravity_inside_says_down_to_the_mantles_floor() {
     assert!((70.0..90.0).contains(&floor), "{floor} MPa at the floor");
 }
 
-/// The pressure field (draft-pressure-and-formation): 1 atmosphere at a land column's ground, growing with every
+/// The pressure field (ADR 0158): 1 atmosphere at a land column's ground, growing with every
 /// layer down to the floor, and more at a sea floor than at a land column's ground by the water over it.
 #[test]
 fn pressure_is_one_atmosphere_at_the_ground_and_grows_going_down() {
@@ -1136,7 +1136,7 @@ fn pressure_is_one_atmosphere_at_the_ground_and_grows_going_down() {
     assert_eq!(World::with_grid(1536, 32, 5, None, None, 0.0, true).bodies[0].pressure(f, i, j, 10.0), None, "no map: none, as heat");
 }
 
-/// A mantle boundary (draft-pressure-and-formation) lies where the column's pressure reaches the row's at the heat
+/// A mantle boundary (ADR 0158) lies where the column's pressure reaches the row's at the heat
 /// there: under a hot rift deeper than under a cold shield (ringwoodite, slope over 0), shallower for bridgmanite
 /// and the crust's floor (under 0), by the slope times the heat between them over how fast the pressure grows.
 #[test]
@@ -1167,7 +1167,7 @@ fn a_mantle_boundary_moves_with_the_provinces_heat_by_its_slope() {
     }
 }
 
-/// A mineral with a window (draft-pressure-and-formation): diamond on the 4 km planet forms only where the field
+/// A mineral with a window (ADR 0158): diamond on the 4 km planet forms only where the field
 /// at a body's middle is in its window, so under the cold provinces, never under a rift or an arc, never in the
 /// crust; the crust's kinds come first and are those of a world without it; the ledger counts it.
 #[test]

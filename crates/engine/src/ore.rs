@@ -113,7 +113,7 @@ pub struct Kind {
     /// The item that lies loose on the ground over its bodies (a sample, clutter's), by name: the items' rows
     /// read these, so `items::Items::parse` holds it to a row.
     pub sample: Option<String>,
-    /// Where it forms (draft-pressure-and-formation): a body only where `Body::pressure` (MPa) and `Body::heat`
+    /// Where it forms (ADR 0158): a body only where `Body::pressure` (MPa) and `Body::heat`
     /// (C) at its middle lie in these [min, max]. A kind with a window forms in the mantle, on a body with one.
     pub pressure: Option<[f64; 2]>,
     pub heat: Option<[f64; 2]>,

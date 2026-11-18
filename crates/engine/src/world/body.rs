@@ -32,7 +32,7 @@ impl Body {
     }
     /// The rock at radius r of a column of rock `rock`, `fallback` the biome's (ADR 0063): the one rule the
     /// mesher's fill and `generated_under` ask. On a body with a mantle, under about 192 m the mantle's rock
-    /// that has formed there (draft-pressure-and-formation): by the pressure and heat of the column at sea level
+    /// that has formed there (ADR 0158): by the pressure and heat of the column at sea level
     /// (isostasy: the same at a radius under hill and sea), the province's heat under the column's air, each
     /// boundary moved by the column's wobble.
     pub fn rock(&self, rock: Rock, r: f32, fallback: u16) -> u16 {
@@ -54,7 +54,7 @@ impl Body {
         let w = |lo: f64, hi: f64, rho: f32| if hi > lo { rho as f64 * G * self.radius * 1e-6 * super::frames::pull_integral(lo / self.radius, hi / self.radius) } else { 0.0 };
         w(r.max(moho), ground, ROCKS.density) + w(r, ground.min(moho), ROCKS.mantle_density)
     }
-    /// The pressure at layer z of column (face, i, j), MPa (draft-pressure-and-formation): the weight of what lies
+    /// The pressure at layer z of column (face, i, j), MPa (ADR 0158): the weight of what lies
     /// above as generated (its rock, the water over its ground) and 1 atmosphere at the top. None without a
     /// map, as `heat`. Generated only: a dig does not change it.
     pub fn pressure(&self, face: u8, i: i32, j: i32, z: f64) -> Option<f32> {

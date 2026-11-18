@@ -639,7 +639,7 @@ colour3 = [0.25, 0.32, 0.22]
 size = 2
 amount = 0.4
 
-# The mantle's deeper rocks (draft-pressure-and-formation, data/rocks.toml `[[mantle.rock]]`): they form by
+# The mantle's deeper rocks (ADR 0158, data/rocks.toml `[[mantle.rock]]`): they form by
 # pressure and heat, harder with depth. Looks, hardness and grades are drafts.
 # ringwoodite: the transition zone, olivine turned spinel under pressure; deep blue, as it really is.
 [[block]]
@@ -884,7 +884,7 @@ colour2 = [0.38, 0.18, 0.08]
 colour3 = [0.72, 0.45, 0.22]
 contrast = 1.3
 
-# diamond in ringwoodite (draft-pressure-and-formation; data/minerals.toml's one kind with a window): bright
+# diamond in ringwoodite (ADR 0158; data/minerals.toml's one kind with a window): bright
 # crystals in the transition zone's blue rock. A draft look.
 [[block]]
 id = 61

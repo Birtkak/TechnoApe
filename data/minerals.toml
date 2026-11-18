@@ -187,7 +187,7 @@ halo = ["bleached rock", "iron-stained rock"]
 halo_m = 3.0
 sample = "pitchblende pebble"
 
-# The kinds that form by pressure and heat (draft-pressure-and-formation) come last. `pressure` [min, max] MPa
+# The kinds that form by pressure and heat (ADR 0158) come last. `pressure` [min, max] MPa
 # and `heat` [min, max] C: a body only where `Body::pressure` and `Body::heat` at its middle lie in both; it may
 # lie in the mantle (depth to 1400 m), on a planet with one. No halo, gossan or gravel.
 # Diamond: high pressure where the rock is comparatively cool, so deep under the cold old shields (and the

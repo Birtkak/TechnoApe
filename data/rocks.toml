@@ -14,7 +14,7 @@ datum = 60.0
 # the gravity inside the body (ADR 0152), and 1 atmosphere at the ground.
 density = 2700.0
 
-# The mantle under the crust, on a planet whose grid goes down through it (ADR 0152; draft-pressure-and-formation).
+# The mantle under the crust, on a planet whose grid goes down through it (ADR 0152; ADR 0158).
 # `density`: its rock's, kg/m3. Each [[mantle.rock]] takes over, going down, where the pressure of the column at
 # sea level (the same at a radius under hill and sea: isostasy) reaches `pressure` MPa at `heat` C, and `slope`
 # MPa more for each degree the column is warmer there (a phase boundary's Clapeyron slope: over 0 a hot province

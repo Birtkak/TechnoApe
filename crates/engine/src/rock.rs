@@ -209,7 +209,7 @@ mod tests {
         }
     }
 
-    /// The mantle's rows (draft-pressure-and-formation): a boundary takes over at its pressure at its heat and
+    /// The mantle's rows (ADR 0158): a boundary takes over at its pressure at its heat and
     /// moves by its slope with heat; a row out of order, or one whose slope would let a column cross it twice,
     /// is refused.
     #[test]
