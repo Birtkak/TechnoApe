@@ -124,8 +124,9 @@ on a worker thread; the window never waits for it. The cost of a 256 px graph of
 and written in the commit.
 
 ## Left out on purpose
-The game reading a map (wind and particle rows that name one) is the next round and is game code with its
-own ADR. Also out: maps drawn on the GPU, 3D maps, heights turned into lighting (normal maps: the game has no
+The game reads a direction map since draft-game-reads-maps: `[sway]` in `data/effects.toml` for the plants'
+wind and `noise = { map = ... }` for a particle row; the format and its working out are `engine::map`'s now.
+The Studio has no UI for either yet (written by hand, kept by the Effects page's Save). Also out: maps drawn on the GPU, 3D maps, heights turned into lighting (normal maps: the game has no
 use for them), groups of nodes as one node, notes and frames in the graph. Each can come when its lack is felt.
 
 ## Build order

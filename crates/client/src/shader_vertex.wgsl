@@ -53,6 +53,9 @@ struct Globals {
     // the plants (ADR 0091, gpu.rs `Globals::plants`): xyz the wind at the camera in body 0's frame, m/s (0 in a
     // shot), w how far away they have shrunk into the ground, m (the Vegetation setting)
     plants: vec4f,
+    // the plants' wind map (draft-game-reads-maps, gpu.rs `Globals::sway`): x tiles a column, y its loops an
+    // hour of the clock, z 1 with a map (0: the sines of ADR 0091)
+    sway: vec4f,
 };
 // base in columns and layers; info = face | level << 3 | body << 8; off: its first quad
 // opq: its opaque land quads; the cutout ones follow them, the BLAS's second geometry (ADR 0069)

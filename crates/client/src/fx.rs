@@ -7,11 +7,13 @@
 use engine::blocks::BLOCKS;
 use engine::edit::Predictor;
 use engine::events::Event;
+use engine::map::{Field, Map};
 use engine::palette::Palette;
 use engine::world::{Block, World};
 use glam::{DVec3, IVec3, Vec3};
 use serde::Deserialize;
-use std::sync::LazyLock;
+use std::path::Path;
+use std::sync::{Arc, LazyLock};
 
 #[derive(Deserialize, Clone, Copy, PartialEq, Debug, Default)]
 #[serde(rename_all = "lowercase")]
@@ -41,15 +43,32 @@ pub enum Face {
 }
 
 /// Motion through a moving noise field: `strength` m/s² at most, `scale` the field's grain in metres, `speed`
-/// how fast it moves (field units a second).
-#[derive(Deserialize, Clone, Copy, PartialEq, Debug)]
+/// how fast it moves (field units a second). With `map` (draft-game-reads-maps) the field is that Studio map's
+/// (`data/maps/<map>.toml`, a direction): `scale` the metres one tile covers, `speed` times the map's own pace.
+#[derive(Deserialize, Clone, PartialEq, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct Noise {
     pub strength: f32,
     #[serde(default = "one")]
     pub scale: f32,
-    #[serde(default)]
+    /// Left out: 0 for the value noise, 1 for a map (`check` puts it).
+    #[serde(default = "unset")]
     pub speed: f32,
+    #[serde(default)]
+    pub map: Option<String>,
+}
+
+fn unset() -> f32 {
+    f32::NAN
+}
+
+/// `[sway]` (draft-game-reads-maps): the plants' sway reads `map` (a direction), one tile over `tile` metres of
+/// ground; without it the two sines of ADR 0091.
+#[derive(Deserialize, Clone, PartialEq, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct Sway {
+    pub map: String,
+    pub tile: f32,
 }
 
 #[derive(Deserialize, Clone, Copy, PartialEq, Debug, Default)]
@@ -190,13 +209,68 @@ struct File {
     effect: Vec<Row>,
     #[serde(default)]
     group: Vec<Group>,
+    #[serde(default)]
+    sway: Option<Sway>,
 }
 
-/// The rows and groups a pool plays.
+/// The rows and groups a pool plays, the sway, and the fields of the maps the rows name (`with_fields`: none
+/// until a watcher has worked them out).
 #[derive(Clone, Debug, Default)]
 pub struct Set {
     pub rows: Vec<Row>,
     pub groups: Vec<Group>,
+    pub sway: Option<Sway>,
+    pub fields: Vec<(String, Arc<Field>)>,
+}
+
+/// The maps compiled in, for a game without `data/maps/` beside it (the friends' zip, the tests): a file there
+/// comes first.
+const BUILT_IN_MAPS: [(&str, &str); 2] = [("smoke swirl", include_str!("../../../data/maps/smoke swirl.toml")), ("wind gusts", include_str!("../../../data/maps/wind gusts.toml"))];
+
+/// The game's maps' folder (`data/maps/`, the working folder's).
+pub fn maps_dir() -> &'static Path {
+    Path::new("data/maps")
+}
+
+/// Map `name`'s text and the map, from `maps` or else compiled in; a missing or refused map named.
+pub fn read_map(maps: &Path, name: &str, palette: &Palette) -> Result<(String, Map), String> {
+    let file = maps.join(format!("{name}.toml"));
+    let text = std::fs::read_to_string(&file).ok().or_else(|| BUILT_IN_MAPS.iter().find(|m| m.0 == name).map(|m| m.1.to_string())).ok_or(format!("no map '{name}' in {}", maps.display()))?;
+    let m = engine::map::parse(&format!("map '{name}'"), &text, palette)?;
+    Ok((text, m))
+}
+
+/// The fields worked out from map files, by name: the text each was made from and the field.
+pub type Kept = std::collections::HashMap<String, (String, Arc<Field>)>;
+
+/// `set` with the fields of the maps its rows name worked out (tens of milliseconds each: a watcher's work, never
+/// the frame thread's); a map whose text is as `kept` has it is not worked out again. A map that cannot be read
+/// now (changed since the set was checked) gives no field and is named on stderr.
+pub fn with_fields(mut set: Set, maps: &Path, palette: &Palette, kept: &mut Kept) -> Set {
+    let mut names: Vec<&String> = set.rows.iter().filter_map(|r| r.noise.as_ref()?.map.as_ref()).collect();
+    names.sort();
+    names.dedup();
+    set.fields = names
+        .into_iter()
+        .filter_map(|n| {
+            let (text, m) = read_map(maps, n, palette).map_err(|e| eprintln!("[technoape] effects: {e}")).ok()?;
+            if let Some((_, f)) = kept.get(n).filter(|(t, _)| *t == text) {
+                return Some((n.clone(), f.clone()));
+            }
+            let f = Arc::new(Field::new(n, m).map_err(|e| eprintln!("[technoape] effects: {e}")).ok()?);
+            kept.insert(n.clone(), (text, f.clone()));
+            Some((n.clone(), f))
+        })
+        .collect();
+    set
+}
+
+/// The watcher's load: `file` read and checked against the maps in `maps`, its rows' fields worked out.
+pub fn load(file: &Path, maps: &Path, palette: &Palette, kept: &mut Kept) -> Result<Set, String> {
+    let shown = file.display().to_string().replace('\\', "/");
+    let text = std::fs::read_to_string(file).map_err(|_| format!("{shown}: not found"))?;
+    let set = parse_set_in(&text, palette, maps).map_err(|e| format!("{shown}: {e}"))?;
+    Ok(with_fields(set, maps, palette, kept))
 }
 
 impl Set {
@@ -226,15 +300,26 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
     parse_set(text, &PALETTE).map(|s| s.rows)
 }
 
-/// `parse` with the groups, against a palette.
+/// `parse` with the groups and the sway, against a palette and the game's maps (`maps_dir`).
 pub fn parse_set(text: &str, palette: &Palette) -> Result<Set, String> {
-    let File { effect: mut rows, group: mut groups } = toml::from_str::<File>(text).map_err(|e| e.to_string())?;
+    parse_set_in(text, palette, maps_dir())
+}
+
+/// `parse_set` with the maps a row names read from `maps`. The sway's map is not checked here: a refused one
+/// leaves the sines (`gpu.rs` says why on stderr), it does not refuse the rows.
+pub fn parse_set_in(text: &str, palette: &Palette, maps: &Path) -> Result<Set, String> {
+    let File { effect: mut rows, group: mut groups, sway } = toml::from_str::<File>(text).map_err(|e| e.to_string())?;
+    if let Some(s) = &sway {
+        if !(s.tile.is_finite() && s.tile > 0.0) {
+            return Err(format!("sway: tile {} is not metres over 0", s.tile));
+        }
+    }
     let names: Vec<String> = rows.iter().map(|r| r.name.clone()).collect();
     for r in rows.iter_mut() {
         if names.iter().filter(|m| **m == r.name).count() > 1 {
             return Err(format!("effect {} twice", r.name));
         }
-        check(r, &names, palette)?;
+        check(r, &names, palette, maps)?;
     }
     for g in groups.iter_mut() {
         let n = &g.name;
@@ -250,15 +335,21 @@ pub fn parse_set(text: &str, palette: &Palette) -> Result<Set, String> {
     if let Some(g) = gn.iter().enumerate().find(|(i, g)| gn[..*i].contains(g)) {
         return Err(format!("group {} twice", g.1));
     }
-    Ok(Set { rows, groups })
+    Ok(Set { rows, groups, sway, fields: Vec::new() })
 }
 
-/// One row's checks; every refusal names it and why. `names`: the rows its `then` may name.
-fn check(r: &mut Row, names: &[String], palette: &Palette) -> Result<(), String> {
+/// One row's checks; every refusal names it and why. `names`: the rows its `then` may name; `maps`: where the
+/// map its noise names is.
+fn check(r: &mut Row, names: &[String], palette: &Palette, maps: &Path) -> Result<(), String> {
     let n = r.name.clone();
     let no = |why: &str| Err(format!("effect {n}: {why}"));
+    if let Some(z) = &mut r.noise {
+        if z.speed.is_nan() {
+            z.speed = if z.map.is_some() { 1.0 } else { 0.0 };
+        }
+    }
     // every number finite, named by its field
-    let z = r.noise.map_or([0.0; 3], |z| [z.strength, z.scale, z.speed]);
+    let z = r.noise.as_ref().map_or([0.0; 3], |z| [z.strength, z.scale, z.speed]);
     let curves = |c: &[[f32; 2]]| c.iter().flatten().copied().collect::<Vec<f32>>();
     let nums: [(&str, Vec<f32>); 22] = [
         ("rate", vec![r.rate]),
@@ -344,10 +435,13 @@ fn check(r: &mut Row, names: &[String], palette: &Palette) -> Result<(), String>
         .iter()
         .map(|(t, c)| palette.colours.iter().find(|p| &p.name == c).map(|p| (*t, p.rgb.map(|v| v as f32 / 255.0))).ok_or(format!("effect {n}: colour '{c}' is not in the palette")))
         .collect::<Result<_, _>>()?;
-    if let Some(z) = r.noise {
+    if let Some(z) = &r.noise {
         // (a finer grain than 1 cm overflows `noise_at`'s cell numbers far from the body's centre)
         if !(z.strength >= 0.0 && z.scale >= 0.01 && z.speed >= 0.0) {
             return no("noise is { strength 0 or more, scale 0.01 m or more, speed 0 or more }");
+        }
+        if let Some(m) = &z.map {
+            read_map(maps, m, palette).and_then(|(_, map)| Field::check(m, &map)).map_err(|e| format!("effect {n}: noise: {e}"))?;
         }
     }
     if (r.look == Look::Model) != r.model.is_some() {
@@ -377,7 +471,7 @@ pub fn parse_row(text: &str, set: &Set) -> Result<Row, String> {
     let mut r = f.effect.pop().unwrap();
     let mut names: Vec<String> = set.rows.iter().map(|r| r.name.clone()).collect();
     names.push(r.name.clone());
-    check(&mut r, &names, &PALETTE)?;
+    check(&mut r, &names, &PALETTE, maps_dir())?;
     Ok(r)
 }
 
@@ -434,6 +528,20 @@ pub fn noise_at(p: Vec3, t: f32, n: &Noise) -> Vec3 {
     let x2 = corner(0, 0, 1).lerp(corner(1, 0, 1), w.x);
     let x3 = corner(0, 1, 1).lerp(corner(1, 1, 1), w.x);
     x0.lerp(x1, w.y).lerp(x2.lerp(x3, w.y), w.z)
+}
+
+/// A map row's push at p (body frame, m from the centre) and time t, m/s²: the map laid on the plane of p's
+/// dominant axis, one tile `scale` m, and its part along up taken out, so it lies along the ground.
+pub fn field_push(p: Vec3, t: f32, n: &Noise, f: &Field) -> Vec3 {
+    // shortcut: the field jumps where the dominant axis changes (the cube's edges), a chart of the sphere when that is seen
+    let a = p.abs();
+    let (i, j) = if a.x >= a.y && a.x >= a.z { (1, 2) } else if a.y >= a.z { (2, 0) } else { (0, 1) };
+    let m = f.at(p[i] / n.scale, p[j] / n.scale, t * n.speed);
+    let mut e = Vec3::ZERO;
+    e[i] = m[0];
+    e[j] = m[1];
+    let up = p.normalize();
+    (e - up * e.dot(up)) * n.strength
 }
 
 /// Where an event happened, in its body's frame from the body's centre: a point, the cell's frame (up and the
@@ -749,13 +857,16 @@ impl Fx {
 
     /// Reads `file` again within a second of it changing, on a thread of its own; the frame thread swaps the
     /// new rows in at its next `step`, or names the refusal and keeps the old.
+    /// The maps its rows name (`data/maps/`) are watched too: a map saved reaches the rows that name it, its field
+    /// worked out on the watcher's thread.
     pub fn watch(&mut self, file: std::path::PathBuf) {
-        let dir = file.parent().map_or(std::path::PathBuf::from("."), |d| d.to_path_buf());
-        let shown = file.display().to_string().replace('\\', "/");
-        self.rx = Some(crate::gpu::watch("effects", dir, Vec::new(), move |_| {
-            let Ok(text) = std::fs::read_to_string(&file) else { return (Err(format!("{shown}: not found")), false) };
-            let palette = std::fs::read_to_string("data/palette.toml").ok().and_then(|t| Palette::parse(&t).ok()).unwrap_or_else(|| PALETTE.clone());
-            (parse_set(&text, &palette).map_err(|e| format!("{shown}: {e}")), true)
+        let pal_file = std::path::PathBuf::from("data/palette.toml");
+        let kept = std::cell::RefCell::new(Kept::new());
+        self.rx = Some(crate::gpu::watch("effects", maps_dir().to_path_buf(), vec![file.clone(), pal_file.clone()], move |maps| {
+            let palette = std::fs::read_to_string(&pal_file).ok().and_then(|t| Palette::parse(&t).ok()).unwrap_or_else(|| PALETTE.clone());
+            let set = load(&file, maps, &palette, &mut kept.borrow_mut());
+            let found = file.exists();
+            (set, found)
         }));
     }
 
@@ -1117,6 +1228,8 @@ impl Fx {
         self.emit(world, dt);
         let rows = &self.set.rows;
         let clock = self.clock;
+        // each row's map field, once a watcher has worked it out (a row naming one pushes nothing before)
+        let fields: Vec<Option<&Field>> = rows.iter().map(|r| r.noise.as_ref()?.map.as_ref()).map(|m| m.and_then(|m| self.set.fields.iter().find(|f| f.0 == *m)).map(|f| &*f.1)).collect();
         // the fine cells the lying chips hold, when a chip may come to lie this step (ADR 0078): one pass
         let piling = |q: &P| rows[q.row as usize].ground == Ground::Pile;
         let ended = std::mem::take(&mut self.ended);
@@ -1148,7 +1261,9 @@ impl Fx {
                 let air = if q.body == 0 { self.wind } else { Vec3::ZERO };
                 q.v += (up * (-g0 * r.gravity) + (air - q.v) * r.drag) * dt;
                 // (the rows before ADR 0050 push nothing: their motion stays exactly as it was)
-                if let Some(n) = &r.noise {
+                if let Some(f) = fields[q.row as usize] {
+                    q.v += (q.push + field_push(q.p, clock, r.noise.as_ref().unwrap(), f)) * dt;
+                } else if let Some(n) = r.noise.as_ref().filter(|n| n.map.is_none()) {
                     q.v += (q.push + noise_at(q.p, clock, n) * n.strength) * dt;
                 } else if q.push != Vec3::ZERO {
                     q.v += q.push * dt;
@@ -1295,7 +1410,7 @@ impl Fx {
                 let c = if r.grad.is_empty() { r.colour.unwrap_or([1.0; 3]) } else { r.grad.iter().fold([0.0; 3], |s, g| [0, 1, 2].map(|k| s[k] + g.1[k] / r.grad.len() as f32)) };
                 let mut c = c.map(|v| v * r.glow * 0.25);
                 if let Some(z) = &r.noise {
-                    let f = 0.8 + 0.2 * noise_at(Vec3::new(e.handle as f32 * 7.3, 0.0, 0.0), self.clock * 4.0, &Noise { strength: 1.0, scale: 1.0, speed: z.speed.max(1.0) }).x;
+                    let f = 0.8 + 0.2 * noise_at(Vec3::new(e.handle as f32 * 7.3, 0.0, 0.0), self.clock * 4.0, &Noise { strength: 1.0, scale: 1.0, speed: z.speed.max(1.0), map: None }).x;
                     c = c.map(|v| v * f);
                 }
                 match self.lamps.last_mut() {
@@ -2193,7 +2308,7 @@ mod tests {
 
     #[test]
     fn the_noise_field_is_the_same_for_the_same_place_and_time_and_continuous() {
-        let n = Noise { strength: 1.0, scale: 0.5, speed: 1.0 };
+        let n = Noise { strength: 1.0, scale: 0.5, speed: 1.0, map: None };
         let p = Vec3::new(3.1, 1200.7, -40.2);
         assert_eq!(noise_at(p, 2.0, &n), noise_at(p, 2.0, &n));
         let mut most = 0.0f32;
@@ -2232,6 +2347,101 @@ mod tests {
         }
         println!("{got:?}");
         assert_eq!(got, [9210340065840107319u64, 3809945637352739919]);
+    }
+
+    /// A folder of its own with `t push.toml`: a slope of a gradient across, so a tile's right half pushes along
+    /// +x everywhere (its left half along -x).
+    fn maps_dir(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("technoape-maps-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(d.join("maps")).unwrap();
+        std::fs::write(d.join("maps/t push.toml"), PUSH_MAP.replace("STRENGTH", "10")).unwrap();
+        d
+    }
+    const PUSH_MAP: &str = "size = 16\nframes = 1\n\n[[node]]\nid = \"g\"\nkind = \"gradient\"\nshape = \"across\"\n\n[[node]]\nid = \"s\"\nkind = \"slope\"\nstrength = STRENGTH\nin = \"g\"\n\n[[node]]\nid = \"out\"\nkind = \"out\"\nin = \"s\"\n";
+    const PUSHED: &str = "[[effect]]\nname='t pushed'\ncount=1\nlife=[5,5]\nsize=[0.1,0.1]\nlook='square'\ncolour=[1,1,1]\ngravity=0\nnoise={ map='t push', strength=2, scale=1000 }\n";
+
+    /// The CPU cost a particle a step of a map row's push against the value noise's, and of working out the two
+    /// shipped fields. `cargo test -p client --profile play --lib noise_cost -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn noise_cost() {
+        for name in ["smoke swirl", "wind gusts"] {
+            let t = std::time::Instant::now();
+            let f = Field::new(name, read_map(super::maps_dir(), name, &PALETTE).unwrap().1).unwrap();
+            println!("{name}: worked out in {:.0} ms", t.elapsed().as_secs_f64() * 1000.0);
+            std::hint::black_box(f);
+        }
+        let f = Field::new("smoke swirl", read_map(super::maps_dir(), "smoke swirl", &PALETTE).unwrap().1).unwrap();
+        let (old, map) = (Noise { strength: 0.8, scale: 0.8, speed: 0.4, map: None }, Noise { strength: 0.8, scale: 4.0, speed: 1.0, map: Some("smoke swirl".into()) });
+        let ps: Vec<Vec3> = (0..4096).map(|k| Vec3::new(37.0 + (k % 64) as f32 * 0.07, 4200.0 + (k / 64) as f32 * 0.05, -812.0 + k as f32 * 0.003)).collect();
+        for (label, run) in [("noise_at", &(|p: Vec3, t: f32| noise_at(p, t, &old) * old.strength) as &dyn Fn(Vec3, f32) -> Vec3), ("field_push", &|p, t| field_push(p, t, &map, &f))] {
+            let mut best = f64::MAX;
+            for rep in 0..20 {
+                let t0 = std::time::Instant::now();
+                let mut s = Vec3::ZERO;
+                for p in &ps {
+                    s += run(*p, rep as f32 * 0.016);
+                }
+                std::hint::black_box(s);
+                best = best.min(t0.elapsed().as_secs_f64());
+            }
+            println!("{label}: {:.1} ns a particle (best of 20 over 4096)", best * 1e9 / ps.len() as f64);
+        }
+    }
+
+    #[test]
+    fn a_row_naming_a_missing_map_is_refused_naming_both() {
+        let d = maps_dir("missing");
+        let e = parse_set_in(&PUSHED.replace("'t push'", "'no such map'"), &PALETTE, &d.join("maps")).unwrap_err();
+        assert!(e.contains("effect t pushed") && e.contains("no such map"), "{e}");
+        // a number map is refused as no direction, named
+        std::fs::write(d.join("maps/t grey.toml"), "[[node]]\nid = \"g\"\nkind = \"constant\"\n\n[[node]]\nid = \"out\"\nkind = \"out\"\nin = \"g\"\n").unwrap();
+        let e = parse_set_in(&PUSHED.replace("'t push'", "'t grey'"), &PALETTE, &d.join("maps")).unwrap_err();
+        assert!(e.contains("effect t pushed") && e.contains("'t grey'") && e.contains("Slope or Curl"), "{e}");
+        assert!(parse_set_in(PUSHED, &PALETTE, &d.join("maps")).is_ok());
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn a_particle_in_a_field_that_pushes_one_way_gains_speed_that_way_and_none_up() {
+        let d = maps_dir("push");
+        let (w, maps) = (world(), d.join("maps"));
+        let set = with_fields(parse_set_in(PUSHED, &PALETTE, &maps).unwrap(), &maps, &PALETTE, &mut Default::default());
+        assert_eq!(set.fields.len(), 1);
+        let mut fx = Fx::new(true, 64, 1.0, 1);
+        let mut all = SET.clone();
+        all.rows.extend(set.rows);
+        all.fields = set.fields;
+        fx.swap(all).unwrap();
+        // z the dominant axis: the map's u along x, v along y; u = 750 / 1000 lies in the half that pushes +x
+        let p = DVec3::new(750.0, 250.0, 5000.0);
+        fx.start("t pushed", &At::point(0, p, DVec3::ZERO, 0.0)).unwrap();
+        for _ in 0..30 {
+            fx.step(&w, 1.0 / 60.0);
+        }
+        let q = &fx.pool[0];
+        let up = q.p.normalize();
+        let along = (Vec3::X - up * up.x).normalize();
+        assert!(q.v.dot(along) > 0.5 * 2.0 * 0.5 * 0.9, "pushed along +x on the ground: {:?}", q.v);
+        assert!(q.v.dot(up).abs() < 1e-4 * q.v.length(), "no push along up: {}", q.v.dot(up));
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn the_watchers_load_takes_a_changed_map_file_and_sway() {
+        let d = maps_dir("load");
+        let file = d.join("effects.toml");
+        std::fs::write(&file, format!("[sway]\nmap = 't push'\ntile = 48.0\n\n{PUSHED}")).unwrap();
+        let mut kept = Default::default();
+        let a = load(&file, &d.join("maps"), &PALETTE, &mut kept).unwrap();
+        assert_eq!(a.sway, Some(Sway { map: "t push".into(), tile: 48.0 }));
+        let b = load(&file, &d.join("maps"), &PALETTE, &mut kept).unwrap();
+        assert!(Arc::ptr_eq(&a.fields[0].1, &b.fields[0].1), "an unchanged map is not worked out again");
+        std::fs::write(d.join("maps/t push.toml"), PUSH_MAP.replace("STRENGTH", "1")).unwrap();
+        let c = load(&file, &d.join("maps"), &PALETTE, &mut kept).unwrap();
+        let (fa, fc) = (&a.fields[0].1, &c.fields[0].1);
+        assert!(fc.push[12][0] < fa.push[12][0] * 0.5, "the changed map's weaker push: {:?} {:?}", fc.push[12], fa.push[12]);
+        let _ = std::fs::remove_dir_all(d);
     }
 
     const LASTING: &str = "[[effect]]\nname='t flames'\nrate=10\nlife=[5,5]\nsize=[0.1,0.1]\nlook='square'\ncolour=[1,0.5,0]\ngravity=0\nglow=2\n\n[[effect]]\nname='t smoke'\ncount=2\nrate=4\nlife=[5,5]\nsize=[0.1,0.1]\nlook='square'\ncolour=[0.3,0.3,0.3]\ngravity=0\nrise=0.5\nspread=0.2\n\n[[group]]\nname='t fire'\nrows=['t flames','t smoke']\n";

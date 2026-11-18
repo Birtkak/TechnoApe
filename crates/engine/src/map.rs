@@ -740,15 +740,20 @@ impl Field {
     /// Works the map out at its size, every frame (tens of milliseconds: a worker's or watcher's work, never
     /// the frame thread's); a map whose out is not a direction is refused, `name` named.
     pub fn new(name: &str, map: Map) -> Result<Field, String> {
-        let kind = map.gives();
-        if kind != Dir {
-            return Err(format!("map '{name}' gives {}, not a direction: wire a Slope or Curl node before its Out", kind.name()));
-        }
+        Field::check(name, &map)?;
         let (side, frames, seconds) = (map.size, map.frames, map.seconds);
         let mut g = Graph::new(map);
         let o = g.out();
         let push = (0..frames).flat_map(|k| g.pic(o, k, side).iter().map(|c| [c[0], c[1]]).collect::<Vec<_>>()).collect();
         Ok(Field { side, frames, seconds, push })
+    }
+
+    /// Whether `map` makes a field (its out is a direction), without working it out.
+    pub fn check(name: &str, map: &Map) -> Result<(), String> {
+        match map.gives() {
+            Dir => Ok(()),
+            kind => Err(format!("map '{name}' gives {}, not a direction: wire a Slope or Curl node before its Out", kind.name())),
+        }
     }
 
     /// The push at (u, v) in tiles and t in seconds: between pixels and between frames, wrapping in all three,

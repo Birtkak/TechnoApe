@@ -22,6 +22,9 @@
 # `noise = { strength, scale, speed }`: a push of up to `strength` m/s² through a smooth noise field of grain
 # `scale` m sliding at `speed` grains a second (flames lick, smoke curls). `rise`: m/s² up; `spread`: m/s²
 # sideways, each particle its own way (a plume widens).
+# `noise = { map = "smoke swirl", strength, scale, speed }` (draft-game-reads-maps): the field is that Studio map
+# (data/maps/<map>.toml, whose Out is a direction) laid along the ground: `strength` m/s² at its strongest push,
+# `scale` the metres one tile covers, `speed` how many times the map's own pace it plays (left out: 1).
 # `glow`: 0..8, the particle's own light times its colour; a lasting row that glows is also a lamp where it plays
 # (lit and shadowed as the lamps are, flickering when it has noise).
 # `look` also: model (`model` = a file of data/models/, drawn at `size` times its own size, resting on its foot),
@@ -31,6 +34,13 @@
 # [[group]] name, rows = [...]: several rows played and stopped as one (fire = flames + embers + smoke).
 # The file is read again within a second of a change in a running game; a refused one is named on stderr and
 # the rows before stay.
+# [sway] map, tile (draft-game-reads-maps): the plants bend in the wind by that direction map, one tile over
+# `tile` metres of ground, on the sky's clock; without [sway] (or with its map refused, named on stderr) they
+# sway by the two sines of ADR 0091. A map saved reaches a running game as this file does.
+
+[sway]
+map = "wind gusts"
+tile = 48.0
 
 [[effect]]
 name = "break"
@@ -194,7 +204,7 @@ size_curve = [[0.0, 0.4], [0.3, 1.0], [1.0, 1.4]]
 shrink = 0.25
 look = "square"
 gradient = [[0.0, "stone dark"], [0.4, "stone"], [1.0, "stone"]]
-noise = { strength = 0.8, scale = 0.8, speed = 0.4 }
+noise = { map = "smoke swirl", strength = 0.8, scale = 4.0 }
 spin = 0.6
 
 [[group]]

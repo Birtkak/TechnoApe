@@ -27,6 +27,61 @@ pub(crate) fn depth_view(device: &wgpu::Device) -> wgpu::TextureView {
         .create_view(&Default::default())
 }
 
+/// The plants' wind map (draft-game-reads-maps; binding 19, the shader's `plant_sway`): a field's frames along the
+/// third axis, its push in two signed channels, linear and repeating in all three (`sway_samp`); none, 1 x 1 x 1.
+pub(crate) fn sway_view(device: &wgpu::Device, queue: &wgpu::Queue, f: Option<&engine::map::Field>) -> wgpu::TextureView {
+    use wgpu::util::DeviceExt;
+    let (side, frames) = f.map_or((1, 1), |f| (f.side as u32, f.frames as u32));
+    let texels: Vec<i8> = f.map_or(vec![0, 0], |f| f.push.iter().flat_map(|p| p.map(|x| (x.clamp(-1.0, 1.0) * 127.0).round() as i8)).collect());
+    device
+        .create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: Some("sway"),
+                size: wgpu::Extent3d { width: side, height: side, depth_or_array_layers: frames },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D3,
+                format: wgpu::TextureFormat::Rg8Snorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            bytemuck::cast_slice(&texels),
+        )
+        .create_view(&Default::default())
+}
+
+/// The sway's watcher: `[sway]` of the effects file and the map it names, its field worked out on the watcher's
+/// thread (again only when the map's text changed); none without `[sway]`, or with its map refused (said on
+/// stderr: the plants keep the sines).
+fn watch_sway(effects: std::path::PathBuf) -> std::sync::mpsc::Receiver<Option<(Arc<engine::map::Field>, f32)>> {
+    let kept = std::cell::RefCell::new(None::<(String, Arc<engine::map::Field>)>);
+    watch("sway", crate::fx::maps_dir().to_path_buf(), vec![effects.clone()], move |maps| {
+        let got = (|| -> Result<Option<(Arc<engine::map::Field>, f32)>, String> {
+            let shown = effects.display().to_string().replace('\\', "/");
+            let t: toml::Table = std::fs::read_to_string(&effects).map_err(|e| format!("{shown}: {e}"))?.parse().map_err(|e| format!("{shown}: {e}"))?;
+            let Some(s) = t.get("sway") else { return Ok(None) };
+            let s: crate::fx::Sway = s.clone().try_into().map_err(|e| format!("{shown}: sway: {e}"))?;
+            let pal = std::fs::read_to_string("data/palette.toml").ok().and_then(|t| engine::palette::Palette::parse(&t).ok()).unwrap_or_else(|| crate::fx::PALETTE.clone());
+            let (text, m) = crate::fx::read_map(maps, &s.map, &pal)?;
+            if let Some((_, f)) = kept.borrow().as_ref().filter(|k| k.0 == text) {
+                return Ok(Some((f.clone(), s.tile)));
+            }
+            let t0 = std::time::Instant::now();
+            let f = Arc::new(engine::map::Field::new(&s.map, m)?);
+            eprintln!("[technoape] sway: map '{}' worked out in {:.0} ms", s.map, t0.elapsed().as_secs_f64() * 1000.0);
+            *kept.borrow_mut() = Some((text, f.clone()));
+            Ok(Some((f, s.tile)))
+        })();
+        let got = got.unwrap_or_else(|e| {
+            eprintln!("[technoape] sway: {e}; the plants sway by the sines");
+            None
+        });
+        (got, true)
+    })
+}
+
 /// The conformal grid's warp table (ADR 0131, engine `warp.rs`): rg32float, x along b, y along a, read with
 /// `textureLoad` (binding 18 of the terrain's group 0; the shader's `warp_at`).
 pub(crate) fn warp_view(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureView {
@@ -479,6 +534,9 @@ pub(crate) struct Globals {
     /// The plants (ADR 0091): xyz the wind at the camera in body 0's frame, m/s (0 in a shot: a still picture
     /// shows them at rest), w how far away they shrink into the ground, m (the Vegetation setting).
     pub(crate) plants: [f32; 4],
+    /// The plants' wind map (draft-game-reads-maps): x tiles a column (1 / `[sway] tile`), y its loops an hour of
+    /// the sky's clock (whole, so the hour's wrap has no jump), z 1 with a map (0: the sines).
+    pub(crate) sway: [f32; 4],
 }
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -579,6 +637,13 @@ pub(crate) struct Gpu {
     pub(crate) sky_samp: wgpu::Sampler,
     /// The warp's table (`warp_view`).
     pub(crate) warp_view: wgpu::TextureView,
+    /// The plants' wind map (`sway_view`), its sampler, the field it holds and the watcher's newest; `sway` is
+    /// `Globals::sway`.
+    pub(crate) sway_view: wgpu::TextureView,
+    pub(crate) sway_samp: wgpu::Sampler,
+    pub(crate) sway_field: Option<Arc<engine::map::Field>>,
+    pub(crate) sway_rx: std::sync::mpsc::Receiver<Option<(Arc<engine::map::Field>, f32)>>,
+    pub(crate) sway: [f32; 4],
     pub(crate) window: Arc<Window>,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
@@ -659,7 +724,7 @@ const TEX_LAYERS: u32 = 2048;
 /// The terrain's bind group: `b` the buffers globals, quads, chunks, looks, water quads, lamps, lamp cells, effects,
 /// paintings, model quads, model pieces, globe, still faces, still paintings
 #[allow(clippy::too_many_arguments)]
-fn main_bind(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, b: [&wgpu::Buffer; 14], tlas: &wgpu::Tlas, sky: (&wgpu::TextureView, &wgpu::Sampler), warp: &wgpu::TextureView) -> wgpu::BindGroup {
+fn main_bind(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, b: [&wgpu::Buffer; 14], tlas: &wgpu::Tlas, sky: (&wgpu::TextureView, &wgpu::Sampler), warp: &wgpu::TextureView, sway: (&wgpu::TextureView, &wgpu::Sampler)) -> wgpu::BindGroup {
     let [globals, quads, chunks, looks, wquads, lamps, lamp_cells, fx_buf, tex, mquads, mpieces, globe_buf, sfaces, spaint] = b;
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
@@ -683,6 +748,8 @@ fn main_bind(device: &wgpu::Device, bgl: &wgpu::BindGroupLayout, b: [&wgpu::Buff
             wgpu::BindGroupEntry { binding: 16, resource: sfaces.as_entire_binding() },
             wgpu::BindGroupEntry { binding: 17, resource: spaint.as_entire_binding() },
             wgpu::BindGroupEntry { binding: 18, resource: wgpu::BindingResource::TextureView(warp) },
+            wgpu::BindGroupEntry { binding: 19, resource: wgpu::BindingResource::TextureView(sway.0) },
+            wgpu::BindGroupEntry { binding: 21, resource: wgpu::BindingResource::Sampler(sway.1) },
         ],
     })
 }
@@ -710,7 +777,7 @@ impl Gpu {
     /// The terrain's bind group again with a new TLAS (rt.rs `grew`, ADR 0111).
     pub(crate) fn rebind(&mut self, tlas: &wgpu::Tlas) {
         let b = [&self.globals, &self.quads, &self.chunks, &self.looks, &self.wquads, &self.lamps, &self.lamp_cells, &self.fx_buf, &self.tex, &self.mquads, &self.mpieces, &self.globe_buf, &self.sfaces, &self.spaint];
-        self.bind = main_bind(&self.device, &self.bgl, b, tlas, (&self.sky_view, &self.sky_samp), &self.warp_view);
+        self.bind = main_bind(&self.device, &self.bgl, b, tlas, (&self.sky_view, &self.sky_samp), &self.warp_view, (&self.sway_view, &self.sway_samp));
     }
 }
 
@@ -1083,6 +1150,11 @@ impl Gpu {
         let sky_view = sky_tex.create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
         let sky_samp = device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..Default::default() });
         let warp_view = warp_view(&device, &queue);
+        // the plants' wind map: none (the sines) until the watcher's first look (draft-game-reads-maps)
+        let sway_view = sway_view(&device, &queue, None);
+        let repeat = wgpu::AddressMode::Repeat;
+        let sway_samp = device.create_sampler(&wgpu::SamplerDescriptor { address_mode_u: repeat, address_mode_v: repeat, address_mode_w: repeat, mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..Default::default() });
+        let sway_rx = watch_sway(std::path::PathBuf::from(a.get("effects", String::from("data/effects.toml"))));
         let tex_rx = watch_textures(std::path::PathBuf::from(a.get("textures", String::from("data/textures"))));
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
@@ -1151,10 +1223,17 @@ impl Gpu {
                     ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: false }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 19,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D3, multisampled: false },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry { binding: 21, visibility: wgpu::ShaderStages::VERTEX, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
             ],
         });
         let rt = rt::Rt::new(&device, &shader, &globals, &quads, &sfaces, &warp_view, MAX_CHUNKS as u32);
-        let bind = main_bind(&device, &bgl, [&globals, &quads, &chunks, &looks, &wquads, &lamps, &lamp_cells, &fx_buf, &tex, &mquads, &mpieces, &globe_buf, &sfaces, &spaint], &rt.tlas, (&sky_view, &sky_samp), &warp_view);
+        let bind = main_bind(&device, &bgl, [&globals, &quads, &chunks, &looks, &wquads, &lamps, &lamp_cells, &fx_buf, &tex, &mquads, &mpieces, &globe_buf, &sfaces, &spaint], &rt.tlas, (&sky_view, &sky_samp), &warp_view, (&sway_view, &sway_samp));
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[Some(&bgl)],
@@ -1439,12 +1518,35 @@ impl Gpu {
             looks: looks.clone(),
             tex,
             tex_rx,
+            sway_view,
+            sway_samp,
+            sway_field: None,
+            sway_rx,
+            sway: [0.0; 4],
             ts,
             capture,
             adapter_name: info.name.clone(),
             backend: format!("{:?}", info.backend),
         };
         (gpu, rt, gi)
+    }
+
+    /// Swaps in the sway watcher's newest field, if it sent one: true when the wind map is new and the terrain's
+    /// bind group must be made again (`rebind`). Under the frame's budget: one texture upload of the field's size
+    /// (1 MB for `wind gusts`), only when its map changed.
+    pub(crate) fn take_sway(&mut self) -> bool {
+        let Some(got) = self.sway_rx.try_iter().last() else { return false };
+        let new = match (&got, &self.sway_field) {
+            (Some((f, _)), Some(was)) => !Arc::ptr_eq(f, was),
+            (None, None) => false,
+            _ => true,
+        };
+        self.sway = got.as_ref().map_or([0.0; 4], |(f, tile)| [1.0 / tile, (3600.0 / f.seconds).round().max(1.0), 1.0, 0.0]);
+        if new {
+            self.sway_field = got.map(|g| g.0);
+            self.sway_view = sway_view(&self.device, &self.queue, self.sway_field.as_deref());
+        }
+        new
     }
 
     /// Swaps in the watcher's newest textures, if it sent any: the layers, the looks, the hotbar's colours.

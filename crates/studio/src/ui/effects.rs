@@ -573,7 +573,7 @@ impl Effects {
             return;
         };
         let n = |k: &str, d: f32| z.get(k).and_then(|v| v.as_float().map(|f| f as f32).or(v.as_integer().map(|i| i as f32))).unwrap_or(d);
-        let field = client::fx::Noise { strength: n("strength", 0.0), scale: n("scale", 1.0).max(0.01), speed: n("speed", 0.0) };
+        let field = client::fx::Noise { strength: n("strength", 0.0), scale: n("scale", 1.0).max(0.01), speed: n("speed", 0.0), map: None };
         let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 70.0), Sense::hover());
         let p = ui.painter_at(r);
         p.rect_filled(r, 4.0, ui.visuals().extreme_bg_color);

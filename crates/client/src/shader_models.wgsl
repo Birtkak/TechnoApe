@@ -44,11 +44,23 @@ fn leafy(c: vec3f) -> bool { return c.g > c.r && c.g > c.b; }
 
 // A plant's sway (ADR 0091): the wind `w` (camera frame, m/s) bends a point `hm` metres up by its square, in gusts
 // that roll across the land with `place` (columns) and run on the sky's clock, so every client and every shot of
-// the same time sees the same. Leaves can take it the same way.
-fn plant_sway(w: vec3f, hm: f32, place: vec2f, seed: f32) -> vec3f {
+// the same time sees the same. Leaves can take it the same way. With `[sway]` (draft-game-reads-maps) the gusts
+// are a Studio map's: its push along the wind and across it (a quarter turn about `up`, camera frame); else the
+// two sines.
+@group(0) @binding(19) var sway_t: texture_3d<f32>;
+@group(0) @binding(21) var sway_s: sampler;
+fn plant_sway(w: vec3f, hm: f32, place: vec2f, seed: f32, up: vec3f) -> vec3f {
     let speed = length(w);
     if (speed < 0.01) { return vec3f(0.0); }
     let t = g.water.x;
+    let amp = min(speed * 0.025, 0.3) * min(hm * hm, 1.5);
+    if (g.sway.z > 0.5) {
+        // frame k's middle at k + 0.5 of the third axis, as engine `Field::at` has frame k at its loop's k-th step
+        let at = vec3f(place * g.sway.x, fract(t * g.sway.y / 3600.0) + 0.5 / f32(textureDimensions(sway_t).z));
+        let m = textureSampleLevel(sway_t, sway_s, at, 0.0).xy;
+        let dir = w / speed;
+        return amp * (dir * (0.4 + 0.8 * m.x) + normalize(cross(up, dir)) * 0.8 * m.y);
+    }
     let ph = dot(place, vec2f(0.31, 0.23)) + seed * 1.5;
     // periods that divide the clock's hour, so it has no jump
     let gust = 0.4 + 0.6 * sin(t * 6.2831853 * 0.6 + ph) + 0.2 * sin(t * 6.2831853 * 1.5 + ph * 1.7);
@@ -173,9 +185,9 @@ fn vs_still(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
         }
     }
     let local = still_local(q, uv, c, fade);
-    if (plant && (c.info >> 8u) == 0u) { bend = plant_sway(brot(b, g.plants.xyz), local.z - cell.z, vec2f(col), h.z); }
     let gp = grid(c, local);
     let fr = frame_at(c.info & 7u, b, gp.x, gp.y);
+    if (plant && ((c.info >> 8u) & 255u) == 0u) { bend = plant_sway(brot(b, g.plants.xyz), local.z - cell.z, vec2f(col), h.z, brot(b, fr.up)); }
     // a plant's plane turns, leans and stretches by its place's hash (`still_local`): its normal from its turned
     // edges (the placed corners' differences), so the sun side is the drawn plane's
     var n = still_dir(q, cross(f.ev, f.eu));
