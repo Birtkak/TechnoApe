@@ -909,6 +909,8 @@ impl App {
                 };
                 [wind.x, wind.y, wind.z, PLANTS_FAR[self.vegetation()]]
             },
+            // the plants' wind map (ADR 0157), as the sway's watcher last gave it
+            sway: gpu.sway,
             view_proj: vp.to_cols_array_2d(),
             sun: [sun.x, sun.y, sun.z, clock],
             bodies: bytemuck::Zeroable::zeroed(),
@@ -1155,11 +1157,14 @@ impl App {
         let rt = self.rt.as_mut().unwrap();
         rt.record(&gpu.device, &gpu.queue, &mut enc, &insts, &proxy_tris, &proxies);
         let rt_pending = rt.pending;
-        // a larger TLAS: bound before this frame's passes, which trace it (ADR 0111)
-        if rt.grew {
+        // a larger TLAS, or a new wind map for the plants: bound before this frame's passes (ADR 0111)
+        let swayed = self.gpu.as_mut().unwrap().take_sway();
+        if rt.grew || swayed {
             let (g, rt) = (self.gpu.as_mut().unwrap(), self.rt.as_ref().unwrap());
             g.rebind(&rt.tlas);
-            self.gi.as_mut().unwrap().rebind(&g.device, g.shared(&rt.tlas));
+            if rt.grew {
+                self.gi.as_mut().unwrap().rebind(&g.device, g.shared(&rt.tlas));
+            }
         }
         let gpu = self.gpu.as_ref().unwrap();
         self.drawn.rt_pending = rt_pending;

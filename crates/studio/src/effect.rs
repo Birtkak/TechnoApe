@@ -151,7 +151,9 @@ pub fn set(k: &mut Keys, fl: &Field, v: f32) {
             format!("[{}, {}, {}]", num(p[0]), num(p[1]), num(p[2]))
         }
         Form::Noise(n) => {
-            let mut z = [("strength", 0.0), ("scale", 1.0), ("speed", 0.0)];
+            // a map row's speed left out is the map's own pace (1); its map is kept
+            let map = t.get("noise").and_then(|v| v.as_table()).and_then(|t| t.get("map")).and_then(|m| m.as_str());
+            let mut z = [("strength", 0.0), ("scale", 1.0), ("speed", if map.is_some() { 1.0 } else { 0.0 })];
             for (name, x) in z.iter_mut() {
                 if let Some(o) = t.get("noise").and_then(|v| v.as_table()).and_then(|t| t.get(*name)).and_then(f) {
                     *x = o;
@@ -160,7 +162,8 @@ pub fn set(k: &mut Keys, fl: &Field, v: f32) {
                     *x = v;
                 }
             }
-            format!("{{ {} }}", z.iter().map(|(a, b)| format!("{a} = {}", num(*b))).collect::<Vec<_>>().join(", "))
+            let map = map.map_or(String::new(), |m| format!(", map = {}", crate::js(m)));
+            format!("{{ {}{map} }}", z.iter().map(|(a, b)| format!("{a} = {}", num(*b))).collect::<Vec<_>>().join(", "))
         }
     };
     k.set(fl.key, Some(text));
@@ -335,6 +338,23 @@ mod tests {
         }
         assert_eq!(client::fx::curve_at(&shape("shrink").unwrap(), 1.0), 0.0);
         assert_eq!(client::fx::curve_at(&shape("pulse").unwrap(), 0.5), 1.0);
+    }
+
+    /// What the page's Save does (`rows::save`: the row put into the file, checked by the game's reader) keeps the
+    /// file's `[sway]` and a row's `map`, and a noise slider keeps the map and its speed left out as 1.
+    #[test]
+    fn a_save_keeps_the_sway_and_a_rows_map() {
+        let row = "[[effect]]\nname = \"smoke\"\nrate = 6\nlife = [2.5, 4]\nsize = [0.1, 0.18]\nlook = \"square\"\ncolour = [0.3, 0.3, 0.3]\nnoise = { map = \"smoke swirl\", strength = 0.8, scale = 4 }\n";
+        let file = format!("# the header\n\n[sway]\nmap = \"wind gusts\"\ntile = 48.0\n\n{row}");
+        let mut k = Keys::parse(row);
+        set(&mut k, field("noise", Form::Noise("strength")), 1.2);
+        assert_eq!(k.get("noise"), Some("{ strength = 1.2, scale = 4, speed = 1, map = \"smoke swirl\" }"));
+        let new = crate::rows::put(&file, "effect", "smoke", &k.text());
+        assert!(new.starts_with("# the header\n\n[sway]\nmap = \"wind gusts\"\ntile = 48.0\n"), "{new}");
+        let s = client::fx::parse_set(&new, &client::fx::PALETTE).unwrap();
+        assert_eq!(s.sway, Some(client::fx::Sway { map: "wind gusts".into(), tile: 48.0 }));
+        let n = s.rows[0].noise.as_ref().unwrap();
+        assert_eq!((n.map.as_deref(), n.strength, n.speed), (Some("smoke swirl"), 1.2, 1.0));
     }
 
     #[test]
