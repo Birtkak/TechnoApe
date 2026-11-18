@@ -962,13 +962,13 @@ fn the_mantle_carries_the_grid_down_to_r_over_root_2() {
     let floor = new.radius * std::f64::consts::FRAC_1_SQRT_2;
     assert!(k % MANTLE_STEP == 0 && (new.r0 - floor).abs() < lowest * MANTLE_STEP as f64 / 2.0, "floor at {} m, R/sqrt 2 {floor}", new.r0);
     assert!((0.70..0.72).contains(&lowest), "the lowest block is {lowest} m");
-    assert_eq!((k, new.layers), (mantle_layers(6144), old.layers + k));
+    assert_eq!((k, new.layers), (mantle_layers(6144, std::f64::consts::FRAC_1_SQRT_2), old.layers + k));
     for z in [0, 1, 70, old.layers - 1] {
         let (now, was) = (new.layer_r((z + k) as f64 + 0.5), old.layer_r(z as f64 + 0.5));
         assert!((now - was).abs() < 1e-6, "layer {z}: {now} against {was}");
     }
     assert_eq!(old.mantle, 0);
-    assert_eq!((mantle_layers(512), Body::new(DVec3::ZERO, 512, 1).with_mantle().layers), (0, Body::new(DVec3::ZERO, 512, 1).layers), "a small planet keeps its floor");
+    assert_eq!((mantle_layers(512, std::f64::consts::FRAC_1_SQRT_2), Body::new(DVec3::ZERO, 512, 1).with_mantle().layers), (0, Body::new(DVec3::ZERO, 512, 1).layers), "a small planet keeps its floor");
     let w = World::with_grid(1536, 512, 1, None, None, 0.0, 1);
     let luna = Body::new(DVec3::ZERO, 512, 2);
     assert_eq!((w.bodies[1].mantle, w.bodies[1].r0.to_bits(), w.bodies[1].layers), (0, luna.r0.to_bits(), luna.layers), "Luna keeps hers");
@@ -1131,7 +1131,7 @@ fn pressure_is_one_atmosphere_at_the_ground_and_grows_going_down() {
     let sea = (0..b.n).step_by(16).flat_map(|i| (0..b.n).step_by(16).map(move |j| (i, j))).find(|&(i, j)| b.water_at(f, i, j).is_some_and(|w| b.layer_r(w.0) - b.col_height(f, i, j) > 3.0)).expect("a sea");
     let (top, floor) = (b.layer_r(b.water_at(f, sea.0, sea.1).unwrap().0), b.col_height(f, sea.0, sea.1));
     let p = b.pressure(f, sea.0, sea.1, b.layer_of(floor)).unwrap();
-    let want = 0.101_325 + 1000.0 * G * (top - floor) * 1e-6;
+    let want = 0.101_325 + 1000.0 * crate::interior::G * (top - floor) * 1e-6;
     assert!(p > at(ground) && (p as f64 - want).abs() < 1e-3, "the sea floor {} m down: {p} MPa, not {want}", top - floor);
     assert_eq!(World::with_grid(1536, 32, 5, None, None, 0.0, 1).bodies[0].pressure(f, i, j, 10.0), None, "no map: none, as heat");
 }

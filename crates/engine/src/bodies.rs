@@ -27,6 +27,35 @@ struct Raw {
     orbit_min: Option<f64>,
     size: Option<f64>,
     sun: Option<f64>,
+    kind: Kind,
+    iron: f64,
+    heat: f64,
+    density: [f64; 3],
+    weight_g: Option<f64>,
+}
+
+/// What a body is (planet-model.md): only rocky bodies are built.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    Rocky,
+    Icy,
+    Gas,
+}
+
+/// What a body is made of: its interior (`interior::Interior`) is derived from this and its radius.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Makeup {
+    pub kind: Kind,
+    /// The metal core's radius over the body's, 0..1.
+    pub iron: f64,
+    /// How hot the inside still is, 0 dead (the core all solid) to 1 young (all liquid).
+    pub heat: f64,
+    /// The crust's rock, the mantle's and the core's metal, kg/m3, lightest on top.
+    pub density: [f64; 3],
+    /// The pull the weight of its rock is reckoned with, m/s^2, where it is not its own (Luna: Terra's, today's
+    /// pressure until her deep is generated as hers).
+    pub weight_g: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -52,6 +81,7 @@ pub struct Row {
     pub size: Option<f64>,
     /// The sun's distance in this body's radii: the first body's only.
     pub sun: Option<f64>,
+    pub makeup: Makeup,
 }
 
 impl Row {
@@ -97,9 +127,33 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
         for (g, name) in ground.iter_mut().zip(&r.ground) {
             *g = BLOCKS.placeable().find(|d| &d.name == name).ok_or(format!("body '{}': no block '{name}'", r.name))?.id;
         }
-        rows.push(Row { name: r.name, words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator, ground, air: r.air, orbit, size: r.size, sun: r.sun });
+        let makeup = Makeup { kind: r.kind, iron: r.iron, heat: r.heat, density: r.density, weight_g: r.weight_g };
+        check(&makeup).map_err(|e| format!("body '{}': {e}", r.name))?;
+        rows.push(Row { name: r.name, words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator, ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup });
     }
     Ok(rows)
+}
+
+/// A makeup the interior can be derived from: a rocky body, a core inside it, heat 0..1, densities 500..30000
+/// kg/m3 growing going down, a positive pull.
+fn check(m: &Makeup) -> Result<(), String> {
+    if m.kind != Kind::Rocky {
+        return Err(format!("kind '{:?}' is not built yet (rocky only)", m.kind).to_lowercase());
+    }
+    if !(m.iron > 0.0 && m.iron < 1.0) {
+        return Err(format!("iron {} is the core's radius over the body's, over 0 and under 1", m.iron));
+    }
+    if !(0.0..=1.0).contains(&m.heat) {
+        return Err(format!("heat {} is 0 (dead) to 1 (young)", m.heat));
+    }
+    let [c, mantle, core] = m.density;
+    if !m.density.iter().all(|d| (500.0..=30000.0).contains(d)) || !(c <= mantle && mantle <= core) {
+        return Err(format!("density {:?}: crust, mantle and core, 500..30000 kg/m3, none lighter than the one over it", m.density));
+    }
+    if m.weight_g.is_some_and(|g| !(g > 0.0 && g < 1000.0)) {
+        return Err("weight_g is a pull over 0 m/s^2".into());
+    }
+    Ok(())
 }
 
 pub static BODIES: LazyLock<Vec<Row>> =
@@ -142,9 +196,10 @@ mod tests {
 
     #[test]
     fn bad_rows_are_refused() {
-        let a = "[[body]]\nname = \"A\"\nn = 512\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nsun = 100.0\n";
+        let a = format!("[[body]]\nname = \"A\"\nn = 512\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nsun = 100.0\n{MAKEUP}");
+        let a = a.as_str();
         assert!(parse(a).is_ok());
-        let b = |extra: &str| format!("{a}[[body]]\nname = \"B\"\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\n{extra}");
+        let b = |extra: &str| format!("{a}[[body]]\nname = \"B\"\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\n{MAKEUP}{extra}");
         let ok = parse(&b("orbit = 3.0\nsize = 4.0\n")).unwrap();
         assert_eq!(ok[1].n, 128, "a quarter of the first body's 512 columns");
         for (bad, why) in [
@@ -161,6 +216,36 @@ mod tests {
             (a.replace("hills", "lava"), "no such generator"),
         ] {
             assert!(parse(&bad).is_err(), "{why}");
+        }
+    }
+
+    const MAKEUP: &str = "kind = \"rocky\"\niron = 0.5\nheat = 0.5\ndensity = [2700.0, 3300.0, 7900.0]\n";
+
+    #[test]
+    fn a_makeup_is_whole_and_in_range() {
+        let row = |makeup: &str| format!("[[body]]\nname = \"A\"\nn = 512\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nsun = 100.0\n{makeup}");
+        let ok = parse(&row(MAKEUP)).unwrap();
+        assert_eq!(ok[0].makeup, Makeup { kind: Kind::Rocky, iron: 0.5, heat: 0.5, density: [2700.0, 3300.0, 7900.0], weight_g: None });
+        let with = |from: &str, to: &str| row(&MAKEUP.replace(from, to));
+        for (bad, why, says) in [
+            (with("iron = 0.5\n", ""), "no iron", "iron"),
+            (with("heat = 0.5\n", ""), "no heat", "heat"),
+            (with("kind = \"rocky\"\n", ""), "no kind", "kind"),
+            (with("density = [2700.0, 3300.0, 7900.0]\n", ""), "no density", "density"),
+            (with("iron = 0.5", "iron = 1.0"), "a core as big as the body", "iron"),
+            (with("iron = 0.5", "iron = 0.0"), "no core", "iron"),
+            (with("heat = 0.5", "heat = 1.5"), "hotter than young", "heat"),
+            (with("heat = 0.5", "heat = -0.1"), "colder than dead", "heat"),
+            (with("3300.0", "2000.0"), "a mantle lighter than its crust", "density"),
+            (with("7900.0", "90000.0"), "a core of neutron star", "density"),
+            (with("2700.0, ", ""), "two densities", "density"),
+            (format!("{}weight_g = -1.0\n", row(MAKEUP)), "a pull upward", "weight_g"),
+            (with("rocky", "icy"), "icy is not built", "not built yet"),
+            (with("rocky", "gas"), "gas is not built", "not built yet"),
+            (with("rocky", "cheese"), "no such kind", "kind"),
+        ] {
+            let e = parse(&bad).expect_err(why);
+            assert!(e.contains(says), "{why}: {e}");
         }
     }
 }

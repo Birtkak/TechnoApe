@@ -32,9 +32,24 @@ pub fn report(w: &World) -> String {
     // the caves and the crust's ore bodies alone: the hash of the same world before the mantle's minerals
     let crust: Vec<engine::ore::OreBody> = b.ores.iter().copied().filter(|o| !engine::ore::MINERALS.kinds[o.kind as usize].deep()).collect();
     format!(
-        "{{\"seed\": {}, \"planet\": {}, \"gen\": {}, \"spawn\": [{:.5}, {:.5}, {:.5}], \"made_hash\": \"{:016x}\", \"made_hash_crust\": \"{:016x}\", \"provinces\": {{{}}}, \"flows\": {{{}}}, \"limestone\": {}, \"caves\": {{\"balls\": {}, \"in_limestone\": {}, \"in_basalt\": {}, \"depth_m\": [{:.1}, {:.1}], \"open_to_the_sky\": {}, \"kinds\": {{{}}}}}, \"heat_c_under_the_spawn\": [{:.1}, {:.1}], \"pressure_mpa_under_the_spawn\": [{:.3}, {:.3}], \"deep\": {{{}}}, \"minerals\": {{{}}}}}",
-        map.seed, map.n, b.gen, b.spawn.x, b.spawn.y, b.spawn.z, made_hash(&b.caves, &b.ores), made_hash(&b.caves, &crust), provinces.join(", "), flows(b).join(", "), limestone(b), b.caves.len(), in_lime, b.caves.len() - in_lime, dmin, dmax, open, kinds(b).join(", "), heat(ground), heat(0.0), pressure(ground), pressure(0.0), deep.join(", "), minerals(w).join(", ")
+        "{{\"seed\": {}, \"planet\": {}, \"gen\": {}, \"spawn\": [{:.5}, {:.5}, {:.5}], \"made_hash\": \"{:016x}\", \"made_hash_crust\": \"{:016x}\", \"provinces\": {{{}}}, \"flows\": {{{}}}, \"limestone\": {}, \"caves\": {{\"balls\": {}, \"in_limestone\": {}, \"in_basalt\": {}, \"depth_m\": [{:.1}, {:.1}], \"open_to_the_sky\": {}, \"kinds\": {{{}}}}}, \"heat_c_under_the_spawn\": [{:.1}, {:.1}], \"pressure_mpa_under_the_spawn\": [{:.3}, {:.3}], \"deep\": {{{}}}, \"interior\": {{{}}}, \"minerals\": {{{}}}}}",
+        map.seed, map.n, b.gen, b.spawn.x, b.spawn.y, b.spawn.z, made_hash(&b.caves, &b.ores), made_hash(&b.caves, &crust), provinces.join(", "), flows(b).join(", "), limestone(b), b.caves.len(), in_lime, b.caves.len() - in_lime, dmin, dmax, open, kinds(b).join(", "), heat(ground), heat(0.0), pressure(ground), pressure(0.0), deep.join(", "), interior(w).join(", "), minerals(w).join(", ")
     )
+}
+
+/// Each body's interior as derived from its row (draft-planet-interior): its zones' outer radius (m) and
+/// density (kg/m3), mass (kg), the pull at the ground (m/s^2), the liquid core's volume (m^3) and share, and the
+/// magnetic field over Terra's.
+fn interior(w: &World) -> Vec<String> {
+    use engine::interior::ZONE_NAMES;
+    w.bodies
+        .iter()
+        .map(|b| {
+            let a = &b.interior;
+            let zones: Vec<String> = a.zones.iter().zip(ZONE_NAMES).map(|(z, n)| format!("{{\"zone\": \"{n}\", \"outer_m\": {:.1}, \"density\": {:.0}}}", z.outer, z.density)).collect();
+            format!("\"{}\": {{\"radius_m\": {:.1}, \"zones\": [{}], \"mass_kg\": {:.4e}, \"surface_g\": {:.4}, \"weight_g\": {:.4}, \"liquid_m3\": {:.4e}, \"liquid_share\": {:.4}, \"field\": {:.4}}}", b.name, a.radius, zones.join(", "), a.mass, a.surface_g, a.weight_g, a.liquid, a.liquid_share, a.field)
+        })
+        .collect()
 }
 
 /// Each kind of `data/caves.toml` as made (only a planet with the mantle has them): how many, their open cells under

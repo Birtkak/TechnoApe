@@ -17,17 +17,17 @@ impl Body {
         // small bodies keep half their radius; the deep ground lies under the old floor, layer for layer
         let r0 = (radius - CRUST.min(radius * 0.5)) * (-lnq * deep_layers(n) as f64).exp();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, warp: 0.0, layers, mantle: 0, gen: 0, noise, sea: None, core: None, land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
+        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, warp: 0.0, layers, mantle: 0, gen: 0, noise, sea: None, core: None, interior: Interior::new(&BODIES[0].makeup, radius, crate::interior::spin(0), None), land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
     }
     /// The body on the deep grid (ADR 0152, step 1): the same grid carried on down `mantle_layers` more, layer 0
     /// at about R/sqrt 2; every layer above keeps its radius and gains that in index. Set before its map.
     pub fn with_mantle(mut self) -> Self {
         assert!(self.baked.is_none() && self.caves.is_empty() && self.ores.is_empty(), "the mantle goes in before the map");
-        let k = mantle_layers(self.n);
+        let k = mantle_layers(self.n, self.interior.core_share());
         self.r0 *= (-self.lnq * k as f64).exp();
         (self.layers, self.mantle) = (self.layers + k, k);
         // the liquid outer core under it (draft the metal sea): one level, at the floor until metal is taken
-        self.core = (k > 0).then_some(0.0);
+        self.core = (k > 0 && self.interior.liquid > 0.0).then_some(0.0);
         self
     }
     /// The rock at radius r of a column of rock `rock`, `fallback` the biome's (ADR 0063): the one rule the
@@ -36,7 +36,7 @@ impl Body {
     /// (isostasy: the same at a radius under hill and sea), the province's heat under the column's air, each
     /// boundary moved by the column's wobble.
     pub fn rock(&self, rock: Rock, r: f32, fallback: u16) -> u16 {
-        if self.mantle > 0 && (r as f64) < self.radius - DEEP + MANTLE_LIFT {
+        if self.mantle > 0 && (r as f64) < self.interior.moho() + MANTLE_LIFT {
             let sea = self.radius - SEA_DEPTH;
             let heat = rock.air + ROCKS.provinces.get(rock.province as usize).map_or(0.0, |p| p.heat) * (sea - r as f64).max(0.0) as f32;
             let p = ATM + self.rock_weight(sea, r as f64 - rock.wobble as f64);
@@ -46,13 +46,9 @@ impl Body {
         }
         ROCKS.at(rock, r, fallback)
     }
-    /// The weight of the rock between radius r and the ground at radius `ground` over it, MPa: the crust's density
-    /// above the crust's 192 m, the mantle's under it, with the gravity inside the body (ADR 0152) in closed form.
-    /// shortcut: the planet's surface g (`G`) on every body; Luna's would be smaller, when her deep is generated.
+    /// The weight of the rock between radius r and the ground at radius `ground` over it, MPa (`Interior::rock_weight`).
     pub fn rock_weight(&self, ground: f64, r: f64) -> f64 {
-        let moho = self.radius - DEEP;
-        let w = |lo: f64, hi: f64, rho: f32| if hi > lo { rho as f64 * G * self.radius * 1e-6 * super::frames::pull_integral(lo / self.radius, hi / self.radius) } else { 0.0 };
-        w(r.max(moho), ground, ROCKS.density) + w(r, ground.min(moho), ROCKS.mantle_density)
+        self.interior.rock_weight(ground, r)
     }
     /// The pressure at layer z of column (face, i, j), MPa (ADR 0158): the weight of what lies
     /// above as generated (its rock, the water over its ground) and 1 atmosphere at the top. None without a
@@ -61,7 +57,7 @@ impl Body {
         self.baked.as_ref()?;
         let (ground, r) = (self.col_height(face, i, j), self.layer_r(z));
         let top = self.water_at(face, i, j).map_or(ground, |w| self.layer_r(w.0).max(ground));
-        let water = WATER_DENSITY * G * 1e-6 * (top - r.max(ground)).max(0.0);
+        let water = WATER_DENSITY * self.interior.weight_g * 1e-6 * (top - r.max(ground)).max(0.0);
         Some((ATM + water + self.rock_weight(ground, r)) as f32)
     }
     /// The body on a baked map (ADR 0043): its heights, biomes, ground and plants, and its spawn.

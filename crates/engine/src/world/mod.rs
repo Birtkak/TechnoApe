@@ -5,6 +5,7 @@ use crate::biomes::{REACH, ROWS, SPACING, TALLEST};
 use crate::blocks::{AIR, BLOCKS};
 use crate::rock::{Rock, ROCKS};
 use crate::bodies::{Generator, BODIES};
+use crate::interior::Interior;
 use crate::liquid::{Col, Ground, Liquids, OPEN, TILE, U};
 use crate::sky::{Pose, Sky, Tide};
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
@@ -49,9 +50,6 @@ pub const BED_STREAM: f64 = 0.05;
 pub const OCEAN: f64 = 0.55;
 pub const CS: i32 = 32; // cells per chunk edge
 pub const P: usize = 34; // padded edge
-/// Gravity at Terra's surface, m/s^2 (ADR 0007, 0024): twice the Earth's, which felt floaty on 1 m blocks
-/// (the developer, 2026-11-15).
-pub const G: f64 = 19.62;
 /// No generated surface lies farther than this from a body's radius (m), plants included: a baked planet's
 /// stretched peaks (350 m on the 4 km planet, ADR 0105; 140 before) and its tallest tree.
 pub const AMP: f64 = 400.0;
@@ -93,7 +91,8 @@ pub fn deep_layers(n: i32) -> i32 {
 }
 
 /// The layers of the mantle (ADR 0152, step 1) under the crust's `DEEP` m on a body of `n` columns per face edge
-/// that has a deep crust (`deep_layers`), else none: the same grid carried on down to about R/sqrt 2, a whole number
+/// that has a deep crust (`deep_layers`), else none: the same grid carried on down to about its core's top, `core`
+/// of its radius (`Interior::core_share`; R/sqrt 2 on Terra), a whole number
 /// of `MANTLE_STEP` layers, so the coarse levels' chunks and cells stand on the layers they stood on before the
 /// mantle and a deep world's surface is drawn as an old one's (1280 on the 4 km planet, 4 m under R/sqrt 2).
 pub const MANTLE_STEP: i32 = 256;
@@ -107,7 +106,7 @@ pub const GENERATION: u8 = 3;
 pub fn known_generation(gen: u8) -> Result<u8, String> {
     if gen <= GENERATION { Ok(gen) } else { Err(format!("this world is generation {gen}, this build knows up to {GENERATION}: update the game")) }
 }
-pub fn mantle_layers(n: i32) -> i32 {
+pub fn mantle_layers(n: i32, core: f64) -> i32 {
     let deep = deep_layers(n);
     if deep == 0 {
         return 0;
@@ -115,7 +114,7 @@ pub fn mantle_layers(n: i32) -> i32 {
     let radius = n as f64 * BLOCK / (2.0 * PI / 3.0).sqrt();
     let lnq = (1.0 + BLOCK / radius).ln();
     let floor = (radius - CRUST) * (-lnq * deep as f64).exp();
-    ((floor / (radius * std::f64::consts::FRAC_1_SQRT_2)).ln() / lnq / MANTLE_STEP as f64).round() as i32 * MANTLE_STEP
+    ((floor / (radius * core)).ln() / lnq / MANTLE_STEP as f64).round() as i32 * MANTLE_STEP
 }
 
 /// FxHash-style hasher for the maps keyed by chunks and cells: SipHash cost a third of the streamer's selection
@@ -269,6 +268,8 @@ pub struct Body {
     /// The liquid metal sea's level under the mantle as a layer coordinate (draft the metal sea): one level for the
     /// whole body, generated and stored nowhere, like `sea`; a body with a mantle has it at the bottom of layer 0.
     pub core: Option<f64>,
+    /// What lies under its ground, from its row (draft-planet-interior): zones, mass, gravity, the weight of rock.
+    pub interior: Interior,
     /// Continents and oceans (ADR 0021): the planet has them, the moon is all hills.
     land: Option<Box<Land>>,
     /// Where players start: the land nearest the +y pole (a direction from the centre).
@@ -736,3 +737,6 @@ mod lattice_tests {
 
 #[cfg(test)]
 mod baked_tests;
+
+#[cfg(test)]
+mod record_tests;

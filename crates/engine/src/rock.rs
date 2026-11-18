@@ -73,7 +73,6 @@ struct RawDeep {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawMantle {
-    density: f32,
     wobble: f32,
     rock: Vec<RawDeep>,
 }
@@ -82,7 +81,6 @@ struct RawMantle {
 #[serde(deny_unknown_fields)]
 struct File {
     datum: f32,
-    density: f32,
     mantle: RawMantle,
     province: Vec<RawProvince>,
 }
@@ -120,9 +118,6 @@ pub struct Province {
 pub struct Rocks {
     /// Metres over the sea the first layer's top lies, before folding.
     pub datum: f32,
-    /// The crust's rock and the mantle's, kg/m3 (`Body::pressure`).
-    pub density: f32,
-    pub mantle_density: f32,
     /// The mantle's rocks top down, the first the crust's floor (`Body::rock`), in every province.
     pub mantle: Vec<Deep>,
     /// How far the mantle's boundaries wave, metres.
@@ -182,10 +177,10 @@ impl Rocks {
             }
             mantle.push(Deep { block, pressure: r.pressure, heat: r.heat, slope: r.slope });
         }
-        if mantle.is_empty() || !(1000.0..=20000.0).contains(&f.density) || !(1000.0..=20000.0).contains(&m.density) || !(0.0..=20.0).contains(&m.wobble) {
-            return Err("the mantle: at least one rock, densities 1000..20000 kg/m3, wobble 0..20 m".into());
+        if mantle.is_empty() || !(0.0..=20.0).contains(&m.wobble) {
+            return Err("the mantle: at least one rock, wobble 0..20 m".into());
         }
-        Ok(Rocks { datum: f.datum, density: f.density, mantle_density: m.density, mantle, wobble: m.wobble, provinces })
+        Ok(Rocks { datum: f.datum, mantle, wobble: m.wobble, provinces })
     }
 
     /// The mantle rock that has taken over at pressure `p` MPa in rock of `heat` C, the deepest first; None over

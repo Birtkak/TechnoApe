@@ -19,7 +19,7 @@ pub const SPRINT: f64 = 1.5;
 /// The push of a jump, m/s, the same on every body: 1.25 m high at G stepped at DT (ADR 0037); higher
 /// where gravity is weaker.
 pub const JUMP: f64 = 6.84;
-pub const G: f64 = crate::world::G;
+pub const G: f64 = crate::interior::G;
 /// Swimming (ADR 0020): rising speed with jump held, m/s; a body floats with this share of it under water.
 pub const SWIM: f64 = 2.0;
 const FLOAT: f64 = 0.8;
