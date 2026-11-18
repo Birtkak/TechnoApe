@@ -729,9 +729,9 @@ mod tests {
     }
 
     /// Gravity (ADR 0037, 0041): G at Terra's sea level whatever its size, its radius over
-    /// Terra's on another body, a little stronger deeper in (bounded), and the square of the distance less out.
+    /// Terra's on another body, weaker deeper in by the radius (ADR 0152), and the square of the distance less out.
     #[test]
-    fn gravity_scales_with_the_body_and_grows_a_little_towards_the_core() {
+    fn gravity_scales_with_the_body_and_falls_towards_the_core() {
         for (n, m) in [(6144, 256), (768, 32)] {
             let w = World::new(n, m, 1);
             let (t, l) = (&w.bodies[0], &w.bodies[1]);
@@ -741,7 +741,7 @@ mod tests {
             assert!((at(l, l.radius) - gl).abs() < 0.02 * gl, "{} against {gl}", at(l, l.radius));
             for b in [t, l] {
                 let s = at(b, b.radius);
-                assert!(at(b, b.radius - 30.0) > s && at(b, b.radius * 0.5) <= s * 1.25 + 1e-9);
+                assert!(at(b, b.radius * 0.98) > s && (at(b, b.radius * 0.5) - s * 0.8027).abs() < 0.01 * s, "{} {} {s}", at(b, b.radius * 0.98), at(b, b.radius * 0.5));
             }
             // (out from Luna the planet's pull comes back in, so only Terra shows the plain square law)
             assert!((at(t, t.radius * 2.0) - G / 4.0).abs() < 0.01 * G);

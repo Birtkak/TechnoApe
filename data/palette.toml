@@ -5697,3 +5697,23 @@ ramp = "bench wood rich"
 name = "bench wood r8"
 rgb = "#c6b080"
 ramp = "bench wood rich"
+
+[[colour]]
+name = "peridotite dark"
+rgb = "#141b17"
+ramp = "peridotite"
+
+[[colour]]
+name = "peridotite shade"
+rgb = "#1a231d"
+ramp = "peridotite"
+
+[[colour]]
+name = "peridotite"
+rgb = "#212b21"
+ramp = "peridotite"
+
+[[colour]]
+name = "peridotite lit"
+rgb = "#485044"
+ramp = "peridotite"

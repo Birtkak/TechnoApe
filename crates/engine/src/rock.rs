@@ -39,6 +39,7 @@ struct RawProvince {
 #[serde(deny_unknown_fields)]
 struct File {
     datum: f32,
+    mantle: String,
     province: Vec<RawProvince>,
 }
 
@@ -57,6 +58,8 @@ pub struct Province {
 pub struct Rocks {
     /// Metres over the sea the first layer's top lies, before folding.
     pub datum: f32,
+    /// The rock under the crust of a body with a mantle (ADR 0152; `Body::rock`), in every province.
+    pub mantle: u16,
     pub provinces: Vec<Province>,
 }
 
@@ -91,7 +94,8 @@ impl Rocks {
             }
             provinces.push(Province { name: p.name.clone(), layers, fold: p.fold, heat: p.heat, caves: p.caves });
         }
-        Ok(Rocks { datum: f.datum, provinces })
+        let mantle = BLOCKS.placeable().find(|d| d.name == f.mantle && d.solid).ok_or(format!("the mantle: no solid block '{}'", f.mantle))?.id;
+        Ok(Rocks { datum: f.datum, mantle, provinces })
     }
 
     /// The rock at radius `r` in a column of rock `rock`; `fallback` (the biome's rock) when it has no province.
@@ -136,7 +140,7 @@ mod tests {
     #[test]
     fn a_broken_file_is_refused_and_says_why() {
         let good = include_str!("../../../data/rocks.toml");
-        for (from, to, says) in [("\"granite\", 0.0", "\"granit\", 0.0", "no block 'granit'"), ("[\"gneiss\", 0.0]", "[\"gneiss\", 5.0]", "the last 0"), ("name = \"rift\"", "name = \"rifts\"", "in that order")] {
+        for (from, to, says) in [("\"granite\", 0.0", "\"granit\", 0.0", "no block 'granit'"), ("[\"gneiss\", 0.0]", "[\"gneiss\", 5.0]", "the last 0"), ("name = \"rift\"", "name = \"rifts\"", "in that order"), ("mantle = \"peridotite\"", "mantle = \"water\"", "the mantle")] {
             let e = Rocks::parse(&good.replacen(from, to, 1)).err().unwrap_or_else(|| panic!("{from} -> {to} loads"));
             assert!(e.contains(says), "{e}");
         }

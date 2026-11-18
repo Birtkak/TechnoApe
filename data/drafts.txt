@@ -367,6 +367,8 @@ data/models/workbench.toml
 data/models/workbench.png
 data/models/plant fibre.toml
 data/models/plant fibre.png
+data/textures/peridotite.png
+data/textures/peridotite rubble.png
 data/maps/clouds.toml
 data/maps/wind gusts.toml
 data/maps/smoke swirl.toml

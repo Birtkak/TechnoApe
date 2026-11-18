@@ -84,6 +84,22 @@ pub fn deep_layers(n: i32) -> i32 {
     (-(1.0 - (DEEP - CRUST) / old).ln() / (1.0 + BLOCK / radius).ln()).ceil() as i32
 }
 
+/// The layers of the mantle (ADR 0152, step 1) under the crust's `DEEP` m on a body of `n` columns per face edge
+/// that has a deep crust (`deep_layers`), else none: the same grid carried on down to about R/sqrt 2, a whole number
+/// of `MANTLE_STEP` layers, so the coarse levels' chunks and cells stand on the layers they stood on before the
+/// mantle and a deep world's surface is drawn as an old one's (1280 on the 4 km planet, 4 m under R/sqrt 2).
+pub const MANTLE_STEP: i32 = 256;
+pub fn mantle_layers(n: i32) -> i32 {
+    let deep = deep_layers(n);
+    if deep == 0 {
+        return 0;
+    }
+    let radius = n as f64 * BLOCK / (2.0 * PI / 3.0).sqrt();
+    let lnq = (1.0 + BLOCK / radius).ln();
+    let floor = (radius - CRUST) * (-lnq * deep as f64).exp();
+    ((floor / (radius * std::f64::consts::FRAC_1_SQRT_2)).ln() / lnq / MANTLE_STEP as f64).round() as i32 * MANTLE_STEP
+}
+
 /// FxHash-style hasher for the maps keyed by chunks and cells: SipHash cost a third of the streamer's selection
 /// time, and every block lookup goes through `World::edits`.
 #[derive(Default)]
@@ -193,6 +209,10 @@ pub struct Body {
     pub warp: f64,
     /// Layers 0..layers are streamed (terrain plus build headroom).
     pub layers: i32,
+    /// The mantle's layers under the crust (ADR 0152; `with_mantle`): a new world's planet has `mantle_layers`,
+    /// a body of a save from before and every other body none. Layer z here is layer z - mantle of the body
+    /// without it, at the same radius.
+    pub mantle: i32,
     noise: FastNoiseLite,
     /// The sea level as a layer coordinate; generation fills every column lower than it with water.
     pub sea: Option<f64>,

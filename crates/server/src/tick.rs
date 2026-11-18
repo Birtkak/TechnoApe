@@ -22,6 +22,8 @@ impl Server {
             self.log(start);
             if let Some(save) = self.loaded.take() {
                 self.log(Ev::Loaded(save));
+            } else if self.world.bodies[0].mantle > 0 {
+                self.log(Ev::Mantle);
             }
             if let Some(b) = self.herds_loaded.take() {
                 self.log(Ev::Herds(b));
@@ -38,7 +40,7 @@ impl Server {
             if let Some((blocks, items)) = engine::live::reloaded() {
                 link.send(ToClient::Defs { blocks, items });
             }
-            link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m, blocks: BLOCKS.hash, items: ITEMS.hash, map: self.map_hash(), luna: self.luna_hash() });
+            link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m, blocks: BLOCKS.hash, items: ITEMS.hash, map: self.map_hash(), luna: self.luna_hash(), mantle: self.world.bodies[0].mantle > 0 });
             link.send(ToClient::Kinds(self.herds.kinds.iter().map(|k| k.name.clone()).collect()));
             let all: Vec<(Block, u16)> = self
                 .world
