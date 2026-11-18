@@ -97,6 +97,7 @@ impl Server {
 
     /// A server that carries on from `save` (its seed and planet win over any given elsewhere).
     pub fn from_save(save: Save, accept: Receiver<ServerLink>) -> Server {
+        engine::world::known_generation(save.gen).unwrap_or_else(|e| panic!("{e}"));
         let mut s = Server::on_map(save.planet_n, save.moon_n, save.seed, save.map, save.luna, save.gen, accept);
         for (b, m) in &save.edits {
             s.world.set_block(*b, *m);

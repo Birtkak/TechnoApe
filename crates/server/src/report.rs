@@ -89,8 +89,12 @@ fn kinds(b: &engine::world::Body) -> Vec<String> {
                         look(c, toward, b.ground_r(f, c.x, c.y) - b.layer_r(lo as f64), pitch)
                     })
                 };
+                // a tube's station farthest along its axis from every opening, looking on along it
+                let gap = |k: usize| s.openings.iter().map(|o| if k < o.0 { o.0 - k } else { k.saturating_sub(o.1) }).min().unwrap_or(usize::MAX);
+                let far = (0..s.axis.len().saturating_sub(6)).max_by_key(|&k| gap(k)).filter(|_| tube);
+                let closed = far.map_or("none".to_string(), |k| format!("{} (axis point {k} of {}, {} from an opening)", inside(s.axis[k], s.axis[k + 5], 0.0), s.axis.len(), gap(k)));
                 let inside = if tube { inside(s.axis[(o.1 + 15).min(s.axis.len() - 1)], p, 10.0) } else { inside(p, s.axis[(k + 4).min(s.axis.len() - 1)], 75.0) };
-                format!("{{\"m\": {:.0}, \"at\": [{:.6}, {:.6}, {:.6}], \"depth_m\": {:.1}, \"outside\": \"{outside}\", \"inside\": \"{inside}\"}}", away(s, o), d.x, d.y, d.z, b.ground_r(f, p.x, p.y) - p.z)
+                format!("{{\"m\": {:.0}, \"at\": [{:.6}, {:.6}, {:.6}], \"depth_m\": {:.1}, \"outside\": \"{outside}\", \"inside\": \"{inside}\", \"closed\": \"{closed}\"}}", away(s, o), d.x, d.y, d.z, b.ground_r(f, p.x, p.y) - p.z)
             });
             format!("\"{}\": {{\"caves\": {}, \"open_cells\": {}, \"length_m\": {length:.0}, \"median_m\": {median:.0}, \"openings\": {}, \"nearest_opening\": {near}}}", kind.name, of.len(), open.len(), of.iter().map(|s| s.openings.len()).sum::<usize>())
         }))

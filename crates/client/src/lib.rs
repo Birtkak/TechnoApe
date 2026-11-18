@@ -474,6 +474,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
             }
             let map = map.map(|h| kept.map_or_else(|| engine::net::fetch_map(&mut link, seed, planet_n, h), Ok).unwrap_or_else(|e| panic!("{e}")));
             let luna = luna.map(|h| luna_kept.map_or_else(|| engine::net::fetch_map(&mut link, seed, moon_n, h), Ok).unwrap_or_else(|e| panic!("{e}")));
+            let gen = engine::world::known_generation(gen).unwrap_or_else(|e| panic!("{e}"));
             (id, World::with_grid(planet_n, moon_n, seed, map, luna, warp, gen), seed)
         }
         other => panic!("no welcome from the server: {other:?}"),

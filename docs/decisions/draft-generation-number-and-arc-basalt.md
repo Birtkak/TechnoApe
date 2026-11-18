@@ -34,6 +34,9 @@ through the mantle). Carried:
 - in the save: `Save::gen: u8`, `VERSION` 21. A 20's `mantle: bool` is the same one byte, so a 20 reads as
   generation 1 with the mantle and 0 without; a 19 or older reads as 0, as before.
 - on the wire: `ToClient::Welcome { gen }` in place of `mantle`; the client and the bot build their world of it.
+- refused when newer than the build: `world::known_generation` on a save read, `Server::from_save`, and the
+  client's and the bot's welcome ("this world is generation N, this build knows up to M: update the game").
+  `gen=` with `mantle=0` and a generation over 0: `gen=` wins, and a line says so.
 - in recordings: `Ev::Gen(g)` after `Start` for a world from the seed of generation 2 or later (generation 1 still
   writes `Ev::Mantle`, so old recordings read as before); a replay takes it. One from a save: the save says it.
 - by argument: `gen=k` on the game, the server and `report=1` (`server::gen_arg`; `mantle=0` is `gen=0`);
@@ -68,7 +71,8 @@ as `[1, 1]`), walked by `caves::round_tube`:
 - Path: a start in the host first climbs the ground's slope (read 16 m either side: the flank, not a gully) while
   it and a width out each way are basalt at the tube's depth: a tube starts high on its flow. Then downhill as
   ADR 0159's, gently winding, floor never rising, roof 4.5 to 6 m down, and it turns off water seen 10 m ahead.
-- No hall: a round tube ends where it would come within 3 m (wall to wall) of another; a branch (0.3 per 100 m,
+- No hall: a round tube ends where it would come within 3 m (wall to wall) of another (looked for as far as the
+  widest tube kept so far needs, not only the next 8 m grid cells); a branch (0.3 per 100 m,
   after its first 25 m) leaves at 0.6 to 1 rad, bends on to its side over its first 80 m and is let near its
   parent for 25 m only.
 - Ends: the water rule (no cell under or beside a wet column) and the host rule exactly as ADR 0159; the sea rule
@@ -96,9 +100,9 @@ Seed 1, planet 6144 (`technoape-server report=1 seed=1 planet=6144`, `mantle=0` 
 
 | | gen 0 | gen 1 | gen 2 |
 |---|---|---|---|
-| made_hash | 0926f028ddcd85a7 (as main) | 37b2d1b1006b66f7 (as main) | d70aa6a61aa03a2c |
+| made_hash | 0926f028ddcd85a7 (as main) | 37b2d1b1006b66f7 (as main) | a2ef250b3ed4203a |
 | arc land under a flow | 0 | 0 | 0.491 |
-| lava tubes | | 7, 762 m, median 104 m, 7 skylights, nearest 2,048 m | 98, 5,544 m, median 51 m, 98 openings, nearest 2,012 m |
+| lava tubes | | 7, 762 m, median 104 m, 7 skylights, nearest 2,048 m | 98, 5,543 m, median 51 m, 98 openings, nearest 2,012 m |
 | fissures | | 122, 11,282 m, 22 open | 122, 11,282 m, 22 open (open cells 272 502) |
 | world load (report) | 0.5 s | 0.8 s (caves 0.31 s) | 1.2 s (caves 0.73 s) |
 
@@ -130,7 +134,9 @@ diamond unchanged. The ledger counts what is generated, so it adds up; coal and 
 | `every_skylight_is_open_to_the_sky_over_3_by_3_columns_with_no_plant` | red with the old walk (crowns over 5 of 12), green |
 | `a_recording_replays_with_its_generation` (0, 1, 2) | red ("a Start, Loaded, Herds or Mantle past the start"), green |
 | `from_generation_2_only_copper_is_placed_near_the_spawn` (two spawns half a planet apart) | red (tin, iron, coal and lead moved with the spawn at generation 2), green |
-| `cargo test --workspace` | green after the last code edit: 948 passed, 0 failed |
+| `two_widest_round_tubes_converging_keep_the_full_wall` (review) | red ("not stopped at 9.85 m from tube 0's axis (wall 2.85 m)": the 3 x 3 cells of 8 m missed it), green |
+| `a_world_of_a_newer_generation_is_refused_with_update_the_game` (review) | red (a generation-3 save loaded), green |
+| `cargo test --workspace` | green after the last code edit (see the review commit) |
 | `bash tools/views.sh` (play build) | ok: no cracks, diffs 0 to 0.26 % (not accepted) |
 | Pictures (seed 1, `time=270`) | from the surface the tube's mouth by the stand point is an open trench slot through grass, no plant over it; inside (lamps in the floor every 4 m) a flat dark basalt floor between straight walls under an open trench, the round arched part not in frame; looking up, the opening's rim; the arc flank from 120 m is forest and grass: the flows lie under the soil and do not show |
 | `run=fly quick=1` gen 1 -> 2 | frame p99 6.66 -> 6.43 ms; chunk jobs after load 403 -> 478 us; `loaded in` 2.60 -> 3.33 s |

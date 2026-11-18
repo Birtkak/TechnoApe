@@ -67,6 +67,9 @@ pub enum Ev {
 /// `mantle=0` (the 192 m floor of the worlds before ADR 0152).
 pub fn gen_arg(mantle: i32, gen: i32) -> u8 {
     let g = if gen >= 0 { gen } else if mantle != 0 { engine::world::GENERATION as i32 } else { 0 };
+    if gen > 0 && mantle == 0 {
+        eprintln!("[technoape] gen={gen} and mantle=0 disagree: gen={gen} wins");
+    }
     assert!((0..=engine::world::GENERATION as i32).contains(&g), "gen= is 0 to {}", engine::world::GENERATION);
     g as u8
 }

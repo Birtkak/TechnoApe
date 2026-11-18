@@ -295,6 +295,7 @@ impl Save {
             None => now.expect("read as this version"),
             Some(o) => upgrade(o),
         };
+        engine::world::known_generation(s.gen)?;
         if s.version < 10 {
             let deep = [engine::world::deep_layers(s.planet_n), engine::world::deep_layers(s.moon_n)];
             for (b, _) in &mut s.edits {
@@ -688,6 +689,16 @@ mod tests {
             let back = Save::from_bytes(&postcard::to_allocvec(&v20).unwrap()).expect("version 20 loads");
             assert_eq!(back, Save { version: 20, gen: mantle as u8, ..new.clone() }, "a 20 with the mantle {mantle}");
         }
+    }
+
+    /// A save of a generation newer than this build's is refused, not loaded on other ground (the client and
+    /// the bot ask the same `engine::world::known_generation` of a welcome).
+    #[test]
+    fn a_world_of_a_newer_generation_is_refused_with_update_the_game() {
+        let newer = engine::world::GENERATION + 1;
+        let e = Save::from_bytes(&Save { gen: newer, ..save(VERSION, registry()) }.to_bytes()).expect_err("a newer generation refused");
+        assert!(e.contains(&format!("generation {newer}")) && e.contains("update the game"), "{e}");
+        assert!(engine::world::known_generation(engine::world::GENERATION).is_ok());
     }
 
     /// 19 keeps each player's journal (draft ADR journal-data); an 18 loads its players as they were with every

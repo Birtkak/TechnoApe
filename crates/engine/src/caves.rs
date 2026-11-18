@@ -193,7 +193,7 @@ pub fn systems_of(b: &Body, seed: u64, kinds: &[Kind]) -> Vec<System> {
         }
         let s = kind.spacing;
         for face in 0..6u8 {
-            let mut probe = Probe { b, face, cols: HashMap::new(), axes: HashMap::new() };
+            let mut probe = Probe { b, face, cols: HashMap::new(), axes: HashMap::new(), widest: 0.0 };
             for cy in 0..b.n / s {
                 for cx in 0..b.n / s {
                     let mut rng = Rng(seed ^ 0xca5e_4b1d ^ (k as u64) << 60 ^ (face as u64) << 52 ^ (cx as u64) << 26 ^ cy as u64);
@@ -232,6 +232,8 @@ struct Probe<'a> {
     /// The round tubes made on the face so far (generation 2): their axes' points (i, j, radius, the system's
     /// index in the output) by `AXES` x `AXES` columns, which a later tube keeps off (`crowds`).
     axes: HashMap<(i32, i32), Vec<(f64, f64, f64, usize)>>,
+    /// The largest radius in `axes`: how far `crowds` must look.
+    widest: f64,
 }
 
 /// The cells of `Probe::axes`, columns.
@@ -404,11 +406,13 @@ impl Probe<'_> {
     /// Whether a round tube of radius r at (i, j) comes within `WALL` of another's wall (but the tube `except`).
     fn crowds(&self, i: f64, j: f64, r: f64, except: Option<usize>) -> bool {
         let (x, y) = ((i / AXES).floor() as i32, (j / AXES).floor() as i32);
-        (-1..=1).flat_map(|a| (-1..=1).map(move |c| (x + a, y + c))).filter_map(|c| self.axes.get(&c)).flatten().any(|&(pi, pj, pr, s)| Some(s) != except && (pi - i).hypot(pj - j) < r + pr + WALL)
+        let n = ((r + self.widest + WALL) / AXES).ceil() as i32;
+        (-n..=n).flat_map(|a| (-n..=n).map(move |c| (x + a, y + c))).filter_map(|c| self.axes.get(&c)).flatten().any(|&(pi, pj, pr, s)| Some(s) != except && (pi - i).hypot(pj - j) < r + pr + WALL)
     }
     /// Keeps system `s`'s axis (its points' radii `rs`) for the tubes after it.
     fn keep(&mut self, s: usize, axis: &[DVec3], rs: &[f64]) {
         for (q, &r) in axis.iter().zip(rs) {
+            self.widest = self.widest.max(r);
             self.axes.entry(((q.x / AXES).floor() as i32, (q.y / AXES).floor() as i32)).or_default().push((q.x, q.y, r, s));
         }
     }
@@ -650,6 +654,28 @@ fn cells_with(b: &Body, c: &Cave, mut ground: impl FnMut(i32, i32) -> f64) -> Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn two_widest_round_tubes_converging_keep_the_full_wall() {
+        let b = Body::new(DVec3::ZERO, 256, 1);
+        let mut p = Probe { b: &b, face: 0, cols: HashMap::new(), axes: HashMap::new(), widest: 0.0 };
+        let r = CAVES.kinds.iter().filter(|k| k.shape == Shape::Tube && k.generations[0] >= 2).map(|k| k.width[1]).fold(0.0, f64::max) / 2.0;
+        assert!(r >= 3.5, "the widest round tube {r} m in radius");
+        // tube 0 just under j = 0 (the bottom of a grid cell, the far side from tube 1); tube 1 comes in at 30
+        // degrees, a tenth of a metre a step
+        let axis: Vec<DVec3> = (0..200).map(|i| DVec3::new(i as f64 * 0.5, -0.05, 0.0)).collect();
+        p.keep(0, &axis, &vec![r; axis.len()]);
+        let mut t = 0.0;
+        loop {
+            let (i, j) = (60.0 - t * 0.866, 40.0 - t * 0.5);
+            if p.crowds(i, j, r, Some(1)) {
+                break;
+            }
+            let d = j + 0.05;
+            assert!(d >= r + r + WALL - 0.11, "tube 1 not stopped at {d:.2} m from tube 0's axis (wall {:.2} m)", d - 2.0 * r);
+            t += 0.1;
+        }
+    }
 
     #[test]
     fn the_caves_file_loads_and_a_broken_one_is_refused_and_says_why() {
