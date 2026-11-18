@@ -33,13 +33,15 @@
 
 ## The model, in three layers
 
-### 1. Inputs: a row per body (*proposal* for the fields)
+### 1. Inputs: a row per body (built for the interior, step 1; *proposal* for the rest)
 | Input | Meaning | Terra | Luna | Mars-like | Gas giant |
 |---|---|---|---|---|---|
-| `kind` | rocky, icy or gas | rocky | rocky | rocky | gas |
+| `kind` | rocky, icy or gas (only rocky is built) | rocky | rocky | rocky | gas |
 | `size` | columns per face edge (radius) | 6144 | /3.7 | about /1.9 | far larger, see below |
-| `iron` | share of the body that is metal core | large | tiny | small | small solid core |
-| `heat` | how hot the inside still is, 0 dead to 1 young | 0.8 | 0.05 | 0.15 | 1 |
+| `iron` | the metal core's radius over the body's | 1/sqrt 2 (stated: the grid's floor) | 1/sqrt 2 (Terra's for now; the Moon's is 0.2) | small | small solid core |
+| `heat` | how hot the inside still is, 0 dead to 1 young: the inner core is 1 - heat of the core's radius | 0.65 | 0.05 | 0.15 | 1 |
+| `density` | crust, mantle, core, kg/m3 | 2700, 3300, 7920 | Terra's for now | own | - |
+| `weight_g` | the pull rock is weighed with, where not the body's own (a stopgap) | - | 19.62 (Terra's, until the next generation) | - | - |
 | `water` | share of the surface under liquid, or ice | 0.55 | 0 | 0, ice caps | none on a surface |
 | `air` | surface pressure and gas mix | 1 atm | 0 | 0.01 atm | bottomless |
 | `sun` | distance from the sun (light, warmth) | 1 | 1 | 1.5 | 5 |
@@ -110,9 +112,11 @@ inside a sphere of influence. The model is shaped now so real orbits need no sec
 - What it must not break: the perfect eclipses (Luna's size and distance against the sun's), tides, day length.
 
 ## Build order (*proposal*; one feature a run, each keeps earlier worlds bit for bit)
-1. **The row and the derived module, proving nothing changed.** `bodies.toml` gains the inputs; zones, gravity,
-   pressure, geotherm and regime are derived and replace the constants; Terra and Luna at today's generation
-   come out identical (hash locks). No new behaviour.
+1. **Built (0162-planet-interior):** the row and the derived module, proving nothing changed. `bodies.toml`
+   gained `kind`, `iron`, `heat`, `density` (and Luna's stopgap `weight_g`); `interior.rs` derives the zones,
+   mass, gravity at any radius, the weight of rock and pressure, the liquid core and the field (a value in
+   `report=1`), replacing the constants; Terra and Luna come out identical (hash and bit locks). Left for later
+   steps: the geotherm and the regime.
 2. **N bodies instead of two.** Saves, Welcome, recordings, the command line and the sky carry a list of bodies
    with parents; the GPU's four-body limit is raised or made a visible limit.
 3. **The magnetic field** as a derived value on Terra, with its first effect seen (the aurora), ready for core

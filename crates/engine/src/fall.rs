@@ -59,7 +59,7 @@ pub fn unheld(world: &World, changed: &[(Block, u16)]) -> Vec<Block> {
 /// first cell goes once the block's middle is past the edge (0.23 s at Terra's G), at most one a tick.
 fn due(k: u32) -> u32 {
     let t = k as f64 / 20.0;
-    (crate::world::G / 2.0 * t * t + 0.5) as u32
+    (crate::interior::G / 2.0 * t * t + 0.5) as u32
 }
 
 #[derive(Default, Debug)]

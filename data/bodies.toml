@@ -10,6 +10,11 @@
 # first body's (`bodies::columns`), instead of `n`. `sun` (the first body only): the sun's distance in its
 # radii. The sun's size follows from the second body: seen from the first body's ground under it, it just
 # covers the sun, so every total eclipse is a perfect one (sky.rs `Sky::new`, ADR 0041).
+# What a body is made of (planet-model.md; its interior, crates/engine/src/interior.rs, is derived from these and
+# its radius): `kind` rocky (icy and gas are not built yet); `iron` the metal core's radius over the body's;
+# `heat` how hot the inside still is, 0 dead (the core all solid) to 1 young (all liquid), the solid inner core's
+# radius being 1 - heat of the core's; `density` the crust's rock, the mantle's and the core's metal, kg/m3.
+# `weight_g`: the pull the weight of its rock is reckoned with, m/s^2, where it is not the body's own.
 
 [[body]]
 name = "Terra"
@@ -20,6 +25,13 @@ ground = ["grass", "dirt", "stone"]
 air = true
 # Earth's: 1 AU is about 23,500 Earth radii
 sun = 23500.0
+kind = "rocky"
+# 1/sqrt 2: the mantle's floor of ADR 0152's grid (the Earth's is 0.55), stated, not derived
+iron = 0.7071067811865476
+# the inner core a third of the core's radius, as the Earth's
+heat = 0.65
+# the core 2.4 times the mantle (ADR 0154)
+density = [2700.0, 3300.0, 7920.0]
 
 [[body]]
 name = "Luna"
@@ -29,3 +41,11 @@ air = false
 # the Moon's to the Earth: 3.7 times smaller, 30 Earth diameters away (the developer, 2026-11-11)
 size = 3.7
 orbit = 60.0
+kind = "rocky"
+# Terra's numbers on Luna, so she generates and pulls as she did (0162-planet-interior); hers at the next
+# generation: a small core (the Moon's is about 0.2), her own pull weighing her rock
+iron = 0.7071067811865476
+density = [2700.0, 3300.0, 7920.0]
+weight_g = 19.62
+# nearly dead: a thin liquid shell round a solid core
+heat = 0.05

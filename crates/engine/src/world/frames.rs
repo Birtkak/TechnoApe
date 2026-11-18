@@ -1,44 +1,6 @@
 //! World: its bodies, the ore ledger, frames of reference and gravity.
 use super::*;
 
-/// The core's radius over the body's (the mantle's floor, R/sqrt 2) and its density over the mantle's (ADR 0152).
-const CORE: f64 = std::f64::consts::FRAC_1_SQRT_2;
-const CORE_DENSE: f64 = 2.4;
-
-/// A body's pull at x = r / R over its surface's: the square law outside; inside, a planet with a dense core,
-/// growing going down to about 1.135 at the core's edge, then falling evenly to nothing at the centre (ADR 0152).
-fn pull_inside(x: f64) -> f64 {
-    let a3 = CORE.powi(3);
-    let m = CORE_DENSE * a3 + 1.0 - a3;
-    if x >= 1.0 {
-        1.0 / (x * x)
-    } else if x >= CORE {
-        (CORE_DENSE * a3 + x.powi(3) - a3) / (m * x * x)
-    } else {
-        CORE_DENSE * x / m
-    }
-}
-
-/// `pull_inside` integrated from x0 to x1 (x0 <= x1), closed form: `Body::pressure`'s weight of a column is its
-/// density times the surface's g and radius times this.
-pub(crate) fn pull_integral(x0: f64, x1: f64) -> f64 {
-    let a3 = CORE.powi(3);
-    let m = CORE_DENSE * a3 + 1.0 - a3;
-    // an antiderivative of each piece, joined where they meet
-    let f = |x: f64| {
-        let inner = |x: f64| CORE_DENSE * x * x / (2.0 * m);
-        let shell = |x: f64| inner(CORE) + ((CORE_DENSE - 1.0) * a3 * (1.0 / CORE - 1.0 / x) + (x * x - CORE * CORE) / 2.0) / m;
-        if x < CORE {
-            inner(x)
-        } else if x < 1.0 {
-            shell(x)
-        } else {
-            shell(1.0) + 1.0 - 1.0 / x
-        }
-    };
-    f(x1) - f(x0)
-}
-
 impl World {
     /// The bodies of `data/bodies.toml` (Terra and Luna), with `planet_n` and `moon_n` columns per face edge.
     pub fn new(planet_n: i32, moon_n: i32, seed: i32) -> Self {
@@ -72,12 +34,16 @@ impl World {
     pub fn with_grid(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>, luna: Option<Arc<Map>>, warp: f64, gen: u8) -> Self {
         assert_eq!(BODIES.len(), 2, "the sky (sky.rs) poses a planet and one moon");
         assert!((0.0..=1.0).contains(&warp), "warp= is 0 to 1");
+        // every body's interior from its row, its pull scaled by the first's (0162-planet-interior)
+        let mut first: Option<Interior> = None;
         let bodies: Vec<Body> = BODIES
             .iter()
             .enumerate()
             .map(|(i, row)| {
                 let mut b = Body::new(if i == 0 { DVec3::ZERO } else { MOON_AT }, [planet_n, moon_n][i], seed + i as i32);
                 (b.name, b.air, b.ground, b.warp) = (row.name.clone(), row.air, row.ground, warp);
+                b.interior = Interior::new(&row.makeup, b.radius, crate::interior::spin(i), first.as_ref());
+                first.get_or_insert_with(|| b.interior.clone());
                 if i == 0 {
                     b.gen = gen;
                     if gen >= 1 {
@@ -256,8 +222,8 @@ impl World {
                 .map(|i| {
                     let d = centre[i] - x;
                     let r = d.length().max(1e-6);
-                    let big = self.bodies[i].radius;
-                    d / r * self.surface_g(i) * pull_inside(r / big)
+                    let b = &self.bodies[i].interior;
+                    d / r * b.surface_g * b.pull(r / b.radius)
                 })
                 .sum()
         };
@@ -268,11 +234,11 @@ impl World {
         let k = 1.0 - smooth01(((p - self.nominal(f)).length() / self.soi(f) - 0.5) / 0.47);
         g - pull_at(self.nominal(f)) * k
     }
-    /// Body i's pull at its radius (ADR 0037): G on the first (Terra) whatever its size, and on another
-    /// its radius over the first's (one density, as the developer asked in ADR 0041), so Luna, 3.7 times smaller,
-    /// pulls 3.7 times less and a jump there is about 4.6 m.
+    /// Body i's pull at its radius (ADR 0037; `Interior::surface_g`): `interior::G` on the first (Terra) whatever
+    /// its size, and on another its mass over the square of its radius; Luna, of Terra's makeup and 3.7 times
+    /// smaller, pulls 3.7 times less and a jump there is about 4.6 m.
     pub fn surface_g(&self, i: usize) -> f64 {
-        G * self.bodies[i].radius / self.bodies[0].radius
+        self.bodies[i].interior.surface_g
     }
     /// Up at a position: away from the body whose frame it is in; in deep space, away from the nearest body.
     pub fn up_at(&self, p: DVec3) -> DVec3 {
