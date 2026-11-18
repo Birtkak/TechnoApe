@@ -1,6 +1,7 @@
 //! `technoape-studio`: paints the game's block textures from its one palette (docs/design/studio.md, ADR 0046).
 //! Without arguments it opens its window in the repository the exe sits in. Headless, one JSON line each:
-//! `check=1` (palette and every texture), `drafts=1`, `render=<png> sheet=out/x.png` (tiled 3 x 3),
+//! `check=1` (palette, every texture, model and map), `drafts=1`, `map=<name> out=out/x.png [frame=k]` (a map
+//! of `data/maps/`, an animated one as a strip), `render=<png> sheet=out/x.png` (tiled 3 x 3),
 //! `shot=out/studio.png [open=<block>] [page=palette] [cmd=id,id..] [query=text] [scale=1.5] [size=1280x800]
 //! [pointer=x,y] [season=autumn]` (one frame of the window, off-screen: `cmd` runs commands as the command box does, e.g.
 //! `frame:keys`, `tool.shade`, `open:Models:furnace`, `part:door`, `time:0.4`; `season` sets the view's year and the Textures page's season tab; `query` opens the command box with
@@ -17,6 +18,7 @@ mod drive;
 mod effect;
 mod font;
 mod import;
+mod map;
 mod ramp;
 mod recover;
 mod rows;
@@ -40,15 +42,13 @@ fn list(v: &[String]) -> String {
 }
 
 fn write_rgba(path: &str, w: u32, h: u32, rgba: &[u8]) -> Result<(), String> {
-    if let Some(d) = Path::new(path).parent() {
-        let _ = std::fs::create_dir_all(d);
-    }
-    let f = std::fs::File::create(path).map_err(|e| format!("{path}: {e}"))?;
-    let mut e = png::Encoder::new(std::io::BufWriter::new(f), w, h);
+    let mut buf = vec![];
+    let mut e = png::Encoder::new(&mut buf, w, h);
     e.set_color(png::ColorType::Rgba);
     e.set_depth(png::BitDepth::Eight);
-    let mut wr = e.write_header().map_err(|e| e.to_string())?;
-    wr.write_image_data(rgba).map_err(|e| e.to_string())
+    e.write_header().and_then(|mut wr| wr.write_image_data(rgba)).map_err(|e| e.to_string())?;
+    // through a temporary file and a rename: a reader never sees half a picture
+    import::put_file(path, Some(&buf))
 }
 
 fn check() -> Result<String, String> {
@@ -102,11 +102,13 @@ fn shot(studio: &mut ui::Studio, path: &str, w: u32, h: u32, pointer: Option<egu
     }
     // the script: frames 50 ms apart, so a press and a release are a click, not a long press
     let mut driver = drive::Driver::default();
-    let mut frames = 0;
+    let (mut frames, mut slowest) = (0, 0.0f64);
     for step in input.split(';') {
         for f in driver.step(step, &drive::rects(&ctx)).map_err(|e| format!("input '{}': {e}", step.trim()))? {
+            // the window's own work for a scripted frame (the UI pass, no GPU), the slowest kept
+            let t = std::time::Instant::now();
             frame(studio, f, 0.05);
-            frames += 1;
+            slowest = slowest.max(t.elapsed().as_secs_f64() * 1e3);            frames += 1;
         }
         // and one more: what a step changed is drawn, and marked, before the next step aims at it
         frame(studio, drive::Frame::default(), 0.05);
@@ -122,7 +124,7 @@ fn shot(studio: &mut ui::Studio, path: &str, w: u32, h: u32, pointer: Option<egu
     }
     drop(frame);
     let out = out.unwrap();
-    let extra = format!(",\"frames\":{frames},\"state\":{}{}", studio.drive_report(), if rects { format!(",\"rects\":{}", drive::rects_json(&drive::rects(&ctx))) } else { String::new() });
+    let extra = format!(",\"frames\":{frames},\"slowest_ms\":{slowest:.1},\"state\":{}{}", studio.drive_report(), if rects { format!(",\"rects\":{}", drive::rects_json(&drive::rects(&ctx))) } else { String::new() });
     if path == "-" {
         return Ok(format!("{{\"shot\":\"-\"{extra}}}"));
     }
@@ -234,6 +236,8 @@ fn main() {
         check()
     } else if get("drafts") == Some("1") {
         Ok(format!("{{\"drafts\":{}}}", list(&art::drafts(&std::fs::read_to_string(ui::DRAFTS).unwrap_or_default()))))
+    } else if let Some(name) = get("map") {
+        map::draw(name, get("out").unwrap_or("out/map.png"), get("frame").and_then(|k| k.parse().ok()))
     } else if let Some(file) = get("render") {
         render(file, get("sheet").unwrap_or("out/studio-sheet.png"))
     } else if let Some(path) = shot_path.as_deref() {

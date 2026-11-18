@@ -5,6 +5,7 @@
 pub mod look;
 mod fauna;
 mod grow;
+mod maps;
 mod models;
 mod effects;
 mod palette;
@@ -411,7 +412,7 @@ impl Studio {
             reg_problems,
             pointer: String::new(),
             toasts: vec![],
-            watch: Watch::new(&[PAL, DRAFTS, BLOCKS, sounds::SOUNDS, effects::EFFECTS, fauna::FILE], &[TEX, TEX_HD, structures::DIR, models::MODELS]),
+            watch: Watch::new(&[PAL, DRAFTS, BLOCKS, sounds::SOUNDS, effects::EFFECTS, fauna::FILE], &[TEX, TEX_HD, structures::DIR, models::MODELS, maps::DIR]),
             asks: vec![],
             now: 0.0,
             view: viewport::Viewport::new(),
@@ -423,6 +424,7 @@ impl Studio {
         app.check();
         let mut pages: Vec<Box<dyn Page>> = vec![Box::new(textures::Textures::new(&app)), Box::new(palette::PalettePage::new(&app)), Box::new(models::Models::new(&app)), Box::new(sounds::Sounds::new(&app)), Box::new(effects::Effects::new(&app)), Box::new(structures::Structures::new(&app)), Box::new(plants::Plants::new(&app))];
         pages.push(Box::new(fauna::Fauna::new(&app)));
+        pages.push(Box::new(maps::Maps::new(&app)));
         if let Some(b) = open {
             pages[0].open(&mut app, b);
         }
@@ -658,6 +660,8 @@ impl Studio {
             self.run_command("page:Palette");
         } else if let Some(m) = file.strip_prefix("data/models/").and_then(|f| f.strip_suffix(".toml")) {
             self.run_command(&format!("open:Models:{m}"));
+        } else if let Some(m) = file.strip_prefix("data/maps/").and_then(|f| f.strip_suffix(".toml")) {
+            self.run_command(&format!("open:Maps:{m}"));
         } else if let Some(block) = art::block_of(file, self.app.reg.placeable().map(|d| d.name.as_str())) {
             self.run_command(&format!("open:Textures:{block}"));
         } else {
@@ -849,6 +853,13 @@ impl Studio {
                 }
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true), |ui| {
                     ui.add_space(GAP * 0.5);
+                    // where the title and tabs of 64 points would not fit in one row, the tabs alone, each as wide
+                    // as its name (ten pages at 1600 x 900 and 133 %)
+                    let text_w = |ui: &mut Ui, t: &str| ui.fonts_mut(|f| f.layout_no_wrap(t.into(), egui::FontId::proportional(look::BODY), Color32::WHITE).size().x);
+                    let pad = ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
+                    let names: Vec<&'static str> = self.pages.iter().map(|p| p.name()).collect();
+                    let need = GAP * 2.5 + text_w(ui, "TechnoApe Studio") + names.iter().map(|n| (text_w(ui, n) + pad - ui.spacing().item_spacing.x).max(64.0) + ui.spacing().item_spacing.x).sum::<f32>();
+                    let narrow = narrow || need > ui.available_width();
                     if !narrow {
                         ui.label(RichText::new("TechnoApe Studio").strong().color(Color32::from_gray(170)));
                         ui.add_space(GAP * 2.0);

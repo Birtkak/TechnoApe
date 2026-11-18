@@ -1,0 +1,38 @@
+size = 128
+frames = 32
+seconds = 4
+
+[[node]]
+id = "gusts"
+kind = "smooth noise"
+at = [0, 0]
+seed = 7
+scale = 2
+octaves = 3
+roughness = 0.5
+speed = 1
+
+[[node]]
+id = "drift"
+kind = "move"
+at = [270, 0]
+shift_x = 0
+shift_y = 0
+repeat = 1
+mirror = 0
+speed_x = 1
+speed_y = 0
+in = "gusts"
+
+[[node]]
+id = "push"
+kind = "slope"
+at = [0, 280]
+strength = 3
+in = "drift"
+
+[[node]]
+id = "out"
+kind = "out"
+at = [270, 280]
+in = "push"

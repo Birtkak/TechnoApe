@@ -43,3 +43,6 @@ saves/
 
 # unsaved Studio work kept against a crash (studio/src/recover.rs)
 /studio-recovery/
+
+# the Studio's map exports (docs/design/studio-maps.md)
+/exports/
