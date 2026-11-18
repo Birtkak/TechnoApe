@@ -85,7 +85,10 @@ pub fn deep_layers(n: i32) -> i32 {
 }
 
 /// The layers of the mantle (ADR 0152, step 1) under the crust's `DEEP` m on a body of `n` columns per face edge
-/// that has a deep crust (`deep_layers`), else none: the same grid carried on down to the nearest layer to R/sqrt 2.
+/// that has a deep crust (`deep_layers`), else none: the same grid carried on down to about R/sqrt 2, a whole number
+/// of `MANTLE_STEP` layers, so the coarse levels' chunks and cells stand on the layers they stood on before the
+/// mantle and a deep world's surface is drawn as an old one's (1280 on the 4 km planet, 4 m under R/sqrt 2).
+pub const MANTLE_STEP: i32 = 256;
 pub fn mantle_layers(n: i32) -> i32 {
     let deep = deep_layers(n);
     if deep == 0 {
@@ -94,7 +97,7 @@ pub fn mantle_layers(n: i32) -> i32 {
     let radius = n as f64 * BLOCK / (2.0 * PI / 3.0).sqrt();
     let lnq = (1.0 + BLOCK / radius).ln();
     let floor = (radius - CRUST) * (-lnq * deep as f64).exp();
-    ((floor / (radius * std::f64::consts::FRAC_1_SQRT_2)).ln() / lnq).round() as i32
+    ((floor / (radius * std::f64::consts::FRAC_1_SQRT_2)).ln() / lnq / MANTLE_STEP as f64).round() as i32 * MANTLE_STEP
 }
 
 /// FxHash-style hasher for the maps keyed by chunks and cells: SipHash cost a third of the streamer's selection

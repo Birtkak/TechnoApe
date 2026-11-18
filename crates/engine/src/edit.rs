@@ -261,8 +261,9 @@ pub fn held(world: &crate::world::World, b: Block, old: u16) -> Option<u16> {
     if world.edit(b).is_some() || world.generated_block(b) != old {
         return None;
     }
-    let seed = world.bodies.get(b.body as usize)?.baked_seed().unwrap_or(0);
-    let h = crate::world::mix(seed ^ 0x401d_5000 ^ (b.body as u64) << 61 ^ (b.face as u64) << 58 ^ (b.pos.x as u32 as u64) << 29 ^ b.pos.y as u32 as u64 ^ (b.pos.z as u32 as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+    let bd = world.bodies.get(b.body as usize)?;
+    let seed = bd.baked_seed().unwrap_or(0);
+    let h = crate::world::mix(seed ^ 0x401d_5000 ^ (b.body as u64) << 61 ^ (b.face as u64) << 58 ^ (b.pos.x as u32 as u64) << 29 ^ b.pos.y as u32 as u64 ^ ((b.pos.z - bd.mantle) as u32 as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
     (crate::world::unit(h) < *chance).then(|| crate::items::ITEMS.named(name)).flatten()
 }
 

@@ -960,7 +960,7 @@ fn the_mantle_carries_the_grid_down_to_r_over_root_2() {
     let k = new.mantle;
     let lowest = new.layer_r(1.0) - new.layer_r(0.0);
     let floor = new.radius * std::f64::consts::FRAC_1_SQRT_2;
-    assert!((new.r0 - floor).abs() < lowest, "floor at {} m, R/sqrt 2 {floor}", new.r0);
+    assert!(k % MANTLE_STEP == 0 && (new.r0 - floor).abs() < lowest * MANTLE_STEP as f64 / 2.0, "floor at {} m, R/sqrt 2 {floor}", new.r0);
     assert!((0.70..0.72).contains(&lowest), "the lowest block is {lowest} m");
     assert_eq!((k, new.layers), (mantle_layers(6144), old.layers + k));
     for z in [0, 1, 70, old.layers - 1] {
@@ -976,7 +976,7 @@ fn the_mantle_carries_the_grid_down_to_r_over_root_2() {
     assert_eq!((flat.bodies[0].mantle, flat.bodies[0].r0.to_bits()), (0, Body::new(DVec3::ZERO, 1536, 1).r0.to_bits()));
 }
 
-/// A small baked planet big enough for a mantle (radius 1061 m, the mantle 311 m deep).
+/// A small baked planet big enough for a mantle (radius 1061 m, 256 layers of mantle under the crust).
 static MAP_1536: LazyLock<Arc<Map>> = LazyLock::new(|| Arc::new(Map::bake(5, 1536)));
 
 /// One generated block for every reader (ADR 0062) at any depth: in a column from over the ground down to the
@@ -1031,6 +1031,31 @@ fn the_readers_agree_from_the_surface_to_the_mantles_floor() {
     }
     assert!(bad.is_empty(), "{} cells disagree, e.g. {:?}", bad.len(), &bad[..bad.len().min(4)]);
     assert!(deep > 100_000 && shallow == 0, "{deep} cells under the crust, {shallow} of the mantle's rock in it");
+}
+
+/// The mantle changes nothing above the crust's floor (ADR 0152): around the spawn every generated block from 40
+/// layers under the ground to 40 over it is the one a world without the mantle has, its layer counted from there.
+#[test]
+fn the_surface_is_the_same_with_and_without_the_mantle() {
+    let [old, new] = [false, true].map(|m| World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, m));
+    let k = new.bodies[0].mantle;
+    let b = &old.bodies[0];
+    let (f, i0, j0) = b.locate(b.spawn);
+    let (mut bad, mut n) = (Vec::new(), 0);
+    for i in i0 as i32 - 48..i0 as i32 + 48 {
+        for j in j0 as i32 - 48..j0 as i32 + 48 {
+            let g = b.layer_of(b.col_height(f as u8, i, j)) as i32;
+            for z in g - 40..g + 40 {
+                let at = Block { body: 0, face: f as u8, pos: IVec3::new(i, j, z) };
+                let (a, c) = (old.generated_block(at), new.generated_block(Block { pos: at.pos + IVec3::Z * k, ..at }));
+                n += 1;
+                if a != c {
+                    bad.push(format!("({i}, {j}, {z}): {a} against {c}"));
+                }
+            }
+        }
+    }
+    assert!(k > 0 && bad.is_empty(), "{} of {n} cells differ, e.g. {:?}", bad.len(), &bad[..bad.len().min(6)]);
 }
 
 /// Gravity inside a body falls evenly with the radius (ADR 0152): half the surface's at half the radius, 0.71

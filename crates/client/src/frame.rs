@@ -696,8 +696,11 @@ impl App {
             // take their texels, fast ones are whole blocks unless bare (above). The mesh says which: a chunk meshed
             // before the setting changed keeps its split until it is meshed again
             let (draw_cut, ray_cut) = (d.cut, if shell { d.cut } else { d.ray_cut });
+            // the GPU counts a body's layers from the floor of the worlds before the mantle (`BodyGpu::r0`, ADR
+            // 0152): the shaders' hashes, light seeds and f32 positions are an old world's, so its surface looks the same
+            let base: [i32; 3] = (k.base() - glam::IVec3::Z * self.world.bodies[k.body as usize].mantle).into();
             if new {
-                table.push((ci, ChunkGpu { base: k.base().into(), info, off: d.off, opq: d.len - d.water - d.still - ray_cut - d.glass, clim: d.clim, sto: d.len - d.water - d.still }));
+                table.push((ci, ChunkGpu { base, info, off: d.off, opq: d.len - d.water - d.still - ray_cut - d.glass, clim: d.clim, sto: d.len - d.water - d.still }));
             }
             // the still models' and plants' quads lie between the land's and the sea's: they cast shadows (ADR 0091)
             let land = d.len - d.water - d.still;
@@ -706,7 +709,7 @@ impl App {
             if land + cast > 0 {
                 // the cutout (as `ray_cut` says), glass and still quads are the BLAS's second geometry, not opaque
                 // (ADR 0069, 0081, 0090, 0091): [cut][glass][still] at the land's end, contiguous whether cut is in or not
-                insts.push(rt::Inst { off: d.off, land: land + cast, cut: ray_cut + d.glass + cast, still: cast, dist: d.dist, base: k.base().into(), info, body: k.body, ci });
+                insts.push(rt::Inst { off: d.off, land: land + cast, cut: ray_cut + d.glass + cast, still: cast, dist: d.dist, base, info, body: k.body, ci });
             }
             if d.hidden {
                 continue;
@@ -935,13 +938,13 @@ impl App {
             let lo = (c - hi.as_dvec3()).as_vec3();
             *o = BodyGpu {
                 cam_hi: hi.into(),
-                r0: b.r0 as f32,
+                r0: b.layer_r(b.mantle as f64) as f32,
                 cam_lo: lo.into(),
                 lnq: b.lnq as f32,
                 theta: (std::f64::consts::FRAC_PI_2 / b.n as f64) as f32,
                 half_n: b.n as f32 * 0.5,
                 // shortcut: only the planet (body 0) has seasons; a second planet needs its own year in `Sky`
-                _p: [b.sea.map_or(-1.0, |s| (s + if bi == 0 { tide.base * per_m } else { 0.0 }) as f32), if bi == 0 { self.season_year(engine::sky::season_at(DVec3::Z, self.world.time).0) as f32 } else { -1.0 }],
+                _p: [b.sea.map_or(-1.0, |s| (s - b.mantle as f64 + if bi == 0 { tide.base * per_m } else { 0.0 }) as f32), if bi == 0 { self.season_year(engine::sky::season_at(DVec3::Z, self.world.time).0) as f32 } else { -1.0 }],
                 // (rot0.w: the block grid's warp, ADR 0131; the shader's `body_grid`)
                 rot: [[m.x_axis.x, m.x_axis.y, m.x_axis.z, b.warp as f32], col(m.y_axis), col(m.z_axis)],
                 ctr: { let v = (m.as_dmat3() * -c).as_vec3(); [v.x, v.y, v.z, b.radius as f32] },

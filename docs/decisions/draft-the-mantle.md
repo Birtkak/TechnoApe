@@ -4,7 +4,7 @@
 - **Date:** 2026-11-18
 
 ## Context
-ADR 0152 carries today's grid on down through the mantle to R/√2, 1243 m on the 4 km planet, where it stopped
+ADR 0152 carries today's grid on down through the mantle to R/√2, about 1245 m on the 4 km planet, where it stopped
 192 m down (ADR 0063). Saves made before must keep their floor and every layer index they hold. Below the new
 floor nothing is dug until step 2 (the liquid core).
 
@@ -30,9 +30,20 @@ Option 2.
   same grid. The conformal grid's trial (ADR 0131) never reached the save; this is the first grid choice kept
   in it. A recording from the seed replays on the deep grid (`Ev::Start` does not say; shortcut noted in
   `replay.rs`).
-- **The 4 km planet:** 1274 mantle layers under the 595 it had (1869 in all); layer 0 at 3002.00 m against
-  R/√2 = 3001.97 m, 1243 m under the radius; the lowest block 0.707 m. The 8 km planet: 2749 under 601 (3350),
-  2487 m deep. Both still fit one root band of the streamer (2048 and 4096 layers).
+- **Whole steps of 256 layers.** The mantle is the multiple of 256 layers nearest R/√2 (`MANTLE_STEP`): the
+  coarse levels' chunks and cells (2 to 256 layers) then stand on the same layers above the crust's floor as on
+  an old world, and the surface is meshed and drawn as before (with the layer nearest R/√2, 1274 on the 4 km
+  planet, every view differed: far chunks sampled other layers). The 4 km planet: 1280 mantle layers under the
+  595 it had (1875 in all); layer 0 at 2997.8 m, 4.2 m under R/√2, 1248 m under the radius; the lowest block
+  0.706 m. The 8 km planet: 2816 under 601 (3417), 2534 m deep, 47 m under R/√2. The 1536 test planet: 256,
+  378 m deep (67 m under R/√2, the lowest block 0.64 m). Both large planets still fit one root band of the
+  streamer (2048 and 4096 layers).
+- **The GPU counts from the old floor.** The client gives the GPU a body's `r0` at layer `mantle` and every chunk's
+  base `mantle` layers lower (`frame.rs`), so every shader's look hash (a texture's variant and tone, a grass
+  fringe, a crown's fluff and clumps, a reflection's texel) and the light's random seeds (`tx_seed`) read the
+  numbers an old world gives them, and the f32 positions are computed from the same values; no shader changed.
+  The two CPU hashes of a layer that pick a roll take the mantle off too: a cell's held item (`edit::held`,
+  flint in gravel) and a good hit's drop count (`crack::drop`), as the ore halo does.
 - **Mantle rock.** `data/rocks.toml` names `mantle = "peridotite"`. `Body::rock` (the one rule the mesher's fill
   and `generated_under` ask) gives it under R − 192 m in every province on a body with a mantle, and today's
   layers above. Peridotite (block 58, rubble 191) is as hard as quartzite (10, grade 1), the hardest rock of
@@ -40,7 +51,7 @@ Option 2.
 - **Nothing new is placed in the mantle.** Caves, ores, water, piles and plants keep their depths under the
   ground: their placement works in radii, and the one hash that read a layer index (an ore halo's fraying)
   takes the mantle off it, so a deep world's halos are main's.
-- **Heat** carries on by the province's rule (air plus `heat` C a metre): at the floor, 1243 m down, the shield
+- **Heat** carries on by the province's rule (air plus `heat` C a metre): at the floor, about 1245 m down, the shield
   is about 150 C over its air, the basin 186, the folded belt 224, the ocean floor 249, the volcanic arc and the
   rift 435; under the spawn the report says 200.4 C.
 - **Gravity inside a body** is g_surface · r / R (a ball of even density), the square law outside as before;
