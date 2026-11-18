@@ -231,3 +231,16 @@ pub fn water_keys(body: &Body, t: Col) -> Vec<Key> {
     keys.dedup();
     keys
 }
+
+/// The liquid metal sea's surface in chunk `key` (draft the metal sea): kind 6, one quad per column of a level-0
+/// chunk whose layer-0 cell is open, laid 1/8 of the cell over its bottom (q.y as a river's level, in 1/64 layer
+/// over the chunk's base, flat). Seen only down a hole in the mantle's floor.
+/// shortcut: level 0 only (a hole is seen from near); one quad a column, unmerged, while holes are small
+pub fn metal_quads(body: &Body, key: Key, gen: &Gen) -> Vec<[u32; 2]> {
+    let (Some(_), 0, 0, Gen::Cells(c)) = (body.core, key.level, key.pos.z, gen) else { return Vec::new() };
+    let n = CS as usize;
+    (0..n * n)
+        .filter(|k| !BLOCKS.solid(c[pidx(k % n + 1, k / n + 1, 1)]))
+        .map(|k| [(k % n) as u32 | ((k / n) as u32) << 6 | 1 << 12 | 6 << 28, 8])
+        .collect()
+}

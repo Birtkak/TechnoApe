@@ -27,6 +27,8 @@ pub const REGEN: u32 = (8.0 / phys::DT) as u32;
 pub const STARVE: u32 = (10.0 / phys::DT) as u32;
 /// Out of breath, a point of health goes every CHOKE steps (a second), to death (ADR 0079, needs.md "Breath").
 pub const CHOKE: u32 = (1.0 / phys::DT) as u32;
+/// Steps between points of health the liquid metal sea takes from feet in it (draft the metal sea): 0.1 s.
+pub const BURN: u32 = 6;
 /// Breath comes back from none to full in this many seconds of air (needs.md).
 pub const BREATHE_S: f64 = 2.0;
 

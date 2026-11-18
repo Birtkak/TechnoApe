@@ -1,7 +1,7 @@
 //! LOD octree selection, job scheduling on worker threads, GPU sub-allocation of chunk meshes.
 use crate::mesh::{mesh_cracked, Mesh};
 use crate::liquid::{Col, TILE};
-use crate::world::{fold, generate_raw, pidx, skirt, river_quads, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS, P};
+use crate::world::{fold, generate_raw, metal_quads, pidx, skirt, river_quads, sea_quads, Block, Bounds, FxMap, Gen, Key, World, CS, P};
 use glam::{DQuat, DVec3, IVec3, Vec4};
 use crate::clutter::Still;
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -880,6 +880,7 @@ impl Streamer {
                     }
                     let mut sea = sea_quads(body, k, &wet, &gen);
                     sea.extend(river_quads(body, k, &wet, &gen));
+                    sea.extend(metal_quads(body, k, &gen));
                     if !sea.is_empty() {
                         let m = mesh.get_or_insert_with(|| crate::mesh::Mesh { quads: Vec::new(), counts: [0; 6], cut: 0, ray_cut: 0, fluff: 0, glass: 0, still: 0, water: 0 });
                         m.water = sea.len() as u32;

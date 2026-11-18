@@ -186,6 +186,8 @@ struct Client {
     was: DVec3,
     /// The breath (draft breath: buried, under water, above the air; not saved: a load starts it anew, ADR 0079).
     breath: vitals::Breath,
+    /// Steps the feet have been in the liquid metal sea since it last took a point (not saved).
+    burn: u32,
     /// Its death mark and sleeping place (draft death's cost), saved; what its client was last told of them.
     marks: save::Marks,
     sent_marks: (Option<Block>, Option<Block>),

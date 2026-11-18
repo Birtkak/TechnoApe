@@ -82,8 +82,8 @@ pub(crate) fn pose(run: &str, t: f64, w: &World, speed: f64, alt: f64, warm: f64
             let r = if up.y.abs() > 0.9 { DVec3::Z } else { DVec3::Y };
             let ahead = (r - up * r.dot(up)).normalize();
             let (yaw, pitch) = (a.get("yaw", 0f64).to_radians(), a.get("pitch", 0f64).to_radians());
-            // depth=m: stand that far under the ground (place= digs the room, ADR 0152)
-            let pos = b.centre + up * (b.top(up) - a.get("depth", 0.0) + a.get("eye", 1.7));
+            // depth=m (or floor=k): stand that far under the ground (place= digs the room, ADR 0152)
+            let pos = b.centre + up * (b.top(up) - crate::stand_depth(a, b, up) + a.get("eye", 1.7));
             let fwd = match a.s("look", "").as_str() {
                 // the other body's centre, now, in this body's frame
                 l @ ("terra" | "luna") => {
