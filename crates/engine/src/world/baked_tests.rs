@@ -969,7 +969,7 @@ fn the_mantle_carries_the_grid_down_to_r_over_root_2() {
     }
     assert_eq!(old.mantle, 0);
     assert_eq!((mantle_layers(512), Body::new(DVec3::ZERO, 512, 1).with_mantle().layers), (0, Body::new(DVec3::ZERO, 512, 1).layers), "a small planet keeps its floor");
-    let w = World::with_grid(1536, 512, 1, None, None, 0.0, true);
+    let w = World::with_grid(1536, 512, 1, None, None, 0.0, 1);
     let luna = Body::new(DVec3::ZERO, 512, 2);
     assert_eq!((w.bodies[1].mantle, w.bodies[1].r0.to_bits(), w.bodies[1].layers), (0, luna.r0.to_bits(), luna.layers), "Luna keeps hers");
     let flat = World::new(1536, 512, 1);
@@ -984,7 +984,7 @@ static MAP_1536: LazyLock<Arc<Map>> = LazyLock::new(|| Arc::new(Map::bake(5, 153
 /// water's gaps agree cell by cell; under the crust's floor (about 192 m) the rock is the mantle's in the mesher and in physics.
 #[test]
 fn the_readers_agree_from_the_surface_to_the_mantles_floor() {
-    let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, true);
+    let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, 1);
     let b = &w.bodies[0];
     let mantle: Vec<u16> = ROCKS.mantle.iter().map(|d| d.block).collect();
     let (f, i, j) = b.locate(b.spawn);
@@ -1038,7 +1038,7 @@ fn the_readers_agree_from_the_surface_to_the_mantles_floor() {
 /// layers under the ground to 40 over it is the one a world without the mantle has, its layer counted from there.
 #[test]
 fn the_surface_is_the_same_with_and_without_the_mantle() {
-    let [old, new] = [false, true].map(|m| World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, m));
+    let [old, new] = [0, 1].map(|m| World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, m));
     let k = new.bodies[0].mantle;
     let b = &old.bodies[0];
     let (f, i0, j0) = b.locate(b.spawn);
@@ -1113,7 +1113,7 @@ fn the_rock_weighs_what_the_gravity_inside_says_down_to_the_mantles_floor() {
 /// layer down to the floor, and more at a sea floor than at a land column's ground by the water over it.
 #[test]
 fn pressure_is_one_atmosphere_at_the_ground_and_grows_going_down() {
-    let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, true);
+    let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, 1);
     let b = &w.bodies[0];
     let (f, i, j) = b.locate(b.spawn);
     let (f, i, j) = (f as u8, i as i32, j as i32);
@@ -1133,7 +1133,7 @@ fn pressure_is_one_atmosphere_at_the_ground_and_grows_going_down() {
     let p = b.pressure(f, sea.0, sea.1, b.layer_of(floor)).unwrap();
     let want = 0.101_325 + 1000.0 * G * (top - floor) * 1e-6;
     assert!(p > at(ground) && (p as f64 - want).abs() < 1e-3, "the sea floor {} m down: {p} MPa, not {want}", top - floor);
-    assert_eq!(World::with_grid(1536, 32, 5, None, None, 0.0, true).bodies[0].pressure(f, i, j, 10.0), None, "no map: none, as heat");
+    assert_eq!(World::with_grid(1536, 32, 5, None, None, 0.0, 1).bodies[0].pressure(f, i, j, 10.0), None, "no map: none, as heat");
 }
 
 /// A mantle boundary (ADR 0158) lies where the column's pressure reaches the row's at the heat
@@ -1144,7 +1144,7 @@ fn a_mantle_boundary_moves_with_the_provinces_heat_by_its_slope() {
     use crate::bake::rock::{RIFT, SHIELD};
     let b = Body::new(DVec3::ZERO, 6144, 1).with_mantle();
     let sea = b.radius - SEA_DEPTH;
-    let column = |p: u8| Rock { province: p, top: 0.0, air: 15.0, wobble: 0.0 };
+    let column = |p: u8| Rock { province: p, top: 0.0, air: 15.0, wobble: 0.0, flow: 0.0 };
     let heat = |p: u8, r: f64| 15.0 + ROCKS.provinces[p as usize].heat as f64 * (sea - r);
     for (k, deep) in ROCKS.mantle.iter().enumerate() {
         // the first layer, going down, of this rock or a deeper one
@@ -1173,7 +1173,7 @@ fn a_mantle_boundary_moves_with_the_provinces_heat_by_its_slope() {
 #[test]
 fn diamond_forms_only_in_its_window_and_the_ledger_counts_it() {
     use crate::ore::{cells, MINERALS};
-    let mut w = World::with_grid(6144, 32, 1, Some(crate::bake::shared(1, 6144)), None, 0.0, true);
+    let mut w = World::with_grid(6144, 32, 1, Some(crate::bake::shared(1, 6144)), None, 0.0, 1);
     let b = &w.bodies[0];
     let k = MINERALS.kinds.iter().position(|k| k.name == "diamond").unwrap();
     let kind = &MINERALS.kinds[k];
@@ -1201,7 +1201,7 @@ fn diamond_forms_only_in_its_window_and_the_ledger_counts_it() {
 /// for tubes, its rift is small, 48 for fissures; every one grown), put in the ground beside ADR 0063's: enough
 /// of each kind on a small planet to test.
 fn dense_caves() -> (World, Vec<crate::caves::System>) {
-    let mut w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, true);
+    let mut w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, GENERATION);
     let kinds: Vec<crate::caves::Kind> = crate::caves::CAVES
         .kinds
         .iter()
@@ -1231,12 +1231,12 @@ fn col_of(p: DVec3) -> (i32, i32) {
 #[test]
 fn a_cave_kind_opens_only_its_host_rock_in_its_provinces() {
     let (w, sys) = dense_caves();
-    let mut w0 = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, true);
+    let mut w0 = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, GENERATION);
     let old: Vec<Cave> = w0.bodies[0].caves.iter().copied().filter(|c| c.kind == Cave::BALL).collect();
     Arc::get_mut(&mut w0.bodies).unwrap()[0].set_caves(old);
     let b = &w.bodies[0];
     let kinds = &crate::caves::CAVES.kinds;
-    for (k, kind) in kinds.iter().enumerate() {
+    for (k, kind) in kinds.iter().enumerate().filter(|k| (k.1.generations[0]..=k.1.generations[1]).contains(&b.gen)) {
         let n = sys.iter().filter(|s| s.kind as usize == k).count();
         assert!(n >= 3, "{}: {n} made on the 1536 planet", kind.name);
     }
@@ -1395,7 +1395,7 @@ fn a_cave_is_the_same_whichever_chunk_asks_first_and_runs_on_across_a_chunk_bord
 /// this planet as they were before `data/caves.toml`.
 #[test]
 fn without_the_mantle_the_caves_are_the_ones_from_before() {
-    let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, false);
+    let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, 0);
     let b = &w.bodies[0];
     assert!(b.caves.iter().all(|c| c.kind == Cave::BALL && c.h == c.r && c.floor == c.r));
     let mut h = 0xcbf2_9ce4_8422_2325u64;
@@ -1405,4 +1405,227 @@ fn without_the_mantle_the_caves_are_the_ones_from_before() {
         }
     }
     assert_eq!((b.caves.len(), h), (104, 15974049385019012728), "the caves of the 1536 planet without the mantle");
+}
+
+/// A world's ground as one number: its caves (every field), its ore bodies, and the rock (`Body::rock`) of a
+/// column every 37 on each face at 3 m steps from the ground down 240 m.
+fn ground_hash(w: &World) -> u64 {
+    let b = &w.bodies[0];
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    let mut put = |v: u64| h = (h ^ v).wrapping_mul(0x100_0000_01b3);
+    for c in &b.caves {
+        [c.face as u64, c.at.x.to_bits(), c.at.y.to_bits(), c.at.z.to_bits(), c.r.to_bits(), c.h.to_bits(), c.floor.to_bits(), c.kind as u64].into_iter().for_each(&mut put);
+    }
+    for o in &b.ores {
+        [o.kind as u64, o.face as u64, o.at.x.to_bits(), o.at.y.to_bits(), o.at.z.to_bits()].into_iter().for_each(&mut put);
+    }
+    for f in 0..6u8 {
+        for i in (5..b.n).step_by(37) {
+            for j in (5..b.n).step_by(37) {
+                let (g, rock) = (b.col_height(f, i, j), b.col_rock(f, i, j));
+                for k in 0..80 {
+                    put(b.rock(rock, (g - 3.0 * k as f64) as f32, 0) as u64);
+                }
+            }
+        }
+    }
+    h
+}
+
+/// Worlds of generation 0 (no mantle) and 1 (the mantle, ADR 0154) generate as they did before the generation
+/// number (ADR 0160-generation-number-and-arc-basalt): their caves, ores and rock, to the bit. A regression lock:
+/// the numbers were recorded on the code before the number existed.
+#[test]
+fn generations_0_and_1_generate_as_before() {
+    let got = [0, 1].map(|m| ground_hash(&World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, m)));
+    assert_eq!(got, [15709614112514717112, 4328838127608172666], "generation 0 and 1 of the 1536 planet");
+}
+
+/// Basalt flows (ADR 0160-generation-number-and-arc-basalt): a province whose row of `data/rocks.toml` states a
+/// `flow` (the volcanic arc) has that rock from the ground down its `thick` metres over part of its land, in a
+/// world of generation 2: about its `share`, by the seed, and its own layers under it. No other province changes,
+/// and a world of generation 1 has no flow anywhere: every reader asks `Body::rock`, so its rock is the old.
+#[test]
+fn flow_basalt_lies_only_in_provinces_that_state_it_and_only_from_generation_2() {
+    let [w1, w2] = [1, GENERATION].map(|g| World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, g));
+    let (b1, b2) = (&w1.bodies[0], &w2.bodies[0]);
+    let flows: Vec<u8> = ROCKS.provinces.iter().enumerate().filter(|p| p.1.flow.is_some()).map(|p| p.0 as u8).collect();
+    assert_eq!(flows, [crate::bake::rock::ARC], "the arc alone states a flow");
+    let flow = ROCKS.provinces[crate::bake::rock::ARC as usize].flow.unwrap();
+    let sea = b2.radius - SEA_DEPTH;
+    let (mut land, mut flowed, mut other) = (0, 0, 0);
+    for f in 0..6u8 {
+        for i in (3..b2.n).step_by(5) {
+            for j in (3..b2.n).step_by(5) {
+                let (r1, r2, g) = (b1.col_rock(f, i, j), b2.col_rock(f, i, j), b2.col_height(f, i, j));
+                assert_eq!(r1.flow, 0.0, "a flow in generation 1 at ({f}, {i}, {j})");
+                let differ: Vec<f64> = (0..80).map(|k| g - k as f64).filter(|&r| b1.rock(r1, r as f32, 0) != b2.rock(r2, r as f32, 0)).collect();
+                if !flows.contains(&r2.province) {
+                    assert!(differ.is_empty(), "the rock of a {} column changed at ({f}, {i}, {j})", crate::bake::rock::NAMES[r2.province as usize]);
+                    other += 1;
+                    continue;
+                }
+                if g < sea {
+                    continue;
+                }
+                land += 1;
+                if r2.flow > 0.0 {
+                    flowed += 1;
+                    let depth = g - r2.flow as f64;
+                    assert!((flow.thick as f64 - 6.0..flow.thick as f64 + 6.0).contains(&depth), "a flow {depth:.1} m thick at ({f}, {i}, {j})");
+                    assert_eq!(b2.rock(r2, (g - 6.0) as f32, 0), flow.rock, "under the band");
+                    assert_eq!(b2.rock(r2, r2.flow - 2.0, 0), b1.rock(r1, r2.flow - 2.0, 0), "the province's own layers under the flow");
+                }
+            }
+        }
+    }
+    let share = flowed as f64 / land as f64;
+    assert!(land > 300 && other > 10_000 && (0.2..=0.6).contains(&share), "{flowed} of {land} arc land columns under a flow (a few 500 m fields on this small planet: its share is the sphere's, not each arc's) ({share:.2}), {other} others");
+}
+
+/// The lava tubes of a world of generation 2 (`dense_caves`), those of a row made from generation 2 on.
+fn round_tubes(sys: &[crate::caves::System]) -> Vec<&crate::caves::System> {
+    use crate::caves::{Shape, CAVES};
+    sys.iter().filter(|s| CAVES.kinds[s.kind as usize].shape == Shape::Tube && CAVES.kinds[s.kind as usize].generations[0] >= 2).collect()
+}
+
+/// A lava tube of generation 2 is one round passage (ADR 0160-generation-number-and-arc-basalt): cut across its
+/// axis every 5 m (away from its openings and from any other cave), the generated air of the world is one opening
+/// (no rock between two open columns), its open columns' middles at most 7 m apart, its floor flat (the middle
+/// columns' lowest open cell within a layer of the axis's) and its roof an arch (no column higher than one
+/// nearer the axis). Some tubes lie in the arcs' basalt flows.
+#[test]
+fn a_round_tubes_cross_section_is_one_flat_floored_opening_at_most_7_m_wide() {
+    let (w, sys) = dense_caves();
+    let b = &w.bodies[0];
+    let tubes = round_tubes(&sys);
+    assert!(tubes.len() >= 6, "{} round tubes", tubes.len());
+    assert!(tubes.iter().any(|t| b.col_rock(t.face, t.axis[0].x as i32, t.axis[0].y as i32).province == crate::bake::rock::ARC), "no tube in an arc");
+    // (another cave whose passage comes within 2 m of this one's there: a branch's mouth, a fissure crossing)
+    let others = |t: &crate::caves::System, p: DVec3, r: f64| sys.iter().filter(|s| !std::ptr::eq(*s, t) && s.face == t.face).any(|s| s.axis.iter().zip(&s.balls).any(|(q, c)| (q.truncate() - p.truncate()).length() < r + c.r + 2.0));
+    let (mut cuts, mut bad) = (0, Vec::new());
+    for t in &tubes {
+        let n = t.axis.len();
+        for k in (8..n.saturating_sub(8)).step_by(5) {
+            let p = t.axis[k];
+            if t.openings.iter().any(|&(a, e)| k + 12 >= a && k <= e + 12) || others(t, p, t.balls[k].r) {
+                continue;
+            }
+            let h = (t.axis[k + 2] - t.axis[k - 2]).truncate().normalize();
+            let across = glam::DVec2::new(-h.y, h.x);
+            let zf = b.layer_of(p.z).floor() as i32;
+            // each column crossed, in order across, with its lowest and highest open cell over the floor's
+            let mut cols: Vec<((i32, i32), f64, Option<(i32, i32)>)> = Vec::new();
+            for s in -40..=40 {
+                let q = p.truncate() + across * (s as f64 * 0.2);
+                let c = (q.x.floor() as i32, q.y.floor() as i32);
+                if cols.last().is_some_and(|l| l.0 == c) || cols.iter().any(|l| l.0 == c) {
+                    continue;
+                }
+                let top = b.layer_of(b.col_height(t.face, c.0, c.1)).floor() as i32;
+                let open: Vec<i32> = (zf - 2..(zf + 10).min(top)).filter(|&z| w.generated_block(Block { body: 0, face: t.face, pos: IVec3::new(c.0, c.1, z) }) == AIR).collect();
+                let mid = glam::DVec2::new(c.0 as f64 + 0.5, c.1 as f64 + 0.5);
+                cols.push((c, (mid - p.truncate()).dot(across), open.first().zip(open.last()).map(|(&lo, &hi)| (lo, hi))));
+            }
+            cuts += 1;
+            let open: Vec<usize> = (0..cols.len()).filter(|&c| cols[c].2.is_some()).collect();
+            let (first, last) = (open[0], *open.last().unwrap());
+            let at = cols.iter().position(|c| c.0 == (p.x.floor() as i32, p.y.floor() as i32)).unwrap();
+            let lo = cols[at].2.expect("the axis is open").0;
+            let width = cols[last].1 - cols[first].1;
+            let one = open.len() == last - first + 1;
+            let flat = cols.iter().filter(|c| c.1.abs() <= 1.0).all(|c| c.2.is_some_and(|o| (o.0 - lo).abs() <= 1));
+            let arch = (first..last).all(|c| {
+                let (x, y) = (cols[c], cols[c + 1]);
+                let (hx, hy) = (x.2.unwrap().1, y.2.unwrap().1);
+                if y.1.abs() > x.1.abs() { hy <= hx } else { hx <= hy }
+            });
+            if !(one && width <= 7.0 && flat && arch) {
+                bad.push(format!("tube at ({:.0}, {:.0}) station {k}: one {one}, {width:.1} m wide, flat {flat}, arch {arch}: {:?}", p.x, p.y, cols.iter().map(|c| c.2).collect::<Vec<_>>()));
+            }
+        }
+    }
+    assert!(cuts >= 10 && bad.is_empty(), "{} of {cuts} cross-sections bad, e.g. {:?}", bad.len(), &bad[..bad.len().min(3)]);
+}
+
+/// No two lava tubes of generation 2 run side by side into one hall: a station of one tube's axis lies nearer
+/// another's axis than their two radii and a metre over at most 30 m on end (a branch leaving its parent).
+#[test]
+fn round_tubes_do_not_run_side_by_side() {
+    let (_, sys) = dense_caves();
+    let tubes = round_tubes(&sys);
+    let mut worst = (0, String::new());
+    for (x, a) in tubes.iter().enumerate() {
+        for (y, c) in tubes.iter().enumerate().filter(|&(y, c)| y != x && c.face == a.face) {
+            let mut run = 0;
+            for (k, p) in a.axis.iter().enumerate() {
+                let near = c.axis.iter().zip(&c.balls).any(|(q, bq)| (q.truncate() - p.truncate()).length() < a.balls[k].r + bq.r + 1.0);
+                run = if near { run + 1 } else { 0 };
+                if run > worst.0 {
+                    worst = (run, format!("tube {x} beside tube {y} at ({:.0}, {:.0})", p.x, p.y));
+                }
+            }
+        }
+    }
+    assert!(tubes.len() >= 6 && worst.0 <= 30, "{} m side by side: {}", worst.0, worst.1);
+}
+
+/// Every skylight and trench of a lava tube of generation 2 is a hole a player sees from the surface: some 3 x 3
+/// columns around its middle are open at the ground's top cell, and no plant stands in or hangs over any of them.
+#[test]
+fn every_skylight_is_open_to_the_sky_over_3_by_3_columns_with_no_plant() {
+    let (w, sys) = dense_caves();
+    let b = &w.bodies[0];
+    let (mut n, mut bad) = (0, Vec::new());
+    for t in round_tubes(&sys) {
+        for &(s, e) in &t.openings {
+            n += 1;
+            let (ci, cj) = col_of(t.axis[(s + e) / 2]);
+            let open = |i: i32, j: i32| {
+                let top = b.first_air(b.col_height(t.face, i, j)) - 1;
+                w.generated_block(Block { body: 0, face: t.face, pos: IVec3::new(i, j, top) }) == AIR && b.col_plants(t.face, i, j).is_empty()
+            };
+            let seen = (-1..=1).any(|a| (-1..=1).any(|c| (-1..=1).all(|x| (-1..=1).all(|y| open(ci + a + x, cj + c + y)))));
+            if !seen {
+                let why: Vec<(bool, usize)> = (-1..=1).flat_map(|x| (-1..=1).map(move |y| (x, y))).map(|(x, y)| (w.generated_block(Block { body: 0, face: t.face, pos: IVec3::new(ci + x, cj + y, b.first_air(b.col_height(t.face, ci + x, cj + y)) - 1) }) == AIR, b.col_plants(t.face, ci + x, cj + y).len())).collect();
+                bad.push(format!("({ci}, {cj}) open, plants: {why:?}"));
+            }
+        }
+    }
+    assert!(n >= 6 && bad.is_empty(), "{} of {n} skylights not seen from the sky, e.g. {:?}", bad.len(), &bad[..bad.len().min(3)]);
+}
+
+/// From generation 2 nothing is placed for where the spawn is but copper (the developer, 2026-11-18): the ore
+/// bodies of every kind that gives no copper lie where they lie whichever way the spawn is (two spawns half the
+/// planet apart give them to the bit), while copper gravel still has a body within 150 m of the spawn and deep
+/// copper one 1 to 3 km out; a world of generation 1 still pulls the first tin, iron, coal and lead to their rings.
+#[test]
+fn from_generation_2_only_copper_is_placed_near_the_spawn() {
+    use crate::ore::{place, MINERALS};
+    let at = |gen: u8, spawn: Option<DVec3>| {
+        let mut w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, gen);
+        let b = &mut Arc::get_mut(&mut w.bodies).unwrap()[0];
+        if let Some(s) = spawn {
+            b.spawn = s;
+        }
+        let ores = place(b, b.baked_seed().unwrap());
+        (ores, b.spawn, b.radius)
+    };
+    let kinds = |gives: &[&str], ores: &[crate::ore::OreBody]| ores.iter().filter(|o| gives.contains(&MINERALS.kinds[o.kind as usize].gives.as_str())).copied().collect::<Vec<_>>();
+    let others = ["tin", "iron", "coal", "lead"];
+    for gen in [1, GENERATION] {
+        let (a, spawn, radius) = at(gen, None);
+        let (b, _, _) = at(gen, Some(-spawn));
+        let same = kinds(&others, &a) == kinds(&others, &b);
+        assert_eq!(same, gen >= 2, "generation {gen}: tin, iron, coal and lead the same for two spawns {same}");
+        // copper still follows the spawn: deep copper's first body in its ring from either (this planet has no
+        // stream within 150 m of its spawn for the gravel; `report=1` on the 4 km planet shows it)
+        let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, gen);
+        let body = &w.bodies[0];
+        for (ores, s) in [(&a, spawn), (&b, -spawn)] {
+            let deep = ores.iter().filter(|o| MINERALS.kinds[o.kind as usize].name == "deep copper").map(|o| radius * body.dir(o.face as usize, o.at.x, o.at.y).angle_between(s)).fold(f64::MAX, f64::min);
+            assert!((1000.0..=3000.0).contains(&deep), "generation {gen}: deep copper {deep:.0} m from the spawn");
+        }
+        assert_ne!(kinds(&["copper"], &a), kinds(&["copper"], &b), "generation {gen}: copper moves with the spawn");
+    }
 }

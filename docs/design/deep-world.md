@@ -90,14 +90,14 @@ Extends ADR 0063's limestone systems and lava tubes. Each kind is cut only in th
 | Kind | Where | Shape | Now |
 |---|---|---|---|
 | Karst | limestone, down to the water table | sinkholes and shafts from the surface, halls with dripstone, underground rivers and lakes that come out at springs | ADR 0063's water-table systems only (in code, not yet a row) |
-| Lava tubes | basalt of rifts and arcs | long tubes downhill a few metres under the ground, skylights, collapsed pits | **made** (`data/caves.toml`, 0159-caves-by-rock): flat floor, arched roof, skylights over a heap, trenches; rare, see the draft |
+| Lava tubes | basalt of rifts and arcs | long tubes downhill a few metres under the ground, skylights, collapsed pits | **made** (`data/caves.toml`, 0159-caves-by-rock): flat floor, arched roof, skylights over a heap, trenches. From generation 2 (0160-generation-number-and-arc-basalt) in the arcs' basalt flows too (`data/rocks.toml` `flow`), one round passage 4-7 m wide, lower third filled, starting high on its basalt, no two side by side, every skylight a 3 x 3 hole with no plant over it: 98 tubes, 5.5 km on seed 1 (median 51 m: the arcs lie low) |
 | Magma | under volcanic provinces, deep | chambers and lava lakes; heat source and hazard | |
 | Faults and fissures | hard rock at province borders | narrow, tall cracks along the fault | **made** (`data/caves.toml`): slots 1-2 m wide, 10-60 m tall along borders, some open at the surface |
 | Sea caves | cliffs at the sea | cut by the surf at sea level, overhangs | |
 | Deep caverns | the mantle, rare | crystal geodes, gas pockets, flooded aquifers | |
 
-The kinds are rows of `data/caves.toml` (hosts, provinces, depth window, how many, shape); only a planet with
-the mantle gets them.
+The kinds are rows of `data/caves.toml` (hosts, provinces, depth window, how many, shape, the worlds'
+`generations`); only a planet with the mantle gets them.
 
 Granite and the old shields keep almost none.
 

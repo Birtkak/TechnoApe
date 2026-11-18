@@ -63,6 +63,14 @@ amount: finding a body is an event, and one body feeds a factory for hours. That
 ## Where, from the spawn
 The spawn is scored for the first three rows (`worldgen.md` stage 11). A face is 6.7 km across.
 
+From generation 2 (the developer, 2026-11-18; ADR 0160-generation-number-and-arc-basalt) only copper is placed
+for where the spawn is: copper gravel under 150 m and a deep copper body 1 to 3 km out keep their rings
+(`near`). Tin, bog iron, banded iron, coal and lead lie where their provinces, hosts, biomes and depth put them,
+like every other body (their rings are `near_before_2` in `data/minerals.toml`, kept by worlds of generation 0
+and 1 only); so do the caves and every other thing generated. The distances below for those five are what the
+rings gave; at generation 2 they are what a seed happens to give (seed 1, 4 km planet: tin 959 m, bog iron 309,
+banded iron 4,451, coal 1,672, lead 206).
+
 | Need | Distance | Depth | Why there |
 |---|---|---|---|
 | clay, sand, flint, wood, fresh water | under 100 m | surface | the first ten minutes |

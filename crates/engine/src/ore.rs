@@ -72,6 +72,7 @@ struct RawKind {
     #[serde(default)]
     biomes: Vec<String>,
     near: Option<[f64; 2]>,
+    near_before_2: Option<[f64; 2]>,
     gravel: Option<String>,
     #[serde(default)]
     gossan: f64,
@@ -104,6 +105,8 @@ pub struct Kind {
     pub host: Option<u16>,
     pub biomes: Vec<u8>,
     pub near: Option<[f64; 2]>,
+    /// A ring like `near` kept only in worlds of generation 0 and 1 (`Kind::ring`).
+    pub near_before_2: Option<[f64; 2]>,
     pub gravel: Option<usize>,
     pub gossan: f64,
     /// The altered rock around it (ADR 0095), outermost grade first; empty for none.
@@ -120,6 +123,11 @@ pub struct Kind {
 }
 
 impl Kind {
+    /// The ring from the spawn its first body is pulled into in a world of generation `gen`: `near`, and below
+    /// generation 2 also `near_before_2` (from 2 only copper's rows keep one: the developer, 2026-11-18).
+    pub fn ring(&self, gen: u8) -> Option<[f64; 2]> {
+        self.near.or(self.near_before_2.filter(|_| gen < 2))
+    }
     /// It has a window of pressure or heat: it forms deep, its bodies are not cut at the crust's old floor.
     pub fn deep(&self) -> bool {
         self.pressure.is_some() || self.heat.is_some()
@@ -164,8 +172,8 @@ impl Minerals {
             }
             // the mantle's kinds lie down to its floor; the crust's to 180 m
             let floor = if deep { 1400.0 } else { 180.0 };
-            if !(r.depth[0] >= 0.0 && r.depth[0] <= r.depth[1] && r.depth[1] <= floor) || r.near.is_some_and(|n| !(n[0] >= 0.0 && n[0] < n[1])) || r.blocks == 0 || r.gives.is_empty() {
-                return Err(format!("kind '{}': depth 0..{floor} m in order, near in order, blocks over 0, gives an element", r.name));
+            if !(r.depth[0] >= 0.0 && r.depth[0] <= r.depth[1] && r.depth[1] <= floor) || [r.near, r.near_before_2].iter().flatten().any(|n| !(n[0] >= 0.0 && n[0] < n[1])) || r.near.is_some() && r.near_before_2.is_some() || r.blocks == 0 || r.gives.is_empty() {
+                return Err(format!("kind '{}': depth 0..{floor} m in order, near and near_before_2 in order (one of them), blocks over 0, gives an element", r.name));
             }
             if r.host.is_some() && r.shape.follows_ground() {
                 return Err(format!("kind '{}': a host rock is for a body at a depth, not one under the ground", r.name));
@@ -175,14 +183,14 @@ impl Minerals {
                 return Err(format!("kind '{}': a halo is for a body at a depth, one to three grades, halo_m over 0 and at most {HALO_MAX}", r.name));
             }
             let halo = r.halo.iter().map(|h| block(&r.name, h)).collect::<Result<Vec<u16>, String>>()?;
-            kinds.push(Kind { name: r.name.clone(), block: block(&r.name, &r.block)?, gives: r.gives.clone(), shape: r.shape, count: r.count, blocks: r.blocks, depth: r.depth, provinces, host, biomes, near: r.near, gravel, gossan: r.gossan, halo, halo_m: r.halo_m, sample: r.sample.clone(), pressure: r.pressure, heat: r.heat });
+            kinds.push(Kind { name: r.name.clone(), block: block(&r.name, &r.block)?, gives: r.gives.clone(), shape: r.shape, count: r.count, blocks: r.blocks, depth: r.depth, provinces, host, biomes, near: r.near, near_before_2: r.near_before_2, gravel, gossan: r.gossan, halo, halo_m: r.halo_m, sample: r.sample.clone(), pressure: r.pressure, heat: r.heat });
         }
         if kinds.iter().map(|k| &k.name).collect::<std::collections::BTreeSet<_>>().len() != kinds.len() {
             return Err("two kinds share a name".into());
         }
         // the gossan after the crust's kinds, before the deep ones: its index (in every body of it) is as before
         let gossan = kinds.iter().position(|k| k.deep()).unwrap_or(kinds.len());
-        kinds.insert(gossan, Kind { name: "gossan".into(), block: BLOCKS.id("gossan"), gives: String::new(), shape: Shape::Blanket, count: 0, blocks: 1, depth: [0.5, 0.5], provinces: Vec::new(), host: None, biomes: Vec::new(), near: None, gravel: None, gossan: 0.0, halo: Vec::new(), halo_m: 0.0, sample: None, pressure: None, heat: None });
+        kinds.insert(gossan, Kind { name: "gossan".into(), block: BLOCKS.id("gossan"), gives: String::new(), shape: Shape::Blanket, count: 0, blocks: 1, depth: [0.5, 0.5], provinces: Vec::new(), host: None, biomes: Vec::new(), near: None, near_before_2: None, gravel: None, gossan: 0.0, halo: Vec::new(), halo_m: 0.0, sample: None, pressure: None, heat: None });
         Ok(Minerals { kinds, gossan })
     }
 }
@@ -372,7 +380,7 @@ pub fn place(b: &Body, seed: u64) -> Vec<OreBody> {
         while placed < want && tries < want * 600 {
             tries += 1;
             // the first of a kind with a ring from the spawn in the ring, while it has tries
-            let ring = kind.near.filter(|_| placed == 0 && tries < 400);
+            let ring = kind.ring(b.gen).filter(|_| placed == 0 && tries < 400);
             let (face, i, j, angle) = match (kind.shape, ring) {
                 (Shape::Gravel, _) => {
                     let pick: Vec<&(usize, f64, f64, f64)> = match ring {

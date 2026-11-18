@@ -46,12 +46,12 @@ impl World {
     }
     /// The world of a new game: the planet and Luna baked (ADR 0043, 0070), from memory, the disk or baked now.
     pub fn baked(planet_n: i32, moon_n: i32, seed: i32) -> Self {
-        World::baked_warp(planet_n, moon_n, seed, 0.0, true)
+        World::baked_warp(planet_n, moon_n, seed, 0.0, GENERATION)
     }
-    /// `baked` with every body's block grid warped by `warp` (the conformal grid's trial, ADR 0131), the planet's
-    /// grid down through the mantle when `mantle` (a new world's, ADR 0152; `mantle=0` keeps the 192 m floor).
-    pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64, mantle: bool) -> Self {
-        World::with_grid(planet_n, moon_n, seed, Some(crate::bake::get(seed, planet_n)), Some(crate::bake::luna::get(seed, moon_n)), warp, mantle)
+    /// `baked` with every body's block grid warped by `warp` (the conformal grid's trial, ADR 0131), the planet
+    /// of generation `gen` (`with_grid`).
+    pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64, gen: u8) -> Self {
+        World::with_grid(planet_n, moon_n, seed, Some(crate::bake::get(seed, planet_n)), Some(crate::bake::luna::get(seed, moon_n)), warp, gen)
     }
     /// The planet on `map` when one is given (its seed and size must be these), else on the noise land; Luna
     /// on its hills.
@@ -64,11 +64,12 @@ impl World {
     }
     /// `with_maps` with every body's block grid warped by `warp` (ADR 0131): 0 is today's grid.
     pub fn with_maps_warp(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>, luna: Option<Arc<Map>>, warp: f64) -> Self {
-        World::with_grid(planet_n, moon_n, seed, map, luna, warp, false)
+        World::with_grid(planet_n, moon_n, seed, map, luna, warp, 0)
     }
-    /// `with_maps_warp`, the planet's grid down through the mantle when `mantle` (a new world's, ADR 0152; a save
-    /// from before keeps its 192 m floor). Luna and a planet too small for a deep crust keep theirs.
-    pub fn with_grid(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>, luna: Option<Arc<Map>>, warp: f64, mantle: bool) -> Self {
+    /// `with_maps_warp`, the planet of generation `gen` (`Body::gen`): from 1 its grid goes down through the
+    /// mantle (ADR 0152; generation 0, a save from before, keeps its 192 m floor). Luna and a planet too small for
+    /// a deep crust keep theirs.
+    pub fn with_grid(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>, luna: Option<Arc<Map>>, warp: f64, gen: u8) -> Self {
         assert_eq!(BODIES.len(), 2, "the sky (sky.rs) poses a planet and one moon");
         assert!((0.0..=1.0).contains(&warp), "warp= is 0 to 1");
         let bodies: Vec<Body> = BODIES
@@ -77,8 +78,11 @@ impl World {
             .map(|(i, row)| {
                 let mut b = Body::new(if i == 0 { DVec3::ZERO } else { MOON_AT }, [planet_n, moon_n][i], seed + i as i32);
                 (b.name, b.air, b.ground, b.warp) = (row.name.clone(), row.air, row.ground, warp);
-                if mantle && i == 0 {
-                    b = b.with_mantle();
+                if i == 0 {
+                    b.gen = gen;
+                    if gen >= 1 {
+                        b = b.with_mantle();
+                    }
                 }
                 match (&map, row.generator) {
                     (Some(m), Generator::Continents) if i == 0 => b.with_map(m.clone()),

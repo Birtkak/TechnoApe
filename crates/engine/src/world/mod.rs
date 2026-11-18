@@ -97,6 +97,15 @@ pub fn deep_layers(n: i32) -> i32 {
 /// of `MANTLE_STEP` layers, so the coarse levels' chunks and cells stand on the layers they stood on before the
 /// mantle and a deep world's surface is drawn as an old one's (1280 on the 4 km planet, 4 m under R/sqrt 2).
 pub const MANTLE_STEP: i32 = 256;
+
+/// A new world's generation (`Body::gen`): 1 the mantle and the caves by rock (ADR 0152, 0159), 2 the arcs'
+/// basalt flows and lava tubes as one round passage (ADR 0160-generation-number-and-arc-basalt).
+pub const GENERATION: u8 = 2;
+
+/// Refuses a world of a generation newer than this build's: it would generate other ground under the edits.
+pub fn known_generation(gen: u8) -> Result<u8, String> {
+    if gen <= GENERATION { Ok(gen) } else { Err(format!("this world is generation {gen}, this build knows up to {GENERATION}: update the game")) }
+}
 pub fn mantle_layers(n: i32) -> i32 {
     let deep = deep_layers(n);
     if deep == 0 {
@@ -249,6 +258,10 @@ pub struct Body {
     /// a body of a save from before and every other body none. Layer z here is layer z - mantle of the body
     /// without it, at the same radius.
     pub mantle: i32,
+    /// The world's generation (ADR 0160-generation-number-and-arc-basalt): which generation rules its ground
+    /// was made by, kept in its save and sent to every client. 0 the worlds before the mantle, 1 the mantle's
+    /// (ADR 0154), `GENERATION` a new world's. A rule new in a generation asks `gen >=` it. Set on the planet only.
+    pub gen: u8,
     noise: FastNoiseLite,
     /// The sea level as a layer coordinate; generation fills every column lower than it with water.
     pub sea: Option<f64>,
@@ -293,6 +306,8 @@ struct Baked {
     jitter: FastNoiseLite,
     /// The rock layers' folds (`rock_at`), frequency 1: sampled at metres over a province's wavelength.
     fold: FastNoiseLite,
+    /// Each province's lava flow's cut on its noise (`Body::flow`); infinite without one.
+    flow_cut: Vec<f32>,
     seed: u64,
 }
 

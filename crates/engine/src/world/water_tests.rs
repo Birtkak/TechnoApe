@@ -250,7 +250,7 @@ fn a_block_placed_in_the_sea_and_dug_leaves_the_sea_as_it_was() {
 /// layer 0; Luna, a planet without a mantle and one too small for it have none.
 #[test]
 fn the_metal_sea_lies_at_the_mantles_floor_and_only_there() {
-    let w = World::with_grid(1536, 512, 1, None, None, 0.0, true);
+    let w = World::with_grid(1536, 512, 1, None, None, 0.0, 1);
     let b = &w.bodies[0];
     assert_eq!(b.core.map(|c| b.layer_r(c)), Some(b.r0), "at the bottom of layer 0");
     assert_eq!(w.bodies[1].core, None, "Luna has none");
@@ -268,7 +268,7 @@ fn the_metal_shows_only_down_a_hole_in_the_floor() {
         let k = Key { body: 0, face: 2, level: 0, pos: IVec3::new(3, 3, z) };
         metal_quads(&w.bodies[0], k, &generate(&w.bodies[0], k, &edits))
     };
-    let w = World::with_grid(1536, 32, 1, None, None, 0.0, true);
+    let w = World::with_grid(1536, 32, 1, None, None, 0.0, 1);
     let mut got: Vec<(u32, u32, u32, u32, u32)> = quads(&w, 0).iter().map(|q| (q[0] & 63, q[0] >> 6 & 63, q[0] >> 12 & 63, q[0] >> 28, q[1])).collect();
     got.sort();
     let mut want: Vec<_> = open.iter().map(|&(u, v)| (u as u32 - 1, v as u32 - 1, 1, 6, 8)).collect();

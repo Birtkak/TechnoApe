@@ -46,6 +46,11 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   `run=stand depth=1000 place=0:0:0:air,0:0:1:air,0:0:2:air,1:0:1:lamp,...`; `floor=k` instead stands on the
   bottom of layer k (`floor=3 place=...` with `air` down to `0:0:-3` opens the floor onto the metal sea). `mantle=0` (the game, the server and
   its `report=1`) makes a new world on the 192 m floor of the worlds from before.
+- `gen=k` (the game, the server and `report=1`): a new world of generation k (ADR
+  0160-generation-number-and-arc-basalt): 0 the worlds before the mantle (as `mantle=0`), 1 the mantle's (ADR 0154,
+  0159), 2 the newest (arcs' basalt flows, round lava tubes, only copper placed for where the spawn is). A world keeps
+  its generation in its save and sends it to clients and bots; `report=1` prints it as `gen`. For tests and for
+  comparing one seed's worlds; a new world without it is the newest.
 - Under the mantle's floor (layer 0 of a new world) lies the liquid outer core, a white-hot sea of iron and
   nickel: dig out a floor block and it glows up the hole, calm, at the floor's bottom; it holds you up like the
   floor did, but feet in it burn, a point of health every 0.1 s (survival; "<name> burned in the liquid metal").

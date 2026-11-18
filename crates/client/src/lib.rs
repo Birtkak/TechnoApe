@@ -405,8 +405,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
                     s.read_herds(p);
                     s
                 }
-                // mantle=0: a new world on the 192 m floor of the worlds before ADR 0152
-                None => Server::baked_warp(planet, moon, seed, warp, args.get("mantle", 1) != 0, accept_rx),
+                // a new world of the newest generation, or `gen=` (mantle=0: generation 0, the 192 m floor before ADR 0152)
+                None => Server::baked_warp(planet, moon, seed, warp, server::gen_arg(args.get("mantle", 1), args.get("gen", -1)), accept_rx),
             };
             server.autosave = save.clone().map(|p| (p.into(), 30 * TICK_HZ as u64));
             server.live_data = true;
@@ -456,7 +456,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         first = link.rx.recv_timeout(Duration::from_secs(10));
     }
     let (my_id, mut world, seed) = match first {
-        Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, items, map, luna, mantle }) => {
+        Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, items, map, luna, gen }) => {
             assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
             assert_eq!(items, engine::items::ITEMS.hash, "the server's build has other items (data/items.toml)");
             // the baked map (ADR 0043): the local server's in memory, else from the disk or the server
@@ -474,7 +474,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
             }
             let map = map.map(|h| kept.map_or_else(|| engine::net::fetch_map(&mut link, seed, planet_n, h), Ok).unwrap_or_else(|e| panic!("{e}")));
             let luna = luna.map(|h| luna_kept.map_or_else(|| engine::net::fetch_map(&mut link, seed, moon_n, h), Ok).unwrap_or_else(|e| panic!("{e}")));
-            (id, World::with_grid(planet_n, moon_n, seed, map, luna, warp, mantle), seed)
+            let gen = engine::world::known_generation(gen).unwrap_or_else(|e| panic!("{e}"));
+            (id, World::with_grid(planet_n, moon_n, seed, map, luna, warp, gen), seed)
         }
         other => panic!("no welcome from the server: {other:?}"),
     };

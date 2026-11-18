@@ -230,13 +230,14 @@ impl Bot {
                 self.heard = Instant::now();
             }
             match got {
-                Recv::Msg(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, items, map, luna, mantle }) => {
+                Recv::Msg(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, items, map, luna, gen }) => {
                     assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
                     assert_eq!(items, engine::items::ITEMS.hash, "the server's build has other items (data/items.toml)");
                     // the baked map (ADR 0043): shared with a server in this process, from the disk, or fetched
                     let map = map.map(|h| engine::net::fetch_map(&mut self.link, seed, planet_n, h).unwrap_or_else(|e| panic!("{e}")));
                     let luna = luna.map(|h| engine::net::fetch_map(&mut self.link, seed, moon_n, h).unwrap_or_else(|e| panic!("{e}")));
-                    let w = World::with_grid(planet_n, moon_n, seed, map, luna, self.warp, mantle);
+                    let gen = engine::world::known_generation(gen).unwrap_or_else(|e| panic!("{e}"));
+                    let w = World::with_grid(planet_n, moon_n, seed, map, luna, self.warp, gen);
                     self.id = id;
                     // the server spawns players just over the +y pole; an empty input makes this one a
                     // walker, so it lands there

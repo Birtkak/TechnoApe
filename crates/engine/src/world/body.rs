@@ -17,7 +17,7 @@ impl Body {
         // small bodies keep half their radius; the deep ground lies under the old floor, layer for layer
         let r0 = (radius - CRUST.min(radius * 0.5)) * (-lnq * deep_layers(n) as f64).exp();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, warp: 0.0, layers, mantle: 0, noise, sea: None, core: None, land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
+        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, warp: 0.0, layers, mantle: 0, gen: 0, noise, sea: None, core: None, land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
     }
     /// The body on the deep grid (ADR 0152, step 1): the same grid carried on down `mantle_layers` more, layer 0
     /// at about R/sqrt 2; every layer above keeps its radius and gains that in index. Set before its map.
@@ -81,7 +81,19 @@ impl Body {
         fold.set_fractal_octaves(Some(2));
         fold.set_frequency(Some(1.0));
         let spawn = DVec3::from_array(map.spawn);
-        self.baked = Some(Box::new(Baked { seed: map.seed as u32 as u64, map, detail, jitter, fold, spots: Default::default(), levels: Default::default() }));
+        // each flow's cut: the noise's value over which its share of 4096 directions spread over the sphere lie
+        let flow_cut = ROCKS
+            .provinces
+            .iter()
+            .map(|p| {
+                let Some(f) = p.flow else { return f32::INFINITY };
+                let k = self.radius / f.width as f64;
+                let mut v: Vec<f32> = (0..4096).map(|n| flow_noise_of(&fold, fibonacci(n, 4096) * k)).collect();
+                v.sort_by(f32::total_cmp);
+                v[((1.0 - f.share as f64) * 4095.0).round() as usize]
+            })
+            .collect();
+        self.baked = Some(Box::new(Baked { seed: map.seed as u32 as u64, map, detail, jitter, fold, flow_cut, spots: Default::default(), levels: Default::default() }));
         self.sea = Some(self.layer_of(self.radius - SEA_DEPTH).floor() + 0.875);
         self.ocean = self.ocean_moments();
         // the scored spawn, moved to the nearest column with no plant within a step
@@ -276,14 +288,27 @@ impl Body {
         let q = d * (self.radius / width as f64);
         let wave = b.fold.get_noise_3d(q.x as f32, q.y as f32, q.z as f32);
         let top = (self.radius - SEA_DEPTH + ROCKS.datum as f64 + (amp * wave) as f64) as f32;
+        let flow = self.flow(b, face, p, s, i, j, d);
         if self.mantle == 0 {
-            return Rock { province: p, top, ..Rock::NONE };
+            return Rock { province: p, top, flow, ..Rock::NONE };
         }
         // the mantle's: the year's air over the column's middle, as `heat` reads it, and a slow wave of its own
         let (ax, ay) = self.map_xy(s, i, j);
         let q = d * (self.radius / WOBBLE_M);
         let wobble = ROCKS.wobble * b.fold.get_noise_3d(q.x as f32 + 911.0, q.y as f32 - 377.0, q.z as f32 + 143.0);
-        Rock { province: p, top, air: b.map.temp(face, ax, ay).unwrap_or(0.0), wobble }
+        Rock { province: p, top, air: b.map.temp(face, ax, ay).unwrap_or(0.0), wobble, flow }
+    }
+    /// Where province p's lava flow (`rock::Flow`) lies over face point (i, j), the radius of its foot: its
+    /// `thick` metres under the map's ground there; 0 where none lies, in a province without one, or in a world
+    /// before generation 2. Its fields are where a slow noise of the seed is over the cut that leaves `share`.
+    #[allow(clippy::too_many_arguments)]
+    fn flow(&self, b: &Baked, face: usize, p: u8, s: f64, i: f64, j: f64, d: DVec3) -> f32 {
+        let Some(f) = ROCKS.provinces[p as usize].flow.filter(|_| self.gen >= 2) else { return 0.0 };
+        if flow_noise(b, d * (self.radius / f.width as f64)) < b.flow_cut[p as usize] {
+            return 0.0;
+        }
+        let (mx, my) = self.map_xy(s, i, j);
+        (self.radius - SEA_DEPTH + b.map.height(face, mx, my, 0) as f64 - f.thick as f64) as f32
     }
     /// The rock of level-0 column (i, j): from its tile when one is cached, else computed (as `col_height`).
     pub fn col_rock(&self, face: u8, i: i32, j: i32) -> Rock {
@@ -408,10 +433,27 @@ impl Body {
         if self.water_at(face as u8, i, j).is_some_and(|w| z as f64 <= w.0) {
             return None;
         }
-        // nor over a cave's open mouth (a skylight, a slot), on a planet with the mantle. shortcut: new generation
-        // rides on the mantle flag, give worlds a generation number when the next rule needs it
+        // nor over a cave's open mouth (a skylight, a slot), on a planet with the mantle (generation 1 came in on
+        // the mantle flag; a rule new since asks `self.gen`, ADR 0160-generation-number-and-arc-basalt)
         if self.mantle > 0 && self.col_caves(face as u8, i, j).iter().any(|&(lo, hi)| (lo..hi).contains(&(z - 1))) {
             return None;
+        }
+        // nor, from generation 2, a plant whose crown hangs over a cave's open mouth: a skylight is seen from the
+        // sky (ADR 0160-generation-number-and-arc-basalt). Columns without a cave cost a tile lookup.
+        if self.gen >= 2 {
+            let r = ROWS.plants[plant].radius;
+            for (di, dj) in (-r..=r).flat_map(|a| (-r..=r).map(move |c| (a, c))) {
+                let (g, a, c) = fold(face, i + di, j + dj, self.n);
+                let caves = self.col_caves(g as u8, a, c);
+                if caves.is_empty() {
+                    continue;
+                }
+                let (ci, cj) = (a as f64 + 0.5, c as f64 + 0.5);
+                let top = self.first_air(self.height_at(g, ci, cj, self.dir(g, ci, cj), 0)) - 1;
+                if caves.iter().any(|&(lo, hi)| (lo..hi).contains(&top)) {
+                    return None;
+                }
+            }
         }
         // a palm only where the year is warm (ADR 0092)
         if ROWS.plants[plant].warm.is_some_and(|t| self.year_air(face, i, j).is_none_or(|a| a < t)) {
@@ -527,4 +569,21 @@ impl Body {
     pub fn ore_block(&self, k: u32) -> u16 {
         crate::ore::MINERALS.kinds[self.ores[k as usize].kind as usize].block
     }
+}
+
+/// The lava flows' noise at q (`Body::flow`): the folds' noise, moved off them.
+fn flow_noise(b: &Baked, q: DVec3) -> f32 {
+    flow_noise_of(&b.fold, q)
+}
+
+fn flow_noise_of(fold: &FastNoiseLite, q: DVec3) -> f32 {
+    fold.get_noise_3d(q.x as f32 - 263.0, q.y as f32 + 721.0, q.z as f32 - 449.0)
+}
+
+/// Direction k of n spread evenly over the sphere (a Fibonacci lattice).
+fn fibonacci(k: usize, n: usize) -> DVec3 {
+    let z = 1.0 - (2.0 * k as f64 + 1.0) / n as f64;
+    let a = k as f64 * PI * (3.0 - 5f64.sqrt());
+    let s = (1.0 - z * z).sqrt();
+    DVec3::new(s * a.cos(), s * a.sin(), z)
 }
