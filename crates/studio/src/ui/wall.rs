@@ -46,9 +46,15 @@ pub fn fit(width: f32, gap: f32, least: f32, most: f32) -> (usize, f32) {
     (cols as usize, ((width + gap) / cols - gap).min(most).min(width).floor().max(1.0))
 }
 
-/// Whether a wall was on screen last frame: its keys (M, Enter, Escape) are then the wall's, not the page's.
-pub fn shown(ctx: &egui::Context) -> bool {
-    ctx.data(|d| d.get_temp::<u64>(egui::Id::unique("wall.frame"))).is_some_and(|f| f + 1 >= ctx.cumulative_frame_nr())
+/// The keys a wall took last frame, by [`key_act`]: those are then the wall's, not the page's.
+pub fn claims(ctx: &egui::Context, key: Key) -> bool {
+    let last = ctx.data(|d| d.get_temp::<(u64, Option<bool>, Option<usize>)>(egui::Id::unique("wall.keys")));
+    last.is_some_and(|(f, uses, chosen)| f + 1 >= ctx.cumulative_frame_nr() && key_act(key, uses, chosen).is_some())
+}
+
+/// Set by the frame before the page runs: whether a page may take keys now (no overlay, ask or closing).
+pub fn allow_keys(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("wall.allowed"), on));
 }
 
 /// `show_with` where `uses` is `Some(picked)` on a page whose pick waits for Use: the bar then leads with
@@ -56,10 +62,8 @@ pub fn shown(ctx: &egui::Context) -> bool {
 pub fn show_full<T: Clone>(ui: &mut Ui, wall: &mut Wall<T>, chosen: Option<usize>, cell: Vec2, play: bool, uses: Option<bool>, draw: impl Fn(&egui::Painter, Rect, usize, &T)) -> Act {
     let mut act = Act::None;
     let ctx = ui.ctx().clone();
-    let frame = ctx.cumulative_frame_nr();
-    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("wall.frame"), frame));
     // the one bar
-    ui.horizontal_wrapped(|ui| {
+    let bar = ui.horizontal_wrapped(|ui| {
         if let Some(picked) = uses {
             let r = ui.add_enabled(picked, look::primary("Use"));
             crate::drive::mark(ui.ctx(), "btn:wall.use", r.rect);
@@ -103,23 +107,24 @@ pub fn show_full<T: Clone>(ui: &mut Ui, wall: &mut Wall<T>, chosen: Option<usize
         });
     });
     ui.add_space(GAP);
-    // the keys, unless a field is typed into
-    if !ctx.egui_wants_keyboard_input() {
+    // the keys: only while a page may take keys (no overlay or ask over it), no field is typed into, and the
+    // bar is in sight (the work's scroll area runs a wall scrolled away too)
+    let allowed = ctx.data(|d| d.get_temp::<bool>(egui::Id::unique("wall.allowed"))).unwrap_or(true);
+    if allowed && !ctx.egui_wants_keyboard_input() && ui.clip_rect().intersects(bar.response.rect) {
+        let frame = ctx.cumulative_frame_nr();
+        ctx.data_mut(|d| d.insert_temp(egui::Id::unique("wall.keys"), (frame, uses, chosen)));
         ctx.input_mut(|i| {
-            if uses == Some(true) && i.consume_key(Modifiers::NONE, Key::Enter) {
-                act = Act::Use;
-            }
-            if uses.is_some() && i.consume_key(Modifiers::NONE, Key::Escape) {
-                act = Act::Cancel;
-            }
-            if let (true, Some(c)) = (i.consume_key(Modifiers::NONE, Key::M), chosen) {
-                act = Act::More(c);
+            for key in [Key::Enter, Key::Escape, Key::M] {
+                if let Some(a) = key_act(key, uses, chosen).filter(|_| i.consume_key(Modifiers::NONE, key)) {
+                    act = a;
+                }
             }
         });
     }
     // the grid: the cells share the width evenly, no text under them
     let gap = GAP;
-    let (cols, side) = fit(ui.available_width(), gap, cell.x, cell.x * 1.5);    let size = Vec2::new(side, (cell.y * side / cell.x).round());
+    let (cols, side) = fit(ui.available_width(), gap, cell.x, cell.x * 1.5);
+    let size = Vec2::new(side, (cell.y * side / cell.x).round());
     let n = wall.items.len();
     for row in 0..n.div_ceil(cols) {
         ui.horizontal(|ui| {
@@ -143,10 +148,8 @@ pub fn show_full<T: Clone>(ui: &mut Ui, wall: &mut Wall<T>, chosen: Option<usize
                 }
                 let help = if i == 0 { "The current one, this set was made around it; a click picks it, a double click uses it" } else { "A click picks this one, a double click uses it" };
                 let resp = look::tip(resp, help, "");
-                if resp.double_clicked() {
-                    act = if uses.is_some() { Act::Use } else { Act::Take(i) };
-                } else if resp.clicked() {
-                    act = Act::Take(i);
+                if resp.clicked() || resp.double_clicked() {
+                    act = click_act(i, resp.double_clicked(), uses);
                 }
                 // on hover: "more like this" at the top right, play at the bottom left
                 if over {
@@ -179,6 +182,22 @@ pub fn show_full<T: Clone>(ui: &mut Ui, wall: &mut Wall<T>, chosen: Option<usize
     act
 }
 
+/// What a key does on the wall; `None` leaves the key to the page.
+fn key_act(key: Key, uses: Option<bool>, chosen: Option<usize>) -> Option<Act> {
+    match key {
+        Key::Enter => (uses == Some(true)).then_some(Act::Use),
+        Key::Escape => uses.is_some().then_some(Act::Cancel),
+        Key::M => chosen.map(Act::More),
+        _ => None,
+    }
+}
+
+/// What a click on item `i` does (a double click comes as a second click).
+fn click_act(i: usize, double: bool, uses: Option<bool>) -> Act {
+    // (a double click on Current only picks it: on Maps that is "nothing picked", and Use would close the wall)
+    if double && uses.is_some() && i > 0 { Act::Use } else { Act::Take(i) }
+}
+
 /// A round button's face on a picture.
 fn round(p: &egui::Painter, r: Rect, hot: bool) {
     p.circle(r.center(), r.width() * 0.5, if hot { look::PRESSED } else { look::PANEL.gamma_multiply(0.92) }, Stroke::new(1.0, look::FIELD));
@@ -195,6 +214,17 @@ fn badge(p: &egui::Painter, at: Pos2, text: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn m_is_the_walls_only_when_something_is_picked_and_a_double_click_on_current_keeps_the_wall() {
+        assert_eq!(key_act(Key::M, None, Some(2)), Some(Act::More(2)));
+        assert_eq!(key_act(Key::M, Some(false), None), None, "nothing picked: M is the page's (Mirror, vary, mutate)");
+        assert_eq!(key_act(Key::Enter, Some(false), None), None);
+        assert_eq!(key_act(Key::Escape, None, Some(1)), None, "no pending pick: Escape is the page's");
+        assert_eq!(click_act(3, true, Some(true)), Act::Use);
+        assert_eq!(click_act(0, true, Some(false)), Act::Take(0), "a double click on Current only picks it, the wall stays");
+        assert_eq!(click_act(3, true, None), Act::Take(3));
+    }
 
     #[test]
     fn the_cells_fill_the_width_and_never_spill() {

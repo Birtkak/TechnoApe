@@ -282,5 +282,6 @@ Pages feed it their own kind (ramps, textures' variants, chains, effects, seeds,
   Use (Textures' variant sets, Maps); "More like this" for the picked one (grey until one is picked);
   "New batch"; "Back" (the set before the last "more like this"); "How different", a slider from subtle to
   wild.
-- **Keys** while a wall is up: Enter uses, Escape cancels, M is more like the picked one (M, Enter and Escape
-  are the wall's then, not the page's).
+- **Keys** while a wall's bar is in sight and no overlay or ask is over it: Enter uses, Escape cancels (on a
+  page whose pick waits for Use), M is more like the picked one. A key the wall does not act on stays the
+  page's (M with nothing picked is still Mirror, vary or mutate). A double click on "Current" only picks it.

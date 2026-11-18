@@ -707,6 +707,8 @@ impl Studio {
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(1000));
         self.keys(&ctx);
+        // a wall takes keys only when a page's commands may
+        wall::allow_keys(&ctx, self.overlay == Overlay::None && self.app.asks.is_empty() && !self.closing);
         look::set_layout(&ctx, look::Layout { page: self.pages[self.page].name().into(), folded: self.settings.folded.clone(), splits: self.settings.splits.clone(), order: self.settings.order.clone() });
 
         egui::Panel::top("pages").exact_size(if self.tabs_wrap { 72.0 } else { 40.0 }).show(ui, |ui| self.top_bar(ui));
@@ -770,7 +772,7 @@ impl Studio {
 
     fn keys(&mut self, ctx: &egui::Context) {
         let typing = ctx.egui_wants_keyboard_input();
-        let wall = wall::shown(ctx);
+        let claimed: Vec<Key> = [Key::M, Key::Enter, Key::Escape].into_iter().filter(|k| wall::claims(ctx, *k)).collect();
         let mut run = vec![];
         let mut cmds = Self::frame_commands();
         if !typing && self.overlay == Overlay::None && self.app.asks.is_empty() && !self.closing {
@@ -780,8 +782,8 @@ impl Studio {
             for c in &cmds {
                 let Some((m, k)) = c.key else { continue };
                 // the frame's own keys work while typing in a box too, a page's not
-                // while a variations wall is up, M, Enter and Escape are its own
-                if wall && m == Modifiers::NONE && matches!(k, Key::M | Key::Enter | Key::Escape) && !c.id.starts_with("frame:") {
+                // a key the variations wall in sight acts on is its own (M with a pick, Enter and Escape with Use)
+                if m == Modifiers::NONE && !c.id.starts_with("frame:") && claimed.contains(&k) {
                     continue;
                 }
                 if (!typing || c.id.starts_with("frame:")) && i.consume_shortcut(&KeyboardShortcut::new(m, k)) {

@@ -31,7 +31,8 @@ Option 2.
   repository, no new crate); egui's own font where they are missing. Body 13, small 11.5; titles and tabs
   semibold. The game's pixel font stays as a setting (View > Interface font: Clean | Game, `font=game` in
   `studio.txt`, Clean when absent) with its old sizes and pixel-sharp scale steps; the clean font's scale
-  menu offers 80 to 200 %.
+  menu offers 80 to 200 %. A scale kept from the game font is snapped to the nearest of those at the first
+  frame (133 % becomes 125 %).
 - **Controls:** quiet buttons (a fill on hover only), corners 4 on controls and 8 on cards, menus and
   windows, soft shadows under menus and windows, text fields with a 1 px border, sliders with a 2 px track
   and a round handle, chips as one segmented group, tooltips with the key in a keycap.
