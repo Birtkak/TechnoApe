@@ -40,7 +40,7 @@ One look for every page, so a tool learned once works everywhere.
 - **Toasts** in the bottom right for what happened ("Saved dirt.png", "Refused: stone_top.png is 24 wide"),
   gone after four seconds, red ones stay until clicked.
 - **History:** the inspector can show the file's undo steps by name; a click goes back to one.
-- **Look** (ADR draft-studio-look; like Adobe's dark tools): neutral greys with no blue in them (work area
+- **Look** (ADR 0155; like Adobe's dark tools): neutral greys with no blue in them (work area
   `#1e1e1e`, panels `#2a2a2a`, hover `#353535`, chosen `#434343`, hairlines `#3d3d3d`, field borders
   `#525252`; text `#e6e6e6`, secondary `#b0b0b0`, disabled `#6e6e6e`), all named in `ui/look.rs`.
   **One blue** (`#2680eb`) for the main action and for focus: the one filled pill on a screen (Try in game,

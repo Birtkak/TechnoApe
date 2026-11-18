@@ -1,4 +1,4 @@
-//! The one look of every page (docs/design/studio-tools.md "Look", ADR draft-studio-look): neutral dark greys,
+//! The one look of every page (docs/design/studio-tools.md "Look", ADR 0155): neutral dark greys,
 //! one blue for the main action and for focus, a clean sans in two weights, quiet controls; and the small
 //! pieces every page draws with.
 use crate::art::{Img, S};
