@@ -17,7 +17,24 @@ impl Body {
         // small bodies keep half their radius; the deep ground lies under the old floor, layer for layer
         let r0 = (radius - CRUST.min(radius * 0.5)) * (-lnq * deep_layers(n) as f64).exp();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, warp: 0.0, layers, noise, sea: None, land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
+        Body { name: String::new(), air: false, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, warp: 0.0, layers, mantle: 0, noise, sea: None, land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
+    }
+    /// The body on the deep grid (ADR 0152, step 1): the same grid carried on down `mantle_layers` more, layer 0
+    /// at about R/sqrt 2; every layer above keeps its radius and gains that in index. Set before its map.
+    pub fn with_mantle(mut self) -> Self {
+        assert!(self.baked.is_none() && self.caves.is_empty() && self.ores.is_empty(), "the mantle goes in before the map");
+        let k = mantle_layers(self.n);
+        self.r0 *= (-self.lnq * k as f64).exp();
+        (self.layers, self.mantle) = (self.layers + k, k);
+        self
+    }
+    /// The rock at radius r of a column of rock `rock`, `fallback` the biome's (ADR 0063): the one rule the
+    /// mesher's fill and `generated_under` ask; under the crust of a body with a mantle, the mantle's rock.
+    pub fn rock(&self, rock: Rock, r: f32, fallback: u16) -> u16 {
+        if self.mantle > 0 && (r as f64) < self.radius - DEEP {
+            return ROCKS.mantle;
+        }
+        ROCKS.at(rock, r, fallback)
     }
     /// The body on a baked map (ADR 0043): its heights, biomes, ground and plants, and its spawn.
     pub fn with_map(mut self, map: Arc<Map>) -> Self {
@@ -464,7 +481,8 @@ impl Body {
     pub fn halo_at(&self, face: u8, i: i32, j: i32, z: i32) -> Option<(u32, usize)> {
         let mut best: Option<(u32, usize)> = None;
         for &k in self.tile_ores(face, i.div_euclid(CS), j.div_euclid(CS)) {
-            if let Some(g) = self.ores[k as usize].halo_grade(face, i, j, z) {
+            // (its fraying hashed by the layer of the grid without a mantle: the same halo on either)
+            if let Some(g) = self.ores[k as usize].halo_grade(face, i, j, z, self.mantle) {
                 if best.is_none_or(|(_, b)| g > b) {
                     best = Some((k, g));
                 }

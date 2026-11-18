@@ -127,7 +127,7 @@ pub fn drop(world: &World, b: Block, block: u16) -> Vec<Block> {
         return Vec::new();
     }
     let plane = 1 << here.trailing_zeros();
-    let want = 2 + (mix(salt(body) ^ (b.face as u64) << 56 ^ (b.pos.x as u32 as u64) << 28 ^ b.pos.y as u32 as u64 ^ (b.pos.z as u64) << 44) % 4) as usize;
+    let want = 2 + (mix(salt(body) ^ (b.face as u64) << 56 ^ (b.pos.x as u32 as u64) << 28 ^ b.pos.y as u32 as u64 ^ ((b.pos.z - body.mantle) as u64) << 44) % 4) as usize;
     // the crack's own plane: its neighbours lie across the other two axes
     let along: Vec<IVec3> = [PI, PJ, PL].into_iter().filter(|&a| a != plane && a << 1 != plane).flat_map(|a| [step(a), -step(a)]).collect();
     let (mut out, mut seen, mut queue) = (Vec::new(), vec![b], std::collections::VecDeque::from([b]));

@@ -451,7 +451,7 @@ pub struct At {
     /// spray, whose floor is the water's).
     pub col: Column,
     pub block: u16,
-    /// The cell, for a `block` look: drawn exactly where the terrain draws it.
+    /// The cell, for a `block` look: drawn exactly where the terrain draws it (as the GPU counts layers, `gpu_cell`).
     pub cell: Option<Block>,
 }
 
@@ -523,7 +523,7 @@ impl At {
             floor,
             col,
             block,
-            cell: Some(b),
+            cell: Some(gpu_cell(world, b)),
         }
     }
     /// The middle of a cell's floor, as `cell` has the cell otherwise: where a fire or a fountain stands.
@@ -1324,7 +1324,7 @@ impl Fx {
             return;
         }
         self.cracks += 1;
-        let (a, code) = cell_code(b);
+        let (a, code) = cell_code(gpu_cell(world, b));
         self.out.push(FxGpu { p: [0.0; 3], size: 1.0, info: world.block(b) as u32 | (b.body as u32) << 8 | (Look::Crack as u32) << 10, angle: k.clamp(0.0, 1.0), a, b: code });
     }
 
@@ -1356,6 +1356,11 @@ fn seed_axis(a: u32) -> Vec3 {
 pub(crate) fn pack_dir(v: Vec3) -> u32 {
     let d = v.normalize_or(Vec3::Y).to_array().map(|x| ((x * 0.5 + 0.5) * 1023.0).round() as u32);
     d[0] | d[1] << 10 | d[2] << 20
+}
+
+/// Cell b as the GPU counts its layers (from the floor of the worlds before the mantle, `frame::gpu_r0`).
+pub(crate) fn gpu_cell(world: &World, b: Block) -> Block {
+    Block { pos: b.pos - IVec3::Z * world.bodies[b.body as usize].mantle, ..b }
 }
 
 /// A cell as the shader's `block` and `crack` looks find it on the grid: column and face.
@@ -1396,8 +1401,8 @@ impl Glide {
         now >= self.t0 + GLIDE_S
     }
     /// As the GPU draws it: a whole-cell look of `to`, bit 20 saying `p` is the offset in cells (`vs_fx`).
-    pub fn gpu(&self, now: f64) -> FxGpu {
-        let (a, b) = cell_code(self.to);
+    pub fn gpu(&self, now: f64, mantle: i32) -> FxGpu {
+        let (a, b) = cell_code(Block { pos: self.to.pos - IVec3::Z * mantle, ..self.to });
         FxGpu { p: self.offset(now).to_array(), size: 1.0, info: self.block as u32 | (self.to.body as u32) << 8 | (Look::Block as u32) << 10 | 1 << 20, angle: 0.0, a, b }
     }
 }
@@ -1626,6 +1631,21 @@ mod tests {
     use super::*;
     use engine::blocks::AIR;
 
+    /// A cell look (a crack, a gliding block, a pile, a break's cube) on a world with a mantle (ADR 0152) is drawn
+    /// where the terrain draws its cell: the GPU counts layers from the old floor, its `r0` there.
+    #[test]
+    fn a_cell_look_on_a_deep_world_is_drawn_at_its_cell() {
+        let w = World::with_grid(1536, 32, 1, None, None, 0.0, true);
+        let b = &w.bodies[0];
+        assert!(b.mantle > 0);
+        let c = Block { body: 0, face: 2, pos: IVec3::new(5, 7, b.layers - 20) };
+        let drawn = |code: u32| crate::frame::gpu_r0(b) * (b.lnq * ((code & 0xffff) as f64 + 0.5)).exp();
+        let want = b.layer_r(c.pos.z as f64 + 0.5);
+        for (what, code) in [("an effect's", cell_code(At::cell(&w, c, 0).cell.unwrap()).1), ("a crack's or a pile's", cell_code(gpu_cell(&w, c)).1), ("a glide's", Glide::new(c, c, 8, 1.0).gpu(1.0, b.mantle).b)] {
+            assert!((drawn(code) - want).abs() < 1e-6, "{what} cell is drawn {} m from its own", drawn(code) - want);
+        }
+    }
+
     fn world() -> World {
         World::new(768, 256, 1)
     }
@@ -1641,7 +1661,7 @@ mod tests {
         let mid = g.offset(1.0 + GLIDE_S / 2.0);
         assert!((mid.x + 0.5).abs() < 1e-5, "half way at half the time: {mid}");
         assert_eq!(g.offset(1.0 + GLIDE_S), Vec3::ZERO);
-        let d = g.gpu(1.0 + GLIDE_S / 2.0);
+        let d = g.gpu(1.0 + GLIDE_S / 2.0, 0);
         assert_eq!((d.info & 255, d.info >> 10 & 3, d.info >> 20 & 1), (8, Look::Block as u32, 1));
         assert_eq!((d.a, d.b), cell_code(c(6, 10)), "drawn as its new cell");
         // it falls on from its new cell a quarter of the way in: from about where it is drawn, toward the next

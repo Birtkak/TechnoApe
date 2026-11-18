@@ -54,7 +54,6 @@ pub fn generate_raw(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
     let dirt = (2.0 * cf).max(4.0);
     let mut any_air = false;
     let mut any_solid = false;
-    let rocks = &*ROCKS;
     for z in 0..P {
         let l = (c0.z as f64 + z as f64 + 0.5) * s;
         let r = body.layer_r(l);
@@ -62,7 +61,7 @@ pub fn generate_raw(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
         for (i, hv) in h.iter().enumerate() {
             let d = hv - r;
             let g = &tile.g[i];
-            let mut m = if core { g[2] } else if d >= dirt { rocks.at(tile.rock[i], r as f32, g[2]) } else if d >= grass { g[1] } else if d >= 0.0 { g[0] } else { 0 };
+            let mut m = if core { g[2] } else if d >= dirt { body.rock(tile.rock[i], r as f32, g[2]) } else if d >= grass { g[1] } else if d >= 0.0 { g[0] } else { 0 };
             if z == P - 1 && z_air >= 0 && *hv < r_air {
                 // the skirt rule for the top padding, which has no cells above it here (ADR 0018). shortcut:
                 // from the generated height alone, edits over the chunk do not count; a dug hole there could

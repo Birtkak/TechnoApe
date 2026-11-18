@@ -950,3 +950,132 @@ fn detail_spot() {
     let yaw = to.dot(up.cross(ahead)).atan2(to.dot(ahead)).to_degrees();
     println!("spot: at={:.6},{:.6},{:.6} yaw={yaw:.1}: plain {:.1} m, slope {:.2} at {:.0} m", up.x, up.y, up.z, at(f, i, j), slope(f, i + a, j + c), (a as f32).hypot(c as f32) * cell);
 }
+
+/// The mantle (ADR 0152, step 1): a new 4 km planet's grid goes on down to within a layer of R/sqrt 2, its
+/// lowest blocks 0.70 to 0.72 m; every layer of the old grid keeps its radius at its index plus the mantle's.
+/// Luna, a small planet and a body without a mantle keep today's grid, layer for layer.
+#[test]
+fn the_mantle_carries_the_grid_down_to_r_over_root_2() {
+    let (old, new) = (Body::new(DVec3::ZERO, 6144, 1), Body::new(DVec3::ZERO, 6144, 1).with_mantle());
+    let k = new.mantle;
+    let lowest = new.layer_r(1.0) - new.layer_r(0.0);
+    let floor = new.radius * std::f64::consts::FRAC_1_SQRT_2;
+    assert!(k % MANTLE_STEP == 0 && (new.r0 - floor).abs() < lowest * MANTLE_STEP as f64 / 2.0, "floor at {} m, R/sqrt 2 {floor}", new.r0);
+    assert!((0.70..0.72).contains(&lowest), "the lowest block is {lowest} m");
+    assert_eq!((k, new.layers), (mantle_layers(6144), old.layers + k));
+    for z in [0, 1, 70, old.layers - 1] {
+        let (now, was) = (new.layer_r((z + k) as f64 + 0.5), old.layer_r(z as f64 + 0.5));
+        assert!((now - was).abs() < 1e-6, "layer {z}: {now} against {was}");
+    }
+    assert_eq!(old.mantle, 0);
+    assert_eq!((mantle_layers(512), Body::new(DVec3::ZERO, 512, 1).with_mantle().layers), (0, Body::new(DVec3::ZERO, 512, 1).layers), "a small planet keeps its floor");
+    let w = World::with_grid(1536, 512, 1, None, None, 0.0, true);
+    let luna = Body::new(DVec3::ZERO, 512, 2);
+    assert_eq!((w.bodies[1].mantle, w.bodies[1].r0.to_bits(), w.bodies[1].layers), (0, luna.r0.to_bits(), luna.layers), "Luna keeps hers");
+    let flat = World::new(1536, 512, 1);
+    assert_eq!((flat.bodies[0].mantle, flat.bodies[0].r0.to_bits()), (0, Body::new(DVec3::ZERO, 1536, 1).r0.to_bits()));
+}
+
+/// A small baked planet big enough for a mantle (radius 1061 m, 256 layers of mantle under the crust).
+static MAP_1536: LazyLock<Arc<Map>> = LazyLock::new(|| Arc::new(Map::bake(5, 1536)));
+
+/// One generated block for every reader (ADR 0062) at any depth: in a column from over the ground down to the
+/// floor of a planet on the deep grid, the mesher's fill, `generated_under`, the physics' solid test and the
+/// water's gaps agree cell by cell; under the crust's 192 m the rock is the mantle's in the mesher and in physics.
+#[test]
+fn the_readers_agree_from_the_surface_to_the_mantles_floor() {
+    let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, true);
+    let b = &w.bodies[0];
+    let mantle = ROCKS.mantle;
+    let (f, i, j) = b.locate(b.spawn);
+    let (face, x, y) = (f as u8, i as i32 / CS, j as i32 / CS);
+    let top = (b.layer_of(b.radius + AMP) as i32).div_euclid(CS);
+    let (mut bad, mut deep, mut shallow) = (Vec::new(), 0, 0);
+    for kz in 0..=top {
+        let k = Key { body: 0, face, level: 0, pos: IVec3::new(x, y, kz) };
+        // an edit in the padding's corner, which no cell below reads: every chunk is generated cell by cell (one
+        // all over the ground is air)
+        let cells = match generate(b, k, &[(pidx(0, 0, 0) as u32, AIR)]) {
+            Gen::Cells(c) => c,
+            Gen::Empty => Box::new([AIR; P * P * P]),
+            Gen::Solid => panic!("chunk {kz} is solid with an edit of air"),
+        };
+        for v in 1..=CS as usize {
+            for u in 1..=CS as usize {
+                let (i, j) = (x * CS - 1 + u as i32, y * CS - 1 + v as i32);
+                let h = b.col_height(face, i, j);
+                let gaps = w.ground().gaps(Col::new(0, face, i, j));
+                for zl in 1..P - 1 {
+                    let z = kz * CS - 1 + zl as i32;
+                    if z < 0 {
+                        continue;
+                    }
+                    let at = Block { body: 0, face, pos: IVec3::new(i, j, z) };
+                    let (mesh, phys) = (cells[pidx(u, v, zl)], w.generated_under(at, h));
+                    let open = gaps.iter().any(|&(lo, hi)| (lo..hi).contains(&z));
+                    if mesh != phys || open == BLOCKS.solid(phys) || w.generated_solid_under(at, h) != BLOCKS.solid(phys) {
+                        bad.push(format!("({i}, {j}, {z}): mesh {mesh}, physics {phys}, water open {open}"));
+                    }
+                    let r = b.layer_r(z as f64 + 0.5);
+                    if r < b.radius - DEEP - 1.0 {
+                        deep += 1;
+                        if phys != mantle {
+                            bad.push(format!("({i}, {j}, {z}) {} m down: {phys}, not the mantle's", b.radius - r));
+                        }
+                    } else if r > b.radius - DEEP + 1.0 && phys == mantle {
+                        shallow += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{} cells disagree, e.g. {:?}", bad.len(), &bad[..bad.len().min(4)]);
+    assert!(deep > 100_000 && shallow == 0, "{deep} cells under the crust, {shallow} of the mantle's rock in it");
+}
+
+/// The mantle changes nothing above the crust's floor (ADR 0152): around the spawn every generated block from 40
+/// layers under the ground to 40 over it is the one a world without the mantle has, its layer counted from there.
+#[test]
+fn the_surface_is_the_same_with_and_without_the_mantle() {
+    let [old, new] = [false, true].map(|m| World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, m));
+    let k = new.bodies[0].mantle;
+    let b = &old.bodies[0];
+    let (f, i0, j0) = b.locate(b.spawn);
+    let (mut bad, mut n) = (Vec::new(), 0);
+    for i in i0 as i32 - 48..i0 as i32 + 48 {
+        for j in j0 as i32 - 48..j0 as i32 + 48 {
+            let g = b.layer_of(b.col_height(f as u8, i, j)) as i32;
+            for z in g - 40..g + 40 {
+                let at = Block { body: 0, face: f as u8, pos: IVec3::new(i, j, z) };
+                let (a, c) = (old.generated_block(at), new.generated_block(Block { pos: at.pos + IVec3::Z * k, ..at }));
+                n += 1;
+                if a != c {
+                    bad.push(format!("({i}, {j}, {z}): {a} against {c}"));
+                }
+            }
+        }
+    }
+    assert!(k > 0 && bad.is_empty(), "{} of {n} cells differ, e.g. {:?}", bad.len(), &bad[..bad.len().min(6)]);
+}
+
+/// Gravity inside a body is a planet's with a dense core (ADR 0152): it grows going down to about 1.135 g at the
+/// core's edge (R/sqrt 2, the mantle's floor), joins on there, and falls evenly to nothing at the centre; outside
+/// it is unchanged.
+#[test]
+fn gravity_grows_down_to_the_core_and_falls_to_nothing_at_the_centre() {
+    let w = World::new(6144, crate::bodies::columns(1, 6144), 1);
+    let (r, g) = (w.bodies[0].radius, w.surface_g(0));
+    let a = std::f64::consts::FRAC_1_SQRT_2;
+    let at = |x: f64| {
+        let p = DVec3::new(0.3, 1.0, -0.2).normalize() * r * x.max(1e-9);
+        let got = w.gravity(p);
+        assert!(x == 0.0 || got.normalize().dot(-p.normalize()) > 0.9999, "down is to the centre");
+        got.length() / g
+    };
+    for (x, want) in [(1.0, 1.0), (1.5, 1.0 / 2.25), (a, 1.1352), (0.5, 0.8027), (0.0, 0.0)] {
+        assert!((at(x) - want).abs() < 1e-3, "at {x} R: {} g, not {want}", at(x));
+    }
+    assert!((at(a + 1e-6) - at(a - 1e-6)).abs() < 1e-4 && (at(1.0 - 1e-6) - 1.0).abs() < 1e-4, "it joins on at the core's edge and the surface");
+    let old_floor = at(1.0 - 192.0 / r);
+    assert!(old_floor > 1.0 && old_floor < 1.003, "192 m down, an old world's floor: {old_floor} g");
+}

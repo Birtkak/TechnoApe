@@ -1,6 +1,24 @@
 //! World: its bodies, the ore ledger, frames of reference and gravity.
 use super::*;
 
+/// The core's radius over the body's (the mantle's floor, R/sqrt 2) and its density over the mantle's (ADR 0152).
+const CORE: f64 = std::f64::consts::FRAC_1_SQRT_2;
+const CORE_DENSE: f64 = 2.4;
+
+/// A body's pull at x = r / R over its surface's: the square law outside; inside, a planet with a dense core,
+/// growing going down to about 1.135 at the core's edge, then falling evenly to nothing at the centre (ADR 0152).
+fn pull_inside(x: f64) -> f64 {
+    let a3 = CORE.powi(3);
+    let m = CORE_DENSE * a3 + 1.0 - a3;
+    if x >= 1.0 {
+        1.0 / (x * x)
+    } else if x >= CORE {
+        (CORE_DENSE * a3 + x.powi(3) - a3) / (m * x * x)
+    } else {
+        CORE_DENSE * x / m
+    }
+}
+
 impl World {
     /// The bodies of `data/bodies.toml` (Terra and Luna), with `planet_n` and `moon_n` columns per face edge.
     pub fn new(planet_n: i32, moon_n: i32, seed: i32) -> Self {
@@ -8,11 +26,12 @@ impl World {
     }
     /// The world of a new game: the planet and Luna baked (ADR 0043, 0070), from memory, the disk or baked now.
     pub fn baked(planet_n: i32, moon_n: i32, seed: i32) -> Self {
-        World::baked_warp(planet_n, moon_n, seed, 0.0)
+        World::baked_warp(planet_n, moon_n, seed, 0.0, true)
     }
-    /// `baked` with every body's block grid warped by `warp` (the conformal grid's trial, ADR 0131).
-    pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64) -> Self {
-        World::with_maps_warp(planet_n, moon_n, seed, Some(crate::bake::get(seed, planet_n)), Some(crate::bake::luna::get(seed, moon_n)), warp)
+    /// `baked` with every body's block grid warped by `warp` (the conformal grid's trial, ADR 0131), the planet's
+    /// grid down through the mantle when `mantle` (a new world's, ADR 0152; `mantle=0` keeps the 192 m floor).
+    pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64, mantle: bool) -> Self {
+        World::with_grid(planet_n, moon_n, seed, Some(crate::bake::get(seed, planet_n)), Some(crate::bake::luna::get(seed, moon_n)), warp, mantle)
     }
     /// The planet on `map` when one is given (its seed and size must be these), else on the noise land; Luna
     /// on its hills.
@@ -25,6 +44,11 @@ impl World {
     }
     /// `with_maps` with every body's block grid warped by `warp` (ADR 0131): 0 is today's grid.
     pub fn with_maps_warp(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>, luna: Option<Arc<Map>>, warp: f64) -> Self {
+        World::with_grid(planet_n, moon_n, seed, map, luna, warp, false)
+    }
+    /// `with_maps_warp`, the planet's grid down through the mantle when `mantle` (a new world's, ADR 0152; a save
+    /// from before keeps its 192 m floor). Luna and a planet too small for a deep crust keep theirs.
+    pub fn with_grid(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>, luna: Option<Arc<Map>>, warp: f64, mantle: bool) -> Self {
         assert_eq!(BODIES.len(), 2, "the sky (sky.rs) poses a planet and one moon");
         assert!((0.0..=1.0).contains(&warp), "warp= is 0 to 1");
         let bodies: Vec<Body> = BODIES
@@ -33,6 +57,9 @@ impl World {
             .map(|(i, row)| {
                 let mut b = Body::new(if i == 0 { DVec3::ZERO } else { MOON_AT }, [planet_n, moon_n][i], seed + i as i32);
                 (b.name, b.air, b.ground, b.warp) = (row.name.clone(), row.air, row.ground, warp);
+                if mantle && i == 0 {
+                    b = b.with_mantle();
+                }
                 match (&map, row.generator) {
                     (Some(m), Generator::Continents) if i == 0 => b.with_map(m.clone()),
                     (_, Generator::Continents) => b.with_continents(seed + i as i32),
@@ -189,8 +216,8 @@ impl World {
     }
     /// Gravity at a position (ADR 0024, 0037), m/s^2 in its frame's coordinates: every body pulls towards its
     /// centre where it is now, the square of the distance less with height, so down turns smoothly from one
-    /// body to the other and fades out in deep space. At its radius a body pulls with `surface_g`; deeper in
-    /// a little more, up to 1.25 times at 0.9 of its radius and no more.
+    /// body to the other and fades out in deep space. At its radius a body pulls with `surface_g`; under it
+    /// less, by the radius over its radius (ADR 0152), so nothing at its centre.
     /// Near a moon its own fall around the planet cancels the planet's pull, so only the tide is left (Terra
     /// pulls only G/3600 at Luna, 60 of its radii out, ADR 0041); that fades out by the edge of the moon's
     /// sphere of influence, so gravity stays the same across the hand-over between frames.
@@ -205,7 +232,8 @@ impl World {
                 .map(|i| {
                     let d = centre[i] - x;
                     let r = d.length().max(1e-6);
-                    d / r * self.surface_g(i) * (self.bodies[i].radius / r.max(0.9 * self.bodies[i].radius)).powi(2)
+                    let big = self.bodies[i].radius;
+                    d / r * self.surface_g(i) * pull_inside(r / big)
                 })
                 .sum()
         };

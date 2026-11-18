@@ -48,7 +48,7 @@ pub(crate) fn lay(world: &World, piles: &std::collections::HashMap<Block, Vec<Sl
         let dry = world.water_surface(world.bodies[b.body as usize].centre + (at.p + at.axes[0] * 0.05).as_dvec3()).is_none_or(|s| s <= at.p.length() as f64 + 1e-3);
         // each stack's footprint on the floor, in metres from the cell's middle: one shadow round them all
         let mut feet: Vec<((f32, f32), f32)> = Vec::new();
-        let seed = b.pos.x as u32 ^ (b.pos.y as u32).rotate_left(11) ^ (b.pos.z as u32).rotate_left(22);
+        let seed = b.pos.x as u32 ^ (b.pos.y as u32).rotate_left(11) ^ (fx::gpu_cell(world, *b).pos.z as u32).rotate_left(22);
         for (k, s) in slots.iter().enumerate().filter_map(|(k, s)| Some((k, (*s)?))) {
             let side = [(-0.15, -0.15), (0.15, 0.1), (-0.1, 0.17), (0.17, -0.15)][k % 4];
             let tool = engine::items::tool(Some(s)).is_some();
@@ -69,7 +69,7 @@ pub(crate) fn lay(world: &World, piles: &std::collections::HashMap<Block, Vec<Sl
             // the block's own cell look (its painting, as the world draws it) shrunk about the cell's middle, moved
             // in cells (bit 20, as a glide) to its corner and down onto the floor
             let info = ITEMS.look(s.item) as u32 | (b.body as u32) << 8 | (fx::Look::Block as u32) << 10 | 1 << 20;
-            let (a, code) = fx::cell_code(*b);
+            let (a, code) = fx::cell_code(fx::gpu_cell(world, *b));
             still.push(FxGpu { p: [side.0, side.1, BLOCK_M / 2.0 - 0.5], size: BLOCK_M, info, angle: 0.0, a, b: code });
             feet.push((off, BLOCK_M * std::f32::consts::FRAC_1_SQRT_2 * 2.0 * at.half.y.max(at.half.z)));
         }

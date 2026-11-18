@@ -196,7 +196,8 @@ impl OreBody {
         } else {
             (self.at.z - hh, self.at.z + hh)
         };
-        let (lo, hi) = (((bot - 0.5).ceil() as i32).max(0), (top - 0.5).floor() as i32 + 1);
+        // no ore under the old worlds' floor: the mantle holds none (ADR 0152)
+        let (lo, hi) = (((bot - 0.5).ceil() as i32).max(body.mantle), (top - 0.5).floor() as i32 + 1);
         (lo < hi).then_some((lo, hi))
     }
     /// Ingots an ore block gives at column (i, j): 3 in its middle, 2 further out, 1 at its rim (ore-budget.md).
@@ -227,7 +228,8 @@ impl OreBody {
     /// it and not in the body: grade g reaches `halo_m` (1 - g / grades) out, each cell's reach frayed by a hash
     /// of the cell so a grade's edge is ragged (two grades mix over 30 % of the reach where they meet). The
     /// richest grade lies next to the ore.
-    pub fn halo_grade(&self, face: u8, i: i32, j: i32, z: i32) -> Option<usize> {
+    /// `mantle`: the body's mantle layers, taken off z for the hash.
+    pub fn halo_grade(&self, face: u8, i: i32, j: i32, z: i32, mantle: i32) -> Option<usize> {
         let kind = &MINERALS.kinds[self.kind as usize];
         let n = kind.halo.len();
         if n == 0 {
@@ -237,7 +239,7 @@ impl OreBody {
         if !self.grown(p, kind.halo_m * (1.0 + FRAY)) || self.grown(p, 0.0) {
             return None;
         }
-        let h = crate::world::mix(0x4a10 ^ (face as u64) << 58 ^ (i as u32 as u64) << 29 ^ (j as u32 as u64) ^ (z as u32 as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+        let h = crate::world::mix(0x4a10 ^ (face as u64) << 58 ^ (i as u32 as u64) << 29 ^ (j as u32 as u64) ^ ((z - mantle) as u32 as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
         let fray = (crate::world::unit(h) as f64 - 0.5) * 2.0 * FRAY;
         (0..n).rev().find(|&g| self.grown(p, kind.halo_m * (1.0 - g as f64 / n as f64 - fray)))
     }
@@ -511,7 +513,7 @@ pub fn count_halo(b: &Body) -> Vec<Vec<u32>> {
                 }
                 let Some((lo, hi)) = o.halo_span(i, j) else { continue };
                 let ground = b.col_height(o.face, i, j);
-                for z in lo.max(0)..hi {
+                for z in lo.max(b.mantle)..hi {
                     // the rule of `World::generated_under`: rock under the soil band, no cave, no ore
                     if ground - b.layer_r(z as f64 + 0.5) < 4.0 || b.ore_at(o.face, i, j, z, ground).is_some() || b.col_caves(o.face, i, j).iter().any(|&(l, h)| (l..h).contains(&z)) {
                         continue;
@@ -545,6 +547,17 @@ pub fn cells(b: &Body, k: usize) -> Vec<glam::IVec3> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An ore body is cut at the old worlds' floor on a body with a mantle as it was at layer 0 before (ADR 0152):
+    /// the mantle holds no ore and the ore budget holds.
+    #[test]
+    fn an_ore_body_stops_at_the_old_floor_over_the_mantle() {
+        let b = Body::new(DVec3::ZERO, 6144, 1).with_mantle();
+        let k = MINERALS.kinds.iter().position(|k| !k.shape.follows_ground()).unwrap() as u16;
+        let o = OreBody { kind: k, face: 2, at: DVec3::new(100.0, 100.0, b.mantle as f64 + 3.0), a: 5.0, b: 5.0, h: 20.0, angle: 0.0 };
+        assert_eq!(o.span(&b, 100, 100, b.radius).map(|s| s.0), Some(b.mantle), "cut at the old floor, layer {}", b.mantle);
+        assert!(o.halo_span(100, 100).is_none_or(|(lo, _)| lo < b.mantle), "(its halo's box reaches under, the loop cuts it)");
+    }
 
     /// The file reads, every kind's ore is a block, and a body of each shape holds the blocks it names.
     #[test]
