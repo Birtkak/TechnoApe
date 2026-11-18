@@ -1247,6 +1247,17 @@ fn karsts(sys: &[crate::caves::System]) -> Vec<&crate::caves::System> {
     sys.iter().filter(|s| crate::caves::CAVES.kinds[s.kind as usize].shape == crate::caves::Shape::Karst).collect()
 }
 
+/// The 768 planet has no mantle (`mantle_layers` 0), so no kind of `data/caves.toml`: at generation 3 it keeps
+/// ADR 0063's limestone worm and tube worm exactly as at generation 2 (the review of draft-karst-caves).
+#[test]
+fn a_small_planet_without_the_mantle_keeps_its_old_caves_at_generation_3() {
+    let map = Arc::new(Map::bake(5, 768));
+    let [w2, w3] = [2, 3].map(|g| World::with_grid(768, 32, 5, Some(map.clone()), None, 0.0, g));
+    let (c2, c3) = (&w2.bodies[0].caves, &w3.bodies[0].caves);
+    assert_eq!(w3.bodies[0].mantle, 0, "the 768 planet has no mantle");
+    assert!(!c2.is_empty() && c2 == c3, "{} caves at generation 2, {} at 3", c2.len(), c3.len());
+}
+
 /// Karst (draft-karst-caves) is made from generation 3 only, and only in a province with limestone in its
 /// layers; from generation 3 ADR 0063's old limestone worm is not made, below it it is.
 #[test]
@@ -1300,14 +1311,29 @@ fn karst_is_cut_above_the_water_table_and_its_passages_lie_at_it() {
     assert!(at as f64 >= 0.8 * stations as f64, "{at} of {stations} passage stations within 1.5 m over the table");
 }
 
-/// A karst passage is near-level (its floor changes by at most 0.1 m a metre along it), and each system is one
-/// opening a player can walk: a flood fill over the generated air of its cells (6 neighbours) from the top of a
-/// sinkhole's throat reaches every cell of it, the lowest end of the main passage among them.
+/// A karst passage is near-level (its floor changes by at most 0.1 m a metre along it), and every system can be
+/// walked by a player who climbs one block (`caves::STEP`): from the foot of a sinkhole's shaft, stepping between
+/// neighbouring columns where one can stand (two open cells over the floor) and whose floors differ by at most
+/// `STEP` layers, every column one can stand in under a passage or a hall is reached, the main passage's lowest end
+/// among them. Every system of the test planet.
 #[test]
 fn karst_passages_are_near_level_and_each_system_is_walkable_from_a_sinkhole() {
+    use std::collections::{HashMap, HashSet};
     let (w, sys) = dense_caves();
     let b = &w.bodies[0];
-    let ks = karsts(&sys);
+    // and the same with only wide halls (14 to 30 m), whose floors span the most of a slope
+    let wide: Vec<crate::caves::Kind> = dense_kinds()
+        .into_iter()
+        .map(|mut k| {
+            if k.shape == crate::caves::Shape::Karst {
+                k.hall = [14.0, 30.0];
+            }
+            k
+        })
+        .collect();
+    let sys2 = crate::caves::systems_of(b, b.baked_seed().unwrap(), &wide);
+    let ks: Vec<_> = karsts(&sys).into_iter().chain(karsts(&sys2)).collect();
+    assert!(karsts(&sys2).iter().any(|s| s.halls.iter().any(|&h| s.balls[h].r >= 7.0)), "no wide hall made");
     let mut worst = 0.0f64;
     for s in &ks {
         for p in s.axis.windows(2) {
@@ -1319,42 +1345,59 @@ fn karst_passages_are_near_level_and_each_system_is_walkable_from_a_sinkhole() {
         }
     }
     assert!(worst <= 0.1 + 1e-9, "a passage's floor changes {worst:.3} m a metre");
-    let mut checked = 0;
-    for s in ks.iter().take(6) {
+    let mut bad = Vec::new();
+    for s in &ks {
         assert!(!s.openings.is_empty(), "a karst system without a sinkhole");
-        let cells: std::collections::HashSet<(i32, i32, i32)> = s.balls.iter().flat_map(|c| crate::caves::cells(b, c)).collect();
-        let (ti, tj) = col_of(s.axis[s.openings[0].0]);
-        let top = *cells.iter().filter(|c| (c.0, c.1) == (ti, tj)).max_by_key(|c| c.2).expect("the throat is open");
-        let mut seen = std::collections::HashSet::from([top]);
-        let mut todo = vec![top];
-        while let Some((i, j, z)) = todo.pop() {
-            for d in [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)] {
-                let q = (i + d.0, j + d.1, z + d.2);
-                if cells.contains(&q) && !seen.contains(&q) && w.generated_block(Block { body: 0, face: s.face, pos: IVec3::new(q.0, q.1, q.2) }) == AIR {
+        // each column's open cells of this system, and the columns of its passages and halls (balls deep under the
+        // ground, not a sinkhole's bowl or shaft)
+        let mut open: HashMap<(i32, i32), Vec<i32>> = HashMap::new();
+        let mut deep = HashSet::new();
+        for c in &s.balls {
+            let under = b.layer_r(c.at.z) < b.ground_r(s.face as usize, c.at.x, c.at.y) - 4.0;
+            for (i, j, z) in crate::caves::cells(b, c) {
+                open.entry((i, j)).or_default().push(z);
+                if under {
+                    deep.insert((i, j));
+                }
+            }
+        }
+        // where one stands: the lowest open cell, with the one over it open too
+        let stand: HashMap<(i32, i32), i32> = open
+            .iter_mut()
+            .filter_map(|(&k, zs)| {
+                zs.sort_unstable();
+                zs.dedup();
+                (zs.len() >= 2 && zs[1] == zs[0] + 1).then_some((k, zs[0]))
+            })
+            .collect();
+        let start = col_of(s.axis[s.openings[0].0]);
+        let mut seen = HashSet::from([start]);
+        let mut todo = vec![start];
+        while let Some((i, j)) = todo.pop() {
+            for d in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let q = (i + d.0, j + d.1);
+                if !seen.contains(&q) && stand.get(&q).is_some_and(|&f| (f - stand[&(i, j)]).abs() <= crate::caves::STEP) {
                     seen.insert(q);
                     todo.push(q);
                 }
             }
         }
-        // the main passage's last station: the system's lowest end
         let main_end = s.axis.windows(2).position(|p| (p[1] - p[0]).truncate().length() >= 1.5).unwrap_or(s.axis.len() - 1);
-        let (ei, ej) = col_of(s.axis[main_end]);
-        assert!(seen.iter().any(|c| (c.0, c.1) == (ei, ej)), "the lowest end at ({ei}, {ej}) is not reached from the sinkhole at ({ti}, {tj})");
-        assert_eq!(seen.len(), cells.len(), "{} of {} cells reached from the sinkhole at ({ti}, {tj})", seen.len(), cells.len());
-        checked += 1;
+        let left: Vec<_> = stand.keys().filter(|k| deep.contains(*k) && !seen.contains(*k)).collect();
+        if !seen.contains(&col_of(s.axis[main_end])) || !left.is_empty() {
+            bad.push(format!("from the shaft at {start:?}: {} of {} columns not reached, e.g. {:?}; the lowest end reached {}", left.len(), stand.len(), left.iter().take(3).map(|k| (**k, stand[*k])).collect::<Vec<_>>(), seen.contains(&col_of(s.axis[main_end]))));
+        }
     }
-    assert!(checked >= 3, "{checked} systems walked");
+    assert!(ks.len() >= 3 && bad.is_empty(), "{} of {} systems not walkable, e.g. {:?}", bad.len(), ks.len(), &bad[..bad.len().min(3)]);
 }
 
-/// Two karst systems never meet: every passage ball and hall of one (the balls under the ground; the sinkholes'
-/// bowls and shafts reach up to it) keeps 3 m of rock (less half a metre: the walk asks every metre) from every
-/// one of another on its face.
+/// Two karst systems never meet: every ball of one (passages, halls, and the sinkholes' bowls and shafts, which
+/// reach up to the ground) keeps 3 m of rock (less half a metre: the walk asks every metre) from every one of
+/// another on its face, across the ground's plane (as the walk's crowding rule asks).
 #[test]
 fn karst_systems_keep_a_wall_between_them() {
-    let (w, sys) = dense_caves();
-    let b = &w.bodies[0];
-    let deep = |s: &crate::caves::System| s.balls.iter().copied().filter(|c| b.layer_r(c.at.z) < b.ground_r(s.face as usize, c.at.x, c.at.y) - 4.0).collect::<Vec<_>>();
-    let ks: Vec<(u8, Vec<Cave>)> = karsts(&sys).iter().map(|s| (s.face, deep(s))).collect();
+    let (_, sys) = dense_caves();
+    let ks: Vec<(u8, Vec<Cave>)> = karsts(&sys).iter().map(|s| (s.face, s.balls.clone())).collect();
     let mut worst = (f64::MAX, String::new());
     for (x, a) in ks.iter().enumerate() {
         for c in ks.iter().skip(x + 1).filter(|c| c.0 == a.0) {
@@ -1362,7 +1405,7 @@ fn karst_systems_keep_a_wall_between_them() {
                 for q in &c.1 {
                     let wall = (p.at.truncate() - q.at.truncate()).length() - p.r - q.r;
                     if wall < worst.0 {
-                        worst = (wall, format!("({:.0}, {:.0}) and ({:.0}, {:.0})", p.at.x, p.at.y, q.at.x, q.at.y));
+                        worst = (wall, format!("({:.0}, {:.0}) r {:.1} and ({:.0}, {:.0}) r {:.1}", p.at.x, p.at.y, p.r, q.at.x, q.at.y, q.r));
                     }
                 }
             }

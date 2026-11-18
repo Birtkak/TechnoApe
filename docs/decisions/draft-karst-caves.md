@@ -39,8 +39,9 @@ This run is dry: underground lakes, rivers and springs are the next. The water m
    left for later. Only `limestone` is a host.
 
 ## Decision
-**Generation 3** (`world::GENERATION` = 3). From it ADR 0063's limestone worm is not made (`caves::make`; below 3 it
-is exactly as before), and the row `karst` of `data/caves.toml` (`generations = [3, 255]`, appended, the old rows
+**Generation 3** (`world::GENERATION` = 3). From it ADR 0063's limestone worm is not made where karst replaces it,
+on a planet with the mantle (`caves::make`; below 3, and on a small planet without the mantle, which makes no karst,
+it is exactly as before), and the row `karst` of `data/caves.toml` (`generations = [3, 255]`, appended, the old rows
 untouched) is walked by `caves::karst`:
 
 ```toml
@@ -70,11 +71,15 @@ A karst row must have `skylight`, `branch`, `hall`, `hall_height`, `sinkhole` an
   the length, a little narrower.
 - *Halls:* where a branch leaves (if it fits) and along a passage every 80 m at least where the rock allows: a
   flat-floored room `hall` wide and `hall_height` tall at the passage's floor (or over the highest table under it),
-  made 2 m narrower and 1 m lower a try down to the least, else none. A hall keeps 3 m from other passages.
+  made 2 m narrower and 1 m lower a try down to the least, else none. A hall keeps 3 m from other passages, and
+  its floor's layer lies at most `caves::STEP` = 1 layer over or under every floor of the passage through it (within
+  a metre of its rim), so a player who climbs one block walks in and out; a hall that cannot is made smaller or
+  not at all.
 - *Sinkholes:* along each passage, the first within a third of `skylight`, then at least `skylight` apart, wherever
   the limestone reaches up to the soil band and both parts fit: a bowl (a squashed ball `sinkhole` wide at the
   ground, as deep as a quarter of its width or more where the ground slopes, so all of it opens) and a shaft
-  `shaft` wide from it to the passage. Only these cut the soil. ADR 0160's plant rule already keeps every plant out
+  `shaft` wide from it to the passage. The bowl and the shaft keep 3 m from other passages as a passage does and
+  are kept in the crowding set at their real radius, so a later system keeps its wall from them too. Only these cut the soil. ADR 0160's plant rule already keeps every plant out
   of and from over them.
 - A system with no sinkhole is not made (nothing leads into it).
 
@@ -99,14 +104,14 @@ Seed 1, planet 6144 (`technoape-server report=1 seed=1 planet=6144`):
 | | |
 |---|---|
 | made_hash gen 0 / 1 / 2 | 0926f028ddcd85a7 / 37b2d1b1006b66f7 / a2ef250b3ed4203a: as main |
-| made_hash gen 3 | d8e179a52e3e5209 |
+| made_hash gen 3 | bfb878ce14d32b75 |
 | limestone on land | 40.2 % under the soil band, 43.3 % at the water table |
-| karst systems | 94, passages 10,845 m (median system 80 m), 240,336 open cells |
+| karst systems | 94, passages 10,290 m (median system 80 m), 232,366 open cells |
 | largest system | 872 m of passages, floor 8.0 to 12.9 m under the ground, 11 halls, 12 sinkholes |
-| halls, sinkholes | 80, 147 |
+| halls, sinkholes | 69, 140 |
 | nearest sinkhole | 800 m from the spawn (not tuned) |
 | old worm's balls | 12,575 in limestone at gen 2; none at gen 3 |
-| cave walk at load | 0.70 s (gen 2) -> 2.33 s (gen 3); the report's world 1.2 -> 2.8 s |
+| cave walk at load | 0.70 s (gen 2) -> 2.26 s (gen 3; 2.33 before the review's fixes); the report's world 1.2 -> 2.8 s |
 
 Go there (`technoape run=stand seed=1 planet=6144 ...`):
 - a sinkhole: `at=0.118121,0.908955,0.399811 depth=0.0 yaw=6 pitch=-40 eye=14` (its middle
@@ -126,10 +131,11 @@ for the developer.
 | `generations_0_1_and_2_generate_as_before` (1536 planet hash of caves, ores, rock) | lock recorded on main's code; red with the karst row set to `[2, 255]` (gen 2 hash 1968489159290958858 against 12775723512097726191), green |
 | `karst_is_made_only_in_limestone_provinces_and_only_from_generation_3` (+ no old worm at 3) | red ("0 karst systems on the 1536 planet"), green |
 | `karst_is_cut_above_the_water_table_and_its_passages_lie_at_it` | red ("0 of 0 karst cells"), green |
-| `karst_passages_are_near_level_and_each_system_is_walkable_from_a_sinkhole` (0.1 m a metre; flood fill over generated air from the throat's top reaches every cell and the lowest end) | red ("0 systems walked"), green |
+| `karst_passages_are_near_level_and_each_system_is_walkable_from_a_sinkhole` (0.1 m a metre; from the shaft's column, steps of at most `STEP` layer between standable columns reach every column under a passage or hall and the main passage's lowest end; every system, and again with halls 14-30 m) | red ("0 systems walked"), green; the step walk not seen red: on the 1536 test planet no hall of the old code stood a ledge off its passage (24 m halls do not fit there) |
+| `a_small_planet_without_the_mantle_keeps_its_old_caves_at_generation_3` (768 bake) | red ("8 caves at generation 2, 0 at 3"), green |
 | `karst_halls_reach_their_stated_size` | red ("0 halls"), green after halls along passages |
 | `a_sinkhole_is_an_open_bowl_8_m_across_with_no_plant_in_it` (+ throat open to the passage) | red ("0 sinkholes"), green |
-| `karst_systems_keep_a_wall_between_them` | red with the crowding off (-10.2 m), green |
+| `karst_systems_keep_a_wall_between_them` (bowls and shafts too) | red with the crowding off (-10.2 m); red with the bowls and shafts out of the crowding set ("0.28 m of rock between two karst systems"), green |
 | `a_cave_kind_opens_only_its_host_rock_in_its_provinces`, `a_cave_kind_keeps_clear_of_water` (ADR 0159's, now with karst) | red ("karst: 0 made"), green |
 | `a_cave_is_the_same_whichever_chunk_asks_first...` (tube and karst) | red ("a Karst crossing a chunk border"), green |
 | caves file test (karst row, 6 bad rows refused) | not seen red: the parser came before the test |

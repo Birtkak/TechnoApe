@@ -226,7 +226,7 @@ pub fn systems_of(b: &Body, seed: u64, kinds: &[Kind]) -> Vec<System> {
         }
         let s = kind.spacing;
         for face in 0..6u8 {
-            let mut probe = Probe { b, face, cols: HashMap::new(), axes: HashMap::new(), widest: 0.0, tables: HashMap::new(), next: 0 };
+            let mut probe = Probe { b, face, cols: HashMap::new(), axes: HashMap::new(), widest: 0.0, tables: HashMap::new(), next: 0, kept: None };
             for cy in 0..b.n / s {
                 for cx in 0..b.n / s {
                     let mut rng = Rng(seed ^ 0xca5e_4b1d ^ (k as u64) << 60 ^ (face as u64) << 52 ^ (cx as u64) << 26 ^ cy as u64);
@@ -271,8 +271,9 @@ struct Probe<'a> {
     widest: f64,
     /// The water table's radius under a column's middle (`water_table`), as a karst asks it.
     tables: HashMap<(i32, i32), f64>,
-    /// The next karst passage's number in `axes`.
+    /// The next karst passage's number in `axes`, and the highest kept there.
     next: usize,
+    kept: Option<usize>,
 }
 
 /// The cells of `Probe::axes`, columns.
@@ -459,12 +460,16 @@ impl Probe<'_> {
     }
     /// Lets go of the karst passages numbered `first` and on (a system that was not made).
     fn forget(&mut self, first: usize) {
+        if self.kept.is_none_or(|k| k < first) {
+            return;
+        }
         self.axes.values_mut().for_each(|v| v.retain(|x| x.3 < first));
     }
     /// Keeps system `s`'s axis (its points' radii `rs`) for the tubes after it.
     fn keep(&mut self, s: usize, axis: &[DVec3], rs: &[f64]) {
         for (q, &r) in axis.iter().zip(rs) {
             self.widest = self.widest.max(r);
+            self.kept = self.kept.max(Some(s));
             self.axes.entry(((q.x / AXES).floor() as i32, (q.y / AXES).floor() as i32)).or_default().push((q.x, q.y, r, s));
         }
     }
@@ -692,6 +697,8 @@ const KARST_STEP: f64 = 0.08;
 const LIFT: f64 = 0.3;
 /// Halls along a karst passage lie at least this many metres apart.
 const HALLS: usize = 80;
+/// The most a karst floor steps up or down between neighbouring columns, layers: what a player climbs.
+pub const STEP: i32 = 1;
 
 /// A dry karst system near (i, j) (generation 3, draft-karst-caves): a main passage from there down the slope of
 /// the water table (toward the valley or the coast it drains to) at or just over the table, near-level, with
@@ -810,7 +817,7 @@ fn passage(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, mut i: f64, mut j: 
     // the sinkholes: the first within a third of the spacing, then at least the spacing apart, where one fits
     let mut s = (kind.skylight * 0.3 * rng.f()) as usize;
     while s < n {
-        if let Some(cs) = sinkhole(p, kind, k, rng, &balls[s]) {
+        if let Some(cs) = sinkhole(p, kind, k, rng, &balls[s], id) {
             sys.openings.push((base + s, base + s));
             sys.balls.extend(cs);
             s += (kind.skylight * (1.0 + 0.5 * rng.f())) as usize;
@@ -826,7 +833,7 @@ fn passage(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, mut i: f64, mut j: 
     };
     let mut s = HALLS / 3;
     while s + 10 < n {
-        match room(p, axis[s]).then(|| hall(p, kind, k, rng, axis[s], id)).flatten() {
+        match room(p, axis[s]).then(|| hall(p, kind, k, rng, &axis, s, id)).flatten() {
             Some(h) => {
                 p.keep(id, &[axis[s]], &[h.r]);
                 sys.halls.push(sys.balls.len());
@@ -839,7 +846,7 @@ fn passage(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, mut i: f64, mut j: 
     for (q, side) in forks {
         let back = axis[q] - axis[q.saturating_sub(2)];
         let heading = back.y.atan2(back.x) + std::f64::consts::PI + side * (0.6 + 0.4 * rng.f());
-        if let Some(h) = room(p, axis[q]).then(|| hall(p, kind, k, rng, axis[q], id)).flatten() {
+        if let Some(h) = room(p, axis[q]).then(|| hall(p, kind, k, rng, &axis, q, id)).flatten() {
             p.keep(id, &[axis[q]], &[h.r]);
             sys.halls.push(sys.balls.len());
             sys.balls.push(h);
@@ -852,7 +859,7 @@ fn passage(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, mut i: f64, mut j: 
 
 /// A sinkhole over passage ball c, if one fits there: a bowl `sinkhole` wide at the ground (deeper where the ground
 /// slopes, so that all of it is open) and a shaft `shaft` wide from it down to the passage.
-fn sinkhole(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, c: &Cave) -> Option<[Cave; 2]> {
+fn sinkhole(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, c: &Cave, id: usize) -> Option<[Cave; 2]> {
     let (b, face) = (p.b, p.face);
     // (first, cheaply: the limestone reaches up to the soil band in the middle column, and it is dry)
     let (rock, ground, wet) = p.col(c.at.x.floor() as i32, c.at.y.floor() as i32);
@@ -868,21 +875,31 @@ fn sinkhole(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, c: &Cave) -> Optio
     let bowl = Cave { face, at: DVec3::new(c.at.x, c.at.y, b.layer_of(hi) + 0.5), r: rb, h: depth, floor: depth, kind: k };
     let zg = b.layer_of(ground) + 1.0;
     let shaft = Cave { face, at: DVec3::new(c.at.x, c.at.y, zg), r: lerp(rng, kind.shaft) / 2.0, h: 1.6 * (zg - c.at.z), floor: zg - c.at.z, kind: k };
-    (p.fits(&bowl, kind, true) && p.fits(&shaft, kind, true)).then_some([bowl, shaft])
+    // (a bowl and a shaft keep their wall from other passages as a passage does, and are kept for those after)
+    if p.crowds(c.at.x, c.at.y, rb, Some(id)) || !p.fits(&bowl, kind, true) || !p.fits(&shaft, kind, true) {
+        return None;
+    }
+    p.keep(id, &[c.at, c.at], &[rb, shaft.r]);
+    Some([bowl, shaft])
 }
 
 /// A hall at passage point q (where a branch leaves passage `id`): a flat-floored room `hall` wide and
 /// `hall_height` high, made smaller (2 m narrower and 1 m lower a try, down to the least) where it does not fit
-/// the limestone, or keeps no wall from other passages; none if even the least does not.
-fn hall(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, q: DVec3, id: usize) -> Option<Cave> {
-    let (b, face) = (p.b, p.face);
+/// the limestone, keeps no wall from other passages, or would stand more than `STEP` layers over or under the
+/// floor of the passage through it (a player climbs one block); none if even the least does not.
+fn hall(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, axis: &[DVec3], at: usize, id: usize) -> Option<Cave> {
+    let (b, face, q) = (p.b, p.face, axis[at]);
     let (mut wd, mut ht) = (lerp(rng, kind.hall), lerp(rng, kind.hall_height));
+    // the lowest cell over a floor's radius (`Cave::span`'s rule for a flat-floored ball)
+    let layer = |f: f64| (b.layer_of(f) - 0.5).ceil() as i32;
     loop {
         let r = wd / 2.0;
         // its floor flat at the passage's, or over the highest water table under it
         let f = [(0.0, 0.0), (r, 0.0), (-r, 0.0), (0.0, r), (0.0, -r)].iter().map(|&(x, y)| p.table((q.x + x).floor() as i32, (q.y + y).floor() as i32) + LIFT).fold(q.z, f64::max);
+        // the passage's floors under it (a metre over its rim)
+        let (lo, hi) = axis.iter().filter(|a| (a.truncate() - q.truncate()).length() <= r + 1.0).fold((i32::MAX, i32::MIN), |(l, h), a| (l.min(layer(a.z)), h.max(layer(a.z))));
         let c = Cave { face, at: DVec3::new(q.x, q.y, b.layer_of(f) + 1.0), r, h: ht - 1.0, floor: 1.0, kind: k };
-        if !p.off(q.x, q.y, r) && !p.crowds(q.x, q.y, r, Some(id)) && p.fits(&c, kind, false) {
+        if layer(f) - lo <= STEP && hi - layer(f) <= STEP && !p.off(q.x, q.y, r) && !p.crowds(q.x, q.y, r, Some(id)) && p.fits(&c, kind, false) {
             return Some(c);
         }
         if wd <= kind.hall[0] && ht <= kind.hall_height[0] {
@@ -918,7 +935,7 @@ mod tests {
     #[test]
     fn two_widest_round_tubes_converging_keep_the_full_wall() {
         let b = Body::new(DVec3::ZERO, 256, 1);
-        let mut p = Probe { b: &b, face: 0, cols: HashMap::new(), axes: HashMap::new(), widest: 0.0, tables: HashMap::new(), next: 0 };
+        let mut p = Probe { b: &b, face: 0, cols: HashMap::new(), axes: HashMap::new(), widest: 0.0, tables: HashMap::new(), next: 0, kept: None };
         let r = CAVES.kinds.iter().filter(|k| k.shape == Shape::Tube && k.generations[0] >= 2).map(|k| k.width[1]).fold(0.0, f64::max) / 2.0;
         assert!(r >= 3.5, "the widest round tube {r} m in radius");
         // tube 0 just under j = 0 (the bottom of a grid cell, the far side from tube 1); tube 1 comes in at 30
@@ -989,9 +1006,10 @@ pub fn make(b: &Body, seed: u64) -> Vec<Cave> {
     let mut out = Vec::new();
     let (sf, si, sj) = b.locate(b.spawn);
     let n = b.n;
-    // from generation 3 the limestone has the karst of data/caves.toml instead (draft-karst-caves); the tubes
-    // here are only a planet's without the mantle
-    for face in (0..6).filter(|_| b.gen < 3) {
+    // from generation 3 a planet with the mantle has the karst of data/caves.toml in the limestone instead
+    // (draft-karst-caves); the tubes here are only a planet's without the mantle, so such a planet makes none here
+    // (one without the mantle, a small one, has no kind of data/caves.toml and keeps both worms)
+    for face in (0..6).filter(|_| b.gen < 3 || b.mantle == 0) {
         for cy in 0..n / SPACING {
             for cx in 0..n / SPACING {
                 let mut rng = Rng(seed ^ 0xca5e ^ (face as u64) << 52 ^ (cx as u64) << 26 ^ cy as u64);
