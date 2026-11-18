@@ -169,6 +169,21 @@ pub fn set(k: &mut Keys, fl: &Field, v: f32) {
     k.set(fl.key, Some(text));
 }
 
+/// The row's noise field: a map of `data/maps/` by name, or none (the built-in value noise). Its numbers stay;
+/// a row without noise gets strength 0.8 and a tile of 4 m with a map. A map's speed left out is its own pace (1).
+pub fn set_map(k: &mut Keys, map: Option<&str>) {
+    let t = k.table().unwrap_or_default();
+    let z = t.get("noise").and_then(|v| v.as_table());
+    if z.is_none() && map.is_none() {
+        return;
+    }
+    let n = |name: &str, d: f32| z.and_then(|z| z.get(name)).and_then(f).unwrap_or(d);
+    let (strength, scale) = if z.is_some() { (n("strength", 0.0), n("scale", 1.0)) } else { (0.8, 4.0) };
+    let speed = n("speed", if map.is_some() { 1.0 } else { 0.0 });
+    let map = map.map_or(String::new(), |m| format!(", map = {}", crate::js(m)));
+    k.set("noise", Some(format!("{{ strength = {}, scale = {}, speed = {}{map} }}", num(strength), num(scale), num(speed))));
+}
+
 /// A choice set; `start` brings its own numbers and drops the others' (the game takes each only with its start).
 /// `look` set, and whatever the game takes with it only: `model` or `texture` names a file (the one it named,
 /// else `name`), a gradient and glow only on squares and textures, a face not on debris or a block, a square a
@@ -355,6 +370,24 @@ mod tests {
         assert_eq!(s.sway, Some(client::fx::Sway { map: "wind gusts".into(), tile: 48.0 }));
         let n = s.rows[0].noise.as_ref().unwrap();
         assert_eq!((n.map.as_deref(), n.strength, n.speed), (Some("smoke swirl"), 1.2, 1.0));
+    }
+
+    /// A map chosen goes into the row's noise keeping its numbers (a row without noise gets 0.8 and 4 m), and
+    /// "Built-in noise" takes it out; the game reads each.
+    #[test]
+    fn a_map_chosen_and_taken_out_of_a_rows_noise() {
+        let mut k = Keys::parse(FLAMES);
+        set_map(&mut k, Some("smoke swirl"));
+        assert_eq!(k.get("noise"), Some("{ strength = 2.5, scale = 0.3, speed = 1.5, map = \"smoke swirl\" }"));
+        assert_eq!(client::fx::parse_set(&k.text(), &client::fx::PALETTE).unwrap().rows[0].noise.as_ref().unwrap().map.as_deref(), Some("smoke swirl"));
+        set_map(&mut k, None);
+        assert_eq!(k.get("noise"), Some("{ strength = 2.5, scale = 0.3, speed = 1.5 }"));
+        k.set("noise", None);
+        set_map(&mut k, None);
+        assert_eq!(k.get("noise"), None, "no noise and none chosen: none");
+        set_map(&mut k, Some("smoke swirl"));
+        assert_eq!(k.get("noise"), Some("{ strength = 0.8, scale = 4, speed = 1, map = \"smoke swirl\" }"));
+        client::fx::parse_set(&k.text(), &client::fx::PALETTE).unwrap();
     }
 
     #[test]

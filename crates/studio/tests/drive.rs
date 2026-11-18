@@ -397,6 +397,35 @@ fn effects_start_shape_changes_and_saves() {
     assert!(r.contains("start = \"ring\"") && r.contains("radius = ") && !r.contains("box = "), "{r}");
 }
 
+/// The noise's Field drop-down: "smoke swirl" chosen on a row with built-in noise is saved as its `map`, the
+/// other rows and `[sway]` as they were; a choice is one undo step; a number map is listed but not chosen.
+#[test]
+fn effects_a_field_map_is_chosen_saved_undone_and_a_number_map_is_not() {
+    let dir = scratch("effects-map");
+    std::fs::write(dir.join("data/maps/t grey.toml"), "[[node]]\nid = \"g\"\nkind = \"constant\"\n\n[[node]]\nid = \"out\"\nkind = \"out\"\nin = \"g\"\n").unwrap();
+    let read = || std::fs::read_to_string(dir.join("data/effects.toml")).unwrap().replace("\r\n", "\n");
+    let before = read();
+    let line = studio(&dir, &["cmd=open:Effects:flames", "size=1280x1800", "input=click @pick:map; click @pick:map:smoke_swirl; key Ctrl+S"]);
+    assert!(line.contains("\"undo\":[\"field: smoke swirl\"]") && line.contains("\"unsaved\":[]"), "{line}");
+    let after = read();
+    let (was, now) = (row(&before, "[[effect]]", "flames"), row(&after, "[[effect]]", "flames"));
+    assert!(!was.contains("map = ") && now.contains("map = \"smoke swirl\""), "{now}");
+    assert_eq!(before.replace(was, ""), after.replace(now, ""), "the other rows and [sway] as they were");
+    let set = client::fx::parse_set(&after, &client::fx::PALETTE).unwrap();
+    assert_eq!(set.rows.iter().find(|r| r.name == "flames").unwrap().noise.as_ref().unwrap().map.as_deref(), Some("smoke swirl"));
+    assert!(set.sway.is_some());
+    // one undo step takes a choice back
+    let line = studio(&dir, &["cmd=open:Effects:embers", "size=1280x1800", "input=click @pick:map; click @pick:map:smoke_swirl; key Ctrl+Z"]);
+    assert!(line.contains("\"undo\":[],\"redo\":[\"field: smoke swirl\"]") && line.contains("\"unsaved\":[]"), "{line}");
+    // "Built-in noise" takes it out
+    let line = studio(&dir, &["cmd=open:Effects:flames", "size=1280x1800", "input=click @pick:map; click @pick:map:none; key Ctrl+S"]);
+    assert!(line.contains("\"undo\":[\"field: Built-in noise\"]") && line.contains("\"unsaved\":[]"), "{line}");
+    assert_eq!(read(), before, "back to the file as it was");
+    // a number map is there, but a click on it chooses nothing
+    let line = studio(&dir, &["cmd=open:Effects:smoke", "size=1280x1800", "input=click @pick:map; click @pick:map:t_grey"]);
+    assert!(line.contains("\"undo\":[],\"redo\":[]") && line.contains("\"unsaved\":[]"), "{line}");
+}
+
 #[test]
 fn effects_colour_dir_then_texture_and_model_save_as_the_game_reads_them() {
     let dir = scratch("effects-fields");
