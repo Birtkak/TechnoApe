@@ -511,7 +511,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
             std::process::exit(1)
         });
         // (depth=m: the stand point that far under the ground, in the rock: a pocket dug with place= `_`)
-        let feet = world.block_at(up * (world.bodies[0].top(up) - args.get("depth", 0.0) + 0.1));
+        let feet = world.block_at(up * (world.bodies[0].top(up) - stand_depth(&args, &world.bodies[0], up) + 0.1));
         for (d, id) in place {
             world.set_block(Block { pos: feet.pos + d, ..feet }, id);
         }
@@ -808,6 +808,12 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
     let win = app.gpu.as_ref().map(|g| g.window.clone());
     drop(app);
     Some((next, win))
+}
+
+/// How far under the ground at `up` a stand run's feet are: `depth=m`, or `floor=k` on the bottom of layer k (the
+/// mantle's floor and the metal sea under it, draft the metal sea).
+pub fn stand_depth(args: &Args, b: &engine::world::Body, up: DVec3) -> f64 {
+    args.0.get("floor").and_then(|k| k.parse::<f64>().ok()).map_or(args.get("depth", 0.0), |k| b.top(up) - b.layer_r(k))
 }
 
 /// `at=x,y,z`: the stand point's direction from the planet's centre (`0,1,0` when unset); three finite numbers,

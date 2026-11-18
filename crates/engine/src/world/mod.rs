@@ -189,6 +189,9 @@ pub struct Cave {
     pub r: f64,
 }
 
+/// The light a layer-0 cell open down to the metal sea gives (draft the metal sea): a warm lamp's, as strong as the lamp block (25 open cells at 3.0 burnt a 5 x 5 shaft white).
+pub const CORE_LIGHT: [f32; 3] = [1.0, 0.66, 0.26];
+
 pub struct Body {
     /// Its row's name in `data/bodies.toml`: Terra, Luna.
     pub name: String,
@@ -216,6 +219,9 @@ pub struct Body {
     noise: FastNoiseLite,
     /// The sea level as a layer coordinate; generation fills every column lower than it with water.
     pub sea: Option<f64>,
+    /// The liquid metal sea's level under the mantle as a layer coordinate (draft the metal sea): one level for the
+    /// whole body, generated and stored nowhere, like `sea`; a body with a mantle has it at the bottom of layer 0.
+    pub core: Option<f64>,
     /// Continents and oceans (ADR 0021): the planet has them, the moon is all hills.
     land: Option<Box<Land>>,
     /// Where players start: the land nearest the +y pole (a direction from the centre).

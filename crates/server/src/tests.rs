@@ -3798,3 +3798,60 @@ fn a_player_digs_at_the_mantles_floor_and_not_under_it() {
     assert_eq!((ob.mantle, ob.r0.to_bits(), ob.layers), (0, engine::world::Body::new(ob.centre, ob.n, 7).r0.to_bits(), engine::world::Body::new(ob.centre, ob.n, 7).layers));
     assert_eq!((old.world.edit(wall), old.world.edit(at(0, 3))), (Some(AIR), Some(AIR)));
 }
+
+/// The metal sea burns (draft the metal sea): a survival player whose feet are in a layer-0 cell opened down to it
+/// loses a point every `vitals::BURN` steps and dies of it; on the floor where it is whole, and in creative, nothing.
+#[test]
+fn the_metal_sea_burns_a_player_who_steps_into_it() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked(1536, 32, 7, rx);
+    let b = &s.world.bodies[0];
+    let (f, i, j) = b.locate(b.spawn);
+    let (f, i, j) = (f as u8, i as i32, j as i32);
+    let at = |di: i32, z: i32| Block { body: 0, face: f, pos: glam::IVec3::new(i + di, j, z) };
+    let feet = |di: i32, z: f64| b.centre + b.dir(f as usize, (i + di) as f64 + 0.5, j as f64 + 0.5) * (b.layer_r(z) + 0.05);
+    let (hole, floor) = (feet(0, 0.0), feet(4, 1.0));
+    for z in 0..5 {
+        s.world.set_block(at(0, z), AIR);
+        s.world.set_block(at(4, z + 1), AIR);
+    }
+    let (l, sv) = local();
+    tx.send(sv).unwrap();
+    l.send(ToServer::Hello { name: "ape".into() });
+    l.send(ToServer::Input(Input::default()));
+    s.tick();
+    let hold = |s: &mut Server, at: DVec3, secs: f64| {
+        for _ in 0..(secs * TICK_HZ) as u32 {
+            (s.clients[0].phys.pos, s.clients[0].phys.vel) = (at, DVec3::ZERO);
+            s.tick();
+        }
+    };
+    hold(&mut s, floor, 2.0);
+    assert_eq!(s.clients[0].vitals.health, vitals::MAX, "the whole floor does not burn");
+    l.send(ToServer::Creative(true));
+    hold(&mut s, hole, 2.0);
+    assert_eq!(s.clients[0].vitals.health, vitals::MAX, "creative is unhurt");
+    l.send(ToServer::Creative(false));
+    s.tick();
+    hold(&mut s, hole, 1.0);
+    let lost = vitals::MAX - s.clients[0].vitals.health;
+    let want = (1.0 / phys::DT) as u32 / vitals::BURN;
+    assert!((want - 1..=want + 1).contains(&(lost as u32)), "lost {lost} in a second, want {want}");
+    hold(&mut s, hole, 3.0);
+    assert_eq!(s.clients[0].vitals.dead.as_deref(), Some("ape burned in the liquid metal"));
+}
+
+/// The metal sea lights the hole (draft the metal sea): a layer-0 cell opened down to it is a light, a cell over it
+/// is not, and a save keeps it so.
+#[test]
+fn a_hole_to_the_metal_sea_is_a_light_and_stays_one_through_a_save() {
+    let mut s = Server::baked(1536, 32, 7, channel().1);
+    let b = &s.world.bodies[0];
+    let (f, i, j) = b.locate(b.spawn);
+    let at = |z: i32| Block { body: 0, face: f as u8, pos: glam::IVec3::new(i as i32, j as i32, z) };
+    s.world.set_block(at(0), AIR);
+    s.world.set_block(at(1), AIR);
+    assert_eq!((s.world.lights.get(&at(0)), s.world.lights.get(&at(1))), (Some(&engine::world::CORE_LIGHT), None));
+    let back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
+    assert_eq!(back.world.lights.get(&at(0)), Some(&engine::world::CORE_LIGHT));
+}

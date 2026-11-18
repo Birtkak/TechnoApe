@@ -149,6 +149,14 @@ impl World {
     pub fn block(&self, b: Block) -> u16 {
         self.edit(b).unwrap_or_else(|| self.generated_block(b))
     }
+    /// The light cell b gives holding m: its block's, or, a layer-0 cell open down to the metal sea, its glow.
+    fn light_of(&self, b: Block, m: u16) -> [f32; 3] {
+        let light = BLOCKS.get(m).map_or([0.0; 3], |d| d.light);
+        if light == [0.0; 3] && b.pos.z == 0 && self.bodies[b.body as usize].core.is_some() && !BLOCKS.solid(m) {
+            return CORE_LIGHT;
+        }
+        light
+    }
     pub fn set_block(&mut self, b: Block, m: u16) {
         self.tally(b, m);
         let old = self.edits.entry(b.chunk()).or_default().insert(b.pos, m);
@@ -156,7 +164,7 @@ impl World {
             self.edit_count += 1;
         }
         self.far_edit(b, old, Some(m));
-        let light = BLOCKS.get(m).map_or([0.0; 3], |d| d.light);
+        let light = self.light_of(b, m);
         let changed = if light != [0.0; 3] { self.lights.insert(b, light) != Some(light) } else { self.lights.remove(&b).is_some() };
         self.lights_rev += changed as u64;
         if BLOCKS.get(m).is_some_and(|d| d.model.is_some()) {
@@ -175,8 +183,9 @@ impl World {
             for (p, &m) in cells {
                 let Some(d) = BLOCKS.get(m) else { continue };
                 let b = Block { body: k.body, face: k.face, pos: *p };
-                if d.light != [0.0; 3] {
-                    lights.insert(b, d.light);
+                let light = self.light_of(b, m);
+                if light != [0.0; 3] {
+                    lights.insert(b, light);
                 }
                 if d.model.is_some() {
                     models.insert(b, m);
