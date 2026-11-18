@@ -1,4 +1,4 @@
-//! Maps (docs/design/studio-maps.md, ADR 0153; read by the game since draft-game-reads-maps): `data/maps/<name>.toml`, a graph of nodes that
+//! Maps (docs/design/studio-maps.md, ADR 0153; read by the game since ADR 0157): `data/maps/<name>.toml`, a graph of nodes that
 //! makes a small picture which tiles and may loop. Read, check, write, and the working out on the CPU, each
 //! node's picture kept until something before it changes. Every generator lies on a lattice that wraps at the
 //! picture's edge and, when it moves, along time too, so every map tiles and every animated map loops.
@@ -726,7 +726,7 @@ impl Map {
     }
 }
 
-/// A direction map's whole loop as the game reads it (draft-game-reads-maps): `frames` pictures `side` a side
+/// A direction map's whole loop as the game reads it (ADR 0157): `frames` pictures `side` a side
 /// over `seconds`, the push per pixel (x across, y down the picture, each -1..1), by frame, then row.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Field {

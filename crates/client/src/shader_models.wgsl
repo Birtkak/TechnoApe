@@ -44,7 +44,7 @@ fn leafy(c: vec3f) -> bool { return c.g > c.r && c.g > c.b; }
 
 // A plant's sway (ADR 0091): the wind `w` (camera frame, m/s) bends a point `hm` metres up by its square, in gusts
 // that roll across the land with `place` (columns) and run on the sky's clock, so every client and every shot of
-// the same time sees the same. Leaves can take it the same way. With `[sway]` (draft-game-reads-maps) the gusts
+// the same time sees the same. Leaves can take it the same way. With `[sway]` (ADR 0157) the gusts
 // are a Studio map's: its push along the wind and across it (a quarter turn about `up`, camera frame); else the
 // two sines.
 @group(0) @binding(19) var sway_t: texture_3d<f32>;

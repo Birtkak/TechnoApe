@@ -43,7 +43,7 @@ pub enum Face {
 }
 
 /// Motion through a moving noise field: `strength` m/s² at most, `scale` the field's grain in metres, `speed`
-/// how fast it moves (field units a second). With `map` (draft-game-reads-maps) the field is that Studio map's
+/// how fast it moves (field units a second). With `map` (ADR 0157) the field is that Studio map's
 /// (`data/maps/<map>.toml`, a direction): `scale` the metres one tile covers, `speed` times the map's own pace.
 #[derive(Deserialize, Clone, PartialEq, Debug)]
 #[serde(deny_unknown_fields)]
@@ -62,7 +62,7 @@ fn unset() -> f32 {
     f32::NAN
 }
 
-/// `[sway]` (draft-game-reads-maps): the plants' sway reads `map` (a direction), one tile over `tile` metres of
+/// `[sway]` (ADR 0157): the plants' sway reads `map` (a direction), one tile over `tile` metres of
 /// ground; without it the two sines of ADR 0091.
 #[derive(Deserialize, Clone, PartialEq, Debug)]
 #[serde(deny_unknown_fields)]

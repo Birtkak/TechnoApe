@@ -27,7 +27,7 @@ pub(crate) fn depth_view(device: &wgpu::Device) -> wgpu::TextureView {
         .create_view(&Default::default())
 }
 
-/// The plants' wind map (draft-game-reads-maps; binding 19, the shader's `plant_sway`): a field's frames along the
+/// The plants' wind map (ADR 0157; binding 19, the shader's `plant_sway`): a field's frames along the
 /// third axis, its push in two signed channels, linear and repeating in all three (`sway_samp`); none, 1 x 1 x 1.
 pub(crate) fn sway_view(device: &wgpu::Device, queue: &wgpu::Queue, w: Option<&crate::fx::Wind>) -> wgpu::TextureView {
     use wgpu::util::DeviceExt;
@@ -524,7 +524,7 @@ pub(crate) struct Globals {
     /// The plants (ADR 0091): xyz the wind at the camera in body 0's frame, m/s (0 in a shot: a still picture
     /// shows them at rest), w how far away they shrink into the ground, m (the Vegetation setting).
     pub(crate) plants: [f32; 4],
-    /// The plants' wind map (draft-game-reads-maps): x tiles a column (1 / `[sway] tile`), y its loops an hour of
+    /// The plants' wind map (ADR 0157): x tiles a column (1 / `[sway] tile`), y its loops an hour of
     /// the sky's clock (whole, so the hour's wrap has no jump), z 1 with a map (0: the sines).
     pub(crate) sway: [f32; 4],
 }
@@ -1140,7 +1140,7 @@ impl Gpu {
         let sky_view = sky_tex.create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
         let sky_samp = device.create_sampler(&wgpu::SamplerDescriptor { mag_filter: wgpu::FilterMode::Linear, min_filter: wgpu::FilterMode::Linear, ..Default::default() });
         let warp_view = warp_view(&device, &queue);
-        // the plants' wind map (draft-game-reads-maps): the watcher's first look waited for here, at loading, so
+        // the plants' wind map (ADR 0157): the watcher's first look waited for here, at loading, so
         // the first frame already sways by it and pictures repeat (ADR 0031); it always sends one
         let sway_rx = watch_sway(std::path::PathBuf::from(a.get("effects", String::from("data/effects.toml"))));
         let sway_wind = sway_rx.recv().ok().flatten();

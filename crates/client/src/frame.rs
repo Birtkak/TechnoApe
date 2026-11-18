@@ -909,7 +909,7 @@ impl App {
                 };
                 [wind.x, wind.y, wind.z, PLANTS_FAR[self.vegetation()]]
             },
-            // the plants' wind map (draft-game-reads-maps), as the sway's watcher last gave it
+            // the plants' wind map (ADR 0157), as the sway's watcher last gave it
             sway: gpu.sway,
             view_proj: vp.to_cols_array_2d(),
             sun: [sun.x, sun.y, sun.z, clock],

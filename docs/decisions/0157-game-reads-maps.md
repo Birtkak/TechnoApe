@@ -1,6 +1,6 @@
-# NNNN – The game reads Studio maps for the plants' wind and the particles' turbulence
+# 0157 – The game reads Studio maps for the plants' wind and the particles' turbulence
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-11-18
 
 ## Context
