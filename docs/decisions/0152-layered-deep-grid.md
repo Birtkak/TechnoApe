@@ -31,7 +31,8 @@ Option 3, with the large core. For Terra (radius R, 4245 m on the standard plane
 
 - **Liquid metal never freezes into blocks** in the outer core: it is liquid or gone, so natural rock never
   shows a seam. Seams exist only in what a player builds in the drained core (a wall's width changes by a fifth).
-- **Gravity** falls evenly to zero at the centre; on the inner core's surface it is 0.19 of the surface's.
+- **Gravity** (the developer, 2026-11-18: it grows toward the mass) rises through the mantle to about 1.13 of
+  the surface's at the liquid's top, then falls evenly to zero at the centre; about 0.3 on the inner core's surface.
 - **New worlds only.** A save from before keeps its 192 m floor.
 
 Build order, one feature a step: (1) the mantle, today's grid down to R/√2; (2) the liquid outer core and its
@@ -40,7 +41,7 @@ hidden shells; (3) the inner core's cube grid; then the field, pressure and the 
 ## Consequences
 - Blocks at the mantle's bottom are 0.71 m: 2.8 to the cubic metre, so digging is slower there.
 - The inner core's surface is stepped away from its six axes (a 1.35 m sawtooth at 45 degrees). How that
-  walks at a fifth of gravity is not known until step 3 is played; shells for the inner core are the way back.
+  walks at a third of gravity is not known until step 3 is played; shells for the inner core are the way back.
 - Where the cube ball meets the liquid's columns the join is ragged; it shows only once the core is drained.
 - The crust and mantle are 1472 layers deep where 140 were: streaming, saves and the bake's cost per column
   are measured in step 1 (`docs/perf-debt.md`).
