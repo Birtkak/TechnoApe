@@ -32,8 +32,8 @@ pub fn report(w: &World) -> String {
     // the caves and the crust's ore bodies alone: the hash of the same world before the mantle's minerals
     let crust: Vec<engine::ore::OreBody> = b.ores.iter().copied().filter(|o| !engine::ore::MINERALS.kinds[o.kind as usize].deep()).collect();
     format!(
-        "{{\"seed\": {}, \"planet\": {}, \"spawn\": [{:.5}, {:.5}, {:.5}], \"made_hash\": \"{:016x}\", \"made_hash_crust\": \"{:016x}\", \"provinces\": {{{}}}, \"caves\": {{\"balls\": {}, \"in_limestone\": {}, \"in_basalt\": {}, \"depth_m\": [{:.1}, {:.1}], \"open_to_the_sky\": {}, \"kinds\": {{{}}}}}, \"heat_c_under_the_spawn\": [{:.1}, {:.1}], \"pressure_mpa_under_the_spawn\": [{:.3}, {:.3}], \"deep\": {{{}}}, \"minerals\": {{{}}}}}",
-        map.seed, map.n, b.spawn.x, b.spawn.y, b.spawn.z, made_hash(&b.caves, &b.ores), made_hash(&b.caves, &crust), provinces.join(", "), b.caves.len(), in_lime, b.caves.len() - in_lime, dmin, dmax, open, kinds(b).join(", "), heat(ground), heat(0.0), pressure(ground), pressure(0.0), deep.join(", "), minerals(w).join(", ")
+        "{{\"seed\": {}, \"planet\": {}, \"gen\": {}, \"spawn\": [{:.5}, {:.5}, {:.5}], \"made_hash\": \"{:016x}\", \"made_hash_crust\": \"{:016x}\", \"provinces\": {{{}}}, \"flows\": {{{}}}, \"caves\": {{\"balls\": {}, \"in_limestone\": {}, \"in_basalt\": {}, \"depth_m\": [{:.1}, {:.1}], \"open_to_the_sky\": {}, \"kinds\": {{{}}}}}, \"heat_c_under_the_spawn\": [{:.1}, {:.1}], \"pressure_mpa_under_the_spawn\": [{:.3}, {:.3}], \"deep\": {{{}}}, \"minerals\": {{{}}}}}",
+        map.seed, map.n, b.gen, b.spawn.x, b.spawn.y, b.spawn.z, made_hash(&b.caves, &b.ores), made_hash(&b.caves, &crust), provinces.join(", "), flows(b).join(", "), b.caves.len(), in_lime, b.caves.len() - in_lime, dmin, dmax, open, kinds(b).join(", "), heat(ground), heat(0.0), pressure(ground), pressure(0.0), deep.join(", "), minerals(w).join(", ")
     )
 }
 
@@ -50,10 +50,14 @@ fn kinds(b: &engine::world::Body) -> Vec<String> {
         .kinds
         .iter()
         .enumerate()
+        .filter(|(_, kind)| (kind.generations[0]..=kind.generations[1]).contains(&b.gen))
         .map(|(k, kind)| {
             let of: Vec<&engine::caves::System> = sys.iter().filter(|s| s.kind as usize == k).collect();
             let open: std::collections::HashSet<(u8, i32, i32, i32)> = of.iter().flat_map(|s| s.balls.iter().flat_map(|c| cells(b, c).into_iter().map(move |(i, j, z)| (c.face, i, j, z)))).collect();
-            let length: f64 = of.iter().map(|s| s.axis.windows(2).map(|p| (p[1] - p[0]).truncate().length()).sum::<f64>()).sum();
+            let mut lengths: Vec<f64> = of.iter().map(|s| s.axis.windows(2).map(|p| (p[1] - p[0]).truncate().length()).sum::<f64>()).collect();
+            lengths.sort_by(f64::total_cmp);
+            let length: f64 = lengths.iter().sum();
+            let median = lengths.get(lengths.len() / 2).copied().unwrap_or(0.0);
             let away = |s: &engine::caves::System, o: &(usize, usize)| {
                 let p = s.axis[(o.0 + o.1) / 2];
                 b.radius * b.dir(s.face as usize, p.x, p.y).angle_between(b.spawn)
@@ -88,9 +92,29 @@ fn kinds(b: &engine::world::Body) -> Vec<String> {
                 let inside = if tube { inside(s.axis[(o.1 + 15).min(s.axis.len() - 1)], p, 10.0) } else { inside(p, s.axis[(k + 4).min(s.axis.len() - 1)], 75.0) };
                 format!("{{\"m\": {:.0}, \"at\": [{:.6}, {:.6}, {:.6}], \"depth_m\": {:.1}, \"outside\": \"{outside}\", \"inside\": \"{inside}\"}}", away(s, o), d.x, d.y, d.z, b.ground_r(f, p.x, p.y) - p.z)
             });
-            format!("\"{}\": {{\"caves\": {}, \"open_cells\": {}, \"length_m\": {length:.0}, \"openings\": {}, \"nearest_opening\": {near}}}", kind.name, of.len(), open.len(), of.iter().map(|s| s.openings.len()).sum::<usize>())
+            format!("\"{}\": {{\"caves\": {}, \"open_cells\": {}, \"length_m\": {length:.0}, \"median_m\": {median:.0}, \"openings\": {}, \"nearest_opening\": {near}}}", kind.name, of.len(), open.len(), of.iter().map(|s| s.openings.len()).sum::<usize>())
         }))
         .collect()
+}
+
+/// Each province with a lava flow (`data/rocks.toml` `flow`): the share of its land (columns over the sea, every
+/// 8th each way) that lies under one (none before generation 2).
+fn flows(b: &engine::world::Body) -> Vec<String> {
+    let sea = b.radius - engine::world::SEA_DEPTH;
+    let (mut land, mut under) = ([0u64; NAMES.len()], [0u64; NAMES.len()]);
+    for f in 0..6u8 {
+        for i in (4..b.n).step_by(8) {
+            for j in (4..b.n).step_by(8) {
+                let r = b.col_rock(f, i, j);
+                let p = r.province as usize;
+                if engine::rock::ROCKS.provinces.get(p).is_some_and(|p| p.flow.is_some()) && b.col_height(f, i, j) > sea {
+                    land[p] += 1;
+                    under[p] += (r.flow > 0.0) as u64;
+                }
+            }
+        }
+    }
+    (0..NAMES.len()).filter(|&p| land[p] > 0).map(|p| format!("\"{}\": {:.3}", NAMES[p], under[p] as f64 / land[p] as f64)).collect()
 }
 
 /// A column's ground, each mantle boundary (the first layer, going down, of that rock or a deeper one: the first

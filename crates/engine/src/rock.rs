@@ -7,18 +7,39 @@ use std::sync::LazyLock;
 
 /// A column's rock: its province and the radius the first layer's top lies at there, folded; on a body with a
 /// mantle also the year's mean air over it (C) and how far its mantle's boundaries wave there (m), for
-/// `Body::rock` (0 on one without).
+/// `Body::rock` (0 on one without); where a lava flow of its province lies over it (`Flow`, generation 2 on),
+/// the radius of the flow's foot, else 0.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rock {
     pub province: u8,
     pub top: f32,
     pub air: f32,
     pub wobble: f32,
+    pub flow: f32,
 }
 
 impl Rock {
     /// No province (a planet without a map, or a map from before the rock): the biome's rock.
-    pub const NONE: Rock = Rock { province: u8::MAX, top: 0.0, air: 0.0, wobble: 0.0 };
+    pub const NONE: Rock = Rock { province: u8::MAX, top: 0.0, air: 0.0, wobble: 0.0, flow: 0.0 };
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawFlow {
+    rock: String,
+    share: f32,
+    thick: f32,
+    width: f32,
+}
+
+/// Lava flows over a province's top layers (`data/rocks.toml`, a world of generation 2 on): `rock` from the
+/// ground down `thick` metres over about `share` of its ground, in fields some `width` metres across.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Flow {
+    pub rock: u16,
+    pub share: f32,
+    pub thick: f32,
+    pub width: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -37,6 +58,7 @@ struct RawProvince {
     fold: [f32; 2],
     heat: f32,
     caves: Caves,
+    flow: Option<RawFlow>,
 }
 
 #[derive(Deserialize)]
@@ -92,6 +114,7 @@ pub struct Province {
     /// Degrees C warmer a metre deeper.
     pub heat: f32,
     pub caves: Caves,
+    pub flow: Option<Flow>,
 }
 
 pub struct Rocks {
@@ -136,7 +159,17 @@ impl Rocks {
             if !(0.0..=50.0).contains(&p.fold[0]) || !(20.0..=5000.0).contains(&p.fold[1]) || !(0.0..=1.0).contains(&p.heat) {
                 return Err(format!("province '{}': fold 0..50 m over 20..5000 m, heat 0..1 C a metre", p.name));
             }
-            provinces.push(Province { name: p.name.clone(), layers, fold: p.fold, heat: p.heat, caves: p.caves });
+            let flow = match &p.flow {
+                None => None,
+                Some(f) => {
+                    let d = BLOCKS.placeable().find(|d| d.name == f.rock && d.solid).ok_or(format!("province '{}': the flow's rock: no solid block '{}'", p.name, f.rock))?;
+                    if !(0.0..=1.0).contains(&f.share) || !(5.0..=100.0).contains(&f.thick) || !(50.0..=5000.0).contains(&f.width) {
+                        return Err(format!("province '{}': a flow's share 0..1, thick 5..100 m, width 50..5000 m", p.name));
+                    }
+                    Some(Flow { rock: d.id, share: f.share, thick: f.thick, width: f.width })
+                }
+            };
+            provinces.push(Province { name: p.name.clone(), layers, fold: p.fold, heat: p.heat, caves: p.caves, flow });
         }
         let m = &f.mantle;
         let mut mantle: Vec<Deep> = Vec::new();
@@ -164,6 +197,11 @@ impl Rocks {
     /// The rock at radius `r` in a column of rock `rock`; `fallback` (the biome's rock) when it has no province.
     pub fn at(&self, rock: Rock, r: f32, fallback: u16) -> u16 {
         let Some(p) = self.provinces.get(rock.province as usize) else { return fallback };
+        if rock.flow > 0.0 && r >= rock.flow {
+            if let Some(f) = &p.flow {
+                return f.rock;
+            }
+        }
         let mut foot = rock.top;
         for &(b, m) in &p.layers {
             foot -= m;
@@ -203,7 +241,7 @@ mod tests {
     #[test]
     fn a_broken_file_is_refused_and_says_why() {
         let good = include_str!("../../../data/rocks.toml");
-        for (from, to, says) in [("\"granite\", 0.0", "\"granit\", 0.0", "no block 'granit'"), ("[\"gneiss\", 0.0]", "[\"gneiss\", 5.0]", "the last 0"), ("name = \"rift\"", "name = \"rifts\"", "in that order"), ("block = \"peridotite\"", "block = \"water\"", "the mantle")] {
+        for (from, to, says) in [("\"granite\", 0.0", "\"granit\", 0.0", "no block 'granit'"), ("[\"gneiss\", 0.0]", "[\"gneiss\", 5.0]", "the last 0"), ("name = \"rift\"", "name = \"rifts\"", "in that order"), ("block = \"peridotite\"", "block = \"water\"", "the mantle"), ("rock = \"basalt\", share", "rock = \"basalts\", share", "the flow's rock: no solid block 'basalts'"), ("share = 0.5,", "share = 1.4,", "a flow's share")] {
             let e = Rocks::parse(&good.replacen(from, to, 1)).err().unwrap_or_else(|| panic!("{from} -> {to} loads"));
             assert!(e.contains(says), "{e}");
         }

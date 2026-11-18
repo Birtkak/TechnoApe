@@ -1432,14 +1432,53 @@ fn a_saved_player_comes_back_with_what_it_held() {
     assert!(Save::from_bytes(b"not a save").is_err());
 }
 
-/// A recording from the seed replays on the grid it was made on (ADR 0152): a world with the mantle on the deep
-/// grid, one without (or a recording from before the mantle) on the old floor, a dig in each at the same cell.
+/// A client or a bot builds its world from the welcome (ADR draft-generation-number-and-arc-basalt): told
+/// generation 1 it has the arcs' tuff, told 2 their basalt flows over part of them, and the same rock in every
+/// column of every other province.
 #[test]
-fn a_recording_replays_with_the_mantle_or_without() {
-    for mantle in [false, true] {
+fn a_client_told_generation_1_or_2_builds_that_worlds_rock() {
+    let worlds = [1u8, engine::world::GENERATION].map(|gen| {
         let (tx, rx) = channel();
-        let mut s = Server::baked_warp(1536, 32, 7, 0.0, mantle, rx);
-        let rec = std::env::temp_dir().join(format!("technoape-test-{}-{mantle}.rec", std::process::id()));
+        let mut s = Server::baked_warp(1536, 32, 7, 0.0, gen, rx);
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
+        s.tick();
+        let welcome = drain(&c).into_iter().find_map(|m| match m {
+            ToClient::Welcome { seed, planet_n, moon_n, gen, .. } => Some((seed, planet_n, moon_n, gen)),
+            _ => None,
+        });
+        let (seed, planet_n, moon_n, told) = welcome.expect("a welcome");
+        assert_eq!(told, gen, "the welcome says the world's generation");
+        // as the bot and the client do on a welcome
+        World::with_grid(planet_n, moon_n, seed, Some(engine::bake::get(seed, planet_n)), None, 0.0, told)
+    });
+    let (b1, b2) = (&worlds[0].bodies[0], &worlds[1].bodies[0]);
+    let (mut arc, mut other) = (0, 0);
+    for f in 0..6u8 {
+        for i in (3..b1.n).step_by(7) {
+            for j in (3..b1.n).step_by(7) {
+                let (r1, r2, g) = (b1.col_rock(f, i, j), b2.col_rock(f, i, j), b1.col_height(f, i, j));
+                let differ = (0..40).any(|k| b1.rock(r1, (g - k as f64) as f32, 0) != b2.rock(r2, (g - k as f64) as f32, 0));
+                if r1.province == engine::bake::rock::ARC {
+                    arc += differ as usize;
+                } else {
+                    assert!(!differ, "the crust of a {} column differs at ({f}, {i}, {j})", engine::bake::rock::NAMES.get(r1.province as usize).unwrap_or(&"none"));
+                    other += 1;
+                }
+            }
+        }
+    }
+    assert!(arc > 50 && other > 10_000, "{arc} arc columns differ, {other} others the same");
+}
+
+/// A recording from the seed replays on the grid and by the generation it was made by (ADR 0152; ADR draft-generation-number-and-arc-basalt):
+/// generation 0 on the old floor, 1 and 2 on the deep grid, 2 with its own ground; a dig in each at the same cell.
+#[test]
+fn a_recording_replays_with_its_generation() {
+    for gen in [0, 1, engine::world::GENERATION] {
+        let (tx, rx) = channel();
+        let mut s = Server::baked_warp(1536, 32, 7, 0.0, gen, rx);
+        let rec = std::env::temp_dir().join(format!("technoape-test-{}-{gen}.rec", std::process::id()));
         s.record(&rec).unwrap();
         let (c, sv) = local();
         tx.send(sv).unwrap();
@@ -1455,7 +1494,7 @@ fn a_recording_replays_with_the_mantle_or_without() {
         assert_eq!(s.world.block(deep), AIR);
         let r = replay(&rec, None).unwrap();
         std::fs::remove_file(&rec).unwrap();
-        assert_eq!((r.diverged, r.server.world.bodies[0].mantle, r.server.world.hash()), (None, s.world.bodies[0].mantle, s.world.hash()), "mantle {mantle}");
+        assert_eq!((r.diverged, r.server.world.bodies[0].gen, r.server.world.bodies[0].mantle, r.server.world.hash()), (None, gen, s.world.bodies[0].mantle, s.world.hash()), "generation {gen}");
     }
 }
 
@@ -3793,7 +3832,7 @@ fn a_player_digs_at_the_mantles_floor_and_not_under_it() {
     let snap = s.snapshot();
     let back = Server::from_save(Save::from_bytes(&snap.to_bytes()).unwrap(), channel().1);
     assert_eq!((back.world.bodies[0].mantle, back.world.block(wall)), (s.world.bodies[0].mantle, AIR));
-    let old = Server::from_save(Save::from_bytes(&Save { mantle: false, ..snap }.to_bytes()).unwrap(), channel().1);
+    let old = Server::from_save(Save::from_bytes(&Save { gen: 0, ..snap }.to_bytes()).unwrap(), channel().1);
     let ob = &old.world.bodies[0];
     assert_eq!((ob.mantle, ob.r0.to_bits(), ob.layers), (0, engine::world::Body::new(ob.centre, ob.n, 7).r0.to_bits(), engine::world::Body::new(ob.centre, ob.n, 7).layers));
     assert_eq!((old.world.edit(wall), old.world.edit(at(0, 3))), (Some(AIR), Some(AIR)));

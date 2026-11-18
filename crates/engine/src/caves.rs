@@ -55,6 +55,7 @@ struct RawKind {
     width: [f64; 2],
     height: [f64; 2],
     length: [f64; 2],
+    generations: Option<[u8; 2]>,
     skylight: Option<f64>,
     trench: Option<f64>,
     branch: Option<f64>,
@@ -82,6 +83,8 @@ pub struct Kind {
     pub width: [f64; 2],
     pub height: [f64; 2],
     pub length: [f64; 2],
+    /// The worlds' generations it is made in (`Body::gen`), [least, most].
+    pub generations: [u8; 2],
     pub skylight: f64,
     pub trench: f64,
     pub branch: f64,
@@ -143,7 +146,11 @@ impl Kinds {
                     (0.0, 0.0, 0.0, 0.0, o)
                 }
             };
-            kinds.push(Kind { name: k.name, shape: k.shape, hosts, provinces, depth: k.depth, spacing: k.spacing, chance: k.chance, width: k.width, height: k.height, length: k.length, skylight, trench, branch, slope, open });
+            let generations = k.generations.unwrap_or([1, u8::MAX]);
+            if generations[0] < 1 || generations[0] > generations[1] {
+                return Err(format!("kind '{name}': generations {generations:?}: least 1 or more, least <= most"));
+            }
+            kinds.push(Kind { name: k.name, shape: k.shape, hosts, provinces, depth: k.depth, spacing: k.spacing, chance: k.chance, width: k.width, height: k.height, length: k.length, generations, skylight, trench, branch, slope, open });
         }
         // a kind's starts are seeded with 4 bits of its index (`systems_of`)
         if kinds.len() > 16 {
@@ -180,9 +187,13 @@ pub fn systems_of(b: &Body, seed: u64, kinds: &[Kind]) -> Vec<System> {
     }
     let mut out = Vec::new();
     for (k, kind) in kinds.iter().enumerate() {
+        // (a kind's index seeds it: a row made in other generations keeps its place in the file)
+        if !(kind.generations[0]..=kind.generations[1]).contains(&b.gen) {
+            continue;
+        }
         let s = kind.spacing;
         for face in 0..6u8 {
-            let mut probe = Probe { b, face, cols: HashMap::new() };
+            let mut probe = Probe { b, face, cols: HashMap::new(), axes: HashMap::new() };
             for cy in 0..b.n / s {
                 for cx in 0..b.n / s {
                     let mut rng = Rng(seed ^ 0xca5e_4b1d ^ (k as u64) << 60 ^ (face as u64) << 52 ^ (cx as u64) << 26 ^ cy as u64);
@@ -195,6 +206,7 @@ pub fn systems_of(b: &Body, seed: u64, kinds: &[Kind]) -> Vec<System> {
                         continue;
                     }
                     match kind.shape {
+                        Shape::Tube if b.gen >= 2 => round_tube(&mut probe, kind, k as u8, &mut rng, i, j, None, 2, &mut out),
                         Shape::Tube => {
                             let a = rng.f() * std::f64::consts::TAU;
                             tube(&mut probe, kind, k as u8, &mut rng, i, j, a, None, 2, &mut out);
@@ -217,7 +229,21 @@ struct Probe<'a> {
     b: &'a Body,
     face: u8,
     cols: HashMap<(i32, i32), (Rock, f64, bool)>,
+    /// The round tubes made on the face so far (generation 2): their axes' points (i, j, radius, the system's
+    /// index in the output) by `AXES` x `AXES` columns, which a later tube keeps off (`crowds`).
+    axes: HashMap<(i32, i32), Vec<(f64, f64, f64, usize)>>,
 }
+
+/// The cells of `Probe::axes`, columns.
+const AXES: f64 = 8.0;
+/// Rock left between two round tubes' walls at least, metres: a tube that comes nearer another ends.
+const WALL: f64 = 3.0;
+/// A branch is let near the tube it leaves for its first this many metres.
+const FORK: usize = 25;
+/// A round tube follows the flank: the ground's slope read this many columns either side (a gully's is not).
+const FLANK: f64 = 16.0;
+/// A round tube looks for water this far ahead, metres.
+const AHEAD: f64 = 10.0;
 
 /// The soil band's thickness at level 0, metres: `generated_under` and `generate` lay the biome's ground there,
 /// not rock.
@@ -263,8 +289,12 @@ impl Probe<'_> {
     }
     /// The ground's slope at (i, j), metres a column, uphill.
     fn grad(&self, i: f64, j: f64) -> (f64, f64) {
+        self.grad_over(i, j, 4.0)
+    }
+    /// `grad` read `d` columns either side.
+    fn grad_over(&self, i: f64, j: f64, d: f64) -> (f64, f64) {
         let g = |a: f64, c: f64| self.b.ground_r(self.face as usize, i + a, j + c);
-        ((g(4.0, 0.0) - g(-4.0, 0.0)) / 8.0, (g(0.0, 4.0) - g(0.0, -4.0)) / 8.0)
+        ((g(d, 0.0) - g(-d, 0.0)) / (2.0 * d), (g(0.0, d) - g(0.0, -d)) / (2.0 * d))
     }
 }
 
@@ -370,6 +400,162 @@ fn tube(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, mut i: f64, mut j: f64
     }
 }
 
+impl Probe<'_> {
+    /// Whether a round tube of radius r at (i, j) comes within `WALL` of another's wall (but the tube `except`).
+    fn crowds(&self, i: f64, j: f64, r: f64, except: Option<usize>) -> bool {
+        let (x, y) = ((i / AXES).floor() as i32, (j / AXES).floor() as i32);
+        (-1..=1).flat_map(|a| (-1..=1).map(move |c| (x + a, y + c))).filter_map(|c| self.axes.get(&c)).flatten().any(|&(pi, pj, pr, s)| Some(s) != except && (pi - i).hypot(pj - j) < r + pr + WALL)
+    }
+    /// Keeps system `s`'s axis (its points' radii `rs`) for the tubes after it.
+    fn keep(&mut self, s: usize, axis: &[DVec3], rs: &[f64]) {
+        for (q, &r) in axis.iter().zip(rs) {
+            self.axes.entry(((q.x / AXES).floor() as i32, (q.y / AXES).floor() as i32)).or_default().push((q.x, q.y, r, s));
+        }
+    }
+    /// Whether column (i, j) is a host of the kind at m metres under its ground, in one of its provinces.
+    fn host(&mut self, i: f64, j: f64, m: f64, kind: &Kind) -> bool {
+        let (rock, ground, wet) = self.col(i.floor() as i32, j.floor() as i32);
+        !wet && kind.provinces.contains(&rock.province) && kind.hosts.contains(&self.b.rock(rock, (ground - m) as f32, 0))
+    }
+}
+
+/// A lava tube of a world of generation 2 (ADR draft-generation-number-and-arc-basalt): one round passage, its
+/// width drawn per tube and waving slowly along it, its lower third filled flat (a ball of the radius, cut a third
+/// of the radius under its middle), a few metres under the ground. A start first climbs the ground's slope up the
+/// basalt (a tube runs from high on its flow), then it runs downhill as `tube` does, gently winding, and also ends
+/// where it would come within `WALL` of another round tube; a branch (`fork`: its parent and the floor there) bends
+/// off to its side and is let near its parent for `FORK` metres. Each skylight is at least 2.3 m across its
+/// radius, so it opens a 3 x 3 of columns at the least.
+#[allow(clippy::too_many_arguments)]
+fn round_tube(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, mut i: f64, mut j: f64, fork: Option<(usize, f64, f64, f64)>, branches: u32, out: &mut Vec<System>) {
+    let (b, face, sea) = (p.b, p.face, p.b.radius - SEA_DEPTH);
+    let w0 = lerp(rng, kind.width);
+    let roof = kind.depth[0] + rng.f() * (kind.depth[1] - kind.depth[0] - kind.height[1]).clamp(0.0, 1.5);
+    let len = lerp(rng, kind.length) as usize;
+    let (phase, wave) = (rng.f() * std::f64::consts::TAU, rng.f() * std::f64::consts::TAU);
+    let width = |s: usize| (w0 * (1.0 + 0.12 * (s as f64 / 41.0 + wave).sin())).clamp(kind.width[0], kind.width[1]);
+    let mid = roof + w0 / 3.0;
+    let (mut a, mut floor) = match fork {
+        Some((_, a, f, _)) => (a, Some(f)),
+        None => {
+            // up the slope while the ground there and round it (a width out each way, the tube's walls) is the
+            // host at the tube's depth: the flow's high end, short of its edge
+            let inside = |p: &mut Probe, i: f64, j: f64| [(0.0, 0.0), (w0, 0.0), (-w0, 0.0), (0.0, w0), (0.0, -w0)].iter().all(|&(a, c)| p.host(i + a, j + c, mid, kind));
+            if !inside(p, i, j) {
+                return;
+            }
+            for _ in 0..400 {
+                let (gx, gy) = p.grad_over(i, j, FLANK);
+                let g = gx.hypot(gy);
+                if g < 2.0 * kind.slope || p.off(i, j, w0) {
+                    break;
+                }
+                let (ni, nj) = (i + gx / g, j + gy / g);
+                if !inside(p, ni, nj) {
+                    break;
+                }
+                (i, j) = (ni, nj);
+            }
+            let (gx, gy) = p.grad_over(i, j, FLANK);
+            ((-gy).atan2(-gx), None)
+        }
+    };
+    let except = fork.map(|f| f.0);
+    let (mut axis, mut balls, mut rs, mut forks) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for step in 0..len {
+        let w = width(step);
+        let r = w / 2.0;
+        let hgt = w * 2.0 / 3.0;
+        if p.off(i, j, r) || p.crowds(i, j, r, except.filter(|_| step < FORK)) {
+            break;
+        }
+        let ground = b.ground_r(face as usize, i, j);
+        if ground - sea < DRY + r || p.wet(i, j) {
+            break;
+        }
+        let (gx, gy) = p.grad_over(i, j, FLANK);
+        if gx.hypot(gy) < kind.slope {
+            break;
+        }
+        let f = floor.map_or(ground - roof - hgt, |f: f64| f.min(ground - roof - hgt));
+        if ground - f > kind.depth[1] {
+            break;
+        }
+        // round: the ball's middle a third of its radius over the floor, so its lower third is filled
+        let c = Cave { face, at: DVec3::new(i, j, b.layer_of(f) + r / 3.0), r, h: r, floor: r / 3.0, kind: k };
+        if !p.fits(&c, kind, false) {
+            break;
+        }
+        floor = Some(f);
+        axis.push(DVec3::new(i, j, f));
+        balls.push(c);
+        rs.push(r);
+        if branches > 0 && step > FORK && rng.f() < kind.branch / 100.0 {
+            let side = if rng.f() < 0.5 { 1.0 } else { -1.0 };
+            forks.push((axis.len() - 1, a + side * (0.6 + rng.f() * 0.4), side));
+        }
+        // downhill, winding a little; a branch bends on off to its side over its first 80 m
+        let mut wind = 0.25 * (step as f64 / 23.0 + phase).sin() + fork.map_or(0.0, |f| f.3 * 0.5 * (1.0 - step as f64 / 80.0).max(0.0));
+        // and round water ahead (a river in the valley, a lake): towards the drier side, as a flow is held off
+        // by the ground a valley's stream later cut
+        let wet_at = |p: &mut Probe, t: f64| p.wet(i + AHEAD * (a + t).cos(), j + AHEAD * (a + t).sin());
+        if wet_at(p, 0.0) {
+            wind += match (wet_at(p, -0.6), wet_at(p, 0.6)) {
+                (false, true) => -0.6,
+                (true, false) => 0.6,
+                _ => 0.0,
+            };
+        }
+        a += wrap((-gy).atan2(-gx) + wind - a).clamp(-0.1, 0.1);
+        (i, j) = (i + a.cos(), j + a.sin());
+    }
+    if axis.len() < MIN_RUN {
+        return;
+    }
+    // the skylights, as `tube`'s
+    let n = axis.len();
+    let mut at = kind.skylight * (0.3 + 0.5 * rng.f());
+    let mut tries = Vec::new();
+    while at < n as f64 - 4.0 {
+        tries.push(at as usize);
+        at += kind.skylight * (0.7 + 0.6 * rng.f());
+    }
+    if tries.is_empty() {
+        tries.push(n / 2);
+    }
+    let mut openings = Vec::new();
+    for s in tries {
+        let trench = rng.f() < kind.trench;
+        let e = (s + if trench { 20.0 + rng.f() * 30.0 } else { 3.0 + rng.f() * 2.0 } as usize).min(n - 1);
+        let mut shaft = Vec::new();
+        for (q, c) in axis[s..=e].iter().zip(&balls[s..=e]) {
+            let zg = b.layer_of(b.ground_r(face as usize, q.x, q.y)) + 1.0;
+            let zc = c.at.z;
+            shaft.push(Cave { face, at: DVec3::new(q.x, q.y, zg), r: (c.r * if trench { 0.9 } else { 0.8 }).max(2.3), h: 1.6 * (zg - zc), floor: zg - zc, kind: k });
+        }
+        if axis[s..=e].iter().any(|q| p.wet(q.x, q.y)) || !shaft.iter().all(|c| p.fits(c, kind, true)) {
+            continue;
+        }
+        // the roof that fell: a heap under the opening, its foot the tube's radius and 3 m out
+        let m = (rs[s] + 3.0).ceil() as usize;
+        for (q, c) in balls.iter_mut().enumerate().take((e + m).min(n - 1) + 1).skip(s.saturating_sub(m)) {
+            let out_by = s.saturating_sub(q).max(q.saturating_sub(e)) as f64;
+            c.floor -= 0.45 * (c.r * 4.0 / 3.0) * (1.0 - out_by / m as f64).max(0.0);
+        }
+        balls.extend(shaft);
+        openings.push((s, e));
+    }
+    if openings.is_empty() {
+        return;
+    }
+    let me = out.len();
+    p.keep(me, &axis, &rs);
+    out.push(System { kind: k, face, axis: axis.clone(), openings, balls });
+    for (q, heading, side) in forks {
+        round_tube(p, kind, k, rng, axis[q].x, axis[q].y, Some((me, heading, axis[q].z, side)), branches - 1, out);
+    }
+}
+
 /// A fissure near (i, j) (deep-world.md 4): it starts on the nearest border between provinces of the map within
 /// 24 columns and follows it half a metre a step, a narrow tall slot whose height waves along it; over an open
 /// stretch its top breaks the ground. A ball in a rock that is no host is left out (the crack does not open
@@ -468,9 +654,11 @@ mod tests {
     #[test]
     fn the_caves_file_loads_and_a_broken_one_is_refused_and_says_why() {
         let k = &CAVES.kinds;
-        assert_eq!(k.iter().map(|k| (k.name.as_str(), k.shape)).collect::<Vec<_>>(), [("lava tube", Shape::Tube), ("fissure", Shape::Fissure)]);
-        assert_eq!(k[0].hosts, [crate::blocks::BLOCKS.id("basalt")]);
-        assert_eq!(k[0].provinces, [crate::bake::rock::RIFT, crate::bake::rock::ARC]);
+        assert_eq!(k.iter().map(|k| (k.name.as_str(), k.shape, k.generations)).collect::<Vec<_>>(), [("lava tube", Shape::Tube, [1, 1]), ("fissure", Shape::Fissure, [1, 255]), ("lava tube", Shape::Tube, [2, 255])]);
+        for t in [&k[0], &k[2]] {
+            assert_eq!(t.hosts, [crate::blocks::BLOCKS.id("basalt")]);
+            assert_eq!(t.provinces, [crate::bake::rock::RIFT, crate::bake::rock::ARC]);
+        }
         let good = include_str!("../../../data/caves.toml").replace("\r\n", "\n");
         for (from, to, says) in [
             ("hosts = [\"basalt\"]", "hosts = [\"basalts\"]", "no rock 'basalts'"),
@@ -482,16 +670,20 @@ mod tests {
             ("skylight = 200.0\n", "", "skylight"),
             ("open = 0.35\n", "open = 0.35\nskylight = 9.0\n", "only a tube"),
             ("length = [150.0, 700.0]", "length = [20.0, 700.0]", "at least 40"),
+            ("generations = [1, 1]", "generations = [2, 1]", "generations"),
+            ("generations = [1, 1]", "generations = [0, 1]", "generations"),
         ] {
             let e = Kinds::parse(&good.replacen(from, to, 1)).err().unwrap_or_else(|| panic!("{from} -> {to} loads"));
             assert!(e.contains(says), "{from} -> {to}: {e}");
         }
         // a kind's seed keeps 4 bits for it: 16 kinds at most
-        let fissure = &good[good.rfind("[[kind]]").unwrap()..];
-        let many = good.clone() + &fissure.repeat(15);
+        // (the fissure's row, up to the comment over the next)
+        let fissure = &good[good.find("[[kind]]\nname = \"fissure\"").unwrap()..];
+        let fissure = &fissure[..fissure.find("\n#").unwrap() + 1];
+        let many = good.clone() + &fissure.repeat(14);
         let e = Kinds::parse(&many).err().expect("17 kinds load");
         assert!(e.contains("at most 16"), "{e}");
-        assert!(Kinds::parse(&(good.clone() + &fissure.repeat(14))).is_ok(), "16 kinds are refused");
+        assert!(Kinds::parse(&(good.clone() + &fissure.repeat(13))).is_ok(), "16 kinds are refused");
     }
 }
 
@@ -530,7 +722,8 @@ pub fn make(b: &Body, seed: u64) -> Vec<Cave> {
             }
         }
     }
-    // shortcut: new generation rides on the mantle flag, give worlds a generation number when the next rule needs it
+    // (generation 1 came in on the mantle flag, and these gates stay on it: the same worlds. A rule new since asks
+    // `b.gen`, ADR draft-generation-number-and-arc-basalt; the kinds of a generation are chosen in `systems_of`)
     if b.mantle > 0 {
         out.extend(systems(b, seed).into_iter().flat_map(|s| s.balls));
     }

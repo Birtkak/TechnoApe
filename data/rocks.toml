@@ -8,6 +8,10 @@
 # `heat`: how much warmer the rock is a metre deeper, degrees C (the year's mean air at the surface on top).
 # `caves`: "limestone" (water-cut systems along the water table, where limestone holds it), "tubes" (lava
 # tubes a few metres under basalt ground: a rift's, or an island's of oceanic crust) or "none".
+# `flow` (optional; worlds of generation 2 on, ADR draft-generation-number-and-arc-basalt): lava flows lying over
+# the province's layers: `rock` from the ground down `thick` metres, over about `share` of its ground, in fields some
+# `width` metres across (patchy, by the seed). A real arc volcano is andesite and tuff with basalt flows down its
+# flanks (the Cascades' Lava Beds, Etna); the flows are where its lava tubes run (data/caves.toml).
 
 datum = 60.0
 # The crust's rock, kg/m3: the weight over a point (`Body::pressure`, MPa) is the rock and water above it with
@@ -72,6 +76,7 @@ layers = [["tuff", 20.0], ["andesite", 90.0], ["granite", 0.0]]
 fold = [8.0, 300.0]
 heat = 0.35
 caves = "none"
+flow = { rock = "basalt", share = 0.5, thick = 30.0, width = 700.0 }
 
 [[province]]
 name = "rift"

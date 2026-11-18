@@ -13,9 +13,15 @@
 #   trench and an open slot break the roof on purpose).
 # `spacing`: one candidate start every this many columns each way on a face; `chance`: the share that grow one.
 # `width`, `height`, `length`: [least, most] metres, drawn per cave.
+# `generations` (optional): [least, most] of the worlds' generations it is made in (`Body::gen`, ADR
+#   draft-generation-number-and-arc-basalt); every generation from 1 when left out. A row's place in the file seeds
+#   it: add new rows at the end, and give an old row an end rather than changing it, so older worlds keep theirs.
 # Tubes: `skylight` metres between roof collapses open to the sky (at least one a tube), `trench` the chance the
 #   stretch at a skylight has fallen in over 20 to 50 m, `branch` the chance a branch leaves, per 100 m.
 #   `slope`: the least fall a metre the ground must keep, or the tube ends (lava ran only downhill).
+#   From generation 2 a tube is one round passage (caves.rs `round_tube`): `width` waves slowly along it, its
+#   lower third is filled flat, so it is two thirds of its width tall (within `height`); it starts high on its
+#   basalt and ends where it would come within 3 m of another tube.
 # Fissures: `open` the share open at the surface as a slot over part of their length.
 
 [[kind]]
@@ -29,6 +35,7 @@ chance = 0.8
 width = [3.0, 8.0]
 height = [2.5, 5.0]
 length = [150.0, 700.0]
+generations = [1, 1]
 skylight = 200.0
 trench = 0.2
 branch = 0.3
@@ -46,3 +53,22 @@ width = [1.0, 2.0]
 height = [10.0, 58.0]
 length = [80.0, 300.0]
 open = 0.35
+
+# Lava tubes from generation 2: one round passage 4 to 7 m wide in the basalt of rifts and of the arcs' flows
+# (data/rocks.toml `flow`).
+[[kind]]
+name = "lava tube"
+shape = "tube"
+hosts = ["basalt"]
+provinces = ["rift", "volcanic arc"]
+depth = [4.5, 14.0]
+spacing = 40
+chance = 0.8
+width = [4.0, 7.0]
+height = [2.6, 4.7]
+length = [150.0, 900.0]
+generations = [2, 255]
+skylight = 200.0
+trench = 0.2
+branch = 0.3
+slope = 0.008

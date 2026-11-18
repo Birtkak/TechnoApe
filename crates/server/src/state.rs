@@ -11,21 +11,21 @@ impl Server {
         Server::with_world(World::baked(planet_n, moon_n, seed), seed, accept)
     }
     /// `baked` on the block grid warped by `warp` (the conformal grid's trial, ADR 0131; `warp=`). The warp is in
-    /// no save and no message: a client must be given the same `warp=`. `mantle`: the planet's grid down through
-    /// the mantle (ADR 0152), as every new world's unless `mantle=0`; the save and the welcome say it.
-    pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64, mantle: bool, accept: Receiver<ServerLink>) -> Server {
-        Server::with_world(World::baked_warp(planet_n, moon_n, seed, warp, mantle), seed, accept)
+    /// no save and no message: a client must be given the same `warp=`. `gen`: the world's generation (`Body::gen`),
+    /// the newest unless `gen=` or `mantle=0` (`gen_arg`); the save and the welcome say it.
+    pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64, gen: u8, accept: Receiver<ServerLink>) -> Server {
+        Server::with_world(World::baked_warp(planet_n, moon_n, seed, warp, gen), seed, accept)
     }
     /// A server on the map of this hash (None: the noise land) and Luna on the map of `luna` (None: its hills);
     /// a bake is redone if it is not kept. A map that comes out other than the hash stops the game, as a save
     /// this build cannot read does: its edits belong to other ground, and the next autosave would write over
     /// the old map's name.
-    /// `mantle`: the planet's grid goes down through the mantle (ADR 0152), as the save says.
-    pub fn on_map(planet_n: i32, moon_n: i32, seed: i32, map: Option<u64>, luna: Option<u64>, mantle: bool, accept: Receiver<ServerLink>) -> Server {
+    /// `gen`: the world's generation (`Body::gen`), as the save says.
+    pub fn on_map(planet_n: i32, moon_n: i32, seed: i32, map: Option<u64>, luna: Option<u64>, gen: u8, accept: Receiver<ServerLink>) -> Server {
         let Some(h) = map else { return Server::new(planet_n, moon_n, seed, accept) };
         let m = engine::bake::for_hash(seed, planet_n, h).unwrap_or_else(|| panic!("this world was played on another map of seed {seed} (map version {}): it cannot be carried on", engine::bake::VERSION));
         let l = luna.map(|h| engine::bake::luna::for_hash(seed, moon_n, h).unwrap_or_else(|| panic!("this world was played on another Luna of seed {seed} (Luna's map version {}): it cannot be carried on", engine::bake::luna::VERSION)));
-        Server::with_world(World::with_grid(planet_n, moon_n, seed, Some(m), l, 0.0, mantle), seed, accept)
+        Server::with_world(World::with_grid(planet_n, moon_n, seed, Some(m), l, 0.0, gen), seed, accept)
     }
     pub(super) fn with_world(mut world: World, seed: i32, accept: Receiver<ServerLink>) -> Server {
         world.open_ledger();
@@ -97,7 +97,7 @@ impl Server {
 
     /// A server that carries on from `save` (its seed and planet win over any given elsewhere).
     pub fn from_save(save: Save, accept: Receiver<ServerLink>) -> Server {
-        let mut s = Server::on_map(save.planet_n, save.moon_n, save.seed, save.map, save.luna, save.mantle, accept);
+        let mut s = Server::on_map(save.planet_n, save.moon_n, save.seed, save.map, save.luna, save.gen, accept);
         for (b, m) in &save.edits {
             s.world.set_block(*b, *m);
         }
@@ -214,7 +214,7 @@ impl Server {
             // after `air`: its `state` takes a job in flight back, which `pending` then names
             rain: (self.world.water.rain_held.iter().map(|(&a, &x)| (a, x)).collect(), self.weather.as_ref().and_then(|w| w.pending(self.tick)), self.world.water.steps),
             held: save::Held { items: ITEMS.table(), piles: self.piles.iter().map(|(k, p)| (unkey(*k), p.slots.clone())).collect(), taken: self.taken.iter().map(|(k, y)| (unkey(*k), *y)).collect(), furnaces: self.furnaces.iter().map(|(k, f)| (unkey(*k), f.clone())).collect() },
-            mantle: self.world.bodies[0].mantle > 0,
+            gen: self.world.bodies[0].gen,
         }
     }
 

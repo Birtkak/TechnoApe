@@ -27,7 +27,7 @@ fn main() {
     if args.contains_key("report") {
         let planet = num("planet", 6144);
         let t = Instant::now();
-        let w = engine::world::World::baked_warp(planet, engine::bodies::columns(1, planet), num("seed", 1337), 0.0, num("mantle", 1) != 0);
+        let w = engine::world::World::baked_warp(planet, engine::bodies::columns(1, planet), num("seed", 1337), 0.0, server::gen_arg(num("mantle", 1), num("gen", -1)));
         eprintln!("[report] world in {:.1} s", t.elapsed().as_secs_f64());
         println!("{}", server::report::report(&w));
         return;
@@ -68,8 +68,8 @@ fn main() {
         }
         None => {
             let planet = num("planet", engine::bodies::BODIES[0].n);
-            // mantle=0: a new world on the 192 m floor of the worlds before ADR 0152
-            Server::baked_warp(planet, num("moon", engine::bodies::columns(1, planet)), num("seed", 1337), warp, num("mantle", 1) != 0, rx)
+            // a new world of the newest generation, or `gen=` (mantle=0: generation 0, the 192 m floor before ADR 0152)
+            Server::baked_warp(planet, num("moon", engine::bodies::columns(1, planet)), num("seed", 1337), warp, server::gen_arg(num("mantle", 1), num("gen", -1)), rx)
         }
     };
     server.autosave = (save != "0").then(|| (save.clone().into(), 30 * TICK_HZ as u64));

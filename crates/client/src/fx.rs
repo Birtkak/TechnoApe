@@ -1809,7 +1809,7 @@ mod tests {
     /// where the terrain draws its cell: the GPU counts layers from the old floor, its `r0` there.
     #[test]
     fn a_cell_look_on_a_deep_world_is_drawn_at_its_cell() {
-        let w = World::with_grid(1536, 32, 1, None, None, 0.0, true);
+        let w = World::with_grid(1536, 32, 1, None, None, 0.0, 1);
         let b = &w.bodies[0];
         assert!(b.mantle > 0);
         let c = Block { body: 0, face: 2, pos: IVec3::new(5, 7, b.layers - 20) };

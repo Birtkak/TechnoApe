@@ -55,8 +55,20 @@ pub enum Ev {
     /// Right after `Loaded`: the herds kept beside the save (ADR 0083, `Herds::to_bytes`).
     Herds(Vec<u8>),
     /// Right after `Start` of a world from the seed whose planet goes down through the mantle (ADR 0152); a
-    /// recording without it (or from before it) is on the old floor. One from a save: the save says it.
+    /// recording without it (or from before it) is on the old floor. One from a save: the save says it. Written
+    /// before the generation number; a recording of generation 1 still says this.
     Mantle,
+    /// Right after `Start` of a world from the seed of generation 2 or later (`Body::gen`): the generation it
+    /// was made by, so a replay makes the same ground.
+    Gen(u8),
+}
+
+/// A new world's generation from the arguments: `gen=` when given (-1: not), else the newest, or 0 with
+/// `mantle=0` (the 192 m floor of the worlds before ADR 0152).
+pub fn gen_arg(mantle: i32, gen: i32) -> u8 {
+    let g = if gen >= 0 { gen } else if mantle != 0 { engine::world::GENERATION as i32 } else { 0 };
+    assert!((0..=engine::world::GENERATION as i32).contains(&g), "gen= is 0 to {}", engine::world::GENERATION);
+    g as u8
 }
 
 pub type ServerLink = Link<ToClient, ToServer>;
