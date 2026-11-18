@@ -454,7 +454,7 @@ impl Studio {
             write_settings: true,
             history_open: None,
             native: 1.0,
-            snap_scale: false,
+            snap_scale: true,
             tabs_wrap: false,
             game: None,
             recovery,
@@ -507,7 +507,6 @@ impl Studio {
     /// The Studio as it was left: each page's file open again when it is still there, and the page shown.
     /// The window calls it once at its start; a shot does not (it shows what its arguments say).
     pub fn resume(&mut self) {
-        self.snap_scale = true;
         for i in 0..self.pages.len() {
             let Some(id) = self.settings.open.get(self.pages[i].name()).cloned() else { continue };
             if self.pages[i].current().as_deref() != Some(&id) && self.pages[i].files(&self.app).iter().any(|f| f.id == id) {
@@ -803,7 +802,6 @@ impl Studio {
     fn top_bar(&mut self, ui: &mut Ui) {
         // the buttons on the right first, then the page tabs in what is left, wrapping to a second row in a
         // narrow window
-        let narrow = ui.available_width() < 1100.0;
         // two rows of tabs start at the top, one is centred
         let align = if self.tabs_wrap { egui::Align::Min } else { egui::Align::Center };
         ui.add_space(if self.tabs_wrap { 4.0 } else { 0.0 });
@@ -893,44 +891,50 @@ impl Studio {
                 if look::tip(fresp, "Find any file, page, tool or action and run it", "Ctrl+P").clicked() {
                     self.run_command("frame:commands");
                 }
-                ui.with_layout(egui::Layout::left_to_right(align).with_main_wrap(true), |ui| {
-                    ui.add_space(GAP * 0.5);
-                    // tabs as plain text, each with a dot in its page's colour; the open one white, underlined in
-                    // its colour. The title where all of it fits in one row
-                    let font = look::strong(look::body());
-                    let text_w = |ui: &mut Ui, t: &str| ui.fonts_mut(|f| f.layout_no_wrap(t.into(), font.clone(), Color32::WHITE).size().x);
-                    let tab_w = |ui: &mut Ui, t: &str| text_w(ui, t) + 14.0 + GAP * 1.5;
-                    let names: Vec<&'static str> = self.pages.iter().map(|p| p.name()).collect();
-                    let need = GAP * 2.5 + text_w(ui, "TechnoApe Studio") + names.iter().map(|n| tab_w(ui, n) + 2.0).sum::<f32>();
-                    if !(narrow || need > ui.available_width()) {
-                        ui.label(RichText::new("TechnoApe Studio").font(font.clone()).color(look::TEXT2));
-                        ui.add_space(GAP * 2.0);
+                // the tabs in what is left: with the title when all of it fits one row, else without it, then
+                // with tighter gaps, and only then in two rows (the bar grows to them)
+                let room = ui.available_rect_before_wrap();
+                ui.allocate_rect(room, Sense::hover());
+                let font = look::strong(look::body());
+                let text_w = |t: &str| ui.fonts_mut(|f| f.layout_no_wrap(t.into(), font.clone(), Color32::WHITE).size().x);
+                let names: Vec<&'static str> = self.pages.iter().map(|p| p.name()).collect();
+                let texts: Vec<f32> = names.iter().map(|n| text_w(n)).collect();
+                let title = text_w("TechnoApe Studio") + GAP * 2.0;
+                let (with_title, pad, rows) = tab_rows(&texts, title, room.width() - GAP);
+                let n_rows = rows.iter().max().map_or(1, |r| r + 1);
+                self.tabs_wrap = n_rows > 1;
+                let top = room.top() + ((room.height() - 32.0 * n_rows as f32) * 0.5).max(0.0);
+                let mut x = room.left() + GAP * 0.5;
+                if with_title {
+                    ui.painter().text(Pos2::new(x, top + 16.0), Align2::LEFT_CENTER, "TechnoApe Studio", font.clone(), look::TEXT2);
+                    x += title;
+                }
+                let mut row = 0;
+                for i in 0..self.pages.len() {
+                    let name = names[i];
+                    if rows[i] != row {
+                        (row, x) = (rows[i], room.left() + GAP * 0.5);
                     }
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    let mut top = None;
-                    for i in 0..self.pages.len() {
-                        let name = self.pages[i].name();
-                        let (on, c) = (self.page == i, look::page_colour(name));
-                        let w = tab_w(ui, name);
-                        let (r, resp) = ui.allocate_exact_size(Vec2::new(w, 32.0), Sense::click());
-                        let first = *top.get_or_insert(r.top());
-                        self.tabs_wrap = r.top() > first + 1.0;
-                        let p = ui.painter();
-                        if resp.hovered() && !on {
-                            p.rect_filled(r.shrink2(Vec2::new(0.0, 3.0)), 4.0, look::RAISED);
-                        }
-                        p.circle_filled(Pos2::new(r.left() + GAP * 0.75 + 3.0, r.center().y), 3.0, c);
-                        let col = if on { Color32::WHITE } else if resp.hovered() { look::TEXT } else { look::TEXT2 };
-                        p.text(Pos2::new(r.left() + GAP * 0.75 + 12.0, r.center().y), Align2::LEFT_CENTER, name, font.clone(), col);
-                        if on {
-                            p.rect_filled(Rect::from_min_max(Pos2::new(r.left() + 4.0, r.max.y - 2.0), Pos2::new(r.right() - 4.0, r.max.y)), 1.0, c);
-                        }
-                        crate::drive::mark(ui.ctx(), format!("tab:{name}"), r);
-                        if look::tip(resp, &format!("The {name} page"), &format!("Ctrl+{}", i + 1)).clicked() {
-                            self.page = i;
-                        }
+                    let (on, c) = (self.page == i, look::page_colour(name));
+                    let r = Rect::from_min_size(Pos2::new(x, top + 32.0 * row as f32), Vec2::new(texts[i] + pad, 32.0));
+                    x = r.right() + 2.0;
+                    let resp = ui.interact(r, ui.scope_id().with(("tab", i)), Sense::click());
+                    let p = ui.painter();
+                    if resp.hovered() && !on {
+                        p.rect_filled(r.shrink2(Vec2::new(0.0, 3.0)), 4.0, look::RAISED);
                     }
-                });
+                    let inset = (pad - 12.0) * 0.5;
+                    p.circle_filled(Pos2::new(r.left() + inset + 3.0, r.center().y), 3.0, c);
+                    let col = if on { Color32::WHITE } else if resp.hovered() { look::TEXT } else { look::TEXT2 };
+                    p.text(Pos2::new(r.left() + inset + 12.0, r.center().y), Align2::LEFT_CENTER, name, font.clone(), col);
+                    if on {
+                        p.rect_filled(Rect::from_min_max(Pos2::new(r.left() + 4.0, r.max.y - 2.0), Pos2::new(r.right() - 4.0, r.max.y)), 1.0, c);
+                    }
+                    crate::drive::mark(ui.ctx(), format!("tab:{name}"), r);
+                    if look::tip(resp, &format!("The {name} page"), &format!("Ctrl+{}", i + 1)).clicked() {
+                        self.page = i;
+                    }
+                }
             });
         });
     }
@@ -1480,4 +1484,29 @@ impl Studio {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
+}
+
+/// The page tabs' layout in `room` points, from their text widths: whether the title shows, the side room of a
+/// tab (its dot and gaps) and each tab's row. The title goes first, then the gaps tighten, then the tabs wrap.
+fn tab_rows(texts: &[f32], title: f32, room: f32) -> (bool, f32, Vec<usize>) {
+    let (wide, tight) = (14.0 + GAP * 1.5, 12.0 + GAP * 0.5);
+    let sum = |pad: f32| texts.iter().map(|t| t + pad + 2.0).sum::<f32>();
+    if title + sum(wide) <= room {
+        return (true, wide, vec![0; texts.len()]);
+    }
+    if sum(wide) <= room {
+        return (false, wide, vec![0; texts.len()]);
+    }
+    let (mut row, mut x) = (0, 0.0);
+    let rows = texts
+        .iter()
+        .map(|t| {
+            if x > 0.0 && x + t + tight > room {
+                (row, x) = (row + 1, 0.0);
+            }
+            x += t + tight + 2.0;
+            row
+        })
+        .collect();
+    (false, tight, rows)
 }
