@@ -89,8 +89,12 @@ One pipeline; a body runs the stages its model calls for, in this order, each wr
   mantle. Gases are harvested by depth; platforms float where their density matches.
 - Deep down, a **solid core** on the same layered grid as any rocky body, under an ocean of dense fluid: the
   metal sea's mechanics (one level per body, ADR 0156) reused for the layer above the core.
-- Its size cannot be a real gas giant's on this scale: *proposal*, a few Terra radii across, with its core a
-  body of about Luna's size. Its moons are ordinary rows whose `parent` is the giant.
+- **Its size is a real giant's** (the developer, 2026-11-18: "why couldn't we have a gas giant with ~300 Terra
+  masses?"): about 300 Terra masses and 11 Terra radii (some 47 km), which gives about 2.5 times Terra's gravity
+  at the cloud tops, as Jupiter has. Gas has no blocks and bodies move on rails, so the mass and size cost the
+  engine nothing; the costs are the cloud renderer, the 40 km dive, and the core. Only the **core is blocks**:
+  its size is a row value (*proposal*: between Luna's and Terra's; a real one would be larger than Terra, with a
+  bake to match). Its moons are ordinary rows whose `parent` is the giant.
 - A strong field and a radiation belt around it follow from the model (fast spin, large fluid core).
 
 ## Build order (*proposal*; one feature a run, each keeps earlier worlds bit for bit)
