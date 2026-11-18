@@ -1,0 +1,33 @@
+size = 128
+frames = 32
+seconds = 4
+
+[[node]]
+id = "swirls"
+kind = "smooth noise"
+at = [0, 0]
+seed = 3
+scale = 3
+octaves = 3
+roughness = 0.45
+speed = 1
+
+[[node]]
+id = "soften"
+kind = "blur"
+at = [220, 0]
+radius = 2
+in = "swirls"
+
+[[node]]
+id = "curl"
+kind = "curl"
+at = [440, 0]
+strength = 3
+in = "soften"
+
+[[node]]
+id = "out"
+kind = "out"
+at = [660, 0]
+in = "curl"

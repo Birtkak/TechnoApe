@@ -1,0 +1,28 @@
+size = 128
+frames = 1
+seconds = 2
+
+[[node]]
+id = "noise"
+kind = "smooth noise"
+at = [0, 0]
+seed = 1
+scale = 4
+octaves = 5
+roughness = 0.55
+speed = 0
+
+[[node]]
+id = "levels"
+kind = "levels"
+at = [220, 0]
+low = 0.3
+high = 0.8
+contrast = 1
+in = "noise"
+
+[[node]]
+id = "out"
+kind = "out"
+at = [440, 0]
+in = "levels"

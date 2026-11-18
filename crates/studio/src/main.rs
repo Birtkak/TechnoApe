@@ -1,6 +1,7 @@
 //! `technoape-studio`: paints the game's block textures from its one palette (docs/design/studio.md, ADR 0046).
 //! Without arguments it opens its window in the repository the exe sits in. Headless, one JSON line each:
-//! `check=1` (palette and every texture), `drafts=1`, `render=<png> sheet=out/x.png` (tiled 3 x 3),
+//! `check=1` (palette, every texture, model and map), `drafts=1`, `map=<name> out=out/x.png [frame=k]` (a map
+//! of `data/maps/`, an animated one as a strip), `render=<png> sheet=out/x.png` (tiled 3 x 3),
 //! `shot=out/studio.png [open=<block>] [page=palette] [cmd=id,id..] [query=text] [scale=1.5] [size=1280x800]
 //! [pointer=x,y] [season=autumn]` (one frame of the window, off-screen: `cmd` runs commands as the command box does, e.g.
 //! `frame:keys`, `tool.shade`, `open:Models:furnace`, `part:door`, `time:0.4`; `season` sets the view's year and the Textures page's season tab; `query` opens the command box with
@@ -17,6 +18,7 @@ mod drive;
 mod effect;
 mod font;
 mod import;
+mod map;
 mod ramp;
 mod recover;
 mod rows;
@@ -234,6 +236,8 @@ fn main() {
         check()
     } else if get("drafts") == Some("1") {
         Ok(format!("{{\"drafts\":{}}}", list(&art::drafts(&std::fs::read_to_string(ui::DRAFTS).unwrap_or_default()))))
+    } else if let Some(name) = get("map") {
+        map::draw(name, get("out").unwrap_or("out/map.png"), get("frame").and_then(|k| k.parse().ok()))
     } else if let Some(file) = get("render") {
         render(file, get("sheet").unwrap_or("out/studio-sheet.png"))
     } else if let Some(path) = shot_path.as_deref() {

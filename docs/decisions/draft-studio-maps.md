@@ -1,0 +1,54 @@
+# NNNN – Studio maps: the file, tiling and looping, CPU evaluation
+
+- **Status:** proposed (build step 1 of `docs/design/studio-maps.md`; steps 2 and 3 add to it)
+- **Date:** 2026-11-18
+
+## Context
+The Studio gets a Maps page: a node graph that makes a small picture (a texture, a wind, a turbulence, or a
+plain PNG for any program). The developer asked for maps that tile and loop "without thinking about it". The
+on-disk format is hard to undo once maps are saved, so it is decided here.
+
+## Options considered
+1. A file per map, `data/maps/<name>.toml`, `[[node]]` rows. Pros: text, git shows what changed, Claude can
+   write a draft. Cons: ids by hand.
+2. One `maps.toml` with every map. Cons: one bad map refuses all; long diffs.
+3. Tiling by blending the picture's edges, looping by cross-fading the ends. Cons: smears, ghosts, and the
+   step across the seam is still visible on noise.
+4. Tiling and looping by periodic lattices. Pros: exact by construction, no blend. Cons: `scale` and `speed`
+   must be whole numbers.
+
+## Decision
+Options 1 and 4, worked out on the CPU.
+
+- **The file.** Top: `size` (16, 32, 64, 128, 256, 512), `frames` (1 to 64), `seconds` (0.1 to 60). Each
+  `[[node]]`: `id`, `kind`, `at = [x, y]`, its numbers by name, its words (`mode`, `shape`, `ramp`) and its
+  input pins by name. A pin holds another node's id (a wire) or a number in 0..1 (the slider it shows when
+  nothing is plugged in; a direction pin has none). Colours names a palette `ramp` or `colours = [names]`.
+  The Studio writes every number, so the file says what each node does. An unknown key, kind or word, a
+  number out of range or not whole where it must be, a wire to no node, a circle, a pin fed a kind it cannot
+  take, and no `out` or two are refused by `check=1` with the file and the node named. The kinds and their
+  numbers are `SPECS` in `crates/studio/src/map.rs`.
+- **Kinds of data.** A picture holds three numbers a pixel: a number (v, v, v), a colour (r, g, b), a direction
+  (x, y, 0) with y down the picture, each part -1..1. A number plugs into a colour pin as grey and a colour into
+  a number pin as its brightness. Only Slope and Curl make a direction.
+- **Tiling.** Every generator lies on a lattice of whole `scale` cells a side whose corners wrap by `scale`
+  (an octave o has `scale` x 2^o). Shapes and gradients repeat a whole number of times. Blur, Warp and Move
+  sample with wrap.
+- **Looping.** Time t = frame / frames, and frame `frames` is frame 0 again. Noise has time as a third lattice
+  axis of 2 x `speed` x 2^o cells a loop, so a speed of 1 still changes. Cells circle their points `speed` times
+  a loop, Speckle draws `speed` new patterns a loop, and Move scrolls `speed_x`, `speed_y` whole sides a loop.
+- **Evaluation.** CPU, node by node in wire order. Each node keeps its pictures by (frame, size), up to eight,
+  until a number at or before it changes (`Graph::set`). `Graph::pic(node, frame, size)` takes any size, so a
+  preview can ask for less than the map's. Blur's radius scales with the size asked for.
+- **Without eyes.** `technoape-studio map=<name> out=x.png [frame=k]` writes the out at the map's size (an
+  animated map without `frame` as a strip of frames side by side) and prints one JSON line: size, frames, kind,
+  the milliseconds the work took, and an FNV-1a hash of the pixels. A direction is written in red and green,
+  128 as no push.
+
+## Consequences
+- Every map tiles and loops exactly, and the tests show it (the step across the edge is no larger than a
+  step inside; frame `frames` equals frame 0).
+- `scale` and `speed` cannot take fractions. Mirror in Move does not flip a direction field's sign.
+- A ten-node 256 px graph takes milliseconds on the CPU (number in the commit). A worker thread comes with
+  the page if a graph is too slow for a frame. Keeping only eight pictures per node means Play reworks each
+  frame. That is for step 3 to measure.

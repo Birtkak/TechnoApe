@@ -264,6 +264,7 @@ pub fn check_data(data: &Path) -> Result<(usize, usize, Vec<String>), String> {
     bad.extend(crate::voxel::check_models(&data.join("models"), &pal).1);
     bad.extend(check_structures(&data.join("structures"), &reg));
     bad.extend(check_creatures(data, &pal));
+    bad.extend(crate::map::check_dir(&data.join("maps"), &pal).1);
     // the paths as the developer reads them, whatever folder `data` was given as
     let bad = bad.into_iter().map(|b| match b.split_once("/textures/") {
         Some((_, rest)) => format!("data/textures/{rest}"),
