@@ -47,9 +47,12 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
         }
         // shortcut: Start names Terra's map alone, so Luna is this build's bake whenever Terra is baked; a
         // recording made before W6 or with another Luna version replays with other ground there (ADR 0070).
-        // A recording from the seed is a new world's, on the deep grid (ADR 0152). shortcut: one made before the
-        // mantle replays on it too, its layers off by the mantle's; Start would have to say it
-        _ => (Server::on_map(*planet_n, *moon_n, *seed, *map, map.map(|_| engine::bake::luna::get(*seed, *moon_n).hash), true, rx), &evs[1..]),
+        // A recording from the seed is on the deep grid when `Mantle` follows its Start (ADR 0152), else (one
+        // from before the mantle too) on the old floor
+        _ => {
+            let mantle = matches!(evs.get(1), Some(Ev::Mantle));
+            (Server::on_map(*planet_n, *moon_n, *seed, *map, map.map(|_| engine::bake::luna::get(*seed, *moon_n).hash), mantle, rx), &evs[1 + mantle as usize..])
+        }
     };
     s.dt = *dt;
     let mut links: HashMap<u32, Link<ToServer, ToClient>> = HashMap::new();
@@ -66,7 +69,7 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
     for ev in rest {
         let t = match ev {
             Ev::Join { tick, .. } | Ev::Msg { tick, .. } | Ev::Leave { tick, .. } | Ev::Check { tick, .. } => *tick,
-            Ev::Start { .. } | Ev::Loaded(_) | Ev::Herds(_) => return Err(std::io::Error::other("a Start, Loaded or Herds past the start")),
+            Ev::Start { .. } | Ev::Loaded(_) | Ev::Herds(_) | Ev::Mantle => return Err(std::io::Error::other("a Start, Loaded, Herds or Mantle past the start")),
         };
         run_to(&mut r.server, &links, t);
         if r.server.tick >= until {
@@ -94,7 +97,7 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
                     break;
                 }
             }
-            Ev::Start { .. } | Ev::Loaded(_) | Ev::Herds(_) => unreachable!(),
+            Ev::Start { .. } | Ev::Loaded(_) | Ev::Herds(_) | Ev::Mantle => unreachable!(),
         }
     }
     if until != u64::MAX && r.diverged.is_none() {

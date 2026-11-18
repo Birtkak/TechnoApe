@@ -1,6 +1,24 @@
 //! World: its bodies, the ore ledger, frames of reference and gravity.
 use super::*;
 
+/// The core's radius over the body's (the mantle's floor, R/sqrt 2) and its density over the mantle's (ADR 0152).
+const CORE: f64 = std::f64::consts::FRAC_1_SQRT_2;
+const CORE_DENSE: f64 = 2.4;
+
+/// A body's pull at x = r / R over its surface's: the square law outside; inside, a planet with a dense core,
+/// growing going down to about 1.135 at the core's edge, then falling evenly to nothing at the centre (ADR 0152).
+fn pull_inside(x: f64) -> f64 {
+    let a3 = CORE.powi(3);
+    let m = CORE_DENSE * a3 + 1.0 - a3;
+    if x >= 1.0 {
+        1.0 / (x * x)
+    } else if x >= CORE {
+        (CORE_DENSE * a3 + x.powi(3) - a3) / (m * x * x)
+    } else {
+        CORE_DENSE * x / m
+    }
+}
+
 impl World {
     /// The bodies of `data/bodies.toml` (Terra and Luna), with `planet_n` and `moon_n` columns per face edge.
     pub fn new(planet_n: i32, moon_n: i32, seed: i32) -> Self {
@@ -215,8 +233,7 @@ impl World {
                     let d = centre[i] - x;
                     let r = d.length().max(1e-6);
                     let big = self.bodies[i].radius;
-                    // inside, as in a ball of even density: falling evenly to nothing at the centre (ADR 0152)
-                    d / r * self.surface_g(i) * if r < big { r / big } else { (big / r).powi(2) }
+                    d / r * self.surface_g(i) * pull_inside(r / big)
                 })
                 .sum()
         };

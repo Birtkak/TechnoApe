@@ -1058,16 +1058,24 @@ fn the_surface_is_the_same_with_and_without_the_mantle() {
     assert!(k > 0 && bad.is_empty(), "{} of {n} cells differ, e.g. {:?}", bad.len(), &bad[..bad.len().min(6)]);
 }
 
-/// Gravity inside a body falls evenly with the radius (ADR 0152): half the surface's at half the radius, 0.71
-/// of it at the mantle's floor; outside it is unchanged.
+/// Gravity inside a body is a planet's with a dense core (ADR 0152): it grows going down to about 1.135 g at the
+/// core's edge (R/sqrt 2, the mantle's floor), joins on there, and falls evenly to nothing at the centre; outside
+/// it is unchanged.
 #[test]
-fn gravity_falls_evenly_inside_the_planet() {
+fn gravity_grows_down_to_the_core_and_falls_to_nothing_at_the_centre() {
     let w = World::new(6144, crate::bodies::columns(1, 6144), 1);
     let (r, g) = (w.bodies[0].radius, w.surface_g(0));
-    for (at, want) in [(0.5, 0.5), (std::f64::consts::FRAC_1_SQRT_2, std::f64::consts::FRAC_1_SQRT_2), (1.0, 1.0), (1.5, 1.0 / 2.25)] {
-        let p = DVec3::new(0.3, 1.0, -0.2).normalize() * r * at;
+    let a = std::f64::consts::FRAC_1_SQRT_2;
+    let at = |x: f64| {
+        let p = DVec3::new(0.3, 1.0, -0.2).normalize() * r * x.max(1e-9);
         let got = w.gravity(p);
-        assert!((got.length() / g - want).abs() < 1e-3, "at {at} R: {} g", got.length() / g);
-        assert!(got.normalize().dot(-p.normalize()) > 0.9999, "down is to the centre");
+        assert!(x == 0.0 || got.normalize().dot(-p.normalize()) > 0.9999, "down is to the centre");
+        got.length() / g
+    };
+    for (x, want) in [(1.0, 1.0), (1.5, 1.0 / 2.25), (a, 1.1352), (0.5, 0.8027), (0.0, 0.0)] {
+        assert!((at(x) - want).abs() < 1e-3, "at {x} R: {} g, not {want}", at(x));
     }
+    assert!((at(a + 1e-6) - at(a - 1e-6)).abs() < 1e-4 && (at(1.0 - 1e-6) - 1.0).abs() < 1e-4, "it joins on at the core's edge and the surface");
+    let old_floor = at(1.0 - 192.0 / r);
+    assert!(old_floor > 1.0 && old_floor < 1.003, "192 m down, an old world's floor: {old_floor} g");
 }

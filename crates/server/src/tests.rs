@@ -1432,6 +1432,33 @@ fn a_saved_player_comes_back_with_what_it_held() {
     assert!(Save::from_bytes(b"not a save").is_err());
 }
 
+/// A recording from the seed replays on the grid it was made on (ADR 0152): a world with the mantle on the deep
+/// grid, one without (or a recording from before the mantle) on the old floor, a dig in each at the same cell.
+#[test]
+fn a_recording_replays_with_the_mantle_or_without() {
+    for mantle in [false, true] {
+        let (tx, rx) = channel();
+        let mut s = Server::baked_warp(1536, 32, 7, 0.0, mantle, rx);
+        let rec = std::env::temp_dir().join(format!("technoape-test-{}-{mantle}.rec", std::process::id()));
+        s.record(&rec).unwrap();
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
+        let b = &s.world.bodies[0];
+        let ground = b.centre + b.spawn * b.top(b.spawn);
+        let deep = s.world.block_at(ground - b.spawn * 3.0);
+        c.send(ToServer::Move { pos: (ground + b.spawn).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+        c.send(ToServer::Creative(true));
+        c.send(ToServer::Edit { seq: 1, shape: Shape::one(deep), material: AIR });
+        for _ in 0..41 {
+            s.tick();
+        }
+        assert_eq!(s.world.block(deep), AIR);
+        let r = replay(&rec, None).unwrap();
+        std::fs::remove_file(&rec).unwrap();
+        assert_eq!((r.diverged, r.server.world.bodies[0].mantle, r.server.world.hash()), (None, s.world.bodies[0].mantle, s.world.hash()), "mantle {mantle}");
+    }
+}
+
 /// A player digs an ore body out (ADR 0063, ore-budget.md "Checks"): its ledger goes from the count to zero,
 /// and the recount from the edits (the soak's check) agrees.
 #[test]

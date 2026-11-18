@@ -28,12 +28,16 @@ Option 2.
   `false` (`Save::from_bytes`), and `Server::from_save` builds the world as the save says, so an old world
   written again stays on its 192 m floor. `ToClient::Welcome` carries `mantle`, so a client or bot builds the
   same grid. The conformal grid's trial (ADR 0131) never reached the save; this is the first grid choice kept
-  in it. A recording from the seed replays on the deep grid (`Ev::Start` does not say; shortcut noted in
-  `replay.rs`).
+  in it. A recording from the seed says it by an `Ev::Mantle` right after its Start; one without it (from
+  before) replays on the old floor, one from a save as the save says.
 - **Whole steps of 256 layers.** The mantle is the multiple of 256 layers nearest R/√2 (`MANTLE_STEP`): the
-  coarse levels' chunks and cells (2 to 256 layers) then stand on the same layers above the crust's floor as on
-  an old world, and the surface is meshed and drawn as before (with the layer nearest R/√2, 1274 on the 4 km
-  planet, every view differed: far chunks sampled other layers). The 4 km planet: 1280 mantle layers under the
+  cells of every level and the chunks of levels 0 to 3 (32 to 256 layers tall) then stand on the same layers
+  above the crust's floor as on an old world, and the surface is meshed and drawn as before (with the layer
+  nearest R/√2, 1274 on the 4 km planet, every view differed: far chunks sampled other layers). Chunks of
+  level 4 and up (512 layers and more, seen from a kilometre up and further) begin elsewhere against the
+  surface, so their skirts and their early outs (`Empty`, `Solid`) fall elsewhere: the orbit view differs from
+  its baseline by 0.20 % where the old grid gives 0.03 % (high, lod and the seasons: the same as the old grid's).
+  Aligning those too would take the mantle to a multiple of 2048, past R/√2 and out of one root band. The 4 km planet: 1280 mantle layers under the
   595 it had (1875 in all); layer 0 at 2997.8 m, 4.2 m under R/√2, 1248 m under the radius; the lowest block
   0.706 m. The 8 km planet: 2816 under 601 (3417), 2534 m deep, 47 m under R/√2. The 1536 test planet: 256,
   378 m deep (67 m under R/√2, the lowest block 0.64 m). Both large planets still fit one root band of the
@@ -42,6 +46,8 @@ Option 2.
   base `mantle` layers lower (`frame.rs`), so every shader's look hash (a texture's variant and tone, a grass
   fringe, a crown's fluff and clumps, a reflection's texel) and the light's random seeds (`tx_seed`) read the
   numbers an old world gives them, and the f32 positions are computed from the same values; no shader changed.
+  The cell looks of effects (a dig's cracks, a gliding block, a pile's blocks, a break's cubes) count the same
+  way (`fx::gpu_cell`), and a pile item's turn is seeded from it.
   The two CPU hashes of a layer that pick a roll take the mantle off too: a cell's held item (`edit::held`,
   flint in gravel) and a good hit's drop count (`crack::drop`), as the ore halo does.
 - **Mantle rock.** `data/rocks.toml` names `mantle = "peridotite"`. `Body::rock` (the one rule the mesher's fill
@@ -50,13 +56,17 @@ Option 2.
   the crust: a steam-age pick digs it. Its texture is a draft (`tools/paint_textures.py`, `data/drafts.txt`).
 - **Nothing new is placed in the mantle.** Caves, ores, water, piles and plants keep their depths under the
   ground: their placement works in radii, and the one hash that read a layer index (an ore halo's fraying)
-  takes the mantle off it, so a deep world's halos are main's.
+  takes the mantle off it, so a deep world's halos are main's. An ore body and its halo are cut at the old floor
+  (`OreBody::span`, the halo's count), as they were cut at layer 0 before, so the ore budget holds.
 - **Heat** carries on by the province's rule (air plus `heat` C a metre): at the floor, about 1245 m down, the shield
   is about 150 C over its air, the basin 186, the folded belt 224, the ocean floor 249, the volcanic arc and the
   rift 435; under the spawn the report said 200.4 C with 1274 layers (4 m shallower).
-- **Gravity inside a body** is g_surface · r / R (a ball of even density), the square law outside as before;
-  this holds on every world, old ones too (under the radius it was up to 1.25 g before: a sea floor or a valley
-  under the radius now pulls a few thousandths less).
+- **Gravity inside a body** is a planet's with a dense core (the developer: it grows going down toward the
+  mass), the same for every body: the core's radius a = R/√2, its density k = 2.4 times the mantle's,
+  M = k·a³ + 1 − a³, x = r/R; g = g_surface · (k·a³ + x³ − a³) / (M·x²) for a ≤ x < 1 and g_surface · k·x / M
+  under a; the square law outside as before. It grows to about 1.135 g at the mantle's floor and falls evenly
+  to nothing at the centre; 192 m down on the 4 km planet it is about 1.002 g, so old worlds are in effect
+  unchanged (under the radius it was up to 1.25 g before this ADR).
 
 ## Consequences
 - What scales with the layer count: `Solid::gaps` looks up every chunk band of a column for edits
@@ -64,10 +74,11 @@ Option 2.
   (`stream.rs:419`), still one band on the 4 km and 8 km planets; the horizon occluder is the sphere of `r0`
   (`stream.rs:379`), now R/√2 where it was R − 192 m, so less is culled behind the planet.
 - The far side's culling and the mantle's cost: `docs/perf-debt.md`.
+- A jump at the mantle's floor is about 12 % lower than at the surface (1.135 g); left as it is, a taste call.
 - Step 2 puts the liquid outer core under `r0`; until then a dig under layer 0 is refused as before.
 - Open for the developer (plain defaults taken): peridotite's hardness and grade (quartzite's, diggable now;
   `iron-nickel`'s 20 and grade 3 would wall the mantle off until a later age); its look; the line at exactly
-  R − 192 m (no fold, no mixing with the crust's last layer); gravity's new law on old worlds too.
+  R − 192 m (no fold, no mixing with the crust's last layer); the lower jump at depth.
 
 ## Checks
 | Check | Result |

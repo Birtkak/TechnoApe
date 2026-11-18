@@ -698,7 +698,7 @@ impl App {
             let (draw_cut, ray_cut) = (d.cut, if shell { d.cut } else { d.ray_cut });
             // the GPU counts a body's layers from the floor of the worlds before the mantle (`BodyGpu::r0`, ADR
             // 0152): the shaders' hashes, light seeds and f32 positions are an old world's, so its surface looks the same
-            let base: [i32; 3] = (k.base() - glam::IVec3::Z * self.world.bodies[k.body as usize].mantle).into();
+            let base: [i32; 3] = (k.base() - glam::IVec3::Z * self.world.bodies[k.body as usize].mantle).into(); // as `gpu_r0`
             if new {
                 table.push((ci, ChunkGpu { base, info, off: d.off, opq: d.len - d.water - d.still - ray_cut - d.glass, clim: d.clim, sto: d.len - d.water - d.still }));
             }
@@ -779,7 +779,7 @@ impl App {
             self.cracks(self.start.elapsed().as_secs_f64());
             self.lay_piles();
             let now = self.start.elapsed().as_secs_f64();
-            self.fx.lay_first(self.glides.iter().map(|(g, _)| g.gpu(now)));
+            self.fx.lay_first(self.glides.iter().map(|(g, _)| g.gpu(now, self.world.bodies[g.to.body as usize].mantle)));
             let gpu = self.gpu.as_ref().unwrap();
             let d = self.fx.drawn();
             let k = d.len().min(MAX_FX);
@@ -938,7 +938,7 @@ impl App {
             let lo = (c - hi.as_dvec3()).as_vec3();
             *o = BodyGpu {
                 cam_hi: hi.into(),
-                r0: b.layer_r(b.mantle as f64) as f32,
+                r0: gpu_r0(b) as f32,
                 cam_lo: lo.into(),
                 lnq: b.lnq as f32,
                 theta: (std::f64::consts::FRAC_PI_2 / b.n as f64) as f32,
@@ -1564,4 +1564,10 @@ mod tests {
             at += (d.index_count / 6 * 4) as i32;
         }
     }
+}
+
+/// The radius of layer 0 as the GPU has it: the floor of the worlds before the mantle (ADR 0152), so the shaders'
+/// hashes, light seeds and f32 positions are an old world's; a chunk's or a cell look's layer counts from there.
+pub(crate) fn gpu_r0(b: &engine::world::Body) -> f64 {
+    b.layer_r(b.mantle as f64)
 }

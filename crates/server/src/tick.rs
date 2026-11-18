@@ -22,6 +22,8 @@ impl Server {
             self.log(start);
             if let Some(save) = self.loaded.take() {
                 self.log(Ev::Loaded(save));
+            } else if self.world.bodies[0].mantle > 0 {
+                self.log(Ev::Mantle);
             }
             if let Some(b) = self.herds_loaded.take() {
                 self.log(Ev::Herds(b));

@@ -54,6 +54,9 @@ pub enum Ev {
     Check { tick: u64, hash: u64 },
     /// Right after `Loaded`: the herds kept beside the save (ADR 0083, `Herds::to_bytes`).
     Herds(Vec<u8>),
+    /// Right after `Start` of a world from the seed whose planet goes down through the mantle (ADR 0152); a
+    /// recording without it (or from before it) is on the old floor. One from a save: the save says it.
+    Mantle,
 }
 
 pub type ServerLink = Link<ToClient, ToServer>;

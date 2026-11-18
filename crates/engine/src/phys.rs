@@ -741,7 +741,7 @@ mod tests {
             assert!((at(l, l.radius) - gl).abs() < 0.02 * gl, "{} against {gl}", at(l, l.radius));
             for b in [t, l] {
                 let s = at(b, b.radius);
-                assert!(at(b, b.radius - 30.0) < s && (at(b, b.radius * 0.5) - s * 0.5).abs() < 0.01 * s);
+                assert!(at(b, b.radius * 0.98) > s && (at(b, b.radius * 0.5) - s * 0.8027).abs() < 0.01 * s, "{} {} {s}", at(b, b.radius * 0.98), at(b, b.radius * 0.5));
             }
             // (out from Luna the planet's pull comes back in, so only Terra shows the plain square law)
             assert!((at(t, t.radius * 2.0) - G / 4.0).abs() < 0.01 * G);
