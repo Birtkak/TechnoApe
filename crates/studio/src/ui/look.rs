@@ -244,12 +244,15 @@ pub fn apply(ctx: &egui::Context) {
         v.override_text_color = None;
         v.slider_trailing_fill = true;
         v.handle_shape = egui::style::HandleShape::Circle;
+        // a disabled button keeps a visible fill, its text greyed
+        v.disabled_alpha = 0.6;
         let w = &mut v.widgets;
         for (st, bg, weak, fg) in [
             (&mut w.noninteractive, PANEL, PANEL, TEXT),
-            (&mut w.inactive, FIELD, Color32::TRANSPARENT, TEXT),
-            (&mut w.hovered, DISABLED, RAISED, Color32::WHITE),
-            (&mut w.active, TEXT2, PRESSED, Color32::WHITE),
+            // a button rests on a faint fill, so it reads as one; under the pointer a step lighter
+            (&mut w.inactive, FIELD, RAISED, TEXT),
+            (&mut w.hovered, DISABLED, PRESSED, Color32::WHITE),
+            (&mut w.active, TEXT2, hex(0x4e4e4e), Color32::WHITE),
             (&mut w.open, DISABLED, RAISED, Color32::WHITE),
         ] {
             st.corner_radius = 4.into();

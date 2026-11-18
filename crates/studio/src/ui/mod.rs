@@ -812,6 +812,8 @@ impl Studio {
                 if look::tip(r, "Save the open file and start the game on it: a creative world that keeps no save, the thing standing ahead. Later saves show there within a second", "F5").clicked() {
                     self.run_command("frame:try");
                 }
+                // the bar's View, Keys and scale stay quiet: a fill only under the pointer
+                ui.visuals_mut().widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
                 let pct = format!("{:.0} %", self.settings.scale * 100.0);
                 let r = ui.menu_button(pct, |ui| {
                     // the clean font's list; the game font's sharp sizes, smallest first
@@ -962,8 +964,13 @@ impl Studio {
         crate::drive::mark(ui.ctx(), "search", r.rect);
         look::tip(r, "Search the files of this page by name", "");
         look::segmented(ui, |ui| {
+            // small and tight: the five fit one row at the column's default width
+            ui.spacing_mut().button_padding.x = 4.0;
+            ui.spacing_mut().item_spacing.x = 0.0;
             for (f, name, help) in FILTERS {
-                let r = look::chip(ui, self.filter == f, name);
+                let on = self.filter == f;
+                let t = RichText::new(name).size(look::small()).color(if on { Color32::WHITE } else { look::TEXT2 });
+                let r = ui.add(egui::Button::new(t).fill(if on { look::PRESSED } else { look::BG }).corner_radius(4.0).min_size(Vec2::new(0.0, 22.0)));
                 if look::tip(r, help, "").clicked() {
                     self.filter = f;
                 }
