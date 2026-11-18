@@ -32,9 +32,65 @@ pub fn report(w: &World) -> String {
     // the caves and the crust's ore bodies alone: the hash of the same world before the mantle's minerals
     let crust: Vec<engine::ore::OreBody> = b.ores.iter().copied().filter(|o| !engine::ore::MINERALS.kinds[o.kind as usize].deep()).collect();
     format!(
-        "{{\"seed\": {}, \"planet\": {}, \"spawn\": [{:.5}, {:.5}, {:.5}], \"made_hash\": \"{:016x}\", \"made_hash_crust\": \"{:016x}\", \"provinces\": {{{}}}, \"caves\": {{\"balls\": {}, \"in_limestone\": {}, \"in_basalt\": {}, \"depth_m\": [{:.1}, {:.1}], \"open_to_the_sky\": {}}}, \"heat_c_under_the_spawn\": [{:.1}, {:.1}], \"pressure_mpa_under_the_spawn\": [{:.3}, {:.3}], \"deep\": {{{}}}, \"minerals\": {{{}}}}}",
-        map.seed, map.n, b.spawn.x, b.spawn.y, b.spawn.z, made_hash(&b.caves, &b.ores), made_hash(&b.caves, &crust), provinces.join(", "), b.caves.len(), in_lime, b.caves.len() - in_lime, dmin, dmax, open, heat(ground), heat(0.0), pressure(ground), pressure(0.0), deep.join(", "), minerals(w).join(", ")
+        "{{\"seed\": {}, \"planet\": {}, \"spawn\": [{:.5}, {:.5}, {:.5}], \"made_hash\": \"{:016x}\", \"made_hash_crust\": \"{:016x}\", \"provinces\": {{{}}}, \"caves\": {{\"balls\": {}, \"in_limestone\": {}, \"in_basalt\": {}, \"depth_m\": [{:.1}, {:.1}], \"open_to_the_sky\": {}, \"kinds\": {{{}}}}}, \"heat_c_under_the_spawn\": [{:.1}, {:.1}], \"pressure_mpa_under_the_spawn\": [{:.3}, {:.3}], \"deep\": {{{}}}, \"minerals\": {{{}}}}}",
+        map.seed, map.n, b.spawn.x, b.spawn.y, b.spawn.z, made_hash(&b.caves, &b.ores), made_hash(&b.caves, &crust), provinces.join(", "), b.caves.len(), in_lime, b.caves.len() - in_lime, dmin, dmax, open, kinds(b).join(", "), heat(ground), heat(0.0), pressure(ground), pressure(0.0), deep.join(", "), minerals(w).join(", ")
     )
+}
+
+/// Each kind of `data/caves.toml` as made (only a planet with the mantle has them): how many, their open cells under
+/// the ground, their length and openings to the sky, and the nearest opening to the spawn: its distance over the
+/// ground, its direction (`run=stand at=`) and how deep the cave's floor (a fissure's middle) lies under it there.
+fn kinds(b: &engine::world::Body) -> Vec<String> {
+    use engine::caves::{cells, systems, CAVES};
+    let t = std::time::Instant::now();
+    let sys = b.baked_seed().filter(|_| b.mantle > 0).map_or(Vec::new(), |s| systems(b, s));
+    // what making them costs a planet's load (`make` does the same once)
+    let made = format!("\"made_s\": {:.3}", t.elapsed().as_secs_f64());
+    std::iter::once(made).chain(CAVES
+        .kinds
+        .iter()
+        .enumerate()
+        .map(|(k, kind)| {
+            let of: Vec<&engine::caves::System> = sys.iter().filter(|s| s.kind as usize == k).collect();
+            let open: std::collections::HashSet<(u8, i32, i32, i32)> = of.iter().flat_map(|s| s.balls.iter().flat_map(|c| cells(b, c).into_iter().map(move |(i, j, z)| (c.face, i, j, z)))).collect();
+            let length: f64 = of.iter().map(|s| s.axis.windows(2).map(|p| (p[1] - p[0]).truncate().length()).sum::<f64>()).sum();
+            let away = |s: &engine::caves::System, o: &(usize, usize)| {
+                let p = s.axis[(o.0 + o.1) / 2];
+                b.radius * b.dir(s.face as usize, p.x, p.y).angle_between(b.spawn)
+            };
+            let near = of.iter().flat_map(|s| s.openings.iter().map(move |o| (s, o))).min_by(|x, y| away(x.0, x.1).total_cmp(&away(y.0, y.1)));
+            let near = near.map_or("null".to_string(), |(s, o)| {
+                let k = (o.0 + o.1) / 2;
+                let (f, p) = (s.face as usize, s.axis[k]);
+                let d = b.dir(f, p.x, p.y);
+                // two ready stand lines: from the ground a few metres before the opening, looking at it; and inside,
+                // a tube 15 m on from it looking back up the tube to its light, a fissure at its bottom looking up
+                let look = |q: glam::DVec3, at: glam::DVec3, depth: f64, pitch: f64| {
+                    let up = b.dir(f, q.x, q.y);
+                    let r = if up.y.abs() > 0.9 { glam::DVec3::Z } else { glam::DVec3::Y };
+                    let ahead = (r - up * r.dot(up)).normalize();
+                    let to = b.dir(f, at.x, at.y) - up;
+                    let yaw = to.dot(up.cross(ahead)).atan2(to.dot(ahead)).to_degrees();
+                    format!("at={:.6},{:.6},{:.6} depth={depth:.1} yaw={yaw:.0} pitch={pitch:.0}", up.x, up.y, up.z)
+                };
+                let tube = engine::caves::CAVES.kinds[s.kind as usize].shape == engine::caves::Shape::Tube;
+                let before = s.axis[o.0.saturating_sub(if tube { 5 } else { 10 })];
+                let outside = look(before, p, 0.0, -45.0);
+                // inside: the middle of the open column nearest q, feet on its lowest open cell
+                let inside = |q: glam::DVec3, toward: glam::DVec3, pitch: f64| {
+                    let (i0, j0) = (q.x.floor() as i32, q.y.floor() as i32);
+                    let best = (-1..=1).flat_map(|a| (-1..=1).map(move |c| (i0 + a, j0 + c))).filter_map(|(i, j)| s.balls.iter().filter_map(|c| c.span(i, j)).map(|x| x.0).min().map(|lo| (i, j, lo))).min_by_key(|&(i, j, _)| (i - i0).abs() + (j - j0).abs());
+                    best.map_or("none".to_string(), |(i, j, lo)| {
+                        let c = glam::DVec3::new(i as f64 + 0.5, j as f64 + 0.5, 0.0);
+                        look(c, toward, b.ground_r(f, c.x, c.y) - b.layer_r(lo as f64), pitch)
+                    })
+                };
+                let inside = if tube { inside(s.axis[(o.1 + 15).min(s.axis.len() - 1)], p, 10.0) } else { inside(p, s.axis[(k + 4).min(s.axis.len() - 1)], 75.0) };
+                format!("{{\"m\": {:.0}, \"at\": [{:.6}, {:.6}, {:.6}], \"depth_m\": {:.1}, \"outside\": \"{outside}\", \"inside\": \"{inside}\"}}", away(s, o), d.x, d.y, d.z, b.ground_r(f, p.x, p.y) - p.z)
+            });
+            format!("\"{}\": {{\"caves\": {}, \"open_cells\": {}, \"length_m\": {length:.0}, \"openings\": {}, \"nearest_opening\": {near}}}", kind.name, of.len(), open.len(), of.iter().map(|s| s.openings.len()).sum::<usize>())
+        }))
+        .collect()
 }
 
 /// A column's ground, each mantle boundary (the first layer, going down, of that rock or a deeper one: the first
@@ -136,6 +192,10 @@ fn made_hash(caves: &[engine::world::Cave], ores: &[engine::ore::OreBody]) -> u6
     };
     for c in caves {
         [c.face as u64, c.at.x.to_bits(), c.at.y.to_bits(), c.at.z.to_bits(), c.r.to_bits()].into_iter().for_each(&mut put);
+        // a kind's shape too (a plain ball's hash is the one from before the kinds)
+        if c.kind != engine::world::Cave::BALL {
+            [c.kind as u64, c.h.to_bits(), c.floor.to_bits()].into_iter().for_each(&mut put);
+        }
     }
     for o in ores {
         [o.kind as u64, o.face as u64, o.at.x.to_bits(), o.at.y.to_bits(), o.at.z.to_bits(), o.a.to_bits(), o.b.to_bits(), o.h.to_bits(), o.angle.to_bits()].into_iter().for_each(&mut put);

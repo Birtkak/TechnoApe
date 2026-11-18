@@ -189,12 +189,37 @@ pub fn unfold(g: usize, face: usize, i: i32, j: i32, n: i32) -> (i32, i32) {
     ((AX[g][1].dot(q) + n - 1).div_euclid(2), (AX[g][2].dot(q) + n - 1).div_euclid(2))
 }
 
-/// A ball of air in the ground, in a face's grid: `at` is (column i, column j, layer), `r` in blocks.
+/// A ball of air in the ground, in a face's grid: `at` is (column i, column j, layer), `r` in blocks. A kind's
+/// (`data/caves.toml`) may stretch it: `h` layers up and down instead of `r` (a fissure's tall slot), and cut
+/// flat `floor` layers under its middle (a tube's floor); a plain ball has both `r` and `kind` `Cave::BALL`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Cave {
     pub face: u8,
     pub at: DVec3,
     pub r: f64,
+    pub h: f64,
+    pub floor: f64,
+    pub kind: u8,
+}
+
+impl Cave {
+    /// ADR 0063's caves and Luna's: no row of `data/caves.toml`.
+    pub const BALL: u8 = u8::MAX;
+    pub fn ball(face: u8, at: DVec3, r: f64) -> Cave {
+        Cave { face, at, r, h: r, floor: r, kind: Cave::BALL }
+    }
+    /// The layers [lo, hi) of column (i, j) it hollows, at layer 0 and up: the cells whose middle lies inside it.
+    pub fn span(&self, i: i32, j: i32) -> Option<(i32, i32)> {
+        let d2 = (i as f64 + 0.5 - self.at.x).powi(2) + (j as f64 + 0.5 - self.at.y).powi(2);
+        if d2 >= self.r * self.r {
+            return None;
+        }
+        // (h / r is 1 on a ball, to the bit)
+        let hh = (self.r * self.r - d2).sqrt() * (self.h / self.r);
+        let (lo, hi) = (((self.at.z - hh - 0.5).ceil() as i32).max(0), (self.at.z + hh - 0.5).floor() as i32 + 1);
+        let lo = lo.max((self.at.z - self.floor - 0.5).ceil() as i32);
+        (lo < hi).then_some((lo, hi))
+    }
 }
 
 /// The light a layer-0 cell open down to the metal sea gives (draft the metal sea): a warm lamp's, as strong as the lamp block (25 open cells at 3.0 burnt a 5 x 5 shaft white).

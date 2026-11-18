@@ -1305,7 +1305,7 @@ mod tests {
         let mut w = World::new(1536, 64, 1337);
         let top = w.air_over_ground(0, w.bodies[0].spawn);
         let at = DVec3::new(top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5, top.pos.z as f64 - 40.0);
-        std::sync::Arc::get_mut(&mut w.bodies).unwrap()[0].set_caves(vec![crate::world::Cave { face: top.face, at, r: 4.0 }]);
+        std::sync::Arc::get_mut(&mut w.bodies).unwrap()[0].set_caves(vec![crate::world::Cave::ball(top.face, at, 4.0)]);
         let b = &w.bodies[0];
         let cam = b.centre + b.dir(top.face as usize, at.x, at.y) * b.layer_r(at.z);
         let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
