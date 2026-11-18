@@ -766,6 +766,38 @@ fn maps_starter_used_on_a_block() {
     assert!(!dir.join("data/maps/rock.toml").exists(), "a new map is not saved before Save");
 }
 
+/// Every page tab is drawn whole inside the window, none over another, at the developer's scales and both
+/// fonts; at 1600 x 900 and 125 % the clean font keeps the nine in one row. A kept 1.33 is snapped as the
+/// window snaps it (the clean font's 1.25).
+#[test]
+fn every_tab_is_drawn_inside_the_window_at_every_scale() {
+    let dir = scratch("tabs");
+    for (size, scale) in [("1600x900", "1.33"), ("1600x900", "1.25"), ("1280x720", "1"), ("1920x1080", "1")] {
+        // (the clean font as the developer's studio.txt has it: no command, which would snap the scale itself)
+        for font in ["clean", "frame:font:game"] {
+            let line = studio(&dir, &[&format!("size={size}"), &format!("scale={scale}"), "rects=1", &format!("cmd={}", font.replace("clean", "")), "input=wait; wait"]);
+            let k: f32 = line.split("\"scale\":").nth(1).and_then(|s| s.split(|c| c == '}' || c == ',').next()).and_then(|s| s.parse().ok()).unwrap();
+            let (w, h) = size.split_once('x').map(|(w, h)| (w.parse::<f32>().unwrap() / k, h.parse::<f32>().unwrap() / k)).unwrap();
+            let tabs: Vec<[f32; 4]> = ["Textures", "Palette", "Models", "Sounds", "Effects", "Structures", "Plants", "Fauna", "Maps"].iter().map(|n| rect(&line, &format!("tab:{n}"))).collect();
+            let at = format!("{size} at {scale} ({k}), {font}");
+            for (i, t) in tabs.iter().enumerate() {
+                assert!(t[0] >= -0.5 && t[1] >= -0.5 && t[2] <= w + 0.5 && t[3] <= h + 0.5, "{at}: tab {i} {t:?} outside {w} x {h}");
+                // the bar is two rows (72 points) at most: a tab below it is cut off
+                assert!(t[3] <= 72.5, "{at}: tab {i} {t:?} below the top bar");
+                for u in &tabs[..i] {
+                    assert!(t[0] >= u[2] - 0.5 || t[2] <= u[0] + 0.5 || t[1] >= u[3] - 0.5 || t[3] <= u[1] + 0.5, "{at}: tabs {t:?} and {u:?} overlap");
+                }
+            }
+            if scale == "1.33" && font.ends_with("clean") {
+                assert!((k - 1.25).abs() < 1e-3, "{at}: a kept 1.33 snaps to the clean list as the window does");
+            }
+            if scale == "1.25" && font.ends_with("clean") {
+                assert!(tabs.iter().all(|t| (t[1] - tabs[0][1]).abs() < 0.5), "{at}: the nine tabs in one row: {tabs:?}");
+            }
+        }
+    }
+}
+
 /// The review of the wall's keys: Escape on the key sheet closes the sheet, not the wall behind it; Enter with
 /// the wall's bar scrolled out of sight uses nothing.
 #[test]
