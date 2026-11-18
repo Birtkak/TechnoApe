@@ -104,11 +104,13 @@ fn shot(studio: &mut ui::Studio, path: &str, w: u32, h: u32, pointer: Option<egu
     }
     // the script: frames 50 ms apart, so a press and a release are a click, not a long press
     let mut driver = drive::Driver::default();
-    let mut frames = 0;
+    let (mut frames, mut slowest) = (0, 0.0f64);
     for step in input.split(';') {
         for f in driver.step(step, &drive::rects(&ctx)).map_err(|e| format!("input '{}': {e}", step.trim()))? {
+            // the window's own work for a scripted frame (the UI pass, no GPU), the slowest kept
+            let t = std::time::Instant::now();
             frame(studio, f, 0.05);
-            frames += 1;
+            slowest = slowest.max(t.elapsed().as_secs_f64() * 1e3);            frames += 1;
         }
         // and one more: what a step changed is drawn, and marked, before the next step aims at it
         frame(studio, drive::Frame::default(), 0.05);
@@ -124,7 +126,7 @@ fn shot(studio: &mut ui::Studio, path: &str, w: u32, h: u32, pointer: Option<egu
     }
     drop(frame);
     let out = out.unwrap();
-    let extra = format!(",\"frames\":{frames},\"state\":{}{}", studio.drive_report(), if rects { format!(",\"rects\":{}", drive::rects_json(&drive::rects(&ctx))) } else { String::new() });
+    let extra = format!(",\"frames\":{frames},\"slowest_ms\":{slowest:.1},\"state\":{}{}", studio.drive_report(), if rects { format!(",\"rects\":{}", drive::rects_json(&drive::rects(&ctx))) } else { String::new() });
     if path == "-" {
         return Ok(format!("{{\"shot\":\"-\"{extra}}}"));
     }

@@ -672,3 +672,28 @@ fn the_palette_grows_from_the_textures_page() {
     let pal = std::fs::read_to_string(dir.join("data/palette.toml")).unwrap();
     assert!(!pal.contains("\"plum lighter\"") && pal.contains("name = \"plum\""), "{line}\n{pal}");
 }
+
+/// The Maps page (docs/design/studio-maps.md, step 2): a node added from the box, wired in between, a slider
+/// moved, saved; the file says so and passes the check.
+#[test]
+fn maps_add_wire_slide_save() {
+    let dir = scratch("maps");
+    let line = studio(
+        &dir,
+        &[
+            "size=1600x900",
+            "cmd=open:Maps:clouds",
+            "input=click right @graph:0.15,0.85; text inv; click @add:invert; wait; drag @out:levels @pin:invert:in; drag @out:invert @pin:out:in; \
+             click @node:noise; drag @num:scale:0.05,0.5 @num:scale:0.5,0.5; key Ctrl+S",
+        ],
+    );
+    assert!(line.contains("\"unsaved\":[]"), "{line}");
+    let text = std::fs::read_to_string(dir.join("data/maps/clouds.toml")).unwrap();
+    let node = |id: &str| text.split("[[node]]").find(|n| n.contains(&format!("id = \"{id}\""))).unwrap_or_else(|| panic!("no node {id}: {line}\n{text}")).to_string();
+    assert!(node("invert").contains("in = \"levels\""), "{line}\n{text}");
+    assert!(node("out").contains("in = \"invert\""), "{line}\n{text}");
+    assert!(!node("noise").contains("scale = 4\n"), "the slider moved nothing: {line}\n{text}");
+    assert!(line.contains("Add invert") && line.contains("Wire levels to invert") && line.contains("Move scale"), "named steps: {line}");
+    studio(&dir, &["check=1"]);
+    assert!(!std::fs::read_to_string(dir.join("data/drafts.txt")).unwrap().contains("maps/clouds.toml"), "saved: no longer a draft");
+}

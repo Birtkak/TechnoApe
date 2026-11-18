@@ -204,3 +204,73 @@ fn the_starter_maps_pass_the_check() {
     }
     assert!(starter("smoke swirl").nodes.iter().any(|n| n.spec().kind == "curl"));
 }
+
+#[test]
+fn edits_keep_the_map_valid() {
+    let mut m = starter("clouds");
+    let before = m.clone();
+    let id = |m: &Map, s: &str| m.find(s).unwrap();
+    let inv = m.add("invert", [0.0, 300.0]);
+    assert_eq!(m.nodes[inv].id, "invert");
+    m.wire(id(&m, "levels"), inv, 0).unwrap();
+    m.wire(inv, id(&m, "out"), 0).unwrap();
+    let wired = m.clone();
+    let e = m.wire(inv, id(&m, "levels"), 0).unwrap_err();
+    assert!(e.contains("circle"), "{e}");
+    assert_eq!(m, wired, "a refused wire leaves the map as it was");
+    let len = m.add("length", [0.0, 400.0]);
+    assert!(m.wire(inv, len, 0).unwrap_err().contains("takes a direction"));
+    // a direction through a blur into length; the curl taken away, the blur gives a number and length is unplugged
+    let curl = m.add("curl", [0.0, 500.0]);
+    let blur = m.add("blur", [0.0, 600.0]);
+    m.wire(id(&m, "noise"), curl, 0).unwrap();
+    m.wire(curl, blur, 0).unwrap();
+    m.wire(blur, len, 0).unwrap();
+    m.remove(&[curl]);
+    assert!(m.find("curl").is_none());
+    let (blur, len) = (id(&m, "blur"), id(&m, "length"));
+    assert!(matches!(m.nodes[blur].pins[0], Pin::Value(_)) && matches!(m.nodes[len].pins[0], Pin::Value(_)), "{}", m.write());
+    Graph::new(m.clone());
+    assert_eq!(map(&m.write()).unwrap(), m, "indexes put right: the file reads back the same");
+    let n = m.nodes.len();
+    m.remove(&[id(&m, "out")]);
+    assert_eq!(m.nodes.len(), n, "the out stays");
+    let copies = m.copy(&[id(&m, "levels"), id(&m, "invert")]);
+    let (l2, i2) = (copies[0], copies[1]);
+    assert_eq!((m.nodes[l2].id.as_str(), m.nodes[i2].id.as_str()), ("levels 2", "invert 2"));
+    assert_eq!(m.nodes[l2].pins[0], Pin::Wire(id(&m, "noise")), "a copy keeps what fed it");
+    assert_eq!(m.nodes[i2].pins[0], Pin::Wire(l2), "and the wires among the copies");
+    m.set_num(l2, "low", 7.0);
+    assert_eq!(m.nodes[l2].nums[0], 1.0, "held to its range");
+    let c = m.add("colours", [0.0, 0.0]);
+    let ramp = pal().ramps()[1].clone();
+    m.set_word(c, "ramp", &ramp.0, &pal()).unwrap();
+    assert!(m.set_word(c, "ramp", "no such", &pal()).is_err());
+    assert_eq!(m.rgb[c].len(), ramp.1.len());
+    assert_eq!(map(&m.write()).unwrap(), m);
+    assert_ne!(m, before);
+}
+
+#[test]
+fn an_update_reworks_only_what_changed() {
+    let m = starter("clouds");
+    let mut g = Graph::new(m.clone());
+    let o = g.out();
+    g.pic(o, 0, 32);
+    assert_eq!(g.worked, 3);
+    let mut moved = m.clone();
+    moved.nodes[0].at = [50.0, 50.0];
+    g.update(&moved);
+    g.pic(o, 0, 32);
+    assert_eq!(g.worked, 3, "a node moved is no change to the pictures");
+    let mut low = moved.clone();
+    low.set_num(low.find("levels").unwrap(), "low", 0.2);
+    g.update(&low);
+    g.pic(o, 0, 32);
+    assert_eq!(g.worked, 5, "levels and out again");
+    let mut more = low.clone();
+    more.add("invert", [0.0, 0.0]);
+    g.update(&more);
+    g.pic(o, 0, 32);
+    assert_eq!(g.worked, 8, "a new node: worked out anew");
+}

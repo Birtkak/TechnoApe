@@ -32,8 +32,12 @@ Options 1 and 4, worked out on the CPU.
   (x, y, 0) with y down the picture, each part -1..1. A number plugs into a colour pin as grey and a colour into
   a number pin as its brightness. Only Slope and Curl make a direction.
 - **Tiling.** Every generator lies on a lattice of whole `scale` cells a side whose corners wrap by `scale`
-  (an octave o has `scale` x 2^o). Shapes and gradients repeat a whole number of times. Blur, Warp and Move
+  (an octave o has `scale` x 2^o). Shapes and gradients repeat a whole number of times; a straight gradient
+  rises and falls (a triangle wave), since a ramp that only rises steps at the edge. Blur, Warp and Move
   sample with wrap.
+- **Which kinds a node takes.** Levels, Steps and Invert take numbers only (a colour is first made a number by
+  its brightness). Blur, Move, Warp and Blend take any kind and give back the kind they were fed.
+- **Unplugged pins** keep their slider's number in the file, so pulling a wire loses nothing a reader needs.
 - **Looping.** Time t = frame / frames, and frame `frames` is frame 0 again. Noise has time as a third lattice
   axis of 2 x `speed` x 2^o cells a loop, so a speed of 1 still changes. Cells circle their points `speed` times
   a loop, Speckle draws `speed` new patterns a loop, and Move scrolls `speed_x`, `speed_y` whole sides a loop.
@@ -44,6 +48,22 @@ Options 1 and 4, worked out on the CPU.
   animated map without `frame` as a strip of frames side by side) and prints one JSON line: size, frames, kind,
   the milliseconds the work took, and an FNV-1a hash of the pixels. A direction is written in red and green,
   128 as no push.
+
+### Step 2: the page
+- **Our own graph on `egui::Scene`** (no node-graph crate): pan with the middle button, zoom to the pointer with
+  the wheel (0.2 to 2), F frames all. Every edit goes through `Map::add`, `wire`, `unplug`, `remove`, `copy`,
+  `set_num` and `set_word`; a wire is refused there (circle, kind) and the map is never left invalid
+  (`repair` unplugs what a removal broke). The page shows the refusal's reason while the wire is dragged.
+- **Pins by kind:** number grey, colour yellow, direction purple, 12 points across; a wire takes the colour of
+  the pin it leaves. Groups' bands: Make green, Change blue-grey, Combine brown, Turn into plum, Out grey.
+- **The Maps page colour** is ice cyan (110, 214, 240), apart from the eight pages, the accent, amber, red and
+  green.
+- **Speed:** node pictures are 64 px, worked out in the frame (`Graph::update` reworks only what is after a
+  changed number). The inspector's full-size picture is worked out on a worker thread; the node's 64 px
+  picture stands in until it comes.
+- **Space adds a node** (the design also gave Space+drag to pan; one key cannot do both, the middle button pans).
+- **The page bar** hides the Studio's title when the tabs would not fit in one row, so nine tabs stay one row
+  at 1600 x 900 at 133 %; at 1920 x 1080 nothing changes.
 
 ## Consequences
 - Every map tiles and loops exactly, and the tests show it (the step across the edge is no larger than a

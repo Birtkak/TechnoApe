@@ -117,6 +117,18 @@ pub struct Node {
 }
 
 impl Node {
+    fn new(kind: usize, id: String, at: [f32; 2]) -> Node {
+        let s = &SPECS[kind];
+        Node {
+            id,
+            kind,
+            at,
+            nums: s.nums.iter().map(|x| x.def).collect(),
+            words: s.words.iter().map(|x| x.1.first().unwrap_or(&"").to_string()).collect(),
+            pins: s.pins.iter().map(|p| Pin::Value(p.2)).collect(),
+            colours: vec![],
+        }
+    }
     pub fn spec(&self) -> &'static Spec {
         &SPECS[self.kind]
     }
@@ -136,6 +148,18 @@ pub struct Map {
     pub nodes: Vec<Node>,
     /// Colours nodes' colours as 0..1, by node (resolved from the palette when read).
     rgb: Vec<Vec<[f32; 3]>>,
+}
+
+/// The colours a Colours node turns a number into: a palette ramp's, else the colours it names.
+fn paints(ramp: &str, colours: &[String], pal: &Palette) -> Result<Vec<[f32; 3]>, String> {
+    let names: Vec<String> = if ramp.is_empty() { colours.to_vec() } else { pal.ramp(ramp).iter().map(|&i| pal.colours[i].name.clone()).collect() };
+    if !ramp.is_empty() && names.is_empty() {
+        return Err(format!("ramp '{ramp}' is not in the palette"));
+    }
+    if names.is_empty() {
+        return Err("names neither a ramp nor colours".into());
+    }
+    names.iter().map(|c| pal.colours.iter().find(|p| &p.name == c).map(|p| p.rgb.map(|b| b as f32 / 255.0)).ok_or(format!("colour '{c}' is not in the palette"))).collect()
 }
 
 fn f(v: &toml::Value) -> Option<f32> {
@@ -175,15 +199,7 @@ pub fn parse(file: &str, text: &str, pal: &Palette) -> Result<Map, String> {
         let kind = r.get("kind").and_then(|v| v.as_str()).unwrap_or("");
         let k = SPECS.iter().position(|s| s.kind == kind).ok_or(bad(format!("unknown kind '{kind}'")))?;
         let s = &SPECS[k];
-        let mut node = Node {
-            id: id.clone(),
-            kind: k,
-            at: [0.0; 2],
-            nums: s.nums.iter().map(|x| x.def).collect(),
-            words: s.words.iter().map(|x| x.1.first().unwrap_or(&"").to_string()).collect(),
-            pins: s.pins.iter().map(|p| Pin::Value(p.2)).collect(),
-            colours: vec![],
-        };
+        let mut node = Node::new(k, id.clone(), [0.0; 2]);
         let mut wired = vec![None; s.pins.len()];
         for (key, v) in r.iter().filter(|(k, _)| !["id", "kind"].contains(&k.as_str())) {
             if key == "at" {
@@ -217,23 +233,7 @@ pub fn parse(file: &str, text: &str, pal: &Palette) -> Result<Map, String> {
                 return Err(bad(format!("unknown key '{key}'")));
             }
         }
-        // the colours a Colours node turns a number into
-        let mut rgb = vec![];
-        if kind == "colours" {
-            let ramp = &node.words[0];
-            let names: Vec<String> = if ramp.is_empty() { node.colours.clone() } else { pal.ramp(ramp).iter().map(|&i| pal.colours[i].name.clone()).collect() };
-            if !ramp.is_empty() && names.is_empty() {
-                return Err(bad(format!("ramp '{ramp}' is not in the palette")));
-            }
-            if names.is_empty() {
-                return Err(bad("names neither a ramp nor colours".into()));
-            }
-            for c in &names {
-                let p = pal.colours.iter().find(|p| &p.name == c).ok_or(bad(format!("colour '{c}' is not in the palette")))?;
-                rgb.push(p.rgb.map(|b| b as f32 / 255.0));
-            }
-        }
-        m.rgb.push(rgb);
+        m.rgb.push(if kind == "colours" { paints(&node.words[0], &node.colours, pal).map_err(bad)? } else { vec![] });
         m.nodes.push(node);
         wires.push(wired);
     }
@@ -254,9 +254,15 @@ impl Map {
         self.nodes.iter().position(|n| n.id == id)
     }
 
-    /// The order to work the nodes out in (each after what feeds it) and the kind each gives; a circle of
-    /// wires, a pin fed a kind it cannot take, and no out or two are refused.
     fn order(&self) -> Result<(Vec<usize>, Vec<Data>), String> {
+        self.check().map_err(|e| e.1)
+    }
+
+    /// The order to work the nodes out in (each after what feeds it) and the kind each gives; a circle of
+    /// wires, a pin fed a kind it cannot take (that node and pin come with the refusal), and no out or two
+    /// are refused.
+    #[allow(clippy::type_complexity)]
+    fn check(&self) -> Result<(Vec<usize>, Vec<Data>), (Option<(usize, usize)>, String)> {
         fn visit(m: &Map, i: usize, state: &mut [u8], order: &mut Vec<usize>) -> Result<(), String> {
             match state[i] {
                 2 => return Ok(()),
@@ -275,7 +281,7 @@ impl Map {
         }
         let (mut state, mut order) = (vec![0; self.nodes.len()], vec![]);
         for i in 0..self.nodes.len() {
-            visit(self, i, &mut state, &mut order)?;
+            visit(self, i, &mut state, &mut order).map_err(|e| (None, e))?;
         }
         let mut kinds = vec![Num; self.nodes.len()];
         for &i in &order {
@@ -292,7 +298,7 @@ impl Map {
                 let want = if s.pins[p].1 == Any { kinds[i] } else { s.pins[p].1 };
                 if let Pin::Wire(j) = pin {
                     if !want.takes(kinds[*j]) {
-                        return Err(format!("node '{}': pin '{}' takes {}, '{}' gives {}", n.id, s.pins[p].0, want.name(), self.nodes[*j].id, kinds[*j].name()));
+                        return Err((Some((i, p)), format!("node '{}': pin '{}' takes {}, '{}' gives {}", n.id, s.pins[p].0, want.name(), self.nodes[*j].id, kinds[*j].name())));
                     }
                 }
             }
@@ -300,13 +306,122 @@ impl Map {
         let outs: Vec<&str> = self.nodes.iter().filter(|n| n.spec().kind == "out").map(|n| n.id.as_str()).collect();
         match outs[..] {
             [_] => Ok((order, kinds)),
-            [] => Err("no node is the out".into()),
-            [a, b, ..] => Err(format!("nodes '{a}' and '{b}' are both an out")),
+            [] => Err((None, "no node is the out".into())),
+            [a, b, ..] => Err((None, format!("nodes '{a}' and '{b}' are both an out"))),
         }
     }
 
-    /// The file's text: every number, word and pin written, in the kind's order (the page saves with it).
-    #[allow(dead_code)]
+    /// An id not taken: `base` without a number after it, then "base 2", "base 3"...
+    fn free_id(&self, base: &str) -> String {
+        let base = base.rsplit_once(' ').filter(|(_, n)| n.parse::<u32>().is_ok()).map_or(base, |(b, _)| b);
+        (1..).map(|k| if k == 1 { base.to_string() } else { format!("{base} {k}") }).find(|n| self.find(n).is_none()).unwrap()
+    }
+
+    /// A new node of `kind` with its numbers as new, named after its kind; its index.
+    pub fn add(&mut self, kind: &str, at: [f32; 2]) -> usize {
+        let k = SPECS.iter().position(|s| s.kind == kind).expect("a kind of SPECS");
+        let id = self.free_id(kind);
+        self.nodes.push(Node::new(k, id, at));
+        self.rgb.push(vec![]);
+        self.nodes.len() - 1
+    }
+
+    /// Plugs `from`'s output into pin `pin` of `to`; a circle or a kind the pin cannot take is refused, and
+    /// the map stays as it was.
+    pub fn wire(&mut self, from: usize, to: usize, pin: usize) -> Result<(), String> {
+        let was = std::mem::replace(&mut self.nodes[to].pins[pin], Pin::Wire(from));
+        self.check().map(|_| ()).map_err(|e| {
+            self.nodes[to].pins[pin] = was;
+            e.1
+        })
+    }
+
+    /// Pulls the wire out of a pin: it holds its number as new.
+    pub fn unplug(&mut self, to: usize, pin: usize) {
+        self.nodes[to].pins[pin] = Pin::Value(self.nodes[to].spec().pins[pin].2);
+        self.repair();
+    }
+
+    /// Unplugs pins until the map checks again: a node unplugged or taken away can change what a node after
+    /// it gives.
+    fn repair(&mut self) {
+        while let Err((Some((i, p)), _)) = self.check() {
+            self.nodes[i].pins[p] = Pin::Value(self.nodes[i].spec().pins[p].2);
+        }
+    }
+
+    /// Takes nodes away (never the out); what they fed is unplugged.
+    pub fn remove(&mut self, set: &[usize]) {
+        let gone: Vec<bool> = (0..self.nodes.len()).map(|i| set.contains(&i) && self.nodes[i].spec().kind != "out").collect();
+        let to: Vec<usize> = gone.iter().scan(0, |k, g| Some(std::mem::replace(k, *k + !g as usize))).collect();
+        for i in 0..self.nodes.len() {
+            for p in 0..self.nodes[i].pins.len() {
+                if let Pin::Wire(j) = self.nodes[i].pins[p] {
+                    self.nodes[i].pins[p] = if gone[j] { Pin::Value(self.nodes[i].spec().pins[p].2) } else { Pin::Wire(to[j]) };
+                }
+            }
+        }
+        let mut k = 0..;
+        self.nodes.retain(|_| !gone[k.next().unwrap()]);
+        let mut k = 0..;
+        self.rgb.retain(|_| !gone[k.next().unwrap()]);
+        self.repair();
+    }
+
+    /// Copies of nodes (never the out) a little aside, wired among themselves as the originals are and to
+    /// what fed them from outside; their indexes.
+    pub fn copy(&mut self, set: &[usize]) -> Vec<usize> {
+        let set: Vec<usize> = set.iter().copied().filter(|&i| self.nodes[i].spec().kind != "out").collect();
+        let start = self.nodes.len();
+        for &i in &set {
+            let mut n = self.nodes[i].clone();
+            n.id = self.free_id(&n.id);
+            n.at = [n.at[0] + 40.0, n.at[1] + 40.0];
+            for p in &mut n.pins {
+                if let Pin::Wire(j) = p {
+                    if let Some(c) = set.iter().position(|s| s == j) {
+                        *j = start + c;
+                    }
+                }
+            }
+            self.nodes.push(n);
+            self.rgb.push(self.rgb[i].clone());
+        }
+        (start..self.nodes.len()).collect()
+    }
+
+    /// Sets a node's number, or an unplugged pin's, held to its range; false: it has no such number.
+    pub fn set_num(&mut self, node: usize, name: &str, v: f32) -> bool {
+        let n = &mut self.nodes[node];
+        let s = n.spec();
+        if let Some(i) = s.nums.iter().position(|x| x.name == name) {
+            let v = v.clamp(s.nums[i].min, s.nums[i].max);
+            n.nums[i] = if s.nums[i].whole { v.round() } else { v };
+        } else if let Some(i) = s.pins.iter().position(|p| p.0 == name && p.1 != Dir).filter(|&i| matches!(n.pins[i], Pin::Value(_))) {
+            n.pins[i] = Pin::Value(v.clamp(0.0, 1.0));
+        } else {
+            return false;
+        }
+        true
+    }
+
+    /// Sets a node's word (a mode, a shape, a Colours node's palette ramp).
+    pub fn set_word(&mut self, node: usize, name: &str, word: &str, pal: &Palette) -> Result<(), String> {
+        let s = self.nodes[node].spec();
+        let i = s.words.iter().position(|w| w.0 == name).ok_or(format!("node '{}' has no {name}", self.nodes[node].id))?;
+        let list = s.words[i].1;
+        if !list.is_empty() && !list.contains(&word) {
+            return Err(format!("{name} '{word}' is not one of {list:?}"));
+        }
+        if list.is_empty() {
+            self.rgb[node] = paints(word, &[], pal)?;
+            self.nodes[node].colours.clear();
+        }
+        self.nodes[node].words[i] = word.into();
+        Ok(())
+    }
+
+    /// The file's text: every number, word and pin written, in the kind's order.
     pub fn write(&self) -> String {
         let q = crate::js;
         let mut t = format!("size = {}\nframes = {}\nseconds = {}\n", self.size, self.frames, num(self.seconds));
@@ -354,8 +469,9 @@ pub type Pic = Vec<[f32; 3]>;
 /// A map being worked out: each node's pictures kept by (frame, size) until a number before it changes.
 pub struct Graph {
     pub map: Map,
-    #[allow(dead_code)] // the page (build step 2) edits through `set`
     order: Vec<usize>,
+    /// Per node, a number new each time its pictures are thrown away (the page keeps its textures by it).
+    pub stamp: Vec<u64>,
     pub kinds: Vec<Data>,
     kept: Vec<HashMap<(usize, usize), Pic>>,
     /// Pictures worked out so far (the tests count the rework).
@@ -366,39 +482,54 @@ impl Graph {
     /// A map that `parse` took.
     pub fn new(map: Map) -> Graph {
         let (order, kinds) = map.order().expect("a map that was read is checked");
-        Graph { kept: vec![HashMap::new(); map.nodes.len()], map, order, kinds, worked: 0 }
+        Graph { kept: vec![HashMap::new(); map.nodes.len()], stamp: map.nodes.iter().map(|_| next_stamp()).collect(), map, order, kinds, worked: 0 }
     }
 
     pub fn out(&self) -> usize {
         self.map.nodes.iter().position(|n| n.spec().kind == "out").expect("one out")
     }
 
+    /// Takes the map as the page has it now: pictures a changed number does not reach are kept; anything
+    /// else changed is worked out anew.
+    pub fn update(&mut self, map: &Map) {
+        if self.map == *map {
+            return;
+        }
+        let shape = |m: &Map| (m.size, m.frames, m.rgb.clone(), m.nodes.iter().map(|n| (n.kind, n.words.clone(), n.pins.iter().map(|p| if let Pin::Wire(j) = p { Some(*j) } else { None }).collect::<Vec<_>>())).collect::<Vec<_>>());
+        if shape(&self.map) != shape(map) {
+            let worked = self.worked;
+            *self = Graph::new(map.clone());
+            self.worked = worked;
+            return;
+        }
+        let changed = self.map.nodes.iter().zip(&map.nodes).map(|(a, b)| a.nums != b.nums || a.pins != b.pins).collect();
+        self.map = map.clone();
+        self.dirty(changed);
+    }
+
     /// Sets a node's number, or an unplugged pin's, held to its range; what is downstream is worked out anew.
     #[allow(dead_code)]
     pub fn set(&mut self, node: usize, name: &str, v: f32) -> Result<(), String> {
-        let n = &mut self.map.nodes[node];
-        let s = n.spec();
-        if let Some(i) = s.nums.iter().position(|x| x.name == name) {
-            let v = v.clamp(s.nums[i].min, s.nums[i].max);
-            n.nums[i] = if s.nums[i].whole { v.round() } else { v };
-        } else if let Some(i) = s.pins.iter().position(|p| p.0 == name && p.1 != Dir).filter(|&i| matches!(n.pins[i], Pin::Value(_))) {
-            n.pins[i] = Pin::Value(v.clamp(0.0, 1.0));
-        } else {
-            return Err(format!("node '{}' has no number '{name}'", n.id));
+        if !self.map.set_num(node, name, v) {
+            return Err(format!("node '{}' has no number '{name}'", self.map.nodes[node].id));
         }
-        let mut dirty = vec![false; self.map.nodes.len()];
-        dirty[node] = true;
-        for &i in &self.order {
-            if self.map.nodes[i].pins.iter().any(|p| matches!(p, Pin::Wire(j) if dirty[*j])) {
-                dirty[i] = true;
-            }
-        }
-        for (k, d) in self.kept.iter_mut().zip(dirty) {
-            if d {
-                k.clear();
-            }
-        }
+        let mut changed = vec![false; self.map.nodes.len()];
+        changed[node] = true;
+        self.dirty(changed);
         Ok(())
+    }
+
+    /// Throws away the pictures of the nodes changed and of every node after them.
+    fn dirty(&mut self, mut d: Vec<bool>) {
+        for &i in &self.order {
+            if self.map.nodes[i].pins.iter().any(|p| matches!(p, Pin::Wire(j) if d[*j])) {
+                d[i] = true;
+            }
+        }
+        for (i, _) in d.into_iter().enumerate().filter(|(_, d)| *d) {
+            self.kept[i].clear();
+            self.stamp[i] = next_stamp();
+        }
     }
 
     /// Node `node`'s picture at `frame` (it loops: `frames` is frame 0 again) and `w` px a side, any size: a
@@ -553,6 +684,9 @@ impl Graph {
             }
             "colours" => {
                 let (rgb, dither) = (&self.map.rgb[i], v("dither") == 1.0);
+                if rgb.is_empty() {
+                    return inp(0).into_owned();
+                }
                 let last = rgb.len() - 1;
                 const BAYER: [f32; 16] = [0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0];
                 let src = inp(0);
@@ -577,6 +711,11 @@ impl Graph {
         let (lo, hi) = if self.kinds[i] == Dir { (-1.0, 1.0) } else { (0.0, 1.0) };
         px.into_iter().map(|c| c.map(|x| x.clamp(lo, hi))).collect()
     }
+}
+
+fn next_stamp() -> u64 {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 fn hash(seed: u32, x: i32, y: i32, z: i32) -> u32 {
