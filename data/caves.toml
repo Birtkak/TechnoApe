@@ -2,10 +2,11 @@
 # crates/engine/src/caves.rs). Each row is a kind: where it forms, in which rock, and its shape. A cave of a kind is
 # cut only in cells whose rock (`Body::rock`) is one of its `hosts`, in columns of one of its `provinces`: it stops
 # where the rock stops. Only a planet with the mantle gets these (ADR 0152); ADR 0063's limestone systems are still
-# made in code (caves.rs `make`), on every baked planet as before.
+# made in code (caves.rs `make`) below generation 3, where the karst row takes over.
 #
-# `shape`: "tube" (a lava tube: runs downhill a few metres under the ground, flat floor, arched roof, skylights) or
-#   "fissure" (a crack along the border between two provinces: narrow and tall, blind or open at the surface).
+# `shape`: "tube" (a lava tube: runs downhill a few metres under the ground, flat floor, arched roof, skylights),
+#   "fissure" (a crack along the border between two provinces: narrow and tall, blind or open at the surface) or
+#   "karst" (galleries at the water table with sinkholes and halls, below).
 # `hosts`: the rocks it may be cut in, block names of `data/rocks.toml`'s layers.
 # `provinces`: the provinces it may lie in, names of `data/rocks.toml`.
 # `depth`: [m, m] under the ground: its roof at least the first (under the 4 m soil band: a kind is cut in rock), its
@@ -72,3 +73,31 @@ skylight = 200.0
 trench = 0.2
 branch = 0.3
 slope = 0.008
+
+# Dry karst from generation 3 (0161-karst-caves): rain water dissolved the limestone along its joints and beds
+# down to the water table (caves.rs `water_table`). A system is a main passage that runs down the table's slope
+# toward the valley or coast it drains to, near-level at or just above the table, with tributary branches up the
+# slope; a hall where a branch joins; sinkholes (a bowl in the ground and a shaft down to the passage) where the
+# limestone reaches up to the soil. Nothing is cut below the table.
+# `width`, `height`: a passage's; `length`: the main passage's (a branch's half of it); `depth`: a passage's floor
+# under the ground. `skylight`: metres between sinkholes along a passage at least; `branch` per 100 m;
+# `hall`, `hall_height`: a hall's width and height (made smaller, down to the least, where the limestone is too
+# thin, else none); `sinkhole`: a bowl's width at the ground; `shaft`: its throat's width.
+[[kind]]
+name = "karst"
+shape = "karst"
+hosts = ["limestone"]
+provinces = ["basin"]
+depth = [7.0, 60.0]
+spacing = 160
+chance = 0.8
+width = [3.5, 6.0]
+height = [2.6, 4.0]
+length = [250.0, 1200.0]
+generations = [3, 255]
+skylight = 60.0
+branch = 0.8
+hall = [10.0, 30.0]
+hall_height = [6.0, 15.0]
+sinkhole = [9.0, 18.0]
+shaft = [3.0, 5.0]

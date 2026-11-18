@@ -99,8 +99,9 @@ pub fn deep_layers(n: i32) -> i32 {
 pub const MANTLE_STEP: i32 = 256;
 
 /// A new world's generation (`Body::gen`): 1 the mantle and the caves by rock (ADR 0152, 0159), 2 the arcs'
-/// basalt flows and lava tubes as one round passage (ADR 0160-generation-number-and-arc-basalt).
-pub const GENERATION: u8 = 2;
+/// basalt flows and lava tubes as one round passage (ADR 0160-generation-number-and-arc-basalt), 3 dry karst in
+/// the basins' limestone in place of ADR 0063's worm (0161-karst-caves).
+pub const GENERATION: u8 = 3;
 
 /// Refuses a world of a generation newer than this build's: it would generate other ground under the edits.
 pub fn known_generation(gen: u8) -> Result<u8, String> {

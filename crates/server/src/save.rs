@@ -681,8 +681,11 @@ mod tests {
     /// 0 without, all else as it was.
     #[test]
     fn a_20_loads_as_generation_1_or_0_and_this_version_keeps_the_generation() {
+        for gen in [2, 3] {
+            let s = Save { gen, ..save(VERSION, registry()) };
+            assert_eq!(Save::from_bytes(&s.to_bytes()).unwrap(), s, "generation {gen}");
+        }
         let new = Save { gen: engine::world::GENERATION, ..save(VERSION, registry()) };
-        assert_eq!(Save::from_bytes(&new.to_bytes()).unwrap(), new);
         for mantle in [true, false] {
             let Save { seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, .. } = new.clone();
             let v20: Save<Saved, Option<u64>, Option<engine::bake::air::State>, Reaches, Option<u64>, Rain, Held, bool> = Save { version: 20, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, gen: mantle };

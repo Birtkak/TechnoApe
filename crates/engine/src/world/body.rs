@@ -440,8 +440,14 @@ impl Body {
         }
         // nor, from generation 2, a plant whose crown hangs over a cave's open mouth: a skylight is seen from the
         // sky (ADR 0160-generation-number-and-arc-basalt). Columns without a cave cost a tile lookup.
-        if self.gen >= 2 {
-            let r = ROWS.plants[plant].radius;
+        let crown = ROWS.plants[plant].radius;
+        // (a crown's square inside the face whose cave tiles are empty has no cave: one lookup a tile, not a
+        // `col_caves` a column)
+        let inside = i - crown >= 0 && j - crown >= 0 && i + crown < self.n && j + crown < self.n;
+        let tiles = |v: i32| (v - crown).div_euclid(CS)..=(v + crown).div_euclid(CS);
+        let none = inside && tiles(i).all(|x| tiles(j).all(|y| self.tile_caves(face as u8, x, y).next().is_none()));
+        if self.gen >= 2 && !none {
+            let r = crown;
             for (di, dj) in (-r..=r).flat_map(|a| (-r..=r).map(move |c| (a, c))) {
                 let (g, a, c) = fold(face, i + di, j + dj, self.n);
                 let caves = self.col_caves(g as u8, a, c);
