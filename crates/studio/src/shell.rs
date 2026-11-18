@@ -28,11 +28,13 @@ pub struct Settings {
     /// Where the developer was: the page shown, and each page's open file (the Studio starts there again).
     pub page: String,
     pub open: BTreeMap<String, String>,
+    /// The interface in the game's pixel font (`font=game`), else the clean sans.
+    pub game_font: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { files_w: 230.0, inspector_w: 320.0, scale: 1.0, swap: false, hidden: BTreeSet::new(), widths: BTreeMap::new(), order: BTreeMap::new(), folded: BTreeSet::new(), splits: BTreeMap::new(), page: String::new(), open: BTreeMap::new() }
+        Settings { files_w: 230.0, inspector_w: 320.0, scale: 1.0, swap: false, hidden: BTreeSet::new(), widths: BTreeMap::new(), order: BTreeMap::new(), folded: BTreeSet::new(), splits: BTreeMap::new(), page: String::new(), open: BTreeMap::new(), game_font: false }
     }
 }
 
@@ -51,6 +53,10 @@ impl Settings {
                 if !v.is_empty() {
                     (if k == "fold" { &mut s.folded } else { &mut s.hidden }).insert(v.to_string());
                 }
+                continue;
+            }
+            if k == "font" {
+                s.game_font = v == "game";
                 continue;
             }
             if k == "page" {
@@ -96,6 +102,9 @@ impl Settings {
         if self.swap {
             t += "swap=1\n";
         }
+        if self.game_font {
+            t += "font=game\n";
+        }
         for (k, set) in [("hide", &self.hidden), ("fold", &self.folded)] {
             for f in set {
                 t += &format!("{k}={f}\n");
@@ -132,6 +141,18 @@ pub fn sharp_scale(scale: f32, native: f32, dir: i32) -> f32 {
         return scale;
     }
     ((scale * unit).round() + dir as f32).clamp(lo, hi) / unit
+}
+
+/// The scales the clean font offers (it is sharp at any).
+pub const CLEAN_SCALES: [f32; 8] = [0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
+/// The next scale up (`dir` 1), down (-1) or the nearest (0): among the game font's sharp ones
+/// ([`sharp_scale`]) or the clean font's list.
+pub fn step_scale(scale: f32, native: f32, dir: i32, game: bool) -> f32 {
+    if game {
+        return sharp_scale(scale, native, dir);
+    }
+    let near = (0..CLEAN_SCALES.len()).min_by(|a, b| (CLEAN_SCALES[*a] - scale).abs().total_cmp(&(CLEAN_SCALES[*b] - scale).abs())).unwrap();
+    CLEAN_SCALES[(near as i32 + dir).clamp(0, CLEAN_SCALES.len() as i32 - 1) as usize]
 }
 
 /// What "Try in game" says to a game it started that is still running: the command that stands the open
@@ -340,6 +361,16 @@ mod tests {
             let px = sharp_scale(s, n, 0) * FONT_PIXEL * n;
             assert!(near(px, px.round()) && px >= 1.0, "{s} on {n}: {px}");
         }
+    }
+
+    #[test]
+    fn the_clean_font_steps_through_its_list_and_the_font_is_kept() {
+        assert_eq!((step_scale(1.0, 1.0, 1, false), step_scale(1.0, 1.0, -1, false), step_scale(1.3, 1.0, 0, false)), (1.1, 0.9, 1.25));
+        assert_eq!((step_scale(2.0, 1.0, 1, false), step_scale(0.8, 1.0, -1, false)), (2.0, 0.8));
+        assert!((step_scale(1.0, 1.0, 0, true) - 4.0 / 3.0).abs() < 1e-4, "the game font keeps its sharp steps");
+        let s = Settings { game_font: true, ..Settings::default() };
+        assert_eq!(Settings::parse(&s.write()), s);
+        assert!(!Settings::parse("scale=1").game_font, "clean when absent");
     }
 
     #[test]

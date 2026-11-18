@@ -765,3 +765,14 @@ fn maps_starter_used_on_a_block() {
     studio(&dir, &["check=1"]);
     assert!(!dir.join("data/maps/rock.toml").exists(), "a new map is not saved before Save");
 }
+
+/// The review of the wall's keys: Escape on the key sheet closes the sheet, not the wall behind it; Enter with
+/// the wall's bar scrolled out of sight uses nothing.
+#[test]
+fn the_wall_takes_its_keys_only_when_it_is_the_one_seen() {
+    let dir = scratch("wall-keys");
+    let line = studio(&dir, &["size=1600x900", "rects=1", "cmd=open:Maps:clouds,variations", "input=click @wall:3; wait; key F1; wait; key Escape; wait"]);
+    assert!(line.contains("\"wall:0\""), "Escape under the key sheet cancelled the wall: {line}");
+    let line = studio(&dir, &["size=1600x420", "rects=1", "cmd=open:Maps:clouds,variations", "input=click @wall:3; wait; move @wall:0; wheel -40; wait; wait; key Enter; wait"]);
+    assert!(line.contains("\"wall:0\"") && !line.contains("Variation"), "Enter used a pick scrolled out of sight: {line}");
+}

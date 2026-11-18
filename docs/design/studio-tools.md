@@ -40,11 +40,22 @@ One look for every page, so a tool learned once works everywhere.
 - **Toasts** in the bottom right for what happened ("Saved dirt.png", "Refused: stone_top.png is 24 wide"),
   gone after four seconds, red ones stay until clicked.
 - **History:** the inspector can show the file's undo steps by name; a click goes back to one.
-- **Look:** dark, calm, one accent colour for what is chosen; panels on one grid with the same gaps; text in
-  two sizes only; nothing moves when a tooltip or toast appears. **Each page has its own colour** (its tab,
-  and a band with that colour on every section title of its inspector), so where you are is seen at a glance;
-  a page's colour is never used for what is chosen. Status keeps its three: amber for drafts and unsaved,
-  red for problems, green for fine and for a Save that has work to save.
+- **Look** (ADR 0155; like Adobe's dark tools): neutral greys with no blue in them (work area
+  `#1e1e1e`, panels `#2a2a2a`, hover `#353535`, chosen `#434343`, hairlines `#3d3d3d`, field borders
+  `#525252`; text `#e6e6e6`, secondary `#b0b0b0`, disabled `#6e6e6e`), all named in `ui/look.rs`.
+  **One blue** (`#2680eb`) for the main action and for focus: the one filled pill on a screen (Try in game,
+  Save when there is work to save, Use, Import), a text field's 2 px focus ring, a chosen node's ring. Text in
+  the system's clean sans (Segoe UI, regular and semibold: section titles and tabs) at 13 and 11.5 points;
+  View > Interface font "Game" puts the game's pixel font back with its pixel-sharp scale steps (kept in
+  `studio.txt`). Controls are quiet: a button is text that gets a fill on hover, a chosen chip `#434343`
+  with white text in a segmented group, sliders a 2 px track with a round handle; corners 4 on controls,
+  8 on cards, menus and windows, with a soft shadow under menus. Sections have flat headers (chevron,
+  semibold title, a 2 px bar in the page's colour) with hairlines between them, not bands. Tabs are plain
+  text with a dot of the page's colour, the open one white and underlined in it; the top bar is 40 points
+  (it grows to two rows of tabs only when they do not fit) and carries a search-like "Find… Ctrl+P".
+  Tooltips show the key in a keycap. Nothing moves when a tooltip or toast appears. **Each page has its own
+  colour**, never used for what is chosen. Status keeps its three: amber for drafts and unsaved, red for
+  problems, green for fine.
 - **The inspector's top** is the same on every page: Undo, Redo and Save for the open file (grey when there
   is nothing to undo or redo). Below it, sections; in a section every label stands in one column with its
   control beside it (the label goes over the control when the panel is narrow). Tools stand in three
@@ -258,6 +269,19 @@ makes what the game will take. Built (ADR 0053): biped, quadruped, bird, fish, h
 idle, turn, eat and hurt are made from the row, never keyed; wings as a plan of their own are the bird's.
 
 ## The variations wall (every wave uses it)
-One shared piece of the interface: a grid of six to twelve previews made from the current thing by a
-"spread" slider, a click takes one, "more like this" refills the wall around it, "back" returns to the last
-wall. Pages feed it their own kind (ramps, textures' variants, chains, effects, seeds, body plans).
+One shared piece of the interface (`ui/wall.rs`): six to twelve candidates made from the current thing.
+Pages feed it their own kind (ramps, textures' variants, chains, effects, seeds, body plans).
+
+- **The grid:** large rounded pictures with no text under them, sharing the width evenly (the cell size
+  lies between the page's least and half as large again). The one the wall was made around carries a
+  "Current" badge.
+- **Picking:** a click picks one (an accent ring and a check badge) and the preview follows; a double click
+  is Use. Hovering a picture lightens its edge and shows a round "more like this" button at its top right
+  (a new set around that one) and, where items can be heard, a play button at its bottom left.
+- **One bar above the grid**, left to right: Use (the blue pill) and Cancel on a page whose pick waits for
+  Use (Textures' variant sets, Maps); "More like this" for the picked one (grey until one is picked);
+  "New batch"; "Back" (the set before the last "more like this"); "How different", a slider from subtle to
+  wild.
+- **Keys** while a wall's bar is in sight and no overlay or ask is over it: Enter uses, Escape cancels (on a
+  page whose pick waits for Use), M is more like the picked one. A key the wall does not act on stays the
+  page's (M with nothing picked is still Mirror, vary or mutate). A double click on "Current" only picks it.

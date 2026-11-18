@@ -177,7 +177,7 @@ mod tests {
         assert!(" !ilj.".chars().all(|c| glyph(c, &cells[c as usize - 32]).0.iter().map(|r| r.0).min().unwrap_or(0) == 0));
         assert_eq!(runs(&[0b0111110, 0b0100010, 0, 0, 0, 0, 0, 0]), vec![(0, 5, 0), (0, 1, 1), (4, 1, 1)]);
         let ctx = egui::Context::default();
-        crate::ui::look::fonts(&ctx);
+        crate::ui::look::fonts(&ctx, true);
         let mut wide = 0.0;
         let mut out = ctx.run_pass(Default::default(), |ctx| {
             wide = ctx.fonts_mut(|f| f.layout_no_wrap("Ape lamp".into(), egui::FontId::proportional(EM as f32 / 100.0), egui::Color32::WHITE)).size().x;

@@ -8,7 +8,7 @@ use crate::art::{self, History, Img};
 use crate::ramp::{self, RampSpec};
 use crate::shell::Flags;
 use crate::wall::{Rng, Wall};
-use eframe::egui::{self, Color32, Key, Modifiers, Pos2, Rect, RichText, Sense, StrokeKind, Ui, Vec2};
+use eframe::egui::{self, Key, Modifiers, Pos2, Rect, RichText, Sense, StrokeKind, Ui, Vec2};
 use engine::palette::{hex, to_hex, Colour, Palette};
 
 #[derive(PartialEq, Clone, Copy)]
@@ -398,7 +398,7 @@ impl PalettePage {
                 let on = self.ramp.as_deref() == Some(name.as_str()) && !name.is_empty();
                 let label = if name.is_empty() { "loose colours" } else { name.as_str() };
                 let col = if on { look::ACCENT } else { ui.visuals().text_color() };
-                let g = ui.painter().layout(label.to_string(), egui::FontId::proportional(look::BODY), col, r.width() - 4.0);
+                let g = ui.painter().layout(label.to_string(), egui::FontId::proportional(look::body()), col, r.width() - 4.0);
                 ui.painter().galley(Pos2::new(r.min.x, r.center().y - g.size().y / 2.0), g, col);
                 ui.spacing_mut().item_spacing = Vec2::new(4.0, 4.0);
                 for i in idx {
@@ -412,9 +412,12 @@ impl PalettePage {
                     if i == self.sel {
                         p.rect_stroke(sw, 4.0, egui::Stroke::new(3.0, look::ACCENT), StrokeKind::Outside);
                     }
-                    let g = p.layout_no_wrap(c.name.clone(), egui::FontId::proportional(look::SMALL), ui.visuals().text_color());
-                    let x = r.center().x - g.size().x.min(r.width()) / 2.0;
-                    p.with_clip_rect(r).galley(Pos2::new(x, r.max.y - g.size().y), g, Color32::WHITE);
+                    // a name longer than its swatch ends in "…" (the whole of it in the tip), never cut mid-letter
+                    let mut job = egui::text::LayoutJob::simple_singleline(c.name.clone(), egui::FontId::proportional(look::small()), look::TEXT2);
+                    job.wrap = egui::text::TextWrapping::truncate_at_width(r.width() - 2.0);
+                    let g = p.layout_job(job);
+                    let x = r.center().x - g.size().x / 2.0;
+                    p.galley(Pos2::new(x, r.max.y - g.size().y), g, look::TEXT2);
                     let resp = look::tip(resp, &format!("{} {}: a click chooses it, a drag moves it", c.name, to_hex(c.rgb)), "");
                     if resp.clicked() {
                         clicked = Some(i);
@@ -463,7 +466,7 @@ impl PalettePage {
             }
             Act::Shuffle => w.shuffle(&vary),
             Act::Spread => w.fill(WALL_N, &vary),
-            Act::None | Act::Play(_) => {}
+            _ => {}
         }
     }
 

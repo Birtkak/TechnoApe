@@ -531,7 +531,7 @@ impl Sounds {
             let x = x_of(v);
             p.line_segment([Pos2::new(x, r.min.y), Pos2::new(x, r.max.y)], Stroke::new(2.0, look::ACCENT));
             p.rect_filled(Rect::from_center_size(Pos2::new(x, r.min.y + 9.0), Vec2::new(10.0, 14.0)), 2.0, look::ACCENT);
-            p.text(Pos2::new(x + if k == 0 { 7.0 } else { -7.0 }, r.max.y - 4.0), if k == 0 { egui::Align2::LEFT_BOTTOM } else { egui::Align2::RIGHT_BOTTOM }, if k == 0 { "start" } else { "end" }, egui::FontId::proportional(look::SMALL), Color32::from_gray(200));
+            p.text(Pos2::new(x + if k == 0 { 7.0 } else { -7.0 }, r.max.y - 4.0), if k == 0 { egui::Align2::LEFT_BOTTOM } else { egui::Align2::RIGHT_BOTTOM }, if k == 0 { "start" } else { "end" }, egui::FontId::proportional(look::small()), Color32::from_gray(200));
         }
         if let Some((t0, l)) = head {
             let k = ((now - t0) / l).clamp(0.0, 1.0) as f32;
@@ -952,7 +952,7 @@ impl Sounds {
                 let on = self.open.as_deref() == Some(n.as_str());
                 p.rect_filled(r, 4.0, ui.visuals().extreme_bg_color);
                 draw_wave(&p, r.shrink2(Vec2::new(4.0, 12.0)).translate(Vec2::new(0.0, 6.0)), x, true, Color32::from_gray(150));
-                p.text(r.min + Vec2::new(6.0, 3.0), egui::Align2::LEFT_TOP, sound::family(n).1, egui::FontId::proportional(look::SMALL), Color32::from_gray(210));
+                p.text(r.min + Vec2::new(6.0, 3.0), egui::Align2::LEFT_TOP, sound::family(n).1, egui::FontId::proportional(look::small()), Color32::from_gray(210));
                 if on {
                     p.rect_stroke(r, 4.0, Stroke::new(2.0, look::ACCENT), egui::StrokeKind::Inside);
                 }
@@ -974,14 +974,14 @@ impl Sounds {
         if let Some(x) = self.takes.get(self.take) {
             draw_wave(&p, inner, x, false, Color32::from_gray(170));
             let len = x.len() as f32 / RATE;
-            p.text(inner.right_top(), egui::Align2::RIGHT_TOP, format!("{len:.2} s"), egui::FontId::proportional(look::SMALL), Color32::from_gray(140));
+            p.text(inner.right_top(), egui::Align2::RIGHT_TOP, format!("{len:.2} s"), egui::FontId::proportional(look::small()), Color32::from_gray(140));
             if let Some((t0, l)) = self.head {
                 let k = ((self.now - t0) / l).clamp(0.0, 1.0) as f32;
                 let px = inner.min.x + k * inner.width();
                 p.line_segment([Pos2::new(px, r.min.y), Pos2::new(px, r.max.y)], Stroke::new(2.0, look::BAD));
             }
         } else {
-            p.text(inner.center(), egui::Align2::CENTER_CENTER, if self.take_gen.busy() { "rendering…" } else { "no take" }, egui::FontId::proportional(look::BODY), Color32::from_gray(120));
+            p.text(inner.center(), egui::Align2::CENTER_CENTER, if self.take_gen.busy() { "rendering…" } else { "no take" }, egui::FontId::proportional(look::body()), Color32::from_gray(120));
         }
         if look::tip(resp, "The take's samples, its loudness as the blue line; a click plays it", "Space").clicked() {
             self.play_new = false;
@@ -1097,8 +1097,8 @@ impl Sounds {
         let mut rects = vec![];
         for (i, c) in chain.iter().enumerate() {
             let (name, nums) = STEPS[c.kind];
-            let fill = if c.on { Color32::from_rgb(40, 43, 49) } else { Color32::from_rgb(33, 34, 37) };
-            let fr = egui::Frame::new().fill(fill).stroke(Stroke::new(1.0, Color32::from_rgb(58, 61, 68))).corner_radius(6.0).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
+            let fill = if c.on { look::PANEL } else { look::BG };
+            let fr = egui::Frame::new().fill(fill).stroke(Stroke::new(1.0, look::LINE)).corner_radius(8.0).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
                     let (hr, h) = ui.allocate_exact_size(Vec2::new(14.0, 18.0), Sense::drag());
@@ -1505,7 +1505,7 @@ impl Page for Sounds {
                 act = wallui::show_with(ui, w, chosen, cell, true, |p, r, i, _| match waves.get(i).and_then(|x| x.as_ref()) {
                     Some(x) => draw_wave(p, r, x, true, Color32::from_gray(170)),
                     None => {
-                        p.text(r.center(), egui::Align2::CENTER_CENTER, "…", egui::FontId::proportional(look::SMALL), Color32::from_gray(120));
+                        p.text(r.center(), egui::Align2::CENTER_CENTER, "…", egui::FontId::proportional(look::small()), Color32::from_gray(120));
                     }
                 });
             }
@@ -1537,7 +1537,7 @@ impl Page for Sounds {
                         self.in_turn(vec![x]);
                     }
                 }
-                wallui::Act::None => {}
+                _ => {}
             }
         }
     }

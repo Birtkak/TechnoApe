@@ -1,14 +1,37 @@
-//! The one look of every page (docs/design/studio-tools.md "Look"): dark and calm, one accent for what is
-//! chosen, two text sizes, panels on one grid; and the small pieces every page draws with.
+//! The one look of every page (docs/design/studio-tools.md "Look", ADR 0155): neutral dark greys,
+//! one blue for the main action and for focus, a clean sans in two weights, quiet controls; and the small
+//! pieces every page draws with.
 use crate::art::{Img, S};
 use eframe::egui::{self, Align2, Color32, FontFamily, FontId, Pos2, Rect, Response, RichText, Sense, Stroke, TextStyle, Ui, Vec2};
 
-/// The one accent: what is chosen.
-pub const ACCENT: Color32 = Color32::from_rgb(78, 150, 230);
-/// Claude's drafts and problems: status colours, never used for what is chosen.
-pub const DRAFT: Color32 = Color32::from_rgb(214, 160, 70);
-pub const BAD: Color32 = Color32::from_rgb(225, 85, 80);
-pub const GOOD: Color32 = Color32::from_rgb(110, 190, 120);
+/// The colour tokens: every grey of the frame is one of these.
+const fn hex(c: u32) -> Color32 {
+    Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
+}
+/// The work area, and the wells of fields.
+pub const BG: Color32 = hex(0x1e1e1e);
+/// Panels, menus, cards.
+pub const PANEL: Color32 = hex(0x2a2a2a);
+/// Raised controls and hovered rows.
+pub const RAISED: Color32 = hex(0x353535);
+/// Pressed or chosen.
+pub const PRESSED: Color32 = hex(0x434343);
+/// Hairlines between parts.
+pub const LINE: Color32 = hex(0x3d3d3d);
+/// A field's border, a slider's rail.
+pub const FIELD: Color32 = hex(0x525252);
+pub const TEXT: Color32 = hex(0xe6e6e6);
+pub const TEXT2: Color32 = hex(0xb0b0b0);
+pub const DISABLED: Color32 = hex(0x6e6e6e);
+/// The one blue: the page's main action and focus.
+pub const ACCENT: Color32 = hex(0x2680eb);
+pub const ACCENT_HOVER: Color32 = hex(0x378ef0);
+/// Status colours, never for what is chosen (a step lighter than Spectrum's fills, so text in them reads at
+/// 4.5:1 on a panel).
+pub const GOOD: Color32 = hex(0x33ab84);
+/// Claude's drafts, unsaved work: notice.
+pub const DRAFT: Color32 = hex(0xe68619);
+pub const BAD: Color32 = hex(0xf0626a);
 /// A colour per page, for its tab and its inspector's section marks: where you are. Never for what is chosen.
 pub const PAGES: [(&str, Color32); 9] = [
     ("Textures", Color32::from_rgb(64, 186, 170)),
@@ -61,7 +84,7 @@ pub fn split_bar(ui: &mut Ui, name: &str, default: f32, total: f32) {
     if hot {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
     }
-    let c = if hot { ACCENT } else { Color32::from_gray(70) };
+    let c = if hot { ACCENT } else { FIELD };
     ui.painter().rect_filled(Rect::from_center_size(r.center(), Vec2::new(if hot { r.width() } else { 48.0 }, 2.0)), 1.0, c);
     let (lo, hi) = crate::shell::Settings::SPLIT;
     let dy = resp.drag_delta().y;
@@ -84,83 +107,180 @@ pub fn split_bar(ui: &mut Ui, name: &str, default: f32, total: f32) {
 const LABEL: f32 = 124.0;
 /// The grid every gap is a step of.
 pub const GAP: f32 = 8.0;
-/// The two text sizes.
-pub const BODY: f32 = 14.0;
-/// (one size: a pixel font is sharp at one pixel size only; small text is told by its colour)
-pub const SMALL: f32 = BODY;
 pub const ROW: f32 = 34.0;
 
-/// The interface is set in the game's own font (data/font.txt as outlines, `crate::font`); a character it
-/// does not draw (a degree sign) falls back to egui's own.
-pub fn fonts(ctx: &egui::Context) {
-    let cells = client::font_cells(include_str!("../../../../data/font.txt")).expect("data/font.txt");
-    let glyphs: Vec<(char, [u8; 8])> = (' '..='~').zip(cells).chain(crate::font::MORE).collect();
+/// The interface font: the clean sans (false) or the game's pixel font (true, the setting "Interface font").
+static GAME_FONT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+pub fn game_font() -> bool {
+    GAME_FONT.load(std::sync::atomic::Ordering::Relaxed)
+}
+/// The two text sizes: body and small (the game font has one: it is sharp at one pixel size only, and small
+/// text is told by its colour).
+pub fn body() -> f32 {
+    if game_font() { 14.0 } else { 13.0 }
+}
+pub fn small() -> f32 {
+    if game_font() { 14.0 } else { 11.5 }
+}
+/// The semibold face: titles, tabs, the main buttons.
+pub fn strong(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name("strong".into()))
+}
+
+/// The fonts: the clean sans read from the system (Segoe UI, regular and semibold; egui's own where it is
+/// missing), or the game's own font (data/font.txt as outlines, `crate::font`), whose missing characters (a
+/// degree sign) fall back to egui's.
+pub fn fonts(ctx: &egui::Context, game: bool) {
+    GAME_FONT.store(game, std::sync::atomic::Ordering::Relaxed);
     let mut f = egui::FontDefinitions::default();
-    // (no hinting, no sub-pixel places: both would bend the pixels' squares)
-    let tweak = egui::FontTweak { hinting: Some(false), subpixel_binning: Some(false), ..Default::default() };
-    f.font_data.insert("game".into(), std::sync::Arc::new(egui::FontData::from_owned(crate::font::ttf(&glyphs)).tweak(tweak)));
-    for fam in f.families.values_mut() {
-        fam.insert(0, "game".into());
+    let base = f.families[&FontFamily::Proportional].clone();
+    let mut strong = base.clone();
+    if game {
+        let cells = client::font_cells(include_str!("../../../../data/font.txt")).expect("data/font.txt");
+        let glyphs: Vec<(char, [u8; 8])> = (' '..='~').zip(cells).chain(crate::font::MORE).collect();
+        // (no hinting, no sub-pixel places: both would bend the pixels' squares)
+        let tweak = egui::FontTweak { hinting: Some(false), subpixel_binning: Some(false), ..Default::default() };
+        f.font_data.insert("game".into(), std::sync::Arc::new(egui::FontData::from_owned(crate::font::ttf(&glyphs)).tweak(tweak)));
+        for fam in f.families.values_mut() {
+            fam.insert(0, "game".into());
+        }
+        strong.insert(0, "game".into());
+    } else {
+        let read = |n: &str| std::fs::read(format!("C:/Windows/Fonts/{n}")).ok();
+        if let Some(b) = read("segoeui.ttf") {
+            f.font_data.insert("clean".into(), std::sync::Arc::new(egui::FontData::from_owned(b)));
+            f.families.get_mut(&FontFamily::Proportional).unwrap().insert(0, "clean".into());
+            strong.insert(0, "clean".into());
+        }
+        if let Some(b) = read("seguisb.ttf") {
+            f.font_data.insert("clean semibold".into(), std::sync::Arc::new(egui::FontData::from_owned(b)));
+            strong.insert(0, "clean semibold".into());
+        }
     }
+    f.families.insert(FontFamily::Name("strong".into()), strong);
     ctx.set_fonts(f);
+}
+
+/// Plain buttons quiet (a fill only under the pointer), number boxes and drop-downs framed as fields, a chosen
+/// button filled `PRESSED` in white, the main action's pill (`primary`) blue.
+struct Theme;
+impl egui::theme::StyleProvider<egui::widget_style::ButtonStyle> for Theme {
+    fn style(&mut self, a: &egui::widget_style::StyleArgs<'_>) -> egui::widget_style::ButtonStyle {
+        use egui::widget_style::WidgetState as W;
+        let mut s: egui::widget_style::ButtonStyle = egui::theme::StyleProvider::style(&mut egui::theme::DefaultStyle, a);
+        let f = &mut s.atom_layout.frame;
+        let field = a.classes.iter().any(|c| c.as_str() == egui::DragValue::CLASS.as_str()) || a.classes.iter().any(|c| c.as_str() == egui::ComboBox::CLASS.as_str());
+        if a.classes.iter().any(|c| c.as_str() == egui::Button::CLASS_SELECTED.as_str()) {
+            f.fill = PRESSED;
+            s.atom_layout.text_style.color = Color32::WHITE;
+        } else if field {
+            f.fill = BG;
+            f.stroke = Stroke::new(1.0, if a.state == W::Inactive { FIELD } else { DISABLED });
+        }
+        s
+    }
+}
+impl egui::theme::StyleProvider<egui::widget_style::TextEditStyle> for Theme {
+    fn style(&mut self, a: &egui::widget_style::StyleArgs<'_>) -> egui::widget_style::TextEditStyle {
+        use egui::widget_style::WidgetState as W;
+        let mut s: egui::widget_style::TextEditStyle = egui::theme::StyleProvider::style(&mut egui::theme::DefaultStyle, a);
+        let f = &mut s.atom_layout.frame;
+        if !a.classes.iter().any(|c| c.as_str() == egui::TextEdit::CLASS_READ_ONLY.as_str()) {
+            // a 1 px border; focused, a 2 px ring in the accent
+            f.stroke = match a.state {
+                W::Active => Stroke::new(2.0, ACCENT),
+                W::Hovered => Stroke::new(1.0, DISABLED),
+                _ => Stroke::new(1.0, FIELD),
+            };
+        }
+        s
+    }
 }
 
 pub fn apply(ctx: &egui::Context) {
     ctx.set_theme(egui::Theme::Dark);
+    ctx.add_widget_theme::<egui::widget_style::ButtonStyle>(Theme);
+    ctx.add_widget_theme::<egui::widget_style::TextEditStyle>(Theme);
+    let (body, small) = (body(), small());
     ctx.style_mut_of(egui::Theme::Dark, |s| {
         s.text_styles = [
-            (TextStyle::Small, FontId::new(SMALL, FontFamily::Proportional)),
-            (TextStyle::Body, FontId::new(BODY, FontFamily::Proportional)),
-            (TextStyle::Button, FontId::new(BODY, FontFamily::Proportional)),
-            (TextStyle::Heading, FontId::new(BODY, FontFamily::Proportional)),
-            (TextStyle::Monospace, FontId::new(SMALL, FontFamily::Monospace)),
+            (TextStyle::Small, FontId::new(small, FontFamily::Proportional)),
+            (TextStyle::Body, FontId::new(body, FontFamily::Proportional)),
+            (TextStyle::Button, FontId::new(body, FontFamily::Proportional)),
+            (TextStyle::Heading, strong(body)),
+            (TextStyle::Monospace, FontId::new(small, FontFamily::Monospace)),
         ]
         .into();
         let sp = &mut s.spacing;
         sp.item_spacing = Vec2::new(GAP, GAP * 0.75);
-        sp.button_padding = Vec2::new(GAP, GAP * 0.5);
-        sp.interact_size = Vec2::new(40.0, 26.0);
+        sp.button_padding = Vec2::new(GAP + 2.0, GAP * 0.5);
+        // (a slider's handle is 0.8 of this high: 16 points)
+        sp.interact_size = Vec2::new(40.0, 20.0);
         sp.window_margin = egui::Margin::same(GAP as i8 * 2);
         sp.menu_margin = egui::Margin::same(GAP as i8);
         sp.slider_width = 150.0;
-        // a slider: a thin rail lit up to a slim handle
-        sp.slider_rail_height = 4.0;
+        // a slider: a 2 point rail, lit up to a round handle
+        sp.slider_rail_height = 2.0;
         sp.text_edit_width = 200.0;
         sp.indent = GAP * 2.0;
         s.interaction.tooltip_delay = 0.35;
         let v = &mut s.visuals;
-        v.panel_fill = Color32::from_rgb(32, 34, 38);
-        v.window_fill = Color32::from_rgb(40, 42, 47);
-        v.extreme_bg_color = Color32::from_rgb(22, 23, 26);
-        v.faint_bg_color = Color32::from_rgb(38, 40, 45);
-        v.window_stroke = Stroke::new(1.0, Color32::from_rgb(58, 61, 68));
-        v.window_corner_radius = 6.into();
-        v.menu_corner_radius = 6.into();
-        v.selection.bg_fill = ACCENT.gamma_multiply(0.55);
+        v.panel_fill = PANEL;
+        v.window_fill = PANEL;
+        v.extreme_bg_color = BG;
+        v.faint_bg_color = BG;
+        v.code_bg_color = BG;
+        v.window_stroke = Stroke::new(1.0, LINE);
+        v.window_corner_radius = 8.into();
+        v.menu_corner_radius = 8.into();
+        // a soft shadow under menus, tips and boxes
+        v.window_shadow = egui::Shadow { offset: [0, 6], blur: 20, spread: 0, color: Color32::from_black_alpha(120) };
+        v.popup_shadow = egui::Shadow { offset: [0, 4], blur: 14, spread: 0, color: Color32::from_black_alpha(100) };
+        // (the slider's lit part and selected text; a chosen button is `PRESSED`, by the theme above)
+        v.selection.bg_fill = ACCENT;
         v.selection.stroke = Stroke::new(1.0, Color32::WHITE);
-        v.hyperlink_color = ACCENT;
+        v.hyperlink_color = ACCENT_HOVER;
+        v.weak_text_color = Some(TEXT2);
         v.override_text_color = None;
         v.slider_trailing_fill = true;
-        v.handle_shape = egui::style::HandleShape::Rect { aspect_ratio: 0.4 };
+        v.handle_shape = egui::style::HandleShape::Circle;
+        // a disabled button keeps a visible fill, its text greyed
+        v.disabled_alpha = 0.6;
         let w = &mut v.widgets;
-        for (st, bg) in [(&mut w.noninteractive, 32), (&mut w.inactive, 48), (&mut w.hovered, 60), (&mut w.active, 70), (&mut w.open, 56)] {
-            st.corner_radius = 3.into();
-            st.bg_fill = Color32::from_gray(bg);
-            st.weak_bg_fill = Color32::from_gray(bg);
+        for (st, bg, weak, fg) in [
+            (&mut w.noninteractive, PANEL, PANEL, TEXT),
+            // a button rests on a faint fill, so it reads as one; under the pointer a step lighter
+            (&mut w.inactive, FIELD, RAISED, TEXT),
+            (&mut w.hovered, DISABLED, PRESSED, Color32::WHITE),
+            (&mut w.active, TEXT2, hex(0x4e4e4e), Color32::WHITE),
+            (&mut w.open, DISABLED, RAISED, Color32::WHITE),
+        ] {
+            st.corner_radius = 4.into();
+            st.bg_fill = bg;
+            st.weak_bg_fill = weak;
+            // (2 points: a check's tick and a slider handle's ring; text takes only the colour)
+            st.fg_stroke = Stroke::new(2.0, fg);
+            // an edge only where a state draws one, the same width in all so nothing moves
+            st.bg_stroke = Stroke::new(1.0, Color32::TRANSPARENT);
             // (a control keeps its size under the pointer: only its colours answer)
             st.expansion = 0.0;
         }
-        // a button: a fine edge a step lighter than its face, the accent's when pressed
-        w.inactive.bg_stroke = Stroke::new(1.0, Color32::from_gray(66));
-        w.open.bg_stroke = Stroke::new(1.0, Color32::from_gray(80));
-        w.active.bg_fill = ACCENT.gamma_multiply(0.5);
-        w.active.weak_bg_fill = ACCENT.gamma_multiply(0.5);
-        w.noninteractive.bg_stroke = Stroke::new(1.0, Color32::from_rgb(52, 55, 61));
-        w.noninteractive.fg_stroke = Stroke::new(1.0, Color32::from_gray(205));
-        w.inactive.fg_stroke = Stroke::new(1.0, Color32::from_gray(215));
-        w.hovered.bg_stroke = Stroke::new(1.0, ACCENT.gamma_multiply(0.7));
-        w.active.bg_stroke = Stroke::new(1.0, ACCENT);
+        // separators and hairlines
+        w.noninteractive.bg_stroke = Stroke::new(1.0, LINE);
+        w.noninteractive.fg_stroke = Stroke::new(1.0, TEXT);
     });
+}
+
+/// The page's main action: a filled blue pill (Use, Save with work to save, Try in game, Import). One a page.
+pub fn primary(text: &str) -> egui::Button<'static> {
+    egui::Button::new(RichText::new(text.to_string()).font(strong(body())).color(Color32::WHITE)).fill(ACCENT).corner_radius(14.0)
+}
+/// A row of chips as one segmented group: a well with the chosen segment raised.
+pub fn segmented<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    egui::Frame::new().fill(BG).stroke(Stroke::new(1.0, LINE)).corner_radius(6.0).inner_margin(2.0).show(ui, |ui| ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::new(2.0, 2.0);
+        add(ui)
+    }).inner).inner
 }
 
 pub fn c32(c: [u8; 3]) -> Color32 {
@@ -330,14 +450,14 @@ pub fn section<'a>(ui: &'a mut Ui, title: &str) -> Option<Sec<'a>> {
         }
     }
     let open = !layout(&ctx).folded.contains(&key);
-    // the mark on the right: down when open, sideways when shut
-    let (c, s) = (r.right_center() - Vec2::new(14.0, 0.0), 4.0);
-    let pts = if open { vec![c + Vec2::new(-s, -s * 0.6), c + Vec2::new(s, -s * 0.6), c + Vec2::new(0.0, s * 0.8)] } else { vec![c + Vec2::new(-s * 0.6, -s), c + Vec2::new(s * 0.8, 0.0), c + Vec2::new(-s * 0.6, s)] };
-    child.as_ref().unwrap_or(ui).painter().add(egui::Shape::convex_polygon(pts, Color32::from_gray(if resp.hovered() { 230 } else { 150 }), Stroke::NONE));
+    // the chevron on the right: down when open, sideways when shut
+    let (c, s) = (r.right_center() - Vec2::new(14.0, 0.0), 3.5);
+    let pts = if open { vec![c + Vec2::new(-s, -s * 0.5), c + Vec2::new(0.0, s * 0.5), c + Vec2::new(s, -s * 0.5)] } else { vec![c + Vec2::new(-s * 0.5, -s), c + Vec2::new(s * 0.5, 0.0), c + Vec2::new(-s * 0.5, s)] };
+    child.as_ref().unwrap_or(ui).painter().add(egui::Shape::line(pts, Stroke::new(1.5, if resp.hovered() { TEXT } else { TEXT2 })));
     // under the pointer: six dots, the grip a drag takes
     if resp.hovered() {
         for (i, j) in (0..3).flat_map(|i| [(i, 0), (i, 1)]) {
-            child.as_ref().unwrap_or(ui).painter().circle_filled(c + Vec2::new(-18.0 - 4.0 * j as f32, -4.0 + 4.0 * i as f32), 1.0, Color32::from_gray(190));
+            child.as_ref().unwrap_or(ui).painter().circle_filled(c + Vec2::new(-18.0 - 4.0 * j as f32, -4.0 + 4.0 * i as f32), 1.0, TEXT2);
         }
     }
     tip(resp, "Click folds this section or opens it; a drag moves it up or down", "");
@@ -350,15 +470,19 @@ impl Sec<'_> {
         std::ops::Deref::deref(self).ctx()
     }
 }
-/// The band alone: a title that does not fold (the key sheet's).
+/// The band alone: a title that does not fold (the key sheet's). Flat: a hairline above it, a 2 point bar in
+/// the page's colour at its left, the title in the semibold face.
 pub fn band(ui: &mut Ui, title: &str, sense: Sense) -> (Rect, Response) {
-    ui.add_space(GAP * 0.75);
+    ui.add_space(GAP * 0.5);
     let c = page_colour(&layout(ui.ctx()).page);
-    let (r, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 24.0), sense);
+    let (r, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 28.0), sense);
     let p = ui.painter();
-    p.rect_filled(r, 3.0, c.gamma_multiply(if resp.hovered() { 0.22 } else { 0.13 }));
-    p.rect_filled(Rect::from_min_size(r.min, Vec2::new(3.0, r.height())), 1.0, c);
-    p.text(r.left_center() + Vec2::new(GAP + 3.0, 0.0), Align2::LEFT_CENTER, title, FontId::proportional(BODY), ui.visuals().strong_text_color());
+    p.hline(r.x_range(), r.top(), Stroke::new(1.0, LINE));
+    if resp.hovered() {
+        p.rect_filled(r.shrink2(Vec2::new(0.0, 1.0)), 4.0, RAISED);
+    }
+    p.rect_filled(Rect::from_min_size(r.min + Vec2::new(0.0, 7.0), Vec2::new(2.0, r.height() - 13.0)), 1.0, c);
+    p.text(r.left_center() + Vec2::new(GAP + 2.0, 0.5), Align2::LEFT_CENTER, title, strong(body()), Color32::WHITE);
     (r, resp)
 }
 /// A label and its control on one line, every label in one column so the controls line up; the label goes
@@ -375,7 +499,8 @@ pub fn row<R>(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
         self::label(ui, label);
         // (chips that do not fit go on under the controls, not under the label)
         ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
+            // (chips side by side read as one segmented group)
+            ui.spacing_mut().item_spacing.x = 2.0;
             // every slider's number box as wide as the next one's, so their right edges are one line
             ui.spacing_mut().interact_size.x = VALUE;
             ui.spacing_mut().slider_width = (ui.available_width() - VALUE - 6.0).max(40.0);
@@ -385,15 +510,22 @@ pub fn row<R>(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
     })
     .inner
 }
-/// A label as wide as [`row`]'s, for a grid's first cell.
+/// A label as wide as [`row`]'s, for a grid's first cell; one too long ends in "…" (its whole text in the tip).
 pub fn label(ui: &mut Ui, text: &str) {
-    let (r, _) = ui.allocate_exact_size(Vec2::new(LABEL, ui.spacing().interact_size.y), Sense::hover());
-    ui.painter().text(r.left_center(), Align2::LEFT_CENTER, text, FontId::proportional(SMALL), ui.visuals().text_color());
+    let (r, resp) = ui.allocate_exact_size(Vec2::new(LABEL, ui.spacing().interact_size.y), Sense::hover());
+    let mut job = egui::text::LayoutJob::simple_singleline(text.into(), FontId::proportional(body()), TEXT2);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(LABEL - 4.0);
+    let g = ui.painter().layout_job(job);
+    let cut = g.elided;
+    ui.painter().galley(Pos2::new(r.left(), r.center().y - g.size().y / 2.0), g, TEXT2);
+    if cut {
+        resp.on_hover_text(text);
+    }
 }
-/// A title in the work area: strong text, no band (a band is the inspector's).
+/// A title in the work area: the semibold face, no band (a band is the inspector's).
 pub fn heading(ui: &mut Ui, title: &str) {
     ui.add_space(GAP * 0.5);
-    ui.label(RichText::new(title).strong());
+    ui.label(RichText::new(title).font(strong(body())).color(Color32::WHITE));
 }
 pub fn weak(ui: &mut Ui, text: impl Into<String>) -> Response {
     ui.label(RichText::new(text.into()).small().weak())
@@ -405,7 +537,21 @@ pub fn tip(r: Response, help: &str, key: &str) -> Response {
     if r.hovered() {
         say(&r.ctx, &text);
     }
-    r.on_hover_text(text)
+    if key.is_empty() {
+        return r.on_hover_text(text);
+    }
+    // the key in a small keycap after the help
+    let (help, key) = (help.to_string(), key.to_string());
+    r.on_hover_ui(move |ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(help.clone());
+            keycap(ui, &key);
+        });
+    })
+}
+/// A key as a small keycap: "Ctrl+S" on a raised rounded rectangle.
+pub fn keycap(ui: &mut Ui, key: &str) -> Response {
+    egui::Frame::new().fill(RAISED).stroke(Stroke::new(1.0, FIELD)).corner_radius(4.0).inner_margin(egui::Margin::symmetric(5, 1)).show(ui, |ui| ui.label(RichText::new(key).size(small()).color(TEXT))).inner
 }
 /// The status line's left this frame, as a control's tip puts it (a wire refused while it is dragged).
 pub fn say(ctx: &egui::Context, text: &str) {
@@ -420,11 +566,11 @@ pub fn take_help(ctx: &egui::Context) -> Option<String> {
 pub fn tool(ui: &mut Ui, on: bool, name: &str, key: &str, w: f32) -> Response {
     static ICONS: std::sync::OnceLock<std::collections::BTreeMap<String, Vec<String>>> = std::sync::OnceLock::new();
     let icon = ICONS.get_or_init(|| icons(include_str!("../icons.txt"))).get(&name.to_lowercase());
-    let colour = if on { Color32::WHITE } else { Color32::from_gray(215) };
+    let colour = if on { Color32::WHITE } else { TEXT };
     let mut job = egui::text::LayoutJob::default();
     // (room for the icon before the name)
-    job.append(name, if icon.is_some() { ICON + 5.0 } else { 0.0 }, egui::TextFormat::simple(FontId::proportional(BODY), colour));
-    job.append(key, 6.0, egui::TextFormat::simple(FontId::proportional(SMALL), Color32::from_gray(if on { 200 } else { 130 })));
+    job.append(name, if icon.is_some() { ICON + 5.0 } else { 0.0 }, egui::TextFormat::simple(FontId::proportional(body()), colour));
+    job.append(key, 6.0, egui::TextFormat::simple(FontId::proportional(small()), if on { TEXT2 } else { DISABLED }));
     let wide = ui.fonts_mut(|f| f.layout_job(job.clone())).size().x;
     let r = ui.add(egui::Button::selectable(on, egui::WidgetText::from(job)).min_size(Vec2::new(w, 26.0)));
     if let Some(rows) = icon {
@@ -510,8 +656,9 @@ mod tests {
     }
 }
 
-/// A small chip: selected shows the accent.
+/// A chip: one segment of a group (side by side in a [`row`], or in [`segmented`]); the chosen one raised in
+/// white.
 pub fn chip(ui: &mut Ui, on: bool, text: &str) -> Response {
-    let t = RichText::new(text).small();
-    ui.add(egui::Button::selectable(on, if on { t.color(Color32::WHITE) } else { t }).corner_radius(10.0))
+    let t = RichText::new(text).size(body());
+    ui.add(egui::Button::new(if on { t.color(Color32::WHITE) } else { t.color(TEXT2) }).fill(if on { PRESSED } else { BG }).corner_radius(4.0).min_size(Vec2::new(0.0, 24.0)))
 }

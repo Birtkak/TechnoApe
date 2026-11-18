@@ -891,19 +891,8 @@ impl Textures {
             return;
         }
         let pending = self.pending.as_ref().filter(|(f, _)| *f == self.file(self.face)).map(|p| p.1.clone());
-        ui.horizontal(|ui| {
-            let r = ui.add_enabled(pending.is_some(), egui::Button::new(RichText::new("Use this").color(Color32::WHITE)).fill(look::GOOD.gamma_multiply(0.45)));
-            crate::drive::mark(ui.ctx(), "btn:wall.use", r.rect);
-            if look::tip(r, "Put the picked set into the file: one undo step, saved with Save", "").clicked() {
-                self.wall_use(app);
-            }
-            let r = ui.add_enabled(pending.is_some(), egui::Button::new("Cancel"));
-            if look::tip(r, "Drop the picked set; the file stays as it was", "").clicked() {
-                self.pending = None;
-            }
-        });
         // its own line: a long label in a row widens the panel past its column
-        look::weak(ui, if pending.is_some() { "Shown on the canvas and the block: Use this keeps it." } else { "A click on a set shows it on the canvas and the block." });
+        look::weak(ui, if pending.is_some() { "Shown on the canvas and the block: Use keeps it." } else { "A click on a set shows it on the canvas and the block." });
         ui.add_space(GAP * 0.5);
         let (n, pal, file) = (self.count, app.pal.clone(), self.file(self.face));
         let gen = |a: &Img, r: &mut Rng, k: f32| tools::make_variants(a, n, k, &pal, r);
@@ -913,7 +902,7 @@ impl Textures {
         let k = 2.5;
         let patch = 4.0 * S as f32 * k;
         let cell = Vec2::new(patch + 12.0, patch + 12.0 + 4.0 + 2.0 * S as f32);
-        let act = wall_ui::show(ui, w, chosen, cell, |p, r, img| {
+        let act = wall_ui::show_full(ui, w, chosen, cell, false, Some(pending.is_some()), |p, r, _, img| {
             for j in 0..4 {
                 for i in 0..4 {
                     draw(p, img, art::variant_at([i, j, 0], img.variants()), r.min + Vec2::new(i as f32, j as f32) * S as f32 * k, k, false);
@@ -931,6 +920,8 @@ impl Textures {
             }
             Act::Shuffle => w.shuffle(&gen),
             Act::Spread => w.fill(9, &gen),
+            Act::Use => self.wall_use(app),
+            Act::Cancel => self.pending = None,
             Act::None | Act::Play(_) => {}
         }
     }
@@ -1197,7 +1188,7 @@ impl Textures {
         let p = ui.painter_at(r);
         p.rect_filled(r, 4.0, ui.visuals().extreme_bg_color);
         let note = |p: &egui::Painter, t: &str| {
-            p.text(r.center(), egui::Align2::CENTER_CENTER, t, egui::FontId::proportional(look::SMALL), Color32::from_gray(140));
+            p.text(r.center(), egui::Align2::CENTER_CENTER, t, egui::FontId::proportional(look::small()), Color32::from_gray(140));
         };
         let fit = |w: f32, h: f32| ((r.width() - GAP) / w).min((r.height() - GAP) / h).floor().clamp(1.0, 6.0);
         if self.preview == 3 {
@@ -1282,7 +1273,7 @@ impl Textures {
         app.view.left_turns = true;
         app.view.live = false;
         let r = app.view.ui(ui, BOX, |p, _, r| {
-            p.text(r.center(), egui::Align2::CENTER_CENTER, "the lit block comes with the game's renderer", egui::FontId::proportional(look::SMALL), Color32::from_gray(140));
+            p.text(r.center(), egui::Align2::CENTER_CENTER, "the lit block comes with the game's renderer", egui::FontId::proportional(look::small()), Color32::from_gray(140));
         });
         let help = format!("The block in the game's renderer: drag turns, the wheel zooms, the middle drag pans, a double click puts the camera back (textures written in {:.1} ms)", self.tex_ms);
         let r = look::tip(r, &help, "");
@@ -1677,7 +1668,7 @@ impl Page for Textures {
             }
             None => {
                 p.rect_filled(face, 0.0, dim(self.block_colour(app)));
-                p.text(face.center(), egui::Align2::CENTER_CENTER, "unpainted: paint to start, or Start from: Pattern", egui::FontId::proportional(look::BODY), Color32::from_gray(230));
+                p.text(face.center(), egui::Align2::CENTER_CENTER, "unpainted: paint to start, or Start from: Pattern", egui::FontId::proportional(look::body()), Color32::from_gray(230));
             }
         }
         if scale >= 8.0 {
@@ -1719,7 +1710,7 @@ impl Page for Textures {
         let cell = pos.map(|q| ((q - at) / scale).floor()).map(|c| (c.x as i32, c.y as i32));
         if let Some((f, _)) = self.pending.as_ref().filter(|(f, _)| *f == self.file(self.face)) {
             // nothing is painted under a pending change: it is shown, not yet the file's
-            let g = p.layout_no_wrap(format!("Pending: {f} as it would be. Use or Cancel"), egui::FontId::proportional(look::BODY), Color32::WHITE);
+            let g = p.layout_no_wrap(format!("Pending: {f} as it would be. Use or Cancel"), egui::FontId::proportional(look::body()), Color32::WHITE);
             let at = rect.left_top() + Vec2::splat(GAP);
             p.rect_filled(Rect::from_min_size(at, g.size()).expand(4.0), 4.0, look::DRAFT.gamma_multiply(0.7));
             p.galley(at, g, Color32::WHITE);

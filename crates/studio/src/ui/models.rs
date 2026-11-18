@@ -545,7 +545,7 @@ impl Models {
         // the axes from the middle, drawn first: what points away goes behind the cube
         for (a, col, name) in [(Vec3::X, Color32::from_rgb(230, 80, 70), "x"), (Vec3::Y, Color32::from_rgb(110, 210, 90), "y"), (Vec3::Z, Color32::from_rgb(80, 140, 240), "z")] {
             p.line_segment([c, to2(a * 1.7)], Stroke::new(2.0, col));
-            p.text(to2(a * 1.85), egui::Align2::CENTER_CENTER, name, egui::FontId::proportional(look::SMALL), col);
+            p.text(to2(a * 1.85), egui::Align2::CENTER_CENTER, name, egui::FontId::proportional(look::small()), col);
         }
         let faces = [(Vec3::Z, 0), (-Vec3::Z, 1), (Vec3::X, 2), (-Vec3::X, 3), (Vec3::Y, 4), (-Vec3::Y, 5)];
         let mut over = None;
@@ -570,7 +570,7 @@ impl Models {
             let fill = c32(axis.map(|v| (v as f32 * (0.55 + 0.45 * facing) + if inside { 50.0 } else { 0.0 }).min(255.0) as u8));
             p.add(egui::Shape::convex_polygon(pts, fill, Stroke::new(1.0, Color32::from_black_alpha(150))));
             if facing > 0.35 {
-                p.text(to2(n), egui::Align2::CENTER_CENTER, VIEWS[k].1, egui::FontId::proportional(look::SMALL * 0.8), Color32::WHITE);
+                p.text(to2(n), egui::Align2::CENTER_CENTER, VIEWS[k].1, egui::FontId::proportional(look::small() * 0.8), Color32::WHITE);
             }
             crate::drive::mark(ui.ctx(), format!("cube:{}", VIEWS[k].0), Rect::from_center_size(to2(n), Vec2::splat(2.0)));
         }
@@ -605,7 +605,7 @@ impl Models {
             lines.push("Flat view.".into());
         }
         let p = ui.painter_at(view);
-        let font = egui::FontId::proportional(look::SMALL);
+        let font = egui::FontId::proportional(look::small());
         let galleys: Vec<_> = lines.into_iter().enumerate().map(|(i, l)| p.layout_no_wrap(l, font.clone(), if i == 0 { Color32::WHITE } else { Color32::from_gray(200) })).collect();
         let w = galleys.iter().map(|g| g.size().x).fold(0.0, f32::max);
         let h: f32 = galleys.iter().map(|g| g.size().y).sum();
@@ -756,7 +756,7 @@ impl Models {
         // the floor's edges by name: front where the model faces in the hand and in the world (+z)
         for (at, name) in [(Vec3::new(0.5, 0.0, 1.12), "front"), (Vec3::new(0.5, 0.0, -0.12), "back"), (Vec3::new(1.12, 0.0, 0.5), "right"), (Vec3::new(-0.12, 0.0, 0.5), "left")] {
             if let Some(q) = view.to_screen(at) {
-                p.text(q, egui::Align2::CENTER_CENTER, name, egui::FontId::proportional(look::SMALL), Color32::from_white_alpha(if name == "front" { 200 } else { 110 }));
+                p.text(q, egui::Align2::CENTER_CENTER, name, egui::FontId::proportional(look::small()), Color32::from_white_alpha(if name == "front" { 200 } else { 110 }));
             }
         }
         if self.show_player {
@@ -803,7 +803,7 @@ impl Models {
                 let at = view.to_screen(poses[i].transform_point3(Vec3::from(pt.at)));
                 cross(at, Color32::from_rgb(240, 120, 220), 6.0);
                 if let Some(a) = at {
-                    p.text(a + Vec2::new(8.0, -8.0), egui::Align2::LEFT_BOTTOM, &pt.name, egui::FontId::proportional(look::SMALL), Color32::from_rgb(240, 160, 230));
+                    p.text(a + Vec2::new(8.0, -8.0), egui::Align2::LEFT_BOTTOM, &pt.name, egui::FontId::proportional(look::small()), Color32::from_rgb(240, 160, 230));
                 }
             }
         }
@@ -950,7 +950,7 @@ impl Models {
             if i == self.part {
                 p.rect_filled(r, 0.0, look::ACCENT.gamma_multiply(0.18));
             }
-            p.text(Pos2::new(rect.min.x + 6.0, y + row / 2.0), egui::Align2::LEFT_CENTER, &part.name, egui::FontId::proportional(look::SMALL), Color32::from_gray(200));
+            p.text(Pos2::new(rect.min.x + 6.0, y + row / 2.0), egui::Align2::LEFT_CENTER, &part.name, egui::FontId::proportional(look::small()), Color32::from_gray(200));
             p.line_segment([Pos2::new(track.min.x, y + row / 2.0), Pos2::new(track.max.x, y + row / 2.0)], Stroke::new(1.0, Color32::from_gray(60)));
             for (k, key) in clip.key.iter().enumerate().filter(|(_, k)| k.part == part.name) {
                 let c = Pos2::new(x_of(key.t), y + row / 2.0);
@@ -965,7 +965,7 @@ impl Models {
         // the events row, under the parts: a marker per event at its time
         let evs = self.doc().and_then(|d| d.life.events.iter().find(|(c, _)| *c == clip.name).map(|(_, e)| e.clone())).unwrap_or_default();
         let ey = rect.min.y + row * (m.parts.len() as f32 + 1.0) + row / 2.0;
-        p.text(Pos2::new(rect.min.x + 6.0, ey), egui::Align2::LEFT_CENTER, "events", egui::FontId::proportional(look::SMALL), Color32::from_gray(160));
+        p.text(Pos2::new(rect.min.x + 6.0, ey), egui::Align2::LEFT_CENTER, "events", egui::FontId::proportional(look::small()), Color32::from_gray(160));
         p.line_segment([Pos2::new(track.min.x, ey), Pos2::new(track.max.x, ey)], Stroke::new(1.0, Color32::from_gray(60)));
         let near_event = |q: Pos2| evs.iter().position(|e| q.distance(Pos2::new(x_of(e.t), ey)) < 8.0);
         for (k, e) in evs.iter().enumerate() {
