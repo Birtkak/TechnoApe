@@ -127,6 +127,23 @@ fn model_names() -> Vec<String> {
     v
 }
 
+/// The maps of `data/maps` by name, each a field the game takes (its Out a direction) or why not (read on open
+/// and when files change, never every frame).
+fn map_list(pal: &engine::palette::Palette) -> Vec<(String, Result<(), String>)> {
+    let mut v: Vec<(String, Result<(), String>)> = std::fs::read_dir("data/maps")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().to_str()?.strip_suffix(".toml")?.to_string();
+            let ok = std::fs::read_to_string(e.path()).map_err(|e| e.to_string()).and_then(|t| crate::map::parse(&format!("map '{name}'"), &t, pal)).and_then(|m| crate::map::Field::check(&name, &m));
+            Some((name, ok))
+        })
+        .collect();
+    v.sort_by(|a, b| a.0.cmp(&b.0));
+    v
+}
+
 /// An inspector too narrow for a label beside a slider and its value (a large interface scale): the label goes over.
 fn narrow(ui: &Ui) -> bool {
     ui.available_width() < 220.0
@@ -152,11 +169,15 @@ pub struct Effects {
     now: f32,
     /// `model_names`, as last read.
     models: Vec<String>,
+    /// `map_list`, as last read.
+    maps: Vec<(String, Result<(), String>)>,
+    /// The field the noise picture draws: the map's name, its text and the field worked out from it.
+    field: Option<(String, String, std::sync::Arc<crate::map::Field>)>,
 }
 
 impl Effects {
-    pub fn new(_app: &App) -> Effects {
-        let mut s = Effects { docs: BTreeMap::new(), open: None, disk: String::new(), written: None, gen: 0, restarts: 0, refused: None, stop: None, stop_drag: false, swatch: String::new(), point: None, wall: None, walls_made: 0, merging: None, playing: true, now: 0.0, models: model_names() };
+    pub fn new(app: &App) -> Effects {
+        let mut s = Effects { docs: BTreeMap::new(), open: None, disk: String::new(), written: None, gen: 0, restarts: 0, refused: None, stop: None, stop_drag: false, swatch: String::new(), point: None, wall: None, walls_made: 0, merging: None, playing: true, now: 0.0, models: model_names(), maps: map_list(&app.pal), field: None };
         s.read_disk();
         s.open = s.docs.keys().find(|n| n.as_str() == "fire").or(s.docs.keys().next()).cloned();
         s
@@ -325,27 +346,78 @@ impl Effects {
             if fl.key == "colour" && (t.contains_key("gradient") || !matches!(look_.as_str(), "square" | "texture")) {
                 continue;
             }
+            // the noise's field above its numbers; with a map, its grain and speed say what they mean then
+            let map = t.get("noise").and_then(|v| v.as_table()).and_then(|z| z.get("map")).and_then(|m| m.as_str()).map(String::from);
+            if fl.form == Form::Noise("strength") {
+                self.field_pick(ui, map.as_deref());
+            }
+            let (label, unit, help) = match (fl.form, map.is_some()) {
+                (Form::Noise("scale"), true) => ("map tile", "m", "the metres one tile of the map covers"),
+                (Form::Noise("speed"), true) => ("map pace", "×", "times the map's own pace (left out: 1)"),
+                _ => (fl.label, fl.unit, fl.help),
+            };
             let Some(mut v) = effect::get(&t, fl).or(match fl.form {
-                Form::Noise(n) => Some(if n == "scale" { 1.0 } else { 0.0 }),
+                Form::Noise(n) => Some(match n {
+                    "scale" => 1.0,
+                    "speed" if map.is_some() => 1.0,
+                    _ => 0.0,
+                }),
                 Form::Pair(_) => Some(fl.min),
                 _ => None,
             }) else { continue };
             if narrow(ui) {
-                ui.label(RichText::new(fl.label).small());
+                ui.label(RichText::new(label).small());
             }
             ui.horizontal(|ui| {
                 if !narrow(ui) {
-                    ui.add_sized(Vec2::new(64.0, 18.0), egui::Label::new(RichText::new(fl.label).small()).truncate());
+                    ui.add_sized(Vec2::new(64.0, 18.0), egui::Label::new(RichText::new(label).small()).truncate());
                 }
                 ui.spacing_mut().slider_width = (ui.available_width() - 100.0).max(40.0);
                 let log = fl.min > 0.0 && fl.max / fl.min >= 50.0;
-                let u = fl.unit;
+                let u = unit;
                 let r = ui.add(egui::Slider::new(&mut v, fl.min..=fl.max).logarithmic(log).custom_formatter(move |x, _| if x.abs() >= 100.0 { format!("{x:.0} {u}") } else { format!("{x:.2} {u}") }));
                 crate::drive::mark(ui.ctx(), format!("field:{}", fl.label), r.rect);
-                if look::tip(r, fl.help, "").changed() {
+                if look::tip(r, help, "").changed() {
                     self.edit_merged(fl.label, |k, _| effect::set(k, fl, v));
                 }
             });
+        }
+    }
+
+    /// The noise's field: the built-in value noise, or a map of `data/maps` whose Out is a direction (a map that is
+    /// not one listed, not to be chosen, its tip saying why). One undo step a choice.
+    fn field_pick(&mut self, ui: &mut Ui, cur: Option<&str>) {
+        const BUILT_IN: &str = "Built-in noise";
+        let mut pick = cur.map(String::from);
+        if narrow(ui) {
+            ui.label(RichText::new("field").small());
+        }
+        ui.horizontal(|ui| {
+            if !narrow(ui) {
+                ui.add_sized(Vec2::new(64.0, 18.0), egui::Label::new(RichText::new("field").small()));
+            }
+            let r = egui::ComboBox::from_id_salt("effect noise field").selected_text(cur.unwrap_or(BUILT_IN)).width((ui.available_width() - 16.0).max(60.0)).height(480.0).show_ui(ui, |ui| {
+                let r = look::tip(ui.selectable_value(&mut pick, None, BUILT_IN), "The game's own value noise: flames lick, smoke curls", "");
+                if ui.is_rect_visible(r.rect) {
+                    crate::drive::mark(ui.ctx(), "pick:map:none", r.rect);
+                }
+                for (n, ok) in &self.maps {
+                    let r = ui.add_enabled_ui(ok.is_ok(), |ui| ui.selectable_value(&mut pick, Some(n.clone()), n)).inner;
+                    let r = match ok {
+                        Ok(()) => look::tip(r, "A Studio map laid along the ground: its pushes move the particles", ""),
+                        // (the check's words: "... gives a number, not a direction: wire a Slope or Curl node before its Out")
+                        Err(e) => r.on_disabled_hover_text(e.as_str()),
+                    };
+                    if ui.is_rect_visible(r.rect) {
+                        crate::drive::mark(ui.ctx(), format!("pick:map:{n}"), r.rect);
+                    }
+                }
+            });
+            crate::drive::mark(ui.ctx(), "pick:map", r.response.rect);
+            look::tip(r.response, "What pushes the particles: the built-in noise, or a direction map of the Maps page", "");
+        });
+        if pick.as_deref() != cur {
+            self.edit(&format!("field: {}", pick.as_deref().unwrap_or(BUILT_IN)), |k, _| effect::set_map(k, pick.as_deref()));
         }
     }
 
@@ -565,27 +637,58 @@ impl Effects {
         look::tip(resp, &format!("{title} over the life (the line is 1): drag a point, click to add one, right click to remove"), "");
     }
 
-    /// The noise field as small moving strokes, as the game pushes particles through it.
-    fn noise_picture(&self, ui: &mut Ui) {
+    /// The field a map row names, worked out from its file (kept while the file's text is the same); none when
+    /// the game would refuse it. shortcut: worked out here, a fifth of a second once a map is chosen or changed,
+    /// on a worker when that is felt.
+    fn map_field(&mut self, name: &str, pal: &engine::palette::Palette) -> Option<std::sync::Arc<crate::map::Field>> {
+        let (text, m) = client::fx::read_map(client::fx::maps_dir(), name, pal).ok()?;
+        if let Some((_, _, f)) = self.field.as_ref().filter(|(n, t, _)| n == name && *t == text) {
+            return Some(f.clone());
+        }
+        let f = std::sync::Arc::new(crate::map::Field::new(name, m).ok()?);
+        self.field = Some((name.into(), text, f.clone()));
+        Some(f)
+    }
+
+    /// The noise field as small moving strokes, as the game pushes particles through it: the value noise, or a
+    /// map's field (the game's `field_push`, one tile of it across).
+    fn noise_picture(&mut self, ui: &mut Ui, pal: &engine::palette::Palette) {
         let t = self.table();
         let Some(z) = t.get("noise").and_then(|v| v.as_table()) else {
-            look::weak(ui, "no noise: the noise slider gives it some");
+            look::weak(ui, "no noise: the noise slider or a field gives it some");
             return;
         };
         let n = |k: &str, d: f32| z.get(k).and_then(|v| v.as_float().map(|f| f as f32).or(v.as_integer().map(|i| i as f32))).unwrap_or(d);
-        let field = client::fx::Noise { strength: n("strength", 0.0), scale: n("scale", 1.0).max(0.01), speed: n("speed", 0.0), map: None };
+        let map = z.get("map").and_then(|m| m.as_str()).map(String::from);
+        let strength = n("strength", 0.0);
+        // (strength 1: the strokes' length shows the strength)
+        let field = client::fx::Noise { strength: 1.0, scale: n("scale", 1.0).max(0.01), speed: n("speed", if map.is_some() { 1.0 } else { 0.0 }), map: map.clone() };
+        let pushed = match &map {
+            Some(m) => match self.map_field(m, pal) {
+                Some(f) => Some(f),
+                None => {
+                    look::weak(ui, format!("the map '{m}' is not a field the game takes"));
+                    return;
+                }
+            },
+            None => None,
+        };
         let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 70.0), Sense::hover());
         let p = ui.painter_at(r);
         p.rect_filled(r, 4.0, ui.visuals().extreme_bg_color);
         let step = 10.0;
-        let metres = 1.5 / r.width();
-        let len = (field.strength / 8.0).sqrt() * 9.0 + 1.0;
+        let metres = if pushed.is_some() { field.scale } else { 1.5 } / r.width();
+        let len = (strength / 8.0).sqrt() * 9.0 + 1.0;
         let mut y = r.min.y + step / 2.0;
         while y < r.max.y {
             let mut x = r.min.x + step / 2.0;
             while x < r.max.x {
                 let q = Vec3::new((x - r.min.x) * metres, (r.max.y - y) * metres, 0.0);
-                let v = client::fx::noise_at(q, self.now, &field);
+                // a map's field lies on the ground: here the ground is the picture, up out of it
+                let v = match &pushed {
+                    Some(f) => client::fx::field_push(q + Vec3::Z * 1000.0, self.now, &field, f),
+                    None => client::fx::noise_at(q, self.now, &field),
+                };
                 let d = Vec2::new(v.x, -v.y);
                 let a = Pos2::new(x, y);
                 p.line_segment([a - d * len * 0.5, a + d * len * 0.5], Stroke::new(1.2, Color32::from_gray(90 + (v.z.abs() * 120.0) as u8)));
@@ -788,7 +891,7 @@ impl Page for Effects {
                 let ui = &mut *sec;
                 self.numbers(ui, g);
                 match g {
-                    "Motion" => self.noise_picture(ui),
+                    "Motion" => self.noise_picture(ui, &app.pal),
                     "Life" => self.curve(ui, "size_curve", "size"),
                     "Look" => self.gradient(ui, app),
                     "Light" => self.curve(ui, "bright_curve", "brightness"),
@@ -856,9 +959,10 @@ impl Page for Effects {
         }
     }
 
-    fn refresh(&mut self, _app: &App) {
+    fn refresh(&mut self, app: &App) {
         self.read_disk();
         self.models = model_names();
+        self.maps = map_list(&app.pal);
     }
 
     fn unsaved(&self) -> Vec<String> {

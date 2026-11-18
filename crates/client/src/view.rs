@@ -55,6 +55,7 @@ impl ViewRun {
             .spawn(move || {
                 // the effects file the models' states are checked against: `effects=`, then each `effects` line's
                 let mut effects = effects;
+                let mut kept = fx::Kept::new();
                 for line in std::io::stdin().lock().lines() {
                     let Ok(line) = line else { break };
                     let line = line.trim().to_string();
@@ -63,8 +64,7 @@ impl ViewRun {
                         let _ = feed.send(models::load(std::path::Path::new(d), &effects));
                     } else if let Some(f) = line.strip_prefix("effects ") {
                         effects = f.into();
-                        let pal = std::fs::read_to_string("data/palette.toml").ok().and_then(|t| engine::palette::Palette::parse(&t).ok()).unwrap_or_else(|| fx::PALETTE.clone());
-                        let _ = sets_tx.send(std::fs::read_to_string(f).map_err(|e| format!("{f}: {e}")).and_then(|t| fx::parse_set(&t, &pal)));
+                        let _ = sets_tx.send(read_set(f, &mut kept));
                     } else if let Some(d) = line.strip_prefix("textures ") {
                         let _ = textures.send(engine::textures::load(std::path::Path::new(d), &BLOCKS));
                     } else if tx.send(Cmd::Line(line)).is_err() {
@@ -253,6 +253,14 @@ fn cam_pose(w: &World, feet: Block, eye: DVec3, target: DVec3) -> Pose {
     Pose { pos: e, fwd: (t - e).normalize_or(x), up: y.normalize() }
 }
 
+/// An `effects` line's file read and checked, its map rows' fields worked out as the game's watcher does
+/// (`fx::load`; on the stdin thread, never the frame thread). `kept`: the fields worked out before, so a map
+/// unchanged is not worked out again; a map changed reaches the view at the next `effects` line.
+fn read_set(f: &str, kept: &mut fx::Kept) -> Result<fx::Set, String> {
+    let pal = std::fs::read_to_string("data/palette.toml").ok().and_then(|t| engine::palette::Palette::parse(&t).ok()).unwrap_or_else(|| fx::PALETTE.clone());
+    fx::load(std::path::Path::new(f), fx::maps_dir(), &pal, kept)
+}
+
 /// `size w h` as a window the surface can take: 64 pixels a side at least, `max` at most.
 fn view_size(w: f64, h: f64, max: u32) -> [u32; 2] {
     [w, h].map(|v| v.max(64.0).min(max as f64) as u32)
@@ -261,6 +269,21 @@ fn view_size(w: f64, h: f64, max: u32) -> [u32; 2] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The Studio's preview plays a map row as the game does: an `effects` line's file is read with its rows'
+    /// fields worked out (the game's `fx::load`), so the smoke's map pushes in the view.
+    #[test]
+    fn an_effects_line_brings_its_map_rows_fields() {
+        let f = std::env::temp_dir().join(format!("technoape-view-effects-{}.toml", std::process::id()));
+        std::fs::write(&f, include_str!("../../../data/effects.toml")).unwrap();
+        let set = read_set(f.to_str().unwrap(), &mut Default::default()).unwrap();
+        assert!(set.fields.iter().any(|(n, _)| n == "smoke swirl"), "the smoke's field: {:?}", set.fields.iter().map(|f| &f.0).collect::<Vec<_>>());
+        // a map not there is named (the view says it on stderr and keeps the rows before), never a panic
+        std::fs::write(&f, include_str!("../../../data/effects.toml").replace("\"smoke swirl\"", "\"no such map\"")).unwrap();
+        let e = read_set(f.to_str().unwrap(), &mut Default::default()).unwrap_err();
+        assert!(e.contains("no such map"), "{e}");
+        let _ = std::fs::remove_file(f);
+    }
 
     /// Where a point shows, across and up over ahead, for an eye at `e` looking along `f`, up `u`.
     fn seen(p: DVec3, e: DVec3, f: DVec3, u: DVec3) -> [f64; 2] {

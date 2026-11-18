@@ -126,7 +126,10 @@ and written in the commit.
 ## Left out on purpose
 The game reads a direction map since ADR 0157: `[sway]` in `data/effects.toml` for the plants'
 wind and `noise = { map = ... }` for a particle row; the format and its working out are `engine::map`'s now.
-The Studio has no UI for either yet (written by hand, kept by the Effects page's Save). Also out: maps drawn on the GPU, 3D maps, heights turned into lighting (normal maps: the game has no
+A row's map is chosen on the Effects page: the noise's **Field** drop-down lists "Built-in noise" and every
+direction map (a number map listed but disabled, its tip saying to wire a Slope or Curl before Out); with a map
+the sliders read "map tile" (metres one tile covers) and "map pace" (times its own pace), and the noise picture
+and the view play the map's field as the game does. `[sway]` is still written by hand (kept by Save). Also out: maps drawn on the GPU, 3D maps, heights turned into lighting (normal maps: the game has no
 use for them), groups of nodes as one node, notes and frames in the graph. Each can come when its lack is felt.
 
 ## Build order
