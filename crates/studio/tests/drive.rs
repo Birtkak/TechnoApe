@@ -672,3 +672,96 @@ fn the_palette_grows_from_the_textures_page() {
     let pal = std::fs::read_to_string(dir.join("data/palette.toml")).unwrap();
     assert!(!pal.contains("\"plum lighter\"") && pal.contains("name = \"plum\""), "{line}\n{pal}");
 }
+
+/// The Maps page (docs/design/studio-maps.md, step 2): a node added from the box, wired in between, a slider
+/// moved, saved; the file says so and passes the check.
+#[test]
+fn maps_add_wire_slide_save() {
+    let dir = scratch("maps");
+    let line = studio(
+        &dir,
+        &[
+            "size=1600x900",
+            "cmd=open:Maps:clouds",
+            "input=click right @graph:0.15,0.85; text inv; click @add:invert; wait; drag @out:levels @pin:invert:in; drag @out:invert @pin:out:in; \
+             click @node:noise; drag @num:scale:0.05,0.5 @num:scale:0.5,0.5; key Ctrl+S",
+        ],
+    );
+    assert!(line.contains("\"unsaved\":[]"), "{line}");
+    let text = std::fs::read_to_string(dir.join("data/maps/clouds.toml")).unwrap();
+    let node = |id: &str| text.split("[[node]]").find(|n| n.contains(&format!("id = \"{id}\""))).unwrap_or_else(|| panic!("no node {id}: {line}\n{text}")).to_string();
+    assert!(node("invert").contains("in = \"levels\""), "{line}\n{text}");
+    assert!(node("out").contains("in = \"invert\""), "{line}\n{text}");
+    assert!(!node("noise").contains("scale = 4\n"), "the slider moved nothing: {line}\n{text}");
+    assert!(line.contains("Add invert") && line.contains("Wire levels to invert") && line.contains("Move scale"), "named steps: {line}");
+    studio(&dir, &["check=1"]);
+    assert!(!std::fs::read_to_string(dir.join("data/drafts.txt")).unwrap().contains("maps/clouds.toml"), "saved: no longer a draft");
+}
+
+/// A node's numbers stand on it, as Blender's do: a drag on a row changes the number, one undo step a drag.
+#[test]
+fn maps_node_rows() {
+    let dir = scratch("maps-rows");
+    let line = studio(&dir, &["size=1600x900", "cmd=open:Maps:clouds", "input=drag @row:noise:octaves:0.1,0.5 @row:noise:octaves:0.9,0.5; key Ctrl+S"]);
+    let text = std::fs::read_to_string(dir.join("data/maps/clouds.toml")).unwrap();
+    let noise = text.split("[[node]]").find(|n| n.contains("id = \"noise\"")).unwrap().to_string();
+    assert!(noise.contains("octaves = 8"), "dragged to the right end: {line}\n{noise}");
+    assert_eq!(line.matches("Move octaves").count(), 1, "one step a drag: {line}");
+}
+
+/// The graph changing under a held drag (undo of the dragged node's Add) leaves no stale index behind.
+#[test]
+fn maps_undo_under_a_held_drag() {
+    let dir = scratch("maps-undo-drag");
+    let line = studio(
+        &dir,
+        &[
+            "size=1600x900",
+            "cmd=open:Maps:clouds",
+            "input=click right @graph:0.15,0.85; text inv; click @add:invert; wait; move @node:invert; down; move @graph:0.5,0.5; move @graph:0.55,0.5; \
+             key Ctrl+Z; key Ctrl+Z; wait; move @graph:0.6,0.6; move @graph:0.7,0.6; up; wait",
+        ],
+    );
+    assert!(line.contains("\"open\":\"clouds\""), "{line}");
+}
+
+/// A double click on a node's row types its number: Enter takes it, held to the range; one step "Type".
+#[test]
+fn maps_typed_value() {
+    let dir = scratch("maps-type");
+    let line = studio(
+        &dir,
+        &["size=1600x900", "cmd=open:Maps:clouds", "input=click @row:noise:scale; click @row:noise:scale; wait; key Ctrl+A; text 99; key Enter; wait; key Ctrl+S"],
+    );
+    let text = std::fs::read_to_string(dir.join("data/maps/clouds.toml")).unwrap();
+    let noise = text.split("[[node]]").find(|n| n.contains("id = \"noise\"")).unwrap().to_string();
+    assert!(noise.contains("scale = 64"), "typed 99, held to the top 64: {line}\n{noise}");
+    assert!(line.contains("Type scale"), "{line}");
+}
+
+/// Variations: a click picks one under other seeds, Use keeps it as one undo step; the wiring is unchanged.
+#[test]
+fn maps_variation_used() {
+    let dir = scratch("maps-wall");
+    let line = studio(&dir, &["size=1600x900", "cmd=open:Maps:clouds,variations", "input=click @wall:3; wait; click @btn:wall.use; wait; key Ctrl+S"]);
+    let text = std::fs::read_to_string(dir.join("data/maps/clouds.toml")).unwrap();
+    assert!(!text.contains("seed = 1\n"), "another seed: {line}\n{text}");
+    assert!(text.contains("in = \"noise\"") && text.contains("in = \"levels\""), "the same wiring: {text}");
+    assert_eq!(line.matches("Variation").count(), 1, "one step: {line}");
+}
+
+/// Step 3's rest: a new map from a starter, used as a block's texture with two variants: written through the
+/// Textures page's save at the block's size, passing the check.
+#[test]
+fn maps_starter_used_on_a_block() {
+    let dir = scratch("maps-use");
+    let line = studio(
+        &dir,
+        &["size=1600x900", "cmd=open:Maps:clouds,use.block:dirt,use.face:0,use.variants:2,new", "input=click @new:name; text rock; click @starter:stone_cells; wait; move @btn:new; wheel -900; wait 3; click @btn:use; wait"],
+    );
+    assert!(line.contains("rock"), "the new map is open: {line}");
+    let (w, h, _) = png(&dir.join("data/textures/dirt.png"));
+    assert_eq!((w, h), (32, 16), "two variants at the block's size: {line}");
+    studio(&dir, &["check=1"]);
+    assert!(!dir.join("data/maps/rock.toml").exists(), "a new map is not saved before Save");
+}

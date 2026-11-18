@@ -10,7 +10,7 @@ pub const DRAFT: Color32 = Color32::from_rgb(214, 160, 70);
 pub const BAD: Color32 = Color32::from_rgb(225, 85, 80);
 pub const GOOD: Color32 = Color32::from_rgb(110, 190, 120);
 /// A colour per page, for its tab and its inspector's section marks: where you are. Never for what is chosen.
-pub const PAGES: [(&str, Color32); 8] = [
+pub const PAGES: [(&str, Color32); 9] = [
     ("Textures", Color32::from_rgb(64, 186, 170)),
     ("Palette", Color32::from_rgb(214, 108, 180)),
     ("Models", Color32::from_rgb(150, 124, 236)),
@@ -19,6 +19,8 @@ pub const PAGES: [(&str, Color32); 8] = [
     ("Structures", Color32::from_rgb(190, 150, 110)),
     ("Fauna", Color32::from_rgb(232, 104, 128)),
     ("Plants", Color32::from_rgb(120, 196, 96)),
+    // an ice cyan: lighter and greener than the accent, bluer than Textures' teal
+    ("Maps", Color32::from_rgb(110, 214, 240)),
 ];
 pub fn page_colour(name: &str) -> Color32 {
     PAGES.iter().find(|p| p.0 == name).map_or(ACCENT, |p| p.1)
@@ -401,9 +403,13 @@ pub fn weak(ui: &mut Ui, text: impl Into<String>) -> Response {
 pub fn tip(r: Response, help: &str, key: &str) -> Response {
     let text = if key.is_empty() { help.to_string() } else { format!("{help}   [{key}]") };
     if r.hovered() {
-        r.ctx.data_mut(|d| d.insert_temp(egui::Id::unique("studio.help"), text.clone()));
+        say(&r.ctx, &text);
     }
     r.on_hover_text(text)
+}
+/// The status line's left this frame, as a control's tip puts it (a wire refused while it is dragged).
+pub fn say(ctx: &egui::Context, text: &str) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique("studio.help"), text.to_string()));
 }
 /// The help the pointer stands on this frame, taken once.
 pub fn take_help(ctx: &egui::Context) -> Option<String> {

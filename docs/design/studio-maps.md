@@ -2,7 +2,14 @@
 
 - **Status:** design, 2026-11-18 (the developer: take the Studio from a prototype to a tool good enough to
   sell; "researched layouts and colour-coded UI with pins and sliders", "noise maps for textures to simulate
-  model animation and particles", "good outside only the game use case"). Nothing here is built yet.
+  model animation and particles", "good outside only the game use case"). **Built** (steps 1 to 3, ADR 0153).
+  Where the build differs from the plan below:
+  - Space adds a node; the middle button pans (one key cannot do both).
+  - The starters are kept in code (`ui/maps/make.rs`), not as files; a starter becomes a file only on Save.
+  - Variations: the wall holds the map as it is and nine others.
+  - Use writes through the Textures page's own document and save, so it is undone there.
+  - The inspector's numbers type on a single click (egui's own boxes); node rows on a double click.
+  - Node pictures are worked out on the frame thread at 64 px; the full-size preview and the loop on a worker.
 - `studio.md` says what the Studio is, `studio-tools.md` the look every page shares. This page follows both.
 
 ## What it is
@@ -79,9 +86,13 @@ so **every map tiles and every animated map loops**, without the developer think
 The frame is every page's: files left, work in the middle, inspector right.
 
 - **Files:** the maps, each with its picture; a draft carries its mark.
-- **Work: the graph.** Middle drag or Space+drag pans, the wheel zooms to the pointer, F frames everything.
-  A node is a box with a band in its group's colour (Make, Change, Combine, Turn into, Out), its picture, its
-  input pins on the left and its output on the right. Pins are 12 points across at least. A click chooses a
+- **Work: the graph.** Middle drag pans, the wheel zooms to the pointer, F frames everything (Space is Add a
+  node, so it does not also pan). A faint dot grid moves with it.
+  A node is a box with a band in its group's colour (Make, Change, Combine, Turn into, Out) holding its name
+  and, weak, its kind, its picture, its input pins on the left and its output on the right. Pins are 12 points
+  across at least. Every number of a node stands on it as a slider row (name left, value right, a lit rail; a
+  drag changes it), as on Blender's nodes, and every choice as a small drop-down; a pin's row loses its slider
+  when something is plugged in. A click chooses a
   node, a drag moves it, a drag on empty graph draws a box around several. Delete removes, Ctrl+D copies.
   Right click or Space opens **Add a node**, a search box; a wire let go on empty space opens the same box
   with what fits.
@@ -125,6 +136,6 @@ Each step is checked alone and reported before the next.
    inside), an animated map loops (the frame after the last is the first), a seed gives the same pixels
    every time, a file round-trips, every refusal names its node.
 2. **The page:** the graph, the pins and sliders, the Map and Tiled previews, the pinned preview, Add a node,
-   undo, save, recovery. The page bar holds ten tabs in one row at 1600 x 900 at 133 %. A `drive` script
+   undo, save, recovery. The page bar holds nine tabs in one row at 1600 x 900 at 133 %. A `drive` script
    builds a small graph and saves it; its shot is read.
 3. **Motion and use:** Play, Particles and Sway, Use as a texture, Export, New map's list, Variations.
