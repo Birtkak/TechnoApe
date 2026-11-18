@@ -37,8 +37,10 @@ Rules:
 - **New worlds only.** A save from before keeps its 192 m floor, as with the conformal grid.
 - **The deep costs nothing until someone is there.** Nothing is stored for untouched rock; chunks below are
   streamed only near a player or a hole that shows them.
-- **Gravity follows depth** (*proposal*): it falls evenly from the surface's value to zero at the centre, as
-  inside a ball of even density. At the centre a player floats.
+- **Gravity grows as you go down toward the mass** (the developer, 2026-11-18), as inside a planet with a
+  dense core: it rises through the mantle to about 1.13 of the surface's at the liquid's top (the core is taken
+  2.4 times as dense as the mantle), then falls evenly to zero at the centre, where no mass is left below and a
+  player floats. About 0.3 on the inner core's surface.
 - **Heat rises with depth** (`Body::heat` carried on down) and is what gates the dig by age, with the rock's
   hardness: cooled suits and machines, not a wall.
 
@@ -89,7 +91,7 @@ Extends ADR 0063's limestone systems and lava tubes. Each kind is cut only in th
 Granite and the old shields keep almost none.
 
 ## Open
-- How the inner core's stepped surface walks at a fifth of gravity (ADR 0152).
+- How the inner core's stepped surface walks at a third of gravity (ADR 0152).
 - The zones' rocks, their look and what the mantle is worth mining for.
 - How liquid metal is lifted 2 km (pumps, pipes, heat) and at which age.
 - Whether the field can be restored.
