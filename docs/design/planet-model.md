@@ -97,6 +97,18 @@ One pipeline; a body runs the stages its model calls for, in this order, each wr
   bake to match). Its moons are ordinary rows whose `parent` is the giant.
 - A strong field and a radiation belt around it follow from the model (fast spin, large fluid core).
 
+## Orbits are real, later (the developer, 2026-11-18: "space exploration will depend on it")
+Today every body is a circle on rails with a hand-set period, and a ship feels only the nearest body's pull
+inside a sphere of influence. The model is shaped now so real orbits need no second rework:
+- **A row states an orbit, not a period:** parent, distance, eccentricity, inclination. The period follows from
+  the parent's mass (Kepler's third law), and the mass follows from the zones. One constant scales it so Luna's
+  month and Terra's year stay what they are today.
+- **Bodies stay on rails, but Kepler's rails** (ellipses, fixed from the row): deterministic from the clock, so
+  server, clients and replays agree without simulating the planets (*proposal*, as flight games do).
+- **Ships and loose things fall under real gravity** from the masses: orbits, transfers, slingshots, capture by
+  a moon. That is the later step; it needs a ship worth flying first.
+- What it must not break: the perfect eclipses (Luna's size and distance against the sun's), tides, day length.
+
 ## Build order (*proposal*; one feature a run, each keeps earlier worlds bit for bit)
 1. **The row and the derived module, proving nothing changed.** `bodies.toml` gains the inputs; zones, gravity,
    pressure, geotherm and regime are derived and replace the constants; Terra and Luna at today's generation
