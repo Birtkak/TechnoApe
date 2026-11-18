@@ -264,8 +264,8 @@ fn the_mesher_physics_and_water_see_the_same_cave() {
     let (f, i0, j0, z0) = (top.face, top.pos.x, top.pos.y, top.pos.z);
     // the closed one on a chunk corner, so it reaches into four chunks and their padding
     let corner = |v: i32| ((v + CS / 2).div_euclid(CS) * CS) as f64;
-    let shut = Cave { face: f, at: DVec3::new(corner(i0), corner(j0), ((z0 - 8).div_euclid(CS) * CS) as f64), r: 3.5 };
-    let open = Cave { face: f, at: DVec3::new(i0 as f64 + 20.5, j0 as f64 + 0.5, w.air_over_ground(0, w.bodies[0].spawn).pos.z as f64 - 1.0), r: 4.0 };
+    let shut = Cave::ball(f, DVec3::new(corner(i0), corner(j0), ((z0 - 8).div_euclid(CS) * CS) as f64), 3.5);
+    let open = Cave::ball(f, DVec3::new(i0 as f64 + 20.5, j0 as f64 + 0.5, w.air_over_ground(0, w.bodies[0].spawn).pos.z as f64 - 1.0), 4.0);
     std::sync::Arc::get_mut(&mut w.bodies).unwrap()[0].set_caves(vec![shut, open]);
     let b = &w.bodies[0];
     let mut hollow = 0;
@@ -307,7 +307,7 @@ fn the_mesher_physics_and_the_count_see_the_same_ore() {
     let corner = |v: i32| ((v + CS / 2).div_euclid(CS) * CS) as f64;
     let lump = OreBody { kind: kind("deep copper"), face: f, at: DVec3::new(corner(i0), corner(j0), ((z0 - 10).div_euclid(CS) * CS) as f64), a: 4.5, b: 4.5, h: 3.5, angle: 0.3 };
     let gravel = OreBody { kind: kind("copper gravel"), face: f, at: DVec3::new(i0 as f64 + 20.5, j0 as f64 + 0.5, 0.75), a: 6.0, b: 2.0, h: 0.75, angle: 1.0 };
-    let hole = Cave { face: f, at: lump.at + DVec3::new(2.0, 0.0, 0.0), r: 2.5 };
+    let hole = Cave::ball(f, lump.at + DVec3::new(2.0, 0.0, 0.0), 2.5);
     let m = std::sync::Arc::get_mut(&mut w.bodies).unwrap();
     m[0].set_caves(vec![hole]);
     m[0].set_ores(vec![lump, gravel]);
@@ -1195,4 +1195,184 @@ fn diamond_forms_only_in_its_window_and_the_ledger_counts_it() {
     for &o in &ds {
         assert_eq!(left[o], cells(&w.bodies[0], o).len() as i64, "the ledger counts diamond body {o}");
     }
+}
+
+/// The 1536 planet with the mantle and its caves of `data/caves.toml`'s kinds made dense (a start every 16 columns
+/// for tubes, its rift is small, 48 for fissures; every one grown), put in the ground beside ADR 0063's: enough
+/// of each kind on a small planet to test.
+fn dense_caves() -> (World, Vec<crate::caves::System>) {
+    let mut w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, true);
+    let kinds: Vec<crate::caves::Kind> = crate::caves::CAVES
+        .kinds
+        .iter()
+        .cloned()
+        .map(|mut k| {
+            (k.spacing, k.chance) = (if k.shape == crate::caves::Shape::Tube { 16 } else { 48 }, 1.0);
+            k
+        })
+        .collect();
+    let b = &w.bodies[0];
+    let sys = crate::caves::systems_of(b, b.baked_seed().unwrap(), &kinds);
+    let mut caves: Vec<Cave> = b.caves.iter().copied().filter(|c| c.kind == Cave::BALL).collect();
+    caves.extend(sys.iter().flat_map(|s| s.balls.iter().copied()));
+    Arc::get_mut(&mut w.bodies).unwrap()[0].set_caves(caves);
+    (w, sys)
+}
+
+/// The column (i, j) a point lies in.
+fn col_of(p: DVec3) -> (i32, i32) {
+    (p.x.floor() as i32, p.y.floor() as i32)
+}
+
+/// A cave of a kind (`data/caves.toml`) is cut only where the rock rule (`Body::rock`) gives one of its hosts, in a
+/// column of one of its provinces: every cell under the ground of every ball of every kind's caves.
+#[test]
+fn a_cave_kind_opens_only_its_host_rock_in_its_provinces() {
+    let (w, sys) = dense_caves();
+    let b = &w.bodies[0];
+    let kinds = &crate::caves::CAVES.kinds;
+    for (k, kind) in kinds.iter().enumerate() {
+        let n = sys.iter().filter(|s| s.kind as usize == k).count();
+        assert!(n >= 3, "{}: {n} made on the 1536 planet", kind.name);
+    }
+    let (mut bad, mut n) = (Vec::new(), 0);
+    for s in &sys {
+        let kind = &kinds[s.kind as usize];
+        for c in &s.balls {
+            for (i, j, z) in crate::caves::cells(b, c) {
+                n += 1;
+                let rock = b.col_rock(c.face, i, j);
+                let m = b.rock(rock, b.layer_r(z as f64 + 0.5) as f32, 0);
+                if !kind.hosts.contains(&m) || !kind.provinces.contains(&rock.province) {
+                    bad.push(format!("{} ({i}, {j}, {z}): {} in province {}", kind.name, BLOCKS.get(m).map_or("?", |d| d.name.as_str()), rock.province));
+                }
+            }
+        }
+    }
+    assert!(n > 20_000 && bad.is_empty(), "{} of {n} cells outside their hosts, e.g. {:?}", bad.len(), &bad[..bad.len().min(4)]);
+}
+
+/// Lava tubes (deep-world.md 4): 3 to 8 m wide, their floor never rising downhill (the axis's floor radius exactly;
+/// the lowest open cell under the axis within a cell, away from the rubble under an opening), open to the sky at
+/// a skylight at least every 1.3 times the data's spacing and at least once a tube: there every cell from the
+/// tube's floor to the ground is air. (Only in rift and arc basalt: the test above.)
+#[test]
+fn lava_tubes_run_downhill_and_open_to_the_sky_at_skylights() {
+    use crate::caves::{Shape, CAVES};
+    let (w, sys) = dense_caves();
+    let b = &w.bodies[0];
+    let tubes: Vec<_> = sys.iter().filter(|s| CAVES.kinds[s.kind as usize].shape == Shape::Tube).collect();
+    assert!(tubes.len() >= 3, "{} tubes", tubes.len());
+    for t in &tubes {
+        let kind = &CAVES.kinds[t.kind as usize];
+        assert!(t.axis.windows(2).all(|p| p[1].z <= p[0].z + 1e-9), "a tube's floor rises: {:?}", t.axis.windows(2).find(|p| p[1].z > p[0].z + 1e-9));
+        assert!(t.balls.iter().filter(|c| c.floor <= 0.35 * c.h + 1e-9).all(|c| (1.5..=4.0).contains(&c.r)), "a tube 3 to 8 m wide (its balls under the shafts, cut flat a third down or higher)");
+        let near_opening = |k: usize| t.openings.iter().any(|&(a, e)| k + 12 >= a && k <= e + 12);
+        let mut last = i32::MAX;
+        for (k, p) in t.axis.iter().enumerate() {
+            let (i, j) = col_of(*p);
+            // (its own balls: another tube may cross it)
+            let lo = t.balls.iter().filter_map(|c| c.span(i, j)).map(|s| s.0).min().expect("the axis is open");
+            if !near_opening(k) {
+                assert!(lo <= last.saturating_add(1), "the floor under the axis rises from {last} to {lo} at {k}");
+                last = lo;
+            }
+        }
+        assert!(!t.openings.is_empty(), "a tube without a skylight");
+        let starts: Vec<f64> = std::iter::once(0.0).chain(t.openings.iter().map(|o| o.0 as f64)).collect();
+        assert!(starts.windows(2).all(|s| s[1] - s[0] <= 1.3 * kind.skylight), "openings {:?} over {} m", t.openings, t.axis.len());
+        for &(a, e) in &t.openings {
+            let p = t.axis[(a + e) / 2];
+            let (i, j) = col_of(p);
+            let top = b.layer_of(b.col_height(t.face, i, j)).floor() as i32;
+            let floor = b.layer_of(p.z).ceil() as i32 + 2;
+            for z in floor..=top {
+                let m = w.generated_block(Block { body: 0, face: t.face, pos: IVec3::new(i, j, z) });
+                assert_eq!(m, AIR, "the skylight at ({i}, {j}) is shut at layer {z} ({floor}..={top}), open {:?}", b.col_caves(t.face, i, j));
+            }
+        }
+    }
+}
+
+/// Fissures (deep-world.md 4) lie within 16 m of a border between provinces, are at most 2 m wide, and each is
+/// open at least 10 m tall in some column; some are open at the surface.
+#[test]
+fn fissures_follow_province_borders_and_are_tall_and_narrow() {
+    use crate::caves::{Shape, CAVES};
+    let (w, sys) = dense_caves();
+    let b = &w.bodies[0];
+    let fis: Vec<_> = sys.iter().filter(|s| CAVES.kinds[s.kind as usize].shape == Shape::Fissure).collect();
+    assert!(fis.len() >= 3, "{} fissures", fis.len());
+    assert!(fis.iter().any(|f| !f.openings.is_empty()), "none open at the surface");
+    for f in &fis {
+        let mut tallest = 0;
+        for c in &f.balls {
+            assert!(2.0 * c.r <= 2.0 + 1e-9 && c.h > 2.0 * c.r, "a fissure {} m wide, {} tall", 2.0 * c.r, 2.0 * c.h);
+            let (i, j) = col_of(c.at);
+            let here = b.col_rock(f.face, i, j).province;
+            let border = (-8..=8).any(|a| (-8..=8).any(|d| b.col_rock(f.face, i + 2 * a, j + 2 * d).province != here));
+            assert!(border, "a fissure ball at ({i}, {j}) more than 16 m from a province border");
+            let ground = b.layer_of(b.col_height(f.face, i, j));
+            let open: i32 = b.col_caves(f.face, i, j).iter().map(|&(lo, hi)| (hi as f64).min(ground) as i32 - lo).max().unwrap_or(0);
+            tallest = tallest.max(open);
+        }
+        assert!(tallest >= 10, "a fissure {tallest} m tall at most");
+    }
+}
+
+/// Caves are made with the planet, from the seed: a second world has the same, and the chunks on either side of a
+/// chunk border a tube crosses show the same cells in the padding they share, whichever is generated first.
+#[test]
+fn a_cave_is_the_same_whichever_chunk_asks_first_and_runs_on_across_a_chunk_border() {
+    use crate::caves::{Shape, CAVES};
+    let ((w, sys), (w2, sys2)) = (dense_caves(), dense_caves());
+    assert!(sys == sys2 && w.bodies[0].caves == w2.bodies[0].caves, "the caves differ between two loads");
+    let b = &w.bodies[0];
+    let (t, k) = sys
+        .iter()
+        .filter(|s| CAVES.kinds[s.kind as usize].shape == Shape::Tube)
+        .find_map(|s| Some((s, s.axis.windows(2).position(|p| col_of(p[0]).0.div_euclid(CS) != col_of(p[1]).0.div_euclid(CS))?)))
+        .expect("a tube crossing a chunk border in i");
+    let (i, j) = col_of(t.axis[k]);
+    let z = b.layer_of(t.axis[k].z).ceil() as i32 + 1;
+    let ka = Key { body: 0, face: t.face, level: 0, pos: IVec3::new(i.div_euclid(CS), j.div_euclid(CS), z.div_euclid(CS)) };
+    let kb = Key { pos: ka.pos + IVec3::new(col_of(t.axis[k + 1]).0.div_euclid(CS) - ka.pos.x, 0, 0), ..ka };
+    let cells = |b: &Body, k: Key| match generate_raw(b, k, &[]) {
+        Gen::Cells(c) => c,
+        g => panic!("chunk {k:?} is solid {}", matches!(g, Gen::Solid)),
+    };
+    let (a1, b1) = (cells(b, ka), cells(b, kb));
+    let (b2, a2) = (cells(&w2.bodies[0], kb), cells(&w2.bodies[0], ka));
+    assert!(a1 == a2 && b1 == b2, "a chunk differs with the order it was generated in");
+    // the padding column of one is the first column of the other
+    let (pa, pb) = if kb.pos.x > ka.pos.x { (P - 1, 1) } else { (0, P - 2) };
+    let (mut open, mut n) = (0, 0);
+    for y in 0..P {
+        for zz in 0..P {
+            assert_eq!(a1[pidx(pa, y, zz)], b1[pidx(pb, y, zz)], "the padding at y {y} z {zz}");
+            n += 1;
+            open += (a1[pidx(pa, y, zz)] == AIR) as usize;
+        }
+    }
+    assert!(open > 0 && open < n, "the tube is cut off at the border: {open} of {n} open");
+    let zl = (z - ka.pos.z * CS + 1) as usize;
+    let at = |c: &[u16], x: i32, y: i32, k: Key| c[pidx((x - k.pos.x * CS + 1) as usize, (y - k.pos.y * CS + 1) as usize, zl)];
+    let (i1, j1) = col_of(t.axis[k + 1]);
+    assert!(at(&a1[..], i, j, ka) == AIR && at(&b1[..], i1, j1, kb) == AIR, "the tube runs on across the border");
+}
+
+/// A planet without the mantle (old saves, `mantle=0`) makes ADR 0063's caves alone, to the bit: the caves of
+/// this planet as they were before `data/caves.toml`.
+#[test]
+fn without_the_mantle_the_caves_are_the_ones_from_before() {
+    let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, false);
+    let b = &w.bodies[0];
+    assert!(b.caves.iter().all(|c| c.kind == Cave::BALL && c.h == c.r && c.floor == c.r));
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for c in &b.caves {
+        for v in [c.face as u64, c.at.x.to_bits(), c.at.y.to_bits(), c.at.z.to_bits(), c.r.to_bits()] {
+            h = (h ^ v).wrapping_mul(0x100_0000_01b3);
+        }
+    }
+    assert_eq!((b.caves.len(), h), (104, 15974049385019012728), "the caves of the 1536 planet without the mantle");
 }

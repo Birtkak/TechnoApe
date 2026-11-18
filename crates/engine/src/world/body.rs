@@ -114,7 +114,7 @@ impl Body {
                 let ground = b.radius - SEA_DEPTH + map.h[c] as f64;
                 // (the map's cell in the block grid, which the warp moves, ADR 0131)
                 let (ci, cj) = b.unwarp_col((i as f64 + 0.5) * k, (j as f64 + 0.5) * k);
-                Cave { face: f as u8, at: DVec3::new(ci, cj, b.layer_of(ground - depth as f64)), r: r as f64 }
+                Cave::ball(f as u8, DVec3::new(ci, cj, b.layer_of(ground - depth as f64)), r as f64)
             })
             .collect();
         // (a map without rock provinces gets none of W4's caves: the tubes are all of Luna's)
@@ -158,7 +158,7 @@ impl Body {
         (h + a * h, h + b * h)
     }
     /// Block-grid face point (i, j) as a point of the baked map's cells (`s` its cells a column).
-    pub(super) fn map_xy(&self, s: f64, i: f64, j: f64) -> (f64, f64) {
+    pub(crate) fn map_xy(&self, s: f64, i: f64, j: f64) -> (f64, f64) {
         let (x, y) = self.warp_col(i, j);
         (x * s, y * s)
     }
@@ -408,6 +408,11 @@ impl Body {
         if self.water_at(face as u8, i, j).is_some_and(|w| z as f64 <= w.0) {
             return None;
         }
+        // nor over a cave's open mouth (a skylight, a slot), on a planet with the mantle. shortcut: new generation
+        // rides on the mantle flag, give worlds a generation number when the next rule needs it
+        if self.mantle > 0 && self.col_caves(face as u8, i, j).iter().any(|&(lo, hi)| (lo..hi).contains(&(z - 1))) {
+            return None;
+        }
         // a palm only where the year is warm (ADR 0092)
         if ROWS.plants[plant].warm.is_some_and(|t| self.year_air(face, i, j).is_none_or(|a| a < t)) {
             return None;
@@ -435,19 +440,7 @@ impl Body {
     /// shortcut: a cave's ball lies in its face's grid, so one across a seam is cut there; fine while caves
     /// stay clear of the seams (step 2 of W4 places them).
     pub fn col_caves(&self, face: u8, i: i32, j: i32) -> Vec<(i32, i32)> {
-        let mut out = Vec::new();
-        for c in self.tile_caves(face, i.div_euclid(CS), j.div_euclid(CS)) {
-            let d2 = (i as f64 + 0.5 - c.at.x).powi(2) + (j as f64 + 0.5 - c.at.y).powi(2);
-            if d2 < c.r * c.r {
-                // the cells whose middle lies inside the ball
-                let hh = (c.r * c.r - d2).sqrt();
-                let (lo, hi) = (((c.at.z - hh - 0.5).ceil() as i32).max(0), (c.at.z + hh - 0.5).floor() as i32 + 1);
-                if lo < hi {
-                    out.push((lo, hi));
-                }
-            }
-        }
-        out
+        self.tile_caves(face, i.div_euclid(CS), j.div_euclid(CS)).filter_map(|c| c.span(i, j)).collect()
     }
     /// The caves that reach level-0 footprint (x, y) of a face.
     pub(super) fn tile_caves(&self, face: u8, x: i32, y: i32) -> impl Iterator<Item = &Cave> {

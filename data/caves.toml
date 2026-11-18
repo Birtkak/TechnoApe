@@ -1,0 +1,47 @@
+# Cave kinds by rock and formation (docs/design/deep-world.md section 4; schema and checks in
+# crates/engine/src/caves.rs). Each row is a kind: where it forms, in which rock, and its shape. A cave of a kind is
+# cut only in cells whose rock (`Body::rock`) is one of its `hosts`, in columns of one of its `provinces`: it stops
+# where the rock stops. Only a planet with the mantle gets these (ADR 0152); ADR 0063's limestone systems are still
+# made in code (caves.rs `make`), on every baked planet as before.
+#
+# `shape`: "tube" (a lava tube: runs downhill a few metres under the ground, flat floor, arched roof, skylights) or
+#   "fissure" (a crack along the border between two provinces: narrow and tall, blind or open at the surface).
+# `hosts`: the rocks it may be cut in, block names of `data/rocks.toml`'s layers.
+# `provinces`: the provinces it may lie in, names of `data/rocks.toml`.
+# `depth`: [m, m] under the ground: its roof at least the first, its floor at most the second (a skylight, a
+#   trench and an open slot break the roof on purpose).
+# `spacing`: one candidate start every this many columns each way on a face; `chance`: the share that grow one.
+# `width`, `height`, `length`: [least, most] metres, drawn per cave.
+# Tubes: `skylight` metres between roof collapses open to the sky (at least one a tube), `trench` the chance the
+#   stretch at a skylight has fallen in over 20 to 50 m, `branch` the chance a branch leaves, per 100 m.
+#   `slope`: the least fall a metre the ground must keep, or the tube ends (lava ran only downhill).
+# Fissures: `open` the share open at the surface as a slot over part of their length.
+
+[[kind]]
+name = "lava tube"
+shape = "tube"
+hosts = ["basalt"]
+provinces = ["rift", "volcanic arc"]
+depth = [1.5, 14.0]
+spacing = 48
+chance = 0.8
+width = [3.0, 8.0]
+height = [2.5, 5.0]
+length = [150.0, 700.0]
+skylight = 200.0
+trench = 0.2
+branch = 0.3
+slope = 0.015
+
+[[kind]]
+name = "fissure"
+shape = "fissure"
+hosts = ["granite", "gneiss", "schist", "quartzite", "andesite", "basalt", "gabbro"]
+provinces = ["shield", "basin", "folded belt", "volcanic arc", "rift"]
+depth = [2.0, 64.0]
+spacing = 256
+chance = 0.7
+width = [1.0, 2.0]
+height = [10.0, 60.0]
+length = [80.0, 300.0]
+open = 0.35

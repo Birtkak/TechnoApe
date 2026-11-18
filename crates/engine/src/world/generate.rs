@@ -21,7 +21,10 @@ pub fn generate_raw(body: &Body, key: Key, edits: &[(u32, u16)]) -> Gen {
     let z_air = c0.z + (P - 1 + SKIRT) as i32;
     let r_air = body.layer_r((z_air as f64 + 0.5) * s);
     // caves are carved at level 0 only: a coarser cell is too big to show one (world-data.md)
-    let caved = key.level == 0 && body.tile_caves(key.face, key.pos.x, key.pos.y).any(|c| (c.at - (c0.as_dvec3() + P as f64 * 0.5)).abs().max_element() < c.r + P as f64 * 0.5);
+    let caved = key.level == 0 && body.tile_caves(key.face, key.pos.x, key.pos.y).any(|c| {
+        let d = (c.at - (c0.as_dvec3() + P as f64 * 0.5)).abs();
+        d.x.max(d.y) < c.r + P as f64 * 0.5 && d.z < c.h.max(c.r) + P as f64 * 0.5
+    });
     let ored = key.level == 0 && body.tile_ores(key.face, key.pos.x, key.pos.y).iter().any(|&k| body.ore_z[k as usize].0 < (c0.z + P as i32) as f64 && body.ore_z[k as usize].1 > c0.z as f64);
     let plain = edits.is_empty() && !caved && !ored;
     if plain {
