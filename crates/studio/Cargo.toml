@@ -17,6 +17,8 @@ glam.workspace = true
 # the workspace's own wgpu 30 and winit 0.30 (ADR 0046): egui only here, never in the game
 eframe = { version = "0.37", default-features = false, features = ["wgpu", "default_fonts"] }
 egui-wgpu = "0.37"
+# eframe's own egui with its widget themes on (no code of its own: the look's quiet buttons and framed fields)
+egui = { version = "0.37", default-features = false, features = ["experimental"] }
 wgpu = "30"
 pollster = "1"
 png = "0.18"

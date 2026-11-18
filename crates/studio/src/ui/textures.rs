@@ -1197,7 +1197,7 @@ impl Textures {
         let p = ui.painter_at(r);
         p.rect_filled(r, 4.0, ui.visuals().extreme_bg_color);
         let note = |p: &egui::Painter, t: &str| {
-            p.text(r.center(), egui::Align2::CENTER_CENTER, t, egui::FontId::proportional(look::SMALL), Color32::from_gray(140));
+            p.text(r.center(), egui::Align2::CENTER_CENTER, t, egui::FontId::proportional(look::small()), Color32::from_gray(140));
         };
         let fit = |w: f32, h: f32| ((r.width() - GAP) / w).min((r.height() - GAP) / h).floor().clamp(1.0, 6.0);
         if self.preview == 3 {
@@ -1282,7 +1282,7 @@ impl Textures {
         app.view.left_turns = true;
         app.view.live = false;
         let r = app.view.ui(ui, BOX, |p, _, r| {
-            p.text(r.center(), egui::Align2::CENTER_CENTER, "the lit block comes with the game's renderer", egui::FontId::proportional(look::SMALL), Color32::from_gray(140));
+            p.text(r.center(), egui::Align2::CENTER_CENTER, "the lit block comes with the game's renderer", egui::FontId::proportional(look::small()), Color32::from_gray(140));
         });
         let help = format!("The block in the game's renderer: drag turns, the wheel zooms, the middle drag pans, a double click puts the camera back (textures written in {:.1} ms)", self.tex_ms);
         let r = look::tip(r, &help, "");
@@ -1677,7 +1677,7 @@ impl Page for Textures {
             }
             None => {
                 p.rect_filled(face, 0.0, dim(self.block_colour(app)));
-                p.text(face.center(), egui::Align2::CENTER_CENTER, "unpainted: paint to start, or Start from: Pattern", egui::FontId::proportional(look::BODY), Color32::from_gray(230));
+                p.text(face.center(), egui::Align2::CENTER_CENTER, "unpainted: paint to start, or Start from: Pattern", egui::FontId::proportional(look::body()), Color32::from_gray(230));
             }
         }
         if scale >= 8.0 {
@@ -1719,7 +1719,7 @@ impl Page for Textures {
         let cell = pos.map(|q| ((q - at) / scale).floor()).map(|c| (c.x as i32, c.y as i32));
         if let Some((f, _)) = self.pending.as_ref().filter(|(f, _)| *f == self.file(self.face)) {
             // nothing is painted under a pending change: it is shown, not yet the file's
-            let g = p.layout_no_wrap(format!("Pending: {f} as it would be. Use or Cancel"), egui::FontId::proportional(look::BODY), Color32::WHITE);
+            let g = p.layout_no_wrap(format!("Pending: {f} as it would be. Use or Cancel"), egui::FontId::proportional(look::body()), Color32::WHITE);
             let at = rect.left_top() + Vec2::splat(GAP);
             p.rect_filled(Rect::from_min_size(at, g.size()).expand(4.0), 4.0, look::DRAFT.gamma_multiply(0.7));
             p.galley(at, g, Color32::WHITE);

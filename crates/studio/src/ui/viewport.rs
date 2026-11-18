@@ -467,7 +467,7 @@ impl Viewport {
         }
         self.pump(ui.ctx(), w, h);
         let p = ui.painter_at(rect);
-        p.rect_filled(rect, 4.0, Color32::from_rgb(20, 21, 24));
+        p.rect_filled(rect, 4.0, look::BG);
         // the frame's part that fills the rectangle (cropped, never stretched)
         let uv = if self.img[0] > 0 {
             let (ia, ra) = (self.img[0] as f32 / self.img[1] as f32, rect.width() / rect.height());
@@ -492,7 +492,7 @@ impl Viewport {
                     State::Failed(e) => format!("2D preview: {e}"),
                     _ => "2D preview: starting the game's renderer…".into(),
                 };
-                p.text(rect.left_bottom() + Vec2::new(GAP, -GAP), egui::Align2::LEFT_BOTTOM, why, egui::FontId::proportional(look::SMALL), Color32::from_gray(150));
+                p.text(rect.left_bottom() + Vec2::new(GAP, -GAP), egui::Align2::LEFT_BOTTOM, why, egui::FontId::proportional(look::small()), Color32::from_gray(150));
             }
         }
         resp

@@ -344,6 +344,8 @@ pub struct Studio {
     /// still to be put on one (the window's first frame; a shot keeps the scale it is given).
     native: f32,
     snap_scale: bool,
+    /// The page tabs wrapped to a second row last frame (a large scale on a small window): the top bar grows.
+    tabs_wrap: bool,
     /// The game "Try in game" started, while the Studio can still talk to it.
     game: Option<std::process::Child>,
     /// Off for a shot: it never writes the developer's studio.txt.
@@ -453,6 +455,7 @@ impl Studio {
             history_open: None,
             native: 1.0,
             snap_scale: false,
+            tabs_wrap: false,
             game: None,
             recovery,
             recovered,
@@ -484,9 +487,11 @@ impl Studio {
             Cmd::new("frame:keys", "Key sheet", "every key of this page").key(Modifiers::NONE, Key::F1),
             Cmd::new("frame:problems", "Problems", "what the file check refuses; a click opens the file"),
             Cmd::new("frame:history", "History", "the open file's undo steps by name; a click goes back to one"),
-            Cmd::new("frame:larger", "Interface larger", "the interface scale up to the next size the font's pixels are sharp at").key(Modifiers::COMMAND, Key::Equals),
+            Cmd::new("frame:larger", "Interface larger", "the interface scale up a step (with the game font, to the next size its pixels are sharp at)").key(Modifiers::COMMAND, Key::Equals),
             Cmd::new("frame:smaller", "Interface smaller", "the interface scale down a step").key(Modifiers::COMMAND, Key::Minus),
-            Cmd::new("frame:scale100", "Interface as new", "the interface scale nearest 100 % that the font's pixels are sharp at").key(Modifiers::COMMAND, Key::Num0),
+            Cmd::new("frame:scale100", "Interface as new", "the interface scale at 100 % (with the game font, the nearest its pixels are sharp at)").key(Modifiers::COMMAND, Key::Num0),
+            Cmd::new("frame:font:clean", "Interface font: Clean", "the interface in a clean sans (Segoe UI), kept in studio.txt"),
+            Cmd::new("frame:font:game", "Interface font: Game", "the interface in the game's own pixel font, kept in studio.txt"),
             Cmd::new("frame:try", "Try in game", "save the open file and start the game on it: a creative world that keeps no save, the thing standing ahead; again while that game runs stands the open structure or creature ahead of you there").key(Modifiers::NONE, Key::F5),
             Cmd::new("frame:files", "Files column", "hide or show the files column on this page").key(Modifiers::NONE, Key::F2),
             Cmd::new("frame:inspector", "Inspector", "hide or show the inspector on this page").key(Modifiers::NONE, Key::F3),
@@ -560,9 +565,14 @@ impl Studio {
             "frame:keys" => self.overlay = Overlay::Keys,
             "frame:problems" => self.overlay = Overlay::Problems,
             "frame:history" => self.history_open = Some(true),
-            "frame:larger" => self.settings.scale = shell::sharp_scale(self.settings.scale, self.native, 1),
-            "frame:smaller" => self.settings.scale = shell::sharp_scale(self.settings.scale, self.native, -1),
-            "frame:scale100" => self.settings.scale = shell::sharp_scale(1.0, self.native, 0),
+            "frame:larger" => self.settings.scale = shell::step_scale(self.settings.scale, self.native, 1, self.settings.game_font),
+            "frame:smaller" => self.settings.scale = shell::step_scale(self.settings.scale, self.native, -1, self.settings.game_font),
+            "frame:scale100" => self.settings.scale = shell::step_scale(1.0, self.native, 0, self.settings.game_font),
+            "frame:font:clean" | "frame:font:game" => {
+                self.settings.game_font = id.ends_with("game");
+                // the fonts and the style again, and the scale onto the new font's steps
+                (self.styled, self.snap_scale) = (false, true);
+            }
             "frame:files" | "frame:inspector" => {
                 let key = self.panel(&id[6..]);
                 if !self.settings.hidden.remove(&key) {
@@ -582,7 +592,7 @@ impl Studio {
             }
             "frame:try" => self.try_in_game(),
             "frame:swap" => self.settings.swap ^= true,
-            "frame:reset" => self.settings = Settings { files_w: self.settings.files_w, inspector_w: self.settings.inspector_w, scale: self.settings.scale, page: self.settings.page.clone(), open: self.settings.open.clone(), ..Settings::default() },
+            "frame:reset" => self.settings = Settings { files_w: self.settings.files_w, inspector_w: self.settings.inspector_w, scale: self.settings.scale, page: self.settings.page.clone(), open: self.settings.open.clone(), game_font: self.settings.game_font, ..Settings::default() },
             _ => {
                 if let Some(h) = id.strip_prefix("hour:").and_then(|h| h.parse::<f32>().ok()) {
                     // the game view's Time slider (for `shot= cmd=hour:18`)
@@ -673,13 +683,13 @@ impl Studio {
     pub fn show(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         if !self.styled {
-            look::fonts(&ctx);
+            look::fonts(&ctx, self.settings.game_font);
             look::apply(&ctx);
             self.styled = true;
         }
         self.native = ctx.native_pixels_per_point().unwrap_or(1.0);
         if std::mem::take(&mut self.snap_scale) {
-            self.settings.scale = shell::sharp_scale(self.settings.scale, self.native, 0);
+            self.settings.scale = shell::step_scale(self.settings.scale, self.native, 0, self.settings.game_font);
         }
         if (ctx.zoom_factor() - self.settings.scale).abs() > 1e-3 {
             ctx.set_zoom_factor(self.settings.scale);
@@ -699,8 +709,8 @@ impl Studio {
         self.keys(&ctx);
         look::set_layout(&ctx, look::Layout { page: self.pages[self.page].name().into(), folded: self.settings.folded.clone(), splits: self.settings.splits.clone(), order: self.settings.order.clone() });
 
-        egui::Panel::top("pages").show(ui, |ui| self.top_bar(ui));
-        egui::Panel::bottom("status").exact_size(30.0).show(ui, |ui| self.status_line(ui));
+        egui::Panel::top("pages").exact_size(if self.tabs_wrap { 72.0 } else { 40.0 }).show(ui, |ui| self.top_bar(ui));
+        egui::Panel::bottom("status").exact_size(24.0).show(ui, |ui| self.status_line(ui));
         // at a large scale on a small window the side panels give way to the work
         let wide = ctx.content_rect().width();
         // (the centre keeps at least half the window; what does not fit a column scrolls, never runs under another)
@@ -717,7 +727,7 @@ impl Studio {
         let insp = (!hide_i).then(|| side(swap, &ik).resizable(true).default_size(iw).size_range(Settings::INSPECTOR.0.min(wide * 0.26)..=Settings::INSPECTOR.1.min(insp_max)).show(ui, |ui| self.inspector(ui)));
         // before the work area: a page's work refreshes from the palette (and would drop a colour not added yet)
         self.palette_commands(&ctx);
-        egui::CentralPanel::default().show(ui, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::central_panel(&ctx.global_style()).fill(look::BG)).show(ui, |ui| {
             egui::ScrollArea::both().id_salt("work").auto_shrink([false, false]).show(ui, |ui| self.pages[self.page].work(ui, &mut self.app));
         });
         // only a drag of an edge sets the widths kept, not a panel squeezed by a large scale
@@ -784,18 +794,31 @@ impl Studio {
     }
 
     fn top_bar(&mut self, ui: &mut Ui) {
-        // the buttons on the right first, then the title and the page tabs in what is left, wrapping to a second
-        // row in a narrow window
+        // the buttons on the right first, then the page tabs in what is left, wrapping to a second row in a
+        // narrow window
         let narrow = ui.available_width() < 1100.0;
-        ui.horizontal(|ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        // two rows of tabs start at the top, one is centred
+        let align = if self.tabs_wrap { egui::Align::Min } else { egui::Align::Center };
+        ui.add_space(if self.tabs_wrap { 4.0 } else { 0.0 });
+        ui.horizontal_centered(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(align), |ui| {
+                let r = ui.add(look::primary("Try in game"));
+                crate::drive::mark(ui.ctx(), "try", r.rect);
+                if look::tip(r, "Save the open file and start the game on it: a creative world that keeps no save, the thing standing ahead. Later saves show there within a second", "F5").clicked() {
+                    self.run_command("frame:try");
+                }
                 let pct = format!("{:.0} %", self.settings.scale * 100.0);
                 let r = ui.menu_button(pct, |ui| {
-                    // (the sizes the font's pixels are sharp at, smallest first)
-                    let mut sizes = vec![shell::sharp_scale(Settings::SCALE.0, self.native, 0)];
-                    while sizes.last().is_some_and(|s| shell::sharp_scale(*s, self.native, 1) > s + 1e-3) {
-                        sizes.push(shell::sharp_scale(sizes[sizes.len() - 1], self.native, 1));
-                    }
+                    // the clean font's list; the game font's sharp sizes, smallest first
+                    let sizes = if self.settings.game_font {
+                        let mut v = vec![shell::sharp_scale(Settings::SCALE.0, self.native, 0)];
+                        while v.last().is_some_and(|s| shell::sharp_scale(*s, self.native, 1) > s + 1e-3) {
+                            v.push(shell::sharp_scale(v[v.len() - 1], self.native, 1));
+                        }
+                        v
+                    } else {
+                        shell::CLEAN_SCALES.to_vec()
+                    };
                     for s in sizes {
                         if ui.selectable_label((self.settings.scale - s).abs() < 0.01, format!("{:.0} %", s * 100.0)).clicked() {
                             self.settings.scale = s;
@@ -809,11 +832,6 @@ impl Studio {
                 crate::drive::mark(ui.ctx(), "keys", r.rect);
                 if look::tip(r, "Every key of this page", "F1").clicked() {
                     self.overlay = Overlay::Keys;
-                }
-                let r = ui.button("Try in game");
-                crate::drive::mark(ui.ctx(), "try", r.rect);
-                if look::tip(r, "Save the open file and start the game on it: a creative world that keeps no save, the thing standing ahead. Later saves show there within a second", "F5").clicked() {
-                    self.run_command("frame:try");
                 }
                 // the layout: what is shown and where
                 let r = ui.menu_button("View", |ui| {
@@ -835,6 +853,16 @@ impl Studio {
                             run = Some(id);
                         }
                     }
+                    ui.horizontal(|ui| {
+                        ui.label("Interface font");
+                        look::segmented(ui, |ui| {
+                            for (id, on, label) in [("frame:font:clean", !s.game_font, "Clean"), ("frame:font:game", s.game_font, "Game")] {
+                                if look::tip(look::chip(ui, on, label), "Kept in studio.txt; the game font keeps its pixel-sharp sizes", "").clicked() {
+                                    run = Some(id);
+                                }
+                            }
+                        });
+                    });
                     ui.separator();
                     if ui.button("Layout as new").clicked() {
                         run = Some("frame:reset");
@@ -845,35 +873,51 @@ impl Studio {
                     }
                 });
                 crate::drive::mark(ui.ctx(), "view", r.response.rect);
-                look::tip(r.response, "Hide or show the side panels, swap their sides; sections fold by a click on their title, dividers drag", "F2, F3, F4");
-                let r = ui.button("Find…");
-                crate::drive::mark(ui.ctx(), "find", r.rect);
-                if look::tip(r, "Find any file, page, tool or action and run it", "Ctrl+P").clicked() {
+                look::tip(r.response, "Hide or show the side panels, swap their sides, the interface font; sections fold by a click on their title, dividers drag", "F2, F3, F4");
+                // a search field to look at: the command box
+                let (fr, fresp) = ui.allocate_exact_size(Vec2::new(150.0, 26.0), Sense::click());
+                let p = ui.painter();
+                p.rect(fr, 13.0, look::BG, egui::Stroke::new(1.0, if fresp.hovered() { look::DISABLED } else { look::FIELD }), egui::StrokeKind::Inside);
+                p.text(fr.left_center() + Vec2::new(12.0, 0.0), Align2::LEFT_CENTER, "Find…", egui::FontId::proportional(look::body()), look::TEXT2);
+                p.text(fr.right_center() - Vec2::new(12.0, 0.0), Align2::RIGHT_CENTER, "Ctrl+P", egui::FontId::proportional(look::small()), look::DISABLED);
+                crate::drive::mark(ui.ctx(), "find", fr);
+                if look::tip(fresp, "Find any file, page, tool or action and run it", "Ctrl+P").clicked() {
                     self.run_command("frame:commands");
                 }
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true), |ui| {
+                ui.with_layout(egui::Layout::left_to_right(align).with_main_wrap(true), |ui| {
                     ui.add_space(GAP * 0.5);
-                    // where the title and tabs of 64 points would not fit in one row, the tabs alone, each as wide
-                    // as its name (ten pages at 1600 x 900 and 133 %)
-                    let text_w = |ui: &mut Ui, t: &str| ui.fonts_mut(|f| f.layout_no_wrap(t.into(), egui::FontId::proportional(look::BODY), Color32::WHITE).size().x);
-                    let pad = ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
+                    // tabs as plain text, each with a dot in its page's colour; the open one white, underlined in
+                    // its colour. The title where all of it fits in one row
+                    let font = look::strong(look::body());
+                    let text_w = |ui: &mut Ui, t: &str| ui.fonts_mut(|f| f.layout_no_wrap(t.into(), font.clone(), Color32::WHITE).size().x);
+                    let tab_w = |ui: &mut Ui, t: &str| text_w(ui, t) + 14.0 + GAP * 1.5;
                     let names: Vec<&'static str> = self.pages.iter().map(|p| p.name()).collect();
-                    let need = GAP * 2.5 + text_w(ui, "TechnoApe Studio") + names.iter().map(|n| (text_w(ui, n) + pad - ui.spacing().item_spacing.x).max(64.0) + ui.spacing().item_spacing.x).sum::<f32>();
-                    let narrow = narrow || need > ui.available_width();
-                    if !narrow {
-                        ui.label(RichText::new("TechnoApe Studio").strong().color(Color32::from_gray(170)));
+                    let need = GAP * 2.5 + text_w(ui, "TechnoApe Studio") + names.iter().map(|n| tab_w(ui, n) + 2.0).sum::<f32>();
+                    if !(narrow || need > ui.available_width()) {
+                        ui.label(RichText::new("TechnoApe Studio").font(font.clone()).color(look::TEXT2));
                         ui.add_space(GAP * 2.0);
                     }
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    let mut top = None;
                     for i in 0..self.pages.len() {
                         let name = self.pages[i].name();
-                        // a tab wears its page's colour: a line under it, and its fill when open
                         let (on, c) = (self.page == i, look::page_colour(name));
-                        let text = RichText::new(name).strong();
-                        let r = ui.add(egui::Button::new(if on { text.color(Color32::WHITE) } else { text }).fill(if on { c.gamma_multiply(0.35) } else { Color32::TRANSPARENT }).min_size(Vec2::new(if narrow { 0.0 } else { 64.0 }, 26.0)));
-                        let line = Rect::from_min_max(Pos2::new(r.rect.min.x + 4.0, r.rect.max.y - 2.0), Pos2::new(r.rect.max.x - 4.0, r.rect.max.y));
-                        ui.painter().rect_filled(line, 1.0, if on { c } else { c.gamma_multiply(0.45) });
-                        crate::drive::mark(ui.ctx(), format!("tab:{name}"), r.rect);
-                        if look::tip(r, &format!("The {name} page"), &format!("Ctrl+{}", i + 1)).clicked() {
+                        let w = tab_w(ui, name);
+                        let (r, resp) = ui.allocate_exact_size(Vec2::new(w, 32.0), Sense::click());
+                        let first = *top.get_or_insert(r.top());
+                        self.tabs_wrap = r.top() > first + 1.0;
+                        let p = ui.painter();
+                        if resp.hovered() && !on {
+                            p.rect_filled(r.shrink2(Vec2::new(0.0, 3.0)), 4.0, look::RAISED);
+                        }
+                        p.circle_filled(Pos2::new(r.left() + GAP * 0.75 + 3.0, r.center().y), 3.0, c);
+                        let col = if on { Color32::WHITE } else if resp.hovered() { look::TEXT } else { look::TEXT2 };
+                        p.text(Pos2::new(r.left() + GAP * 0.75 + 12.0, r.center().y), Align2::LEFT_CENTER, name, font.clone(), col);
+                        if on {
+                            p.rect_filled(Rect::from_min_max(Pos2::new(r.left() + 4.0, r.max.y - 2.0), Pos2::new(r.right() - 4.0, r.max.y)), 1.0, c);
+                        }
+                        crate::drive::mark(ui.ctx(), format!("tab:{name}"), r);
+                        if look::tip(resp, &format!("The {name} page"), &format!("Ctrl+{}", i + 1)).clicked() {
                             self.page = i;
                         }
                     }
@@ -888,8 +932,8 @@ impl Studio {
         let unsaved = self.app.docs.values().filter(|d| d.dirty()).count() + self.pages.iter().map(|p| p.unsaved().len()).sum::<usize>();
         ui.horizontal_centered(|ui| {
             let full = ui.available_width();
-            ui.allocate_ui(Vec2::new(full * 0.5, 20.0), |ui| {
-                ui.add(egui::Label::new(RichText::new(help).small()).truncate());
+            ui.allocate_ui(Vec2::new(full * 0.5, 18.0), |ui| {
+                ui.add(egui::Label::new(RichText::new(help).small().color(look::TEXT2)).truncate());
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let n = self.app.problems.len();
@@ -912,8 +956,7 @@ impl Studio {
         let r = ui.add(egui::TextEdit::singleline(&mut self.search).hint_text("Search").desired_width(f32::INFINITY));
         crate::drive::mark(ui.ctx(), "search", r.rect);
         look::tip(r, "Search the files of this page by name", "");
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::new(4.0, 4.0);
+        look::segmented(ui, |ui| {
             for (f, name, help) in FILTERS {
                 let r = look::chip(ui, self.filter == f, name);
                 if look::tip(r, help, "").clicked() {
@@ -968,11 +1011,15 @@ impl Studio {
                 let p = ui.painter();
                 let on = cur.as_deref() == Some(row.id.as_str());
                 if on {
-                    p.rect_filled(rect, 4.0, ui.visuals().selection.bg_fill);
+                    // the open row: raised, a 2 point accent bar at its left
+                    p.rect_filled(rect, 4.0, look::PRESSED);
+                    p.rect_filled(Rect::from_min_size(rect.min + Vec2::new(0.0, 6.0), Vec2::new(2.0, rect.height() - 12.0)), 1.0, look::ACCENT);
                 } else if resp.hovered() {
-                    p.rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+                    p.rect_filled(rect, 4.0, look::RAISED);
                 }
-                let thumb = Rect::from_min_size(rect.min + Vec2::new(4.0, 3.0), Vec2::splat(28.0));
+                let thumb = Rect::from_min_size(rect.min + Vec2::new(6.0, 3.0), Vec2::splat(28.0));
+                // a 4 point rounded picture: drawn, then its corners cut in the row's colour
+                let behind = if on { look::PRESSED } else if resp.hovered() { look::RAISED } else { look::PANEL };
                 match &row.thumb {
                     Thumb::Img(img) => look::draw(p, img, 0, thumb.min, 28.0 / 16.0, false),
                     Thumb::Flat(c) => {
@@ -985,13 +1032,14 @@ impl Studio {
                         }
                     }
                 }
+                p.rect_stroke(thumb.expand(2.0), 6.0, egui::Stroke::new(4.0, behind), egui::StrokeKind::Inside);
                 let mut right = rect.max.x - 6.0;
-                let small = egui::FontId::proportional(look::SMALL);
+                let small = egui::FontId::proportional(look::small());
                 if row.flags.draft {
                     let g = p.layout_no_wrap("draft".into(), small.clone(), look::DRAFT);
                     let w = g.size().x;
-                    let pill = Rect::from_center_size(Pos2::new(right - w / 2.0 - 4.0, rect.center().y), Vec2::new(w + 8.0, 16.0));
-                    p.rect_stroke(pill, 8.0, egui::Stroke::new(1.0, look::DRAFT.gamma_multiply(0.7)), egui::StrokeKind::Inside);
+                    let pill = Rect::from_center_size(Pos2::new(right - w / 2.0 - 5.0, rect.center().y), Vec2::new(w + 10.0, g.size().y + 2.0));
+                    p.rect_filled(pill, pill.height() / 2.0, look::DRAFT.gamma_multiply(0.2));
                     p.galley(pill.center() - g.size() / 2.0, g, look::DRAFT);
                     right = pill.min.x - 4.0;
                 }
@@ -1000,9 +1048,9 @@ impl Studio {
                     right -= 16.0;
                 }
                 let x = thumb.max.x + GAP;
-                let text_col = if row.flags.made || on { ui.visuals().strong_text_color() } else { ui.visuals().text_color() };
+                let text_col = if on { Color32::WHITE } else if row.flags.made { look::TEXT } else { look::TEXT2 };
                 // a name too long for its row ends in "…", not under the badge
-                let mut job = egui::text::LayoutJob::simple_singleline(name.into(), egui::FontId::proportional(look::BODY), text_col);
+                let mut job = egui::text::LayoutJob::simple_singleline(name.into(), egui::FontId::proportional(look::body()), text_col);
                 if let Some(tag) = tag {
                     job.append(tag, 6.0, egui::TextFormat::simple(small.clone(), ui.visuals().weak_text_color()));
                 }
@@ -1038,7 +1086,7 @@ impl Studio {
                     ("redo", Some((_, r))) => !r.is_empty(),
                     _ => true,
                 };
-                let b = if id == "save" && self.open_dirty { egui::Button::new(RichText::new(label).color(Color32::WHITE)).fill(look::GOOD.gamma_multiply(0.45)) } else { egui::Button::new(label) };
+                let b = if id == "save" && self.open_dirty { look::primary(label) } else { egui::Button::new(label) };
                 let r = ui.add_enabled(live, b);
                 crate::drive::mark(ui.ctx(), format!("btn:{id}"), r.rect);
                 if look::tip(r, &c.help, &c.keys()).clicked() {
@@ -1054,12 +1102,11 @@ impl Studio {
             }
         });
         ui.add_space(GAP * 0.25);
-        ui.separator();
         self.pages[self.page].inspector_top(ui, &mut self.app);
         egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
             self.pages[self.page].inspector(ui, &mut self.app);
             ui.add_space(GAP);
-            egui::CollapsingHeader::new(RichText::new("History").strong()).id_salt("history").default_open(false).open(self.history_open.take()).show(ui, |ui| {
+            egui::CollapsingHeader::new(RichText::new("History").font(look::strong(look::body()))).id_salt("history").default_open(false).open(self.history_open.take()).show(ui, |ui| {
                 let Some((undo, redo)) = hist else {
                     look::weak(ui, "this page saves each change at once");
                     return;
@@ -1127,23 +1174,29 @@ impl Studio {
                 look::weak(ui, "nothing found");
             }
             for (k, (_, (id, label, from, keys))) in found.iter().enumerate() {
-                let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 26.0), Sense::click());
+                let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 30.0), Sense::click());
                 let p = ui.painter();
                 if k == self.picked {
-                    p.rect_filled(rect, 4.0, ui.visuals().selection.bg_fill);
+                    p.rect_filled(rect, 4.0, look::PRESSED);
+                    p.rect_filled(Rect::from_min_size(rect.min + Vec2::new(0.0, 5.0), Vec2::new(2.0, rect.height() - 10.0)), 1.0, look::ACCENT);
                 } else if resp.hovered() {
-                    p.rect_filled(rect, 4.0, ui.visuals().widgets.hovered.weak_bg_fill);
+                    p.rect_filled(rect, 4.0, look::RAISED);
                 }
                 let y = rect.center().y;
-                let kg = p.layout_no_wrap(keys.clone(), egui::FontId::monospace(look::SMALL), Color32::from_gray(170));
+                let kg = p.layout_no_wrap(keys.clone(), egui::FontId::proportional(look::small()), look::TEXT);
                 let kx = rect.max.x - GAP - kg.size().x;
-                p.galley(Pos2::new(kx, y - kg.size().y / 2.0), kg, Color32::from_gray(170));
-                let lg = p.layout_no_wrap(label.clone(), egui::FontId::proportional(look::BODY), ui.visuals().strong_text_color());
+                if !keys.is_empty() {
+                    // the key in a keycap
+                    let cap = Rect::from_min_size(Pos2::new(kx - 5.0, y - kg.size().y / 2.0 - 1.0), kg.size() + Vec2::new(10.0, 2.0));
+                    p.rect(cap, 4.0, look::RAISED, egui::Stroke::new(1.0, look::FIELD), egui::StrokeKind::Inside);
+                }
+                p.galley(Pos2::new(kx, y - kg.size().y / 2.0), kg, look::TEXT);
+                let lg = p.layout_no_wrap(label.clone(), egui::FontId::proportional(look::body()), ui.visuals().strong_text_color());
                 let lw = lg.size().x;
                 p.with_clip_rect(rect.with_max_x(kx - GAP)).galley(Pos2::new(rect.min.x + GAP, y - lg.size().y / 2.0), lg, Color32::WHITE);
                 let fx = rect.min.x + GAP * 2.0 + lw;
                 if fx < kx - GAP * 2.0 {
-                    p.with_clip_rect(rect.with_max_x(kx - GAP)).text(Pos2::new(fx, y), Align2::LEFT_CENTER, from, egui::FontId::proportional(look::SMALL), Color32::from_gray(130));
+                    p.with_clip_rect(rect.with_max_x(kx - GAP)).text(Pos2::new(fx, y), Align2::LEFT_CENTER, from, egui::FontId::proportional(look::small()), look::TEXT2);
                 }
                 if resp.clicked() {
                     run = Some(id.clone());
@@ -1173,17 +1226,17 @@ impl Studio {
         let m = egui::Modal::new(Id::unique("key sheet")).show(ctx, |ui| {
             ui.set_width(640.0_f32.min(ctx.content_rect().width() - 80.0));
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("Keys: {name}")).strong());
+                ui.label(RichText::new(format!("Keys: {name}")).font(look::strong(look::body())).color(Color32::WHITE));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| look::weak(ui, "Esc or a click outside closes"));
             });
             ui.separator();
             // the page's own help first: what it is for and how to start
-            ui.add(egui::Label::new(RichText::new(help).color(look::ACCENT)).wrap());
+            ui.add(egui::Label::new(RichText::new(help).color(look::TEXT)).wrap());
             ui.add_space(GAP * 0.5);
             let rows = |ui: &mut Ui, id: &str, list: Vec<(String, String)>| {
                 egui::Grid::new(id).num_columns(2).spacing(Vec2::new(GAP * 2.0, 4.0)).show(ui, |ui| {
                     for (k, what) in list {
-                        ui.label(RichText::new(k).monospace().color(look::ACCENT));
+                        look::keycap(ui, &k);
                         ui.label(RichText::new(what).small());
                         ui.end_row();
                     }
@@ -1247,14 +1300,16 @@ impl Studio {
         egui::Area::new(Id::unique("toasts")).order(egui::Order::Tooltip).anchor(Align2::RIGHT_BOTTOM, Vec2::new(-GAP * 1.5, -40.0)).interactable(true).show(ctx, |ui| {
             ui.set_max_width(380.0);
             for (i, t) in self.app.toasts.iter().enumerate().skip(shown) {
-                let (fill, edge) = if t.bad { (Color32::from_rgb(70, 30, 30), look::BAD) } else { (Color32::from_rgb(44, 47, 53), Color32::from_gray(70)) };
-                let r = egui::Frame::new().fill(fill).stroke(egui::Stroke::new(1.0, edge)).corner_radius(6.0).inner_margin(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
+                // a card with a soft shadow; a refusal has a red bar at its left
+                let r = egui::Frame::new().fill(look::RAISED).stroke(egui::Stroke::new(1.0, look::LINE)).corner_radius(8.0).shadow(ctx.global_style().visuals.popup_shadow).inner_margin(egui::Margin { left: 16, right: 12, top: 8, bottom: 8 }).show(ui, |ui| {
                     ui.set_min_width(220.0);
-                    ui.add(egui::Label::new(RichText::new(&t.text).small().color(Color32::from_gray(230))).wrap());
+                    ui.add(egui::Label::new(RichText::new(&t.text).color(look::TEXT)).wrap());
                     if t.bad {
                         look::weak(ui, "click to dismiss");
                     }
                 });
+                let bar = r.response.rect;
+                ui.painter().rect_filled(Rect::from_min_size(bar.min + Vec2::new(5.0, 8.0), Vec2::new(3.0, bar.height() - 16.0)), 1.5, if t.bad { look::BAD } else { look::GOOD });
                 if t.bad && r.response.interact(Sense::click()).clicked() {
                     gone = Some(i);
                 }

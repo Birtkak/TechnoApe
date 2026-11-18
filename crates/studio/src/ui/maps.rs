@@ -40,7 +40,7 @@ fn kind_colour(k: Data) -> Color32 {
 
 // a node's box: its band, its picture, then a row each for its words, its numbers and its input pins
 const W: f32 = 210.0;
-const HEAD: f32 = 26.0;
+const HEAD: f32 = 22.0;
 const PIC: f32 = 72.0;
 const ROW_H: f32 = 24.0;
 /// A pin is drawn 12 points across and hit 20 across.
@@ -79,13 +79,13 @@ fn row_rect(r: Rect, k: usize) -> Rect {
 fn num_row(ui: &Ui, r: Rect, id: Id, name: &str, v: f32, (min, max, whole): (f32, f32, bool), legible: bool) -> (egui::Response, Option<f32>) {
     let resp = ui.interact(r, id, Sense::click_and_drag());
     let p = ui.painter();
-    p.rect_filled(r, 4.0, Color32::from_gray(28));
+    p.rect_filled(r, 4.0, look::BG);
     let t = ((v - min) / (max - min)).clamp(0.0, 1.0);
     let lit = if resp.hovered() || resp.dragged() { 0.6 } else { 0.4 };
     p.rect_filled(Rect::from_min_size(r.min, Vec2::new(r.width() * t, r.height())), 4.0, look::ACCENT.gamma_multiply(lit));
     if legible {
-        let font = FontId::proportional(look::BODY);
-        p.text(r.left_center() + Vec2::new(6.0, 0.0), Align2::LEFT_CENTER, name, font.clone(), Color32::from_gray(225));
+        let font = FontId::proportional(look::body());
+        p.text(r.left_center() + Vec2::new(6.0, 0.0), Align2::LEFT_CENTER, name, font.clone(), look::TEXT);
         p.text(r.right_center() - Vec2::new(6.0, 0.0), Align2::RIGHT_CENTER, if whole { format!("{v:.0}") } else { format!("{v:.2}") }, font, Color32::WHITE);
     }
     let start = ui.ctx().data_mut(|d| {
@@ -534,13 +534,13 @@ impl Maps {
             };
             let p = ui.painter();
             if resp.hovered() {
-                p.rect_filled(r, 6.0, ui.visuals().widgets.hovered.weak_bg_fill);
+                p.rect_filled(r, 6.0, look::RAISED);
             }
             if let Some(img) = img {
                 look::draw(p, &img, 0, r.min + Vec2::new(6.0, 6.0), 3.0, false);
             }
-            p.text(r.min + Vec2::new(64.0, 18.0), Align2::LEFT_CENTER, st, FontId::proportional(look::BODY), Color32::WHITE);
-            p.text(r.min + Vec2::new(64.0, 40.0), Align2::LEFT_CENTER, what, FontId::proportional(look::SMALL), ui.visuals().weak_text_color());
+            p.text(r.min + Vec2::new(64.0, 18.0), Align2::LEFT_CENTER, st, FontId::proportional(look::body()), Color32::WHITE);
+            p.text(r.min + Vec2::new(64.0, 40.0), Align2::LEFT_CENTER, what, FontId::proportional(look::small()), ui.visuals().weak_text_color());
             if look::tip(resp, &format!("A new map from {st}: {what}"), "").clicked() {
                 pick = Some(st);
             }
@@ -653,7 +653,7 @@ impl Maps {
                 let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), cell + 22.0), Sense::hover());
                 let p = ui.painter();
                 for (x, label, pic) in [(r.min.x, "now", now.as_ref()), (r.min.x + cell + GAP * 2.0, "after Use", Some(img))] {
-                    p.text(Pos2::new(x, r.min.y + 8.0), Align2::LEFT_CENTER, label, FontId::proportional(look::SMALL), ui.visuals().weak_text_color());
+                    p.text(Pos2::new(x, r.min.y + 8.0), Align2::LEFT_CENTER, label, FontId::proportional(look::small()), ui.visuals().weak_text_color());
                     let at = Pos2::new(x, r.min.y + 20.0);
                     match pic {
                         Some(pic) => {
@@ -664,7 +664,7 @@ impl Maps {
                             }
                         }
                         None => {
-                            p.text(at + Vec2::splat(cell / 2.0), Align2::CENTER_CENTER, "none yet", FontId::proportional(look::SMALL), ui.visuals().weak_text_color());
+                            p.text(at + Vec2::splat(cell / 2.0), Align2::CENTER_CENTER, "none yet", FontId::proportional(look::small()), ui.visuals().weak_text_color());
                         }
                     }
                 }
@@ -767,7 +767,7 @@ impl Maps {
     /// click away leaves it. The row's response (none while typed into) and the new value, typed or not.
     fn num_field(&mut self, ui: &mut Ui, rr: Rect, id: Id, name: &str, v: f32, (min, max, whole): (f32, f32, bool), legible: bool) -> (Option<egui::Response>, Option<(f32, bool)>) {
         if let Some((_, text, fresh)) = self.typing.as_mut().filter(|t| t.0 == id) {
-            let r = ui.put(rr, egui::TextEdit::singleline(text).font(FontId::proportional(look::BODY)));
+            let r = ui.put(rr, egui::TextEdit::singleline(text).font(FontId::proportional(look::body())));
             if std::mem::take(fresh) {
                 r.request_focus();
             }
@@ -843,26 +843,28 @@ impl Maps {
                 }
             }
         }
-        let font = FontId::proportional(look::BODY);
+        let font = FontId::proportional(look::body());
         for (i, n) in m.nodes.iter().enumerate() {
             let s = n.spec();
             let (r, out, ins) = &geoms[i];
             let body = ui.interact(*r, ui.scope_id().with(("node", i)), Sense::click_and_drag());
             mark(format!("node:{}", n.id), *r);
             let on = self.chosen.contains(&i);
-            p.rect_filled(*r, 5.0, Color32::from_rgb(44, 46, 52));
+            // a card: 8 point corners, a soft shadow
+            p.add(egui::Shadow { offset: [0, 4], blur: 14, spread: 0, color: Color32::from_black_alpha(110) }.as_shape(*r, 8));
+            p.rect_filled(*r, 8.0, look::PANEL);
             let band = Rect::from_min_size(r.min, Vec2::new(W, HEAD));
             let gc = GROUPS.iter().find(|g| g.0 == s.group).map_or(Color32::GRAY, |g| g.1);
-            p.rect_filled(band, egui::CornerRadius { nw: 5, ne: 5, sw: 0, se: 0 }, gc.gamma_multiply(0.75));
+            p.rect_filled(band, egui::CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 }, gc.gamma_multiply(0.75));
             // its name strong, its kind weak after it
-            let mut job = egui::text::LayoutJob::simple_singleline(n.id.clone(), font.clone(), Color32::WHITE);
+            let mut job = egui::text::LayoutJob::simple_singleline(n.id.clone(), look::strong(look::body()), Color32::WHITE);
             if n.id != s.kind {
-                job.append(s.kind, 8.0, egui::TextFormat::simple(font.clone(), Color32::from_gray(170)));
+                job.append(s.kind, 8.0, egui::TextFormat::simple(FontId::proportional(look::small()), look::TEXT.gamma_multiply(0.75)));
             }
             job.wrap = egui::text::TextWrapping::truncate_at_width(W - 34.0);
             let g = p.layout_job(job);
             p.galley(band.left_center() + Vec2::new(GAP, -g.size().y / 2.0), g, Color32::WHITE);
-            p.rect_stroke(*r, 5.0, if on { Stroke::new(2.0, look::ACCENT) } else { Stroke::new(1.0, Color32::from_gray(70)) }, egui::StrokeKind::Outside);
+            p.rect_stroke(*r, 8.0, if on { Stroke::new(2.0, look::ACCENT) } else { Stroke::new(1.0, look::LINE) }, egui::StrokeKind::Outside);
             let pic = Rect::from_min_size(Pos2::new(r.center().x - PIC / 2.0, r.min.y + HEAD + GAP * 0.5), Vec2::splat(PIC - GAP * 0.5));
             let tex = self.texture(&ctx, i);
             p.image(tex, pic, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
@@ -875,7 +877,7 @@ impl Maps {
             p.circle(pb.center() - Vec2::new(0.0, 3.0), 4.0, if pinned { pc } else { Color32::TRANSPARENT }, Stroke::new(1.5, pc));
             p.line_segment([pb.center() + Vec2::new(0.0, 1.0), pb.center() + Vec2::new(0.0, 8.0)], Stroke::new(1.5, pc));
             if pinned {
-                p.rect_stroke(band, egui::CornerRadius { nw: 5, ne: 5, sw: 0, se: 0 }, Stroke::new(1.5, Color32::WHITE), egui::StrokeKind::Inside);
+                p.rect_stroke(band, egui::CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 }, Stroke::new(1.5, Color32::WHITE), egui::StrokeKind::Inside);
             }
             if look::tip(pr, if pinned { "Pinned: the preview shows this node whatever is chosen; a click lets it go" } else { "Pin: the preview keeps showing this node while you tune others" }, "P").clicked() {
                 self.pinned = if pinned { None } else { Some(i) };
@@ -1552,7 +1554,7 @@ impl Page for Maps {
             }
             ("particles" | "sway", None) => {
                 p.image(tex, r, full, Color32::from_gray(80));
-                p.text(r.center(), Align2::CENTER_CENTER, "working out the loop…", FontId::proportional(look::BODY), Color32::WHITE);
+                p.text(r.center(), Align2::CENTER_CENTER, "working out the loop…", FontId::proportional(look::body()), Color32::WHITE);
             }
             _ => {
                 let n = if self.mode == "tiled" { 3 } else { 1 };

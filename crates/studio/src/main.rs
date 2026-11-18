@@ -78,9 +78,10 @@ fn shot(studio: &mut ui::Studio, path: &str, w: u32, h: u32, pointer: Option<egu
     let mut out = None;
     // a few passes, so sizes measured in one frame are laid out in the next; half a second apart, so a
     // tooltip under `pointer` shows
-    let points = egui::vec2(w as f32, h as f32) / studio.settings.scale;
     let mut time = 0.0;
     let mut frame = |studio: &mut ui::Studio, f: drive::Frame, dt: f64| {
+        // the scale as of now: a command (the interface font) may change it between frames
+        let points = egui::vec2(w as f32, h as f32) / studio.settings.scale;
         let mut input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, points)), time: Some(time), events: f.events, ..Default::default() };
         if f.close {
             input.viewports.entry(egui::ViewportId::ROOT).or_default().events.push(egui::ViewportEvent::Close);
