@@ -770,6 +770,7 @@ impl Studio {
 
     fn keys(&mut self, ctx: &egui::Context) {
         let typing = ctx.egui_wants_keyboard_input();
+        let wall = wall::shown(ctx);
         let mut run = vec![];
         let mut cmds = Self::frame_commands();
         if !typing && self.overlay == Overlay::None && self.app.asks.is_empty() && !self.closing {
@@ -779,6 +780,10 @@ impl Studio {
             for c in &cmds {
                 let Some((m, k)) = c.key else { continue };
                 // the frame's own keys work while typing in a box too, a page's not
+                // while a variations wall is up, M, Enter and Escape are its own
+                if wall && m == Modifiers::NONE && matches!(k, Key::M | Key::Enter | Key::Escape) && !c.id.starts_with("frame:") {
+                    continue;
+                }
                 if (!typing || c.id.starts_with("frame:")) && i.consume_shortcut(&KeyboardShortcut::new(m, k)) {
                     run.push(c.id.clone());
                 }

@@ -269,6 +269,18 @@ makes what the game will take. Built (ADR 0053): biped, quadruped, bird, fish, h
 idle, turn, eat and hurt are made from the row, never keyed; wings as a plan of their own are the bird's.
 
 ## The variations wall (every wave uses it)
-One shared piece of the interface: a grid of six to twelve previews made from the current thing by a
-"spread" slider, a click takes one, "more like this" refills the wall around it, "back" returns to the last
-wall. Pages feed it their own kind (ramps, textures' variants, chains, effects, seeds, body plans).
+One shared piece of the interface (`ui/wall.rs`): six to twelve candidates made from the current thing.
+Pages feed it their own kind (ramps, textures' variants, chains, effects, seeds, body plans).
+
+- **The grid:** large rounded pictures with no text under them, sharing the width evenly (the cell size
+  lies between the page's least and half as large again). The one the wall was made around carries a
+  "Current" badge.
+- **Picking:** a click picks one (an accent ring and a check badge) and the preview follows; a double click
+  is Use. Hovering a picture lightens its edge and shows a round "more like this" button at its top right
+  (a new set around that one) and, where items can be heard, a play button at its bottom left.
+- **One bar above the grid**, left to right: Use (the blue pill) and Cancel on a page whose pick waits for
+  Use (Textures' variant sets, Maps); "More like this" for the picked one (grey until one is picked);
+  "New batch"; "Back" (the set before the last "more like this"); "How different", a slider from subtle to
+  wild.
+- **Keys** while a wall is up: Enter uses, Escape cancels, M is more like the picked one (M, Enter and Escape
+  are the wall's then, not the page's).

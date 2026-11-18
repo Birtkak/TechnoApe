@@ -466,7 +466,7 @@ impl PalettePage {
             }
             Act::Shuffle => w.shuffle(&vary),
             Act::Spread => w.fill(WALL_N, &vary),
-            Act::None | Act::Play(_) => {}
+            _ => {}
         }
     }
 

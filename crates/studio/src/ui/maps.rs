@@ -715,22 +715,11 @@ impl Maps {
     }
 
     fn wall_ui(&mut self, ui: &mut Ui) {
-        ui.horizontal(|ui| {
-            let r = ui.add_enabled(self.pending.is_some(), egui::Button::new(RichText::new("Use").color(Color32::WHITE)).fill(look::GOOD.gamma_multiply(0.45)));
-            crate::drive::mark(ui.ctx(), "btn:wall.use", r.rect);
-            if look::tip(r, "The picked seeds into the map: one undo step", "").clicked() {
-                self.wall_close(true);
-            }
-            let r = ui.button("Cancel");
-            crate::drive::mark(ui.ctx(), "btn:wall.cancel", r.rect);
-            if look::tip(r, "Back to the graph as it was", "Escape").clicked() {
-                self.wall_close(false);
-            }
-            look::weak(ui, if self.pending.is_some() { "Picked: the preview shows it" } else { "A click picks one; the preview shows it" });
-        });
-        if self.wall.is_none() || ui.input(|i| i.key_pressed(Key::Escape)) {
+        if self.wall.is_none() {
             return self.wall_close(false);
         }
+        look::weak(ui, if self.pending.is_some() { "Picked: the preview shows it; Use keeps it, Cancel goes back to the graph" } else { "A click picks one, the preview shows it; a double click uses it" });
+        let picked = self.pending.is_some();
         let ctx = ui.ctx().clone();
         let w = self.wall.as_mut().unwrap();
         let ids: Vec<egui::TextureId> = w
@@ -749,7 +738,7 @@ impl Maps {
             .collect();
         let chosen = self.pending.as_ref().and_then(|p| w.items.iter().position(|i| i == p));
         let full = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
-        match wall_ui::show_with(ui, w, chosen, Vec2::splat(140.0), false, |p, r, i, _| {
+        match wall_ui::show_full(ui, w, chosen, Vec2::splat(140.0), false, Some(picked), |p, r, i, _| {
             p.image(ids[i], r, full, Color32::WHITE);
         }) {
             wall_ui::Act::Take(i) => self.pending = (i > 0).then(|| w.items[i].clone()),
@@ -759,6 +748,8 @@ impl Maps {
             }
             wall_ui::Act::Shuffle => w.shuffle(&make::variation),
             wall_ui::Act::Spread => w.fill(10, &make::variation),
+            wall_ui::Act::Use => self.wall_close(true),
+            wall_ui::Act::Cancel => self.wall_close(false),
             _ => {}
         }
     }

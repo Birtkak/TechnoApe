@@ -38,6 +38,12 @@ Option 2.
 - **Frame:** a 40 point top bar of plain-text tabs (the open one white, underlined in its page colour), a
   search-like "Find… Ctrl+P", View, Keys, the scale and Try in game; flat section headers with hairlines;
   the open file's row chosen grey with an accent bar; "draft" as a small amber pill; a slimmer status line.
+- **The variations wall** has one action bar above its grid (Use and Cancel where the page's pick waits,
+  More like this for the picked one, New batch, Back, How different from subtle to wild) instead of a
+  "More like this" under every picture; the pictures are large, even, wordless, picked by a click and used
+  by a double click, with a round "more like this" and play button on hover. `wall::Act` keeps its
+  variants and gains `Use` and `Cancel`, so pages that drew their own Use and Cancel (Maps, Textures) let
+  the wall draw them.
 - egui's widget themes (`StyleProvider`, for the selected and field looks of buttons and text fields) are
   behind its `experimental` feature: the Studio names eframe's own egui with that feature on. It is the
   same crate already built, not a new one.

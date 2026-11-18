@@ -1537,7 +1537,7 @@ impl Page for Sounds {
                         self.in_turn(vec![x]);
                     }
                 }
-                wallui::Act::None => {}
+                _ => {}
             }
         }
     }

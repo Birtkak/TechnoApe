@@ -891,19 +891,8 @@ impl Textures {
             return;
         }
         let pending = self.pending.as_ref().filter(|(f, _)| *f == self.file(self.face)).map(|p| p.1.clone());
-        ui.horizontal(|ui| {
-            let r = ui.add_enabled(pending.is_some(), egui::Button::new(RichText::new("Use this").color(Color32::WHITE)).fill(look::GOOD.gamma_multiply(0.45)));
-            crate::drive::mark(ui.ctx(), "btn:wall.use", r.rect);
-            if look::tip(r, "Put the picked set into the file: one undo step, saved with Save", "").clicked() {
-                self.wall_use(app);
-            }
-            let r = ui.add_enabled(pending.is_some(), egui::Button::new("Cancel"));
-            if look::tip(r, "Drop the picked set; the file stays as it was", "").clicked() {
-                self.pending = None;
-            }
-        });
         // its own line: a long label in a row widens the panel past its column
-        look::weak(ui, if pending.is_some() { "Shown on the canvas and the block: Use this keeps it." } else { "A click on a set shows it on the canvas and the block." });
+        look::weak(ui, if pending.is_some() { "Shown on the canvas and the block: Use keeps it." } else { "A click on a set shows it on the canvas and the block." });
         ui.add_space(GAP * 0.5);
         let (n, pal, file) = (self.count, app.pal.clone(), self.file(self.face));
         let gen = |a: &Img, r: &mut Rng, k: f32| tools::make_variants(a, n, k, &pal, r);
@@ -913,7 +902,7 @@ impl Textures {
         let k = 2.5;
         let patch = 4.0 * S as f32 * k;
         let cell = Vec2::new(patch + 12.0, patch + 12.0 + 4.0 + 2.0 * S as f32);
-        let act = wall_ui::show(ui, w, chosen, cell, |p, r, img| {
+        let act = wall_ui::show_full(ui, w, chosen, cell, false, Some(pending.is_some()), |p, r, _, img| {
             for j in 0..4 {
                 for i in 0..4 {
                     draw(p, img, art::variant_at([i, j, 0], img.variants()), r.min + Vec2::new(i as f32, j as f32) * S as f32 * k, k, false);
@@ -931,6 +920,8 @@ impl Textures {
             }
             Act::Shuffle => w.shuffle(&gen),
             Act::Spread => w.fill(9, &gen),
+            Act::Use => self.wall_use(app),
+            Act::Cancel => self.pending = None,
             Act::None | Act::Play(_) => {}
         }
     }
