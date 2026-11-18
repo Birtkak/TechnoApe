@@ -83,6 +83,7 @@ impl Server {
                 inv_dirty: true,
                 vitals: Vitals::default(),
                 breath: vitals::Breath::default(),
+                burn: 0,
                 marks: save::Marks::default(),
                 sent_marks: (None, None),
                 was: DVec3::ZERO,
@@ -605,6 +606,19 @@ fn live(c: &mut Client, world: &World, before: &phys::Player, inp: &Input, sprin
     };
     if c.vitals.smother(&mut c.breath, under, name) {
         deaths.extend(c.vitals.dead.clone());
+    }
+    // feet in a layer-0 cell open down to the liquid metal sea burn (draft the metal sea)
+    let feet = world.block_at(c.phys.pos);
+    if feet.pos.z == 0 && world.bodies[feet.body as usize].core.is_some() && !BLOCKS.solid(world.block(feet)) {
+        c.burn += 1;
+        if c.burn >= vitals::BURN {
+            c.burn = 0;
+            if c.vitals.hurt(1, || format!("{name} burned in the liquid metal")) {
+                deaths.extend(c.vitals.dead.clone());
+            }
+        }
+    } else {
+        c.burn = 0;
     }
     if hit > vitals::safe_speed() {
         // landing in water costs nothing (asked only for a hit that would hurt)

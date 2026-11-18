@@ -245,3 +245,35 @@ fn a_block_placed_in_the_sea_and_dug_leaves_the_sea_as_it_was() {
         assert_eq!(w.water.stored(), 0, "layer {z}: the sea is generation's again");
     }
 }
+
+/// The metal sea (draft the metal sea): a planet with a mantle has one level for the whole body, at the bottom of
+/// layer 0; Luna, a planet without a mantle and one too small for it have none.
+#[test]
+fn the_metal_sea_lies_at_the_mantles_floor_and_only_there() {
+    let w = World::with_grid(1536, 512, 1, None, None, 0.0, true);
+    let b = &w.bodies[0];
+    assert_eq!(b.core.map(|c| b.layer_r(c)), Some(b.r0), "at the bottom of layer 0");
+    assert_eq!(w.bodies[1].core, None, "Luna has none");
+    assert_eq!(World::new(1536, 512, 1).bodies[0].core, None, "nor a world without the mantle");
+    assert_eq!(Body::new(DVec3::ZERO, 512, 1).with_mantle().core, None, "nor a planet too small for a mantle");
+}
+
+/// The metal sea's quads: a lowest chunk draws one in each column whose layer-0 cell is open, at 1/8 of the cell
+/// over its bottom, and none where the floor is whole; a chunk over it and a world without the mantle draw none.
+#[test]
+fn the_metal_shows_only_down_a_hole_in_the_floor() {
+    let open = [(3usize, 4usize), (5, 5), (32, 1)];
+    let edits: Vec<(u32, u16)> = open.iter().map(|&(u, v)| (pidx(u, v, 1) as u32, AIR)).collect();
+    let quads = |w: &World, z: i32| {
+        let k = Key { body: 0, face: 2, level: 0, pos: IVec3::new(3, 3, z) };
+        metal_quads(&w.bodies[0], k, &generate(&w.bodies[0], k, &edits))
+    };
+    let w = World::with_grid(1536, 32, 1, None, None, 0.0, true);
+    let mut got: Vec<(u32, u32, u32, u32, u32)> = quads(&w, 0).iter().map(|q| (q[0] & 63, q[0] >> 6 & 63, q[0] >> 12 & 63, q[0] >> 28, q[1])).collect();
+    got.sort();
+    let mut want: Vec<_> = open.iter().map(|&(u, v)| (u as u32 - 1, v as u32 - 1, 1, 6, 8)).collect();
+    want.sort();
+    assert_eq!(got, want);
+    assert!(quads(&w, 1).is_empty(), "a chunk over the floor");
+    assert!(quads(&World::new(1536, 32, 1), 0).is_empty(), "a world without the mantle");
+}

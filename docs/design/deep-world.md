@@ -58,8 +58,10 @@ A large core (the developer, 2026-11-18), the crust exaggerated as `worldgen.md`
 Luna is cold: no liquid core, no field, which is already why its surface is irradiated (`worldgen.md`).
 
 ## 3. The liquid core and the field
-- The outer core is **counted liquid** like water (`progression.md`, "Water and rock are counted"): fill
-  levels that flow and pool (`vision.md`), a ledger on the server as for ore (ADR 0063).
+- The outer core is **counted liquid** (`progression.md`, "Water and rock are counted"), but as **one level for
+  the whole planet**, like the open sea's account: a connected liquid shell finds one level, so nothing is stored
+  per column; metal taken out lowers that level and a ledger on the server counts it, as for ore (ADR 0063).
+  Today it is generated at the mantle's floor and nothing can take it yet (`docs/decisions/draft-the-metal-sea.md`).
 - **Field strength = liquid metal left / liquid metal at the start.** Pumping it out, or letting it cool solid,
   lowers it. Whether it can be poured back is open.
 - What a weak field costs, in the order it is felt (*proposal* for the thresholds):

@@ -43,5 +43,9 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   viewpoint is the same picture however long its load took (both on every line of `tests/views/views.txt`).
   `depth=m` stands m metres under the ground, in the rock (a new world's grid goes 1248 m down through the
   mantle, ADR 0152): `place=` with `air` digs the room around the stand cell, lamps light it, e.g.
-  `run=stand depth=1000 place=0:0:0:air,0:0:1:air,0:0:2:air,1:0:1:lamp,...`. `mantle=0` (the game, the server and
+  `run=stand depth=1000 place=0:0:0:air,0:0:1:air,0:0:2:air,1:0:1:lamp,...`; `floor=k` instead stands on the
+  bottom of layer k (`floor=3 place=...` with `air` down to `0:0:-3` opens the floor onto the metal sea). `mantle=0` (the game, the server and
   its `report=1`) makes a new world on the 192 m floor of the worlds from before.
+- Under the mantle's floor (layer 0 of a new world) lies the liquid outer core, a white-hot sea of iron and
+  nickel: dig out a floor block and it glows up the hole, calm, at the floor's bottom; it holds you up like the
+  floor did, but feet in it burn, a point of health every 0.1 s (survival; "<name> burned in the liquid metal").

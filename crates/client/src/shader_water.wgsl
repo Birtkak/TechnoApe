@@ -97,7 +97,9 @@ fn vs_sea(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) ->
     let c = chunks[ii];
     let level = (c.info >> 3u) & 31u;
     let b = g.bodies[(c.info >> 8u) & 255u];
-    let river = (lo >> 28u) == 5u;
+    // the liquid metal sea's quads (kind 6, world/water.rs metal_quads) are laid as a flat river's
+    let metal = (lo >> 28u) == 6u;
+    let river = (lo >> 28u) == 5u || metal;
     var at = (sub + vec2f(cu[k], cv[k])) / f32(SEA_SUB);
     if (river && w * h == 1.0) {
         // a river's column is small: one piece draws it, the others are empty
@@ -113,7 +115,7 @@ fn vs_sea(@builtin(vertex_index) vi: u32, @builtin(instance_index) inst: u32) ->
         let fall = vec2f(f32(i32(q.y << 7u) >> 25u), f32(i32(q.y) >> 25u)) / 256.0;
         let layer = f32(c.base.z) + f32(q.y & 0x3ffffu) / 64.0 + dot(fall, (at * vec2f(w, h) - 0.5) * s);
         let tilt = f.s * fall.x + f.t * fall.y;
-        var o = wout(bi, f.up, layer, normalize(f.up - tilt * (b.lnq / b.theta)), 0u);
+        var o = wout(bi, f.up, layer, normalize(f.up - tilt * (b.lnq / b.theta)), select(0u, 2u, metal));
         o.grid = vec3f(gp, layer);
         o.face = c.info & 7u;
         let g2 = length(fall);
@@ -282,6 +284,7 @@ fn luna_in(p: vec3f, d: vec3f, body: u32) -> vec3f {
 fn fs_water(i: WOut) -> @location(0) vec4f {
     // a pixel's footprint on the water in metres, before any branch (derivatives need uniform control flow)
     let foot = max(length(fwidth(i.grid.xy)), 1e-4);
+    if ((i.side & 2u) != 0u) { return metal_sea(i); }
     let mode = (g.opt.x >> 4u) & 3u;
     if (mode >= 2u) { return water_old(i); }
     let b = g.bodies[i.body];
@@ -383,6 +386,17 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     col = mix(col, white, foam);
     a = mix(a, 1.0, foam * 0.9);
     return water_out(col, a);
+}
+
+// the liquid metal sea (draft the metal sea): its own white-hot light, opaque and calm, no sun nor shadow on it;
+// large slow convection cells a little darker drift over it
+const METAL_GLOW: vec3f = vec3f(4.0, 2.6, 0.9);
+fn metal_sea(i: WOut) -> vec4f {
+    let t = g.water.x * 0.04;
+    let p = i.grid.xy / 7.0;
+    let m = 0.6 * wnoise(p + vec2f(t, -0.7 * t)) + 0.4 * wnoise(p * 2.3 + vec2f(-0.6 * t, t) + 17.0);
+    // (the shoulder rolls 4.0 and 2.6 both to white: the cells must fall to about a third to show at all)
+    return water_out(METAL_GLOW * mix(0.3, 1.0, smoothstep(0.2, 0.7, m)), 1.0);
 }
 
 fn water_out(col: vec3f, a: f32) -> vec4f {
