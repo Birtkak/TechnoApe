@@ -20,6 +20,71 @@ fn diff(a: &Pic, b: &Pic) -> f32 {
 }
 const NOISE: &str = "\n\n[[node]]\nid = \"n\"\nkind = \"smooth noise\"\nscale = 3\noctaves = 3";
 
+/// The page's worst case on the frame thread (review 2026-11-18): ten nodes, two 8-octave noises, the first
+/// one's slider dragged, then Play; every node's 64 px picture as the page asks for them, and the files
+/// column's 16 px picture of a changed map. Run: `cargo test -p studio --profile play --bin technoape-studio
+/// node_picture_cost -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn node_picture_cost() {
+    let text = "size = 256\nframes = 32\n\
+        [[node]]\nid = \"a\"\nkind = \"smooth noise\"\noctaves = 8\nspeed = 1\n\
+        [[node]]\nid = \"b\"\nkind = \"smooth noise\"\nseed = 2\noctaves = 8\nspeed = 2\n\
+        [[node]]\nid = \"s\"\nkind = \"slope\"\nin = \"a\"\n\
+        [[node]]\nid = \"wp\"\nkind = \"warp\"\nin = \"b\"\nby = \"s\"\n\
+        [[node]]\nid = \"bl\"\nkind = \"blur\"\nradius = 8\nin = \"wp\"\n\
+        [[node]]\nid = \"l\"\nkind = \"levels\"\nin = \"bl\"\n\
+        [[node]]\nid = \"c\"\nkind = \"cells\"\nspeed = 1\n\
+        [[node]]\nid = \"x\"\nkind = \"blend\"\na = \"l\"\nb = \"c\"\n\
+        [[node]]\nid = \"mv\"\nkind = \"move\"\nspeed_x = 1\nin = \"x\"\n\
+        [[node]]\nid = \"out\"\nkind = \"out\"\nin = \"mv\"\n";
+    let m = map(text).unwrap();
+    let mut g = Graph::new(m.clone());
+    let all = |g: &mut Graph, f: usize| (0..10).for_each(|i| {
+        g.pic(i, f, 64);
+    });
+    all(&mut g, 0);
+    let ms = |t: std::time::Instant| t.elapsed().as_secs_f64() * 1000.0;
+    let (mut drag, mut play, mut files) = (0f64, 0f64, 0f64);
+    for k in 0..20 {
+        let mut next = g.map.clone();
+        next.set_num(0, "roughness", 0.3 + k as f32 * 0.02);
+        let t = std::time::Instant::now();
+        g.update(&next);
+        all(&mut g, 0);
+        drag = drag.max(ms(t));
+        let t = std::time::Instant::now();
+        let mut f = Graph::new(next);
+        let o = f.out();
+        f.pic(o, 0, 16);
+        files = files.max(ms(t));
+    }
+    for f in 1..32 {
+        let t = std::time::Instant::now();
+        all(&mut g, f);
+        play = play.max(ms(t));
+    }
+    // the page's way since the review: a pass stops starting node pictures after 4 ms (ui/maps.rs NODE_BUDGET),
+    // the rest keep theirs till a later pass; the frame scrubbed one step a pass
+    let mut g = Graph::new(m);
+    all(&mut g, 0);
+    let (mut have, mut pass, mut passes) = ([0usize; 10], 0f64, 0);
+    for f in 1..32 {
+        while have.iter().any(|h| *h != f) {
+            let t = std::time::Instant::now();
+            for (i, h) in have.iter_mut().enumerate() {
+                if *h != f && ms(t) <= 4.0 {
+                    g.pic(i, f, 64);
+                    *h = f;
+                }
+            }
+            pass = pass.max(ms(t));
+            passes += 1;
+        }
+    }
+    println!("{{\"drag_ms_max\":{drag:.2},\"scrub_ms_max\":{play:.2},\"files_thumb_ms_max\":{files:.2},\"budgeted_pass_ms_max\":{pass:.2},\"passes_a_frame\":{:.2}}}", passes as f64 / 31.0);
+}
+
 #[test]
 fn every_generator_tiles() {
     for node in [
@@ -38,22 +103,20 @@ fn every_generator_tiles() {
         "kind = \"shape\"\nshape = \"checker\"\nrepeat = 3",
         "kind = \"shape\"\nshape = \"stripes\"\nrepeat = 3\nsoft = 0.4",
         &format!("kind = \"blur\"\nradius = 6\nin = \"n\"{NOISE}"),
-        &format!("kind = \"move\"\nshift_x = 0.37\nshift_y = -0.21\nrepeat = 3\nmirror = 1\nin = \"n\"{NOISE}"),
+        // (repeat 1: a repeated or mirrored move is not the same half a side on, and its wrap was reviewed apart)
+        &format!("kind = \"move\"\nshift_x = 0.37\nshift_y = -0.21\nin = \"n\"{NOISE}"),
         &format!("kind = \"warp\"\namount = 0.2\nin = \"n\"\nby = \"s\"{NOISE}\n\n[[node]]\nid = \"s\"\nkind = \"slope\"\nin = \"n\""),
     ] {
+        // a map that tiles, worked out starting half a side on, is the picture rolled by half: its edges are
+        // then in the middle, so a seam of any size would show
         let mut g = one(node, 1);
-        let p = g.pic(g.out(), 0, 64);
-        let at = |x: usize, y: usize| p[y * 64 + x];
-        let step = |a: [f32; 3], b: [f32; 3]| (0..3).map(|c| (a[c] - b[c]).abs()).fold(0.0, f32::max);
-        let (mut inside, mut across) = (0f32, 0f32);
-        for i in 0..64 {
-            for j in 0..63 {
-                inside = inside.max(step(at(j, i), at(j + 1, i))).max(step(at(i, j), at(i, j + 1)));
-            }
-            across = across.max(step(at(63, i), at(0, i))).max(step(at(i, 63), at(i, 0)));
-        }
-        assert!(inside > 0.0, "{node}: flat");
-        assert!(across <= inside + 1e-6, "{node}: a seam of {across} where no step inside is over {inside}");
+        let p = g.pic(g.out(), 0, 64).clone();
+        let mut h = one(node, 1);
+        h.shift = 0.5;
+        let q = h.pic(h.out(), 0, 64);
+        let rolled: Pic = (0..64 * 64).map(|k| p[((k / 64 + 32) % 64) * 64 + (k % 64 + 32) % 64]).collect();
+        assert!(diff(&p, &vec![p[0]; 64 * 64]) > 0.0, "{node}: flat");
+        assert!(diff(q, &rolled) < 1e-3, "{node}: half a side on is not the roll by half ({})", diff(q, &rolled));
     }
 }
 
@@ -143,6 +206,7 @@ fn each_refusal_names_its_node() {
         (format!("[[node]]\nid = \"c\"\nkind = \"colours\"\nramp = \"no such\"\n{}", out("c")), "node 'c': ramp 'no such' is not in the palette"),
         (out("ghost"), "node 'out': pin 'in' names 'ghost', which is no node"),
         (noise.to_string(), "no node is the out"),
+        (format!("[[node]]\nid = \"n\"\nkind = \"value noise\"\nat = [nan, inf]\n{}", out("n")), "node 'n': at is not [x, y]"),
         (format!("{noise}{}{}", out("n"), out("n").replace("\"out\"\nkind", "\"out2\"\nkind")), "nodes 'out' and 'out2' are both an out"),
     ] {
         let e = map(&text).unwrap_err();
@@ -153,7 +217,8 @@ fn each_refusal_names_its_node() {
 #[test]
 fn curl_has_no_sinks() {
     let div = |kind: &str| {
-        let mut g = one(&format!("kind = \"{kind}\"\nstrength = 1\nin = \"n\"{NOISE}"), 1);
+        // at the slider's top: the push held to length 1 must not make sinks
+        let mut g = one(&format!("kind = \"{kind}\"\nstrength = 10\nin = \"n\"{NOISE}"), 1);
         let p = g.pic(g.out(), 0, 64);
         let at = |x: usize, y: usize| p[(y % 64) * 64 + x % 64];
         let (mut d, mut len) = (0f32, 0f32);
@@ -166,7 +231,7 @@ fn curl_has_no_sinks() {
         (d, len)
     };
     let (curl, len) = div("curl");
-    assert!(len > 0.1 && len < 1.0, "a field that pushes, unclamped: {len}");
+    assert!(len > 0.1 && len < 1.0 + 1e-4, "a field that pushes, no push over 1: {len}");
     assert!(curl < 1e-5, "curl's divergence {curl}");
     assert!(div("slope").0 > 0.05, "slope's field has sinks: the check can see them");
 }

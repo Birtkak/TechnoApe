@@ -19,6 +19,8 @@ mod motion;
 pub const DIR: &str = "data/maps";
 /// The side of a node's picture as worked out (the preview's stand-in while its full size is on the way).
 const THUMB: usize = 64;
+/// How long one pass may spend on node pictures before the rest keep the ones they had.
+const NODE_BUDGET: std::time::Duration = std::time::Duration::from_millis(4);
 const GROUPS: [(&str, Color32); 5] = [
     ("Make", Color32::from_rgb(82, 140, 104)),
     ("Change", Color32::from_rgb(96, 112, 160)),
@@ -208,6 +210,8 @@ pub struct Maps {
     fitted: Option<(Rect, Vec2)>,
     drag: Drag,
     adding: Option<Adding>,
+    /// When this pass began drawing the graph: node pictures past `NODE_BUDGET` of it wait for the next pass.
+    started: std::time::Instant,
     /// The preview: "map", "tiled", "particles" or "sway".
     mode: &'static str,
     playing: bool,
@@ -278,6 +282,7 @@ impl Maps {
             adding: None,
             mode: "map",
             playing: false,
+            started: std::time::Instant::now(),
             clock: 0.0,
             last_time: None,
             player: motion::Player::default(),
@@ -328,6 +333,12 @@ impl Maps {
     fn sync(&mut self) {
         let Some(m) = self.pending.clone().or_else(|| self.doc().map(|d| d.m.clone())) else { return };
         let n = m.nodes.len();
+        // nodes added, removed or reordered (undo, delete, a variation, a reload): what holds a node's index
+        // from before is let go, so no index from page state can point past the map or at another node
+        let shape = |m: &Map| m.nodes.iter().map(|n| (n.id.clone(), n.spec().kind)).collect::<Vec<_>>();
+        if self.graph.as_ref().is_some_and(|g| shape(&g.map) != shape(&m)) {
+            (self.drag, self.adding, self.typing, self.merging) = (Drag::None, None, None, None);
+        }
         match &mut self.graph {
             Some(g) => g.update(&m),
             None => self.graph = Some(Graph::new(m)),
@@ -342,6 +353,12 @@ impl Maps {
         let g = self.graph.as_mut().expect("synced");
         let key = (g.stamp[node], self.frame);
         if let Some((_, t)) = self.tex.get(&node).filter(|(k, _)| *k == key) {
+            return t.id();
+        }
+        // over the pass's budget: the picture it had stands until a later pass (a scrubbed frame of ten
+        // 8-octave nodes is about 11 ms at once)
+        if let Some((_, t)) = self.tex.get(&node).filter(|_| self.started.elapsed() > NODE_BUDGET) {
+            ctx.request_repaint();
             return t.id();
         }
         let kind = g.kinds[node];
@@ -423,8 +440,10 @@ impl Maps {
         if let Err(e) = map::parse(&path, &text, &app.pal) {
             return app.refuse(format!("Not saved: {e}"));
         }
-        let _ = std::fs::create_dir_all(DIR);
-        match std::fs::write(&path, &text) {
+        if let Some(e) = refused_on_disk(&path, &app.pal) {
+            return app.refuse(format!("Not saved: {path} is on disk but refused ({e}); fix or remove it first"));
+        }
+        match crate::import::put_file(&path, Some(text.as_bytes())) {
             Ok(()) => {
                 self.docs.get_mut(&name).unwrap().saved = Some(text);
                 app.write_drafts(art::set_draft(&std::fs::read_to_string(DRAFTS).unwrap_or_default(), &path, false));
@@ -432,7 +451,7 @@ impl Maps {
                 app.toast(format!("Saved {path}"));
                 app.check();
             }
-            Err(e) => app.refuse(format!("Not saved: {path}: {e}")),
+            Err(e) => app.refuse(format!("Not saved: {e}")),
         }
     }
 
@@ -1354,6 +1373,7 @@ impl Page for Maps {
         }
         let Some(name) = self.open.clone() else { return };
         self.sync();
+        self.started = std::time::Instant::now();
         ui.label(RichText::new(&name).strong());
         if self.wall.is_some() {
             return self.wall_ui(ui);
@@ -1669,6 +1689,13 @@ impl Page for Maps {
     }
 }
 
+/// Why the map file on disk is refused, when it is there and refused: it is never written over (it may hold
+/// hand edits the page never read).
+fn refused_on_disk(path: &str, pal: &engine::palette::Palette) -> Option<String> {
+    let text = std::fs::read(path).ok()?;
+    String::from_utf8(text).map_err(|e| e.to_string()).and_then(|t| map::parse(path, &t, pal)).err()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1688,6 +1715,21 @@ mod tests {
         assert_eq!(pin_at(&m, r.center()), None, "the middle of a node is no pin");
         assert_eq!(pin_at(&m, geom(&m.nodes[out]).1), None, "the out gives nothing");
         assert!(REACH * 2.0 >= 12.0 && PIN_R * 2.0 >= 12.0, "pins 12 points across at least");
+    }
+
+    #[test]
+    fn a_refused_file_on_disk_is_seen() {
+        let pal = engine::palette::Palette::parse(&std::fs::read_to_string("../../data/palette.toml").unwrap()).unwrap();
+        let dir = std::env::temp_dir().join(format!("maps-refused-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (bad, good) = (dir.join("bad.toml"), dir.join("good.toml"));
+        std::fs::write(&bad, "size = 3\n").unwrap();
+        std::fs::write(&good, clouds().write()).unwrap();
+        let e = refused_on_disk(bad.to_str().unwrap(), &pal).expect("a hand-edited file that is refused");
+        assert!(e.contains("size"), "{e}");
+        assert_eq!(refused_on_disk(good.to_str().unwrap(), &pal), None);
+        assert_eq!(refused_on_disk(dir.join("none.toml").to_str().unwrap(), &pal), None, "no file: nothing to keep");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

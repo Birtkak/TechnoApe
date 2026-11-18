@@ -115,5 +115,7 @@ Options 1 and 4, worked out on the CPU.
   step inside; frame `frames` equals frame 0).
 - `scale` and `speed` cannot take fractions. Mirror in Move does not flip a direction field's sign.
 - CPU with a worker: the full-size preview and the loop are worked out on one worker at a time, stale
-  results dropped; node pictures (64 px) in the frame. Their cost under a held drag and Play is measured in
-  the commit that follows this round's review.
+  results dropped; node pictures (64 px) in the frame, under a budget: a pass starts no new node picture
+  after 4 ms, the rest keep theirs until a later pass (ten nodes, two of 8 octaves: a scrubbed frame 9 to
+  11 ms at once, at most 6.7 ms a pass with the budget; a slider drag 4.4 ms; `node_picture_cost`).
+- A direction is scaled as a whole so its strongest push is 1 (never clamped by part, which bent curl).

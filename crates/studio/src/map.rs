@@ -203,7 +203,7 @@ pub fn parse(file: &str, text: &str, pal: &Palette) -> Result<Map, String> {
         let mut wired = vec![None; s.pins.len()];
         for (key, v) in r.iter().filter(|(k, _)| !["id", "kind"].contains(&k.as_str())) {
             if key == "at" {
-                node.at = v.as_array().filter(|a| a.len() == 2).and_then(|a| Some([f(&a[0])?, f(&a[1])?])).ok_or(bad("at is not [x, y]".into()))?;
+                node.at = v.as_array().filter(|a| a.len() == 2).and_then(|a| Some([f(&a[0])?, f(&a[1])?])).filter(|a| a.iter().all(|x| x.is_finite())).ok_or(bad("at is not [x, y] of two finite numbers".into()))?;
             } else if let Some(i) = s.nums.iter().position(|x| x.name == key) {
                 let (x, v) = (&s.nums[i], f(v).ok_or(bad(format!("{key} is not a number")))?);
                 if !(x.min..=x.max).contains(&v) {
@@ -476,13 +476,15 @@ pub struct Graph {
     kept: Vec<HashMap<(usize, usize), Pic>>,
     /// Pictures worked out so far (the tests count the rework).
     pub worked: usize,
+    /// Where the picture starts, in sides (0 always but in the tiling test, which works it out half a side on).
+    pub shift: f32,
 }
 
 impl Graph {
     /// A map that `parse` took.
     pub fn new(map: Map) -> Graph {
         let (order, kinds) = map.order().expect("a map that was read is checked");
-        Graph { kept: vec![HashMap::new(); map.nodes.len()], stamp: map.nodes.iter().map(|_| next_stamp()).collect(), map, order, kinds, worked: 0 }
+        Graph { kept: vec![HashMap::new(); map.nodes.len()], stamp: map.nodes.iter().map(|_| next_stamp()).collect(), map, order, kinds, worked: 0, shift: 0.0 }
     }
 
     pub fn out(&self) -> usize {
@@ -574,10 +576,11 @@ impl Graph {
         let key = (frame, w);
         let inp = |p: usize| self.input(i, p, key);
         let uv = |k: usize| (((k % w) as f32 + 0.5) / w as f32, ((k / w) as f32 + 0.5) / w as f32);
+        // generators only: what changes a picture works on its input, which is already shifted
         let make = |g: &dyn Fn(f32, f32) -> f32| -> Pic {
             (0..w * w).map(|k| {
                 let (x, y) = uv(k);
-                [g(x, y); 3]
+                [g(x + self.shift, y + self.shift); 3]
             }).collect()
         };
         let each = |p: &Pic, g: &dyn Fn([f32; 3]) -> [f32; 3]| -> Pic { p.iter().map(|c| g(*c)).collect() };
@@ -591,7 +594,8 @@ impl Graph {
             "speckle" => {
                 let (s, speed) = (v("scale"), v("speed") as i32);
                 let step = if speed == 0 { 0 } else { ((t * speed as f32).floor() as i32).rem_euclid(speed) };
-                make(&|x, y| unit(hash(seed(), (x * s) as i32, (y * s) as i32, step)))
+                let cell = |a: f32| ((a * s).floor() as i32).rem_euclid(s as i32);
+                make(&|x, y| unit(hash(seed(), cell(x), cell(y), step)))
             }
             "gradient" => {
                 let r = v("repeat");
@@ -708,8 +712,13 @@ impl Graph {
             "length" => each(&inp(0), &|p| [p[0].hypot(p[1]); 3]),
             _ => inp(0).into_owned(),
         };
-        let (lo, hi) = if self.kinds[i] == Dir { (-1.0, 1.0) } else { (0.0, 1.0) };
-        px.into_iter().map(|c| c.map(|x| x.clamp(lo, hi))).collect()
+        if self.kinds[i] == Dir {
+            // the whole field scaled so its strongest push is 1: a clamp of x and y apart would bend the
+            // pushes and give curl sinks
+            let top = px.iter().map(|c| c[0].hypot(c[1])).fold(1.0, f32::max);
+            return px.into_iter().map(|c| [c[0] / top, c[1] / top, 0.0]).collect();
+        }
+        px.into_iter().map(|c| c.map(|x| x.clamp(0.0, 1.0))).collect()
     }
 }
 

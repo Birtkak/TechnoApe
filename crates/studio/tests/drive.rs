@@ -709,6 +709,22 @@ fn maps_node_rows() {
     assert_eq!(line.matches("Move octaves").count(), 1, "one step a drag: {line}");
 }
 
+/// The graph changing under a held drag (undo of the dragged node's Add) leaves no stale index behind.
+#[test]
+fn maps_undo_under_a_held_drag() {
+    let dir = scratch("maps-undo-drag");
+    let line = studio(
+        &dir,
+        &[
+            "size=1600x900",
+            "cmd=open:Maps:clouds",
+            "input=click right @graph:0.15,0.85; text inv; click @add:invert; wait; move @node:invert; down; move @graph:0.5,0.5; move @graph:0.55,0.5; \
+             key Ctrl+Z; key Ctrl+Z; wait; move @graph:0.6,0.6; move @graph:0.7,0.6; up; wait",
+        ],
+    );
+    assert!(line.contains("\"open\":\"clouds\""), "{line}");
+}
+
 /// A double click on a node's row types its number: Enter takes it, held to the range; one step "Type".
 #[test]
 fn maps_typed_value() {

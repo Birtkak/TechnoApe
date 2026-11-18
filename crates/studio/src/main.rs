@@ -42,15 +42,13 @@ fn list(v: &[String]) -> String {
 }
 
 fn write_rgba(path: &str, w: u32, h: u32, rgba: &[u8]) -> Result<(), String> {
-    if let Some(d) = Path::new(path).parent() {
-        let _ = std::fs::create_dir_all(d);
-    }
-    let f = std::fs::File::create(path).map_err(|e| format!("{path}: {e}"))?;
-    let mut e = png::Encoder::new(std::io::BufWriter::new(f), w, h);
+    let mut buf = vec![];
+    let mut e = png::Encoder::new(&mut buf, w, h);
     e.set_color(png::ColorType::Rgba);
     e.set_depth(png::BitDepth::Eight);
-    let mut wr = e.write_header().map_err(|e| e.to_string())?;
-    wr.write_image_data(rgba).map_err(|e| e.to_string())
+    e.write_header().and_then(|mut wr| wr.write_image_data(rgba)).map_err(|e| e.to_string())?;
+    // through a temporary file and a rename: a reader never sees half a picture
+    import::put_file(path, Some(&buf))
 }
 
 fn check() -> Result<String, String> {
