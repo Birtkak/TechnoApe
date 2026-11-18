@@ -11,6 +11,8 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::mpsc::Receiver;
 
+mod motion;
+
 pub const DIR: &str = "data/maps";
 /// The side of a node's picture as worked out (the preview's stand-in while its full size is on the way).
 const THUMB: usize = 64;
@@ -55,6 +57,11 @@ pub fn geom(n: &map::Node) -> (Rect, Pos2, Vec<Pos2>) {
 fn framed(b: Rect, area: Vec2) -> Rect {
     let z = (area.x * 0.8 / b.width()).min(area.y * 0.8 / b.height()).min(1.5);
     Rect::from_center_size(b.center(), area / z)
+}
+
+/// The loop's frame `clock` seconds in.
+fn loop_frame(clock: f64, frames: usize, seconds: f32) -> usize {
+    (clock / seconds as f64 * frames as f64) as usize % frames
 }
 
 /// A node's k-th row under its picture.
@@ -198,7 +205,18 @@ pub struct Maps {
     fitted: Option<(Rect, Vec2)>,
     drag: Drag,
     adding: Option<Adding>,
-    tiled: bool,
+    /// The preview: "map", "tiled", "particles" or "sway".
+    mode: &'static str,
+    playing: bool,
+    /// Seconds played; the input's time last frame.
+    clock: f64,
+    last_time: Option<f64>,
+    player: motion::Player,
+    dots: Vec<motion::Dot>,
+    speed: f32,
+    strength: f32,
+    /// The loop's frame shown, as a texture: (its loop, the frame).
+    strip_tex: Option<((motion::Key, usize), egui::TextureHandle)>,
     frame: usize,
     merging: Option<String>,
     /// Each node's picture as a texture, by what it shows: (stamp, frame).
@@ -239,7 +257,15 @@ impl Maps {
             fitted: None,
             drag: Drag::None,
             adding: None,
-            tiled: false,
+            mode: "map",
+            playing: false,
+            clock: 0.0,
+            last_time: None,
+            player: motion::Player::default(),
+            dots: motion::dots(300),
+            speed: 0.25,
+            strength: 1.0,
+            strip_tex: None,
             frame: 0,
             merging: None,
             tex: HashMap::new(),
@@ -691,6 +717,26 @@ impl Maps {
         }
     }
 
+    /// Play or pause; paused, the loop stands on the frame it was on.
+    fn play(&mut self) {
+        // (before the first frame there is no graph yet: it plays from the start)
+        let (frames, seconds) = self.graph.as_ref().map_or((1, 1.0), |g| (g.map.frames, g.map.seconds));
+        if self.playing {
+            self.frame = loop_frame(self.clock, frames, seconds);
+        } else {
+            self.clock = (self.frame as f64 + 1e-3) * seconds as f64 / frames as f64;
+        }
+        self.playing = !self.playing;
+    }
+
+    /// The preview's mode; Particles and Sway start playing, since they are to be seen moving.
+    fn set_mode(&mut self, mode: &'static str) {
+        self.mode = mode;
+        if matches!(mode, "particles" | "sway") && !self.playing {
+            self.play();
+        }
+    }
+
     fn open_add(&mut self, at_screen: Option<Pos2>) {
         let (rect, tr) = self.area;
         let screen = at_screen.filter(|p| rect.contains(*p)).unwrap_or(rect.center());
@@ -835,6 +881,9 @@ impl Page for Maps {
             Cmd::new("pin", "Pin the chosen node", "the preview keeps showing it while you tune others; again lets it go").key(Modifiers::NONE, Key::P),
             Cmd::new("view:map", "Preview the map", "the chosen or pinned node's picture"),
             Cmd::new("view:tiled", "Preview tiled", "the picture 3 x 3, so a seam would show"),
+            Cmd::new("view:particles", "Preview particles", "dots drift in the node's push (a number curled, a colour by its brightness): does it swirl, stream or pile up"),
+            Cmd::new("view:sway", "Preview sway", "a row of grass blades bent by the node as it scrolls past"),
+            Cmd::new("play", "Play or pause", "plays the loop at frames / seconds; paused, it stands on a frame").key(Modifiers::NONE, Key::K),
             Cmd::new("save", "Save the map", "write data/maps/<name>.toml (read back as the check reads it) and take it off the drafts list").key(Modifiers::COMMAND, Key::S),
             Cmd::new("undo", "Undo", "undo the last change to this map").key(Modifiers::COMMAND, Key::Z),
             Cmd::new("redo", "Redo", "redo what was undone").key(Modifiers::COMMAND, Key::Y),
@@ -870,8 +919,11 @@ impl Page for Maps {
             }
             "frame" => self.frame_all = true,
             "pin" => self.pinned = if self.pinned.is_some() { None } else { self.chosen.first().copied() },
-            "view:map" => self.tiled = false,
-            "view:tiled" => self.tiled = true,
+            "view:map" => self.mode = "map",
+            "view:tiled" => self.mode = "tiled",
+            "view:particles" => self.set_mode("particles"),
+            "view:sway" => self.set_mode("sway"),
+            "play" => self.play(),
             "save" => self.save(app),
             "undo" | "redo" => {
                 if let Some(d) = self.open.as_ref().and_then(|n| self.docs.get_mut(n)) {
@@ -946,39 +998,148 @@ impl Page for Maps {
         }
         self.sync();
         let Some(node) = self.shown() else { return };
-        let (id, frames) = {
+        let (id, m, stamp) = {
             let g = self.graph.as_ref().unwrap();
-            (g.map.nodes[node].id.clone(), g.map.frames)
+            (g.map.nodes[node].id.clone(), g.map.clone(), g.stamp[node])
         };
+        let frames = m.frames;
+        // the clock runs while playing
+        let now = ui.input(|i| i.time);
+        let dt = self.last_time.map_or(0.0, |t| (now - t).clamp(0.0, 0.1));
+        self.last_time = Some(now);
+        if self.playing {
+            self.clock += dt;
+            ui.ctx().request_repaint();
+        }
+        let shown = if self.playing { loop_frame(self.clock, frames, m.seconds) } else { self.frame };
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
-            for (on, label, cmd, help) in [(!self.tiled, "Map", "view:map", "The picture as it is"), (self.tiled, "Tiled", "view:tiled", "The picture 3 x 3, so a seam would show")] {
-                let r = look::chip(ui, on, label);
+            for (mode, label, help) in [
+                ("map", "Map", "The picture as it is"),
+                ("tiled", "Tiled", "The picture 3 x 3, so a seam would show"),
+                ("particles", "Particles", "Dots drift in the node's push (a number curled, a colour by its brightness): does it swirl, stream or pile up"),
+                ("sway", "Sway", "A row of grass blades bent by the node as it scrolls past"),
+            ] {
+                let r = look::chip(ui, self.mode == mode, label);
                 crate::drive::mark(ui.ctx(), format!("chip:{label}"), r.rect);
                 if look::tip(r, help, "").clicked() {
-                    self.tiled = cmd == "view:tiled";
+                    self.set_mode(mode);
                 }
             }
             look::weak(ui, if self.pinned == Some(node) { format!("{id}, pinned") } else { id });
         });
-        if frames > 1 {
-            let mut f = self.frame;
-            look::row(ui, "frame", |ui| {
-                let r = ui.add(egui::Slider::new(&mut f, 0..=frames - 1));
-                crate::drive::mark(ui.ctx(), "frame", r.rect);
-                look::tip(r, "Which frame of the loop the pictures show", "");
+        let moving = matches!(self.mode, "particles" | "sway");
+        if frames > 1 || moving {
+            ui.horizontal(|ui| {
+                let r = ui.add(egui::Button::new(if self.playing { "Pause" } else { "Play" }).min_size(Vec2::new(64.0, 0.0)));
+                crate::drive::mark(ui.ctx(), "play", r.rect);
+                if look::tip(r, "Plays the loop at frames / seconds; paused, it stands on a frame", "K").clicked() {
+                    self.play();
+                }
+                if frames > 1 {
+                    let mut f = shown;
+                    ui.spacing_mut().slider_width = (ui.available_width() - look::VALUE - 8.0).max(40.0);
+                    ui.spacing_mut().interact_size.x = look::VALUE;
+                    let r = ui.add(egui::Slider::new(&mut f, 0..=frames - 1));
+                    crate::drive::mark(ui.ctx(), "frame", r.rect);
+                    if look::tip(r, "Which frame of the loop the pictures show; moving it pauses", "").changed() {
+                        (self.frame, self.playing) = (f, false);
+                    }
+                }
             });
-            self.frame = f;
+        }
+        if self.mode == "particles" {
+            look::row(ui, "speed", |ui| look::tip(ui.add(egui::Slider::new(&mut self.speed, 0.02..=1.0).max_decimals(2)), "How fast the dots go: picture sides a second at the strongest push", ""));
+        }
+        if self.mode == "sway" {
+            look::row(ui, "strength", |ui| look::tip(ui.add(egui::Slider::new(&mut self.strength, 0.0..=3.0).max_decimals(2)), "How far the map bends the blades", ""));
         }
         let side = ui.available_width().min(260.0);
         let (r, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), side), Sense::hover());
         let r = Rect::from_center_size(r.center(), Vec2::splat(side));
         crate::drive::mark(ui.ctx(), "preview", r);
-        let tex = self.preview_texture(ui.ctx(), node);
-        let n = if self.tiled { 3 } else { 1 };
-        let cell = side / n as f32;
-        for k in 0..n * n {
-            ui.painter().image(tex, Rect::from_min_size(r.min + Vec2::new((k % n) as f32, (k / n) as f32) * cell, Vec2::splat(cell)), Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+        // the loop, worked out once on a worker while it plays or moves something, kept till the graph changes
+        let key = (stamp, m.size.min(256));
+        if self.playing || moving {
+            self.player.get(key, &m, node);
+        }
+        let strip = self.player.strip.as_ref().filter(|s| (self.playing || moving) && s.frames.len() == frames);
+        let tex = match strip {
+            Some(st) => {
+                let tk = (st.key, shown);
+                if self.strip_tex.as_ref().is_none_or(|t| t.0 != tk) {
+                    let img = egui::ColorImage::from_rgba_unmultiplied([st.side, st.side], &map::rgba(&st.frames[shown], st.kind));
+                    match &mut self.strip_tex {
+                        Some((k, t)) => {
+                            t.set(img, egui::TextureOptions::NEAREST_REPEAT);
+                            *k = tk;
+                        }
+                        None => self.strip_tex = Some((tk, ui.ctx().load_texture("map loop", img, egui::TextureOptions::NEAREST_REPEAT))),
+                    }
+                }
+                self.strip_tex.as_ref().unwrap().1.id()
+            }
+            None => self.preview_texture(ui.ctx(), node),
+        };
+        let full = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+        let p = ui.painter_at(r);
+        match (self.mode, self.player.strip.as_ref().filter(|_| moving)) {
+            ("particles", Some(st)) => {
+                p.image(tex, r, full, Color32::from_gray(80));
+                let f = shown.min(st.push.len() - 1);
+                if self.playing {
+                    motion::drift(&mut self.dots, &st.push[f], st.side, self.speed, dt as f32);
+                }
+                let at = |q: [f32; 2]| r.min + Vec2::new(q[0], q[1]) * side;
+                for d in &self.dots {
+                    let pts: Vec<[f32; 2]> = d.trail.iter().copied().chain([d.at]).collect();
+                    for (k, w) in pts.windows(2).enumerate() {
+                        // a step across an edge is the wrap, not a line
+                        if (w[0][0] - w[1][0]).abs() < 0.3 && (w[0][1] - w[1][1]).abs() < 0.3 {
+                            let a = (k + 1) as f32 / pts.len() as f32;
+                            p.line_segment([at(w[0]), at(w[1])], Stroke::new(1.2, Color32::from_white_alpha((a * 200.0) as u8)));
+                        }
+                    }
+                    p.circle_filled(at(d.at), 1.6, Color32::WHITE);
+                }
+            }
+            ("sway", Some(st)) => {
+                let f = shown.min(st.frames.len() - 1);
+                p.rect_filled(r, 0.0, Color32::from_rgb(28, 34, 44));
+                let ground = r.max.y - side * 0.2;
+                // the map's middle row under the ground, scrolling as the blades read it
+                let off = (self.clock * 0.1) as f32;
+                p.image(tex, Rect::from_min_max(Pos2::new(r.min.x, ground + 4.0), r.max), Rect::from_min_max(Pos2::new(off, 0.4), Pos2::new(off + 1.0, 0.6)), Color32::WHITE);
+                p.line_segment([Pos2::new(r.min.x, ground), Pos2::new(r.max.x, ground)], Stroke::new(2.0, Color32::from_rgb(90, 70, 50)));
+                let blade = |u: f32, h: f32, w: f32, c: Color32, leaves: bool| {
+                    let b = motion::bend(&st.frames[f], st.side, st.kind, u + off, self.strength);
+                    let pt = |t: f32| Pos2::new(r.min.x + u * side + b * h * 0.6 * t * t, ground - h * t * (1.0 - 0.15 * (b * t).powi(2)).max(0.4));
+                    for k in 0..6 {
+                        let (t0, t1) = (k as f32 / 6.0, (k + 1) as f32 / 6.0);
+                        p.line_segment([pt(t0), pt(t1)], Stroke::new(w * (1.0 - t0 * 0.8), c));
+                        if leaves && k % 2 == 1 {
+                            let s = if k % 4 == 1 { 1.0 } else { -1.0 };
+                            p.line_segment([pt(t1), pt(t1) + Vec2::new(s * h * 0.12 + b * h * 0.08, -h * 0.06)], Stroke::new(w * 0.8, c));
+                        }
+                    }
+                };
+                for k in 0..26 {
+                    let g = (k * 37 % 11) as f32 / 11.0;
+                    blade((k as f32 + 0.5) / 26.0, side * (0.26 + 0.12 * g), 3.0, Color32::from_rgb(70 + (g * 50.0) as u8, 160 + (g * 40.0) as u8, 70), false);
+                }
+                blade(0.62, side * 0.6, 4.0, Color32::from_rgb(60, 130, 70), true);
+            }
+            ("particles" | "sway", None) => {
+                p.image(tex, r, full, Color32::from_gray(80));
+                p.text(r.center(), Align2::CENTER_CENTER, "working out the loop…", FontId::proportional(look::BODY), Color32::WHITE);
+            }
+            _ => {
+                let n = if self.mode == "tiled" { 3 } else { 1 };
+                let cell = side / n as f32;
+                for k in 0..n * n {
+                    p.image(tex, Rect::from_min_size(r.min + Vec2::new((k % n) as f32, (k / n) as f32) * cell, Vec2::splat(cell)), full, Color32::WHITE);
+                }
+            }
         }
         look::tip(resp, "The chosen node's picture, or the pinned one's; a number grey, a colour as it is, a direction in red and green", "");
         ui.add_space(GAP * 0.5);
@@ -1088,6 +1249,7 @@ impl Page for Maps {
     /// For `shot=`: the preview's worker done.
     fn settle(&mut self, ctx: &egui::Context, _app: &mut App) {
         let t0 = std::time::Instant::now();
+        self.player.wait();
         while self.job.is_some() && t0.elapsed() < std::time::Duration::from_secs(30) {
             std::thread::sleep(std::time::Duration::from_millis(5));
             self.poll(ctx);

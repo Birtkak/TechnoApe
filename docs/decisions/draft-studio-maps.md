@@ -72,6 +72,20 @@ Options 1 and 4, worked out on the CPU.
 - **The page bar** hides the Studio's title when the tabs would not fit in one row, so nine tabs stay one row
   at 1600 x 900 at 133 %; at 1920 x 1080 nothing changes.
 
+### Step 3, first half: motion
+- **Play** (button, K; Space is Add a node) plays the loop at frames / seconds; the frame slider follows, and
+  moving it pauses. Node pictures hold their frame while it plays. The previewed node's whole loop is worked
+  out once on a worker at the map's size up to 256 (`motion::Strip`, its frames and each frame's push) and
+  kept until the node's stamp changes; one worker at a time, the old loop shown meanwhile.
+- **Particles:** 300 dots at hashed spots, each living 2 to 4 s then starting elsewhere (so piles do not stay),
+  trails of 10 steps, over the map drawn dim. The push is a direction as it is; a number, or a colour's
+  brightness, is curled (central differences, wrapped) and scaled so the strongest push is 1. `speed` is
+  picture sides a second at that push.
+- **Sway:** 26 blades and one taller plant, side view, reading the map's middle row as it scrolls past at a
+  tenth of a side a second (the row drawn under the ground). The bend is a direction's x part, or a number
+  around its middle, times `strength`; the tip moves most (offset grows with the square of the height).
+- Particles and Sway start playing when chosen and stand still when paused; plain 2D painting.
+
 ## Consequences
 - Every map tiles and loops exactly, and the tests show it (the step across the edge is no larger than a
   step inside; frame `frames` equals frame 0).
