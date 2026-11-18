@@ -82,7 +82,7 @@ pub fn show_with<T: Clone>(ui: &mut Ui, wall: &mut Wall<T>, chosen: Option<usize
                             look::tip(look::weak(ui, "as now"), "The one this wall was made around, unchanged", "");
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let r = ui.add(egui::Button::new(RichText::new(if play && cell.x < 120.0 { "More" } else { "More like this" }).small()).frame(false));
+                            let r = ui.add(egui::Button::new(RichText::new(if play && cell.x < 120.0 || i == 0 && !play && cell.x < 170.0 { "More" } else { "More like this" }).small()).frame(false));
                             if look::tip(r, "A new wall made around this one", "").clicked() {
                                 act = Act::More(i);
                             }

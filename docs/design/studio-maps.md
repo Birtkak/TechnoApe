@@ -2,7 +2,14 @@
 
 - **Status:** design, 2026-11-18 (the developer: take the Studio from a prototype to a tool good enough to
   sell; "researched layouts and colour-coded UI with pins and sliders", "noise maps for textures to simulate
-  model animation and particles", "good outside only the game use case"). Nothing here is built yet.
+  model animation and particles", "good outside only the game use case"). **Built** (steps 1 to 3, the ADR
+  draft `draft-studio-maps.md`). Where the build differs from the plan below:
+  - Space adds a node; the middle button pans (one key cannot do both).
+  - The starters are kept in code (`ui/maps/make.rs`), not as files; a starter becomes a file only on Save.
+  - Variations: the wall holds the map as it is and nine others.
+  - Use writes through the Textures page's own document and save, so it is undone there.
+  - The inspector's numbers type on a single click (egui's own boxes); node rows on a double click.
+  - Node pictures are worked out on the frame thread at 64 px; the full-size preview and the loop on a worker.
 - `studio.md` says what the Studio is, `studio-tools.md` the look every page shares. This page follows both.
 
 ## What it is

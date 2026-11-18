@@ -3,7 +3,9 @@
 //! out are `map`'s; this draws and edits them.
 use super::look::{self, GAP};
 use super::{App, Cmd, FileRow, Page, Thumb, DRAFTS};
-use crate::art::{self, History, Img};
+use crate::art::{self, Doc, History, Img};
+use crate::wall::Wall;
+use super::wall as wall_ui;
 use crate::map::{self, Data, Graph, Map, Pin, SPECS};
 use crate::shell::Flags;
 use eframe::egui::{self, emath::TSTransform, Align2, Color32, FontId, Id, Key, Modifiers, Pos2, Rect, RichText, Sense, Stroke, Ui, Vec2};
@@ -11,6 +13,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::mpsc::Receiver;
 
+mod make;
 mod motion;
 
 pub const DIR: &str = "data/maps";
@@ -72,7 +75,7 @@ fn row_rect(r: Rect, k: usize) -> Rect {
 /// A number on a node as Blender draws one: its name left, its value right, over a rail lit up to it; a drag
 /// sideways changes it. The new value while it is dragged.
 fn num_row(ui: &Ui, r: Rect, id: Id, name: &str, v: f32, (min, max, whole): (f32, f32, bool), legible: bool) -> (egui::Response, Option<f32>) {
-    let resp = ui.interact(r, id, Sense::drag());
+    let resp = ui.interact(r, id, Sense::click_and_drag());
     let p = ui.painter();
     p.rect_filled(r, 4.0, Color32::from_gray(28));
     let t = ((v - min) / (max - min)).clamp(0.0, 1.0);
@@ -227,6 +230,22 @@ pub struct Maps {
     thumbs: RefCell<HashMap<String, (String, Img)>>,
     /// Where the graph was last drawn: its rect on screen and the graph to screen transform.
     area: (Rect, TSTransform),
+    /// Use as a block's texture: the block, the face (0 all, 1 top, 2 side, 3 bottom), how many variants, the
+    /// ramp a number runs along; and the texture it would write, by what it was made from.
+    use_block: String,
+    use_face: usize,
+    use_variants: usize,
+    use_ramp: String,
+    use_made: Option<(String, Result<Img, String>)>,
+    export_to: String,
+    /// New map's list is open: its name box.
+    new_list: Option<String>,
+    wall: Option<Wall<Map>>,
+    wall_tex: HashMap<String, egui::TextureHandle>,
+    /// A variation picked on the wall: shown in the graph and preview until Use or Cancel.
+    pending: Option<Map>,
+    /// A number on a node being typed: its row, the text, and whether it still has to take the keys.
+    typing: Option<(Id, String, bool)>,
 }
 
 fn read_dir(pal: &engine::palette::Palette) -> BTreeMap<String, Map> {
@@ -273,6 +292,17 @@ impl Maps {
             job: None,
             thumbs: RefCell::default(),
             area: (Rect::ZERO, TSTransform::IDENTITY),
+            use_block: String::new(),
+            use_face: 0,
+            use_variants: 1,
+            use_ramp: String::new(),
+            use_made: None,
+            export_to: String::new(),
+            new_list: None,
+            wall: None,
+            wall_tex: HashMap::new(),
+            pending: None,
+            typing: None,
         }
     }
 
@@ -296,7 +326,7 @@ impl Maps {
 
     /// The graph as the open map is now; the chosen and pinned nodes kept in range.
     fn sync(&mut self) {
-        let Some(m) = self.doc().map(|d| d.m.clone()) else { return };
+        let Some(m) = self.pending.clone().or_else(|| self.doc().map(|d| d.m.clone())) else { return };
         let n = m.nodes.len();
         match &mut self.graph {
             Some(g) => g.update(&m),
@@ -409,15 +439,332 @@ impl Maps {
     /// A copy of a map under a new name, open and unsaved.
     fn new_from(&mut self, from: &str) {
         let Some(m) = self.docs.get(from).map(|d| d.m.clone()) else { return };
-        let name = (2..).map(|k| format!("{from} {k}")).find(|n| !self.docs.contains_key(n) && !std::path::Path::new(&format!("{DIR}/{n}.toml")).exists()).unwrap();
+        let name = self.free_name(&format!("{from} 2"));
         self.docs.insert(name.clone(), MDoc { m, hist: History::default(), saved: None });
         self.open_map(&name);
+    }
+
+    fn taken(&self, name: &str) -> bool {
+        self.docs.contains_key(name) || std::path::Path::new(&format!("{DIR}/{name}.toml")).exists()
+    }
+
+    /// `base`, or `base 2`, `base 3`... the first no map has.
+    fn free_name(&self, base: &str) -> String {
+        std::iter::once(base.to_string()).chain((2..).map(|k| format!("{} {k}", base.trim_end_matches(" 2")))).find(|n| !self.taken(n)).unwrap()
+    }
+
+    /// A new map from a starter under the name typed (else the starter's), open and unsaved. Not a draft: the
+    /// developer made it.
+    fn make_from(&mut self, app: &mut App, starter: &str) {
+        let typed = self.new_list.as_deref().unwrap_or("").trim().to_string();
+        let name = if typed.is_empty() { self.free_name(starter) } else { typed };
+        if self.taken(&name) {
+            return app.refuse(format!("A map named '{name}' is there already: type another name"));
+        }
+        if name.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|']) {
+            return app.refuse(format!("'{name}' cannot be a file name"));
+        }
+        match make::starter(starter, &app.pal) {
+            Ok(m) => {
+                self.docs.insert(name.clone(), MDoc { m, hist: History::default(), saved: None });
+                self.open_map(&name);
+                app.toast(format!("New map {name} from {starter} (unsaved)"));
+            }
+            Err(e) => app.refuse(e),
+        }
     }
 
     fn open_map(&mut self, name: &str) {
         self.open = Some(name.into());
         (self.graph, self.chosen, self.pinned, self.frame_all, self.adding) = (None, vec![], None, true, None);
+        (self.new_list, self.wall, self.pending, self.typing, self.use_made) = (None, None, None, None, None);
+        self.export_to = format!("exports/{name}.png");
         self.tex.clear();
+        self.wall_tex.clear();
+    }
+
+    /// New map's list: the starters with their pictures and what each is for, and the name box.
+    fn new_list_ui(&mut self, ui: &mut Ui, app: &mut App) {
+        let mut name = self.new_list.clone().unwrap_or_default();
+        look::heading(ui, "New map");
+        look::weak(ui, if self.open.is_none() { "No map yet: a click on a starter makes your first one" } else { "A click on a starter makes the new map, open and unsaved" });
+        let mut close = false;
+        ui.horizontal(|ui| {
+            ui.label("name");
+            let r = ui.add(egui::TextEdit::singleline(&mut name).hint_text("the starter's name").desired_width(220.0));
+            crate::drive::mark(ui.ctx(), "new:name", r.rect);
+            look::tip(r, "The new map's name (its file data/maps/<name>.toml); left empty, the starter's name", "");
+            if self.open.is_some() && look::tip(ui.button("Cancel"), "Back to the open map", "Escape").clicked() {
+                close = true;
+            }
+        });
+        ui.add_space(GAP);
+        let mut pick = None;
+        for (st, what, _) in make::STARTERS {
+            let (r, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width().min(560.0), 60.0), Sense::click());
+            crate::drive::mark(ui.ctx(), format!("starter:{}", st.replace(' ', "_")), r);
+            let img = {
+                let mut thumbs = self.thumbs.borrow_mut();
+                let key = format!("starter {st}");
+                if !thumbs.contains_key(&key) {
+                    if let Ok(m) = make::starter(st, &app.pal) {
+                        thumbs.insert(key.clone(), (String::new(), make::thumb(&m, 16)));
+                    }
+                }
+                thumbs.get(&key).map(|t| t.1.clone())
+            };
+            let p = ui.painter();
+            if resp.hovered() {
+                p.rect_filled(r, 6.0, ui.visuals().widgets.hovered.weak_bg_fill);
+            }
+            if let Some(img) = img {
+                look::draw(p, &img, 0, r.min + Vec2::new(6.0, 6.0), 3.0, false);
+            }
+            p.text(r.min + Vec2::new(64.0, 18.0), Align2::LEFT_CENTER, st, FontId::proportional(look::BODY), Color32::WHITE);
+            p.text(r.min + Vec2::new(64.0, 40.0), Align2::LEFT_CENTER, what, FontId::proportional(look::SMALL), ui.visuals().weak_text_color());
+            if look::tip(resp, &format!("A new map from {st}: {what}"), "").clicked() {
+                pick = Some(st);
+            }
+        }
+        if close || ui.input(|i| i.key_pressed(Key::Escape)) && self.open.is_some() {
+            self.new_list = None;
+            return;
+        }
+        self.new_list = Some(name);
+        if let Some(st) = pick {
+            self.make_from(app, st);
+        }
+    }
+
+    /// The block's texture Use would write, worked out again only when what it is made from changed.
+    fn use_result(&mut self, app: &App) -> Option<(String, Result<Img, String>)> {
+        let g = self.graph.as_ref()?;
+        if self.use_block.is_empty() {
+            return None;
+        }
+        let file = art::file_name(&self.use_block, self.use_face);
+        // the block's size: this face's painting, else any of the block's, else a plain 16
+        let side = app.docs.get(&file).or_else(|| (0..4).find_map(|f| app.docs.get(&art::file_name(&self.use_block, f)))).map_or(art::S, |d| d.img.h);
+        let key = format!("{}|{file}|{}|{}|{side}", g.map.write(), self.use_variants, self.use_ramp);
+        if self.use_made.as_ref().is_none_or(|u| u.0 != key) {
+            let ramp: Vec<[u8; 3]> = app.pal.ramp(&self.use_ramp).iter().map(|&i| app.pal.colours[i].rgb).collect();
+            self.use_made = Some((key, make::texture(&g.map, side, self.use_variants, &ramp, &app.pal)));
+        }
+        self.use_made.as_ref().map(|u| (file, u.1.clone()))
+    }
+
+    /// The block's own ramp: the palette ramp of the colour nearest the block's.
+    fn own_ramp(app: &App, block: &str) -> String {
+        let c = app.reg.placeable().find(|d| d.name == block).map_or([0.5; 3], |d| d.colour);
+        app.pal.find(crate::tools::snap(&app.pal, c)).and_then(|i| app.pal.colours[i].ramp.clone()).unwrap_or_default()
+    }
+
+    fn set_block(&mut self, app: &App, block: &str) {
+        self.use_block = block.to_string();
+        self.use_ramp = Self::own_ramp(app, block);
+    }
+
+    /// Use: the texture written through the Textures page's own save, one undo step there, checked.
+    fn use_texture(&mut self, app: &mut App) {
+        let Some((file, made)) = self.use_result(app) else { return app.refuse("Choose a block first") };
+        let img = match made {
+            Ok(img) => img,
+            Err(e) => return app.refuse(format!("Not used: {e}")),
+        };
+        let step = format!("Map {}", self.open.clone().unwrap_or_default());
+        match app.docs.get_mut(&file) {
+            Some(d) => {
+                let before = std::mem::replace(&mut d.img, img);
+                if d.img != before {
+                    d.hist.push(before, &step);
+                }
+            }
+            None => {
+                app.docs.insert(file.clone(), Doc { img, hist: History::default(), saved: None });
+            }
+        }
+        app.save_textures(vec![file]);
+    }
+
+    fn use_panel(&mut self, ui: &mut Ui, app: &mut App) {
+        let Some(kind) = self.graph.as_ref().map(|g| g.kinds[g.out()]) else { return };
+        let blocks: Vec<String> = app.reg.placeable().map(|d| d.name.clone()).collect();
+        look::row(ui, "block", |ui| {
+            let (r, b) = word_box(ui, "maps use block", if self.use_block.is_empty() { "choose a block" } else { &self.use_block }, &blocks, 150.0);
+            crate::drive::mark(ui.ctx(), "use:block", r.rect);
+            look::tip(r, "The block whose texture the map becomes", "");
+            if let Some(b) = b {
+                self.set_block(app, &b);
+            }
+        });
+        look::row(ui, "face", |ui| {
+            for (f, label) in ["all", "top", "side", "bottom"].iter().enumerate() {
+                let r = look::chip(ui, self.use_face == f, label);
+                crate::drive::mark(ui.ctx(), format!("use.face:{f}"), r.rect);
+                if look::tip(r, "Which face's file: all is the block's one picture", "").clicked() {
+                    self.use_face = f;
+                }
+            }
+        });
+        look::row(ui, "variants", |ui| {
+            look::tip(ui.add(egui::Slider::new(&mut self.use_variants, 1..=4)), "How many variants: each the same graph with its seeds moved on", "");
+        });
+        if kind == Data::Num {
+            let ramps = choices(&[], &app.pal);
+            look::row(ui, "ramp", |ui| {
+                let (r, w) = word_box(ui, "maps use ramp", &self.use_ramp, &ramps, 150.0);
+                look::tip(r, "The palette ramp the number runs along, dark to light (the block's own to start with)", "");
+                if let Some(w) = w {
+                    self.use_ramp = w;
+                }
+            });
+        }
+        let Some((file, made)) = self.use_result(app) else {
+            look::weak(ui, "Choose a block: the map shows beside its texture now, nothing is written before Use");
+            return;
+        };
+        match &made {
+            Err(e) => {
+                ui.label(RichText::new(e).color(look::BAD));
+            }
+            Ok(img) => {
+                let now = app.docs.get(&file).map(|d| d.img.clone());
+                let k = (110.0 / (3 * img.h) as f32).floor().max(1.0);
+                let cell = 3.0 * img.h as f32 * k;
+                let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), cell + 22.0), Sense::hover());
+                let p = ui.painter();
+                for (x, label, pic) in [(r.min.x, "now", now.as_ref()), (r.min.x + cell + GAP * 2.0, "after Use", Some(img))] {
+                    p.text(Pos2::new(x, r.min.y + 8.0), Align2::LEFT_CENTER, label, FontId::proportional(look::SMALL), ui.visuals().weak_text_color());
+                    let at = Pos2::new(x, r.min.y + 20.0);
+                    match pic {
+                        Some(pic) => {
+                            for j in 0..3 {
+                                for i in 0..3 {
+                                    look::draw(p, pic, art::variant_at([i, j, 0], pic.variants()), at + Vec2::new(i as f32, j as f32) * pic.h as f32 * k, k, false);
+                                }
+                            }
+                        }
+                        None => {
+                            p.text(at + Vec2::splat(cell / 2.0), Align2::CENTER_CENTER, "none yet", FontId::proportional(look::SMALL), ui.visuals().weak_text_color());
+                        }
+                    }
+                }
+                crate::drive::mark(ui.ctx(), "use:shown", r);
+            }
+        }
+        let r = ui.add_enabled(made.is_ok(), egui::Button::new(RichText::new("Use").color(Color32::WHITE)).fill(look::GOOD.gamma_multiply(0.45)));
+        crate::drive::mark(ui.ctx(), "btn:use", r.rect);
+        if look::tip(r, &format!("Write {file}: one undo step on the Textures page, saved and checked"), "").clicked() {
+            self.use_texture(app);
+        }
+    }
+
+    fn export(&mut self, app: &mut App) {
+        let Some(m) = self.doc().map(|d| d.m.clone()) else { return };
+        let path = self.export_to.trim().to_string();
+        match map::export(&m, &path) {
+            Ok((w, h)) => app.toast(format!("Wrote {path}: {w} x {h}")),
+            Err(e) => app.refuse(format!("Not written: {e}")),
+        }
+    }
+
+    fn export_panel(&mut self, ui: &mut Ui, app: &mut App) {
+        let r = ui.add(egui::TextEdit::singleline(&mut self.export_to).desired_width(f32::INFINITY));
+        crate::drive::mark(ui.ctx(), "export:path", r.rect);
+        look::tip(r, "Where the PNG goes, from the repository's folder", "");
+        let there = std::path::Path::new(self.export_to.trim()).exists();
+        let r = ui.button(if there { "Replace" } else { "Export" });
+        crate::drive::mark(ui.ctx(), "btn:export", r.rect);
+        if look::tip(r, "A PNG at the map's size: a number grey, a colour as it is, a direction in red and green (middle grey no push); an animated map as one strip of its frames", "").clicked() {
+            self.export(app);
+        }
+    }
+
+    /// The variations wall: the open graph under other seeds.
+    fn open_wall(&mut self) {
+        let Some(m) = self.doc().map(|d| d.m.clone()) else { return };
+        (self.wall, self.pending) = (Some(Wall::new(m, 10, 0.5, 7, &make::variation)), None);
+        self.wall_tex.clear();
+    }
+
+    fn wall_close(&mut self, keep: bool) {
+        if let Some(p) = self.pending.take().filter(|_| keep) {
+            self.edit("Variation", false, |m| *m = p);
+        }
+        self.wall = None;
+        self.wall_tex.clear();
+    }
+
+    fn wall_ui(&mut self, ui: &mut Ui) {
+        ui.horizontal(|ui| {
+            let r = ui.add_enabled(self.pending.is_some(), egui::Button::new(RichText::new("Use").color(Color32::WHITE)).fill(look::GOOD.gamma_multiply(0.45)));
+            crate::drive::mark(ui.ctx(), "btn:wall.use", r.rect);
+            if look::tip(r, "The picked seeds into the map: one undo step", "").clicked() {
+                self.wall_close(true);
+            }
+            let r = ui.button("Cancel");
+            crate::drive::mark(ui.ctx(), "btn:wall.cancel", r.rect);
+            if look::tip(r, "Back to the graph as it was", "Escape").clicked() {
+                self.wall_close(false);
+            }
+            look::weak(ui, if self.pending.is_some() { "Picked: the preview shows it" } else { "A click picks one; the preview shows it" });
+        });
+        if self.wall.is_none() || ui.input(|i| i.key_pressed(Key::Escape)) {
+            return self.wall_close(false);
+        }
+        let ctx = ui.ctx().clone();
+        let w = self.wall.as_mut().unwrap();
+        let ids: Vec<egui::TextureId> = w
+            .items
+            .iter()
+            .map(|m| {
+                let key = m.write();
+                self.wall_tex
+                    .entry(key)
+                    .or_insert_with(|| {
+                        let (kind, p) = make::picture(m, THUMB);
+                        ctx.load_texture("map variation", egui::ColorImage::from_rgba_unmultiplied([THUMB, THUMB], &map::rgba(&p, kind)), egui::TextureOptions::NEAREST)
+                    })
+                    .id()
+            })
+            .collect();
+        let chosen = self.pending.as_ref().and_then(|p| w.items.iter().position(|i| i == p));
+        let full = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+        match wall_ui::show_with(ui, w, chosen, Vec2::splat(140.0), false, |p, r, i, _| {
+            p.image(ids[i], r, full, Color32::WHITE);
+        }) {
+            wall_ui::Act::Take(i) => self.pending = (i > 0).then(|| w.items[i].clone()),
+            wall_ui::Act::More(i) => w.more_like(i, &make::variation),
+            wall_ui::Act::Back => {
+                w.back();
+            }
+            wall_ui::Act::Shuffle => w.shuffle(&make::variation),
+            wall_ui::Act::Spread => w.fill(10, &make::variation),
+            _ => {}
+        }
+    }
+
+    /// A number row on a node; a double click types into it: Enter takes it (held to its range), Escape or a
+    /// click away leaves it. The row's response (none while typed into) and the new value, typed or not.
+    fn num_field(&mut self, ui: &mut Ui, rr: Rect, id: Id, name: &str, v: f32, (min, max, whole): (f32, f32, bool), legible: bool) -> (Option<egui::Response>, Option<(f32, bool)>) {
+        if let Some((_, text, fresh)) = self.typing.as_mut().filter(|t| t.0 == id) {
+            let r = ui.put(rr, egui::TextEdit::singleline(text).font(FontId::proportional(look::BODY)));
+            if std::mem::take(fresh) {
+                r.request_focus();
+            }
+            let (enter, esc) = ui.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
+            let typed = text.trim().parse::<f32>().ok().filter(|x| x.is_finite());
+            if enter || esc || r.lost_focus() {
+                self.typing = None;
+            }
+            let x = typed.filter(|_| enter).map(|x| x.clamp(min, max)).map(|x| if whole { x.round() } else { x });
+            return (None, x.map(|x| (x, true)));
+        }
+        let (resp, new) = num_row(ui, rr, id, name, v, (min, max, whole), legible);
+        if resp.double_clicked() {
+            self.typing = Some((id, if whole { format!("{v:.0}") } else { format!("{v:.2}") }, true));
+        }
+        (Some(resp), new.map(|x| (x, false)))
     }
 
     fn add_node(&mut self, app: &App, kind: &str, at: Pos2, from: Option<Hit>) {
@@ -535,10 +882,13 @@ impl Maps {
             for (k, sl) in s.nums.iter().enumerate() {
                 let rr = row_rect(*r, s.words.len() + k);
                 mark(format!("row:{}:{}", n.id, sl.name), rr);
-                let (resp, new) = num_row(ui, rr, ui.scope_id().with(("num", i, k)), sl.name, n.nums[k], (sl.min, sl.max, sl.whole), legible);
-                pressed |= look::tip(resp, &format!("{}: {} to {}; drag sideways to change it", sl.name, sl.min, sl.max), "").is_pointer_button_down_on();
-                if let Some(v) = new {
-                    self.edit(&format!("Move {}", sl.name), true, |m| {
+                let (resp, new) = self.num_field(ui, rr, ui.scope_id().with(("num", i, k)), sl.name, n.nums[k], (sl.min, sl.max, sl.whole), legible);
+                match resp {
+                    Some(resp) => pressed |= look::tip(resp, &format!("{}: {} to {}; drag sideways to change it, a double click types it", sl.name, sl.min, sl.max), "").is_pointer_button_down_on(),
+                    None => mark("typing".into(), rr),
+                }
+                if let Some((v, typed)) = new {
+                    self.edit(&format!("{} {}", if typed { "Type" } else { "Move" }, sl.name), !typed, |m| {
                         m.set_num(i, sl.name, v);
                     });
                 }
@@ -549,10 +899,13 @@ impl Maps {
                 mark(format!("row:{}:{name}", n.id), rr);
                 match pin {
                     Pin::Value(v) if pk != Data::Dir => {
-                        let (resp, new) = num_row(ui, rr, ui.scope_id().with(("pinv", i, k)), name, *v, (0.0, 1.0, false), legible);
-                        pressed |= look::tip(resp, &format!("{name} while nothing is plugged in; plug a wire in and the wire gives it"), "").is_pointer_button_down_on();
-                        if let Some(v) = new {
-                            self.edit(&format!("Move {name}"), true, |m| {
+                        let (resp, new) = self.num_field(ui, rr, ui.scope_id().with(("pinv", i, k)), name, *v, (0.0, 1.0, false), legible);
+                        match resp {
+                            Some(resp) => pressed |= look::tip(resp, &format!("{name} while nothing is plugged in (a double click types it); plug a wire in and the wire gives it"), "").is_pointer_button_down_on(),
+                            None => mark("typing".into(), rr),
+                        }
+                        if let Some((v, typed)) = new {
+                            self.edit(&format!("{} {name}", if typed { "Type" } else { "Move" }), !typed, |m| {
                                 m.set_num(i, name, v);
                             });
                         }
@@ -757,7 +1110,7 @@ impl Maps {
             look::row(ui, sl.name, |ui| {
                 // room for the reset at the row's end
                 ui.spacing_mut().interact_size.x = 56.0;
-                ui.spacing_mut().slider_width = (ui.available_width() - 56.0 - 70.0 - 12.0).max(24.0);
+                ui.spacing_mut().slider_width = (ui.available_width() - 56.0 - 24.0 - 12.0).max(24.0);
                 let slider = egui::Slider::new(&mut v, sl.min..=sl.max).max_decimals(2);
                 let r = ui.add(if sl.whole { slider.integer() } else { slider });
                 crate::drive::mark(ui.ctx(), format!("num:{}", sl.name), r.rect);
@@ -766,7 +1119,16 @@ impl Maps {
                         m.set_num(i, sl.name, v);
                     });
                 }
-                let r = ui.add_enabled(n.nums[k] != sl.def, egui::Button::new("reset").small());
+                let r = ui.add_enabled(n.nums[k] != sl.def, egui::Button::new("").min_size(Vec2::splat(22.0)));
+                // a turning-back arrow, drawn: the game's font has no such glyph
+                let (c, st) = (r.rect.center(), ui.visuals().widgets.style(&r).fg_stroke);
+                let at = |a: f32, rad: f32| c + Vec2::angled(a) * rad;
+                let arc: Vec<Pos2> = (0..=12).map(|j| at(-2.4 + j as f32 * 0.38, 5.5)).collect();
+                let tip = arc[0];
+                ui.painter().add(egui::Shape::line(arc, st));
+                ui.painter().line_segment([tip, tip + Vec2::new(3.5, 0.0)], st);
+                ui.painter().line_segment([tip, tip + Vec2::new(0.0, 3.5)], st);
+                crate::drive::mark(ui.ctx(), format!("reset:{}", sl.name), r.rect);
                 if look::tip(r, &format!("{} back to {} as new", sl.name, sl.def), "").clicked() {
                     self.edit(&format!("Reset {}", sl.name), false, |m| {
                         m.set_num(i, sl.name, sl.def);
@@ -847,11 +1209,7 @@ impl Page for Maps {
                 let img = match thumbs.get(n).filter(|t| t.0 == text) {
                     Some(t) => t.1.clone(),
                     None => {
-                        let mut g = Graph::new(d.m.clone());
-                        let o = g.out();
-                        let kind = g.kinds[o];
-                        let px = map::rgba(g.pic(o, 0, 16), kind);
-                        let img = Img { w: 16, h: 16, px: px.chunks(4).map(|c| [c[0], c[1], c[2]]).collect() };
+                        let img = make::thumb(&d.m, 16);
                         thumbs.insert(n.clone(), (text.clone(), img.clone()));
                         img
                     }
@@ -887,7 +1245,16 @@ impl Page for Maps {
             Cmd::new("save", "Save the map", "write data/maps/<name>.toml (read back as the check reads it) and take it off the drafts list").key(Modifiers::COMMAND, Key::S),
             Cmd::new("undo", "Undo", "undo the last change to this map").key(Modifiers::COMMAND, Key::Z),
             Cmd::new("redo", "Redo", "redo what was undone").key(Modifiers::COMMAND, Key::Y),
+            Cmd::new("new", "New map", "the starters, each with its picture and what it is for, and a name").key(Modifiers::COMMAND, Key::N),
+            Cmd::new("variations", "Variations", "the graph under other seeds; a click shows one, Use keeps it").key(Modifiers::NONE, Key::M),
+            Cmd::new("use", "Use as the block's texture", "write the map as the chosen block's face (Use section): one undo step on the Textures page, saved and checked"),
+            Cmd::new("export", "Export the map", "a PNG at the map's size where the Export section says; an animated map as a strip of frames"),
+            Cmd::new("wall.use", "Use the variation", "the picked seeds into the map, one undo step"),
+            Cmd::new("wall.cancel", "Close the variations", "back to the graph as it was"),
         ];
+        for (st, what, _) in make::STARTERS {
+            v.push(Cmd::new(format!("starter:{st}"), format!("New map: {st}"), what));
+        }
         for n in self.docs.keys() {
             v.push(Cmd::new(format!("new:{n}"), format!("New map from {n}"), "a copy of it under a new name, not saved yet"));
         }
@@ -897,6 +1264,29 @@ impl Page for Maps {
     fn run(&mut self, app: &mut App, id: &str) {
         if let Some(from) = id.strip_prefix("new:") {
             return self.new_from(from);
+        }
+        if let Some(st) = id.strip_prefix("starter:") {
+            return self.make_from(app, st);
+        }
+        // the Use panel's choices, for scripts: use.block:<block>, use.face:<0..3>, use.variants:<1..4>, use.ramp:<ramp>
+        if let Some(b) = id.strip_prefix("use.block:") {
+            return self.set_block(app, b);
+        }
+        if let Some(f) = id.strip_prefix("use.face:").and_then(|f| f.parse::<usize>().ok()) {
+            self.use_face = f.min(3);
+            return;
+        }
+        if let Some(n) = id.strip_prefix("use.variants:").and_then(|f| f.parse::<usize>().ok()) {
+            self.use_variants = n.clamp(1, 4);
+            return;
+        }
+        if let Some(r) = id.strip_prefix("use.ramp:") {
+            self.use_ramp = r.to_string();
+            return;
+        }
+        if id == "new" {
+            self.new_list = Some(String::new());
+            return;
         }
         if self.open.is_none() {
             return;
@@ -925,6 +1315,14 @@ impl Page for Maps {
             "view:sway" => self.set_mode("sway"),
             "play" => self.play(),
             "save" => self.save(app),
+            "variations" => self.open_wall(),
+            "use" => {
+                self.sync();
+                self.use_texture(app);
+            }
+            "export" => self.export(app),
+            "wall.use" => self.wall_close(true),
+            "wall.cancel" => self.wall_close(false),
             "undo" | "redo" => {
                 if let Some(d) = self.open.as_ref().and_then(|n| self.docs.get_mut(n)) {
                     let mut now = d.m.clone();
@@ -951,12 +1349,15 @@ impl Page for Maps {
         if !ui.input(|i| i.pointer.any_down()) {
             self.merging = None;
         }
-        let Some(name) = self.open.clone() else {
-            look::weak(ui, "Choose a map on the left to open it");
-            return;
-        };
+        if self.new_list.is_some() || self.open.is_none() {
+            return self.new_list_ui(ui, app);
+        }
+        let Some(name) = self.open.clone() else { return };
         self.sync();
         ui.label(RichText::new(&name).strong());
+        if self.wall.is_some() {
+            return self.wall_ui(ui);
+        }
         // the work area scrolls: the graph takes what is in view of it, not its whole width
         let outer = Rect::from_min_max(ui.cursor().min, ui.clip_rect().max);
         crate::drive::mark(ui.ctx(), "graph", outer);
@@ -1149,6 +1550,11 @@ impl Page for Maps {
         if let Some(mut sec) = look::section(ui, "File") {
             let ui = &mut *sec;
             let names: Vec<String> = self.docs.keys().cloned().collect();
+            let r = ui.button("New map…");
+            crate::drive::mark(ui.ctx(), "btn:new", r.rect);
+            if look::tip(r, "A new map from a starter", "Ctrl+N").clicked() {
+                self.new_list = Some(String::new());
+            }
             let r = ui.menu_button("New from…", |ui| {
                 for n in names {
                     if ui.button(&n).clicked() {
@@ -1167,6 +1573,12 @@ impl Page for Maps {
         }
         if let Some(mut sec) = look::section(ui, "Map") {
             self.map_numbers(&mut sec);
+        }
+        if let Some(mut sec) = look::section(ui, "Use") {
+            self.use_panel(&mut sec, app);
+        }
+        if let Some(mut sec) = look::section(ui, "Export") {
+            self.export_panel(&mut sec, app);
         }
     }
 

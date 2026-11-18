@@ -1,6 +1,6 @@
 # NNNN – Studio maps: the file, tiling and looping, CPU evaluation
 
-- **Status:** proposed (build step 1 of `docs/design/studio-maps.md`; steps 2 and 3 add to it)
+- **Status:** proposed (the Maps page as built, steps 1 to 3 of `docs/design/studio-maps.md`)
 - **Date:** 2026-11-18
 
 ## Context
@@ -50,7 +50,9 @@ Options 1 and 4, worked out on the CPU.
   128 as no push.
 
 ### Step 2: the page
-- **Our own graph on `egui::Scene`** (no node-graph crate): pan with the middle button, zoom to the pointer with
+- **Our own graph on `egui::Scene`** (no node-graph crate: the ones there are, egui_snarl and egui_node_graph,
+  follow egui's releases late or not at all, own the node's look and its state, and would be a new
+  dependency for about 600 lines we can keep in the Studio's own look and drive marks): pan with the middle button, zoom to the pointer with
   the wheel (0.2 to 2), F frames all. Every edit goes through `Map::add`, `wire`, `unplug`, `remove`, `copy`,
   `set_num` and `set_word`; a wire is refused there (circle, kind) and the map is never left invalid
   (`repair` unplugs what a removal broke). The page shows the refusal's reason while the wire is dragged.
@@ -86,10 +88,32 @@ Options 1 and 4, worked out on the CPU.
   around its middle, times `strength`; the tip moves most (offset grows with the square of the height).
 - Particles and Sway start playing when chosen and stand still when paused; plain 2D painting.
 
+### Step 3, second half: use, export, new, variations
+- **Use as a block's texture** (inspector section): block, face (all, top, side, bottom), 1 to 4 variants, each
+  the map with every seed moved on by 7919 x the variant. Worked out at the side of the block's face as it
+  is (else another face of the block's, else 16). A colour is snapped to the nearest palette colour; a number
+  runs along a ramp (the block's own to start, by its pixels' colours); a direction is refused with the reason.
+  Now and after are shown 3 x 3 tiled. **Use** puts the picture into the Textures page's own document for that
+  file as one undo step named "Map <name>" and saves it through the Textures page's save (temp file, off the
+  drafts list, the check). Nothing is written before Use.
+- **Export:** a path box, `exports/<name>.png` to start (`/exports/` is ignored by git). A number is grey, a
+  colour as it is, a direction red and green with 128 as no push, alpha 255; an animated map is one strip of
+  its frames side by side, at the map's own size. The button says Replace when the file is there. A bad path
+  is said in a toast with the reason.
+- **New map** (File, Ctrl+N, the empty page): seven starters kept in code (`ui/maps/make.rs`: clouds, stone
+  cells, wood grain, wind gusts, smoke swirl, ripples, flicker), each with a picture and what it is for, and
+  a name box. The map opens unsaved; it is a file, and a draft, only after Save.
+- **Variations** (M): the Studio's shared wall (`wall.rs`, `ui/wall.rs`) with the open map and nine others,
+  each the same graph with every seed moved on by a random amount. A click shows one in the graph and the
+  previews (pending); Use keeps it as one undo step, Cancel or Escape leaves the map as it was.
+- **Typing a number:** a double click on a node's row types it (Enter takes it, held to the range and whole
+  where it must be; Escape or a click away leaves it). The inspector's number boxes type on a click, as egui's
+  own do.
+
 ## Consequences
 - Every map tiles and loops exactly, and the tests show it (the step across the edge is no larger than a
   step inside; frame `frames` equals frame 0).
 - `scale` and `speed` cannot take fractions. Mirror in Move does not flip a direction field's sign.
-- A ten-node 256 px graph takes milliseconds on the CPU (number in the commit). A worker thread comes with
-  the page if a graph is too slow for a frame. Keeping only eight pictures per node means Play reworks each
-  frame. That is for step 3 to measure.
+- CPU with a worker: the full-size preview and the loop are worked out on one worker at a time, stale
+  results dropped; node pictures (64 px) in the frame. Their cost under a held drag and Play is measured in
+  the commit that follows this round's review.

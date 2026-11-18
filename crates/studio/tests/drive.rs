@@ -708,3 +708,44 @@ fn maps_node_rows() {
     assert!(noise.contains("octaves = 8"), "dragged to the right end: {line}\n{noise}");
     assert_eq!(line.matches("Move octaves").count(), 1, "one step a drag: {line}");
 }
+
+/// A double click on a node's row types its number: Enter takes it, held to the range; one step "Type".
+#[test]
+fn maps_typed_value() {
+    let dir = scratch("maps-type");
+    let line = studio(
+        &dir,
+        &["size=1600x900", "cmd=open:Maps:clouds", "input=click @row:noise:scale; click @row:noise:scale; wait; key Ctrl+A; text 99; key Enter; wait; key Ctrl+S"],
+    );
+    let text = std::fs::read_to_string(dir.join("data/maps/clouds.toml")).unwrap();
+    let noise = text.split("[[node]]").find(|n| n.contains("id = \"noise\"")).unwrap().to_string();
+    assert!(noise.contains("scale = 64"), "typed 99, held to the top 64: {line}\n{noise}");
+    assert!(line.contains("Type scale"), "{line}");
+}
+
+/// Variations: a click picks one under other seeds, Use keeps it as one undo step; the wiring is unchanged.
+#[test]
+fn maps_variation_used() {
+    let dir = scratch("maps-wall");
+    let line = studio(&dir, &["size=1600x900", "cmd=open:Maps:clouds,variations", "input=click @wall:3; wait; click @btn:wall.use; wait; key Ctrl+S"]);
+    let text = std::fs::read_to_string(dir.join("data/maps/clouds.toml")).unwrap();
+    assert!(!text.contains("seed = 1\n"), "another seed: {line}\n{text}");
+    assert!(text.contains("in = \"noise\"") && text.contains("in = \"levels\""), "the same wiring: {text}");
+    assert_eq!(line.matches("Variation").count(), 1, "one step: {line}");
+}
+
+/// Step 3's rest: a new map from a starter, used as a block's texture with two variants: written through the
+/// Textures page's save at the block's size, passing the check.
+#[test]
+fn maps_starter_used_on_a_block() {
+    let dir = scratch("maps-use");
+    let line = studio(
+        &dir,
+        &["size=1600x900", "cmd=open:Maps:clouds,use.block:dirt,use.face:0,use.variants:2,new", "input=click @new:name; text rock; click @starter:stone_cells; wait; move @btn:new; wheel -900; wait 3; click @btn:use; wait"],
+    );
+    assert!(line.contains("rock"), "the new map is open: {line}");
+    let (w, h, _) = png(&dir.join("data/textures/dirt.png"));
+    assert_eq!((w, h), (32, 16), "two variants at the block's size: {line}");
+    studio(&dir, &["check=1"]);
+    assert!(!dir.join("data/maps/rock.toml").exists(), "a new map is not saved before Save");
+}

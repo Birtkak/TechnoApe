@@ -274,3 +274,24 @@ fn an_update_reworks_only_what_changed() {
     g.pic(o, 0, 32);
     assert_eq!(g.worked, 8, "a new node: worked out anew");
 }
+
+#[test]
+fn export_writes_a_strip_in_each_kinds_encoding() {
+    // a number as grey, a colour as it is, a direction in red and green with the middle as no push
+    let (num, col, dir) = (vec![[0.5, 0.5, 0.5]], vec![[1.0, 0.25, 0.0]], vec![[0.0, 0.0, 0.0], [1.0, -1.0, 0.0]]);
+    assert_eq!(rgba(&num, Num), [128, 128, 128, 255]);
+    assert_eq!(rgba(&col, Col), [255, 64, 0, 255]);
+    assert_eq!(rgba(&dir, Dir), [128, 128, 0, 255, 255, 0, 0, 255]);
+    // an animated map: its frames side by side at its size
+    let mut g = one("kind = \"smooth noise\"\nscale = 2\nspeed = 1", 3);
+    let (w, h, px) = strip(&mut g, &[0, 1, 2]);
+    assert_eq!((w, h, px.len()), (3 * 64, 64, 3 * 64 * 64 * 4));
+    let f1 = rgba(g.pic(g.out(), 1, 64), Num);
+    assert_eq!(&px[64 * 4..2 * 64 * 4], &f1[..64 * 4], "frame 1 is the second square of the first row");
+    let out = std::env::temp_dir().join(format!("technoape-export-{}.png", std::process::id()));
+    let out = out.to_string_lossy().into_owned();
+    assert_eq!(export(&g.map, &out), Ok((192, 64)));
+    let _ = std::fs::remove_file(&out);
+    let e = export(&g.map, "Cargo.toml/x.png").unwrap_err();
+    assert!(e.contains("Cargo.toml"), "a path that cannot be written is said: {e}");
+}
