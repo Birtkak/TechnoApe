@@ -1224,8 +1224,8 @@ fn col_caves_merged_is_the_union_of_every_caves_span() {
     assert!(w.bodies[0].check_over_cave() > 10);
 }
 
-/// The cave walk's faces side by side make what one after the other made, system for system, on the dense planet
-/// and the planet as made.
+/// The cave walk's faces side by side, a ball checked column by column, make what one after the other, cell by
+/// cell made, system for system, on the dense planet and the planet as made.
 #[test]
 fn caves_walked_by_face_in_parallel_are_the_walk_in_order() {
     let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, GENERATION);
