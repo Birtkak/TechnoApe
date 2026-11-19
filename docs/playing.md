@@ -54,7 +54,7 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
 - Under the mantle's floor (layer 0 of a new world) lies the liquid outer core, a white-hot sea of iron and
   nickel: dig out a floor block and it glows up the hole, calm, at the floor's bottom; it holds you up like the
   floor did, but feet in it burn, a point of health every 0.1 s (survival; "<name> burned in the liquid metal").
-- The aurora (draft-magnetic-field): curtains of green light with red-violet tops in a ring round each pole at
+- The aurora (0164-magnetic-field): curtains of green light with red-violet tops in a ring round each pole at
   night, about 70 degrees latitude at Terra's field; seen from the ground there and from orbit over the night side.
   `field=x` (the game) scales the home's magnetic field for the run (as core mining will lower it): the ring
   widens toward the equator and dims, at `field=0` there is none (held to 0..10; not a number reads as 1). The field is in F3 (World, Field) and in the

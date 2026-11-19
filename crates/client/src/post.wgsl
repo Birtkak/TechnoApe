@@ -28,7 +28,7 @@ struct Post {
     sun_col: vec4f,
     sky_amb: vec4f,
     cloud: vec4f,
-    // the aurora (draft-magnetic-field, frame.rs `aurora_post`): x the oval's colatitude from either spin pole,
+    // the aurora (0164-magnetic-field, frame.rs `aurora_post`): x the oval's colatitude from either spin pole,
     // y its brightness (0: none), z the planet's sea radius, w the sky's clock in its hour, s
     aurora: vec4f,
 };
@@ -351,7 +351,7 @@ fn fs_clouds(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     return vec4f(c * cl.a + a * (1.0 - cl.a), cl.a);
 }
 
-// ---- the aurora (draft-magnetic-field) ----
+// ---- the aurora (0164-magnetic-field) ----
 // Curtains of light in an oval round each spin pole, in a shell AU_LO to AU_HI over the sea: a curtain is a line
 // of rays AU_CELL wide along the oval, its folds drifting and its rays rippling by the sky's clock (whole turns an
 // hour, so the hour's wrap has no jump), green low and red-violet at the top, blocky as the clouds' cells are.

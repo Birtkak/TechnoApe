@@ -1513,7 +1513,7 @@ fn hand_shown(play: bool, tool: bool, f3: bool, home: Menu, menu: Option<Menu>) 
     play && !tool && !f3 && home != Menu::Title && menu != Some(Menu::Dead)
 }
 
-/// The `field=` argument: the home's field is scaled by it for this run (draft-magnetic-field).
+/// The `field=` argument: the home's field is scaled by it for this run (0164-magnetic-field).
 /// Not a finite number reads as none given (1); a number is held to 0..10 (at 10 the oval is 6 degrees from the
 /// pole, its band clear of it).
 pub(crate) fn field_scale(args: &Args) -> f64 {
@@ -1521,7 +1521,7 @@ pub(crate) fn field_scale(args: &Args) -> f64 {
     if f.is_finite() { f.clamp(0.0, 10.0) } else { 1.0 }
 }
 
-/// The aurora's numbers for post.wgsl (`Post::aurora`, draft-magnetic-field): the oval's colatitude, its
+/// The aurora's numbers for post.wgsl (`Post::aurora`, 0164-magnetic-field): the oval's colatitude, its
 /// brightness at the home's field times `scale` (the `field=` argument) faded out by the daylight in the air here
 /// (`Globals::sky` w), the home's sea radius and the sky's clock in the hour. Body 0 is the home.
 pub(crate) fn aurora_post(world: &World, scale: f64, day: f32, clock: f64) -> [f32; 4] {

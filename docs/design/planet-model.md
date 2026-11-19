@@ -123,7 +123,7 @@ inside a sphere of influence. The model is shaped now so real orbits need no sec
    22), Welcome and recordings carry every body's columns and map as a list; version 21 and old recordings read
    as Terra and Luna. `planet=`/`moon=` unchanged. The GPU's four bodies are a stated limit, refused at start.
    Left: eclipses, tides and moonlight are the home's first moon's only; the home must be the first row.
-3. **Built (draft-magnetic-field):** the magnetic field as a value of the world, `World::field(b)` from the
+3. **Built (0164-magnetic-field):** the magnetic field as a value of the world, `World::field(b)` from the
    interior (no new state: the metal sea is a fixed level, ADR 0156; the ADR names the counted liquid metal, save
    and wire field core mining must add), and its first effect, the aurora: an oval at 70° latitude at field 1 that
    widens toward the equator and dims as the field falls, none under 0.02 (Luna). `field=x` scales it for a run.

@@ -276,7 +276,7 @@ impl World {
     pub fn surface_g(&self, i: usize) -> f64 {
         self.bodies[i].interior.surface_g
     }
-    /// Body b's magnetic field now, over the home's at the start (draft-magnetic-field): its interior's, the
+    /// Body b's magnetic field now, over the home's at the start (0164-magnetic-field): its interior's, the
     /// liquid core and the spin from its row (Terra 1, Luna about 0.012). Every reader asks here, so this is the
     /// one place core mining will lower it, by the liquid metal taken over the liquid metal at the start.
     pub fn field(&self, b: usize) -> f64 {

@@ -279,7 +279,7 @@ pub const BIOME_CLIMATE: [(f64, f64); 15] = [
     (26.0, 6.0), (12.0, 6.0), (-3.0, 10.0), (18.0, 6.0), (15.0, 2.0), (8.0, 1.0), (26.0, 2.0),
 ];
 
-/// The auroral oval round each spin pole (draft-magnetic-field): its colatitude from the pole, radians, and its
+/// The auroral oval round each spin pole (0164-magnetic-field): its colatitude from the pole, radians, and its
 /// brightness, 0 for none.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Aurora {
