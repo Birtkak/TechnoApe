@@ -84,6 +84,15 @@ fn terra_and_luna_pull_and_weigh_as_before() {
     assert_eq!(t.interior.surface_g, crate::interior::G, "G on Terra to the bit");
 }
 
+/// The world answers each body's field from its interior: Terra's is the unit, Luna's the interior's small one.
+#[test]
+fn the_worlds_field_is_the_interiors() {
+    let w = World::with_grid(6144, 1664, 1, None, None, 0.0, 1);
+    assert_eq!(w.field(0), 1.0, "Terra is the unit");
+    assert_eq!(w.field(1), w.bodies[1].interior.field, "Luna's is her interior's");
+    assert!((w.field(1) - 0.0119).abs() < 5e-4, "Luna {}", w.field(1));
+}
+
 /// Today's surface pull was G times the radius over Terra's; now it is the mass over the square of the radius.
 #[test]
 fn surface_gravity_is_the_mass_over_the_radius_squared() {

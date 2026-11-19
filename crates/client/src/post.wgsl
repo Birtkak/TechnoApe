@@ -28,6 +28,9 @@ struct Post {
     sun_col: vec4f,
     sky_amb: vec4f,
     cloud: vec4f,
+    // the aurora (draft-magnetic-field, frame.rs `aurora_post`): x the oval's colatitude from either spin pole,
+    // y its brightness (0: none), z the planet's sea radius, w the sky's clock in its hour, s
+    aurora: vec4f,
 };
 
 @group(0) @binding(0) var<uniform> u: Post;
@@ -335,11 +338,161 @@ const WATER_FOG: vec3f = vec3f(0.03, 0.16, 0.24);
 @fragment
 fn fs_clouds(@builtin(position) pos: vec4f) -> @location(0) vec4f {
     let px = vec2i(pos.xy);
-    let cl = clouds(px, normalize(point_at(px, 1.0)), gload(gbuf, px).w);
-    if (cl.a <= 0.0) { discard; }
-    var c = shoulder(cl.rgb / cl.a);
-    if (u.tune.w != 1.0) { c = pow(c, vec3f(1.0 / u.tune.w)); }
-    return vec4f(c * cl.a, cl.a);
+    let dir = normalize(point_at(px, 1.0));
+    let dist = gload(gbuf, px).w;
+    let cl = clouds(px, dir, dist);
+    // the aurora is far over the clouds: they hide it
+    let au = aurora(px, dir, dist);
+    if (cl.a <= 0.0 && au.r + au.g + au.b <= 0.0) { discard; }
+    var c = vec3f(0.0);
+    if (cl.a > 0.0) { c = shoulder(cl.rgb / cl.a); }
+    var a = shoulder(au);
+    if (u.tune.w != 1.0) { c = pow(c, vec3f(1.0 / u.tune.w)); a = pow(a, vec3f(1.0 / u.tune.w)); }
+    return vec4f(c * cl.a + a * (1.0 - cl.a), cl.a);
+}
+
+// ---- the aurora (draft-magnetic-field) ----
+// Curtains of light in an oval round each spin pole, in a shell AU_LO to AU_HI over the sea: a curtain is a line
+// of rays AU_CELL wide along the oval, its folds drifting and its rays rippling by the sky's clock (whole turns an
+// hour, so the hour's wrap has no jump), green low and red-violet at the top, blocky as the clouds' cells are.
+// Light only: it adds to what is behind it and lights nothing. Seen where the sun is under its horizon.
+const AU_LO: f32 = 450.0;
+const AU_HI: f32 = 1150.0;
+// the oval's half width, rad (4 degrees): its curtains fold within it
+const AU_BAND: f32 = 0.07;
+const AU_CELL: f32 = 6.0;
+const AU_BIG: f32 = 1e9;
+const AU_TAU: f32 = 6.2831853;
+
+// the t where a t^2 + b t + c >= 0, as two intervals (an empty one has x > y)
+fn au_quad(a: f32, b: f32, c: f32) -> array<vec2f, 2> {
+    let none = vec2f(1.0, 0.0);
+    let all = vec2f(-AU_BIG, AU_BIG);
+    if (abs(a) < 1e-6) {
+        if (abs(b) < 1e-6) { return array(select(none, all, c >= 0.0), none); }
+        let t = -c / b;
+        return array(select(vec2f(-AU_BIG, t), vec2f(t, AU_BIG), b > 0.0), none);
+    }
+    let disc = b * b - 4.0 * a * c;
+    if (disc <= 0.0) { return array(select(none, all, a > 0.0), none); }
+    let s = sqrt(disc);
+    let r = vec2f(-b - s, -b + s) / (2.0 * a);
+    let lo = min(r.x, r.y);
+    let hi = max(r.x, r.y);
+    if (a > 0.0) { return array(vec2f(-AU_BIG, lo), vec2f(hi, AU_BIG)); }
+    return array(vec2f(lo, hi), none);
+}
+
+// the ray o + d t's (p.z)^2 - k2 |p|^2 times `side`: >= 0 within acos(sqrt(k2)) of either spin pole for side 1,
+// beyond it for -1
+fn au_cone(o: vec3f, d: vec3f, k2: f32, side: f32) -> array<vec2f, 2> {
+    return au_quad(side * (d.z * d.z - k2), side * 2.0 * (o.z * d.z - k2 * dot(o, d)), side * (o.z * o.z - k2 * dot(o, o)));
+}
+
+fn au_hash(x: u32) -> f32 {
+    var h = x * 747796405u + 2891336453u;
+    h = ((h >> ((h >> 28u) + 4u)) ^ h) * 277803737u;
+    return f32(((h >> 22u) ^ h) & 0xffffffu) / 16777216.0;
+}
+
+// the light the curtains give at body-frame point q per metre of the ray; dt the ray's step (a curtain is drawn
+// no thinner than it, its light kept, so a far one does not break into grain)
+fn au_glow(q: vec3f, dt: f32) -> vec3f {
+    let sea = u.aurora.z;
+    let r = length(q);
+    let up = q / r;
+    let south = up.z < 0.0;
+    let al = acos(min(abs(up.z), 1.0));
+    let thc = u.aurora.x;
+    let hr = u.aurora.w / 3600.0 * AU_TAU;
+    // the oval in whole cells round it; a cell is a ray
+    let n = max(round(AU_TAU * max(sin(thc), 0.02) * sea / AU_CELL), 8.0);
+    let ph = atan2(up.y, up.x) * select(1.0, -1.0, south) + select(0.0, 2.1, south);
+    let c = min(floor(fract(ph / AU_TAU) * n), n - 1.0);
+    let phq = (c + 0.5) / n * AU_TAU;
+    let hgt = (floor((r - sea) / AU_CELL) + 0.5) * AU_CELL;
+    let sig = max(9.0, dt * 0.6);
+    var col = vec3f(0.0);
+    for (var k = 0u; k < 2u; k++) {
+        let fk = f32(k);
+        // the curtain's line: folds of a few sizes drifting along the oval, a second curtain poleward of the first
+        let line = thc + AU_BAND * (0.3 * sin(3.0 * phq + 2.0 * hr + fk * 2.4) + 0.18 * sin(8.0 * phq - 5.0 * hr + 1.3 + fk) + 0.1 * sin(19.0 * phq + 11.0 * hr) - 0.35 * fk);
+        let dd = (al - line) * sea;
+        let dq = (floor(dd / AU_CELL) + 0.5) * AU_CELL;
+        let across = exp(-(dq / sig) * (dq / sig)) * 9.0 / sig;
+        if (across < 0.01) { continue; }
+        let id = u32(c) * 4u + k + select(0u, 2u, south);
+        let h1 = au_hash(id);
+        let h2 = au_hash(id ^ 0x68e31da4u);
+        let h3 = au_hash(id ^ 0xb5297a4du);
+        // each ray's own height and lower edge; it brightens and fades on its own beat (52 to 120 s), and a wave
+        // of light runs along the curtain
+        let base = AU_LO + floor(h2 * 5.0) * AU_CELL;
+        let top = AU_LO + (AU_HI - AU_LO) * (0.4 + 0.6 * h1);
+        let e = (hgt - base) / (top - base);
+        if (e < 0.0 || e > 1.0) { continue; }
+        let beat = 0.5 + 0.5 * sin(AU_TAU * h3 + hr * (30.0 + floor(h1 * 40.0)));
+        let wave = 0.5 + 0.5 * sin(24.0 * phq - 60.0 * hr + fk * 3.0);
+        let ray = (0.25 + 0.75 * beat) * (0.55 + 0.45 * wave);
+        // bright just over the sharp lower edge, fading up the ray
+        let prof = (1.0 - exp(-e * 30.0)) * exp(-e * 1.6) * smoothstep(1.0, 0.8, e);
+        let hue = mix(vec3f(0.2, 1.0, 0.42), vec3f(1.1, 0.16, 0.6), smoothstep(0.35, 0.8, e));
+        col += hue * prof * ray * across * (1.0 - 0.4 * fk);
+    }
+    // only where the sun is under the horizon there: from orbit, the night side's
+    let mu = dot(up, u.sun.xyz * mat3x3f(u.rot0.xyz, u.rot1.xyz, u.rot2.xyz));
+    return col * (1.0 - smoothstep(-0.12, 0.05, mu));
+}
+
+// the aurora's light between the camera and what a pixel shows `dist` metres away (0: the sky): the ray marched
+// only where it is in the shell and in the oval's band, from a point jittered per pixel
+fn aurora(px: vec2i, dir: vec3f, dist: f32) -> vec3f {
+    let sea = u.aurora.z;
+    if (u.aurora.y <= 0.0 || sea <= 0.0) { return vec3f(0.0); }
+    let m = mat3x3f(u.rot0.xyz, u.rot1.xyz, u.rot2.xyz);
+    let o = (-u.ctr.xyz) * m;
+    let d = dir * m;
+    var far = select(AU_BIG, dist, dist > 0.0);
+    // the planet hides what is past it
+    let b = dot(o, d);
+    let hs = b * b - (dot(o, o) - sea * sea);
+    if (hs > 0.0 && -b - sqrt(hs) > 0.0) { far = min(far, -b - sqrt(hs)); }
+    let r1 = sea + AU_HI;
+    let h1 = b * b - (dot(o, o) - r1 * r1);
+    if (h1 <= 0.0) { return vec3f(0.0); }
+    let in_t = max(-b - sqrt(h1), 0.0);
+    let out_t = min(-b + sqrt(h1), far);
+    if (out_t <= in_t) { return vec3f(0.0); }
+    // the shell: the outer sphere less the inner one
+    var shell = array<vec2f, 2>(vec2f(in_t, out_t), vec2f(1.0, 0.0));
+    let r0 = sea + AU_LO;
+    let h0 = b * b - (dot(o, o) - r0 * r0);
+    if (h0 > 0.0) {
+        shell[0] = vec2f(in_t, min(-b - sqrt(h0), out_t));
+        shell[1] = vec2f(max(-b + sqrt(h0), in_t), out_t);
+    }
+    // the band: within its far edge of a pole, beyond its near edge (none near the pole when it reaches it)
+    let lo = max(u.aurora.x - AU_BAND, 0.0);
+    let hi = min(u.aurora.x + AU_BAND, 1.5707963);
+    let inside = au_cone(o, d, cos(hi) * cos(hi), 1.0);
+    let beyond = au_cone(o, d, cos(lo) * cos(lo), -1.0);
+    let jit = fract(52.9829189 * fract(dot(vec2f(px), vec2f(0.06711056, 0.00583715))));
+    var col = vec3f(0.0);
+    for (var i = 0; i < 2; i++) {
+        for (var j = 0; j < 2; j++) {
+            for (var k = 0; k < 2; k++) {
+                let s = vec2f(max(shell[i].x, max(inside[j].x, beyond[k].x)), min(shell[i].y, min(inside[j].y, beyond[k].y)));
+                let len = s.y - s.x;
+                if (len <= 0.0) { continue; }
+                let n = clamp(ceil(len / 3.0), 1.0, 48.0);
+                let dt = len / n;
+                for (var t = 0.0; t < n; t += 1.0) {
+                    col += au_glow(o + d * (s.x + (t + jit) * dt), dt) * dt;
+                }
+            }
+        }
+    }
+    return col * 0.02 * u.aurora.y;
 }
 
 // bright light rolls off above 0.8 instead of clipping; everything under it is left as it is

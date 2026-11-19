@@ -26,8 +26,8 @@ struct Post {
     air: [f32; 4],
     amb: [f32; 4],
     /// The clouds' (ADR 0076, post.wgsl `Post`): the planet's centre and frame, the sun, its light, the sky's
-    /// light, `Globals::cloud`.
-    clouds: [[f32; 4]; 8],
+    /// light, `Globals::cloud`; and the aurora's (frame.rs `aurora_post`).
+    clouds: [[f32; 4]; 9],
 }
 
 pub struct Gi {
@@ -351,7 +351,7 @@ impl Gi {
     /// After the terrain pass: trace, gather over frames, smooth. `cam` is the camera in frame `cf`'s
     /// coordinates; a change of frame or a jump drops the history. `still` averages without a limit.
     /// `stamp(enc, k)` writes the timer after the trace (0) and after `temporal` (1) (ADR 0025).
-    pub fn record(&mut self, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, vp: Mat4, cam: DVec3, cf: usize, still: bool, tune: (bool, [f32; 4], [f32; 4], [f32; 4]), clouds: [[f32; 4]; 8], stamp: &mut dyn FnMut(&mut wgpu::CommandEncoder, usize)) {
+    pub fn record(&mut self, queue: &wgpu::Queue, enc: &mut wgpu::CommandEncoder, vp: Mat4, cam: DVec3, cf: usize, still: bool, tune: (bool, [f32; 4], [f32; 4], [f32; 4]), clouds: [[f32; 4]; 9], stamp: &mut dyn FnMut(&mut wgpu::CommandEncoder, usize)) {
         let p = (self.frame % 2) as usize;
         let (prev_vp, delta, reset) = match self.prev {
             Some((pvp, pcam, pcf)) if pcf == cf && (cam - pcam).length() < 20.0 => (pvp, (cam - pcam).as_vec3(), 0.0),

@@ -279,9 +279,50 @@ pub const BIOME_CLIMATE: [(f64, f64); 15] = [
     (26.0, 6.0), (12.0, 6.0), (-3.0, 10.0), (18.0, 6.0), (15.0, 2.0), (8.0, 1.0), (26.0, 2.0),
 ];
 
+/// The auroral oval round each spin pole (draft-magnetic-field): its colatitude from the pole, radians, and its
+/// brightness, 0 for none.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Aurora {
+    pub colat: f64,
+    pub bright: f64,
+}
+
+/// The oval's colatitude at Terra's field: 20 degrees, so 70 degrees latitude.
+pub const AURORA_COLAT: f64 = 20.0 * TAU / 360.0;
+/// Under this field there is no aurora (Luna's is about 0.012).
+pub const AURORA_MIN: f64 = 0.02;
+
+/// The oval at a field (`World::field`, 1 Terra's at the start). A dipole's field line from colatitude θ reaches
+/// out L radii with sin²θ = 1 / L, and the oval lies where the lines reach the edge of the field's bubble; the
+/// bubble's size is taken as the field (exaggerated from the real cube root, so a drained core shows): sin²θ =
+/// sin²(20°) / field, at most the equator, where the two ovals meet. 70° latitude at 1, 57° at 0.4, 40° at 0.2,
+/// the equator under 0.117. Brightness the root of the field over AURORA_MIN: 1 at 1, 0 at and under AURORA_MIN.
+pub fn aurora(field: f64) -> Aurora {
+    let s2 = (AURORA_COLAT.sin().powi(2) / field.max(1e-9)).min(1.0);
+    let bright = ((field - AURORA_MIN).max(0.0) / (1.0 - AURORA_MIN)).sqrt();
+    Aurora { colat: s2.sqrt().asin(), bright }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_oval_widens_and_dims_as_the_field_falls() {
+        let lat = |f: f64| 90.0 - aurora(f).colat.to_degrees();
+        let a = aurora(1.0);
+        assert!((65.0..=75.0).contains(&lat(1.0)) && a.bright == 1.0, "{a:?}");
+        let fields = [1.0, 0.8, 0.6, 0.4, 0.3, 0.2, 0.15];
+        for w in fields.windows(2) {
+            let (hi, lo) = (aurora(w[0]), aurora(w[1]));
+            assert!(lo.colat > hi.colat && lo.bright < hi.bright && lo.bright > 0.0, "{} {hi:?} -> {} {lo:?}", w[0], w[1]);
+        }
+        // toward the equator, never past it: the two ovals meet there
+        assert!(lat(0.4) < 62.0 && lat(0.2) < 45.0 && aurora(0.05).colat <= std::f64::consts::FRAC_PI_2, "{} {}", lat(0.4), lat(0.2));
+        assert_eq!(aurora(0.0).bright, 0.0, "none without a field");
+        assert_eq!(aurora(0.0119).bright, 0.0, "none on Luna");
+        assert!(aurora(2.0).colat < a.colat && aurora(2.0).bright >= 1.0, "a stronger field: smaller and brighter");
+    }
 
     fn sky() -> Sky {
         // the standard planet (ADR 0021) and the moon of `World::new`, by data/bodies.toml's rule

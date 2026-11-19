@@ -1055,8 +1055,10 @@ impl App {
                 [sun_light.x, sun_light.y, sun_light.z, [0.0, 12.0, 24.0][self.settings.at(S::Clouds).min(2)]],
                 [sky_amb.x, sky_amb.y, sky_amb.z, flash],
                 g.cloud,
+                aurora_post(&self.world, self.args.get("field", 1.0), day * air, if self.shot.is_some() { self.time0 } else { wt }),
             ]
         };
+        let aurora_on = cl[8][1] > 0.0;
         [g.n_lamps[2], g.n_lamps[3]] = eclipse_masks(&g);
         gpu.queue.write_buffer(&gpu.globals, 0, bytemuck::bytes_of(&g));
         self.slots.sweep(frame_no);
@@ -1325,7 +1327,7 @@ impl App {
                     }
                 }
             }
-            if clouds_on {
+            if clouds_on || aurora_on {
                 gi.clouds(&mut rp);
                 // the ghost and the hud after it draw with the globals at group 0 again
                 rp.set_bind_group(0, &gpu.bind, &[]);
@@ -1511,9 +1513,36 @@ fn hand_shown(play: bool, tool: bool, f3: bool, home: Menu, menu: Option<Menu>) 
     play && !tool && !f3 && home != Menu::Title && menu != Some(Menu::Dead)
 }
 
+/// The aurora's numbers for post.wgsl (`Post::aurora`, draft-magnetic-field): the oval's colatitude, its
+/// brightness at the home's field times `scale` (the `field=` argument) faded out by the daylight in the air here
+/// (`Globals::sky` w), the home's sea radius and the sky's clock in the hour. Body 0 is the home.
+pub(crate) fn aurora_post(world: &World, scale: f64, day: f32, clock: f64) -> [f32; 4] {
+    let a = engine::sky::aurora(world.field(0) * scale);
+    // it fades out as the air here lightens through twilight (a day sky drowns it)
+    let x = ((day - 0.02) / 0.25).clamp(0.0, 1.0);
+    let b0 = &world.bodies[0];
+    let sea = b0.sea.map_or(b0.radius, |s| b0.layer_r(s));
+    [a.colat as f32, a.bright as f32 * (1.0 - x * x * (3.0 - 2.0 * x)), sea as f32, clock.rem_euclid(3600.0) as f32]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `field=` scales the home's field, and the scaled field is the one the aurora is drawn from; daylight hides it.
+    #[test]
+    fn the_field_argument_reaches_the_aurora() {
+        let w = World::new(768, 256, 1);
+        for scale in [1.0, 0.4, 0.2] {
+            let a = engine::sky::aurora(w.field(0) * scale);
+            let u = aurora_post(&w, scale, 0.0, 4000.0);
+            assert_eq!((u[0], u[1]), (a.colat as f32, a.bright as f32), "field={scale}");
+            assert!(u[1] > 0.0 && u[2] > 0.0 && u[3] == 400.0, "{u:?}");
+        }
+        assert_eq!(aurora_post(&w, 0.0, 0.0, 0.0)[1], 0.0, "field=0: none");
+        assert_eq!(aurora_post(&w, 1.0, 1.0, 0.0)[1], 0.0, "by day: none");
+        assert!(aurora_post(&w, 1.0, 0.1, 0.0)[1] < aurora_post(&w, 1.0, 0.0, 0.0)[1], "fading through twilight");
+    }
 
     /// ADR 0115: the hand (an item or the bare arm) shows in play, not with a tool of its own up, the numbers'
     /// overlay, the title's world behind its menu, or the death screen.
