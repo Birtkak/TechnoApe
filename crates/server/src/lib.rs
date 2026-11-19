@@ -63,7 +63,7 @@ pub enum Ev {
     /// Right after `Start` of a world from the seed of generation 2 or later (`Body::gen`): the generation it
     /// was made by, so a replay makes the same ground.
     Gen(u8),
-    /// The start (draft-n-bodies): every body's columns and baked map's hash in row order, as a save has them.
+    /// The start (0163-n-bodies): every body's columns and baked map's hash in row order, as a save has them.
     Start { bodies: Vec<(i32, Option<u64>)>, seed: i32, dt: f64 },
     /// Right after `Start` when the server began from a save: the save itself, so a replay starts there too.
     Loaded(Save),

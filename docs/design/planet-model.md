@@ -117,7 +117,7 @@ inside a sphere of influence. The model is shaped now so real orbits need no sec
    mass, gravity at any radius, the weight of rock and pressure, the liquid core and the field (a value in
    `report=1`), replacing the constants; Terra and Luna come out identical (hash and bit locks). Left for later
    steps: the geotherm and the regime.
-2. **Built (draft-n-bodies):** N bodies instead of two. A row names its `parent` (the sun or a row above it),
+2. **Built (0163-n-bodies):** N bodies instead of two. A row names its `parent` (the sun or a row above it),
    whether it is the `home` (the first row) and its `bake`; a body is posed on its parent's pose (Terra and Luna
    to the bit as before; one round the sun that is not home on a plain ring until real orbits). Saves (version
    22), Welcome and recordings carry every body's columns and map as a list; version 21 and old recordings read

@@ -132,7 +132,7 @@ impl Sky {
     pub fn moon(&self, t: f64) -> Pose {
         Sky::circle(self.planet(t).centre, self.moon_orbit, MONTH, t)
     }
-    /// A moon at `radius` around a parent whose centre is `around` now (draft-n-bodies): the moon's inclined
+    /// A moon at `radius` around a parent whose centre is `around` now (0163-n-bodies): the moon's inclined
     /// circle once a sidereal `month` (a whole fraction of PERIOD, `period`), its body -x to the parent.
     pub fn circle(around: DVec3, radius: f64, month: f64, t: f64) -> Pose {
         let t = t.rem_euclid(PERIOD);
@@ -143,7 +143,7 @@ impl Sky {
         let rot = DQuat::from_mat3(&glam::DMat3::from_cols(e1, e2, e1.cross(e2)));
         Pose { centre: around + e1 * radius, rot }
     }
-    /// A body that circles the sun and is not the home (draft-n-bodies, until real orbits): in the ecliptic at
+    /// A body that circles the sun and is not the home (0163-n-bodies, until real orbits): in the ecliptic at
     /// `dist`, once a `year` (`period`), starting where the home starts, never turning.
     pub fn round_sun(dist: f64, year: f64, t: f64) -> Pose {
         let a = TAU * t.rem_euclid(PERIOD) / year;

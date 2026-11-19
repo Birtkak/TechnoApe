@@ -37,7 +37,7 @@ impl World {
         World::of(&BODIES, list, seed, warp, gen)
     }
     /// The world of `rows` (`data/bodies.toml`'s, or a test's), each body of the columns and map given in row
-    /// order (draft-n-bodies). A body's grid lies at its nominal centre: the home's at the origin, the k-th
+    /// order (0163-n-bodies). A body's grid lies at its nominal centre: the home's at the origin, the k-th
     /// other's k times MOON_AT out, so a position names its frame by where it is (ADR 0022).
     pub fn of(rows: &[Row], list: Vec<(i32, Option<Arc<Map>>)>, seed: i32, warp: f64, gen: u8) -> Self {
         assert_eq!(rows.len(), list.len(), "a size and a map for every body");
@@ -160,7 +160,7 @@ impl World {
         if b.parent == INERTIAL { self.sky.moon_orbit * 0.6 } else { b.orbit * 0.25 }
     }
     /// Frame `f`'s pose at time t: its coordinates to the inertial frame. A body is posed on its parent's pose,
-    /// down the rows (draft-n-bodies): the home by the sky, a moon on its circle around its parent, one that
+    /// down the rows (0163-n-bodies): the home by the sky, a moon on its circle around its parent, one that
     /// circles the sun not home on its ring (`Sky::round_sun`).
     pub fn pose(&self, f: usize, t: f64) -> Pose {
         let Some(b) = self.bodies.get(f) else { return Pose { centre: DVec3::ZERO, rot: DQuat::IDENTITY } };

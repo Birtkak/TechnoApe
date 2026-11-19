@@ -127,7 +127,7 @@ pub(crate) const CPU_STAGES: [&str; 16] =
 /// The particles the GPU holds (ADR 0031): the largest pool, "many".
 pub(crate) const MAX_FX: usize = crate::fx::CAP[2] + crate::fx::CRACKS;
 /// The most bodies the GPU holds (the size of `bodies` in shader.wgsl, whose body ids are masked by `& 3u`):
-/// a stated limit (draft-n-bodies), checked at start by `bodies_fit`.
+/// a stated limit (0163-n-bodies), checked at start by `bodies_fit`.
 pub(crate) const MAX_BODIES: usize = engine::bodies::MAX;
 
 /// Whether `n` bodies (`data/bodies.toml`'s rows) fit on the GPU; a world of more is refused at start, never
@@ -366,7 +366,7 @@ mod eclipse_tests {
     }
 }
 
-/// More bodies than the GPU holds are refused with a message naming the limit (draft-n-bodies); this build's
+/// More bodies than the GPU holds are refused with a message naming the limit (0163-n-bodies); this build's
 /// rows fit.
 #[test]
 fn more_bodies_than_the_gpu_holds_are_refused() {

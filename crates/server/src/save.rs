@@ -38,7 +38,7 @@ use std::path::Path;
 /// keeps its 192 m floor and every layer index it holds, and so does such a world written again as a 20. 21 keeps
 /// the world's generation (`Body::gen`, ADR 0160-generation-number-and-arc-basalt) in its place: a 20 reads as
 /// generation 1 with the mantle and 0 without. 22 keeps every body's columns and map as a list in
-/// `data/bodies.toml`'s row order (draft-n-bodies) in place of the planet's and the moon's: a 21 or older lies
+/// `data/bodies.toml`'s row order (0163-n-bodies) in place of the planet's and the moon's: a 21 or older lies
 /// on disk as a `Save21` and reads as its two bodies, Terra (`planet_n`, `map`) and Luna (`moon_n`, `luna`).
 pub const VERSION: u32 = 22;
 
@@ -435,7 +435,7 @@ mod tests {
         Save::from_bytes(b).map(Save21::from)
     }
 
-    /// 22 keeps every body in a list (draft-n-bodies): three bodies read back as written, and its bytes are not
+    /// 22 keeps every body in a list (0163-n-bodies): three bodies read back as written, and its bytes are not
     /// a 21's.
     #[test]
     fn a_save_of_three_bodies_reads_back() {

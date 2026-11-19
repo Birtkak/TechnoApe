@@ -4,7 +4,7 @@
 # `n` again: (planet= and moon= on the command line override it; ADR 0021).
 # `generator`: continents (ADR 0021's land and sea) or hills (noise only). `ground`: the top, the band under
 # it and the rock below, by block name. `air`: the sky's colour and the air's thinning (ADR 0022).
-# `parent`: what it circles, "sun" or a row above it (draft-n-bodies). `home` (the first row, and only it): the
+# `parent`: what it circles, "sun" or a row above it (0163-n-bodies). `home` (the first row, and only it): the
 # home world, whose are the spawn, the ore, the weather, the tide and the herds. `bake`: the bake that makes its
 # map, "terra" (ADR 0043) or "luna" (ADR 0070); none: the seed's noise alone.
 # `orbit` (a moon): how far out it circles its parent, centre to centre in the parent's radii, and never nearer

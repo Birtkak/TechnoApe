@@ -239,7 +239,7 @@ pub struct Body {
     pub name: String,
     /// Whether it has air (the sky's colour, ADR 0022).
     pub air: bool,
-    /// The body it circles (its row's `parent`, draft-n-bodies); INERTIAL: the sun.
+    /// The body it circles (its row's `parent`, 0163-n-bodies); INERTIAL: the sun.
     pub parent: usize,
     /// How far out it circles its parent, centre to centre, metres (the sun's distance for one that circles the
     /// sun); and once in how many seconds (`sky::period`). The home's are the sky's.

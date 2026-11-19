@@ -198,7 +198,7 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
 }
 
 /// The most bodies a world holds: the renderer's four (client `gpu::MAX_BODIES`, the shaders' `& 3u` body ids),
-/// which `World::gravity` keeps on the stack too (draft-n-bodies).
+/// which `World::gravity` keeps on the stack too (0163-n-bodies).
 pub const MAX: usize = 4;
 
 /// A welcome's body list against this build's rows (the welcome has no version): one of another length is

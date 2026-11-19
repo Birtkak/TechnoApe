@@ -556,7 +556,7 @@ fn the_air_ends_1500_m_over_terra_and_luna_has_none() {
     assert!(w.over_air(l.centre + DVec3::Y * (l.radius + 2.0)) > AIR_TOP_M, "Luna's ground has no air");
 }
 
-/// Rows of a test: a home, its moon, the moon's moon and a body that circles the sun (draft-n-bodies).
+/// Rows of a test: a home, its moon, the moon's moon and a body that circles the sun (0163-n-bodies).
 const FOUR: &str = "
 [[body]]\nname = \"A\"\nparent = \"sun\"\nhome = true\nn = 512\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = true\nsun = 2000.0
 kind = \"rocky\"\niron = 0.5\nheat = 0.5\ndensity = [2700.0, 3300.0, 7900.0]
@@ -617,7 +617,7 @@ fn a_world_of_four_rows_builds_and_poses_each_body_on_its_parent() {
     assert!(w.bodies[2].period < w.bodies[1].period && w.bodies[3].period > crate::sky::YEAR);
 }
 
-/// The home's first moon may come after a body round the sun and that body's moon (review of draft-n-bodies):
+/// The home's first moon may come after a body round the sun and that body's moon (review of 0163-n-bodies):
 /// a Terra, a Mars, a Phobos of Mars, then Luna build, Phobos's month reckoned against Luna's from the rows.
 #[test]
 fn the_homes_moon_may_come_last() {

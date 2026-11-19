@@ -115,7 +115,7 @@ impl ToServer {
 pub enum ToClient {
     /// First message: the world is rebuilt from these numbers, then `Edits` brings what changed. `blocks` is
     /// the block registry's hash (`BLOCKS.hash`): a client from a build with other blocks refuses to play.
-    /// `bodies`: every body of `data/bodies.toml` in row order (draft-n-bodies) as its columns per face edge
+    /// `bodies`: every body of `data/bodies.toml` in row order (0163-n-bodies) as its columns per face edge
     /// and the hash of the baked map it stands on (ADR 0043, 0070), None for the seed's noise; a client that
     /// lacks a map asks for it (`fetch_map`). `items`: the item
     /// registry's hash (`ITEMS.hash`, ADR 0074), refused the same way as `blocks`. `gen`: the world's generation (`Body::gen`; from 1 the planet's grid

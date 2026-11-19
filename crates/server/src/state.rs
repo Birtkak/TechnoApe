@@ -16,7 +16,7 @@ impl Server {
     pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64, gen: u8, accept: Receiver<ServerLink>) -> Server {
         Server::with_world(World::baked_warp(planet_n, moon_n, seed, warp, gen), seed, accept)
     }
-    /// A server on `bodies` (columns and baked map's hash of every row, as a save has them; draft-n-bodies),
+    /// A server on `bodies` (columns and baked map's hash of every row, as a save has them; 0163-n-bodies),
     /// each body on the map of its hash (None: the seed's noise); a bake is redone if it is not kept. A map
     /// that comes out other than the hash stops the game, as a save this build cannot read does: its edits
     /// belong to other ground, and the next autosave would write over the old map's name.
@@ -234,7 +234,7 @@ impl Server {
         self.world.bodies[0].map().map(|m| m.hash)
     }
     /// Every body's columns and baked map's hash (None: the seed's noise), in row order: what a save, a
-    /// recording and a welcome carry (draft-n-bodies).
+    /// recording and a welcome carry (0163-n-bodies).
     pub fn bodies(&self) -> Vec<(i32, Option<u64>)> {
         self.world.bodies.iter().map(|b| (b.n, b.map().map(|m| m.hash))).collect()
     }

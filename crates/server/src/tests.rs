@@ -3900,7 +3900,7 @@ fn a_hole_to_the_metal_sea_is_a_light_and_stays_one_through_a_save() {
 }
 
 /// A save and two recordings written by the build before the bodies were a list (save version 21,
-/// `tests/fixtures`, draft-n-bodies) load and replay as Terra and Luna to the bit: the save's world hashes as
+/// `tests/fixtures`, 0163-n-bodies) load and replay as Terra and Luna to the bit: the save's world hashes as
 /// it did then and is written again as this version with the same two bodies; each recording replays with no
 /// checkpoint off, to the world it ended on then.
 #[test]
