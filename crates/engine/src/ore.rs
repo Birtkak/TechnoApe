@@ -120,6 +120,10 @@ pub struct Kind {
     /// (C) at its middle lie in these [min, max]. A kind with a window forms in the mantle, on a body with one.
     pub pressure: Option<[f64; 2]>,
     pub heat: Option<[f64; 2]>,
+    /// The row of `data/bodies.toml` its provinces are of (`rock::Province::body`): it forms on that body
+    /// only, its `count` is on that body's standard size (`bodies::columns` of the 4 km planet), and a ring from
+    /// the spawn is the home's (row 0) alone.
+    pub body: usize,
 }
 
 impl Kind {
@@ -153,6 +157,11 @@ impl Minerals {
         let mut kinds = Vec::new();
         for r in &f.kind {
             let provinces = r.provinces.iter().map(|p| NAMES.iter().position(|n| n == p).map(|i| i as u8).ok_or(format!("kind '{}': no province '{p}'", r.name))).collect::<Result<Vec<u8>, String>>()?;
+            // one body's provinces, the home's or another's; a ring from the spawn is the home's alone
+            let body = provinces.first().map_or(0, |&p| ROCKS.provinces[p as usize].body);
+            if provinces.iter().any(|&p| ROCKS.provinces[p as usize].body != body) || body != 0 && (r.near.is_some() || r.near_before_2.is_some()) {
+                return Err(format!("kind '{}': its provinces are one body's, and a ring from the spawn is the home's alone", r.name));
+            }
             let biomes = r.biomes.iter().map(|b| ROWS.biomes.iter().position(|o| &o.name == b).map(|i| i as u8).ok_or(format!("kind '{}': no biome '{b}'", r.name))).collect::<Result<Vec<u8>, String>>()?;
             let gravel = match &r.gravel {
                 None => None,
@@ -166,9 +175,10 @@ impl Minerals {
             if !window(r.pressure, 0.0, 1000.0) || !window(r.heat, -50.0, 2000.0) || deep && (r.shape.follows_ground() || !r.halo.is_empty() || r.gossan > 0.0 || r.gravel.is_some()) {
                 return Err(format!("kind '{}': a window is [min, max], min under max, pressure 0..1000 MPa, heat -50..2000 C, for a body at a depth with no halo, gossan or gravel", r.name));
             }
-            // (after the gossan's index: the crust's kinds and the bodies they place are as before the windows)
-            if !deep && kinds.iter().any(|k: &Kind| k.deep()) {
-                return Err(format!("kind '{}': the kinds with a window come last", r.name));
+            // (after the gossan's index: the crust's kinds and the bodies they place are as before the windows; a
+            // row's place seeds it, so another body's kinds come after the home's, last)
+            if body == 0 && kinds.iter().any(|k: &Kind| !deep && k.deep() || k.body != 0) || body != 0 && deep {
+                return Err(format!("kind '{}': the kinds with a window come last of the home's, another body's (with none) after them", r.name));
             }
             // the mantle's kinds lie down to its floor; the crust's to 180 m
             let floor = if deep { 1400.0 } else { 180.0 };
@@ -183,14 +193,14 @@ impl Minerals {
                 return Err(format!("kind '{}': a halo is for a body at a depth, one to three grades, halo_m over 0 and at most {HALO_MAX}", r.name));
             }
             let halo = r.halo.iter().map(|h| block(&r.name, h)).collect::<Result<Vec<u16>, String>>()?;
-            kinds.push(Kind { name: r.name.clone(), block: block(&r.name, &r.block)?, gives: r.gives.clone(), shape: r.shape, count: r.count, blocks: r.blocks, depth: r.depth, provinces, host, biomes, near: r.near, near_before_2: r.near_before_2, gravel, gossan: r.gossan, halo, halo_m: r.halo_m, sample: r.sample.clone(), pressure: r.pressure, heat: r.heat });
+            kinds.push(Kind { name: r.name.clone(), block: block(&r.name, &r.block)?, gives: r.gives.clone(), shape: r.shape, count: r.count, blocks: r.blocks, depth: r.depth, provinces, host, biomes, near: r.near, near_before_2: r.near_before_2, gravel, gossan: r.gossan, halo, halo_m: r.halo_m, sample: r.sample.clone(), pressure: r.pressure, heat: r.heat, body });
         }
         if kinds.iter().map(|k| &k.name).collect::<std::collections::BTreeSet<_>>().len() != kinds.len() {
             return Err("two kinds share a name".into());
         }
         // the gossan after the crust's kinds, before the deep ones: its index (in every body of it) is as before
         let gossan = kinds.iter().position(|k| k.deep()).unwrap_or(kinds.len());
-        kinds.insert(gossan, Kind { name: "gossan".into(), block: BLOCKS.id("gossan"), gives: String::new(), shape: Shape::Blanket, count: 0, blocks: 1, depth: [0.5, 0.5], provinces: Vec::new(), host: None, biomes: Vec::new(), near: None, near_before_2: None, gravel: None, gossan: 0.0, halo: Vec::new(), halo_m: 0.0, sample: None, pressure: None, heat: None });
+        kinds.insert(gossan, Kind { name: "gossan".into(), block: BLOCKS.id("gossan"), gives: String::new(), shape: Shape::Blanket, count: 0, blocks: 1, depth: [0.5, 0.5], provinces: Vec::new(), host: None, biomes: Vec::new(), near: None, near_before_2: None, gravel: None, gossan: 0.0, halo: Vec::new(), halo_m: 0.0, sample: None, pressure: None, heat: None, body: 0 });
         Ok(Minerals { kinds, gossan })
     }
 }
@@ -331,12 +341,8 @@ const SPAWN: f64 = 8.0;
 /// Every ore body of a baked planet, in a fixed order: kind by kind as the file lists them, each body's gravel
 /// and rusty ground after it. Counts are the file's on the 4 km planet, scaled by area (at least one).
 pub fn place(b: &Body, seed: u64) -> Vec<OreBody> {
-    let Some(map) = b.map() else { return Vec::new() };
-    if map.rock.is_empty() {
-        return Vec::new();
-    }
-    let n = b.n as f64;
-    let scale = (n / 6144.0).powi(2);
+    let Some(map) = b.map().filter(|_| b.rock_field()) else { return Vec::new() };
+    let (n, me) = (b.n as f64, b.rock_body());
     let (sf, si, sj) = b.locate(b.spawn);
     // the river cells over the sea, by face, at their columns, with the way they flow
     let m = map.m as usize;
@@ -354,10 +360,12 @@ pub fn place(b: &Body, seed: u64) -> Vec<OreBody> {
         })
         .collect();
     let mut out: Vec<OreBody> = Vec::new();
-    let sea = b.radius - SEA_DEPTH;
+    // no shore on a body without a sea: its depths are from the ground alone
+    let sea = if b.sea.is_some() { b.radius - SEA_DEPTH } else { f64::NEG_INFINITY };
     let fits = |out: &[OreBody], k: usize, face: usize, i: f64, j: f64, a: f64| -> Option<f64> {
         let kind = &MINERALS.kinds[k];
-        if i < SEAM + a || j < SEAM + a || i > n - SEAM - a || j > n - SEAM - a || (face == sf && (i - si).hypot(j - sj) < SPAWN + a) {
+        // (the spawn's keep-out is the home's: on another body nothing is placed for where a spawn is)
+        if i < SEAM + a || j < SEAM + a || i > n - SEAM - a || j > n - SEAM - a || (kind.body == 0 && face == sf && (i - si).hypot(j - sj) < SPAWN + a) {
             return None;
         }
         let ground = b.ground_r(face, i, j);
@@ -372,15 +380,16 @@ pub fn place(b: &Body, seed: u64) -> Vec<OreBody> {
         Some(ground)
     };
     for (k, kind) in MINERALS.kinds.iter().enumerate() {
-        // the mantle's kinds on a body with a mantle only
-        let want = if kind.count == 0 || kind.deep() && b.mantle == 0 { 0 } else { ((kind.count as f64 * scale).round() as u32).max(1) };
+        // the mantle's kinds on a body with a mantle only; each kind on its own body, scaled by that body's area
+        let scale = (n / crate::bodies::columns(kind.body, 6144) as f64).powi(2);
+        let want = if kind.count == 0 || kind.deep() && b.mantle == 0 || kind.body != me { 0 } else { ((kind.count as f64 * scale).round() as u32).max(1) };
         let mut rng = Rng(seed ^ 0x0e0e ^ (k as u64) << 40);
         let (a, w, h) = kind.shape.axes(kind.blocks as f64);
         let (mut placed, mut tries) = (0, 0);
         while placed < want && tries < want * 600 {
             tries += 1;
             // the first of a kind with a ring from the spawn in the ring, while it has tries
-            let ring = kind.ring(b.gen).filter(|_| placed == 0 && tries < 400);
+            let ring = kind.ring(b.gen).filter(|_| placed == 0 && tries < 400 && kind.body == 0);
             let (face, i, j, angle) = match (kind.shape, ring) {
                 (Shape::Gravel, _) => {
                     let pick: Vec<&(usize, f64, f64, f64)> = match ring {
@@ -493,8 +502,9 @@ pub fn prospect(w: &crate::world::World, at: crate::world::Block, range: f64, op
     let mut near: Vec<(String, u8)> = Vec::new();
     for (k, o) in b.ores.iter().enumerate() {
         let kind = &MINERALS.kinds[o.kind as usize];
-        let left = w.ore_left.as_ref().and_then(|l| l.get(k)).filter(|_| at.body == 0);
-        let share = left.map_or(1.0, |&n| n as f64 / open.get(k).map_or(n, |&t| t).max(1) as f64);
+        let at_k = w.ore_base(at.body as usize) + k;
+        let left = w.ore_left.as_ref().and_then(|l| l.get(at_k));
+        let share = left.map_or(1.0, |&n| n as f64 / open.get(at_k).map_or(n, |&t| t).max(1) as f64);
         if kind.gives.is_empty() || share <= 0.0 || o.face != at.face || (i as f64 + 0.5 - o.at.x).hypot(j as f64 + 0.5 - o.at.y) > o.a.max(o.b) + range {
             continue;
         }
@@ -628,9 +638,18 @@ mod tests {
             let bad = include_str!("../../../data/minerals.toml").replace(from, to);
             assert!(Minerals::parse(&bad).unwrap_err().contains(says), "{from} -> {to}");
         }
+        // Luna's kinds (0166-luna-ore-and-caves): her provinces alone, no ring from a spawn, after the home's
+        let text = include_str!("../../../data/minerals.toml").replace("\r\n", "\n");
+        for (from, to, says) in [("provinces = [\"mare\"]", "provinces = [\"mare\", \"rift\"]", "one body's"), ("provinces = [\"mare\"]", "provinces = [\"mare\"]\nnear = [0.0, 100.0]", "the home's alone"), ("provinces = [\"folded belt\"]\ngravel = \"gold gravel\"", "provinces = [\"mare\"]\ngravel = \"gold gravel\"", "come last")] {
+            let e = Minerals::parse(&text.replace(from, to)).unwrap_err();
+            assert!(e.contains(says), "{from} -> {to}: {e}");
+        }
+        let luna = crate::bodies::moon(&crate::bodies::BODIES).unwrap();
+        let names: Vec<(&str, &str)> = MINERALS.kinds.iter().filter(|k| k.body == luna).map(|k| (k.name.as_str(), k.gives.as_str())).collect();
+        assert_eq!(names, [("ilmenite bed", "titanium"), ("merrillite pocket", "thorium"), ("meteoritic iron", "nickel")]);
         // the gossan's index is the crust's kinds' count, the deep kinds after it
         let m = &*MINERALS;
-        assert!(m.kinds[..m.gossan].iter().all(|k| !k.deep()) && m.kinds[m.gossan + 1..].iter().all(Kind::deep) && m.kinds.iter().any(Kind::deep));
+        assert!(m.kinds[..m.gossan].iter().all(|k| !k.deep() && k.body == 0) && m.kinds[m.gossan + 1..].iter().all(|k| k.deep() || k.body != 0) && m.kinds.iter().any(Kind::deep));
     }
 
     /// The distance to an ellipsoid's surface is the nearest of its points, a sphere's and a thin vein's alike.

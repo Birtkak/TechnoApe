@@ -1302,3 +1302,39 @@ sound = "stone"
 colour = [0.62, 0.50, 0.42]
 colour2 = [0.42, 0.33, 0.27]
 pattern = "bricks"
+
+# Luna's ores (0166-luna-ore-and-caves; data/minerals.toml): counted bodies in her rock from generation 4.
+# Ilmenite: the black iron-titanium oxide of the mare basalts, titanium and iron, and oxygen when it is reduced.
+[[block]]
+id = 220
+name = "ilmenite"
+hardness = 10.0
+tool = "pick"
+grade = 1
+rubble = 195
+stack = 16
+sound = "stone"
+colour = [0.20, 0.20, 0.22]
+pattern = "speckle"
+colour2 = [0.08, 0.08, 0.09]
+colour3 = [0.55, 0.55, 0.60]
+size = 1
+amount = 0.5
+metal = 0.25
+
+# Merrillite: the rare-earth phosphate of KREEP rock, its thorium and rare earths gathered in pockets.
+[[block]]
+id = 221
+name = "merrillite"
+hardness = 8.0
+tool = "pick"
+grade = 1
+rubble = 196
+stack = 16
+sound = "stone"
+colour = [0.62, 0.55, 0.45]
+pattern = "speckle"
+colour2 = [0.85, 0.80, 0.62]
+colour3 = [0.40, 0.34, 0.28]
+size = 2
+amount = 0.4

@@ -101,3 +101,23 @@ hall = [10.0, 30.0]
 hall_height = [6.0, 15.0]
 sinkhole = [9.0, 18.0]
 shaft = [3.0, 5.0]
+
+# Luna's lava tubes from generation 4 (0166-luna-ore-and-caves): round passages in the mare basalt, made by the
+# round tube rule on her rock field in place of her baked chains of balls. Her maria are flat flows, so the least
+# slope is small; no water anywhere on her to keep off.
+[[kind]]
+name = "lunar lava tube"
+shape = "tube"
+hosts = ["mare basalt"]
+provinces = ["mare"]
+depth = [4.5, 20.0]
+spacing = 192
+chance = 0.7
+width = [6.0, 10.0]
+height = [4.0, 6.7]
+length = [300.0, 1500.0]
+generations = [4, 255]
+skylight = 150.0
+trench = 0.2
+branch = 0.3
+slope = 0.001

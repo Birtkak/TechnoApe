@@ -99,6 +99,10 @@ impl Body {
         let at = (0..=12).flat_map(|r| (-r..=r).flat_map(move |a| (-r..=r).map(move |b| (a, b))).filter(move |(a, b): &(i32, i32)| a.abs().max(b.abs()) == r)).find(|(a, b)| clear(i0 + a, j0 + b));
         let (a, b) = at.unwrap_or((0, 0));
         self.spawn = self.dir(f, (i0 + a) as f64 + 0.5, (j0 + b) as f64 + 0.5);
+        // an airless body has no sea: its caves and ores ask no water and no shore (the ocean above keeps its old sea)
+        if self.map().is_some_and(|m| m.version == crate::bake::luna::VERSION) {
+            self.sea = None;
+        }
         let caves = crate::caves::make(&self, self.baked.as_ref().unwrap().seed);
         self.set_caves(caves);
         let ores = crate::ore::place(&self, self.baked.as_ref().unwrap().seed);
@@ -111,7 +115,7 @@ impl Body {
     /// tubes as caves.
     pub fn with_luna(self, map: Arc<Map>) -> Self {
         let mut b = self.with_map(map.clone());
-        b.sea = None;
+        debug_assert!(b.sea.is_none(), "with_map lays no sea on a Luna map");
         let (m, k) = (map.m as usize, b.n as f64 / map.m as f64);
         let tubes = map
             .tubes
@@ -125,13 +129,30 @@ impl Body {
                 Cave::ball(f as u8, DVec3::new(ci, cj, b.layer_of(ground - depth as f64)), r as f64)
             })
             .collect();
-        // (a map without rock provinces gets none of W4's caves: the tubes are all of Luna's)
-        b.set_caves(tubes);
+        // before generation 4 her baked tubes are all her caves (no rock field, none of `make`'s); from 4 her tubes
+        // are data/caves.toml's cut in her mare basalt (`make`), and the baked ones are not used
+        if !b.rock_field() {
+            b.set_caves(tubes);
+        }
         b
     }
     /// The map it was baked from, if it was.
     pub fn map(&self) -> Option<&Arc<Map>> {
         self.baked.as_ref().map(|b| &b.map)
+    }
+    /// Whether `rock_at` answers a province here: a map with a rock layer, or Luna's from generation 4
+    /// (0165-bake-stages). Without one no ore body or cave by rock is made.
+    pub fn rock_field(&self) -> bool {
+        self.map().is_some_and(|m| !m.rock.is_empty() || m.version == crate::bake::luna::VERSION && self.gen >= 4)
+    }
+    /// The row of `data/bodies.toml` whose provinces its rock field names (`Map::rock` hands them out by the
+    /// map: the home's moon's on a Luna map, the home's on any other): a mineral or cave kind is made only on
+    /// the body its provinces are of.
+    pub fn rock_body(&self) -> usize {
+        match self.map() {
+            Some(m) if m.version == crate::bake::luna::VERSION => crate::bodies::moon(&BODIES).unwrap_or(0),
+            _ => 0,
+        }
     }
     /// The face of direction d and its point there in columns (i = 3.5 is the middle of column 3).
     pub fn locate(&self, d: DVec3) -> (usize, f64, f64) {

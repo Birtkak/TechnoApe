@@ -139,7 +139,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   seed=1` (a failure prints its repro line and writes `out/soak-fail.rec`). A dedicated server records to `out/rec/` with `record=1` (or `record=file`), else not;
   `technoape-server replay=file until=tick` replays one headless and dumps the players.
   `technoape-server report=1 seed= planet=` prints what the ground holds (ADR 0063): provinces, caves, heat, every
-  mineral's bodies, blocks, ingots against `ore-budget.md`, nearest distance and depth, and `made_hash`.
+  mineral's bodies, blocks, ingots against `ore-budget.md`, nearest distance and depth, and `made_hash`; Luna's the same under `luna` (her provinces, baked tubes, caves, minerals).
 - **The home server** (ADR 0130): `bash tools/deploy.sh [all|server|client]` builds the committed source in Docker
   on the box and restarts the container (`docker stop` saves first: `stop` on the server's stdin), and builds the friends'
   client (`target/friends`, any AVX2 CPU) into a zip whose `Join Tower.bat` updates itself from the page; the page
