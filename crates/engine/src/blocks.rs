@@ -333,6 +333,10 @@ impl Def {
 pub const SEASONS: [&str; 4] = ["spring", "summer", "autumn", "winter"];
 pub const ROW: [usize; 4] = [1, 0, 2, 3];
 
+/// How many block ids there are, 0..IDS: 12 bits, as a mesh quad and the renderer's look table carry them
+/// (mesh.rs `id_bits`, shader_vertex.wgsl `IDS`).
+pub const IDS: usize = 4096;
+
 pub struct Registry {
     defs: Vec<Option<Def>>,
     pub hash: u64,
@@ -344,11 +348,12 @@ impl Registry {
     /// so a client and a server whose looks differ in any field refuse each other.
     pub fn parse(text: &str) -> Result<Registry, String> {
         let f: File = toml::from_str(text).map_err(|e| e.to_string())?;
-        let mut defs: Vec<Option<Def>> = vec![None; 256];
+        // as long as the highest id in use (a row or a rubble), not IDS: a reload keeps its old table (`live`)
+        let top = f.block.iter().flat_map(|r| [r.id, r.rubble.unwrap_or(0)]).max().unwrap_or(0) as usize;
+        let mut defs: Vec<Option<Def>> = vec![None; (top + 1).min(IDS)];
         for r in &f.block {
-            // shortcut: the shader unpacks 8 bits of material (`q.y & 255u`); widen it there, then lift this
-            if r.id > 255 {
-                return Err(format!("block '{}': id {} over 255, the shader's material field", r.name, r.id));
+            if r.id as usize >= IDS {
+                return Err(format!("block '{}': id {} over {}, the most a mesh quad carries", r.name, r.id, IDS - 1));
             }
             if defs[r.id as usize].is_some() {
                 return Err(format!("block id {} is used twice", r.id));
@@ -428,6 +433,10 @@ impl Registry {
             if !(r.bedding == 0.0 || (1.0..=50.0).contains(&r.bedding)) || r.joints == 1 || r.joints > 100 || (r.bedding > 0.0 || r.joints > 0) && r.rubble.is_none() {
                 return Err(format!("block '{}': bedding 1..50 m, joints 2..100 columns, and only on a rock that makes rubble", r.name));
             }
+            // a joining face's sides ride on the quad's bits 24-27, a cutout's twigs' and a bedding line's place
+            if r.joins && (r.see == See::Cutout || r.bedding > 0.0 || r.joints > 0) {
+                return Err(format!("block '{}': joins is for a block that is not cutout and has no bedding or joints", r.name));
+            }
             if r.span > 16 || r.span > 0 && r.bedding == 0.0 {
                 return Err(format!("block '{}': span 1..16 columns, only on bedded rock", r.name));
             }
@@ -450,8 +459,8 @@ impl Registry {
             if let Some(t) = r.rubble {
                 // the twin: the rock's colours in pebbles, loose and falling (ADR 0093)
                 let name = format!("{} rubble", r.name);
-                if t > 255 || defs[t as usize].is_some() || f.block.iter().any(|o| o.id == t || o.name == name) {
-                    return Err(format!("block '{}': its rubble's id {t} or name is taken or over 255", r.name));
+                if t as usize >= IDS || defs[t as usize].is_some() || f.block.iter().any(|o| o.id == t || o.name == name) {
+                    return Err(format!("block '{}': its rubble's id {t} or name is taken or over {}", r.name, IDS - 1));
                 }
                 if r.loose || r.falls || !r.solid {
                     return Err(format!("block '{}': only a solid block that is not loose makes rubble", r.name));
@@ -825,5 +834,24 @@ see = \"glass\"
         let d = r.get(20).unwrap();
         assert_eq!((d.colour2, d.colour3, d.size, d.amount, d.contrast), ([0.1, 0.2, 0.3], [0.9, 0.8, 0.7], 8, 1.0, 0.0));
         assert_eq!(d.side, r.id("rings"), "any block may take another's look on its sides");
+    }
+
+    /// Ids run to 4095 (12 bits, mesh.rs `id_bits`): a row, its rubble and its side block up there load; 4096 is
+    /// refused by name, a row's or a rubble's. A joining block is neither cutout nor bedded (bits 24-27 are
+    /// theirs).
+    #[test]
+    fn ids_up_to_4095_load_and_4096_is_refused() {
+        let air = "[[block]]\nid = 0\nname = \"air\"\nsolid = false\n";
+        let r = Registry::parse(&format!("{air}[[block]]\nid = 300\nname = \"high\"\nhardness = 1\nside = \"top\"\nrubble = 4000\n[[block]]\nid = 4095\nname = \"top\"\nhardness = 1\n")).unwrap();
+        let (high, top) = (r.get(300).unwrap(), r.get(4095).unwrap());
+        assert_eq!((high.name.as_str(), high.side, high.rubble, top.name.as_str()), ("high", 4095, Some(4000), "top"));
+        assert_eq!(r.get(4000).map(|d| (d.name.as_str(), d.rubble_of)), Some(("high rubble", Some(300))));
+        assert_eq!(r.id("top"), 4095);
+        let e = Registry::parse(&format!("{air}[[block]]\nid = 4096\nname = \"past\"\nhardness = 1\n")).err().unwrap();
+        assert!(e.contains("'past'") && e.contains("over 4095"), "{e}");
+        let e = Registry::parse(&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 1\nrubble = 4096\n")).err().unwrap();
+        assert!(e.contains("'x'") && e.contains("over 4095"), "{e}");
+        let joins = |extra: &str| Registry::parse(&format!("{air}[[block]]\nid = 1\nname = \"x\"\nhardness = 1\njoins = true\n{extra}"));
+        assert!(joins("").is_ok() && joins("see = \"cutout\"\n").is_err() && joins("rubble = 2\nbedding = 2\n").is_err());
     }
 }

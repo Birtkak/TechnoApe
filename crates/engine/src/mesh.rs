@@ -1,8 +1,9 @@
 //! Binary greedy mesher: occupancy bitmasks per column, faces culled 34 cells at a time with shifts,
 //! then a greedy merge per slice over 32-bit rows (same material only).
-//! Quad = 8 bytes: lo = x6 y6 z6 (w-1)5 (h-1)5 dir3, hi = material8 | ao8 << 8: ambient occlusion at each
+//! Quad = 8 bytes: lo = x6 y6 z6 (w-1)5 (h-1)5 dir3, hi = block id's low 8 bits | ao8 << 8 | the id's high 4
+//! bits << 16 (`id_bits`, 12 bits in all, `blocks::IDS`): ambient occlusion at each
 //! corner, 2 bits (0 open .. 3 a corner shut in), corner (u, v) at bits 2 * (u + 2v) (ADR 0022); a joining
-//! block's face (lamps) has join4 << 16: the sides u-, u+, v-, v+ that meet the same block's open face (ADR 0085);
+//! block's face (lamps) has join4 << 24: the sides u-, u+, v-, v+ that meet the same block's open face (ADR 0085);
 //! a face of cracked rock has crack4 << 20: the sides u-, u+, v-, v+ that run along a crack (ADR 0094).
 use crate::world::{pidx, CS, P};
 
@@ -57,6 +58,15 @@ fn bits(f: impl Fn(u16) -> bool) -> Box<[u64; 1024]> {
     }
     t
 }
+/// Block `id`'s bits in a quad's second word: its low 8 at 0-7, its high 4 at 16-19 (shader_vertex.wgsl `id_bits`).
+pub const fn id_bits(id: u16) -> u32 {
+    (id as u32 & 255) | (id as u32 >> 8) << 16
+}
+/// The block id a quad's second word carries (`id_bits`; shader_vertex.wgsl `quad_id`).
+pub const fn quad_id(hi: u32) -> u16 {
+    (hi & 255 | hi >> 8 & 0xf00) as u16
+}
+
 fn is_in(t: &[u64; 1024], c: u16) -> bool {
     t[c as usize >> 6] >> (c & 63) & 1 == 1
 }
@@ -316,13 +326,14 @@ fn mesh_as(cells: &[u16; P * P * P], lattice: usize, cut: Cut, glass: bool, crac
                         } else {
                             dir
                         };
-                        let mut j = if jm { join_sides(cells, a, s, u, v, d, m, &hides) } else { 0 };
+                        // a joining block is never cutout nor bedded rock (`blocks::Registry::parse`): bits 24-27 are free
+                        let mut j = if jm { join_sides(cells, a, s, u, v, d, m, &hides) << 24 } else { 0 };
                         if g == 6 {
-                            j |= twig_bits(root[match a { 0 => pidx(d + 1, u + 1, v + 1), 1 => pidx(v + 1, d + 1, u + 1), _ => pidx(u + 1, v + 1, d + 1) }], a) << 4;
+                            j |= twig_bits(root[match a { 0 => pidx(d + 1, u + 1, v + 1), 1 => pidx(v + 1, d + 1, u + 1), _ => pidx(u + 1, v + 1, d + 1) }], a) << 20;
                             // bit 25: it opens on air (the client's fluff grows there only)
-                            j |= ((!occ(u + 1, v + 1, if s == 0 { d + 2 } else { d })) as u32) << 9;
+                            j |= ((!occ(u + 1, v + 1, if s == 0 { d + 2 } else { d })) as u32) << 25;
                         }
-                        groups[g].push([lo, m as u32 | o << 8 | j << 16 | (ck | dr) << 20]);
+                        groups[g].push([lo, id_bits(m) | o << 8 | j | (ck | dr) << 20]);
                     }
                 }
             }
@@ -563,7 +574,7 @@ mod tests {
         if dir % 2 == 0 {
             p[dir as usize / 2] -= 1; // a + face sits on the far side of its cell
         }
-        (p, dir, (q[1] & 255) as u16)
+        (p, dir, quad_id(q[1]))
     }
 
     /// ADR 0094: a crack along the top of one cell of a row draws on its two side faces' upper edges (u+ of a y face:
@@ -593,6 +604,31 @@ mod tests {
         let lined: Vec<[u32; 2]> = m.quads.iter().copied().filter(|q| q[1] >> 20 != 0).collect();
         assert_eq!(lined.len(), 1, "{lined:?}");
         assert_eq!((lined[0][1] >> 24, lined[0][1] >> 20 & 15, lined[0][0] >> 28 & 7, lined[0][0] >> 18 & 1023), (0xa5, 0, 2, 0));
+    }
+
+    /// Ids to 4095 ride in a quad (`id_bits`: 0-7 and 16-19) beside the occlusion (8-15) and the crack, slope,
+    /// twig, join and bedding bits (20-31), and come back whole; a chunk of blocks 300 and 4095 meshes as them,
+    /// a cracked and bedded face of 4095 keeping its lines.
+    #[test]
+    fn a_quad_carries_a_12_bit_block_id_beside_its_other_bits() {
+        for id in 0..crate::blocks::IDS as u16 {
+            assert_eq!(id_bits(id) & 0xfff0_ff00, 0, "{id}: clear of the other bits");
+            assert_eq!(quad_id(id_bits(id) | 0xfff0_ff00), id, "{id}");
+        }
+        let mut c = [0u16; P * P * P];
+        let mut k = [[0u8; 5]; P * P * P];
+        for x in 1..6 {
+            c[pidx(x, 1, 1)] = 4095;
+            c[pidx(x, 5, 5)] = 300;
+        }
+        k[pidx(3, 1, 1)][0] = crate::crack::PL;
+        k[pidx(3, 1, 1)][1 + 2] = 0xa5;
+        let m = mesh_cracked(&c, 8, Cut::Solid, false, Some(&k), &[], None);
+        assert!(m.quads.iter().all(|q| [300, 4095].contains(&quad_id(q[1]))));
+        assert_eq!(m.quads.iter().filter(|q| quad_id(q[1]) == 300).count(), 6, "a merged row: six faces");
+        let lined: Vec<[u32; 2]> = m.quads.iter().copied().filter(|q| q[1] >> 24 != 0).collect();
+        assert_eq!(lined.len(), 1, "{lined:?}");
+        assert_eq!((quad_id(lined[0][1]), lined[0][1] >> 24, lined[0][1] >> 20 & 15), (4095, 0xa5, 2), "its id, its bedding line and its crack");
     }
 
     /// ADR 0090: a cutout face carries where its block's way to wood leads (bits 20-22: 1..4 u-, u+, v-, v+ in the
@@ -649,7 +685,7 @@ mod tests {
     }
 
     /// ADR 0085: a joining block's face carries which of its four neighbours in the face's plane are the same
-    /// block with that face open too (bits 16-19: u-, u+, v-, v+), so the shader draws the frame on the outer
+    /// block with that face open too (bits 24-27: u-, u+, v-, v+), so the shader draws the frame on the outer
     /// edge only; a joining block never merges, and other blocks carry none.
     #[test]
     fn lamps_know_their_neighbours_in_the_wall() {
@@ -665,7 +701,7 @@ mod tests {
         let m = mesh(&c, 8);
         let mask = |cell: [usize; 3], dir: u32| {
             let q = m.quads.iter().find(|q| face_of(q).0 == cell && face_of(q).1 == dir).expect("face");
-            q[1] >> 16
+            q[1] >> 24
         };
         // +y faces (a = y: u = z, v = x): the middle lamp joins both ways along x (v), the first only to +x
         assert_eq!(mask([4, 4, 4], 2), 8);
@@ -687,7 +723,7 @@ mod tests {
         let m = mesh_cut(&c, 8, Cut::Solid, true);
         let mask = |cell: [usize; 3], dir: u32| {
             let q = m.quads.iter().find(|q| face_of(q).0 == cell && face_of(q).1 == dir).expect("face");
-            q[1] >> 16
+            q[1] >> 24
         };
         assert_eq!(mask([9, 9, 9], 1), 2);
         assert_eq!(mask([9, 10, 9], 1), 1 | 2);
@@ -714,8 +750,8 @@ mod tests {
         assert_eq!(got, faces_one_by_one(&c, |_, n| b.opaque(n)), "fancy");
         let n_opq = fancy.quads.len() - fancy.cut as usize;
         assert_eq!(fancy.ray_cut, fancy.cut, "fancy: a ray passes their holes");
-        assert!(fancy.cut > 0 && fancy.quads[n_opq..].iter().all(|q| !b.opaque((q[1] & 255) as u16)), "the cutout quads come last");
-        assert!(fancy.quads[..n_opq].iter().all(|q| b.opaque((q[1] & 255) as u16)));
+        assert!(fancy.cut > 0 && fancy.quads[n_opq..].iter().all(|q| !b.opaque(quad_id(q[1]))), "the cutout quads come last");
+        assert!(fancy.quads[..n_opq].iter().all(|q| b.opaque(quad_id(q[1]))));
         // those that open on air first, `fluff` of them: the client's fluff passes draw only these (ADR 0103)
         let (cuts, n) = (&fancy.quads[n_opq..], fancy.fluff as usize);
         let open = |q: &[u32; 2]| q[1] >> 25 & 1 == 1;
@@ -736,8 +772,8 @@ mod tests {
             // its cutout blocks' quads go last too: the client draws their holes open (ADR 0088)
             let n_opq = fast.quads.len() - fast.cut as usize;
             assert_eq!(fast.ray_cut, 0, "fast: whole blocks to a ray");
-            assert!(fast.cut > 0 && fast.quads[n_opq..].iter().all(|q| !b.opaque((q[1] & 255) as u16)), "fast: the cutout quads come last");
-            assert!(fast.quads[..n_opq].iter().all(|q| b.opaque((q[1] & 255) as u16)));
+            assert!(fast.cut > 0 && fast.quads[n_opq..].iter().all(|q| !b.opaque(quad_id(q[1]))), "fast: the cutout quads come last");
+            assert!(fast.quads[..n_opq].iter().all(|q| b.opaque(quad_id(q[1]))));
         }
         // a chunk with no cutout block meshes the same either way
         let rock: Box<[u16; P * P * P]> = Box::new(c.map(|v| if v == 0 { 0 } else { stone }));
@@ -767,8 +803,8 @@ mod tests {
             let hides = |me: u16, n: u16| n == me && b.glass(me) || b.opaque(n) || !fancy && cut(me) && cut(n);
             assert_eq!(got, faces_one_by_one(&c, hides), "fancy {fancy}");
             let g0 = m.quads.len() - m.glass as usize;
-            assert!(m.glass > 0 && m.quads[g0..].iter().all(|q| b.glass((q[1] & 255) as u16)), "the glass quads come last");
-            assert!(m.quads[..g0].iter().all(|q| !b.glass((q[1] & 255) as u16)));
+            assert!(m.glass > 0 && m.quads[g0..].iter().all(|q| b.glass(quad_id(q[1]))), "the glass quads come last");
+            assert!(m.quads[..g0].iter().all(|q| !b.glass(quad_id(q[1]))));
             assert!(m.cut > 0, "the cutout quads are grouped fast or fancy");
         }
     }

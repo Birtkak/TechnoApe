@@ -67,16 +67,23 @@ struct Chunk { base: vec3i, info: u32, off: u32, opq: u32, clim: u32, sto: u32 }
 @group(0) @binding(15) var cl_samp: sampler;
 @group(0) @binding(1) var<storage, read> quads: array<vec2u>;
 @group(0) @binding(2) var<storage, read> chunks: array<Chunk>;
-// a block's look from data/blocks.toml (ADR 0013): info = pattern | side << 8 | metal (0..255) << 16 | gives light
-// << 24 | cutout << 25 (ADR 0069); patterns 0 plain, 1 grass, 2 stone, 11 leaves (holes)
+// a block's look from data/blocks.toml (ADR 0013): info = pattern | metal (0..255) << 16 | gives light
+// << 24 | cutout << 25 (ADR 0069) | glass << 26 | joins << 27; patterns 0 plain, 1 grass, 2 stone, 11 leaves (holes)
 // (ADR 0039) and a pattern's second and third colours, its size in texels, amount and grain contrast; the
 // painted faces (ADR 0045, gpu.rs `looks_of`: 16 bits a face, layer | variants - 1 << 12 | painted << 15; top
 // and side in `tex`, the bottom in `tex2`) and a painted block's one colour, unorm 8-bit, painted << 24
-struct Look { colour: vec3f, info: u32, colour2: vec3f, size: u32, colour3: vec3f, amount: f32, contrast: f32, tex: u32, mean: u32, tex2: u32, fluff: u32, through: f32, _b: u32, _c: u32 };
-// four rows a block (ADR 0061): its own look, summer's, at [m]; spring's, autumn's and winter's 256, 512 and
-// 768 on. `size` holds, over the size's 8 bits, bit 8 for a block with seasons and its stagger from bit 16
+// (`side`: the block its sides and foot take, `blocks::Def::side`; joins << 27 in `info`, a joining block)
+struct Look { colour: vec3f, info: u32, colour2: vec3f, size: u32, colour3: vec3f, amount: f32, contrast: f32, tex: u32, mean: u32, tex2: u32, fluff: u32, through: f32, side: u32, _c: u32 };
+// how many block ids (engine blocks::IDS): 12 bits, a look row each in every season
+const IDS: u32 = 4096u;
+// the block id a quad's second word carries: bits 0-7 and 16-19 (engine mesh::quad_id; gpu.rs checks the two agree)
+fn quad_id(mat: u32) -> u32 { return (mat & 255u) | ((mat >> 8u) & 0xf00u); }
+// block id's bits in such a word (engine mesh::id_bits): for a texel of a block no quad carries
+fn id_bits(id: u32) -> u32 { return (id & 255u) | ((id >> 8u) << 16u); }
+// four rows a block (ADR 0061): its own look, summer's, at [m]; spring's, autumn's and winter's IDS, 2 IDS and
+// 3 IDS on. `size` holds, over the size's 8 bits, bit 8 for a block with seasons and its stagger from bit 16
 // (1/1024 quarter turn)
-@group(0) @binding(3) var<storage, read> looks: array<Look, 1024>;
+@group(0) @binding(3) var<storage, read> looks: array<Look, 16384>;
 // the painted faces' 16 x 16 layers, RGBA8 a u32, rows from the top, read with no filter and no mips: one texel
 // as the patterns hash one (a buffer, not a texture array: an image took a new 256 MB block of VRAM, ADR 0045)
 @group(0) @binding(11) var<storage, read> tex: array<u32>;
@@ -290,7 +297,7 @@ fn terrain_vertex(vi: u32, ii: u32, mode: u32) -> VOut {
             let at0 = quad_corner(q, 0u, 0.0);
             let cell0 = vec3i(floor(at0)) + c.base;
             // the block's fluff (`Fluff::packed`, blocks.rs): size, push, droop, long (unread since ADR 0099), dense
-            let fw = looks[q.y & 255u].fluff;
+            let fw = looks[quad_id(q.y)].fluff;
             let size = f32(fw & 63u) * 0.05;
             let fpush = f32((fw >> 6u) & 63u) * 0.025;
             let droop = f32((fw >> 12u) & 63u) * 0.025;
