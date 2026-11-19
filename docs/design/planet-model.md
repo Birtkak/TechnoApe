@@ -14,7 +14,7 @@
    derived. Sol's bodies are written by hand; the seed only changes a body's detail.
 3. **A gas planet can be entered and has a solid core.** Cloud layers to fly down through, pressure and heat
    rising, and deep under them a solid core that can be reached and mined late in the game.
-4. **The first new body is a Mars-like planet, named Mars (2026-11-20):** rocky, cold, thin air, a dead core and so no field, old
+4. **The first new body is a Mars-like planet, named Mars (2026-11-19):** rocky, cold, thin air, a dead core and so no field, old
    craters and dry river beds, giant dead volcanoes with long lava tubes.
 5. From before, and they hold for every body: real-world logic decides where things are, and each must be
    something to find, mine and craft with; nothing is placed because of where the spawn is, except copper;

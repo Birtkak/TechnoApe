@@ -1,7 +1,7 @@
 # A draft body (planet-model.md build step 5a): the Mars-like planet's row, read only by its bake's tests and
 # `technoape-server bakemap=data/drafts/bodies-mars.toml body=Mars` (crates/engine/src/bake/mars.rs). It is not in
 # data/bodies.toml, so no world has it yet: the reader appends it to bodies.toml's rows. The keys are bodies.toml's
-# (its header says what each means); the name is Mars, the developer's call (2026-11-20).
+# (its header says what each means); the name is Mars, the developer's call (2026-11-19).
 # Only keys a stage reads are set beyond what a row must have: thin air (about 0.01 atm), no liquid water and the
 # sky's colour wait for the runs that read them; `air = false` and Luna's ground blocks stand in until then.
 

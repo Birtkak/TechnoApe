@@ -31,7 +31,7 @@ stage lock, `made_hash` bfb878ce14d32b75), deterministic from seed and row, unde
 by the game):
 
 ```toml
-name = "Mars"            # the developer's call, 2026-11-20
+name = "Mars"            # the developer's call, 2026-11-19
 parent = "sun"
 stages = ["crust", "impacts", "volcanism", "erosion", "ice"]
 size = 1.85              # 3328 columns, 104 chunks = 13 x 8 (as Luna's 52 = 13 x 4); 2300 m radius
