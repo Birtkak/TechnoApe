@@ -244,7 +244,15 @@ impl App {
 
         // the server's deltas: edits land in the world and remesh their chunks here, never directly
         loop {
-            match self.link.try_recv() {
+            let got = self.link.try_recv();
+            // a cell or block id the world lacks would index past its tables and abort the game
+            if let Recv::Msg(m) = &got {
+                if !engine::net::fits(&self.world, m) {
+                    eprintln!("[technoape] dropped a server message naming a cell or block this world lacks");
+                    continue;
+                }
+            }
+            match got {
                 Recv::Msg(ToClient::Edits(v)) => {
                     // each cell's delta as the tick's events said (ADR 0149, `fx::server_edits`): a dig or a
                     // place plays its effect and, for up to three cells of a message, its sound (another player's

@@ -272,6 +272,23 @@ pub fn fetch_map(link: &mut Link<ToServer, ToClient>, seed: i32, n: i32, hash: u
     Ok(crate::bake::keep(map))
 }
 
+/// True when every cell (and edit's block id) a server message names exists in `world`: the client and the bot
+/// index by them unchecked, and a bad one would abort them, so a message that fails is dropped whole.
+pub fn fits(world: &crate::world::World, m: &ToClient) -> bool {
+    let ok = |b: &Block| Shape::one(*b).fits(world);
+    match m {
+        ToClient::Edits(v) => v.iter().all(|(b, m)| ok(b) && crate::blocks::BLOCKS.get(*m).is_some()),
+        ToClient::Taken(v) => v.iter().all(|(b, _)| ok(b)),
+        ToClient::Piles(v) => v.iter().all(|(b, _)| ok(b)),
+        ToClient::Fires(v) => v.iter().all(|(b, _)| ok(b)),
+        ToClient::Marks { death, home } => death.iter().chain(home).all(ok),
+        ToClient::Digging { at, .. } => at.as_ref().is_none_or(|(s, _, _)| s.fits(world)),
+        ToClient::Furnace { at, .. } => ok(at),
+        ToClient::Events(v) => v.iter().all(|e| e.cell().iter().chain(if let crate::events::Event::Fall { from, .. } = e { Some(from) } else { None }).all(ok)),
+        _ => true,
+    }
+}
+
 /// One end of a connection: `O` goes out, `I` comes in.
 pub struct Link<O, I> {
     pub tx: Sender<O>,
@@ -570,6 +587,31 @@ mod tests {
         }
         std::thread::sleep(std::time::Duration::from_millis(300));
         assert!(matches!(server.rx.recv_timeout(std::time::Duration::from_secs(2)), Err(std::sync::mpsc::RecvTimeoutError::Disconnected)), "the link is closed");
+    }
+
+    /// A server message naming a body, face or cell the world lacks, or a block id the registry lacks, fails
+    /// `fits`; one whose cells all exist passes.
+    #[test]
+    fn a_message_of_cells_the_world_lacks_does_not_fit() {
+        let w = crate::world::World::new(1536, 64, 1337);
+        let good = Block { body: 0, face: 3, pos: IVec3::new(5, 7, 9) };
+        let bad = [Block { body: 9, ..good }, Block { face: 7, ..good }, Block { pos: IVec3::new(-1, 7, 9), ..good }, Block { pos: IVec3::new(5, 7, 1 << 20), ..good }];
+        assert!(fits(&w, &ToClient::Edits(vec![(good, 1)])));
+        assert!(fits(&w, &ToClient::Chat("hi".into())));
+        assert!(!fits(&w, &ToClient::Edits(vec![(good, u16::MAX)])), "an unknown block id");
+        for b in bad {
+            for m in [
+                ToClient::Edits(vec![(good, 1), (b, 1)]),
+                ToClient::Taken(vec![(b, 1)]),
+                ToClient::Piles(vec![(b, Vec::new())]),
+                ToClient::Marks { death: None, home: Some(b) },
+                ToClient::Fires(vec![(b, true)]),
+                ToClient::Digging { id: 1, at: Some((Shape::one(b), 0.0, 0.0)) },
+                ToClient::Events(vec![crate::events::Event::Fall { from: b, to: good, block: 1 }]),
+            ] {
+                assert!(!fits(&w, &m), "{m:?}");
+            }
+        }
     }
 
     /// A client that lacks the map gets it in pieces, and what the server sent meanwhile still comes, in order.
