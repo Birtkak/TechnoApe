@@ -17,8 +17,8 @@ Recorded from the game itself, as it runs today.
 |:---:|:---:|
 | ![Terra turning, day into night](docs/media/terra.gif) | ![Clouds and their shadows over a coast](docs/media/clouds.gif) |
 | **Terra**, baked from a seed, turning from day into night | **Weather:** clouds and their shadows drifting over a coast |
-| ![The aurora](docs/media/aurora.gif) | |
-| **The aurora**, drawn from the planet's magnetic field | |
+| ![The aurora](docs/media/aurora.gif) | ![Luna turning through her phases](docs/media/luna.gif) |
+| **The aurora**, drawn from the planet's magnetic field | **Luna:** craters and maria, turning through her phases |
 
 ## Status
 
