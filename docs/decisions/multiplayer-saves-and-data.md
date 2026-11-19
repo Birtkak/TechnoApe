@@ -268,6 +268,25 @@ INDEX.md lists every number.
   written by hand; the Effects page keeps them on Save [0157].
 - Presentation only: nothing on the server, the wire or a save changes [0157].
 
+### A link's limits and its ping [0168, 2026-11-19]
+From the audit of 2026-11-19 (a sleeping laptop stayed online for ever; one client could fill the server's memory).
+- **Ping:** a peer with nothing to send for 5 s sends an empty frame (length 0); the reader skips it. It lives on
+  the socket only: never reaches the tick, never recorded. A link with nothing heard for 30 s is closed (std read
+  and write timeouts, the same on Windows and Linux; TCP keepalive would need a new dependency and its timings
+  are the OS's). Both directions, so a client notices a dead server too.
+- **Take-over:** a `Hello` whose name belongs to a client the server took nothing from for 100 ticks (5 s) takes
+  that player over, place and slots kept, instead of becoming `name-2`. Silence is counted in ticks, so a replay
+  decides the same. Names are not checked, so a frozen client's name can be taken while its link is open.
+- **Bounds** (`net::Limits`): inbound 4096 messages waiting (twice that through a map download), outbound 128 MiB
+  waiting; past either the link is closed with a log line. A join's backlog is two maps (about 23 and 21 MB) plus
+  12 bytes an edit. The server sends each map hash once a connection.
+- **Client and bot** drop a server message naming a cell or block id the world lacks (`net::fits`).
+- Wire: an old server cannot decode the empty frame and drops a new client idle 5 s or downloading a map, so
+  server and client are deployed together. A recording made before this that holds a same-name `Hello` after 100
+  silent ticks now replays as a take-over.
+- Open: the Linux side of the timeouts and a join over Tailscale against the bounds are not run; what a survival
+  player may do (move, creative, dig size, names) is the developer's call.
+
 ## Platforms, hosting and the home server
 
 - Targets: Windows x86_64 client; Linux x86_64 dedicated server [0005].
