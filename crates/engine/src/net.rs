@@ -306,22 +306,46 @@ pub fn local<A, B>() -> (Link<A, B>, Link<B, A>) {
 }
 
 /// A TCP connection as a link: one thread writes outgoing messages, one reads incoming ones, as frames of a
-/// little-endian u32 length and postcard bytes. Either thread ending closes the link.
+/// little-endian u32 length and postcard bytes; a frame of length 0 is a ping (`PING`), never a message, and
+/// a link silent for `SILENT` is closed. Either thread ending closes the link.
 pub fn tcp<O, I>(stream: TcpStream) -> std::io::Result<Link<O, I>>
 where
     O: Serialize + Send + 'static,
     I: DeserializeOwned + Send + 'static,
 {
+    tcp_timed(stream, PING, SILENT)
+}
+
+/// An idle writer sends an empty frame this often, so the other side hears the link is alive.
+pub const PING: std::time::Duration = std::time::Duration::from_secs(5);
+/// A link that hears nothing this long (not even `PING`'s empty frame) is closed: the peer slept or dropped
+/// off without closing the socket.
+pub const SILENT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// `tcp` with its ping and silence times (tests use short ones).
+pub fn tcp_timed<O, I>(stream: TcpStream, ping: std::time::Duration, silent: std::time::Duration) -> std::io::Result<Link<O, I>>
+where
+    O: Serialize + Send + 'static,
+    I: DeserializeOwned + Send + 'static,
+{
     stream.set_nodelay(true)?;
+    // std's SO_RCVTIMEO / SO_SNDTIMEO: the same on Windows and Linux, unlike keepalive's OS-tuned timings
+    stream.set_read_timeout(Some(silent))?;
+    stream.set_write_timeout(Some(silent))?;
     let mut w = stream.try_clone()?;
     let mut r = stream;
     let (out_tx, out_rx) = channel::<O>();
     let (in_tx, in_rx) = channel::<I>();
     std::thread::spawn(move || {
-        for m in out_rx {
-            let bytes = match postcard::to_stdvec(&m) {
-                Ok(b) => b,
-                Err(_) => break,
+        loop {
+            // an empty frame when idle: no message is empty (postcard writes the variant), so it says only "alive"
+            let bytes = match out_rx.recv_timeout(ping) {
+                Ok(m) => match postcard::to_stdvec(&m) {
+                    Ok(b) => b,
+                    Err(_) => break,
+                },
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Vec::new(),
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             };
             if w.write_all(&(bytes.len() as u32).to_le_bytes()).and_then(|_| w.write_all(&bytes)).is_err() {
                 break;
@@ -332,8 +356,17 @@ where
     std::thread::spawn(move || {
         let mut len = [0u8; 4];
         let mut buf = Vec::new();
-        while r.read_exact(&mut len).is_ok() {
+        loop {
+            if let Err(e) = r.read_exact(&mut len) {
+                if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) {
+                    eprintln!("[net] nothing heard for {:.1} s: the link is closed", silent.as_secs_f64());
+                }
+                break;
+            }
             let n = u32::from_le_bytes(len) as usize;
+            if n == 0 {
+                continue; // a ping
+            }
             if n > 1 << 24 {
                 break; // nothing legitimate is 16 MB; a bad peer gets dropped
             }
@@ -428,6 +461,29 @@ mod tests {
         assert_eq!(client.rx.recv().unwrap(), ToClient::Welcome { id: 1, seed: 7, bodies: vec![(1536, Some(42)), (416, Some(43)), (128, None)], blocks: 9, items: 8, gen: 2 });
         drop(server);
         assert!(client.rx.recv().is_err(), "a dropped peer closes the link");
+    }
+
+    /// A peer that goes quiet without closing its socket (a laptop asleep) is dropped after the silence; two
+    /// idle links keep each other alive with pings that never come out as messages.
+    #[test]
+    fn a_silent_peer_is_dropped_and_an_idle_one_is_not() {
+        use std::time::{Duration, Instant};
+        let (ping, silent) = (Duration::from_millis(100), Duration::from_millis(600));
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        // a raw socket that never writes: a ghost
+        let _ghost = TcpStream::connect(addr).unwrap();
+        let server: Link<ToClient, ToServer> = tcp_timed(l.accept().unwrap().0, ping, silent).unwrap();
+        let t = Instant::now();
+        assert!(matches!(server.rx.recv_timeout(silent * 5), Err(std::sync::mpsc::RecvTimeoutError::Disconnected)), "the ghost's link closes");
+        assert!(t.elapsed() >= silent && t.elapsed() < silent * 4, "{:?}", t.elapsed());
+        // two of our own ends, both idle for three silences: still open, nothing delivered
+        let client: Link<ToServer, ToClient> = tcp_timed(TcpStream::connect(addr).unwrap(), ping, silent).unwrap();
+        let server: Link<ToClient, ToServer> = tcp_timed(l.accept().unwrap().0, ping, silent).unwrap();
+        assert!(matches!(server.rx.recv_timeout(silent * 3), Err(std::sync::mpsc::RecvTimeoutError::Timeout)));
+        assert!(matches!(client.rx.recv_timeout(Duration::from_millis(10)), Err(std::sync::mpsc::RecvTimeoutError::Timeout)));
+        client.send(ToServer::Respawn);
+        assert_eq!(server.rx.recv_timeout(silent).unwrap(), ToServer::Respawn);
     }
 
     /// A client that lacks the map gets it in pieces, and what the server sent meanwhile still comes, in order.

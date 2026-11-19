@@ -2872,6 +2872,45 @@ fn equal_names_are_kept_apart_and_a_second_hello_changes_nothing() {
     assert_eq!((inv("ape"), inv("ape-2")), (vec![(BLOCKS.id("stone"), 1)], vec![(BLOCKS.id("dirt"), 2)]));
 }
 
+/// A player whose connection went quiet (a laptop asleep) and who joins again under its name takes itself
+/// over, place and slots, instead of becoming `name-2`; the quiet connection is closed.
+#[test]
+fn a_hello_takes_over_its_own_quiet_ghost() {
+    let (tx, rx) = channel();
+    let mut s = Server::new(256, 32, 1, rx);
+    let rec = std::env::temp_dir().join(format!("technoape-ghost-{}.rec", std::process::id()));
+    s.record(&rec).unwrap();
+    let links: Vec<Link<ToServer, ToClient>> = (0..2)
+        .map(|_| {
+            let (c, sv) = local();
+            tx.send(sv).unwrap();
+            c
+        })
+        .collect();
+    s.tick();
+    links[0].send(ToServer::Hello { name: "ape".into() });
+    links[0].send(ToServer::Chat("/give stone 3".into()));
+    s.tick();
+    let at = s.clients[0].phys.pos;
+    for _ in 0..GHOST_TICKS {
+        s.tick();
+    }
+    links[1].send(ToServer::Hello { name: "ape".into() });
+    s.tick();
+    let names: Vec<&str> = s.clients.iter().map(|c| c.player.name.as_str()).collect();
+    assert_eq!(names, ["ape"]);
+    assert_eq!(s.clients[0].player.id, 2, "the new connection is the one kept");
+    assert_eq!(held(&s.clients[0].slots), vec![(BLOCKS.id("stone"), 3)]);
+    assert!((s.clients[0].phys.pos - at).length() < 1.0, "{} {}", s.clients[0].phys.pos, at);
+    drain(&links[0]);
+    assert!(matches!(links[0].try_recv(), Recv::Closed), "the ghost's link is closed");
+    // the takeover is judged in ticks: its replay takes over the same way
+    s.tick();
+    let r = replay(&rec, Some(s.tick)).unwrap();
+    std::fs::remove_file(&rec).unwrap();
+    assert_eq!((r.diverged, r.server.clients.len(), r.server.hash()), (None, 1, s.hash()));
+}
+
 /// The quit save waits for an autosave still writing: the two never share the temp file, and when
 /// `save_now` returns the save is whole and nothing writes any more.
 #[test]
