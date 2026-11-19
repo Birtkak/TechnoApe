@@ -66,11 +66,36 @@ Option 2.
   skewed toward the night side, as Earth's is); solar storms that brighten and widen the oval for a while; the
   aurora of a body other than the home (only body 0 is drawn); its sound.
 - Answered in review, left as it is: Terra's night-side aurora shows over Luna's daytime sky when Terra is seen
-  from Luna or from orbit (fair: it is Terra's night side, and Luna has no air to drown it); the pass runs every
-  night frame on the home even with no oval in view (its cost is in the perf-debt row).
+  from Luna or from orbit (fair: it is Terra's night side, and Luna has no air to drown it); the pass ran every
+  night frame on the home even with no oval in view (since skipped: Speed).
 - The first assertion of `the_field_argument_reaches_the_aurora` compares `aurora_post` against the same formula
   (`sky::aurora` of the scaled field) it is built from: it proves the scale reaches the renderer's numbers, not the
   rule, which `the_oval_widens_and_dims_as_the_field_falls` tests.
+
+## Speed
+- **Not in view, not drawn** (`frame::aurora_seen`, on the frame thread): each oval's band is cut into 48 pieces
+  round the pole, each bounded by a sphere (its shell's half height plus the band's and the piece's angle times the
+  outer radius); a piece counts only if it is over the sea's horizon from the camera (the angle round the planet
+  to it, less its own, within acos(sea / camera) + acos(sea / shell top)), where its sun is down (`au_glow`'s
+  0.05) and in the frustum's five planes. None counts: the brightness sent is 0, so the clouds' pass skips the
+  march, or is not run when the clouds are off. Conservative by construction; about 2 µs a frame (play build,
+  every piece tested). `the_aurora_is_drawn_whenever_any_of_it_is_seen` checks it over 240 camera poses (ground
+  to 30 km, any look, the planet turned anyhow, ovals at 20 to 80 degrees) against a brute force over the band
+  (projected, the segment to the camera tested against the sea's sphere, the sun's height): never skipped when
+  seen; red with the pieces taken as points.
+- **Equator at midnight, field 1** (`run=stand quick=1 at=0,1,0 yaw=180 pitch=25 time=1125`): GPU p50 2.07 / 2.01
+  -> 1.94 / 1.94 ms, p99 2.31 / 2.24 -> 2.18 / 2.13: free. Where the oval is in view nothing changed, by design.
+- **Tried in the shader and dropped** (each measured alone at 66 degrees, midnight, where the march costs about
+  1.6 ms of the 3.7, field=0 2.10, a march with an empty glow 2.46): keeping a cell's sines and hashes from one
+  step to the next (as a struct through a pointer: 3.65 -> 4.18 ms; as whole vectors: 3.72 -> 4.20: the lanes of a
+  warp leave their cells at different steps, so every step pays the branch); skipping a step whose colatitude is
+  past both curtains' reach before its `atan2` and sines, with the sun's test first (3.73 -> 3.76, 3.72 -> 3.69
+  from 5 km: about 83 % of a band's steps are within reach). Fewer or coarser steps change the jittered sum
+  and so the picture; not tried. What is left is in the perf-debt row.
+- **The look**: seven fixed shots (`run=stand ... time=1125 weather=clear creatures=0 shot= baseline=`) against
+  today's: (a) 66 degrees, poleward; (b) the same at field 0.4, and b2 looking equatorward at it; (d) 5 km over
+  the south pole; c2 the equator at field 0.15; e, e2 50 degrees poleward (on the ground, 60 m up): 0.0 % of
+  pixels differ in each (the reference against itself: 0.0 %).
 
 ## Checks
 | Check | Result |
