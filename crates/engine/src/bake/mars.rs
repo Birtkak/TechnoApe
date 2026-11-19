@@ -1,4 +1,4 @@
-//! A planet's crust without plates (planet-model.md step 5a, draft-mars-bake): the bake of a body that circles
+//! A planet's crust without plates (planet-model.md step 5a, 0167-mars-bake): the bake of a body that circles
 //! the sun and lists `crust` first (`bodies::Planet`), the Mars-like planet's. Real-world logic, the relief
 //! exaggerated for a planet of 2.3 km as Terra's is (ADR 0043, 0060), each landform something to find:
 //! - `crust`: the dichotomy: low smooth northern plains (`SHARE` of the surface), high old southern highlands and
