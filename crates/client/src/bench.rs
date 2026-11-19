@@ -308,7 +308,7 @@ impl App {
         let budget_ok = p99 <= 8.3 && max <= 16.7 && s.ram_max > 0.0 && s.ram_max <= 8192.0 && s.vram_max > 0.0 && s.vram_max <= 6144.0;
         let line = format!(
             concat!(
-                "{{\"run\":\"{}\",\"label\":\"{}\",\"quick\":{},\"planet_n\":{},\"planet_radius_m\":{:.0},\"budget_ok\":{},",
+                "{{\"run\":\"{}\",\"label\":\"{}\",\"quick\":{},\"planet_n\":{},\"planet_radius_m\":{:.0},\"field\":{:.4},\"budget_ok\":{},",
                 "\"fps_avg\":{:.1},\"frame_p50_ms\":{:.3},\"frame_p99_ms\":{:.3},\"frame_max_ms\":{:.3},",
                 "\"cpu_ms_p50\":{:.3},\"cpu_ms_p99\":{:.3},\"gpu_ms_p50\":{:.3},\"gpu_ms_p99\":{:.3},",
                 "\"ram_mb\":{:.0},\"vram_mb\":{:.0},\"chunks_meshed_per_s\":{:.1},\"chunks_nonempty_per_s\":{:.1},",
@@ -322,6 +322,7 @@ impl App {
             a.get("quick", 0),
             self.world.bodies[0].n,
             self.world.bodies[0].radius,
+            self.world.field(0) * crate::frame::field_scale(a),
             budget_ok,
             s.frames as f64 / secs.max(1e-9),
             pct(&mut s.frame_ms, 0.5),

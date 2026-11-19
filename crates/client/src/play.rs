@@ -900,6 +900,13 @@ impl App {
                     ("Time", format!("day {day}, {:02}:{:02} at the spawn, {:.0} s", m / 60, m % 60, w.time), 0),
                     ("Sol", format!("{:.1} degrees over the horizon", d.sun_deg), 0),
                     ("Air", air, 0),
+                    ("Field", {
+                        // the home's magnetic field, `field=` scaling it for the run, and its aurora (0164-magnetic-field)
+                        let f = w.field(0) * crate::frame::field_scale(&self.args);
+                        let a = engine::sky::aurora(f);
+                        let aurora = if a.bright > 0.0 { format!("aurora at {:.0} degrees latitude, {:.0} % bright", 90.0 - a.colat.to_degrees(), a.bright * 100.0) } else { "no aurora".into() };
+                        format!("{f:.3} of {}'s at the start, {aurora}", w.bodies[0].name)
+                    }, 0),
                     ("Moon", format!("{} {:.0}% lit", w.bodies.get(w.moon).map_or("none", |b| b.name.as_str()), d.moon_lit * 100.0), 0),
                     ("Seed", format!("{}", self.seed), 0),
                     ("Size", w.bodies.iter().map(|b| format!("{} {}", b.name, b.n)).collect::<Vec<_>>().join(", ") + " columns a face", 0),
