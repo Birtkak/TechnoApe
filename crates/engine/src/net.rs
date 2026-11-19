@@ -719,7 +719,8 @@ mod tests {
         assert_eq!(c("/PlayMode c"), (10, vec!["creative".to_string()]));
         assert_eq!(c("/goto luna "), (11, vec![]));
         let s = |v: &[&str]| v.iter().map(|w| w.to_string()).collect::<Vec<_>>();
-        assert_eq!(c("/goto "), (6, s(&["terra", "home", "spawn", "luna", "sun"])));
+        assert_eq!(c("/goto "), (6, s(&["terra", "home", "spawn", "luna", "mars", "sun"])));
+        assert_eq!(c("/goto m"), (6, s(&["mars"])));
         assert_eq!(c("/goto L"), (6, s(&["luna"])));
         assert_eq!(c("/goto t"), (6, s(&["terra"])));
         assert_eq!(c("hello"), (5, vec![]));

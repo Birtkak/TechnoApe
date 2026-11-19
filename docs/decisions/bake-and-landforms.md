@@ -506,7 +506,7 @@ map by hash. A map is kept in the file of its own version, in the bytes of its o
 
 [0167] (planet-model step 5a; not a body in any world yet: no row in `data/bodies.toml`, no change to saves, the wire,
 the sky, the renderer or world generation)
-- **The row** is `data/drafts/bodies-mars.toml`, read after `bodies.toml`'s rows by its tests and by `bakemap=`; not loaded
+- **The row** was `data/drafts/bodies-mars.toml` (since Mars joined the world it is the last row of `data/bodies.toml`); then not loaded
   by the game: `name = "Mars"`, `parent = "sun"`, `stages = ["crust", "impacts", "volcanism", "erosion", "ice"]`,
   `size = 1.85` (3328 columns, 104 chunks = 13 x 8; 6144 / 1.9 would be 101 chunks, prime; 2300 m radius), `sun = 65212.5`
   (1.5 AU in its own radii), `age = 1.0`, `generator = "hills"`, `ground = ["regolith", "regolith", "stone"]`, `air = false`
@@ -560,7 +560,7 @@ the sky, the renderer or world generation)
   e.g. `seed-1-planet-3328-mars-89b8b05e-v201.map`: another list, age or bake version is another file, a renamed body bakes
   once more. Baked once, kept in memory by path (`mars::get`, `keep`), read back from the file; a file that is no map of that
   version, seed and n is baked again.
-- **Seeing it:** `technoape-server bakemap=data/drafts/bodies-mars.toml body=Mars seed=1 [n=] [out=prefix]` bakes it, keeps
+- **Seeing it:** `technoape-server bakemap=data/bodies.toml body=Mars seed=1 [n=] [out=prefix]` bakes it, keeps
   it as the game would find it, writes `<prefix>-height.png`, `-kinds.png`, `-features.png` (equirectangular 2400 x 1200
   centred on the canyon, `bake/pictures.rs`) and prints one JSON line of the numbers. `bakemap=` refuses an n that is not
   whole chunks (n=0 exits 2).

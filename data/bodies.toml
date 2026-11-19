@@ -4,6 +4,8 @@
 # `n` again: (planet= and moon= on the command line override it; ADR 0021).
 # `generator`: continents (ADR 0021's land and sea) or hills (noise only). `ground`: the top, the band under
 # it and the rock below, by block name. `air`: the sky's colour and the air's thinning (ADR 0022).
+# `since`: the first world generation it is in (0 if left out: every world; a row goes at the end and is never
+# older than the one above, so a world of an older generation has the rows above it, `bodies::of`).
 # `parent`: what it circles, "sun" or a row above it (0163-n-bodies). `home` (the first row, and only it): the
 # home world, whose are the spawn, the ore, the weather, the tide and the herds. `stages`: the bake that makes its
 # map, its stages in the order they run (0165-bake-stages; crates/engine/src/bake/mod.rs `check` says what
@@ -60,3 +62,30 @@ density = [2700.0, 3300.0, 7920.0]
 weight_g = 19.62
 # nearly dead: a thin liquid shell round a solid core
 heat = 0.05
+
+# Mars (planet-model.md step 5; the name the developer's, 2026-11-19), in the worlds of generation 5 on: a world
+# made before keeps Terra and Luna alone. Thin air (about 0.01 atm), no liquid water and its sky's colour wait for
+# the runs that read them (`air = false` until then); its ground is its kinds' (data/biomes.toml), this row's
+# `ground` only where it has no map.
+[[body]]
+name = "Mars"
+parent = "sun"
+since = 5
+# a planet's crust without plates (bake/mars.rs): the dichotomy; craters by age; one plate's dead volcanoes and the
+# canyon they tore; valleys and outflow channels long dry; polar caps and frost
+stages = ["crust", "impacts", "volcanism", "erosion", "ice"]
+# the real one's radius is 0.53 of the Earth's; 1.85 gives 3328 columns, 104 chunks (13 x 8, as Luna's 52 is 13 x 4)
+size = 1.85
+# 1.5 AU in its own radii: Terra's 23500 of hers, times 1.5, times 1.85
+sun = 65212.5
+# an old surface: it has collected craters as long as Luna's highlands (the impacts stage's share of the power law)
+age = 1.0
+generator = "hills"
+ground = ["red dust", "mars regolith", "basalt"]
+air = false
+kind = "rocky"
+# a small core (the real one about half the radius), nearly frozen: no field
+iron = 0.5
+heat = 0.15
+# a basaltic crust, a mantle richer in iron than Terra's, a core of iron with much sulphur
+density = [2900.0, 3500.0, 6700.0]

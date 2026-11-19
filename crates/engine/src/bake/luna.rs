@@ -750,7 +750,7 @@ mod tests {
         use crate::blocks::BLOCKS;
         use crate::rock::ROCKS;
         use crate::world::{Block, World, GENERATION};
-        assert_eq!(GENERATION, 4);
+        assert!(GENERATION >= 4);
         let map = Arc::new(bake(7, 416));
         let w = World::with_grid(256, 416, 7, None, Some(map.clone()), 0.0, 4);
         let b = &w.bodies[1];
@@ -802,6 +802,8 @@ mod tests {
         assert_ne!(h, "a22a376de6be21ba", "generation 4's ground is not 3's");
         // and a lock on it, as generation 3's above
         assert_eq!(h, "b0f00158257f21d2");
+        // generation 5 (Mars) leaves her as 4 made her
+        assert_eq!(format!("{:016x}", luna_blocks_hash(5)), h);
     }
 
     /// Generation 4's Luna on her rock field (0166-luna-ore-and-caves), the standard Luna: each of her kinds of

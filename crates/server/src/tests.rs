@@ -3944,7 +3944,8 @@ fn a_player_digs_at_the_mantles_floor_and_not_under_it() {
     let snap = s.snapshot();
     let back = Server::from_save(Save::from_bytes(&snap.to_bytes()).unwrap(), channel().1);
     assert_eq!((back.world.bodies[0].mantle, back.world.block(wall)), (s.world.bodies[0].mantle, AIR));
-    let old = Server::from_save(Save::from_bytes(&Save { gen: 0, ..snap }.to_bytes()).unwrap(), channel().1);
+    // (a world of generation 0 has Terra and Luna alone)
+    let old = Server::from_save(Save::from_bytes(&Save { gen: 0, bodies: snap.bodies[..2].to_vec(), ..snap }.to_bytes()).unwrap(), channel().1);
     let ob = &old.world.bodies[0];
     assert_eq!((ob.mantle, ob.r0.to_bits(), ob.layers), (0, engine::world::Body::new(ob.centre, ob.n, 7).r0.to_bits(), engine::world::Body::new(ob.centre, ob.n, 7).layers));
     assert_eq!((old.world.edit(wall), old.world.edit(at(0, 3))), (Some(AIR), Some(AIR)));
@@ -4030,4 +4031,23 @@ fn a_version_21_save_and_recordings_load_as_terra_and_luna() {
     }
     let r = replay(&dir.join("v21-moving.rec"), None).unwrap();
     assert_eq!(r.server.world.frame_at(r.server.clients[0].phys.pos), 1, "the player ends in Luna's frame");
+}
+
+/// A baked world of generation 4 saved by the build before Mars (`tests/fixtures/v22-gen4.sav`: seed 3, Terra
+/// 256 and Luna 64, one block dug) loads as its two bodies, to the bit, and is written again with two; a new world
+/// of generation 5 has Mars as its third body and its save round-trips with three.
+#[test]
+fn a_generation_4_save_keeps_two_bodies_and_a_generation_5_world_has_mars() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let save = Save::read(&dir.join("v22-gen4.sav")).unwrap();
+    assert_eq!((save.version, save.gen, save.bodies.len()), (22, 4, 2));
+    let s = Server::from_save(save, channel().1);
+    assert_eq!((s.world.bodies.len(), s.world.hash()), (2, 0xf920c8a94873c097), "as the build before made it");
+    assert_eq!(s.snapshot().bodies.len(), 2);
+    let s = Server::baked_warp(256, 64, 3, 0.0, engine::world::GENERATION, channel().1);
+    assert_eq!(s.world.bodies.iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["Terra", "Luna", "Mars"]);
+    let save = s.snapshot();
+    assert_eq!((save.gen, save.bodies.len()), (5, 3));
+    let back = Server::from_save(Save::from_bytes(&save.to_bytes()).unwrap(), channel().1);
+    assert_eq!((back.world.bodies.len(), back.world.hash(), back.snapshot().bodies), (3, s.world.hash(), save.bodies));
 }

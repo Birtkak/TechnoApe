@@ -618,8 +618,8 @@ pub fn parse(text: &str) -> Result<Rows, String> {
         }
         plants.push(Plant { name: p.name, shape: p.shape, trunk, leaves, height: p.height, radius: p.radius, fork, limbs, bare, depth, thick: p.thick, warm: p.warm });
     }
-    // Terra's biomes, then Luna's kinds of ground (`bake::luna`, ADR 0070)
-    let names: Vec<&str> = life::BIOMES.iter().map(|b| b.0).chain(crate::bake::luna::KINDS).collect();
+    // Terra's biomes, then Luna's kinds of ground (`bake::luna`, ADR 0070), then Mars's (`bake::mars`)
+    let names: Vec<&str> = life::BIOMES.iter().map(|b| b.0).chain(crate::bake::luna::KINDS).chain(crate::bake::mars::KINDS).collect();
     if f.biome.len() != names.len() {
         return Err(format!("{} biomes, the bakes make {}", f.biome.len(), names.len()));
     }
@@ -677,10 +677,25 @@ mod tests {
     #[test]
     fn the_data_file_has_every_biome_of_the_bake() {
         let r = &*ROWS;
-        assert_eq!(r.biomes.len(), 15 + crate::bake::luna::KINDS.len(), "Terra's 15, then Luna's kinds");
+        use crate::bake::mars;
+        assert_eq!(r.biomes.len(), 15 + crate::bake::luna::KINDS.len() + mars::KINDS.len(), "Terra's 15, then Luna's kinds, then Mars's");
         for (k, name) in crate::bake::luna::KINDS.iter().enumerate() {
             assert_eq!(&r.biomes[crate::bake::luna::HIGHLAND as usize + k].name, name);
         }
+        // Mars's (planet-model.md step 5b): red dust over every kind but the ice, no plants, clutter or patches;
+        // under it regolith and basalt on the plains and shields, breccia in the old highlands, clay and gypsum in
+        // the old lake beds, water ice at the caps, a thin frost on the cold crater floors
+        for (k, name) in mars::KINDS.iter().enumerate() {
+            let row = &r.biomes[mars::HIGHLAND as usize + k];
+            assert_eq!(&row.name, name);
+            assert!(row.plants.is_empty() && row.clutter.is_empty() && row.patches.is_empty() && row.snow_over.is_none(), "{name}: nothing of Terra's life");
+        }
+        let g = |k: u8, n: [&str; 3]| assert_eq!(r.biomes[k as usize].ground, n.map(|n| BLOCKS.id(n)), "{}", mars::KINDS[(k - mars::HIGHLAND) as usize]);
+        g(mars::HIGHLAND, ["red dust", "mars regolith", "breccia"]);
+        g(mars::PLAIN, ["red dust", "mars regolith", "basalt"]);
+        g(mars::SEDIMENT, ["red dust", "clay", "gypsum"]);
+        g(mars::CAP, ["ice", "dusty ice", "basalt"]);
+        g(mars::FROST, ["frost", "mars regolith", "breccia"]);
         // Luna's ice (the developer, ADR 0070): under 1 m of dust where the sun never reaches
         let shadow = &r.biomes[crate::bake::luna::SHADOW as usize].ground;
         assert_eq!(shadow[..2], [BLOCKS.id("regolith"), BLOCKS.id("ice")]);

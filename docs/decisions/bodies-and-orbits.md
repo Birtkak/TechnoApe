@@ -91,6 +91,55 @@ eclipses and the moon's look, and the magnetic field. What holds today. Numbers 
   tides and moonlight count only the home's first moon; the globe overlay and the waypoint colours know Terra and
   Luna by name; a world made before keeps its bodies, so a new body needs a generation number. [0163]
 
+### Mars is a body in the world [draft, 2026-11-19]
+A new universe (world generation 5) has three bodies: Terra, Luna and Mars round the sun; worlds made before keep
+two, bit for bit. Mars's row moved from `data/drafts/bodies-mars.toml` (deleted) to the end of `data/bodies.toml`.
+- **The `since` rule:** a row may state `since = k` (default 0), the first generation it is in; `bodies::parse`
+  refuses a home with `since > 0` and a row older than the one above, so a generation's bodies are always the first
+  rows (`bodies::of(gen)`). Mars has `since = 5`; `world::GENERATION` is 5 (`known_generation` takes 5, refuses 6).
+  Every place that turns rows into bodies takes the world's generation: `World::with_grid` (and so `baked`,
+  `report=1`, sys), `Server::on_map` (a save's body count against its generation's rows, not all rows: a two-body
+  version-22 save of generation 4 loads, `tests/fixtures/v22-gen4.sav`), the client's and bot's welcome
+  (`known_bodies(n, gen)` after `known_generation`: another count is "update the game"), the soak's bots; saves and
+  `Ev::Start` already carry the list (0163). The title menu's "Making the universe" bakes every row and shows Mars's
+  stages ("the planet's craters", ...) in its bar.
+- **Its map in a world:** `with_grid` bakes any body after the home's moon by its row's bake when the home is on a map;
+  `Body::with_luna` takes a Mars map as `with_map` with no sea and **no caves** (its marked tubes wait for its rock).
+  `bake::find` finds a kept Mars map by hash (`mars::find`, by its row's file name), and a map fetched from a server
+  is kept under that name (`mars::keep_any`; shortcut: the one planet's row); the server's map hashes in the
+  welcome include Mars's. `Map::crust()` (Luna's or Mars's: no sea); the height clamp is `AMP` on a Mars map (its
+  352 m summit); river and lake water only on Terra maps of version 4 to 7 (`Map::holds_water`: Mars's beds are cut
+  but dry). `Body::rock_body` is Mars's own row on its map.
+- **Ground per kind** (`data/biomes.toml`, rows 22..=32 after Luna's; top, band to 4 m, rock below): cratered
+  highland red dust / mars regolith / breccia; dust plain red dust / mars regolith / basalt; lava plain red dust /
+  basalt / basalt; basalt shield red dust / mars regolith / basalt; canyon floor mars regolith / gypsum / basalt;
+  chaos mars regolith / breccia / basalt; outflow channel mars regolith / mars regolith / basalt; sediment basin red
+  dust / clay / gypsum; delta red dust / clay / sandstone; polar ice ice / dusty ice / basalt; frost frost / mars
+  regolith / breccia. No plants, clutter, patches or snow on any.
+- **New blocks** (end of `data/blocks.toml`, colours and patterns from the rows, no paintings): 222 red dust (the
+  iron-oxide dust: iron and pigment), 223 mars regolith (broken basalt and dust: sintered bricks), 224 breccia
+  (rubble 197; the impact-welded old crust: building stone), 225 gypsum (rubble 198; the dried lakes' sulfate:
+  plaster, water when heated), 226 dusty ice (the caps' layered ice: water when melted and filtered), 227 frost
+  (carbon dioxide frost: carbon dioxide). No recipes. Rubble 199 is the last of 160..199. (Ids past 255 are allowed
+  since 0170.)
+- **From its row:** its interior (gravity 8.40 m/s^2 against Terra's 19.62, 0.43; field 0.0000: no aurora), no air,
+  no sea; its pose is 0163's sun ring at 1.5 AU (year 1.84 of Terra's). **Still Terra's or none:** it does not spin
+  (0163's identity rotation: its day is its year, the sun crosses its sky once in 1.84 Terra years); weather,
+  clouds, aurora, seasons, tides, plants and herds are the home's (body 0's frame) and none reach it; the sun's
+  light is one strength everywhere (its disc is drawn smaller from Mars by distance alone); the globe overlay (M)
+  keeps Terra and Luna only (its seen masks are two in its file and GPU buffer); `MOON_AT * 2` places its grid.
+- **Left** (each its own run): rock provinces under its ground stack (`rocks.toml` rows with `body = "Mars"`, so
+  the band's 4 m is not the whole column's change: the caps are 4 m of ice over basalt); ore (iron oxides,
+  sulfates, clays, ice) by those provinces; caves and lava tubes from its 11 marked tubes (`caves.toml`'s round
+  tubes in its shield basalt); thin air (about 0.01 atm), its butterscotch sky and dust; real orbits and travel
+  time; Luna's row stopgaps (`weight_g`, Terra's densities); a minimum size for a far body seen as a point (from
+  Terra Mars is far under a pixel, and Terra from Mars).
+- **Locks:** Mars's map seed 1 n 832 552a1c34492c457f, n 3328 8703842819e918b5 (as `bakemap=` made them before);
+  Mars's generated blocks at generation 5 (`mars_generates_as_locked`) 6f2d07a8c4eeff47; `made_hash` unchanged
+  for every generation, Luna's c6a367341bda1227 / cdd810732c670a46 and her blocks b0f00158257f21d2 at 4 and 5.
+- **Costs** (play build, seed 1, 4 km planet; `docs/perf-debt.md`): Mars's bake 3.1 s once; the world with its map
+  kept 1.7 s against 1.5 s with two bodies; standing on Mars RAM 1.8-2.1 GB, VRAM 1.08 GB; on Terra VRAM 1.34 GB.
+
 ## The sky's clock
 
 - **World time** is `tick / 20 Hz` seconds since the world was made; the sky is kinematic, circular orbits on rails,

@@ -141,15 +141,17 @@ inside a sphere of influence. The model is shaped now so real orbits need no sec
    size; Luna has ilmenite beds in the mare basalt, merrillite pockets in the KREEP and meteoritic iron-nickel
    under her iron craters; her lava tubes from generation 4 are `caves.toml`'s round tubes in her mare basalt;
    the ore ledger counts every body's bodies. Left: her row's stopgaps (`weight_g`, Terra's densities).
-5. **The Mars-like planet**, the first body made only from a row. **5a built (0167-mars-bake): its baked map**, not
-   yet a body in any world. Its row is a draft (`data/drafts/bodies-mars.toml`: size 1.85, 3328 columns; the new key
-   `age`); a list starting with `crust` on a body that circles the sun is a planet's crust (`bake/mars.rs`), a moon's
+5. **The Mars-like planet**, the first body made only from a row. **5a built (0167-mars-bake): its baked map.** Its
+   row (now in `data/bodies.toml`: size 1.85, 3328 columns; the new key `age`); a list starting with `crust` on a body that circles the sun is a planet's crust (`bake/mars.rs`), a moon's
    stays Luna's. Stages: the dichotomy; Luna's craters kept where the ground is older than them, two giant basins;
    a bulge with three shields and a giant, calderas, lava plains, tubes marked on the flanks, the canyon along the
    dichotomy; chaos and outflow channels, Terra's drainage to the plains' old shore for dry valleys, lake beds and
    deltas; layered caps and frost. Kept as `seed-<s>-planet-<n>-<name>-<hash of list and age>-v201.map`, baked in
-   about 3 s; `technoape-server bakemap=` draws it. Next (5b): the body in the world at generation 5 (saves, wire,
-   sky pose), its rock provinces, ground and biomes rows, its air and sky, ore and tubes.
+   about 3 s; `technoape-server bakemap=` draws it. **5b built (bodies-and-orbits.md, "Mars is a body in the
+   world"):** Mars is the third body from world generation 5 (a row's `since`; older worlds keep two), in saves,
+   the welcome, recordings, bots and `report=1`; its eleven kinds have their ground (red dust, regolith, breccia,
+   basalt, clay, gypsum, ice; six new blocks), its pull from its interior (0.43 of Terra's, no field), its pose on
+   the sun ring. Next: its rock provinces, ore, caves and tubes from its marks; its thin air and sky; a spin.
 6. Later: the gas kind and its moons; icy bodies; other stars.
 
 ## Open

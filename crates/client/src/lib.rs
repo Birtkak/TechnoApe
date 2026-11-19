@@ -467,7 +467,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
     }
     let (my_id, mut world, seed) = match first {
         Ok(ToClient::Welcome { id, seed, bodies, blocks, items, gen }) => {
-            engine::bodies::known_bodies(bodies.len()).unwrap_or_else(|e| panic!("{e}"));
+            let gen = engine::world::known_generation(gen).unwrap_or_else(|e| panic!("{e}"));
+            engine::bodies::known_bodies(bodies.len(), gen).unwrap_or_else(|e| panic!("{e}"));
             assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
             assert_eq!(items, engine::items::ITEMS.hash, "the server's build has other items (data/items.toml)");
             // the baked maps (ADR 0043): the local server's in memory, else from the disk or the server
@@ -484,8 +485,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
                 return Some((menu::join_args(&args.0), window));
             }
             let list = bodies.iter().zip(kept).map(|(&(n, h), k)| (n, h.map(|h| k.map_or_else(|| engine::net::fetch_map(&mut link, seed, n, h), Ok).unwrap_or_else(|e| panic!("{e}"))))).collect();
-            let gen = engine::world::known_generation(gen).unwrap_or_else(|e| panic!("{e}"));
-            (id, World::of(&BODIES, list, seed, warp, gen), seed)
+            (id, World::of(engine::bodies::of(gen), list, seed, warp, gen), seed)
         }
         other => panic!("no welcome from the server: {other:?}"),
     };

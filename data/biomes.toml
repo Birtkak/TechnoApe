@@ -315,3 +315,83 @@ name = "polar shadow"
 top = "regolith"
 band = "ice"
 rock = "anorthosite"
+
+# Mars's kinds of ground (planet-model.md step 5; crates/engine/src/bake/mars.rs, HIGHLAND .. FROST): after Luna's,
+# never reordered. Red dust over nearly everything; the band is 3 m (the top block, then to 4 m), the rock below
+# it the whole crust until Mars has rock provinces. Real-world logic, taste defaults.
+# the old southern crust: regolith over breccia, the crust the impacts broke and welded again
+[[biome]]
+name = "cratered highland"
+top = "red dust"
+band = "mars regolith"
+rock = "breccia"
+
+# the northern lowlands: dust and regolith over the basalt that floored them
+[[biome]]
+name = "dust plain"
+top = "red dust"
+band = "mars regolith"
+rock = "basalt"
+
+# young lava: a thin dust straight on the basalt
+[[biome]]
+name = "lava plain"
+top = "red dust"
+band = "basalt"
+rock = "basalt"
+
+# the shields' flanks: dust and broken basalt over basalt
+[[biome]]
+name = "basalt shield"
+top = "red dust"
+band = "mars regolith"
+rock = "basalt"
+
+# the canyon's floor: its layered sulfates under the debris, the walls' basalt below
+[[biome]]
+name = "canyon floor"
+top = "mars regolith"
+band = "gypsum"
+rock = "basalt"
+
+# the ground that collapsed when the water under it burst out: broken crust
+[[biome]]
+name = "chaos"
+top = "mars regolith"
+band = "breccia"
+rock = "basalt"
+
+# the floods' channel floors, scoured to the broken basalt
+[[biome]]
+name = "outflow channel"
+top = "mars regolith"
+band = "mars regolith"
+rock = "basalt"
+
+# old lake beds: clay over the gypsum the lakes left as they dried
+[[biome]]
+name = "sediment basin"
+top = "red dust"
+band = "clay"
+rock = "gypsum"
+
+# the fans where valleys met the lakes: clay over layered sandstone
+[[biome]]
+name = "delta"
+top = "red dust"
+band = "clay"
+rock = "sandstone"
+
+# the caps: water ice on top, layered with dust under it, on the basalt
+[[biome]]
+name = "polar ice"
+top = "ice"
+band = "dusty ice"
+rock = "basalt"
+
+# the cold crater floors: a thin frost on the regolith and the old crust
+[[biome]]
+name = "frost"
+top = "frost"
+band = "mars regolith"
+rock = "breccia"

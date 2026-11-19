@@ -182,10 +182,23 @@ pub fn run(stages: &[Stage], seed: i32, n: i32, age: f64) -> (Map, Stats) {
     use Stage::*;
     super::check(stages, false).unwrap_or_else(|e| panic!("a bake of {stages:?}: {e}"));
     assert_eq!(stages[0], Crust, "a planet's crust");
+    // the title menu's bar ("Making the universe"): each stage as it starts
+    let say = |k: usize| {
+        let what = match stages[k] {
+            Impacts => "the planet's craters",
+            Volcanism => "the planet's volcanoes",
+            Erosion => "the planet's dry valleys",
+            Ice => "the planet's ice",
+            _ => "the planet's crust",
+        };
+        super::report(what, k as f32 / stages.len() as f32);
+    };
+    say(0);
     let mut lap = Instant::now();
     let mut w = crust(seed, n);
     w.stats.stages.push(("crust", lap.elapsed().as_secs_f64()));
-    for &st in &stages[1..] {
+    for (k, &st) in stages.iter().enumerate().skip(1) {
+        say(k);
         lap = Instant::now();
         let name = match st {
             Impacts => (impacts(&mut w, stages.contains(&Volcanism), age), "impacts").1,
@@ -757,6 +770,32 @@ pub fn keep(stages: &[Stage], seed: i32, n: i32, p: &Planet, map: Map) -> Arc<Ma
     remember(path, map)
 }
 
+/// The kept planet's map (memory or its file, never baked here) of (seed, n) with this hash, of any row that
+/// bakes a planet's crust: what `bake::find` gives a client before it asks the server for a map.
+pub fn find(seed: i32, n: i32, hash: u64) -> Option<Arc<Map>> {
+    planets().find_map(|(s, p)| {
+        let path = file(s, seed, n, p);
+        let kept = KEPT.lock().unwrap().get(&path).and_then(Weak::upgrade);
+        match kept {
+            Some(m) => Some(m),
+            None => Some(remember(path.clone(), std::fs::read(&path).ok().and_then(|b| Map::from_bytes(&b).ok()).filter(|m| m.version == VERSION && m.seed == seed && m.n == n)?)),
+        }
+        .filter(|m| m.hash == hash)
+    })
+}
+
+/// Keeps a planet's map that came from a server (`bake::keep`) under its row's name.
+/// shortcut: the first row that bakes a planet's crust (there is one, Mars); a second needs the map to name its row.
+pub fn keep_any(map: Map) -> Arc<Map> {
+    let (s, p) = planets().next().expect("a planet's map, so a row that bakes one");
+    keep(s, map.seed, map.n, p, map)
+}
+
+/// The rows' stage lists and rows that bake a planet's crust.
+fn planets() -> impl Iterator<Item = (&'static [Stage], &'static Planet)> {
+    crate::bodies::BODIES.iter().filter_map(|r| r.bake.as_ref().and_then(|b| Some((&b.0[..], b.2.as_ref()?))))
+}
+
 fn remember(path: PathBuf, map: Map) -> Arc<Map> {
     let m = Arc::new(map);
     KEPT.lock().unwrap().insert(path, Arc::downgrade(&m));
@@ -937,5 +976,125 @@ mod tests {
         let ((b1, g1, s1), (b2, g2, s2)) = (bulges[0], bulges[1]);
         assert!(angle(b1, b2) > 0.2, "the bulge moves with the seed");
         assert!((angle(g1, s1) - angle(g2, s2)).abs() > 0.05, "the giant is not placed by the landing point");
+    }
+
+    /// Mars's map bytes as `bakemap=` made them before Mars was a body (seed 1 at n 832 and its full 3328).
+    #[test]
+    fn the_map_is_as_it_was_baked() {
+        for (n, want) in [(832, 0x552a1c34492c457fu64), (3328, 0x8703842819e918b5)] {
+            let m = &shared(1, n).0;
+            assert_eq!(m.hash, want, "n {n}: {:016x}", m.hash);
+        }
+    }
+
+    /// A world of generation 5 with Mars on its map at n 832 (Terra on the noise land, Luna small).
+    fn world() -> crate::world::World {
+        let rows = crate::bodies::of(5);
+        let list = vec![(1536, None), (32, None), (832, Some(Arc::new(Map::from_bytes(&shared(1, 832).0.to_bytes()).unwrap())))];
+        crate::world::World::of(rows, list, 1, 0.0, 5)
+    }
+
+    /// Every one of Mars's kinds has its own ground from `data/biomes.toml` (planet-model.md step 5b): its top,
+    /// the band under it and its rock below, generated so in its columns; no Terra or Luna biome, no water, plant,
+    /// cave or ore on it.
+    #[test]
+    fn each_kind_of_mars_generates_its_ground_and_nothing_of_terra_or_luna() {
+        use crate::biomes::ROWS;
+        use crate::world::Block;
+        let w = world();
+        let b = &w.bodies[2];
+        assert_eq!((b.name.as_str(), b.map().map(|m| m.version), b.sea, b.caves.len(), b.ores.len()), ("Mars", Some(VERSION), None, 0, 0));
+        let (mut seen, mut tops) = ([0usize; 11], [false; 11]);
+        let n = 832;
+        for c in (0..6 * n * n).step_by(53) {
+            let (f, i, j) = ((c / (n * n)) as u8, (c % n) as i32, ((c / n) % n) as i32);
+            let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
+            let kind = b.biome_at(f as usize, ci, cj, b.dir(f as usize, ci, cj)).unwrap();
+            assert!((HIGHLAND..=FROST).contains(&kind), "column {c}: kind {kind}");
+            seen[(kind - HIGHLAND) as usize] += 1;
+            assert!(b.water_at(f, i, j).is_none() && b.col_plants(f, i, j).is_empty(), "column {c}: water or a plant");
+            let ground = ROWS.biomes[kind as usize].ground;
+            let top = w.column_height(Block { body: 2, face: f, pos: glam::IVec3::new(i, j, 0) });
+            // every layer from 12 m down to over the ground is its kind's stack (`world::material` of the depth of
+            // the layer's middle; on a small body's thicker layers the top block's metre can fall between two)
+            let z0 = b.layer_of(top).floor() as i32;
+            for z in b.layer_of(top - 12.0).floor() as i32..=z0 + 1 {
+                let want = crate::world::material(top - b.layer_r(z as f64 + 0.5), &ground);
+                assert_eq!(w.generated_block(Block { body: 2, face: f, pos: glam::IVec3::new(i, j, z) }), want, "column {c} ({}), layer {z} of {z0}", KINDS[(kind - HIGHLAND) as usize]);
+                tops[(kind - HIGHLAND) as usize] |= want == ground[0];
+            }
+        }
+        assert!(seen.iter().all(|&k| k > 0), "every kind seen: {seen:?}");
+        assert!(tops.iter().all(|&t| t), "every kind's top block generated somewhere: {tops:?}");
+    }
+
+    /// Mars pulls with its own interior: not Terra's nor Luna's, and with no field to speak of (no aurora).
+    #[test]
+    fn mars_pulls_as_its_own_and_has_no_field() {
+        let w = world();
+        let (t, l, m) = (w.surface_g(0), w.surface_g(1), w.surface_g(2));
+        assert!(m < t && m > 0.2 * t && m != l, "Terra {t}, Luna {l}, Mars {m}");
+        let p = w.bodies[2].centre + DVec3::Y * (w.bodies[2].radius + 1.0);
+        assert!((w.gravity(p).length() / m - 1.0).abs() < 0.01, "{} against {m}", w.gravity(p).length());
+        assert!(w.field(2) < 0.02, "field {}", w.field(2));
+        println!("Mars: g {m:.3} m/s2 (Terra {t:.3}, Luna {l:.3}), field {:.4}", w.field(2));
+    }
+
+    /// Places to stand on seed 1's full-size Mars, for pictures (`run=stand body=2 at=`): `cargo test -p engine --lib
+    /// mars_places -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn mars_places() {
+        let st = shared(1, 3328);
+        let (m, s) = (&st.0, &st.1);
+        let g = Grid::new(m.m as usize, m.radius());
+        let p = |w: &str, d: DVec3| println!("PLACE {w} at={:.5},{:.5},{:.5}", d.x, d.y, d.z);
+        let giant = s.shields.iter().find(|v| v.giant).unwrap();
+        p("giant", giant.c);
+        // halfway down the giant's flank, toward the bulge
+        let side = (s.bulge - giant.c * giant.c.dot(s.bulge)).normalize();
+        let a = 0.5 * giant.radius / m.radius();
+        p("flank", (giant.c * a.cos() + side * a.sin()).normalize());
+        let mid = s.canyon[s.canyon.len() / 2];
+        p("canyon", mid);
+        // the rim: the first highland or lava cell going out from the axis
+        let along = (s.canyon[s.canyon.len() / 2 + 1] - mid).normalize();
+        let across = mid.cross(along).normalize();
+        for k in 1..400 {
+            let d = (mid + across * (k as f64 * 2.0 / m.radius())).normalize();
+            if m.biome[g.locate(d) as usize] != CANYON {
+                p("rim", (mid + across * ((k + 6) as f64 * 2.0 / m.radius())).normalize());
+                println!("PLACE rim_look {:.5},{:.5},{:.5}", -across.x, -across.y, -across.z);
+                break;
+            }
+        }
+        p("north cap", DVec3::new(0.05, 0.0, 1.0).normalize());
+        for (w, kind) in [("plain", PLAIN), ("sediment", SEDIMENT), ("delta", DELTA), ("lava", LAVA)] {
+            let c = (0..g.n() as u32).filter(|&c| m.biome[c as usize] == kind && g.d(c).z.abs() < 0.5).nth(2000).or_else(|| (0..g.n() as u32).find(|&c| m.biome[c as usize] == kind));
+            if let Some(c) = c {
+                p(w, g.d(c));
+            }
+        }
+        if let Some(c) = s.craters.iter().filter(|c| c.2 && (80.0..160.0).contains(&c.1) && m.biome[g.locate(c.0) as usize] == HIGHLAND).nth(5) {
+            p(&format!("crater d {:.0}", c.1), c.0);
+        }
+    }
+
+    /// Mars's generated blocks at generation 5, locked (as `luna_blocks_hash` locks Luna's).
+    #[test]
+    fn mars_generates_as_locked() {
+        use crate::world::Block;
+        let w = world();
+        let b = &w.bodies[2];
+        let n = 832;
+        let mut h = crate::world::FNV0;
+        for c in (0..6 * n * n).step_by(997) {
+            let (f, i, j) = ((c / (n * n)) as u8, (c % n) as i32, ((c / n) % n) as i32);
+            let top = w.column_height(Block { body: 2, face: f, pos: glam::IVec3::new(i, j, 0) });
+            for z in b.layer_of(top - 70.0).floor() as i32..=b.layer_of(top + 1.0).ceil() as i32 {
+                h = crate::world::fnv(h, &w.generated_block(Block { body: 2, face: f, pos: glam::IVec3::new(i, j, z) }).to_le_bytes());
+            }
+        }
+        assert_eq!(format!("{h:016x}"), "6f2d07a8c4eeff47");
     }
 }
