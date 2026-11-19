@@ -395,18 +395,22 @@ impl Save {
         if let Some(d) = path.parent() {
             std::fs::create_dir_all(d)?;
         }
-        let tmp = path.with_extension("tmp");
-        // on the disk before the rename, so a crash leaves the old save or the new one, never half of one
-        let mut f = std::fs::File::create(&tmp)?;
-        std::io::Write::write_all(&mut f, &self.to_bytes())?;
-        f.sync_all()?;
-        drop(f);
-        std::fs::rename(&tmp, path)
+        synced(&self.to_bytes(), &path.with_extension("tmp"), path)
     }
 
     pub fn read(path: &Path) -> Result<Save, String> {
         Save::from_bytes(&std::fs::read(path).map_err(|e| e.to_string())?)
     }
+}
+
+/// Writes `bytes` to `tmp`, syncs it, then renames it to `to`: on the disk before the rename, so a crash leaves
+/// the old file or the new one, never half of one.
+pub(crate) fn synced(bytes: &[u8], tmp: &Path, to: &Path) -> std::io::Result<()> {
+    let mut f = std::fs::File::create(tmp)?;
+    std::io::Write::write_all(&mut f, bytes)?;
+    f.sync_all()?;
+    drop(f);
+    std::fs::rename(tmp, to)
 }
 
 #[cfg(test)]
