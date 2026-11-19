@@ -273,8 +273,8 @@ pub fn breaks(was: u16, now: u16) -> bool {
 }
 
 impl Predictor {
-    /// The last `seq` handed out: a message that is not an edit (a bucket) sends it, so its `Done` confirms
-    /// only what was sent before it.
+    /// The last `seq` handed out (an edit's or `fresh`'s). Only for a sender that ignores its `Done` (the soak's
+    /// bots): one that waits on its own `Done` takes `fresh`, or another message's answer clears it.
     pub fn seq(&self) -> u32 {
         self.next
     }

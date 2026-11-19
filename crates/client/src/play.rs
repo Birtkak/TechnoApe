@@ -267,7 +267,8 @@ impl App {
             "r" if self.drinking => self.drinking = false,
             "L" | "R" if self.bucket => {
                 if let Some((_, before)) = self.aim {
-                    self.link.send(ToServer::Bucket { seq: self.pred.seq(), at: before, fill: a == "L" });
+                    // its own seq, as every message its own `Done` answers (a shared one is cleared by another's)
+                    self.link.send(ToServer::Bucket { seq: self.pred.fresh(), at: before, fill: a == "L" });
                 }
             }
             // knapping by doing (ADR 0110): the place button with a knapping stone in hand on hard rock strikes it
@@ -1046,7 +1047,8 @@ impl App {
     /// Takes the pick-up in air cell `at` (ADR 0082): one call, the server answers; until it refuses, or the
     /// thing is gone, the cell is not aimed at again, so one click sends one take.
     pub(crate) fn take(&mut self, at: Block) {
-        let seq = self.pred.seq();
+        // its own seq: a refused item move's `Done` of a shared one would clear `taking`
+        let seq = self.pred.fresh();
         self.link.send(ToServer::Take { seq, at });
         self.taking = Some((at, seq));
         self.swung(self.start.elapsed().as_secs_f64());
