@@ -91,7 +91,7 @@ eclipses and the moon's look, and the magnetic field. What holds today. Numbers 
   tides and moonlight count only the home's first moon; the globe overlay and the waypoint colours know Terra and
   Luna by name; a world made before keeps its bodies, so a new body needs a generation number. [0163]
 
-### Mars is a body in the world [draft, 2026-11-19]
+### Mars is a body in the world [0173, 2026-11-19]
 A new universe (world generation 5) has three bodies: Terra, Luna and Mars round the sun; worlds made before keep
 two, bit for bit. Mars's row moved from `data/drafts/bodies-mars.toml` (deleted) to the end of `data/bodies.toml`.
 - **The `since` rule:** a row may state `since = k` (default 0), the first generation it is in; `bodies::parse`

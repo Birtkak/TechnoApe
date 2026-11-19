@@ -181,3 +181,4 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0170 | Block ids past 255 | [multiplayer-saves-and-data.md](multiplayer-saves-and-data.md) - Block ids past 255 | in force |
 | 0171 | Tuning by numbers: `tune=` | [studio-and-art.md](studio-and-art.md) - Program, libraries and headless runs | in force |
 | 0172 | The swing's numbers in a data file | [items-and-crafting.md](items-and-crafting.md) - The swing's numbers in a data file | in force |
+| 0173 | Mars is a body in the world | [bodies-and-orbits.md](bodies-and-orbits.md) - Mars is a body in the world | in force |
