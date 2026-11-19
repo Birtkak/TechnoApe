@@ -214,7 +214,7 @@ impl App {
     }
     pub fn write_drafts(&mut self, text: String) {
         if art::drafts(&text) != self.drafts {
-            match std::fs::write(DRAFTS, &text) {
+            match crate::import::put_file(DRAFTS, Some(text.as_bytes())) {
                 Ok(()) => self.watch.note(std::path::Path::new(DRAFTS)),
                 Err(e) => self.refuse(format!("Drafts list not saved to {DRAFTS}: {e}")),
             }
@@ -224,7 +224,7 @@ impl App {
     /// Writes the palette; it leaves the drafts list only when a colour itself was changed (a new order, name,
     /// added or removed colour keeps Claude's colours a draft).
     pub fn save_palette(&mut self, colour_changed: bool) {
-        match std::fs::write(PAL, self.pal.write()) {
+        match crate::import::put_file(PAL, Some(self.pal.write().as_bytes())) {
             Ok(()) => {
                 self.watch.note(std::path::Path::new(PAL));
                 if colour_changed {

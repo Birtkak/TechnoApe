@@ -267,6 +267,21 @@ map files it writes, and the painted looks of blocks, plants and figures. Number
   use shows beside the game [0049].
 - Palette changes show in a model view only once the model is next written [0049].
 
+### The view runs a small planet [0169, 2026-11-19]
+The developer: the Studio takes too long to load the game's renderer. Measured: the view (`technoape run=view`, a
+child process; the window is never frozen) ran the 4 km planet to show one thing at the spawn: two 20 MB bakes and
+the world (2.4 s), then 20,376 chunks to the horizon before its first frame (7.8 s), and a 46.6 s bake when none was
+kept. The Studio now starts it with `planet=768 seed=1` (`Viewport::start`): first frame 11.0 s to 2.75 s warm,
+about 60 s to 5.0 s cold. Seed 1 because seed 1337's small planet spawns inside a forest.
+- The view's clutter models are copied from the game's `data/models` (15 errors a start before, none after).
+- Structures keep unsaved work in `studio-recovery/` as Textures, Models, Sounds and Maps do.
+- `data/palette.toml` and `data/drafts.txt` are written temp-then-rename (`import::put_file`); the game reloads the
+  palette live.
+- Open: the background is now a small planet's meadow (the developer's taste; two arguments to revert). Effects,
+  Fauna and Plants still lose unsaved work on a crash. A dead renderer leaves the view on its 2D preview until the
+  Studio restarts. `Viewport::delays` grows a value a frame. In the game: frames wait for every chunk to the
+  horizon (`frame.rs`), and the view's setup runs on the low-priority workers. Full list: the session's report.
+
 ## The Models page
 
 - **Tools** (0135 replaces the voxel tools of 0065): Paint (default), Picker, Pivot, Point. Paint works on the model in the

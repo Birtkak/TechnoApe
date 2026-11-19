@@ -871,6 +871,29 @@ impl Page for Structures {
         self.docs.iter().filter(|(_, d)| d.dirty()).map(|(n, _)| format!("{DIR}/{n}.toml")).collect()
     }
 
+    fn kept(&self) -> Option<Vec<(String, Vec<u8>)>> {
+        Some(self.docs.iter().filter(|(_, d)| d.dirty()).map(|(n, d)| (format!("{n}.toml"), d.s.write().into_bytes())).collect())
+    }
+    fn unsaved_of(&self, files: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>)> {
+        files.into_iter().filter(|(f, b)| self.docs.get(f.trim_end_matches(".toml")).and_then(|d| d.saved.as_deref()) != Some(String::from_utf8_lossy(b).as_ref())).collect()
+    }
+    fn restore(&mut self, app: &mut App, files: Vec<(String, Vec<u8>)>) -> Vec<(String, Vec<u8>, String)> {
+        let mut refused = vec![];
+        for (f, b) in files {
+            let name = f.trim_end_matches(".toml").to_string();
+            match String::from_utf8(b.clone()).map_err(|e| e.to_string()).and_then(|t| Structure::parse(&format!("{DIR}/{f}"), &t, &app.reg)) {
+                Err(e) => refused.push((f, b, e)),
+                Ok(s) => match self.docs.get_mut(&name) {
+                    Some(d) => d.hist.push(std::mem::replace(&mut d.s, s), "Recovered"),
+                    None => {
+                        self.docs.insert(name, SDoc { s, hist: History::default(), saved: None });
+                    }
+                },
+            }
+        }
+        refused
+    }
+
     fn save_all(&mut self, app: &mut App) {
         let keep = self.open.clone();
         for n in self.docs.iter().filter(|(_, d)| d.dirty()).map(|(n, _)| n.clone()).collect::<Vec<_>>() {

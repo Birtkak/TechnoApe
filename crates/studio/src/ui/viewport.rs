@@ -222,9 +222,18 @@ impl Viewport {
             return;
         };
         let _ = std::fs::create_dir_all(format!("{DIR}/models"));
+        // the game reads its clutter (pebbles, twigs, fallen leaves) from `models=` too: the game's own models
+        // beside the page's, or the view's grass has none
+        for e in std::fs::read_dir("data/models").into_iter().flatten().flatten() {
+            let _ = std::fs::copy(e.path(), std::path::Path::new(DIR).join("models").join(e.file_name()));
+        }
         let _ = std::fs::write(format!("{DIR}/settings.txt"), format!("width={w}\nheight={h}\n"));
         let mut cmd = Command::new(&exe);
-        cmd.args(["run=view", &format!("settings={DIR}/settings.txt"), "save=0", "record=0", "sound=0", "fx=1", &format!("models={DIR}/models")])
+        // the small planet (768 columns, ADR 0021): its bake is seconds, not the 4 km planet's minute, and its world
+        // and stream a fraction (first frame 2.7 s against 11 s, and up under a busy CPU where the 4 km one was not
+        // in 150 s); the view only needs the ground around the spawn. Seed 1: its spawn is open meadow (1337's
+        // small planet stands in a forest). shortcut: a new bake may move the spawn; look at a shot after one
+        cmd.args(["run=view", "planet=768", "seed=1", &format!("settings={DIR}/settings.txt"), "save=0", "record=0", "sound=0", "fx=1", &format!("models={DIR}/models")])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

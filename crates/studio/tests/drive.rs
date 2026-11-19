@@ -644,6 +644,26 @@ fn textures_kept_after_a_crash_are_offered_back() {
 }
 
 #[test]
+fn structures_kept_after_a_crash_are_offered_back() {
+    // a structure built by hand and not saved when the Studio aborted (panic = "abort") comes back like a texture
+    let dir = scratch("recover-structures");
+    let (file, kept) = (dir.join("data/structures/boulder.toml"), dir.join("studio-recovery/structures"));
+    let text = std::fs::read_to_string(&file).unwrap().replace("\r\n", "\n");
+    let edited = text.replacen("\n....\n.ss.", "\ns...\n.ss.", 1);
+    assert_ne!(edited, text, "the test's edit applies");
+    std::fs::create_dir_all(&kept).unwrap();
+    std::fs::write(kept.join("boulder.toml"), &edited).unwrap();
+    let line = studio(&dir, &["page=Structures", "recover=1", "input=wait", "rects=1"]);
+    assert!(line.contains("btn:recover.restore"), "offered: {line}");
+    let line = studio(&dir, &["page=Structures", "recover=1", "input=click @btn:recover.restore"]);
+    assert!(line.contains("Restored as unsaved work: boulder.toml") && line.contains("data/structures/boulder.toml"), "{line}");
+    // what is the file as saved is not offered
+    std::fs::write(kept.join("boulder.toml"), &text).unwrap();
+    let line = studio(&dir, &["page=Structures", "recover=1", "input=wait", "rects=1"]);
+    assert!(!line.contains("btn:recover.restore"), "{line}");
+}
+
+#[test]
 fn a_pending_set_goes_with_a_switch_of_face() {
     // review of ADR 0064: a set pending for one face must not stay open (and be used) on another
     let dir = scratch("pending-switch");

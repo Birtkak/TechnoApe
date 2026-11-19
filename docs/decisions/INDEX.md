@@ -177,3 +177,4 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0166 | Luna's ore and caves by her rock | [rock-minerals-and-ore.md](rock-minerals-and-ore.md) - Luna's rock and ore | in force |
 | 0167 | The Mars-like planet's baked map (planet-model step 5a) | [bake-and-landforms.md](bake-and-landforms.md) - The Mars-like planet's baked map | in force |
 | 0168 | A link's limits and its ping | [multiplayer-saves-and-data.md](multiplayer-saves-and-data.md) - A link's limits and its ping | in force |
+| 0169 | The view runs a small planet | [studio-and-art.md](studio-and-art.md) - The view runs a small planet | in force |
