@@ -31,9 +31,78 @@ pub fn report(w: &World) -> String {
     let deep: Vec<String> = [("spawn", None), ("hottest", Some(hot)), ("coldest", Some(cold))].iter().filter_map(|&(name, prov)| deep_column(b, f as u8, i as i32, j as i32, prov).map(|c| format!("\"{name}\": {c}"))).collect();
     // the caves and the crust's ore bodies alone: the hash of the same world before the mantle's minerals
     let crust: Vec<engine::ore::OreBody> = b.ores.iter().copied().filter(|o| !engine::ore::MINERALS.kinds[o.kind as usize].deep()).collect();
-    format!(
+    let out = format!(
         "{{\"seed\": {}, \"planet\": {}, \"gen\": {}, \"spawn\": [{:.5}, {:.5}, {:.5}], \"made_hash\": \"{:016x}\", \"made_hash_crust\": \"{:016x}\", \"provinces\": {{{}}}, \"flows\": {{{}}}, \"limestone\": {}, \"caves\": {{\"balls\": {}, \"in_limestone\": {}, \"in_basalt\": {}, \"depth_m\": [{:.1}, {:.1}], \"open_to_the_sky\": {}, \"kinds\": {{{}}}}}, \"heat_c_under_the_spawn\": [{:.1}, {:.1}], \"pressure_mpa_under_the_spawn\": [{:.3}, {:.3}], \"deep\": {{{}}}, \"interior\": {{{}}}, \"minerals\": {{{}}}}}",
-        map.seed, map.n, b.gen, b.spawn.x, b.spawn.y, b.spawn.z, made_hash(&b.caves, &b.ores), made_hash(&b.caves, &crust), provinces.join(", "), flows(b).join(", "), limestone(b), b.caves.len(), in_lime, b.caves.len() - in_lime, dmin, dmax, open, kinds(b).join(", "), heat(ground), heat(0.0), pressure(ground), pressure(0.0), deep.join(", "), interior(w).join(", "), minerals(w).join(", ")
+        map.seed, map.n, b.gen, b.spawn.x, b.spawn.y, b.spawn.z, made_hash(&b.caves, &b.ores), made_hash(&b.caves, &crust), provinces.join(", "), flows(b).join(", "), limestone(b), b.caves.len(), in_lime, b.caves.len() - in_lime, dmin, dmax, open, kinds(b).join(", "), heat(ground), heat(0.0), pressure(ground), pressure(0.0), deep.join(", "), interior(w).join(", "), minerals(b).join(", ")
+    );
+    // the home's first moon after it (draft-luna-ore-and-caves): her rock field's ore and caves, from generation 4
+    let moon = &w.bodies[w.moon];
+    let Some(lmap) = moon.map() else { return format!("{}}}", &out[..out.len() - 1]) };
+    let mut share = [0f64; NAMES.len()];
+    let mut cols = 0.0;
+    for f in 0..6u8 {
+        for i in (4..moon.n).step_by(8) {
+            for j in (4..moon.n).step_by(8) {
+                share[moon.col_rock(f, i, j).province as usize % NAMES.len()] += 1.0;
+                cols += 1.0;
+            }
+        }
+    }
+    let provinces: Vec<String> = NAMES.iter().zip(share).skip(engine::bake::rock::OCEAN as usize + 1).map(|(n, s)| format!("\"{n}\": {:.3}", s / cols)).collect();
+    format!(
+        "{}, \"{}\": {{\"n\": {}, \"made_hash\": \"{:016x}\", \"provinces\": {{{}}}, \"baked_tubes\": {}, \"caves\": {{\"balls\": {}, \"kinds\": {{{}}}}}, \"minerals\": {{{}}}}}}}",
+        &out[..out.len() - 1],
+        moon.name.to_lowercase(),
+        lmap.n,
+        made_hash(&moon.caves, &moon.ores),
+        provinces.join(", "),
+        baked_tubes(moon),
+        moon.caves.len(),
+        kinds(moon).join(", "),
+        minerals(moon).join(", ")
+    )
+}
+
+/// The lava tubes baked into a Luna map (ADR 0070), whether this world cuts them or not: chains of balls,
+/// how many, their lengths along the chain (median, longest) and their pits.
+fn baked_tubes(b: &engine::world::Body) -> String {
+    let Some(map) = b.map() else { return "null".into() };
+    let (m, k) = (map.m as usize, b.n as f64 / map.m as f64);
+    let at = |c: u32| {
+        let c = c as usize;
+        let (f, i, j) = (c / (m * m), c % m, (c / m) % m);
+        b.dir(f, (i as f64 + 0.5) * k, (j as f64 + 0.5) * k) * b.radius
+    };
+    // a chain breaks where the next ball is farther than three of its radii (the next tube)
+    let (mut lengths, mut len, mut pits) = (Vec::new(), 0.0, 0);
+    for (n, t) in map.tubes.iter().enumerate() {
+        pits += (t.1 < t.2) as usize;
+        let step = map.tubes.get(n + 1).map(|u| (at(u.0) - at(t.0)).length());
+        match step {
+            Some(d) if d < 3.0 * t.2 as f64 => len += d,
+            _ => {
+                lengths.push(len);
+                len = 0.0;
+            }
+        }
+    }
+    lengths.sort_by(f64::total_cmp);
+    // the first pit, and a roofed ball four on from it with its depth under the ground (`run=stand at= depth=`)
+    let pit = map.tubes.iter().position(|t| t.1 < t.2).unwrap_or(0);
+    let on = map.tubes.get(pit + 4).filter(|t| t.1 > t.2).map_or("null".to_string(), |t| {
+        let d = at(t.0).normalize();
+        format!("\"at={:.6},{:.6},{:.6} depth={:.1}\"", d.x, d.y, d.z, t.1 + t.2 - 1.0)
+    });
+    let p = map.tubes.get(pit).map_or(glam::DVec3::ZERO, |t| at(t.0).normalize());
+    format!(
+        "{{\"tubes\": {}, \"balls\": {}, \"median_m\": {:.0}, \"longest_m\": {:.0}, \"pits\": {pits}, \"pit_at\": [{:.6}, {:.6}, {:.6}], \"inside\": {on}}}",
+        lengths.len(),
+        map.tubes.len(),
+        lengths.get(lengths.len() / 2).copied().unwrap_or(0.0),
+        lengths.last().copied().unwrap_or(0.0),
+        p.x,
+        p.y,
+        p.z
     )
 }
 
@@ -58,14 +127,15 @@ fn interior(w: &World) -> Vec<String> {
 fn kinds(b: &engine::world::Body) -> Vec<String> {
     use engine::caves::{cells, systems, CAVES};
     let t = std::time::Instant::now();
-    let sys = b.baked_seed().filter(|_| b.mantle > 0).map_or(Vec::new(), |s| systems(b, s));
+    // (the home's kinds come with its mantle, another body's without one: `caves::make`)
+    let sys = b.baked_seed().filter(|_| b.mantle > 0 || b.rock_body() != 0).map_or(Vec::new(), |s| systems(b, s));
     // what making them costs a planet's load (`make` does the same once)
     let made = format!("\"made_s\": {:.3}", t.elapsed().as_secs_f64());
     std::iter::once(made).chain(CAVES
         .kinds
         .iter()
         .enumerate()
-        .filter(|(_, kind)| (kind.generations[0]..=kind.generations[1]).contains(&b.gen))
+        .filter(|(_, kind)| (kind.generations[0]..=kind.generations[1]).contains(&b.gen) && kind.body == b.rock_body())
         .map(|(k, kind)| {
             let of: Vec<&engine::caves::System> = sys.iter().filter(|s| s.kind as usize == k).collect();
             let open: std::collections::HashSet<(u8, i32, i32, i32)> = of.iter().flat_map(|s| s.balls.iter().flat_map(|c| cells(b, c).into_iter().map(move |(i, j, z)| (c.face, i, j, z)))).collect();
@@ -131,7 +201,7 @@ fn kinds(b: &engine::world::Body) -> Vec<String> {
                 format!("{{\"length_m\": {:.0}, \"depth_m\": [{lo:.1}, {hi:.1}], \"halls\": {}, \"sinkholes\": {}}}", length_of(s), s.halls.len(), s.openings.len())
             });
             let near = if karst { format!("{near}, \"halls\": {}, \"largest\": {largest}", of.iter().map(|s| s.halls.len()).sum::<usize>()) } else { near };
-            format!("\"{}\": {{\"caves\": {}, \"open_cells\": {}, \"length_m\": {length:.0}, \"median_m\": {median:.0}, \"openings\": {}, \"nearest_opening\": {near}}}", kind.name, of.len(), open.len(), of.iter().map(|s| s.openings.len()).sum::<usize>())
+            format!("\"{}\": {{\"caves\": {}, \"open_cells\": {}, \"length_m\": {length:.0}, \"median_m\": {median:.0}, \"longest_m\": {:.0}, \"openings\": {}, \"nearest_opening\": {near}}}", kind.name, of.len(), open.len(), lengths.last().copied().unwrap_or(0.0), of.iter().map(|s| s.openings.len()).sum::<usize>())
         }))
         .collect()
 }
@@ -205,10 +275,10 @@ const BUDGET: [(&str, u32); 9] = [("copper", 330_000), ("tin", 18_000), ("iron",
 
 /// Every element's bodies as generated: blocks and ingots in the ground, the budget's blocks (scaled by area),
 /// how many bodies, the nearest one's distance from the spawn over the ground and the depth range of their
-/// middles, metres; then each kind's.
-fn minerals(w: &World) -> Vec<String> {
+/// middles, metres; then each kind's. The budget is the home's; another body lists the elements its kinds give.
+fn minerals(b: &engine::world::Body) -> Vec<String> {
     use engine::ore::MINERALS;
-    let b = &w.bodies[0];
+    let me = b.rock_body();
     let held = engine::ore::count(b);
     let scale = (b.n as f64 / 6144.0).powi(2);
     let away = |o: &engine::ore::OreBody| b.radius * b.dir(o.face as usize, o.at.x, o.at.y).angle_between(b.spawn);
@@ -223,10 +293,16 @@ fn minerals(w: &World) -> Vec<String> {
         let budget = budget.map_or(String::new(), |n| format!(", \"budget_blocks\": {:.0}", n as f64 * scale));
         format!("\"{name}\": {{\"bodies\": {}, \"blocks\": {blocks}, \"ingots\": {ingots}{budget}, \"nearest_m\": {:.0}, \"nearest_at\": [{:.6}, {:.6}, {:.6}], \"depth_m\": [{:.1}, {:.1}]}}", ks.len(), if ks.is_empty() { -1.0 } else { near }, at.x, at.y, at.z, lo, hi)
     };
-    let mut out: Vec<String> = BUDGET.iter().map(|&(e, n)| line(e, &|o| MINERALS.kinds[o.kind as usize].gives == e, Some(n))).collect();
+    let mut out: Vec<String> = if me == 0 {
+        BUDGET.iter().map(|&(e, n)| line(e, &|o| MINERALS.kinds[o.kind as usize].gives == e, Some(n))).collect()
+    } else {
+        let mut gives: Vec<&str> = MINERALS.kinds.iter().filter(|k| k.body == me && !k.gives.is_empty()).map(|k| k.gives.as_str()).collect();
+        gives.dedup();
+        gives.iter().map(|&e| line(e, &|o| MINERALS.kinds[o.kind as usize].gives == e, None)).collect()
+    };
     // the altered rock round each kind's bodies (ADR 0095), blocks per grade outermost first: no metal
     let halo = engine::ore::count_halo(b);
-    for (k, kind) in MINERALS.kinds.iter().enumerate() {
+    for (k, kind) in MINERALS.kinds.iter().enumerate().filter(|(_, k)| k.body == me) {
         let l = line(&format!("kind {}", kind.name), &|o| o.kind as usize == k, None);
         // the samples lying over its bodies (ADR 0138)
         let l = if kind.sample.is_some() { format!("{}, \"samples\": {}}}", &l[..l.len() - 1], samples(b, k)) } else { l };

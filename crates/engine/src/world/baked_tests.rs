@@ -1258,6 +1258,18 @@ fn a_small_planet_without_the_mantle_keeps_its_old_caves_at_generation_3() {
     assert!(!c2.is_empty() && c2 == c3, "{} caves at generation 2, {} at 3", c2.len(), c3.len());
 }
 
+/// Luna's kinds of mineral and cave (draft-luna-ore-and-caves) never form on Terra: the 1536 planet of generation
+/// 4 has only the home's, and the same bodies and caves as at generation 3.
+#[test]
+fn terra_has_none_of_lunas_minerals_or_caves() {
+    let [w3, w4] = [3, 4].map(|g| World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, g));
+    let b = &w4.bodies[0];
+    assert!(crate::ore::MINERALS.kinds.iter().any(|k| k.body != 0) && crate::caves::CAVES.kinds.iter().any(|k| k.body != 0), "Luna's rows are there");
+    assert!(!b.ores.is_empty() && b.ores.iter().all(|o| crate::ore::MINERALS.kinds[o.kind as usize].body == 0));
+    assert!(b.caves.iter().all(|c| c.kind == Cave::BALL || crate::caves::CAVES.kinds[c.kind as usize].body == 0));
+    assert!(b.ores == w3.bodies[0].ores && b.caves == w3.bodies[0].caves, "Terra the same at generation 3 and 4");
+}
+
 /// Karst (0161-karst-caves) is made from generation 3 only, and only in a province with limestone in its
 /// layers; from generation 3 ADR 0063's old limestone worm is not made, below it it is.
 #[test]
@@ -1480,7 +1492,7 @@ fn a_cave_kind_opens_only_its_host_rock_in_its_provinces() {
     Arc::get_mut(&mut w0.bodies).unwrap()[0].set_caves(old);
     let b = &w.bodies[0];
     let kinds = &crate::caves::CAVES.kinds;
-    for (k, kind) in kinds.iter().enumerate().filter(|k| (k.1.generations[0]..=k.1.generations[1]).contains(&b.gen)) {
+    for (k, kind) in kinds.iter().enumerate().filter(|k| (k.1.generations[0]..=k.1.generations[1]).contains(&b.gen) && k.1.body == 0) {
         let n = sys.iter().filter(|s| s.kind as usize == k).count();
         assert!(n >= 3, "{}: {n} made on the 1536 planet", kind.name);
     }

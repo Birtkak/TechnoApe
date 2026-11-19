@@ -135,7 +135,12 @@ inside a sphere of influence. The model is shaped now so real orbits need no sec
    or rivers on a crust, is the Mars step's). Both maps come out to the bit (the cached files stay valid).
    Generation 4 gives Luna a rock field read from her map's kinds (no new bytes): anorthosite highlands, mare
    basalt over anorthosite in the maria, KREEP over anorthosite round the largest mare; `rocks.toml` rows gained
-   `body`. Left for the second half: ore and caves by rock on Luna, and her row's stopgaps.
+   `body`. **Built (draft-luna-ore-and-caves):** ore and caves by rock on Luna through the same tables and code
+   as Terra's: a mineral or cave kind forms on the body its provinces are of, the spawn's keep-out and rings are
+   the home's, a body without a sea has no shore and no water table, counts are on the kind's body's standard
+   size; Luna has ilmenite beds in the mare basalt, merrillite pockets in the KREEP and meteoritic iron-nickel
+   under her iron craters; her lava tubes from generation 4 are `caves.toml`'s round tubes in her mare basalt;
+   the ore ledger counts every body's bodies. Left: her row's stopgaps (`weight_g`, Terra's densities).
 5. **The Mars-like planet**, the first body made only from a row.
 6. Later: the gas kind and its moons; icy bodies; other stars.
 

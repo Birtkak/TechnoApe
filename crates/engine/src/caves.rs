@@ -102,6 +102,9 @@ pub struct Kind {
     pub hall_height: [f64; 2],
     pub sinkhole: [f64; 2],
     pub shaft: [f64; 2],
+    /// The row of `data/bodies.toml` its provinces are of (`rock::Province::body`): it is made on that body
+    /// only, and kept off the spawn only on the home's (row 0).
+    pub body: usize,
 }
 
 pub struct Kinds {
@@ -128,7 +131,10 @@ impl Kinds {
             if hosts.is_empty() || provinces.is_empty() {
                 return Err(format!("kind '{name}': at least one host and one province"));
             }
-            let range = |what: &str, v: [f64; 2], lo: f64, hi: f64| if lo <= v[0] && v[0] <= v[1] && v[1] <= hi { Ok(()) } else { Err(format!("kind '{name}': {what} {v:?}: least <= most, within {lo}..{hi}")) };
+            let body = ROCKS.provinces[provinces[0] as usize].body;
+            if provinces.iter().any(|&p| ROCKS.provinces[p as usize].body != body) {
+                return Err(format!("kind '{name}': its provinces are one body's"));
+            }            let range = |what: &str, v: [f64; 2], lo: f64, hi: f64| if lo <= v[0] && v[0] <= v[1] && v[1] <= hi { Ok(()) } else { Err(format!("kind '{name}': {what} {v:?}: least <= most, within {lo}..{hi}")) };
             range("depth", k.depth, 0.0, crate::world::DEEP)?;
             range("width", k.width, 0.5, 20.0)?;
             range("height", k.height, 1.0, k.depth[1] - k.depth[0])?;
@@ -181,7 +187,7 @@ impl Kinds {
             if generations[0] < 1 || generations[0] > generations[1] {
                 return Err(format!("kind '{name}': generations {generations:?}: least 1 or more, least <= most"));
             }
-            kinds.push(Kind { name: k.name, shape: k.shape, hosts, provinces, depth: k.depth, spacing: k.spacing, chance: k.chance, width: k.width, height: k.height, length: k.length, generations, skylight, trench, branch, slope, open, hall, hall_height, sinkhole, shaft });
+            kinds.push(Kind { name: k.name, shape: k.shape, hosts, provinces, depth: k.depth, spacing: k.spacing, chance: k.chance, width: k.width, height: k.height, length: k.length, generations, skylight, trench, branch, slope, open, hall, hall_height, sinkhole, shaft, body });
         }
         // a kind's starts are seeded with 4 bits of its index (`systems_of`)
         if kinds.len() > 16 {
@@ -214,19 +220,19 @@ pub fn systems(b: &Body, seed: u64) -> Vec<System> {
 
 /// `systems` of these kinds.
 pub fn systems_of(b: &Body, seed: u64, kinds: &[Kind]) -> Vec<System> {
-    let Some(map) = b.map() else { return Vec::new() };
-    if map.rock.is_empty() {
+    if !b.rock_field() {
         return Vec::new();
     }
     let mut out = Vec::new();
     for (k, kind) in kinds.iter().enumerate() {
-        // (a kind's index seeds it: a row made in other generations keeps its place in the file)
-        if !(kind.generations[0]..=kind.generations[1]).contains(&b.gen) {
+        // (a kind's index seeds it: a row made in other generations keeps its place in the file); each kind on
+        // its own body, and a karst, cut down to the water table, only where there is water (a sea)
+        if !(kind.generations[0]..=kind.generations[1]).contains(&b.gen) || kind.body != b.rock_body() || kind.shape == Shape::Karst && b.sea.is_none() {
             continue;
         }
         let s = kind.spacing;
         for face in 0..6u8 {
-            let mut probe = Probe { b, face, cols: HashMap::new(), axes: HashMap::new(), widest: 0.0, tables: HashMap::new(), next: 0, kept: None };
+            let mut probe = Probe { b, face, home: kind.body == 0, cols: HashMap::new(), axes: HashMap::new(), widest: 0.0, tables: HashMap::new(), next: 0, kept: None };
             for cy in 0..b.n / s {
                 for cx in 0..b.n / s {
                     let mut rng = Rng(seed ^ 0xca5e_4b1d ^ (k as u64) << 60 ^ (face as u64) << 52 ^ (cx as u64) << 26 ^ cy as u64);
@@ -263,6 +269,8 @@ pub fn systems_of(b: &Body, seed: u64, kinds: &[Kind]) -> Vec<System> {
 struct Probe<'a> {
     b: &'a Body,
     face: u8,
+    /// The kind is the home's: it keeps off the spawn (on another body nothing is placed for a spawn).
+    home: bool,
     cols: HashMap<(i32, i32), (Rock, f64, bool)>,
     /// The round tubes made on the face so far (generation 2): their axes' points (i, j, radius, the system's
     /// index in the output) by `AXES` x `AXES` columns, which a later tube keeps off (`crowds`).
@@ -304,7 +312,7 @@ impl Probe<'_> {
     fn off(&self, i: f64, j: f64, r: f64) -> bool {
         let (n, m) = (self.b.n as f64, SEAM + r + 4.0);
         let (sf, si, sj) = self.b.locate(self.b.spawn);
-        i < m || j < m || i > n - m || j > n - m || (self.face as usize == sf && (i - si).hypot(j - sj) < SPAWN_KINDS + r)
+        i < m || j < m || i > n - m || j > n - m || (self.home && self.face as usize == sf && (i - si).hypot(j - sj) < SPAWN_KINDS + r)
     }
     /// Water stands over the ground of column (i, j): the sea, a lake or a river would flood an opening there.
     fn wet(&mut self, i: f64, j: f64) -> bool {
@@ -344,6 +352,11 @@ impl Probe<'_> {
     }
 }
 
+/// The radius a cave keeps `DRY` over: the sea's datum, or minus infinity on a body without a sea (no shore).
+fn shore(b: &Body) -> f64 {
+    if b.sea.is_some() { b.radius - SEA_DEPTH } else { f64::NEG_INFINITY }
+}
+
 fn lerp(rng: &mut Rng, v: [f64; 2]) -> f64 {
     v[0] + rng.f() * (v[1] - v[0])
 }
@@ -359,7 +372,7 @@ fn wrap(a: f64) -> f64 {
 /// rock on the floor (the roof that fell), and its branches.
 #[allow(clippy::too_many_arguments)]
 fn tube(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, mut i: f64, mut j: f64, mut a: f64, mut floor: Option<f64>, branches: u32, out: &mut Vec<System>) {
-    let (b, face, sea) = (p.b, p.face, p.b.radius - SEA_DEPTH);
+    let (b, face, sea) = (p.b, p.face, shore(p.b));
     let (w, hgt) = (lerp(rng, kind.width), lerp(rng, kind.height));
     let roof = kind.depth[0] + rng.f() * (kind.depth[1] - kind.depth[0] - hgt).clamp(0.0, 2.0);
     let len = lerp(rng, kind.length) as usize;
@@ -489,7 +502,7 @@ impl Probe<'_> {
 /// radius, so it opens a 3 x 3 of columns at the least.
 #[allow(clippy::too_many_arguments)]
 fn round_tube(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, mut i: f64, mut j: f64, fork: Option<(usize, f64, f64, f64)>, branches: u32, out: &mut Vec<System>) {
-    let (b, face, sea) = (p.b, p.face, p.b.radius - SEA_DEPTH);
+    let (b, face, sea) = (p.b, p.face, shore(p.b));
     let w0 = lerp(rng, kind.width);
     let roof = kind.depth[0] + rng.f() * (kind.depth[1] - kind.depth[0] - kind.height[1]).clamp(0.0, 1.5);
     let len = lerp(rng, kind.length) as usize;
@@ -623,7 +636,7 @@ fn round_tube(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, mut i: f64, mut 
 /// there), so a fissure is in pieces where soft rock meets it; it ends where the border is lost, near the sea, a
 /// seam or the spawn.
 fn fissure(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, mut i: f64, mut j: f64, out: &mut Vec<System>) {
-    let (b, face, sea) = (p.b, p.face, p.b.radius - SEA_DEPTH);
+    let (b, face, sea) = (p.b, p.face, shore(p.b));
     let map = b.map().unwrap();
     let s = map.m as f64 / b.n as f64;
     let province = |i: f64, j: f64| {
@@ -723,7 +736,7 @@ fn karst(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, i: f64, j: f64, out: 
 /// halls and its branches after it); `fork` a branch's parent passage, heading, floor and side.
 #[allow(clippy::too_many_arguments)]
 fn passage(p: &mut Probe, kind: &Kind, k: u8, rng: &mut Rng, mut i: f64, mut j: f64, fork: Option<(usize, f64, f64, f64)>, len: usize, branches: u32, w: f64, hgt: f64, sys: &mut System) -> bool {
-    let (b, face, sea) = (p.b, p.face, p.b.radius - SEA_DEPTH);
+    let (b, face, sea) = (p.b, p.face, shore(p.b));
     let id = p.next;
     p.next += 1;
     // a round arch over a flat floor: the ball's lower quarter of the height cut flat
@@ -935,7 +948,7 @@ mod tests {
     #[test]
     fn two_widest_round_tubes_converging_keep_the_full_wall() {
         let b = Body::new(DVec3::ZERO, 256, 1);
-        let mut p = Probe { b: &b, face: 0, cols: HashMap::new(), axes: HashMap::new(), widest: 0.0, tables: HashMap::new(), next: 0, kept: None };
+        let mut p = Probe { b: &b, face: 0, home: true, cols: HashMap::new(), axes: HashMap::new(), widest: 0.0, tables: HashMap::new(), next: 0, kept: None };
         let r = CAVES.kinds.iter().filter(|k| k.shape == Shape::Tube && k.generations[0] >= 2).map(|k| k.width[1]).fold(0.0, f64::max) / 2.0;
         assert!(r >= 3.5, "the widest round tube {r} m in radius");
         // tube 0 just under j = 0 (the bottom of a grid cell, the far side from tube 1); tube 1 comes in at 30
@@ -957,7 +970,13 @@ mod tests {
     #[test]
     fn the_caves_file_loads_and_a_broken_one_is_refused_and_says_why() {
         let k = &CAVES.kinds;
-        assert_eq!(k.iter().map(|k| (k.name.as_str(), k.shape, k.generations)).collect::<Vec<_>>(), [("lava tube", Shape::Tube, [1, 1]), ("fissure", Shape::Fissure, [1, 255]), ("lava tube", Shape::Tube, [2, 255]), ("karst", Shape::Karst, [3, 255])]);
+        assert_eq!(k.iter().map(|k| (k.name.as_str(), k.shape, k.generations)).collect::<Vec<_>>(), [("lava tube", Shape::Tube, [1, 1]), ("fissure", Shape::Fissure, [1, 255]), ("lava tube", Shape::Tube, [2, 255]), ("karst", Shape::Karst, [3, 255]), ("lunar lava tube", Shape::Tube, [4, 255])]);
+        // Luna's (draft-luna-ore-and-caves): her mare basalt, her body's; every other kind the home's
+        let luna = crate::bodies::moon(&crate::bodies::BODIES).unwrap();
+        assert_eq!((k[4].hosts.clone(), k[4].provinces.clone(), k[4].body), (vec![crate::blocks::BLOCKS.id("mare basalt")], vec![crate::bake::rock::LUNA_MARE], luna));
+        assert!(k[..4].iter().all(|k| k.body == 0));
+        let mixed = include_str!("../../../data/caves.toml").replace("provinces = [\"mare\"]", "provinces = [\"mare\", \"rift\"]");
+        assert!(Kinds::parse(&mixed).err().unwrap().contains("one body's"));
         assert_eq!((k[3].hosts.clone(), k[3].provinces.clone()), (vec![crate::blocks::BLOCKS.id("limestone")], vec![crate::bake::rock::NAMES.iter().position(|n| *n == "basin").unwrap() as u8]));
         for t in [&k[0], &k[2]] {
             assert_eq!(t.hosts, [crate::blocks::BLOCKS.id("basalt")]);
@@ -990,26 +1009,27 @@ mod tests {
         // (the fissure's row, up to the comment over the next)
         let fissure = &good[good.find("[[kind]]\nname = \"fissure\"").unwrap()..];
         let fissure = &fissure[..fissure.find("\n#").unwrap() + 1];
-        let many = good.clone() + &fissure.repeat(13);
+        let many = good.clone() + &fissure.repeat(17 - CAVES.kinds.len());
         let e = Kinds::parse(&many).err().expect("17 kinds load");
         assert!(e.contains("at most 16"), "{e}");
-        assert!(Kinds::parse(&(good.clone() + &fissure.repeat(12))).is_ok(), "16 kinds are refused");
+        assert!(Kinds::parse(&(good.clone() + &fissure.repeat(16 - CAVES.kinds.len()))).is_ok(), "16 kinds are refused");
     }
 }
 
 /// Every cave of a baked planet, in a fixed order.
 pub fn make(b: &Body, seed: u64) -> Vec<Cave> {
-    let Some(map) = b.map() else { return Vec::new() };
-    if map.rock.is_empty() {
+    if !b.rock_field() {
         return Vec::new();
     }
     let mut out = Vec::new();
     let (sf, si, sj) = b.locate(b.spawn);
     let n = b.n;
+    let home = b.rock_body() == 0;
     // from generation 3 a planet with the mantle has the karst of data/caves.toml in the limestone instead
     // (0161-karst-caves); the tubes here are only a planet's without the mantle, so such a planet makes none here
-    // (one without the mantle, a small one, has no kind of data/caves.toml and keeps both worms)
-    for face in (0..6).filter(|_| b.gen < 3 || b.mantle == 0) {
+    // (one without the mantle, a small one, has no kind of data/caves.toml and keeps both worms). These worms are
+    // the home's provinces' (`rocks.toml` `caves`); another body has only the kinds of data/caves.toml.
+    for face in (0..6).filter(|_| home && (b.gen < 3 || b.mantle == 0)) {
         for cy in 0..n / SPACING {
             for cx in 0..n / SPACING {
                 let mut rng = Rng(seed ^ 0xca5e ^ (face as u64) << 52 ^ (cx as u64) << 26 ^ cy as u64);
@@ -1036,8 +1056,9 @@ pub fn make(b: &Body, seed: u64) -> Vec<Cave> {
         }
     }
     // (generation 1 came in on the mantle flag, and these gates stay on it: the same worlds. A rule new since asks
-    // `b.gen`, ADR 0160-generation-number-and-arc-basalt; the kinds of a generation are chosen in `systems_of`)
-    if b.mantle > 0 {
+    // `b.gen`, ADR 0160-generation-number-and-arc-basalt; the kinds of a generation are chosen in `systems_of`). The
+    // home's kinds come with its mantle; another body's (Luna's rock field is generation 4's) need none.
+    if b.mantle > 0 || !home {
         out.extend(systems(b, seed).into_iter().flat_map(|s| s.balls));
     }
     out
@@ -1050,8 +1071,12 @@ enum Worm {
 }
 
 /// The water table under face point (i, j), metres over the sea: the ground's height over the sea, smoothed
-/// over 40 m and subdued to six tenths of it, and at least 3 m under the ground there.
+/// over 40 m and subdued to six tenths of it, and at least 3 m under the ground there. A body without a sea has
+/// none: minus infinity (dry all the way down).
 pub fn water_table(b: &Body, face: usize, i: f64, j: f64) -> f64 {
+    if b.sea.is_none() {
+        return f64::NEG_INFINITY;
+    }
     let over = |i: f64, j: f64| b.ground_r(face, i, j) - (b.radius - SEA_DEPTH);
     let smooth = [(0.0, 0.0), (40.0, 0.0), (-40.0, 0.0), (0.0, 40.0), (0.0, -40.0)].iter().map(|(a, c)| over(i + a, j + c)).sum::<f64>() / 5.0;
     (0.6 * smooth.max(0.0)).min(over(i, j) - 3.0)

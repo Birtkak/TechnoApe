@@ -750,7 +750,8 @@ mod tests {
             let caves = b.col_caves(f, i, j);
             for depth in [6.0, 20.0, 45.0, 70.0] {
                 let z = b.layer_of(top - depth).floor() as i32;
-                if caves.iter().any(|&(lo, hi)| (lo..hi).contains(&z)) {
+                // (or an ore body of hers takes it, draft-luna-ore-and-caves)
+                if caves.iter().any(|&(lo, hi)| (lo..hi).contains(&z)) || b.ore_at(f, i, j, z, top).is_some() {
                     continue;
                 }
                 let got = w.generated_block(Block { body: 1, face: f, pos: glam::IVec3::new(i, j, z) });
@@ -777,7 +778,180 @@ mod tests {
         let h = format!("{:016x}", luna_blocks_hash(4));
         assert_ne!(h, "a22a376de6be21ba", "generation 4's ground is not 3's");
         // and a lock on it, as generation 3's above
-        assert_eq!(h, "ca3af00891b21215");
+        assert_eq!(h, "b0f00158257f21d2");
+    }
+
+    /// Generation 4's Luna on her rock field (draft-luna-ore-and-caves), the standard Luna: each of her kinds of
+    /// mineral has bodies, only in its provinces, host rock, biome and depth window, and none of Terra's is on her;
+    /// none of them, and none of her caves, is placed for where her spawn is; her caves are `data/caves.toml`'s
+    /// kinds cut in her rock under the dust band, with no water table; the ledger opens with her bodies after the
+    /// planet's and a dig on her books against her own.
+    #[test]
+    fn a_generation_4_luna_has_ore_and_caves_by_her_rock() {
+        use crate::ore::{count, MINERALS};
+        use crate::world::{Block, World};
+        let map = Arc::new(bake(1, 1664));
+        let mut w = World::with_grid(256, 1664, 1, None, Some(map.clone()), 0.0, 4);
+        let luna = crate::bodies::moon(&crate::bodies::BODIES).unwrap();
+        let b = &w.bodies[luna];
+        assert!(b.sea.is_none() && b.rock_field() && b.rock_body() == luna);
+        let held = count(b);
+        let mine: Vec<usize> = (0..MINERALS.kinds.len()).filter(|&k| MINERALS.kinds[k].body == luna).collect();
+        assert!(!mine.is_empty() && mine.len() <= 3, "at most three kinds of Luna's: {mine:?}");
+        for &k in &mine {
+            let kind = &MINERALS.kinds[k];
+            let of: Vec<usize> = (0..b.ores.len()).filter(|&o| b.ores[o].kind as usize == k).collect();
+            assert!(!of.is_empty(), "{}: no body", kind.name);
+            let blocks: u32 = of.iter().map(|&o| held[o].blocks).sum();
+            assert!(blocks > 0, "{}: no block", kind.name);
+            for &o in &of {
+                let d = &b.ores[o];
+                let (f, i, j) = (d.face as usize, d.at.x, d.at.y);
+                let dir = b.dir(f, i, j);
+                let rock = b.rock_at(f, i, j, dir);
+                assert!(kind.provinces.contains(&rock.province), "{}: in province {}", kind.name, rock.province);
+                let depth = b.ground_r(f, i, j) - b.layer_r(d.at.z);
+                assert!(depth >= kind.depth[0] - 0.5 && depth <= kind.depth[1] + 0.5, "{}: {depth:.1} m down", kind.name);
+                if let Some(h) = kind.host {
+                    assert_eq!(b.rock(rock, b.layer_r(d.at.z) as f32, 0), h, "{}: in its host", kind.name);
+                }
+                if !kind.biomes.is_empty() {
+                    assert!(kind.biomes.contains(&b.biome_at(f, i, j, dir).unwrap()), "{}: under its kind of ground", kind.name);
+                }
+            }
+            println!("{}: {} bodies, {blocks} blocks", kind.name, of.len());
+        }
+        assert!(b.ores.iter().all(|o| MINERALS.kinds[o.kind as usize].body == luna), "none of Terra's kinds on Luna");
+        // her caves: the kinds of data/caves.toml on her rock, under the dust band, no water anywhere
+        let sys = crate::caves::systems(b, b.baked_seed().unwrap());
+        assert!(!sys.is_empty(), "lava tubes in her maria");
+        let basalt = crate::blocks::BLOCKS.id("mare basalt");
+        for s in &sys {
+            assert_eq!(crate::caves::CAVES.kinds[s.kind as usize].body, luna);
+            // the passage's balls (the shafts of its skylights come after them)
+            for c in &s.balls[..s.axis.len()] {
+                for (i, j, z) in crate::caves::cells(b, c) {
+                    let (ground, r) = (b.col_height(c.face, i, j), b.layer_r(z as f64 + 0.5));
+                    assert!(ground - r >= 4.0, "a tube cell {:.1} m under the ground, in the band", ground - r);
+                    assert_eq!(b.rock(b.col_rock(c.face, i, j), r as f32, 0), basalt, "a tube cut in her basalt");
+                }
+            }
+            assert!(!s.openings.is_empty(), "a tube has a skylight");
+        }
+        // a skylight is open from the sky to the tube's floor
+        // (over the heap of the roof that fell, at most 0.45 of the tube's height on its floor)
+        let (mut skylights, mut open) = (0, 0);
+        for s in &sys {
+            for o in &s.openings {
+                let p = s.axis[(o.0 + o.1) / 2];
+                let (f, i, j) = (s.face, p.x.floor() as i32, p.y.floor() as i32);
+                let top = w.column_height(Block { body: luna as u8, face: f, pos: glam::IVec3::new(i, j, 0) });
+                let (lo, hi) = (b.layer_of(p.z + 3.5).floor() as i32, b.layer_of(top).floor() as i32);
+                skylights += 1;
+                open += (lo..hi).all(|z| w.generated_block(Block { body: luna as u8, face: f, pos: glam::IVec3::new(i, j, z) }) == crate::blocks::AIR) as usize;
+            }
+        }
+        assert!(open * 10 >= skylights * 9, "{open} of {skylights} skylights open from the sky into the tube");
+        assert_eq!(crate::caves::water_table(b, 2, 100.5, 100.5), f64::NEG_INFINITY, "no water table on Luna");
+        // nothing moves with her spawn
+        let (ores, caves) = (b.ores.clone(), b.caves.clone());
+        let seed = b.baked_seed().unwrap();
+        let spawn = &mut Arc::get_mut(&mut w.bodies).unwrap()[luna].spawn;
+        *spawn = -*spawn;
+        let b = &w.bodies[luna];
+        assert_eq!(crate::ore::place(b, seed), ores, "her ores with her spawn moved");
+        assert_eq!(crate::caves::make(b, seed), caves, "her caves with her spawn moved");
+        // the ledger: the planet's bodies (none on this unbaked planet), then hers; a dig on her books against her
+        w.open_ledger();
+        let open = w.ore_left.clone().unwrap();
+        let base = w.ore_base(luna);
+        assert_eq!(open.len(), base + w.bodies[luna].ores.len());
+        assert_eq!(open[base..].to_vec(), count(&w.bodies[luna]).iter().map(|h| h.blocks as i64).collect::<Vec<_>>());
+        let cell = crate::ore::cells(&w.bodies[luna], 0)[0];
+        let blk = Block { body: luna as u8, face: w.bodies[luna].ores[0].face, pos: cell };
+        assert_eq!(w.ore_cell(blk), Some(0));
+        w.set_block(blk, crate::blocks::AIR);
+        let left = w.ore_left.clone().unwrap();
+        assert_eq!(left[base], open[base] - 1, "the dig books against Luna's body");
+        assert_eq!(left.iter().sum::<i64>(), open.iter().sum::<i64>() - 1, "and nothing else");
+        assert_eq!(w.ore_recount(&open), left, "the recount from the edits agrees");
+        // generation 3: none of it, her baked tubes as before
+        let w3 = World::with_grid(256, 1664, 1, None, Some(map.clone()), 0.0, 3);
+        assert!(w3.bodies[luna].ores.is_empty() && w3.bodies[luna].caves.len() == map.tubes.len(), "generation 3's Luna as before");
+    }
+
+    /// What generation 4's ore and caves cost the standard Luna's load (seed 1), against generation 3's on the
+    /// same code; run by hand: `cargo test -p engine --release luna_load_cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn luna_load_cost() {
+        use crate::world::World;
+        let map = Arc::new(bake(1, 1664));
+        for gen in [3, 4, 3, 4] {
+            let t = std::time::Instant::now();
+            let mut w = World::with_grid(256, 1664, 1, None, Some(map.clone()), 0.0, gen);
+            let built = t.elapsed().as_secs_f64();
+            w.open_ledger();
+            eprintln!("LUNA_LOAD gen {gen}: world {built:.3} s, ledger {:.3} s more, {} caves, {} ore bodies", t.elapsed().as_secs_f64() - built, w.bodies[1].caves.len(), w.bodies[1].ores.len());
+        }
+    }
+
+    /// Stand lines inside the standard Luna's longest lava tube (seed 1, generation 4), feet a metre over its floor,
+    /// looking along it: `cargo test -p engine luna_tube_stands -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn luna_tube_stands() {
+        use crate::world::World;
+        let w = World::with_grid(256, 1664, 1, None, Some(Arc::new(bake(1, 1664))), 0.0, 4);
+        let b = &w.bodies[1];
+        let sys = crate::caves::systems(b, b.baked_seed().unwrap());
+        // a stand line beside the first body of each of her minerals, a gallery dug toward its middle, lamps in it
+        for k in (0..crate::ore::MINERALS.kinds.len()).filter(|&k| crate::ore::MINERALS.kinds[k].body == 1) {
+            let Some(o) = b.ores.iter().find(|o| o.kind as usize == k) else { continue };
+            let f = o.face as usize;
+            let (c, sn) = (o.angle.cos(), o.angle.sin());
+            let back = o.a + 3.0;
+            let (si, sj) = (o.at.x - c * back, o.at.y - sn * back);
+            let up = b.dir(f, si, sj);
+            let r = if up.y.abs() > 0.9 { DVec3::Z } else { DVec3::Y };
+            let ahead = (r - up * r.dot(up)).normalize();
+            let to = b.dir(f, o.at.x, o.at.y) - up;
+            let yaw = to.dot(up.cross(ahead)).atan2(to.dot(ahead)).to_degrees();
+            let feet = o.at.z.floor() - 1.0;
+            let depth = b.ground_r(f, si, sj) - b.layer_r(feet);
+            let mut place = Vec::new();
+            for step in 0..(back as i32 - 1) {
+                let (di, dj) = ((c * step as f64).round() as i32, (sn * step as f64).round() as i32);
+                for (wi, wj) in [(0, 0), (-sn.round() as i32, c.round() as i32), (sn.round() as i32, -c.round() as i32)] {
+                    for dz in 0..3 {
+                        place.push(format!("{}:{}:{dz}:{}", di + wi, dj + wj, if step % 4 == 2 && dz == 2 && (wi, wj) != (0, 0) { "lamp" } else { "air" }));
+                    }
+                }
+            }
+            let mut dug = std::collections::BTreeMap::new();
+            for p in &place {
+                let d: Vec<i32> = p.split(':').take(3).map(|v| v.parse().unwrap()).collect();
+                let at = glam::IVec3::new(si.floor() as i32 + d[0], sj.floor() as i32 + d[1], feet as i32 + d[2]);
+                *dug.entry(w.generated_block(crate::world::Block { body: 1, face: f as u8, pos: at })).or_insert(0) += 1;
+            }
+            println!("DUG {dug:?}");
+            println!("ORE {} at={:.6},{:.6},{:.6} depth={depth:.1} yaw={yaw:.0} pitch=-5 place={}", crate::ore::MINERALS.kinds[k].name, up.x, up.y, up.z, place.join(","));
+        }
+        let s = sys.iter().max_by_key(|s| s.axis.len()).unwrap();
+        for k in [s.axis.len() / 3, s.axis.len() / 2] {
+            let (q, at) = (s.axis[k], s.axis[k + 12]);
+            let f = s.face as usize;
+            let up = b.dir(f, q.x, q.y);
+            let r = if up.y.abs() > 0.9 { DVec3::Z } else { DVec3::Y };
+            let ahead = (r - up * r.dot(up)).normalize();
+            let to = b.dir(f, at.x, at.y) - up;
+            let yaw = to.dot(up.cross(ahead)).atan2(to.dot(ahead)).to_degrees();
+            let floor = s.balls[k].at.z - s.balls[k].floor;
+            let (ci, cj) = (q.x.floor() as i32, q.y.floor() as i32);
+            let col: Vec<u16> = (floor as i32 - 1..floor as i32 + 8).map(|z| w.generated_block(crate::world::Block { body: 1, face: s.face, pos: glam::IVec3::new(ci, cj, z) })).collect();
+            println!("COLUMN from layer {}: {col:?}, caves {:?}", floor as i32 - 1, b.col_caves(s.face, ci, cj));
+            println!("STAND at={:.6},{:.6},{:.6} depth={:.1} yaw={yaw:.0} pitch=0 (tube of {} m, point {k})", up.x, up.y, up.z, b.ground_r(f, q.x, q.y) - b.layer_r(floor + 1.0), s.axis.len());
+        }
     }
 
     /// The report of the standard Luna (1664 columns, seed 5): its bake time, crater counts by size, the kinds'

@@ -206,3 +206,45 @@ provinces = ["shield", "basin", "folded belt", "volcanic arc", "rift"]
 host = "ringwoodite"
 pressure = [36.0, 56.0]
 heat = [0.0, 110.0]
+
+# Luna's kinds (draft-luna-ore-and-caves), from generation 4 on her rock field: another body's kinds come after
+# the home's, last (a row's place seeds it). They name her provinces (data/rocks.toml), so they form on her alone,
+# and their `count` is on the standard Luna (1664 columns); no ring from a spawn, no gravel (she has no rivers).
+# Ilmenite: beds in the mare basalt, as the high-titanium flows hold it: titanium and iron, and oxygen to
+# breathe when it is reduced with hydrogen.
+[[kind]]
+name = "ilmenite bed"
+block = "ilmenite"
+gives = "titanium"
+shape = "layer"
+count = 10
+blocks = 6000
+depth = [8.0, 30.0]
+provinces = ["mare"]
+host = "mare basalt"
+
+# Merrillite: pockets of the rare-earth phosphate in the KREEP terrane's rock: thorium for power and the rare
+# earths for magnets and electronics.
+[[kind]]
+name = "merrillite pocket"
+block = "merrillite"
+gives = "thorium"
+shape = "lump"
+count = 6
+blocks = 500
+depth = [6.0, 16.0]
+provinces = ["kreep terrane"]
+host = "kreep"
+
+# Meteoritic iron-nickel: the impactor's mass under an iron crater's floor, below its 3 m lens (data/biomes.toml
+# `metal crater`): nickel, which Terra's ground does not give, and iron.
+[[kind]]
+name = "meteoritic iron"
+block = "iron-nickel"
+gives = "nickel"
+shape = "lump"
+count = 12
+blocks = 300
+depth = [6.0, 9.0]
+provinces = ["highland crust"]
+biomes = ["metal crater"]

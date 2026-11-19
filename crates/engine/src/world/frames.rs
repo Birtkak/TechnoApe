@@ -110,16 +110,21 @@ impl World {
             far: None,
         }
     }
-    /// Opens the ore ledger: every body of the planet as generated (`ore::count`), before any edit.
+    /// Opens the ore ledger: every ore body of every body (world body by world body, each's in its order) as
+    /// generated (`ore::count`), before any edit.
     pub fn open_ledger(&mut self) {
         assert!(self.edits.is_empty(), "the ledger opens on the generated ground");
-        self.ore_left = Some(crate::ore::count(&self.bodies[0]).iter().map(|h| h.blocks as i64).collect());
+        self.ore_left = Some(self.bodies.iter().flat_map(|b| crate::ore::count(b).into_iter().map(|h| h.blocks as i64)).collect());
     }
-    /// The planet's ore body whose generated ore block b is. shortcut: the planet's only; Luna holds none until
-    /// its own minerals (ore-budget.md, "Luna").
+    /// Where world body `body`'s ore bodies start in the ledger (`ore_left`, `ore_recount`): the bodies'
+    /// before it.
+    pub fn ore_base(&self, body: usize) -> usize {
+        self.bodies[..body.min(self.bodies.len())].iter().map(|b| b.ores.len()).sum()
+    }
+    /// The ore body of its own body whose generated ore block b is (an index into that body's `ores`).
     pub fn ore_cell(&self, b: Block) -> Option<u32> {
         let body = &self.bodies[b.body as usize];
-        if b.body != 0 || body.ores.is_empty() || body.tile_ores(b.face, b.pos.x.div_euclid(CS), b.pos.y.div_euclid(CS)).is_empty() {
+        if body.ores.is_empty() || body.tile_ores(b.face, b.pos.x.div_euclid(CS), b.pos.y.div_euclid(CS)).is_empty() {
             return None;
         }
         body.ore_at(b.face, b.pos.x, b.pos.y, b.pos.z, body.col_height(b.face, b.pos.x, b.pos.y))
@@ -130,9 +135,10 @@ impl World {
             return;
         }
         let Some(k) = self.ore_cell(b) else { return };
-        let ore = self.bodies[0].ore_block(k);
+        let ore = self.bodies[b.body as usize].ore_block(k);
         let was = self.edit(b).unwrap_or(ore) == ore;
-        self.ore_left.as_mut().unwrap()[k as usize] += (new == ore) as i64 - was as i64;
+        let at = self.ore_base(b.body as usize) + k as usize;
+        self.ore_left.as_mut().unwrap()[at] += (new == ore) as i64 - was as i64;
     }
     /// The ledger again from the edits alone, for the soak: each body's opening blocks less its cells whose
     /// edit is not its ore. Equal to `ore_left` when no block was lost or made.
@@ -142,7 +148,7 @@ impl World {
             for (pos, &m) in cells {
                 let b = Block { body: key.body, face: key.face, pos: *pos };
                 if let Some(k) = self.ore_cell(b) {
-                    left[k as usize] -= (m != self.bodies[0].ore_block(k)) as i64;
+                    left[self.ore_base(b.body as usize) + k as usize] -= (m != self.bodies[b.body as usize].ore_block(k)) as i64;
                 }
             }
         }
