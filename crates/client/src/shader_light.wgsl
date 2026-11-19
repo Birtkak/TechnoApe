@@ -109,9 +109,9 @@ fn trace(o: vec3f, db: vec3f, body: u32, tmax: f32, flags: u32) -> RayIntersecti
                 && still_texel(q, c.primitive_index, c.barycentrics).a >= 0.5) {
                 rayQueryConfirmIntersection(&rq);
             }
-        } else if (is_glass(q.y)) {
+        } else if (is_glass(quad_id(q.y))) {
             // far glass is drawn in its one colour, half clear: its shadow the same
-            var t = vec4f(seen_colour(q.y & 255u, vec3f(0.0)), 0.45);
+            var t = vec4f(seen_colour(quad_id(q.y), vec3f(0.0)), 0.45);
             if (((chunks[c.instance_custom_data].info >> 3u) & 31u) == 0u) { t = hit_texel(c.instance_custom_data, q, c.primitive_index, c.barycentrics, sn); }
             ray_tint *= mix(vec3f(1.0), t.rgb, t.a);
         } else if (!hit_empty(c.instance_custom_data, q, c.primitive_index, c.barycentrics, hit_season(c.instance_custom_data, q, sn))) {
@@ -120,7 +120,7 @@ fn trace(o: vec3f, db: vec3f, body: u32, tmax: f32, flags: u32) -> RayIntersecti
             // shortcut: a fast crown is a shell, so any crown passes light squared whatever its thickness; weigh by
             // the distance from the entry face if thin and thick crowns should differ
             if (flags == RAY_FLAG_TERMINATE_ON_FIRST_HIT && ((chunks[c.instance_custom_data].info >> 18u) & 1u) == 1u) {
-                ray_tint *= looks[q.y & 255u].through * vec3f(0.9, 1.0, 0.75);
+                ray_tint *= looks[quad_id(q.y)].through * vec3f(0.9, 1.0, 0.75);
                 if (max(ray_tint.r, max(ray_tint.g, ray_tint.b)) < 0.02) { rayQueryConfirmIntersection(&rq); }
             } else {
                 rayQueryConfirmIntersection(&rq);
@@ -145,7 +145,7 @@ fn hit_quad(id: u32, geo: u32, prim: u32) -> vec2u {
 fn hit_empty(ci: u32, q: vec2u, prim: u32, bc: vec2f, sn: vec3f) -> bool {
     // flat colours draw a cutout block whole: the light takes it whole too
     if ((g.opt.x & 4u) != 0u) { return false; }
-    if (((chunks[ci].info >> 18u) & 1u) == 1u && !is_bare(q.y & 255u, sn)) { return false; }
+    if (((chunks[ci].info >> 18u) & 1u) == 1u && !is_bare(quad_id(q.y), sn)) { return false; }
     return hit_texel(ci, q, prim, bc, sn).a < 0.5;
 }
 
@@ -628,7 +628,7 @@ fn seen(p: vec3f, d: vec3f, body: u32, px: vec2u, bounce: bool, tmax: f32) -> ve
     if (a == 1u) { hn = f.sj; }
     if ((dir & 1u) == 1u) { hn = -hn; }
     if ((q.x >> 31u) == 1u && dir == 4u) { hn = slope_normal(c, b, q, h.primitive_index & 1u); }
-    let m = q.y & 255u;
+    let m = quad_id(q.y);
     if (((looks[m].info >> 24u) & 1u) == 1u) { return select(seen_colour(m, vec3f(0.0)), vec3f(0.0), bounce) * tint; }
     one_ray = true;
     let l = light(p + d * h.t, brot(b, hn), body);

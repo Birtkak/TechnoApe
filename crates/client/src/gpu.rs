@@ -413,9 +413,9 @@ mod texture_layer_tests {
         // the look rows: a season its own paint, a season without its base's
         let t = looks_of(&placed);
         let top = |row: usize| t[row][13] & 0xffff;
-        assert_eq!([top(1), top(256 + 1), top(512 + 1), top(768 + 1)].map(|w| w & 4095), [0, 0, 4, 0]);
-        assert!(top(1) != 0 && top(256 + 1) != 0 && top(768 + 1) != 0, "summer, spring and winter take the base's paint");
-        assert_eq!(top(512 + 2) & 4095, 5, "and another block's season its own");
+        assert_eq!([top(1), top(IDS + 1), top(2 * IDS + 1), top(3 * IDS + 1)].map(|w| w & 4095), [0, 0, 4, 0]);
+        assert!(top(1) != 0 && top(IDS + 1) != 0 && top(3 * IDS + 1) != 0, "summer, spring and winter take the base's paint");
+        assert_eq!(top(2 * IDS + 2) & 4095, 5, "and another block's season its own");
         assert_eq!(top(2), 0, "with no base paint of its own");
         // bit 8 of size: seasons (a season's paint alone gives a block them); bit 9: a season paints its own
         let size = |row: usize| t[row][7];
@@ -728,7 +728,7 @@ pub(crate) struct Gpu {
 const TEX_LAYERS: u32 = 2048;
 
 /// What the hotbar and the "looking at" cube show of a painted block: its top's mean and its side's, per look
-/// row (`looks_of`: 256 a season).
+/// row (`looks_of`: IDS a season).
 /// The terrain's bind group: `b` the buffers globals, quads, chunks, looks, water quads, lamps, lamp cells, effects,
 /// paintings, model quads, model pieces, globe, still faces, still paintings
 #[allow(clippy::too_many_arguments)]
@@ -789,7 +789,9 @@ impl Gpu {
     }
 }
 
-pub(crate) static SHOWN:std::sync::RwLock<[Option<[[f32; 3]; 2]>; 4 * 256]> = std::sync::RwLock::new([None; 4 * 256]);
+/// A painted block's faces' means by look row (`looks_of`'s rows: season * IDS + id), empty until the textures load.
+pub(crate) static SHOWN: std::sync::RwLock<Vec<Option<[[f32; 3]; 2]>>> = std::sync::RwLock::new(Vec::new());
+const IDS: usize = engine::blocks::IDS;
 
 /// A painted block's top and side (their first variants) as `hud::cube` draws them, by block id.
 /// Counts the textures' reloads: what a kept look (`hud::Looks`) was made from.
@@ -851,15 +853,15 @@ fn a_fine_face_halved_keeps_its_quarters_in_place_and_its_holes() {
 /// `look_in` mixes its rows (no stagger).
 pub(crate) fn shown(d: &engine::blocks::Def, sn: (f64, f64)) -> ([f32; 3], [f32; 3], u8) {
     let painted = SHOWN.read().unwrap();
-    let id = d.id as usize % 256;
-    let row = |r: usize| match painted[r * 256 + id] {
+    let id = d.id as usize;
+    let row = |r: usize| match painted.get(r * IDS + id).copied().flatten() {
         Some(c) => c,
         None => [d.tone(r).colour, engine::blocks::BLOCKS.get(d.side).map_or(d.colour, |s| s.tone(r).colour)],
     };
     // a season's paint alone gives a block seasons (`looks_of`); the summer cube keeps an unpainted block's pattern
-    let pattern = if painted[id].is_some() { 0 } else { d.pattern as u8 };
+    let pattern = if painted.get(id).is_some_and(|p| p.is_some()) { 0 } else { d.pattern as u8 };
     let own = row(0);
-    let seasons = d.seasons.is_some() || (1..4).any(|r| painted[r * 256 + id].is_some());
+    let seasons = d.seasons.is_some() || (1..4).any(|r| painted.get(r * IDS + id).is_some_and(|p| p.is_some()));
     let [top, side] = match (seasons, season_rows(sn)) {
         (true, Some((x, y, f, s))) => {
             let (x, y) = (row(x), row(y));
@@ -891,20 +893,24 @@ pub(crate) fn season_here(w: &engine::world::World, pos: glam::DVec3) -> (f64, f
 /// Where block `id`'s fluff and light go in the looks buffer, in bytes, one per season (a look row is 20 words; they
 /// are its 17th and 18th), and the words.
 fn fluff_words(id: u16, f: engine::blocks::Fluff) -> [(u64, [u32; 2]); 4] {
-    std::array::from_fn(|season| (((season as u64 * 256 + id as u64) * 20 + 16) * 4, [f.packed(), f.light.to_bits()]))
+    std::array::from_fn(|season| (((season as u64 * IDS as u64 + id as u64) * 20 + 16) * 4, [f.packed(), f.light.to_bits()]))
 }
 
 /// Every block's look from the registry (ADR 0013, 0039, 0045), shader.wgsl `Look`, 80 bytes each: colour rgb,
-/// pattern | side << 8 | metal << 16 | gives light << 24 | cutout << 25 | glass << 26; colour2, size; colour3, amount; contrast; the painted
+/// pattern | metal << 16 | gives light << 24 | cutout << 25 | glass << 26 | joins << 27; colour2, size; colour3, amount; contrast; the painted
 /// faces (16 bits a face: layer | variants - 1 << 12 | fine << 14 (32 x 32, four layers a variant, ADR 0090) | painted << 15; top and side in `tex`, the bottom in
-/// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24); a cutout block's fluff (`Fluff::packed`, ADR 0090) and its share of light through (f32), two words free.
+/// `tex2`); the one colour of a painted block (`mean`, unorm 8-bit, painted << 24); a cutout block's fluff (`Fluff::packed`, ADR 0090) and its share of light through (f32); the block its
+/// sides take (`side`), a word free. A row per id and season: 4 * IDS.
 fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 20]> {
-    (0..4 * 256usize)
+    looks_in(&engine::blocks::BLOCKS, painted)
+}
+fn looks_in(reg: &engine::blocks::Registry, painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> Vec<[u32; 20]> {
+    (0..4 * IDS)
             .map(|row| {
                 // four rows a block (ADR 0061): summer (the row's own look), spring, autumn, winter
-                let (id, season) = ((row % 256) as u16, row / 256);
+                let (id, season) = ((row % IDS) as u16, row / IDS);
                 let f = f32::to_bits;
-                match engine::blocks::BLOCKS.get(id) {
+                match reg.get(id) {
                     Some(d) => {
                         let tone = d.tone(season);
                         let ([r, g, b], [r2, g2, b2], [r3, g3, b3]) = (tone.colour.map(f), tone.colour2.map(f), tone.colour3.map(f));
@@ -914,7 +920,7 @@ fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> 
                         let size = d.size as u32 | ((d.seasons.is_some() || paints) as u32) << 8 | (paints as u32) << 9 | engine::sky::stagger_units(d.stagger) << 16;
                         let shine = (d.metal * 255.0).round() as u32;
                         let gives = (d.light != [0.0; 3]) as u32;
-                        let info = d.pattern as u32 | (d.side as u32) << 8 | shine << 16 | gives << 24 | ((d.see == engine::blocks::See::Cutout) as u32) << 25 | ((d.see == engine::blocks::See::Glass) as u32) << 26;
+                        let info = d.pattern as u32 | shine << 16 | gives << 24 | ((d.see == engine::blocks::See::Cutout) as u32) << 25 | ((d.see == engine::blocks::See::Glass) as u32) << 26 | (d.joins as u32) << 27;
                         let (mut tex, mut mean) = (0u64, 0);
                         // a season's own paint, else the base's (a season row without one is its pattern only when
                         // the base has none)
@@ -931,11 +937,11 @@ fn looks_of(painted: &[((u16, usize), engine::textures::Painted, [u32; 3])]) -> 
                         // a cutout block's fluff (ADR 0090, `Fluff::packed`), the same in every season
                         // and the share of the sun a face of it lets through to a shadow ray
                         let (fluff, through) = d.fluff.map_or((0, 0.0), |f| (f.packed(), f.light));
-                        [r, g, b, info, r2, g2, b2, size, r3, g3, b3, f(tone.amount), f(tone.contrast), tex as u32, mean, (tex >> 32) as u32, fluff, f(through), 0, 0]
+                        [r, g, b, info, r2, g2, b2, size, r3, g3, b3, f(tone.amount), f(tone.contrast), tex as u32, mean, (tex >> 32) as u32, fluff, f(through), d.side as u32, 0]
                     }
                     None => {
                         let h = f(0.5);
-                        [h, h, h, (id as u32) << 8, h, h, h, 0, h, h, h, 0, f(1.0), 0, 0, 0, 0, 0, 0, 0]
+                        [h, h, h, 0, h, h, h, 0, h, h, h, 0, f(1.0), 0, 0, 0, 0, 0, id as u32, 0]
                     }
                 }
             })
@@ -1123,8 +1129,8 @@ impl Gpu {
         let wquads = buf("wquads", (MAX_WQUADS * std::mem::size_of::<water::WQuad>()) as u64, U::STORAGE | U::COPY_DST);
         let fx_buf = buf("fx", (MAX_FX * std::mem::size_of::<crate::fx::FxGpu>()) as u64, U::STORAGE | U::COPY_DST);
         // every block's look from the registry (ADR 0013, 0039), shader.wgsl `Look`, 80 bytes each: colour rgb,
-        // pattern | side << 8 | metal << 16 | gives light << 24; colour2, size; colour3, amount; contrast
-        let looks = buf("looks", 4 * 256 * 80, U::STORAGE | U::COPY_DST);
+        // pattern | metal << 16 | gives light << 24 ...; colour2, size; colour3, amount; contrast (`looks_of`)
+        let looks = buf("looks", (4 * IDS * 80) as u64, U::STORAGE | U::COPY_DST);
         queue.write_buffer(&looks, 0, bytemuck::cast_slice(&looks_of(&[])));
         // the painted faces (ADR 0045): 16 x 16 layers, filled by `take_textures` from the watcher's thread
         let tex = buf("block textures", TEX_LAYERS as u64 * 1024, U::STORAGE | U::COPY_DST);
@@ -1572,12 +1578,12 @@ impl Gpu {
         if !layers.is_empty() {
             self.queue.write_buffer(&self.tex, 0, bytemuck::cast_slice(&layers));
         }
-        let mut shown = [None; 4 * 256];
+        let mut shown = vec![None; 4 * IDS];
         // per look row as `looks_of` takes them: a season's own paint, else the base's
         for r in 0..4 {
             for ((id, season), p, _) in placed.iter().filter(|((_, q), _, _)| *q == r || *q == 0) {
                 let d = engine::blocks::BLOCKS.get(*id).unwrap();
-                let at = r * 256 + *id as usize % 256;
+                let at = r * IDS + *id as usize;
                 if p.colour().is_some() && (*season == r || shown[at].is_none()) {
                     let side = engine::blocks::BLOCKS.get(d.side).map_or(d.colour, |s| s.tone(r).colour);
                     shown[at] = Some([p.faces[0].as_ref().map_or(d.tone(r).colour, |f| f.mean), p.faces[1].as_ref().map_or(side, |f| f.mean)]);
@@ -1632,7 +1638,60 @@ mod watch_tests {
 
 #[cfg(test)]
 mod look_tests {
+    use super::IDS;
     use engine::blocks::BLOCKS;
+
+    /// Ids past 255 (12 bits): block 300's look rows are its own in every season, at season * IDS + 300, its side
+    /// block (4095, near the top) in its own word and a joining block flagged; the shader reads them with the
+    /// same layout the engine packs (`quad_id`, `id_bits`, `IDS` in shader_vertex.wgsl as in engine mesh.rs and
+    /// blocks.rs; fx.rs `block_bits` as shader_sky_fx.wgsl `fx_id` reads it).
+    #[test]
+    fn a_block_past_255_has_its_own_look_rows_and_the_shader_reads_ids_as_the_engine_packs_them() {
+        let reg = engine::blocks::Registry::parse("[[block]]
+id = 0
+name = \"air\"
+solid = false
+            [[block]]
+id = 300
+name = \"high\"
+hardness = 1
+joins = true
+side = \"top\"
+colour = [0.1, 0.2, 0.3]
+[block.winter]
+colour = [0.9, 0.8, 0.7]
+            [[block]]
+id = 4095
+name = \"top\"
+hardness = 1
+colour = [0.5, 0.5, 0.5]
+").unwrap();
+        let t = super::looks_in(&reg, &[]);
+        assert_eq!(t.len(), 4 * IDS);
+        let high = reg.get(300).unwrap();
+        for s in 0..4 {
+            let row = t[s * IDS + 300];
+            assert_eq!([row[0], row[1], row[2]], high.tone(s).colour.map(f32::to_bits), "season {s}");
+            assert_eq!((row[18], row[3] >> 27 & 1, row[7] >> 8 & 1), (4095, 1, 1), "season {s}: its side, joins, seasons");
+        }
+        assert_eq!(t[3 * IDS + 300][0], 0.9f32.to_bits(), "winter's own colour");
+        assert_eq!((t[4095][0], t[4095][3] >> 27 & 1, t[44][18]), (0.5f32.to_bits(), 0, 44), "the top id; a row with none is its own side");
+        // the shader's helpers are the engine's, letter for letter
+        let src = include_str!("shader_vertex.wgsl");
+        assert!(src.contains(&format!("const IDS: u32 = {IDS}u;")), "shader_vertex.wgsl IDS");
+        assert!(src.contains("fn quad_id(mat: u32) -> u32 { return (mat & 255u) | ((mat >> 8u) & 0xf00u); }"));
+        assert!(src.contains("fn id_bits(id: u32) -> u32 { return (id & 255u) | ((id >> 8u) << 16u); }"));
+        assert!(src.contains("var<storage, read> looks: array<Look, 16384>;") && 4 * IDS == 16384);
+        assert!(include_str!("shader_sky_fx.wgsl").contains("fn fx_id(info: u32) -> u32 { return (info & 255u) | ((info >> 12u) & 0xf00u); }"));
+        // and what those lines compute, on the CPU: every id through a quad's word and a particle's
+        let wgsl_quad_id = |mat: u32| (mat & 255) | ((mat >> 8) & 0xf00);
+        let wgsl_fx_id = |info: u32| (info & 255) | ((info >> 12) & 0xf00);
+        for id in 0..IDS as u16 {
+            let hi = engine::mesh::id_bits(id);
+            assert_eq!((wgsl_quad_id(hi | 0xfff0_ff00), (id as u32 & 255) | (id as u32 >> 8) << 16), (id as u32, hi), "{id}");
+            assert_eq!(wgsl_fx_id(crate::fx::block_bits(id) | !crate::fx::BLOCK_BITS), id as u32, "{id}: a particle's");
+        }
+    }
 
     /// The Studio's fluff sliders (the view's `fluff`): the words written over the looks buffer land on the block's
     /// fluff and light in every season and nowhere else; with the row's own numbers they change nothing.
@@ -1653,7 +1712,7 @@ mod look_tests {
         let f = engine::blocks::Fluff { size: 2.5, push: 0.5, droop: 0.25, long: 2.0, dense: 0.5, light: 0.25 };
         let w = write(f);
         let changed: Vec<usize> = (0..w.len()).filter(|i| w[*i] != flat[*i]).collect();
-        let expect: Vec<usize> = (0..4).flat_map(|s| [(s * 256 + reed as usize) * 20 + 16, (s * 256 + reed as usize) * 20 + 17]).collect();
+        let expect: Vec<usize> = (0..4).flat_map(|s| [(s * IDS + reed as usize) * 20 + 16, (s * IDS + reed as usize) * 20 + 17]).collect();
         assert_eq!(changed, expect, "reed's fluff and light words in the four seasons");
     }
 
@@ -1662,11 +1721,11 @@ mod look_tests {
     #[test]
     fn the_look_table_has_a_row_a_season() {
         let t = super::looks_of(&[]);
-        assert_eq!(t.len(), 1024);
+        assert_eq!(t.len(), 4 * IDS);
         for d in BLOCKS.placeable() {
             let id = d.id as usize;
             for s in 0..4 {
-                let (row, tone) = (t[s * 256 + id], d.tone(s));
+                let (row, tone) = (t[s * IDS + id], d.tone(s));
                 assert_eq!([row[0], row[1], row[2]], tone.colour.map(f32::to_bits), "{} season {s}", d.name);
                 assert_eq!((row[7] & 255, row[7] >> 8 & 1), (d.size as u32, d.seasons.is_some() as u32), "{}", d.name);
                 if d.seasons.is_none() {
@@ -1676,6 +1735,6 @@ mod look_tests {
         }
         let leaves = BLOCKS.get(BLOCKS.id("broadleaf leaves")).unwrap();
         assert_eq!(t[leaves.id as usize][7] >> 16, engine::sky::stagger_units(3.0), "3 days of 13.5 a season");
-        assert_ne!(t[512 + leaves.id as usize][..3], t[leaves.id as usize][..3], "autumn is not summer");
+        assert_ne!(t[2 * IDS + leaves.id as usize][..3], t[leaves.id as usize][..3], "autumn is not summer");
     }
 }

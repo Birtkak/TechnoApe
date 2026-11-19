@@ -146,7 +146,8 @@ The structure [0109]:
   after the glass and before the water (`Mesh::still`). They are in no BLAS, so they cast no shadow and hold no
   light. The face table and paintings are bindings 16 and 17, read once at the start.
 - **Joined lamps** [0085]: `joins = true` on a block row (lamp, blue lamp; `blocks::Def::joins`). The quad's high word
-  is `material8 | ao8 << 8 | join4 << 16`; `join_sides` sets bits 0..3 (u-, u+, v-, v+) where the in-plane neighbour
+  is `id_bits(id) | ao8 << 8 | join4 << 24` (the id at 0-7 and 16-19, the sides at 24-27 since "Block ids past 255",
+  multiplayer-saves-and-data.md); `join_sides` sets bits 0..3 (u-, u+, v-, v+) where the in-plane neighbour
   is the same block and the cell in front of it does not hide its face by the mesher's own culling rule (air, glass,
   fancy cutout blocks). A joining block's faces never merge (also on coarse levels). Quad bits 20..31 stay free for
   other uses (0090 took 20..25 for cutout quads' wood bits).

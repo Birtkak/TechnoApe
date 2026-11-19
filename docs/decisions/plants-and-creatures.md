@@ -176,7 +176,7 @@ Cutout leaf blocks (`see = "cutout"`) are drawn as cutout quads in two passes wi
   through the cutout blocks up to three steps (a cutout block on an opaque non-wood block roots in it, below). Every
   cutout quad carries its way to the wood in free bits of its high word: bits 20-22 the side of the face the wood is
   on (1..4 u-, u+, v-, v+; 5 behind the face; 0 none), bits 23-24 the steps less one, bit 25 the face opens on air
-  (`mesh::twig_bits`; joins, bits 16-19, stay lamps' only). Wood more than the padding away is unseen (a
+  (`mesh::twig_bits`; joins, bits 24-27 since "Block ids past 255", stay lamps' only). Wood more than the padding away is unseen (a
   `shortcut:` in `roots`). Cutout faces never merge [0090].
 - **The painting is turned** (`texel_a`): a cutout block's painting has its twigs rooted on its bottom edge; the
   shader turns it so that edge lies on the wood's side, or folds it about the middle when the wood is behind the

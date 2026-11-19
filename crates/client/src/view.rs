@@ -240,7 +240,7 @@ fn place_spec(spec: &str) -> Option<(IVec3, u16)> {
     let p: Vec<&str> = spec.split(':').collect();
     let d = (p.len() == 4).then(|| Some(IVec3::new(p[0].parse().ok()?, p[1].parse().ok()?, p[2].parse().ok()?))).flatten().filter(|d| d.to_array().iter().all(|v| (-PLACE_REACH..=PLACE_REACH).contains(v)))?;
     let name = p[3].replace('_', " ");
-    let id = if name.trim().is_empty() { Some(AIR) } else { (0..=255u16).filter_map(|i| BLOCKS.get(i)).find(|b| b.name == name).map(|b| b.id) }?;
+    let id = if name.trim().is_empty() { Some(AIR) } else { (0..engine::blocks::IDS as u16).filter_map(|i| BLOCKS.get(i)).find(|b| b.name == name).map(|b| b.id) }?;
     Some((d, id))
 }
 

@@ -214,8 +214,8 @@ fn vs_fx(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> Fx
         // a whole cell, scaled about its middle, its corners from the grid as `vs` places the terrain's
         let cell = vec3f(f32(q.a & 0x7fffu), f32((q.a >> 15u) & 0x7fffu), f32(q.b & 0xffffu));
         let c = cube_corner(dir, k);
-        // a loose block gliding into its cell (bit 20, ADR 0101): `p` is its offset in cells
-        let gp = cell + 0.5 + (c - 0.5) * q.size + select(vec3f(0.0), q.p, ((q.info >> 20u) & 1u) == 1u);
+        // a loose block gliding into its cell (bit 19, ADR 0101): `p` is its offset in cells
+        let gp = cell + 0.5 + (c - 0.5) * q.size + select(vec3f(0.0), q.p, ((q.info >> 19u) & 1u) == 1u);
         let f = frame_at(q.b >> 16u, b, gp.x, gp.y);
         pb = f.up * (b.r0 * exp(gp.z * b.lnq));
         let a = dir / 2u;
@@ -279,11 +279,15 @@ fn vs_fx(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> Fx
     return o;
 }
 
+// the block a particle shows (fx.rs `block_bits`): bits 0-7 and 20-23 of its info
+fn fx_id(info: u32) -> u32 { return (info & 255u) | ((info >> 12u) & 0xf00u); }
+
 // a particle's colour: a square's own; a cell's texels as `fs` has them; a debris cube's 2 x 2 texels a side
 // from a place of its block picked by its seed
 fn fx_colour(i: FxOut) -> vec3f {
     let look = (i.info >> 10u) & 3u;
-    let mat = i.info & 255u;
+    // its block as a quad carries one, for `texel`
+    let mat = id_bits(fx_id(i.info));
     let dir = (i.info >> 12u) & 7u;
     let a = dir / 2u;
     let uv = vec2f(i.uvw[(a + 1u) % 3u], i.uvw[(a + 2u) % 3u]);
@@ -315,7 +319,7 @@ fn fx_out(i: FxOut, col: vec3f, l: vec3f) -> GOut {
     var o: GOut;
     o.gbuf = gb_pack(normalize(i.normal), length(i.rel));
     let look = (i.info >> 10u) & 3u;
-    if (((looks[i.info & 255u].info >> 24u) & 1u) == 1u && (look == 0u || look == 2u)) {
+    if (((looks[fx_id(i.info)].info >> 24u) & 1u) == 1u && (look == 0u || look == 2u)) {
         // a piece of a lamp shows its own light
         o.direct = vec4f(col * 1.15, 1.0);
         o.albedo = vec4f(0.0, 0.0, 0.0, f32(body) / 3.0);
