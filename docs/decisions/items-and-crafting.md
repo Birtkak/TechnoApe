@@ -217,6 +217,16 @@ Client only (`crates/client`); behaviour and wire unchanged.
   twice a frame while the hand is empty (for the optimisation batch); in the first quarter second of a run the hand
   may strike once at spawn; holding the item in the visible hand is a later step [0115].
 
+### The swing's numbers in a data file [0170, 2026-11-19]
+The pose and swing constants of 0115 live in `data/hand.toml` (`seconds` 0.25, `snap` 2, `reach` 0.45, `aim` 1.4,
+`chop` 0.35 rad, `arm_hand`, `arm_way`); the maths is `engine::hand` (`Hand::curve`, `Hand::turn`, `RANGES` with
+`get`/`set` for the Studio's sliders), so the Studio reads and measures the same code the client draws by. The curve
+is `sin(PI * (1 - (1 - x)^snap))`, x = age / seconds; `snap` 2 is 0115's curve. A value outside its range is refused
+by name. Presentation only: the client reads the file again within a second of a change (`engine::hand::HAND`, a
+`Live` it sets itself); the server never reads it and nothing goes on the wire. Behaviour at the shipped values is
+unchanged.
+Replaces: 0115's pose constants in `models.rs` and `SWING_S`/`models::swing`.
+
 ## Tools and knapping [0110]
 
 - Data: `data/items.toml` has `[[material]]` rows (`speed` over 1 to 20, `grade` 1..4, `uses` 1..10000) and item fields
@@ -416,6 +426,7 @@ Client only (`crates/client`); behaviour and wire unchanged.
 - 0113's tooltip placement above the slot: replaced by beside the slot (0114).
 - 0114's first piles shade of four overlapping squares: replaced by one round shade (0114 review).
 - 0115's cube dip of 0.18 s: replaced by the 0.25 s swing in the same ADR.
+- 0115's pose constants `ARM_HAND`, `ARM_WAY`, `SWING_REACH`, `SWING_AIM`, `SWING_CHOP`, `SWING_S` and `models::swing` in the client: replaced by `data/hand.toml` and `engine::hand` [0170].
 - 0139's recipe list (the Make column, recipes by `in`/`process`, `ToServer::Craft` as a make by name): replaced by
   0140; its copper tools, `leaves` and the hammer rule stand.
 - 0140's crafting grid and viewer drawn inside the one inventory screen, the viewer under the hotbar at 11 x 2: replaced

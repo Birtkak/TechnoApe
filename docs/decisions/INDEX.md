@@ -123,7 +123,7 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0112 | Mining (c): undercut and drop | [mining-and-digging.md](mining-and-digging.md) - Undercut and drop | in force |
 | 0113 | The inventory's look: one window, the ape, pictures of things | [items-and-crafting.md](items-and-crafting.md) - The look of the inventory [0113] | amended by 0114 |
 | 0114 | Dropped items drawn as their models; painted boxes on the instance path; an item's size | [items-and-crafting.md](items-and-crafting.md) - Dropped items and the model in hand [0114] | in force |
-| 0115 | The bare hand: the ape's own arm in hand, and one swing for everything held | [items-and-crafting.md](items-and-crafting.md) - The bare hand and the swing [0115] | in force |
+| 0115 | The bare hand: the ape's own arm in hand, and one swing for everything held | [items-and-crafting.md](items-and-crafting.md) - The bare hand and the swing [0115] | amended by 0170 |
 | 0116 | The ape, the animals, the furnace and the leaf as painted boxes | [studio-and-art.md](studio-and-art.md) - Painted figures | in force |
 | 0117 | The torch, and the light a held lit item gives | [rendering-and-lighting.md](rendering-and-lighting.md) - Held light and the torch [0117, 0098] | in force |
 | 0118 | Sprint, and swimming | [player-and-feel.md](player-and-feel.md) - Sprint | in force |
@@ -178,3 +178,4 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0167 | The Mars-like planet's baked map (planet-model step 5a) | [bake-and-landforms.md](bake-and-landforms.md) - The Mars-like planet's baked map | in force |
 | 0168 | A link's limits and its ping | [multiplayer-saves-and-data.md](multiplayer-saves-and-data.md) - A link's limits and its ping | in force |
 | 0169 | The view runs a small planet | [studio-and-art.md](studio-and-art.md) - The view runs a small planet | in force |
+| 0170 | The swing's numbers in a data file | [items-and-crafting.md](items-and-crafting.md) - The swing's numbers in a data file | in force |

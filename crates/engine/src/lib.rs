@@ -13,6 +13,7 @@ pub mod events;
 pub mod herds;
 pub mod fall;
 pub mod furnace;
+pub mod hand;
 pub mod interior;
 pub mod items;
 pub mod journal;
