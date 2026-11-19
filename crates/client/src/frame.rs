@@ -1042,7 +1042,7 @@ impl App {
                 g.cloud[1] = 0.0;
             }
         }
-        let cl = {
+        let mut cl = {
             let b = &g.bodies[0];
             let sky_amb = Vec3::new(0.42, 0.55, 0.75) * 0.6;
             let eclipse = 1.0 - sky_m.eclipse(wt, self.world.to_inertial(p.pos)) as f32;
@@ -1058,6 +1058,11 @@ impl App {
                 aurora_post(&self.world, field_scale(&self.args), day * air, if self.shot.is_some() { self.time0 } else { wt }),
             ]
         };
+        // none of either oval in view: the clouds' pass skips its march, or is not run at all for it
+        let v3 = |a: [f32; 4]| Vec3::new(a[0], a[1], a[2]);
+        if cl[8][1] > 0.0 && !aurora_seen(&frustum_planes(vp), v3(cl[0]), [v3(cl[1]), v3(cl[2]), v3(cl[3])], sun, cl[8]) {
+            cl[8][1] = 0.0;
+        }
         let aurora_on = cl[8][1] > 0.0;
         [g.n_lamps[2], g.n_lamps[3]] = eclipse_masks(&g);
         gpu.queue.write_buffer(&gpu.globals, 0, bytemuck::bytes_of(&g));
@@ -1533,9 +1538,134 @@ pub(crate) fn aurora_post(world: &World, scale: f64, day: f32, clock: f64) -> [f
     [a.colat as f32, a.bright as f32 * (1.0 - x * x * (3.0 - 2.0 * x)), sea as f32, clock.rem_euclid(3600.0) as f32]
 }
 
+/// Whether any of the aurora's light can reach the screen this frame (0164-magnetic-field, Speed): false only when
+/// no piece of either oval's band (post.wgsl `aurora`: 450 to 1150 m over the sea, `AU_BAND` either side of the
+/// oval) is at once in the frustum, over the sea's horizon and where its own sun is down. Conservative: each of
+/// `AU_SEGS` pieces a ring is tested as a sphere round it. `planes` are `frustum_planes` of the camera-centred
+/// view-projection; `ctr`, `rot` and `sun` as `Post` (the planet's centre from the camera, its frame's columns,
+/// the sun's direction, all in the camera's frame); `post` is `aurora_post`'s.
+pub(crate) fn aurora_seen(planes: &[Vec4; 6], ctr: Vec3, rot: [Vec3; 3], sun: Vec3, post: [f32; 4]) -> bool {
+    const AU_SEGS: usize = 48;
+    let (colat, sea) = (post[0] as f64, post[2] as f64);
+    let (ctr, sun) = (ctr.as_dvec3(), sun.as_dvec3().normalize());
+    let o = -ctr; // the camera from the planet's centre
+    let (r0, r1) = (sea + 450.0, sea + 1150.0);
+    // under the sea level the shader draws none; the horizon: how far round the planet the shell can be seen
+    if post[1] <= 0.0 || o.length() < sea {
+        return false;
+    }
+    let reach = (sea / o.length()).min(1.0).acos() + (sea / r1).acos();
+    let (lo, hi) = ((colat - 0.07).max(0.0), (colat + 0.07).min(std::f64::consts::FRAC_PI_2));
+    let (th, dth, dph) = ((lo + hi) * 0.5, (hi - lo) * 0.5, std::f64::consts::PI / AU_SEGS as f64);
+    // a piece's angular half size round its centre, and its radius as a sphere (radial, then along the surface)
+    let ang = dth + hi.sin() * dph;
+    let rad = (r1 - r0) * 0.5 + r1 * ang;
+    let night = 0.05f64.acos(); // post.wgsl `au_glow`: no light where the sun's height there is over 0.05
+    let [x, y, z] = rot.map(|v| v.as_dvec3());
+    let (oh, sh) = (o.normalize(), sun);
+    for pole in [1.0, -1.0] {
+        for k in 0..AU_SEGS {
+            let ph = (k as f64 + 0.5) * 2.0 * dph;
+            let up = x * (th.sin() * ph.cos()) + y * (th.sin() * ph.sin()) + z * (pole * th.cos());
+            let gap = |a: DVec3| a.dot(up).clamp(-1.0, 1.0).acos();
+            if gap(oh) - ang > reach || gap(sh) + ang < night {
+                continue;
+            }
+            let c = (ctr + up * (r0 + r1) * 0.5).as_vec3();
+            if planes[..5].iter().all(|p| p.truncate().dot(c) + p.w >= -rad as f32) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The in-view test never hides an aurora that a dense sampling of the band finds on screen, over the
+    /// horizon and in the night (it may draw one that is not there), over many camera poses; and it does skip
+    /// some (the equator at night with the oval at 70 degrees among them).
+    #[test]
+    fn the_aurora_is_drawn_whenever_any_of_it_is_seen() {
+        let sea = 3900.0f64;
+        let mut s = 0x2545f4914f6cdd1du64;
+        let mut rnd = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            (s >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let (mut seen, mut skipped, mut wrongly_drawn) = (0, 0, 0);
+        for pose in 0..240 {
+            // a camera from the ground to far orbit, anywhere, looking anywhere; the planet turned anyhow
+            let colat = [0.35, 0.65, 1.0, 1.4][pose % 4] as f32;
+            let lat = (rnd() * 2.0 - 1.0).asin();
+            let lon = rnd() * std::f64::consts::TAU;
+            let alt = [2.0, 50.0, 800.0, 5000.0, 30000.0][(rnd() * 5.0) as usize];
+            let q = glam::DQuat::from_euler(glam::EulerRot::XYZ, rnd() * 6.3, rnd() * 6.3, rnd() * 6.3);
+            let up_b = DVec3::new(lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin());
+            let cam_b = up_b * (sea + alt);
+            let fwd = DVec3::new(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize();
+            let sun = DVec3::new(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize();
+            let rot = [q * DVec3::X, q * DVec3::Y, q * DVec3::Z];
+            let ctr = q * -cam_b;
+            let up = if fwd.cross(q * up_b).length() < 1e-3 { DVec3::Z } else { q * up_b };
+            let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(70f32.to_radians(), 16.0 / 9.0, 0.1);
+            let vp = proj * glam::camera::rh::view::look_to_mat4(Vec3::ZERO, fwd.as_vec3(), up.as_vec3());
+            let post = [colat, 1.0, sea as f32, 0.0];
+            let fast = aurora_seen(&frustum_planes(vp), ctr.as_vec3(), rot.map(|v| v.as_vec3()), sun.as_vec3(), post);
+            // brute force: every point of the band, projected, under the sea's horizon or not, in the night or not
+            let sun_b = q.inverse() * sun;
+            let (lo, hi) = ((colat as f64 - 0.07).max(0.0), (colat as f64 + 0.07).min(std::f64::consts::FRAC_PI_2));
+            let mut brute = false;
+            'b: for i in 0..=8 {
+                let th = lo + (hi - lo) * i as f64 / 8.0;
+                for h in 0..=4 {
+                    let r = sea + 450.0 + 700.0 * h as f64 / 4.0;
+                    for j in 0..720 {
+                        let ph = j as f64 / 720.0 * std::f64::consts::TAU;
+                        for pole in [1.0, -1.0] {
+                            let pu = DVec3::new(th.sin() * ph.cos(), th.sin() * ph.sin(), pole * th.cos());
+                            if pu.dot(sun_b) >= 0.05 {
+                                continue;
+                            }
+                            let d = pu * r - cam_b;
+                            // the segment from the camera to the point meets the sea's sphere
+                            let b = -cam_b.dot(d) / d.length_squared();
+                            let near = cam_b + d * b.clamp(0.0, 1.0);
+                            if near.length() < sea {
+                                continue;
+                            }
+                            let c = vp * (q * d).as_vec3().extend(1.0);
+                            if c.w > 0.0 && c.x.abs() <= c.w && c.y.abs() <= c.w {
+                                brute = true;
+                                break 'b;
+                            }
+                        }
+                    }
+                }
+            }
+            assert!(fast || !brute, "pose {pose}: seen by brute force, skipped (cam {cam_b:?} fwd {fwd:?} colat {colat})");
+            seen += brute as u32;
+            skipped += !fast as u32;
+            wrongly_drawn += (fast && !brute) as u32;
+        }
+        assert!(seen > 30 && skipped > 60, "seen {seen}, skipped {skipped}: the poses test both answers");
+        // the equator at midnight, the oval at 70 degrees, looking north: nothing in view
+        let proj = glam::camera::rh::proj::directx::perspective_infinite_reverse(70f32.to_radians(), 16.0 / 9.0, 0.1);
+        let vp = proj * glam::camera::rh::view::look_to_mat4(Vec3::ZERO, Vec3::new(0.0, 0.42, 0.91).normalize(), Vec3::Y);
+        let eq = aurora_seen(&frustum_planes(vp), Vec3::new(0.0, -3902.0, 0.0), [Vec3::X, Vec3::Y, Vec3::Z], Vec3::new(0.0, -1.0, 0.0), [0.35, 1.0, 3900.0, 0.0]);
+        assert!(!eq, "the equator at night: no aurora in view");
+        // its cost on the frame thread: the worst case, every piece tested and none seen (debug build: an upper bound)
+        let t = std::time::Instant::now();
+        for _ in 0..1000 {
+            std::hint::black_box(aurora_seen(&frustum_planes(vp), Vec3::new(0.0, -3902.0, 0.0), [Vec3::X, Vec3::Y, Vec3::Z], Vec3::new(0.0, -1.0, 0.0), std::hint::black_box([0.35, 1.0, 3900.0, 0.0])));
+        }
+        eprintln!("aurora_seen: {:.2} us a call", t.elapsed().as_secs_f64() * 1e3);
+        eprintln!("seen {seen}, skipped {skipped}, drawn though not seen {wrongly_drawn} of 240");
+    }
 
     /// `field=` is a finite scale from 0 to 10: anything else would print a JSON line no reader takes and draw NaN.
     #[test]
