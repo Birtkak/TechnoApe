@@ -9,7 +9,7 @@
 //!   A failure is shrunk to the fewest bots, recorded to `out/soak-fail.rec` and printed with its repro line.
 //! - `report=1 seed=1337 planet=6144` prints what the ground holds (`report.rs`).
 //! - `replay=file until=tick` runs a recording again and reports the first checkpoint that disagrees.
-//! - `bakemap=data/drafts/bodies-mars.toml body=Mars seed=1` bakes a draft planet's map and writes its pictures.
+//! - `bakemap=data/bodies.toml body=Mars seed=1` bakes a planet's map and writes its pictures.
 use engine::net::{tcp, DEFAULT_PORT, TICK_HZ};
 use server::{soak, Server};
 use std::collections::HashMap;
@@ -130,12 +130,12 @@ fn main() {
     }
 }
 
-/// `bakemap=<rows file> body=Mars seed=1 [n=] [out=prefix]`: bakes a planet's crust of a draft row (the file's rows
-/// after data/bodies.toml's), keeps it where the game would find it, writes its pictures (`bake::pictures`) and prints
-/// one JSON line of its numbers (planet-model.md step 5a).
+/// `bakemap=<rows file> body=Mars seed=1 [n=] [out=prefix]`: bakes a planet's crust of a row of a bodies file
+/// (`data/bodies.toml`, or a draft copy of it), keeps it where the game would find it, writes its pictures
+/// (`bake::pictures`) and prints one JSON line of its numbers (planet-model.md step 5a).
 fn bakemap(path: &str, body: &str, seed: i32, n: Option<i32>, out: Option<&String>) {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"));
-    let rows = engine::bodies::parse(&format!("{}{text}", include_str!("../../../data/bodies.toml"))).unwrap_or_else(|e| panic!("{path}: {e}"));
+    let rows = engine::bodies::parse(&text).unwrap_or_else(|e| panic!("{path}: {e}"));
     let row = rows.iter().find(|r| r.named(body)).unwrap_or_else(|| panic!("{path}: no body '{body}'"));
     let bake = row.bake.as_ref().unwrap_or_else(|| panic!("{body} has no stages"));
     let planet = bake.2.as_ref().unwrap_or_else(|| panic!("bakemap= pictures a planet's crust (stages from 'crust' on a body that circles the sun)"));

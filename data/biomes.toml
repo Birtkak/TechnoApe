@@ -315,3 +315,84 @@ name = "polar shadow"
 top = "regolith"
 band = "ice"
 rock = "anorthosite"
+
+# Mars's kinds of ground (planet-model.md step 5; crates/engine/src/bake/mars.rs, HIGHLAND .. FROST): after Luna's,
+# never reordered. Bright red dust on the highlands and the plains, dark basalt sand on the young lava, pale clay
+# in the old lake beds, regolith on the scoured floors; the band is 3 m (the top block, then to 4 m), the rock below
+# it the whole crust until Mars has rock provinces. Real-world logic, taste defaults.
+# the old southern crust: regolith over breccia, the crust the impacts broke and welded again
+[[biome]]
+name = "cratered highland"
+top = "red dust"
+band = "mars regolith"
+rock = "breccia"
+
+# the northern lowlands: dust and regolith over the basalt that floored them
+[[biome]]
+name = "dust plain"
+top = "red dust"
+band = "mars regolith"
+rock = "basalt"
+
+# young lava: its dark sand straight on the basalt, the wind keeping the dust off (dark from orbit)
+[[biome]]
+name = "lava plain"
+top = "basalt sand"
+band = "basalt"
+rock = "basalt"
+
+# the shields' flanks: dark basalt sand and broken basalt over basalt (a low shield as Syrtis Major is)
+[[biome]]
+name = "basalt shield"
+top = "basalt sand"
+band = "mars regolith"
+rock = "basalt"
+
+# the canyon's floor: its layered sulfates under the debris, the walls' basalt below
+[[biome]]
+name = "canyon floor"
+top = "mars regolith"
+band = "gypsum"
+rock = "basalt"
+
+# the ground that collapsed when the water under it burst out: broken crust
+[[biome]]
+name = "chaos"
+top = "mars regolith"
+band = "breccia"
+rock = "basalt"
+
+# the floods' channel floors, scoured to the broken basalt
+[[biome]]
+name = "outflow channel"
+top = "mars regolith"
+band = "mars regolith"
+rock = "basalt"
+
+# old lake beds: the pale clay and the gypsum the lakes left as they dried (light-toned from orbit)
+[[biome]]
+name = "sediment basin"
+top = "clay"
+band = "gypsum"
+rock = "gypsum"
+
+# the fans where valleys met the lakes: pale clay over layered sandstone
+[[biome]]
+name = "delta"
+top = "clay"
+band = "clay"
+rock = "sandstone"
+
+# the caps: water ice on top, layered with dust under it, on the basalt
+[[biome]]
+name = "polar ice"
+top = "ice"
+band = "dusty ice"
+rock = "basalt"
+
+# the cold crater floors: a thin frost on the regolith and the old crust
+[[biome]]
+name = "frost"
+top = "frost"
+band = "mars regolith"
+rock = "breccia"

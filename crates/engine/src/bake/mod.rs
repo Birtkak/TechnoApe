@@ -340,6 +340,10 @@ impl Map {
         // the spline overshoots a little next to a calm cell
         (s, r.max(0.0))
     }
+    /// Whether it is an airless crust's map, Luna's or a planet's (Mars's): no sea on it.
+    pub fn crust(&self) -> bool {
+        self.version == luna::VERSION || self.version == mars::VERSION
+    }
     /// The rock province of the cell that holds face point (x, y), in cells; None on a map from before the rock.
     /// Luna's from her kinds (`luna::province`; a world asks it from generation 4, `Body::rock_at`).
     pub fn rock(&self, face: usize, x: f64, y: f64) -> Option<u8> {
@@ -618,7 +622,7 @@ fn file_v(seed: i32, n: i32, v: u32) -> PathBuf {
 /// The map of (seed, n) if it is in memory or on disk, and its hash is `hash` (any of this version, when
 /// None; a save that names one of version 1 gets that too).
 pub fn find(seed: i32, n: i32, hash: Option<u64>) -> Option<Arc<Map>> {
-    find_in(seed, n, hash, if hash.is_some() { &[VERSION, 6, 5, 4, 3, 2, 1, luna::VERSION] } else { &[VERSION] })
+    find_in(seed, n, hash, if hash.is_some() { &[VERSION, 6, 5, 4, 3, 2, 1, luna::VERSION] } else { &[VERSION] }).or_else(|| mars::find(seed, n, hash?))
 }
 
 /// `find` among maps of these versions.
@@ -639,6 +643,9 @@ fn find_in(seed: i32, n: i32, hash: Option<u64>, versions: &[u32]) -> Option<Arc
 
 /// Keeps a map in memory and on disk (a failed write only costs the next start a bake).
 pub fn keep(map: Map) -> Arc<Map> {
+    if map.version == mars::VERSION {
+        return mars::keep_any(map);
+    }
     write(&file_v(map.seed, map.n, map.version), &map);
     let m = Arc::new(map);
     LOADED.lock().unwrap().insert((m.seed, m.n, m.version), Arc::downgrade(&m));

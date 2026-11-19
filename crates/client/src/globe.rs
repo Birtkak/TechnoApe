@@ -45,6 +45,20 @@ fn texel_geo(x: usize, y: usize, (w, h): (usize, usize)) -> (f64, f64) {
 
 /// Luna's kinds (`bake::luna`, HIGHLAND .. SHADOW) in the picture's colours: pale highlands, dark maria.
 const LUNA: [[u8; 3]; 7] = [[168, 166, 160], [82, 82, 88], [214, 212, 204], [118, 118, 124], [150, 120, 96], [160, 140, 110], [40, 40, 52]];
+/// Mars's kinds (`bake::mars`, HIGHLAND .. FROST): rust highlands, ochre plains, dark lava, pale sediment, white ice.
+const MARS: [[u8; 3]; 11] = [
+    [150, 84, 52],
+    [184, 112, 66],
+    [66, 57, 52],
+    [74, 62, 55],
+    [120, 76, 56],
+    [140, 96, 70],
+    [164, 120, 86],
+    [196, 160, 120],
+    [176, 140, 100],
+    [236, 232, 226],
+    [214, 204, 200],
+];
 
 /// A body's picture, `size` texels, as RGBA8 in u32s (red the lowest byte): the ground by biome (Luna's by
 /// kind), the sea by its depth, lakes and rivers blue, every land texel shaded by its slope to a light in
@@ -61,7 +75,8 @@ pub fn image(map: &Map, zero: DVec3, size: (usize, usize)) -> Vec<u32> {
         .collect();
     let height: Vec<f32> = cells.iter().map(|&c| map.h[c]).collect();
     let lake: std::collections::HashSet<u32> = map.lakes.iter().map(|l| l.0).collect();
-    let luna = map.version > 100;
+    // an airless crust's map (Luna's, Mars's): its kinds' colours and relief below the datum too
+    let (luna, mars) = (map.crust(), map.version == engine::bake::mars::VERSION);
     // a texel's metres east and north, for the slope: the radius from the columns (a metre each, 4 n round)
     let r = map.n as f64 * 2.0 / PI;
     let dy = PI * r / h as f64;
@@ -69,7 +84,9 @@ pub fn image(map: &Map, zero: DVec3, size: (usize, usize)) -> Vec<u32> {
         .map(|k| {
             let (x, y) = (k % w, k / w);
             let (c, z) = (cells[k], height[k]);
-            let mut rgb = if luna {
+            let mut rgb = if mars {
+                MARS[(map.biome[c].saturating_sub(engine::bake::mars::HIGHLAND) as usize).min(10)].map(f32::from)
+            } else if luna {
                 LUNA[(map.biome[c].saturating_sub(engine::bake::luna::HIGHLAND) as usize).min(6)].map(f32::from)
             } else if map.biome[c] == engine::bake::life::ICE {
                 // the polar caps over land, lake and sea alike (ADR 0107)
@@ -417,5 +434,31 @@ mod tests {
         assert!(land[1] > land[2], "grassland is green: {land:?}");
         assert!(sea[2] > sea[0] && sea[2] > sea[1], "the deep sea is blue: {sea:?}");
         assert_eq!(img.len(), size.0 * size.1);
+    }
+
+    /// A Mars map (`bake::mars`) is drawn in Mars's colours, not taken for Luna's: its dust plains and highlands
+    /// red, its polar ice white, every kind its own colour.
+    #[test]
+    fn a_mars_map_has_mars_colours() {
+        use engine::bake::mars;
+        let m = 8;
+        let colour = |kind: u8| {
+            let map = Map { version: mars::VERSION, n: 64, m, h: vec![0.0; 6 * 64], biome: vec![kind; 6 * 64], ..Map::empty() };
+            let v = image(&map, DVec3::Y, (16, 8))[texel(0.0, 0.0, (16, 8))];
+            [v & 255, v >> 8 & 255, v >> 16 & 255]
+        };
+        for k in [mars::HIGHLAND, mars::PLAIN] {
+            let c = colour(k);
+            assert!(c[0] > c[1] && c[1] >= c[2] && c[0] > c[2] + 25, "{}: red-brown, {c:?}", mars::KINDS[(k - mars::HIGHLAND) as usize]);
+        }
+        // the young lava and the shields dark (their basalt sand), under half the dust's brightness
+        let sum = |c: [u32; 3]| c.iter().sum::<u32>();
+        for k in [mars::LAVA, mars::SHIELD] {
+            assert!(sum(colour(k)) * 2 < sum(colour(mars::PLAIN)) + 40, "{}: dark, {:?}", mars::KINDS[(k - mars::HIGHLAND) as usize], colour(k));
+        }
+        let ice = colour(mars::CAP);
+        assert!(ice.iter().all(|&v| v > 180), "the cap is white: {ice:?}");
+        let all: std::collections::HashSet<[u32; 3]> = (mars::HIGHLAND..=mars::FROST).map(colour).collect();
+        assert_eq!(all.len(), mars::KINDS.len(), "every kind its own colour");
     }
 }

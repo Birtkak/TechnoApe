@@ -223,8 +223,8 @@ brackets are the ADRs (`archive/NNNN-*.md`) a decision came from; INDEX.md lists
 - Luna's lava tubes: a `caves.toml` row; see `caves.md`. [0166]
 
 ## Generation number
-`world::GENERATION` is **4** (checked in code, `crates/engine/src/world/mod.rs`; `known_generation` takes up to 4 and
-refuses 5 with "this world is generation N, this build knows up to M: update the game"). `Body::gen` is set on every
+`world::GENERATION` is **5** (checked in code, `crates/engine/src/world/mod.rs`; `known_generation` takes up to 5 and
+refuses 6 with "this world is generation N, this build knows up to M: update the game"). `Body::gen` is set on every
 body (before 4 only the home's was). A rule asks `b.gen >= k`; a future rule bumps `GENERATION` and keeps the old
 profile for older worlds. [0160, 0165]
 
@@ -235,6 +235,7 @@ profile for older worlds. [0160, 0165]
 | 2 | ADR 0160 | basalt flows on the volcanic arcs; round lava tubes; only copper (rings) near the spawn |
 | 3 | ADR 0161 | karst (the limestone worm is not made where karst replaces it); `Body::candidate_of` plant check cheaper (same answer) |
 | 4 | ADR 0165, 0166 | Luna's rock field; her ore and caves by her rock (0166 redefines generation 4's Luna: no gen-4 world had been handed over); no change to Terra |
+| 5 | bodies-and-orbits.md "Mars is a body in the world" | Mars, the third body (a row's `since = 5`, `bodies::of`); Terra and Luna as at 4 |
 
 How it is carried (ADR 0160):
 - In the save: `Save::gen: u8`, `VERSION` 21 at the time (a 20's `mantle: bool` is the same one byte: it reads as
@@ -260,18 +261,19 @@ Locked hashes (`technoape-server report=1 seed=1 planet=6144` `made_hash`):
 | 1 | 37b2d1b1006b66f7 | 0159, 0160 (f283474fb9f15012 before the cave kinds, with diamond) |
 | 2 | a2ef250b3ed4203a | 0160 |
 | 3 | bfb878ce14d32b75 | 0161 |
-| 4 (default) | bfb878ce14d32b75 (Terra the same at 3 and 4) | 0165, 0166 |
+| 4 | bfb878ce14d32b75 (Terra the same at 3 and 4) | 0165, 0166 |
+| 5 (default) | bfb878ce14d32b75 (Terra the same at 3, 4 and 5); Mars's `made_hash` cbf29ce484222325 (nothing made) | Mars |
 
 - `made_hash_crust` (caves and the crust's kinds' bodies on a mantle world): 9b209f3e64fcf265. [0158]
 - Luna's `made_hash` (report's, seed 1): gens 0 to 3 c6a367341bda1227 (her baked tubes, no ore); gen 4
-  cdd810732c670a46. Luna's blocks, small Luna (`luna_blocks_hash`): gens 0 and 3 a22a376de6be21ba; gen 4
-  b0f00158257f21d2. [0166, 0167]
+  cdd810732c670a46 (and 5). Luna's blocks, small Luna (`luna_blocks_hash`): gens 0 and 3 a22a376de6be21ba; gens 4 and 5
+  b0f00158257f21d2. Mars's blocks at generation 5 (`mars_generates_as_locked`, n 832): 3b6b6a314af6caa5. [0166, 0167]
 - The regression tests `generations_0_and_1_generate_as_before` (extended to 0, 1, 2 by `generations_0_1_and_2_..`
   in ADR 0161) lock caves, ores and rock of the 1536 planet from main's code before each change. [0160, 0161]
 - Also held by other ADRs: ADR 0062 (one generated block), 0070 (Luna's bake), 0162 and 0163 (checked: they keep gen
-  3 and the same hashes, no new number), 0165 (gen 4), 0167 (the Mars bake: its map is version 201; **generation 5**
-  is planned to add a third body, so a world made before keeps two bodies; not built, nothing changed in the
-  generation). Grep result: no ADR outside 0160, 0161, 0165 changes `GENERATION`.
+  3 and the same hashes, no new number), 0165 (gen 4), 0167 (the Mars bake: its map is version 201), Mars in the world
+  (bodies-and-orbits.md: **generation 5** adds the third body). Grep result: no ADR outside 0160, 0161, 0165 and
+  Mars's changes `GENERATION`.
 - Old ADR 0063 recorded `made_hash` 8ecb5dadddbbf9b5 (seed 1337, 4 km), and ADR 0138 recorded 2a79455bb6161781 on
   seed 1337; both are earlier numbers of that seed and not locks.
 - Saves of version 20 made with the mantle changed under their owners' feet where not dug (the mantle's rocks, the

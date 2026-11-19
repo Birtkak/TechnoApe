@@ -114,9 +114,9 @@ impl Looks {
     }
 }
 
-/// The places and the colours their names are written in: Terra green, Luna a light grey, Sol yellow.
+/// The places and the colours their names are written in: Terra green, Luna a light grey, Mars rust, Sol yellow.
 /// shortcut: a table here; a colour per row of data/bodies.toml when there are more bodies than these.
-pub const PLACES: [(&str, [f32; 3]); 3] = [("Terra", [0.42, 0.86, 0.45]), ("Luna", [0.82, 0.84, 0.88]), ("Sol", [1.0, 0.85, 0.25])];
+pub const PLACES: [(&str, [f32; 3]); 4] = [("Terra", [0.42, 0.86, 0.45]), ("Luna", [0.82, 0.84, 0.88]), ("Mars", [0.93, 0.48, 0.30]), ("Sol", [1.0, 0.85, 0.25])];
 
 /// For each character of `s`, the colour of the place whose name it is part of: whole words, any case
 /// ("Terra's" and "LUNA" count, "solid" does not).

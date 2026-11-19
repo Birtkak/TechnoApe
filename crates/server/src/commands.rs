@@ -110,7 +110,8 @@ impl Server {
                 "    [face i j layer]   that block of the body you are on (F3)",
                 "  /structure <name>    a file of data/structures stood five",
                 "    [seed]             blocks ahead (a grown one: that seed)",
-                "  /goto <where>        terra (home: the spawn), luna, or sun",
+                "  /goto <where>        terra (home: the spawn), luna, mars",
+                "                       (a new world's), or sun",
                 "  /timewarp <n>        the clock n times faster (1 to 10000,",
                 "                       up, down); . and , step it too",
                 "  /weather <what>      clear cloudy rain storm snow, or auto",
@@ -250,7 +251,10 @@ impl Server {
                         self.put(i, p, look);
                         format!("gone to {}", engine::bodies::find(&to).map_or("the sun", |b| self.world.bodies[b].name.as_str()))
                     }
-                    None => "usage: /goto terra|luna|sun\n  terra (or home) is the spawn".into(),
+                    None => {
+                        let names: Vec<String> = self.world.bodies.iter().map(|b| b.name.to_lowercase()).collect();
+                        format!("usage: /goto {}|sun\n  {} (or home) is the spawn", names.join("|"), names[0])
+                    }
                 }
             }
             Some("weather") => match (w.get(1).map(|s| s.to_lowercase()), &self.weather) {

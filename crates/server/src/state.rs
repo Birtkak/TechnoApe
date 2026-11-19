@@ -23,14 +23,16 @@ impl Server {
     /// `gen`: the world's generation (`Body::gen`), as the save says; a world whose home is on the noise land
     /// (from before the bake) is of generation 0, as it always was.
     pub fn on_map(bodies: &[(i32, Option<u64>)], seed: i32, gen: u8, accept: Receiver<ServerLink>) -> Server {
-        use engine::bodies::BODIES;
-        assert_eq!(bodies.len(), BODIES.len(), "this world has {} bodies and data/bodies.toml {}: it cannot be carried on", bodies.len(), BODIES.len());
-        if bodies[0].1.is_none() {
-            return Server::with_world(World::of(&BODIES, bodies.iter().map(|b| (b.0, None)).collect(), seed, 0.0, 0), seed, accept);
+        // a world has the rows of its generation (a world from before generation 5 has no Mars)
+        let baked = bodies.first().is_some_and(|b| b.1.is_some());
+        let rows = engine::bodies::of(if baked { gen } else { 0 });
+        assert_eq!(bodies.len(), rows.len(), "this world has {} bodies and data/bodies.toml {} of its generation {gen}: it cannot be carried on", bodies.len(), rows.len());
+        if !baked {
+            return Server::with_world(World::of(rows, bodies.iter().map(|b| (b.0, None)).collect(), seed, 0.0, 0), seed, accept);
         }
         let list = bodies
             .iter()
-            .zip(BODIES.iter())
+            .zip(rows.iter())
             .map(|(&(n, h), row)| {
                 let m = h.map(|h| {
                     let bake = row.bake.as_ref().unwrap_or_else(|| panic!("{} has no bake in data/bodies.toml, but this world has a map of it", row.name));
@@ -39,7 +41,7 @@ impl Server {
                 (n, m)
             })
             .collect();
-        Server::with_world(World::of(&BODIES, list, seed, 0.0, gen), seed, accept)
+        Server::with_world(World::of(rows, list, seed, 0.0, gen), seed, accept)
     }
     pub(super) fn with_world(mut world: World, seed: i32, accept: Receiver<ServerLink>) -> Server {
         world.open_ledger();

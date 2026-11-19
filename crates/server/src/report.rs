@@ -49,7 +49,7 @@ pub fn report(w: &World) -> String {
         }
     }
     let provinces: Vec<String> = NAMES.iter().zip(share).skip(engine::bake::rock::OCEAN as usize + 1).map(|(n, s)| format!("\"{n}\": {:.3}", s / cols)).collect();
-    format!(
+    let out = format!(
         "{}, \"{}\": {{\"n\": {}, \"made_hash\": \"{:016x}\", \"provinces\": {{{}}}, \"baked_tubes\": {}, \"caves\": {{\"balls\": {}, \"kinds\": {{{}}}}}, \"minerals\": {{{}}}}}}}",
         &out[..out.len() - 1],
         moon.name.to_lowercase(),
@@ -60,6 +60,46 @@ pub fn report(w: &World) -> String {
         moon.caves.len(),
         kinds(moon).join(", "),
         minerals(moon).join(", ")
+    );
+    // every other body on a planet's crust (Mars, generation 5): its kinds, heights and the tubes its map marks
+    let mut out = out;
+    for p in w.bodies.iter().filter(|b| b.map().is_some_and(|m| m.version == engine::bake::mars::VERSION)) {
+        out = format!("{}, \"{}\": {}}}", &out[..out.len() - 1], p.name.to_lowercase(), planet(p));
+    }
+    out
+}
+
+/// A planet's crust in the world (Mars): its map's kinds by area of the columns, its heights over the datum, the
+/// world's caves and ore bodies on it (none yet: no rock provinces), and the lava tubes its map marks.
+fn planet(b: &engine::world::Body) -> String {
+    use engine::bake::mars::{HIGHLAND, KINDS};
+    let map = b.map().unwrap();
+    let mut share = [0f64; KINDS.len()];
+    let mut cols = 0.0;
+    for f in 0..6usize {
+        for i in (4..b.n).step_by(8) {
+            for j in (4..b.n).step_by(8) {
+                let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
+                // (a kind not Mars's is counted in no share)
+                if let Some(s) = b.biome_at(f, ci, cj, b.dir(f, ci, cj)).and_then(|k| share.get_mut(k.checked_sub(HIGHLAND)? as usize)) {
+                    *s += 1.0;
+                }
+                cols += 1.0;
+            }
+        }
+    }
+    let kinds: Vec<String> = KINDS.iter().zip(share).map(|(n, s)| format!("\"{n}\": {:.3}", s / cols)).collect();
+    let (lo, hi) = map.h.iter().fold((f32::MAX, f32::MIN), |(a, z), &h| (a.min(h), z.max(h)));
+    let mean = map.h.iter().map(|&h| h as f64).sum::<f64>() / map.h.len() as f64;
+    format!(
+        "{{\"n\": {}, \"map_hash\": \"{:016x}\", \"made_hash\": \"{:016x}\", \"kinds\": {{{}}}, \"height_m\": [{lo:.1}, {mean:.1}, {hi:.1}], \"caves\": {}, \"ores\": {}, \"marked_tubes\": {}}}",
+        map.n,
+        map.hash,
+        made_hash(&b.caves, &b.ores),
+        kinds.join(", "),
+        b.caves.len(),
+        b.ores.len(),
+        baked_tubes(b)
     )
 }
 
@@ -90,7 +130,7 @@ fn baked_tubes(b: &engine::world::Body) -> String {
     // the first pit, and a roofed ball four on from it with its depth under the ground (`run=stand at= depth=`)
     let pit = map.tubes.iter().position(|t| t.1 < t.2).unwrap_or(0);
     // only where this world cuts them (to generation 3); from 4 the made tubes' lines under `caves` serve
-    let on = map.tubes.get(pit + 4).filter(|t| t.1 > t.2 && !b.rock_field()).map_or("null".to_string(), |t| {
+    let on = map.tubes.get(pit + 4).filter(|t| t.1 > t.2 && !b.rock_field() && map.version == engine::bake::luna::VERSION).map_or("null".to_string(), |t| {
         let d = at(t.0).normalize();
         format!("\"at={:.6},{:.6},{:.6} depth={:.1}\"", d.x, d.y, d.z, t.1 + t.2 - 1.0)
     });

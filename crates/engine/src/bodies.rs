@@ -97,6 +97,8 @@ struct Raw {
     density: [f64; 3],
     weight_g: Option<f64>,
     age: Option<f64>,
+    #[serde(default)]
+    since: u8,
 }
 
 /// What a body is (planet-model.md): only rocky bodies are built.
@@ -154,6 +156,9 @@ pub struct Row {
     /// The sun's distance in this body's radii: a body that circles the sun has it.
     pub sun: Option<f64>,
     pub makeup: Makeup,
+    /// The first world generation it is in (`world::GENERATION`; 0: every world): a world of an older one is
+    /// made, saved and sent without it (`of`).
+    pub since: u8,
 }
 
 impl Row {
@@ -187,6 +192,14 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
         };
         if r.home != (i == 0) {
             return Err(format!("body '{}': the first row is the home body, and only it", r.name));
+        }
+        // a generation's bodies are the rows down to its last (`of`): the home in every world, a row never older
+        // than the one above it
+        if r.home && r.since > 0 {
+            return Err(format!("body '{}': the home's since is 0, not {}", r.name, r.since));
+        }
+        if let Some(p) = rows.last().filter(|p| p.since > r.since) {
+            return Err(format!("body '{}': since {} is under the row above's {}: new rows go at the end", r.name, r.since, p.since));
         }
         let n = match (r.home, parent, r.n, r.size, r.sun) {
             (true, None, Some(n), None, Some(sun)) if sun > 1.0 => n,
@@ -222,7 +235,7 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
             (false, _) if r.age.is_some() => return Err(format!("body '{}': age is read only by a planet's crust (stages starting with 'crust' on a body that circles the sun)", r.name)),
             _ => None,
         };
-        rows.push(Row { name: r.name, parent, home: r.home, bake: r.stages.map(|s| Bake(s, crate::bake::luna::sun_high(r.size, orbit), planet)), words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator, ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup });
+        rows.push(Row { name: r.name, parent, home: r.home, bake: r.stages.map(|s| Bake(s, crate::bake::luna::sun_high(r.size, orbit), planet)), words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator, ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup, since: r.since });
     }
     if moon(&rows).is_none() {
         return Err(format!("body '{}': the home body needs a moon (its first sizes the sun)", rows[0].name));
@@ -234,10 +247,16 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
 /// which `World::gravity` keeps on the stack too (0163-n-bodies).
 pub const MAX: usize = 4;
 
-/// A welcome's body list against this build's rows (the welcome has no version): one of another length is
-/// a server of another build, refused as `world::known_generation` refuses a newer world.
-pub fn known_bodies(n: usize) -> Result<(), String> {
-    if n == BODIES.len() { Ok(()) } else { Err(format!("the server has {n} bodies, this game {}: update the game", BODIES.len())) }
+/// A welcome's body list against this build's rows for the world's generation (the welcome has no version):
+/// one of another length is a server of another build, refused as `world::known_generation` refuses a newer world.
+pub fn known_bodies(n: usize, gen: u8) -> Result<(), String> {
+    let mine = of(gen).len();
+    if n == mine { Ok(()) } else { Err(format!("the server has {n} bodies, this game {mine}: update the game")) }
+}
+
+/// The rows of a world of generation `gen`: those whose `since` it has reached (they are the first rows, `parse`).
+pub fn of(gen: u8) -> &'static [Row] {
+    &BODIES[..BODIES.iter().take_while(|r| r.since <= gen).count()]
 }
 
 /// The home body's first moon: the one the sky's eclipses, tides and moonlight are of (`sky::Sky`).
@@ -306,19 +325,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_data_file_has_terra_and_luna() {
+    fn the_data_file_has_terra_luna_and_mars() {
         let names: Vec<&str> = BODIES.iter().map(|r| r.name.as_str()).collect();
-        assert_eq!(names, ["Terra", "Luna"]);
-        assert_eq!((BODIES[0].generator, BODIES[0].air, BODIES[0].orbit), (Generator::Continents, true, None));
-        assert_eq!((BODIES[1].generator, BODIES[1].air, BODIES[1].orbit), (Generator::Hills, false, Some((60.0, 0.0))));
-        assert_eq!(BODIES[1].ground[0], BLOCKS.id("regolith"));
-        assert_eq!(BODIES.iter().map(|r| (r.parent, r.home, r.bake.as_ref().map(|b| b.0.clone()))).collect::<Vec<_>>(), [(None, true, Some(Stage::TERRA.to_vec())), (Some(0), false, Some(Stage::LUNA.to_vec()))]);
-        assert_eq!((moon(&BODIES), sizes(&BODIES, 1536, 512), moon_columns(6144)), (Some(1), vec![1536, 512], 1664));
-        // a welcome of another number of bodies is a server of another build
-        assert!(known_bodies(BODIES.len()).is_ok());
-        let e = known_bodies(BODIES.len() + 1).unwrap_err();
-        assert!(e.contains("the server has 3 bodies, this game 2") && e.contains("update the game"), "{e}");
-        assert_eq!((BODIES[0].n, BODIES[1].n), (6144, 1664), "6144 / 3.7 is 1660.5: 52 chunks");
+        assert_eq!(names, ["Terra", "Luna", "Mars"]);
+        // a world of generation 4 or before has the first two, from 5 Mars too (ADR 0160's rule: old worlds as they were)
+        assert_eq!([0, 4, 5].map(|g| of(g).len()), [2, 2, 3]);
+        assert_eq!(BODIES.iter().map(|r| r.since).collect::<Vec<_>>(), [0, 0, 5]);
+        assert!(known_bodies(2, 4).is_ok() && known_bodies(3, 5).is_ok());
+        let e = known_bodies(2, 5).unwrap_err();
+        assert!(e.contains("the server has 2 bodies, this game 3") && e.contains("update the game"), "{e}");
+        assert_eq!(find("mars"), Some(2));
+        let two = of(4);
+        assert_eq!((two[0].generator, two[0].air, two[0].orbit), (Generator::Continents, true, None));
+        assert_eq!((two[1].generator, two[1].air, two[1].orbit), (Generator::Hills, false, Some((60.0, 0.0))));
+        assert_eq!(two[1].ground[0], BLOCKS.id("regolith"));
+        assert_eq!(two.iter().map(|r| (r.parent, r.home, r.bake.as_ref().map(|b| b.0.clone()))).collect::<Vec<_>>(), [(None, true, Some(Stage::TERRA.to_vec())), (Some(0), false, Some(Stage::LUNA.to_vec()))]);
+        assert_eq!((moon(two), sizes(two, 1536, 512), moon_columns(6144)), (Some(1), vec![1536, 512], 1664));
+        assert_eq!(sizes(&BODIES, 6144, 1664), [6144, 1664, 3328]);
+        assert_eq!((two[0].n, two[1].n), (6144, 1664), "6144 / 3.7 is 1660.5: 52 chunks");
         assert_eq!((find("home"), find("TERRA"), find("luna"), find("sun")), (Some(0), Some(0), Some(1), None));
         assert_eq!((find("planet"), find("moon")), (None, None), "the bodies go by their names (bugs/2026-11-11_13-10-42)");
     }
@@ -360,6 +384,16 @@ mod tests {
             (good.replacen("hills", "lava", 1), "no such generator"),
         ] {
             assert!(parse(&bad).is_err(), "{why}");
+        }
+        // `since` (generation 5): the home's is 0, and rows never go back in it; refused, saying so
+        let later = |s: &str| s.replacen("sun = 100.0\n", "sun = 100.0\nsince = 5\n", 1);
+        for (bad, says) in [
+            (later(&good), "the home's since is 0, not 5"),
+            (later(&b("parent = \"A\"\norbit = 3.0\nsize = 4.0\nsince = 5\n")), "the home's since is 0, not 5"),
+            (format!("{}{}", b("parent = \"A\"\norbit = 3.0\nsize = 4.0\nsince = 5\n"), row("C", "parent = \"A\"\norbit = 5.0\nsize = 4.0\n")), "since 0 is under the row above's 5"),
+        ] {
+            let e = parse(&bad).unwrap_err();
+            assert!(e.contains(says), "{says}: {e}");
         }
         // a stage list (0165-bake-stages): an unknown stage, and one without what it needs, refused and saying why
         let stages = |s: &str| parse(&b(&format!("parent = \"A\"\norbit = 3.0\nsize = 4.0\nstages = {s}\n")));
@@ -404,13 +438,12 @@ mod tests {
         assert_eq!(stages("[\"crust\", \"impacts\"]").unwrap()[1].bake.as_ref().unwrap().2, None);
     }
 
-    /// The Mars-like planet's draft row (planet-model.md step 5a, `data/drafts/bodies-mars.toml`): it parses after
-    /// bodies.toml's rows, a planet's crust with the developer's stage list, 1.85 times smaller than Terra.
+    /// Mars's row (planet-model.md step 5): a planet's crust with the developer's stage list, 1.85 times smaller
+    /// than Terra, in the worlds of generation 5 on.
     #[test]
-    fn the_mars_draft_row_parses_and_its_list_is_accepted() {
-        let rows = parse(&format!("{}{}", include_str!("../../../data/bodies.toml"), include_str!("../../../data/drafts/bodies-mars.toml"))).unwrap();
-        assert_eq!(rows[..2], BODIES[..], "Terra and Luna as data/bodies.toml has them");
-        let m = &rows[2];
+    fn the_mars_row_parses_and_its_list_is_accepted() {
+        let m = &BODIES[2];
+        assert_eq!(m.since, 5);
         assert_eq!((m.name.as_str(), m.parent, m.home, m.n, m.orbit), ("Mars", None, false, 3328, None));
         assert_eq!(m.n / crate::world::CS, 104, "13 x 8 chunks, as Luna's 52 are 13 x 4");
         let b = m.bake.as_ref().unwrap();

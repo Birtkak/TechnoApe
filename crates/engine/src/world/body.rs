@@ -100,7 +100,7 @@ impl Body {
         let (a, b) = at.unwrap_or((0, 0));
         self.spawn = self.dir(f, (i0 + a) as f64 + 0.5, (j0 + b) as f64 + 0.5);
         // an airless body has no sea: its caves and ores ask no water and no shore (the ocean above keeps its old sea)
-        if self.map().is_some_and(|m| m.version == crate::bake::luna::VERSION) {
+        if self.map().is_some_and(|m| m.crust()) {
             self.sea = None;
         }
         let caves = crate::caves::make(&self, self.baked.as_ref().unwrap().seed);
@@ -112,8 +112,12 @@ impl Body {
         self
     }
     /// Luna on its bake (ADR 0070): the map's heights and kinds as a baked planet's, no sea, and its lava
-    /// tubes as caves.
+    /// tubes as caves. A planet's crust (Mars, `bake::mars`) the same, without caves: its marked tubes wait for
+    /// its rock provinces.
     pub fn with_luna(self, map: Arc<Map>) -> Self {
+        if map.version == crate::bake::mars::VERSION {
+            return self.with_map(map);
+        }
         let mut b = self.with_map(map.clone());
         debug_assert!(b.sea.is_none(), "with_map lays no sea on a Luna map");
         let (m, k) = (map.m as usize, b.n as f64 / map.m as f64);
@@ -151,6 +155,8 @@ impl Body {
     pub fn rock_body(&self) -> usize {
         match self.map() {
             Some(m) if m.version == crate::bake::luna::VERSION => crate::bodies::moon(&BODIES).unwrap_or(0),
+            // shortcut: the one row that bakes a planet's crust; a second such row needs its index in the body
+            Some(m) if m.version == crate::bake::mars::VERSION => BODIES.iter().position(|r| r.bake.as_ref().is_some_and(|b| b.2.is_some())).unwrap_or(0),
             _ => 0,
         }
     }
@@ -246,7 +252,7 @@ impl Body {
             h = h.min(c.cut as f64).max(c.floor as f64);
         }
         // maps from before ADR 0105's peaks keep the clamp of AMP 140, so their worlds keep their ground to the bit
-        let amp = if b.map.version == crate::bake::VERSION || b.map.version == 6 { AMP } else { 140.0 };
+        let amp = if b.map.version == crate::bake::VERSION || b.map.version == 6 || b.map.version == crate::bake::mars::VERSION { AMP } else { 140.0 };
         self.radius - SEA_DEPTH + h.clamp(-FLOOR, amp - SEA_DEPTH - 2.0 - TALLEST as f64)
     }
     /// Face point (i, j) moved by the jitter noise at d, in columns: biome borders and patches wander.

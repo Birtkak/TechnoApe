@@ -2,7 +2,8 @@
 use super::*;
 
 impl World {
-    /// The bodies of `data/bodies.toml` (Terra and Luna), with `planet_n` and `moon_n` columns per face edge.
+    /// The bodies of `data/bodies.toml` in a world of generation 0 (Terra and Luna), with `planet_n` and `moon_n`
+    /// columns per face edge.
     pub fn new(planet_n: i32, moon_n: i32, seed: i32) -> Self {
         World::with_map(planet_n, moon_n, seed, None)
     }
@@ -31,10 +32,17 @@ impl World {
     /// `with_maps_warp`, the planet of generation `gen` (`Body::gen`): from 1 its grid goes down through the
     /// mantle (ADR 0152; generation 0, a save from before, keeps its 192 m floor). Luna and a planet too small for
     /// a deep crust keep theirs.
+    /// The bodies are the rows of generation `gen` (`bodies::of`: Mars from 5); one after the home's moon is on
+    /// its own bake when the home is on a map (a baked world), else on the seed's noise.
     pub fn with_grid(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>, luna: Option<Arc<Map>>, warp: f64, gen: u8) -> Self {
-        let moon = crate::bodies::moon(&BODIES);
-        let list = crate::bodies::sizes(&BODIES, planet_n, moon_n).into_iter().enumerate().map(|(i, n)| (n, if i == 0 { map.clone() } else if Some(i) == moon { luna.clone() } else { None })).collect();
-        World::of(&BODIES, list, seed, warp, gen)
+        let rows = crate::bodies::of(gen);
+        let moon = crate::bodies::moon(rows);
+        let list = crate::bodies::sizes(rows, planet_n, moon_n)
+            .into_iter()
+            .enumerate()
+            .map(|(i, n)| (n, if i == 0 { map.clone() } else if Some(i) == moon { luna.clone() } else { map.as_ref().and_then(|_| Some(rows[i].bake.as_ref()?.get(seed, n))) }))
+            .collect();
+        World::of(rows, list, seed, warp, gen)
     }
     /// The world of `rows` (`data/bodies.toml`'s, or a test's), each body of the columns and map given in row
     /// order (0163-n-bodies). A body's grid lies at its nominal centre: the home's at the origin, the k-th

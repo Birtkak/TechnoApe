@@ -453,7 +453,7 @@ impl Map {
     /// The lowest and highest water level (metres over the sea) a river or lake near cells x0..=x1, y0..=y1
     /// may give (`water` never gives one outside it); None: none there.
     pub fn wet_near(&self, face: usize, x0: i32, y0: i32, x1: i32, y1: i32) -> Option<(f32, f32)> {
-        if self.version < 4 {
+        if !self.holds_water() {
             return None;
         }
         let m = self.m as i32;
@@ -487,14 +487,19 @@ impl Map {
         let (f, i, j) = fold(face, (x.floor() as i32).clamp(0, m - 1), (y.floor() as i32).clamp(0, m - 1), m);
         (f as u32 * self.m + j as u32) * self.m + i as u32
     }
+    /// Whether its rivers and lakes hold water: a Terra map of version 4 on. Mars's beds (`bake::mars`) are dry,
+    /// cut into the ground but empty; Luna's map has none.
+    fn holds_water(&self) -> bool {
+        (4..=super::VERSION).contains(&self.version)
+    }
     /// False where `water` is surely None (`Lines::wet`): one bit, before any geometry.
     pub fn maybe_wet(&self, face: usize, x: f64, y: f64) -> bool {
         let c = self.cell_of(face, x, y);
-        self.version >= 4 && self.lines.wet.get(c as usize / 64).is_some_and(|w| w & (1 << (c % 64)) != 0)
+        self.holds_water() && self.lines.wet.get(c as usize / 64).is_some_and(|w| w & (1 << (c % 64)) != 0)
     }
     /// `water`, with the river segments to try given.
     fn water_among(&self, face: usize, x: f64, y: f64, d: DVec3, segs: impl Iterator<Item = u32>) -> Option<Water> {
-        if self.version < 4 {
+        if !self.holds_water() {
             return None;
         }
         let m = self.m as i32;

@@ -29,6 +29,48 @@ fn utc_stamps() {
     assert_eq!(utc_stamp(951_782_400), "2000-02-29_00-00-00");
 }
 
+/// What a third body (Mars, generation 5) costs in RAM: one world of generation 4 and one of 5 built in turn (as
+/// the server's or a client's), the working set after each, and the Mars map's own arrays. Run from the repository
+/// (its kept bakes): `cargo test -p client --profile play third_body_ram -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn third_body_ram() {
+    std::env::set_current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../..")).unwrap();
+    // (a second world of a generation shares the first's maps, `bake::find`'s kept ones: its rise is a world's own part)
+    let m0 = ram_mb();
+    let w4 = World::baked_warp(6144, 1664, 1, 0.0, 4);
+    let m4 = ram_mb();
+    let w4b = World::baked_warp(6144, 1664, 1, 0.0, 4);
+    let m4b = ram_mb();
+    drop((w4, w4b));
+    let m4d = ram_mb();
+    let w5 = World::baked_warp(6144, 1664, 1, 0.0, 5);
+    let m5 = ram_mb();
+    let w5b = World::baked_warp(6144, 1664, 1, 0.0, 5);
+    println!("generation 4: first world +{:.0} MB, second +{:.0}; generation 5: first +{:.0}, second +{:.0}", m4 - m0, m4b - m4, m5 - m4d, ram_mb() - m5);
+    drop(w5b);
+    let b = &w5.bodies[2];
+    let map = b.map().unwrap();
+    let mb = |n: usize| n as f64 / 1048576.0;
+    let mips: usize = map.mips.iter().map(|m| m.len() * 4).sum();
+    println!(
+        "start {m0:.0} MB, gen 4 world +{:.0} (dropped: {m4d:.0}), gen 5 world +{:.0}; Mars map {} cells: h {:.1} MB, biome {:.1}, rock {:.1}, mips {:.1}, rough {:.1}, rivers {} ({:.1} MB), lakes {}",
+        m4 - m0,
+        m5 - m4d,
+        map.h.len(),
+        mb(map.h.len() * 4),
+        mb(map.biome.len()),
+        mb(map.rock.len()),
+        mb(mips),
+        mb(map.rough.len() * 4),
+        map.rivers.len(),
+        mb(std::mem::size_of_val(map.rivers.as_slice())),
+        map.lakes.len(),
+    );
+    let maps: Vec<_> = w5.bodies.iter().map(|b| b.map().map_or(0, |m| m.h.len())).collect();
+    println!("cells per body's map: {maps:?}");
+}
+
 pub fn ram_mb() -> f64 {
     let mut c = PROCESS_MEMORY_COUNTERS::default();
     unsafe {
