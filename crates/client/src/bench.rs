@@ -322,7 +322,7 @@ impl App {
             a.get("quick", 0),
             self.world.bodies[0].n,
             self.world.bodies[0].radius,
-            self.world.field(0) * a.get("field", 1.0),
+            self.world.field(0) * crate::frame::field_scale(a),
             budget_ok,
             s.frames as f64 / secs.max(1e-9),
             pct(&mut s.frame_ms, 0.5),

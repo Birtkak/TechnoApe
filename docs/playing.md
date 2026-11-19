@@ -57,5 +57,5 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
 - The aurora (draft-magnetic-field): curtains of green light with red-violet tops in a ring round each pole at
   night, about 70 degrees latitude at Terra's field; seen from the ground there and from orbit over the night side.
   `field=x` (the game) scales the home's magnetic field for the run (as core mining will lower it): the ring
-  widens toward the equator and dims, at `field=0` there is none. The field is in F3 (World, Field) and in the
+  widens toward the equator and dims, at `field=0` there is none (held to 0..10; not a number reads as 1). The field is in F3 (World, Field) and in the
   run's JSON line (`field`).

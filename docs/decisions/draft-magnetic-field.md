@@ -51,7 +51,12 @@ Option 2.
 - **Day and night:** faded out by the daylight in the air at the camera (`day x air` from 0.02 to 0.27, a
   smoothstep: gone with the sun above about 3° under the horizon, whole by about 9° under), and per point by the sun's
   height there (from orbit only the night side's ring shows).
-- **`field=x`** (the game): scales the home's field for this run, as `warp=` was a trial. The scaled value is in F3
+- **Under the sea level** (camera inside the sea's sphere) none is drawn, as the clouds: the G-buffer holds no
+  water, so the water's surface would read as sky and show it. A camera in a cave under the sea level loses it too.
+- **With the clouds turned off** (the Clouds setting) the aurora still draws: the clouds' pass runs for either.
+- **`field=x`** (the game): scales the home's field for this run, as `warp=` was a trial. A number is held to
+  0..10 (at 10 the oval is 6° from the pole, its band clear of it); anything not a finite number (`nan`, `inf`)
+  reads as none given, 1 (`frame::field_scale`, the one reader). The scaled value is in F3
   (World, Field: the value, the oval's latitude and brightness) and in the run's JSON line (`field`). No other option.
 
 ## Consequences
@@ -60,11 +65,18 @@ Option 2.
   50 %, air and water leak under 25 %, field-driven machines); magnetic poles tilted off the spin poles (and the oval
   skewed toward the night side, as Earth's is); solar storms that brighten and widen the oval for a while; the
   aurora of a body other than the home (only body 0 is drawn); its sound.
+- Answered in review, left as it is: Terra's night-side aurora shows over Luna's daytime sky when Terra is seen
+  from Luna or from orbit (fair: it is Terra's night side, and Luna has no air to drown it); the pass runs every
+  night frame on the home even with no oval in view (its cost is in the perf-debt row).
+- The first assertion of `the_field_argument_reaches_the_aurora` compares `aurora_post` against the same formula
+  (`sky::aurora` of the scaled field) it is built from: it proves the scale reaches the renderer's numbers, not the
+  rule, which `the_oval_widens_and_dims_as_the_field_falls` tests.
 
 ## Checks
 | Check | Result |
 |---|---|
 | Tests, red then green | `the_worlds_field_is_the_interiors` (red: the stub's 0, "Terra is the unit"; green: Terra 1.0, Luna her interior's, 0.0119); `the_oval_widens_and_dims_as_the_field_falls` (red: a fixed oval; green: 70° at 1, colatitude up and brightness down at every step from 1 to 0.15, under 62° at 0.4 and 45° at 0.2, never past the equator, none at 0 and on Luna, smaller and brighter at 2); `the_field_argument_reaches_the_aurora` (client; red: a stub; green: `aurora_post` gives the oval of field x scale for 1, 0.4, 0.2, none at 0 and by day, dimmer in twilight). `cargo test --workspace`: 975 passed, 0 failed, 26 ignored |
+| Review fixes | `the_field_argument_is_finite_and_bounded` (red: `nan` read as NaN, "not a number: as if none were given"; green: none given 1, 0.4 / 0 / 10 kept, nan / inf / -inf 1, 100 to 10, -1 to 0); `field=nan` run: its JSON line parses, `field` 1.0. `out/aurora-sea-before.png` (4 m under a 56 m deep sea at 60° latitude, midnight, looking poleward up): black water with the aurora's curtains drawn sharp over it; `aurora-sea-after.png`, the same with the guard: only the water's dark fog |
 | Old worlds | `technoape-server report=1 seed=1 planet=6144`: `made_hash` bfb878ce14d32b75, unchanged; the hash and bit-lock tests untouched and green |
 | Seen | `out/aurora-a.png`: 66° latitude, midnight, looking poleward: the oval overhead, green curtains with rays and a sharp lower edge, red-violet tops, folds that shift and rays that brighten and fade over the 2.5 s. `aurora-b.png` (`field=0.4`, looking toward the equator): the oval moved to 57°, high in the southern sky, dimmer. `aurora-c1.png`: the equator, field 1: none. `aurora-c2.png` (`field=0.15`): a dim fringe of rays low on the northern horizon (at 0.2 the oval, at 40°, stays just under the equator's horizon). `aurora-d.png`: 5 km over the south pole: the ring round the pole over the night side, gone where the sun is up. `aurora-e.png` (`time=` 720, 760, 800 at the view of a): none at dusk, faint as the sky darkens, whole by about 10° under |
 | Views | `tools/views.sh` against main's baselines: ok, all twelve, no cracks, largest diff 0.257 % (orbit) and 0.244 % (winter), as before: the views are by day and show no aurora |

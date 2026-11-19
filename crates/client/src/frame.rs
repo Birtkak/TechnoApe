@@ -1055,7 +1055,7 @@ impl App {
                 [sun_light.x, sun_light.y, sun_light.z, [0.0, 12.0, 24.0][self.settings.at(S::Clouds).min(2)]],
                 [sky_amb.x, sky_amb.y, sky_amb.z, flash],
                 g.cloud,
-                aurora_post(&self.world, self.args.get("field", 1.0), day * air, if self.shot.is_some() { self.time0 } else { wt }),
+                aurora_post(&self.world, field_scale(&self.args), day * air, if self.shot.is_some() { self.time0 } else { wt }),
             ]
         };
         let aurora_on = cl[8][1] > 0.0;
@@ -1513,6 +1513,14 @@ fn hand_shown(play: bool, tool: bool, f3: bool, home: Menu, menu: Option<Menu>) 
     play && !tool && !f3 && home != Menu::Title && menu != Some(Menu::Dead)
 }
 
+/// The `field=` argument: the home's field is scaled by it for this run (draft-magnetic-field).
+/// Not a finite number reads as none given (1); a number is held to 0..10 (at 10 the oval is 6 degrees from the
+/// pole, its band clear of it).
+pub(crate) fn field_scale(args: &Args) -> f64 {
+    let f: f64 = args.get("field", 1.0);
+    if f.is_finite() { f.clamp(0.0, 10.0) } else { 1.0 }
+}
+
 /// The aurora's numbers for post.wgsl (`Post::aurora`, draft-magnetic-field): the oval's colatitude, its
 /// brightness at the home's field times `scale` (the `field=` argument) faded out by the daylight in the air here
 /// (`Globals::sky` w), the home's sea radius and the sky's clock in the hour. Body 0 is the home.
@@ -1528,6 +1536,16 @@ pub(crate) fn aurora_post(world: &World, scale: f64, day: f32, clock: f64) -> [f
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `field=` is a finite scale from 0 to 10: anything else would print a JSON line no reader takes and draw NaN.
+    #[test]
+    fn the_field_argument_is_finite_and_bounded() {
+        let at = |v: &str| field_scale(&Args([("field".to_string(), v.to_string())].into_iter().collect()));
+        assert_eq!(field_scale(&Args(Default::default())), 1.0, "none given");
+        assert_eq!((at("0.4"), at("0"), at("10")), (0.4, 0.0, 10.0));
+        assert_eq!((at("nan"), at("inf"), at("-inf")), (1.0, 1.0, 1.0), "not a number: as if none were given");
+        assert_eq!((at("100"), at("-1")), (10.0, 0.0), "held to 0..10");
+    }
 
     /// `field=` scales the home's field, and the scaled field is the one the aurora is drawn from; daylight hides it.
     #[test]

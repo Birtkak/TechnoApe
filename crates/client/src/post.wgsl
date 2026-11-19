@@ -451,6 +451,9 @@ fn aurora(px: vec2i, dir: vec3f, dist: f32) -> vec3f {
     if (u.aurora.y <= 0.0 || sea <= 0.0) { return vec3f(0.0); }
     let m = mat3x3f(u.rot0.xyz, u.rot1.xyz, u.rot2.xyz);
     let o = (-u.ctr.xyz) * m;
+    // as the clouds: under the sea level the water hides it (the G-buffer has no water: it would show on its
+    // surface); a camera in a cave under the sea level loses it too
+    if (dot(o, o) < sea * sea) { return vec3f(0.0); }
     let d = dir * m;
     var far = select(AU_BIG, dist, dist > 0.0);
     // the planet hides what is past it

@@ -902,7 +902,7 @@ impl App {
                     ("Air", air, 0),
                     ("Field", {
                         // the home's magnetic field, `field=` scaling it for the run, and its aurora (draft-magnetic-field)
-                        let f = w.field(0) * self.args.get("field", 1.0);
+                        let f = w.field(0) * crate::frame::field_scale(&self.args);
                         let a = engine::sky::aurora(f);
                         let aurora = if a.bright > 0.0 { format!("aurora at {:.0} degrees latitude, {:.0} % bright", 90.0 - a.colat.to_degrees(), a.bright * 100.0) } else { "no aurora".into() };
                         format!("{f:.3} of {}'s at the start, {aurora}", w.bodies[0].name)
