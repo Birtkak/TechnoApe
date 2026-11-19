@@ -24,9 +24,10 @@ impl Server {
     /// (from before the bake) is of generation 0, as it always was.
     pub fn on_map(bodies: &[(i32, Option<u64>)], seed: i32, gen: u8, accept: Receiver<ServerLink>) -> Server {
         // a world has the rows of its generation (a world from before generation 5 has no Mars)
-        let rows = engine::bodies::of(if bodies[0].1.is_none() { 0 } else { gen });
+        let baked = bodies.first().is_some_and(|b| b.1.is_some());
+        let rows = engine::bodies::of(if baked { gen } else { 0 });
         assert_eq!(bodies.len(), rows.len(), "this world has {} bodies and data/bodies.toml {} of its generation {gen}: it cannot be carried on", bodies.len(), rows.len());
-        if bodies[0].1.is_none() {
+        if !baked {
             return Server::with_world(World::of(rows, bodies.iter().map(|b| (b.0, None)).collect(), seed, 0.0, 0), seed, accept);
         }
         let list = bodies

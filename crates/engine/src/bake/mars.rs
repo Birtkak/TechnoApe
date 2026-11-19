@@ -1095,6 +1095,6 @@ mod tests {
                 h = crate::world::fnv(h, &w.generated_block(Block { body: 2, face: f, pos: glam::IVec3::new(i, j, z) }).to_le_bytes());
             }
         }
-        assert_eq!(format!("{h:016x}"), "6f2d07a8c4eeff47");
+        assert_eq!(format!("{h:016x}"), "3b6b6a314af6caa5");
     }
 }

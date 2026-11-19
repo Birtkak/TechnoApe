@@ -267,7 +267,7 @@ Locked hashes (`technoape-server report=1 seed=1 planet=6144` `made_hash`):
 - `made_hash_crust` (caves and the crust's kinds' bodies on a mantle world): 9b209f3e64fcf265. [0158]
 - Luna's `made_hash` (report's, seed 1): gens 0 to 3 c6a367341bda1227 (her baked tubes, no ore); gen 4
   cdd810732c670a46 (and 5). Luna's blocks, small Luna (`luna_blocks_hash`): gens 0 and 3 a22a376de6be21ba; gens 4 and 5
-  b0f00158257f21d2. Mars's blocks at generation 5 (`mars_generates_as_locked`, n 832): 6f2d07a8c4eeff47. [0166, 0167]
+  b0f00158257f21d2. Mars's blocks at generation 5 (`mars_generates_as_locked`, n 832): 3b6b6a314af6caa5. [0166, 0167]
 - The regression tests `generations_0_and_1_generate_as_before` (extended to 0, 1, 2 by `generations_0_1_and_2_..`
   in ADR 0161) lock caves, ores and rock of the 1536 planet from main's code before each change. [0160, 0161]
 - Also held by other ADRs: ADR 0062 (one generated block), 0070 (Luna's bake), 0162 and 0163 (checked: they keep gen

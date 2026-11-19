@@ -317,7 +317,8 @@ band = "ice"
 rock = "anorthosite"
 
 # Mars's kinds of ground (planet-model.md step 5; crates/engine/src/bake/mars.rs, HIGHLAND .. FROST): after Luna's,
-# never reordered. Red dust over nearly everything; the band is 3 m (the top block, then to 4 m), the rock below
+# never reordered. Bright red dust on the highlands and the plains, dark basalt sand on the young lava, pale clay
+# in the old lake beds, regolith on the scoured floors; the band is 3 m (the top block, then to 4 m), the rock below
 # it the whole crust until Mars has rock provinces. Real-world logic, taste defaults.
 # the old southern crust: regolith over breccia, the crust the impacts broke and welded again
 [[biome]]
@@ -333,17 +334,17 @@ top = "red dust"
 band = "mars regolith"
 rock = "basalt"
 
-# young lava: a thin dust straight on the basalt
+# young lava: its dark sand straight on the basalt, the wind keeping the dust off (dark from orbit)
 [[biome]]
 name = "lava plain"
-top = "red dust"
+top = "basalt sand"
 band = "basalt"
 rock = "basalt"
 
-# the shields' flanks: dust and broken basalt over basalt
+# the shields' flanks: dark basalt sand and broken basalt over basalt (a low shield as Syrtis Major is)
 [[biome]]
 name = "basalt shield"
-top = "red dust"
+top = "basalt sand"
 band = "mars regolith"
 rock = "basalt"
 
@@ -368,17 +369,17 @@ top = "mars regolith"
 band = "mars regolith"
 rock = "basalt"
 
-# old lake beds: clay over the gypsum the lakes left as they dried
+# old lake beds: the pale clay and the gypsum the lakes left as they dried (light-toned from orbit)
 [[biome]]
 name = "sediment basin"
-top = "red dust"
-band = "clay"
+top = "clay"
+band = "gypsum"
 rock = "gypsum"
 
-# the fans where valleys met the lakes: clay over layered sandstone
+# the fans where valleys met the lakes: pale clay over layered sandstone
 [[biome]]
 name = "delta"
-top = "red dust"
+top = "clay"
 band = "clay"
 rock = "sandstone"
 

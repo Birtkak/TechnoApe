@@ -195,8 +195,11 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
         }
         // a generation's bodies are the rows down to its last (`of`): the home in every world, a row never older
         // than the one above it
-        if r.home && r.since > 0 || rows.last().is_some_and(|p| p.since > r.since) {
-            return Err(format!("body '{}': since {} is under the row above's (the home's is 0): new rows go at the end", r.name, r.since));
+        if r.home && r.since > 0 {
+            return Err(format!("body '{}': the home's since is 0, not {}", r.name, r.since));
+        }
+        if let Some(p) = rows.last().filter(|p| p.since > r.since) {
+            return Err(format!("body '{}': since {} is under the row above's {}: new rows go at the end", r.name, r.since, p.since));
         }
         let n = match (r.home, parent, r.n, r.size, r.sun) {
             (true, None, Some(n), None, Some(sun)) if sun > 1.0 => n,
@@ -379,10 +382,18 @@ mod tests {
             (good.replace("512", "500"), "n not a chunk multiple"),
             (good.replacen("\"stone\", \"stone\", \"stone\"", "\"stone\", \"cheese\", \"stone\"", 1), "no such block"),
             (good.replacen("hills", "lava", 1), "no such generator"),
-            (good.replacen("sun = 100.0\n", "sun = 100.0\nsince = 5\n", 1), "a home that came later"),
-            (format!("{}{}", b("parent = \"A\"\norbit = 3.0\nsize = 4.0\nsince = 5\n"), row("C", "parent = \"A\"\norbit = 5.0\nsize = 4.0\n")), "an older row after a newer"),
         ] {
             assert!(parse(&bad).is_err(), "{why}");
+        }
+        // `since` (generation 5): the home's is 0, and rows never go back in it; refused, saying so
+        let later = |s: &str| s.replacen("sun = 100.0\n", "sun = 100.0\nsince = 5\n", 1);
+        for (bad, says) in [
+            (later(&good), "the home's since is 0, not 5"),
+            (later(&b("parent = \"A\"\norbit = 3.0\nsize = 4.0\nsince = 5\n")), "the home's since is 0, not 5"),
+            (format!("{}{}", b("parent = \"A\"\norbit = 3.0\nsize = 4.0\nsince = 5\n"), row("C", "parent = \"A\"\norbit = 5.0\nsize = 4.0\n")), "since 0 is under the row above's 5"),
+        ] {
+            let e = parse(&bad).unwrap_err();
+            assert!(e.contains(says), "{says}: {e}");
         }
         // a stage list (0165-bake-stages): an unknown stage, and one without what it needs, refused and saying why
         let stages = |s: &str| parse(&b(&format!("parent = \"A\"\norbit = 3.0\nsize = 4.0\nstages = {s}\n")));

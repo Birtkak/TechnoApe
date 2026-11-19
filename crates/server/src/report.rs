@@ -80,8 +80,9 @@ fn planet(b: &engine::world::Body) -> String {
         for i in (4..b.n).step_by(8) {
             for j in (4..b.n).step_by(8) {
                 let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
-                if let Some(k) = b.biome_at(f, ci, cj, b.dir(f, ci, cj)) {
-                    share[(k - HIGHLAND) as usize] += 1.0;
+                // (a kind not Mars's is counted in no share)
+                if let Some(s) = b.biome_at(f, ci, cj, b.dir(f, ci, cj)).and_then(|k| share.get_mut(k.checked_sub(HIGHLAND)? as usize)) {
+                    *s += 1.0;
                 }
                 cols += 1.0;
             }

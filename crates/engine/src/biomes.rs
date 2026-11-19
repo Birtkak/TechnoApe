@@ -682,9 +682,9 @@ mod tests {
         for (k, name) in crate::bake::luna::KINDS.iter().enumerate() {
             assert_eq!(&r.biomes[crate::bake::luna::HIGHLAND as usize + k].name, name);
         }
-        // Mars's (planet-model.md step 5b): red dust over every kind but the ice, no plants, clutter or patches;
-        // under it regolith and basalt on the plains and shields, breccia in the old highlands, clay and gypsum in
-        // the old lake beds, water ice at the caps, a thin frost on the cold crater floors
+        // Mars's (planet-model.md step 5b): no plants, clutter or patches; bright red dust on the highlands and the
+        // dust plain, dark basalt sand on the young lava and the shields, pale clay over gypsum in the old lake beds,
+        // breccia under the old highlands, water ice at the caps, a thin frost on the cold crater floors
         for (k, name) in mars::KINDS.iter().enumerate() {
             let row = &r.biomes[mars::HIGHLAND as usize + k];
             assert_eq!(&row.name, name);
@@ -693,7 +693,9 @@ mod tests {
         let g = |k: u8, n: [&str; 3]| assert_eq!(r.biomes[k as usize].ground, n.map(|n| BLOCKS.id(n)), "{}", mars::KINDS[(k - mars::HIGHLAND) as usize]);
         g(mars::HIGHLAND, ["red dust", "mars regolith", "breccia"]);
         g(mars::PLAIN, ["red dust", "mars regolith", "basalt"]);
-        g(mars::SEDIMENT, ["red dust", "clay", "gypsum"]);
+        g(mars::LAVA, ["basalt sand", "basalt", "basalt"]);
+        g(mars::SHIELD, ["basalt sand", "mars regolith", "basalt"]);
+        g(mars::SEDIMENT, ["clay", "gypsum", "gypsum"]);
         g(mars::CAP, ["ice", "dusty ice", "basalt"]);
         g(mars::FROST, ["frost", "mars regolith", "breccia"]);
         // Luna's ice (the developer, ADR 0070): under 1 m of dust where the sun never reaches

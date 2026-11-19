@@ -49,8 +49,8 @@ const LUNA: [[u8; 3]; 7] = [[168, 166, 160], [82, 82, 88], [214, 212, 204], [118
 const MARS: [[u8; 3]; 11] = [
     [150, 84, 52],
     [184, 112, 66],
-    [104, 62, 44],
-    [132, 70, 42],
+    [66, 57, 52],
+    [74, 62, 55],
     [120, 76, 56],
     [140, 96, 70],
     [164, 120, 86],
@@ -447,9 +447,14 @@ mod tests {
             let v = image(&map, DVec3::Y, (16, 8))[texel(0.0, 0.0, (16, 8))];
             [v & 255, v >> 8 & 255, v >> 16 & 255]
         };
-        for k in [mars::HIGHLAND, mars::PLAIN, mars::LAVA, mars::SHIELD] {
+        for k in [mars::HIGHLAND, mars::PLAIN] {
             let c = colour(k);
             assert!(c[0] > c[1] && c[1] >= c[2] && c[0] > c[2] + 25, "{}: red-brown, {c:?}", mars::KINDS[(k - mars::HIGHLAND) as usize]);
+        }
+        // the young lava and the shields dark (their basalt sand), under half the dust's brightness
+        let sum = |c: [u32; 3]| c.iter().sum::<u32>();
+        for k in [mars::LAVA, mars::SHIELD] {
+            assert!(sum(colour(k)) * 2 < sum(colour(mars::PLAIN)) + 40, "{}: dark, {:?}", mars::KINDS[(k - mars::HIGHLAND) as usize], colour(k));
         }
         let ice = colour(mars::CAP);
         assert!(ice.iter().all(|&v| v > 180), "the cap is white: {ice:?}");

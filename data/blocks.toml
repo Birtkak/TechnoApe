@@ -1421,3 +1421,19 @@ loose = true
 sound = "dust"
 colour = [0.92, 0.90, 0.89]
 contrast = 0.4
+
+# Basalt sand: the dark windblown grains of the young lava where the bright dust does not settle (the dark of
+# Syrtis Major against the dust); a casting and glass sand later.
+[[block]]
+id = 228
+name = "basalt sand"
+hardness = 0.7
+tool = "shovel"
+loose = true
+sound = "dust"
+colour = [0.25, 0.22, 0.20]
+pattern = "speckle"
+colour2 = [0.17, 0.15, 0.14]
+colour3 = [0.36, 0.30, 0.26]
+size = 1
+amount = 0.3

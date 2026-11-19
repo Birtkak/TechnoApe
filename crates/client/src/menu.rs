@@ -65,6 +65,26 @@ pub(crate) fn new_world_args(w: &NewWorld, clock: i32, taken: impl Fn(&str) -> b
     a
 }
 
+/// What a new world of the arguments `then` bakes: each baked body of its generation (`gen=`, `mantle=`; the
+/// newest by default) at its columns (planet= and moon=, `bodies::sizes`), with the seed; None without seed= and planet=.
+pub(crate) fn world_bakes(then: &[String]) -> Option<Vec<(engine::bodies::Bake, i32, i32)>> {
+    let num = |k: &str| then.iter().find_map(|a| a.strip_prefix(k)?.strip_prefix('=')?.parse::<i32>().ok());
+    let (seed, n) = (num("seed")?, num("planet")?);
+    let rows = engine::bodies::of(server::gen_arg(num("mantle").unwrap_or(1), num("gen").unwrap_or(-1)));
+    let sizes = engine::bodies::sizes(rows, n, num("moon").unwrap_or(engine::bodies::moon_columns(n)));
+    Some(sizes.into_iter().zip(rows).filter_map(|(k, r)| r.bake.clone().map(|b| (b, seed, k))).collect())
+}
+
+/// Only the bodies of the world's generation are baked: a generation 4 world bakes no Mars.
+#[test]
+fn a_new_world_bakes_the_bodies_of_its_generation() {
+    let args = |more: &[&str]| ["seed=3", "planet=6144"].iter().chain(more).map(|s| s.to_string()).collect::<Vec<_>>();
+    let ks = |a: &[&str]| world_bakes(&args(a)).unwrap().iter().map(|b| b.2).collect::<Vec<_>>();
+    assert_eq!(ks(&[]), [6144, 1664, 3328], "Terra, Luna and Mars");
+    assert_eq!(ks(&["gen=4"]), [6144, 1664], "Terra and Luna");
+    assert!(world_bakes(&["seed=3".to_string()]).is_none());
+}
+
 #[test]
 fn a_new_world_starts_as_its_page_says() {
     assert_eq!(seed_of("  "), None);
@@ -880,19 +900,11 @@ impl App {
         a
     }
 
-    /// A new world: its planet baked here on a worker thread first when it is not kept yet (ADR 0043), the
+    /// A new world: its bodies baked here on a worker thread first when it is not kept yet (ADR 0043), the
     /// title screen drawing the bar, then the game starts again with `then`.
     pub(crate) fn bake_then(&mut self, then: Vec<String>) {
-        let num = |k: &str| then.iter().find_map(|a| a.strip_prefix(k)?.strip_prefix('=')?.parse::<i32>().ok());
-        let moon = num("moon");
-        // every body that is baked, at its columns (planet= and moon=, `bodies::sizes`)
-        let bakes = |seed: i32, n: i32| {
-            let rows = &engine::bodies::BODIES;
-            engine::bodies::sizes(rows, n, moon.unwrap_or(engine::bodies::moon_columns(n))).into_iter().zip(rows.iter()).filter_map(move |(k, r)| r.bake.clone().map(|b| (b, seed, k))).collect::<Vec<_>>()
-        };
-        match (num("seed"), num("planet")) {
-            (Some(seed), Some(n)) if bakes(seed, n).iter().any(|(b, seed, k)| !b.file(*seed, *k).exists()) => {
-                let todo = bakes(seed, n);
+        match world_bakes(&then) {
+            Some(todo) if todo.iter().any(|(b, seed, k)| !b.file(*seed, *k).exists()) => {
                 self.loading = Some(Loading::start(self.again_args(then), "Making the universe", move || {
                     for (b, seed, k) in todo {
                         drop(b.get(seed, k));
