@@ -64,7 +64,7 @@ pub fn report(w: &World) -> String {
 }
 
 /// The lava tubes baked into a Luna map (ADR 0070), whether this world cuts them or not: chains of balls,
-/// how many, their lengths along the chain (median, longest) and their pits.
+/// how many, their lengths along the chain (median, longest) and their pits; the `inside` stand only where cut.
 fn baked_tubes(b: &engine::world::Body) -> String {
     let Some(map) = b.map() else { return "null".into() };
     let (m, k) = (map.m as usize, b.n as f64 / map.m as f64);
@@ -89,7 +89,8 @@ fn baked_tubes(b: &engine::world::Body) -> String {
     lengths.sort_by(f64::total_cmp);
     // the first pit, and a roofed ball four on from it with its depth under the ground (`run=stand at= depth=`)
     let pit = map.tubes.iter().position(|t| t.1 < t.2).unwrap_or(0);
-    let on = map.tubes.get(pit + 4).filter(|t| t.1 > t.2).map_or("null".to_string(), |t| {
+    // only where this world cuts them (to generation 3); from 4 the made tubes' lines under `caves` serve
+    let on = map.tubes.get(pit + 4).filter(|t| t.1 > t.2 && !b.rock_field()).map_or("null".to_string(), |t| {
         let d = at(t.0).normalize();
         format!("\"at={:.6},{:.6},{:.6} depth={:.1}\"", d.x, d.y, d.z, t.1 + t.2 - 1.0)
     });
@@ -360,4 +361,30 @@ fn made_hash(caves: &[engine::world::Cave], ores: &[engine::ore::OreBody]) -> u6
         [o.kind as u64, o.face as u64, o.at.x.to_bits(), o.at.y.to_bits(), o.at.z.to_bits(), o.a.to_bits(), o.b.to_bits(), o.h.to_bits(), o.angle.to_bits()].into_iter().for_each(&mut put);
     }
     h
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The `inside` stand line of Luna's baked tubes puts its feet in air: a world that does not cut them
+    /// (generation 4) prints none (the made tubes have their own lines under `caves`).
+    #[test]
+    fn the_baked_tubes_inside_stand_is_in_air() {
+        use std::sync::Arc;
+        for gen in [3, 4] {
+            let w = World::with_grid(256, 1664, 1, None, Some(Arc::new(engine::bake::luna::bake(1, 1664))), 0.0, gen);
+            let b = &w.bodies[engine::bodies::moon(&engine::bodies::BODIES).unwrap()];
+            let line = baked_tubes(b);
+            let Some(s) = line.split("\"inside\": \"").nth(1) else {
+                assert!(gen >= 4 && line.contains("\"inside\": null"), "generation {gen}: {line}");
+                continue;
+            };
+            let v: Vec<f64> = s.trim_start_matches("at=").split([',', ' ', '=', '"']).filter_map(|x| x.parse().ok()).collect();
+            let up = glam::DVec3::new(v[0], v[1], v[2]).normalize();
+            let feet = b.centre + up * (b.top(up) - v[3] + 0.5);
+            let id = w.generated_block(w.block_at(feet));
+            assert!(!engine::blocks::BLOCKS.solid(id), "generation {gen}: the stand's feet are in block {id}: {line}");
+        }
+    }
 }

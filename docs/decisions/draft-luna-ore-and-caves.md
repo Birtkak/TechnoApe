@@ -95,7 +95,7 @@ and comes from the same rule as Terra's, read off her rock. Cost: making them is
 | `made_hash` seed 1 planet 6144: mantle=0 / gen=1 / gen=2 / gen=3 / default (4) | 0926f028ddcd85a7, 37b2d1b1006b66f7, a2ef250b3ed4203a, bfb878ce14d32b75, bfb878ce14d32b75 | the same, all five |
 | Luna's `made_hash` (report's, seed 1): gen 0 to 3 / gen 4 | (not printed) | c6a367341bda1227 (her baked tubes, no ore) / cdd810732c670a46 |
 | Luna's blocks, small Luna (`luna_blocks_hash`), gen 0 and 3 | a22a376de6be21ba | the same |
-| the same at gen 4 | ca3af00891b21215 | b0f00158257f21d2 (her tubes; ore cells left out of the lock) |
+| the same at gen 4 | ca3af00891b21215 | b0f00158257f21d2 (her tubes and her ore cells) |
 
 ## Checks
 - `bake::luna::a_generation_4_luna_has_ore_and_caves_by_her_rock` (new; red before the rows and the lifted guards:
@@ -105,8 +105,10 @@ and comes from the same rule as Terra's, read off her rock. Cost: making them is
   dig on Luna in her own segment and its recount agrees; generation 3 has no ores and only the baked tubes.
 - `world::baked_tests::terra_has_none_of_lunas_minerals_or_caves` (new; red while Luna's rows had no body: they
   ran on Terra): a 1536 Terra is the same at generation 3 and 4, every kind on it the home's.
-- The generation-4 Luna block lock: red with the old value, set to the new one (ore cells left out, they are
-  locked by the test above).
+- The generation-4 Luna block lock: red with the old value, set to the new one (`luna_blocks_hash` hashes
+  every cell, ore included; only the anorthosite test skips ore cells, as it skips caves).
+- `report::the_baked_tubes_inside_stand_is_in_air` (server; red: at generation 4 the baked tubes' `inside` stand
+  had its feet in mare basalt, as they are not cut): the line is printed only where the world cuts them.
 - `ore` and `caves` row tests: a row of two bodies' provinces, a ring on another body, a home row after another
   body's are refused (added with the parse checks; not each watched red on its own).
 - `cargo test --workspace`: 983 passed, 0 failed (engine 456, client 208, server 134+1+1, studio 128+38, bot 16,
