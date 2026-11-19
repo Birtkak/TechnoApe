@@ -20,7 +20,6 @@ use engine::world::{fnv, Block, FxMap, World};
 use engine::sky;
 use engine::vitals::{self, Vitals};
 use glam::DVec3;
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use save::{Save, Saved};
 use std::collections::{BTreeMap, HashMap, VecDeque};
