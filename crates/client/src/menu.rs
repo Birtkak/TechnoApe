@@ -353,7 +353,7 @@ impl App {
             Some(Menu::Title) => vec!["Singleplayer".into(), "Settings".into(), "Quit game".into()],
             Some(Menu::Worlds) => {
                 let names = self.worlds.iter().zip(&self.world_notes).map(|(p, n)| format!("{}   {n}", p.trim_start_matches("saves/").trim_end_matches(".sav")));
-                names.chain(["New world".into(), "Back".into()]).collect()
+                names.chain(["New universe".into(), "Back".into()]).collect()
             }
             Some(Menu::NewWorld) => {
                 let n = &self.new_world;
@@ -376,7 +376,7 @@ impl App {
                     "Rules".into(),
                     format!("Mode:  {}", if n.creative { "creative" } else { "survival" }),
                     String::new(),
-                    "Create world".into(),
+                    "Create universe".into(),
                     "Back".into(),
                 ]
             }
@@ -893,7 +893,7 @@ impl App {
         match (num("seed"), num("planet")) {
             (Some(seed), Some(n)) if bakes(seed, n).iter().any(|(b, seed, k)| !b.file(*seed, *k).exists()) => {
                 let todo = bakes(seed, n);
-                self.loading = Some(Loading::start(self.again_args(then), "Making the world", move || {
+                self.loading = Some(Loading::start(self.again_args(then), "Making the universe", move || {
                     for (b, seed, k) in todo {
                         drop(b.get(seed, k));
                     }

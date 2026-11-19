@@ -1597,7 +1597,7 @@ impl App {
                 Menu::Dead => ("You died", cause.as_str()),
                 Menu::Title => ("TechnoApe", "Pillars of Simulation Engine"),
                 Menu::Worlds => ("Singleplayer", "A world carries on from its save. Right click or Delete removes one."),
-                Menu::NewWorld => ("New world", "The same seed and size always make the same world. Click a row to change it."),
+                Menu::NewWorld => ("New universe", "The same seed and size always make the same universe. Click a row to change it."),
                 Menu::Remove(_) => ("Remove world", "It moves to saves/removed/ and can be put back by hand."),
                 Menu::Waypoints => ("Waypoints", "N drops one where you stand. Click one to change it; right click or Delete takes it away."),
                 Menu::Waypoint(_) => ("Waypoint", "Click the name to type a new one. Click a row for its next value, right click the one before."),
