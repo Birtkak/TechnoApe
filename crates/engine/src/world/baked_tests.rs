@@ -1224,6 +1224,19 @@ fn col_caves_merged_is_the_union_of_every_caves_span() {
     assert!(w.bodies[0].check_over_cave() > 10);
 }
 
+/// The cave walk's faces side by side make what one after the other made, system for system, on the dense planet
+/// and the planet as made.
+#[test]
+fn caves_walked_by_face_in_parallel_are_the_walk_in_order() {
+    let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, GENERATION);
+    let (b, seed) = (&w.bodies[0], w.bodies[0].baked_seed().unwrap());
+    for kinds in [dense_kinds(), crate::caves::CAVES.kinds.clone()] {
+        let fast = crate::caves::systems_of(b, seed, &kinds);
+        assert!(fast.len() > 5, "{} systems", fast.len());
+        assert!(fast == crate::caves::systems_of_slow(b, seed, &kinds));
+    }
+}
+
 /// `dense_caves`'s kinds: a start every 16 columns for tubes, 48 for the others, every one grown.
 fn dense_kinds() -> Vec<crate::caves::Kind> {
     crate::caves::CAVES

@@ -704,6 +704,9 @@ mod tests {
             assert!(n > 1000, "generation {gen}: {n} hollow columns checked");
             let found = w.bodies[1].check_over_cave();
             assert!(found > 10, "generation {gen}: {found} squares over a mouth");
+            // (her tube walk's faces side by side are the walk in order)
+            let (b, seed) = (&w.bodies[1], w.bodies[1].baked_seed().unwrap());
+            assert!(crate::caves::systems(b, seed) == crate::caves::systems_of_slow(b, seed, &crate::caves::CAVES.kinds));
         }
     }
 

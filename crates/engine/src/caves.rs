@@ -223,46 +223,74 @@ pub fn systems_of(b: &Body, seed: u64, kinds: &[Kind]) -> Vec<System> {
     if !b.rock_field() {
         return Vec::new();
     }
+    use rayon::prelude::*;
+    // each kind's faces walked side by side: a face's walk reads only its own probe and systems (a system's number
+    // in `axes` and a fork's parent are its place in the list, compared only with its own face's), so their lists
+    // one after the other, kind by kind, are the one walk's, to the bit (`systems_of_slow`, the test's reference)
+    let walks: Vec<(usize, u8)> = kinds.iter().enumerate().filter(|(_, kind)| walked(b, kind)).flat_map(|(k, _)| (0..6u8).map(move |f| (k, f))).collect();
+    let lists: Vec<Vec<System>> = walks
+        .into_par_iter()
+        .map(|(k, face)| {
+            let mut out = Vec::new();
+            walk_face(b, seed, k, &kinds[k], face, &mut out);
+            out
+        })
+        .collect();
+    lists.into_iter().flatten().collect()
+}
+
+/// `systems_of` as it was walked before, one face after the other into one list.
+#[cfg(test)]
+pub(crate) fn systems_of_slow(b: &Body, seed: u64, kinds: &[Kind]) -> Vec<System> {
+    if !b.rock_field() {
+        return Vec::new();
+    }
     let mut out = Vec::new();
-    for (k, kind) in kinds.iter().enumerate() {
-        // (a kind's index seeds it: a row made in other generations keeps its place in the file); each kind on
-        // its own body, and a karst, cut down to the water table, only where there is water (a sea)
-        if !(kind.generations[0]..=kind.generations[1]).contains(&b.gen) || kind.body != b.rock_body() || kind.shape == Shape::Karst && b.sea.is_none() {
-            continue;
-        }
-        let s = kind.spacing;
+    for (k, kind) in kinds.iter().enumerate().filter(|(_, kind)| walked(b, kind)) {
         for face in 0..6u8 {
-            let mut probe = Probe { b, face, home: kind.body == 0, cols: HashMap::new(), axes: HashMap::new(), widest: 0.0, tables: HashMap::new(), next: 0, kept: None };
-            for cy in 0..b.n / s {
-                for cx in 0..b.n / s {
-                    let mut rng = Rng(seed ^ 0xca5e_4b1d ^ (k as u64) << 60 ^ (face as u64) << 52 ^ (cx as u64) << 26 ^ cy as u64);
-                    let (i, j) = ((cx * s) as f64 + rng.f() * s as f64, (cy * s) as f64 + rng.f() * s as f64);
-                    if rng.f() >= kind.chance || probe.off(i, j, 0.0) {
-                        continue;
-                    }
-                    // (a tube and a karst start in their provinces; a fissure looks for a border first)
-                    if kind.shape != Shape::Fissure && !kind.provinces.contains(&probe.col(i as i32, j as i32).0.province) {
-                        continue;
-                    }
-                    match kind.shape {
-                        Shape::Tube if b.gen >= 2 => round_tube(&mut probe, kind, k as u8, &mut rng, i, j, None, 2, &mut out),
-                        Shape::Tube => {
-                            let a = rng.f() * std::f64::consts::TAU;
-                            tube(&mut probe, kind, k as u8, &mut rng, i, j, a, None, 2, &mut out);
-                        }
-                        Shape::Fissure => fissure(&mut probe, kind, k as u8, &mut rng, i, j, &mut out),
-                        Shape::Karst => karst(&mut probe, kind, k as u8, &mut rng, i, j, &mut out),
-                    }
-                    // a column's rock and ground are asked again only near the next start
-                    if probe.cols.len() > 1 << 16 {
-                        probe.cols.clear();
-                        probe.tables.clear();
-                    }
-                }
-            }
+            walk_face(b, seed, k, kind, face, &mut out);
         }
     }
     out
+}
+
+/// Whether a kind is made on this body: (a kind's index seeds it: a row made in other generations keeps its place
+/// in the file); each kind on its own body, and a karst, cut down to the water table, only where there is water (a sea).
+fn walked(b: &Body, kind: &Kind) -> bool {
+    (kind.generations[0]..=kind.generations[1]).contains(&b.gen) && kind.body == b.rock_body() && !(kind.shape == Shape::Karst && b.sea.is_none())
+}
+
+/// Kind k's systems on one face, after `out`'s.
+fn walk_face(b: &Body, seed: u64, k: usize, kind: &Kind, face: u8, out: &mut Vec<System>) {
+    let s = kind.spacing;
+    let mut probe = Probe { b, face, home: kind.body == 0, cols: HashMap::new(), axes: HashMap::new(), widest: 0.0, tables: HashMap::new(), next: 0, kept: None };
+    for cy in 0..b.n / s {
+        for cx in 0..b.n / s {
+            let mut rng = Rng(seed ^ 0xca5e_4b1d ^ (k as u64) << 60 ^ (face as u64) << 52 ^ (cx as u64) << 26 ^ cy as u64);
+            let (i, j) = ((cx * s) as f64 + rng.f() * s as f64, (cy * s) as f64 + rng.f() * s as f64);
+            if rng.f() >= kind.chance || probe.off(i, j, 0.0) {
+                continue;
+            }
+            // (a tube and a karst start in their provinces; a fissure looks for a border first)
+            if kind.shape != Shape::Fissure && !kind.provinces.contains(&probe.col(i as i32, j as i32).0.province) {
+                continue;
+            }
+            match kind.shape {
+                Shape::Tube if b.gen >= 2 => round_tube(&mut probe, kind, k as u8, &mut rng, i, j, None, 2, out),
+                Shape::Tube => {
+                    let a = rng.f() * std::f64::consts::TAU;
+                    tube(&mut probe, kind, k as u8, &mut rng, i, j, a, None, 2, out);
+                }
+                Shape::Fissure => fissure(&mut probe, kind, k as u8, &mut rng, i, j, out),
+                Shape::Karst => karst(&mut probe, kind, k as u8, &mut rng, i, j, out),
+            }
+            // a column's rock and ground are asked again only near the next start
+            if probe.cols.len() > 1 << 16 {
+                probe.cols.clear();
+                probe.tables.clear();
+            }
+        }
+    }
 }
 
 /// A face's columns as a kind's walk asks them: rock and ground, kept while it walks.
