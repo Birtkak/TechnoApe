@@ -750,7 +750,7 @@ mod tests {
             let caves = b.col_caves(f, i, j);
             for depth in [6.0, 20.0, 45.0, 70.0] {
                 let z = b.layer_of(top - depth).floor() as i32;
-                // (or an ore body of hers takes it, draft-luna-ore-and-caves)
+                // (or an ore body of hers takes it, 0166-luna-ore-and-caves)
                 if caves.iter().any(|&(lo, hi)| (lo..hi).contains(&z)) || b.ore_at(f, i, j, z, top).is_some() {
                     continue;
                 }
@@ -781,7 +781,7 @@ mod tests {
         assert_eq!(h, "b0f00158257f21d2");
     }
 
-    /// Generation 4's Luna on her rock field (draft-luna-ore-and-caves), the standard Luna: each of her kinds of
+    /// Generation 4's Luna on her rock field (0166-luna-ore-and-caves), the standard Luna: each of her kinds of
     /// mineral has bodies, only in its provinces, host rock, biome and depth window, and none of Terra's is on her;
     /// none of them, and none of her caves, is placed for where her spawn is; her caves are `data/caves.toml`'s
     /// kinds cut in her rock under the dust band, with no water table; the ledger opens with her bodies after the

@@ -971,7 +971,7 @@ mod tests {
     fn the_caves_file_loads_and_a_broken_one_is_refused_and_says_why() {
         let k = &CAVES.kinds;
         assert_eq!(k.iter().map(|k| (k.name.as_str(), k.shape, k.generations)).collect::<Vec<_>>(), [("lava tube", Shape::Tube, [1, 1]), ("fissure", Shape::Fissure, [1, 255]), ("lava tube", Shape::Tube, [2, 255]), ("karst", Shape::Karst, [3, 255]), ("lunar lava tube", Shape::Tube, [4, 255])]);
-        // Luna's (draft-luna-ore-and-caves): her mare basalt, her body's; every other kind the home's
+        // Luna's (0166-luna-ore-and-caves): her mare basalt, her body's; every other kind the home's
         let luna = crate::bodies::moon(&crate::bodies::BODIES).unwrap();
         assert_eq!((k[4].hosts.clone(), k[4].provinces.clone(), k[4].body), (vec![crate::blocks::BLOCKS.id("mare basalt")], vec![crate::bake::rock::LUNA_MARE], luna));
         assert!(k[..4].iter().all(|k| k.body == 0));

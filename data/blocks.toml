@@ -1303,7 +1303,7 @@ colour = [0.62, 0.50, 0.42]
 colour2 = [0.42, 0.33, 0.27]
 pattern = "bricks"
 
-# Luna's ores (draft-luna-ore-and-caves; data/minerals.toml): counted bodies in her rock from generation 4.
+# Luna's ores (0166-luna-ore-and-caves; data/minerals.toml): counted bodies in her rock from generation 4.
 # Ilmenite: the black iron-titanium oxide of the mare basalts, titanium and iron, and oxygen when it is reduced.
 [[block]]
 id = 220

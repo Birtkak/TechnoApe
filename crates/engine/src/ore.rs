@@ -638,7 +638,7 @@ mod tests {
             let bad = include_str!("../../../data/minerals.toml").replace(from, to);
             assert!(Minerals::parse(&bad).unwrap_err().contains(says), "{from} -> {to}");
         }
-        // Luna's kinds (draft-luna-ore-and-caves): her provinces alone, no ring from a spawn, after the home's
+        // Luna's kinds (0166-luna-ore-and-caves): her provinces alone, no ring from a spawn, after the home's
         let text = include_str!("../../../data/minerals.toml").replace("\r\n", "\n");
         for (from, to, says) in [("provinces = [\"mare\"]", "provinces = [\"mare\", \"rift\"]", "one body's"), ("provinces = [\"mare\"]", "provinces = [\"mare\"]\nnear = [0.0, 100.0]", "the home's alone"), ("provinces = [\"folded belt\"]\ngravel = \"gold gravel\"", "provinces = [\"mare\"]\ngravel = \"gold gravel\"", "come last")] {
             let e = Minerals::parse(&text.replace(from, to)).unwrap_err();

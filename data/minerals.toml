@@ -207,7 +207,7 @@ host = "ringwoodite"
 pressure = [36.0, 56.0]
 heat = [0.0, 110.0]
 
-# Luna's kinds (draft-luna-ore-and-caves), from generation 4 on her rock field: another body's kinds come after
+# Luna's kinds (0166-luna-ore-and-caves), from generation 4 on her rock field: another body's kinds come after
 # the home's, last (a row's place seeds it). They name her provinces (data/rocks.toml), so they form on her alone,
 # and their `count` is on the standard Luna (1664 columns); no ring from a spawn, no gravel (she has no rivers).
 # Ilmenite: beds in the mare basalt, as the high-titanium flows hold it: titanium and iron, and oxygen to

@@ -97,7 +97,7 @@ caves = "tubes"
 # fill about 40 m deep under the mare's ground (the datum, 60 m, less 60 m) over the anorthosite it filled. The
 # thorium province round the largest mare is KREEP rock, some 20 m under the dust, over the anorthosite. A cold,
 # dead body: little heat with depth. Her ores and caves are rows of minerals.toml and caves.toml that name these
-# provinces (draft-luna-ore-and-caves); `caves` here is the home's old worms' and stays "none".
+# provinces (0166-luna-ore-and-caves); `caves` here is the home's old worms' and stays "none".
 [[province]]
 name = "highland crust"
 body = "Luna"

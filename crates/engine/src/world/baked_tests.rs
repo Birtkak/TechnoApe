@@ -1258,7 +1258,7 @@ fn a_small_planet_without_the_mantle_keeps_its_old_caves_at_generation_3() {
     assert!(!c2.is_empty() && c2 == c3, "{} caves at generation 2, {} at 3", c2.len(), c3.len());
 }
 
-/// Luna's kinds of mineral and cave (draft-luna-ore-and-caves) never form on Terra: the 1536 planet of generation
+/// Luna's kinds of mineral and cave (0166-luna-ore-and-caves) never form on Terra: the 1536 planet of generation
 /// 4 has only the home's, and the same bodies and caves as at generation 3.
 #[test]
 fn terra_has_none_of_lunas_minerals_or_caves() {

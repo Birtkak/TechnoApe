@@ -35,7 +35,7 @@ pub fn report(w: &World) -> String {
         "{{\"seed\": {}, \"planet\": {}, \"gen\": {}, \"spawn\": [{:.5}, {:.5}, {:.5}], \"made_hash\": \"{:016x}\", \"made_hash_crust\": \"{:016x}\", \"provinces\": {{{}}}, \"flows\": {{{}}}, \"limestone\": {}, \"caves\": {{\"balls\": {}, \"in_limestone\": {}, \"in_basalt\": {}, \"depth_m\": [{:.1}, {:.1}], \"open_to_the_sky\": {}, \"kinds\": {{{}}}}}, \"heat_c_under_the_spawn\": [{:.1}, {:.1}], \"pressure_mpa_under_the_spawn\": [{:.3}, {:.3}], \"deep\": {{{}}}, \"interior\": {{{}}}, \"minerals\": {{{}}}}}",
         map.seed, map.n, b.gen, b.spawn.x, b.spawn.y, b.spawn.z, made_hash(&b.caves, &b.ores), made_hash(&b.caves, &crust), provinces.join(", "), flows(b).join(", "), limestone(b), b.caves.len(), in_lime, b.caves.len() - in_lime, dmin, dmax, open, kinds(b).join(", "), heat(ground), heat(0.0), pressure(ground), pressure(0.0), deep.join(", "), interior(w).join(", "), minerals(b).join(", ")
     );
-    // the home's first moon after it (draft-luna-ore-and-caves): her rock field's ore and caves, from generation 4
+    // the home's first moon after it (0166-luna-ore-and-caves): her rock field's ore and caves, from generation 4
     let moon = &w.bodies[w.moon];
     let Some(lmap) = moon.map() else { return format!("{}}}", &out[..out.len() - 1]) };
     let mut share = [0f64; NAMES.len()];
