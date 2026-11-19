@@ -137,7 +137,7 @@ INDEX.md lists every number.
 - `Body::col_caves` allocates and scans every cave per call; with real cave counts it needs bucketing by face and
   tile and cached spans per column [0062; open, see below].
 
-### Block ids past 255 [draft, 2026-11-19]
+### Block ids past 255 [0170, 2026-11-19]
 Block ids run 0..4095, 12 bits (`blocks::IDS`); the registry refuses a row's or a rubble's id over 4095 by name.
 The quad stays 8 bytes: its second word carries the id's low 8 bits at 0-7 (where the material was) and its high 4
 at 16-19 (`mesh::id_bits`, `mesh::quad_id`; WGSL `id_bits`, `quad_id`), the occlusion stays at 8-15 and bits 20-31

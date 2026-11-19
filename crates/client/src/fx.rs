@@ -1582,7 +1582,7 @@ impl Glide {
     pub fn ended(&self, now: f64) -> bool {
         now >= self.t0 + GLIDE_S
     }
-    /// As the GPU draws it: a whole-cell look of `to`, bit 20 saying `p` is the offset in cells (`vs_fx`).
+    /// As the GPU draws it: a whole-cell look of `to`, bit 19 saying `p` is the offset in cells (`vs_fx`).
     pub fn gpu(&self, now: f64, mantle: i32) -> FxGpu {
         let (a, b) = cell_code(Block { pos: self.to.pos - IVec3::Z * mantle, ..self.to });
         FxGpu { p: self.offset(now).to_array(), size: 1.0, info: block_bits(self.block) | (self.to.body as u32) << 8 | (Look::Block as u32) << 10 | 1 << 19, angle: 0.0, a, b }
@@ -1833,7 +1833,7 @@ mod tests {
     }
 
     /// ADR 0101: a loose block's move glides from the cell it left to its new one over `GLIDE_S`, eased, drawn as
-    /// its new cell's block (bit 20: `p` is the offset in cells); a move on from its target carries on from where
+    /// its new cell's block (bit 19: `p` is the offset in cells); a move on from its target carries on from where
     /// it is drawn, no jump back.
     #[test]
     fn a_moved_block_glides_into_its_cell_and_a_second_move_carries_on() {
