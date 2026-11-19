@@ -1217,8 +1217,11 @@ fn col_caves_merged_is_the_union_of_every_caves_span() {
     let (dense, _) = dense_caves();
     let n = dense.bodies[0].check_col_caves();
     assert!(n > 50_000, "{n} hollow columns checked");
+    let found = dense.bodies[0].check_over_cave();
+    assert!(found > 500, "{found} squares over a mouth");
     let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, GENERATION);
     assert!(w.bodies[0].check_col_caves() > 1000);
+    assert!(w.bodies[0].check_over_cave() > 10);
 }
 
 /// `dense_caves`'s kinds: a start every 16 columns for tubes, 48 for the others, every one grown.

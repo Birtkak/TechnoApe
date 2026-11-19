@@ -702,6 +702,8 @@ mod tests {
             let w = crate::world::World::with_grid(256, 1664, 1, None, Some(map.clone()), 0.0, gen);
             let n = w.bodies[1].check_col_caves();
             assert!(n > 1000, "generation {gen}: {n} hollow columns checked");
+            let found = w.bodies[1].check_over_cave();
+            assert!(found > 10, "generation {gen}: {found} squares over a mouth");
         }
     }
 
