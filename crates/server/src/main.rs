@@ -140,6 +140,10 @@ fn bakemap(path: &str, body: &str, seed: i32, n: Option<i32>, out: Option<&Strin
     let bake = row.bake.as_ref().unwrap_or_else(|| panic!("{body} has no stages"));
     let planet = bake.2.as_ref().unwrap_or_else(|| panic!("bakemap= pictures a planet's crust (stages from 'crust' on a body that circles the sun)"));
     let n = n.unwrap_or(row.n);
+    if n <= 0 || n % 32 != 0 {
+        eprintln!("bakemap=: n={n} is not a planet's size (whole chunks of 32 columns a face edge)");
+        std::process::exit(2);
+    }
     let (map, stats) = engine::bake::mars::run(&bake.0, seed, n, planet.age);
     let prefix = out.cloned().unwrap_or_else(|| format!("out/{}-seed-{seed}", body.to_lowercase()));
     let pictures = engine::bake::mars::pictures(&map, &stats, &prefix);

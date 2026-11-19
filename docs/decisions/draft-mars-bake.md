@@ -54,7 +54,8 @@ plates of a moon"); `climate` and `life` on any crust, `impacts` and `volcanism`
   pole (the seed tilts it), lobed by noise (+-0.12 rad), smooth at -25 m; the highlands at about +35 m, rough, rising
   24 m away from the plains (the real ones slope north, so their water ran to the plains); a scarp of ~65 m over
   ~160 m between. The plains are "made" at `T_PLAINS` = 0.8. New code; Luna's noise helper.
-- `impacts`: two giant basins on the highlands, far from each other (1100-1650 m wide, 0.045 d deep, flat floored:
+- `impacts`: two giant basins on the highlands, far from each other (1100-1650 m wide, 0.045 d deep but at most
+  `BASIN_DEP` = 66 m, so a larger planet's basins stay in the world's columns, flat floored:
   the planet's lowest ground, own profile); then **Luna's craters**: her power law `K` times `age`, D from 12 m (the
   dust filled smaller ones) to 0.1 r, her crater shapes and her `Land::stamp` (without her kinds). A crater is kept
   only where the ground it fell on is older than it, so the plains' older craters lie buried; with `volcanism` listed
@@ -115,7 +116,10 @@ equirectangular projection 2400 x 1200 centred on the canyon (`bake/pictures.rs`
 | outflow channels | 698, 660, 776 m | 532, 474, 268 m |
 | valley cells; mouths into plains, basins, lake beds, other | 18,199; 20, 4, 237, 21 | 18,528; 21, 0, 241, 27 |
 | deltas; tubes, balls, pits | 136; 11, 533, 21 | 139; 11, 576, 21 |
-| height range | -41.1 .. 352.0 m | -48.6 .. 351.9 m (the world's columns: -56 .. 378) |
+| height range | -41.1 .. 352.0 m | -42.8 .. 351.9 m (the world's columns: -56 .. 378) |
+
+The height range by size (the basins' depth held to 66 m): n 832: -30.3 .. 355.9, -33.0 .. 348.4; n 3328: -41.1 ..
+352.0, -42.8 .. 351.9; n 6144: -45.4 .. 360.8, -51.4 .. 350.1 (seeds 1, 2). Before the bound n 6144 reached -96.6.
 
 What the row keeps across seeds: the plains' share and heights, one bulge on the edge with three shields and the
 giant past its NW side, the canyon along the edge away from the giant ending in chaos and three channels into the
@@ -141,6 +145,12 @@ Red first, each seen failing for the right reason before the code that makes it 
   running uphill; > 500 valley cells, >= 80 % of mouths into plains, basins or lake beds; a delta; caps over both
   poles (inner 0.1 rad); >= 6 tubes and pits, all on shields; the bulge moves with the seed and the giant's angle to
   the landing point differs between seeds.
+- `bake::mars::heights_stay_in_the_worlds_columns_at_every_size`, seeds 1 and 2 at n = 832 and 6144 (red before the
+  basins' depth was bounded: "seed 1 n 6144: heights -96.6 to 360.8").
+- The round-trip test also refuses a version-201 map with a kind outside 22..=32 (red before `Map::from_bytes`
+  checked it). `bakemap=` refuses an n that is not whole chunks (n=0 exits 2 with a message, no NaN bake).
+- Every map cache writes through `<file>.<pid>.tmp`, so two processes baking one map never rename each other's
+  half-written file (the kept file names and bytes of Terra, Luna and the planet are unchanged).
 - Locks untouched and green: `the_stages_bake_terra_and_luna_to_the_bit_as_before`; `report=1 seed=1 planet=6144`
   made_hash bfb878ce14d32b75 (Terra) and cdd810732c670a46 (Luna, generation 4), as 0166 has them.
   `cargo test -p engine`: 460 passed, 0 failed, 23 ignored.
@@ -151,6 +161,16 @@ Red first, each seen failing for the right reason before the code that makes it 
   the third; the sky's pose (a ring round the sun until real orbits, 0163); the wire sends its map (version 201 must
   be accepted by `net` and `bake::find` by the planet's file name, not (seed, n, version)); `World::with_grid` reads
   its map by `Bake::get`; `world::AMP` holds its 352 m summit.
+- **Places that would meet a Mars map wrongly** once it is a body (the reviewer's list, to fix in that run):
+  `crates/client/src/globe.rs` (about lines 64, 73: `version > 100` takes it for Luna's and `.min(6)` gives it
+  Luna's colours); `crates/engine/src/biomes.rs` (about line 622: 22 rows registered, kinds 22..=32 read past the
+  table); `crates/engine/src/world/body.rs` (about lines 103, 146, 153, 301 test `== luna::VERSION`, so a Mars map
+  takes Terra's branches); `Bake::plates()` (false for it, which today means Luna's kind of map).
+- **Windows and Linux must bake the same bytes:** maps are never sent, each side bakes its own and `state.rs`
+  compares hashes. This bake adds float thresholds a last-bit difference could flip: `sin`/`cos`/`acos`/`powf`
+  from the platform's libm (the canyon's width, the valley depth law `powf(0.3)`, the bulge's azimuth), the
+  frost line `|z| > 0.87`, lake water `>= 2 m`, `SHORE` -12 m, crater age against the ground's age (`t >= made`),
+  and the cover test of seen craters; a Linux bake of seeds 1 and 2 must be compared with Windows' hash first.
 - **Rock provinces and ground:** `Map::rock` from its kinds as Luna's (old cratered crust: basaltic breccia; basalt
   shields and lava plains; sediment in lake beds, basins and deltas: clays and sulphates; canyon floors: layered
   deposits; caps: water ice and dry ice), `rocks.toml` rows with `body`, `biomes.toml` rows 22-32 and their blocks

@@ -233,7 +233,8 @@ impl Map {
         // Luna's maps (`luna::VERSION`) hold no rock provinces: her rock is her kinds' (`Map::rock`); a Terra map's
         // are Terra's; a planet's crust (`mars::VERSION`) has none yet (its provinces are the next run's)
         let rocks = if m.version >= 5 && m.version != luna::VERSION && m.version != mars::VERSION { m.rock.len() == cells && m.rock.iter().all(|&r| r <= rock::OCEAN) } else { m.rock.is_empty() };
-        if !known || bad || !rocks || m.h.len() != cells || m.biome.len() != cells {
+        let kinds = m.version != mars::VERSION || m.biome.iter().all(|k| (mars::HIGHLAND..=mars::FROST).contains(k));
+        if !known || bad || !rocks || !kinds || m.h.len() != cells || m.biome.len() != cells {
             return Err(format!("a map of version {} with {} cells, not {VERSION} and {cells}", m.version, m.h.len()));
         }
         m.finish(b);
@@ -646,7 +647,8 @@ pub fn keep(map: Map) -> Arc<Map> {
 
 /// Writes a map's bytes to `path` through a temporary file (a failed write only costs the next start a bake).
 fn write(path: &std::path::Path, map: &Map) {
-    let tmp = path.with_extension("tmp");
+    // one temporary file a process: two baking the same map never rename each other's half-written file
+    let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
     let wrote = std::fs::create_dir_all(DIR).and_then(|_| std::fs::write(&tmp, map.to_bytes())).and_then(|_| std::fs::rename(&tmp, path));
     if let Err(e) = wrote {
         eprintln!("[bake] could not keep {}: {e}", path.display());

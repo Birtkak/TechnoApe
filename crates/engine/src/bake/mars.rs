@@ -69,6 +69,9 @@ const T_VOLC: f32 = 0.9;
 const SHORE: f32 = -12.0;
 /// The giant's summit at most, m (the world's columns end at `world::AMP` less a tree: 378).
 const TOP: f32 = 360.0;
+/// A giant basin's depth at most, m: 0.045 of its width reaches it near n 3328; on larger planets the basins
+/// stay this deep, so their floors (with craters in them) stay over the world's floor (-56).
+const BASIN_DEP: f64 = 66.0;
 /// The drained area a valley starts at, m^2.
 const A_VALLEY: f32 = 6e4;
 /// The bulge's radius, rad, and height, m.
@@ -184,14 +187,14 @@ pub fn run(stages: &[Stage], seed: i32, n: i32, age: f64) -> (Map, Stats) {
     w.stats.stages.push(("crust", lap.elapsed().as_secs_f64()));
     for &st in &stages[1..] {
         lap = Instant::now();
-        match st {
-            Impacts => impacts(&mut w, stages.contains(&Volcanism), age),
-            Volcanism => volcanism(&mut w),
-            Erosion => erosion(&mut w),
-            Ice => ice(&mut w),
+        let name = match st {
+            Impacts => (impacts(&mut w, stages.contains(&Volcanism), age), "impacts").1,
+            Volcanism => (volcanism(&mut w), "volcanism").1,
+            Erosion => (erosion(&mut w), "erosion").1,
+            Ice => (ice(&mut w), "ice").1,
             Plates | Crust | Climate | Life => unreachable!("checked: one crust, nothing of plates or air on it"),
-        }
-        w.stats.stages.push((["", "", "impacts", "volcanism", "erosion", "ice", "", ""][st as usize], lap.elapsed().as_secs_f64()));
+        };
+        w.stats.stages.push((name, lap.elapsed().as_secs_f64()));
     }
     w.finish()
 }
@@ -228,7 +231,8 @@ pub fn crust(seed: i32, n: i32) -> Work {
 
 /// A giant basin: a deep flat floor, steep walls and a broad low rim, older than everything on it.
 fn basin(land: &mut Land, c: DVec3, d: f64) {
-    let (rb, dep, rim) = (0.5 * d / land.r, 0.045 * d, 10.0);
+    // deep for its width on a small planet, but never deeper than the world's columns hold under the highlands
+    let (rb, dep, rim) = (0.5 * d / land.r, (0.045 * d).min(BASIN_DEP), 10.0);
     let h0 = land.h[land.g.locate(c) as usize] as f64;
     let mut h = std::mem::take(&mut land.h);
     Work::each(land, c, 1.5 * rb, |cell, a| {
@@ -805,6 +809,19 @@ mod tests {
         cell.get_or_init(|| Arc::new(run(&MARS, seed, n, 1.0))).clone()
     }
 
+    /// The heights stay within the world's columns at every size of planet: what scales with the body (the basins,
+    /// the craters) is held to the world's range, not left to grow with n.
+    #[test]
+    fn heights_stay_in_the_worlds_columns_at_every_size() {
+        for n in [832, 6144] {
+            for seed in [1, 2] {
+                let m = &shared(seed, n).0;
+                let (lo, hi) = m.h.iter().fold((f32::MAX, f32::MIN), |(a, b), &h| (a.min(h), b.max(h)));
+                assert!(lo >= -56.0 && hi < 378.0, "seed {seed} n {n}: heights {lo:.1} to {hi:.1}");
+            }
+        }
+    }
+
     fn planet() -> Planet {
         Planet { name: "Mars".into(), age: 1.0 }
     }
@@ -820,6 +837,9 @@ mod tests {
         let back = Map::from_bytes(&a.to_bytes()).unwrap();
         assert_eq!((back.hash, back.version, &back.tubes, back.rivers.len(), &back.biome), (a.hash, VERSION, &a.tubes, a.rivers.len(), &a.biome));
         assert!(!a.tubes.is_empty() && !a.rivers.is_empty());
+        let mut odd = Map::from_bytes(&a.to_bytes()).unwrap();
+        odd.biome[0] = HIGHLAND - 1;
+        assert!(Map::from_bytes(&odd.to_bytes()).is_err(), "a kind outside a planet's crust's is refused");
         let path = file(&MARS, seed, n, &planet());
         assert_eq!(path.file_name().unwrap().to_str().unwrap(), format!("seed--4242-planet-832-mars-{:08x}-v201.map", crate::world::fnv(crate::world::FNV0, b"[Crust, Impacts, Volcanism, Erosion, Ice] 1.0") as u32));
         assert_ne!(path, file(&MARS[..4], seed, n, &planet()), "another list, another file");
