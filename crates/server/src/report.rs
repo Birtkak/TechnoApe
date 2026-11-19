@@ -12,7 +12,7 @@ pub fn report(w: &World) -> String {
     for &p in &map.rock {
         share[p as usize] += 1.0 / map.rock.len() as f64;
     }
-    let provinces: Vec<String> = NAMES.iter().zip(share).map(|(n, s)| format!("\"{n}\": {:.3}", s)).collect();
+    let provinces: Vec<String> = NAMES.iter().zip(share).take(engine::bake::rock::OCEAN as usize + 1).map(|(n, s)| format!("\"{n}\": {:.3}", s)).collect();
     let rock_of = |c: &engine::world::Cave| engine::rock::ROCKS.at(b.rock_at(c.face as usize, c.at.x, c.at.y, b.dir(c.face as usize, c.at.x, c.at.y)), b.layer_r(c.at.z) as f32, 0);
     let lime = engine::blocks::BLOCKS.id("limestone");
     let (in_lime, depth): (usize, Vec<f64>) = (b.caves.iter().filter(|c| rock_of(c) == lime).count(), b.caves.iter().map(|c| b.ground_r(c.face as usize, c.at.x, c.at.y) - b.layer_r(c.at.z)).collect());
@@ -25,8 +25,8 @@ pub fn report(w: &World) -> String {
     let pressure = |z: f64| b.pressure(f as u8, i as i32, j as i32, z).unwrap_or(f32::NAN);
     // under the spawn and under the nearest column of the hottest and the coldest province (by `heat` a metre)
     let p = &engine::rock::ROCKS.provinces;
-    // (the land's provinces: the ocean floor, the last, lies under the sea)
-    let land = || (0..p.len() as u8 - 1).map(|k| (p[k as usize].heat, k));
+    // (the planet's land provinces: the ocean floor, its last, lies under the sea; Luna's come after it)
+    let land = || (0..engine::bake::rock::OCEAN).map(|k| (p[k as usize].heat, k));
     let (hot, cold) = (land().max_by(|a, c| a.0.total_cmp(&c.0)).unwrap().1, land().min_by(|a, c| a.0.total_cmp(&c.0)).unwrap().1);
     let deep: Vec<String> = [("spawn", None), ("hottest", Some(hot)), ("coldest", Some(cold))].iter().filter_map(|&(name, prov)| deep_column(b, f as u8, i as i32, j as i32, prov).map(|c| format!("\"{name}\": {c}"))).collect();
     // the caves and the crust's ore bodies alone: the hash of the same world before the mantle's minerals

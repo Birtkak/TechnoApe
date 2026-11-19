@@ -802,23 +802,49 @@ impl Bake {
     }
 }
 
+/// The `plates` and `erosion` stages as one call (stages 1 to 4 of worldgen.md).
 pub fn bake(planet_n: u32, seed: u64, p: &Params) -> Bake {
-    let mut times = Vec::new();
-    let mut t = Instant::now();
-    let mut lap = |name: &'static str, times: &mut Vec<(&'static str, f64)>| {
-        times.push((name, t.elapsed().as_secs_f64()));
-        t = Instant::now();
-        super::lap(name);
-    };
+    erosion(crust(planet_n, seed, p), planet_n, seed, p)
+}
+
+/// The crust by plates (the bake's `plates` stage, draft-bake-stages): the grids, the plates and their
+/// boundaries' uplift.
+pub struct Crust {
+    gc: Grid,
+    gf: Grid,
+    tc: Tectonics,
+    r: f64,
+    times: Vec<(&'static str, f64)>,
+    t: Instant,
+}
+
+/// Records stage `name`'s seconds since `t` and reports it (`super::lap`).
+fn lap_at(name: &'static str, times: &mut Vec<(&'static str, f64)>, t: &mut Instant) {
+    times.push((name, t.elapsed().as_secs_f64()));
+    *t = Instant::now();
+    super::lap(name);
+}
+
+/// The `plates` stage: stages 1 and 2 of worldgen.md.
+pub fn crust(planet_n: u32, seed: u64, p: &Params) -> Crust {
+    let (mut times, mut t) = (Vec::new(), Instant::now());
     // the engine's radius for N columns of 1 m blocks (ADR 0003, 0033)
     let r = planet_n as f64 / (2.0 * std::f64::consts::PI / 3.0).sqrt();
     let mf = ((planet_n as f64 / p.cell_m).round() as usize).max(p.coarse * 8);
     let mf = mf - mf % p.coarse;
     let gc = Grid::new(mf / p.coarse, r);
     let gf = Grid::new(mf, r);
-    lap("grid", &mut times);
+    lap_at("grid", &mut times, &mut t);
     let tc = tectonics(&gc, seed, p);
-    lap("plates and boundaries", &mut times);
+    lap_at("plates and boundaries", &mut times, &mut t);
+    Crust { gc, gf, tc, r, times, t }
+}
+
+/// The `erosion` stage on a crust by plates: erosion coarse and fine (the provinces laid as the grid is
+/// refined), the sea and the coast, the rivers and lakes (stages 3 and 4).
+pub fn erosion(c: Crust, planet_n: u32, seed: u64, p: &Params) -> Bake {
+    let Crust { gc, gf, tc, r, mut times, mut t } = c;
+    let mut lap = |name: &'static str, times: &mut Vec<(&'static str, f64)>| lap_at(name, times, &mut t);
     let mut hc = tc.h0.clone();
     let conv_c = erode(&gc, &mut hc, &tc.uplift, p, p.coarse_iters, p.coarse_dt);
     lap("erosion, coarse", &mut times);

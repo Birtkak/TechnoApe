@@ -516,7 +516,9 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
             std::process::exit(1)
         });
         // (depth=m: the stand point that far under the ground, in the rock: a pocket dug with place= `_`)
-        let feet = world.block_at(up * (world.bodies[0].top(up) - stand_depth(&args, &world.bodies[0], up) + 0.1));
+        // on the body= the stand is on (as `bench::pose`), not always Terra
+        let b = &world.bodies[args.get("body", 0usize).min(world.bodies.len() - 1)];
+        let feet = world.block_at(b.centre + up * (b.top(up) - stand_depth(&args, b, up) + 0.1));
         for (d, id) in place {
             world.set_block(Block { pos: feet.pos + d, ..feet }, id);
         }

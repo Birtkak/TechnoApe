@@ -1,4 +1,5 @@
-//! Luna's bake (worldgen.md, "Luna"; W6, ADR 0070): no air, water or plates, so a short pipeline of its own.
+//! Luna's bake (worldgen.md, "Luna"; W6, ADR 0070): no air, water or plates. Its parts are stages of the one
+//! bake (`super::run`, draft-bake-stages): `crust`, `impacts`, `ice`, `volcanism`.
 //! Old pale crust; a few giant basins, those facing Terra flooded with dark basalt (the maria); craters
 //! stamped oldest first, counts by the power law `K`, bowls when small, flat floors, terraces and a peak
 //! when large, each with a blanket of debris, older ones worn soft; the youngest bright, with rays. The dust
@@ -31,6 +32,19 @@ pub const METAL: u8 = 19;
 pub const KREEP: u8 = 20;
 pub const SHADOW: u8 = 21;
 pub const KINDS: [&str; 7] = ["highland", "mare", "fresh highland", "fresh mare", "metal crater", "kreep", "polar shadow"];
+
+/// The rock province under a kind of ground (draft-bake-stages): her crust stage's rock field, read from the
+/// kinds the stages laid, so her map's bytes and hash stay as they were. The maria (fresh or not) are basalt over
+/// the anorthosite, the thorium province KREEP over it, every other kind (highland, fresh ejecta, a metal crater's
+/// floor, the polar shadow) the old anorthosite crust.
+pub fn province(kind: u8) -> u8 {
+    use super::rock::{LUNA_HIGHLAND, LUNA_KREEP, LUNA_MARE};
+    match kind {
+        MARE | MARE_FRESH => LUNA_MARE,
+        KREEP => LUNA_KREEP,
+        _ => LUNA_HIGHLAND,
+    }
+}
 
 /// Columns per cell: Luna's cells are 2 m (Terra's 8), so a crater 6 m across is three cells.
 const CELL: i32 = 2;
@@ -234,27 +248,50 @@ impl Land {
     }
 }
 
-/// Bakes Luna of `n` columns per face edge from `seed`.
+/// Bakes Luna of `n` columns per face edge from `seed`: her stages through the one pipeline (`super::run`).
 pub fn bake(seed: i32, n: i32) -> Map {
-    bake_stats(seed, n).0
+    super::run(&super::Stage::LUNA, seed, n)
 }
 
-/// `bake` and what it measured.
+/// `bake` and what it measured: Luna's stages in her row's order, as `super::run` calls them.
 pub fn bake_stats(seed: i32, n: i32) -> (Map, Stats) {
+    let mut w = crust(seed, n);
+    impacts(&mut w, true);
+    ice(&mut w);
+    volcanism(&mut w);
+    w.finish()
+}
+
+/// A bake of an airless body under way (draft-bake-stages): its ground and kinds, its craters, its tubes.
+pub struct Work {
+    seed: i32,
+    n: i32,
+    r: f64,
+    rng: Rng,
+    land: Land,
+    craters: Vec<Crater>,
+    tubes: Vec<(u32, f32, f32)>,
+    stats: Stats,
+    t0: std::time::Instant,
+}
+
+fn noise(seed: i32, s: i32, freq: f32, oct: i32) -> FastNoiseLite {
+    let mut f = FastNoiseLite::with_seed(seed ^ s);
+    f.set_noise_type(Some(NoiseType::OpenSimplex2));
+    f.set_fractal_type(Some(FractalType::FBm));
+    f.set_fractal_octaves(Some(oct));
+    f.set_frequency(Some(freq));
+    f
+}
+
+/// The `crust` stage: the old crust, rough from the start, all highland.
+pub fn crust(seed: i32, n: i32) -> Work {
     let t0 = std::time::Instant::now();
     let m = (n / CELL).max(4) as usize;
     let r = n as f64 / (2.0 * std::f64::consts::PI / 3.0).sqrt();
-    let mut rng = Rng::new(seed as u32 as u64 ^ 0x4c75_6e61);
-    let noise = |s: i32, freq: f32, oct: i32| {
-        let mut f = FastNoiseLite::with_seed(seed ^ s);
-        f.set_noise_type(Some(NoiseType::OpenSimplex2));
-        f.set_fractal_type(Some(FractalType::FBm));
-        f.set_fractal_octaves(Some(oct));
-        f.set_frequency(Some(freq));
-        f
-    };
+    let rng = Rng::new(seed as u32 as u64 ^ 0x4c75_6e61);
     // 1. the old crust: rough from the start
-    let crust = noise(0x11, 1.0 / 160.0, 4);
+    let crust = noise(seed, 0x11, 1.0 / 160.0, 4);
     let g = Grid::new(m, r);
     let h: Vec<f32> = (0..g.n() as u32)
         .into_par_iter()
@@ -263,9 +300,16 @@ pub fn bake_stats(seed: i32, n: i32) -> (Map, Stats) {
             DATUM + 8.0 * crust.get_noise_3d(p.x as f32, p.y as f32, p.z as f32)
         })
         .collect();
-    let mut land = Land { kind: vec![HIGHLAND; g.n()], g, r, h };
-    let area = 4.0 * std::f64::consts::PI * r * r;
+    let land = Land { kind: vec![HIGHLAND; g.n()], g, r, h };
+    Work { seed, n, r, rng, land, craters: Vec::new(), tubes: Vec::new(), stats: Stats::default(), t0 }
+}
 
+/// The `impacts` stage: the giant basins and the craters by the power law, stamped oldest first; with
+/// `maria` (the `volcanism` stage listed) the basins facing Terra flood with basalt at `T_MARE`, between the
+/// craters before and after it, as the real maria did. Then which craters can still be seen.
+pub fn impacts(w: &mut Work, maria: bool) {
+    let (r, rng, land) = (w.r, &mut w.rng, &mut w.land);
+    let area = 4.0 * std::f64::consts::PI * r * r;
     // 2. the basins: four wide ones on the side that faces Terra (body -x, sky.rs `moon`), two anywhere
     let mut craters = Vec::new();
     for k in 0..6 {
@@ -283,10 +327,10 @@ pub fn bake_stats(seed: i32, n: i32) -> (Map, Stats) {
         }
     }
     craters.sort_by(|a, b| a.t.total_cmp(&b.t));
-    let wrinkle = noise(0x22, 1.0 / 40.0, 2);
+    let wrinkle = noise(w.seed, 0x22, 1.0 / 40.0, 2);
     let mut flooded = false;
     for k in 0..craters.len() {
-        if !flooded && craters[k].t >= T_MARE {
+        if maria && !flooded && craters[k].t >= T_MARE {
             flooded = true;
             for b in craters[..k].iter().filter(|b| b.basin && b.c.dot(DVec3::NEG_X) > 0.5) {
                 land.flood(b, &wrinkle);
@@ -299,14 +343,13 @@ pub fn bake_stats(seed: i32, n: i32) -> (Map, Stats) {
     }
 
     // a moon too small for any crater after the maria still floods them
-    if !flooded {
+    if maria && !flooded {
         for b in craters.iter().filter(|b| b.basin && b.c.dot(DVec3::NEG_X) > 0.5) {
             land.flood(b, &wrinkle);
         }
     }
 
     // which craters can still be seen: youngest first, a crater hides under a younger, wider one over its middle
-    let mut stats = Stats::default();
     let mut cover = vec![0f32; land.g.n()];
     let mut seen = vec![false; craters.len()];
     for k in (0..craters.len()).rev() {
@@ -317,8 +360,36 @@ pub fn bake_stats(seed: i32, n: i32) -> (Map, Stats) {
         land.cap(cr.c, 0.4 * cr.d, |cell, _| cover[cell] = cover[cell].max(cr.d as f32));
     }
     drop(cover);
-    stats.craters = craters.iter().zip(&seen).filter(|(c, _)| !c.basin).map(|(c, &s)| (c.d, s)).collect();
+    w.stats.craters = craters.iter().zip(&seen).filter(|(c, _)| !c.basin).map(|(c, &s)| (c.d, s)).collect();
 
+    w.craters = craters;
+}
+
+/// The `ice` stage on an airless body: the polar ground no sun reaches (on 8 m cells), a kind of its own.
+pub fn ice(w: &mut Work) {
+    let land = &mut w.land;
+    // the polar shadow, on 8 m cells: no sun from any side at its highest (the orbit's tilt and the sun's disc)
+    let shadow = polar_shadow(land);
+    let q = land.g.m / 4;
+    for &(c, _) in &shadow {
+        let (f, i, j) = (c / (q * q), c % q, (c / q) % q);
+        for b in 0..4 {
+            for a in 0..4 {
+                let cell = land.g.idx(f, 4 * i + a, 4 * j + b) as usize;
+                if land.kind[cell] != METAL {
+                    land.kind[cell] = SHADOW;
+                }
+            }
+        }
+    }
+    w.stats.shadow = shadow.iter().map(|s| s.1).collect();
+}
+
+/// The `volcanism` stage after the impacts: the thorium (KREEP) province round the largest mare, and the lava
+/// tubes under the maria with pits where the roof fell in.
+pub fn volcanism(w: &mut Work) {
+    let Work { r, rng, land, craters, tubes, stats, .. } = w;
+    let r = *r;
     // 7. thorium: a ring sector of highland round the largest mare
     if let Some(b) = craters.iter().filter(|b| b.basin && b.c.dot(DVec3::NEG_X) > 0.5).max_by(|a, b| a.d.total_cmp(&b.d)) {
         let (e1, e2) = (b.c.any_orthonormal_vector(), b.c.cross(b.c.any_orthonormal_vector()));
@@ -334,24 +405,7 @@ pub fn bake_stats(seed: i32, n: i32) -> (Map, Stats) {
         land.kind = kind;
     }
 
-    // the polar shadow, on 8 m cells: no sun from any side at its highest (the orbit's tilt and the sun's disc)
-    let shadow = polar_shadow(&land);
-    let q = land.g.m / 4;
-    for &(c, _) in &shadow {
-        let (f, i, j) = (c / (q * q), c % q, (c / q) % q);
-        for b in 0..4 {
-            for a in 0..4 {
-                let cell = land.g.idx(f, 4 * i + a, 4 * j + b) as usize;
-                if land.kind[cell] != METAL {
-                    land.kind[cell] = SHADOW;
-                }
-            }
-        }
-    }
-    stats.shadow = shadow.iter().map(|s| s.1).collect();
-
     // 6. the lava tubes under the maria, with pits where the roof fell in
-    let mut tubes = Vec::new();
     for b in craters.iter().filter(|b| b.basin && b.c.dot(DVec3::NEG_X) > 0.5) {
         for _ in 0..1 + rng.u64() % 2 {
             let (e1, e2) = (b.c.any_orthonormal_vector(), b.c.cross(b.c.any_orthonormal_vector()));
@@ -385,17 +439,23 @@ pub fn bake_stats(seed: i32, n: i32) -> (Map, Stats) {
         }
     }
     stats.balls = tubes.len();
+}
 
-    for c in 0..land.g.n() as u32 {
-        stats.area[(land.kind[c as usize] - HIGHLAND) as usize] += land.g.area(c) as f64;
+impl Work {
+    /// The map of what the stages made, and what they measured.
+    pub fn finish(self) -> (Map, Stats) {
+        let Work { seed, n, land, tubes, mut stats, t0, .. } = self;
+        for c in 0..land.g.n() as u32 {
+            stats.area[(land.kind[c as usize] - HIGHLAND) as usize] += land.g.area(c) as f64;
+        }
+        stats.shadow_m2 = stats.area[(SHADOW - HIGHLAND) as usize];
+        let spawn = spawn(&land);
+        let mut map = Map { version: VERSION, seed, n, m: land.g.m as u32, h: land.h, biome: land.kind, spawn, tubes, ..Map::empty() };
+        map.finish(&map.to_bytes());
+        stats.seconds = t0.elapsed().as_secs_f64();
+        eprintln!("[bake] Luna of seed {seed} planet {n}: {:.1} s", stats.seconds);
+        (map, stats)
     }
-    stats.shadow_m2 = stats.area[(SHADOW - HIGHLAND) as usize];
-    let spawn = spawn(&land);
-    let mut map = Map { version: VERSION, seed, n, m: m as u32, h: land.h, biome: land.kind, spawn, tubes, ..Map::empty() };
-    map.finish(&map.to_bytes());
-    stats.seconds = t0.elapsed().as_secs_f64();
-    eprintln!("[bake] Luna of seed {seed} planet {n}: {:.1} s", stats.seconds);
-    (map, stats)
 }
 
 /// The 8 m cells (index on a grid of m/4) near the poles that no sun reaches, and their distance from the pole.
@@ -425,7 +485,7 @@ fn polar_shadow(land: &Land) -> Vec<(usize, f64)> {
     };
     // the sun's highest over Luna's equator (its orbit's plane): the orbit's tilt from the ecliptic, and the
     // disc's edge (as wide as Luna seen from Terra's ground, a little less: sky.rs `SUN_UNDER_MOON`)
-    let luna = crate::bodies::BODIES.iter().find(|r| r.bake == Some(crate::bodies::Bake::Luna)).expect("a row of Luna's bake");
+    let luna = crate::bodies::BODIES.iter().find(|r| r.bake.as_ref().is_some_and(|b| b.0 == super::Stage::LUNA)).expect("a row of Luna's bake");
     let (size, orbit) = (luna.size.unwrap_or(3.7), luna.orbit.map_or(60.0, |o| o.0));
     let high = crate::sky::INCLINATION + crate::sky::SUN_UNDER_MOON * (1.0 / (size * (orbit - 1.0))).asin();
     (0..6 * q * q)
@@ -596,6 +656,95 @@ mod tests {
             assert_eq!(at(f, i, j, layer(0.5)), BLOCKS.id(dust), "{dust} on top");
             assert_eq!(at(f, i, j, layer(8.0)), BLOCKS.id(rock), "{rock} under it");
         }
+    }
+
+    /// Luna's generated blocks of generation `gen` on the small Luna: an FNV over every 97th column of each face,
+    /// 70 m down from its ground to a metre over it.
+    fn luna_blocks_hash(gen: u8) -> u64 {
+        use crate::world::{Block, World};
+        let map = Arc::new(bake(7, 416));
+        let w = World::with_grid(256, 416, 7, None, Some(map), 0.0, gen);
+        let b = &w.bodies[1];
+        let mut h = crate::world::FNV0;
+        for c in (0..6 * 416 * 416).step_by(97) {
+            let (f, i, j) = ((c / (416 * 416)) as u8, (c % 416) as i32, ((c / 416) % 416) as i32);
+            let top = w.column_height(Block { body: 1, face: f, pos: glam::IVec3::new(i, j, 0) });
+            for z in b.layer_of(top - 70.0).floor() as i32..=b.layer_of(top + 1.0).ceil() as i32 {
+                h = crate::world::fnv(h, &w.generated_block(Block { body: 1, face: f, pos: glam::IVec3::new(i, j, z) }).to_le_bytes());
+            }
+        }
+        h
+    }
+
+    /// A lock taken on the code before Luna's rock field (draft-bake-stages): her ground of generations 0 to 3,
+    /// block for block, as it was.
+    #[test]
+    fn luna_generates_as_before_up_to_generation_3() {
+        for gen in [0, 3] {
+            assert_eq!(format!("{:016x}", luna_blocks_hash(gen)), "a22a376de6be21ba", "generation {gen}");
+        }
+    }
+
+    /// Generation 4 (draft-bake-stages): Luna's rock field. Her provinces are hers alone, the maria's share of her
+    /// columns is her map's, `Body::rock` (`Rocks::at`) answers what is generated there, and under the dust the
+    /// highlands are anorthosite and the maria basalt over anorthosite; her ground differs from generation 3's.
+    #[test]
+    fn a_generation_4_luna_has_anorthosite_highlands_and_basalt_maria() {
+        use crate::bake::rock::{LUNA_HIGHLAND, LUNA_KREEP, LUNA_MARE};
+        use crate::blocks::BLOCKS;
+        use crate::rock::ROCKS;
+        use crate::world::{Block, World, GENERATION};
+        assert_eq!(GENERATION, 4);
+        let map = Arc::new(bake(7, 416));
+        let w = World::with_grid(256, 416, 7, None, Some(map.clone()), 0.0, 4);
+        let b = &w.bodies[1];
+        let luna = crate::bodies::find("luna").unwrap();
+        let id = |n: &str| BLOCKS.id(n);
+        let (mut cols, mut mare, mut seen) = (0, 0, [0usize; 3]);
+        for c in (0..6 * 416 * 416).step_by(31) {
+            let (f, i, j) = ((c / (416 * 416)) as u8, (c % 416) as i32, ((c / 416) % 416) as i32);
+            let rock = b.col_rock(f, i, j);
+            let p = rock.province;
+            assert!([LUNA_HIGHLAND, LUNA_MARE, LUNA_KREEP].contains(&p) && ROCKS.provinces[p as usize].body == luna, "column {c}: province {p}");
+            let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
+            let kind = b.biome_at(f as usize, ci, cj, b.dir(f as usize, ci, cj)).unwrap();
+            assert_eq!(p, province(kind), "column {c}: the province is its kind's");
+            cols += 1;
+            mare += (p == LUNA_MARE) as usize;
+            seen[(p - LUNA_HIGHLAND) as usize] += 1;
+            // what is generated under the dust is the rock field's, but where a tube hollows it
+            let top = w.column_height(Block { body: 1, face: f, pos: glam::IVec3::new(i, j, 0) });
+            let caves = b.col_caves(f, i, j);
+            for depth in [6.0, 20.0, 45.0, 70.0] {
+                let z = b.layer_of(top - depth).floor() as i32;
+                if caves.iter().any(|&(lo, hi)| (lo..hi).contains(&z)) {
+                    continue;
+                }
+                let got = w.generated_block(Block { body: 1, face: f, pos: glam::IVec3::new(i, j, z) });
+                let band = crate::biomes::ROWS.biomes[kind as usize].ground[1];
+                if got != band {
+                    assert_eq!(got, b.rock(rock, b.layer_r(z as f64 + 0.5) as f32, u16::MAX), "column {c}, {depth} m down");
+                }
+                if depth == 70.0 {
+                    assert_eq!(got, id("anorthosite"), "column {c}: anorthosite 70 m down under every kind");
+                }
+                if depth == 6.0 && p == LUNA_MARE && got != band {
+                    assert_eq!(got, id("mare basalt"), "column {c}: a mare's basalt under its dust");
+                }
+            }
+        }
+        // the maria's share of the columns against the map's cells (by area)
+        let g = Grid::new(map.m as usize, 1.0);
+        let all: f64 = (0..g.n() as u32).map(|c| g.area(c) as f64).sum();
+        let want = (0..g.n() as u32).filter(|&c| matches!(map.biome[c as usize], MARE | MARE_FRESH)).map(|c| g.area(c) as f64).sum::<f64>() / all;
+        let got = mare as f64 / cols as f64;
+        assert!((got - want).abs() < 0.02 && want > 0.05, "maria {got:.3} of the columns, {want:.3} of the map");
+        assert!(seen.iter().all(|&k| k > 0), "every province seen: {seen:?}");
+        println!("highland {:.3}, mare {:.3}, kreep {:.3} of {cols} columns; the map's maria {want:.3}", seen[0] as f64 / cols as f64, seen[1] as f64 / cols as f64, seen[2] as f64 / cols as f64);
+        let h = format!("{:016x}", luna_blocks_hash(4));
+        assert_ne!(h, "a22a376de6be21ba", "generation 4's ground is not 3's");
+        // and a lock on it, as generation 3's above
+        assert_eq!(h, "ca3af00891b21215");
     }
 
     /// The report of the standard Luna (1664 columns, seed 5): its bake time, crater counts by size, the kinds'

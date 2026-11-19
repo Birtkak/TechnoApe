@@ -16,8 +16,15 @@ pub const ARC: u8 = 3;
 pub const RIFT: u8 = 4;
 /// Oceanic crust: basalt over gabbro.
 pub const OCEAN: u8 = 5;
-/// The rows of `data/rocks.toml`, in id order.
-pub const NAMES: [&str; 6] = ["shield", "basin", "folded belt", "volcanic arc", "rift", "ocean floor"];
+/// Luna's (draft-bake-stages; a world of generation 4 on): her old pale crust, anorthosite.
+pub const LUNA_HIGHLAND: u8 = 6;
+/// Luna's maria: the basins' dark basalt fill over the anorthosite.
+pub const LUNA_MARE: u8 = 7;
+/// Luna's thorium province round the largest mare (KREEP rock over the anorthosite).
+pub const LUNA_KREEP: u8 = 8;
+/// The rows of `data/rocks.toml`, in id order: Terra's (`SHIELD` .. `OCEAN`, what `provinces` lays), then Luna's
+/// (`LUNA_HIGHLAND` .. `LUNA_KREEP`, read from her map's kinds, `super::luna::province`).
+pub const NAMES: [&str; 9] = ["shield", "basin", "folded belt", "volcanic arc", "rift", "ocean floor", "highland crust", "mare", "kreep terrane"];
 
 /// Each cell's province. A belt is about as wide as the uplift that boundary raised (`Params`), so the folded
 /// rock lies under the ranges, and the ancient sutures inside the continents are old folded belts; shields and

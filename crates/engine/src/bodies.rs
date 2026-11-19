@@ -1,5 +1,6 @@
 //! The bodies as rows of data, from `data/bodies.toml` (fundamentals, section 2: more bodies is more rows).
 //! Built into the binary like the blocks, so a client and a server from one build agree.
+use crate::bake::Stage;
 use crate::blocks::BLOCKS;
 use serde::Deserialize;
 use std::sync::LazyLock;
@@ -13,42 +14,44 @@ pub enum Generator {
     Hills,
 }
 
-/// Which bake makes a body's map (ADR 0043, 0070): Terra's pipeline or Luna's.
-#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum Bake {
-    Terra,
-    Luna,
-}
+/// The bake that makes a body's map: the stages it runs, in order (draft-bake-stages; `bake::check`).
+/// Terra's (ADR 0043) and Luna's (ADR 0070) lists keep their maps' files, versions and old layouts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Bake(pub Vec<Stage>);
 
 impl Bake {
     /// This bake's map of a world: from memory, the disk or baked now.
-    pub fn get(self, seed: i32, n: i32) -> std::sync::Arc<crate::bake::Map> {
-        match self {
-            Bake::Terra => crate::bake::get(seed, n),
-            Bake::Luna => crate::bake::luna::get(seed, n),
+    pub fn get(&self, seed: i32, n: i32) -> std::sync::Arc<crate::bake::Map> {
+        match &self.0[..] {
+            s if s == Stage::TERRA => crate::bake::get(seed, n),
+            s if s == Stage::LUNA => crate::bake::luna::get(seed, n),
+            // shortcut: another list is baked at every start and not kept, until a body has one (the Mars step)
+            s => std::sync::Arc::new(crate::bake::run(s, seed, n)),
         }
     }
     /// The map of this hash, baked again if it is not kept; None when this build bakes another.
-    pub fn for_hash(self, seed: i32, n: i32, hash: u64) -> Option<std::sync::Arc<crate::bake::Map>> {
-        match self {
-            Bake::Terra => crate::bake::for_hash(seed, n, hash),
-            Bake::Luna => crate::bake::luna::for_hash(seed, n, hash),
+    pub fn for_hash(&self, seed: i32, n: i32, hash: u64) -> Option<std::sync::Arc<crate::bake::Map>> {
+        match &self.0[..] {
+            s if s == Stage::TERRA => crate::bake::for_hash(seed, n, hash),
+            s if s == Stage::LUNA => crate::bake::luna::for_hash(seed, n, hash),
+            _ => Some(self.get(seed, n)).filter(|m| m.hash == hash),
         }
     }
-    /// Where this bake's map of a world is kept.
-    pub fn file(self, seed: i32, n: i32) -> std::path::PathBuf {
-        match self {
-            Bake::Terra => crate::bake::file(seed, n),
-            Bake::Luna => crate::bake::luna::file(seed, n),
+    /// Where this bake's map of a world is kept (another list's: a name never written, `get`).
+    pub fn file(&self, seed: i32, n: i32) -> std::path::PathBuf {
+        match &self.0[..] {
+            s if s == Stage::TERRA => crate::bake::file(seed, n),
+            s if s == Stage::LUNA => crate::bake::luna::file(seed, n),
+            s => std::path::PathBuf::from(crate::bake::DIR).join(format!("seed-{seed}-planet-{n}-{s:?}.map")),
         }
     }
     /// This bake's map version, for a message.
-    pub fn version(self) -> u32 {
-        match self {
-            Bake::Terra => crate::bake::VERSION,
-            Bake::Luna => crate::bake::luna::VERSION,
-        }
+    pub fn version(&self) -> u32 {
+        if self.0[0] == Stage::Plates { crate::bake::VERSION } else { crate::bake::luna::VERSION }
+    }
+    /// Whether it bakes on plates (Terra's kind of map, with a sea); else an airless crust's (Luna's).
+    pub fn plates(&self) -> bool {
+        self.0[0] == Stage::Plates
     }
 }
 
@@ -59,7 +62,7 @@ struct Raw {
     parent: String,
     #[serde(default)]
     home: bool,
-    bake: Option<Bake>,
+    stages: Option<Vec<Stage>>,
     #[serde(default)]
     words: Vec<String>,
     n: Option<i32>,
@@ -189,7 +192,10 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
         }
         let makeup = Makeup { kind: r.kind, iron: r.iron, heat: r.heat, density: r.density, weight_g: r.weight_g };
         check(&makeup).map_err(|e| format!("body '{}': {e}", r.name))?;
-        rows.push(Row { name: r.name, parent, home: r.home, bake: r.bake, words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator, ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup });
+        if let Some(s) = &r.stages {
+            crate::bake::check(s).map_err(|e| format!("body '{}': {e}", r.name))?;
+        }
+        rows.push(Row { name: r.name, parent, home: r.home, bake: r.stages.map(Bake), words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator, ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup });
     }
     if moon(&rows).is_none() {
         return Err(format!("body '{}': the home body needs a moon (its first sizes the sun)", rows[0].name));
@@ -279,7 +285,7 @@ mod tests {
         assert_eq!((BODIES[0].generator, BODIES[0].air, BODIES[0].orbit), (Generator::Continents, true, None));
         assert_eq!((BODIES[1].generator, BODIES[1].air, BODIES[1].orbit), (Generator::Hills, false, Some((60.0, 0.0))));
         assert_eq!(BODIES[1].ground[0], BLOCKS.id("regolith"));
-        assert_eq!(BODIES.iter().map(|r| (r.parent, r.home, r.bake)).collect::<Vec<_>>(), [(None, true, Some(Bake::Terra)), (Some(0), false, Some(Bake::Luna))]);
+        assert_eq!(BODIES.iter().map(|r| (r.parent, r.home, r.bake.clone())).collect::<Vec<_>>(), [(None, true, Some(Bake(Stage::TERRA.to_vec()))), (Some(0), false, Some(Bake(Stage::LUNA.to_vec())))]);
         assert_eq!((moon(&BODIES), sizes(&BODIES, 1536, 512), moon_columns(6144)), (Some(1), vec![1536, 512], 1664));
         // a welcome of another number of bodies is a server of another build
         assert!(known_bodies(BODIES.len()).is_ok());
@@ -299,11 +305,11 @@ mod tests {
         let good = b("parent = \"A\"\norbit = 3.0\nsize = 4.0\n");
         let ok = parse(&good).unwrap();
         assert_eq!(ok[1].n, 128, "a quarter of the first body's 512 columns");
-        assert_eq!((ok[0].parent, ok[0].home, ok[1].parent, ok[1].home, ok[1].bake), (None, true, Some(0), false, None));
+        assert_eq!((ok[0].parent, ok[0].home, ok[1].parent, ok[1].home, ok[1].bake.clone()), (None, true, Some(0), false, None));
         // a moon of the moon, and one that circles the sun
-        let more = format!("{good}{}{}", row("C", "parent = \"B\"\norbit = 3.0\nsize = 16.0\n"), row("D", "parent = \"sun\"\nsun = 300.0\nsize = 2.0\nbake = \"luna\"\n"));
+        let more = format!("{good}{}{}", row("C", "parent = \"B\"\norbit = 3.0\nsize = 16.0\n"), row("D", "parent = \"sun\"\nsun = 300.0\nsize = 2.0\nstages = [\"crust\", \"impacts\"]\n"));
         let ok = parse(&more).unwrap();
-        assert_eq!((ok[2].parent, ok[2].n, ok[3].parent, ok[3].n, ok[3].bake), (Some(1), 32, None, 256, Some(Bake::Luna)));
+        assert_eq!((ok[2].parent, ok[2].n, ok[3].parent, ok[3].n, ok[3].bake.clone()), (Some(1), 32, None, 256, Some(Bake(vec![Stage::Crust, Stage::Impacts]))));
         for (bad, why) in [
             (String::new(), "empty"),
             (a.to_string(), "a home without a moon"),
@@ -315,7 +321,6 @@ mod tests {
             (format!("{}{}", row("C", "parent = \"B\"\norbit = 3.0\nsize = 4.0\n"), &good), "a parent below it"),
             (b("parent = \"A\"\norbit = 3.0\nsize = 4.0\nhome = true\n"), "two homes"),
             (good.replace("home = true\n", ""), "no home"),
-            (b("parent = \"A\"\norbit = 3.0\nsize = 4.0\nbake = \"mars\"\n"), "no such bake"),
             (format!("{good}{}", row("D", "parent = \"sun\"\nsize = 2.0\n")), "circles the sun with no sun"),
             (format!("{good}{}", row("D", "parent = \"sun\"\nsun = 300.0\nsize = 2.0\norbit = 3.0\n")), "circles the sun with an orbit"),
             (b("parent = \"A\"\norbit = 3.0\nsize = 4.0\nn = 128\n"), "both a size and n"),
@@ -329,6 +334,26 @@ mod tests {
         ] {
             assert!(parse(&bad).is_err(), "{why}");
         }
+        // a stage list (draft-bake-stages): an unknown stage, and one without what it needs, refused and saying why
+        let stages = |s: &str| parse(&b(&format!("parent = \"A\"\norbit = 3.0\nsize = 4.0\nstages = {s}\n")));
+        for (s, says) in [
+            ("[\"plates\", \"mars\"]", "unknown variant `mars`"),
+            ("[]", "starts with 'plates' or 'crust'"),
+            ("[\"erosion\"]", "starts with 'plates' or 'crust'"),
+            ("[\"plates\", \"climate\", \"life\"]", "'climate' needs 'erosion' before it"),
+            ("[\"plates\", \"erosion\", \"climate\", \"life\", \"ice\"]", "'life' after it"),
+            ("[\"plates\", \"erosion\"]", "ends with 'life'"),
+            ("[\"crust\", \"volcanism\"]", "'volcanism' needs 'impacts' before it"),
+            ("[\"crust\", \"erosion\"]", "not built yet on a crust without plates"),
+            ("[\"plates\", \"impacts\", \"erosion\", \"climate\", \"life\"]", "not built yet on plates"),
+            ("[\"crust\", \"impacts\", \"impacts\"]", "twice"),
+            ("[\"crust\", \"plates\"]", "only the first"),
+        ] {
+            let e = stages(s).expect_err(s);
+            // (an unknown name is the file's reader's error, with its line)
+            assert!(e.contains(says) && (s.contains("mars") || e.contains("body 'B'")), "{s}: {e}");
+        }
+        assert!(stages("[\"crust\", \"impacts\", \"ice\", \"volcanism\"]").is_ok() && stages("[\"plates\", \"erosion\", \"climate\", \"life\"]").is_ok());
     }
 
     const MAKEUP: &str = "kind = \"rocky\"\niron = 0.5\nheat = 0.5\ndensity = [2700.0, 3300.0, 7900.0]\n";

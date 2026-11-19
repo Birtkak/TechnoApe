@@ -33,7 +33,7 @@ impl Server {
             .zip(BODIES.iter())
             .map(|(&(n, h), row)| {
                 let m = h.map(|h| {
-                    let bake = row.bake.unwrap_or_else(|| panic!("{} has no bake in data/bodies.toml, but this world has a map of it", row.name));
+                    let bake = row.bake.as_ref().unwrap_or_else(|| panic!("{} has no bake in data/bodies.toml, but this world has a map of it", row.name));
                     bake.for_hash(seed, n, h).unwrap_or_else(|| panic!("this world was played on another map of {} of seed {seed} (map version {}): it cannot be carried on", row.name, bake.version()))
                 });
                 (n, m)

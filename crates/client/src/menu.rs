@@ -888,10 +888,10 @@ impl App {
         // every body that is baked, at its columns (planet= and moon=, `bodies::sizes`)
         let bakes = |seed: i32, n: i32| {
             let rows = &engine::bodies::BODIES;
-            engine::bodies::sizes(rows, n, moon.unwrap_or(engine::bodies::moon_columns(n))).into_iter().zip(rows.iter()).filter_map(move |(k, r)| r.bake.map(|b| (b, seed, k))).collect::<Vec<_>>()
+            engine::bodies::sizes(rows, n, moon.unwrap_or(engine::bodies::moon_columns(n))).into_iter().zip(rows.iter()).filter_map(move |(k, r)| r.bake.clone().map(|b| (b, seed, k))).collect::<Vec<_>>()
         };
         match (num("seed"), num("planet")) {
-            (Some(seed), Some(n)) if bakes(seed, n).iter().any(|&(b, seed, k)| !b.file(seed, k).exists()) => {
+            (Some(seed), Some(n)) if bakes(seed, n).iter().any(|(b, seed, k)| !b.file(*seed, *k).exists()) => {
                 let todo = bakes(seed, n);
                 self.loading = Some(Loading::start(self.again_args(then), "Making the world", move || {
                     for (b, seed, k) in todo {
@@ -1043,7 +1043,7 @@ impl Loading {
                     // (a map that could not be written would send the joining run back here, round and round)
                     let mut files = Vec::new();
                     for (&(n, h), row) in bodies.iter().zip(engine::bodies::BODIES.iter()) {
-                        let (Some(h), Some(b)) = (h, row.bake) else { continue };
+                        let (Some(h), Some(b)) = (h, &row.bake) else { continue };
                         engine::net::fetch_map(&mut link, seed, n, h)?;
                         files.push(b.file(seed, n));
                     }

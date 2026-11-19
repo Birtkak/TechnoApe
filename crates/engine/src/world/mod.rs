@@ -4,7 +4,7 @@ use crate::bake::{life, Map};
 use crate::biomes::{REACH, ROWS, SPACING, TALLEST};
 use crate::blocks::{AIR, BLOCKS};
 use crate::rock::{Rock, ROCKS};
-use crate::bodies::{Bake, Generator, Row, BODIES};
+use crate::bodies::{Generator, Row, BODIES};
 use crate::interior::Interior;
 use crate::liquid::{Col, Ground, Liquids, OPEN, TILE, U};
 use crate::sky::{Pose, Sky, Tide};
@@ -99,8 +99,9 @@ pub const MANTLE_STEP: i32 = 256;
 
 /// A new world's generation (`Body::gen`): 1 the mantle and the caves by rock (ADR 0152, 0159), 2 the arcs'
 /// basalt flows and lava tubes as one round passage (ADR 0160-generation-number-and-arc-basalt), 3 dry karst in
-/// the basins' limestone in place of ADR 0063's worm (0161-karst-caves).
-pub const GENERATION: u8 = 3;
+/// the basins' limestone in place of ADR 0063's worm (0161-karst-caves), 4 Luna's rock field (draft-bake-stages:
+/// anorthosite highlands, mare basalt over anorthosite in the maria; Terra as at 3).
+pub const GENERATION: u8 = 4;
 
 /// Refuses a world of a generation newer than this build's: it would generate other ground under the edits.
 pub fn known_generation(gen: u8) -> Result<u8, String> {
@@ -266,7 +267,7 @@ pub struct Body {
     pub mantle: i32,
     /// The world's generation (ADR 0160-generation-number-and-arc-basalt): which generation rules its ground
     /// was made by, kept in its save and sent to every client. 0 the worlds before the mantle, 1 the mantle's
-    /// (ADR 0154), `GENERATION` a new world's. A rule new in a generation asks `gen >=` it. Set on the planet only.
+    /// (ADR 0154), `GENERATION` a new world's. A rule new in a generation asks `gen >=` it. Every body has its world's (before 4, the planet's alone was set).
     pub gen: u8,
     noise: FastNoiseLite,
     /// The sea level as a layer coordinate; generation fills every column lower than it with water.

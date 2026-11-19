@@ -59,6 +59,7 @@ struct RawProvince {
     heat: f32,
     caves: Caves,
     flow: Option<RawFlow>,
+    body: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -113,6 +114,8 @@ pub struct Province {
     pub heat: f32,
     pub caves: Caves,
     pub flow: Option<Flow>,
+    /// The row of `data/bodies.toml` whose ground it is (`body`, the home's when not given; draft-bake-stages).
+    pub body: usize,
 }
 
 pub struct Rocks {
@@ -164,7 +167,11 @@ impl Rocks {
                     Some(Flow { rock: d.id, share: f.share, thick: f.thick, width: f.width })
                 }
             };
-            provinces.push(Province { name: p.name.clone(), layers, fold: p.fold, heat: p.heat, caves: p.caves, flow });
+            let body = match &p.body {
+                None => 0,
+                Some(b) => crate::bodies::BODIES.iter().position(|r| &r.name == b).ok_or(format!("province '{}': no body '{b}' in data/bodies.toml", p.name))?,
+            };
+            provinces.push(Province { name: p.name.clone(), layers, fold: p.fold, heat: p.heat, caves: p.caves, flow, body });
         }
         let m = &f.mantle;
         let mut mantle: Vec<Deep> = Vec::new();
@@ -233,10 +240,32 @@ mod tests {
         assert!(r.provinces.iter().all(|p| p.layers.iter().all(|l| BLOCKS.solid(l.0))));
     }
 
+    /// Luna's rows (draft-bake-stages): hers by the `body` key, Terra's the home's; her highland anorthosite to the
+    /// bottom, her maria and her thorium province over anorthosite, every rock one a player can dig (a pick).
+    #[test]
+    fn lunas_provinces_are_hers_and_lie_on_anorthosite() {
+        use crate::bake::rock::{LUNA_HIGHLAND, LUNA_KREEP, LUNA_MARE, OCEAN};
+        let r = &*ROCKS;
+        let luna = crate::bodies::find("luna").unwrap();
+        for (k, p) in r.provinces.iter().enumerate() {
+            assert_eq!(p.body, if k as u8 <= OCEAN { 0 } else { luna }, "{}", p.name);
+        }
+        let id = |n: &str| BLOCKS.id(n);
+        let layers = |p: u8| r.provinces[p as usize].layers.iter().map(|l| l.0).collect::<Vec<_>>();
+        assert_eq!(layers(LUNA_HIGHLAND), [id("anorthosite")]);
+        assert_eq!(layers(LUNA_MARE), [id("mare basalt"), id("anorthosite")]);
+        assert_eq!(layers(LUNA_KREEP), [id("kreep"), id("anorthosite")]);
+        for p in [LUNA_HIGHLAND, LUNA_MARE, LUNA_KREEP] {
+            let p = &r.provinces[p as usize];
+            assert!(p.caves == Caves::None && p.flow.is_none(), "{}: caves and flows on Luna are the next step's", p.name);
+            assert!(p.layers.iter().all(|l| BLOCKS.get(l.0).is_some_and(|d| d.tool.as_deref() == Some("pick"))), "{}", p.name);
+        }
+    }
+
     #[test]
     fn a_broken_file_is_refused_and_says_why() {
         let good = include_str!("../../../data/rocks.toml");
-        for (from, to, says) in [("\"granite\", 0.0", "\"granit\", 0.0", "no block 'granit'"), ("[\"gneiss\", 0.0]", "[\"gneiss\", 5.0]", "the last 0"), ("name = \"rift\"", "name = \"rifts\"", "in that order"), ("block = \"peridotite\"", "block = \"water\"", "the mantle"), ("rock = \"basalt\", share", "rock = \"basalts\", share", "the flow's rock: no solid block 'basalts'"), ("share = 0.5,", "share = 1.4,", "a flow's share")] {
+        for (from, to, says) in [("\"granite\", 0.0", "\"granit\", 0.0", "no block 'granit'"), ("[\"gneiss\", 0.0]", "[\"gneiss\", 5.0]", "the last 0"), ("name = \"rift\"", "name = \"rifts\"", "in that order"), ("block = \"peridotite\"", "block = \"water\"", "the mantle"), ("rock = \"basalt\", share", "rock = \"basalts\", share", "the flow's rock: no solid block 'basalts'"), ("share = 0.5,", "share = 1.4,", "a flow's share"), ("body = \"Luna\"", "body = \"Lune\"", "no body 'Lune'")] {
             let e = Rocks::parse(&good.replacen(from, to, 1)).err().unwrap_or_else(|| panic!("{from} -> {to} loads"));
             assert!(e.contains(says), "{e}");
         }
