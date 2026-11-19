@@ -100,7 +100,7 @@ fn smooth(a: f64, b: f64, x: f64) -> f64 {
 }
 
 impl Crater {
-    fn new(c: DVec3, d: f64, t: f64, basin: bool, metal: bool) -> Crater {
+    pub(super) fn new(c: DVec3, d: f64, t: f64, basin: bool, metal: bool) -> Crater {
         // shallower and lower rimmed as they age (worn by the debris of later ones)
         let fresh = 0.35 + 0.65 * t;
         // a basin is shallow for its width but far deeper than a crater (the real ones: a few km in hundreds)
@@ -135,16 +135,17 @@ impl Crater {
     }
 }
 
-struct Land {
-    g: Grid,
-    r: f64,
-    h: Vec<f32>,
-    kind: Vec<u8>,
+/// The ground under way: heights and kinds on a grid (a planet's crust, `mars`, stamps its craters with it too).
+pub(super) struct Land {
+    pub(super) g: Grid,
+    pub(super) r: f64,
+    pub(super) h: Vec<f32>,
+    pub(super) kind: Vec<u8>,
 }
 
 impl Land {
     /// Every cell within `reach` m of `c` (chord), with its distance: per face the box round the cap's samples.
-    fn cap(&self, c: DVec3, reach: f64, mut f: impl FnMut(usize, f64)) {
+    pub(super) fn cap(&self, c: DVec3, reach: f64, mut f: impl FnMut(usize, f64)) {
         let m = self.g.m;
         let a = reach / self.r;
         let (e1, e2) = (c.any_orthonormal_vector(), c.cross(c.any_orthonormal_vector()));
@@ -199,7 +200,8 @@ impl Land {
             }
         }
     }
-    fn stamp(&mut self, cr: &mut Crater, rays: &[(f64, f64)]) {
+    /// A crater's ground, and with `kinds` Luna's kinds (fresh, metal, rays) round it.
+    pub(super) fn stamp(&mut self, cr: &mut Crater, rays: &[(f64, f64)], kinds: bool) {
         cr.h0 = self.h[self.g.locate(cr.c) as usize];
         let (r_c, h0) = (0.5 * cr.d, cr.h0 as f64);
         let (e1, e2) = (cr.c.any_orthonormal_vector(), cr.c.cross(cr.c.any_orthonormal_vector()));
@@ -210,6 +212,9 @@ impl Land {
             let w = smooth(1.15, 0.85, x);
             let old = h[cell] as f64;
             h[cell] = (w * (h0 + p) + (1.0 - w) * (old + p)) as f32;
+            if !kinds {
+                return;
+            }
             let k = &mut kind[cell];
             let mare = matches!(*k, MARE | MARE_FRESH);
             if cr.metal && x < 0.55 {
@@ -272,7 +277,7 @@ pub fn sun_high(size: Option<f64>, orbit: Option<(f64, f64)>) -> f64 {
 /// measured; `high` is `sun_high` of the body baked.
 pub fn run(stages: &[super::Stage], seed: i32, n: i32, high: f64) -> (Map, Stats) {
     use super::Stage::*;
-    super::check(stages).unwrap_or_else(|e| panic!("a bake of {stages:?}: {e}"));
+    super::check(stages, true).unwrap_or_else(|e| panic!("a bake of {stages:?}: {e}"));
     let mut w = crust(seed, n);
     for &st in &stages[1..] {
         match st {
@@ -298,7 +303,7 @@ pub struct Work {
     t0: std::time::Instant,
 }
 
-fn noise(seed: i32, s: i32, freq: f32, oct: i32) -> FastNoiseLite {
+pub(super) fn noise(seed: i32, s: i32, freq: f32, oct: i32) -> FastNoiseLite {
     let mut f = FastNoiseLite::with_seed(seed ^ s);
     f.set_noise_type(Some(NoiseType::OpenSimplex2));
     f.set_fractal_type(Some(FractalType::FBm));
@@ -361,7 +366,7 @@ pub fn impacts(w: &mut Work, maria: bool) {
         }
         let rays: Vec<(f64, f64)> = if craters[k].rayed() { (0..12).map(|_| (rng.range(0.0, TAU), rng.f())).collect() } else { Vec::new() };
         let mut cr = std::mem::replace(&mut craters[k], Crater::new(DVec3::X, 1.0, 0.0, false, false));
-        land.stamp(&mut cr, &rays);
+        land.stamp(&mut cr, &rays, true);
         craters[k] = cr;
     }
 
@@ -472,7 +477,7 @@ impl Work {
             stats.area[(land.kind[c as usize] - HIGHLAND) as usize] += land.g.area(c) as f64;
         }
         stats.shadow_m2 = stats.area[(SHADOW - HIGHLAND) as usize];
-        let spawn = spawn(&land);
+        let spawn = spawn(&land, CELL);
         let mut map = Map { version: VERSION, seed, n, m: land.g.m as u32, h: land.h, biome: land.kind, spawn, tubes, ..Map::empty() };
         map.finish(&map.to_bytes());
         stats.seconds = t0.elapsed().as_secs_f64();
@@ -539,15 +544,16 @@ fn polar_shadow(land: &Land, high: f64) -> Vec<(usize, f64)> {
         .collect()
 }
 
-/// Where a player lands on Luna by default: gentle ground nearest the +y pole, as on Terra.
-fn spawn(land: &Land) -> [f64; 3] {
+/// Where a player lands on Luna by default (and on a planet's crust, `mars`; its cells `cell` columns wide):
+/// gentle ground nearest the +y pole, as on Terra.
+pub(super) fn spawn(land: &Land, cell: i32) -> [f64; 3] {
     let m = land.g.m;
     let best = (0..land.g.n() as u32)
         .filter(|&c| {
             let (f, i, j) = land.g.fij(c);
             let at = |i: usize, j: usize| land.h[(f * m + j) * m + i];
             i > 0 && j > 0 && i + 1 < m && j + 1 < m && land.g.d(c).y > 0.9 && {
-                let s = (at(i + 1, j) - at(i - 1, j)).hypot(at(i, j + 1) - at(i, j - 1)) / (2.0 * CELL as f32);
+                let s = (at(i + 1, j) - at(i - 1, j)).hypot(at(i, j + 1) - at(i, j - 1)) / (2.0 * cell as f32);
                 s < 0.15
             }
         })
@@ -649,7 +655,7 @@ mod tests {
         assert!(polar_shadow(&flat, sun_high(None, None)).is_empty(), "nothing hides flat ground at the pole");
         let mut bowl = Land { h: flat.h.clone(), kind: flat.kind.clone(), g: Grid::new(m, r), r };
         let mut cr = Crater::new(DVec3::Z, 80.0, 1.0, false, false);
-        bowl.stamp(&mut cr, &[]);
+        bowl.stamp(&mut cr, &[], true);
         let s = polar_shadow(&bowl, sun_high(None, None));
         assert!(!s.is_empty() && s.iter().all(|c| c.1 < 0.1), "{} cells in shadow, all in the bowl", s.len());
         let (tiny, st) = bake_stats(1, 64);

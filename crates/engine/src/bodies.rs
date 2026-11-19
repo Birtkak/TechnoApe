@@ -16,30 +16,47 @@ pub enum Generator {
 
 /// The bake that makes a body's map: the stages it runs, in order (0165-bake-stages; `bake::check`), and its
 /// body's sun at its highest (`luna::sun_high` of the row: what an airless body's `ice` reads).
-/// Terra's (ADR 0043) and Luna's (ADR 0070) lists keep their maps' files, versions and old layouts.
+/// Terra's (ADR 0043) and Luna's (ADR 0070) lists keep their maps' files, versions and old layouts. A planet's
+/// crust (a list starting with `crust` on a body that circles the sun) is the third field's (`bake::mars`, step 5a).
 #[derive(Clone, Debug, PartialEq)]
-pub struct Bake(pub Vec<Stage>, pub f64);
+pub struct Bake(pub Vec<Stage>, pub f64, pub Option<Planet>);
+
+/// What a planet's crust stages read of its row (`bake::mars`), and the name its map is kept under.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Planet {
+    pub name: String,
+    /// How old its surface is, 0..1: the share of the impacts' power law it has collected (Luna's highlands 1).
+    pub age: f64,
+}
 
 impl Bake {
     /// This bake's map of a world: from memory, the disk or baked now.
     pub fn get(&self, seed: i32, n: i32) -> std::sync::Arc<crate::bake::Map> {
+        if let Some(p) = &self.2 {
+            return crate::bake::mars::get(&self.0, seed, n, p);
+        }
         match &self.0[..] {
             s if s == Stage::TERRA => crate::bake::get(seed, n),
             s if s == Stage::LUNA => crate::bake::luna::get(seed, n),
-            // shortcut: another list is baked at every start and not kept, until a body has one (the Mars step)
+            // shortcut: a moon's list other than Luna's is baked at every start and not kept, until a body has one
             s => std::sync::Arc::new(crate::bake::run(s, seed, n, self.1)),
         }
     }
     /// The map of this hash, baked again if it is not kept; None when this build bakes another.
     pub fn for_hash(&self, seed: i32, n: i32, hash: u64) -> Option<std::sync::Arc<crate::bake::Map>> {
         match &self.0[..] {
+            _ if self.2.is_some() => Some(self.get(seed, n)).filter(|m| m.hash == hash),
             s if s == Stage::TERRA => crate::bake::for_hash(seed, n, hash),
             s if s == Stage::LUNA => crate::bake::luna::for_hash(seed, n, hash),
             _ => Some(self.get(seed, n)).filter(|m| m.hash == hash),
         }
     }
-    /// Where this bake's map of a world is kept (another list's: a name never written, `get`).
+    /// Where this bake's map of a world is kept (a planet's crust: `mars::file`; another moon's list: a name never
+    /// written, `get`).
     pub fn file(&self, seed: i32, n: i32) -> std::path::PathBuf {
+        if let Some(p) = &self.2 {
+            return crate::bake::mars::file(&self.0, seed, n, p);
+        }
         match &self.0[..] {
             s if s == Stage::TERRA => crate::bake::file(seed, n),
             s if s == Stage::LUNA => crate::bake::luna::file(seed, n),
@@ -48,7 +65,7 @@ impl Bake {
     }
     /// This bake's map version, for a message.
     pub fn version(&self) -> u32 {
-        if self.0[0] == Stage::Plates { crate::bake::VERSION } else { crate::bake::luna::VERSION }
+        if self.0[0] == Stage::Plates { crate::bake::VERSION } else if self.2.is_some() { crate::bake::mars::VERSION } else { crate::bake::luna::VERSION }
     }
     /// Whether it bakes on plates (Terra's kind of map, with a sea); else an airless crust's (Luna's).
     pub fn plates(&self) -> bool {
@@ -79,6 +96,7 @@ struct Raw {
     heat: f64,
     density: [f64; 3],
     weight_g: Option<f64>,
+    age: Option<f64>,
 }
 
 /// What a body is (planet-model.md): only rocky bodies are built.
@@ -194,9 +212,17 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
         let makeup = Makeup { kind: r.kind, iron: r.iron, heat: r.heat, density: r.density, weight_g: r.weight_g };
         check(&makeup).map_err(|e| format!("body '{}': {e}", r.name))?;
         if let Some(s) = &r.stages {
-            crate::bake::check(s).map_err(|e| format!("body '{}': {e}", r.name))?;
+            crate::bake::check(s, parent.is_some()).map_err(|e| format!("body '{}': {e}", r.name))?;
         }
-        rows.push(Row { name: r.name, parent, home: r.home, bake: r.stages.map(|s| Bake(s, crate::bake::luna::sun_high(r.size, orbit))), words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator, ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup });
+        // a planet's crust (`bake::mars`) reads its surface's age; no other bake does
+        let planet = r.stages.as_ref().is_some_and(|s| s[0] == Stage::Crust) && parent.is_none();
+        let planet = match (planet, r.age.unwrap_or(1.0)) {
+            (true, a) if a > 0.0 && a <= 1.0 => Some(Planet { name: r.name.clone(), age: a }),
+            (true, a) => return Err(format!("body '{}': age {a} is the share of the craters its surface has collected, over 0 and at most 1", r.name)),
+            (false, _) if r.age.is_some() => return Err(format!("body '{}': age is read only by a planet's crust (stages starting with 'crust' on a body that circles the sun)", r.name)),
+            _ => None,
+        };
+        rows.push(Row { name: r.name, parent, home: r.home, bake: r.stages.map(|s| Bake(s, crate::bake::luna::sun_high(r.size, orbit), planet)), words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator, ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup });
     }
     if moon(&rows).is_none() {
         return Err(format!("body '{}': the home body needs a moon (its first sizes the sun)", rows[0].name));
@@ -355,6 +381,44 @@ mod tests {
             assert!(e.contains(says) && (s.contains("mars") || e.contains("body 'B'")), "{s}: {e}");
         }
         assert!(stages("[\"crust\", \"impacts\", \"ice\", \"volcanism\"]").is_ok() && stages("[\"plates\", \"erosion\", \"climate\", \"life\"]").is_ok());
+        // a planet's crust (step 5a): erosion on it after the impacts, its age read; the crossings still refused
+        let planet = |extra: &str| parse(&format!("{good}{}", row("D", &format!("parent = \"sun\"\nsun = 300.0\nsize = 2.0\n{extra}"))));
+        for (s, says) in [
+            ("stages = [\"crust\", \"erosion\"]\n", "'erosion' needs 'impacts' before it"),
+            ("stages = [\"crust\", \"impacts\", \"climate\"]\n", "not built yet on a crust without plates"),
+            ("stages = [\"crust\", \"impacts\", \"erosion\", \"life\"]\n", "not built yet on a crust without plates"),
+            ("stages = [\"plates\", \"impacts\", \"erosion\", \"climate\", \"life\"]\n", "not built yet on plates"),
+            ("stages = [\"crust\", \"impacts\"]\nage = 0.0\n", "age 0"),
+            ("stages = [\"crust\", \"impacts\"]\nage = 1.5\n", "age 1.5"),
+            ("stages = [\"plates\", \"erosion\", \"climate\", \"life\"]\nage = 1.0\n", "age is read only by a planet's crust"),
+            ("age = 1.0\n", "age is read only by a planet's crust"),
+        ] {
+            let e = planet(s).expect_err(s);
+            assert!(e.contains(says) && e.contains("body 'D'"), "{s}: {e}");
+        }
+        assert!(stages("[\"crust\", \"impacts\", \"age\"]").is_err(), "no stage 'age'");
+        let ok = planet("stages = [\"crust\", \"impacts\", \"volcanism\", \"erosion\", \"ice\"]\nage = 0.5\n").unwrap();
+        assert_eq!(ok[2].bake.as_ref().unwrap().2, Some(Planet { name: "D".into(), age: 0.5 }));
+        assert_eq!(planet("stages = [\"crust\", \"impacts\"]\n").unwrap()[2].bake.as_ref().unwrap().2.as_ref().map(|p| p.age), Some(1.0), "an age of 1 when not given");
+        // a moon's crust is Luna's kind: no age, no planet
+        assert_eq!(stages("[\"crust\", \"impacts\"]").unwrap()[1].bake.as_ref().unwrap().2, None);
+    }
+
+    /// The Mars-like planet's draft row (planet-model.md step 5a, `data/drafts/bodies-mars.toml`): it parses after
+    /// bodies.toml's rows, a planet's crust with the developer's stage list, 1.85 times smaller than Terra.
+    #[test]
+    fn the_mars_draft_row_parses_and_its_list_is_accepted() {
+        let rows = parse(&format!("{}{}", include_str!("../../../data/bodies.toml"), include_str!("../../../data/drafts/bodies-mars.toml"))).unwrap();
+        assert_eq!(rows[..2], BODIES[..], "Terra and Luna as data/bodies.toml has them");
+        let m = &rows[2];
+        assert_eq!((m.name.as_str(), m.parent, m.home, m.n, m.orbit), ("Mars", None, false, 3328, None));
+        assert_eq!(m.n / crate::world::CS, 104, "13 x 8 chunks, as Luna's 52 are 13 x 4");
+        let b = m.bake.as_ref().unwrap();
+        assert_eq!(b.0, [Stage::Crust, Stage::Impacts, Stage::Volcanism, Stage::Erosion, Stage::Ice]);
+        assert_eq!(b.2, Some(Planet { name: "Mars".into(), age: 1.0 }));
+        assert_eq!(b.version(), crate::bake::mars::VERSION);
+        assert_eq!((m.makeup.kind, m.makeup.iron, m.makeup.heat, m.makeup.density), (Kind::Rocky, 0.5, 0.15, [2900.0, 3500.0, 6700.0]));
+        assert_eq!(m.sun, Some(1.5 * 23500.0 * 1.85), "1.5 AU in its radii");
     }
 
     const MAKEUP: &str = "kind = \"rocky\"\niron = 0.5\nheat = 0.5\ndensity = [2700.0, 3300.0, 7900.0]\n";

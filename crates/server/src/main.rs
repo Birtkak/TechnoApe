@@ -9,6 +9,7 @@
 //!   A failure is shrunk to the fewest bots, recorded to `out/soak-fail.rec` and printed with its repro line.
 //! - `report=1 seed=1337 planet=6144` prints what the ground holds (`report.rs`).
 //! - `replay=file until=tick` runs a recording again and reports the first checkpoint that disagrees.
+//! - `bakemap=data/drafts/bodies-mars.toml body=Mars seed=1` bakes a draft planet's map and writes its pictures.
 use engine::net::{tcp, DEFAULT_PORT, TICK_HZ};
 use server::{soak, Server};
 use std::collections::HashMap;
@@ -31,6 +32,9 @@ fn main() {
         eprintln!("[report] world in {:.1} s", t.elapsed().as_secs_f64());
         println!("{}", server::report::report(&w));
         return;
+    }
+    if let Some(rows) = args.get("bakemap") {
+        return bakemap(rows, args.get("body").map_or("Mars", String::as_str), num("seed", 1), args.get("n").and_then(|v| v.parse().ok()), args.get("out"));
     }
     if args.contains_key("soak") {
         return run_soak(&args);
@@ -124,6 +128,24 @@ fn main() {
             None => next = Instant::now(),
         }
     }
+}
+
+/// `bakemap=<rows file> body=Mars seed=1 [n=] [out=prefix]`: bakes a planet's crust of a draft row (the file's rows
+/// after data/bodies.toml's), keeps it where the game would find it, writes its pictures (`bake::pictures`) and prints
+/// one JSON line of its numbers (planet-model.md step 5a).
+fn bakemap(path: &str, body: &str, seed: i32, n: Option<i32>, out: Option<&String>) {
+    let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+    let rows = engine::bodies::parse(&format!("{}{text}", include_str!("../../../data/bodies.toml"))).unwrap_or_else(|e| panic!("{path}: {e}"));
+    let row = rows.iter().find(|r| r.named(body)).unwrap_or_else(|| panic!("{path}: no body '{body}'"));
+    let bake = row.bake.as_ref().unwrap_or_else(|| panic!("{body} has no stages"));
+    let planet = bake.2.as_ref().unwrap_or_else(|| panic!("bakemap= pictures a planet's crust (stages from 'crust' on a body that circles the sun)"));
+    let n = n.unwrap_or(row.n);
+    let (map, stats) = engine::bake::mars::run(&bake.0, seed, n, planet.age);
+    let prefix = out.cloned().unwrap_or_else(|| format!("out/{}-seed-{seed}", body.to_lowercase()));
+    let pictures = engine::bake::mars::pictures(&map, &stats, &prefix);
+    let line = stats.json(&map);
+    engine::bake::mars::keep(&bake.0, seed, n, planet, map);
+    println!("{}, \"file\": {:?}, \"pictures\": {pictures:?}}}", &line[..line.len() - 1], bake.file(seed, n).display().to_string());
 }
 
 fn run_soak(args: &HashMap<String, String>) {
