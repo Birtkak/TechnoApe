@@ -1,17 +1,18 @@
-# NNNN – Title
+# Template for a decision entry
 
-- **Status:** proposed | accepted | superseded by NNNN
-- **Date:** YYYY-MM-DD
+An entry goes into the topic document it belongs to (`docs/decisions/<topic>.md`), under the heading that fits,
+not into a new file. It takes the next free number at merge (the last line of `INDEX.md` plus one); the index
+gets its line. Write it as what holds, not as a story. A branch keeps its entry unnumbered (`[draft]`) until
+the merge.
 
-## Context
-What problem are we deciding on, and what constraints matter?
+```
+### Short title [NNNN, YYYY-MM-DD]
+What is decided, in one to five lines, with the reason in a clause. Exact numbers, names and formats.
+The developer's call is marked as such and goes under "The developer's calls" of the topic.
+Alternatives rejected: one line each, only when the reason is not obvious.
+Replaces: NNNN's <part> (move that part to the topic's "No longer holds"; set its state in INDEX.md).
+Open: what must still be decided later, if anything.
+```
 
-## Options considered
-1. Option A – pros / cons
-2. Option B – pros / cons
-
-## Decision
-What we chose and why.
-
-## Consequences
-What becomes easier, what becomes harder, what we must revisit later.
+INDEX.md line: `| NNNN | Title | [topic.md](topic.md) - Heading | in force |`. States: `in force`,
+`amended by NNNN`, `replaced by NNNN`, `history only`.

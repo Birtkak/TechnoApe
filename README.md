@@ -13,7 +13,7 @@ journey to orbit are next (`docs/plans/roadmap.md`). The story is in `docs/desig
 |------|---------|
 | `CLAUDE.md` | Working agreement between the developer and Claude Code |
 | `docs/design/vision.md` | What the game is: the ground truth |
-| `docs/decisions/` | Architecture Decision Records, one file per decision |
+| `docs/decisions/` | What holds today, by topic; `INDEX.md` resolves every ADR number; `archive/` the numbered records |
 | `docs/plans/roadmap.md` | What is done and what comes next |
 | `crates/engine`, `crates/server`, `crates/bot`, `crates/client` | The game: world, meshing, streaming and protocol; the authoritative server; scripted bots; window, renderer and benchmark runs |
 | `tools/` | Benchmark scripts |
