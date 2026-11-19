@@ -95,8 +95,8 @@ pub struct Herds {
     pub clock: u64,
 }
 
-/// The creatures and herds files as compiled in (shortcut: a changed file needs a rebuild of the server; read
-/// them at the server's start when they are edited live).
+/// The creatures and herds files as compiled in: the rows a server starts with. A server with a `data/` folder
+/// beside it reloads changed files live (`Server::watch_defs`, ADR 0134).
 pub fn compiled(seed: i32) -> Herds {
     Herds::parse(include_str!("../../../data/creatures.toml"), include_str!("../../../data/herds.toml"), seed).unwrap_or_else(|e| panic!("{e}"))
 }
