@@ -229,6 +229,13 @@ impl Bot {
             if !matches!(got, Recv::Empty | Recv::Closed) {
                 self.heard = Instant::now();
             }
+            // a cell or block id the world lacks would index past its tables and abort the bot
+            if let (Recv::Msg(m), Some(w)) = (&got, &self.world) {
+                if !engine::net::fits(w, m) {
+                    eprintln!("[technoape-bot] dropped a server message naming a cell or block this world lacks");
+                    continue;
+                }
+            }
             match got {
                 Recv::Msg(ToClient::Welcome { id, seed, bodies, blocks, items, gen }) => {
                     engine::bodies::known_bodies(bodies.len()).unwrap_or_else(|e| panic!("{e}"));

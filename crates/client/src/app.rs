@@ -103,8 +103,8 @@ pub(crate) struct App {
     /// run=play building (ADR 0017): the hammer's tool, the aimed block and the cell before it, the button
     /// held (dig or not) with where it was pressed and where the drag is now, the hotbar slot.
     pub(crate) tool: Tool,
-    /// The build hammer is in hand. shortcut: a key takes it up until items exist; the server does not yet
-    /// check that a shape comes from a hammer.
+    /// The build hammer is in hand. shortcut: a key takes it up, though items exist (ADR 0074), until the hammer
+    /// is an item; the server does not yet check that a shape comes from a hammer.
     pub(crate) hammer: bool,
     /// The bucket is in hand (ADR 0020): the dig button scoops, the place button pours, at the cell before
     /// the aimed block (the ray passes through water to what is under it).

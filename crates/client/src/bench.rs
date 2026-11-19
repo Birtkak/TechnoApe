@@ -167,7 +167,7 @@ pub(crate) fn pct(v: &mut Vec<f32>, p: f64) -> f32 {
     if v.is_empty() {
         return 0.0;
     }
-    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    v.sort_by(f32::total_cmp);
     v[((v.len() - 1) as f64 * p).round() as usize]
 }
 

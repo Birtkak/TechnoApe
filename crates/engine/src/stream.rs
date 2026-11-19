@@ -786,7 +786,7 @@ impl Streamer {
         // only when those did not fill the workers
         const FIRST: usize = 256;
         let mut order: Vec<(f64, u32)> = reqs.iter().enumerate().map(|(i, r)| (r.0, i as u32)).collect();
-        let by = |a: &(f64, u32), b: &(f64, u32)| a.0.partial_cmp(&b.0).unwrap().then(a.1.cmp(&b.1));
+        let by = |a: &(f64, u32), b: &(f64, u32)| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1));
         let first = FIRST.min(order.len());
         if first < order.len() {
             order.select_nth_unstable_by(first, by);
@@ -1315,6 +1315,20 @@ mod tests {
         let k = Key { body: 0, face: top.face, level: 0, pos: cell.pos.div_euclid(glam::IVec3::splat(CS)) };
         let d = out.iter().find(|d| d.key == k).unwrap_or_else(|| panic!("the cave's chunk {k:?} is not drawn; finest drawn level {:?}", out.iter().map(|d| d.key.level).min()));
         assert!(d.len > 0 && !d.hidden, "the cave's chunk is drawn with its walls: {} quads, hidden {}", d.len, d.hidden);
+    }
+
+    /// A NaN distance (a NaN camera) sorts somewhere instead of aborting the client.
+    #[test]
+    fn a_nan_distance_does_not_stop_dispatch() {
+        let w = World::new(1536, 64, 1337);
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 4 };
+        let mut s = Streamer::new(&w, 1 << 20, opts);
+        let mut reqs: Vec<(f64, Key)> = (0..300).map(|i| (if i % 3 == 0 { f64::NAN } else { i as f64 }, Key { body: 0, face: 2, level: 0, pos: IVec3::new(i, 0, 0) })).collect();
+        s.dispatch(&w, &mut reqs);
+        while !s.idle() {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            s.apply(usize::MAX, &mut FrameStats::default(), |_, _| {});
+        }
     }
 
     /// A full quad buffer does not mesh the same chunks again every frame: after a failed allocation no job

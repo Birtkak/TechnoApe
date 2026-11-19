@@ -632,7 +632,8 @@ impl App {
     /// Sends a move and shows it at once: the ape's own slots with the server's rule; a pile's change comes
     /// with the server's answer (shortcut: piles are not predicted, they are a tick away).
     pub(crate) fn send_items(&mut self, from: (Holder, u16), to: (Holder, u16), n: u16) {
-        let seq = self.pred.seq();
+        // its own seq: one `Done` clears one move (a shared one cleared two, and the second snapped back a tick)
+        let seq = self.pred.fresh();
         self.items_pending.push(seq);
         self.link.send(ToServer::Items { seq, from, to, n });
         self.audio.play("ui.tick", None, 1.0, 1.0, false);

@@ -273,9 +273,16 @@ pub fn breaks(was: u16, now: u16) -> bool {
 }
 
 impl Predictor {
-    /// The last `seq` handed out: a message that is not an edit (a bucket) sends it, so its `Done` confirms
-    /// only what was sent before it.
+    /// The last `seq` handed out (an edit's or `fresh`'s). Only for a sender that ignores its `Done` (the soak's
+    /// bots): one that waits on its own `Done` takes `fresh`, or another message's answer clears it.
     pub fn seq(&self) -> u32 {
+        self.next
+    }
+    /// A `seq` of its own for a message that is not an edit but is answered by its own `Done` (an item move):
+    /// later than every edit sent, so its `Done` still confirms only what was sent before it, and no other
+    /// message shares it.
+    pub fn fresh(&mut self) -> u32 {
+        self.next = self.next.wrapping_add(1);
         self.next
     }
     /// Applies the edit to `world` and returns the `seq` to send with it and the cells it changed. A shape that
@@ -439,6 +446,21 @@ mod tests {
             w.set_block(*b, *m);
         }
         c
+    }
+
+    /// Two item moves after an edit get two seqs, both after the edit's, and the first one's `Done` leaves
+    /// an edit sent after it pending.
+    #[test]
+    fn each_item_move_has_its_own_seq() {
+        let mut cli = World::new(256, 32, 1);
+        let top = surface(&cli);
+        let mut p = Predictor::default();
+        let (s1, _) = p.edit(&mut cli, &Shape::one(top), AIR, false, |_, _| false);
+        let (a, b) = (p.fresh(), p.fresh());
+        assert!(a != b && a != s1 && b != s1, "{s1} {a} {b}");
+        let (s2, _) = p.edit(&mut cli, &Shape::one(top), BLOCKS.id("stone"), false, |_, _| false);
+        p.done(&mut cli, a);
+        assert_eq!(p.pending(), 1, "the edit after the move waits for its own answer ({s2})");
     }
 
     #[test]

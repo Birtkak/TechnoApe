@@ -103,19 +103,30 @@ impl Server {
                 bench: None,
                 furnace: None,
                 sent_furnace: None,
+                heard: self.tick,
+                maps: Vec::new(),
             });
         }
         let mut changed: Vec<(Block, u16)> = Vec::new();
         let mut deaths = Vec::new();
+        // ghosts taken over this tick (the Hello arm): not read again, dropped (closing their links) after the loop
+        let mut ghosts: Vec<u32> = Vec::new();
         let mut i = 0;
         while i < self.clients.len() {
+            if ghosts.contains(&self.clients[i].player.id) {
+                i += 1;
+                continue;
+            }
             let mut open = true;
             // the recorder logs what is handled, at the tick it is handled, so a replay meets the same cap
             for _ in 0..MSGS_PER_TICK {
                 let r = self.clients[i].link.try_recv();
                 let (tick, id) = (self.tick, self.clients[i].player.id);
                 match &r {
-                    Recv::Msg(m) => self.log(Ev::Msg { tick, id, m: m.clone() }),
+                    Recv::Msg(m) => {
+                        self.log(Ev::Msg { tick, id, m: m.clone() });
+                        self.clients[i].heard = tick;
+                    }
                     Recv::Closed => self.log(Ev::Leave { tick, id }),
                     Recv::Empty => {}
                 }
@@ -129,6 +140,22 @@ impl Server {
                     Recv::Msg(ToServer::Hello { .. }) if !self.clients[i].player.name.is_empty() => {}
                     Recv::Msg(ToServer::Hello { name }) => {
                         let base: String = name.chars().filter(|c| !c.is_control()).take(32).collect();
+                        // its own ghost (a connection gone quiet: it slept, or dropped off without closing) leaves
+                        // now, so this one carries on as it; judged in ticks, so a replay judges the same
+                        let ghost = |c: &Client| !base.is_empty() && c.player.name == base && tick - c.heard >= GHOST_TICKS;
+                        // it is kept in `absent` (and restored below) and emptied now, but stays in the list until
+                        // the loop is done, so no other client is read twice or skipped this tick
+                        if let Some(j) = self.clients.iter().position(ghost) {
+                            self.tell_dig(j, None);
+                            self.uncraft(j);
+                            let g = &mut self.clients[j];
+                            self.absent.insert(g.player.name.clone(), saved(g));
+                            let line = format!("{} left", std::mem::take(&mut g.player.name));
+                            g.slots.iter_mut().for_each(|s| *s = None);
+                            g.water = 0;
+                            ghosts.push(g.player.id);
+                            self.say(line);
+                        }
                         // a name already online gets a suffix, so two of one name are two saved players
                         let online = |n: &str| self.clients.iter().any(|c| c.player.name == n);
                         let mut name = base.clone();
@@ -258,9 +285,11 @@ impl Server {
                     Recv::Msg(ToServer::Close) => self.uncraft(i),
                     Recv::Msg(ToServer::Choose { at, cast }) => self.choose(i, at, cast),
                     Recv::Msg(ToServer::Sprints { .. } | ToServer::Sprint(..)) => unreachable!("unpacked above"),
+                    // each map once a connection: asked again while (or after) it goes, the ask is ignored
+                    Recv::Msg(ToServer::Map(h)) if self.clients[i].maps.contains(&h) => {}
                     Recv::Msg(ToServer::Map(h)) => {
                         if let Some(m) = self.world.bodies.iter().filter_map(|b| b.map()).find(|m| m.hash == h) {
-                            // shortcut: any client may ask again; a limit per client when servers go public
+                            self.clients[i].maps.push(h);
                             for p in self.map_pieces.entry(h).or_insert_with(|| engine::net::map_pieces(m)) {
                                 self.clients[i].link.send(p.clone());
                             }
@@ -276,20 +305,11 @@ impl Server {
             if open {
                 i += 1;
             } else {
-                self.tell_dig(i, None);
                 roster = true;
-                self.uncraft(i);
-                let c = self.clients.swap_remove(i);
-                if c.player.name.is_empty() {
-                    // no name, no save to keep its things in: they stay where it stood
-                    let feet = c.phys.pos;
-                    self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), c.slots.into_iter().flatten().collect(), (0, 0));
-                } else {
-                    self.absent.insert(c.player.name.clone(), saved(&c));
-                    self.say(format!("{} left", c.player.name));
-                }
+                self.leave(i);
             }
         }
+        self.clients.retain(|c| !ghosts.contains(&c.player.id));
         self.benches();
         self.debt += self.dt;
         let steps = ((self.debt + 1e-9) / phys::DT) as u32;
@@ -561,6 +581,22 @@ impl Server {
             for part in v.chunks(EDITS_PART) {
                 c.link.send(ToClient::Events(part.to_vec()));
             }
+        }
+    }
+
+    /// Client `i` leaves (its link closed, or its ghost taken over): its dig and grid end, a named player is kept
+    /// in `absent`, an unnamed one's things are laid where it stood. Dropping its link closes the connection.
+    fn leave(&mut self, i: usize) {
+        self.tell_dig(i, None);
+        self.uncraft(i);
+        let c = self.clients.swap_remove(i);
+        if c.player.name.is_empty() {
+            // no name, no save to keep its things in: they stay where it stood
+            let feet = c.phys.pos;
+            self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), c.slots.into_iter().flatten().collect(), (0, 0));
+        } else {
+            self.absent.insert(c.player.name.clone(), saved(&c));
+            self.say(format!("{} left", c.player.name));
         }
     }
 }

@@ -102,6 +102,10 @@ const EDITS_PART: usize = 100_000;
 /// ending. (A walking client sends a few a tick; a map request or a burst of edits catches up in a few ticks.)
 const MSGS_PER_TICK: usize = 64;
 
+/// A client nothing was taken from for this many ticks (5 s; a playing client sends its steps every tick) is
+/// taken for a ghost when a `Hello` of its name comes: the new connection takes the player over.
+const GHOST_TICKS: u64 = 100;
+
 /// How far /goto sun stands from the sun's centre, in sun radii: it fills about 23 degrees.
 const SUN_VIEW: f64 = 5.0;
 
@@ -193,6 +197,10 @@ struct Client {
     /// the furnace as it was last sent (`ToClient::Furnace`).
     furnace: Option<Block>,
     sent_furnace: Option<engine::furnace::Furnace>,
+    /// The tick a message was last taken from it (`GHOST_TICKS`); a tick count, so a replay judges the same.
+    heard: u64,
+    /// The maps sent to it (`ToServer::Map`), by hash: each goes once a connection.
+    maps: Vec<u64>,
     /// The water in its bucket, in units (`liquid::U` is a full bucket).
     water: u32,
     /// The version of each water tile this client has (`Server::tiles`).

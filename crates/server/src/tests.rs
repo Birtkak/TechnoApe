@@ -2872,6 +2872,114 @@ fn equal_names_are_kept_apart_and_a_second_hello_changes_nothing() {
     assert_eq!((inv("ape"), inv("ape-2")), (vec![(BLOCKS.id("stone"), 1)], vec![(BLOCKS.id("dirt"), 2)]));
 }
 
+/// A player whose connection went quiet (a laptop asleep) and who joins again under its name takes itself
+/// over, place and slots, instead of becoming `name-2`; the quiet connection is closed.
+#[test]
+fn a_hello_takes_over_its_own_quiet_ghost() {
+    let (tx, rx) = channel();
+    let mut s = Server::new(256, 32, 1, rx);
+    let rec = std::env::temp_dir().join(format!("technoape-ghost-{}.rec", std::process::id()));
+    s.record(&rec).unwrap();
+    let links: Vec<Link<ToServer, ToClient>> = (0..2)
+        .map(|_| {
+            let (c, sv) = local();
+            tx.send(sv).unwrap();
+            c
+        })
+        .collect();
+    s.tick();
+    links[0].send(ToServer::Hello { name: "ape".into() });
+    links[0].send(ToServer::Chat("/give stone 3".into()));
+    s.tick();
+    let at = s.clients[0].phys.pos;
+    for _ in 0..GHOST_TICKS {
+        s.tick();
+    }
+    links[1].send(ToServer::Hello { name: "ape".into() });
+    s.tick();
+    let names: Vec<&str> = s.clients.iter().map(|c| c.player.name.as_str()).collect();
+    assert_eq!(names, ["ape"]);
+    assert_eq!(s.clients[0].player.id, 2, "the new connection is the one kept");
+    assert_eq!(held(&s.clients[0].slots), vec![(BLOCKS.id("stone"), 3)]);
+    assert!((s.clients[0].phys.pos - at).length() < 1.0, "{} {}", s.clients[0].phys.pos, at);
+    drain(&links[0]);
+    assert!(matches!(links[0].try_recv(), Recv::Closed), "the ghost's link is closed");
+    // the takeover is judged in ticks: its replay takes over the same way
+    s.tick();
+    let r = replay(&rec, Some(s.tick)).unwrap();
+    std::fs::remove_file(&rec).unwrap();
+    assert_eq!((r.diverged, r.server.clients.len(), r.server.hash()), (None, 1, s.hash()));
+}
+
+/// A takeover handles every other client once in its tick, whichever side of the ghost and the new
+/// connection it stands: no one is read twice or skipped because someone else took over.
+#[test]
+fn a_takeover_neither_skips_nor_repeats_another_client() {
+    // (the ghost's, the other's and the new connection's link)
+    for (a, c, b) in [(0, 1, 2), (0, 2, 1)] {
+        let (mut s, links) = server_with(3);
+        links[a].send(ToServer::Hello { name: "ape".into() });
+        links[c].send(ToServer::Hello { name: "cat".into() });
+        s.tick();
+        for _ in 0..GHOST_TICKS {
+            links[c].send(ToServer::Hand(0));
+            s.tick();
+        }
+        let cat = s.clients.iter().find(|x| x.player.name == "cat").unwrap().player.id;
+        links[b].send(ToServer::Hello { name: "ape".into() });
+        for _ in 0..200 {
+            links[c].send(ToServer::Hand(0));
+        }
+        s.tick();
+        let names: Vec<&str> = s.clients.iter().map(|x| x.player.name.as_str()).collect();
+        assert!(names.len() == 2 && names.contains(&"ape") && names.contains(&"cat"), "{names:?}");
+        let other = s.clients.iter().find(|x| x.player.id == cat).unwrap();
+        let mut left = 0;
+        while let Recv::Msg(_) = other.link.try_recv() {
+            left += 1;
+        }
+        assert_eq!(200 - left, MSGS_PER_TICK, "messages taken from the other client, order {:?}", (a, c, b));
+    }
+}
+
+/// Singleplayer's recordings keep the newest few; files of any other name stay.
+#[test]
+fn old_play_recordings_are_pruned_and_nothing_else() {
+    let dir = std::env::temp_dir().join(format!("technoape-rec-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("play-5.rec")).unwrap(); // a folder of the name: left alone
+    for t in [100, 20, 3000, 400, 50] {
+        std::fs::write(dir.join(format!("play-{t}.rec")), b"x").unwrap();
+    }
+    for other in ["server-1.rec", "play-1.txt", "play-x.rec", "notes.md"] {
+        std::fs::write(dir.join(other), b"x").unwrap();
+    }
+    assert_eq!(prune_recordings(&dir, 2).unwrap(), 3);
+    let mut left: Vec<String> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    left.sort();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(left, ["notes.md", "play-1.txt", "play-3000.rec", "play-400.rec", "play-5.rec", "play-x.rec", "server-1.rec"]);
+}
+
+/// A client gets each map once a connection, however often it asks: 64 asks a tick would queue a GB.
+#[test]
+fn a_map_is_sent_once_however_often_it_is_asked() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(1536, 32, 7, 0.0, 0, rx);
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    s.tick();
+    let h = s.world.bodies[0].map().unwrap().hash;
+    for _ in 0..3 {
+        c.send(ToServer::Map(h));
+    }
+    s.tick();
+    c.send(ToServer::Map(h));
+    s.tick();
+    let pieces = drain(&c).iter().filter(|m| matches!(m, ToClient::Map { .. })).count();
+    assert_eq!(pieces, engine::net::map_pieces(s.world.bodies[0].map().unwrap()).len());
+}
+
 /// The quit save waits for an autosave still writing: the two never share the temp file, and when
 /// `save_now` returns the save is whole and nothing writes any more.
 #[test]

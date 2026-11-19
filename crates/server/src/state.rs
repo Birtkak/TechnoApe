@@ -102,11 +102,9 @@ impl Server {
         }
     }
 
-    /// Writes the herds beside the save at `path`, through a temporary file.
+    /// Writes the herds beside the save at `path`, through a temporary file synced as the save's is.
     pub(super) fn write_herds(bytes: &[u8], path: &Path) -> std::io::Result<()> {
-        let (to, tmp) = (path.with_extension("herds"), path.with_extension("herds.tmp"));
-        std::fs::write(&tmp, bytes)?;
-        std::fs::rename(&tmp, to)
+        crate::save::synced(bytes, &path.with_extension("herds.tmp"), &path.with_extension("herds"))
     }
 
     /// A server that carries on from `save` (its seed and planet win over any given elsewhere).
