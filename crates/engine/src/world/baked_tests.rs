@@ -1210,6 +1210,33 @@ fn dense_caves() -> (World, Vec<crate::caves::System>) {
     (w, sys)
 }
 
+/// `col_caves` from the merged table answers what each cave's span did (their union), round every cave of the
+/// dense planet (tubes, fissures, karst, worms) and of the planet as made, at the seams and over the faces.
+#[test]
+fn col_caves_merged_is_the_union_of_every_caves_span() {
+    let (dense, _) = dense_caves();
+    let n = dense.bodies[0].check_col_caves();
+    assert!(n > 50_000, "{n} hollow columns checked");
+    let found = dense.bodies[0].check_over_cave();
+    assert!(found > 500, "{found} squares over a mouth");
+    let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, GENERATION);
+    assert!(w.bodies[0].check_col_caves() > 1000);
+    assert!(w.bodies[0].check_over_cave() > 10);
+}
+
+/// The cave walk's faces side by side, a ball checked column by column, make what one after the other, cell by
+/// cell made, system for system, on the dense planet and the planet as made.
+#[test]
+fn caves_walked_by_face_in_parallel_are_the_walk_in_order() {
+    let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, GENERATION);
+    let (b, seed) = (&w.bodies[0], w.bodies[0].baked_seed().unwrap());
+    for kinds in [dense_kinds(), crate::caves::CAVES.kinds.clone()] {
+        let fast = crate::caves::systems_of(b, seed, &kinds);
+        assert!(fast.len() > 5, "{} systems", fast.len());
+        assert!(fast == crate::caves::systems_of_slow(b, seed, &kinds));
+    }
+}
+
 /// `dense_caves`'s kinds: a start every 16 columns for tubes, 48 for the others, every one grown.
 fn dense_kinds() -> Vec<crate::caves::Kind> {
     crate::caves::CAVES

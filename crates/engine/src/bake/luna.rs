@@ -699,6 +699,23 @@ mod tests {
 
     /// Luna's generated blocks of generation `gen` on the small Luna: an FNV over every 97th column of each face,
     /// 70 m down from its ground to a metre over it.
+    /// `col_caves` from the merged table answers what each cave's span did, round her lava tubes (generation 4)
+    /// and her baked ones (generation 3).
+    #[test]
+    fn luna_col_caves_merged_is_the_union() {
+        let map = Arc::new(bake(1, 1664));
+        for gen in [3, 4] {
+            let w = crate::world::World::with_grid(256, 1664, 1, None, Some(map.clone()), 0.0, gen);
+            let n = w.bodies[1].check_col_caves();
+            assert!(n > 1000, "generation {gen}: {n} hollow columns checked");
+            let found = w.bodies[1].check_over_cave();
+            assert!(found > 10, "generation {gen}: {found} squares over a mouth");
+            // (her tube walk's faces side by side are the walk in order)
+            let (b, seed) = (&w.bodies[1], w.bodies[1].baked_seed().unwrap());
+            assert!(crate::caves::systems(b, seed) == crate::caves::systems_of_slow(b, seed, &crate::caves::CAVES.kinds));
+        }
+    }
+
     fn luna_blocks_hash(gen: u8) -> u64 {
         use crate::world::{Block, World};
         let map = Arc::new(bake(7, 416));

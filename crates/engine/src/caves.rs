@@ -4,10 +4,10 @@
 //! (0161-karst-caves). Made from the map and the seed when a planet loads, on the server and every
 //! client alike, as balls of air (`world::Cave`) that the readers ask through `Body::col_caves`.
 use crate::rock::{Caves, Rock, ROCKS};
-use crate::world::{Body, Cave, SEA_DEPTH};
+use crate::world::{Body, Cave, FxMap, SEA_DEPTH};
 use glam::DVec3;
 use serde::Deserialize;
-use std::collections::HashMap;
+
 use std::sync::LazyLock;
 
 /// A candidate start every this many columns, in each direction: some three limestone systems a square
@@ -223,46 +223,75 @@ pub fn systems_of(b: &Body, seed: u64, kinds: &[Kind]) -> Vec<System> {
     if !b.rock_field() {
         return Vec::new();
     }
+    use rayon::prelude::*;
+    // each kind's faces walked side by side: a face's walk reads only its own probe and systems (a system's number
+    // in `axes` and a fork's parent are its place in the list, compared only with its own face's), so their lists
+    // one after the other, kind by kind, are the one walk's, to the bit (`systems_of_slow`, the test's reference)
+    let walks: Vec<(usize, u8)> = kinds.iter().enumerate().filter(|(_, kind)| walked(b, kind)).flat_map(|(k, _)| (0..6u8).map(move |f| (k, f))).collect();
+    let lists: Vec<Vec<System>> = walks
+        .into_par_iter()
+        .map(|(k, face)| {
+            let mut out = Vec::new();
+            walk_face(b, seed, k, &kinds[k], face, false, &mut out);
+            out
+        })
+        .collect();
+    lists.into_iter().flatten().collect()
+}
+
+/// `systems_of` as it was walked before, one face after the other into one list.
+#[cfg(test)]
+pub(crate) fn systems_of_slow(b: &Body, seed: u64, kinds: &[Kind]) -> Vec<System> {
+    if !b.rock_field() {
+        return Vec::new();
+    }
     let mut out = Vec::new();
-    for (k, kind) in kinds.iter().enumerate() {
-        // (a kind's index seeds it: a row made in other generations keeps its place in the file); each kind on
-        // its own body, and a karst, cut down to the water table, only where there is water (a sea)
-        if !(kind.generations[0]..=kind.generations[1]).contains(&b.gen) || kind.body != b.rock_body() || kind.shape == Shape::Karst && b.sea.is_none() {
-            continue;
-        }
-        let s = kind.spacing;
+    for (k, kind) in kinds.iter().enumerate().filter(|(_, kind)| walked(b, kind)) {
         for face in 0..6u8 {
-            let mut probe = Probe { b, face, home: kind.body == 0, cols: HashMap::new(), axes: HashMap::new(), widest: 0.0, tables: HashMap::new(), next: 0, kept: None };
-            for cy in 0..b.n / s {
-                for cx in 0..b.n / s {
-                    let mut rng = Rng(seed ^ 0xca5e_4b1d ^ (k as u64) << 60 ^ (face as u64) << 52 ^ (cx as u64) << 26 ^ cy as u64);
-                    let (i, j) = ((cx * s) as f64 + rng.f() * s as f64, (cy * s) as f64 + rng.f() * s as f64);
-                    if rng.f() >= kind.chance || probe.off(i, j, 0.0) {
-                        continue;
-                    }
-                    // (a tube and a karst start in their provinces; a fissure looks for a border first)
-                    if kind.shape != Shape::Fissure && !kind.provinces.contains(&probe.col(i as i32, j as i32).0.province) {
-                        continue;
-                    }
-                    match kind.shape {
-                        Shape::Tube if b.gen >= 2 => round_tube(&mut probe, kind, k as u8, &mut rng, i, j, None, 2, &mut out),
-                        Shape::Tube => {
-                            let a = rng.f() * std::f64::consts::TAU;
-                            tube(&mut probe, kind, k as u8, &mut rng, i, j, a, None, 2, &mut out);
-                        }
-                        Shape::Fissure => fissure(&mut probe, kind, k as u8, &mut rng, i, j, &mut out),
-                        Shape::Karst => karst(&mut probe, kind, k as u8, &mut rng, i, j, &mut out),
-                    }
-                    // a column's rock and ground are asked again only near the next start
-                    if probe.cols.len() > 1 << 16 {
-                        probe.cols.clear();
-                        probe.tables.clear();
-                    }
-                }
-            }
+            walk_face(b, seed, k, kind, face, true, &mut out);
         }
     }
     out
+}
+
+/// Whether a kind is made on this body: (a kind's index seeds it: a row made in other generations keeps its place
+/// in the file); each kind on its own body, and a karst, cut down to the water table, only where there is water (a sea).
+fn walked(b: &Body, kind: &Kind) -> bool {
+    (kind.generations[0]..=kind.generations[1]).contains(&b.gen) && kind.body == b.rock_body() && !(kind.shape == Shape::Karst && b.sea.is_none())
+}
+
+/// Kind k's systems on one face, after `out`'s; `slow` checks a ball as before (`Probe::fits_slow`, the tests').
+#[allow(clippy::too_many_arguments)]
+fn walk_face(b: &Body, seed: u64, k: usize, kind: &Kind, face: u8, slow: bool, out: &mut Vec<System>) {
+    let s = kind.spacing;
+    let mut probe = Probe { b, face, home: kind.body == 0, cols: FxMap::default(), axes: FxMap::default(), widest: 0.0, tables: FxMap::default(), next: 0, kept: None, slow };
+    for cy in 0..b.n / s {
+        for cx in 0..b.n / s {
+            let mut rng = Rng(seed ^ 0xca5e_4b1d ^ (k as u64) << 60 ^ (face as u64) << 52 ^ (cx as u64) << 26 ^ cy as u64);
+            let (i, j) = ((cx * s) as f64 + rng.f() * s as f64, (cy * s) as f64 + rng.f() * s as f64);
+            if rng.f() >= kind.chance || probe.off(i, j, 0.0) {
+                continue;
+            }
+            // (a tube and a karst start in their provinces; a fissure looks for a border first)
+            if kind.shape != Shape::Fissure && !kind.provinces.contains(&probe.col(i as i32, j as i32).0.province) {
+                continue;
+            }
+            match kind.shape {
+                Shape::Tube if b.gen >= 2 => round_tube(&mut probe, kind, k as u8, &mut rng, i, j, None, 2, out),
+                Shape::Tube => {
+                    let a = rng.f() * std::f64::consts::TAU;
+                    tube(&mut probe, kind, k as u8, &mut rng, i, j, a, None, 2, out);
+                }
+                Shape::Fissure => fissure(&mut probe, kind, k as u8, &mut rng, i, j, out),
+                Shape::Karst => karst(&mut probe, kind, k as u8, &mut rng, i, j, out),
+            }
+            // a column's rock and ground are asked again only near the next start
+            if probe.cols.len() > 1 << 16 {
+                probe.cols.clear();
+                probe.tables.clear();
+            }
+        }
+    }
 }
 
 /// A face's columns as a kind's walk asks them: rock and ground, kept while it walks.
@@ -271,17 +300,20 @@ struct Probe<'a> {
     face: u8,
     /// The kind is the home's: it keeps off the spawn (on another body nothing is placed for a spawn).
     home: bool,
-    cols: HashMap<(i32, i32), (Rock, f64, bool)>,
+    cols: FxMap<(i32, i32), (Rock, f64, bool)>,
     /// The round tubes made on the face so far (generation 2): their axes' points (i, j, radius, the system's
     /// index in the output) by `AXES` x `AXES` columns, which a later tube keeps off (`crowds`).
-    axes: HashMap<(i32, i32), Vec<(f64, f64, f64, usize)>>,
+    axes: FxMap<(i32, i32), Vec<(f64, f64, f64, usize)>>,
     /// The largest radius in `axes`: how far `crowds` must look.
     widest: f64,
     /// The water table's radius under a column's middle (`water_table`), as a karst asks it.
-    tables: HashMap<(i32, i32), f64>,
+    tables: FxMap<(i32, i32), f64>,
     /// The next karst passage's number in `axes`, and the highest kept there.
     next: usize,
     kept: Option<usize>,
+    /// Check a ball cell by cell as before (`fits_slow`): the tests' reference walk.
+    #[cfg_attr(not(test), allow(dead_code))]
+    slow: bool,
 }
 
 /// The cells of `Probe::axes`, columns.
@@ -322,7 +354,46 @@ impl Probe<'_> {
     /// kind's hosts (rock by `Body::rock` under the soil band), in a column of one of its provinces, with no
     /// generated water over that column or the eight round it (a cave there would drain it). An `opening` (a
     /// skylight, a trench, an open slot) may also cut the soil band, in the columns where it breaks the ground.
+    /// Column by column: a column's province, its water round it and its water table are asked once, not once a
+    /// cell (`fits_slow`, to the bit: every check is a pure function of the column or the cell).
     fn fits(&mut self, c: &Cave, kind: &Kind, opening: bool) -> bool {
+        #[cfg(test)]
+        if self.slow {
+            return self.fits_slow(c, kind, opening);
+        }
+        let b = self.b;
+        let r = c.r.ceil() as i32 + 1;
+        let (ci, cj) = (c.at.x.floor() as i32, c.at.y.floor() as i32);
+        for (i, j) in (ci - r..=ci + r).flat_map(|i| (cj - r..=cj + r).map(move |j| (i, j))) {
+            let Some((lo, hi)) = c.span(i, j) else { continue };
+            let (rock, ground, _) = self.col(i, j);
+            // (`cells_with`'s cells: the span's layers under the ground)
+            let n = (lo..hi).take_while(|&z| b.layer_r(z as f64 + 0.5) < ground).count() as i32;
+            if n == 0 {
+                continue;
+            }
+            if !kind.provinces.contains(&rock.province) || (-1..=1).any(|a| (-1..=1).any(|d| self.col(i + a, j + d).2)) {
+                return false;
+            }
+            let table = if kind.shape == Shape::Karst { self.table(i, j) } else { f64::NEG_INFINITY };
+            let mouth = hi as f64 > b.layer_of(ground);
+            for z in lo..lo + n {
+                let r = b.layer_r(z as f64 + 0.5);
+                // a karst is dry: nothing of it under the water table (0161-karst-caves)
+                if r < table {
+                    return false;
+                }
+                let ok = if ground - r < BAND { opening && mouth } else { kind.hosts.contains(&b.rock(rock, r as f32, 0)) };
+                if !ok {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+    /// `fits` cell by cell, as it was.
+    #[cfg(test)]
+    fn fits_slow(&mut self, c: &Cave, kind: &Kind, opening: bool) -> bool {
         let b = self.b;
         for (i, j, z) in cells_with(b, c, |i, j| self.col(i, j).1) {
             let (rock, ground, _) = self.col(i, j);
@@ -948,7 +1019,7 @@ mod tests {
     #[test]
     fn two_widest_round_tubes_converging_keep_the_full_wall() {
         let b = Body::new(DVec3::ZERO, 256, 1);
-        let mut p = Probe { b: &b, face: 0, home: true, cols: HashMap::new(), axes: HashMap::new(), widest: 0.0, tables: HashMap::new(), next: 0, kept: None };
+        let mut p = Probe { b: &b, face: 0, home: true, cols: FxMap::default(), axes: FxMap::default(), widest: 0.0, tables: FxMap::default(), next: 0, kept: None, slow: false };
         let r = CAVES.kinds.iter().filter(|k| k.shape == Shape::Tube && k.generations[0] >= 2).map(|k| k.width[1]).fold(0.0, f64::max) / 2.0;
         assert!(r >= 3.5, "the widest round tube {r} m in radius");
         // tube 0 just under j = 0 (the bottom of a grid cell, the far side from tube 1); tube 1 comes in at 30

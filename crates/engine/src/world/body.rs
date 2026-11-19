@@ -17,7 +17,7 @@ impl Body {
         // small bodies keep half their radius; the deep ground lies under the old floor, layer for layer
         let r0 = (radius - CRUST.min(radius * 0.5)) * (-lnq * deep_layers(n) as f64).exp();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { name: String::new(), air: false, parent: INERTIAL, orbit: 0.0, period: 0.0, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, warp: 0.0, layers, mantle: 0, gen: 0, noise, sea: None, core: None, interior: Interior::new(&BODIES[0].makeup, radius, crate::interior::spin(None), None), land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
+        Body { name: String::new(), air: false, parent: INERTIAL, orbit: 0.0, period: 0.0, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, warp: 0.0, layers, mantle: 0, gen: 0, noise, sea: None, core: None, interior: Interior::new(&BODIES[0].makeup, radius, crate::interior::spin(None), None), land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), cave_cols: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
     }
     /// The body on the deep grid (ADR 0152, step 1): the same grid carried on down `mantle_layers` more, layer 0
     /// at about R/sqrt 2; every layer above keeps its radius and gains that in index. Set before its map.
@@ -462,25 +462,8 @@ impl Body {
         // nor, from generation 2, a plant whose crown hangs over a cave's open mouth: a skylight is seen from the
         // sky (ADR 0160-generation-number-and-arc-basalt). Columns without a cave cost a tile lookup.
         let crown = ROWS.plants[plant].radius;
-        // (a crown's square inside the face whose cave tiles are empty has no cave: one lookup a tile, not a
-        // `col_caves` a column)
-        let inside = i - crown >= 0 && j - crown >= 0 && i + crown < self.n && j + crown < self.n;
-        let tiles = |v: i32| (v - crown).div_euclid(CS)..=(v + crown).div_euclid(CS);
-        let none = inside && tiles(i).all(|x| tiles(j).all(|y| self.tile_caves(face as u8, x, y).next().is_none()));
-        if self.gen >= 2 && !none {
-            let r = crown;
-            for (di, dj) in (-r..=r).flat_map(|a| (-r..=r).map(move |c| (a, c))) {
-                let (g, a, c) = fold(face, i + di, j + dj, self.n);
-                let caves = self.col_caves(g as u8, a, c);
-                if caves.is_empty() {
-                    continue;
-                }
-                let (ci, cj) = (a as f64 + 0.5, c as f64 + 0.5);
-                let top = self.first_air(self.height_at(g, ci, cj, self.dir(g, ci, cj), 0)) - 1;
-                if caves.iter().any(|&(lo, hi)| (lo..hi).contains(&top)) {
-                    return None;
-                }
-            }
+        if self.gen >= 2 && self.over_cave(face, i, j, crown) {
+            return None;
         }
         // a palm only where the year is warm (ADR 0092)
         if ROWS.plants[plant].warm.is_some_and(|t| self.year_air(face, i, j).is_none_or(|a| a < t)) {
@@ -508,8 +491,125 @@ impl Body {
     /// air (`World::generated_under`, `generate` at level 0, `Solid::gaps`), over it they change nothing.
     /// shortcut: a cave's ball lies in its face's grid, so one across a seam is cut there; fine while caves
     /// stay clear of the seams (step 2 of W4 places them).
-    pub fn col_caves(&self, face: u8, i: i32, j: i32) -> Vec<(i32, i32)> {
+    /// The spans are each cave's merged into sorted, disjoint ones: every reader asks only which layers are hollow.
+    pub fn col_caves(&self, face: u8, i: i32, j: i32) -> &[(i32, i32)] {
+        let (x, y) = (i.div_euclid(CS), j.div_euclid(CS));
+        self.cave_cols.get(&(face, x, y)).map_or(&[], |t| t.get(((i - x * CS) + (j - y * CS) * CS) as u16))
+    }
+    /// `col_caves` as it was before the merged table: each cave's span in the cave order (the test's reference).
+    #[cfg(test)]
+    pub(crate) fn col_caves_slow(&self, face: u8, i: i32, j: i32) -> Vec<(i32, i32)> {
         self.tile_caves(face, i.div_euclid(CS), j.div_euclid(CS)).filter_map(|c| c.span(i, j)).collect()
+    }
+    /// Whether a cave's open mouth lies under the square of `r` columns round (i, j) of `face` (a crown's,
+    /// ADR 0160-generation-number-and-arc-basalt): a column of it whose top generated block is hollow. Inside the
+    /// face only the hollow columns of the square's footprints are looked at; one over a seam asks each column.
+    pub(crate) fn over_cave(&self, face: usize, i: i32, j: i32, r: i32) -> bool {
+        let open = |g: usize, a: i32, c: i32, caves: &[(i32, i32)]| {
+            let (ci, cj) = (a as f64 + 0.5, c as f64 + 0.5);
+            let top = self.first_air(self.height_at(g, ci, cj, self.dir(g, ci, cj), 0)) - 1;
+            caves.iter().any(|&(lo, hi)| (lo..hi).contains(&top))
+        };
+        if !(i - r >= 0 && j - r >= 0 && i + r < self.n && j + r < self.n) {
+            return (-r..=r).flat_map(|a| (-r..=r).map(move |c| (a, c))).any(|(di, dj)| {
+                let (g, a, c) = fold(face, i + di, j + dj, self.n);
+                let caves = self.col_caves(g as u8, a, c);
+                !caves.is_empty() && open(g, a, c, caves)
+            });
+        }
+        let tiles = |v: i32| (v - r).div_euclid(CS)..=(v + r).div_euclid(CS);
+        tiles(i).any(|x| {
+            tiles(j).any(|y| {
+                let Some(t) = self.cave_cols.get(&(face as u8, x, y)) else { return false };
+                t.cols.windows(2).any(|w| {
+                    let (a, c) = (x * CS + (w[0].0 as i32 % CS), y * CS + (w[0].0 as i32 / CS));
+                    (a - i).abs() <= r && (c - j).abs() <= r && open(face, a, c, &t.spans[w[0].1 as usize..w[1].1 as usize])
+                })
+            })
+        })
+    }
+    /// `over_cave` as `candidate` asked it before: every column of the square (the test's reference).
+    #[cfg(test)]
+    pub(crate) fn over_cave_slow(&self, face: usize, i: i32, j: i32, r: i32) -> bool {
+        let inside = i - r >= 0 && j - r >= 0 && i + r < self.n && j + r < self.n;
+        let tiles = |v: i32| (v - r).div_euclid(CS)..=(v + r).div_euclid(CS);
+        if inside && tiles(i).all(|x| tiles(j).all(|y| self.tile_caves(face as u8, x, y).next().is_none())) {
+            return false;
+        }
+        for (di, dj) in (-r..=r).flat_map(|a| (-r..=r).map(move |c| (a, c))) {
+            let (g, a, c) = fold(face, i + di, j + dj, self.n);
+            let caves = self.col_caves_slow(g as u8, a, c);
+            if caves.is_empty() {
+                continue;
+            }
+            let (ci, cj) = (a as f64 + 0.5, c as f64 + 0.5);
+            let top = self.first_air(self.height_at(g, ci, cj, self.dir(g, ci, cj), 0)) - 1;
+            if caves.iter().any(|&(lo, hi)| (lo..hi).contains(&top)) {
+                return true;
+            }
+        }
+        false
+    }
+    /// Asserts `over_cave` is `over_cave_slow` round every cave (every square radius up to 7, at its middle and
+    /// its rim), at the seams and over the faces; the squares over a mouth found.
+    #[cfg(test)]
+    pub(crate) fn check_over_cave(&self) -> usize {
+        let mut at: Vec<(usize, i32, i32)> = Vec::new();
+        for (k, c) in self.caves.iter().enumerate().filter(|(k, _)| k % 3 == 0) {
+            let (ci, cj, e) = (c.at.x.floor() as i32, c.at.y.floor() as i32, c.r.ceil() as i32 + 2);
+            at.extend([(0, 0), (e, 0), (-e, 1), (1, e), (-e, -e), (e + 3, -2)].map(|(a, b)| (c.face as usize, ci + a + k as i32 % 2, cj + b)));
+        }
+        for f in 0..6 {
+            for k in (0..self.n).step_by(11) {
+                at.extend([(f, 0, k), (f, 3, k), (f, self.n - 2, k), (f, k, 1), (f, k, self.n - 5), (f, k, (k * 7) % self.n)]);
+            }
+        }
+        let mut found = 0;
+        for (n, &(f, i, j)) in at.iter().enumerate() {
+            for r in [n as i32 % 8, (n as i32 + 3) % 8] {
+                let slow = self.over_cave_slow(f, i, j, r);
+                found += slow as usize;
+                assert_eq!(self.over_cave(f, i, j, r), slow, "face {f} ({i}, {j}) radius {r}");
+            }
+        }
+        found
+    }
+    /// Asserts `col_caves` is `col_caves_slow`'s union on the columns round every cave (a ring past its reach),
+    /// both sides of every seam on a band, and a spread over each face; the columns with a cave checked.
+    #[cfg(test)]
+    pub(crate) fn check_col_caves(&self) -> usize {
+        let union = |mut v: Vec<(i32, i32)>| {
+            v.sort_unstable();
+            let mut out: Vec<(i32, i32)> = Vec::new();
+            for (lo, hi) in v {
+                match out.last_mut() {
+                    Some(l) if lo <= l.1 => l.1 = l.1.max(hi),
+                    _ => out.push((lo, hi)),
+                }
+            }
+            out
+        };
+        let mut cols: Vec<(u8, i32, i32)> = Vec::new();
+        for c in &self.caves {
+            let r = c.r.ceil() as i32 + 3;
+            let (ci, cj) = (c.at.x.floor() as i32, c.at.y.floor() as i32);
+            cols.extend((ci - r..=ci + r).flat_map(|i| (cj - r..=cj + r).map(move |j| (c.face, i, j))));
+        }
+        for f in 0..6u8 {
+            for k in (0..self.n).step_by(7) {
+                cols.extend([(f, -1, k), (f, 0, k), (f, self.n - 1, k), (f, self.n, k), (f, k, -1), (f, k, self.n)]);
+                cols.extend((0..self.n).step_by(13).map(|j| (f, k, j)));
+            }
+        }
+        cols.sort_unstable();
+        cols.dedup();
+        let mut hollow = 0;
+        for (f, i, j) in cols {
+            let slow = self.col_caves_slow(f, i, j);
+            hollow += !slow.is_empty() as usize;
+            assert_eq!(self.col_caves(f, i, j), union(slow), "column ({f}, {i}, {j})");
+        }
+        hollow
     }
     /// The caves that reach level-0 footprint (x, y) of a face.
     pub(super) fn tile_caves(&self, face: u8, x: i32, y: i32) -> impl Iterator<Item = &Cave> {
@@ -526,6 +626,39 @@ impl Body {
                 }
             }
         }
+        // each cave's spans into its columns' footprints (a span needs |i + 0.5 - x| < r: inside `cells`' square,
+        // and inside the footprints `cave_tiles` gives it), then each column's merged
+        let mut cols: FxMap<(u8, i32, i32), Vec<(u16, i32, i32)>> = FxMap::default();
+        for c in &caves {
+            let r = c.r.ceil() as i32 + 1;
+            let (ci, cj) = (c.at.x.floor() as i32, c.at.y.floor() as i32);
+            for (i, j) in (ci - r..=ci + r).flat_map(|i| (cj - r..=cj + r).map(move |j| (i, j))) {
+                if let Some((lo, hi)) = c.span(i, j) {
+                    let (x, y) = (i.div_euclid(CS), j.div_euclid(CS));
+                    cols.entry((c.face, x, y)).or_default().push((((i - x * CS) + (j - y * CS) * CS) as u16, lo, hi));
+                }
+            }
+        }
+        self.cave_cols = cols
+            .into_iter()
+            .map(|(k, mut v)| {
+                v.sort_unstable();
+                let mut t = CaveCols::default();
+                for (col, lo, hi) in v {
+                    match t.spans.last_mut() {
+                        Some(last) if t.cols.last().is_some_and(|c| c.0 == col) && lo <= last.1 => last.1 = last.1.max(hi),
+                        _ => {
+                            if t.cols.last().is_none_or(|c| c.0 != col) {
+                                t.cols.push((col, t.spans.len() as u32));
+                            }
+                            t.spans.push((lo, hi));
+                        }
+                    }
+                }
+                t.cols.push((u16::MAX, t.spans.len() as u32));
+                (k, t)
+            })
+            .collect();
         self.caves = caves;
     }
     /// Puts these ore bodies in the ground, in place of any before.
