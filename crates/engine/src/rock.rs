@@ -171,6 +171,13 @@ impl Rocks {
                 None => 0,
                 Some(b) => crate::bodies::BODIES.iter().position(|r| &r.name == b).ok_or(format!("province '{}': no body '{b}' in data/bodies.toml", p.name))?,
             };
+            // a province's id (its place in NAMES) says whose map can hold it (`Map::rock`): Terra's to the ocean
+            // floor, the home's moon's after; its `body` must agree, so neither's provinces lie on the other
+            let id = provinces.len() as u8;
+            let owner = if id <= crate::bake::rock::OCEAN { 0 } else { crate::bodies::moon(&crate::bodies::BODIES).expect("the home has a moon (bodies::parse)") };
+            if body != owner {
+                return Err(format!("province '{}' is {}'s (its place in the list): its body is '{}'", p.name, crate::bodies::BODIES[owner].name, crate::bodies::BODIES[owner].name));
+            }
             provinces.push(Province { name: p.name.clone(), layers, fold: p.fold, heat: p.heat, caves: p.caves, flow, body });
         }
         let m = &f.mantle;
@@ -265,7 +272,7 @@ mod tests {
     #[test]
     fn a_broken_file_is_refused_and_says_why() {
         let good = include_str!("../../../data/rocks.toml");
-        for (from, to, says) in [("\"granite\", 0.0", "\"granit\", 0.0", "no block 'granit'"), ("[\"gneiss\", 0.0]", "[\"gneiss\", 5.0]", "the last 0"), ("name = \"rift\"", "name = \"rifts\"", "in that order"), ("block = \"peridotite\"", "block = \"water\"", "the mantle"), ("rock = \"basalt\", share", "rock = \"basalts\", share", "the flow's rock: no solid block 'basalts'"), ("share = 0.5,", "share = 1.4,", "a flow's share"), ("body = \"Luna\"", "body = \"Lune\"", "no body 'Lune'")] {
+        for (from, to, says) in [("\"granite\", 0.0", "\"granit\", 0.0", "no block 'granit'"), ("[\"gneiss\", 0.0]", "[\"gneiss\", 5.0]", "the last 0"), ("name = \"rift\"", "name = \"rifts\"", "in that order"), ("block = \"peridotite\"", "block = \"water\"", "the mantle"), ("rock = \"basalt\", share", "rock = \"basalts\", share", "the flow's rock: no solid block 'basalts'"), ("share = 0.5,", "share = 1.4,", "a flow's share"), ("body = \"Luna\"", "body = \"Lune\"", "no body 'Lune'"), ("name = \"rift\"", "name = \"rift\"\nbody = \"Luna\"", "province 'rift' is Terra's")] {
             let e = Rocks::parse(&good.replacen(from, to, 1)).err().unwrap_or_else(|| panic!("{from} -> {to} loads"));
             assert!(e.contains(says), "{e}");
         }

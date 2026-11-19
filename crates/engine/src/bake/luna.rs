@@ -250,15 +250,38 @@ impl Land {
 
 /// Bakes Luna of `n` columns per face edge from `seed`: her stages through the one pipeline (`super::run`).
 pub fn bake(seed: i32, n: i32) -> Map {
-    super::run(&super::Stage::LUNA, seed, n)
+    bake_stats(seed, n).0
 }
 
-/// `bake` and what it measured: Luna's stages in her row's order, as `super::run` calls them.
+/// `bake` and what it measured: Luna's stages under the sun of the home's moon (`bodies::moon`), the body
+/// this map is (`World::with_grid`).
 pub fn bake_stats(seed: i32, n: i32) -> (Map, Stats) {
+    let luna = &crate::bodies::BODIES[crate::bodies::moon(&crate::bodies::BODIES).expect("the home has a moon (bodies::parse)")];
+    run(&super::Stage::LUNA, seed, n, sun_high(luna.size, luna.orbit))
+}
+
+/// The sun's highest over the equator of a body `size` times smaller than the home and `orbit` radii of its
+/// parent out, radians: its orbit's tilt from the ecliptic, and the disc's edge (as wide as Luna seen from
+/// Terra's ground, a little less: sky.rs `SUN_UNDER_MOON`). Without a size or an orbit, Luna's.
+pub fn sun_high(size: Option<f64>, orbit: Option<(f64, f64)>) -> f64 {
+    let (size, orbit) = (size.unwrap_or(3.7), orbit.map_or(60.0, |o| o.0));
+    crate::sky::INCLINATION + crate::sky::SUN_UNDER_MOON * (1.0 / (size * (orbit - 1.0))).asin()
+}
+
+/// The bake of a list (`super::check`ed) on a crust without plates, the stages in its order, and what it
+/// measured; `high` is `sun_high` of the body baked.
+pub fn run(stages: &[super::Stage], seed: i32, n: i32, high: f64) -> (Map, Stats) {
+    use super::Stage::*;
+    super::check(stages).unwrap_or_else(|e| panic!("a bake of {stages:?}: {e}"));
     let mut w = crust(seed, n);
-    impacts(&mut w, true);
-    ice(&mut w);
-    volcanism(&mut w);
+    for &st in &stages[1..] {
+        match st {
+            Impacts => impacts(&mut w, stages.contains(&Volcanism)),
+            Ice => ice(&mut w, high),
+            Volcanism => volcanism(&mut w),
+            Plates | Crust | Erosion | Climate | Life => unreachable!("checked: one crust, nothing of plates on it"),
+        }
+    }
     w.finish()
 }
 
@@ -366,10 +389,10 @@ pub fn impacts(w: &mut Work, maria: bool) {
 }
 
 /// The `ice` stage on an airless body: the polar ground no sun reaches (on 8 m cells), a kind of its own.
-pub fn ice(w: &mut Work) {
+pub fn ice(w: &mut Work, high: f64) {
     let land = &mut w.land;
     // the polar shadow, on 8 m cells: no sun from any side at its highest (the orbit's tilt and the sun's disc)
-    let shadow = polar_shadow(land);
+    let shadow = polar_shadow(land, high);
     let q = land.g.m / 4;
     for &(c, _) in &shadow {
         let (f, i, j) = (c / (q * q), c % q, (c / q) % q);
@@ -458,8 +481,9 @@ impl Work {
     }
 }
 
-/// The 8 m cells (index on a grid of m/4) near the poles that no sun reaches, and their distance from the pole.
-fn polar_shadow(land: &Land) -> Vec<(usize, f64)> {
+/// The 8 m cells (index on a grid of m/4) near the poles that no sun reaches, the sun at most `high` over the
+/// equator (`sun_high`), and their distance from the pole.
+fn polar_shadow(land: &Land, high: f64) -> Vec<(usize, f64)> {
     let (m, q) = (land.g.m, land.g.m / 4);
     if q < 2 {
         return Vec::new();
@@ -483,11 +507,6 @@ fn polar_shadow(land: &Land) -> Vec<(usize, f64)> {
         let k = |v: f64| (v.floor().max(0.0) as usize).min(q - 1);
         rad(h[(f * q + k(y)) * q + k(x)])
     };
-    // the sun's highest over Luna's equator (its orbit's plane): the orbit's tilt from the ecliptic, and the
-    // disc's edge (as wide as Luna seen from Terra's ground, a little less: sky.rs `SUN_UNDER_MOON`)
-    let luna = crate::bodies::BODIES.iter().find(|r| r.bake.as_ref().is_some_and(|b| b.0 == super::Stage::LUNA)).expect("a row of Luna's bake");
-    let (size, orbit) = (luna.size.unwrap_or(3.7), luna.orbit.map_or(60.0, |o| o.0));
-    let high = crate::sky::INCLINATION + crate::sky::SUN_UNDER_MOON * (1.0 / (size * (orbit - 1.0))).asin();
     (0..6 * q * q)
         .into_par_iter()
         .filter_map(|c| {
@@ -560,6 +579,20 @@ mod tests {
         bake_stats(7, 416)
     }
 
+    /// A row's own stage list, in another order than Luna's, bakes (review of draft-bake-stages: the ice stage
+    /// looked Luna up by her exact list and panicked), and its ice is that body's: a moon this near and large
+    /// has the sun high enough over its poles to leave no shadow; one at Luna's orbit and size has some.
+    #[test]
+    fn the_ice_stage_bakes_the_body_its_row_names() {
+        let moon = |size: f64, orbit: f64| {
+            let t = format!("[[body]]\nname = \"A\"\nparent = \"sun\"\nhome = true\nn = 512\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nsun = 100.0\n{M}[[body]]\nname = \"B\"\nparent = \"A\"\norbit = {orbit:?}\nsize = {size:?}\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nstages = [\"crust\", \"impacts\", \"volcanism\", \"ice\"]\n{M}", M = "kind = \"rocky\"\niron = 0.5\nheat = 0.5\ndensity = [2700.0, 3300.0, 7900.0]\n");
+            let rows = crate::bodies::parse(&t).unwrap();
+            rows[1].bake.as_ref().unwrap().get(7, 1664).biome.iter().filter(|&&k| k == SHADOW).count()
+        };
+        assert!(moon(3.7, 60.0) > 0, "Luna's orbit and size: shadow at the poles");
+        assert_eq!(moon(1.0, 2.0), 0, "a large near moon: the sun high over its poles, no shadow");
+    }
+
     #[test]
     fn craters_follow_the_power_law_and_the_small_ones_saturate() {
         let (_, s) = small();
@@ -613,11 +646,11 @@ mod tests {
         let (m, r) = (256, 400.0);
         let g = Grid::new(m, r);
         let flat = Land { h: vec![DATUM; g.n()], kind: vec![HIGHLAND; g.n()], g, r };
-        assert!(polar_shadow(&flat).is_empty(), "nothing hides flat ground at the pole");
+        assert!(polar_shadow(&flat, sun_high(None, None)).is_empty(), "nothing hides flat ground at the pole");
         let mut bowl = Land { h: flat.h.clone(), kind: flat.kind.clone(), g: Grid::new(m, r), r };
         let mut cr = Crater::new(DVec3::Z, 80.0, 1.0, false, false);
         bowl.stamp(&mut cr, &[]);
-        let s = polar_shadow(&bowl);
+        let s = polar_shadow(&bowl, sun_high(None, None));
         assert!(!s.is_empty() && s.iter().all(|c| c.1 < 0.1), "{} cells in shadow, all in the bowl", s.len());
         let (tiny, st) = bake_stats(1, 64);
         assert!(st.area[(MARE - HIGHLAND) as usize] > 0.0 && tiny.biome.contains(&MARE), "a tiny Luna's maria");

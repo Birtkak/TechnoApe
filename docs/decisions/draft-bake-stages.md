@@ -45,10 +45,15 @@ they run, in place of `bake`:
   crust, a crust past the first place, a stage twice, a stage without what it needs before it, and the crossings not
   built yet ("not built yet on plates": `impacts`, `volcanism`; "not built yet on a crust without plates": `erosion`,
   `climate`, `life`). The Mars step lifts the crossings.
-- `bodies::Bake` is the list. Terra's and Luna's lists keep their maps' files, versions and old layouts
-  (`bake::get`, `for_hash`, `luna::get`, ...). Shortcut: another list is baked at every start and not kept (no body
-  has one).
-- `Map::bake`, `bake_with`, `bake_v5`, `bake_v6` and `luna::bake` all go through `run`.
+- `bodies::Bake` is the list and its body's sun at its highest (`luna::sun_high` of the row's size and orbit),
+  which a crust's `ice` reads: a stage gets the body it bakes, never looks one up. Terra's and Luna's lists keep
+  their maps' files, versions and old layouts (`bake::get`, `for_hash`, `luna::get`, ...); `luna::bake` is the
+  home's moon's (`bodies::moon`). Shortcut: another list is baked on every call and kept under a file name nobody
+  writes (no body has one today); the Mars-like planet's step gives such a body its cache name.
+- `Map::bake`, `bake_with`, `bake_v5`, `bake_v6` go through `run_with` (plates), `luna::bake` and `bake_stats`
+  through `luna::run` (a crust), and `run` picks between them by the first stage. A reordered crust list
+  (`volcanism` before `ice`, or no `volcanism`) bakes: it is another body, the rng order is the same (the ice draws
+  no number), only Luna's own list must make today's Luna.
 
 **Generation 4** (`world::GENERATION` 3 -> 4; `known_generation` takes 4 and refuses 5). Every body now carries its
 world's generation (`Body::gen`; before, only the home's was set, Luna's stayed 0: no rule of hers read it, checked
@@ -72,8 +77,11 @@ what lies under it. No new blocks: anorthosite (200, rubble 182), mare basalt (2
 rubble 185) came with Luna's bake (ADR 0070), each mined with a pick, with a rubble twin, stacking to 16.
 
 **The tables' body key.** A province row may say `body = "<row name>"` (`rock::Province::body`, a row index; the
-home's when not given); a name that is no row is refused. Terra's six say none, Luna's three `body = "Luna"`. A Terra
+home's when not given); a name that is no row is refused, and so is a key that disagrees with the province's id:
+ids to the ocean floor are the home's, those after it the home's moon's (`Map::rock` hands them out by id), so the
+loader keeps Terra's provinces off Luna and the reverse. Terra's six say none, Luna's three `body = "Luna"`. A Terra
 map whose cells name another body's province is refused on read (`Map::from_bytes`: Terra's provinces only).
+A world without a mantle (generation 0) never gets Luna's rock field: it is asked from generation 4 only.
 `minerals.toml` and `caves.toml` gain theirs with the second half (they key on provinces and rocks, so the key above
 is what they will filter by).
 
@@ -95,7 +103,9 @@ is what they will filter by).
 | `made_hash` seed 1 planet 6144, mantle=0 / gen=1 / gen=2 / gen=3 / default (4) | 0926f028ddcd85a7, 37b2d1b1006b66f7, a2ef250b3ed4203a, bfb878ce14d32b75 | the same; default (4) bfb878ce14d32b75 |
 | Luna's provinces, small Luna (seed 7, 416), every 31st column of 33,495 | - | highland 0.873, mare 0.112, KREEP 0.015 (the map's maria 0.115) |
 
-`made_hash` is Terra's caves and ores only: it never covered Luna, hence the block lock above.
+`made_hash` is Terra's caves and ores only: it never covered Luna, hence the block lock above. The "before" map and
+block hashes were computed again on an archive of main c1ceeff0 with main's code: the same hex, all four maps and
+both generations.
 
 ## Checks
 `cargo test --workspace`: 980 passed, 0 failed, 26 ignored (client again after the `place=` fix: 208 passed). Red
@@ -115,7 +125,8 @@ One run each, `slot.sh job`, play build, main's against this one (row in `docs/p
 - Luna's ground under the dust follows rock provinces from generation 4: anorthosite highlands, mare basalt over
   anorthosite. On the surface nothing changes (the dust and the bands are the biomes'), so she looks the same from
   Terra and from orbit.
-- `place=` and `fxedit=` in a stand shot dug into Terra whatever `body=` said; they now use the stand's body.
+- `place=`, `fxedit=` and `structure=` in a stand shot built on Terra whatever `body=` said; they now use the
+  stand's body.
 - The creative inventory puts anorthosite, mare basalt and KREEP in the rocks' tab (it lists every province's
   layers).
 - **What ore and caves on Luna need (the second half)**, every place that assumes the home or a map with a baked

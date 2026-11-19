@@ -428,18 +428,23 @@ pub fn check(stages: &[Stage]) -> Result<(), String> {
     Ok(())
 }
 
-/// The one bake: `stages` (`check`ed) of the body of `n` columns from `seed`.
-pub fn run(stages: &[Stage], seed: i32, n: i32) -> Map {
-    run_with(stages, seed, n, &land::Params::default())
+/// The one bake: `stages` (`check`ed) of the body of `n` columns from `seed`; `sun_high` is that body's sun at
+/// its highest over its equator, radians, which an airless body's `ice` reads (`luna::sun_high` of its row).
+pub fn run(stages: &[Stage], seed: i32, n: i32, sun_high: f64) -> Map {
+    match stages.first() {
+        Some(Stage::Crust) => luna::run(stages, seed, n, sun_high).0,
+        _ => run_with(stages, seed, n, &land::Params::default()),
+    }
 }
 
-/// `run` with other land parameters.
+/// `run` of a list on plates (Terra's kind), with other land parameters.
 pub fn run_with(stages: &[Stage], seed: i32, n: i32, p: &land::Params) -> Map {
     use Stage::*;
     check(stages).unwrap_or_else(|e| panic!("a bake of {stages:?}: {e}"));
+    assert_eq!(stages[0], Plates, "run_with bakes on plates; a crust without them is `luna::run`");
     let (t, s) = (std::time::Instant::now(), seed as u32 as u64);
     let lp = if stages.contains(&Ice) { life::LifeParams::default() } else { life::LifeParams::capless() };
-    let (mut crust, mut plates, mut year, mut life, mut airless) = (None, None, None, None, None);
+    let (mut crust, mut plates, mut year, mut life) = (None, None, None, None);
     for &st in stages {
         match st {
             Plates => crust = Some(land::crust(n as u32, s, p)),
@@ -447,17 +452,11 @@ pub fn run_with(stages: &[Stage], seed: i32, n: i32, p: &land::Params) -> Map {
             Climate => year = Some(life::climate(plates.as_ref().expect("checked"), &lp)),
             Life => life = Some(life::life_of(plates.as_ref().expect("checked"), s, &lp, year.take().expect("checked"))),
             // on plates, the caps the life stage lays by `lp`
-            Ice if plates.is_some() => {}
-            Crust => airless = Some(luna::crust(seed, n)),
-            Impacts => luna::impacts(airless.as_mut().expect("checked"), stages.contains(&Volcanism)),
-            Ice => luna::ice(airless.as_mut().expect("checked")),
-            Volcanism => luna::volcanism(airless.as_mut().expect("checked")),
+            Ice => {}
+            Crust | Impacts | Volcanism => unreachable!("checked: not built on plates"),
         }
     }
-    match airless {
-        Some(w) => w.finish().0,
-        None => Map::of_life(seed, n, plates.expect("checked"), life.expect("checked"), t),
-    }
+    Map::of_life(seed, n, plates.expect("checked"), life.expect("checked"), t)
 }
 
 /// How rough the ground of a cell is, metres of detail over the map's spline (ADR 0058): by its slope (m/m),

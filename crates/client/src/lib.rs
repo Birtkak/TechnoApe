@@ -517,7 +517,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         });
         // (depth=m: the stand point that far under the ground, in the rock: a pocket dug with place= `_`)
         // on the body= the stand is on (as `bench::pose`), not always Terra
-        let b = &world.bodies[args.get("body", 0usize).min(world.bodies.len() - 1)];
+        let bi = args.get("body", 0usize).min(world.bodies.len() - 1);
+        let b = &world.bodies[bi];
         let feet = world.block_at(b.centre + up * (b.top(up) - stand_depth(&args, b, up) + 0.1));
         for (d, id) in place {
             world.set_block(Block { pos: feet.pos + d, ..feet }, id);
@@ -526,7 +527,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         // the first air over the stand point (ADR 0052): x along j, z along i, y up the layers (the camera frame of
         // `models::cell_axes`; the Studio's view looks from the same axes made square, `models::view_axes`)
         if let Some(s) = structure {
-            let foot = world.air_over_ground(0, up);
+            let foot = world.air_over_ground(bi, up);
             for (d, id) in s.blocks(&BLOCKS) {
                 world.set_block(Block { pos: foot.pos + IVec3::new(d[2], d[0], d[1]), ..foot }, id);
             }

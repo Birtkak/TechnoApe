@@ -14,10 +14,11 @@ pub enum Generator {
     Hills,
 }
 
-/// The bake that makes a body's map: the stages it runs, in order (draft-bake-stages; `bake::check`).
+/// The bake that makes a body's map: the stages it runs, in order (draft-bake-stages; `bake::check`), and its
+/// body's sun at its highest (`luna::sun_high` of the row: what an airless body's `ice` reads).
 /// Terra's (ADR 0043) and Luna's (ADR 0070) lists keep their maps' files, versions and old layouts.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Bake(pub Vec<Stage>);
+#[derive(Clone, Debug, PartialEq)]
+pub struct Bake(pub Vec<Stage>, pub f64);
 
 impl Bake {
     /// This bake's map of a world: from memory, the disk or baked now.
@@ -26,7 +27,7 @@ impl Bake {
             s if s == Stage::TERRA => crate::bake::get(seed, n),
             s if s == Stage::LUNA => crate::bake::luna::get(seed, n),
             // shortcut: another list is baked at every start and not kept, until a body has one (the Mars step)
-            s => std::sync::Arc::new(crate::bake::run(s, seed, n)),
+            s => std::sync::Arc::new(crate::bake::run(s, seed, n, self.1)),
         }
     }
     /// The map of this hash, baked again if it is not kept; None when this build bakes another.
@@ -195,7 +196,7 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
         if let Some(s) = &r.stages {
             crate::bake::check(s).map_err(|e| format!("body '{}': {e}", r.name))?;
         }
-        rows.push(Row { name: r.name, parent, home: r.home, bake: r.stages.map(Bake), words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator, ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup });
+        rows.push(Row { name: r.name, parent, home: r.home, bake: r.stages.map(|s| Bake(s, crate::bake::luna::sun_high(r.size, orbit))), words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator, ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup });
     }
     if moon(&rows).is_none() {
         return Err(format!("body '{}': the home body needs a moon (its first sizes the sun)", rows[0].name));
@@ -285,7 +286,7 @@ mod tests {
         assert_eq!((BODIES[0].generator, BODIES[0].air, BODIES[0].orbit), (Generator::Continents, true, None));
         assert_eq!((BODIES[1].generator, BODIES[1].air, BODIES[1].orbit), (Generator::Hills, false, Some((60.0, 0.0))));
         assert_eq!(BODIES[1].ground[0], BLOCKS.id("regolith"));
-        assert_eq!(BODIES.iter().map(|r| (r.parent, r.home, r.bake.clone())).collect::<Vec<_>>(), [(None, true, Some(Bake(Stage::TERRA.to_vec()))), (Some(0), false, Some(Bake(Stage::LUNA.to_vec())))]);
+        assert_eq!(BODIES.iter().map(|r| (r.parent, r.home, r.bake.as_ref().map(|b| b.0.clone()))).collect::<Vec<_>>(), [(None, true, Some(Stage::TERRA.to_vec())), (Some(0), false, Some(Stage::LUNA.to_vec()))]);
         assert_eq!((moon(&BODIES), sizes(&BODIES, 1536, 512), moon_columns(6144)), (Some(1), vec![1536, 512], 1664));
         // a welcome of another number of bodies is a server of another build
         assert!(known_bodies(BODIES.len()).is_ok());
@@ -305,11 +306,11 @@ mod tests {
         let good = b("parent = \"A\"\norbit = 3.0\nsize = 4.0\n");
         let ok = parse(&good).unwrap();
         assert_eq!(ok[1].n, 128, "a quarter of the first body's 512 columns");
-        assert_eq!((ok[0].parent, ok[0].home, ok[1].parent, ok[1].home, ok[1].bake.clone()), (None, true, Some(0), false, None));
+        assert_eq!((ok[0].parent, ok[0].home, ok[1].parent, ok[1].home, ok[1].bake.is_some()), (None, true, Some(0), false, false));
         // a moon of the moon, and one that circles the sun
         let more = format!("{good}{}{}", row("C", "parent = \"B\"\norbit = 3.0\nsize = 16.0\n"), row("D", "parent = \"sun\"\nsun = 300.0\nsize = 2.0\nstages = [\"crust\", \"impacts\"]\n"));
         let ok = parse(&more).unwrap();
-        assert_eq!((ok[2].parent, ok[2].n, ok[3].parent, ok[3].n, ok[3].bake.clone()), (Some(1), 32, None, 256, Some(Bake(vec![Stage::Crust, Stage::Impacts]))));
+        assert_eq!((ok[2].parent, ok[2].n, ok[3].parent, ok[3].n, ok[3].bake.as_ref().map(|b| b.0.clone())), (Some(1), 32, None, 256, Some(vec![Stage::Crust, Stage::Impacts])));
         for (bad, why) in [
             (String::new(), "empty"),
             (a.to_string(), "a home without a moon"),
