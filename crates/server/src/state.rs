@@ -16,16 +16,30 @@ impl Server {
     pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64, gen: u8, accept: Receiver<ServerLink>) -> Server {
         Server::with_world(World::baked_warp(planet_n, moon_n, seed, warp, gen), seed, accept)
     }
-    /// A server on the map of this hash (None: the noise land) and Luna on the map of `luna` (None: its hills);
-    /// a bake is redone if it is not kept. A map that comes out other than the hash stops the game, as a save
-    /// this build cannot read does: its edits belong to other ground, and the next autosave would write over
-    /// the old map's name.
-    /// `gen`: the world's generation (`Body::gen`), as the save says.
-    pub fn on_map(planet_n: i32, moon_n: i32, seed: i32, map: Option<u64>, luna: Option<u64>, gen: u8, accept: Receiver<ServerLink>) -> Server {
-        let Some(h) = map else { return Server::new(planet_n, moon_n, seed, accept) };
-        let m = engine::bake::for_hash(seed, planet_n, h).unwrap_or_else(|| panic!("this world was played on another map of seed {seed} (map version {}): it cannot be carried on", engine::bake::VERSION));
-        let l = luna.map(|h| engine::bake::luna::for_hash(seed, moon_n, h).unwrap_or_else(|| panic!("this world was played on another Luna of seed {seed} (Luna's map version {}): it cannot be carried on", engine::bake::luna::VERSION)));
-        Server::with_world(World::with_grid(planet_n, moon_n, seed, Some(m), l, 0.0, gen), seed, accept)
+    /// A server on `bodies` (columns and baked map's hash of every row, as a save has them; draft-n-bodies),
+    /// each body on the map of its hash (None: the seed's noise); a bake is redone if it is not kept. A map
+    /// that comes out other than the hash stops the game, as a save this build cannot read does: its edits
+    /// belong to other ground, and the next autosave would write over the old map's name.
+    /// `gen`: the world's generation (`Body::gen`), as the save says; a world whose home is on the noise land
+    /// (from before the bake) is of generation 0, as it always was.
+    pub fn on_map(bodies: &[(i32, Option<u64>)], seed: i32, gen: u8, accept: Receiver<ServerLink>) -> Server {
+        use engine::bodies::BODIES;
+        assert_eq!(bodies.len(), BODIES.len(), "this world has {} bodies and data/bodies.toml {}: it cannot be carried on", bodies.len(), BODIES.len());
+        if bodies[0].1.is_none() {
+            return Server::with_world(World::of(&BODIES, bodies.iter().map(|b| (b.0, None)).collect(), seed, 0.0, 0), seed, accept);
+        }
+        let list = bodies
+            .iter()
+            .zip(BODIES.iter())
+            .map(|(&(n, h), row)| {
+                let m = h.map(|h| {
+                    let bake = row.bake.unwrap_or_else(|| panic!("{} has no bake in data/bodies.toml, but this world has a map of it", row.name));
+                    bake.for_hash(seed, n, h).unwrap_or_else(|| panic!("this world was played on another map of {} of seed {seed} (map version {}): it cannot be carried on", row.name, bake.version()))
+                });
+                (n, m)
+            })
+            .collect();
+        Server::with_world(World::of(&BODIES, list, seed, 0.0, gen), seed, accept)
     }
     pub(super) fn with_world(mut world: World, seed: i32, accept: Receiver<ServerLink>) -> Server {
         world.open_ledger();
@@ -98,7 +112,7 @@ impl Server {
     /// A server that carries on from `save` (its seed and planet win over any given elsewhere).
     pub fn from_save(save: Save, accept: Receiver<ServerLink>) -> Server {
         engine::world::known_generation(save.gen).unwrap_or_else(|e| panic!("{e}"));
-        let mut s = Server::on_map(save.planet_n, save.moon_n, save.seed, save.map, save.luna, save.gen, accept);
+        let mut s = Server::on_map(&save.bodies, save.seed, save.gen, accept);
         for (b, m) in &save.edits {
             s.world.set_block(*b, *m);
         }
@@ -194,12 +208,10 @@ impl Server {
         for c in self.clients.iter().filter(|c| !c.player.name.is_empty()) {
             players.insert(c.player.name.clone(), saved(c));
         }
-        let [p, m] = [self.world.bodies[0].n, self.world.bodies[1].n];
         Save {
             version: save::VERSION,
             seed: self.seed,
-            planet_n: p,
-            moon_n: m,
+            bodies: self.bodies(),
             blocks: save::registry(),
             edits,
             players: players.into_values().collect(),
@@ -208,8 +220,6 @@ impl Server {
             removed: self.removed,
             sea_extra: self.world.water.sea_extra,
             tick: self.tick0.wrapping_add(self.tick),
-            map: self.map_hash(),
-            luna: self.luna_hash(),
             air: self.weather.as_ref().map(|w| w.state()),
             reaches: (self.world.water.rained, self.world.water.reach_extra.iter().map(|(&a, &x)| (a, x)).collect()),
             // after `air`: its `state` takes a job in flight back, which `pending` then names
@@ -223,9 +233,10 @@ impl Server {
     pub fn map_hash(&self) -> Option<u64> {
         self.world.bodies[0].map().map(|m| m.hash)
     }
-    /// The hash of Luna's baked map, None for its hills (ADR 0070).
-    pub fn luna_hash(&self) -> Option<u64> {
-        self.world.bodies[1].map().map(|m| m.hash)
+    /// Every body's columns and baked map's hash (None: the seed's noise), in row order: what a save, a
+    /// recording and a welcome carry (draft-n-bodies).
+    pub fn bodies(&self) -> Vec<(i32, Option<u64>)> {
+        self.world.bodies.iter().map(|b| (b.n, b.map().map(|m| m.hash))).collect()
     }
 
     pub fn players(&self) -> usize {

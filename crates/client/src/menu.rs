@@ -58,7 +58,7 @@ pub(crate) fn new_world_args(w: &NewWorld, clock: i32, taken: impl Fn(&str) -> b
     let name = Some(safe_name(&w.name)).filter(|n| !n.is_empty()).unwrap_or("world".into());
     let save = (1..).map(|n| if n == 1 { format!("saves/{name}.sav") } else { format!("saves/{name}-{n}.sav") }).find(|p| !taken(p)).unwrap();
     let n = SIZES[w.size.min(SIZES.len() - 1)].0;
-    let mut a = vec![format!("save={save}"), format!("seed={}", seed_of(&w.seed).unwrap_or(clock)), format!("planet={n}"), format!("moon={}", engine::bodies::columns(1, n))];
+    let mut a = vec![format!("save={save}"), format!("seed={}", seed_of(&w.seed).unwrap_or(clock)), format!("planet={n}"), format!("moon={}", engine::bodies::moon_columns(n))];
     if w.creative {
         a.push("mode=creative".into());
     }
@@ -190,7 +190,8 @@ pub(crate) fn world_note(path: &str) -> String {
     let played = std::fs::metadata(path).and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).map_or(String::new(), |d| format!(", played {}", ago(d.as_secs())));
     match server::save::Save::read(std::path::Path::new(path)) {
         Ok(s) => {
-            let size = SIZES.iter().find(|z| z.0 == s.planet_n).map_or(format!("{} columns", s.planet_n), |z| z.1.to_string());
+            let n = s.bodies[0].0;
+            let size = SIZES.iter().find(|z| z.0 == n).map_or(format!("{n} columns"), |z| z.1.to_string());
             format!("seed {}, {size}{played}", s.seed)
         }
         Err(_) => format!("{OLD_WORLD}{played}"),
@@ -884,11 +885,18 @@ impl App {
     pub(crate) fn bake_then(&mut self, then: Vec<String>) {
         let num = |k: &str| then.iter().find_map(|a| a.strip_prefix(k)?.strip_prefix('=')?.parse::<i32>().ok());
         let moon = num("moon");
+        // every body that is baked, at its columns (planet= and moon=, `bodies::sizes`)
+        let bakes = |seed: i32, n: i32| {
+            let rows = &engine::bodies::BODIES;
+            engine::bodies::sizes(rows, n, moon.unwrap_or(engine::bodies::moon_columns(n))).into_iter().zip(rows.iter()).filter_map(move |(k, r)| r.bake.map(|b| (b, seed, k))).collect::<Vec<_>>()
+        };
         match (num("seed"), num("planet")) {
-            (Some(seed), Some(n)) if !engine::bake::file(seed, n).exists() || !engine::bake::luna::file(seed, moon.unwrap_or(engine::bodies::columns(1, n))).exists() => {
+            (Some(seed), Some(n)) if bakes(seed, n).iter().any(|&(b, seed, k)| !b.file(seed, k).exists()) => {
+                let todo = bakes(seed, n);
                 self.loading = Some(Loading::start(self.again_args(then), "Making the world", move || {
-                    drop(engine::bake::get(seed, n));
-                    drop(engine::bake::luna::get(seed, moon.unwrap_or(engine::bodies::columns(1, n))));
+                    for (b, seed, k) in todo {
+                        drop(b.get(seed, k));
+                    }
                     Ok(())
                 }));
             }
@@ -1030,14 +1038,14 @@ impl Loading {
                 first = link.rx.recv_timeout(Duration::from_secs(10));
             }
             match first {
-                Ok(ToClient::Welcome { seed, planet_n, moon_n, map: Some(h), luna, .. }) => {
+                Ok(ToClient::Welcome { seed, bodies, .. }) if bodies.first().is_some_and(|b| b.1.is_some()) => {
                     engine::bake::report(engine::net::DOWNLOAD, 0.0);
-                    engine::net::fetch_map(&mut link, seed, planet_n, h)?;
                     // (a map that could not be written would send the joining run back here, round and round)
-                    let mut files = vec![engine::bake::file(seed, planet_n)];
-                    if let Some(l) = luna {
-                        engine::net::fetch_map(&mut link, seed, moon_n, l)?;
-                        files.push(engine::bake::luna::file(seed, moon_n));
+                    let mut files = Vec::new();
+                    for (&(n, h), row) in bodies.iter().zip(engine::bodies::BODIES.iter()) {
+                        let (Some(h), Some(b)) = (h, row.bake) else { continue };
+                        engine::net::fetch_map(&mut link, seed, n, h)?;
+                        files.push(b.file(seed, n));
                     }
                     match files.iter().find(|f| !f.exists()) {
                         Some(f) => Err(format!("the server's map could not be kept in {}", f.display())),

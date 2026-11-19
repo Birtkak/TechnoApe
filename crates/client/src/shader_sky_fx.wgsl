@@ -45,9 +45,11 @@ fn sky_colour(d: vec3f) -> vec3f {
     let tint = sun_tint();
     var c = g.sky.rgb;
     // in the air the sky is lighter and a little warmer towards the horizon and deeper overhead: up is away
-    // from the nearer body (their centres are from the camera)
+    // from the nearest body (their centres are from the camera; an unused slot has radius 0)
     var ctr = g.bodies[0].ctr.xyz;
-    if (g.bodies[1].ctr.w > 0.0 && dot(g.bodies[1].ctr.xyz, g.bodies[1].ctr.xyz) < dot(ctr, ctr)) { ctr = g.bodies[1].ctr.xyz; }
+    for (var i = 1u; i < 4u; i++) {
+        if (g.bodies[i].ctr.w > 0.0 && dot(g.bodies[i].ctr.xyz, g.bodies[i].ctr.xyz) < dot(ctr, ctr)) { ctr = g.bodies[i].ctr.xyz; }
+    }
     let el = clamp(dot(d, normalize(-ctr)), 0.0, 1.0);
     c = c * mix(1.0, 0.8, el * air) + vec3f(0.55, 0.60, 0.62) * g.sky.w * pow(1.0 - el, 5.0) * 0.45;
     // a night in the air is never black: airglow and starlight, a faint blue, brighter towards the horizon,

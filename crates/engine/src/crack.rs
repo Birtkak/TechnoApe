@@ -307,7 +307,7 @@ mod tests {
     #[test]
     #[ignore]
     fn drop_cost() {
-        let w = World::baked(6144, crate::bodies::columns(1, 6144), 1337);
+        let w = World::baked(6144, crate::bodies::moon_columns(6144), 1337);
         let body = &w.bodies[0];
         let mut on = Vec::new();
         'find: for face in 0..6u8 {
@@ -411,7 +411,7 @@ mod tests {
     #[test]
     #[ignore]
     fn undercut_cost() {
-        let w = World::baked(6144, crate::bodies::columns(1, 6144), 1337);
+        let w = World::baked(6144, crate::bodies::moon_columns(6144), 1337);
         let body = &w.bodies[0];
         let (mut buried, mut top) = (Vec::new(), Vec::new());
         for face in 0..6u8 {

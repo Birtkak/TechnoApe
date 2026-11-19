@@ -17,8 +17,7 @@ impl Server {
             self.send_sky();
         }
         if self.tick == 0 {
-            let [b0, b1] = [&self.world.bodies[0], &self.world.bodies[1]];
-            let start = Ev::Start { planet_n: b0.n, moon_n: b1.n, seed: self.seed, dt: self.dt, map: self.map_hash() };
+            let start = Ev::Start { bodies: self.bodies(), seed: self.seed, dt: self.dt };
             self.log(start);
             if let Some(save) = self.loaded.take() {
                 self.log(Ev::Loaded(save));
@@ -40,11 +39,10 @@ impl Server {
             let id = self.next_id;
             self.next_id += 1;
             self.log(Ev::Join { tick: self.tick, id });
-            let [p, m] = [self.world.bodies[0].n, self.world.bodies[1].n];
             if let Some((blocks, items)) = engine::live::reloaded() {
                 link.send(ToClient::Defs { blocks, items });
             }
-            link.send(ToClient::Welcome { id, seed: self.seed, planet_n: p, moon_n: m, blocks: BLOCKS.hash, items: ITEMS.hash, map: self.map_hash(), luna: self.luna_hash(), gen: self.world.bodies[0].gen });
+            link.send(ToClient::Welcome { id, seed: self.seed, bodies: self.bodies(), blocks: BLOCKS.hash, items: ITEMS.hash, gen: self.world.bodies[0].gen });
             link.send(ToClient::Kinds(self.herds.kinds.iter().map(|k| k.name.clone()).collect()));
             let all: Vec<(Block, u16)> = self
                 .world

@@ -6,7 +6,7 @@
 #[test]
 fn luna_is_a_fixed_part_of_terra_and_just_covers_the_sun() {
     for n in [1536, 3072, 6144, 12288, 24576] {
-        let w = World::new(n, crate::bodies::columns(1, n), 1);
+        let w = World::new(n, crate::bodies::moon_columns(n), 1);
         let (big, small) = (w.bodies[0].radius, w.bodies[1].radius);
         assert!((big / small / 3.7 - 1.0).abs() < 0.01, "planet {n}: Terra over Luna is {:.3}", big / small);
         assert!((w.sky.moon_orbit / big - 60.0).abs() < 1e-9, "planet {n}");
@@ -554,4 +554,75 @@ fn the_air_ends_1500_m_over_terra_and_luna_has_none() {
     assert!(w.over_air(ground + DVec3::Y * (AIR_TOP_M - 10.0)) < AIR_TOP_M);
     assert!(w.over_air(ground + DVec3::Y * (AIR_TOP_M + 10.0)) > AIR_TOP_M);
     assert!(w.over_air(l.centre + DVec3::Y * (l.radius + 2.0)) > AIR_TOP_M, "Luna's ground has no air");
+}
+
+/// Rows of a test: a home, its moon, the moon's moon and a body that circles the sun (draft-n-bodies).
+const FOUR: &str = "
+[[body]]\nname = \"A\"\nparent = \"sun\"\nhome = true\nn = 512\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = true\nsun = 2000.0
+kind = \"rocky\"\niron = 0.5\nheat = 0.5\ndensity = [2700.0, 3300.0, 7900.0]
+[[body]]\nname = \"B\"\nparent = \"A\"\nsize = 4.0\norbit = 30.0\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false
+kind = \"rocky\"\niron = 0.5\nheat = 0.5\ndensity = [2700.0, 3300.0, 7900.0]
+[[body]]\nname = \"C\"\nparent = \"B\"\nsize = 16.0\norbit = 8.0\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false
+kind = \"rocky\"\niron = 0.5\nheat = 0.5\ndensity = [2700.0, 3300.0, 7900.0]
+[[body]]\nname = \"D\"\nparent = \"sun\"\nsize = 2.0\nsun = 6000.0\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false
+kind = \"rocky\"\niron = 0.5\nheat = 0.5\ndensity = [2700.0, 3300.0, 7900.0]
+";
+
+/// A world of more bodies than Terra and Luna builds from its rows: each body its own grid at its own
+/// nominal centre and its own pull, posed on its parent's pose the same way on every build of it, the poses
+/// repeating after the sky's PERIOD.
+#[test]
+fn a_world_of_four_rows_builds_and_poses_each_body_on_its_parent() {
+    let rows = crate::bodies::parse(FOUR).unwrap();
+    assert_eq!(rows.iter().map(|r| r.parent).collect::<Vec<_>>(), [None, Some(0), Some(1), None]);
+    let sizes = crate::bodies::sizes(&rows, 512, 128);
+    assert_eq!(sizes, [512, 128, 32, 256]);
+    let make = || World::of(&rows, sizes.iter().map(|&n| (n, None)).collect(), 3, 0.0, 0);
+    let (w, again) = (make(), make());
+    assert_eq!(w.bodies.len(), 4);
+    for i in 0..4 {
+        let b = &w.bodies[i];
+        assert_eq!((b.name.as_str(), b.n), (rows[i].name.as_str(), sizes[i]));
+        assert_eq!(w.frame_at(b.centre), i, "body {i}'s grid is its frame");
+        // its own pull at its ground, toward its own centre
+        let up = DVec3::new(0.3, 0.9, 0.2).normalize();
+        let r = b.top(up) + 1.0;
+        let g = w.gravity(b.centre + up * r);
+        let want = w.surface_g(i) * b.interior.pull(r / b.radius);
+        assert!(g.normalize().dot(-up) > 0.99 && (g.length() / want - 1.0).abs() < 0.02, "body {i}: {g} against {want}");
+        for j in 0..i {
+            assert!(w.bodies[j].centre.distance(b.centre) > 1.0e6, "bodies {j} and {i} share a grid");
+            assert_ne!(w.surface_g(j), w.surface_g(i));
+        }
+    }
+    for t in [0.0, 1234.5, 99_999.0, 3.0e6] {
+        let p: Vec<_> = (0..4).map(|i| w.pose(i, t)).collect();
+        assert_eq!(p, (0..4).map(|i| again.pose(i, t)).collect::<Vec<_>>(), "the same poses from the same rows");
+        for i in 0..4 {
+            assert!(w.pose(i, t + crate::sky::PERIOD).centre.distance(p[i].centre) < 1e-3, "body {i} repeats after PERIOD");
+        }
+        let near = |a: DVec3, b: DVec3, d: f64| ((a - b).length() / d - 1.0).abs() < 1e-9;
+        assert_eq!(p[0], w.sky.planet(t));
+        assert!(near(p[1].centre, p[0].centre, w.bodies[1].orbit), "B round A");
+        assert!(near(p[2].centre, p[1].centre, w.bodies[2].orbit), "C round B");
+        assert!(near(p[3].centre, DVec3::ZERO, w.bodies[3].orbit), "D round the sun");
+    }
+    assert!((w.bodies[2].orbit / w.bodies[1].radius - 8.0).abs() < 1e-9, "C is 8 of B's radii out");
+    // a moon's month by Kepler's law against the home's first moon's, a whole fraction of the PERIOD
+    for i in 1..4 {
+        let k = crate::sky::PERIOD / w.bodies[i].period;
+        assert_eq!(k, k.round(), "body {i}");
+    }
+    assert_eq!(w.bodies[1].period, crate::sky::MONTH);
+    assert!(w.bodies[2].period < w.bodies[1].period && w.bodies[3].period > crate::sky::YEAR);
+}
+
+/// Terra and Luna pose to the bit as the sky had them before the rows named parents.
+#[test]
+fn terra_and_luna_pose_as_the_sky_does() {
+    let w = World::new(1536, crate::bodies::moon_columns(1536), 1);
+    for t in [0.0, 0.05, 1800.0, 12_345.678, 7.7e6, 1.0e9] {
+        assert_eq!((w.pose(0, t), w.pose(1, t)), (w.sky.planet(t), w.sky.moon(t)));
+    }
+    assert_eq!((w.bodies[1].orbit.to_bits(), w.soi(1).to_bits()), (w.sky.moon_orbit.to_bits(), (w.sky.moon_orbit * 0.25).to_bits()));
 }

@@ -44,10 +44,12 @@ const CHECK_EVERY: u64 = 20;
 /// of ticks done when the hash was taken.
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Ev {
-    /// `map`: the baked map's hash (ADR 0043), None for the noise land.
-    Start { planet_n: i32, moon_n: i32, seed: i32, dt: f64, map: Option<u64> },
-    /// Right after `Start` when the server began from a save: the save itself, so a replay starts there too.
-    Loaded(Save),
+    /// The start of a recording made before the bodies were a list (save version 21 and older): Terra's and
+    /// Luna's columns and Terra's baked map's hash (ADR 0043), None for the noise land; Luna is this build's
+    /// bake whenever Terra is baked.
+    Start21 { planet_n: i32, moon_n: i32, seed: i32, dt: f64, map: Option<u64> },
+    /// Right after `Start21` when the server began from a save: the save itself, so a replay starts there too.
+    Loaded21(save::Save21),
     Join { tick: u64, id: u32 },
     Msg { tick: u64, id: u32, m: ToServer },
     Leave { tick: u64, id: u32 },
@@ -61,6 +63,10 @@ pub enum Ev {
     /// Right after `Start` of a world from the seed of generation 2 or later (`Body::gen`): the generation it
     /// was made by, so a replay makes the same ground.
     Gen(u8),
+    /// The start (draft-n-bodies): every body's columns and baked map's hash in row order, as a save has them.
+    Start { bodies: Vec<(i32, Option<u64>)>, seed: i32, dt: f64 },
+    /// Right after `Start` when the server began from a save: the save itself, so a replay starts there too.
+    Loaded(Save),
 }
 
 /// A new world's generation from the arguments: `gen=` when given (-1: not), else the newest, or 0 with

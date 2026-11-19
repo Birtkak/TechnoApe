@@ -917,7 +917,7 @@ impl App {
             inv_vp: vp.inverse().to_cols_array_2d(),
             sun_pos: [sun_at.x as f32, sun_at.y as f32, sun_at.z as f32, self.world.sky.sun_radius as f32],
             sun_col: [sun_light.x, sun_light.y, sun_light.z, cf.min(255) as f32],
-            moon_col: [moon.x, moon.y, moon.z, 1.0],
+            moon_col: [moon.x, moon.y, moon.z, self.world.moon as f32],
             sky: [sky_c.x, sky_c.y, sky_c.z, day * air],
             n_lamps: [0; 4],
             opt: [self.gfx_bits(), (self.settings.get(S::Brightness) * 1000.0).round() as u32, w(), h()],

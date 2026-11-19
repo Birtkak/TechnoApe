@@ -115,11 +115,12 @@ impl ToServer {
 pub enum ToClient {
     /// First message: the world is rebuilt from these numbers, then `Edits` brings what changed. `blocks` is
     /// the block registry's hash (`BLOCKS.hash`): a client from a build with other blocks refuses to play.
-    /// `map`: the hash of the baked map the planet stands on (ADR 0043), None for the noise land; a client
-    /// that lacks it asks for it (`fetch_map`). `luna`: Luna's (ADR 0070), None for its hills. `items`: the item
+    /// `bodies`: every body of `data/bodies.toml` in row order (draft-n-bodies) as its columns per face edge
+    /// and the hash of the baked map it stands on (ADR 0043, 0070), None for the seed's noise; a client that
+    /// lacks a map asks for it (`fetch_map`). `items`: the item
     /// registry's hash (`ITEMS.hash`, ADR 0074), refused the same way as `blocks`. `gen`: the world's generation (`Body::gen`; from 1 the planet's grid
-    /// goes down through the mantle, ADR 0152), which the client builds its world of (`World::with_grid`).
-    Welcome { id: u32, seed: i32, planet_n: i32, moon_n: i32, blocks: u64, items: u64, map: Option<u64>, luna: Option<u64>, gen: u8 },
+    /// goes down through the mantle, ADR 0152), which the client builds its world of (`World::of`).
+    Welcome { id: u32, seed: i32, bodies: Vec<(i32, Option<u64>)>, blocks: u64, items: u64, gen: u8 },
     /// The block and item files' text in force on the server (`live::apply`, ADR 0134): to everyone when the
     /// server reloads them, and before `Welcome` to a client that joins a server whose files are not the build's.
     Defs { blocks: String, items: String },
@@ -423,8 +424,8 @@ mod tests {
         client.send(e.clone());
         assert_eq!(server.rx.recv().unwrap(), ToServer::Hello { name: "bot".into() });
         assert_eq!(server.rx.recv().unwrap(), e);
-        server.send(ToClient::Welcome { id: 1, seed: 7, planet_n: 1536, moon_n: 512, blocks: 9, items: 8, map: Some(42), luna: Some(43), gen: 2 });
-        assert_eq!(client.rx.recv().unwrap(), ToClient::Welcome { id: 1, seed: 7, planet_n: 1536, moon_n: 512, blocks: 9, items: 8, map: Some(42), luna: Some(43), gen: 2 });
+        server.send(ToClient::Welcome { id: 1, seed: 7, bodies: vec![(1536, Some(42)), (416, Some(43)), (128, None)], blocks: 9, items: 8, gen: 2 });
+        assert_eq!(client.rx.recv().unwrap(), ToClient::Welcome { id: 1, seed: 7, bodies: vec![(1536, Some(42)), (416, Some(43)), (128, None)], blocks: 9, items: 8, gen: 2 });
         drop(server);
         assert!(client.rx.recv().is_err(), "a dropped peer closes the link");
     }

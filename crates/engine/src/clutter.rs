@@ -1170,7 +1170,7 @@ aim_thing(&w, &still, eye, at_it, 8.0, 0.0, 0.0, |_, _| true).map(|a| a.0), Some
     #[test]
     #[ignore]
     fn where_the_biomes_lie() {
-        let w = World::baked(6144, crate::bodies::columns(1, 6144), 1337);
+        let w = World::baked(6144, crate::bodies::moon_columns(6144), 1337);
         let b = &w.bodies[0];
         let mut seen = std::collections::BTreeSet::new();
         for k in 0..40000 {

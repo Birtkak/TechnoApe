@@ -318,7 +318,7 @@ pub fn run_warp(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Opt
     let (tx, rx) = channel();
     // the planet baked (ADR 0043), as a new game's: the bots share its map, as a local client does
     let mut s = Server::baked(planet_n, MOON_N, seed as i32, rx);
-    let (map, luna) = (s.world.bodies[0].map().cloned(), s.world.bodies[1].map().cloned());
+    let list: Vec<_> = s.world.bodies.iter().map(|b| (b.n, b.map().cloned())).collect();
     if let Some(p) = record {
         s.record(p).map_err(|e| Fail { tick: 0, what: format!("cannot record to {}: {e}", p.display()) })?;
     }
@@ -334,7 +334,7 @@ pub fn run_warp(seed: u64, which: &[u32], ticks: u64, planet_n: i32, record: Opt
             }
             // an empty input makes it a walker, as in the bot crate
             c.send(ToServer::Input(Input::default()));
-            Bot { rng: Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (k as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)), link: c, world: World::with_grid(planet_n, MOON_N, seed as i32, map.clone(), luna.clone(), 0.0, s.world.bodies[0].gen), pred: Predictor::default(), digging: None, dam: None, dams: 0, broken: 0, heaps: 0 }
+            Bot { rng: Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) ^ (k as u64 + 1).wrapping_mul(0x9e3779b97f4a7c15)), link: c, world: World::of(&engine::bodies::BODIES, list.clone(), seed as i32, 0.0, s.world.bodies[0].gen), pred: Predictor::default(), digging: None, dam: None, dams: 0, broken: 0, heaps: 0 }
         })
         .collect();
     s.tick(); // everyone joins

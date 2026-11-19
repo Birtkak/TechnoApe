@@ -117,8 +117,12 @@ inside a sphere of influence. The model is shaped now so real orbits need no sec
    mass, gravity at any radius, the weight of rock and pressure, the liquid core and the field (a value in
    `report=1`), replacing the constants; Terra and Luna come out identical (hash and bit locks). Left for later
    steps: the geotherm and the regime.
-2. **N bodies instead of two.** Saves, Welcome, recordings, the command line and the sky carry a list of bodies
-   with parents; the GPU's four-body limit is raised or made a visible limit.
+2. **Built (draft-n-bodies):** N bodies instead of two. A row names its `parent` (the sun or a row above it),
+   whether it is the `home` (the first row) and its `bake`; a body is posed on its parent's pose (Terra and Luna
+   to the bit as before; one round the sun that is not home on a plain ring until real orbits). Saves (version
+   22), Welcome and recordings carry every body's columns and map as a list; version 21 and old recordings read
+   as Terra and Luna. `planet=`/`moon=` unchanged. The GPU's four bodies are a stated limit, refused at start.
+   Left: eclipses, tides and moonlight are the home's first moon's only; the home must be the first row.
 3. **The magnetic field** as a derived value on Terra, with its first effect seen (the aurora), ready for core
    mining to lower it.
 4. **One bake pipeline.** Terra's and Luna's bakes become stages of one; Luna gets a rock field, and with it

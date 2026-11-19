@@ -4,7 +4,7 @@ use crate::bake::{life, Map};
 use crate::biomes::{REACH, ROWS, SPACING, TALLEST};
 use crate::blocks::{AIR, BLOCKS};
 use crate::rock::{Rock, ROCKS};
-use crate::bodies::{Generator, BODIES};
+use crate::bodies::{Bake, Generator, Row, BODIES};
 use crate::interior::Interior;
 use crate::liquid::{Col, Ground, Liquids, OPEN, TILE, U};
 use crate::sky::{Pose, Sky, Tide};
@@ -239,6 +239,12 @@ pub struct Body {
     pub name: String,
     /// Whether it has air (the sky's colour, ADR 0022).
     pub air: bool,
+    /// The body it circles (its row's `parent`, draft-n-bodies); INERTIAL: the sun.
+    pub parent: usize,
+    /// How far out it circles its parent, centre to centre, metres (the sun's distance for one that circles the
+    /// sun); and once in how many seconds (`sky::period`). The home's are the sky's.
+    pub orbit: f64,
+    pub period: f64,
     pub centre: DVec3,
     /// Nominal surface radius: the mean block there is BLOCK wide.
     pub radius: f64,
@@ -541,6 +547,8 @@ pub struct World {
     pub bodies: Arc<Vec<Body>>,
     /// The sky's mechanics, and the world's time in seconds that poses them (ADR 0022).
     pub sky: Sky,
+    /// The home's first moon (`bodies::moon`): the body the sky's eclipses, tides and moonlight are of.
+    pub moon: usize,
     pub time: f64,
     /// Edits bucketed by level 0 chunk; value = material that replaces the generated one.
     pub edits: FxMap<Key, FxMap<IVec3, u16>>,

@@ -207,7 +207,7 @@ fn a_save_mid_rain_carries_on_to_the_same_water() {
 fn edit_reaches_the_other_player_and_a_late_joiner() {
     let (mut s, links) = server_with(2);
     for l in &links {
-        assert!(matches!(drain(l)[0], ToClient::Welcome { seed: 1, planet_n: 256, .. }));
+        assert!(matches!(drain(l)[0], ToClient::Welcome { seed: 1, ref bodies, .. } if bodies[0].0 == 256));
     }
     // stand on the +z pole and toggle the block under the feet
     let (pole, under) = on_land(&s);
@@ -1444,7 +1444,7 @@ fn a_client_told_generation_1_2_or_3_builds_that_worlds_rock() {
         tx.send(sv).unwrap();
         s.tick();
         let welcome = drain(&c).into_iter().find_map(|m| match m {
-            ToClient::Welcome { seed, planet_n, moon_n, gen, .. } => Some((seed, planet_n, moon_n, gen)),
+            ToClient::Welcome { seed, bodies, gen, .. } => Some((seed, bodies[0].0, bodies[1].0, gen)),
             _ => None,
         });
         let (seed, planet_n, moon_n, told) = welcome.expect("a welcome");
@@ -3897,4 +3897,25 @@ fn a_hole_to_the_metal_sea_is_a_light_and_stays_one_through_a_save() {
     assert_eq!((s.world.lights.get(&at(0)), s.world.lights.get(&at(1))), (Some(&engine::world::CORE_LIGHT), None));
     let back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
     assert_eq!(back.world.lights.get(&at(0)), Some(&engine::world::CORE_LIGHT));
+}
+
+/// A save and two recordings written by the build before the bodies were a list (save version 21,
+/// `tests/fixtures`, draft-n-bodies) load and replay as Terra and Luna to the bit: the save's world hashes as
+/// it did then and is written again as this version with the same two bodies; each recording replays with no
+/// checkpoint off, to the world it ended on then.
+#[test]
+fn a_version_21_save_and_recordings_load_as_terra_and_luna() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let save = Save::read(&dir.join("v21.sav")).unwrap();
+    assert_eq!((save.version, &save.bodies, save.gen), (21, &vec![(256, None), (32, None)], 0));
+    let s = Server::from_save(save, channel().1);
+    assert_eq!(s.world.hash(), 0x6a8c4af3e597fcf6, "the v21 save's world as the build before made it");
+    let again = s.snapshot();
+    assert_eq!((again.version, &again.bodies), (save::VERSION, &vec![(256, None), (32, None)]));
+    assert_eq!(Server::from_save(Save::from_bytes(&again.to_bytes()).unwrap(), channel().1).world.hash(), 0x6a8c4af3e597fcf6);
+    for (name, hash) in [("v21-save.rec", 0xe96d62133385dd09u64), ("v21-seed.rec", 0x169db21dd9b67e54)] {
+        let r = replay(&dir.join(name), None).unwrap();
+        assert_eq!((r.diverged, r.checks, r.server.world.hash()), (None, 2, hash), "{name}");
+        assert_eq!(r.server.world.bodies.len(), 2);
+    }
 }

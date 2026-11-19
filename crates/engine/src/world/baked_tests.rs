@@ -1064,7 +1064,7 @@ fn the_surface_is_the_same_with_and_without_the_mantle() {
 /// it is unchanged.
 #[test]
 fn gravity_grows_down_to_the_core_and_falls_to_nothing_at_the_centre() {
-    let w = World::new(6144, crate::bodies::columns(1, 6144), 1);
+    let w = World::new(6144, crate::bodies::moon_columns(6144), 1);
     let (r, g) = (w.bodies[0].radius, w.surface_g(0));
     let a = std::f64::consts::FRAC_1_SQRT_2;
     let at = |x: f64| {
@@ -1086,7 +1086,7 @@ fn gravity_grows_down_to_the_core_and_falls_to_nothing_at_the_centre() {
 /// column at sea level within 1 %, and the same in closed form part way down.
 #[test]
 fn the_rock_weighs_what_the_gravity_inside_says_down_to_the_mantles_floor() {
-    let w = World::new(6144, crate::bodies::columns(1, 6144), 1);
+    let w = World::new(6144, crate::bodies::moon_columns(6144), 1);
     let b = Body::new(DVec3::ZERO, 6144, 1).with_mantle();
     let sea = b.radius - SEA_DEPTH;
     let d = DVec3::new(0.3, 1.0, -0.2).normalize();

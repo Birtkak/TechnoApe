@@ -323,6 +323,10 @@ impl ApplicationHandler for App {
 
 /// The game: reads the command line's key=value pairs and runs until the window closes.
 pub fn main() {
+    if let Err(e) = gpu::bodies_fit(BODIES.len()) {
+        eprintln!("[technoape] {e}");
+        std::process::exit(1);
+    }
     let mut args = parse_args(std::env::args().skip(1));
     if args.0.is_empty() {
         // started without arguments (a double click, playtest/): the title menu on screen, in the repository the
@@ -388,7 +392,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
             let (accept_tx, accept_rx) = std::sync::mpsc::channel();
             let planet = args.get("planet", BODIES[0].n);
             // Luna follows Terra's size (ADR 0041); moon= still overrides it, for tests
-            let (moon, seed) = (args.get("moon", engine::bodies::columns(1, planet)), args.get("seed", 1337));
+            let (moon, seed) = (args.get("moon", engine::bodies::moon_columns(planet)), args.get("seed", 1337));
             // the flight recorder (ADR 0011): on for play on screen, or wherever record= says
             let unix = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
             let rec = args.0.get("record").cloned().or((args.get("onscreen", 0) == 1).then(|| format!("out/rec/play-{unix}.rec")));
@@ -456,13 +460,13 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         first = link.rx.recv_timeout(Duration::from_secs(10));
     }
     let (my_id, mut world, seed) = match first {
-        Ok(ToClient::Welcome { id, seed, planet_n, moon_n, blocks, items, map, luna, gen }) => {
+        Ok(ToClient::Welcome { id, seed, bodies, blocks, items, gen }) => {
             assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
             assert_eq!(items, engine::items::ITEMS.hash, "the server's build has other items (data/items.toml)");
-            // the baked map (ADR 0043): the local server's in memory, else from the disk or the server
-            let kept = map.and_then(|h| engine::bake::find(seed, planet_n, Some(h)));
-            let luna_kept = luna.and_then(|h| engine::bake::find(seed, moon_n, Some(h)));
-            if args.0.contains_key("connect") && (kept.is_none() && map.is_some() || luna_kept.is_none() && luna.is_some()) && run == "play" && args.get("joined", 0) != 1 {
+            // the baked maps (ADR 0043): the local server's in memory, else from the disk or the server
+            let kept: Vec<_> = bodies.iter().map(|&(n, h)| h.and_then(|h| engine::bake::find(seed, n, Some(h)))).collect();
+            let missing = bodies.iter().zip(&kept).any(|(b, k)| b.1.is_some() && k.is_none());
+            if args.0.contains_key("connect") && missing && run == "play" && args.get("joined", 0) != 1 {
                 // in play, a map to download comes in on the title screen, under its bar, which joins after it
                 // (once: the run it starts has joined=1 and fetches here if the map is still not kept)
                 drop(link);
@@ -472,10 +476,9 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
                 }
                 return Some((menu::join_args(&args.0), window));
             }
-            let map = map.map(|h| kept.map_or_else(|| engine::net::fetch_map(&mut link, seed, planet_n, h), Ok).unwrap_or_else(|e| panic!("{e}")));
-            let luna = luna.map(|h| luna_kept.map_or_else(|| engine::net::fetch_map(&mut link, seed, moon_n, h), Ok).unwrap_or_else(|e| panic!("{e}")));
+            let list = bodies.iter().zip(kept).map(|(&(n, h), k)| (n, h.map(|h| k.map_or_else(|| engine::net::fetch_map(&mut link, seed, n, h), Ok).unwrap_or_else(|e| panic!("{e}"))))).collect();
             let gen = engine::world::known_generation(gen).unwrap_or_else(|e| panic!("{e}"));
-            (id, World::with_grid(planet_n, moon_n, seed, map, luna, warp, gen), seed)
+            (id, World::of(&BODIES, list, seed, warp, gen), seed)
         }
         other => panic!("no welcome from the server: {other:?}"),
     };
@@ -485,7 +488,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
     let waypoint_file = save_path.as_ref().map(|s| format!("{s}.waypoints"));
     // the server spawns players on the +y pole; the client starts its prediction there too
     let spawn = world.bodies[0].spawn_point();
-    assert!(world.bodies.len() <= MAX_BODIES);
+    gpu::bodies_fit(world.bodies.len()).unwrap_or_else(|e| panic!("{e}"));
     // run=sim stands at the spawn, among its players (sim.rs)
     if (run == "sim" || run == "view") && !args.0.contains_key("at") {
         let s = world.bodies[0].spawn;
@@ -585,7 +588,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
     // the globe's pictures start on a worker now; what was seen is kept beside the save (ADR 0077); the
     // meridians as `App::meridian` has them
     let mut globe = globe::State::new(
-        [world.bodies[0].map().cloned(), world.bodies.get(1).and_then(|b| b.map().cloned())],
+        [world.bodies[0].map().cloned(), world.bodies.get(world.moon).and_then(|b| b.map().cloned())],
         [world.bodies[0].spawn_point() - world.bodies[0].centre, -DVec3::X],
         save_path.as_ref().map(|s| format!("{s}.seen")),
     );

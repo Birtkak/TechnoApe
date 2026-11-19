@@ -15,7 +15,7 @@ pub(crate) fn smooth(x: f64) -> f64 {
 
 pub(crate) fn pose(run: &str, t: f64, w: &World, speed: f64, alt: f64, warm: f64, q: f64, a: &Args) -> Pose {
     let planet = &w.bodies[0];
-    let moon = &w.bodies[1];
+    let moon = &w.bodies[w.moon];
     // the spawn: land nearest the +y pole (ADR 0021)
     let pole = planet.spawn * (planet.height(planet.spawn) + 1.7);
     match run {
@@ -86,8 +86,8 @@ pub(crate) fn pose(run: &str, t: f64, w: &World, speed: f64, alt: f64, warm: f64
             let pos = b.centre + up * (b.top(up) - crate::stand_depth(a, b, up) + a.get("eye", 1.7));
             let fwd = match a.s("look", "").as_str() {
                 // the other body's centre, now, in this body's frame
-                l @ ("terra" | "luna") => {
-                    let (me, it) = (w.pose(i, w.time), w.pose((l == "luna") as usize, w.time));
+                l if engine::bodies::find(l).is_some_and(|j| j < w.bodies.len()) => {
+                    let (me, it) = (w.pose(i, w.time), w.pose(engine::bodies::find(l).unwrap(), w.time));
                     (b.centre + me.rot.inverse() * (it.centre - me.centre) - pos).normalize()
                 }
                 _ => (ahead * yaw.cos() + up.cross(ahead) * yaw.sin()) * pitch.cos() + up * pitch.sin(),

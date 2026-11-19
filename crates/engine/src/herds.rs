@@ -744,7 +744,7 @@ mod tests {
     /// and found again after drifting, stands clear of trunks and crowns.
     #[test]
     fn herds_stand_clear_of_trees() {
-        let w = World::baked(256, crate::bodies::columns(1, 256), 79085);
+        let w = World::baked(256, crate::bodies::moon_columns(256), 79085);
         let b = &w.bodies[0];
         let mut h = compiled(79085);
         let feet: Vec<DVec3> = (0..6).flat_map(|f| (0..4).flat_map(move |i| (0..4).map(move |j| (f, i, j)))).map(|(f, i, j)| b.centre + b.dir(f, 32.0 + 64.0 * i as f64, 32.0 + 64.0 * j as f64) * b.height(b.dir(f, 32.0 + 64.0 * i as f64, 32.0 + 64.0 * j as f64))).collect();

@@ -126,7 +126,15 @@ pub(crate) const CPU_STAGES: [&str; 16] =
     ["pose", "msgs", "edits", "apply", "select", "dispatch", "table", "fx", "acquire", "rt", "encode", "submit", "post", "present", "tail", "between"];
 /// The particles the GPU holds (ADR 0031): the largest pool, "many".
 pub(crate) const MAX_FX: usize = crate::fx::CAP[2] + crate::fx::CRACKS;
-pub(crate) const MAX_BODIES: usize = 4; // the size of `bodies` in shader.wgsl
+/// The most bodies the GPU holds (the size of `bodies` in shader.wgsl, whose body ids are masked by `& 3u`):
+/// a stated limit (draft-n-bodies), checked at start by `bodies_fit`.
+pub(crate) const MAX_BODIES: usize = 4;
+
+/// Whether `n` bodies (`data/bodies.toml`'s rows) fit on the GPU; a world of more is refused at start, never
+/// drawn with a body id wrapped onto another body.
+pub(crate) fn bodies_fit(n: usize) -> Result<(), String> {
+    if n <= MAX_BODIES { Ok(()) } else { Err(format!("data/bodies.toml has {n} bodies; the renderer holds at most {MAX_BODIES} (gpu.rs MAX_BODIES, the `bodies` of shader.wgsl)")) }
+}
 /// The full moon's light, a quarter of the sun's direct light and bluish: night stays readable (ADR 0022).
 pub(crate) const MOON_LIGHT: Vec3 = Vec3::new(0.12, 0.14, 0.18);
 /// The lamps the GPU holds: the nearest to the camera within LAMP_REACH metres (ADR 0022; 1024 since ADR 0025, H).
@@ -356,6 +364,16 @@ mod eclipse_tests {
         }
         assert!(overlaps_seen[0] > 0 && overlaps_seen[1] > 0, "the test saw no eclipse: {overlaps_seen:?}");
     }
+}
+
+/// More bodies than the GPU holds are refused with a message naming the limit (draft-n-bodies); this build's
+/// rows fit.
+#[test]
+fn more_bodies_than_the_gpu_holds_are_refused() {
+    assert!(bodies_fit(engine::bodies::BODIES.len()).is_ok());
+    assert!(bodies_fit(MAX_BODIES).is_ok());
+    let e = bodies_fit(MAX_BODIES + 1).expect_err("five bodies refused");
+    assert!(e.contains("5 bodies") && e.contains("at most 4"), "{e}");
 }
 
 #[cfg(test)]
