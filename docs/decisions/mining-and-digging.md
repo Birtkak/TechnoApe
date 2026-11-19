@@ -109,7 +109,7 @@ are the ADRs (`archive/NNNN-*.md`) a decision came from; INDEX.md lists every nu
   where open and are dug up as rubble. Off every crack a dig takes the one block. Creative unchanged. Good hits run
   about 2 digs in 3 in shale, 2 in 5 limestone, 1 in 3 sandstone, 4 in 9 granite, 5 in 9 basalt. [0094]
 - The look (level 0 chunks only): the mesher marks each face of jointed rock with the joint edges among its four sides
-  (bits 20-23 of the quad's high word; lamps' joins use 16-19) and the shader darkens that edge texel to 0.3. A bedding
+  (bits 20-23 of the quad's high word; lamps' joins use 24-27 since "Block ids past 255") and the shader darkens that edge texel to 0.3. A bedding
   plane is a line across each open side face (bits 24-31, `crack::bed`) taken from the folded top at the face's two
   vertical edges, so it runs on through neighbouring faces and tilts with the fold. A marked face never merges. A cell
   with a crack edge draws no slope. The arrays are made only for chunks with cracking rock beside an open cell.
@@ -186,7 +186,7 @@ brings all three back unchanged. Revisit when a better fix for powders is found 
   unless all four sink. A quad keeps its 8 bytes: bit 31 of the low word marks a sloped quad, bits 20-23 of the high
   word its lowered corners; a sloped quad never merges. Collision stays the block. `generate_raw`/`skirt` keep chunk
   borders flat. [0101]
-- Motion: a moved block glides over `GLIDE_S` = 0.2 s (`fx::Glide`, `vs_fx` bit 20), sheds `grains`
+- Motion: a moved block glides over `GLIDE_S` = 0.2 s (`fx::Glide`, `vs_fx` bit 19 since "Block ids past 255"), sheds `grains`
   (`data/effects.toml`); a slump plays `slump` (`data/sounds.toml`) at most every `SLUMP_S` = 0.45 s. [0101]
 - Where the switch acts: `Falls::step`, `mesh_cracked`, and the client's glide condition in `frame.rs`; the shader's
   slope path stays and is never taken. [0106]

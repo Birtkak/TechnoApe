@@ -120,10 +120,7 @@ INDEX.md lists every number.
 - Ids are `u16` everywhere a block id is held (registry, edits, mesher cells, protocol, saves, inventory,
   structures, effects) [0062]. The 12 kind / 4 state split of `world-data.md` stays the plan; nothing reads state
   yet, so there is no newtype or mask [0062].
-- The registry still refuses an id over 255 (`blocks.rs`: "id N over 255, the shader's material field"; a rubble
-  id likewise): the shader unpacks the material as `q.y & 255u` and the looks buffer has 256 entries. Lifting it is
-  one change in `shader.wgsl` and the quad's packing (`mesh.rs`, `m as u32 | o << 8`), done when the first block
-  past 255 is added [0062; checked in code: the 255 check is still there].
+- Block ids run to 4095 (see the entry below) [draft].
 - Saves and the wire kept their version when ids went to u16: postcard writes a `u16` under 128 as the same single
   byte as a `u8`, so every save, recording and old peer reads the same bytes (test
   `a_save_with_8_bit_block_ids_loads`). A save holding an id of 128 or more is new data an old build could not read
@@ -139,6 +136,32 @@ INDEX.md lists every number.
   `the_mesher_physics_and_water_see_the_same_cave` [0062] (also caves.md).
 - `Body::col_caves` allocates and scans every cave per call; with real cave counts it needs bucketing by face and
   tile and cached spans per column [0062; open, see below].
+
+### Block ids past 255 [0170, 2026-11-19]
+Block ids run 0..4095, 12 bits (`blocks::IDS`); the registry refuses a row's or a rubble's id over 4095 by name.
+The quad stays 8 bytes: its second word carries the id's low 8 bits at 0-7 (where the material was) and its high 4
+at 16-19 (`mesh::id_bits`, `mesh::quad_id`; WGSL `id_bits`, `quad_id`), the occlusion stays at 8-15 and bits 20-31
+keep their meanings (crack or slope, twigs and bit 25 on a cutout, bedding). A joining block's four sides moved
+from 16-19 to 24-27, a bedding line's place, so the registry refuses `joins` on a cutout block or on rock with
+bedding or joints, and the look row flags a joining block (`info` bit 27) for the shader to tell the two apart.
+The look table is 4 x 4096 rows of 80 bytes (1.3 MB, was 80 KB), a season IDS rows on (`WINTER_ROW`); a look's
+side block is its own word (`Look::side`, was `info` bits 8-15). A particle's block rides at bits 0-7 and 20-23 of
+its `info` (`fx::block_bits`, WGSL `fx_id`); its "offset in cells" flag moved from bit 20 to 19. A client test
+holds the WGSL helpers and `IDS` to the engine's letter for letter. Nothing on disk or the wire changed: ids were
+`u16` there already (postcard writes 128..16383 in two bytes either way), the edits' chunk hash already hashes an id
+over 255 in two bytes, and every existing id keeps its number; saves, recordings and fixtures load and replay as
+before. An old build given data with an id over 255 refuses the file by name (its registry's 255 check), so a newer
+server's rows are refused by its client and the blocks' hash in `Welcome` stops the join.
+Measured (play build, `run=stand` and `run=fly quick=1`, two each, interleaved with main, `slot.sh measure`): no cost
+past the noise, so no `perf-debt.md` row: stand frame p50 3.47/3.99 ms main against 3.51/4.00, GPU p50 3.34/3.61 against
+3.37/3.59, mesh jobs 910/890 us against 923/906; fly frame p50 4.21/4.19 against 4.13/4.22, GPU 4.03/4.00 against 3.91/4.02,
+jobs 598/563 against 574/611; VRAM 821 and 1079 MB both; the same quad counts. The look table's 1.2 MB is under the VRAM
+reading's step.
+Alternatives rejected: one more word per quad (12 bytes; the load's 11.5 M quads take 46 MB more VRAM and every
+upload 50 % more bytes, for bits a repack gives free); a per-chunk palette (a lookup per fragment and per ray hit,
+and a chunk could hold more than 256 kinds); repacking the first word (a cell's 5-bit place and the face's far
+side would free 3 bits, but every reader of the place changes).
+Replaces: 0062's 255-id limit and its `shortcut:` in `blocks.rs`.
 
 ## Saves
 
@@ -323,8 +346,6 @@ From the audit of 2026-11-19 (a sleeping laptop stayed online for ever; one clie
 - `Body::col_caves` cost at real cave counts: bucket caves by face and tile and cache spans per column; sea over open
   caves (the top gap starts below `gen_floor`, where `Solid::generated` starts the generated sea) needs its rule
   and the water's ledger settled [0062].
-- Lifting the 255-id limit (shader material field, 256-entry looks buffer) when the first block past 255 is added
-  [0062].
 - A placement flake from ADR 0019: about 1 run in 4 the played run shows corrections of 0.1-0.7 m right after a
   placement. A likely cause: the client applies its own placement only when the server's echo returns (against ADR
   0008 and 0015), so replayed steps meet a different world than the server's. The fix starts with a failing test
@@ -362,6 +383,8 @@ From the audit of 2026-11-19 (a sleeping laptop stayed online for ever; one clie
 - 0019's "Other players are drawn at their last received position" is still so until interpolation is built (kept
   above).
 - 0062's "Saves and the wire keep their version": true at the time; the save version is 22 now (above).
+- 0062's "the registry still refuses an id over 255" (the shader's `q.y & 255u`, a 256-entry looks buffer, the
+  `shortcut:` in `blocks.rs`): replaced by "Block ids past 255" (12 bits, 4095 the top).
 - 0078's `break` lives 1.4 to 2.2 s: now 2.5 to 4 s.
 - 0134's "Not measured: speed", and its first-commit suite counts: measurements, not decisions.
 - 0157's "No Studio UI yet": still so; the Studio's Maps page (ADR 0153) makes the maps only.

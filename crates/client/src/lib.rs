@@ -851,7 +851,7 @@ pub(crate) const PLACE_REACH: i32 = 64;
 pub(crate) const DIG: u16 = u16::MAX;
 
 pub fn stand_args(args: &Args, data: &str) -> Result<(Vec<(IVec3, u16)>, Vec<(f64, IVec3, u16)>, Option<engine::structures::Structure>), String> {
-    let block = |n: &str| (0..=255u16).find(|i| BLOCKS.get(*i).is_some_and(|d| d.name == n.replace('_', " "))).ok_or(format!("no block '{n}'"));
+    let block = |n: &str| (0..engine::blocks::IDS as u16).find(|i| BLOCKS.get(*i).is_some_and(|d| d.name == n.replace('_', " "))).ok_or(format!("no block '{n}'"));
     stand_at(args)?;
     let int = |v: &str| v.parse::<i32>().ok().filter(|v| (-PLACE_REACH..=PLACE_REACH).contains(v)).ok_or(format!("'{v}' is not a whole number within {PLACE_REACH} cells"));
     let each = |key: &str, shape: &str, f: &dyn Fn(&[&str]) -> Result<(f64, IVec3, u16), String>| -> Result<Vec<(f64, IVec3, u16)>, String> {

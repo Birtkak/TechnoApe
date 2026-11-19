@@ -129,32 +129,8 @@ pub struct Hand<'a> {
     pub swing: f32,
 }
 
-/// One swing of the hand (ADR 0115): this long, seconds; as long as a survival dig's hit, so a held dig swings on.
-pub const SWING_S: f64 = 0.25;
-
-/// How far through its swing the hand is `age` seconds after a dig, place, strike or pick-up: 0 at rest and at
-/// its end, 1 once, early (a quick strike, an eased return).
-pub fn swing(age: f64) -> f32 {
-    let x = age / SWING_S;
-    if !(0.0..1.0).contains(&x) {
-        return 0.0;
-    }
-    (std::f64::consts::PI * (1.0 - (1.0 - x) * (1.0 - x))).sin() as f32
-}
-
-/// The bare arm in hand (ADR 0115), in the eye's frame (metres ahead, right, up): where its hand's end is, and
-/// the way from there to the shoulder, below and right, out of the view. The developer's call; tuned by eye.
-const ARM_HAND: [f64; 3] = [0.55, 0.30, -0.30];
-const ARM_WAY: [f64; 3] = [-0.75, 0.5, -0.45];
 /// The figure's part shown as the bare arm (ape.toml's `arm_r`), with any part hung from it.
 const ARM: &str = "arm_r";
-/// The swing at its peak: the hand moved this share of the way to a point `SWING_AIM` times its own distance
-/// ahead on the look, and chopped down about itself, radians (turned down about the shoulder, the arm left the
-/// view).
-const SWING_REACH: f64 = 0.45;
-const SWING_AIM: f64 = 1.4;
-const SWING_CHOP: f64 = 0.35;
-
 /// The model the inventory shows large, standing, and the pixels of its picture and of a slot's.
 pub const FIGURE: &str = "ape";
 
@@ -309,6 +285,8 @@ struct Run {
 
 pub struct Models {
     rx: Receiver<Vec<Loaded>>,
+    /// data/hand.toml's watcher (ADR 0172): it puts the file in force itself; kept so it runs on.
+    _hand: Receiver<()>,
     /// `creature=` or the last `/spawn`: whose walk the watcher gives its model at each reading.
     creature: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     /// The models as the GPU has them: each with its parts' first quad and count.
@@ -366,6 +344,14 @@ impl Models {
             let any = !l.is_empty();
             (l, any)
         });
+        // the swing's numbers (ADR 0172), read again within a second of a change; a bad file keeps those before
+        let hand = crate::gpu::watch("hand", std::path::PathBuf::new(), vec!["data/hand.toml".into()], |_| {
+            match std::fs::read_to_string("data/hand.toml").map_err(|e| format!("data/hand.toml: {e}")).and_then(|t| engine::hand::Hand::parse(&t)) {
+                Ok(h) => engine::hand::HAND.set(h),
+                Err(e) => eprintln!("[technoape] {e}; the swing before stays"),
+            }
+            ((), true)
+        });
         let n = if a.s("run", "stand") == "models" { a.get("n", 100usize) } else { a.0.contains_key("model") as usize };
         let spec = a.s("model", "furnace");
         let (spec, state) = spec.split_once('@').map_or((spec.clone(), None), |(n, s)| (n.to_string(), Some(s.to_string())));
@@ -376,6 +362,7 @@ impl Models {
         let reach = rows.or_else(|| crate::audio::parse(crate::audio::ROWS_TOML).ok()).unwrap_or_default().into_iter().map(|r| (r.name, r.reach)).collect();
         Models {
             rx,
+            _hand: hand,
             creature: spawned,
             list: Vec::new(),
             clip_state: State { clip: clip.clone(), ..State::default() },
@@ -737,15 +724,10 @@ impl Models {
             let (_, fwd, up) = eye;
             let right = fwd.cross(up).normalize();
             let up = right.cross(fwd);
-            let eye_m = |v: [f64; 3]| fwd * v[0] + right * v[1] + up * v[2];
-            let (hand_at, way) = (eye_m(ARM_HAND), eye_m(ARM_WAY).normalize());
-            // the swing: the hand thrust toward the aim (a point ahead on the look) and chopped down about itself
-            let sw = h.swing as f64;
-            let aim = fwd * ARM_HAND[0] * SWING_AIM;
-            let turn = DMat4::from_mat3(cams[cf].1)
-                * DMat4::from_translation(hand_at + (aim - hand_at) * SWING_REACH * sw)
-                * DMat4::from_axis_angle(right, -SWING_CHOP * sw)
-                * DMat4::from_translation(-hand_at);
+            // the pose and the swing: data/hand.toml (ADR 0172)
+            let k = engine::hand::HAND.now();
+            let (hand_at, way) = (k.hand_at(fwd, right, up), k.way(fwd, right, up));
+            let turn = DMat4::from_mat3(cams[cf].1) * k.turn(h.swing as f64, fwd, right, up);
             match h.item {
                 Some(n) => {
                     if let Some(m) = drawn(&self.list, n) {
@@ -962,6 +944,7 @@ fn frame_of([o, x, y, z]: [DVec3; 4], cams: &[(DVec3, DMat3)], b: Block) -> Mat4
 #[cfg(test)]
 mod tests {
     use super::*;
+    use engine::hand::HAND;
     use glam::Vec4;
 
     fn furnace(effects: bool) -> Loaded {
@@ -1508,20 +1491,21 @@ want {want:?}");
             let p = at(k as f32 / 10.0);
             assert!(p.dot(up) / p.dot(fwd) > -32f64.to_radians().tan(), "in view at {k}/10: {p}");
         }
-        assert!((at(swing(SWING_S)) - rest).length() < 1e-6, "back at the end");
+        assert!((at(HAND.curve(HAND.seconds)) - rest).length() < 1e-6, "back at the end");
     }
 
     /// ADR 0115: a swing is 0 at rest and at its end and peaks once; a new event (its age 0 again) restarts it.
     #[test]
     fn a_swing_peaks_once_and_ends_at_rest() {
-        assert_eq!((swing(-1.0), swing(0.0), swing(SWING_S), swing(9.0)), (0.0, 0.0, 0.0, 0.0));
-        let s: Vec<f32> = (0..=100).map(|k| swing(SWING_S * k as f64 / 100.0)).collect();
+        let (swing, s_s) = (|a| HAND.curve(a), HAND.seconds);
+        assert_eq!((swing(-1.0), swing(0.0), swing(s_s), swing(9.0)), (0.0, 0.0, 0.0, 0.0));
+        let s: Vec<f32> = (0..=100).map(|k| swing(s_s * k as f64 / 100.0)).collect();
         let top = s.iter().cloned().fold(0.0, f32::max);
         assert!(top > 0.99, "it reaches its peak: {top}");
         let turns = s.windows(3).filter(|w| (w[1] - w[0]) * (w[2] - w[1]) < 0.0).count();
         assert_eq!(turns, 1, "up once, then down");
         // the hand is half way through when the next dig comes: its age is 0 again, the swing starts over
-        assert!(swing(SWING_S * 0.5) > 0.0 && swing(0.0) == 0.0);
+        assert!(swing(s_s * 0.5) > 0.0 && swing(0.0) == 0.0);
     }
 
     /// ADR 0117: a torch on a floor stands as its model; one held from a wall has its foot at that wall and its

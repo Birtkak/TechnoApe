@@ -251,7 +251,7 @@ fn seen_lit(p: vec3f, d: vec3f, body: u32, day: f32, sun: f32, tmax: f32) -> vec
     if (h.kind == RAY_QUERY_INTERSECTION_NONE) { return sky_colour(d); }
     let c = chunks[h.instance_custom_data];
     let q = hit_quad(h.instance_custom_data, h.geometry_index, h.primitive_index);
-    let m = q.y & 255u;
+    let m = quad_id(q.y);
     if (((looks[m].info >> 24u) & 1u) == 1u) { return seen_colour(m, vec3f(0.0)); }
     let b = g.bodies[(c.info >> 8u) & 255u];
     let hp = p + d * h.t;

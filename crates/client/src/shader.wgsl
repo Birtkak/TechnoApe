@@ -183,7 +183,9 @@ fn look_in(m: u32, sn: vec3f) -> Look {
     return a;
 }
 
-// The two nearest seasons' look rows (their offsets, 256 a season) and how far from the first to the second,
+// winter's look rows, the bare crown's (`season_rows`)
+const WINTER_ROW: u32 = 3u * IDS;
+// The two nearest seasons' look rows (their offsets, IDS a season) and how far from the first to the second,
 // for a block's `seasons` (`Look::size` from bit 8: its stagger from bit 16) in season sn
 struct SeasonRows { x: u32, y: u32, f: f32 };
 fn season_rows(seasons: u32, sn: vec3f) -> SeasonRows {
@@ -191,7 +193,7 @@ fn season_rows(seasons: u32, sn: vec3f) -> SeasonRows {
     let i = min(u32(q), 3u);
     let j = (i + 1u) & 3u;
     // phase 0 is spring's row (1), 1 the block's own (0), then autumn's and winter's
-    return SeasonRows(select(i, 1u - i, i < 2u) * 256u, select(j, 1u - j, j < 2u) * 256u, q - f32(i));
+    return SeasonRows(select(i, 1u - i, i < 2u) * IDS, select(j, 1u - j, j < 2u) * IDS, q - f32(i));
 }
 
 // look row r's paint of face `dir` (16 bits: layer | variants - 1 << 12 | painted << 15), 0 for none (a
@@ -212,7 +214,8 @@ fn texel(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> vec3
 // a joining block's painted frame, texels wide (`lamp` in tools/paint_textures.py)
 const JOIN_FRAME: i32 = 2;
 const LEAVES: u32 = 11u;
-fn is_glass(m: u32) -> bool { return ((looks[m & 255u].info >> 26u) & 1u) == 1u; }
+// (m a block id: a quad's is `quad_id`)
+fn is_glass(m: u32) -> bool { return ((looks[m].info >> 26u) & 1u) == 1u; }
 // an unpainted glass block's alpha at texel (x, y): a clear middle, a rim one texel wide, so a wall reads as panes
 fn glass_pane(x: i32, y: i32) -> f32 {
     return select(0.3, 0.8, x == 0 || y == 0 || x == 15 || y == 15);
@@ -239,10 +242,12 @@ fn leaf_hole(look: Look, dir: u32, cell: vec3i, ti: vec2i) -> bool {
 fn texel_a(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> vec4f {
     let n = TEXELS;
     var ti = vec2i(floor(t * n));
-    // a joining block's sides that meet its own kind (bits 16-19 of the quad, u-, u+, v-, v+; mesh.rs, ADR 0085):
+    let m0 = quad_id(mat);
+    // a joining block's sides that meet its own kind (bits 24-27 of the quad, u-, u+, v-, v+; mesh.rs, ADR 0085):
     // the frame there is read from inside, so a wall of lamps glows as one surface with the frame round it.
     // shortcut: an inner corner (both sides joined, the diagonal not) loses its frame texel; fine for flat walls
-    let j = (mat >> 16u) & 15u;
+    let joins = ((looks[m0].info >> 27u) & 1u) == 1u;
+    let j = select(0u, (mat >> 24u) & 15u, joins);
     if (j != 0u) {
         let lo = select(vec2i(0), vec2i(JOIN_FRAME), vec2<bool>((j & 1u) != 0u, (j & 4u) != 0u));
         let hi = select(vec2i(15), vec2i(15 - JOIN_FRAME), vec2<bool>((j & 2u) != 0u, (j & 8u) != 0u));
@@ -250,7 +255,6 @@ fn texel_a(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> ve
     }
     let h = hash(cell * i32(n) + vec3i(ti.x, ti.y, i32(dir)));
     let tone = 0.82 + 0.12 * floor(h * 3.0);
-    let m0 = mat & 255u;
     var m = m0;
     // a painted face: its own file, else the block its side and foot take (ADR 0045)
     var painted = face_paint(m, dir);
@@ -260,10 +264,10 @@ fn texel_a(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> ve
         // the fringe came out as stray rows of grass down the side (bug 2026-11-11_17-48-16, ADR 0041)
         let along = select(ti.x, ti.y, dir / 2u == 1u);
         let fringe = 2.0 + floor(hash(cell * i32(n) + vec3i(along, 7, i32(dir))) * 3.0);
-        if (floor(hgt * n) < n - fringe) { m = (looks[m].info >> 8u) & 255u; }
+        if (floor(hgt * n) < n - fringe) { m = looks[m].side; }
     } else if (painted == 0u && dir != 4u) {
         // any other block's side is its own id unless it names one (the mask drops metal and light)
-        m = (looks[m].info >> 8u) & 255u;
+        m = looks[m].side;
     }
     painted = face_paint(m, dir);
     // on a side, x runs left to right as seen from outside and y down from its top edge (t is (y, z) on an x
@@ -297,10 +301,10 @@ fn texel_a(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> ve
             c = vec4f(c.rgb * 0.3, c.a);
         }
     }
-    // a bedding plane across a side face (bits 24-31: its texel row at the face's low end + 8, the rows it climbs to
-    // the high end + 4 in the top three; `crack::bed`): neighbouring faces share their edges' rows, so the line runs
+    // a bedding plane across a side face (bits 24-31 of a rock's quad; a joining block's are its sides): its texel row
+    // at the face's low end + 8, the rows it climbs to the high end + 4 in the top three (`crack::bed`): neighbouring faces share their edges' rows, so the line runs
     // on along the wall and tilts with the fold
-    let bd = mat >> 24u;
+    let bd = select(mat >> 24u, 0u, joins);
     if (bd != 0u && dir < 4u && !cutout) {
         let ai = select(ti.x, ti.y, dir / 2u == 1u);
         let along = (f32(ai) + 0.5) / n;
@@ -332,23 +336,23 @@ fn texel_a(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> ve
     // layout): beside the wood 0 or 1, a step on 2 (a limb through to the next block), two on 3 (tips)
     let steps = (mat >> 23u) & 3u;
     let role = cutout && root != 0u;
-    if (px != 0u) { cx = paint_texel(px, cell, xy, fxy, select(-1, i32(steps), role && r.x == 768u)); }
-    if (py != 0u) { cy = paint_texel(py, cell, xy, fxy, select(-1, i32(steps), role && r.y == 768u)); }
+    if (px != 0u) { cx = paint_texel(px, cell, xy, fxy, select(-1, i32(steps), role && r.x == WINTER_ROW)); }
+    if (py != 0u) { cy = paint_texel(py, cell, xy, fxy, select(-1, i32(steps), role && r.y == WINTER_ROW)); }
     let mixed = mix(c, mix(cx, cy, r.f), sn.y);
     var a = select(select(0.0, 1.0, mixed.a >= 0.5), mixed.a, is_glass(m0));
     // a bare crown is its winter painting alone: bark-coloured twigs, no leaf tint mixed in (a crown turns bare
     // at once where winter outweighs the rest); a block with no way to wood within three steps draws no twigs
     if (cutout && bare_of(r, sn) > 0.5) {
-        let w = select(cy, cx, r.x == 768u);
+        let w = select(cy, cx, r.x == WINTER_ROW);
         return vec4f(w.rgb, select(0.0, 1.0, w.a >= 0.5 && root != 0u));
     }
     // the empty texels of the season nearest in the mix
     return vec4f(mixed.rgb, a);
 }
 
-// how much winter's bare look weighs in a season mix (`season_rows`, row 768 the winter look)
+// how much winter's bare look weighs in a season mix (`season_rows`, rows from WINTER_ROW the winter look)
 fn bare_of(r: SeasonRows, sn: vec3f) -> f32 {
-    return sn.y * (select(0.0, 1.0 - r.f, r.x == 768u) + select(0.0, r.f, r.y == 768u));
+    return sn.y * (select(0.0, 1.0 - r.f, r.x == WINTER_ROW) + select(0.0, r.f, r.y == WINTER_ROW));
 }
 
 // whether block m0 at season sn is bare (a cutout block a season paints, winter outweighing the rest)
@@ -428,7 +432,7 @@ fn fs(i: VOut) -> GOut {
 // a grass block's top takes the climate's tint (ADR 0091), as the plants on it do: its green texels by the
 // chunk's climate at the place, no season (its paintings have theirs)
 fn ground_tint(i: VOut, c: vec3f) -> vec3f {
-    if (i.dir > 4u || (looks[i.mat & 255u].info & 255u) != GRASS) { return c; }
+    if (i.dir > 4u || (looks[quad_id(i.mat)].info & 255u) != GRASS) { return c; }
     let ch = chunks[i.ci];
     let cl = chunk_climate(ch, i.local.xy / 32.0);
     let tint = climate_tint(cl.x, cl.y, 2u, 0.0);
@@ -542,12 +546,12 @@ fn terrain_texel(i: VOut) -> vec4f {
     var sn = season(g.bodies[body], i.rel);
     let level = (c.info >> 3u) & 31u;
     sn.z = stagger((vec2i(floor(i.local.xy - axis(a).xy * sgn * 0.5)) + (c.base.xy >> vec2u(level))) << vec2u(level), c.info & 7u);
-    if (level > 0u && ((looks[i.mat & 255u].info >> 25u) & 1u) == 1u) { return vec4f(seen_colour(i.mat & 255u, sn), 1.0); }
+    if (level > 0u && ((looks[quad_id(i.mat)].info >> 25u) & 1u) == 1u) { return vec4f(seen_colour(quad_id(i.mat), sn), 1.0); }
     // far glass: its one colour, half clear (ADR 0081)
-    if (level > 0u && is_glass(i.mat)) { return vec4f(seen_colour(i.mat & 255u, sn), 0.45); }
+    if (level > 0u && is_glass(quad_id(i.mat))) { return vec4f(seen_colour(quad_id(i.mat), sn), 0.45); }
     let col = texel_a(i.mat, i.dir, cell, t, f.z, sn);
     // flat colours: one texel a face, never a hole; glass keeps its clearness
-    return vec4f(col.rgb, select(col.a, 1.0, (g.opt.x & 4u) != 0u && !is_glass(i.mat)));
+    return vec4f(col.rgb, select(col.a, 1.0, (g.opt.x & 4u) != 0u && !is_glass(quad_id(i.mat))));
 }
 
 // a pixel's footprint on the surface (`terrain_lit`'s `fpx`): taken where every pixel of the quad is still there
@@ -558,7 +562,7 @@ fn foot(p: vec3f) -> f32 { return max(length(dpdx(p)), length(dpdy(p))); }
 fn terrain_lit(i: VOut, col_in: vec3f, fpx: f32) -> GOut {
     let c = chunks[i.ci];
     let body = (c.info >> 8u) & 255u;
-    let look = looks[i.mat & 255u];
+    let look = looks[quad_id(i.mat)];
     let sloped = i.slope.w > 0.5;
     let n = normalize(select(i.normal, i.slope.xyz, sloped));
     // where its light is worked out (ADR 0108): the middle of the painting's texel this pixel shows, found on the

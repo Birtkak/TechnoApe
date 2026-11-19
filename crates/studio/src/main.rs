@@ -1,6 +1,6 @@
 //! `technoape-studio`: paints the game's block textures from its one palette (docs/design/studio.md, ADR 0046).
 //! Without arguments it opens its window in the repository the exe sits in. Headless, one JSON line each:
-//! `check=1` (palette, every texture, model and map), `drafts=1`, `map=<name> out=out/x.png [frame=k]` (a map
+//! `tune=-` (values tried by numbers on stdin, `tune.rs`), `check=1` (palette, every texture, model and map), `drafts=1`, `map=<name> out=out/x.png [frame=k]` (a map
 //! of `data/maps/`, an animated one as a strip), `render=<png> sheet=out/x.png` (tiled 3 x 3),
 //! `shot=out/studio.png [open=<block>] [page=palette] [cmd=id,id..] [query=text] [scale=1.5] [size=1280x800]
 //! [pointer=x,y] [season=autumn]` (one frame of the window, off-screen: `cmd` runs commands as the command box does, e.g.
@@ -26,6 +26,7 @@ mod sound;
 mod pattern;
 mod shell;
 mod tools;
+mod tune;
 mod wall;
 mod ui;
 mod voxel;
@@ -241,6 +242,8 @@ fn main() {
         map::draw(name, get("out").unwrap_or("out/map.png"), get("frame").and_then(|k| k.parse().ok()))
     } else if let Some(file) = get("render") {
         render(file, get("sheet").unwrap_or("out/studio-sheet.png"))
+    } else if let Some(script) = get("tune") {
+        tune::main(script)
     } else if let Some(path) = shot_path.as_deref() {
         let (w, h) = get("size").and_then(|s| s.split_once('x')).and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?))).unwrap_or((1280, 800));
         let pointer = get("pointer").and_then(|s| s.split_once(',')).and_then(|(x, y)| Some(egui::pos2(x.parse().ok()?, y.parse().ok()?)));

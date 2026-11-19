@@ -67,8 +67,8 @@ pub(crate) fn lay(world: &World, piles: &std::collections::HashMap<Block, Vec<Sl
                 continue;
             }
             // the block's own cell look (its painting, as the world draws it) shrunk about the cell's middle, moved
-            // in cells (bit 20, as a glide) to its corner and down onto the floor
-            let info = ITEMS.look(s.item) as u32 | (b.body as u32) << 8 | (fx::Look::Block as u32) << 10 | 1 << 20;
+            // in cells (bit 19, as a glide) to its corner and down onto the floor
+            let info = fx::block_bits(ITEMS.look(s.item)) | (b.body as u32) << 8 | (fx::Look::Block as u32) << 10 | 1 << 19;
             let (a, code) = fx::cell_code(fx::gpu_cell(world, *b));
             still.push(FxGpu { p: [side.0, side.1, BLOCK_M / 2.0 - 0.5], size: BLOCK_M, info, angle: 0.0, a, b: code });
             feet.push((off, BLOCK_M * std::f32::consts::FRAC_1_SQRT_2 * 2.0 * at.half.y.max(at.half.z)));
@@ -208,11 +208,11 @@ mod tests {
         let (models, cubes) = pile(&["hand axe", "flint"], 1.0);
         assert_eq!(models.iter().map(|m| (m.name.as_str(), m.item, m.tool)).collect::<Vec<_>>(), [("hand axe", true, true), ("flint", true, false)]);
         assert_eq!(cubes.len(), 1, "granite: a block's look is its cube");
-        assert_eq!(cubes[0].info & 255, ITEMS.look(ITEMS.named("granite").unwrap()) as u32 & 255);
+        assert_eq!(cubes[0].info & fx::BLOCK_BITS, fx::block_bits(ITEMS.look(ITEMS.named("granite").unwrap())));
         // drawn as the block's own cell look (its painting, as the world has it; ADR 0114 second round), 0.2 m,
-        // resting on the cell's floor: `p` its offset in cells (bit 20, as a glide's), its middle 0.1 over the floor
+        // resting on the cell's floor: `p` its offset in cells (bit 19, as a glide's), its middle 0.1 over the floor
         assert_eq!((cubes[0].info >> 10) & 3, fx::Look::Block as u32, "the block's cell look, not a debris cube");
-        assert_eq!(cubes[0].info >> 20 & 1, 1, "p is an offset in cells");
+        assert_eq!(cubes[0].info >> 19 & 1, 1, "p is an offset in cells");
         assert_eq!(cubes[0].size, 0.2);
         assert!((cubes[0].p[2] - (cubes[0].size / 2.0 - 0.5)).abs() < 1e-6, "on the floor: {:?}", cubes[0].p);
         assert!(cubes[0].p[0].abs() < 0.5 - 0.1 && cubes[0].p[1].abs() < 0.5 - 0.1, "inside its cell: {:?}", cubes[0].p);

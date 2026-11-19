@@ -750,8 +750,16 @@ pub struct FxModel {
     pub size: f32,
 }
 
-/// A particle as the shader reads it (`FxP` in shader.wgsl), 32 bytes: where, its edge now, the block | body
-/// << 8 | look << 10, its turn, and `a`, `b` as `P` has them.
+/// A particle's block in its `FxGpu::info`: the id's low 8 bits at 0-7, its high 4 at 20-23 (shader_sky_fx.wgsl
+/// `fx_id`; 12 bits, `engine::blocks::IDS`).
+pub(crate) const fn block_bits(id: u16) -> u32 {
+    (id as u32 & 255) | (id as u32 >> 8) << 20
+}
+pub(crate) const BLOCK_BITS: u32 = 255 | 15 << 20;
+
+/// A particle as the shader reads it (`FxP` in shader.wgsl), 32 bytes: where, its edge now, the block
+/// (`block_bits`) | body << 8 | look << 10 | face << 16 | texture << 18 | an offset in cells << 19 | glow << 24,
+/// its turn, and `a`, `b` as `P` has them.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Debug, PartialEq)]
 pub struct FxGpu {
@@ -1420,13 +1428,13 @@ impl Fx {
                 b = c[0] | c[1] << 8 | c[2] << 16 | 255 << 24;
             }
             let (gl, mut a, mut angle) = (if r.look == Look::Texture { Look::Square } else { r.look } as u32, q.a, q.angle);
-            let mut info = q.block as u32 | (q.body as u32) << 8 | gl << 10;
+            let mut info = block_bits(q.block) | (q.body as u32) << 8 | gl << 10;
             if gl == 1 {
                 // the new looks' bits (ADR 0050): face << 16, a texture's block in the block's place | 1 << 18,
                 // glow * 32 << 24; along the flight `a` is its direction and `angle` its streak, a 30th of a second
                 info |= (r.face as u32) << 16 | (((r.glow * 32.0).round() as u32).min(255)) << 24;
                 if r.look == Look::Texture {
-                    info = (info & !255) | r.tex as u32 | 1 << 18;
+                    info = (info & !BLOCK_BITS) | block_bits(r.tex) | 1 << 18;
                 }
                 if r.face == Face::Flight {
                     a = pack_dir(q.v);
@@ -1499,7 +1507,7 @@ impl Fx {
         }
         self.cracks += 1;
         let (a, code) = cell_code(gpu_cell(world, b));
-        self.out.push(FxGpu { p: [0.0; 3], size: 1.0, info: world.block(b) as u32 | (b.body as u32) << 8 | (Look::Crack as u32) << 10, angle: k.clamp(0.0, 1.0), a, b: code });
+        self.out.push(FxGpu { p: [0.0; 3], size: 1.0, info: block_bits(world.block(b)) | (b.body as u32) << 8 | (Look::Crack as u32) << 10, angle: k.clamp(0.0, 1.0), a, b: code });
     }
 
     /// Debris no step moves, drawn after this step's particles until the next step: the piles on the ground
@@ -1574,10 +1582,10 @@ impl Glide {
     pub fn ended(&self, now: f64) -> bool {
         now >= self.t0 + GLIDE_S
     }
-    /// As the GPU draws it: a whole-cell look of `to`, bit 20 saying `p` is the offset in cells (`vs_fx`).
+    /// As the GPU draws it: a whole-cell look of `to`, bit 19 saying `p` is the offset in cells (`vs_fx`).
     pub fn gpu(&self, now: f64, mantle: i32) -> FxGpu {
         let (a, b) = cell_code(Block { pos: self.to.pos - IVec3::Z * mantle, ..self.to });
-        FxGpu { p: self.offset(now).to_array(), size: 1.0, info: self.block as u32 | (self.to.body as u32) << 8 | (Look::Block as u32) << 10 | 1 << 20, angle: 0.0, a, b }
+        FxGpu { p: self.offset(now).to_array(), size: 1.0, info: block_bits(self.block) | (self.to.body as u32) << 8 | (Look::Block as u32) << 10 | 1 << 19, angle: 0.0, a, b }
     }
 }
 
@@ -1825,7 +1833,7 @@ mod tests {
     }
 
     /// ADR 0101: a loose block's move glides from the cell it left to its new one over `GLIDE_S`, eased, drawn as
-    /// its new cell's block (bit 20: `p` is the offset in cells); a move on from its target carries on from where
+    /// its new cell's block (bit 19: `p` is the offset in cells); a move on from its target carries on from where
     /// it is drawn, no jump back.
     #[test]
     fn a_moved_block_glides_into_its_cell_and_a_second_move_carries_on() {
@@ -1836,7 +1844,7 @@ mod tests {
         assert!((mid.x + 0.5).abs() < 1e-5, "half way at half the time: {mid}");
         assert_eq!(g.offset(1.0 + GLIDE_S), Vec3::ZERO);
         let d = g.gpu(1.0 + GLIDE_S / 2.0, 0);
-        assert_eq!((d.info & 255, d.info >> 10 & 3, d.info >> 20 & 1), (8, Look::Block as u32, 1));
+        assert_eq!((d.info & 255, d.info >> 10 & 3, d.info >> 19 & 1), (8, Look::Block as u32, 1));
         assert_eq!((d.a, d.b), cell_code(c(6, 10)), "drawn as its new cell");
         // it falls on from its new cell a quarter of the way in: from about where it is drawn, toward the next
         let at = g.offset(1.05);
@@ -2070,7 +2078,7 @@ mod tests {
         fx.crack(&w, c, 0.5);
         let d = fx.drawn();
         assert_eq!(d.len(), 1);
-        assert_eq!((d[0].angle, d[0].info >> 10 & 3, d[0].info & 255), (0.5, Look::Crack as u32, w.block(c) as u32));
+        assert_eq!((d[0].angle, d[0].info >> 10 & 3, d[0].info & BLOCK_BITS), (0.5, Look::Crack as u32, block_bits(w.block(c))));
         // drawn this frame only: the caller says again each frame how far the dig is
         fx.step(&w, 0.01);
         assert!(fx.drawn().is_empty());

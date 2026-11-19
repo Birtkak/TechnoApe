@@ -1151,7 +1151,7 @@ impl App {
     /// drawn in hand dips on it (ADR 0031), a model in hand or the bare arm strikes in toward the aim (models.rs). A new one
     /// starts it over.
     pub(crate) fn swung(&mut self, now: f64) {
-        self.dip = fx::Track { tween: fx::Tween::new(now, crate::models::SWING_S, fx::Curve::Pulse), from: [0.0; 2], to: [-46.0, 60.0] };
+        self.dip = fx::Track { tween: fx::Tween::new(now, engine::hand::HAND.seconds, fx::Curve::Pulse), from: [0.0; 2], to: [-46.0, 60.0] };
     }
 
     pub(crate) fn held_count(&self, m: u16) -> u32 {

@@ -1,0 +1,19 @@
+# The first-person hand's swing (ADR 0115, 0172): one swing for the bare arm and everything held. Presentation
+# only, the client's; reloads in a running game within a second. Ranges: engine `hand::RANGES`.
+
+# One swing lasts this long, seconds: as long as a survival dig's hit, so a held dig swings on.
+seconds = 0.25
+# The curve's exponent: how far through its swing the hand is at x = age / seconds is
+# sin(PI * (1 - (1 - x)^snap)); larger is a quicker strike and a longer return.
+snap = 2.0
+# At its peak the hand moves this share of the way toward the aim.
+reach = 0.45
+# The aim: a point on the look this many times the hand's own distance ahead.
+aim = 1.4
+# At its peak the hand is chopped down about itself this far, radians.
+chop = 0.35
+# The bare arm's hand end in the eye's frame, metres: ahead, right, up.
+arm_hand = [0.55, 0.30, -0.30]
+# The way from the hand's end to the shoulder in the eye's frame (ahead, right, up; normalised): below and
+# right, out of the view.
+arm_way = [-0.75, 0.5, -0.45]

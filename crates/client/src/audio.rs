@@ -1291,8 +1291,7 @@ mod tests {
     #[test]
     fn every_block_has_its_sounds() {
         let rows = rows();
-        for id in 1..=255u16 {
-            let Some(d) = BLOCKS.get(id) else { continue };
+        for d in BLOCKS.placeable() {
             for what in ["dig", "place", "step"] {
                 let name = format!("{what}.{}", d.sound);
                 assert!(rows.iter().any(|r| r.name == name), "block '{}' needs the sound '{name}'", d.name);
