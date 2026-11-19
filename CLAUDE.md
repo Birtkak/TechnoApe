@@ -164,4 +164,4 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 - Prototypes are throwaway: one folder each, its README states the question and the measured answer.
 - Tools live under `~\Tools\` (the user's home), each in its own folder; the repo never names a person or a
   machine, only this home-relative layout.
-- GitHub: https://github.com/Birtkak/TechnoApe (private).
+- GitHub: https://github.com/Birtkak/TechnoApe.
