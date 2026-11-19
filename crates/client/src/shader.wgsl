@@ -302,10 +302,20 @@ fn texel_a(mat: u32, dir: u32, cell: vec3i, t: vec2f, hgt: f32, sn: vec3f) -> ve
     // on along the wall and tilts with the fold
     let bd = mat >> 24u;
     if (bd != 0u && dir < 4u && !cutout) {
-        let along = (f32(select(ti.x, ti.y, dir / 2u == 1u)) + 0.5) / n;
+        let ai = select(ti.x, ti.y, dir / 2u == 1u);
+        let along = (f32(ai) + 0.5) / n;
         let row = floor(f32(i32(bd & 31u) - 8) + f32(i32(bd >> 5u) - 4) * along + 0.5);
-        if (floor(hgt * n) == row) {
-            c = vec4f(c.rgb * 0.3, c.a);
+        // a groove between two beds, not a ruled line: its depth varies by the texel, it closes for a few texels
+        // here and there, the bed above shades it and the lower bed's lip catches the light.
+        // shortcut: the shade and the lip stop at the cell's edge, so a line on a cell's first or last row has one of them
+        let d = floor(hgt * n) - row;
+        let shut = hash(cell * i32(n) + vec3i(ai / 3, 13, i32(dir))) < 0.18;
+        if (d == 0.0) {
+            c = vec4f(c.rgb * select(0.4 + 0.22 * h, 0.82, shut), c.a);
+        } else if (d == 1.0) {
+            c = vec4f(c.rgb * 0.87, c.a);
+        } else if (d == -1.0 && !shut) {
+            c = vec4f(c.rgb * 1.1, c.a);
         }
     }
     // a block a season paints (bit 9 of its size, `looks_of`): the two nearest seasons' rows, each its paint of
