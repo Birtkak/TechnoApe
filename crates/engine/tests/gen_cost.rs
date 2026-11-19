@@ -13,7 +13,7 @@ fn generation_near_ore_bodies() {
     if let Ok(d) = std::env::var("BAKES_ROOT") {
         std::env::set_current_dir(d).unwrap();
     }
-    let w = World::baked(6144, engine::bodies::columns(1, 6144), 1337);
+    let w = World::baked(6144, engine::bodies::moon_columns(6144), 1337);
     let b = &w.bodies[0];
     let mut keys = Vec::new();
     for o in &b.ores {

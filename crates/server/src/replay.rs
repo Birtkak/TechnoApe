@@ -27,16 +27,25 @@ pub fn read_recording(path: &Path) -> std::io::Result<Vec<Ev>> {
 /// disagrees.
 pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
     let evs = read_recording(path)?;
-    let Some(Ev::Start { planet_n, moon_n, seed, dt, map }) = evs.first() else {
-        return Err(std::io::Error::other("not a recording: no Start"));
+    // shortcut: a Start21 names Terra's map alone, so Luna is this build's bake whenever Terra is baked; a
+    // recording made before W6 or with another Luna version replays with other ground there (ADR 0070)
+    let (bodies, seed, dt) = match evs.first() {
+        Some(Ev::Start { bodies, seed, dt }) => (bodies.clone(), *seed, *dt),
+        Some(Ev::Start21 { planet_n, moon_n, seed, dt, map }) => (vec![(*planet_n, *map), (*moon_n, map.map(|_| engine::bake::luna::get(*seed, *moon_n).hash))], *seed, *dt),
+        _ => return Err(std::io::Error::other("not a recording: no Start")),
+    };
+    let loaded = match evs.get(1) {
+        Some(Ev::Loaded(save)) => Some(save.clone()),
+        Some(Ev::Loaded21(save)) => Some(Save::from(save.clone())),
+        _ => None,
     };
     let (tx, rx) = channel();
-    let (mut s, rest) = match evs.get(1) {
+    let (mut s, rest) = match loaded {
         // (a recording carries no version of its own; one that starts from an older save is from before
         // 1 m blocks, ADR 0033. shortcut: one that starts from the seed alone is not told apart)
-        Some(Ev::Loaded(save)) if save.version < 4 => return Err(std::io::Error::other("a recording of an older world (0.5 m blocks, ADR 0033)")),
-        Some(Ev::Loaded(save)) => {
-            let mut s = Server::from_save(save.clone(), rx);
+        Some(save) if save.version < 4 => return Err(std::io::Error::other("a recording of an older world (0.5 m blocks, ADR 0033)")),
+        Some(save) => {
+            let mut s = Server::from_save(save, rx);
             match evs.get(2) {
                 Some(Ev::Herds(b)) => {
                     s.herds.load(b).map_err(std::io::Error::other)?;
@@ -45,8 +54,6 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
                 _ => (s, &evs[2..]),
             }
         }
-        // shortcut: Start names Terra's map alone, so Luna is this build's bake whenever Terra is baked; a
-        // recording made before W6 or with another Luna version replays with other ground there (ADR 0070).
         // A recording from the seed is of the generation `Gen` after its Start says, of generation 1 (the deep
         // grid, ADR 0152) when `Mantle` follows it, else (one from before the mantle too) of 0, on the old floor
         _ => {
@@ -55,10 +62,10 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
                 Some(Ev::Mantle) => Some(1),
                 _ => None,
             };
-            (Server::on_map(*planet_n, *moon_n, *seed, *map, map.map(|_| engine::bake::luna::get(*seed, *moon_n).hash), gen.unwrap_or(0), rx), &evs[1 + gen.is_some() as usize..])
+            (Server::on_map(&bodies, seed, gen.unwrap_or(0), rx), &evs[1 + gen.is_some() as usize..])
         }
     };
-    s.dt = *dt;
+    s.dt = dt;
     let mut links: HashMap<u32, Link<ToServer, ToClient>> = HashMap::new();
     let until = until.unwrap_or(u64::MAX);
     let mut r = Replayed { server: s, checks: 0, diverged: None };
@@ -73,7 +80,7 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
     for ev in rest {
         let t = match ev {
             Ev::Join { tick, .. } | Ev::Msg { tick, .. } | Ev::Leave { tick, .. } | Ev::Check { tick, .. } => *tick,
-            Ev::Start { .. } | Ev::Loaded(_) | Ev::Herds(_) | Ev::Mantle | Ev::Gen(_) => return Err(std::io::Error::other("a Start, Loaded, Herds or Mantle past the start")),
+            Ev::Start { .. } | Ev::Start21 { .. } | Ev::Loaded(_) | Ev::Loaded21(_) | Ev::Herds(_) | Ev::Mantle | Ev::Gen(_) => return Err(std::io::Error::other("a Start, Loaded, Herds or Mantle past the start")),
         };
         run_to(&mut r.server, &links, t);
         if r.server.tick >= until {
@@ -101,7 +108,7 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
                     break;
                 }
             }
-            Ev::Start { .. } | Ev::Loaded(_) | Ev::Herds(_) | Ev::Mantle | Ev::Gen(_) => unreachable!(),
+            Ev::Start { .. } | Ev::Start21 { .. } | Ev::Loaded(_) | Ev::Loaded21(_) | Ev::Herds(_) | Ev::Mantle | Ev::Gen(_) => unreachable!(),
         }
     }
     if until != u64::MAX && r.diverged.is_none() {

@@ -900,7 +900,7 @@ impl App {
                     ("Time", format!("day {day}, {:02}:{:02} at the spawn, {:.0} s", m / 60, m % 60, w.time), 0),
                     ("Sol", format!("{:.1} degrees over the horizon", d.sun_deg), 0),
                     ("Air", air, 0),
-                    ("Moon", format!("{} {:.0}% lit", w.bodies.get(1).map_or("none", |b| b.name.as_str()), d.moon_lit * 100.0), 0),
+                    ("Moon", format!("{} {:.0}% lit", w.bodies.get(w.moon).map_or("none", |b| b.name.as_str()), d.moon_lit * 100.0), 0),
                     ("Seed", format!("{}", self.seed), 0),
                     ("Size", w.bodies.iter().map(|b| format!("{} {}", b.name, b.n)).collect::<Vec<_>>().join(", ") + " columns a face", 0),
                 ],

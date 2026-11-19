@@ -13,10 +13,53 @@ pub enum Generator {
     Hills,
 }
 
+/// Which bake makes a body's map (ADR 0043, 0070): Terra's pipeline or Luna's.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Bake {
+    Terra,
+    Luna,
+}
+
+impl Bake {
+    /// This bake's map of a world: from memory, the disk or baked now.
+    pub fn get(self, seed: i32, n: i32) -> std::sync::Arc<crate::bake::Map> {
+        match self {
+            Bake::Terra => crate::bake::get(seed, n),
+            Bake::Luna => crate::bake::luna::get(seed, n),
+        }
+    }
+    /// The map of this hash, baked again if it is not kept; None when this build bakes another.
+    pub fn for_hash(self, seed: i32, n: i32, hash: u64) -> Option<std::sync::Arc<crate::bake::Map>> {
+        match self {
+            Bake::Terra => crate::bake::for_hash(seed, n, hash),
+            Bake::Luna => crate::bake::luna::for_hash(seed, n, hash),
+        }
+    }
+    /// Where this bake's map of a world is kept.
+    pub fn file(self, seed: i32, n: i32) -> std::path::PathBuf {
+        match self {
+            Bake::Terra => crate::bake::file(seed, n),
+            Bake::Luna => crate::bake::luna::file(seed, n),
+        }
+    }
+    /// This bake's map version, for a message.
+    pub fn version(self) -> u32 {
+        match self {
+            Bake::Terra => crate::bake::VERSION,
+            Bake::Luna => crate::bake::luna::VERSION,
+        }
+    }
+}
+
 #[derive(Deserialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 struct Raw {
     name: String,
+    parent: String,
+    #[serde(default)]
+    home: bool,
+    bake: Option<Bake>,
     #[serde(default)]
     words: Vec<String>,
     n: Option<i32>,
@@ -67,6 +110,13 @@ struct File {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
     pub name: String,
+    /// The row it circles; None: the sun.
+    pub parent: Option<usize>,
+    /// Whether it is the home world (the first row, and only it): the spawn, the ore and its ledger, the
+    /// weather, the tide and the herds are its.
+    pub home: bool,
+    /// The bake that makes its map; None: generated from the seed alone.
+    pub bake: Option<Bake>,
     /// Other words /goto takes for it, lower case.
     pub words: Vec<String>,
     /// Columns per face edge by default (another body's follow from the first's: `columns`).
@@ -75,11 +125,11 @@ pub struct Row {
     /// Block ids: the top, the band under it, the rock below.
     pub ground: [u16; 3],
     pub air: bool,
-    /// (radii of the first body, at least metres); None for the first body.
+    /// (radii of its parent, at least metres): a moon's; None for a body that circles the sun.
     pub orbit: Option<(f64, f64)>,
-    /// The first body's radius over this one's; None for the first body.
+    /// The home body's radius over this one's; None for the home body.
     pub size: Option<f64>,
-    /// The sun's distance in this body's radii: the first body's only.
+    /// The sun's distance in this body's radii: a body that circles the sun has it.
     pub sun: Option<f64>,
     pub makeup: Makeup,
 }
@@ -91,15 +141,16 @@ impl Row {
     }
 }
 
-/// Reads and checks the rows: at least one, names and words unique, the first circles the sun and the others
-/// the first, every ground block exists.
+/// Reads and checks the rows: at least one, names and words unique, each `parent` the sun or a row above it
+/// (so poses are worked out down the rows, never round a loop), exactly one home, the first row, circling the
+/// sun and with a moon (its first moon sizes the sun, `sky::Sky::new`), every ground block exists.
 pub fn parse(text: &str) -> Result<Vec<Row>, String> {
     let f: File = toml::from_str(text).map_err(|e| e.to_string())?;
     if f.body.is_empty() {
         return Err("no bodies".into());
     }
     let mut seen: Vec<String> = Vec::new();
-    let mut rows = Vec::new();
+    let mut rows: Vec<Row> = Vec::new();
     for (i, r) in f.body.into_iter().enumerate() {
         for w in std::iter::once(&r.name).chain(&r.words) {
             let w = w.to_lowercase();
@@ -108,20 +159,29 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
             }
             seen.push(w);
         }
-        let n = match (i, r.n, r.size, r.sun) {
-            (0, Some(n), None, Some(sun)) if sun > 1.0 => n,
-            (0, ..) => return Err(format!("body '{}': the first body has n and a sun over 1 radius, and no size", r.name)),
-            (_, None, Some(k), None) if k >= 1.0 => size_columns(rows.first().map_or(0, |f: &Row| f.n), k),
-            _ => return Err(format!("body '{}': a body after the first has a size of 1 or more, and no n or sun", r.name)),
+        let parent = match r.parent.as_str() {
+            "sun" => None,
+            p => Some(rows.iter().position(|x| x.name == p).ok_or(format!("body '{}': its parent '{p}' is not a row above it", r.name))?),
+        };
+        if r.home != (i == 0) {
+            return Err(format!("body '{}': the first row is the home body, and only it", r.name));
+        }
+        let n = match (r.home, parent, r.n, r.size, r.sun) {
+            (true, None, Some(n), None, Some(sun)) if sun > 1.0 => n,
+            (true, ..) => return Err(format!("body '{}': the home body circles the sun, has n and a sun over 1 radius, and no size", r.name)),
+            (false, None, None, Some(k), Some(sun)) if k > 0.0 && sun > 1.0 => size_columns(rows[0].n, k),
+            (false, None, ..) => return Err(format!("body '{}': a body that circles the sun and is not home has a size over 0 and a sun over 1 radius, and no n", r.name)),
+            (false, Some(_), None, Some(k), None) if k >= 1.0 => size_columns(rows[0].n, k),
+            _ => return Err(format!("body '{}': a moon has a size of 1 or more, and no n or sun", r.name)),
         };
         if n <= 0 || n % crate::world::CS != 0 {
             return Err(format!("body '{}': n must be a positive multiple of {}", r.name, crate::world::CS));
         }
-        let orbit = match (i, r.orbit, r.orbit_min) {
-            (0, None, None) => None,
-            (0, _, _) => return Err(format!("body '{}': the first body circles the sun, it has no orbit", r.name)),
-            (_, Some(o), m) if o > 1.0 => Some((o, m.unwrap_or(0.0))),
-            _ => return Err(format!("body '{}': needs an orbit over 1 radius of the first body", r.name)),
+        let orbit = match (parent, r.orbit, r.orbit_min) {
+            (None, None, None) => None,
+            (None, _, _) => return Err(format!("body '{}': a body that circles the sun has no orbit (its sun says how far)", r.name)),
+            (Some(_), Some(o), m) if o > 1.0 => Some((o, m.unwrap_or(0.0))),
+            _ => return Err(format!("body '{}': needs an orbit over 1 radius of its parent", r.name)),
         };
         let mut ground = [0; 3];
         for (g, name) in ground.iter_mut().zip(&r.ground) {
@@ -129,9 +189,34 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
         }
         let makeup = Makeup { kind: r.kind, iron: r.iron, heat: r.heat, density: r.density, weight_g: r.weight_g };
         check(&makeup).map_err(|e| format!("body '{}': {e}", r.name))?;
-        rows.push(Row { name: r.name, words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator, ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup });
+        rows.push(Row { name: r.name, parent, home: r.home, bake: r.bake, words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator, ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup });
+    }
+    if moon(&rows).is_none() {
+        return Err(format!("body '{}': the home body needs a moon (its first sizes the sun)", rows[0].name));
     }
     Ok(rows)
+}
+
+/// The most bodies a world holds: the renderer's four (client `gpu::MAX_BODIES`, the shaders' `& 3u` body ids),
+/// which `World::gravity` keeps on the stack too (0163-n-bodies).
+pub const MAX: usize = 4;
+
+/// A welcome's body list against this build's rows (the welcome has no version): one of another length is
+/// a server of another build, refused as `world::known_generation` refuses a newer world.
+pub fn known_bodies(n: usize) -> Result<(), String> {
+    if n == BODIES.len() { Ok(()) } else { Err(format!("the server has {n} bodies, this game {}: update the game", BODIES.len())) }
+}
+
+/// The home body's first moon: the one the sky's eclipses, tides and moonlight are of (`sky::Sky`).
+pub fn moon(rows: &[Row]) -> Option<usize> {
+    rows.iter().position(|r| r.parent == Some(0))
+}
+
+/// Columns per face edge of every row, in row order, in a world whose home body has `planet_n` and its first
+/// moon `moon_n` (planet= and moon=, ADR 0021); any other body is its row's `size` smaller than the home.
+pub fn sizes(rows: &[Row], planet_n: i32, moon_n: i32) -> Vec<i32> {
+    let m = moon(rows);
+    (0..rows.len()).map(|i| if i == 0 { planet_n } else if Some(i) == m { moon_n } else { rows[i].size.map_or(planet_n, |k| size_columns(planet_n, k)) }).collect()
 }
 
 /// A makeup the interior can be derived from: a rocky body, a core inside it, heat 0..1, densities 500..30000
@@ -173,6 +258,11 @@ pub fn columns(i: usize, first_n: i32) -> i32 {
     BODIES[i].size.map_or(first_n, |k| size_columns(first_n, k))
 }
 
+/// The home's first moon's columns (`columns`): what moon= means when it is not given.
+pub fn moon_columns(first_n: i32) -> i32 {
+    columns(moon(&BODIES).expect("the home has a moon (parse)"), first_n)
+}
+
 /// The body /goto `w` means, by name or word.
 pub fn find(w: &str) -> Option<usize> {
     BODIES.iter().position(|r| r.named(w))
@@ -189,6 +279,12 @@ mod tests {
         assert_eq!((BODIES[0].generator, BODIES[0].air, BODIES[0].orbit), (Generator::Continents, true, None));
         assert_eq!((BODIES[1].generator, BODIES[1].air, BODIES[1].orbit), (Generator::Hills, false, Some((60.0, 0.0))));
         assert_eq!(BODIES[1].ground[0], BLOCKS.id("regolith"));
+        assert_eq!(BODIES.iter().map(|r| (r.parent, r.home, r.bake)).collect::<Vec<_>>(), [(None, true, Some(Bake::Terra)), (Some(0), false, Some(Bake::Luna))]);
+        assert_eq!((moon(&BODIES), sizes(&BODIES, 1536, 512), moon_columns(6144)), (Some(1), vec![1536, 512], 1664));
+        // a welcome of another number of bodies is a server of another build
+        assert!(known_bodies(BODIES.len()).is_ok());
+        let e = known_bodies(BODIES.len() + 1).unwrap_err();
+        assert!(e.contains("the server has 3 bodies, this game 2") && e.contains("update the game"), "{e}");
         assert_eq!((BODIES[0].n, BODIES[1].n), (6144, 1664), "6144 / 3.7 is 1660.5: 52 chunks");
         assert_eq!((find("home"), find("TERRA"), find("luna"), find("sun")), (Some(0), Some(0), Some(1), None));
         assert_eq!((find("planet"), find("moon")), (None, None), "the bodies go by their names (bugs/2026-11-11_13-10-42)");
@@ -196,24 +292,40 @@ mod tests {
 
     #[test]
     fn bad_rows_are_refused() {
-        let a = format!("[[body]]\nname = \"A\"\nn = 512\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nsun = 100.0\n{MAKEUP}");
+        let a = format!("[[body]]\nname = \"A\"\nparent = \"sun\"\nhome = true\nn = 512\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nsun = 100.0\n{MAKEUP}");
         let a = a.as_str();
-        assert!(parse(a).is_ok());
-        let b = |extra: &str| format!("{a}[[body]]\nname = \"B\"\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\n{MAKEUP}{extra}");
-        let ok = parse(&b("orbit = 3.0\nsize = 4.0\n")).unwrap();
+        let row = |name: &str, extra: &str| format!("[[body]]\nname = \"{name}\"\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\n{MAKEUP}{extra}");
+        let b = |extra: &str| format!("{a}{}", row("B", extra));
+        let good = b("parent = \"A\"\norbit = 3.0\nsize = 4.0\n");
+        let ok = parse(&good).unwrap();
         assert_eq!(ok[1].n, 128, "a quarter of the first body's 512 columns");
+        assert_eq!((ok[0].parent, ok[0].home, ok[1].parent, ok[1].home, ok[1].bake), (None, true, Some(0), false, None));
+        // a moon of the moon, and one that circles the sun
+        let more = format!("{good}{}{}", row("C", "parent = \"B\"\norbit = 3.0\nsize = 16.0\n"), row("D", "parent = \"sun\"\nsun = 300.0\nsize = 2.0\nbake = \"luna\"\n"));
+        let ok = parse(&more).unwrap();
+        assert_eq!((ok[2].parent, ok[2].n, ok[3].parent, ok[3].n, ok[3].bake), (Some(1), 32, None, 256, Some(Bake::Luna)));
         for (bad, why) in [
             (String::new(), "empty"),
-            (b("size = 4.0\n"), "no orbit for the second"),
-            (b("orbit = 3.0\n"), "no size for the second"),
-            (b("orbit = 3.0\nsize = 4.0\nn = 128\n"), "both a size and n"),
-            (b("orbit = 3.0\nsize = 0.5\n"), "bigger than the first"),
-            (a.replace("sun = 100.0\n", ""), "no sun for the first"),
-            (format!("{a}orbit = 3.0\n"), "an orbit for the first"),
-            (b("orbit = 3.0\nsize = 4.0\nwords = [\"a\"]\n"), "a word taken"),
-            (a.replace("512", "500"), "n not a chunk multiple"),
-            (a.replace("\"stone\", \"stone\", \"stone\"", "\"stone\", \"cheese\", \"stone\""), "no such block"),
-            (a.replace("hills", "lava"), "no such generator"),
+            (a.to_string(), "a home without a moon"),
+            (b("parent = \"A\"\nsize = 4.0\n"), "no orbit for the moon"),
+            (b("parent = \"A\"\norbit = 3.0\n"), "no size for the moon"),
+            (b("orbit = 3.0\nsize = 4.0\n"), "no parent"),
+            (b("parent = \"Z\"\norbit = 3.0\nsize = 4.0\n"), "a parent of no row"),
+            (b("parent = \"B\"\norbit = 3.0\nsize = 4.0\n"), "its own parent"),
+            (format!("{}{}", row("C", "parent = \"B\"\norbit = 3.0\nsize = 4.0\n"), &good), "a parent below it"),
+            (b("parent = \"A\"\norbit = 3.0\nsize = 4.0\nhome = true\n"), "two homes"),
+            (good.replace("home = true\n", ""), "no home"),
+            (b("parent = \"A\"\norbit = 3.0\nsize = 4.0\nbake = \"mars\"\n"), "no such bake"),
+            (format!("{good}{}", row("D", "parent = \"sun\"\nsize = 2.0\n")), "circles the sun with no sun"),
+            (format!("{good}{}", row("D", "parent = \"sun\"\nsun = 300.0\nsize = 2.0\norbit = 3.0\n")), "circles the sun with an orbit"),
+            (b("parent = \"A\"\norbit = 3.0\nsize = 4.0\nn = 128\n"), "both a size and n"),
+            (b("parent = \"A\"\norbit = 3.0\nsize = 0.5\n"), "bigger than the first"),
+            (good.replace("sun = 100.0\n", ""), "no sun for the first"),
+            (good.replacen("sun = 100.0\n", "sun = 100.0\norbit = 3.0\n", 1), "an orbit for the first"),
+            (b("parent = \"A\"\norbit = 3.0\nsize = 4.0\nwords = [\"a\"]\n"), "a word taken"),
+            (good.replace("512", "500"), "n not a chunk multiple"),
+            (good.replacen("\"stone\", \"stone\", \"stone\"", "\"stone\", \"cheese\", \"stone\"", 1), "no such block"),
+            (good.replacen("hills", "lava", 1), "no such generator"),
         ] {
             assert!(parse(&bad).is_err(), "{why}");
         }
@@ -223,7 +335,8 @@ mod tests {
 
     #[test]
     fn a_makeup_is_whole_and_in_range() {
-        let row = |makeup: &str| format!("[[body]]\nname = \"A\"\nn = 512\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nsun = 100.0\n{makeup}");
+        let moon = format!("[[body]]\nname = \"B\"\nparent = \"A\"\norbit = 3.0\nsize = 4.0\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\n{MAKEUP}");
+        let row = |makeup: &str| format!("[[body]]\nname = \"A\"\nparent = \"sun\"\nhome = true\nn = 512\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nsun = 100.0\n{makeup}{moon}");
         let ok = parse(&row(MAKEUP)).unwrap();
         assert_eq!(ok[0].makeup, Makeup { kind: Kind::Rocky, iron: 0.5, heat: 0.5, density: [2700.0, 3300.0, 7900.0], weight_g: None });
         let with = |from: &str, to: &str| row(&MAKEUP.replace(from, to));

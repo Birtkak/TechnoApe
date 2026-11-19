@@ -77,7 +77,7 @@ pub fn meshbench(args: &HashMap<String, String>) {
     // at=x,y,z (ADR 0068, 0069): the baked planet's chunks around that place, else the
     // noise land's around the middle of the +y face
     let at = args.get("at").map(|s| s.split(',').map(|v| v.parse::<f64>().unwrap()).collect::<Vec<_>>());
-    let world = if at.is_some() { World::baked(planet, engine::bodies::columns(1, planet), 1337) } else { World::new(planet, engine::bodies::columns(1, planet), 1337) };
+    let world = if at.is_some() { World::baked(planet, engine::bodies::moon_columns(planet), 1337) } else { World::new(planet, engine::bodies::moon_columns(planet), 1337) };
     let greedy = num("greedy", 1) == 1;
     // leaves=fancy: level 0 as fancy leaves mesh it (ADR 0069), else as today
     let cutout = if args.get("leaves").is_some_and(|v| v == "fancy") { engine::mesh::Cut::Full } else { engine::mesh::Cut::Shell };

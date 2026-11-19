@@ -697,7 +697,7 @@ mod tests {
     /// smaller body, with less gravity, goes higher.
     #[test]
     fn a_jump_is_a_block_and_a_quarter_on_terra_and_higher_on_luna() {
-        let w = World::new(6144, crate::bodies::columns(1, 6144), 1337);
+        let w = World::new(6144, crate::bodies::moon_columns(6144), 1337);
         let (h, g) = peak(&w, 0);
         // at the spawn the ground is a little off sea level, so the pull is a little off G
         let want = 1.25 * G / g;
@@ -712,7 +712,7 @@ mod tests {
     #[test]
     fn terra_pulls_twice_the_earths_and_a_jump_is_quicker() {
         assert!((G - 2.0 * 9.81).abs() < 1e-9, "{G}");
-        let w = World::new(6144, crate::bodies::columns(1, 6144), 1337);
+        let w = World::new(6144, crate::bodies::moon_columns(6144), 1337);
         let b = &w.bodies[0];
         let mut p = Player::at(b.centre + b.spawn * (b.height(b.spawn) + 3.0), DVec3::X);
         for _ in 0..240 {

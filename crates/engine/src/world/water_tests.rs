@@ -9,7 +9,7 @@ use crate::liquid::Ground;
 fn tide_cost() {
     use std::hint::black_box;
     use std::time::Instant;
-    let w = World::with_map(6144, crate::bodies::columns(1, 6144), 1337, Some(crate::bake::get(1337, 6144)));
+    let w = World::with_map(6144, crate::bodies::moon_columns(6144), 1337, Some(crate::bake::get(1337, 6144)));
     let b = &w.bodies[0];
     let tide = w.tide();
     let n = 2_000_000;

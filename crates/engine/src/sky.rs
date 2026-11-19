@@ -38,6 +38,12 @@ const SPIN0: f64 = -0.375 * TAU;
 /// Where the moon starts on its orbit, from its ascending node: a first quarter in the evening sky.
 const MOON0: f64 = 0.25 * TAU;
 
+/// An orbit's period near `kepler` seconds that the sky still repeats after: PERIOD over a whole number, so
+/// Luna's MONTH (PERIOD / 27) and the YEAR (PERIOD / 8) come back exactly.
+pub fn period(kepler: f64) -> f64 {
+    PERIOD / (PERIOD / kepler).round().max(1.0)
+}
+
 /// The clock at the spawn (ADR 0023): world time 0 is 9 am there and a day is DAY seconds. The day (the
 /// first is 1) and the hour, 0 to 24.
 pub fn clock(t: f64) -> (u64, f64) {
@@ -124,13 +130,24 @@ impl Sky {
     }
     /// The moon: on its inclined circle once a sidereal month, the same face (its body -x) to the planet.
     pub fn moon(&self, t: f64) -> Pose {
+        Sky::circle(self.planet(t).centre, self.moon_orbit, MONTH, t)
+    }
+    /// A moon at `radius` around a parent whose centre is `around` now (0163-n-bodies): the moon's inclined
+    /// circle once a sidereal `month` (a whole fraction of PERIOD, `period`), its body -x to the parent.
+    pub fn circle(around: DVec3, radius: f64, month: f64, t: f64) -> Pose {
         let t = t.rem_euclid(PERIOD);
-        let u = MOON0 + TAU * t * (1.0 / MONTH + 1.0 / YEAR);
+        let u = MOON0 + TAU * t * (1.0 / month + 1.0 / YEAR);
         let (s, c, si, ci) = (u.sin(), u.cos(), INCLINATION.sin(), INCLINATION.cos());
         let e1 = DVec3::new(c, s * ci, s * si);
         let e2 = DVec3::new(-s, c * ci, c * si);
         let rot = DQuat::from_mat3(&glam::DMat3::from_cols(e1, e2, e1.cross(e2)));
-        Pose { centre: self.planet(t).centre + e1 * self.moon_orbit, rot }
+        Pose { centre: around + e1 * radius, rot }
+    }
+    /// A body that circles the sun and is not the home (0163-n-bodies, until real orbits): in the ecliptic at
+    /// `dist`, once a `year` (`period`), starting where the home starts, never turning.
+    pub fn round_sun(dist: f64, year: f64, t: f64) -> Pose {
+        let a = TAU * t.rem_euclid(PERIOD) / year;
+        Pose { centre: -DVec3::new(a.cos(), a.sin(), 0.0) * dist, rot: DQuat::IDENTITY }
     }
     /// The share of the sun's disc the moon hides, seen from inertial point p: 0 none, 1 total.
     pub fn eclipse(&self, t: f64, p: DVec3) -> f64 {

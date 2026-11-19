@@ -425,7 +425,7 @@ fn polar_shadow(land: &Land) -> Vec<(usize, f64)> {
     };
     // the sun's highest over Luna's equator (its orbit's plane): the orbit's tilt from the ecliptic, and the
     // disc's edge (as wide as Luna seen from Terra's ground, a little less: sky.rs `SUN_UNDER_MOON`)
-    let luna = &crate::bodies::BODIES[1];
+    let luna = crate::bodies::BODIES.iter().find(|r| r.bake == Some(crate::bodies::Bake::Luna)).expect("a row of Luna's bake");
     let (size, orbit) = (luna.size.unwrap_or(3.7), luna.orbit.map_or(60.0, |o| o.0));
     let high = crate::sky::INCLINATION + crate::sky::SUN_UNDER_MOON * (1.0 / (size * (orbit - 1.0))).asin();
     (0..6 * q * q)

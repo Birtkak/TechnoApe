@@ -144,11 +144,11 @@ impl Interior {
     }
 }
 
-/// Body i's spin, turns a second, as the sky turns it (`sky::Sky::planet`, `moon`): the planet once a sidereal
-/// day, the moon, its face to the planet, once a sidereal month.
-pub fn spin(i: usize) -> f64 {
-    use crate::sky::{DAY, MONTH, YEAR};
-    if i == 0 { 1.0 / DAY + 1.0 / YEAR } else { 1.0 / MONTH + 1.0 / YEAR }
+/// A body's spin, turns a second, as the sky turns it (`sky::Sky::planet`, `circle`): the home once a sidereal
+/// day (None), a moon, its face to its parent, once a sidereal `month`.
+pub fn spin(month: Option<f64>) -> f64 {
+    use crate::sky::{DAY, YEAR};
+    month.map_or(1.0 / DAY + 1.0 / YEAR, |m| 1.0 / m + 1.0 / YEAR)
 }
 
 #[cfg(test)]

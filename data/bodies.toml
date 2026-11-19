@@ -4,11 +4,14 @@
 # `n` again: (planet= and moon= on the command line override it; ADR 0021).
 # `generator`: continents (ADR 0021's land and sea) or hills (noise only). `ground`: the top, the band under
 # it and the rock below, by block name. `air`: the sky's colour and the air's thinning (ADR 0022).
-# `orbit`: how far out it circles the first body, centre to centre in that body's radii, and never nearer than
-# `orbit_min` metres; the first body has none (it circles the sun, sky.rs). `words`: what /goto also accepts.
-# `size` (not the first body): the first body's radius over this one's, which sets its columns from the
-# first body's (`bodies::columns`), instead of `n`. `sun` (the first body only): the sun's distance in its
-# radii. The sun's size follows from the second body: seen from the first body's ground under it, it just
+# `parent`: what it circles, "sun" or a row above it (0163-n-bodies). `home` (the first row, and only it): the
+# home world, whose are the spawn, the ore, the weather, the tide and the herds. `bake`: the bake that makes its
+# map, "terra" (ADR 0043) or "luna" (ADR 0070); none: the seed's noise alone.
+# `orbit` (a moon): how far out it circles its parent, centre to centre in the parent's radii, and never nearer
+# than `orbit_min` metres. `words`: what /goto also accepts.
+# `size` (not the home body): the home body's radius over this one's, which sets its columns from the
+# home's (`bodies::columns`), instead of `n`. `sun` (a body that circles the sun): the sun's distance in its
+# radii. The sun's size follows from the home's first moon: seen from the home's ground under it, it just
 # covers the sun, so every total eclipse is a perfect one (sky.rs `Sky::new`, ADR 0041).
 # What a body is made of (planet-model.md; its interior, crates/engine/src/interior.rs, is derived from these and
 # its radius): `kind` rocky (icy and gas are not built yet); `iron` the metal core's radius over the body's;
@@ -18,6 +21,9 @@
 
 [[body]]
 name = "Terra"
+parent = "sun"
+home = true
+bake = "terra"
 words = ["home", "spawn"]
 n = 6144
 generator = "continents"
@@ -35,6 +41,8 @@ density = [2700.0, 3300.0, 7920.0]
 
 [[body]]
 name = "Luna"
+parent = "Terra"
+bake = "luna"
 generator = "hills"
 ground = ["regolith", "regolith", "stone"]
 air = false

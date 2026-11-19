@@ -32,43 +32,73 @@ impl World {
     /// mantle (ADR 0152; generation 0, a save from before, keeps its 192 m floor). Luna and a planet too small for
     /// a deep crust keep theirs.
     pub fn with_grid(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>, luna: Option<Arc<Map>>, warp: f64, gen: u8) -> Self {
-        assert_eq!(BODIES.len(), 2, "the sky (sky.rs) poses a planet and one moon");
+        let moon = crate::bodies::moon(&BODIES);
+        let list = crate::bodies::sizes(&BODIES, planet_n, moon_n).into_iter().enumerate().map(|(i, n)| (n, if i == 0 { map.clone() } else if Some(i) == moon { luna.clone() } else { None })).collect();
+        World::of(&BODIES, list, seed, warp, gen)
+    }
+    /// The world of `rows` (`data/bodies.toml`'s, or a test's), each body of the columns and map given in row
+    /// order (0163-n-bodies). A body's grid lies at its nominal centre: the home's at the origin, the k-th
+    /// other's k times MOON_AT out, so a position names its frame by where it is (ADR 0022).
+    pub fn of(rows: &[Row], list: Vec<(i32, Option<Arc<Map>>)>, seed: i32, warp: f64, gen: u8) -> Self {
+        assert_eq!(rows.len(), list.len(), "a size and a map for every body");
+        assert!(rows.len() <= crate::bodies::MAX, "{} bodies; a world holds at most {}", rows.len(), crate::bodies::MAX);
         assert!((0.0..=1.0).contains(&warp), "warp= is 0 to 1");
+        let moon = crate::bodies::moon(rows).expect("the home has a moon (bodies::parse)");
         // every body's interior from its row, its pull scaled by the first's (0162-planet-interior)
         let mut first: Option<Interior> = None;
-        let bodies: Vec<Body> = BODIES
-            .iter()
-            .enumerate()
-            .map(|(i, row)| {
-                let mut b = Body::new(if i == 0 { DVec3::ZERO } else { MOON_AT }, [planet_n, moon_n][i], seed + i as i32);
-                (b.name, b.air, b.ground, b.warp) = (row.name.clone(), row.air, row.ground, warp);
-                b.interior = Interior::new(&row.makeup, b.radius, crate::interior::spin(i), first.as_ref());
-                first.get_or_insert_with(|| b.interior.clone());
-                if i == 0 {
-                    b.gen = gen;
-                    if gen >= 1 {
-                        b = b.with_mantle();
-                    }
+        let mut bodies: Vec<Body> = Vec::with_capacity(rows.len());
+        for (i, (row, (n, map))) in rows.iter().zip(list).enumerate() {
+            let mut b = Body::new(MOON_AT * i as f64, n, seed + i as i32);
+            (b.name, b.air, b.ground, b.warp) = (row.name.clone(), row.air, row.ground, warp);
+            b.parent = row.parent.unwrap_or(INERTIAL);
+            // a moon `orbit` radii of its parent out (Luna 60, the Moon's), never nearer than orbit_min, once
+            // a month by Kepler's law against the home's first moon's for a parent as dense (`sky::period`);
+            // one that circles the sun once a year by Kepler's law against the home's distance
+            let month = match (row.parent, row.orbit) {
+                (Some(p), Some((k, min))) => {
+                    // (orbits in parent radii; the home's moon's from its row, which may come later)
+                    let q = |r: f64, (k, min): (f64, f64)| (r * k).max(min) / r;
+                    let r = bodies[p].radius;
+                    let mine = q(r, (k, min));
+                    b.orbit = r * mine;
+                    let luna = q(bodies[0].radius, rows[moon].orbit.expect("a moon has an orbit (bodies::parse)"));
+                    let kepler = if i == moon { crate::sky::MONTH } else { crate::sky::MONTH * (mine / luna).powf(1.5) };
+                    b.period = crate::sky::period(kepler);
+                    Some(b.period)
                 }
-                match (&map, row.generator) {
-                    (Some(m), Generator::Continents) if i == 0 => b.with_map(m.clone()),
-                    (_, Generator::Continents) => b.with_continents(seed + i as i32),
-                    _ => match &luna {
-                        Some(l) if i == 1 => b.with_luna(l.clone()),
-                        _ => b,
-                    },
+                _ => {
+                    b.orbit = b.radius * row.sun.expect("a body that circles the sun has its distance (bodies::parse)");
+                    b.period = if i == 0 { crate::sky::YEAR } else { crate::sky::period(crate::sky::YEAR * (b.orbit / bodies[0].orbit).powf(1.5)) };
+                    None
                 }
-            })
-            .collect();
-        // Luna circles Terra `orbit` radii out (60, the Moon's), never nearer than orbit_min; the sun is `sun`
-        // radii away and as big as Luna lets a total eclipse be perfect (ADR 0041)
-        let (k, min) = BODIES[1].orbit.expect("the second body has an orbit");
+            };
+            let spin = if row.parent.is_none() && !row.home { 0.0 } else { crate::interior::spin(month) };
+            b.interior = Interior::new(&row.makeup, b.radius, spin, first.as_ref());
+            first.get_or_insert_with(|| b.interior.clone());
+            if row.home {
+                b.gen = gen;
+                if gen >= 1 {
+                    b = b.with_mantle();
+                }
+            }
+            bodies.push(match (map, row.bake, row.generator) {
+                (Some(m), Some(Bake::Terra), _) => b.with_map(m),
+                (Some(m), Some(Bake::Luna), _) => b.with_luna(m),
+                (Some(_), None, _) => panic!("body '{}' has no bake, so no map", row.name),
+                (None, _, Generator::Continents) => b.with_continents(seed + i as i32),
+                _ => b,
+            });
+        }
+        // the sun is the home's `sun` radii away and as big as its first moon lets a total eclipse be perfect
+        // (ADR 0041)
         let r0 = bodies[0].radius;
-        let sun = BODIES[0].sun.expect("the first body has the sun's distance");
-        let sky = Sky::new(r0, bodies[1].radius, (r0 * k).max(min) / r0, sun);
+        let (k, min) = rows[moon].orbit.expect("a moon has an orbit (bodies::parse)");
+        let sky = Sky::new(r0, bodies[moon].radius, (r0 * k).max(min) / r0, rows[0].sun.expect("the home has the sun's distance"));
+        debug_assert_eq!(sky.moon_orbit.to_bits(), bodies[moon].orbit.to_bits());
         World {
             bodies: Arc::new(bodies),
             sky,
+            moon,
             time: 0.0,
             edits: FxMap::default(),
             edit_count: 0,
@@ -125,14 +155,19 @@ impl World {
     }
     /// A body's sphere of influence: within it, a position belongs to the body's frame.
     pub fn soi(&self, i: usize) -> f64 {
-        self.sky.moon_orbit * if i == 0 { 0.6 } else { 0.25 }
+        // one that circles the sun as the home's; a moon a quarter of its orbit
+        let b = &self.bodies[i];
+        if b.parent == INERTIAL { self.sky.moon_orbit * 0.6 } else { b.orbit * 0.25 }
     }
-    /// Frame `f`'s pose at time t: its coordinates to the inertial frame.
+    /// Frame `f`'s pose at time t: its coordinates to the inertial frame. A body is posed on its parent's pose,
+    /// down the rows (0163-n-bodies): the home by the sky, a moon on its circle around its parent, one that
+    /// circles the sun not home on its ring (`Sky::round_sun`).
     pub fn pose(&self, f: usize, t: f64) -> Pose {
-        match f {
-            0 => self.sky.planet(t),
-            1 => self.sky.moon(t),
-            _ => Pose { centre: DVec3::ZERO, rot: DQuat::IDENTITY },
+        let Some(b) = self.bodies.get(f) else { return Pose { centre: DVec3::ZERO, rot: DQuat::IDENTITY } };
+        match (f, b.parent) {
+            (0, _) => self.sky.planet(t),
+            (_, INERTIAL) => Sky::round_sun(b.orbit, b.period, t),
+            (_, p) => Sky::circle(self.pose(p, t).centre, b.orbit, b.period, t),
         }
     }
     /// Where frame `f`'s pose is anchored in the shared coordinates: its body's grid centre.
@@ -213,7 +248,7 @@ impl World {
     /// sphere of influence, so gravity stays the same across the hand-over between frames.
     pub fn gravity(&self, p: DVec3) -> DVec3 {
         let f = self.frame_at(p);
-        let mut centre = [DVec3::ZERO; 4];
+        let mut centre = [DVec3::ZERO; crate::bodies::MAX];
         for (i, c) in centre.iter_mut().enumerate().take(self.bodies.len()) {
             *c = if i == f { self.nominal(f) } else { self.from_inertial(f, self.pose(i, self.time).centre) };
         }
@@ -228,7 +263,8 @@ impl World {
                 .sum()
         };
         let g = pull_at(p);
-        if f == 0 || f == INERTIAL {
+        // (one on rails round the sun falls round nothing that pulls)
+        if f == INERTIAL || self.bodies[f].parent == INERTIAL {
             return g;
         }
         let k = 1.0 - smooth01(((p - self.nominal(f)).length() / self.soi(f) - 0.5) / 0.47);
