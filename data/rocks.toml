@@ -90,7 +90,7 @@ fold = [3.0, 600.0]
 heat = 0.2
 caves = "tubes"
 
-# Luna's (draft-bake-stages; a world of generation 4 on). `body`: the row of data/bodies.toml whose ground a
+# Luna's (0165-bake-stages; a world of generation 4 on). `body`: the row of data/bodies.toml whose ground a
 # province is, Terra's (the home's) when not given. Luna has no plates: her provinces are read from the kinds of
 # ground her bake laid (crates/engine/src/bake/luna.rs `province`). Under her dust (the biomes' band) lies her
 # old pale crust, anorthosite, down to the bottom. The maria are basalt that flooded the basins facing Terra, a

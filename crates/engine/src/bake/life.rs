@@ -232,7 +232,7 @@ pub fn life(b: &Bake, seed: u64, p: &LifeParams) -> Life {
     life_of(b, seed, p, climate(b, p))
 }
 
-/// The year's climate on the cells (the bake's `climate` stage, draft-bake-stages): the air model run to a
+/// The year's climate on the cells (the bake's `climate` stage, 0165-bake-stages): the air model run to a
 /// repeating day, its means on the fine cells.
 pub struct Year {
     ma: usize,

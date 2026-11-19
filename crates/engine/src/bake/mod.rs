@@ -358,7 +358,7 @@ impl Map {
     }
 }
 
-/// A stage of the one bake (draft-bake-stages; planet-model.md section 3): a body's row lists the stages it
+/// A stage of the one bake (0165-bake-stages; planet-model.md section 3): a body's row lists the stages it
 /// runs, in their order (`data/bodies.toml` `stages`), and `run` calls each on what the ones before it made.
 /// Two crusts are built: `plates` (Terra's: plates, boundaries, their uplift) and `crust` (Luna's: an old crust
 /// without plates); `check` says which stage needs which before it.
@@ -999,7 +999,7 @@ mod tests {
         assert!((320.0..380.0).contains(&top), "highest {top} m");
     }
 
-    /// A lock taken on the code before the bake became stages (draft-bake-stages): Terra's map of every version
+    /// A lock taken on the code before the bake became stages (0165-bake-stages): Terra's map of every version
     /// a bake still makes, and Luna's, to the bit.
     #[test]
     fn the_stages_bake_terra_and_luna_to_the_bit_as_before() {

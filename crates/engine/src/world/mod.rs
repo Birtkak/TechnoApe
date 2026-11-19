@@ -99,7 +99,7 @@ pub const MANTLE_STEP: i32 = 256;
 
 /// A new world's generation (`Body::gen`): 1 the mantle and the caves by rock (ADR 0152, 0159), 2 the arcs'
 /// basalt flows and lava tubes as one round passage (ADR 0160-generation-number-and-arc-basalt), 3 dry karst in
-/// the basins' limestone in place of ADR 0063's worm (0161-karst-caves), 4 Luna's rock field (draft-bake-stages:
+/// the basins' limestone in place of ADR 0063's worm (0161-karst-caves), 4 Luna's rock field (0165-bake-stages:
 /// anorthosite highlands, mare basalt over anorthosite in the maria; Terra as at 3).
 pub const GENERATION: u8 = 4;
 

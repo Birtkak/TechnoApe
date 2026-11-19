@@ -807,7 +807,7 @@ pub fn bake(planet_n: u32, seed: u64, p: &Params) -> Bake {
     erosion(crust(planet_n, seed, p), planet_n, seed, p)
 }
 
-/// The crust by plates (the bake's `plates` stage, draft-bake-stages): the grids, the plates and their
+/// The crust by plates (the bake's `plates` stage, 0165-bake-stages): the grids, the plates and their
 /// boundaries' uplift.
 pub struct Crust {
     gc: Grid,

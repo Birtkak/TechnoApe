@@ -14,7 +14,7 @@ pub enum Generator {
     Hills,
 }
 
-/// The bake that makes a body's map: the stages it runs, in order (draft-bake-stages; `bake::check`), and its
+/// The bake that makes a body's map: the stages it runs, in order (0165-bake-stages; `bake::check`), and its
 /// body's sun at its highest (`luna::sun_high` of the row: what an airless body's `ice` reads).
 /// Terra's (ADR 0043) and Luna's (ADR 0070) lists keep their maps' files, versions and old layouts.
 #[derive(Clone, Debug, PartialEq)]
@@ -335,7 +335,7 @@ mod tests {
         ] {
             assert!(parse(&bad).is_err(), "{why}");
         }
-        // a stage list (draft-bake-stages): an unknown stage, and one without what it needs, refused and saying why
+        // a stage list (0165-bake-stages): an unknown stage, and one without what it needs, refused and saying why
         let stages = |s: &str| parse(&b(&format!("parent = \"A\"\norbit = 3.0\nsize = 4.0\nstages = {s}\n")));
         for (s, says) in [
             ("[\"plates\", \"mars\"]", "unknown variant `mars`"),

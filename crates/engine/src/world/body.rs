@@ -274,7 +274,7 @@ impl Body {
     }
     /// The rock at face point (i, j) in columns, d its direction (ADR 0063): the province of the map cell, its
     /// border wandering as the biomes' do, and its layers' top, folded. `Rock::NONE` without a map's rock, and on
-    /// Luna before generation 4 (her kinds' rocks, draft-bake-stages).
+    /// Luna before generation 4 (her kinds' rocks, 0165-bake-stages).
     pub fn rock_at(&self, face: usize, i: f64, j: f64, d: DVec3) -> Rock {
         let Some(b) = &self.baked else { return Rock::NONE };
         if self.gen < 4 && b.map.version == crate::bake::luna::VERSION {

@@ -6,7 +6,7 @@
 # it and the rock below, by block name. `air`: the sky's colour and the air's thinning (ADR 0022).
 # `parent`: what it circles, "sun" or a row above it (0163-n-bodies). `home` (the first row, and only it): the
 # home world, whose are the spawn, the ore, the weather, the tide and the herds. `stages`: the bake that makes its
-# map, its stages in the order they run (draft-bake-stages; crates/engine/src/bake/mod.rs `check` says what
+# map, its stages in the order they run (0165-bake-stages; crates/engine/src/bake/mod.rs `check` says what
 # each needs before it): a crust, "plates" (Terra's, ADR 0043) or "crust" (an old crust without plates, Luna's,
 # ADR 0070), then "erosion", "climate", "ice", "life" on plates, or "impacts", "ice", "volcanism" on a crust;
 # none: the seed's noise alone.

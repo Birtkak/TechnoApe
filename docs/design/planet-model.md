@@ -128,7 +128,7 @@ inside a sphere of influence. The model is shaped now so real orbits need no sec
    and wire field core mining must add), and its first effect, the aurora: an oval at 70° latitude at field 1 that
    widens toward the equator and dims as the field falls, none under 0.02 (Luna). `field=x` scales it for a run.
 4. **One bake pipeline.** Terra's and Luna's bakes become stages of one; Luna gets a rock field, and with it
-   ore and caves by rock. **First half built (draft-bake-stages):** a row lists its `stages` in the order they
+   ore and caves by rock. **First half built (0165-bake-stages):** a row lists its `stages` in the order they
    run (`plates`, `erosion`, `climate`, `ice`, `life` for Terra; `crust`, `impacts`, `ice`, `volcanism` for
    Luna), `bake::run` calls each on what the ones before made and `bake::check` refuses a list whose stage lacks
    what it needs (two crusts are built: plates, and an old crust without them; crossing them, craters on plates

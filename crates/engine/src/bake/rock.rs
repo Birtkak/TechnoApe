@@ -16,7 +16,7 @@ pub const ARC: u8 = 3;
 pub const RIFT: u8 = 4;
 /// Oceanic crust: basalt over gabbro.
 pub const OCEAN: u8 = 5;
-/// Luna's (draft-bake-stages; a world of generation 4 on): her old pale crust, anorthosite.
+/// Luna's (0165-bake-stages; a world of generation 4 on): her old pale crust, anorthosite.
 pub const LUNA_HIGHLAND: u8 = 6;
 /// Luna's maria: the basins' dark basalt fill over the anorthosite.
 pub const LUNA_MARE: u8 = 7;

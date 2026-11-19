@@ -1,5 +1,5 @@
 //! Luna's bake (worldgen.md, "Luna"; W6, ADR 0070): no air, water or plates. Its parts are stages of the one
-//! bake (`super::run`, draft-bake-stages): `crust`, `impacts`, `ice`, `volcanism`.
+//! bake (`super::run`, 0165-bake-stages): `crust`, `impacts`, `ice`, `volcanism`.
 //! Old pale crust; a few giant basins, those facing Terra flooded with dark basalt (the maria); craters
 //! stamped oldest first, counts by the power law `K`, bowls when small, flat floors, terraces and a peak
 //! when large, each with a blanket of debris, older ones worn soft; the youngest bright, with rays. The dust
@@ -33,7 +33,7 @@ pub const KREEP: u8 = 20;
 pub const SHADOW: u8 = 21;
 pub const KINDS: [&str; 7] = ["highland", "mare", "fresh highland", "fresh mare", "metal crater", "kreep", "polar shadow"];
 
-/// The rock province under a kind of ground (draft-bake-stages): her crust stage's rock field, read from the
+/// The rock province under a kind of ground (0165-bake-stages): her crust stage's rock field, read from the
 /// kinds the stages laid, so her map's bytes and hash stay as they were. The maria (fresh or not) are basalt over
 /// the anorthosite, the thorium province KREEP over it, every other kind (highland, fresh ejecta, a metal crater's
 /// floor, the polar shadow) the old anorthosite crust.
@@ -285,7 +285,7 @@ pub fn run(stages: &[super::Stage], seed: i32, n: i32, high: f64) -> (Map, Stats
     w.finish()
 }
 
-/// A bake of an airless body under way (draft-bake-stages): its ground and kinds, its craters, its tubes.
+/// A bake of an airless body under way (0165-bake-stages): its ground and kinds, its craters, its tubes.
 pub struct Work {
     seed: i32,
     n: i32,
@@ -579,7 +579,7 @@ mod tests {
         bake_stats(7, 416)
     }
 
-    /// A row's own stage list, in another order than Luna's, bakes (review of draft-bake-stages: the ice stage
+    /// A row's own stage list, in another order than Luna's, bakes (review of 0165-bake-stages: the ice stage
     /// looked Luna up by her exact list and panicked), and its ice is that body's: a moon this near and large
     /// has the sun high enough over its poles to leave no shadow; one at Luna's orbit and size has some.
     #[test]
@@ -709,7 +709,7 @@ mod tests {
         h
     }
 
-    /// A lock taken on the code before Luna's rock field (draft-bake-stages): her ground of generations 0 to 3,
+    /// A lock taken on the code before Luna's rock field (0165-bake-stages): her ground of generations 0 to 3,
     /// block for block, as it was.
     #[test]
     fn luna_generates_as_before_up_to_generation_3() {
@@ -718,7 +718,7 @@ mod tests {
         }
     }
 
-    /// Generation 4 (draft-bake-stages): Luna's rock field. Her provinces are hers alone, the maria's share of her
+    /// Generation 4 (0165-bake-stages): Luna's rock field. Her provinces are hers alone, the maria's share of her
     /// columns is her map's, `Body::rock` (`Rocks::at`) answers what is generated there, and under the dust the
     /// highlands are anorthosite and the maria basalt over anorthosite; her ground differs from generation 3's.
     #[test]

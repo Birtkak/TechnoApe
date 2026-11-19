@@ -114,7 +114,7 @@ pub struct Province {
     pub heat: f32,
     pub caves: Caves,
     pub flow: Option<Flow>,
-    /// The row of `data/bodies.toml` whose ground it is (`body`, the home's when not given; draft-bake-stages).
+    /// The row of `data/bodies.toml` whose ground it is (`body`, the home's when not given; 0165-bake-stages).
     pub body: usize,
 }
 
@@ -247,7 +247,7 @@ mod tests {
         assert!(r.provinces.iter().all(|p| p.layers.iter().all(|l| BLOCKS.solid(l.0))));
     }
 
-    /// Luna's rows (draft-bake-stages): hers by the `body` key, Terra's the home's; her highland anorthosite to the
+    /// Luna's rows (0165-bake-stages): hers by the `body` key, Terra's the home's; her highland anorthosite to the
     /// bottom, her maria and her thorium province over anorthosite, every rock one a player can dig (a pick).
     #[test]
     fn lunas_provinces_are_hers_and_lie_on_anorthosite() {
