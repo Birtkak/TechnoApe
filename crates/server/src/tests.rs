@@ -2911,6 +2911,37 @@ fn a_hello_takes_over_its_own_quiet_ghost() {
     assert_eq!((r.diverged, r.server.clients.len(), r.server.hash()), (None, 1, s.hash()));
 }
 
+/// A takeover handles every other client once in its tick, whichever side of the ghost and the new
+/// connection it stands: no one is read twice or skipped because someone else took over.
+#[test]
+fn a_takeover_neither_skips_nor_repeats_another_client() {
+    // (the ghost's, the other's and the new connection's link)
+    for (a, c, b) in [(0, 1, 2), (0, 2, 1)] {
+        let (mut s, links) = server_with(3);
+        links[a].send(ToServer::Hello { name: "ape".into() });
+        links[c].send(ToServer::Hello { name: "cat".into() });
+        s.tick();
+        for _ in 0..GHOST_TICKS {
+            links[c].send(ToServer::Hand(0));
+            s.tick();
+        }
+        let cat = s.clients.iter().find(|x| x.player.name == "cat").unwrap().player.id;
+        links[b].send(ToServer::Hello { name: "ape".into() });
+        for _ in 0..200 {
+            links[c].send(ToServer::Hand(0));
+        }
+        s.tick();
+        let names: Vec<&str> = s.clients.iter().map(|x| x.player.name.as_str()).collect();
+        assert!(names.len() == 2 && names.contains(&"ape") && names.contains(&"cat"), "{names:?}");
+        let other = s.clients.iter().find(|x| x.player.id == cat).unwrap();
+        let mut left = 0;
+        while let Recv::Msg(_) = other.link.try_recv() {
+            left += 1;
+        }
+        assert_eq!(200 - left, MSGS_PER_TICK, "messages taken from the other client, order {:?}", (a, c, b));
+    }
+}
+
 /// Singleplayer's recordings keep the newest few; files of any other name stay.
 #[test]
 fn old_play_recordings_are_pruned_and_nothing_else() {
