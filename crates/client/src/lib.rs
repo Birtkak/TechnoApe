@@ -428,6 +428,12 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
                     Ok(()) => eprintln!("[technoape] recording to {r}"),
                     Err(e) => eprintln!("[technoape] not recording: {e}"),
                 }
+                // every on-screen session records: the newest 20 of them are kept, this one among them
+                if r.starts_with("out/rec/") {
+                    if let Err(e) = server::prune_recordings(std::path::Path::new("out/rec"), 20) {
+                        eprintln!("[technoape] out/rec/ not pruned: {e}");
+                    }
+                }
             }
             let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let st = stop.clone();

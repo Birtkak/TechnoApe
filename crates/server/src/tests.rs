@@ -2911,6 +2911,25 @@ fn a_hello_takes_over_its_own_quiet_ghost() {
     assert_eq!((r.diverged, r.server.clients.len(), r.server.hash()), (None, 1, s.hash()));
 }
 
+/// Singleplayer's recordings keep the newest few; files of any other name stay.
+#[test]
+fn old_play_recordings_are_pruned_and_nothing_else() {
+    let dir = std::env::temp_dir().join(format!("technoape-rec-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("play-5.rec")).unwrap(); // a folder of the name: left alone
+    for t in [100, 20, 3000, 400, 50] {
+        std::fs::write(dir.join(format!("play-{t}.rec")), b"x").unwrap();
+    }
+    for other in ["server-1.rec", "play-1.txt", "play-x.rec", "notes.md"] {
+        std::fs::write(dir.join(other), b"x").unwrap();
+    }
+    assert_eq!(prune_recordings(&dir, 2).unwrap(), 3);
+    let mut left: Vec<String> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    left.sort();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(left, ["notes.md", "play-1.txt", "play-3000.rec", "play-400.rec", "play-5.rec", "play-x.rec", "server-1.rec"]);
+}
+
 /// A client gets each map once a connection, however often it asks: 64 asks a tick would queue a GB.
 #[test]
 fn a_map_is_sent_once_however_often_it_is_asked() {

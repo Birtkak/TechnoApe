@@ -9,6 +9,26 @@ pub struct Replayed {
     pub diverged: Option<(u64, u64, u64)>,
 }
 
+/// Deletes all but the newest `keep` of singleplayer's own recordings in `dir` (`play-<unix s>.rec`, as the
+/// client names them); any other file there, or a folder, is left alone. Returns how many went.
+pub fn prune_recordings(dir: &Path, keep: usize) -> std::io::Result<usize> {
+    let mut recs: Vec<(u64, std::path::PathBuf)> = Vec::new();
+    for e in std::fs::read_dir(dir)? {
+        let e = e?;
+        let name = e.file_name();
+        let Some(t) = name.to_str().and_then(|n| n.strip_prefix("play-")?.strip_suffix(".rec")?.parse::<u64>().ok()) else { continue };
+        if e.file_type()?.is_file() {
+            recs.push((t, e.path()));
+        }
+    }
+    recs.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    let old = recs.get(keep..).unwrap_or_default();
+    for (_, p) in old {
+        std::fs::remove_file(p)?;
+    }
+    Ok(old.len())
+}
+
 /// Reads a recording.
 pub fn read_recording(path: &Path) -> std::io::Result<Vec<Ev>> {
     let bytes = std::fs::read(path)?;
