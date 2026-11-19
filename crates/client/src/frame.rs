@@ -989,7 +989,7 @@ impl App {
         self.models.take(&gpu.queue, &gpu.mquads);
         let hand = hand_shown(self.run == "play", self.hammer || self.bucket, self.f3, self.home(), self.menu)
             .then(|| self.inv.get(self.slot).copied().flatten().map(|s| engine::items::ITEMS.name(s.item).to_string()));
-        let swing = crate::models::swing(self.start.elapsed().as_secs_f64() - self.dip.tween.start);
+        let swing = engine::hand::HAND.curve(self.start.elapsed().as_secs_f64() - self.dip.tween.start);
         let now = Instant::now();
         let herd: Vec<crate::models::Beast> = self
             .animals
