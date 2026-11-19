@@ -104,6 +104,7 @@ impl Server {
                 furnace: None,
                 sent_furnace: None,
                 heard: self.tick,
+                maps: Vec::new(),
             });
         }
         let mut changed: Vec<(Block, u16)> = Vec::new();
@@ -269,9 +270,11 @@ impl Server {
                     Recv::Msg(ToServer::Close) => self.uncraft(i),
                     Recv::Msg(ToServer::Choose { at, cast }) => self.choose(i, at, cast),
                     Recv::Msg(ToServer::Sprints { .. } | ToServer::Sprint(..)) => unreachable!("unpacked above"),
+                    // each map once a connection: asked again while (or after) it goes, the ask is ignored
+                    Recv::Msg(ToServer::Map(h)) if self.clients[i].maps.contains(&h) => {}
                     Recv::Msg(ToServer::Map(h)) => {
                         if let Some(m) = self.world.bodies.iter().filter_map(|b| b.map()).find(|m| m.hash == h) {
-                            // shortcut: any client may ask again; a limit per client when servers go public
+                            self.clients[i].maps.push(h);
                             for p in self.map_pieces.entry(h).or_insert_with(|| engine::net::map_pieces(m)) {
                                 self.clients[i].link.send(p.clone());
                             }

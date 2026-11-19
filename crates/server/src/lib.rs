@@ -199,6 +199,8 @@ struct Client {
     sent_furnace: Option<engine::furnace::Furnace>,
     /// The tick a message was last taken from it (`GHOST_TICKS`); a tick count, so a replay judges the same.
     heard: u64,
+    /// The maps sent to it (`ToServer::Map`), by hash: each goes once a connection.
+    maps: Vec<u64>,
     /// The water in its bucket, in units (`liquid::U` is a full bucket).
     water: u32,
     /// The version of each water tile this client has (`Server::tiles`).

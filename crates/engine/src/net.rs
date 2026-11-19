@@ -306,36 +306,63 @@ pub fn local<A, B>() -> (Link<A, B>, Link<B, A>) {
 }
 
 /// A TCP connection as a link: one thread writes outgoing messages, one reads incoming ones, as frames of a
-/// little-endian u32 length and postcard bytes; a frame of length 0 is a ping (`PING`), never a message, and
-/// a link silent for `SILENT` is closed. Either thread ending closes the link.
+/// little-endian u32 length and postcard bytes; a frame of length 0 is a ping, never a message. A link silent,
+/// flooded or too slow past its `Limits` is closed. Either thread ending closes the link.
 pub fn tcp<O, I>(stream: TcpStream) -> std::io::Result<Link<O, I>>
 where
     O: Serialize + Send + 'static,
     I: DeserializeOwned + Send + 'static,
 {
-    tcp_timed(stream, PING, SILENT)
+    tcp_with(stream, Limits::TCP)
 }
 
-/// An idle writer sends an empty frame this often, so the other side hears the link is alive.
-pub const PING: std::time::Duration = std::time::Duration::from_secs(5);
-/// A link that hears nothing this long (not even `PING`'s empty frame) is closed: the peer slept or dropped
-/// off without closing the socket.
-pub const SILENT: std::time::Duration = std::time::Duration::from_secs(30);
+/// A TCP link's times and queue bounds (tests use small ones).
+#[derive(Clone, Copy, Debug)]
+pub struct Limits {
+    /// An idle writer sends an empty frame this often, so the other side hears the link is alive.
+    pub ping: std::time::Duration,
+    /// A link that hears nothing this long (not even a ping) is closed: the peer slept or dropped off
+    /// without closing the socket.
+    pub silent: std::time::Duration,
+    /// Messages read but not yet taken (`Link::rx`); one more closes the link: a flood, or a reader stuck.
+    pub in_max: usize,
+    /// Bytes waiting to be sent; more closes the link: a peer too slow, or one that never reads.
+    pub out_max: usize,
+}
 
-/// `tcp` with its ping and silence times (tests use short ones).
-pub fn tcp_timed<O, I>(stream: TcpStream, ping: std::time::Duration, silent: std::time::Duration) -> std::io::Result<Link<O, I>>
+impl Limits {
+    /// The game's: a ping every 5 s and 30 s of silence; 4096 messages in (a walking client sends a few a tick
+    /// and the server takes 64 a tick; the server sends a client 20-40 a second, so a client that stops
+    /// reading for about two minutes); 128 MiB out (a join sends both maps, about 23 + 21 MB, and every edit,
+    /// about 12 bytes each: at 1 Mbit/s the backlog stays near 60 MB).
+    pub const TCP: Limits = Limits { ping: std::time::Duration::from_secs(5), silent: std::time::Duration::from_secs(30), in_max: 4096, out_max: 128 << 20 };
+}
+
+/// `tcp` with other `Limits`.
+pub fn tcp_with<O, I>(stream: TcpStream, Limits { ping, silent, in_max, out_max }: Limits) -> std::io::Result<Link<O, I>>
 where
     O: Serialize + Send + 'static,
     I: DeserializeOwned + Send + 'static,
 {
+    use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
     stream.set_nodelay(true)?;
     // std's SO_RCVTIMEO / SO_SNDTIMEO: the same on Windows and Linux, unlike keepalive's OS-tuned timings
     stream.set_read_timeout(Some(silent))?;
     stream.set_write_timeout(Some(silent))?;
     let mut w = stream.try_clone()?;
+    let cut = stream.try_clone()?;
     let mut r = stream;
     let (out_tx, out_rx) = channel::<O>();
-    let (in_tx, in_rx) = channel::<I>();
+    let (in_tx, in_rx) = std::sync::mpsc::sync_channel::<I>(in_max);
+    // the frame maker drops the sender to close the link at once: a shutdown does not wake a blocked read on
+    // Windows, so the reader alone would notice only after `silent`
+    let in_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(in_tx)));
+    let closer = in_tx.clone();
+    // one thread makes the frames and counts their bytes, another writes them: the count of bytes waiting is
+    // known while the writer is stuck on a slow peer
+    let (frame_tx, frame_rx) = channel::<Vec<u8>>();
+    let waiting = std::sync::Arc::new(AtomicUsize::new(0));
+    let written = waiting.clone();
     std::thread::spawn(move || {
         loop {
             // an empty frame when idle: no message is empty (postcard writes the variant), so it says only "alive"
@@ -347,9 +374,23 @@ where
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Vec::new(),
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             };
+            if waiting.fetch_add(bytes.len() + 4, Relaxed) + bytes.len() + 4 > out_max {
+                eprintln!("[net] over {} MiB waiting to be sent: the peer is too slow, the link is closed", out_max >> 20);
+                let _ = cut.shutdown(std::net::Shutdown::Both);
+                closer.lock().unwrap_or_else(|e| e.into_inner()).take();
+                break;
+            }
+            if frame_tx.send(bytes).is_err() {
+                break;
+            }
+        }
+    });
+    std::thread::spawn(move || {
+        for bytes in frame_rx {
             if w.write_all(&(bytes.len() as u32).to_le_bytes()).and_then(|_| w.write_all(&bytes)).is_err() {
                 break;
             }
+            written.fetch_sub(bytes.len() + 4, Relaxed);
         }
         let _ = w.shutdown(std::net::Shutdown::Both);
     });
@@ -375,14 +416,19 @@ where
                 break;
             }
             match postcard::from_bytes::<I>(&buf) {
-                Ok(m) => {
-                    if in_tx.send(m).is_err() {
+                Ok(m) => match in_tx.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|tx| tx.try_send(m)) {
+                    Some(Ok(())) => {}
+                    Some(Err(std::sync::mpsc::TrySendError::Full(_))) => {
+                        eprintln!("[net] {in_max} messages not taken: a flood, or a reader stuck; the link is closed");
                         break;
                     }
-                }
+                    Some(Err(std::sync::mpsc::TrySendError::Disconnected(_))) | None => break,
+                },
                 Err(_) => break,
             }
         }
+        // the frame maker holds the sender too: dropping it here is what closes the link
+        in_tx.lock().unwrap_or_else(|e| e.into_inner()).take();
         let _ = r.shutdown(std::net::Shutdown::Both);
     });
     Ok(Link { tx: out_tx, rx: in_rx })
@@ -468,22 +514,62 @@ mod tests {
     #[test]
     fn a_silent_peer_is_dropped_and_an_idle_one_is_not() {
         use std::time::{Duration, Instant};
-        let (ping, silent) = (Duration::from_millis(100), Duration::from_millis(600));
+        let silent = Duration::from_millis(600);
+        let lim = Limits { ping: Duration::from_millis(100), silent, ..Limits::TCP };
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = l.local_addr().unwrap();
         // a raw socket that never writes: a ghost
         let _ghost = TcpStream::connect(addr).unwrap();
-        let server: Link<ToClient, ToServer> = tcp_timed(l.accept().unwrap().0, ping, silent).unwrap();
+        let server: Link<ToClient, ToServer> = tcp_with(l.accept().unwrap().0, lim).unwrap();
         let t = Instant::now();
         assert!(matches!(server.rx.recv_timeout(silent * 5), Err(std::sync::mpsc::RecvTimeoutError::Disconnected)), "the ghost's link closes");
         assert!(t.elapsed() >= silent && t.elapsed() < silent * 4, "{:?}", t.elapsed());
         // two of our own ends, both idle for three silences: still open, nothing delivered
-        let client: Link<ToServer, ToClient> = tcp_timed(TcpStream::connect(addr).unwrap(), ping, silent).unwrap();
-        let server: Link<ToClient, ToServer> = tcp_timed(l.accept().unwrap().0, ping, silent).unwrap();
+        let client: Link<ToServer, ToClient> = tcp_with(TcpStream::connect(addr).unwrap(), lim).unwrap();
+        let server: Link<ToClient, ToServer> = tcp_with(l.accept().unwrap().0, lim).unwrap();
         assert!(matches!(server.rx.recv_timeout(silent * 3), Err(std::sync::mpsc::RecvTimeoutError::Timeout)));
         assert!(matches!(client.rx.recv_timeout(Duration::from_millis(10)), Err(std::sync::mpsc::RecvTimeoutError::Timeout)));
         client.send(ToServer::Respawn);
         assert_eq!(server.rx.recv_timeout(silent).unwrap(), ToServer::Respawn);
+    }
+
+    /// A flood fills the messages waiting to be taken past `in_max`: the link closes, with what came before it.
+    #[test]
+    fn a_flood_closes_the_link() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let client: Link<ToServer, ToClient> = tcp(TcpStream::connect(addr).unwrap()).unwrap();
+        let server: Link<ToClient, ToServer> = tcp_with(l.accept().unwrap().0, Limits { in_max: 100, ..Limits::TCP }).unwrap();
+        for _ in 0..150 {
+            client.send(ToServer::Respawn);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let mut got = 0;
+        let end = loop {
+            match server.rx.recv_timeout(std::time::Duration::from_secs(1)) {
+                Ok(_) => got += 1,
+                Err(e) => break e,
+            }
+        };
+        assert_eq!((got, end), (100, std::sync::mpsc::RecvTimeoutError::Disconnected), "the link closed at the 101st, after the 100 before it");
+    }
+
+    /// A peer that never reads: the bytes waiting to go out pass `out_max` and the link closes, the sender's
+    /// memory bounded.
+    #[test]
+    fn a_peer_that_never_reads_is_dropped() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let _deaf = TcpStream::connect(addr).unwrap();
+        let server: Link<ToClient, ToServer> = tcp_with(l.accept().unwrap().0, Limits { out_max: 8 << 20, ..Limits::TCP }).unwrap();
+        // 64 MiB offered; the socket's buffers take a few MiB, the queue 8
+        let piece = ToClient::Map { piece: 0, pieces: 1, bytes: vec![7; 1 << 20] };
+        for _ in 0..64 {
+            server.send(piece.clone());
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        assert!(matches!(server.rx.recv_timeout(std::time::Duration::from_secs(2)), Err(std::sync::mpsc::RecvTimeoutError::Disconnected)), "the link is closed");
     }
 
     /// A client that lacks the map gets it in pieces, and what the server sent meanwhile still comes, in order.

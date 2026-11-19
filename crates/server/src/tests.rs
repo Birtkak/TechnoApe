@@ -2911,6 +2911,25 @@ fn a_hello_takes_over_its_own_quiet_ghost() {
     assert_eq!((r.diverged, r.server.clients.len(), r.server.hash()), (None, 1, s.hash()));
 }
 
+/// A client gets each map once a connection, however often it asks: 64 asks a tick would queue a GB.
+#[test]
+fn a_map_is_sent_once_however_often_it_is_asked() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(1536, 32, 7, 0.0, 0, rx);
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    s.tick();
+    let h = s.world.bodies[0].map().unwrap().hash;
+    for _ in 0..3 {
+        c.send(ToServer::Map(h));
+    }
+    s.tick();
+    c.send(ToServer::Map(h));
+    s.tick();
+    let pieces = drain(&c).iter().filter(|m| matches!(m, ToClient::Map { .. })).count();
+    assert_eq!(pieces, engine::net::map_pieces(s.world.bodies[0].map().unwrap()).len());
+}
+
 /// The quit save waits for an autosave still writing: the two never share the temp file, and when
 /// `save_now` returns the save is whole and nothing writes any more.
 #[test]
