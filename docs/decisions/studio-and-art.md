@@ -88,6 +88,10 @@ renderer, no game; `tune="a; b; c"` runs the same from the argument and stops at
 - `film` is eight side views of a cycle drawn on the CPU over ground marks 25 cm apart that pass at the speed.
 - `save` rewrites only that row (`rows::save`, checked by the game's reader first); a running game and the Studio's
   window pick the file up as they do any save, so that is how a tuned value is shown to the developer.
+- `hand` chooses the first-person swing of `data/hand.toml` (ADR 0172) in a creature's place: `show`, `set`, `sweep`
+  and `save` on `engine::hand::RANGES`' keys, answered with `peak_s` (the strike's time), `return_s`, `travel_cm` (the
+  hand's end from its rest at the peak), `strike_m_s` (its fastest on the way in) and `chop_deg`. `save` sets only
+  the numbers' lines of the file, comments kept; the running game shows it within a second. No film: the game is its view.
 - Measured on the dev PC, debug build: 26 gaits and a film in 0.39 s.
 Alternatives rejected: driving the window's sliders through `shot= input=` (a renderer start and seconds a try);
 a socket into the running window (the file is already the link).

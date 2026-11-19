@@ -38,7 +38,7 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   `wait 0.5` shows what came of it. A crucible (ADR 0141): `use dx dy dz` opens it, `put a dx dy dz k n` and
   `take dx dy dz k a n` at its cell reach its slots (0 in, 1 fuel, 2 mould, 3 out, 4 the second input for an alloy),
   `cast dx dy dz <name>` chooses a cast's shape by the name of any row of it (`cast dx dy dz` alone none), `furnace` prints the open one's slots, heat, fire and work as one JSON line.
-- The hand's swing: `data/hand.toml` holds its numbers (length, curve, reach, aim, chop, the bare arm's pose; ADR 0172) and a running game reads it again within a second of a change.
+- (Tune it by numbers with `technoape-studio tune=-`, then `hand`, `set snap 3`, `save`; ADR 0171.) The hand's swing: `data/hand.toml` holds its numbers (length, curve, reach, aim, chop, the bare arm's pose; ADR 0172) and a running game reads it again within a second of a change.
 - Looking at something (`run=stand`, CLAUDE.md): `weather=clear` (or another `/weather` name) forces the weather from
   the start, `creatures=0` makes the local server keep no animals (no herd is made, live data is off, no save is read or written), so a fixed
   viewpoint is the same picture however long its load took (both on every line of `tests/views/views.txt`).

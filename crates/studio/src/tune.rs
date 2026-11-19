@@ -8,11 +8,15 @@
 //! `sweep <key> <from> <to> <n>` (n values measured; the row stays as it was),
 //! `film <png>` (eight side views of one cycle over a ground that moves at the speed),
 //! `save` (rewrites the row in the file: a running game and the Studio's window show it within a second).
+//! `hand` chooses the first-person swing of `data/hand.toml` (ADR 0172) in a creature's place: `show`, `set`,
+//! `sweep` and `save` work on its numbers and answer with the swing they make (a running game shows a save
+//! within a second; there is no film of it).
 use crate::js;
 use engine::creatures::{self, Creature, RANGES};
+use engine::hand::{self, Hand};
 use engine::models::Model;
 use engine::palette::Palette;
-use glam::{Mat4, Vec3};
+use glam::{DVec3, Mat4, Vec3};
 use std::path::{Path, PathBuf};
 
 /// Samples of one walk cycle.
@@ -100,6 +104,89 @@ fn gait_json(m: &Model, c: &Creature, speed: f32) -> String {
     match gait(m, c, speed) {
         Some(g) => format!("{{{head},\"cycle_s\":{:.3},\"sweep_m\":{:.3},\"drift_cm\":{:.2},\"slide_cm\":{:.2},\"sink_cm\":{:.2},\"hover_cm\":{:.2}}}", g.cycle_s, g.sweep_m, g.drift_cm, g.slide_cm, g.sink_cm, g.hover_cm),
         None => format!("{{{head},\"gait\":null}}"),
+    }
+}
+
+/// A swing of the hand by numbers.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Swing {
+    /// Seconds from its start to its peak (the strike); the rest of `seconds` is the way back.
+    pub peak_s: f64,
+    /// Centimetres the hand's end is from its rest at the peak.
+    pub travel_cm: f64,
+    /// Metres a second the hand's end moves at its fastest on the way in.
+    pub strike_m_s: f64,
+}
+
+pub fn swing(h: &Hand) -> Swing {
+    const K: usize = 400;
+    // any eye will do: lengths are the same in every frame
+    let (fwd, up) = (DVec3::Z, DVec3::Y);
+    let right = fwd.cross(up);
+    let t = |k: usize| h.seconds * k as f64 / K as f64;
+    let at = |k: usize| h.turn(h.curve(t(k)) as f64, fwd, right, up).transform_point3(h.hand_at(fwd, right, up));
+    let peak = (0..=K).max_by(|&a, &b| h.curve(t(a)).total_cmp(&h.curve(t(b)))).unwrap();
+    let fastest = (0..peak).map(|k| (at(k + 1) - at(k)).length() / t(1)).fold(0.0, f64::max);
+    Swing { peak_s: t(peak), travel_cm: (at(peak) - at(0)).length() * 100.0, strike_m_s: fastest }
+}
+
+fn swing_json(h: &Hand) -> String {
+    let s = swing(h);
+    format!("{{\"seconds\":{},\"peak_s\":{:.3},\"return_s\":{:.3},\"travel_cm\":{:.1},\"strike_m_s\":{:.2},\"chop_deg\":{:.1}}}", h.get("seconds"), s.peak_s, h.seconds - s.peak_s, s.travel_cm, s.strike_m_s, h.chop.to_degrees())
+}
+
+/// `old` (the file's text) with each number's line set to the hand's: comments and every other byte stay.
+fn hand_text(old: &str, h: &Hand) -> String {
+    let line = |l: &str| match hand::RANGES.iter().find(|r| l.starts_with(&format!("{} = ", r.0))) {
+        Some(r) => format!("{} = {:?}{}", r.0, h.get(r.0), &l[l.trim_end_matches(['\r', '\n']).len()..]),
+        None => l.to_string(),
+    };
+    old.split_inclusive('\n').map(line).collect()
+}
+
+/// One command on the hand.
+fn run_hand(h: &mut Hand, file: &str, line: &str, verb: &str, a: &[&str]) -> Result<String, String> {
+    let range = |key: &str, v: f32| match hand::RANGES.iter().find(|r| r.0 == key) {
+        Some(r) if (r.1..=r.2).contains(&v) => Ok(()),
+        Some(r) => Err(format!("{key} = {v} is outside {}..{} {}", r.1, r.2, r.3)),
+        None => Err(format!("no key '{key}' (the keys: {})", hand::RANGES.map(|r| r.0).join(", "))),
+    };
+    match (verb, a) {
+        ("hand" | "show", _) => {
+            let values: Vec<String> = hand::RANGES.iter().map(|r| format!("\"{}\":{}", r.0, h.get(r.0))).collect();
+            let ranges: Vec<String> = hand::RANGES.iter().map(|r| format!("\"{}\":[{},{}]", r.0, r.1, r.2)).collect();
+            Ok(format!("{{\"hand\":{},\"values\":{{{}}},\"ranges\":{{{}}},\"swing\":{}}}", js(file), values.join(","), ranges.join(","), swing_json(h)))
+        }
+        ("set", [key, v]) => {
+            let v = num(v)?;
+            range(key, v)?;
+            h.set(key, v);
+            Ok(swing_json(h))
+        }
+        ("sweep", [key, from, to, n]) => {
+            let (from, to, n) = (num(from)?, num(to)?, n.parse::<usize>().ok().filter(|n| (2..=200).contains(n)).ok_or("sweep: 2 to 200 values")?);
+            range(key, from)?;
+            range(key, to)?;
+            let rows: Vec<String> = (0..n)
+                .map(|i| {
+                    let (mut t, v) = (h.clone(), from + (to - from) * i as f32 / (n - 1) as f32);
+                    t.set(key, v);
+                    format!("{{\"v\":{v},\"swing\":{}}}", swing_json(&t))
+                })
+                .collect();
+            Ok(format!("{{\"sweep\":{},\"rows\":[{}]}}", js(key), rows.join(",")))
+        }
+        ("save", []) => {
+            let new = hand_text(&std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?, h);
+            let read = Hand::parse(&new)?;
+            if let Some(r) = hand::RANGES.iter().find(|r| read.get(r.0) != h.get(r.0)) {
+                return Err(format!("{file}: no line '{} = ...' to set", r.0));
+            }
+            crate::import::put_file(file, Some(new.as_bytes()))?;
+            Ok(format!("{{\"saved\":\"hand\",\"file\":{}}}", js(file)))
+        }
+        ("film" | "gait", _) => Err("the hand has neither: run the game, it shows a saved data/hand.toml within a second".into()),
+        _ => Err(format!("no command '{line}' (hand, show, set <key> <value>, sweep <key> <from> <to> <n>, save, quit)")),
     }
 }
 
@@ -204,6 +291,8 @@ pub struct Session {
     data: PathBuf,
     pal: Palette,
     cur: Option<(Creature, Model)>,
+    /// The hand, when it was chosen last.
+    hand: Option<Hand>,
     /// "walk", "run" or metres a second.
     speed: String,
 }
@@ -214,7 +303,7 @@ impl Session {
         let data = root.join("data");
         let pal = data.join("palette.toml");
         let pal = Palette::parse(&std::fs::read_to_string(&pal).map_err(|e| format!("{}: {e}", pal.display()))?)?;
-        Ok(Session { data, pal, cur: None, speed: "walk".into() })
+        Ok(Session { data, pal, cur: None, hand: None, speed: "walk".into() })
     }
 
     fn file(&self) -> String {
@@ -233,11 +322,18 @@ impl Session {
             let c = rows.iter().find(|c| c.name == rest).ok_or(format!("no creature '{rest}' (there are: {names})"))?.clone();
             let path = self.data.join("models").join(format!("{}.toml", c.model));
             let m = Model::parse(&c.model, &std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?, &self.pal)?;
-            (self.cur, self.speed) = (Some((c, m)), "walk".into());
+            (self.cur, self.hand, self.speed) = (Some((c, m)), None, "walk".into());
+        }
+        let hand_file = self.data.join("hand.toml").to_string_lossy().into_owned();
+        if verb == "hand" {
+            self.hand = Some(Hand::parse(&std::fs::read_to_string(&hand_file).map_err(|e| format!("{hand_file}: {e}"))?)?);
+        }
+        if let Some(h) = self.hand.as_mut() {
+            return run_hand(h, &hand_file, line, verb, &a);
         }
         let file = self.file();
-        let Session { data, pal, cur, speed } = self;
-        let (c, m) = cur.as_mut().ok_or("choose a row first: creature <name>")?;
+        let Session { data, pal, cur, speed, .. } = self;
+        let (c, m) = cur.as_mut().ok_or("choose first: creature <name>, or hand")?;
         let at = |c: &Creature, speed: &str| match speed {
             "walk" => c.walk_speed,
             "run" => c.run_speed,
@@ -293,7 +389,7 @@ impl Session {
                 crate::rows::save(&file, "creature", &c.name, &creatures::write_row(c), check)?;
                 Ok(format!("{{\"saved\":{},\"file\":{}}}", js(&c.name), js(&file)))
             }
-            _ => Err(format!("no command '{line}' (creature <name>, show, set <key> <value>, gait [walk|run|<m/s>], sweep <key> <from> <to> <n>, film <png>, save, quit)")),
+            _ => Err(format!("no command '{line}' (creature <name>, hand, show, set <key> <value>, gait [walk|run|<m/s>], sweep <key> <from> <to> <n>, film <png>, save, quit)")),
         }
     }
 }
@@ -363,10 +459,40 @@ mod tests {
         assert!((g.sweep_m - before.step).abs() < before.step * 0.35, "{g:?} for a step of {}", before.step);
     }
 
+    /// The shipped swing by hand: it peaks where its curve does and reaches 45 % of the way to the aim.
+    #[test]
+    fn the_hand_swing_is_measured_and_a_set_moves_it() {
+        let mut s = Session::new(Path::new("../..")).unwrap();
+        let line = s.run("hand").unwrap();
+        let h = s.hand.clone().unwrap();
+        let peak = h.seconds * (1.0 - 0.5f64.powf(1.0 / h.snap));
+        let way = (DVec3::new(0.0, 0.0, h.arm_hand[0] * h.aim) - DVec3::new(h.arm_hand[1], h.arm_hand[2], h.arm_hand[0])).length();
+        let sw = swing(&h);
+        assert!((sw.peak_s - peak).abs() < 0.002 && (sw.travel_cm - way * h.reach * 100.0).abs() < 0.1, "{sw:?}: peak {peak}, way {way}");
+        assert!(sw.strike_m_s > sw.travel_cm / 100.0 / sw.peak_s, "the fastest is over the mean: {sw:?}");
+        assert!(line.contains("\"peak_s\":") && line.contains("\"snap\":2"), "{line}");
+        // a sharper curve strikes sooner and faster; a longer reach goes further; the file's ranges hold
+        let sharp = s.run("set snap 4").unwrap();
+        assert!(field(&sharp, "peak_s") < sw.peak_s as f32 - 0.01 && field(&sharp, "strike_m_s") > sw.strike_m_s as f32, "{sharp}");
+        let far = s.run("set reach 0.9").unwrap();
+        assert!((field(&far, "travel_cm") - 2.0 * sw.travel_cm as f32).abs() < 0.2, "{far}");
+        assert!(s.run("set snap 9").unwrap_err().contains("snap = 9 is outside 1..6"));
+        assert_eq!(s.run("sweep seconds 0.1 0.5 5").unwrap().matches("\"v\":").count(), 5);
+        assert_eq!(s.hand.as_ref().unwrap().seconds, h.seconds, "a sweep keeps the numbers");
+        // saved text: only the numbers' lines change
+        let old = engine::hand::HAND_TOML;
+        assert_eq!(hand_text(old, &h), old);
+        let new = hand_text(old, s.hand.as_ref().unwrap());
+        assert_eq!(Hand::parse(&new).unwrap().get("snap"), 4.0);
+        assert_eq!(new.lines().filter(|l| l.starts_with('#')).count(), old.lines().filter(|l| l.starts_with('#')).count());
+        // back to a creature: the hand is put down
+        assert!(s.run("creature boar").unwrap().contains("\"gait\""));
+    }
+
     #[test]
     fn what_is_out_of_range_or_unknown_is_refused_by_name() {
         let mut s = Session::new(Path::new("../..")).unwrap();
-        assert!(s.run("set swing 20").unwrap_err().contains("creature <name>"));
+        assert!(s.run("set swing 20").unwrap_err().contains("creature <name>, or hand"));
         assert!(s.run("creature unicorn").unwrap_err().contains("boar"));
         s.run("creature boar").unwrap();
         assert!(s.run("set swing 200").unwrap_err().contains("swing = 200 is outside 0..90"));
