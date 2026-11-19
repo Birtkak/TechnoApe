@@ -231,6 +231,7 @@ impl Bot {
             }
             match got {
                 Recv::Msg(ToClient::Welcome { id, seed, bodies, blocks, items, gen }) => {
+                    engine::bodies::known_bodies(bodies.len()).unwrap_or_else(|e| panic!("{e}"));
                     assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
                     assert_eq!(items, engine::items::ITEMS.hash, "the server's build has other items (data/items.toml)");
                     // the baked map (ADR 0043): shared with a server in this process, from the disk, or fetched

@@ -128,7 +128,7 @@ pub(crate) const CPU_STAGES: [&str; 16] =
 pub(crate) const MAX_FX: usize = crate::fx::CAP[2] + crate::fx::CRACKS;
 /// The most bodies the GPU holds (the size of `bodies` in shader.wgsl, whose body ids are masked by `& 3u`):
 /// a stated limit (draft-n-bodies), checked at start by `bodies_fit`.
-pub(crate) const MAX_BODIES: usize = 4;
+pub(crate) const MAX_BODIES: usize = engine::bodies::MAX;
 
 /// Whether `n` bodies (`data/bodies.toml`'s rows) fit on the GPU; a world of more is refused at start, never
 /// drawn with a body id wrapped onto another body.

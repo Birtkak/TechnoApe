@@ -41,6 +41,7 @@ impl World {
     /// other's k times MOON_AT out, so a position names its frame by where it is (ADR 0022).
     pub fn of(rows: &[Row], list: Vec<(i32, Option<Arc<Map>>)>, seed: i32, warp: f64, gen: u8) -> Self {
         assert_eq!(rows.len(), list.len(), "a size and a map for every body");
+        assert!(rows.len() <= crate::bodies::MAX, "{} bodies; a world holds at most {}", rows.len(), crate::bodies::MAX);
         assert!((0.0..=1.0).contains(&warp), "warp= is 0 to 1");
         let moon = crate::bodies::moon(rows).expect("the home has a moon (bodies::parse)");
         // every body's interior from its row, its pull scaled by the first's (0162-planet-interior)
@@ -55,10 +56,13 @@ impl World {
             // one that circles the sun once a year by Kepler's law against the home's distance
             let month = match (row.parent, row.orbit) {
                 (Some(p), Some((k, min))) => {
+                    // (orbits in parent radii; the home's moon's from its row, which may come later)
+                    let q = |r: f64, (k, min): (f64, f64)| (r * k).max(min) / r;
                     let r = bodies[p].radius;
-                    b.orbit = r * ((r * k).max(min) / r);
-                    let q = |b: &Body, p: &Body| b.orbit / p.radius;
-                    let kepler = if i == moon { crate::sky::MONTH } else { crate::sky::MONTH * (q(&b, &bodies[p]) / q(&bodies[moon], &bodies[0])).powf(1.5) };
+                    let mine = q(r, (k, min));
+                    b.orbit = r * mine;
+                    let luna = q(bodies[0].radius, rows[moon].orbit.expect("a moon has an orbit (bodies::parse)"));
+                    let kepler = if i == moon { crate::sky::MONTH } else { crate::sky::MONTH * (mine / luna).powf(1.5) };
                     b.period = crate::sky::period(kepler);
                     Some(b.period)
                 }
@@ -244,7 +248,10 @@ impl World {
     /// sphere of influence, so gravity stays the same across the hand-over between frames.
     pub fn gravity(&self, p: DVec3) -> DVec3 {
         let f = self.frame_at(p);
-        let centre: Vec<DVec3> = (0..self.bodies.len()).map(|i| if i == f { self.nominal(f) } else { self.from_inertial(f, self.pose(i, self.time).centre) }).collect();
+        let mut centre = [DVec3::ZERO; crate::bodies::MAX];
+        for (i, c) in centre.iter_mut().enumerate().take(self.bodies.len()) {
+            *c = if i == f { self.nominal(f) } else { self.from_inertial(f, self.pose(i, self.time).centre) };
+        }
         let pull_at = |x: DVec3| -> DVec3 {
             (0..self.bodies.len())
                 .map(|i| {

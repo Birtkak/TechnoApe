@@ -617,6 +617,28 @@ fn a_world_of_four_rows_builds_and_poses_each_body_on_its_parent() {
     assert!(w.bodies[2].period < w.bodies[1].period && w.bodies[3].period > crate::sky::YEAR);
 }
 
+/// The home's first moon may come after a body round the sun and that body's moon (review of draft-n-bodies):
+/// a Terra, a Mars, a Phobos of Mars, then Luna build, Phobos's month reckoned against Luna's from the rows.
+#[test]
+fn the_homes_moon_may_come_last() {
+    let row = |name: &str, keys: &str| format!("[[body]]\nname = \"{name}\"\n{keys}generator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nkind = \"rocky\"\niron = 0.5\nheat = 0.5\ndensity = [2700.0, 3300.0, 7900.0]\n");
+    let text = [
+        row("Terra", "parent = \"sun\"\nhome = true\nn = 512\nsun = 2000.0\n"),
+        row("Mars", "parent = \"sun\"\nsize = 2.0\nsun = 6000.0\n"),
+        row("Phobos", "parent = \"Mars\"\nsize = 16.0\norbit = 8.0\n"),
+        row("Luna", "parent = \"Terra\"\nsize = 4.0\norbit = 30.0\n"),
+    ]
+    .concat();
+    let rows = crate::bodies::parse(&text).unwrap();
+    assert_eq!(crate::bodies::moon(&rows), Some(3));
+    let sizes = crate::bodies::sizes(&rows, 512, 128);
+    let w = World::of(&rows, sizes.iter().map(|&n| (n, None)).collect(), 3, 0.0, 0);
+    assert_eq!((w.moon, w.bodies[3].period), (3, crate::sky::MONTH));
+    // Phobos 8 of Mars's radii out against Luna's 30 of Terra's: a shorter month, a whole fraction of PERIOD
+    let k = crate::sky::PERIOD / w.bodies[2].period;
+    assert!(w.bodies[2].period < crate::sky::MONTH && k == k.round(), "{}", w.bodies[2].period);
+}
+
 /// Terra and Luna pose to the bit as the sky had them before the rows named parents.
 #[test]
 fn terra_and_luna_pose_as_the_sky_does() {

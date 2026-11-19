@@ -197,6 +197,16 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
     Ok(rows)
 }
 
+/// The most bodies a world holds: the renderer's four (client `gpu::MAX_BODIES`, the shaders' `& 3u` body ids),
+/// which `World::gravity` keeps on the stack too (draft-n-bodies).
+pub const MAX: usize = 4;
+
+/// A welcome's body list against this build's rows (the welcome has no version): one of another length is
+/// a server of another build, refused as `world::known_generation` refuses a newer world.
+pub fn known_bodies(n: usize) -> Result<(), String> {
+    if n == BODIES.len() { Ok(()) } else { Err(format!("the server has {n} bodies, this game {}: update the game", BODIES.len())) }
+}
+
 /// The home body's first moon: the one the sky's eclipses, tides and moonlight are of (`sky::Sky`).
 pub fn moon(rows: &[Row]) -> Option<usize> {
     rows.iter().position(|r| r.parent == Some(0))
@@ -271,6 +281,10 @@ mod tests {
         assert_eq!(BODIES[1].ground[0], BLOCKS.id("regolith"));
         assert_eq!(BODIES.iter().map(|r| (r.parent, r.home, r.bake)).collect::<Vec<_>>(), [(None, true, Some(Bake::Terra)), (Some(0), false, Some(Bake::Luna))]);
         assert_eq!((moon(&BODIES), sizes(&BODIES, 1536, 512), moon_columns(6144)), (Some(1), vec![1536, 512], 1664));
+        // a welcome of another number of bodies is a server of another build
+        assert!(known_bodies(BODIES.len()).is_ok());
+        let e = known_bodies(BODIES.len() + 1).unwrap_err();
+        assert!(e.contains("the server has 3 bodies, this game 2") && e.contains("update the game"), "{e}");
         assert_eq!((BODIES[0].n, BODIES[1].n), (6144, 1664), "6144 / 3.7 is 1660.5: 52 chunks");
         assert_eq!((find("home"), find("TERRA"), find("luna"), find("sun")), (Some(0), Some(0), Some(1), None));
         assert_eq!((find("planet"), find("moon")), (None, None), "the bodies go by their names (bugs/2026-11-11_13-10-42)");

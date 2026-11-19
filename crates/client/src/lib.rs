@@ -461,6 +461,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
     }
     let (my_id, mut world, seed) = match first {
         Ok(ToClient::Welcome { id, seed, bodies, blocks, items, gen }) => {
+            engine::bodies::known_bodies(bodies.len()).unwrap_or_else(|e| panic!("{e}"));
             assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
             assert_eq!(items, engine::items::ITEMS.hash, "the server's build has other items (data/items.toml)");
             // the baked maps (ADR 0043): the local server's in memory, else from the disk or the server
