@@ -232,6 +232,25 @@ impl Cave {
     }
 }
 
+/// One footprint's cave spans by column (`Body::cave_cols`): the columns any cave hollows, sorted, each with
+/// the start of its spans in `spans` (the next entry's start ends them; the last entry is an end mark), its
+/// spans the union of every cave's there, sorted and disjoint: a tube's column holds some 190 balls' spans.
+#[derive(Default)]
+pub(crate) struct CaveCols {
+    cols: Vec<(u16, u32)>,
+    spans: Vec<(i32, i32)>,
+}
+
+impl CaveCols {
+    /// Column k's spans (k = di + dj CS inside the footprint).
+    fn get(&self, k: u16) -> &[(i32, i32)] {
+        match self.cols[..self.cols.len() - 1].binary_search_by_key(&k, |c| c.0) {
+            Ok(n) => &self.spans[self.cols[n].1 as usize..self.cols[n + 1].1 as usize],
+            Err(_) => &[],
+        }
+    }
+}
+
 /// The light a layer-0 cell open down to the metal sea gives (draft the metal sea): a warm lamp's, as strong as the lamp block (25 open cells at 3.0 burnt a 5 x 5 shaft white).
 pub const CORE_LIGHT: [f32; 3] = [1.0, 0.66, 0.26];
 
@@ -291,6 +310,8 @@ pub struct Body {
     pub caves: Vec<Cave>,
     /// The caves by (face, level-0 chunk x, y) of every footprint a ball reaches, with a column to spare.
     cave_tiles: FxMap<(u8, i32, i32), Vec<u32>>,
+    /// Every column's cave spans, merged (`col_caves`), by the same footprints: made once in `set_caves`.
+    cave_cols: FxMap<(u8, i32, i32), CaveCols>,
     /// Ore bodies (ADR 0063), in the order they were made: their index is their id in the ledger. Every reader
     /// asks `ore_at` or `col_ores`. Set with `set_ores`.
     pub ores: Vec<crate::ore::OreBody>,

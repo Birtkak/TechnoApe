@@ -17,7 +17,7 @@ impl Body {
         // small bodies keep half their radius; the deep ground lies under the old floor, layer for layer
         let r0 = (radius - CRUST.min(radius * 0.5)) * (-lnq * deep_layers(n) as f64).exp();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { name: String::new(), air: false, parent: INERTIAL, orbit: 0.0, period: 0.0, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, warp: 0.0, layers, mantle: 0, gen: 0, noise, sea: None, core: None, interior: Interior::new(&BODIES[0].makeup, radius, crate::interior::spin(None), None), land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
+        Body { name: String::new(), air: false, parent: INERTIAL, orbit: 0.0, period: 0.0, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, warp: 0.0, layers, mantle: 0, gen: 0, noise, sea: None, core: None, interior: Interior::new(&BODIES[0].makeup, radius, crate::interior::spin(None), None), land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), cave_cols: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
     }
     /// The body on the deep grid (ADR 0152, step 1): the same grid carried on down `mantle_layers` more, layer 0
     /// at about R/sqrt 2; every layer above keeps its radius and gains that in index. Set before its map.
@@ -508,8 +508,52 @@ impl Body {
     /// air (`World::generated_under`, `generate` at level 0, `Solid::gaps`), over it they change nothing.
     /// shortcut: a cave's ball lies in its face's grid, so one across a seam is cut there; fine while caves
     /// stay clear of the seams (step 2 of W4 places them).
-    pub fn col_caves(&self, face: u8, i: i32, j: i32) -> Vec<(i32, i32)> {
+    /// The spans are each cave's merged into sorted, disjoint ones: every reader asks only which layers are hollow.
+    pub fn col_caves(&self, face: u8, i: i32, j: i32) -> &[(i32, i32)] {
+        let (x, y) = (i.div_euclid(CS), j.div_euclid(CS));
+        self.cave_cols.get(&(face, x, y)).map_or(&[], |t| t.get(((i - x * CS) + (j - y * CS) * CS) as u16))
+    }
+    /// `col_caves` as it was before the merged table: each cave's span in the cave order (the test's reference).
+    #[cfg(test)]
+    pub(crate) fn col_caves_slow(&self, face: u8, i: i32, j: i32) -> Vec<(i32, i32)> {
         self.tile_caves(face, i.div_euclid(CS), j.div_euclid(CS)).filter_map(|c| c.span(i, j)).collect()
+    }
+    /// Asserts `col_caves` is `col_caves_slow`'s union on the columns round every cave (a ring past its reach),
+    /// both sides of every seam on a band, and a spread over each face; the columns with a cave checked.
+    #[cfg(test)]
+    pub(crate) fn check_col_caves(&self) -> usize {
+        let union = |mut v: Vec<(i32, i32)>| {
+            v.sort_unstable();
+            let mut out: Vec<(i32, i32)> = Vec::new();
+            for (lo, hi) in v {
+                match out.last_mut() {
+                    Some(l) if lo <= l.1 => l.1 = l.1.max(hi),
+                    _ => out.push((lo, hi)),
+                }
+            }
+            out
+        };
+        let mut cols: Vec<(u8, i32, i32)> = Vec::new();
+        for c in &self.caves {
+            let r = c.r.ceil() as i32 + 3;
+            let (ci, cj) = (c.at.x.floor() as i32, c.at.y.floor() as i32);
+            cols.extend((ci - r..=ci + r).flat_map(|i| (cj - r..=cj + r).map(move |j| (c.face, i, j))));
+        }
+        for f in 0..6u8 {
+            for k in (0..self.n).step_by(7) {
+                cols.extend([(f, -1, k), (f, 0, k), (f, self.n - 1, k), (f, self.n, k), (f, k, -1), (f, k, self.n)]);
+                cols.extend((0..self.n).step_by(13).map(|j| (f, k, j)));
+            }
+        }
+        cols.sort_unstable();
+        cols.dedup();
+        let mut hollow = 0;
+        for (f, i, j) in cols {
+            let slow = self.col_caves_slow(f, i, j);
+            hollow += !slow.is_empty() as usize;
+            assert_eq!(self.col_caves(f, i, j), union(slow), "column ({f}, {i}, {j})");
+        }
+        hollow
     }
     /// The caves that reach level-0 footprint (x, y) of a face.
     pub(super) fn tile_caves(&self, face: u8, x: i32, y: i32) -> impl Iterator<Item = &Cave> {
@@ -526,6 +570,39 @@ impl Body {
                 }
             }
         }
+        // each cave's spans into its columns' footprints (a span needs |i + 0.5 - x| < r: inside `cells`' square,
+        // and inside the footprints `cave_tiles` gives it), then each column's merged
+        let mut cols: FxMap<(u8, i32, i32), Vec<(u16, i32, i32)>> = FxMap::default();
+        for c in &caves {
+            let r = c.r.ceil() as i32 + 1;
+            let (ci, cj) = (c.at.x.floor() as i32, c.at.y.floor() as i32);
+            for (i, j) in (ci - r..=ci + r).flat_map(|i| (cj - r..=cj + r).map(move |j| (i, j))) {
+                if let Some((lo, hi)) = c.span(i, j) {
+                    let (x, y) = (i.div_euclid(CS), j.div_euclid(CS));
+                    cols.entry((c.face, x, y)).or_default().push((((i - x * CS) + (j - y * CS) * CS) as u16, lo, hi));
+                }
+            }
+        }
+        self.cave_cols = cols
+            .into_iter()
+            .map(|(k, mut v)| {
+                v.sort_unstable();
+                let mut t = CaveCols::default();
+                for (col, lo, hi) in v {
+                    match t.spans.last_mut() {
+                        Some(last) if t.cols.last().is_some_and(|c| c.0 == col) && lo <= last.1 => last.1 = last.1.max(hi),
+                        _ => {
+                            if t.cols.last().is_none_or(|c| c.0 != col) {
+                                t.cols.push((col, t.spans.len() as u32));
+                            }
+                            t.spans.push((lo, hi));
+                        }
+                    }
+                }
+                t.cols.push((u16::MAX, t.spans.len() as u32));
+                (k, t)
+            })
+            .collect();
         self.caves = caves;
     }
     /// Puts these ore bodies in the ground, in place of any before.
