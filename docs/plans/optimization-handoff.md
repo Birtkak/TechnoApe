@@ -8,7 +8,7 @@ under "Prompt" into a new session; the rest of this file is what it points at.
 
 > Read `CLAUDE.md`, then `docs/plans/optimization-handoff.md` in full. Do the work packages there in order,
 > A first. Each package is: measure before, change, measure after, keep it only if the number moved, record
-> it in one ADR (`0025-optimisation-pass.md`, one table row per package, like ADR 0012) and commit it on its
+> it in one ADR (`archive/0025-optimisation-pass.md`, one table row per package, like ADR 0012) and commit it on its
 > own. Stop and ask the developer only where the file says "taste call". Do not run `tools/check.sh` per
 > package: use `cargo test`, the quick runs, and `bash tools/views.sh` for anything that touches pixels; run
 > the benchmark series once before A (the table in `docs/benchmarks.md` predates the lighting) and once at

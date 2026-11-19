@@ -25,7 +25,7 @@ depth, like heat, until something is dug.
 - **Rock:** deep openings need support, more with depth (ADR 0079's collapse rule, scaled by pressure).
 - **The ape and machines:** a pressure limit per suit and machine tier, gating the dig with heat.
 - **Rock and ore kinds:** which form at which depth (diamond only under high pressure). *Built*
-  (`docs/decisions/0158-pressure-and-formation.md`): `Body::pressure` is the generated weight above a cell
+  (`docs/decisions/rock-minerals-and-ore.md`): `Body::pressure` is the generated weight above a cell
   (rock by zone density, water, one atmosphere at the top, the gravity inside the body), about 10 MPa at the
   crust's floor and 82 MPa at the mantle's under the 4 km planet's spawn. The mantle's rocks take over by
   pressure and heat (`data/rocks.toml` `[[mantle.rock]]`, each boundary moving with the province's heat), and a
@@ -67,7 +67,7 @@ Luna is cold: no liquid core, no field, which is already why its surface is irra
 - The outer core is **counted liquid** (`progression.md`, "Water and rock are counted"), but as **one level for
   the whole planet**, like the open sea's account: a connected liquid shell finds one level, so nothing is stored
   per column; metal taken out lowers that level and a ledger on the server counts it, as for ore (ADR 0063).
-  Today it is generated at the mantle's floor and nothing can take it yet (`docs/decisions/0156-the-metal-sea.md`).
+  Today it is generated at the mantle's floor and nothing can take it yet (`docs/decisions/deep-world.md`).
 - **Field strength = liquid metal left / liquid metal at the start.** Pumping it out, or letting it cool solid,
   lowers it. Whether it can be poured back is open.
 - What a weak field costs, in the order it is felt (*proposal* for the thresholds):

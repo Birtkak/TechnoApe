@@ -10,17 +10,20 @@ code, data and decisions do not apply; do not look for them or rebuild them from
 developer asks.
 
 Ground truth: `docs/design/vision.md`; what the code must be able to do (feel, expandability, performance,
-testing): `docs/design/fundamentals.md`; the ages: `docs/design/progression.md`. Decisions: `docs/decisions/`
-(ADR 0001-0010, read them first).
+testing): `docs/design/fundamentals.md`; the ages: `docs/design/progression.md`. Decisions: the topic documents in
+`docs/decisions/` state what holds today (start with `vision-and-scope.md`); `docs/decisions/INDEX.md` resolves
+any "ADR NNNN" in code or docs to its topic and state; the numbered records are in `docs/decisions/archive/`.
 Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
 
 ## Working principles
 
 1. **Foundation over speed.** Spike alternatives in `prototypes/` and measure before committing.
-2. **An ADR for what is hard to undo or was the developer's call** (taste, scope, a format on disk or on the
-   wire, a library, a rule of the world; `docs/decisions/NNNN-title.md`, template `0000-adr-template.md`).
-   Every other choice is recorded in its commit body. A branch writes its ADR as `draft-<slug>.md`; it takes
-   the next free number when it is merged into main.
+2. **Decisions live in the topic documents** (`docs/decisions/*.md`, what holds today). A choice that is hard to
+   undo or was the developer's call (taste, scope, a format on disk or on the wire, a library, a rule of the
+   world) is recorded there as a dated entry under its topic, in the form of `0000-adr-template.md`, and
+   given the next number so code can cite it ("ADR 0168"); the index gets its line, and what the entry
+   replaces moves to the topic's "No longer holds". Every other choice is recorded in its commit body. No
+   new file per decision: a branch writes its entry in the topic document and takes its number at merge.
 3. **Ask the developer only for taste, scope and direction calls.** Routine technical calls: a sensible
    default, recorded.
 4. **Give yourself a check to run** before asking the developer to look: `cargo test` for logic, the headless
@@ -48,7 +51,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
     the task, not the author's summary). Fix or answer each finding; the merge commit says what the review found.
 13. **The tool tier is lighter** (the developer, 2026-11-12: too much waiting on checks that did not matter).
     A change that touches only `crates/studio`, `tools/` and `docs/` needs its tests and, for something seen,
-    a shot that was read; red then green still holds. It gets **one ADR per round**, not per step, and a
+    a shot that was read; red then green still holds. It gets **one decision entry per round**, not per step, and a
     fresh reviewer only when the diff is over about 300 lines. Such a branch is **merged into main without
     asking** once its tests pass, `build/` is refreshed, and the developer is told after. Anything in
     `crates/engine`, `crates/server`, `crates/client` or a shader keeps principles 2 and 12 in full;
@@ -78,7 +81,7 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   `~/Tools/rust/cargo/bin` to PATH. wgpu 30, winit 0.30 (versions from the engine spike).
 - Release builds for any performance number: fat LTO, one codegen unit, `target-cpu=native`. The one exception:
   the gate's speed guard runs the `play` build (no LTO) against its own baseline, so the gate needs no fat-LTO link.
-- Libraries per system are chosen when the system is built, each in its own ADR.
+- Libraries per system are chosen when the system is built, each with its own decision entry.
 - Workspace: `crates/engine` (the Pillars of Simulation Engine: world on the cube-sphere grid, meshing, streaming, the player protocol; no
   window or GPU), `crates/server` (the authoritative world; binary `technoape-server`), `crates/bot` (windowless scripted
   players; binary `technoape-bot`) and `crates/client`
