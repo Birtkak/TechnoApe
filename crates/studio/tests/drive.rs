@@ -857,3 +857,35 @@ fn the_wall_takes_its_keys_only_when_it_is_the_one_seen() {
     let line = studio(&dir, &["size=1600x420", "rects=1", "cmd=open:Maps:clouds,variations", "input=click @wall:3; wait; move @wall:0; wheel -40; wait; wait; key Enter; wait"]);
     assert!(line.contains("\"wall:0\"") && !line.contains("Variation"), "Enter used a pick scrolled out of sight: {line}");
 }
+
+/// `tune=`: a row's numbers tried with no window. `save` rewrites only that row; a refusal exits 1 and writes
+/// nothing; on stdin a refusal is a line and the session goes on.
+#[test]
+fn tune_sets_measures_films_and_saves_one_row() {
+    let dir = scratch("tune");
+    let before = std::fs::read_to_string(dir.join("data/creatures.toml")).unwrap();
+    let run = |script: &str| {
+        let out = Command::new(env!("CARGO_BIN_EXE_technoape-studio")).current_dir(&dir).arg(format!("tune={script}")).output().unwrap();
+        (out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned())
+    };
+    let (ok, text) = run("creature boar; set swing 21; film out/boar.png; save");
+    assert!(ok && text.lines().count() == 4 && text.contains("\"slide_cm\":") && text.contains("\"saved\":\"boar\""), "{text}");
+    assert_eq!(creature(&dir, "boar").swing, 21.0);
+    let (w, h, px) = png(&dir.join("out/boar.png"));
+    assert_eq!((w, h), (1600, 150));
+    assert!(px.chunks(4).filter(|p| p[..3] != [34, 34, 38]).count() > 4000, "the film shows no creature");
+    let after = std::fs::read_to_string(dir.join("data/creatures.toml")).unwrap();
+    ends_kept(&before, &after);
+    let (b, a) = (before.replace("\r\n", "\n"), after.replace("\r\n", "\n"));
+    assert_eq!(b.replacen(row(&b, "[[creature]]", "boar"), "", 1), a.replacen(row(&a, "[[creature]]", "boar"), "", 1), "a line outside the row changed");
+    let (ok, text) = run("creature boar; set swing 200; save");
+    assert!(!ok && text.contains("swing = 200 is outside 0..90") && !text.contains("saved"), "{text}");
+    assert_eq!(std::fs::read_to_string(dir.join("data/creatures.toml")).unwrap(), after);
+    use std::io::Write;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_technoape-studio")).current_dir(&dir).arg("tune=-").stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(b"creature boar\nset swing 200\ngait run\nquit\n").unwrap();
+    let out = child.wait_with_output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(out.status.success() && lines.len() == 3 && lines[1].starts_with("{\"error\":") && lines[2].contains("\"cycle_s\":"), "{text}");
+}

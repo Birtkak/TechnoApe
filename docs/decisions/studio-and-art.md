@@ -74,6 +74,26 @@ map files it writes, and the painted looks of blocks, plants and figures. Number
   thing. The Studio keeps the game it started and its stdin (`shell::game_line`); it does not wait for it or close it
   [0046].
 
+### Tuning by numbers: `tune=` [0171, 2026-11-19]
+The developer asked that values (an animal's walk, the tool's swing) be tried fast, without a window. `technoape-studio
+tune=-` (`crates/studio/src/tune.rs`) is a session on stdin: one command a line, one JSON line back, no window, no
+renderer, no game; `tune="a; b; c"` runs the same from the argument and stops at the first refusal (exit 1).
+- Commands: `creature <name>`, `show`, `set <key> <value>` (refused outside the key's range in
+  `engine::creatures::RANGES`), `gait [walk|run|<m/s>]`, `sweep <key> <from> <to> <n>`, `film <png>`, `save`, `quit`.
+- A walk is judged by numbers taken from the clip `engine::creatures::walk` makes, 96 samples a cycle, each leg's foot
+  the middle of the underside of its lowest part: `sweep_m` (metres the foot moves back under the body on the
+  ground), `drift_cm` (the step less the sweep: over 0 the feet skate, under 0 they push back faster than the ground),
+  `slide_cm` (every slip of one step added up, the worst leg's), `sink_cm` and `hover_cm` (the foot under the ground,
+  or over it while it should be on it). A foot is on the ground for the half cycle in which it slips least.
+- `film` is eight side views of a cycle drawn on the CPU over ground marks 25 cm apart that pass at the speed.
+- `save` rewrites only that row (`rows::save`, checked by the game's reader first); a running game and the Studio's
+  window pick the file up as they do any save, so that is how a tuned value is shown to the developer.
+- Measured on the dev PC, debug build: 26 gaits and a film in 0.39 s.
+Alternatives rejected: driving the window's sliders through `shot= input=` (a renderer start and seconds a try);
+a socket into the running window (the file is already the link).
+Open: a pendulum leg never plants its foot (`slide_cm` stays near a third of the step at its best); a walk whose
+feet stay put would be a change to `engine::creatures::walk`.
+
 ## Pages and layout
 
 - **Nine pages** (`look::PAGES`): Textures, Palette, Models, Sounds, Effects, Structures, Fauna, Plants, Maps. Ctrl+1..9

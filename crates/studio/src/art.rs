@@ -276,7 +276,14 @@ pub fn check_data(data: &Path) -> Result<(usize, usize, Vec<String>), String> {
 /// `data/creatures.toml` through the game's own reader (ADR 0053): its models from `data/models`, its sounds from
 /// `data/sounds.toml`; the refusal, naming the row. No file is no refusal.
 pub fn check_creatures(data: &Path, pal: &Palette) -> Option<String> {
-    let text = std::fs::read_to_string(data.join("creatures.toml")).ok()?.replace("\r\n", "\n");
+    creatures_refused(data, pal, &std::fs::read_to_string(data.join("creatures.toml")).ok()?)
+}
+
+/// Why the game's reader refuses this text as `data/creatures.toml`, checked against the models and sounds of `data`.
+pub fn creatures_refused(data: &Path, pal: &Palette, text: &str) -> Option<String> {
+    let text = text.replace("
+", "
+");
     let sounds = std::fs::read_to_string(data.join("sounds.toml")).unwrap_or_default();
     let sounds: Vec<String> = crate::rows::spans(&sounds).into_iter().filter(|s| s.header == "sound").map(|s| s.name).collect();
     let model = |n: &str| std::fs::read_to_string(data.join("models").join(format!("{n}.toml"))).ok().and_then(|t| engine::models::Model::parse(n, &t, pal).ok());

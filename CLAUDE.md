@@ -117,6 +117,9 @@ Plan: `docs/plans/roadmap.md`. Prototype results: `prototypes/*/README.md`.
   texture; exit 1 names file and pixel), `drafts=1` (`data/drafts.txt`), `render=<png> sheet=out/x.png` (3 x 3),
   `shot=out/x.png [open=<block>] [page=palette]` (one frame of the window off-screen; read it, never open the window),
   `map=<name> out=out/x.png [frame=k]` (a map of `data/maps/` drawn, an animated one as a strip; ADR 0153).
+  **Tuning** (ADR 0171): `tune=-` is a session on stdin, one JSON line a command, no window: `creature boar`,
+  `set swing 28`, `gait run`, `sweep swing 10 50 9`, `film out/x.png`, `save` (the walk by numbers: foot slide, drift,
+  sink, hover); use it, not shots, to tune a gait.
 - **Bug reports:** F9 writes `bugs/<UTC time>/`: `report.md` (the developer's words, a run=stand line for the
   same view, the F3 state, the chat), `screen.png`, and `world.sav` when there was a save. When asked to look
   at bugs, read those first.
