@@ -249,6 +249,8 @@ pub fn fetch_map(link: &mut Link<ToServer, ToClient>, seed: i32, n: i32, hash: u
                     break;
                 }
             }
+            // held no further than the link's inbound bound (`Limits::in_max`), as the link itself
+            Ok(_) if held.len() >= Limits::TCP.in_max => return Err(format!("over {} messages came while the map did", Limits::TCP.in_max)),
             Ok(m) => held.push(m),
             Err(e) => return Err(format!("the server's map did not come: {e}")),
         }
@@ -257,12 +259,17 @@ pub fn fetch_map(link: &mut Link<ToServer, ToClient>, seed: i32, n: i32, hash: u
     if map.hash != hash {
         return Err("the server's map is not the one it named".into());
     }
-    let (tx, rx) = channel();
-    for m in held {
-        let _ = tx.send(m);
-    }
+    // the link's bound kept: the new channel is bounded too, and the thread that fills it waits while it is
+    // full, so the old one fills behind it and a TCP link closes as it would have. No deadlock: only that
+    // thread waits, on the reader of `link.rx`, and its send fails once the link is dropped
+    let (tx, rx) = std::sync::mpsc::sync_channel(Limits::TCP.in_max);
     let old = std::mem::replace(&mut link.rx, rx);
     std::thread::spawn(move || {
+        for m in held {
+            if tx.send(m).is_err() {
+                return;
+            }
+        }
         for m in old {
             if tx.send(m).is_err() {
                 break;
@@ -640,6 +647,25 @@ mod tests {
         assert_eq!(client.rx.recv().unwrap(), ToClient::Chat("before".into()));
         assert_eq!(client.rx.recv().unwrap(), ToClient::Chat("after".into()));
         assert!(crate::bake::find(-12345, 3072, Some(hash)).is_some(), "kept");
+    }
+
+    /// What comes during a download is held, but no more than the link's inbound bound: past it the download
+    /// fails, as the link would have closed.
+    #[test]
+    fn a_download_holds_no_more_than_the_inbound_bound() {
+        let cells = 6 * 384 * 384;
+        let bytes = crate::bake::Map { version: crate::bake::VERSION, seed: -12347, n: 3072, m: 384, h: vec![2.0; cells], biome: vec![4; cells], rock: vec![0; cells], ..crate::bake::Map::empty() }.to_bytes();
+        let map = crate::bake::Map::from_bytes(&bytes).unwrap();
+        let _ = std::fs::remove_file(crate::bake::file(-12347, 3072));
+        let (mut client, server) = local::<ToServer, ToClient>();
+        let hash = map.hash;
+        for _ in 0..Limits::TCP.in_max + 1 {
+            server.send(ToClient::Chat("meanwhile".into()));
+        }
+        for p in map_pieces(&map) {
+            server.send(p);
+        }
+        assert!(fetch_map(&mut client, -12347, 3072, hash).is_err());
     }
 
     /// The download reports each piece as it comes (received / total) and ends at 1.
