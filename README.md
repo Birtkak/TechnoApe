@@ -9,24 +9,68 @@ Rust + wgpu, and is multiplayer from the first version: singleplayer is a local 
 **[Watch the two-minute concept trailer](docs/media/technoape-trailer-720p.mp4)** (720p, 25 MB). It is a
 concept cinematic of where the game is headed, not gameplay footage.
 
+## In the game
+
+Recorded from the game itself, as it runs today.
+
+| | |
+|:---:|:---:|
+| ![Terra turning, day into night](docs/media/terra.gif) | ![Clouds and their shadows over a coast](docs/media/clouds.gif) |
+| **Terra**, baked from a seed, turning from day into night | **Weather:** clouds and their shadows drifting over a coast |
+| ![The aurora](docs/media/aurora.gif) | |
+| **The aurora**, drawn from the planet's magnetic field | |
+
 ## Status
 
 In development since 2026-11-09, by one developer working with Claude Code. This is a personal project shown
 as it is: there are no releases, the code changes daily, and nothing here is promised to work on your machine.
 
-What exists today:
-- **Planets from a seed.** Terra is baked with plates, erosion, rivers, climate and life; Luna with craters,
-  maria and lava tubes. A third body, Mars, has its map and is not in the world yet.
-- **A deep world.** A mantle and a liquid metal core under the crust, pressure that decides which rock forms,
-  ore placed by the rock it belongs in, and caves by rock: lava tubes, fissures and karst.
-- **A living surface.** Weather, seasons, tides, plants and animals; a day and night sky with eclipses and an
-  aurora that follows the planet's magnetic field.
-- **Survival.** Digging by how rock cracks, an inventory, first tools and crafting.
-- **Multiplayer.** An authoritative dedicated server, clients that predict, scripted bots, recordings that
-  replay to the same state.
+## Roadmap
 
-Machines, automation and the journey to orbit come next: `docs/plans/roadmap.md`. The story is in
-`docs/design/lore.md`.
+The full plan, with dates and the decision behind each step, is in
+[`docs/plans/roadmap.md`](docs/plans/roadmap.md). The story is in [`docs/design/lore.md`](docs/design/lore.md).
+
+### Done
+
+| Area | What is built |
+|:-----|:--------------|
+| **Engine** | Rust + wgpu from scratch · cube-sphere planets of 1 m blocks · streaming and meshing on worker threads · ray-traced light with coloured block light and soft shadows |
+| **Terra** | Baked from a seed: plates, mountains, erosion, rivers and lakes, climate, biomes · seasons, weather, tides · plants and herds of animals |
+| **Luna** | Craters, maria and polar shadow · highland and mare rock · ilmenite, merrillite and meteoritic iron · lava tubes with skylights |
+| **The deep world** | Mantle and liquid metal core · gravity and pressure from each body's mass · rock that forms by pressure and heat · lava tubes, fissures and karst caves by rock |
+| **The sky** | Day and night, eclipses, Luna's phases · a magnetic field per body, seen as the aurora · a seamless flight from the ground to orbit and over to Luna |
+| **Survival** | Digging along a rock's own cracks · rubble, piles and undercut roofs that fall · inventory, flint tools, first crafting · thirst and breath |
+| **Multiplayer** | Authoritative dedicated server · client prediction · scripted bots · recordings that replay to the same state · saves of what changed |
+| **Tools** | The Studio for textures, models, effects, sounds and maps · a gate of tests, a 50-bot soak, a speed guard and fixed viewpoints |
+
+### In work
+
+- [ ] **Mars** as a third body: its map is baked (highlands, giant volcanoes, a canyon, dry rivers, ice caps); next it joins the world
+- [ ] **Speed:** winning back the frame time the deep world cost
+
+### To do
+
+- [ ] **Needs and the journal:** health, hunger, death's cost, and a book that fills in as the ape learns by doing
+- [ ] **Mining in depth:** blasting, chiselled blocks, collapse, felled trees
+- [ ] **Blueprints:** capture a build, name it, paste it, pay its materials from storage
+- [ ] **Crafting and the first machines**, then the three networks: shafts, pipes and wires
+- [ ] **The climb to orbit by your own means:** the jetpack, rockets, real orbits
+- [ ] **Core mining:** draining a planet's liquid core weakens its magnetic field, and the planet pays for it
+- [ ] **More bodies:** a gas giant you can dive into, icy moons, other stars
+
+### The ages
+
+The game is played through ages, each ending in a megaproject the player designs:
+
+| Age | The megaproject |
+|:----|:----------------|
+| **Steam** | One shaft drives a line that turns raw ore into ingots for a full day, untouched |
+| **LV** | A steady power grid held through a day and a night |
+| **MV** | A railway once around the planet |
+| **HV** | A power ring that runs three days without burning fuel |
+| **EV** | A satellite in a stable orbit, and the first visit to Luna |
+| **IV** | A moon base that keeps an ape alive with nothing delivered |
+| **Exotic** | The Ark: a ship that sustains itself and leaves for the next planet |
 
 ## Build and run
 
