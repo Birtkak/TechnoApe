@@ -1,4 +1,4 @@
-# NNNN – The Mars-like planet's baked map (planet-model step 5a)
+# 0167 – The Mars-like planet's baked map (planet-model step 5a)
 
 - **Status:** proposed
 - **Date:** 2026-11-19
@@ -31,7 +31,7 @@ stage lock, `made_hash` bfb878ce14d32b75), deterministic from seed and row, unde
 by the game):
 
 ```toml
-name = "Mars"            # a working name, the developer's to change
+name = "Mars"            # the developer's call, 2026-11-20
 parent = "sun"
 stages = ["crust", "impacts", "volcanism", "erosion", "ice"]
 size = 1.85              # 3328 columns, 104 chunks = 13 x 8 (as Luna's 52 = 13 x 4); 2300 m radius
