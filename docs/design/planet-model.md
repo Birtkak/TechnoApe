@@ -118,7 +118,7 @@ inside a sphere of influence. The model is shaped now so real orbits need no sec
    `report=1`), replacing the constants; Terra and Luna come out identical (hash and bit locks). Left for later
    steps: the geotherm and the regime.
 2. **Built (0163-n-bodies):** N bodies instead of two. A row names its `parent` (the sun or a row above it),
-   whether it is the `home` (the first row) and its `bake`; a body is posed on its parent's pose (Terra and Luna
+   whether it is the `home` (the first row) and its `bake` (since step 4 its `stages`); a body is posed on its parent's pose (Terra and Luna
    to the bit as before; one round the sun that is not home on a plain ring until real orbits). Saves (version
    22), Welcome and recordings carry every body's columns and map as a list; version 21 and old recordings read
    as Terra and Luna. `planet=`/`moon=` unchanged. The GPU's four bodies are a stated limit, refused at start.
@@ -128,7 +128,14 @@ inside a sphere of influence. The model is shaped now so real orbits need no sec
    and wire field core mining must add), and its first effect, the aurora: an oval at 70° latitude at field 1 that
    widens toward the equator and dims as the field falls, none under 0.02 (Luna). `field=x` scales it for a run.
 4. **One bake pipeline.** Terra's and Luna's bakes become stages of one; Luna gets a rock field, and with it
-   ore and caves by rock.
+   ore and caves by rock. **First half built (0165-bake-stages):** a row lists its `stages` in the order they
+   run (`plates`, `erosion`, `climate`, `ice`, `life` for Terra; `crust`, `impacts`, `ice`, `volcanism` for
+   Luna), `bake::run` calls each on what the ones before made and `bake::check` refuses a list whose stage lacks
+   what it needs (two crusts are built: plates, and an old crust without them; crossing them, craters on plates
+   or rivers on a crust, is the Mars step's). Both maps come out to the bit (the cached files stay valid).
+   Generation 4 gives Luna a rock field read from her map's kinds (no new bytes): anorthosite highlands, mare
+   basalt over anorthosite in the maria, KREEP over anorthosite round the largest mare; `rocks.toml` rows gained
+   `body`. Left for the second half: ore and caves by rock on Luna, and her row's stopgaps.
 5. **The Mars-like planet**, the first body made only from a row.
 6. Later: the gas kind and its moons; icy bodies; other stars.
 

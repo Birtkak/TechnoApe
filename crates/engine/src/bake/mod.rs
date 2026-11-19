@@ -119,20 +119,17 @@ pub struct Map {
 }
 
 impl Map {
-    /// Bakes the planet of `n` columns per face edge from `seed`. Seconds: 22 for the 4 km planet on 8 threads.
+    /// Bakes Terra's planet of `n` columns per face edge from `seed` (her stages, `Stage::TERRA`). Seconds: 22 for
+    /// the 4 km planet on 8 threads.
     pub fn bake(seed: i32, n: i32) -> Map {
         Map::bake_with(seed, n, &land::Params::default())
     }
     /// `bake` with other land parameters (tests: smaller rivers on a small planet).
     pub fn bake_with(seed: i32, n: i32, p: &land::Params) -> Map {
-        Map::bake_life(seed, n, p, &life::LifeParams::default())
+        run_with(&Stage::TERRA, seed, n, p)
     }
-    /// `bake_with` with other life parameters (the older versions' climate rules).
-    fn bake_life(seed: i32, n: i32, p: &land::Params, lp: &life::LifeParams) -> Map {
-        let t = std::time::Instant::now();
-        let s = seed as u32 as u64;
-        let mut b = land::bake(n as u32, s, p);
-        let l = life::life(&b, s, lp);
+    /// The map of a bake on plates once its `life` stage has run (`run_with`).
+    fn of_life(seed: i32, n: i32, mut b: land::Bake, l: life::Life, t: std::time::Instant) -> Map {
         let h = b.h.clone();
         let lakes = (0..b.g.n()).filter(|&c| b.lake(c)).map(|c| (c as u32, b.lvl[c])).collect();
         let flow = l.flow.clone();
@@ -149,14 +146,15 @@ impl Map {
     }
     /// The bake of version 5, before the peaks were stretched (ADR 0105): what a save made on one plays on.
     pub fn bake_v5(seed: i32, n: i32) -> Map {
-        let mut m = Map::bake_life(seed, n, &land::Params { peak_extra_m: 0.0, ..Default::default() }, &life::LifeParams::capless());
+        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params { peak_extra_m: 0.0, ..Default::default() });
         m.version = 5;
         m.finish(&m.to_bytes());
         m
     }
-    /// The bake of version 6, before the polar caps (ADR 0107): what a save made on one plays on.
+    /// The bake of version 6, before the polar caps (ADR 0107; Terra's stages without `ice`): what a save made on
+    /// one plays on.
     pub fn bake_v6(seed: i32, n: i32) -> Map {
-        let mut m = Map::bake_life(seed, n, &land::Params::default(), &life::LifeParams::capless());
+        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params::default());
         m.version = 6;
         m.finish(&m.to_bytes());
         m
@@ -230,8 +228,9 @@ impl Map {
             || m.lakes.iter().any(|&(c, l)| c as usize >= cells || !l.is_finite())
             || m.lakes.windows(2).any(|w| w[0].0 >= w[1].0)
             || m.tubes.iter().any(|&(c, d, r)| c as usize >= cells || !(d.is_finite() && d.abs() < 64.0) || !(r > 0.0 && r < 16.0));
-        // Luna's maps (`luna::VERSION`) hold no rock provinces: its rock is its kind of ground's
-        let rocks = if m.version >= 5 && m.version != luna::VERSION { m.rock.len() == cells && m.rock.iter().all(|&r| (r as usize) < rock::NAMES.len()) } else { m.rock.is_empty() };
+        // Luna's maps (`luna::VERSION`) hold no rock provinces: her rock is her kinds' (`Map::rock`); a Terra map's
+        // are Terra's
+        let rocks = if m.version >= 5 && m.version != luna::VERSION { m.rock.len() == cells && m.rock.iter().all(|&r| r <= rock::OCEAN) } else { m.rock.is_empty() };
         if !known || bad || !rocks || m.h.len() != cells || m.biome.len() != cells {
             return Err(format!("a map of version {} with {} cells, not {VERSION} and {cells}", m.version, m.h.len()));
         }
@@ -339,7 +338,11 @@ impl Map {
         (s, r.max(0.0))
     }
     /// The rock province of the cell that holds face point (x, y), in cells; None on a map from before the rock.
+    /// Luna's from her kinds (`luna::province`; a world asks it from generation 4, `Body::rock_at`).
     pub fn rock(&self, face: usize, x: f64, y: f64) -> Option<u8> {
+        if self.version == luna::VERSION {
+            return Some(luna::province(self.biome(face, x, y)));
+        }
         if self.rock.is_empty() {
             return None;
         }
@@ -353,6 +356,107 @@ impl Map {
         let (f, i, j) = fold(face, x.floor() as i32, y.floor() as i32, m);
         self.biome[(f * m as usize + j as usize) * m as usize + i as usize]
     }
+}
+
+/// A stage of the one bake (0165-bake-stages; planet-model.md section 3): a body's row lists the stages it
+/// runs, in their order (`data/bodies.toml` `stages`), and `run` calls each on what the ones before it made.
+/// Two crusts are built: `plates` (Terra's: plates, boundaries, their uplift) and `crust` (Luna's: an old crust
+/// without plates); `check` says which stage needs which before it.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Stage {
+    Plates,
+    Crust,
+    Impacts,
+    Volcanism,
+    Erosion,
+    Ice,
+    Climate,
+    Life,
+}
+
+impl Stage {
+    /// Terra's bake (ADR 0043): her ice is the polar caps, which the `life` stage lays (ADR 0107).
+    pub const TERRA: [Stage; 5] = [Stage::Plates, Stage::Erosion, Stage::Climate, Stage::Ice, Stage::Life];
+    /// Terra's bake before the polar caps (map versions 5 and 6).
+    pub const TERRA_ICELESS: [Stage; 4] = [Stage::Plates, Stage::Erosion, Stage::Climate, Stage::Life];
+    /// Luna's bake (ADR 0070): her maria flood among the impacts when `volcanism` runs, which then lays the
+    /// thorium province and the lava tubes; her ice is the polar shadow.
+    pub const LUNA: [Stage; 4] = [Stage::Crust, Stage::Impacts, Stage::Ice, Stage::Volcanism];
+    fn name(self) -> String {
+        format!("{self:?}").to_lowercase()
+    }
+}
+
+/// Whether a list of stages can be baked: it starts with a crust (`plates` or `crust`), names no stage twice, and
+/// every stage has what it needs before it. What a stage needs is what today's code reads: on plates, `erosion`
+/// then `climate` then `life` (whose biomes are the map's ground), and `ice` is the caps `life` lays, so it comes
+/// between `climate` and `life`; on a crust without plates, `impacts`, then `volcanism` and `ice`. The other
+/// pairs (craters on plates, rivers or air on a crust without plates) are not built yet.
+pub fn check(stages: &[Stage]) -> Result<(), String> {
+    use Stage::*;
+    let plates = match stages.first() {
+        Some(Plates) => true,
+        Some(Crust) => false,
+        _ => return Err(format!("a bake starts with 'plates' or 'crust', not {:?}", stages.iter().map(|s| s.name()).collect::<Vec<_>>())),
+    };
+    for (k, &s) in stages.iter().enumerate() {
+        let (before, after) = (&stages[..k], &stages[k + 1..]);
+        if before.contains(&s) {
+            return Err(format!("stage '{}' is listed twice", s.name()));
+        }
+        let need: &[Stage] = match (s, plates) {
+            (Plates | Crust, _) if k > 0 => return Err(format!("stage '{}' is a crust: only the first stage", s.name())),
+            (Plates | Crust, _) => &[],
+            (Erosion, true) => &[Plates],
+            (Climate, true) => &[Erosion],
+            (Life, true) => &[Climate],
+            (Ice, true) if !after.contains(&Life) => return Err("stage 'ice' on plates is the caps the 'life' stage lays: 'life' after it".into()),
+            (Ice, true) => &[Climate],
+            (Impacts, false) => &[Crust],
+            (Volcanism | Ice, false) => &[Impacts],
+            (s, true) => return Err(format!("stage '{}' is not built yet on plates", s.name())),
+            (s, false) => return Err(format!("stage '{}' is not built yet on a crust without plates", s.name())),
+        };
+        if let Some(n) = need.iter().find(|n| !before.contains(n)) {
+            return Err(format!("stage '{}' needs '{}' before it", s.name(), n.name()));
+        }
+    }
+    if plates && !stages.contains(&Life) {
+        return Err("a bake on plates ends with 'life': its map's ground is the biomes".into());
+    }
+    Ok(())
+}
+
+/// The one bake: `stages` (`check`ed) of the body of `n` columns from `seed`; `sun_high` is that body's sun at
+/// its highest over its equator, radians, which an airless body's `ice` reads (`luna::sun_high` of its row).
+pub fn run(stages: &[Stage], seed: i32, n: i32, sun_high: f64) -> Map {
+    match stages.first() {
+        Some(Stage::Crust) => luna::run(stages, seed, n, sun_high).0,
+        _ => run_with(stages, seed, n, &land::Params::default()),
+    }
+}
+
+/// `run` of a list on plates (Terra's kind), with other land parameters.
+pub fn run_with(stages: &[Stage], seed: i32, n: i32, p: &land::Params) -> Map {
+    use Stage::*;
+    check(stages).unwrap_or_else(|e| panic!("a bake of {stages:?}: {e}"));
+    assert_eq!(stages[0], Plates, "run_with bakes on plates; a crust without them is `luna::run`");
+    let (t, s) = (std::time::Instant::now(), seed as u32 as u64);
+    let lp = if stages.contains(&Ice) { life::LifeParams::default() } else { life::LifeParams::capless() };
+    let (mut crust, mut plates, mut year, mut life) = (None, None, None, None);
+    for &st in stages {
+        match st {
+            Plates => crust = Some(land::crust(n as u32, s, p)),
+            Erosion => plates = Some(land::erosion(crust.take().expect("checked"), n as u32, s, p)),
+            Climate => year = Some(life::climate(plates.as_ref().expect("checked"), &lp)),
+            Life => life = Some(life::life_of(plates.as_ref().expect("checked"), s, &lp, year.take().expect("checked"))),
+            // on plates, the caps the life stage lays by `lp`
+            Ice => {}
+            Crust | Impacts | Volcanism => unreachable!("checked: not built on plates"),
+        }
+    }
+    Map::of_life(seed, n, plates.expect("checked"), life.expect("checked"), t)
 }
 
 /// How rough the ground of a cell is, metres of detail over the map's spline (ADR 0058): by its slope (m/m),
@@ -612,6 +716,8 @@ mod tests {
         assert_eq!((back.version, back.rock(0, 0.5, 0.5)), (VERSION, Some(1)));
         m.rock[5] = rock::NAMES.len() as u8;
         assert!(Map::from_bytes(&m.to_bytes()).is_err(), "a province past the list");
+        m.rock[5] = rock::LUNA_HIGHLAND;
+        assert!(Map::from_bytes(&m.to_bytes()).is_err(), "a province of Luna's on a Terra map");
         m.rock.clear();
         m.version = 4;
         let v4 = Map::from_bytes(&m.to_bytes()).unwrap();
@@ -891,6 +997,14 @@ mod tests {
         let m = get(1337, 6144);
         let top = m.h.iter().fold(f32::MIN, |a, &h| a.max(h));
         assert!((320.0..380.0).contains(&top), "highest {top} m");
+    }
+
+    /// A lock taken on the code before the bake became stages (0165-bake-stages): Terra's map of every version
+    /// a bake still makes, and Luna's, to the bit.
+    #[test]
+    fn the_stages_bake_terra_and_luna_to_the_bit_as_before() {
+        let got = [shared(5, 256).hash, Map::bake_v6(5, 256).hash, Map::bake_v5(5, 256).hash, luna::bake(7, 416).hash];
+        assert_eq!(got.map(|h| format!("{h:016x}")), ["16ee32bb94308b73", "065e789cbd17a892", "5bfb7a403005f7d7", "cb20ef2abc8ed3a7"]);
     }
 
     /// The whole bake twice on a small planet: the same map to the bit (the second the tests' shared one).

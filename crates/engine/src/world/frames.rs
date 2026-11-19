@@ -75,15 +75,15 @@ impl World {
             let spin = if row.parent.is_none() && !row.home { 0.0 } else { crate::interior::spin(month) };
             b.interior = Interior::new(&row.makeup, b.radius, spin, first.as_ref());
             first.get_or_insert_with(|| b.interior.clone());
-            if row.home {
-                b.gen = gen;
-                if gen >= 1 {
-                    b = b.with_mantle();
-                }
+            // every body is of the world's generation (from 4 Luna's rock field asks it); the home's grid goes down
+            // through the mantle from 1
+            b.gen = gen;
+            if row.home && gen >= 1 {
+                b = b.with_mantle();
             }
-            bodies.push(match (map, row.bake, row.generator) {
-                (Some(m), Some(Bake::Terra), _) => b.with_map(m),
-                (Some(m), Some(Bake::Luna), _) => b.with_luna(m),
+            bodies.push(match (map, &row.bake, row.generator) {
+                (Some(m), Some(k), _) if k.plates() => b.with_map(m),
+                (Some(m), Some(_), _) => b.with_luna(m),
                 (Some(_), None, _) => panic!("body '{}' has no bake, so no map", row.name),
                 (None, _, Generator::Continents) => b.with_continents(seed + i as i32),
                 _ => b,

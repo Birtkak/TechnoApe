@@ -227,14 +227,36 @@ pub(super) fn slope(b: &Bake) -> Vec<f32> {
         .collect()
 }
 
+/// The `climate` and `life` stages as one call (stages 5 to 8 of worldgen.md).
 pub fn life(b: &Bake, seed: u64, p: &LifeParams) -> Life {
-    let mut times = Vec::new();
-    let mut t = Instant::now();
-    let mut lap = |name: &'static str, times: &mut Vec<(&'static str, f64)>| {
-        times.push((name, t.elapsed().as_secs_f64()));
-        t = Instant::now();
-        super::lap(name);
-    };
+    life_of(b, seed, p, climate(b, p))
+}
+
+/// The year's climate on the cells (the bake's `climate` stage, 0165-bake-stages): the air model run to a
+/// repeating day, its means on the fine cells.
+pub struct Year {
+    ma: usize,
+    ground: Vec<f32>,
+    water: Vec<f32>,
+    air: super::air::Air,
+    m: super::air::Means,
+    rain: Vec<f32>,
+    swing: Vec<f32>,
+    temp: Vec<f32>,
+    times: Vec<(&'static str, f64)>,
+    t: Instant,
+}
+
+fn lap_at(name: &'static str, times: &mut Vec<(&'static str, f64)>, t: &mut Instant) {
+    times.push((name, t.elapsed().as_secs_f64()));
+    *t = Instant::now();
+    super::lap(name);
+}
+
+/// The `climate` stage (stage 5).
+pub fn climate(b: &Bake, p: &LifeParams) -> Year {
+    let (mut times, mut t) = (Vec::new(), Instant::now());
+    let mut lap = |name: &'static str, times: &mut Vec<(&'static str, f64)>| lap_at(name, times, &mut t);
     let g = &b.g;
     let n = g.n();
     let planet_n = g.m as f64 * 8.0;
@@ -263,6 +285,17 @@ pub fn life(b: &Bake, seed: u64, p: &LifeParams) -> Life {
     let air_p = super::air::Params::default();
     let temp: Vec<f32> = (0..n).map(|c| theta[c] - air_p.cool(b.h[c])).collect();
     lap("climate to cells", &mut times);
+    drop(lap);
+    Year { ma, ground, water, air, m, rain, swing, temp, times, t }
+}
+
+/// The `life` stage on the year's climate: water on the land, soil and biomes (stages 6 to 8); the polar
+/// caps where `p` has them (the `ice` stage on a body with air, ADR 0107).
+pub fn life_of(b: &Bake, seed: u64, p: &LifeParams, y: Year) -> Life {
+    let Year { ma, ground, water, air, m, rain, swing, temp, mut times, mut t } = y;
+    let mut lap = |name: &'static str, times: &mut Vec<(&'static str, f64)>| lap_at(name, times, &mut t);
+    let g = &b.g;
+    let n = g.n();
 
     // stage 6: rain less evaporation runs down the receivers (an order upstream first)
     let pet = |c: usize| p.pet_per_c * temp[c].max(0.0);

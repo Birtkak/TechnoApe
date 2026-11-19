@@ -273,9 +273,13 @@ impl Body {
         Some(air + p.heat * (self.col_height(face, i, j) - self.layer_r(z)).max(0.0) as f32)
     }
     /// The rock at face point (i, j) in columns, d its direction (ADR 0063): the province of the map cell, its
-    /// border wandering as the biomes' do, and its layers' top, folded. `Rock::NONE` without a map's rock.
+    /// border wandering as the biomes' do, and its layers' top, folded. `Rock::NONE` without a map's rock, and on
+    /// Luna before generation 4 (her kinds' rocks, 0165-bake-stages).
     pub fn rock_at(&self, face: usize, i: f64, j: f64, d: DVec3) -> Rock {
         let Some(b) = &self.baked else { return Rock::NONE };
+        if self.gen < 4 && b.map.version == crate::bake::luna::VERSION {
+            return Rock::NONE;
+        }
         let (x, y) = self.jittered(b, i, j, d);
         let s = b.map.m as f64 / self.n as f64;
         let (mx, my) = self.map_xy(s, x, y);

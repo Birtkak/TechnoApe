@@ -5,8 +5,11 @@
 # `generator`: continents (ADR 0021's land and sea) or hills (noise only). `ground`: the top, the band under
 # it and the rock below, by block name. `air`: the sky's colour and the air's thinning (ADR 0022).
 # `parent`: what it circles, "sun" or a row above it (0163-n-bodies). `home` (the first row, and only it): the
-# home world, whose are the spawn, the ore, the weather, the tide and the herds. `bake`: the bake that makes its
-# map, "terra" (ADR 0043) or "luna" (ADR 0070); none: the seed's noise alone.
+# home world, whose are the spawn, the ore, the weather, the tide and the herds. `stages`: the bake that makes its
+# map, its stages in the order they run (0165-bake-stages; crates/engine/src/bake/mod.rs `check` says what
+# each needs before it): a crust, "plates" (Terra's, ADR 0043) or "crust" (an old crust without plates, Luna's,
+# ADR 0070), then "erosion", "climate", "ice", "life" on plates, or "impacts", "ice", "volcanism" on a crust;
+# none: the seed's noise alone.
 # `orbit` (a moon): how far out it circles its parent, centre to centre in the parent's radii, and never nearer
 # than `orbit_min` metres. `words`: what /goto also accepts.
 # `size` (not the home body): the home body's radius over this one's, which sets its columns from the
@@ -23,7 +26,7 @@
 name = "Terra"
 parent = "sun"
 home = true
-bake = "terra"
+stages = ["plates", "erosion", "climate", "ice", "life"]
 words = ["home", "spawn"]
 n = 6144
 generator = "continents"
@@ -42,7 +45,7 @@ density = [2700.0, 3300.0, 7920.0]
 [[body]]
 name = "Luna"
 parent = "Terra"
-bake = "luna"
+stages = ["crust", "impacts", "ice", "volcanism"]
 generator = "hills"
 ground = ["regolith", "regolith", "stone"]
 air = false
