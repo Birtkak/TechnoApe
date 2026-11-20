@@ -115,7 +115,8 @@ impl Server {
     /// a full bucket every time, holds nothing, and the ledger counts it.
     pub(super) fn bucket(&mut self, i: usize, at: Block, fill: bool) -> bool {
         let body = self.world.bodies.get(at.body as usize);
-        let inside = body.is_some_and(|b| at.face < 6 && (0..b.n).contains(&at.pos.x) && (0..b.n).contains(&at.pos.y) && (0..b.layers).contains(&at.pos.z));
+        // a gas body holds no water (step 6a): it would sink through its air cells for ever
+        let inside = body.is_some_and(|b| !b.gas && at.face < 6 && (0..b.n).contains(&at.pos.x) && (0..b.n).contains(&at.pos.y) && (0..b.layers).contains(&at.pos.z));
         let feet = DVec3::from_array(self.clients[i].player.pos);
         if !inside || self.clients[i].vitals.dead.is_some() || self.world.block_centre(at).distance(feet) > REACH || BLOCKS.solid(self.world.block(at)) {
             return false;

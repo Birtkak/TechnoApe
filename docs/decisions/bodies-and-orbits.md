@@ -181,23 +181,37 @@ calls: gas planets after Mars; a gas planet "can be entered and has a solid core
   radius is blocked), so `/goto jupiter` stands on them on the day side and a fall lands there. Chosen over falling
   in because the dive is its own run (pressure, heat and hull limits): a fall would swing a player through the centre
   at some 2 km/s into a place drawn as nothing, with no way out but `/goto`; a held place is valid, saveable and
-  reloads in the giant's frame. Its frame does not turn (0163's ring); its bands turn in the shader by the clock, so
-  the clouds drift under a player held there at some 400 m/s at the equator.
+  reloads in the giant's frame. A player found inside the sphere (a bad save, `at=` under the radius, a teleport)
+  is put on the cloud tops along its radius at its next step (`phys::step`), its inward speed gone. What is laid
+  there rests where a player stands: `lay` (a death's pile, a throw, a knocked-off torch) takes the cloud tops'
+  cell as its floor, never under it; a bucket is not poured on a gas body (nothing would hold the water); no block
+  can be set there, so nothing falls; rain feeds the home's reaches only and herds live on the home only.
+  Its frame does not turn (0163's ring); its bands turn in the shader by the clock, so the clouds drift under a
+  player held there at some 400 m/s at the equator. A frame that turns with its day (as the home's) is not done:
+  its sphere of influence is 7.5 Mm, so the frame's own speed at its edge would be some 65 km/s, and a ship coming
+  in would be handed that speed. It needs a turning inner frame of a few radii nested in the still sphere
+  (`pose` and `reframe` taking a frame inside a frame, the recordings their frame index), or the floor carrying
+  a held player round with the clouds (`phys::step` turning a standing player's position by the spin).
 - **Drawn by the sky's shader** (`shader_sky_fx.wgsl` `giant`, in `fs_sky`; `frame::far_lights` fills `Globals::gas`):
   a sphere hit analytically per sky pixel, nothing streamed. Belts and zones even in the sine of latitude (16 rows of
   ochre, cream and rust), their edges torn by turbulence stretched along the bands and warped by itself, streaks of
   the next band, a great oval storm 22 degrees south (rust, two wound arms, a pale collar) and white ovals at 33 south;
   all in cells of a power of two metres, about two pixels of its surface and at least 1 m, so the look is the stars'
-  and the aurora's blocky texels and holds detail from any distance (the turbulence's octaves reach down to the cell).
+  and the aurora's blocky texels and holds detail from any distance (the turbulence's octaves reach down to the cell;
+  their last five at full weight tear the band edges, shade small eddies and draw thin streaks as the cells shrink
+  under some 180 m, from about 10 km over the cloud tops; none from a few radii out).
   Sun-lit with a soft terminator and a darker limb; it turns with its day from the world clock. The disc fades in from
   its point as it grows from 1.5 to 4 pixels, hides the stars, the sun and the points behind it, and is lightened by
   the air when seen through it. Only one gas body is drawn (the first). **Not on screen** (under 1.5 pixels, outside
   the frustum, or its centre under a horizon): its slot is -1 and the shader's only cost is one compare a sky pixel.
 - **Far bodies are points of light** (every body, `sky::point_light`, pure and tested): the light it sends,
   `(R/d)^2 x lit share ((1 + cos phase) / 2) x (home's sun distance / its own)^2`, seen as the stars are, `5 x
-  (that / 5e-10)^0.4`, at most 8, in its row's colour, a glow 1.4 pixels wide as the brightest stars'; handed over
+  (that / 5e-10)^0.4`, at most 8, in its row's colour (each channel 0 to 1, refused otherwise), a glow 1.4 pixels
+  wide as the brightest stars'; its brightest channel shows at most 1.0 (the shader's `POINT_CAP`), the others in
+  their ratio, and light past that widens the glow by its square root, so a bright point keeps its hue; handed over
   to the disc between 1.5 and 4 pixels across (`disc_share`, so no jump); hidden where another body's sphere is in
-  the sight line (`sky::hidden`: the eye's own horizon too) and by a light sky (the stars' darkness rule). From
+  the sight line (`sky::hidden`: the eye's own horizon too), by a light sky (the stars' darkness rule) and by the
+  sun's disc where it is farther than the sun (the disc too). From
   Terra at night: the giant at opposition 5.4, Mars at opposition 6.1 and at the far side 2.0, against the brightest
   stars' 1.2 to 4.2. A mesh body's disc (Mars, Luna, Terra) is drawn by its chunks once streamed.
 - **The body limit stays four** (`bodies::MAX`, `gpu::MAX_BODIES`): the giant is the fourth. Raising it is more than

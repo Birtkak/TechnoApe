@@ -187,10 +187,10 @@ pub fn cells(world: &World, pos: DVec3) -> impl Iterator<Item = Block> + '_ {
 
 /// True when the player's box with its feet at `pos` overlaps a solid block.
 pub fn blocked(world: &World, pos: DVec3) -> bool {
-    // a gas body's cloud tops hold the box as a floor (step 6a): shortcut: the dive under them is its own run
-    let g = &world.bodies[world.nearest(pos)];
-    if g.gas {
-        return (pos - g.centre).length() < g.radius;
+    // a gas body's cloud tops hold the box as a floor (step 6a): shortcut: the dive under them is its own run.
+    // Its cells are all air, so only its sphere blocks; a world without gas pays nothing here.
+    if world.bodies.iter().any(|g| g.gas && (pos - g.centre).length_squared() < g.radius * g.radius) {
+        return true;
     }
     // `cells` walks the layers of one column after another: one terrain lookup per column, not per cell
     let mut col: Option<((u8, u8, i32, i32), f64)> = None;
@@ -302,6 +302,16 @@ pub fn step_at(world: &mut World, p: &mut Player, inp: &Input, dt: f64) -> bool 
 /// body went further forward than the walk would have taken it, so a sprint into a wall or in the water is
 /// none. What a sprint's hunger and its wider view go by.
 pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
+    // one found inside a gas body's sphere (a bad save, `at=`, a teleport) would be blocked every way out: put it
+    // on the cloud tops along its radius, its inward speed gone
+    for g in world.bodies.iter().filter(|b| b.gas) {
+        let r = p.pos - g.centre;
+        if r.length_squared() < g.radius * g.radius {
+            let n = r.normalize_or(DVec3::Y);
+            p.pos = g.centre + n * (g.radius + 1e-3);
+            p.vel -= n * p.vel.dot(n).min(0.0);
+        }
+    }
     let start = p.pos;
     let (up, pull) = pull(world, p.pos);
     let down = -up;

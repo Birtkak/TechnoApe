@@ -14,6 +14,9 @@ fn vs_sky(@builtin(vertex_index) vi: u32) -> SkyOut {
     return o;
 }
 
+// a far body's point: the most its brightest channel shows (frame.rs `far_lights`, engine `sky::point_light`)
+const POINT_CAP: f32 = 1.0;
+
 @fragment
 fn fs_sky(i: SkyOut) -> GOut {
     let w = g.inv_vp * vec4f(i.ndc, 1.0, 1.0);
@@ -24,16 +27,25 @@ fn fs_sky(i: SkyOut) -> GOut {
     var st = vec3f(0.0);
     if ((g.opt.x & 8u) == 0u) { st = stars(d, px); }
     // the gas giant's disc (step 6a), and every far body's point of light, hidden by the giant where it is nearer
-    let gi = giant(d, px);
+    var gi = giant(d, px);
+    // the sun's disc hides what is farther than it (a point or the disc behind it at conjunction)
+    let sd = length(g.sun_pos.xyz);
+    let in_sun = dot(d, g.sun_pos.xyz / sd) > cos(g.sun_pos.w / sd);
+    if (in_sun && gi_dist(d) > sd) { gi.a = 0.0; }
     var c = sky_colour(d) + st;
     for (var i = 0u; i < 4u; i++) {
         let f = g.far[i].rgb;
         if (f.r + f.g + f.b <= 0.0) { continue; }
         let s = g.bodies[i].ctr.xyz;
         let ls = length(s);
-        let r = length(cross(d, s / ls)) / (px * 1.4);
+        if (in_sun && ls > sd) { continue; }
+        // its brightest channel at most POINT_CAP, the others in their ratio: more light widens the glow, so a
+        // bright point keeps its hue instead of burning white
+        let m = max(f.r, max(f.g, f.b));
+        let k = min(m, POINT_CAP);
+        let r = length(cross(d, s / ls)) / (px * 1.4 * sqrt(m / k));
         let behind = select(0.0, gi.a, i32(i) != i32(g.gas.x) && ls > gi_dist(d));
-        c += f * exp(-r * r * 1.2) * step(0.0, dot(d, s)) * (1.0 - behind);
+        c += f * (k / m) * exp(-r * r * 1.2) * step(0.0, dot(d, s)) * (1.0 - behind);
     }
     // the air in front of it lightens it as it does the sky; in space it hides the sun and the stars behind it
     c = mix(c, gi.rgb + g.sky.rgb * g.stars[0].w, gi.a);
@@ -201,18 +213,25 @@ fn gi_bands(q: vec3f, rr: f32, cell: f32) -> vec3f {
     var fine = 0.0;
     var amp = 0.5;
     var f = 8.0 / rr;
+    // the last five octaves at full weight (a few cells to a few dozen): what the screen shows close up
+    var near = 0.0;
+    var a2 = 1.0;
     for (var k = 0.0; k < oct; k += 1.0) {
         // each octave warped by the ones before it: the shear tears the edges into curls
         let v = vnoise(st * f + vec3f(n * 2.5, -n * 1.7, 0.0)) - 0.5;
         n += amp * v;
         if (k >= 2.0) { fine += amp * v; }
+        if (k >= oct - 5.0) { near += a2 * v; a2 *= 0.6; }
         f *= 2.0;
         amp *= 0.58;
     }
+    // that detail fades in as the cell shrinks against the radius (cells under some 180 m, a few radii out none)
+    near *= clamp((log2(rr / cell) - 8.0) / 2.5, 0.0, 1.0);
     let lat = asin(clamp(u.z, -1.0, 1.0));
     let lon = atan2(u.y, u.x);
-    // the bands, even in the sine of latitude (wide at the equator, narrow to the poles), their edges torn
-    let y = clamp((u.z + 0.11 * n + 1.0) * 8.0, 0.0, 15.999);
+    // the bands, even in the sine of latitude (wide at the equator, narrow to the poles), their edges torn, close
+    // up down to a few dozen cells
+    let y = clamp((u.z + 0.11 * n + near * cell * 40.0 / rr + 1.0) * 8.0, 0.0, 15.999);
     let k = u32(floor(y));
     var col = mix(GI_BANDS[k], GI_BANDS[min(k + 1u, 15u)], smoothstep(0.78, 1.0, fract(y)));
     // the great storm, 22 degrees south: a rust oval in a pale collar, its clouds wound round it
@@ -232,7 +251,9 @@ fn gi_bands(q: vec3f, rr: f32, cell: f32) -> vec3f {
     // streaks of the next band's colour drawn into each one, and the eddies' light and shade
     let sk = smoothstep(0.08, 0.2, fine) * 0.45;
     col = mix(col, GI_BANDS[min(k + 1u, 15u)], sk);
-    return col * (0.82 + 0.9 * fine);
+    // close up: small eddies' light and shade, and thin streaks of the next band along the flow
+    col = mix(col, GI_BANDS[min(k + 1u, 15u)], smoothstep(0.25, 0.45, near) * 0.5);
+    return col * (0.82 + 0.9 * fine) * (1.0 + 0.35 * near);
 }
 
 // the giant along d: its light and how much of the pixel it covers

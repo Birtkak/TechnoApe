@@ -2350,6 +2350,46 @@ fn goto_takes_a_player_to_the_bodies_and_the_sun() {
     }
 }
 
+/// Step 6a: what is laid on the giant (a death's pile, a throw, a dug block's drop) rests at the cloud tops where its
+/// player stands, not up to FALL layers under them for ever; a bucket is not poured there (nothing holds water).
+#[test]
+fn a_death_on_the_giant_leaves_its_pile_on_the_cloud_tops_and_no_water_is_poured() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, 3, 0.0, 6, rx);
+    let (l, sv) = local();
+    tx.send(sv).unwrap();
+    l.send(ToServer::Hello { name: "ape".into() });
+    l.send(ToServer::Input(Input::default()));
+    s.tick();
+    l.send(ToServer::Chat("/goto jupiter".into()));
+    l.send(ToServer::Chat("/playmode survival".into()));
+    for _ in 0..60 {
+        s.tick();
+    }
+    let feet = s.clients[0].phys.pos;
+    assert_eq!(s.world.frame_at(feet), 3);
+    l.send(ToServer::Chat("/give oak_log 5".into()));
+    l.send(ToServer::Chat("/hurt 40".into()));
+    s.tick();
+    assert!(s.clients[0].vitals.dead.is_some(), "dead");
+    l.send(ToServer::Respawn);
+    s.tick();
+    let pile = s.piles.keys().copied().find(|k| k.0 == 3).expect("a pile on the giant");
+    // within a pick-up of a player standing on the cloud tops over it
+    let (j, at) = (&s.world.bodies[3], s.world.block_centre(unkey(pile)));
+    let tops = j.centre + (at - j.centre).normalize() * j.radius;
+    assert!(at.distance(tops) < 1.0 && at.distance(tops) < PICK, "the pile lies at the cloud tops: {} m from them", at.distance(tops));
+    // the bucket: a creative pour at the feet is refused, no water is made
+    l.send(ToServer::Chat("/playmode creative".into()));
+    l.send(ToServer::Chat("/goto jupiter".into()));
+    s.tick();
+    assert_eq!(s.world.frame_at(s.clients[0].phys.pos), 3);
+    let at = s.world.block_at(s.clients[0].phys.pos);
+    let made = s.made;
+    assert!(!s.bucket(0, at, false), "no water is poured on a gas body");
+    assert_eq!(s.made, made);
+}
+
 /// Step 6a: a world of generation 6 welcomes with four bodies; /goto jupiter stands the player on the giant's cloud
 /// tops (they hold it: the dive is not built), in its frame, out of every block; nothing can be dug or placed there;
 /// the save keeps the giant as columns and no map, and loads again with the player where it was.

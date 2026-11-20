@@ -703,4 +703,18 @@ fn the_cloud_tops_hold_a_falling_player() {
     let over = (p.pos - j.centre).length() - j.radius;
     assert!(p.on_ground && (0.0..0.1).contains(&over), "{over} m over the cloud tops, on the ground {}", p.on_ground);
     assert_eq!(w.frame_at(p.pos), 3);
+    // one found inside the sphere (a bad save, `at=` under the radius, a teleport) is put out on the cloud tops
+    // along its radius at its next step, and walks from there
+    for deep in [0.5, 1000.0, j.radius * 0.5] {
+        let mut p = crate::phys::Player::at(j.centre + up * (j.radius - deep), up.any_orthonormal_vector());
+        crate::phys::step(&w, &mut p, &crate::phys::Input::default(), 1.0 / 60.0);
+        let over = (p.pos - j.centre).length() - j.radius;
+        assert!((0.0..0.1).contains(&over) && (p.pos - j.centre).normalize().dot(up) > 0.999999, "{deep} m in: {over} m over");
+        assert!(!crate::phys::inside(&w, &p));
+        let at = p.pos;
+        for _ in 0..30 {
+            crate::phys::step(&w, &mut p, &crate::phys::Input { mv: [0.0, 1.0], ..Default::default() }, 1.0 / 60.0);
+        }
+        assert!(p.pos.distance(at) > 1.0, "{deep} m in: it walks on");
+    }
 }

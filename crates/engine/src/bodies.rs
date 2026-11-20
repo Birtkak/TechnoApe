@@ -250,6 +250,9 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
             Some(_) if r.home || parent.is_some() => return Err(format!("body '{}': only a body that circles the sun and is not home has a day of its own", r.name)),
             _ => {}
         }
+        if let Some(c) = r.colour.filter(|c| !c.iter().all(|v| (0.0..=1.0).contains(v))) {
+            return Err(format!("body '{}': colour {c:?} is red, green and blue, each from 0 to 1", r.name));
+        }
         if let Some(s) = &r.stages {
             crate::bake::check(s, parent.is_some()).map_err(|e| format!("body '{}': {e}", r.name))?;
         }
@@ -514,6 +517,11 @@ mod tests {
             ("ground = [\"stone\", \"stone\", \"stone\"]\n", "a gas body has no ground"),
             ("generator = \"hills\"\n", "a gas body has no ground"),
             ("day = 0.0\n", "day 0"),
+            ("day = nan\n", "day NaN"),
+            ("day = inf\n", "day inf"),
+            ("colour = [-0.1, 0.5, 0.5]\n", "colour"),
+            ("colour = [1.5, 0.5, 0.5]\n", "colour"),
+            ("colour = [0.5, nan, 0.5]\n", "colour"),
         ] {
             let e = parse(&gas(extra)).expect_err(extra);
             assert!(e.contains(says) && e.contains("body 'G'"), "{extra}: {e}");

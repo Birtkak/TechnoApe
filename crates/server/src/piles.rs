@@ -348,14 +348,18 @@ impl Server {
         if stacks.is_empty() {
             return Vec::new();
         }
-        let layers = self.world.bodies[at.body as usize].layers;
+        let body = &self.world.bodies[at.body as usize];
+        let layers = body.layers;
+        // a gas body's floor is its cloud tops' cell, where a player stands (step 6a), never under it
+        let floor = if body.gas { body.layer_of(body.radius + 0.01) as i32 } else { 0 };
+        at.pos.z = at.pos.z.max(floor);
         let solid = |w: &World, b: Block| BLOCKS.solid(w.block(b));
         while at.pos.z + 1 < layers && solid(&self.world, at) {
             at.pos.z += 1;
         }
         // a fall of at most FALL layers: a throw or a death in space leaves its pile floating there, not a walk
         // down tens of thousands of layers on the tick thread
-        let lowest = (at.pos.z - FALL).max(0);
+        let lowest = (at.pos.z - FALL).max(floor);
         while at.pos.z > lowest && !solid(&self.world, Block { pos: at.pos - glam::IVec3::Z, ..at }) {
             at.pos.z -= 1;
         }
