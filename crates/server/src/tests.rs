@@ -2350,6 +2350,87 @@ fn goto_takes_a_player_to_the_bodies_and_the_sun() {
     }
 }
 
+/// Step 6a: what is laid on the giant (a death's pile, a throw, a dug block's drop) rests at the cloud tops where its
+/// player stands, not up to FALL layers under them for ever; a bucket is not poured there (nothing holds water).
+#[test]
+fn a_death_on_the_giant_leaves_its_pile_on_the_cloud_tops_and_no_water_is_poured() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, 3, 0.0, 6, rx);
+    let (l, sv) = local();
+    tx.send(sv).unwrap();
+    l.send(ToServer::Hello { name: "ape".into() });
+    l.send(ToServer::Input(Input::default()));
+    s.tick();
+    l.send(ToServer::Chat("/goto jupiter".into()));
+    l.send(ToServer::Chat("/playmode survival".into()));
+    for _ in 0..60 {
+        s.tick();
+    }
+    let feet = s.clients[0].phys.pos;
+    assert_eq!(s.world.frame_at(feet), 3);
+    l.send(ToServer::Chat("/give oak_log 5".into()));
+    l.send(ToServer::Chat("/hurt 40".into()));
+    s.tick();
+    assert!(s.clients[0].vitals.dead.is_some(), "dead");
+    l.send(ToServer::Respawn);
+    s.tick();
+    let pile = s.piles.keys().copied().find(|k| k.0 == 3).expect("a pile on the giant");
+    // within a pick-up of a player standing on the cloud tops over it
+    let (j, at) = (&s.world.bodies[3], s.world.block_centre(unkey(pile)));
+    let tops = j.centre + (at - j.centre).normalize() * j.radius;
+    assert!(at.distance(tops) < 1.0 && at.distance(tops) < PICK, "the pile lies at the cloud tops: {} m from them", at.distance(tops));
+    // the bucket: a creative pour at the feet is refused, no water is made
+    l.send(ToServer::Chat("/playmode creative".into()));
+    l.send(ToServer::Chat("/goto jupiter".into()));
+    s.tick();
+    assert_eq!(s.world.frame_at(s.clients[0].phys.pos), 3);
+    let at = s.world.block_at(s.clients[0].phys.pos);
+    let made = s.made;
+    assert!(!s.bucket(0, at, false), "no water is poured on a gas body");
+    assert_eq!(s.made, made);
+}
+
+/// Step 6a: a world of generation 6 welcomes with four bodies; /goto jupiter stands the player on the giant's cloud
+/// tops (they hold it: the dive is not built), in its frame, out of every block; nothing can be dug or placed there;
+/// the save keeps the giant as columns and no map, and loads again with the player where it was.
+#[test]
+fn goto_jupiter_stands_on_the_cloud_tops_and_saves() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, 3, 0.0, 6, rx);
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    s.tick();
+    let welcome = drain(&c).into_iter().find_map(|m| if let ToClient::Welcome { bodies, gen, .. } = m { Some((bodies, gen)) } else { None }).unwrap();
+    assert_eq!((welcome.0.len(), welcome.1), (4, 6));
+    assert_eq!(welcome.0[3], (256 * 11, None), "the giant: its columns' worth of radius and no map");
+    assert!(engine::bodies::known_bodies(welcome.0.len(), welcome.1).is_ok());
+    c.send(ToServer::Chat("/goto jupiter".into()));
+    c.send(ToServer::Input(Input::default())); // walking, so the server steps the fall
+    for _ in 0..120 {
+        s.tick();
+    }
+    let got = drain(&c);
+    assert!(got.iter().any(|m| matches!(m, ToClient::Chat(t) if t == "gone to Jupiter")), "{got:?}");
+    let (w, me) = (&s.world, s.clients[0].phys);
+    let j = &w.bodies[3];
+    let over = (me.pos - j.centre).length() - j.radius;
+    assert!(w.frame_at(me.pos) == 3 && (0.0..2.0).contains(&over) && me.on_ground, "{over} m over the cloud tops");
+    assert!(!phys::inside(w, &s.clients[0].phys));
+    // nothing to dig or place: /place under the feet does nothing
+    c.send(ToServer::Chat("/place stone".into()));
+    s.tick();
+    assert_eq!(s.world.edit_count, 0);
+    let save = s.snapshot();
+    assert_eq!((save.gen, save.bodies.len(), save.bodies[3]), (6, 4, (256 * 11, None)));
+    let back = Server::from_save(Save::from_bytes(&save.to_bytes()).unwrap(), channel().1);
+    assert_eq!(back.world.bodies.len(), 4);
+    for p in &save.players {
+        let at = glam::DVec3::from_array(p.pos);
+        assert_eq!(back.world.frame_at(at), 3, "{}", p.name);
+        assert!(!phys::blocked(&back.world, at));
+    }
+}
+
 #[test]
 fn goto_knows_the_bodies_by_name_only() {
     // bugs/2026-11-11_13-10-42: planet and moon are gone, Terra and Luna are the names
@@ -4113,7 +4194,8 @@ fn a_generation_4_save_keeps_two_bodies_and_a_generation_5_world_has_mars() {
     let grounds = [0, 1].map(|b| format!("{:016x}", ground_hash(&s.world, b)));
     assert_eq!(grounds, ["19f7bbb8ae2d0bc6", "c6c6da9d37d2afbe"],"Terra's and Luna's generated blocks as the build before made them");
     assert_eq!(s.snapshot().bodies.len(), 2);
-    let s = Server::baked_warp(256, 64, 3, 0.0, engine::world::GENERATION, channel().1);
+    // (a world of generation 5 has no giant: 6's, step 6a)
+    let s = Server::baked_warp(256, 64, 3, 0.0, 5, channel().1);
     assert_eq!(s.world.bodies.iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["Terra", "Luna", "Mars"]);
     let save = s.snapshot();
     assert_eq!((save.gen, save.bodies.len()), (5, 3));

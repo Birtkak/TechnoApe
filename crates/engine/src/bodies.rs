@@ -84,9 +84,11 @@ struct Raw {
     #[serde(default)]
     words: Vec<String>,
     n: Option<i32>,
-    generator: Generator,
-    ground: [String; 3],
+    generator: Option<Generator>,
+    ground: Option<[String; 3]>,
     air: bool,
+    day: Option<f64>,
+    colour: Option<[f32; 3]>,
     orbit: Option<f64>,
     orbit_min: Option<f64>,
     size: Option<f64>,
@@ -159,9 +161,18 @@ pub struct Row {
     /// The first world generation it is in (`world::GENERATION`; 0: every world): a world of an older one is
     /// made, saved and sent without it (`of`).
     pub since: u8,
+    /// Its sidereal day in the home's days (a body that circles the sun and is not home; None: it does not turn,
+    /// 0163-n-bodies): the giant's bands turn with it and its field's spin is it.
+    pub day: Option<f64>,
+    /// The colour its point of light shines in when its disc is under a pixel (`sky::point_light`).
+    pub colour: [f32; 3],
 }
 
 impl Row {
+    /// A gas body (step 6a): no blocks, so no grid, map, chunks, bake or save data; drawn by the sky's shader.
+    pub fn gas(&self) -> bool {
+        self.makeup.kind == Kind::Gas
+    }
     /// Whether /goto `w` (any case) means this body.
     pub fn named(&self, w: &str) -> bool {
         self.name.eq_ignore_ascii_case(w) || self.words.iter().any(|x| x.eq_ignore_ascii_case(w))
@@ -218,12 +229,30 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
             (Some(_), Some(o), m) if o > 1.0 => Some((o, m.unwrap_or(0.0))),
             _ => return Err(format!("body '{}': needs an orbit over 1 radius of its parent", r.name)),
         };
-        let mut ground = [0; 3];
-        for (g, name) in ground.iter_mut().zip(&r.ground) {
-            *g = BLOCKS.placeable().find(|d| &d.name == name).ok_or(format!("body '{}': no block '{name}'", r.name))?.id;
-        }
         let makeup = Makeup { kind: r.kind, iron: r.iron, heat: r.heat, density: r.density, weight_g: r.weight_g };
         check(&makeup).map_err(|e| format!("body '{}': {e}", r.name))?;
+        // gas has no blocks (step 6a): no ground, generator or bake; a rocky body has its ground
+        let gas = r.kind == Kind::Gas;
+        let mut ground = [crate::blocks::AIR; 3];
+        match (gas, &r.ground, r.generator) {
+            (true, None, None) if r.stages.is_none() => {}
+            (true, None, None) => return Err(format!("body '{}': a gas body has no bake (no stages)", r.name)),
+            (true, ..) => return Err(format!("body '{}': a gas body has no ground (no ground or generator)", r.name)),
+            (false, Some(names), Some(_)) => {
+                for (g, name) in ground.iter_mut().zip(names) {
+                    *g = BLOCKS.placeable().find(|d| &d.name == name).ok_or(format!("body '{}': no block '{name}'", r.name))?.id;
+                }
+            }
+            (false, ..) => return Err(format!("body '{}': a rocky body has its ground and generator", r.name)),
+        }
+        match r.day {
+            Some(d) if !(d > 0.0 && d.is_finite()) => return Err(format!("body '{}': day {d} is its day in the home's days, over 0", r.name)),
+            Some(_) if r.home || parent.is_some() => return Err(format!("body '{}': only a body that circles the sun and is not home has a day of its own", r.name)),
+            _ => {}
+        }
+        if let Some(c) = r.colour.filter(|c| !c.iter().all(|v| (0.0..=1.0).contains(v))) {
+            return Err(format!("body '{}': colour {c:?} is red, green and blue, each from 0 to 1", r.name));
+        }
         if let Some(s) = &r.stages {
             crate::bake::check(s, parent.is_some()).map_err(|e| format!("body '{}': {e}", r.name))?;
         }
@@ -235,7 +264,7 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
             (false, _) if r.age.is_some() => return Err(format!("body '{}': age is read only by a planet's crust (stages starting with 'crust' on a body that circles the sun)", r.name)),
             _ => None,
         };
-        rows.push(Row { name: r.name, parent, home: r.home, bake: r.stages.map(|s| Bake(s, crate::bake::luna::sun_high(r.size, orbit), planet)), words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator, ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup, since: r.since });
+        rows.push(Row { name: r.name, parent, home: r.home, bake: r.stages.map(|s| Bake(s, crate::bake::luna::sun_high(r.size, orbit), planet)), words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator.unwrap_or(Generator::Hills), ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup, since: r.since, day: r.day, colour: r.colour.unwrap_or([0.7; 3]) });
     }
     if moon(&rows).is_none() {
         return Err(format!("body '{}': the home body needs a moon (its first sizes the sun)", rows[0].name));
@@ -271,11 +300,13 @@ pub fn sizes(rows: &[Row], planet_n: i32, moon_n: i32) -> Vec<i32> {
     (0..rows.len()).map(|i| if i == 0 { planet_n } else if Some(i) == m { moon_n } else { rows[i].size.map_or(planet_n, |k| size_columns(planet_n, k)) }).collect()
 }
 
-/// A makeup the interior can be derived from: a rocky body, a core inside it, heat 0..1, densities 500..30000
-/// kg/m3 growing going down, a positive pull.
+/// A makeup the interior can be derived from: a rocky or gas body, a core inside it, heat 0..1, densities
+/// 500..30000 kg/m3 growing going down, a positive pull. On a gas body (step 6a) `iron` is the conducting fluid's
+/// top over the radius, `heat` leaves its solid core 1 - heat of that, and `density` is the gas's, the gas's and
+/// the fluid's (the core reckoned at the fluid's): its mass follows from them as a rocky body's does.
 fn check(m: &Makeup) -> Result<(), String> {
-    if m.kind != Kind::Rocky {
-        return Err(format!("kind '{:?}' is not built yet (rocky only)", m.kind).to_lowercase());
+    if m.kind == Kind::Icy {
+        return Err("kind 'icy' is not built yet (rocky and gas only)".into());
     }
     if !(m.iron > 0.0 && m.iron < 1.0) {
         return Err(format!("iron {} is the core's radius over the body's, over 0 and under 1", m.iron));
@@ -327,11 +358,13 @@ mod tests {
     #[test]
     fn the_data_file_has_terra_luna_and_mars() {
         let names: Vec<&str> = BODIES.iter().map(|r| r.name.as_str()).collect();
-        assert_eq!(names, ["Terra", "Luna", "Mars"]);
-        // a world of generation 4 or before has the first two, from 5 Mars too (ADR 0160's rule: old worlds as they were)
-        assert_eq!([0, 4, 5].map(|g| of(g).len()), [2, 2, 3]);
-        assert_eq!(BODIES.iter().map(|r| r.since).collect::<Vec<_>>(), [0, 0, 5]);
-        assert!(known_bodies(2, 4).is_ok() && known_bodies(3, 5).is_ok());
+        assert_eq!(names, ["Terra", "Luna", "Mars", "Jupiter"]);
+        // a world of generation 4 or before has the first two, from 5 Mars too, from 6 the giant (ADR 0160's rule: old
+        // worlds as they were)
+        assert_eq!([0, 4, 5, 6].map(|g| of(g).len()), [2, 2, 3, 4]);
+        assert_eq!(BODIES.iter().map(|r| r.since).collect::<Vec<_>>(), [0, 0, 5, 6]);
+        assert!(known_bodies(2, 4).is_ok() && known_bodies(3, 5).is_ok() && known_bodies(4, 6).is_ok());
+        assert!(known_bodies(3, 6).unwrap_err().contains("the server has 3 bodies, this game 4"));
         let e = known_bodies(2, 5).unwrap_err();
         assert!(e.contains("the server has 2 bodies, this game 3") && e.contains("update the game"), "{e}");
         assert_eq!(find("mars"), Some(2));
@@ -341,7 +374,7 @@ mod tests {
         assert_eq!(two[1].ground[0], BLOCKS.id("regolith"));
         assert_eq!(two.iter().map(|r| (r.parent, r.home, r.bake.as_ref().map(|b| b.0.clone()))).collect::<Vec<_>>(), [(None, true, Some(Stage::TERRA.to_vec())), (Some(0), false, Some(Stage::LUNA.to_vec()))]);
         assert_eq!((moon(two), sizes(two, 1536, 512), moon_columns(6144)), (Some(1), vec![1536, 512], 1664));
-        assert_eq!(sizes(&BODIES, 6144, 1664), [6144, 1664, 3328]);
+        assert_eq!(sizes(&BODIES, 6144, 1664), [6144, 1664, 3328, 67584]);
         assert_eq!((two[0].n, two[1].n), (6144, 1664), "6144 / 3.7 is 1660.5: 52 chunks");
         assert_eq!((find("home"), find("TERRA"), find("luna"), find("sun")), (Some(0), Some(0), Some(1), None));
         assert_eq!((find("planet"), find("moon")), (None, None), "the bodies go by their names (bugs/2026-11-11_13-10-42)");
@@ -454,6 +487,50 @@ mod tests {
         assert_eq!(m.sun, Some(1.5 * 23500.0 * 1.85), "1.5 AU in its radii");
     }
 
+    /// The gas giant (planet-model.md "Gas planets", step 6a): 11 times Terra's radius, 5 times her distance from the
+    /// sun, a fast spin, in the worlds of generation 6 on; no bake, no ground, no grid of its own (`Row::gas`).
+    #[test]
+    fn the_giant_row_is_a_gas_body() {
+        let j = &BODIES[3];
+        assert_eq!((j.name.as_str(), j.parent, j.home, j.since, j.bake.is_none()), ("Jupiter", None, false, 6, true));
+        assert_eq!(j.makeup.kind, Kind::Gas);
+        assert!(j.gas() && !BODIES[..3].iter().any(Row::gas));
+        assert_eq!(j.n, 6144 * 11, "11 Terra radii");
+        assert_eq!(j.sun, Some(5.0 * 23500.0 / 11.0), "5 AU in its radii");
+        assert_eq!(j.day, Some(0.4), "a day of 0.4 Terra's (the real one's 10 hours)");
+        assert_eq!(j.ground, [crate::blocks::AIR; 3], "no ground: gas has no blocks");
+        assert_eq!(find("jupiter"), Some(3));
+        // the colours its point of light shines in (and the others')
+        assert!(BODIES.iter().all(|r| r.colour.iter().all(|c| (0.0..=1.0).contains(c))));
+        assert!(BODIES[2].colour[0] > BODIES[2].colour[2] && BODIES[0].colour[2] > BODIES[0].colour[0], "red Mars, blue Terra");
+    }
+
+    #[test]
+    fn a_gas_row_is_refused_with_what_it_cannot_have() {
+        let rocky = "generator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\n";
+        let home = format!("[[body]]\nname = \"A\"\nparent = \"sun\"\nhome = true\nn = 512\n{rocky}air = false\nsun = 100.0\n{MAKEUP}[[body]]\nname = \"B\"\nparent = \"A\"\norbit = 3.0\nsize = 4.0\n{rocky}air = false\n{MAKEUP}");
+        let gas = |extra: &str| format!("{home}[[body]]\nname = \"G\"\nparent = \"sun\"\nsun = 300.0\nsize = 0.5\nair = false\nkind = \"gas\"\niron = 0.8\nheat = 0.9\ndensity = [500.0, 500.0, 1700.0]\n{extra}");
+        let ok = parse(&gas("day = 0.4\n")).unwrap();
+        assert!(ok[2].gas() && ok[2].bake.is_none() && ok[2].n == 1024);
+        for (extra, says) in [
+            ("stages = [\"crust\", \"impacts\"]\n", "a gas body has no bake"),
+            ("ground = [\"stone\", \"stone\", \"stone\"]\n", "a gas body has no ground"),
+            ("generator = \"hills\"\n", "a gas body has no ground"),
+            ("day = 0.0\n", "day 0"),
+            ("day = nan\n", "day NaN"),
+            ("day = inf\n", "day inf"),
+            ("colour = [-0.1, 0.5, 0.5]\n", "colour"),
+            ("colour = [1.5, 0.5, 0.5]\n", "colour"),
+            ("colour = [0.5, nan, 0.5]\n", "colour"),
+        ] {
+            let e = parse(&gas(extra)).expect_err(extra);
+            assert!(e.contains(says) && e.contains("body 'G'"), "{extra}: {e}");
+        }
+        // a rocky body still needs its ground
+        let e = parse(&home.replacen("ground = [\"stone\", \"stone\", \"stone\"]\n", "", 1)).unwrap_err();
+        assert!(e.contains("ground"), "{e}");
+    }
+
     const MAKEUP: &str = "kind = \"rocky\"\niron = 0.5\nheat = 0.5\ndensity = [2700.0, 3300.0, 7900.0]\n";
 
     #[test]
@@ -477,7 +554,6 @@ mod tests {
             (with("2700.0, ", ""), "two densities", "density"),
             (format!("{}weight_g = -1.0\n", row(MAKEUP)), "a pull upward", "weight_g"),
             (with("rocky", "icy"), "icy is not built", "not built yet"),
-            (with("rocky", "gas"), "gas is not built", "not built yet"),
             (with("rocky", "cheese"), "no such kind", "kind"),
         ] {
             let e = parse(&bad).expect_err(why);

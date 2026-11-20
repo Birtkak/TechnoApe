@@ -889,7 +889,7 @@ impl App {
                         ("XYZ", format!("{:.2} / {:.2} / {:.2} from the centre", rel.x, rel.y, rel.z), 0)
                     },
                     ("Height", if space { "no ground under you".into() } else { format!("{:.1} m over the ground{sea}", r - b.top(up)) }, 0),
-                    ("Feet in", if space { "no block".into() } else { format!("face {} at {} {}, layer {}", blk.face, blk.pos.x, blk.pos.y, blk.pos.z) }, 0),
+                    ("Feet in", if space { "no block".into() } else if b.gas { "gas: no blocks, the cloud tops hold you".into() } else { format!("face {} at {} {}, layer {}", blk.face, blk.pos.x, blk.pos.y, blk.pos.z) }, 0),
                     ("Facing", format!("yaw {yaw:.1}, pitch {pitch:.1}"), 0),
                     ("Looking at", look, 0),
                     ("Where", if space { "no latitude out here".into() } else { format!("{}, {:.0} m up", nav::geo_text(nav::geo(rel, self.meridian(bi))), r - b.radius) }, 0),
@@ -910,7 +910,8 @@ impl App {
                     }, 0),
                     ("Moon", format!("{} {:.0}% lit", w.bodies.get(w.moon).map_or("none", |b| b.name.as_str()), d.moon_lit * 100.0), 0),
                     ("Seed", format!("{}", self.seed), 0),
-                    ("Size", w.bodies.iter().map(|b| format!("{} {}", b.name, b.n)).collect::<Vec<_>>().join(", ") + " columns a face", 0),
+                    // (a gas body has no columns: its radius, step 6a)
+                    ("Size", w.bodies.iter().map(|b| if b.gas { format!("{} gas {:.0} km", b.name, b.radius / 1000.0) } else { format!("{} {}", b.name, b.n) }).collect::<Vec<_>>().join(", ") + " columns a face", 0),
                 ],
             ),
             section(

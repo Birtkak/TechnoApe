@@ -919,6 +919,9 @@ impl App {
             },
             // the plants' wind map (ADR 0157), as the sway's watcher last gave it
             sway: gpu.sway,
+            far: [[0.0; 4]; MAX_BODIES],
+            gas: [-1.0, 0.0, 0.0, 0.0],
+            gas2: [0.0; 4],
             view_proj: vp.to_cols_array_2d(),
             sun: [sun.x, sun.y, sun.z, clock],
             bodies: bytemuck::Zeroable::zeroed(),
@@ -961,6 +964,9 @@ impl App {
             };
             cams[bi] = (c + b.centre, m.as_dmat3());
         }
+        // the far bodies as points, the giant's disc (step 6a)
+        let px = (self.fov() as f64).to_radians() / h() as f64;
+        (g.far, g.gas, g.gas2) = far_lights(&self.world, self.world.to_inertial(p.pos), sky_c, px, &g.bodies, &frustum_planes(vp), field_scale(&self.args));
         gpu.take_textures();
         // the players' bodies in the traced scene (ADR 0119): this one's while playing, the roster's near, and
         // `bodies=n` more round the camera for a measure or a still; `proxy=0` none
@@ -1532,6 +1538,45 @@ fn hand_shown(play: bool, tool: bool, f3: bool, home: Menu, menu: Option<Menu>) 
 pub(crate) fn field_scale(args: &Args) -> f64 {
     let f: f64 = args.get("field", 1.0);
     if f.is_finite() { f.clamp(0.0, 10.0) } else { 1.0 }
+}
+
+/// The far bodies' points and the gas giant's disc for the sky's shader (step 6a; `Globals::far`, `gas`, `gas2`):
+/// each body's point by `sky::point_light` from the eye at inertial `eye`, in its row's colour, none where another
+/// body is in the way (`sky::hidden`: the eye's own horizon too) or the sky is light (the stars' darkness from
+/// `sky_c`); the giant's slot only while its disc is a pixel or more, in the frustum and not wholly behind a body,
+/// so the shader skips it otherwise. `px` a pixel's angle, `bodies` this frame's slots, `planes` the camera-centred
+/// frustum, `field` the `field=` scale.
+pub(crate) fn far_lights(world: &World, eye: DVec3, sky_c: Vec3, px: f64, bodies: &[BodyGpu], planes: &[Vec4; 6], field: f64) -> ([[f32; 4]; MAX_BODIES], [f32; 4], [f32; 4]) {
+    let t = world.time;
+    let sun = world.sky.sun(t);
+    let balls: Vec<(DVec3, f64)> = (0..world.bodies.len()).map(|i| (world.pose(i, t).centre, world.bodies[i].radius)).collect();
+    let home_sun = (balls[0].0 - sun).length();
+    let x = (sky_c.dot(Vec3::new(0.3, 0.5, 0.2)) as f64 - 0.004) / (0.08 - 0.004);
+    let dark = 1.0 - x.clamp(0.0, 1.0).powi(2) * (3.0 - 2.0 * x.clamp(0.0, 1.0));
+    let (mut far, mut gas, mut gas2) = ([[0.0; 4]; MAX_BODIES], [-1.0, 0.0, 0.0, 0.0], [0.0; 4]);
+    for (i, &(c, r)) in balls.iter().enumerate() {
+        let dist = (c - eye).length();
+        let others: Vec<(DVec3, f64)> = balls.iter().enumerate().filter(|&(j, _)| j != i).map(|(_, b)| *b).collect();
+        if dist <= r || engine::sky::hidden(eye, c, &others) {
+            continue;
+        }
+        let phase = (sun - c).normalize().dot((eye - c).normalize());
+        let b = engine::sky::point_light(r, dist, home_sun / (c - sun).length(), phase, px, dark);
+        let col = engine::bodies::BODIES[i].colour;
+        far[i] = [col[0] * b as f32, col[1] * b as f32, col[2] * b as f32, 0.0];
+        if world.bodies[i].gas {
+            let share = engine::sky::disc_share(r, dist, px);
+            let ctr = Vec3::new(bodies[i].ctr[0], bodies[i].ctr[1], bodies[i].ctr[2]);
+            let seen = planes.iter().all(|p| p.truncate().dot(ctr) + p.w >= -(r as f32));
+            if share > 0.0 && seen {
+                let day = engine::bodies::BODIES[i].day.map_or(f64::INFINITY, |d| d * engine::sky::DAY);
+                let a = engine::sky::aurora(world.field(i) * field);
+                gas = [i as f32, (std::f64::consts::TAU * t.rem_euclid(engine::sky::PERIOD) / day).rem_euclid(std::f64::consts::TAU) as f32, share as f32, a.colat as f32];
+                gas2 = [a.bright as f32, 0.0, 0.0, 0.0];
+            }
+        }
+    }
+    (far, gas, gas2)
 }
 
 /// The aurora's numbers for post.wgsl (`Post::aurora`, 0164-magnetic-field): the oval's colatitude, its

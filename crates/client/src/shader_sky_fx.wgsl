@@ -14,6 +14,9 @@ fn vs_sky(@builtin(vertex_index) vi: u32) -> SkyOut {
     return o;
 }
 
+// a far body's point: the most its brightest channel shows (frame.rs `far_lights`, engine `sky::point_light`)
+const POINT_CAP: f32 = 1.0;
+
 @fragment
 fn fs_sky(i: SkyOut) -> GOut {
     let w = g.inv_vp * vec4f(i.ndc, 1.0, 1.0);
@@ -23,7 +26,30 @@ fn fs_sky(i: SkyOut) -> GOut {
     var o: GOut;
     var st = vec3f(0.0);
     if ((g.opt.x & 8u) == 0u) { st = stars(d, px); }
-    o.direct = vec4f(sky_colour(d) + st, 1.0);
+    // the gas giant's disc (step 6a), and every far body's point of light, hidden by the giant where it is nearer
+    var gi = giant(d, px);
+    // the sun's disc hides what is farther than it (a point or the disc behind it at conjunction)
+    let sd = length(g.sun_pos.xyz);
+    let in_sun = dot(d, g.sun_pos.xyz / sd) > cos(g.sun_pos.w / sd);
+    if (in_sun && gi_dist(d) > sd) { gi.a = 0.0; }
+    var c = sky_colour(d) + st;
+    for (var i = 0u; i < 4u; i++) {
+        let f = g.far[i].rgb;
+        if (f.r + f.g + f.b <= 0.0) { continue; }
+        let s = g.bodies[i].ctr.xyz;
+        let ls = length(s);
+        if (in_sun && ls > sd) { continue; }
+        // its brightest channel at most POINT_CAP, the others in their ratio: more light widens the glow, so a
+        // bright point keeps its hue instead of burning white
+        let m = max(f.r, max(f.g, f.b));
+        let k = min(m, POINT_CAP);
+        let r = length(cross(d, s / ls)) / (px * 1.4 * sqrt(m / k));
+        let behind = select(0.0, gi.a, i32(i) != i32(g.gas.x) && ls > gi_dist(d));
+        c += f * (k / m) * exp(-r * r * 1.2) * step(0.0, dot(d, s)) * (1.0 - behind);
+    }
+    // the air in front of it lightens it as it does the sky; in space it hides the sun and the stars behind it
+    c = mix(c, gi.rgb + g.sky.rgb * g.stars[0].w, gi.a);
+    o.direct = vec4f(c, 1.0);
     o.albedo = vec4f(0.0);
     o.gbuf = vec2u(0u);
     return o;
@@ -142,6 +168,134 @@ fn stars(dc: vec3f, px: f32) -> vec3f {
     c += star_layer(d, 45.0, 0.05, px, 2.5, 0.03, 1.0);
     c += star_layer(d, 9.0, 0.07, px, 3.0, 1.2, 1.6);
     return c * dark;
+}
+
+// ---- the gas giant (step 6a; frame.rs `far_lights` fills `g.gas`) ----
+// A sphere of the body's radius, hit by the view ray analytically: nothing streamed. Its bands are blocky cells as
+// the stars and the aurora are, `cell` metres (a power of two, about two pixels of its surface, at least 1 m), so
+// they hold detail from any distance: belts and zones by latitude in its frame, their edges torn by turbulence
+// down to the cell, a great oval storm and a string of white ovals, all turning with its day; lit by the sun with
+// a soft terminator and a darker limb; its aurora a ring round each pole on the night side.
+
+// the distance to the giant's cloud tops along d, or a huge one where it misses
+fn gi_dist(d: vec3f) -> f32 {
+    if (g.gas.x < 0.0) { return 1e30; }
+    let gb = g.bodies[u32(g.gas.x)];
+    let b = dot(d, gb.ctr.xyz);
+    let x = cross(d, gb.ctr.xyz);
+    let e = gb.ctr.w * gb.ctr.w - dot(x, x);
+    if (b <= 0.0 || e < 0.0) { return 1e30; }
+    return b - sqrt(e);
+}
+
+const GI_BANDS = array<vec3f, 16>(
+    vec3f(0.40, 0.38, 0.37), vec3f(0.52, 0.47, 0.42), vec3f(0.66, 0.51, 0.35), vec3f(0.88, 0.82, 0.69),
+    vec3f(0.63, 0.40, 0.25), vec3f(0.92, 0.86, 0.73), vec3f(0.55, 0.33, 0.21), vec3f(0.95, 0.90, 0.78),
+    vec3f(0.90, 0.79, 0.60), vec3f(0.50, 0.30, 0.20), vec3f(0.93, 0.87, 0.74), vec3f(0.66, 0.46, 0.30),
+    vec3f(0.86, 0.78, 0.64), vec3f(0.60, 0.48, 0.36), vec3f(0.51, 0.47, 0.42), vec3f(0.40, 0.38, 0.37));
+
+// an oval at (lon, lat) radians of semi-axes (a, b) radians: its distance in radii of it, and the angle round it
+fn gi_oval(lon: f32, lat: f32, at: vec2f, ab: vec2f) -> vec2f {
+    let dl = (fract((lon - at.x) / 6.2831853 + 0.5) - 0.5) * 6.2831853 * cos(at.y);
+    let v = vec2f(dl / ab.x, (lat - at.y) / ab.y);
+    return vec2f(length(v), atan2(v.y, v.x));
+}
+
+// the cloud tops' colour at unit point q of the giant's frame (turned with its day), radius rr m, cells `cell` m
+fn gi_bands(q: vec3f, rr: f32, cell: f32) -> vec3f {
+    let qc = (floor(q * rr / cell) + 0.5) * cell;
+    let u = normalize(qc);
+    // turbulence from an eighth of the radius down to the cell, its eddies drawn out along the bands (the
+    // pole's axis taken three times finer)
+    let oct = clamp(log2(rr / 8.0 / cell), 1.0, 14.0);
+    let st = qc * vec3f(1.0, 1.0, 3.0);
+    var n = 0.0;
+    var fine = 0.0;
+    var amp = 0.5;
+    var f = 8.0 / rr;
+    // the last five octaves at full weight (a few cells to a few dozen): what the screen shows close up
+    var near = 0.0;
+    var a2 = 1.0;
+    for (var k = 0.0; k < oct; k += 1.0) {
+        // each octave warped by the ones before it: the shear tears the edges into curls
+        let v = vnoise(st * f + vec3f(n * 2.5, -n * 1.7, 0.0)) - 0.5;
+        n += amp * v;
+        if (k >= 2.0) { fine += amp * v; }
+        if (k >= oct - 5.0) { near += a2 * v; a2 *= 0.6; }
+        f *= 2.0;
+        amp *= 0.58;
+    }
+    // that detail fades in as the cell shrinks against the radius (cells under some 180 m, a few radii out none)
+    near *= clamp((log2(rr / cell) - 8.0) / 2.5, 0.0, 1.0);
+    let lat = asin(clamp(u.z, -1.0, 1.0));
+    let lon = atan2(u.y, u.x);
+    // the bands, even in the sine of latitude (wide at the equator, narrow to the poles), their edges torn, close
+    // up down to a few dozen cells
+    let y = clamp((u.z + 0.11 * n + near * cell * 40.0 / rr + 1.0) * 8.0, 0.0, 15.999);
+    let k = u32(floor(y));
+    var col = mix(GI_BANDS[k], GI_BANDS[min(k + 1u, 15u)], smoothstep(0.78, 1.0, fract(y)));
+    // the great storm, 22 degrees south: a rust oval in a pale collar, its clouds wound round it
+    let s = gi_oval(lon, lat, vec2f(1.0, -0.384), vec2f(0.16, 0.09));
+    if (s.x < 1.6) {
+        // two arms wound inward, a darker eye
+        let arm = smoothstep(0.2, 0.8, 0.5 + 0.5 * sin(s.x * 14.0 - s.y * 2.0 + fine * 9.0));
+        let inner = mix(vec3f(0.80, 0.38, 0.22), vec3f(0.55, 0.22, 0.14), arm) * mix(0.8, 1.0, smoothstep(0.1, 0.5, s.x));
+        let collar = vec3f(0.95, 0.90, 0.82);
+        col = mix(col, collar, smoothstep(1.6, 1.2, s.x + n * 0.5));
+        col = mix(col, inner, smoothstep(1.05, 0.85, s.x + n * 0.4));
+    }
+    // a string of white ovals at 33 degrees south
+    let wl = floor(lon / 0.7);
+    let w = gi_oval(lon, lat, vec2f((wl + 0.5) * 0.7, -0.576), vec2f(0.05, 0.03));
+    col = mix(col, vec3f(0.96, 0.94, 0.90), smoothstep(1.0, 0.7, w.x + n * 0.6) * step(0.5, hash4(vec3i(i32(wl), 17, 5)).x));
+    // streaks of the next band's colour drawn into each one, and the eddies' light and shade
+    let sk = smoothstep(0.08, 0.2, fine) * 0.45;
+    col = mix(col, GI_BANDS[min(k + 1u, 15u)], sk);
+    // close up: small eddies' light and shade, and thin streaks of the next band along the flow
+    col = mix(col, GI_BANDS[min(k + 1u, 15u)], smoothstep(0.25, 0.45, near) * 0.5);
+    return col * (0.82 + 0.9 * fine) * (1.0 + 0.35 * near);
+}
+
+// the giant along d: its light and how much of the pixel it covers
+fn giant(d: vec3f, px: f32) -> vec4f {
+    if (g.gas.x < 0.0) { return vec4f(0.0); }
+    let gb = g.bodies[u32(g.gas.x)];
+    let c = gb.ctr.xyz;
+    let rr = gb.ctr.w;
+    let b = dot(d, c);
+    if (b <= 0.0) { return vec4f(0.0); }
+    let x = cross(d, c);
+    let h2 = dot(x, x);
+    // the limb smoothed over a pixel, the disc faded in from its point (`disc_share`)
+    let cov = clamp(0.5 - (sqrt(h2) - rr) / (b * px), 0.0, 1.0) * g.gas.z;
+    if (cov <= 0.0) { return vec4f(0.0); }
+    let t = b - sqrt(max(rr * rr - h2, 0.0));
+    let p = d * t - c;
+    let n = normalize(p);
+    // into its frame (the rotation's columns are its axes in the camera's), then turned with its day about +z
+    let m = mat3x3f(gb.rot0.xyz, gb.rot1.xyz, gb.rot2.xyz);
+    let qb = n * m;
+    let cs = cos(g.gas.y);
+    let sn = sin(g.gas.y);
+    let q = vec3f(qb.x * cs + qb.y * sn, -qb.x * sn + qb.y * cs, qb.z);
+    // a pixel's width on the cloud tops, longer where they are seen slant
+    let v = max(dot(n, -d), 0.0);
+    let foot = t * px / max(v, 0.08);
+    let cell = exp2(max(ceil(log2(foot * 2.0)), 0.0));
+    let alb = gi_bands(q, rr, cell);
+    // the sun from that point; a soft terminator (a deep air scatters past it) and a darker limb
+    let ls = normalize(g.sun_pos.xyz - (c + p));
+    let mu = dot(n, ls);
+    let lit = smoothstep(-0.12, 0.2, mu) * (0.2 + 0.8 * max(mu, 0.0));
+    let limb = 0.3 + 0.7 * pow(v, 0.45);
+    var col = alb * lit * limb * g.sun_col.rgb * 1.9;
+    // the aurora: a ring round either pole at the oval's colatitude, on the night side
+    if (g.gas2.x > 0.0) {
+        let al = acos(min(abs(qb.z), 1.0));
+        let ring = exp(-pow((al - g.gas.w) / 0.012, 2.0)) * (0.6 + 0.4 * vnoise(qb * 40.0));
+        col += vec3f(0.25, 1.0, 0.5) * ring * g.gas2.x * 0.25 * (1.0 - smoothstep(-0.1, 0.05, mu));
+    }
+    return vec4f(col, cov);
 }
 
 // ---- effects (ADR 0031, crates/client/src/fx.rs) ----

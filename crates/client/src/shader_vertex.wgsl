@@ -56,6 +56,12 @@ struct Globals {
     // the plants' wind map (ADR 0157, gpu.rs `Globals::sway`): x tiles a column, y its loops an
     // hour of the clock, z 1 with a map (0: the sines of ADR 0091)
     sway: vec4f,
+    // the far bodies' points (step 6a, gpu.rs `Globals::far`): per body its colour times its brightness here
+    far: array<vec4f, 4>,
+    // the gas giant (gpu.rs `Globals::gas`): x its body (negative: none), y its bands' turn, z its disc's share,
+    // w its aurora's colatitude; gas2.x the aurora's brightness
+    gas: vec4f,
+    gas2: vec4f,
 };
 // base in columns and layers; info = face | level << 3 | body << 8; off: its first quad
 // opq: its opaque land quads; the cutout ones follow them, the BLAS's second geometry (ADR 0069)

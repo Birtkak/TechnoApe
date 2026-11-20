@@ -144,6 +144,88 @@ two, bit for bit. Mars's row moved from `data/drafts/bodies-mars.toml` (deleted)
 - **Costs** (play build, seed 1, 4 km planet; `docs/perf-debt.md`): Mars's bake 3.1 s once; the world with its map
   kept 1.7 s against 1.5 s with two bodies; standing on Mars RAM 1.8-2.1 GB, VRAM 1.08 GB; on Terra VRAM 1.34 GB.
 
+### A gas giant, and far bodies as points of light [draft, 2026-11-20]
+A new universe (world generation 6) has four bodies: Terra, Luna, Mars and the gas giant, working name **Jupiter**
+(the name is the developer's to change), round the sun; worlds made before keep theirs, bit for bit. The developer's
+calls: gas planets after Mars; a gas planet "can be entered and has a solid core"; its size a real giant's, about
+300 Terra masses and 11 Terra radii (2026-11-18). This run makes it exist, be seen and be approached.
+- **The row** (end of `data/bodies.toml`, `since = 6`): `kind = "gas"`, `parent = "sun"`, `size = 1/11` (46.7 km on
+  the 4 km Terra: 67,584 columns' worth of radius, no columns of its own), `sun = 10681.8` (5 AU in its radii),
+  **`day = 0.4`** (new key: a sun-circler's sidereal day in the home's days, 1080 whole turns a sky `PERIOD`; none:
+  it does not turn, as Mars), **`colour`** (new key on every row: its point's colour; Terra blue, Luna grey, Mars
+  red, the giant cream; grey if left out), no `ground`, `generator` or `stages` (refused on a gas row; a rocky row
+  must have ground and generator). Its makeup keeps the rocky keys with a gas body's meaning: `iron = 0.8` the
+  conducting fluid's (metallic hydrogen's) top over the radius, `heat = 0.9` leaves a solid core a tenth of that
+  (3.7 km, between Luna's 1.15 and Terra's 4.2 km), `density = [500, 500, 1700]` the molecular gas's twice and the
+  fluid's (the core reckoned at the fluid's). No mass key was needed: the densities state the mean (1114 kg/m3, the
+  real one's 1326), and the interior derives the mass as it does a rocky body's.
+- **From the interior** (`Interior::new`, the same rules): **300.7 Terra masses**, **48.75 m/s^2 at the cloud tops,
+  2.48 times Terra's 19.62**; the pull inside the gas by the same profile (rising to the fluid's top at 0.8 R, then
+  falling a little through the light gas over it, nothing at the centre); **field 3.71 of Terra's** by 0164's rule
+  (liquid share 0.51 over Terra's 0.34, times a spin 2.45 times hers): stronger, not the real one's 14 times, because
+  the rule is a share of the volume times the spin and stays one rule for every body. Its aurora by 0164's oval rule:
+  a ring at 79.8 degrees latitude, brightness 1.94, drawn on its night side by the giant's own shader (cheap: a term
+  in it; not 0164's curtains, which are the home's only).
+- **Sphere of influence:** a sun-circler's is the home's (0163) or Laplace's rule from its mass and orbit scaled from
+  the home's (`home x a/a_home x (m/m_home)^0.4`), whichever is larger (`World::soi`): the giant's **7.49 Mm, 160 of
+  its radii**; Mars's would be 0.65 of the home's, so it keeps the home's, to the bit. A gas body's grid lies its
+  index times `GAS_AT` (100,000 km) out, not `MOON_AT`, so that sphere never reaches another body's grid.
+- **What a gas body is to the engine** (`Row::gas`, `Body::gas`): a `Body` with no blocks. Its grid numbers exist only
+  as its radius's; no map, bake, chunks, streaming, ore, caves or save data (a save and the welcome carry it as
+  `(columns, None)`). Guarded where a grid is read: `World::block`, `generated_under` and `generated_solid_under`
+  answer air; `World::set_block` does nothing (so no edit, `/place` or structure lands there); `Body::height` and
+  `col_height` answer the cloud tops (so `top`, `stand_point`, `/goto`, `run=stand body=3` stand there); the streamer
+  makes no roots for it; F3 says "gas" under Size and Feet in. Gravity sums it with the others (a generation 6 world's
+  Terra feels it, 4e-7 m/s^2; a world of 5 or before has no row for it, so its bits are as before).
+- **Below the cloud tops (not built):** the cloud tops **hold** a player as a floor (`phys::blocked`: inside the
+  radius is blocked), so `/goto jupiter` stands on them on the day side and a fall lands there. Chosen over falling
+  in because the dive is its own run (pressure, heat and hull limits): a fall would swing a player through the centre
+  at some 2 km/s into a place drawn as nothing, with no way out but `/goto`; a held place is valid, saveable and
+  reloads in the giant's frame. A player found inside the sphere (a bad save, `at=` under the radius, a teleport)
+  is put on the cloud tops along its radius at its next step (`phys::step`), its inward speed gone. What is laid
+  there rests where a player stands: `lay` (a death's pile, a throw, a knocked-off torch) takes the cloud tops'
+  cell as its floor, never under it; a bucket is not poured on a gas body (nothing would hold the water); no block
+  can be set there, so nothing falls; rain feeds the home's reaches only and herds live on the home only.
+  Its frame does not turn (0163's ring); its bands turn in the shader by the clock, so the clouds drift under a
+  player held there at some 400 m/s at the equator. A frame that turns with its day (as the home's) is not done:
+  its sphere of influence is 7.5 Mm, so the frame's own speed at its edge would be some 65 km/s, and a ship coming
+  in would be handed that speed. It needs a turning inner frame of a few radii nested in the still sphere
+  (`pose` and `reframe` taking a frame inside a frame, the recordings their frame index), or the floor carrying
+  a held player round with the clouds (`phys::step` turning a standing player's position by the spin).
+- **Drawn by the sky's shader** (`shader_sky_fx.wgsl` `giant`, in `fs_sky`; `frame::far_lights` fills `Globals::gas`):
+  a sphere hit analytically per sky pixel, nothing streamed. Belts and zones even in the sine of latitude (16 rows of
+  ochre, cream and rust), their edges torn by turbulence stretched along the bands and warped by itself, streaks of
+  the next band, a great oval storm 22 degrees south (rust, two wound arms, a pale collar) and white ovals at 33 south;
+  all in cells of a power of two metres, about two pixels of its surface and at least 1 m, so the look is the stars'
+  and the aurora's blocky texels and holds detail from any distance (the turbulence's octaves reach down to the cell;
+  their last five at full weight tear the band edges, shade small eddies and draw thin streaks as the cells shrink
+  under some 180 m, from about 10 km over the cloud tops; none from a few radii out).
+  Sun-lit with a soft terminator and a darker limb; it turns with its day from the world clock. The disc fades in from
+  its point as it grows from 1.5 to 4 pixels, hides the stars, the sun and the points behind it, and is lightened by
+  the air when seen through it. Only one gas body is drawn (the first). **Not on screen** (under 1.5 pixels, outside
+  the frustum, or its centre under a horizon): its slot is -1 and the shader's only cost is one compare a sky pixel.
+- **Far bodies are points of light** (every body, `sky::point_light`, pure and tested): the light it sends,
+  `(R/d)^2 x lit share ((1 + cos phase) / 2) x (home's sun distance / its own)^2`, seen as the stars are, `5 x
+  (that / 5e-10)^0.4`, at most 8, in its row's colour (each channel 0 to 1, refused otherwise), a glow 1.4 pixels
+  wide as the brightest stars'; its brightest channel shows at most 1.0 (the shader's `POINT_CAP`), the others in
+  their ratio, and light past that widens the glow by its square root, so a bright point keeps its hue; handed over
+  to the disc between 1.5 and 4 pixels across (`disc_share`, so no jump); hidden where another body's sphere is in
+  the sight line (`sky::hidden`: the eye's own horizon too), by a light sky (the stars' darkness rule) and by the
+  sun's disc where it is farther than the sun (the disc too). From
+  Terra at night: the giant at opposition 5.4, Mars at opposition 6.1 and at the far side 2.0, against the brightest
+  stars' 1.2 to 4.2. A mesh body's disc (Mars, Luna, Terra) is drawn by its chunks once streamed.
+- **The body limit stays four** (`bodies::MAX`, `gpu::MAX_BODIES`): the giant is the fourth. Raising it is more than
+  a constant and a table: the body id rides two bits in every quad, particle and model word (`& 3u`), so a fifth
+  needs those words widened. The giant's moons need that first.
+- **Costs:** see `docs/perf-debt.md` ("A gas giant and far points").
+- **Left** (each its own run): the dive (pressure, heat, wind and gas mix by depth from the interior; hull limits;
+  cloud decks to fly through, drawn as volumes; what replaces the floor); the solid core as a block body (a grid
+  under the gas, its own row or a part of this one, its bake and save data); moons of the giant and the body limit
+  past four; gas harvesting by depth and floating platforms; the radiation belt (from the field and the spin); real
+  orbits (its ring, `day` and grid placement are stand-ins); loading block bodies' chunks and maps on approach (the
+  stream keeps Mars's coarse chunks though it is a point: the "Mars a body" row); 0164's curtains on any body but the
+  home; a second gas body drawn; the giant casting a shadow on the sky (its eclipses of the sun for its moons).
+
 ## The sky's clock
 
 - **World time** is `tick / 20 Hz` seconds since the world was made; the sky is kinematic, circular orbits on rails,

@@ -384,6 +384,9 @@ impl Body {
     /// The surface radius over level-0 column (i, j) of a face: from its tile when one is cached, else computed,
     /// never building a tile (the frame thread's physics calls it).
     pub fn col_height(&self, face: u8, i: i32, j: i32) -> f64 {
+        if self.gas {
+            return self.radius;
+        }
         let (x, y) = (i.div_euclid(CS), j.div_euclid(CS));
         if let Some(e) = self.tiles.map.lock().unwrap().get(&(face, 0, x, y)) {
             return e.0.h[(i - x * CS + 1) as usize + (j - y * CS + 1) as usize * P];
@@ -398,6 +401,10 @@ impl Body {
     }
     /// Surface radius along unit direction d.
     pub fn height(&self, d: DVec3) -> f64 {
+        // a gas body's surface is its cloud tops (step 6a)
+        if self.gas {
+            return self.radius;
+        }
         if self.baked.is_some() {
             let (f, i, j) = self.locate(d);
             return self.height_at(f, i, j, d, 0);

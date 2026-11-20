@@ -57,7 +57,8 @@ impl Server {
             }
             _ => match engine::bodies::find(to).filter(|&i| i < w.bodies.len())? {
                 0 => Some((w.bodies[0].spawn_point(), w.bodies[0].spawn.any_orthonormal_vector())),
-                // the day side, the sun 45 degrees up: an airless night is black
+                // the day side, the sun 45 degrees up: an airless night is black (on a gas body, its cloud tops:
+                // `Body::height`, step 6a)
                 i => {
                     let p = w.pose(i, w.time);
                     let s = (p.rot.inverse() * (w.sky.sun(w.time) - p.centre)).normalize();
@@ -110,8 +111,9 @@ impl Server {
                 "    [face i j layer]   that block of the body you are on (F3)",
                 "  /structure <name>    a file of data/structures stood five",
                 "    [seed]             blocks ahead (a grown one: that seed)",
-                "  /goto <where>        terra (home: the spawn), luna, mars",
-                "                       (a new world's), or sun",
+                "  /goto <where>        terra (home: the spawn), luna, mars,",
+                "                       jupiter (a new world's: its cloud",
+                "                       tops), or sun",
                 "  /timewarp <n>        the clock n times faster (1 to 10000,",
                 "                       up, down); . and , step it too",
                 "  /weather <what>      clear cloudy rain storm snow, or auto",

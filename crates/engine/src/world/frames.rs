@@ -56,8 +56,8 @@ impl World {
         let mut first: Option<Interior> = None;
         let mut bodies: Vec<Body> = Vec::with_capacity(rows.len());
         for (i, (row, (n, map))) in rows.iter().zip(list).enumerate() {
-            let mut b = Body::new(MOON_AT * i as f64, n, seed + i as i32);
-            (b.name, b.air, b.ground, b.warp) = (row.name.clone(), row.air, row.ground, warp);
+            let mut b = Body::new(if row.gas() { GAS_AT } else { MOON_AT } * i as f64, n, seed + i as i32);
+            (b.name, b.air, b.ground, b.warp, b.gas) = (row.name.clone(), row.air, row.ground, warp, row.gas());
             b.parent = row.parent.unwrap_or(INERTIAL);
             // a moon `orbit` radii of its parent out (Luna 60, the Moon's), never nearer than orbit_min, once
             // a month by Kepler's law against the home's first moon's for a parent as dense (`sky::period`);
@@ -80,7 +80,8 @@ impl World {
                     None
                 }
             };
-            let spin = if row.parent.is_none() && !row.home { 0.0 } else { crate::interior::spin(month) };
+            // (one that circles the sun and is not home turns only with a `day`: its pose does not, 0163's ring)
+            let spin = if row.parent.is_none() && !row.home { row.day.map_or(0.0, |d| 1.0 / (d * crate::sky::DAY)) } else { crate::interior::spin(month) };
             b.interior = Interior::new(&row.makeup, b.radius, spin, first.as_ref());
             first.get_or_insert_with(|| b.interior.clone());
             // every body is of the world's generation (from 4 Luna's rock field asks it); the home's grid goes down
@@ -169,9 +170,18 @@ impl World {
     }
     /// A body's sphere of influence: within it, a position belongs to the body's frame.
     pub fn soi(&self, i: usize) -> f64 {
-        // one that circles the sun as the home's; a moon a quarter of its orbit
+        // a moon a quarter of its orbit; one that circles the sun the home's, or by Laplace's rule from its mass
+        // and orbit against the home's where that is larger (the giant's 7.5 Mm; Mars's would be 0.65 of the home's)
         let b = &self.bodies[i];
-        if b.parent == INERTIAL { self.sky.moon_orbit * 0.6 } else { b.orbit * 0.25 }
+        if b.parent != INERTIAL {
+            return b.orbit * 0.25;
+        }
+        let home = self.sky.moon_orbit * 0.6;
+        if i == 0 {
+            return home;
+        }
+        let h = &self.bodies[0];
+        home.max(home * b.orbit / h.orbit * (b.interior.mass / h.interior.mass).powf(0.4))
     }
     /// Frame `f`'s pose at time t: its coordinates to the inertial frame. A body is posed on its parent's pose,
     /// down the rows (0163-n-bodies): the home by the sky, a moon on its circle around its parent, one that

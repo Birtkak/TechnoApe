@@ -248,4 +248,34 @@ mod tests {
         assert_eq!(b.weight_g, b.surface_g, "its own pull weighs its rock");
         let _ = &BODIES[0];
     }
+
+    /// The gas giant's row (step 6a): about 300 of Terra's masses in 11 of her radii, so about 2.5 times her pull
+    /// at the cloud tops (the real Jupiter's 2.5 g); its conducting fluid deep and its day short, so a field far
+    /// over Terra's by the same rule (`field`); its pull inside the gas falls smoothly to nothing at the centre.
+    #[test]
+    fn a_gas_giant_pulls_and_shields_from_its_row() {
+        let r = |n: i32| n as f64 / (2.0 * std::f64::consts::PI / 3.0).sqrt();
+        let terra = Interior::new(&BODIES[0].makeup, r(6144), spin(None), None);
+        let g = Interior::new(&BODIES[3].makeup, r(6144 * 11), giant_spin(), Some(&terra));
+        let masses = g.mass / terra.mass;
+        assert!((290.0..310.0).contains(&masses), "{masses} Terra masses");
+        let pull = g.surface_g / G;
+        assert!((2.4..2.6).contains(&pull), "{pull} times Terra's pull at the cloud tops");
+        assert!((3.0..5.0).contains(&g.field), "field {} of Terra's", g.field);
+        assert_eq!(g.gravity(0.0), 0.0);
+        let mut last = 0.0;
+        for k in 1..=100 {
+            let x = g.radius * k as f64 / 100.0;
+            let a = g.gravity(x);
+            // rising to the dense fluid's top, then falling a little through the light gas over it: never a step
+            assert!(a > 0.0 && (a - last).abs() < 0.05 * g.surface_g, "at {x} m: {a} after {last}");
+            last = a;
+        }
+        assert!(rel(g.gravity(2.0 * g.radius) * 4.0, g.surface_g) < 1e-12, "the square law outside");
+    }
+
+    /// The giant's spin from its row's `day` (in Terra's days), as the world gives it (`World::of`).
+    fn giant_spin() -> f64 {
+        1.0 / (BODIES[3].day.unwrap() * crate::sky::DAY)
+    }
 }

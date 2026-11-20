@@ -648,3 +648,73 @@ fn terra_and_luna_pose_as_the_sky_does() {
     }
     assert_eq!((w.bodies[1].orbit.to_bits(), w.soi(1).to_bits()), (w.sky.moon_orbit.to_bits(), (w.sky.moon_orbit * 0.25).to_bits()));
 }
+
+/// Step 6a: a world of generation 6 has the gas giant as its fourth body, one of 5 has three. Gas has no blocks:
+/// every cell of it is air and none takes an edit, its surface is its cloud tops, nothing streams or counts ore
+/// there; it pulls 2.5 times Terra's pull at its cloud tops and its sphere of influence follows from its mass.
+#[test]
+fn a_generation_6_world_has_the_giant_whose_cells_are_air() {
+    let (n, m) = (1536, crate::bodies::moon_columns(1536));
+    assert_eq!(World::with_grid(n, m, 1, None, None, 0.0, 5).bodies.len(), 3, "a generation 5 world keeps three");
+    let mut w = World::with_grid(n, m, 1, None, None, 0.0, 6);
+    assert_eq!(w.bodies.iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["Terra", "Luna", "Mars", "Jupiter"]);
+    let j = &w.bodies[3];
+    assert!(j.gas && !w.bodies[..3].iter().any(|b| b.gas));
+    assert!((j.radius / w.bodies[0].radius - 11.0).abs() < 1e-9);
+    let up = DVec3::new(0.2, 0.3, 0.9).normalize();
+    let g = w.gravity(j.centre + up * (j.radius + 1.0)).length() / w.surface_g(0);
+    assert!((2.4..2.6).contains(&g), "{g} times Terra's pull at the cloud tops");
+    assert!(w.field(3) > 3.0, "field {}", w.field(3));
+    // its surface is the cloud tops everywhere; a stand there is on them
+    assert_eq!((j.height(up), j.top(up), j.col_height(2, 5, 7)), (j.radius, j.radius, j.radius));
+    let feet = (j.stand_point(up) - j.centre).length() - j.radius;
+    assert!((0.0..2.0).contains(&feet), "{feet} m over the cloud tops");
+    // every cell air, under the cloud tops too, and none can be set
+    let b = w.block_at(j.centre + up * (j.radius - 3.0));
+    assert_eq!(b.body, 3);
+    assert_eq!((w.block(b), w.generated_block(b)), (AIR, AIR));
+    w.set_block(b, BLOCKS.id("stone"));
+    assert_eq!((w.block(b), w.edit_count), (AIR, 0), "no edit on gas");
+    w.open_ledger();
+    assert!(w.bodies[3].ores.is_empty() && w.bodies[3].caves.is_empty());
+    // the sphere of influence: the home's for Mars (as 0163), from its mass and orbit for the giant, never reaching
+    // another body's grid
+    assert_eq!(w.soi(2).to_bits(), w.soi(0).to_bits());
+    let (soi, j) = (w.soi(3), &w.bodies[3]);
+    assert!(soi > 100.0 * j.radius, "{} radii", soi / j.radius);
+    assert_eq!(w.frame_at(j.centre + up * (soi * 0.9)), 3);
+    for i in 0..3 {
+        assert!(w.bodies[i].centre.distance(j.centre) > 1.5 * (w.soi(i) + soi), "body {i}");
+        assert_eq!(w.nearest(j.centre + up * (soi * 0.99)), 3, "the giant's frame is nearest the giant");
+    }
+}
+
+/// Below the cloud tops is not built (step 6a): they hold a player as a floor, under the giant's pull; nothing
+/// there is solid to the blocks.
+#[test]
+fn the_cloud_tops_hold_a_falling_player() {
+    let w = World::with_grid(1536, crate::bodies::moon_columns(1536), 1, None, None, 0.0, 6);
+    let j = &w.bodies[3];
+    let up = DVec3::new(0.6, -0.2, 0.7).normalize();
+    let mut p = crate::phys::Player::at(j.centre + up * (j.radius + 20.0), up.any_orthonormal_vector());
+    for _ in 0..240 {
+        crate::phys::step(&w, &mut p, &crate::phys::Input::default(), 1.0 / 60.0);
+    }
+    let over = (p.pos - j.centre).length() - j.radius;
+    assert!(p.on_ground && (0.0..0.1).contains(&over), "{over} m over the cloud tops, on the ground {}", p.on_ground);
+    assert_eq!(w.frame_at(p.pos), 3);
+    // one found inside the sphere (a bad save, `at=` under the radius, a teleport) is put out on the cloud tops
+    // along its radius at its next step, and walks from there
+    for deep in [0.5, 1000.0, j.radius * 0.5] {
+        let mut p = crate::phys::Player::at(j.centre + up * (j.radius - deep), up.any_orthonormal_vector());
+        crate::phys::step(&w, &mut p, &crate::phys::Input::default(), 1.0 / 60.0);
+        let over = (p.pos - j.centre).length() - j.radius;
+        assert!((0.0..0.1).contains(&over) && (p.pos - j.centre).normalize().dot(up) > 0.999999, "{deep} m in: {over} m over");
+        assert!(!crate::phys::inside(&w, &p));
+        let at = p.pos;
+        for _ in 0..30 {
+            crate::phys::step(&w, &mut p, &crate::phys::Input { mv: [0.0, 1.0], ..Default::default() }, 1.0 / 60.0);
+        }
+        assert!(p.pos.distance(at) > 1.0, "{deep} m in: it walks on");
+    }
+}
