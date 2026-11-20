@@ -83,11 +83,10 @@ impl Server {
     pub(super) fn send_water(&mut self) {
         // each tile built and measured once a tick, however many clients get it
         let mut built: FxMap<Col, (Vec<engine::liquid::ColWater>, usize)> = FxMap::default();
-        // what each client lacks, nearest first: a pass over every tile per client, so side by side when there
-        // are many (in a game's own server the meshing fills rayon's pool, and one client needs no help)
-        let seen: Vec<(DVec3, &FxMap<Col, u64>)> = self.clients.iter().map(|c| (DVec3::from_array(c.player.pos), &c.tiles)).collect();
-        let lacks = |(me, have): &(DVec3, &FxMap<Col, u64>)| wanted(&self.tiles, &self.near, *me, have);
-        let wants: Vec<Vec<(u64, Col)>> = if seen.len() >= 8 { seen.par_iter().map(lacks).collect() } else { seen.iter().map(lacks).collect() };
+        // what each client lacks, nearest first: the tiles of the 27 cells round it. On this thread: a pass side by
+        // side waited on rayon's global pool, which in a game's own server is the client's, full of chunk jobs and
+        // world builds' cave walks (a sim's 50 bots' held ticks 100 to 600 ms)
+        let wants: Vec<Vec<(u64, Col)>> = self.clients.iter().map(|c| wanted(&self.tiles, &self.near, DVec3::from_array(c.player.pos), &c.tiles)).collect();
         for (c, want) in self.clients.iter_mut().zip(wants) {
             if want.is_empty() {
                 continue;

@@ -42,6 +42,39 @@ fn events(got: &[ToClient]) -> Vec<Event> {
     got.iter().filter_map(|m| if let ToClient::Events(v) = m { Some(v.clone()) } else { None }).flatten().collect()
 }
 
+/// A tick never waits on rayon's global pool: in a game's own server that pool is the client's, full of chunk
+/// jobs and of every world build's cave walk (a sim's 50 bots' held the tick 100 to 600 ms). With every thread of
+/// the pool held, a tick of a server with many players (the water pass went side by side from 8) still ends.
+#[test]
+fn a_tick_does_not_wait_on_the_global_pool() {
+    let (mut s, _links) = server_with(9);
+    let threads = rayon::current_num_threads();
+    let gate = std::sync::Arc::new(std::sync::RwLock::new(()));
+    let held = gate.write().unwrap();
+    let (started_tx, started) = channel();
+    for _ in 0..threads {
+        let (gate, started_tx) = (gate.clone(), started_tx.clone());
+        rayon::spawn(move || {
+            started_tx.send(()).unwrap();
+            drop(gate.read().unwrap());
+        });
+    }
+    // every pool thread is in a task that waits on the gate
+    for _ in 0..threads {
+        started.recv().unwrap();
+    }
+    let (done_tx, done) = channel();
+    let t = std::thread::spawn(move || {
+        s.tick();
+        done_tx.send(()).unwrap();
+    });
+    // generous: a tick here is about a millisecond; one that needs the pool never ends while it is held
+    let ended = done.recv_timeout(std::time::Duration::from_secs(10)).is_ok();
+    drop(held);
+    t.join().unwrap();
+    assert!(ended, "the tick waited on rayon's global pool");
+}
+
 /// The event list (ADR 0149): a dig is an event, with what was there and who dug, sent to every player
 /// before the edit that shows it, far ones too; a death is told only within `PERCEIVE`.
 #[test]
