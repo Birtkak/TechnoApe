@@ -144,7 +144,7 @@ two, bit for bit. Mars's row moved from `data/drafts/bodies-mars.toml` (deleted)
 - **Costs** (play build, seed 1, 4 km planet; `docs/perf-debt.md`): Mars's bake 3.1 s once; the world with its map
   kept 1.7 s against 1.5 s with two bodies; standing on Mars RAM 1.8-2.1 GB, VRAM 1.08 GB; on Terra VRAM 1.34 GB.
 
-### A gas giant, and far bodies as points of light [draft, 2026-11-20]
+### A gas giant, and far bodies as points of light [0174, 2026-11-20]
 A new universe (world generation 6) has four bodies: Terra, Luna, Mars and the gas giant, working name **Jupiter**
 (the name is the developer's to change), round the sun; worlds made before keep theirs, bit for bit. The developer's
 calls: gas planets after Mars; a gas planet "can be entered and has a solid core"; its size a real giant's, about
