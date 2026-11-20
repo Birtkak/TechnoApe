@@ -101,8 +101,8 @@ pub const MANTLE_STEP: i32 = 256;
 /// basalt flows and lava tubes as one round passage (ADR 0160-generation-number-and-arc-basalt), 3 dry karst in
 /// the basins' limestone in place of ADR 0063's worm (0161-karst-caves), 4 Luna's rock field (0165-bake-stages:
 /// anorthosite highlands, mare basalt over anorthosite in the maria; Terra as at 3), 5 Mars, the third body
-/// (`bodies::Row::since`; Terra and Luna as at 4).
-pub const GENERATION: u8 = 5;
+/// (`bodies::Row::since`; Terra and Luna as at 4), 6 the gas giant, the fourth (step 6a; the three as at 5).
+pub const GENERATION: u8 = 6;
 
 /// Refuses a world of a generation newer than this build's: it would generate other ground under the edits.
 pub fn known_generation(gen: u8) -> Result<u8, String> {
@@ -260,6 +260,10 @@ pub struct Body {
     pub name: String,
     /// Whether it has air (the sky's colour, ADR 0022).
     pub air: bool,
+    /// A gas body (its row's `kind`, step 6a): no blocks. Its grid's numbers are only its radius's; every cell
+    /// is air and takes no edit (`World::block`, `set_block`), its surface is its cloud tops (`height`), nothing
+    /// streams it, and the cloud tops hold a player (phys `blocked`).
+    pub gas: bool,
     /// The body it circles (its row's `parent`, 0163-n-bodies); INERTIAL: the sun.
     pub parent: usize,
     /// How far out it circles its parent, centre to centre, metres (the sun's distance for one that circles the
@@ -555,6 +559,9 @@ impl Block {
 /// planet's frame on the largest planet (1.5 x 0.6 of a 60 radii orbit, 920 km at 24576 columns; ADR 0041,
 /// it was 1,000 km before Luna moved out to 60 radii).
 pub const MOON_AT: DVec3 = DVec3::new(1.0e7, 0.0, 0.0);
+/// A gas body's grid lies its index times this out instead (step 6a): its sphere of influence from its mass
+/// (`World::soi`, 7.5 Mm for the giant) would reach the grids MOON_AT apart.
+pub const GAS_AT: DVec3 = DVec3::new(1.0e8, 0.0, 0.0);
 /// Where MOON_AT was before ADR 0041: a save's players there are moved (server `from_save`).
 pub const OLD_MOON_AT: DVec3 = DVec3::new(1.0e6, 0.0, 0.0);
 /// The inertial frame's origin (the sun's centre) in the shared coordinates: far enough that the sun's

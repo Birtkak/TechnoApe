@@ -18,8 +18,11 @@
 # home's (`bodies::columns`), instead of `n`. `sun` (a body that circles the sun): the sun's distance in its
 # radii. The sun's size follows from the home's first moon: seen from the home's ground under it, it just
 # covers the sun, so every total eclipse is a perfect one (sky.rs `Sky::new`, ADR 0041).
+# `day` (a body that circles the sun, not home): its sidereal day in the home's days; none: it does not turn.
+# `colour`: its point of light's when its disc is under a pixel (sky.rs `point_light`; grey if left out).
 # What a body is made of (planet-model.md; its interior, crates/engine/src/interior.rs, is derived from these and
-# its radius): `kind` rocky (icy and gas are not built yet); `iron` the metal core's radius over the body's;
+# its radius): `kind` rocky or gas (icy is not built yet; a gas row has no `ground`, `generator` or `stages`, and
+# its `iron`, `heat` and `density` are its conducting fluid's, as its row says); `iron` the metal core's radius over the body's;
 # `heat` how hot the inside still is, 0 dead (the core all solid) to 1 young (all liquid), the solid inner core's
 # radius being 1 - heat of the core's; `density` the crust's rock, the mantle's and the core's metal, kg/m3.
 # `weight_g`: the pull the weight of its rock is reckoned with, m/s^2, where it is not the body's own.
@@ -34,6 +37,8 @@ n = 6144
 generator = "continents"
 ground = ["grass", "dirt", "stone"]
 air = true
+# its point of light far off: the blue of its seas and air
+colour = [0.55, 0.72, 1.0]
 # Earth's: 1 AU is about 23,500 Earth radii
 sun = 23500.0
 kind = "rocky"
@@ -51,6 +56,7 @@ stages = ["crust", "impacts", "ice", "volcanism"]
 generator = "hills"
 ground = ["regolith", "regolith", "stone"]
 air = false
+colour = [0.78, 0.77, 0.75]
 # the Moon's to the Earth: 3.7 times smaller, 30 Earth diameters away (the developer, 2026-11-11)
 size = 3.7
 orbit = 60.0
@@ -83,9 +89,36 @@ age = 1.0
 generator = "hills"
 ground = ["red dust", "mars regolith", "basalt"]
 air = false
+colour = [1.0, 0.55, 0.36]
 kind = "rocky"
 # a small core (the real one about half the radius), nearly frozen: no field
 iron = 0.5
 heat = 0.15
 # a basaltic crust, a mantle richer in iron than Terra's, a core of iron with much sulphur
 density = [2900.0, 3500.0, 6700.0]
+
+# The gas giant (planet-model.md "Gas planets", step 6a; the working name is the developer's to change), in the
+# worlds of generation 6 on. Its size is a real giant's (the developer, 2026-11-18): 11 Terra radii (about 47 km)
+# and about 300 Terra masses, so 2.5 times her pull at the cloud tops. Gas has no blocks: no ground, generator,
+# stages or grid; the sky's shader draws it (shader_sky_fx.wgsl `giant`). Below the cloud tops is not built: they
+# hold a player as a floor (phys `blocked`) until the dive's run.
+[[body]]
+name = "Jupiter"
+parent = "sun"
+since = 6
+# 1/11: 67584 columns' worth of radius on the 4 km Terra (it has no columns of its own)
+size = 0.09090909090909091
+# 5 AU in its own radii: Terra's 23500 of hers, times 5, over 11
+sun = 10681.818181818182
+# a day of 0.4 of Terra's (the real one's 10 hours to the Earth's 24): 1080 whole turns a sky's PERIOD
+day = 0.4
+air = false
+colour = [1.0, 0.9, 0.74]
+kind = "gas"
+# the conducting fluid (metallic hydrogen) up to 0.8 of the radius; a solid core a tenth of that, 3.7 km, between
+# Luna's 1.15 km and Terra's 4.2 km
+iron = 0.8
+heat = 0.9
+# the molecular gas's, again, and the fluid's (the core reckoned at the fluid's): a mean of 1114 kg/m3 (the real
+# one's 1326), so 300.7 Terra masses in 11 radii
+density = [500.0, 500.0, 1700.0]

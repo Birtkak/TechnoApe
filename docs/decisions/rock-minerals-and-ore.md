@@ -223,8 +223,8 @@ brackets are the ADRs (`archive/NNNN-*.md`) a decision came from; INDEX.md lists
 - Luna's lava tubes: a `caves.toml` row; see `caves.md`. [0166]
 
 ## Generation number
-`world::GENERATION` is **5** (checked in code, `crates/engine/src/world/mod.rs`; `known_generation` takes up to 5 and
-refuses 6 with "this world is generation N, this build knows up to M: update the game"). `Body::gen` is set on every
+`world::GENERATION` is **6** (checked in code, `crates/engine/src/world/mod.rs`; `known_generation` takes up to 6 and
+refuses 7 with "this world is generation N, this build knows up to M: update the game"). `Body::gen` is set on every
 body (before 4 only the home's was). A rule asks `b.gen >= k`; a future rule bumps `GENERATION` and keeps the old
 profile for older worlds. [0160, 0165]
 
@@ -236,6 +236,7 @@ profile for older worlds. [0160, 0165]
 | 3 | ADR 0161 | karst (the limestone worm is not made where karst replaces it); `Body::candidate_of` plant check cheaper (same answer) |
 | 4 | ADR 0165, 0166 | Luna's rock field; her ore and caves by her rock (0166 redefines generation 4's Luna: no gen-4 world had been handed over); no change to Terra |
 | 5 | bodies-and-orbits.md "Mars is a body in the world" | Mars, the third body (a row's `since = 5`, `bodies::of`); Terra and Luna as at 4 |
+| 6 | bodies-and-orbits.md "A gas giant, and far bodies as points of light" | the gas giant, the fourth body (`since = 6`; no blocks, no ground); Terra, Luna and Mars generate as at 5 |
 
 How it is carried (ADR 0160):
 - In the save: `Save::gen: u8`, `VERSION` 21 at the time (a 20's `mantle: bool` is the same one byte: it reads as

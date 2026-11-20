@@ -66,7 +66,7 @@ impl World {
     pub fn generated_under(&self, b: Block, height: f64) -> u16 {
         let body = &self.bodies[b.body as usize];
         let depth = height - body.layer_r(b.pos.z as f64 + 0.5);
-        if depth < 0.0 {
+        if depth < 0.0 || body.gas {
             // over the ground: a plant's block, or air (a crown can hang over lower ground: `PLANT_TOP`)
             if body.baked.is_none() || -depth > PLANT_TOP {
                 return AIR;
@@ -97,7 +97,9 @@ impl World {
     /// physics' question, per cell.
     pub fn generated_solid_under(&self, b: Block, height: f64) -> bool {
         let body = &self.bodies[b.body as usize];
-        let solid = if height - body.layer_r(b.pos.z as f64 + 0.5) < 4.0 {
+        let solid = if body.gas {
+            false
+        } else if height - body.layer_r(b.pos.z as f64 + 0.5) < 4.0 {
             BLOCKS.solid(self.generated_under(b, height))
         } else {
             !body.col_caves(b.face, b.pos.x, b.pos.y).iter().any(|&(lo, hi)| (lo..hi).contains(&b.pos.z))
@@ -147,6 +149,9 @@ impl World {
         self.edits.get(&b.chunk()).and_then(|m| m.get(&b.pos)).copied()
     }
     pub fn block(&self, b: Block) -> u16 {
+        if self.bodies[b.body as usize].gas {
+            return AIR;
+        }
         self.edit(b).unwrap_or_else(|| self.generated_block(b))
     }
     /// The light cell b gives holding m: its block's, or, a layer-0 cell open down to the metal sea, its glow.
@@ -158,6 +163,10 @@ impl World {
         light
     }
     pub fn set_block(&mut self, b: Block, m: u16) {
+        // gas has no blocks (step 6a): nothing is placed or dug there
+        if self.bodies[b.body as usize].gas {
+            return;
+        }
         self.tally(b, m);
         let old = self.edits.entry(b.chunk()).or_default().insert(b.pos, m);
         if old.is_none() {

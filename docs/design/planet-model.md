@@ -152,7 +152,14 @@ inside a sphere of influence. The model is shaped now so real orbits need no sec
    the welcome, recordings, bots and `report=1`; its eleven kinds have their ground (red dust, regolith, breccia,
    basalt, clay, gypsum, ice; six new blocks), its pull from its interior (0.43 of Terra's, no field), its pose on
    the sun ring. Next: its rock provinces, ore, caves and tubes from its marks; its thin air and sky; a spin.
-6. Later: the gas kind and its moons; icy bodies; other stars.
+6. **The gas giant.** **6a built (bodies-and-orbits.md, "A gas giant, and far bodies as points of light"):** a gas
+   row (`kind = "gas"`: no ground, generator or bake) is the fourth body from world generation 6, working name
+   Jupiter: 11 Terra radii, 300 Terra masses from its densities, 2.5 times Terra's pull at the cloud tops, 3.7
+   times her field, a 0.4 day spin, a sphere of influence by Laplace's rule from its mass; a body with no blocks
+   (every grid user answers air or skips it), drawn by the sky's shader (bands, storm, terminator, its aurora
+   ring), its cloud tops a floor for now; every far body is a point of light by its size, distance and phase.
+   Next: the dive and the solid core; its moons (past the four-body limit); harvesting; the radiation belt.
+7. Later: icy bodies; other stars.
 
 ## Open
 - The exact fields of a row and their units; how exaggeration is expressed per body.

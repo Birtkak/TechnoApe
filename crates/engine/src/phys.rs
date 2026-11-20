@@ -187,6 +187,11 @@ pub fn cells(world: &World, pos: DVec3) -> impl Iterator<Item = Block> + '_ {
 
 /// True when the player's box with its feet at `pos` overlaps a solid block.
 pub fn blocked(world: &World, pos: DVec3) -> bool {
+    // a gas body's cloud tops hold the box as a floor (step 6a): shortcut: the dive under them is its own run
+    let g = &world.bodies[world.nearest(pos)];
+    if g.gas {
+        return (pos - g.centre).length() < g.radius;
+    }
     // `cells` walks the layers of one column after another: one terrain lookup per column, not per cell
     let mut col: Option<((u8, u8, i32, i32), f64)> = None;
     cells(world, pos).any(|b| {

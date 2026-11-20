@@ -149,15 +149,17 @@ fn baked_tubes(b: &engine::world::Body) -> String {
 
 /// Each body's interior as derived from its row (0162-planet-interior): its zones' outer radius (m) and
 /// density (kg/m3), mass (kg), the pull at the ground (m/s^2), the liquid core's volume (m^3) and share, and the
-/// magnetic field over Terra's.
+/// magnetic field over Terra's; whether it is gas (step 6a: its zones are its gas, conducting fluid and core), its
+/// mass over the home's and its sphere of influence (m).
 fn interior(w: &World) -> Vec<String> {
     use engine::interior::ZONE_NAMES;
     w.bodies
         .iter()
-        .map(|b| {
+        .enumerate()
+        .map(|(i, b)| {
             let a = &b.interior;
             let zones: Vec<String> = a.zones.iter().zip(ZONE_NAMES).map(|(z, n)| format!("{{\"zone\": \"{n}\", \"outer_m\": {:.1}, \"density\": {:.0}}}", z.outer, z.density)).collect();
-            format!("\"{}\": {{\"radius_m\": {:.1}, \"zones\": [{}], \"mass_kg\": {:.4e}, \"surface_g\": {:.4}, \"weight_g\": {:.4}, \"liquid_m3\": {:.4e}, \"liquid_share\": {:.4}, \"field\": {:.4}}}", b.name, a.radius, zones.join(", "), a.mass, a.surface_g, a.weight_g, a.liquid, a.liquid_share, a.field)
+            format!("\"{}\": {{\"gas\": {}, \"radius_m\": {:.1}, \"zones\": [{}], \"mass_kg\": {:.4e}, \"masses\": {:.2}, \"surface_g\": {:.4}, \"weight_g\": {:.4}, \"liquid_m3\": {:.4e}, \"liquid_share\": {:.4}, \"field\": {:.4}, \"soi_m\": {:.0}}}", b.name, b.gas, a.radius, zones.join(", "), a.mass, a.mass / w.bodies[0].interior.mass, a.surface_g, a.weight_g, a.liquid, a.liquid_share, a.field, w.soi(i))
         })
         .collect()
 }

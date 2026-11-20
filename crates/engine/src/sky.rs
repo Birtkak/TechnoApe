@@ -303,9 +303,102 @@ pub fn aurora(field: f64) -> Aurora {
     Aurora { colat: s2.sqrt().asin(), bright }
 }
 
+/// A point's brightness at the light `POINT_F0` (the giant at opposition from Terra, about 5.5e-10 of the
+/// sky), in the stars' units (their brightest layer reaches 4.2), and the most a point is.
+pub const POINT_K: f64 = 5.0;
+pub const POINT_F0: f64 = 5.0e-10;
+pub const POINT_MAX: f64 = 8.0;
+/// A body's disc takes over from its point between these many pixels across (`disc_share`).
+pub const HAND_LO: f64 = 1.5;
+pub const HAND_HI: f64 = 4.0;
+
+/// A far body seen as a point of light (step 6a): how bright, 0 for none. `radius` and `dist` in metres, `sun`
+/// the home's distance from the sun over the body's (its light falls with the square of it), `phase` the cosine
+/// of the angle at the body between the sun and the eye (1 full, -1 new), `px` a pixel's width as an angle and
+/// `dark` how dark the sky is here (1 night, 0 day: the stars' own, shader_sky_fx.wgsl `stars`). The light it
+/// sends is the share of its disc that is lit, times its solid angle and its sunlight; seen as the stars are, the
+/// 0.4th power of that (a magnitude's step is a fixed ratio), `POINT_K` at `POINT_F0`. It hands over to the disc as
+/// the disc grows from `HAND_LO` to `HAND_HI` pixels across (`disc_share`), so no frame jumps.
+pub fn point_light(radius: f64, dist: f64, sun: f64, phase: f64, px: f64, dark: f64) -> f64 {
+    let lit = ((1.0 + phase.clamp(-1.0, 1.0)) * 0.5).max(0.0);
+    let flux = (radius / dist).powi(2) * lit * sun * sun;
+    (POINT_K * (flux / POINT_F0).powf(0.4)).min(POINT_MAX) * (1.0 - disc_share(radius, dist, px)) * dark.clamp(0.0, 1.0)
+}
+
+/// How much of a body is drawn as its disc rather than its point (`point_light`): 0 under `HAND_LO` pixels
+/// across, 1 over `HAND_HI`, smooth between.
+pub fn disc_share(radius: f64, dist: f64, px: f64) -> f64 {
+    let x = ((2.0 * radius / dist / px - HAND_LO) / (HAND_HI - HAND_LO)).clamp(0.0, 1.0);
+    x * x * (3.0 - 2.0 * x)
+}
+
+/// Whether the sight line from `eye` to `at` passes through any of `balls` (centre, radius) nearer than `at`:
+/// a far body under the horizon (its own body's, or another's in the way) shows no point.
+pub fn hidden(eye: DVec3, at: DVec3, balls: &[(DVec3, f64)]) -> bool {
+    let (v, far) = ((at - eye).normalize_or_zero(), (at - eye).length());
+    balls.iter().any(|&(c, r)| {
+        let along = (c - eye).dot(v);
+        along > 0.0 && along < far && (c - eye).length_squared() - along * along < r * r
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Step 6a's points: brighter as a body grows, nears, or shows more of its lit face; none by day or under the
+    /// horizon; handed over to its disc without a jump; the planets among the brightest lights of Terra's night.
+    #[test]
+    fn a_far_body_is_a_point_by_its_size_distance_and_phase() {
+        let px = 1.0e-3;
+        let at = |r: f64, d: f64, ph: f64| point_light(r, d, 1.0, ph, px, 1.0);
+        // monotonic while it is a point (its disc under a pixel) and under POINT_MAX
+        let rs = [100.0, 300.0, 1000.0, 3000.0];
+        assert!(rs.windows(2).all(|w| at(w[0], 1.0e9, 1.0) < at(w[1], 1.0e9, 1.0)), "with size");
+        let ds = [1.0e8, 3.0e8, 1.0e9, 3.0e9];
+        assert!(ds.windows(2).all(|w| at(2000.0, w[0], 1.0) > at(2000.0, w[1], 1.0)), "with distance");
+        let ph = [-0.9, -0.3, 0.0, 0.5, 1.0];
+        assert!(ph.windows(2).all(|w| at(2000.0, 1.0e8, w[0]) < at(2000.0, 1.0e8, w[1])), "with phase");
+        assert!(point_light(2000.0, 1.0e8, 0.2, 1.0, px, 1.0) < at(2000.0, 1.0e8, 1.0), "farther from the sun, dimmer");
+        assert_eq!(at(2000.0, 1.0e8, -1.0), 0.0, "new: nothing lit");
+        assert_eq!(point_light(2000.0, 1.0e8, 1.0, 1.0, px, 0.0), 0.0, "by day");
+        // handed over: nothing once the disc is HAND_HI across, and no step on the way there
+        assert_eq!(at(3.0, 1.0, 1.0), 0.0);
+        let (mut last, mut d) = (at(1.0, 1.0e7, 1.0), 1.0e7);
+        while d > 1.0e3 {
+            d *= 0.99;
+            let now = at(1.0, d, 1.0);
+            assert!((now - last).abs() < 0.2, "at {d} m: {now} after {last}");
+            last = now;
+        }
+        for k in 0..100 {
+            let r = 10.0 + k as f64 * 40.0;
+            let s = disc_share(r, 1.0e6, px);
+            assert!((0.0..=1.0).contains(&s) && (s == 0.0) == (2.0 * r / 1.0e6 / px <= HAND_LO), "{r}: {s}");
+        }
+        assert_eq!((disc_share(1.0, 1.0e7, px), disc_share(1.0e5, 1.0e7, px)), (0.0, 1.0));
+        // the night sky of Terra (the 4 km planet, 1 AU some 1.0e8 m): the giant at opposition, 4 AU off, and
+        // Mars at opposition among the brightest stars (shader_sky_fx.wgsl's brightest layer reaches 4.2)
+        let au = 23500.0 * 4245.4;
+        let jupiter = point_light(46_700.0, 4.0 * au, 0.2, 1.0, px, 1.0);
+        let mars = point_light(2295.0, 0.5 * au, 1.0 / 1.5, 1.0, px, 1.0);
+        let far_mars = point_light(2295.0, 2.5 * au, 1.0 / 1.5, 1.0, px, 1.0);
+        assert!((4.0..8.0).contains(&jupiter) && (4.0..8.0).contains(&mars) && (1.0..4.0).contains(&far_mars), "{jupiter} {mars} {far_mars}");
+        assert!(at(1.0e9, 1.0, 1.0) <= POINT_MAX);
+    }
+
+    #[test]
+    fn a_point_under_the_horizon_is_hidden() {
+        let ball = [(DVec3::ZERO, 100.0)];
+        let eye = DVec3::new(0.0, 101.0, 0.0);
+        assert!(!hidden(eye, DVec3::new(0.0, 1.0e6, 0.0), &ball), "overhead");
+        assert!(hidden(eye, DVec3::new(0.0, -1.0e6, 0.0), &ball), "under the feet");
+        assert!(!hidden(eye, DVec3::new(1.0e6, 120.0, 0.0), &ball), "over the horizon");
+        // (from a metre up on a ball of 100 m the horizon dips 0.14 radians)
+        assert!(!hidden(eye, DVec3::new(1.0e6, -1.0e5, 0.0), &ball), "just over it");
+        assert!(hidden(eye, DVec3::new(1.0e6, -2.0e5, 0.0), &ball), "under it");
+        assert!(!hidden(eye, DVec3::new(0.0, 50.5, 0.0) * 1.0, &[(DVec3::new(0.0, -1.0e6, 0.0), 10.0)]), "a ball past it");
+    }
 
     #[test]
     fn the_oval_widens_and_dims_as_the_field_falls() {

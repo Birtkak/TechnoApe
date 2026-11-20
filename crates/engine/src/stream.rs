@@ -415,7 +415,8 @@ impl Streamer {
     pub fn new(world: &World, cap: u32, opts: Opts) -> Self {
         let (tx, rx) = channel();
         let mut roots = Vec::new();
-        for (bi, b) in world.bodies.iter().enumerate() {
+        // (a gas body has no chunks: step 6a, the sky's shader draws it)
+        for (bi, b) in world.bodies.iter().enumerate().filter(|(_, b)| !b.gas) {
             let top = (b.layers - 1) >> (5 + b.root_level);
             for face in 0..6 {
                 for z in 0..=top {

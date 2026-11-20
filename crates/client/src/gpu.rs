@@ -545,6 +545,14 @@ pub(crate) struct Globals {
     /// The plants' wind map (ADR 0157): x tiles a column (1 / `[sway] tile`), y its loops an hour of
     /// the sky's clock (whole, so the hour's wrap has no jump), z 1 with a map (0: the sines).
     pub(crate) sway: [f32; 4],
+    /// The far bodies' points of light (step 6a, frame.rs `far_lights`): per body slot its row's colour times its
+    /// brightness here (engine `sky::point_light`; 0 for none), w 0.
+    pub(crate) far: [[f32; 4]; MAX_BODIES],
+    /// The gas giant (step 6a, shader_sky_fx.wgsl `giant`): x its body slot (negative: none to draw this frame), y
+    /// its bands' turn about its pole, radians, from the clock, z its disc's share (engine `sky::disc_share`), w
+    /// its aurora oval's colatitude (0164's rule from its field); and x the oval's brightness.
+    pub(crate) gas: [f32; 4],
+    pub(crate) gas2: [f32; 4],
 }
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
