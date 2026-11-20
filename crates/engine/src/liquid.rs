@@ -10,7 +10,6 @@
 //! Only awake nodes are visited. A node sleeps when it and its links have been still for a while; settled
 //! water costs nothing, and untouched sea is not stored at all: it is generated from the seed like terrain.
 use crate::world::FxMap;
-use rayon::prelude::*;
 
 /// Units of water in one full block.
 pub const U: i64 = 1 << 12;
@@ -63,8 +62,6 @@ fn moves(dh: i64) -> bool {
 fn spreads(a: &Node, b: &Node) -> bool {
     b.floor < a.floor || a.water >= if b.water == 0 { 2 * MIN } else { MIN }
 }
-/// Awake nodes from which `step` works in parallel; fewer cost less than the threads' start.
-const PAR: usize = 2048;
 /// Steps a node stays awake after it last moved.
 const QUIET: u16 = 30;
 /// A full gap under a ceiling holds more water under pressure: one block of head per 1/K block of excess.
@@ -800,7 +797,9 @@ impl Liquids {
             }
             outs
         };
-        let outs: Vec<(i32, i32, i32)> = if awake.len() >= PAR { awake.par_iter().flat_map_iter(flows).collect() } else { awake.iter().flat_map(flows).collect() };
+        // on the caller's thread: side by side on rayon's global pool, a server tick waited behind the client's chunk
+        // jobs and cave walks there; alone a step of 54,000 awake nodes took 12 ms so, 8 ms side by side
+        let outs: Vec<(i32, i32, i32)> = awake.iter().flat_map(flows).collect();
         let mut outs = outs.into_iter();
         for &a in &awake {
             for (l, (v, out, frac)) in self.nodes[a as usize].links.iter_mut().zip(&mut outs) {
