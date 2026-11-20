@@ -44,10 +44,15 @@ fn events(got: &[ToClient]) -> Vec<Event> {
 
 /// A tick never waits on rayon's global pool: in a game's own server that pool is the client's, full of chunk
 /// jobs and of every world build's cave walk (a sim's 50 bots' held the tick 100 to 600 ms). With every thread of
-/// the pool held, a tick of a server with many players (the water pass went side by side from 8) still ends.
+/// the pool held, a tick of a server with many players (the water pass went side by side from 8) and a flood
+/// (the water's step from 2048 awake nodes) still ends.
 #[test]
 fn a_tick_does_not_wait_on_the_global_pool() {
     let (mut s, _links) = server_with(9);
+    // and a flood: the water steps side by side from 2048 awake nodes
+    flood(&mut s, 25);
+    s.world.step_water();
+    assert!(s.world.water.awake() > 2048, "{} awake", s.world.water.awake());
     let threads = rayon::current_num_threads();
     let gate = std::sync::Arc::new(std::sync::RwLock::new(()));
     let held = gate.write().unwrap();
@@ -4115,3 +4120,16 @@ fn a_generation_4_save_keeps_two_bodies_and_a_generation_5_world_has_mars() {
     let back = Server::from_save(Save::from_bytes(&save.to_bytes()).unwrap(), channel().1);
     assert_eq!((back.world.bodies.len(), back.world.hash(), back.snapshot().bodies), (3, s.world.hash(), save.bodies));
 }
+
+/// Pours a fresh U into each land column of a square `r` columns round the first land off the spawn.
+fn flood(s: &mut Server, r: i32) {
+    let (_, k) = on_land(s);
+    for (di, dj) in (-r..=r).flat_map(|a| (-r..=r).map(move |c| (a, c))) {
+        let b = &s.world.bodies[0];
+        let d = b.dir(k.face as usize, (k.pos.x + di) as f64 + 0.5, (k.pos.y + dj) as f64 + 0.5);
+        let at = s.world.block_at(b.centre + d * (b.height(d) + 0.6));
+        let World { bodies, edits, water, sky, time, .. } = &mut s.world;
+        water.pour(&engine::world::Solid::at(bodies, edits, sky, *time), World::col(at), at.pos.z, 4 * engine::liquid::U);
+    }
+}
+
