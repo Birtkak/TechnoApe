@@ -248,6 +248,9 @@ impl Server {
                 if to == "sun" && !self.clients[i].creative {
                     return "the sun is creative's: there is nothing to stand on\n  /playmode creative, then /goto sun".into();
                 }
+                if let Some(b) = engine::bodies::find(&to).filter(|b| self.loads.failed.contains(b)) {
+                    return format!("{}'s ground cannot be loaded on this server (its map is not this build's)", self.world.bodies[b].name);
+                }
                 if engine::bodies::find(&to).is_some_and(|b| b < self.world.bodies.len() && !self.world.loaded(b)) {
                     // its ground comes in first (step 6b, `lazy.rs`): the player goes when it is in
                     self.loads.gotos.retain(|g| g.0 != self.clients[i].player.id);

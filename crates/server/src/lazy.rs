@@ -50,8 +50,31 @@ impl Server {
             match r {
                 Ok(b) => self.put_body(i, b),
                 Err(e) => {
-                    eprintln!("[technoape-server] {}: {e}", self.world.bodies[i].name);
+                    let line = format!("{}'s ground cannot be loaded: {e}", self.world.bodies[i].name);
+                    eprintln!("[technoape-server] {line}");
                     self.loads.failed.push(i);
+                    // recorded as a load: the replay's (same build, same hash) fails at the same tick
+                    self.log(Ev::Body { tick: self.tick, body: i as u8 });
+                    // the /goto's that waited for it are answered so
+                    let (gone, wait): (Vec<_>, Vec<_>) = std::mem::take(&mut self.loads.gotos).into_iter().partition(|(_, to)| engine::bodies::find(to) == Some(i));
+                    self.loads.gotos = wait;
+                    for (id, _) in gone {
+                        if let Some(c) = self.clients.iter().find(|c| c.player.id == id) {
+                            c.link.send(ToClient::Chat(line.clone()));
+                        }
+                    }
+                }
+            }
+        }
+        // one held by a body that cannot be loaded would be held for ever: it goes to the spawn, told why
+        for &b in &self.loads.failed.clone() {
+            for ci in 0..self.clients.len() {
+                let (w, p) = (&self.world, self.clients[ci].phys.pos);
+                if (p - w.bodies[b].centre).length() < w.bodies[b].radius + engine::world::AMP + phys::HOLD_M.max(2.0 * self.clients[ci].phys.vel.length() * phys::DT) {
+                    let to = self.spawn();
+                    self.put(ci, to, DVec3::X);
+                    let line = format!("{}'s ground cannot be loaded: back to the spawn", self.world.bodies[b].name);
+                    self.clients[ci].link.send(ToClient::Chat(line));
                 }
             }
         }

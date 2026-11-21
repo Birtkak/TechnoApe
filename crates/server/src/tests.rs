@@ -2506,6 +2506,51 @@ fn goto_mars_waits_for_its_ground_off_the_tick_and_replays() {
     assert_eq!(at(&r.server), vec![2], "the replayed player is on Mars too");
 }
 
+/// Step 6b review: a body whose ground cannot be loaded (a map this build does not make) does not keep a player
+/// held by it for ever: the held one goes back to the spawn, told why; the /goto that waited for it, and one after,
+/// answer plainly that it cannot be loaded.
+#[test]
+fn a_body_that_cannot_be_loaded_lets_its_players_go() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, 3, 0.0, 6, rx);
+    s.world.lazy[2].as_mut().unwrap().hash ^= 1;
+    let rec = std::env::temp_dir().join(format!("technoape-failed-{}.rec", std::process::id()));
+    s.record(&rec).unwrap();
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    c.send(ToServer::Input(Input::default()));
+    s.tick();
+    drain(&c);
+    let m = &s.world.bodies[2];
+    let at = m.centre + DVec3::Y * (m.radius + engine::world::AMP + 50.0);
+    c.send(ToServer::Move { pos: at.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    c.send(ToServer::Chat("/goto mars".into()));
+    for _ in 0..400 {
+        s.tick();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        if s.loads.failed.contains(&2) {
+            break;
+        }
+    }
+    for _ in 0..3 {
+        s.tick();
+    }
+    let said: Vec<String> = drain(&c).into_iter().filter_map(|m| if let ToClient::Chat(t) = m { Some(t) } else { None }).collect();
+    assert_eq!(s.world.frame_at(s.clients[0].phys.pos), 0, "back at the spawn, not held: {said:?}");
+    assert!(s.loads.gotos.is_empty() && said.iter().filter(|t| t.contains("Mars's ground cannot be loaded")).count() >= 2, "{said:?}");
+    c.send(ToServer::Chat("/goto mars".into()));
+    s.tick();
+    let said: Vec<String> = drain(&c).into_iter().filter_map(|m| if let ToClient::Chat(t) = m { Some(t) } else { None }).collect();
+    assert!(said.iter().any(|t| t.contains("Mars's ground cannot be loaded")) && s.loads.gotos.is_empty(), "{said:?}");
+    for _ in 0..60 {
+        s.tick();
+    }
+    // (the recording carries the hash this build cannot make: its replay fails at the same tick, `Ev::Body`)
+    let r = replay(&rec, None).unwrap();
+    std::fs::remove_file(&rec).unwrap();
+    assert_eq!((r.diverged, r.server.clients[0].phys.pos), (None, s.clients[0].phys.pos));
+}
+
 /// Step 6b review: a body whose ground is not in yet has no ground: its cells read as air (as a gas body's), and a
 /// player there (a client may put itself anywhere) changes nothing on it: edits, buckets, pick-ups and items to the
 /// ground are refused with a word why, so no hole or floating pile is left for the real ground to meet.
