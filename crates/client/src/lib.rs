@@ -601,7 +601,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         max_inflight: args.get("inflight", threads * 4),
     };
     let cap: u32 = args.get("quad_cap_m", QUAD_CAP_M) * 1_000_000;
-    let streamer = Streamer::new(&world, cap, opts);
+    let mut streamer = Streamer::new(&world, cap, opts);
+    streamer.size_all = args.get("drop_home", 0) == 1;
     el.set_control_flow(ControlFlow::Poll);
     let lines_on = run == "play" && args.s("lines", "") == "stdin";
     let (acts, creative, shot) = (parse_acts(&args.s("acts", "")), run != "play", args.0.get("shot").cloned());

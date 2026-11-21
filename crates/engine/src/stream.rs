@@ -349,6 +349,9 @@ pub struct Streamer {
     /// view on it (its ground drawn wherever it shows; until then the sky keeps its point, `ready`).
     pub on: Vec<bool>,
     ready: Vec<bool>,
+    /// The home and its moon sized out by `seen` too, as a lazy body is (a client's `drop_home=1`; step 6b's
+    /// review: off by default while their drop's loss of the GPU device is open).
+    pub size_all: bool,
 }
 
 /// A body streams in once it is this many pixels across, and out again under `OUT_PX` (step 6b): well under the
@@ -473,6 +476,7 @@ impl Streamer {
             walk_no: 0,
             on: world.bodies.iter().enumerate().map(|(i, b)| !b.gas && world.loaded(i)).collect(),
             ready: vec![false; world.bodies.len()],
+            size_all: false,
         }
     }
 
@@ -488,10 +492,10 @@ impl Streamer {
                 continue;
             }
             let size = apparent_px(body.radius, (view.cam_in(b as u8) - body.centre).length(), px);
-            // shortcut: a body that is never lazy (the home, its moon) streams wherever the camera is, as before:
-            // dropping the home's chunks seen from Mars lost the GPU device in a played run (cause not found; Mars's
-            // own drop on leaving does not); size the home and its moon too once that is understood
-            let wanted = cf == b || world.lazy[b].is_none() || size >= if self.on[b] { OUT_PX } else { IN_PX };
+            // shortcut: a body that is never lazy (the home, its moon) streams wherever the camera is, as before, unless
+            // `size_all` (drop_home=1): their drop lost the GPU device until `rt::Rt::dead` kept the BLAS it frees; on
+            // by default once its runs show no cost
+            let wanted = cf == b || (world.lazy[b].is_none() && !self.size_all) || size >= if self.on[b] { OUT_PX } else { IN_PX };
             if wanted && !world.loaded(b) {
                 want.push(b);
             }

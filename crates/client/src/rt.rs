@@ -122,7 +122,15 @@ pub struct Rt {
     proxies: Vec<crate::proxy::Proxy>,
     /// Each body's lane this frame (`lanes`), NO_LANE for none.
     pub lanes: [u8; crate::gpu::MAX_BODIES],
+    /// BLAS let go by `forget`, kept for `DEAD_FRAMES` records before they are dropped: a frame still on the GPU
+    /// traces through the TLAS built before, which points at them (step 6b's review: dropping the 18,000 BLAS of
+    /// the home's chunks at once freed ones a frame in flight still read, and lost the device).
+    dead: [Vec<(u32, Option<wgpu::Blas>, Option<wgpu::Blas>)>; DEAD_FRAMES],
+    records: usize,
 }
+
+/// How many records a forgotten BLAS outlives (`Rt::dead`): more than the frames the GPU may be behind.
+const DEAD_FRAMES: usize = 4;
 
 /// The TLAS's size for `need` instances when it has `cap` slots and may have `max`: as it is while they fit, else
 /// twice what they need, a power of two
@@ -170,13 +178,14 @@ impl Rt {
                 wgpu::BindGroupEntry { binding: 18, resource: wgpu::BindingResource::TextureView(warp) },
             ],
         });
-        Rt { tlas, expand, bind, builds, verts, blas: HashMap::new(), n: 0, built: Vec::new(), tlas_builds: 0, pending: 0, split_n: 0, slots: Vec::new(), cap, max: max as usize, grew: false, overflowed: false, proxy_tris: Vec::new(), proxy_blas: None, proxies: Vec::new(), lanes: [NO_LANE; crate::gpu::MAX_BODIES] }
+        Rt { tlas, expand, bind, builds, verts, blas: HashMap::new(), n: 0, built: Vec::new(), tlas_builds: 0, pending: 0, split_n: 0, slots: Vec::new(), cap, max: max as usize, grew: false, overflowed: false, proxy_tris: Vec::new(), proxy_blas: None, proxies: Vec::new(), lanes: [NO_LANE; crate::gpu::MAX_BODIES], dead: Default::default(), records: 0 }
     }
 
     /// New quads were written at `off`: a BLAS from there is stale.
     pub fn forget(&mut self, off: u32) {
-        if self.blas.remove(&off).is_some_and(|b| b.2.is_some()) {
-            self.split_n -= 1;
+        if let Some(b) = self.blas.remove(&off) {
+            self.split_n -= b.2.is_some() as usize;
+            self.dead[self.records % DEAD_FRAMES].push(b);
         }
     }
 
@@ -189,6 +198,8 @@ impl Rt {
         // BLAS made this frame: a chunk with stills makes two, and the budget counts both
         let mut made = 0;
         self.pending = 0;
+        self.records += 1;
+        self.dead[self.records % DEAD_FRAMES].clear();
         // whether a chunk's stills are (to be) a BLAS of their own: once split, while it has stills; else when first
         // built near and there is room
         let most = SPLIT_MAX.min(self.max.saturating_sub(insts.len()));
@@ -235,8 +246,9 @@ impl Rt {
             let sblas = (!still.is_empty()).then(|| new_blas(&still));
             made += blas.is_some() as usize + sblas.is_some() as usize;
             self.split_n += sblas.is_some() as usize;
-            if self.blas.insert(c.off, (c.land, blas, sblas)).is_some_and(|b| b.2.is_some()) {
-                self.split_n -= 1;
+            if let Some(old) = self.blas.insert(c.off, (c.land, blas, sblas)) {
+                self.split_n -= old.2.is_some() as usize;
+                self.dead[self.records % DEAD_FRAMES].push(old);
             }
             todo.push(Build { base: c.base, info: c.info, off: c.off, n: c.land, dst: quads * 6, _p: 0 });
             sizes.push((size, still));

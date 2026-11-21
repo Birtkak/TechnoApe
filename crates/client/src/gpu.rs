@@ -1147,6 +1147,9 @@ impl Gpu {
             trace: wgpu::Trace::Off,
         }))
         .expect("device");
+        // wgpu's own words on an error or a lost device, on stderr (else only the surface's failures show)
+        device.on_uncaptured_error(std::sync::Arc::new(|e: wgpu::Error| eprintln!("[technoape] wgpu error: {e}")));
+        device.set_device_lost_callback(|why, msg| eprintln!("[technoape] GPU device lost ({why:?}): {msg}"));
         let caps = surface.get_capabilities(&adapter);
         let format = caps.formats.iter().copied().find(|f| !f.is_srgb()).unwrap_or(caps.formats[0]);
         let present_mode = if caps.present_modes.contains(&wgpu::PresentMode::Immediate) {
