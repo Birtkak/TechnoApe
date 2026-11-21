@@ -1437,3 +1437,23 @@ colour2 = [0.17, 0.15, 0.14]
 colour3 = [0.36, 0.30, 0.26]
 size = 1
 amount = 0.3
+
+# Dark lag: what is left on an icy moon's old plains when the ice under the top has gone off into space, dark dust
+# and grit of rock and carbon-rich stuff, with frost in its pores (the giant's icy moon, bake/icy.rs): sieved for
+# grit and carbon, sintered into bricks; melted, a little water. (Id 240, past a gap, so a row added at 229 by
+# another branch does not meet it.)
+[[block]]
+id = 240
+name = "dark lag"
+hardness = 0.6
+tool = "shovel"
+loose = true
+sound = "dust"
+# (the darkest ground there is, but lit: a grey-brown a third of the way up, under the dusty ice's 0.78 beige; its
+# frost speckle sparse and blue-white, against the dusty ice's rust)
+colour = [0.38, 0.34, 0.30]
+pattern = "speckle"
+colour2 = [0.26, 0.23, 0.20]
+colour3 = [0.70, 0.72, 0.76]
+size = 1
+amount = 0.18

@@ -7,6 +7,7 @@
 pub mod air;
 pub mod climate;
 pub mod grid;
+pub mod icy;
 pub mod land;
 pub mod life;
 pub mod luna;
@@ -184,7 +185,7 @@ impl Map {
         let version = postcard::take_from_bytes::<u32>(b).map_err(|e| format!("not a map: {e}"))?.0;
         let flowless = |r: Vec<(u32, u32, f32)>| r.into_iter().map(|(cell, to, area)| Reach { cell, to, area, flow: 0.0 }).collect();
         let mut m: Map = match version {
-            VERSION | 6 | 5 => postcard::from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?,
+            VERSION | 6 | 5 | icy::VERSION => postcard::from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?,
             luna::VERSION | mars::VERSION => {
                 let (m, rest) = postcard::take_from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?;
                 Map { tubes: postcard::from_bytes(rest).map_err(|e| format!("not a map's tubes: {e}"))?, ..m }
@@ -216,7 +217,7 @@ impl Map {
         if let Some(c) = &m.climate {
             c.check()?;
         }
-        let known = m.version == VERSION || m.version == luna::VERSION || m.version == mars::VERSION || m.version == 6 || m.version == 5 || m.version == 4 || m.version == 3 || (m.version == 2 && m.climate.is_none()) || (m.version == 1 && m.rivers.is_empty());
+        let known = m.version == VERSION || m.version == luna::VERSION || m.version == mars::VERSION || m.version == icy::VERSION || m.version == 6 || m.version == 5 || m.version == 4 || m.version == 3 || (m.version == 2 && m.climate.is_none()) || (m.version == 1 && m.rivers.is_empty());
         // a river drains into a neighbouring cell (bytes from a server: a far one would build a huge index)
         let mm = m.m as i32;
         let next_to = |r: &Reach| {
@@ -231,9 +232,14 @@ impl Map {
             || m.lakes.windows(2).any(|w| w[0].0 >= w[1].0)
             || m.tubes.iter().any(|&(c, d, r)| c as usize >= cells || !(d.is_finite() && d.abs() < 64.0) || !(r > 0.0 && r < 16.0));
         // Luna's maps (`luna::VERSION`) hold no rock provinces: her rock is her kinds' (`Map::rock`); a Terra map's
-        // are Terra's; a planet's crust (`mars::VERSION`) has none yet (its provinces are the next run's)
-        let rocks = if m.version >= 5 && m.version != luna::VERSION && m.version != mars::VERSION { m.rock.len() == cells && m.rock.iter().all(|&r| r <= rock::OCEAN) } else { m.rock.is_empty() };
-        let kinds = m.version != mars::VERSION || m.biome.iter().all(|k| (mars::HIGHLAND..=mars::FROST).contains(k));
+        // are Terra's; a planet's crust (`mars::VERSION`) and an icy body's (`icy::VERSION`) have none yet (their
+        // provinces are later runs')
+        let rocks = if m.version >= 5 && ![luna::VERSION, mars::VERSION, icy::VERSION].contains(&m.version) { m.rock.len() == cells && m.rock.iter().all(|&r| r <= rock::OCEAN) } else { m.rock.is_empty() };
+        let kinds = match m.version {
+            mars::VERSION => m.biome.iter().all(|k| (mars::HIGHLAND..=mars::FROST).contains(k)),
+            icy::VERSION => m.biome.iter().all(|k| (icy::PLAIN..=icy::FROST).contains(k)) && m.tubes.is_empty(),
+            _ => true,
+        };
         if !known || bad || !rocks || !kinds || m.h.len() != cells || m.biome.len() != cells {
             return Err(format!("a map of version {} with {} cells, not {VERSION} and {cells}", m.version, m.h.len()));
         }
@@ -340,9 +346,9 @@ impl Map {
         // the spline overshoots a little next to a calm cell
         (s, r.max(0.0))
     }
-    /// Whether it is an airless crust's map, Luna's or a planet's (Mars's): no sea on it.
+    /// Whether it is an airless crust's map, Luna's, a planet's (Mars's) or an icy body's: no sea on it.
     pub fn crust(&self) -> bool {
-        self.version == luna::VERSION || self.version == mars::VERSION
+        [luna::VERSION, mars::VERSION, icy::VERSION].contains(&self.version)
     }
     /// The rock province of the cell that holds face point (x, y), in cells; None on a map from before the rock.
     /// Luna's from her kinds (`luna::province`; a world asks it from generation 4, `Body::rock_at`).
@@ -643,7 +649,7 @@ fn find_in(seed: i32, n: i32, hash: Option<u64>, versions: &[u32]) -> Option<Arc
 
 /// Keeps a map in memory and on disk (a failed write only costs the next start a bake).
 pub fn keep(map: Map) -> Arc<Map> {
-    if map.version == mars::VERSION {
+    if map.version == mars::VERSION || map.version == icy::VERSION {
         return mars::keep_any(map);
     }
     write(&file_v(map.seed, map.n, map.version), &map);

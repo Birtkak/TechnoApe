@@ -76,7 +76,8 @@ impl World {
             (b.name, b.air, b.ground, b.warp, b.gas) = (row.name.clone(), row.air, row.ground, warp, row.gas());
             b.parent = row.parent.unwrap_or(INERTIAL);
             // a moon `orbit` radii of its parent out (Luna 60, the Moon's), never nearer than orbit_min, once
-            // a month by Kepler's law against the home's first moon's for a parent as dense (`sky::period`);
+            // a month by Kepler's law against the home's first moon's, by the root of the home's mean density over
+            // its parent's (1 for the home's moons, to the bit; the giant's moon 2.1 times slower; `sky::period`);
             // one that circles the sun once a year by Kepler's law against the home's distance
             let month = match (row.parent, row.orbit) {
                 (Some(p), Some((k, min))) => {
@@ -86,7 +87,8 @@ impl World {
                     let mine = q(r, (k, min));
                     b.orbit = r * mine;
                     let luna = q(bodies[0].radius, rows[moon].orbit.expect("a moon has an orbit (bodies::parse)"));
-                    let kepler = if i == moon { crate::sky::MONTH } else { crate::sky::MONTH * (mine / luna).powf(1.5) };
+                    let dens = |b: &Body| b.interior.mass / b.radius.powi(3);
+                    let kepler = if i == moon { crate::sky::MONTH } else { crate::sky::MONTH * (mine / luna).powf(1.5) * (dens(&bodies[0]) / dens(&bodies[p])).sqrt() };
                     b.period = crate::sky::period(kepler);
                     Some(b.period)
                 }
@@ -274,11 +276,16 @@ impl World {
     }
     /// A body's sphere of influence: within it, a position belongs to the body's frame.
     pub fn soi(&self, i: usize) -> f64 {
-        // a moon a quarter of its orbit; one that circles the sun the home's, or by Laplace's rule from its mass
-        // and orbit against the home's where that is larger (the giant's 7.5 Mm; Mars's would be 0.65 of the home's)
+        // a moon of the home a quarter of its orbit; a moon of another body by Laplace's rule against its parent, at
+        // most that (the giant's icy moon's 16 km, inside the giant's); one that circles the sun the home's, or by
+        // Laplace's rule from its mass and orbit against the home's where that is larger (the giant's 7.5 Mm;
+        // Mars's would be 0.65 of the home's)
         let b = &self.bodies[i];
-        if b.parent != INERTIAL {
+        if b.parent == 0 {
             return b.orbit * 0.25;
+        }
+        if b.parent != INERTIAL {
+            return (b.orbit * (b.interior.mass / self.bodies[b.parent].interior.mass).powf(0.4)).min(b.orbit * 0.25);
         }
         let home = self.sky.moon_orbit * 0.6;
         if i == 0 {
@@ -342,7 +349,9 @@ impl World {
         let x = self.to_inertial(*pos);
         let t = self.time;
         let inside = |i: usize, k: f64| (x - self.pose(i, t).centre).length() < self.soi(i) * k;
-        let g = if f != INERTIAL && inside(f, 1.0) { f } else { (0..self.bodies.len()).find(|&i| inside(i, 0.97)).unwrap_or(INERTIAL) };
+        // the innermost sphere that holds it: a moon's comes after its parent's in the rows (a moon of the giant lies
+        // in the giant's), and the frame it is in keeps it to its whole sphere, another takes it inside 0.97 of its
+        let g = (0..self.bodies.len()).rev().find(|&i| inside(i, if i == f { 1.0 } else { 0.97 })).unwrap_or(INERTIAL);
         if g == f {
             return None;
         }
@@ -357,7 +366,8 @@ impl World {
     /// or the inertial frame), and that frame.
     pub fn locate(&self, x: DVec3) -> (DVec3, usize) {
         let t = self.time;
-        let f = (0..self.bodies.len()).find(|&i| (x - self.pose(i, t).centre).length() < self.soi(i)).unwrap_or(INERTIAL);
+        // (the innermost: a moon's sphere is inside its parent's and after it in the rows)
+        let f = (0..self.bodies.len()).rev().find(|&i| (x - self.pose(i, t).centre).length() < self.soi(i)).unwrap_or(INERTIAL);
         (self.from_inertial(f, x), f)
     }
     /// The height over the nearest body's sea-level sphere, where the bodies really are now.

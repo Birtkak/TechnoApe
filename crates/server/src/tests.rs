@@ -2506,6 +2506,58 @@ fn goto_mars_waits_for_its_ground_off_the_tick_and_replays() {
     assert_eq!(at(&r.server), vec![2], "the replayed player is on Mars too");
 }
 
+/// Step 6c: a world of generation 7 welcomes with five bodies, the giant's icy moon a stub; /goto callisto waits for
+/// its ground (off the tick) and leaves the player standing on it, in its frame, the giant over it; the save keeps
+/// it and loads again with the player there. A generation 6 world still welcomes with four.
+#[test]
+fn goto_callisto_waits_for_its_ground_and_leaves_the_player_on_it() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, 3, 0.0, 7, rx);
+    assert!(!s.world.loaded(4) && s.world.loader(4).is_some(), "the icy moon a stub at the start");
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    c.send(ToServer::Input(Input::default()));
+    s.tick();
+    let welcome = drain(&c).into_iter().find_map(|m| if let ToClient::Welcome { bodies, gen, .. } = m { Some((bodies, gen)) } else { None }).unwrap();
+    assert_eq!((welcome.0.len(), welcome.1), (5, 7));
+    assert_eq!((welcome.0[4].0, welcome.0[4].1), (64, s.world.map_hash(4)));
+    assert!(welcome.0[4].1.is_some() && engine::bodies::known_bodies(5, 7).is_ok());
+    c.send(ToServer::Chat("/goto callisto".into()));
+    s.tick();
+    let got = drain(&c);
+    assert!(got.iter().any(|m| matches!(m, ToClient::Chat(t) if t == "going to Callisto: its ground is loading")) || s.world.loaded(4), "{got:?}");
+    let t0 = std::time::Instant::now();
+    while !s.world.loaded(4) {
+        assert!(t0.elapsed().as_secs() < 120, "the icy moon never came in");
+        s.tick();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    for _ in 0..60 {
+        s.tick();
+    }
+    let got = drain(&c);
+    assert!(got.iter().any(|m| matches!(m, ToClient::Chat(t) if t == "gone to Callisto")), "{got:?}");
+    let (w, me) = (&s.world, s.clients[0].phys);
+    let b = &w.bodies[4];
+    let over = (me.pos - b.centre).length() - b.top((me.pos - b.centre).normalize());
+    // (as Mars's test: stood just over its ground, not in it; with no input sent the player is not stepped down)
+    assert!(w.frame_at(me.pos) == 4 && over.abs() < 3.0 && !phys::inside(w, &me), "{over} m over its ground");
+    let save = s.snapshot();
+    assert_eq!((save.gen, save.bodies.len()), (7, 5));
+    let back = Server::from_save(Save::from_bytes(&save.to_bytes()).unwrap(), channel().1);
+    assert_eq!(back.world.bodies.len(), 5);
+    assert!(save.players.iter().all(|p| back.world.frame_at(glam::DVec3::from_array(p.pos)) == 4));
+    // a generation 6 world: four bodies, no moon of the giant
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, 3, 0.0, 6, rx);
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    s.tick();
+    let welcome = drain(&c).into_iter().find_map(|m| if let ToClient::Welcome { bodies, gen, .. } = m { Some((bodies.len(), gen)) } else { None }).unwrap();
+    assert_eq!(welcome, (4, 6));
+    assert_eq!(engine::bodies::find("callisto"), Some(4));
+}
+
 /// Step 6b review: with Mars's map on no disk its loader bakes it, and the bake runs on rayon's global pool; the
 /// ticks still never wait for it (the pool held through five of them), and Mars comes in once the pool is free.
 #[test]

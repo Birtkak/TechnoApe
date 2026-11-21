@@ -47,7 +47,7 @@ pub fn province(kind: u8) -> u8 {
 }
 
 /// Columns per cell: Luna's cells are 2 m (Terra's 8), so a crater 6 m across is three cells.
-const CELL: i32 = 2;
+pub(super) const CELL: i32 = 2;
 /// Metres over the world's sea datum (`world::SEA_DEPTH` under the radius) of the old crust's mean.
 const DATUM: f32 = 40.0;
 /// The power law: N(>D) = K * area / D^2 craters wider than D, from `D_MIN` to `D_MAX` of the radius.
@@ -57,7 +57,7 @@ const D_MAX: f64 = 0.13;
 /// When (0 the oldest crust, 1 now) the maria flooded: craters before it inside a mare are drowned.
 const T_MARE: f64 = 0.35;
 /// Craters younger than this are bright; younger still and wide enough, rayed.
-const FRESH_T: f64 = 0.96;
+pub(super) const FRESH_T: f64 = 0.96;
 const RAY_T: f64 = 0.995;
 /// How far from a pole the shadow is looked for, radians.
 const POLAR: f64 = 0.35;
@@ -292,15 +292,15 @@ pub fn run(stages: &[super::Stage], seed: i32, n: i32, high: f64) -> (Map, Stats
 
 /// A bake of an airless body under way (0165-bake-stages): its ground and kinds, its craters, its tubes.
 pub struct Work {
-    seed: i32,
-    n: i32,
-    r: f64,
-    rng: Rng,
-    land: Land,
-    craters: Vec<Crater>,
+    pub(super) seed: i32,
+    pub(super) n: i32,
+    pub(super) r: f64,
+    pub(super) rng: Rng,
+    pub(super) land: Land,
+    pub(super) craters: Vec<Crater>,
     tubes: Vec<(u32, f32, f32)>,
-    stats: Stats,
-    t0: std::time::Instant,
+    pub(super) stats: Stats,
+    pub(super) t0: std::time::Instant,
 }
 
 pub(super) fn noise(seed: i32, s: i32, freq: f32, oct: i32) -> FastNoiseLite {
@@ -591,12 +591,14 @@ mod tests {
     #[test]
     fn the_ice_stage_bakes_the_body_its_row_names() {
         let moon = |size: f64, orbit: f64| {
-            let t = format!("[[body]]\nname = \"A\"\nparent = \"sun\"\nhome = true\nn = 512\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nsun = 100.0\n{M}[[body]]\nname = \"B\"\nparent = \"A\"\norbit = {orbit:?}\nsize = {size:?}\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nstages = [\"crust\", \"impacts\", \"volcanism\", \"ice\"]\n{M}", M = "kind = \"rocky\"\niron = 0.5\nheat = 0.5\ndensity = [2700.0, 3300.0, 7900.0]\n");
+            let t = format!("[[body]]\nname = \"A\"\nparent = \"sun\"\nhome = true\nn = 6144\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nsun = 100.0\n{M}[[body]]\nname = \"B\"\nparent = \"A\"\norbit = {orbit:?}\nsize = {size:?}\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nstages = [\"crust\", \"impacts\", \"volcanism\", \"ice\"]\n{M}", M = "kind = \"rocky\"\niron = 0.5\nheat = 0.5\ndensity = [2700.0, 3300.0, 7900.0]\n");
             let rows = crate::bodies::parse(&t).unwrap();
             rows[1].bake.as_ref().unwrap().get(7, 1664).biome.iter().filter(|&&k| k == SHADOW).count()
         };
         assert!(moon(3.7, 60.0) > 0, "Luna's orbit and size: shadow at the poles");
-        assert_eq!(moon(1.0, 2.0), 0, "a large near moon: the sun high over its poles, no shadow");
+        // (a home of 6144 columns: both grounds' relief is 0.19 of its radius, so 2.25 radii clear it; touching
+        // grounds, at 2, are refused)
+        assert_eq!(moon(1.0, 2.25), 0, "a large near moon: the sun high over its poles, no shadow");
     }
 
     #[test]

@@ -80,7 +80,8 @@ pub(crate) fn world_bakes(then: &[String]) -> Option<Vec<(engine::bodies::Bake, 
 fn a_new_world_bakes_the_bodies_of_its_generation() {
     let args = |more: &[&str]| ["seed=3", "planet=6144"].iter().chain(more).map(|s| s.to_string()).collect::<Vec<_>>();
     let ks = |a: &[&str]| world_bakes(&args(a)).unwrap().iter().map(|b| b.2).collect::<Vec<_>>();
-    assert_eq!(ks(&[]), [6144, 1664, 3328], "Terra, Luna and Mars");
+    assert_eq!(ks(&[]), [6144, 1664, 3328, 1536], "Terra, Luna, Mars and the giant's icy moon");
+    assert_eq!(ks(&["gen=6"]), [6144, 1664, 3328], "Terra, Luna and Mars: the giant bakes nothing");
     assert_eq!(ks(&["gen=4"]), [6144, 1664], "Terra and Luna");
     assert!(world_bakes(&["seed=3".to_string()]).is_none());
 }

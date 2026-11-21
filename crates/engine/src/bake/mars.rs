@@ -742,10 +742,21 @@ impl Work {
 
 /// Where the map of a planet's crust is kept: its row's name, a hash of what its stages read (the list and the
 /// age) and the version, so another list, row or bake code is another file and an old one is never read as new.
+/// An icy body's map (`bake::icy`) is kept by the same rule under its own version.
 pub fn file(stages: &[Stage], seed: i32, n: i32, p: &Planet) -> PathBuf {
-    let tag = crate::world::fnv(crate::world::FNV0, format!("{stages:?} {:?}", p.age).as_bytes()) as u32;
+    // every input the bake reads: an icy body's ice also reads the sun's height (a planet's tag as before)
+    let key = match p.icy {
+        Some(high) => format!("{stages:?} {:?} {:016x}", p.age, high.to_bits()),
+        None => format!("{stages:?} {:?}", p.age),
+    };
+    let tag = crate::world::fnv(crate::world::FNV0, key.as_bytes()) as u32;
     let name: String = p.name.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' }).collect();
-    PathBuf::from(super::DIR).join(format!("seed-{seed}-planet-{n}-{name}-{tag:08x}-v{VERSION}.map"))
+    PathBuf::from(super::DIR).join(format!("seed-{seed}-planet-{n}-{name}-{tag:08x}-v{}.map", version(p)))
+}
+
+/// The map version a named bake makes: a planet's crust's, or an icy body's (`bake::icy`).
+pub fn version(p: &Planet) -> u32 {
+    if p.icy.is_some() { super::icy::VERSION } else { VERSION }
 }
 
 /// Maps of planets' crusts in memory, by file.
@@ -757,9 +768,12 @@ pub fn get(stages: &[Stage], seed: i32, n: i32, p: &Planet) -> Arc<Map> {
     if let Some(m) = KEPT.lock().unwrap().get(&path).and_then(Weak::upgrade) {
         return m;
     }
-    match std::fs::read(&path).ok().and_then(|b| Map::from_bytes(&b).ok()).filter(|m| m.version == VERSION && m.seed == seed && m.n == n) {
+    match std::fs::read(&path).ok().and_then(|b| Map::from_bytes(&b).ok()).filter(|m| m.version == version(p) && m.seed == seed && m.n == n) {
         Some(m) => remember(path, m),
-        None => keep(stages, seed, n, p, run(stages, seed, n, p.age).0),
+        None => match p.icy {
+            Some(high) => keep(stages, seed, n, p, super::icy::run(stages, seed, n, high).0),
+            None => keep(stages, seed, n, p, run(stages, seed, n, p.age).0),
+        },
     }
 }
 
@@ -778,16 +792,17 @@ pub fn find(seed: i32, n: i32, hash: u64) -> Option<Arc<Map>> {
         let kept = KEPT.lock().unwrap().get(&path).and_then(Weak::upgrade);
         match kept {
             Some(m) => Some(m),
-            None => Some(remember(path.clone(), std::fs::read(&path).ok().and_then(|b| Map::from_bytes(&b).ok()).filter(|m| m.version == VERSION && m.seed == seed && m.n == n)?)),
+            None => Some(remember(path.clone(), std::fs::read(&path).ok().and_then(|b| Map::from_bytes(&b).ok()).filter(|m| m.version == version(p) && m.seed == seed && m.n == n)?)),
         }
         .filter(|m| m.hash == hash)
     })
 }
 
-/// Keeps a planet's map that came from a server (`bake::keep`) under its row's name.
-/// shortcut: the first row that bakes a planet's crust (there is one, Mars); a second needs the map to name its row.
+/// Keeps a planet's (or an icy body's) map that came from a server (`bake::keep`) under its row's name.
+/// shortcut: the first row whose bake makes the map's version (one planet's crust, Mars, and one icy body); a second
+/// of either needs the map to name its row.
 pub fn keep_any(map: Map) -> Arc<Map> {
-    let (s, p) = planets().next().expect("a planet's map, so a row that bakes one");
+    let (s, p) = planets().find(|(_, p)| version(p) == map.version).expect("a planet's map, so a row that bakes one");
     keep(s, map.seed, map.n, p, map)
 }
 
@@ -862,7 +877,7 @@ mod tests {
     }
 
     fn planet() -> Planet {
-        Planet { name: "Mars".into(), age: 1.0 }
+        Planet { name: "Mars".into(), age: 1.0, icy: None }
     }
 
     /// The bake is the same twice, reads back from its bytes, and is kept under its own name: read back from that

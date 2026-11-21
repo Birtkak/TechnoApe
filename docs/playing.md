@@ -50,7 +50,8 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
 - `gen=k` (the game, the server and `report=1`): a new world of generation k (ADR
   0160-generation-number-and-arc-basalt): 0 the worlds before the mantle (as `mantle=0`), 1 the mantle's (ADR 0154,
   0159), 2 (arcs' basalt flows, round lava tubes, only copper placed for where the spawn is), 3 (karst), 4 (Luna's
-  rock field), 5 (Mars, the third body), 6 the newest (the gas giant, the fourth). A world keeps
+  rock field), 5 (Mars, the third body), 6 (the gas giant, the fourth), 7 the newest (the giant's icy moon, the
+  fifth). A world keeps
   its generation in its save and sends it to clients and bots; `report=1` prints it as `gen`. For tests and for
   comparing one seed's worlds; a new world without it is the newest.
 - Mars (generation 5): `/goto mars` lands on its day side; `run=stand body=2 at=x,y,z` stands on it (`body=0` Terra,
@@ -68,6 +69,13 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   `run=stand body=3 eye=50000 look=jupiter` films it from 50 km over its cloud tops (`eye=` is the height over
   them). F3 lists it as "gas" under Size and "Feet in" says the cloud tops hold you. `report=1` gives every body's
   `gas`, `masses` (of Terra's) and `soi_m` under `interior`.
+- Callisto, the giant's icy moon (generation 7; the name is a working one): `/goto callisto` waits for its ground
+  ("going to Callisto: its ground is loading") and stands you on it. Its pull is light (1.85 m/s^2, a third of
+  Luna's: high jumps); it keeps one face to the giant, which hangs 14.4 degrees wide and never rises or sets there;
+  from the far side it is never seen. Its day is its orbit, 49 minutes of play. The ground: dark lag over dusty ice
+  over clean ice on the old plains, bright ice in young craters and their rays, paler dusty ice on the flat middles
+  of its two ringed basins, frost at the poles; nothing grows, no ore or caves yet. `run=stand body=4 at=-1,0,0
+  look=jupiter` stands under the giant (`at=1,0,0` the far side); `report=1` prints a `callisto` section.
 - Far bodies are points of light under a pixel (Mars, the giant, Terra from Mars, Luna), brightest at night,
   hidden by day and under the horizon: `run=stand time=900 look=Jupiter` (or `look=Mars`) faces one at night.
 - Under the mantle's floor (layer 0 of a new world) lies the liquid outer core, a white-hot sea of iron and

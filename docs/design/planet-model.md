@@ -36,7 +36,7 @@
 ### 1. Inputs: a row per body (built for the interior, step 1; *proposal* for the rest)
 | Input | Meaning | Terra | Luna | Mars-like | Gas giant |
 |---|---|---|---|---|---|
-| `kind` | rocky, icy or gas (only rocky is built) | rocky | rocky | rocky | gas |
+| `kind` | rocky, icy or gas (all three built; icy: the giant's moon, step 6c) | rocky | rocky | rocky | gas |
 | `size` | columns per face edge (radius) | 6144 | /3.7 | about /1.9 | far larger, see below |
 | `iron` | the metal core's radius over the body's | 1/sqrt 2 (stated: the grid's floor) | 1/sqrt 2 (Terra's for now; the Moon's is 0.2) | small | small solid core |
 | `heat` | how hot the inside still is, 0 dead to 1 young: the inner core is 1 - heat of the core's radius | 0.65 | 0.05 | 0.15 | 1 |
@@ -164,8 +164,17 @@ inside a sphere of influence. The model is shaped now so real orbits need no sec
    under 0.5, builds its map, heights, caves and ores on a thread of its own when it is wanted, and lets them go when
    it shrinks; the server builds it when a player is in its frame or bound for it; a player near one not yet in is
    held there.
-   Next: the dive and the solid core; the giant's moons; harvesting; the radiation belt.
-7. Later: icy bodies; other stars.
+   **6c built (bodies-and-orbits.md, "The giant's icy moon"):** the first moon of a parent that is not the home and
+   the first icy body, working name Callisto, from world generation 7: a little under Luna (1536 columns on the 4 km
+   Terra, 1061 m), 8 giant radii out (the real one's 26.3 brought in), its face to the giant (14.4 degrees across in
+   its sky), once 49 minutes of
+   play (Kepler from Luna's month by the parent's mean density); an ice and rock interior (mean 1863 kg/m3, 0.35 of
+   Luna's pull, no field); Luna's stages baked on ice: dark plains of lag over dirty ice over clean ice, bright
+   fresh ice in young craters and rays, two multi-ring basins with flowed-flat palimpsests, polar frost; loaded on
+   approach like Mars.
+   Next: the dive and the solid core; more moons (a volcanic one, an ocean under ice); the icy moon's ice shell,
+   ocean, ore and caves; harvesting; the radiation belt.
+7. Later: other stars.
 
 ## Open
 - The exact fields of a row and their units; how exaggeration is expressed per body.

@@ -223,8 +223,8 @@ brackets are the ADRs (`archive/NNNN-*.md`) a decision came from; INDEX.md lists
 - Luna's lava tubes: a `caves.toml` row; see `caves.md`. [0166]
 
 ## Generation number
-`world::GENERATION` is **6** (checked in code, `crates/engine/src/world/mod.rs`; `known_generation` takes up to 6 and
-refuses 7 with "this world is generation N, this build knows up to M: update the game"). `Body::gen` is set on every
+`world::GENERATION` is **7** (checked in code, `crates/engine/src/world/mod.rs`; `known_generation` takes up to 7 and
+refuses 8 with "this world is generation N, this build knows up to M: update the game"). `Body::gen` is set on every
 body (before 4 only the home's was). A rule asks `b.gen >= k`; a future rule bumps `GENERATION` and keeps the old
 profile for older worlds. [0160, 0165]
 
@@ -237,6 +237,7 @@ profile for older worlds. [0160, 0165]
 | 4 | ADR 0165, 0166 | Luna's rock field; her ore and caves by her rock (0166 redefines generation 4's Luna: no gen-4 world had been handed over); no change to Terra |
 | 5 | bodies-and-orbits.md "Mars is a body in the world" | Mars, the third body (a row's `since = 5`, `bodies::of`); Terra and Luna as at 4 |
 | 6 | bodies-and-orbits.md "A gas giant, and far bodies as points of light" | the gas giant, the fourth body (`since = 6`; no blocks, no ground); Terra, Luna and Mars generate as at 5 |
+| 7 | bodies-and-orbits.md "The giant's icy moon" | the giant's icy moon, the fifth body (`since = 7`; its own bake, map version 301, no rock field, ore or caves); Terra, Luna, Mars and the giant as at 6 |
 
 How it is carried (ADR 0160):
 - In the save: `Save::gen: u8`, `VERSION` 21 at the time (a 20's `mantle: bool` is the same one byte: it reads as
@@ -269,6 +270,9 @@ Locked hashes (`technoape-server report=1 seed=1 planet=6144` `made_hash`):
 - Luna's `made_hash` (report's, seed 1): gens 0 to 3 c6a367341bda1227 (her baked tubes, no ore); gen 4
   cdd810732c670a46 (and 5). Luna's blocks, small Luna (`luna_blocks_hash`): gens 0 and 3 a22a376de6be21ba; gens 4 and 5
   b0f00158257f21d2. Mars's blocks at generation 5 (`mars_generates_as_locked`, n 832): 3b6b6a314af6caa5. [0166, 0167]
+- The giant's icy moon (generation 7): its map seed 1 n 384 32ac890dc737b146, n 1536 7984d03437d95554
+  (`bake::icy` `the_map_is_as_it_was_baked`); its blocks at n 384 (`callisto_generates_as_locked`) 4b42aadc955da137;
+  its `made_hash` cbf29ce484222325 (nothing made). Every earlier hash unchanged at 7.
 - The regression tests `generations_0_and_1_generate_as_before` (extended to 0, 1, 2 by `generations_0_1_and_2_..`
   in ADR 0161) lock caves, ores and rock of the 1536 planet from main's code before each change. [0160, 0161]
 - Also held by other ADRs: ADR 0062 (one generated block), 0070 (Luna's bake), 0162 and 0163 (checked: they keep gen
