@@ -591,12 +591,14 @@ mod tests {
     #[test]
     fn the_ice_stage_bakes_the_body_its_row_names() {
         let moon = |size: f64, orbit: f64| {
-            let t = format!("[[body]]\nname = \"A\"\nparent = \"sun\"\nhome = true\nn = 512\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nsun = 100.0\n{M}[[body]]\nname = \"B\"\nparent = \"A\"\norbit = {orbit:?}\nsize = {size:?}\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nstages = [\"crust\", \"impacts\", \"volcanism\", \"ice\"]\n{M}", M = "kind = \"rocky\"\niron = 0.5\nheat = 0.5\ndensity = [2700.0, 3300.0, 7900.0]\n");
+            let t = format!("[[body]]\nname = \"A\"\nparent = \"sun\"\nhome = true\nn = 6144\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nsun = 100.0\n{M}[[body]]\nname = \"B\"\nparent = \"A\"\norbit = {orbit:?}\nsize = {size:?}\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nstages = [\"crust\", \"impacts\", \"volcanism\", \"ice\"]\n{M}", M = "kind = \"rocky\"\niron = 0.5\nheat = 0.5\ndensity = [2700.0, 3300.0, 7900.0]\n");
             let rows = crate::bodies::parse(&t).unwrap();
             rows[1].bake.as_ref().unwrap().get(7, 1664).biome.iter().filter(|&&k| k == SHADOW).count()
         };
         assert!(moon(3.7, 60.0) > 0, "Luna's orbit and size: shadow at the poles");
-        assert_eq!(moon(1.0, 2.0), 0, "a large near moon: the sun high over its poles, no shadow");
+        // (a home of 6144 columns: both grounds' relief is 0.19 of its radius, so 2.25 radii clear it; touching
+        // grounds, at 2, are refused)
+        assert_eq!(moon(1.0, 2.25), 0, "a large near moon: the sun high over its poles, no shadow");
     }
 
     #[test]

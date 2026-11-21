@@ -744,30 +744,36 @@ impl Work {
 /// age) and the version, so another list, row or bake code is another file and an old one is never read as new.
 /// An icy body's map (`bake::icy`) is kept by the same rule under its own version.
 pub fn file(stages: &[Stage], seed: i32, n: i32, p: &Planet) -> PathBuf {
-    let tag = crate::world::fnv(crate::world::FNV0, format!("{stages:?} {:?}", p.age).as_bytes()) as u32;
+    // every input the bake reads: an icy body's ice also reads the sun's height (a planet's tag as before)
+    let key = match p.icy {
+        Some(high) => format!("{stages:?} {:?} {:016x}", p.age, high.to_bits()),
+        None => format!("{stages:?} {:?}", p.age),
+    };
+    let tag = crate::world::fnv(crate::world::FNV0, key.as_bytes()) as u32;
     let name: String = p.name.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' }).collect();
     PathBuf::from(super::DIR).join(format!("seed-{seed}-planet-{n}-{name}-{tag:08x}-v{}.map", version(p)))
 }
 
 /// The map version a named bake makes: a planet's crust's, or an icy body's (`bake::icy`).
 pub fn version(p: &Planet) -> u32 {
-    if p.icy { super::icy::VERSION } else { VERSION }
+    if p.icy.is_some() { super::icy::VERSION } else { VERSION }
 }
 
 /// Maps of planets' crusts in memory, by file.
 static KEPT: LazyLock<Mutex<HashMap<PathBuf, Weak<Map>>>> = LazyLock::new(Mutex::default);
 
 /// The planet's map of (seed, n): from memory, from its file, else baked now and kept.
-/// `high` is the body's sun at its highest (`luna::sun_high`), which an icy body's `ice` reads.
-pub fn get(stages: &[Stage], seed: i32, n: i32, p: &Planet, high: f64) -> Arc<Map> {
+pub fn get(stages: &[Stage], seed: i32, n: i32, p: &Planet) -> Arc<Map> {
     let path = file(stages, seed, n, p);
     if let Some(m) = KEPT.lock().unwrap().get(&path).and_then(Weak::upgrade) {
         return m;
     }
     match std::fs::read(&path).ok().and_then(|b| Map::from_bytes(&b).ok()).filter(|m| m.version == version(p) && m.seed == seed && m.n == n) {
         Some(m) => remember(path, m),
-        None if p.icy => keep(stages, seed, n, p, super::icy::run(stages, seed, n, high).0),
-        None => keep(stages, seed, n, p, run(stages, seed, n, p.age).0),
+        None => match p.icy {
+            Some(high) => keep(stages, seed, n, p, super::icy::run(stages, seed, n, high).0),
+            None => keep(stages, seed, n, p, run(stages, seed, n, p.age).0),
+        },
     }
 }
 
@@ -871,7 +877,7 @@ mod tests {
     }
 
     fn planet() -> Planet {
-        Planet { name: "Mars".into(), age: 1.0, icy: false }
+        Planet { name: "Mars".into(), age: 1.0, icy: None }
     }
 
     /// The bake is the same twice, reads back from its bytes, and is kept under its own name: read back from that
@@ -894,7 +900,7 @@ mod tests {
         assert_ne!(path, file(&MARS, seed, n, &Planet { age: 0.5, ..planet() }), "another age, another file");
         assert!(![super::super::file(seed, n), luna::file(seed, n)].contains(&path));
         let _ = std::fs::remove_file(&path);
-        let got = get(&MARS, seed, n, &planet(), 0.0);
+        let got = get(&MARS, seed, n, &planet());
         assert_eq!(got.hash, a.hash, "baked and kept");
         assert!(path.exists());
         drop(got);
@@ -903,10 +909,10 @@ mod tests {
         let other = Map::from_bytes(&other.to_bytes()).unwrap();
         assert_ne!(other.hash, a.hash);
         std::fs::write(&path, other.to_bytes()).unwrap();
-        assert_eq!(get(&MARS, seed, n, &planet(), 0.0).hash, other.hash, "read back from its file, not baked");
+        assert_eq!(get(&MARS, seed, n, &planet()).hash, other.hash, "read back from its file, not baked");
         // and no map there: baked again
         std::fs::write(&path, b"no map").unwrap();
-        assert_eq!(get(&MARS, seed, n, &planet(), 0.0).hash, a.hash, "baked again");
+        assert_eq!(get(&MARS, seed, n, &planet()).hash, a.hash, "baked again");
         let _ = std::fs::remove_file(&path);
     }
 

@@ -138,7 +138,7 @@ fn bakemap(path: &str, body: &str, seed: i32, n: Option<i32>, out: Option<&Strin
     let rows = engine::bodies::parse(&text).unwrap_or_else(|e| panic!("{path}: {e}"));
     let row = rows.iter().find(|r| r.named(body)).unwrap_or_else(|| panic!("{path}: no body '{body}'"));
     let bake = row.bake.as_ref().unwrap_or_else(|| panic!("{body} has no stages"));
-    let planet = bake.2.as_ref().filter(|p| !p.icy).unwrap_or_else(|| panic!("bakemap= pictures a planet's crust (stages from 'crust' on a body that circles the sun, not an icy one)"));
+    let planet = bake.2.as_ref().filter(|p| p.icy.is_none()).unwrap_or_else(|| panic!("bakemap= pictures a planet's crust (stages from 'crust' on a body that circles the sun, not an icy one)"));
     let n = n.unwrap_or(row.n);
     if n <= 0 || n % 32 != 0 {
         eprintln!("bakemap=: n={n} is not a planet's size (whole chunks of 32 columns a face edge)");
