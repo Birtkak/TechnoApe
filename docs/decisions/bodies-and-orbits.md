@@ -294,7 +294,7 @@ refused with "17 bodies; a world holds at most 16"), and a far block body costs 
   the server never lets a body go; a lost load's bake on rayon's global pool shares it with the mesh workers;
   Luna and a moon of Mars or the giant made lazy too; a load cancelled when the camera turns away before it lands.
 
-### The giant's icy moon [draft, 2026-11-21]
+### The giant's icy moon [0176, 2026-11-21]
 A new universe (world generation 7) has five bodies: the fifth is the gas giant's moon, working name **Callisto**
 (the name is the developer's to change), the first body whose parent is neither the sun nor the home and the first
 of `kind = "icy"`; worlds of generation 6 or before keep their bodies, bit for bit. The developer's call: "lots of
