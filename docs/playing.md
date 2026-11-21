@@ -71,8 +71,8 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   `gas`, `masses` (of Terra's) and `soi_m` under `interior`.
 - Callisto, the giant's icy moon (generation 7; the name is a working one): `/goto callisto` waits for its ground
   ("going to Callisto: its ground is loading") and stands you on it. Its pull is light (1.85 m/s^2, a third of
-  Luna's: high jumps); it keeps one face to the giant, which hangs 4.4 degrees wide and never rises or sets there;
-  from the far side it is never seen. Its day is its orbit, 4.9 hours of play. The ground: dark lag over dusty ice
+  Luna's: high jumps); it keeps one face to the giant, which hangs 14.4 degrees wide and never rises or sets there;
+  from the far side it is never seen. Its day is its orbit, 49 minutes of play. The ground: dark lag over dusty ice
   over clean ice on the old plains, bright ice in young craters and their rays, paler dusty ice on the flat middles
   of its two ringed basins, frost at the poles; nothing grows, no ore or caves yet. `run=stand body=4 at=-1,0,0
   look=jupiter` stands under the giant (`at=1,0,0` the far side); `report=1` prints a `callisto` section.

@@ -301,8 +301,8 @@ of `kind = "icy"`; worlds of generation 6 or before keep their bodies, bit for b
 rocky and gas planets and moons"; step 6 names the giant's moons and icy bodies.
 - **The row** (end of `data/bodies.toml`): `parent = "Jupiter"`, `since = 7`, `kind = "icy"`, `size = 4.0` (1536
   columns on the 4 km Terra, 48 chunks, 3 x 16 as Terra's 192 are 3 x 64; 1061 m in radius, 0.92 of Luna's, the real
-  pair's 0.91), `orbit = 26.3` (the real one's: 1.23 Mm, 25 giant radii over its cloud tops, in the giant's 7.49 Mm
-  sphere), `stages = ["crust", "impacts", "ice"]`, `ground = ["dark lag", "dusty ice", "ice"]` (where no map), `air =
+  pair's 0.91), `orbit = 8.0` (the real one's 26.3 brought in, real-world logic exaggerated for small worlds, so the
+  giant hangs large in its sky: 374 km, 7 giant radii over its cloud tops, in the giant's 7.49 Mm sphere), `stages = ["crust", "impacts", "ice"]`, `ground = ["dark lag", "dusty ice", "ice"]` (where no map), `air =
   false`, `colour` dark grey-brown, `iron = 0.5`, `heat = 0.0`, `density = [950, 1700, 3000]`.
 - **What icy means to the interior:** the same rules as a rocky body (`Interior::new`), the keys read as a rock core
   (`iron` its radius share, `density[2]`) under a mantle of ice and rock and a crust of dirty ice: mean **1863
@@ -314,31 +314,37 @@ rocky and gas planets and moons"; step 6 names the giant's moons and icy bodies.
   same face to the giant, tested over an orbit), once a period by Kepler's law against the home's first moon, now
   times the root of the home's mean density over the parent's (`mass / radius^3`): for a moon of the home the factor
   is 1 to the bit, so Luna's MONTH and pose and every older world are unchanged (tested). The giant's moon:
-  Kepler 17,585 s, rounded to PERIOD / 44 = **17,673 s, 4.9 hours of play** (its day: the sun crosses its sky once an
-  orbit). Its **sphere of influence** is Laplace's rule against its parent (`orbit x (m / M_parent)^0.4`, at most a
-  quarter of the orbit): **16 km** (15 of its radii; the quarter-orbit rule would have given 307 km), inside the
+  Kepler 2,950 s, rounded to PERIOD / 264 = **2,945 s, 49 minutes of play** (its day: the sun crosses its sky once an
+  orbit; at the real 26.3 radii it was 4.9 hours). Its **sphere of influence** is Laplace's rule against its parent
+  (`orbit x (m / M_parent)^0.4`, at most a quarter of the orbit): **4.9 km** (4.6 of its radii; the quarter-orbit rule
+  would have given 94 km), inside the
   giant's; a moon of the home keeps a quarter of its orbit, to the bit. `World::locate` and `reframe` take the
   **innermost** sphere (the rows backwards: a moon comes after its parent), as spheres now nest; with disjoint
   spheres (every older world) the answer is the same. Gravity is summed as before, its parent's pull cancelled near
   it by 0041's rule.
-- **Its parse rules** (`bodies::parse`): a moon's ground must clear its parent's (`(orbit - 1) x parent radius >
-  its radius`, both in home radii; "its ground would be inside its parent"); a parent below it or itself is refused
-  as before. The polar-shadow sun height (`luna::sun_high`) for a moon of a body that is not the home is the home's
+- **Its parse rules** (`bodies::parse`): a moon's ground must clear its parent's with room for both reliefs
+  (`(orbit - 1) x parent radius - its radius > share x (parent radius + its radius)`, in home radii, the share `AMP`
+  over the home's radius: touching grounds are refused, "its ground would be inside its parent"); a parent below it
+  or itself is refused as before; a **baked moon of a moon** is refused ("not built yet": its polar sun height would
+  read its orbit in its parent's radii as the home's). The polar-shadow sun height (`luna::sun_high`) for a moon of a body that is not the home is the home's
   moon's sun disc times the home's sun distance over its system's (the giant's 5 AU: a fifth), not a disc reckoned
   from its own size and orbit; Terra's, Luna's and Mars's are as before.
 - **Its bake** (`bake/icy.rs`, map version **301**): Luna's `crust`, `impacts` (no maria) and `ice` stages, then
   the two widest basins made **multi-ring** (their middles 0.9 of the basin flattened 0.7 toward their mean: the
   palimpsest; rings of troughs 2.5 m deep and 3 m to a side with low lips, the first at 1.3 basin radii, one each
   0.3 out to an angle of 1 radian, wandering 4 %), and her kinds turned into its own. Kept by 0167's **name and
-  hash rule** (`mars::file` with the version of the row's bake: `seed-S-planet-N-callisto-<hash>-v301.map`;
-  `bodies::Planet::icy`), found by hash, a server's map kept under its row's name (`mars::keep_any` by version).
+  hash rule** (`mars::file` with the version of the row's bake: `seed-S-planet-N-callisto-<hash>-v301.map`; the
+  hash takes every input the bake reads: the stage list, the age and, for an icy body, the bits of the sun's height
+  its ice stage reads, which come from the home's and the giant's `sun` and the giant's `size`, so a changed row is a
+  new file, tested; `bodies::Planet::icy` carries that height), found by hash, a server's map kept under its row's name (`mars::keep_any` by version).
   Only Terra's and Luna's exact lists keep named files; `bakemap=` still pictures a planet's crust only.
 - **Its ground** (`data/biomes.toml` rows 33..=36; top, band to 4 m, below): **dark plain** dark lag / dusty ice /
   ice (the old cratered plains, 0.9 of it); **fresh ice** ice / ice / ice (young craters' floors, walls and rays);
   **palimpsest** dusty ice / dusty ice / ice (the flowed-flat middles of the ringed basins); **polar frost** frost /
   dark lag / ice (where no sun reaches). One **new block**, id **240** "dark lag" (past a gap so a row another
   branch adds at 229 does not meet it; colours and a speckle, no painting): the lag left on top as the ice under it
-  went off into space, dust, grit and carbon-rich stuff: sieved for grit and carbon, sintered into bricks, a little
+  went off into space, dust, grit and carbon-rich stuff (a grey-brown 0.38 with a sparse blue-white frost speckle,
+  under the dusty ice's 0.78 beige with rust, over the blue ice; read on a dug face and from above): sieved for grit and carbon, sintered into bricks, a little
   water when melted. Reused: **ice** (clean water ice: water in bulk away from Terra, for drinking, air by
   splitting and fuel later), **dusty ice** (dirty ice: water when melted and filtered), **frost** (carbon dioxide:
   the real moon has it). No recipes. No plants, clutter, patches, water, caves or ore on it (`rock_field` false).
@@ -346,12 +352,22 @@ rocky and gas planets and moons"; step 6 names the giant's moons and icy bodies.
   nothing special-cases Mars by index or name in that path (`mars::keep_any` and `Body::rock_body`'s shortcuts
   pick by map version). From Terra it is never streamed or held (tested); `/goto callisto` answers "going to
   Callisto: its ground is loading" and stands the player on it in its frame (tested, saved and loaded again).
-- **The sky from it:** nothing new. The giant is **4.36 degrees** across from its near side (8.4 times Luna's disc
+- **The sky from it:** nothing new. The giant is **14.4 degrees** across from its near side (28 times Luna's disc
   from Terra), drawn by its shader (lit by the sun, banded), fixed in the sky by the lock; from the far side it is
   under the horizon. Its eclipses of the sun darken the moon's ground through the shaders' per-body eclipse mask
   (`eclipse_masks`, `light`: every body's sphere over the sun's disc): filmed at the sub-giant point when the sun is behind the giant, the
-  ground's mean brightness 34-36 out of 255 a little before and 7.8 at it; the CPU's `Sky::eclipse`
+  ground's mean brightness 39 out of 255 a little before and 1.3 at it; the CPU's `Sky::eclipse`
   (the sun's colour in the air, the HUD) and the tides are the home's moon's only.
+- **From Terra it is not seen apart from the giant**, and should not be: at opposition (399 Mm) its 374 km orbit is
+  0.94 mrad, 0.55 of a pixel at 1280 x 720 (70 degrees high), so its point falls in the giant's; its light is
+  (1061 / 46700)^2 = 5e-4 of the giant's, 0.05 of its point's brightness (`point_light`'s 0.4th power). A zoom of
+  two or more would part them; the giant's point would still outshine it twentyfold.
+- **The stand runs:** `run=stand body=N eye=` far out (past a small moon's sphere) put the eye in its body's grid but
+  outside its frame, so it was read as the inertial frame's, 10^10 m off, and the sky showed stars only (since
+  be2b1df9, stand on another body; Callisto's 4.9 km sphere showed it): the eye now goes into the frame it lies in
+  (`bench::pose`, tested).
+- **`Body::rock_body()` is 0 for an icy map:** harmless only while an icy body has no rock field (`rock_field`
+  false, nothing asks); whoever adds icy rock provinces must make it name the icy row.
 - **Report:** `report=1` has a `callisto` section (kinds' shares, heights, made_hash); the globe overlay's colours
   know its kinds (`globe::ICY`), though the overlay still shows Terra and Luna only.
 - **Locks:** its map seed 1 n 384 32ac890dc737b146, n 1536 7984d03437d95554; its blocks at generation 7, n 384

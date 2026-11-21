@@ -654,13 +654,16 @@ fn the_icy_moon_is_posed_on_the_giant_and_locked() {
     assert_eq!(w.bodies.iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["Terra", "Luna", "Mars", "Jupiter", "Callisto"]);
     let (j, c) = (&w.bodies[3], &w.bodies[4]);
     assert_eq!((c.parent, c.n), (3, 384));
-    assert!((c.orbit / j.radius - 26.3).abs() < 1e-9);
+    assert!((c.orbit / j.radius - 8.0).abs() < 1e-9);
+    // the giant hangs large in its sky (real-world logic exaggerated for small worlds: the real one is 26.3 out)
+    let across = 2.0 * (j.radius / c.orbit).asin().to_degrees();
+    assert!((14.0..15.0).contains(&across), "the giant {across:.2} degrees across");
     // the period: Luna's month times (q / 60)^1.5 times the root of the home's mean density over the giant's
     let dens = |b: &Body| b.interior.mass / b.radius.powi(3);
-    let kepler = MONTH * (26.3f64 / 60.0).powf(1.5) * (dens(&w.bodies[0]) / dens(j)).sqrt();
+    let kepler = MONTH * (8.0f64 / 60.0).powf(1.5) * (dens(&w.bodies[0]) / dens(j)).sqrt();
     assert_eq!(c.period.to_bits(), crate::sky::period(kepler).to_bits());
     let k = PERIOD / c.period;
-    assert!(k == k.round() && c.period > 3600.0 && c.period < MONTH, "{} s, {k} a PERIOD", c.period);
+    assert!(k == k.round() && c.period > 600.0 && c.period < MONTH, "{} s, {k} a PERIOD", c.period);
     println!("Callisto: period {:.0} s ({:.2} h of play, {k} a PERIOD; Kepler {kepler:.0} s), sphere {:.0} m", c.period, c.period / 3600.0, w.soi(4));
     // Luna keeps her month and her pose to the bit
     assert_eq!(w.bodies[1].period.to_bits(), MONTH.to_bits());
@@ -681,10 +684,10 @@ fn the_icy_moon_is_posed_on_the_giant_and_locked() {
     }
     let (_, d, at) = to_giant(1.0e7);
     assert!(at.distance(at0) > 100.0 * c.orbit && (d / c.orbit - 1.0).abs() < 1e-9, "it follows the giant round the sun");
-    // its sphere: Laplace's rule against the giant, well inside the giant's, many of its own radii
+    // its sphere: Laplace's rule against the giant, well inside the giant's, over four of its own radii (at 8 giant radii; 15 at the real 26.3)
     let laplace = c.orbit * (c.interior.mass / j.interior.mass).powf(0.4);
     assert_eq!(w.soi(4).to_bits(), laplace.to_bits());
-    assert!(c.orbit + w.soi(4) < w.soi(3) && w.soi(4) > 5.0 * c.radius, "{} m in the giant's {} m", w.soi(4), w.soi(3));
+    assert!(c.orbit + w.soi(4) < w.soi(3) && w.soi(4) > 4.0 * c.radius, "{} m in the giant's {} m", w.soi(4), w.soi(3));
     // a point over its ground is its frame's, from the inertial frame or the giant's
     let t = w.time;
     let up = DVec3::new(0.3, 0.8, -0.5).normalize();

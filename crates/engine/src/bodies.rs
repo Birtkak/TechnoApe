@@ -554,7 +554,7 @@ mod tests {
     fn the_icy_moon_row_parses_and_is_the_giants() {
         let c = &BODIES[4];
         assert_eq!((c.name.as_str(), c.parent, c.home, c.since, c.makeup.kind), ("Callisto", Some(3), false, 7, Kind::Icy));
-        assert_eq!((c.n, c.n / crate::world::CS, c.orbit, c.size), (1536, 48, Some((26.3, 0.0)), Some(4.0)));
+        assert_eq!((c.n, c.n / crate::world::CS, c.orbit, c.size), (1536, 48, Some((8.0, 0.0)), Some(4.0)));
         assert_eq!([4, 5, 6, 7].map(|g| of(g).len()), [2, 3, 4, 5], "a world of generation 6 has four bodies, of 7 five");
         assert!(known_bodies(5, 7).is_ok() && known_bodies(4, 7).is_err());
         assert_eq!(find("callisto"), Some(4));

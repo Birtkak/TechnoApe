@@ -108,6 +108,13 @@ pub(crate) fn pose(run: &str, t: f64, w: &World, speed: f64, alt: f64, warm: f64
                 }
                 _ => (ahead * yaw.cos() + up.cross(ahead) * yaw.sin()) * pitch.cos() + up * pitch.sin(),
             };
+            // an eye past the body's sphere of influence (eye= far out over a small moon) is in another frame: put it
+            // in the frame it lies in, else its grid coordinates are read as that frame's
+            let (_, f) = w.locate(w.pose(i, w.time).to_inertial(b.centre, pos));
+            if f != i {
+                let (rot, off) = w.place(i, f);
+                return Pose { pos: rot * (pos - b.centre) + off, fwd: rot * fwd, up: rot * up };
+            }
             Pose { pos, fwd, up }
         }
     }
@@ -487,6 +494,23 @@ mod tests {
         assert_eq!(sky_time("stand", true, 225.0, 1.5), sky_time("stand", true, 225.0, 6.0), "a shot on a busy PC is the quiet PC's");
         assert_eq!(sky_time("stand", true, 225.0, 6.0), 225.0);
         assert_eq!(sky_time("stand", false, 225.0, 6.0), 231.0, "a benchmark's sky runs");
+    }
+
+    /// A stand's eye far over a small moon, past its sphere of influence (eye=40000 over the giant's icy moon), is
+    /// put in the frame it lies in: before, its grid coordinates were read as the inertial frame's (10^10 m off,
+    /// the giant and the moon gone from the sky).
+    #[test]
+    fn a_stand_eye_past_its_bodys_sphere_is_in_the_frame_it_lies_in() {
+        let w = World::with_grid(1536, engine::bodies::moon_columns(1536), 1, None, None, 0.0, 7);
+        let i = engine::bodies::find("callisto").unwrap();
+        let args = |eye: &str| Args([("body", "4"), ("at", "1,0.15,0"), ("eye", eye)].iter().map(|(k, v)| (k.to_string(), v.to_string())).collect());
+        let b = &w.bodies[i];
+        for eye in ["2", "40000", "150000"] {
+            let p = pose("stand", 0.0, &w, 0.0, 0.0, 0.0, 1.0, &args(eye));
+            let up = crate::stand_at(&args(eye)).unwrap();
+            let want = w.pose(i, w.time).to_inertial(b.centre, b.centre + up * (b.top(up) + eye.parse::<f64>().unwrap()));
+            assert!((w.to_inertial(p.pos) - want).length() < 0.01,"eye {eye}: {:?} against {want:?}", w.to_inertial(p.pos));
+        }
     }
 
     #[test]

@@ -166,7 +166,8 @@ inside a sphere of influence. The model is shaped now so real orbits need no sec
    held there.
    **6c built (bodies-and-orbits.md, "The giant's icy moon"):** the first moon of a parent that is not the home and
    the first icy body, working name Callisto, from world generation 7: a little under Luna (1536 columns on the 4 km
-   Terra, 1061 m), 26.3 giant radii out, its face to the giant (4.4 degrees across in its sky), once 4.9 hours of
+   Terra, 1061 m), 8 giant radii out (the real one's 26.3 brought in), its face to the giant (14.4 degrees across in
+   its sky), once 49 minutes of
    play (Kepler from Luna's month by the parent's mean density); an ice and rock interior (mean 1863 kg/m3, 0.35 of
    Luna's pull, no field); Luna's stages baked on ice: dark plains of lag over dirty ice over clean ice, bright
    fresh ice in young craters and rays, two multi-ring basins with flowed-flat palimpsests, polar frost; loaded on
