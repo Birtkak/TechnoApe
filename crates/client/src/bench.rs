@@ -401,7 +401,7 @@ impl App {
             stages += &format!("\"gpu_alloc_mb\":{:.0},\"gpu_reserved_mb\":{:.0},", r.total_allocated_bytes as f64 / 1e6, r.total_reserved_bytes as f64 / 1e6);
         }
         stages += &format!("\"fx_live_avg\":{:.0},", s.fx_live as f64 / s.frames.max(1) as f64);
-        stages += &format!("\"job_us_after_load\":{job_us_after:.0},\"jobs_after_load\":{later},\"walks\":{},\"tlas_builds\":{},", self.streamer.walks, self.rt.as_ref().map_or(0, |r| r.tlas_builds));
+        stages += &format!("\"job_us_after_load\":{job_us_after:.0},\"jobs_after_load\":{later},\"walks\":{},\"tlas_builds\":{},\"rt_dead_peak\":{},", self.streamer.walks, self.rt.as_ref().map_or(0, |r| r.tlas_builds), self.rt.as_ref().map_or(0, |r| r.dead_peak()));
         // ADR 0025, S: the server's ticks, the workers' jobs and what each holds of the cores over the measured time
         // play drains the ticks for F3, so its line carries no tick numbers
         if let Some(v) = self.tick_log.as_ref().filter(|_| self.run != "play") {
