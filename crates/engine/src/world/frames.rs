@@ -193,13 +193,14 @@ impl World {
         let (row, seed, stub) = (crate::bodies::of(self.bodies[i].gen)[i].clone(), l.seed + i as i32, l.stub.stub(l.seed + i as i32));
         Some(move |map| stub.on(&row, Some(map), seed))
     }
-    /// Body `i`'s ground, built by its `loader`, goes in.
-    pub fn put(&mut self, i: usize, body: Body) {
+    /// Body `i`'s ground, built by its `loader`, goes in (or one another world of this process has, shared).
+    pub fn put(&mut self, i: usize, body: impl Into<Arc<Body>>) {
+        let body = body.into();
         let l = self.lazy[i].as_mut().expect("a lazy body");
         assert!(body.map().is_some_and(|m| m.hash == l.hash), "the body of its hash");
         l.loaded = true;
         let at = self.ore_base(i);
-        Arc::make_mut(&mut self.bodies)[i] = Arc::new(body);
+        Arc::make_mut(&mut self.bodies)[i] = body;
         // the ledger (the server's) takes the body's ore bodies in as opened, less its cells edited before (a
         // save's): as `open_ledger` and `tally` would have had them with the body in from the start
         if self.ore_left.is_some() {
