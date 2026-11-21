@@ -2506,6 +2506,30 @@ fn goto_mars_waits_for_its_ground_off_the_tick_and_replays() {
     assert_eq!(at(&r.server), vec![2], "the replayed player is on Mars too");
 }
 
+/// Step 6b review: a server whose bodies are all in from the start (`Server::baked`: the soak, the bots' tests)
+/// records no `Ev::Lazy`, so its replay has Mars in from the start too: a player gone to Mars falls the same.
+/// (The lazy recording's replay: `goto_mars_waits_for_its_ground_off_the_tick_and_replays`.)
+#[test]
+fn an_eager_recording_with_a_player_on_mars_replays() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked(256, 64, 3, rx);
+    assert!(s.world.loaded(2) && s.world.bodies[2].map().is_some(), "Mars in from the start");
+    let rec = std::env::temp_dir().join(format!("technoape-eager-{}.rec", std::process::id()));
+    s.record(&rec).unwrap();
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    c.send(ToServer::Input(Input::default()));
+    s.tick();
+    c.send(ToServer::Chat("/goto mars".into()));
+    for _ in 0..200 {
+        s.tick();
+    }
+    assert_eq!(s.world.frame_at(s.clients[0].phys.pos), 2, "on Mars");
+    let r = replay(&rec, None).unwrap();
+    std::fs::remove_file(&rec).unwrap();
+    assert_eq!((r.diverged, r.server.world.hash(), r.server.clients[0].phys.pos), (None, s.world.hash(), s.clients[0].phys.pos));
+}
+
 /// Step 6b review: a map asked for again and again while its body loads is queued once and sent once; one whose
 /// body cannot be loaded is dropped, not kept in the queue for ever.
 #[test]

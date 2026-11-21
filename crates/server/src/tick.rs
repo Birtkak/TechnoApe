@@ -32,7 +32,10 @@ impl Server {
             if let Some(b) = self.herds_loaded.take() {
                 self.log(Ev::Herds(b));
             }
-            self.log(Ev::Lazy);
+            // (only a world with a body loaded on approach: one with all in replays with all in, `load_all`)
+            if self.world.lazy.iter().any(Option::is_some) {
+                self.log(Ev::Lazy);
+            }
         }
         // the player list changed this tick (a join, a name, a leave): it is sent only then
         let mut roster = false;
