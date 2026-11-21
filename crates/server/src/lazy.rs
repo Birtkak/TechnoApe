@@ -14,7 +14,7 @@ pub(crate) struct Loads {
     /// Whether loads come from the recording alone (a replay): none is started here.
     pub(crate) replaying: bool,
     /// Bodies whose map this build cannot make: never asked again.
-    failed: Vec<usize>,
+    pub(crate) failed: Vec<usize>,
     /// /goto's bound for a body not in yet: (player id, where to, as typed).
     pub(crate) gotos: Vec<(u32, String)>,
     /// Map downloads asked for a body not in yet: (player id, hash).
@@ -115,6 +115,10 @@ impl Server {
         }
         let maps = std::mem::take(&mut self.loads.maps);
         for (id, h) in maps {
+            // (one for a body that cannot be loaded is dropped: it would wait for ever)
+            if self.loads.failed.iter().any(|&b| self.world.map_hash(b) == Some(h)) {
+                continue;
+            }
             if !self.world.bodies.iter().any(|b| b.map().is_some_and(|m| m.hash == h)) {
                 self.loads.maps.push((id, h));
                 continue;
@@ -145,7 +149,9 @@ impl Server {
     /// Sends client i the baked map of hash h, when a body stands on it.
     pub(super) fn send_map(&mut self, i: usize, h: u64) {
         if let Some(m) = self.world.bodies.iter().filter_map(|b| b.map()).find(|m| m.hash == h) {
-            self.clients[i].maps.push(h);
+            if !self.clients[i].maps.contains(&h) {
+                self.clients[i].maps.push(h);
+            }
             for p in self.map_pieces.entry(h).or_insert_with(|| engine::net::map_pieces(m)) {
                 self.clients[i].link.send(p.clone());
             }

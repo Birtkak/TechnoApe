@@ -291,7 +291,8 @@ impl Server {
                     Recv::Msg(ToServer::Map(h)) if self.clients[i].maps.contains(&h) => {}
                     Recv::Msg(ToServer::Map(h)) => {
                         if (0..self.world.bodies.len()).any(|b| !self.world.loaded(b) && self.world.map_hash(b) == Some(h)) {
-                            // a body not in yet: sent once it is (`lazy.rs`)
+                            // a body not in yet: sent once it is (`lazy.rs`); marked asked, so asks again are ignored
+                            self.clients[i].maps.push(h);
                             self.loads.maps.push((self.clients[i].player.id, h));
                         } else {
                             self.send_map(i, h);

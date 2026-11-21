@@ -2506,6 +2506,54 @@ fn goto_mars_waits_for_its_ground_off_the_tick_and_replays() {
     assert_eq!(at(&r.server), vec![2], "the replayed player is on Mars too");
 }
 
+/// Step 6b review: a map asked for again and again while its body loads is queued once and sent once; one whose
+/// body cannot be loaded is dropped, not kept in the queue for ever.
+#[test]
+fn a_map_asked_for_a_loading_body_is_queued_and_sent_once() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, 3, 0.0, 6, rx);
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    c.send(ToServer::Input(Input::default()));
+    s.tick();
+    drain(&c);
+    let h = s.world.map_hash(2).unwrap();
+    for _ in 0..5 {
+        c.send(ToServer::Map(h));
+    }
+    s.tick();
+    assert_eq!(s.loads.maps.len(), 1, "one entry for five asks");
+    let t0 = std::time::Instant::now();
+    while !s.world.loaded(2) {
+        assert!(t0.elapsed().as_secs() < 120, "Mars never came in");
+        s.tick();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    s.tick();
+    c.send(ToServer::Map(h));
+    s.tick();
+    let firsts = drain(&c).into_iter().filter(|m| matches!(m, ToClient::Map { piece: 0, .. })).count();
+    assert_eq!((firsts, s.loads.maps.len()), (1, 0), "the map sent once");
+    // a body this build cannot load (another map's hash): its asks are dropped
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, 3, 0.0, 6, rx);
+    s.world.lazy[2].as_mut().unwrap().hash ^= 1;
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    c.send(ToServer::Input(Input::default()));
+    s.tick();
+    c.send(ToServer::Map(s.world.map_hash(2).unwrap()));
+    for _ in 0..200 {
+        s.tick();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        if s.loads.failed.contains(&2) {
+            break;
+        }
+    }
+    s.tick();
+    assert!(s.loads.failed.contains(&2) && s.loads.maps.is_empty(), "the failed body's asks are dropped: {:?}", s.loads.maps);
+}
+
 #[test]
 fn goto_knows_the_bodies_by_name_only() {
     // bugs/2026-11-11_13-10-42: planet and moon are gone, Terra and Luna are the names
