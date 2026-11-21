@@ -19,7 +19,7 @@ struct Body {
 struct Globals {
     view_proj: mat4x4f,
     sun: vec4f,
-    bodies: array<Body, 4>,
+    bodies: array<Body, 16>, // shader_vertex.wgsl MAX_BODIES
     inv_vp: mat4x4f,
     sun_pos: vec4f,
     sun_col: vec4f,

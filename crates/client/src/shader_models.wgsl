@@ -306,7 +306,7 @@ fn vs_model(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
 @vertex
 fn vs_shade(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> FxOut {
     let q = fxp[ii];
-    let b = g.bodies[(q.info >> 8u) & 3u];
+    let b = g.bodies[fx_body(q.info)];
     var cx = array<f32, 6>(-1., 1., 1., -1., 1., -1.);
     var cy = array<f32, 6>(-1., -1., 1., -1., 1., 1.);
     let k = vi % 6u;
@@ -344,6 +344,6 @@ fn fs_shade(i: FxOut) -> GOut {
 @fragment
 fn fs_model(i: FxOut) -> GOut {
     if (i.a > 0u) { skip_proxy = PROXY_INST + i.a - 1u; }
-    let l = light(i.rel, normalize(i.normal), (i.info >> 8u) & 3u);
+    let l = light(i.rel, normalize(i.normal), fx_body(i.info));
     return fx_out(i, unpack4x8unorm(i.b).rgb, l.l);
 }

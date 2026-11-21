@@ -68,7 +68,7 @@ pub(crate) fn lay(world: &World, piles: &std::collections::HashMap<Block, Vec<Sl
             }
             // the block's own cell look (its painting, as the world draws it) shrunk about the cell's middle, moved
             // in cells (bit 19, as a glide) to its corner and down onto the floor
-            let info = fx::block_bits(ITEMS.look(s.item)) | (b.body as u32) << 8 | (fx::Look::Block as u32) << 10 | 1 << 19;
+            let info = fx::block_bits(ITEMS.look(s.item)) | fx::body_bits(b.body) | fx::look_bits(fx::Look::Block as u32) | 1 << 19;
             let (a, code) = fx::cell_code(fx::gpu_cell(world, *b));
             still.push(FxGpu { p: [side.0, side.1, BLOCK_M / 2.0 - 0.5], size: BLOCK_M, info, angle: 0.0, a, b: code });
             feet.push((off, BLOCK_M * std::f32::consts::FRAC_1_SQRT_2 * 2.0 * at.half.y.max(at.half.z)));
@@ -100,7 +100,7 @@ pub(crate) fn shade(at: &fx::At, off: (f32, f32), half: f32, open: bool) -> Opti
     let r = ((half * 1.15 * TEXELS).ceil() + 1.0) / TEXELS;
     let r = r.min(((hy - x.abs()).min(hz - y.abs()) * TEXELS).floor() / TEXELS);
     let p = at.p + at.axes[1] * x + at.axes[2] * y;
-    (open && r > 0.0).then(|| FxGpu { p: p.to_array(), size: r, info: (at.body as u32) << 8, angle: 0.0, a: fx::pack_dir(at.axes[1]), b: 0 })
+    (open && r > 0.0).then(|| FxGpu { p: p.to_array(), size: r, info: fx::body_bits(at.body), angle: 0.0, a: fx::pack_dir(at.axes[1]), b: 0 })
 }
 
 impl App {
@@ -150,7 +150,7 @@ mod tests {
             if off.0.abs() + half * 1.1 < 0.45 {
                 assert!(s.size >= half * 1.1, "{} round a footprint of {half}", s.size);
             }
-            assert_eq!(s.info >> 8 & 3, at.body as u32);
+            assert_eq!(s.info >> 8 & 15, at.body as u32);
         }
         assert_eq!(shade(&at, (0.0, 0.0), 0.1, false), None, "none on glass or in water");
     }
@@ -211,7 +211,7 @@ mod tests {
         assert_eq!(cubes[0].info & fx::BLOCK_BITS, fx::block_bits(ITEMS.look(ITEMS.named("granite").unwrap())));
         // drawn as the block's own cell look (its painting, as the world has it; ADR 0114 second round), 0.2 m,
         // resting on the cell's floor: `p` its offset in cells (bit 19, as a glide's), its middle 0.1 over the floor
-        assert_eq!((cubes[0].info >> 10) & 3, fx::Look::Block as u32, "the block's cell look, not a debris cube");
+        assert_eq!((cubes[0].info >> 12) & 3, fx::Look::Block as u32, "the block's cell look, not a debris cube");
         assert_eq!(cubes[0].info >> 19 & 1, 1, "p is an offset in cells");
         assert_eq!(cubes[0].size, 0.2);
         assert!((cubes[0].p[2] - (cubes[0].size / 2.0 - 0.5)).abs() < 1e-6, "on the floor: {:?}", cubes[0].p);

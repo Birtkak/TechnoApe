@@ -126,14 +126,20 @@ pub(crate) const CPU_STAGES: [&str; 16] =
     ["pose", "msgs", "edits", "apply", "select", "dispatch", "table", "fx", "acquire", "rt", "encode", "submit", "post", "present", "tail", "between"];
 /// The particles the GPU holds (ADR 0031): the largest pool, "many".
 pub(crate) const MAX_FX: usize = crate::fx::CAP[2] + crate::fx::CRACKS;
-/// The most bodies the GPU holds (the size of `bodies` in shader.wgsl, whose body ids are masked by `& 3u`):
-/// a stated limit (0163-n-bodies), checked at start by `bodies_fit`.
+/// The most bodies the GPU holds (WGSL `MAX_BODIES`, the size of `bodies` and `far` in shader_vertex.wgsl; a body
+/// rides 4 bits of a particle's and a water quad's word): a stated limit (step 6b, was 4), checked at start by
+/// `bodies_fit`.
 pub(crate) const MAX_BODIES: usize = engine::bodies::MAX;
 
 /// Whether `n` bodies (`data/bodies.toml`'s rows) fit on the GPU; a world of more is refused at start, never
 /// drawn with a body id wrapped onto another body.
 pub(crate) fn bodies_fit(n: usize) -> Result<(), String> {
     if n <= MAX_BODIES { Ok(()) } else { Err(format!("data/bodies.toml has {n} bodies; the renderer holds at most {MAX_BODIES} (gpu.rs MAX_BODIES, the `bodies` of shader.wgsl)")) }
+}
+/// A body in the G-buffer's albedo alpha: shader_vertex.wgsl `gb_alpha` on the CPU, for the test that holds it.
+#[cfg(test)]
+pub(crate) fn gb_alpha(body: u8) -> f32 {
+    body as f32 / 15.0
 }
 /// The full moon's light, a quarter of the sun's direct light and bluish: night stays readable (ADR 0022).
 pub(crate) const MOON_LIGHT: Vec3 = Vec3::new(0.12, 0.14, 0.18);
@@ -372,8 +378,53 @@ mod eclipse_tests {
 fn more_bodies_than_the_gpu_holds_are_refused() {
     assert!(bodies_fit(engine::bodies::BODIES.len()).is_ok());
     assert!(bodies_fit(MAX_BODIES).is_ok());
-    let e = bodies_fit(MAX_BODIES + 1).expect_err("five bodies refused");
-    assert!(e.contains("5 bodies") && e.contains("at most 4"), "{e}");
+    let e = bodies_fit(MAX_BODIES + 1).expect_err("seventeen bodies refused");
+    assert!(e.contains("17 bodies") && e.contains("at most 16"), "{e}");
+}
+
+/// Sixteen bodies (step 6b): a body's number above 3 (and 15) survives every packer that carries one, and is
+/// what each shader's unpacking reads (the WGSL lines held letter for letter, and what they compute mirrored
+/// here): the chunk's info (8 bits), a particle's and a model's info (`fx::body_bits`), a water quad's
+/// (`water::info`), the G-buffer's albedo alpha (`gb_alpha`), and the shaders' body arrays and loops.
+#[test]
+fn a_body_past_three_survives_every_packer_and_shader() {
+    let vertex = include_str!("shader_vertex.wgsl");
+    assert!(vertex.contains(&format!("const MAX_BODIES: u32 = {MAX_BODIES}u;")) && MAX_BODIES == 16, "shader_vertex.wgsl MAX_BODIES");
+    assert!(vertex.contains("bodies: array<Body, MAX_BODIES>,") && vertex.contains("far: array<vec4f, MAX_BODIES>,"));
+    assert!(include_str!("overlay.wgsl").contains(&format!("bodies: array<Body, {MAX_BODIES}>,")), "overlay.wgsl's copy of the globals");
+    assert_eq!(std::mem::size_of::<Globals>() % 16, 0);
+    let all = [vertex, include_str!("shader_light.wgsl"), include_str!("shader.wgsl"), include_str!("shader_water.wgsl"), include_str!("shader_sky_fx.wgsl"), include_str!("shader_models.wgsl"), include_str!("post.wgsl")];
+    for (k, s) in all.iter().enumerate() {
+        // no body read through two bits, no body loop of four, no G-buffer body in thirds
+        for old in ["info >> 8u) & 3u", "info >> 3u) & 3u", "i < 4u; i++) {\n        if (i != body", "i < 4u; i++) {\n                if (i != mi", "i < 4u; i++) {\n        let f = g.far", "i = 1u; i < 4u;", "f32(body) / 3.0)", ".a * 3.0)"] {
+            assert!(!s.contains(old), "shader part {k} still has `{old}`");
+        }
+    }
+    // a particle's (and a model's, a contact shadow's) body and look, as shader_sky_fx.wgsl reads them
+    let fx = include_str!("shader_sky_fx.wgsl");
+    assert!(fx.contains("fn fx_body(info: u32) -> u32 { return (info >> 8u) & 15u; }") && fx.contains("fn fx_look(info: u32) -> u32 { return (info >> 12u) & 3u; }"));
+    let (wgsl_fx_body, wgsl_fx_look) = (|i: u32| (i >> 8) & 15, |i: u32| (i >> 12) & 3);
+    // a water quad's (shader_water.wgsl)
+    let water = include_str!("shader_water.wgsl");
+    assert!(water.contains("let bi = (q.info >> 3u) & 15u;") && water.contains("let kind = (q.info >> 7u) & 7u;"));
+    let (wgsl_w_body, wgsl_w_kind) = (|i: u32| (i >> 3) & 15, |i: u32| (i >> 7) & 7);
+    // the G-buffer's (an 8-bit unorm alpha: k / 15 is k * 17 / 255 exactly)
+    assert!(vertex.contains("fn gb_alpha(body: u32) -> f32 { return f32(body) / 15.0; }") && vertex.contains("fn gb_body(a: f32) -> u32 { return u32(round(a * 15.0)); }"));
+    assert!(include_str!("post.wgsl").contains("round(textureLoad(albedo_t, px, 0).a * 15.0) == u.amb.w"));
+    for b in 0..MAX_BODIES as u8 {
+        for look in 0..4 {
+            let info = crate::fx::block_bits(4095) | crate::fx::body_bits(b) | crate::fx::look_bits(look) | 3 << 16 | 1 << 18 | 1 << 19 | 255 << 24;
+            assert_eq!((wgsl_fx_body(info), wgsl_fx_look(info), info & crate::fx::BLOCK_BITS), (b as u32, look, crate::fx::block_bits(4095)), "body {b} look {look}");
+        }
+        for kind in 0..8 {
+            let i = crate::water::info(5, b, kind);
+            assert_eq!((i & 7, wgsl_w_body(i), wgsl_w_kind(i)), (5, b as u32, kind), "water body {b} kind {kind}");
+        }
+        let unorm = (gb_alpha(b) * 255.0).round() / 255.0;
+        assert_eq!((unorm * 15.0).round() as u8, b, "the G-buffer's body {b}");
+        // a chunk's info: body << 8, read with `& 255u`
+        assert!(vertex.contains("g.bodies[(c.info >> 8u) & 255u]"));
+    }
 }
 
 #[cfg(test)]

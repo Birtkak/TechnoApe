@@ -756,9 +756,17 @@ pub(crate) const fn block_bits(id: u16) -> u32 {
     (id as u32 & 255) | (id as u32 >> 8) << 20
 }
 pub(crate) const BLOCK_BITS: u32 = 255 | 15 << 20;
+/// A particle's (a model's, a contact shadow's) body in its `info` (shader_sky_fx.wgsl `fx_body`).
+pub(crate) const fn body_bits(body: u8) -> u32 {
+    (body as u32) << 8
+}
+/// A particle's look in its `info` (shader_sky_fx.wgsl `fx_look`).
+pub(crate) const fn look_bits(look: u32) -> u32 {
+    look << 12
+}
 
 /// A particle as the shader reads it (`FxP` in shader.wgsl), 32 bytes: where, its edge now, the block
-/// (`block_bits`) | body << 8 | look << 10 | face << 16 | texture << 18 | an offset in cells << 19 | glow << 24,
+/// (`block_bits`) | body << 8 (4 bits, `body_bits`) | look << 12 (`look_bits`) | face << 16 | texture << 18 | an offset in cells << 19 | glow << 24,
 /// its turn, and `a`, `b` as `P` has them.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable, Debug, PartialEq)]
@@ -1428,7 +1436,7 @@ impl Fx {
                 b = c[0] | c[1] << 8 | c[2] << 16 | 255 << 24;
             }
             let (gl, mut a, mut angle) = (if r.look == Look::Texture { Look::Square } else { r.look } as u32, q.a, q.angle);
-            let mut info = block_bits(q.block) | (q.body as u32) << 8 | gl << 10;
+            let mut info = block_bits(q.block) | body_bits(q.body) | look_bits(gl);
             if gl == 1 {
                 // the new looks' bits (ADR 0050): face << 16, a texture's block in the block's place | 1 << 18,
                 // glow * 32 << 24; along the flight `a` is its direction and `angle` its streak, a 30th of a second
@@ -1507,7 +1515,7 @@ impl Fx {
         }
         self.cracks += 1;
         let (a, code) = cell_code(gpu_cell(world, b));
-        self.out.push(FxGpu { p: [0.0; 3], size: 1.0, info: block_bits(world.block(b)) | (b.body as u32) << 8 | (Look::Crack as u32) << 10, angle: k.clamp(0.0, 1.0), a, b: code });
+        self.out.push(FxGpu { p: [0.0; 3], size: 1.0, info: block_bits(world.block(b)) | body_bits(b.body) | look_bits(Look::Crack as u32), angle: k.clamp(0.0, 1.0), a, b: code });
     }
 
     /// Debris no step moves, drawn after this step's particles until the next step: the piles on the ground
@@ -1585,7 +1593,7 @@ impl Glide {
     /// As the GPU draws it: a whole-cell look of `to`, bit 19 saying `p` is the offset in cells (`vs_fx`).
     pub fn gpu(&self, now: f64, mantle: i32) -> FxGpu {
         let (a, b) = cell_code(Block { pos: self.to.pos - IVec3::Z * mantle, ..self.to });
-        FxGpu { p: self.offset(now).to_array(), size: 1.0, info: block_bits(self.block) | (self.to.body as u32) << 8 | (Look::Block as u32) << 10 | 1 << 19, angle: 0.0, a, b }
+        FxGpu { p: self.offset(now).to_array(), size: 1.0, info: block_bits(self.block) | body_bits(self.to.body) | look_bits(Look::Block as u32) | 1 << 19, angle: 0.0, a, b }
     }
 }
 
@@ -1844,7 +1852,7 @@ mod tests {
         assert!((mid.x + 0.5).abs() < 1e-5, "half way at half the time: {mid}");
         assert_eq!(g.offset(1.0 + GLIDE_S), Vec3::ZERO);
         let d = g.gpu(1.0 + GLIDE_S / 2.0, 0);
-        assert_eq!((d.info & 255, d.info >> 10 & 3, d.info >> 19 & 1), (8, Look::Block as u32, 1));
+        assert_eq!((d.info & 255, d.info >> 12 & 3, d.info >> 19 & 1), (8, Look::Block as u32, 1));
         assert_eq!((d.a, d.b), cell_code(c(6, 10)), "drawn as its new cell");
         // it falls on from its new cell a quarter of the way in: from about where it is drawn, toward the next
         let at = g.offset(1.05);
@@ -2078,7 +2086,7 @@ mod tests {
         fx.crack(&w, c, 0.5);
         let d = fx.drawn();
         assert_eq!(d.len(), 1);
-        assert_eq!((d[0].angle, d[0].info >> 10 & 3, d[0].info & BLOCK_BITS), (0.5, Look::Crack as u32, block_bits(w.block(c))));
+        assert_eq!((d[0].angle, d[0].info >> 12 & 3, d[0].info & BLOCK_BITS), (0.5, Look::Crack as u32, block_bits(w.block(c))));
         // drawn this frame only: the caller says again each frame how far the dig is
         fx.step(&w, 0.01);
         assert!(fx.drawn().is_empty());
@@ -2333,6 +2341,17 @@ mod tests {
         }
     }
 
+    /// The drawn particles with their info in the layout before sixteen bodies (step 6b: body at 8-9, look at
+    /// 10-11), so the locks below hold the bytes they always did: the body's two new bits and the look's move are
+    /// all that changed.
+    fn before_16(d: &[FxGpu]) -> Vec<FxGpu> {
+        d.iter().map(|g| {
+            let (body, look) = ((g.info >> 8) & 15, (g.info >> 12) & 3);
+            assert!(body < 4 && (g.info >> 14) & 3 == 0);
+            FxGpu { info: (g.info & !0xff00) | body << 8 | look << 10, ..*g }
+        }).collect()
+    }
+
     /// ADR 0050: the rows before it draw exactly as they did. The numbers are the drawn particles' bytes over
     /// two seconds, hashed, as the code before ADR 0050 made them.
     #[test]
@@ -2348,7 +2367,7 @@ mod tests {
             let mut h = engine::world::FNV0;
             for _ in 0..120 {
                 fx.step(&w, 1.0 / 60.0);
-                h = engine::world::fnv(h, bytemuck::cast_slice(fx.drawn()));
+                h = engine::world::fnv(h, bytemuck::cast_slice(&before_16(fx.drawn())));
             }
             got.push((name, h));
         }
@@ -2408,7 +2427,7 @@ mod tests {
             let mut h = engine::world::FNV0;
             for _ in 0..120 {
                 fx.step(&w, 1.0 / 60.0);
-                h = engine::world::fnv(h, bytemuck::cast_slice(fx.drawn()));
+                h = engine::world::fnv(h, bytemuck::cast_slice(&before_16(fx.drawn())));
             }
             got.push(h);
         }

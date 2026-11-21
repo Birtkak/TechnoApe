@@ -1078,6 +1078,16 @@ impl App {
             cl[8][1] = 0.0;
         }
         let aurora_on = cl[8][1] > 0.0;
+        // the traced scene's lanes (step 6b): the bodies with chunks or players in it, nearest first; a ray on a body
+        // reads its lane from rot1.w
+        {
+            let near: Vec<(usize, f64)> = insts.iter().map(|i| i.body as usize).chain(proxies.iter().map(|p| p.body as usize)).map(|b| (b, (cams[b].0 - self.world.bodies[b].centre).length() - self.world.bodies[b].radius)).collect();
+            let rt = self.rt.as_mut().unwrap();
+            rt.lanes = rt::lanes(&rt.lanes, &near);
+            for (b, lane) in g.bodies.iter_mut().zip(rt.lanes) {
+                b.rot[1][3] = if lane == rt::NO_LANE { -1.0 } else { lane as f32 };
+            }
+        }
         [g.n_lamps[2], g.n_lamps[3]] = eclipse_masks(&g);
         gpu.queue.write_buffer(&gpu.globals, 0, bytemuck::bytes_of(&g));
         self.slots.sweep(frame_no);
@@ -1553,7 +1563,7 @@ pub(crate) fn far_lights(world: &World, eye: DVec3, sky_c: Vec3, px: f64, bodies
     let home_sun = (balls[0].0 - sun).length();
     let x = (sky_c.dot(Vec3::new(0.3, 0.5, 0.2)) as f64 - 0.004) / (0.08 - 0.004);
     let dark = 1.0 - x.clamp(0.0, 1.0).powi(2) * (3.0 - 2.0 * x.clamp(0.0, 1.0));
-    let (mut far, mut gas, mut gas2) = ([[0.0; 4]; MAX_BODIES], [-1.0, 0.0, 0.0, 0.0], [0.0; 4]);
+    let (mut far, mut gas, mut gas2) = ([[0.0; 4]; MAX_BODIES], [-1.0, 0.0, 0.0, 0.0], [0.0, world.bodies.len() as f32, 0.0, 0.0]);
     for (i, &(c, r)) in balls.iter().enumerate() {
         let dist = (c - eye).length();
         let others: Vec<(DVec3, f64)> = balls.iter().enumerate().filter(|&(j, _)| j != i).map(|(_, b)| *b).collect();
@@ -1572,7 +1582,7 @@ pub(crate) fn far_lights(world: &World, eye: DVec3, sky_c: Vec3, px: f64, bodies
                 let day = engine::bodies::BODIES[i].day.map_or(f64::INFINITY, |d| d * engine::sky::DAY);
                 let a = engine::sky::aurora(world.field(i) * field);
                 gas = [i as f32, (std::f64::consts::TAU * t.rem_euclid(engine::sky::PERIOD) / day).rem_euclid(std::f64::consts::TAU) as f32, share as f32, a.colat as f32];
-                gas2 = [a.bright as f32, 0.0, 0.0, 0.0];
+                gas2[0] = a.bright as f32;
             }
         }
     }

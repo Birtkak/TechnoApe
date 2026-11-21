@@ -33,7 +33,8 @@ fn fs_sky(i: SkyOut) -> GOut {
     let in_sun = dot(d, g.sun_pos.xyz / sd) > cos(g.sun_pos.w / sd);
     if (in_sun && gi_dist(d) > sd) { gi.a = 0.0; }
     var c = sky_colour(d) + st;
-    for (var i = 0u; i < 4u; i++) {
+    // (to the world's body count, gas2.y: not MAX_BODIES's empty slots)
+    for (var i = 0u; i < u32(g.gas2.y); i++) {
         let f = g.far[i].rgb;
         if (f.r + f.g + f.b <= 0.0) { continue; }
         let s = g.bodies[i].ctr.xyz;
@@ -73,7 +74,7 @@ fn sky_colour(d: vec3f) -> vec3f {
     // in the air the sky is lighter and a little warmer towards the horizon and deeper overhead: up is away
     // from the nearest body (their centres are from the camera; an unused slot has radius 0)
     var ctr = g.bodies[0].ctr.xyz;
-    for (var i = 1u; i < 4u; i++) {
+    for (var i = 1u; i < u32(g.gas2.y); i++) {
         if (g.bodies[i].ctr.w > 0.0 && dot(g.bodies[i].ctr.xyz, g.bodies[i].ctr.xyz) < dot(ctr, ctr)) { ctr = g.bodies[i].ctr.xyz; }
     }
     let el = clamp(dot(d, normalize(-ctr)), 0.0, 1.0);
@@ -302,10 +303,13 @@ fn giant(d: vec3f, px: f32) -> vec4f {
 // One instanced draw into the G-buffer: 36 vertices a particle, a cube (debris, or a whole cell) or a square
 // facing the camera (its last 30 vertices folded away). Lit by `light()` as the terrain is, so the sun, its
 // shadows and the lamps fall on them, and the bounce light after the G-buffer; not in the traced scene, so
-// they cast no shadow. p: in its body's frame from the centre; info = block | body << 8 | look << 10 (0
+// they cast no shadow. p: in its body's frame from the centre; info = block | body << 8 (4 bits) | look << 12 (0
 // debris, 1 square, 2 block, 3 crack: a dig's cracks over a real cell, angle its share done, ADR 0034); a, b: a
 // debris' texel seed, a square's colour (b, rgba8), a cell's columns (a = i | j << 15) and layer | face << 16 (b).
 struct FxP { p: vec3f, size: f32, info: u32, angle: f32, a: u32, b: u32 };
+// a particle's body and look in its info (fx.rs `body_bits`, `look_bits`)
+fn fx_body(info: u32) -> u32 { return (info >> 8u) & 15u; }
+fn fx_look(info: u32) -> u32 { return (info >> 12u) & 3u; }
 @group(0) @binding(10) var<storage, read> fxp: array<FxP>;
 
 struct FxOut {
@@ -313,7 +317,8 @@ struct FxOut {
     @location(0) rel: vec3f,
     @location(1) normal: vec3f,
     @location(2) uvw: vec3f, // in the cube, 0..1 a side
-    @location(3) @interpolate(flat) info: u32, // as FxP's, and the face's dir << 12
+    @location(3) @interpolate(flat) info: u32, // as FxP's
+    @location(7) @interpolate(flat) dir: u32, // the cube's face
     @location(4) @interpolate(flat) a: u32,
     @location(5) @interpolate(flat) b: u32,
     @location(6) @interpolate(flat) k: f32, // a crack's share done
@@ -351,14 +356,15 @@ fn turn_about(ax: vec3f, cs: f32, sn: f32) -> mat3x3f {
 @vertex
 fn vs_fx(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> FxOut {
     let q = fxp[ii];
-    let look = (q.info >> 10u) & 3u;
+    let look = fx_look(q.info);
     let face = (q.info >> 16u) & 3u;
-    let bi = (q.info >> 8u) & 3u;
+    let bi = fx_body(q.info);
     let b = g.bodies[bi];
     let dir = vi / 6u;
     let k = vi % 6u;
     var o: FxOut;
-    o.info = q.info | dir << 12u;
+    o.info = q.info;
+    o.dir = dir;
     o.a = q.a;
     o.b = q.b;
     o.k = q.angle;
@@ -439,14 +445,14 @@ fn fx_id(info: u32) -> u32 { return (info & 255u) | ((info >> 12u) & 0xf00u); }
 // a particle's colour: a square's own; a cell's texels as `fs` has them; a debris cube's 2 x 2 texels a side
 // from a place of its block picked by its seed
 fn fx_colour(i: FxOut) -> vec3f {
-    let look = (i.info >> 10u) & 3u;
+    let look = fx_look(i.info);
     // its block as a quad carries one, for `texel`
     let mat = id_bits(fx_id(i.info));
-    let dir = (i.info >> 12u) & 7u;
+    let dir = i.dir;
     let a = dir / 2u;
     let uv = vec2f(i.uvw[(a + 1u) % 3u], i.uvw[(a + 2u) % 3u]);
     let flat_t = (g.opt.x & 4u) != 0u;
-    let sn = season(g.bodies[(i.info >> 8u) & 3u], i.rel);
+    let sn = season(g.bodies[fx_body(i.info)], i.rel);
     if (look == 1u) {
         // a square's colour; a texture's (ADR 0050): its block's top face times it (a billboard's uv is uvw.xy)
         if (((i.info >> 18u) & 1u) == 1u) {
@@ -469,19 +475,19 @@ fn fx_colour(i: FxOut) -> vec3f {
 }
 
 fn fx_out(i: FxOut, col: vec3f, l: vec3f) -> GOut {
-    let body = (i.info >> 8u) & 3u;
+    let body = fx_body(i.info);
     var o: GOut;
     o.gbuf = gb_pack(normalize(i.normal), length(i.rel));
-    let look = (i.info >> 10u) & 3u;
+    let look = fx_look(i.info);
     if (((looks[fx_id(i.info)].info >> 24u) & 1u) == 1u && (look == 0u || look == 2u)) {
         // a piece of a lamp shows its own light
         o.direct = vec4f(col * 1.15, 1.0);
-        o.albedo = vec4f(0.0, 0.0, 0.0, f32(body) / 3.0);
+        o.albedo = vec4f(0.0, 0.0, 0.0, gb_alpha(body));
         return o;
     }
     // a glowing particle (ADR 0050) adds its own light, glow = info >> 24 over 32
     o.direct = vec4f(col * (l + f32(i.info >> 24u) / 32.0), 1.0);
-    o.albedo = vec4f(col, f32(body) / 3.0);
+    o.albedo = vec4f(col, gb_alpha(body));
     return o;
 }
 
@@ -489,7 +495,7 @@ fn fx_out(i: FxOut, col: vec3f, l: vec3f) -> GOut {
 // face's middle, more and longer in ten steps, each a texel wide and wandering a little, picked by the cell
 // and the face so no two faces crack alike
 fn cracked(i: FxOut) -> bool {
-    let dir = (i.info >> 12u) & 7u;
+    let dir = i.dir;
     let a = dir / 2u;
     let t = floor(vec2f(i.uvw[(a + 1u) % 3u], i.uvw[(a + 2u) % 3u]) * TEXELS);
     let p = (t + 0.5) / TEXELS - 0.5;
@@ -516,9 +522,9 @@ fn cracked(i: FxOut) -> bool {
 // particle was 20 % cheaper and lost the lamps, the moon and the soft edge (prototypes/effects/)
 @fragment
 fn fs_fx(i: FxOut) -> GOut {
-    let look = (i.info >> 10u) & 3u;
+    let look = fx_look(i.info);
     if (look == 3u && !cracked(i)) { discard; }
-    let l = light(i.rel, normalize(i.normal), (i.info >> 8u) & 3u);
+    let l = light(i.rel, normalize(i.normal), fx_body(i.info));
     // a crack shows the block's own texel, dark, as a gap in it
     return fx_out(i, fx_colour(i) * select(1.0, 0.3, look == 3u), l.l);
 }

@@ -5,7 +5,7 @@
 use engine::liquid::{Col, OPEN, TILE, U};
 use engine::world::{FxMap, World};
 
-/// One quad of the water mesh, as the shader reads it: column (i, j), info = face | body << 3 | kind << 5
+/// One quad of the water mesh, as the shader reads it: column (i, j), info = face | body << 3 (4 bits) | kind << 7 (`info`)
 /// (0 the top, 1..=4 a side toward -i, +i, -j, +j), the time its move starts, and its heights in layers
 /// before and after: a top's corners (0,0) (1,0) (1,1) (0,1); a side's top and bottom at its two ends.
 #[repr(C)]
@@ -17,6 +17,11 @@ pub struct WQuad {
     pub t0: f32,
     pub prev: [f32; 4],
     pub cur: [f32; 4],
+}
+
+/// A water quad's `info` (shader_water.wgsl): its face, body and kind.
+pub(crate) const fn info(face: u8, body: u8, kind: u32) -> u32 {
+    face as u32 | (body as u32) << 3 | kind << 7
 }
 
 /// Seconds a move takes: one server tick.
@@ -125,7 +130,7 @@ impl WaterMesh {
 
     fn mesh(&self, world: &World, t: Col) -> Vec<WQuad> {
         let n = world.bodies[t.body() as usize].n;
-        let info = t.face() as u32 | (t.body() as u32) << 3;
+        let info = info(t.face(), t.body(), 0);
         let g = world.ground();
         // shortcut: columns past the face's edge count as dry, so a cube edge has a seam
         let at = |i: i32, j: i32| -> Option<(f32, f32)> {
@@ -174,7 +179,7 @@ impl WaterMesh {
                 };
                 let Some((bp, bq)) = below else { continue };
                 if q - bq > SIDE || p - bp > SIDE {
-                    out.push(WQuad { i, j, info: info | kind << 5, t0, prev: [cp[a], cp[b], bp.min(cp[a]), bp.min(cp[b])], cur: [cq[a], cq[b], bq.min(cq[a]), bq.min(cq[b])] });
+                    out.push(WQuad { i, j, info: info | kind << 7, t0, prev: [cp[a], cp[b], bp.min(cp[a]), bp.min(cp[b])], cur: [cq[a], cq[b], bq.min(cq[a]), bq.min(cq[b])] });
                 }
             }
         }
@@ -195,12 +200,12 @@ impl WaterMesh {
         };
         let spray = crate::fx::id("spray");
         for q in &self.all {
-            let kind = q.info >> 5 & 7;
+            let kind = q.info >> 7 & 7;
             let fall = (q.cur[0] + q.cur[1] - q.cur[2] - q.cur[3]) * 0.5;
             if !(1..=4).contains(&kind) || fall < 1.0 || rnd().0 > dt * 12.0 * fall.min(8.0) {
                 continue;
             }
-            let (face, bi) = ((q.info & 7) as usize, (q.info >> 3 & 3) as usize);
+            let (face, bi) = ((q.info & 7) as usize, (q.info >> 3 & 15) as usize);
             let b = &world.bodies[bi];
             let (out_u, out_v, edge_u, edge_v) = match kind {
                 1 => (-1.0, 0.0, 0.0, 1.0),
@@ -266,8 +271,8 @@ mod tests {
         w.water.set_column(&(c, vec![(floor, OPEN, U / 2)]));
         let mut m = WaterMesh::default();
         m.update(&w, &[c.tile()], 1.0);
-        let tops = m.all.iter().filter(|q| q.info >> 5 == 0).count();
-        let sides = m.all.iter().filter(|q| q.info >> 5 != 0).count();
+        let tops = m.all.iter().filter(|q| q.info >> 7 == 0).count();
+        let sides = m.all.iter().filter(|q| q.info >> 7 != 0).count();
         assert_eq!(tops, 1);
         assert_eq!(sides, 0, "unstored dry land around it is higher, or it would have flowed there");
         let top = m.all[0];
@@ -281,7 +286,7 @@ mod tests {
         let d = Col::new(0, 2, c.i() + 1, c.j());
         w.water.set_column(&(d, vec![(floor - 2, OPEN, 0)]));
         m.update(&w, &[c.tile()], 2.0);
-        let side = m.all.iter().find(|q| q.info >> 5 == 2).unwrap_or_else(|| panic!("a side toward +i: {:?}", m.all.iter().map(|q| (q.i, q.j, q.info, q.cur)).collect::<Vec<_>>()));
+        let side = m.all.iter().find(|q| q.info >> 7 == 2).unwrap_or_else(|| panic!("a side toward +i: {:?}", m.all.iter().map(|q| (q.i, q.j, q.info, q.cur)).collect::<Vec<_>>()));
         assert_eq!(side.cur[2], (floor - 2) as f32);
         // dry again: nothing is drawn
         w.water.set_tile(c.tile(), &[]);

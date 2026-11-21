@@ -85,7 +85,9 @@ fn trace(o: vec3f, db: vec3f, body: u32, tmax: f32, flags: u32) -> RayIntersecti
     var rq: ray_query;
     ray_tint = vec3f(1.0);
     // the stills are instances of their own (rt.rs): only shadow and lamp rays, which they stop, ask for them
-    let mask = select(1u << body, 17u << body, (flags & RAY_FLAG_TERMINATE_ON_FIRST_HIT) != 0u);
+    // (by the body's lane, rt.rs `lanes`: four in the 8-bit mask, land and stills; with none nothing is met)
+    let lane = i32(g.bodies[body].rot1.w);
+    let mask = select(0u, select(1u << u32(lane), 17u << u32(lane), (flags & RAY_FLAG_TERMINATE_ON_FIRST_HIT) != 0u), lane >= 0);
     rayQueryInitialize(&rq, acc, RayDesc(flags, mask, 0.0, tmax, o, db));
     // the season where the ray starts: a bare crown lets it through between its twigs (ADR 0090)
     let sn = season_in(g.bodies[body], o);
@@ -496,12 +498,14 @@ fn light(p: vec3f, n: vec3f, body: u32) -> Light {
     // its rim bent and reddened (a lunar eclipse: the whole moon copper, ADR 0037)
     var ecl = 1.0;
     var copper = 0.0;
-    for (var i = 0u; i < 4u; i++) {
-        if (i != body && ((g.n_lamps.z >> i) & 1u) == 1u) {
-            let l = left_by(i, p, g.sun_pos.xyz, g.sun_pos.w);
-            ecl *= l;
-            if (g.bodies[i].sea >= 0.0) { copper = max(copper, 1.0 - l); }
-        }
+    // (the mask's bits one by one, not every slot of MAX_BODIES)
+    var em = g.n_lamps.z & ~(1u << body);
+    while (em != 0u) {
+        let i = firstTrailingBit(em);
+        em &= em - 1u;
+        let l = left_by(i, p, g.sun_pos.xyz, g.sun_pos.w);
+        ecl *= l;
+        if (g.bodies[i].sea >= 0.0) { copper = max(copper, 1.0 - l); }
     }
     var o: Light;
     o.day = smoothstep(-0.2, 0.15, dot(up, sd)) * ecl;
@@ -530,8 +534,11 @@ fn light(p: vec3f, n: vec3f, body: u32) -> Light {
         let ndm = dot(n, md);
         if (ndm > 0.0) {
             var mv = 1.0;
-            for (var i = 0u; i < 4u; i++) {
-                if (i != mi && ((g.n_lamps.w >> i) & 1u) == 1u) { mv *= left_by(i, p, mc.xyz, mc.w); }
+            var mm = g.n_lamps.w & ~(1u << mi);
+            while (mm != 0u) {
+                let i = firstTrailingBit(mm);
+                mm &= mm - 1u;
+                mv *= left_by(i, p, mc.xyz, mc.w);
             }
             // faded in as the sun's ambient fades out, not switched on at once (ADR 0038 C)
             mv *= 1.0 - smoothstep(0.3, 0.5, o.day);
