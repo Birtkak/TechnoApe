@@ -96,6 +96,11 @@ impl Server {
         let at = self.world.ore_base(i);
         self.ore_open.splice(at..at, engine::ore::count(&b).into_iter().map(|h| h.blocks as i64));
         self.world.put(i, b);
+        // one teleported under its ground while it was not in stands on it now (held ones above go on as they were)
+        for c in self.clients.iter_mut().filter(|c| self.world.frame_at(c.phys.pos) == i) {
+            phys::onto_ground(&self.world, &mut c.phys);
+            c.player.pos = c.phys.pos.to_array();
+        }
         self.log(Ev::Body { tick: self.tick, body: i as u8 });
     }
 

@@ -1175,8 +1175,10 @@ mod tests {
         println!("Mars: {held} slots after {n} frames, all gone on Terra");
     }
 
-    /// Step 6b: a player near Mars before its ground is in is held where it is, at rest (not dropped through it);
-    /// once Mars is in it falls to the ground as on any body.
+    /// Step 6b: a player near Mars before its ground is in is held where it is (not dropped through it): a pause,
+    /// not a brake. It keeps the speed it had and may look round; once Mars is in it goes on as a player that was
+    /// never held would have from there (no free stop, no fall from rest); one put below the ground (a teleport)
+    /// is set on it.
     #[test]
     fn a_player_near_mars_is_held_until_its_ground_is_in() {
         use crate::phys::{self, Input, Player};
@@ -1187,20 +1189,29 @@ mod tests {
         let mut w = crate::world::World::of_sources(rows, list, 1, 0.0, 5);
         let m = &w.bodies[2];
         let start = m.centre + DVec3::Y * (m.top(DVec3::Y) + 30.0);
+        let below = m.centre + DVec3::Y * (m.top(DVec3::Y) - 5.0);
         let mut p = Player::at(start, DVec3::X);
+        let mut deep = Player::at(below, DVec3::X);
         p.vel = DVec3::Y * -20.0;
+        let look = Input { fwd: [0.0, 0.0, 1.0], ..Input::default() };
         for _ in 0..60 {
-            phys::step(&w, &mut p, &Input::default(), phys::DT);
+            phys::step(&w, &mut p, &look, phys::DT);
+            phys::step(&w, &mut deep, &Input::default(), phys::DT);
         }
-        assert!(p.pos == start && p.vel == DVec3::ZERO, "held: {} m off, {} m/s", p.pos.distance(start), p.vel.length());
+        assert!(p.pos == start && p.vel == DVec3::Y * -20.0, "paused: {} m off, {:?} m/s", p.pos.distance(start), p.vel);
+        assert!(p.fwd.dot(DVec3::Z) > 0.99, "it looked round while held: {:?}", p.fwd);
         let b = w.builder(2).unwrap()(map);
         w.put(2, b);
+        phys::onto_ground(&w, &mut deep);
+        assert!(!phys::inside(&w, &deep) && (deep.pos - w.bodies[2].centre).length() >= w.bodies[2].top(DVec3::Y), "set on the ground");
+        p.fwd = DVec3::X;
         for _ in 0..600 {
             phys::step(&w, &mut p, &Input::default(), phys::DT);
         }
         // the same fall on a Mars built at the start, step for step
         let eager = world();
         let mut q = Player::at(start, DVec3::X);
+        q.vel = DVec3::Y * -20.0;
         for _ in 0..600 {
             phys::step(&eager, &mut q, &Input::default(), phys::DT);
         }
