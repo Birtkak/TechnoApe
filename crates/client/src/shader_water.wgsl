@@ -157,9 +157,9 @@ fn vs_water(@builtin(vertex_index) vi: u32) -> WOut {
     let c = tri[vi % 6u];
     let hh = mix(q.prev, q.cur, clamp((g.sun.w - q.t0) / MOVE_S, 0.0, 1.0));
     let face = q.info & 7u;
-    let bi = (q.info >> 3u) & 3u;
+    let bi = (q.info >> 3u) & 15u;
     let b = g.bodies[bi];
-    let kind = (q.info >> 5u) & 7u;
+    let kind = (q.info >> 7u) & 7u;
     var du = 0.0;
     var dv = 0.0;
     var z = 0.0;

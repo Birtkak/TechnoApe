@@ -187,6 +187,9 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
     if f.body.is_empty() {
         return Err("no bodies".into());
     }
+    if f.body.len() > MAX {
+        return Err(format!("{} bodies; a world holds at most {MAX}", f.body.len()));
+    }
     let mut seen: Vec<String> = Vec::new();
     let mut rows: Vec<Row> = Vec::new();
     for (i, r) in f.body.into_iter().enumerate() {
@@ -272,9 +275,10 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
     Ok(rows)
 }
 
-/// The most bodies a world holds: the renderer's four (client `gpu::MAX_BODIES`, the shaders' `& 3u` body ids),
-/// which `World::gravity` keeps on the stack too (0163-n-bodies).
-pub const MAX: usize = 4;
+/// The most bodies a world holds (step 6b; was 4, 0163-n-bodies): the renderer's (client `gpu::MAX_BODIES`, WGSL
+/// `MAX_BODIES`, a body's 4 bits in a particle's and a water quad's word, 8 in a chunk's), which `World::gravity`
+/// keeps on the stack too.
+pub const MAX: usize = 16;
 
 /// A welcome's body list against this build's rows for the world's generation (the welcome has no version):
 /// one of another length is a server of another build, refused as `world::known_generation` refuses a newer world.
@@ -532,6 +536,37 @@ mod tests {
     }
 
     const MAKEUP: &str = "kind = \"rocky\"\niron = 0.5\nheat = 0.5\ndensity = [2700.0, 3300.0, 7900.0]\n";
+
+    /// Room for many bodies (step 6b): a world of `MAX` (16) rows builds, every body in its own frame; a 17th row
+    /// is refused by the file's reader and by `World::of`, each with a message naming the limit.
+    #[test]
+    fn sixteen_bodies_build_and_a_seventeenth_is_refused() {
+        let file = |k: usize| {
+            let mut s = format!("[[body]]\nname = \"A\"\nparent = \"sun\"\nhome = true\nn = 512\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\nsun = 100.0\n{MAKEUP}");
+            s += &format!("[[body]]\nname = \"B\"\nparent = \"A\"\norbit = 3.0\nsize = 4.0\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\n{MAKEUP}");
+            for i in 2..k {
+                s += &format!("[[body]]\nname = \"P{i}\"\nparent = \"sun\"\nsun = {}\nsize = 4.0\ngenerator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\nair = false\n{MAKEUP}", 400.0 + 100.0 * i as f64);
+            }
+            s
+        };
+        let rows = parse(&file(MAX)).unwrap();
+        assert_eq!(MAX, 16);
+        let w = crate::world::World::of(&rows, rows.iter().map(|r| (r.n, None)).collect(), 1, 0.0, crate::world::GENERATION);
+        assert_eq!(w.bodies.len(), 16);
+        // each body's grid is its own frame, and the last one's gravity is its own
+        for i in 0..16 {
+            assert_eq!(w.frame_at(w.bodies[i].centre + glam::DVec3::Y * w.bodies[i].radius), i, "body {i}");
+        }
+        let top = w.bodies[15].centre + glam::DVec3::Z * w.bodies[15].radius;
+        assert!(w.gravity(top).normalize().dot(-glam::DVec3::Z) > 0.99);
+        let e = parse(&file(MAX + 1)).unwrap_err();
+        assert!(e.contains("17 bodies") && e.contains("at most 16"), "{e}");
+        let mut more = rows.clone();
+        more.push(Row { name: "P16".into(), ..rows[15].clone() });
+        let e = std::panic::catch_unwind(|| crate::world::World::of(&more, more.iter().map(|r| (r.n, None)).collect(), 1, 0.0, crate::world::GENERATION)).map(|_| ()).unwrap_err();
+        let e = e.downcast_ref::<String>().cloned().unwrap_or_default();
+        assert!(e.contains("17 bodies") && e.contains("at most 16"), "{e}");
+    }
 
     #[test]
     fn a_makeup_is_whole_and_in_range() {

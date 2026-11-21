@@ -266,7 +266,7 @@ fn the_mesher_physics_and_water_see_the_same_cave() {
     let corner = |v: i32| ((v + CS / 2).div_euclid(CS) * CS) as f64;
     let shut = Cave::ball(f, DVec3::new(corner(i0), corner(j0), ((z0 - 8).div_euclid(CS) * CS) as f64), 3.5);
     let open = Cave::ball(f, DVec3::new(i0 as f64 + 20.5, j0 as f64 + 0.5, w.air_over_ground(0, w.bodies[0].spawn).pos.z as f64 - 1.0), 4.0);
-    std::sync::Arc::get_mut(&mut w.bodies).unwrap()[0].set_caves(vec![shut, open]);
+    w.body_mut(0).set_caves(vec![shut, open]);
     let b = &w.bodies[0];
     let mut hollow = 0;
     for c in [shut, open] {
@@ -308,9 +308,9 @@ fn the_mesher_physics_and_the_count_see_the_same_ore() {
     let lump = OreBody { kind: kind("deep copper"), face: f, at: DVec3::new(corner(i0), corner(j0), ((z0 - 10).div_euclid(CS) * CS) as f64), a: 4.5, b: 4.5, h: 3.5, angle: 0.3 };
     let gravel = OreBody { kind: kind("copper gravel"), face: f, at: DVec3::new(i0 as f64 + 20.5, j0 as f64 + 0.5, 0.75), a: 6.0, b: 2.0, h: 0.75, angle: 1.0 };
     let hole = Cave::ball(f, lump.at + DVec3::new(2.0, 0.0, 0.0), 2.5);
-    let m = std::sync::Arc::get_mut(&mut w.bodies).unwrap();
-    m[0].set_caves(vec![hole]);
-    m[0].set_ores(vec![lump, gravel]);
+    let m = w.body_mut(0);
+    m.set_caves(vec![hole]);
+    m.set_ores(vec![lump, gravel]);
     let b = &w.bodies[0];
     let held = crate::ore::count(b);
     let mut halos = 0;
@@ -365,9 +365,9 @@ fn a_line_toward_a_body_passes_rising_halo_grades_then_ore() {
         let (a, bw, h) = (a.min(16.0), bw.min(16.0), h.min(10.0));
         let t = kind.halo_m;
         let o = OreBody { kind: k as u16, face: f, at: DVec3::new(top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5, top.pos.z as f64 - h - t - 12.0), a, b: bw, h, angle: 0.4 };
-        let m = Arc::get_mut(&mut w.bodies).unwrap();
-        m[0].set_caves(Vec::new());
-        m[0].set_ores(vec![o]);
+        let m = w.body_mut(0);
+        m.set_caves(Vec::new());
+        m.set_ores(vec![o]);
         let b = &w.bodies[0];
         let top_level = kind.halo.len() + 1;
         let level = |m: u16| if m == kind.block { top_level } else { kind.halo.iter().position(|&x| x == m).map_or(0, |g| g + 1) };
@@ -443,7 +443,7 @@ fn digging_a_body_out_empties_its_ledger() {
     let top = w.air_over_ground(0, w.bodies[0].spawn);
     let kind = MINERALS.kinds.iter().position(|k| k.name == "lead pocket").unwrap() as u16;
     let lump = OreBody { kind, face: top.face, at: DVec3::new(top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5, top.pos.z as f64 - 12.0), a: 3.5, b: 3.5, h: 2.5, angle: 0.0 };
-    std::sync::Arc::get_mut(&mut w.bodies).unwrap()[0].set_ores(vec![lump]);
+    w.body_mut(0).set_ores(vec![lump]);
     w.open_ledger();
     let open = w.ore_left.clone().unwrap();
     let cells = crate::ore::cells(&w.bodies[0], 0);
@@ -1206,7 +1206,7 @@ fn dense_caves() -> (World, Vec<crate::caves::System>) {
     let sys = crate::caves::systems_of(b, b.baked_seed().unwrap(), &dense_kinds());
     let mut caves: Vec<Cave> = b.caves.iter().copied().filter(|c| c.kind == Cave::BALL).collect();
     caves.extend(sys.iter().flat_map(|s| s.balls.iter().copied()));
-    Arc::get_mut(&mut w.bodies).unwrap()[0].set_caves(caves);
+    w.body_mut(0).set_caves(caves);
     (w, sys)
 }
 
@@ -1516,7 +1516,7 @@ fn a_cave_kind_opens_only_its_host_rock_in_its_provinces() {
     let (w, sys) = dense_caves();
     let mut w0 = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, GENERATION);
     let old: Vec<Cave> = w0.bodies[0].caves.iter().copied().filter(|c| c.kind == Cave::BALL).collect();
-    Arc::get_mut(&mut w0.bodies).unwrap()[0].set_caves(old);
+    w0.body_mut(0).set_caves(old);
     let b = &w.bodies[0];
     let kinds = &crate::caves::CAVES.kinds;
     for (k, kind) in kinds.iter().enumerate().filter(|k| (k.1.generations[0]..=k.1.generations[1]).contains(&b.gen) && k.1.body == 0) {
@@ -1891,7 +1891,7 @@ fn from_generation_2_only_copper_is_placed_near_the_spawn() {
     use crate::ore::{place, MINERALS};
     let at = |gen: u8, spawn: Option<DVec3>| {
         let mut w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, gen);
-        let b = &mut Arc::get_mut(&mut w.bodies).unwrap()[0];
+        let b = &mut w.body_mut(0);
         if let Some(s) = spawn {
             b.spawn = s;
         }

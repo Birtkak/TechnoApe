@@ -158,7 +158,13 @@ inside a sphere of influence. The model is shaped now so real orbits need no sec
    times her field, a 0.4 day spin, a sphere of influence by Laplace's rule from its mass; a body with no blocks
    (every grid user answers air or skips it), drawn by the sky's shader (bands, storm, terminator, its aurora
    ring), its cloud tops a floor for now; every far body is a point of light by its size, distance and phase.
-   Next: the dive and the solid core; its moons (past the four-body limit); harvesting; the radiation belt.
+   **6b built (bodies-and-orbits.md, "Sixteen bodies, loaded on approach"):** a world holds up to 16 bodies (the
+   body's number repacked into the free bits of every word, the traced scene's mask in four lanes for the nearest);
+   a far block body (Mars) is a stub until it is near: the client streams a body from 1 pixel across and drops it
+   under 0.5, builds its map, heights, caves and ores on a thread of its own when it is wanted, and lets them go when
+   it shrinks; the server builds it when a player is in its frame or bound for it; a player near one not yet in is
+   held there.
+   Next: the dive and the solid core; the giant's moons; harvesting; the radiation belt.
 7. Later: icy bodies; other stars.
 
 ## Open

@@ -345,6 +345,24 @@ pub struct Streamer {
     slow_walk: bool,
     /// Counts the walks of both kinds (drawn and look-ahead): what a slot's remembered `complete` is for.
     walk_no: u64,
+    /// Per body (step 6b, `seen`): whether its roots are walked, and whether the last drawn walk left no hole in
+    /// view on it (its ground drawn wherever it shows; until then the sky keeps its point, `ready`).
+    pub on: Vec<bool>,
+    ready: Vec<bool>,
+    /// The home and its moon sized out by `seen` too, as a lazy body is (a client's `drop_home=1`; step 6b's
+    /// review: off by default while their drop's loss of the GPU device is open).
+    pub size_all: bool,
+}
+
+/// A body streams in once it is this many pixels across, and out again under `OUT_PX` (step 6b): well under the
+/// 1.5 at which the sky starts to hand its point over to its disc (`sky::HAND_LO`), so its coarse ground is in
+/// first; the factor two between them keeps a camera on the line from loading and dropping it every frame.
+pub const IN_PX: f64 = 1.0;
+pub const OUT_PX: f64 = 0.5;
+
+/// How many pixels across a ball of radius r is from distance d, a pixel being `px` radians.
+pub fn apparent_px(r: f64, d: f64, px: f64) -> f64 {
+    2.0 * (r / d.max(r)).asin() / px
 }
 
 pub struct View {
@@ -456,7 +474,55 @@ impl Streamer {
             visits: 0,
             slow_walk: false,
             walk_no: 0,
+            on: world.bodies.iter().enumerate().map(|(i, b)| !b.gas && world.loaded(i)).collect(),
+            ready: vec![false; world.bodies.len()],
+            size_all: false,
         }
+    }
+
+    /// Step 6b: which bodies this view streams, by how big each looks (`IN_PX`, `OUT_PX`; the camera's own body
+    /// always). One that drops out has its chunks and their quad-buffer room released now. Returns the bodies it
+    /// would stream whose ground is not in (`World::loaded`): the caller loads them, and they stream from the first
+    /// view after.
+    pub fn seen(&mut self, world: &World, view: &View, px: f64) -> Vec<usize> {
+        let cf = world.frame_at(view.cam);
+        let mut want = Vec::new();
+        for (b, body) in world.bodies.iter().enumerate() {
+            if body.gas {
+                continue;
+            }
+            let size = apparent_px(body.radius, (view.cam_in(b as u8) - body.centre).length(), px);
+            // shortcut: a body that is never lazy (the home, its moon) streams wherever the camera is, as before, unless
+            // `size_all` (drop_home=1): their drop lost the GPU device until `rt::Rt::dead` kept the BLAS it frees; on
+            // by default once its runs show no cost
+            let wanted = cf == b || (world.lazy[b].is_none() && !self.size_all) || size >= if self.on[b] { OUT_PX } else { IN_PX };
+            if wanted && !world.loaded(b) {
+                want.push(b);
+            }
+            let on = wanted && world.loaded(b);
+            if on != self.on[b] {
+                self.on[b] = on;
+                self.ready[b] = false;
+                self.dirty = true;
+                if !on {
+                    let (alloc, released) = (&mut self.alloc, &mut self.released);
+                    self.slots.retain(|s| {
+                        let keep = s.key.body as usize != b;
+                        if let (false, State::Ready { off, len, .. }) = (keep, s.state) {
+                            alloc.release(off, len);
+                            released.push(off);
+                        }
+                        keep
+                    });
+                }
+            }
+        }
+        want
+    }
+    /// Whether body b's ground is drawn wherever it shows: it streams, and the last drawn walk left no hole in view
+    /// on it (step 6b). Until then the sky draws its point in full, so no frame shows neither.
+    pub fn ready(&self, b: usize) -> bool {
+        self.on.get(b) == Some(&true) && self.ready[b]
     }
 
     /// Does the chunk reach into the streamed layers? (Sideways every child of a root is on its face.)
@@ -581,7 +647,8 @@ impl Streamer {
         self.walk_no += 1;
         let (first, missing0, holes0) = (out.len(), st.missing, st.holes);
         // (chunk, covered, its slot's place when its parent knew it)
-        let mut stack: Vec<(Key, bool, u32)> = self.roots.iter().map(|k| (*k, false, NONE)).collect();
+        let mut stack: Vec<(Key, bool, u32)> = self.roots.iter().filter(|k| self.on[k.body as usize]).map(|k| (*k, false, NONE)).collect();
+        let mut holes_on = vec![0u32; self.on.len()];
         // The look-ahead splits 10 % earlier: its camera is a straight-line guess, and a chunk the real camera
         // only grazes (a few frames inside the split distance) would otherwise never be requested ahead.
         let kk = if draw { self.opts.k } else { self.opts.k * 1.1 };
@@ -708,6 +775,7 @@ impl Streamer {
                             self.emit_below(world, view, k, out);
                         } else {
                             st.holes += 1;
+                            holes_on[k.body as usize] += 1;
                         }
                     }
                 }
@@ -716,6 +784,11 @@ impl Streamer {
             }
         }
         if draw {
+            // (once drawn whole a body stays ready while it streams: the holes of fast flight or a full quad
+            // buffer would else flicker its point on and off)
+            for (b, h) in holes_on.iter().enumerate() {
+                self.ready[b] = self.on[b] && (self.ready[b] || *h == 0);
+            }
             let draws = out[first..].iter().map(|d| (*d, self.slots[&d.key].bounds)).collect();
             self.walk = Some(Walk { draws, first: first as u32, missing: st.missing - missing0, holes: st.holes - holes0, cams, planes: view.planes });
         }
@@ -1048,6 +1121,10 @@ impl Streamer {
     pub fn slot_count(&self) -> usize {
         self.slots.len()
     }
+    /// The slots of body b (step 6b's test: none for a body that does not stream).
+    pub fn slots_of(&self, b: usize) -> usize {
+        self.slots.index.keys().filter(|k| k.body as usize == b).count()
+    }
 }
 
 #[cfg(test)]
@@ -1306,7 +1383,7 @@ mod tests {
         let mut w = World::new(1536, 64, 1337);
         let top = w.air_over_ground(0, w.bodies[0].spawn);
         let at = DVec3::new(top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5, top.pos.z as f64 - 40.0);
-        std::sync::Arc::get_mut(&mut w.bodies).unwrap()[0].set_caves(vec![crate::world::Cave::ball(top.face, at, 4.0)]);
+        w.body_mut(0).set_caves(vec![crate::world::Cave::ball(top.face, at, 4.0)]);
         let b = &w.bodies[0];
         let cam = b.centre + b.dir(top.face as usize, at.x, at.y) * b.layer_r(at.z);
         let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };

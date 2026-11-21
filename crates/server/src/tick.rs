@@ -16,6 +16,7 @@ impl Server {
             }
             self.send_sky();
         }
+        self.bodies_in();
         if self.tick == 0 {
             let start = Ev::Start { bodies: self.bodies(), seed: self.seed, dt: self.dt };
             self.log(start);
@@ -30,6 +31,10 @@ impl Server {
             }
             if let Some(b) = self.herds_loaded.take() {
                 self.log(Ev::Herds(b));
+            }
+            // (only a world with a body loaded on approach: one with all in replays with all in, `load_all`)
+            if self.world.lazy.iter().any(Option::is_some) {
+                self.log(Ev::Lazy);
             }
         }
         // the player list changed this tick (a join, a name, a leave): it is sent only then
@@ -117,7 +122,7 @@ impl Server {
                 i += 1;
                 continue;
             }
-            let mut open = true;
+            let (mut open, mut told) = (true, false);
             // the recorder logs what is handled, at the tick it is handled, so a replay meets the same cap
             for _ in 0..MSGS_PER_TICK {
                 let r = self.clients[i].link.try_recv();
@@ -135,6 +140,12 @@ impl Server {
                     Recv::Msg(m) => Recv::Msg(m.unpacked()),
                     r => r,
                 };
+                // nothing is changed on a body whose ground is not in yet (step 6b, `lazy.rs`)
+                if let Recv::Msg(m) = &r {
+                    if self.refused_on_a_stub(i, m, &mut told) {
+                        continue;
+                    }
+                }
                 match r {
                     // a client names itself once: a second Hello would take another name's saved state
                     Recv::Msg(ToServer::Hello { .. }) if !self.clients[i].player.name.is_empty() => {}
@@ -288,11 +299,12 @@ impl Server {
                     // each map once a connection: asked again while (or after) it goes, the ask is ignored
                     Recv::Msg(ToServer::Map(h)) if self.clients[i].maps.contains(&h) => {}
                     Recv::Msg(ToServer::Map(h)) => {
-                        if let Some(m) = self.world.bodies.iter().filter_map(|b| b.map()).find(|m| m.hash == h) {
+                        if (0..self.world.bodies.len()).any(|b| !self.world.loaded(b) && self.world.map_hash(b) == Some(h)) {
+                            // a body not in yet: sent once it is (`lazy.rs`); marked asked, so asks again are ignored
                             self.clients[i].maps.push(h);
-                            for p in self.map_pieces.entry(h).or_insert_with(|| engine::net::map_pieces(m)) {
-                                self.clients[i].link.send(p.clone());
-                            }
+                            self.loads.maps.push((self.clients[i].player.id, h));
+                        } else {
+                            self.send_map(i, h);
                         }
                     }
                     Recv::Empty => break,

@@ -472,8 +472,11 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
             assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
             assert_eq!(items, engine::items::ITEMS.hash, "the server's build has other items (data/items.toml)");
             // the baked maps (ADR 0043): the local server's in memory, else from the disk or the server
-            let kept: Vec<_> = bodies.iter().map(|&(n, h)| h.and_then(|h| engine::bake::find(seed, n, Some(h)))).collect();
-            let missing = bodies.iter().zip(&kept).any(|(b, k)| b.1.is_some() && k.is_none());
+            // (a local server's body loaded on approach is not looked up here at all: step 6b, below)
+            let local = !args.0.contains_key("connect");
+            let rows = engine::bodies::of(gen);
+            let kept: Vec<_> = bodies.iter().enumerate().map(|(i, &(n, h))| h.filter(|_| !(local && engine::world::lazy_row(rows, i))).and_then(|h| engine::bake::find(seed, n, Some(h)))).collect();
+            let missing = bodies.iter().zip(&kept).enumerate().any(|(i, (b, k))| b.1.is_some() && k.is_none() && !(local && engine::world::lazy_row(rows, i)));
             if args.0.contains_key("connect") && missing && run == "play" && args.get("joined", 0) != 1 {
                 // in play, a map to download comes in on the title screen, under its bar, which joins after it
                 // (once: the run it starts has joined=1 and fetches here if the map is still not kept)
@@ -484,13 +487,38 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
                 }
                 return Some((menu::join_args(&args.0), window));
             }
-            let list = bodies.iter().zip(kept).map(|(&(n, h), k)| (n, h.map(|h| k.map_or_else(|| engine::net::fetch_map(&mut link, seed, n, h), Ok).unwrap_or_else(|e| panic!("{e}"))))).collect();
-            (id, World::of(engine::bodies::of(gen), list, seed, warp, gen), seed)
+            // a body loaded on approach (step 6b) is a stub: its map is checked (kept, or downloaded from a remote
+            // server, as every body's) and let go, and its loader makes it again from the disk when it nears
+            let list = bodies
+                .iter()
+                .zip(kept)
+                .enumerate()
+                .map(|(i, (&(n, h), k))| match h {
+                    Some(h) if engine::world::lazy_row(rows, i) => {
+                        // (a remote server's map not kept here comes now, is kept under its name and let go)
+                        if k.is_none() && !local {
+                            engine::net::fetch_map(&mut link, seed, n, h).unwrap_or_else(|e| panic!("{e}"));
+                        }
+                        (n, engine::world::Source::Later(h))
+                    }
+                    h => (n, engine::world::Source::Now(h.map(|h| k.map_or_else(|| engine::net::fetch_map(&mut link, seed, n, h), Ok).unwrap_or_else(|e| panic!("{e}"))))),
+                })
+                .collect();
+            (id, World::of_sources(rows, list, seed, warp, gen), seed)
         }
         other => panic!("no welcome from the server: {other:?}"),
     };
     // the far chunks' summary of the edits is the client's (ADR 0109)
     world.open_far();
+    // a run that stands on a body loaded on approach (body=2, Mars; step 6b) has its ground before it stands: at
+    // the load, not in a frame
+    if run == "stand" {
+        let bi = args.get("body", 0usize);
+        if let Some(load) = world.loader(bi) {
+            let b = load().unwrap_or_else(|e| panic!("{e}"));
+            world.put(bi, b);
+        }
+    }
     // the waypoints live beside the save (shortcut: none without one, and none per remote server yet)
     let waypoint_file = save_path.as_ref().map(|s| format!("{s}.waypoints"));
     // the server spawns players on the +y pole; the client starts its prediction there too
@@ -573,7 +601,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         max_inflight: args.get("inflight", threads * 4),
     };
     let cap: u32 = args.get("quad_cap_m", QUAD_CAP_M) * 1_000_000;
-    let streamer = Streamer::new(&world, cap, opts);
+    let mut streamer = Streamer::new(&world, cap, opts);
+    streamer.size_all = args.get("drop_home", 0) == 1;
     el.set_control_flow(ControlFlow::Poll);
     let lines_on = run == "play" && args.s("lines", "") == "stdin";
     let (acts, creative, shot) = (parse_acts(&args.s("acts", "")), run != "play", args.0.get("shot").cloned());
@@ -809,6 +838,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         view: None,
         carried: window,
         load_peak: 0,
+        body_loads: Default::default(),
     };
     el.run_app_on_demand(&mut app).unwrap();
     // the local server saves as it stops

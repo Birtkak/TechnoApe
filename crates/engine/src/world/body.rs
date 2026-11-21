@@ -19,6 +19,26 @@ impl Body {
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
         Body { name: String::new(), air: false, gas: false, parent: INERTIAL, orbit: 0.0, period: 0.0, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, warp: 0.0, layers, mantle: 0, gen: 0, noise, sea: None, core: None, interior: Interior::new(&BODIES[0].makeup, radius, crate::interior::spin(None), None), land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), cave_cols: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
     }
+    /// The body as it was before its map (step 6b): a stub of a body whose ground is not in, and what `World::loader`
+    /// gives its map to, its noise made again of its seed `seed`. Only for a body not yet on a map (its land is none).
+    pub(crate) fn stub(&self, seed: i32) -> Body {
+        assert!(self.baked.is_none() && self.land.is_none(), "a stub is of a body before its map");
+        Body {
+            name: self.name.clone(),
+            noise: Body::new(self.centre, self.n, seed).noise,
+            interior: self.interior.clone(),
+            caves: Vec::new(),
+            cave_tiles: FxMap::default(),
+            cave_cols: FxMap::default(),
+            ores: Vec::new(),
+            ore_tiles: FxMap::default(),
+            ore_z: Vec::new(),
+            tiles: HeightCache::default(),
+            baked: None,
+            land: None,
+            ..*self
+        }
+    }
     /// The body on the deep grid (ADR 0152, step 1): the same grid carried on down `mantle_layers` more, layer 0
     /// at about R/sqrt 2; every layer above keeps its radius and gains that in index. Set before its map.
     pub fn with_mantle(mut self) -> Self {

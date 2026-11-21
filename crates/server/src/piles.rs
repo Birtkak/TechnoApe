@@ -348,6 +348,10 @@ impl Server {
         if stacks.is_empty() {
             return Vec::new();
         }
+        // (a body whose ground is not in yet, step 6b, has nowhere to hold them: laid at the spawn instead)
+        if !self.world.loaded(at.body as usize) {
+            at = self.world.block_at(self.spawn());
+        }
         let body = &self.world.bodies[at.body as usize];
         let layers = body.layers;
         // a gas body's floor is its cloud tops' cell, where a player stands (step 6a), never under it

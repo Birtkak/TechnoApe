@@ -35,26 +35,42 @@ impl World {
     /// The bodies are the rows of generation `gen` (`bodies::of`: Mars from 5); one after the home's moon is on
     /// its own bake when the home is on a map (a baked world), else on the seed's noise.
     pub fn with_grid(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>, luna: Option<Arc<Map>>, warp: f64, gen: u8) -> Self {
+        World::with_grid_lazy(planet_n, moon_n, seed, map, luna, warp, gen, false)
+    }
+    /// `with_grid`; with `lazy` every body `lazy_row` names stands on its map later (`Source::Later`: its map is
+    /// got once for its hash and let go).
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_grid_lazy(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>, luna: Option<Arc<Map>>, warp: f64, gen: u8, lazy: bool) -> Self {
         let rows = crate::bodies::of(gen);
         let moon = crate::bodies::moon(rows);
         let list = crate::bodies::sizes(rows, planet_n, moon_n)
             .into_iter()
             .enumerate()
             .map(|(i, n)| (n, if i == 0 { map.clone() } else if Some(i) == moon { luna.clone() } else { map.as_ref().and_then(|_| Some(rows[i].bake.as_ref()?.get(seed, n))) }))
+            .enumerate()
+            .map(|(i, (n, m))| match m {
+                Some(m) if lazy && lazy_row(rows, i) => (n, Source::Later(m.hash)),
+                m => (n, Source::Now(m)),
+            })
             .collect();
-        World::of(rows, list, seed, warp, gen)
+        World::of_sources(rows, list, seed, warp, gen)
     }
     /// The world of `rows` (`data/bodies.toml`'s, or a test's), each body of the columns and map given in row
     /// order (0163-n-bodies). A body's grid lies at its nominal centre: the home's at the origin, the k-th
     /// other's k times MOON_AT out, so a position names its frame by where it is (ADR 0022).
     pub fn of(rows: &[Row], list: Vec<(i32, Option<Arc<Map>>)>, seed: i32, warp: f64, gen: u8) -> Self {
+        World::of_sources(rows, list.into_iter().map(|(n, m)| (n, Source::Now(m))).collect(), seed, warp, gen)
+    }
+    /// `of`, a body given as `Source::Later` a stub until its ground is loaded (step 6b: `loader`, `put`).
+    pub fn of_sources(rows: &[Row], list: Vec<(i32, Source)>, seed: i32, warp: f64, gen: u8) -> Self {
         assert_eq!(rows.len(), list.len(), "a size and a map for every body");
         assert!(rows.len() <= crate::bodies::MAX, "{} bodies; a world holds at most {}", rows.len(), crate::bodies::MAX);
         assert!((0.0..=1.0).contains(&warp), "warp= is 0 to 1");
         let moon = crate::bodies::moon(rows).expect("the home has a moon (bodies::parse)");
         // every body's interior from its row, its pull scaled by the first's (0162-planet-interior)
         let mut first: Option<Interior> = None;
-        let mut bodies: Vec<Body> = Vec::with_capacity(rows.len());
+        let mut bodies: Vec<Arc<Body>> = Vec::with_capacity(rows.len());
+        let mut lazy = vec![None; rows.len()];
         for (i, (row, (n, map))) in rows.iter().zip(list).enumerate() {
             let mut b = Body::new(if row.gas() { GAS_AT } else { MOON_AT } * i as f64, n, seed + i as i32);
             (b.name, b.air, b.ground, b.warp, b.gas) = (row.name.clone(), row.air, row.ground, warp, row.gas());
@@ -90,12 +106,14 @@ impl World {
             if row.home && gen >= 1 {
                 b = b.with_mantle();
             }
-            bodies.push(match (map, &row.bake, row.generator) {
-                (Some(m), Some(k), _) if k.plates() => b.with_map(m),
-                (Some(m), Some(_), _) => b.with_luna(m),
-                (Some(_), None, _) => panic!("body '{}' has no bake, so no map", row.name),
-                (None, _, Generator::Continents) => b.with_continents(seed + i as i32),
-                _ => b,
+            bodies.push(match map {
+                Source::Now(map) => Arc::new(b.on(row, map, seed + i as i32)),
+                Source::Later(hash) => {
+                    assert!(row.bake.is_some(), "body '{}' has no bake, so no map", row.name);
+                    let b = Arc::new(b);
+                    lazy[i] = Some(Lazy { hash, seed, loaded: false, stub: b.clone() });
+                    b
+                }
             });
         }
         // the sun is the home's `sun` radii away and as big as its first moon lets a total eclipse be perfect
@@ -117,7 +135,72 @@ impl World {
             water: Liquids::default(),
             ore_left: None,
             far: None,
+            lazy,
         }
+    }
+    /// Body `i` to change, in a test or as it is made: shared with no one yet.
+    pub fn body_mut(&mut self, i: usize) -> &mut Body {
+        Arc::get_mut(&mut Arc::get_mut(&mut self.bodies).expect("the bodies are not shared yet")[i]).expect("the body is not shared yet")
+    }
+    /// Whether body `i`'s ground is in: every body but one loaded on approach that is not (step 6b).
+    pub fn loaded(&self, i: usize) -> bool {
+        self.lazy.get(i).and_then(Option::as_ref).is_none_or(|l| l.loaded)
+    }
+    /// The hash of the map body `i` stands on, None for the noise; one not loaded yet says the hash it will be on.
+    pub fn map_hash(&self, i: usize) -> Option<u64> {
+        match self.lazy.get(i).and_then(Option::as_ref) {
+            Some(l) => Some(l.hash),
+            None => self.bodies[i].map().map(|m| m.hash),
+        }
+    }
+    /// What builds body `i`'s ground off the frame thread and the tick (step 6b), None when it is in or never
+    /// lazy: its map of the hash (from memory, the disk, or baked again) and everything made from it, `World::of`'s
+    /// own steps on the same stub, so it comes out bit for bit as at the start. The closure answers Err when this
+    /// build bakes another map than the hash's; the body then stays a stub.
+    pub fn loader(&self, i: usize) -> Option<impl FnOnce() -> Result<Body, String> + Send + 'static> {
+        let l = self.lazy.get(i).and_then(Option::as_ref).filter(|l| !l.loaded)?;
+        let (row, seed, n, hash) = (crate::bodies::of(self.bodies[i].gen)[i].clone(), l.seed, self.bodies[i].n, l.hash);
+        let build = self.builder(i)?;
+        Some(move || {
+            let bake = row.bake.as_ref().expect("a lazy body has a bake");
+            let map = bake.for_hash(seed, n, hash).ok_or_else(|| format!("this world was played on another map of {} of seed {seed} (map version {}): it stays out of reach", row.name, bake.version()))?;
+            Ok(build(map))
+        })
+    }
+    /// `loader`'s second half: body `i` built on `map`.
+    pub fn builder(&self, i: usize) -> Option<impl FnOnce(Arc<Map>) -> Body + Send + 'static> {
+        let l = self.lazy.get(i).and_then(Option::as_ref).filter(|l| !l.loaded)?;
+        let (row, seed, stub) = (crate::bodies::of(self.bodies[i].gen)[i].clone(), l.seed + i as i32, l.stub.stub(l.seed + i as i32));
+        Some(move |map| stub.on(&row, Some(map), seed))
+    }
+    /// Body `i`'s ground, built by its `loader`, goes in.
+    pub fn put(&mut self, i: usize, body: Body) {
+        let l = self.lazy[i].as_mut().expect("a lazy body");
+        assert!(body.map().is_some_and(|m| m.hash == l.hash), "the body of its hash");
+        l.loaded = true;
+        let at = self.ore_base(i);
+        Arc::make_mut(&mut self.bodies)[i] = Arc::new(body);
+        // the ledger (the server's) takes the body's ore bodies in as opened, less its cells edited before (a
+        // save's): as `open_ledger` and `tally` would have had them with the body in from the start
+        if self.ore_left.is_some() {
+            let mut add: Vec<i64> = crate::ore::count(&self.bodies[i]).into_iter().map(|h| h.blocks as i64).collect();
+            for (key, cells) in self.edits.iter().filter(|(k, _)| k.body as usize == i) {
+                for (pos, &m) in cells {
+                    if let Some(k) = self.ore_cell(Block { body: key.body, face: key.face, pos: *pos }) {
+                        add[k as usize] -= (m != self.bodies[i].ore_block(k)) as i64;
+                    }
+                }
+            }
+            self.ore_left.as_mut().unwrap().splice(at..at, add);
+        }
+    }
+    /// Body `i`'s ground goes out again (the client, when it has left it far behind): back to its stub, its map
+    /// and tables freed once no job holds them.
+    pub fn unload(&mut self, i: usize) {
+        assert!(self.ore_left.is_none(), "a world with a ledger keeps what it loaded");
+        let Some(l) = self.lazy[i].as_mut().filter(|l| l.loaded) else { return };
+        l.loaded = false;
+        Arc::make_mut(&mut self.bodies)[i] = l.stub.clone();
     }
     /// Opens the ore ledger: every ore body of every body (world body by world body, each's in its order) as
     /// generated (`ore::count`), before any edit.
@@ -332,4 +415,25 @@ impl World {
         }
         best
     }
+}
+
+impl Body {
+    /// The body on its row's ground: the map given (a plates bake's or an airless crust's), else its seed's noise
+    /// (the continents where the row says so). `World::of`'s last step, and a lazy body's `loader`'s.
+    pub(crate) fn on(self, row: &Row, map: Option<Arc<Map>>, seed: i32) -> Body {
+        match (map, &row.bake, row.generator) {
+            (Some(m), Some(k), _) if k.plates() => self.with_map(m),
+            (Some(m), Some(_), _) => self.with_luna(m),
+            (Some(_), None, _) => panic!("body '{}' has no bake, so no map", row.name),
+            (None, _, Generator::Continents) => self.with_continents(seed),
+            _ => self,
+        }
+    }
+}
+
+/// Whether row i's body is loaded on approach where its world is (step 6b): one past the home's first moon with a
+/// bake (Mars). The home and its moon are always in (Luna is some 5 pixels across from home: always streamed); a
+/// gas body has no ground to load.
+pub fn lazy_row(rows: &[Row], i: usize) -> bool {
+    crate::bodies::moon(rows).is_some_and(|m| i > m) && !rows[i].gas() && rows[i].bake.is_some()
 }

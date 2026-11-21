@@ -71,6 +71,22 @@ pub(crate) fn pose(run: &str, t: f64, w: &World, speed: f64, alt: f64, warm: f64
             let back = w.pose(f, w.time).rot.inverse();
             Pose { pos, fwd: back * fwd, up: back * up }
         }
+        // approach / leave (step 6b's films): body= (Mars by default) from 3,000 km to 2 m over its day side and
+        // back, the distance shrinking by the same share each second, looking at its centre
+        "approach" | "leave" => {
+            let b = a.get("body", 2usize).min(w.bodies.len() - 1);
+            let p = w.pose(b, w.time);
+            let sun = (w.sky.sun(w.time) - p.centre).normalize();
+            let side = (sun + sun.any_orthonormal_vector() * 0.6).normalize();
+            let s = smooth((t - warm).max(0.0) / (30.0 * q));
+            let s = if run == "leave" { 1.0 - s } else { s };
+            // (from its centre: 2 m over the ground there at the end)
+            let near = w.bodies[b].top(p.rot.inverse() * side) + 2.0;
+            let x = p.centre + side * near * (3.0e6 / near).powf(1.0 - s);
+            let (pos, f) = w.locate(x);
+            let back = w.pose(f, w.time).rot.inverse();
+            Pose { pos, fwd: back * (p.centre - x).normalize(), up: back * side }
+        }
         "edit" => Pose { pos: pole, fwd: DVec3::new(0.0, -1.0, 1.0).normalize(), up: DVec3::Y },
         // stand: at=x,y,z picks the spot (a direction from the centre of body= 0 Terra or 1 Luna), yaw and pitch
         // turn the head; look=terra or look=luna looks at that body's centre instead (ADR 0070)

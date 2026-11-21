@@ -20,7 +20,7 @@ fn gi_trace(@builtin(global_invocation_id) id: vec3u) {
         textureStore(noisy, id.xy, vec4f(0.0));
         return;
     }
-    let body = u32(round(textureLoad(albedo_t, q, 0).a * 3.0));
+    let body = gb_body(textureLoad(albedo_t, q, 0).a);
     let n = gb.xyz;
     let uv = (vec2f(q) + 0.5) / vec2f(size);
     let w = g.inv_vp * vec4f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 1.0, 1.0);
@@ -598,7 +598,7 @@ fn terrain_lit(i: VOut, col_in: vec3f, fpx: f32) -> GOut {
     if (((look.info >> 24u) & 1u) == 1u) {
         // it gives light: it shows its own, and takes none from around
         o.direct = vec4f(col * 1.15, 1.0);
-        o.albedo = vec4f(0.0, 0.0, 0.0, f32(body) / 3.0);
+        o.albedo = vec4f(0.0, 0.0, 0.0, gb_alpha(body));
         return o;
     }
     let px = vec2u(i.clip.xy);
@@ -625,7 +625,7 @@ fn terrain_lit(i: VOut, col_in: vec3f, fpx: f32) -> GOut {
     }
     o.direct = vec4f(out, 1.0);
     // the corner occlusion darkens the light from around a little more, in detail the bounce smooths away
-    o.albedo = vec4f(col * diffuse * mix(1.0, i.ao, 0.5), f32(body) / 3.0);
+    o.albedo = vec4f(col * diffuse * mix(1.0, i.ao, 0.5), gb_alpha(body));
     return o;
 }
 

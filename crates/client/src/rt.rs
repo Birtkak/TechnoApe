@@ -1,12 +1,13 @@
 //! The traced terrain (ADR 0022): a BLAS for every chunk mesh the streamer selects, drawn or hidden, under one
-//! TLAS. Every instance has the identity transform and the mask `1 << body`: rays are turned into their body's
+//! TLAS. Every instance has the identity transform and the mask `1 << lane`, its body's lane (`lanes`: the mask
+//! has 8 bits, four lanes, for up to 16 bodies): rays are turned into their body's
 //! frame in the shader, so the TLAS is rebuilt only when its instances change, not when the camera moves
 //! (ADR 0025, B). A new mesh's quads are expanded into triangles on the GPU
 //! (`expand` in shader.wgsl, the drawn geometry slightly grown) into a scratch buffer its BLAS is built from;
 //! the BLAS keeps no reference to it, so the next frame reuses it. A BLAS holds two geometries (ADR 0069): the
 //! opaque quads, flagged OPAQUE, then the cutout blocks' quads, not, so only those enter a ray's candidate loop
 //! (shader.wgsl `trace`); a chunk with no cutout quads has the one. A chunk first built within SPLIT_M has its still models' and plants' quads (the last `still` of the land's) in a BLAS of their own, under
-//! an instance with the mask `16 << body` and the chunk-table index plus `STILL_INST`: only shadow and lamp rays
+//! an instance with the mask `16 << lane` and the chunk-table index plus `STILL_INST`: only shadow and lamp rays
 //! ask for them (ADR 0104), so the bounce and the reflections no longer walk through every blade of grass they
 //! never stop at. One built farther out keeps them as the second geometry's tail, and a split one stays split,
 //! until its mesh goes: splitting or joining a built chunk as the camera moved cost the frame thread more builds.
@@ -32,6 +33,34 @@ const SPLIT_MAX: usize = 4096;
 /// starts this small and doubles when the instances outgrow it (`tlas_size`), a new TLAS the bind groups take
 /// (`grew`).
 const TLAS_FIRST: usize = 4096;
+/// A body with no lane in the traced scene (`lanes`).
+pub const NO_LANE: u8 = u8::MAX;
+/// The TLAS mask's lanes: a bit for a body's land and one for its stills and players, 8 bits in all.
+const LANES: usize = 4;
+
+/// The traced scene's lanes (step 6b): which of the TLAS mask's four lanes each body's instances take, the bodies
+/// with something in the scene this frame given as (body, distance from the camera). One keeps the lane it had
+/// while it is among the four nearest; one new to them takes the lowest free lane; the others have none, so a ray
+/// on them meets nothing (at least the fifth body out, a few pixels across). A lane does not move while its body
+/// stays, so its slots are not written again; with Terra and Luna alone they are 0 and 1, the masks of before.
+pub fn lanes(prev: &[u8; crate::gpu::MAX_BODIES], near: &[(usize, f64)]) -> [u8; crate::gpu::MAX_BODIES] {
+    let mut by: Vec<(usize, f64)> = near.to_vec();
+    by.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)));
+    by.dedup_by_key(|b| b.0);
+    let keep: Vec<usize> = by.iter().take(LANES).map(|b| b.0).collect();
+    let mut out = [NO_LANE; crate::gpu::MAX_BODIES];
+    for &b in &keep {
+        if prev[b] != NO_LANE {
+            out[b] = prev[b];
+        }
+    }
+    for &b in &keep {
+        if out[b] == NO_LANE {
+            out[b] = (0..LANES as u8).find(|l| !out.contains(l)).expect("a lane free for each of four");
+        }
+    }
+    out
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -70,7 +99,7 @@ pub struct Rt {
     /// streamer releases the offset (ADR 0025, G).
     blas: HashMap<u32, (u32, Option<wgpu::Blas>, Option<wgpu::Blas>)>,
     n: usize,
-    /// The instances the TLAS was last built from: (mesh offset, chunk-table index, body).
+    /// The instances the TLAS was last built from: (mesh offset, chunk-table index, lane).
     built: Vec<(u32, u32, u8)>,
     /// TLAS builds, for the benchmark line.
     pub tlas_builds: u64,
@@ -91,7 +120,17 @@ pub struct Rt {
     proxy_tris: Vec<[f32; 3]>,
     proxy_blas: Option<(wgpu::Buffer, wgpu::Blas)>,
     proxies: Vec<crate::proxy::Proxy>,
+    /// Each body's lane this frame (`lanes`), NO_LANE for none.
+    pub lanes: [u8; crate::gpu::MAX_BODIES],
+    /// BLAS let go by `forget`, kept for `DEAD_FRAMES` records before they are dropped: a frame still on the GPU
+    /// traces through the TLAS built before, which points at them (step 6b's review: dropping the 18,000 BLAS of
+    /// the home's chunks at once freed ones a frame in flight still read, and lost the device).
+    dead: [Vec<(u32, Option<wgpu::Blas>, Option<wgpu::Blas>)>; DEAD_FRAMES],
+    records: usize,
 }
+
+/// How many records a forgotten BLAS outlives (`Rt::dead`): more than the frames the GPU may be behind.
+const DEAD_FRAMES: usize = 4;
 
 /// The TLAS's size for `need` instances when it has `cap` slots and may have `max`: as it is while they fit, else
 /// twice what they need, a power of two
@@ -139,13 +178,14 @@ impl Rt {
                 wgpu::BindGroupEntry { binding: 18, resource: wgpu::BindingResource::TextureView(warp) },
             ],
         });
-        Rt { tlas, expand, bind, builds, verts, blas: HashMap::new(), n: 0, built: Vec::new(), tlas_builds: 0, pending: 0, split_n: 0, slots: Vec::new(), cap, max: max as usize, grew: false, overflowed: false, proxy_tris: Vec::new(), proxy_blas: None, proxies: Vec::new() }
+        Rt { tlas, expand, bind, builds, verts, blas: HashMap::new(), n: 0, built: Vec::new(), tlas_builds: 0, pending: 0, split_n: 0, slots: Vec::new(), cap, max: max as usize, grew: false, overflowed: false, proxy_tris: Vec::new(), proxy_blas: None, proxies: Vec::new(), lanes: [NO_LANE; crate::gpu::MAX_BODIES], dead: Default::default(), records: 0 }
     }
 
     /// New quads were written at `off`: a BLAS from there is stale.
     pub fn forget(&mut self, off: u32) {
-        if self.blas.remove(&off).is_some_and(|b| b.2.is_some()) {
-            self.split_n -= 1;
+        if let Some(b) = self.blas.remove(&off) {
+            self.split_n -= b.2.is_some() as usize;
+            self.dead[self.records % DEAD_FRAMES].push(b);
         }
     }
 
@@ -158,6 +198,8 @@ impl Rt {
         // BLAS made this frame: a chunk with stills makes two, and the budget counts both
         let mut made = 0;
         self.pending = 0;
+        self.records += 1;
+        self.dead[self.records % DEAD_FRAMES].clear();
         // whether a chunk's stills are (to be) a BLAS of their own: once split, while it has stills; else when first
         // built near and there is room
         let most = SPLIT_MAX.min(self.max.saturating_sub(insts.len()));
@@ -204,8 +246,9 @@ impl Rt {
             let sblas = (!still.is_empty()).then(|| new_blas(&still));
             made += blas.is_some() as usize + sblas.is_some() as usize;
             self.split_n += sblas.is_some() as usize;
-            if self.blas.insert(c.off, (c.land, blas, sblas)).is_some_and(|b| b.2.is_some()) {
-                self.split_n -= 1;
+            if let Some(old) = self.blas.insert(c.off, (c.land, blas, sblas)) {
+                self.split_n -= old.2.is_some() as usize;
+                self.dead[self.records % DEAD_FRAMES].push(old);
             }
             todo.push(Build { base: c.base, info: c.info, off: c.off, n: c.land, dst: quads * 6, _p: 0 });
             sizes.push((size, still));
@@ -223,10 +266,11 @@ impl Rt {
         let mut now = Vec::with_capacity(insts.len());
         for c in insts {
             // (a chunk whose split changed waits on its old BLAS until the new one is built)
-            if !self.blas.get(&c.off).is_some_and(|b| b.0 == c.land) {
+            // (a body without a lane is left out: its rays meet nothing)
+            if !self.blas.get(&c.off).is_some_and(|b| b.0 == c.land) || self.lanes[c.body as usize] == NO_LANE {
                 continue;
             }
-            now.push((c.off, c.ci, c.body));
+            now.push((c.off, c.ci, self.lanes[c.body as usize]));
         }
         // the bodies' shape, made again when the ape changed (not flagged opaque: a lamp's ray passes its holder's)
         let proxy_new = !tris.is_empty() && tris != self.proxy_tris.as_slice();
@@ -260,9 +304,9 @@ impl Rt {
             // frame is new even at an old offset)
             let fresh: std::collections::HashSet<u32> = todo.iter().map(|b| b.off).collect();
             let mut n = 0;
-            for &(off, ci, body) in &now {
+            for &(off, ci, lane) in &now {
                 let (_, land, still) = &self.blas[&off];
-                for (b, id, mask) in [(land, ci, 1u8 << body), (still, ci | STILL_INST, 16u8 << body)] {
+                for (b, id, mask) in [(land, ci, 1u8 << lane), (still, ci | STILL_INST, 16u8 << lane)] {
                     let Some(b) = b else { continue };
                     // (only when the chunks outgrow the slots the splits took: the old TLAS had none to spare)
                     if n >= self.cap {
@@ -286,8 +330,10 @@ impl Rt {
             // the bodies after the chunks, each written every build (they move)
             if let Some((_, blas)) = &self.proxy_blas {
                 for (k, p) in proxies.iter().enumerate().take(self.cap.saturating_sub(n)) {
-                    self.tlas[n] = Some(wgpu::TlasInstance::new(blas, p.x, PROXY_INST + k as u32, 16u8 << p.body));
-                    let slot = (u32::MAX, PROXY_INST + k as u32, 16u8 << p.body);
+                    // (one on a body without a lane casts nothing; its place in the list stays, as `holder` counts it)
+                    let Some(mask) = 16u8.checked_shl(self.lanes[p.body as usize] as u32) else { continue };
+                    self.tlas[n] = Some(wgpu::TlasInstance::new(blas, p.x, PROXY_INST + k as u32, mask));
+                    let slot = (u32::MAX, PROXY_INST + k as u32, mask);
                     if n < self.slots.len() {
                         self.slots[n] = slot;
                     } else {
@@ -358,5 +404,29 @@ mod tests {
         assert_eq!(tlas_size(9000, 16384, 65536), 16384);
         assert_eq!(tlas_size(40000, 16384, 65536), 65536);
         assert_eq!(tlas_size(70000, 65536, 65536), 65536);
+    }
+
+    /// The lanes (step 6b): Terra and Luna get 0 and 1, as their masks were; a body keeps its lane while it stays
+    /// among the four nearest, whatever the order; a fifth gets none until one of the four leaves; bodies past 3
+    /// take lanes as any other.
+    #[test]
+    fn a_body_keeps_its_lane_and_at_most_four_have_one() {
+        use super::{lanes, NO_LANE};
+        let none = [NO_LANE; crate::gpu::MAX_BODIES];
+        let l = lanes(&none, &[(0, 0.0), (1, 2.5e5), (0, 3.0)]);
+        assert_eq!((l[0], l[1]), (0, 1));
+        assert!(l[2..].iter().all(|&x| x == NO_LANE));
+        // nearer Luna than Terra: the same lanes
+        let l = lanes(&l, &[(1, 10.0), (0, 2.5e5)]);
+        assert_eq!((l[0], l[1]), (0, 1));
+        // six bodies, 15 and 9 among them: four lanes, each once; the two farthest none
+        let l = lanes(&l, &[(15, 1.0), (9, 2.0), (0, 3.0), (1, 4.0), (4, 5.0), (7, 6.0)]);
+        assert_eq!((l[0], l[1], l[4], l[7]), (0, 1, NO_LANE, NO_LANE));
+        let mut taken: Vec<u8> = [l[15], l[9]].to_vec();
+        taken.sort();
+        assert_eq!(taken, [2, 3]);
+        // Terra leaves: its lane goes to the nearest without one
+        let m = lanes(&l, &[(15, 1.0), (9, 2.0), (1, 4.0), (4, 5.0), (7, 6.0)]);
+        assert_eq!((m[0], m[1], m[15], m[9], m[4], m[7]), (NO_LANE, 1, l[15], l[9], 0, NO_LANE));
     }
 }

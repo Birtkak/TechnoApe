@@ -4,6 +4,11 @@ enable wgpu_ray_query;
 // Vertex pulling: no vertex buffers. One 8-byte quad per face; its 6 vertices are made here and mapped from
 // grid coordinates (column i, column j, layer) onto the cube-sphere (ADR 0003).
 // Every vertex is computed from its global integer grid point, so neighbouring quads and chunks agree exactly.
+// The most bodies (gpu.rs MAX_BODIES, engine bodies::MAX; step 6b): a particle's and a water quad's word carries a
+// body in 4 bits, a chunk's in 8; the G-buffer's albedo alpha in fifteenths (`gb_alpha`)
+const MAX_BODIES: u32 = 16u;
+fn gb_alpha(body: u32) -> f32 { return f32(body) / 15.0; }
+fn gb_body(a: f32) -> u32 { return u32(round(a * 15.0)); }
 struct Body {
     cam_hi: vec3f, // camera relative to the body's centre, split in two floats per axis
     r0: f32,       // radius of layer 0
@@ -15,7 +20,7 @@ struct Body {
     year: f32,     // its looks' season: the year in quarter turns for the north (ADR 0061), negative for none
     // the body's frame turned into the camera's (ADR 0022): columns of the rotation
     rot0: vec4f,
-    rot1: vec4f,
+    rot1: vec4f,   // w: its lane in the traced scene (rt.rs `lanes`; negative: none, its rays meet nothing)
     rot2: vec4f,
     ctr: vec4f,    // the body's centre from the camera, in the camera's frame; w its radius, 0 for no body
 };
@@ -24,7 +29,7 @@ struct Body {
 struct Globals {
     view_proj: mat4x4f,
     sun: vec4f,
-    bodies: array<Body, 4>,
+    bodies: array<Body, MAX_BODIES>,
     inv_vp: mat4x4f,
     sun_pos: vec4f,
     sun_col: vec4f,
@@ -57,9 +62,9 @@ struct Globals {
     // hour of the clock, z 1 with a map (0: the sines of ADR 0091)
     sway: vec4f,
     // the far bodies' points (step 6a, gpu.rs `Globals::far`): per body its colour times its brightness here
-    far: array<vec4f, 4>,
+    far: array<vec4f, MAX_BODIES>,
     // the gas giant (gpu.rs `Globals::gas`): x its body (negative: none), y its bands' turn, z its disc's share,
-    // w its aurora's colatitude; gas2.x the aurora's brightness
+    // w its aurora's colatitude; gas2.x the aurora's brightness, gas2.y the world's body count (the sky's loops)
     gas: vec4f,
     gas2: vec4f,
 };

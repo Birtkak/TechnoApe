@@ -14,7 +14,8 @@ impl Server {
     /// no save and no message: a client must be given the same `warp=`. `gen`: the world's generation (`Body::gen`),
     /// the newest unless `gen=` or `mantle=0` (`gen_arg`); the save and the welcome say it.
     pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64, gen: u8, accept: Receiver<ServerLink>) -> Server {
-        Server::with_world(World::baked_warp(planet_n, moon_n, seed, warp, gen), seed, accept)
+        let lazy = World::with_grid_lazy(planet_n, moon_n, seed, Some(engine::bake::get(seed, planet_n)), Some(engine::bake::luna::get(seed, moon_n)), warp, gen, true);
+        Server::with_world(lazy, seed, accept)
     }
     /// A server on `bodies` (columns and baked map's hash of every row, as a save has them; 0163-n-bodies),
     /// each body on the map of its hash (None: the seed's noise); a bake is redone if it is not kept. A map
@@ -30,18 +31,23 @@ impl Server {
         if !baked {
             return Server::with_world(World::of(rows, bodies.iter().map(|b| (b.0, None)).collect(), seed, 0.0, 0), seed, accept);
         }
+        // (a body loaded on approach is checked against its hash when it comes in, `World::loader`)
         let list = bodies
             .iter()
             .zip(rows.iter())
-            .map(|(&(n, h), row)| {
-                let m = h.map(|h| {
-                    let bake = row.bake.as_ref().unwrap_or_else(|| panic!("{} has no bake in data/bodies.toml, but this world has a map of it", row.name));
-                    bake.for_hash(seed, n, h).unwrap_or_else(|| panic!("this world was played on another map of {} of seed {seed} (map version {}): it cannot be carried on", row.name, bake.version()))
-                });
-                (n, m)
+            .enumerate()
+            .map(|(i, (&(n, h), row))| match h {
+                Some(h) if engine::world::lazy_row(rows, i) => (n, engine::world::Source::Later(h)),
+                h => {
+                    let m = h.map(|h| {
+                        let bake = row.bake.as_ref().unwrap_or_else(|| panic!("{} has no bake in data/bodies.toml, but this world has a map of it", row.name));
+                        bake.for_hash(seed, n, h).unwrap_or_else(|| panic!("this world was played on another map of {} of seed {seed} (map version {}): it cannot be carried on", row.name, bake.version()))
+                    });
+                    (n, engine::world::Source::Now(m))
+                }
             })
             .collect();
-        Server::with_world(World::of(rows, list, seed, 0.0, gen), seed, accept)
+        Server::with_world(World::of_sources(rows, list, seed, 0.0, gen), seed, accept)
     }
     pub(super) fn with_world(mut world: World, seed: i32, accept: Receiver<ServerLink>) -> Server {
         world.open_ledger();
@@ -91,6 +97,7 @@ impl Server {
             furnaces: BTreeMap::new(),
             fires_changed: Vec::new(),
             events: Vec::new(),
+            loads: Default::default(),
         }
     }
 
@@ -231,12 +238,12 @@ impl Server {
 
     /// The hash of the baked map the planet stands on, None for the noise land.
     pub fn map_hash(&self) -> Option<u64> {
-        self.world.bodies[0].map().map(|m| m.hash)
+        self.world.map_hash(0)
     }
     /// Every body's columns and baked map's hash (None: the seed's noise), in row order: what a save, a
     /// recording and a welcome carry (0163-n-bodies).
     pub fn bodies(&self) -> Vec<(i32, Option<u64>)> {
-        self.world.bodies.iter().map(|b| (b.n, b.map().map(|m| m.hash))).collect()
+        (0..self.world.bodies.len()).map(|i| (self.world.bodies[i].n, self.world.map_hash(i))).collect()
     }
 
     pub fn players(&self) -> usize {

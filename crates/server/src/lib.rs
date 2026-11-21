@@ -27,6 +27,7 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::sync::mpsc::{channel, Receiver};
 use std::time::{Duration, Instant};
+mod lazy;
 mod state;
 mod tick;
 mod commands;
@@ -66,6 +67,11 @@ pub enum Ev {
     Start { bodies: Vec<(i32, Option<u64>)>, seed: i32, dt: f64 },
     /// Right after `Start` when the server began from a save: the save itself, so a replay starts there too.
     Loaded(Save),
+    /// At the first tick of a server whose far bodies come in on approach (step 6b): a recording without it had
+    /// them all from the start, and its replay loads them so.
+    Lazy,
+    /// Body `body`'s ground went in at the start of tick `tick` (step 6b): its replay puts it in there too.
+    Body { tick: u64, body: u8 },
 }
 
 /// A new world's generation from the arguments: `gen=` when given (-1: not), else the newest, or 0 with
@@ -339,6 +345,8 @@ pub struct Server {
     /// What happened this tick (`engine::events`, ADR 0149), in the order the tick's systems pushed it;
     /// sent to the clients that perceive it before the tick's edits, then cleared.
     events: Vec<engine::events::Event>,
+    /// The bodies loaded on approach (step 6b, `lazy.rs`): loads running and what waits for them.
+    pub(crate) loads: lazy::Loads,
 }
 
 #[cfg(test)]

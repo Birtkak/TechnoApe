@@ -1551,7 +1551,7 @@ fn a_player_digs_an_ore_body_out_and_its_ledger_reaches_zero() {
     let ground = b0.centre + b0.dir(top.face as usize, top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5) * b0.col_height(top.face, top.pos.x, top.pos.y);
     let kind = MINERALS.kinds.iter().position(|k| k.name == "lead pocket").unwrap() as u16;
     let lump = OreBody { kind, face: top.face, at: DVec3::new(top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5, top.pos.z as f64 - 6.0), a: 2.5, b: 2.5, h: 2.0, angle: 0.0 };
-    std::sync::Arc::get_mut(&mut world.bodies).unwrap()[0].set_ores(vec![lump]);
+    world.body_mut(0).set_ores(vec![lump]);
     let (tx, rx) = channel();
     let mut s = Server::with_world(world, 1, rx);
     let (l, sv) = local();
@@ -1584,7 +1584,7 @@ fn a_prospecting_strike_hears_the_ore_below_and_costs_a_use() {
     let ground = b0.centre + b0.dir(top.face as usize, top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5) * b0.col_height(top.face, top.pos.x, top.pos.y);
     let kind = MINERALS.kinds.iter().position(|k| k.name == "lead pocket").unwrap() as u16;
     let lump = OreBody { kind, face: top.face, at: DVec3::new(top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5, top.pos.z as f64 - 6.0), a: 2.5, b: 2.5, h: 2.0, angle: 0.0 };
-    std::sync::Arc::get_mut(&mut world.bodies).unwrap()[0].set_ores(vec![lump]);
+    world.body_mut(0).set_ores(vec![lump]);
     let (tx, rx) = channel();
     let mut s = Server::with_world(world, 1, rx);
     let (l, sv) = local();
@@ -2429,6 +2429,283 @@ fn goto_jupiter_stands_on_the_cloud_tops_and_saves() {
         assert_eq!(back.world.frame_at(at), 3, "{}", p.name);
         assert!(!phys::blocked(&back.world, at));
     }
+}
+
+/// Step 6b: on a new server Mars is a stub (its hash in the welcome, no map). /goto mars answers that its ground is
+/// loading and leaves the player where it was; the ticks meanwhile do not wait, not even with rayon's global pool
+/// held; once the ground is in (on a thread of its own) the player stands on Mars. The recording puts it in at the
+/// same tick and replays to the same hash.
+#[test]
+fn goto_mars_waits_for_its_ground_off_the_tick_and_replays() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, 3, 0.0, 6, rx);
+    let rec = std::env::temp_dir().join(format!("technoape-lazy-{}.rec", std::process::id()));
+    s.record(&rec).unwrap();
+    assert!(!s.world.loaded(2) && s.world.bodies[2].map().is_none() && s.world.loader(2).is_some(), "Mars a stub at the start");
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    c.send(ToServer::Input(Input::default()));
+    s.tick();
+    let welcome = drain(&c).into_iter().find_map(|m| if let ToClient::Welcome { bodies, .. } = m { Some(bodies) } else { None }).unwrap();
+    assert_eq!(welcome[2].1, s.world.map_hash(2), "the welcome says Mars's hash");
+    assert!(welcome[2].1.is_some());
+    let before = s.clients[0].phys.pos;
+    // every pool thread waits on a gate while Mars loads: the ticks still end
+    let threads = rayon::current_num_threads();
+    let gate = std::sync::Arc::new(std::sync::RwLock::new(()));
+    let held = gate.write().unwrap();
+    let (started_tx, started) = channel();
+    for _ in 0..threads {
+        let (gate, started_tx) = (gate.clone(), started_tx.clone());
+        rayon::spawn(move || {
+            started_tx.send(()).unwrap();
+            drop(gate.read().unwrap());
+        });
+    }
+    for _ in 0..threads {
+        started.recv().unwrap();
+    }
+    c.send(ToServer::Chat("/goto mars".into()));
+    let (done_tx, done) = channel();
+    let t = std::thread::spawn(move || {
+        for _ in 0..5 {
+            s.tick();
+        }
+        done_tx.send(()).unwrap();
+        s
+    });
+    let ended = done.recv_timeout(std::time::Duration::from_secs(10)).is_ok();
+    drop(held);
+    let mut s = t.join().unwrap();
+    assert!(ended, "a tick waited on the global pool while Mars loaded");
+    let got = drain(&c);
+    assert!(got.iter().any(|m| matches!(m, ToClient::Chat(t) if t == "going to Mars: its ground is loading")), "{got:?}");
+    assert!(s.clients[0].phys.pos.distance(before) < 1.0, "the player waits where it was");
+    let t0 = std::time::Instant::now();
+    while !s.world.loaded(2) {
+        assert!(t0.elapsed().as_secs() < 120, "Mars never came in");
+        s.tick();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    for _ in 0..60 {
+        s.tick();
+    }
+    let got = drain(&c);
+    assert!(got.iter().any(|m| matches!(m, ToClient::Chat(t) if t == "gone to Mars")), "{got:?}");
+    let (w, me) = (&s.world, s.clients[0].phys);
+    let m = &w.bodies[2];
+    let over = (me.pos - m.centre).length() - m.top((me.pos - m.centre).normalize());
+    assert!(w.frame_at(me.pos) == 2 && over.abs() < 3.0 && !phys::inside(w, &me), "{over} m over Mars's ground");
+    let r = replay(&rec, None).unwrap();
+    std::fs::remove_file(&rec).unwrap();
+    // (its checkpoints, every CHECK_EVERY ticks, hash the players too: the last ones are on Mars)
+    assert!(r.server.world.loaded(2), "the replay put Mars in");
+    assert_eq!((r.diverged, r.server.world.hash()), (None, s.world.hash()));
+    assert!(r.checks >= 3, "{} checks", r.checks);
+    let at = |s: &Server| s.clients.iter().map(|c| s.world.frame_at(c.phys.pos)).collect::<Vec<_>>();
+    assert_eq!(at(&r.server), vec![2], "the replayed player is on Mars too");
+}
+
+/// Step 6b review: with Mars's map on no disk its loader bakes it, and the bake runs on rayon's global pool; the
+/// ticks still never wait for it (the pool held through five of them), and Mars comes in once the pool is free.
+#[test]
+fn a_mars_baked_on_arrival_does_not_hold_the_tick() {
+    let seed = 4000 + (std::process::id() % 1000) as i32;
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, seed, 0.0, 6, rx);
+    let file = engine::bodies::of(6)[2].bake.as_ref().unwrap().file(seed, s.world.bodies[2].n);
+    let _ = std::fs::remove_file(&file);
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    c.send(ToServer::Input(Input::default()));
+    s.tick();
+    let threads = rayon::current_num_threads();
+    let gate = std::sync::Arc::new(std::sync::RwLock::new(()));
+    let held = gate.write().unwrap();
+    let (started_tx, started) = channel();
+    for _ in 0..threads {
+        let (gate, started_tx) = (gate.clone(), started_tx.clone());
+        rayon::spawn(move || {
+            started_tx.send(()).unwrap();
+            drop(gate.read().unwrap());
+        });
+    }
+    for _ in 0..threads {
+        started.recv().unwrap();
+    }
+    c.send(ToServer::Chat("/goto mars".into()));
+    let (done_tx, done) = channel();
+    let t = std::thread::spawn(move || {
+        for _ in 0..5 {
+            s.tick();
+        }
+        done_tx.send(()).unwrap();
+        s
+    });
+    let ended = done.recv_timeout(std::time::Duration::from_secs(10)).is_ok();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    drop(held);
+    let mut s = t.join().unwrap();
+    assert!(ended, "a tick waited on the pool while Mars's map was baked");
+    let t0 = std::time::Instant::now();
+    while !s.world.loaded(2) {
+        assert!(t0.elapsed().as_secs() < 300, "Mars never came in");
+        s.tick();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    println!("Mars baked and in after {:.2} s with the pool free", t0.elapsed().as_secs_f64());
+    let _ = std::fs::remove_file(&file);
+}
+
+/// Step 6b review: a body whose ground cannot be loaded (a map this build does not make) does not keep a player
+/// held by it for ever: the held one goes back to the spawn, told why; the /goto that waited for it, and one after,
+/// answer plainly that it cannot be loaded.
+#[test]
+fn a_body_that_cannot_be_loaded_lets_its_players_go() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, 3, 0.0, 6, rx);
+    s.world.lazy[2].as_mut().unwrap().hash ^= 1;
+    let rec = std::env::temp_dir().join(format!("technoape-failed-{}.rec", std::process::id()));
+    s.record(&rec).unwrap();
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    c.send(ToServer::Input(Input::default()));
+    s.tick();
+    drain(&c);
+    let m = &s.world.bodies[2];
+    let at = m.centre + DVec3::Y * (m.radius + engine::world::AMP + 50.0);
+    c.send(ToServer::Move { pos: at.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    c.send(ToServer::Chat("/goto mars".into()));
+    for _ in 0..400 {
+        s.tick();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        if s.loads.failed.contains(&2) {
+            break;
+        }
+    }
+    for _ in 0..3 {
+        s.tick();
+    }
+    let said: Vec<String> = drain(&c).into_iter().filter_map(|m| if let ToClient::Chat(t) = m { Some(t) } else { None }).collect();
+    assert_eq!(s.world.frame_at(s.clients[0].phys.pos), 0, "back at the spawn, not held: {said:?}");
+    assert!(s.loads.gotos.is_empty() && said.iter().filter(|t| t.contains("Mars's ground cannot be loaded")).count() >= 2, "{said:?}");
+    c.send(ToServer::Chat("/goto mars".into()));
+    s.tick();
+    let said: Vec<String> = drain(&c).into_iter().filter_map(|m| if let ToClient::Chat(t) = m { Some(t) } else { None }).collect();
+    assert!(said.iter().any(|t| t.contains("Mars's ground cannot be loaded")) && s.loads.gotos.is_empty(), "{said:?}");
+    for _ in 0..60 {
+        s.tick();
+    }
+    // (the recording carries the hash this build cannot make: its replay fails at the same tick, `Ev::Body`)
+    let r = replay(&rec, None).unwrap();
+    std::fs::remove_file(&rec).unwrap();
+    assert_eq!((r.diverged, r.server.clients[0].phys.pos), (None, s.clients[0].phys.pos));
+}
+
+/// Step 6b review: a body whose ground is not in yet has no ground: its cells read as air (as a gas body's), and a
+/// player there (a client may put itself anywhere) changes nothing on it: edits, buckets, pick-ups and items to the
+/// ground are refused with a word why, so no hole or floating pile is left for the real ground to meet.
+#[test]
+fn nothing_is_changed_on_a_body_not_in_yet() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, 3, 0.0, 6, rx);
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    c.send(ToServer::Input(Input::default()));
+    c.send(ToServer::Creative(true));
+    c.send(ToServer::Chat("/give stone 8".into()));
+    s.tick();
+    drain(&c);
+    let deep = Block { body: 2, face: 0, pos: glam::IVec3::new(10, 10, 1) };
+    assert_eq!(s.world.block(deep), AIR, "a stub's cells are air, not the seed's noise land");
+    let m = &s.world.bodies[2];
+    let at = m.centre + DVec3::Y * (m.radius + 2.0);
+    let under = s.world.block_at(at - DVec3::Y * 1.5);
+    c.send(ToServer::Move { pos: at.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    c.send(ToServer::Edit { seq: 1, shape: Shape::one(under), material: BLOCKS.id("stone") });
+    c.send(ToServer::Edit { seq: 2, shape: Shape::one(under), material: AIR });
+    c.send(ToServer::Items { seq: 3, from: (Holder::Ape, 0), to: (Holder::Ground, 0), n: 8 });
+    c.send(ToServer::Bucket { seq: 4, at: under, fill: false });
+    c.send(ToServer::Take { seq: 5, at: under });
+    s.tick();
+    let got = drain(&c);
+    for seq in 1..=5 {
+        assert!(got.contains(&ToClient::Done { seq, ok: false }), "{seq} refused: {:?}", got.iter().filter(|m| matches!(m, ToClient::Done { .. })).collect::<Vec<_>>());
+    }
+    assert!(got.iter().any(|m| matches!(m, ToClient::Chat(t) if t.contains("Mars's ground is not in yet"))), "told why");
+    assert!(s.world.edits.keys().all(|k| k.body != 2) && s.piles.keys().all(|b| b.0 != 2), "nothing left on the stub");
+}
+
+/// Step 6b review: a server whose bodies are all in from the start (`Server::baked`: the soak, the bots' tests)
+/// records no `Ev::Lazy`, so its replay has Mars in from the start too: a player gone to Mars falls the same.
+/// (The lazy recording's replay: `goto_mars_waits_for_its_ground_off_the_tick_and_replays`.)
+#[test]
+fn an_eager_recording_with_a_player_on_mars_replays() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked(256, 64, 3, rx);
+    assert!(s.world.loaded(2) && s.world.bodies[2].map().is_some(), "Mars in from the start");
+    let rec = std::env::temp_dir().join(format!("technoape-eager-{}.rec", std::process::id()));
+    s.record(&rec).unwrap();
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    c.send(ToServer::Input(Input::default()));
+    s.tick();
+    c.send(ToServer::Chat("/goto mars".into()));
+    for _ in 0..200 {
+        s.tick();
+    }
+    assert_eq!(s.world.frame_at(s.clients[0].phys.pos), 2, "on Mars");
+    let r = replay(&rec, None).unwrap();
+    std::fs::remove_file(&rec).unwrap();
+    assert_eq!((r.diverged, r.server.world.hash(), r.server.clients[0].phys.pos), (None, s.world.hash(), s.clients[0].phys.pos));
+}
+
+/// Step 6b review: a map asked for again and again while its body loads is queued once and sent once; one whose
+/// body cannot be loaded is dropped, not kept in the queue for ever.
+#[test]
+fn a_map_asked_for_a_loading_body_is_queued_and_sent_once() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, 3, 0.0, 6, rx);
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    c.send(ToServer::Input(Input::default()));
+    s.tick();
+    drain(&c);
+    let h = s.world.map_hash(2).unwrap();
+    for _ in 0..5 {
+        c.send(ToServer::Map(h));
+    }
+    s.tick();
+    assert_eq!(s.loads.maps.len(), 1, "one entry for five asks");
+    let t0 = std::time::Instant::now();
+    while !s.world.loaded(2) {
+        assert!(t0.elapsed().as_secs() < 120, "Mars never came in");
+        s.tick();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    s.tick();
+    c.send(ToServer::Map(h));
+    s.tick();
+    let firsts = drain(&c).into_iter().filter(|m| matches!(m, ToClient::Map { piece: 0, .. })).count();
+    assert_eq!((firsts, s.loads.maps.len()), (1, 0), "the map sent once");
+    // a body this build cannot load (another map's hash): its asks are dropped
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, 3, 0.0, 6, rx);
+    s.world.lazy[2].as_mut().unwrap().hash ^= 1;
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    c.send(ToServer::Input(Input::default()));
+    s.tick();
+    c.send(ToServer::Map(s.world.map_hash(2).unwrap()));
+    for _ in 0..200 {
+        s.tick();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        if s.loads.failed.contains(&2) {
+            break;
+        }
+    }
+    s.tick();
+    assert!(s.loads.failed.contains(&2) && s.loads.maps.is_empty(), "the failed body's asks are dropped: {:?}", s.loads.maps);
 }
 
 #[test]

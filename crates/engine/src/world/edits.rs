@@ -149,7 +149,8 @@ impl World {
         self.edits.get(&b.chunk()).and_then(|m| m.get(&b.pos)).copied()
     }
     pub fn block(&self, b: Block) -> u16 {
-        if self.bodies[b.body as usize].gas {
+        // (a body whose ground is not in yet, step 6b, has none: no noise land to stand on or dig)
+        if self.bodies[b.body as usize].gas || !self.loaded(b.body as usize) {
             return AIR;
         }
         self.edit(b).unwrap_or_else(|| self.generated_block(b))
