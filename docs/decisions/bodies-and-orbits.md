@@ -248,25 +248,36 @@ refused with "17 bodies; a world holds at most 16"), and a far block body costs 
   The home and its moon are never lazy: Luna is about 5 pixels across from Terra, so she would stream anyway.
 - **The client** streams a body only while it is at least **1 pixel** across (`stream::IN_PX`) and drops it under
   **0.5** (`OUT_PX`, the factor two the hysteresis), or while the camera is in its frame (`Streamer::seen`); the home
-  and its moon stream wherever the camera is, as before (dropping Terra's chunks seen from Mars lost the GPU device in
-  a played run, cause not found; Mars's own drop on leaving does not). Otherwise no root of
+  and its moon stream wherever the camera is, as before, unless `drop_home=1`. (Dropping Terra's 18,000 chunks at once
+  lost the GPU device: their BLAS were freed under a frame still tracing through the TLAS built before; `rt::Rt::dead`
+  now keeps a forgotten BLAS four records. With it the home's drop runs clean, so sizing them out is open to a
+  measured run.) Otherwise no root of
   it is walked, and on dropping every slot of it goes, its quad-buffer room and BLAS with it. A body wanted but not
   in is loaded on a thread of its own (`App::bodies_in`), put in when done, and unloaded again (its map and tables
   freed once no mesh job holds them) when the streamer has let it go and the camera is not in its frame. **No frame
   shows neither point nor ground:** the sky hands a point over to its disc only from 1.5 pixels (`sky::HAND_LO`),
-  and while a lazy body is not `Streamer::ready` (the last drawn walk left a hole in view on it) `far_lights` keeps
-  its whole point.
+  and while a lazy body is not `Streamer::ready` (no drawn walk has yet left no hole in view on it; once ready it stays
+  so while it streams) its point is handed over 4 times later, from 6 to 16 pixels (`frame::held_px`): a ground still
+  coming in shows the point, and one that never comes whole (a full quad buffer) shows no point on a wide disc.
 - **The server** builds a lazy body only when a player is in its frame, a /goto is bound for it, or a client asks for
   its map; on a thread of its own (never the tick, never rayon's pool: `goto_mars_waits_for_its_ground_off_the_tick_and_replays`
   holds the pool), put in at the start of the tick it is done and recorded there (`Ev::Body { tick, body }`; `Ev::Lazy`
   marks such a recording; one without it replays with every body in from the start, `Server::load_all`). It never
   lets one go. **The welcome** carries every body's hash as before (`World::map_hash` answers a stub's); a local
   client makes Mars a stub at once, a remote one checks or downloads its map as every body's (kept under its name)
-  and lets it go. The hash is checked when the body comes in: a map this build cannot make leaves it a stub, held
-  points and an error on stderr. An old client meets the same welcome.
+  and lets it go. The hash is checked when the body comes in: a map this build cannot make leaves it a stub, its
+  point and an error on stderr; on the server its waiting /goto's are told so, players near it go to the spawn, a
+  /goto there is refused, and the failure is recorded as a load (`Ev::Body`, so its replay fails at the same tick).
+  `Ev::Lazy` is recorded only by a world with a lazy body. A map asked for a body not in is queued once a client.
+  An old client meets the same welcome.
 - **Arriving:** a player within `phys::HOLD_M` (200 m) over a not-loaded body's highest ground (or a step's travel) is
-  held where it is, at rest, on either side (`phys::held_by_a_body`), until the ground is in; /goto to one answers "going to
-  Mars: its ground is loading" and puts the player there when it is.
+  held where it is on either side (`phys::held_by_a_body`), until the ground is in: a pause, not a brake (its speed
+  is kept for when the ground comes, it may look round); one under the ground then (a teleport) is set on it
+  (`phys::onto_ground`). /goto to one answers "going to Mars: its ground is loading" and puts the player there when
+  it is. Each side holds by its own copy of the body; the server's answers win, so they differ (as corrections) only
+  if the server's load is slower than the flight from the body's frame to 200 m. **A stub has no ground**: its cells
+  read as air (`World::block`), and the server refuses edits, digs, buckets, pick-ups, strikes, uses and items to or
+  from the ground there, saying why; a pile laid there goes to the spawn.
 - **Numbers** (play build, `quick=1 seed=1 planet=6144`, interleaved with main's, `slot.sh measure`): Terra stand
   VRAM 1079 -> 823 MB, wgpu's own 776 -> 659 MB, the quad buffer 21.3 -> 14.9 MB, chunks at the load about 21800 ->
   18800, load 2.71-2.75 -> 2.42-2.68 s, frame and GPU p50 the same within noise (3.35-3.56 / 3.23-3.48 ms both);
@@ -277,9 +288,10 @@ refused with "17 bodies; a world holds at most 16"), and a far block body costs 
   (its map from the disk) off the tick, the client in 0.01 s (the map already in memory); `run=approach` (3,000 km
   to 2 m) frame max 5.8 ms, p99 4.6, no hole; `run=leave` max 5.6 ms. The body limit itself: stand and fly unchanged
   (3.55-3.57 / 3.54-3.59 ms p50).
-- **Left:** the home and its moon are never sized out (above); the client's first frame of a run that starts on or
+- **Left:** the home and its moon sized out by default (above); the hold made exact on both sides (a word on
+  the wire); the client's first frame of a run that starts on or
   arrives at a body before its ground is in shows its sky without it (`run=leave`'s first frame, about 0.35 s);
-  the server never lets a body go; an edit sent for a stub's cells is not refused (nobody can reach one: held);
+  the server never lets a body go; a lost load's bake on rayon's global pool shares it with the mesh workers;
   Luna and a moon of Mars or the giant made lazy too; a load cancelled when the camera turns away before it lands.
 
 ## The sky's clock
