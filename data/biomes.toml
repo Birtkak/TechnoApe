@@ -396,3 +396,32 @@ name = "frost"
 top = "frost"
 band = "mars regolith"
 rock = "breccia"
+
+# The giant's icy moon's kinds (bake/icy.rs, rows 33..=36), after Mars's: the dark old plains, a lag of dust and
+# grit over dirty ice over clean water ice (rock under the ice is the rock provinces' run)
+[[biome]]
+name = "dark plain"
+top = "dark lag"
+band = "dusty ice"
+rock = "ice"
+
+# the floors, walls and rays of young craters: clean ice dug out from under the dark, bright
+[[biome]]
+name = "fresh ice"
+top = "ice"
+band = "ice"
+rock = "ice"
+
+# the flowed-flat middle of a multi-ring basin (a palimpsest): dirty ice at the top, paler than the plains
+[[biome]]
+name = "palimpsest"
+top = "dusty ice"
+band = "dusty ice"
+rock = "ice"
+
+# the polar ground no sun reaches: frost on the lag
+[[biome]]
+name = "polar frost"
+top = "frost"
+band = "dark lag"
+rock = "ice"

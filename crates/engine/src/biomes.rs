@@ -618,8 +618,9 @@ pub fn parse(text: &str) -> Result<Rows, String> {
         }
         plants.push(Plant { name: p.name, shape: p.shape, trunk, leaves, height: p.height, radius: p.radius, fork, limbs, bare, depth, thick: p.thick, warm: p.warm });
     }
-    // Terra's biomes, then Luna's kinds of ground (`bake::luna`, ADR 0070), then Mars's (`bake::mars`)
-    let names: Vec<&str> = life::BIOMES.iter().map(|b| b.0).chain(crate::bake::luna::KINDS).chain(crate::bake::mars::KINDS).collect();
+    // Terra's biomes, then Luna's kinds of ground (`bake::luna`, ADR 0070), then Mars's (`bake::mars`), then the
+    // giant's icy moon's (`bake::icy`)
+    let names: Vec<&str> = life::BIOMES.iter().map(|b| b.0).chain(crate::bake::luna::KINDS).chain(crate::bake::mars::KINDS).chain(crate::bake::icy::KINDS).collect();
     if f.biome.len() != names.len() {
         return Err(format!("{} biomes, the bakes make {}", f.biome.len(), names.len()));
     }
@@ -678,7 +679,23 @@ mod tests {
     fn the_data_file_has_every_biome_of_the_bake() {
         let r = &*ROWS;
         use crate::bake::mars;
-        assert_eq!(r.biomes.len(), 15 + crate::bake::luna::KINDS.len() + mars::KINDS.len(), "Terra's 15, then Luna's kinds, then Mars's");
+        assert_eq!(r.biomes.len(), 15 + crate::bake::luna::KINDS.len() + mars::KINDS.len() + crate::bake::icy::KINDS.len(), "Terra's 15, then Luna's kinds, then Mars's, then the icy moon's");
+        // the giant's icy moon's (step 6c): a dark lag over dirty ice over clean ice on its old plains, clean ice in
+        // its young craters, dirty ice on the flowed-flat basins, frost where no sun reaches; nothing of Terra's life
+        {
+            use crate::bake::icy;
+            assert_eq!(icy::PLAIN as usize, 15 + crate::bake::luna::KINDS.len() + mars::KINDS.len());
+            for (k, name) in icy::KINDS.iter().enumerate() {
+                let row = &r.biomes[icy::PLAIN as usize + k];
+                assert_eq!(&row.name, name);
+                assert!(row.plants.is_empty() && row.clutter.is_empty() && row.patches.is_empty() && row.snow_over.is_none(), "{name}: nothing of Terra's life");
+            }
+            let g = |k: u8, n: [&str; 3]| assert_eq!(r.biomes[k as usize].ground, n.map(|n| BLOCKS.id(n)), "{}", icy::KINDS[(k - icy::PLAIN) as usize]);
+            g(icy::PLAIN, ["dark lag", "dusty ice", "ice"]);
+            g(icy::FRESH, ["ice", "ice", "ice"]);
+            g(icy::PALIMPSEST, ["dusty ice", "dusty ice", "ice"]);
+            g(icy::FROST, ["frost", "dark lag", "ice"]);
+        }
         for (k, name) in crate::bake::luna::KINDS.iter().enumerate() {
             assert_eq!(&r.biomes[crate::bake::luna::HIGHLAND as usize + k].name, name);
         }

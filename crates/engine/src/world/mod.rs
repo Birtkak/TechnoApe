@@ -103,7 +103,7 @@ pub const MANTLE_STEP: i32 = 256;
 /// the basins' limestone in place of ADR 0063's worm (0161-karst-caves), 4 Luna's rock field (0165-bake-stages:
 /// anorthosite highlands, mare basalt over anorthosite in the maria; Terra as at 3), 5 Mars, the third body
 /// (`bodies::Row::since`; Terra and Luna as at 4), 6 the gas giant, the fourth (step 6a; the three as at 5).
-pub const GENERATION: u8 = 6;
+pub const GENERATION: u8 = 7;
 
 /// Refuses a world of a generation newer than this build's: it would generate other ground under the edits.
 pub fn known_generation(gen: u8) -> Result<u8, String> {

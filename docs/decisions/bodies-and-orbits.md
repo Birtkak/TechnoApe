@@ -294,6 +294,79 @@ refused with "17 bodies; a world holds at most 16"), and a far block body costs 
   the server never lets a body go; a lost load's bake on rayon's global pool shares it with the mesh workers;
   Luna and a moon of Mars or the giant made lazy too; a load cancelled when the camera turns away before it lands.
 
+### The giant's icy moon [draft, 2026-11-21]
+A new universe (world generation 7) has five bodies: the fifth is the gas giant's moon, working name **Callisto**
+(the name is the developer's to change), the first body whose parent is neither the sun nor the home and the first
+of `kind = "icy"`; worlds of generation 6 or before keep their bodies, bit for bit. The developer's call: "lots of
+rocky and gas planets and moons"; step 6 names the giant's moons and icy bodies.
+- **The row** (end of `data/bodies.toml`): `parent = "Jupiter"`, `since = 7`, `kind = "icy"`, `size = 4.0` (1536
+  columns on the 4 km Terra, 48 chunks, 3 x 16 as Terra's 192 are 3 x 64; 1061 m in radius, 0.92 of Luna's, the real
+  pair's 0.91), `orbit = 26.3` (the real one's: 1.23 Mm, 25 giant radii over its cloud tops, in the giant's 7.49 Mm
+  sphere), `stages = ["crust", "impacts", "ice"]`, `ground = ["dark lag", "dusty ice", "ice"]` (where no map), `air =
+  false`, `colour` dark grey-brown, `iron = 0.5`, `heat = 0.0`, `density = [950, 1700, 3000]`.
+- **What icy means to the interior:** the same rules as a rocky body (`Interior::new`), the keys read as a rock core
+  (`iron` its radius share, `density[2]`) under a mantle of ice and rock and a crust of dirty ice: mean **1863
+  kg/m3** (the real one's 1834), **1.85 m/s^2** at the ground (0.35 of Luna's 5.31, 0.094 of Terra's; a jump some
+  13 m), heat 0 so no liquid core and **field 0**. `bodies::check` no longer refuses icy. An icy row with stages bakes
+  on a `crust` (refused on plates) and lists no `volcanism` (refused: "not built yet on an icy crust").
+- **The pose and period of a moon of any parent** (`World::of_sources`): on its parent's pose (0163's recursion: the
+  giant on its sun ring, the moon on `Sky::circle` round the giant), its body -x to the parent (tidally locked: the
+  same face to the giant, tested over an orbit), once a period by Kepler's law against the home's first moon, now
+  times the root of the home's mean density over the parent's (`mass / radius^3`): for a moon of the home the factor
+  is 1 to the bit, so Luna's MONTH and pose and every older world are unchanged (tested). The giant's moon:
+  Kepler 17,585 s, rounded to PERIOD / 44 = **17,673 s, 4.9 hours of play** (its day: the sun crosses its sky once an
+  orbit). Its **sphere of influence** is Laplace's rule against its parent (`orbit x (m / M_parent)^0.4`, at most a
+  quarter of the orbit): **16 km** (15 of its radii; the quarter-orbit rule would have given 307 km), inside the
+  giant's; a moon of the home keeps a quarter of its orbit, to the bit. `World::locate` and `reframe` take the
+  **innermost** sphere (the rows backwards: a moon comes after its parent), as spheres now nest; with disjoint
+  spheres (every older world) the answer is the same. Gravity is summed as before, its parent's pull cancelled near
+  it by 0041's rule.
+- **Its parse rules** (`bodies::parse`): a moon's ground must clear its parent's (`(orbit - 1) x parent radius >
+  its radius`, both in home radii; "its ground would be inside its parent"); a parent below it or itself is refused
+  as before. The polar-shadow sun height (`luna::sun_high`) for a moon of a body that is not the home is the home's
+  moon's sun disc times the home's sun distance over its system's (the giant's 5 AU: a fifth), not a disc reckoned
+  from its own size and orbit; Terra's, Luna's and Mars's are as before.
+- **Its bake** (`bake/icy.rs`, map version **301**): Luna's `crust`, `impacts` (no maria) and `ice` stages, then
+  the two widest basins made **multi-ring** (their middles 0.9 of the basin flattened 0.7 toward their mean: the
+  palimpsest; rings of troughs 2.5 m deep and 3 m to a side with low lips, the first at 1.3 basin radii, one each
+  0.3 out to an angle of 1 radian, wandering 4 %), and her kinds turned into its own. Kept by 0167's **name and
+  hash rule** (`mars::file` with the version of the row's bake: `seed-S-planet-N-callisto-<hash>-v301.map`;
+  `bodies::Planet::icy`), found by hash, a server's map kept under its row's name (`mars::keep_any` by version).
+  Only Terra's and Luna's exact lists keep named files; `bakemap=` still pictures a planet's crust only.
+- **Its ground** (`data/biomes.toml` rows 33..=36; top, band to 4 m, below): **dark plain** dark lag / dusty ice /
+  ice (the old cratered plains, 0.9 of it); **fresh ice** ice / ice / ice (young craters' floors, walls and rays);
+  **palimpsest** dusty ice / dusty ice / ice (the flowed-flat middles of the ringed basins); **polar frost** frost /
+  dark lag / ice (where no sun reaches). One **new block**, id **240** "dark lag" (past a gap so a row another
+  branch adds at 229 does not meet it; colours and a speckle, no painting): the lag left on top as the ice under it
+  went off into space, dust, grit and carbon-rich stuff: sieved for grit and carbon, sintered into bricks, a little
+  water when melted. Reused: **ice** (clean water ice: water in bulk away from Terra, for drinking, air by
+  splitting and fuel later), **dusty ice** (dirty ice: water when melted and filtered), **frost** (carbon dioxide:
+  the real moon has it). No recipes. No plants, clutter, patches, water, caves or ore on it (`rock_field` false).
+- **Loaded on approach** (0175): `lazy_row` is "past the home's first moon, not gas, with a bake", which covers it;
+  nothing special-cases Mars by index or name in that path (`mars::keep_any` and `Body::rock_body`'s shortcuts
+  pick by map version). From Terra it is never streamed or held (tested); `/goto callisto` answers "going to
+  Callisto: its ground is loading" and stands the player on it in its frame (tested, saved and loaded again).
+- **The sky from it:** nothing new. The giant is **4.36 degrees** across from its near side (8.4 times Luna's disc
+  from Terra), drawn by its shader (lit by the sun, banded), fixed in the sky by the lock; from the far side it is
+  under the horizon. Its eclipses of the sun darken the moon's ground through the shaders' per-body eclipse mask
+  (`eclipse_masks`, `light`: every body's sphere over the sun's disc): filmed at the sub-giant point when the sun is behind the giant, the
+  ground's mean brightness 34-36 out of 255 a little before and 7.8 at it; the CPU's `Sky::eclipse`
+  (the sun's colour in the air, the HUD) and the tides are the home's moon's only.
+- **Report:** `report=1` has a `callisto` section (kinds' shares, heights, made_hash); the globe overlay's colours
+  know its kinds (`globe::ICY`), though the overlay still shows Terra and Luna only.
+- **Locks:** its map seed 1 n 384 32ac890dc737b146, n 1536 7984d03437d95554; its blocks at generation 7, n 384
+  (`callisto_generates_as_locked`) 4b42aadc955da137; every older hash unchanged.
+- **Costs:** its bake 1.9-2.5 s once per seed; on it frame p99 2.4-2.9 ms; on Terra none seen against main (stand
+  and sim, two rounds); see `docs/perf-debt.md` ("The giant's icy moon").
+- **Left** (each its own run): a subsurface ocean and an ice-shell interior (an `ocean` zone in `Interior`, its
+  depth from the heat; needs `heat` to mean tidal heating and a liquid layer that is water, not metal); ice
+  tectonics (Europa's or Ganymede's grooved terrain: a stage of its own); rock under the ice (rock provinces with
+  `body = "Callisto"`, so the column changes under 4 m), its ore (by those provinces) and caves (ice caves and
+  collapse pits); more moons and a volcanic one (Io: `volcanism` on a hot icy or rocky moon, sulphur); the giant's
+  radiation belt (from its field and spin, a dose by distance); real orbits (the circle and the Kepler rounding are
+  stand-ins; the circle's `1/YEAR` term is the home's year for every moon); the giant lit faintly by the moon and the
+  moon by giantshine; the giant's disc popping off at the limb where its centre sets under a far-side horizon.
+
 ## The sky's clock
 
 - **World time** is `tick / 20 Hz` seconds since the world was made; the sky is kinematic, circular orbits on rails,

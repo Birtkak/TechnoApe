@@ -639,6 +639,70 @@ fn the_homes_moon_may_come_last() {
     assert!(w.bodies[2].period < crate::sky::MONTH && k == k.round(), "{}", w.bodies[2].period);
 }
 
+/// Step 6c: a generation 7 world has the giant's icy moon as its fifth body (6 keeps four). It is posed on the giant
+/// (its distance from it constant, following it round the sun), locked (the same face to it over an orbit), once a
+/// period by Kepler's law scaled from Luna's month by the parent's mean density (an hour or more of play, a whole
+/// fraction of PERIOD); its sphere of influence is Laplace's against the giant, inside the giant's, and a point near
+/// it belongs to its frame though the giant's sphere holds it too. It pulls by its own row: light, no field. Luna's
+/// period and pose keep their bits.
+#[test]
+fn the_icy_moon_is_posed_on_the_giant_and_locked() {
+    use crate::sky::{MONTH, PERIOD};
+    let (n, m) = (1536, crate::bodies::moon_columns(1536));
+    assert_eq!(World::with_grid(n, m, 1, None, None, 0.0, 6).bodies.len(), 4, "a generation 6 world keeps four");
+    let w = World::with_grid(n, m, 1, None, None, 0.0, 7);
+    assert_eq!(w.bodies.iter().map(|b| b.name.as_str()).collect::<Vec<_>>(), ["Terra", "Luna", "Mars", "Jupiter", "Callisto"]);
+    let (j, c) = (&w.bodies[3], &w.bodies[4]);
+    assert_eq!((c.parent, c.n), (3, 384));
+    assert!((c.orbit / j.radius - 26.3).abs() < 1e-9);
+    // the period: Luna's month times (q / 60)^1.5 times the root of the home's mean density over the giant's
+    let dens = |b: &Body| b.interior.mass / b.radius.powi(3);
+    let kepler = MONTH * (26.3f64 / 60.0).powf(1.5) * (dens(&w.bodies[0]) / dens(j)).sqrt();
+    assert_eq!(c.period.to_bits(), crate::sky::period(kepler).to_bits());
+    let k = PERIOD / c.period;
+    assert!(k == k.round() && c.period > 3600.0 && c.period < MONTH, "{} s, {k} a PERIOD", c.period);
+    println!("Callisto: period {:.0} s ({:.2} h of play, {k} a PERIOD; Kepler {kepler:.0} s), sphere {:.0} m", c.period, c.period / 3600.0, w.soi(4));
+    // Luna keeps her month and her pose to the bit
+    assert_eq!(w.bodies[1].period.to_bits(), MONTH.to_bits());
+    for t in [0.0, 12_345.678, 7.7e6] {
+        assert_eq!(w.pose(1, t), w.sky.moon(t));
+    }
+    // posed on the giant: always its orbit from it, the giant's way round the sun carrying it
+    let to_giant = |t: f64| {
+        let (pc, pj) = (w.pose(4, t), w.pose(3, t));
+        (pc.rot.inverse() * (pj.centre - pc.centre).normalize(), (pj.centre - pc.centre).length(), pj.centre)
+    };
+    let (face0, _, at0) = to_giant(0.0);
+    for s in 0..=24 {
+        let t = c.period * s as f64 / 24.0;
+        let (face, d, _) = to_giant(t);
+        assert!((d / c.orbit - 1.0).abs() < 1e-9, "at {t}: {d} m from the giant");
+        assert!(face.distance(face0) < 1e-9 && face.dot(DVec3::NEG_X) > 0.999_999, "the same face to the giant: {face:?}");
+    }
+    let (_, d, at) = to_giant(1.0e7);
+    assert!(at.distance(at0) > 100.0 * c.orbit && (d / c.orbit - 1.0).abs() < 1e-9, "it follows the giant round the sun");
+    // its sphere: Laplace's rule against the giant, well inside the giant's, many of its own radii
+    let laplace = c.orbit * (c.interior.mass / j.interior.mass).powf(0.4);
+    assert_eq!(w.soi(4).to_bits(), laplace.to_bits());
+    assert!(c.orbit + w.soi(4) < w.soi(3) && w.soi(4) > 5.0 * c.radius, "{} m in the giant's {} m", w.soi(4), w.soi(3));
+    // a point over its ground is its frame's, from the inertial frame or the giant's
+    let t = w.time;
+    let up = DVec3::new(0.3, 0.8, -0.5).normalize();
+    let x = w.pose(4, t).to_inertial(c.centre, c.centre + up * (c.radius + 500.0));
+    assert_eq!(w.locate(x).1, 4);
+    let (mut pos, mut vel) = (w.from_inertial(3, x), DVec3::ZERO);
+    assert!(w.reframe(&mut pos, &mut vel).is_some() && w.frame_at(pos) == 4, "handed from the giant's frame to its moon's");
+    assert!((pos - (c.centre + up * (c.radius + 500.0))).length() < 1e-3);
+    // its pull: its own, light (its ice), and no field
+    let mean = c.interior.mass / (4.0 / 3.0 * std::f64::consts::PI * c.radius.powi(3));
+    let (gc, gl) = (w.surface_g(4), w.surface_g(1));
+    assert!(mean < 2000.0 && gc < 0.5 * gl && w.field(4) == 0.0, "mean {mean:.0} kg/m3, g {gc:.3} against Luna's {gl:.3}");
+    let g = w.gravity(c.centre + up * (c.radius + 1.0));
+    assert!(g.normalize().dot(-up) > 0.999 && (g.length() / gc - 1.0).abs() < 0.01, "{} against {gc}", g.length());
+    println!("Callisto: radius {:.0} m, mean density {mean:.0} kg/m3, g {gc:.3} m/s2 (Luna {gl:.3}, Terra {:.3}), field {}", c.radius, w.surface_g(0), w.field(4));
+    println!("the giant from its ground: {:.2} degrees across", 2.0 * (j.radius / (c.orbit - c.radius)).asin().to_degrees());
+}
+
 /// Terra and Luna pose to the bit as the sky had them before the rows named parents.
 #[test]
 fn terra_and_luna_pose_as_the_sky_does() {

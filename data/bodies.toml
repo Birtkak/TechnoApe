@@ -21,8 +21,9 @@
 # `day` (a body that circles the sun, not home): its sidereal day in the home's days; none: it does not turn.
 # `colour`: its point of light's when its disc is under a pixel (sky.rs `point_light`; grey if left out).
 # What a body is made of (planet-model.md; its interior, crates/engine/src/interior.rs, is derived from these and
-# its radius): `kind` rocky or gas (icy is not built yet; a gas row has no `ground`, `generator` or `stages`, and
-# its `iron`, `heat` and `density` are its conducting fluid's, as its row says); `iron` the metal core's radius over the body's;
+# its radius): `kind` rocky, icy or gas (a gas row has no `ground`, `generator` or `stages`, and its `iron`, `heat`
+# and `density` are its conducting fluid's, as its row says; an icy row's are a rock core's under ice and rock, and
+# its crust bakes on ice, bake/icy.rs); `iron` the metal core's radius over the body's;
 # `heat` how hot the inside still is, 0 dead (the core all solid) to 1 young (all liquid), the solid inner core's
 # radius being 1 - heat of the core's; `density` the crust's rock, the mantle's and the core's metal, kg/m3.
 # `weight_g`: the pull the weight of its rock is reckoned with, m/s^2, where it is not the body's own.
@@ -122,3 +123,28 @@ heat = 0.9
 # the molecular gas's, again, and the fluid's (the core reckoned at the fluid's): a mean of 1114 kg/m3 (the real
 # one's 1326), so 300.7 Terra masses in 11 radii
 density = [500.0, 500.0, 1700.0]
+
+# The giant's icy moon (planet-model.md step 6c; the working name is the developer's to change), in the worlds of
+# generation 7 on: an old, dark, heavily cratered world of ice and rock, airless, its face to the giant, which hangs
+# 4.4 degrees wide in its sky. Luna's family of stages on ice (bake/icy.rs): the old crust; the impacts, with two
+# multi-ring basins whose middles the ice flowed flat; the polar frost. No volcanism.
+[[body]]
+name = "Callisto"
+parent = "Jupiter"
+since = 7
+stages = ["crust", "impacts", "ice"]
+# a little under Luna: 6144 / 4 is 1536 columns, 48 chunks (3 x 16, as Terra's 192 are 3 x 64); 1061 m in radius
+size = 4.0
+# the real one's 26.3 giant radii: 1.23 Mm out, far over the cloud tops, well inside the giant's 7.49 Mm sphere
+orbit = 26.3
+generator = "hills"
+ground = ["dark lag", "dusty ice", "ice"]
+air = false
+# its point of light: a dark grey-brown
+colour = [0.42, 0.38, 0.34]
+kind = "icy"
+# a rock core to half the radius under a mantle of ice and rock and a crust of dirty ice (the real one is only partly
+# differentiated, a mean of 1834 kg/m3); stone cold, all solid: no field
+iron = 0.5
+heat = 0.0
+density = [950.0, 1700.0, 3000.0]

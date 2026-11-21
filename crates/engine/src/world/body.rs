@@ -133,9 +133,9 @@ impl Body {
     }
     /// Luna on its bake (ADR 0070): the map's heights and kinds as a baked planet's, no sea, and its lava
     /// tubes as caves. A planet's crust (Mars, `bake::mars`) the same, without caves: its marked tubes wait for
-    /// its rock provinces.
+    /// its rock provinces; an icy body's (`bake::icy`) too.
     pub fn with_luna(self, map: Arc<Map>) -> Self {
-        if map.version == crate::bake::mars::VERSION {
+        if map.version == crate::bake::mars::VERSION || map.version == crate::bake::icy::VERSION {
             return self.with_map(map);
         }
         let mut b = self.with_map(map.clone());

@@ -27,13 +27,15 @@ pub struct Planet {
     pub name: String,
     /// How old its surface is, 0..1: the share of the impacts' power law it has collected (Luna's highlands 1).
     pub age: f64,
+    /// An icy body's crust (step 6c, `bake::icy`: Luna's stages on ice, its own kinds) in place of a planet's.
+    pub icy: bool,
 }
 
 impl Bake {
     /// This bake's map of a world: from memory, the disk or baked now.
     pub fn get(&self, seed: i32, n: i32) -> std::sync::Arc<crate::bake::Map> {
         if let Some(p) = &self.2 {
-            return crate::bake::mars::get(&self.0, seed, n, p);
+            return crate::bake::mars::get(&self.0, seed, n, p, self.1);
         }
         match &self.0[..] {
             s if s == Stage::TERRA => crate::bake::get(seed, n),
@@ -65,7 +67,11 @@ impl Bake {
     }
     /// This bake's map version, for a message.
     pub fn version(&self) -> u32 {
-        if self.0[0] == Stage::Plates { crate::bake::VERSION } else if self.2.is_some() { crate::bake::mars::VERSION } else { crate::bake::luna::VERSION }
+        match &self.2 {
+            _ if self.0[0] == Stage::Plates => crate::bake::VERSION,
+            Some(p) => crate::bake::mars::version(p),
+            None => crate::bake::luna::VERSION,
+        }
     }
     /// Whether it bakes on plates (Terra's kind of map, with a sea); else an airless crust's (Luna's).
     pub fn plates(&self) -> bool {
@@ -232,6 +238,13 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
             (Some(_), Some(o), m) if o > 1.0 => Some((o, m.unwrap_or(0.0))),
             _ => return Err(format!("body '{}': needs an orbit over 1 radius of its parent", r.name)),
         };
+        // its ground clear of its parent's (radii in the home's: a size is the home's radius over the body's)
+        if let (Some(p), Some((o, _)), Some(k)) = (parent, orbit, r.size) {
+            // (grounds that just touch pass: the ice stage's test sets a moon of its parent's size at 2 radii)
+            if (o - 1.0) / rows[p].size.unwrap_or(1.0) < 1.0 / k {
+                return Err(format!("body '{}': its ground would be inside its parent '{}' at an orbit of {o} of its radii", r.name, rows[p].name));
+            }
+        }
         let makeup = Makeup { kind: r.kind, iron: r.iron, heat: r.heat, density: r.density, weight_g: r.weight_g };
         check(&makeup).map_err(|e| format!("body '{}': {e}", r.name))?;
         // gas has no blocks (step 6a): no ground, generator or bake; a rocky body has its ground
@@ -259,15 +272,37 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
         if let Some(s) = &r.stages {
             crate::bake::check(s, parent.is_some()).map_err(|e| format!("body '{}': {e}", r.name))?;
         }
+        // an icy body's crust (`bake::icy`, step 6c): Luna's stages on ice, with no lava to flood it
+        let icy = r.kind == Kind::Icy && r.stages.is_some();
+        match &r.stages {
+            Some(s) if icy && s[0] != Stage::Crust => return Err(format!("body '{}': an icy body bakes on a 'crust', not on plates", r.name)),
+            Some(s) if icy && s.contains(&Stage::Volcanism) => return Err(format!("body '{}': stage 'volcanism' is not built yet on an icy crust", r.name)),
+            _ => {}
+        }
         // a planet's crust (`bake::mars`) reads its surface's age; no other bake does
-        let planet = r.stages.as_ref().is_some_and(|s| s[0] == Stage::Crust) && parent.is_none();
+        let planet = r.stages.as_ref().is_some_and(|s| s[0] == Stage::Crust) && parent.is_none() && !icy;
         let planet = match (planet, r.age.unwrap_or(1.0)) {
-            (true, a) if a > 0.0 && a <= 1.0 => Some(Planet { name: r.name.clone(), age: a }),
+            (true, a) if a > 0.0 && a <= 1.0 => Some(Planet { name: r.name.clone(), age: a, icy: false }),
             (true, a) => return Err(format!("body '{}': age {a} is the share of the craters its surface has collected, over 0 and at most 1", r.name)),
             (false, _) if r.age.is_some() => return Err(format!("body '{}': age is read only by a planet's crust (stages starting with 'crust' on a body that circles the sun)", r.name)),
+            // kept by its row's name and hash as a planet's map is (`mars::file`), baked on ice
+            _ if icy => Some(Planet { name: r.name.clone(), age: 1.0, icy: true }),
             _ => None,
         };
-        rows.push(Row { name: r.name, parent, home: r.home, bake: r.stages.map(|s| Bake(s, crate::bake::luna::sun_high(r.size, orbit), planet)), words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator.unwrap_or(Generator::Hills), ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup, since: r.since, day: r.day, colour: r.colour.unwrap_or([0.7; 3]) });
+        // the sun at its highest over its equator (`luna::sun_high`): a moon of a body that is not the home sees the
+        // home's moon's sun disc smaller by its system's distance from the sun over the home's
+        let mut top = parent;
+        while let Some(q) = top.and_then(|p| rows[p].parent) {
+            top = Some(q);
+        }
+        let high = match top.filter(|&t| t != 0) {
+            Some(t) => {
+                let far = rows[0].sun.unwrap_or(1.0) / (rows[t].sun.unwrap_or(1.0) / rows[t].size.unwrap_or(1.0));
+                crate::sky::INCLINATION + (crate::bake::luna::sun_high(None, None) - crate::sky::INCLINATION) * far
+            }
+            None => crate::bake::luna::sun_high(r.size, orbit),
+        };
+        rows.push(Row { name: r.name, parent, home: r.home, bake: r.stages.map(|s| Bake(s, high, planet)), words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator.unwrap_or(Generator::Hills), ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup, since: r.since, day: r.day, colour: r.colour.unwrap_or([0.7; 3]) });
     }
     if moon(&rows).is_none() {
         return Err(format!("body '{}': the home body needs a moon (its first sizes the sun)", rows[0].name));
@@ -309,9 +344,6 @@ pub fn sizes(rows: &[Row], planet_n: i32, moon_n: i32) -> Vec<i32> {
 /// top over the radius, `heat` leaves its solid core 1 - heat of that, and `density` is the gas's, the gas's and
 /// the fluid's (the core reckoned at the fluid's): its mass follows from them as a rocky body's does.
 fn check(m: &Makeup) -> Result<(), String> {
-    if m.kind == Kind::Icy {
-        return Err("kind 'icy' is not built yet (rocky and gas only)".into());
-    }
     if !(m.iron > 0.0 && m.iron < 1.0) {
         return Err(format!("iron {} is the core's radius over the body's, over 0 and under 1", m.iron));
     }
@@ -362,12 +394,12 @@ mod tests {
     #[test]
     fn the_data_file_has_terra_luna_and_mars() {
         let names: Vec<&str> = BODIES.iter().map(|r| r.name.as_str()).collect();
-        assert_eq!(names, ["Terra", "Luna", "Mars", "Jupiter"]);
-        // a world of generation 4 or before has the first two, from 5 Mars too, from 6 the giant (ADR 0160's rule: old
-        // worlds as they were)
-        assert_eq!([0, 4, 5, 6].map(|g| of(g).len()), [2, 2, 3, 4]);
-        assert_eq!(BODIES.iter().map(|r| r.since).collect::<Vec<_>>(), [0, 0, 5, 6]);
-        assert!(known_bodies(2, 4).is_ok() && known_bodies(3, 5).is_ok() && known_bodies(4, 6).is_ok());
+        assert_eq!(names, ["Terra", "Luna", "Mars", "Jupiter", "Callisto"]);
+        // a world of generation 4 or before has the first two, from 5 Mars too, from 6 the giant, from 7 its icy moon
+        // (ADR 0160's rule: old worlds as they were)
+        assert_eq!([0, 4, 5, 6, 7].map(|g| of(g).len()), [2, 2, 3, 4, 5]);
+        assert_eq!(BODIES.iter().map(|r| r.since).collect::<Vec<_>>(), [0, 0, 5, 6, 7]);
+        assert!(known_bodies(2, 4).is_ok() && known_bodies(3, 5).is_ok() && known_bodies(4, 6).is_ok() && known_bodies(5, 7).is_ok());
         assert!(known_bodies(3, 6).unwrap_err().contains("the server has 3 bodies, this game 4"));
         let e = known_bodies(2, 5).unwrap_err();
         assert!(e.contains("the server has 2 bodies, this game 3") && e.contains("update the game"), "{e}");
@@ -378,7 +410,7 @@ mod tests {
         assert_eq!(two[1].ground[0], BLOCKS.id("regolith"));
         assert_eq!(two.iter().map(|r| (r.parent, r.home, r.bake.as_ref().map(|b| b.0.clone()))).collect::<Vec<_>>(), [(None, true, Some(Stage::TERRA.to_vec())), (Some(0), false, Some(Stage::LUNA.to_vec()))]);
         assert_eq!((moon(two), sizes(two, 1536, 512), moon_columns(6144)), (Some(1), vec![1536, 512], 1664));
-        assert_eq!(sizes(&BODIES, 6144, 1664), [6144, 1664, 3328, 67584]);
+        assert_eq!(sizes(&BODIES, 6144, 1664), [6144, 1664, 3328, 67584, 1536]);
         assert_eq!((two[0].n, two[1].n), (6144, 1664), "6144 / 3.7 is 1660.5: 52 chunks");
         assert_eq!((find("home"), find("TERRA"), find("luna"), find("sun")), (Some(0), Some(0), Some(1), None));
         assert_eq!((find("planet"), find("moon")), (None, None), "the bodies go by their names (bugs/2026-11-11_13-10-42)");
@@ -469,7 +501,7 @@ mod tests {
         }
         assert!(stages("[\"crust\", \"impacts\", \"age\"]").is_err(), "no stage 'age'");
         let ok = planet("stages = [\"crust\", \"impacts\", \"volcanism\", \"erosion\", \"ice\"]\nage = 0.5\n").unwrap();
-        assert_eq!(ok[2].bake.as_ref().unwrap().2, Some(Planet { name: "D".into(), age: 0.5 }));
+        assert_eq!(ok[2].bake.as_ref().unwrap().2, Some(Planet { name: "D".into(), age: 0.5, icy: false }));
         assert_eq!(planet("stages = [\"crust\", \"impacts\"]\n").unwrap()[2].bake.as_ref().unwrap().2.as_ref().map(|p| p.age), Some(1.0), "an age of 1 when not given");
         // a moon's crust is Luna's kind: no age, no planet
         assert_eq!(stages("[\"crust\", \"impacts\"]").unwrap()[1].bake.as_ref().unwrap().2, None);
@@ -485,7 +517,7 @@ mod tests {
         assert_eq!(m.n / crate::world::CS, 104, "13 x 8 chunks, as Luna's 52 are 13 x 4");
         let b = m.bake.as_ref().unwrap();
         assert_eq!(b.0, [Stage::Crust, Stage::Impacts, Stage::Volcanism, Stage::Erosion, Stage::Ice]);
-        assert_eq!(b.2, Some(Planet { name: "Mars".into(), age: 1.0 }));
+        assert_eq!(b.2, Some(Planet { name: "Mars".into(), age: 1.0, icy: false }));
         assert_eq!(b.version(), crate::bake::mars::VERSION);
         assert_eq!((m.makeup.kind, m.makeup.iron, m.makeup.heat, m.makeup.density), (Kind::Rocky, 0.5, 0.15, [2900.0, 3500.0, 6700.0]));
         assert_eq!(m.sun, Some(1.5 * 23500.0 * 1.85), "1.5 AU in its radii");
@@ -498,7 +530,7 @@ mod tests {
         let j = &BODIES[3];
         assert_eq!((j.name.as_str(), j.parent, j.home, j.since, j.bake.is_none()), ("Jupiter", None, false, 6, true));
         assert_eq!(j.makeup.kind, Kind::Gas);
-        assert!(j.gas() && !BODIES[..3].iter().any(Row::gas));
+        assert!(j.gas() && !BODIES[..3].iter().any(Row::gas) && !BODIES[4].gas());
         assert_eq!(j.n, 6144 * 11, "11 Terra radii");
         assert_eq!(j.sun, Some(5.0 * 23500.0 / 11.0), "5 AU in its radii");
         assert_eq!(j.day, Some(0.4), "a day of 0.4 Terra's (the real one's 10 hours)");
@@ -507,6 +539,57 @@ mod tests {
         // the colours its point of light shines in (and the others')
         assert!(BODIES.iter().all(|r| r.colour.iter().all(|c| (0.0..=1.0).contains(c))));
         assert!(BODIES[2].colour[0] > BODIES[2].colour[2] && BODIES[0].colour[2] > BODIES[0].colour[0], "red Mars, blue Terra");
+    }
+
+    /// The giant's icy moon (planet-model.md step 6c): the first body whose parent is neither the sun nor the home and
+    /// the first of kind icy, in the worlds of generation 7 on; its map named by its row and hash as Mars's is, baked
+    /// on ice (`bake::icy`), under a sun five times farther than the home's moon's.
+    #[test]
+    fn the_icy_moon_row_parses_and_is_the_giants() {
+        let c = &BODIES[4];
+        assert_eq!((c.name.as_str(), c.parent, c.home, c.since, c.makeup.kind), ("Callisto", Some(3), false, 7, Kind::Icy));
+        assert_eq!((c.n, c.n / crate::world::CS, c.orbit, c.size), (1536, 48, Some((26.3, 0.0)), Some(4.0)));
+        assert_eq!([4, 5, 6, 7].map(|g| of(g).len()), [2, 3, 4, 5], "a world of generation 6 has four bodies, of 7 five");
+        assert!(known_bodies(5, 7).is_ok() && known_bodies(4, 7).is_err());
+        assert_eq!(find("callisto"), Some(4));
+        assert_eq!(moon(&BODIES), Some(1), "the home's moon is still Luna");
+        assert_eq!(sizes(&BODIES, 6144, 1664), [6144, 1664, 3328, 67584, 1536]);
+        let b = c.bake.as_ref().unwrap();
+        assert_eq!(b.0, [Stage::Crust, Stage::Impacts, Stage::Ice]);
+        assert_eq!(b.2, Some(Planet { name: "Callisto".into(), age: 1.0, icy: true }));
+        assert_eq!(b.version(), crate::bake::icy::VERSION);
+        assert!(b.file(1, 1536).to_str().unwrap().contains("-callisto-"), "named by its row: {:?}", b.file(1, 1536));
+        // the sun at its highest over its equator: the orbit's tilt and the sun's disc, five times smaller than from
+        // the home's moon (the giant's 5 AU), not the disc of a sun at Luna's distance
+        let luna = BODIES[1].bake.as_ref().unwrap().1;
+        let disc = luna - crate::sky::INCLINATION;
+        assert!((b.1 - crate::sky::INCLINATION - disc / 5.0).abs() < 1e-9, "{} against {}", b.1, crate::sky::INCLINATION + disc / 5.0);
+    }
+
+    /// A moon of a parent that is not the home (step 6c): accepted with Luna's family of stages; refused, saying so,
+    /// when its parent is a later row or itself, when it would lie inside its parent, or when an icy crust lists
+    /// volcanism.
+    #[test]
+    fn a_moon_of_another_parent_is_accepted_and_bad_ones_refused() {
+        let rocky = "generator = \"hills\"\nground = [\"stone\", \"stone\", \"stone\"]\n";
+        let home = format!("[[body]]\nname = \"A\"\nparent = \"sun\"\nhome = true\nn = 512\n{rocky}air = false\nsun = 100.0\n{MAKEUP}[[body]]\nname = \"B\"\nparent = \"A\"\norbit = 3.0\nsize = 4.0\n{rocky}air = false\n{MAKEUP}");
+        let giant = format!("{home}[[body]]\nname = \"G\"\nparent = \"sun\"\nsun = 300.0\nsize = 0.5\nair = false\nkind = \"gas\"\niron = 0.8\nheat = 0.9\ndensity = [500.0, 500.0, 1700.0]\n");
+        let icy = "kind = \"icy\"\niron = 0.5\nheat = 0.0\ndensity = [950.0, 1700.0, 3000.0]\n";
+        let moon = |name: &str, extra: &str| format!("[[body]]\nname = \"{name}\"\n{rocky}air = false\n{icy}{extra}");
+        let ok = parse(&format!("{giant}{}", moon("C", "parent = \"G\"\norbit = 10.0\nsize = 8.0\nstages = [\"crust\", \"impacts\", \"ice\"]\n"))).unwrap();
+        assert_eq!((ok[3].parent, ok[3].makeup.kind, ok[3].n), (Some(2), Kind::Icy, 64));
+        assert_eq!(ok[3].bake.as_ref().unwrap().2, Some(Planet { name: "C".into(), age: 1.0, icy: true }));
+        for (bad, says) in [
+            (format!("{home}{}{giant_row}", moon("C", "parent = \"G\"\norbit = 10.0\nsize = 8.0\n"), giant_row = &giant[home.len()..]), "its parent 'G' is not a row above it"),
+            (format!("{giant}{}", moon("C", "parent = \"C\"\norbit = 10.0\nsize = 8.0\n")), "its parent 'C' is not a row above it"),
+            // the giant is 2 home radii, the moon an eighth of one: 1.05 of the giant's radii is 0.1 over its cloud tops
+            (format!("{giant}{}", moon("C", "parent = \"G\"\norbit = 1.05\nsize = 8.0\n")), "inside its parent"),
+            (format!("{giant}{}", moon("C", "parent = \"G\"\norbit = 10.0\nsize = 8.0\nstages = [\"crust\", \"impacts\", \"ice\", \"volcanism\"]\n")), "'volcanism' is not built yet on an icy crust"),
+            (format!("{giant}{}", moon("C", "parent = \"G\"\norbit = 10.0\nsize = 8.0\nstages = [\"crust\", \"impacts\"]\nage = 0.5\n")), "age is read only by a planet's crust"),
+        ] {
+            let e = parse(&bad).expect_err(says);
+            assert!(e.contains(says) && e.contains("body 'C'"), "{says}: {e}");
+        }
     }
 
     #[test]
@@ -588,7 +671,6 @@ mod tests {
             (with("7900.0", "90000.0"), "a core of neutron star", "density"),
             (with("2700.0, ", ""), "two densities", "density"),
             (format!("{}weight_g = -1.0\n", row(MAKEUP)), "a pull upward", "weight_g"),
-            (with("rocky", "icy"), "icy is not built", "not built yet"),
             (with("rocky", "cheese"), "no such kind", "kind"),
         ] {
             let e = parse(&bad).expect_err(why);
