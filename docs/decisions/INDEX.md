@@ -183,3 +183,4 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0172 | The swing's numbers in a data file | [items-and-crafting.md](items-and-crafting.md) - The swing's numbers in a data file | in force |
 | 0173 | Mars is a body in the world | [bodies-and-orbits.md](bodies-and-orbits.md) - Mars is a body in the world | in force |
 | 0174 | A gas giant, and far bodies as points of light | [bodies-and-orbits.md](bodies-and-orbits.md) - A gas giant, and far bodies as points of light | in force |
+| 0175 | Sixteen bodies, loaded on approach | [bodies-and-orbits.md](bodies-and-orbits.md) - Sixteen bodies, loaded on approach | in force |

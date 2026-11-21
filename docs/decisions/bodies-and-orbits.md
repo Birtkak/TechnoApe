@@ -223,7 +223,7 @@ calls: gas planets after Mars; a gas planet "can be entered and has a solid core
   stream keeps Mars's coarse chunks though it is a point: the "Mars a body" row); 0164's curtains on any body but the
   home; a second gas body drawn; the giant casting a shadow on the sky (its eclipses of the sun for its moons).
 
-### Sixteen bodies, loaded on approach [draft, 2026-11-21]
+### Sixteen bodies, loaded on approach [0175, 2026-11-21]
 A world holds up to **16 bodies** (`bodies::MAX`, `gpu::MAX_BODIES`, shader_vertex.wgsl `MAX_BODIES`; a 17th row is
 refused with "17 bodies; a world holds at most 16"), and a far block body costs next to nothing until it is near.
 - **Where a body's number lives now** (no word grew, nothing on disk or the wire changed): a chunk's info word had
