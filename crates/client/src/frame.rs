@@ -30,6 +30,62 @@ fn quad_draws(out: &mut Vec<(f32, DrawIndexed)>, key: f32, first: u32, n: u32, c
 }
 
 impl App {
+    /// Step 6b: the bodies loaded on approach. Those done go in; each in `want` (`Streamer::seen`) starts loading
+    /// on a thread of its own; one in that the streamer has let go (under `OUT_PX`, the camera not in its frame)
+    /// goes out, its map and tables freed once no mesh job holds them.
+    fn bodies_in(&mut self, want: &[usize]) {
+        let mut done = Vec::new();
+        self.body_loads.0.retain(|(b, rx)| match rx.try_recv() {
+            Ok(r) => {
+                done.push((*b, r));
+                false
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => true,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                done.push((*b, Err("its loader stopped".into())));
+                false
+            }
+        });
+        for (b, r) in done {
+            match r {
+                Ok(body) => self.world.put(b, body),
+                Err(e) => {
+                    eprintln!("[technoape] {}: {e}", self.world.bodies[b].name);
+                    self.body_loads.1.push(b);
+                }
+            }
+        }
+        for &b in want {
+            let (loads, failed) = &mut self.body_loads;
+            if failed.contains(&b) || loads.iter().any(|l| l.0 == b) {
+                continue;
+            }
+            let Some(load) = self.world.loader(b) else { continue };
+            let (tx, rx) = std::sync::mpsc::channel();
+            let name = self.world.bodies[b].name.clone();
+            std::thread::Builder::new()
+                .name(format!("load {name}"))
+                .spawn(move || {
+                    let t = Instant::now();
+                    let r = load();
+                    eprintln!("[technoape] {name} loaded in {:.2} s", t.elapsed().as_secs_f64());
+                    let _ = tx.send(r);
+                })
+                .expect("a thread to load a body on");
+            loads.push((b, rx));
+            // (arrived before its ground: a line says why the ground is not drawn yet, some tenths of a second)
+            if self.world.frame_at(self.cam.0) == b {
+                let line = format!("loading {}'s ground", self.world.bodies[b].name);
+                self.note(line);
+            }
+        }
+        let cf = self.world.frame_at(self.cam.0);
+        for b in 0..self.world.bodies.len() {
+            if self.world.lazy[b].is_some() && self.world.loaded(b) && !self.streamer.on[b] && cf != b && !want.contains(&b) {
+                self.world.unload(b);
+            }
+        }
+    }
     /// The Vegetation setting (ADR 0091), or a run's vegetation=few|normal|many: 0, 1 or 2.
     pub(crate) fn vegetation(&self) -> usize {
         self.args.0.get("vegetation").and_then(|v| ["few", "normal", "many"].iter().position(|n| n == v)).unwrap_or(self.settings.at(S::Vegetation)).min(2)
@@ -577,6 +633,10 @@ impl App {
             });
         }
         lap!("edits");
+        // the bodies this place streams by their size on screen (step 6b): one wanted whose ground is not in loads
+        // on a thread of its own, one left far behind goes out (before the apply, so a body let go gives its room back)
+        let want = self.streamer.seen(&self.world, &View::new(p.pos, [Vec4::ZERO; 6], &self.world), (self.fov() as f64).to_radians() / h() as f64);
+        self.bodies_in(&want);
 
         let gpu = self.gpu.as_ref().unwrap();
         let mut st = FrameStats::default();
@@ -966,7 +1026,8 @@ impl App {
         }
         // the far bodies as points, the giant's disc (step 6a)
         let px = (self.fov() as f64).to_radians() / h() as f64;
-        (g.far, g.gas, g.gas2) = far_lights(&self.world, self.world.to_inertial(p.pos), sky_c, px, &g.bodies, &frustum_planes(vp), field_scale(&self.args));
+        let held: Vec<bool> = (0..self.world.bodies.len()).map(|b| self.world.lazy[b].is_some() && !self.streamer.ready(b)).collect();
+        (g.far, g.gas, g.gas2) = far_lights(&self.world, self.world.to_inertial(p.pos), sky_c, px, &g.bodies, &frustum_planes(vp), field_scale(&self.args), &held);
         gpu.take_textures();
         // the players' bodies in the traced scene (ADR 0119): this one's while playing, the roster's near, and
         // `bodies=n` more round the camera for a measure or a still; `proxy=0` none
@@ -1556,7 +1617,7 @@ pub(crate) fn field_scale(args: &Args) -> f64 {
 /// `sky_c`); the giant's slot only while its disc is a pixel or more, in the frustum and not wholly behind a body,
 /// so the shader skips it otherwise. `px` a pixel's angle, `bodies` this frame's slots, `planes` the camera-centred
 /// frustum, `field` the `field=` scale.
-pub(crate) fn far_lights(world: &World, eye: DVec3, sky_c: Vec3, px: f64, bodies: &[BodyGpu], planes: &[Vec4; 6], field: f64) -> ([[f32; 4]; MAX_BODIES], [f32; 4], [f32; 4]) {
+pub(crate) fn far_lights(world: &World, eye: DVec3, sky_c: Vec3, px: f64, bodies: &[BodyGpu], planes: &[Vec4; 6], field: f64, held: &[bool]) -> ([[f32; 4]; MAX_BODIES], [f32; 4], [f32; 4]) {
     let t = world.time;
     let sun = world.sky.sun(t);
     let balls: Vec<(DVec3, f64)> = (0..world.bodies.len()).map(|i| (world.pose(i, t).centre, world.bodies[i].radius)).collect();
@@ -1571,7 +1632,9 @@ pub(crate) fn far_lights(world: &World, eye: DVec3, sky_c: Vec3, px: f64, bodies
             continue;
         }
         let phase = (sun - c).normalize().dot((eye - c).normalize());
-        let b = engine::sky::point_light(r, dist, home_sun / (c - sun).length(), phase, px, dark);
+        // a body `held` (loaded on approach, its ground not yet drawn whole: step 6b) keeps its whole point, as if
+        // its disc were under a pixel, so no frame shows neither
+        let b = engine::sky::point_light(r, dist, home_sun / (c - sun).length(), phase, if held.get(i) == Some(&true) { f64::INFINITY } else { px }, dark);
         let col = engine::bodies::BODIES[i].colour;
         far[i] = [col[0] * b as f32, col[1] * b as f32, col[2] * b as f32, 0.0];
         if world.bodies[i].gas {

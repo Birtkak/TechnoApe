@@ -881,7 +881,7 @@ mod tests {
         // nothing moves with her spawn
         let (ores, caves) = (b.ores.clone(), b.caves.clone());
         let seed = b.baked_seed().unwrap();
-        let spawn = &mut Arc::get_mut(&mut w.bodies).unwrap()[luna].spawn;
+        let spawn = &mut w.body_mut(luna).spawn;
         *spawn = -*spawn;
         let b = &w.bodies[luna];
         assert_eq!(crate::ore::place(b, seed), ores, "her ores with her spawn moved");

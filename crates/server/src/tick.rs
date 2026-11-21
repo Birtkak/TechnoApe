@@ -16,6 +16,7 @@ impl Server {
             }
             self.send_sky();
         }
+        self.bodies_in();
         if self.tick == 0 {
             let start = Ev::Start { bodies: self.bodies(), seed: self.seed, dt: self.dt };
             self.log(start);
@@ -31,6 +32,7 @@ impl Server {
             if let Some(b) = self.herds_loaded.take() {
                 self.log(Ev::Herds(b));
             }
+            self.log(Ev::Lazy);
         }
         // the player list changed this tick (a join, a name, a leave): it is sent only then
         let mut roster = false;
@@ -288,11 +290,11 @@ impl Server {
                     // each map once a connection: asked again while (or after) it goes, the ask is ignored
                     Recv::Msg(ToServer::Map(h)) if self.clients[i].maps.contains(&h) => {}
                     Recv::Msg(ToServer::Map(h)) => {
-                        if let Some(m) = self.world.bodies.iter().filter_map(|b| b.map()).find(|m| m.hash == h) {
-                            self.clients[i].maps.push(h);
-                            for p in self.map_pieces.entry(h).or_insert_with(|| engine::net::map_pieces(m)) {
-                                self.clients[i].link.send(p.clone());
-                            }
+                        if (0..self.world.bodies.len()).any(|b| !self.world.loaded(b) && self.world.map_hash(b) == Some(h)) {
+                            // a body not in yet: sent once it is (`lazy.rs`)
+                            self.loads.maps.push((self.clients[i].player.id, h));
+                        } else {
+                            self.send_map(i, h);
                         }
                     }
                     Recv::Empty => break,

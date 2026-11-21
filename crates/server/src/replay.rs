@@ -86,6 +86,12 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
         }
     };
     s.dt = dt;
+    // a recording from before bodies came in on approach had them all from the start (step 6b)
+    if evs.iter().any(|e| matches!(e, Ev::Lazy)) {
+        s.loads.replaying = true;
+    } else {
+        s.load_all();
+    }
     let mut links: HashMap<u32, Link<ToServer, ToClient>> = HashMap::new();
     let until = until.unwrap_or(u64::MAX);
     let mut r = Replayed { server: s, checks: 0, diverged: None };
@@ -99,7 +105,8 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
     };
     for ev in rest {
         let t = match ev {
-            Ev::Join { tick, .. } | Ev::Msg { tick, .. } | Ev::Leave { tick, .. } | Ev::Check { tick, .. } => *tick,
+            Ev::Join { tick, .. } | Ev::Msg { tick, .. } | Ev::Leave { tick, .. } | Ev::Check { tick, .. } | Ev::Body { tick, .. } => *tick,
+            Ev::Lazy => continue,
             Ev::Start { .. } | Ev::Start21 { .. } | Ev::Loaded(_) | Ev::Loaded21(_) | Ev::Herds(_) | Ev::Mantle | Ev::Gen(_) => return Err(std::io::Error::other("a Start, Loaded, Herds or Mantle past the start")),
         };
         run_to(&mut r.server, &links, t);
@@ -120,6 +127,7 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
             Ev::Leave { id, .. } => {
                 links.remove(id);
             }
+            Ev::Body { body, .. } => r.server.loads.replay.push(*body as usize),
             Ev::Check { tick, hash } => {
                 r.checks += 1;
                 let got = r.server.hash();
@@ -128,7 +136,7 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
                     break;
                 }
             }
-            Ev::Start { .. } | Ev::Start21 { .. } | Ev::Loaded(_) | Ev::Loaded21(_) | Ev::Herds(_) | Ev::Mantle | Ev::Gen(_) => unreachable!(),
+            Ev::Start { .. } | Ev::Start21 { .. } | Ev::Loaded(_) | Ev::Loaded21(_) | Ev::Herds(_) | Ev::Mantle | Ev::Gen(_) | Ev::Lazy => unreachable!(),
         }
     }
     if until != u64::MAX && r.diverged.is_none() {

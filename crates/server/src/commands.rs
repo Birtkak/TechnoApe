@@ -44,7 +44,7 @@ impl Server {
     /// Where /goto takes a player (ADR 0023): Terra's spawn, another body (Luna) where the sun is 45 degrees up,
     /// or a spot in space SUN_VIEW sun radii from the sun's centre with the sun on its horizon; and the way to look.
     /// A body is named by its row in `data/bodies.toml` (Terra or planet, Luna or moon).
-    fn goto(&self, to: &str) -> Option<(DVec3, DVec3)> {
+    pub(super) fn goto(&self, to: &str) -> Option<(DVec3, DVec3)> {
         let w = &self.world;
         match to {
             "sun" => {
@@ -247,6 +247,12 @@ impl Server {
                 let to = w.get(1).map(|s| s.to_lowercase()).unwrap_or_default();
                 if to == "sun" && !self.clients[i].creative {
                     return "the sun is creative's: there is nothing to stand on\n  /playmode creative, then /goto sun".into();
+                }
+                if engine::bodies::find(&to).is_some_and(|b| b < self.world.bodies.len() && !self.world.loaded(b)) {
+                    // its ground comes in first (step 6b, `lazy.rs`): the player goes when it is in
+                    self.loads.gotos.retain(|g| g.0 != self.clients[i].player.id);
+                    self.loads.gotos.push((self.clients[i].player.id, to.clone()));
+                    return format!("going to {}: its ground is loading", self.world.bodies[engine::bodies::find(&to).unwrap()].name);
                 }
                 match self.goto(&to) {
                     Some((p, look)) => {

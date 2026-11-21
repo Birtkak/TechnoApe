@@ -1083,8 +1083,135 @@ mod tests {
     /// Mars's generated blocks at generation 5, locked (as `luna_blocks_hash` locks Luna's).
     #[test]
     fn mars_generates_as_locked() {
+        assert_eq!(format!("{:016x}", blocks_hash(&world())), "3b6b6a314af6caa5");
+    }
+
+    /// Step 6b: Mars loaded on approach is a stub until it is built (no map, heights, caves or ores), and then
+    /// generates bit for bit as one built at the start: the lock above, its ores and ledger, its spawn; out again and
+    /// in again the same.
+    #[test]
+    fn mars_loaded_late_is_mars_from_the_start() {
+        use crate::world::Source;
+        let rows = crate::bodies::of(5);
+        let map = || Arc::new(Map::from_bytes(&shared(1, 832).0.to_bytes()).unwrap());
+        let list = vec![(1536, Source::Now(None)), (32, Source::Now(None)), (832, Source::Later(map().hash))];
+        let mut w = crate::world::World::of_sources(rows, list, 1, 0.0, 5);
+        let eager = world();
+        w.open_ledger();
+        let (stub, all) = (w.ore_left.clone().unwrap(), { let mut e = world(); e.open_ledger(); e.ore_left.unwrap() });
+        assert!(!w.loaded(2) && w.loaded(0) && w.bodies[2].map().is_none() && w.bodies[2].ores.is_empty(), "a stub");
+        assert_eq!(w.map_hash(2), eager.map_hash(2), "the stub says its map");
+        for _ in 0..2 {
+            let b = w.builder(2).expect("a stub has a builder")(map());
+            w.put(2, b);
+            assert!(w.loaded(2) && w.builder(2).is_none());
+            assert_eq!(blocks_hash(&w), blocks_hash(&eager), "generated as at the start");
+            let (a, e) = (&w.bodies[2], &eager.bodies[2]);
+            assert_eq!((a.ores.len(), a.caves.len(), a.spawn, a.sea, a.layers), (e.ores.len(), e.caves.len(), e.spawn, e.sea, e.layers));
+            assert_eq!(w.ore_left.as_ref().unwrap(), &all, "the ledger as opened with Mars in (stub's {} bodies)", stub.len());
+            // (the ledger's world keeps what it loaded: out again only on a client's)
+            w.ore_left = None;
+            w.unload(2);
+            assert!(!w.loaded(2) && w.bodies[2].map().is_none());
+            w.ore_left = Some(stub.clone());
+        }
+    }
+
+    /// Step 6b: from Terra, Mars (a stub) is neither streamed nor asked for: no slot, no map, no tables. A camera
+    /// near enough asks for it; once its ground is put in, its chunks stream until it is drawn with no hole (the
+    /// sky's point held till then); the camera back on Terra drops every chunk of it and their room.
+    #[test]
+    fn mars_streams_only_once_it_is_near() {
+        use crate::stream::{FrameStats, Opts, Streamer, View};
+        use crate::world::Source;
+        let rows = crate::bodies::of(5);
+        let map = Arc::new(Map::from_bytes(&shared(1, 832).0.to_bytes()).unwrap());
+        let list = vec![(1536, Source::Now(None)), (32, Source::Now(None)), (832, Source::Later(map.hash))];
+        let mut w = crate::world::World::of_sources(rows, list, 1, 0.0, 5);
+        let opts = Opts { k: 4.0, greedy: false, cutout: false, horizon: true, prefetch_s: 0.0, max_inflight: 64 };
+        let mut s = Streamer::new(&w, 1 << 22, opts);
+        // (a coarse pixel, so the distances below stay in Mars's frame: 1.5 pixels is some 15 km out)
+        let px = 0.05;
+        let planes = [glam::Vec4::new(0.0, 0.0, 0.0, 1.0); 6];
+        let frames = |s: &mut Streamer, w: &crate::world::World, cam: DVec3, n: usize| {
+            let view = View::new(cam, planes, w);
+            let mut want = Vec::new();
+            for _ in 0..n {
+                let (mut out, mut reqs, mut st) = (Vec::new(), Vec::new(), FrameStats::default());
+                s.apply(usize::MAX, &mut st, |_, _| {});
+                s.frame += 1;
+                want = s.seen(w, &view, px);
+                s.select(w, &view, true, 1.0, &mut out, &mut reqs, &mut st);
+                s.dispatch(w, &mut reqs);
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            want
+        };
+        let terra = w.bodies[0].spawn_point() + w.bodies[0].spawn * 2.0;
+        assert_eq!(frames(&mut s, &w, terra, 50), Vec::<usize>::new(), "Mars is not asked for from Terra");
+        assert!(s.slots_of(0) > 0 && s.slots_of(2) == 0 && !s.ready(2), "Terra streams, Mars does not");
+        // 1.5 pixels across: asked for, not streamed before it is in
+        let (mc, mr) = (w.bodies[2].centre, w.bodies[2].radius);
+        let near = mc + DVec3::Y * (2.0 * mr / (1.5 * px));
+        assert_eq!(frames(&mut s, &w, near, 3), vec![2], "near enough, Mars is asked for");
+        assert_eq!(s.slots_of(2), 0);
+        let b = w.builder(2).unwrap()(map.clone());
+        w.put(2, b);
+        let (mut n, t0) = (0, std::time::Instant::now());
+        while !s.ready(2) {
+            assert!(t0.elapsed().as_secs() < 600, "Mars never drawn whole (its jobs wait behind the bakes of the tests beside it: some minutes)");
+            frames(&mut s, &w, near, 1);
+            n += 1;
+        }
+        let held = s.slots_of(2);
+        assert!(held > 0, "its chunks are in");
+        // between the two thresholds it stays (0.75 px), under OUT_PX it goes
+        let mid = mc + DVec3::Y * (2.0 * mr / (0.75 * px));
+        assert!(frames(&mut s, &w, mid, 5).is_empty() && s.slots_of(2) > 0, "held between the thresholds");
+        let released = s.released.len();
+        frames(&mut s, &w, terra, 5);
+        assert!(s.slots_of(2) == 0 && !s.ready(2), "dropped back on Terra: {} slots", s.slots_of(2));
+        assert!(s.released.len() > released, "its room given back");
+        println!("Mars: {held} slots after {n} frames, all gone on Terra");
+    }
+
+    /// Step 6b: a player near Mars before its ground is in is held where it is, at rest (not dropped through it);
+    /// once Mars is in it falls to the ground as on any body.
+    #[test]
+    fn a_player_near_mars_is_held_until_its_ground_is_in() {
+        use crate::phys::{self, Input, Player};
+        use crate::world::Source;
+        let rows = crate::bodies::of(5);
+        let map = Arc::new(Map::from_bytes(&shared(1, 832).0.to_bytes()).unwrap());
+        let list = vec![(1536, Source::Now(None)), (32, Source::Now(None)), (832, Source::Later(map.hash))];
+        let mut w = crate::world::World::of_sources(rows, list, 1, 0.0, 5);
+        let m = &w.bodies[2];
+        let start = m.centre + DVec3::Y * (m.top(DVec3::Y) + 30.0);
+        let mut p = Player::at(start, DVec3::X);
+        p.vel = DVec3::Y * -20.0;
+        for _ in 0..60 {
+            phys::step(&w, &mut p, &Input::default(), phys::DT);
+        }
+        assert!(p.pos == start && p.vel == DVec3::ZERO, "held: {} m off, {} m/s", p.pos.distance(start), p.vel.length());
+        let b = w.builder(2).unwrap()(map);
+        w.put(2, b);
+        for _ in 0..600 {
+            phys::step(&w, &mut p, &Input::default(), phys::DT);
+        }
+        // the same fall on a Mars built at the start, step for step
+        let eager = world();
+        let mut q = Player::at(start, DVec3::X);
+        for _ in 0..600 {
+            phys::step(&eager, &mut q, &Input::default(), phys::DT);
+        }
+        let m = &w.bodies[2];
+        let over = (p.pos - m.centre).length() - m.top((p.pos - m.centre).normalize());
+        println!("landed {over:.2} m from the top, on ground {}, inside {}", p.on_ground, phys::inside(&w, &p));
+        assert!(p.on_ground && p.pos == q.pos && p.vel == q.vel, "as on Mars from the start: {} m apart", p.pos.distance(q.pos));
+    }
+
+    fn blocks_hash(w: &crate::world::World) -> u64 {
         use crate::world::Block;
-        let w = world();
         let b = &w.bodies[2];
         let n = 832;
         let mut h = crate::world::FNV0;
@@ -1095,6 +1222,6 @@ mod tests {
                 h = crate::world::fnv(h, &w.generated_block(Block { body: 2, face: f, pos: glam::IVec3::new(i, j, z) }).to_le_bytes());
             }
         }
-        assert_eq!(format!("{h:016x}"), "3b6b6a314af6caa5");
+        h
     }
 }

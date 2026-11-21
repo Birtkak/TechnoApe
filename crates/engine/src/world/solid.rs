@@ -3,7 +3,7 @@ use super::*;
 
 /// The solid world as the water sees it (`liquid::Ground`): terrain from the seed plus the edits.
 pub struct Solid<'a> {
-    pub bodies: &'a [Body],
+    pub bodies: &'a [Arc<Body>],
     pub edits: &'a FxMap<Key, FxMap<IVec3, u16>>,
     /// The planet's sea at its tide (ADR 0067): the whole second of world time it was taken at and the tide
     /// then; None, the mean sea.
@@ -13,7 +13,7 @@ pub struct Solid<'a> {
 impl<'a> Solid<'a> {
     /// The solid world of `bodies` and `edits` with the sea at its tide at world time t, taken at the whole
     /// second: generation's water steps once a second (3 mm at most), so the water's caches hold for one.
-    pub fn at(bodies: &'a [Body], edits: &'a FxMap<Key, FxMap<IVec3, u16>>, sky: &Sky, t: f64) -> Solid<'a> {
+    pub fn at(bodies: &'a [Arc<Body>], edits: &'a FxMap<Key, FxMap<IVec3, u16>>, sky: &Sky, t: f64) -> Solid<'a> {
         let s = t.floor();
         let tide = bodies.first().filter(|b| b.sea.is_some()).map(|b| (s as i64, sky.tide(s, &b.ocean)));
         Solid { bodies, edits, tide }

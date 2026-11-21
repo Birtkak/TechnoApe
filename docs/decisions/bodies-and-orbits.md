@@ -214,9 +214,6 @@ calls: gas planets after Mars; a gas planet "can be entered and has a solid core
   sun's disc where it is farther than the sun (the disc too). From
   Terra at night: the giant at opposition 5.4, Mars at opposition 6.1 and at the far side 2.0, against the brightest
   stars' 1.2 to 4.2. A mesh body's disc (Mars, Luna, Terra) is drawn by its chunks once streamed.
-- **The body limit stays four** (`bodies::MAX`, `gpu::MAX_BODIES`): the giant is the fourth. Raising it is more than
-  a constant and a table: the body id rides two bits in every quad, particle and model word (`& 3u`), so a fifth
-  needs those words widened. The giant's moons need that first.
 - **Costs:** see `docs/perf-debt.md` ("A gas giant and far points").
 - **Left** (each its own run): the dive (pressure, heat, wind and gas mix by depth from the interior; hull limits;
   cloud decks to fly through, drawn as volumes; what replaces the floor); the solid core as a block body (a grid
@@ -225,6 +222,65 @@ calls: gas planets after Mars; a gas planet "can be entered and has a solid core
   orbits (its ring, `day` and grid placement are stand-ins); loading block bodies' chunks and maps on approach (the
   stream keeps Mars's coarse chunks though it is a point: the "Mars a body" row); 0164's curtains on any body but the
   home; a second gas body drawn; the giant casting a shadow on the sky (its eclipses of the sun for its moons).
+
+### Sixteen bodies, loaded on approach [draft, 2026-11-21]
+A world holds up to **16 bodies** (`bodies::MAX`, `gpu::MAX_BODIES`, shader_vertex.wgsl `MAX_BODIES`; a 17th row is
+refused with "17 bodies; a world holds at most 16"), and a far block body costs next to nothing until it is near.
+- **Where a body's number lives now** (no word grew, nothing on disk or the wire changed): a chunk's info word had
+  8 bits for it already (`>> 8 & 255`); a particle's info word takes 4 at bits 8-11 (`fx::body_bits`), its look
+  moved to 12-13 and a cube particle's face to its own flat varying (`FxOut::dir`, it had borrowed bits 12-14); a water
+  quad's word 4 at bits 3-6 (`water::info`), its kind to 7-9; the G-buffer's albedo alpha (8-bit) carries it in
+  fifteenths (`gb_alpha`/`gb_body`, exact for 0..15), post.wgsl reads it so. The traced scene's instance mask has
+  8 bits, so bodies take **lanes**: the four nearest bodies with instances get one each (`rt::lanes`; sticky, so a
+  lane never moves while its body stays among the four, and Terra and Luna alone keep the masks 1|16 and 2|32 of
+  before), passed to the shader in `Body.rot1.w`; a body without a lane casts and catches no traced ray (it is the
+  fifth out or farther, a few pixels at most). The shaders' loops over bodies walk the set bits of a mask (eclipses)
+  or stop at the world's body count (`gas2.y`), not at `MAX_BODIES` (that cost 0.3 ms of GPU at stand). Locked by
+  `a_body_past_three_survives_every_packer_and_shader` (the packers' bits for every body 0..15 on the CPU, the
+  shaders' lines read from their text, as 0170 does) and `sixteen_bodies_build_and_a_seventeenth_is_refused`.
+  Options weighed: 8 (3 bits) costs the same words as 16, so 16; a fifth quad word or a wider mask was not needed.
+- **Load on approach** (`World::of_sources`, `Source::Later(hash)`, `world::lazy_row`): a body past the home's first
+  moon with a bake (Mars) starts as a **stub**, the body before its map (grid, orbit, interior: no map, heights,
+  caves, ores). `World::loader(i)` is a `Send` closure that gets the map of the hash (`Bake::for_hash`: memory, disk,
+  or baked again) and runs `World::of`'s own last step on a fresh stub (`Body::on`), so it comes out bit for bit as at
+  the start (`mars_loaded_late_is_mars_from_the_start`: the blocks lock 3b6b6a314af6caa5, spawn, layers; out and in
+  again the same); `put` takes it in (and splices the server's ore ledger), `unload` goes back to the stub.
+  The home and its moon are never lazy: Luna is about 5 pixels across from Terra, so she would stream anyway.
+- **The client** streams a body only while it is at least **1 pixel** across (`stream::IN_PX`) and drops it under
+  **0.5** (`OUT_PX`, the factor two the hysteresis), or while the camera is in its frame (`Streamer::seen`); the home
+  and its moon stream wherever the camera is, as before (dropping Terra's chunks seen from Mars lost the GPU device in
+  a played run, cause not found; Mars's own drop on leaving does not). Otherwise no root of
+  it is walked, and on dropping every slot of it goes, its quad-buffer room and BLAS with it. A body wanted but not
+  in is loaded on a thread of its own (`App::bodies_in`), put in when done, and unloaded again (its map and tables
+  freed once no mesh job holds them) when the streamer has let it go and the camera is not in its frame. **No frame
+  shows neither point nor ground:** the sky hands a point over to its disc only from 1.5 pixels (`sky::HAND_LO`),
+  and while a lazy body is not `Streamer::ready` (the last drawn walk left a hole in view on it) `far_lights` keeps
+  its whole point.
+- **The server** builds a lazy body only when a player is in its frame, a /goto is bound for it, or a client asks for
+  its map; on a thread of its own (never the tick, never rayon's pool: `goto_mars_waits_for_its_ground_off_the_tick_and_replays`
+  holds the pool), put in at the start of the tick it is done and recorded there (`Ev::Body { tick, body }`; `Ev::Lazy`
+  marks such a recording; one without it replays with every body in from the start, `Server::load_all`). It never
+  lets one go. **The welcome** carries every body's hash as before (`World::map_hash` answers a stub's); a local
+  client makes Mars a stub at once, a remote one checks or downloads its map as every body's (kept under its name)
+  and lets it go. The hash is checked when the body comes in: a map this build cannot make leaves it a stub, held
+  points and an error on stderr. An old client meets the same welcome.
+- **Arriving:** a player within `phys::HOLD_M` (200 m) over a not-loaded body's highest ground (or a step's travel) is
+  held where it is, at rest, on either side (`phys::held_by_a_body`), until the ground is in; /goto to one answers "going to
+  Mars: its ground is loading" and puts the player there when it is.
+- **Numbers** (play build, `quick=1 seed=1 planet=6144`, interleaved with main's, `slot.sh measure`): Terra stand
+  VRAM 1079 -> 823 MB, wgpu's own 776 -> 659 MB, the quad buffer 21.3 -> 14.9 MB, chunks at the load about 21800 ->
+  18800, load 2.71-2.75 -> 2.42-2.68 s, frame and GPU p50 the same within noise (3.35-3.56 / 3.23-3.48 ms both);
+  fly frame p50 4.23-4.27 -> 3.97-4.03 ms, p99 5.45-5.55 -> 5.03-5.10, GPU 4.17-4.21 -> 3.90-3.96, wgpu 889 ->
+  769 MB, load 2.60 -> 2.14 s; orbit max 9.53-9.68 -> 9.02-9.53 ms. Standing on Mars: the same chunks (16350) and
+  memory, load 1.31 -> 1.56-1.66 s (Mars built before the stand); its frame numbers are two-state on main and here
+  alike (GPU p50 2.24-2.26 or 2.41, RAM about 730 or 1030-1100 MB). Arriving: the server builds Mars in 0.35-0.39 s
+  (its map from the disk) off the tick, the client in 0.01 s (the map already in memory); `run=approach` (3,000 km
+  to 2 m) frame max 5.8 ms, p99 4.6, no hole; `run=leave` max 5.6 ms. The body limit itself: stand and fly unchanged
+  (3.55-3.57 / 3.54-3.59 ms p50).
+- **Left:** the home and its moon are never sized out (above); the client's first frame of a run that starts on or
+  arrives at a body before its ground is in shows its sky without it (`run=leave`'s first frame, about 0.35 s);
+  the server never lets a body go; an edit sent for a stub's cells is not refused (nobody can reach one: held);
+  Luna and a moon of Mars or the giant made lazy too; a load cancelled when the camera turns away before it lands.
 
 ## The sky's clock
 
@@ -343,6 +399,9 @@ change. [0067]
   or at `field=0`. [0164]
 
 ## No longer holds
+
+- 0174's "the body limit stays four" (the body id in two bits of every quad, particle and model word): raised to 16
+  by "Sixteen bodies, loaded on approach".
 
 - 0026's design in `docs/design/worldgen.md` as a proposal: it was built (the bake, 0043 on).
 - 0037 B's blood moons from the 40-degree tilt of Luna's orbit (16 of 432 midnights, 3.7 %, one eclipse about

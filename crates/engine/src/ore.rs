@@ -687,7 +687,7 @@ mod tests {
         let lead = OreBody { kind: kind("lead pocket"), face: f, at: DVec3::new(i as f64 + 0.5, j as f64 + 0.5, z as f64 + 0.5), a: 5.0, b: 5.0, h: 5.0, angle: 0.0 };
         // a tin vein standing 10 m beside the lead along i, a metre thin across i
         let tin = OreBody { kind: kind("tin vein"), face: f, at: DVec3::new(i as f64 + 10.5, j as f64 + 0.5, z as f64 + 0.5), a: 10.0, b: 1.0, h: 6.0, angle: std::f64::consts::FRAC_PI_2 };
-        std::sync::Arc::get_mut(&mut w.bodies).unwrap()[0].set_ores(vec![lead, tin]);
+        w.body_mut(0).set_ores(vec![lead, tin]);
         let hear = |w: &World, dz: i32| prospect(w, Block { body: 0, face: f, pos: glam::IVec3::new(i, j, z + dz) }, 16.0, &[100, 100]);
         let s = |v: &[(&str, u8)]| v.iter().map(|(n, b)| (n.to_string(), *b)).collect::<Vec<_>>();
         // the tin is 9 m off at the lead's middle (some), farther as the strike rises

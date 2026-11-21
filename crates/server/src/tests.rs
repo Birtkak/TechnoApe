@@ -1551,7 +1551,7 @@ fn a_player_digs_an_ore_body_out_and_its_ledger_reaches_zero() {
     let ground = b0.centre + b0.dir(top.face as usize, top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5) * b0.col_height(top.face, top.pos.x, top.pos.y);
     let kind = MINERALS.kinds.iter().position(|k| k.name == "lead pocket").unwrap() as u16;
     let lump = OreBody { kind, face: top.face, at: DVec3::new(top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5, top.pos.z as f64 - 6.0), a: 2.5, b: 2.5, h: 2.0, angle: 0.0 };
-    std::sync::Arc::get_mut(&mut world.bodies).unwrap()[0].set_ores(vec![lump]);
+    world.body_mut(0).set_ores(vec![lump]);
     let (tx, rx) = channel();
     let mut s = Server::with_world(world, 1, rx);
     let (l, sv) = local();
@@ -1584,7 +1584,7 @@ fn a_prospecting_strike_hears_the_ore_below_and_costs_a_use() {
     let ground = b0.centre + b0.dir(top.face as usize, top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5) * b0.col_height(top.face, top.pos.x, top.pos.y);
     let kind = MINERALS.kinds.iter().position(|k| k.name == "lead pocket").unwrap() as u16;
     let lump = OreBody { kind, face: top.face, at: DVec3::new(top.pos.x as f64 + 0.5, top.pos.y as f64 + 0.5, top.pos.z as f64 - 6.0), a: 2.5, b: 2.5, h: 2.0, angle: 0.0 };
-    std::sync::Arc::get_mut(&mut world.bodies).unwrap()[0].set_ores(vec![lump]);
+    world.body_mut(0).set_ores(vec![lump]);
     let (tx, rx) = channel();
     let mut s = Server::with_world(world, 1, rx);
     let (l, sv) = local();
@@ -2429,6 +2429,81 @@ fn goto_jupiter_stands_on_the_cloud_tops_and_saves() {
         assert_eq!(back.world.frame_at(at), 3, "{}", p.name);
         assert!(!phys::blocked(&back.world, at));
     }
+}
+
+/// Step 6b: on a new server Mars is a stub (its hash in the welcome, no map). /goto mars answers that its ground is
+/// loading and leaves the player where it was; the ticks meanwhile do not wait, not even with rayon's global pool
+/// held; once the ground is in (on a thread of its own) the player stands on Mars. The recording puts it in at the
+/// same tick and replays to the same hash.
+#[test]
+fn goto_mars_waits_for_its_ground_off_the_tick_and_replays() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, 3, 0.0, 6, rx);
+    let rec = std::env::temp_dir().join(format!("technoape-lazy-{}.rec", std::process::id()));
+    s.record(&rec).unwrap();
+    assert!(!s.world.loaded(2) && s.world.bodies[2].map().is_none() && s.world.loader(2).is_some(), "Mars a stub at the start");
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    c.send(ToServer::Input(Input::default()));
+    s.tick();
+    let welcome = drain(&c).into_iter().find_map(|m| if let ToClient::Welcome { bodies, .. } = m { Some(bodies) } else { None }).unwrap();
+    assert_eq!(welcome[2].1, s.world.map_hash(2), "the welcome says Mars's hash");
+    assert!(welcome[2].1.is_some());
+    let before = s.clients[0].phys.pos;
+    // every pool thread waits on a gate while Mars loads: the ticks still end
+    let threads = rayon::current_num_threads();
+    let gate = std::sync::Arc::new(std::sync::RwLock::new(()));
+    let held = gate.write().unwrap();
+    let (started_tx, started) = channel();
+    for _ in 0..threads {
+        let (gate, started_tx) = (gate.clone(), started_tx.clone());
+        rayon::spawn(move || {
+            started_tx.send(()).unwrap();
+            drop(gate.read().unwrap());
+        });
+    }
+    for _ in 0..threads {
+        started.recv().unwrap();
+    }
+    c.send(ToServer::Chat("/goto mars".into()));
+    let (done_tx, done) = channel();
+    let t = std::thread::spawn(move || {
+        for _ in 0..5 {
+            s.tick();
+        }
+        done_tx.send(()).unwrap();
+        s
+    });
+    let ended = done.recv_timeout(std::time::Duration::from_secs(10)).is_ok();
+    drop(held);
+    let mut s = t.join().unwrap();
+    assert!(ended, "a tick waited on the global pool while Mars loaded");
+    let got = drain(&c);
+    assert!(got.iter().any(|m| matches!(m, ToClient::Chat(t) if t == "going to Mars: its ground is loading")), "{got:?}");
+    assert!(s.clients[0].phys.pos.distance(before) < 1.0, "the player waits where it was");
+    let t0 = std::time::Instant::now();
+    while !s.world.loaded(2) {
+        assert!(t0.elapsed().as_secs() < 120, "Mars never came in");
+        s.tick();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    for _ in 0..60 {
+        s.tick();
+    }
+    let got = drain(&c);
+    assert!(got.iter().any(|m| matches!(m, ToClient::Chat(t) if t == "gone to Mars")), "{got:?}");
+    let (w, me) = (&s.world, s.clients[0].phys);
+    let m = &w.bodies[2];
+    let over = (me.pos - m.centre).length() - m.top((me.pos - m.centre).normalize());
+    assert!(w.frame_at(me.pos) == 2 && over.abs() < 3.0 && !phys::inside(w, &me), "{over} m over Mars's ground");
+    let r = replay(&rec, None).unwrap();
+    std::fs::remove_file(&rec).unwrap();
+    // (its checkpoints, every CHECK_EVERY ticks, hash the players too: the last ones are on Mars)
+    assert!(r.server.world.loaded(2), "the replay put Mars in");
+    assert_eq!((r.diverged, r.server.world.hash()), (None, s.world.hash()));
+    assert!(r.checks >= 3, "{} checks", r.checks);
+    let at = |s: &Server| s.clients.iter().map(|c| s.world.frame_at(c.phys.pos)).collect::<Vec<_>>();
+    assert_eq!(at(&r.server), vec![2], "the replayed player is on Mars too");
 }
 
 #[test]

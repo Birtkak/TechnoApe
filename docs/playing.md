@@ -55,7 +55,10 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   comparing one seed's worlds; a new world without it is the newest.
 - Mars (generation 5): `/goto mars` lands on its day side; `run=stand body=2 at=x,y,z` stands on it (`body=0` Terra,
   `1` Luna), `look=Mars` (or `look=Terra`, `look=Luna`) faces that body's centre from where you stand; `report=1`
-  prints a `mars` section (its kinds' shares, heights, the tubes its map marks).
+  prints a `mars` section (its kinds' shares, heights, the tubes its map marks). Its ground loads when you near
+  it (from a pixel across, on a thread of its own): `/goto mars` says "going to Mars: its ground is loading" and
+  takes you there when it is in; flying in, you are held at rest 600 m over its mean ground (200 over the highest any ground can be) until it is.
+  `run=approach` (`run=leave`) films the way in from 3,000 km to 2 m over its day side (and out), `body=` another.
 - Jupiter, the gas giant (generation 6; the name is a working one): `/goto jupiter` stands you on its cloud tops on
   the day side, 2.5 times Terra's pull. Gas has no blocks: nothing digs or places there, and the cloud tops hold
   you as a floor (the dive under them is not built). Fly up and round it as anywhere; its pull reaches 7.5 Mm.

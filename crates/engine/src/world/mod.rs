@@ -19,6 +19,7 @@ mod heights;
 mod solid;
 pub use solid::*;
 mod frames;
+pub use frames::lazy_row;
 mod edits;
 mod far;
 mod water;
@@ -574,7 +575,7 @@ pub const INERTIAL: usize = usize::MAX;
 pub const AIR_TOP_M: f64 = 1500.0;
 
 pub struct World {
-    pub bodies: Arc<Vec<Body>>,
+    pub bodies: Arc<Vec<Arc<Body>>>,
     /// The sky's mechanics, and the world's time in seconds that poses them (ADR 0022).
     pub sky: Sky,
     /// The home's first moon (`bodies::moon`): the body the sky's eclipses, tides and moonlight are of.
@@ -598,6 +599,27 @@ pub struct World {
     /// mesh job reads, so the frame thread only hands it the shared maps. The client's, opened with `open_far`;
     /// None where nothing meshes far chunks (the server), and then level 0 reads the edits.
     pub far: Option<FxMap<Key, FarChunk>>,
+    /// Per body, Some for one whose ground comes in on approach (step 6b, `World::of_sources`): its map's hash
+    /// and whether it is in. One not in is a stub, the body before its map (no heights, caves or ores).
+    pub lazy: Vec<Option<Lazy>>,
+}
+
+/// A body loaded on approach (step 6b): the hash of the map it stands on, the world's seed, and whether its
+/// ground is in (`World::loader`, `put`, `unload`).
+#[derive(Clone)]
+pub struct Lazy {
+    pub hash: u64,
+    pub seed: i32,
+    pub loaded: bool,
+    /// The body before its map, what it is while not loaded and what its loader builds on.
+    stub: Arc<Body>,
+}
+
+/// What a body of `World::of_sources` stands on: a map now (None: its seed's noise), or the map of this hash
+/// later, when something nears it (step 6b).
+pub enum Source {
+    Now(Option<Arc<Map>>),
+    Later(u64),
 }
 
 /// Whether a placed block counts towards a far cell (ADR 0109): opaque and not a model.

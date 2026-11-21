@@ -281,6 +281,17 @@ fn ledge(world: &World, p: &Player, dir: DVec3) -> bool {
     solid(0.5 * BLOCK) && !solid(1.5 * BLOCK) && !solid(2.5 * BLOCK)
 }
 
+/// Whether a player at `pos` (moving `step` metres this step) is held by a body whose ground is not in yet (step
+/// 6b, `World::loaded`): within its highest ground plus `HOLD_M`, or a step's travel.
+pub fn held_by_a_body(world: &World, pos: DVec3, step: f64) -> bool {
+    world.lazy.iter().enumerate().any(|(i, l)| l.as_ref().is_some_and(|l| !l.loaded) && {
+        let b = &world.bodies[i];
+        (pos - b.centre).length() < b.radius + crate::world::AMP + HOLD_M.max(2.0 * step)
+    })
+}
+/// How far over a not-yet-loaded body's highest ground a player is held (`held_by_a_body`).
+pub const HOLD_M: f64 = 200.0;
+
 /// An input any side may step with: finite numbers only.
 pub fn sane(inp: &Input) -> bool {
     inp.fwd.iter().chain(inp.mv.iter()).chain([&inp.pitch, &inp.fly, &inp.turn, &inp.tilt, &inp.roll]).all(|c| c.is_finite()) && inp.t.is_finite()
@@ -302,6 +313,12 @@ pub fn step_at(world: &mut World, p: &mut Player, inp: &Input, dt: f64) -> bool 
 /// body went further forward than the walk would have taken it, so a sprint into a wall or in the water is
 /// none. What a sprint's hunger and its wider view go by.
 pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
+    // a body whose ground is not in yet (step 6b) holds one near it where it is, at rest, until it is: nothing to
+    // stand on or bump into there yet, and neither falling nor flying through it
+    if held_by_a_body(world, p.pos, p.vel.length() * dt) {
+        p.vel = DVec3::ZERO;
+        return false;
+    }
     // one found inside a gas body's sphere (a bad save, `at=`, a teleport) would be blocked every way out: put it
     // on the cloud tops along its radius, its inward speed gone
     for g in world.bodies.iter().filter(|b| b.gas) {
