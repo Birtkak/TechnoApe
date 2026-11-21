@@ -2506,6 +2506,40 @@ fn goto_mars_waits_for_its_ground_off_the_tick_and_replays() {
     assert_eq!(at(&r.server), vec![2], "the replayed player is on Mars too");
 }
 
+/// Step 6b review: a body whose ground is not in yet has no ground: its cells read as air (as a gas body's), and a
+/// player there (a client may put itself anywhere) changes nothing on it: edits, buckets, pick-ups and items to the
+/// ground are refused with a word why, so no hole or floating pile is left for the real ground to meet.
+#[test]
+fn nothing_is_changed_on_a_body_not_in_yet() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, 3, 0.0, 6, rx);
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    c.send(ToServer::Input(Input::default()));
+    c.send(ToServer::Creative(true));
+    c.send(ToServer::Chat("/give stone 8".into()));
+    s.tick();
+    drain(&c);
+    let deep = Block { body: 2, face: 0, pos: glam::IVec3::new(10, 10, 1) };
+    assert_eq!(s.world.block(deep), AIR, "a stub's cells are air, not the seed's noise land");
+    let m = &s.world.bodies[2];
+    let at = m.centre + DVec3::Y * (m.radius + 2.0);
+    let under = s.world.block_at(at - DVec3::Y * 1.5);
+    c.send(ToServer::Move { pos: at.to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    c.send(ToServer::Edit { seq: 1, shape: Shape::one(under), material: BLOCKS.id("stone") });
+    c.send(ToServer::Edit { seq: 2, shape: Shape::one(under), material: AIR });
+    c.send(ToServer::Items { seq: 3, from: (Holder::Ape, 0), to: (Holder::Ground, 0), n: 8 });
+    c.send(ToServer::Bucket { seq: 4, at: under, fill: false });
+    c.send(ToServer::Take { seq: 5, at: under });
+    s.tick();
+    let got = drain(&c);
+    for seq in 1..=5 {
+        assert!(got.contains(&ToClient::Done { seq, ok: false }), "{seq} refused: {:?}", got.iter().filter(|m| matches!(m, ToClient::Done { .. })).collect::<Vec<_>>());
+    }
+    assert!(got.iter().any(|m| matches!(m, ToClient::Chat(t) if t.contains("Mars's ground is not in yet"))), "told why");
+    assert!(s.world.edits.keys().all(|k| k.body != 2) && s.piles.keys().all(|b| b.0 != 2), "nothing left on the stub");
+}
+
 /// Step 6b review: a server whose bodies are all in from the start (`Server::baked`: the soak, the bots' tests)
 /// records no `Ev::Lazy`, so its replay has Mars in from the start too: a player gone to Mars falls the same.
 /// (The lazy recording's replay: `goto_mars_waits_for_its_ground_off_the_tick_and_replays`.)

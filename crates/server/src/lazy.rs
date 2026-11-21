@@ -157,4 +157,30 @@ impl Server {
             }
         }
     }
+
+    /// Whether message m of client i is refused because the body it is on has no ground yet: an edit, dig,
+    /// bucket, pick-up, strike, use, drink or items to or from the ground there. A refused one with a `seq` is
+    /// answered `Done` false; the client is told why once a tick (`told`).
+    pub(super) fn refused_on_a_stub(&mut self, i: usize, m: &ToServer, told: &mut bool) -> bool {
+        let world_side = |h: &(Holder, u16)| !matches!(h.0, Holder::Ape | Holder::Grid);
+        let seq = match m {
+            ToServer::Edit { seq, .. } | ToServer::Bucket { seq, .. } | ToServer::Take { seq, .. } => Some(*seq),
+            ToServer::Items { seq, from, to, .. } if world_side(from) || world_side(to) => Some(*seq),
+            ToServer::Dig(Some(_)) | ToServer::Strike(_) | ToServer::Use(_) | ToServer::Choose { .. } | ToServer::Drink(Some(_)) => None,
+            _ => return false,
+        };
+        let b = self.world.frame_at(self.clients[i].phys.pos);
+        if b >= self.world.bodies.len() || self.world.loaded(b) {
+            return false;
+        }
+        let c = &mut self.clients[i];
+        if let Some(seq) = seq {
+            c.done.push((seq, false));
+            c.inv_dirty = true;
+        }
+        if !std::mem::replace(told, true) {
+            c.link.send(ToClient::Chat(format!("{}'s ground is not in yet: nothing there can be changed", self.world.bodies[b].name)));
+        }
+        true
+    }
 }

@@ -122,7 +122,7 @@ impl Server {
                 i += 1;
                 continue;
             }
-            let mut open = true;
+            let (mut open, mut told) = (true, false);
             // the recorder logs what is handled, at the tick it is handled, so a replay meets the same cap
             for _ in 0..MSGS_PER_TICK {
                 let r = self.clients[i].link.try_recv();
@@ -140,6 +140,12 @@ impl Server {
                     Recv::Msg(m) => Recv::Msg(m.unpacked()),
                     r => r,
                 };
+                // nothing is changed on a body whose ground is not in yet (step 6b, `lazy.rs`)
+                if let Recv::Msg(m) = &r {
+                    if self.refused_on_a_stub(i, m, &mut told) {
+                        continue;
+                    }
+                }
                 match r {
                     // a client names itself once: a second Hello would take another name's saved state
                     Recv::Msg(ToServer::Hello { .. }) if !self.clients[i].player.name.is_empty() => {}
