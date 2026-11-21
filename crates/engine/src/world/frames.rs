@@ -138,6 +138,26 @@ impl World {
             lazy,
         }
     }
+    /// A new world on this one's bodies, shared, as `of_sources` made it: no edits, lights, models, water or
+    /// ledger, at time 0. What another player in this process starts from without building the bodies again
+    /// (run=sim's bots).
+    pub fn fresh(&self) -> World {
+        World {
+            bodies: self.bodies.clone(),
+            sky: self.sky,
+            moon: self.moon,
+            time: 0.0,
+            edits: FxMap::default(),
+            edit_count: 0,
+            lights: FxMap::default(),
+            lights_rev: 0,
+            models: FxMap::default(),
+            water: Liquids::default(),
+            ore_left: None,
+            far: None,
+            lazy: self.lazy.clone(),
+        }
+    }
     /// Body `i` to change, in a test or as it is made: shared with no one yet.
     pub fn body_mut(&mut self, i: usize) -> &mut Body {
         Arc::get_mut(&mut Arc::get_mut(&mut self.bodies).expect("the bodies are not shared yet")[i]).expect("the body is not shared yet")

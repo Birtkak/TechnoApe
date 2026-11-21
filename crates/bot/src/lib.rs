@@ -203,6 +203,13 @@ pub struct Bot {
     pub journal: std::collections::BTreeMap<String, engine::journal::State>,
 }
 
+/// The world the last bot of this process was welcomed to, by its welcome (seed, bodies, generation, warp), kept
+/// fresh: a bot welcomed to the same starts from its bodies (`World::fresh`) instead of building them again.
+/// shortcut: holds one world's bodies for the process's life once bots are gone; drop it when a process runs
+/// bots on many worlds in turn
+#[allow(clippy::type_complexity)]
+static SHARED: std::sync::Mutex<Option<((i32, Vec<(i32, Option<u64>)>, u8, u64), World)>> = std::sync::Mutex::new(None);
+
 /// A server silent this long is taken for gone (it sends `You` every tick; a baked world's first map takes
 /// some tens of seconds to make).
 const SILENT: Duration = Duration::from_secs(120);
@@ -243,8 +250,31 @@ impl Bot {
                     assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
                     assert_eq!(items, engine::items::ITEMS.hash, "the server's build has other items (data/items.toml)");
                     // the baked map (ADR 0043): shared with a server in this process, from the disk, or fetched
-                    let list = bodies.iter().map(|&(n, h)| (n, h.map(|h| engine::net::fetch_map(&mut self.link, seed, n, h).unwrap_or_else(|e| panic!("{e}"))))).collect();
-                    let w = World::of(engine::bodies::of(gen), list, seed, self.warp, gen);
+                    // a body loaded on approach (Mars, step 6b) is a stub until the bot is in its frame (`tick`):
+                    // asking its map here made the server load it and each of run=sim's 50 bots build it
+                    // shortcut: its map is then made from the disk or baked here, never fetched; fetch it as the
+                    // client does once a bot on a remote server goes to a body this PC has no map of
+                    // bots of one process welcomed to the same world share its bodies (`SHARED`): run=sim's 50 built
+                    // them 50 times, 0.7 s each on their thread, with the frames being timed
+                    let key = (seed, bodies.clone(), gen, self.warp.to_bits());
+                    let shared = SHARED.lock().unwrap().as_ref().filter(|(k, _)| *k == key).map(|(_, w)| w.fresh());
+                    let w = match shared {
+                        Some(w) => w,
+                        None => {
+                            let rows = engine::bodies::of(gen);
+                            let list = bodies
+                                .iter()
+                                .enumerate()
+                                .map(|(i, &(n, h))| match h {
+                                    Some(h) if engine::world::lazy_row(rows, i) => (n, engine::world::Source::Later(h)),
+                                    h => (n, engine::world::Source::Now(h.map(|h| engine::net::fetch_map(&mut self.link, seed, n, h).unwrap_or_else(|e| panic!("{e}"))))),
+                                })
+                                .collect();
+                            let w = World::of_sources(rows, list, seed, self.warp, gen);
+                            *SHARED.lock().unwrap() = Some((key, w.fresh()));
+                            w
+                        }
+                    };
                     self.id = id;
                     // the server spawns players just over the +y pole; an empty input makes this one a
                     // walker, so it lands there
@@ -329,6 +359,13 @@ impl Bot {
     pub fn tick(&mut self) -> bool {
         if !self.receive() {
             return false;
+        }
+        // in the frame of a body loaded on approach: its ground in first (some tenths of a second, this thread)
+        if let Some(w) = self.world.as_mut() {
+            let i = w.frame_at(self.pos);
+            if let Some(load) = w.loader(i) {
+                w.put(i, load().unwrap_or_else(|e| panic!("{e}")));
+            }
         }
         let Some(w) = self.world.as_ref() else { return true };
         if let Some((_, shape)) = self.digging.filter(|d| self.ticks >= d.0) {
@@ -564,6 +601,47 @@ mod tests {
     use engine::net::local;
     use server::Server;
     use std::sync::mpsc::channel;
+
+    /// A body loaded on approach (Mars, step 6b) is a stub in a bot's world too: its map is not asked at the
+    /// welcome (that made the server load Mars and every bot of `run=sim` build it, while the frames were timed)
+    #[test]
+    fn a_bot_leaves_a_body_loaded_on_approach_for_later() {
+        let gen = engine::world::GENERATION;
+        let rows = engine::bodies::of(gen);
+        let lazy: Vec<usize> = (0..rows.len()).filter(|&i| engine::world::lazy_row(rows, i)).collect();
+        assert!(!lazy.is_empty(), "the newest generation has a body loaded on approach");
+        let bodies = engine::bodies::sizes(rows, 256, 32).into_iter().enumerate().map(|(i, n)| (n, lazy.contains(&i).then_some(0x5eed_u64))).collect();
+        let (c, s) = local::<ToServer, ToClient>();
+        let mut bot = Bot::new("lazy", c);
+        s.send(ToClient::Welcome { id: 1, seed: 3, bodies, blocks: engine::blocks::BLOCKS.hash, items: engine::items::ITEMS.hash, gen });
+        // (a server gone: a map asked of it would never come)
+        drop(s);
+        bot.receive();
+        let w = bot.world.as_ref().expect("welcomed");
+        assert!(lazy.iter().all(|&i| !w.loaded(i)), "a body loaded on approach waits");
+    }
+
+    /// Bots in one process welcomed to the same world build its bodies once (run=sim's 50 built them 50 times,
+    /// 0.7 s each, while the frames were timed); each still has its own edits
+    #[test]
+    fn bots_of_one_world_share_its_bodies_not_their_edits() {
+        let gen = engine::world::GENERATION;
+        let bodies: Vec<(i32, Option<u64>)> = engine::bodies::sizes(engine::bodies::of(gen), 256, 32).into_iter().map(|n| (n, None)).collect();
+        let welcomed = |name: &str| {
+            let (c, s) = local::<ToServer, ToClient>();
+            let mut bot = Bot::new(name, c);
+            s.send(ToClient::Welcome { id: 1, seed: 11, bodies: bodies.clone(), blocks: engine::blocks::BLOCKS.hash, items: engine::items::ITEMS.hash, gen });
+            drop(s);
+            bot.receive();
+            bot
+        };
+        let (mut a, b) = (welcomed("a"), welcomed("b"));
+        let (wa, wb) = (a.world.as_mut().unwrap(), b.world.as_ref().unwrap());
+        assert!(std::sync::Arc::ptr_eq(&wa.bodies, &wb.bodies), "the bodies are built once");
+        let at = wa.block_at(wa.bodies[0].spawn_point());
+        wa.set_block(at, engine::blocks::BLOCKS.id("stone"));
+        assert_eq!((wa.edit_count, b.world.as_ref().unwrap().edit_count), (1, 0), "an edit is its own bot's");
+    }
 
     // These servers tick at the game's own rate (they ran at 200 Hz): a bot's clock is the server's ticks, 20 a
     // second, so a script's `wait 0.5` is ten ticks, however long a busy PC takes over them.
