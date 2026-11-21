@@ -125,12 +125,44 @@ pub struct Rt {
     /// BLAS let go by `forget`, kept for `DEAD_FRAMES` records before they are dropped: a frame still on the GPU
     /// traces through the TLAS built before, which points at them (step 6b's review: dropping the 18,000 BLAS of
     /// the home's chunks at once freed ones a frame in flight still read, and lost the device).
-    dead: [Vec<(u32, Option<wgpu::Blas>, Option<wgpu::Blas>)>; DEAD_FRAMES],
+    dead: Dead<(u32, Option<wgpu::Blas>, Option<wgpu::Blas>)>,
     records: usize,
 }
 
 /// How many records a forgotten BLAS outlives (`Rt::dead`): more than the frames the GPU may be behind.
 const DEAD_FRAMES: usize = 4;
+/// The most forgotten BLAS one record drops (`Dead`): a home of 18,000 let go at once is spread over records, not
+/// dropped in one lump on the frame thread (wgpu destroys a BLAS on the spot when its last handle goes). Twice the
+/// replacements a record can make (`BUILDS_MAX`), so a lump of forgotten ones drains even while streaming.
+const DEAD_PER_RECORD: usize = 2 * BUILDS_MAX;
+
+/// Things let go at a record, each kept `DEAD_FRAMES` records and then dropped, at most `DEAD_PER_RECORD` a record,
+/// oldest first.
+struct Dead<T> {
+    q: std::collections::VecDeque<(usize, T)>,
+    peak: usize,
+}
+
+impl<T> Default for Dead<T> {
+    fn default() -> Self { Dead { q: Default::default(), peak: 0 } }
+}
+
+impl<T> Dead<T> {
+    fn push(&mut self, record: usize, t: T) {
+        self.q.push_back((record, t));
+        self.peak = self.peak.max(self.q.len());
+    }
+
+    /// Drops what is old enough at `record`; how many
+    fn release(&mut self, record: usize) -> usize {
+        let mut n = 0;
+        while n < DEAD_PER_RECORD && self.q.front().is_some_and(|(r, _)| record >= r + DEAD_FRAMES) {
+            self.q.pop_front();
+            n += 1;
+        }
+        n
+    }
+}
 
 /// The TLAS's size for `need` instances when it has `cap` slots and may have `max`: as it is while they fit, else
 /// twice what they need, a power of two
@@ -181,11 +213,14 @@ impl Rt {
         Rt { tlas, expand, bind, builds, verts, blas: HashMap::new(), n: 0, built: Vec::new(), tlas_builds: 0, pending: 0, split_n: 0, slots: Vec::new(), cap, max: max as usize, grew: false, overflowed: false, proxy_tris: Vec::new(), proxy_blas: None, proxies: Vec::new(), lanes: [NO_LANE; crate::gpu::MAX_BODIES], dead: Default::default(), records: 0 }
     }
 
+    /// The most forgotten BLAS held at once (the run's `rt_dead_peak`)
+    pub fn dead_peak(&self) -> usize { self.dead.peak }
+
     /// New quads were written at `off`: a BLAS from there is stale.
     pub fn forget(&mut self, off: u32) {
         if let Some(b) = self.blas.remove(&off) {
             self.split_n -= b.2.is_some() as usize;
-            self.dead[self.records % DEAD_FRAMES].push(b);
+            self.dead.push(self.records, b);
         }
     }
 
@@ -199,7 +234,7 @@ impl Rt {
         let mut made = 0;
         self.pending = 0;
         self.records += 1;
-        self.dead[self.records % DEAD_FRAMES].clear();
+        self.dead.release(self.records);
         // whether a chunk's stills are (to be) a BLAS of their own: once split, while it has stills; else when first
         // built near and there is room
         let most = SPLIT_MAX.min(self.max.saturating_sub(insts.len()));
@@ -248,7 +283,7 @@ impl Rt {
             self.split_n += sblas.is_some() as usize;
             if let Some(old) = self.blas.insert(c.off, (c.land, blas, sblas)) {
                 self.split_n -= old.2.is_some() as usize;
-                self.dead[self.records % DEAD_FRAMES].push(old);
+                self.dead.push(self.records, old);
             }
             todo.push(Build { base: c.base, info: c.info, off: c.off, n: c.land, dst: quads * 6, _p: 0 });
             sizes.push((size, still));
@@ -394,6 +429,32 @@ impl Rt {
 
 #[cfg(test)]
 mod tests {
+    /// Forgotten BLAS (`Dead`): none dropped before `DEAD_FRAMES` records, never more than `DEAD_PER_RECORD` in one
+    /// record (a home of 18,000 let go at once), and under a steady stream the list stays bounded
+    #[test]
+    fn the_dead_outlive_four_records_and_go_a_bounded_number_a_record() {
+        use super::{Dead, DEAD_FRAMES, DEAD_PER_RECORD};
+        let mut d = Dead::default();
+        for i in 0..18_000 { d.push(1, i); }
+        for r in 1..1 + DEAD_FRAMES { assert_eq!(d.release(r), 0, "nothing goes before {DEAD_FRAMES} records"); }
+        let mut r = 1 + DEAD_FRAMES;
+        while !d.q.is_empty() {
+            assert!(d.release(r) <= DEAD_PER_RECORD, "at most {DEAD_PER_RECORD} a record");
+            r += 1;
+        }
+        assert_eq!(r - 1 - DEAD_FRAMES, 18_000usize.div_ceil(DEAD_PER_RECORD));
+        // the most replacements a record makes (BUILDS_MAX), with a lump of 18,000 forgotten in it: back to its
+        // steady size within a hundred records, and never past the lump plus a few records' stream
+        let s = super::BUILDS_MAX;
+        let mut d = Dead::default();
+        for r in 1..2000usize {
+            for i in 0..if r == 500 { 18_000 } else { s } { d.push(r, i); }
+            d.release(r);
+            if r < 500 || r > 600 { assert!(d.q.len() <= s * (DEAD_FRAMES + 1), "bounded: {} at {r}", d.q.len()); }
+        }
+        assert!(d.peak <= 18_000 + s * (DEAD_FRAMES + 2), "peak {}", d.peak);
+    }
+
     /// The TLAS keeps its size while the instances fit, and outgrown takes twice their need, never past the most
     #[test]
     fn the_tlas_grows_to_twice_its_need_and_no_further_than_the_most() {
