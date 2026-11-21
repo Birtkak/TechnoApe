@@ -1102,7 +1102,8 @@ mod tests {
         assert!(!w.loaded(2) && w.loaded(0) && w.bodies[2].map().is_none() && w.bodies[2].ores.is_empty(), "a stub");
         assert_eq!(w.map_hash(2), eager.map_hash(2), "the stub says its map");
         for _ in 0..2 {
-            let b = w.builder(2).expect("a stub has a builder")(map());
+            // the real path: the loader finds the map of the hash (`for_hash`: kept, on disk or baked) on its own
+            let b = w.loader(2).expect("a stub has a loader")().expect("this build makes this map");
             w.put(2, b);
             assert!(w.loaded(2) && w.builder(2).is_none());
             assert_eq!(blocks_hash(&w), blocks_hash(&eager), "generated as at the start");

@@ -2506,6 +2506,57 @@ fn goto_mars_waits_for_its_ground_off_the_tick_and_replays() {
     assert_eq!(at(&r.server), vec![2], "the replayed player is on Mars too");
 }
 
+/// Step 6b review: with Mars's map on no disk its loader bakes it, and the bake runs on rayon's global pool; the
+/// ticks still never wait for it (the pool held through five of them), and Mars comes in once the pool is free.
+#[test]
+fn a_mars_baked_on_arrival_does_not_hold_the_tick() {
+    let seed = 4000 + (std::process::id() % 1000) as i32;
+    let (tx, rx) = channel();
+    let mut s = Server::baked_warp(256, 64, seed, 0.0, 6, rx);
+    let file = engine::bodies::of(6)[2].bake.as_ref().unwrap().file(seed, s.world.bodies[2].n);
+    let _ = std::fs::remove_file(&file);
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    c.send(ToServer::Input(Input::default()));
+    s.tick();
+    let threads = rayon::current_num_threads();
+    let gate = std::sync::Arc::new(std::sync::RwLock::new(()));
+    let held = gate.write().unwrap();
+    let (started_tx, started) = channel();
+    for _ in 0..threads {
+        let (gate, started_tx) = (gate.clone(), started_tx.clone());
+        rayon::spawn(move || {
+            started_tx.send(()).unwrap();
+            drop(gate.read().unwrap());
+        });
+    }
+    for _ in 0..threads {
+        started.recv().unwrap();
+    }
+    c.send(ToServer::Chat("/goto mars".into()));
+    let (done_tx, done) = channel();
+    let t = std::thread::spawn(move || {
+        for _ in 0..5 {
+            s.tick();
+        }
+        done_tx.send(()).unwrap();
+        s
+    });
+    let ended = done.recv_timeout(std::time::Duration::from_secs(10)).is_ok();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    drop(held);
+    let mut s = t.join().unwrap();
+    assert!(ended, "a tick waited on the pool while Mars's map was baked");
+    let t0 = std::time::Instant::now();
+    while !s.world.loaded(2) {
+        assert!(t0.elapsed().as_secs() < 300, "Mars never came in");
+        s.tick();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    println!("Mars baked and in after {:.2} s with the pool free", t0.elapsed().as_secs_f64());
+    let _ = std::fs::remove_file(&file);
+}
+
 /// Step 6b review: a body whose ground cannot be loaded (a map this build does not make) does not keep a player
 /// held by it for ever: the held one goes back to the spawn, told why; the /goto that waited for it, and one after,
 /// answer plainly that it cannot be loaded.
