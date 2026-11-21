@@ -34,6 +34,8 @@ fn main() {
         }
     };
     let out_lock = std::sync::Arc::new(std::sync::Mutex::new(()));
+    // (the n bots' world: its bodies built once, a body loaded on approach once)
+    let shared = bot::Shared::default();
     let mut live_txs = Vec::new();
     let threads: Vec<_> = (0..n)
         .map(|i| {
@@ -50,8 +52,9 @@ fn main() {
                 rx
             });
             let lock = out_lock.clone();
+            let shared = shared.clone();
             std::thread::spawn(move || {
-                let mut b = Bot::new(&bot_name, link);
+                let mut b = Bot::sharing(&bot_name, link, &shared);
                 b.warp = warp;
                 b.run(script, rx, |l| {
                     let _g = lock.lock().unwrap();

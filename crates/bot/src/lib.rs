@@ -201,6 +201,41 @@ pub struct Bot {
     drinking: Option<u64>,
     /// Its journal's entries not unknown, as the server last told them (draft ADR journal-data).
     pub journal: std::collections::BTreeMap<String, engine::journal::State>,
+    /// What it shares with the bots of its driver (`Shared`), and the welcome it had (`Welcome`'s seed, bodies,
+    /// generation, and the warp)
+    shared: Shared,
+    welcome: Option<Welcome>,
+    /// Bodies loaded on approach whose map this build cannot make (another build's): they stay stubs
+    failed: Vec<usize>,
+}
+
+/// A world told apart by its welcome: seed, every body's columns and map hash, generation, warp's bits.
+type Welcome = (i32, Vec<(i32, Option<u64>)>, u8, u64);
+
+/// What the bots of one driver share (run=sim's 50, technoape-bot's n=): the world of the last welcome, kept
+/// fresh, so a bot welcomed to the same starts from its bodies (`World::fresh`) instead of building them again,
+/// and takes a body loaded on approach another loaded (each built it, 0.7 s and some tenths, one after another
+/// on the thread that drives them all). One driver's, so two in a process (tests) never mix.
+#[derive(Clone, Default)]
+pub struct Shared(std::sync::Arc<std::sync::Mutex<Option<(Welcome, World)>>>);
+
+impl Shared {
+    fn world(&self, key: &Welcome) -> Option<World> {
+        self.0.lock().unwrap().as_ref().filter(|(k, _)| k == key).map(|(_, w)| w.fresh())
+    }
+    fn keep(&self, key: Welcome, w: &World) {
+        *self.0.lock().unwrap() = Some((key, w.fresh()));
+    }
+    /// Body i of the shared world when it is loaded there
+    fn body(&self, key: &Welcome, i: usize) -> Option<std::sync::Arc<engine::world::Body>> {
+        self.0.lock().unwrap().as_ref().filter(|(k, w)| k == key && w.loaded(i)).map(|(_, w)| w.bodies[i].clone())
+    }
+    /// Body i, loaded by one bot, into the shared world for the others
+    fn put(&self, key: &Welcome, i: usize, b: std::sync::Arc<engine::world::Body>) {
+        if let Some((_, w)) = self.0.lock().unwrap().as_mut().filter(|(k, w)| k == key && !w.loaded(i)) {
+            w.put(i, b);
+        }
+    }
 }
 
 /// A server silent this long is taken for gone (it sends `You` every tick; a baked world's first map takes
@@ -208,9 +243,15 @@ pub struct Bot {
 const SILENT: Duration = Duration::from_secs(120);
 
 impl Bot {
+    /// A bot sharing nothing with others
     pub fn new(name: &str, link: Link<ToServer, ToClient>) -> Bot {
+        Bot::sharing(name, link, &Shared::default())
+    }
+
+    /// A bot sharing its world's bodies with the others of `shared` (one driver's bots)
+    pub fn sharing(name: &str, link: Link<ToServer, ToClient>, shared: &Shared) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default(), furnace: None, vitals: (20, 20, 20, 20), marks: (None, None), drinking: None, journal: Default::default() }
+        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default(), furnace: None, vitals: (20, 20, 20, 20), marks: (None, None), drinking: None, journal: Default::default(), shared: shared.clone(), welcome: None, failed: Vec::new() }
     }
 
     /// The tick `s` seconds of the server's time from now.
@@ -243,8 +284,31 @@ impl Bot {
                     assert_eq!(blocks, engine::blocks::BLOCKS.hash, "the server's build has other blocks (data/blocks.toml)");
                     assert_eq!(items, engine::items::ITEMS.hash, "the server's build has other items (data/items.toml)");
                     // the baked map (ADR 0043): shared with a server in this process, from the disk, or fetched
-                    let list = bodies.iter().map(|&(n, h)| (n, h.map(|h| engine::net::fetch_map(&mut self.link, seed, n, h).unwrap_or_else(|e| panic!("{e}"))))).collect();
-                    let w = World::of(engine::bodies::of(gen), list, seed, self.warp, gen);
+                    // a body loaded on approach (Mars, step 6b) is a stub until the bot is in its frame (`tick`):
+                    // asking its map here made the server load it and each of run=sim's 50 bots build it
+                    // shortcut: its map is then made from the disk or baked here, never fetched; fetch it as the
+                    // client does once a bot on a remote server goes to a body this PC has no map of
+                    // bots of one driver welcomed to the same world share its bodies (`Shared`): run=sim's 50 built
+                    // them 50 times, 0.7 s each on their thread, with the frames being timed
+                    let key = (seed, bodies.clone(), gen, self.warp.to_bits());
+                    let w = match self.shared.world(&key) {
+                        Some(w) => w,
+                        None => {
+                            let rows = engine::bodies::of(gen);
+                            let list = bodies
+                                .iter()
+                                .enumerate()
+                                .map(|(i, &(n, h))| match h {
+                                    Some(h) if engine::world::lazy_row(rows, i) => (n, engine::world::Source::Later(h)),
+                                    h => (n, engine::world::Source::Now(h.map(|h| engine::net::fetch_map(&mut self.link, seed, n, h).unwrap_or_else(|e| panic!("{e}"))))),
+                                })
+                                .collect();
+                            let w = World::of_sources(rows, list, seed, self.warp, gen);
+                            self.shared.keep(key.clone(), &w);
+                            w
+                        }
+                    };
+                    self.welcome = Some(key);
                     self.id = id;
                     // the server spawns players just over the +y pole; an empty input makes this one a
                     // walker, so it lands there
@@ -329,6 +393,29 @@ impl Bot {
     pub fn tick(&mut self) -> bool {
         if !self.receive() {
             return false;
+        }
+        // in the frame of a body loaded on approach: its ground in first, another bot's of this driver if it has
+        // it, else built (some tenths of a second, this thread) and handed to them; one this build cannot make
+        // stays a stub, as the client's (the server holds or lets go a player there by its own rule)
+        if let (Some(w), Some(key)) = (self.world.as_mut(), self.welcome.as_ref()) {
+            let i = w.frame_at(self.pos);
+            if !w.loaded(i) && !self.failed.contains(&i) {
+                if let Some(b) = self.shared.body(key, i) {
+                    w.put(i, b);
+                } else if let Some(load) = w.loader(i) {
+                    match load() {
+                        Ok(b) => {
+                            let b = std::sync::Arc::new(b);
+                            self.shared.put(key, i, b.clone());
+                            w.put(i, b);
+                        }
+                        Err(e) => {
+                            eprintln!("[technoape-bot] {}: {}: {e}", self.name, w.bodies[i].name);
+                            self.failed.push(i);
+                        }
+                    }
+                }
+            }
         }
         let Some(w) = self.world.as_ref() else { return true };
         if let Some((_, shape)) = self.digging.filter(|d| self.ticks >= d.0) {
@@ -564,6 +651,89 @@ mod tests {
     use engine::net::local;
     use server::Server;
     use std::sync::mpsc::channel;
+
+    /// A body loaded on approach (Mars, step 6b) is a stub in a bot's world too: its map is not asked at the
+    /// welcome (that made the server load Mars and every bot of `run=sim` build it, while the frames were timed)
+    #[test]
+    fn a_bot_leaves_a_body_loaded_on_approach_for_later() {
+        let gen = engine::world::GENERATION;
+        let rows = engine::bodies::of(gen);
+        let lazy: Vec<usize> = (0..rows.len()).filter(|&i| engine::world::lazy_row(rows, i)).collect();
+        assert!(!lazy.is_empty(), "the newest generation has a body loaded on approach");
+        let bodies = engine::bodies::sizes(rows, 256, 32).into_iter().enumerate().map(|(i, n)| (n, lazy.contains(&i).then_some(0x5eed_u64))).collect();
+        let (c, s) = local::<ToServer, ToClient>();
+        let mut bot = Bot::new("lazy", c);
+        s.send(ToClient::Welcome { id: 1, seed: 3, bodies, blocks: engine::blocks::BLOCKS.hash, items: engine::items::ITEMS.hash, gen });
+        // (a server gone: a map asked of it would never come)
+        drop(s);
+        bot.receive();
+        let w = bot.world.as_ref().expect("welcomed");
+        assert!(lazy.iter().all(|&i| !w.loaded(i)), "a body loaded on approach waits");
+    }
+
+    /// Welcomes `bot` to generation 5's three bodies at small sizes, Mars on approach on the map of `mars` (a hash),
+    /// and puts it over Mars, in its frame; the server's end, kept open
+    fn over_mars(bot_name: &str, mars: u64, shared: &Shared) -> (Bot, Link<ToClient, ToServer>) {
+        let (c, s) = local::<ToServer, ToClient>();
+        let mut bot = Bot::sharing(bot_name, c, shared);
+        s.send(ToClient::Welcome { id: 1, seed: 1, bodies: vec![(1536, None), (32, None), (832, Some(mars))], blocks: engine::blocks::BLOCKS.hash, items: engine::items::ITEMS.hash, gen: 5 });
+        bot.receive();
+        let w = bot.world.as_ref().expect("welcomed");
+        assert!(!w.loaded(2), "Mars waits");
+        bot.pos = w.bodies[2].centre + DVec3::Y * (w.bodies[2].radius + 50.0);
+        assert_eq!(w.frame_at(bot.pos), 2);
+        (bot, s)
+    }
+
+    /// A bot in the frame of a body whose map this build cannot make (a bot of another build on a remote server)
+    /// keeps it a stub, as the client does, and carries on: it panicked
+    #[test]
+    fn a_bot_keeps_a_body_it_cannot_make_a_stub() {
+        let (mut bot, _s) = over_mars("lost", 0x5eed, &Shared::default());
+        assert!(bot.tick() && bot.tick(), "the bot carries on");
+        assert!(!bot.world.as_ref().unwrap().loaded(2), "Mars stays a stub");
+    }
+
+    /// A body loaded on approach one bot of a driver built is the others' too: built once, not once a bot
+    #[test]
+    fn a_body_one_bot_loaded_is_the_others_of_its_driver() {
+        let mars = engine::bodies::of(5)[2].bake.as_ref().expect("Mars has a bake").get(1, 832).hash;
+        let shared = Shared::default();
+        let ((mut a, _sa), (mut b, _sb)) = (over_mars("a", mars, &shared), over_mars("b", mars, &shared));
+        assert!(a.tick() && b.tick());
+        let (wa, wb) = (a.world.as_ref().unwrap(), b.world.as_ref().unwrap());
+        assert!(wa.loaded(2) && wb.loaded(2), "both have Mars");
+        assert!(std::sync::Arc::ptr_eq(&wa.bodies[2], &wb.bodies[2]), "built once");
+    }
+
+    /// Bots of one driver welcomed to the same world build its bodies once (run=sim's 50 built them 50 times,
+    /// 0.7 s each, while the frames were timed); each still has its own edits, and a bot of another driver its
+    /// own bodies
+    #[test]
+    fn bots_of_one_world_share_its_bodies_not_their_edits() {
+        let gen = engine::world::GENERATION;
+        let bodies: Vec<(i32, Option<u64>)> = engine::bodies::sizes(engine::bodies::of(gen), 256, 32).into_iter().map(|n| (n, None)).collect();
+        let shared = Shared::default();
+        let welcomed = |name: &str| {
+            let (c, s) = local::<ToServer, ToClient>();
+            let mut bot = Bot::sharing(name, c, &shared);
+            s.send(ToClient::Welcome { id: 1, seed: 11, bodies: bodies.clone(), blocks: engine::blocks::BLOCKS.hash, items: engine::items::ITEMS.hash, gen });
+            drop(s);
+            bot.receive();
+            bot
+        };
+        let (mut a, b) = (welcomed("a"), welcomed("b"));
+        let (wa, wb) = (a.world.as_mut().unwrap(), b.world.as_ref().unwrap());
+        assert!(std::sync::Arc::ptr_eq(&wa.bodies, &wb.bodies), "the bodies are built once");
+        let at = wa.block_at(wa.bodies[0].spawn_point());
+        wa.set_block(at, engine::blocks::BLOCKS.id("stone"));
+        assert_eq!((wa.edit_count, b.world.as_ref().unwrap().edit_count), (1, 0), "an edit is its own bot's");
+        let (c, s) = local::<ToServer, ToClient>();
+        let mut other = Bot::new("other", c);
+        s.send(ToClient::Welcome { id: 1, seed: 11, bodies: bodies.clone(), blocks: engine::blocks::BLOCKS.hash, items: engine::items::ITEMS.hash, gen });
+        other.receive();
+        assert!(!std::sync::Arc::ptr_eq(&other.world.as_ref().unwrap().bodies, &b.world.as_ref().unwrap().bodies), "another driver's are its own");
+    }
 
     // These servers tick at the game's own rate (they ran at 200 Hz): a bot's clock is the server's ticks, 20 a
     // second, so a script's `wait 0.5` is ten ticks, however long a busy PC takes over them.

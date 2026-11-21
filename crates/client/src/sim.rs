@@ -21,11 +21,13 @@ pub fn ahead(up: DVec3) -> DVec3 {
 /// the server closes their links.
 pub fn start(accept: Sender<ServerLink>, n: usize, seed: u64) {
     std::thread::spawn(move || {
+        // (one world's bodies for all: each built them, 0.7 s, one after another while the frames were timed)
+        let shared = bot::Shared::default();
         let mut bots: Vec<Bot> = (0..n)
             .map(|i| {
                 let (c, s) = net::local();
                 accept.send(s).expect("the local server");
-                Bot::new(&format!("sim{i}"), c)
+                Bot::sharing(&format!("sim{i}"), c, &shared)
             })
             .collect();
         // xorshift; the choices still differ from run to run, as the bots' own loop runs on the wall clock
