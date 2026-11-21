@@ -1612,6 +1612,28 @@ pub(crate) fn field_scale(args: &Args) -> f64 {
 }
 
 /// The far bodies' points and the gas giant's disc for the sky's shader (step 6a; `Globals::far`, `gas`, `gas2`):
+/// The pixel angle a far body's point is handed to its disc by (`sky::disc_share`): a body `held` (loaded on
+/// approach, its ground not drawn whole yet: step 6b) keeps its whole point HELD_HAND times longer, from 6 to 16
+/// pixels across instead of 1.5 to 4, so a ground still coming in shows the point, and a ground that never comes
+/// whole (a full quad buffer) never has a point over a wide disc.
+pub(crate) fn held_px(px: f64, held: bool) -> f64 {
+    if held {
+        px * HELD_HAND
+    } else {
+        px
+    }
+}
+pub(crate) const HELD_HAND: f64 = 4.0;
+
+#[test]
+fn a_held_point_never_sits_on_a_wide_disc() {
+    let (r, px) = (1000.0, 1e-3);
+    let share = |disc_px: f64, held: bool| engine::sky::disc_share(r, 2.0 * r / (disc_px * px), held_px(px, held));
+    assert_eq!((share(1.0, true), share(5.0, true)), (0.0, 0.0), "the whole point while it is small");
+    assert_eq!((share(16.0, true), share(1744.0, true)), (1.0, 1.0), "the disc's alone once wide");
+    assert_eq!((share(1.0, false), share(4.0, false)), (0.0, 1.0), "not held: handed over at 1.5 to 4 px");
+}
+
 /// each body's point by `sky::point_light` from the eye at inertial `eye`, in its row's colour, none where another
 /// body is in the way (`sky::hidden`: the eye's own horizon too) or the sky is light (the stars' darkness from
 /// `sky_c`); the giant's slot only while its disc is a pixel or more, in the frustum and not wholly behind a body,
@@ -1632,9 +1654,9 @@ pub(crate) fn far_lights(world: &World, eye: DVec3, sky_c: Vec3, px: f64, bodies
             continue;
         }
         let phase = (sun - c).normalize().dot((eye - c).normalize());
-        // a body `held` (loaded on approach, its ground not yet drawn whole: step 6b) keeps its whole point, as if
-        // its disc were under a pixel, so no frame shows neither
-        let b = engine::sky::point_light(r, dist, home_sun / (c - sun).length(), phase, if held.get(i) == Some(&true) { f64::INFINITY } else { px }, dark);
+        // a body `held` (loaded on approach, its ground not yet drawn whole: step 6b) keeps its point till its disc
+        // is 6 to 16 pixels across (`held_px`), so no frame shows neither and none a point on a wide disc
+        let b = engine::sky::point_light(r, dist, home_sun / (c - sun).length(), phase, held_px(px, held.get(i) == Some(&true)), dark);
         let col = engine::bodies::BODIES[i].colour;
         far[i] = [col[0] * b as f32, col[1] * b as f32, col[2] * b as f32, 0.0];
         if world.bodies[i].gas {

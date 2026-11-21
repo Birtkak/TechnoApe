@@ -780,8 +780,10 @@ impl Streamer {
             }
         }
         if draw {
+            // (once drawn whole a body stays ready while it streams: the holes of fast flight or a full quad
+            // buffer would else flicker its point on and off)
             for (b, h) in holes_on.iter().enumerate() {
-                self.ready[b] = self.on[b] && *h == 0;
+                self.ready[b] = self.on[b] && (self.ready[b] || *h == 0);
             }
             let draws = out[first..].iter().map(|d| (*d, self.slots[&d.key].bounds)).collect();
             self.walk = Some(Walk { draws, first: first as u32, missing: st.missing - missing0, holes: st.holes - holes0, cams, planes: view.planes });
