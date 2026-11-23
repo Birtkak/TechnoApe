@@ -564,6 +564,20 @@ impl App {
                 self.fx.play(brk, &crate::fx::At::cell(&self.world, c, under));
             }
         }
+        // pour=: creative's bucket of a fluid, through the server
+        // (the server takes a chat command after the tick's buckets: a change of fluid goes a frame ahead of its pour)
+        while let Some(&(at, b, k)) = self.pours.last().filter(|e| self.loaded_at.is_some() && e.0 <= t) {
+            if self.pour_fluid != Some(k) {
+                self.pour_fluid = Some(k);
+                self.link.send(ToServer::Creative(true));
+                self.link.send(ToServer::Chat(format!("/fluid {}", engine::fluids::FLUIDS.get(k).name)));
+                // again in a tick
+                self.pours.last_mut().unwrap().0 = at.max(t) + 0.1;
+                break;
+            }
+            self.pours.pop();
+            self.link.send(ToServer::Bucket { seq: self.pred.fresh(), at: b, fill: false });
+        }
         // fxedit=: a cell changed as a click would change it, with its effects
         while self.fx_edits.last().is_some_and(|e| self.loaded_at.is_some() && e.0 <= t) {
             let (_, b, m) = self.fx_edits.pop().unwrap();

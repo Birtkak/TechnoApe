@@ -1,0 +1,29 @@
+# The fluids (docs/design/liquids.md "Fluids are rows"; schema and checks in crates/engine/src/fluids.rs).
+# A row's place is its kind: it goes on the wire and into saves, so rows are only added at the end, never moved,
+# renamed or taken out. The first row is water (every save before fluid rows holds water only).
+# `density`: kg/m3 (read by the layers of liquids.md step 4; nothing flows by it yet).
+# `viscosity`: a whole number, how many times water's friction a link of this fluid loses a step (water 1: its
+# speed loses 1/512 a step, and up to 1/128 more in a sheet under a block deep). Thick fluids flow like a
+# creeping sheet: on the same slope their steady speed is 1/viscosity of water's (`liquid.rs`, `Liquids::step`).
+# `colour`: its look (0..1). `light`: the light it gives, a colour times its strength (0..4, as a block's light,
+# ADR 0022); a fluid with a light glows by it and is drawn opaque, one with none is drawn as water.
+# For later steps, read but unused (liquids.md steps 4 and 5): `freeze` and `boil` as { at = degrees C, into =
+# a block or a gas }, and `reacts` as a list of { with = a fluid or a block, gives = [names], heat = kJ a unit
+# given (negative: taken) }.
+
+[[fluid]]
+name = "water"
+density = 1000.0
+viscosity = 1
+colour = [0.12, 0.32, 0.45]
+freeze = { at = 0.0, into = "ice" }
+boil = { at = 100.0, into = "steam" }
+
+[[fluid]]
+name = "lava"
+density = 2600.0
+viscosity = 64
+colour = [1.0, 0.32, 0.05]
+light = [2.2, 0.6, 0.08]
+freeze = { at = 1000.0, into = "basalt" }
+reacts = [{ with = "water", gives = ["basalt", "steam"], heat = 0.0 }]

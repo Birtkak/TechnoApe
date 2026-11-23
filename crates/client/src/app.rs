@@ -155,6 +155,10 @@ pub(crate) struct App {
     pub(crate) digs: Vec<(u32, Shape, f32, f32, f64, f64)>,
     /// fxedit=: cells to change and when (seconds after loading), soonest last.
     pub(crate) fx_edits: Vec<(f64, Block, u16)>,
+    /// pour=: a block of a fluid poured by creative's bucket through the server, and when; soonest last.
+    pub(crate) pours: Vec<(f64, Block, u8)>,
+    /// The fluid the server's creative bucket was last told to pour (`pours`).
+    pub(crate) pour_fluid: Option<u8>,
     /// What each world of the Singleplayer list is (seed, size, last played), beside `worlds`.
     pub(crate) world_notes: Vec<String>,
     pub(crate) new_world: menu::NewWorld,

@@ -206,6 +206,9 @@ struct Client {
     heard: u64,
     /// The maps sent to it (`ToServer::Map`), by hash: each goes once a connection.
     maps: Vec<u64>,
+    /// The fluid creative's bucket pours and scoops (`/fluid`, a kind of `data/fluids.toml`); survival's holds water.
+    /// Not saved: a join starts with water.
+    fluid: u8,
     /// The water in its bucket, in units (`liquid::U` is a full bucket).
     water: u32,
     /// The version of each water tile this client has (`Server::tiles`).

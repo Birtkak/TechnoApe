@@ -12,6 +12,7 @@ pub mod edit;
 pub mod events;
 pub mod herds;
 pub mod fall;
+pub mod fluids;
 pub mod furnace;
 pub mod hand;
 pub mod interior;

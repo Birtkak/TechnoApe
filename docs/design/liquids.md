@@ -115,7 +115,7 @@ spans the three: a block is U units, and ice + water + vapour of a world is one 
 2. **Tide as a force** (spike in `prototypes/` first): the head term on links, the general tide sum, `retide`
    removed. Test: a stored bay beside the open sea stays level with it through a tide; the F9 report's block in
    the band leaves the sea whole. Measure: awake nodes and tick time on a coast with 100,000 stored columns.
-3. **Fluid rows and one more fluid** (lava) with no mixing: a kind per node, the ledger per fluid, the wire and
+3. **Fluid rows and one more fluid** (lava; done, ADR 0186) with no mixing: a kind per node, the ledger per fluid, the wire and
    the save (a format change: its own decision).
 4. **Layers and reactions:** oil on water, lava into water. The mesh and the look per fluid.
 5. **Phases of water** (spike in `prototypes/` first): ice, water and vapour by temperature and pressure, with
