@@ -36,10 +36,25 @@ does (keeps lava liquid, boils ground water, warms a spring) follows from the te
 4. **New rock as data:** obsidian (lava frozen fast, by water), scoria and pumice on the cone, sulfur at
    fumaroles: something to find and craft with.
 
+## Eruptions (the developer, 2026-11-23: "yes eruptions too")
+
+The same heat, not at rest. Melt keeps arriving in a live chamber from below at a rate (its row); the chamber's
+pressure rises with what it holds; when it passes what the plug of frozen rock in the conduit bears, the conduit
+opens and the surplus leaves as **counted units of lava from the crater**, the ordinary fluid of ADR 0186: it
+runs downhill by its viscosity, pools, and freezes to basalt where it has left the heat (the first rock phase
+change, at real rates: a source drives it, ADR 0187). The pressure falls, the plug freezes, the volcano rests.
+So a cone grows by its own flows, a flow can bury a base, and what erupted is in the ledger.
+
+- **Server-side and deterministic:** each live volcano's chamber is a few numbers in the save, stepped slowly;
+  an eruption is an `Event` (journal, sound, ash and glow for clients) and edits through the ordinary queue.
+- **Warning before harm:** pressure shows first (fumaroles strengthen, the lake rises, rumble), so a player can
+  read a volcano and leave or build a channel.
+- **Order of building:** after the landform, the inside and lava's freezing; before ash and bombs.
+- **Open:** how often (a rate that gives one eruption a volcano every few game years is the first guess, from
+  the supply rate, not a timer); explosive eruptions (gas in the melt: ash, pumice, bombs) after gases.
+
 ## Open
 
-- **Eruptions.** `worldgen.md` records "no eruptions and no quakes" (the developer, earlier). This design keeps
-  volcanoes at rest: a lake, a glow, vents. An eruption would be the chamber's level rising (lava as counted
-  units pouring from the crater) as an event; not built until the developer asks.
+- Quakes: still out (`worldgen.md`, the developer's earlier call; only eruptions were taken back).
 - Mars's shields are extinct (their chambers cold): landforms only, as today. Io-like moons later.
 - A real geotherm from the interior (ADR 0162 left it open): today `Body::heat` is a gradient a province.

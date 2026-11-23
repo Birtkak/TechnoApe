@@ -93,7 +93,8 @@ The developer: "it's time to add volcanoes and volcanic vents ... The heat from 
 Terra's arcs get volcanoes with a chamber, a conduit and a crater lake of lava, and vents where the heat reaches
 the ground; all of it follows from one temperature field around the chamber, not from rules per feature
 (`docs/design/volcanoes.md`). Replaces `worldgen.md`'s "lava only as still pools deep under volcanic provinces".
-Still standing until the developer says otherwise: no eruptions and no quakes.
+**Eruptions too** (the developer, the same day): a live chamber fills from below, and past the plug's strength
+its surplus pours from the crater as counted lava that freezes to basalt. Still standing: no quakes.
 
 ### Locked hashes and byte-identity
 

@@ -96,8 +96,8 @@ map cell), lakes with levels, and the ore bodies.
 - **Caves follow rock:** water-cut cave systems in limestone that follow the old water table and come out
   at springs; lava tubes in basalt; a few faults and sea caves elsewhere. Granite has almost none.
 - **Heat:** rock warms with depth (progression: a cave is the first shelter), faster near old volcanoes
-  and rifts, where hot springs come up. The developer did not choose active geology: **no eruptions and no
-  quakes.** Lava exists as still pools deep under volcanic provinces, as a heat source and a hazard.
+  and rifts, where hot springs come up. Since ADR 0188 (2026-11-23) volcanoes are active: chambers, crater
+  lakes, vents and eruptions (`volcanoes.md`). Still **no quakes.**
 
 ## Ore (real minerals, the developer's call)
 Each mineral has a rule for where it forms, so finding one teaches where to look for the next.
