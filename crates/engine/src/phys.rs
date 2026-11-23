@@ -127,18 +127,19 @@ pub fn up(world: &World, p: DVec3) -> DVec3 {
     pull(world, p).0
 }
 
-/// Whether gravity holds the body upright at once: standing, or near a body, flying or falling. A fall near a
-/// weak moon is not space: free there, a block's drop down a shaft folded the look into the body and the landing
-/// swung it level (bug 2026-11-21_18-02-54).
-fn held(world: &World, p: &Player, _flying: bool) -> bool {
-    p.on_ground || world.altitude(p.pos) < NEAR
+/// Whether gravity holds the body upright at once: standing, or near a body when flying or when its pull `s` is
+/// under FREE_G. A fall near a weak moon is not space: free there, a block's drop down a shaft folded the look
+/// into the body and the landing swung it level (bug 2026-11-21_18-02-54). A fall under a stronger pull is
+/// righted at RIGHT as before (it is never free once upright), so earlier recordings replay.
+fn held(world: &World, p: &Player, flying: bool, s: f64) -> bool {
+    p.on_ground || (flying || s < FREE_G) && world.altitude(p.pos) < NEAR
 }
 
 /// Whether the mouse's pitch turns the body itself and Q/E roll it (`Input::tilt`, `Input::roll`): out of a
 /// hold where the pull is weak, or has not righted the body yet. Else the pitch is the head's.
 pub fn free(world: &World, p: &Player, flying: bool) -> bool {
     let (gu, s) = pull(world, p.pos);
-    !held(world, p, flying) && (s < FREE_G || p.body_up(gu).angle_between(gu) > FREE_TILT)
+    !held(world, p, flying, s) && (s < FREE_G || p.body_up(gu).angle_between(gu) > FREE_TILT)
 }
 
 /// `v` turned about `axis` by `a` radians.
@@ -361,7 +362,7 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
     // near a body), then turned, tilted and rolled as the input says
     let look = DVec3::new(inp.fwd[0] as f64, inp.fwd[1] as f64, inp.fwd[2] as f64);
     let (mut bu, mut fwd) = (p.body_up(up), if look.is_finite() && look != DVec3::ZERO { look } else { p.fwd });
-    let rate = if held(world, p, flying) { HOLD } else { RIGHT * (pull / G).powi(2) };
+    let rate = if held(world, p, flying, pull) { HOLD } else { RIGHT * (pull / G).powi(2) };
     let a = bu.angle_between(up);
     if a <= rate * dt {
         fwd = turned(bu.cross(up).normalize_or(fwd), a, fwd);

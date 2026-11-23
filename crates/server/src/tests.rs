@@ -4476,12 +4476,16 @@ fn a_version_21_save_and_recordings_load_as_terra_and_luna() {
     assert_eq!(Server::from_save(Save::from_bytes(&again.to_bytes()).unwrap(), channel().1).world.hash(), 0x6a8c4af3e597fcf6);
     // (v21-moving.rec: main 2fc59dbc's server on the noise land, a player walking and jumping on Terra for 200
     // ticks, then /goto luna and falling there for 300: every checkpoint hashes the player's motion)
-    for (name, checks, hash) in [("v21-save.rec", 2, 0xe96d62133385dd09u64), ("v21-seed.rec", 2, 0x169db21dd9b67e54), ("v21-moving.rec", 25, 0xcbf29ce484222325)] {
+    for (name, checks, hash) in [("v21-save.rec", 2, 0xe96d62133385dd09u64), ("v21-seed.rec", 2, 0x169db21dd9b67e54)] {
         let r = replay(&dir.join(name), None).unwrap();
         assert_eq!((r.diverged, r.checks, r.server.world.hash()), (None, checks, hash), "{name}");
         assert_eq!(r.server.world.bodies.len(), 2);
     }
+    // The walk and jumps on Terra replay to the bit. The fall on that small Luna, whose pull is under FREE_G, does
+    // not since bug 2026-11-21_18-02-54 was fixed: a body falling near a weak moon is held upright now.
     let r = replay(&dir.join("v21-moving.rec"), None).unwrap();
+    assert!(r.diverged.map_or(true, |d| d.0 > 200), "the Terra part: {:?}", r.diverged);
+    assert_eq!((r.server.world.hash(), r.server.world.bodies.len()), (0xcbf29ce484222325, 2));
     assert_eq!(r.server.world.frame_at(r.server.clients[0].phys.pos), 1, "the player ends in Luna's frame");
 }
 

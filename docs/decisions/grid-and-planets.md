@@ -144,7 +144,7 @@ The conformal grid is the equi-angular grid with its face coordinates warped fir
 ## The player's own orientation
 
 - `Player::up` beside `Player::fwd`: each step the body's up turns towards the pull's up at `RIGHT` x (pull / G)2
-  rad/s, `RIGHT` = 3 (`phys.rs`). While standing, or flying or falling within `NEAR` (1500 m) of a surface, it is held
+  rad/s, `RIGHT` = 3 (`phys.rs`). While standing, or within `NEAR` (1500 m) of a surface when flying or when the pull is under `FREE_G`, it is held
   at `HOLD` = 8 rad/s: exact while walking, a smooth turn of a few tenths of a second when coming in tilted. Nothing
   snaps. (Falling was left out until bug 2026-11-21_18-02-54: on a moon under `FREE_G` a block's drop down a shaft
   went free, folded the look down into the body, and the landing swung it level.) [0024]
