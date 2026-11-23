@@ -265,7 +265,14 @@ mod tests {
         let light = crate::fluids::FLUIDS.now().get(lava().0).light[0];
         let eye = w.bodies[0].centre + c.top;
         let cams = vec![eye; w.bodies.len()];
-        let lamps = w.fluid_lamps(&cams, 300.0);
+        // this lake's own (another crater's lamps lie in reach too): what lies within its lamps' farthest from the eye
+        let far = c.lamps.iter().map(|l| (w.bodies[0].centre + l.0 - eye).length()).fold(0.0, f64::max) + 2.0;
+        let near = |w: &World| -> Vec<(u8, DVec3, [f32; 3])> {
+            let mut v: Vec<_> = w.fluid_lamps(&cams, 300.0).into_iter().filter(|l| (l.1 - eye).length() < far).collect();
+            v.sort_by(|a, b| a.1.to_array().partial_cmp(&b.1.to_array()).unwrap());
+            v
+        };
+        let lamps = near(&w);
         let sum: f32 = lamps.iter().map(|l| l.2[0] / light).sum();
         let want = c.lake_cols.len() as f32 / 4.0;
         assert!(want > 16.0, "a lake whose lamp a 2 x 2 patch ({want}) would pass the cap");
@@ -279,7 +286,7 @@ mod tests {
             cols.iter().for_each(|&k| water.regap(&g, k));
             assert!(water.stored() > 0);
         }
-        assert_eq!(w.fluid_lamps(&cams, 300.0), lamps, "storing its columns moves no lamp");
+        assert_eq!(near(&w), lamps, "storing its columns moves no lamp");
     }
 
     /// Lava poured into a pit on cold ground freezes to basalt at real rates (lava basics, draft decision): a pit
