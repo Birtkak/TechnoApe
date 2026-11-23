@@ -350,7 +350,11 @@ impl Save {
         let mut s = match now {
             Some((mut s, rest)) => {
                 if !rest.is_empty() {
-                    s.heat = postcard::from_bytes(rest).map_err(|e| format!("the save's fluid heat: {e}"))?;
+                    // a bad heat tail costs only the heat: the fluids take their pour heat again (`restore_heat`)
+                    match postcard::from_bytes(rest) {
+                        Ok(h) => s.heat = h,
+                        Err(e) => eprintln!("the save's fluid heat ({} bytes) unread, loaded without it: {e}", rest.len()),
+                    }
                 }
                 s
             }

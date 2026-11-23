@@ -405,9 +405,16 @@ impl Server {
         // once a second stored lava gives its heat to the air and rock round it, and what froze through is basalt
         // (lava basics, draft decision): through the edits as any other block, so the clients and the save see it
         if self.tick % TICK_HZ as u64 == 0 {
-            for (b, m) in self.world.cool_fluids(1.0) {
+            // a player's cells stay liquid this second, so freezing never buries one
+            // shortcut: the cells over the feet's column only (a 0.6 m body can lean into the next one) and no
+            // animals, until a body standing at a freezing edge is seen caught
+            let world = &self.world;
+            let taken: Vec<Block> =self.clients.iter()
+                .flat_map(|c| [0.2, 1.0, phys::HEIGHT - 0.1].map(|h| world.block_at(c.phys.pos + phys::up(world, c.phys.pos) * h)))
+                .collect();
+            for (b, was, m) in self.world.cool_fluids(1.0, |b| taken.contains(&b)) {
                 changed.push((b, m));
-                self.events.push(Event::Edit { at: b, was: AIR, now: m, by: None });
+                self.events.push(Event::Edit { at: b, was, now: m, by: None });
             }
         }
         // water finds the new gaps of every column an edit changed, then flows: as many steps as the physics

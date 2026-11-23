@@ -20,7 +20,16 @@ pub struct Crater {
     pub heat: f32,
     /// The layer its lava stands level under (the lake's surface): a live volcano whose crater holds a lake.
     pub lake: Option<i32>,
+    /// Its lake's columns (i, j), sorted, and its lamps (`World::fluid_lamps`): at most LAKE_LAMPS, each the middle
+    /// of a patch of the lake's surface from the body's centre and how many 2 x 2 patches' light it gives (a quarter
+    /// of its columns), so the lake is as bright in sum as a lamp a 2 x 2 patch. Worked out once: the lake is a
+    /// formula and never moves.
+    pub lake_cols: Vec<(i32, i32)>,
+    pub lamps: Vec<(DVec3, f32)>,
 }
+
+/// The most lamps a crater's lake gives (a 4 x 4 grid of patches over it), so torches beside it keep theirs.
+pub const LAKE_LAMPS: i32 = 4;
 
 /// Lava's row of `data/fluids.toml` and its freeze point, C.
 fn lava() -> (u8, f32) {
@@ -64,7 +73,30 @@ impl Body {
                 let up = self.dir(f, ci, cj);
                 let chamber = up * (self.radius - SEA_DEPTH + v.chamber as f64);
                 let top = up * self.layer_r(lake.unwrap_or_else(|| self.first_air(floor)) as f64);
-                Crater { v: *v, face, at: (ci, cj), chamber, top, heat, lake }
+                // the lake's columns: in the crater, the ground under the lake's surface (shortcut: a cave opening a
+                // column whose ground stands over the lake is not counted, `lava_col` would give it lava)
+                let mut lake_cols = Vec::new();
+                let mut lamps = Vec::new();
+                if let Some(l) = lake {
+                    let r = rc.ceil() as i32 + 1;
+                    lake_cols = (i0 - r..=i0 + r)
+                        .flat_map(|i| (j0 - r..=j0 + r).map(move |j| (i, j)))
+                        .filter(|&(i, j)| (i as f64 + 0.5 - ci).hypot(j as f64 + 0.5 - cj) < rc && self.first_air(self.col_height(face, i, j)) < l)
+                        .collect();
+                    lake_cols.sort_unstable();
+                    let cell = ((2 * r + 1) as f64 / LAKE_LAMPS as f64).ceil() as i32;
+                    for (a, b) in (0..LAKE_LAMPS).flat_map(|a| (0..LAKE_LAMPS).map(move |b| (a, b))) {
+                        let at: Vec<DVec3> = lake_cols
+                            .iter()
+                            .filter(|&&(i, j)| (i - (i0 - r)) / cell == a && (j - (j0 - r)) / cell == b)
+                            .map(|&(i, j)| self.dir(f, i as f64 + 0.5, j as f64 + 0.5) * self.layer_r(l as f64 - 0.5))
+                            .collect();
+                        if !at.is_empty() {
+                            lamps.push((at.iter().sum::<DVec3>() / at.len() as f64, at.len() as f32 / 4.0));
+                        }
+                    }
+                }
+                Crater { v: *v, face, at: (ci, cj), chamber, top, heat, lake, lake_cols, lamps }
             })
             .collect()
     }
@@ -212,11 +244,32 @@ mod tests {
             let lit = lamps.iter().any(|l| (l.1 - beside).length() < 1.5 && l.2 == rows.get(kind).light);
             assert_eq!(lit, kind != crate::fluids::WATER, "kind {kind}: lamps {lamps:?}");
         }
-        let w = world(false);
+    }
+
+    /// A live crater's lake lights by a few lamps worked out once (the review of lava basics): at most 16, as bright in
+    /// sum as a lamp for every 2 x 2 columns of it, and the same lamps once its columns are stored and woken.
+    #[test]
+    fn a_craters_lake_lights_by_at_most_sixteen_lamps_that_hold_when_it_is_stored() {
+        let mut w = world(false);
         let c = live(&w);
+        let light = crate::fluids::FLUIDS.now().get(lava().0).light[0];
         let eye = w.bodies[0].centre + c.top;
-        let lamps = w.fluid_lamps(&vec![eye; w.bodies.len()], 48.0);
-        assert!(lamps.len() >= 4 && lamps.iter().all(|l| l.2 == rows.get(lava().0).light), "the lake's lamps: {}", lamps.len());
+        let cams = vec![eye; w.bodies.len()];
+        let lamps = w.fluid_lamps(&cams, 300.0);
+        let sum: f32 = lamps.iter().map(|l| l.2[0] / light).sum();
+        let want = c.lake_cols.len() as f32 / 4.0;
+        assert!(want > 16.0, "a lake whose lamp a 2 x 2 patch ({want}) would pass the cap");
+        assert!(!lamps.is_empty() && lamps.len() <= 16, "the lake's lamps: {}", lamps.len());
+        assert!((sum - want).abs() < 1e-3 * want, "as bright as {want} patches: {sum}");
+        {
+            let World { bodies, edits, water, sky, time, .. } = &mut w;
+            let g = Solid::at(bodies, edits, sky, *time);
+            let cols: Vec<Col> = c.lake_cols.iter().map(|&(i, j)| Col::new(0, c.face, i, j)).collect();
+            cols.iter().for_each(|&k| water.materialize(&g, k));
+            cols.iter().for_each(|&k| water.regap(&g, k));
+            assert!(water.stored() > 0);
+        }
+        assert_eq!(w.fluid_lamps(&cams, 300.0), lamps, "storing its columns moves no lamp");
     }
 
     /// Lava poured into a pit on cold ground freezes to basalt at real rates (lava basics, draft decision): a pit
@@ -233,32 +286,60 @@ mod tests {
     ///   the depth falling as it goes: 3.7e5 s). So about 5.2e5 s, six days.
     #[test]
     fn a_lava_pool_on_cold_ground_freezes_to_basalt_in_its_time_and_the_ledger_holds() {
+        // at the server's step (a second) and a coarser one: the same physics, the same answer
+        for dt in [1.0, 10.0] {
+            let mut w = world(false);
+            let kind = lava().0;
+            let (cols, z0) = pit(&mut w, 3, 3, 2 * U, kind);
+            let mid = cols[4];
+            let ta = w.ground().heat(mid, z0 as f64 + 1.0);
+            assert!(ta < 60.0, "cold ground: {ta} C");
+            assert_eq!(w.water.temp_at(mid, z0), Some(1150.0), "poured at its row's heat");
+            let basalt = crate::blocks::BLOCKS.id("basalt");
+            let poured = 9 * 2 * U;
+            let ledger = |w: &World| w.water.counted_of(kind) + w.water.froze.get(&kind).copied().unwrap_or(0);
+            let mut t = 0.0;
+            while w.water.total_of(kind) > 0 && t < 6.0e6 {
+                w.cool_fluids(dt, |_| false);
+                w.step_water();
+                t += dt;
+                if (t as i64) % 100_000 == 0 {
+                    assert_eq!(ledger(&w), poured, "the ledger at {t} s");
+                }
+            }
+            let hand = 5.2e5;
+            eprintln!("dt {dt}: the pool froze through in {t:.0} s ({:.1} days), by hand {hand:.0} s", t / 86400.0);
+            assert!(t > hand / 2.0 && t < hand * 2.0, "dt {dt}: froze in {t} s, by hand {hand} s");
+            assert_eq!((w.water.total_of(kind), ledger(&w)), (0, poured), "dt {dt}: all of it froze, every unit booked");
+            let blocks = cols.iter().flat_map(|c| (z0..z0 + 2).map(move |z| Block { body: 0, face: c.face(), pos: IVec3::new(c.i(), c.j(), z) })).filter(|&b| w.block(b) == basalt).count();
+            eprintln!("{blocks} blocks of basalt in the pit, {} units froze", w.water.froze[&kind]);
+            assert!((16..=18).contains(&blocks), "dt {dt}: {blocks} blocks of basalt for 18 poured");
+        }
+    }
+
+    /// Freezing buries nothing: while the cell is taken (a player in it) the lava sets no block there and every unit
+    /// stays booked; once it is free the lava freezes through as before, and the edit names the air it filled.
+    #[test]
+    fn freezing_lava_waits_while_its_cell_is_taken() {
         let mut w = world(false);
         let kind = lava().0;
-        let (cols, z0) = pit(&mut w, 3, 3, 2 * U, kind);
-        let mid = cols[4];
-        let ta = w.ground().heat(mid, z0 as f64 + 1.0);
-        assert!(ta < 60.0, "cold ground: {ta} C");
-        assert_eq!(w.water.temp_at(mid, z0), Some(1150.0), "poured at its row's heat");
+        let (cols, z0) = pit(&mut w, 1, 2, U, kind);
         let basalt = crate::blocks::BLOCKS.id("basalt");
-        let poured = 9 * 2 * U;
+        let cell = Block { body: 0, face: cols[0].face(), pos: IVec3::new(cols[0].i(), cols[0].j(), z0) };
         let ledger = |w: &World| w.water.counted_of(kind) + w.water.froze.get(&kind).copied().unwrap_or(0);
-        let (dt, mut t) = (10.0, 0.0);
-        while w.water.total_of(kind) > 0 && t < 6.0e6 {
-            w.cool_fluids(dt);
+        for _ in 0..10_000 {
+            assert!(w.cool_fluids(60.0, |_| true).is_empty(), "no block while the cell is taken");
             w.step_water();
-            t += dt;
-            if (t as i64) % 100_000 == 0 {
-                assert_eq!(ledger(&w), poured, "the ledger at {t} s");
-            }
+            assert_eq!(ledger(&w), U, "every unit booked");
         }
-        let hand = 5.2e5;
-        eprintln!("the pool froze through in {t:.0} s ({:.1} days), by hand {hand:.0} s", t / 86400.0);
-        assert!(t > hand / 2.0 && t < hand * 2.0, "froze in {t} s, by hand {hand} s");
-        assert_eq!((w.water.total_of(kind), ledger(&w)), (0, poured), "all of it froze, every unit booked");
-        let blocks = cols.iter().flat_map(|c| (z0..z0 + 2).map(move |z| Block { body: 0, face: c.face(), pos: IVec3::new(c.i(), c.j(), z) })).filter(|&b| w.block(b) == basalt).count();
-        eprintln!("{blocks} blocks of basalt in the pit, {} units froze", w.water.froze[&kind]);
-        assert!((16..=18).contains(&blocks), "{blocks} blocks of basalt for 18 poured");
+        assert_eq!(w.block(cell), AIR, "the taken cell holds no basalt");
+        let mut set = Vec::new();
+        for _ in 0..10_000 {
+            set.extend(w.cool_fluids(60.0, |_| false));
+            w.step_water();
+        }
+        assert_eq!(set, vec![(cell, AIR, basalt)], "free, it froze to a block that filled the air");
+        assert_eq!((w.block(cell), w.water.total_of(kind), ledger(&w)), (basalt, 0, U));
     }
 
     /// The rest state (lava basics): a live crater's lake stored and woken, and a block of lava poured onto it, stepped
@@ -279,7 +360,7 @@ mod tests {
             assert!(water.pour_kind(&g, Col::new(0, c.face, i, j), lake - 1, U, kind));
         }
         for _ in 0..7 * 1440 {
-            assert!(w.cool_fluids(60.0).is_empty(), "nothing freezes");
+            assert!(w.cool_fluids(60.0, |_| false).is_empty(), "nothing freezes");
             for _ in 0..4 {
                 w.step_water();
             }

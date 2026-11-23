@@ -135,9 +135,12 @@ server ledger for creative's other fluids.
 - **Context:** the world queue's step 2 (roadmap), `volcanoes.md` ("kept liquid by the heat"), ADR 0183 (matter
   changes phase) and 0187 (heat a source drives runs at real rates).
 - **Light:** a fluid with a `light` lights the world as a lamp block does: `World::fluid_lamps` gives a lamp at the
-  top cell of every glowing surface, stored or a live crater's lake as generated, one a 2 x 2 columns' patch at one
-  cell's light, gathered with the blocks' lamps (`gather_lamps`, nearest first, the Lamps setting's cap). Water gives
-  none. Taste default: that brightness and patch; a big lake fills the cap and can push torches beside it out.
+  top cell of every stored glowing surface, one a 2 x 2 columns' patch at one cell's light, from the stored tiles
+  round the camera (no scan of every node), gathered with the blocks' lamps (`gather_lamps`, nearest first, the
+  Lamps setting's cap). A live crater's lake lights by its own lamps, worked out once when the map comes in
+  (`Crater::lamps`): at most 16, a 4 x 4 grid of patches over it, each at its columns' mean surface and as bright as
+  the 2 x 2 patches it stands for, so the lake is as bright in sum and no frame works out a lake; its columns once
+  stored are left to those lamps, so none jumps. Water gives none. Taste default: that brightness and patch.
 - **A body in a fluid:** `phys::step` reads the fluid at the feet (`World::fluid_surface`): it floats with
   `FLOAT x 1000 / density` of the body under (Archimedes, the body FLOAT of water's density as before), so lava at
   2600 kg/m3 carries it 0.31 under, mostly out; the vertical drag gains `3 (visc - 1) sub` a second (implicit) and
@@ -159,11 +162,16 @@ server ledger for creative's other fluids.
   W s^0.5/(m2 K) for k 2.0, rho 2700, c 900). Past the freeze point the loss freezes units at the latent heat; each U
   frozen makes the node's floor cell its row's `freeze` block (basalt) through the ordinary edits (events, clients,
   save); a node frozen through hands its crust short of a block to a neighbour of the same fluid, else (a sheet) it
-  froze into nothing. Every unit frozen is booked to `Liquids::froze` by kind, so `counted_of(kind) + froze` stays
+  froze into nothing. A cell that is taken (a player's feet, body or head, or a block set there) gets no block: the
+  block's worth waits on the node and is tried the next second, so freezing buries nothing; each edit names what was
+  there. Every unit frozen is booked to `Liquids::froze` by kind, so `counted_of(kind) + froze` stays
   what was carried in. Measured: a 3 x 3 pit of lava two blocks deep on cold ground freezes through in about 5 days
   (the hand calculation, 6 days, in the test); a thin sheet in under an hour; a crater lake never.
 - **Save:** the heats (column, the node's floor, heat) and `froze` go after the version 22 layout's bytes, only when
-  there are any; `Save::from_bytes` reads them if present. So the version does not move: a world without heat (every
+  there are any; `Save::from_bytes` reads them if present, and a short or corrupt tail loads the save without them
+  (logged). Each heat goes back on its column's node of that floor, else on a hot node there with none. Every
+  stored node of a fluid with heat left without one, outside generation's lava, takes its row's pour heat, so no lava
+  lies liquid for ever. So the version does not move: a world without heat (every
   water-only world, every older save) writes and reads the very bytes it did, and an older build reading a newer
   save with lava drops its heats (postcard ignores trailing bytes). Not on the wire: clients see the basalt edits and
   the water changes. Recordings replay (the step is in the tick and deterministic).

@@ -138,7 +138,7 @@ impl Server {
         s.world.time = save.tick.saturating_sub(1) as f64 / TICK_HZ;
         let World { bodies, edits, water, sky, time, .. } = &mut s.world;
         water.restore(&engine::world::Solid::at(bodies, edits, sky, *time), &save.water);
-        water.restore_heat(&save.heat.0);
+        water.restore_heat(&engine::world::Solid::at(bodies, edits, sky, *time), &save.heat.0);
         water.froze = save.heat.1.iter().copied().collect();
         (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
         water.rained = save.reaches.0;

@@ -820,22 +820,49 @@ impl Liquids {
         self.touch(g, a);
         true
     }
-    /// The stored nodes of a fluid that gives light, as (column, its surface's top layer, kind), sorted by column.
-    pub fn glowing(&self) -> Vec<(Col, i32, u8)> {
+    /// The stored nodes of a fluid that gives light in tiles `tiles` (`wet_tiles`), as (column, its surface's top
+    /// layer, kind), sorted by column: what is round a camera, not the world.
+    pub fn glowing_in(&self, tiles: &[Col]) -> Vec<(Col, i32, u8)> {
         if !self.other {
             return Vec::new();
         }
         let rows = crate::fluids::FLUIDS.now();
-        let mut v: Vec<(Col, i32, u8)> = self
-            .cols
-            .values()
-            .flatten()
+        let mut v: Vec<(Col, i32, u8)> = tiles
+            .iter()
+            .flat_map(|t| self.tiles.get(t).into_iter().flatten())
+            .flat_map(|c| &self.cols[c])
             .map(|&i| &self.nodes[i as usize])
             .filter(|n| n.water > 0 && rows.get(n.kind).glows())
             .map(|n| (n.col, n.floor + ((n.water.min(n.cap()) - 1) / U) as i32, n.kind))
             .collect();
         v.sort_unstable_by_key(|x| (x.0, x.1));
         v
+    }
+    /// The block a node of column c on floor z froze into could not be set (the cell was taken): its units stay
+    /// frozen and booked, a block's worth waiting to be set the next time (`cool`). A node that froze through this
+    /// time has no heat left to wait on: its block's worth goes to a neighbour of the same fluid as its crust did,
+    /// else back into it as liquid at the freeze point (unbooked), so no unit is lost.
+    pub fn unfreeze(&mut self, c: Col, z: i32, kind: u8) {
+        let Some(&a) = self.cols.get(&c).and_then(|ids| ids.iter().find(|&&i| self.nodes[i as usize].floor == z)) else { return };
+        if let Some(h) = self.heat.get_mut(&a) {
+            h.solid += U;
+            return;
+        }
+        let b = self.nodes[a as usize].links.iter().map(|l| l.to).find(|&b| self.nodes[b as usize].kind == kind && self.nodes[b as usize].water > 0);
+        if let Some(h) = b.and_then(|b| self.heat.get_mut(&b)) {
+            h.solid += U;
+            return;
+        }
+        let tf = crate::fluids::FLUIDS.now().get(kind).freeze.as_ref().map_or(0.0, |f| f.at as f64);
+        let n = &mut self.nodes[a as usize];
+        n.water += U;
+        n.kind = kind;
+        *self.froze.entry(kind).or_default() -= U;
+        self.heat.insert(a, Therm { t: tf, age: 0.0, frac: 0.0, solid: 0 });
+        if self.nodes[a as usize].quiet == u16::MAX {
+            self.wake(a);
+        }
+        self.dirty.insert(c, ());
     }
     /// The heat node a holds, C: its own, or at rest what its place gives.
     fn temp_of(&self, g: &impl Ground, a: u32) -> f64 {
@@ -858,18 +885,36 @@ impl Liquids {
         v.sort_unstable_by_key(|x| (x.0, x.1));
         v
     }
-    /// A save's heats back on the nodes `restore` built: each on its column's node of that floor, else its first
-    /// node of a fluid with heat (the ground under it changed since).
-    pub fn restore_heat(&mut self, heats: &[(Col, i32, Therm)]) {
+    /// A save's heats back on the nodes `restore` built: each on its column's node of that floor, else on the
+    /// column's first node of a fluid with heat that has none yet (the ground under it changed since), else
+    /// dropped. Then every stored node of such a fluid still without one, outside generation's own (which rests at
+    /// its place's heat), is given its row's pour heat: a save from before heat, or one whose heat was dropped,
+    /// must not leave lava liquid for ever.
+    pub fn restore_heat(&mut self, g: &impl Ground, heats: &[(Col, i32, Therm)]) {
         let rows = crate::fluids::FLUIDS.now();
+        let hot = |n: &Node| n.water > 0 && n.kind != crate::fluids::WATER && rows.get(n.kind).heat.is_some();
         for &(c, floor, h) in heats {
             let Some(ids) = self.cols.get(&c) else { continue };
-            let hot = |i: &&u32| {
-                let n = &self.nodes[**i as usize];
-                n.water > 0 && n.kind != crate::fluids::WATER && rows.get(n.kind).heat.is_some()
-            };
-            if let Some(&a) = ids.iter().filter(hot).find(|&&i| self.nodes[i as usize].floor == floor).or_else(|| ids.iter().find(hot)) {
+            let own = ids.iter().copied().find(|&i| hot(&self.nodes[i as usize]) && self.nodes[i as usize].floor == floor && !self.heat.contains_key(&i));
+            if let Some(a) = own.or_else(|| ids.iter().copied().find(|&i| hot(&self.nodes[i as usize]) && !self.heat.contains_key(&i))) {
                 self.heat.insert(a, h);
+            }
+        }
+        if !self.other {
+            return;
+        }
+        let mut cols: Vec<Col> = self.cols.keys().copied().collect();
+        cols.sort_unstable();
+        for c in cols {
+            let gen = g.generated_other(c);
+            for &a in &self.cols[&c] {
+                let n = &self.nodes[a as usize];
+                let (lo, hi) = (n.floor as i64 * U, n.surface());
+                if !hot(n) || self.heat.contains_key(&a) || gen.iter().any(|w| w.0 < hi && lo < w.1.max(w.0 + 1)) {
+                    continue;
+                }
+                let t = rows.get(n.kind).heat.as_ref().map_or(0.0, |h| h.pour as f64);
+                self.heat.insert(a, Therm { t, age: 0.0, frac: 0.0, solid: 0 });
             }
         }
     }

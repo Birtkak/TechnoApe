@@ -4678,7 +4678,7 @@ fn poured_lavas_heat_survives_a_save_and_water_alone_writes_the_bytes_it_did() {
             assert!(water.pour_kind(&g, col, z0, U / 2, kind));
         }
         for _ in 0..60 {
-            s.world.cool_fluids(60.0);
+            s.world.cool_fluids(60.0, |_| false);
         }
         let snap = s.snapshot();
         let bytes = snap.to_bytes();
@@ -4692,6 +4692,14 @@ fn poured_lavas_heat_survives_a_save_and_water_alone_writes_the_bytes_it_did() {
         assert_eq!(back.world.water.temp_at(col, z0), Some(t), "its heat through the save");
         assert_eq!(back.world.water.froze, s.world.water.froze, "what froze through the save");
         assert_eq!(back.world.water.counted_of(lava), s.world.water.counted_of(lava));
+        // a short or corrupt heat tail loads the save without it, and the lava takes its pour heat again rather
+        // than lying liquid for ever with none
+        let layout = postcard::to_allocvec(&snap).unwrap();
+        for bad in [bytes[..bytes.len() - 1].to_vec(), [layout.clone(), vec![0xff; 3]].concat()] {
+            let back = Server::from_save(Save::from_bytes(&bad).expect("loads without the heat"), channel().1);
+            assert_eq!(back.world.water.temp_at(col, z0), Some(1150.0), "the pour heat on a lava with none");
+            assert_eq!(back.world.water.counted_of(lava), s.world.water.counted_of(lava));
+        }
     }
 }
 
