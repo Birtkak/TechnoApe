@@ -61,6 +61,17 @@ The server simulates; clients show it [0020].
   held swims up at 2 m/s, walking is slower by how deep you are [0020]. (also player-and-feel: the sprint's `sub`
   share and the dive key are in 0118.)
 
+### Gas near the ground and fire that spreads [0191, 2026-11-23]
+The developer's calls on the near-gas spike (`prototypes/near-gas/README.md`), not built yet (roadmap, the world
+queue's step 8). Gas is sparse 1 m cells kept only where the air is off rest, conserving with the 128 m cells;
+fire spreads by heat reaching the next block's ignition point, with the flame's sub-cell terms from the fuel's
+row. **A forest can burn down**, simulated where a player is near and finished by a cheaper rule far away.
+**Fire leaves solid char that stands**; a burnt build falls only once structural collapse exists. **Apes
+breathe from their cell**: smoke and CO2 suffocate. **Gas near a fire runs at real rates**, not ADR 0187's
+weather pace. **The fire's pace is about a minute a block along dry wood in still air** (the developer; the
+spike's model gave 6 minutes): a taste call, so the fuel rows are tuned to it and a block's burn-out time
+scales with it (about 6 times shorter than the spike's 5 game days) until the developer says otherwise.
+
 ### Ground water: a table, flooded caves, springs [0190, 2026-11-23]
 The developer's calls on the ground-water spike (`prototypes/ground-water/README.md`), not built yet (roadmap,
 the world queue's step 6): the water table is the rest state of Darcy flow, baked per 8 m map cell and counted
