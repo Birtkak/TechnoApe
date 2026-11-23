@@ -359,6 +359,23 @@ mod tests {
         assert_eq!((w.block(cell), w.water.total_of(kind), ledger(&w)), (basalt, 0, U));
     }
 
+    /// Two blocks frozen for one cell that was taken (a reaction's two skins in one second): both are set the next
+    /// time, the second on the first, in the water over it; none is lost and nothing comes back as lava.
+    #[test]
+    fn frozen_blocks_for_one_cell_stack_upward_and_none_is_lost() {
+        let mut w = world(false);
+        let kind = lava().0;
+        let (cols, z0) = pit(&mut w, 1, 4, U, crate::fluids::WATER);
+        let basalt = crate::blocks::BLOCKS.id("basalt");
+        *w.water.froze.entry(kind).or_default() += 2 * U;
+        w.water.unfreeze(cols[0], z0, kind);
+        w.water.unfreeze(cols[0], z0, kind);
+        let cell = |z| Block { body: 0, face: cols[0].face(), pos: IVec3::new(cols[0].i(), cols[0].j(), z) };
+        let set = w.cool_fluids(1.0, |_| false);
+        assert_eq!(set, vec![(cell(z0), AIR, basalt), (cell(z0 + 1), AIR, basalt)], "both set, the second on the first");
+        assert_eq!((w.water.counted_of(kind), w.water.froze[&kind], w.water.total_of(crate::fluids::WATER)), (0, 2 * U, U));
+    }
+
     /// The rest state (lava basics): a live crater's lake stored and woken, and a block of lava poured onto it, stepped
     /// a simulated week, freezes nothing: the crater's heat holds it at its chamber's, the formula's own reason.
     #[test]

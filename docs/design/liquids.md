@@ -23,7 +23,8 @@ What is fake today, by that rule:
    on every body. The pull does not yet fall off with depth.
 2. **The tide.** Stored water has no tidal term; `retide` nudges it at the stored edge. Under real gravity
    Terra's tide is half a millimetre, so this waits for a body with a sea and a large tide.
-3. **One liquid.** A gap holds one number, so nothing can lie on, sink through or react with water.
+3. ~~**One liquid.** A gap holds one number, so nothing can lie on, sink through or react with water.~~ Done in
+   step 4: a gap holds layers by density.
 
 ## Forces
 
@@ -120,7 +121,9 @@ spans the three: a block is U units, and ice + water + vapour of a world is one 
    the band leaves the sea whole. Measure: awake nodes and tick time on a coast with 100,000 stored columns.
 3. **Fluid rows and one more fluid** (lava; done, ADR 0186) with no mixing: a kind per node, the ledger per fluid, the wire and
    the save (a format change: its own decision).
-4. **Layers and reactions:** oil on water, lava into water. The mesh and the look per fluid.
+4. ~~**Layers and reactions:** oil on water, lava into water. The mesh and the look per fluid.~~ (built, draft
+   "Fluids lie in layers by density; lava and water react": a layer a node, up to 4 a gap; lava's skin to basalt
+   and water to counted vapour by the heat both rows carry; a layer seen from the side under another still open.)
 5. **Phases of water** (spike in `prototypes/` first): ice, water and vapour by temperature and pressure, with
    rates and the one ledger. *The first rock phase change is in (draft 2026-11-23, "Lava lights, carries a body,
    and freezes to basalt"): lava's heat in a sparse store at 1 Hz, freezing to basalt at real rates; water's

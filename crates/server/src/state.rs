@@ -140,6 +140,7 @@ impl Server {
         water.restore(&engine::world::Solid::at(bodies, edits, sky, *time), &save.water);
         water.restore_heat(&engine::world::Solid::at(bodies, edits, sky, *time), &save.heat.0);
         water.froze = save.heat.1.iter().copied().collect();
+        (water.vapour, water.spilt, water.waiting) = (save.booked.0.iter().copied().collect(), save.booked.1.iter().copied().collect(), save.booked.2.clone());
         (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
         water.rained = save.reaches.0;
         water.reach_extra = save.reaches.1.iter().copied().collect();
@@ -236,6 +237,7 @@ impl Server {
             held: save::Held { items: ITEMS.table(), piles: self.piles.iter().map(|(k, p)| (unkey(*k), p.slots.clone())).collect(), taken: self.taken.iter().map(|(k, y)| (unkey(*k), *y)).collect(), furnaces: self.furnaces.iter().map(|(k, f)| (unkey(*k), f.clone())).collect() },
             gen: self.world.bodies[0].gen,
             heat: (self.world.water.heats(), self.world.water.froze.iter().map(|(&k, &u)| (k, u)).collect()),
+            booked: (self.world.water.vapour.iter().map(|(&k, &u)| (k, u)).collect(), self.world.water.spilt.iter().map(|(&k, &u)| (k, u)).collect(), self.world.water.waiting.clone()),
         }
     }
 
@@ -294,7 +296,8 @@ impl Server {
     /// changes. Zero when no unit appeared or vanished.
     pub fn water_ledger(&self) -> i64 {
         let held: i64 = self.clients.iter().map(|c| c.water as i64).chain(self.absent.values().map(|p| p.water as i64)).sum();
-        self.world.water.counted() + held - (self.made - self.removed)
+        // (water a reaction boiled off is steam, still counted: liquids.md step 4)
+        self.world.water.counted() + self.world.water.vapour.get(&engine::fluids::WATER).copied().unwrap_or(0) + held - (self.made - self.removed)
     }
 
     /// Conservation of ore (ADR 0063): the bodies whose ledger differs from a recount from the edits, as

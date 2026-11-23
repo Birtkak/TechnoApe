@@ -260,11 +260,11 @@ fn tile_cols(t: Col) -> impl Iterator<Item = Col> {
     (0..TILE * TILE).map(move |k| Col::new(t.body(), t.face(), t.i() * TILE + k % TILE, t.j() * TILE + k / TILE))
 }
 
-/// The open water surface of column c in layers, and its floor: stored water, else the generated sea, else the lava
-/// generation keeps in its open gap (a volcano's lake).
+/// The open water surface of column c in layers, and its floor: stored fluid (its open gap's top layer), else the
+/// generated sea, else the lava generation keeps in its open gap (a volcano's lake).
 fn surface(world: &World, g: &impl engine::liquid::Ground, c: Col) -> Option<(f32, f32)> {
     match world.water.column(c) {
-        Some(mut ns) => ns.find(|n| n.ceil == OPEN && n.water > 0).map(|n| ((n.floor as i64 * U + n.water) as f32 / U as f32, n.floor as f32)),
+        Some(ns) => ns.filter(|n| n.ceil == OPEN && n.water > 0).last().map(|n| (n.surface() as f32 / U as f32, n.floor as f32)),
         None => {
             let (lo, hi) = g.generated(c);
             if lo < hi {
@@ -281,18 +281,19 @@ fn open_other(g: &impl engine::liquid::Ground, c: Col) -> Option<(i64, i64, u8)>
     g.generated_other(c).into_iter().find(|w| w.0 == floor).map(|w| (w.0, w.1, w.3))
 }
 
-/// A quad's glow in `info`'s bits 10.. (shader_water.wgsl `vs_water`): the light of the fluid in column c's open
-/// gap (`data/fluids.toml`), 7 bits a channel over 0..4; 0 for water and every fluid without a light.
-/// shortcut: a fluid without a light is drawn as water (liquids.md step 4: the look per fluid)
+/// A quad's look in `info`'s bits 10.. (shader_water.wgsl `vs_water`), by the fluid on top of column c's open gap
+/// (`data/fluids.toml`): a glowing one's light, 7 bits a channel over 0..4; another fluid than water its colour in the
+/// same bits (over 0..1) and bit 31 set, drawn opaque in the sun as it is (oil); 0 for water.
 fn glow(world: &World, g: &impl engine::liquid::Ground, c: Col) -> u32 {
     let k = match world.water.column(c) {
-        Some(mut ns) => ns.find(|n| n.ceil == OPEN && n.water > 0).map(|n| n.kind),
+        Some(ns) => ns.filter(|n| n.ceil == OPEN && n.water > 0).last().map(|n| n.kind),
         None => open_other(g, c).map(|w| w.2),
     };
-    let Some(k) = k else { return 0 };
-    let l = engine::fluids::FLUIDS.get(k).light;
+    let Some(k) = k.filter(|&k| k != engine::fluids::WATER) else { return 0 };
+    let row = engine::fluids::FLUIDS.get(k);
     let q = |v: f32| ((v / 4.0 * 127.0).round() as u32).min(127);
-    (q(l[0]) | q(l[1]) << 7 | q(l[2]) << 14) << 10
+    let bits = |l: [f32; 3]| (q(l[0]) | q(l[1]) << 7 | q(l[2]) << 14) << 10;
+    if row.glows() { bits(row.light) } else { bits(row.colour.map(|v| v * 4.0)) | 1 << 31 }
 }
 
 /// The floor of a stored dry column's open air: what water next to it falls down to.
@@ -325,6 +326,33 @@ mod tests {
         let mut m = WaterMesh::default();
         m.update(&w, &[c.tile()], 1.0);
         assert_eq!(m.all[0].cur, [(floor - 1280) as f32 + 0.5; 4]);
+    }
+
+    /// Oil on water (liquids.md step 4): the column's top is the stack's, drawn in oil's own colour (bit 31 and its
+    /// colour in the glow bits); water alone carries none of them.
+    #[test]
+    fn oil_on_water_is_meshed_at_the_stacks_top_in_its_colour() {
+        use engine::liquid::Ground;
+        let mut w = World::new(256, 512, 1);
+        let n = w.bodies[0].n / TILE;
+        let (c, floor) = {
+            let g = w.ground();
+            let dry = |t: Col| tile_cols(t).all(|c| { let (lo, hi) = g.generated(c); lo >= hi });
+            let t = (0..n * n).map(|k| Col::new(0, 2, k % n, k / n)).find(|&t| dry(t)).expect("a dry tile");
+            let c = Col::new(0, 2, t.i() * TILE + 8, t.j() * TILE + 8);
+            (c, g.gaps(c).last().unwrap().0)
+        };
+        let oil = engine::fluids::FLUIDS.kind("oil").unwrap();
+        w.water.set_column(&(c, vec![(floor, OPEN, U / 2), (floor, OPEN, engine::liquid::pack(oil, U / 4))]));
+        let mut m = WaterMesh::default();
+        m.update(&w, &[c.tile()], 1.0);
+        let top = m.all.iter().find(|q| q.info >> 7 & 7 == 0).unwrap();
+        assert_eq!(top.cur, [floor as f32 + 0.75; 4], "the oil's top");
+        let col = engine::fluids::FLUIDS.get(oil).colour.map(|v| (v * 127.0).round() as u32);
+        assert_eq!((top.info >> 31, top.info >> 10 & 0x1F_FFFF), (1, col[0] | col[1] << 7 | col[2] << 14), "drawn in its colour");
+        w.water.set_column(&(c, vec![(floor, OPEN, U / 2)]));
+        m.update(&w, &[c.tile()], 2.0);
+        assert_eq!(m.all[0].info >> 10, 0, "water alone: no look bits");
     }
 
     #[test]

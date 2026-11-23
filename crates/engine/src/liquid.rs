@@ -78,14 +78,13 @@ fn thick_moves(dh: i64, cg: i64, visc: i64, area: i64) -> bool {
 
 /// Thin water runs downhill but spreads over level ground only while it is deeper than MIN, and onto dry
 /// ground only while it could leave both sides that deep: a puddle's edge stops instead of crawling on.
+/// (A gap without a's fluid is dry ground to it: oil spreads over water as over a floor.)
 fn spreads(a: &Node, b: &Node) -> bool {
-    b.floor < a.floor || a.water >= if b.water == 0 { 2 * MIN } else { MIN }
+    b.floor < a.floor || a.water >= if b.water == 0 || b.kind != a.kind { 2 * MIN } else { MIN }
 }
-/// Fluid can pass from `a` into `b`: `b` is empty or holds the same fluid.
-/// shortcut: two fluids never share a gap, a plain wall stands between them; liquids.md step 4's layers remove it
-fn meets(a: &Node, b: &Node) -> bool {
-    b.water == 0 || a.kind == b.kind
-}
+/// Layers of fluid a gap may hold (liquids.md "Mixing in the world": the first guess). At the cap a pour of a new
+/// fluid is refused, a flow of one passes nothing, and what an edit joins past it is pushed out and booked.
+pub const LAYERS: usize = 4;
 /// Steps a node stays awake after it last moved.
 const QUIET: u16 = 30;
 /// A full gap under a ceiling holds more water under pressure: one block of head per 1/K block of excess.
@@ -257,8 +256,16 @@ pub struct Node {
     pub floor: i32,
     pub ceil: i32,
     pub water: i64,
-    /// The fluid it holds (`data/fluids.toml`'s row; 0 water, and 0 when empty): one kind a gap.
+    /// The fluid it holds (`data/fluids.toml`'s row; 0 water, and 0 when empty).
     pub kind: u8,
+    /// Its place in its gap's stack of layers (liquids.md "Mixing in the world"; `restack`): the units of the layers
+    /// under it and over it, the weight of those over it in units of its own fluid, the layers the gap holds and which
+    /// this is, bottom-up. A gap of one fluid is one node: 0, 0, 0, 1, 0, and every rule is the old one to the bit.
+    pub base: i64,
+    pub above: i64,
+    press: i64,
+    pub stack: u8,
+    pub layer: u8,
     links: Vec<Link>,
     quiet: u16,
     /// Its neighbour columns are stored (once stored, a column stays stored).
@@ -299,15 +306,66 @@ impl Node {
     fn cap(&self) -> i64 {
         if self.ceil == OPEN { i64::MAX } else { (self.ceil - self.floor) as i64 * U }
     }
-    /// Where the water's top is, in units.
+    /// Where its fluid's top is, in units.
     pub fn surface(&self) -> i64 {
-        self.floor as i64 * U + self.water.min(self.cap())
+        self.floor as i64 * U + (self.base + self.water).min(self.cap())
     }
-    /// The height water flows from: the surface, or under a ceiling the pressure of what it holds.
+    /// Where its fluid's bottom is, in units (its gap's floor, or the top of the layer under it).
+    pub fn bottom(&self) -> i64 {
+        self.floor as i64 * U + self.base.min(self.cap())
+    }
+    /// All its gap holds, units.
+    fn fill(&self) -> i64 {
+        self.base + self.water + self.above
+    }
+    /// The height its fluid flows from: its surface pressed by the layers over it, and under a ceiling the pressure
+    /// of what the gap holds past it.
     fn head(&self) -> i64 {
-        let over = self.water - self.cap();
-        if over > 0 { self.ceil as i64 * U + over * K } else { self.surface() }
+        let over = self.fill() - self.cap();
+        self.surface() + self.press + if over > 0 { over * K } else { 0 }
     }
+}
+
+/// The head `a`'s fluid meets across its link into `b`, if that link carries it (liquids.md "Mixing in the world"):
+/// into b's own fluid or a dry gap, as ever; into a gap that holds other fluids and none of a's, through the link to
+/// its bottom layer only, at the level a's fluid would lie there by density, pressed by the lighter layers over it.
+/// None: another link carries it (a layer of a's fluid there), or the gap holds its most layers (`dens`: each kind's
+/// density, `most`: the cap).
+fn carry(nodes: &[Node], cols: &FxMap<Col, Vec<u32>>, dens: &[i64], most: usize, a: &Node, b: &Node) -> Option<i64> {
+    if b.water == 0 || b.kind == a.kind {
+        return Some(b.head());
+    }
+    if b.layer != 0 {
+        return None;
+    }
+    let gap = || cols[&b.col].iter().map(|&i| &nodes[i as usize]).filter(|n| n.floor == b.floor);
+    if gap().count() >= most || gap().any(|n| n.kind == a.kind && n.water > 0) {
+        return None;
+    }
+    let d = |k: u8| dens[(k as usize).min(dens.len() - 1)];
+    let (da, mut under, mut press) = (d(a.kind), 0i64, 0i64);
+    for n in gap() {
+        if d(n.kind) >= da {
+            under += n.water;
+        } else {
+            press += (n.water as i128 * d(n.kind) as i128 / da as i128) as i64;
+        }
+    }
+    Some(b.floor as i64 * U + under.min(b.cap()) + press)
+}
+
+/// Each kind's density, g/m3: what layers sort and press by.
+fn densities() -> Vec<i64> {
+    crate::fluids::FLUIDS.rows.iter().map(|r| (r.density as f64 * 1000.0) as i64).collect()
+}
+
+/// Units a step a layer of density `heavy` sinks through one of `light` and viscosity `visc` under it, under a pull of
+/// `g`: a Rayleigh-Taylor overturn's fingers fall at about sqrt(A g l) (A the Atwood number, l their size, a block),
+/// slowed by the lighter fluid's friction. shortcut: one speed whatever the depths, fingers a block wide; a two-phase
+/// rate (drop size, Stokes) if a game rule ever hangs on the time.
+fn sink_rate(light: f64, heavy: f64, visc: i64, g: f64) -> i64 {
+    let a = (heavy - light) / (heavy + light);
+    ((a * g * crate::world::BLOCK).sqrt() / visc as f64 / 60.0 / crate::world::BLOCK * U as f64).max(1.0) as i64
 }
 
 /// A gap's units and its fluid as the wire and saves carry them (`ColWater`).
@@ -320,8 +378,26 @@ pub fn unpack(v: i64) -> (u8, i64) {
     ((v >> 56) as u8, v & ((1 << 56) - 1))
 }
 
-/// A column's water as the wire and saves carry it: (floor, ceil, water) per gap. Empty: back to generated.
+/// A column's water as the wire and saves carry it: (floor, ceil, water) per gap, and a gap of several layers once a
+/// layer, bottom-up (liquids.md step 4: a gap of one fluid is the one entry it always was). Empty: back to generated.
 pub type ColWater = (Col, Vec<(i32, i32, i64)>);
+
+/// A column's layers, (floor, ceil, (kind, units)) bottom-up, as intervals of fluid to pour (`Liquids::build`):
+/// (bottom, top, units held under pressure, kind) in units, each layer over those before it in its gap.
+fn intervals(layers: impl Iterator<Item = (i32, i32, (u8, i64))>) -> Vec<(i64, i64, i64, u8)> {
+    let (mut wet, mut at, mut base) = (Vec::new(), None, 0i64);
+    for (floor, ceil, (kind, water)) in layers {
+        if at != Some(floor) {
+            (at, base) = (Some(floor), 0);
+        }
+        let f = floor as i64 * U;
+        let cap = if ceil == OPEN { i64::MAX } else { (ceil - floor) as i64 * U };
+        let (lo, hi) = (f + base.min(cap), f + (base + water).min(cap));
+        wet.push((lo, hi, water - (hi - lo), kind));
+        base += water;
+    }
+    wet
+}
 
 #[derive(Default)]
 pub struct Liquids {
@@ -383,6 +459,16 @@ pub struct Liquids {
     /// Units of each fluid that froze (`cool`): into its `freeze` block, a block for every U, or, a sheet thinner
     /// than a block frozen through, into nothing. `counted_of(kind)` plus this is what was carried in.
     pub froze: std::collections::BTreeMap<u8, i64>,
+    /// Units of each fluid boiled off by a reaction (`react`): steam the air grid will take in (liquids.md step 6).
+    /// `counted_of(kind)` plus this and `froze` is what was carried in.
+    pub vapour: std::collections::BTreeMap<u8, i64>,
+    /// Where a reaction boiled fluid off since the caller last took them, (column, layer, kind): the steam's places.
+    pub boils: Vec<(Col, i32, u8)>,
+    /// Blocks frozen (booked in `froze`) whose cell was taken, (column, layer, kind): rock waiting for its cell, set
+    /// by the next `cool`'s caller; never liquid again, so it holds no heat to give.
+    pub waiting: Vec<(Col, i32, u8)>,
+    /// Layers a gap may hold (`LAYERS`; a test sets fewer, `set_layers`; 0: `LAYERS`).
+    most: u8,
 }
 
 fn window(a: &Node, b: &Node) -> (i64, i64) {
@@ -477,9 +563,228 @@ impl Liquids {
             return;
         }
         self.other |= gaps.iter().any(|g| unpack(g.2).0 != 0);
-        let ids = gaps.iter().map(|&(floor, ceil, w)| (floor, ceil, unpack(w))).map(|(floor, ceil, (kind, water))| self.alloc(Node { col: *c, floor, ceil, water, links: Vec::new(), quiet: u16::MAX, kind, rim: true, seen: 0, sent: water, drag: 0, grad: 0, lat: 0, lacc: 0, top: 0 })).collect();
+        let ids = gaps.iter().map(|&(floor, ceil, w)| (floor, ceil, unpack(w))).map(|(floor, ceil, (kind, water))| self.alloc(Node { col: *c, floor, ceil, water, links: Vec::new(), quiet: u16::MAX, kind, base: 0, above: 0, press: 0, stack: 1, layer: 0, rim: true, seen: 0, sent: water, drag: 0, grad: 0, lat: 0, lacc: 0, top: 0 })).collect();
         self.cols.insert(*c, ids);
         self.tiles.entry(c.tile()).or_default().push(*c);
+        if self.other {
+            self.restack(*c);
+        }
+    }
+
+    /// Each gap of column c's layers, bottom-up as they lie in its list: what lies under and over each and how hard
+    /// the layers over it press (by density, in its own fluid's units of head).
+    fn restack(&mut self, c: Col) {
+        let Some(ids) = self.cols.get(&c) else { return };
+        let dens = densities();
+        let d = |k: u8| dens[(k as usize).min(dens.len() - 1)];
+        let mut k = 0;
+        while k < ids.len() {
+            let floor = self.nodes[ids[k] as usize].floor;
+            let e = k + ids[k..].iter().take_while(|&&i| self.nodes[i as usize].floor == floor).count();
+            let total: i64 = ids[k..e].iter().map(|&i| self.nodes[i as usize].water).sum();
+            let mut base = 0;
+            for x in k..e {
+                let da = d(self.nodes[ids[x] as usize].kind);
+                let press = ids[x + 1..e].iter().map(|&i| &self.nodes[i as usize]).map(|o| (o.water as i128 * d(o.kind) as i128 / da as i128) as i64).sum();
+                let n = &mut self.nodes[ids[x] as usize];
+                (n.base, n.above, n.press, n.stack, n.layer) = (base, total - base - n.water, press, (e - k) as u8, (x - k) as u8);
+                base += n.water;
+            }
+            k = e;
+        }
+    }
+
+    /// The nodes of column c's gap on floor `floor`, bottom-up.
+    fn gap(&self, c: Col, floor: i32) -> Vec<u32> {
+        self.cols.get(&c).into_iter().flatten().copied().filter(|&i| self.nodes[i as usize].floor == floor).collect()
+    }
+
+    /// A new layer of fluid `kind` in column c's gap on floor `floor`, empty, `at` from the bottom of the gap's
+    /// layers: linked to every neighbour's gap it opens onto, awake. (`restack` after the units are in.)
+    fn add_layer(&mut self, g: &impl Ground, c: Col, floor: i32, kind: u8, at: usize) -> u32 {
+        let ids = self.cols[&c].clone();
+        let first = ids.iter().position(|&i| self.nodes[i as usize].floor == floor).expect("the gap is stored");
+        let s = &self.nodes[ids[first] as usize];
+        let n = Node { col: c, floor, ceil: s.ceil, water: 0, kind, base: 0, above: 0, press: 0, stack: 1, layer: 0, links: Vec::new(), quiet: 0, rim: s.rim, seen: 0, sent: 0, drag: s.drag, grad: s.grad, lat: 0, lacc: 0, top: s.top };
+        let a = self.alloc(n);
+        let width = ids[first..].iter().take_while(|&&i| self.nodes[i as usize].floor == floor).count();
+        self.cols.get_mut(&c).unwrap().insert(first + at.min(width), a);
+        for (sa, d) in g.neighbours(c).into_iter().enumerate() {
+            let Some(d) = d else { continue };
+            let Some(nb) = self.cols.get(&d).cloned() else { continue };
+            let sb = g.neighbours(d).iter().position(|&e| e == Some(c)).unwrap_or(sa ^ 1);
+            for b in nb {
+                let (lo, hi) = window(&self.nodes[a as usize], &self.nodes[b as usize]);
+                if lo < hi {
+                    self.link(a, b, sa as u8, sb as u8, (0, 0));
+                }
+            }
+        }
+        self.other = true;
+        self.wake(a);
+        self.dirty.insert(c, ());
+        a
+    }
+
+    /// Drops empty layer a from its gap (it holds others): its links go, its heat's crust to a neighbour of its fluid.
+    /// Its index is freed by the caller once the awake list no longer holds it.
+    fn drop_layer(&mut self, a: u32) {
+        let c = self.nodes[a as usize].col;
+        if let Some(h) = self.heat.remove(&a) {
+            self.hand_crust(a, self.nodes[a as usize].kind, &h);
+        }
+        for l in std::mem::take(&mut self.nodes[a as usize].links) {
+            self.unlink(l.to, l.back as usize);
+        }
+        self.cols.get_mut(&c).unwrap().retain(|&i| i != a);
+        self.dirty.insert(c, ());
+    }
+
+    /// A node of fluid with heat that froze or flowed out through hands the crust it froze short of a block to a
+    /// neighbour of the same fluid (what froze in a pool makes its blocks wherever the rest flowed), else it was a
+    /// sheet and froze to nothing.
+    fn hand_crust(&mut self, a: u32, kind: u8, h: &Therm) {
+        let b = self.nodes[a as usize].links.iter().map(|l| l.to).find(|&b| self.nodes[b as usize].kind == kind && self.nodes[b as usize].water > 0);
+        if let Some(b) = b.filter(|_| h.solid > 0) {
+            let t = self.heat.get(&b).map_or(h.t, |x| x.t);
+            let e = self.heat.entry(b).or_insert(Therm { t, age: h.age, frac: 0.0, solid: 0 });
+            e.solid += h.solid;
+        }
+    }
+
+    /// `units` of fluid `kind` at `t` C come into node a: a fluid with heat mixes its heat by units (water carries none).
+    fn warm(&mut self, g: &impl Ground, a: u32, kind: u8, units: i64, t: f64) {
+        if kind == crate::fluids::WATER || crate::fluids::FLUIDS.now().get(kind).heat.is_none() {
+            return;
+        }
+        let was = self.nodes[a as usize].water;
+        let t0 = if was > 0 { self.temp_of(g, a) } else { 0.0 };
+        let e = self.heat.entry(a).or_insert(Therm { t: 0.0, age: 0.0, frac: 0.0, solid: 0 });
+        e.t = (t0 * was as f64 + t * units as f64) / (was + units).max(1) as f64;
+    }
+
+    /// The fluid that flowed this step into gaps holding other fluids (`foreign`: receiver, kind, units, sender) joins
+    /// its own layer there, or lies as a new one by density, or past the cap is pushed out and booked; then every gap
+    /// of these columns and of the touched layered ones loses its empty layers, joins neighbouring layers of one fluid,
+    /// lets a denser layer over a lighter one sink through it a step (`sink_rate`), and is restacked.
+    fn layers_after(&mut self, g: &impl Ground, foreign: Vec<(u32, u8, i64, u32)>, touched: &[u32]) {
+        let rows = crate::fluids::FLUIDS.now();
+        let most = self.most();
+        let mut cols: Vec<Col> = touched.iter().map(|&a| &self.nodes[a as usize]).filter(|n| n.stack > 1).map(|n| n.col).collect();
+        for (a, kind, units, from) in foreign {
+            let (c, floor) = (self.nodes[a as usize].col, self.nodes[a as usize].floor);
+            cols.push(c);
+            let t = self.temp_of(g, from);
+            let gap = self.gap(c, floor);
+            let to = match gap.iter().copied().find(|&i| self.nodes[i as usize].kind == kind && self.nodes[i as usize].water > 0) {
+                Some(i) => Some(i),
+                None if gap.len() < most => {
+                    // under the first lighter layer
+                    let d = rows.get(kind).density;
+                    let at = gap.iter().position(|&i| self.nodes[i as usize].water > 0 && rows.get(self.nodes[i as usize].kind).density < d).unwrap_or(gap.len());
+                    Some(self.add_layer(g, c, floor, kind, at))
+                }
+                None => None,
+            };
+            match to {
+                Some(i) => {
+                    self.warm(g, i, kind, units, t);
+                    self.nodes[i as usize].water += units;
+                    self.wake(i);
+                }
+                None => self.spill(g, c, kind, units),
+            }
+        }
+        cols.sort_unstable();
+        cols.dedup();
+        let mut dropped = Vec::new();
+        for c in cols {
+            let floors: Vec<i32> = {
+                let mut f: Vec<i32> = self.cols[&c].iter().map(|&i| self.nodes[i as usize].floor).collect();
+                f.dedup();
+                f
+            };
+            for floor in floors {
+                self.sink(g, c, floor);
+                let gap = self.gap(c, floor);
+                if gap.len() < 2 {
+                    continue;
+                }
+                // empty layers go (a dry gap keeps one node), and two layers of one fluid that came to touch are one
+                let mut keep: Vec<u32> = Vec::new();
+                for (x, &i) in gap.iter().enumerate() {
+                    let n = &self.nodes[i as usize];
+                    let joins = keep.last().copied().filter(|&p| n.water > 0 && self.nodes[p as usize].kind == n.kind);
+                    if let Some(p) = joins {
+                        let (k, w, t) = (n.kind, n.water, self.temp_of(g, i));
+                        self.warm(g, p, k, w, t);
+                        self.nodes[p as usize].water += w;
+                        self.nodes[i as usize].water = 0;
+                        if let Some(h) = self.heat.remove(&i) {
+                            if let Some(e) = self.heat.get_mut(&p) {
+                                (e.frac, e.solid) = (e.frac + h.frac, e.solid + h.solid);
+                            }
+                        }
+                        self.wake(p);
+                    } else if n.water > 0 || (keep.is_empty() && x == gap.len() - 1) {
+                        if n.water == 0 {
+                            self.nodes[i as usize].kind = 0;
+                        }
+                        keep.push(i);
+                        continue;
+                    }
+                    self.drop_layer(i);
+                    dropped.push(i);
+                }
+            }
+            self.restack(c);
+        }
+        if !dropped.is_empty() {
+            dropped.sort_unstable();
+            self.awake.retain(|a| dropped.binary_search(a).is_err());
+            self.free.extend(dropped);
+        }
+    }
+
+    /// The first denser layer over a lighter one in column c's gap on floor `floor` sinks through it by a step's
+    /// worth (`sink_rate`): into the layer of its fluid under the lighter one, or a new one there; at the cap into
+    /// its fluid's layer further down, else the stack stays as it is. An overturning gap stays awake.
+    fn sink(&mut self, g: &impl Ground, c: Col, floor: i32) {
+        let gap = self.gap(c, floor);
+        let rows = crate::fluids::FLUIDS.now();
+        let dens = |i: u32| rows.get(self.nodes[i as usize].kind).density as f64;
+        let Some(x) = (0..gap.len().saturating_sub(1)).find(|&x| self.nodes[gap[x] as usize].water > 0 && self.nodes[gap[x + 1] as usize].water > 0 && dens(gap[x + 1]) > dens(gap[x])) else { return };
+        let (light, heavy) = (gap[x], gap[x + 1]);
+        let kind = self.nodes[heavy as usize].kind;
+        let visc = if self.viscosity.is_empty() { rows.get(self.nodes[light as usize].kind).viscosity as i64 } else { self.viscosity[(self.nodes[light as usize].kind as usize).min(self.viscosity.len() - 1)] };
+        let s = sink_rate(dens(light), dens(heavy), visc, g.g(c.body())).min(self.nodes[heavy as usize].water);
+        let to = match x.checked_sub(1).map(|y| gap[y]).filter(|&y| self.nodes[y as usize].kind == kind) {
+            Some(y) => y,
+            None if gap.len() < self.most() => self.add_layer(g, c, floor, kind, x),
+            // no room for a new layer: through the lighter ones to its own fluid's layer further down
+            None => match gap[..x].iter().rev().copied().find(|&y| self.nodes[y as usize].kind == kind && self.nodes[y as usize].water > 0) {
+                Some(y) => y,
+                None => return,
+            },
+        };
+        let t = self.temp_of(g, heavy);
+        self.warm(g, to, kind, s, t);
+        self.nodes[to as usize].water += s;
+        self.nodes[heavy as usize].water -= s;
+        for i in self.gap(c, floor) {
+            self.wake(i);
+        }
+        self.dirty.insert(c, ());
+    }
+
+    /// `units` of fluid `kind` with no room in column c's gap: water to the column's open water's account (as a block
+    /// set into it, ADR 0071), another fluid to `spilt`. Counted either way.
+    fn spill(&mut self, g: &impl Ground, c: Col, kind: u8, units: i64) {
+        if kind == crate::fluids::WATER {
+            self.book(g.reach(c), units);
+        } else {
+            *self.spilt.entry(kind).or_default() += units;
+        }
     }
 
     /// Tile `t` as the clients are told it: each column's water as `take_changes` last listed it. The current
@@ -536,14 +841,8 @@ impl Liquids {
         // the save was taken after its second's `retide`: a loaded world steps as the running one did
         self.tide_epoch = g.tide_epoch();
         for (c, gaps) in cols {
-            let mut wet = Vec::new();
-            for &(floor, ceil, w) in gaps {
-                let (kind, water) = unpack(w);
-                let f = floor as i64 * U;
-                let cap = if ceil == OPEN { i64::MAX } else { (ceil - floor) as i64 * U };
-                wet.push((f, f + water.min(cap), (water - cap).max(0), kind));
-                self.other |= kind != 0;
-            }
+            let wet = intervals(gaps.iter().map(|&(floor, ceil, w)| (floor, ceil, unpack(w))));
+            self.other |= wet.iter().any(|w| w.3 != 0);
             self.remove(*c, false);
             self.build(g, *c, &wet, false);
         }
@@ -585,9 +884,10 @@ impl Liquids {
     /// Builds column `c`'s nodes from its gaps and pours `wet` into them: intervals of water in units, each
     /// with the units it held under pressure, which stay with the gap that holds the interval's bottom. Water
     /// in what is solid now goes to the gap above it.
-    /// Each interval is of one fluid (its fourth number): a gap holds one, so where an edit joins two, the denser
-    /// keeps the gap and the other is pushed out: water to its account (as a block set into it, ADR 0071), another
-    /// fluid to `spilt`.
+    /// Each interval is of one fluid (its fourth number) and lies on what came before it in its gap, a layer of its
+    /// own unless it is the fluid of the layer it lies on (where an edit joins two gaps, the upper's fluid lies on the
+    /// lower's, and a denser one sinks from there); past the cap of layers it joins its own fluid's layer there, else
+    /// is pushed out and booked (`spill`).
     fn build(&mut self, g: &impl Ground, c: Col, wet: &[(i64, i64, i64, u8)], wake: bool) {
         if !self.gen.contains_key(&c) {
             let (lo, hi) = g.generated(c);
@@ -599,14 +899,13 @@ impl Liquids {
         }
         self.other |= wet.iter().any(|w| w.3 != 0);
         let gaps = g.gaps(c);
-        let mut water = vec![0i64; gaps.len()];
-        let mut kinds = vec![0u8; gaps.len()];
+        let mut stacks: Vec<Vec<(u8, i64)>> = vec![Vec::new(); gaps.len()];
         for &(lo, hi, extra, kind) in wet {
             let k = gaps.iter().rposition(|&(f, _)| f as i64 * U <= lo).unwrap_or(0);
-            self.put(g, c, (&mut water[k], &mut kinds[k]), extra, kind);
+            self.put(g, c, &mut stacks[k], extra, kind);
             for (k, &(f, cl)) in gaps.iter().enumerate() {
                 let (gl, gh) = (f as i64 * U, if cl == OPEN { i64::MAX } else { cl as i64 * U });
-                self.put(g, c, (&mut water[k], &mut kinds[k]), (hi.min(gh) - lo.max(gl)).max(0), kind);
+                self.put(g, c, &mut stacks[k], (hi.min(gh) - lo.max(gl)).max(0), kind);
             }
             // the parts in solid layers (under each gap, down to the gap below): each rises into the gap above it,
             // unless that gap's floor stands over generation's still water here (the sea's, a lake's): a block set
@@ -621,26 +920,28 @@ impl Liquids {
                 // (only what lay under generation's level: water standing over it, poured or carried, still rises)
                 let sunk = if kind == crate::fluids::WATER && glo < ghi && gl >= ghi && g.river(c).is_none() { (hi.min(gl).min(ghi) - lo.max(below)).max(0) } else { 0 };
                 self.book(g.reach(c), sunk);
-                self.put(g, c, (&mut water[k], &mut kinds[k]), part - sunk, kind);
+                self.put(g, c, &mut stacks[k], part - sunk, kind);
                 below = if cl == OPEN { i64::MAX } else { cl as i64 * U };
             }
         }
-        let ids: Vec<u32> = gaps
-            .iter()
-            .zip(water)
-            .zip(kinds)
-            .map(|((&(floor, ceil), water), kind)| {
-                let kind = if water > 0 { kind } else { 0 };
-                let (lo, hi) = g.generated(c);
-                let (drag, grad, lat) = match g.river(c) {
-                    Some((q, grad, lat)) if ceil == OPEN && lo < hi && floor as i64 * U == lo => (drag_for(grad, (hi - lo) as f64, q, g.g(c.body())), grad as i32, (lat * 65536.0) as u32),
-                    _ => (0, 0, 0),
-                };
-                self.alloc(Node { col: c, floor, ceil, water, kind, links: Vec::new(), quiet: 0, rim: false, seen: 0, sent: water, drag, grad, lat, lacc: 0, top: hi })
-            })
-            .collect();
+        let mut ids: Vec<u32> = Vec::with_capacity(gaps.len());
+        for (&(floor, ceil), stack) in gaps.iter().zip(stacks) {
+            let (lo, hi) = g.generated(c);
+            let (drag, grad, lat) = match g.river(c) {
+                Some((q, grad, lat)) if ceil == OPEN && lo < hi && floor as i64 * U == lo => (drag_for(grad, (hi - lo) as f64, q, g.g(c.body())), grad as i32, (lat * 65536.0) as u32),
+                _ => (0, 0, 0),
+            };
+            let layers = if stack.is_empty() { vec![(0, 0)] } else { stack };
+            for (kind, water) in layers {
+                ids.push(self.alloc(Node { col: c, floor, ceil, water, kind, base: 0, above: 0, press: 0, stack: 1, layer: 0, links: Vec::new(), quiet: 0, rim: false, seen: 0, sent: water, drag, grad, lat, lacc: 0, top: hi }));
+            }
+        }
+        let layered = ids.len() > gaps.len();
         self.cols.insert(c, ids.clone());
         self.tiles.entry(c.tile()).or_default().push(c);
+        if layered {
+            self.restack(c);
+        }
         for (sa, d) in g.neighbours(c).into_iter().enumerate() {
             let Some(d) = d else { continue };
             if let Some(nb) = self.cols.get(&d).cloned() {
@@ -683,25 +984,33 @@ impl Liquids {
         self.dirty.insert(c, ());
     }
 
-    /// `units` of fluid `kind` into a gap being built that holds `gap` (units, kind): another fluid there, the
-    /// lighter of the two is pushed out (`build`).
-    fn put(&mut self, g: &impl Ground, c: Col, gap: (&mut i64, &mut u8), units: i64, kind: u8) {
-        let (water, have) = gap;
+    /// `units` of fluid `kind` onto a gap being built that holds the layers `stack` (`build`): on the top layer if it
+    /// is of that fluid, else a layer of its own; at the cap into its fluid's layer there, else the lightest of the
+    /// gap's fluids and it is pushed out (`spill`), as a denser fluid displaces a lighter one.
+    fn put(&mut self, g: &impl Ground, c: Col, stack: &mut Vec<(u8, i64)>, units: i64, kind: u8) {
         if units <= 0 {
             return;
         }
-        if *water > 0 && *have != kind {
-            let rows = crate::fluids::FLUIDS.now();
-            let (out, n) = if rows.get(kind).density > rows.get(*have).density { (std::mem::replace(have, kind), std::mem::replace(water, units)) } else { (kind, units) };
-            if out == crate::fluids::WATER {
-                self.book(g.reach(c), n);
-            } else {
-                *self.spilt.entry(out).or_default() += n;
+        let most = self.most();
+        match stack.last().map(|l| l.0) {
+            Some(top) if top == kind => stack.last_mut().unwrap().1 += units,
+            _ if stack.len() < most => stack.push((kind, units)),
+            _ => {
+                if let Some(l) = stack.iter_mut().find(|l| l.0 == kind) {
+                    l.1 += units;
+                    return;
+                }
+                let rows = crate::fluids::FLUIDS.now();
+                let light = (0..stack.len()).min_by(|&a, &b| rows.get(stack[a].0).density.total_cmp(&rows.get(stack[b].0).density)).unwrap();
+                if rows.get(stack[light].0).density < rows.get(kind).density {
+                    let (k, n) = stack.remove(light);
+                    self.spill(g, c, k, n);
+                    stack.push((kind, units));
+                } else {
+                    self.spill(g, c, kind, units);
+                }
             }
-            return;
         }
-        *have = kind;
-        *water += units;
     }
 
     fn link(&mut self, a: u32, b: u32, sa: u8, sb: u8, v: (i32, i32)) {
@@ -741,12 +1050,7 @@ impl Liquids {
             }
             return;
         };
-        let mut wet = Vec::new();
-        for &i in &ids {
-            let n = &self.nodes[i as usize];
-            let f = n.floor as i64 * U;
-            wet.push((f, f + n.water.min(n.cap()), (n.water - n.cap()).max(0), n.kind));
-        }
+        let wet = intervals(ids.iter().map(|&i| &self.nodes[i as usize]).map(|n| (n.floor, n.ceil, (n.kind, n.water))));
         let kept = self.take_heat(g, &ids);
         self.remove(c, true);
         self.build(g, c, &wet, true);
@@ -797,27 +1101,35 @@ impl Liquids {
     pub fn pour(&mut self, g: &impl Ground, c: Col, layer: i32, units: i64) -> bool {
         self.pour_kind(g, c, layer, units, crate::fluids::WATER)
     }
-    /// `pour` of fluid `kind`.
+    /// `pour` of fluid `kind`: onto the gap's top layer, a layer of its own on it when that is another fluid (a
+    /// denser one then sinks through, `sink`); refused when the gap holds its most layers.
     pub fn pour_kind(&mut self, g: &impl Ground, c: Col, layer: i32, units: i64, kind: u8) -> bool {
         self.materialize(g, c);
         let ids = &self.cols[&c];
-        let Some(&a) = ids.iter().find(|&&i| self.nodes[i as usize].ceil > layer) else { return false };
-        let n = &self.nodes[a as usize];
-        if n.water > 0 && n.kind != kind {
+        let Some(&first) = ids.iter().find(|&&i| self.nodes[i as usize].ceil > layer) else { return false };
+        let floor = self.nodes[first as usize].floor;
+        let gap = self.gap(c, floor);
+        let top = *gap.last().unwrap();
+        let n = &self.nodes[top as usize];
+        let a = if n.water == 0 || n.kind == kind {
+            top
+        } else if gap.len() < self.most() {
+            self.add_layer(g, c, floor, kind, gap.len())
+        } else {
             return false;
-        }
-        // a fluid with heat comes at its row's pour heat, mixed with what the gap held
-        let was = n.water;
-        if let Some(h) = crate::fluids::FLUIDS.now().get(kind).heat.as_ref().filter(|_| kind != crate::fluids::WATER) {
-            let t0 = if was > 0 { self.temp_of(g, a) } else { 0.0 };
-            let e = self.heat.entry(a).or_insert(Therm { t: 0.0, age: 0.0, frac: 0.0, solid: 0 });
-            e.t = (t0 * was as f64 + h.pour as f64 * units as f64) / (was + units).max(1) as f64;
+        };
+        // a fluid with heat comes at its row's pour heat, mixed with what the layer held
+        if let Some(h) = crate::fluids::FLUIDS.now().get(kind).heat.as_ref() {
+            self.warm(g, a, kind, units, h.pour as f64);
         }
         let n = &mut self.nodes[a as usize];
         n.kind = kind;
         self.other |= kind != 0;
         n.water += units;
         self.touch(g, a);
+        if self.other {
+            self.restack(c);
+        }
         true
     }
     /// The stored nodes of a fluid that gives light in tiles `tiles` (`wet_tiles`), as (column, its surface's top
@@ -833,36 +1145,16 @@ impl Liquids {
             .flat_map(|c| &self.cols[c])
             .map(|&i| &self.nodes[i as usize])
             .filter(|n| n.water > 0 && rows.get(n.kind).glows())
-            .map(|n| (n.col, n.floor + ((n.water.min(n.cap()) - 1) / U) as i32, n.kind))
+            .map(|n| (n.col, ((n.surface() - 1).div_euclid(U)) as i32, n.kind))
             .collect();
         v.sort_unstable_by_key(|x| (x.0, x.1));
         v
     }
-    /// The block a node of column c on floor z froze into could not be set (the cell was taken): its units stay
-    /// frozen and booked, a block's worth waiting to be set the next time (`cool`). A node that froze through this
-    /// time has no heat left to wait on: its block's worth goes to a neighbour of the same fluid as its crust did,
-    /// else back into it as liquid at the freeze point (unbooked), so no unit is lost.
+    /// The block of fluid `kind` frozen for column c's cell z could not be set (the cell was taken): it stays frozen
+    /// and booked, rock `waiting` to be set the next time (`cool`), whatever became of the node it froze from. Put
+    /// back as liquid it would carry heat it gave away already (a reaction's skin boiled water with it).
     pub fn unfreeze(&mut self, c: Col, z: i32, kind: u8) {
-        let Some(&a) = self.cols.get(&c).and_then(|ids| ids.iter().find(|&&i| self.nodes[i as usize].floor == z)) else { return };
-        if let Some(h) = self.heat.get_mut(&a) {
-            h.solid += U;
-            return;
-        }
-        let b = self.nodes[a as usize].links.iter().map(|l| l.to).find(|&b| self.nodes[b as usize].kind == kind && self.nodes[b as usize].water > 0);
-        if let Some(h) = b.and_then(|b| self.heat.get_mut(&b)) {
-            h.solid += U;
-            return;
-        }
-        let tf = crate::fluids::FLUIDS.now().get(kind).freeze.as_ref().map_or(0.0, |f| f.at as f64);
-        let n = &mut self.nodes[a as usize];
-        n.water += U;
-        n.kind = kind;
-        *self.froze.entry(kind).or_default() -= U;
-        self.heat.insert(a, Therm { t: tf, age: 0.0, frac: 0.0, solid: 0 });
-        if self.nodes[a as usize].quiet == u16::MAX {
-            self.wake(a);
-        }
-        self.dirty.insert(c, ());
+        self.waiting.push((c, z, kind));
     }
     /// The heat node a holds, C: its own, or at rest what its place gives.
     fn temp_of(&self, g: &impl Ground, a: u32) -> f64 {
@@ -877,7 +1169,7 @@ impl Liquids {
     pub fn temp_at(&self, c: Col, layer: i32) -> Option<f64> {
         let ids = self.cols.get(&c)?;
         let &a = ids.iter().find(|&&i| self.nodes[i as usize].ceil > layer)?;
-        self.heat.get(&a).map(|h| h.t)
+        self.gap(c, self.nodes[a as usize].floor).iter().find_map(|i| self.heat.get(i)).map(|h| h.t)
     }
     /// Every heat held, as (column, the node's floor, heat), sorted: for saves.
     pub fn heats(&self) -> Vec<(Col, i32, Therm)> {
@@ -964,8 +1256,9 @@ impl Liquids {
             if !hot(n) {
                 continue;
             }
+            // (only its own fluid mixes in: another's goes to its own layer, `layers_after`)
             for l in &n.links {
-                if self.nodes[l.to as usize].links[l.back as usize].out > 0 && !self.heat.contains_key(&l.to) {
+                if self.nodes[l.to as usize].links[l.back as usize].out > 0 && self.nodes[l.to as usize].kind == n.kind && !self.heat.contains_key(&l.to) {
                     rest.push(l.to);
                 }
             }
@@ -986,7 +1279,7 @@ impl Liquids {
             for l in &n.links {
                 gone += l.out as i64;
                 let m = self.nodes[l.to as usize].links[l.back as usize];
-                if m.out > 0 {
+                if m.out > 0 && self.nodes[l.to as usize].kind == n.kind {
                     inn += m.out as i64;
                     sum += m.out as f64 * self.heat[&l.to].t;
                 }
@@ -1012,8 +1305,10 @@ impl Liquids {
     /// more freezes its units at its row's latent heat; each whole block of them is a cell of its `freeze` block at
     /// the node's floor, returned (column, layer, kind) for the caller to set; a sheet frozen through short of a
     /// block is nothing. Every unit frozen is booked to `froze`. A node back at rest, liquid, is forgotten.
+    /// Fluids that react meet first (`react`).
     pub fn cool(&mut self, g: &impl Ground, dt: f64) -> Vec<(Col, i32, u8)> {
-        let mut out = Vec::new();
+        let mut out = std::mem::take(&mut self.waiting);
+        out.extend(self.react(g));
         if self.heat.is_empty() {
             return out;
         }
@@ -1052,13 +1347,16 @@ impl Liquids {
                 *self.froze.entry(kind).or_default() += take;
                 let n = &mut self.nodes[a as usize];
                 n.water -= take;
-                if n.water == 0 {
+                if n.water == 0 && n.stack == 1 {
                     n.kind = 0;
                 }
                 if n.quiet == u16::MAX {
                     self.wake(a);
                 }
                 self.dirty.insert(col, ());
+                if self.nodes[a as usize].stack > 1 {
+                    self.restack(col);
+                }
             }
             if h.solid >= U && row.freeze.is_some() {
                 out.push((col, floor, kind));
@@ -1074,12 +1372,130 @@ impl Liquids {
                     let e = self.heat.entry(b).or_insert(Therm { t, age: h.age, frac: 0.0, solid: 0 });
                     e.solid += h.solid;
                 }
+                // a layer under or over others goes, as every emptied layer does (`layers_after`)
+                if self.nodes[a as usize].stack > 1 {
+                    self.drop_layer(a);
+                    self.awake.retain(|&i| i != a);
+                    self.free.push(a);
+                    self.restack(col);
+                }
             } else {
                 h.age += dt;
                 self.heat.insert(a, h);
             }
         }
         out
+    }
+    /// Fluids meeting fluids their rows react with (liquids.md "Mixing in the world"; once a second, before `cool`'s
+    /// heat step): a node of a fluid whose row `reacts` with another, touching a node of that one (a layer on or under
+    /// it in its gap, or a neighbour's beside it, the two fluids side by side), freezes its skin at the contact at
+    /// once, a cell of itself (U units, or what it holds), into its `freeze` block. The heat that skin gives, cooling
+    /// from the node's own heat (`temp_of`) to the other's boiling point and freezing (its row's capacity and latent
+    /// heat), and the reaction's own `heat`, boils the other off: from its place's heat to its boiling point, and its
+    /// latent heat of vaporisation (its row's `heat`). Where the other cannot take a whole skin's heat the skin is what
+    /// it can quench; a film too thin to quench a unit takes its heat from the node, which is colder for it. Frozen
+    /// units go to `froze` (a block a U at the node's floor, returned as `cool`'s), boiled ones to `vapour`, the
+    /// contact's cell to `boils`.
+    /// shortcut: the skin's heat all goes at once (a block carries no heat), and a node reacts with each node it
+    /// touches once a second whatever the contact's area; by area once blocks carry heat (liquids.md step 5).
+    fn react(&mut self, g: &impl Ground) -> Vec<(Col, i32, u8)> {
+        let mut out = Vec::new();
+        if !self.other {
+            return out;
+        }
+        let rows = crate::fluids::FLUIDS.now();
+        let reacts = |k: u8, with: u8| rows.get(k).reacts.iter().find(|r| rows.kind(&r.with) == Some(with));
+        // the pairs (reacting, other): what every stored node of a fluid that reacts touches, held hot or at rest in a
+        // hot place, awake or asleep. shortcut: every stored node is looked at once a second; a list of the contacts
+        // kept by the step if worlds come to hold a great deal of stored fluid other than water
+        let mut pairs: Vec<(u32, u32)> = Vec::new();
+        for &a in self.cols.values().flatten() {
+            let n = &self.nodes[a as usize];
+            if n.water == 0 || rows.get(n.kind).reacts.is_empty() {
+                continue;
+            }
+            for b in self.touching(a) {
+                if reacts(n.kind, self.nodes[b as usize].kind).is_some() {
+                    pairs.push((a, b));
+                }
+            }
+        }
+        pairs.sort_unstable();
+        pairs.dedup();
+        let mut cols = Vec::new();
+        for (r, w) in pairs {
+            let (rn, wn) = (&self.nodes[r as usize], &self.nodes[w as usize]);
+            let (Some(rx), true) = (reacts(rn.kind, wn.kind), rn.water > 0 && wn.water > 0) else { continue };
+            let (rr, wr) = (rows.get(rn.kind), rows.get(wn.kind));
+            let (Some(hr), Some(hw)) = (rr.heat.as_ref(), wr.heat.as_ref().filter(|h| h.vaporise > 0.0)) else { continue };
+            let tb = wr.boil.as_ref().map_or(100.0, |b| b.at as f64);
+            let t = self.temp_of(g, r);
+            if t <= tb {
+                continue;
+            }
+            let tw = self.rest_of(g, w).min(tb);
+            // J a unit of the skin gives, and a unit of the other takes to boil off
+            let e_r = rr.density as f64 / U as f64 * (hr.capacity as f64 * (t - tb) + hr.latent as f64) + rx.heat as f64 * 1000.0;
+            let e_w = wr.density as f64 / U as f64 * (hw.capacity as f64 * (tb - tw) + hw.vaporise as f64);
+            let mut skin = rn.water.min(U);
+            if skin as f64 * e_r > wn.water as f64 * e_w {
+                skin = (wn.water as f64 * e_w / e_r) as i64;
+            }
+            let boil = if skin > 0 { ((skin as f64 * e_r / e_w) as i64).min(wn.water) } else { wn.water };
+            let (rc, rf, rk, rw, wk) = (rn.col, rn.floor, rn.kind, rn.water, wn.kind);
+            let z = ((rn.surface().min(wn.surface()) - 1).div_euclid(U)) as i32;
+            self.boils.push((wn.col, z, wk));
+            cols.extend([rc, wn.col]);
+            let n = &mut self.nodes[w as usize];
+            n.water -= boil;
+            if n.water == 0 && n.stack == 1 {
+                n.kind = 0;
+            }
+            *self.vapour.entry(wk).or_default() += boil;
+            let h = self.heat.entry(r).or_insert(Therm { t, age: 0.0, frac: 0.0, solid: 0 });
+            if skin == 0 {
+                h.t -= boil as f64 * e_w / (rw as f64 / U as f64 * rr.density as f64 * hr.capacity as f64);
+            }
+            h.solid += skin;
+            while h.solid >= U && rr.freeze.is_some() {
+                out.push((rc, rf, rk));
+                h.solid -= U;
+            }
+            *self.froze.entry(rk).or_default() += skin;
+            let n = &mut self.nodes[r as usize];
+            n.water -= skin;
+            if n.water == 0 {
+                if n.stack == 1 {
+                    n.kind = 0;
+                }
+                let h = self.heat.remove(&r).unwrap();
+                self.hand_crust(r, rk, &h);
+            }
+            self.wake(r);
+            self.wake(w);
+        }
+        cols.sort_unstable();
+        cols.dedup();
+        for c in cols {
+            self.dirty.insert(c, ());
+            self.restack(c);
+        }
+        out
+    }
+    /// The wet nodes node a's fluid touches: the layers on and under it in its gap, and the neighbours' fluids beside
+    /// its own.
+    fn touching(&self, a: u32) -> Vec<u32> {
+        let n = &self.nodes[a as usize];
+        let mut v: Vec<u32> = self.gap(n.col, n.floor).into_iter().filter(|&i| (self.nodes[i as usize].layer as i32 - n.layer as i32).abs() == 1).collect();
+        for l in &n.links {
+            let b = &self.nodes[l.to as usize];
+            let (lo, hi) = window(n, b);
+            if b.water > 0 && n.bottom().max(b.bottom()).max(lo) < n.surface().min(b.surface()).min(hi) {
+                v.push(l.to);
+            }
+        }
+        v.retain(|&i| self.nodes[i as usize].water > 0);
+        v
     }
     /// The heat node a gives away a second at heat `h`, its place's rest heat `ta`, W (negative: it takes in).
     fn loss(&self, a: u32, h: &Therm, ta: f64, hr: &crate::fluids::Heat) -> f64 {
@@ -1089,13 +1505,15 @@ impl Liquids {
         let deep = (n.water.min(n.cap()) as f64 / U as f64).max(1.0 / 64.0);
         // into rock: through half its own depth (or half a block, sideways), then the rock's own warming
         let rock = |r_in: f64| (h.t - ta) / (r_in + (std::f64::consts::PI * h.age.max(1.0)).sqrt() / ROCK_EFFUSIVITY);
-        let mut p = rock(deep * 0.5 / k);
-        if n.water < n.cap() {
+        // (a layer on another lies on it, not on rock; one under another has no open surface: what it gives the fluid
+        // over it is a reaction's, `react`. shortcut: no heat passes between layers that do not react)
+        let mut p = if n.base > 0 { 0.0 } else { rock(deep * 0.5 / k) };
+        if n.above == 0 && n.fill() < n.cap() {
             p += surface(h.t, ta, deep * 0.5 / k, e);
         }
         // its four sides (a block wide each): the same fluid beside it takes nothing, air over a neighbour's
         // surface is an open side, the rest is rock
-        let (lo, hi) = (n.floor as i64 * U, n.surface());
+        let (lo, hi) = (n.bottom(), n.surface());
         let (mut wet, mut open) = (0i64, 0i64);
         for l in &n.links {
             let b = &self.nodes[l.to as usize];
@@ -1116,7 +1534,9 @@ impl Liquids {
     pub fn scoop_kind(&mut self, g: &impl Ground, c: Col, layer: i32, units: i64, kind: u8) -> i64 {
         self.materialize(g, c);
         let ids = &self.cols[&c];
-        let Some(&a) = ids.iter().find(|&&i| self.nodes[i as usize].ceil > layer) else { return 0 };
+        let Some(&first) = ids.iter().find(|&&i| self.nodes[i as usize].ceil > layer) else { return 0 };
+        // from the gap's top layer (an empty one under layers goes with the next step, `layers_after`)
+        let a = *self.gap(c, self.nodes[first as usize].floor).last().unwrap();
         let n = &mut self.nodes[a as usize];
         if n.kind != kind {
             return 0;
@@ -1127,6 +1547,9 @@ impl Liquids {
             n.kind = 0;
         }
         self.touch(g, a);
+        if self.other {
+            self.restack(c);
+        }
         took
     }
     /// The units of fluid `kind` that differ from the seed's (`counted` for water).
@@ -1141,9 +1564,8 @@ impl Liquids {
     /// feet stand in.
     pub fn kind_at(&self, g: &impl Ground, c: Col, layer: f64) -> Option<u8> {
         let u = layer * U as f64;
-        if let Some(ids) = self.cols.get(&c) {
-            let n = ids.iter().map(|&i| &self.nodes[i as usize]).find(|n| (n.ceil as f64) > layer && n.floor as f64 <= layer.floor())?;
-            return (n.water > 0 && u < n.surface() as f64).then_some(n.kind);
+        if self.cols.contains_key(&c) {
+            return self.in_gap(c, layer).find(|n| n.water > 0 && u >= n.bottom() as f64 && u < n.surface() as f64).map(|n| n.kind);
         }
         let (lo, hi) = g.generated(c);
         if lo < hi && (lo as f64..hi as f64).contains(&u) {
@@ -1151,12 +1573,26 @@ impl Liquids {
         }
         g.generated_other(c).into_iter().find(|w| (w.0 as f64..w.1 as f64).contains(&u)).map(|w| w.3)
     }
+    /// The layers of column c's gap that holds layer `layer`, bottom-up (none if c is not stored or it is solid there).
+    fn in_gap(&self, c: Col, layer: f64) -> impl Iterator<Item = &Node> {
+        let ids = self.cols.get(&c).map_or(&[][..], |v| &v[..]);
+        let floor = ids.iter().map(|&i| &self.nodes[i as usize]).find(|n| (n.ceil as f64) > layer && n.floor as f64 <= layer.floor()).map(|n| n.floor);
+        ids.iter().map(|&i| &self.nodes[i as usize]).filter(move |n| Some(n.floor) == floor)
+    }
     /// Fluid `kind` flows with viscosity `v` instead of its row's (tests).
     pub fn set_viscosity(&mut self, kind: u8, v: i64) {
         if self.viscosity.is_empty() {
             self.viscosity = crate::fluids::FLUIDS.rows.iter().map(|r| r.viscosity as i64).collect();
         }
         self.viscosity[kind as usize] = v;
+    }
+
+    /// A gap holds at most `n` layers (tests: the cap reached with few fluids).
+    pub fn set_layers(&mut self, n: u8) {
+        self.most = n;
+    }
+    fn most(&self) -> usize {
+        if self.most == 0 { LAYERS } else { self.most as usize }
     }
 
     /// Takes up to `units` from the gap of column `c` that holds layer `layer`; returns what it took.
@@ -1177,13 +1613,10 @@ impl Liquids {
     /// not stored are generated water.
     pub fn surface_at(&self, g: &impl Ground, c: Col, layer: f64) -> Option<f64> {
         let top = match self.cols.get(&c) {
-            Some(ids) => {
-                let n = ids.iter().map(|&i| &self.nodes[i as usize]).find(|n| (n.ceil as f64) > layer && n.floor as f64 <= layer.floor())?;
-                // (water's alone: what is drunk, swum in and puts out a flame; `fluid_surface_at` holds a body up in any)
-                if n.kind != crate::fluids::WATER {
-                    return None;
-                }
-                n.surface()
+            Some(_) => {
+                // (water's alone: what is drunk, swum in and puts out a flame; `fluid_surface_at` holds a body up in any):
+                // the top of the gap's highest water layer (a dry gap's is its floor)
+                self.in_gap(c, layer).filter(|n| n.kind == crate::fluids::WATER).last()?.surface()
             }
             None => {
                 let (lo, hi) = g.generated(c);
@@ -1201,9 +1634,10 @@ impl Liquids {
     pub fn fluid_surface_at(&self, g: &impl Ground, c: Col, layer: f64) -> Option<(f64, u8)> {
         let u = layer * U as f64;
         let (top, kind) = match self.cols.get(&c) {
-            Some(ids) => {
-                let n = ids.iter().map(|&i| &self.nodes[i as usize]).find(|n| (n.ceil as f64) > layer && n.floor as f64 <= layer.floor())?;
-                (n.water > 0).then_some((n.surface(), n.kind))?
+            // the layer at `layer`, else (over them all) the top one, as before layers
+            Some(_) => {
+                let n = self.in_gap(c, layer).filter(|n| n.water > 0).find(|n| u < n.surface() as f64).or_else(|| self.in_gap(c, layer).filter(|n| n.water > 0).last())?;
+                (n.surface(), n.kind)
             }
             None => {
                 let (lo, hi) = g.generated(c);
@@ -1255,6 +1689,9 @@ impl Liquids {
         let cgs = pulls.map(cg);
         // each fluid's friction a step, in water's (`data/fluids.toml` viscosity)
         let rows: Vec<i64> = if self.viscosity.is_empty() { crate::fluids::FLUIDS.rows.iter().map(|r| r.viscosity as i64).collect() } else { self.viscosity.clone() };
+        // layers by density (`carry`): only once a fluid other than water was stored
+        let dens = if self.other { densities() } else { Vec::new() };
+        let (cols, most) = (&self.cols, self.most());
         let flows = |&a: &u32| {
             let n = &nodes[a as usize];
             let cg = cgs[n.col.body() as usize];
@@ -1271,12 +1708,12 @@ impl Liquids {
             for l in &n.links {
                 let b = &nodes[l.to as usize];
                 let (lo, hi) = window(n, b);
-                let area = (sa.min(hi) - lo).clamp(0, ACAP);
+                // (a layer flows through its own depth in the window)
+                let area = (sa.min(hi) - lo.max(n.bottom())).clamp(0, ACAP);
                 let mut v = l.v as i64;
-                if area == 0 || !spreads(n, b) || !meets(n, b) {
-                    v = 0;
-                } else {
-                    let mut dh = ha - b.head().max(lo);
+                let hb = if area > 0 && spreads(n, b) { carry(nodes, cols, &dens, most, n, b) } else { None };
+                if let Some(hb) = hb {
+                    let mut dh = ha - hb.max(lo);
                     if l.dir & 4 != 0 {
                         // over a fall the reach's surface runs on as if there were none: the lip passes the
                         // reach's flow when it stands at its generated level, more when higher
@@ -1303,6 +1740,8 @@ impl Liquids {
                         v = 0;
                     }
                     v = v.clamp(0, VMAX);
+                } else {
+                    v = 0;
                 }
                 let mut flow = v * area + l.frac as i64;
                 // a closed gap's head rises K times as fast as the water it takes in: unbounded, a full gap under
@@ -1310,17 +1749,17 @@ impl Liquids {
                 // on, pumping water out over the block and leaving the gap half empty (ADR 0071). Into or out of
                 // a closed gap, a link passes at most what would level the two heads, shared over its links: half
                 // the difference between two open surfaces, a (K + 1)-th of it against a full gap's pressure.
-                if v > 0 && (n.ceil != OPEN || b.ceil != OPEN) {
-                    let dh = (ha - b.head().max(lo)).max(0);
+                if let Some(hb) = hb.filter(|_| v > 0 && (n.ceil != OPEN || b.ceil != OPEN)) {
+                    let dh = (ha - hb.max(lo)).max(0);
                     let mut most = i64::MAX;
                     if b.ceil != OPEN {
-                        let room = (b.cap() - b.water).max(0);
+                        let room = (b.cap() - b.fill()).max(0);
                         let level = if 2 * room >= dh { dh / 2 } else { room + (dh - 2 * room) / (K + 1) };
                         most = most.min(level / b.links.len().max(1) as i64);
                     }
                     if n.ceil != OPEN {
-                        let over = (wa - n.cap()).max(0);
-                        most = most.min((over + (sa - b.head().max(lo)).max(0) / 2) / n.links.len().max(1) as i64);
+                        let over = (n.fill() - n.cap()).max(0);
+                        most = most.min((over + (sa - hb.max(lo)).max(0) / 2) / n.links.len().max(1) as i64);
                     }
                     flow = flow.min(most.max(0) << VF);
                 }
@@ -1395,14 +1834,14 @@ impl Liquids {
                 }
             }
         }
-        // a gap holds one fluid: a dry one takes the kind of its first link that brings any, and what another kind
-        // would bring it this step stays where it was (shortcut: a plain wall between fluids, as `meets`)
+        // a dry layer takes the kind of its first link that brings any; what another fluid brings a layer goes on to
+        // its own layer in that gap, or a new one, after the step (`foreign`: receiver, kind, units, sender)
+        let mut foreign: Vec<(u32, u8, i64, u32)> = Vec::new();
+        let mut divert: FxMap<u32, i64> = FxMap::default();
         if self.other {
             for &a in &touched {
-                if self.nodes[a as usize].water != 0 {
-                    continue;
-                }
-                let mut kind = None;
+                let wet = self.nodes[a as usize].water != 0;
+                let mut kind = wet.then_some(self.nodes[a as usize].kind);
                 for k in 0..self.nodes[a as usize].links.len() {
                     let l = self.nodes[a as usize].links[k];
                     let (from, m) = (self.nodes[l.to as usize].kind, self.nodes[l.to as usize].links[l.back as usize]);
@@ -1411,14 +1850,14 @@ impl Liquids {
                     }
                     match kind {
                         None => kind = Some(from),
-                        Some(first) if first != from => {
-                            let m = &mut self.nodes[l.to as usize].links[l.back as usize];
-                            (m.out, m.v, m.frac) = (0, 0, 0);
+                        Some(have) if have != from => {
+                            foreign.push((a, from, m.out as i64, l.to));
+                            *divert.entry(a).or_default() += m.out as i64;
                         }
                         _ => {}
                     }
                 }
-                if let Some(k) = kind {
+                if let Some(k) = kind.filter(|_| !wet) {
                     self.nodes[a as usize].kind = k;
                 }
             }
@@ -1437,9 +1876,13 @@ impl Liquids {
                 let n = &mut self.nodes[a as usize].links[k];
                 (n.fin, n.vin) = (m.out, m.v);
             }
+            if !divert.is_empty() {
+                d -= divert.get(&a).copied().unwrap_or(0);
+            }
             let n = &mut self.nodes[a as usize];
             n.water += d;
-            if n.water == 0 {
+            // (an emptied layer of a stack keeps its fluid until `layers_after` drops it)
+            if n.water == 0 && n.stack == 1 {
                 n.kind = 0;
             }
             moving.push(mv);
@@ -1458,11 +1901,12 @@ impl Liquids {
                 }
                 let (lo, hi) = window(n, b);
                 let push = |x: &Node, y: &Node| {
-                    let (area, dh) = (x.surface().min(hi) - lo, x.head() - y.head().max(lo));
+                    let Some(hy) = (if spreads(x, y) { carry(&self.nodes, &self.cols, &dens, most, x, y) } else { None }) else { return false };
+                    let (area, dh) = (x.surface().min(hi) - lo.max(x.bottom()), x.head() - hy.max(lo));
                     let visc = rows[(x.kind as usize).min(rows.len() - 1)];
                     // a thick fluid: only while the speed a step gives it outlasts its friction (else it never sleeps)
                     let moving = if visc == 1 { moves(dh) } else { thick_moves(dh, cgs[x.col.body() as usize], visc, area) };
-                    area > 0 && moving && spreads(x, y) && meets(x, y)
+                    area > 0 && moving
                 };
                 if push(n, b) || push(b, n) {
                     pull = true;
@@ -1496,6 +1940,9 @@ impl Liquids {
         next.sort_unstable();
         next.dedup();
         self.awake = next;
+        if self.other {
+            self.layers_after(g, foreign, &touched);
+        }
         self.open_ends(g, false);
         self.steps += 1;
         if self.steps % SETTLE_EVERY == 0 {
@@ -1604,7 +2051,9 @@ impl Liquids {
                 }
                 // open sea next to it that is not stored: only a node whose rim was never stored can have it
                 // (only water: another fluid is never laid at the sea's level nor given to it)
-                if !n.rim && n.ceil == OPEN && n.kind == crate::fluids::WATER {
+                // (a stack of layers is never laid at the sea's level: the sea is water alone)
+                calm &= n.stack == 1 || n.ceil == OPEN;
+                if !n.rim && n.ceil == OPEN && n.kind == crate::fluids::WATER && n.stack == 1 {
                     for d in g.neighbours(n.col).into_iter().flatten().filter(|d| !self.cols.contains_key(d)) {
                         let (lo, hi) = g.generated(d);
                         if lo < hi && n.surface() > lo.max(n.floor as i64 * U) {
@@ -1631,6 +2080,11 @@ impl Liquids {
             body.sort_unstable();
             let sea = sea.map(|(l, d)| (l, river_of(&mut self.river_at, g, d).0));
             self.flatten(&body, sea);
+            if self.other {
+                let mut cols: Vec<Col> = body.iter().filter(|&&a| self.nodes[a as usize].stack > 1).map(|&a| self.nodes[a as usize].col).collect();
+                cols.dedup();
+                cols.into_iter().for_each(|c| self.restack(c));
+            }
             if sea.is_some() {
                 // columns back to what generation gives, wet or the dry shore around them, are not stored
                 for &a in &body {
@@ -1665,8 +2119,8 @@ impl Liquids {
             for d in g.neighbours(c).into_iter().flatten().filter(|d| !self.cols.contains_key(d)) {
                 let (lo, hi) = *self.gen_at.entry(d).or_insert_with(|| g.generated(d));
                 match open.map(|a| &self.nodes[a as usize]) {
-                    // (only water trades with open water; another fluid stores the column, and meets it as a wall)
-                    Some(n) if lo < hi && n.floor as i64 * U < hi && n.kind == crate::fluids::WATER => {
+                    // (only water alone trades with open water; another fluid, or layers, store the column)
+                    Some(n) if lo < hi && n.floor as i64 * U < hi && n.kind == crate::fluids::WATER && n.stack == 1 => {
                         // held at its own generated level (a river slopes), or the open water's where generation
                         // left this column dry (dug); open water downstream takes whatever arrives and gives back
                         // what is missing, open water level or upstream only while the surface is near it
@@ -1694,7 +2148,7 @@ impl Liquids {
                         }
                     }
                     // a dry column over the open water beside it: nothing can pass between them
-                    Some(n) if n.water == 0 && lo < hi && n.floor as i64 * U >= hi => {}
+                    Some(n) if n.water == 0 && n.stack == 1 && lo < hi && n.floor as i64 * U >= hi => {}
                     _ => grow.push(d),
                 }
             }
@@ -1840,10 +2294,11 @@ impl Liquids {
     }
 
     /// Gives every node of `body` the water that puts all of them at one level, and puts them to sleep: the
-    /// level its water reaches, or `sea` (in units) with the difference given to the open sea.
+    /// level its water reaches, or `sea` (in units) with the difference given to the open sea. A layer's level is its
+    /// head (its surface pressed by the layers over it), over the layers under it.
     fn flatten(&mut self, body: &[u32], sea: Option<(i64, u32)>) {
         let w = |n: &Node, l: i64| -> i64 {
-            let f = n.floor as i64 * U;
+            let f = n.floor as i64 * U + n.base + n.press;
             if l <= f {
                 0
             } else if n.ceil == OPEN || l <= n.ceil as i64 * U {
@@ -1856,7 +2311,7 @@ impl Liquids {
         // the highest level that does not need more water than there is
         let ns = || body.iter().map(|&a| &self.nodes[a as usize]);
         let mut lo = ns().map(|n| n.floor as i64 * U).min().unwrap();
-        let mut hi = ns().map(|n| if n.ceil == OPEN { n.floor } else { n.ceil } as i64 * U).max().unwrap() + total * K + 1;
+        let mut hi = ns().map(|n| if n.ceil == OPEN { n.floor } else { n.ceil } as i64 * U + n.base + n.press).max().unwrap() + total * K + 1;
         if let Some((l, _)) = sea {
             lo = l;
         }
@@ -1905,11 +2360,13 @@ pub mod test_ground {
         pub epoch: i64,
         /// `Ground::g`, every column's.
         pub g: f64,
+        /// `Ground::heat`, everywhere, C.
+        pub heat: f32,
     }
 
     impl Box3 {
         pub fn new(nx: i32, ny: i32, nz: i32) -> Box3 {
-            Box3 { nx, ny, nz, solid: vec![false; (nx * ny * nz) as usize], sea: None, epoch: 0, g: EARTH_G }
+            Box3 { nx, ny, nz, solid: vec![false; (nx * ny * nz) as usize], sea: None, epoch: 0, g: EARTH_G, heat: AMBIENT }
         }
         /// Generation fills every column to `level` units over the terrain as it is now.
         pub fn with_sea(&mut self, level: i64) {
@@ -1937,6 +2394,9 @@ pub mod test_ground {
     impl Ground for Box3 {
         fn g(&self, _body: u8) -> f64 {
             self.g
+        }
+        fn heat(&self, _c: Col, _z: f64) -> f32 {
+            self.heat
         }
         fn gaps(&self, c: Col) -> Vec<(i32, i32)> {
             let (x, y) = (c.i(), c.j());
@@ -2663,6 +3123,34 @@ mod tests {
         assert_eq!(run(), run());
     }
 
+    /// Water alone steps to the bit as it did before fluids lay in layers (liquids.md step 4): the `deterministic`
+    /// run's every column and gap after every step, hashed, against the number the build before layers made: the
+    /// same trace run on commit cddfd4f2's engine (the parent of layers) printed this hash and ledger, seen equal.
+    #[test]
+    fn water_alone_steps_to_the_bit_as_before_layers() {
+        let mut g = Box3::new(30, 30, 6);
+        g.fill(0..30, 0..30, 0..1, true);
+        g.fill(10..12, 0..20, 1..4, true);
+        let mut w = stored(&g);
+        let mut h: u64 = 0xcbf29ce484222325;
+        let mut eat = |v: i64| {
+            for b in v.to_le_bytes() {
+                h = (h ^ b as u64).wrapping_mul(0x100000001b3);
+            }
+        };
+        for k in 0..340 {
+            if k < 40 {
+                w.pour(&g, col(k % 30, (k * 7) % 30), 1, U + k as i64);
+            }
+            w.step(&g);
+            for (c, gaps) in w.all() {
+                eat(c.0 as i64);
+                gaps.iter().for_each(|&(f, t, u)| [f as i64, t as i64, u].into_iter().for_each(&mut eat));
+            }
+        }
+        assert_eq!((h, w.counted()), (12127160028250922625, 164620), "the trace's hash and the ledger");
+    }
+
     const LAVA: u8 = 1;
 
     /// Steps until a dam break of 4 m of fluid `kind` (viscosity `visc`, None: its row's) has run its front 10 m
@@ -2704,10 +3192,10 @@ mod tests {
         assert!((lava_flow / half_flow / 2.0 - 1.0).abs() < 0.1, "viscosity 64 against 32: {} (2 overdamped)", lava_flow / half_flow);
     }
 
-    /// Water and lava poured side by side meet and never mix: each fluid's ledger is exact after 1,000 steps,
-    /// and every gap holds one kind.
+    /// Water and lava poured side by side meet and lie in layers, the lava under: each fluid's ledger is exact at
+    /// every one of 1,000 steps (no heat step runs, so they do not react).
     #[test]
-    fn water_and_lava_side_by_side_do_not_mix_and_each_ledger_is_exact() {
+    fn water_and_lava_side_by_side_layer_and_each_ledger_is_exact() {
         let mut g = Box3::new(20, 3, 6);
         g.fill(0..20, 0..3, 0..1, true);
         let mut w = stored(&g);
@@ -2722,15 +3210,19 @@ mod tests {
                 hot += 2 * U;
             }
         }
-        // and a pour onto the other fluid is refused
-        assert!(!w.pour_kind(&g, col(12, 1), 1, U, crate::fluids::WATER), "water is not poured into lava");
+        // and a pour onto the other fluid lies on it
+        assert!(w.pour_kind(&g, col(12, 1), 1, U, crate::fluids::WATER), "water is poured onto lava");
+        wet += U;
         for _ in 0..1000 {
             w.step(&g);
             assert_eq!((w.counted_of(crate::fluids::WATER), w.counted_of(LAVA)), (wet, hot));
         }
-        // the water ran no further than the wall it met, and the lava kept its side
-        assert!((0..3).all(|y| w.column(col(9, y)).unwrap().last().unwrap().kind == crate::fluids::WATER));
-        assert!((0..3).all(|y| w.column(col(10, y)).unwrap().last().unwrap().kind == LAVA));
+        // where both lie in a gap, the lava is under
+        for (x, y) in (0..20).flat_map(|x| (0..3).map(move |y| (x, y))) {
+            let l = layers(&w, x, y);
+            assert!(l.windows(2).all(|p| p[0].0 == LAVA && p[1].0 == WATER), "({x}, {y}): {l:?}");
+        }
+        assert!((0..3).any(|y| layers(&w, 15, y).len() == 2), "the water ran out over the lava");
     }
 
     /// Two fluids flowing into one empty gap in the same step: it takes one, the other stays where it was.
@@ -2787,6 +3279,350 @@ mod tests {
             back.step(&g);
         }
         assert_eq!(back.counted_of(9), 3 * U);
+    }
+
+    fn oil() -> u8 {
+        crate::fluids::FLUIDS.kind("oil").expect("an oil row")
+    }
+    const WATER: u8 = crate::fluids::WATER;
+    /// The wet layers of column (x, y)'s open gap, bottom-up, as (kind, units).
+    fn layers(w: &Liquids, x: i32, y: i32) -> Vec<(u8, i64)> {
+        w.column(col(x, y)).unwrap().filter(|n| n.ceil == OPEN && n.water > 0).map(|n| (n.kind, n.water)).collect()
+    }
+    /// A 12 x 12 pond two blocks deep, settled, with two blocks of oil poured on its middle.
+    fn oiled_pond() -> (Box3, Liquids) {
+        let mut g = Box3::new(12, 12, 8);
+        g.fill(0..12, 0..12, 0..1, true);
+        let mut w = stored(&g);
+        for y in 0..12 {
+            for x in 0..12 {
+                w.pour(&g, col(x, y), 1, 2 * U);
+            }
+        }
+        for _ in 0..120 {
+            w.step(&g);
+        }
+        assert!(w.pour_kind(&g, col(6, 6), 1, 2 * U, oil()), "oil is poured onto water");
+        (g, w)
+    }
+
+    /// Oil poured on a pond floats (liquids.md "Mixing in the world"): it spreads as a layer on top of the water and
+    /// stays there, and every unit of both is kept at every step.
+    #[test]
+    fn oil_poured_on_a_pond_floats_on_top_and_both_ledgers_are_exact() {
+        let oil = oil();
+        let (g, mut w) = oiled_pond();
+        for s in 0..60 * 60 {
+            w.step(&g);
+            assert_eq!((w.counted_of(WATER), w.counted_of(oil)), (144 * 2 * U, 2 * U), "step {s}");
+        }
+        let mut slick = 0;
+        for y in 0..12 {
+            for x in 0..12 {
+                let l = layers(&w, x, y);
+                if let Some(i) = l.iter().position(|&(k, _)| k == oil) {
+                    slick += 1;
+                    assert!(i == l.len() - 1 && l[0].0 == WATER && l.len() == 2, "({x}, {y}): oil on top of water, {l:?}");
+                }
+            }
+        }
+        assert!(slick > 8, "the oil spread as a layer: {slick} columns");
+    }
+
+    /// Water poured onto oil lands on top and sinks under it at a rate, not at once: a Rayleigh-Taylor overturn's
+    /// fall, sqrt(A g l) / 4 (A = 150 / 1850, l a block, oil 4 times water's friction) = 0.22 m/s, 15 units a step:
+    /// a block of water through in 270 steps (4.5 s) by hand. Then the stack lies still, water under oil.
+    #[test]
+    fn water_poured_on_oil_sinks_under_it_at_a_rate() {
+        let oil = oil();
+        let mut g = Box3::new(1, 1, 8);
+        g.fill(0..1, 0..1, 0..1, true);
+        let mut w = stored(&g);
+        assert!(w.pour_kind(&g, col(0, 0), 1, 2 * U, oil));
+        assert!(w.pour_kind(&g, col(0, 0), 1, U, WATER), "water is poured onto oil");
+        assert_eq!(layers(&w, 0, 0), vec![(oil, 2 * U), (WATER, U)], "it lands on top");
+        let mut t = 0;
+        while layers(&w, 0, 0) != vec![(WATER, U), (oil, 2 * U)] {
+            w.step(&g);
+            t += 1;
+            assert_eq!((w.counted_of(WATER), w.counted_of(oil)), (U, 2 * U), "step {t}");
+            assert!(t < 60 * 60, "sank in an hour: {:?}", layers(&w, 0, 0));
+        }
+        eprintln!("a block of water sank through two of oil in {t} steps (by hand 270)");
+        assert!((135..540).contains(&t), "{t} steps, by hand 270");
+        for _ in 0..600 {
+            w.step(&g);
+        }
+        assert_eq!((layers(&w, 0, 0), w.awake()), (vec![(WATER, U), (oil, 2 * U)], 0), "then it lies still");
+    }
+
+    /// A dam of oil breaks over a channel of still water: the oil runs out on top of the water, the water under it
+    /// gives way, and neither fluid loses a unit.
+    #[test]
+    fn a_dam_break_of_oil_over_water_spreads_on_top() {
+        let oil = oil();
+        let mut g = Box3::new(60, 1, 8);
+        g.fill(0..60, 0..1, 0..1, true);
+        let mut w = stored(&g);
+        for x in 0..60 {
+            w.pour(&g, col(x, 0), 1, 2 * U);
+        }
+        for x in 0..10 {
+            assert!(w.pour_kind(&g, col(x, 0), 1, 2 * U, oil));
+        }
+        for s in 0..60 * 30 {
+            w.step(&g);
+            assert_eq!((w.counted_of(WATER), w.counted_of(oil)), (60 * 2 * U, 10 * 2 * U), "step {s}");
+        }
+        let front = (0..60).rev().find(|&x| layers(&w, x, 0).iter().any(|l| l.0 == oil)).unwrap();
+        eprintln!("the oil's front ran to column {front} in 30 s");
+        assert!(front >= 20, "the oil ran out over the water: its front at {front}");
+        for x in 0..60 {
+            let l = layers(&w, x, 0);
+            assert!(l[0].0 == WATER && l.iter().skip(1).all(|k| k.0 == oil) && l.len() <= 2, "column {x}: oil over water, {l:?}");
+        }
+    }
+
+    /// Two fluids in one gap go through a save and to a client's copy as they are: each gap's layers bottom-up.
+    #[test]
+    fn layers_survive_a_save_and_reach_a_clients_copy() {
+        let oil = oil();
+        let (g, mut w) = oiled_pond();
+        for _ in 0..600 {
+            w.step(&g);
+        }
+        let all = w.all();
+        assert!(all.iter().any(|(_, gaps)| gaps.len() > 1), "a column of two layers");
+        let mut back = Liquids::default();
+        back.restore(&g, &all);
+        assert_eq!((back.all(), back.counted_of(oil), back.counted_of(WATER)), (all.clone(), 2 * U, 288 * U));
+        w.take_changes();
+        let mut client = Liquids::default();
+        for t in w.wet_tiles(0, 0, 0, 0, 16) {
+            client.set_tile(t, &w.tile_sent(t));
+        }
+        assert_eq!(client.all(), all);
+        let tops = |w: &Liquids| (0..12).flat_map(|y| (0..12).map(move |x| (x, y))).map(|(x, y)| level(w, x, y)).collect::<Vec<_>>();
+        assert_eq!(tops(&client), tops(&w), "the client sees the stack's tops where the server has them");
+    }
+
+    /// A stack at rest does not move (liquids.md, the rule): oil lying evenly on water in every column, stored as a save
+    /// leaves it and woken, steps a minute and is what it was, asleep.
+    #[test]
+    fn a_stored_stack_at_rest_does_not_move() {
+        let oil = oil();
+        let mut g = Box3::new(8, 8, 8);
+        g.fill(0..8, 0..8, 0..1, true);
+        let mut cols: Vec<ColWater> = (0..8).flat_map(|y| (0..8).map(move |x| (col(x, y), vec![(1, OPEN, pack(WATER, 2 * U)), (1, OPEN, pack(oil, U / 2))]))).collect();
+        cols.sort_unstable_by_key(|c| c.0);
+        let mut w = Liquids::default();
+        w.restore(&g, &cols);
+        assert_eq!(w.all(), cols);
+        for &(c, _) in &cols {
+            w.pour_kind(&g, c, 1, 0, oil);
+        }
+        for _ in 0..60 * 60 {
+            w.step(&g);
+        }
+        assert_eq!((w.all(), w.awake()), (cols, 0));
+    }
+
+    /// The cap of layers a gap holds (4; here 1, to reach it with these fluids): a pour of a new fluid onto a full gap
+    /// is refused, a flow into one passes nothing, and an edit that joins two gaps of different fluids pushes the
+    /// lighter out to `spilt` (water to its account): every ledger stays exact.
+    #[test]
+    fn the_layer_cap_keeps_every_ledger_exact() {
+        let oil = oil();
+        let mut g = Box3::new(6, 1, 8);
+        g.fill(0..6, 0..1, 0..1, true);
+        g.fill(3..4, 0..1, 0..8, true); // a wall
+        let mut w = stored(&g);
+        w.set_layers(1);
+        for x in 0..3 {
+            assert!(w.pour_kind(&g, col(x, 0), 1, 2 * U, WATER));
+        }
+        assert!(w.pour_kind(&g, col(4, 0), 1, 3 * U, oil) && w.pour_kind(&g, col(5, 0), 1, 3 * U, oil));
+        assert!(!w.pour_kind(&g, col(1, 0), 1, U, oil), "a full gap takes no new fluid");
+        // the wall falls: oil meets water, and only one of them may lie in a gap
+        g.fill(3..4, 0..1, 1..8, false);
+        w.regap(&g, col(3, 0));
+        for s in 0..60 * 60 {
+            w.step(&g);
+            assert_eq!((w.counted_of(WATER), w.counted_of(oil)), (6 * U, 6 * U), "step {s}");
+        }
+        assert!((0..6).all(|x| layers(&w, x, 0).len() <= 1), "one layer a gap");
+        // a block between a gap of oil and one of water is dug: the lighter of the joined gap is pushed out, booked
+        let mut g = Box3::new(1, 1, 8);
+        g.fill(0..1, 0..1, 0..1, true);
+        g.set(0, 0, 3, true);
+        let mut w = stored(&g);
+        w.set_layers(1);
+        assert!(w.pour_kind(&g, col(0, 0), 1, U, oil) && w.pour_kind(&g, col(0, 0), 4, U, WATER));
+        g.set(0, 0, 3, false);
+        w.regap(&g, col(0, 0));
+        assert_eq!((w.counted_of(WATER), w.counted_of(oil), w.spilt.get(&oil).copied()), (U, U, Some(U)), "oil pushed out, booked");
+        assert_eq!(layers(&w, 0, 0), vec![(WATER, U)]);
+    }
+
+    /// Lava under water (liquids.md "Mixing in the world"): one heat step freezes the lava's skin at the contact, a
+    /// block of it, to basalt at its floor, and boils off the water that skin's heat can: by hand, the skin gives
+    /// 2600 kg x (1200 J/(kg K) x (1150 - 100) K + 400 kJ/kg) = 4.316e9 J as it cools to the boil and freezes; water at
+    /// 15 C takes 1000 kg/m3 x (4186 x 85 + 2.257e6) J/kg = 2.6128e9 J/m3 to boil off: 1.6519 blocks, 6766 units.
+    /// The water lost is the vapour booked, the lava frozen is `froze`, and the energies balance to a unit's rounding.
+    #[test]
+    fn lava_under_water_freezes_its_skin_to_basalt_and_boils_the_water_by_its_heat() {
+        let mut g = Box3::new(1, 1, 8);
+        g.fill(0..1, 0..1, 0..1, true);
+        let mut w = stored(&g);
+        assert!(w.pour_kind(&g, col(0, 0), 1, 2 * U, LAVA));
+        assert!(w.pour_kind(&g, col(0, 0), 1, 3 * U, WATER), "water is poured onto lava");
+        assert_eq!(layers(&w, 0, 0), vec![(LAVA, 2 * U), (WATER, 3 * U)]);
+        let out = w.cool(&g, 1.0);
+        let (froze, steam) = (w.froze.get(&LAVA).copied().unwrap_or(0), w.vapour.get(&WATER).copied().unwrap_or(0));
+        eprintln!("froze {froze} units of lava, boiled {steam} of water (by hand {U} and 6766)");
+        assert_eq!(out, vec![(col(0, 0), 1, LAVA)], "a block of basalt at the lava's floor");
+        assert_eq!(froze, U, "the skin, a block");
+        let (e_l, e_w) = (2600.0 * (1200.0 * 1050.0 + 4.0e5) / U as f64, 1000.0 * (4186.0 * 85.0 + 2.257e6) / U as f64);
+        assert!((steam as f64 * e_w - froze as f64 * e_l).abs() <= e_w, "energy: {} J boiled, {} J given", steam as f64 * e_w, froze as f64 * e_l);
+        assert_eq!((steam, w.total_of(WATER), w.counted_of(WATER) + steam), (6766, 3 * U - 6766, 3 * U), "the water lost is the vapour");
+        assert_eq!((w.total_of(LAVA), w.counted_of(LAVA) + froze), (U, 2 * U), "the lava left and what froze");
+        assert!(!w.boils.is_empty(), "the steam's place, for its effect");
+    }
+
+    /// Lava flowing into a pool beside it: where it meets the water its skin freezes and the water boils off, and
+    /// every unit of both is booked (lava's frozen in `froze`, water's boiled in `vapour`).
+    #[test]
+    fn lava_flowing_into_a_pool_makes_rock_and_steam_and_the_ledgers_hold() {
+        let mut g = Box3::new(12, 1, 8);
+        g.fill(0..12, 0..1, 0..1, true);
+        let mut w = stored(&g);
+        for x in 4..12 {
+            assert!(w.pour_kind(&g, col(x, 0), 1, 2 * U, WATER));
+        }
+        for x in 0..3 {
+            assert!(w.pour_kind(&g, col(x, 0), 1, 3 * U, LAVA));
+        }
+        let mut blocks = Vec::new();
+        for _ in 0..60 {
+            for _ in 0..60 {
+                w.step(&g);
+            }
+            blocks.extend(w.cool(&g, 1.0));
+            let (froze, steam) = (w.froze.get(&LAVA).copied().unwrap_or(0), w.vapour.get(&WATER).copied().unwrap_or(0));
+            assert_eq!((w.counted_of(WATER) + steam, w.counted_of(LAVA) + froze), (16 * U, 9 * U));
+        }
+        eprintln!("{} blocks of basalt, {:?} froze, {:?} boiled", blocks.len(), w.froze, w.vapour);
+        assert!(!blocks.is_empty() && w.vapour.get(&WATER).is_some_and(|&v| v > 0), "rock and steam");
+    }
+
+    /// A block of lava frozen by water whose cell is taken waits as rock: it boils nothing more than its skin's heat
+    /// did (a block put back as lava at its freeze point would boil the water again every second, from nothing).
+    #[test]
+    fn a_frozen_block_waiting_for_its_cell_boils_nothing_more() {
+        let mut g = Box3::new(1, 1, 8);
+        g.fill(0..1, 0..1, 0..1, true);
+        let mut w = stored(&g);
+        assert!(w.pour_kind(&g, col(0, 0), 1, U, LAVA) && w.pour_kind(&g, col(0, 0), 1, 5 * U, WATER));
+        let mut steam = Vec::new();
+        for s in 0..10 {
+            for (c, z, k) in w.cool(&g, 1.0) {
+                w.unfreeze(c, z, k); // a player stands in the cell
+            }
+            w.step(&g);
+            steam.push(w.vapour.get(&WATER).copied().unwrap_or(0));
+            assert_eq!(w.counted_of(LAVA) + w.froze.get(&LAVA).copied().unwrap_or(0), U, "lava's ledger, second {s}");
+            assert_eq!(w.counted_of(WATER) + steam[s], 5 * U, "water's, second {s}");
+        }
+        assert!(steam[0] > 0 && steam.iter().all(|&s| s == steam[0]), "boiled once, by the skin: {steam:?}");
+    }
+
+    /// Two blocks frozen for one cell in a second: the first is set, the cell's gap moves up, and the second, its cell
+    /// taken and its gap gone, still comes back the next second to be set (it was dropped, its units booked frozen).
+    #[test]
+    fn a_second_block_for_a_cell_whose_gap_is_gone_is_not_lost() {
+        let mut g = Box3::new(1, 1, 8);
+        g.fill(0..1, 0..1, 0..1, true);
+        let mut w = stored(&g);
+        assert!(w.pour_kind(&g, col(0, 0), 1, 2 * U, LAVA) && w.pour_kind(&g, col(0, 0), 1, 5 * U, WATER));
+        let out = w.cool(&g, 1.0);
+        assert_eq!(out, vec![(col(0, 0), 1, LAVA)]);
+        g.set(0, 0, 1, true);
+        w.regap(&g, col(0, 0));
+        w.unfreeze(col(0, 0), 1, LAVA); // a second block for the same cell, now basalt
+        assert!(w.cool(&g, 1.0).contains(&(col(0, 0), 1, LAVA)), "it waits, to be set");
+    }
+
+    /// A layer frozen through under another is emptied as every layer is: its node goes and no dry node of water's
+    /// kind is left under the oil for the oil to flow into as water.
+    #[test]
+    fn a_layer_frozen_through_under_oil_leaves_no_water_behind() {
+        let oil = oil();
+        let mut g = Box3::new(3, 1, 8);
+        g.fill(0..3, 0..1, 0..1, true);
+        let mut w = stored(&g);
+        assert!(w.pour_kind(&g, col(0, 0), 1, U / 8, LAVA));
+        for x in 0..3 {
+            assert!(w.pour_kind(&g, col(x, 0), 1, U, oil));
+        }
+        let all_oil = |w: &Liquids, when: &str| {
+            for x in 0..3 {
+                let kinds: Vec<(u8, i64)> = w.column(col(x, 0)).unwrap().map(|n| (n.kind, n.water)).collect();
+                assert!(kinds.iter().all(|k| k.0 == oil), "{when}, column {x}: {kinds:?}");
+            }
+        };
+        for t in 0..100_000 {
+            w.cool(&g, 60.0);
+            if w.total_of(LAVA) == 0 {
+                break;
+            }
+            assert!(t < 99_999, "the lava froze through");
+            for _ in 0..4 {
+                w.step(&g);
+            }
+        }
+        all_oil(&w, "as it froze through");
+        for _ in 0..600 {
+            w.step(&g);
+        }
+        all_oil(&w, "after");
+        assert_eq!((w.total_of(WATER), w.counted_of(oil)), (0, 3 * U));
+    }
+
+    /// Lava at rest in a hot place (no heat of its own held, not awake) touching water at rest reacts all the same:
+    /// under it in its gap, and beside it across a link.
+    #[test]
+    fn lava_and_water_at_rest_in_a_hot_place_still_react() {
+        for beside in [false, true] {
+            let mut g = Box3::new(2, 1, 8);
+            g.fill(0..2, 0..1, 0..1, true);
+            g.heat = 1150.0;
+            let mut w = stored(&g);
+            assert!(w.pour_kind(&g, col(0, 0), 1, U, LAVA) && w.pour_kind(&g, col(beside as i32, 0), 1, U, WATER));
+            for a in std::mem::take(&mut w.awake) {
+                w.nodes[a as usize].quiet = u16::MAX;
+            }
+            w.heat.clear();
+            w.cool(&g, 1.0);
+            assert!(w.vapour.get(&WATER).is_some_and(|&v| v > 0), "beside {beside}: they met and the water boiled");
+        }
+    }
+
+    /// Lava poured on a full stack (lava, water, oil) sinks through to its own layer at the bottom, with no room for
+    /// a fifth layer on the way.
+    #[test]
+    fn a_denser_layer_sinks_to_its_own_at_the_cap() {
+        let oil = oil();
+        let mut g = Box3::new(1, 1, 8);
+        g.fill(0..1, 0..1, 0..1, true);
+        let mut w = stored(&g);
+        for (k, u) in [(LAVA, U), (WATER, U), (oil, U), (LAVA, U / 2)] {
+            assert!(w.pour_kind(&g, col(0, 0), 1, u, k));
+        }
+        assert_eq!(layers(&w, 0, 0).len(), 4, "the cap");
+        for _ in 0..3600 {
+            w.step(&g);
+        }
+        assert_eq!(layers(&w, 0, 0), vec![(LAVA, 3 * U / 2), (WATER, U), (oil, U)]);
     }
 
     /// The step's cost with 10,000 stored columns of water, all awake (a 100 x 100 basin whose half is 2 m

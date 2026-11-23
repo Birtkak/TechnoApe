@@ -195,10 +195,12 @@ fn vs_water(@builtin(vertex_index) vi: u32) -> WOut {
     } else {
         normal = f.sj * select(-1.0, 1.0, kind == 4u);
     }
-    // a glowing fluid (lava, water.rs `glow`): drawn as the metal sea is, in its own light (side bits 2 and 4)
+    // a glowing fluid (lava, water.rs `glow`): drawn as the metal sea is, in its own light (side bits 2 and 4); another
+    // fluid than water in its own colour (oil: info bit 31, side bit 8, `tinted`)
     let glow = q.info >> 10u;
-    var o = wout(bi, f.up, z, normal, u32(kind != 0u) | select(0u, 6u, glow != 0u));
-    o.flow = vec4f(vec3f(f32(glow & 127u), f32((glow >> 7u) & 127u), f32((glow >> 14u) & 127u)) * (4.0 / 127.0), 0.0);
+    let tint = (glow >> 21u) != 0u;
+    var o = wout(bi, f.up, z, normal, u32(kind != 0u) | select(select(0u, 6u, glow != 0u), 8u, tint));
+    o.flow = vec4f(vec3f(f32(glow & 127u), f32((glow >> 7u) & 127u), f32((glow >> 14u) & 127u)) * select(4.0 / 127.0, 1.0 / 127.0, tint), 0.0);
     o.grid = vec3f(f32(q.i) + du, f32(q.j) + dv, z);
     o.face = face;
     return o;
@@ -288,6 +290,7 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     // a pixel's footprint on the water in metres, before any branch (derivatives need uniform control flow)
     let foot = max(length(fwidth(i.grid.xy)), 1e-4);
     if ((i.side & 2u) != 0u) { return metal_sea(i); }
+    if ((i.side & 8u) != 0u) { return tinted(i); }
     let mode = (g.opt.x >> 4u) & 3u;
     if (mode >= 2u) { return water_old(i); }
     let b = g.bodies[i.body];
@@ -408,6 +411,20 @@ fn water_out(col: vec3f, a: f32) -> vec4f {
     var lit = shoulder(col);
     if (g.opt.y != 1000u) { lit = pow(lit, vec3f(1000.0 / f32(g.opt.y))); }
     return vec4f(lit, clamp(a, 0.0, 1.0));
+}
+
+// a fluid in its own colour (oil; `flow.xyz`, side bit 8): opaque, lit by the sun and the sky as the old water
+// sheet is, a glint and the sky in it by its Fresnel term; no rays of its own
+fn tinted(i: WOut) -> vec4f {
+    let v = normalize(-i.rel);
+    var n = normalize(i.normal);
+    if (dot(n, v) < 0.0) { n = -n; }
+    let fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+    let l = light(i.rel, n, i.body);
+    var col = i.flow.xyz * (l.l + ambient(l.day) + 0.1 * l.day);
+    col = mix(col, g.sky.rgb + vec3f(0.17, 0.13, 0.01) * l.day, fres * 0.6);
+    col += g.sun_col.rgb * 1.5 * l.sun * pow(max(dot(reflect(-g.sun.xyz, n), v), 0.0), 80.0);
+    return water_out(col, 1.0);
 }
 
 // the water before ADR 0071: the settings' Water off

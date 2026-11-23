@@ -181,6 +181,54 @@ server ledger for creative's other fluids.
   (a pool's last blocks freeze somewhat fast); one rock's thermal numbers for every block; lava meeting water (step 3);
   `froze` is not on the stats line.
 
+### Fluids lie in layers by density; lava and water react [0194, 2026-11-23]
+- **Context:** the world queue's step 3 (roadmap), `liquids.md` step 4 ("Mixing in the world"), ADR 0183 (matter
+  changes phase), 0186 (fluids are rows, a wall between them) and 0193 (lava's heat).
+- **A layer is a node.** A gap holds a stack of up to `liquid::LAYERS` (4) layers, each a node of one fluid with its
+  own links and speeds, bottom-up in its column's list; a gap of one fluid is the one node it always was. Each node
+  knows the units under and over it in its gap and how hard those over it press, in its own fluid's head
+  (`restack`: units times their density over its own), so a layer's surface is its gap's floor plus what lies
+  under it plus its own, and its head that surface plus that press. Every link rule is water's, applied a layer at
+  a time through the layer's own depth in the window. Fluid passes along a link into its own fluid's layer, a dry
+  gap, or, where the gap beyond holds none of it, through the link to that gap's bottom layer at the level it would
+  lie there by density (`carry`); what arrives there becomes a layer of its own after the step (`layers_after`),
+  sorted under the first lighter one. A gap without a fluid is dry ground to it (oil spreads over water only while
+  thicker than `2 MIN`, as water over a floor).
+- **Displacement:** a pour lands on the gap's top layer; a denser layer over a lighter one sinks through it at a
+  Rayleigh-Taylor overturn's speed, sqrt(A g l) over the lighter one's viscosity (A the Atwood number, l a block):
+  a block of water through two of oil in about 4.5 s. Emptied layers go, two of one fluid that come to touch join.
+- **The cap:** a pour of a new fluid onto a full gap is refused (the bucket keeps it), a flow of one into it passes
+  nothing, and an edit that joins gaps past it pushes the lightest fluid out to its account (water, as ADR 0071)
+  or `spilt`: the ledgers stay exact. Water alone steps, sends and saves to the bit as before (a hashed trace).
+- **Only water alone meets the sea:** a column with layers is never held at sea level, settled to it or forgotten;
+  a stored calm body of one fluid is laid level by heads (`flatten`), not surfaces.
+- **Lava and water react** (lava's `reacts` row, `Liquids::react`, once a second before `cool`): a lava node
+  touching water (a layer on or under it, or a neighbour's beside its fluid) freezes a cell of itself, U units, at
+  once into its freeze block (basalt; no obsidian block yet) at its floor, through the edits as `cool`'s are. That
+  skin's heat as it cools from the node's heat to water's boil and freezes, `2600 kg (1200 J/(kg K) (T - 100) +
+  400 kJ/kg)` and the reaction's `heat` (0), boils water off at `1000 kg (4186 (100 - T_w) + 2.257e6) J/kg`
+  (water's new `heat` row with `vaporise`, read only by reactions so far): a block of skin at 1150 C over water at
+  15 C boils 1.65 blocks, to a unit's rounding. Too little water for a skin makes the skin what it can quench; a film
+  under a unit cools the lava node instead. Boiled water goes to `Liquids::vapour` (kind by kind; the air grid
+  takes it in liquids.md step 6), frozen lava to `froze`: `counted_of + froze + vapour` is exact for every fluid,
+  and the server's water ledger counts the steam. Each boil is an `Event::Boil { at, kind }` (the events' last
+  kind) and the clients play `steam` there.
+- **Wire and save:** a layered gap is one `(floor, ceil, units | kind << 56)` entry a layer, bottom-up, so the
+  format does not change and a one-fluid world's bytes are what they were; an older build reading layers takes
+  them as intervals in one gap (it keeps the units). `vapour` and `spilt` are a second tail after 0193's heat
+  tail, written (with the heat tail before it) only when there are any; an older build ignores it, a bad one loads
+  without it. No version moves.
+- **Look:** a fluid other than water without a light is drawn opaque in its row's colour, lit by the sun and sky
+  (`tinted` in the water shader, `WQuad.info` bit 31); the open gap's top layer decides a column's look. Oil's row:
+  850 kg/m3, viscosity 4, dark.
+- **Not chosen:** one node a gap with a stack of counts and one flow (layers would not flow by their own heads, oil
+  could not spread over still water); instant sorting of a pour (no displacement to see).
+- **Open:** a layer seen from the side under another; heat between layers that do not react; a skin by contact
+  area (a lava node reacts with each node it touches once a second); obsidian by how fast it froze; steam near the
+  ground (step 6); oil burning and sludge (later steps).
+Replaces: 0186's "a node holds one kind", its wall and its refused pour, and "where an edit joins two gaps of
+different fluids, the denser keeps the gap".
+
 ## The sea and the ledger
 
 - **The sea** is generated from the seed: every column whose ground is under the sea level holds water up to it.
@@ -455,6 +503,8 @@ A column is under water when the water's level (`water_at`) stands over its grou
 
 ## No longer holds
 
+- 0186's "a node holds one kind": its wall between two fluids, its refused pour into another fluid, and the denser
+  keeping a gap an edit joins; replaced by the draft "Fluids lie in layers by density; lava and water react".
 - 0020's blue veil over the screen under water: replaced by 0071's composite dimming and fog.
 - 0020's "the sea is one level": the level is the mean plus the tide, 0067.
 - 0020's water mesh drawn without tide re-meshing: amended by 0067 (every 4 s of world time for wet tiles).

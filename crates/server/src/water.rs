@@ -138,7 +138,7 @@ impl Server {
                 self.removed += if c.fluid == engine::fluids::WATER { took } else { 0 };
                 true
             }
-            // (emptied only once poured: a gap that holds another fluid refuses it, and the bucket keeps it)
+            // (emptied only once poured: a gap that holds its most layers refuses it, and the bucket keeps it)
             (false, false) => c.water > 0 && water.pour(&g, col, at.pos.z, c.water as i64) && std::mem::take(&mut c.water) > 0,
             (false, true) => {
                 let ok = water.pour_kind(&g, col, at.pos.z, U, c.fluid);

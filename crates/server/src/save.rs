@@ -68,16 +68,23 @@ pub struct Save {
     /// every older save) has the very bytes it had.
     #[serde(skip)]
     pub heat: Heat,
+    /// What reactions boiled off and edits pushed out of a full gap, by fluid, and the frozen blocks still waiting for
+    /// their cell (liquids.md step 4, draft decision): a
+    /// second tail after the heat's, written (with the heat's, empty or not, before it) only when there is any.
+    #[serde(skip)]
+    pub booked: Booked,
 }
 
 /// `Liquids::heats` (each node's column, floor and heat) and `Liquids::froze`.
 pub type Heat = (Vec<(engine::liquid::Col, i32, engine::liquid::Therm)>, Vec<(u8, i64)>);
+/// `Liquids::vapour`, `Liquids::spilt` and `Liquids::waiting` (blocks frozen whose cell was taken).
+pub type Booked = (Vec<(u8, i64)>, Vec<(u8, i64)>, Vec<(engine::liquid::Col, i32, u8)>);
 
 impl From<Save21> for Save {
     /// Terra and Luna, as a 21 or older names them.
     fn from(s: Save21) -> Save {
         let Save21 { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, gen } = s;
-        Save { version, seed, bodies: vec![(planet_n, map), (moon_n, luna)], blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen, heat: Heat::default() }
+        Save { version, seed, bodies: vec![(planet_n, map), (moon_n, luna)], blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen, heat: Heat::default(), booked: Booked::default() }
     }
 }
 
@@ -338,8 +345,12 @@ impl Save21 {
 impl Save {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut b = postcard::to_allocvec(self).expect("a save serialises");
-        if self.heat != Heat::default() {
+        let booked = self.booked != Booked::default();
+        if self.heat != Heat::default() || booked {
             b.extend(postcard::to_allocvec(&self.heat).expect("heat serialises"));
+        }
+        if booked {
+            b.extend(postcard::to_allocvec(&self.booked).expect("the booked serialise"));
         }
         b
     }
@@ -351,8 +362,16 @@ impl Save {
             Some((mut s, rest)) => {
                 if !rest.is_empty() {
                     // a bad heat tail costs only the heat: the fluids take their pour heat again (`restore_heat`)
-                    match postcard::from_bytes(rest) {
-                        Ok(h) => s.heat = h,
+                    match postcard::take_from_bytes(rest) {
+                        Ok((h, more)) => {
+                            s.heat = h;
+                            if !more.is_empty() {
+                                match postcard::from_bytes(more) {
+                                    Ok(k) => s.booked = k,
+                                    Err(e) => eprintln!("the save's boiled and pushed-out fluid ({} bytes) unread, loaded without it: {e}", more.len()),
+                                }
+                            }
+                        }
                         Err(e) => eprintln!("the save's fluid heat ({} bytes) unread, loaded without it: {e}", rest.len()),
                     }
                 }

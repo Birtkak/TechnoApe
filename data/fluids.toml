@@ -1,19 +1,22 @@
 # The fluids (docs/design/liquids.md "Fluids are rows"; schema and checks in crates/engine/src/fluids.rs).
 # A row's place is its kind: it goes on the wire and into saves, so rows are only added at the end, never moved,
 # renamed or taken out. The first row is water (every save before fluid rows holds water only).
-# `density`: kg/m3 (a body floats in it by it, `phys::step`; the layers of liquids.md step 4 will sort by it).
+# `density`: kg/m3 (a body floats in it by it, `phys::step`; a gap's layers lie sorted by it, `liquid.rs`).
 # `viscosity`: a whole number, how many times water's friction a link of this fluid loses a step (water 1: its
 # speed loses 1/512 a step, and up to 1/128 more in a sheet under a block deep). Thick fluids flow like a
 # creeping sheet: on the same slope their steady speed is 1/viscosity of water's (`liquid.rs`, `Liquids::step`).
 # `colour`: its look (0..1). `light`: the light it gives, a colour times its strength (0..4, as a block's light,
 # ADR 0022); a fluid with a light glows by it and is drawn opaque, one with none is drawn as water.
-# For later steps, read but unused (liquids.md steps 4 and 5): `freeze` and `boil` as { at = degrees C, into =
-# a block or a gas }, and `reacts` as a list of { with = a fluid or a block, gives = [names], heat = kJ a unit
-# given (negative: taken) }.
+# `freeze` and `boil` as { at = degrees C, into = a block or a gas }: a fluid with `heat` freezes into its `freeze`
+# block; `boil` is read for its point by a reaction that boils it (the rest waits for liquids.md step 5). `reacts`: a
+# list of { with = a fluid, gives = [names], heat = kJ a unit given (negative: taken) }: where it touches that fluid
+# its skin freezes and the other boils off by the heat both rows carry (`liquid::Liquids::react`; lava and water).
 # `heat` (optional; liquids.md "Phases"): { pour = C it is poured at, capacity = J/(kg K), latent = J/kg its freeze
 # takes, conduct = W/(m K), emissivity = 0..1 of its open surface }. A fluid with one carries a temperature where it
 # is stored off its rest, loses heat to the air and rock round it at real rates and turns into its `freeze` block
 # below that point (`liquid::Liquids::cool`). `density` and `viscosity` also carry a body in it (`phys::step`).
+# `vaporise` (J/kg, in `heat`, optional): the latent heat of its boil, what a reaction boiling it off takes. Water's
+# heat is read only by reactions so far (`liquid::Liquids::react`): it carries no temperature until liquids.md step 5.
 
 [[fluid]]
 name = "water"
@@ -22,6 +25,7 @@ viscosity = 1
 colour = [0.12, 0.32, 0.45]
 freeze = { at = 0.0, into = "ice" }
 boil = { at = 100.0, into = "steam" }
+heat = { pour = 15.0, capacity = 4186.0, latent = 334000.0, conduct = 0.6, emissivity = 0.96, vaporise = 2257000.0 }
 
 [[fluid]]
 name = "lava"
@@ -32,3 +36,10 @@ light = [2.2, 0.6, 0.08]
 freeze = { at = 1000.0, into = "basalt" }
 heat = { pour = 1150.0, capacity = 1200.0, latent = 400000.0, conduct = 1.5, emissivity = 0.95 }
 reacts = [{ with = "water", gives = ["basalt", "steam"], heat = 0.0 }]
+
+# light crude oil: floats on water (850 kg/m3), a few times its friction, dark; it neither freezes, boils nor burns yet
+[[fluid]]
+name = "oil"
+density = 850.0
+viscosity = 4
+colour = [0.06, 0.05, 0.03]

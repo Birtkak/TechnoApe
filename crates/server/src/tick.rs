@@ -416,6 +416,10 @@ impl Server {
                 changed.push((b, m));
                 self.events.push(Event::Edit { at: b, was, now: m, by: None });
             }
+            // lava meeting water boiled it off there (liquids.md step 4): its steam, by the events' path to the clients
+            for (at, kind) in self.world.take_boils() {
+                self.events.push(Event::Boil { at, kind });
+            }
         }
         // water finds the new gaps of every column an edit changed, then flows: as many steps as the physics
         // took, fewer when that would spend more than WATER_BUDGET
