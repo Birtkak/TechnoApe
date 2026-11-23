@@ -61,6 +61,40 @@ The server simulates; clients show it [0020].
   held swims up at 2 m/s, walking is slower by how deep you are [0020]. (also player-and-feel: the sprint's `sub`
   share and the dive key are in 0118.)
 
+### Fluids are rows; lava, with no mixing [draft, 2026-11-23]
+`data/fluids.toml` (`crates/engine/src/fluids.rs`, built in): a row a fluid, its place its kind (row 0 water,
+rows only added at the end): `name`, `density` (kg/m3), `viscosity` (a whole number), `colour`, `light` (as a
+block's, 0..4; a fluid with one glows), and `freeze`, `boil` ({ at = C, into }) and `reacts` ([{ with, gives,
+heat }]) parsed but unused until liquids.md steps 4 and 5. First rows water (viscosity 1) and lava (2600 kg/m3,
+viscosity 64, glowing orange). Not reloaded live (a kind is a row's place; a reload must reach the clients).
+- **A node holds one kind** (`Node::kind`, 0 when empty). Two kinds never share a gap: a link into a gap holding
+  another fluid passes nothing (a plain wall), and when two kinds flow into one empty gap in a step it takes the
+  first link's and the others stay where they were. A pour into another fluid is refused. Where an edit joins two
+  gaps of different fluids, the denser keeps the gap and displaced water joins its account (as 0071). Only water
+  trades with the open sea, rivers and rain, is settled to the sea's level or forgotten as generation's; another
+  fluid is always stored. `counted()` stays water's; `counted_of(kind)` is each fluid's, exact.
+- **Viscosity** multiplies a link's friction a step: `v -= (v * visc >> 9).max(1)`, and the thin-sheet drag by the
+  same factor; water's 1 is today's to the bit. Steady flow on a slope runs at 1/visc of water's; a lava dam break
+  is overdamped (friction-led), so its front's time for a distance grows with the viscosity, linearly in that
+  limit. Head, gravity (`Ground::g`) and every other rule are water's.
+- **Wire and save** carry the kind in the top byte of a gap's units (`liquid::pack`: units | kind << 56). Water is
+  kind 0, so a water-only world sends and saves the very bytes it did, every older save and recording loads and
+  replays unchanged, and no save version or generation moves.
+- **Look**: a glowing fluid's quads in the water mesh carry its light (7 bits a channel in `WQuad.info` bits 10..)
+  and are drawn as the metal sea is (`metal_sea`, opaque, its own light); no new effect.
+- A thick fluid stays awake only while the speed a head difference gives a link in a step outlasts that step's
+  friction (`thick_moves`, under its body's pull); water keeps `moves`. Without it lava held still by friction
+  never slept. On a slope lava still creeps for minutes before it sleeps (water runs off in seconds).
+- **Play**: `/fluid <name>` sets what creative's bucket pours and scoops; survival's holds water. A stand run's
+  `pour=t:di:dj:dl:fluid` pours through its server (docs/playing.md).
+- **Fixed on the way:** the water mesh packed absolute layers while the GPU counts from the floor of the worlds
+  before the mantle (`frame::gpu_r0`, ADR 0152), so every stored column (water too) was drawn `mantle` layers up,
+  out of sight, since the mantle. Its quads are now in the GPU's layers.
+Replaces: 0020's "a gap holds one number of water" (a gap holds one number of one fluid).
+Open (step 4): layers by density in a gap instead of the wall, reactions (lava and water to rock and steam), the
+look per fluid, lava's light into the block light and its heat on a player (it neither holds up nor hurts yet), a
+server ledger for creative's other fluids.
+
 ## The sea and the ledger
 
 - **The sea** is generated from the seed: every column whose ground is under the sea level holds water up to it.
