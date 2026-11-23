@@ -706,15 +706,16 @@ fn every_body_with_blocks_has_the_deep_grid_from_generation_9() {
 
 /// Generation 9: a body whose core holds liquid (Luna's thin shell, heat 0.05) has the metal sea at the bottom of its
 /// layer 0, as Terra; one whose core is all solid (Mars and Callisto, heat 0) has none, and its layer 0 is the closed
-/// floor (ADR 0179) of the core's metal, iron-nickel, which no dig takes. The old floor's layer (generation 8's layer
-/// 0) is mantle now and digs, and the rock under it is solid rock down to the floor.
+/// floor (ADR 0179), which no dig takes: a rocky body's of its core's metal, iron-nickel, the icy moon's of rock (its
+/// row's core is rock). The old floor's layer (generation 8's layer 0) is mantle now and digs, and the rock under it
+/// is solid rock down to the floor.
 #[test]
 fn a_deep_body_ends_on_its_core_a_metal_sea_or_a_closed_floor_of_metal() {
     use crate::edit::{changes, Shape};
     let (n, m) = (6144, crate::bodies::moon_columns(6144));
     let mut w = World::with_grid(n, m, 1, None, None, 0.0, DEEP_BODIES);
     let metal = crate::blocks::BLOCKS.id("iron-nickel");
-    for (i, name, liquid) in [(1, "Luna", true), (2, "Mars", false), (4, "Callisto", false)] {
+    for (i, name, liquid, floor) in [(1, "Luna", true, false), (2, "Mars", false, true), (4, "Callisto", false, false)] {
         let b = &w.bodies[i];
         assert_eq!((b.interior.liquid > 0.0, b.core.is_some()), (liquid, liquid), "{name}: liquid in its core, a metal sea");
         let at = |z: i32| Block { body: i as u8, face: 3, pos: IVec3::new(100, 80, z) };
@@ -726,7 +727,9 @@ fn a_deep_body_ends_on_its_core_a_metal_sea_or_a_closed_floor_of_metal() {
         }
         assert_eq!(w.closed_floor(at(0)), !liquid, "{name}");
         if !liquid {
-            assert_eq!(w.block(at(0)), metal, "{name}: its floor is its core's metal");
+            assert_eq!(w.block(at(0)) == metal, floor, "{name}: its floor is its core's metal, or an icy core's rock");
+            let metal = w.block(at(0));
+            assert!(crate::blocks::BLOCKS.solid(metal), "{name}: its floor is solid");
             assert!(changes(&w, &Shape::one(at(0)), AIR, |_| false).is_empty(), "{name}: the floor takes no dig");
             w.set_block(at(0), AIR);
             assert_eq!(w.block(at(0)), metal, "{name}: nor an edit");

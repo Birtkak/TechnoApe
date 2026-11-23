@@ -91,7 +91,7 @@ impl World {
         let mut lazy = vec![None; rows.len()];
         for (i, (row, (n, map))) in rows.iter().zip(list).enumerate() {
             let mut b = Body::new(if row.gas() { GAS_AT } else { MOON_AT } * i as f64, n, seed + i as i32);
-            (b.name, b.air, b.ground, b.warp, b.gas) = (row.name.clone(), row.air, row.ground, warp, row.gas());
+            (b.name, b.air, b.ground, b.warp, b.gas, b.icy) = (row.name.clone(), row.air, row.ground, warp, row.gas(), row.makeup.kind == crate::bodies::Kind::Icy);
             b.parent = row.parent.unwrap_or(INERTIAL);
             let own = Interior::new(row.makeup_at(gen), b.radius, 0.0, first.as_ref()).mass;
             // a moon `orbit` radii of its parent out (Luna 60, the Moon's), never nearer than orbit_min, once

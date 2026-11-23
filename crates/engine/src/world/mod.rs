@@ -282,6 +282,8 @@ pub struct Body {
     /// is air and takes no edit (`World::block`, `set_block`), its surface is its cloud tops (`height`), nothing
     /// streams it, and the cloud tops hold a player (phys `blocked`).
     pub gas: bool,
+    /// An icy body (its row's `kind`): its core is rock, not metal (`rock`'s floor).
+    pub icy: bool,
     /// The body it circles (its row's `parent`, 0163-n-bodies); INERTIAL: the sun.
     pub parent: usize,
     /// How far out it circles its parent, centre to centre, metres (the sun's distance for one that circles the
