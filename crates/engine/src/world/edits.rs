@@ -142,6 +142,71 @@ impl World {
         let kind = self.water.kind_at(&self.ground(), World::col(self.block_at(p)), g.z);
         kind.is_some() && kind == crate::fluids::FLUIDS.now().kind("lava")
     }
+    /// The radius of the surface of the fluid over world point p and its kind, if p is in one (`water_surface` is
+    /// water's alone): what holds a body up (`phys::step`).
+    pub fn fluid_surface(&self, p: DVec3) -> Option<(f64, u8)> {
+        let (bi, _, g) = self.grid_at(p);
+        let (l, kind) = self.water.fluid_surface_at(&self.ground(), World::col(self.block_at(p)), g.z)?;
+        Some((self.bodies[bi].layer_r(l), kind))
+    }
+    /// `dt` seconds of stored fluids' heat (`Liquids::cool`; the server's, once a second): every cell that froze
+    /// through becomes its fluid's `freeze` block and its column finds its gaps again. Returned for the edits.
+    pub fn cool_fluids(&mut self, dt: f64) -> Vec<(Block, u16)> {
+        let cells = {
+            let World { bodies, edits, water, sky, time, .. } = self;
+            water.cool(&Solid::at(bodies, edits, sky, *time), dt)
+        };
+        let rows = crate::fluids::FLUIDS.now();
+        let mut out = Vec::new();
+        for (c, z, kind) in cells {
+            let Some(f) = rows.get(kind).freeze.as_ref() else { continue };
+            let b = Block { body: c.body(), face: c.face(), pos: IVec3::new(c.i(), c.j(), z) };
+            let m = BLOCKS.id(&f.into);
+            self.set_block(b, m);
+            self.regap(b);
+            out.push((b, m));
+        }
+        out
+    }
+    /// The lamps of glowing fluids (`data/fluids.toml`'s `light`) within `reach` m of each body's camera `cams`, as
+    /// a lamp block's (`lights`): their surface's top cells, stored or a live crater's lake, one lamp a 2 x 2 columns'
+    /// patch (the first cell of it in column order) in its row's light.
+    /// shortcut: a lamp stands for up to four cells at one cell's light, and a lake's patches fill the Lamps
+    /// setting's cap nearest first, so torches beside a lake can drop out; a light grid of its own if lakes are many.
+    pub fn fluid_lamps(&self, cams: &[DVec3], reach: f64) -> Vec<(u8, DVec3, [f32; 3])> {
+        let rows = crate::fluids::FLUIDS.now();
+        let mut cells: std::collections::BTreeMap<(u8, u8, i32, i32), (Block, u8)> = Default::default();
+        let mut put = |b: Block, kind: u8| {
+            cells.entry((b.body, b.face, b.pos.x.div_euclid(2), b.pos.y.div_euclid(2))).or_insert((b, kind));
+        };
+        for (c, z, kind) in self.water.glowing() {
+            put(Block { body: c.body(), face: c.face(), pos: IVec3::new(c.i(), c.j(), z) }, kind);
+        }
+        for (bi, body) in self.bodies.iter().enumerate() {
+            for cr in body.craters().iter().filter(|c| c.lake.is_some()) {
+                if (body.centre + cr.top - cams[bi]).length() > reach + cr.v.crater as f64 {
+                    continue;
+                }
+                let r = cr.v.crater.ceil() as i32 + 1;
+                let (i0, j0) = (cr.at.0.floor() as i32, cr.at.1.floor() as i32);
+                for (i, j) in (i0 - r..=i0 + r).flat_map(|i| (j0 - r..=j0 + r).map(move |j| (i, j))) {
+                    let c = Col::new(bi as u8, cr.face, i, j);
+                    let lake = cr.lake.unwrap();
+                    if self.water.column(c).is_some() {
+                        continue;
+                    }
+                    if let Some(w) = body.lava_col(cr.face, i, j).into_iter().find(|w| w.1 == lake as i64 * U && w.2 == 0) {
+                        put(Block { body: bi as u8, face: cr.face, pos: IVec3::new(i, j, lake - 1) }, w.3);
+                    }
+                }
+            }
+        }
+        cells
+            .into_values()
+            .map(|(b, kind)| (b.body, self.block_centre(b), rows.get(kind).light))
+            .filter(|(bi, x, _)| (*x - cams[*bi as usize]).length() < reach)
+            .collect()
+    }
     /// Whether the water in cell b is the sea's, salt (ADR 0145): the generated sea is; the bake's
     /// rivers and lakes and water poured on land are fresh.
     /// shortcut: told from generation, not carried by the water, so sea water led or poured inland is fresh;

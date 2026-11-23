@@ -402,6 +402,14 @@ impl Server {
         let t = self.herds.clock;
         self.herds.tick(&self.world, &players, t, steps as f64 * phys::DT);
         self.send_animals(t);
+        // once a second stored lava gives its heat to the air and rock round it, and what froze through is basalt
+        // (lava basics, draft decision): through the edits as any other block, so the clients and the save see it
+        if self.tick % TICK_HZ as u64 == 0 {
+            for (b, m) in self.world.cool_fluids(1.0) {
+                changed.push((b, m));
+                self.events.push(Event::Edit { at: b, was: AIR, now: m, by: None });
+            }
+        }
         // water finds the new gaps of every column an edit changed, then flows: as many steps as the physics
         // took, fewer when that would spend more than WATER_BUDGET
         let mut cols: Vec<Block> = changed.iter().map(|(b, _)| Block { pos: glam::IVec3::new(b.pos.x, b.pos.y, 0), ..*b }).collect();

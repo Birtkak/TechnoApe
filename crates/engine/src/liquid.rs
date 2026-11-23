@@ -172,6 +172,56 @@ pub trait Ground {
     fn g(&self, _body: u8) -> f64 {
         EARTH_G
     }
+    /// The heat a fluid at layer `z` of column `c` rests at, C: what the air and rock round it hold (`Body::heat`),
+    /// and in a place generation fills with a fluid other than water, the heat that keeps it so (a live volcano's).
+    fn heat(&self, _c: Col, _z: f64) -> f32 {
+        AMBIENT
+    }
+}
+
+/// `Ground::heat` where nothing says otherwise (a test box, the noise land without a map's climate), C.
+pub const AMBIENT: f32 = 15.0;
+
+/// A stored node's heat (liquids.md "Phases"; lava basics, draft decision): held only for a fluid with a `heat` row
+/// whose node is off its rest (`Ground::heat`); a node without one is at rest. Not on the wire; the save keeps it.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Therm {
+    /// Its temperature, C.
+    pub t: f64,
+    /// Seconds since it came to lie on the rock under it: the rock's own warming slows what it takes.
+    pub age: f64,
+    /// Units frozen out of it short of a whole one, and whole units frozen short of a block (`cool`).
+    pub frac: f64,
+    pub solid: i64,
+}
+
+/// A node within this of its rest heat, liquid, is at rest (`Liquids::cool`), K.
+const REST_K: f64 = 0.5;
+/// The rock's thermal effusivity sqrt(k rho c), W s^0.5 / (m^2 K): basalt and granite, k 2.0 W/(m K), rho 2700
+/// kg/m3, c 900 J/(kg K) (Turcotte and Schubert, Geodynamics, table 4.1 and 4.2's ranges).
+/// shortcut: one rock for every block; from the rock rows once they carry their heat (liquids.md step 5).
+const ROCK_EFFUSIVITY: f64 = 2200.0;
+/// Stefan-Boltzmann, W/(m^2 K^4).
+const SIGMA: f64 = 5.670374e-8;
+/// Free convection over a hot surface in still air, W/(m^2 K) (a horizontal plate's, 5 to 25; the mean of the
+/// low end, no wind).
+const H_AIR: f64 = 10.0;
+
+/// What a body at `t` C gives a second through `r_in` m^2 K/W of itself and then from its surface of emissivity `e`
+/// to air at `ta` C by radiation and convection, W/m^2: the surface's heat found where the two flows meet.
+fn surface(t: f64, ta: f64, r_in: f64, e: f64) -> f64 {
+    let k4 = |c: f64| (c + 273.15).powi(4);
+    let (mut lo, mut hi) = (t.min(ta), t.max(ta));
+    for _ in 0..48 {
+        let s = 0.5 * (lo + hi);
+        // through the body minus off the surface: falls as the surface warms
+        if (t - s) / r_in - e * SIGMA * (k4(s) - k4(ta)) - H_AIR * (s - ta) > 0.0 {
+            lo = s;
+        } else {
+            hi = s;
+        }
+    }
+    (t - 0.5 * (lo + hi)) / r_in
 }
 
 /// `Ground::reach` and `Ground::river` of column c, from `cache` or asked once.
@@ -328,6 +378,11 @@ pub struct Liquids {
     pub spilt: std::collections::BTreeMap<u8, i64>,
     /// `Ground::tide_epoch` at the last step: when it moves, `retide`.
     tide_epoch: i64,
+    /// The heat of the nodes off their rest (`Therm`), by node: empty in a world of water only.
+    heat: FxMap<u32, Therm>,
+    /// Units of each fluid that froze (`cool`): into its `freeze` block, a block for every U, or, a sheet thinner
+    /// than a block frozen through, into nothing. `counted_of(kind)` plus this is what was carried in.
+    pub froze: std::collections::BTreeMap<u8, i64>,
 }
 
 fn window(a: &Node, b: &Node) -> (i64, i64) {
@@ -692,8 +747,10 @@ impl Liquids {
             let f = n.floor as i64 * U;
             wet.push((f, f + n.water.min(n.cap()), (n.water - n.cap()).max(0), n.kind));
         }
+        let kept = self.take_heat(g, &ids);
         self.remove(c, true);
         self.build(g, c, &wet, true);
+        self.give_heat(c, kept);
         for d in g.neighbours(c).into_iter().flatten() {
             self.materialize(g, d);
         }
@@ -720,6 +777,7 @@ impl Liquids {
             }
             self.nodes[a as usize].quiet = 0;
             self.free.push(a);
+            self.heat.remove(&a);
         }
         self.awake.retain(|a| !ids.contains(a));
     }
@@ -744,15 +802,270 @@ impl Liquids {
         self.materialize(g, c);
         let ids = &self.cols[&c];
         let Some(&a) = ids.iter().find(|&&i| self.nodes[i as usize].ceil > layer) else { return false };
-        let n = &mut self.nodes[a as usize];
+        let n = &self.nodes[a as usize];
         if n.water > 0 && n.kind != kind {
             return false;
         }
+        // a fluid with heat comes at its row's pour heat, mixed with what the gap held
+        let was = n.water;
+        if let Some(h) = crate::fluids::FLUIDS.now().get(kind).heat.as_ref().filter(|_| kind != crate::fluids::WATER) {
+            let t0 = if was > 0 { self.temp_of(g, a) } else { 0.0 };
+            let e = self.heat.entry(a).or_insert(Therm { t: 0.0, age: 0.0, frac: 0.0, solid: 0 });
+            e.t = (t0 * was as f64 + h.pour as f64 * units as f64) / (was + units).max(1) as f64;
+        }
+        let n = &mut self.nodes[a as usize];
         n.kind = kind;
         self.other |= kind != 0;
         n.water += units;
         self.touch(g, a);
         true
+    }
+    /// The stored nodes of a fluid that gives light, as (column, its surface's top layer, kind), sorted by column.
+    pub fn glowing(&self) -> Vec<(Col, i32, u8)> {
+        if !self.other {
+            return Vec::new();
+        }
+        let rows = crate::fluids::FLUIDS.now();
+        let mut v: Vec<(Col, i32, u8)> = self
+            .cols
+            .values()
+            .flatten()
+            .map(|&i| &self.nodes[i as usize])
+            .filter(|n| n.water > 0 && rows.get(n.kind).glows())
+            .map(|n| (n.col, n.floor + ((n.water.min(n.cap()) - 1) / U) as i32, n.kind))
+            .collect();
+        v.sort_unstable_by_key(|x| (x.0, x.1));
+        v
+    }
+    /// The heat node a holds, C: its own, or at rest what its place gives.
+    fn temp_of(&self, g: &impl Ground, a: u32) -> f64 {
+        self.heat.get(&a).map_or_else(|| self.rest_of(g, a), |h| h.t)
+    }
+    /// `Ground::heat` at the middle of node a's fluid.
+    fn rest_of(&self, g: &impl Ground, a: u32) -> f64 {
+        let n = &self.nodes[a as usize];
+        g.heat(n.col, n.floor as f64 + n.water.min(n.cap()) as f64 / U as f64 * 0.5) as f64
+    }
+    /// The heat of the node holding layer `layer` of column `c`, if it is held off its rest (tests, F3).
+    pub fn temp_at(&self, c: Col, layer: i32) -> Option<f64> {
+        let ids = self.cols.get(&c)?;
+        let &a = ids.iter().find(|&&i| self.nodes[i as usize].ceil > layer)?;
+        self.heat.get(&a).map(|h| h.t)
+    }
+    /// Every heat held, as (column, the node's floor, heat), sorted: for saves.
+    pub fn heats(&self) -> Vec<(Col, i32, Therm)> {
+        let mut v: Vec<(Col, i32, Therm)> = self.heat.iter().map(|(&a, &h)| (self.nodes[a as usize].col, self.nodes[a as usize].floor, h)).collect();
+        v.sort_unstable_by_key(|x| (x.0, x.1));
+        v
+    }
+    /// A save's heats back on the nodes `restore` built: each on its column's node of that floor, else its first
+    /// node of a fluid with heat (the ground under it changed since).
+    pub fn restore_heat(&mut self, heats: &[(Col, i32, Therm)]) {
+        let rows = crate::fluids::FLUIDS.now();
+        for &(c, floor, h) in heats {
+            let Some(ids) = self.cols.get(&c) else { continue };
+            let hot = |i: &&u32| {
+                let n = &self.nodes[**i as usize];
+                n.water > 0 && n.kind != crate::fluids::WATER && rows.get(n.kind).heat.is_some()
+            };
+            if let Some(&a) = ids.iter().filter(hot).find(|&&i| self.nodes[i as usize].floor == floor).or_else(|| ids.iter().find(hot)) {
+                self.heat.insert(a, h);
+            }
+        }
+    }
+    /// The heats of column c's nodes, by fluid, before its nodes are built again (`give_heat`): a node with none
+    /// carries its rest's, which is its old place's.
+    fn take_heat(&self, g: &impl Ground, ids: &[u32]) -> Vec<(u8, i64, Therm)> {
+        if !self.other {
+            return Vec::new();
+        }
+        let rows = crate::fluids::FLUIDS.now();
+        ids.iter()
+            .map(|&a| (a, &self.nodes[a as usize]))
+            .filter(|(_, n)| n.water > 0 && n.kind != crate::fluids::WATER && rows.get(n.kind).heat.is_some())
+            .map(|(a, n)| (n.kind, n.water, self.heat.get(&a).copied().unwrap_or(Therm { t: self.rest_of(g, a), age: 0.0, frac: 0.0, solid: 0 })))
+            .collect()
+    }
+    /// What `take_heat` took, on column c's new nodes: each of a fluid takes the fluid's mean heat by units and its
+    /// oldest age; the first takes what froze short of a block. shortcut: one heat per fluid a column across an
+    /// edit, where its gaps were split; per gap if a split ever holds two heats far apart.
+    fn give_heat(&mut self, c: Col, kept: Vec<(u8, i64, Therm)>) {
+        let mut kinds: Vec<u8> = kept.iter().map(|k| k.0).collect();
+        kinds.sort_unstable();
+        kinds.dedup();
+        for k in kinds {
+            let of = kept.iter().filter(|x| x.0 == k);
+            let w: i64 = of.clone().map(|x| x.1).sum();
+            let t = of.clone().map(|x| x.2.t * x.1 as f64).sum::<f64>() / w.max(1) as f64;
+            let age = of.clone().map(|x| x.2.age).fold(0.0, f64::max);
+            let (mut frac, mut solid) = (of.clone().map(|x| x.2.frac).sum::<f64>(), of.map(|x| x.2.solid).sum::<i64>());
+            for &a in self.cols.get(&c).into_iter().flatten() {
+                let n = &self.nodes[a as usize];
+                if n.kind == k && n.water > 0 {
+                    self.heat.insert(a, Therm { t, age, frac, solid });
+                    (frac, solid) = (0.0, 0);
+                }
+            }
+        }
+    }
+    /// Node heats mixed by what flows this step (`step`, before the units move): a node's new heat is its own
+    /// that stays and what flows in, by units. Nodes at rest that send are given their rest's heat to carry.
+    fn mix_heat(&mut self, g: &impl Ground, touched: &[u32]) {
+        let rows = crate::fluids::FLUIDS.now();
+        let hot = |n: &Node| n.kind != crate::fluids::WATER && rows.get(n.kind).heat.is_some();
+        let mut rest = Vec::new();
+        for &a in touched {
+            let n = &self.nodes[a as usize];
+            if !hot(n) {
+                continue;
+            }
+            for l in &n.links {
+                if self.nodes[l.to as usize].links[l.back as usize].out > 0 && !self.heat.contains_key(&l.to) {
+                    rest.push(l.to);
+                }
+            }
+        }
+        rest.sort_unstable();
+        rest.dedup();
+        for a in rest {
+            let t = self.rest_of(g, a);
+            self.heat.insert(a, Therm { t, age: 0.0, frac: 0.0, solid: 0 });
+        }
+        let mut mixed = Vec::new();
+        for &a in touched {
+            let n = &self.nodes[a as usize];
+            if !hot(n) {
+                continue;
+            }
+            let (mut inn, mut sum, mut gone) = (0i64, 0.0, 0i64);
+            for l in &n.links {
+                gone += l.out as i64;
+                let m = self.nodes[l.to as usize].links[l.back as usize];
+                if m.out > 0 {
+                    inn += m.out as i64;
+                    sum += m.out as f64 * self.heat[&l.to].t;
+                }
+            }
+            if inn == 0 {
+                continue;
+            }
+            let own = (n.water - gone).max(0);
+            let had = self.heat.get(&a).copied().filter(|_| own > 0);
+            let t0 = if own > 0 { self.temp_of(g, a) } else { 0.0 };
+            let t = (t0 * own as f64 + sum) / (own + inn) as f64;
+            mixed.push((a, Therm { t, ..had.unwrap_or(Therm { t, age: 0.0, frac: 0.0, solid: 0 }) }));
+        }
+        for (a, h) in mixed {
+            self.heat.insert(a, h);
+        }
+    }
+
+    /// One heat step of `dt` seconds for every node held off its rest (lava basics, draft decision; 1 Hz on the
+    /// server): it gives heat to the air over its open surface (radiation and convection) and its open sides, and to
+    /// the rock under it and beside it (conduction through half its own depth, then into rock warming since it came,
+    /// a semi-infinite solid's), all to its place's rest heat (`Ground::heat`). Past its freeze point what it loses
+    /// more freezes its units at its row's latent heat; each whole block of them is a cell of its `freeze` block at
+    /// the node's floor, returned (column, layer, kind) for the caller to set; a sheet frozen through short of a
+    /// block is nothing. Every unit frozen is booked to `froze`. A node back at rest, liquid, is forgotten.
+    pub fn cool(&mut self, g: &impl Ground, dt: f64) -> Vec<(Col, i32, u8)> {
+        let mut out = Vec::new();
+        if self.heat.is_empty() {
+            return out;
+        }
+        let rows = crate::fluids::FLUIDS.now();
+        let mut ids: Vec<u32> = self.heat.keys().copied().collect();
+        ids.sort_unstable();
+        for a in ids {
+            let n = &self.nodes[a as usize];
+            let row = rows.get(n.kind);
+            let Some(hr) = row.heat.as_ref().filter(|_| n.water > 0 && n.kind != crate::fluids::WATER) else {
+                self.heat.remove(&a);
+                continue;
+            };
+            let tf = row.freeze.as_ref().map_or(f64::NEG_INFINITY, |f| f.at as f64);
+            let ta = self.rest_of(g, a);
+            let mut h = self.heat[&a];
+            if (h.t - ta).abs() < REST_K && ta > tf && h.solid == 0 {
+                self.heat.remove(&a);
+                continue;
+            }
+            let rho = row.density as f64;
+            let cap = n.water as f64 / U as f64 * rho * hr.capacity as f64;
+            let q = self.loss(a, &h, ta, hr) * dt;
+            if q <= 0.0 {
+                h.t -= q / cap;
+            } else {
+                let sensible = ((h.t - tf).max(0.0) * cap).min(q);
+                h.t -= sensible / cap;
+                h.frac += (q - sensible) / (hr.latent as f64 * rho / U as f64);
+            }
+            let take = (h.frac.floor() as i64).min(n.water);
+            let (col, floor, kind) = (n.col, n.floor, n.kind);
+            if take > 0 {
+                h.frac -= take as f64;
+                h.solid += take;
+                *self.froze.entry(kind).or_default() += take;
+                let n = &mut self.nodes[a as usize];
+                n.water -= take;
+                if n.water == 0 {
+                    n.kind = 0;
+                }
+                if n.quiet == u16::MAX {
+                    self.wake(a);
+                }
+                self.dirty.insert(col, ());
+            }
+            if h.solid >= U && row.freeze.is_some() {
+                out.push((col, floor, kind));
+                h.solid -= U;
+            }
+            if self.nodes[a as usize].water == 0 {
+                // frozen through: its crust short of a block joins a neighbour of the same fluid's (what froze in a
+                // pool makes its blocks wherever the rest flowed), else it was a sheet and froze to nothing
+                self.heat.remove(&a);
+                let b = self.nodes[a as usize].links.iter().map(|l| l.to).find(|&b| self.nodes[b as usize].kind == kind && self.nodes[b as usize].water > 0);
+                if let Some(b) = b.filter(|_| h.solid > 0) {
+                    let t = self.temp_of(g, b);
+                    let e = self.heat.entry(b).or_insert(Therm { t, age: h.age, frac: 0.0, solid: 0 });
+                    e.solid += h.solid;
+                }
+            } else {
+                h.age += dt;
+                self.heat.insert(a, h);
+            }
+        }
+        out
+    }
+    /// The heat node a gives away a second at heat `h`, its place's rest heat `ta`, W (negative: it takes in).
+    fn loss(&self, a: u32, h: &Therm, ta: f64, hr: &crate::fluids::Heat) -> f64 {
+        let n = &self.nodes[a as usize];
+        let k = hr.conduct as f64;
+        let e = hr.emissivity as f64;
+        let deep = (n.water.min(n.cap()) as f64 / U as f64).max(1.0 / 64.0);
+        // into rock: through half its own depth (or half a block, sideways), then the rock's own warming
+        let rock = |r_in: f64| (h.t - ta) / (r_in + (std::f64::consts::PI * h.age.max(1.0)).sqrt() / ROCK_EFFUSIVITY);
+        let mut p = rock(deep * 0.5 / k);
+        if n.water < n.cap() {
+            p += surface(h.t, ta, deep * 0.5 / k, e);
+        }
+        // its four sides (a block wide each): the same fluid beside it takes nothing, air over a neighbour's
+        // surface is an open side, the rest is rock
+        let (lo, hi) = (n.floor as i64 * U, n.surface());
+        let (mut wet, mut open) = (0i64, 0i64);
+        for l in &n.links {
+            let b = &self.nodes[l.to as usize];
+            let (wl, wh) = window(n, b);
+            let (wl, wh) = (wl.max(lo), wh.min(hi));
+            if wh <= wl {
+                continue;
+            }
+            let cover = if b.kind == n.kind && b.water > 0 { (b.surface().min(wh) - wl).max(0) } else { 0 };
+            wet += cover;
+            open += wh - wl - cover;
+        }
+        let side = (4 * (hi - lo) - wet - open).max(0);
+        p += side as f64 / U as f64 * rock(0.5 / k);
+        p + open as f64 / U as f64 * surface(h.t, ta, 0.5 / k, e)
     }
     /// `scoop` of fluid `kind`.
     pub fn scoop_kind(&mut self, g: &impl Ground, c: Col, layer: i32, units: i64, kind: u8) -> i64 {
@@ -821,7 +1134,7 @@ impl Liquids {
         let top = match self.cols.get(&c) {
             Some(ids) => {
                 let n = ids.iter().map(|&i| &self.nodes[i as usize]).find(|n| (n.ceil as f64) > layer && n.floor as f64 <= layer.floor())?;
-                // shortcut: only water holds up, is drunk or swum in; lava neither holds up nor hurts yet (step 4)
+                // (water's alone: what is drunk, swum in and puts out a flame; `fluid_surface_at` holds a body up in any)
                 if n.kind != crate::fluids::WATER {
                     return None;
                 }
@@ -837,6 +1150,27 @@ impl Liquids {
         };
         let s = top as f64 / U as f64;
         (layer < s).then_some(s)
+    }
+
+    /// `surface_at` of any fluid, with its kind: stored, or as generation gives it (water, then a volcano's lava).
+    pub fn fluid_surface_at(&self, g: &impl Ground, c: Col, layer: f64) -> Option<(f64, u8)> {
+        let u = layer * U as f64;
+        let (top, kind) = match self.cols.get(&c) {
+            Some(ids) => {
+                let n = ids.iter().map(|&i| &self.nodes[i as usize]).find(|n| (n.ceil as f64) > layer && n.floor as f64 <= layer.floor())?;
+                (n.water > 0).then_some((n.surface(), n.kind))?
+            }
+            None => {
+                let (lo, hi) = g.generated(c);
+                if lo < hi && u >= lo as f64 {
+                    (hi, crate::fluids::WATER)
+                } else {
+                    g.generated_other(c).into_iter().find(|w| (w.0 as f64..w.1 as f64).contains(&u)).map(|w| (w.1, w.3))?
+                }
+            }
+        };
+        let s = top as f64 / U as f64;
+        (layer < s).then_some((s, kind))
     }
 
     /// One step of 1/60 s for every awake node.
@@ -1043,6 +1377,8 @@ impl Liquids {
                     self.nodes[a as usize].kind = k;
                 }
             }
+            // heat rides with what flows (water carries none)
+            self.mix_heat(g, &touched);
         }
         let mut moving: Vec<bool> = Vec::with_capacity(touched.len());
         for &a in &touched {

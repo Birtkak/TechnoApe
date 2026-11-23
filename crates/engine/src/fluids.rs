@@ -26,6 +26,22 @@ pub struct React {
     pub heat: f32,
 }
 
+/// How a fluid holds and gives off heat (liquids.md "Phases"), SI units: what `liquid::Liquids::cool` steps it by.
+#[derive(Deserialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Heat {
+    /// The temperature it is poured at, C.
+    pub pour: f32,
+    /// Specific heat, J/(kg K).
+    pub capacity: f32,
+    /// Latent heat of its freeze, J/kg.
+    pub latent: f32,
+    /// Thermal conductivity, W/(m K).
+    pub conduct: f32,
+    /// Emissivity of its open surface, 0..1.
+    pub emissivity: f32,
+}
+
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Fluid {
@@ -42,6 +58,8 @@ pub struct Fluid {
     pub boil: Option<Phase>,
     #[serde(default)]
     pub reacts: Vec<React>,
+    /// Its heat (none: it carries no temperature; water's waits for liquids.md step 5).
+    pub heat: Option<Heat>,
 }
 
 impl Fluid {
@@ -86,6 +104,14 @@ impl Fluids {
             }
             if r.light.iter().any(|c| !(0.0..=4.0).contains(c)) {
                 return bad("light outside 0..4");
+            }
+            if let Some(h) = &r.heat {
+                if !(h.capacity > 0.0 && h.latent > 0.0 && h.conduct > 0.0 && (0.0..=1.0).contains(&h.emissivity)) {
+                    return bad("heat: capacity, latent and conduct over 0, emissivity 0..1");
+                }
+                if r.freeze.as_ref().is_some_and(|f| h.pour <= f.at) {
+                    return bad("heat: poured at or under its freeze point");
+                }
             }
         }
         if f.fluid[0].viscosity != 1 {

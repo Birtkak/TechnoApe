@@ -4656,3 +4656,42 @@ fn flood(s: &mut Server, r: i32) {
     }
 }
 
+/// Lava's heat survives a save (lava basics, draft decision): poured lava cooled an hour keeps its temperature and
+/// what froze through a save and a load, as bytes after the layout; a world of water alone writes the layout's very
+/// bytes, nothing after them.
+#[test]
+fn poured_lavas_heat_survives_a_save_and_water_alone_writes_the_bytes_it_did() {
+    let lava = engine::fluids::FLUIDS.now().kind("lava").unwrap();
+    for kind in [lava, engine::fluids::WATER] {
+        let mut s = Server::baked(1536, 32, 7, channel().1);
+        let b = s.world.bodies[0].clone();
+        let (f, i, j) = b.locate(b.spawn);
+        let (f, i, j) = (f as u8, i as i32, j as i32);
+        let z0 = b.layer_of(b.col_height(f, i, j)).floor() as i32 - 3;
+        for z in 0..3 {
+            s.world.set_block(Block { body: 0, face: f, pos: glam::IVec3::new(i, j, z0 + z) }, AIR);
+        }
+        let col = engine::liquid::Col::new(0, f, i, j);
+        {
+            let World { bodies, edits, water, sky, time, .. } = &mut s.world;
+            let g = engine::world::Solid::at(bodies, edits, sky, *time);
+            assert!(water.pour_kind(&g, col, z0, U / 2, kind));
+        }
+        for _ in 0..60 {
+            s.world.cool_fluids(60.0);
+        }
+        let snap = s.snapshot();
+        let bytes = snap.to_bytes();
+        if kind == engine::fluids::WATER {
+            assert!(snap.heat == save::Heat::default() && bytes == postcard::to_allocvec(&snap).unwrap(), "water alone: the layout's bytes");
+            continue;
+        }
+        let t = s.world.water.temp_at(col, z0).expect("the lava's heat");
+        assert!(t < 1150.0, "cooled from its pour: {t} C");
+        let back = Server::from_save(Save::from_bytes(&bytes).unwrap(), channel().1);
+        assert_eq!(back.world.water.temp_at(col, z0), Some(t), "its heat through the save");
+        assert_eq!(back.world.water.froze, s.world.water.froze, "what froze through the save");
+        assert_eq!(back.world.water.counted_of(lava), s.world.water.counted_of(lava));
+    }
+}
+

@@ -6,7 +6,7 @@
   of ADR 0183.
 - **Built (2026-11-23, generation 10, map version 9):** steps 1 and 2 of "What is made": the cones, the heat field,
   chamber, conduit and crater lake of generated lava, the burn (draft entry in `bake-and-landforms.md`). Not yet:
-  layered basalt and tuff of the cone's own (it is the arc's tuff with its basalt flows), lava's freezing, vents,
+  layered basalt and tuff of the cone's own (it is the arc's tuff with its basalt flows), vents,
   new rock, eruptions; a dead crater holds no rain lake.
 
 ## The rule
