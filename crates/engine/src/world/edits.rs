@@ -136,6 +136,12 @@ impl World {
         let l = self.water.surface_at(&self.ground(), World::col(b), g.z)?;
         Some(self.bodies[bi].layer_r(l))
     }
+    /// Whether world point p is in lava (`data/fluids.toml`'s lava): stored, or as generation gives it (a volcano's).
+    pub fn lava_at(&self, p: DVec3) -> bool {
+        let (_, _, g) = self.grid_at(p);
+        let kind = self.water.kind_at(&self.ground(), World::col(self.block_at(p)), g.z);
+        kind.is_some() && kind == crate::fluids::FLUIDS.now().kind("lava")
+    }
     /// Whether the water in cell b is the sea's, salt (ADR 0145): the generated sea is; the bake's
     /// rivers and lakes and water poured on land are fresh.
     /// shortcut: told from generation, not carried by the water, so sea water led or poured inland is fresh;

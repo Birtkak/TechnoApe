@@ -58,6 +58,7 @@ map by hash. A map is kept in the file of its own version, in the bytes of its o
 | 5 | adds the `rock` field (rock provinces) | 0063 (rock-minerals-and-ore.md) |
 | 6 | the peaks stretched (`land::stretch`), the air's own lapse in the cells' temperature | 0105 |
 | 7 | same layout and ground as 6, only the biomes differ: the polar caps. `bake::VERSION` is 7 | 0107 |
+| 9 | the arcs' volcanoes raised before the climate, kept after the map's bytes; `bake::VERSION` is 9 (8: real gravity's year, the layout of 7) | draft 2026-11-23 |
 
 - Luna's maps count from 101 (now `luna::VERSION` 102: the `rock` field is empty on Luna; a 101 file is baked again)
   [0070]. A planet's crust's maps count from 201 (`mars::VERSION` 201, Luna's layout: the map, then the tubes) [0167].
@@ -95,6 +96,32 @@ the ground; all of it follows from one temperature field around the chamber, not
 (`docs/design/volcanoes.md`). Replaces `worldgen.md`'s "lava only as still pools deep under volcanic provinces".
 **Eruptions too** (the developer, the same day): a live chamber fills from below, and past the plug's strength
 its surplus pours from the crater as counted lava that freezes to basalt. Still standing: no quakes.
+
+### Volcanoes on Terra's arcs: cone, conduit, chamber, a lake of generated lava [draft, 2026-11-23]
+- **Context:** ADR 0188 asks for volcanoes fed by the planet's heat (`docs/design/volcanoes.md` steps 1 and 2).
+- **Decision:** map version 9 (`bake::VERSION`) places the cones after the erosion and before the climate
+  (`bake/volcano.rs`): on the volcanic arc, the crater and upper cone on land (the lower flank may stand in the sea
+  and ends at the shore), no lake or river under the foot, clear of the face seams, eight foot radii apart, picked
+  by a hash of the seed alone (nothing by the spawn). Defaults, taste calls open: six on the 4 km planet (by area
+  elsewhere, one at least), every third dead; foot 4.5 % of the radius (191 m on the 4 km planet, 48 m at least),
+  the cone 0.65 of it plus 10 m high on ground levelled to the summit's foot, a concave flank, a crater a fifth of
+  the foot wide (three map cells at least) and 0.3 of the height deep (18 m at least); the chamber 0.7 foot radii
+  under the foot, 0.18 of it across; the conduit 1.5 % (2 m at least). The map keeps each (cell, foot, rim, crater,
+  depth, chamber's height and radius, conduit, alive) after its bytes, as Luna's tubes are. Generation 10
+  (`world::VOLCANOES`) plays on it; older generations on version 8 (`Map::bake_v8`, the same bytes as before).
+  In the world (`world/volcano.rs`): `Body::heat` is the far heat plus `(T_chamber - T_far) * R / r` from a live
+  chamber and from its conduit (the larger), `T_chamber` the province's `chamber` row in `data/rocks.toml` (1150 C,
+  refused unless over lava's freeze point in `data/fluids.toml`); a dead volcano adds nothing. A live one's chamber
+  and conduit are caves (a ball, and a ball a layer up to the lake), the foot's other caves left out, no plant in the
+  crater; where the heat there is over lava's freeze point they hold generated lava (`Ground::generated_other`):
+  a closed hollow full and at the lake's head under pressure, the open one up to the lake, which stands a third of
+  the crater's depth over its floor and 2 m under the lowest rim, a whole layer. So it all stands at one head and
+  lies still untouched; touched it is stored as counted units by the ordinary path, `counted_of` per kind net of
+  what generation gave. The client draws a live lake's tiles as it draws stored fluid. Feet in lava burn by the
+  metal sea's rule.
+- **Not chosen:** cones added in the world's heights only (the air, the biomes and the snow would not see them); the
+  server storing the lakes at load (every client and save would carry them; the tests that compare a client's
+  copy with the server's would see it).
 
 ### Locked hashes and byte-identity
 

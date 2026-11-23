@@ -56,6 +56,8 @@ pub struct Params {
     pub collision_w: f64,
     pub arc_w: f64,
     pub rift_w: f64,
+    /// Volcanoes on the arcs (`super::volcano`, map version 9 on); false: the bakes before them.
+    pub volcanoes: bool,
 }
 
 impl Default for Params {
@@ -84,6 +86,7 @@ impl Default for Params {
             collision_w: 0.05,
             arc_w: 0.035,
             rift_w: 0.012,
+            volcanoes: true,
         }
     }
 }

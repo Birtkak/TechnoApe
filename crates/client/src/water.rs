@@ -52,6 +52,9 @@ pub struct WaterMesh {
     /// The world time, in 4 s, the wet tiles were last queued for the tide at, and the queue (`retide`).
     tide_at: i64,
     tide_todo: Vec<Col>,
+    /// The tiles of the volcanoes' lava lakes (`Body::lava_tiles`), meshed as stored ones are; None until the
+    /// home's ground is in.
+    lava: Option<Vec<Col>>,
 }
 
 impl WaterMesh {
@@ -64,7 +67,7 @@ impl WaterMesh {
         let g = world.ground();
         let mut again: Vec<Col> = Vec::new();
         for &t in ts {
-            let wet = world.water.wet(t);
+            let wet = self.shown(world, t);
             for (di, dj) in [(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)] {
                 if t.i() + di >= 0 && t.j() + dj >= 0 {
                     again.push(Col::new(t.body(), t.face(), t.i() + di, t.j() + dj));
@@ -88,7 +91,7 @@ impl WaterMesh {
         // rebuilt (the reference)
         let mut rebuild = false;
         for t in again {
-            if world.water.wet(t) {
+            if self.shown(world, t) {
                 let q = self.mesh(world, t);
                 match self.at.get(&t) {
                     Some(r) if r.len() == q.len() => {
@@ -118,6 +121,12 @@ impl WaterMesh {
     /// so their columns that are not stored follow it (the chunks' sea follows it in the shader, every frame). One
     /// tile a frame, so a large flood never stalls the frame thread.
     pub fn retide(&mut self, world: &World, now: f32) {
+        // the lava lakes once the home's ground is in: generated, so no message brings them
+        if self.lava.is_none() && world.loaded(0) {
+            let ts = world.bodies[0].lava_tiles(0);
+            self.lava = Some(ts.clone());
+            self.update(world, &ts, now);
+        }
         let at = (world.time / 4.0).floor() as i64;
         if std::mem::replace(&mut self.tide_at, at) != at && self.tide_todo.is_empty() {
             self.tide_todo = self.tiles.keys().copied().collect();
@@ -127,6 +136,11 @@ impl WaterMesh {
                 self.update(world, &[t], now);
             }
         }
+    }
+
+    /// Whether tile t is meshed: it holds stored fluid, or a lava lake.
+    fn shown(&self, world: &World, t: Col) -> bool {
+        world.water.wet(t) || self.lava.as_ref().is_some_and(|l| l.binary_search(&t).is_ok())
     }
 
     fn mesh(&self, world: &World, t: Col) -> Vec<WQuad> {
@@ -171,7 +185,7 @@ impl WaterMesh {
             };
             let cs = |now| [corner(0, 0, now), corner(1, 0, now), corner(1, 1, now), corner(0, 1, now)];
             let (cp, cq) = (cs(false), cs(true));
-            let info = info | glow(world, c);
+            let info = info | glow(world, &g, c);
             out.push(WQuad { i, j, info, t0, prev: cp, cur: cq });
             // sides: toward -i, +i, -j, +j, over the two corners of that edge
             for (kind, (di, dj), (a, b)) in [(1u32, (-1, 0), (0, 3)), (2, (1, 0), (1, 2)), (3, (0, -1), (0, 1)), (4, (0, 1), (3, 2))] {
@@ -246,22 +260,36 @@ fn tile_cols(t: Col) -> impl Iterator<Item = Col> {
     (0..TILE * TILE).map(move |k| Col::new(t.body(), t.face(), t.i() * TILE + k % TILE, t.j() * TILE + k / TILE))
 }
 
-/// The open water surface of column c in layers, and its floor: stored water, else the generated sea.
+/// The open water surface of column c in layers, and its floor: stored water, else the generated sea, else the lava
+/// generation keeps in its open gap (a volcano's lake).
 fn surface(world: &World, g: &impl engine::liquid::Ground, c: Col) -> Option<(f32, f32)> {
     match world.water.column(c) {
         Some(mut ns) => ns.find(|n| n.ceil == OPEN && n.water > 0).map(|n| ((n.floor as i64 * U + n.water) as f32 / U as f32, n.floor as f32)),
         None => {
             let (lo, hi) = g.generated(c);
-            (lo < hi).then_some((hi as f32 / U as f32, lo as f32 / U as f32))
+            if lo < hi {
+                return Some((hi as f32 / U as f32, lo as f32 / U as f32));
+            }
+            open_other(g, c).map(|(lo, hi, _)| (hi as f32 / U as f32, lo as f32 / U as f32))
         }
     }
+}
+
+/// The interval of another fluid generation keeps in column c's open gap (bottom, top, kind), if any.
+fn open_other(g: &impl engine::liquid::Ground, c: Col) -> Option<(i64, i64, u8)> {
+    let floor = g.gaps(c).last()?.0 as i64 * U;
+    g.generated_other(c).into_iter().find(|w| w.0 == floor).map(|w| (w.0, w.1, w.3))
 }
 
 /// A quad's glow in `info`'s bits 10.. (shader_water.wgsl `vs_water`): the light of the fluid in column c's open
 /// gap (`data/fluids.toml`), 7 bits a channel over 0..4; 0 for water and every fluid without a light.
 /// shortcut: a fluid without a light is drawn as water (liquids.md step 4: the look per fluid)
-fn glow(world: &World, c: Col) -> u32 {
-    let Some(k) = world.water.column(c).and_then(|mut ns| ns.find(|n| n.ceil == OPEN && n.water > 0)).map(|n| n.kind) else { return 0 };
+fn glow(world: &World, g: &impl engine::liquid::Ground, c: Col) -> u32 {
+    let k = match world.water.column(c) {
+        Some(mut ns) => ns.find(|n| n.ceil == OPEN && n.water > 0).map(|n| n.kind),
+        None => open_other(g, c).map(|w| w.2),
+    };
+    let Some(k) = k else { return 0 };
     let l = engine::fluids::FLUIDS.get(k).light;
     let q = |v: f32| ((v / 4.0 * 127.0).round() as u32).min(127);
     (q(l[0]) | q(l[1]) << 7 | q(l[2]) << 14) << 10
