@@ -63,13 +63,21 @@ pub struct Save {
     pub rain: Rain,
     pub held: Held,
     pub gen: u8,
+    /// The heat of stored fluids off their rest and what froze (lava basics, draft decision): not a field of the
+    /// layout but bytes after it, written only when there is any, so a world without it (every water-only world,
+    /// every older save) has the very bytes it had.
+    #[serde(skip)]
+    pub heat: Heat,
 }
+
+/// `Liquids::heats` (each node's column, floor and heat) and `Liquids::froze`.
+pub type Heat = (Vec<(engine::liquid::Col, i32, engine::liquid::Therm)>, Vec<(u8, i64)>);
 
 impl From<Save21> for Save {
     /// Terra and Luna, as a 21 or older names them.
     fn from(s: Save21) -> Save {
         let Save21 { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, gen } = s;
-        Save { version, seed, bodies: vec![(planet_n, map), (moon_n, luna)], blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen }
+        Save { version, seed, bodies: vec![(planet_n, map), (moon_n, luna)], blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen, heat: Heat::default() }
     }
 }
 
@@ -329,14 +337,27 @@ impl Save21 {
 
 impl Save {
     pub fn to_bytes(&self) -> Vec<u8> {
-        postcard::to_allocvec(self).expect("a save serialises")
+        let mut b = postcard::to_allocvec(self).expect("a save serialises");
+        if self.heat != Heat::default() {
+            b.extend(postcard::to_allocvec(&self.heat).expect("heat serialises"));
+        }
+        b
     }
 
     /// Reads a save and checks it is this version (or 4 to 21, carried over) and its blocks are this build's blocks.
     pub fn from_bytes(b: &[u8]) -> Result<Save, String> {
-        let now = postcard::from_bytes::<Save>(b).ok().filter(|s| s.version == VERSION);
+        let now = postcard::take_from_bytes::<Save>(b).ok().filter(|s| s.0.version == VERSION);
         let mut s = match now {
-            Some(s) => s,
+            Some((mut s, rest)) => {
+                if !rest.is_empty() {
+                    // a bad heat tail costs only the heat: the fluids take their pour heat again (`restore_heat`)
+                    match postcard::from_bytes(rest) {
+                        Ok(h) => s.heat = h,
+                        Err(e) => eprintln!("the save's fluid heat ({} bytes) unread, loaded without it: {e}", rest.len()),
+                    }
+                }
+                s
+            }
             None => Save21::from_bytes(b)?.into(),
         };
         engine::world::known_generation(s.gen)?;
@@ -429,7 +450,7 @@ mod tests {
 
     impl From<Save> for Save21 {
         fn from(s: Save) -> Save21 {
-            let Save { version, seed, bodies, blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen } = s;
+            let Save { version, seed, bodies, blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen, .. } = s;
             let [(planet_n, map), (moon_n, luna)] = bodies[..] else { panic!("two bodies: {bodies:?}") };
             Save21 { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, gen }
         }

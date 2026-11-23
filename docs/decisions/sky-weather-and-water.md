@@ -131,6 +131,56 @@ Open (step 4): layers by density in a gap instead of the wall, reactions (lava a
 look per fluid, lava's light into the block light and its heat on a player (it neither holds up nor hurts yet), a
 server ledger for creative's other fluids.
 
+### Lava lights, carries a body, and freezes to basalt [0193, 2026-11-23]
+- **Context:** the world queue's step 2 (roadmap), `volcanoes.md` ("kept liquid by the heat"), ADR 0183 (matter
+  changes phase) and 0187 (heat a source drives runs at real rates).
+- **Light:** a fluid with a `light` lights the world as a lamp block does: `World::fluid_lamps` gives a lamp at the
+  top cell of every stored glowing surface, one a 2 x 2 columns' patch at one cell's light, from the stored tiles
+  round the camera (no scan of every node), gathered with the blocks' lamps (`gather_lamps`, nearest first, the
+  Lamps setting's cap). A live crater's lake lights by its own lamps, worked out once when the map comes in
+  (`Crater::lamps`): at most 16, a 4 x 4 grid of patches over it, each at its columns' mean surface and as bright as
+  the 2 x 2 patches it stands for, so the lake is as bright in sum and no frame works out a lake; its columns once
+  stored are left to those lamps, so none jumps. Water gives none. Taste default: that brightness and patch.
+- **A body in a fluid:** `phys::step` reads the fluid at the feet (`World::fluid_surface`): it floats with
+  `FLOAT x 1000 / density` of the body under (Archimedes, the body FLOAT of water's density as before), so lava at
+  2600 kg/m3 carries it 0.31 under, mostly out; the vertical drag gains `3 (visc - 1) sub` a second (implicit) and
+  the walk is slowed by `1 + (visc - 1) sub / 16` (a taste default). Only water is swum in (stroke, dive, under).
+  Water's numbers are the old ones to the bit (its ratios are exactly 1): a hashed trace holds it. The burn is
+  unchanged.
+- **Heat and the freeze:** a fluid row may carry `heat = { pour, capacity, latent, conduct, emissivity }`; lava's is
+  1150 C, 1200 J/(kg K), 400 kJ/kg, 1.5 W/(m K), 0.95 (basaltic lava as lava-flow models take it: Hawaiian eruption
+  heat, its melt's heat capacity and latent heat of crystallisation 3.5 to 4.5e5 J/kg, conductivity 1 to 2 W/(m K),
+  emissivity 0.9 to 0.95). A stored node of such a fluid holds a temperature (`liquid::Therm`, a sparse map beside
+  the nodes) only while it is off its rest: poured at `pour`, mixed by units as it flows and is poured into, carried
+  across an edit's regap (one heat per fluid a column). Its rest is `Ground::heat`: `Body::heat` at the place
+  (`liquid::AMBIENT`, 15 C, without a map), and inside generation's lava its volcano's chamber heat, the formula's
+  own reason it is liquid there, so generated lava never freezes and a stored patch of the lake rests as it is.
+  `Liquids::cool`, once a second on the server (`tick`), only for those nodes: each loses heat through half its own
+  depth (conduction in the lava) to the air over its open surface (radiation at its emissivity plus 10 W/(m2 K) of
+  free convection, the surface's heat solved where the flows meet) and to air beside an open side, and to the rock
+  under and beside it through the rock's own warming since it came (a semi-infinite solid, `sqrt(pi t) / e`, e 2200
+  W s^0.5/(m2 K) for k 2.0, rho 2700, c 900). Past the freeze point the loss freezes units at the latent heat; each U
+  frozen makes the node's floor cell its row's `freeze` block (basalt) through the ordinary edits (events, clients,
+  save); a node frozen through hands its crust short of a block to a neighbour of the same fluid, else (a sheet) it
+  froze into nothing. A cell that is taken (a player's feet, body or head, or a block set there) gets no block: the
+  block's worth waits on the node and is tried the next second, so freezing buries nothing; each edit names what was
+  there. Every unit frozen is booked to `Liquids::froze` by kind, so `counted_of(kind) + froze` stays
+  what was carried in. Measured: a 3 x 3 pit of lava two blocks deep on cold ground freezes through in about 5 days
+  (the hand calculation, 6 days, in the test); a thin sheet in under an hour; a crater lake never.
+- **Save:** the heats (column, the node's floor, heat) and `froze` go after the version 22 layout's bytes, only when
+  there are any; `Save::from_bytes` reads them if present, and a short or corrupt tail loads the save without them
+  (logged). Each heat goes back on its column's node of that floor, else on a hot node there with none. Every
+  stored node of a fluid with heat left without one, outside generation's lava, takes its row's pour heat, so no lava
+  lies liquid for ever. So the version does not move: a world without heat (every
+  water-only world, every older save) writes and reads the very bytes it did, and an older build reading a newer
+  save with lava drops its heats (postcard ignores trailing bytes). Not on the wire: clients see the basalt edits and
+  the water changes. Recordings replay (the step is in the tick and deterministic).
+- **Not chosen:** a temperature on every node (water's nodes and bytes would change); a fixed timer to freeze; the
+  remainder under a block rounded to a block (matter made from nothing).
+- **Open:** a frozen block carries no heat, so the rock under a freezing pool is taken at the far rock's heat at once
+  (a pool's last blocks freeze somewhat fast); one rock's thermal numbers for every block; lava meeting water (step 3);
+  `froze` is not on the stats line.
+
 ## The sea and the ledger
 
 - **The sea** is generated from the seed: every column whose ground is under the sea level holds water up to it.

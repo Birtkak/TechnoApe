@@ -122,7 +122,9 @@ spans the three: a block is U units, and ice + water + vapour of a world is one 
    the save (a format change: its own decision).
 4. **Layers and reactions:** oil on water, lava into water. The mesh and the look per fluid.
 5. **Phases of water** (spike in `prototypes/` first): ice, water and vapour by temperature and pressure, with
-   rates and the one ledger. Test: an ice block in warm air becomes exactly its units of water; water in freezing
+   rates and the one ledger. *The first rock phase change is in (draft 2026-11-23, "Lava lights, carries a body,
+   and freezes to basalt"): lava's heat in a sparse store at 1 Hz, freezing to basalt at real rates; water's
+   phases are still to come.* Test: an ice block in warm air becomes exactly its units of water; water in freezing
    air becomes ice; a pot over a fire loses to the air cell's vapour what it boils off; a stored patch of polar
    sea freezes as the bake's sea ice did. Then heat in every fluid, rock to lava, liquid metals; sludge as a
    pollutant.

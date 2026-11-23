@@ -201,3 +201,4 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0190 | Ground water: a baked table, flooded caves, springs, at the calendar's pace | [sky-weather-and-water.md](sky-weather-and-water.md) - Ground water: a table, flooded caves, springs | in force |
 | 0191 | Gas near the ground as sparse 1 m cells; fire spreads by heat, a minute a block | [sky-weather-and-water.md](sky-weather-and-water.md) - Gas near the ground and fire that spreads | in force |
 | 0192 | Volcanoes on Terra's arcs: cone, conduit, chamber, a lake of generated lava (generation 10) | [bake-and-landforms.md](bake-and-landforms.md) - Volcanoes on Terra's arcs | in force |
+| 0193 | Lava lights, carries a body by its density, and freezes to basalt at real rates | [sky-weather-and-water.md](sky-weather-and-water.md) - Lava lights, carries a body, and freezes to basalt | in force |

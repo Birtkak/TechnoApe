@@ -157,16 +157,17 @@ pub(crate) const LAMP_CELL: f32 = 8.0;
 pub(crate) const LAMP_R: f32 = 24.0;
 pub(crate) const LAMP_GRID_LEN: usize = LAMP_G * LAMP_G * LAMP_G + 1 + MAX_LAMPS * 343;
 
-/// The blocks that give light within LAMP_REACH of the camera, nearest first: (body, middle, light).
-/// `cams` is the camera in each body's coordinates.
+/// The blocks that give light within LAMP_REACH of the camera, and the glowing fluids' surfaces (lava,
+/// `World::fluid_lamps`), nearest first: (body, middle, light). `cams` is the camera in each body's coordinates.
 pub(crate) fn gather_lamps(w: &World, cams: &[DVec3]) -> Vec<(u8, DVec3, [f32; 3])> {
     let mut out: Vec<(f64, u8, DVec3, [f32; 3])> = w
         .lights
         .iter()
-        .filter_map(|(b, l)| {
-            let x = w.block_centre(*b);
-            let d = (x - cams[b.body as usize]).length();
-            (d < LAMP_REACH).then_some((d, b.body, x, *l))
+        .map(|(b, l)| (b.body, w.block_centre(*b), *l))
+        .chain(w.fluid_lamps(cams, LAMP_REACH))
+        .filter_map(|(bi, x, l)| {
+            let d = (x - cams[bi as usize]).length();
+            (d < LAMP_REACH).then_some((d, bi, x, l))
         })
         .collect();
     out.sort_by(|a, b| a.0.total_cmp(&b.0));

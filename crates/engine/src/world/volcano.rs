@@ -20,8 +20,16 @@ pub struct Crater {
     pub heat: f32,
     /// The layer its lava stands level under (the lake's surface): a live volcano whose crater holds a lake.
     pub lake: Option<i32>,
+    /// Its lake's columns (i, j), sorted, and its lamps (`World::fluid_lamps`): at most LAKE_LAMPS, each the middle
+    /// of a patch of the lake's surface from the body's centre and how many 2 x 2 patches' light it gives (a quarter
+    /// of its columns), so the lake is as bright in sum as a lamp a 2 x 2 patch. Worked out once: the lake is a
+    /// formula and never moves.
+    pub lake_cols: Vec<(i32, i32)>,
+    pub lamps: Vec<(DVec3, f32)>,
 }
 
+/// The most lamps a crater's lake gives (a 4 x 4 grid of patches over it), so torches beside it keep theirs.
+pub const LAKE_LAMPS: i32 = 4;
 /// A live volcano's cone is bare this many crater radii out from its middle: no plant on its upper cone.
 // shortcut: a look by distance, standing in for heat, gas and fresh rock killing plants; a rule of the heat
 // field once it takes the ground's surface as a boundary and plants read temperature
@@ -71,7 +79,30 @@ impl Body {
                 let up = self.dir(f, ci, cj);
                 let chamber = up * (self.radius - SEA_DEPTH + v.chamber as f64);
                 let top = up * self.layer_r(lake.unwrap_or_else(|| self.first_air(floor)) as f64);
-                Crater { v: *v, face, at: (ci, cj), chamber, top, heat, lake }
+                // the lake's columns: in the crater, the ground under the lake's surface (shortcut: a cave opening a
+                // column whose ground stands over the lake is not counted, `lava_col` would give it lava)
+                let mut lake_cols = Vec::new();
+                let mut lamps = Vec::new();
+                if let Some(l) = lake {
+                    let r = rc.ceil() as i32 + 1;
+                    lake_cols = (i0 - r..=i0 + r)
+                        .flat_map(|i| (j0 - r..=j0 + r).map(move |j| (i, j)))
+                        .filter(|&(i, j)| (i as f64 + 0.5 - ci).hypot(j as f64 + 0.5 - cj) < rc && self.first_air(self.col_height(face, i, j)) < l)
+                        .collect();
+                    lake_cols.sort_unstable();
+                    let cell = ((2 * r + 1) as f64 / LAKE_LAMPS as f64).ceil() as i32;
+                    for (a, b) in (0..LAKE_LAMPS).flat_map(|a| (0..LAKE_LAMPS).map(move |b| (a, b))) {
+                        let at: Vec<DVec3> = lake_cols
+                            .iter()
+                            .filter(|&&(i, j)| (i - (i0 - r)) / cell == a && (j - (j0 - r)) / cell == b)
+                            .map(|&(i, j)| self.dir(f, i as f64 + 0.5, j as f64 + 0.5) * self.layer_r(l as f64 - 0.5))
+                            .collect();
+                        if !at.is_empty() {
+                            lamps.push((at.iter().sum::<DVec3>() / at.len() as f64, at.len() as f32 / 4.0));
+                        }
+                    }
+                }
+                Crater { v: *v, face, at: (ci, cj), chamber, top, heat, lake, lake_cols, lamps }
             })
             .collect()
     }
@@ -125,6 +156,19 @@ impl Body {
     pub(super) fn in_crater(&self, face: u8, i: i32, j: i32, reach: i32) -> bool {
         self.craters().iter().any(|c| c.face == face && (i as f64 + 0.5 - c.at.0).hypot(j as f64 + 0.5 - c.at.1) < c.v.crater as f64 + reach as f64 + 1.0)
     }
+    /// The heat a fluid at layer z of column (face, i, j) rests at, C (`liquid::Ground::heat`): where generation keeps
+    /// lava (`lava_col`), its volcano's chamber heat, which by the formula holds it there liquid (the lake's lava
+    /// is its conduit's, turned over); elsewhere the rock's and air's (`heat`), or `liquid::AMBIENT` without a map.
+    pub fn rest_heat(&self, face: u8, i: i32, j: i32, z: f64) -> f32 {
+        let u = (z * U as f64) as i64;
+        let d = |c: &Crater| (i as f64 + 0.5 - c.at.0).hypot(j as f64 + 0.5 - c.at.1);
+        if let Some(c) = self.craters().iter().find(|c| c.face == face && c.lake.is_some() && d(c) < c.v.crater.max(c.v.chamber_r) as f64 + 1.0) {
+            if self.lava_col(face, i, j).iter().any(|w| (w.0..w.1).contains(&u)) {
+                return c.heat;
+            }
+        }
+        self.heat(face, i, j, z).unwrap_or(crate::liquid::AMBIENT)
+    }
     /// The lava generation keeps in column (face, i, j), as `liquid::Ground::generated_other` gives it: in a live
     /// volcano's chamber and conduit (the column's hollows, which in a volcano's foot are its own) and its crater's
     /// lake, where the heat there is over lava's freeze point. A hollow closed under the ground is full and holds the
@@ -173,6 +217,173 @@ mod tests {
     }
     fn live(w: &World) -> Crater {
         w.bodies[0].craters().iter().find(|c| c.heat > 0.0).expect("a live volcano").clone()
+    }
+
+    /// A pit `n` x `n` columns and `deep` layers at the spawn (cold ground, far from the volcano), `units` of fluid
+    /// `kind` poured into each column: its columns, row by row, and its floor layer.
+    fn pit(w: &mut World, n: i32, deep: i32, units: i64, kind: u8) -> (Vec<Col>, i32) {
+        let b = w.bodies[0].clone();
+        let (f, i, j) = b.locate(b.spawn);
+        let (f, i, j) = (f as u8, i as i32, j as i32);
+        let top = b.first_air(b.col_height(f, i, j));
+        let z0 = top - deep;
+        let cols: Vec<Col> = (0..n).flat_map(|a| (0..n).map(move |e| Col::new(0, f, i + a, j + e))).collect();
+        for c in &cols {
+            for z in z0..top + 3 {
+                w.set_block(Block { body: 0, face: f, pos: IVec3::new(c.i(), c.j(), z) }, AIR);
+            }
+        }
+        let World { bodies, edits, water, sky, time, .. } = w;
+        let g = Solid::at(bodies, edits, sky, *time);
+        for &c in &cols {
+            assert!(water.pour_kind(&g, c, z0, units, kind));
+        }
+        (cols, z0)
+    }
+
+    /// Lava lights what is round it as a lamp block does (lava basics): a lamp at a stored pool's surface beside the
+    /// block next to it, in lava's light, and none for water; a live crater's lake, untouched, gives lamps too.
+    #[test]
+    fn a_lava_pool_lights_the_block_beside_it_and_water_does_not() {
+        let rows = crate::fluids::FLUIDS.now();
+        for kind in [lava().0, crate::fluids::WATER] {
+            let mut w = world(false);
+            let (cols, z0) = pit(&mut w, 1, 2, U, kind);
+            let beside = w.block_centre(Block { body: 0, face: cols[0].face(), pos: IVec3::new(cols[0].i() + 1, cols[0].j(), z0) });
+            let lamps = w.fluid_lamps(&vec![beside; w.bodies.len()], 48.0);
+            let lit = lamps.iter().any(|l| (l.1 - beside).length() < 1.5 && l.2 == rows.get(kind).light);
+            assert_eq!(lit, kind != crate::fluids::WATER, "kind {kind}: lamps {lamps:?}");
+        }
+    }
+
+    /// A live crater's lake lights by a few lamps worked out once (the review of lava basics): at most 16, as bright in
+    /// sum as a lamp for every 2 x 2 columns of it, and the same lamps once its columns are stored and woken.
+    #[test]
+    fn a_craters_lake_lights_by_at_most_sixteen_lamps_that_hold_when_it_is_stored() {
+        let mut w = world(false);
+        let c = live(&w);
+        let light = crate::fluids::FLUIDS.now().get(lava().0).light[0];
+        let eye = w.bodies[0].centre + c.top;
+        let cams = vec![eye; w.bodies.len()];
+        // this lake's own (another crater's lamps lie in reach too): what lies within its lamps' farthest from the eye
+        let far = c.lamps.iter().map(|l| (w.bodies[0].centre + l.0 - eye).length()).fold(0.0, f64::max) + 2.0;
+        let near = |w: &World| -> Vec<(u8, DVec3, [f32; 3])> {
+            let mut v: Vec<_> = w.fluid_lamps(&cams, 300.0).into_iter().filter(|l| (l.1 - eye).length() < far).collect();
+            v.sort_by(|a, b| a.1.to_array().partial_cmp(&b.1.to_array()).unwrap());
+            v
+        };
+        let lamps = near(&w);
+        let sum: f32 = lamps.iter().map(|l| l.2[0] / light).sum();
+        let want = c.lake_cols.len() as f32 / 4.0;
+        assert!(want > 16.0, "a lake whose lamp a 2 x 2 patch ({want}) would pass the cap");
+        assert!(!lamps.is_empty() && lamps.len() <= 16, "the lake's lamps: {}", lamps.len());
+        assert!((sum - want).abs() < 1e-3 * want, "as bright as {want} patches: {sum}");
+        {
+            let World { bodies, edits, water, sky, time, .. } = &mut w;
+            let g = Solid::at(bodies, edits, sky, *time);
+            let cols: Vec<Col> = c.lake_cols.iter().map(|&(i, j)| Col::new(0, c.face, i, j)).collect();
+            cols.iter().for_each(|&k| water.materialize(&g, k));
+            cols.iter().for_each(|&k| water.regap(&g, k));
+            assert!(water.stored() > 0);
+        }
+        assert_eq!(near(&w), lamps, "storing its columns moves no lamp");
+    }
+
+    /// Lava poured into a pit on cold ground freezes to basalt at real rates (lava basics, draft decision): a pit
+    /// 3 x 3 and lava two blocks deep in each column. Every unit that froze is booked, so lava's ledger plus what froze
+    /// is what was poured.
+    ///
+    /// The hand calculation for the whole pool (lava 2600 kg/m3, c 1200 J/(kg K), L 400 kJ/kg, k 1.5 W/(m K), poured
+    /// at 1150 C, freezing at 1000 C, air and rock at about 15 C, rock effusivity 2200 W s^0.5/(m2 K)):
+    /// - to hold: 9 columns of 5200 kg, 150 K of heat (9.4e8 J each) and the freeze (2.1e9 J each): 2.7e10 J;
+    /// - the top, 9 m2 through 1 m of its own lava (0.67 m2 K/W) to a surface near 100 C: 1500 W/m2, 13.5 kW;
+    /// - the bottom, 9 m2 through the same and the rock's warming (0.25 m2 K/W after a day, 0.55 after five):
+    ///   about 1000 W/m2, 9 kW; the 12 outer sides, 24 m2 through half a block (0.33) and the rock: 1500 W/m2, 35 kW;
+    /// - about 57 kW while it cools to the freeze point (8.4e9 J, 1.5e5 s), about 50 kW while it freezes (1.9e10 J,
+    ///   the depth falling as it goes: 3.7e5 s). So about 5.2e5 s, six days.
+    #[test]
+    fn a_lava_pool_on_cold_ground_freezes_to_basalt_in_its_time_and_the_ledger_holds() {
+        // at the server's step (a second) and a coarser one: the same physics, the same answer
+        for dt in [1.0, 10.0] {
+            let mut w = world(false);
+            let kind = lava().0;
+            let (cols, z0) = pit(&mut w, 3, 3, 2 * U, kind);
+            let mid = cols[4];
+            let ta = w.ground().heat(mid, z0 as f64 + 1.0);
+            assert!(ta < 60.0, "cold ground: {ta} C");
+            assert_eq!(w.water.temp_at(mid, z0), Some(1150.0), "poured at its row's heat");
+            let basalt = crate::blocks::BLOCKS.id("basalt");
+            let poured = 9 * 2 * U;
+            let ledger = |w: &World| w.water.counted_of(kind) + w.water.froze.get(&kind).copied().unwrap_or(0);
+            let mut t = 0.0;
+            while w.water.total_of(kind) > 0 && t < 6.0e6 {
+                w.cool_fluids(dt, |_| false);
+                w.step_water();
+                t += dt;
+                if (t as i64) % 100_000 == 0 {
+                    assert_eq!(ledger(&w), poured, "the ledger at {t} s");
+                }
+            }
+            let hand = 5.2e5;
+            eprintln!("dt {dt}: the pool froze through in {t:.0} s ({:.1} days), by hand {hand:.0} s", t / 86400.0);
+            assert!(t > hand / 2.0 && t < hand * 2.0, "dt {dt}: froze in {t} s, by hand {hand} s");
+            assert_eq!((w.water.total_of(kind), ledger(&w)), (0, poured), "dt {dt}: all of it froze, every unit booked");
+            let blocks = cols.iter().flat_map(|c| (z0..z0 + 2).map(move |z| Block { body: 0, face: c.face(), pos: IVec3::new(c.i(), c.j(), z) })).filter(|&b| w.block(b) == basalt).count();
+            eprintln!("{blocks} blocks of basalt in the pit, {} units froze", w.water.froze[&kind]);
+            assert!((16..=18).contains(&blocks), "dt {dt}: {blocks} blocks of basalt for 18 poured");
+        }
+    }
+
+    /// Freezing buries nothing: while the cell is taken (a player in it) the lava sets no block there and every unit
+    /// stays booked; once it is free the lava freezes through as before, and the edit names the air it filled.
+    #[test]
+    fn freezing_lava_waits_while_its_cell_is_taken() {
+        let mut w = world(false);
+        let kind = lava().0;
+        let (cols, z0) = pit(&mut w, 1, 2, U, kind);
+        let basalt = crate::blocks::BLOCKS.id("basalt");
+        let cell = Block { body: 0, face: cols[0].face(), pos: IVec3::new(cols[0].i(), cols[0].j(), z0) };
+        let ledger = |w: &World| w.water.counted_of(kind) + w.water.froze.get(&kind).copied().unwrap_or(0);
+        for _ in 0..10_000 {
+            assert!(w.cool_fluids(60.0, |_| true).is_empty(), "no block while the cell is taken");
+            w.step_water();
+            assert_eq!(ledger(&w), U, "every unit booked");
+        }
+        assert_eq!(w.block(cell), AIR, "the taken cell holds no basalt");
+        let mut set = Vec::new();
+        for _ in 0..10_000 {
+            set.extend(w.cool_fluids(60.0, |_| false));
+            w.step_water();
+        }
+        assert_eq!(set, vec![(cell, AIR, basalt)], "free, it froze to a block that filled the air");
+        assert_eq!((w.block(cell), w.water.total_of(kind), ledger(&w)), (basalt, 0, U));
+    }
+
+    /// The rest state (lava basics): a live crater's lake stored and woken, and a block of lava poured onto it, stepped
+    /// a simulated week, freezes nothing: the crater's heat holds it at its chamber's, the formula's own reason.
+    #[test]
+    fn a_stored_lake_and_a_pour_onto_it_stay_liquid_in_the_craters_heat() {
+        let mut w = world(false);
+        let (c, kind) = (live(&w), lava().0);
+        let (i, j) = (c.at.0.floor() as i32, c.at.1.floor() as i32);
+        let r = c.v.crater.ceil() as i32 + 3;
+        let cols: Vec<Col> = (i - r..=i + r).flat_map(|a| (j - r..=j + r).map(move |e| Col::new(0, c.face, a, e))).collect();
+        let lake = c.lake.unwrap();
+        {
+            let World { bodies, edits, water, sky, time, .. } = &mut w;
+            let g = Solid::at(bodies, edits, sky, *time);
+            cols.iter().for_each(|&k| water.materialize(&g, k));
+            cols.iter().for_each(|&k| water.regap(&g, k));
+            assert!(water.pour_kind(&g, Col::new(0, c.face, i, j), lake - 1, U, kind));
+        }
+        for _ in 0..7 * 1440 {
+            assert!(w.cool_fluids(60.0, |_| false).is_empty(), "nothing freezes");
+            for _ in 0..4 {
+                w.step_water();
+            }
+        }
+        assert!(w.water.froze.is_empty() && w.water.counted_of(kind) == U, "froze {:?}, counted {}", w.water.froze, w.water.counted_of(kind) / U);
+        assert!(w.water.heats().iter().all(|h| h.2.t > lava().1 as f64), "every heat held is over the freeze point");
     }
 
     /// The heat (volcanoes.md, the rule): all of the chamber's heat in it, over lava's freeze point, and round it the

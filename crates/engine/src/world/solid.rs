@@ -83,6 +83,9 @@ impl Ground for Solid<'_> {
     fn generated_other(&self, c: Col) -> Vec<(i64, i64, i64, u8)> {
         self.bodies[c.body() as usize].lava_col(c.face(), c.i(), c.j())
     }
+    fn heat(&self, c: Col, z: f64) -> f32 {
+        self.bodies[c.body() as usize].rest_heat(c.face(), c.i(), c.j(), z)
+    }
     fn reach(&self, c: Col) -> u32 {
         self.water(c).map_or(crate::liquid::SEA, |w| w.1)
     }

@@ -138,6 +138,8 @@ impl Server {
         s.world.time = save.tick.saturating_sub(1) as f64 / TICK_HZ;
         let World { bodies, edits, water, sky, time, .. } = &mut s.world;
         water.restore(&engine::world::Solid::at(bodies, edits, sky, *time), &save.water);
+        water.restore_heat(&engine::world::Solid::at(bodies, edits, sky, *time), &save.heat.0);
+        water.froze = save.heat.1.iter().copied().collect();
         (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
         water.rained = save.reaches.0;
         water.reach_extra = save.reaches.1.iter().copied().collect();
@@ -233,6 +235,7 @@ impl Server {
             rain: (self.world.water.rain_held.iter().map(|(&a, &x)| (a, x)).collect(), self.weather.as_ref().and_then(|w| w.pending(self.tick)), self.world.water.steps),
             held: save::Held { items: ITEMS.table(), piles: self.piles.iter().map(|(k, p)| (unkey(*k), p.slots.clone())).collect(), taken: self.taken.iter().map(|(k, y)| (unkey(*k), *y)).collect(), furnaces: self.furnaces.iter().map(|(k, f)| (unkey(*k), f.clone())).collect() },
             gen: self.world.bodies[0].gen,
+            heat: (self.world.water.heats(), self.world.water.froze.iter().map(|(&k, &u)| (k, u)).collect()),
         }
     }
 

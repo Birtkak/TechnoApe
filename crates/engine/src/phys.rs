@@ -394,8 +394,17 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
         (f, f.cross(up).normalize(), up)
     };
 
-    // how deep the feet are under the water's surface, and how much of the body is under it, 0 to 1
-    let deep = world.water_surface(p.pos + up * 0.05).map_or(0.0, |r| r - (p.pos - world.bodies[world.nearest(p.pos)].centre).length());
+    // how deep the feet are under the fluid's surface, and how much of the body is under it, 0 to 1
+    let fluid = world.fluid_surface(p.pos + up * 0.05);
+    let deep = fluid.map_or(0.0, |(r, _)| r - (p.pos - world.bodies[world.nearest(p.pos)].centre).length());
+    // the fluid's row (lava basics): a body floats with `float` of it under (Archimedes: its density over the fluid's,
+    // FLOAT in water) and moves through it slowed by its viscosity; only water is swum in. Water's ratio is 1.0, so
+    // its numbers are the very ones they were
+    let rows = crate::fluids::FLUIDS.now();
+    let kind = fluid.map_or(crate::fluids::WATER, |f| f.1);
+    let float = FLOAT * (rows.rows[0].density as f64 / rows.get(kind).density as f64);
+    let visc = rows.get(kind).viscosity as f64;
+    let swims = kind == crate::fluids::WATER;
     let sub = (deep / HEIGHT).clamp(0.0, 1.0);
     let mv = DVec3::new(inp.mv[1].clamp(-1.0, 1.0) as f64, 0.0, inp.mv[0].clamp(-1.0, 1.0) as f64);
     // the forward share of the walk a sprint speeds, 0 for none
@@ -403,7 +412,7 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
     // swimming (ADR 0118): a sprint forward with most of the body in strokes along the look; a body already
     // swimming fast keeps stroking a little shallower, so the switch does not flicker (hysteresis from the speed)
     let swimming = !p.on_ground && p.vel.length() > SWIM_SLOW + 0.5;
-    let stroke = !flying && inp.sprint && mv.z > 0.0 && sub > if swimming { STROKE_SUB - 0.1 } else { STROKE_SUB };
+    let stroke = !flying && swims && inp.sprint && mv.z > 0.0 && sub > if swimming { STROKE_SUB - 0.1 } else { STROKE_SUB };
     let look = fwd * (inp.pitch as f64).cos() + up * (inp.pitch as f64).sin();
     if flying {
         // the move and up or down at the asked speed, nothing else
@@ -416,7 +425,9 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
             sprint_share = dir.dot(fwd);
         }
         let dir = dir + fwd * sprint_share * (SPRINT - 1.0);
-        let wish = dir * WALK * (1.0 - 0.5 * sub);
+        // shortcut: a thick fluid slows the walk by 1 + (visc - 1) sub / 16 (lava at the float line: about half again),
+        // a taste default; from a drag law on the body once something else wades
+        let wish = dir * WALK * (1.0 - 0.5 * sub) / (1.0 + (visc - 1.0) * sub / 16.0);
         // climbing OUT: jump held (or a stroke) in real water near the surface, the look not down, against a
         // bank whose top is at or over the surface and within reach; elsewhere a stroke slides along a wall
         // (real water: a third of the body in, or still in with water, not a floor, under the feet; a puddle's
@@ -428,7 +439,7 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
             && dir.length() > 0.1
             && blocked(world, p.pos + up * 0.05 + dir.normalize() * 0.1)
             && bank(world, p, dir.normalize(), up, deep);
-        if stroke || under(deep, p.vel.dot(up)) {
+        if stroke || swims && under(deep, p.vel.dot(up)) {
             // under water, or stroking: no gravity, no buoyancy; the velocity eases to the stroke along the look,
             // or to the slow move with jump rising, the down key sinking and nothing a slow sink
             let want = if stroke {
@@ -451,13 +462,15 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
             }
             if sub > 0.0 {
                 // buoyancy that holds the body FLOAT under, drag, and jump held swims up
-                v_up += G / FLOAT * sub * dt;
+                v_up += G / float * sub * dt;
                 v_up *= 1.0 - (3.0 * sub * dt).min(1.0);
+                // a thick fluid's drag, implicit so it holds at any viscosity (water's 1 divides by 1)
+                v_up /= 1.0 + 3.0 * (visc - 1.0) * sub * dt;
                 if inp.jump && sub > 0.3 || climb {
                     v_up = v_up.max(SWIM);
                 }
                 // the down key dives from the surface, as it sinks under it
-                if inp.down && sub > 0.3 && !inp.jump {
+                if swims && inp.down && sub > 0.3 && !inp.jump {
                     v_up = v_up.min(-SWIM);
                 }
                 // a ledge in the way climbs out (W5): a river's bed steps a block under shallow water, where
@@ -763,6 +776,68 @@ mod tests {
         step(&w, &mut q, &Input { jump: true, ..Default::default() }, 0.5);
         run(&w, &mut q, &Input { jump: true, ..Default::default() }, 1.0);
         assert!(sea - q.pos.length() < 2.0, "swam up to {} m under", sea - q.pos.length());
+    }
+
+    /// A pit 3 x 3 columns and 4 deep at the spawn holding fluid `kind` 3 blocks deep (stored, poured), and its
+    /// middle column's direction and fluid surface's radius.
+    fn pit(kind: u8) -> (World, DVec3, f64) {
+        let mut w = world();
+        let b = w.bodies[0].clone();
+        let (f, i, j) = b.locate(b.spawn);
+        let (f, i, j) = (f as u8, i as i32, j as i32);
+        let top = b.first_air(b.col_height(f, i, j));
+        let z0 = top - 4;
+        for (di, dj, z) in (-1..=1).flat_map(|di| (-1..=1).flat_map(move |dj| (z0..top + 2).map(move |z| (di, dj, z)))) {
+            w.set_block(crate::world::Block { body: 0, face: f, pos: glam::IVec3::new(i + di, j + dj, z) }, crate::blocks::AIR);
+        }
+        {
+            let World { bodies, edits, water, sky, time, .. } = &mut w;
+            let g = crate::world::Solid::at(bodies, edits, sky, *time);
+            for (di, dj) in (-1..=1).flat_map(|di| (-1..=1).map(move |dj| (di, dj))) {
+                assert!(water.pour_kind(&g, crate::liquid::Col::new(0, f, i + di, j + dj), z0, 3 * crate::liquid::U, kind));
+            }
+        }
+        let d = b.dir(f as usize, i as f64 + 0.5, j as f64 + 0.5);
+        let r = b.layer_r(z0 as f64 + 3.0);
+        (w, d, r)
+    }
+
+    /// A body floats in a fluid by Archimedes (lava basics, draft decision): it sinks until the share of it under
+    /// is its density over the fluid's, FLOAT in water, FLOAT times 1000 / 2600 in lava, so lava carries it mostly
+    /// out; and it does not sink to the floor of a pit of lava.
+    #[test]
+    fn a_body_floats_higher_in_lava_than_in_water_by_the_densities() {
+        let rows = crate::fluids::FLUIDS.now();
+        let lava = rows.kind("lava").unwrap();
+        let under = |kind: u8| {
+            let (w, d, r) = pit(kind);
+            let mut p = Player::at(w.bodies[0].centre + d * (r - 0.5), DVec3::X);
+            run(&w, &mut p, &Input::default(), 15.0);
+            assert!(!p.on_ground, "kind {kind}: on the pit's floor");
+            r - (p.pos - w.bodies[0].centre).length()
+        };
+        let (water, molten) = (under(crate::fluids::WATER), under(lava));
+        let want = water * rows.rows[0].density as f64 / rows.get(lava).density as f64;
+        assert!((water - FLOAT * HEIGHT).abs() < 0.05, "{water} m under in water");
+        assert!((molten - want).abs() < 0.05, "{molten} m under in lava, want {want}");
+    }
+
+    /// Water carries a body as it did before fluids had densities, to the bit (client prediction and the server
+    /// share `step`; recordings replay): a drop, a float, a jump, a swim and a dive in a pit of stored water, hashed.
+    #[test]
+    fn a_body_in_water_moves_as_before_to_the_bit() {
+        let (w, d, r) = pit(crate::fluids::WATER);
+        let mut p = Player::at(w.bodies[0].centre + d * (r + 1.0), DVec3::X);
+        let mut h = crate::world::FNV0;
+        let script = [(Input::default(), 4.0), (Input { jump: true, ..Default::default() }, 1.0), (Input { mv: [0.3, 1.0], ..Default::default() }, 1.0), (Input { down: true, ..Default::default() }, 1.5), (Input { mv: [0.0, 1.0], sprint: true, ..Default::default() }, 1.0)];
+        for (inp, secs) in &script {
+            for _ in 0..(secs / DT) as usize {
+                step(&w, &mut p, inp, DT);
+                h = p.pos.to_array().iter().chain(&p.vel.to_array()).fold(h, |h, x| crate::world::fnv(h, &x.to_le_bytes()));
+            }
+        }
+        // the hash of the trace before fluid densities (main at 791a5003)
+        assert_eq!(h, 17861800262558682817, "the water's trace");
     }
 
     #[test]

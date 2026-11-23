@@ -142,6 +142,71 @@ impl World {
         let kind = self.water.kind_at(&self.ground(), World::col(self.block_at(p)), g.z);
         kind.is_some() && kind == crate::fluids::FLUIDS.now().kind("lava")
     }
+    /// The radius of the surface of the fluid over world point p and its kind, if p is in one (`water_surface` is
+    /// water's alone): what holds a body up (`phys::step`).
+    pub fn fluid_surface(&self, p: DVec3) -> Option<(f64, u8)> {
+        let (bi, _, g) = self.grid_at(p);
+        let (l, kind) = self.water.fluid_surface_at(&self.ground(), World::col(self.block_at(p)), g.z)?;
+        Some((self.bodies[bi].layer_r(l), kind))
+    }
+    /// `dt` seconds of stored fluids' heat (`Liquids::cool`; the server's, once a second): every cell that froze
+    /// through becomes its fluid's `freeze` block and its column finds its gaps again, unless the cell is taken (a
+    /// block set there this tick, or `busy`: a player in it), when the fluid stays liquid and tries again the next
+    /// time. Returned as (cell, what was there, the block) for the edits.
+    pub fn cool_fluids(&mut self, dt: f64, busy: impl Fn(Block) -> bool) -> Vec<(Block, u16, u16)> {
+        let cells = {
+            let World { bodies, edits, water, sky, time, .. } = self;
+            water.cool(&Solid::at(bodies, edits, sky, *time), dt)
+        };
+        let rows = crate::fluids::FLUIDS.now();
+        let mut out = Vec::new();
+        for (c, z, kind) in cells {
+            let Some(f) = rows.get(kind).freeze.as_ref() else { continue };
+            let b = Block { body: c.body(), face: c.face(), pos: IVec3::new(c.i(), c.j(), z) };
+            let was = self.block(b);
+            if was != AIR || busy(b) {
+                self.water.unfreeze(c, z, kind);
+                continue;
+            }
+            let m = BLOCKS.id(&f.into);
+            self.set_block(b, m);
+            self.regap(b);
+            out.push((b, was, m));
+        }
+        out
+    }
+    /// The lamps of glowing fluids (`data/fluids.toml`'s `light`) within `reach` m of each body's camera `cams`, as
+    /// a lamp block's (`lights`): a stored one's surface's top cells, one lamp a 2 x 2 columns' patch (its first cell
+    /// in column order) at its row's light, from the tiles round the camera; a live crater's lake by its own few
+    /// lamps (`Crater::lamps`), worked out when the map came in, its stored columns left to them.
+    /// shortcut: stored fluid is looked for on the camera's face only; a seam's other side lights once crossed.
+    pub fn fluid_lamps(&self, cams: &[DVec3], reach: f64) -> Vec<(u8, DVec3, [f32; 3])> {
+        let rows = crate::fluids::FLUIDS.now();
+        let mut out = Vec::new();
+        for (bi, body) in self.bodies.iter().enumerate() {
+            let Some(&cam) = cams.get(bi) else { continue };
+            let lakes: Vec<&super::volcano::Crater> = body.craters().iter().filter(|c| c.lake.is_some()).collect();
+            if self.water.stored() > 0 && !body.gas {
+                let (f, i, j) = body.locate((cam - body.centre).normalize_or(DVec3::Y));
+                let span = (reach / (body.radius * std::f64::consts::FRAC_PI_2 / body.n as f64)).ceil() as i32 + 1;
+                let (i, j) = (i.floor() as i32, j.floor() as i32);
+                let mut cells: std::collections::BTreeMap<(i32, i32), (Block, u8)> = Default::default();
+                for (c, z, kind) in self.water.glowing_in(&self.water.wet_tiles(bi as u8, f as u8, (i - span).max(0), (j - span).max(0), 2 * span + 1)) {
+                    if lakes.iter().any(|l| l.face == c.face() && l.lake_cols.binary_search(&(c.i(), c.j())).is_ok()) {
+                        continue;
+                    }
+                    cells.entry((c.i().div_euclid(2), c.j().div_euclid(2))).or_insert((Block { body: c.body(), face: c.face(), pos: IVec3::new(c.i(), c.j(), z) }, kind));
+                }
+                out.extend(cells.into_values().map(|(b, kind)| (b.body, self.block_centre(b), rows.get(kind).light)));
+            }
+            if let Some(lava) = rows.kind("lava") {
+                let light = rows.get(lava).light;
+                out.extend(lakes.iter().flat_map(|c| &c.lamps).map(|&(x, n)| (bi as u8, body.centre + x, light.map(|l| l * n))));
+            }
+        }
+        out.retain(|(bi, x, _)| (*x - cams[*bi as usize]).length() < reach);
+        out
+    }
     /// Whether the water in cell b is the sea's, salt (ADR 0145): the generated sea is; the bake's
     /// rivers and lakes and water poured on land are fresh.
     /// shortcut: told from generation, not carried by the water, so sea water led or poured inland is fresh;
