@@ -331,8 +331,10 @@ layer = [{ wave = "triangle", freq = [1700, 1650], decay = 0.02 }]
 [[sound]]
 name = "wind"
 bus = "world"
-gain = 0.5
 loop = 6.0
+gain = 2
+reach = 1
+pitch = 0.5
 layer = [
   { wave = "noise", freq = [350, 350], q = 0.6 },
   { wave = "noise", freq = [1100, 1100], q = 0.8, gain = 0.3 },
