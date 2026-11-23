@@ -127,9 +127,11 @@ pub fn up(world: &World, p: DVec3) -> DVec3 {
     pull(world, p).0
 }
 
-/// Whether gravity holds the body upright at once: standing, or flying near a body.
-fn held(world: &World, p: &Player, flying: bool) -> bool {
-    p.on_ground || flying && world.altitude(p.pos) < NEAR
+/// Whether gravity holds the body upright at once: standing, or near a body, flying or falling. A fall near a
+/// weak moon is not space: free there, a block's drop down a shaft folded the look into the body and the landing
+/// swung it level (bug 2026-11-21_18-02-54).
+fn held(world: &World, p: &Player, _flying: bool) -> bool {
+    p.on_ground || world.altitude(p.pos) < NEAR
 }
 
 /// Whether the mouse's pitch turns the body itself and Q/E roll it (`Input::tilt`, `Input::roll`): out of a
@@ -638,7 +640,8 @@ mod tests {
         let u = up(&w, g0);
         let mut p = Player::at(g0 + u * 300.0, tangent(DVec3::X, u, DVec3::Z));
         p.up = -u; // upside down
-        let mut last = std::f64::consts::PI;
+        // (from the angle it starts at: the pull 300 m up is a hair off the ground's up)
+        let mut last = p.up.angle_between(up(&w, p.pos));
         for _ in 0..60 * 60 {
             step(&w, &mut p, &Input::default(), DT);
             let a = p.up.angle_between(up(&w, p.pos));
@@ -652,6 +655,57 @@ mod tests {
         step(&w, &mut p, &Input::default(), DT);
         assert!(p.up.angle_between(up(&w, p.pos)) < 1e-9 && p.fwd.dot(p.up).abs() < 1e-9, "upright on the ground");
         assert!(!free(&w, &p, false));
+    }
+
+    /// Bug report 2026-11-21_18-02-54 ("mining down in a moon with not good gravity every time u fall a block down
+    /// ur entire screen flips"): on the giant's icy moon, whose pull is under FREE_G, a player looking down a shaft
+    /// drops a block at a time. The client (frame.rs) folds the head's pitch into the body whenever `free` says so,
+    /// and the landing rights the body: the look, the body turned by the head's pitch as frame.rs draws it, must
+    /// not swing on any step.
+    #[test]
+    fn looking_down_a_shaft_on_a_weak_moon_the_look_holds_through_each_drop() {
+        let mut w = World::with_grid(1536, crate::bodies::moon_columns(1536), 1, None, None, 0.0, 7);
+        let bi = crate::bodies::find("callisto").unwrap();
+        let land = |w: &World, p: &mut Player| {
+            for _ in 0..600 {
+                step(w, p, &Input::default(), DT);
+                if p.on_ground {
+                    return;
+                }
+            }
+            panic!("never landed");
+        };
+        let top = w.bodies[bi].centre + DVec3::Y * (w.bodies[bi].height(DVec3::Y) + 1.0);
+        let u = up(&w, top);
+        let mut p = Player::at(top, tangent(DVec3::X, u, DVec3::Z));
+        land(&w, &mut p);
+        // stood in the middle of a column, so the dug block is the only one under the box
+        let b0 = w.block_at(p.pos - u * 0.5);
+        p = Player::at(w.block_centre(b0) + u * 0.6, p.fwd);
+        land(&w, &mut p);
+        let g = pull(&w, p.pos).1;
+        assert!(g < FREE_G, "the report's case is a pull under FREE_G: {g}");
+        // the client's look as frame.rs draws it: the body's look turned by the head's pitch over its horizon
+        let look = |p: &Player, pitch: f64| {
+            let up = p.body_up(u);
+            DQuat::from_axis_angle(p.fwd.cross(up).normalize(), pitch) * p.fwd
+        };
+        let (mut pitch, mut tilt) = (-1.5f64, 0.0f64);
+        let mut last = look(&p, pitch);
+        for k in 0..4 {
+            w.set_block(w.block_at(p.pos - up(&w, p.pos) * 0.5), 0);
+            for _ in 0..240 {
+                if free(&w, &p, false) {
+                    tilt += std::mem::take(&mut pitch);
+                }
+                let inp = Input { pitch: pitch as f32, tilt: std::mem::take(&mut tilt) as f32, ..Default::default() };
+                step(&w, &mut p, &inp, DT);
+                let now = look(&p, pitch);
+                assert!(now.angle_between(last) < 0.05, "drop {k}: the look swung {:.1} degrees in one step", now.angle_between(last).to_degrees());
+                last = now;
+            }
+            assert!(p.on_ground, "drop {k}: landed");
+        }
     }
 
     #[test]
