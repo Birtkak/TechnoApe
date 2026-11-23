@@ -102,6 +102,9 @@ spans the three: a block is U units, and ice + water + vapour of a world is one 
   on Mars or a peak boils water colder; no air boils it at once, so ice there goes straight to vapour).
 - **Rates, not switches:** a change moves units a step by how far the temperature is past the point and how much
   heat can flow, so a lake freezes from the top over nights, an ice block drips, a pot takes time to boil.
+- **Two paces** (ADR 0187): heat exchanged with the air and sky runs faster by the year's compression (a real
+  year over the game's, about 52), so ponds freeze in winter and thaw in spring; heat from a source (fire, lava,
+  the rock) runs at real rates.
 - **Untouched water follows the formula** (the rule at the top): the bake's sea ice is where the climate holds the
   sea under freezing; a stored patch in the same place must freeze to the same answer.
 - **Open:** where the heat is held (a temperature a liquid layer and a block near a source, not every block of the

@@ -61,6 +61,15 @@ The server simulates; clients show it [0020].
   held swims up at 2 m/s, walking is slower by how deep you are [0020]. (also player-and-feel: the sprint's `sub`
   share and the dive key are in 0118.)
 
+### Weather-driven heat runs at the calendar's pace [0187, 2026-11-23]
+The developer's call, on the water-phases spike's rate question (`prototypes/water-phases/README.md`, its option 3):
+the game's year is 52 times shorter than a real one, so **heat exchanged with the air and the sky** (a pond under
+winter air, an ice block in a warm biome, snow) runs faster by that same factor (the real year over the game's,
+derived from the sky's rows, not a typed 52), and a winter grows a real winter's ice. **Heat a source drives**
+(a fire, a furnace, lava, the rock's own heat) stays at real rates. Known cost, accepted: against the air a small
+thing cools faster than a fire warms it, so a pot's loss to the air is taken at the real rate while a source
+heats it.
+
 ### Fluids are rows; lava, with no mixing [0186, 2026-11-23]
 `data/fluids.toml` (`crates/engine/src/fluids.rs`, built in): a row a fluid, its place its kind (row 0 water,
 rows only added at the end): `name`, `density` (kg/m3), `viscosity` (a whole number), `colour`, `light` (as a
