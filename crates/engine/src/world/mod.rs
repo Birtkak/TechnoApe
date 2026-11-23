@@ -103,12 +103,16 @@ pub const MANTLE_STEP: i32 = 256;
 /// the basins' limestone in place of ADR 0063's worm (0161-karst-caves), 4 Luna's rock field (0165-bake-stages:
 /// anorthosite highlands, mare basalt over anorthosite in the maria; Terra as at 3), 5 Mars, the third body
 /// (`bodies::Row::since`; Terra and Luna as at 4), 6 the gas giant, the fourth (step 6a; the three as at 5).
-pub const GENERATION: u8 = REAL;
+pub const GENERATION: u8 = DEEP_BODIES;
 /// The generation of real gravity (ADR 0181): every body's pull from its own mass (Luna of the Moon's
 /// make-up, `bodies::Row::makeup_at`), the periods by Kepler's law from the masses, the sun's mass from its row,
 /// tides from the masses and distances, water by its body's pull, and Terra's map baked over that year. A world of
 /// an earlier generation keeps all of it as it was (its recordings replay to the bit).
 pub const REAL: u8 = 8;
+/// The generation of the deep grid on every body (the developer, 2026-11-23: "everything gets a deep grid"): every
+/// body with blocks big enough for the deep crust, not the home alone, has its grid carried down to its core's top
+/// (`Body::with_mantle`); a liquid core is a metal sea under it, a solid one a closed floor of metal.
+pub const DEEP_BODIES: u8 = 9;
 
 /// The home's year in a world of generation `gen` whose home has `planet_n` columns and its moon its row's,
 /// seconds: the sky's own (built without a map), which the bake runs its climate over (`bake::Map::year`).
@@ -266,6 +270,8 @@ impl CaveCols {
 
 /// The light a layer-0 cell open down to the metal sea gives (draft the metal sea): a warm lamp's, as strong as the lamp block (25 open cells at 3.0 burnt a 5 x 5 shaft white).
 pub const CORE_LIGHT: [f32; 3] = [1.0, 0.66, 0.26];
+/// A solid core's metal: layer 0 of a deep body without a metal sea (`Body::rock`).
+static CORE_METAL: std::sync::LazyLock<u16> = std::sync::LazyLock::new(|| BLOCKS.id("iron-nickel"));
 
 pub struct Body {
     /// Its row's name in `data/bodies.toml`: Terra, Luna.

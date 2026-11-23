@@ -58,8 +58,12 @@ impl Body {
     /// that has formed there (ADR 0158): by the pressure and heat of the column at sea level
     /// (isostasy: the same at a radius under hill and sea), the province's heat under the column's air, each
     /// boundary moved by the column's wobble.
+    /// Layer 0 over a solid core (a deep body with no metal sea, `World::closed_floor`) is the core's metal.
     pub fn rock(&self, rock: Rock, r: f32, fallback: u16) -> u16 {
         if self.mantle > 0 && (r as f64) < self.interior.moho() + MANTLE_LIFT {
+            if self.core.is_none() && (r as f64) < self.layer_r(1.0) {
+                return *CORE_METAL;
+            }
             let sea = self.radius - SEA_DEPTH;
             let heat = rock.air + ROCKS.provinces.get(rock.province as usize).map_or(0.0, |p| p.heat) * (sea - r as f64).max(0.0) as f32;
             let p = ATM + self.rock_weight(sea, r as f64 - rock.wobble as f64);

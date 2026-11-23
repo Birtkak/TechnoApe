@@ -30,8 +30,8 @@ impl World {
         World::with_grid(planet_n, moon_n, seed, map, luna, warp, 0)
     }
     /// `with_maps_warp`, the planet of generation `gen` (`Body::gen`): from 1 its grid goes down through the
-    /// mantle (ADR 0152; generation 0, a save from before, keeps its 192 m floor). Luna and a planet too small for
-    /// a deep crust keep theirs.
+    /// mantle (ADR 0152; generation 0, a save from before, keeps its 192 m floor); every other body with blocks from
+    /// `DEEP_BODIES`, before it its old floor. A body too small for a deep crust keeps its floor.
     /// The bodies are the rows of generation `gen` (`bodies::of`: Mars from 5); one after the home's moon is on
     /// its own bake when the home is on a map (a baked world), else on the seed's noise.
     pub fn with_grid(planet_n: i32, moon_n: i32, seed: i32, map: Option<Arc<Map>>, luna: Option<Arc<Map>>, warp: f64, gen: u8) -> Self {
@@ -139,9 +139,10 @@ impl World {
             b.interior = Interior::new(row.makeup_at(gen), b.radius, spin, first.as_ref());
             first.get_or_insert_with(|| b.interior.clone());
             // every body is of the world's generation (from 4 Luna's rock field asks it); the home's grid goes down
-            // through the mantle from 1
+            // through the mantle from 1, every body's with blocks from DEEP_BODIES (one too small for the deep crust
+            // gets none, as a small home)
             b.gen = gen;
-            if row.home && gen >= 1 {
+            if row.home && gen >= 1 || gen >= DEEP_BODIES && !row.gas() {
                 b = b.with_mantle();
             }
             bodies.push(match map {
