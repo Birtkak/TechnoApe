@@ -50,7 +50,13 @@ every number. Ground truth: `docs/design/vision.md`, `fundamentals.md`, `progres
   the climb to orbit; water by its body's gravity and tides as a force (`docs/design/liquids.md` steps 1, 2); a
   finite sea; plants placed clear of the tidal band. **Open until `prototypes/tide-force` has numbers:** the
   eclipse-fitted sizes and distances against derived tides; whether days, months and years follow from the
-  masses. **Open, no lean:** the gas giant as a drawn disc with no air to enter.
+  masses. **Open, no lean:** the gas giant as a drawn disc with no air to enter. **Cores, fields and deep grids**
+  [0182, 2026-11-23]: a planet or moon has a liquid core when it is big and hot enough (its row's `heat`), and its
+  magnetic field follows from that liquid, its size and its spin (`Interior::field`: liquid share times spin, in
+  Terra's units), never set by hand; Mars has a core but basically no field (her row: a core, `heat` 0, so all
+  solid). Every body with blocks gets a deep grid down to its core (replaces 0179's closed floor as the rule; it
+  stays only as the top of a solid core). Open: `heat` is still a row value, not derived from size and age; the
+  field does not read the body's size beyond its liquid share.
 
 ## Engine and code
 
