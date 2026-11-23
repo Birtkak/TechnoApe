@@ -196,3 +196,4 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0185 | A field needs a churning core; Mars's core is liquid | [bodies-and-orbits.md](bodies-and-orbits.md) - A field needs a churning core | in force |
 | 0186 | Fluids are rows of data/fluids.toml; lava, one kind a gap, no mixing | [sky-weather-and-water.md](sky-weather-and-water.md) - Fluids are rows; lava, with no mixing | in force |
 | 0187 | Weather-driven heat runs at the calendar's pace (about 52x); source heat at real rates | [sky-weather-and-water.md](sky-weather-and-water.md) - Weather-driven heat runs at the calendar's pace | in force |
+| 0188 | Volcanoes and vents, fed by the planet's heat | [bake-and-landforms.md](bake-and-landforms.md) - Volcanoes and vents, fed by the planet's heat | in force |

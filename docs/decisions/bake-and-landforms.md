@@ -88,6 +88,13 @@ map by hash. A map is kept in the file of its own version, in the bytes of its o
   `World::baked` and `Server::baked` [0043]. A world saved on a v2 map before ADR 0058 moved under its edits (the hash is
   unchanged so it is not detected; accepted, v2 was a day old) [0058].
 
+### Volcanoes and vents, fed by the planet's heat [0188, 2026-11-23]
+The developer: "it's time to add volcanoes and volcanic vents ... The heat from the planet itself will sustain".
+Terra's arcs get volcanoes with a chamber, a conduit and a crater lake of lava, and vents where the heat reaches
+the ground; all of it follows from one temperature field around the chamber, not from rules per feature
+(`docs/design/volcanoes.md`). Replaces `worldgen.md`'s "lava only as still pools deep under volcanic provinces".
+Still standing until the developer says otherwise: no eruptions and no quakes.
+
 ### Locked hashes and byte-identity
 
 - Terra's map bytes at seed 5, n 256 (v6 and v5 of it): `16ee32bb94308b73`, `065e789cbd17a892`, `5bfb7a403005f7d7`;
