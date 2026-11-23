@@ -103,9 +103,10 @@ ground = ["red dust", "mars regolith", "basalt"]
 air = false
 colour = [1.0, 0.55, 0.36]
 kind = "rocky"
-# a small core (the real one about half the radius), all solid: its dynamo died, so no field though it turns
+# a small core (the real one about half the radius), all liquid still (the seismometers found no solid inner core to
+# speak of): nothing freezes out, so it does not churn and there is no field though it turns (ADR 0185)
 iron = 0.5
-heat = 0.0
+heat = 1.0
 # a basaltic crust, a mantle richer in iron than Terra's, a core of iron with much sulphur
 density = [2900.0, 3500.0, 6700.0]
 

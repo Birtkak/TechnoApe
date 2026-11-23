@@ -557,6 +557,18 @@ Replaces: 0041's "Luna's day of one month (16 days)" and the hand-set `MONTH`, `
 generations before 8); 0067's 1 m tide (`TIDE_LUNA`, `TIDE_SUN`, `TIDE_HIGH`, kept for generations before 8);
 0162's Luna of Terra's numbers weighed by Terra's pull; 0176's month of a moon scaled from Luna's.
 
+### A field needs a churning core; Mars's core is liquid [0185, 2026-11-23]
+The developer: Mars has a liquid outer core (it does: the real one is molten, with at most a small solid centre) and
+basically no field. So liquid and spin are not enough. `Interior::field` is now liquid share x spin x **churn**, over
+Terra's: churn = heat (1 - heat), the stirring a freezing inner core gives, most when half the core is frozen, none
+when all of it is liquid or all solid. Mars's row is `heat = 1.0` (was 0.0, set to keep the field at 0): field 0 by
+the rule, and with the deep grid of 0184 a metal sea under her mantle from generation 9. A gas body keeps the old rule
+(its conducting fluid is no freezing core). Not gated by generation: only the client's aurora reads the field, and
+Mars's `heat` reaches nothing in a world before 9 (no grid down there).
+Alternatives rejected: a per-row `dynamo` switch (a pull set by hand in other words); churn from size and age (no
+cooling model yet). Open: `heat` is still a row value; early thermal dynamos (a young all-liquid core does churn).
+Replaces: 0162's field of liquid share x spin alone.
+
 ## No longer holds
 
 - (0181, real gravity) For generation 8 on: 0041's 16-day month and 54-day year and 0067's 1 m tide at springs

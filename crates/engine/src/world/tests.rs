@@ -680,6 +680,80 @@ fn a_body_without_a_metal_sea_has_a_closed_floor() {
     assert_eq!(changes(&w, &Shape::one(t), AIR, |_| false).len(), 1, "Terra's layer 0 opens onto her metal sea");
 }
 
+/// Generation 9 (`DEEP_BODIES`): on the 4 km planet every body with blocks has the deep grid, as Terra: carried down
+/// to within half a mantle step of its core's top (its row's `iron` of its radius), every layer of the old grid at
+/// the same radius at its index plus the mantle's. A generation 8 world keeps every grid to the bit; the giant has none.
+#[test]
+fn every_body_with_blocks_has_the_deep_grid_from_generation_9() {
+    let (n, m) = (6144, crate::bodies::moon_columns(6144));
+    let (old, new) = (World::with_grid(n, m, 1, None, None, 0.0, 8), World::with_grid(n, m, 1, None, None, 0.0, DEEP_BODIES));
+    for (i, name) in [(1, "Luna"), (2, "Mars"), (4, "Callisto")] {
+        let (a, b) = (&old.bodies[i], &new.bodies[i]);
+        assert_eq!(b.name, name);
+        let plain = Body::new(a.centre, a.n, 1 + i as i32);
+        assert_eq!((a.mantle, a.r0.to_bits(), a.layers, a.core), (0, plain.r0.to_bits(), plain.layers, None), "{name}: generation 8 keeps its grid");
+        let core = b.radius * b.interior.core_share();
+        assert!(b.mantle > 0 && b.mantle % MANTLE_STEP == 0, "{name}: mantle {}", b.mantle);
+        assert!((b.r0 / core).ln().abs() <= b.lnq * MANTLE_STEP as f64 / 2.0, "{name}: layer 0 at {} m, its core's top at {core} m", b.r0);
+        assert_eq!(b.layers, a.layers + b.mantle);
+        for z in [0, 1, 100, a.layers - 1] {
+            assert!((b.layer_r((z + b.mantle) as f64 + 0.5) - a.layer_r(z as f64 + 0.5)).abs() < 1e-6, "{name}: layer {z}");
+        }
+    }
+    assert_eq!((new.bodies[3].gas, new.bodies[3].mantle), (true, 0), "the giant has no grid");
+    assert_eq!(new.bodies[0].mantle, old.bodies[0].mantle, "Terra's as before");
+}
+
+/// Generation 9: a body whose core holds liquid (Luna's thin shell, heat 0.05) has the metal sea at the bottom of its
+/// layer 0, as Terra (Mars too, her core all liquid, ADR 0185); one whose core is all solid (Callisto, heat 0; a rocky
+/// one's floor would be iron-nickel, `Body::rock`, which no row has today) has none, and its layer 0 is the closed
+/// floor (ADR 0179), which no dig takes: a rocky body's of its core's metal, iron-nickel, the icy moon's of rock (its
+/// row's core is rock). The old floor's layer (generation 8's layer 0) is mantle now and digs, and the rock under it
+/// is solid rock down to the floor.
+#[test]
+fn a_deep_body_ends_on_its_core_a_metal_sea_or_a_closed_floor_of_metal() {
+    use crate::edit::{changes, Shape};
+    let (n, m) = (6144, crate::bodies::moon_columns(6144));
+    let mut w = World::with_grid(n, m, 1, None, None, 0.0, DEEP_BODIES);
+    let metal = crate::blocks::BLOCKS.id("iron-nickel");
+    for (i, name, liquid, floor) in [(1, "Luna", true, false), (2, "Mars", true, false), (4, "Callisto", false, false)] {
+        let b = &w.bodies[i];
+        assert_eq!((b.interior.liquid > 0.0, b.core.is_some()), (liquid, liquid), "{name}: liquid in its core, a metal sea");
+        let at = |z: i32| Block { body: i as u8, face: 3, pos: IVec3::new(100, 80, z) };
+        let k = b.mantle;
+        assert_eq!(changes(&w, &Shape::one(at(k)), AIR, |_| false).len(), 1, "{name}: the old floor's layer digs");
+        for z in (1..k).step_by(97) {
+            let got = w.block(at(z));
+            assert!(crate::blocks::BLOCKS.solid(got) && got != metal, "{name}: layer {z} is rock ({got})");
+        }
+        assert_eq!(w.closed_floor(at(0)), !liquid, "{name}");
+        if !liquid {
+            assert_eq!(w.block(at(0)) == metal, floor, "{name}: its floor is its core's metal, or an icy core's rock");
+            let metal = w.block(at(0));
+            assert!(crate::blocks::BLOCKS.solid(metal), "{name}: its floor is solid");
+            assert!(changes(&w, &Shape::one(at(0)), AIR, |_| false).is_empty(), "{name}: the floor takes no dig");
+            w.set_block(at(0), AIR);
+            assert_eq!(w.block(at(0)), metal, "{name}: nor an edit");
+        }
+    }
+}
+
+/// Generation 9 changes no body's surface: the ground's radius and the first air's over it are generation 8's
+/// at a spread of columns of every body with blocks.
+#[test]
+fn the_deep_grid_keeps_every_surface_where_it_was() {
+    let (n, m) = (6144, crate::bodies::moon_columns(6144));
+    let (old, new) = (World::with_grid(n, m, 1, None, None, 0.0, 8), World::with_grid(n, m, 1, None, None, 0.0, DEEP_BODIES));
+    for i in [0, 1, 2, 4] {
+        let (a, b) = (&old.bodies[i], &new.bodies[i]);
+        for (f, x, y) in [(0u8, 10, 20), (2, a.n / 2, a.n / 3), (3, 100, 80), (5, a.n - 7, 3)] {
+            let (ha, hb) = (a.col_height(f, x, y), b.col_height(f, x, y));
+            assert_eq!(ha.to_bits(), hb.to_bits(), "body {i} column ({f}, {x}, {y})");
+            assert!((a.layer_r(a.first_air(ha) as f64) - b.layer_r(b.first_air(hb) as f64)).abs() < 1e-6, "body {i}: the first air");
+        }
+    }
+}
+
 /// Step 6c: a generation 7 world has the giant's icy moon as its fifth body (6 keeps four). It is posed on the giant
 /// (its distance from it constant, following it round the sun), locked (the same face to it over an orbit), once a
 /// period by Kepler's law scaled from Luna's month by the parent's mean density (an hour or more of play, a whole

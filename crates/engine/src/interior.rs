@@ -42,6 +42,8 @@ pub struct Interior {
     /// The magnetic field's strength over the first body's as its row is written (1 for Terra, 0 without a
     /// liquid core).
     pub field: f64,
+    /// How hard its core churns (`new`): heat (1 - heat), the stirring of a freezing inner core.
+    pub churn: f64,
     /// The pull's profile (`pull`): the core's radius over the body's, its density over the mantle's, the
     /// core's share of the volume, and the mass over a body all of mantle rock.
     core_x: f64,
@@ -73,8 +75,14 @@ impl Interior {
         let liquid = ball * (rc.powi(3) - ri.powi(3));
         let liquid_share = liquid / (ball * radius.powi(3));
         let (unit, unit_spin) = first.map_or((liquid_share, spin), |f| (f.liquid_share, f.spin));
-        let field = if liquid_share > 0.0 && unit > 0.0 { liquid_share / unit * (spin / unit_spin) } else { 0.0 };
-        Interior { radius, zones, mass, k, surface_g, weight_g: m.weight_g.unwrap_or(surface_g), liquid, liquid_share, spin, field, core_x: m.iron, ratio, a3, norm }
+        // the dynamo is the liquid churning (ADR 0185): a core's metal convects while its inner core freezes out, most
+        // when half is frozen, not at all when none is (Mars: liquid, still, no field) or all is; a gas body's
+        // conducting fluid is not a freezing core, so it churns as the first body's does
+        let churn = m.heat * (1.0 - m.heat);
+        let unit_churn = first.map_or(churn, |f| f.churn);
+        let stir = if m.kind == crate::bodies::Kind::Gas { 1.0 } else if unit_churn > 0.0 { churn / unit_churn } else { 0.0 };
+        let field = if liquid_share > 0.0 && unit > 0.0 { liquid_share / unit * (spin / unit_spin) * stir } else { 0.0 };
+        Interior { radius, zones, mass, k, surface_g, weight_g: m.weight_g.unwrap_or(surface_g), liquid, liquid_share, spin, field, churn, core_x: m.iron, ratio, a3, norm }
     }
     /// The pull at x = r / R over the pull at the ground (ADR 0152): the square law outside; inside, the metal
     /// core's and the rock's over it, growing going down to the core's top, then falling evenly to nothing at the
@@ -241,7 +249,9 @@ mod tests {
         let first = Interior::new(&rocky(0.5, 0.5), R, SPIN, None);
         assert_eq!(first.field, 1.0, "the unit");
         let at = |heat: f64, spin: f64| Interior::new(&rocky(0.5, heat), R / 2.0, spin, Some(&first)).field;
-        assert!(at(0.2, SPIN) < at(0.5, SPIN) && at(0.5, SPIN) < at(0.9, SPIN));
+        assert!(at(0.2, SPIN) < at(0.5, SPIN), "more liquid, more field");
+        // (ADR 0185) a core that no longer freezes does not churn: all liquid, no dynamo (the real Mars)
+        assert!(at(0.9, SPIN) < at(0.5, SPIN) && at(1.0, SPIN) == 0.0, "an all-liquid core has no field: {}", at(1.0, SPIN));
         assert!(at(0.5, SPIN / 30.0) < at(0.5, SPIN) && at(0.5, SPIN) < at(0.5, SPIN * 2.0));
         assert!(rel(at(0.5, SPIN), 1.0) < 1e-12, "its size does not change it");
         assert_eq!(at(0.0, SPIN), 0.0);

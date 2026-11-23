@@ -20,7 +20,7 @@ impl Body {
         // small bodies keep half their radius; the deep ground lies under the old floor, layer for layer
         let r0 = (radius - CRUST.min(radius * 0.5)) * (-lnq * deep_layers(n) as f64).exp();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { name: String::new(), air: false, gas: false, parent: INERTIAL, orbit: 0.0, period: 0.0, year: crate::sky::YEAR, tide_high: crate::sky::TIDE_HIGH, day: 0.0, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, warp: 0.0, layers, mantle: 0, gen: 0, noise, sea: None, core: None, interior: Interior::new(&BODIES[0].makeup, radius, crate::interior::spin(None, crate::sky::YEAR, crate::sky::YEAR), None), land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), cave_cols: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
+        Body { name: String::new(), air: false, gas: false, icy: false, parent: INERTIAL, orbit: 0.0, period: 0.0, year: crate::sky::YEAR, tide_high: crate::sky::TIDE_HIGH, day: 0.0, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, warp: 0.0, layers, mantle: 0, gen: 0, noise, sea: None, core: None, interior: Interior::new(&BODIES[0].makeup, radius, crate::interior::spin(None, crate::sky::YEAR, crate::sky::YEAR), None), land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), cave_cols: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
     }
     /// The body as it was before its map (step 6b): a stub of a body whose ground is not in, and what `World::loader`
     /// gives its map to, its noise made again of its seed `seed`. Only for a body not yet on a map (its land is none).
@@ -58,8 +58,13 @@ impl Body {
     /// that has formed there (ADR 0158): by the pressure and heat of the column at sea level
     /// (isostasy: the same at a radius under hill and sea), the province's heat under the column's air, each
     /// boundary moved by the column's wobble.
+    /// Layer 0 over a solid core (a deep body with no metal sea, `World::closed_floor`) is the core's metal; an icy
+    /// body's core is rock (its row's), so its floor is stone.
     pub fn rock(&self, rock: Rock, r: f32, fallback: u16) -> u16 {
         if self.mantle > 0 && (r as f64) < self.interior.moho() + MANTLE_LIFT {
+            if self.core.is_none() && (r as f64) < self.layer_r(1.0) {
+                return if self.icy { GEN[2] } else { *CORE_METAL };
+            }
             let sea = self.radius - SEA_DEPTH;
             let heat = rock.air + ROCKS.provinces.get(rock.province as usize).map_or(0.0, |p| p.heat) * (sea - r as f64).max(0.0) as f32;
             let p = ATM + self.rock_weight(sea, r as f64 - rock.wobble as f64);

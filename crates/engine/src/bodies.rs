@@ -560,7 +560,7 @@ mod tests {
         assert_eq!(b.0, [Stage::Crust, Stage::Impacts, Stage::Volcanism, Stage::Erosion, Stage::Ice]);
         assert_eq!(b.2, Some(Planet { name: "Mars".into(), age: 1.0, icy: None }));
         assert_eq!(b.version(), crate::bake::mars::VERSION);
-        assert_eq!((m.makeup.kind, m.makeup.iron, m.makeup.heat, m.makeup.density), (Kind::Rocky, 0.5, 0.0, [2900.0, 3500.0, 6700.0]));
+        assert_eq!((m.makeup.kind, m.makeup.iron, m.makeup.heat, m.makeup.density), (Kind::Rocky, 0.5, 1.0, [2900.0, 3500.0, 6700.0]));
         assert_eq!(m.sun, Some(1.5 * 23500.0 * 1.85), "1.5 AU in its radii");
     }
 

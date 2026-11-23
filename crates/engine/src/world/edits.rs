@@ -164,7 +164,9 @@ impl World {
         light
     }
     /// Whether cell b is a closed floor (ADR 0179): layer 0 of a body with no metal sea under it, which
-    /// nothing digs or edits, so nothing is ever open under the grid.
+    /// nothing digs or edits, so nothing is ever open under the grid. From generation 9 (`DEEP_BODIES`) on a body
+    /// with the deep grid that is the top of its solid core, iron-nickel (`Body::rock`); on one too small for it, or
+    /// in an older world, the old floor of rock.
     pub fn closed_floor(&self, b: Block) -> bool {
         b.pos.z == 0 && self.bodies[b.body as usize].core.is_none()
     }

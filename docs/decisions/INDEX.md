@@ -192,3 +192,5 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0181 | Real gravity: one G, Kepler's periods, derived tides (generation 8) | [bodies-and-orbits.md](bodies-and-orbits.md) - Real gravity | in force |
 | 0182 | Liquid cores, derived magnetic fields, a deep grid for every body | [vision-and-scope.md](vision-and-scope.md) - The developer's calls | in force |
 | 0183 | A bare bones model of the universe: matter changes phase, water first | [vision-and-scope.md](vision-and-scope.md) - The developer's calls | in force |
+| 0184 | Every body with blocks gets the deep grid (generation 9) | [deep-world.md](deep-world.md) - Every body gets the deep grid | in force |
+| 0185 | A field needs a churning core; Mars's core is liquid | [bodies-and-orbits.md](bodies-and-orbits.md) - A field needs a churning core | in force |

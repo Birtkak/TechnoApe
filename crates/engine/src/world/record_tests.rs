@@ -90,7 +90,8 @@ fn the_worlds_field_is_the_interiors() {
     let w = World::with_grid(6144, 1664, 1, None, None, 0.0, 1);
     assert_eq!(w.field(0), 1.0, "Terra is the unit");
     assert_eq!(w.field(1), w.bodies[1].interior.field, "Luna's is her interior's");
-    assert!((w.field(1) - 0.0119).abs() < 5e-4, "Luna {}", w.field(1));
+    // (ADR 0185: 0.0119 by her liquid and spin, times her nearly frozen core's weak churn, 0.21 of Terra's)
+    assert!((w.field(1) - 0.0025).abs() < 2e-4, "Luna {}", w.field(1));
 }
 
 /// Today's surface pull was G times the radius over Terra's; now it is the mass over the square of the radius.

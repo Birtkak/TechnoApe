@@ -50,8 +50,9 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
 - `gen=k` (the game, the server and `report=1`): a new world of generation k (ADR
   0160-generation-number-and-arc-basalt): 0 the worlds before the mantle (as `mantle=0`), 1 the mantle's (ADR 0154,
   0159), 2 (arcs' basalt flows, round lava tubes, only copper placed for where the spawn is), 3 (karst), 4 (Luna's
-  rock field), 5 (Mars, the third body), 6 (the gas giant, the fourth), 7 the newest (the giant's icy moon, the
-  fifth). A world keeps
+  rock field), 5 (Mars, the third body), 6 (the gas giant, the fourth), 7 (the giant's icy moon, the
+  fifth), 8 (real gravity), 9 the newest (every body with blocks has the deep grid down to its core: Luna over a metal
+  sea, Mars over a closed floor of iron-nickel, Callisto of stone). A world keeps
   its generation in its save and sends it to clients and bots; `report=1` prints it as `gen`. For tests and for
   comparing one seed's worlds; a new world without it is the newest.
 - Mars (generation 5): `/goto mars` lands on its day side; `run=stand body=2 at=x,y,z` stands on it (`body=0` Terra,
