@@ -103,9 +103,24 @@ the debt is `docs/perf-debt.md`. The story is `docs/design/lore.md`.
 ## In work (2026-11-23)
 - **The story** (`docs/design/lore.md`): the ending is open on purpose (ADR 0136); `progression.md` is
   rewritten when the story is settled.
-- No branch is open. **Five F9 reports wait unfixed** (`bugs/`): a reed's aim outline takes the whole cell
-  (11-19); the view flips at every block fallen on a low-gravity moon, the moon cannot be mined, Mars does not
-  turn, a block placed in the tide glitches away and tides should be real water (all 11-21).
+- **The 11-21 bug round is done** (four reports fixed; the tide report became real gravity, ADR 0181).
+- **The world as a bare bones model** (the developer's queue of 2026-11-23, "add all the missing generation
+  and fluids mixing and reacting, heat and phase change, gases near the ground, fire that spreads and lava
+  basics"). One at a time in the engine's world and liquid code, a report after each; spikes run beside it.
+  Tests and filmstrips only, speed in the batch after (principle 14).
+  1. Volcanoes on Terra's arcs: cone, chamber, conduit, a lake of generated lava (`volcanoes.md`; in work).
+  2. Lava basics: block light, it holds up and hurts a player, it freezes to basalt away from the heat.
+  3. Fluid layers and reactions (`liquids.md` step 4): oil on water, lava into water gives rock and steam.
+  4. Heat and water's phases in the engine (step 5, ADR 0183 and 0187), with a geotherm from the interior.
+  5. Eruptions, then vents (fumaroles, hot springs) and their rocks (obsidian, scoria, pumice, sulfur).
+  6. Ground water: a water table, wet caves (rivers, lakes, dripstone), springs (spike: `prototypes/ground-water`).
+  7. Ice by physics (the sheet's thickness, glaciers) and snow that falls and lies as counted water.
+  8. Gases near the ground (steam, smoke, heavy gas in hollows; spike: `prototypes/near-gas`), then fire that
+     spreads.
+  9. Sea caves and coastal cliffs.
+  10. Soil (moisture, fertility), then living plants (W7: growth, spread, felled trees).
+  11. The other bodies' detail: their deep floors and metal seas looked at in game.
+  Not in this queue: the looks of rocks, ores, rivers and Luna (the developer's, in the Studio).
 
 ## Next
 In this order unless the developer says otherwise (the developer's order of 2026-11-14 first).
