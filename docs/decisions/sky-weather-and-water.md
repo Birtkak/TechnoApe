@@ -63,8 +63,7 @@ The server simulates; clients show it [0020].
 
 ### Snow lies in thin layers that build and melt [0189, 2026-11-23]
 The developer: "have snow be smaller layers that build or melt over time", a slice of a block as in Minecraft,
-"but our world interactions". Snow on the ground is a layer of a block's height in steps (eighths is the first
-guess), not a whole block. It is counted water: what falls leaves the air's vapour, a layer is its units, and
+"but our world interactions". Snow on the ground is a layer of a block's height in eighths, not a whole block. A player sinks into layers (feet on the ground under them, slowed by their depth) and walks on top of a full snow block. It is counted water: what falls leaves the air's vapour, a layer is its units, and
 melt gives them back as water that runs off or soaks in (one ledger, ADR 0183). It builds where snow falls on
 ground under freezing and melts by the heat at the place (air, sun, a fire, lava) at ADR 0187's paces; enough
 layers make a snow block, and deep old snow is where glaciers come from. Replaces the bake's fixed snow cover
