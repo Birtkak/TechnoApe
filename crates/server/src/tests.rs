@@ -1488,7 +1488,8 @@ fn a_client_told_generation_1_2_or_3_builds_that_worlds_rock() {
         let (seed, planet_n, moon_n, told) = welcome.expect("a welcome");
         assert_eq!(told, gen, "the welcome says the world's generation");
         // as the bot and the client do on a welcome: the same ground as the server's, caves and all
-        let w = World::with_grid(planet_n, moon_n, seed, Some(engine::bake::get(seed, planet_n)), None, 0.0, told);
+        // the map of the generation told (`get_at`: version 7 before real gravity), as the welcome's hash fetches it
+        let w = World::with_grid(planet_n, moon_n, seed, Some(engine::bake::get_at(seed, planet_n, told)), None, 0.0, told);
         assert!(w.bodies[0].caves == s.world.bodies[0].caves, "generation {gen}: the client's caves differ from the server's");
         w
     });
