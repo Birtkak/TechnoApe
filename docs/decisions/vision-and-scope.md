@@ -39,10 +39,12 @@ every number. Ground truth: `docs/design/vision.md`, `fundamentals.md`, `progres
   liquids' part is in sky-weather-and-water.md]. **A stronger constant of gravity** [0180, 2026-11-23]: this universe's G is the one at which Terra's own mass
   (her row's densities and radius) pulls 19.62 m/s^2 at her surface, about 3,550 times the real one (2.4e-7; the
   exact value is computed from her row when built). No body's pull is set by hand after that: every pull, orbit,
-  month, year and tide follows from masses, distances and that one G. The bodies' rows (masses, distances) are
-  then re-placed so that playing feels as before: Terra's pull, the day, the look of Luna and the sun and their
-  eclipses first; what cannot be kept is put to the developer with numbers before it is built. Replaces: Terra's
-  and Luna's `weight_g`. **Kept as they are:** the water's 16 m cap on a deep wave's speed; a tide with no lag or resonance in the open sea; the air as a
+  month, year and tide follows from masses, distances and that one G. After `prototypes/tide-force` (derived tides on
+  Terra are millimetres; Luna orbits 1.9 times too fast for Terra's mass; the sun has no mass) the developer
+  dropped "playing feels the same" and the eclipse-fitted sizes and distances (the eclipse call of 0027/0037 no
+  longer binds): everything is made real under the one G, free to change anything, each choice one row value, and
+  the developer picks what to keep or revert from `docs/design/real-gravity-changes.md`. Replaces: Terra's and
+  Luna's `weight_g`, `TIDE_LUNA`/`TIDE_SUN`, the hand-set periods. **Kept as they are:** the water's 16 m cap on a deep wave's speed; a tide with no lag or resonance in the open sea; the air as a
   coarse grid, with gravity and tides added to it. **To make real:** every other body's pull derived the same
   way (Luna's is set by hand to Terra's today); gravity that falls off with height and bodies moved by it, before
   the climb to orbit; water by its body's gravity and tides as a force (`docs/design/liquids.md` steps 1, 2); a

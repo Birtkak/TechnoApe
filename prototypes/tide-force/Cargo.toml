@@ -1,0 +1,13 @@
+[package]
+name = "tide-force"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+engine = { path = "../../crates/engine" }
+
+[profile.release]
+codegen-units = 1
