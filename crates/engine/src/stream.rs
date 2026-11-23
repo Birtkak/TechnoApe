@@ -1297,6 +1297,8 @@ mod tests {
     fn every_chunk_an_edit_changes_is_sampled() {
         let lamp = crate::blocks::BLOCKS.id("lamp");
         let mut w = World::new(1536, 64, 1337);
+        // (level 4's corner cell is layer 0: open it as over a metal sea, or the closed floor takes no edit)
+        w.body_mut(0).core = Some(0.0);
         w.open_far();
         let top = w.air_over_ground(0, w.bodies[0].spawn);
         for level in 0..=4u8 {

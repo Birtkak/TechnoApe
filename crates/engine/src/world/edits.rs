@@ -163,9 +163,15 @@ impl World {
         }
         light
     }
+    /// Whether cell b is a closed floor (ADR draft: closed floor): layer 0 of a body with no metal sea under it, which
+    /// nothing digs or edits, so nothing is ever open under the grid.
+    pub fn closed_floor(&self, b: Block) -> bool {
+        b.pos.z == 0 && self.bodies[b.body as usize].core.is_none()
+    }
     pub fn set_block(&mut self, b: Block, m: u16) {
-        // gas has no blocks (step 6a): nothing is placed or dug there
-        if self.bodies[b.body as usize].gas {
+        // gas has no blocks (step 6a): nothing is placed or dug there; nor on a closed floor (a save's edit from before
+        // is dropped, so its hole closes)
+        if self.bodies[b.body as usize].gas || self.closed_floor(b) {
             return;
         }
         self.tally(b, m);

@@ -89,6 +89,7 @@ impl Shape {
 pub fn changes(world: &World, shape: &Shape, m: u16, keep_clear: impl Fn(Block) -> bool) -> Vec<(Block, u16)> {
     shape
         .cells()
+        .filter(|&b| !world.closed_floor(b))
         .filter_map(|b| {
             let old = world.block(b);
             let does = if m == AIR { old != AIR } else { old == AIR && !(BLOCKS.solid(m) && keep_clear(b)) };
@@ -108,7 +109,7 @@ pub fn dig_time(world: &World, shape: &Shape) -> f32 {
 /// any other its bare-hand time.
 pub fn dig_time_with(world: &World, shape: &Shape, tool: Option<&crate::items::Tool>) -> f32 {
     let time = |d: &crate::blocks::Def| tool.filter(|t| t.fits(d)).map_or(d.hardness, |t| d.hardness / t.speed);
-    shape.cells().filter_map(|b| BLOCKS.get(world.block(b))).filter(|d| d.solid).map(time).fold(0.0, f32::max)
+    shape.cells().filter(|&b| !world.closed_floor(b)).filter_map(|b| BLOCKS.get(world.block(b))).filter(|d| d.solid).map(time).fold(0.0, f32::max)
 }
 
 /// Seconds a half-dug shape keeps its progress after its player looks away or lets go (ADR 0034).
