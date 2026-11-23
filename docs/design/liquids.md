@@ -1,0 +1,99 @@
+# Liquids and gases as one system
+
+- **Status:** design proposal, 2026-11-23. The developer's calls are in ADR 0177
+  (`docs/decisions/sky-weather-and-water.md`); everything else here is a routine default until its spike has
+  measured it. It builds on the water of ADR 0020 (`crates/engine/src/liquid.rs`), the tides of ADR 0067, the air
+  grid of ADR 0060 (`air.md`) and the pipes of `networks.md`.
+- **Why now:** an F9 report (`bugs/2026-11-21_18-21-24`): a block placed in the tidal band makes the sea glitch.
+  The tide is a formula on the untouched sea and a vertex offset in the shader; stored water never feels Luna, it
+  is only woken once a second where it borders the open sea. The glitch lives in that seam. The developer:
+  "I don't want to fake things".
+
+## The rule
+
+**One physics, two ways to hold it.** A fluid at rest and untouched is held by a formula (generated from the
+seed and the sky, like terrain: nothing stored, nothing sent). A fluid that was touched is held as counted
+units and simulated. The formula is **the state the simulation settles to**, so a place behaves the same the
+moment it becomes stored. A test holds every formula to that: store a stretch of untouched fluid, step it, and it
+does not move.
+
+What is fake today, by that rule:
+1. **Gravity.** `liquid.rs` has `9.81` in `CG` and `fall_cap`; Terra pulls 19.62 (ADR 0132) and every body
+   has its own. Water flows the same on Callisto as on Terra.
+2. **The tide.** Stored water has no tidal term; `retide` nudges it at the stored edge.
+3. **One liquid.** A gap holds one number, so nothing can lie on, sink through or react with water.
+
+## Forces
+
+The acceleration on a link between two columns is the gradient of one **head**: the surface height times the
+body's pull at that depth, plus the tidal potential of every other body.
+
+- **Gravity** comes from the body (`Interior::weight_g`, falling off inward as the deep world already computes
+  it for pressure). `CG` and `fall_cap` take it per body; waves run at sqrt(g depth) for that g.
+- **Tides** from the general form of today's `Sky::tide`: for each other body k of mass M_k at distance d_k,
+  the equilibrium rise is `h_k (3 (up . dir_k)^2 - 1) / 2` with `h_k` from M_k, d_k and the body's own radius
+  and pull. Luna and the sun on Terra are two terms of the same sum; Jupiter on Callisto is a third (and large:
+  a locked moon carries a fixed bulge, which the bake's sea level should already include). Amplitudes are then
+  derived, not `TIDE_LUNA = 0.5`; a per-body `tide_scale` keeps the play value the developer likes (small
+  planets exaggerate, as relief does).
+- The untouched sea's level stays `mean + tide(up, t)`, the equilibrium of that head. Stored water gets the
+  same term as a head offset on every link, so a harbour, a tide pool and a tide mill work with no special rule,
+  and `retide` and the dead band go.
+- **Open:** equilibrium tides have no lag and no resonance (a real bay amplifies). A stored bay will show its
+  own slosh; the open sea will not. That is honest by the rule above only at rest; say so, and measure it.
+
+## Fluids are rows
+
+`data/fluids.toml`, a row a fluid: `density`, `viscosity` (the link's friction), `freeze`/`boil` points and
+what it turns into, `heat` capacity, look, and `reacts = [{ with, gives, heat }]`.
+
+First rows (the developer's list): **water, lava, liquid metals** (one row a metal, from the material's row:
+copper, tin, bronze, iron; the metal sea of ADR 0156 is one), **oil, toxic sludge**.
+
+## Mixing in the world
+
+A gap holds a **stack of layers** sorted by density (oil on water on sludge on metal), each a count of units
+of one fluid. Each layer flows by its own surface's head, pressed by the layers over it. Cost stays by area: a
+column with one fluid is today's one number.
+
+- **Displacement:** a denser fluid arriving sinks under a lighter one, a step at a time, with a rate.
+- **Reactions** where two layers meet or a fluid meets a block, from the rows: lava and water give rock
+  (basalt, obsidian by how fast) and steam; hot metal and water give steam violently; sludge poisons water
+  (a pollutant count riding in the water, the same units the air grid carries); oil burns.
+- **Heat** rides with the fluid (a temperature a layer), as `networks.md` already plans for pipes. Lava
+  cools to rock from the edge; metal freezes in a mould; water freezes to ice and boils to steam.
+- **The ledger** counts every fluid apart, and a reaction books what it consumed and made, so `counted()` stays
+  exact per fluid. A pipe's open end, a tank and a bucket use the same units.
+- **Open:** miscible pairs (sludge in water) as a concentration instead of a layer; how many layers a gap may
+  hold before the thinnest merges (a cap of 4 is the first guess).
+
+## Gases
+
+The air grid (`air.md`) is already counted and conserving, with 128 m cells. The same head moves it:
+
+- **Gravity** sets the air's scale height per body (thin on a small body, none where `air = false`).
+- **Atmospheric tides:** the same tidal potential on the air's columns gives a pressure wave twice a day; the
+  sun's heating gives a larger daily one. On Terra with Luna it is a few percent of a cell's pressure.
+- **Does it change play?** By itself, barely: a small, regular wind and pressure swing. It matters where the
+  tide is huge (a moon close to a gas giant: winds that turn with the orbit) and once machines read pressure
+  (wind power, balloons, boiling points). Proposal: put the term in, at its derived size, cost one multiply a
+  column a step; make nothing depend on it until a feature asks.
+- **Heavy gases** (smoke, CO2, sludge fumes, steam) as the grid's counted species already planned for
+  pollution: dense ones pool in hollows and caves near the ground, which needs a finer local store than 128 m
+  cells. **Open:** gas in the gaps of columns (the liquid's own structure, a compressible fluid) near players.
+
+## Steps, each with a test seen failing and a measured cost
+
+1. **Gravity per body** in `liquid.rs` (`CG`, `fall_cap` from the body). Small. Test: a dam break on Callisto
+   runs slower than on Terra by sqrt of the pulls' ratio.
+2. **Tide as a force** (spike in `prototypes/` first): the head term on links, the general tide sum, `retide`
+   removed. Test: a stored bay beside the open sea stays level with it through a tide; the F9 report's block in
+   the band leaves the sea whole. Measure: awake nodes and tick time on a coast with 100,000 stored columns.
+3. **Fluid rows and one more fluid** (lava) with no mixing: a kind per node, the ledger per fluid, the wire and
+   the save (a format change: its own decision).
+4. **Layers and reactions:** oil on water, lava into water. The mesh and the look per fluid.
+5. **Heat in fluids**, freezing and boiling; liquid metals; sludge as a pollutant.
+6. **Gases:** the tidal and gravity terms in the air grid; heavy gases near the ground.
+
+Costs to watch (principle 8, and CPU before GPU): the tide wakes every stored column on a coast twice a day;
+layers multiply the links' work in mixed columns only; reactions are edits through the ordinary queue.

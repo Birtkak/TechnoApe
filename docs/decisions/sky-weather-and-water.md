@@ -21,6 +21,13 @@ snow, wind, storms); the light snapped to texels; the globe map. What holds toda
   Claude, [0108]).
 - The light is snapped to the block texture's texels, so shadows read as pixel art, not grain [0108].
 - Creative sees the whole globe map, survival only what it has seen; survival has waypoints on the globe too [0077].
+- **Liquids and gases are one system, and nothing is faked** [0177, 2026-11-23]: an untouched fluid may follow a
+  formula as long as it is the state the simulation settles to; every fluid answers to its body's gravity and to
+  the tides of its moons and sun; the first liquids are water, lava, liquid metals, oil and toxic sludge, and they
+  mix and react in the open world, not only in machines; gases follow the same logic, with atmospheric tides where
+  they change play or the simulation. The design and its steps: `docs/design/liquids.md` (a proposal; each step is
+  spiked and measured before it is built). Replaces, when step 2 is built: 0067's tide as a level only (`retide`,
+  the shader's offset on a sea meshed once). Open: equilibrium tides have no lag; the layer cap; gases near the ground.
 - Open taste calls (colours and amounts are first guesses): every seasonal colour and how long autumn lasts [0061];
   the water's colours (`WATER_FOG`, the absorption) and how fast the underwater fog closes [0071]; foam as a thin
   broken line, not surf over the whole shelf [0071]; the Low preset does not set Water [0071]; cloud height, cell

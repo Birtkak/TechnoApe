@@ -185,3 +185,4 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0174 | A gas giant, and far bodies as points of light | [bodies-and-orbits.md](bodies-and-orbits.md) - A gas giant, and far bodies as points of light | in force |
 | 0175 | Sixteen bodies, loaded on approach | [bodies-and-orbits.md](bodies-and-orbits.md) - Sixteen bodies, loaded on approach | in force |
 | 0176 | The giant's icy moon | [bodies-and-orbits.md](bodies-and-orbits.md) - The giant's icy moon | in force |
+| 0177 | Liquids and gases are one system, and nothing is faked | [sky-weather-and-water.md](sky-weather-and-water.md) - The developer's calls | in force |
