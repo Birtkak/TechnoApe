@@ -20,7 +20,12 @@ pub const YEAR: f64 = 54.0 * DAY;
 pub const INCLINATION: f64 = 2.0 * TAU / 360.0;
 /// The sky repeats after this: 432 days are 27 months and 8 years, and the spin's sidereal turns are whole too.
 /// The poses take the time modulo it, so a world billions of seconds old keeps its angles to the nanoradian.
+/// YEAR, MONTH and PERIOD are the sky of the worlds before real gravity (`world::REAL`); from it, `Sky::real`.
 pub const PERIOD: f64 = 432.0 * DAY;
+/// The sky's repeat under real gravity (`world::REAL`): 432,000 days, so every period rounded to a whole fraction
+/// of it (`period_in`) is within 0.5 % of Kepler's (the giant's 3,700-day year the longest), and a world's angles
+/// still keep to the micrometre at the bodies' distances.
+pub const REPEAT: f64 = 432_000.0 * DAY;
 /// How much smaller the sun looks than the moon from the ground right under the moon: 5 %, as the Moon on a total
 /// eclipse is 3 to 6 % bigger than the Sun, so totality lasts about 2 s on the 4 km Terra (ADR 0041; 0.995 gave 0.2 s).
 pub const SUN_UNDER_MOON: f64 = 0.95;
@@ -41,7 +46,12 @@ const MOON0: f64 = 0.25 * TAU;
 /// An orbit's period near `kepler` seconds that the sky still repeats after: PERIOD over a whole number, so
 /// Luna's MONTH (PERIOD / 27) and the YEAR (PERIOD / 8) come back exactly.
 pub fn period(kepler: f64) -> f64 {
-    PERIOD / (PERIOD / kepler).round().max(1.0)
+    period_in(kepler, PERIOD)
+}
+
+/// `period` in a sky that repeats after `repeat` seconds.
+pub fn period_in(kepler: f64, repeat: f64) -> f64 {
+    repeat / (repeat / kepler).round().max(1.0)
 }
 
 /// The clock at the spawn (ADR 0023): world time 0 is 9 am there and a day is DAY seconds. The day (the
@@ -69,6 +79,16 @@ pub struct Sky {
     pub sun_radius: f64,
     /// The spin axis's lean, radians (`TILT`).
     pub tilt: f64,
+    /// The home's year and its first moon's period (`world::Body::period`), seconds; the year a moon's period is
+    /// reckoned against (`circle`: the home's YEAR before real gravity, a month from new moon to new moon;
+    /// infinite from it, a sidereal period); the time after which the sky repeats.
+    pub year: f64,
+    pub month: f64,
+    pub against: f64,
+    pub repeat: f64,
+    /// The sun's mass, kg: its row's density in `sun_radius` under real gravity; before it, the mass Kepler's law
+    /// needs for the hand-set YEAR (`world::World::of_sources`).
+    pub sun_mass: f64,
 }
 
 /// Where a body is and how it is turned at a moment: its frame to the inertial frame.
@@ -97,7 +117,16 @@ impl Sky {
         assert!(moon_radius < moon_orbit - planet_radius, "the moon touches or holds the planet's ground");
         let moon_seen = (moon_radius / (moon_orbit - planet_radius)).asin();
         let sun_radius = (sun_dist - planet_radius) * (SUN_UNDER_MOON * moon_seen).sin();
-        Sky { planet_radius, moon_radius, moon_orbit, sun_dist, sun_radius, tilt: TILT }
+        Sky { planet_radius, moon_radius, moon_orbit, sun_dist, sun_radius, tilt: TILT, year: YEAR, month: MONTH, against: YEAR, repeat: PERIOD, sun_mass: 0.0 }
+    }
+    /// This sky under real gravity (`world::REAL`): the home's `year` and its moon's sidereal `month` by Kepler's
+    /// law (whole fractions of `REPEAT`).
+    pub fn real(self, year: f64, month: f64) -> Sky {
+        Sky { year, month, against: f64::INFINITY, repeat: REPEAT, ..self }
+    }
+    /// A sky that only turns the home (the bake's air, `bake::air`): a sun of no size `year` long.
+    pub fn bare(tilt: f64, year: f64) -> Sky {
+        Sky { planet_radius: 1.0, moon_radius: 0.0, moon_orbit: 0.0, sun_dist: 1.0, sun_radius: 0.0, tilt, year, month: MONTH, against: YEAR, repeat: if year == YEAR { PERIOD } else { REPEAT }, sun_mass: 0.0 }
     }
     /// The sun's centre: the inertial origin.
     pub fn sun(&self, _t: f64) -> DVec3 {
@@ -105,9 +134,9 @@ impl Sky {
     }
     /// The planet: on its circle around the sun once a year, spinning once a sidereal day.
     pub fn planet(&self, t: f64) -> Pose {
-        let t = t.rem_euclid(PERIOD);
-        let a = TAU * t / YEAR;
-        let spin = SPIN0 + TAU * t * (1.0 / DAY + 1.0 / YEAR);
+        let t = t.rem_euclid(self.repeat);
+        let a = TAU * t / self.year;
+        let spin = SPIN0 + TAU * t * (1.0 / DAY + 1.0 / self.year);
         // the axis leans toward +y, where the sun stands from the planet a quarter year on: the northern summer
         let rot = DQuat::from_rotation_z(spin);
         Pose { centre: -DVec3::new(a.cos(), a.sin(), 0.0) * self.sun_dist, rot: if self.tilt == 0.0 { rot } else { DQuat::from_rotation_x(-self.tilt) * rot } }
@@ -130,13 +159,13 @@ impl Sky {
     }
     /// The moon: on its inclined circle once a sidereal month, the same face (its body -x) to the planet.
     pub fn moon(&self, t: f64) -> Pose {
-        Sky::circle(self.planet(t).centre, self.moon_orbit, MONTH, t)
+        self.circle(self.planet(t).centre, self.moon_orbit, self.month, t)
     }
     /// A moon at `radius` around a parent whose centre is `around` now (0163-n-bodies): the moon's inclined
     /// circle once a sidereal `month` (a whole fraction of PERIOD, `period`), its body -x to the parent.
-    pub fn circle(around: DVec3, radius: f64, month: f64, t: f64) -> Pose {
-        let t = t.rem_euclid(PERIOD);
-        let u = MOON0 + TAU * t * (1.0 / month + 1.0 / YEAR);
+    pub fn circle(&self, around: DVec3, radius: f64, month: f64, t: f64) -> Pose {
+        let t = t.rem_euclid(self.repeat);
+        let u = MOON0 + TAU * t * (1.0 / month + 1.0 / self.against);
         let (s, c, si, ci) = (u.sin(), u.cos(), INCLINATION.sin(), INCLINATION.cos());
         let e1 = DVec3::new(c, s * ci, s * si);
         let e2 = DVec3::new(-s, c * ci, c * si);
@@ -146,8 +175,8 @@ impl Sky {
     /// A body that circles the sun and is not the home (0163-n-bodies, until real orbits): in the ecliptic at
     /// `dist`, once a `year` (`period`), starting where the home starts, turning on the ecliptic's pole once a
     /// sidereal `day` (seconds, a whole fraction of PERIOD; 0: never turning).
-    pub fn round_sun(dist: f64, year: f64, day: f64, t: f64) -> Pose {
-        let t = t.rem_euclid(PERIOD);
+    pub fn round_sun(&self, dist: f64, year: f64, day: f64, t: f64) -> Pose {
+        let t = t.rem_euclid(self.repeat);
         let a = TAU * t / year;
         let rot = if day > 0.0 { DQuat::from_rotation_z(TAU * t / day) } else { DQuat::IDENTITY };
         Pose { centre: -DVec3::new(a.cos(), a.sin(), 0.0) * dist, rot }

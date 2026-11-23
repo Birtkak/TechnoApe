@@ -447,13 +447,13 @@ impl Air {
     /// The sun's direction in the body frame now: the sky's (`Sky::sun_dir`, its tilt and seasons), at the
     /// held day of the year while `hold` is set.
     pub fn sun_now(&self) -> DVec3 {
-        let sky = crate::sky::Sky { planet_radius: 1.0, moon_radius: 0.0, moon_orbit: 0.0, sun_dist: 1.0, sun_radius: 0.0, tilt: self.tilt };
+        let sky = crate::sky::Sky::bare(self.tilt, crate::sky::YEAR);
         sky.sun_dir(self.hold.map_or(self.t, |y| y + self.t.rem_euclid(DAY)))
     }
 
     /// The sine of the declination the seasons answer to: the sun's `season_lag` ago, or the held day's.
     pub fn season(&self) -> f32 {
-        let sky = crate::sky::Sky { planet_radius: 1.0, moon_radius: 0.0, moon_orbit: 0.0, sun_dist: 1.0, sun_radius: 0.0, tilt: self.tilt };
+        let sky = crate::sky::Sky::bare(self.tilt, crate::sky::YEAR);
         sky.sun_dir(self.hold.unwrap_or(self.t - self.p.season_lag)).z as f32
     }
 

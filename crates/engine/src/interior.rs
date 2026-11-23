@@ -155,10 +155,10 @@ pub fn constant(home: &Makeup, radius: f64) -> f64 {
 }
 
 /// A body's spin, turns a second, as the sky turns it (`sky::Sky::planet`, `circle`): the home once a sidereal
-/// day (None), a moon, its face to its parent, once a sidereal `month`.
-pub fn spin(month: Option<f64>) -> f64 {
-    use crate::sky::{DAY, YEAR};
-    month.map_or(1.0 / DAY + 1.0 / YEAR, |m| 1.0 / m + 1.0 / YEAR)
+/// day of its `year` (None), a moon, its face to its parent, once its `month` reckoned against `against`
+/// (`sky::Sky::against`: the home's YEAR before real gravity, infinite from it).
+pub fn spin(month: Option<f64>, against: f64, year: f64) -> f64 {
+    month.map_or(1.0 / crate::sky::DAY + 1.0 / year, |m| 1.0 / m + 1.0 / against)
 }
 
 #[cfg(test)]
@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn a_gas_giant_pulls_and_shields_from_its_row() {
         let r = |n: i32| n as f64 / (2.0 * std::f64::consts::PI / 3.0).sqrt();
-        let terra = Interior::new(&BODIES[0].makeup, r(6144), spin(None), None);
+        let terra = Interior::new(&BODIES[0].makeup, r(6144), spin(None, crate::sky::YEAR, crate::sky::YEAR), None);
         let g = Interior::new(&BODIES[3].makeup, r(6144 * 11), giant_spin(), Some(&terra));
         let masses = g.mass / terra.mass;
         assert!((290.0..310.0).contains(&masses), "{masses} Terra masses");
