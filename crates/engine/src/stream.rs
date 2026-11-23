@@ -1049,8 +1049,8 @@ impl Streamer {
     /// The clutter's models, the sky's time and the Clutter and Vegetation settings' densities (ADR 0082, 0091): level 0 is meshed again
     /// when the models are new, the year turns into another part (an eighth, ADR 0091) or begins again, or the density changes.
     /// shortcut: every level-0 chunk, though only those with seasonal rows change; by row when it shows in p99.
-    pub fn set_clutter(&mut self, still: &Arc<Still>, t: f64, density: [f32; 2]) {
-        let quarter = crate::clutter::stamp(t);
+    pub fn set_clutter(&mut self, still: &Arc<Still>, t: f64, year: f64, density: [f32; 2]) {
+        let quarter = crate::clutter::stamp(t, year);
         let c = &self.clutter;
         if Arc::ptr_eq(&c.0, still) && c.2 == quarter && c.3 == density {
             return;

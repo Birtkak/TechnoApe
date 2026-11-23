@@ -1757,7 +1757,7 @@ fn columns_near_spawn(s: &Server, r: i32) -> Vec<Col0> {
             let wet = b.water_at(f, i, j).is_some_and(|w| z as f64 <= w.0);
             let any = !wet && (0..4).any(|k| pick(b, seed, f, i, j, biome, top, k, 1.0, &tile.trees).is_some_and(|t| CLUTTER[t.row].kind == Kind::Pickup));
             let up = b.dir(f as usize, i as f64 + 0.5, j as f64 + 0.5);
-            let plant = plant(seed, f, i, j, biome, top, engine::clutter::part(up, 0.0) / 2, VEGETATION[2], &tile.trees).filter(|g| !wet || CLUTTER[g.row].wades);
+            let plant = plant(seed, f, i, j, biome, top, engine::clutter::part(up, 0.0, b.year) / 2, VEGETATION[2], &tile.trees).filter(|g| !wet || CLUTTER[g.row].wades);
             Some(Col0 { at, now: pickup_at(w, at, 0.0), any, plant })
         })
         .collect()

@@ -1390,7 +1390,7 @@ impl App {
         self.aim = edit::aim(&self.world, p.pos, p.fwd, AIM_REACH);
         let t = self.world.time;
         let still = &self.gpu.as_ref().unwrap().still;
-        let lies = |b: Block, th: &engine::clutter::Thing| engine::clutter::lies(&engine::clutter::CLUTTER[th.row], self.streamer.taken.get(&b).copied(), engine::clutter::year(t));
+        let lies = |b: Block, th: &engine::clutter::Thing| engine::clutter::lies(&engine::clutter::CLUTTER[th.row], self.streamer.taken.get(&b).copied(), engine::clutter::year(t, self.world.sky.year));
         // only one a click would take (not with the bucket, not when it does not fit, not one being taken): else
         // the click, and the outline, are the block's behind it
         let vegetation = engine::clutter::VEGETATION[self.vegetation()];

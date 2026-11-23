@@ -60,6 +60,8 @@ pub struct LifeParams {
     pub air_dt: f32,
     /// days the air settles at the spring equinox before the year it is measured over (`Air::year`)
     pub air_spin: usize,
+    /// the year the air is run over, seconds (`sky::Sky::year`: real gravity's from bake version 8, ADR 0180)
+    pub year: f64,
     /// mm a day that evaporates per C over 0 (what rain must beat to run off or wet the ground)
     pub pet_per_c: f32,
     /// a wetland: ground flatter than this, water at least this many m^3/s through it, a lake within
@@ -107,6 +109,7 @@ impl Default for LifeParams {
             air_cell_m: 128.0,
             air_dt: 10.0,
             air_spin: 18,
+            year: crate::sky::YEAR,
             pet_per_c: 0.02,
             wet_slope: 0.045,
             wet_flow: 0.003,
@@ -276,6 +279,7 @@ pub fn climate(b: &Bake, p: &LifeParams) -> Year {
     let ground: Vec<f32> = (0..ga.n()).map(|a| if land[a] > 0 { (sum[a] / land[a] as f64) as f32 } else { 0.0 }).collect();
     let water: Vec<f32> = (0..ga.n()).map(|a| 1.0 - land[a] as f32 / all[a].max(1) as f32).collect();
     let mut air = super::air::Air::new(ma, g.r, ground.clone(), water.clone(), super::air::Params::default());
+    air.year = p.year;
     let m = air.year(p.air_dt, p.air_spin);
     lap("climate (air model)", &mut times);
     // to the fine cells: smooth, then the lapse by the cell's own height

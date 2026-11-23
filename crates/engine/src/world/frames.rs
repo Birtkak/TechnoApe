@@ -14,7 +14,7 @@ impl World {
     /// `baked` with every body's block grid warped by `warp` (the conformal grid's trial, ADR 0131), the planet
     /// of generation `gen` (`with_grid`).
     pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64, gen: u8) -> Self {
-        World::with_grid(planet_n, moon_n, seed, Some(crate::bake::get(seed, planet_n)), Some(crate::bake::luna::get(seed, moon_n)), warp, gen)
+        World::with_grid(planet_n, moon_n, seed, Some(crate::bake::get_at(seed, planet_n, gen)), Some(crate::bake::luna::get(seed, moon_n)), warp, gen)
     }
     /// The planet on `map` when one is given (its seed and size must be these), else on the noise land; Luna
     /// on its hills.
@@ -129,6 +129,7 @@ impl World {
             if row.parent.is_none() && !row.home && !row.gas() {
                 b.day = row.day.map_or(0.0, |d| crate::sky::period_in(d * crate::sky::DAY, repeat));
             }
+            b.year = if i == 0 { b.period } else { bodies[0].period };
             b.interior = Interior::new(row.makeup_at(gen), b.radius, spin, first.as_ref());
             first.get_or_insert_with(|| b.interior.clone());
             // every body is of the world's generation (from 4 Luna's rock field asks it); the home's grid goes down

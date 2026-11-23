@@ -14,7 +14,7 @@ impl Server {
     /// no save and no message: a client must be given the same `warp=`. `gen`: the world's generation (`Body::gen`),
     /// the newest unless `gen=` or `mantle=0` (`gen_arg`); the save and the welcome say it.
     pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64, gen: u8, accept: Receiver<ServerLink>) -> Server {
-        let lazy = World::with_grid_lazy(planet_n, moon_n, seed, Some(engine::bake::get(seed, planet_n)), Some(engine::bake::luna::get(seed, moon_n)), warp, gen, true);
+        let lazy = World::with_grid_lazy(planet_n, moon_n, seed, Some(engine::bake::get_at(seed, planet_n, gen)), Some(engine::bake::luna::get(seed, moon_n)), warp, gen, true);
         Server::with_world(lazy, seed, accept)
     }
     /// A server on `bodies` (columns and baked map's hash of every row, as a save has them; 0163-n-bodies),
@@ -52,7 +52,7 @@ impl Server {
     pub(super) fn with_world(mut world: World, seed: i32, accept: Receiver<ServerLink>) -> Server {
         world.open_ledger();
         let ore_open = world.ore_left.clone().unwrap_or_default();
-        let weather = world.bodies[0].map().and_then(|m| Some(engine::weather::Weather::new(m.climate.as_ref()?, None).expect("a map's climate was checked on load").feeding(m)));
+        let weather = world.bodies[0].map().and_then(|m| Some(engine::weather::Weather::new(m.climate.as_ref()?, None, world.sky.year).expect("a map's climate was checked on load").feeding(m)));
         Server {
             air0: weather.as_ref().map_or(0, |w| w.ledger()),
             weather,
@@ -146,7 +146,7 @@ impl Server {
         s.tick0 = save.tick;
         // the air carries on from the save; an older save on a map with a climate starts from the map's
         if let (Some(state), Some(m)) = (&save.air, s.world.bodies[0].map().filter(|m| m.climate.is_some())) {
-            match engine::weather::Weather::new(m.climate.as_ref().unwrap(), Some(state)) {
+            match engine::weather::Weather::new(m.climate.as_ref().unwrap(), Some(state), s.world.sky.year) {
                 Ok(w) => s.weather = Some(w.feeding(m).with_pending(save.rain.1.clone(), s.tick)),
                 Err(e) => eprintln!("[technoape-server] the save's air does not fit its map ({e}): it starts from the map's"),
             }

@@ -480,7 +480,7 @@ impl Server {
         if c.vitals.dead.is_some() || !self.exists(at) || self.world.block_centre(at).distance(c.phys.pos) > REACH {
             return false;
         }
-        let year = engine::clutter::year(t);
+        let year = engine::clutter::year(t, self.world.sky.year);
         let lies = |b: Block, th: &engine::clutter::Thing| engine::clutter::lies(&CLUTTER[th.row], self.taken.get(&key(b)).copied(), year);
         let Some(th) = engine::clutter::thing_at(&self.world, at, t, VEGETATION[VEGETATION.len() - 1], false, lies) else { return false };
         let row = &CLUTTER[th.row];

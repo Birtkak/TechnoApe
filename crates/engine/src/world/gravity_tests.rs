@@ -60,3 +60,22 @@ fn moons_are_locked_to_their_own_parent() {
         }
     }
 }
+
+/// The seasons, the plants' year and Terra's baked climate follow the world's year: a quarter of real gravity's
+/// 334 days is summer; a map of version 8 is baked over that year (its climate another than the 54-day year's of
+/// version 7, its ground the same), and a world before real gravity stands on a version 7 map.
+#[test]
+fn seasons_and_the_bake_follow_the_year() {
+    let w = real();
+    let y = w.sky.year;
+    assert!(w.bodies.iter().all(|b| b.year == y), "every body has its world's year");
+    let north = DVec3::new(0.3, 0.0, 0.9).normalize();
+    assert!((crate::sky::season_at(north, 0.25 * y, y).0 - 1.0).abs() < 1e-9, "summer a quarter year on");
+    assert_eq!((crate::clutter::year(1.5 * y, y), crate::clutter::year(1.5 * crate::sky::YEAR, y)), (1, 0));
+    assert!(crate::sky::next_season(0.0, 2, y) > 0.49 * y);
+    let (new, old) = (crate::bake::Map::bake(5, 256), crate::bake::Map::bake_v7(5, 256));
+    assert_eq!((new.version, new.year(), old.version, old.year()), (8, crate::world::year_of(256, REAL), 7, crate::sky::YEAR));
+    assert_eq!(new.h, old.h, "the same ground");
+    assert_ne!(new.climate, old.climate, "a year 6 times longer bakes another climate");
+    println!("year {} days at planet 256; the 4 km planet's {} days", new.year() / crate::sky::DAY, crate::world::year_of(6144, REAL) / crate::sky::DAY);
+}

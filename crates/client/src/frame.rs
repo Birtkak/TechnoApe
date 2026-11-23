@@ -716,7 +716,7 @@ impl App {
         // the Clutter setting (ADR 0082), or a run's clutter=off|few|normal|many
         let level = self.args.0.get("clutter").and_then(|v| ["off", "few", "normal", "many"].iter().position(|n| n == v)).unwrap_or(self.settings.at(S::Clutter));
         let still = self.gpu.as_ref().unwrap().still.clone();
-        self.streamer.set_clutter(&still, self.world.time, [[0.0, 0.25, 1.0, 4.0][level.min(3)], engine::clutter::VEGETATION[self.vegetation()]]);
+        self.streamer.set_clutter(&still, self.world.time, self.world.sky.year, [[0.0, 0.25, 1.0, 4.0][level.min(3)], engine::clutter::VEGETATION[self.vegetation()]]);
         self.streamer.dispatch(&self.world, &mut reqs);
         let sel = ts0.elapsed().as_secs_f64();
         lap!("dispatch");
@@ -1017,7 +1017,7 @@ impl App {
                 theta: (std::f64::consts::FRAC_PI_2 / b.n as f64) as f32,
                 half_n: b.n as f32 * 0.5,
                 // shortcut: only the planet (body 0) has seasons; a second planet needs its own year in `Sky`
-                _p: [b.sea.map_or(-1.0, |s| (s - b.mantle as f64 + if bi == 0 { tide.base * per_m } else { 0.0 }) as f32), if bi == 0 { self.season_year(engine::sky::season_at(DVec3::Z, self.world.time).0) as f32 } else { -1.0 }],
+                _p: [b.sea.map_or(-1.0, |s| (s - b.mantle as f64 + if bi == 0 { tide.base * per_m } else { 0.0 }) as f32), if bi == 0 { self.season_year(engine::sky::season_at(DVec3::Z, self.world.time, self.world.sky.year).0) as f32 } else { -1.0 }],
                 // (rot0.w: the block grid's warp, ADR 0131; the shader's `body_grid`)
                 rot: [[m.x_axis.x, m.x_axis.y, m.x_axis.z, b.warp as f32], col(m.y_axis), col(m.z_axis)],
                 ctr: { let v = (m.as_dmat3() * -c).as_vec3(); [v.x, v.y, v.z, b.radius as f32] },
@@ -1666,7 +1666,7 @@ pub(crate) fn far_lights(world: &World, eye: DVec3, sky_c: Vec3, px: f64, bodies
             if share > 0.0 && seen {
                 let day = engine::bodies::BODIES[i].day.map_or(f64::INFINITY, |d| d * engine::sky::DAY);
                 let a = engine::sky::aurora(world.field(i) * field);
-                gas = [i as f32, (std::f64::consts::TAU * t.rem_euclid(engine::sky::PERIOD) / day).rem_euclid(std::f64::consts::TAU) as f32, share as f32, a.colat as f32];
+                gas = [i as f32, (std::f64::consts::TAU * t.rem_euclid(world.sky.repeat) / day).rem_euclid(std::f64::consts::TAU) as f32, share as f32, a.colat as f32];
                 gas2[0] = a.bright as f32;
             }
         }

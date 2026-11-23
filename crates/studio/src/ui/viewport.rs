@@ -686,7 +686,7 @@ mod season_tests {
         for k in 0..4 {
             for hour in [0.0, 12.0, 23.99] {
                 let t = game_time(hour, STAND) + season_day(k) as f64 * engine::sky::DAY;
-                let off = (engine::sky::season_at(glam::DVec3::Z, t).0 - k as f64 + 2.0).rem_euclid(4.0) - 2.0;
+                let off = (engine::sky::season_at(glam::DVec3::Z, t, engine::sky::YEAR).0 - k as f64 + 2.0).rem_euclid(4.0) - 2.0;
                 assert!(off.abs() < 0.12, "season {k} at {hour}: {off} off its start");
             }
             assert!(season_name(season_day(k) as f64).ends_with(engine::blocks::SEASONS[k]));
