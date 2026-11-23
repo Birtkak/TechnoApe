@@ -144,10 +144,13 @@ impl Sky {
         Pose { centre: around + e1 * radius, rot }
     }
     /// A body that circles the sun and is not the home (0163-n-bodies, until real orbits): in the ecliptic at
-    /// `dist`, once a `year` (`period`), starting where the home starts, never turning.
-    pub fn round_sun(dist: f64, year: f64, t: f64) -> Pose {
-        let a = TAU * t.rem_euclid(PERIOD) / year;
-        Pose { centre: -DVec3::new(a.cos(), a.sin(), 0.0) * dist, rot: DQuat::IDENTITY }
+    /// `dist`, once a `year` (`period`), starting where the home starts, turning on the ecliptic's pole once a
+    /// sidereal `day` (seconds, a whole fraction of PERIOD; 0: never turning).
+    pub fn round_sun(dist: f64, year: f64, day: f64, t: f64) -> Pose {
+        let t = t.rem_euclid(PERIOD);
+        let a = TAU * t / year;
+        let rot = if day > 0.0 { DQuat::from_rotation_z(TAU * t / day) } else { DQuat::IDENTITY };
+        Pose { centre: -DVec3::new(a.cos(), a.sin(), 0.0) * dist, rot }
     }
     /// The share of the sun's disc the moon hides, seen from inertial point p: 0 none, 1 total.
     pub fn eclipse(&self, t: f64, p: DVec3) -> f64 {

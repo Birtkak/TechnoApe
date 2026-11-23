@@ -383,6 +383,20 @@ rocky and gas planets and moons"; step 6 names the giant's moons and icy bodies.
   stand-ins; the circle's `1/YEAR` term is the home's year for every moon); the giant lit faintly by the moon and the
   moon by giantshine; the giant's disc popping off at the limb where its centre sets under a far-side horizon.
 
+### Mars turns [draft, 2026-11-23]
+A planet round the sun that is not home turns on its pose once its row's `day` (F9 2026-11-21 "mars does not
+rotate": 0163's ring never turned, so the sun crossed Mars's sky once in 1.84 Terra years). `Sky::round_sun` takes the
+day in seconds (`Body::day`, `sky::period` of the row's, a whole fraction of PERIOD) and turns on the ecliptic's pole, no
+tilt. Mars's row has `day = 1.0275` (the real sol, 24.66 h): 420 turns a PERIOD, 1851 s. No generation number: nothing
+generated reads it; a save's positions on Mars are in its frame, so a player stays on the same ground. Its spin would
+give Mars a field of 0.136 by 0162's rule (it was 0 only for want of a spin), so its row's `heat` goes from 0.15 to 0
+(the core all solid, as the real one's dynamo died): field 0 as 0173 states; its pull and mass are unchanged (the inner
+and outer core share one density) and no bake reads `heat`.
+Shortcut: the giant's pose stays still, as its bands take their own angle in the client (`frame.rs` `far_lights`);
+the client should read the pose's angle instead, then the giant turns here too.
+Replaces: 0173's "it does not spin (its day is its year)" and 0174's "none: it does not turn, as Mars".
+Open: Mars's axial tilt and seasons.
+
 ## The sky's clock
 
 - **World time** is `tick / 20 Hz` seconds since the world was made; the sky is kinematic, circular orbits on rails,
@@ -515,3 +529,5 @@ and day (16 minutes now).
 - 0163's old two-body wiring (`planet_n, moon_n`, `World::pose` matching 0 and 1, `Save`/`Welcome`/`Ev::Start` with
   named bodies): replaced by the list formats above; the old forms are read only (`Save21`, `Start21`, `Loaded21`).
 - 0164's "proposed": the field and the aurora are built; core mining's amount is not.
+- 0173's "Mars does not spin (its day is its year)" and 0174's "as Mars" for a row without `day`: Mars has a day and
+  a sun-circler's pose turns by it (draft "Mars turns").

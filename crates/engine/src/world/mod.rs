@@ -271,6 +271,9 @@ pub struct Body {
     /// sun); and once in how many seconds (`sky::period`). The home's are the sky's.
     pub orbit: f64,
     pub period: f64,
+    /// Its turn in seconds, a whole fraction of `sky::PERIOD`, for one that circles the sun and is not home, from
+    /// its row's `day` (0: it does not turn; the giant's bands turn in the client, so its pose does not).
+    pub day: f64,
     pub centre: DVec3,
     /// Nominal surface radius: the mean block there is BLOCK wide.
     pub radius: f64,
