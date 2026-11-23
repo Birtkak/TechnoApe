@@ -16,6 +16,6 @@ lake   | 0 | at=0.078043,0.849093,0.522447 eye=6 pitch=-30 yaw=0 weather=clear c
 # W3's seasons (ADR 0060): the spawn's forest (about 30 degrees north) at noon of each season, looking south:
 # the shadows shorten to summer and lengthen to winter
 season-spring | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=225 weather=clear creatures=0
-season-summer | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=23625 weather=clear creatures=0
-season-autumn | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=48825 weather=clear creatures=0
-season-winter | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=72225 weather=clear creatures=0
+season-summer | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=149625 weather=clear creatures=0
+season-autumn | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=300825 weather=clear creatures=0
+season-winter | 0 | at=0.0347,0.8675,0.4975 eye=6 pitch=-25 yaw=0 time=450225 weather=clear creatures=0
