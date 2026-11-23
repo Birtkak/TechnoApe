@@ -110,6 +110,7 @@ impl Server {
                 sent_furnace: None,
                 heard: self.tick,
                 maps: Vec::new(),
+                fluid: engine::fluids::WATER,
             });
         }
         let mut changed: Vec<(Block, u16)> = Vec::new();

@@ -117,6 +117,8 @@ impl Server {
                 "  /timewarp <n>        the clock n times faster (1 to 10000,",
                 "                       up, down); . and , step it too",
                 "  /weather <what>      clear cloudy rain storm snow, or auto",
+                "  /fluid <name>        what creative's bucket pours (water,",
+                "                       lava: data/fluids.toml)",
                 "  /heal, /feed [n]     full health, full hunger (or n)",
                 "  /thirst [n]          full thirst (or n)",
                 "  /hurt <points>       takes health: 2 points a segment",
@@ -298,6 +300,20 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                 self.warp = to;
                 let (day, year) = (sky::DAY / to as f64, self.world.sky.year / to as f64);
                 format!("time warp {to}x: a day in {day:.0} s, a year in {year:.0} s")
+            }
+            Some("fluid") => {
+                let f = engine::fluids::FLUIDS.now();
+                let c = &mut self.clients[i];
+                match w.get(1).map(|s| s.to_lowercase()) {
+                    None => format!("creative's bucket pours {}\nusage: /fluid <{}>", f.get(c.fluid).name, f.names()),
+                    Some(n) => match f.kind(&n) {
+                        Some(k) => {
+                            c.fluid = k;
+                            format!("creative's bucket pours {n}")
+                        }
+                        None => format!("no fluid '{n}': {}", f.names()),
+                    },
+                }
             }
             Some("playmode") | Some("gamemode") => {
                 let c = &mut self.clients[i];

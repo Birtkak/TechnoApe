@@ -131,14 +131,18 @@ impl Server {
                 c.water += took as u32;
                 took > 0
             }
+            // creative's bucket takes and gives the fluid `/fluid` chose; `made` and `removed` count water's only
+            // shortcut: another fluid's units creative made have no server ledger (`Liquids::counted_of` keeps them exact)
             (true, true) => {
-                self.removed += water.scoop(&g, col, at.pos.z, U);
+                let took = water.scoop_kind(&g, col, at.pos.z, U, c.fluid);
+                self.removed += if c.fluid == engine::fluids::WATER { took } else { 0 };
                 true
             }
-            (false, false) => c.water > 0 && water.pour(&g, col, at.pos.z, std::mem::take(&mut c.water) as i64),
+            // (emptied only once poured: a gap that holds another fluid refuses it, and the bucket keeps it)
+            (false, false) => c.water > 0 && water.pour(&g, col, at.pos.z, c.water as i64) && std::mem::take(&mut c.water) > 0,
             (false, true) => {
-                let ok = water.pour(&g, col, at.pos.z, U);
-                self.made += if ok { U } else { 0 };
+                let ok = water.pour_kind(&g, col, at.pos.z, U, c.fluid);
+                self.made += if ok && c.fluid == engine::fluids::WATER { U } else { 0 };
                 ok
             }
         };

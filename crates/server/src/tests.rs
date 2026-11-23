@@ -1989,6 +1989,71 @@ fn the_bucket_carries_water_and_none_is_lost() {
     assert_eq!((s.world.water.stored(), s.world.water.sea_extra), (0, U));
 }
 
+/// Creative's bucket pours lava (`/fluid lava`) on land: a client told of it over the wire (the messages through
+/// postcard, as a socket carries them) holds the very units the server does, and a save and a load keep it, with
+/// water's ledger untouched.
+#[test]
+fn lava_poured_on_land_reaches_the_client_and_the_save() {
+    let (mut s, links) = server_with(1);
+    let l = &links[0];
+    let b = s.world.bodies.clone();
+    let b = &b[0];
+    let sea = b.radius - engine::world::SEA_DEPTH;
+    let d = (0..2000)
+        .map(|k| {
+            let z = 1.0 - 2.0 * (k as f64 + 0.5) / 2000.0;
+            let t = k as f64 * 2.4;
+            DVec3::new((1.0 - z * z).sqrt() * t.cos(), z, (1.0 - z * z).sqrt() * t.sin())
+        })
+        .find(|&d| b.height(d) > sea + 3.0)
+        .expect("the planet has land");
+    // a pit 3 x 3 and two deep, so the lava comes to rest (on a slope it creeps on for minutes)
+    let top = s.world.air_over_ground(0, d);
+    for (di, dj, dz) in (-1..=1).flat_map(|i| (-1..=1).flat_map(move |j| [(i, j, 1), (i, j, 2)])) {
+        let c = Block { pos: top.pos + glam::IVec3::new(di, dj, -dz), ..top };
+        s.world.set_block(c, 0);
+        s.world.regap(c);
+    }
+    let at = Block { pos: top.pos + glam::IVec3::new(0, 0, -2), ..top };
+    let lava = engine::fluids::FLUIDS.kind("lava").unwrap();
+    l.send(ToServer::Hello { name: "ape".into() });
+    l.send(ToServer::Move { pos: s.world.block_centre(top).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    l.send(ToServer::Creative(true));
+    l.send(ToServer::Chat("/fluid lava".into()));
+    for seq in 1..=3 {
+        l.send(ToServer::Bucket { seq, at, fill: false });
+    }
+    let mut client = engine::liquid::Liquids::default();
+    let hear = |client: &mut engine::liquid::Liquids, got: Vec<ToClient>| {
+        for m in got {
+            let bytes = postcard::to_allocvec(&m).unwrap();
+            if let ToClient::Water(v) = postcard::from_bytes::<ToClient>(&bytes).unwrap() {
+                for (t, cols) in &v {
+                    client.set_tile(*t, cols);
+                }
+            }
+        }
+    };
+    s.tick();
+    let got = drain(l);
+    assert!((1..=3).all(|seq| got.contains(&ToClient::Done { seq, ok: true })), "{got:?}");
+    hear(&mut client, got);
+    assert_eq!(s.world.water.counted_of(lava), 3 * U);
+    // until it lies still and the client has heard the last of it
+    for _ in 0..2000 {
+        s.tick();
+        hear(&mut client, drain(l));
+        if s.world.water.awake() == 0 && client.all() == s.world.water.all() {
+            break;
+        }
+    }
+    assert_eq!(s.world.water.awake(), 0, "the lava settles");
+    assert_eq!((client.all(), client.counted_of(lava)), (s.world.water.all(), 3 * U), "the client holds what the server does");
+    assert_eq!((s.world.water.counted_of(lava), s.water_ledger(), s.world.water.counted()), (3 * U, 0, 0), "water's ledger is untouched");
+    let back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
+    assert_eq!((back.world.water.all(), back.world.water.counted_of(lava)), (s.world.water.all(), 3 * U), "the save keeps the lava");
+}
+
 #[test]
 fn walking_input_moves_the_player_on_the_ground() {
     let (mut s, links) = server_with(1);
