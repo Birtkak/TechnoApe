@@ -18,9 +18,11 @@ moment it becomes stored. A test holds every formula to that: store a stretch of
 does not move.
 
 What is fake today, by that rule:
-1. **Gravity.** `liquid.rs` has `9.81` in `CG` and `fall_cap`; Terra pulls 19.62 (ADR 0132) and every body
-   has its own. Water flows the same on Callisto as on Terra.
-2. **The tide.** Stored water has no tidal term; `retide` nudges it at the stored edge.
+1. **Gravity.** Done from world generation 8 (real gravity): `Ground::g` gives each body's surface pull to the
+   link speed-up, `fall_cap`, `drag_for` and `steady_speed`. Worlds before it keep 9.81 (`liquid::EARTH_G`)
+   on every body. The pull does not yet fall off with depth.
+2. **The tide.** Stored water has no tidal term; `retide` nudges it at the stored edge. Under real gravity
+   Terra's tide is half a millimetre, so this waits for a body with a sea and a large tide.
 3. **One liquid.** A gap holds one number, so nothing can lie on, sink through or react with water.
 
 ## Forces

@@ -19,8 +19,16 @@ pub const OPEN: i32 = i32::MAX;
 const UB: u32 = 12;
 /// Velocity is stored in 1/2^VF blocks per step.
 const VF: u32 = 20;
-/// g dt^2 / dx in 1/2^VF blocks per step per block of head, for dt = 1/60 s.
-const CG: i64 = (9.81 / 3600.0 / crate::world::BLOCK * (1u64 << VF) as f64) as i64;
+/// g dt^2 / dx in 1/2^VF blocks per step per block of head, for dt = 1/60 s, at the pull every world before real
+/// gravity flowed by (9.81 m/s^2, whatever its body's). Under real gravity each body's own (`Ground::g`, `cg`);
+/// this stays what `moves` reckons a head with, so its dead band is a head (1.6 mm) on every body.
+const CG: i64 = cg(EARTH_G);
+/// The pull water flowed by before real gravity (`world::REAL`), m/s^2.
+pub const EARTH_G: f64 = 9.81;
+/// `CG` under a pull of `g` m/s^2.
+const fn cg(g: f64) -> i64 {
+    (g / 3600.0 / crate::world::BLOCK * (1u64 << VF) as f64) as i64
+}
 /// Fastest flow: half a block per step (30 m/s).
 const VMAX: i64 = 1 << (VF - 1);
 /// The deepest water that still speeds a link up; deeper water flows as if it were this deep. It keeps a
@@ -47,10 +55,10 @@ const SETTLE_DH: i64 = U / 32;
 const SEA_DH: i64 = U / 32;
 const SETTLE_MAX: usize = 200_000;
 
-/// Units a step that fall through one block of opening under `h` units of head: sqrt(2 g h) dt / dx.
-fn fall_cap(h: i64) -> i64 {
+/// Units a step that fall through one block of opening under `h` units of head under a pull of `g`: sqrt(2 g h) dt / dx.
+fn fall_cap(h: i64, g: f64) -> i64 {
     let m = h.max(U / 8) as f64 / U as f64 * crate::world::BLOCK;
-    ((2.0 * 9.81 * m).sqrt() / 60.0 / crate::world::BLOCK * U as f64) as i64
+    ((2.0 * g * m).sqrt() / 60.0 / crate::world::BLOCK * U as f64) as i64
 }
 
 fn moves(dh: i64) -> bool {
@@ -138,6 +146,10 @@ pub trait Ground {
     fn tide_top(&self, _c: Col) -> i64 {
         i64::MAX
     }
+    /// The pull water flows by on body `body`, m/s^2 (ADR 0180: its own from real gravity on; `EARTH_G` before).
+    fn g(&self, _body: u8) -> f64 {
+        EARTH_G
+    }
 }
 
 /// `Ground::reach` and `Ground::river` of column c, from `cache` or asked once.
@@ -150,15 +162,15 @@ fn river_of(cache: &mut FxMap<Col, (u32, Option<(f64, f64, f64)>)>, g: &impl Gro
 /// friction, so v = 65536 grad CG / (U f), and the flow v depth / 2^VF is q. Proportional to the depth, the
 /// loss is the same on every column whatever the bed's steps do, so the live surface falls as the generated
 /// one does.
-pub fn drag_for(grad: f64, depth: f64, q: f64) -> i32 {
-    (65536.0 * grad * CG as f64 * depth / (U as f64 * q.max(1.0) * (1u64 << VF) as f64)).clamp(65536.0 / 2048.0, 16384.0) as i32
+pub fn drag_for(grad: f64, depth: f64, q: f64, g: f64) -> i32 {
+    (65536.0 * grad * cg(g) as f64 * depth / (U as f64 * q.max(1.0) * (1u64 << VF) as f64)).clamp(65536.0 / 2048.0, 16384.0) as i32
 }
-/// The speed of steady flow down a fall of `dh` units a column under friction `f` (`drag_for`).
-fn steady_speed(dh: i64, f: i32) -> i32 {
+/// The speed of steady flow down a fall of `dh` units a column under friction `f` (`drag_for` of the same `g`).
+fn steady_speed(dh: i64, f: i32, g: f64) -> i32 {
     if f <= 0 || dh <= 0 {
         return 0;
     }
-    (65536 * dh as i128 * CG as i128 / (U as i128 * f as i128)).min(VMAX as i128) as i32
+    (65536 * dh as i128 * cg(g) as i128 / (U as i128 * f as i128)).min(VMAX as i128) as i32
 }
 
 /// The open sea's account (`Ground::reach`).
@@ -504,7 +516,7 @@ impl Liquids {
             .map(|(&(floor, ceil), water)| {
                 let (lo, hi) = g.generated(c);
                 let (drag, grad, lat) = match g.river(c) {
-                    Some((q, grad, lat)) if ceil == OPEN && lo < hi && floor as i64 * U == lo => (drag_for(grad, (hi - lo) as f64, q), grad as i32, (lat * 65536.0) as u32),
+                    Some((q, grad, lat)) if ceil == OPEN && lo < hi && floor as i64 * U == lo => (drag_for(grad, (hi - lo) as f64, q, g.g(c.body())), grad as i32, (lat * 65536.0) as u32),
                     _ => (0, 0, 0),
                 };
                 self.alloc(Node { col: c, floor, ceil, water, links: Vec::new(), quiet: 0, rim: false, seen: 0, sent: water, drag, grad, lat, lacc: 0, top: hi })
@@ -535,7 +547,8 @@ impl Liquids {
                                     fall = 4;
                                 }
                                 let dh = |dh: i64, n: &Node| if fall > 0 { dh.min(n.grad as i64) } else { dh };
-                                v = (steady_speed(dh(ga - gb, na), na.drag), steady_speed(dh(gb - ga, nb), nb.drag));
+                                let pull = g.g(c.body());
+                                v = (steady_speed(dh(ga - gb, na), na.drag, pull), steady_speed(dh(gb - ga, nb), nb.drag, pull));
                             }
                             self.link(a, b, sa as u8 | fall, sb as u8 | fall, v);
                         }
@@ -720,8 +733,12 @@ impl Liquids {
         // 1: speeds and outflows from the old state: each node reads only its own links and its neighbours'
         // water, so the nodes are worked out in parallel and written back in order
         let nodes = &self.nodes;
+        // each body's pull, as its speed-up a step (`cg`)
+        let pulls: [f64; crate::bodies::MAX] = std::array::from_fn(|b| g.g(b as u8));
+        let cgs = pulls.map(cg);
         let flows = |&a: &u32| {
             let n = &nodes[a as usize];
+            let cg = cgs[n.col.body() as usize];
             let (ha, sa, wa) = (n.head(), n.surface(), n.water);
             // what came in last step from each side, and how fast
             let mut came = [(0i64, 0i64); 4];
@@ -745,7 +762,7 @@ impl Liquids {
                         // reach's flow when it stands at its generated level, more when higher
                         dh = dh.min(n.grad as i64 + ha - n.top);
                     }
-                    v += dh * CG >> UB;
+                    v += dh * cg >> UB;
                     // water that came in from straight behind brings its speed: the share of this node's water
                     // it makes up moves on at the speed it came (a front runs, a jet keeps going)
                     let (fin, vin) = came[(l.dir ^ 1) as usize & 3];
@@ -821,7 +838,8 @@ impl Liquids {
                 }
             }
         }
-        fall.retain(|_, (sum, h)| *sum > fall_cap(*h));
+        let nodes = &self.nodes;
+        fall.retain(|&to, (sum, h)| *sum > fall_cap(*h, pulls[nodes[to as usize].col.body() as usize]));
         if !fall.is_empty() {
             for &a in &awake {
                 let fa = self.nodes[a as usize].floor;
@@ -831,7 +849,7 @@ impl Liquids {
                     let lo = fa.max(b.floor) as i64 * U;
                     if let Some(&(sum, h)) = fall.get(&l.to) {
                         if l.out > 0 && b.surface() < lo {
-                            let cap = fall_cap(h);
+                            let cap = fall_cap(h, pulls[b.col.body() as usize]);
                             let m = &mut self.nodes[a as usize].links[k];
                             m.out = (m.out as i64 * cap / sum) as i32;
                             m.v = (m.v as i64 * cap / sum) as i32;
@@ -1321,11 +1339,13 @@ pub mod test_ground {
         pub sea: Option<(i64, Vec<i32>)>,
         /// `Ground::tide_epoch`: a test that moves the sea's level moves this with it.
         pub epoch: i64,
+        /// `Ground::g`, every column's.
+        pub g: f64,
     }
 
     impl Box3 {
         pub fn new(nx: i32, ny: i32, nz: i32) -> Box3 {
-            Box3 { nx, ny, nz, solid: vec![false; (nx * ny * nz) as usize], sea: None, epoch: 0 }
+            Box3 { nx, ny, nz, solid: vec![false; (nx * ny * nz) as usize], sea: None, epoch: 0, g: EARTH_G }
         }
         /// Generation fills every column to `level` units over the terrain as it is now.
         pub fn with_sea(&mut self, level: i64) {
@@ -1351,6 +1371,9 @@ pub mod test_ground {
     }
 
     impl Ground for Box3 {
+        fn g(&self, _body: u8) -> f64 {
+            self.g
+        }
         fn gaps(&self, c: Col) -> Vec<(i32, i32)> {
             let (x, y) = (c.i(), c.j());
             let mut out = Vec::new();
@@ -1563,6 +1586,30 @@ mod tests {
         assert_eq!(w.awake(), 0, "settles and sleeps");
         let (lo, hi) = (0..120).map(|x| level(&w, x, 0)).fold((f64::MAX, f64::MIN), |(a, b), l| (a.min(l), b.max(l)));
         assert!(hi - lo < 0.02, "levels {lo}..{hi}");
+    }
+
+    /// Water by its body's pull (`Ground::g`): the same dam break under Terra's 19.62 and Callisto's 1.85 m/s^2
+    /// runs its front 10 m out in times whose ratio is the root of the pulls' (3.26), as Ritter's 2 sqrt(g h)
+    /// (3.45 measured). Further out the fixed friction a step costs the slower front more: 3.97 at 20 m.
+    #[test]
+    fn a_dam_break_runs_slower_under_a_weaker_pull() {
+        let reach = |pull: f64| {
+            let mut g = Box3::new(120, 1, 8);
+            g.g = pull;
+            g.fill(0..120, 0..1, 0..1, true);
+            let mut w = stored(&g);
+            for x in 0..40 {
+                w.pour(&g, col(x, 0), 1, 4 * U);
+            }
+            (1..).find(|_| {
+                w.step(&g);
+                w.column(col(49, 0)).unwrap().last().unwrap().water >= U / 16
+            })
+            .unwrap() as f64
+        };
+        let (fast, slow) = (reach(19.62), reach(1.85));
+        let want = (19.62f64 / 1.85).sqrt();
+        assert!((slow / fast / want - 1.0).abs() < 0.15, "10 m in {fast} steps under 19.62, {slow} under 1.85: {} (Ritter {want})", slow / fast);
     }
 
     /// Two shafts joined by a closed tunnel at the bottom: water poured into one rises in the other to the
