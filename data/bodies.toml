@@ -26,7 +26,8 @@
 # its crust bakes on ice, bake/icy.rs); `iron` the metal core's radius over the body's;
 # `heat` how hot the inside still is, 0 dead (the core all solid) to 1 young (all liquid), the solid inner core's
 # radius being 1 - heat of the core's; `density` the crust's rock, the mantle's and the core's metal, kg/m3.
-# `weight_g`: the pull the weight of its rock is reckoned with, m/s^2, where it is not the body's own.
+# `[body.old]`: its `iron`, `density` and `weight_g` (the pull its rock was weighed with) in the worlds before real
+# gravity (generation 8, ADR 0180), where they were not its own. `sun_density` (the home's row): the sun's, kg/m3.
 
 [[body]]
 name = "Terra"
@@ -49,6 +50,9 @@ iron = 0.7071067811865476
 heat = 0.65
 # the core 2.4 times the mantle (ADR 0154)
 density = [2700.0, 3300.0, 7920.0]
+# the sun's mean density, kg/m3 (the real Sun's; real gravity, generation 8): with the radius the sky gives it, its
+# mass, which sets every year by Kepler's law; 53,800 gives back the 54-day year of the generations before
+sun_density = 1408.0
 
 [[body]]
 name = "Luna"
@@ -62,13 +66,18 @@ colour = [0.78, 0.77, 0.75]
 size = 3.7
 orbit = 60.0
 kind = "rocky"
-# Terra's numbers on Luna, so she generates and pulls as she did (0162-planet-interior); hers at the next
-# generation: a small core (the Moon's is about 0.2), her own pull weighing her rock
+# the Moon's make-up (real gravity, generation 8, ADR 0180): a small core a fifth of her radius, a highland crust,
+# a mean of 3340 kg/m3 (the Moon's), so she pulls 0.167 of Terra by her own mass
+iron = 0.2
+density = [2550.0, 3310.0, 7000.0]
+# nearly dead: a thin liquid shell round a solid core
+heat = 0.05
+# before generation 8: Terra's numbers on her, so she generates and pulls as she did (0162-planet-interior), her rock
+# weighed by Terra's pull
+[body.old]
 iron = 0.7071067811865476
 density = [2700.0, 3300.0, 7920.0]
 weight_g = 19.62
-# nearly dead: a thin liquid shell round a solid core
-heat = 0.05
 
 # Mars (planet-model.md step 5; the name the developer's, 2026-11-19), in the worlds of generation 5 on: a world
 # made before keeps Terra and Luna alone. Thin air (about 0.01 atm), no liquid water and its sky's colour wait for

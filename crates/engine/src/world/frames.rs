@@ -105,7 +105,7 @@ impl World {
             if row.parent.is_none() && !row.home && !row.gas() {
                 b.day = row.day.map_or(0.0, |d| crate::sky::period(d * crate::sky::DAY));
             }
-            b.interior = Interior::new(&row.makeup, b.radius, spin, first.as_ref());
+            b.interior = Interior::new(row.makeup_at(gen), b.radius, spin, first.as_ref());
             first.get_or_insert_with(|| b.interior.clone());
             // every body is of the world's generation (from 4 Luna's rock field asks it); the home's grid goes down
             // through the mantle from 1

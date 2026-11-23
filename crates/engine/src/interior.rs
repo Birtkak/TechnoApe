@@ -67,7 +67,7 @@ impl Interior {
         let ball = 4.0 / 3.0 * std::f64::consts::PI;
         let mass = ball * mantle * norm * radius.powi(3);
         let (k, surface_g) = match first {
-            None => (G * radius * radius / mass, G),
+            None => (constant(m, radius), G),
             Some(f) => (f.k, f.k * mass / (radius * radius)),
         };
         let liquid = ball * (rc.powi(3) - ri.powi(3));
@@ -142,6 +142,16 @@ impl Interior {
         let w = |lo: f64, hi: f64, rho: f64| if hi > lo { rho * self.weight_g * self.radius * 1e-6 * self.pull_integral(lo / self.radius, hi / self.radius) } else { 0.0 };
         w(r.max(moho), ground, self.zones[CRUST].density) + w(r, ground.min(moho), self.zones[MANTLE].density)
     }
+}
+
+/// The world's one constant of gravity (ADR 0180), m^3 / (kg s^2): the one at which the home body of makeup `home`
+/// and `radius` m pulls `G` at its ground (2.24e-7 on the 4 km Terra, about 3,350 times the real one). Every pull,
+/// orbit and tide follows from it and the masses; it goes as 1 / radius, so planet= scales the whole system.
+pub fn constant(home: &Makeup, radius: f64) -> f64 {
+    let [_, mantle, core] = home.density;
+    let a3 = home.iron.powi(3);
+    let mass = 4.0 / 3.0 * std::f64::consts::PI * mantle * (core / mantle * a3 + 1.0 - a3) * radius.powi(3);
+    G * radius * radius / mass
 }
 
 /// A body's spin, turns a second, as the sky turns it (`sky::Sky::planet`, `circle`): the home once a sidereal
