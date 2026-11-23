@@ -30,6 +30,12 @@ pub struct Crater {
 
 /// The most lamps a crater's lake gives (a 4 x 4 grid of patches over it), so torches beside it keep theirs.
 pub const LAKE_LAMPS: i32 = 4;
+/// A live volcano's cone is bare this many crater radii out from its middle: no plant on its upper cone.
+// shortcut: a look by distance, standing in for heat, gas and fresh rock killing plants; a rule of the heat
+// field once it takes the ground's surface as a boundary and plants read temperature
+pub const BARE: f64 = 2.0;
+/// The bare cone's ground.
+pub(super) static BASALT: std::sync::LazyLock<u16> = std::sync::LazyLock::new(|| crate::blocks::BLOCKS.id("basalt"));
 
 /// Lava's row of `data/fluids.toml` and its freeze point, C.
 fn lava() -> (u8, f32) {
@@ -128,6 +134,10 @@ impl Body {
             t = t.max(far + (c.heat - far) * share);
         }
         t
+    }
+    /// Whether column (face, i, j) is on a live volcano's bare upper cone (`BARE`).
+    pub(super) fn bare_cone(&self, face: u8, i: i32, j: i32) -> bool {
+        self.craters().iter().any(|c| c.heat > 0.0 && c.face == face && (i as f64 + 0.5 - c.at.0).hypot(j as f64 + 0.5 - c.at.1) < BARE * c.v.crater as f64)
     }
     /// The water tiles (`liquid::Col::tile`) of body `body` (this one) that hold a live crater's lake: what a client
     /// draws as generated lava, as it draws stored fluid.
@@ -447,5 +457,35 @@ mod tests {
         }
         assert_eq!(w.water.kind_at(&w.ground(), Col::new(0, c.face, a, e), floor as f64 + 0.5), Some(kind), "the dug cell holds lava");
         assert_eq!((w.water.counted_of(kind), w.water.counted()), (0, 0), "the ledgers stay exact");
+    }
+
+    /// The upper cone of a live volcano is bare: no plant within `BARE` crater radii of its middle, beyond the
+    /// crater's own rim. A dead volcano's cone stays green.
+    #[test]
+    fn a_live_volcanos_upper_cone_is_bare() {
+        // (the candidate spots over the cone, and those whose plant is rooted on the upper cone outside the crater)
+        let hot_plants = |w: &World| {
+            let (b, c, sp) = (&w.bodies[0], w.bodies[0].craters()[0].clone(), crate::biomes::SPACING);
+            let (ci, cj, r) = (c.at.0.floor() as i32, c.at.1.floor() as i32, c.v.radius as i32);
+            let (mut spots, mut plants) = (0, 0);
+            for cx in (ci - r).div_euclid(sp)..=(ci + r).div_euclid(sp) {
+                for cy in (cj - r).div_euclid(sp)..=(cj + r).div_euclid(sp) {
+                    spots += 1;
+                    plants += b.candidate(c.face as usize, cx, cy).is_some_and(|f| (f.i as f64 + 0.5 - c.at.0).hypot(f.j as f64 + 0.5 - c.at.1) < BARE * c.v.crater as f64) as usize;
+                }
+            }
+            (spots, plants)
+        };
+        let (n, plants) = hot_plants(&world(false));
+        assert_eq!(plants, 0, "plants rooted on the upper cone, of {n} spots over the cone");
+        assert!(hot_plants(&world(true)).1 > 0, "a dead cone keeps its plants");
+        // and its ground is the bare rock, not soil
+        let top = |w: &World| {
+            let (b, c) = (&w.bodies[0], w.bodies[0].craters()[0].clone());
+            b.col_ground(c.face, (c.at.0 + c.v.crater as f64 + 10.0) as i32, c.at.1 as i32, None)
+        };
+        let basalt = crate::blocks::BLOCKS.id("basalt");
+        assert_eq!(top(&world(false)), [basalt; 3], "the live cone's ground");
+        assert_ne!(top(&world(true))[0], basalt, "a dead cone keeps its soil");
     }
 }

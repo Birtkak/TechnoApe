@@ -402,6 +402,10 @@ impl Body {
         let s = b.map.m as f64 / self.n as f64;
         let (mx, my) = self.map_xy(s, x, y);
         let biome = b.map.biome(face, mx, my);
+        // a live volcano's upper cone is bare basalt (`volcano::BARE`)
+        if !b.craters.is_empty() && self.bare_cone(face as u8, i.floor() as i32, j.floor() as i32) {
+            return ([*super::volcano::BASALT; 3], biome);
+        }
         let row = &ROWS.biomes[biome as usize];
         let cell = ((x / PATCH).floor() as i64 as u64) ^ ((y / PATCH).floor() as i64 as u64).wrapping_mul(0x9e3779b97f4a7c15);
         let roll = unit(mix(b.seed ^ cell ^ (face as u64) << 56));
@@ -505,6 +509,10 @@ impl Body {
         // nor in a volcano's crater, nor with its crown over it (a map of version 9 on): its lava lies in the gaps
         // generation leaves, which a plant would split
         if self.in_crater(face as u8, i, j, ROWS.plants[plant].radius) {
+            return None;
+        }
+        // nor on a live volcano's upper cone
+        if !b.craters.is_empty() && self.bare_cone(face as u8, i, j) {
             return None;
         }
         // nor over a cave's open mouth (a skylight, a slot), on a planet with the mantle (generation 1 came in on
