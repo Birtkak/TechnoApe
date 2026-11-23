@@ -91,7 +91,7 @@ A new world's grid goes down to R/sqrt 2; the saves made before keep their floor
   crust's last layer); the jump at depth is about 12 % lower at the floor (1.135 g). [0154]
 - Below the floor nothing is dug: a dig under layer 0 is refused. [0154, 0156]
 
-### Closed floor [ADR draft: closed floor, 2026-11-23]
+### Closed floor [0179, 2026-11-23]
 Layer 0 of a body with no metal sea under it (`Body::core` none: Luna, Mars, the icy moon, a world without the mantle)
 is a closed floor: no dig or edit takes it, so the void under the grid is never open or drawn (F9 2026-11-21 "moon
 is not able to be mined": a shaft to layer 0 on Callisto showed the stars through its bottom). One test,

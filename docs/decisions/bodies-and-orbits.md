@@ -383,7 +383,7 @@ rocky and gas planets and moons"; step 6 names the giant's moons and icy bodies.
   stand-ins; the circle's `1/YEAR` term is the home's year for every moon); the giant lit faintly by the moon and the
   moon by giantshine; the giant's disc popping off at the limb where its centre sets under a far-side horizon.
 
-### Mars turns [draft, 2026-11-23]
+### Mars turns [0178, 2026-11-23]
 A planet round the sun that is not home turns on its pose once its row's `day` (F9 2026-11-21 "mars does not
 rotate": 0163's ring never turned, so the sun crossed Mars's sky once in 1.84 Terra years). `Sky::round_sun` takes the
 day in seconds (`Body::day`, `sky::period` of the row's, a whole fraction of PERIOD) and turns on the ecliptic's pole, no
@@ -530,4 +530,4 @@ and day (16 minutes now).
   named bodies): replaced by the list formats above; the old forms are read only (`Save21`, `Start21`, `Loaded21`).
 - 0164's "proposed": the field and the aurora are built; core mining's amount is not.
 - 0173's "Mars does not spin (its day is its year)" and 0174's "as Mars" for a row without `day`: Mars has a day and
-  a sun-circler's pose turns by it (draft "Mars turns").
+  a sun-circler's pose turns by it (0178).

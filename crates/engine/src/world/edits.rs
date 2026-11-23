@@ -163,7 +163,7 @@ impl World {
         }
         light
     }
-    /// Whether cell b is a closed floor (ADR draft: closed floor): layer 0 of a body with no metal sea under it, which
+    /// Whether cell b is a closed floor (ADR 0179): layer 0 of a body with no metal sea under it, which
     /// nothing digs or edits, so nothing is ever open under the grid.
     pub fn closed_floor(&self, b: Block) -> bool {
         b.pos.z == 0 && self.bodies[b.body as usize].core.is_none()

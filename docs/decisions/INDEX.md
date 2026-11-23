@@ -186,3 +186,5 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0175 | Sixteen bodies, loaded on approach | [bodies-and-orbits.md](bodies-and-orbits.md) - Sixteen bodies, loaded on approach | in force |
 | 0176 | The giant's icy moon | [bodies-and-orbits.md](bodies-and-orbits.md) - The giant's icy moon | in force |
 | 0177 | Liquids and gases are one system, and nothing is faked | [sky-weather-and-water.md](sky-weather-and-water.md) - The developer's calls | in force |
+| 0178 | Mars turns | [bodies-and-orbits.md](bodies-and-orbits.md) - Mars turns | in force |
+| 0179 | Closed floor: layer 0 of a body with no metal sea cannot be dug | [deep-world.md](deep-world.md) - Closed floor | in force |

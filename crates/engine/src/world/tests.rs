@@ -658,7 +658,7 @@ fn mars_turns_under_the_sun() {
 }
 
 /// F9 2026-11-21_18-03-53 "moon is not able to be mined": the lowest layer of a body with no metal sea under it is a
-/// closed floor (ADR draft: closed floor). A dig there changes nothing and an edit (a save's from before) is not
+/// closed floor (ADR 0179). A dig there changes nothing and an edit (a save's from before) is not
 /// taken, so the cell stays solid and no void shows under the shaft; Terra's layer 0 over her metal sea still digs.
 #[test]
 fn a_body_without_a_metal_sea_has_a_closed_floor() {
