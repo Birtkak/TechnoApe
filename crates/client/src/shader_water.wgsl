@@ -195,7 +195,10 @@ fn vs_water(@builtin(vertex_index) vi: u32) -> WOut {
     } else {
         normal = f.sj * select(-1.0, 1.0, kind == 4u);
     }
-    var o = wout(bi, f.up, z, normal, u32(kind != 0u));
+    // a glowing fluid (lava, water.rs `glow`): drawn as the metal sea is, in its own light (side bits 2 and 4)
+    let glow = q.info >> 10u;
+    var o = wout(bi, f.up, z, normal, u32(kind != 0u) | select(0u, 6u, glow != 0u));
+    o.flow = vec4f(vec3f(f32(glow & 127u), f32((glow >> 7u) & 127u), f32((glow >> 14u) & 127u)) * (4.0 / 127.0), 0.0);
     o.grid = vec3f(f32(q.i) + du, f32(q.j) + dv, z);
     o.face = face;
     return o;
@@ -396,7 +399,9 @@ fn metal_sea(i: WOut) -> vec4f {
     let p = i.grid.xy / 7.0;
     let m = 0.6 * wnoise(p + vec2f(t, -0.7 * t)) + 0.4 * wnoise(p * 2.3 + vec2f(-0.6 * t, t) + 17.0);
     // (the shoulder rolls 4.0 and 2.6 both to white: the cells must fall to about a third to show at all)
-    return water_out(METAL_GLOW * mix(0.3, 1.0, smoothstep(0.2, 0.7, m)), 1.0);
+    // stored lava carries its row's light in `flow` (side bit 4, `vs_water`)
+    let hot = select(METAL_GLOW, i.flow.xyz, (i.side & 4u) != 0u);
+    return water_out(hot * mix(0.3, 1.0, smoothstep(0.2, 0.7, m)), 1.0);
 }
 
 fn water_out(col: vec3f, a: f32) -> vec4f {

@@ -6,6 +6,7 @@ use engine::liquid::{Col, OPEN, TILE, U};
 use engine::world::{FxMap, World};
 
 /// One quad of the water mesh, as the shader reads it: column (i, j), info = face | body << 3 (4 bits) | kind << 7 (`info`)
+/// | a glowing fluid's light << 10 (`glow`)
 /// (0 the top, 1..=4 a side toward -i, +i, -j, +j), the time its move starts, and its heights in layers
 /// before and after: a top's corners (0,0) (1,0) (1,1) (0,1); a side's top and bottom at its two ends.
 #[repr(C)]
@@ -170,6 +171,7 @@ impl WaterMesh {
             };
             let cs = |now| [corner(0, 0, now), corner(1, 0, now), corner(1, 1, now), corner(0, 1, now)];
             let (cp, cq) = (cs(false), cs(true));
+            let info = info | glow(world, c);
             out.push(WQuad { i, j, info, t0, prev: cp, cur: cq });
             // sides: toward -i, +i, -j, +j, over the two corners of that edge
             for (kind, (di, dj), (a, b)) in [(1u32, (-1, 0), (0, 3)), (2, (1, 0), (1, 2)), (3, (0, -1), (0, 1)), (4, (0, 1), (3, 2))] {
@@ -181,6 +183,14 @@ impl WaterMesh {
                 if q - bq > SIDE || p - bp > SIDE {
                     out.push(WQuad { i, j, info: info | kind << 7, t0, prev: [cp[a], cp[b], bp.min(cp[a]), bp.min(cp[b])], cur: [cq[a], cq[b], bq.min(cq[a]), bq.min(cq[b])] });
                 }
+            }
+        }
+        // the GPU counts a body's layers from the floor of the worlds before the mantle (`frame::gpu_r0`, ADR 0152):
+        // absolute layers drew stored water `mantle` layers up, out of sight
+        let m = world.bodies[t.body() as usize].mantle as f32;
+        for q in &mut out {
+            for h in q.prev.iter_mut().chain(q.cur.iter_mut()) {
+                *h -= m;
             }
         }
         out
@@ -202,11 +212,14 @@ impl WaterMesh {
         for q in &self.all {
             let kind = q.info >> 7 & 7;
             let fall = (q.cur[0] + q.cur[1] - q.cur[2] - q.cur[3]) * 0.5;
-            if !(1..=4).contains(&kind) || fall < 1.0 || rnd().0 > dt * 12.0 * fall.min(8.0) {
+            // (a glowing fluid's fall throws no water's spray)
+            if !(1..=4).contains(&kind) || q.info >> 10 != 0 || fall < 1.0 || rnd().0 > dt * 12.0 * fall.min(8.0) {
                 continue;
             }
             let (face, bi) = ((q.info & 7) as usize, (q.info >> 3 & 15) as usize);
             let b = &world.bodies[bi];
+            // (the quad's layers count from the GPU's floor, `mesh`)
+            let m = b.mantle as f64;
             let (out_u, out_v, edge_u, edge_v) = match kind {
                 1 => (-1.0, 0.0, 0.0, 1.0),
                 2 => (1.0, 0.0, 0.0, 1.0),
@@ -217,9 +230,9 @@ impl WaterMesh {
             let (u, v) = (q.i as f64 + 0.5 + out_u * 0.5 + edge_u * (along - 0.5), q.j as f64 + 0.5 + out_v * 0.5 + edge_v * (along - 0.5));
             let up = b.dir(face, u, v);
             let out = (b.dir(face, u + out_u * 0.01, v + out_v * 0.01) - up).normalize();
-            let p = up * b.layer_r(q.cur[0] as f64 - 0.05);
+            let p = up * b.layer_r(q.cur[0] as f64 + m - 0.05);
             let vel = out * (0.6 + rnd().0 as f64) + up * (rnd().0 as f64 * 0.25);
-            fx.play(spray, &crate::fx::At::point(bi as u8, p, vel, b.layer_r(q.cur[2].min(q.cur[3]) as f64)));
+            fx.play(spray, &crate::fx::At::point(bi as u8, p, vel, b.layer_r(q.cur[2].min(q.cur[3]) as f64 + m)));
         }
         self.rng = rnd().1;
     }
@@ -244,6 +257,16 @@ fn surface(world: &World, g: &impl engine::liquid::Ground, c: Col) -> Option<(f3
     }
 }
 
+/// A quad's glow in `info`'s bits 10.. (shader_water.wgsl `vs_water`): the light of the fluid in column c's open
+/// gap (`data/fluids.toml`), 7 bits a channel over 0..4; 0 for water and every fluid without a light.
+/// shortcut: a fluid without a light is drawn as water (liquids.md step 4: the look per fluid)
+fn glow(world: &World, c: Col) -> u32 {
+    let Some(k) = world.water.column(c).and_then(|mut ns| ns.find(|n| n.ceil == OPEN && n.water > 0)).map(|n| n.kind) else { return 0 };
+    let l = engine::fluids::FLUIDS.get(k).light;
+    let q = |v: f32| ((v / 4.0 * 127.0).round() as u32).min(127);
+    (q(l[0]) | q(l[1]) << 7 | q(l[2]) << 14) << 10
+}
+
 /// The floor of a stored dry column's open air: what water next to it falls down to.
 fn floor(world: &World, c: Col) -> Option<f32> {
     world.water.column(c)?.find(|n| n.ceil == OPEN).map(|n| n.floor as f32)
@@ -255,6 +278,27 @@ mod tests {
 
     /// Water poured on the planet's land: the tile is meshed with a top per wet column and sides at its edge,
     /// and the move starts from what was shown.
+    /// On a body with a mantle (ADR 0152) the GPU counts layers from the old floor (`frame::gpu_r0`): a wet column's
+    /// top goes out in those layers, or it is drawn `mantle` layers up, out of sight (stored water and lava unseen).
+    #[test]
+    fn a_wet_tile_on_a_deep_body_is_meshed_in_the_gpus_layers() {
+        use engine::liquid::Ground;
+        let mut w = World::new(256, 512, 1);
+        std::sync::Arc::get_mut(&mut std::sync::Arc::make_mut(&mut w.bodies)[0]).expect("one owner").mantle = 1280;
+        let n = w.bodies[0].n / TILE;
+        let (c, floor) = {
+            let g = w.ground();
+            let dry = |t: Col| tile_cols(t).all(|c| { let (lo, hi) = g.generated(c); lo >= hi });
+            let t = (0..n * n).map(|k| Col::new(0, 2, k % n, k / n)).find(|&t| dry(t)).expect("a dry tile");
+            let c = Col::new(0, 2, t.i() * TILE + 8, t.j() * TILE + 8);
+            (c, g.gaps(c).last().unwrap().0)
+        };
+        w.water.set_column(&(c, vec![(floor, OPEN, U / 2)]));
+        let mut m = WaterMesh::default();
+        m.update(&w, &[c.tile()], 1.0);
+        assert_eq!(m.all[0].cur, [(floor - 1280) as f32 + 0.5; 4]);
+    }
+
     #[test]
     fn a_wet_tile_is_meshed_with_tops_and_sides() {
         use engine::liquid::Ground;

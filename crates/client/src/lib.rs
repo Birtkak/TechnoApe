@@ -529,9 +529,9 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         let s = world.bodies[0].spawn;
         args.0.insert("at".into(), format!("{},{},{}", s.x, s.y, s.z));
     }
-    // creature= (ADR 0053), model=, fxplay= and structure= stand at the spawn too, on land as the Studio's view
+    // creature= (ADR 0053), model=, fxplay=, structure= and pour= stand at the spawn too, on land as the Studio's view
     // does (the +y pole of the baked planet can be open sea)
-    if ["creature", "model", "fxplay", "structure"].iter().any(|k| args.0.contains_key(*k)) && !args.0.contains_key("at") {
+    if ["creature", "model", "fxplay", "structure", "pour"].iter().any(|k| args.0.contains_key(*k)) && !args.0.contains_key("at") {
         let s = world.bodies[0].spawn;
         args.0.insert("at".into(), format!("{},{},{}", s.x, s.y, s.z));
     }
@@ -540,6 +540,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
     // fxedit=t:di:dj:dl:block,... does the same t seconds after loading, as a click would, with its effects
     // (ADR 0031; with fx=1): filmstrips of a break and a place
     let mut fx_edits = Vec::new();
+    let mut pours: Vec<(f64, Block, u8)> = Vec::new();
     let up = stand_at(&args).unwrap_or_else(|e| {
         eprintln!("[technoape] {e}");
         std::process::exit(1)
@@ -569,6 +570,19 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         for (t, d, id) in fxedit {
             fx_edits.push((t, Block { pos: feet.pos + d, ..feet }, id));
         }
+        // pour=t:di:dj:dl:fluid,...: t seconds after loading, creative's bucket pours a block of the fluid (a row of
+        // data/fluids.toml) into that cell through the server, which runs it (liquids.md step 3)
+        for one in args.s("pour", "").split(',').filter(|s| !s.is_empty()) {
+            let f: Vec<&str> = one.split(':').collect();
+            let num = |v: &str| v.parse::<i32>().ok().filter(|v| (-PLACE_REACH..=PLACE_REACH).contains(v));
+            let parsed = (f.len() == 5).then(|| Some((f[0].parse::<f64>().ok().filter(|t| t.is_finite())?, IVec3::new(num(f[1])?, num(f[2])?, num(f[3])?), engine::fluids::FLUIDS.kind(f[4])?))).flatten();
+            let Some((t, d, k)) = parsed else {
+                eprintln!("[technoape] pour={one}: not t:di:dj:dl:fluid (fluids: {})", engine::fluids::FLUIDS.names());
+                std::process::exit(1)
+            };
+            pours.push((t, Block { pos: feet.pos + d, ..feet }, k));
+        }
+        pours.sort_by(|a, b| b.0.total_cmp(&a.0));
         // the soonest last, whatever order they came in
         fx_edits.sort_by(|a: &(f64, Block, u16), b| b.0.total_cmp(&a.0));
     }
@@ -712,6 +726,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         dig_again: false,
         digs: Vec::new(),
         fx_edits,
+        pours,
+        pour_fluid: None,
         world_notes: Vec::new(),
         new_world: Default::default(),
         creative,
