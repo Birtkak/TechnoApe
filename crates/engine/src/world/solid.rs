@@ -91,7 +91,7 @@ impl Ground for Solid<'_> {
     }
     fn tide_top(&self, c: Col) -> i64 {
         let b = &self.bodies[c.body() as usize];
-        b.sea.map_or(i64::MIN, |s| ((s + crate::sky::TIDE_HIGH / (b.layer_r(s) * b.lnq)) * U as f64) as i64 + 1)
+        b.sea.map_or(i64::MIN, |s| ((s + b.tide_high / (b.layer_r(s) * b.lnq)) * U as f64) as i64 + 1)
     }
     fn down(&self, acct: u32) -> (u32, f64) {
         // reaches are Terra's baked map's (Luna has none); the map's NONE (to the sea) is the sea's account

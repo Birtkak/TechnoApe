@@ -61,6 +61,81 @@ fn moons_are_locked_to_their_own_parent() {
     }
 }
 
+/// The tide follows from the masses and distances (`sky::tide_rise`): Luna's and the sun's rise on Terra are their
+/// masses over hers by the cube of her radius over their distance, millimetres; every other raiser's is under a
+/// micrometre, so the sea sums those two; the sea's quads are meshed for the derived range, not a metre. Before
+/// real gravity the hand-set metre at springs.
+#[test]
+fn tides_follow_from_the_masses() {
+    let w = real();
+    let (t, l) = (&w.bodies[0], &w.bodies[1]);
+    let rise = |m: f64, d: f64| crate::sky::tide_rise(m, t.interior.mass, t.radius, d);
+    assert_eq!((w.sky.tide_moon, w.sky.tide_sun), (rise(l.interior.mass, w.sky.moon_orbit), rise(w.sun_mass(), w.sky.sun_dist)));
+    assert!(w.sky.tide_moon > 1e-4 && w.sky.tide_moon < 1e-3 && w.sky.tide_sun < w.sky.tide_moon, "{} {}", w.sky.tide_moon, w.sky.tide_sun);
+    for j in 2..w.bodies.len() {
+        let b = &w.bodies[j];
+        // at its closest: a planet's orbit less Terra's, a moon of another its parent's
+        let a = if b.parent == INERTIAL { b.orbit } else { w.bodies[b.parent].orbit };
+        assert!(rise(b.interior.mass, (a - t.orbit).abs()) < 1e-6, "{}'s tide on Terra", b.name);
+    }
+    assert_eq!(t.tide_high, 1.5 * (w.sky.tide_moon + w.sky.tide_sun));
+    let tide = w.tide();
+    assert_eq!((tide.h_luna, tide.h_sun), (w.sky.tide_moon, w.sky.tide_sun));
+    let old = World::with_grid(6144, 1664, 1, None, None, 0.0, 7);
+    assert_eq!((old.sky.tide_moon, old.sky.tide_sun, old.bodies[0].tide_high), (crate::sky::TIDE_LUNA, crate::sky::TIDE_SUN, crate::sky::TIDE_HIGH));
+    println!("Terra's tide: Luna's range {:.3} mm, the sun's {:.3} mm, springs {:.3} mm", 1.5e3 * w.sky.tide_moon, 1.5e3 * w.sky.tide_sun, 1e3 * t.tide_high);
+}
+
+/// The numbers of `docs/design/real-gravity-changes.md`, generation 7 against 8 on the 4 km planet
+/// (`cargo test -p engine --lib the_numbers -- --nocapture`). Eclipses: a new (full) moon whose centre passes
+/// within the sum of the discs' and the parallax's reach of the sun's (the shadow's) is one somewhere on Terra.
+#[test]
+fn the_numbers() {
+    let day = crate::sky::DAY;
+    for gen in [7, REAL] {
+        let w = World::with_grid(6144, 1664, 1, None, None, 0.0, gen);
+        let (t, s) = (&w.bodies[0], &w.sky);
+        let month = 1.0 / (1.0 / s.month - 1.0 / s.year);
+        // (before 8 Body::period of a moon is its month against the home's year)
+        let synodic = if gen >= REAL { month } else { s.month };
+        println!("generation {gen}: G {:.4e}, sun radius {:.0} m mass {:.4e} kg ({:.0} kg/m3, {:.3e} Terras), {:.3} deg from Terra; year {:.2} days, season {:.2} days; Luna's new-moon month {:.2} days, {:.2} new moons a year; tide Luna {:.4} m sun {:.4} m high {:.4} m",
+            t.interior.k, s.sun_radius, s.sun_mass, s.sun_mass / (4.0 / 3.0 * std::f64::consts::PI * s.sun_radius.powi(3)), s.sun_mass / t.interior.mass, 2.0 * (s.sun_radius / s.sun_dist).asin().to_degrees(), s.year / day, s.year / 4.0 / day, synodic / day, s.year / synodic, 1.5 * s.tide_moon, 1.5 * s.tide_sun, t.tide_high);
+        for (i, b) in w.bodies.iter().enumerate() {
+            let size = if i == 0 { 0.0 } else { 2.0 * (b.radius / ((w.pose(i, 0.0).centre - w.pose(0, 0.0).centre).length())).asin().to_degrees() };
+            println!("  {}: radius {:.0} m, mass {:.4e} ({:.4} Terras), mean {:.0} kg/m3, pull {:.3} m/s2 (weight {:.3}), orbit {:.0} m, period {:.0} s ({:.3} days), day {:.0} s, seen from Terra {:.4} deg at t 0, field {:.4}",
+                b.name, b.radius, b.interior.mass, b.interior.mass / t.interior.mass, b.interior.mass / (4.0 / 3.0 * std::f64::consts::PI * b.radius.powi(3)), b.interior.surface_g, b.interior.weight_g, b.orbit, b.period, b.period / day, b.day, size, w.field(i));
+        }
+        // eclipses over 40 years: at each new and full moon, the angle between the sun and Luna (or Terra's shadow)
+        let (mut solar, mut lunar) = (0, 0);
+        let (reach_s, reach_l) = (((t.radius + s.moon_radius) / s.moon_orbit).asin() + (s.sun_radius / s.sun_dist).asin(), ((t.radius + s.moon_radius) / s.moon_orbit).asin());
+        let years = 40.0;
+        // Luna's angle from the sun seen from Terra's centre, and from the anti-sun
+        let el = |x: f64| {
+            let (p, m) = (w.sky.planet(x).centre, w.sky.moon(x).centre);
+            ((m - p).normalize().dot((-p).normalize())).clamp(-1.0, 1.0).acos()
+        };
+        let least = |f: &dyn Fn(f64) -> f64, mut a: f64, mut b: f64| {
+            for _ in 0..50 {
+                let (m1, m2) = (a + (b - a) / 3.0, b - (b - a) / 3.0);
+                if f(m1) > f(m2) { a = m1 } else { b = m2 }
+            }
+            f(a)
+        };
+        let dt = synodic / 400.0;
+        let (sun_off, shadow_off) = (|x: f64| el(x), |x: f64| std::f64::consts::PI - el(x));
+        let mut x = dt;
+        while x < years * s.year {
+            for (f, reach, count) in [(&sun_off as &dyn Fn(f64) -> f64, reach_s, &mut solar), (&shadow_off, reach_l, &mut lunar)] {
+                if f(x) < f(x - dt) && f(x) <= f(x + dt) {
+                    *count += (least(f, x - dt, x + dt) < reach) as u32;
+                }
+            }
+            x += dt;
+        }
+        println!("  eclipses a year somewhere on Terra: of the sun {:.2}, of Luna {:.2}", solar as f64 / years, lunar as f64 / years);
+    }
+}
+
 /// The seasons, the plants' year and Terra's baked climate follow the world's year: a quarter of real gravity's
 /// 334 days is summer; a map of version 8 is baked over that year (its climate another than the 54-day year's of
 /// version 7, its ground the same), and a world before real gravity stands on a version 7 map.

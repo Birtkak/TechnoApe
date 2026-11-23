@@ -285,6 +285,9 @@ pub struct Body {
     /// Its world's year (the home's period, `sky::Sky::year`), seconds: what its seasons and its plants' year
     /// turn by (`clutter::part`), so the mesher that has only the body has it.
     pub year: f64,
+    /// The highest its sea's tide stands over the mean, metres (`sky::Sky::tide_high`): its sea's quads are meshed
+    /// for it (`sea_high`).
+    pub tide_high: f64,
     /// Its turn in seconds, a whole fraction of `sky::PERIOD`, for one that circles the sun and is not home, from
     /// its row's `day` (0: it does not turn; the giant's bands turn in the client, so its pose does not).
     pub day: f64,

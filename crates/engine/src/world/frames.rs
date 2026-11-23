@@ -82,6 +82,11 @@ impl World {
             sky.sun_mass = rows[0].sun_density.unwrap_or(crate::bodies::SUN_DENSITY) * 4.0 / 3.0 * std::f64::consts::PI * sky.sun_radius.powi(3);
         }
         let repeat = if real { crate::sky::REPEAT } else { crate::sky::PERIOD };
+        // the home's tide from its moon's mass and the sun's, at their distances (`sky::tide_rise`); every other
+        // raiser's is under a micrometre (gravity_tests)
+        let (home_mass, moon_mass) = (Interior::new(rows[0].makeup_at(gen), r0, 0.0, None).mass, Interior::new(rows[moon].makeup_at(gen), sky.moon_radius, 0.0, None).mass);
+        let tides = (crate::sky::tide_rise(moon_mass, home_mass, r0, sky.moon_orbit), crate::sky::tide_rise(sky.sun_mass, home_mass, r0, sky.sun_dist));
+        let tide_high = if real { 1.5 * (tides.0 + tides.1) } else { crate::sky::TIDE_HIGH };
         let mut bodies: Vec<Arc<Body>> = Vec::with_capacity(rows.len());
         let mut lazy = vec![None; rows.len()];
         for (i, (row, (n, map))) in rows.iter().zip(list).enumerate() {
@@ -130,6 +135,7 @@ impl World {
                 b.day = row.day.map_or(0.0, |d| crate::sky::period_in(d * crate::sky::DAY, repeat));
             }
             b.year = if i == 0 { b.period } else { bodies[0].period };
+            b.tide_high = tide_high;
             b.interior = Interior::new(row.makeup_at(gen), b.radius, spin, first.as_ref());
             first.get_or_insert_with(|| b.interior.clone());
             // every body is of the world's generation (from 4 Luna's rock field asks it); the home's grid goes down
@@ -149,7 +155,7 @@ impl World {
             });
         }
         let sky = if real {
-            sky.real(bodies[0].period, bodies[moon].period)
+            sky.real(bodies[0].period, bodies[moon].period, tides.0, tides.1)
         } else {
             // what Kepler's law needs for the hand-set year (a number for the record; nothing reads it there)
             Sky { sun_mass: (std::f64::consts::TAU / sky.year).powi(2) * bodies[0].orbit.powi(3) / big_g - bodies[0].interior.mass, ..sky }

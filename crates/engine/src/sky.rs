@@ -89,6 +89,12 @@ pub struct Sky {
     /// The sun's mass, kg: its row's density in `sun_radius` under real gravity; before it, the mass Kepler's law
     /// needs for the hand-set YEAR (`world::World::of_sources`).
     pub sun_mass: f64,
+    /// The home's tide (`Tide`): the equilibrium rise its first moon and the sun raise, metres (`tide_rise`; the
+    /// hand-set TIDE_LUNA and TIDE_SUN before real gravity), and the highest it stands over the mean sea (what
+    /// the sea's quads are meshed for, `world::Body::tide_high`; TIDE_HIGH before).
+    pub tide_moon: f64,
+    pub tide_sun: f64,
+    pub tide_high: f64,
 }
 
 /// Where a body is and how it is turned at a moment: its frame to the inertial frame.
@@ -117,16 +123,16 @@ impl Sky {
         assert!(moon_radius < moon_orbit - planet_radius, "the moon touches or holds the planet's ground");
         let moon_seen = (moon_radius / (moon_orbit - planet_radius)).asin();
         let sun_radius = (sun_dist - planet_radius) * (SUN_UNDER_MOON * moon_seen).sin();
-        Sky { planet_radius, moon_radius, moon_orbit, sun_dist, sun_radius, tilt: TILT, year: YEAR, month: MONTH, against: YEAR, repeat: PERIOD, sun_mass: 0.0 }
+        Sky { planet_radius, moon_radius, moon_orbit, sun_dist, sun_radius, tilt: TILT, year: YEAR, month: MONTH, against: YEAR, repeat: PERIOD, sun_mass: 0.0, tide_moon: TIDE_LUNA, tide_sun: TIDE_SUN, tide_high: TIDE_HIGH }
     }
     /// This sky under real gravity (`world::REAL`): the home's `year` and its moon's sidereal `month` by Kepler's
-    /// law (whole fractions of `REPEAT`).
-    pub fn real(self, year: f64, month: f64) -> Sky {
-        Sky { year, month, against: f64::INFINITY, repeat: REPEAT, ..self }
+    /// law (whole fractions of `REPEAT`), and the tides its moon and the sun raise (`tide_rise`).
+    pub fn real(self, year: f64, month: f64, tide_moon: f64, tide_sun: f64) -> Sky {
+        Sky { year, month, against: f64::INFINITY, repeat: REPEAT, tide_moon, tide_sun, tide_high: 1.5 * (tide_moon + tide_sun), ..self }
     }
     /// A sky that only turns the home (the bake's air, `bake::air`): a sun of no size `year` long.
     pub fn bare(tilt: f64, year: f64) -> Sky {
-        Sky { planet_radius: 1.0, moon_radius: 0.0, moon_orbit: 0.0, sun_dist: 1.0, sun_radius: 0.0, tilt, year, month: MONTH, against: YEAR, repeat: if year == YEAR { PERIOD } else { REPEAT }, sun_mass: 0.0 }
+        Sky { planet_radius: 1.0, moon_radius: 0.0, moon_orbit: 0.0, sun_dist: 1.0, sun_radius: 0.0, tilt, year, month: MONTH, against: YEAR, repeat: if year == YEAR { PERIOD } else { REPEAT }, sun_mass: 0.0, tide_moon: 0.0, tide_sun: 0.0, tide_high: 0.0 }
     }
     /// The sun's centre: the inertial origin.
     pub fn sun(&self, _t: f64) -> DVec3 {
@@ -207,9 +213,16 @@ impl Sky {
     }
 }
 
-/// Luna's pull on the sea, metres: the bulge under Luna stands 1.5 * TIDE_LUNA over the ring 90 degrees off it.
-/// With the sun's a third of it (docs/design/rivers-and-tides.md), low to high at springs is 1.5 * (TIDE_LUNA +
-/// TIDE_SUN) = 1 m (the developer, 2026-11-12), at neaps half that.
+/// The equilibrium tide a raiser of `raiser` kg at `dist` m raises on a body of `mass` kg and `radius` m, metres
+/// (ADR 0180; `prototypes/tide-force`): h = (M_k / M) (R / d)^3 R, the bulge under the raiser standing 1.5 h over
+/// the ring 90 degrees off it. The general term every body with a sea sums over its raisers under real gravity.
+pub fn tide_rise(raiser: f64, mass: f64, radius: f64, dist: f64) -> f64 {
+    raiser / mass * (radius / dist).powi(3) * radius
+}
+
+/// Before real gravity (`world::REAL`), set by hand: Luna's pull on the sea, metres: the bulge under Luna stands
+/// 1.5 * TIDE_LUNA over the ring 90 degrees off it. With the sun's a third of it (docs/design/rivers-and-tides.md),
+/// low to high at springs is 1.5 * (TIDE_LUNA + TIDE_SUN) = 1 m (the developer, 2026-11-12), at neaps half that.
 pub const TIDE_LUNA: f64 = 0.5;
 pub const TIDE_SUN: f64 = TIDE_LUNA / 3.0;
 /// The highest the tide stands over the mean sea anywhere, metres: both bulges at once (2/3 m with the ocean
@@ -226,16 +239,19 @@ pub struct Tide {
     pub sun: DVec3,
     /// Metres everywhere: minus the bulges' mean over the ocean, so the sea moves water and makes none.
     pub base: f64,
+    /// Luna's and the sun's rise, metres (`Sky::tide_moon`, `tide_sun`).
+    pub h_luna: f64,
+    pub h_sun: f64,
 }
 
 impl Tide {
     /// No tide: the sea at its mean everywhere.
-    pub const NONE: Tide = Tide { luna: DVec3::ZERO, sun: DVec3::ZERO, base: 0.0 };
+    pub const NONE: Tide = Tide { luna: DVec3::ZERO, sun: DVec3::ZERO, base: 0.0, h_luna: 0.0, h_sun: 0.0 };
     /// The sea's height over its mean, metres, at body-frame direction `up` (a unit vector): the classic bulge
     /// (3 cos^2 a - 1) / 2 under and opposite Luna and the sun; its -1/2 is in `base`, with the ocean's.
     pub fn at(&self, up: DVec3) -> f64 {
         let (l, s) = (up.dot(self.luna), up.dot(self.sun));
-        1.5 * (TIDE_LUNA * l * l + TIDE_SUN * s * s) + self.base
+        1.5 * (self.h_luna * l * l + self.h_sun * s * s) + self.base
     }
 }
 
@@ -250,8 +266,9 @@ impl Sky {
     /// then exactly 0, so the rise under Luna is water from the low ring, not water made.
     pub fn tide(&self, t: f64, ocean: &DMat3) -> Tide {
         let (luna, sun) = (self.moon_dir(t), self.sun_dir(t));
-        let base = -1.5 * (TIDE_LUNA * luna.dot(*ocean * luna) + TIDE_SUN * sun.dot(*ocean * sun));
-        Tide { luna, sun, base }
+        let (h_luna, h_sun) = (self.tide_moon, self.tide_sun);
+        let base = -1.5 * (h_luna * luna.dot(*ocean * luna) + h_sun * sun.dot(*ocean * sun));
+        Tide { luna, sun, base, h_luna, h_sun }
     }
 }
 

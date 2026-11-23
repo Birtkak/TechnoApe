@@ -964,7 +964,7 @@ impl App {
         let per_m = b0.sea.map_or(0.0, |s| 1.0 / (b0.layer_r(s) * b0.lnq));
         let pull = |d: DVec3, a: f64| [d.x as f32, d.y as f32, d.z as f32, (1.5 * a * per_m) as f32];
         let mut g = Globals {
-            tide: [pull(tide.luna, engine::sky::TIDE_LUNA), pull(tide.sun, engine::sky::TIDE_SUN)],
+            tide: [pull(tide.luna, tide.h_luna), pull(tide.sun, tide.h_sun)],
             // a shot's ripples stand still: it is taken after as many frames as the PC draws, the clock in wall time
             // w: the wind here for the leaves' sway (ADR 0090), a breeze in calm air, none in a shot
             water: [if self.shot.is_some() { 0.0 } else { self.world.time.rem_euclid(3600.0) as f32 }, fog, deep_light, if self.shot.is_some() { 0.0 } else { 0.5 + blow as f32 }],
