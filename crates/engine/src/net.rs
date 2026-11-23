@@ -544,8 +544,9 @@ mod tests {
         let addr = l.local_addr().unwrap();
         // a raw socket that never writes: a ghost
         let _ghost = TcpStream::connect(addr).unwrap();
-        let server: Link<ToClient, ToServer> = tcp_with(l.accept().unwrap().0, lim).unwrap();
+        // (the clock starts before the link does: its silence is counted from its own start)
         let t = Instant::now();
+        let server: Link<ToClient, ToServer> = tcp_with(l.accept().unwrap().0, lim).unwrap();
         assert!(matches!(server.rx.recv_timeout(silent * 5), Err(std::sync::mpsc::RecvTimeoutError::Disconnected)), "the ghost's link closes");
         assert!(t.elapsed() >= silent && t.elapsed() < silent * 4, "{:?}", t.elapsed());
         // two of our own ends, both idle for three silences: still open, nothing delivered
