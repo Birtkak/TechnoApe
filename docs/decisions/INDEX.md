@@ -197,3 +197,4 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0186 | Fluids are rows of data/fluids.toml; lava, one kind a gap, no mixing | [sky-weather-and-water.md](sky-weather-and-water.md) - Fluids are rows; lava, with no mixing | in force |
 | 0187 | Weather-driven heat runs at the calendar's pace (about 52x); source heat at real rates | [sky-weather-and-water.md](sky-weather-and-water.md) - Weather-driven heat runs at the calendar's pace | in force |
 | 0188 | Volcanoes and vents, fed by the planet's heat | [bake-and-landforms.md](bake-and-landforms.md) - Volcanoes and vents, fed by the planet's heat | in force |
+| 0189 | Snow lies in thin layers that build and melt, counted water | [sky-weather-and-water.md](sky-weather-and-water.md) - Snow lies in thin layers that build and melt | in force |

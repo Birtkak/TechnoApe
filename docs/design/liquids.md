@@ -108,7 +108,7 @@ spans the three: a block is U units, and ice + water + vapour of a world is one 
 - **Untouched water follows the formula** (the rule at the top): the bake's sea ice is where the climate holds the
   sea under freezing; a stored patch in the same place must freeze to the same answer.
 - **Open:** where the heat is held (a temperature a liquid layer and a block near a source, not every block of the
-  world); steam near the ground before it joins a 128 m air cell; snow as fallen vapour; every rock's melting
+  world); steam near the ground before it joins a 128 m air cell; snow as fallen vapour in thin layers (ADR 0189); every rock's melting
   (lava is rock's liquid, so stone beside lava long enough melts) and metals' (a mould is a freeze).
 
 ## Steps, each with a test seen failing and a measured cost

@@ -114,7 +114,8 @@ the debt is `docs/perf-debt.md`. The story is `docs/design/lore.md`.
   4. Heat and water's phases in the engine (step 5, ADR 0183 and 0187), with a geotherm from the interior.
   5. Eruptions, then vents (fumaroles, hot springs) and their rocks (obsidian, scoria, pumice, sulfur).
   6. Ground water: a water table, wet caves (rivers, lakes, dripstone), springs (spike: `prototypes/ground-water`).
-  7. Ice by physics (the sheet's thickness, glaciers) and snow that falls and lies as counted water.
+  7. Ice by physics (the sheet's thickness, glaciers) and snow that falls and lies as counted water, in thin
+     layers of a block that build and melt (ADR 0189).
   8. Gases near the ground (steam, smoke, heavy gas in hollows; spike: `prototypes/near-gas`), then fire that
      spreads.
   9. Sea caves and coastal cliffs.
