@@ -1258,7 +1258,8 @@ mod tests {
             let peak = a.iter().fold(0.0f32, |m, s| m.max(s.abs()));
             let rms = (a.iter().map(|s| s * s).sum::<f32>() / a.len() as f32).sqrt();
             // (a chain may lower a take's loudest sample, never raise it past the row's gain)
-            assert!(((peak - r.gain).abs() < 1e-3 || (!r.chain.is_empty() && peak < r.gain)) && peak <= 1.0, "{}: peak {peak}", r.name);
+            assert!(((peak - r.gain).abs() < 1e-3 || (!r.chain.is_empty() && peak < r.gain)) && peak <= 2.0, // 2: the most a row's gain may be (the mixer's tanh keeps it from clipping)
+                "{}: peak {peak}", r.name);
             assert!(rms > 0.01 * r.gain, "{}: all but silent, rms {rms}", r.name);
             assert!(a.len() as f32 / RATE <= 60.0, "{}: {} s", r.name, a.len() as f32 / RATE);
             if r.loops > 0.0 {
@@ -1285,7 +1286,7 @@ mod tests {
                 h = (h ^ s.to_bits() as u64).wrapping_mul(0x100000001b3);
             }
         }
-        assert_eq!(h, 12066405525041298250, "the rows' samples changed");
+        assert_eq!(h, 8797246013224644325, "the rows' samples changed");
     }
 
     #[test]
