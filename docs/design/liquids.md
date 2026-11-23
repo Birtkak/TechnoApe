@@ -33,9 +33,11 @@ body's pull at that depth, plus the tidal potential of every other body.
 - **Tides** from the general form of today's `Sky::tide`: for each other body k of mass M_k at distance d_k,
   the equilibrium rise is `h_k (3 (up . dir_k)^2 - 1) / 2` with `h_k` from M_k, d_k and the body's own radius
   and pull. Luna and the sun on Terra are two terms of the same sum; Jupiter on Callisto is a third (and large:
-  a locked moon carries a fixed bulge, which the bake's sea level should already include). Amplitudes are then
-  derived, not `TIDE_LUNA = 0.5`; a per-body `tide_scale` keeps the play value the developer likes (small
-  planets exaggerate, as relief does).
+  a locked moon carries a fixed bulge, which the bake's sea level should already include). Amplitudes are
+  **derived** from the bodies' masses (their rows' densities and radii), distances and the body's own pull, not
+  `TIDE_LUNA = 0.5` (the developer, 2026-11-23: derived, "as close to real astrophysics as possible"). No
+  scale factor: if a derived tide is unplayable, the bodies' rows change (a mass, a distance), not the physics.
+  The spike prints every body's derived tides first, so the sizes are known before anything is built.
 - The untouched sea's level stays `mean + tide(up, t)`, the equilibrium of that head. Stored water gets the
   same term as a head offset on every link, so a harbour, a tide pool and a tide mill work with no special rule,
   and `retide` and the dead band go.

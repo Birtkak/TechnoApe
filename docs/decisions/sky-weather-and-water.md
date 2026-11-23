@@ -25,7 +25,8 @@ snow, wind, storms); the light snapped to texels; the globe map. What holds toda
   formula as long as it is the state the simulation settles to; every fluid answers to its body's gravity and to
   the tides of its moons and sun; the first liquids are water, lava, liquid metals, oil and toxic sludge, and they
   mix and react in the open world, not only in machines; gases follow the same logic, with atmospheric tides where
-  they change play or the simulation. The design and its steps: `docs/design/liquids.md` (a proposal; each step is
+  they change play or the simulation. Tide sizes are derived from the bodies' masses and distances, with no fixed
+  amplitude and no scale: the simulation is to be as close to real astrophysics as possible. The design and its steps: `docs/design/liquids.md` (a proposal; each step is
   spiked and measured before it is built). Replaces, when step 2 is built: 0067's tide as a level only (`retide`,
   the shader's offset on a sea meshed once). Open: equilibrium tides have no lag; the layer cap; gases near the ground.
 - Open taste calls (colours and amounts are first guesses): every seasonal colour and how long autumn lasts [0061];
