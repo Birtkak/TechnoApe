@@ -198,3 +198,4 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0187 | Weather-driven heat runs at the calendar's pace (about 52x); source heat at real rates | [sky-weather-and-water.md](sky-weather-and-water.md) - Weather-driven heat runs at the calendar's pace | in force |
 | 0188 | Volcanoes and vents, fed by the planet's heat | [bake-and-landforms.md](bake-and-landforms.md) - Volcanoes and vents, fed by the planet's heat | in force |
 | 0189 | Snow lies in thin layers that build and melt, counted water | [sky-weather-and-water.md](sky-weather-and-water.md) - Snow lies in thin layers that build and melt | in force |
+| 0190 | Ground water: a baked table, flooded caves, springs, at the calendar's pace | [sky-weather-and-water.md](sky-weather-and-water.md) - Ground water: a table, flooded caves, springs | in force |

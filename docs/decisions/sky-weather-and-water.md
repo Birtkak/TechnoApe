@@ -61,6 +61,14 @@ The server simulates; clients show it [0020].
   held swims up at 2 m/s, walking is slower by how deep you are [0020]. (also player-and-feel: the sprint's `sub`
   share and the dive key are in 0118.)
 
+### Ground water: a table, flooded caves, springs [0190, 2026-11-23]
+The developer's calls on the ground-water spike (`prototypes/ground-water/README.md`), not built yet (roadmap,
+the world queue's step 6): the water table is the rest state of Darcy flow, baked per 8 m map cell and counted
+per cell where touched (a well or cave trades with its cell by a well index). **The whole ground-water clock
+runs at the calendar's pace** (ADR 0187's factor: it is rain-driven and cannot be sped up in part). **Caves
+below the table are flooded.** **Springs start visible streams.** About 29 s more bake a new world is accepted
+and goes to `docs/perf-debt.md` when built. New worlds only; old worlds stay dry.
+
 ### Snow lies in thin layers that build and melt [0189, 2026-11-23]
 The developer: "have snow be smaller layers that build or melt over time", a slice of a block as in Minecraft,
 "but our world interactions". Snow on the ground is a layer of a block's height in eighths, not a whole block. A player sinks into layers (feet on the ground under them, slowed by their depth) and walks on top of a full snow block. It is counted water: what falls leaves the air's vapour, a layer is its units, and
