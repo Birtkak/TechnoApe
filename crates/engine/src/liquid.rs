@@ -849,7 +849,7 @@ impl Liquids {
         let flows = |&a: &u32| {
             let n = &nodes[a as usize];
             let cg = cgs[n.col.body() as usize];
-            let visc = rows[n.kind as usize];
+            let visc = rows[(n.kind as usize).min(rows.len() - 1)]; // an unknown kind (a newer save): the last row, as `Fluids::get`
             let (ha, sa, wa) = (n.head(), n.surface(), n.water);
             // what came in last step from each side, and how fast
             let mut came = [(0i64, 0i64); 4];
@@ -1048,7 +1048,7 @@ impl Liquids {
                 let (lo, hi) = window(n, b);
                 let push = |x: &Node, y: &Node| {
                     let (area, dh) = (x.surface().min(hi) - lo, x.head() - y.head().max(lo));
-                    let visc = rows[x.kind as usize];
+                    let visc = rows[(x.kind as usize).min(rows.len() - 1)];
                     // a thick fluid: only while the speed a step gives it outlasts its friction (else it never sleeps)
                     let moving = if visc == 1 { moves(dh) } else { thick_moves(dh, cgs[x.col.body() as usize], visc, area) };
                     area > 0 && moving && spreads(x, y) && meets(x, y)
@@ -2358,6 +2358,23 @@ mod tests {
             client.set_tile(t, &w.tile_sent(t));
         }
         assert!(client.column(col(1, 0)).unwrap().any(|n| n.kind == LAVA));
+    }
+
+    /// A save from a build with more fluid rows: an unknown kind flows as the last row, it does not panic.
+    #[test]
+    fn a_kind_past_the_last_row_steps_as_the_last_row() {
+        let mut g = Box3::new(6, 1, 6);
+        g.fill(0..6, 0..1, 0..1, true);
+        let mut w = stored(&g);
+        w.pour_kind(&g, col(1, 0), 1, 2 * U, LAVA);
+        let all: Vec<ColWater> = w.all().into_iter().map(|(c, gaps)| (c, gaps.into_iter().map(|(f, t, v)| (f, t, pack(9, unpack(v).1))).collect())).collect();
+        let mut back = Liquids::default();
+        back.restore(&g, &all);
+        back.pour_kind(&g, col(1, 0), 1, U, 9); // wakes it
+        for _ in 0..30 {
+            back.step(&g);
+        }
+        assert_eq!(back.counted_of(9), 3 * U);
     }
 
     /// The step's cost with 10,000 stored columns of water, all awake (a 100 x 100 basin whose half is 2 m
