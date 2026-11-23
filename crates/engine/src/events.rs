@@ -28,13 +28,16 @@ pub enum Event {
     /// What dead player `by` carried was laid where it died, at its respawn (needs.md "What death costs"): `at`
     /// the first cell of its piles, the death mark's.
     Laid { at: Block, by: u32 },
+    /// Fluid `kind` (`data/fluids.toml`'s row) boiled off in cell `at` by a reaction (lava meeting water, liquids.md
+    /// step 4): where its steam rises.
+    Boil { at: Block, kind: u8 },
 }
 
 impl Event {
     /// Where it happened, a cell; None when it happened to a player (`by`), where that player is.
     pub fn cell(&self) -> Option<Block> {
         match self {
-            Event::Edit { at, .. } | Event::Taken { at, .. } | Event::Fire { at, .. } | Event::Laid { at, .. } => Some(*at),
+            Event::Edit { at, .. } | Event::Taken { at, .. } | Event::Fire { at, .. } | Event::Laid { at, .. } | Event::Boil { at, .. } => Some(*at),
             Event::Fall { to, .. } => Some(*to),
             Event::Worn { .. } | Event::Craft { .. } | Event::Died { .. } => None,
         }
@@ -44,7 +47,7 @@ impl Event {
         match self {
             Event::Edit { by, .. } => *by,
             Event::Worn { by, .. } | Event::Taken { by, .. } | Event::Craft { by, .. } | Event::Died { by } | Event::Laid { by, .. } => Some(*by),
-            Event::Fall { .. } | Event::Fire { .. } => None,
+            Event::Fall { .. } | Event::Fire { .. } | Event::Boil { .. } => None,
         }
     }
 }
@@ -75,6 +78,7 @@ mod tests {
             (Event::Fire { at, on: true }, vec![5, 0, 2, 6, 7, 144, 3, 1]),
             (Event::Died { by: 7 }, vec![6, 7]),
             (Event::Laid { at, by: 7 }, vec![7, 0, 2, 6, 7, 144, 3, 7]),
+            (Event::Boil { at, kind: 0 }, vec![8, 0, 2, 6, 7, 144, 3, 0]),
         ];
         for (e, want) in cases {
             assert_eq!(bytes(e.clone()), want, "{e:?}");

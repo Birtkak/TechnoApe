@@ -409,6 +409,12 @@ impl App {
                         self.audio.play("tool.break", None, 1.0, 1.0, false);
                         self.fx.play(fx::id("knap"), &fx::At::cell(&self.world, ahead, engine::items::ITEMS.look(item)));
                     }
+                    // water a reaction boiled off (lava meeting it, liquids.md step 4): its steam
+                    for e in &v {
+                        if let engine::events::Event::Boil { at, .. } = e {
+                            self.fx.play(fx::id("steam"), &fx::At::cell(&self.world, *at, 0));
+                        }
+                    }
                 }
                 Recv::Msg(ToClient::Taken(v)) => {
                     for (b, y) in v {

@@ -2054,6 +2054,87 @@ fn lava_poured_on_land_reaches_the_client_and_the_save() {
     assert_eq!((back.world.water.all(), back.world.water.counted_of(lava)), (s.world.water.all(), 3 * U), "the save keeps the lava");
 }
 
+/// Oil poured on water in a pit lies on it, and the client and the save hold the two layers (liquids.md step 4); then
+/// lava poured in boils water off: the clients hear of the steam (an `Event::Boil`), basalt is set through the edits,
+/// and water's ledger, its steam counted, holds through a save.
+#[test]
+fn oil_on_water_reaches_the_client_and_lava_into_it_makes_basalt_and_steam() {
+    let (mut s, links) = server_with(1);
+    let l = &links[0];
+    let b = s.world.bodies.clone();
+    let b = &b[0];
+    let sea = b.radius - engine::world::SEA_DEPTH;
+    let d = (0..2000)
+        .map(|k| {
+            let z = 1.0 - 2.0 * (k as f64 + 0.5) / 2000.0;
+            let t = k as f64 * 2.4;
+            DVec3::new((1.0 - z * z).sqrt() * t.cos(), z, (1.0 - z * z).sqrt() * t.sin())
+        })
+        .find(|&d| b.height(d) > sea + 3.0)
+        .expect("the planet has land");
+    let top = s.world.air_over_ground(0, d);
+    for (di, dj, dz) in (-1..=1).flat_map(|i| (-1..=1).flat_map(move |j| [(i, j, 1), (i, j, 2)])) {
+        let c = Block { pos: top.pos + glam::IVec3::new(di, dj, -dz), ..top };
+        s.world.set_block(c, 0);
+        s.world.regap(c);
+    }
+    let at = Block { pos: top.pos + glam::IVec3::new(0, 0, -2), ..top };
+    let fluids = engine::fluids::FLUIDS.now();
+    let (oil, lava) = (fluids.kind("oil").unwrap(), fluids.kind("lava").unwrap());
+    l.send(ToServer::Hello { name: "ape".into() });
+    l.send(ToServer::Move { pos: s.world.block_centre(top).to_array(), fwd: [1.0, 0.0, 0.0], pitch: 0.0 });
+    l.send(ToServer::Creative(true));
+    for seq in 1..=9 {
+        l.send(ToServer::Bucket { seq, at, fill: false });
+    }
+    l.send(ToServer::Chat("/fluid oil".into()));
+    l.send(ToServer::Bucket { seq: 10, at, fill: false });
+    let mut client = engine::liquid::Liquids::default();
+    let mut events: Vec<engine::events::Event> = Vec::new();
+    let mut hear = |client: &mut engine::liquid::Liquids, got: Vec<ToClient>| {
+        for m in got {
+            let bytes = postcard::to_allocvec(&m).unwrap();
+            match postcard::from_bytes::<ToClient>(&bytes).unwrap() {
+                ToClient::Water(v) => v.iter().for_each(|(t, cols)| client.set_tile(*t, cols)),
+                ToClient::Events(v) => events.extend(v),
+                _ => {}
+            }
+        }
+    };
+    s.tick();
+    let got = drain(l);
+    assert!((1..=10).all(|seq| got.contains(&ToClient::Done { seq, ok: true })), "{got:?}");
+    hear(&mut client, got);
+    for _ in 0..3000 {
+        s.tick();
+        hear(&mut client, drain(l));
+        if s.world.water.awake() == 0 && client.all() == s.world.water.all() {
+            break;
+        }
+    }
+    let two = |w: &engine::liquid::Liquids| w.all().iter().filter(|(_, g)| g.len() > 1).count();
+    assert!(two(&s.world.water) > 0, "a gap of oil on water: {:?}", s.world.water.all());
+    assert_eq!((client.all(), client.counted_of(oil)), (s.world.water.all(), U), "the client holds both layers as the server does");
+    assert_eq!((s.world.water.counted_of(oil), s.water_ledger()), (U, 0));
+    let back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
+    assert_eq!((back.world.water.all(), back.world.water.counted_of(oil)), (s.world.water.all(), U), "the save keeps the layers");
+    // lava into the pool
+    l.send(ToServer::Chat("/fluid lava".into()));
+    l.send(ToServer::Bucket { seq: 11, at, fill: false });
+    let basalt = engine::blocks::BLOCKS.id("basalt");
+    for _ in 0..5 * TICK_HZ as usize {
+        s.tick();
+        hear(&mut client, drain(l));
+    }
+    let boiled = s.world.water.vapour.get(&engine::fluids::WATER).copied().unwrap_or(0);
+    assert!(boiled > 0 && events.iter().any(|e| matches!(e, engine::events::Event::Boil { .. })), "steam: {boiled} units, the client told");
+    assert!(events.iter().any(|e| matches!(e, engine::events::Event::Edit { now, .. } if *now == basalt)), "basalt through the edits");
+    assert_eq!(s.water_ledger(), 0, "water's ledger, its steam counted");
+    assert_eq!(s.world.water.counted_of(lava) + s.world.water.froze.get(&lava).copied().unwrap_or(0), U, "lava's");
+    let back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
+    assert_eq!((back.water_ledger(), back.world.water.vapour.clone()), (0, s.world.water.vapour.clone()), "the steam booked through the save");
+}
+
 #[test]
 fn walking_input_moves_the_player_on_the_ground() {
     let (mut s, links) = server_with(1);

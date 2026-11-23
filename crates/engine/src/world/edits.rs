@@ -175,6 +175,10 @@ impl World {
         }
         out
     }
+    /// The cells where a reaction boiled fluid off since the last call (`Liquids::react`): the steam's places.
+    pub fn take_boils(&mut self) -> Vec<(Block, u8)> {
+        std::mem::take(&mut self.water.boils).into_iter().map(|(c, z, k)| (Block { body: c.body(), face: c.face(), pos: IVec3::new(c.i(), c.j(), z) }, k)).collect()
+    }
     /// The lamps of glowing fluids (`data/fluids.toml`'s `light`) within `reach` m of each body's camera `cams`, as
     /// a lamp block's (`lights`): a stored one's surface's top cells, one lamp a 2 x 2 columns' patch (its first cell
     /// in column order) at its row's light, from the tiles round the camera; a live crater's lake by its own few

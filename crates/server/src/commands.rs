@@ -118,7 +118,7 @@ impl Server {
                 "                       up, down); . and , step it too",
                 "  /weather <what>      clear cloudy rain storm snow, or auto",
                 "  /fluid <name>        what creative's bucket pours (water,",
-                "                       lava: data/fluids.toml)",
+                "                       lava, oil: data/fluids.toml)",
                 "  /heal, /feed [n]     full health, full hunger (or n)",
                 "  /thirst [n]          full thirst (or n)",
                 "  /hurt <points>       takes health: 2 points a segment",

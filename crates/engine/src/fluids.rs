@@ -16,7 +16,8 @@ pub struct Phase {
     pub into: String,
 }
 
-/// A later step's reaction: meeting `with` it gives `gives` and `heat` kJ a unit (liquids.md step 4; unused yet).
+/// A reaction: meeting fluid `with` it gives `gives` and `heat` kJ a unit of it that reacts (liquids.md step 4,
+/// `Liquids::react`: lava and water, by the heat each row carries).
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct React {
@@ -40,6 +41,9 @@ pub struct Heat {
     pub conduct: f32,
     /// Emissivity of its open surface, 0..1.
     pub emissivity: f32,
+    /// Latent heat of its boil, J/kg (0: none given): what a reaction that boils it off takes (`Liquids::react`).
+    #[serde(default)]
+    pub vaporise: f32,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
@@ -148,6 +152,9 @@ mod tests {
         let lava = f.get(f.kind("lava").unwrap());
         assert!(lava.viscosity > 1 && lava.glows() && lava.density > f.rows[0].density);
         assert!(!f.rows[0].glows());
+        let oil = f.get(f.kind("oil").unwrap());
+        assert!(oil.density < f.rows[0].density && oil.viscosity > 1 && !oil.glows(), "oil floats on water, thicker, dark");
+        assert!(f.rows[0].heat.as_ref().is_some_and(|h| h.vaporise > 0.0), "water's heat: what boiling it takes");
     }
 
     #[test]
