@@ -3,7 +3,7 @@
 Direction: ADR 0001 (planets first), 0002 (our own Rust + wgpu engine and what it does), 0003 (cube-sphere
 grid), 0004 (frame budget), 0005 (platforms), 0006 (client/server split). Read those first.
 
-Brought up to date 2026-11-16 (it stood at 2026-11-12 before; main is at 2026-11-14). The world's stages are
+Brought up to date 2026-11-23 (main at 56dbfb16, 2026-11-21; it stood at 2026-11-16 before). The world's stages are
 staged and tracked in `docs/plans/worldgen-plan.md`; this file says what is done, what is in work and what
 comes next, in order. How work is done: features first, speed in batches (ADR 0096, CLAUDE.md principle 14);
 the debt is `docs/perf-debt.md`. The story is `docs/design/lore.md`.
@@ -83,16 +83,37 @@ the debt is `docs/perf-debt.md`. The story is `docs/design/lore.md`.
   (0109); the first tools from flint (0110); the 1440p speed batch (0111: the forest at 2560 x 1440 is still
   GPU-bound at 12 to 17 ms); mining slice (c), undercut and drop (0112: roofs of closed rooms only).
 
-## In work (2026-11-16)
-- **The story** (`docs/design/lore.md`): the Indigenti, the uplifted ape and the fuel ladder, set down on
-  2026-11-16. The ending is open on purpose; the corner landmarks of ADR 0027 are dropped (ADR 0136).
-  `progression.md` is rewritten when the story is settled.
-- Nothing else is known to be in work on a branch; this file is updated when a session starts one.
+- **2026-11-16 to 11-21**, all merged to main:
+  - **The Steam Age's start** (ADR 0137 to 0143): ore samples and the prospecting strike, hand recipes and the
+    copper tools, the crafting grid, workbench and recipe viewer, the crucible, tin and bronze, block windows.
+  - **Aiming at things on the ground and plant fibre** (ADR 0144, 0147), the developer's queue of 11-14.
+  - **Needs steps 1-3** (ADR 0145, 0146, 0148: thirst, breath, what death costs) and **the journal's steps 1-3**
+    (ADR 0149 to 0151: the event list, its data and save, the book).
+  - **The deep world** (ADR 0152, 0154, 0156, 0158, 0162): the layered grid, the mantle to R/√2, the metal sea,
+    rock and minerals by pressure and heat, a body's interior from its row.
+  - **Caves by rock** (ADR 0159 to 0161): lava tubes, fissures, arc basalt, karst; the generation number (0160).
+  - **Bodies** (ADR 0163 to 0167, 0173 to 0176): any number of bodies posed on their parents, the magnetic field
+    and the aurora, bake stages, Luna's rock, ore and caves, the Mars-like planet in the world, a gas giant and
+    far points of light, sixteen bodies loaded on approach, the giant's icy moon (generation 7).
+  - **Engine and tools:** block ids past 255 (ADR 0170, closes ADR 0062's `shortcut:`), a link's limits and
+    ping (0168), the repo audit's fixes (bounded queues, silent links closed), the deep-world speed batch, the
+    tick's water step off the shared pool, bounded BLAS release; the Studio's Maps page, new look and tuning
+    by numbers (ADR 0153, 0155, 0157, 0169, 0171, 0172); the decisions folder as topic documents.
+
+## In work (2026-11-23)
+- **The story** (`docs/design/lore.md`): the ending is open on purpose (ADR 0136); `progression.md` is
+  rewritten when the story is settled.
+- No branch is open. **Five F9 reports wait unfixed** (`bugs/`): a reed's aim outline takes the whole cell
+  (11-19); the view flips at every block fallen on a low-gravity moon, the moon cannot be mined, Mars does not
+  turn, a block placed in the tide glitches away and tides should be real water (all 11-21).
 
 ## Next
 In this order unless the developer says otherwise (the developer's order of 2026-11-14 first).
 
-0. **The developer play-tests** the flint tools (ADR 0110) and the undercut (ADR 0112: its spans and the
+0. **The bug round** of the five reports above, then the developer plays the Steam Age, needs and journal
+   on `build/`. *The 11-14 items below are all done.*
+
+   *History:* **the developer play-tests** the flint tools (ADR 0110) and the undercut (ADR 0112: its spans and the
    room-only rule are calls to confirm). Open beside it: the inventory's new look (ADR 0113), the crack paintings
    (`docs/design/mining.md`), an overhang open to the sky does not drop. Then the list below, skipping what
    the rows above already built.
@@ -110,25 +131,20 @@ In this order unless the developer says otherwise (the developer's order of 2026
      *Done 2026-11-17 (ADR 0147).*
 
 1. **What the world's stages left open** (`docs/plans/worldgen-plan.md`):
-   - the shader's 8 bits of material, before the block list passes 255 (ADR 0062's `shortcut:`; block ids reach 217
-     of 255);
+   - ~~the shader's 8 bits of material~~ (done, ADR 0170: 12 bits);
    - looks the developer makes in the Studio: each rock's and ore's, the rivers' and waterfalls', Luna's;
    - the Studio's box tools (step 5 of `see-through-and-boxes.md`).
-2. **Needs and the journal** (designs of 2026-11-11, calls in ADR 0047; items are built, these are not):
-   needs steps 1-3 (thirst, breath, death's cost; step 1, thirst and drinking, is done: ADR 0145; step 2, breath, is done: ADR 0146; step 3, death's cost (the death pile's waypoint, the sleeping place), is on a branch: `ADR 0148.md`; today also
-   health and hunger and the breath held when buried),
-   the journal's steps 1-3 (events, `look:` and `have:`, the book; step 1, the event list with the effects
-   and sounds of edits, falls and worn tools moved onto it, is done: ADR 0149; step 2, the data, state, message and save with `look:` and `have:`, is done: ADR 0150; step 3, the book, is on a branch: `ADR 0151.md`); then the process runner of `crafting.md`
-   brings tools, food and `do:`/`see:` together. ADR 0027: the ape learns by doing, Terra has animals and
+2. **Needs and the journal:** needs steps 1-3 and the journal's steps 1-3 are done (ADR 0145, 0146, 0148 to
+   0151). Next the process runner of `crafting.md` brings tools, food and `do:`/`see:` together. ADR 0027: the ape learns by doing, Terra has animals and
    hostile creatures. What the creatures are waits on the story (`lore.md`, `open-questions.md`).
-3. **Mining's slice (c)**, undercut and drop, and blasting later (`docs/design/mining.md`).
+3. **Blasting** (mining's slice (c), undercut and drop, is done: ADR 0112) (`docs/design/mining.md`).
 4. **Fine cells, chiselled blocks and collapse** (`docs/design/fine-cells.md`; chips and falling blocks are
    built), felled trees; then **W7, living plants**, which waits for them.
 5. **Blueprints** (ADR 0017: capture, name, paste, materials paid from storage) and building collapse.
-6. **Crafting and the first machines** (`crafting.md`), then **networks** (`networks.md`: shafts first, then
+6. **The first machines** (`crafting.md`; hand crafting, the workbench and the crucible are done), then **networks** (`networks.md`: shafts first, then
    pipes and wires on one engine).
    With crafting: the torch's recipe (ADR 0117; the torch is only `/give torch` and creative until then).
-7. **The dedicated server on the home server and auto-update** (ADR 0005); AI players (the troop); the jetpack
+7. ~~The dedicated server on the home server and auto-update~~ (done, ADR 0130); AI players (the troop); the jetpack
    and the climb to orbit, with the attitude ball (`navigation.md` part 4).
 8. **Optimisation batches** whenever `docs/perf-debt.md` grows past what playing can bear (ADR 0096).
 
