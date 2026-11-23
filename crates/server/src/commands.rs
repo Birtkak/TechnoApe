@@ -144,7 +144,7 @@ impl Server {
                 let secs = |v: &str| v.parse::<f64>().ok().filter(|s| s.is_finite());
                 let to = match (w.get(1).copied(), w.get(2).copied()) {
                     (None | Some("query"), _) => None,
-                    (Some("set"), Some(v)) if sky::season(v).is_some() => Some(sky::next_season(now, sky::season(v).unwrap())),
+                    (Some("set"), Some(v)) if sky::season(v).is_some() => Some(sky::next_season(now, sky::season(v).unwrap(), self.world.sky.year)),
                     (Some("set"), Some(v)) => match (named(v), secs(v)) {
                         (Some(h), _) => Some(sky::next_hour(now, h)),
                         (None, Some(s)) if s >= 0.0 => Some(s),
@@ -296,7 +296,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                     },
                 };
                 self.warp = to;
-                let (day, year) = (sky::DAY / to as f64, sky::YEAR / to as f64);
+                let (day, year) = (sky::DAY / to as f64, self.world.sky.year / to as f64);
                 format!("time warp {to}x: a day in {day:.0} s, a year in {year:.0} s")
             }
             Some("playmode") | Some("gamemode") => {

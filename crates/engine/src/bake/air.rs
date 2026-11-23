@@ -207,6 +207,8 @@ pub struct Air {
     /// the spin axis's lean (`sky::TILT`), and a held point of the year: Some(y) keeps the sun on the day at
     /// world time y (its declination) while the hour still turns with `t` (the bake's spin-up)
     pub tilt: f64,
+    /// The year its sun goes round in, seconds (`sky::Sky::year`): the bake's is its world's (`life::LifeParams::year`).
+    pub year: f64,
     pub hold: Option<f64>,
 }
 
@@ -363,6 +365,7 @@ impl Air {
             runoff: vec![0; n],
             conv: vec![0.0; n * LAYERS],
             tilt: crate::sky::TILT,
+            year: crate::sky::YEAR,
             hold: None,
         }
     }
@@ -447,13 +450,13 @@ impl Air {
     /// The sun's direction in the body frame now: the sky's (`Sky::sun_dir`, its tilt and seasons), at the
     /// held day of the year while `hold` is set.
     pub fn sun_now(&self) -> DVec3 {
-        let sky = crate::sky::Sky { planet_radius: 1.0, moon_radius: 0.0, moon_orbit: 0.0, sun_dist: 1.0, sun_radius: 0.0, tilt: self.tilt };
+        let sky = crate::sky::Sky::bare(self.tilt, self.year);
         sky.sun_dir(self.hold.map_or(self.t, |y| y + self.t.rem_euclid(DAY)))
     }
 
     /// The sine of the declination the seasons answer to: the sun's `season_lag` ago, or the held day's.
     pub fn season(&self) -> f32 {
-        let sky = crate::sky::Sky { planet_radius: 1.0, moon_radius: 0.0, moon_orbit: 0.0, sun_dist: 1.0, sun_radius: 0.0, tilt: self.tilt };
+        let sky = crate::sky::Sky::bare(self.tilt, self.year);
         sky.sun_dir(self.hold.unwrap_or(self.t - self.p.season_lag)).z as f32
     }
 
@@ -781,7 +784,7 @@ impl Air {
     /// its state is the live grid's at world time 0.
     pub fn year(&mut self, dt: f32, spin: usize) -> Means {
         let per_day = (DAY / dt as f64).round() as usize;
-        let days = (crate::sky::YEAR / DAY).round() as usize;
+        let days = (self.year / DAY).round() as usize;
         let n = self.n;
         (self.hold, self.t) = (None, -(spin as f64) * DAY);
         for d in 0..spin {

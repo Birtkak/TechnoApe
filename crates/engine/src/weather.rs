@@ -194,9 +194,11 @@ fn snow_mm(a: &Air) -> Vec<f32> {
 }
 
 impl Weather {
-    /// The live grid at world time 0 from the map's climate, or at the clock of a saved `state`.
-    pub fn new(c: &Climate, state: Option<&State>) -> Result<Weather, String> {
+    /// The live grid at world time 0 from the map's climate, or at the clock of a saved `state`, its sun going
+    /// round once a `year` (the world's, `sky::Sky::year`, as its map was baked over: `bake::Map::year`).
+    pub fn new(c: &Climate, state: Option<&State>, year: f64) -> Result<Weather, String> {
         let mut a = c.air()?;
+        a.year = year;
         match state {
             Some(s) => a.restore(s)?,
             // the bake's year ended at its turn: world time 0 to the sun
@@ -401,8 +403,11 @@ mod tests {
     /// it handed never changes. A column hands at most the rain's part (1 - BASE) of its land's runoff.
     #[test]
     fn the_runoff_feeds_the_reaches_and_the_air_ledger_holds() {
-        let map = crate::bake::get(7, 1536);
-        let mut w = Weather::new(map.climate.as_ref().unwrap(), None).unwrap().feeding(&map);
+        // on the map of version 7 (54-day year) it was tuned on, and on version 8's (real gravity's year), whose first
+        // 2000 ticks rain on fewer reaches: the ledger holds on both
+        for (gen, reaches) in [(7, 3), (crate::world::REAL, 1)] {
+        let map = crate::bake::get_at(7, 1536, gen);
+        let mut w = Weather::new(map.climate.as_ref().unwrap(), None, map.year()).unwrap().feeding(&map);
         assert!(w.split.iter().all(|c| c.iter().map(|&(_, f)| f as u64).sum::<u64>() as f64 <= (1.0 - BASE) * 65536.0 + 1.0));
         let start = w.ledger();
         let (mut handed, mut fed) = (0i64, std::collections::BTreeSet::new());
@@ -414,7 +419,8 @@ mod tests {
             }
             assert_eq!(w.ledger() + handed as i128, start, "tick {tick}");
         }
-        assert!(handed > 0 && fed.len() > 3, "{handed} units to {} reaches", fed.len());
+        assert!(handed > 0 && fed.len() > reaches, "generation {gen}: {handed} units to {} reaches", fed.len());
+        }
     }
 
     /// The runoff's cost on Terra (W5): the split built once, and a landing's hand-over against a landing
@@ -424,7 +430,7 @@ mod tests {
     fn runoff_cost() {
         let map = crate::bake::get(1337, 6144);
         let t = std::time::Instant::now();
-        let fed = Weather::new(map.climate.as_ref().unwrap(), None).unwrap().feeding(&map);
+        let fed = Weather::new(map.climate.as_ref().unwrap(), None, map.year()).unwrap().feeding(&map);
         println!("split: {:.1} ms for {} reaches over {} columns", t.elapsed().as_secs_f64() * 1e3, map.lines.reaches.len(), fed.land.len());
         let mut w = fed;
         let mut units = 0i64;
@@ -452,7 +458,7 @@ mod tests {
     fn the_live_air_steps_with_the_clock_and_saving_changes_nothing() {
         let c = climate();
         let run = |save_at: Option<u64>| {
-            let mut w = Weather::new(&c, None).unwrap();
+            let mut w = Weather::new(&c, None, crate::sky::YEAR).unwrap();
             let mut hashes = Vec::new();
             for tick in 0..400u64 {
                 w.tick(tick, tick as f64 / 20.0);
@@ -473,7 +479,7 @@ mod tests {
         assert_ne!(a[220], a[219]);
         assert!((t - 10.0).abs() < 1e-9, "the grid's clock after 20 s: {t}");
         // a save carries it on
-        let mut w = Weather::new(&c, Some(&s)).unwrap();
+        let mut w = Weather::new(&c, Some(&s), crate::sky::YEAR).unwrap();
         assert_eq!(w.state(), s);
         w.tick(400, 20.0);
         w.tick(420, 20.0);
@@ -483,7 +489,7 @@ mod tests {
     /// Far behind the clock (a time warp), the grid jumps to it rather than running days of steps.
     #[test]
     fn far_behind_the_clock_the_air_jumps() {
-        let mut w = Weather::new(&climate(), None).unwrap();
+        let mut w = Weather::new(&climate(), None, crate::sky::YEAR).unwrap();
         w.tick(0, 10_000.0);
         w.tick(20, 10_000.0);
         assert!((w.view().t - 10_000.0).abs() < 1e-9, "{}", w.view().t);
@@ -497,8 +503,11 @@ mod tests {
         let map = crate::bake::shared(seed, n);
         let c = map.climate.clone().unwrap();
         let mut a = c.air().unwrap();
-        a.t = 0.0;
-        let steps = (crate::sky::YEAR / DT as f64).round() as usize;
+        let year = map.year();
+        (a.t, a.year) = (0.0, year);
+        let steps = (year / DT as f64).round() as usize;
+        // noon at the spawn (09:00 at world time 0) on the first day of each season
+        let season_noons: Vec<f64> = (0..4).map(|k| (k as f64 * year / 4.0 / crate::sky::DAY).floor() * crate::sky::DAY + 225.0).collect();
         let mut fell = vec![0f64; a.n];
         let (g, m) = (c.grid(), map.m as usize);
         let spawn = DVec3::from_array(map.spawn);
@@ -507,7 +516,7 @@ mod tests {
         let mut noons = Vec::new();
         for k in 0..steps {
             let t = k as f64 * DT as f64;
-            if [225.0, 23625.0, 48825.0, 72225.0].iter().any(|&noon| t <= noon && noon < t + DT as f64) {
+            if season_noons.iter().any(|&noon| t <= noon && noon < t + DT as f64) {
                 let now = Climate { theta: (0..a.n).map(|i| a.theta[i * LAYERS]).collect(), ..c.clone() };
                 noons.push(now.at(&g, spawn).0 - a.p.lapse * spawn_h);
             }
@@ -516,7 +525,7 @@ mod tests {
                 *f += x as f64;
             }
         }
-        let days = crate::sky::YEAR / crate::sky::DAY;
+        let days = year / crate::sky::DAY;
         let live = Climate { rain: (0..a.n).map(|k| (fell[k] / days / 4096.0 / a.area[k] as f64 * 1000.0) as f32).collect(), ..c.clone() };
         let mut by = [(0usize, 0f64, 0f64); 15];
         for (cell, &bio) in map.biome.iter().enumerate() {
@@ -563,7 +572,7 @@ mod tests {
     /// A clock set back (/time set to an earlier hour) does not freeze the weather: it steps on from there.
     #[test]
     fn a_clock_set_back_does_not_freeze_the_air() {
-        let mut w = Weather::new(&climate(), None).unwrap();
+        let mut w = Weather::new(&climate(), None, crate::sky::YEAR).unwrap();
         w.tick(0, 1000.0);
         w.tick(20, 1000.0);
         assert!((w.view().t - 1000.0).abs() < 1e-9);
@@ -581,7 +590,7 @@ mod tests {
         assert!((c - 0.4).abs() < 0.003 && (r - 9.0).abs() < 0.3 && (w[0] - 3.0).abs() < 0.2 && (w[1] + 2.5).abs() < 0.2, "{c} {r} {w:?}");
         assert!((s - 0.4).abs() < 0.003 && t == -7.0, "{s} {t}");
         assert_eq!(decode(encode(2.0, 1e6, [100.0, -100.0], 1e3, 900.0)).0, 1.0);
-        let w = Weather::new(&climate(), None).unwrap();
+        let w = Weather::new(&climate(), None, crate::sky::YEAR).unwrap();
         let live = w.cells(None);
         assert!(live.iter().any(|c| c[0] > 0) && live.iter().any(|c| c[0] < 255), "the grid's own cover varies");
         let storm = Force::named("storm").unwrap().unwrap();
@@ -599,7 +608,7 @@ mod tests {
     #[ignore]
     fn cover_spread() {
         let map = crate::bake::get(1337, 6144);
-        let mut w = Weather::new(map.climate.as_ref().unwrap(), None).unwrap();
+        let mut w = Weather::new(map.climate.as_ref().unwrap(), None, map.year()).unwrap();
         for k in 0..6u64 {
             let mut v: Vec<f32> = w.view().cover.clone();
             v.sort_by(f32::total_cmp);
@@ -615,7 +624,7 @@ mod tests {
     /// The air someone stands in: warmer at the sea than on a hill, by the lapse.
     #[test]
     fn the_air_here_cools_with_height() {
-        let w = Weather::new(&climate(), None).unwrap();
+        let w = Weather::new(&climate(), None, crate::sky::YEAR).unwrap();
         let d = DVec3::new(0.3, 0.8, 0.2).normalize();
         let (low, high) = (w.here(d, 0.0), w.here(d, 100.0));
         assert!((low.temp - high.temp - w.p.cool(100.0)).abs() < 1e-3, "{low:?} {high:?}");

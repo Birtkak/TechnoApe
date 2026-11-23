@@ -20,7 +20,12 @@ pub const YEAR: f64 = 54.0 * DAY;
 pub const INCLINATION: f64 = 2.0 * TAU / 360.0;
 /// The sky repeats after this: 432 days are 27 months and 8 years, and the spin's sidereal turns are whole too.
 /// The poses take the time modulo it, so a world billions of seconds old keeps its angles to the nanoradian.
+/// YEAR, MONTH and PERIOD are the sky of the worlds before real gravity (`world::REAL`); from it, `Sky::real`.
 pub const PERIOD: f64 = 432.0 * DAY;
+/// The sky's repeat under real gravity (`world::REAL`): 432,000 days, so every period rounded to a whole fraction
+/// of it (`period_in`) is within 0.5 % of Kepler's (the giant's 3,700-day year the longest), and a world's angles
+/// still keep to the micrometre at the bodies' distances.
+pub const REPEAT: f64 = 432_000.0 * DAY;
 /// How much smaller the sun looks than the moon from the ground right under the moon: 5 %, as the Moon on a total
 /// eclipse is 3 to 6 % bigger than the Sun, so totality lasts about 2 s on the 4 km Terra (ADR 0041; 0.995 gave 0.2 s).
 pub const SUN_UNDER_MOON: f64 = 0.95;
@@ -41,7 +46,12 @@ const MOON0: f64 = 0.25 * TAU;
 /// An orbit's period near `kepler` seconds that the sky still repeats after: PERIOD over a whole number, so
 /// Luna's MONTH (PERIOD / 27) and the YEAR (PERIOD / 8) come back exactly.
 pub fn period(kepler: f64) -> f64 {
-    PERIOD / (PERIOD / kepler).round().max(1.0)
+    period_in(kepler, PERIOD)
+}
+
+/// `period` in a sky that repeats after `repeat` seconds.
+pub fn period_in(kepler: f64, repeat: f64) -> f64 {
+    repeat / (repeat / kepler).round().max(1.0)
 }
 
 /// The clock at the spawn (ADR 0023): world time 0 is 9 am there and a day is DAY seconds. The day (the
@@ -69,6 +79,22 @@ pub struct Sky {
     pub sun_radius: f64,
     /// The spin axis's lean, radians (`TILT`).
     pub tilt: f64,
+    /// The home's year and its first moon's period (`world::Body::period`), seconds; the year a moon's period is
+    /// reckoned against (`circle`: the home's YEAR before real gravity, a month from new moon to new moon;
+    /// infinite from it, a sidereal period); the time after which the sky repeats.
+    pub year: f64,
+    pub month: f64,
+    pub against: f64,
+    pub repeat: f64,
+    /// The sun's mass, kg: its row's density in `sun_radius` under real gravity; before it, the mass Kepler's law
+    /// needs for the hand-set YEAR (`world::World::of_sources`).
+    pub sun_mass: f64,
+    /// The home's tide (`Tide`): the equilibrium rise its first moon and the sun raise, metres (`tide_rise`; the
+    /// hand-set TIDE_LUNA and TIDE_SUN before real gravity), and the highest it stands over the mean sea (what
+    /// the sea's quads are meshed for, `world::Body::tide_high`; TIDE_HIGH before).
+    pub tide_moon: f64,
+    pub tide_sun: f64,
+    pub tide_high: f64,
 }
 
 /// Where a body is and how it is turned at a moment: its frame to the inertial frame.
@@ -97,7 +123,16 @@ impl Sky {
         assert!(moon_radius < moon_orbit - planet_radius, "the moon touches or holds the planet's ground");
         let moon_seen = (moon_radius / (moon_orbit - planet_radius)).asin();
         let sun_radius = (sun_dist - planet_radius) * (SUN_UNDER_MOON * moon_seen).sin();
-        Sky { planet_radius, moon_radius, moon_orbit, sun_dist, sun_radius, tilt: TILT }
+        Sky { planet_radius, moon_radius, moon_orbit, sun_dist, sun_radius, tilt: TILT, year: YEAR, month: MONTH, against: YEAR, repeat: PERIOD, sun_mass: 0.0, tide_moon: TIDE_LUNA, tide_sun: TIDE_SUN, tide_high: TIDE_HIGH }
+    }
+    /// This sky under real gravity (`world::REAL`): the home's `year` and its moon's sidereal `month` by Kepler's
+    /// law (whole fractions of `REPEAT`), and the tides its moon and the sun raise (`tide_rise`).
+    pub fn real(self, year: f64, month: f64, tide_moon: f64, tide_sun: f64) -> Sky {
+        Sky { year, month, against: f64::INFINITY, repeat: REPEAT, tide_moon, tide_sun, tide_high: 1.5 * (tide_moon + tide_sun), ..self }
+    }
+    /// A sky that only turns the home (the bake's air, `bake::air`): a sun of no size `year` long.
+    pub fn bare(tilt: f64, year: f64) -> Sky {
+        Sky { planet_radius: 1.0, moon_radius: 0.0, moon_orbit: 0.0, sun_dist: 1.0, sun_radius: 0.0, tilt, year, month: MONTH, against: YEAR, repeat: if year == YEAR { PERIOD } else { REPEAT }, sun_mass: 0.0, tide_moon: 0.0, tide_sun: 0.0, tide_high: 0.0 }
     }
     /// The sun's centre: the inertial origin.
     pub fn sun(&self, _t: f64) -> DVec3 {
@@ -105,9 +140,9 @@ impl Sky {
     }
     /// The planet: on its circle around the sun once a year, spinning once a sidereal day.
     pub fn planet(&self, t: f64) -> Pose {
-        let t = t.rem_euclid(PERIOD);
-        let a = TAU * t / YEAR;
-        let spin = SPIN0 + TAU * t * (1.0 / DAY + 1.0 / YEAR);
+        let t = t.rem_euclid(self.repeat);
+        let a = TAU * t / self.year;
+        let spin = SPIN0 + TAU * t * (1.0 / DAY + 1.0 / self.year);
         // the axis leans toward +y, where the sun stands from the planet a quarter year on: the northern summer
         let rot = DQuat::from_rotation_z(spin);
         Pose { centre: -DVec3::new(a.cos(), a.sin(), 0.0) * self.sun_dist, rot: if self.tilt == 0.0 { rot } else { DQuat::from_rotation_x(-self.tilt) * rot } }
@@ -130,13 +165,13 @@ impl Sky {
     }
     /// The moon: on its inclined circle once a sidereal month, the same face (its body -x) to the planet.
     pub fn moon(&self, t: f64) -> Pose {
-        Sky::circle(self.planet(t).centre, self.moon_orbit, MONTH, t)
+        self.circle(self.planet(t).centre, self.moon_orbit, self.month, t)
     }
     /// A moon at `radius` around a parent whose centre is `around` now (0163-n-bodies): the moon's inclined
     /// circle once a sidereal `month` (a whole fraction of PERIOD, `period`), its body -x to the parent.
-    pub fn circle(around: DVec3, radius: f64, month: f64, t: f64) -> Pose {
-        let t = t.rem_euclid(PERIOD);
-        let u = MOON0 + TAU * t * (1.0 / month + 1.0 / YEAR);
+    pub fn circle(&self, around: DVec3, radius: f64, month: f64, t: f64) -> Pose {
+        let t = t.rem_euclid(self.repeat);
+        let u = MOON0 + TAU * t * (1.0 / month + 1.0 / self.against);
         let (s, c, si, ci) = (u.sin(), u.cos(), INCLINATION.sin(), INCLINATION.cos());
         let e1 = DVec3::new(c, s * ci, s * si);
         let e2 = DVec3::new(-s, c * ci, c * si);
@@ -146,8 +181,8 @@ impl Sky {
     /// A body that circles the sun and is not the home (0163-n-bodies, until real orbits): in the ecliptic at
     /// `dist`, once a `year` (`period`), starting where the home starts, turning on the ecliptic's pole once a
     /// sidereal `day` (seconds, a whole fraction of PERIOD; 0: never turning).
-    pub fn round_sun(dist: f64, year: f64, day: f64, t: f64) -> Pose {
-        let t = t.rem_euclid(PERIOD);
+    pub fn round_sun(&self, dist: f64, year: f64, day: f64, t: f64) -> Pose {
+        let t = t.rem_euclid(self.repeat);
         let a = TAU * t / year;
         let rot = if day > 0.0 { DQuat::from_rotation_z(TAU * t / day) } else { DQuat::IDENTITY };
         Pose { centre: -DVec3::new(a.cos(), a.sin(), 0.0) * dist, rot }
@@ -178,9 +213,16 @@ impl Sky {
     }
 }
 
-/// Luna's pull on the sea, metres: the bulge under Luna stands 1.5 * TIDE_LUNA over the ring 90 degrees off it.
-/// With the sun's a third of it (docs/design/rivers-and-tides.md), low to high at springs is 1.5 * (TIDE_LUNA +
-/// TIDE_SUN) = 1 m (the developer, 2026-11-12), at neaps half that.
+/// The equilibrium tide a raiser of `raiser` kg at `dist` m raises on a body of `mass` kg and `radius` m, metres
+/// (ADR 0180; `prototypes/tide-force`): h = (M_k / M) (R / d)^3 R, the bulge under the raiser standing 1.5 h over
+/// the ring 90 degrees off it. The general term every body with a sea sums over its raisers under real gravity.
+pub fn tide_rise(raiser: f64, mass: f64, radius: f64, dist: f64) -> f64 {
+    raiser / mass * (radius / dist).powi(3) * radius
+}
+
+/// Before real gravity (`world::REAL`), set by hand: Luna's pull on the sea, metres: the bulge under Luna stands
+/// 1.5 * TIDE_LUNA over the ring 90 degrees off it. With the sun's a third of it (docs/design/rivers-and-tides.md),
+/// low to high at springs is 1.5 * (TIDE_LUNA + TIDE_SUN) = 1 m (the developer, 2026-11-12), at neaps half that.
 pub const TIDE_LUNA: f64 = 0.5;
 pub const TIDE_SUN: f64 = TIDE_LUNA / 3.0;
 /// The highest the tide stands over the mean sea anywhere, metres: both bulges at once (2/3 m with the ocean
@@ -197,16 +239,19 @@ pub struct Tide {
     pub sun: DVec3,
     /// Metres everywhere: minus the bulges' mean over the ocean, so the sea moves water and makes none.
     pub base: f64,
+    /// Luna's and the sun's rise, metres (`Sky::tide_moon`, `tide_sun`).
+    pub h_luna: f64,
+    pub h_sun: f64,
 }
 
 impl Tide {
     /// No tide: the sea at its mean everywhere.
-    pub const NONE: Tide = Tide { luna: DVec3::ZERO, sun: DVec3::ZERO, base: 0.0 };
+    pub const NONE: Tide = Tide { luna: DVec3::ZERO, sun: DVec3::ZERO, base: 0.0, h_luna: 0.0, h_sun: 0.0 };
     /// The sea's height over its mean, metres, at body-frame direction `up` (a unit vector): the classic bulge
     /// (3 cos^2 a - 1) / 2 under and opposite Luna and the sun; its -1/2 is in `base`, with the ocean's.
     pub fn at(&self, up: DVec3) -> f64 {
         let (l, s) = (up.dot(self.luna), up.dot(self.sun));
-        1.5 * (TIDE_LUNA * l * l + TIDE_SUN * s * s) + self.base
+        1.5 * (self.h_luna * l * l + self.h_sun * s * s) + self.base
     }
 }
 
@@ -221,8 +266,9 @@ impl Sky {
     /// then exactly 0, so the rise under Luna is water from the low ring, not water made.
     pub fn tide(&self, t: f64, ocean: &DMat3) -> Tide {
         let (luna, sun) = (self.moon_dir(t), self.sun_dir(t));
-        let base = -1.5 * (TIDE_LUNA * luna.dot(*ocean * luna) + TIDE_SUN * sun.dot(*ocean * sun));
-        Tide { luna, sun, base }
+        let (h_luna, h_sun) = (self.tide_moon, self.tide_sun);
+        let base = -1.5 * (h_luna * luna.dot(*ocean * luna) + h_sun * sun.dot(*ocean * sun));
+        Tide { luna, sun, base, h_luna, h_sun }
     }
 }
 
@@ -238,12 +284,13 @@ pub fn season(name: &str) -> Option<u32> {
 }
 
 /// The first world time from `t` on, whole days later so the clock shows the same hour, nearest the start of
-/// season `q` (`season`): within half a day of it, as a year is not a whole number of quarter days.
-pub fn next_season(t: f64, q: u32) -> f64 {
-    let ahead = (q as f64 / 4.0 * YEAR - t).rem_euclid(YEAR);
+/// season `q` (`season`) of a `year` (`Sky::year`): within half a day of it, as a year is not a whole number of
+/// quarter days.
+pub fn next_season(t: f64, q: u32, year: f64) -> f64 {
+    let ahead = (q as f64 / 4.0 * year - t).rem_euclid(year);
     let days = (ahead / DAY).round();
     // a round up to a whole year: the season's start is under half a day behind, so stay
-    t + if days * DAY >= YEAR { 0.0 } else { days * DAY }
+    t + if days * DAY >= year { 0.0 } else { days * DAY }
 }
 
 /// The season a block's look takes (docs/design/seasonal-looks.md) where the planet's body-frame up is `up`, at
@@ -252,16 +299,17 @@ pub fn next_season(t: f64, q: u32) -> f64 {
 /// (a smooth step from 10 to 35 degrees, taken on the latitude's sine). shader.wgsl `season` is its port.
 /// shortcut: latitude stands in for the climate and the sun for the temperature that trails it; upgrade to the
 /// baked climate's summer-to-winter swing and a fixed lag when a warm coast turning with a cold peak looks wrong.
-pub fn season_at(up: DVec3, t: f64) -> (f64, f64) {
+pub fn season_at(up: DVec3, t: f64, year: f64) -> (f64, f64) {
     let s = ((up.z.abs() - SEASON_FROM) / (SEASON_FULL - SEASON_FROM)).clamp(0.0, 1.0);
-    ((t / YEAR * 4.0 + if up.z < 0.0 { 2.0 } else { 0.0 }).rem_euclid(4.0), s * s * (3.0 - 2.0 * s))
+    ((t / year * 4.0 + if up.z < 0.0 { 2.0 } else { 0.0 }).rem_euclid(4.0), s * s * (3.0 - 2.0 * s))
 }
 /// The sines of the latitudes where a look's seasons begin (10 degrees) and are whole (35).
 const SEASON_FROM: f64 = 0.1736;
 const SEASON_FULL: f64 = 0.5736;
-/// A stagger of `days` (a block row's, `blocks::Def::stagger`) in the look table's unit: 1/1024 quarter turn.
-pub fn stagger_units(days: f32) -> u32 {
-    (days as f64 * DAY / (YEAR / 4.0) * 1024.0).round() as u32
+/// A stagger of `days` (a block row's, `blocks::Def::stagger`) in the look table's unit: 1/1024 quarter turn of
+/// a `year`.
+pub fn stagger_units(days: f32, year: f64) -> u32 {
+    (days as f64 * DAY / (year / 4.0) * 1024.0).round() as u32
 }
 
 /// The air's temperature at the ground, C: the place's yearly mean `mean` and its day's swing `swing` (K,
@@ -665,17 +713,17 @@ mod tests {
     fn a_looks_season_follows_the_year_and_the_hemisphere() {
         let at = |lat: f64| DVec3::new(lat.to_radians().cos(), 0.0, lat.to_radians().sin());
         for t in [0.0, 777.0, YEAR / 3.0, 5.6 * YEAR] {
-            assert_eq!(season_at(at(0.0), t).1, 0.0, "the equator has no seasons");
-            assert_eq!(season_at(at(-8.0), t).1, 0.0);
-            assert_eq!((season_at(at(40.0), t).1, season_at(at(-80.0), t).1), (1.0, 1.0), "the mid latitudes on have them whole");
-            let (n, s) = (season_at(at(50.0), t).0, season_at(at(-50.0), t).0);
+            assert_eq!(season_at(at(0.0), t, YEAR).1, 0.0, "the equator has no seasons");
+            assert_eq!(season_at(at(-8.0), t, YEAR).1, 0.0);
+            assert_eq!((season_at(at(40.0), t, YEAR).1, season_at(at(-80.0), t, YEAR).1), (1.0, 1.0), "the mid latitudes on have them whole");
+            let (n, s) = (season_at(at(50.0), t, YEAR).0, season_at(at(-50.0), t, YEAR).0);
             assert!((0.0..4.0).contains(&n) && ((s - n).rem_euclid(4.0) - 2.0).abs() < 1e-9, "the south is half a year on: {n} {s}");
         }
-        let mid = season_at(at(22.0), 0.0).1;
+        let mid = season_at(at(22.0), 0.0, YEAR).1;
         assert!(mid > 0.2 && mid < 0.8, "between, a part: {mid}");
         // `/time set <season>` lands on that season's pure look: within half a day of its start
         for q in 0..4 {
-            let p = season_at(at(50.0), next_season(100.0, q)).0;
+            let p = season_at(at(50.0), next_season(100.0, q, YEAR), YEAR).0;
             let off = (p - q as f64 + 2.0).rem_euclid(4.0) - 2.0;
             assert!(off.abs() <= 0.5 * DAY / (YEAR / 4.0) + 1e-9, "season {q}: phase {p}");
         }
@@ -709,7 +757,7 @@ mod tests {
     fn a_season_is_reached_at_the_same_hour() {
         // (also just before and after the year's turn, and exactly on a season)
         for (t, q) in (0..4).map(|q| (5000.0, q)).chain([(YEAR - 0.3 * DAY, 0), (0.4 * DAY, 0), (YEAR / 2.0, 2), (YEAR / 4.0, 3)]) {
-            let to = next_season(t, q);
+            let to = next_season(t, q, YEAR);
             assert!(to >= t && to < t + YEAR, "{q}: {to}");
             assert!((clock(to).1 - clock(t).1).abs() < 1e-6, "the hour stays");
             let off = (to / YEAR - q as f64 / 4.0).rem_euclid(1.0);

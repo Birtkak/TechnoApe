@@ -89,9 +89,16 @@ impl Ground for Solid<'_> {
     fn tide_epoch(&self) -> i64 {
         self.tide.map_or(0, |t| t.0)
     }
+    fn g(&self, body: u8) -> f64 {
+        // `step` asks for every slot up to `bodies::MAX`, more than a world may have
+        match self.bodies.get(body as usize) {
+            Some(b) if b.gen >= crate::world::REAL => b.interior.surface_g,
+            _ => crate::liquid::EARTH_G,
+        }
+    }
     fn tide_top(&self, c: Col) -> i64 {
         let b = &self.bodies[c.body() as usize];
-        b.sea.map_or(i64::MIN, |s| ((s + crate::sky::TIDE_HIGH / (b.layer_r(s) * b.lnq)) * U as f64) as i64 + 1)
+        b.sea.map_or(i64::MIN, |s| ((s + b.tide_high / (b.layer_r(s) * b.lnq)) * U as f64) as i64 + 1)
     }
     fn down(&self, acct: u32) -> (u32, f64) {
         // reaches are Terra's baked map's (Luna has none); the map's NONE (to the sea) is the sea's account

@@ -337,8 +337,8 @@ pub fn tint(heat: f32, wet: f32, part: u8, season: f32) -> [f32; 3] {
 
 /// The season (0..4, `SEASONS`) at time `t` over a point of direction `up` from its body's centre: the nearest
 /// season's middle (`sky::season_at`).
-pub fn season(up: glam::DVec3, t: f64) -> u8 {
-    part(up, t) / 2
+pub fn season(up: glam::DVec3, t: f64, year: f64) -> u8 {
+    part(up, t, year) / 2
 }
 
 /// Where clutter would lie on level-0 column (i, j) of `tile`'s footprint (tile of face, x, y): the first layer
@@ -378,19 +378,20 @@ pub fn part_bits(name: &str) -> Option<u8> {
 
 /// The part of the year (0..8: early spring, late spring, early summer, ..) at time `t` over direction `up`: the
 /// season's first or second half around its middle (`sky::season_at`); `season` is this halved.
-pub fn part(up: glam::DVec3, t: f64) -> u8 {
-    ((crate::sky::season_at(up, t).0 + 0.5) * 2.0).floor().rem_euclid(8.0) as u8
+pub fn part(up: glam::DVec3, t: f64, year: f64) -> u8 {
+    ((crate::sky::season_at(up, t, year).0 + 0.5) * 2.0).floor().rem_euclid(8.0) as u8
 }
 
-/// The year (whole years of `sky::YEAR`) at time `t`: a regrowing pick-up taken in an earlier one is back.
-pub fn year(t: f64) -> u32 {
-    (t / crate::sky::YEAR).floor().max(0.0) as u32
+/// The year (whole years of `year`, the world's `sky::Sky::year`) at time `t`: a regrowing pick-up taken in an
+/// earlier one is back.
+pub fn year(t: f64, year: f64) -> u32 {
+    (t / year).floor().max(0.0) as u32
 }
 
 /// When level 0 must lay its clutter again: the part of the year at time `t` (a whole count of eighths, where
 /// both hemispheres' parts turn) and its year.
-pub fn stamp(t: f64) -> (i64, u32) {
-    ((t / crate::sky::YEAR * 8.0).floor() as i64, year(t))
+pub fn stamp(t: f64, y: f64) -> (i64, u32) {
+    ((t / y * 8.0).floor() as i64, year(t, y))
 }
 
 /// Whether a thing taken in year `taken` (None: never taken) lies there in year `now`.
@@ -407,7 +408,7 @@ pub fn pickup_at(world: &World, b: Block, t: f64) -> Option<Thing> {
 /// `pickup_at`; `built` asks only height tiles already built (the frame thread's aim): None on a miss.
 fn pickup(world: &World, b: Block, t: f64, built: bool) -> Option<Thing> {
     let c = column(world, b, built, 0.0)?;
-    pick_in(&c, b, season(c.0.dir(b.face as usize, b.pos.x as f64 + 0.5, b.pos.y as f64 + 0.5), t))
+    pick_in(&c, b, season(c.0.dir(b.face as usize, b.pos.x as f64 + 0.5, b.pos.y as f64 + 0.5), t, world.sky.year))
 }
 
 /// A column as `column` gives it.
@@ -426,7 +427,7 @@ fn pick_in(c: &Column, b: Block, season: u8) -> Option<Thing> {
 /// hide that pick-up for good. `built` as `pickup`.
 pub fn thing_at(world: &World, b: Block, t: f64, density: f32, built: bool, lies: impl Fn(Block, &Thing) -> bool) -> Option<Thing> {
     let c = column(world, b, built, WADE)?;
-    let p8 = part(c.0.dir(b.face as usize, b.pos.x as f64 + 0.5, b.pos.y as f64 + 0.5), t);
+    let p8 = part(c.0.dir(b.face as usize, b.pos.x as f64 + 0.5, b.pos.y as f64 + 0.5), t, world.sky.year);
     if let Some(p) = pick_in(&c, b, p8 / 2) {
         return lies(b, &p).then_some(p);
     }
@@ -788,7 +789,7 @@ pub fn quads(body: &Body, key: Key, cells: &[u16; P * P * P], edits: &[(u32, u16
     if body.first_air(tile.max as f64) < c0z + 2 || body.first_air(tile.min as f64) > c0z + CS + 1 {
         return out;
     }
-    let year = year(t);
+    let year = year(t, body.year);
     // ore bodies under the chunk: its columns may hold a sample whatever the biome's roll
     let ores = !body.tile_ores(key.face, key.pos.x, key.pos.y).is_empty();
     let mut edited = [false; P * P];
@@ -814,7 +815,7 @@ pub fn quads(body: &Body, key: Key, cells: &[u16; P * P * P], edits: &[(u32, u16
             if !(2..=CS + 1).contains(&zl) || cells[pidx(u, v, zl as usize)] != 0 || cells[pidx(u, v, zl as usize - 1)] != top {
                 continue;
             }
-            let p8 = part(body.dir(key.face as usize, i as f64 + 0.5, j as f64 + 0.5), t);
+            let p8 = part(body.dir(key.face as usize, i as f64 + 0.5, j as f64 + 0.5), t, body.year);
             let model = pick(body, seed, key.face, i, j, biome, top, p8 / 2, density[0], &tile.trees).filter(|_| !wet);
             let grows = plant(seed, key.face, i, j, biome, top, p8 / 2, density[1], &tile.trees).filter(|g| !wet || CLUTTER[g.row].wades);
             for t in [model, grows].into_iter().flatten() {
@@ -1251,17 +1252,17 @@ aim_thing(&w, &still, eye, at_it, 8.0, 0.0, 0.0, |_, _| true).map(|a| a.0), Some
         let y = crate::sky::YEAR;
         let season_only = |t: f64| (t / y * 4.0).round() as i64;
         assert_eq!(season_only(y - 1.0), season_only(y + 1.0), "the old key missed the year's start");
-        assert_ne!(stamp(y - 1.0), stamp(y + 1.0));
-        assert_ne!(stamp(y * 0.125 - 1.0), stamp(y * 0.125 + 1.0), "a season's middle");
-        assert_ne!(stamp(y * 0.25 - 1.0), stamp(y * 0.25 + 1.0), "a season's halves (ADR 0091's looks)");
-        assert_eq!(stamp(y * 0.3), stamp(y * 0.32));
+        assert_ne!(stamp(y - 1.0, y), stamp(y + 1.0, y));
+        assert_ne!(stamp(y * 0.125 - 1.0, y), stamp(y * 0.125 + 1.0, y), "a season's middle");
+        assert_ne!(stamp(y * 0.25 - 1.0, y), stamp(y * 0.25 + 1.0, y), "a season's halves (ADR 0091's looks)");
+        assert_eq!(stamp(y * 0.3, y), stamp(y * 0.32, y));
         // the stamp turns wherever any part does, in either hemisphere
         for k in 0..800 {
             let t = y * k as f64 / 400.0;
             for z in [0.9, -0.9] {
                 let up = glam::DVec3::new(0.4, 0.0, z).normalize();
-                if stamp(t) == stamp(t + y / 400.0) {
-                    assert_eq!(part(up, t + 1.0), part(up, t + y / 400.0 - 1.0), "t {t}");
+                if stamp(t, y) == stamp(t + y / 400.0, y) {
+                    assert_eq!(part(up, t + 1.0, y), part(up, t + y / 400.0 - 1.0, y), "t {t}");
                 }
             }
         }
@@ -1322,10 +1323,10 @@ aim_thing(&w, &still, eye, at_it, 8.0, 0.0, 0.0, |_, _| true).map(|a| a.0), Some
         let mut seen = [false; 8];
         for k in 0..400 {
             let t = y * k as f64 / 400.0;
-            let p = part(up, t);
+            let p = part(up, t, y);
             seen[p as usize] = true;
-            assert_eq!(season(up, t), p / 2);
-            let phase = crate::sky::season_at(up, t).0;
+            assert_eq!(season(up, t, y), p / 2);
+            let phase = crate::sky::season_at(up, t, y).0;
             assert_eq!(p % 2 == 1, phase - phase.round() >= 0.0, "t {t}: late is past the middle");
         }
         assert!(seen.iter().all(|&s| s));

@@ -103,7 +103,18 @@ pub const MANTLE_STEP: i32 = 256;
 /// the basins' limestone in place of ADR 0063's worm (0161-karst-caves), 4 Luna's rock field (0165-bake-stages:
 /// anorthosite highlands, mare basalt over anorthosite in the maria; Terra as at 3), 5 Mars, the third body
 /// (`bodies::Row::since`; Terra and Luna as at 4), 6 the gas giant, the fourth (step 6a; the three as at 5).
-pub const GENERATION: u8 = 7;
+pub const GENERATION: u8 = REAL;
+/// The generation of real gravity (ADR 0181): every body's pull from its own mass (Luna of the Moon's
+/// make-up, `bodies::Row::makeup_at`), the periods by Kepler's law from the masses, the sun's mass from its row,
+/// tides from the masses and distances, water by its body's pull, and Terra's map baked over that year. A world of
+/// an earlier generation keeps all of it as it was (its recordings replay to the bit).
+pub const REAL: u8 = 8;
+
+/// The home's year in a world of generation `gen` whose home has `planet_n` columns and its moon its row's,
+/// seconds: the sky's own (built without a map), which the bake runs its climate over (`bake::Map::year`).
+pub fn year_of(planet_n: i32, gen: u8) -> f64 {
+    World::with_grid(planet_n, crate::bodies::moon_columns(planet_n), 0, None, None, 0.0, gen).sky.year
+}
 
 /// Refuses a world of a generation newer than this build's: it would generate other ground under the edits.
 pub fn known_generation(gen: u8) -> Result<u8, String> {
@@ -271,6 +282,12 @@ pub struct Body {
     /// sun); and once in how many seconds (`sky::period`). The home's are the sky's.
     pub orbit: f64,
     pub period: f64,
+    /// Its world's year (the home's period, `sky::Sky::year`), seconds: what its seasons and its plants' year
+    /// turn by (`clutter::part`), so the mesher that has only the body has it.
+    pub year: f64,
+    /// The highest its sea's tide stands over the mean, metres (`sky::Sky::tide_high`): its sea's quads are meshed
+    /// for it (`sea_high`).
+    pub tide_high: f64,
     /// Its turn in seconds, a whole fraction of `sky::PERIOD`, for one that circles the sun and is not home, from
     /// its row's `day` (0: it does not turn; the giant's bands turn in the client, so its pose does not).
     pub day: f64,
@@ -803,3 +820,6 @@ mod baked_tests;
 
 #[cfg(test)]
 mod record_tests;
+
+#[cfg(test)]
+mod gravity_tests;

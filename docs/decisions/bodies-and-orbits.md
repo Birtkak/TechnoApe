@@ -513,7 +513,55 @@ change. [0067]
 - **Cost:** GPU p50 +1.9 to 2.0 ms where the oval fills half the screen at night (`docs/perf-debt.md`); none by day
   or at `field=0`. [0164]
 
+### Real gravity: one G, Kepler's periods, derived tides [0181, 2026-11-23]
+A new universe (world generation 8, `world::REAL`) follows one constant of gravity (ADR 0180): `interior::constant`,
+the one at which Terra's row pulls 19.62 m/s^2 at her surface (2.2364e-7 m^3/(kg s^2) on the 4 km planet; it goes as
+1/radius, so `planet=` scales the whole system), and nothing after it is set by hand. Worlds of generation 7 or before
+keep every number below as it was, so their saves, maps and recordings replay to the bit. Each choice is one row
+value or constant, listed with its revert in `docs/design/real-gravity-changes.md`; the developer picks what stays.
+- **Pulls:** every body's from its own mass and radius, its rock weighed by it (`weight_g` is no longer a row value;
+  only `[body.old]` keeps it, the make-up a row had before generation 8). Luna has the Moon's make-up (`iron` 0.2,
+  `density` [2550, 3310, 7000], a mean of 3340 kg/m3): 3.60 m/s^2, 0.183 of Terra (5.31 before; Terra's mean, 4933
+  kg/m3, is lighter than the Earth's, so not 0.165).
+- **The sun has a mass:** the home row's `sun_density` (default and value the real Sun's 1408 kg/m3) in the radius
+  the sky gives it (`Sky::new`, unchanged): 4.86e20 kg, 307,000 Terras (the old year implied 53,800 kg/m3).
+- **Every period is Kepler's** two-body period from the masses and the distance (`World::of_sources`): Terra's year
+  333.85 days (54), Luna's sidereal month 23.71 days and her new-moon month 25.52 (16), Mars 615 days, the giant
+  3724, Callisto 2.44 (its period no longer reckoned against the home's year). Eclipses: 6.8 solar and 5.4 lunar a
+  year (1.9 and 1.4), fewer a game day (0.020 and 0.016, was 0.035 and 0.026). Moons stay locked to their own
+  parent (`Sky::against` infinite). The day stays 1800 s. The sky repeats after `sky::REPEAT` = 432,000 days (was
+  `PERIOD`, 432): every period a whole fraction of it, within 0.5 % of Kepler's (the old rounding bent Mars's year
+  8.5 % and clamped the giant's to 0.72). A 54-day year again is `sun_density` 53,800.
+- **Seasons, plants and the bake follow the year:** `season_at`, `next_season`, `clutter::{part, season, year,
+  stamp}`, the live air (`Weather::new`) and `/time` take the world's `Sky::year` (each `Body::year`); Terra's map
+  is **bake version 8**, its climate run over that year (`bake::get_at`; a world before 8 plays on a version 7,
+  `Map::bake_v7`, which the bake also makes back for an old save's hash). Cost: the climate stage runs 334 days
+  instead of 54, about 6 times its 16 s (not measured on the 4 km planet).
+- **Tides** from the masses and distances (`sky::tide_rise`, h = (M_k / M)(R / d)^3 R, the spike's): on Terra
+  Luna's range 0.40 mm and the sun's 0.15 mm, 0.55 mm at springs (was 0.75, 0.25 and 1 m); every other raiser's under a micrometre, so the
+  sea sums those two (`Tide::h_luna`, `h_sun`). The sea's quads are meshed for the derived high (`Body::tide_high`
+  = 1.5 (h_luna + h_sun)), not a metre. `retide` works on at that size. The tide as a force in `liquid.rs`
+  (liquids.md step 2) waits for a body with a sea and a large tide: at these sizes nothing visible moves.
+- **Water by its body's pull** (liquids.md step 1): `Ground::g` (`liquid::EARTH_G`, 9.81, before generation 8), the
+  link speed-up, `fall_cap`, `drag_for` and `steady_speed` per body; `moves` keeps reckoning its dead band as a head
+  (1.6 mm on every body). A dam break under 1.85 m/s^2 runs sqrt(19.62 / 1.85) = 3.26 times slower (3.45 measured over 10 m; the fixed
+  friction a step costs the slower front more further out, 3.97 over 20 m).
+- **Not changed:** sizes and distances (the spike found them at real ratios; the Roche limits are 2.8 Terra radii for
+  Luna, 2.1 giant radii for Callisto, inside their orbits); gravity's fall with height and the bodies on rails
+  (`World::gravity`: every body's pull from its interior with the one `k`, the square law outside; bodies are posed
+  on Kepler's circles, not moved by gravity, ADR 0024).
+- **Left:** the look table's stagger is still in days of the 54-day year (client `gpu.rs`, built before the world);
+  Callisto's fixed 1.86 m bulge under the giant is not in its bake; no eccentricity, libration or nodal
+  precession; Luna's month in `bake::luna::sun_high` reads only her orbit, unchanged.
+Replaces: 0041's "Luna's day of one month (16 days)" and the hand-set `MONTH`, `YEAR` and `PERIOD` (kept for
+generations before 8); 0067's 1 m tide (`TIDE_LUNA`, `TIDE_SUN`, `TIDE_HIGH`, kept for generations before 8);
+0162's Luna of Terra's numbers weighed by Terra's pull; 0176's month of a moon scaled from Luna's.
+
 ## No longer holds
+
+- (0181, real gravity) For generation 8 on: 0041's 16-day month and 54-day year and 0067's 1 m tide at springs
+  (both kept, as they were, for the worlds before it); 0162's `weight_g` as a row value; 0163/0176's moon period
+  scaled from Luna's month by density, against the home's year; `sky::period`'s rounding to 432 days.
 
 - 0174's "the body limit stays four" (the body id in two bits of every quad, particle and model word): raised to 16
   by "Sixteen bodies, loaded on approach".

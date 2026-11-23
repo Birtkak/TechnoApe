@@ -977,7 +977,8 @@ fn the_mantle_carries_the_grid_down_to_r_over_root_2() {
 }
 
 /// A small baked planet big enough for a mantle (radius 1061 m, 256 layers of mantle under the crust).
-static MAP_1536: LazyLock<Arc<Map>> = LazyLock::new(|| Arc::new(Map::bake(5, 1536)));
+// (its locks are of worlds before real gravity, generation 8: on the version 7 map, as they were taken)
+static MAP_1536: LazyLock<Arc<Map>> = LazyLock::new(|| Arc::new(Map::bake_v7(5, 1536)));
 
 /// One generated block for every reader (ADR 0062) at any depth: in a column from over the ground down to the
 /// floor of a planet on the deep grid, the mesher's fill, `generated_under`, the physics' solid test and the

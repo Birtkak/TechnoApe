@@ -189,3 +189,4 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0178 | Mars turns | [bodies-and-orbits.md](bodies-and-orbits.md) - Mars turns | in force |
 | 0179 | Closed floor: layer 0 of a body with no metal sea cannot be dug | [deep-world.md](deep-world.md) - Closed floor | in force |
 | 0180 | A stronger constant of gravity; no pull set by hand | [vision-and-scope.md](vision-and-scope.md) - The developer's calls | in force |
+| 0181 | Real gravity: one G, Kepler's periods, derived tides (generation 8) | [bodies-and-orbits.md](bodies-and-orbits.md) - Real gravity | in force |

@@ -2,6 +2,10 @@
 use super::*;
 
 impl Body {
+    /// The radius of a body of `n` columns per face edge, m: 6 n^2 columns cover 4 pi R^2.
+    pub fn radius_of(n: i32) -> f64 {
+        n as f64 * BLOCK / (2.0 * PI / 3.0).sqrt()
+    }
     pub fn new(centre: DVec3, n: i32, seed: i32) -> Self {
         assert!(n > 0 && n % CS == 0, "columns per face edge must be a multiple of {CS}");
         let mut noise = FastNoiseLite::with_seed(seed);
@@ -11,13 +15,12 @@ impl Body {
         noise.set_fractal_lacunarity(Some(2.0));
         noise.set_fractal_gain(Some(0.5));
         noise.set_frequency(Some(1.0 / 120.0));
-        // 6 n^2 columns cover 4 pi R^2
-        let radius = n as f64 * BLOCK / (2.0 * PI / 3.0).sqrt();
+        let radius = Body::radius_of(n);
         let lnq = (1.0 + BLOCK / radius).ln();
         // small bodies keep half their radius; the deep ground lies under the old floor, layer for layer
         let r0 = (radius - CRUST.min(radius * 0.5)) * (-lnq * deep_layers(n) as f64).exp();
         let layers = (((radius + AMP + BUILD_HEADROOM) / r0).ln() / lnq).ceil() as i32;
-        Body { name: String::new(), air: false, gas: false, parent: INERTIAL, orbit: 0.0, period: 0.0, day: 0.0, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, warp: 0.0, layers, mantle: 0, gen: 0, noise, sea: None, core: None, interior: Interior::new(&BODIES[0].makeup, radius, crate::interior::spin(None), None), land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), cave_cols: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
+        Body { name: String::new(), air: false, gas: false, parent: INERTIAL, orbit: 0.0, period: 0.0, year: crate::sky::YEAR, tide_high: crate::sky::TIDE_HIGH, day: 0.0, centre, radius, n, root_level: (n / CS).trailing_zeros() as u8, r0, lnq, warp: 0.0, layers, mantle: 0, gen: 0, noise, sea: None, core: None, interior: Interior::new(&BODIES[0].makeup, radius, crate::interior::spin(None, crate::sky::YEAR, crate::sky::YEAR), None), land: None, spawn: DVec3::Y, ocean: glam::DMat3::from_diagonal(DVec3::splat(1.0 / 3.0)), ground: *GEN, caves: Vec::new(), cave_tiles: FxMap::default(), cave_cols: FxMap::default(), ores: Vec::new(), ore_tiles: FxMap::default(), ore_z: Vec::new(), tiles: HeightCache::default(), baked: None }
     }
     /// The body as it was before its map (step 6b): a stub of a body whose ground is not in, and what `World::loader`
     /// gives its map to, its noise made again of its seed `seed`. Only for a body not yet on a map (its land is none).
@@ -272,7 +275,7 @@ impl Body {
             h = h.min(c.cut as f64).max(c.floor as f64);
         }
         // maps from before ADR 0105's peaks keep the clamp of AMP 140, so their worlds keep their ground to the bit
-        let amp = if b.map.version == crate::bake::VERSION || b.map.version == 6 || b.map.version == crate::bake::mars::VERSION { AMP } else { 140.0 };
+        let amp = if (6..=crate::bake::VERSION).contains(&b.map.version) || b.map.version == crate::bake::mars::VERSION { AMP } else { 140.0 };
         self.radius - SEA_DEPTH + h.clamp(-FLOOR, amp - SEA_DEPTH - 2.0 - TALLEST as f64)
     }
     /// Face point (i, j) moved by the jitter noise at d, in columns: biome borders and patches wander.

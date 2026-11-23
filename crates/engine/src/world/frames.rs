@@ -14,7 +14,7 @@ impl World {
     /// `baked` with every body's block grid warped by `warp` (the conformal grid's trial, ADR 0131), the planet
     /// of generation `gen` (`with_grid`).
     pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64, gen: u8) -> Self {
-        World::with_grid(planet_n, moon_n, seed, Some(crate::bake::get(seed, planet_n)), Some(crate::bake::luna::get(seed, moon_n)), warp, gen)
+        World::with_grid(planet_n, moon_n, seed, Some(crate::bake::get_at(seed, planet_n, gen)), Some(crate::bake::luna::get(seed, moon_n)), warp, gen)
     }
     /// The planet on `map` when one is given (its seed and size must be these), else on the noise land; Luna
     /// on its hills.
@@ -69,12 +69,31 @@ impl World {
         let moon = crate::bodies::moon(rows).expect("the home has a moon (bodies::parse)");
         // every body's interior from its row, its pull scaled by the first's (0162-planet-interior)
         let mut first: Option<Interior> = None;
+        // the sun is the home's `sun` radii away and as big as its first moon lets a total eclipse be perfect
+        // (ADR 0041); under real gravity (ADR 0180) it has its row's density, and every period is Kepler's from the
+        // masses and distances with the one G, a whole fraction of the sky's repeat (`sky::period_in`)
+        let r0 = Body::radius_of(list[0].0);
+        let (k, min) = rows[moon].orbit.expect("a moon has an orbit (bodies::parse)");
+        let mut sky = Sky::new(r0, Body::radius_of(list[moon].0), (r0 * k).max(min) / r0, rows[0].sun.expect("the home has the sun's distance"));
+        let real = gen >= REAL;
+        let big_g = crate::interior::constant(rows[0].makeup_at(gen), r0);
+        let kepler = |a: f64, mass: f64| crate::sky::period_in(std::f64::consts::TAU * (a.powi(3) / (big_g * mass)).sqrt(), crate::sky::REPEAT);
+        if real {
+            sky.sun_mass = rows[0].sun_density.unwrap_or(crate::bodies::SUN_DENSITY) * 4.0 / 3.0 * std::f64::consts::PI * sky.sun_radius.powi(3);
+        }
+        let repeat = if real { crate::sky::REPEAT } else { crate::sky::PERIOD };
+        // the home's tide from its moon's mass and the sun's, at their distances (`sky::tide_rise`); every other
+        // raiser's is under a micrometre (gravity_tests)
+        let (home_mass, moon_mass) = (Interior::new(rows[0].makeup_at(gen), r0, 0.0, None).mass, Interior::new(rows[moon].makeup_at(gen), sky.moon_radius, 0.0, None).mass);
+        let tides = (crate::sky::tide_rise(moon_mass, home_mass, r0, sky.moon_orbit), crate::sky::tide_rise(sky.sun_mass, home_mass, r0, sky.sun_dist));
+        let tide_high = if real { 1.5 * (tides.0 + tides.1) } else { crate::sky::TIDE_HIGH };
         let mut bodies: Vec<Arc<Body>> = Vec::with_capacity(rows.len());
         let mut lazy = vec![None; rows.len()];
         for (i, (row, (n, map))) in rows.iter().zip(list).enumerate() {
             let mut b = Body::new(if row.gas() { GAS_AT } else { MOON_AT } * i as f64, n, seed + i as i32);
             (b.name, b.air, b.ground, b.warp, b.gas) = (row.name.clone(), row.air, row.ground, warp, row.gas());
             b.parent = row.parent.unwrap_or(INERTIAL);
+            let own = Interior::new(row.makeup_at(gen), b.radius, 0.0, first.as_ref()).mass;
             // a moon `orbit` radii of its parent out (Luna 60, the Moon's), never nearer than orbit_min, once
             // a month by Kepler's law against the home's first moon's, by the root of the home's mean density over
             // its parent's (1 for the home's moons, to the bit; the giant's moon 2.1 times slower; `sky::period`);
@@ -88,24 +107,36 @@ impl World {
                     b.orbit = r * mine;
                     let luna = q(bodies[0].radius, rows[moon].orbit.expect("a moon has an orbit (bodies::parse)"));
                     let dens = |b: &Body| b.interior.mass / b.radius.powi(3);
-                    let kepler = if i == moon { crate::sky::MONTH } else { crate::sky::MONTH * (mine / luna).powf(1.5) * (dens(&bodies[0]) / dens(&bodies[p])).sqrt() };
-                    b.period = crate::sky::period(kepler);
+                    b.period = if real {
+                        // (real gravity: sidereal, the two masses about each other)
+                        kepler(b.orbit, bodies[p].interior.mass + own)
+                    } else {
+                        crate::sky::period(if i == moon { crate::sky::MONTH } else { crate::sky::MONTH * (mine / luna).powf(1.5) * (dens(&bodies[0]) / dens(&bodies[p])).sqrt() })
+                    };
                     Some(b.period)
                 }
                 _ => {
                     b.orbit = b.radius * row.sun.expect("a body that circles the sun has its distance (bodies::parse)");
-                    b.period = if i == 0 { crate::sky::YEAR } else { crate::sky::period(crate::sky::YEAR * (b.orbit / bodies[0].orbit).powf(1.5)) };
+                    b.period = if real {
+                        kepler(b.orbit, sky.sun_mass + own)
+                    } else if i == 0 {
+                        crate::sky::YEAR
+                    } else {
+                        crate::sky::period(crate::sky::YEAR * (b.orbit / bodies[0].orbit).powf(1.5))
+                    };
                     None
                 }
             };
             // (one that circles the sun and is not home turns only with a `day`: its pose does not, 0163's ring)
-            let spin = if row.parent.is_none() && !row.home { row.day.map_or(0.0, |d| 1.0 / (d * crate::sky::DAY)) } else { crate::interior::spin(month) };
+            let spin = if row.parent.is_none() && !row.home { row.day.map_or(0.0, |d| 1.0 / (d * crate::sky::DAY)) } else { crate::interior::spin(month, if real { f64::INFINITY } else { crate::sky::YEAR }, if i == 0 { b.period } else { bodies[0].period }) };
             // its pose turns too (F9 "mars does not rotate"); shortcut: the giant's bands take their own angle in the
             // client (frame.rs `far_lights`), so its pose stays still until that angle is read from here
             if row.parent.is_none() && !row.home && !row.gas() {
-                b.day = row.day.map_or(0.0, |d| crate::sky::period(d * crate::sky::DAY));
+                b.day = row.day.map_or(0.0, |d| crate::sky::period_in(d * crate::sky::DAY, repeat));
             }
-            b.interior = Interior::new(&row.makeup, b.radius, spin, first.as_ref());
+            b.year = if i == 0 { b.period } else { bodies[0].period };
+            b.tide_high = tide_high;
+            b.interior = Interior::new(row.makeup_at(gen), b.radius, spin, first.as_ref());
             first.get_or_insert_with(|| b.interior.clone());
             // every body is of the world's generation (from 4 Luna's rock field asks it); the home's grid goes down
             // through the mantle from 1
@@ -123,11 +154,12 @@ impl World {
                 }
             });
         }
-        // the sun is the home's `sun` radii away and as big as its first moon lets a total eclipse be perfect
-        // (ADR 0041)
-        let r0 = bodies[0].radius;
-        let (k, min) = rows[moon].orbit.expect("a moon has an orbit (bodies::parse)");
-        let sky = Sky::new(r0, bodies[moon].radius, (r0 * k).max(min) / r0, rows[0].sun.expect("the home has the sun's distance"));
+        let sky = if real {
+            sky.real(bodies[0].period, bodies[moon].period, tides.0, tides.1)
+        } else {
+            // what Kepler's law needs for the hand-set year (a number for the record; nothing reads it there)
+            Sky { sun_mass: (std::f64::consts::TAU / sky.year).powi(2) * bodies[0].orbit.powi(3) / big_g - bodies[0].interior.mass, ..sky }
+        };
         debug_assert_eq!(sky.moon_orbit.to_bits(), bodies[moon].orbit.to_bits());
         World {
             bodies: Arc::new(bodies),
@@ -306,8 +338,8 @@ impl World {
         let Some(b) = self.bodies.get(f) else { return Pose { centre: DVec3::ZERO, rot: DQuat::IDENTITY } };
         match (f, b.parent) {
             (0, _) => self.sky.planet(t),
-            (_, INERTIAL) => Sky::round_sun(b.orbit, b.period, b.day, t),
-            (_, p) => Sky::circle(self.pose(p, t).centre, b.orbit, b.period, t),
+            (_, INERTIAL) => self.sky.round_sun(b.orbit, b.period, b.day, t),
+            (_, p) => self.sky.circle(self.pose(p, t).centre, b.orbit, b.period, t),
         }
     }
     /// Where frame `f`'s pose is anchored in the shared coordinates: its body's grid centre.
@@ -416,6 +448,10 @@ impl World {
     /// Body i's pull at its radius (ADR 0037; `Interior::surface_g`): `interior::G` on the first (Terra) whatever
     /// its size, and on another its mass over the square of its radius; Luna, of Terra's makeup and 3.7 times
     /// smaller, pulls 3.7 times less and a jump there is about 4.6 m.
+    /// The sun's mass, kg (`Sky::sun_mass`).
+    pub fn sun_mass(&self) -> f64 {
+        self.sky.sun_mass
+    }
     pub fn surface_g(&self, i: usize) -> f64 {
         self.bodies[i].interior.surface_g
     }

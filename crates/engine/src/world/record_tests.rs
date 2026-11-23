@@ -107,3 +107,24 @@ fn surface_gravity_is_the_mass_over_the_radius_squared() {
         }
     }
 }
+
+/// Real gravity (generation 8, ADR 0180): one constant, Terra's, and every body's pull from its own mass and radius,
+/// its rock weighed by it; Luna of the Moon's make-up (mean 3340 kg/m3) pulls about a sixth of Terra. A world
+/// of generation 7 keeps her old make-up and Terra's pull on her rock.
+#[test]
+fn real_gravity_pulls_every_body_by_its_own_mass() {
+    let w = World::with_grid(6144, 1664, 1, None, None, 0.0, crate::world::REAL);
+    let t = &w.bodies[0].interior;
+    assert_eq!(t.k, crate::interior::constant(&crate::bodies::BODIES[0].makeup, t.radius), "the one G");
+    for b in w.bodies.iter() {
+        assert_eq!((b.interior.k, b.interior.weight_g), (t.k, b.interior.surface_g), "{}: its own pull weighs its rock", b.name);
+    }
+    let l = &w.bodies[1].interior;
+    let mean = l.mass / (4.0 / 3.0 * std::f64::consts::PI * l.radius.powi(3));
+    assert!((mean - 3340.0).abs() < 0.01 * 3340.0, "Luna's mean density {mean}");
+    let sixth = l.surface_g / t.surface_g;
+    // 0.183: the Moon's density over Terra's mean (4933 kg/m3, lighter than the Earth's 5514) and 3.69 times smaller
+    assert!((sixth * 6.0 - 1.0).abs() < 0.15, "Luna pulls {sixth} of Terra");
+    let old = World::with_grid(6144, 1664, 1, None, None, 0.0, 7);
+    assert_eq!((old.bodies[1].interior.weight_g, (old.bodies[1].interior.surface_g * 100.0).round()), (19.62, 531.0), "generation 7 as it was");
+}

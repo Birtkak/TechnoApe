@@ -200,9 +200,9 @@ impl Body {
         t.at(d) / (self.layer_r(self.sea.unwrap_or(0.0)) * self.lnq)
     }
     /// The sea's level at the highest tide, a layer coordinate (`sea_quads`): in the layer over the mean's, as the
-    /// mean lies an eighth under a layer's top and TIDE_HIGH is under a layer and an eighth.
+    /// mean lies an eighth under a layer's top and `tide_high` (1 m at most) is under a layer and an eighth.
     pub fn sea_high(&self) -> Option<f64> {
-        self.sea.map(|s| s + crate::sky::TIDE_HIGH / (self.layer_r(s) * self.lnq))
+        self.sea.map(|s| s + self.tide_high / (self.layer_r(s) * self.lnq))
     }
     /// The sea's `ocean`: the mean of d d^T over 4096 even directions whose ground is under the sea.
     pub(super) fn ocean_moments(&self) -> glam::DMat3 {

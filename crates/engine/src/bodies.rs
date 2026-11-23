@@ -104,10 +104,21 @@ struct Raw {
     iron: f64,
     heat: f64,
     density: [f64; 3],
-    weight_g: Option<f64>,
+    old: Option<Old>,
+    sun_density: Option<f64>,
     age: Option<f64>,
     #[serde(default)]
     since: u8,
+}
+
+/// A row's make-up in the worlds before real gravity (`world::REAL`), where it was not its own: its `iron`,
+/// `density` and the pull its rock was weighed with.
+#[derive(Deserialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+struct Old {
+    iron: f64,
+    density: [f64; 3],
+    weight_g: Option<f64>,
 }
 
 /// What a body is (planet-model.md): only rocky bodies are built.
@@ -165,6 +176,11 @@ pub struct Row {
     /// The sun's distance in this body's radii: a body that circles the sun has it.
     pub sun: Option<f64>,
     pub makeup: Makeup,
+    /// Its make-up in a world before `world::REAL` where its row says another (`makeup_at`).
+    pub old: Option<Makeup>,
+    /// The sun's mean density, kg/m3 (the home's row; `SUN_DENSITY` if left out): its mass, with the radius the
+    /// sky gives it, sets every year by Kepler's law from `world::REAL` on.
+    pub sun_density: Option<f64>,
     /// The first world generation it is in (`world::GENERATION`; 0: every world): a world of an older one is
     /// made, saved and sent without it (`of`).
     pub since: u8,
@@ -175,7 +191,17 @@ pub struct Row {
     pub colour: [f32; 3],
 }
 
+/// The real Sun's mean density, kg/m3: the sun's when the home's row names none.
+pub const SUN_DENSITY: f64 = 1408.0;
+
 impl Row {
+    /// Its make-up in a world of generation `gen`: its `old` one before real gravity, else its row's.
+    pub fn makeup_at(&self, gen: u8) -> &Makeup {
+        match &self.old {
+            Some(o) if gen < crate::world::REAL => o,
+            _ => &self.makeup,
+        }
+    }
     /// A gas body (step 6a): no blocks, so no grid, map, chunks, bake or save data; drawn by the sky's shader.
     pub fn gas(&self) -> bool {
         self.makeup.kind == Kind::Gas
@@ -254,8 +280,17 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
                 return Err(format!("body '{}': its ground would be inside its parent '{}' at an orbit of {o} of its radii", r.name, rows[p].name));
             }
         }
-        let makeup = Makeup { kind: r.kind, iron: r.iron, heat: r.heat, density: r.density, weight_g: r.weight_g };
+        let makeup = Makeup { kind: r.kind, iron: r.iron, heat: r.heat, density: r.density, weight_g: None };
         check(&makeup).map_err(|e| format!("body '{}': {e}", r.name))?;
+        let old = r.old.as_ref().map(|o| Makeup { iron: o.iron, density: o.density, weight_g: o.weight_g, ..makeup });
+        if let Some(o) = &old {
+            check(o).map_err(|e| format!("body '{}': its old make-up: {e}", r.name))?;
+        }
+        match r.sun_density {
+            Some(_) if !r.home => return Err(format!("body '{}': only the home's row names the sun's density", r.name)),
+            Some(d) if !(d > 0.0 && d.is_finite()) => return Err(format!("body '{}': sun_density {d} is kg/m3, over 0", r.name)),
+            _ => {}
+        }
         // gas has no blocks (step 6a): no ground, generator or bake; a rocky body has its ground
         let gas = r.kind == Kind::Gas;
         let mut ground = [crate::blocks::AIR; 3];
@@ -308,7 +343,7 @@ pub fn parse(text: &str) -> Result<Vec<Row>, String> {
             None => crate::bake::luna::sun_high(r.size, orbit),
         };
         let planet = planet.map(|p| Planet { icy: p.icy.map(|_| high), ..p });
-        rows.push(Row { name: r.name, parent, home: r.home, bake: r.stages.map(|s| Bake(s, high, planet)), words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator.unwrap_or(Generator::Hills), ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup, since: r.since, day: r.day, colour: r.colour.unwrap_or([0.7; 3]) });
+        rows.push(Row { name: r.name, parent, home: r.home, bake: r.stages.map(|s| Bake(s, high, planet)), words: r.words.iter().map(|w| w.to_lowercase()).collect(), n, generator: r.generator.unwrap_or(Generator::Hills), ground, air: r.air, orbit, size: r.size, sun: r.sun, makeup, old, sun_density: r.sun_density, since: r.since, day: r.day, colour: r.colour.unwrap_or([0.7; 3]) });
     }
     if moon(&rows).is_none() {
         return Err(format!("body '{}': the home body needs a moon (its first sizes the sun)", rows[0].name));

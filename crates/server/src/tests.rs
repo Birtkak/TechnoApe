@@ -1488,7 +1488,8 @@ fn a_client_told_generation_1_2_or_3_builds_that_worlds_rock() {
         let (seed, planet_n, moon_n, told) = welcome.expect("a welcome");
         assert_eq!(told, gen, "the welcome says the world's generation");
         // as the bot and the client do on a welcome: the same ground as the server's, caves and all
-        let w = World::with_grid(planet_n, moon_n, seed, Some(engine::bake::get(seed, planet_n)), None, 0.0, told);
+        // the map of the generation told (`get_at`: version 7 before real gravity), as the welcome's hash fetches it
+        let w = World::with_grid(planet_n, moon_n, seed, Some(engine::bake::get_at(seed, planet_n, told)), None, 0.0, told);
         assert!(w.bodies[0].caves == s.world.bodies[0].caves, "generation {gen}: the client's caves differ from the server's");
         w
     });
@@ -1757,7 +1758,7 @@ fn columns_near_spawn(s: &Server, r: i32) -> Vec<Col0> {
             let wet = b.water_at(f, i, j).is_some_and(|w| z as f64 <= w.0);
             let any = !wet && (0..4).any(|k| pick(b, seed, f, i, j, biome, top, k, 1.0, &tile.trees).is_some_and(|t| CLUTTER[t.row].kind == Kind::Pickup));
             let up = b.dir(f as usize, i as f64 + 0.5, j as f64 + 0.5);
-            let plant = plant(seed, f, i, j, biome, top, engine::clutter::part(up, 0.0) / 2, VEGETATION[2], &tile.trees).filter(|g| !wet || CLUTTER[g.row].wades);
+            let plant = plant(seed, f, i, j, biome, top, engine::clutter::part(up, 0.0, b.year) / 2, VEGETATION[2], &tile.trees).filter(|g| !wet || CLUTTER[g.row].wades);
             Some(Col0 { at, now: pickup_at(w, at, 0.0), any, plant })
         })
         .collect()

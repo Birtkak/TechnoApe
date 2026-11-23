@@ -62,8 +62,10 @@ use std::sync::{Arc, LazyLock, Mutex, Weak};
 /// year with the sky's seasons; 4 adds the lakes and each river cell's flow (W5, ADR 0059); 5 keeps each cell's
 /// rock province (W4, ADR 0063); 6 stretches the peaks (ADR 0105: the same layout as 5, other heights over
 /// `land::STRETCH_FROM`; a save on a 5 is baked back by `Map::bake_v5`); 7 lays the polar caps (ADR 0107: the same
-/// layout and ground as 6, ICE on the cold land and sea; a save on a 6 is baked back by `Map::bake_v6`).
-pub const VERSION: u32 = 7;
+/// layout and ground as 6, ICE on the cold land and sea; a save on a 6 is baked back by `Map::bake_v6`); 8 runs the
+/// climate over the year of real gravity (ADR 0180, `world::REAL`: Kepler's from the masses, `world::year_of`; the
+/// layout of 7): a world of an earlier generation plays on a 7 (`get_at`, `Map::bake_v7`).
+pub const VERSION: u32 = 8;
 
 /// How far in longitude from the +y meridian the spawn may lie, radians (about 26 degrees: 9 am at world
 /// time 0 is then between 7 and 11 am at the spawn). shortcut: until the sky's clock takes the spawn's own
@@ -129,7 +131,18 @@ impl Map {
     }
     /// `bake` with other land parameters (tests: smaller rivers on a small planet).
     pub fn bake_with(seed: i32, n: i32, p: &land::Params) -> Map {
-        run_with(&Stage::TERRA, seed, n, p)
+        run_with(&Stage::TERRA, seed, n, p, crate::world::year_of(n, crate::world::REAL))
+    }
+    /// The bake of version 7, its climate over the hand-set YEAR: the map of every world before real gravity.
+    pub fn bake_v7(seed: i32, n: i32) -> Map {
+        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params::default(), crate::sky::YEAR);
+        m.version = 7;
+        m.finish(&m.to_bytes());
+        m
+    }
+    /// The year its climate was baked over, seconds: real gravity's from version 8, else the hand-set YEAR.
+    pub fn year(&self) -> f64 {
+        if self.version == VERSION { crate::world::year_of(self.n, crate::world::REAL) } else { crate::sky::YEAR }
     }
     /// The map of a bake on plates once its `life` stage has run (`run_with`).
     fn of_life(seed: i32, n: i32, mut b: land::Bake, l: life::Life, t: std::time::Instant) -> Map {
@@ -149,7 +162,7 @@ impl Map {
     }
     /// The bake of version 5, before the peaks were stretched (ADR 0105): what a save made on one plays on.
     pub fn bake_v5(seed: i32, n: i32) -> Map {
-        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params { peak_extra_m: 0.0, ..Default::default() });
+        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params { peak_extra_m: 0.0, ..Default::default() }, crate::sky::YEAR);
         m.version = 5;
         m.finish(&m.to_bytes());
         m
@@ -157,7 +170,7 @@ impl Map {
     /// The bake of version 6, before the polar caps (ADR 0107; Terra's stages without `ice`): what a save made on
     /// one plays on.
     pub fn bake_v6(seed: i32, n: i32) -> Map {
-        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params::default());
+        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params::default(), crate::sky::YEAR);
         m.version = 6;
         m.finish(&m.to_bytes());
         m
@@ -217,7 +230,7 @@ impl Map {
         if let Some(c) = &m.climate {
             c.check()?;
         }
-        let known = m.version == VERSION || m.version == luna::VERSION || m.version == mars::VERSION || m.version == icy::VERSION || m.version == 6 || m.version == 5 || m.version == 4 || m.version == 3 || (m.version == 2 && m.climate.is_none()) || (m.version == 1 && m.rivers.is_empty());
+        let known = m.version == VERSION || m.version == 7 || m.version == luna::VERSION || m.version == mars::VERSION || m.version == icy::VERSION || m.version == 6 || m.version == 5 || m.version == 4 || m.version == 3 || (m.version == 2 && m.climate.is_none()) || (m.version == 1 && m.rivers.is_empty());
         // a river drains into a neighbouring cell (bytes from a server: a far one would build a huge index)
         let mm = m.m as i32;
         let next_to = |r: &Reach| {
@@ -450,17 +463,18 @@ pub fn check(stages: &[Stage], moon: bool) -> Result<(), String> {
 pub fn run(stages: &[Stage], seed: i32, n: i32, sun_high: f64) -> Map {
     match stages.first() {
         Some(Stage::Crust) => luna::run(stages, seed, n, sun_high).0,
-        _ => run_with(stages, seed, n, &land::Params::default()),
+        _ => run_with(stages, seed, n, &land::Params::default(), crate::world::year_of(n, crate::world::REAL)),
     }
 }
 
-/// `run` of a list on plates (Terra's kind), with other land parameters.
-pub fn run_with(stages: &[Stage], seed: i32, n: i32, p: &land::Params) -> Map {
+/// `run` of a list on plates (Terra's kind), with other land parameters, its climate over `year` seconds.
+pub fn run_with(stages: &[Stage], seed: i32, n: i32, p: &land::Params, year: f64) -> Map {
     use Stage::*;
     check(stages, false).unwrap_or_else(|e| panic!("a bake of {stages:?}: {e}"));
     assert_eq!(stages[0], Plates, "run_with bakes on plates; a crust without them is `luna::run`");
     let (t, s) = (std::time::Instant::now(), seed as u32 as u64);
     let lp = if stages.contains(&Ice) { life::LifeParams::default() } else { life::LifeParams::capless() };
+    let lp = life::LifeParams { year, ..lp };
     let (mut crust, mut plates, mut year, mut life) = (None, None, None, None);
     for &st in stages {
         match st {
@@ -628,7 +642,7 @@ fn file_v(seed: i32, n: i32, v: u32) -> PathBuf {
 /// The map of (seed, n) if it is in memory or on disk, and its hash is `hash` (any of this version, when
 /// None; a save that names one of version 1 gets that too).
 pub fn find(seed: i32, n: i32, hash: Option<u64>) -> Option<Arc<Map>> {
-    find_in(seed, n, hash, if hash.is_some() { &[VERSION, 6, 5, 4, 3, 2, 1, luna::VERSION] } else { &[VERSION] }).or_else(|| mars::find(seed, n, hash?))
+    find_in(seed, n, hash, if hash.is_some() { &[VERSION, 7, 6, 5, 4, 3, 2, 1, luna::VERSION] } else { &[VERSION] }).or_else(|| mars::find(seed, n, hash?))
 }
 
 /// `find` among maps of these versions.
@@ -680,6 +694,10 @@ pub fn for_hash(seed: i32, n: i32, hash: u64) -> Option<Arc<Map>> {
     if b.hash == hash {
         return Some(b);
     }
+    let b = Map::bake_v7(seed, n);
+    if b.hash == hash {
+        return Some(keep(b));
+    }
     let b = Map::bake_v6(seed, n);
     if b.hash == hash {
         return Some(keep(b));
@@ -711,6 +729,14 @@ pub fn for_hash(seed: i32, n: i32, hash: u64) -> Option<Arc<Map>> {
 /// The map of (seed, n): from memory, from disk, else baked now and kept.
 pub fn get(seed: i32, n: i32) -> Arc<Map> {
     find(seed, n, None).unwrap_or_else(|| keep(Map::bake(seed, n)))
+}
+
+/// `get` for a world of generation `gen`: before real gravity (`world::REAL`) the map of version 7.
+pub fn get_at(seed: i32, n: i32, gen: u8) -> Arc<Map> {
+    if gen >= crate::world::REAL {
+        return get(seed, n);
+    }
+    find_in(seed, n, None, &[7]).unwrap_or_else(|| keep(Map::bake_v7(seed, n)))
 }
 
 /// One bake of (seed, n) for every test that only reads it: baked once per test run, kept in memory only (never
@@ -914,8 +940,8 @@ mod tests {
     fn the_map_keeps_each_cells_baked_temperature() {
         let (seed, n) = (5, 256);
         let b = land::bake(n as u32, seed as u32 as u64, &land::Params::default());
-        let l = life::life(&b, seed as u32 as u64, &life::LifeParams::default());
         let map = Map::from_bytes(&shared(seed, n).to_bytes()).unwrap();
+        let l = life::life(&b, seed as u32 as u64, &life::LifeParams { year: map.year(), ..life::LifeParams::default() });
         assert!(map.climate.is_some(), "a map of version {} keeps its climate", map.version);
         let m = map.m as usize;
         let mut seen = 0;
@@ -1028,8 +1054,9 @@ mod tests {
     /// a bake still makes, and Luna's, to the bit.
     #[test]
     fn the_stages_bake_terra_and_luna_to_the_bit_as_before() {
-        let got = [shared(5, 256).hash, Map::bake_v6(5, 256).hash, Map::bake_v5(5, 256).hash, luna::bake(7, 416).hash];
-        assert_eq!(got.map(|h| format!("{h:016x}")), ["16ee32bb94308b73", "065e789cbd17a892", "5bfb7a403005f7d7", "cb20ef2abc8ed3a7"]);
+        let got = [Map::bake_v7(5, 256).hash, Map::bake_v6(5, 256).hash, Map::bake_v5(5, 256).hash, luna::bake(7, 416).hash, shared(5, 256).hash];
+        // (version 8, real gravity's year: taken on its first build, 2026-11-23)
+        assert_eq!(got.map(|h| format!("{h:016x}")), ["16ee32bb94308b73", "065e789cbd17a892", "5bfb7a403005f7d7", "cb20ef2abc8ed3a7", "4875a8c0286c488d"]);
     }
 
     /// The whole bake twice on a small planet: the same map to the bit (the second the tests' shared one).

@@ -946,7 +946,7 @@ pub(crate) fn season_here(w: &engine::world::World, pos: glam::DVec3) -> (f64, f
     if w.frame_at(pos) != 0 {
         return (0.0, 0.0);
     }
-    engine::sky::season_at(w.up_at(pos), w.time)
+    engine::sky::season_at(w.up_at(pos), w.time, w.sky.year)
 }
 
 /// Where block `id`'s fluff and light go in the looks buffer, in bytes, one per season (a look row is 20 words; they
@@ -974,9 +974,11 @@ fn looks_in(reg: &engine::blocks::Registry, painted: &[((u16, usize), engine::te
                         let tone = d.tone(season);
                         let ([r, g, b], [r2, g2, b2], [r3, g3, b3]) = (tone.colour.map(f), tone.colour2.map(f), tone.colour3.map(f));
                         // size, and for a block with seasons bit 8 (a season's paint alone gives it them), bit 9
-                        // when a season paints its own, and its stagger from bit 16
+                        // when a season paints its own, and its stagger from bit 16. shortcut: the stagger is read in days of
+                        // the 54-day YEAR (the table is built before the world), so it keeps its share of a season; pass the
+                        // world's sky.year here if a stagger under real gravity's longer year should stay the same days
                         let paints = painted.iter().any(|((b, q), _, _)| *b == id && *q != 0);
-                        let size = d.size as u32 | ((d.seasons.is_some() || paints) as u32) << 8 | (paints as u32) << 9 | engine::sky::stagger_units(d.stagger) << 16;
+                        let size = d.size as u32 | ((d.seasons.is_some() || paints) as u32) << 8 | (paints as u32) << 9 | engine::sky::stagger_units(d.stagger, engine::sky::YEAR) << 16;
                         let shine = (d.metal * 255.0).round() as u32;
                         let gives = (d.light != [0.0; 3]) as u32;
                         let info = d.pattern as u32 | shine << 16 | gives << 24 | ((d.see == engine::blocks::See::Cutout) as u32) << 25 | ((d.see == engine::blocks::See::Glass) as u32) << 26 | (d.joins as u32) << 27;
@@ -1796,7 +1798,7 @@ colour = [0.5, 0.5, 0.5]
             }
         }
         let leaves = BLOCKS.get(BLOCKS.id("broadleaf leaves")).unwrap();
-        assert_eq!(t[leaves.id as usize][7] >> 16, engine::sky::stagger_units(3.0), "3 days of 13.5 a season");
+        assert_eq!(t[leaves.id as usize][7] >> 16, engine::sky::stagger_units(3.0, engine::sky::YEAR), "3 days of 13.5 a season");
         assert_ne!(t[2 * IDS + leaves.id as usize][..3], t[leaves.id as usize][..3], "autumn is not summer");
     }
 }
