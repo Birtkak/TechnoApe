@@ -90,7 +90,7 @@ fn meets(a: &Node, b: &Node) -> bool {
 const QUIET: u16 = 30;
 /// A full gap under a ceiling holds more water under pressure: one block of head per 1/K block of excess.
 /// Without it a closed tunnel could not pass on the pressure of the lake it leads from.
-const K: i64 = 16;
+pub const K: i64 = 16;
 
 /// A column: body, face and column (i, j), packed.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug, serde::Serialize, serde::Deserialize)]
@@ -128,6 +128,12 @@ pub trait Ground {
     fn gaps(&self, c: Col) -> Vec<(i32, i32)>;
     /// The water generation puts in column `c`: (bottom, top) in units, empty when bottom >= top.
     fn generated(&self, c: Col) -> (i64, i64);
+    /// The fluids other than water generation puts in column `c` (a live volcano's lava, `Body::lava_col`), as a
+    /// column is built from them: (bottom, top, units held under pressure, kind), units, bottom-up; each lies in one
+    /// of the gaps generation leaves, and every one's head is its body's level, so untouched it lies still.
+    fn generated_other(&self, _c: Col) -> Vec<(i64, i64, i64, u8)> {
+        Vec::new()
+    }
     /// The four neighbouring columns as [-i, +i, -j, +j] in this column's own frame, so slot `k ^ 1` is
     /// straight on from slot `k` (none at the edge of a test box).
     fn neighbours(&self, c: Col) -> [Option<Col>; 4];
@@ -285,6 +291,9 @@ pub struct Liquids {
     /// What generation put into each stored column, and its sum.
     gen: FxMap<Col, i64>,
     gen_total: i64,
+    /// What generation put into the stored columns of each fluid other than water (`Ground::generated_other`), by
+    /// kind: never forgotten, a column of it stays stored.
+    gen_other: std::collections::BTreeMap<u8, i64>,
     /// `Ground::generated` of the columns next to awake ones, kept: it samples the terrain noise, and a shore
     /// that trades with the sea asks for the same columns every step. shortcut: never pruned (24 bytes a shore
     /// column); prune it with `forget` if a long-lived server's shores ever make it large.
@@ -512,7 +521,8 @@ impl Liquids {
             return;
         }
         let (lo, hi) = g.generated(c);
-        let wet = if lo < hi { vec![(lo, hi, 0, 0)] } else { Vec::new() };
+        let mut wet = if lo < hi { vec![(lo, hi, 0, 0)] } else { Vec::new() };
+        wet.extend(g.generated_other(c));
         // asleep: generated water is level; a neighbour's flow wakes it
         self.build(g, c, &wet, false);
     }
@@ -528,7 +538,11 @@ impl Liquids {
             let (lo, hi) = g.generated(c);
             self.gen.insert(c, (hi - lo).max(0));
             self.gen_total += (hi - lo).max(0);
+            for (lo, hi, extra, kind) in g.generated_other(c) {
+                *self.gen_other.entry(kind).or_default() += hi - lo + extra;
+            }
         }
+        self.other |= wet.iter().any(|w| w.3 != 0);
         let gaps = g.gaps(c);
         let mut water = vec![0i64; gaps.len()];
         let mut kinds = vec![0u8; gaps.len()];
@@ -653,16 +667,18 @@ impl Liquids {
     pub fn regap(&mut self, g: &impl Ground, c: Col) {
         let Some(ids) = self.cols.get(&c).cloned() else {
             let (lo, hi) = g.generated(c);
-            let wet = lo < hi || g.neighbours(c).iter().flatten().any(|d| match self.cols.get(d) {
+            let other = g.generated_other(c);
+            let wet = lo < hi || !other.is_empty() || g.neighbours(c).iter().flatten().any(|d| match self.cols.get(d) {
                 Some(ids) => ids.iter().any(|&i| self.nodes[i as usize].water > 0),
                 None => {
                     let (lo, hi) = g.generated(*d);
-                    lo < hi
+                    lo < hi || !g.generated_other(*d).is_empty()
                 }
             });
             if wet {
-                // generation's water poured into the gaps the edit left
-                let wet = if lo < hi { vec![(lo, hi, 0, 0)] } else { Vec::new() };
+                // generation's water (and lava) poured into the gaps the edit left
+                let mut wet = if lo < hi { vec![(lo, hi, 0, 0)] } else { Vec::new() };
+                wet.extend(other);
                 self.build(g, c, &wet, true);
                 for d in g.neighbours(c).into_iter().flatten() {
                     self.materialize(g, d);
@@ -757,11 +773,25 @@ impl Liquids {
     }
     /// The units of fluid `kind` that differ from the seed's (`counted` for water).
     pub fn counted_of(&self, kind: u8) -> i64 {
-        // (only water is generated, trades with the sea and rivers, or rains)
+        // (only water trades with the sea and rivers, or rains; lava is generated in volcanoes, `gen_other`)
         if kind == crate::fluids::WATER {
             return self.counted();
         }
-        self.total_of(kind) + self.spilt.get(&kind).copied().unwrap_or(0)
+        self.total_of(kind) + self.spilt.get(&kind).copied().unwrap_or(0) - self.gen_other.get(&kind).copied().unwrap_or(0)
+    }
+    /// The fluid in layer `layer` of column `c`, if any (stored, else as generation gives it): what a player's
+    /// feet stand in.
+    pub fn kind_at(&self, g: &impl Ground, c: Col, layer: f64) -> Option<u8> {
+        let u = layer * U as f64;
+        if let Some(ids) = self.cols.get(&c) {
+            let n = ids.iter().map(|&i| &self.nodes[i as usize]).find(|n| (n.ceil as f64) > layer && n.floor as f64 <= layer.floor())?;
+            return (n.water > 0 && u < n.surface() as f64).then_some(n.kind);
+        }
+        let (lo, hi) = g.generated(c);
+        if lo < hi && (lo as f64..hi as f64).contains(&u) {
+            return Some(crate::fluids::WATER);
+        }
+        g.generated_other(c).into_iter().find(|w| (w.0 as f64..w.1 as f64).contains(&u)).map(|w| w.3)
     }
     /// Fluid `kind` flows with viscosity `v` instead of its row's (tests).
     pub fn set_viscosity(&mut self, kind: u8, v: i64) {
@@ -1412,7 +1442,8 @@ impl Liquids {
             let n = &self.nodes[a as usize];
             let (lo, hi) = g.generated(c);
             let want = if lo < hi && n.floor as i64 * U == lo { hi - lo } else { 0 };
-            if n.ceil != OPEN || n.kind != crate::fluids::WATER || (n.water - want).abs() >= DEAD || (want == 0 && lo < hi) || g.gaps(c) != [(n.floor, OPEN)] {
+            // (a column generation fills with another fluid is never given back: it would come back full)
+            if n.ceil != OPEN || n.kind != crate::fluids::WATER || (n.water - want).abs() >= DEAD || (want == 0 && lo < hi) || g.gaps(c) != [(n.floor, OPEN)] || !g.generated_other(c).is_empty() {
                 continue;
             }
             let w = n.water;

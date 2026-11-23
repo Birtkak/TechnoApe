@@ -117,7 +117,10 @@ impl Body {
                 v[((1.0 - f.share as f64) * 4095.0).round() as usize]
             })
             .collect();
-        self.baked = Some(Box::new(Baked { seed: map.seed as u32 as u64, map, detail, jitter, fold, flow_cut, spots: Default::default(), levels: Default::default() }));
+        self.baked = Some(Box::new(Baked { seed: map.seed as u32 as u64, map: map.clone(), detail, jitter, fold, flow_cut, craters: Vec::new(), spots: Default::default(), levels: Default::default() }));
+        // the volcanoes on the ground as generated (a map of version 9 on), before the plants and caves ask for them
+        let craters = self.craters_of(&map);
+        self.baked.as_mut().unwrap().craters = craters;
         self.sea = Some(self.layer_of(self.radius - SEA_DEPTH).floor() + 0.875);
         self.ocean = self.ocean_moments();
         // the scored spawn, moved to the nearest column with no plant within a step
@@ -131,7 +134,13 @@ impl Body {
         if self.map().is_some_and(|m| m.crust()) {
             self.sea = None;
         }
-        let caves = crate::caves::make(&self, self.baked.as_ref().unwrap().seed);
+        let mut caves = crate::caves::make(&self, self.baked.as_ref().unwrap().seed);
+        // a volcano's foot holds its own hollows alone: its lava lies in them and nowhere else
+        let craters = self.craters().to_vec();
+        if !craters.is_empty() {
+            caves.retain(|k| !craters.iter().any(|c| c.face == k.face && (k.at.x - c.at.0).hypot(k.at.y - c.at.1) < c.v.radius as f64 + k.r + 2.0));
+            caves.extend(craters.iter().flat_map(|c| self.crater_caves(c)));
+        }
         self.set_caves(caves);
         let ores = crate::ore::place(&self, self.baked.as_ref().unwrap().seed);
         self.set_ores(ores);
@@ -325,7 +334,12 @@ impl Body {
         let (x, y) = self.map_xy(s, i as f64 + 0.5, j as f64 + 0.5);
         let air = b.map.temp(face as usize, x, y)?;
         let p = ROCKS.provinces.get(self.col_rock(face, i, j).province as usize)?;
-        Some(air + p.heat * (self.col_height(face, i, j) - self.layer_r(z)).max(0.0) as f32)
+        let far = air + p.heat * (self.col_height(face, i, j) - self.layer_r(z)).max(0.0) as f32;
+        if b.craters.is_empty() {
+            return Some(far);
+        }
+        // a live volcano's chamber and conduit warm the rock round them (generation 10's map)
+        Some(self.volcano_heat(self.dir(face as usize, i as f64 + 0.5, j as f64 + 0.5) * self.layer_r(z), far))
     }
     /// The rock at face point (i, j) in columns, d its direction (ADR 0063): the province of the map cell, its
     /// border wandering as the biomes' do, and its layers' top, folded. `Rock::NONE` without a map's rock, and on
@@ -486,6 +500,11 @@ impl Body {
         }
         // nor in a river or a lake (W5)
         if self.water_at(face as u8, i, j).is_some_and(|w| z as f64 <= w.0) {
+            return None;
+        }
+        // nor in a volcano's crater, nor with its crown over it (a map of version 9 on): its lava lies in the gaps
+        // generation leaves, which a plant would split
+        if self.in_crater(face as u8, i, j, ROWS.plants[plant].radius) {
             return None;
         }
         // nor over a cave's open mouth (a skylight, a slot), on a planet with the mantle (generation 1 came in on

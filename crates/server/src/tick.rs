@@ -658,13 +658,16 @@ fn live(c: &mut Client, world: &World, before: &phys::Player, inp: &Input, sprin
     if c.vitals.smother(&mut c.breath, under, name) {
         deaths.extend(c.vitals.dead.clone());
     }
-    // feet in a layer-0 cell open down to the liquid metal sea burn (draft the metal sea)
+    // feet in a layer-0 cell open down to the liquid metal sea burn (draft the metal sea), and feet in lava (a
+    // volcano's, generated or stored, or poured) by the same rule
     let feet = world.block_at(c.phys.pos);
-    if feet.pos.z == 0 && world.bodies[feet.body as usize].core.is_some() && !BLOCKS.solid(world.block(feet)) {
+    let metal = feet.pos.z == 0 && world.bodies[feet.body as usize].core.is_some() && !BLOCKS.solid(world.block(feet));
+    let hot = if metal { Some("the liquid metal") } else { world.lava_at(c.phys.pos).then_some("lava") };
+    if let Some(what) = hot {
         c.burn += 1;
         if c.burn >= vitals::BURN {
             c.burn = 0;
-            if c.vitals.hurt(1, || format!("{name} burned in the liquid metal")) {
+            if c.vitals.hurt(1, || format!("{name} burned in {what}")) {
                 deaths.extend(c.vitals.dead.clone());
             }
         }

@@ -148,7 +148,7 @@ fn seasons_and_the_bake_follow_the_year() {
     assert!((crate::sky::season_at(north, 0.25 * y, y).0 - 1.0).abs() < 1e-9, "summer a quarter year on");
     assert_eq!((crate::clutter::year(1.5 * y, y), crate::clutter::year(1.5 * crate::sky::YEAR, y)), (1, 0));
     assert!(crate::sky::next_season(0.0, 2, y) > 0.49 * y);
-    let (new, old) = (crate::bake::Map::bake(5, 256), crate::bake::Map::bake_v7(5, 256));
+    let (new, old) = (crate::bake::Map::bake_v8(5, 256), crate::bake::Map::bake_v7(5, 256));
     assert_eq!((new.version, new.year(), old.version, old.year()), (8, crate::world::year_of(256, REAL), 7, crate::sky::YEAR));
     assert_eq!(new.h, old.h, "the same ground");
     assert_ne!(new.climate, old.climate, "a year 6 times longer bakes another climate");

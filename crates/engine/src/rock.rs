@@ -60,6 +60,7 @@ struct RawProvince {
     caves: Caves,
     flow: Option<RawFlow>,
     body: Option<String>,
+    chamber: Option<f32>,
 }
 
 #[derive(Deserialize)]
@@ -116,6 +117,9 @@ pub struct Province {
     pub flow: Option<Flow>,
     /// The row of `data/bodies.toml` whose ground it is (`body`, the home's when not given; 0165-bake-stages).
     pub body: usize,
+    /// A live volcano's chamber in it is held at this, C (`chamber`, volcanoes.md: what rises from below keeps it
+    /// so); over lava's freeze point (`data/fluids.toml`). None: its volcanoes are cold.
+    pub chamber: Option<f32>,
 }
 
 pub struct Rocks {
@@ -178,7 +182,14 @@ impl Rocks {
             if body != owner {
                 return Err(format!("province '{}' is {}'s (its place in the list): its body is '{}'", p.name, crate::bodies::BODIES[owner].name, crate::bodies::BODIES[owner].name));
             }
-            provinces.push(Province { name: p.name.clone(), layers, fold: p.fold, heat: p.heat, caves: p.caves, flow, body });
+            // a chamber is molten rock: over the freeze point lava's row gives
+            let freeze = crate::fluids::FLUIDS.now().kind("lava").and_then(|k| crate::fluids::FLUIDS.now().get(k).freeze.as_ref()).map(|f| f.at);
+            if let Some(t) = p.chamber {
+                if !freeze.is_some_and(|f| t > f && t <= 2000.0) {
+                    return Err(format!("province '{}': a chamber's heat {t} C must be over lava's freeze point ({freeze:?} C, data/fluids.toml) and at most 2000 C", p.name));
+                }
+            }
+            provinces.push(Province { name: p.name.clone(), layers, fold: p.fold, heat: p.heat, caves: p.caves, flow, body, chamber: p.chamber });
         }
         let m = &f.mantle;
         let mut mantle: Vec<Deep> = Vec::new();

@@ -4511,6 +4511,48 @@ fn the_metal_sea_burns_a_player_who_steps_into_it() {
     assert_eq!(s.clients[0].vitals.dead.as_deref(), Some("ape burned in the liquid metal"));
 }
 
+/// Lava burns by the metal sea's rule (volcanoes.md step 2): a survival player whose feet are in lava loses a point
+/// every `vitals::BURN` steps and dies of it; with dry feet in the pit beside it, nothing.
+#[test]
+fn lava_burns_a_player_whose_feet_are_in_it() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked(1536, 32, 7, rx);
+    let lava = engine::fluids::FLUIDS.now().kind("lava").unwrap();
+    let b = s.world.bodies[0].clone();
+    let (f, i, j) = b.locate(b.spawn);
+    let (f, i, j) = (f as u8, i as i32, j as i32);
+    let z0 = b.layer_of(b.col_height(f, i, j)).floor() as i32 - 3;
+    // two pits three deep, walled apart: lava poured in one, the other dry
+    for (di, z) in (0..3).flat_map(|z| [(0, z), (3, z)]) {
+        s.world.set_block(Block { body: 0, face: f, pos: glam::IVec3::new(i + di, j, z0 + z) }, AIR);
+    }
+    {
+        let World { bodies, edits, water, sky, time, .. } = &mut s.world;
+        let g = engine::world::Solid::at(bodies, edits, sky, *time);
+        assert!(water.pour_kind(&g, engine::liquid::Col::new(0, f, i, j), z0, 2 * U, lava));
+    }
+    let feet = |di: i32| b.centre + b.dir(f as usize, (i + di) as f64 + 0.5, j as f64 + 0.5) * (b.layer_r(z0 as f64) + 0.3);
+    let (l, sv) = local();
+    tx.send(sv).unwrap();
+    l.send(ToServer::Hello { name: "ape".into() });
+    l.send(ToServer::Input(Input::default()));
+    s.tick();
+    let hold = |s: &mut Server, at: DVec3, secs: f64| {
+        for _ in 0..(secs * TICK_HZ) as u32 {
+            (s.clients[0].phys.pos, s.clients[0].phys.vel) = (at, DVec3::ZERO);
+            s.tick();
+        }
+    };
+    hold(&mut s, feet(3), 2.0);
+    assert_eq!(s.clients[0].vitals.health, vitals::MAX, "dry feet do not burn");
+    hold(&mut s, feet(0), 1.0);
+    let lost = vitals::MAX - s.clients[0].vitals.health;
+    let want = (1.0 / phys::DT) as u32 / vitals::BURN;
+    assert!((want - 1..=want + 1).contains(&(lost as u32)), "lost {lost} in a second, want {want}");
+    hold(&mut s, feet(0), 3.0);
+    assert_eq!(s.clients[0].vitals.dead.as_deref(), Some("ape burned in lava"));
+}
+
 /// The metal sea lights the hole (draft the metal sea): a layer-0 cell opened down to it is a light, a cell over it
 /// is not, and a save keeps it so.
 #[test]

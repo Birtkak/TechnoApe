@@ -26,6 +26,8 @@ mod water;
 pub use water::*;
 mod generate;
 pub use generate::*;
+mod volcano;
+pub use volcano::Crater;
 
 pub const BLOCK: f64 = 1.0;
 /// The planet's sea lies this far under its nominal radius (ADR 0020); the continents decide how much of it
@@ -103,7 +105,7 @@ pub const MANTLE_STEP: i32 = 256;
 /// the basins' limestone in place of ADR 0063's worm (0161-karst-caves), 4 Luna's rock field (0165-bake-stages:
 /// anorthosite highlands, mare basalt over anorthosite in the maria; Terra as at 3), 5 Mars, the third body
 /// (`bodies::Row::since`; Terra and Luna as at 4), 6 the gas giant, the fourth (step 6a; the three as at 5).
-pub const GENERATION: u8 = DEEP_BODIES;
+pub const GENERATION: u8 = VOLCANOES;
 /// The generation of real gravity (ADR 0181): every body's pull from its own mass (Luna of the Moon's
 /// make-up, `bodies::Row::makeup_at`), the periods by Kepler's law from the masses, the sun's mass from its row,
 /// tides from the masses and distances, water by its body's pull, and Terra's map baked over that year. A world of
@@ -113,6 +115,10 @@ pub const REAL: u8 = 8;
 /// body with blocks big enough for the deep crust, not the home alone, has its grid carried down to its core's top
 /// (`Body::with_mantle`); a liquid core is a metal sea under it, a solid one a closed floor of metal.
 pub const DEEP_BODIES: u8 = 9;
+/// The generation of Terra's volcanoes (volcanoes.md steps 1 and 2, draft 2026-11-23): her map of version 9, whose
+/// arcs hold cones, and under each live one a chamber, a conduit and a crater lake of generated lava, with the
+/// heat round them (`volcano`). A world of an earlier generation plays on the map of version 8, as before.
+pub const VOLCANOES: u8 = 10;
 
 /// The home's year in a world of generation `gen` whose home has `planet_n` columns and its moon its row's,
 /// seconds: the sky's own (built without a map), which the bake runs its climate over (`bake::Map::year`).
@@ -372,6 +378,8 @@ struct Baked {
     fold: FastNoiseLite,
     /// Each province's lava flow's cut on its noise (`Body::flow`); infinite without one.
     flow_cut: Vec<f32>,
+    /// Its map's volcanoes in the grid (`Body::craters`; a map of version 9 on).
+    craters: Vec<Crater>,
     seed: u64,
 }
 

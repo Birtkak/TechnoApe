@@ -75,6 +75,10 @@ fold = [8.0, 300.0]
 heat = 0.35
 caves = "none"
 flow = { rock = "basalt", share = 0.5, thick = 30.0, width = 700.0 }
+# A live volcano's chamber (worlds of generation 10 on, docs/design/volcanoes.md): held at this heat, C, by the melt
+# rising from the sinking plate; the rock round it is warmer by conduction, (chamber - far) * R / r. An arc's
+# andesite melt is about 1000 to 1200 C; it must be over lava's freeze point (data/fluids.toml).
+chamber = 1150.0
 
 [[province]]
 name = "rift"

@@ -15,6 +15,7 @@ pub mod mars;
 pub mod pictures;
 pub mod rivers;
 pub mod rock;
+pub mod volcano;
 
 pub use climate::Climate;
 pub use rivers::{Lines, Reach};
@@ -64,8 +65,10 @@ use std::sync::{Arc, LazyLock, Mutex, Weak};
 /// `land::STRETCH_FROM`; a save on a 5 is baked back by `Map::bake_v5`); 7 lays the polar caps (ADR 0107: the same
 /// layout and ground as 6, ICE on the cold land and sea; a save on a 6 is baked back by `Map::bake_v6`); 8 runs the
 /// climate over the year of real gravity (ADR 0180, `world::REAL`: Kepler's from the masses, `world::year_of`; the
-/// layout of 7): a world of an earlier generation plays on a 7 (`get_at`, `Map::bake_v7`).
-pub const VERSION: u32 = 8;
+/// layout of 7): a world of an earlier generation plays on a 7 (`get_at`, `Map::bake_v7`); 9 raises the volcanoes
+/// on the arcs and keeps them after the map (`volcano`, draft 2026-11-23): a world before generation 10
+/// (`world::VOLCANOES`) plays on an 8 (`Map::bake_v8`, the same bytes as before).
+pub const VERSION: u32 = 9;
 
 /// How far in longitude from the +y meridian the spawn may lie, radians (about 26 degrees: 9 am at world
 /// time 0 is then between 7 and 11 am at the spawn). shortcut: until the sky's clock takes the spawn's own
@@ -118,6 +121,9 @@ pub struct Map {
     /// cell's ground, radius), metres. A Terra map's bytes do not hold the field.
     #[serde(skip)]
     pub tubes: Vec<(u32, f32, f32)>,
+    /// Terra's volcanoes (version 9 on; written after the map, as Luna's tubes are).
+    #[serde(skip)]
+    pub volcanoes: Vec<volcano::Volcano>,
     /// FNV of the bytes it was read from or would be written as.
     #[serde(skip)]
     pub hash: u64,
@@ -135,17 +141,24 @@ impl Map {
     }
     /// The bake of version 7, its climate over the hand-set YEAR: the map of every world before real gravity.
     pub fn bake_v7(seed: i32, n: i32) -> Map {
-        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params::default(), crate::sky::YEAR);
+        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { volcanoes: false, ..Default::default() }, crate::sky::YEAR);
         m.version = 7;
+        m.finish(&m.to_bytes());
+        m
+    }
+    /// The bake of version 8, before the volcanoes: the map of every world from real gravity to generation 9.
+    pub fn bake_v8(seed: i32, n: i32) -> Map {
+        let mut m = run_with(&Stage::TERRA, seed, n, &land::Params { volcanoes: false, ..Default::default() }, crate::world::year_of(n, crate::world::REAL));
+        m.version = 8;
         m.finish(&m.to_bytes());
         m
     }
     /// The year its climate was baked over, seconds: real gravity's from version 8, else the hand-set YEAR.
     pub fn year(&self) -> f64 {
-        if self.version == VERSION { crate::world::year_of(self.n, crate::world::REAL) } else { crate::sky::YEAR }
+        if self.version == VERSION || self.version == 8 { crate::world::year_of(self.n, crate::world::REAL) } else { crate::sky::YEAR }
     }
     /// The map of a bake on plates once its `life` stage has run (`run_with`).
-    fn of_life(seed: i32, n: i32, mut b: land::Bake, l: life::Life, t: std::time::Instant) -> Map {
+    fn of_life(seed: i32, n: i32, mut b: land::Bake, l: life::Life, volcanoes: Vec<volcano::Volcano>, t: std::time::Instant) -> Map {
         let h = b.h.clone();
         let lakes = (0..b.g.n()).filter(|&c| b.lake(c)).map(|c| (c as u32, b.lvl[c])).collect();
         let flow = l.flow.clone();
@@ -155,14 +168,14 @@ impl Map {
         let climate = Some(b.life.as_ref().unwrap().climate.clone());
         let rivers = b.rivers.iter().filter(|r| b.land(r.cell as usize)).map(|r| Reach { cell: r.cell, to: r.to, area: r.area, flow: flow[r.cell as usize] }).collect();
         let rock = std::mem::take(&mut b.rock);
-        let mut map = Map { version: VERSION, seed, n, m: b.g.m as u32, h, biome, spawn, rivers, lakes, climate, rock, ..Map::empty() };
+        let mut map = Map { version: VERSION, seed, n, m: b.g.m as u32, h, biome, spawn, rivers, lakes, climate, rock, volcanoes, ..Map::empty() };
         map.finish(&map.to_bytes());
         eprintln!("[bake] seed {seed} planet {n}: {:.1} s", t.elapsed().as_secs_f64());
         map
     }
     /// The bake of version 5, before the peaks were stretched (ADR 0105): what a save made on one plays on.
     pub fn bake_v5(seed: i32, n: i32) -> Map {
-        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params { peak_extra_m: 0.0, ..Default::default() }, crate::sky::YEAR);
+        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params { peak_extra_m: 0.0, volcanoes: false, ..Default::default() }, crate::sky::YEAR);
         m.version = 5;
         m.finish(&m.to_bytes());
         m
@@ -170,7 +183,7 @@ impl Map {
     /// The bake of version 6, before the polar caps (ADR 0107; Terra's stages without `ice`): what a save made on
     /// one plays on.
     pub fn bake_v6(seed: i32, n: i32) -> Map {
-        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params::default(), crate::sky::YEAR);
+        let mut m = run_with(&Stage::TERRA_ICELESS, seed, n, &land::Params { volcanoes: false, ..Default::default() }, crate::sky::YEAR);
         m.version = 6;
         m.finish(&m.to_bytes());
         m
@@ -188,6 +201,7 @@ impl Map {
             3 => postcard::to_stdvec(&(3u32, self.seed, self.n, self.m, &self.h, &self.biome, self.spawn, rivers(), &self.climate)),
             4 => postcard::to_stdvec(&(4u32, self.seed, self.n, self.m, &self.h, &self.biome, self.spawn, &self.rivers, &self.lakes, &self.climate)),
             luna::VERSION | mars::VERSION => postcard::to_stdvec(&(self, &self.tubes)),
+            VERSION => postcard::to_stdvec(&(self, &self.volcanoes)),
             _ => postcard::to_stdvec(self),
         }
         .expect("a map serialises")
@@ -198,7 +212,11 @@ impl Map {
         let version = postcard::take_from_bytes::<u32>(b).map_err(|e| format!("not a map: {e}"))?.0;
         let flowless = |r: Vec<(u32, u32, f32)>| r.into_iter().map(|(cell, to, area)| Reach { cell, to, area, flow: 0.0 }).collect();
         let mut m: Map = match version {
-            VERSION | 6 | 5 | icy::VERSION => postcard::from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?,
+            8 | 6 | 5 | icy::VERSION => postcard::from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?,
+            VERSION => {
+                let (m, rest) = postcard::take_from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?;
+                Map { volcanoes: postcard::from_bytes(rest).map_err(|e| format!("not a map's volcanoes: {e}"))?, ..m }
+            }
             luna::VERSION | mars::VERSION => {
                 let (m, rest) = postcard::take_from_bytes::<Map>(b).map_err(|e| format!("not a map: {e}"))?;
                 Map { tubes: postcard::from_bytes(rest).map_err(|e| format!("not a map's tubes: {e}"))?, ..m }
@@ -230,7 +248,7 @@ impl Map {
         if let Some(c) = &m.climate {
             c.check()?;
         }
-        let known = m.version == VERSION || m.version == 7 || m.version == luna::VERSION || m.version == mars::VERSION || m.version == icy::VERSION || m.version == 6 || m.version == 5 || m.version == 4 || m.version == 3 || (m.version == 2 && m.climate.is_none()) || (m.version == 1 && m.rivers.is_empty());
+        let known = m.version == VERSION || m.version == 8 || m.version == 7 || m.version == luna::VERSION || m.version == mars::VERSION || m.version == icy::VERSION || m.version == 6 || m.version == 5 || m.version == 4 || m.version == 3 || (m.version == 2 && m.climate.is_none()) || (m.version == 1 && m.rivers.is_empty());
         // a river drains into a neighbouring cell (bytes from a server: a far one would build a huge index)
         let mm = m.m as i32;
         let next_to = |r: &Reach| {
@@ -243,7 +261,8 @@ impl Map {
         let bad = m.rivers.iter().any(|r| r.cell as usize >= cells || r.to as usize >= cells || !(r.area.is_finite() && r.area > 0.0) || !(r.flow.is_finite() && r.flow >= 0.0) || !next_to(r))
             || m.lakes.iter().any(|&(c, l)| c as usize >= cells || !l.is_finite())
             || m.lakes.windows(2).any(|w| w[0].0 >= w[1].0)
-            || m.tubes.iter().any(|&(c, d, r)| c as usize >= cells || !(d.is_finite() && d.abs() < 64.0) || !(r > 0.0 && r < 16.0));
+            || m.tubes.iter().any(|&(c, d, r)| c as usize >= cells || !(d.is_finite() && d.abs() < 64.0) || !(r > 0.0 && r < 16.0))
+            || m.volcanoes.iter().any(|v| !v.sane(cells));
         // Luna's maps (`luna::VERSION`) hold no rock provinces: her rock is her kinds' (`Map::rock`); a Terra map's
         // are Terra's; a planet's crust (`mars::VERSION`) and an icy body's (`icy::VERSION`) have none yet (their
         // provinces are later runs')
@@ -475,11 +494,18 @@ pub fn run_with(stages: &[Stage], seed: i32, n: i32, p: &land::Params, year: f64
     let (t, s) = (std::time::Instant::now(), seed as u32 as u64);
     let lp = if stages.contains(&Ice) { life::LifeParams::default() } else { life::LifeParams::capless() };
     let lp = life::LifeParams { year, ..lp };
-    let (mut crust, mut plates, mut year, mut life) = (None, None, None, None);
+    let (mut crust, mut plates, mut year, mut life, mut volcanoes) = (None, None, None, None, Vec::new());
     for &st in stages {
         match st {
             Plates => crust = Some(land::crust(n as u32, s, p)),
-            Erosion => plates = Some(land::erosion(crust.take().expect("checked"), n as u32, s, p)),
+            Erosion => {
+                let mut b = land::erosion(crust.take().expect("checked"), n as u32, s, p);
+                // the cones on the land before the air and the life see it (map version 9 on)
+                if p.volcanoes {
+                    volcanoes = volcano::place(&mut b, n as u32, s);
+                }
+                plates = Some(b);
+            }
             Climate => year = Some(life::climate(plates.as_ref().expect("checked"), &lp)),
             Life => life = Some(life::life_of(plates.as_ref().expect("checked"), s, &lp, year.take().expect("checked"))),
             // on plates, the caps the life stage lays by `lp`
@@ -487,7 +513,7 @@ pub fn run_with(stages: &[Stage], seed: i32, n: i32, p: &land::Params, year: f64
             Crust | Impacts | Volcanism => unreachable!("checked: not built on plates"),
         }
     }
-    Map::of_life(seed, n, plates.expect("checked"), life.expect("checked"), t)
+    Map::of_life(seed, n, plates.expect("checked"), life.expect("checked"), volcanoes, t)
 }
 
 /// How rough the ground of a cell is, metres of detail over the map's spline (ADR 0058): by its slope (m/m),
@@ -642,7 +668,7 @@ fn file_v(seed: i32, n: i32, v: u32) -> PathBuf {
 /// The map of (seed, n) if it is in memory or on disk, and its hash is `hash` (any of this version, when
 /// None; a save that names one of version 1 gets that too).
 pub fn find(seed: i32, n: i32, hash: Option<u64>) -> Option<Arc<Map>> {
-    find_in(seed, n, hash, if hash.is_some() { &[VERSION, 7, 6, 5, 4, 3, 2, 1, luna::VERSION] } else { &[VERSION] }).or_else(|| mars::find(seed, n, hash?))
+    find_in(seed, n, hash, if hash.is_some() { &[VERSION, 8, 7, 6, 5, 4, 3, 2, 1, luna::VERSION] } else { &[VERSION] }).or_else(|| mars::find(seed, n, hash?))
 }
 
 /// `find` among maps of these versions.
@@ -694,6 +720,10 @@ pub fn for_hash(seed: i32, n: i32, hash: u64) -> Option<Arc<Map>> {
     if b.hash == hash {
         return Some(b);
     }
+    let b = Map::bake_v8(seed, n);
+    if b.hash == hash {
+        return Some(keep(b));
+    }
     let b = Map::bake_v7(seed, n);
     if b.hash == hash {
         return Some(keep(b));
@@ -731,10 +761,14 @@ pub fn get(seed: i32, n: i32) -> Arc<Map> {
     find(seed, n, None).unwrap_or_else(|| keep(Map::bake(seed, n)))
 }
 
-/// `get` for a world of generation `gen`: before real gravity (`world::REAL`) the map of version 7.
+/// `get` for a world of generation `gen`: before the volcanoes (`world::VOLCANOES`) the map of version 8, before real
+/// gravity (`world::REAL`) the map of version 7.
 pub fn get_at(seed: i32, n: i32, gen: u8) -> Arc<Map> {
-    if gen >= crate::world::REAL {
+    if gen >= crate::world::VOLCANOES {
         return get(seed, n);
+    }
+    if gen >= crate::world::REAL {
+        return find_in(seed, n, None, &[8]).unwrap_or_else(|| keep(Map::bake_v8(seed, n)));
     }
     find_in(seed, n, None, &[7]).unwrap_or_else(|| keep(Map::bake_v7(seed, n)))
 }
@@ -1023,7 +1057,7 @@ mod tests {
     #[test]
     fn the_peaks_rise_and_the_lowland_stays_to_the_bit() {
         for (n, lo, hi) in [(768, 140.0, 160.0), (1536, 160.0, 190.0)] {
-            let (new, old) = (Map::bake(3, n), Map::bake_v5(3, n));
+            let (new, old) = (Map::bake_v8(3, n), Map::bake_v5(3, n));
             let top = |m: &Map| m.h.iter().fold(f32::MIN, |a, &h| a.max(h));
             assert!((lo..hi).contains(&top(&new)), "planet {n}: highest {} m, the old {} m", top(&new), top(&old));
             let low = (0..old.h.len()).filter(|&c| old.h[c] <= land::STRETCH_FROM).count();
@@ -1054,8 +1088,8 @@ mod tests {
     /// a bake still makes, and Luna's, to the bit.
     #[test]
     fn the_stages_bake_terra_and_luna_to_the_bit_as_before() {
-        let got = [Map::bake_v7(5, 256).hash, Map::bake_v6(5, 256).hash, Map::bake_v5(5, 256).hash, luna::bake(7, 416).hash, shared(5, 256).hash];
-        // (version 8, real gravity's year: taken on its first build, 2026-11-23)
+        let got = [Map::bake_v7(5, 256).hash, Map::bake_v6(5, 256).hash, Map::bake_v5(5, 256).hash, luna::bake(7, 416).hash, Map::bake_v8(5, 256).hash];
+        // (version 8, real gravity's year: taken on its first build, 2026-11-23; `bake_v8` since version 9's volcanoes)
         assert_eq!(got.map(|h| format!("{h:016x}")), ["16ee32bb94308b73", "065e789cbd17a892", "5bfb7a403005f7d7", "cb20ef2abc8ed3a7", "4875a8c0286c488d"]);
     }
 

@@ -108,7 +108,7 @@ the debt is `docs/perf-debt.md`. The story is `docs/design/lore.md`.
   and fluids mixing and reacting, heat and phase change, gases near the ground, fire that spreads and lava
   basics"). One at a time in the engine's world and liquid code, a report after each; spikes run beside it.
   Tests and filmstrips only, speed in the batch after (principle 14).
-  1. Volcanoes on Terra's arcs: cone, chamber, conduit, a lake of generated lava (`volcanoes.md`; in work).
+  1. ~~Volcanoes on Terra's arcs: cone, chamber, conduit, a lake of generated lava~~ (done, ADR 0192).
   2. Lava basics: block light, it holds up and hurts a player, it freezes to basalt away from the heat.
   3. Fluid layers and reactions (`liquids.md` step 4): oil on water, lava into water gives rock and steam.
   4. Heat and water's phases in the engine (step 5, ADR 0183 and 0187), with a geotherm from the interior.
