@@ -86,6 +86,28 @@ The air grid (`air.md`) is already counted and conserving, with 128 m cells. The
   pollution: dense ones pool in hollows and caves near the ground, which needs a finer local store than 128 m
   cells. **Open:** gas in the gaps of columns (the liquid's own structure, a compressible fluid) near players.
 
+## Phases: one substance, three states
+
+The developer (2026-11-23, ADR 0183): solids melt and vaporize and back; the game should feel like "a bare bones
+model of the universe". So a row is a **substance**, not a fluid: its solid is a block (`data/blocks.toml`), its
+liquid the counted units of this document, its gas a counted species in the air grid, and the row names all three
+with the `melt` and `boil` points between them and the heat each change takes or gives (latent heat). One ledger
+spans the three: a block is U units, and ice + water + vapour of a world is one number that only a reaction changes.
+
+- **Water first** (the developer: steam, water and ice). All three homes exist: the `ice` block, stored water, and
+  the air grid's vapour and temperature per cell (`air.md`). Missing is only the rule that moves units between
+  them.
+- **What decides:** the temperature at the place. The air's (the grid's cell, `sky::temperature` at the ground),
+  a heat source beside it (fire, furnace, lava, the deep rock's heat), and pressure for the boiling point (thin air
+  on Mars or a peak boils water colder; no air boils it at once, so ice there goes straight to vapour).
+- **Rates, not switches:** a change moves units a step by how far the temperature is past the point and how much
+  heat can flow, so a lake freezes from the top over nights, an ice block drips, a pot takes time to boil.
+- **Untouched water follows the formula** (the rule at the top): the bake's sea ice is where the climate holds the
+  sea under freezing; a stored patch in the same place must freeze to the same answer.
+- **Open:** where the heat is held (a temperature a liquid layer and a block near a source, not every block of the
+  world); steam near the ground before it joins a 128 m air cell; snow as fallen vapour; every rock's melting
+  (lava is rock's liquid, so stone beside lava long enough melts) and metals' (a mould is a freeze).
+
 ## Steps, each with a test seen failing and a measured cost
 
 1. **Gravity per body** in `liquid.rs` (`CG`, `fall_cap` from the body). Small. Test: a dam break on Callisto
@@ -96,7 +118,11 @@ The air grid (`air.md`) is already counted and conserving, with 128 m cells. The
 3. **Fluid rows and one more fluid** (lava) with no mixing: a kind per node, the ledger per fluid, the wire and
    the save (a format change: its own decision).
 4. **Layers and reactions:** oil on water, lava into water. The mesh and the look per fluid.
-5. **Heat in fluids**, freezing and boiling; liquid metals; sludge as a pollutant.
+5. **Phases of water** (spike in `prototypes/` first): ice, water and vapour by temperature and pressure, with
+   rates and the one ledger. Test: an ice block in warm air becomes exactly its units of water; water in freezing
+   air becomes ice; a pot over a fire loses to the air cell's vapour what it boils off; a stored patch of polar
+   sea freezes as the bake's sea ice did. Then heat in every fluid, rock to lava, liquid metals; sludge as a
+   pollutant.
 6. **Gases:** the tidal and gravity terms in the air grid; heavy gases near the ground.
 
 Costs to watch (principle 8, and CPU before GPU): the tide wakes every stored column on a coast twice a day;

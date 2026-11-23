@@ -191,3 +191,4 @@ States: `in force`; `amended by NNNN` (the topic document states the current for
 | 0180 | A stronger constant of gravity; no pull set by hand | [vision-and-scope.md](vision-and-scope.md) - The developer's calls | in force |
 | 0181 | Real gravity: one G, Kepler's periods, derived tides (generation 8) | [bodies-and-orbits.md](bodies-and-orbits.md) - Real gravity | in force |
 | 0182 | Liquid cores, derived magnetic fields, a deep grid for every body | [vision-and-scope.md](vision-and-scope.md) - The developer's calls | in force |
+| 0183 | A bare bones model of the universe: matter changes phase, water first | [vision-and-scope.md](vision-and-scope.md) - The developer's calls | in force |

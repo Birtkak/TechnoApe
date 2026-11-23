@@ -56,7 +56,10 @@ every number. Ground truth: `docs/design/vision.md`, `fundamentals.md`, `progres
   Terra's units), never set by hand; Mars has a core but basically no field (her row: a core, `heat` 0, so all
   solid). Every body with blocks gets a deep grid down to its core (replaces 0179's closed floor as the rule; it
   stays only as the top of a solid core). Open: `heat` is still a row value, not derived from size and age; the
-  field does not read the body's size beyond its liquid share.
+  field does not read the body's size beyond its liquid share. **A bare bones model of the universe** [0183,
+  2026-11-23]: the game should feel like one; matter changes phase: solids melt and vaporize and back, by
+  temperature and pressure, a row a substance with its solid block, liquid and gas, on one ledger. Water first
+  (ice, water, steam). Design: `docs/design/liquids.md` "Phases".
 
 ## Engine and code
 
