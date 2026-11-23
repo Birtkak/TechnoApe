@@ -68,7 +68,8 @@ pub struct Save {
     /// every older save) has the very bytes it had.
     #[serde(skip)]
     pub heat: Heat,
-    /// What reactions boiled off and edits pushed out of a full gap, by fluid (liquids.md step 4, draft decision): a
+    /// What reactions boiled off and edits pushed out of a full gap, by fluid, and the frozen blocks still waiting for
+    /// their cell (liquids.md step 4, draft decision): a
     /// second tail after the heat's, written (with the heat's, empty or not, before it) only when there is any.
     #[serde(skip)]
     pub booked: Booked,
@@ -76,8 +77,8 @@ pub struct Save {
 
 /// `Liquids::heats` (each node's column, floor and heat) and `Liquids::froze`.
 pub type Heat = (Vec<(engine::liquid::Col, i32, engine::liquid::Therm)>, Vec<(u8, i64)>);
-/// `Liquids::vapour` and `Liquids::spilt`.
-pub type Booked = (Vec<(u8, i64)>, Vec<(u8, i64)>);
+/// `Liquids::vapour`, `Liquids::spilt` and `Liquids::waiting` (blocks frozen whose cell was taken).
+pub type Booked = (Vec<(u8, i64)>, Vec<(u8, i64)>, Vec<(engine::liquid::Col, i32, u8)>);
 
 impl From<Save21> for Save {
     /// Terra and Luna, as a 21 or older names them.

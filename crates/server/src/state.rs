@@ -140,7 +140,7 @@ impl Server {
         water.restore(&engine::world::Solid::at(bodies, edits, sky, *time), &save.water);
         water.restore_heat(&engine::world::Solid::at(bodies, edits, sky, *time), &save.heat.0);
         water.froze = save.heat.1.iter().copied().collect();
-        (water.vapour, water.spilt) = (save.booked.0.iter().copied().collect(), save.booked.1.iter().copied().collect());
+        (water.vapour, water.spilt, water.waiting) = (save.booked.0.iter().copied().collect(), save.booked.1.iter().copied().collect(), save.booked.2.clone());
         (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
         water.rained = save.reaches.0;
         water.reach_extra = save.reaches.1.iter().copied().collect();
@@ -237,7 +237,7 @@ impl Server {
             held: save::Held { items: ITEMS.table(), piles: self.piles.iter().map(|(k, p)| (unkey(*k), p.slots.clone())).collect(), taken: self.taken.iter().map(|(k, y)| (unkey(*k), *y)).collect(), furnaces: self.furnaces.iter().map(|(k, f)| (unkey(*k), f.clone())).collect() },
             gen: self.world.bodies[0].gen,
             heat: (self.world.water.heats(), self.world.water.froze.iter().map(|(&k, &u)| (k, u)).collect()),
-            booked: (self.world.water.vapour.iter().map(|(&k, &u)| (k, u)).collect(), self.world.water.spilt.iter().map(|(&k, &u)| (k, u)).collect()),
+            booked: (self.world.water.vapour.iter().map(|(&k, &u)| (k, u)).collect(), self.world.water.spilt.iter().map(|(&k, &u)| (k, u)).collect(), self.world.water.waiting.clone()),
         }
     }
 

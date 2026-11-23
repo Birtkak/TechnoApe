@@ -150,9 +150,9 @@ impl World {
         Some((self.bodies[bi].layer_r(l), kind))
     }
     /// `dt` seconds of stored fluids' heat (`Liquids::cool`; the server's, once a second): every cell that froze
-    /// through becomes its fluid's `freeze` block and its column finds its gaps again, unless the cell is taken (a
-    /// block set there this tick, or `busy`: a player in it), when the fluid stays liquid and tries again the next
-    /// time. Returned as (cell, what was there, the block) for the edits.
+    /// through becomes its fluid's `freeze` block and its column finds its gaps again (a second one for a cell lies on
+    /// the first), unless the cell is taken (a block there, or `busy`: a player in it), when the block waits, booked
+    /// frozen, and tries again the next time. Returned as (cell, what was there, the block) for the edits.
     pub fn cool_fluids(&mut self, dt: f64, busy: impl Fn(Block) -> bool) -> Vec<(Block, u16, u16)> {
         let cells = {
             let World { bodies, edits, water, sky, time, .. } = self;
@@ -162,13 +162,16 @@ impl World {
         let mut out = Vec::new();
         for (c, z, kind) in cells {
             let Some(f) = rows.get(kind).freeze.as_ref() else { continue };
-            let b = Block { body: c.body(), face: c.face(), pos: IVec3::new(c.i(), c.j(), z) };
+            let m = BLOCKS.id(&f.into);
+            // the cell, or over the blocks of its rock set there already (two skins frozen at one cell in a second)
+            // shortcut: up to 4 cells; a block with no free cell so near waits, booked, until one is
+            let at = |z: i32| Block { body: c.body(), face: c.face(), pos: IVec3::new(c.i(), c.j(), z) };
+            let b = (z..z + 4).map(at).find(|&b| self.block(b) != m).unwrap_or(at(z));
             let was = self.block(b);
             if was != AIR || busy(b) {
                 self.water.unfreeze(c, z, kind);
                 continue;
             }
-            let m = BLOCKS.id(&f.into);
             self.set_block(b, m);
             self.regap(b);
             out.push((b, was, m));

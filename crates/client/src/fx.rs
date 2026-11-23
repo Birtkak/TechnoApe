@@ -737,6 +737,8 @@ struct Emitter {
     due: f64,
     /// Glows without a lamp of its own (`unlit`): a placed block's flame, whose block is the light.
     unlit: bool,
+    /// Seconds until it stops by itself (`start_for`); infinite until `stop`.
+    left: f32,
 }
 
 /// A particle with a model look, for models.rs to draw: its row, body, place (body frame, from the centre), its
@@ -1012,9 +1014,16 @@ impl Fx {
         for r in rows {
             self.burst(r, at, h);
             // a count-only row too, so `restart` knows it; `emit` passes it by
-            self.emitters.push(Emitter { handle: h, row: r, at: *at, due: 0.0, unlit: false });
+            self.emitters.push(Emitter { handle: h, row: r, at: *at, due: 0.0, unlit: false, left: f32::INFINITY });
         }
         Some(Handle(h))
+    }
+
+    /// `start` for `secs` seconds, then it stops by itself (a reaction's steam).
+    pub fn start_for(&mut self, name: &str, at: &At, secs: f32) {
+        if let Some(h) = self.start(name, at) {
+            self.emitters.iter_mut().filter(|e| e.handle == h.0).for_each(|e| e.left = secs);
+        }
     }
 
     /// A lasting effect's new place (it follows a moving part); its particles already out fly on.
@@ -1469,7 +1478,9 @@ impl Fx {
         }
         let set = std::mem::take(&mut self.set);
         let mut emitters = std::mem::take(&mut self.emitters);
+        emitters.retain(|e| e.left > 0.0);
         for e in emitters.iter_mut() {
+            e.left -= dt;
             let r = &set.rows[e.row as usize];
             if r.rate <= 0.0 {
                 continue;
@@ -2708,6 +2719,22 @@ mod tests {
         // the Studio's one row: checked the same, its `then` may name the set's rows
         assert!(parse_row("name='x'\ncount=1\nlife=[1,1]\nsize=[0.1,0.1]\nlook='debris'\nthen='splash'", &SET).is_ok());
         assert!(parse_row("name='x'\ncount=1\nlife=[1,1]\nsize=[0.1,0.1]\nlook='debris'\nthen='nope'", &SET).unwrap_err().contains("no effect nope"));
+    }
+
+    /// A boil's steam (liquids.md step 4) is a lasting row (a rate, no count): the server's Boil event plays it for a
+    /// while, it is seen, and it stops by itself.
+    #[test]
+    fn a_boils_steam_is_seen_and_stops_by_itself() {
+        let w = world();
+        let mut fx = Fx::new(true, 4096, 1.0, 3);
+        let at = At::point(0, DVec3::new(0.0, 2000.0, 0.0), DVec3::ZERO, 0.0);
+        fx.start_for("steam", &at, 1.5);
+        fx.step(&w, 0.5);
+        assert!(fx.live() > 0, "steam out");
+        for _ in 0..10 {
+            fx.step(&w, 1.0);
+        }
+        assert_eq!(fx.live(), 0, "it stopped by itself");
     }
 
     #[test]
