@@ -15,6 +15,8 @@ from; INDEX.md lists every number. The design is `docs/design/deep-world.md` and
 - **Liquid metal never freezes into blocks**: in the outer core it is liquid or gone, so natural rock never shows a seam.
   [0152]
 - **New worlds only**: a save from before keeps its 192 m floor. [0152]
+- **Everything gets a deep grid** (2026-11-23): every body with blocks, not Terra alone; a core is liquid when the body
+  is big and hot enough (its row's `heat`), and nothing is faked. [draft "Every body gets the deep grid"]
 - **Build one feature a step**: the mantle, then the metal sea and its hidden shells, then the inner core's cube grid,
   then field, pressure and caves. [0152]
 
@@ -32,8 +34,10 @@ For Terra (radius R, 4245 m on the standard planet). [0152]
 - The inner core's surface is stepped away from its six axes (a 1.35 m sawtooth at 45 degrees); how that walks at a
   third of gravity is unknown until step 3 is played; shells for the inner core are the way back. Where the cube ball
   meets the liquid's columns the join is ragged and shows only once the core is drained. [0152]
-- Luna and the small planets: their zones are set when their step comes; Luna has no liquid core and no mantle.
-  [0152, 0154, 0162]
+- Luna and the small planets: from generation 9 every body with blocks big enough for the deep crust has the grid down
+  to its core's top, over a metal sea where its core holds liquid (Luna) and a closed floor of metal where it is solid
+  (Mars, Callisto); their own deep zones under that come with step 3. [0152, 0154, 0162, draft "Every body gets the
+  deep grid"]
 - **Built so far:** step 1 (the mantle) and step 2 (the metal sea, without the hidden shells). The inner core's cube grid,
   the hidden shells under layer 0, pressure making metal well up, core mining and its ledger are not built. [0152,
   0154, 0156]
@@ -101,6 +105,35 @@ there from before is dropped on load, so its hole closes). Terra's layer 0 over 
 Alternatives rejected: a grid under layer 0 for small bodies (their deep zones wait for their step); refusing a whole
 shape that touches the floor (a box dug down to it would fail whole).
 Open: each small body's own deep zones (deep-world "Luna and the small planets").
+
+### Every body gets the deep grid [draft, 2026-11-23]
+The developer's call (2026-11-23): "everything gets a deep grid"; a body's core is liquid when its row's `heat` leaves
+it some, and nothing is faked. From generation 9 (`world::DEEP_BODIES`, now `GENERATION`) every body with blocks (not
+gas) goes on `Body::with_mantle` as Terra does: its grid carried down through the crust's 192 m and its mantle to the
+whole `MANTLE_STEP` nearest its core's top (`Interior::core_share`, the row's `iron`). The size rule is Terra's, unchanged:
+a body big enough for the 192 m deep crust (`deep_layers`: radius at least 4 x 192 m) gets the grid, a smaller one keeps
+its old floor; on the 4 km and 8 km planets that is every rocky and icy body (Luna 1150 m, Callisto 1061 m, Mars 2300 m
+on the 4 km one), on the 1536 and 768 test planets only the bodies over 768 m. Under layer 0: a core with liquid
+(`interior.liquid > 0`: Luna's thin shell at heat 0.05) is the metal sea, as Terra's; an all-solid core (Mars and
+Callisto, heat 0) ends the grid on a closed floor (0179): on a rocky body the core's metal, `iron-nickel`, on an icy one
+(Callisto, whose row's core is rock of 3000 kg/m3) stone (`Body::rock`: layer 0 of a deep body without a metal sea; one
+compare inside the mantle's branch; `Body::icy` from the row's `kind`). Every layer of the old grid keeps its
+radius at its index plus the mantle's; caves, tubes, ores and the bakes place by radius, so no bake's bytes change and
+no bake version moved. Worlds of generation 8 and older are built as before, to the bit.
+Alternatives rejected: a deep crust that scales with the radius for small bodies (only the test planets have any,
+and Terra on the 768 planet has no deep grid either: one rule for all); a grid under layer 0 of a solid core (step 3's
+inner core).
+Replaces: 0179's closed floor on Luna, Mars and the icy moon in new worlds (it holds there only over a solid core, on a
+body too small for the deep grid, and in older worlds); "Luna has no liquid core and no mantle" in "Luna and the small
+planets".
+The mantle's rock comes from the one pressure rule (`Body::rock`, 0158): Mars (8.4 m/s2) turns to peridotite under its
+crust; Luna (3.6 m/s2) and Callisto never reach peridotite's 10 MPa, so their crust's last rock (Luna's), or the
+biome's (stone, ice), goes on down to the floor (seen on the noise land, not on their maps).
+Locks: seed 1337 `report=1` on the 4 km planet at generation 8 and 9 is the same in every count, depth and distance (Luna's
+provinces, baked tubes, caves and minerals; Mars's and Callisto's kinds, heights and marked tubes); only Luna's
+`made_hash` differs (c817d3d375b5ad4b -> 1af7d86fe60e5a63: her caves' and ores' layer coordinates gain her mantle).
+Open: whether the small bodies' mantles should be their own rock (a composition, not a pressure, rule); a solid core's own grid (step 3); the load
+standing on Luna doubles (0.9 -> 1.8 s, the streamer walks her deep column; `docs/perf-debt.md`), RAM and frame flat.
 
 ## The metal sea (step 2)
 
@@ -199,5 +232,7 @@ engine as constants. Nothing observable changed: Terra and Luna come out as befo
 - 0154's "nothing new is placed in the mantle": caves by rock (0159) and formation by pressure (0158) came later,
   behind generation numbers.
 - 0156's status `proposed`: built; its "mantle=0 and saves from before have none" still holds.
+- "Luna has no liquid core and no mantle" (0152, 0154, 0162) and 0179's closed floor on Luna, Mars and the icy moon:
+  in a world of generation 9 they have the deep grid (draft "Every body gets the deep grid"); older worlds keep both.
 - 0162's `world::G`, `CORE`, `CORE_DENSE`, `pull_inside`, `pull_integral` in `frames.rs`, `Rocks::density` and
   `Rocks::mantle_density`: removed.
