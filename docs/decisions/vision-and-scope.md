@@ -35,6 +35,16 @@ every number. Ground truth: `docs/design/vision.md`, `fundamentals.md`, `progres
   supersedes the corners call of 0027 and the corner-landmark line of 0003].
 - **The story's ending is left open on purpose** (decide when the game shows what it has become) [0136].
 - **Features first, speed in batches** (also process-gate-and-performance.md) [0096].
+- **As close to real astrophysics as possible; what is not real is listed and judged** [0177, 2026-11-23; the
+  liquids' part is in sky-weather-and-water.md]. **Kept as they are:** Terra's pull set by hand (19.62 m/s^2: a
+  4 km ball cannot pull that by its mass, the price of small planets; everything else derives from the pull);
+  the water's 16 m cap on a deep wave's speed; a tide with no lag or resonance in the open sea; the air as a
+  coarse grid, with gravity and tides added to it. **To make real:** every other body's pull derived the same
+  way (Luna's is set by hand to Terra's today); gravity that falls off with height and bodies moved by it, before
+  the climb to orbit; water by its body's gravity and tides as a force (`docs/design/liquids.md` steps 1, 2); a
+  finite sea; plants placed clear of the tidal band. **Open until `prototypes/tide-force` has numbers:** the
+  eclipse-fitted sizes and distances against derived tides; whether days, months and years follow from the
+  masses. **Open, no lean:** the gas giant as a drawn disc with no air to enter.
 
 ## Engine and code
 

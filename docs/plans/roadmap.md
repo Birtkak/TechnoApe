@@ -155,7 +155,10 @@ In this order unless the developer says otherwise (the developer's order of 2026
     whole chunks at intervals, and what was in them leaves the ledger;
   - **a finite sea:** water taken from a planet lowers its sea level, and later its clouds, until it is gone;
   - **a planet scanner:** it tells how much copper (or anything) a body still holds.
-- Gravity that falls off with distance and orbits; the first megaproject.
+- Gravity that falls off with distance and orbits (to be real before the climb to orbit: ADR 0177's list in
+  `vision-and-scope.md`, with every body's pull derived and a finite sea); the first megaproject.
+- **Liquids and gases as one system** (ADR 0177, `docs/design/liquids.md`): gravity per body, tide as a force
+  (spike: `prototypes/tide-force`), lava, layers and reactions, heat, gases.
 - ~~**Big builds seen from afar**~~ done (ADR 0109): a coarse cell takes a placed block anywhere in it, and a
   far lamp glows. Left: a far lamp's light on the ground around it.
 - **The fuel ages and two more systems** (`lore.md`): chemical, then fusion, then antimatter; Alpha Centauri
