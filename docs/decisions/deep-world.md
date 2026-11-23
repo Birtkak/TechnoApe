@@ -91,6 +91,17 @@ A new world's grid goes down to R/sqrt 2; the saves made before keep their floor
   crust's last layer); the jump at depth is about 12 % lower at the floor (1.135 g). [0154]
 - Below the floor nothing is dug: a dig under layer 0 is refused. [0154, 0156]
 
+### Closed floor [ADR draft: closed floor, 2026-11-23]
+Layer 0 of a body with no metal sea under it (`Body::core` none: Luna, Mars, the icy moon, a world without the mantle)
+is a closed floor: no dig or edit takes it, so the void under the grid is never open or drawn (F9 2026-11-21 "moon
+is not able to be mined": a shaft to layer 0 on Callisto showed the stars through its bottom). One test,
+`World::closed_floor`, read by `edit::changes` (the server's edit and the client's prediction: a floor cell is left
+out, as a cell a player stands in is), `edit::dig_time_with` (no hold on it) and `World::set_block` (a save's edit
+there from before is dropped on load, so its hole closes). Terra's layer 0 over her metal sea digs as before (0156).
+Alternatives rejected: a grid under layer 0 for small bodies (their deep zones wait for their step); refusing a whole
+shape that touches the floor (a box dug down to it would fail whole).
+Open: each small body's own deep zones (deep-world "Luna and the small planets").
+
 ## The metal sea (step 2)
 
 The liquid outer core under the mantle's floor. [0156]

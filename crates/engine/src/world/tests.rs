@@ -639,6 +639,47 @@ fn the_homes_moon_may_come_last() {
     assert!(w.bodies[2].period < crate::sky::MONTH && k == k.round(), "{}", w.bodies[2].period);
 }
 
+/// F9 2026-11-21_18-12-59 "mars does not rotate": Mars turns once its row's `day`, so the sun crosses its sky: in
+/// its frame the sun's direction points the other way half a day on and comes back after a whole one.
+#[test]
+fn mars_turns_under_the_sun() {
+    use crate::sky::DAY;
+    let w = World::with_grid(1536, crate::bodies::moon_columns(1536), 1, None, None, 0.0, 5);
+    assert_eq!(w.bodies[2].name, "Mars");
+    let day = crate::bodies::BODIES[2].day.unwrap_or(1.0) * DAY;
+    let sun = |t: f64| {
+        let p = w.pose(2, t);
+        p.rot.inverse() * (w.sky.sun(t) - p.centre).normalize()
+    };
+    for t in [0.0, 5_000.0, 3.0e6] {
+        let (a, half) = (sun(t), sun(t + 0.5 * day));
+        assert!(a.dot(half) < -0.9, "at {t}: the sun at {a:?}, half a day on at {half:?}");
+    }
+}
+
+/// F9 2026-11-21_18-03-53 "moon is not able to be mined": the lowest layer of a body with no metal sea under it is a
+/// closed floor (ADR draft: closed floor). A dig there changes nothing and an edit (a save's from before) is not
+/// taken, so the cell stays solid and no void shows under the shaft; Terra's layer 0 over her metal sea still digs.
+#[test]
+fn a_body_without_a_metal_sea_has_a_closed_floor() {
+    use crate::edit::{changes, Shape};
+    let mut w = World::with_grid(1536, crate::bodies::moon_columns(1536), 1, None, None, 0.0, 7);
+    for (i, name) in [(1, "Luna"), (2, "Mars"), (4, "Callisto")] {
+        assert_eq!(w.bodies[i].name, name);
+        let b = Block { body: i as u8, face: 3, pos: IVec3::new(100, 80, 0) };
+        assert!(crate::blocks::BLOCKS.solid(w.block(b)), "{name}: its floor is rock");
+        assert!(changes(&w, &Shape::one(b), AIR, |_| false).is_empty(), "{name}: a dig at layer 0 is refused");
+        w.set_block(b, AIR);
+        assert!(crate::blocks::BLOCKS.solid(w.block(b)), "{name}: layer 0 stays solid");
+        // the layer over it digs as before
+        let up = Block { pos: IVec3::new(100, 80, 1), ..b };
+        assert_eq!(changes(&w, &Shape::one(up), AIR, |_| false).len(), 1, "{name}: layer 1 digs");
+    }
+    let t = Block { body: 0, face: 3, pos: IVec3::new(100, 80, 0) };
+    assert!(w.bodies[0].core.is_some());
+    assert_eq!(changes(&w, &Shape::one(t), AIR, |_| false).len(), 1, "Terra's layer 0 opens onto her metal sea");
+}
+
 /// Step 6c: a generation 7 world has the giant's icy moon as its fifth body (6 keeps four). It is posed on the giant
 /// (its distance from it constant, following it round the sun), locked (the same face to it over an orbit), once a
 /// period by Kepler's law scaled from Luna's month by the parent's mean density (an hour or more of play, a whole

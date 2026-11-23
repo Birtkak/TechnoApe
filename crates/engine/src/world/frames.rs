@@ -100,6 +100,11 @@ impl World {
             };
             // (one that circles the sun and is not home turns only with a `day`: its pose does not, 0163's ring)
             let spin = if row.parent.is_none() && !row.home { row.day.map_or(0.0, |d| 1.0 / (d * crate::sky::DAY)) } else { crate::interior::spin(month) };
+            // its pose turns too (F9 "mars does not rotate"); shortcut: the giant's bands take their own angle in the
+            // client (frame.rs `far_lights`), so its pose stays still until that angle is read from here
+            if row.parent.is_none() && !row.home && !row.gas() {
+                b.day = row.day.map_or(0.0, |d| crate::sky::period(d * crate::sky::DAY));
+            }
             b.interior = Interior::new(&row.makeup, b.radius, spin, first.as_ref());
             first.get_or_insert_with(|| b.interior.clone());
             // every body is of the world's generation (from 4 Luna's rock field asks it); the home's grid goes down
@@ -301,7 +306,7 @@ impl World {
         let Some(b) = self.bodies.get(f) else { return Pose { centre: DVec3::ZERO, rot: DQuat::IDENTITY } };
         match (f, b.parent) {
             (0, _) => self.sky.planet(t),
-            (_, INERTIAL) => Sky::round_sun(b.orbit, b.period, t),
+            (_, INERTIAL) => Sky::round_sun(b.orbit, b.period, b.day, t),
             (_, p) => Sky::circle(self.pose(p, t).centre, b.orbit, b.period, t),
         }
     }

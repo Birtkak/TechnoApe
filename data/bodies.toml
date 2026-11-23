@@ -87,14 +87,16 @@ size = 1.85
 sun = 65212.5
 # an old surface: it has collected craters as long as Luna's highlands (the impacts stage's share of the power law)
 age = 1.0
+# the real sol: 24.66 hours to the Earth's 24 (F9 "mars does not rotate"); 420 whole turns a sky's PERIOD
+day = 1.0275
 generator = "hills"
 ground = ["red dust", "mars regolith", "basalt"]
 air = false
 colour = [1.0, 0.55, 0.36]
 kind = "rocky"
-# a small core (the real one about half the radius), nearly frozen: no field
+# a small core (the real one about half the radius), all solid: its dynamo died, so no field though it turns
 iron = 0.5
-heat = 0.15
+heat = 0.0
 # a basaltic crust, a mantle richer in iron than Terra's, a core of iron with much sulphur
 density = [2900.0, 3500.0, 6700.0]
 
