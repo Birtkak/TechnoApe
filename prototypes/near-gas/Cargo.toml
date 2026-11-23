@@ -1,0 +1,15 @@
+[package]
+name = "near-gas"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+
+[profile.release]
+codegen-units = 1
+
+[profile.test]
+opt-level = 3
