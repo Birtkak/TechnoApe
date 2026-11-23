@@ -461,9 +461,40 @@ fn column(world: &World, b: Block, built: bool, wade: f64) -> Option<Column<'_>>
     Some((body, seed, tile, top, biome, wet))
 }
 
-/// A plant's hit box in its cell (ADR 0147): the middle of the cell this wide each way of its middle,
-/// as high as its painting; its planes turn and shift by a hash only the shader draws.
+/// A plant's hit box in its cell (ADR 0147): this wide each way of the plant's middle (times its width), as high
+/// as its painting is drawn; `plant_turn` sets both.
 pub const PLANT_BOX: f64 = 0.35;
+
+/// A plant's place and size as shader_models.wgsl `plant_turn` draws it, by its column (i, j) on `face`: its
+/// middle off the cell's (cells along i and j), its width and its height factor. Kept in step by hand.
+pub fn plant_turn(face: u8, i: i32, j: i32, shrub: bool) -> (glam::DVec2, f64, f64) {
+    // shader_sky_fx.wgsl `pcg3d` and `hash4`
+    let pcg = |p: [u32; 3]| {
+        let mut v = p.map(|x| x.wrapping_mul(1664525).wrapping_add(1013904223));
+        let mix = |v: &mut [u32; 3]| {
+            v[0] = v[0].wrapping_add(v[1].wrapping_mul(v[2]));
+            v[1] = v[1].wrapping_add(v[2].wrapping_mul(v[0]));
+            v[2] = v[2].wrapping_add(v[0].wrapping_mul(v[1]));
+        };
+        mix(&mut v);
+        v = v.map(|x| x ^ (x >> 16));
+        mix(&mut v);
+        v
+    };
+    let hash4 = |p: [u32; 3]| {
+        let a = pcg(p);
+        let b = pcg(a.map(|x| x ^ 0x9e37_79b9));
+        [a[0], a[1], a[2], b[0]].map(|x| (x >> 8) as f32 / 16_777_215.0)
+    };
+    let (h, k) = (hash4([i as u32, j as u32, face as u32]), hash4([i as u32, j as u32, face as u32 + 8]));
+    let at = glam::DVec2::new((k[0] as f64 - 0.5) * 0.66, (k[1] as f64 - 0.5) * 0.66);
+    if shrub {
+        // (wider one way than the other: the wider)
+        let z = 0.85 + 0.4 * (k[0] * 7.31).fract();
+        return (at, (1.1 + 0.4 * k[2]).max(z) as f64, (0.7 + 0.25 * h[0]) as f64);
+    }
+    (at, (0.85 + 0.3 * k[2]) as f64, (0.8 + 0.4 * h[0]) as f64)
+}
 
 /// The faces of `th` lying in air cell `b` as they are drawn (its alternate's in `still`), each as its corner and
 /// the ends of its two edges in the world: shader_models.wgsl `still_local`'s turn and place in the cell, the cell
@@ -480,16 +511,20 @@ pub fn thing_faces(world: &World, still: &Still, b: Block, th: &Thing) -> Vec<[g
     let o = corner(glam::DVec3::ZERO);
     let (ex, ey, ez) = (corner(glam::DVec3::X) - o, corner(glam::DVec3::Y) - o, corner(glam::DVec3::Z) - o);
     if CLUTTER[th.row].kind == Kind::Plant {
-        // its box: as high as the alternate's planes reach (their corners' model y, metres = cells)
+        // its box: where the shader sets the plant and as wide and high as it sizes it, as high as the alternate's
+        // planes reach (their corners' model y, metres = cells; bug 2026-11-19_03-41-59: it stood in the middle)
         let (first, n) = alts[a];
+        let (at, wide, high) = plant_turn(b.face, b.pos.x, b.pos.y, still.faces[first as usize][13] & SHRUB != 0);
         let top = still.faces[first as usize..(first + n) as usize]
             .iter()
             .flat_map(|f| {
                 let y = |k: usize| f32::from_bits(f[k + 1]);
                 [y(0), y(0) + y(4), y(0) + y(8), y(0) + y(4) + y(8)]
             })
-            .fold(0.0f32, f32::max) as f64;
-        let k = |n: usize| corner(glam::DVec3::new(0.5 + PLANT_BOX * if n & 1 == 1 { 1.0 } else { -1.0 }, 0.5 + PLANT_BOX * if n & 2 == 2 { 1.0 } else { -1.0 }, if n & 4 == 4 { top } else { 0.0 }));
+            .fold(0.0f32, f32::max) as f64
+            * high;
+        let side = |bit: bool| PLANT_BOX * wide * if bit { 1.0 } else { -1.0 };
+        let k = |n: usize| corner(glam::DVec3::new(0.5 + at.x + side(n & 1 == 1), 0.5 + at.y + side(n & 2 == 2), if n & 4 == 4 { top } else { 0.0 }));
         return [[0, 1, 2], [4, 5, 6], [0, 1, 4], [2, 3, 6], [0, 2, 4], [1, 3, 5]].map(|[o, u, v]| [k(o), k(u), k(v)]).to_vec();
     }
     let (s, c) = (turn as f64 * std::f64::consts::TAU / 16.0).sin_cos();
@@ -974,11 +1009,13 @@ aim_thing(&w, &still, eye, at_it, 8.0, 0.0, 0.0, |_, _| true).map(|a| a.0), Some
             let name = &CLUTTER[th.row].name;
             assert_eq!(aim_thing(&w, &still, eye, at_it, 8.0, 0.0, 1.0, |_, _| true), Some((at, th)), "{name}: aimed at its middle");
             assert!(aim_thing(&w, &still, eye, at_it, 8.0, 0.0, 0.0, |_, _| true).is_none(), "{name}: not drawn, not aimed at");
-            // from the side, 1.5 m out past a floor corner and 0.6 m up, at that corner
+            // from the side, 1.5 m out past the floor corner the plant stands furthest from and 0.6 m up, at it
             let p = at.pos.as_dvec3();
             let point = |u: f64, v: f64, l: f64| b.centre + b.dir(f as usize, p.x + u, p.y + v) * b.layer_r(p.z + l);
-            let corner = point(0.04, 0.04, 0.0);
-            let side = point(-1.0, -1.0, 0.6);
+            let off = plant_turn(f, i, j, false).0;
+            let (su, sv) = (if off.x > 0.0 { 1.0 } else { -1.0 }, if off.y > 0.0 { 1.0 } else { -1.0 });
+            let corner = point(0.5 - 0.46 * su, 0.5 - 0.46 * sv, 0.0);
+            let side = point(0.5 - 1.5 * su, 0.5 - 1.5 * sv, 0.6);
             let dir = (corner - side).normalize();
             if crate::edit::aim(&w, side, dir, 8.0).map(|a| a.0) == Some(under) {
                 beside += 1;
@@ -989,6 +1026,71 @@ aim_thing(&w, &still, eye, at_it, 8.0, 0.0, 0.0, |_, _| true).map(|a| a.0), Some
             }
         }
         assert!(tried >= 3 && beside >= 1 && fibre >= 1, "{tried} plants looked at, {beside} from the side, {fibre} giving fibre");
+    }
+
+    /// Bug report 2026-11-19_03-41-59 ("when hovering a non full block like these reeds the selection box should
+    /// follow it instead of taking the entire block around it"): a plant's box (its outline and its hit box) stands
+    /// where its planes are drawn, set off the cell's middle and sized by its column's hash as
+    /// shader_models.wgsl `still_local` does, as high as they reach, and narrower than its cell.
+    #[test]
+    fn a_plants_box_stands_where_its_planes_are_drawn() {
+        use crate::bake::Map;
+        use glam::{DVec2, DVec3};
+        use std::sync::Arc;
+        let w = World::with_map(1536, 32, 5, Some(Arc::new(Map::bake(5, 1536))));
+        let pal = Palette::parse(include_str!("../../../data/palette.toml")).unwrap();
+        let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data");
+        let still = Still::load(&data.join("models"), &data.join("plants"), &pal).0;
+        let b = &w.bodies[0];
+        let (f, si, sj) = b.locate(b.spawn);
+        let (f, si, sj) = (f as u8, si as i32, sj as i32);
+        let mut seen = 0;
+        for (i, j) in (-60..=60).flat_map(|a| (-60..=60).map(move |c| (si + a, sj + c))) {
+            let tile = b.tile(f, 0, i.div_euclid(CS), j.div_euclid(CS));
+            let Some((z, _, _)) = ground_under(b, &tile, f, i, j, WADE) else { continue };
+            let at = Block { body: 0, face: f, pos: IVec3::new(i, j, z) };
+            let Some(th) = thing_at(&w, at, 0.0, 1.0, false, |_, _| true) else { continue };
+            if CLUTTER[th.row].kind != Kind::Plant {
+                continue;
+            }
+            let name = &CLUTTER[th.row].name;
+            // the planes as still_local draws them, in the cell's (i, j, layer): turned, sized, set off its middle
+            let alts = &still.rows[th.row];
+            let (first, n) = alts[th.shape(alts.len()).0];
+            let faces = &still.faces[first as usize..(first + n) as usize];
+            // (a shrub's clumps stand off its middle: the box is round its middle, not their foot)
+            if faces[0][13] & SHRUB != 0 {
+                continue;
+            }
+            let (off, wide, high) = plant_turn(f, i, j, false);
+            let (mut bottom, mut top) = (Vec::new(), 0.0f64);
+            for q in faces {
+                let v = |k: usize| DVec3::new(f32::from_bits(q[k]) as f64, f32::from_bits(q[k + 1]) as f64, f32::from_bits(q[k + 2]) as f64);
+                for m in [v(0), v(0) + v(4), v(0) + v(8), v(0) + v(4) + v(8)] {
+                    // (the turn about the plant's own up moves no corner's height, nor the middle of its foot)
+                    if m.y.abs() < 1e-4 {
+                        bottom.push(DVec2::new(0.5 + off.x, 0.5 + off.y) + DVec2::new(m.x - 0.5, -(m.z - 0.5)) * wide);
+                    }
+                    top = top.max(m.y * high);
+                }
+            }
+            let foot = bottom.iter().sum::<DVec2>() / bottom.len() as f64;
+            // the box's corners back in the cell: its floor's middle, its height, its width
+            let boxed = thing_faces(&w, &still, at, &th);
+            let cell = |x: DVec3| w.grid_at(x).2 - at.pos.as_dvec3();
+            let corners: Vec<DVec3> = boxed.iter().flatten().map(|&x| cell(x)).collect();
+            let lo = corners.iter().fold(DVec3::splat(f64::MAX), |a, c| a.min(*c));
+            let hi = corners.iter().fold(DVec3::splat(f64::MIN), |a, c| a.max(*c));
+            let mid = DVec2::new(lo.x + hi.x, lo.y + hi.y) * 0.5;
+            assert!((mid - foot).length() < 0.01, "{name} at {i} {j}: the box's middle {mid:?}, its planes' foot {foot:?}");
+            assert!((hi.z - top).abs() < 0.01, "{name} at {i} {j}: the box {} high, its planes {top}", hi.z);
+            assert!(hi.x - lo.x < 0.95 && hi.y - lo.y < 0.95, "{name} at {i} {j}: the box {:?} wide, the whole cell", hi - lo);
+            seen += 1;
+            if seen >= 20 {
+                break;
+            }
+        }
+        assert!(seen >= 5, "{seen} plants looked at");
     }
 
     /// Flint (ADR 0097) lies where a new player looks first: near the spawn of every seed, at least `NEAR` within
