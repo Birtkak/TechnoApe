@@ -332,6 +332,10 @@ impl App {
                     for &b in &a.shown {
                         self.streamer.touch_block(&self.world, b);
                     }
+                    // the map works out every edited column again, wherever it is (the server sends every edit)
+                    for &(b, _) in &v {
+                        self.globe.touch(b);
+                    }
                     for &(b, was, m) in &a.heard {
                         self.heard(b, was, m, false);
                     }
@@ -355,6 +359,7 @@ impl App {
                     }
                     for b in self.pred.done(&mut self.world, seq) {
                         self.streamer.touch_block(&self.world, b);
+                        self.globe.touch(b);
                     }
                 }
                 Recv::Msg(ToClient::Players(ps)) => (self.players, self.globe.others) = (ps.len(), ps),
@@ -497,6 +502,7 @@ impl App {
                     for b in v {
                         self.world.put_edit(b, None);
                         self.streamer.touch_block(&self.world, b);
+                        self.globe.touch(b);
                     }
                 }
                 Recv::Msg(ToClient::Welcome { .. } | ToClient::Map { .. }) => {}
@@ -633,10 +639,12 @@ impl App {
                     self.world.set_block(c, r);
                     fx::changed(&mut self.fx, &self.world, c, old, r);
                     self.streamer.touch_block(&self.world, c);
+                    self.globe.touch(c);
                 }
                 continue;
             }
             self.world.set_block(b, m);
+            self.globe.touch(b);
             fx::changed(&mut self.fx, &self.world, b, was, m);
             if self.fx.on && BLOCKS.solid(m) && !BLOCKS.solid(was) {
                 self.grow(b, m);
