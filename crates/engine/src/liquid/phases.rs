@@ -6,7 +6,7 @@
 //! boiling point, or under air too thin for a liquid (`wake_water`). Then, once a second on the server
 //! (`water_heat`), heat flows by real laws: to the air over an open surface (convection and radiation), up through
 //! the ice over it to cold air (Stefan's law with the air's resistance), from the sea under it (the heat that makes
-//! the bake's sea ice the rest state), from hot rock under it. Heat exchanged with the air and sky runs at ADR 0187's
+//! the bake's sea ice the rest state), from hot rock under and beside it (held at its heat: steady). Heat exchanged with the air and sky runs at ADR 0187's
 //! pace (the real year over the game's); heat a source drives at real rates. What the cold takes past the freeze
 //! point is progress (`Therm::frac`) while the water stays liquid; each whole block frozen leaves the node, booked to
 //! `Liquids::froze`, as a block of the row's `freeze` block (ice) at the water's top, through the edits as lava's
@@ -31,6 +31,11 @@ const T0K: f64 = 273.15;
 /// shortcut: Earth's air on every body (Mars's CO2 would be 0.044); from a body's row once one carries its air.
 const M_AIR: f64 = 0.028_97;
 const CP_AIR: f64 = 1005.0;
+/// The rock's conductivity, W/(m K) (`ROCK_EFFUSIVITY`'s rock, Turcotte and Schubert table 4.1), and the boundary layer
+/// of it a held rock warms a hollow's water through, m: steady conduction from a field held at its heat far off into
+/// a sphere of radius r is k dT / r at its face (Carslaw and Jaeger), r half the block (4 W/(m^2 K) of rock).
+const ROCK_K: f64 = 2.0;
+const ROCK_LAYER: f64 = 0.5;
 
 /// Heat transfer between a surface at about `t` C and the air and sky, W/(m^2 K): free convection (`H_AIR`, none in
 /// no air) and radiation at emissivity `e`, linearised (4 e sigma T^3: about 5 at 15 C).
@@ -247,8 +252,19 @@ impl Liquids {
             let d = iced as f64 + ice / U as f64;
             let mut q = 0.0;
             if hot {
-                // the rock under it, through half its own depth and the rock's own cooling since it came (lava's)
-                q += (tr - h.t) / (deep * 0.5 / ph.k + (std::f64::consts::PI * h.age.max(1.0)).sqrt() / ROCK_EFFUSIVITY);
+                // the rock under it and beside it, held at its heat (the geotherm's, a chamber's): steady through
+                // `ROCK_LAYER` of rock and through half its own depth (the floor) or half a block (each wall), as much
+                // of each wall as is rock beside the water
+                let rock = |t: f64, r: f64| (t - h.t) / (r + ROCK_LAYER / ROCK_K);
+                q += rock(tr, deep * 0.5 / ph.k);
+                let (lo, hi) = (self.nodes[a as usize].bottom(), top);
+                for d in g.neighbours(c).into_iter().flatten() {
+                    let open: i64 = g.gaps(d).iter().map(|&(f, t)| (hi.min(t as i64 * U) - lo.max(f as i64 * U)).max(0)).sum();
+                    let wall = (hi - lo - open) as f64 / U as f64;
+                    if wall > 0.0 {
+                        q += wall * rock(g.heat(d, (lo + hi) as f64 * 0.5 / U as f64) as f64, 0.5 / ph.k);
+                    }
+                }
             }
             if aired && d > 0.0 {
                 if ta < ph.tf {

@@ -12,6 +12,11 @@ pub struct Solid<'a> {
     pub air: Option<Air<'a>>,
 }
 
+/// The damping depth of the year's heat wave in rock, m: sqrt(kappa P / pi) with the rock's diffusivity kappa =
+/// k / (rho c) = 2.0 / (2700 x 900) m^2/s (`liquid::ROCK_EFFUSIVITY`'s rock) and the real year P (heat with the air
+/// runs at the real year's rates, ADR 0187): 2.87 m. Three of it down, the air in a hollow is 95 % the rock's.
+const DAMP_M: f64 = 2.875;
+
 /// The air over the ground at a moment, for water's phases: the sky (its year sets ADR 0187's pace, its sun the
 /// season and the hour), and the temperature at a place where a live air grid gives it (the server's weather), else
 /// the baked climate's year with the season and the hour on top (`sky::temperature`).
@@ -30,8 +35,23 @@ impl<'a> Solid<'a> {
         let tide = bodies.first().filter(|b| b.sea.is_some()).map(|b| (s as i64, sky.tide(s, &b.ocean)));
         Solid { bodies, edits, tide, air: None }
     }
-    /// The air at layer z of column c, C and Pa (`Ground::air`).
-    fn air_at(&self, a: &Air, c: Col, z: f64) -> (f64, f64) {
+    /// The air at layer z of column c, C and Pa (`Ground::air`): over the ground the weather's (`open_air`); in a
+    /// hollow under it the rock's round it (`Body::heat`), blended from the open air's as the year's wave in the rock
+    /// dies down with depth, 1 - exp(-depth / `DAMP_M`). The pressure is the open air's at that height.
+    /// shortcut: the air in a shaft or cave is taken at its walls'; its convection with the open air through the
+    /// shaft's mouth is not followed (an air grid under the ground, liquids.md step 6).
+    pub(super) fn air_at(&self, a: &Air, c: Col, z: f64) -> (f64, f64) {
+        let (t, p) = self.open_air(a, c, z);
+        let b = &self.bodies[c.body() as usize];
+        let under = b.col_height(c.face(), c.i(), c.j()) - b.layer_r(z);
+        if !b.air || under <= 0.0 {
+            return (t, p);
+        }
+        b.heat(c.face(), c.i(), c.j(), z).map_or((t, p), |rock| (t + (rock as f64 - t) * (1.0 - (-under / DAMP_M).exp()), p))
+    }
+    /// The open air at layer z of column c, C and Pa: the weather's, or the baked climate's (the air at every layer
+    /// before ADR 0195's open water on held rock, 2026-11-24).
+    pub(super) fn open_air(&self, a: &Air, c: Col, z: f64) -> (f64, f64) {
         let b = &self.bodies[c.body() as usize];
         let (face, fi, fj) = (c.face() as usize, c.i() as f64 + 0.5, c.j() as f64 + 0.5);
         let ground = || b.heat(c.face(), c.i(), c.j(), z).map_or(crate::liquid::AMBIENT, |t| t) as f64;

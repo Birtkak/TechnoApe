@@ -117,6 +117,35 @@ fn water_on_a_hot_place_boils_off_to_vapour_exactly_and_never_passes_its_boiling
     }
 }
 
+/// Water sealed in a pocket of rock held at 300 C (the geotherm's, a chamber's: it does not cool) takes the rock's heat
+/// steadily through the floor and the four walls, and boils dry at that rate, every unit to `vapour`. By hand, the
+/// water at 100 C and d m deep (4/3 at first): through half a block of rock (0.5 m / 2.0 W/(m K)) and half its depth
+/// of water (k 0.6) from the floor, (300 - 100) / (0.25 + d / 1.2), and from each wall d (300 - 100) / (0.25 + 0.5 /
+/// 0.6); t = the integral of rho Lv / P(d) from 0 to 4/3: 3.9e6 s (45 game days).
+#[test]
+fn water_sealed_in_on_held_rock_boils_dry_at_the_floor_and_walls_steady_rate() {
+    let mut g = Box3::new(3, 3, 4);
+    g.fill(0..3, 0..3, 0..4, true);
+    g.fill(1..2, 1..2, 0..2, false);
+    (g.heat, g.air, g.pace) = (300.0, (300.0, ATM), pace());
+    let mut w = stored(&g);
+    let units = U + U / 3;
+    assert!(w.pour(&g, col(1, 1), 0, units));
+    let ph = Phases::water();
+    let p = |d: f64| 200.0 / (0.25 + d * 0.5 / ph.k) + 4.0 * d * 200.0 / (0.25 + 0.5 / ph.k);
+    let (n, d0) = (10_000, units as f64 / U as f64);
+    let hand: f64 = (0..n).map(|k| U as f64 * ph.lv / p((k as f64 + 0.5) * d0 / n as f64) * d0 / n as f64).sum();
+    let (dt, mut t) = (600.0, 0.0);
+    while w.total() > 0 && t < 2.0 * hand {
+        assert!(w.cool(&g, dt).is_empty(), "nothing freezes");
+        assert_eq!(ledger(&w), units, "every unit booked at {t} s");
+        t += dt;
+    }
+    eprintln!("sealed on 300 C rock: dry in {t:.0} s, by hand {hand:.0} s");
+    assert_eq!((w.total(), w.vapour.get(&0).copied()), (0, Some(units)), "all of it boiled off, to vapour");
+    assert!((t / hand - 1.0).abs() < 0.1, "dry in {t} s, by hand {hand} s");
+}
+
 /// The boiling point by the place's pressure (the spike's table): 100 C at one atmosphere, 93.75 on a 1 km peak of
 /// Terra at 19.62 m/s^2 (79,9 kPa), 1.96 at 700 Pa; under the triple point (Mars's 608 Pa) ice goes straight to gas
 /// under its freeze point; in no air at absolute zero.
