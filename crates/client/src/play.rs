@@ -1680,6 +1680,20 @@ impl App {
                     None => text,
                 };
                 label_y = hud::compass(&mut paint, heading, &marks, &text) + 10.0;
+                // the ground's name beside it (its biome, else its kind of ground or province), looked up only when
+                // the column under the feet changes, faded in over 0.4 s when the name does
+                let blk = wd.block_at(self.me.pos);
+                let col = (blk.body as usize, blk.face, blk.pos.x, blk.pos.y);
+                if col != self.ground_label.0 {
+                    let name = if b.gas { None } else { nav::ground_name(b, blk.face, blk.pos.x, blk.pos.y) };
+                    if name != self.ground_label.1 {
+                        self.ground_label.2 = Instant::now();
+                    }
+                    (self.ground_label.0, self.ground_label.1) = (col, name);
+                }
+                if let Some(n) = self.ground_label.1 {
+                    hud::ground_tag(&mut paint, n, self.ground_label.2.elapsed().as_secs_f32() / 0.4);
+                }
             }
             // this frame's view, as `frame` makes it after this: from the camera, the up kept off the look
             let cam_up = if fwd.cross(p.up).length() < 1e-4 { DVec3::Z } else { p.up };

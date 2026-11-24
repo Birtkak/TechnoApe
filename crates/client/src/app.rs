@@ -169,6 +169,9 @@ pub(crate) struct App {
     pub(crate) new_world: menu::NewWorld,
     /// The slot whose block's name shows over the hotbar, and since when.
     pub(crate) held_name: (usize, Instant),
+    /// The compass's ground label: the column (body, face, i, j) it was looked up for, its name there
+    /// (`nav::ground_name`) and since when it shows, for its fade.
+    pub(crate) ground_label: ((usize, u8, i32, i32), Option<&'static str>, Instant),
     /// The looks drawn in slots, kept (`look_of`).
     pub(crate) looks: std::cell::RefCell<hud::Looks>,
     pub(crate) creative: bool,

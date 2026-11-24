@@ -713,6 +713,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         struck: f64::MIN,
         struck_at: glam::DVec3::ZERO,
         held_name: (usize::MAX, Instant::now()),
+        ground_label: ((usize::MAX, 0, 0, 0), None, Instant::now()),
         looks: Default::default(),
         fx,
         models,
