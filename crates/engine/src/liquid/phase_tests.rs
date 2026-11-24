@@ -61,7 +61,7 @@ fn an_ice_block_in_warm_air_becomes_exactly_its_units_of_water_in_its_time() {
     assert_eq!((w.total(), ledger(&w) - U, w.froze[&0]), (U, -U, -U), "exactly its units of water, booked from ice");
 }
 
-/// A pond 4 blocks deep under -10 C air grows ice from the top by Stefan's law with the air's resistance, at the
+/// A pond 4 1/3 blocks deep under -10 C air grows ice from the top by Stefan's law with the air's resistance, at the
 /// pace: t(d) = rho L / dT (d^2 / 2k + d / h) over the pace (k 2.22, h 14.0 at 263 K). By hand: the first block in
 /// 1.89e5 s (105 game days), the second in 6.6e5 s. The water under the ice stays liquid, and every unit is booked.
 #[test]
@@ -71,7 +71,7 @@ fn a_pond_in_freezing_air_grows_ice_from_the_top_at_the_stefan_rate_and_stays_li
     g.pace = pace();
     g.heat = 0.0;
     let mut w = stored(&g);
-    assert!(w.pour(&g, col(0, 0), 0, 4 * U));
+    assert!(w.pour(&g, col(0, 0), 0, 4 * U + U / 3));
     let ph = Phases::water();
     let stefan = |d: f64| 1000.0 * ph.lf / ph.mu / 10.0 * (d * d / (2.0 * ph.ki) + d / ph.h(-10.0, ATM)) / pace();
     let (dt, mut t, mut at) = (60.0, 0.0, Vec::new());
@@ -81,15 +81,15 @@ fn a_pond_in_freezing_air_grows_ice_from_the_top_at_the_stefan_rate_and_stays_li
         if apply(&mut g, &mut w, cells) > 0 {
             at.push(t);
         }
-        assert_eq!(ledger(&w), 4 * U, "every unit booked at {t} s");
+        assert_eq!(ledger(&w), 4 * U + U / 3, "every unit booked at {t} s");
     }
     for (k, &t) in at.iter().enumerate() {
         let hand = stefan(k as f64 + 1.0);
         eprintln!("ice block {} at {t:.0} s, Stefan {hand:.0} s", k + 1);
         assert!((t / hand - 1.0).abs() < 0.05, "block {}: {t} s against {hand} s", k + 1);
     }
-    assert_eq!(g.ice, vec![(0, 0, 3), (0, 0, 2)], "from the top down");
-    assert_eq!((w.total(), w.froze[&0]), (2 * U, 2 * U), "two blocks of ice, two of water under it");
+    assert_eq!(g.ice, vec![(0, 0, 4), (0, 0, 3)], "from the top down");
+    assert_eq!((w.total(), w.froze[&0]), (2 * U + U / 3, 2 * U), "two blocks of ice, the rest water under it");
     assert_eq!(w.temp_at(col(0, 0), 0), Some(0.0), "the water under the ice is at its freeze point, liquid");
 }
 
@@ -166,65 +166,202 @@ fn sea(air: f64) -> (Box3, Liquids) {
     (g, w)
 }
 
-/// Seconds of a sea in a box: a cool of `dt` and enough water steps that the open sea levels the stored column.
-fn run(g: &mut Box3, w: &mut Liquids, secs: f64, dt: f64) {
-    let mut t = 0.0;
+/// `secs` seconds of a box: a cool of `dt`, its cells applied, and `steps` water steps after each. The blocks set.
+fn run(g: &mut Box3, w: &mut Liquids, secs: f64, dt: f64, steps: usize) -> usize {
+    let (mut t, mut set) = (0.0, 0);
     while t < secs {
         let cells = w.cool(g, dt);
-        apply(g, w, cells);
-        for _ in 0..30 {
+        set += apply(g, w, cells);
+        for _ in 0..steps {
             w.step(g);
         }
         t += dt;
     }
+    set
 }
 
-/// A stored patch of polar sea where the bake shows sea ice (the year's mean -10 C, under the bake's -8): it freezes
-/// to one block of ice in the cell the bake's sheet fills and holds there (the formula's rest at -10 C is 1.28 m, one
-/// block and a part short of the next); the sea under it stays liquid, and every unit is booked.
-#[test]
-fn a_stored_patch_of_polar_sea_freezes_to_one_block_of_ice_and_holds() {
-    let (mut g, mut w) = sea(-10.0);
-    let ph = Phases::water();
-    let rest = ph.rest_ice(-10.0);
-    assert!((1.0..2.0).contains(&rest), "the formula: {rest} m");
-    let year = 334.0 * crate::sky::DAY;
-    run(&mut g, &mut w, 3.0 * year, 600.0);
-    // one block a column, in the bake's cell (a block's edit stores the columns beside it, which this box's sea, with
-    // no sheet of its own, freezes in their turn)
-    let sheet = |g: &Box3| {
-        let mut s = g.ice.clone();
-        s.sort_unstable();
-        assert!(s.iter().all(|x| x.2 == 4) && s.windows(2).all(|p| (p[0].0, p[0].1) != (p[1].0, p[1].1)), "{s:?}");
-        assert!(s.contains(&(2, 2, 4)), "{s:?}");
-        s
-    };
-    let first = sheet(&g);
-    let held: Vec<i64> = w.heats().iter().map(|h| h.2.solid).collect();
-    run(&mut g, &mut w, 3.0 * year, 600.0);
-    let again = sheet(&g);
-    assert!(first.iter().all(|x| again.contains(x)), "and it holds");
-    // the columns frozen a block for a year or more: what lies under the block is the formula's part
-    let part: Vec<i64> = w.heats().iter().filter(|h| first.contains(&(h.0.i(), h.0.j(), 4))).map(|h| h.2.solid).collect();
-    eprintln!("{} blocks, then {}; under them {held:?} then {part:?} units of ice short of a block, the formula {:.0}", first.len(), again.len(), (rest - 1.0) * U as f64);
-    assert_eq!(part.len(), first.len());
-    assert!(part.iter().all(|&p| (p as f64 / U as f64 - (rest - 1.0)).abs() < 0.03), "{part:?} units: the formula's {rest} m");
-    assert!(w.total() > 0 && w.temp_at(col(2, 2), 3) == Some(0.0), "liquid under it");
-    assert_eq!(ledger(&w), 0, "every unit booked");
+/// Units booked as ice.
+fn frozen(w: &Liquids) -> i64 {
+    w.froze.get(&0).copied().unwrap_or(0)
 }
 
-/// A stored patch of temperate sea a cold spell chilled (a game week at -5 C) settles back liquid when the air warms
-/// (+5 C): no ice, and it carries no temperature, so it costs what untouched sea does.
+/// A box of one column, `deep` layers, rock at 0 C and air at `air` C (`p` Pa), `units` of water poured in.
+fn pond(deep: i32, air: f64, p: f64, units: i64) -> (Box3, Liquids) {
+    let mut g = Box3::new(1, 1, deep);
+    (g.air, g.pace, g.heat) = ((air, p), pace(), 0.0);
+    let mut w = stored(&g);
+    assert!(w.pour(&g, col(0, 0), 0, units));
+    (g, w)
+}
+
+/// Stored sea is left to the formula in this step (the review's decision A): a stored patch of polar sea under
+/// -20 C air for a game week takes no heat, sets no ice and stores no column more.
 #[test]
-fn a_stored_patch_of_temperate_sea_stays_liquid_and_carries_no_temperature_after_it_settles() {
-    let (mut g, mut w) = sea(-5.0);
-    run(&mut g, &mut w, 7.0 * crate::sky::DAY, 60.0);
-    assert!(w.temp_at(col(2, 2), 4).is_some(), "the cold spell held it off its rest");
-    g.air.0 = 5.0;
-    run(&mut g, &mut w, 14.0 * crate::sky::DAY, 60.0);
-    assert!(g.ice.is_empty(), "no ice");
-    assert!(w.heats().is_empty(), "no temperature carried: {:?}", w.heats());
-    assert_eq!(ledger(&w), 0, "every unit booked");
+fn stored_sea_under_freezing_air_takes_no_heat_sets_no_ice_and_stores_no_more_columns() {
+    let (mut g, mut w) = sea(-20.0);
+    let n = w.stored();
+    let set = run(&mut g, &mut w, 7.0 * crate::sky::DAY, 60.0, 30);
+    assert_eq!((set, w.heats().len(), frozen(&w)), (0, 0, 0));
+    assert!(w.stored() <= n, "{} columns stored, {n} at first", w.stored());
+}
+
+/// Less than a block of water never freezes (decision B): a puddle of 2000 units at -30 C for 23 game days holds
+/// all its units liquid and nothing is booked as ice.
+#[test]
+fn a_puddle_short_of_a_block_never_freezes() {
+    let (mut g, mut w) = pond(3, -30.0, ATM, 2000);
+    let set = run(&mut g, &mut w, 2e6, 600.0, 0);
+    assert_eq!((set, w.total(), frozen(&w)), (0, 2000, 0));
+}
+
+/// A pond a block and a half deep at -30 C ends as one ice block in its top cell over half a block of water.
+#[test]
+fn a_pond_of_a_block_and_a_half_ends_as_one_ice_block_over_half_a_block_of_water() {
+    let (mut g, mut w) = pond(4, -30.0, ATM, 3 * U / 2);
+    run(&mut g, &mut w, 3e6, 600.0, 0);
+    assert_eq!((g.ice.clone(), w.total(), frozen(&w)), (vec![(0, 0, 1)], U / 2, U));
+}
+
+/// A pond freezing (short of its first block) drained from below, its water flowing into a pocket beside and under
+/// it: no unit is lost and nothing is booked as ice without a block.
+#[test]
+fn a_freezing_pond_drained_from_below_loses_no_water() {
+    let mut g = Box3::new(2, 1, 8);
+    g.fill(0..1, 0..1, 0..4, true);
+    g.fill(1..2, 0..1, 4..8, true);
+    (g.air, g.pace, g.heat) = ((-30.0, ATM), pace(), 0.0);
+    let mut w = stored(&g);
+    assert!(w.pour(&g, col(0, 0), 4, 3 * U / 2));
+    run(&mut g, &mut w, 1800.0, 60.0, 0);
+    assert!(!w.heats().is_empty(), "freezing");
+    g.set(1, 0, 4, false);
+    w.regap(&g, col(1, 0));
+    run(&mut g, &mut w, 3600.0, 60.0, 60);
+    assert_eq!(frozen(&w), g.ice.len() as i64 * U, "ice booked only where a block is");
+    assert_eq!(w.total() + frozen(&w), 3 * U / 2, "every unit liquid or a block of ice");
+}
+
+/// With no air a pit of 3 U in one step boils what its heat and its freeze's latent heat pay for, sets every whole
+/// block of the rest as ice, and boils what is short of a block: ice and vapour are its 3 U to the unit.
+#[test]
+fn with_no_air_a_pit_of_three_blocks_ends_as_ice_blocks_and_vapour_to_the_unit() {
+    let (mut g, mut w) = pond(5, -20.0, 0.0, 3 * U);
+    let cells = w.cool(&g, 1.0);
+    let n = apply(&mut g, &mut w, cells) as i64;
+    let vap = w.vapour.get(&0).copied().unwrap_or(0);
+    eprintln!("{n} blocks of ice, {vap} units of vapour");
+    assert_eq!((w.total(), n * U + vap, frozen(&w), n), (0, 3 * U, n * U, 2));
+}
+
+/// A pond freezing under open air, roofed with stone, no longer touches the air: it freezes no further and is let
+/// go (decision D).
+#[test]
+fn a_pond_roofed_with_stone_while_it_freezes_stops_freezing() {
+    let (mut g, mut w) = pond(4, -30.0, ATM, 3 * U / 2);
+    run(&mut g, &mut w, 1800.0, 60.0, 0);
+    assert!(!w.heats().is_empty(), "freezing");
+    g.set(0, 0, 2, true);
+    w.regap(&g, col(0, 0));
+    let set = run(&mut g, &mut w, 3e6, 600.0, 0);
+    assert_eq!((set, w.total(), frozen(&w), w.heats().len()), (0, 3 * U / 2, 0, 0));
+}
+
+/// Water is never hotter than what heats it (decision E): a puddle half frozen short of a block, in +10 C air at a
+/// step of 10,000 s (the server's step at the most time warp), melts and boils nothing.
+#[test]
+fn a_melt_in_warm_air_at_a_coarse_step_boils_nothing() {
+    let (g, mut w) = pond(3, 10.0, ATM, 100);
+    let a = w.cols[&col(0, 0)][0];
+    w.heat.insert(a, Therm { t: 0.0, age: 0.0, frac: 50.0, solid: 0 });
+    for _ in 0..10 {
+        w.cool(&g, 10_000.0);
+    }
+    assert_eq!((w.total(), w.vapour.get(&0).copied().unwrap_or(0), w.heats().len()), (100, 0, 0));
+}
+
+/// Water under an ice lid placed on it at -3 C gains nothing from the lid (decision E): a pond and a stored patch
+/// of sea for a game year never pass 4 C and boil nothing.
+#[test]
+fn water_under_a_placed_ice_lid_at_minus_three_never_warms() {
+    let (mut pond, mut pw) = pond(4, -3.0, ATM, 3 * U / 2);
+    let (mut sea, mut sw) = sea(-3.0);
+    for (g, w, c, z, steps) in [(&mut pond, &mut pw, (0, 0), 2, 0), (&mut sea, &mut sw, (2, 2), 5, 30)] {
+        g.set(c.0, c.1, z, true);
+        g.ice.push((c.0, c.1, z));
+        w.regap(g, col(c.0, c.1));
+        w.watch_ice(col(c.0, c.1), z);
+        let (mut t, mut top) = (0.0, f64::MIN);
+        while t < 334.0 * crate::sky::DAY {
+            let cells = w.cool(g, 600.0);
+            apply(g, w, cells);
+            for _ in 0..steps {
+                w.step(g);
+            }
+            top = top.max(w.temp_at(col(c.0, c.1), 0).unwrap_or(f64::MIN).max(w.temp_at(col(c.0, c.1), 4).unwrap_or(f64::MIN)));
+            t += 600.0;
+        }
+        eprintln!("under the lid at most {top:.2} C");
+        assert!(top <= 4.0, "at most {top} C");
+        assert_eq!(w.vapour.get(&0).copied().unwrap_or(0), 0, "nothing boiled");
+    }
+}
+
+/// A save's heats come back on their own fluid (decision G): lava's and water's in layers of one gap, saved and
+/// restored, each on its own node, whichever was poured first.
+#[test]
+fn saved_heats_come_back_on_their_own_fluid() {
+    for first in [1u8, 0] {
+        let g = Box3::new(1, 1, 4);
+        let mut w = stored(&g);
+        for k in [first, 1 - first] {
+            assert!(w.pour_kind(&g, col(0, 0), 0, U / 2, k));
+        }
+        let a = w.cols[&col(0, 0)].iter().copied().find(|&i| w.nodes[i as usize].kind == 0).unwrap();
+        w.heat.insert(a, Therm { t: 3.0, age: 0.0, frac: 100.0, solid: 0 });
+        let by_kind = |w: &Liquids| {
+            let mut v: Vec<(u8, f64, f64)> = w.cols[&col(0, 0)].iter().filter_map(|&i| w.heat.get(&i).map(|h| (w.nodes[i as usize].kind, h.t, h.frac))).collect();
+            v.sort_by(|x, y| x.partial_cmp(y).unwrap());
+            v
+        };
+        for rev in [false, true] {
+            let (mut heats, mut kinds) = (w.heats(), w.heat_kinds());
+            if rev {
+                heats.reverse();
+                kinds.reverse();
+            }
+            let mut b = Liquids::default();
+            b.restore(&g, &w.all());
+            b.restore_heat(&g, &heats, &kinds);
+            assert_eq!(by_kind(&b), by_kind(&w), "{} poured first, the list reversed {rev}", if first == 1 { "lava" } else { "water" });
+        }
+    }
+}
+
+/// A water layer boiled dry under oil on hot rock goes as every emptied layer does (decision H): no dry node of
+/// water's kind is left under the oil, and every unit is in `vapour`.
+#[test]
+fn water_under_oil_boiled_dry_leaves_no_dry_water_layer() {
+    let oil = 2u8;
+    let mut g = Box3::new(1, 1, 4);
+    (g.heat, g.pace) = (1000.0, pace());
+    let mut w = stored(&g);
+    assert!(w.pour(&g, col(0, 0), 0, U / 8));
+    w.cool(&g, 1.0);
+    assert!(!w.heats().is_empty(), "on the hot rock it holds a heat");
+    assert!(w.pour_kind(&g, col(0, 0), 0, U, oil));
+    // looked at as it boils dry, before a step tidies the gap
+    for _ in 0..100_000 {
+        w.cool(&g, 10.0);
+        if w.total_of(0) == 0 {
+            break;
+        }
+        for _ in 0..4 {
+            w.step(&g);
+        }
+    }
+    let kinds: Vec<(u8, i64)> = w.column(col(0, 0)).unwrap().map(|n| (n.kind, n.water)).collect();
+    assert!(kinds.iter().all(|k| k.0 == oil), "{kinds:?}");
+    assert_eq!((w.total_of(0), w.vapour.get(&0).copied()), (0, Some(U / 8)));
 }
 
 /// Water alone, where nothing freezes or boils, is given no heat: its maths and its save are what they were.

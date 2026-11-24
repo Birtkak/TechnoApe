@@ -194,10 +194,16 @@ impl World {
             let was = self.block(b);
             self.set_block(b, AIR);
             self.regap(b);
-            let World { bodies, edits, water, sky, time, .. } = self;
-            if units > 0 && !water.pour(&Solid::at(bodies, edits, sky, *time), c, z, units) {
-                // (no gap to take it: kept booked as ice, so no unit is lost)
-                *water.froze.entry(crate::fluids::WATER).or_default() += units;
+            let poured = units == 0 || {
+                let World { bodies, edits, water, sky, time, .. } = self;
+                water.pour(&Solid::at(bodies, edits, sky, *time), c, z, units)
+            };
+            if !poured {
+                // its water has no place (the gap at its most layers): it stays ice and tries again the next second
+                self.water.refreeze(c, z, units);
+                self.set_block(b, was);
+                self.regap(b);
+                continue;
             }
             out.push((b, was, AIR));
         }

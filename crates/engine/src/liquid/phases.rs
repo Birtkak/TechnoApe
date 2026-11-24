@@ -7,16 +7,17 @@
 //! (`water_heat`), heat flows by real laws: to the air over an open surface (convection and radiation), up through
 //! the ice over it to cold air (Stefan's law with the air's resistance), from the sea under it (the heat that makes
 //! the bake's sea ice the rest state), from hot rock under it. Heat exchanged with the air and sky runs at ADR 0187's
-//! pace (the real year over the game's); heat a source drives at real rates. Units freeze at the latent heat out of
-//! the node (`Therm::solid`, booked to `Liquids::froze`), and each U of them becomes a block of the row's `freeze`
-//! block (ice) on the water, through the edits as lava's basalt does. Over the boiling point at the place's pressure
-//! units leave for `Liquids::vapour`.
+//! pace (the real year over the game's); heat a source drives at real rates. What the cold takes past the freeze
+//! point is progress (`Therm::frac`) while the water stays liquid; each whole block frozen leaves the node, booked to
+//! `Liquids::froze`, as a block of the row's `freeze` block (ice) at the water's top, through the edits as lava's
+//! basalt does. Over the boiling point at the place's pressure, where hot rock drives it, units leave for
+//! `Liquids::vapour`. Stored sea is left to the formula (the bake's sheet) in this step.
 //!
 //! Ice blocks a player placed, the water froze, or an edit touched are followed (`Liquids::ice`, `thaw`): air over the
 //! freeze point and a hot fluid beside them melt them at the same laws, and a block that melts through is its U units
 //! of water poured where it stood (under the triple point's pressure it sublimates: its units go to `vapour`, no water).
 //!
-//! One ledger: `froze[water]` is the units turned to ice less those melted back, so `counted + vapour + froze` of
+//! One ledger: `froze[water]` is the units turned to ice blocks less those melted back, so `counted + vapour + froze` of
 //! water changes only by water carried in or out (a bucket, creative), never by a change of phase.
 use super::*;
 
@@ -147,6 +148,16 @@ impl Liquids {
     pub fn watch_ice(&mut self, c: Col, z: i32) {
         self.ice.entry((c, z)).or_insert(0.0);
     }
+    /// Ice block `z` of column `c` melted, but its water had no place (the gap at its most layers): it is ice again,
+    /// booked, and followed melted through, so it tries again the next second.
+    pub fn refreeze(&mut self, c: Col, z: i32, units: i64) {
+        *self.froze.entry(crate::fluids::WATER).or_default() += units;
+        self.ice.insert((c, z), U as f64);
+    }
+    /// How many ice blocks are followed.
+    pub fn watched_ice(&self) -> usize {
+        self.ice.len()
+    }
     /// The units of ice block `z` of column `c` melted so far, if it is followed (tests, F3).
     pub fn ice_melted(&self, c: Col, z: i32) -> Option<f64> {
         self.ice.get(&(c, z)).copied()
@@ -167,7 +178,10 @@ impl Liquids {
             let (ta, p) = g.air(n.col, n.surface() as f64 / U as f64);
             let tb = ph.boils_at(p);
             let hot = g.heat(n.col, n.floor as f64) as f64 >= tb;
-            if hot || ((ta < ph.tf || p < ph.pt) && (n.ceil == OPEN || g.ice(n.col, n.ceil))) {
+            // shortcut: stored sea does not freeze, until ice by physics (roadmap step 7) gives the sea's sheet a rule
+            // that returns to generation
+            let (lo, hi) = g.generated(n.col);
+            if hot || (lo >= hi && (ta < ph.tf || p < ph.pt) && (n.ceil == OPEN || g.ice(n.col, n.ceil))) {
                 // it comes at what its place held it at (the rock's, or the air's on a hot place), liquid
                 let t = if hot { ta } else { self.rest_of(g, a) };
                 wake.push((a, t.clamp(ph.tf, tb.max(ph.tf))));
@@ -178,53 +192,73 @@ impl Liquids {
         }
     }
 
-    /// One heat step of `dt` s for stored water node a holding heat `h`: None when it is back at rest (liquid, no ice
-    /// of its own, in air over its freeze point, on rock under its boiling point) or gone. Blocks of ice it froze go
-    /// to `out` (column, layer, water's kind), as `cool`'s basalt.
+    /// One heat step of `dt` s for stored water node a holding heat `h`: None when it is back at rest (liquid, short of
+    /// freezing, in air over its freeze point, on rock under its boiling point), out of the air's reach, or gone.
+    /// What it froze is progress (`Therm::frac`, units' worth of latent heat taken) and stays liquid water until a whole
+    /// block has frozen: then the block's U units leave the node, are booked to `froze`, and the block of ice goes to
+    /// `out` (column, layer, water's kind) at the node's top cell, as `cool`'s basalt; a step that freezes several sets
+    /// every one, downward from there. While a block waits for its cell (`waiting`, a player in it) the node freezes no
+    /// further. shortcut: less than a block of water never freezes, until partial layers (ADR 0189).
     pub(super) fn water_heat(&mut self, g: &impl Ground, a: u32, mut h: Therm, dt: f64, ph: &Phases, out: &mut Vec<(Col, i32, u8)>) -> Option<Therm> {
         let water = crate::fluids::WATER;
         let n = &self.nodes[a as usize];
-        let (c, floor, ceil, w, top) = (n.col, n.floor, n.ceil, n.water, n.surface());
+        let (c, floor, ceil, w, top, layered) = (n.col, n.floor, n.ceil, n.water, n.surface(), n.stack > 1);
+        let on_top = n.layer + 1 == n.stack;
         let deep = w.min(n.cap()) as f64 / U as f64;
         let (ta, p) = g.air(c, top as f64 / U as f64);
         let tb = ph.boils_at(p);
         let tr = g.heat(c, floor as f64) as f64;
         let hot = tr >= tb;
-        // ice over it: blocks over its gap's ceiling, and what froze short of a block
+        // ice over it: blocks over its gap's ceiling
         let iced = if ceil == OPEN { 0 } else { (0..16).take_while(|&k| g.ice(c, ceil + k)).count() };
-        let ice = h.solid as f64 + h.frac.max(0.0);
-        if ice == 0.0 && ta >= ph.tf && p >= ph.pt && !hot {
+        // the air reaches it over its open surface, or through an ice lid; not under another block or another layer,
+        // nor in a column of generated sea (shortcut: stored sea does not freeze, until ice by physics (roadmap step 7)
+        // gives the sea's sheet a rule that returns to generation)
+        let (lo, hi) = g.generated(c);
+        let (open, lid) = if on_top && lo >= hi { (ceil == OPEN, iced > 0) } else { (false, false) };
+        let aired = open || lid;
+        // (a part-block handed on by an edit is progress too)
+        h.frac += std::mem::take(&mut h.solid) as f64;
+        let ice = h.frac.max(0.0);
+        if !hot && (!aired || (ice == 0.0 && ta >= ph.tf && p >= ph.pt)) {
             return None;
         }
-        let (lo, hi) = g.generated(c);
-        let (mut back, mut boiled) = (0i64, 0i64);
-        if p < ph.pt {
+        // a block waiting for its cell holds the freeze where it is
+        let waits = out.iter().any(|o| o.0 == c && o.2 == water);
+        let blocks;
+        let mut boiled = 0i64;
+        if p < ph.pt && aired {
+            if waits {
+                return Some(h);
+            }
             // no liquid under the triple point's pressure: its heat over the freeze point and the latent heat of what
-            // freezes boil a share off at once, (c dT + Lf) / (Lv + Lf) (15 % from 15 C), and the rest freezes
+            // freezes boil a share off at once, (c dT + Lf) / (Lv + Lf) (13 % from 0 C), every whole block of the rest
+            // freezes, and what is short of a block boils with the share. shortcut: short of a block boils at once (it
+            // would freeze and sublimate), until partial layers (ADR 0189)
             let x = (ph.c * (h.t - ph.tf).max(0.0) + ph.lf) / (ph.lv + ph.lf);
-            boiled = ((w as f64 * x) as i64).min(w);
-            h.frac += (w - boiled) as f64;
-            h.t = ph.tf;
+            blocks = (w - (w as f64 * x).ceil() as i64).max(0) / U;
+            boiled = w - blocks * U;
+            (h.t, h.frac) = (ph.tf, 0.0);
         } else {
             let pace = g.pace();
             // ADR 0187: a source heating it, its loss to the air is taken at the real rate
             let ap = if hot && tr > h.t { 1.0 } else { pace };
             let ha = ph.h(ta, p);
             let d = iced as f64 + ice / U as f64;
-            // W/m^2 into it (a column is 1 m^2): the sea's heat from below where it is the open sea's
-            let mut q = if lo < hi && g.reach(c) == SEA { ph.sea * pace } else { 0.0 };
+            let mut q = 0.0;
             if hot {
                 // the rock under it, through half its own depth and the rock's own cooling since it came (lava's)
                 q += (tr - h.t) / (deep * 0.5 / ph.k + (std::f64::consts::PI * h.age.max(1.0)).sqrt() / ROCK_EFFUSIVITY);
             }
-            if d > 0.0 {
+            if aired && d > 0.0 {
                 if ta < ph.tf {
                     // up through the ice (its bottom at the freeze point) and the air's own resistance: Stefan's law
                     q -= (ph.tf - ta) / (d / ph.ki + 1.0 / ha) * ap;
-                } else if iced == 0 {
+                } else if open {
+                    // warm air melts its skin; a lid gives it nothing (its own melt is `thaw`'s)
                     q += ha * (ta - ph.tf) * ap;
                 }
-            } else if ceil == OPEN {
+            } else if open {
                 q -= ha * (h.t - ta) * ap;
             }
             let mut e = q * dt;
@@ -235,50 +269,49 @@ impl Liquids {
                     e += used;
                     h.frac += used / ph.lv;
                 }
+                // it cools to the air, not past it; under its freeze point the loss freezes it
                 let cap = w as f64 * ph.c;
-                let s = ((h.t - ph.tf).max(0.0) * cap).min(-e);
+                let s = ((h.t - ph.tf.max(ta)).max(0.0) * cap).min(-e);
                 h.t -= s / cap;
                 e += s;
-                // past the freeze point the loss freezes it, where cold air drives it (not a coarse step's overshoot)
-                if ta < ph.tf {
+                if ta < ph.tf && aired {
                     h.frac -= e / ph.lf;
                 }
             } else {
-                // its own ice melts first, then it warms to its boiling point, then boils
+                // its skin melts first, then it warms; never hotter than what heats it (the air, the rock), and what
+                // is left boils only where the rock drives it over its boiling point
                 if ice > 0.0 {
                     let m = (e / ph.lf).min(ice);
                     e -= m * ph.lf;
                     h.frac -= m;
-                    if h.frac < 0.0 {
-                        back = ((-h.frac).ceil() as i64).min(h.solid);
-                        h.solid -= back;
-                        h.frac = (h.frac + back as f64).max(0.0);
-                    }
                 }
-                let cap = (w + back) as f64 * ph.c;
-                let s = ((tb - h.t).max(0.0) * cap).min(e);
+                let cap = w as f64 * ph.c;
+                let s = ((tb.min(ta.max(tr)) - h.t).max(0.0) * cap).min(e);
                 h.t += s / cap;
                 e -= s;
                 // at its boiling point the rest boils it: `frac` under 0 is the next unit's boil paid for so far
-                if e > 0.0 {
+                if e > 0.0 && hot {
                     h.frac -= e / ph.lv;
-                    boiled = ((-h.frac).floor() as i64).min(w + back);
+                    boiled = ((-h.frac).floor() as i64).min(w);
                     h.frac += boiled as f64;
                 }
             }
+            // every whole block frozen leaves the node, none while one waits; progress never past what is left, nor past
+            // a block
+            blocks = if waits { 0 } else { ((h.frac.max(0.0) / U as f64).floor() as i64).min((w - boiled) / U) };
+            h.frac -= (blocks * U) as f64;
+            h.frac = h.frac.min((w - boiled - blocks * U).min(U) as f64);
         }
-        let left = w + back - boiled;
-        let take = (h.frac.floor() as i64).clamp(0, left);
-        h.frac -= take as f64;
-        h.solid += take;
-        if take != back {
-            *self.froze.entry(water).or_default() += take - back;
+        let cell = ((top - 1).div_euclid(U)) as i32;
+        if blocks > 0 {
+            *self.froze.entry(water).or_default() += blocks * U;
+            out.extend((0..blocks as i32).map(|k| (c, cell - k, water)));
         }
         if boiled > 0 {
             *self.vapour.entry(water).or_default() += boiled;
-            self.boils.push((c, ((top - 1).div_euclid(U)) as i32, water));
+            self.boils.push((c, cell, water));
         }
-        let left = left - take;
+        let left = w - boiled - blocks * U;
         if left != w {
             let n = &mut self.nodes[a as usize];
             n.water = left;
@@ -286,23 +319,18 @@ impl Liquids {
                 self.wake(a);
             }
             self.dirty.insert(c, ());
-        }
-        if h.solid >= U {
-            // a block of ice where a sheet a block thick floats on what is left: under the ice over it, else the cell of
-            // the generated sea's top (the bake's sheet's, an eighth proud of the sea), else a pond's top
-            let z = if iced > 0 {
-                ceil - 1
-            } else if lo < hi {
-                (hi - 1).div_euclid(U) as i32
-            } else {
-                (self.nodes[a as usize].surface() + U / 2).div_euclid(U) as i32
-            };
-            out.push((c, z, water));
-            h.solid -= U;
+            if layered {
+                // a layer emptied goes, as every emptied layer does (`layers_after`)
+                if left == 0 {
+                    self.heat.remove(&a);
+                    self.drop_layer(a);
+                    self.awake.retain(|&i| i != a);
+                    self.free.push(a);
+                }
+                self.restack(c);
+            }
         }
         if left == 0 {
-            // frozen through or boiled dry: what froze short of a block goes to a neighbour's, as lava's crust
-            self.hand_crust(a, water, &h);
             return None;
         }
         h.age += dt;

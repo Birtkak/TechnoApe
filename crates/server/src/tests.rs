@@ -4776,7 +4776,11 @@ fn poured_lavas_heat_survives_a_save_and_water_alone_writes_the_bytes_it_did() {
         // a short or corrupt heat tail loads the save without it, and the lava takes its pour heat again rather
         // than lying liquid for ever with none
         let layout = postcard::to_allocvec(&snap).unwrap();
-        for bad in [bytes[..bytes.len() - 1].to_vec(), [layout.clone(), vec![0xff; 3]].concat()] {
+        // (one cut in the last tail, the heats' fluids, keeps the heats: a save before them names none, lava's)
+        let cut = Server::from_save(Save::from_bytes(&bytes[..bytes.len() - 1]).unwrap(), channel().1);
+        assert_eq!(cut.world.water.temp_at(col, z0), Some(t), "its heat without the fluids' tail");
+        let heat = postcard::to_allocvec(&snap.heat).unwrap();
+        for bad in [[layout.clone(), heat[..heat.len() - 1].to_vec()].concat(), [layout.clone(), vec![0xff; 3]].concat()] {
             let back = Server::from_save(Save::from_bytes(&bad).expect("loads without the heat"), channel().1);
             assert_eq!(back.world.water.temp_at(col, z0), Some(1150.0), "the pour heat on a lava with none");
             assert_eq!(back.world.water.counted_of(lava), s.world.water.counted_of(lava));
@@ -4784,3 +4788,24 @@ fn poured_lavas_heat_survives_a_save_and_water_alone_writes_the_bytes_it_did() {
     }
 }
 
+
+/// Ice blocks of the edits are followed again on load (water's phases): saved and restored twice, each is followed
+/// once, the list grows by nothing, and water's ledger is exact.
+#[test]
+fn ice_edits_reloaded_twice_are_each_followed_once_and_the_ledger_holds() {
+    let (mut s, _links) = server_with(1);
+    let ice = engine::blocks::BLOCKS.id("ice");
+    let b = s.world.bodies[0].clone();
+    let (f, i, j) = b.locate(b.spawn);
+    let (f, i, j) = (f as u8, i as i32, j as i32);
+    let top = b.layer_of(b.col_height(f, i, j)).ceil() as i32 + 2;
+    let at = |k: i32| Block { body: 0, face: f, pos: glam::IVec3::new(i + k, j, top + 2) };
+    for k in 0..3 {
+        s.world.set_block(at(k), ice);
+    }
+    let back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
+    let again = Server::from_save(Save::from_bytes(&back.snapshot().to_bytes()).unwrap(), channel().1);
+    let watched = |s: &Server| (0..3).filter(|&k| s.world.water.ice_melted(engine::world::World::col(at(k)), top + 2).is_some()).count();
+    assert_eq!((watched(&back), back.world.water.watched_ice(), back.water_ledger()), (3, 3, 0));
+    assert_eq!((watched(&again), again.world.water.watched_ice(), again.water_ledger()), (3, 3, 0));
+}

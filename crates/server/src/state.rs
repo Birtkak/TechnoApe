@@ -142,7 +142,7 @@ impl Server {
         s.world.time = save.tick.saturating_sub(1) as f64 / TICK_HZ;
         let World { bodies, edits, water, sky, time, .. } = &mut s.world;
         water.restore(&engine::world::Solid::at(bodies, edits, sky, *time), &save.water);
-        water.restore_heat(&engine::world::Solid::at(bodies, edits, sky, *time), &save.heat.0);
+        water.restore_heat(&engine::world::Solid::at(bodies, edits, sky, *time), &save.heat.0, &save.kinds);
         water.froze = save.heat.1.iter().copied().collect();
         (water.vapour, water.spilt, water.waiting) = (save.booked.0.iter().copied().collect(), save.booked.1.iter().copied().collect(), save.booked.2.clone());
         (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
@@ -242,6 +242,7 @@ impl Server {
             gen: self.world.bodies[0].gen,
             heat: (self.world.water.heats(), self.world.water.froze.iter().map(|(&k, &u)| (k, u)).collect()),
             booked: (self.world.water.vapour.iter().map(|(&k, &u)| (k, u)).collect(), self.world.water.spilt.iter().map(|(&k, &u)| (k, u)).collect(), self.world.water.waiting.clone()),
+            kinds: self.world.water.heat_kinds(),
         }
     }
 

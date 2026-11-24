@@ -359,38 +359,128 @@ mod tests {
         assert_eq!((w.block(cell), w.water.total_of(kind), ledger(&w)), (basalt, 0, U));
     }
 
-    /// Water's phases through the world's edits (liquids.md step 5): a pond a block deep under -30 C air freezes, but
-    /// while its cell is taken (a player in it) no ice is set there, every unit booked; free, the ice is set where the
-    /// water was, and in +20 C air it melts back to exactly the block of water it was.
+    /// Water's phases through the world's edits (liquids.md step 5): a pond 2 1/3 blocks deep under -30 C air freezes,
+    /// but while its cell is taken (a player in it) no ice is set there and the freeze holds at the one block booked,
+    /// waiting (decision D), every unit booked; free, the ice is set where the water's top was, once, then the next block
+    /// under it, the third of a block short of one stays water; in +20 C air it all melts back to exactly its water.
     #[test]
     fn freezing_water_never_buries_a_player_and_its_ice_melts_back_in_warm_air() {
         let mut w = world(false);
         let water = crate::fluids::WATER;
-        let (cols, z0) = pit(&mut w, 1, 2, U, water);
+        let units = 2 * U + U / 3;
+        let (cols, z0) = pit(&mut w, 1, 3, units, water);
         let ice = crate::blocks::BLOCKS.id("ice");
-        let cell = Block { body: 0, face: cols[0].face(), pos: IVec3::new(cols[0].i(), cols[0].j(), z0) };
+        let cell = |z| Block { body: 0, face: cols[0].face(), pos: IVec3::new(cols[0].i(), cols[0].j(), z) };
         let ledger = |w: &World| w.water.counted() + w.water.vapour.get(&water).copied().unwrap_or(0) + w.water.froze.get(&water).copied().unwrap_or(0);
         let (cold, warm) = (|_: Col, _: f64| Some(-30.0), |_: Col, _: f64| Some(20.0));
         for _ in 0..1000 {
             assert!(w.cool_fluids_in(600.0, |_| true, Some(&cold)).is_empty(), "no ice while the cell is taken");
             w.step_water();
-            assert_eq!(ledger(&w), U, "every unit booked");
+            assert_eq!(ledger(&w), units, "every unit booked");
+            assert!(w.water.waiting.len() <= 1, "one block waits: {:?}", w.water.waiting);
         }
-        assert_eq!((w.block(cell), w.water.total()), (AIR, 0), "frozen through, its ice waiting for the cell");
+        assert_eq!((w.block(cell(z0 + 2)), w.water.total(), w.water.waiting.len()), (AIR, units - U, 1), "one block waiting for the cell, the rest water");
         let mut set = Vec::new();
-        for _ in 0..10 {
+        for _ in 0..1000 {
             set.extend(w.cool_fluids_in(600.0, |_| false, Some(&cold)));
+            w.step_water();
         }
-        assert_eq!(set, vec![(cell, AIR, ice)], "free, the ice is set where the water was");
+        assert_eq!(set, vec![(cell(z0 + 2), AIR, ice), (cell(z0 + 1), AIR, ice)], "free, the waiting block once, then the next under it");
+        assert_eq!((w.water.total(), ledger(&w)), (U / 3, units), "short of a block, water");
         let mut t = 0.0;
-        while w.block(cell) == ice && t < 1e7 {
+        while (w.block(cell(z0 + 2)) == ice || w.block(cell(z0 + 1)) == ice) && t < 1e7 {
             set.extend(w.cool_fluids_in(600.0, |_| false, Some(&warm)));
             w.step_water();
             t += 600.0;
         }
         eprintln!("melted back in {t:.0} s");
-        assert_eq!(set.last(), Some(&(cell, ice, AIR)), "the ice melted");
-        assert_eq!((w.water.total(), ledger(&w)), (U, U), "back to exactly its block of water");
+        assert_eq!(set.last().map(|s| s.2), Some(AIR), "the ice melted");
+        assert_eq!((w.water.total(), ledger(&w)), (units, units), "back to exactly its water");
+    }
+
+    /// Ice melting where its water cannot be poured (decision F: the gap holds its most layers, here one of oil) stays
+    /// ice and tries again each second; once the water has a place the block is its water.
+    #[test]
+    fn ice_whose_water_cannot_be_poured_stays_ice_until_it_can() {
+        let mut w = world(false);
+        let water = crate::fluids::WATER;
+        let oil = crate::fluids::FLUIDS.now().kind("oil").unwrap();
+        let (cols, z0) = pit(&mut w, 1, 3, U, oil);
+        let ice = crate::blocks::BLOCKS.id("ice");
+        let cell = Block { body: 0, face: cols[0].face(), pos: IVec3::new(cols[0].i(), cols[0].j(), z0 + 2) };
+        w.set_block(cell, ice);
+        w.regap(cell);
+        w.watch_ice_near(cell);
+        w.water.set_layers(1);
+        let ledger = |w: &World| w.water.counted_of(water) + w.water.vapour.get(&water).copied().unwrap_or(0) + w.water.froze.get(&water).copied().unwrap_or(0);
+        let warm = |_: Col, _: f64| Some(20.0);
+        for _ in 0..200 {
+            w.cool_fluids_in(600.0, |_| false, Some(&warm));
+            w.step_water();
+            assert_eq!(ledger(&w), 0, "every unit booked");
+        }
+        assert_eq!((w.block(cell), w.water.total_of(water)), (ice, 0), "kept as ice while its water has no place");
+        w.water.set_layers(0);
+        let mut t = 0.0;
+        while w.block(cell) == ice && t < 1e6 {
+            w.cool_fluids_in(600.0, |_| false, Some(&warm));
+            w.step_water();
+            t += 600.0;
+        }
+        assert_eq!((w.block(cell), w.water.total_of(water), ledger(&w)), (AIR, U, 0), "then its water");
+    }
+
+    /// Lava at a coarse step (decision C: the server's step under time warp) sets every whole block it froze, more than
+    /// one a step if it must: 3 U poured are 3 blocks of basalt.
+    #[test]
+    fn lava_at_a_coarse_step_sets_every_block_it_froze() {
+        for dt in [1e4, 1e5, 1e6] {
+            let mut w = world(false);
+            let kind = lava().0;
+            let (cols, z0) = pit(&mut w, 1, 4, 3 * U, kind);
+            let basalt = crate::blocks::BLOCKS.id("basalt");
+            let mut t = 0.0;
+            while w.water.total_of(kind) > 0 && t < 1e9 {
+                w.cool_fluids(dt, |_| false);
+                w.step_water();
+                t += dt;
+            }
+            let blocks = (z0..z0 + 4).filter(|&z| w.block(Block { body: 0, face: cols[0].face(), pos: IVec3::new(cols[0].i(), cols[0].j(), z) }) == basalt).count() as i64;
+            assert_eq!((w.water.total_of(kind), blocks * U, w.water.froze.get(&kind).copied()), (0, 3 * U, Some(3 * U)), "dt {dt}");
+        }
+    }
+
+    /// An old world on the baked climate: a block placed in the sea and dug (its columns stored, regapped) and stepped
+    /// with the heat step a while is just as it is stepped without it: no heat held, nothing frozen (decision A).
+    #[test]
+    fn stored_sea_on_the_baked_climate_steps_as_it_did_without_the_heat_step() {
+        let after = |heat: bool| {
+            let mut w = world(false);
+            let b = w.bodies[0].clone();
+            let (i, j) = (0..b.n).step_by(2).flat_map(|i| (0..b.n).step_by(2).map(move |j| (i, j))).find(|&(i, j)| b.height(b.dir(2, i as f64 + 0.5, j as f64 + 0.5)) < b.radius - 7.0).unwrap();
+            let c = Col::new(0, 2, i, j);
+            let (_, hi) = w.ground().generated(c);
+            let at = Block { body: 0, face: 2, pos: IVec3::new(i, j, (hi / U) as i32) };
+            w.set_block(at, crate::blocks::BLOCKS.id("stone"));
+            w.regap(at);
+            assert!(w.water.stored() > 0);
+            for k in 0..600 {
+                if k == 300 {
+                    w.put_edit(at, None);
+                    w.regap(at);
+                }
+                if heat {
+                    assert!(w.cool_fluids(1.0, |_| false).is_empty(), "nothing freezes or melts");
+                }
+                for _ in 0..60 {
+                    w.step_water();
+                }
+            }
+            (w.water.all(), w.water.heats().len(), w.water.froze.clone(), w.water.vapour.clone())
+        };
+        let (with, without) = (after(true), after(false));
+        assert_eq!(with.1, 0, "no heat held");
+        assert_eq!(with, without);
     }
 
     /// Two blocks frozen for one cell that was taken (a reaction's two skins in one second): both are set the next

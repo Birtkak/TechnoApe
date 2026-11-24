@@ -743,6 +743,7 @@ impl Liquids {
                         self.warm(g, p, k, w, t);
                         self.nodes[p as usize].water += w;
                         self.nodes[i as usize].water = 0;
+                        // (water's `frac` is progress, not matter, `phases`: the kept node's is enough)
                         if let Some(h) = self.heat.remove(&i) {
                             if let Some(e) = self.heat.get_mut(&p) {
                                 (e.frac, e.solid) = (e.frac + h.frac, e.solid + h.solid);
@@ -1194,23 +1195,30 @@ impl Liquids {
         let &a = ids.iter().find(|&&i| self.nodes[i as usize].ceil > layer)?;
         self.gap(c, self.nodes[a as usize].floor).iter().find_map(|i| self.heat.get(i)).map(|h| h.t)
     }
-    /// Every heat held, as (column, the node's floor, heat), sorted: for saves.
+    /// Every heat held, as (column, the node's floor, heat), sorted by those and its fluid: for saves.
     pub fn heats(&self) -> Vec<(Col, i32, Therm)> {
-        let mut v: Vec<(Col, i32, Therm)> = self.heat.iter().map(|(&a, &h)| (self.nodes[a as usize].col, self.nodes[a as usize].floor, h)).collect();
-        v.sort_unstable_by_key(|x| (x.0, x.1));
+        self.held_heats().into_iter().map(|(c, f, _, h)| (c, f, h)).collect()
+    }
+    /// The fluid of each of `heats`, in its order (a save's: layers of one gap share a floor).
+    pub fn heat_kinds(&self) -> Vec<u8> {
+        self.held_heats().into_iter().map(|x| x.2).collect()
+    }
+    fn held_heats(&self) -> Vec<(Col, i32, u8, Therm)> {
+        let mut v: Vec<(Col, i32, u8, Therm)> = self.heat.iter().map(|(&a, &h)| (self.nodes[a as usize].col, self.nodes[a as usize].floor, self.nodes[a as usize].kind, h)).collect();
+        v.sort_unstable_by_key(|x| (x.0, x.1, x.2));
         v
     }
-    /// A save's heats back on the nodes `restore` built: each on its column's node of that floor, else on the
-    /// column's first node of a fluid with heat that has none yet (the ground under it changed since), else
-    /// dropped. Then every stored node of such a fluid still without one, outside generation's own (which rests at
+    /// A save's heats back on the nodes `restore` built: each on its column's node of its fluid (`kinds`, by `heats`'
+    /// order; a save from before them names none: a fluid other than water) and that floor, else on the column's first
+    /// node of that fluid that has none yet (the ground under it changed since), else dropped. Then every stored node of such a fluid still without one, outside generation's own (which rests at
     /// its place's heat), is given its row's pour heat: a save from before heat, or one whose heat was dropped,
     /// must not leave lava liquid for ever.
-    pub fn restore_heat(&mut self, g: &impl Ground, heats: &[(Col, i32, Therm)]) {
+    pub fn restore_heat(&mut self, g: &impl Ground, heats: &[(Col, i32, Therm)], kinds: &[u8]) {
         let rows = crate::fluids::FLUIDS.now();
         let hot = |n: &Node| n.water > 0 && n.kind != crate::fluids::WATER && rows.get(n.kind).heat.is_some();
-        // (water's heats too, `phases`: held where it is off its rest)
-        let held = |n: &Node| n.water > 0 && rows.get(n.kind).heat.is_some();
-        for &(c, floor, h) in heats {
+        for (k, &(c, floor, h)) in heats.iter().enumerate() {
+            let kind = kinds.get(k).copied();
+            let held = |n: &Node| n.water > 0 && rows.get(n.kind).heat.is_some() && kind.map_or(n.kind != crate::fluids::WATER, |k| n.kind == k);
             let Some(ids) = self.cols.get(&c) else { continue };
             let own = ids.iter().copied().find(|&i| held(&self.nodes[i as usize]) && self.nodes[i as usize].floor == floor && !self.heat.contains_key(&i));
             if let Some(a) = own.or_else(|| ids.iter().copied().find(|&i| held(&self.nodes[i as usize]) && !self.heat.contains_key(&i))) {
@@ -1398,7 +1406,8 @@ impl Liquids {
                     self.restack(col);
                 }
             }
-            if h.solid >= U && row.freeze.is_some() {
+            // every whole block a step (a coarse step freezes more than one)
+            while h.solid >= U && row.freeze.is_some() {
                 out.push((col, floor, kind));
                 h.solid -= U;
             }
