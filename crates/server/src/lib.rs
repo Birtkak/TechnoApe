@@ -72,6 +72,9 @@ pub enum Ev {
     Lazy,
     /// Body `body`'s ground went in at the start of tick `tick` (step 6b): its replay puts it in there too.
     Body { tick: u64, body: u8 },
+    /// Right after `Loaded` when the save has tails (heats, booked, kinds, chambers; serde skips them): the whole
+    /// save as `Save::to_bytes` writes it, which the replay starts from instead.
+    Tails(Vec<u8>),
 }
 
 /// A new world's generation from the arguments: `gen=` when given (-1: not), else the newest, or 0 with

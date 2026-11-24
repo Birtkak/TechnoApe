@@ -306,6 +306,9 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
             Some("erupt") => match self.world.force_eruption(self.clients[i].phys.pos) {
                 Some(k) => {
                     let ch = self.world.chamber(k).expect("a live chamber");
+                    if ch.open {
+                        return "the nearest live volcano is erupting already".into();
+                    }
                     format!("the nearest live volcano's chamber is full: {:.0} m3 of lava will pour from its crater", ch.holds / engine::liquid::U as f64)
                 }
                 None => "no live volcano on this world".into(),

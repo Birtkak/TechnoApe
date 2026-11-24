@@ -253,6 +253,10 @@ impl World {
         let e = ROCKS.provinces.get(crate::bake::rock::ARC as usize)?.eruption?;
         let v = 4.0 / 3.0 * std::f64::consts::PI * (c.v.chamber_r as f64).powi(3) * U as f64;
         let holds = v * e.plug as f64 / e.bulk as f64;
+        // a chamber of no volume is none (its pressure would be 0 / 0)
+        if holds <= 0.0 {
+            return None;
+        }
         let seed = b.map().map_or(0, |m| m.seed);
         let (fill, open) = self.water.chambers.get(k).copied().unwrap_or_else(|| {
             let h = fnv(fnv(FNV0, &seed.to_le_bytes()), &c.v.cell.to_le_bytes());
@@ -273,6 +277,9 @@ impl World {
     pub fn erupt(&mut self, dt: f64) -> Vec<(usize, Stage)> {
         let mut out = Vec::new();
         let b = self.bodies[0].clone();
+        if b.craters().iter().all(|c| c.lake.is_none()) {
+            return out;
+        }
         let lava = lava().0;
         for (k, c) in b.craters().iter().enumerate() {
             let Some(mut ch) = self.chamber(k) else { continue };
@@ -317,7 +324,10 @@ impl World {
         })?;
         self.erupt(0.0);
         let ch = self.chamber(k)?;
-        self.water.chambers[k].0 = ch.fill.max(ch.holds);
+        // (while it erupts, nothing: topped up every second it would never end)
+        if !ch.open {
+            self.water.chambers[k].0 = ch.fill.max(ch.holds);
+        }
         Some(k)
     }
 }
@@ -863,6 +873,107 @@ mod tests {
         let (a, b) = (run(), run());
         assert!(a.0.len() == 2 && a.0[0].0 == 3, "erupted at its fourth second: {:?}", a.0);
         assert_eq!(a, b);
+    }
+
+    /// Eruptions at a coarse step (the server under a time warp of 10,000): the whole excess is poured into the lip at
+    /// once and freezes nearly in place; every block it froze is set, none is left waiting, and lava's ledger stays
+    /// exact, for one eruption and for five in a row.
+    #[test]
+    fn eruptions_at_a_coarse_step_set_every_frozen_block() {
+        let mut w = world(false);
+        // eight blocks of lava in a well, frozen through in one step without flowing: eight basalt blocks, none waiting
+        let (cols, z0) = pit(&mut w, 1, 10, 8 * U, lava().0);
+        for _ in 0..3 {
+            w.cool_fluids(1.0e6, |_| false);
+        }
+        let set = (z0..z0 + 10).filter(|&z| w.block(Block { body: 0, face: cols[0].face(), pos: IVec3::new(cols[0].i(), cols[0].j(), z) }) == *BASALT).count();
+        assert_eq!((set, w.water.waiting.len()), (8, 0), "a well's eight blocks of lava frozen at once");
+        let k = live_k(&w);
+        let dt = 1.0e4;
+        for n in 1..=5 {
+            short_of(&mut w, k, 0.0);
+            let mut ended = false;
+            for _ in 0..2000 {
+                ended |= w.erupt(dt).contains(&(k, Stage::Ends));
+                w.cool_fluids(dt, |_| false);
+                // (a water step a heat step: it freezes nearly where it was poured)
+                w.step_water();
+                if ended && w.water.counted_of(lava().0) == 0 {
+                    break;
+                }
+            }
+            eprintln!("eruption {n}: {} units still lava, {} blocks waiting", w.water.counted_of(lava().0), w.water.waiting.len());
+            assert!(ended, "eruption {n} ended");
+            assert_eq!(lava_ledger(&w), w.water.erupted + 8 * U, "eruption {n}: the ledger (and the well's)");
+            assert!(w.water.waiting.is_empty(), "eruption {n}: {} frozen blocks never set", w.water.waiting.len());
+        }
+    }
+
+    /// `/erupt` while the conduit is open changes nothing: forced every second, the eruption still ends when its
+    /// melt is spent.
+    #[test]
+    fn forcing_an_eruption_while_one_runs_changes_nothing() {
+        let mut w = world(false);
+        let k = live_k(&w);
+        assert_eq!(w.force_eruption(w.bodies[0].centre + w.bodies[0].craters()[k].top), Some(k));
+        let mut s = 0;
+        loop {
+            let st = w.erupt(1.0);
+            if st.contains(&(k, Stage::Ends)) {
+                break;
+            }
+            let before = w.chamber(k).unwrap();
+            w.force_eruption(w.bodies[0].centre + w.bodies[0].craters()[k].top);
+            assert_eq!(w.chamber(k).unwrap(), before, "second {s}: forced while open");
+            s += 1;
+            assert!(s < 1000, "never ended");
+        }
+    }
+
+    /// A crater whose chamber holds nothing (no volume) has no chamber: no pressure of 0 / 0, nothing poured.
+    #[test]
+    fn a_crater_whose_chamber_holds_nothing_has_no_chamber() {
+        let (seed, map) = crate::bake::volcano::tests::live_seed();
+        let mut m = Map::from_bytes(&map.to_bytes()).unwrap();
+        m.volcanoes.iter_mut().for_each(|v| v.chamber_r = 0.0);
+        let mut w = World::with_grid(768, crate::bodies::moon_columns(768), seed, Some(Arc::new(m)), None, 0.0, VOLCANOES);
+        let k = live_k(&w);
+        assert_eq!(w.chamber(k), None);
+        assert!(w.erupt(1.0e4).is_empty() && w.water.erupted == 0);
+    }
+
+    /// Where the lip lies and how the lava runs from it (a look, for the film).
+    #[test]
+    #[ignore]
+    fn where_the_lip_lies() {
+        let (seed, _) = crate::bake::volcano::tests::live_seed();
+        let mut w = world(false);
+        let k = live_k(&w);
+        let b = w.bodies[0].clone();
+        let c = b.craters()[k].clone();
+        let d = |i: i32, j: i32| (i as f64 + 0.5 - c.at.0).hypot(j as f64 + 0.5 - c.at.1);
+        let top = |i: i32, j: i32| b.first_air(b.col_height(c.face, i, j));
+        eprintln!("seed {seed}: crater r {:.1} m, foot {:.1}, lake layer {:?}, lip {:?} at {:.1} m from the middle, its first air {}", c.v.crater, c.v.radius, c.lake, c.lip, d(c.lip.0, c.lip.1), top(c.lip.0, c.lip.1));
+        let (ci, cj) = (c.at.0.floor() as i32, c.at.1.floor() as i32);
+        let dir = ((c.lip.0 - ci) as f64, (c.lip.1 - cj) as f64);
+        let len = dir.0.hypot(dir.1);
+        let prof: Vec<(i32, i32)> = (0..(c.v.radius as i32 + 5)).map(|s| (ci + (dir.0 / len * s as f64).round() as i32, cj + (dir.1 / len * s as f64).round() as i32)).collect();
+        eprintln!("ground along the lip's ray: {:?}", prof.iter().map(|&(i, j)| top(i, j)).collect::<Vec<_>>());
+        let (i, j) = prof[38];
+        let at = b.dir(c.face as usize, i as f64 + 0.5, j as f64 + 0.5);
+        eprintln!("38 m out along it: at={:.4},{:.4},{:.4}", at.x, at.y, at.z);
+        short_of(&mut w, k, 0.0);
+        for s in 0..80 {
+            w.erupt(1.0);
+            w.cool_fluids(1.0, |_| false);
+            for _ in 0..60 {
+                w.step_water();
+            }
+            if s % 10 == 9 {
+                let depth: Vec<i64> = prof.iter().map(|&(i, j)| w.water.column(Col::new(0, c.face, i, j)).map_or(0, |n| n.filter(|n| n.kind == lava().0).map(|n| n.water).sum::<i64>())).collect();
+                eprintln!("{} s: lava units along the ray {:?}", s + 1, depth);
+            }
+        }
     }
 
     /// A dead volcano never erupts, forced or not; a world without a live one (no map, or the map's volcanoes dead)

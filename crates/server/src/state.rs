@@ -336,6 +336,10 @@ impl Server {
         if !self.furnaces.is_empty() {
             h = fnv(h, &postcard::to_allocvec(&self.furnaces).unwrap());
         }
+        // the same for the volcanoes' chambers (a world without a live one keeps the hashes it had)
+        if !w.chambers.is_empty() {
+            h = fnv(h, &postcard::to_allocvec(&(&w.chambers, w.erupted)).unwrap());
+        }
         for c in &self.clients {
             let p = &c.phys;
             h = fnv(h, &c.player.id.to_le_bytes());

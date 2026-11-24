@@ -21,7 +21,12 @@ impl Server {
             let start = Ev::Start { bodies: self.bodies(), seed: self.seed, dt: self.dt };
             self.log(start);
             if let Some(save) = self.loaded.take() {
+                let b = save.to_bytes();
+                let tails = b.len() > postcard::to_allocvec(&save).expect("a save serialises").len();
                 self.log(Ev::Loaded(save));
+                if tails {
+                    self.log(Ev::Tails(b));
+                }
             } else {
                 match self.world.bodies[0].gen {
                     0 => {}

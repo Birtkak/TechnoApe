@@ -4838,6 +4838,30 @@ fn an_eruption_on_the_server_comes_the_same_to_the_tick_twice() {
     assert!(a == b, "the same eruption twice");
 }
 
+/// A recording started from a save taken mid-eruption replays to the same hash: the recording carries the save's
+/// tails (the chambers, the heats, what was booked), so the replay's chamber is open and pours as the recorded one.
+#[test]
+fn a_recording_from_a_save_taken_mid_eruption_replays_to_the_same_hash() {
+    let mut s = Server::baked(768, engine::bodies::moon_columns(768), 3, channel().1);
+    let k = s.world.force_eruption(s.world.bodies[0].centre).expect("a live volcano");
+    while !(s.world.water.chambers[k].1 && s.world.water.erupted > 4 * U && s.tick % TICK_HZ as u64 == 0) {
+        s.tick();
+        assert!(s.tick < 60 * TICK_HZ as u64, "it erupted");
+    }
+    let mut back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
+    let dir = std::env::temp_dir().join(format!("technoape-erupt-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let rec = dir.join("e.rec");
+    back.record(&rec).unwrap();
+    for _ in 0..40 * TICK_HZ as usize {
+        back.tick();
+    }
+    let r = replay(&rec, None).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(r.checks >= 39 && r.diverged.is_none(), "{} checks, diverged {:?}", r.checks, r.diverged);
+    assert_eq!((r.server.hash(), r.server.world.water.erupted), (back.hash(), back.world.water.erupted));
+}
+
 /// The chambers through a save (draft eruptions): saved mid-eruption, the loaded server carries the fill, the open
 /// conduit and the lava poured on as the running one does; a save without the chambers' tail (one from before
 /// eruptions) loads with every chamber where the seed starts it; a world with no live volcano saves no chamber.

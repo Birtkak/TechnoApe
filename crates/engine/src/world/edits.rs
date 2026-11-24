@@ -172,10 +172,10 @@ impl World {
         for (c, z, kind) in cells {
             let Some(f) = rows.get(kind).freeze.as_ref() else { continue };
             let m = BLOCKS.id(&f.into);
-            // the cell, or over the blocks of its rock set there already (two skins frozen at one cell in a second)
-            // shortcut: up to 4 cells; a block with no free cell so near waits, booked, until one is
+            // the cell, or the first over the blocks of its rock set there already (skins frozen at one cell while a
+            // coarse step held the flow still), up to the gap's ceiling: another block there, and the block waits
             let at = |z: i32| Block { body: c.body(), face: c.face(), pos: IVec3::new(c.i(), c.j(), z) };
-            let b = (z..z + 4).map(at).find(|&b| self.block(b) != m).unwrap_or(at(z));
+            let b = (z..).map(at).find(|&b| self.block(b) != m).expect("the sky is air");
             let was = self.block(b);
             if was != AIR || busy(b) {
                 self.water.unfreeze(c, z, kind);

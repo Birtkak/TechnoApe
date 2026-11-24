@@ -147,6 +147,15 @@ its surplus pours from the crater as counted lava that freezes to basalt. Still 
   `(chambers, erupted)` as a fourth tail after the heats' fluids, written only when there is any: a world with no
   live volcano writes the bytes it did; a save without it loads with every chamber where the seed starts it.
   Generation 10 worlds change by it (they erupt now); older ones have no crater and step as before.
+- **Limits:** any client can run `/erupt`, as `/fluid` and `/timewarp`; while a conduit is open it does nothing and
+  says so. A pour refused while the lip's gap is full leaves the chamber filling, and the backlog pours later (nothing
+  lost). Frozen lava takes the first free cell at or above its floor up to its gap's ceiling, so a coarse step
+  (`/timewarp`) sets every basalt block. A flow's momentum is not saved (links restart at rest on load), so a
+  reloaded server's flow may differ by a unit from one that kept running; lava at rest above its freeze point is
+  not given pour heat again on load. A recording begun from a save logs the save's tails (heats, booked, kinds,
+  chambers) beside it, and `Server::hash` takes the chambers only when there is one. Skipped warning signs: the
+  lake's rise, fumaroles, quakes, sound, ash and glow. The frequency and the volume are defaults awaiting the
+  developer.
 - **Not chosen:** an eruption on a timer or a random draw (the design: from the supply, ended by the chamber
   emptying); raising the crater's lake to spill (1 % of a chamber raises it centimetres: no flow down the cone, and
   the lake is a formula); holding an eruption until a player is near (more state for the same lava).
