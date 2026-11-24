@@ -266,7 +266,8 @@ All in `phys::step`, shared by server and prediction; no new field, message or s
 `World::felt(point, live)` (engine `world/felt.rs`) is the temperature felt at a point: the operative temperature
 (ASHRAE 55, ISO 7726). The air there is `Ground::air` (above ground the weather's live `Air.temp` the server sends,
 else the baked climate with the season and the hour; under ground the rock's blended in with depth). The mean radiant
-temperature T_mrt^4 = T_s^4 + sum F_i eps_i (T_i^4 - T_s^4), F_i a small patch's view factor A cos / (pi r^2), the sum
+temperature T_mrt^4 = T_s^4 + sum F_i eps_i (T_i^4 - T_s^4), F_i a small patch's view factor from a globe (ISO 7726: the mean radiant temperature is a small sphere's, a
+standing body's) A cos / (4 pi r^2), a hemisphere full of hot surface 0.5, the sum
 of F held at or under 1, T_s the air's; felt = (h_c T_air + h_r T_mrt) / (h_c + h_r), h_r = 4 eps sigma T_m^3 at the
 mean of the two (eps 0.95), h_c 3.1 W/m2K (a person at rest in still air, ASHRAE Fundamentals ch. 9). It is bounded by
 the hottest source by itself. On a body without air T_s is the ground's temperature at the surface under the point
@@ -279,7 +280,7 @@ walked in 0.5 m steps. A source radiates at its fluid row's `heat.surface` where
 with hot cracks, a flux near 10 kW/m2), else at its own temperature (a lake its chamber's heat, a stored cell its node's
 heat where the world keeps it, else the row's `heat.pour`). Fire (0191) adds its cells' faces in the one marked place
 once it is built. Sources add up by what they fill of the view: 2 m beside a stream of lava 1 wide and 10 long
-about 123 C (F 0.17 on the small planet), 3 m over a lake's middle about 323 C (nearly all the view below), the still air's h_c holding
+about 52 C (F 0.04 on the small planet), 3 m over a lake's middle about 191 C (F 0.36), the still air's h_c holding
 it under the crust; the air over lava is the cell's own (no plume yet). The client works it out with the look-at target every `SENSE_S` 0.25 s (`App::sense`), on the frame
 thread.
 The HUD shows it after the compass line's place text as `12.4 °C` (the HUD font's degree sign is the cell after '~', glyph 127, `hud::DEGREE`); F3's World group a

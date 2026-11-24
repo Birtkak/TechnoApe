@@ -46,8 +46,8 @@ pub struct Glow {
 
 /// The felt temperature at point p among `glows`, `surr` C the surroundings' (the air's; on a body without air the
 /// ground's), `air`: whether there is air to carry heat by convection. The mean radiant temperature
-/// T_mrt^4 = T_s^4 + sum F_i eps_i (T_i^4 - T_s^4), F_i a small patch's view factor A cos / (pi r^2), the sum of F
-/// held at or under 1; the operative temperature (h_c T_air + h_r T_mrt) / (h_c + h_r), h_r = 4 eps sigma T_m^3 at
+/// T_mrt^4 = T_s^4 + sum F_i eps_i (T_i^4 - T_s^4), F_i a small patch's view factor from a globe (ISO 7726)
+/// A cos / (4 pi r^2), the sum of F held at or under 1; the operative temperature (h_c T_air + h_r T_mrt) / (h_c + h_r), h_r = 4 eps sigma T_m^3 at
 /// the mean of the two (kelvin), h_c `H_C` with air and 0 without: bounded by the hottest source by itself.
 pub fn operative(p: DVec3, surr: f64, air: bool, glows: &[Glow]) -> Felt {
     let k = |c: f64| c + 273.15;
@@ -56,9 +56,11 @@ pub fn operative(p: DVec3, surr: f64, air: bool, glows: &[Glow]) -> Felt {
         .iter()
         .map(|g| {
             let d = p - g.at;
-            // (a patch closer than half a metre counts as at half a metre: the small-patch law blows up there)
+            // ISO 7726: the mean radiant temperature is a small sphere's (the globe thermometer, a standing body), so a
+            // patch's view factor is the share of the whole sphere's view it fills, A cos / (4 pi r^2); a hot surface
+            // filling a hemisphere sums to 0.5. (Closer than half a metre counts as half a metre: the law blows up there.)
             let r2 = d.length_squared().max(0.25);
-            g.area * d.normalize_or_zero().dot(g.up).max(0.0) / (PI * r2)
+            g.area * d.normalize_or_zero().dot(g.up).max(0.0) / (4.0 * PI * r2)
         })
         .collect();
     let scale = 1.0 / f.iter().sum::<f64>().max(1.0);
@@ -270,14 +272,14 @@ mod tests {
     }
 
     /// The operative temperature by hand (ASHRAE 55): a square metre at 375 C straight under the eye, eps 0.95, in air
-    /// at 15 C: F = 0.95 / (pi r^2); T_mrt^4 = 288.15^4 + F (648.15^4 - 288.15^4); h_r = 4 0.95 sigma T_m^3 at the mean
-    /// of T_mrt and the air's; felt = (3.1 T_air + h_r T_mrt) / (3.1 + h_r): 18.290 C at 10 m (T_mrt 20.215) and
-    /// 15.833 C at 20 m (T_mrt 16.330). One beside it (cos 0) adds nothing.
+    /// at 15 C: F = 0.95 / (4 pi r^2) (a globe's view of it); T_mrt^4 = 288.15^4 + F (648.15^4 - 288.15^4); h_r = 4
+    /// 0.95 sigma T_m^3 at the mean of T_mrt and the air's; felt = (3.1 T_air + h_r T_mrt) / (3.1 + h_r): 15.833 C at
+    /// 10 m (T_mrt 16.330) and 15.209 C at 20 m (T_mrt 15.334). One beside it (cos 0) adds nothing.
     #[test]
     fn a_patch_warms_by_the_operative_temperature() {
         let at = |r: f64| operative(DVec3::new(0.0, 0.0, r), 15.0, true, &[patch(DVec3::ZERO, 375.0)]);
-        assert!(near(at(10.0).temp, 18.290, 0.005) && near(at(10.0).mrt, 20.215, 0.005), "{:?}", at(10.0));
-        assert!(near(at(20.0).temp, 15.833, 0.005) && near(at(20.0).mrt, 16.330, 0.005), "{:?}", at(20.0));
+        assert!(near(at(10.0).temp, 15.833, 0.005) && near(at(10.0).mrt, 16.330, 0.005), "{:?}", at(10.0));
+        assert!(near(at(20.0).temp, 15.209, 0.005) && near(at(20.0).mrt, 15.334, 0.005), "{:?}", at(20.0));
         assert!(near(operative(DVec3::new(5.0, 0.0, 0.0), 15.0, true, &[patch(DVec3::ZERO, 375.0)]).temp, 15.0, 1e-9));
     }
 
@@ -430,10 +432,10 @@ mod tests {
 
     /// Radiant heat adds up over the hot surface in view. 2 columns beside a lava stream 1 wide and 10 long (this small
     /// planet's columns are 1.085 m, 1.178 m2 a cell), the eye 1.6 m over the ground: by hand, F = sum 1.178 x 1.6 /
-    /// (pi r^3) over its ten cells (r 2.66 to 4.82 m) = 0.169, T_mrt^4 = 288.15^4 + 0.169 x 0.95 x (648.15^4 - 288.15^4)
-    /// so T_mrt 156 C, h_r 9.9, felt (3.1 x 15 + 9.9 x 156) / 13.0 = 123 C. 3 m over the middle of
-    /// a crater's lake the patches fill nearly all the view below: T_mrt near 367 C, h_r 21.5, felt near 323 C, the
-    /// still air's h_c holding it under the crust's 375 C.
+    /// (4 pi r^3) over its ten cells (r 2.66 to 4.82 m) = 0.042, T_mrt^4 = 288.15^4 + 0.042 x 0.95 x (648.15^4 -
+    /// 288.15^4) so T_mrt 69 C, felt 52 C. 3 m over the middle of a crater's lake the lake fills much of the half of a
+    /// globe's view below (F 0.36 of at most 0.5, read back from its T_mrt 231 C): felt 191 C, the still air's h_c
+    /// pulling it under the mean radiant temperature, and both far over the stream's.
     #[test]
     fn radiant_heat_adds_up_over_the_hot_surface_in_view() {
         let mut w = volcano_world();
@@ -447,8 +449,8 @@ mod tests {
         let eye = w.block_centre(beside) - up * 0.5 + up * 1.6;
         let stream = w.felt(eye, Some(15.0));
         eprintln!("2 m beside a 1 x 10 lava stream: {stream:?}; 3 m over a crater's lake: {lake:?}");
-        assert!(near(stream.temp, 123.0, 4.0), "the stream, by hand 123 C: {stream:?}");
-        assert!(near(lake.temp, 323.0, 15.0) && lake.mrt > 350.0, "the lake, by hand 323 C: {lake:?}");
+        assert!(near(stream.temp, 52.0, 3.0), "the stream, by hand 52 C: {stream:?}");
+        assert!(near(lake.temp, 191.0, 5.0) && lake.mrt > 3.0 * stream.mrt, "the lake, 191 C at F 0.36: {lake:?}");
     }
 
     /// 3 m from a lava pit over open ground it reads warm; a stone wall between stops its heat and the air's is felt.
@@ -460,7 +462,7 @@ mod tests {
         let at = |di: i32, z: i32| Block { pos: IVec3::new(cell.pos.x + di, cell.pos.y, z), ..cell };
         let eye = w.block_centre(at(3, top)) + (w.block_centre(at(3, top)) - b.centre).normalize() * 0.6;
         let open = w.felt(eye, Some(15.0));
-        assert!(open.temp > 20.0, "3 m from lava in the open: {open:?}");
+        assert!(open.temp > 17.0, "3 m from lava in the open: {open:?}");
         for z in top..top + 3 {
             w.set_block(at(1, z), BLOCKS.id("stone"));
         }
