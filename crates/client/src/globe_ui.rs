@@ -1,4 +1,4 @@
-//! The globe map in the game (docs/design/navigation.md part 3, ADR 0077; the system view, draft "The map
+//! The globe map in the game (docs/design/navigation.md part 3, ADR 0077; the system view, ADR 0201, "The map
 //! zooms out to the system"): M opens it as a menu page over the world. A drag turns the globe, the wheel zooms,
 //! out past the whole globe into the system round the focused body (every body where the sky has it, its orbit,
 //! its name); a click on the globe drops a waypoint or opens the one under the pointer, a right click on one takes

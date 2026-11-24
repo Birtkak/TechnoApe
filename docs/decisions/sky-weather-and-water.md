@@ -730,7 +730,7 @@ A column is under water when the water's level (`water_at`) stands over its grou
 ## The globe map (`crates/client/src/globe.rs`) [0077]
 
 - **Opening.** M (rebindable, "Globe map", Keys page) opens `Menu::Globe`: an orthographic globe, north up; a drag
-  turns it, the wheel zooms 1 to 64 times (and out past 1 to the system, draft below). A click drops a waypoint on the
+  turns it, the wheel zooms 1 to 64 times (and out past 1 to the system, ADR 0201 below). A click drops a waypoint on the
   ground there, a click on a waypoint opens its page, a right click removes it. Buttons: every body, then Back. Latitude and longitude under the pointer use
   `nav::geo_text`. Holding M does not flicker it (key repeat does not reach the menu's close).
 - **Picture.** The bake's map at mip 0, resampled once on a worker into latitude-longitude RGBA8 (Terra 1024 x 512,
@@ -752,9 +752,9 @@ A column is under water when the water's level (`water_at`) stands over its grou
   (white, named, shown everywhere), waypoints (icon, colour).
 - **Server.** The player list goes out once a second as well as on joins and leaves, so positions are current (about
   150 KB/s at 50 bots; kept) (also multiplayer-saves-and-data).
-- Edits show from the zoom where a block is a UI pixel (the draft below); the picture itself stays the bake's.
+- Edits show from the zoom where a block is a UI pixel (ADR 0201 below); the picture itself stays the bake's.
 
-### The map zooms out to the system; building and digging show on it [draft, 2026-11-24]
+### The map zooms out to the system; building and digging show on it [0201, 2026-11-24]
 The developer's calls (2026-11-24): "make the map a world and universe thing, almost like KSP: see all the planets
 and moons, zoom in for more detail, add our new bodies"; "keep the buttons to quickly go to a planet"; "the map
 didn't update when you build or mine", "add it so the server holds them".

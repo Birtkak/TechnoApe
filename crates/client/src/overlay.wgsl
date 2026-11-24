@@ -120,7 +120,7 @@ fn globe_lift(v: vec3f) -> f32 {
     return 1.0 - rel + rel * (f32(globe[globe[24u] + globe_k(v)] >> 24u) - 1.0) / 254.0;
 }
 
-// One pixel of the globe, a small copy of the body (draft "The map zooms out to the system"): every px x px block
+// One pixel of the globe, a small copy of the body (ADR 0201, "The map zooms out to the system"): every px x px block
 // follows the ray under its middle (the game's pixel look) into the ground, which stands out by the body's relief
 // (so mountains show at the limb), lit by the sun where it really is with a floor so the night still reads, a rim
 // of sky on a body with air, the unseen bare, a line every 30 degrees. globe.rs `State::pick` (the same march)

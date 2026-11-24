@@ -155,7 +155,7 @@ pub fn image(map: &Map, zero: DVec3, size: (usize, usize), cap: f64) -> (Vec<u32
     (out, relief)
 }
 
-/// How much the globe's relief is stretched over the body's own (heights over radius): the map's taste knob (draft
+/// How much the globe's relief is stretched over the body's own (heights over radius): the map's taste knob (ADR 0201,
 /// "The map zooms out to the system"), with the most each body's may stand out (`relief_max`).
 pub const RELIEF: f64 = 1.0;
 /// The most a body's globe relief stands out, a share of its radius, by name: the one table of the taste knob
