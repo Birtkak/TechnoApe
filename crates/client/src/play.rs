@@ -1,26 +1,32 @@
 //! run=play: building, digging and the bucket, `acts=` scripted input, chat and commands, F3 and F9, reconciling with the server (ADR 0025 L: moved out of main.rs).
 use super::*;
 
-/// The playtest menu's rows (F10, bugs/2026-11-11_13-12-42): a name, its steps and what to look for. A step
-/// is a command as typed in the chat, or `eclipse:sun`, `eclipse:luna` (the clock and the player go to the
-/// next one), `fly:<m/s>` (flying, at that speed). A new thing worth a look
-/// gets a row here.
-pub(crate) const PLAYTEST: &[(&str, &[&str], &str)] = &[
-    ("Eclipse of the sun: Luna in front of Sol", &["eclipse:sun"], ""),
-    ("Eclipse of Luna: in Terra's shadow", &["eclipse:luna"], ""),
-    ("On Luna: 3.7 times less gravity, Terra overhead", &["/playmode creative", "/goto luna"], "A jump is about 4.4 m here. Terra's night side should fade in, with no hard line."),
-    ("Fast flight: 1000 m/s over Terra", &["/playmode creative", "/goto terra", "fly:1000"], "Fly low and turn hard: the ground should never vanish."),
-    ("Midnight: the moon grey, not red", &["/goto terra", "/time set midnight"], "Find Luna: grey-white, unless an eclipse is on."),
-    ("Sunset: the light fading out", &["/goto terra", "/time set sunset"], "The sunlight on the ground should dim smoothly as Sol sets."),
-    ("Lamps at night: a kit for a lit room", &["/goto terra", "/time set night", "/give lamp 32", "/give blue lamp 32"], "Dig a room and set lamps into its floor and walls: even light, no hard cones."),
-    ("Every block: creative's inventory", &["/playmode creative"], "E opens every block and item in tabs: a click takes a stack, the middle button picks a block in the world."),
-    ("Health and hunger: the bars at 13 and 6", &["/playmode survival", "/heal", "/hurt 7", "/feed 6"], "Two bars over the hotbar: a green cross, an orange stomach. /heal and /feed fill them."),
-    ("Thirst: the third bar at 6", &["/playmode survival", "/heal", "/feed 20", "/thirst 6"], "A blue drop over the hunger bar. The place button held on fresh water with nothing in hand fills it in two seconds; the sea is salt."),
-    ("Low health and an empty stomach", &["/playmode survival", "/heal", "/hurt 17", "/feed 0"], "Health pulses with red corners; hunger is outlined in red and health sinks to 1."),
-    ("The death screen", &["/playmode survival", "/heal", "/hurt 20"], "You died: Respawn puts you at the spawn with full bars."),
-    ("Impact: fly up in creative, then fall in survival", &["/playmode creative", "/goto terra", "fly:20"], "Fly up 10 m or more, type /playmode survival, and fall: the faster you hit, the more it costs. 21 m/s kills."),
-    ("Home at noon, in survival", &["/goto terra", "/time set noon", "/playmode survival"], "Back at the spawn, at noon."),
-];
+/// The playtest menu's rows (F10, rebuilt for the sky, draft ADR spectator-and-sky): a name and the sight it takes you to. Each is
+/// found in the world's own orbits from now on (`sights::find`): the clock goes to that moment and the player to a
+/// place it is seen from, looking at it. An annular eclipse of the sun by Luna is not a row: from no ground on
+/// Terra does Luna ever look smaller than Sol (sights.rs's test).
+pub(crate) const PLAYTEST: &[(&str, sights::Event)] = {
+    use sights::{Cover::*, Event::*};
+    &[
+        ("Total eclipse of the sun, from Terra", Solar { body: 0, kind: Total }),
+        ("Partial eclipse of the sun, from Terra", Solar { body: 0, kind: Partial }),
+        ("Total eclipse of Luna: wholly in Terra's shadow", Lunar { kind: Total }),
+        ("Partial eclipse of Luna: in part in the shadow", Lunar { kind: Partial }),
+        ("From Luna: Terra in front of the sun", FromMoon),
+        ("At the gas giant: its moon in front of the sun", Solar { body: GIANT, kind: Total }),
+        ("Luna new", Phase(0)),
+        ("Luna a waxing crescent", Phase(1)),
+        ("Luna at first quarter", Phase(2)),
+        ("Luna waxing gibbous", Phase(3)),
+        ("Luna full", Phase(4)),
+        ("Luna waning gibbous", Phase(5)),
+        ("Luna at last quarter", Phase(6)),
+        ("Luna a waning crescent", Phase(7)),
+    ]
+};
+
+/// Stands for the first gas body in `PLAYTEST` (the rows are made before the world is): `playtest` looks it up.
+pub(crate) const GIANT: usize = usize::MAX;
 
 /// What the look-at panel shows (draft 2026-11-24, "Felt temperature"): its target, the name and the note under it.
 #[derive(Clone, Debug, PartialEq)]
@@ -245,24 +251,14 @@ pub(crate) fn wheel_slot(slot: usize, down: bool) -> usize {
 }
 
 #[test]
-fn every_playtest_row_is_made_of_steps_the_game_knows() {
-        let mut names = std::collections::HashSet::new();
-        for (name, steps, _) in PLAYTEST {
-            assert!(names.insert(name) && !steps.is_empty(), "{name}");
-            for s in *steps {
-                let known = match s.split_once(':') {
-                    Some(("eclipse", w)) => w == "sun" || w == "luna",
-                    Some(("fly", v)) => v.parse::<f64>().is_ok_and(|v| (1.0..=phys::FLY_MAX).contains(&v)),
-                    Some(("give", w)) => w == "all",
-                    _ => ["/playmode creative", "/playmode survival", "/goto terra", "/goto luna", "/heal"].contains(s)
-                        || ["/hurt ", "/feed ", "/thirst "].iter().any(|c| s.strip_prefix(c).is_some_and(|n| n.parse::<u8>().is_ok_and(|n| n <= 20)))
-                        || s.strip_prefix("/time set ").is_some_and(|w| ["sunrise", "day", "noon", "sunset", "night", "midnight"].contains(&w))
-                        || s.strip_prefix("/give ").and_then(|r| r.rsplit_once(' ')).is_some_and(|(b, n)| BLOCKS.placeable().any(|d| d.name == b) && n.parse::<u32>().is_ok()),
-                };
-                assert!(known, "{name}: '{s}'");
-            }
-        }
+fn the_playtest_rows_are_the_sky_s_eclipses_and_every_phase() {
+    let names: std::collections::HashSet<&str> = PLAYTEST.iter().map(|r| r.0).collect();
+    assert_eq!(names.len(), PLAYTEST.len(), "every row its own name");
+    for k in 0..8 {
+        assert!(PLAYTEST.iter().any(|r| r.1 == sights::Event::Phase(k)), "phase {k}");
     }
+    assert!(PLAYTEST.iter().all(|r| !matches!(r.1, sights::Event::Solar { body: 0, kind: sights::Cover::Annular })), "no annular row");
+}
 
 /// Whether press `a` acts on the aimed thing (ADR 0144, ADR 0147): the dig button whatever is in hand
 /// (a plant is cut), the place button only on a pick-up and with the hand empty, so a place, a strike, a drink or
@@ -672,6 +668,12 @@ impl App {
                 self.pick = Some(0);
             }
             a if a.starts_with("say:") => self.link.send(ToServer::Chat(a[4..].to_string())),
+            // playtest:<k>: F10's row k, as a click on it does (off-screen shots of the sky's sights)
+            a if a.starts_with("playtest:") => {
+                if let Some(k) = a[9..].parse::<usize>().ok().filter(|k| *k < PLAYTEST.len()) {
+                    self.playtest(k);
+                }
+            }
             // fly:<m/s> as the playtest menu's step: flying at that speed, for scripted flights (ADR 0073)
             a if a.starts_with("fly:") => (self.flying, self.fly_speed) = (true, a[4..].parse::<f64>().unwrap_or(250.0).clamp(1.0, phys::FLY_MAX)),
             _ => {
@@ -698,60 +700,61 @@ impl App {
         }
     }
 
-    /// F10's eclipses (bugs/2026-11-11_13-12-42): the clock to the next one the sky's functions show, the
-    /// player where it is seen best, and a line saying where to look. Luna's shadow on Terra: where its middle
-    /// meets the ground, 20 s before, so it comes over; Luna in Terra's shadow: under Luna, at that moment.
-    /// A row of the playtest menu: its steps in turn, then the line that says what to look for.
+    /// A row of the playtest menu (F10, draft ADR spectator-and-sky): the next time from now the world's own orbits give its sight
+    /// (`sights::find`), the clock set there (a total eclipse of the sun 20 s before, so the shadow comes over), the
+    /// player stood where it is seen and turned to it, and a line saying what and when. Nothing is posed by hand.
     pub(crate) fn playtest(&mut self, k: usize) {
-        let (_, steps, look) = PLAYTEST[k];
-        for step in steps {
-            match *step {
-                "eclipse:sun" => self.eclipse(false),
-                "eclipse:luna" => self.eclipse(true),
-                s if s.starts_with("fly:") => (self.flying, self.fly_speed) = (true, s[4..].parse().unwrap_or(250.0)),
-                s => self.link.send(ToServer::Chat(s.to_string())),
-            }
-        }
-        if !look.is_empty() {
-            self.note(look.to_string());
-        }
-    }
-
-    fn eclipse(&mut self, lunar: bool) {
-        let sky = self.world.sky;
-        let Some(t) = nav::next_eclipse(&sky, self.world.time, lunar) else {
-            self.note("no eclipse in the sky's whole cycle: Luna's orbit never lines up".into());
-            return;
+        let (name, e) = PLAYTEST[k];
+        let e = match e {
+            sights::Event::Solar { body: GIANT, kind } => match (0..self.world.bodies.len()).find(|&b| self.world.bodies[b].gas) {
+                Some(g) => sights::Event::Solar { body: g, kind },
+                None => return self.note("this world has no gas giant".into()),
+            },
+            e => e,
         };
-        let (bodies, pose) = (self.world.bodies.clone(), sky.planet(t));
-        let b = &bodies[0];
-        // the shadow's middle on the ground: on the sea-level sphere first, then again at the ground's height there
-        let on_ground = |r: f64| nav::shadow_at(&sky, t, r);
-        let x = if lunar {
-            Some(sky.moon(t).centre - pose.centre)
-        } else {
-            on_ground(b.radius).and_then(|x| on_ground(b.top(pose.rot.inverse() * x.normalize())))
+        let w = &self.world;
+        // the giant's moon may look the smaller from its cloud tops: then its eclipse is a ring
+        let found = sights::find(w, w.time, e).or_else(|| match e {
+            sights::Event::Solar { body, kind: sights::Cover::Total } if body != 0 => sights::find(w, w.time, sights::Event::Solar { body, kind: sights::Cover::Annular }),
+            _ => None,
+        });
+        let Some(s) = found else {
+            return self.note(format!("{name}: the orbits give none in the next {:.0} years", sights::YEARS));
         };
-        let Some(x) = x else {
-            self.note("the next eclipse's shadow misses Terra".into());
-            return;
-        };
-        let d = pose.rot.inverse() * x.normalize();
-        // over the ground and over the sea; a creative player hovers there
-        let feet = b.centre + d * ((b.stand_point(d) - b.centre).length().max(b.top(d) + 0.6));
+        let b = &w.bodies[s.body];
+        let (pose, d) = (w.pose(s.body, s.t), s.dir);
+        // over the ground and over the sea (a gas body's cloud tops, `stand_point`); a creative player hovers there
+        let r = (b.stand_point(d) - b.centre).length();
+        // a spectator or a creative flyer hovers 40 m up, over the trees that would hide the sky
+        let feet = b.centre + d * if b.gas { r } else { r.max(b.top(d) + 0.6) + 40.0 };
         let eye = pose.to_inertial(b.centre, feet + d * 1.7);
-        let target = if lunar { sky.moon(t).centre } else { sky.sun(t) };
-        let look = pose.rot.inverse() * (target - eye).normalize();
+        let look = pose.rot.inverse() * (s.look - eye).normalize();
         let (up_deg, bearing) = (look.dot(d).clamp(-1.0, 1.0).asin().to_degrees(), nav::bearing(d, look));
-        let lead = if lunar { 0.0 } else { 20.0 };
-        let what = if lunar {
-            format!("Luna in Terra's shadow ({:.0}% of Sol hidden from it)", sky.covered(t, sky.moon(t).centre, pose.centre, sky.planet_radius) * 100.0)
-        } else {
-            format!("Luna over Sol in {lead:.0} s ({:.0}% hidden here)", sky.eclipse(t, eye) * 100.0)
+        let lead = if e == (sights::Event::Solar { body: 0, kind: sights::Cover::Total }) { 20.0 } else { 0.0 };
+        let what = match e {
+            sights::Event::Phase(_) => format!("{:.0}% lit", s.share * 100.0),
+            sights::Event::Lunar { .. } => format!("{:.0} of 5 points of her disc in the umbra", s.share * 5.0),
+            _ => format!("{:.1}% of Sol hidden here", s.share * 100.0),
         };
-        let line = format!("{what}: look {up_deg:.0} degrees up, bearing {bearing:.0}, from {}", nav::geo_text(nav::geo(d, self.meridian(0))));
-        self.link.send(ToServer::Chat(format!("/time set {:.2}", t - lead)));
+        let (day, h) = engine::sky::clock(s.t);
+        let m = (h * 60.0).round() as u32 % (24 * 60);
+        let line = format!(
+            "{name}: {what}, day {day} {:02}:{:02} at the spawn (world time {:.0} s{}); look {up_deg:.0} degrees up, bearing {bearing:.0}, from {} on {}",
+            m / 60,
+            m % 60,
+            s.t,
+            if lead > 0.0 { format!(", set {lead:.0} s before") } else { String::new() },
+            nav::geo_text(nav::geo(d, self.meridian(s.body))),
+            b.name
+        );
+        self.link.send(ToServer::Chat(format!("/time set {:.2}", s.t - lead)));
         self.link.send(ToServer::Move { pos: feet.to_array(), fwd: look.as_vec3().to_array(), pitch: 0.0 });
+        // the server turns the body to the bearing; the head tilts up to the sight when the jump lands. A survival
+        // player watches as a spectator: hovering there, not sinking into the sea or drowning
+        self.sight_pitch = Some(up_deg.to_radians().clamp(-1.55, 1.55));
+        if !self.creative && !self.spectator {
+            self.link.send(ToServer::Chat("/playmode spectator".into()));
+        }
         self.flying |= self.creative;
         self.note(line);
     }
@@ -1901,8 +1904,8 @@ impl App {
         self.skipped = 0;
         if off.length() >= 2.0 {
             // a teleport (/goto, a respawn): the look is the server's, in the frame it lands in, level; the
-            // steps not answered yet only turn it
-            (self.pitch, self.tilt, self.roll) = (0.0, 0.0, 0.0);
+            // steps not answered yet only turn it (an F10 row's jump tilts up to its sight)
+            (self.pitch, self.tilt, self.roll) = (self.sight_pitch.take().unwrap_or(0.0), 0.0, 0.0);
         }
         self.drift_max = self.drift_max.max(off.length());
         if off.length() > 0.001 {

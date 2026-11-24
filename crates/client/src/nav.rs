@@ -151,53 +151,6 @@ pub fn text(list: &[Waypoint]) -> String {
         .collect()
 }
 
-/// The next moment from `from` on when Luna's shadow falls on Terra with its middle on the ground (`lunar`
-/// false), or Luna is wholly in Terra's shadow (true): the closest line-up of the three, searched forward in
-/// the sky's own functions over one whole cycle of it (bugs/2026-11-11_13-12-42). None when there is none.
-pub fn next_eclipse(sky: &engine::sky::Sky, from: f64, lunar: bool) -> Option<f64> {
-    // how far Luna's centre is off the line from Sol through Terra, on the near side (the far side for lunar)
-    let off = |t: f64| {
-        let p = sky.planet(t).centre;
-        let s = (sky.sun(t) - p).normalize();
-        let m = sky.moon(t).centre - p;
-        let along = m.dot(s);
-        if (along > 0.0) != lunar { (m - s * along).length() } else { f64::MAX }
-    };
-    let near = if lunar { sky.planet_radius - 2.0 * sky.moon_radius } else { 0.8 * sky.planet_radius };
-    // Luna moves some 80 m/s at 60 radii out (ADR 0041), so a 10 s step (under a kilometre) cannot jump past a
-    // line-up; a whole cycle is then some 50,000 looks, a few milliseconds
-    const STEP: f64 = 10.0;
-    // (`closing`: Luna was seen coming nearer the line, so a search begun just past one eclipse's middle
-    // finds the next one)
-    let (mut t, mut prev, mut closing) = (from, off(from), false);
-    while t < from + engine::sky::PERIOD + 4000.0 {
-        let next = off(t + STEP);
-        closing |= next < prev;
-        if closing && prev < near && next >= prev {
-            // the closest moment lies within a step either side: narrow it down
-            let (mut a, mut b) = ((t - STEP).max(from), t + STEP);
-            for _ in 0..60 {
-                let (x, y) = (a + (b - a) / 3.0, b - (b - a) / 3.0);
-                if off(x) < off(y) { b = y } else { a = x }
-            }
-            return Some((a + b) / 2.0);
-        }
-        (t, prev) = (t + STEP, next);
-    }
-    None
-}
-
-/// Where the line from Sol through Luna's centre meets a sphere of radius `r` round Terra at time `t`: from
-/// Terra's centre, in the inertial frame's directions. None when it misses.
-pub fn shadow_at(sky: &engine::sky::Sky, t: f64, r: f64) -> Option<DVec3> {
-    let p = sky.planet(t).centre;
-    let m = sky.moon(t).centre - p;
-    let d = (m - (sky.sun(t) - p)).normalize();
-    let b = m.dot(d);
-    let disc = b * b - (m.length_squared() - r * r);
-    (disc > 0.0).then(|| m + d * (-b - disc.sqrt()))
-}
-
 /// What the ground of column (face, i, j) is called (the compass's label and F3): its biome (Terra's, or Luna's,
 /// Mars's and the icy moon's kinds of ground, one table, `biomes::ROWS`), else its rock province; None on a body
 /// with no map (a gas giant, the old noise land).
@@ -362,31 +315,5 @@ mod tests {
         }
         assert_eq!(v, View::Body);
         assert_eq!((View::Near(25.0).text(), View::Body.text()), ("within 25 km".to_string(), "on its own body".to_string()));
-    }
-
-    #[test]
-    fn the_next_eclipses_are_found_in_the_sky_itself() {
-        // bugs/2026-11-11_13-12-42: searched forward in the sky's own functions, so new orbits stay right
-        let w = engine::world::World::new(256, 32, 1);
-        let s = w.sky;
-        let t0 = 5000.0;
-        let started = std::time::Instant::now();
-        let solar = next_eclipse(&s, t0, false).expect("a solar eclipse within the sky's cycle");
-        let lunar = next_eclipse(&s, t0, true).expect("a lunar eclipse within the sky's cycle");
-        eprintln!("searched both in {:.1} ms", started.elapsed().as_secs_f64() * 1000.0);
-        assert!(solar > t0 && lunar > t0);
-        // where the shadow's middle meets the ground, the sun is hidden; Luna's centre sees none of it
-        let p = s.planet(solar).centre;
-        let hit = shadow_at(&s, solar, s.planet_radius).expect("the shadow's middle on Terra");
-        assert!(s.eclipse(solar, p + hit) > 0.999, "{}", s.eclipse(solar, p + hit));
-        assert!((hit.length() - s.planet_radius).abs() < 1e-6);
-        assert_eq!(s.covered(lunar, s.moon(lunar).centre, s.planet(lunar).centre, s.planet_radius), 1.0);
-        // (the review) asked again just past an eclipse's middle, the answer is the one after it, not this one
-        for (found, lunar) in [(solar, false), (lunar, true)] {
-            let after = next_eclipse(&s, found + 90.0, lunar).expect("another");
-            assert!(after > found + 2000.0, "{after} after {found}");
-        }
-        // nothing earlier: a minute before, the sun was not yet hidden there
-        assert!(s.eclipse(solar - 60.0, p + hit) < 0.999);
     }
 }

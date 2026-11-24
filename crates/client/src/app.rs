@@ -171,6 +171,8 @@ pub(crate) struct App {
     pub(crate) held_name: (usize, Instant),
     /// Spectator mode as the server last said (`ToClient::Spectator`, draft ADR spectator-and-sky).
     pub(crate) spectator: bool,
+    /// An F10 row's look up to its sight (radians), taken when the server's teleport lands.
+    pub(crate) sight_pitch: Option<f64>,
     /// The compass's ground label: the column (body, face, i, j) it was looked up for, its name there
     /// (`nav::ground_name`) and since when it shows, for its fade.
     pub(crate) ground_label: ((usize, u8, i32, i32), Option<&'static str>, Instant),

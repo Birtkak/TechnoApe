@@ -21,16 +21,24 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   a running game makes a changed `data/sounds.toml` or `data/sounds/` again within a second (`sound_dir=dir` reads both from another folder); `sounds=1` prints every sound in numbers (its bases, chain, `ms`);
   off-screen runs are silent unless `sound=1`, and a play run's JSON counts what it played under `audio`); Tab completes a command, the arrows pick, else the up arrow
   recalls the last line; in creative (/playmode creative) space twice flies, the wheel its speed (not the hotbar) up to
-  10 km/s (ADR 0073); F3 the overlay of
-  numbers (its World group's `Felt` row: the felt temperature at the eye, the air's and the mean radiant temperature; Position's
-  `Looking at` the look-at panel's lines); the compass line ends with the felt temperature at the eye, `12.4 °C` (the
+  10 km/s (ADR 0073); `/playmode spectator` (draft "Spectator mode", 2026-11-24; `/playmode survival` or `creative` leaves it,
+  `/playmode` alone names your mode): you fly through blocks and fluids along the look, no gravity, no harm, hunger or
+  breath, the wheel sets the speed; you cannot dig, place, pick up, use or move items, the herds ignore you and no other
+  player is sent you; leaving inside rock puts you on the ground above; the HUD drops the bars and the held block;
+  off-screen `acts="0.5:say:/playmode spectator"`, a bot `say /playmode spectator` (its `report` gains `"spectator"`); F3 the overlay of
+  numbers in groups: Performance, Simulation, Position, Ground (biome, rock province, the rock's heat at the feet's layer,
+  the fluid at feet and eye, snow in eighths, the generation and map version, the tide on Terra), Sky (the clock, the local
+  sun time and season on Terra, Sol's height, Luna's phase, lit share, elongation and height), World (air, weather, `Felt`:
+  the felt temperature at the eye, the air's and the mean radiant temperature; field, seed, sizes), Player; Position's
+  `Looking at` the look-at panel's lines; the compass has the ground's name in a tag at its right (the biome, Luna's,
+  Mars's or the icy moon's kind of ground, else the rock province; none on a gas giant), faded in when it changes; the compass line ends with the felt temperature at the eye, `12.4 °C` (the
   operative temperature of the air and the heat of lava in sight within 48 m, by 384 rays a few a frame, a set in about half a second;
   a wall blocks it; in lava, the lava's), worked out four times a second; the look-at panel
   under the compass names the block or the fluid (the sea's water, a river, lava, oil) the crosshair meets first, with its
   temperature and, for a block, its hardness and tool, for a fluid its depth; a layer of snow (or ice short of a block) on the ground is named with its depth, "3 eighths deep, on grass"; snow
   in layers (ADR 0189, "Snow and ice in eighths") builds where snow falls under freezing air within 16 m of a player, eight eighths a snow block stood on; in a
   layer one sinks to the ground and walks slower (half its depth's share: 3 eighths 0.81 of the pace); digging the cell over a layer takes the layer, no item; `/weather snow` and `/timewarp 1800` build eighths in seconds (an eighth in about 11 s at that warp); a run's JSON carries `"felt"` and `"look"`, a
-  bot's `report` `"felt"`; F9 a bug report; F10 the playtest menu (an eclipse of the sun or of Luna, ADR 0036); Esc the menu: settings in pages (Display, Graphics, Controls, Keys, Sound,
+  bot's `report` `"felt"`; F9 a bug report; F10 the playtest menu, the sky's sights found in the orbits from now (draft 2026-11-24): a total and a partial eclipse of the sun from Terra, a total and a partial eclipse of Luna, Terra over the sun from Luna, the gas giant's moon over the sun from its cloud tops, and Luna's eight phases; each sets the clock and puts you 40 m over where it is seen (a total eclipse of the sun 20 s before), looking at it, a survival player as a spectator (`/playmode survival` to go back), and a chat line says what, when (day, hour, world time) and where to look; a phase is never one in an eclipse; off-screen `acts="1:playtest:<row>"` (rows from 0, in the menu's order); Esc the menu: settings in pages (Display, Graphics, Controls, Keys, Sound,
   Accessibility), every key rebindable (Keys: grouped, searchable, a shared key red), kept in `settings.txt`, ADR 0023 and 0028; `dump=1` prints a
   settings file's meaning as JSON). `acts="t:action,..."`
   scripts those inputs off-screen (ADR 0017; `say:/time set noon`, `f3`, `f9`, `type:text`, `tab`, `enter`, `esc`, `click:1`, `point:x:y`, `C`/`c` the zoom, `next`/`prev`/`go`/`nudge+` the menu by keys, `bind:KeyW`, `key+:KeyW`/`key-:KeyW` a real key through the bindings;
