@@ -730,8 +730,8 @@ A column is under water when the water's level (`water_at`) stands over its grou
 ## The globe map (`crates/client/src/globe.rs`) [0077]
 
 - **Opening.** M (rebindable, "Globe map", Keys page) opens `Menu::Globe`: an orthographic globe, north up; a drag
-  turns it, the wheel zooms 1 to 64 times. A click drops a waypoint on the ground there, a click on a waypoint opens
-  its page, a right click removes it. Buttons: Terra, Luna, Back. Latitude and longitude under the pointer use
+  turns it, the wheel zooms 1 to 64 times (and out past 1 to the system, ADR 0201 below). A click drops a waypoint on the
+  ground there, a click on a waypoint opens its page, a right click removes it. Buttons: every body, then Back. Latitude and longitude under the pointer use
   `nav::geo_text`. Holding M does not flicker it (key repeat does not reach the menu's close).
 - **Picture.** The bake's map at mip 0, resampled once on a worker into latitude-longitude RGBA8 (Terra 1024 x 512,
   Luna 512 x 256): biome colours, sea by depth, lakes, every river cell, hillshade from the NW (ice cells in the ice
@@ -752,7 +752,65 @@ A column is under water when the water's level (`water_at`) stands over its grou
   (white, named, shown everywhere), waypoints (icon, colour).
 - **Server.** The player list goes out once a second as well as on joins and leaves, so positions are current (about
   150 KB/s at 50 bots; kept) (also multiplayer-saves-and-data).
-- Edits do not show (a texel is 24 m); a "what you built" layer is for later.
+- Edits show from the zoom where a block is a UI pixel (ADR 0201 below); the picture itself stays the bake's.
+
+### The map zooms out to the system; building and digging show on it [0201, 2026-11-24]
+The developer's calls (2026-11-24): "make the map a world and universe thing, almost like KSP: see all the planets
+and moons, zoom in for more detail, add our new bodies"; "keep the buttons to quickly go to a planet"; "the map
+didn't update when you build or mine", "add it so the server holds them".
+- **One zoom.** The wheel runs on past the whole globe (zoom 1) down to the least zoom, where everything is within 45 %
+  of the screen's height of the focused body (`globe::least`). Under 1 the map is the system, looked down on from
+  the ecliptic's north, the focused body in the middle at the same pixels a metre as its globe, so nothing jumps.
+  M opens it as before: on the player's body, at zoom 1.
+- **The system.** Every body of the world's rows and the sun where `World::pose` (the sky's own) has them now, every
+  frame the map is open; each a ball in its row's `colour` (glyph 201), at least 4 px across (`MIN_PX`). Each orbit
+  is 257 points of the same poses over one period, relative to its parent, made every frame the system shows with
+  the body's phase now in the middle and the phase stepped by the cube of an even step (so the points crowd round
+  the body: the line runs through it and follows its path within a pixel over a screen round it at any zoom its
+  disc shows at, where 256 even points left the chord 1.8 Terra radii off the path), drawn round the parent where
+  it is now, each segment clipped to the screen (one crossing it with both ends off it shows), as 2 px dots a dot
+  apart, 12000 at most; a moon's under 8 px is left out. Every name shows; a name whose box would lie on an earlier
+  one joins its label ("Terra, Luna"). A click on a body focuses it at the same pixels a metre; on the focused
+  body's disc once its marks show (40 px in radius) it is a click on its globe (a waypoint), and focusing the
+  focused body never turns it back; the player is a ring, others white dots, at their inertial places.
+- **Any body's globe.** Every row with a bake has a picture and a seen-mask (a planet's 1024 x 512, a smaller
+  body's 512 x 256; Mars and Callisto too), made on a worker of its own once its body's map is in (a body loaded on
+  approach when it is, or, focused before that, from its bake of the world's hash alone on the worker, with
+  "drawing the map..." meanwhile); the head names the focused one's place, so the shader reads any. A body with no
+  picture (a gas body) is a plain ball in its colour. The buffer is 5.4 MB (was 2.7). `<save>.seen`
+  holds the masks one after another in row order, so a file from before reads as it did.
+- **Buttons.** One per body, a moon indented under its planet (`globe::order`), then Back; each goes to its
+  body's globe at zoom 1 from any zoom. `acts=`: `globe:zoomto:<z>` (0 the whole system), `globe:focus:<body>`.
+- **Edits.** The server already holds every edit (its save) and sends all of them to every client on join and as
+  they happen, so the client has the world's edits wherever they are; the map takes them from there and needs no
+  message of its own. Each edited column is worked out again on the frame thread, 64 a frame at most (its top
+  block from the touched layer down, how far over or under the generated ground; over the ground only an edited
+  cell counts, so a trunk left of a felled tree is no build): drawn in its block's colour,
+  brighter the higher built (to 1.6), darker the deeper dug (to 0.3), from 1 px a metre (zoom 9 on Terra at a 1080
+  screen), a block at least 3 px wide; survival's only on charted land. The columns are kept in tiles of 64 x 64,
+  and a frame draws only those of the tiles the screen's ground falls in (a 16 x 16 grid of points and the rim
+  picked on the globe), 8000 at most, so a save's 100k edited columns cost the screen's share, not a walk of all.
+  An edit on a body not loaded on the client waits and is worked out when the body loads.
+- **Players** (the developer, 2026-11-24: "also add player(s) locations"). `ToClient::Players` already lists every
+  player with where they are, once a second and on each join and leave, so no message was added. On a globe each
+  player on it is a white named mark (you the ring with its tail); in the system each body with players has a mark
+  under its ball naming them (more than three: "N players"), one out in space a dot; a button shows its body's count
+  ("Terra (2)"). One who left is gone with the next list.
+- **Relief** (the developer, 2026-11-24: "make the globes have depth, a small version of the real planet"). The
+  picture's top byte is the ground's height (1 the body's lowest, 255 its highest; the sea a level surface), made by
+  the same worker; the globe's ground stands out by the body's heights over its radius (`RELIEF` 1.0), at most a
+  share of the radius by body (`relief_max`, the taste knob: Terra 6 % and Luna 5 % (2.5 % read as a painted ball), Mars and the rest 2.5 %; 8 % read as a potato on Mars's
+  dichotomy). The shader follows each pixel block's ray into that ground (two steps a texel of the chord, 8 to 192,
+  so a one-texel ridge at the limb is never stepped over; then 6 halvings), so a range shows at the limb; lit by the sun where it
+  really is on that body (a soft terminator, the slopes steepened three times for the light, over the picture's own
+  shade from the north-west), the night a dim blue floor, a rim of sky on a body with air. Marks sit on that ground
+  (`State::lift`), and a click is found on it by the same march (`State::pick`), so a mark drawn near the limb is
+  hit where it is drawn and the charted check reads the texel under the pointer. No mesh: the ray march needs none and keeps the globe one UI rectangle as before.
+Alternatives rejected: a summary of edited cells kept and sent by the server (asked for, then not built: it would
+repeat what `Edits` already sends every client); a 3D tilted camera (the top-down view reads at once); a displaced
+sphere mesh in a pass of its own (a new pipeline for what one rectangle's ray march does).
+Open: Jupiter's bands on its ball; a lazy body whose bake of the world's hash cannot be made keeps "drawing the
+map..." on its globe.
 
 ## No longer holds
 

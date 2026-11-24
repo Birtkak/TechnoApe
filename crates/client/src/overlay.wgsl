@@ -101,14 +101,30 @@ fn ui_vs(@builtin(vertex_index) vi: u32, r: Rect) -> UiOut {
 const DIGITS = array<u32, 10>(31599u, 11415u, 29671u, 29647u, 23497u, 31183u, 31215u, 29257u, 31727u, 31695u);
 
 // FONT, the 8 x 8 font (ADR 0023), is appended by the client from `hud::font_wgsl`
-// The globe map (ADR 0077, globe.rs): its head (the view), then Terra's and Luna's pictures (RGBA8, latitude
-// rows from the north, longitude from 180 W) and their seen bits, all in `globe::off`'s order.
+// The globe map (ADR 0077, globe.rs): its head (the view), then every body's picture (RGBA8, latitude rows from
+// the north, longitude from 180 W) and their seen bits, in `globe::layout`'s order; the head names the focused one's.
 @group(0) @binding(20) var<storage, read> globe: array<u32>;
 fn gf(k: u32) -> f32 { return bitcast<f32>(globe[k]); }
 
-// One pixel of the globe: every px x px block takes the texel under its middle (the game's pixel look), the
-// night side darker past the terminator, the unseen bare, a line every 30 degrees. globe.rs `View::pick`
-// and prototypes/globe-map `shade` do the same on the CPU.
+// The focused body's texel in direction v (the body's frame): the picture's width (twice its height) is word 25.
+fn globe_k(v: vec3f) -> u32 {
+    let lat = degrees(asin(clamp(v.z, -1.0, 1.0)));
+    let lon = fract((degrees(atan2(v.y, v.x) - gf(22u)) + 180.0) / 360.0) * 360.0 - 180.0;
+    let w = globe[25u];
+    let h = w / 2u;
+    return min(u32(max(floor((90.0 - lat) / 180.0 * f32(h)), 0.0)), h - 1u) * w + min(u32(floor((lon + 180.0) / 360.0 * f32(w))), w - 1u);
+}
+// How far out the ground in direction v stands, a share of the radius (globe.rs `lift`: the texel's top byte).
+fn globe_lift(v: vec3f) -> f32 {
+    let rel = gf(27u);
+    return 1.0 - rel + rel * (f32(globe[globe[24u] + globe_k(v)] >> 24u) - 1.0) / 254.0;
+}
+
+// One pixel of the globe, a small copy of the body (ADR 0201, "The map zooms out to the system"): every px x px block
+// follows the ray under its middle (the game's pixel look) into the ground, which stands out by the body's relief
+// (so mountains show at the limb), lit by the sun where it really is with a floor so the night still reads, a rim
+// of sky on a body with air, the unseen bare, a line every 30 degrees. globe.rs `State::pick` (the same march)
+// and `State::lift` find the same places on the CPU.
 fn globe_px(frag: vec2f) -> vec4f {
     let scale = f32(g.opt.z) / gf(23u);
     let c = vec2f(gf(0u), gf(1u)) * scale;
@@ -118,37 +134,87 @@ fn globe_px(frag: vec2f) -> vec4f {
     let p = vec2f(q.x - c.x, c.y - q.y) / r;
     let s = dot(p, p);
     if (s > 1.0) { discard; }
-    let v = normalize(vec3f(gf(4u), gf(5u), gf(6u)) * p.x + vec3f(gf(8u), gf(9u), gf(10u)) * p.y + vec3f(gf(12u), gf(13u), gf(14u)) * sqrt(1.0 - s));
-    let luna = gf(20u) > 0.5;
+    let e = vec3f(gf(4u), gf(5u), gf(6u));
+    let n = vec3f(gf(8u), gf(9u), gf(10u));
+    let d = vec3f(gf(12u), gf(13u), gf(14u));
+    let sun = vec3f(gf(16u), gf(17u), gf(18u));
+    // march from where the ray enters the highest ground's sphere to where it meets the lowest's (or leaves): the
+    // first step under the ground, then halved down to the surface
+    let rel = gf(27u);
+    let t0 = sqrt(1.0 - s);
+    let inner = (1.0 - rel) * (1.0 - rel);
+    let t1 = select(-t0, sqrt(max(inner - s, 0.0)), s < inner);
+    var above = t0;
+    var below = t0;
+    var hit = false;
+    // two steps a texel of the picture, so a one-texel ridge at the limb is never stepped over (globe.rs `march_steps`)
+    let steps = i32(clamp(ceil((t0 - t1) * f32(globe[25u]) / 3.14159265), 8.0, 192.0));
+    for (var i = 0; i <= steps; i++) {
+        let t = t0 + (t1 - t0) * f32(i) / f32(steps);
+        let x = e * p.x + n * p.y + d * t;
+        if (length(x) <= globe_lift(normalize(x))) {
+            below = t;
+            hit = true;
+            break;
+        }
+        above = t;
+    }
+    // (a ray that reaches the lowest ground's sphere meets it there: the sea's level, which rounding can miss)
+    if (!hit && s >= inner) { discard; }
+    if (!hit) { below = t1; above = t1; }
+    for (var i = 0; i < 6; i++) {
+        let t = 0.5 * (above + below);
+        let x = e * p.x + n * p.y + d * t;
+        if (length(x) <= globe_lift(normalize(x))) { below = t; } else { above = t; }
+    }
+    let v = normalize(e * p.x + n * p.y + d * below);
     let lat = degrees(asin(clamp(v.z, -1.0, 1.0)));
     let lon = fract((degrees(atan2(v.y, v.x) - gf(22u)) + 180.0) / 360.0) * 360.0 - 180.0;
-    let w = select(1024u, 512u, luna);
-    let h = w / 2u;
-    let k = min(u32(max(floor((90.0 - lat) / 180.0 * f32(h)), 0.0)), h - 1u) * w + min(u32(floor((lon + 180.0) / 360.0 * f32(w))), w - 1u);
-    let t = 32u + 1024u * 512u;
-    let texel = unpack4x8unorm(globe[select(32u, t, luna) + k]);
-    let mask = select(t + 512u * 256u, t + 512u * 256u + 1024u * 512u / 32u, luna);
+    let k = globe_k(v);
+    let texel = unpack4x8unorm(globe[globe[24u] + k]);
+    let mask = globe[26u];
     var rgb = texel.rgb;
-    if (texel.a < 0.5 || (gf(21u) < 0.5 && ((globe[mask + k / 32u] >> (k % 32u)) & 1u) == 0u)) {
+    if (gf(21u) < 0.5 && ((globe[mask + k / 32u] >> (k % 32u)) & 1u) == 0u) {
         rgb = vec3f(0.32, 0.30, 0.27);
     }
-    // soft over about 6 degrees, the night a dim blue so the land still reads
-    let day = clamp(dot(v, vec3f(gf(16u), gf(17u), gf(18u))) / 0.1 + 0.5, 0.0, 1.0);
-    rgb *= vec3f(0.25, 0.28, 0.4) + vec3f(0.75, 0.72, 0.6) * day;
+    // the ground's slope from its neighbours a texel and a half away, east-west and north-south
+    var te = cross(vec3f(0.0, 0.0, 1.0), v);
+    te = select(vec3f(1.0, 0.0, 0.0), normalize(te), length(te) > 1e-4);
+    let tn = cross(v, te);
+    let st = 1.5 * 6.2831853 / f32(globe[25u]);
+    let de = (globe_lift(normalize(v + te * st)) - globe_lift(normalize(v - te * st))) / (2.0 * st);
+    let dn = (globe_lift(normalize(v + tn * st)) - globe_lift(normalize(v - tn * st))) / (2.0 * st);
+    // (the slopes steepened three times for the light, so a range reads at globe size; the picture's own shade from
+    // the north-west stays under it)
+    let nrm = normalize(v - (te * de + tn * dn) * 3.0);
+    // the day side by the terminator (soft over about 6 degrees), the slopes by the sun on them; the night a dim blue
+    let day = clamp(dot(v, sun) / 0.1 + 0.5, 0.0, 1.0) * (0.45 + 0.7 * clamp(dot(nrm, sun), 0.0, 1.0));
+    rgb *= vec3f(0.22, 0.25, 0.36) + vec3f(0.78, 0.75, 0.64) * day;
+    // a thin rim of sky where the light grazes the air
+    if (gf(20u) > 0.5) {
+        let rim = pow(1.0 - t0, 3.0) * clamp(dot(v, sun) * 2.0 + 0.6, 0.0, 1.0);
+        rgb = mix(rgb, vec3f(0.5, 0.7, 1.0), rim * 0.7);
+    }
     // the lines a pixel block wide wherever the globe is turned
     let wide = degrees(px / r) * 0.6;
     let near = abs(fract(vec2f(lat, lon) / 30.0 + 0.5) - 0.5) * 30.0;
     if (near.x < wide || (near.y < wide / max(cos(radians(lat)), 0.05) && abs(lat) < 80.0)) {
-        rgb = rgb * 0.7 + vec3f(0.26);
+        rgb = rgb * 0.75 + vec3f(0.2);
     }
-    // a little darker to the rim, so it reads as round
-    return vec4f(rgb * (0.8 + 0.2 * sqrt(1.0 - s)), 1.0);
+    return vec4f(rgb, 1.0);
 }
 
 @fragment
 fn ui_fs(i: UiOut) -> @location(0) vec4f {
     if (i.glyph == 200u) {
         return globe_px(i.clip.xy);
+    }
+    // a body with no picture on the map (globe_ui.rs `GLYPH_DISC`): a ball in its colour, darker to the rim
+    if (i.glyph == 201u) {
+        let p = i.uv * 2.0 - 1.0;
+        let s = dot(p, p);
+        if (s > 1.0) { discard; }
+        return vec4f(i.colour.rgb * (0.45 + 0.55 * sqrt(1.0 - s)), i.colour.a);
     }
     if (i.glyph >= 32u) {
         let x = u32(clamp(i.uv.x * 8.0, 0.0, 7.0));
