@@ -248,7 +248,7 @@ impl Server {
             kinds: self.world.water.heat_kinds(),
             chambers: (self.world.water.chambers.clone(), self.world.water.erupted),
             crust: self.world.water.crust.iter().map(|(&(c, k), &(f, u))| (c, k, f, u)).collect(),
-            snow: self.world.snow.state(),
+            snow: if self.world.snow.bare() { Default::default() } else { self.world.snow.state() },
         }
     }
 
@@ -351,9 +351,8 @@ impl Server {
             h = fnv(h, &postcard::to_allocvec(&w.crust).unwrap());
         }
         // and the snow's (ADR 0189's draft): a world without any keeps its hashes
-        let snow = self.world.snow.state();
-        if snow != engine::snow::State::default() {
-            h = fnv(h, &postcard::to_allocvec(&snow).unwrap());
+        if !self.world.snow.bare() {
+            h = fnv(h, &postcard::to_allocvec(&self.world.snow.state()).unwrap());
         }
         for c in &self.clients {
             let p = &c.phys;

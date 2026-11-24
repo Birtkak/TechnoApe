@@ -106,6 +106,11 @@ impl Snow {
     pub fn held(&self) -> i64 {
         self.cols.values().map(|l| l.units).sum::<i64>() + BLOCK * self.packed.len() as i64
     }
+    /// No unit held, lent or owed: live columns with nothing on them are not saved or hashed, so a world without snow
+    /// keeps its bytes and its recordings' hashes.
+    pub fn bare(&self) -> bool {
+        self.held() == 0 && self.lent == 0 && self.owed.values().all(|o| o.0 == 0 && o.1 == 0)
+    }
     /// Units owed the air in all.
     pub fn owing(&self) -> i64 {
         self.owed.values().map(|o| o.0 + o.1).sum()
