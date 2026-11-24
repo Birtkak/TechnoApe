@@ -318,6 +318,8 @@ impl App {
         }
         self.done = true;
         self.globe_save();
+        // the felt temperature at the eye and the look-at panel's lines when the run ended, all rays at once
+        let (felt, look) = self.sensed_at_end();
         let gpu = self.gpu.as_ref().unwrap();
         let s = &mut self.samples;
         let secs: f64 = s.frame_ms.iter().map(|v| *v as f64).sum::<f64>() / 1000.0;
@@ -337,6 +339,7 @@ impl App {
                 "\"ram_mb\":{:.0},\"vram_mb\":{:.0},\"chunks_meshed_per_s\":{:.1},\"chunks_nonempty_per_s\":{:.1},",
                 "\"missing_chunks_max\":{},\"holes_max\":{},\"draws_avg\":{:.0},\"quads_avg\":{:.0},\"quad_buffer_mb\":{:.1},",
                 "\"select_ms_p50\":{:.3},\"submit_ms_p50\":{:.3},\"pre_acquire_ms_p50\":{:.3},\"edits_per_s\":{:.0},\"job_us_avg\":{:.0},",
+                "\"felt\":{},\"look\":{},",
                 "\"edits_sent\":{},\"edits_applied\":{},\"players\":{},\"feet\":[{:.2},{:.2},{:.2}],\"snaps\":{},\"drift_max_m\":{:.2},\"frames\":{},\"capture_stalls\":{},\"speed\":{},\"k\":{},\"greedy\":{},\"horizon\":{},\"mdi\":{},\"prefetch_s\":{},",
                 "\"coarse_slow_s\":{:.2},\"threads\":{},\"low_workers\":{},\"alloc_fail\":{},\"backend\":\"{}\",\"adapter\":\"{}\",\"spikes\":[{}]}}"
             ),
@@ -369,6 +372,8 @@ impl App {
             pct(&mut s.acq_ms, 0.5),
             s.edits as f64 / secs.max(1e-9),
             job_us,
+            felt.map_or("null".into(), |f| format!("{{\"temp\":{:.2},\"air\":{:.2},\"mrt\":{:.2}}}", f.temp, f.air, f.mrt)),
+            look.map_or("null".into(), |l| format!("{{\"name\":{:?},\"note\":{:?}}}", l.name, l.note)),
             self.edits_done,
             self.edits_applied,
             self.players,

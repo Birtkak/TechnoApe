@@ -8,6 +8,16 @@ use crate::bodies::Makeup;
 /// constant (`Interior::k`), from which every other body's pull follows by its mass.
 pub const G: f64 = 19.62;
 
+/// The world's two constants of heat (the developer's taste call, 2026-11-24: "pace 6, bulk 300"; as `G` is).
+/// `HEAT_PACE`: every heat flow is this many times the real one: it multiplies every conductivity, film coefficient,
+/// radiative term and contact term (`liquid`, `liquid::phases`). `LIGHT`: every block and fluid stores this many times
+/// less heat than it really would: it divides every specific and latent heat and the rock's volumetric heat capacity
+/// (so its effusivity goes as sqrt(HEAT_PACE / LIGHT)). A process held back by a block's stored heat runs
+/// HEAT_PACE x LIGHT = 300 times real, a steady temperature is the real one, a body that is not a block feels the pace
+/// alone, and the ratios between blocks (what a skin of lava boils) are real.
+pub const HEAT_PACE: f64 = 6.0;
+pub const LIGHT: f64 = 50.0;
+
 /// The zones, centre out: their index in `Interior::zones`.
 pub const INNER_CORE: usize = 0;
 pub const OUTER_CORE: usize = 1;

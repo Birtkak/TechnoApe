@@ -426,7 +426,7 @@ mod tests {
         assert_eq!(near(&w), lamps, "storing its columns moves no lamp");
     }
 
-    /// Lava poured into a pit on cold ground freezes to basalt at real rates (lava basics, draft decision): a pit
+    /// Lava poured into a pit on cold ground freezes to basalt on the world's heat, its own loss at half pace (lava's row): a pit
     /// 3 x 3 and lava two blocks deep in each column. Every unit that froze is booked, so lava's ledger plus what froze
     /// is what was poured.
     ///
@@ -437,7 +437,8 @@ mod tests {
     /// - the bottom, 9 m2 through the same and the rock's warming (0.25 m2 K/W after a day, 0.55 after five):
     ///   about 1000 W/m2, 9 kW; the 12 outer sides, 24 m2 through half a block (0.33) and the rock: 1500 W/m2, 35 kW;
     /// - about 57 kW while it cools to the freeze point (8.4e9 J, 1.5e5 s), about 50 kW while it freezes (1.9e10 J,
-    ///   the depth falling as it goes: 3.7e5 s). So about 5.2e5 s, six days.
+    ///   the depth falling as it goes: 3.7e5 s). So about 5.2e5 s, six days real. The world's heat (flows times
+    ///   `HEAT_PACE`, stored heats over `LIGHT`) runs it 300 times real, lava's row slows its own loss by half: 3,470 s.
     #[test]
     fn a_lava_pool_on_cold_ground_freezes_to_basalt_in_its_time_and_the_ledger_holds() {
         // at the server's step (a second) and a coarser one: the same physics, the same answer
@@ -457,12 +458,13 @@ mod tests {
                 w.cool_fluids(dt, |_| false);
                 w.step_water();
                 t += dt;
-                if (t as i64) % 100_000 == 0 {
+                if (t as i64) % 2_000 == 0 {
                     assert_eq!(ledger(&w), poured, "the ledger at {t} s");
                 }
             }
-            let hand = 5.2e5;
-            eprintln!("dt {dt}: the pool froze through in {t:.0} s ({:.1} days), by hand {hand:.0} s", t / 86400.0);
+            let row = crate::fluids::FLUIDS.now().get(kind).heat.as_ref().unwrap().pace as f64;
+            let hand = 5.2e5 / (crate::interior::HEAT_PACE * crate::interior::LIGHT * row);
+            eprintln!("dt {dt}: the pool froze through in {t:.0} s ({:.1} hours), by hand {hand:.0} s", t / 3600.0);
             assert!(t > hand / 2.0 && t < hand * 2.0, "dt {dt}: froze in {t} s, by hand {hand} s");
             assert_eq!((w.water.total_of(kind), ledger(&w)), (0, poured), "dt {dt}: all of it froze, every unit booked");
             let blocks = cols.iter().flat_map(|c| (z0..z0 + 2).map(move |z| Block { body: 0, face: c.face(), pos: IVec3::new(c.i(), c.j(), z) })).filter(|&b| w.block(b) == basalt).count();
@@ -830,10 +832,11 @@ mod tests {
         let f0 = short_of(&mut w, k, 0.5 * supply).fill;
         let mut stages = Vec::new();
         let mut supplied = 0.0;
+        let mut basalt = 0;
         for _ in 0..600 {
             supplied += w.chamber(k).unwrap().supply;
             stages.extend(w.erupt(1.0));
-            w.cool_fluids(1.0, |_| false);
+            basalt += w.cool_fluids(1.0, |_| false).iter().filter(|e| e.2 == *BASALT).count();
             for _ in 0..60 {
                 w.step_water();
             }
@@ -844,8 +847,8 @@ mod tests {
         // (spent to under a unit when it closed, then filling again at its supply)
         assert!(!end.open && end.fill < 1.0 + 600.0 * supply, "spent: {end:?}");
         assert!((w.water.erupted as f64 - (f0 + supplied - end.fill)).abs() < 1e-6, "poured {} of {}", w.water.erupted, f0 + supplied - end.fill);
-        eprintln!("poured {:.1} m3", w.water.erupted as f64 / U as f64);
-        let mut basalt = 0;
+        let m3 = |u: i64| u as f64 / U as f64;
+        eprintln!("poured {:.1} m3; at 600 s {:.1} m3 still lava, {:.1} froze, {basalt} blocks of basalt", m3(w.water.erupted), m3(w.water.counted_of(lava().0)), m3(w.water.froze.get(&lava().0).copied().unwrap_or(0)));
         for _ in 0..3 * 1440 {
             basalt += w.cool_fluids(60.0, |_| false).iter().filter(|e| e.2 == *BASALT).count();
             for _ in 0..4 {
@@ -856,6 +859,14 @@ mod tests {
         let lava_left = w.water.counted_of(lava().0);
         eprintln!("{basalt} blocks of basalt, {:.1} m3 still lava, {:.1} m3 froze", lava_left as f64 / U as f64, w.water.froze.get(&lava().0).copied().unwrap_or(0) as f64 / U as f64);
         assert!(basalt > 0, "the flow froze to basalt");
+        // nothing frozen vanishes (the review): every unit that froze is a block set, a block waiting for its cell, or
+        // a column's remainder under a block
+        let froze = w.water.froze.get(&lava().0).copied().unwrap_or(0);
+        let waiting = w.water.waiting.iter().filter(|x| x.2 == lava().0).count() as i64;
+        let rest: Vec<i64> = w.water.crust.iter().filter(|x| x.0 .1 == lava().0).map(|x| x.1 .1).collect();
+        eprintln!("{} columns hold {} units short of a block", rest.len(), rest.iter().sum::<i64>());
+        assert!(rest.iter().all(|&u| 0 < u && u < U), "each under a block: {rest:?}");
+        assert_eq!((basalt as i64 + waiting) * U + rest.iter().sum::<i64>(), froze, "blocks and remainders are what froze, to the unit");
     }
 
     /// It ends because the melt is spent, not on a timer: twice the melt over its rest pours twice as long.
@@ -1054,5 +1065,109 @@ mod tests {
         let basalt = crate::blocks::BLOCKS.id("basalt");
         assert_eq!(top(&world(false)), [basalt; 3], "the live cone's ground");
         assert_ne!(top(&world(true))[0], basalt, "a dead cone keeps its soil");
+    }
+
+    /// Held heat comes only from the planet's own ground (ADR 0195, 2026-11-24): water in a basin of placed basalt in
+    /// the air over a live crater's flank, where the chamber's heat reaches over 150 C, never boils and drops a heat it
+    /// was given; the same water in a pit dug into the flank's hottest rock (over 180 C 3 m down) boils.
+    #[test]
+    fn water_boils_on_a_volcanos_own_hot_rock_and_not_in_a_basin_of_placed_blocks_over_it() {
+        let w0 = world_of(false, GEOTHERM);
+        let c = live(&w0);
+        let b = w0.bodies[0].clone();
+        let (f, r) = (c.face, c.v.crater as f64);
+        let air = |i: i32, j: i32| b.first_air(b.col_height(f, i, j));
+        let ring = |i: i32, j: i32| [(i - 1, j), (i + 1, j), (i, j - 1), (i, j + 1)];
+        let near: Vec<(i32, i32)> = (-40..=40).flat_map(|a| (-40..=40).map(move |e| (a, e))).map(|(a, e)| (c.at.0 as i32 + a, c.at.1 as i32 + e)).filter(|&(i, j)| {
+            let d = (i as f64 + 0.5 - c.at.0).hypot(j as f64 + 0.5 - c.at.1);
+            d > r + 1.0 && i > 1 && j > 1 && i < b.n - 2 && j < b.n - 2 && !c.lake_cols.contains(&(i, j))
+        }).collect();
+        // the basin's floor two layers over the highest ground of it and its four neighbours
+        let floor = |i: i32, j: i32| ring(i, j).iter().map(|&(a, e)| air(a, e)).fold(air(i, j), i32::max) + 2;
+        // (on ground that holds no generated water, itself or its ring: water on its own hot ground beside the basin
+        // would boil by right, and the proof is that none boils by the basin)
+        let g0 = Solid::at(&w0.bodies, &w0.edits, &w0.sky, w0.time);
+        let wet = |i: i32, j: i32| std::iter::once((i, j)).chain(ring(i, j)).any(|(a, e)| {
+            let (lo, hi) = crate::liquid::Ground::generated(&g0, Col::new(0, f, a, e));
+            lo < hi
+        });
+        let &(bi, bj) = near.iter().find(|&&(i, j)| !wet(i, j) && b.heat(f, i, j, floor(i, j) as f64 + 1.5).unwrap() > 150.0).expect("air over the flank heated over 150 C");
+        let dry = |i: i32, j: i32| std::iter::once((i, j)).chain(ring(i, j)).all(|(a, e)| b.col_caves(f, a, e).is_empty() && b.lava_col(f, a, e).is_empty());
+        let deep = |i: i32, j: i32| b.heat(f, i, j, air(i, j) as f64 - 2.5).unwrap();
+        let &(di, dj) = near.iter().filter(|&&(i, j)| dry(i, j)).max_by(|x, y| deep(x.0, x.1).total_cmp(&deep(y.0, y.1))).unwrap();
+        assert!(deep(di, dj) > 180.0, "the flank's rock 3 m down at most {} C", deep(di, dj));
+        let mild = |_: Col, _: f64| Some(15.0);
+        // five blocks and a third: deep enough that its four walls of rock outweigh the open air over it
+        let units = 5 * U + U / 3;
+        let basalt = crate::blocks::BLOCKS.id("basalt");
+        for basin in [true, false] {
+            let mut w = world_of(false, GEOTHERM);
+            let set = |w: &mut World, i: i32, j: i32, z: i32, m: u16| w.set_block(Block { body: 0, face: f, pos: IVec3::new(i, j, z) }, m);
+            let (col, z0) = if basin {
+                let z = floor(bi, bj);
+                set(&mut w, bi, bj, z, basalt);
+                for (a, e) in ring(bi, bj) {
+                    for k in 1..8 {
+                        set(&mut w, a, e, z + k, basalt);
+                    }
+                }
+                (Col::new(0, f, bi, bj), z + 1)
+            } else {
+                let z = air(di, dj) - 6;
+                for k in z..air(di, dj) + 3 {
+                    set(&mut w, di, dj, k, AIR);
+                }
+                (Col::new(0, f, di, dj), z)
+            };
+            {
+                let World { bodies, edits, water, sky, time, .. } = &mut w;
+                let g = Solid::at(bodies, edits, sky, *time);
+                assert!(water.pour(&g, col, z0, units));
+                let h = crate::liquid::Therm { t: 95.0, age: 0.0, frac: 0.0, solid: 0 };
+                water.restore_heat(&g, &[(col, z0, h)], &[crate::fluids::WATER]);
+            }
+            // (generated water the edits cut off is stored too; where it lies on the flank's own hot rock it boils, and
+            // every unit of vapour must be shown to come from such a column, none from the basin or its ring)
+            let water_of = |w: &World| -> std::collections::BTreeMap<Col, (i64, i32)> {
+                let mut m = std::collections::BTreeMap::new();
+                for (c, gaps) in w.water.all() {
+                    for (floor, _, v) in gaps {
+                        let (kind, units) = ((v >> 56) as u8, v & ((1 << 56) - 1));
+                        if kind == crate::fluids::WATER && units > 0 {
+                            let e = m.entry(c).or_insert((0, floor));
+                            e.0 += units;
+                        }
+                    }
+                }
+                m
+            };
+            let before = water_of(&w);
+            let (mut held, mut boiled_at) = (Vec::new(), std::collections::BTreeSet::new());
+            for _ in 0..300 {
+                w.cool_fluids_in(600.0, |_| false, Some(&mild));
+                held.push(w.water.heats().iter().filter(|h| h.0 == col && h.1 == z0).count());
+                boiled_at.extend(w.water.boils.drain(..).map(|b| b.0));
+            }
+            let vapour = w.water.vapour.get(&crate::fluids::WATER).copied().unwrap_or(0);
+            let after = water_of(&w);
+            let lost: Vec<(Col, i64, i32)> = before.iter().map(|(&c, &(u, fl))| (c, u - after.get(&c).map_or(0, |x| x.0), fl)).filter(|x| x.1 > 0).collect();
+            let near: Vec<(i32, i32)> = std::iter::once((col.i(), col.j())).chain(ring(col.i(), col.j())).collect();
+            for &(c, units, fl) in &lost {
+                let rock = w.bodies[0].heat(f, c.i(), c.j(), fl as f64 - 0.5).unwrap();
+                let generated = w.edit(Block { body: 0, face: f, pos: IVec3::new(c.i(), c.j(), fl - 1) }).is_none();
+                eprintln!("  column {},{}: {units} units boiled off rock at {rock:.0} C (generated: {generated})", c.i(), c.j());
+                assert!(boiled_at.contains(&c) && generated && rock > 100.0 && !(basin && near.contains(&(c.i(), c.j()))), "basin {basin}: column {},{} lost {units} units on {rock} C rock, generated {generated}, boiled there {}, by the basin {}", c.i(), c.j(), boiled_at.contains(&c), near.contains(&(c.i(), c.j())));
+            }
+            assert_eq!(lost.iter().map(|x| x.1).sum::<i64>(), vapour, "every unit of vapour is from those columns");
+            let t = w.bodies[0].heat(f, col.i(), col.j(), z0 as f64 + 0.5).unwrap();
+            eprintln!("{}: {t:.0} C where the water is, {vapour} units boiled", if basin { "the basin" } else { "the pit" });
+            let here: i64 = w.water.column(col).map_or(0, |c| c.filter(|n| n.kind == crate::fluids::WATER && n.floor == z0).map(|n| n.water).sum());
+            if basin {
+                assert_eq!((here, held.iter().sum::<usize>()), (units, 0), "the basin at {t} C: nothing boils, no heat held");
+                assert!(!lost.iter().any(|x| near.contains(&(x.0.i(), x.0.j()))), "nothing boiled in or beside the basin");
+            } else {
+                assert!(vapour > 0 && here < units, "the pit in rock at {t} C boils: {here} units left");
+            }
+        }
     }
 }

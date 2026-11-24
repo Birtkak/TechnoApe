@@ -247,6 +247,21 @@ fn ripple(p: vec2f, t: f32) -> f32 {
         + 0.25 * wnoise(p * 2.3 + vec2f(0.37, -0.31) * t + 41.0);
 }
 
+// the flat normal n0 tilted by the ripples at p (columns of the face) by k, flat over each texel, never turned away
+// from the eye v
+fn rippled(i: WOut, n0: vec3f, v: vec3f, p: vec2f, t: f32, k: f32) -> vec3f {
+    var fsv = array<vec3f, 6>(vec3f(0., 1., 0.), vec3f(0., 0., 1.), vec3f(0., 0., 1.), vec3f(1., 0., 0.), vec3f(1., 0., 0.), vec3f(0., 1., 0.));
+    var ftv = array<vec3f, 6>(vec3f(0., 0., 1.), vec3f(0., 1., 0.), vec3f(1., 0., 0.), vec3f(0., 0., 1.), vec3f(0., 1., 0.), vec3f(1., 0., 0.));
+    let b = g.bodies[i.body];
+    let q = 1.0 / RIPPLE_PX;
+    let cell = (floor(p * RIPPLE_PX) + 0.5) * q;
+    let h0 = ripple(cell, t);
+    let gr = vec2f(ripple(cell + vec2f(q, 0.0), t) - h0, ripple(cell + vec2f(0.0, q), t) - h0) * RIPPLE_PX;
+    var n = normalize(n0 - (brot(b, fsv[i.face]) * gr.x + brot(b, ftv[i.face]) * gr.y) * k);
+    if (dot(n, v) < 0.02) { n = normalize(n + n0 * (0.02 - dot(n, v))); }
+    return n;
+}
+
 // what a reflected ray from p sees, lit without rays of its own (the water's pass is the dearest near water,
 // and a shadow in a ripple's reflection is not missed): the terrain it hits in the sun as the water has it
 // (`day`) and the light from around, else the sky. `seen` traces the hit's light (a metal's mirror).
@@ -289,8 +304,9 @@ fn luna_in(p: vec3f, d: vec3f, body: u32) -> vec3f {
 fn fs_water(i: WOut) -> @location(0) vec4f {
     // a pixel's footprint on the water in metres, before any branch (derivatives need uniform control flow)
     let foot = max(length(fwidth(i.grid.xy)), 1e-4);
+    if ((i.side & 4u) != 0u) { return lava(i, foot); }
     if ((i.side & 2u) != 0u) { return metal_sea(i); }
-    if ((i.side & 8u) != 0u) { return tinted(i); }
+    if ((i.side & 8u) != 0u) { return tinted(i, foot); }
     let mode = (g.opt.x >> 4u) & 3u;
     if (mode >= 2u) { return water_old(i); }
     let b = g.bodies[i.body];
@@ -309,19 +325,12 @@ fn fs_water(i: WOut) -> @location(0) vec4f {
     if (behind && !fall && !below) { discard; }
     let speed = length(i.gflow);
     // the ripples: on the blocks' grid, calm where a pixel spans more than a few of its texels
-    var fsv = array<vec3f, 6>(vec3f(0., 1., 0.), vec3f(0., 0., 1.), vec3f(0., 0., 1.), vec3f(1., 0., 0.), vec3f(1., 0., 0.), vec3f(0., 1., 0.));
-    var ftv = array<vec3f, 6>(vec3f(0., 0., 1.), vec3f(0., 1., 0.), vec3f(1., 0., 0.), vec3f(0., 0., 1.), vec3f(0., 1., 0.), vec3f(1., 0., 0.));
     let calm = 1.0 - smoothstep(0.04, 0.4, foot);
     let q = 1.0 / RIPPLE_PX;
     let p = i.grid.xy - i.gflow * t;
-    let cell = (floor(p * RIPPLE_PX) + 0.5) * q;
     var n = n0;
     if (!fall && calm > 0.0) {
-        let h0 = ripple(cell, t);
-        let gr = vec2f(ripple(cell + vec2f(q, 0.0), t) - h0, ripple(cell + vec2f(0.0, q), t) - h0) * RIPPLE_PX;
-        let k = (0.07 + 0.05 * min(speed, 3.0)) * calm;
-        n = normalize(n0 - (brot(b, fsv[i.face]) * gr.x + brot(b, ftv[i.face]) * gr.y) * k);
-        if (dot(n, v) < 0.02) { n = normalize(n + n0 * (0.02 - dot(n, v))); }
+        n = rippled(i, n0, v, p, t, (0.07 + 0.05 * min(speed, 3.0)) * calm);
     }
     let l = light(i.rel, n, i.body);
     let cosv = max(dot(n, v), 0.0);
@@ -402,9 +411,72 @@ fn metal_sea(i: WOut) -> vec4f {
     let p = i.grid.xy / 7.0;
     let m = 0.6 * wnoise(p + vec2f(t, -0.7 * t)) + 0.4 * wnoise(p * 2.3 + vec2f(-0.6 * t, t) + 17.0);
     // (the shoulder rolls 4.0 and 2.6 both to white: the cells must fall to about a third to show at all)
-    // stored lava carries its row's light in `flow` (side bit 4, `vs_water`)
-    let hot = select(METAL_GLOW, i.flow.xyz, (i.side & 4u) != 0u);
-    return water_out(hot * mix(0.3, 1.0, smoothstep(0.2, 0.7, m)), 1.0);
+    return water_out(METAL_GLOW * mix(0.3, 1.0, smoothstep(0.2, 0.7, m)), 1.0);
+}
+
+// lava (side bit 4, its row's light in `flow`, `vs_water`): a dark crust of plates, lit by the sun as rock is,
+// broken by cracks that glow in the row's light, wider and brighter where a slow swell of heat runs under it; the
+// plates drift and the swell wanders, a step at a time on the blocks' texels. A fall or a front runs molten down.
+// shortcut: the plate size, drift and crust are lava's own constants here, not columns of its fluids.toml row
+// (that schema is the engine's); move them there when a second glowing fluid wants other numbers.
+const LAVA_PLATE: f32 = 1.7; // a plate's width, m
+const LAVA_DRIFT: vec2f = vec2f(0.035, 0.02); // the crust's drift, columns a second
+const LAVA_CRUST: vec3f = vec3f(0.05, 0.043, 0.04); // basalt's colour, a little warm
+
+// (F1, F2) of a jittered grid at p: the distances to the nearest and second nearest plate centre
+fn plates(p: vec2f) -> vec2f {
+    let c = floor(p);
+    var d = vec2f(9.0);
+    for (var y = -1; y <= 1; y++) {
+        for (var x = -1; x <= 1; x++) {
+            let k = c + vec2f(f32(x), f32(y));
+            let kb = bitcast<vec2u>(vec2i(k));
+            let o = k + vec2f(hash2(kb), hash2(kb + vec2u(91u, 37u))) * 0.8 + 0.1;
+            let e = length(p - o);
+            if (e < d.x) { d = vec2f(e, d.x); } else if (e < d.y) { d.y = e; }
+        }
+    }
+    return d;
+}
+
+fn lava(i: WOut, foot: f32) -> vec4f {
+    let hot = i.flow.xyz;
+    let t = floor(g.water.x * WATER_STEPS) / WATER_STEPS;
+    let q = 1.0 / RIPPLE_PX;
+    let p = (floor(i.grid.xy * RIPPLE_PX) + 0.5) * q;
+    if ((i.side & 1u) == 1u) {
+        // running down a step: molten, streaked, the streaks falling a texel a step (lava is slow), on texels as
+        // water's falls are
+        let fc = floor(vec2f(i.grid.x + i.grid.y, i.grid.z + t * WATER_STEPS * q) * RIPPLE_PX) * q;
+        let s = wnoise(fc * vec2f(3.0, 1.5));
+        return water_out(hot * mix(0.7, 1.4, s), 1.0);
+    }
+    // the swell of heat: slow, larger than a plate
+    let heat = smoothstep(0.25, 0.8, wnoise(p * 0.18 + vec2f(0.013, -0.009) * t));
+    let f = plates((p - LAVA_DRIFT * t) / LAVA_PLATE);
+    let edge = (f.y - f.x) * LAVA_PLATE; // metres to the plate's border
+    let fine = plates((p - LAVA_DRIFT * t) / (LAVA_PLATE * 0.4) + 7.3);
+    let fedge = (fine.y - fine.x) * LAVA_PLATE * 0.4;
+    // where the swell runs the plates melt away to open melt; a cool crack (and the fine net) is still a texel
+    // across (`edge` grows about twice as fast as the way off the border), else a slanted one breaks into dashes
+    let w = mix(0.13, 0.5, heat * heat);
+    var crack = 1.0 - smoothstep(w * 0.5, w, edge);
+    crack = max(crack, (1.0 - smoothstep(q, 0.1, fedge)) * smoothstep(0.3, 0.7, heat) * 0.6);
+    // far off the cracks are finer than a pixel: their mean share at that heat (fitted to the pattern sampled on
+    // texels, within 0.03), as one glow over the crust; from the same footprint as the water's ripples calm
+    let far = smoothstep(0.04, 0.4, foot);
+    crack = mix(crack, 0.13 + 0.3 * heat * heat + 0.1 * smoothstep(0.3, 0.7, heat), far);
+    let n = normalize(i.normal);
+    let l = light(i.rel, n, i.body);
+    // the crust: rough rock in the sun, the sky and the lake's own light, glowing dull red from under, most near
+    // its cracks
+    let grain = 0.6 + 0.8 * hash2(bitcast<vec2u>(vec2i(floor((p - LAVA_DRIFT * t) * RIPPLE_PX))));
+    let crust = LAVA_CRUST * grain * (l.l + ambient(l.day) + hot * 0.6) + hot * (0.02 + 0.1 * exp(-edge * 5.0)) * (0.5 + heat);
+    // a crack: the row's light, hotter at its core and where the swell runs
+    let core = 1.0 - smoothstep(0.0, w * 0.5, edge);
+    // (far: the cores' mean lift over the cracks, about 1.18 at every heat)
+    let melt = hot * mix(0.55, 1.1, heat) * mix(1.0 + 0.6 * core, 1.18, far);
+    return water_out(mix(crust, melt, crack), 1.0);
 }
 
 fn water_out(col: vec3f, a: f32) -> vec4f {
@@ -413,17 +485,42 @@ fn water_out(col: vec3f, a: f32) -> vec4f {
     return vec4f(lit, clamp(a, 0.0, 1.0));
 }
 
-// a fluid in its own colour (oil; `flow.xyz`, side bit 8): opaque, lit by the sun and the sky as the old water
-// sheet is, a glint and the sky in it by its Fresnel term; no rays of its own
-fn tinted(i: WOut) -> vec4f {
+// a fluid in its own colour (oil; `flow.xyz`, side bit 8): opaque and glossy. Long low swells, slower than
+// water's (it is thicker); the sky in it by its Fresnel term, tinted where a thin film spreads over it, a sharp glint;
+// no rays of its own.
+// shortcut: the swell, gloss and film are oil's own numbers here, not columns of its fluids.toml row (that schema
+// is the engine's); move them there when a second tinted fluid (sludge) wants other numbers.
+fn tinted(i: WOut, foot: f32) -> vec4f {
     let v = normalize(-i.rel);
-    var n = normalize(i.normal);
-    if (dot(n, v) < 0.0) { n = -n; }
-    let fres = 0.04 + 0.96 * pow(1.0 - max(dot(n, v), 0.0), 5.0);
+    var n0 = normalize(i.normal);
+    if (dot(n0, v) < 0.0) { n0 = -n0; }
+    let t = floor(g.water.x * WATER_STEPS) / WATER_STEPS;
+    var n = n0;
+    let calm = 1.0 - smoothstep(0.04, 0.4, foot);
+    if ((i.side & 1u) == 0u && calm > 0.0) {
+        n = rippled(i, n0, v, i.grid.xy * 0.5, t * 0.35, 0.05 * calm);
+    }
+    let cosv = max(dot(n, v), 0.0);
+    // (a refractive index of about 1.47 gives 3.6 % straight on; 6 % for a glossier slick)
+    let fres = 0.06 + 0.94 * pow(1.0 - cosv, 5.0);
     let l = light(i.rel, n, i.body);
-    var col = i.flow.xyz * (l.l + ambient(l.day) + 0.1 * l.day);
-    col = mix(col, g.sky.rgb + vec3f(0.17, 0.13, 0.01) * l.day, fres * 0.6);
-    col += g.sun_col.rgb * 1.5 * l.sun * pow(max(dot(reflect(-g.sun.xyz, n), v), 0.0), 80.0);
+    var r = reflect(-v, n);
+    let rn = dot(r, n0);
+    if (rn < 0.01) { r = normalize(r + n0 * (0.01 - rn)); }
+    // the film: bands of colour by its thickness (patches that drift) and the angle through it, strongest at a
+    // slant, faint looking straight down
+    let film_t = wnoise(i.grid.xy * 0.35 + vec2f(0.02, 0.013) * t) * 3.0 + wnoise(i.grid.xy * 1.3 - 0.01 * t + 9.0) * 0.6;
+    let hue = film_t + (1.0 - cosv) * 0.9;
+    let film = 0.5 + 0.5 * cos(6.2832 * (hue + vec3f(0.0, 0.33, 0.67)));
+    // where the film is thin enough to colour: patches, brightest at a slant (exaggerated over its few per cent of
+    // the sky, as a slick on a puddle shows its bands from any angle)
+    let spot = smoothstep(0.35, 0.75, wnoise(i.grid.xy * 0.22 - vec2f(0.011, 0.007) * t + 31.0));
+    let sheen = mix(0.08, 0.25, smoothstep(0.2, 0.9, 1.0 - cosv)) * spot * calm;
+    let sky = sky_colour(r) + luna_in(i.rel, r, i.body);
+    // (the film takes its share of what the Fresnel term leaves, so the sky's weight stays at or under 1)
+    var col = i.flow.xyz * (l.l + ambient(l.day)) * (1.0 - fres) + sky * (fres + film * sheen * (1.0 - fres));
+    // the glint: sharp on near swells, a dimmer wide sheen far off, as the water's
+    col += g.sun_col.rgb * l.sun * pow(max(dot(r, normalize(g.sun_pos.xyz - i.rel)), 0.0), mix(80.0, 400.0, calm)) * mix(0.6, 2.0, calm);
     return water_out(col, 1.0);
 }
 

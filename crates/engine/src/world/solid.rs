@@ -12,8 +12,14 @@ pub struct Solid<'a> {
     pub air: Option<Air<'a>>,
 }
 
-/// The air over the ground at a moment, for water's phases: the sky (its year sets ADR 0187's pace, its sun the
-/// season and the hour), and the temperature at a place where a live air grid gives it (the server's weather), else
+/// How far down a hollow the open air's reach runs, m: the air there is 1 - exp(-depth / this) the rock's (2 m down
+/// 6 %, 100 m down 96 %). Air in a hole open upward trades with the sky by convection far deeper than the rock's own
+/// seasonal wave (2.9 m), so a pond in a pit or a quarry keeps the open air's weather.
+/// shortcut: one length standing in for the shaft's convection with the open air; a rule of the hollow's width and
+/// depth once near-ground gas (ADR 0191) is built.
+const AIR_REACH_M: f64 = 30.0;
+
+/// The air over the ground at a moment, for water's phases: the sky (its sun the season and the hour), and the temperature at a place where a live air grid gives it (the server's weather), else
 /// the baked climate's year with the season and the hour on top (`sky::temperature`).
 #[derive(Clone, Copy)]
 pub struct Air<'a> {
@@ -30,8 +36,21 @@ impl<'a> Solid<'a> {
         let tide = bodies.first().filter(|b| b.sea.is_some()).map(|b| (s as i64, sky.tide(s, &b.ocean)));
         Solid { bodies, edits, tide, air: None }
     }
-    /// The air at layer z of column c, C and Pa (`Ground::air`).
-    fn air_at(&self, a: &Air, c: Col, z: f64) -> (f64, f64) {
+    /// The air at layer z of column c, C and Pa (`Ground::air`): over the ground the weather's (`open_air`); in a
+    /// hollow under it the rock's round it (`Body::heat`), blended from the open air's by depth under the column's
+    /// generated ground, 1 - exp(-depth / `AIR_REACH_M`). The pressure is the open air's at that height.
+    pub(super) fn air_at(&self, a: &Air, c: Col, z: f64) -> (f64, f64) {
+        let (t, p) = self.open_air(a, c, z);
+        let b = &self.bodies[c.body() as usize];
+        let under = b.col_height(c.face(), c.i(), c.j()) - b.layer_r(z);
+        if !b.air || under <= 0.0 {
+            return (t, p);
+        }
+        b.heat(c.face(), c.i(), c.j(), z).map_or((t, p), |rock| (t + (rock as f64 - t) * (1.0 - (-under / AIR_REACH_M).exp()), p))
+    }
+    /// The open air at layer z of column c, C and Pa: the weather's, or the baked climate's (the air at every layer
+    /// before ADR 0195's open water on held rock, 2026-11-24).
+    pub(super) fn open_air(&self, a: &Air, c: Col, z: f64) -> (f64, f64) {
         let b = &self.bodies[c.body() as usize];
         let (face, fi, fj) = (c.face() as usize, c.i() as f64 + 0.5, c.j() as f64 + 0.5);
         let ground = || b.heat(c.face(), c.i(), c.j(), z).map_or(crate::liquid::AMBIENT, |t| t) as f64;
@@ -132,6 +151,9 @@ impl Ground for Solid<'_> {
     fn ground_water(&self) -> bool {
         self.bodies.first().and_then(|b| b.baked.as_ref()).is_some_and(|b| !b.map.table.is_empty())
     }
+    fn calendar(&self) -> f64 {
+        self.air.as_ref().map_or(1.0, |a| crate::liquid::REAL_YEAR / a.sky.year)
+    }
     fn aquifer(&self, c: Col) -> Option<crate::liquid::Aq> {
         let mut a = self.bodies[c.body() as usize].aquifer(c.face(), c.i(), c.j())?;
         a.cell |= (c.body() as u64) << 56;
@@ -148,14 +170,15 @@ impl Ground for Solid<'_> {
     fn heat(&self, c: Col, z: f64) -> f32 {
         self.bodies[c.body() as usize].rest_heat(c.face(), c.i(), c.j(), z)
     }
+    fn held(&self, c: Col, z: i32) -> bool {
+        // generated ground only: a block placed over it, a plant or ice is not held at the rock's heat
+        z < self.gen_floor(c) && !self.ice(c, z)
+    }
     fn air(&self, c: Col, z: f64) -> (f64, f64) {
         match &self.air {
             Some(a) => self.air_at(a, c, z),
             None => (crate::liquid::AMBIENT as f64, crate::liquid::phases::ATM),
         }
-    }
-    fn pace(&self) -> f64 {
-        self.air.as_ref().map_or(1.0, |a| crate::liquid::phases::REAL_YEAR / a.sky.year)
     }
     fn ice(&self, c: Col, z: i32) -> bool {
         let Some(f) = crate::fluids::FLUIDS.now().get(crate::fluids::WATER).freeze.as_ref() else { return false };

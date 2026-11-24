@@ -4737,7 +4737,39 @@ fn flood(s: &mut Server, r: i32) {
     }
 }
 
-/// Lava's heat survives a save (lava basics, draft decision): poured lava cooled an hour keeps its temperature and
+/// Frozen lava short of a block survives a save (the review of the two constants): a sheet of half a block frozen
+/// through, with no lava beside it, is a column's remainder, booked, that a save and a load keep.
+#[test]
+fn a_frozen_sheet_short_of_a_block_survives_a_save() {
+    let lava = engine::fluids::FLUIDS.now().kind("lava").unwrap();
+    let mut s = Server::baked(1536, 32, 7, channel().1);
+    let b = s.world.bodies[0].clone();
+    let (f, i, j) = b.locate(b.spawn);
+    let (f, i, j) = (f as u8, i as i32, j as i32);
+    let z0 = b.layer_of(b.col_height(f, i, j)).floor() as i32 - 3;
+    for z in 0..3 {
+        s.world.set_block(Block { body: 0, face: f, pos: glam::IVec3::new(i, j, z0 + z) }, AIR);
+    }
+    let col = engine::liquid::Col::new(0, f, i, j);
+    {
+        let World { bodies, edits, water, sky, time, .. } = &mut s.world;
+        let g = engine::world::Solid::at(bodies, edits, sky, *time);
+        assert!(water.pour_kind(&g, col, z0, U / 2, lava));
+    }
+    for _ in 0..3600 {
+        s.world.cool_fluids(1.0, |_| false);
+        if s.world.water.total_of(lava) == 0 {
+            break;
+        }
+    }
+    assert_eq!(s.world.water.total_of(lava), 0, "it froze through");
+    let held = s.world.water.crust.clone();
+    assert_eq!(held.values().map(|x| x.1).sum::<i64>(), s.world.water.froze[&lava], "what froze is held, short of a block: {held:?}");
+    let back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
+    assert_eq!(back.world.water.crust, held, "through the save");
+}
+
+/// Lava's heat survives a save (lava basics, draft decision): poured lava cooled a minute keeps its temperature and
 /// what froze through a save and a load, as bytes after the layout; a world of water alone writes the layout's very
 /// bytes, nothing after them.
 #[test]
@@ -4758,8 +4790,9 @@ fn poured_lavas_heat_survives_a_save_and_water_alone_writes_the_bytes_it_did() {
             let g = engine::world::Solid::at(bodies, edits, sky, *time);
             assert!(water.pour_kind(&g, col, z0, U / 2, kind));
         }
+        // (a minute: on the world's heat, 2026-11-24, half a block of lava freezes through in minutes)
         for _ in 0..60 {
-            s.world.cool_fluids(60.0, |_| false);
+            s.world.cool_fluids(1.0, |_| false);
         }
         let snap = s.snapshot();
         let bytes = snap.to_bytes();

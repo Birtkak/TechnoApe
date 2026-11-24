@@ -113,6 +113,9 @@ pub(crate) struct App {
     /// the aimed block (the ray passes through water to what is under it).
     pub(crate) bucket: bool,
     pub(crate) aim: Option<(Block, Block)>,
+    /// The felt temperature at the eye and the look-at panel's target and lines, worked out a few times a second
+    /// (`play::sense`, draft 2026-11-24 "Felt temperature"): when, the felt, the target with its name and note.
+    pub(crate) sensed: crate::play::Sensed,
     pub(crate) held: Option<(bool, Block, Block)>,
     /// The pick-up the crosshair is on by its own faces, nearer than `aim`'s block, that a click would take
     /// (ADR 0144): its cell.

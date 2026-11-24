@@ -15,14 +15,19 @@ Recorded from the game itself, as it runs today.
 
 | | |
 |:---:|:---:|
-| ![Terra turning, day into night](docs/media/terra.gif) | ![Clouds and their shadows over a coast](docs/media/clouds.gif) |
-| **Terra**, baked from a seed, turning from day into night | **Weather:** clouds and their shadows drifting over a coast |
+| ![Terra turning, day into night](docs/media/terra.gif) | ![Clouds and their shadows over a desert](docs/media/clouds.gif) |
+| **Terra**, baked from a seed, turning from day into night | **Weather:** clouds and their shadows drifting over a desert |
 | ![The aurora](docs/media/aurora.gif) | ![Luna turning through her phases](docs/media/luna.gif) |
 | **The aurora**, drawn from the planet's magnetic field | **Luna:** craters and maria, turning through her phases |
+| ![Mars turning](docs/media/mars.gif) | ![Jupiter turning](docs/media/jupiter.gif) |
+| **Mars:** rust highlands, canyons and ice caps | **Jupiter**, the banded giant the moons circle |
+| ![A volcano erupting at night](docs/media/volcano.gif) | ![A lava lake's cracked crust](docs/media/lava.gif) |
+| **An eruption** at night: the crater's lake, and lava running down the cone | **A lava lake:** a dark crust broken by glowing cracks |
 
 ## Status
 
-In development since 2026-11-09, by one developer working with Claude Code. This is a personal project shown
+In development since 2026-10-21, and on its own engine since 2026-11-09 (the first version, a flat world, was
+set aside for planets), by one developer working with Claude Code. This is a personal project shown
 as it is: there are no releases, the code changes daily, and nothing here is promised to work on your machine.
 
 ## Roadmap
@@ -37,7 +42,9 @@ The full plan, with dates and the decision behind each step, is in
 | **Engine** | Rust + wgpu from scratch · cube-sphere planets of 1 m blocks · streaming and meshing on worker threads · ray-traced light with coloured block light and soft shadows |
 | **Terra** | Baked from a seed: plates, mountains, erosion, rivers and lakes, climate, biomes · seasons, weather, tides · plants and herds of animals |
 | **Luna** | Craters, maria and polar shadow · highland and mare rock · ilmenite, merrillite and meteoritic iron · lava tubes with skylights |
-| **The deep world** | Mantle and liquid metal core · gravity and pressure from each body's mass · rock that forms by pressure and heat · lava tubes, fissures and karst caves by rock |
+| **The deep world** | Mantle and liquid metal core · gravity and pressure from each body's mass · rock that forms by pressure and heat, warmer with depth · lava tubes, fissures and karst caves by rock |
+| **Volcanoes** | Cones on the plates' arcs, some alive: a chamber held hot, a lava lake, a bare upper cone · eruptions when a chamber bursts its plug, pouring lava that runs down the cone and freezes to basalt |
+| **Fluids and heat** | Water, lava and oil as one counted system, lying in layers by density · lava and water react to basalt and steam · ponds freeze from the top, ice melts, water boils by the air's pressure · one rule of heat for all of it · the temperature you feel, from the weather, the depth and the lava in sight |
 | **The sky** | Day and night, eclipses, Luna's phases · a magnetic field per body, seen as the aurora · a seamless flight from the ground to orbit and over to Luna |
 | **Survival** | Digging along a rock's own cracks · rubble, piles and undercut roofs that fall · inventory, flint tools, first crafting · thirst and breath |
 | **Multiplayer** | Authoritative dedicated server · client prediction · scripted bots · recordings that replay to the same state · saves of what changed |
@@ -46,7 +53,8 @@ The full plan, with dates and the decision behind each step, is in
 ### In work
 
 - [ ] **Mars** as a third body: its map is baked (highlands, giant volcanoes, a canyon, dry rivers, ice caps); next it joins the world
-- [ ] **Speed:** winning back the frame time the deep world cost
+- [ ] **The living ground:** ground water with flooded caves and springs · ice and snow in thin layers · gases near the ground and fire that spreads · heat that walls keep in or let out, so a base wants insulation
+- [ ] **Speed:** winning back the frame time the deep world and the fluids cost
 
 ### To do
 

@@ -22,6 +22,116 @@ pub(crate) const PLAYTEST: &[(&str, &[&str], &str)] = &[
     ("Home at noon, in survival", &["/goto terra", "/time set noon", "/playmode survival"], "Back at the spawn, at noon."),
 ];
 
+/// What the look-at panel shows (draft 2026-11-24, "Felt temperature"): its target, the name and the note under it.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Looked {
+    pub(crate) what: edit::Look,
+    pub(crate) name: String,
+    pub(crate) note: String,
+}
+
+/// Seconds between two workings-out of the felt temperature and the look-at panel's lines (sooner when the aimed
+/// cell or its block changes).
+pub(crate) const SENSE_S: f64 = 0.25;
+
+/// What the eye senses (draft 2026-11-24, "Felt temperature"): the felt temperature's rays, marched a few a frame
+/// (`World::march`), the last whole set, the value worked out from it, and the look-at panel's lines.
+#[derive(Default)]
+pub(crate) struct Sensed {
+    /// The set being marched, and where it began.
+    rays: Option<(DVec3, engine::world::Rays)>,
+    /// The last whole set, and where it began.
+    done: Option<(DVec3, engine::world::Rays)>,
+    pub(crate) felt: Option<engine::world::Felt>,
+    pub(crate) looked: Option<Looked>,
+    /// When the value and the lines were made, and for which aimed cell and its block.
+    at: Option<(Instant, Option<(Block, u16)>)>,
+    /// The eye and where it looks, every frame of every run: the run's last line works its felt temperature and
+    /// lines out from it once.
+    pub(crate) eye: Option<(DVec3, DVec3)>,
+}
+
+/// A set of rays begun farther than this from the eye, m, is begun again; a whole set from farther than `FORGET_M`
+/// is forgotten (a teleport: the air's alone until a set is whole).
+const RESTART_M: f64 = 8.0;
+const FORGET_M: f64 = 32.0;
+
+/// The look-at panel's lines for target `look`, `live` the weather's air at the eye: a block's name and its
+/// temperature, hardness, the tool it wants and what else it is; a fluid's name (sea water by the sea's salt), its
+/// temperature and depth.
+pub(crate) fn looked(w: &World, look: edit::Look, live: Option<f64>) -> Looked {
+    match look {
+        edit::Look::Block(b) => {
+            let m = w.block(b);
+            let Some(d) = BLOCKS.get(m) else { return Looked { what: look, name: "?".into(), note: String::new() } };
+            let mut note = format!("{:.1} °C, hardness {}", w.block_temp(b, live), d.hardness);
+            if let Some(t) = &d.tool {
+                note += &format!(", {t}");
+            }
+            if d.light.iter().any(|c| *c > 0.0) {
+                note += ", gives light";
+            }
+            if d.metal > 0.0 {
+                note += ", metal";
+            }
+            Looked { what: look, name: d.name.clone(), note }
+        }
+        edit::Look::Fluid(b, k) => {
+            let row = engine::fluids::FLUIDS.now().get(k).clone();
+            let name = if k == engine::fluids::WATER && w.salt(b) { "Sea water".to_string() } else { capital(&row.name) };
+            let deep = w.fluid_depth(b, k).map_or(String::new(), |d| format!(", {d:.1} m deep"));
+            Looked { what: look, name, note: format!("{:.1} °C{deep}", w.fluid_temp(b, k, live)) }
+        }
+    }
+}
+
+/// `s` with its first letter a capital.
+fn capital(s: &str) -> String {
+    let mut c = s.chars();
+    c.next().map_or(String::new(), |f| f.to_uppercase().chain(c).collect())
+}
+
+impl App {
+    /// The felt temperature at the eye and the look-at target's lines (run=play, where the HUD shows them): the
+    /// rays a few a frame under `FRAME_PROBES` cells, the value from the last whole set; the lines again when the
+    /// aimed cell or its block changes, else every `SENSE_S`, the fluid test (`edit::look`) with them, so a name and
+    /// its note are always one target's.
+    pub(crate) fn sense(&mut self, p: &Pose) {
+        if self.world.bodies.is_empty() {
+            return;
+        }
+        // the live air is the home's, where the player stands on it
+        let live = self.air.filter(|_| self.world.frame_at(p.pos) == 0).map(|a| a.temp as f64);
+        let s = &mut self.sensed;
+        if s.rays.is_some_and(|(at, _)| at.distance(p.pos) > RESTART_M) {
+            s.rays = None;
+        }
+        if s.done.is_some_and(|(at, _)| at.distance(p.pos) > FORGET_M) {
+            s.done = None;
+        }
+        let (at, r) = s.rays.get_or_insert((p.pos, engine::world::Rays::default()));
+        self.world.march(p.pos, r, engine::world::FRAME_PROBES);
+        if r.done == engine::world::RAYS {
+            s.done = Some((*at, *r));
+            s.rays = None;
+        }
+        let key = self.aim.map(|(b, _)| (b, self.world.block(b)));
+        if s.at.is_none_or(|(t, k)| k != key || t.elapsed().as_secs_f64() >= SENSE_S) {
+            s.felt = Some(self.world.felt_of(p.pos, live, &s.done.map(|d| d.1).unwrap_or_default()));
+            s.looked = edit::look(&self.world, p.pos, p.fwd, AIM_REACH).map(|l| looked(&self.world, l, live));
+            s.at = Some((Instant::now(), key));
+        }
+    }
+
+    /// The felt temperature and the look-at panel's lines at the run's last eye, all rays at once: the run's JSON,
+    /// off the measured frames.
+    pub(crate) fn sensed_at_end(&self) -> (Option<engine::world::Felt>, Option<Looked>) {
+        let Some((pos, fwd)) = self.sensed.eye.filter(|_| !self.world.bodies.is_empty()) else { return (None, None) };
+        let live = self.air.filter(|_| self.world.frame_at(pos) == 0).map(|a| a.temp as f64);
+        (Some(self.world.felt(pos, live)), edit::look(&self.world, pos, fwd, AIM_REACH).map(|l| looked(&self.world, l, live)))
+    }
+}
+
 /// acts="2:C,2.5:c,3:R,3.5:r": (seconds after load, action), sorted so the soonest is last.
 pub(crate) fn parse_acts(s: &str) -> Vec<(f64, String)> {
     let mut v: Vec<(f64, String)> =
@@ -813,22 +923,19 @@ impl App {
                     Some(a) => (a.temp as f64, format!(", rain {:.2} mm/h, cloud {:.0} %, wind {:.1} m/s", a.rain, a.cover * 100.0, a.wind[0].hypot(a.wind[1]))),
                     None => (engine::sky::temperature(mean, swing, up.z.clamp(-1.0, 1.0).asin(), w.sky.declination(w.time), w.sky.hour_angle(w.time, up)), String::new()),
                 };
-                format!("{c:.1} C, the year's mean here {mean:.0} C ({}){rain}", engine::bake::life::BIOMES[bio as usize].0)
+                format!("{c:.1} °C, the year's mean here {mean:.0} °C ({}){rain}", engine::bake::life::BIOMES[bio as usize].0)
             }
             None => "no air reading here".into(),
         };
         let sea = b.over_sea(pos).map_or(String::new(), |h| format!(", {h:.1} m over the sea"));
-        let look = match self.aim {
-            Some((hit, _)) => format!(
-                "{} (face {}, {} {}, layer {})",
-                BLOCKS.get(w.block(hit)).map_or("?", |d| d.name.as_str()),
-                hit.face,
-                hit.pos.x,
-                hit.pos.y,
-                hit.pos.z
-            ),
+        let look = match &self.sensed.looked {
+            Some(l) => {
+                let (edit::Look::Block(hit) | edit::Look::Fluid(hit, _)) = l.what;
+                format!("{}: {} (face {}, {} {}, layer {})", l.name, l.note, hit.face, hit.pos.x, hit.pos.y, hit.pos.z)
+            }
             None => "nothing in reach".into(),
         };
+        let felt = self.sensed.felt.map_or("not yet".into(), |f| format!("{:.1} °C: the air {:.1} °C, mean radiant {:.1} °C", f.temp, f.air, f.mrt));
         let (yaw, pitch) = stand_angles(w.up_at(pos), fwd);
         let tool = if self.bucket { "bucket" } else if self.hammer { "build hammer" } else { "hands" };
         let tool = if self.flying { format!("{tool}, flying {:.0} m/s", self.fly_speed) } else { tool.to_string() };
@@ -901,6 +1008,7 @@ impl App {
                     ("Time", format!("day {day}, {:02}:{:02} at the spawn, {:.0} s", m / 60, m % 60, w.time), 0),
                     ("Sol", format!("{:.1} degrees over the horizon", d.sun_deg), 0),
                     ("Air", air, 0),
+                    ("Felt", felt, 0),
                     ("Field", {
                         // the home's magnetic field, `field=` scaling it for the run, and its aurora (0164-magnetic-field)
                         let f = w.field(0) * crate::frame::field_scale(&self.args);
@@ -1509,6 +1617,11 @@ impl App {
                 let marks: Vec<(f64, [f32; 3], usize)> = here.iter().map(|(p, at, _)| (nav::bearing(up, *at - eye), colour(p), p.icon)).collect();
                 let heading = nav::bearing(up, fwd);
                 let text = if self.creative { format!("{}  {}  {:.0} m up", b.name, nav::geo_text(nav::geo(rel, self.meridian(on))), rel.length() - b.radius) } else { b.name.clone() };
+                // the felt temperature at the eye beside the place
+                let text = match &self.sensed.felt {
+                    Some(f) => format!("{text}  {:.1} °C", f.temp),
+                    None => text,
+                };
                 label_y = hud::compass(&mut paint, heading, &marks, &text) + 10.0;
             }
             // this frame's view, as `frame` makes it after this: from the camera, the up kept off the look
@@ -1548,18 +1661,21 @@ impl App {
             }
         }
         // what the crosshair is on (the developer, 2026-11-11), when no menu or overlay is over the top
-        if let (Some((hit, _)), None, false) = (self.aim, self.menu, self.f3 || title) {
-            if let Some(d) = BLOCKS.get(self.world.block(hit)) {
-                let lit = d.light.iter().any(|c| *c > 0.0);
-                let note = match (lit, d.metal > 0.0) {
-                    (true, true) => "gives light, metal",
-                    (true, false) => "gives light",
-                    (false, true) => "metal",
-                    _ => "",
-                };
-                let (colour, side, pattern) = crate::gpu::shown(d, season);
-                let pt = crate::gpu::painting(d);
-                hud::looking_at(&mut paint, &d.name, colour, side, pattern, [pt[0].as_ref(), pt[1].as_ref()], note, label_y);
+        // (its lines from `sense`, made again in this frame when the aimed cell or its block changed, else every
+        // `SENSE_S`: a block's temperature and hardness, a fluid's name)
+        if let (Some(l), None, false) = (&self.sensed.looked, self.menu, self.f3 || title) {
+            match l.what {
+                edit::Look::Block(hit) => {
+                    if let Some(d) = BLOCKS.get(self.world.block(hit)) {
+                        let (colour, side, pattern) = crate::gpu::shown(d, season);
+                        let pt = crate::gpu::painting(d);
+                        hud::looking_at(&mut paint, &l.name, colour, side, pattern, [pt[0].as_ref(), pt[1].as_ref()], &l.note, label_y);
+                    }
+                }
+                edit::Look::Fluid(_, k) => {
+                    let c = engine::fluids::FLUIDS.now().get(k).colour;
+                    hud::looking_at(&mut paint, &l.name, c, c.map(|v| v * 0.7), 0, [None; 2], &l.note, label_y);
+                }
             }
         }
         // the block in hand, large at the lower right, on its tracks (ADR 0031): the dip when it digs or places,
@@ -1805,5 +1921,37 @@ mod complete_tests {
             let (at, _) = complete_with(l, &["k".to_string(), "i\u{307}o".into()], &["k".to_string()]);
             assert!(l.is_char_boundary(at), "{l}: {at}");
         }
+    }
+}
+
+#[cfg(test)]
+mod looked_tests {
+    use super::*;
+
+    /// The look-at panel's lines (draft 2026-11-24): a granite block in the open air names itself with the air's
+    /// temperature, its row's hardness and tool; lava poured in a pit names the fluid, its pour heat (a client keeps
+    /// no node's heat) and its depth.
+    #[test]
+    fn the_panel_names_a_granite_block_and_lava_with_their_heat() {
+        let mut w = World::new(256, 32, 1);
+        let b = w.bodies[0].clone();
+        let top = w.block_at(b.centre + DVec3::Z * (b.height(DVec3::Z) - 0.5));
+        let at = |dz: i32| Block { pos: top.pos + IVec3::Z * dz, ..top };
+        w.set_block(at(3), BLOCKS.id("granite"));
+        let l = looked(&w, edit::Look::Block(at(3)), Some(21.5));
+        assert_eq!((l.name.as_str(), l.note.as_str()), ("granite", "21.5 °C, hardness 9, pick"));
+        let lava = engine::fluids::FLUIDS.now().kind("lava").unwrap();
+        w.set_block(at(-2), BLOCKS.id("stone"));
+        w.set_block(at(-1), AIR);
+        w.set_block(at(0), AIR);
+        {
+            let World { bodies, edits, water, sky, time, .. } = &mut w;
+            let g = engine::world::Solid::at(bodies, edits, sky, *time);
+            let c = World::col(at(0));
+            water.regap(&g, c);
+            assert!(water.pour_kind(&g, c, at(-1).pos.z, engine::liquid::U, lava));
+        }
+        let l = looked(&w, edit::Look::Fluid(at(-1), lava), Some(21.5));
+        assert_eq!((l.name.as_str(), l.note.as_str()), ("Lava", "1150.0 °C, 1.0 m deep"));
     }
 }

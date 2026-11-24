@@ -2,10 +2,8 @@
 use super::*;
 use crate::liquid::test_ground::{col, stored, Box3};
 
-/// ADR 0187's pace for the sky of real gravity: the real year over its 334 days of 1800 s (about 52.5).
-fn pace() -> f64 {
-    REAL_YEAR / (334.0 * crate::sky::DAY)
-}
+/// What a block's stored heat holds back runs this many times real (the world's two constants of heat).
+const BULK: f64 = crate::interior::HEAT_PACE * crate::interior::LIGHT;
 
 /// What a server does with `cool`'s cells in a box: frozen water's ice set solid (and followed), melted ice back to
 /// air with its units poured there.
@@ -35,13 +33,12 @@ fn ledger(w: &Liquids) -> i64 {
 
 /// An ice block (placed, 1 m3) on the ground in still air at +10 C melts to exactly its U units of water.
 /// By hand: five faces in the air, h = 10 W/(m2 K) free convection + 4.9 radiation (4 e sigma T^3 at 283 K, e 0.96),
-/// a shrinking cube's law t = 3 rho L / (5 h dT) = 3 x 1000 x 334000 / (5 x 14.9 x 10) = 1.34e6 s real, over the pace
-/// (52.5): 2.6e4 s, 14 game days. The ice block holds its melt until the last unit, then it is water.
+/// a shrinking cube's law t = 3 rho L / (5 h dT) = 3 x 1000 x 334000 / (5 x 14.9 x 10) = 1.34e6 s real; the world's,
+/// L over `LIGHT` and h times `HEAT_PACE`: real / 300, 4.5e3 s. The ice block holds its melt until the last unit, then it is water.
 #[test]
 fn an_ice_block_in_warm_air_becomes_exactly_its_units_of_water_in_its_time() {
     let mut g = Box3::new(3, 3, 3);
     g.air = (10.0, ATM);
-    g.pace = pace();
     g.set(1, 1, 0, true);
     g.ice.push((1, 1, 0));
     let mut w = stored(&g);
@@ -54,7 +51,9 @@ fn an_ice_block_in_warm_air_becomes_exactly_its_units_of_water_in_its_time() {
         t += dt;
     }
     let ph = Phases::water();
-    let hand = 3.0 * 1000.0 * 334_000.0 / (5.0 * ph.h(10.0, ATM) * 10.0) / pace();
+    let hand = 3.0 * 1000.0 * (ph.lf / ph.mu) / (5.0 * ph.h(10.0, ATM) * 10.0);
+    let real = 3.0 * 1000.0 * 334_000.0 / (5.0 * h_air(10.0, 0.96, true) * 10.0);
+    assert!((hand * BULK / real - 1.0).abs() < 1e-6, "the world's law is the real one over 300: {hand} against {real}");
     eprintln!("the block melted in {t:.0} s ({:.1} game days), by hand {hand:.0} s", t / crate::sky::DAY);
     assert!(g.ice.is_empty(), "it melted");
     assert!(t > hand / 2.0 && t < hand * 2.0, "melted in {t} s, by hand {hand} s");
@@ -62,18 +61,19 @@ fn an_ice_block_in_warm_air_becomes_exactly_its_units_of_water_in_its_time() {
 }
 
 /// A pond 4 1/3 blocks deep under -10 C air grows ice from the top by Stefan's law with the air's resistance, at the
-/// pace: t(d) = rho L / dT (d^2 / 2k + d / h) over the pace (k 2.22, h 14.0 at 263 K). By hand: the first block in
-/// 1.89e5 s (105 game days), the second in 6.6e5 s. The water under the ice stays liquid, and every unit is booked.
+/// world's heat: t(d) = rho L / dT (d^2 / 2k + d / h) with L over `LIGHT`, k and h times `HEAT_PACE` (real k 2.22,
+/// h 14.0 at 263 K): real / 300. By hand: the first block in 3.3e4 s (real 9.9e6), the second in 1.16e5 s. The water under the ice stays liquid, and every unit is booked.
 #[test]
 fn a_pond_in_freezing_air_grows_ice_from_the_top_at_the_stefan_rate_and_stays_liquid_under_it() {
     let mut g = Box3::new(1, 1, 6);
     g.air = (-10.0, ATM);
-    g.pace = pace();
     g.heat = 0.0;
     let mut w = stored(&g);
     assert!(w.pour(&g, col(0, 0), 0, 4 * U + U / 3));
     let ph = Phases::water();
-    let stefan = |d: f64| 1000.0 * ph.lf / ph.mu / 10.0 * (d * d / (2.0 * ph.ki) + d / ph.h(-10.0, ATM)) / pace();
+    let stefan = |d: f64| 1000.0 * ph.lf / ph.mu / 10.0 * (d * d / (2.0 * ph.ki) + d / ph.h(-10.0, ATM));
+    let real = |d: f64| 1000.0 * 334_000.0 / 10.0 * (d * d / (2.0 * 2.22) + d / h_air(-10.0, 0.96, true));
+    assert!((stefan(1.0) * BULK / real(1.0) - 1.0).abs() < 1e-6, "Stefan's growth is the real one over 300");
     let (dt, mut t, mut at) = (60.0, 0.0, Vec::new());
     while at.len() < 2 && t < 2e6 {
         let cells = w.cool(&g, dt);
@@ -99,7 +99,7 @@ fn a_pond_in_freezing_air_grows_ice_from_the_top_at_the_stefan_rate_and_stays_li
 fn water_on_a_hot_place_boils_off_to_vapour_exactly_and_never_passes_its_boiling_point() {
     for (p, ta, tb) in [(ATM, 20.0, 100.0), (700.0, -20.0, 1.956)] {
         let mut g = Box3::new(1, 1, 3);
-        (g.air, g.heat, g.pace) = ((ta, p), 1000.0, pace());
+        (g.air, g.heat) = ((ta, p), 1000.0);
         let mut w = stored(&g);
         assert!(w.pour(&g, col(0, 0), 0, U / 8));
         let (mut t, mut top) = (0.0, f64::MIN);
@@ -114,6 +114,110 @@ fn water_on_a_hot_place_boils_off_to_vapour_exactly_and_never_passes_its_boiling
         assert_eq!((w.total(), w.vapour[&0]), (0, U / 8), "{p} Pa: all of it boiled off, to vapour");
         assert!((top - tb).abs() < 0.05, "{p} Pa: boiled at {top} C, the curve's {tb}");
         assert!(!w.boils.is_empty(), "its steam's places");
+    }
+}
+
+/// Water sealed in a pocket of rock held at 300 C (the geotherm's, a chamber's: it does not cool) takes the rock's heat
+/// steadily through the floor and the four walls, and boils dry at that rate, every unit to `vapour`. By hand, the
+/// water at 100 C and d m deep (4/3 at first): through half a block of rock (0.5 m / 2.0 W/(m K)) and half its depth
+/// of water (k 0.6) from the floor, (300 - 100) / (0.25 + d / 1.2), and from each wall d (300 - 100) / (0.25 + 0.5 /
+/// 0.6); t = the integral of rho Lv / P(d) from 0 to 4/3: 3.9e6 s real; the world's (conductances times `HEAT_PACE`,
+/// Lv over `LIGHT`) real / 300, 1.3e4 s.
+#[test]
+fn water_sealed_in_on_held_rock_boils_dry_at_the_floor_and_walls_steady_rate() {
+    let mut g = Box3::new(3, 3, 4);
+    g.fill(0..3, 0..3, 0..4, true);
+    g.fill(1..2, 1..2, 0..2, false);
+    (g.heat, g.air) = (300.0, (300.0, ATM));
+    let mut w = stored(&g);
+    let units = U + U / 3;
+    assert!(w.pour(&g, col(1, 1), 0, units));
+    let ph = Phases::water();
+    let p = |d: f64| 200.0 * held(&ph, d);
+    let (n, d0) = (10_000, units as f64 / U as f64);
+    let hand: f64 = (0..n).map(|k| U as f64 * ph.lv / p((k as f64 + 0.5) * d0 / n as f64) * d0 / n as f64).sum();
+    let (dt, mut t) = (60.0, 0.0);
+    while w.total() > 0 && t < 2.0 * hand {
+        assert!(w.cool(&g, dt).is_empty(), "nothing freezes");
+        assert_eq!(ledger(&w), units, "every unit booked at {t} s");
+        t += dt;
+    }
+    eprintln!("sealed on 300 C rock: dry in {t:.0} s, by hand {hand:.0} s");
+    assert_eq!((w.total(), w.vapour.get(&0).copied()), (0, Some(units)), "all of it boiled off, to vapour");
+    assert!((t / hand - 1.0).abs() < 0.1, "dry in {t} s, by hand {hand} s");
+}
+
+/// A 3 x 3 box of rock held at `rock` C with a shaft down its middle, open to air at `air` C: its floor and four walls
+/// rock, `units` of water poured at its foot.
+fn shaft(rock: f32, air: f64, units: i64) -> (Box3, Liquids) {
+    let mut g = Box3::new(3, 3, 4);
+    g.fill(0..3, 0..3, 0..4, true);
+    g.fill(1..2, 1..2, 0..4, false);
+    (g.heat, g.air) = (rock, (air, ATM));
+    let mut w = stored(&g);
+    assert!(w.pour(&g, col(1, 1), 0, units));
+    (g, w)
+}
+
+/// The held rock's conductance to water d m deep in `shaft`'s, W/K: the floor's and the four walls' (half a block of
+/// rock, 0.25 m^2 K/W real, and half the water's depth or half a block of it), at the world's pace.
+fn held(ph: &Phases, d: f64) -> f64 {
+    // (the world's: the rock's 0.25 m^2 K/W over `HEAT_PACE`, `ph.k` already paced)
+    let rock = 0.25 / crate::interior::HEAT_PACE;
+    1.0 / (rock + d * 0.5 / ph.k) + 4.0 * d / (rock + 0.5 / ph.k)
+}
+
+/// Water on rock held over its boiling point that cannot reach it: in a shaft on 120 C rock under open air at -5 C its
+/// steady heat, (G_rock 120 + h (-5)) / (G_rock + h), is about 30 C, so it rests there: no heat entry is ever held
+/// (it is not stepped every second for ever), nothing boils, nothing freezes.
+#[test]
+fn water_on_held_rock_whose_steady_heat_is_under_boiling_rests_with_no_heat() {
+    let units = U + U / 3;
+    let (g, mut w) = shaft(120.0, -5.0, units);
+    let ph = Phases::water();
+    let (gr, ga) = (held(&ph, units as f64 / U as f64), ph.h(-5.0, ATM));
+    eprintln!("its steady heat {:.1} C", (gr * 120.0 - ga * 5.0) / (gr + ga));
+    for k in 0..310 {
+        assert!(w.cool(&g, 600.0).is_empty(), "nothing freezes");
+        assert!(k < 10 || w.heats().is_empty(), "settled, it holds no heat at step {k}: {:?}", w.heats());
+    }
+    assert_eq!((w.total(), w.vapour.get(&0).copied().unwrap_or(0)), (units, 0), "nothing boiled");
+}
+
+/// Open water in a shaft on rock held at 400 C under 20 C air boils at the rate its steady heat T* gives,
+/// (G_rock(d) + h) (T* - 100), every flow the world's, down to the depth where T* is its boiling
+/// point (with `REST_K`): there it rests and drops its heat. By hand: from 4/3 to 1 block in the integral of
+/// rho Lv / ((G_rock + h)(T* - 100)) over d (Lv over `LIGHT`, G times `HEAT_PACE`: real / 300), and the rest at G_rock(d) (400 - 100.5) = h (100.5 - 20), about 0.83 m.
+#[test]
+fn open_water_on_held_rock_boils_at_its_steady_heats_rate_down_to_where_it_rests() {
+    let units = U + U / 3;
+    let (g, mut w) = shaft(400.0, 20.0, units);
+    let ph = Phases::water();
+    let ga = ph.h(20.0, ATM);
+    let net = |d: f64| held(&ph, d) * (400.0 - 100.0) - ga * (100.0 - 20.0);
+    let (n, d0) = (10_000, units as f64 / U as f64);
+    // (it comes at the air's 20 C and warms first: rho c d / G ln((T* - 20) / (T* - 100)), G = G_rock + h)
+    let (gs, ts) = (held(&ph, d0) + ga, (held(&ph, d0) * 400.0 + ga * 20.0) / (held(&ph, d0) + ga));
+    let warm = d0 * U as f64 * ph.c / gs * ((ts - 20.0) / (ts - 100.0)).ln();
+    let hand: f64 = warm + (0..n).map(|k| U as f64 * ph.lv / net(1.0 + (k as f64 + 0.5) * (d0 - 1.0) / n as f64) * (d0 - 1.0) / n as f64).sum::<f64>();
+    let rest = (0..100_000).map(|k| k as f64 * 1e-5 * d0).find(|&d| held(&ph, d) * (400.0 - 100.5) >= ga * (100.5 - 20.0)).unwrap();
+    let (dt, mut t, mut at) = (60.0, 0.0, None);
+    while (w.total() == units || !w.heats().is_empty()) && t < 1e8 {
+        assert!(w.cool(&g, dt).is_empty(), "nothing freezes");
+        assert_eq!(ledger(&w), units, "every unit booked at {t} s");
+        t += dt;
+        if at.is_none() && w.total() <= U {
+            at = Some(t);
+        }
+    }
+    let at = at.expect("it boiled down to a block");
+    let left = w.total() as f64 / U as f64;
+    eprintln!("to a block in {at:.0} s, by hand {hand:.0} s; at rest at {left:.3} m after {t:.0} s, by hand {rest:.3} m");
+    assert!((at / hand - 1.0).abs() < 0.1, "to a block in {at} s, by hand {hand} s");
+    assert!(w.heats().is_empty() && (left - rest).abs() < 0.02, "at rest {left} m deep, by hand {rest} m, heats {:?}", w.heats());
+    for _ in 0..300 {
+        w.cool(&g, dt);
+        assert!(w.heats().is_empty(), "at rest it stays so");
     }
 }
 
@@ -136,7 +240,7 @@ fn water_boils_colder_on_a_peak_and_at_mars_like_pressure() {
 #[test]
 fn with_no_air_ice_goes_to_vapour_without_making_water() {
     let mut g = Box3::new(3, 3, 3);
-    (g.air, g.pace) = ((15.0, 0.0), pace());
+    g.air = (15.0, 0.0);
     g.set(1, 1, 0, true);
     g.ice.push((1, 1, 0));
     let mut w = stored(&g);
@@ -159,7 +263,7 @@ fn sea(air: f64) -> (Box3, Liquids) {
     let mut g = Box3::new(5, 5, 9);
     g.fill(0..5, 0..5, 0..3, true);
     g.with_sea(4 * U + 7 * U / 8);
-    (g.air, g.pace) = ((air, ATM), pace());
+    g.air = (air, ATM);
     let mut w = Liquids::default();
     w.materialize(&g, col(2, 2));
     assert!(w.pour(&g, col(2, 2), 4, 0));
@@ -188,7 +292,7 @@ fn frozen(w: &Liquids) -> i64 {
 /// A box of one column, `deep` layers, rock at 0 C and air at `air` C (`p` Pa), `units` of water poured in.
 fn pond(deep: i32, air: f64, p: f64, units: i64) -> (Box3, Liquids) {
     let mut g = Box3::new(1, 1, deep);
-    (g.air, g.pace, g.heat) = ((air, p), pace(), 0.0);
+    (g.air, g.heat) = ((air, p), 0.0);
     let mut w = stored(&g);
     assert!(w.pour(&g, col(0, 0), 0, units));
     (g, w)
@@ -229,7 +333,7 @@ fn a_freezing_pond_drained_from_below_loses_no_water() {
     let mut g = Box3::new(2, 1, 8);
     g.fill(0..1, 0..1, 0..4, true);
     g.fill(1..2, 0..1, 4..8, true);
-    (g.air, g.pace, g.heat) = ((-30.0, ATM), pace(), 0.0);
+    (g.air, g.heat) = ((-30.0, ATM), 0.0);
     let mut w = stored(&g);
     assert!(w.pour(&g, col(0, 0), 4, 3 * U / 2));
     run(&mut g, &mut w, 1800.0, 60.0, 0);
@@ -362,7 +466,7 @@ fn resting_lava_at_a_hot_place_comes_back_without_new_heat() {
 fn water_under_oil_boiled_dry_leaves_no_dry_water_layer() {
     let oil = 2u8;
     let mut g = Box3::new(1, 1, 4);
-    (g.heat, g.pace) = (1000.0, pace());
+    g.heat = 1000.0;
     let mut w = stored(&g);
     assert!(w.pour(&g, col(0, 0), 0, U / 8));
     w.cool(&g, 1.0);
@@ -386,8 +490,7 @@ fn water_under_oil_boiled_dry_leaves_no_dry_water_layer() {
 /// Water alone, where nothing freezes or boils, is given no heat: its maths and its save are what they were.
 #[test]
 fn water_at_rest_in_mild_air_carries_nothing() {
-    let mut g = Box3::new(3, 3, 3);
-    g.pace = pace();
+    let g = Box3::new(3, 3, 3);
     let mut w = stored(&g);
     assert!(w.pour(&g, col(1, 1), 0, U));
     for _ in 0..100 {

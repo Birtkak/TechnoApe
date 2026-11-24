@@ -548,7 +548,8 @@ mod tests {
         let t = Instant::now();
         let server: Link<ToClient, ToServer> = tcp_with(l.accept().unwrap().0, lim).unwrap();
         assert!(matches!(server.rx.recv_timeout(silent * 5), Err(std::sync::mpsc::RecvTimeoutError::Disconnected)), "the ghost's link closes");
-        assert!(t.elapsed() >= silent && t.elapsed() < silent * 4, "{:?}", t.elapsed());
+        // (a socket's read timeout may fire a few ms early on Windows: 599.8 ms was seen for 600)
+        assert!(t.elapsed() >= silent - Duration::from_millis(20) && t.elapsed() < silent * 4, "{:?}", t.elapsed());
         // two of our own ends, both idle for three silences: still open, nothing delivered
         let client: Link<ToServer, ToClient> = tcp_with(TcpStream::connect(addr).unwrap(), lim).unwrap();
         let server: Link<ToClient, ToServer> = tcp_with(l.accept().unwrap().0, lim).unwrap();

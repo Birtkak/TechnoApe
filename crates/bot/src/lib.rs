@@ -531,7 +531,7 @@ impl Bot {
             }
             Cmd::Report => {
                 return Some(format!(
-                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{},\"vitals\":[{},{},{},{}],\"death\":{},\"home\":{},\"air\":{},\"animals\":{},\"journal\":{{{}}}}}",
+                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{},\"vitals\":[{},{},{},{}],\"death\":{},\"home\":{},\"air\":{},\"felt\":{:.2},\"animals\":{},\"journal\":{{{}}}}}",
                     self.name,
                     self.start.elapsed().as_secs_f64(),
                     self.pos.x,
@@ -547,6 +547,8 @@ impl Bot {
                     self.mark_json(self.marks.0),
                     self.mark_json(self.marks.1),
                     self.air.map_or("null".into(), |a| format!("{{\"temp\":{:.2},\"rain_mm_h\":{:.3},\"cover\":{:.2},\"wind\":[{:.2},{:.2}]}}", a.temp, a.rain, a.cover, a.wind[0], a.wind[1])),
+                    // the felt temperature at its eye (the client's rule, `World::felt`)
+                    w.felt(self.pos + phys::up(w, self.pos) * phys::EYE, self.air.map(|a| a.temp as f64)).temp,
                     self.animals_json(),
                     self.journal.iter().map(|(n, s)| format!("{n:?}:{:?}", s.name())).collect::<Vec<_>>().join(",")
                 ));
@@ -1051,7 +1053,7 @@ mod tests {
         let h = w.bodies[0].height(DVec3::Y);
         let (d, at) = ("1.0 -0.5 0.25", w.block_at(DVec3::new(1.25, h - 0.5, 0.5)));
         let mut out = Vec::new();
-        let script = format!("wait 0.5; say /playmode survival; spawn 0.25 {h} 0.25; wait 0.5; say /place granite {} {} {} {}; say /give hand_axe 1; hold 0; wait 0.5; prospect {d}; strike {d}; wait 1.1; prospect {d}; slots", at.face, at.pos.x, at.pos.y, at.pos.z);
+        let script = format!("wait 0.5; say /playmode survival; spawn 0.25 {h} 0.25; wait 0.5; say /place granite {} {} {} {}; say /give hand_axe 1; hold 0; wait 0.5; prospect {d}; strike {d}; wait 1.1; prospect {d}; wait 0.5; slots", at.face, at.pos.x, at.pos.y, at.pos.z);
         bot.run(parse_script(&script).unwrap(), None, |l| out.push(l));
         let heard: Vec<&String> = out.iter().filter(|l| l.contains("\"prospect\"")).collect();
         assert_eq!(heard.len(), 2, "{out:?}");

@@ -122,7 +122,10 @@ the debt is `docs/perf-debt.md`. The story is `docs/design/lore.md`.
   7. Ice by physics (the sheet's thickness, glaciers) and snow that falls and lies as counted water, in thin
      layers of a block that build and melt (ADR 0189).
   8. Gases near the ground (steam, smoke, heavy gas in hollows; spike: `prototypes/near-gas`), then fire that
-     spreads.
+     spreads. With it, heat in materials (the developer, 2026-11-24): each block's row says how well it
+     conducts, stores and radiates heat; a wall stops or leaks a source's heat by its material, the air of a
+     closed room holds heat, so a base and a space station want insulation. The felt temperature (HUD, look-at
+     panel) reads it.
   9. Sea caves and coastal cliffs.
   10. Soil (moisture, fertility), then living plants (W7: growth, spread, felled trees).
   11. The other bodies' detail: their deep floors and metal seas looked at in game.

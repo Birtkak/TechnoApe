@@ -101,12 +101,20 @@ spans the three: a block is U units, and ice + water + vapour of a world is one 
 - **What decides:** the temperature at the place. The air's (the grid's cell, `sky::temperature` at the ground),
   a heat source beside it (fire, furnace, lava, the deep rock's heat: `Body::heat`, the geotherm of generation 11,
   about 300 C at 650 m under an arc on the 4 km planet), and pressure for the boiling point (thin air
-  on Mars or a peak boils water colder; no air boils it at once, so ice there goes straight to vapour).
+  on Mars or a peak boils water colder; no air boils it at once, so ice there goes straight to vapour). The air in a
+  shaft or cave is the rock's round it, blending from the open air's with depth (1 - exp(-depth / 30 m): a pit keeps
+  the open air's weather, a deep shaft the rock's), and the planet's own rock held at its heat gives water steadily
+  through its floor and walls (ADR 0195, "Open water boils on held rock"): water boils only where those flows and the
+  open air's settle it over its boiling point, else it rests; a pool down a shaft below the depth where rock passes
+  100 C boils off.
 - **Rates, not switches:** a change moves units a step by how far the temperature is past the point and how much
   heat can flow, so a lake freezes from the top over nights, an ice block drips, a pot takes time to boil.
-- **Two paces** (ADR 0187): heat exchanged with the air and sky runs faster by the year's compression (a real
-  year over the game's, about 52), so ponds freeze in winter and thaw in spring; heat from a source (fire, lava,
-  the rock) runs at real rates.
+- **Two constants of heat** (the developer, 2026-11-24, "pace 6, bulk 300"; draft "Heat runs on two constants"):
+  every heat flow is `HEAT_PACE` (6) times the real one and every block and fluid stores a `LIGHT`th (1/50) of its
+  real heat, so what a block's heat holds back (a pond's ice, a pot's boil, lava's freeze) runs 300 times real, every
+  steady temperature is the real one, and a body that is not a block feels the pace alone. One exception, a taste
+  call: a fluid row's `heat.pace` slows its own loss to the air and rock, lava's 0.5, so an eruption's flow runs
+  further before it crusts.
 - **Untouched water follows the formula** (the rule at the top): the bake's sea ice is where the climate holds the
   sea under freezing; a stored patch in the same place must freeze to the same answer.
 - **Open:** where the heat is held (a temperature a liquid layer and a block near a source, not every block of the
@@ -127,8 +135,8 @@ spans the three: a block is U units, and ice + water + vapour of a world is one 
    and water to counted vapour by the heat both rows carry; a layer seen from the side under another still open.)
 5. ~~**Phases of water** (spike in `prototypes/` first): ice, water and vapour by temperature and pressure, with
    rates and the one ledger.~~ (built, draft "Water freezes, melts and boils: one ledger over three phases": lava's
-   sparse heat at 1 Hz for stored water off its rest, ice as `ice` blocks through the edits, melt and boil at ADR
-   0187's paces, vapour to `vapour`; the bake's sheet matches the formula only from -8 to -15 C, a rebake from the
+   sparse heat at 1 Hz for stored water off its rest, ice as `ice` blocks through the edits, melt and boil on the
+   world's heat (two constants, 2026-11-24), vapour to `vapour`; the bake's sheet matches the formula only from -8 to -15 C, a rebake from the
    formula still open, and evaporation waits for step 6.) *The first rock phase change is in (draft 2026-11-23,
    "Lava lights, carries a body, and freezes to basalt").* Test: an ice block in warm air becomes exactly its units of water; water in freezing
    air becomes ice; a pot over a fire loses to the air cell's vapour what it boils off; a stored patch of polar

@@ -61,21 +61,76 @@ The server simulates; clients show it [0020].
   held swims up at 2 m/s, walking is slower by how deep you are [0020]. (also player-and-feel: the sprint's `sub`
   share and the dive key are in 0118.)
 
+### Heat runs on two constants: a pace of 6 and blocks that store a fiftieth [0200, 2026-11-24]
+The developer: "pace 6, bulk 300". **No one speed can serve:** a process held back by a block's stored heat (a
+pond's ice, a pot's boil, a pit of lava's freeze) takes days to months at real rates, because a block is a tonne,
+while small and surface ones (a flame across a plank, a hand by a fire) take seconds to hours; one factor fast enough
+for the first makes the second instant. So heat runs on **two world constants** (`interior::HEAT_PACE`, `LIGHT`,
+beside `G` and, like the stronger G of ADR 0180, a taste call): **every heat flow is `HEAT_PACE` = 6 times the real
+one**, without exception (every conductivity, film coefficient, radiative term and contact term: `liquid::surface`
+and `loss`, the rock's effusivity, `phases::Phases` k, k_ice, h and the sea's flux, the held rock's `ROCK_K`, a hot
+fluid beside an ice block), and **every block and fluid stores `LIGHT` = 50 times less heat** than it really would
+(specific and latent heats of water, ice and lava; the rock's volumetric heat, so its effusivity goes as
+sqrt(6 / 50)). Densities, units and temperatures are untouched; the vapour curves keep the real latent heat.
+What follows: what a block's heat holds back runs **300 times real**, a body that is not a block (a creature, later)
+feels the pace alone, every steady temperature is the real one (T*, the rest depths, 100.000 C, 1.946 C at 700 Pa, the
+sea's rest ice), and both sides of every exchange run on one rate, so ratios hold (a skin of lava boils the same water).
+The closed forms say so: Stefan's growth rho L / dT (d^2 / 2k + d / h), the cube's melt 3 rho L / (5 h dT), the contact
+term's 1 / sqrt(pi alpha t) (alpha 300 times, e sqrt(6/50) times) each come to real time / 300 (asserted in the tests).
+Sublimation's vapour carries the real latent heat at the pace out of a block that stores a fiftieth: its mass flux is
+300 times real, its surface the real one. **The one row exception:** a fluid row's `heat.pace` (`data/fluids.toml`,
+over 0, default 1) slows its own loss to the air and rock; lava's is 0.5 (the developer, 2026-11-24, "make heat loss
+a bit slower", so a flow runs further), so lava freezes at 150 times real. `react` has no rate: a skin a second, its
+heat (real, in ratio, `LIGHT` cancels) exactly the water's boil; lava beside an ice block gives it the plain pace.
+Matter flows keep the world's clock (an eruption's supply and `effuse`, ADR 0196; ground water, 0190). The calendar's
+real-year factor is no longer used for heat. **Cost accepted:** a winter grows more ice than a real one: a pond under
+-10 C air over a game winter (a quarter of 601,200 s, the real equivalent 4.5e7 s) by Stefan grows about 2.3 m,
+against 0.9 m in a real three-month winter (2.6 times; it was a real winter's at 0187's 52.5).
+
+| Tests (game seconds are seconds of play) | real | at 0187 | now (hand) |
+|---|---|---|---|
+| a block of water down an open shaft on 300 C rock, air 300 C (by hand) | 2.1e5 s | 2.1e5 s (58 h) | 700 s (12 min) |
+| 4/3 block on 200.3 C rock under 199.6 C air (1536 world) | 816,748 s | 813,000 s | 2,760 s (2,722) |
+| 4/3 block sealed in on 300 C rock | 3.91e6 s | 3,910,800 s | 13,080 s (13,036) |
+| 1/8 block on 1000 C rock, one atmosphere / 700 Pa | 185,710 / 94,370 s | the same | 620 s / 320 s |
+| 4/3 block in a shaft on 400 C rock under 20 C air, to one block | 3.18e6 s | 3,184,200 s | 10,560 s (10,621); rests at 0.843 m |
+| 3 x 3 pit of lava two deep freezing through (lava at 150x) | about 5.2e5 s | about 5 days | 3,191 s at dt 1, 3,250 at dt 10 (3,467) |
+| a sheet of lava half a block deep (by hand) | about 7e4 s | the same | about 470 s; liquid its first 130 s |
+| a sheet an eighth of a block deep (by hand) | about 5e3 s | the same | about 33 s |
+| an ice block's melt in +10 C air | 1.34e6 s | 24,540 s | 4,140 s (4,470) |
+| the pond's two Stefan blocks under -10 C air | 9.9e6, 3.5e7 s | 188,820, 664,320 s | 33,000, 116,220 s (33,046, 116,242) |
+| an ice block sublimating in no air | 3.2e6 s | 60,180 s | 10,380 s |
+
+Replaces: 0187 (both its paces) and the single 52.5 pace on every flow drafted earlier on 2026-11-24; 0191's "gas
+near a fire runs at real rates"; the real rates of 0193 and 0195 for lava and rock.
+A coarse step never carries a fluid's heat past its place's temperature, and it freezes only from heat taken below
+its freeze point (a thin sheet on ground over the freeze point stays liquid at any step). A fluid beside another
+fluid loses nothing through that face (the exchange is `react`'s alone); through a face on an ice block it loses
+exactly what `thaw` melts by (one function, `liquid::ice_face`, at the plain pace). A sheet frozen short of a block
+is kept by its column (`Liquids::crust`, under a block, saved as a fifth tail) and joins the next freeze there.
+Limits: `react` runs once a call, not by `dt`, so under `/timewarp` lava meeting water reacts slower than the rest.
+An eruption's flow crusts in minutes at lava's 0.5: its 64 m3 on the small planet's cone (poured in 64 s) is 22 %
+frozen at 80 s, half at 110 s and all by 190 s, so a flow runs a short way down the cone; the row's number is the
+developer's knob. Rock frozen short of a block is held unseen (shortcut until layers in eighths, ADR 0189, can show
+it). Stefan's growth in `phases` steps on the ice's thickness at the step's start, so a coarse step grows a thin
+sheet too fast (shortcut: the closed form across a step when the warp makes it matter). A block of ice is still U
+units, and its stored heat is its row's over `LIGHT` like every block's.
+
 ### Gas near the ground and fire that spreads [0191, 2026-11-23]
 The developer's calls on the near-gas spike (`prototypes/near-gas/README.md`), not built yet (roadmap, the world
 queue's step 8). Gas is sparse 1 m cells kept only where the air is off rest, conserving with the 128 m cells;
 fire spreads by heat reaching the next block's ignition point, with the flame's sub-cell terms from the fuel's
 row. **A forest can burn down**, simulated where a player is near and finished by a cheaper rule far away.
 **Fire leaves solid char that stands**; a burnt build falls only once structural collapse exists. **Apes
-breathe from their cell**: smoke and CO2 suffocate. **Gas near a fire runs at real rates**, not ADR 0187's
-weather pace. **The fire's pace is about a minute a block along dry wood in still air** (the developer; the
-spike's model gave 6 minutes): a taste call, so the fuel rows are tuned to it and a block's burn-out time
-scales with it (about 6 times shorter than the spike's 5 game days) until the developer says otherwise.
+breathe from their cell**: smoke and CO2 suffocate. **Fire and its gas run on the world's heat** when built
+("Heat runs on two constants", 2026-11-24, replacing "gas near a fire runs at real rates"): fire's spread across a
+surface follows the pace, about a minute a block of dry wood in still air (the spike's 6 minutes over
+`HEAT_PACE` 6); a block's burn-out is decided when fire is built and must stay longer than the spread.
 
 ### Ground water: a table, flooded caves, springs [0190, 2026-11-23]
 The developer's calls on the ground-water spike (`prototypes/ground-water/README.md`): the water table is the rest
 state of Darcy flow, baked and counted per 8 m map cell where touched (a well or cave trades with its cell by a well
-index). **The whole ground-water clock runs at the calendar's pace** (the real year over the game's, about 52: it is
+index). **The whole ground-water clock runs at the calendar's pace** (`Ground::calendar`, the real year over the sky's: it is
 rain-driven and cannot be sped up in part; ADR 0200 took heat off that factor, ground water keeps it). **Caves below
 the table are flooded.** **Springs start visible streams.** The bake's added time is accepted (`docs/perf-debt.md`).
 New worlds only (generation 12, map version 10); every older world generates and stays dry as it was.
@@ -115,18 +170,10 @@ Built (2026-11-24), what holds:
 The developer: "have snow be smaller layers that build or melt over time", a slice of a block as in Minecraft,
 "but our world interactions". Snow on the ground is a layer of a block's height in eighths, not a whole block. A player sinks into layers (feet on the ground under them, slowed by their depth) and walks on top of a full snow block. It is counted water: what falls leaves the air's vapour, a layer is its units, and
 melt gives them back as water that runs off or soaks in (one ledger, ADR 0183). It builds where snow falls on
-ground under freezing and melts by the heat at the place (air, sun, a fire, lava) at ADR 0187's paces; enough
+ground under freezing and melts by the heat at the place (air, sun, a fire, lava) on the world's heat (two
+constants, 2026-11-24); enough
 layers make a snow block, and deep old snow is where glaciers come from. Replaces the bake's fixed snow cover
 in new worlds once built (roadmap, the world queue's step 7).
-
-### Weather-driven heat runs at the calendar's pace [0187, 2026-11-23]
-The developer's call, on the water-phases spike's rate question (`prototypes/water-phases/README.md`, its option 3):
-the game's year is 52 times shorter than a real one, so **heat exchanged with the air and the sky** (a pond under
-winter air, an ice block in a warm biome, snow) runs faster by that same factor (the real year over the game's,
-derived from the sky's rows, not a typed 52), and a winter grows a real winter's ice. **Heat a source drives**
-(a fire, a furnace, lava, the rock's own heat) stays at real rates. Known cost, accepted: against the air a small
-thing cools faster than a fire warms it, so a pot's loss to the air is taken at the real rate while a source
-heats it.
 
 ### Fluids are rows; lava, with no mixing [0186, 2026-11-23]
 `data/fluids.toml` (`crates/engine/src/fluids.rs`, built in): a row a fluid, its place its kind (row 0 water,
@@ -270,7 +317,8 @@ different fluids, the denser keeps the gap".
   point, or when nothing reaches it any more (a block other than ice set over it, another fluid laid on it). Heat flows
   a second (W/m^2, a column 1 m^2): to the air over an open surface, h (T - T_air); up through the ice over it,
   (0 - T_air) / (d / k_ice + 1 / h) (Stefan's law with the air's resistance, the ice holding no heat; a lid gives the
-  water no heat back); from hot rock under it, through half its depth and the rock's cooling since it came (lava's).
+  water no heat back); from hot rock under it, through half its depth and the rock's cooling since it came (lava's;
+  held rock gives steadily, through the walls too, since 2026-11-24, below).
   Past 0 C the loss is freezing progress (`Therm::frac`) while the water stays liquid and counted; once a whole U has
   frozen, its U units leave the node, are booked to `froze`, and the block of its row's `freeze` block, `ice`, is set
   through the edits as basalt is, in the node's top cell, so a pond grows ice from the top down; a step that freezes
@@ -308,8 +356,8 @@ different fluids, the denser keeps the gap".
 - **Measured** (tests in `liquid/phase_tests.rs`, `world/volcano.rs`): a 1 m3 block in +10 C still air, 5 faces, melts
   to exactly 4096 units in 24,540 s (the cube's law by hand, 3 rho L / (5 h dT) over the pace: 25,549 s, 14 game
   days); a pond 4 1/3 blocks deep under -10 C air grows its first block in 188,820 s and its second in 664,320 s
-  (Stefan by hand 188,865 and 664,352), liquid under it; 1/8 block on 1000 C rock boils dry in 1.2e5 s at one
-  atmosphere, never over 100.000 C, every unit in `vapour`; at 700 Pa it boils at 1.946 C; 100.00 C at 101,325 Pa,
+  (Stefan by hand 188,865 and 664,352), liquid under it; 1/8 block on 1000 C rock boils dry in 185,710 s at one
+  atmosphere (since 2026-11-24, below; 94,370 s at 700 Pa), never over 100.000 C, every unit in `vapour`; at 700 Pa it boils at 1.946 C; 100.00 C at 101,325 Pa,
   93.74 at 79,859 Pa (a 1 km peak at 19.62 m/s^2), -0.08 at 608 Pa (no liquid), -273.15 in no air; an ice block in no
   air sublimates in 6.0e4 s with no water made; 3 U in no air are 2 blocks of ice and 1 U of vapour in one step; a
   puddle of 2000 units at -30 C stays water; a block and a half ends as one block over half a block of water; a
@@ -345,6 +393,69 @@ different fluids, the denser keeps the gap".
   changes phase.
 - **Not chosen:** an ice layer in the node (a wire and save change for a thickness the block grid shows anyway); a
   temperature on every stored column (the spike: 30 times the time, 14 the memory, every save larger).
+- **Open water boils on held rock (2026-11-24).** Water poured down an open shaft onto 300 C rock never boiled (64 C
+  after 33 hours): the air 649 m down was the surface's 20 C, taken at the real rate, and the rock's heat came in as
+  lava's contact cooling, 1 / sqrt(pi t), dying to nothing, from the floor alone. Both were wrong for rock the
+  geotherm or a chamber holds at its heat. Now (`Solid::air_at`, `phases::drive`, `water_heat`):
+  **Air in a hollow under the ground** is blended from the open air's to the rock's there (`Body::heat`) as
+  1 - exp(-depth / 30 m), depth under the column's generated ground: 2 m down 6 % the rock's, 100 m 96 %. Air in a
+  hole open upward trades with the sky by convection far deeper than the rock's own seasonal wave (2.9 m), so a pond
+  in a pit or a quarry keeps the open air's weather (shortcut: one length for the shaft's convection, a rule of the
+  hollow's width and depth once near-ground gas, ADR 0191, is built). At and over the ground it is exactly what it
+  was; its pressure is the open air's at that height. **Held rock gives steadily**: only a cell of the planet's own
+  ground (`Ground::held`: at or under its column's generated surface, not ice, not a plant; a placed block over the
+  ground holds nothing), from the floor (tr - T) / (0.25 + d / 2k) and from each wall cell, by its share of the
+  water's depth, (tw - T) / (0.25 + 0.5 / k): 0.25 m^2 K/W is half a block of rock at 2.0 W/(m K) (steady conduction
+  from a field held far off into a sphere of the cell's half-width, k dT / r), in series with half the water's depth
+  or half a block of it (k 0.6). Lava keeps its own decaying contact for the rock it warms. **It boils only where
+  it can**: every flow is linear in the water's heat, so the held rock and the open air (h at the real rate) settle it
+  at T* = sum G T / sum G; it boils where T* is over its boiling point by `REST_K` (0.5 K), at (sum G)(T* - T_boil),
+  and where T* is under it and over 0 C it rests, liquid, with no heat entry (under freezing open air the rock is not
+  counted, as before). By hand and measured: 4/3 block sealed in on 300 C rock boils dry in 3,910,787 s (the code
+  3,910,800); open down a shaft on 300 C rock, the air at 300 C, a block boils in 2.1e5 s (58 hours), 4/3 in 2.7e5 s;
+  on the 1536 test planet, whose rock passes 200 C (not 300) over its core, 4/3 block on 200.3 C rock under 199.6 C air
+  dries in 813,000 s against 816,748 by hand. In a shaft on 400 C rock under 20 C open air 4/3 block boils to one in
+  3,184,200 s (by hand 3,186,214) and rests at 0.843 m, where T* is 100.5 C; on 120 C rock under -5 C air T* is 31 C
+  and it never takes a heat. Rock at 80 C under -20 C surface air keeps its water liquid and at rest, a heat entry
+  dropped at the first step. A pond 2 m down a pit under -20 C air grows its first ice block 4 % later than at the
+  surface (year's air -9 C). A basin of placed blocks over a live crater's flank, in air the chamber heats over 150 C,
+  never boils; water in a pit dug into the flank's hot rock does. Rock passes 100 C (15 C air) about 610 m down under a
+  shield and 230 m under an arc on the 4 km planet; stored water deeper boils off, generated water there is untouched
+  (it follows the formula until stored).
+  **Limits** (the review, not fixed): depth is measured under the column's own generated surface, so a hollow cut
+  sideways into a cliff reads as deep; ice in a deep cellar melts where the year's mean is over 0 C; the air's pressure
+  at depth is the open air's at that height (water boils at 100 C below the sea, not the 102 a real column of air
+  gives 650 m down); the wake looks at a node's held rock only where its own column's rock at its floor or surface is
+  over boiling (a hot wall of a neighbouring column alone does not wake it); under freezing open air the rock's heat is
+  not counted; `h` is linearised at the air's heat (over 100 C air it overstates radiation by up to half).
+
+### Lava drawn as a cracked crust, oil as a glossy slick with a film [0198, 2026-11-24]
+The developer: "make liquids look more pretty". Lava (side bit 4 in `fs_water`, stored and the volcano's lake) is a
+basalt crust (0.05, 0.043, 0.04), lit by the sun, the sky and 0.6 of the row's light, broken into 1.7 m plates (a
+jittered grid's F2 - F1) whose cracks glow in the row's light; a slow swell of heat (value noise at 0.18 a metre)
+widens the cracks from 13 cm to 50 cm (in F2 - F1 metres) so plates melt to open melt, adds a finer net at 0.4 of the plate size, and
+warms the crust near its cracks; the crust drifts at (0.035, 0.02) columns a second. On the 1/16 m texels at
+`WATER_STEPS`; a fall or a front runs molten,
+streaked down. Oil (side bit 8, `tinted`) takes the water's ripple normal (`rippled`) at half the frequency, a third of
+the pace and 0.05 tilt, a 6 % Fresnel to `sky_colour` along the reflected ray and Luna, a sharp glint (exponent 400
+near), and a thin film's bands (a cosine palette over a drifting thickness and the angle) in drifting patches at 8 to
+25 % of the sky, exaggerated over a real film's few per cent so a slick reads as oil from any angle. The water's own
+look (ADR 0071: ripples, Fresnel, sky and traced reflection, glint, depth through the view ray, shore foam, falls,
+under water) was already what this round set out to add, so it stays as it is.
+Alternatives rejected: a crack pattern from a texture (the grid's noise is per texel already, no new binding); a
+subsurface scatter term on the water's ripple flanks (tried: under 1/255 on the sea at noon, not worth its cost);
+less absorption in green for clearer shallows (tried: the dim bed under the water showed more, so shallows darkened).
+Open: lava's and oil's numbers are shader constants (`LAVA_PLATE`, `LAVA_DRIFT`, `LAVA_CRUST`, oil's in `tinted`), not
+columns of `data/fluids.toml`, whose schema is the engine's; they move to the rows when a second glowing or tinted
+fluid needs other numbers. Lava's flow direction does not move its crust (stored quads carry no flow).
+A cool crack and the fine net are at least one 1/16 m texel across; past a footprint of 4 cm the cracks give way to
+their mean share at that heat (0.13 + 0.3 heat^2 + 0.1 smoothstep(0.3, 0.7, heat), fitted to the pattern) and the
+cores' mean lift (1.18), so a lake looks the same near and far; a fall's streaks sit on texels and fall a texel a step;
+oil's far glint dims as the water's, and its film takes its share of what the Fresnel term leaves.
+Limits: every pattern snaps once an hour, as the time uniform wraps at 3600 s (the water's ripples do too).
+Limits: the patterns sit on face-grid columns, so they cut at cube-face seams (as the water's ripples).
+Limits: any future glowing fluid gets lava's crust (side bit 4 is "glows").
+Limits: oil in a cave reflects the open sky (no rays of its own).
 
 ## The sea and the ledger
 
@@ -620,6 +731,13 @@ A column is under water when the water's level (`water_at`) stands over its grou
 
 ## No longer holds
 
+- 0187, "Weather-driven heat runs at the calendar's pace" (2026-11-23), both its paces: heat exchanged with the air
+  and sky faster by the real year over the game's (about 52.5, derived from the sky's rows), so a winter grew a real
+  winter's ice; heat a source drives (a fire, a furnace, lava, the rock's own heat) at real rates, a pot's loss to the
+  air taken at the real rate while a source heated it. With it 0191's "gas near a fire runs at real rates", 0193's
+  "freezes to basalt at real rates", 0195's "rock and lava at real rates", and a single 52.5 pace on every flow that
+  lived a few hours on 2026-11-24: replaced by the draft "Heat runs on two constants" (2026-11-24). The calendar's
+  factor still sets the ground water's clock (0190), which is matter, not heat.
 - 0186's "a node holds one kind": its wall between two fluids, its refused pour into another fluid, and the denser
   keeping a gap an edit joins; replaced by the draft "Fluids lie in layers by density; lava and water react".
 - 0020's blue veil over the screen under water: replaced by 0071's composite dimming and fog.

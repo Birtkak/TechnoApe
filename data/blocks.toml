@@ -289,7 +289,7 @@ colour = [0.36, 0.30, 0.20]
 id = 21
 name = "reed"
 see = "cutout"
-fluff = { size = 0.0, light = 0.7 }
+fluff = { size = 1.68, push = 0.35, droop = 0, long = 1, dense = 1, light = 0.7 }
 hardness = 0.2
 tool = "knife"
 loose = true

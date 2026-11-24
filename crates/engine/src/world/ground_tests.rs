@@ -139,9 +139,11 @@ fn a_hole_dug_under_the_table_fills_to_it_at_the_rule_and_the_ledger_holds() {
         let g = w.ground();
         let mut g = g;
         g.air = Some(Air { sky: &w.sky, t: w.time, temp: None });
-        (g.aquifer(c).unwrap(), g.pace())
+        (g.aquifer(c).unwrap(), g.calendar())
     };
     let (aq, pace) = a;
+    // the calendar's pace: the real year over the game's
+    assert!((pace - 365.25 * 86_400.0 / w.sky.year).abs() < 1e-9 && pace > 1.0, "ground water's pace {pace}, the year {} s", w.sky.year);
     let wi = 2.0 * std::f64::consts::PI * aq.k * (aq.rest - aq.base) / (aq.dx).ln();
     let first = (wi * (aq.table - bottom as f64) * pace * (U * SUB) as f64) as i64 / SUB;
     second(&mut w);

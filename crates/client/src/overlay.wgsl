@@ -75,7 +75,7 @@ fn ghost_fs(i: GhostOut) -> @location(0) vec4f {
 struct Rect {
     @location(0) xy: vec4f,    // x0, y0, x1, y1 in clip space
     @location(1) colour: vec4f,
-    @location(2) glyph: u32,   // 0 solid, 1..10 the digits 0..9, 32..126 an ASCII character of FONT
+    @location(2) glyph: u32,   // 0 solid, 1..10 the digits 0..9, 32..126 an ASCII character of FONT, 127 the degree sign
 };
 struct UiOut {
     @builtin(position) clip: vec4f,

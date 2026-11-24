@@ -262,6 +262,53 @@ All in `phys::step`, shared by server and prediction; no new field, message or s
 - shortcut: a face reaching over its cell's side is hit only from within its cell [0144].
 - Open: whether right click should also gather by sweeping while held; thinner outline for tiny things [0144].
 
+### Felt temperature, and the look-at panel names fluids with heat and hardness [0199, 2026-11-24]
+`World::felt(point, live)` (engine `world/felt.rs`) is the temperature felt at a point: the operative temperature
+(ASHRAE 55, ISO 7726). The air there is `Ground::air` (above ground the weather's live `Air.temp` the server sends,
+else the baked climate with the season and the hour; under ground the rock's blended in with depth). The mean radiant
+temperature is a globe's (ISO 7726: a small sphere, a standing body) by rays: `RAYS` 384 directions evenly over the
+sphere (a Fibonacci lattice fixed in the world's frame, so a still eye's value is still), each marched cell to cell (the
+grid taken as straight over a centimetre to find the next wall: each cell looked at once) out to `RAY_REACH` 48 m or
+`RAY_CELLS` 96 cells. A ray stops at the first block that is solid and opaque (it sees the surroundings: nothing) or
+at the first cell holding a glowing fluid (a crater's lake or stored lava), which it sees at its row's `heat.surface`
+where it has one (lava 375 C: a crust with hot cracks, a flux near 10 kW/m2), else at the fluid's own temperature;
+water, glass, leaves and plants let it through. T_mrt^4 = T_s^4 + (1/N) sum over hits of eps (T_hit^4 - T_s^4), T_s
+the air's: view factors, what hides what, a hemisphere's 0.5 and a sum at or under 1 follow from the count, with no
+clamp and no cosine. felt = (h_c T_air + h_r T_mrt) / (h_c + h_r), h_r = 4 eps sigma T_m^3 at the mean of the two
+(eps 0.95), h_c 3.1 W/m2K (a person at rest in still air, ASHRAE Fundamentals ch. 9). In a glowing fluid (an eye in
+lava) felt is the fluid's own temperature, not its crust's. On a body without air T_s is the ground's temperature at the
+surface under the point (`Body::rest_heat` at the column's top cell; `liquid::AMBIENT` without a map), h_c is 0 and felt
+is T_mrt. Sources add up by what they fill of the view: 2 columns beside a stream of lava 1 wide and 10 long about 52 C
+by hand (F 0.042, 16 of 384 rays; by rays 46 to 48 C along it), half a metre over a floor of lava filling the lower
+half of the view 270.6 C mean radiant by hand (by rays 264.0 C, the planet's curve taking the floor's far
+edge under the rays nearest the horizon); the air over lava is the cell's own (no plume yet). Fire (0191) adds its cells as hits in the one
+marked place once it is built.
+The client marches the rays a few a frame (`World::march`: whole rays while the cells looked at stay within
+`FRAME_PROBES` 400 a frame, a set in a few dozen frames), only in run=play where the HUD shows it, and works the value
+out from the last whole set every `SENSE_S` 0.25 s; a set begun more than 8 m from the eye is begun again, and one from
+more than 32 m forgotten (after a teleport or at the spawn the value is the air's alone until a set is whole). A
+benchmark run marches none in its frames: its JSON's `felt` and `look` are worked out once at its end, all rays at once
+(`World::felt`); a bot's `report` likewise.
+The HUD shows it after the compass line's place text as `12.4 °C` (the HUD font's degree sign is the cell after '~', glyph 127, `hud::DEGREE`); F3's World group a
+`Felt` row (the air and the mean radiant temperature); the run's JSON `"felt":{temp,air,mrt}` and `"look":{name,note}`;
+a bot's `report` `"felt"`.
+The look-at panel's lines are made again in the frame the aimed cell or its block changes (`edit::aim`, every frame as
+before), else every `SENSE_S`, name and note together, so the panel follows the crosshair and never shows one target's
+name with another's note. Its target is `edit::look`: `edit::aim`'s walk that stops also at the first step into a fluid other
+than the one the eye is in (the sea, a river, a lake, a crater's lava, stored water, lava, oil). A block's lines: its
+name; its temperature (in the generated ground under its top cell the rock's `rest_heat`, the top cell and what is
+over it the air's there; a fluid's frozen block at most its freeze point), `hardness` and `tool` of its
+`data/blocks.toml` row, light and metal. A fluid's: its row's name (`Sea water` where `World::salt`), its own
+temperature (water by its place, not under its freeze point; generated fluid by `rest_heat`, a lake's lava its
+chamber's 1150 C, not its crust's; stored lava and oil at the node's heat where kept, else the row's pour heat) and its
+depth (none for a crater's lake, whose lava runs on down its conduit).
+No wire change: a client keeps no node's heat, so stored lava reads its pour heat until it freezes.
+- shortcut: a wall blocks all radiant heat and passes none by conduction, until blocks' rows carry conductivity, heat
+  capacity and emissivity (the gases-and-fire step: insulation, rooms holding heat).
+- shortcut: a hot surface beyond 48 m is not seen: a crater's lake beyond it adds about 2 C (17 C felt at 60 m from a
+  lake's edge by the lake rule before rays, air 15 C).
+Open: a message for the looked-at node's heat if the pour heat misleads; the felt value feeding body temperature.
+
 ## The journal
 
 - The event list (journal step 1) [0149]: `engine::events::Event`, a typed enum; `ToClient::Events(Vec<Event>)` is
