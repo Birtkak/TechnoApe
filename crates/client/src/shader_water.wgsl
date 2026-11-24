@@ -289,6 +289,7 @@ fn luna_in(p: vec3f, d: vec3f, body: u32) -> vec3f {
 fn fs_water(i: WOut) -> @location(0) vec4f {
     // a pixel's footprint on the water in metres, before any branch (derivatives need uniform control flow)
     let foot = max(length(fwidth(i.grid.xy)), 1e-4);
+    if ((i.side & 4u) != 0u) { return lava(i, foot); }
     if ((i.side & 2u) != 0u) { return metal_sea(i); }
     if ((i.side & 8u) != 0u) { return tinted(i); }
     let mode = (g.opt.x >> 4u) & 3u;
@@ -402,9 +403,67 @@ fn metal_sea(i: WOut) -> vec4f {
     let p = i.grid.xy / 7.0;
     let m = 0.6 * wnoise(p + vec2f(t, -0.7 * t)) + 0.4 * wnoise(p * 2.3 + vec2f(-0.6 * t, t) + 17.0);
     // (the shoulder rolls 4.0 and 2.6 both to white: the cells must fall to about a third to show at all)
-    // stored lava carries its row's light in `flow` (side bit 4, `vs_water`)
-    let hot = select(METAL_GLOW, i.flow.xyz, (i.side & 4u) != 0u);
-    return water_out(hot * mix(0.3, 1.0, smoothstep(0.2, 0.7, m)), 1.0);
+    return water_out(METAL_GLOW * mix(0.3, 1.0, smoothstep(0.2, 0.7, m)), 1.0);
+}
+
+// lava (side bit 4, its row's light in `flow`, `vs_water`): a dark crust of plates, lit by the sun as rock is,
+// broken by cracks that glow in the row's light, wider and brighter where a slow swell of heat runs under it; the
+// plates drift and the swell wanders, a step at a time on the blocks' texels. A fall or a front runs molten down.
+// shortcut: the plate size, drift and crust are lava's own constants here, not columns of its fluids.toml row
+// (that schema is the engine's); move them there when a second glowing fluid wants other numbers.
+const LAVA_PLATE: f32 = 1.7; // a plate's width, m
+const LAVA_DRIFT: vec2f = vec2f(0.035, 0.02); // the crust's drift, columns a second
+const LAVA_CRUST: vec3f = vec3f(0.05, 0.043, 0.04); // basalt's colour, a little warm
+
+// (F1, F2) of a jittered grid at p: the distances to the nearest and second nearest plate centre
+fn plates(p: vec2f) -> vec2f {
+    let c = floor(p);
+    var d = vec2f(9.0);
+    for (var y = -1; y <= 1; y++) {
+        for (var x = -1; x <= 1; x++) {
+            let k = c + vec2f(f32(x), f32(y));
+            let kb = bitcast<vec2u>(vec2i(k));
+            let o = k + vec2f(hash2(kb), hash2(kb + vec2u(91u, 37u))) * 0.8 + 0.1;
+            let e = length(p - o);
+            if (e < d.x) { d = vec2f(e, d.x); } else if (e < d.y) { d.y = e; }
+        }
+    }
+    return d;
+}
+
+fn lava(i: WOut, foot: f32) -> vec4f {
+    let hot = i.flow.xyz;
+    let t = floor(g.water.x * WATER_STEPS) / WATER_STEPS;
+    let q = 1.0 / RIPPLE_PX;
+    let p = (floor(i.grid.xy * RIPPLE_PX) + 0.5) * q;
+    if ((i.side & 1u) == 1u) {
+        // running down a step: molten, streaked, the streaks falling
+        let s = wnoise(vec2f((i.grid.x + i.grid.y) * 3.0, i.grid.z * 1.5 + t * 1.2));
+        return water_out(hot * mix(0.7, 1.4, s), 1.0);
+    }
+    // the swell of heat: slow, larger than a plate
+    let heat = smoothstep(0.25, 0.8, wnoise(p * 0.18 + vec2f(0.013, -0.009) * t));
+    let f = plates((p - LAVA_DRIFT * t) / LAVA_PLATE);
+    let edge = (f.y - f.x) * LAVA_PLATE; // metres to the plate's border
+    let fine = plates((p - LAVA_DRIFT * t) / (LAVA_PLATE * 0.4) + 7.3);
+    let fedge = (fine.y - fine.x) * LAVA_PLATE * 0.4;
+    // where the swell runs the plates melt away to open melt
+    let w = mix(0.05, 0.5, heat * heat);
+    var crack = 1.0 - smoothstep(w * 0.5, w, edge);
+    crack = max(crack, (1.0 - smoothstep(0.02, 0.05, fedge)) * smoothstep(0.3, 0.7, heat) * 0.6);
+    // far off the cracks are finer than a pixel: their share, as one glow over the crust
+    let far = smoothstep(0.08, 0.4, foot);
+    crack = mix(crack, 0.15 + 0.3 * heat, far);
+    let n = normalize(i.normal);
+    let l = light(i.rel, n, i.body);
+    // the crust: rough rock in the sun, the sky and the lake's own light, glowing dull red from under, most near
+    // its cracks
+    let grain = 0.6 + 0.8 * hash2(bitcast<vec2u>(vec2i(floor((p - LAVA_DRIFT * t) * RIPPLE_PX))));
+    let crust = LAVA_CRUST * grain * (l.l + ambient(l.day) + hot * 0.6) + hot * (0.02 + 0.1 * exp(-edge * 5.0)) * (0.5 + heat);
+    // a crack: the row's light, hotter at its core and where the swell runs
+    let core = 1.0 - smoothstep(0.0, w * 0.5, edge);
+    let melt = hot * mix(0.55, 1.1, heat) * (1.0 + 0.6 * core * (1.0 - far));
+    return water_out(mix(crust, melt, crack), 1.0);
 }
 
 fn water_out(col: vec3f, a: f32) -> vec4f {
