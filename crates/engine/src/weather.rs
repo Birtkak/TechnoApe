@@ -281,7 +281,7 @@ impl Weather {
         self.tick_owing(tick, time, &mut Default::default())
     }
 
-    /// `tick`, and at a landing what the live snow owes each column (`snow::Owed`, ADR 0189's draft) settled with the
+    /// `tick`, and at a landing what the live snow owes each column (`snow::Owed`, ADR 0189) settled with the
     /// grid on the tick it is taken back: units the snow took come out of the column's lying snow (then its soil), and
     /// what it gave back goes to the lying snow and the soil. What a column cannot give yet stays owed. The air's ledger
     /// moves by what was settled, so it plus the snow's `lent` less `owed` never changes.

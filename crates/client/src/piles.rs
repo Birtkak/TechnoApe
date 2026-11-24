@@ -110,7 +110,7 @@ const SLAB_MOVE: f64 = 8.0;
 /// Ice's slab stands this much (cells) over its water's top, so the two surfaces never fight.
 const ICE_LIFT: f32 = 0.004;
 
-/// Every column's eighths within `SLAB_DRAWN` of `me` as a slab (ADR 0189's draft): its block's own cell look, moved in
+/// Every column's eighths within `SLAB_DRAWN` of `me` as a slab (ADR 0189): its block's own cell look, moved in
 /// cells (bit 19) and squashed to its height (`angle`, `vs_fx`): snow's from its cell's floor, ice's down from its
 /// water's top. Laid once a change or a move of `SLAB_MOVE`, not each frame.
 pub(crate) fn slabs(world: &World, me: DVec3) -> Vec<FxGpu> {

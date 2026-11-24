@@ -1,4 +1,4 @@
-//! Snow and ice in eighths of a block (ADR 0189; the draft "Snow and ice lie in eighths", sky-weather-and-water.md).
+//! Snow and ice in eighths of a block (ADR 0189; ADR 0189's "Snow and ice lie in eighths", sky-weather-and-water.md).
 //!
 //! - **Snow is counted water.** A column's snow is a number of water units (`Lay::units`) lying on its ground, shown in
 //!   eighths of a block of snow at `DENSITY` (an eighth holds exactly `EIGHTH` units). Eight make a block of snow, set

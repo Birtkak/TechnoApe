@@ -144,7 +144,7 @@ constants, 2026-11-24); enough
 layers make a snow block, and deep old snow is where glaciers come from. Replaces the bake's fixed snow cover
 in new worlds once built (roadmap, the world queue's step 7).
 
-### Snow and ice in eighths: live columns near players, the formula elsewhere [draft, 2026-11-24]
+### Snow and ice in eighths: live columns near players, the formula elsewhere [0189 as built, 2026-11-24]
 ADR 0189 built (`crates/engine/src/snow.rs`, `liquid::phases`). **Store:** a column's layer is its units of water
 (U = 4096 a block) at a density of 125 kg/m^3: an eighth is 64 units (15.6 mm of water), a block of snow 512; it
 lies on the column's top solid (`floor`) and shows `units / 64` eighths, 1 to 7. Eight eighths set the existing
@@ -406,7 +406,7 @@ different fluids, the denser keeps the gap".
   are followed again on load). No version moves; a world where water neither froze nor boiled writes the very bytes
   it did, and its water steps to the bit as before (a hashed trace). Clients see the ice through the edits.
 - **Shortcuts named in the code:** a block of ice is U units (real ice 1.09 blocks); less than a block of water froze
-  unseen until the draft "Snow and ice in eighths" (now it shows in eighths), and in no air what is short of a block boils at once; stored sea does not
+  unseen until ADR 0189's "Snow and ice in eighths" (now it shows in eighths), and in no air what is short of a block boils at once; stored sea does not
   freeze (until ice by physics); water under a cave's roof or under another layer takes no part; the water under ice
   is one temperature; no heat between columns or layers; water's heat is not mixed as it flows; water beside an ice
   block gives it no heat; ice under freezing air keeps; Earth's air on every body; every stored water node is looked at

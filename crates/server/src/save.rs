@@ -87,7 +87,7 @@ pub struct Save {
     /// written (with the four before it) only when there is any.
     #[serde(skip)]
     pub crust: Vec<(engine::liquid::Col, u8, i32, i64)>,
-    /// Snow in eighths (ADR 0189's draft, `engine::snow::State`: the live columns, the blocks it packed, what it took
+    /// Snow in eighths (ADR 0189, `engine::snow::State`: the live columns, the blocks it packed, what it took
     /// from the air and still owes it): a sixth tail, written (with the five before it) only when there is any, so a
     /// world without snow writes the bytes it did.
     #[serde(skip)]

@@ -312,7 +312,7 @@ impl Server {
         // steps 4 and 5)
         let w = &self.world.water;
         let (steam, ice) = (w.vapour.get(&engine::fluids::WATER).copied().unwrap_or(0), w.froze.get(&engine::fluids::WATER).copied().unwrap_or(0));
-        // (snow lying is counted water taken from the air's account: what it holds less what it took, ADR 0189's draft)
+        // (snow lying is counted water taken from the air's account: what it holds less what it took, ADR 0189)
         let snow = self.world.snow.held() - self.world.snow.lent;
         w.counted() + steam + ice + held + snow - (self.made - self.removed)
     }
@@ -350,7 +350,7 @@ impl Server {
         if !w.crust.is_empty() {
             h = fnv(h, &postcard::to_allocvec(&w.crust).unwrap());
         }
-        // and the snow's (ADR 0189's draft): a world without any keeps its hashes
+        // and the snow's (ADR 0189): a world without any keeps its hashes
         if !self.world.snow.bare() {
             h = fnv(h, &postcard::to_allocvec(&self.world.snow.state()).unwrap());
         }

@@ -4952,7 +4952,7 @@ fn snow_on(s: &mut Server) -> Vec<Col> {
     cols
 }
 
-/// Snow in eighths on the server (ADR 0189's draft): the columns round a player are live, three eighths laid on them
+/// Snow in eighths on the server (ADR 0189): the columns round a player are live, three eighths laid on them
 /// are sent to the client, survive a save and a load, and leave the live set with every unit back to the air on a
 /// server with no player; two runs of one seed agree to the hash; both ledgers hold every tick; a dig on the ground
 /// under three eighths takes the snow and leaves the block.

@@ -179,7 +179,7 @@ pub(crate) struct App {
     pub(crate) items_pending: Vec<u32>,
     /// Every pile the server told of, by cell (ADR 0074).
     pub(crate) piles: std::collections::HashMap<Block, Vec<engine::items::Slot>>,
-    /// The slabs of snow, ice and rock in eighths near the player (`piles::slabs`, ADR 0189's draft), and where they were
+    /// The slabs of snow, ice and rock in eighths near the player (`piles::slabs`, ADR 0189), and where they were
     /// laid from (None: lay them again, the server sent a change).
     pub(crate) slabs: Vec<crate::fx::FxGpu>,
     pub(crate) slabs_at: Option<glam::DVec3>,

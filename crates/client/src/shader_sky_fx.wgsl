@@ -375,7 +375,7 @@ fn vs_fx(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> Fx
         let cell = vec3f(f32(q.a & 0x7fffu), f32((q.a >> 15u) & 0x7fffu), f32(q.b & 0xffffu));
         let c = cube_corner(dir, k);
         // a loose block gliding into its cell (bit 19, ADR 0101): `p` is its offset in cells
-        // a slab (snow, ice or rock in eighths, ADR 0189's draft): a moved block cell whose `angle` is its height
+        // a slab (snow, ice or rock in eighths, ADR 0189): a moved block cell whose `angle` is its height
         let moved = ((q.info >> 19u) & 1u) == 1u;
         let hz = select(1.0, q.angle, moved && look == 2u && q.angle > 0.0);
         let gp = cell + 0.5 + (c - 0.5) * q.size * vec3f(1.0, 1.0, hz) + select(vec3f(0.0), q.p, moved);

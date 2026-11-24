@@ -428,7 +428,7 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
         // shortcut: a thick fluid slows the walk by 1 + (visc - 1) sub / 16 (lava at the float line: about half again),
         // a taste default; from a drag law on the body once something else wades
         // snow short of a block is no floor: the feet sink through it to the ground and the walk is slower by its depth
-        // (ADR 0189's draft, `snow::DRAG`); a full block of it is a block, stood on
+        // (ADR 0189, `snow::DRAG`); a full block of it is a block, stood on
         let feet = world.block_at(p.pos + up * 0.05);
         let sunk = world.snow.sunk(World::col(feet), feet.pos.z);
         let wish = dir * WALK * (1.0 - 0.5 * sub) / (1.0 + (visc - 1.0) * sub / 16.0) * (1.0 - crate::snow::DRAG * sunk);
@@ -1186,7 +1186,7 @@ mod tests {
         (w.block_centre(b0) + d * 0.5, top.map_or(0.0, |t| layer_r(w, t) - r), way)
     }
 
-    /// Snow in eighths (ADR 0189's draft): three eighths are no floor, the feet sink through to the ground and the walk
+    /// Snow in eighths (ADR 0189): three eighths are no floor, the feet sink through to the ground and the walk
     /// is slower by `DRAG` x 3/8 (19 %); a full block of snow is stood on.
     #[test]
     fn a_body_sinks_in_three_eighths_of_snow_walks_slower_and_stands_on_a_block_of_it() {

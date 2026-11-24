@@ -309,7 +309,7 @@ fn stored_sea_under_freezing_air_takes_no_heat_sets_no_ice_and_stores_no_more_co
     assert!(w.stored() <= n, "{} columns stored, {n} at first", w.stored());
 }
 
-/// Less than a block of water freezes in eighths (ADR 0189's draft; decision B kept it liquid): a puddle of 2000 units
+/// Less than a block of water freezes in eighths (ADR 0189; decision B kept it liquid): a puddle of 2000 units
 /// at -30 C for 23 game days is ice through, shown as 3 eighths (2000 x 8 / 4096 = 3.9) on its top, its units still the
 /// node's and nothing booked as ice; no block is set.
 #[test]

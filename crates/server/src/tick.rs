@@ -11,7 +11,7 @@ impl Server {
         self.world.time = self.tick0.wrapping_add(self.tick) as f64 / TICK_HZ;
         if let Some(w) = &mut self.weather {
             // the air's runoff into the rivers (W5, ADR 0059), already out of the air's sea term
-            // (and what the live snow owes the air settled, ADR 0189's draft)
+            // (and what the live snow owes the air settled, ADR 0189)
             for (reach, units) in w.tick_owing(self.tick, self.world.time, &mut self.world.snow.owed) {
                 self.world.water.rain(reach, units);
             }
@@ -124,7 +124,7 @@ impl Server {
             });
         }
         let mut changed: Vec<(Block, u16)> = Vec::new();
-        // cells generation's again (a snow block over a plant gone, ADR 0189's draft): sent as `Unedit` after the edits
+        // cells generation's again (a snow block over a plant gone, ADR 0189): sent as `Unedit` after the edits
         let mut unset: Vec<Block> = Vec::new();
         let mut deaths = Vec::new();
         // ghosts taken over this tick (the Hello arm): not read again, dropped (closing their links) after the loop
@@ -438,7 +438,7 @@ impl Server {
                 changed.push((b, m));
                 self.events.push(Event::Edit { at: b, was, now: m, by: None });
             }
-            // snow in eighths on the columns round the players (ADR 0189's draft) by the same air and clock: the live
+            // snow in eighths on the columns round the players (ADR 0189) by the same air and clock: the live
             // air's snowfall where it is under freezing at the column's height, from the air column's account; eight
             // eighths a block of snow through the edits; the ice and rock short of a block shown with it
             let feet: Vec<DVec3> = self.clients.iter().map(|c| c.phys.pos).collect();

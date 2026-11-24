@@ -487,7 +487,7 @@ impl App {
                         self.models.set_state(b, on.then_some("working"));
                     }
                 }
-                // snow, ice and rock in eighths (ADR 0189's draft): the slabs are laid again once, not each frame
+                // snow, ice and rock in eighths (ADR 0189): the slabs are laid again once, not each frame
                 Recv::Msg(ToClient::Layers(v)) => {
                     self.world.snow.apply(&v);
                     self.slabs_at = None;

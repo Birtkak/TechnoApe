@@ -188,11 +188,11 @@ pub enum ToClient {
     /// This player's journal entries that changed state (`journal`, draft ADR journal-data), by name; once
     /// it has its name (`Hello`), every entry not unknown, then each change at the end of its tick.
     Journal(Vec<(String, crate::journal::State)>),
-    /// Snow, and ice and rock short of a block, in eighths (ADR 0189's draft, `snow::Seen`): every column that shows
+    /// Snow, and ice and rock short of a block, in eighths (ADR 0189, `snow::Seen`): every column that shows
     /// some on join, then the columns whose eighths changed (None: nothing shows), at most once a second. Last of the
     /// variants, so an older server never sends it and an older client is never sent it by one of its own age.
     Layers(Vec<(crate::liquid::Col, Option<crate::snow::Seen>)>),
-    /// Cells whose edit is gone, generation's again (ADR 0189's draft: snow packed over a clutter plant melted or dug,
+    /// Cells whose edit is gone, generation's again (ADR 0189: snow packed over a clutter plant melted or dug,
     /// the plant back): sent after the tick's `Edits`. Last of the variants, as `Layers`.
     Unedit(Vec<Block>),
 }

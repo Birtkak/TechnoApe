@@ -117,7 +117,7 @@ spans the three: a block is U units, and ice + water + vapour of a world is one 
   further before it crusts.
 - **Untouched water follows the formula** (the rule at the top): the bake's sea ice is where the climate holds the
   sea under freezing; a stored patch in the same place must freeze to the same answer.
-- **Snow and ice in eighths** (draft "Snow and ice in eighths", `snow.rs`): snow lies on live columns near
+- **Snow and ice in eighths** (ADR 0189, "Snow and ice in eighths", `snow.rs`): snow lies on live columns near
   players as counted water (64 units an eighth, 125 kg/m^3), taken from and given back to the live air grid's lying
   snow and soil, melting on the world's heat and sublimating to `vapour`; elsewhere its depth is the grid's formula.
   Water freezing short of a block shows its progress as ice eighths, and eight become the ice block.

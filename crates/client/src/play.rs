@@ -60,7 +60,7 @@ const FORGET_M: f64 = 32.0;
 /// temperature, hardness, the tool it wants and what else it is; a fluid's name (sea water by the sea's salt), its
 /// temperature and depth.
 pub(crate) fn looked(w: &World, look: edit::Look, live: Option<f64>) -> Looked {
-    // snow, ice or rock in eighths lying on the block aimed at, or on the fluid's cell (ADR 0189's draft): named first,
+    // snow, ice or rock in eighths lying on the block aimed at, or on the fluid's cell (ADR 0189): named first,
     // with its depth in eighths and what it lies on
     let (b, on, under) = match look {
         edit::Look::Block(b) => (b, 1, BLOCKS.get(w.block(b)).map_or("?".to_string(), |d| d.name.clone())),
@@ -1965,7 +1965,7 @@ mod looked_tests {
         assert_eq!((l.name.as_str(), l.note.as_str()), ("Lava", "1150.0 °C, 1.0 m deep"));
     }
 
-    /// Snow in eighths (ADR 0189's draft) on the block aimed at is named first, with its depth and what it lies on.
+    /// Snow in eighths (ADR 0189) on the block aimed at is named first, with its depth and what it lies on.
     #[test]
     fn the_panel_names_snow_in_eighths_and_what_it_lies_on() {
         let mut w = World::new(256, 32, 1);

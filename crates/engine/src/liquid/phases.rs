@@ -179,7 +179,7 @@ impl Liquids {
         *self.froze.entry(crate::fluids::WATER).or_default() += units;
         self.ice.insert((c, z), U as f64);
     }
-    /// Ice short of a block on stored water (ADR 0189, draft "Snow and ice in eighths"): every node of water whose frozen
+    /// Ice short of a block on stored water (ADR 0189, "Snow and ice in eighths"): every node of water whose frozen
     /// progress (`Therm::frac`) makes at least an eighth of a block, as (column, its water's top in units, eighths
     /// frozen, 1 to 7), sorted. Its units stay in the node, liquid and counted (the enthalpy method): only how much of it
     /// is ice is shown, so it freezes and melts back to exactly its water; a whole block is the ice block, as before.
@@ -289,7 +289,7 @@ impl Liquids {
     /// `out` (column, layer, water's kind) at the node's top cell, as `cool`'s basalt; a step that freezes several sets
     /// every one, downward from there. While a block waits for its cell (`waiting`, a player in it) the node freezes no
     /// further. Short of a block, what froze is shown as ice in eighths on its top (`ice_layers`), its units still the
-    /// node's (ADR 0189's draft).
+    /// node's (ADR 0189).
     pub(super) fn water_heat(&mut self, g: &impl Ground, a: u32, mut h: Therm, dt: f64, ph: &Phases, out: &mut Vec<(Col, i32, u8)>) -> Option<Therm> {
         let water = crate::fluids::WATER;
         let n = &self.nodes[a as usize];
