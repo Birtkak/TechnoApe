@@ -55,7 +55,8 @@ pub struct WaterMesh {
     /// The tiles of the volcanoes' lava lakes (`Body::lava_tiles`), meshed as stored ones are; None until the
     /// home's ground is in.
     lava: Option<Vec<Col>>,
-    /// The wet tiles the generated sea stands in: the only ones the tide moves (`retide`). Kept by `update`.
+    /// The wet tiles the generated sea stands in, or beside (a column past their edge): the only ones the tide moves
+    /// (`retide`). Kept by `update`.
     tidal: std::collections::HashSet<Col>,
 }
 
@@ -92,6 +93,17 @@ impl WaterMesh {
                     }
                 }
             }
+            // its corners and sides at the edge read the columns one past it, the generated sea where their tile is
+            // not wet (`mesh`'s `at`): the tide moves those too (the review of the fix)
+            let n = world.bodies[t.body() as usize].n;
+            sea = sea
+                || (wet
+                    && ring(t, n).any(|c| {
+                        !world.water.wet(c.tile()) && {
+                            let (lo, hi) = engine::liquid::Ground::generated(&g, c);
+                            lo < hi
+                        }
+                    }));
             if sea {
                 self.tidal.insert(t);
             } else {
@@ -135,6 +147,8 @@ impl WaterMesh {
     /// the tiles the sea stands in (`tidal`): a pond inland or a lava lake has nothing the tide moves, and meshing
     /// one again cost 7 to 14 ms of a frame, every 4 s, for each. One tile a frame.
     /// shortcut: a tile the sea is in still costs that frame; mesh it on a worker when floods reach the sea.
+    /// shortcut: `tidal` is judged when a tile is updated, so a pond's tile the rising tide newly reaches follows it
+    /// only from its next update (any flow in it); judge it again on the tide's turn if a shore pond is seen stale.
     pub fn retide(&mut self, world: &World, now: f32) {
         // the lava lakes once the home's ground is in: generated, so no message brings them
         if self.lava.is_none() && world.loaded(0) {
@@ -468,6 +482,15 @@ mod tests {
     }
 }
 
+/// The columns one past tile t's edge, on its face of n columns: what its mesh reads beyond itself.
+fn ring(t: Col, n: i32) -> impl Iterator<Item = Col> {
+    let (i0, j0) = (t.i() * TILE, t.j() * TILE);
+    (-1..=TILE)
+        .flat_map(move |k| [(i0 + k, j0 - 1), (i0 + k, j0 + TILE), (i0 - 1, j0 + k), (i0 + TILE, j0 + k)])
+        .filter(move |&(i, j)| (0..n).contains(&i) && (0..n).contains(&j))
+        .map(move |(i, j)| Col::new(t.body(), t.face(), i, j))
+}
+
 #[cfg(test)]
 mod tide_tests {
     use super::*;
@@ -480,16 +503,20 @@ mod tide_tests {
     fn the_tide_passes_over_wet_tiles_the_sea_is_not_in() {
         let mut w = World::new(256, 512, 1);
         let n = w.bodies[0].n / TILE;
-        let (pond, shore) = {
+        let (pond, shore, beside) = {
             let g = w.ground();
             let sea = |c: Col| { let (lo, hi) = g.generated(c); lo < hi };
-            let tiles = || (0..n * n).map(|k| Col::new(0, 2, k % n, k / n));
-            let inland = tiles().find(|&t| tile_cols(t).all(|c| !sea(c))).expect("a dry tile");
+            let tiles = || (0..6 * n * n).map(|k| Col::new(0, (k / (n * n)) as u8, k % n, k / n % n));
+            let dry = |t: Col| tile_cols(t).all(|c| !sea(c));
+            let rim = |t: Col| ring(t, w.bodies[0].n).any(sea);
+            let inland = tiles().find(|&t| dry(t) && !rim(t)).expect("a dry tile");
             let coast = tiles().find(|&t| tile_cols(t).any(sea) && tile_cols(t).any(|c| !sea(c))).expect("a tile on the shore");
+            // all land, the sea in a column just past its edge: the mesh's corners and sides there read that sea
+            let near = tiles().find(|&t| dry(t) && rim(t)).expect("a dry tile beside the sea");
             let land = |t: Col| tile_cols(t).find(|&c| !sea(c)).map(|c| (c, g.gaps(c).last().unwrap().0)).unwrap();
-            (land(inland), land(coast))
+            (land(inland), land(coast), land(near))
         };
-        for ((c, floor), tidal) in [(pond, false), (shore, true)] {
+        for ((c, floor), tidal) in [(pond, false), (shore, true), (beside, true)] {
             w.time = 0.0;
             w.water.set_column(&(c, vec![(floor, OPEN, U / 2)]));
             let mut m = WaterMesh::default();
