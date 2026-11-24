@@ -141,6 +141,14 @@ impl Body {
             caves.retain(|k| !craters.iter().any(|c| c.face == k.face && (k.at.x - c.at.0).hypot(k.at.y - c.at.1) < c.v.radius as f64 + k.r + 2.0));
             caves.extend(craters.iter().flat_map(|c| self.crater_caves(c)));
         }
+        // on the warped grid a column is not a metre: a cave's reach sideways is counted in the columns of its
+        // place, its height stays in layers (near a corner a tube was a third as wide as it was high; the review
+        // of generation 13). The old grid's caves are as they were, to the bit.
+        if self.warp != 0.0 {
+            for c in &mut caves {
+                c.r /= self.col_m(c.face as usize, c.at.x, c.at.y);
+            }
+        }
         self.set_caves(caves);
         let ores = crate::ore::place(&self, self.baked.as_ref().unwrap().seed);
         self.set_ores(ores);

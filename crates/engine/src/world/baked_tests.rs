@@ -15,6 +15,30 @@ fn the_512_planets_table_settles() {
     assert!(sweeps > 0 && (sweeps as usize) < crate::bake::ground::SWEEPS && (residual as f64) < crate::bake::ground::TOL, "{sweeps} sweeps, residual {residual} m");
 }
 
+/// On the warped grid a cave reaches as far sideways in metres as on the old one: its reach in columns is its
+/// radius over the column's width where it lies, its height in layers as it was (near a corner a tube was a third
+/// as wide as it was high; the review of generation 13).
+#[test]
+fn a_cave_on_the_warped_grid_is_as_wide_in_metres_as_it_was_in_columns() {
+    let w1 = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, GENERATION);
+    let b = &w1.bodies[0];
+    assert_eq!(b.warp, 1.0);
+    // as made, before the body counts their reach in its columns (a volcano's foot drops some; found by place)
+    let raw = crate::caves::make(b, b.baked_seed().unwrap());
+    let key = |c: &Cave| (c.face, c.at.x.to_bits(), c.at.y.to_bits(), c.at.z.to_bits(), c.kind);
+    let made: FxMap<_, &Cave> = raw.iter().map(|c| (key(c), c)).collect();
+    let (mut widths, mut seen) = ((f64::MAX, f64::MIN), 0);
+    for c in &b.caves {
+        let Some(r) = made.get(&key(c)) else { continue };
+        let m = b.col_m(c.face as usize, c.at.x, c.at.y);
+        widths = (widths.0.min(m), widths.1.max(m));
+        seen += 1;
+        assert!((c.r * m - r.r).abs() < 1e-9 * r.r && (c.h, c.floor) == (r.h, r.floor), "{c:?} of {r:?}, a column {m} m");
+    }
+    // the map's columns are not all one width, or this proved nothing
+    assert!(seen > 100 && widths.1 > widths.0 * 1.2, "{seen} caves, columns {widths:?} m wide");
+}
+
 /// The warp (ADR 0131) moves the block grid over the land, not the land: the bake is read by direction, so a
 /// column's ground on the warped grid is the unwarped world's ground along that column's direction.
 #[test]

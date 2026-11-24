@@ -30,7 +30,7 @@ from; INDEX.md lists every number.
 - **The grid is the conformal cube-sphere** (2026-11-15, after walking on the trial: "Make it the grid"): square
   block tops everywhere matter more than blocks shrinking near the 8 corners. New worlds only; old saves keep the
   grid they were made on. [0131] The default from generation 13 (2026-11-24, the developer: make it the default):
-  every new world is on it. [draft]
+  every new world is on it. [0203]
 - **Corners are ordinary ground**: nothing is placed on the 8 cube corners. [0136 supersedes the corners lines of
   0003 and 0027] (also vision-and-scope.md)
 
@@ -89,7 +89,7 @@ The conformal grid is the equi-angular grid with its face coordinates warped fir
   `cl_locate`), the weather and air grid (`weather.rs`, `bake/air.rs`): each has its own equi-angular map by
   direction. The globe map reads the bake grid.
 
-### The generation carries the grid [draft, 2026-11-24]
+### The generation carries the grid [0203, 2026-11-24]
 Generation 13 (`world::CONFORMAL`, the newest) is generation 12 with every body on the conformal grid (warp 1);
 every earlier generation keeps the equi-angular grid (warp 0) to the bit, so old saves, their recordings and hashes
 stay as they were. The warp follows from the generation wherever a world is built from it (`World::of_sources`:
@@ -99,6 +99,15 @@ trial's `warp=` (client, server, bot) and its `save=0` asserts are gone; `gen=12
 to compare. The developer's call (the default, 2026-11-24); keeping the old grid for old saves is the routine part.
 Alternatives rejected: a warp field in the save and the welcome (a second number saying what the generation says).
 Replaces: 0131's trial limits (`warp=` by hand, `save=0`) and its open item (making it the default).
+**Metres and columns** (the review of this step): a column is no longer about a metre everywhere, so what is
+sized in metres is counted in the columns of its place, by `Body::col_m`: a crater's rim and lake, and a cave's
+reach sideways (its height stays in layers). The player's box past a face edge is met point by point, every 0.2 m,
+since the columns over a seam are not this face's lattice carried on. Known and left, all small near the 8 corners
+and right elsewhere: ranges counted in columns reach less far there (the fluid lamps' span, the sea's horizon cap,
+snow's live square of 16, a volcano's chamber heat against its hollow), the aquifer's cell spacing is a column
+count taken as metres (seep rates follow the column's width), and a river's tilt in the water shader uses the
+face's axes, not the warped tangents. A cave tube's cross-section test stays on generation 12: a tube's 8th
+station fails on some seeds on either grid (seed 5 on 13, seed 6 on 12), a fault of the cave walk, open.
 
 ## Planets and their sizes
 
@@ -175,7 +184,7 @@ Replaces: 0131's trial limits (`warp=` by hand, `save=0`) and its open item (mak
   versions are in multiplayer-saves-and-data.md; those that change the grid: version 20 added `mantle: bool` (a 19 or
   older reads as false, 0154), version 22 replaced `planet_n, moon_n, map, luna` by `bodies: Vec<(i32, Option<u64>)>`
   (0163). See deep-world.md and bodies-and-orbits.md.
-- The warp is in no save and no message: the generation, which both carry, says it. [0131, draft]
+- The warp is in no save and no message: the generation, which both carry, says it. [0131, 0203]
 - Recordings (postcard, positional) from before 0024 no longer load. [0024]
 
 ## No longer holds
@@ -208,4 +217,4 @@ Replaces: 0131's trial limits (`warp=` by hand, `save=0`) and its open item (mak
 - 0131's "trial, awaiting the developer": the developer chose it (see the calls), and generation 13 made it the
   default.
 - 0131's trial limits (`warp=0..1` on the client, the server and the bot, `save=0` asserted, a remote server's warp
-  given by hand) and its open item "making it the default": the generation carries the grid (draft 2026-11-24).
+  given by hand) and its open item "making it the default": the generation carries the grid (0203).
