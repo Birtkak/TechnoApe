@@ -929,11 +929,11 @@ impl App {
                     None => engine::sky::BIOME_CLIMATE[bio as usize],
                 };
                 // the live air (W3) where the server runs it, else the baked year with the season and hour on top
-                let (c, rain) = match self.air {
-                    Some(a) => (a.temp as f64, format!(", rain {:.2} mm/h, cloud {:.0} %, wind {:.1} m/s", a.rain, a.cover * 100.0, a.wind[0].hypot(a.wind[1]))),
-                    None => (engine::sky::temperature(mean, swing, up.z.clamp(-1.0, 1.0).asin(), w.sky.declination(w.time), w.sky.hour_angle(w.time, up)), String::new()),
+                let c = match self.air {
+                    Some(a) => a.temp as f64,
+                    None => engine::sky::temperature(mean, swing, up.z.clamp(-1.0, 1.0).asin(), w.sky.declination(w.time), w.sky.hour_angle(w.time, up)),
                 };
-                format!("{c:.1} °C, the year's mean here {mean:.0} °C ({}){rain}", engine::bake::life::BIOMES[bio as usize].0)
+                format!("{c:.1} °C, the year's mean here {mean:.0} °C")
             }
             None => "no air reading here".into(),
         };
@@ -1013,11 +1013,58 @@ impl App {
                 ],
             ),
             section(
+                "Ground",
+                if space || b.gas {
+                    vec![("Ground", if space { "none: in space".into() } else { "gas: no ground, no biome".into() }, 0)]
+                } else {
+                    let name = |v: Option<&str>| v.unwrap_or("none on this map").to_string();
+                    let (i, j) = (blk.pos.x, blk.pos.y);
+                    let biome = b.biome_at(face, fi, fj, b.dir(face, fi, fj)).and_then(|k| engine::biomes::ROWS.biomes.get(k as usize)).map(|r| r.name.as_str());
+                    // the rock's own heat at the feet's layer (the geotherm under the year's air, ADR 0197)
+                    let rock = b.heat(blk.face, i, j, blk.pos.z as f64 + 0.5).map_or("no map's rock here".into(), |c| format!("{c:.1} °C at layer {}, the ground's top at {:.0}", blk.pos.z, b.col_height(blk.face, i, j) - b.radius));
+                    let fluids = engine::fluids::FLUIDS.now();
+                    let wet = |p: DVec3| w.fluid_at(p).map_or("none".to_string(), |k| fluids.get(k).name.clone());
+                    let mut rows = vec![
+                        ("Biome", name(biome), 0),
+                        ("Province", name(nav::province_name(b, blk.face, i, j)), 0),
+                        ("Rock heat", rock, 0),
+                        ("Fluid", format!("{} at the feet, {} at the eye", wet(feet + up * 0.1), wet(pos)), 0),
+                        // what lies in eighths on this column (ADR 0189), as the server last sent it
+                        ("Snow", w.snow.seen.get(&World::col(blk)).map_or("none".into(), |s| format!("{} eighths of {} on layer {}", s.eighths, BLOCKS.get(s.block).map_or("?", |d| d.name.as_str()), s.z)), 0),
+                        ("Generation", format!("{} (map version {})", b.gen, b.map().map_or("none".into(), |m| m.version.to_string())), 0),
+                    ];
+                    if bi == 0 {
+                        rows.push(("Tide", format!("{:+.2} m over the mean sea", w.tide().at(up)), 0));
+                    }
+                    rows
+                },
+            ),
+            section(
+                "Sky",
+                {
+                    let mut rows = vec![("Time", format!("day {day}, {:02}:{:02} at the spawn, {:.0} s", m / 60, m % 60, w.time), 0)];
+                    if bi == 0 && !space {
+                        let lh = nav::local_hour(w, w.time, up);
+                        let lm = (lh * 60.0).round() as u32 % (24 * 60);
+                        rows.push(("Here", format!("{:02}:{:02} local sun time, {} ({})", lm / 60, lm % 60, nav::season_name(up, w.time, w.sky.year), if up.z >= 0.0 { "north" } else { "south" }), 0));
+                    }
+                    // Luna's height over this horizon, and her phase by her elongation from Sol
+                    let moon_up = if space { None } else { Some(w.up_at(pos).dot((w.from_inertial(bi, w.sky.moon(w.time).centre) - pos).normalize()).clamp(-1.0, 1.0).asin().to_degrees()) };
+                    let e = nav::elongation(&w.sky, w.time);
+                    rows.push(("Sol", format!("{:.1} degrees over the horizon", d.sun_deg), 0));
+                    rows.push((
+                        "Moon",
+                        format!("{} {}, {:.0}% lit, elongation {e:.0}{}", w.bodies.get(w.moon).map_or("none", |b| b.name.as_str()), nav::phase_name(e), d.moon_lit * 100.0, moon_up.map_or(String::new(), |a| format!(", {a:.1} degrees up"))),
+                        0,
+                    ));
+                    rows
+                },
+            ),
+            section(
                 "World",
                 vec![
-                    ("Time", format!("day {day}, {:02}:{:02} at the spawn, {:.0} s", m / 60, m % 60, w.time), 0),
-                    ("Sol", format!("{:.1} degrees over the horizon", d.sun_deg), 0),
                     ("Air", air, 0),
+                    ("Weather", self.air.map_or("no live air here (a remote or airless world)".into(), |a| format!("rain {:.2} mm/h, cloud {:.0} %, wind {:.1} m/s", a.rain, a.cover * 100.0, a.wind[0].hypot(a.wind[1]))), 0),
                     ("Felt", felt, 0),
                     ("Field", {
                         // the home's magnetic field, `field=` scaling it for the run, and its aurora (0164-magnetic-field)

@@ -198,9 +198,97 @@ pub fn shadow_at(sky: &engine::sky::Sky, t: f64, r: f64) -> Option<DVec3> {
     (disc > 0.0).then(|| m + d * (-b - disc.sqrt()))
 }
 
+/// What the ground of column (face, i, j) is called (the compass's label and F3): its biome (Terra's, or Luna's,
+/// Mars's and the icy moon's kinds of ground, one table, `biomes::ROWS`), else its rock province; None on a body
+/// with no map (a gas giant, the old noise land).
+pub fn ground_name(b: &engine::world::Body, face: u8, i: i32, j: i32) -> Option<&'static str> {
+    let (ci, cj) = (i as f64 + 0.5, j as f64 + 0.5);
+    match b.biome_at(face as usize, ci, cj, b.dir(face as usize, ci, cj)) {
+        Some(k) => engine::biomes::ROWS.biomes.get(k as usize).map(|r| r.name.as_str()),
+        None => province_name(b, face, i, j),
+    }
+}
+
+/// The rock province of column (face, i, j) by its row in data/rocks.toml; None without a map's rock.
+pub fn province_name(b: &engine::world::Body, face: u8, i: i32, j: i32) -> Option<&'static str> {
+    engine::rock::ROCKS.provinces.get(b.col_rock(face, i, j).province as usize).map(|p| p.name.as_str())
+}
+
+/// Luna's elongation at t: how far round her orbit she stands from Sol as seen from Terra, degrees 0 to 360,
+/// counted the way she goes (0 new, 90 first quarter, 180 full, 270 last quarter).
+pub fn elongation(sky: &engine::sky::Sky, t: f64) -> f64 {
+    let p = sky.planet(t).centre;
+    let (s, m) = (sky.sun(t) - p, sky.moon(t).centre - p);
+    // (her orbit leans 2 degrees off the ecliptic, whose pole is +z: the turn about +z is the one she makes)
+    s.cross(m).z.atan2(s.dot(m)).to_degrees().rem_euclid(360.0)
+}
+
+/// Luna's eight phases by name, from new on, a 45-degree step of `elongation` each.
+pub const PHASES: [&str; 8] = ["new", "waxing crescent", "first quarter", "waxing gibbous", "full", "waning gibbous", "last quarter", "waning crescent"];
+
+/// The phase an elongation (degrees) is in: each name holds the 45 degrees centred on its own.
+pub fn phase_name(elong: f64) -> &'static str {
+    PHASES[((elong.rem_euclid(360.0) + 22.5) / 45.0) as usize % 8]
+}
+
+/// The season at body-frame direction `up` on the home at t, by `sky::season_at`'s quarter (0 the spring there).
+pub fn season_name(up: DVec3, t: f64, year: f64) -> &'static str {
+    ["spring", "summer", "autumn", "winter"][engine::sky::season_at(up, t, year).0 as usize % 4]
+}
+
+/// The local solar time at body-frame direction `up` on the home, hours 0 to 24 (12 when Sol is due south or north).
+/// Sol as the world poses the home (ADR 0177), not the sky's old turning (`Sky::hour_angle`), which drifts off it.
+pub fn local_hour(w: &engine::world::World, t: f64, up: DVec3) -> f64 {
+    let p = w.pose(0, t);
+    let s = p.rot.inverse() * (w.sky.sun(t) - p.centre);
+    // the hour angle about the spin axis (body +z): 0 at local noon
+    let ha = (s.x * up.y - s.y * up.x).atan2(s.x * up.x + s.y * up.y);
+    (12.0 + ha / std::f64::consts::TAU * 24.0).rem_euclid(24.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn luna_s_phases_follow_her_elongation() {
+        assert_eq!([0.0, 44.0, 70.0, 90.0, 180.0, 270.0, 300.0, 359.0].map(phase_name), ["new", "waxing crescent", "first quarter", "first quarter", "full", "last quarter", "waning crescent", "new"]);
+        // in the sky she goes round once a month, the way her elongation is counted: forward a day, it grows
+        let w = engine::world::World::new(256, 32, 1);
+        let s = w.sky;
+        let (a, b) = (elongation(&s, 1000.0), elongation(&s, 1000.0 + engine::sky::DAY));
+        assert!((b - a).rem_euclid(360.0) > 5.0 && (b - a).rem_euclid(360.0) < 60.0, "{a} then {b}");
+        // the spawn's clock and the local solar time agree within the spawn's longitude's offset: an hour later is an hour later
+        let up = DVec3::Y;
+        let (h0, h1) = (local_hour(&w, 0.0, up), local_hour(&w, engine::sky::DAY / 24.0, up));
+        assert!(((h1 - h0).rem_euclid(24.0) - 1.0).abs() < 0.05, "{h0} {h1}");
+        assert_eq!(season_name(DVec3::Z, 1.0, s.year), "spring");
+    }
+
+    #[test]
+    fn local_noon_is_where_sol_stands_overhead_in_the_world_s_own_orbits() {
+        // F3 said 15:57 local with Sol 25 degrees under the horizon (2026-11-24): the time must be the posed sun's
+        let w = engine::world::World::new(256, 32, 1);
+        for t in [0.0, 5000.0, 40190.0, 123456.0] {
+            let p = w.pose(0, t);
+            let s = (p.rot.inverse() * (w.sky.sun(t) - p.centre)).normalize();
+            let h = local_hour(&w, t, s);
+            assert!((h - 12.0).abs() < 0.1, "under Sol at {t}: {h}");
+            let h = local_hour(&w, t, -s);
+            assert!(h < 0.1 || h > 23.9, "opposite Sol at {t}: {h}");
+        }
+    }
+
+    #[test]
+    fn the_ground_is_named_by_its_biome_and_a_map_less_body_by_nothing() {
+        let plain = engine::world::World::new(256, 32, 1);
+        assert_eq!(ground_name(&plain.bodies[0], 0, 10, 10), None);
+        let w = engine::world::World::with_map(512, 32, 5, Some(std::sync::Arc::new(engine::bake::Map::bake(5, 512))));
+        let b = &w.bodies[0];
+        let names: std::collections::HashSet<&str> = (0..6u8).flat_map(|f| (0..8).map(move |k| (f, 20 + k * 60))).filter_map(|(f, k)| ground_name(b, f, k, k)).collect();
+        assert!(names.len() >= 2 && names.iter().all(|n| engine::bake::life::BIOMES.iter().any(|b| b.0 == *n)), "{names:?}");
+        assert!(province_name(b, 0, 100, 100).is_some());
+    }
 
     #[test]
     fn latitude_longitude_and_bearings_follow_the_spin_axis() {
