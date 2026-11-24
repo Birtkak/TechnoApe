@@ -6,7 +6,7 @@
 //! boiling point, or under air too thin for a liquid (`wake_water`). Then, once a second on the server
 //! (`water_heat`), heat flows by real laws: to the air over an open surface (convection and radiation), up through
 //! the ice over it to cold air (Stefan's law with the air's resistance), from the sea under it (the heat that makes
-//! the bake's sea ice the rest state), from hot rock under it. Heat exchanged with the air and sky runs at ADR 0187's
+//! the bake's sea ice the rest state), from hot rock under and beside it (held at its heat: steady). Heat exchanged with the air and sky runs at ADR 0187's
 //! pace (the real year over the game's); heat a source drives at real rates. What the cold takes past the freeze
 //! point is progress (`Therm::frac`) while the water stays liquid; each whole block frozen leaves the node, booked to
 //! `Liquids::froze`, as a block of the row's `freeze` block (ice) at the water's top, through the edits as lava's
@@ -31,6 +31,11 @@ const T0K: f64 = 273.15;
 /// shortcut: Earth's air on every body (Mars's CO2 would be 0.044); from a body's row once one carries its air.
 const M_AIR: f64 = 0.028_97;
 const CP_AIR: f64 = 1005.0;
+/// The rock's conductivity, W/(m K) (`ROCK_EFFUSIVITY`'s rock, Turcotte and Schubert table 4.1), and the boundary layer
+/// of it a held rock warms a hollow's water through, m: steady conduction from a field held at its heat far off into
+/// a sphere of radius r is k dT / r at its face (Carslaw and Jaeger), r half the block (4 W/(m^2 K) of rock).
+const ROCK_K: f64 = 2.0;
+const ROCK_LAYER: f64 = 0.5;
 
 /// Heat transfer between a surface at about `t` C and the air and sky, W/(m^2 K): free convection (`H_AIR`, none in
 /// no air) and radiation at emissivity `e`, linearised (4 e sigma T^3: about 5 at 15 C).
@@ -177,19 +182,65 @@ impl Liquids {
             }
             let (ta, p) = g.air(n.col, n.surface() as f64 / U as f64);
             let tb = ph.boils_at(p);
-            let hot = g.heat(n.col, n.floor as f64) as f64 >= tb;
             // shortcut: stored sea does not freeze, until ice by physics (roadmap step 7) gives the sea's sheet a rule
             // that returns to generation
             let (lo, hi) = g.generated(n.col);
-            if hot || (lo >= hi && (ta < ph.tf || p < ph.pt) && (n.ceil == OPEN || g.ice(n.col, n.ceil))) {
+            let aired = lo >= hi && (n.ceil == OPEN || g.ice(n.col, n.ceil));
+            // its held rock is looked at only where it could matter: rock under or at it over its boiling point, or
+            // freezing air over it. shortcut: the walls' rock is taken as near the column's own as that tells
+            let near = (g.heat(n.col, n.floor as f64) as f64).max(g.heat(n.col, n.surface() as f64 / U as f64) as f64);
+            let freezing = aired && (ta < ph.tf || p < ph.pt);
+            if near < tb + REST_K && !freezing {
+                continue;
+            }
+            let open = lo >= hi && n.ceil == OPEN;
+            let (boils, ts, ..) = self.drive(g, a, ph, open, ta, p, tb);
+            let settles = if open { ta.max(ts) } else { ta };
+            if boils || (freezing && (settles < ph.tf || p < ph.pt)) {
                 // it comes at what its place held it at (the rock's, or the air's on a hot place), liquid
-                let t = if hot { ta } else { self.rest_of(g, a) };
+                let t = if boils { ta } else { self.rest_of(g, a) };
                 wake.push((a, t.clamp(ph.tf, tb.max(ph.tf))));
             }
         }
         for (a, t) in wake {
             self.heat.insert(a, Therm { t, age: 0.0, frac: 0.0, solid: 0 });
         }
+    }
+
+    /// What drives node a's heat: its held rock (`Ground::held`), steady through `ROCK_LAYER` of rock and through half
+    /// its own depth (the floor) or half a block (each wall cell, by the share of the water's depth beside it), and
+    /// the open air over it at the real rate, `open`. Every flow is linear in the water's heat, so they settle it at
+    /// T* = (sum G T) / (sum G); it boils where T* passes its boiling point by `REST_K` with held rock among them.
+    /// Returns (it boils, T*, the hottest held rock's heat, the held rock's (sum G, sum G T)).
+    #[allow(clippy::too_many_arguments)]
+    fn drive(&self, g: &impl Ground, a: u32, ph: &Phases, open: bool, ta: f64, p: f64, tb: f64) -> (bool, f64, f64, (f64, f64)) {
+        let n = &self.nodes[a as usize];
+        let (c, lo, hi) = (n.col, n.bottom(), n.surface());
+        let deep = n.water.min(n.cap()) as f64 / U as f64;
+        let r = ROCK_LAYER / ROCK_K;
+        let (mut gs, mut gt, mut top) = (0.0, 0.0, f64::MIN);
+        let mut add = |k: f64, t: f64| {
+            gs += k;
+            gt += k * t;
+            top = top.max(t);
+        };
+        if lo == n.floor as i64 * U && g.held(c, n.floor - 1) {
+            add(1.0 / (r + deep * 0.5 / ph.k), g.heat(c, n.floor as f64) as f64);
+        }
+        if hi > lo {
+            for d in g.neighbours(c).into_iter().flatten() {
+                let gaps = g.gaps(d);
+                for z in lo.div_euclid(U) as i32..=(hi - 1).div_euclid(U) as i32 {
+                    if !gaps.iter().any(|&(f, t)| f <= z && z < t) && g.held(d, z) {
+                        let part = (hi.min((z as i64 + 1) * U) - lo.max(z as i64 * U)) as f64 / U as f64;
+                        add(part / (r + 0.5 / ph.k), g.heat(d, z as f64 + 0.5) as f64);
+                    }
+                }
+            }
+        }
+        let ga = if open { ph.h(ta, p) } else { 0.0 };
+        let ts = if gs + ga > 0.0 { (gt + ga * ta) / (gs + ga) } else { ta };
+        (gs > 0.0 && ts > tb + REST_K, ts, top, (gs, gt))
     }
 
     /// One heat step of `dt` s for stored water node a holding heat `h`: None when it is back at rest (liquid, short of
@@ -202,13 +253,10 @@ impl Liquids {
     pub(super) fn water_heat(&mut self, g: &impl Ground, a: u32, mut h: Therm, dt: f64, ph: &Phases, out: &mut Vec<(Col, i32, u8)>) -> Option<Therm> {
         let water = crate::fluids::WATER;
         let n = &self.nodes[a as usize];
-        let (c, floor, ceil, w, top, layered) = (n.col, n.floor, n.ceil, n.water, n.surface(), n.stack > 1);
+        let (c, ceil, w, top, layered) = (n.col, n.ceil, n.water, n.surface(), n.stack > 1);
         let on_top = n.layer + 1 == n.stack;
-        let deep = w.min(n.cap()) as f64 / U as f64;
         let (ta, p) = g.air(c, top as f64 / U as f64);
         let tb = ph.boils_at(p);
-        let tr = g.heat(c, floor as f64) as f64;
-        let hot = tr >= tb;
         // ice over it: blocks over its gap's ceiling
         let iced = if ceil == OPEN { 0 } else { (0..16).take_while(|&k| g.ice(c, ceil + k)).count() };
         // the air reaches it over its open surface, or through an ice lid; not under another block or another layer,
@@ -220,7 +268,12 @@ impl Liquids {
         // (a part-block handed on by an edit is progress too)
         h.frac += std::mem::take(&mut h.solid) as f64;
         let ice = h.frac.max(0.0);
-        if !hot && (!aired || (ice == 0.0 && ta >= ph.tf && p >= ph.pt)) {
+        // at rest where its held rock and air cannot bring it to its boiling point and it is not freezing: it settles
+        // at T*, liquid, and carries no heat
+        // (under an ice lid the cold air still takes it through the ice: there the air's heat decides, as before)
+        let (boils, ts, hottest, rock) = self.drive(g, a, ph, open, ta, p, tb);
+        let settles = if open { ta.max(ts) } else { ta };
+        if !boils && (!aired || (ice == 0.0 && settles >= ph.tf && p >= ph.pt)) {
             return None;
         }
         // a block waiting for its cell holds the freeze where it is
@@ -242,13 +295,13 @@ impl Liquids {
         } else {
             let pace = g.pace();
             // ADR 0187: a source heating it, its loss to the air is taken at the real rate
-            let ap = if hot && tr > h.t { 1.0 } else { pace };
+            let ap = if boils { 1.0 } else { pace };
             let ha = ph.h(ta, p);
             let d = iced as f64 + ice / U as f64;
             let mut q = 0.0;
-            if hot {
-                // the rock under it, through half its own depth and the rock's own cooling since it came (lava's)
-                q += (tr - h.t) / (deep * 0.5 / ph.k + (std::f64::consts::PI * h.age.max(1.0)).sqrt() / ROCK_EFFUSIVITY);
+            if boils {
+                // the held rock under it and beside it (`drive`), sum G (T_rock - T)
+                q += rock.1 - rock.0 * h.t;
             }
             if aired && d > 0.0 {
                 if ta < ph.tf {
@@ -286,11 +339,11 @@ impl Liquids {
                     h.frac -= m;
                 }
                 let cap = w as f64 * ph.c;
-                let s = ((tb.min(ta.max(tr)) - h.t).max(0.0) * cap).min(e);
+                let s = ((tb.min(ta.max(hottest)) - h.t).max(0.0) * cap).min(e);
                 h.t += s / cap;
                 e -= s;
                 // at its boiling point the rest boils it: `frac` under 0 is the next unit's boil paid for so far
-                if e > 0.0 && hot {
+                if e > 0.0 && boils {
                     h.frac -= e / ph.lv;
                     boiled = ((-h.frac).floor() as i64).min(w);
                     h.frac += boiled as f64;

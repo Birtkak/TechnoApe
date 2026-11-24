@@ -239,7 +239,8 @@ different fluids, the denser keeps the gap".
   point, or when nothing reaches it any more (a block other than ice set over it, another fluid laid on it). Heat flows
   a second (W/m^2, a column 1 m^2): to the air over an open surface, h (T - T_air); up through the ice over it,
   (0 - T_air) / (d / k_ice + 1 / h) (Stefan's law with the air's resistance, the ice holding no heat; a lid gives the
-  water no heat back); from hot rock under it, through half its depth and the rock's cooling since it came (lava's).
+  water no heat back); from hot rock under it, through half its depth and the rock's cooling since it came (lava's;
+  held rock gives steadily, through the walls too, since 2026-11-24, below).
   Past 0 C the loss is freezing progress (`Therm::frac`) while the water stays liquid and counted; once a whole U has
   frozen, its U units leave the node, are booked to `froze`, and the block of its row's `freeze` block, `ice`, is set
   through the edits as basalt is, in the node's top cell, so a pond grows ice from the top down; a step that freezes
@@ -277,8 +278,8 @@ different fluids, the denser keeps the gap".
 - **Measured** (tests in `liquid/phase_tests.rs`, `world/volcano.rs`): a 1 m3 block in +10 C still air, 5 faces, melts
   to exactly 4096 units in 24,540 s (the cube's law by hand, 3 rho L / (5 h dT) over the pace: 25,549 s, 14 game
   days); a pond 4 1/3 blocks deep under -10 C air grows its first block in 188,820 s and its second in 664,320 s
-  (Stefan by hand 188,865 and 664,352), liquid under it; 1/8 block on 1000 C rock boils dry in 1.2e5 s at one
-  atmosphere, never over 100.000 C, every unit in `vapour`; at 700 Pa it boils at 1.946 C; 100.00 C at 101,325 Pa,
+  (Stefan by hand 188,865 and 664,352), liquid under it; 1/8 block on 1000 C rock boils dry in 185,710 s at one
+  atmosphere (since 2026-11-24, below; 94,370 s at 700 Pa), never over 100.000 C, every unit in `vapour`; at 700 Pa it boils at 1.946 C; 100.00 C at 101,325 Pa,
   93.74 at 79,859 Pa (a 1 km peak at 19.62 m/s^2), -0.08 at 608 Pa (no liquid), -273.15 in no air; an ice block in no
   air sublimates in 6.0e4 s with no water made; 3 U in no air are 2 blocks of ice and 1 U of vapour in one step; a
   puddle of 2000 units at -30 C stays water; a block and a half ends as one block over half a block of water; a
@@ -314,6 +315,41 @@ different fluids, the denser keeps the gap".
   changes phase.
 - **Not chosen:** an ice layer in the node (a wire and save change for a thickness the block grid shows anyway); a
   temperature on every stored column (the spike: 30 times the time, 14 the memory, every save larger).
+- **Open water boils on held rock (2026-11-24).** Water poured down an open shaft onto 300 C rock never boiled (64 C
+  after 33 hours): the air 649 m down was the surface's 20 C, taken at the real rate, and the rock's heat came in as
+  lava's contact cooling, 1 / sqrt(pi t), dying to nothing, from the floor alone. Both were wrong for rock the
+  geotherm or a chamber holds at its heat. Now (`Solid::air_at`, `phases::drive`, `water_heat`):
+  **Air in a hollow under the ground** is blended from the open air's to the rock's there (`Body::heat`) as
+  1 - exp(-depth / 30 m), depth under the column's generated ground: 2 m down 6 % the rock's, 100 m 96 %. Air in a
+  hole open upward trades with the sky by convection far deeper than the rock's own seasonal wave (2.9 m), so a pond
+  in a pit or a quarry keeps the open air's weather (shortcut: one length for the shaft's convection, a rule of the
+  hollow's width and depth once near-ground gas, ADR 0191, is built). At and over the ground it is exactly what it
+  was; its pressure is the open air's at that height. **Held rock gives steadily**: only a cell of the planet's own
+  ground (`Ground::held`: at or under its column's generated surface, not ice, not a plant; a placed block over the
+  ground holds nothing), from the floor (tr - T) / (0.25 + d / 2k) and from each wall cell, by its share of the
+  water's depth, (tw - T) / (0.25 + 0.5 / k): 0.25 m^2 K/W is half a block of rock at 2.0 W/(m K) (steady conduction
+  from a field held far off into a sphere of the cell's half-width, k dT / r), in series with half the water's depth
+  or half a block of it (k 0.6). Lava keeps its own decaying contact for the rock it warms. **It boils only where
+  it can**: every flow is linear in the water's heat, so the held rock and the open air (h at the real rate) settle it
+  at T* = sum G T / sum G; it boils where T* is over its boiling point by `REST_K` (0.5 K), at (sum G)(T* - T_boil),
+  and where T* is under it and over 0 C it rests, liquid, with no heat entry (under freezing open air the rock is not
+  counted, as before). By hand and measured: 4/3 block sealed in on 300 C rock boils dry in 3,910,787 s (the code
+  3,910,800); open down a shaft on 300 C rock, the air at 300 C, a block boils in 2.1e5 s (58 hours), 4/3 in 2.7e5 s;
+  on the 1536 test planet, whose rock passes 200 C (not 300) over its core, 4/3 block on 200.3 C rock under 199.6 C air
+  dries in 813,000 s against 816,748 by hand. In a shaft on 400 C rock under 20 C open air 4/3 block boils to one in
+  3,184,200 s (by hand 3,186,214) and rests at 0.843 m, where T* is 100.5 C; on 120 C rock under -5 C air T* is 31 C
+  and it never takes a heat. Rock at 80 C under -20 C surface air keeps its water liquid and at rest, a heat entry
+  dropped at the first step. A pond 2 m down a pit under -20 C air grows its first ice block 4 % later than at the
+  surface (year's air -9 C). A basin of placed blocks over a live crater's flank, in air the chamber heats over 150 C,
+  never boils; water in a pit dug into the flank's hot rock does. Rock passes 100 C (15 C air) about 610 m down under a
+  shield and 230 m under an arc on the 4 km planet; stored water deeper boils off, generated water there is untouched
+  (it follows the formula until stored).
+  **Limits** (the review, not fixed): depth is measured under the column's own generated surface, so a hollow cut
+  sideways into a cliff reads as deep; ice in a deep cellar melts where the year's mean is over 0 C; the air's pressure
+  at depth is the open air's at that height (water boils at 100 C below the sea, not the 102 a real column of air
+  gives 650 m down); the wake looks at a node's held rock only where its own column's rock at its floor or surface is
+  over boiling (a hot wall of a neighbouring column alone does not wake it); under freezing open air the rock's heat is
+  not counted; `h` is linearised at the air's heat (over 100 C air it overstates radiation by up to half).
 
 ### Lava drawn as a cracked crust, oil as a glossy slick with a film [0198, 2026-11-24]
 The developer: "make liquids look more pretty". Lava (side bit 4 in `fs_water`, stored and the volcano's lake) is a

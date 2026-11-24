@@ -1938,8 +1938,8 @@ fn print_what_the_geotherm_moves() {
 }
 
 /// Water on rock by the geotherm (generation 11) on the 4 km planet: an eighth of a block poured at the foot of a shaft
-/// under a hot province, at the first depth where the rock is 300 C, and sealed in by the block over it put back,
-/// boils; the same in a pit 2 blocks deep beside it does not. What it stands on is the year's air plus `geotherm` (and
+/// under a hot province, at the first depth where the rock is 300 C, open to the sky, boils; the same in a pit 2 blocks
+/// deep beside it does not. What it stands on is the year's air plus `geotherm` (and
 /// the live volcanoes' R / r): the one rule.
 #[test]
 #[ignore = "heavy (two 4 km worlds, a 680 block shaft); tests the phases end to end, the geotherm is pinned by the tests above"]
@@ -1971,11 +1971,7 @@ fn water_on_rock_deep_enough_boils_and_on_shallow_rock_does_not() {
             let World { bodies, edits, water, sky, time, .. } = &mut w;
             assert!(water.pour(&Solid::at(bodies, edits, sky, *time), c, z0, U / 8));
         }
-        // the block over it put back: a sealed cistern, the rock its one neighbour for heat (open, the shaft's air
-        // carries it off: at 300 C rock it stood at 64 C after a day and a half)
-        let lid = Block { body: 0, face: f, pos: IVec3::new(c.i(), c.j(), z0 + 1) };
-        w.set_block(lid, w0.block(lid));
-        w.regap(lid);
+        // open: the shaft's air down there is the rock's (`Solid::air_at`), the weather's 20 C only at its mouth
         for _ in 0..2000 {
             w.cool_fluids_in(60.0, |_| false, Some(&warm));
             w.step_water();
@@ -1987,4 +1983,140 @@ fn water_on_rock_deep_enough_boils_and_on_shallow_rock_does_not() {
             assert_eq!((vapour, w.water.total()), (0, U / 8), "2 blocks down, at {} C, it stays", b.heat(f, i + dx, j, z0 as f64).unwrap());
         }
     }
+}
+
+/// The 1536 planet with the geotherm (generation 11) and a column on it with no hollow in it or beside it, nor water,
+/// where the rock passes `t` C under the ground: the world, the column and the first layer that hot.
+fn rock_at_least(t: f32) -> (World, Col, i32) {
+    let w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, GENERATION);
+    let b = w.bodies[0].clone();
+    let dry = |f: u8, i: i32, j: i32| b.water_at(f, i, j).is_none_or(|w| b.layer_r(w.0) < b.col_height(f, i, j)) && [(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)].iter().all(|&(a, e)| b.col_caves(f, i + a, j + e).is_empty());
+    let n = b.n;
+    let found = (0..6u8).flat_map(|f| (8..n - 8).step_by(16).flat_map(move |i| (8..n - 8).step_by(16).map(move |j| (f, i, j)))).find_map(|(f, i, j)| {
+        let z = (0..b.first_air(b.col_height(f, i, j))).rev().find(|&z| b.heat(f, i, j, z as f64).unwrap() >= t)?;
+        dry(f, i, j).then_some((Col::new(0, f, i, j), z))
+    });
+    let (c, z) = found.expect("a dry column over rock that hot");
+    (w, c, z)
+}
+
+/// A shaft dug from layer `z0` of column c to the sky and `units` of water poured at its foot.
+fn shaft(w: &mut World, c: Col, z0: i32, units: i64) {
+    let b = w.bodies[0].clone();
+    for k in z0..b.first_air(b.col_height(c.face(), c.i(), c.j())) + 3 {
+        w.set_block(Block { body: 0, face: c.face(), pos: IVec3::new(c.i(), c.j(), k) }, AIR);
+    }
+    let World { bodies, edits, water, sky, time, .. } = w;
+    assert!(water.pour(&Solid::at(bodies, edits, sky, *time), c, z0, units));
+}
+
+/// Air in a hollow under the ground is the rock's round it (`Solid::air_at`): 600 m down a shaft it reads `Body::heat`
+/// there; at the ground and over it, exactly the open air's (the function before it), its pressure always the open
+/// air's.
+#[test]
+fn air_down_a_shaft_is_the_rocks_and_at_the_ground_the_open_airs() {
+    let (w, c, _) = rock_at_least(0.0);
+    let b = &w.bodies[0];
+    let mut g = Solid::at(&w.bodies, &w.edits, &w.sky, w.time);
+    let a = Air { sky: &w.sky, t: w.time, temp: None };
+    g.air = Some(a);
+    let ground = b.col_height(c.face(), c.i(), c.j());
+    for over in [0.0, 0.25, 3.0, 40.0] {
+        let z = b.layer_of(ground + over);
+        assert_eq!(Ground::air(&g, c, z), g.open_air(&a, c, z), "{over} m over the ground");
+    }
+    let z = b.layer_of(ground - 600.0);
+    let (rock, open) = (b.heat(c.face(), c.i(), c.j(), z).unwrap() as f64, g.open_air(&a, c, z));
+    let (t, p) = Ground::air(&g, c, z);
+    let want = open.0 + (rock - open.0) * (1.0 - (-(ground - b.layer_r(z)) / 30.0).exp());
+    eprintln!("600 m down: the air {t:.2} C, the rock {rock:.2} C, the open air {:.2} C", open.0);
+    assert!((t - want).abs() < 1e-9 && (t - rock).abs() < 1e-6 && p == open.1, "600 m down the air is {t} C, the blend {want}, the rock {rock} C");
+}
+
+/// Air in a shallow pit is the open air's, near enough (the blend's 30 m): a pond of two blocks whose top is 2 m down a
+/// pit, under -20 C air, grows its first ice block within 10 % of the time the same pond takes with its top at the
+/// ground, on the coldest dry column (where the rock's year is coldest, the pit's air is nearest the open air's).
+#[test]
+fn a_pond_two_metres_down_a_pit_freezes_as_one_at_the_surface_does() {
+    let (w0, _, _) = rock_at_least(0.0);
+    let b = w0.bodies[0].clone();
+    let n = b.n;
+    let dry = |f: u8, i: i32, j: i32| b.water_at(f, i, j).is_none_or(|w| b.layer_r(w.0) < b.col_height(f, i, j)) && b.col_caves(f, i, j).is_empty();
+    let (f, i, j) = (0..6u8).flat_map(|f| (8..n - 8).step_by(16).flat_map(move |i| (8..n - 8).step_by(16).map(move |j| (f, i, j)))).filter(|&(f, i, j)| dry(f, i, j)).min_by(|x, y| b.year_air(x.0 as usize, x.1, x.2).unwrap().total_cmp(&b.year_air(y.0 as usize, y.1, y.2).unwrap())).unwrap();
+    let c = Col::new(0, f, i, j);
+    let top = b.first_air(b.col_height(f, i, j));
+    let cold = |_: Col, _: f64| Some(-20.0);
+    let mut first = Vec::new();
+    for deep in [2, 4] {
+        let mut w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, GENERATION);
+        shaft(&mut w, c, top - deep, 2 * U);
+        let mut t = 0.0f64;
+        while w.water.froze.get(&crate::fluids::WATER).copied().unwrap_or(0) < U && t < 1e7 {
+            w.cool_fluids_in(600.0, |_| false, Some(&cold));
+            t += 600.0;
+        }
+        first.push(t);
+    }
+    eprintln!("year's air {:.1} C: the first block at the surface in {:.0} s, 2 m down a pit in {:.0} s", b.year_air(f as usize, i, j).unwrap(), first[0], first[1]);
+    assert!(first[0] < 1e7 && (first[1] / first[0] - 1.0).abs() < 0.1, "{first:?}");
+}
+
+/// Open water down a shaft on rock over its boiling point boils dry (`phases`), every unit to `vapour`, at the rate
+/// by hand: the shaft's air at the rock's heat (radiation and convection at the real rate, a source drives it), the
+/// rock under it and beside it held at its heat through half a block of rock (0.25 m^2 K/W) and half its depth of
+/// water, or half a block of it to each wall. Before 2026-11-24 the air down there was the surface's and the floor's
+/// heat died as 1 / sqrt(t): it never boiled.
+#[test]
+fn open_water_down_a_shaft_on_rock_over_its_boiling_point_boils_dry_at_the_hand_rate() {
+    // (the small planet's rock passes 200 C over the core's top only under its hot provinces; 300 C it does not reach)
+    let (mut w, c, z0) = rock_at_least(200.0);
+    let units = U + U / 3;
+    shaft(&mut w, c, z0, units);
+    let ph = crate::liquid::phases::Phases::water();
+    let k = crate::fluids::FLUIDS.now().get(crate::fluids::WATER).heat.as_ref().unwrap().conduct as f64;
+    let d0 = units as f64 / U as f64;
+    let (ta, p, tr, walls) = {
+        let mut g = Solid::at(&w.bodies, &w.edits, &w.sky, w.time);
+        g.air = Some(Air { sky: &w.sky, t: w.time, temp: None });
+        let (ta, p) = Ground::air(&g, c, z0 as f64 + d0);
+        let walls: f64 = g.neighbours(c).into_iter().flatten().map(|d| Ground::heat(&g, d, z0 as f64 + d0 * 0.5) as f64).sum();
+        (ta, p, Ground::heat(&g, c, z0 as f64) as f64, walls)
+    };
+    let tb = ph.boils_at(p);
+    let q = |d: f64| ph.h(ta, p) * (ta - tb) + (tr - tb) / (0.25 + d * 0.5 / k) + d * (walls - 4.0 * tb) / (0.25 + 0.5 / k);
+    let n = 10_000;
+    let hand: f64 = (0..n).map(|s| U as f64 * ph.lv / q((s as f64 + 0.5) * d0 / n as f64) * d0 / n as f64).sum();
+    let (dt, mut t) = (600.0, 0.0);
+    while w.water.total() > 0 && t < 2.0 * hand {
+        w.cool_fluids_in(dt, |_| false, None);
+        t += dt;
+    }
+    eprintln!("on {tr:.1} C rock, the air {ta:.1} C, boiling at {tb:.2} C: dry in {t:.0} s, by hand {hand:.0} s");
+    assert_eq!((w.water.total(), w.water.vapour.get(&crate::fluids::WATER).copied()), (0, Some(units)), "all of it to vapour");
+    assert!((t / hand - 1.0).abs() < 0.1, "dry in {t} s, by hand {hand} s");
+}
+
+/// Open water down a shaft on rock under its boiling point (80 C), under freezing air at the surface: the air down there
+/// is the rock's, so it neither freezes nor boils, and a heat it was given (at 95 C, as a save brings one) is dropped
+/// at the first step: back at rest, it carries none (no deep pool is stepped for ever).
+#[test]
+fn open_water_down_a_shaft_on_rock_under_its_boiling_point_rests_under_freezing_air() {
+    let (mut w, c, z0) = rock_at_least(80.0);
+    let units = U + U / 3;
+    shaft(&mut w, c, z0, units);
+    let cold = |_: Col, _: f64| Some(-20.0);
+    {
+        let World { bodies, edits, water, sky, time, .. } = &mut w;
+        let h = crate::liquid::Therm { t: 95.0, age: 0.0, frac: 0.0, solid: 0 };
+        water.restore_heat(&Solid::at(bodies, edits, sky, *time), &[(c, z0, h)], &[crate::fluids::WATER]);
+        assert_eq!(water.heats().len(), 1, "given a heat");
+    }
+    w.cool_fluids_in(600.0, |_| false, Some(&cold));
+    assert!(w.water.heats().is_empty(), "dropped at the first step: {:?}", w.water.heats());
+    for _ in 0..300 {
+        w.cool_fluids_in(600.0, |_| false, Some(&cold));
+        assert!(w.water.heats().is_empty(), "at rest it carries no heat");
+    }
+    let rock = w.bodies[0].heat(c.face(), c.i(), c.j(), z0 as f64).unwrap();
+    assert_eq!((w.water.total(), w.water.vapour.len(), w.water.froze.len()), (units, 0, 0), "on {rock} C rock: liquid, nothing boiled or frozen");
 }
