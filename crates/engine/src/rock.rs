@@ -98,7 +98,16 @@ struct RawMantle {
 struct File {
     datum: f32,
     mantle: RawMantle,
+    water: RawWater,
     province: Vec<RawProvince>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawWater {
+    recharge: f32,
+    tight: f32,
+    rocks: std::collections::BTreeMap<String, [f32; 2]>,
 }
 
 /// A mantle rock (`data/rocks.toml`): it takes over, going down, where the column's pressure reaches `pressure`
@@ -141,6 +150,12 @@ pub struct Province {
 pub struct Rocks {
     /// Metres over the sea the first layer's top lies, before folding.
     pub datum: f32,
+    /// Ground water (ADR 0190): the share of rain less evaporation that soaks down to the table; a rock whose
+    /// conductivity is under `tight` m/s holds none (an aquifer's floor); each rock block's hydraulic conductivity
+    /// (m/s) and specific yield, by block id (a rock not named is tight).
+    pub recharge: f32,
+    pub tight: f32,
+    pub water: Vec<(u16, f32, f32)>,
     /// The mantle's rocks top down, the first the crust's floor (`Body::rock`), in every province.
     pub mantle: Vec<Deep>,
     /// How far the mantle's boundaries wave, metres.
@@ -226,7 +241,19 @@ impl Rocks {
         if mantle.is_empty() || !(0.0..=20.0).contains(&m.wobble) {
             return Err("the mantle: at least one rock, wobble 0..20 m".into());
         }
-        Ok(Rocks { datum: f.datum, mantle, wobble: m.wobble, provinces })
+        let w = &f.water;
+        let mut water = Vec::new();
+        for (name, &[k, sy]) in &w.rocks {
+            let d = BLOCKS.placeable().find(|d| &d.name == name && d.solid).ok_or(format!("water: no solid block '{name}'"))?;
+            if !(1e-14..=1e-2).contains(&k) || !(0.0..=0.5).contains(&sy) {
+                return Err(format!("water: '{name}' conducts {k} m/s with a yield of {sy}; 1e-14..1e-2 m/s, a yield 0..0.5"));
+            }
+            water.push((d.id, k, sy));
+        }
+        if !(0.0..=1.0).contains(&w.recharge) || !(1e-14..=1e-4).contains(&w.tight) {
+            return Err("water: a recharge share 0..1, tight 1e-14..1e-4 m/s".into());
+        }
+        Ok(Rocks { datum: f.datum, recharge: w.recharge, tight: w.tight, water, mantle, wobble: m.wobble, provinces })
     }
 
     /// The mantle rock that has taken over at pressure `p` MPa in rock of `heat` C, the deepest first; None over
@@ -251,6 +278,34 @@ impl Rocks {
             }
         }
         unreachable!("the last layer goes to the bottom")
+    }
+
+    /// The aquifer under ground `ground` metres over the sea in province `province` (ADR 0190), without the fold: the
+    /// rock under the soil's conductivity (m/s) and specific yield, and its floor, metres over the sea: the top of
+    /// the first tight layer under the ground, else the crust's bottom (`bottom`). None where the rock under the soil
+    /// is tight. shortcut: one rock's K and yield a column (the top one's), layers unfolded; a transmissivity summed
+    /// over the layers the table stands in once perched or layered aquifers matter.
+    pub fn aquifer(&self, province: u8, ground: f32, bottom: f32) -> Option<(f32, f32, f32)> {
+        let p = self.provinces.get(province as usize)?;
+        let row = |b: u16| self.water.iter().find(|w| w.0 == b).map_or((0.0, 0.0), |w| (w.1, w.2));
+        let mut top = self.datum;
+        let mut at = None;
+        for &(b, m) in &p.layers {
+            let foot = if m == 0.0 { f32::MIN } else { top - m };
+            let (k, sy) = row(b);
+            match at {
+                None if ground >= foot => {
+                    if k < self.tight {
+                        return None;
+                    }
+                    at = Some((k, sy));
+                }
+                Some((k0, sy0)) if k < self.tight => return Some((k0, sy0, top.min(ground))),
+                _ => {}
+            }
+            top = foot;
+        }
+        at.map(|(k, sy)| (k, sy, bottom.min(ground)))
     }
 
     /// The layer a rock block is in a province, top down: which layer a find came from.
@@ -299,6 +354,19 @@ mod tests {
             assert!(p.caves == Caves::None && p.flow.is_none(), "{}: caves and flows on Luna are the next step's", p.name);
             assert!(p.layers.iter().all(|l| BLOCKS.get(l.0).is_some_and(|d| d.tool.as_deref() == Some("pick"))), "{}", p.name);
         }
+    }
+
+    /// The aquifer (ADR 0190): the basin's sandstone over its shale holds water down to the shale; where a valley cut
+    /// through to the limestone, down to the crust's bottom (no tight rock under it); the shield's granite down to its
+    /// gneiss; shale at the ground holds none.
+    #[test]
+    fn the_aquifer_is_the_rock_under_the_soil_down_to_the_first_tight_layer() {
+        use crate::bake::rock::{BASIN, SHIELD};
+        let r = &*ROCKS;
+        assert_eq!(r.aquifer(BASIN, 50.0, -188.0), Some((1e-5, 0.15, 35.0)), "sandstone over the shale at 60 - 25 m");
+        assert_eq!(r.aquifer(BASIN, 30.0, -188.0), None, "shale under the soil");
+        assert_eq!(r.aquifer(BASIN, 10.0, -188.0).map(|a| a.2), Some(-188.0), "limestone, granite under it: the crust's bottom");
+        assert_eq!(r.aquifer(SHIELD, 100.0, -188.0).map(|a| a.2), Some(-20.0), "granite down to the gneiss");
     }
 
     #[test]

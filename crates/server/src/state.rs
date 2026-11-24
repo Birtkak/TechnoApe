@@ -147,6 +147,8 @@ impl Server {
         (water.vapour, water.spilt, water.waiting) = (save.booked.0.iter().copied().collect(), save.booked.1.iter().copied().collect(), save.booked.2.clone());
         (water.chambers, water.erupted) = save.chambers.clone();
         water.crust = save.crust.iter().map(|&(c, k, f, u)| ((c, k), (f, u))).collect();
+        (water.ground_extra, water.rim) = (save.ground.0, save.ground.1);
+        water.aquifer = save.ground.2.iter().cloned().collect();
         (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
         water.rained = save.reaches.0;
         water.reach_extra = save.reaches.1.iter().copied().collect();
@@ -249,6 +251,7 @@ impl Server {
             chambers: (self.world.water.chambers.clone(), self.world.water.erupted),
             crust: self.world.water.crust.iter().map(|(&(c, k), &(f, u))| (c, k, f, u)).collect(),
             snow: if self.world.snow.bare() { Default::default() } else { self.world.snow.state() },
+            ground: (self.world.water.ground_extra, self.world.water.rim, self.world.water.aquifer.iter().map(|(&k, c)| (k, c.clone())).collect()),
         }
     }
 
@@ -353,6 +356,10 @@ impl Server {
         // and the snow's (ADR 0189): a world without any keeps its hashes
         if !self.world.snow.bare() {
             h = fnv(h, &postcard::to_allocvec(&self.world.snow.state()).unwrap());
+        }
+        // and the ground water off its rest (ADR 0190; none in a world without a table)
+        if !w.aquifer.is_empty() || w.ground_extra != 0 || w.rim != 0 {
+            h = fnv(h, &postcard::to_allocvec(&(&w.aquifer, w.ground_extra, w.rim)).unwrap());
         }
         for c in &self.clients {
             let p = &c.phys;

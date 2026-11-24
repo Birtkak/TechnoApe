@@ -207,6 +207,65 @@ pub fn river_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2
     out
 }
 
+/// The surface of generation's water in caves under the table (ADR 0190) in level-0 chunk `key`, after the rivers'
+/// quads: kind 5, as a lake's (flat, merged), one a column whose cave water's top lies in the chunk in an open cell;
+/// a cave full to its roof shows none. Columns in a `wet` tile are the client's water mesh's.
+/// shortcut: level 0 only (cave water is seen from inside the ground, near); each column flat at its own level (the
+/// table's slope, a few cm a column at most, in steps).
+pub fn cave_quads(body: &Body, key: Key, wet: &[Col], gen: &Gen) -> Vec<[u32; 2]> {
+    let (0, Gen::Cells(c)) = (key.level, gen) else { return Vec::new() };
+    if !body.cave_cols.contains_key(&(key.face, key.pos.x, key.pos.y)) || body.baked.as_ref().is_none_or(|b| b.map.table.is_empty()) {
+        return Vec::new();
+    }
+    let (base, n) = (key.base(), CS as usize);
+    let mut code: Vec<Option<(u32, u32)>> = vec![None; n * n];
+    for y in 0..n {
+        for x in 0..n {
+            let (ci, cj) = (base.x + x as i32, base.y + y as i32);
+            for (lo, top, _, _) in body.ground_water_col(key.face, ci, cj) {
+                let cz = (top - 1).div_euclid(U) as i32;
+                // a surface: the water's top short of its gap's roof, in this chunk, its cell open
+                if top <= lo || cz.div_euclid(CS) != key.pos.z || wet.binary_search(&Col::new(key.body, key.face, ci, cj).tile()).is_ok() {
+                    continue;
+                }
+                let zl = (cz - key.pos.z * CS) as usize;
+                let roofed = top % U == 0 && c[pidx(x + 1, y + 1, zl + 2)] != 0;
+                if c[pidx(x + 1, y + 1, zl + 1)] != 0 || roofed {
+                    continue;
+                }
+                let lvl = ((top as f64 / U as f64 - base.z as f64) * 64.0).round().clamp(0.0, (1 << 18) as f64 - 1.0) as u32;
+                code[y * n + x] = Some((lvl, (zl + 1) as u32));
+            }
+        }
+    }
+    let cap = (((2.0 * body.radius).sqrt() / BLOCK) as usize).clamp(1, n);
+    let mut out = Vec::new();
+    for y in 0..n {
+        let mut x = 0;
+        while x < n {
+            let Some((cd, z)) = code[y * n + x] else {
+                x += 1;
+                continue;
+            };
+            let (mut w, mut h) = (1, 1);
+            while x + w < n && w < cap && code[y * n + x + w] == Some((cd, z)) {
+                w += 1;
+            }
+            while y + h < n && h < cap && (x..x + w).all(|i| code[(y + h) * n + i] == Some((cd, z))) {
+                h += 1;
+            }
+            for v in y..y + h {
+                for u in x..x + w {
+                    code[v * n + u] = None;
+                }
+            }
+            out.push([x as u32 | (y as u32) << 6 | z << 12 | ((w - 1) as u32) << 18 | ((h - 1) as u32) << 23 | 5 << 28, cd]);
+            x += w;
+        }
+    }
+    out
+}
+
 /// The chunks (levels up to 4) that draw the generated water of tile `t`: the sea's and every river's and
 /// lake's level in it. When the tile turns wet or dry they are meshed again (`Streamer::touch_tile`).
 pub fn water_keys(body: &Body, t: Col) -> Vec<Key> {
@@ -219,6 +278,8 @@ pub fn water_keys(body: &Body, t: Col) -> Vec<Key> {
                     tops.push(top);
                 }
             }
+            // and the caves' under the table (ADR 0190)
+            tops.extend(body.ground_water_col(t.face(), i, j).iter().map(|w| (w.1 - 1) as f64 / U as f64));
         }
     }
     let mut keys: Vec<Key> = (0..=body.root_level.min(4))

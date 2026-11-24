@@ -8,6 +8,13 @@ fn world() -> World {
     World::with_map(512, 32, 5, Some(MAP.clone()))
 }
 
+/// The table's solve settles under its cap on the 512 planet of seed 5 too (ADR 0190; it swung there once).
+#[test]
+fn the_512_planets_table_settles() {
+    let (sweeps, residual) = MAP.solve;
+    assert!(sweeps > 0 && (sweeps as usize) < crate::bake::ground::SWEEPS && (residual as f64) < crate::bake::ground::TOL, "{sweeps} sweeps, residual {residual} m");
+}
+
 /// The warp (ADR 0131) moves the block grid over the land, not the land: the bake is read by direction, so a
 /// column's ground on the warped grid is the unwarped world's ground along that column's direction.
 #[test]

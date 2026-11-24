@@ -128,12 +128,50 @@ surface follows the pace, about a minute a block of dry wood in still air (the s
 `HEAT_PACE` 6); a block's burn-out is decided when fire is built and must stay longer than the spread.
 
 ### Ground water: a table, flooded caves, springs [0190, 2026-11-23]
-The developer's calls on the ground-water spike (`prototypes/ground-water/README.md`), not built yet (roadmap,
-the world queue's step 6): the water table is the rest state of Darcy flow, baked per 8 m map cell and counted
-per cell where touched (a well or cave trades with its cell by a well index). **The whole ground-water clock
-runs at the calendar's pace** (ADR 0187's factor: it is rain-driven and cannot be sped up in part). **Caves
-below the table are flooded.** **Springs start visible streams.** About 29 s more bake a new world is accepted
-and goes to `docs/perf-debt.md` when built. New worlds only; old worlds stay dry.
+The developer's calls on the ground-water spike (`prototypes/ground-water/README.md`): the water table is the rest
+state of Darcy flow, baked and counted per 8 m map cell where touched (a well or cave trades with its cell by a well
+index). **The whole ground-water clock runs at the calendar's pace** (`Ground::calendar`, the real year over the sky's: it is
+rain-driven and cannot be sped up in part; ADR 0200 took heat off that factor, ground water keeps it). **Caves below
+the table are flooded.** **Springs start visible streams.** The bake's added time is accepted (`docs/perf-debt.md`).
+New worlds only (generation 12, map version 10); every older world generates and stays dry as it was.
+Built (2026-11-24), what holds:
+- **The table** (`bake::ground`): steady unconfined Dupuit flow, div(K b grad h) + R = 0 under the ground, the sea,
+  lakes and the bake's rivers as fixed heads, the ground as a ceiling. K and specific yield are rows of
+  `data/rocks.toml` (`[water]`: the rain's recharge share, the `tight` K under which a rock is an aquifer's floor);
+  the floor is the first tight layer under the ground, else the crust's bottom; tight rock at the ground has no
+  table. Recharge is the share of rain less evaporation (at least a tenth of the rain). A link's conductance is the
+  harmonic K times the mean thickness over the higher of its two floors (so each cell's balance has one root).
+  Solved by over-relaxed Gauss-Seidel (omega 1.9, halved toward 1 while the residual stops shrinking; each cell's
+  head by Newton in a bisection bracket; one thread, index order, deterministic) to a millimetre (`ground::TOL`), at
+  most 20,000 sweeps (`ground::SWEEPS`); a field not settled by then is kept, and the map records the sweeps and the
+  residual (`Map::solve`, `report=1`'s `ground_water.solve`). On **160 cells a face edge on every planet**, not the 8 m map cells: the 8 m solve on the 4 km planet ran 3 hours unsettled (its time goes as
+  the edge's fourth power). Each solve cell is the mean of the map cells under it, held at its lowest drain; the
+  table on the map cells is read back bilinearly (over a cube edge from the next face's cells, as the solve links
+  them) and never over their own ground. The map keeps it per 8 m cell.
+- **Springs**: a solve cell held at its ground seeps the recharge uphill of it; the flow goes to the lowest map
+  cell under it where the table meets the ground, else the lowest with an aquifer. A spring of a litre a second or
+  more (`ground::STREAM`) starts a stream down the drainage to a river, lake or the sea, laid as river reaches (water
+  in the world); one that runs off the drainage is not laid. The springs themselves are not kept (the map keeps the
+  table only), and their flow is the bake's rest state, not counted water: only the reaches they lay are in the
+  world, as generation's water.
+- **Flooded caves**: a cave whose floor lies under its column's table holds generation's water to it (a closed one
+  full under it, at the pressure that puts its head at the table; one open to the sky a pond at the table). It is
+  generation's water as the sea is: not counted until touched, then stored with the ledger unmoved. Drawn by its
+  own flat surface quads in level-0 chunks.
+- **Wells** (`Liquids::seep`, once a second on the server): a stored gap of water alone whose floor lies under its
+  column's table trades with its map cell by Peaceman's index, Q = 2 pi K b / ln(0.198 dx / r_w), r_w 0.198 m,
+  never past the cell's head. A dug hole under the table is stored dry and fills. A touched cell is counted in
+  micro-units (`SUB` = 65,536 a unit) and draws from its four neighbours by Darcy, an untouched one at rest, never
+  past equal heads (a fast rock's K would carry a pair past them in a step and swing); back
+  within 1/64 m of rest with nothing owed it is dropped. **The ledger**: `counted()` carries `ground_extra` (units
+  the aquifer took from stored water) and `ground_ledger()` (touched cells' water off rest and owed, less what the
+  rest gave them, `rim`, less `ground_extra`) is always 0. Saved and hashed with the server's water.
+- **`technoape-server report=1`** prints `ground_water`: the table's depth by province, the wettest and driest
+  quarters, the share of tight land, springs and their streams, the flooded caves, the depth at and round the spawn,
+  and how the solve ended (sweeps, residual, settled).
+- Shortcuts: one rock's K a column (the top one's, layers unfolded); a well's cell over the ground does not seep
+  (water poured into a well runs off at the rim); a touched cell trades with its four neighbours only; a layered
+  gap (oil on water) takes no part.
 
 ### Snow lies in thin layers that build and melt [0189, 2026-11-23]
 The developer: "have snow be smaller layers that build or melt over time", a slice of a block as in Minecraft,

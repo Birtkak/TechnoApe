@@ -1,6 +1,6 @@
 //! The per-seed report of what the ground holds (W4): `technoape-server report=1 seed=1337 planet=6144` prints
 //! one JSON line: each rock province's share of the surface, the caves, and every mineral's bodies, tonnage,
-//! depth and distance from the spawn against `data/minerals.toml`'s budget (ADR 0063).
+//! depth and distance from the spawn against `data/minerals.toml`'s budget (ADR 0063), and the ground water (ADR 0190).
 use engine::bake::rock::NAMES;
 use engine::world::World;
 
@@ -32,8 +32,8 @@ pub fn report(w: &World) -> String {
     // the caves and the crust's ore bodies alone: the hash of the same world before the mantle's minerals
     let crust: Vec<engine::ore::OreBody> = b.ores.iter().copied().filter(|o| !engine::ore::MINERALS.kinds[o.kind as usize].deep()).collect();
     let out = format!(
-        "{{\"seed\": {}, \"planet\": {}, \"gen\": {}, \"spawn\": [{:.5}, {:.5}, {:.5}], \"made_hash\": \"{:016x}\", \"made_hash_crust\": \"{:016x}\", \"provinces\": {{{}}}, \"flows\": {{{}}}, \"limestone\": {}, \"caves\": {{\"balls\": {}, \"in_limestone\": {}, \"in_basalt\": {}, \"depth_m\": [{:.1}, {:.1}], \"open_to_the_sky\": {}, \"kinds\": {{{}}}}}, \"heat_c_under_the_spawn\": [{:.1}, {:.1}], \"pressure_mpa_under_the_spawn\": [{:.3}, {:.3}], \"deep\": {{{}}}, \"interior\": {{{}}}, \"minerals\": {{{}}}, \"volcanoes\": [{}]}}",
-        map.seed, map.n, b.gen, b.spawn.x, b.spawn.y, b.spawn.z, made_hash(&b.caves, &b.ores), made_hash(&b.caves, &crust), provinces.join(", "), flows(b).join(", "), limestone(b), b.caves.len(), in_lime, b.caves.len() - in_lime, dmin, dmax, open, kinds(b).join(", "), heat(ground), heat(0.0), pressure(ground), pressure(0.0), deep.join(", "), interior(w).join(", "), minerals(b).join(", "), volcanoes(w).join(", ")
+        "{{\"seed\": {}, \"planet\": {}, \"gen\": {}, \"spawn\": [{:.5}, {:.5}, {:.5}], \"made_hash\": \"{:016x}\", \"made_hash_crust\": \"{:016x}\", \"provinces\": {{{}}}, \"flows\": {{{}}}, \"limestone\": {}, \"caves\": {{\"balls\": {}, \"in_limestone\": {}, \"in_basalt\": {}, \"depth_m\": [{:.1}, {:.1}], \"open_to_the_sky\": {}, \"kinds\": {{{}}}}}, \"heat_c_under_the_spawn\": [{:.1}, {:.1}], \"pressure_mpa_under_the_spawn\": [{:.3}, {:.3}], \"deep\": {{{}}}, \"interior\": {{{}}}, \"minerals\": {{{}}}, \"volcanoes\": [{}], \"ground_water\": {}}}",
+        map.seed, map.n, b.gen, b.spawn.x, b.spawn.y, b.spawn.z, made_hash(&b.caves, &b.ores), made_hash(&b.caves, &crust), provinces.join(", "), flows(b).join(", "), limestone(b), b.caves.len(), in_lime, b.caves.len() - in_lime, dmin, dmax, open, kinds(b).join(", "), heat(ground), heat(0.0), pressure(ground), pressure(0.0), deep.join(", "), interior(w).join(", "), minerals(b).join(", "), volcanoes(w).join(", "), ground_water(b)
     );
     // the home's first moon after it (0166-luna-ore-and-caves): her rock field's ore and caves, from generation 4
     let moon = &w.bodies[w.moon];
@@ -269,6 +269,95 @@ fn limestone(b: &engine::world::Body) -> String {
         }
     }
     format!("{{\"land_under_the_soil\": {:.3}, \"land_at_the_water_table\": {:.3}}}", band as f64 / land as f64, table as f64 / land as f64)
+}
+
+/// The water table (ADR 0190; `null` on a map without one): its depth under the ground on land (the median over the
+/// land's cells that hold an aquifer, by province, and in the wettest and the driest quarter of land by rain), the
+/// share of land on tight rock (no table), the cells where it meets the ground (springs) and the rivers that start at
+/// one (their streams), the share of the caves (balls by their middle; columns that hold a cave, every 4th each way)
+/// under the table (flooded), its depth under the spawn, and how the bake's solve ended (its sweeps, its residual,
+/// and whether it settled under the cap: a field not settled is kept, and shows here).
+fn ground_water(b: &engine::world::Body) -> String {
+    use engine::bake::ground::DRY;
+    let Some(map) = b.map().filter(|m| !m.table.is_empty()) else { return "null".into() };
+    let median = |mut v: Vec<f32>| -> f64 {
+        if v.is_empty() {
+            return f64::NAN;
+        }
+        v.sort_unstable_by(f32::total_cmp);
+        v[v.len() / 2] as f64
+    };
+    let lake: std::collections::HashSet<u32> = map.lakes.iter().map(|l| l.0).collect();
+    let river: std::collections::HashSet<u32> = map.rivers.iter().map(|r| r.cell).collect();
+    let fed: std::collections::HashSet<u32> = map.rivers.iter().map(|r| r.to).collect();
+    let (m, mut land, mut tight) = (map.m as usize, 0u64, 0u64);
+    let mut by: Vec<Vec<f32>> = vec![Vec::new(); NAMES.len()];
+    let mut rainy: Vec<(f32, f32)> = Vec::new();
+    let (mut springs, mut streams) = (0u64, 0u64);
+    for c in 0..map.h.len() {
+        if map.h[c] <= 0.0 || lake.contains(&(c as u32)) {
+            continue;
+        }
+        land += 1;
+        let t = map.table[c];
+        if t == DRY {
+            tight += 1;
+            continue;
+        }
+        let seeps = t >= map.h[c] - 1e-3;
+        springs += (seeps && !river.contains(&(c as u32))) as u64;
+        streams += (seeps && river.contains(&(c as u32)) && !fed.contains(&(c as u32))) as u64;
+        if river.contains(&(c as u32)) {
+            continue;
+        }
+        let d = map.h[c] - t;
+        by[map.rock[c] as usize].push(d);
+        if c % 4 == 0 {
+            let (f, i, j) = (c / (m * m), (c % m) as f64 + 0.5, ((c / m) % m) as f64 + 0.5);
+            if let Some((_, _, rain)) = map.climate_at(f, i, j) {
+                rainy.push((rain, d));
+            }
+        }
+    }
+    rainy.sort_unstable_by(|a, c| a.0.total_cmp(&c.0));
+    let q = rainy.len() / 4;
+    let (dry, wet) = (median(rainy[..q].iter().map(|x| x.1).collect()), median(rainy[rainy.len() - q..].iter().map(|x| x.1).collect()));
+    let (dry_rain, wet_rain) = (median(rainy[..q].iter().map(|x| x.0).collect()), median(rainy[rainy.len() - q..].iter().map(|x| x.0).collect()));
+    let provinces: Vec<String> = (0..=engine::bake::rock::OCEAN as usize).filter(|&p| !by[p].is_empty()).map(|p| format!("\"{}\": {:.1}", NAMES[p], median(by[p].clone()))).collect();
+    // the caves under the table: balls by their middle, and the columns that hold one
+    let flooded = b.caves.iter().filter(|c| b.table_at(c.face as u8, c.at.x.floor() as i32, c.at.y.floor() as i32).is_some_and(|t| c.at.z < t)).count();
+    let (mut cave_cols, mut wet_cols, mut under_cols) = (0u64, 0u64, 0u64);
+    for f in 0..6u8 {
+        for i in (0..b.n).step_by(4) {
+            for j in (0..b.n).step_by(4) {
+                let caves = b.col_caves(f, i, j);
+                if !caves.is_empty() {
+                    cave_cols += 1;
+                    wet_cols += !b.ground_water_col(f, i, j).is_empty() as u64;
+                    under_cols += b.table_at(f, i, j).is_some_and(|t| caves.iter().any(|c| (c.0 as f64) < t)) as u64;
+                }
+            }
+        }
+    }
+    // the table's depth under the ground's top (the first open layer) at the spawn's column and in the 30 m round it
+    let (f, x, y) = b.locate(b.spawn);
+    let depth = |i: i32, j: i32| b.table_at(f as u8, i, j).map(|t| b.first_air(b.col_height(f as u8, i, j)) as f64 - t);
+    let (si, sj) = (x as i32, y as i32);
+    let spawn = depth(si, sj).unwrap_or(f64::NAN);
+    let mut ring: Vec<f64> = (-30..=30).flat_map(|di: i32| (-30..=30).map(move |dj: i32| (di, dj))).filter(|(di, dj)| di * di + dj * dj <= 900).filter_map(|(di, dj)| depth(si + di, sj + dj)).collect();
+    ring.sort_unstable_by(f64::total_cmp);
+    let (ring_min, ring_mid) = (ring.first().copied().unwrap_or(f64::NAN), ring.get(ring.len() / 2).copied().unwrap_or(f64::NAN));
+    format!(
+        "{{\"table_depth_m\": {{{}}}, \"wettest_quarter\": {{\"rain_mm_a_day\": {wet_rain:.2}, \"table_depth_m\": {wet:.1}}}, \"driest_quarter\": {{\"rain_mm_a_day\": {dry_rain:.2}, \"table_depth_m\": {dry:.1}}}, \"tight_land\": {:.3}, \"springs\": {springs}, \"spring_streams\": {streams}, \"caves_flooded\": {{\"balls\": {:.3}, \"columns\": {:.3}, \"cave_columns\": {cave_cols}, \"columns_cave_under_table\": {under_cols}}}, \"under_the_spawn_m\": {spawn:.1}, \"round_the_spawn_30m\": {{\"shallowest_m\": {ring_min:.1}, \"median_m\": {ring_mid:.1}, \"columns\": {}}}, \"solve\": {{\"sweeps\": {}, \"residual_m\": {:.1e}, \"settled\": {}}}}}",
+        provinces.join(", "),
+        tight as f64 / land.max(1) as f64,
+        flooded as f64 / b.caves.len().max(1) as f64,
+        wet_cols as f64 / cave_cols.max(1) as f64,
+        ring.len(),
+        map.solve.0,
+        map.solve.1,
+        (map.solve.0 as usize) < engine::bake::ground::SWEEPS,
+    )
 }
 
 /// Each province with a lava flow (`data/rocks.toml` `flow`): the share of its land (columns over the sea, every

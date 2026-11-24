@@ -18,6 +18,17 @@ datum = 60.0
 # The weight over a point (`Body::pressure`, MPa) is the rock and water above it with the gravity inside the
 # body (ADR 0152), and 1 atmosphere at the ground; the rock's densities are the body's (data/bodies.toml).
 
+# Ground water (ADR 0190, crates/engine/src/bake/ground.rs): `recharge` is the share of rain less evaporation that soaks
+# down to the water table (the rest runs off); a rock conducting under `tight` m/s holds no water and is an aquifer's
+# floor; `rocks` names each rock's hydraulic conductivity K (m/s) and specific yield (the share of its volume that
+# drains), textbook ranges (Freeze and Cherry, Groundwater, tables 2.2 and 2.4): sandstone and karst limestone 1e-5,
+# jointed basalt and tuff 1e-6, fractured crystalline rock 1e-8, shale and unbroken gneiss or gabbro tight. A rock not
+# named is tight. shortcut: one share everywhere; a share by soil and biome once soils hold water.
+[water]
+recharge = 0.25
+tight = 1e-9
+rocks = { sandstone = [1e-5, 0.15], limestone = [1e-5, 0.05], shale = [1e-11, 0.02], granite = [1e-8, 0.01], gneiss = [1e-10, 0.005], slate = [1e-9, 0.01], marble = [1e-6, 0.02], quartzite = [1e-8, 0.01], schist = [1e-8, 0.01], tuff = [1e-6, 0.1], andesite = [1e-7, 0.02], basalt = [1e-6, 0.05], gabbro = [1e-10, 0.005] }
+
 # The mantle under the crust, on a planet whose grid goes down through it (ADR 0152; ADR 0158).
 # Each [[mantle.rock]] takes over, going down, where the pressure of the column at
 # sea level (the same at a radius under hill and sea: isostasy) reaches `pressure` MPa at `heat` C, and `slope`
