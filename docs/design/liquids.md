@@ -99,7 +99,8 @@ spans the three: a block is U units, and ice + water + vapour of a world is one 
   the air grid's vapour and temperature per cell (`air.md`). Missing is only the rule that moves units between
   them.
 - **What decides:** the temperature at the place. The air's (the grid's cell, `sky::temperature` at the ground),
-  a heat source beside it (fire, furnace, lava, the deep rock's heat), and pressure for the boiling point (thin air
+  a heat source beside it (fire, furnace, lava, the deep rock's heat: `Body::heat`, the geotherm of generation 11,
+  about 300 C at 650 m under an arc on the 4 km planet), and pressure for the boiling point (thin air
   on Mars or a peak boils water colder; no air boils it at once, so ice there goes straight to vapour).
 - **Rates, not switches:** a change moves units a step by how far the temperature is past the point and how much
   heat can flow, so a lake freezes from the top over nights, an ice block drips, a pot takes time to boil.

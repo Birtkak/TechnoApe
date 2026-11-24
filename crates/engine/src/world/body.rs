@@ -66,7 +66,7 @@ impl Body {
                 return if self.icy { GEN[2] } else { *CORE_METAL };
             }
             let sea = self.radius - SEA_DEPTH;
-            let heat = rock.air + ROCKS.provinces.get(rock.province as usize).map_or(0.0, |p| p.heat) * (sea - r as f64).max(0.0) as f32;
+            let heat = rock.air + self.geotherm(ROCKS.provinces.get(rock.province as usize).map_or(0.0, |p| p.heat), sea, r as f64);
             let p = ATM + self.rock_weight(sea, r as f64 - rock.wobble as f64);
             if let Some(m) = ROCKS.deep(p as f32, heat) {
                 return m;
@@ -326,15 +326,27 @@ impl Body {
         let (x, y) = self.map_xy(s, i as f64 + 0.5, j as f64 + 0.5);
         b.map.temp(face, x, y)
     }
+    /// How much warmer than its top the rock at radius r is under a top (the ground, or the sea's level) at radius
+    /// `top`, C, in a province whose rock warms `g` C a metre at the top (its heat flow over the rock's conductivity).
+    /// From generation 11 (`GEOTHERM`) the steady conduction of a sphere, T = a + b / r with dT/dr = -g at the top:
+    /// g top (top - r) / r; under the core's top it holds the core top's (the core convects, conduction ends there).
+    /// Before it the straight line, g (top - r).
+    pub fn geotherm(&self, g: f32, top: f64, r: f64) -> f32 {
+        if self.gen < GEOTHERM {
+            return g * (top - r).max(0.0) as f32;
+        }
+        let r = r.min(top).max(self.interior.zones[crate::interior::OUTER_CORE].outer).max(1.0);
+        (g as f64 * top * (top - r) / r) as f32
+    }
     /// The rock's temperature at layer z of column (face, i, j), C (ADR 0063): the year's mean air at the
-    /// ground, and the province's `heat` a metre deeper under it. None without a map's climate and rock.
+    /// ground, and under it `geotherm` by the province's `heat`. None without a map's climate and rock.
     pub fn heat(&self, face: u8, i: i32, j: i32, z: f64) -> Option<f32> {
         let b = self.baked.as_ref()?;
         let s = b.map.m as f64 / self.n as f64;
         let (x, y) = self.map_xy(s, i as f64 + 0.5, j as f64 + 0.5);
         let air = b.map.temp(face as usize, x, y)?;
         let p = ROCKS.provinces.get(self.col_rock(face, i, j).province as usize)?;
-        let far = air + p.heat * (self.col_height(face, i, j) - self.layer_r(z)).max(0.0) as f32;
+        let far = air + self.geotherm(p.heat, self.col_height(face, i, j), self.layer_r(z));
         if b.craters.is_empty() {
             return Some(far);
         }

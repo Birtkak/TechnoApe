@@ -1917,3 +1917,74 @@ fn from_generation_2_only_copper_is_placed_near_the_spawn() {
         assert_ne!(kinds(&["copper"], &a), kinds(&["copper"], &b), "generation {gen}: copper moves with the spawn");
     }
 }
+
+/// What the geotherm moves on the 4 km planet, printed: diamond bodies and the mantle's boundaries under a shield and
+/// a rift, generation 10 against 11; run by hand (`--ignored`).
+#[test]
+#[ignore]
+fn print_what_the_geotherm_moves() {
+    use crate::bake::rock::{RIFT, SHIELD};
+    let k = crate::ore::MINERALS.kinds.iter().position(|k| k.name == "diamond").unwrap();
+    for gen in [VOLCANOES, GEOTHERM] {
+        let w = World::with_grid(6144, 32, 1, Some(crate::bake::shared(1, 6144)), None, 0.0, gen);
+        let b = &w.bodies[0];
+        let ds: Vec<_> = b.ores.iter().filter(|o| o.kind as usize == k).map(|o| (b.radius - b.layer_r(o.at.z)).round()).collect();
+        let column = |p: u8| Rock { province: p, top: 0.0, air: 15.0, wobble: 0.0, flow: 0.0 };
+        let feet: Vec<_> = ROCKS.mantle.iter().enumerate().map(|(m, _)| {
+            [SHIELD, RIFT].map(|p| (0..b.layers).rev().find(|&z| ROCKS.mantle[m..].iter().any(|d| d.block == b.rock(column(p), b.layer_r(z as f64 + 0.5) as f32, 0))).map(|z| (b.radius - b.layer_r(z as f64 + 0.5)).round()))
+        }).collect();
+        eprintln!("generation {gen}: {} diamonds at depths {ds:?}; mantle tops (shield, rift) {feet:?}", ds.len());
+    }
+}
+
+/// Water on rock by the geotherm (generation 11) on the 4 km planet: an eighth of a block poured at the foot of a shaft
+/// under a hot province, at the first depth where the rock is 300 C, and sealed in by the block over it put back,
+/// boils; the same in a pit 2 blocks deep beside it does not. What it stands on is the year's air plus `geotherm` (and
+/// the live volcanoes' R / r): the one rule.
+#[test]
+#[ignore = "heavy (two 4 km worlds, a 680 block shaft); tests the phases end to end, the geotherm is pinned by the tests above"]
+fn water_on_rock_deep_enough_boils_and_on_shallow_rock_does_not() {
+    let world = || World::with_grid(6144, 32, 1, Some(crate::bake::shared(1, 6144)), None, 0.0, GENERATION);
+    let w0 = world();
+    let b = w0.bodies[0].clone();
+    let (f, ..) = b.locate(b.spawn);
+    let f = f as u8;
+    let hot = ROCKS.provinces.iter().map(|p| p.heat).fold(0.0, f32::max);
+    let dry = |i: i32, j: i32| b.water_at(f, i, j).is_none_or(|w| b.layer_r(w.0) < b.col_height(f, i, j)) && (i - 4..=i + 4).all(|a| b.col_caves(f, a, j).is_empty());
+    let (i, j) = (8..b.n - 8).step_by(8).flat_map(|i| (8..b.n - 8).step_by(8).map(move |j| (i, j))).find(|&(i, j)| ROCKS.provinces[b.col_rock(f, i, j).province as usize].heat == hot && b.col_rock(f, i + 4, j).province == b.col_rock(f, i, j).province && dry(i, j)).expect("a dry column of a hot province");
+    let (top, ground, air) = (b.first_air(b.col_height(f, i, j)), b.col_height(f, i, j), b.year_air(f as usize, i, j).unwrap());
+    let z = (0..top).rev().find(|&z| b.heat(f, i, j, z as f64).unwrap() > 300.0).expect("hot rock above the core");
+    let t = b.heat(f, i, j, z as f64).unwrap();
+    eprintln!("{} m down: {t} C", ground - b.layer_r(z as f64));
+    // (the live volcanoes add their R / r on top, here some degrees)
+    let plain = air + b.geotherm(hot, ground, b.layer_r(z as f64));
+    let with = b.volcano_heat(b.dir(f as usize, i as f64 + 0.5, j as f64 + 0.5) * b.layer_r(z as f64), plain);
+    assert!(t == with && t >= plain, "the rock is the curve's and the volcanoes': {t} C, the curve {plain} C, with them {with} C");
+    let warm = |_: Col, _: f64| Some(20.0);
+    for (dx, z0) in [(0, z), (4, b.first_air(b.col_height(f, i + 4, j)) - 2)] {
+        let mut w = world();
+        let c = Col::new(0, f, i + dx, j);
+        for k in z0..b.first_air(b.col_height(f, i + dx, j)) + 3 {
+            w.set_block(Block { body: 0, face: f, pos: IVec3::new(c.i(), c.j(), k) }, AIR);
+        }
+        {
+            let World { bodies, edits, water, sky, time, .. } = &mut w;
+            assert!(water.pour(&Solid::at(bodies, edits, sky, *time), c, z0, U / 8));
+        }
+        // the block over it put back: a sealed cistern, the rock its one neighbour for heat (open, the shaft's air
+        // carries it off: at 300 C rock it stood at 64 C after a day and a half)
+        let lid = Block { body: 0, face: f, pos: IVec3::new(c.i(), c.j(), z0 + 1) };
+        w.set_block(lid, w0.block(lid));
+        w.regap(lid);
+        for _ in 0..2000 {
+            w.cool_fluids_in(60.0, |_| false, Some(&warm));
+            w.step_water();
+        }
+        let vapour = w.water.vapour.get(&crate::fluids::WATER).copied().unwrap_or(0);
+        if dx == 0 {
+            assert!(vapour > 0, "on rock at {} C it boils: {vapour} units of vapour, {} left", b.heat(f, i, j, z as f64).unwrap(), w.water.total());
+        } else {
+            assert_eq!((vapour, w.water.total()), (0, U / 8), "2 blocks down, at {} C, it stays", b.heat(f, i + dx, j, z0 as f64).unwrap());
+        }
+    }
+}
