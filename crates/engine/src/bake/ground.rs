@@ -3,7 +3,9 @@
 //! as a ceiling. Where the solve presses against the ground the cell seeps: a spring, whose flow is the recharge
 //! uphill of it. Steady, unconfined, one head a cell:
 //!
-//!     div(K b grad h) + R = 0   under the ground;   h = ground, spring = R + div(K b grad h) >= 0 where it would rise over it
+//! ```text
+//! div(K b grad h) + R = 0   under the ground;   h = ground, spring = R + div(K b grad h) >= 0 where it would rise over it
+//! ```
 //!
 //! with b = h - base the saturated thickness. A link's conductance is the harmonic mean of the two cells' K times
 //! their mean thickness over the higher of their two floors (with equal floors the spike's, whose rest is the Dupuit

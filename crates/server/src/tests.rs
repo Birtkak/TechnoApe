@@ -4797,7 +4797,10 @@ fn poured_lavas_heat_survives_a_save_and_water_alone_writes_the_bytes_it_did() {
         let snap = s.snapshot();
         let bytes = snap.to_bytes();
         if kind == engine::fluids::WATER {
-            assert!(snap.heat == save::Heat::default() && bytes == postcard::to_allocvec(&snap).unwrap(), "water alone: the layout's bytes");
+            // (the hole lies under the table: its water trades with the aquifer, ADR 0190, whose tail is the last)
+            assert!(snap.ground != save::GroundTail::default(), "the dug hole's water touched the aquifer");
+            let snap = Save { ground: Default::default(), ..snap };
+            assert!(snap.heat == save::Heat::default() && snap.to_bytes() == postcard::to_allocvec(&snap).unwrap(), "water alone: the layout's bytes");
             continue;
         }
         let t = s.world.water.temp_at(col, z0).expect("the lava's heat");
