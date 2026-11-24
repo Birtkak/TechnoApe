@@ -445,8 +445,10 @@ fn lava(i: WOut, foot: f32) -> vec4f {
     let q = 1.0 / RIPPLE_PX;
     let p = (floor(i.grid.xy * RIPPLE_PX) + 0.5) * q;
     if ((i.side & 1u) == 1u) {
-        // running down a step: molten, streaked, the streaks falling
-        let s = wnoise(vec2f((i.grid.x + i.grid.y) * 3.0, i.grid.z * 1.5 + t * 1.2));
+        // running down a step: molten, streaked, the streaks falling a texel a step (lava is slow), on texels as
+        // water's falls are
+        let fc = floor(vec2f(i.grid.x + i.grid.y, i.grid.z + t * WATER_STEPS * q) * RIPPLE_PX) * q;
+        let s = wnoise(fc * vec2f(3.0, 1.5));
         return water_out(hot * mix(0.7, 1.4, s), 1.0);
     }
     // the swell of heat: slow, larger than a plate
@@ -455,13 +457,15 @@ fn lava(i: WOut, foot: f32) -> vec4f {
     let edge = (f.y - f.x) * LAVA_PLATE; // metres to the plate's border
     let fine = plates((p - LAVA_DRIFT * t) / (LAVA_PLATE * 0.4) + 7.3);
     let fedge = (fine.y - fine.x) * LAVA_PLATE * 0.4;
-    // where the swell runs the plates melt away to open melt
-    let w = mix(0.05, 0.5, heat * heat);
+    // where the swell runs the plates melt away to open melt; a cool crack (and the fine net) is still a texel
+    // across (`edge` grows about twice as fast as the way off the border), else a slanted one breaks into dashes
+    let w = mix(0.13, 0.5, heat * heat);
     var crack = 1.0 - smoothstep(w * 0.5, w, edge);
-    crack = max(crack, (1.0 - smoothstep(0.02, 0.05, fedge)) * smoothstep(0.3, 0.7, heat) * 0.6);
-    // far off the cracks are finer than a pixel: their share, as one glow over the crust
-    let far = smoothstep(0.08, 0.4, foot);
-    crack = mix(crack, 0.15 + 0.3 * heat, far);
+    crack = max(crack, (1.0 - smoothstep(q, 0.1, fedge)) * smoothstep(0.3, 0.7, heat) * 0.6);
+    // far off the cracks are finer than a pixel: their mean share at that heat (fitted to the pattern sampled on
+    // texels, within 0.03), as one glow over the crust; from the same footprint as the water's ripples calm
+    let far = smoothstep(0.04, 0.4, foot);
+    crack = mix(crack, 0.13 + 0.3 * heat * heat + 0.1 * smoothstep(0.3, 0.7, heat), far);
     let n = normalize(i.normal);
     let l = light(i.rel, n, i.body);
     // the crust: rough rock in the sun, the sky and the lake's own light, glowing dull red from under, most near
@@ -470,7 +474,8 @@ fn lava(i: WOut, foot: f32) -> vec4f {
     let crust = LAVA_CRUST * grain * (l.l + ambient(l.day) + hot * 0.6) + hot * (0.02 + 0.1 * exp(-edge * 5.0)) * (0.5 + heat);
     // a crack: the row's light, hotter at its core and where the swell runs
     let core = 1.0 - smoothstep(0.0, w * 0.5, edge);
-    let melt = hot * mix(0.55, 1.1, heat) * (1.0 + 0.6 * core * (1.0 - far));
+    // (far: the cores' mean lift over the cracks, about 1.18 at every heat)
+    let melt = hot * mix(0.55, 1.1, heat) * mix(1.0 + 0.6 * core, 1.18, far);
     return water_out(mix(crust, melt, crack), 1.0);
 }
 
@@ -512,8 +517,10 @@ fn tinted(i: WOut, foot: f32) -> vec4f {
     let spot = smoothstep(0.35, 0.75, wnoise(i.grid.xy * 0.22 - vec2f(0.011, 0.007) * t + 31.0));
     let sheen = mix(0.08, 0.25, smoothstep(0.2, 0.9, 1.0 - cosv)) * spot * calm;
     let sky = sky_colour(r) + luna_in(i.rel, r, i.body);
-    var col = i.flow.xyz * (l.l + ambient(l.day)) * (1.0 - fres) + sky * (fres + film * sheen);
-    col += g.sun_col.rgb * l.sun * pow(max(dot(r, normalize(g.sun_pos.xyz - i.rel)), 0.0), mix(80.0, 400.0, calm)) * 2.0;
+    // (the film takes its share of what the Fresnel term leaves, so the sky's weight stays at or under 1)
+    var col = i.flow.xyz * (l.l + ambient(l.day)) * (1.0 - fres) + sky * (fres + film * sheen * (1.0 - fres));
+    // the glint: sharp on near swells, a dimmer wide sheen far off, as the water's
+    col += g.sun_col.rgb * l.sun * pow(max(dot(r, normalize(g.sun_pos.xyz - i.rel)), 0.0), mix(80.0, 400.0, calm)) * mix(0.6, 2.0, calm);
     return water_out(col, 1.0);
 }
 
