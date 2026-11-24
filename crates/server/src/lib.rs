@@ -149,6 +149,18 @@ fn saved(c: &Client) -> Saved {
     Saved { name: c.player.name.clone(), pos: c.phys.pos.to_array(), fwd: c.phys.fwd.as_vec3().to_array(), creative: c.creative, slots: c.slots.clone(), water: c.water, vitals: c.vitals.clone(), marks: c.marks.clone(), journal: engine::journal::JOURNAL.saved(&c.journal, &c.kept) }
 }
 
+/// `saved` in `world`: a spectator (not saved itself, draft ADR spectator-and-sky) is kept where leaving the mode would
+/// put it, at the nearest free place above when it is inside rock.
+fn saved_in(c: &Client, world: &World) -> Saved {
+    let mut s = saved(c);
+    if c.spectator {
+        let mut p = c.phys;
+        phys::onto_ground(world, &mut p);
+        s.pos = p.pos.to_array();
+    }
+    s
+}
+
 /// A pile's cell as a key that sorts (by body, face, column, layer: the piles' fixed order, items.md).
 type PileKey = (u8, u8, i32, i32, i32);
 fn key(b: Block) -> PileKey {
@@ -196,6 +208,10 @@ struct Client {
     credit: i32,
     /// Creative counts nothing; survival digs into piles and places from its slots (ADR 0014, 0074).
     creative: bool,
+    /// Spectator mode (draft ADR spectator-and-sky, `/playmode spectator`): it flies through everything (`phys::ghost`), takes no harm,
+    /// acts on nothing, and no other client is sent it. Not saved: a save keeps where leaving it would put the
+    /// player (`saved`), so a world where nobody is one saves and hashes as before.
+    spectator: bool,
     /// Its slots (`items::SLOTS`): the hotbar, the worn pack, the rows the pack opens, the crafting grid's cells.
     slots: Vec<Slot>,
     /// The workbench it opened (`ToServer::Use`, ADR 0140): its grid's 3 x 3 counts while that is

@@ -105,7 +105,7 @@ impl Server {
                 "                       midnight, 14:30, or world seconds",
                 "                       or spring summer autumn winter",
                 "  /time add <seconds>  move the clock on",
-                "  /playmode <mode>     creative or survival",
+                "  /playmode <mode>     creative, survival or spectator",
                 "  /give <block> [n]    n blocks, 64 if left out",
                 "  /place <block>       one under your feet; or at",
                 "    [face i j layer]   that block of the body you are on (F3)",
@@ -200,8 +200,8 @@ impl Server {
                 if c.vitals.dead.is_some() {
                     return "you are dead: respawn first".into();
                 }
-                if c.creative {
-                    return "creative has no health or hunger: /playmode survival".into();
+                if c.creative || c.spectator {
+                    return format!("{} has no health or hunger: /playmode survival", if c.spectator { "a spectator" } else { "creative" });
                 }
                 match cmd {
                     "heal" => {
@@ -329,14 +329,29 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
             }
             Some("playmode") | Some("gamemode") => {
                 let c = &mut self.clients[i];
-                let on = match w.get(1).map(|s| s.to_lowercase()).as_deref() {
-                    None => return format!("you play in {} mode\nusage: /playmode creative|survival", mode(c.creative)),
-                    Some("creative" | "c" | "1") => true,
-                    Some("survival" | "s" | "0") => false,
-                    Some(m) => return format!("no play mode '{m}': creative or survival"),
+                let now = if c.spectator { "spectator" } else { mode(c.creative) };
+                // (the developer, 2026-11-24: spectator is a mode of /playmode, draft ADR spectator-and-sky)
+                let (creative, spectator) = match w.get(1).map(|s| s.to_lowercase()).as_deref() {
+                    None => return format!("you play in {now} mode\nusage: /playmode creative|survival|spectator"),
+                    Some("creative" | "c" | "1") => (true, false),
+                    Some("survival" | "s" | "0") => (false, false),
+                    Some("spectator" | "sp" | "3") => (c.creative, true),
+                    Some(m) => return format!("no play mode '{m}': creative, survival or spectator"),
                 };
-                (c.creative, c.inv_dirty) = (on, true);
-                format!("play mode: {}", mode(on))
+                if c.vitals.dead.is_some() && spectator {
+                    return "you are dead: respawn first".into();
+                }
+                if c.spectator && !spectator {
+                    // out of it where it is, or inside rock at the nearest free place above (`phys::onto_ground`)
+                    phys::onto_ground(&self.world, &mut c.phys);
+                    c.phys.vel = DVec3::ZERO;
+                    c.player.pos = c.phys.pos.to_array();
+                }
+                if c.spectator != spectator {
+                    c.link.send(ToClient::Spectator(spectator));
+                }
+                (c.creative, c.spectator, c.inv_dirty, c.input) = (creative, spectator, true, None);
+                format!("play mode: {}", if spectator { "spectator" } else { mode(creative) })
             }
             Some("give") => {
                 // the count is a last word that is a number; the item's name is the words before it

@@ -330,6 +330,32 @@ pub fn step_at(world: &mut World, p: &mut Player, inp: &Input, dt: f64) -> bool 
     sprinted
 }
 
+/// A spectator's step (draft ADR spectator-and-sky): flight along the look at the input's `fly` speed (`GHOST_FLY` when 0), up and down
+/// with jump and `down`, through blocks and fluids, with no gravity, no box and no ground. The body stays upright on
+/// the pull's up and turns with the input; it changes frame as any step does.
+pub fn ghost(world: &World, p: &mut Player, inp: &Input, dt: f64) {
+    let up = pull(world, p.pos).0;
+    let look = DVec3::new(inp.fwd[0] as f64, inp.fwd[1] as f64, inp.fwd[2] as f64);
+    let mut fwd = tangent(if look.is_finite() && look != DVec3::ZERO { look } else { p.fwd }, up, p.fwd);
+    if inp.turn != 0.0 {
+        fwd = turned(up, inp.turn as f64, fwd);
+    }
+    let right = fwd.cross(up).normalize();
+    let ahead = fwd * (inp.pitch as f64).cos() + up * (inp.pitch as f64).sin();
+    let mv = DVec3::new(inp.mv[1].clamp(-1.0, 1.0) as f64, 0.0, inp.mv[0].clamp(-1.0, 1.0) as f64);
+    let vert = inp.jump as i32 as f64 - inp.down as i32 as f64;
+    let speed = if inp.fly > 0.0 { (inp.fly as f64).min(FLY_MAX) } else { GHOST_FLY };
+    p.vel = ((right * mv.x + ahead * mv.z).clamp_length_max(1.0) + up * vert) * speed;
+    p.pos += p.vel * dt;
+    (p.up, p.fwd, p.on_ground) = (up, fwd, false);
+    if let Some(r) = world.reframe(&mut p.pos, &mut p.vel) {
+        (p.fwd, p.up) = (r * p.fwd, r * p.up);
+    }
+}
+
+/// A spectator's speed when its input names none (m/s).
+pub const GHOST_FLY: f64 = 10.0;
+
 /// One step of `dt` seconds for one player. True when it sprinted (ADR 0118): the sprint was applied and the
 /// body went further forward than the walk would have taken it, so a sprint into a wall or in the water is
 /// none. What a sprint's hunger and its wider view go by.
@@ -548,6 +574,30 @@ mod tests {
         for _ in 0..(secs * 20.0) as usize {
             step(w, p, inp, 0.05);
         }
+    }
+
+    #[test]
+    fn a_spectator_flies_into_the_ground_and_hangs_where_it_stops() {
+        let w = world();
+        let g = ground(&w);
+        let u = up(&w, g);
+        // straight down at 10 m/s for 2 s: 20 m into the rock, where a walker's box would have stopped on the ground
+        let mut p = Player::at(g, tangent(DVec3::X, u, DVec3::Z));
+        let down = Input { down: true, fly: 10.0, ..Default::default() };
+        for _ in 0..120 {
+            ghost(&w, &mut p, &down, DT);
+        }
+        assert!((p.pos - (g - u * 20.0)).length() < 1e-6 && inside(&w, &p), "{} m down", (g - p.pos).dot(u));
+        // let go, it does not fall
+        let at = p.pos;
+        for _ in 0..40 {
+            ghost(&w, &mut p, &Input::default(), DT);
+        }
+        assert_eq!(p.pos, at);
+        // forward along the look through a hill: as far as the speed says
+        let ahead = Input { mv: [1.0, 0.0], fly: 5.0, ..Default::default() };
+        ghost(&w, &mut p, &ahead, DT);
+        assert!(((p.pos - at).length() - 5.0 * DT).abs() < 1e-9);
     }
 
     #[test]

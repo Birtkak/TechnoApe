@@ -297,7 +297,7 @@ impl Server {
             return;
         }
         let world = &self.world;
-        let mut heads: Vec<(Block, &mut Client)> = self.clients.iter_mut().filter(|c| !c.creative && c.vitals.dead.is_none())
+        let mut heads: Vec<(Block, &mut Client)> = self.clients.iter_mut().filter(|c| !c.creative && !c.spectator && c.vitals.dead.is_none())
             .map(|c| (world.block_at(c.phys.pos + phys::up(world, c.phys.pos) * phys::EYE), c)).collect();
         for &(b, m) in &rocks {
             for (eye, c) in heads.iter_mut() {
@@ -429,7 +429,8 @@ impl Server {
     /// feet's face, so a pile just over a cube face's edge waits until the player steps across.
     pub(super) fn pick_up(&mut self) {
         let Server { clients, piles, piles_changed, world, tick, .. } = self;
-        for c in clients.iter_mut().filter(|c| c.vitals.dead.is_none()) {
+        // (a spectator picks up nothing, draft ADR spectator-and-sky)
+        for c in clients.iter_mut().filter(|c| c.vitals.dead.is_none() && !c.spectator) {
             let feet = c.phys.pos;
             let mid = world.block_at(feet + phys::up(world, feet) * 0.5);
             for (dz, dy, dx) in (-1..=1).flat_map(|z| (-1..=1).flat_map(move |y| (-1..=1).map(move |x| (z, y, x)))) {

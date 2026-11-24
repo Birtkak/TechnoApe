@@ -93,6 +93,7 @@ impl Server {
                 acked: 0,
                 credit: 0,
                 creative: false,
+                spectator: false,
                 slots: items::ape(),
                 water: 0,
                 tiles: FxMap::default(),
@@ -233,6 +234,12 @@ impl Server {
                             }
                         }
                     }
+                    // a spectator acts on nothing (draft ADR spectator-and-sky): what is answered is refused, the rest ignored
+                    Recv::Msg(ToServer::Edit { seq, .. } | ToServer::Items { seq, .. } | ToServer::Take { seq, .. } | ToServer::Bucket { seq, .. }) if self.clients[i].spectator => {
+                        self.clients[i].done.push((seq, false));
+                        self.clients[i].inv_dirty = true;
+                    }
+                    Recv::Msg(ToServer::Dig(_) | ToServer::Strike(_) | ToServer::Craft { .. } | ToServer::Use(_) | ToServer::Choose { .. } | ToServer::Drink(_)) if self.clients[i].spectator => {}
                     Recv::Msg(ToServer::Edit { seq, shape, material }) => {
                         // the steps the client took before this edit came before it: they are taken first, so the
                         // edit falls between the same two steps here as in its prediction (ADR 0015, 0019). Taken
@@ -346,7 +353,13 @@ impl Server {
                 let inp = if creative { inp } else { Input { fly: 0.0, ..inp } };
                 if dead { vitals::still(inp) } else { inp }
             };
-            if let Some(inp) = c.input.map(walk) {
+            if let (Some(inp), true) = (c.input, c.spectator) {
+                // a spectator flies through everything and takes nothing (draft ADR spectator-and-sky)
+                for _ in 0..steps {
+                    phys::ghost(&self.world, &mut c.phys, &inp, phys::DT);
+                }
+                (c.player.pos, c.player.fwd, c.player.pitch) = (c.phys.pos.to_array(), c.phys.fwd.as_vec3().to_array(), inp.pitch);
+            } else if let Some(inp) = c.input.map(walk) {
                 for _ in 0..steps {
                     // (a player that died in an earlier step of this tick moves no more in it)
                     let inp = if c.vitals.dead.is_some() { vitals::still(inp) } else { inp };
@@ -410,7 +423,7 @@ impl Server {
             self.knock_off(b, m);
         }
         // the animals (ADR 0083): woken by the players on Terra, stepped as far as the players were
-        let players: Vec<(DVec3, DVec3)> = self.clients.iter().filter(|c| self.world.frame_at(c.phys.pos) == 0).map(|c| (c.phys.pos, c.phys.vel)).collect();
+        let players = self.herd_players();
         let t = self.herds.clock;
         self.herds.tick(&self.world, &players, t, steps as f64 * phys::DT);
         self.send_animals(t);
@@ -641,9 +654,10 @@ impl Server {
             for c in &mut self.clients {
                 c.sent_hand = holds(c);
             }
-            let players: Vec<Player> = self.clients.iter().map(|c| Player { hand: c.sent_hand, ..c.player.clone() }).collect();
+            let players: Vec<(bool, Player)> = self.clients.iter().map(|c| (c.spectator, Player { hand: c.sent_hand, ..c.player.clone() })).collect();
             for c in &self.clients {
-                c.link.send(ToClient::Players(players.clone()));
+                // a spectator is sent to itself only (draft ADR spectator-and-sky)
+                c.link.send(ToClient::Players(players.iter().filter(|(ghost, p)| !ghost || p.id == c.player.id).map(|p| p.1.clone()).collect()));
             }
         }
         self.tick += 1;
@@ -674,6 +688,11 @@ impl Server {
         }
     }
 
+    /// The players the herds wake and flee from (ADR 0083): feet and motion of those on Terra, a spectator not one.
+    pub(super) fn herd_players(&self) -> Vec<(DVec3, DVec3)> {
+        self.clients.iter().filter(|c| !c.spectator && self.world.frame_at(c.phys.pos) == 0).map(|c| (c.phys.pos, c.phys.vel)).collect()
+    }
+
     /// The journal's triggers (draft ADR journal-data), once a tick after the events: `have:` from the slots
     /// when they changed, `look:` from the block the player's look meets every `LOOK_EVERY` ticks. Not for a
     /// creative player (its slots are a builder's), a dead one, or one without its name yet.
@@ -681,7 +700,7 @@ impl Server {
         let j = &*engine::journal::JOURNAL;
         let look = self.tick % LOOK_EVERY == 0;
         let world = &self.world;
-        for c in self.clients.iter_mut().filter(|c| !c.creative && c.vitals.dead.is_none() && !c.player.name.is_empty()) {
+        for c in self.clients.iter_mut().filter(|c| !c.creative && !c.spectator && c.vitals.dead.is_none() && !c.player.name.is_empty()) {
             // and on the tick its name came (`told` none yet): what it held before is no change of this tick
             if c.inv_dirty || c.told.is_none() {
                 for s in c.slots.iter().flatten() {
@@ -736,7 +755,7 @@ impl Server {
             let feet = c.phys.pos;
             self.lay(self.world.block_at(feet + phys::up(&self.world, feet) * 0.5), c.slots.into_iter().flatten().collect(), (0, 0));
         } else {
-            self.absent.insert(c.player.name.clone(), saved(&c));
+            self.absent.insert(c.player.name.clone(), saved_in(&c, &self.world));
             self.say(format!("{} left", c.player.name));
         }
     }
@@ -748,6 +767,11 @@ impl Server {
 /// Takes client `c`'s next queued step, if any (`dead`: as it was when the tick's steps began).
 fn queued_step(c: &mut Client, world: &mut World, warp: u64, dead: bool, deaths: &mut Vec<String>) -> bool {
     let Some((seq, inp)) = c.queue.pop_front() else { return false };
+    if c.spectator {
+        phys::ghost(world, &mut c.phys, &inp, phys::DT);
+        (c.acked, c.player.pitch) = (seq, inp.pitch);
+        return true;
+    }
     let inp = if c.creative { inp } else { Input { fly: 0.0, ..inp } };
     let inp = if dead { vitals::still(inp) } else { inp };
     let mut inp = vitals::gate(inp, c.vitals.hunger, c.creative);

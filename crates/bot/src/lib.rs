@@ -180,6 +180,8 @@ pub struct Bot {
     /// Plays creative (bots start so, ADR 0074); `say /playmode survival` turns it off, and its digs are then held
     /// for their time as a player's are (ADR 0034, 0097).
     creative: bool,
+    /// Spectator mode as the server says (`ToClient::Spectator`, draft ADR spectator-and-sky).
+    spectator: bool,
     /// A survival dig held until that tick, of that shape.
     digging: Option<(u64, Shape)>,
     /// The hotbar slot in hand (`hold`).
@@ -251,7 +253,7 @@ impl Bot {
     /// A bot sharing its world's bodies with the others of `shared` (one driver's bots)
     pub fn sharing(name: &str, link: Link<ToServer, ToClient>, shared: &Shared) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default(), furnace: None, vitals: (20, 20, 20, 20), marks: (None, None), drinking: None, journal: Default::default(), shared: shared.clone(), welcome: None, failed: Vec::new() }
+        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, spectator: false, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default(), furnace: None, vitals: (20, 20, 20, 20), marks: (None, None), drinking: None, journal: Default::default(), shared: shared.clone(), welcome: None, failed: Vec::new() }
     }
 
     /// The tick `s` seconds of the server's time from now.
@@ -377,6 +379,8 @@ impl Bot {
                 }
                 Recv::Msg(ToClient::Sky { .. } | ToClient::Fires(_) | ToClient::Events(_) | ToClient::Layers(_)) => {}
                 Recv::Msg(ToClient::Furnace { at, f }) => self.furnace = Some((at, f)),
+                // `say /playmode spectator` (draft ADR spectator-and-sky): the server's word on it, in the report
+                Recv::Msg(ToClient::Spectator(on)) => self.spectator = on,
                 Recv::Msg(ToClient::Prospect(v)) => {
                     let heard: Vec<String> = v.iter().map(|(e, b)| format!("[{e:?},{:?}]", engine::ore::BANDS.get(*b as usize).unwrap_or(&"?"))).collect();
                     self.notes.push(format!("{{\"bot\":{:?},\"prospect\":[{}]}}", self.name, heard.join(",")));
@@ -538,7 +542,7 @@ impl Bot {
             }
             Cmd::Report => {
                 return Some(format!(
-                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{},\"vitals\":[{},{},{},{}],\"death\":{},\"home\":{},\"air\":{},\"felt\":{:.2},\"animals\":{},\"journal\":{{{}}}}}",
+                    "{{\"bot\":\"{}\",\"t\":{:.2},\"pos\":[{:.2},{:.2},{:.2}],\"players\":{},\"edits_applied\":{},\"refused\":{},\"vitals\":[{},{},{},{}],\"death\":{},\"home\":{},\"air\":{},\"felt\":{:.2},\"animals\":{},\"journal\":{{{}}},\"spectator\":{}}}",
                     self.name,
                     self.start.elapsed().as_secs_f64(),
                     self.pos.x,
@@ -557,7 +561,8 @@ impl Bot {
                     // the felt temperature at its eye (the client's rule, `World::felt`)
                     w.felt(self.pos + phys::up(w, self.pos) * phys::EYE, self.air.map(|a| a.temp as f64)).temp,
                     self.animals_json(),
-                    self.journal.iter().map(|(n, s)| format!("{n:?}:{:?}", s.name())).collect::<Vec<_>>().join(",")
+                    self.journal.iter().map(|(n, s)| format!("{n:?}:{:?}", s.name())).collect::<Vec<_>>().join(","),
+                    self.spectator
                 ));
             }
             Cmd::Say(t) => {

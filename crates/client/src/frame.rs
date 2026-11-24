@@ -168,9 +168,9 @@ impl App {
             let my = if self.settings.on(S::InvertY) { -my } else { my };
             // the look is the player's own and turns in the steps, so no frame change makes it mean another way
             self.turn -= mx * sens;
-            // flight is creative's; the server holds to that too
-            self.flying &= self.creative;
-            if phys::free(&self.world, &self.me, self.flying) {
+            // flight is creative's, and a spectator's always (draft ADR spectator-and-sky); the server holds to that too
+            self.flying = self.spectator || self.flying && self.creative;
+            if !self.spectator && phys::free(&self.world, &self.me, self.flying) {
                 // out here the mouse pitches the body itself, the head's tilt folded into it, and Q/E roll it
                 self.tilt += std::mem::take(&mut self.pitch) - my * sens;
                 let q = |a: Act| self.settings.held(&self.keys, a) as i32 as f64;
@@ -207,8 +207,8 @@ impl App {
                 }
                 let f0 = self.world.frame_at(self.me.pos);
                 let in_air = !self.me.on_ground;
-                let drains = !self.creative && self.dead.is_none();
-                self.sprinted = crate::play::predict(&mut self.world, &mut self.me, &mut self.hunger, self.creative, drains, &inp);
+                let drains = !self.creative && !self.spectator && self.dead.is_none();
+                self.sprinted = crate::play::predict(&mut self.world, &mut self.me, &mut self.hunger, (self.creative, self.spectator), drains, &inp);
                 // the metres fallen since the ground was left (a flight or a swim is no fall)
                 // (nothing is added in the step that changes the frame the place is told in: `prev` is still
                 // in the old one)
@@ -399,6 +399,8 @@ impl App {
                     self.reconcile(step, me, hunger, t)
                 }
                 Recv::Msg(ToClient::You { .. }) => {}
+                // spectator mode on or off (draft ADR spectator-and-sky): it flies from now on; out of it, flying is creative's again
+                Recv::Msg(ToClient::Spectator(on)) => (self.spectator, self.flying) = (on, on || self.flying && self.creative),
                 Recv::Msg(ToClient::Inventory { creative, slots, water }) => {
                     (self.creative, self.bucket_water) = (creative, water);
                     // the slots once every move sent is answered: until then the prediction stands

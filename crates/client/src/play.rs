@@ -128,7 +128,7 @@ impl App {
         let key = self.aim.map(|(b, _)| (b, self.world.block(b)));
         if s.at.is_none_or(|(t, k)| k != key || t.elapsed().as_secs_f64() >= SENSE_S) {
             s.felt = Some(self.world.felt_of(p.pos, live, &s.done.map(|d| d.1).unwrap_or_default()));
-            s.looked = edit::look(&self.world, p.pos, p.fwd, AIM_REACH).map(|l| looked(&self.world, l, live));
+            s.looked = edit::look(&self.world, p.pos, p.fwd, AIM_REACH).filter(|_| !self.spectator).map(|l| looked(&self.world, l, live));
             s.at = Some((Instant::now(), key));
         }
     }
@@ -151,8 +151,13 @@ pub(crate) fn parse_acts(s: &str) -> Vec<(f64, String)> {
 }
 
 /// One predicted step, as the server takes it (ADR 0118): the sprint refused at the floor by the `hunger`
-/// carried, the step, then that step's drain (`drains`: survival and alive). True when it sprinted.
-pub(crate) fn predict(world: &mut World, me: &mut phys::Player, hunger: &mut f64, creative: bool, drains: bool, inp: &Input) -> bool {
+/// carried, the step, then that step's drain (`drains`: survival and alive). True when it sprinted. A spectator
+/// (`ghost`) steps as the server steps it, through everything (`phys::ghost`, draft ADR spectator-and-sky), and drains nothing.
+pub(crate) fn predict(world: &mut World, me: &mut phys::Player, hunger: &mut f64, (creative, ghost): (bool, bool), drains: bool, inp: &Input) -> bool {
+    if ghost {
+        phys::ghost(world, me, inp, phys::DT);
+        return false;
+    }
     let g = engine::vitals::gate(*inp, *hunger, creative);
     let sprinted = phys::step_at(world, me, &g, phys::DT);
     if drains {
@@ -163,7 +168,7 @@ pub(crate) fn predict(world: &mut World, me: &mut phys::Player, hunger: &mut f64
 
 /// Where the steps the server has not answered take a player from the server's last word on it (ADR 0019),
 /// and the hunger they leave (from the server's, `(hunger, creative, drains)` as `predict` takes them).
-pub(crate) fn replay(world: &mut World, server: phys::Player, (mut hunger, creative, drains): (f64, bool, bool), steps: &VecDeque<(u32, Input)>) -> (phys::Player, f64) {
+pub(crate) fn replay(world: &mut World, server: phys::Player, (mut hunger, creative, drains): (f64, (bool, bool), bool), steps: &VecDeque<(u32, Input)>) -> (phys::Player, f64) {
     let mut me = server;
     for (_, inp) in steps {
         predict(world, &mut me, &mut hunger, creative, drains, inp);
@@ -365,6 +370,8 @@ impl App {
     /// m:dx:dy turns the look.
     pub(crate) fn act(&mut self, a: &str) {
         match a {
+            // a spectator acts on nothing and always flies (draft ADR spectator-and-sky): no dig, place, pick-up, use or drink, no landing
+            "L" | "R" | "fly" if self.spectator => {}
             // a block with a window (a workbench, ADR 0140): the place button uses it, whatever is in
             // hand, before a pick-up, a drink, a pour, a strike or a place against it
             "R" if self.use_target().is_some() => self.use_block(),
@@ -1092,7 +1099,7 @@ impl App {
                         None => h,
                     };
                     vec![
-                        ("Mode", if self.creative { "creative" } else { "survival" }.into(), 0),
+                        ("Mode", if self.spectator { "spectator" } else if self.creative { "creative" } else { "survival" }.into(), 0),
                         ("Health", h, ht),
                         ("Hunger", f, ft),
                         ("Thirst", d, dt),
@@ -1552,7 +1559,8 @@ impl App {
         while let Ok(l) = self.bug_said.1.try_recv() {
             self.note(l);
         }
-        self.aim = edit::aim(&self.world, p.pos, p.fwd, AIM_REACH);
+        // a spectator aims at nothing: no outline, no look-at panel (it passes through blocks, draft ADR spectator-and-sky)
+        self.aim = if self.spectator { None } else { edit::aim(&self.world, p.pos, p.fwd, AIM_REACH) };
         let t = self.world.time;
         let still = &self.gpu.as_ref().unwrap().still;
         let lies = |b: Block, th: &engine::clutter::Thing| engine::clutter::lies(&engine::clutter::CLUTTER[th.row], self.streamer.taken.get(&b).copied(), engine::clutter::year(t, self.world.sky.year));
@@ -1626,7 +1634,7 @@ impl App {
                     self.look_of(p, s.item, x, y, size, season);
                 }
             }) };
-        if !title && !self.creative {
+        if !title && !self.creative && !self.spectator {
             // health and hunger over the hotbar (ADR 0040): survival's, and how it is told from creative
             let mut p = hud::Paint::new(lw, lh);
             let ages = self.flash.map(|(at, from)| (at.elapsed().as_secs_f32(), from));
@@ -1752,7 +1760,7 @@ impl App {
         // the block in hand, large at the lower right, on its tracks (ADR 0031): the dip when it digs or places,
         // a bob with the steps
         if !title {
-            if let (Some(d), false) = (self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)), self.hammer || self.bucket || self.f3 || lw < 1100.0) {
+            if let (Some(d), false) = (self.slot_block(self.slot).and_then(|m| BLOCKS.get(m)), self.hammer || self.bucket || self.f3 || self.spectator || lw < 1100.0) {
                 let [dx, dy] = self.dip.at(self.start.elapsed().as_secs_f64());
                 let pace = if self.me.on_ground { (self.me.vel.length() / 4.0).min(1.0) as f32 } else { 0.0 };
                 let [bx, by] = BOB.at(self.walked).map(|v| v * pace);
@@ -1764,7 +1772,7 @@ impl App {
             }
         }
         if self.flying && !title {
-            let s = format!("Flying {:.0} m/s", self.fly_speed);
+            let s = format!("{} {:.0} m/s", if self.spectator { "Spectator, flying" } else { "Flying" }, self.fly_speed);
             // over the hotbar's right end (hud::layer: its pane ends 268 px right of the middle)
             paint.text_px(lw / 2.0 + 268.0 - s.len() as f32 * hud::ADV * hud::PX * 0.75, lh - 110.0, &s, [1.0, 1.0, 1.0, 0.9], hud::PX * 0.75);
         }
@@ -1882,7 +1890,7 @@ impl App {
         }
         self.steps.retain(|s| s.0 > step);
         // each step again at the time it was first taken (the server takes it at that time too)
-        let (me, h) = replay(&mut self.world, server, (hunger, self.creative, !self.creative && self.dead.is_none()), &self.steps);
+        let (me, h) = replay(&mut self.world, server, (hunger, (self.creative, self.spectator), !self.creative && !self.spectator && self.dead.is_none()), &self.steps);
         self.hunger = h;
         let off = self.me.pos - me.pos;
         // a word from before the server took this player's last edit moves it only when it must (`takes_answer`)
