@@ -492,6 +492,12 @@ pub struct Liquids {
     /// Ice blocks gone since the caller last took them, (column, layer, units): the cell is air again and `units` of
     /// water are poured there (0: it sublimated, its units are in `vapour`).
     pub thawed: Vec<(Col, i32, i64)>,
+    /// The chamber of each of the home's craters (`Body::craters`' order; `World::erupt`): the units of melt over its
+    /// rest, and whether its conduit is open (erupting). Empty until the first step of a world with a live one.
+    pub chambers: Vec<(f64, bool)>,
+    /// Units of lava the chambers poured (`World::erupt`): carried in from below, so `counted_of(lava)` plus what of
+    /// it `froze` and boiled to `vapour` is this plus what buckets brought.
+    pub erupted: i64,
 }
 
 fn window(a: &Node, b: &Node) -> (i64, i64) {
@@ -1211,8 +1217,9 @@ impl Liquids {
     /// A save's heats back on the nodes `restore` built: each on its column's node of its fluid (`kinds`, by `heats`'
     /// order; a save from before them names none: a fluid other than water) and that floor, else on the column's first
     /// node of that fluid that has none yet (the ground under it changed since), else dropped. Then every stored node of such a fluid still without one, outside generation's own (which rests at
-    /// its place's heat), is given its row's pour heat: a save from before heat, or one whose heat was dropped,
-    /// must not leave lava liquid for ever.
+    /// its place's heat) and where its place would not hold it molten (it rested there, `cool` dropped its heat), is
+    /// given its row's pour heat: a save from before heat, or one whose heat was dropped, must not leave lava liquid
+    /// for ever.
     pub fn restore_heat(&mut self, g: &impl Ground, heats: &[(Col, i32, Therm)], kinds: &[u8]) {
         let rows = crate::fluids::FLUIDS.now();
         let hot = |n: &Node| n.water > 0 && n.kind != crate::fluids::WATER && rows.get(n.kind).heat.is_some();
@@ -1236,6 +1243,10 @@ impl Liquids {
                 let n = &self.nodes[a as usize];
                 let (lo, hi) = (n.floor as i64 * U, n.surface());
                 if !hot(n) || self.heat.contains_key(&a) || gen.iter().any(|w| w.0 < hi && lo < w.1.max(w.0 + 1)) {
+                    continue;
+                }
+                // where its place holds it molten it rests there with none (`cool` dropped it): no heat from nothing
+                if rows.get(n.kind).freeze.as_ref().is_some_and(|f| self.rest_of(g, a) > f.at as f64) {
                     continue;
                 }
                 let t = rows.get(n.kind).heat.as_ref().map_or(0.0, |h| h.pour as f64);

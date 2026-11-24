@@ -54,10 +54,11 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
         Some(Ev::Start21 { planet_n, moon_n, seed, dt, map }) => (vec![(*planet_n, *map), (*moon_n, map.map(|_| engine::bake::luna::get(*seed, *moon_n).hash))], *seed, *dt),
         _ => return Err(std::io::Error::other("not a recording: no Start")),
     };
-    let loaded = match evs.get(1) {
-        Some(Ev::Loaded(save)) => Some(save.clone()),
-        Some(Ev::Loaded21(save)) => Some(Save::from(save.clone())),
-        _ => None,
+    let (loaded, tails) = match (evs.get(1), evs.get(2)) {
+        (Some(Ev::Loaded(_)), Some(Ev::Tails(b))) => (Some(Save::from_bytes(b).map_err(std::io::Error::other)?), 1),
+        (Some(Ev::Loaded(save)), _) => (Some(save.clone()), 0),
+        (Some(Ev::Loaded21(save)), _) => (Some(Save::from(save.clone())), 0),
+        _ => (None, 0),
     };
     let (tx, rx) = channel();
     let (mut s, rest) = match loaded {
@@ -66,12 +67,12 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
         Some(save) if save.version < 4 => return Err(std::io::Error::other("a recording of an older world (0.5 m blocks, ADR 0033)")),
         Some(save) => {
             let mut s = Server::from_save(save, rx);
-            match evs.get(2) {
+            match evs.get(2 + tails) {
                 Some(Ev::Herds(b)) => {
                     s.herds.load(b).map_err(std::io::Error::other)?;
-                    (s, &evs[3..])
+                    (s, &evs[3 + tails..])
                 }
-                _ => (s, &evs[2..]),
+                _ => (s, &evs[2 + tails..]),
             }
         }
         // A recording from the seed is of the generation `Gen` after its Start says, of generation 1 (the deep
@@ -107,7 +108,7 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
         let t = match ev {
             Ev::Join { tick, .. } | Ev::Msg { tick, .. } | Ev::Leave { tick, .. } | Ev::Check { tick, .. } | Ev::Body { tick, .. } => *tick,
             Ev::Lazy => continue,
-            Ev::Start { .. } | Ev::Start21 { .. } | Ev::Loaded(_) | Ev::Loaded21(_) | Ev::Herds(_) | Ev::Mantle | Ev::Gen(_) => return Err(std::io::Error::other("a Start, Loaded, Herds or Mantle past the start")),
+            Ev::Start { .. } | Ev::Start21 { .. } | Ev::Loaded(_) | Ev::Loaded21(_) | Ev::Herds(_) | Ev::Tails(_) | Ev::Mantle | Ev::Gen(_) => return Err(std::io::Error::other("a Start, Loaded, Herds or Mantle past the start")),
         };
         run_to(&mut r.server, &links, t);
         if r.server.tick >= until {
@@ -136,7 +137,7 @@ pub fn replay(path: &Path, until: Option<u64>) -> std::io::Result<Replayed> {
                     break;
                 }
             }
-            Ev::Start { .. } | Ev::Start21 { .. } | Ev::Loaded(_) | Ev::Loaded21(_) | Ev::Herds(_) | Ev::Mantle | Ev::Gen(_) | Ev::Lazy => unreachable!(),
+            Ev::Start { .. } | Ev::Start21 { .. } | Ev::Loaded(_) | Ev::Loaded21(_) | Ev::Herds(_) | Ev::Tails(_) | Ev::Mantle | Ev::Gen(_) | Ev::Lazy => unreachable!(),
         }
     }
     if until != u64::MAX && r.diverged.is_none() {

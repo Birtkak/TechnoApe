@@ -78,7 +78,15 @@ pub struct Save {
     /// other than water, as it was written.
     #[serde(skip)]
     pub kinds: Vec<u8>,
+    /// The volcanoes' chambers and the lava they poured (`Liquids::chambers`, `Liquids::erupted`; draft eruptions): a
+    /// fourth tail, written (with the three before it) only when there is any, so a world without a live volcano
+    /// writes the bytes it did; a save without it loads with every chamber where the seed starts it.
+    #[serde(skip)]
+    pub chambers: Chambers,
 }
+
+/// `Liquids::chambers` and `Liquids::erupted`.
+pub type Chambers = (Vec<(f64, bool)>, i64);
 
 /// `Liquids::heats` (each node's column, floor and heat) and `Liquids::froze`.
 pub type Heat = (Vec<(engine::liquid::Col, i32, engine::liquid::Therm)>, Vec<(u8, i64)>);
@@ -89,7 +97,7 @@ impl From<Save21> for Save {
     /// Terra and Luna, as a 21 or older names them.
     fn from(s: Save21) -> Save {
         let Save21 { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, gen } = s;
-        Save { version, seed, bodies: vec![(planet_n, map), (moon_n, luna)], blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen, heat: Heat::default(), booked: Booked::default(), kinds: Vec::new() }
+        Save { version, seed, bodies: vec![(planet_n, map), (moon_n, luna)], blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen, heat: Heat::default(), booked: Booked::default(), kinds: Vec::new(), chambers: Chambers::default() }
     }
 }
 
@@ -350,7 +358,8 @@ impl Save21 {
 impl Save {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut b = postcard::to_allocvec(self).expect("a save serialises");
-        let kinds = !self.kinds.is_empty();
+        let chambers = self.chambers != Chambers::default();
+        let kinds = !self.kinds.is_empty() || chambers;
         let booked = self.booked != Booked::default() || kinds;
         if self.heat != Heat::default() || booked {
             b.extend(postcard::to_allocvec(&self.heat).expect("heat serialises"));
@@ -360,6 +369,9 @@ impl Save {
         }
         if kinds {
             b.extend(postcard::to_allocvec(&self.kinds).expect("the kinds serialise"));
+        }
+        if chambers {
+            b.extend(postcard::to_allocvec(&self.chambers).expect("the chambers serialise"));
         }
         b
     }
@@ -379,8 +391,16 @@ impl Save {
                                     Ok((k, last)) => {
                                         s.booked = k;
                                         if !last.is_empty() {
-                                            match postcard::from_bytes(last) {
-                                                Ok(k) => s.kinds = k,
+                                            match postcard::take_from_bytes(last) {
+                                                Ok((k, tail)) => {
+                                                    s.kinds = k;
+                                                    if !tail.is_empty() {
+                                                        match postcard::from_bytes(tail) {
+                                                            Ok(c) => s.chambers = c,
+                                                            Err(e) => eprintln!("the save's volcano chambers ({} bytes) unread, loaded without them: {e}", tail.len()),
+                                                        }
+                                                    }
+                                                }
                                                 Err(e) => eprintln!("the save's heats' fluids ({} bytes) unread, loaded without them: {e}", last.len()),
                                             }
                                         }

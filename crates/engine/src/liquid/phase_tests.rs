@@ -337,6 +337,25 @@ fn saved_heats_come_back_on_their_own_fluid() {
     }
 }
 
+/// Lava that came to rest where its place holds it molten (its heat entry dropped, as `cool` drops it) is restored
+/// from a save without a heat: it gets none, so it is not molten at its pour heat again (heat from nothing). Lava
+/// without a heat at a cold place (a save from before heat) still gets its pour heat.
+#[test]
+fn resting_lava_at_a_hot_place_comes_back_without_new_heat() {
+    let lava = crate::fluids::FLUIDS.now().kind("lava").unwrap();
+    for (hot, want) in [(1100.0f32, None), (AMBIENT, Some(1150.0))] {
+        let mut g = Box3::new(1, 1, 4);
+        g.heat = hot;
+        let mut w = Liquids::default();
+        assert!(w.pour_kind(&g, col(0, 0), 0, U, lava));
+        w.heat.clear();
+        let mut b = Liquids::default();
+        b.restore(&g, &w.all());
+        b.restore_heat(&g, &w.heats(), &w.heat_kinds());
+        assert_eq!(b.temp_at(col(0, 0), 0), want, "ground at {hot} C");
+    }
+}
+
 /// A water layer boiled dry under oil on hot rock goes as every emptied layer does (decision H): no dry node of
 /// water's kind is left under the oil, and every unit is in `vapour`.
 #[test]

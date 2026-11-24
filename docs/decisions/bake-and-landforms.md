@@ -123,6 +123,45 @@ its surplus pours from the crater as counted lava that freezes to basalt. Still 
   server storing the lakes at load (every client and save would carry them; the tests that compare a client's
   copy with the server's would see it).
 
+### Eruptions: a chamber fills, bursts its plug and pours counted lava [0196, 2026-11-24]
+- **Context:** ADR 0188 ("eruptions too"), `docs/design/volcanoes.md` "Eruptions", the world queue's step 5; lava is
+  the counted fluid of 0186 and 0193 and reacts by 0194.
+- **Decision:** each live crater's chamber (`World::chamber`, `World::erupt`, once a second with the heat step, by
+  the world's clock) holds one number, the units of melt over its rest, and whether its conduit is open. Melt
+  arrives at the arc's `eruption.supply` (0.003333 chamber volumes a game year; `shortcut:` for the mantle's supply
+  rule); the overpressure is `bulk` (1000 MPa: a melt with gas bubbles and its walls) times the fill over the
+  chamber's volume; past `plug` (10 MPa, rock's tensile strength) the conduit opens and the fill pours as stored
+  lava at `effuse` (1 m3/s) until less than a unit is left, then it closes. So an eruption is plug / bulk = 1 % of
+  the chamber (64 m3 for the small planet's, seeds 3 and the tests', about 1,650 m3 on the 4 km planet; real
+  chambers give some 0.1 %, exaggerated as the landforms are) every plug / bulk / supply = 3 game years (162 days,
+  81 hours of play at real time). A chamber not yet stepped starts a hash of the seed and its cell of the way full,
+  so a planet's volcanoes do not erupt together. The lava is poured on the outer lip of the rim's lowest column
+  (`Crater::lip`; `shortcut:` where a risen lake would spill, the lake staying generation's formula), at its row's
+  pour heat, and then runs, lights, reacts and freezes to basalt by the rules already there. Its units are booked
+  in `Liquids::erupted`, so lava's `counted_of + froze + vapour` is `erupted` plus what buckets brought. It is
+  poured whether a player is near or not (the liquid step runs on every stored column of a loaded body; held while
+  the home is not loaded). Warnings: a chat line to everyone when a chamber passes nine tenths of its plug, when it
+  erupts and when it is quiet again; no lake rise, fumarole, sound, ash or glow event yet. `/erupt` fills the
+  nearest live chamber to its plug, so it erupts by the rule the next second; the server's report lists each
+  live chamber's fill, what its plug holds, its pressure and the years to its next eruption. The save keeps
+  `(chambers, erupted)` as a fourth tail after the heats' fluids, written only when there is any: a world with no
+  live volcano writes the bytes it did; a save without it loads with every chamber where the seed starts it.
+  Generation 10 worlds change by it (they erupt now); older ones have no crater and step as before.
+- **Limits:** any client can run `/erupt`, as `/fluid` and `/timewarp`; while a conduit is open it does nothing and
+  says so. A pour refused while the lip's gap is full leaves the chamber filling, and the backlog pours later (nothing
+  lost). Frozen lava takes the first free cell at or above its floor up to its gap's ceiling, so a coarse step
+  (`/timewarp`) sets every basalt block. A flow's momentum is not saved (links restart at rest on load), so a
+  reloaded server's flow may differ by a unit from one that kept running; lava at rest above its freeze point is
+  not given pour heat again on load. A recording begun from a save logs the save's tails (heats, booked, kinds,
+  chambers) beside it, and `Server::hash` takes the chambers only when there is one. Skipped warning signs: the
+  lake's rise, fumaroles, quakes, sound, ash and glow. The frequency and the volume are defaults awaiting the
+  developer.
+- **Not chosen:** an eruption on a timer or a random draw (the design: from the supply, ended by the chamber
+  emptying); raising the crater's lake to spill (1 % of a chamber raises it centimetres: no flow down the cone, and
+  the lake is a formula); holding an eruption until a player is near (more state for the same lava).
+- **Open:** the frequency and the volume are defaults, not the developer's; a lake that follows the chamber's
+  pressure; an `Event` with sound, ash and glow; explosive eruptions after gases.
+
 ### Locked hashes and byte-identity
 
 - Terra's map bytes at seed 5, n 256 (v6 and v5 of it): `16ee32bb94308b73`, `065e789cbd17a892`, `5bfb7a403005f7d7`;

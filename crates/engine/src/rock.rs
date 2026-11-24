@@ -61,6 +61,20 @@ struct RawProvince {
     flow: Option<RawFlow>,
     body: Option<String>,
     chamber: Option<f32>,
+    eruption: Option<Eruption>,
+}
+
+/// How a live chamber of a province erupts (`data/rocks.toml`'s `eruption`, volcanoes.md "Eruptions";
+/// `World::erupt`): melt arrives at `supply` chamber volumes a game year; its overpressure is `bulk` (MPa) times the
+/// melt over its rest over the chamber's volume; past `plug` (MPa) the conduit opens and the melt over its rest leaves
+/// at `effuse` m3/s through the crater until it is spent.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Eruption {
+    pub supply: f32,
+    pub plug: f32,
+    pub bulk: f32,
+    pub effuse: f32,
 }
 
 #[derive(Deserialize)]
@@ -120,6 +134,8 @@ pub struct Province {
     /// A live volcano's chamber in it is held at this, C (`chamber`, volcanoes.md: what rises from below keeps it
     /// so); over lava's freeze point (`data/fluids.toml`). None: its volcanoes are cold.
     pub chamber: Option<f32>,
+    /// How its live chambers erupt (`Eruption`); None: they never do.
+    pub eruption: Option<Eruption>,
 }
 
 pub struct Rocks {
@@ -189,7 +205,12 @@ impl Rocks {
                     return Err(format!("province '{}': a chamber's heat {t} C must be over lava's freeze point ({freeze:?} C, data/fluids.toml) and at most 2000 C", p.name));
                 }
             }
-            provinces.push(Province { name: p.name.clone(), layers, fold: p.fold, heat: p.heat, caves: p.caves, flow, body, chamber: p.chamber });
+            if let Some(e) = p.eruption {
+                if p.chamber.is_none() || !(e.supply > 0.0 && e.supply <= 1.0 && e.plug > 0.0 && e.plug < e.bulk && e.bulk <= 1.0e6 && e.effuse > 0.0 && e.effuse <= 1000.0) {
+                    return Err(format!("province '{}': an eruption needs a chamber, supply 0..1 chamber volumes a year, 0 < plug < bulk <= 1e6 MPa, effuse 0..1000 m3/s", p.name));
+                }
+            }
+            provinces.push(Province { name: p.name.clone(), layers, fold: p.fold, heat: p.heat, caves: p.caves, flow, body, chamber: p.chamber, eruption: p.eruption });
         }
         let m = &f.mantle;
         let mut mantle: Vec<Deep> = Vec::new();
@@ -283,7 +304,7 @@ mod tests {
     #[test]
     fn a_broken_file_is_refused_and_says_why() {
         let good = include_str!("../../../data/rocks.toml");
-        for (from, to, says) in [("\"granite\", 0.0", "\"granit\", 0.0", "no block 'granit'"), ("[\"gneiss\", 0.0]", "[\"gneiss\", 5.0]", "the last 0"), ("name = \"rift\"", "name = \"rifts\"", "in that order"), ("block = \"peridotite\"", "block = \"water\"", "the mantle"), ("rock = \"basalt\", share", "rock = \"basalts\", share", "the flow's rock: no solid block 'basalts'"), ("share = 0.5,", "share = 1.4,", "a flow's share"), ("body = \"Luna\"", "body = \"Lune\"", "no body 'Lune'"), ("name = \"rift\"", "name = \"rift\"\nbody = \"Luna\"", "province 'rift' is Terra's")] {
+        for (from, to, says) in [("\"granite\", 0.0", "\"granit\", 0.0", "no block 'granit'"), ("[\"gneiss\", 0.0]", "[\"gneiss\", 5.0]", "the last 0"), ("name = \"rift\"", "name = \"rifts\"", "in that order"), ("block = \"peridotite\"", "block = \"water\"", "the mantle"), ("rock = \"basalt\", share", "rock = \"basalts\", share", "the flow's rock: no solid block 'basalts'"), ("share = 0.5,", "share = 1.4,", "a flow's share"), ("body = \"Luna\"", "body = \"Lune\"", "no body 'Lune'"), ("plug = 10.0,", "plug = 2000.0,", "an eruption needs"), ("name = \"rift\"", "name = \"rift\"\nbody = \"Luna\"", "province 'rift' is Terra's")] {
             let e = Rocks::parse(&good.replacen(from, to, 1)).err().unwrap_or_else(|| panic!("{from} -> {to} loads"));
             assert!(e.contains(says), "{e}");
         }

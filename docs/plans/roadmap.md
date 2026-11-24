@@ -115,7 +115,8 @@ the debt is `docs/perf-debt.md`. The story is `docs/design/lore.md`.
      (built, draft "Fluids lie in layers by density; lava and water react").
   4. Heat and water's phases in the engine (step 5, ADR 0183 and 0187), with a geotherm from the interior. (water's
      phases built, draft "Water freezes, melts and boils: one ledger over three phases"; the geotherm still to come)
-  5. Eruptions, then vents (fumaroles, hot springs) and their rocks (obsidian, scoria, pumice, sulfur).
+  5. Eruptions (built, draft "Eruptions: a chamber fills, bursts its plug and pours counted lava"), then vents
+     (fumaroles, hot springs) and their rocks (obsidian, scoria, pumice, sulfur).
   6. Ground water: a water table, wet caves (rivers, lakes, dripstone), springs (spike: `prototypes/ground-water`).
   7. Ice by physics (the sheet's thickness, glaciers) and snow that falls and lies as counted water, in thin
      layers of a block that build and melt (ADR 0189).

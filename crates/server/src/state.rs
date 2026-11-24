@@ -145,6 +145,7 @@ impl Server {
         water.restore_heat(&engine::world::Solid::at(bodies, edits, sky, *time), &save.heat.0, &save.kinds);
         water.froze = save.heat.1.iter().copied().collect();
         (water.vapour, water.spilt, water.waiting) = (save.booked.0.iter().copied().collect(), save.booked.1.iter().copied().collect(), save.booked.2.clone());
+        (water.chambers, water.erupted) = save.chambers.clone();
         (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
         water.rained = save.reaches.0;
         water.reach_extra = save.reaches.1.iter().copied().collect();
@@ -243,6 +244,7 @@ impl Server {
             heat: (self.world.water.heats(), self.world.water.froze.iter().map(|(&k, &u)| (k, u)).collect()),
             booked: (self.world.water.vapour.iter().map(|(&k, &u)| (k, u)).collect(), self.world.water.spilt.iter().map(|(&k, &u)| (k, u)).collect(), self.world.water.waiting.clone()),
             kinds: self.world.water.heat_kinds(),
+            chambers: (self.world.water.chambers.clone(), self.world.water.erupted),
         }
     }
 
@@ -333,6 +335,10 @@ impl Server {
         // only when there is one: an empty list's byte would change the hash of every recording from before the crucible
         if !self.furnaces.is_empty() {
             h = fnv(h, &postcard::to_allocvec(&self.furnaces).unwrap());
+        }
+        // the same for the volcanoes' chambers (a world without a live one keeps the hashes it had)
+        if !w.chambers.is_empty() {
+            h = fnv(h, &postcard::to_allocvec(&(&w.chambers, w.erupted)).unwrap());
         }
         for c in &self.clients {
             let p = &c.phys;

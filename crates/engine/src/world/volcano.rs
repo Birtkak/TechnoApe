@@ -26,6 +26,8 @@ pub struct Crater {
     /// formula and never moves.
     pub lake_cols: Vec<(i32, i32)>,
     pub lamps: Vec<(DVec3, f32)>,
+    /// The column just outside its rim's lowest column (i, j): where an eruption's lava is poured (`World::erupt`).
+    pub lip: (i32, i32),
 }
 
 /// The most lamps a crater's lake gives (a 4 x 4 grid of patches over it), so torches beside it keep theirs.
@@ -64,13 +66,19 @@ impl Body {
                 let heat = if v.alive { hot } else { 0.0 };
                 let rc = v.crater as f64;
                 let reach = rc.ceil() as i32 + 3;
-                let mut rim = f64::INFINITY;
+                let (mut rim, mut low) = (f64::INFINITY, (i0, j0));
                 for (i, j) in (i0 - reach..=i0 + reach).flat_map(|i| (j0 - reach..=j0 + reach).map(move |j| (i, j))) {
                     let d = (i as f64 + 0.5 - ci).hypot(j as f64 + 0.5 - cj);
                     if (rc..rc + 1.5).contains(&d) {
-                        rim = rim.min(self.col_height(face, i, j));
+                        let h = self.col_height(face, i, j);
+                        if h < rim {
+                            (rim, low) = (h, (i, j));
+                        }
                     }
                 }
+                // the column on from the lowest rim column, away from the middle
+                let out = glam::DVec2::new(low.0 as f64 + 0.5 - ci, low.1 as f64 + 0.5 - cj).normalize_or_zero();
+                let lip = (low.0 + out.x.round() as i32, low.1 + out.y.round() as i32);
                 let level = (floor + v.depth as f64 / 3.0).min(rim - 2.0);
                 let lake = (self.layer_of(level).floor() as i32).max(0);
                 // shortcut: a crater too shallow for its lake has no lava at all (the bake's crater is deep enough on
@@ -102,7 +110,7 @@ impl Body {
                         }
                     }
                 }
-                Crater { v: *v, face, at: (ci, cj), chamber, top, heat, lake, lake_cols, lamps }
+                Crater { v: *v, face, at: (ci, cj), chamber, top, heat, lake, lake_cols, lamps, lip }
             })
             .collect()
     }
@@ -196,6 +204,131 @@ impl Body {
             out.push((open as i64 * U, lake, 0, kind));
         }
         out
+    }
+}
+
+/// What a chamber did in a step of `World::erupt`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stage {
+    /// Its pressure passed nine tenths of what its plug bears: the warning.
+    Stirs,
+    /// Its pressure passed its plug's: the conduit opened.
+    Erupts,
+    /// The melt over its rest is spent: the conduit closed.
+    Ends,
+}
+
+/// A live crater's chamber (`World::chamber`), in units of melt (`liquid::U` a cubic metre).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Chamber {
+    /// The melt over its rest, and whether its conduit is open.
+    pub fill: f64,
+    pub open: bool,
+    /// The melt over its rest its plug bears (`plug / bulk` of its volume), and the plug's strength, MPa.
+    pub holds: f64,
+    pub plug: f64,
+    /// What arrives from below a second, and what pours from the crater a second while it erupts.
+    pub supply: f64,
+    pub flow: f64,
+}
+
+impl Chamber {
+    /// Its overpressure, MPa: `bulk` times its fill over its volume.
+    pub fn pressure(&self) -> f64 {
+        self.plug * self.fill / self.holds
+    }
+    /// Seconds until it erupts (0 while it does).
+    pub fn next(&self) -> f64 {
+        if self.open { 0.0 } else { ((self.holds - self.fill) / self.supply).max(0.0) }
+    }
+}
+
+impl World {
+    /// The chamber of the home's crater k (`Body::craters`' order), None for a dead one or a province that never
+    /// erupts. A chamber not stepped yet starts filled a share of its plug's by a hash of the seed and its cell, so
+    /// a planet's volcanoes do not erupt together.
+    pub fn chamber(&self, k: usize) -> Option<Chamber> {
+        let b = &self.bodies[0];
+        let c = b.craters().get(k).filter(|c| c.lake.is_some())?;
+        let e = ROCKS.provinces.get(crate::bake::rock::ARC as usize)?.eruption?;
+        let v = 4.0 / 3.0 * std::f64::consts::PI * (c.v.chamber_r as f64).powi(3) * U as f64;
+        let holds = v * e.plug as f64 / e.bulk as f64;
+        // a chamber of no volume is none (its pressure would be 0 / 0)
+        if holds <= 0.0 {
+            return None;
+        }
+        let seed = b.map().map_or(0, |m| m.seed);
+        let (fill, open) = self.water.chambers.get(k).copied().unwrap_or_else(|| {
+            let h = fnv(fnv(FNV0, &seed.to_le_bytes()), &c.v.cell.to_le_bytes());
+            ((h >> 11) as f64 / (1u64 << 53) as f64 * holds, false)
+        });
+        Some(Chamber { fill, open, holds, plug: e.plug as f64, supply: v * e.supply as f64 / self.sky.year, flow: e.effuse as f64 * U as f64 })
+    }
+
+    /// `dt` seconds of the home's live chambers (volcanoes.md "Eruptions"; the server's, once a second with its heat
+    /// step): each fills at its supply; past its plug its conduit opens and the melt over its rest is poured as
+    /// counted lava (`Liquids::erupted`) at its crater's lip, at its flow, until it is spent. A handful of numbers a
+    /// step, whatever the world's size.
+    /// shortcut: poured on the outer lip of the rim's lowest column, where a risen lake would spill, not by raising
+    /// the crater's lake (generation's formula at a fixed level; 1 % of a chamber raises it centimetres), until the
+    /// lake's level follows the chamber's pressure.
+    /// shortcut: poured whether a player is near or not (the liquid step runs on every stored column of a loaded
+    /// body, and the home always is); held while the home is not loaded.
+    pub fn erupt(&mut self, dt: f64) -> Vec<(usize, Stage)> {
+        let mut out = Vec::new();
+        let b = self.bodies[0].clone();
+        if b.craters().iter().all(|c| c.lake.is_none()) {
+            return out;
+        }
+        let lava = lava().0;
+        for (k, c) in b.craters().iter().enumerate() {
+            let Some(mut ch) = self.chamber(k) else { continue };
+            if self.water.chambers.len() <= k {
+                let all: Vec<(f64, bool)> = (0..b.craters().len()).map(|k| self.chamber(k).map_or((0.0, false), |c| (c.fill, c.open))).collect();
+                self.water.chambers = all;
+            }
+            let was = ch.fill;
+            ch.fill += ch.supply * dt;
+            if !ch.open && ch.fill > ch.holds {
+                ch.open = true;
+                out.push((k, Stage::Erupts));
+            } else if !ch.open && was <= 0.9 * ch.holds && ch.fill > 0.9 * ch.holds {
+                out.push((k, Stage::Stirs));
+            }
+            if ch.open && self.loaded(0) {
+                let n = (ch.flow * dt).min(ch.fill.floor()) as i64;
+                let (i, j) = c.lip;
+                let layer = b.first_air(b.col_height(c.face, i, j));
+                let World { bodies, edits, water, sky, time, .. } = self;
+                if n > 0 && water.pour_kind(&Solid::at(bodies, edits, sky, *time), Col::new(0, c.face, i, j), layer, n, lava) {
+                    ch.fill -= n as f64;
+                    water.erupted += n;
+                }
+                if ch.fill < 1.0 {
+                    ch.open = false;
+                    out.push((k, Stage::Ends));
+                }
+            }
+            self.water.chambers[k] = (ch.fill, ch.open);
+        }
+        out
+    }
+
+    /// Tops the live chamber of the home's nearest to world point p up to its plug's strength, so it erupts by the
+    /// rule at the next step (a command's, `/erupt`): its crater's index, None without a live one.
+    pub fn force_eruption(&mut self, p: DVec3) -> Option<usize> {
+        let b = self.bodies[0].clone();
+        let k = (0..b.craters().len()).filter(|&k| self.chamber(k).is_some()).min_by(|&x, &y| {
+            let d = |k: usize| (b.centre + b.craters()[k].top - p).length();
+            d(x).total_cmp(&d(y))
+        })?;
+        self.erupt(0.0);
+        let ch = self.chamber(k)?;
+        // (while it erupts, nothing: topped up every second it would never end)
+        if !ch.open {
+            self.water.chambers[k].0 = ch.fill.max(ch.holds);
+        }
+        Some(k)
     }
 }
 
@@ -605,6 +738,262 @@ mod tests {
         }
         assert_eq!(w.water.kind_at(&w.ground(), Col::new(0, c.face, a, e), floor as f64 + 0.5), Some(kind), "the dug cell holds lava");
         assert_eq!((w.water.counted_of(kind), w.water.counted()), (0, 0), "the ledgers stay exact");
+    }
+
+    /// The live crater's index.
+    fn live_k(w: &World) -> usize {
+        w.bodies[0].craters().iter().position(|c| c.lake.is_some()).expect("a live volcano")
+    }
+    /// Lava's ledger: what differs from generation, what of it froze and boiled off.
+    fn lava_ledger(w: &World) -> i64 {
+        let k = lava().0;
+        w.water.counted_of(k) + w.water.froze.get(&k).copied().unwrap_or(0) + w.water.vapour.get(&k).copied().unwrap_or(0)
+    }
+    /// Crater k's chamber `holds - left` units short of erupting.
+    fn short_of(w: &mut World, k: usize, left: f64) -> Chamber {
+        w.erupt(0.0);
+        let ch = w.chamber(k).unwrap();
+        w.water.chambers[k].0 = ch.holds - left;
+        w.chamber(k).unwrap()
+    }
+
+    /// A live chamber fills at its supply and erupts the step its fill passes what its plug bears, not before
+    /// (volcanoes.md "Eruptions"): an hour a step from where the seed starts it, its fill growing by exactly its
+    /// supply, nothing poured, until it passes; the warning nine tenths of the way. Its plug and supply give one
+    /// eruption in three game years.
+    #[test]
+    fn a_chamber_fills_at_its_supply_and_erupts_when_it_passes_its_plug_not_before() {
+        let mut w = world(false);
+        let k = live_k(&w);
+        let c0 = w.chamber(k).expect("a live chamber");
+        let years = c0.holds / c0.supply / w.sky.year;
+        eprintln!("chamber: holds {:.1} m3 over its rest, {:.3} m3 a day, starts at {:.1} m3, one eruption in {years:.2} years", c0.holds / U as f64, c0.supply * 1800.0 / U as f64, c0.fill / U as f64);
+        assert!((years - 3.0).abs() < 0.01, "an eruption every {years} years");
+        assert!(c0.fill >= 0.0 && c0.fill < c0.holds && !c0.open, "{c0:?}");
+        let dt = 3600.0;
+        let (mut stirred, mut n) = (false, 0);
+        loop {
+            let before = w.chamber(k).unwrap();
+            let st = w.erupt(dt);
+            let now = w.chamber(k).unwrap();
+            if before.fill + before.supply * dt > before.holds {
+                assert!(st.contains(&(k, Stage::Erupts)) && w.water.erupted > 0, "erupted the step it passed: {st:?}");
+                break;
+            }
+            assert!(!now.open && w.water.erupted == 0 && !st.contains(&(k, Stage::Erupts)), "nothing before it passed: {st:?} {now:?}");
+            assert!((now.fill - before.fill - before.supply * dt).abs() < 1e-6, "filled at its supply");
+            stirred |= st.contains(&(k, Stage::Stirs));
+            n += 1;
+            assert!(n < 30_000, "never erupted");
+        }
+        assert!(stirred || c0.fill > 0.9 * c0.holds, "the warning came first");
+        eprintln!("erupted after {n} hours");
+    }
+
+    /// An eruption pours exactly the chamber's melt over its rest, every unit booked as erupted (lava's ledger stays
+    /// whole through the pour, the flow down the cone, freezing to basalt), and it ends when that melt is spent.
+    #[test]
+    fn an_eruption_pours_exactly_its_excess_and_lavas_ledger_holds_to_basalt() {
+        let mut w = world(false);
+        let k = live_k(&w);
+        let supply = w.chamber(k).unwrap().supply;
+        let f0 = short_of(&mut w, k, 0.5 * supply).fill;
+        let mut stages = Vec::new();
+        let mut supplied = 0.0;
+        for _ in 0..600 {
+            supplied += w.chamber(k).unwrap().supply;
+            stages.extend(w.erupt(1.0));
+            w.cool_fluids(1.0, |_| false);
+            for _ in 0..60 {
+                w.step_water();
+            }
+            assert_eq!(lava_ledger(&w), w.water.erupted, "every unit poured is booked");
+        }
+        let end = w.chamber(k).unwrap();
+        assert_eq!(stages, vec![(k, Stage::Erupts), (k, Stage::Ends)]);
+        // (spent to under a unit when it closed, then filling again at its supply)
+        assert!(!end.open && end.fill < 1.0 + 600.0 * supply, "spent: {end:?}");
+        assert!((w.water.erupted as f64 - (f0 + supplied - end.fill)).abs() < 1e-6, "poured {} of {}", w.water.erupted, f0 + supplied - end.fill);
+        eprintln!("poured {:.1} m3", w.water.erupted as f64 / U as f64);
+        let mut basalt = 0;
+        for _ in 0..3 * 1440 {
+            basalt += w.cool_fluids(60.0, |_| false).iter().filter(|e| e.2 == *BASALT).count();
+            for _ in 0..4 {
+                w.step_water();
+            }
+            assert_eq!(lava_ledger(&w), w.water.erupted, "booked as it flows and freezes");
+        }
+        let lava_left = w.water.counted_of(lava().0);
+        eprintln!("{basalt} blocks of basalt, {:.1} m3 still lava, {:.1} m3 froze", lava_left as f64 / U as f64, w.water.froze.get(&lava().0).copied().unwrap_or(0) as f64 / U as f64);
+        assert!(basalt > 0, "the flow froze to basalt");
+    }
+
+    /// It ends because the melt is spent, not on a timer: twice the melt over its rest pours twice as long.
+    #[test]
+    fn an_eruption_ends_when_its_excess_is_spent() {
+        let last = |excess: f64| {
+            let mut w = world(false);
+            let k = live_k(&w);
+            let ch = short_of(&mut w, k, 0.0);
+            w.water.chambers[k].0 = ch.holds * excess;
+            let mut s = 0;
+            while s < 10_000 {
+                s += 1;
+                if w.erupt(1.0).contains(&(k, Stage::Ends)) {
+                    break;
+                }
+            }
+            (s, w.water.erupted)
+        };
+        let (a, b) = (last(1.0), last(2.0));
+        eprintln!("{a:?} {b:?}");
+        assert!(a.0 > 3 && (b.0 as f64 / a.0 as f64 - 2.0).abs() < 0.1, "seconds poured: {} and {}", a.0, b.0);
+        assert!((b.1 as f64 / a.1 as f64 - 2.0).abs() < 0.01, "units poured: {} and {}", a.1, b.1);
+    }
+
+    /// Two worlds of one seed erupt the same, to the step: the same stages at the same steps and the same lava where
+    /// it ran.
+    #[test]
+    fn two_worlds_of_one_seed_erupt_the_same_to_the_step() {
+        let run = || {
+            let mut w = world(false);
+            let k = live_k(&w);
+            let supply = w.chamber(k).unwrap().supply;
+            short_of(&mut w, k, 3.5 * supply);
+            let mut log = Vec::new();
+            for s in 0..120 {
+                log.extend(w.erupt(1.0).into_iter().map(|e| (s, e)));
+                w.cool_fluids(1.0, |_| false);
+                for _ in 0..60 {
+                    w.step_water();
+                }
+            }
+            (log, w.water.all(), w.water.chambers.iter().map(|c| (c.0.to_bits(), c.1)).collect::<Vec<_>>())
+        };
+        let (a, b) = (run(), run());
+        assert!(a.0.len() == 2 && a.0[0].0 == 3, "erupted at its fourth second: {:?}", a.0);
+        assert_eq!(a, b);
+    }
+
+    /// Eruptions at a coarse step (the server under a time warp of 10,000): the whole excess is poured into the lip at
+    /// once and freezes nearly in place; every block it froze is set, none is left waiting, and lava's ledger stays
+    /// exact, for one eruption and for five in a row.
+    #[test]
+    fn eruptions_at_a_coarse_step_set_every_frozen_block() {
+        let mut w = world(false);
+        // eight blocks of lava in a well, frozen through in one step without flowing: eight basalt blocks, none waiting
+        let (cols, z0) = pit(&mut w, 1, 10, 8 * U, lava().0);
+        for _ in 0..3 {
+            w.cool_fluids(1.0e6, |_| false);
+        }
+        let set = (z0..z0 + 10).filter(|&z| w.block(Block { body: 0, face: cols[0].face(), pos: IVec3::new(cols[0].i(), cols[0].j(), z) }) == *BASALT).count();
+        assert_eq!((set, w.water.waiting.len()), (8, 0), "a well's eight blocks of lava frozen at once");
+        let k = live_k(&w);
+        let dt = 1.0e4;
+        for n in 1..=5 {
+            short_of(&mut w, k, 0.0);
+            let mut ended = false;
+            for _ in 0..2000 {
+                ended |= w.erupt(dt).contains(&(k, Stage::Ends));
+                w.cool_fluids(dt, |_| false);
+                // (a water step a heat step: it freezes nearly where it was poured)
+                w.step_water();
+                if ended && w.water.counted_of(lava().0) == 0 {
+                    break;
+                }
+            }
+            eprintln!("eruption {n}: {} units still lava, {} blocks waiting", w.water.counted_of(lava().0), w.water.waiting.len());
+            assert!(ended, "eruption {n} ended");
+            assert_eq!(lava_ledger(&w), w.water.erupted + 8 * U, "eruption {n}: the ledger (and the well's)");
+            assert!(w.water.waiting.is_empty(), "eruption {n}: {} frozen blocks never set", w.water.waiting.len());
+        }
+    }
+
+    /// `/erupt` while the conduit is open changes nothing: forced every second, the eruption still ends when its
+    /// melt is spent.
+    #[test]
+    fn forcing_an_eruption_while_one_runs_changes_nothing() {
+        let mut w = world(false);
+        let k = live_k(&w);
+        assert_eq!(w.force_eruption(w.bodies[0].centre + w.bodies[0].craters()[k].top), Some(k));
+        let mut s = 0;
+        loop {
+            let st = w.erupt(1.0);
+            if st.contains(&(k, Stage::Ends)) {
+                break;
+            }
+            let before = w.chamber(k).unwrap();
+            w.force_eruption(w.bodies[0].centre + w.bodies[0].craters()[k].top);
+            assert_eq!(w.chamber(k).unwrap(), before, "second {s}: forced while open");
+            s += 1;
+            assert!(s < 1000, "never ended");
+        }
+    }
+
+    /// A crater whose chamber holds nothing (no volume) has no chamber: no pressure of 0 / 0, nothing poured.
+    #[test]
+    fn a_crater_whose_chamber_holds_nothing_has_no_chamber() {
+        let (seed, map) = crate::bake::volcano::tests::live_seed();
+        let mut m = Map::from_bytes(&map.to_bytes()).unwrap();
+        m.volcanoes.iter_mut().for_each(|v| v.chamber_r = 0.0);
+        let mut w = World::with_grid(768, crate::bodies::moon_columns(768), seed, Some(Arc::new(m)), None, 0.0, VOLCANOES);
+        let k = live_k(&w);
+        assert_eq!(w.chamber(k), None);
+        assert!(w.erupt(1.0e4).is_empty() && w.water.erupted == 0);
+    }
+
+    /// Where the lip lies and how the lava runs from it (a look, for the film).
+    #[test]
+    #[ignore]
+    fn where_the_lip_lies() {
+        let (seed, _) = crate::bake::volcano::tests::live_seed();
+        let mut w = world(false);
+        let k = live_k(&w);
+        let b = w.bodies[0].clone();
+        let c = b.craters()[k].clone();
+        let d = |i: i32, j: i32| (i as f64 + 0.5 - c.at.0).hypot(j as f64 + 0.5 - c.at.1);
+        let top = |i: i32, j: i32| b.first_air(b.col_height(c.face, i, j));
+        eprintln!("seed {seed}: crater r {:.1} m, foot {:.1}, lake layer {:?}, lip {:?} at {:.1} m from the middle, its first air {}", c.v.crater, c.v.radius, c.lake, c.lip, d(c.lip.0, c.lip.1), top(c.lip.0, c.lip.1));
+        let (ci, cj) = (c.at.0.floor() as i32, c.at.1.floor() as i32);
+        let dir = ((c.lip.0 - ci) as f64, (c.lip.1 - cj) as f64);
+        let len = dir.0.hypot(dir.1);
+        let prof: Vec<(i32, i32)> = (0..(c.v.radius as i32 + 5)).map(|s| (ci + (dir.0 / len * s as f64).round() as i32, cj + (dir.1 / len * s as f64).round() as i32)).collect();
+        eprintln!("ground along the lip's ray: {:?}", prof.iter().map(|&(i, j)| top(i, j)).collect::<Vec<_>>());
+        let (i, j) = prof[38];
+        let at = b.dir(c.face as usize, i as f64 + 0.5, j as f64 + 0.5);
+        eprintln!("38 m out along it: at={:.4},{:.4},{:.4}", at.x, at.y, at.z);
+        short_of(&mut w, k, 0.0);
+        for s in 0..80 {
+            w.erupt(1.0);
+            w.cool_fluids(1.0, |_| false);
+            for _ in 0..60 {
+                w.step_water();
+            }
+            if s % 10 == 9 {
+                let depth: Vec<i64> = prof.iter().map(|&(i, j)| w.water.column(Col::new(0, c.face, i, j)).map_or(0, |n| n.filter(|n| n.kind == lava().0).map(|n| n.water).sum::<i64>())).collect();
+                eprintln!("{} s: lava units along the ray {:?}", s + 1, depth);
+            }
+        }
+    }
+
+    /// A dead volcano never erupts, forced or not; a world without a live one (no map, or the map's volcanoes dead)
+    /// keeps no chamber and its water steps as it did.
+    #[test]
+    fn a_dead_volcano_never_erupts_and_a_world_without_a_live_one_steps_as_before() {
+        let mut w = world(true);
+        assert!((0..w.bodies[0].craters().len()).all(|k| w.chamber(k).is_none()));
+        assert_eq!(w.force_eruption(w.bodies[0].centre), None, "nothing to force");
+        for _ in 0..10_000 {
+            assert!(w.erupt(1.0e4).is_empty());
+        }
+        assert!(w.water.chambers.is_empty() && w.water.erupted == 0 && w.water.stored() == 0);
+        let mut old = World::new(256, 32, 5);
+        let before = old.water.all();
+        for _ in 0..100 {
+            assert!(old.erupt(1.0e4).is_empty());
+            old.step_water();
+        }
+        assert!(old.water.chambers.is_empty() && old.water.erupted == 0 && old.water.all() == before);
     }
 
     /// The upper cone of a live volcano is bare: no plant within `BARE` crater radii of its middle, beyond the

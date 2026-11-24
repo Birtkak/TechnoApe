@@ -159,6 +159,8 @@ pub(crate) struct App {
     pub(crate) pours: Vec<(f64, Block, u8)>,
     /// The fluid the server's creative bucket was last told to pour (`pours`).
     pub(crate) pour_fluid: Option<u8>,
+    /// erupt=t: `/erupt` sent to the server t seconds after loading (the nearest live volcano erupts), until sent.
+    pub(crate) erupt: Option<f64>,
     /// What each world of the Singleplayer list is (seed, size, last played), beside `worlds`.
     pub(crate) world_notes: Vec<String>,
     pub(crate) new_world: menu::NewWorld,

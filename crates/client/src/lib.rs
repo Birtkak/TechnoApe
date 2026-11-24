@@ -541,6 +541,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
     // (ADR 0031; with fx=1): filmstrips of a break and a place
     let mut fx_edits = Vec::new();
     let mut pours: Vec<(f64, Block, u8)> = Vec::new();
+    let erupt = args.0.get("erupt").and_then(|v| v.parse::<f64>().ok());
     let up = stand_at(&args).unwrap_or_else(|e| {
         eprintln!("[technoape] {e}");
         std::process::exit(1)
@@ -728,6 +729,7 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         fx_edits,
         pours,
         pour_fluid: None,
+        erupt,
         world_notes: Vec::new(),
         new_world: Default::default(),
         creative,

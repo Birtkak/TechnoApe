@@ -585,6 +585,11 @@ impl App {
             self.pours.pop();
             self.link.send(ToServer::Bucket { seq: self.pred.fresh(), at: b, fill: false });
         }
+        // erupt=: the nearest live volcano erupts, through the server
+        if self.erupt.is_some_and(|e| self.loaded_at.is_some() && e <= t) {
+            self.erupt = None;
+            self.link.send(ToServer::Chat("/erupt".into()));
+        }
         // fxedit=: a cell changed as a click would change it, with its effects
         while self.fx_edits.last().is_some_and(|e| self.loaded_at.is_some() && e.0 <= t) {
             let (_, b, m) = self.fx_edits.pop().unwrap();
