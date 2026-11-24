@@ -178,6 +178,11 @@ pub trait Ground {
     fn heat(&self, _c: Col, _z: f64) -> f32 {
         AMBIENT
     }
+    /// Whether solid cell `z` of column `c` is held at its `heat` (the planet's own ground, not ice): what gives water
+    /// beside it held heat (`phases`).
+    fn held(&self, c: Col, z: i32) -> bool {
+        !self.ice(c, z)
+    }
     /// The air at layer `z` of column `c`: its temperature, C, and its pressure, Pa (0: no air). What water's phases
     /// go by (`phases`): the weather's, at ADR 0187's pace.
     fn air(&self, _c: Col, _z: f64) -> (f64, f64) {

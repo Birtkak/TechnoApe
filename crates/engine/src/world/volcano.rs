@@ -1055,4 +1055,75 @@ mod tests {
         assert_eq!(top(&world(false)), [basalt; 3], "the live cone's ground");
         assert_ne!(top(&world(true))[0], basalt, "a dead cone keeps its soil");
     }
+
+    /// Held heat comes only from the planet's own ground (ADR 0195, 2026-11-24): water in a basin of placed basalt in
+    /// the air over a live crater's flank, where the chamber's heat reaches over 150 C, never boils and drops a heat it
+    /// was given; the same water in a pit dug into the flank's hottest rock (over 180 C 3 m down) boils.
+    #[test]
+    fn water_boils_on_a_volcanos_own_hot_rock_and_not_in_a_basin_of_placed_blocks_over_it() {
+        let w0 = world_of(false, GEOTHERM);
+        let c = live(&w0);
+        let b = w0.bodies[0].clone();
+        let (f, r) = (c.face, c.v.crater as f64);
+        let air = |i: i32, j: i32| b.first_air(b.col_height(f, i, j));
+        let ring = |i: i32, j: i32| [(i - 1, j), (i + 1, j), (i, j - 1), (i, j + 1)];
+        let near: Vec<(i32, i32)> = (-40..=40).flat_map(|a| (-40..=40).map(move |e| (a, e))).map(|(a, e)| (c.at.0 as i32 + a, c.at.1 as i32 + e)).filter(|&(i, j)| {
+            let d = (i as f64 + 0.5 - c.at.0).hypot(j as f64 + 0.5 - c.at.1);
+            d > r + 1.0 && i > 1 && j > 1 && i < b.n - 2 && j < b.n - 2 && !c.lake_cols.contains(&(i, j))
+        }).collect();
+        // the basin's floor two layers over the highest ground of it and its four neighbours
+        let floor = |i: i32, j: i32| ring(i, j).iter().map(|&(a, e)| air(a, e)).fold(air(i, j), i32::max) + 2;
+        let &(bi, bj) = near.iter().find(|&&(i, j)| b.heat(f, i, j, floor(i, j) as f64 + 1.5).unwrap() > 150.0).expect("air over the flank heated over 150 C");
+        let dry = |i: i32, j: i32| std::iter::once((i, j)).chain(ring(i, j)).all(|(a, e)| b.col_caves(f, a, e).is_empty() && b.lava_col(f, a, e).is_empty());
+        let deep = |i: i32, j: i32| b.heat(f, i, j, air(i, j) as f64 - 2.5).unwrap();
+        let &(di, dj) = near.iter().filter(|&&(i, j)| dry(i, j)).max_by(|x, y| deep(x.0, x.1).total_cmp(&deep(y.0, y.1))).unwrap();
+        assert!(deep(di, dj) > 180.0, "the flank's rock 3 m down at most {} C", deep(di, dj));
+        let mild = |_: Col, _: f64| Some(15.0);
+        // five blocks and a third: deep enough that its four walls of rock outweigh the open air over it
+        let units = 5 * U + U / 3;
+        let basalt = crate::blocks::BLOCKS.id("basalt");
+        for basin in [true, false] {
+            let mut w = world_of(false, GEOTHERM);
+            let set = |w: &mut World, i: i32, j: i32, z: i32, m: u16| w.set_block(Block { body: 0, face: f, pos: IVec3::new(i, j, z) }, m);
+            let (col, z0) = if basin {
+                let z = floor(bi, bj);
+                set(&mut w, bi, bj, z, basalt);
+                for (a, e) in ring(bi, bj) {
+                    for k in 1..8 {
+                        set(&mut w, a, e, z + k, basalt);
+                    }
+                }
+                (Col::new(0, f, bi, bj), z + 1)
+            } else {
+                let z = air(di, dj) - 6;
+                for k in z..air(di, dj) + 3 {
+                    set(&mut w, di, dj, k, AIR);
+                }
+                (Col::new(0, f, di, dj), z)
+            };
+            {
+                let World { bodies, edits, water, sky, time, .. } = &mut w;
+                let g = Solid::at(bodies, edits, sky, *time);
+                assert!(water.pour(&g, col, z0, units));
+                let h = crate::liquid::Therm { t: 95.0, age: 0.0, frac: 0.0, solid: 0 };
+                water.restore_heat(&g, &[(col, z0, h)], &[crate::fluids::WATER]);
+            }
+            // (its own node and heat: generated water the edits cut off under the basin is stored too, and on the hot
+            // flank warms by its rock's real slow rate)
+            let mut held = Vec::new();
+            for _ in 0..300 {
+                w.cool_fluids_in(600.0, |_| false, Some(&mild));
+                held.push(w.water.heats().iter().filter(|h| h.0 == col && h.1 == z0).count());
+            }
+            let vapour = w.water.vapour.get(&crate::fluids::WATER).copied().unwrap_or(0);
+            let t = w.bodies[0].heat(f, col.i(), col.j(), z0 as f64 + 0.5).unwrap();
+            eprintln!("{}: {t:.0} C where the water is, {vapour} units boiled", if basin { "the basin" } else { "the pit" });
+            if basin {
+                let here: i64 = w.water.column(col).unwrap().filter(|n| n.kind == crate::fluids::WATER && n.floor == z0).map(|n| n.water).sum();
+                assert_eq!((vapour, here, held.iter().sum::<usize>()), (0, units, 0), "the basin at {t} C: nothing boils, no heat held");
+            } else {
+                assert!(vapour > 0, "the pit in rock at {t} C boils");
+            }
+        }
+    }
 }
