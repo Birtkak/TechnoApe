@@ -13,8 +13,10 @@
 # its skin freezes and the other boils off by the heat both rows carry (`liquid::Liquids::react`; lava and water).
 # `heat` (optional; liquids.md "Phases"): { pour = C it is poured at, capacity = J/(kg K), latent = J/kg its freeze
 # takes, conduct = W/(m K), emissivity = 0..1 of its open surface }. A fluid with one carries a temperature where it
-# is stored off its rest, loses heat to the air and rock round it at real rates and turns into its `freeze` block
-# below that point (`liquid::Liquids::cool`). `density` and `viscosity` also carry a body in it (`phys::step`).
+# is stored off its rest, loses heat to the air and rock round it and turns into its `freeze` block below that point
+# (`liquid::Liquids::cool`), on the world's heat (`interior::HEAT_PACE` on every flow, the heats stored a `LIGHT`th:
+# 300 times real) times `pace` (in `heat`, optional, over 0, default 1): a taste call a row; lava's 0.5 (the
+# developer, 2026-11-24: a flow runs further before it crusts). A reaction's heat is not slowed by it. `density` and `viscosity` also carry a body in it (`phys::step`).
 # `vaporise` (J/kg, in `heat`, optional): the latent heat of its boil, what a reaction boiling it off takes.
 # `solid_conduct` (W/(m K)), `molar` (kg/mol) and `triple` (Pa), optional: a substance with all three (water) changes
 # phase by the heat at its place (`liquid::phases`, liquids.md step 5): it freezes into its `freeze` block (the solid:
@@ -39,7 +41,7 @@ viscosity = 64
 colour = [1.0, 0.32, 0.05]
 light = [2.2, 0.6, 0.08]
 freeze = { at = 1000.0, into = "basalt" }
-heat = { pour = 1150.0, capacity = 1200.0, latent = 400000.0, conduct = 1.5, emissivity = 0.95 }
+heat = { pour = 1150.0, capacity = 1200.0, latent = 400000.0, conduct = 1.5, emissivity = 0.95, pace = 0.5 }
 reacts = [{ with = "water", gives = ["basalt", "steam"], heat = 0.0 }]
 
 # light crude oil: floats on water (850 kg/m3), a few times its friction, dark; it neither freezes, boils nor burns yet

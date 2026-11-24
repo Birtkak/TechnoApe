@@ -50,7 +50,7 @@ The same heat, not at rest. Melt keeps arriving in a live chamber from below at 
 pressure rises with what it holds; when it passes what the plug of frozen rock in the conduit bears, the conduit
 opens and the surplus leaves as **counted units of lava from the crater**, the ordinary fluid of ADR 0186: it
 runs downhill by its viscosity, pools, and freezes to basalt where it has left the heat (the first rock phase
-change, at real rates: a source drives it, ADR 0187). The pressure falls, the plug freezes, the volcano rests.
+change, on the world's heat with lava's own loss at half its pace: draft "Heat runs on two constants", 2026-11-24). The pressure falls, the plug freezes, the volcano rests.
 So a cone grows by its own flows, a flow can bury a base, and what erupted is in the ledger.
 
 - **Server-side and deterministic:** each live volcano's chamber is a few numbers in the save, stepped slowly;

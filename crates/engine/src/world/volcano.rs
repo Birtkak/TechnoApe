@@ -426,7 +426,7 @@ mod tests {
         assert_eq!(near(&w), lamps, "storing its columns moves no lamp");
     }
 
-    /// Lava poured into a pit on cold ground freezes to basalt at real rates (lava basics, draft decision): a pit
+    /// Lava poured into a pit on cold ground freezes to basalt on the world's heat, its own loss at half pace (lava's row): a pit
     /// 3 x 3 and lava two blocks deep in each column. Every unit that froze is booked, so lava's ledger plus what froze
     /// is what was poured.
     ///
@@ -437,7 +437,8 @@ mod tests {
     /// - the bottom, 9 m2 through the same and the rock's warming (0.25 m2 K/W after a day, 0.55 after five):
     ///   about 1000 W/m2, 9 kW; the 12 outer sides, 24 m2 through half a block (0.33) and the rock: 1500 W/m2, 35 kW;
     /// - about 57 kW while it cools to the freeze point (8.4e9 J, 1.5e5 s), about 50 kW while it freezes (1.9e10 J,
-    ///   the depth falling as it goes: 3.7e5 s). So about 5.2e5 s, six days.
+    ///   the depth falling as it goes: 3.7e5 s). So about 5.2e5 s, six days real. The world's heat (flows times
+    ///   `HEAT_PACE`, stored heats over `LIGHT`) runs it 300 times real, lava's row slows its own loss by half: 3,470 s.
     #[test]
     fn a_lava_pool_on_cold_ground_freezes_to_basalt_in_its_time_and_the_ledger_holds() {
         // at the server's step (a second) and a coarser one: the same physics, the same answer
@@ -457,12 +458,13 @@ mod tests {
                 w.cool_fluids(dt, |_| false);
                 w.step_water();
                 t += dt;
-                if (t as i64) % 100_000 == 0 {
+                if (t as i64) % 2_000 == 0 {
                     assert_eq!(ledger(&w), poured, "the ledger at {t} s");
                 }
             }
-            let hand = 5.2e5;
-            eprintln!("dt {dt}: the pool froze through in {t:.0} s ({:.1} days), by hand {hand:.0} s", t / 86400.0);
+            let row = crate::fluids::FLUIDS.now().get(kind).heat.as_ref().unwrap().pace as f64;
+            let hand = 5.2e5 / (crate::interior::HEAT_PACE * crate::interior::LIGHT * row);
+            eprintln!("dt {dt}: the pool froze through in {t:.0} s ({:.1} hours), by hand {hand:.0} s", t / 3600.0);
             assert!(t > hand / 2.0 && t < hand * 2.0, "dt {dt}: froze in {t} s, by hand {hand} s");
             assert_eq!((w.water.total_of(kind), ledger(&w)), (0, poured), "dt {dt}: all of it froze, every unit booked");
             let blocks = cols.iter().flat_map(|c| (z0..z0 + 2).map(move |z| Block { body: 0, face: c.face(), pos: IVec3::new(c.i(), c.j(), z) })).filter(|&b| w.block(b) == basalt).count();
@@ -830,10 +832,11 @@ mod tests {
         let f0 = short_of(&mut w, k, 0.5 * supply).fill;
         let mut stages = Vec::new();
         let mut supplied = 0.0;
+        let mut basalt = 0;
         for _ in 0..600 {
             supplied += w.chamber(k).unwrap().supply;
             stages.extend(w.erupt(1.0));
-            w.cool_fluids(1.0, |_| false);
+            basalt += w.cool_fluids(1.0, |_| false).iter().filter(|e| e.2 == *BASALT).count();
             for _ in 0..60 {
                 w.step_water();
             }
@@ -844,8 +847,8 @@ mod tests {
         // (spent to under a unit when it closed, then filling again at its supply)
         assert!(!end.open && end.fill < 1.0 + 600.0 * supply, "spent: {end:?}");
         assert!((w.water.erupted as f64 - (f0 + supplied - end.fill)).abs() < 1e-6, "poured {} of {}", w.water.erupted, f0 + supplied - end.fill);
-        eprintln!("poured {:.1} m3", w.water.erupted as f64 / U as f64);
-        let mut basalt = 0;
+        let m3 = |u: i64| u as f64 / U as f64;
+        eprintln!("poured {:.1} m3; at 600 s {:.1} m3 still lava, {:.1} froze, {basalt} blocks of basalt", m3(w.water.erupted), m3(w.water.counted_of(lava().0)), m3(w.water.froze.get(&lava().0).copied().unwrap_or(0)));
         for _ in 0..3 * 1440 {
             basalt += w.cool_fluids(60.0, |_| false).iter().filter(|e| e.2 == *BASALT).count();
             for _ in 0..4 {
@@ -1109,7 +1112,7 @@ mod tests {
                 water.restore_heat(&g, &[(col, z0, h)], &[crate::fluids::WATER]);
             }
             // (its own node and heat: generated water the edits cut off under the basin is stored too, and on the hot
-            // flank warms by its rock's real slow rate)
+            // flank's own rock boils at the pace, so only this column's water is judged)
             let mut held = Vec::new();
             for _ in 0..300 {
                 w.cool_fluids_in(600.0, |_| false, Some(&mild));
@@ -1118,11 +1121,11 @@ mod tests {
             let vapour = w.water.vapour.get(&crate::fluids::WATER).copied().unwrap_or(0);
             let t = w.bodies[0].heat(f, col.i(), col.j(), z0 as f64 + 0.5).unwrap();
             eprintln!("{}: {t:.0} C where the water is, {vapour} units boiled", if basin { "the basin" } else { "the pit" });
+            let here: i64 = w.water.column(col).map_or(0, |c| c.filter(|n| n.kind == crate::fluids::WATER && n.floor == z0).map(|n| n.water).sum());
             if basin {
-                let here: i64 = w.water.column(col).unwrap().filter(|n| n.kind == crate::fluids::WATER && n.floor == z0).map(|n| n.water).sum();
-                assert_eq!((vapour, here, held.iter().sum::<usize>()), (0, units, 0), "the basin at {t} C: nothing boils, no heat held");
+                assert_eq!((here, held.iter().sum::<usize>()), (units, 0), "the basin at {t} C: nothing boils, no heat held");
             } else {
-                assert!(vapour > 0, "the pit in rock at {t} C boils");
+                assert!(vapour > 0 && here < units, "the pit in rock at {t} C boils: {here} units left");
             }
         }
     }

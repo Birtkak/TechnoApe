@@ -9,6 +9,7 @@
 //!
 //! Only awake nodes are visited. A node sleeps when it and its links have been still for a while; settled
 //! water costs nothing, and untouched sea is not stored at all: it is generated from the seed like terrain.
+use crate::interior::{HEAT_PACE, LIGHT};
 use crate::world::FxMap;
 
 pub mod phases;
@@ -184,14 +185,9 @@ pub trait Ground {
         !self.ice(c, z)
     }
     /// The air at layer `z` of column `c`: its temperature, C, and its pressure, Pa (0: no air). What water's phases
-    /// go by (`phases`): the weather's, at ADR 0187's pace.
+    /// go by (`phases`): the weather's.
     fn air(&self, _c: Col, _z: f64) -> (f64, f64) {
         (AMBIENT as f64, phases::ATM)
-    }
-    /// How many times faster heat exchanged with the air and sky runs than the real rate (ADR 0187): the real year
-    /// over the game's.
-    fn pace(&self) -> f64 {
-        1.0
     }
     /// Whether cell `z` of column `c` holds water's solid (its row's `freeze` block, ice).
     fn ice(&self, _c: Col, _z: i32) -> bool {
@@ -220,22 +216,28 @@ const REST_K: f64 = 0.5;
 /// The rock's thermal effusivity sqrt(k rho c), W s^0.5 / (m^2 K): basalt and granite, k 2.0 W/(m K), rho 2700
 /// kg/m3, c 900 J/(kg K) (Turcotte and Schubert, Geodynamics, table 4.1 and 4.2's ranges).
 /// shortcut: one rock for every block; from the rock rows once they carry their heat (liquids.md step 5).
+/// The real one: `effusivity` is the world's (k times `HEAT_PACE`, its heat capacity over `LIGHT`).
 const ROCK_EFFUSIVITY: f64 = 2200.0;
+/// The world's rock effusivity, sqrt(HEAT_PACE k rho c / LIGHT).
+fn effusivity() -> f64 {
+    ROCK_EFFUSIVITY * (HEAT_PACE / LIGHT).sqrt()
+}
 /// Stefan-Boltzmann, W/(m^2 K^4).
 const SIGMA: f64 = 5.670374e-8;
 /// Free convection over a hot surface in still air, W/(m^2 K) (a horizontal plate's, 5 to 25; the mean of the
 /// low end, no wind).
 const H_AIR: f64 = 10.0;
 
-/// What a body at `t` C gives a second through `r_in` m^2 K/W of itself and then from its surface of emissivity `e`
-/// to air at `ta` C by radiation and convection, W/m^2: the surface's heat found where the two flows meet.
+/// What a body at `t` C gives a second through `r_in` m^2 K/W of itself (the world's, its conductivity paced) and
+/// then from its surface of emissivity `e` to air at `ta` C by radiation and convection, both at `HEAT_PACE`, W/m^2:
+/// the surface's heat found where the two flows meet (the real one: every flow carries the same factor).
 fn surface(t: f64, ta: f64, r_in: f64, e: f64) -> f64 {
     let k4 = |c: f64| (c + 273.15).powi(4);
     let (mut lo, mut hi) = (t.min(ta), t.max(ta));
     for _ in 0..48 {
         let s = 0.5 * (lo + hi);
         // through the body minus off the surface: falls as the surface warms
-        if (t - s) / r_in - e * SIGMA * (k4(s) - k4(ta)) - H_AIR * (s - ta) > 0.0 {
+        if (t - s) / r_in - HEAT_PACE * (e * SIGMA * (k4(s) - k4(ta)) + H_AIR * (s - ta)) > 0.0 {
             lo = s;
         } else {
             hi = s;
@@ -1355,7 +1357,7 @@ impl Liquids {
     /// more freezes its units at its row's latent heat; each whole block of them is a cell of its `freeze` block at
     /// the node's floor, returned (column, layer, kind) for the caller to set; a sheet frozen through short of a
     /// block is nothing. Every unit frozen is booked to `froze`. A node back at rest, liquid, is forgotten.
-    /// Fluids that react meet first (`react`).
+    /// Fluids that react meet first (`react`). Heat runs on the world's two constants (`interior::HEAT_PACE`, `LIGHT`).
     pub fn cool(&mut self, g: &impl Ground, dt: f64) -> Vec<(Col, i32, u8)> {
         let mut out = std::mem::take(&mut self.waiting);
         out.extend(self.react(g));
@@ -1394,14 +1396,16 @@ impl Liquids {
                 continue;
             }
             let rho = row.density as f64;
-            let cap = n.water as f64 / U as f64 * rho * hr.capacity as f64;
-            let q = self.loss(a, &h, ta, hr) * dt;
+            // what it stores is a `LIGHT`th of the real; its loss's flows are paced in `loss`, and slowed by its row's
+            // own factor (lava's 0.5: the developer's taste call, 2026-11-24, so a flow runs further before it crusts)
+            let cap = n.water as f64 / U as f64 * rho * hr.capacity as f64 / LIGHT;
+            let q = self.loss(a, &h, ta, hr) * hr.pace as f64 * dt;
             if q <= 0.0 {
                 h.t -= q / cap;
             } else {
                 let sensible = ((h.t - tf).max(0.0) * cap).min(q);
                 h.t -= sensible / cap;
-                h.frac += (q - sensible) / (hr.latent as f64 * rho / U as f64);
+                h.frac += (q - sensible) / (hr.latent as f64 / LIGHT * rho / U as f64);
             }
             let take = (h.frac.floor() as i64).min(n.water);
             let (col, floor, kind) = (n.col, n.floor, n.kind);
@@ -1499,7 +1503,8 @@ impl Liquids {
                 continue;
             }
             let tw = self.rest_of(g, w).min(tb);
-            // J a unit of the skin gives, and a unit of the other takes to boil off
+            // J a unit of the skin gives, and a unit of the other takes to boil off, real: only their ratio is used, in
+            // which `LIGHT` cancels (the skin's heat is the water's boil, both sides in one step, at no rate)
             let e_r = rr.density as f64 / U as f64 * (hr.capacity as f64 * (t - tb) + hr.latent as f64) + rx.heat as f64 * 1000.0;
             let e_w = wr.density as f64 / U as f64 * (hw.capacity as f64 * (tb - tw) + hw.vaporise as f64);
             let mut skin = rn.water.min(U);
@@ -1562,14 +1567,16 @@ impl Liquids {
         v.retain(|&i| self.nodes[i as usize].water > 0);
         v
     }
-    /// The heat node a gives away a second at heat `h`, its place's rest heat `ta`, W (negative: it takes in).
+    /// The heat node a gives away a second at heat `h`, its place's rest heat `ta`, W (negative: it takes in): every
+    /// flow the world's (`HEAT_PACE` on its conductivity, the air's terms and the rock's effusivity, the rock storing
+    /// a `LIGHT`th).
     fn loss(&self, a: u32, h: &Therm, ta: f64, hr: &crate::fluids::Heat) -> f64 {
         let n = &self.nodes[a as usize];
-        let k = hr.conduct as f64;
+        let k = hr.conduct as f64 * HEAT_PACE;
         let e = hr.emissivity as f64;
         let deep = (n.water.min(n.cap()) as f64 / U as f64).max(1.0 / 64.0);
         // into rock: through half its own depth (or half a block, sideways), then the rock's own warming
-        let rock = |r_in: f64| (h.t - ta) / (r_in + (std::f64::consts::PI * h.age.max(1.0)).sqrt() / ROCK_EFFUSIVITY);
+        let rock = |r_in: f64| (h.t - ta) / (r_in + (std::f64::consts::PI * h.age.max(1.0)).sqrt() / effusivity());
         // (a layer on another lies on it, not on rock; one under another has no open surface: what it gives the fluid
         // over it is a reaction's, `react`. shortcut: no heat passes between layers that do not react)
         let mut p = if n.base > 0 { 0.0 } else { rock(deep * 0.5 / k) };
@@ -2427,16 +2434,15 @@ pub mod test_ground {
         pub g: f64,
         /// `Ground::heat`, everywhere, C.
         pub heat: f32,
-        /// `Ground::air` (C, Pa) and `Ground::pace`, everywhere.
+        /// `Ground::air` (C, Pa), everywhere.
         pub air: (f64, f64),
-        pub pace: f64,
         /// The cells holding ice (`Ground::ice`), solid too.
         pub ice: Vec<(i32, i32, i32)>,
     }
 
     impl Box3 {
         pub fn new(nx: i32, ny: i32, nz: i32) -> Box3 {
-            Box3 { nx, ny, nz, solid: vec![false; (nx * ny * nz) as usize], sea: None, epoch: 0, g: EARTH_G, heat: AMBIENT, air: (AMBIENT as f64, phases::ATM), pace: 1.0, ice: Vec::new() }
+            Box3 { nx, ny, nz, solid: vec![false; (nx * ny * nz) as usize], sea: None, epoch: 0, g: EARTH_G, heat: AMBIENT, air: (AMBIENT as f64, phases::ATM), ice: Vec::new() }
         }
         /// Generation fills every column to `level` units over the terrain as it is now.
         pub fn with_sea(&mut self, level: i64) {
@@ -2470,9 +2476,6 @@ pub mod test_ground {
         }
         fn air(&self, _c: Col, _z: f64) -> (f64, f64) {
             self.air
-        }
-        fn pace(&self) -> f64 {
-            self.pace
         }
         fn ice(&self, c: Col, z: i32) -> bool {
             self.ice.contains(&(c.i(), c.j(), z))

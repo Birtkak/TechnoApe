@@ -4737,7 +4737,7 @@ fn flood(s: &mut Server, r: i32) {
     }
 }
 
-/// Lava's heat survives a save (lava basics, draft decision): poured lava cooled an hour keeps its temperature and
+/// Lava's heat survives a save (lava basics, draft decision): poured lava cooled a minute keeps its temperature and
 /// what froze through a save and a load, as bytes after the layout; a world of water alone writes the layout's very
 /// bytes, nothing after them.
 #[test]
@@ -4758,8 +4758,9 @@ fn poured_lavas_heat_survives_a_save_and_water_alone_writes_the_bytes_it_did() {
             let g = engine::world::Solid::at(bodies, edits, sky, *time);
             assert!(water.pour_kind(&g, col, z0, U / 2, kind));
         }
+        // (a minute: on the world's heat, 2026-11-24, half a block of lava freezes through in minutes)
         for _ in 0..60 {
-            s.world.cool_fluids(60.0, |_| false);
+            s.world.cool_fluids(1.0, |_| false);
         }
         let snap = s.snapshot();
         let bytes = snap.to_bytes();

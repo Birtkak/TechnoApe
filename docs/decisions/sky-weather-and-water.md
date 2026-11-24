@@ -61,16 +61,63 @@ The server simulates; clients show it [0020].
   held swims up at 2 m/s, walking is slower by how deep you are [0020]. (also player-and-feel: the sprint's `sub`
   share and the dive key are in 0118.)
 
+### Heat runs on two constants: a pace of 6 and blocks that store a fiftieth [draft, 2026-11-24]
+The developer: "pace 6, bulk 300". **No one speed can serve:** a process held back by a block's stored heat (a
+pond's ice, a pot's boil, a pit of lava's freeze) takes days to months at real rates, because a block is a tonne,
+while small and surface ones (a flame across a plank, a hand by a fire) take seconds to hours; one factor fast enough
+for the first makes the second instant. So heat runs on **two world constants** (`interior::HEAT_PACE`, `LIGHT`,
+beside `G` and, like the stronger G of ADR 0180, a taste call): **every heat flow is `HEAT_PACE` = 6 times the real
+one**, without exception (every conductivity, film coefficient, radiative term and contact term: `liquid::surface`
+and `loss`, the rock's effusivity, `phases::Phases` k, k_ice, h and the sea's flux, the held rock's `ROCK_K`, a hot
+fluid beside an ice block), and **every block and fluid stores `LIGHT` = 50 times less heat** than it really would
+(specific and latent heats of water, ice and lava; the rock's volumetric heat, so its effusivity goes as
+sqrt(6 / 50)). Densities, units and temperatures are untouched; the vapour curves keep the real latent heat.
+What follows: what a block's heat holds back runs **300 times real**, a body that is not a block (a creature, later)
+feels the pace alone, every steady temperature is the real one (T*, the rest depths, 100.000 C, 1.946 C at 700 Pa, the
+sea's rest ice), and both sides of every exchange run on one rate, so ratios hold (a skin of lava boils the same water).
+The closed forms say so: Stefan's growth rho L / dT (d^2 / 2k + d / h), the cube's melt 3 rho L / (5 h dT), the contact
+term's 1 / sqrt(pi alpha t) (alpha 300 times, e sqrt(6/50) times) each come to real time / 300 (asserted in the tests).
+Sublimation's vapour carries the real latent heat at the pace out of a block that stores a fiftieth: its mass flux is
+300 times real, its surface the real one. **The one row exception:** a fluid row's `heat.pace` (`data/fluids.toml`,
+over 0, default 1) slows its own loss to the air and rock; lava's is 0.5 (the developer, 2026-11-24, "make heat loss
+a bit slower", so a flow runs further), so lava freezes at 150 times real. `react` has no rate: a skin a second, its
+heat (real, in ratio, `LIGHT` cancels) exactly the water's boil; lava beside an ice block gives it the plain pace.
+Matter flows keep the world's clock (an eruption's supply and `effuse`, ADR 0196; ground water, 0190). The calendar's
+real-year factor is no longer used for heat. **Cost accepted:** a winter grows more ice than a real one: a pond under
+-10 C air over a game winter (a quarter of 601,200 s, the real equivalent 4.5e7 s) by Stefan grows about 2.3 m,
+against 0.9 m in a real three-month winter (2.6 times; it was a real winter's at 0187's 52.5).
+
+| Tests (game seconds are seconds of play) | real | at 0187 | now (hand) |
+|---|---|---|---|
+| a block of water down an open shaft on 300 C rock, air 300 C (by hand) | 2.1e5 s | 2.1e5 s (58 h) | 700 s (12 min) |
+| 4/3 block on 200.3 C rock under 199.6 C air (1536 world) | 816,748 s | 813,000 s | 2,760 s (2,722) |
+| 4/3 block sealed in on 300 C rock | 3.91e6 s | 3,910,800 s | 13,080 s (13,036) |
+| 1/8 block on 1000 C rock, one atmosphere / 700 Pa | 185,710 / 94,370 s | the same | 620 s / 320 s |
+| 4/3 block in a shaft on 400 C rock under 20 C air, to one block | 3.18e6 s | 3,184,200 s | 10,560 s (10,621); rests at 0.843 m |
+| 3 x 3 pit of lava two deep freezing through (lava at 150x) | about 5.2e5 s | about 5 days | 3,191 s at dt 1, 3,250 at dt 10 (3,467) |
+| a sheet of lava half a block deep (by hand) | about 7e4 s | the same | about 470 s; liquid its first 130 s |
+| a sheet an eighth of a block deep (by hand) | about 5e3 s | the same | about 33 s |
+| an ice block's melt in +10 C air | 1.34e6 s | 24,540 s | 4,140 s (4,470) |
+| the pond's two Stefan blocks under -10 C air | 9.9e6, 3.5e7 s | 188,820, 664,320 s | 33,000, 116,220 s (33,046, 116,242) |
+| an ice block sublimating in no air | 3.2e6 s | 60,180 s | 10,380 s |
+
+Replaces: 0187 (both its paces) and the single 52.5 pace on every flow drafted earlier on 2026-11-24; 0191's "gas
+near a fire runs at real rates"; the real rates of 0193 and 0195 for lava and rock.
+Open: an eruption's 64 m3 on the small planet's cone (poured in 64 s) is 22 % frozen at 80 s, half at
+110 s and all basalt by 190 s; thin edges freeze within a minute, so a flow runs a short way down the cone; a sheet
+frozen short of a block makes no block (6 of 64 m3 there); `react` runs once a call, not by `dt`, so under `/timewarp` lava meeting water reacts slower
+than the rest; a block of ice is still U units, and its stored heat is its row's over `LIGHT` like every block's.
+
 ### Gas near the ground and fire that spreads [0191, 2026-11-23]
 The developer's calls on the near-gas spike (`prototypes/near-gas/README.md`), not built yet (roadmap, the world
 queue's step 8). Gas is sparse 1 m cells kept only where the air is off rest, conserving with the 128 m cells;
 fire spreads by heat reaching the next block's ignition point, with the flame's sub-cell terms from the fuel's
 row. **A forest can burn down**, simulated where a player is near and finished by a cheaper rule far away.
 **Fire leaves solid char that stands**; a burnt build falls only once structural collapse exists. **Apes
-breathe from their cell**: smoke and CO2 suffocate. **Gas near a fire runs at real rates**, not ADR 0187's
-weather pace. **The fire's pace is about a minute a block along dry wood in still air** (the developer; the
-spike's model gave 6 minutes): a taste call, so the fuel rows are tuned to it and a block's burn-out time
-scales with it (about 6 times shorter than the spike's 5 game days) until the developer says otherwise.
+breathe from their cell**: smoke and CO2 suffocate. **Fire and its gas run on the world's heat** when built
+("Heat runs on two constants", 2026-11-24, replacing "gas near a fire runs at real rates"): fire's spread across a
+surface follows the pace, about a minute a block of dry wood in still air (the spike's 6 minutes over
+`HEAT_PACE` 6); a block's burn-out is decided when fire is built and must stay longer than the spread.
 
 ### Ground water: a table, flooded caves, springs [0190, 2026-11-23]
 The developer's calls on the ground-water spike (`prototypes/ground-water/README.md`), not built yet (roadmap,
@@ -84,18 +131,10 @@ and goes to `docs/perf-debt.md` when built. New worlds only; old worlds stay dry
 The developer: "have snow be smaller layers that build or melt over time", a slice of a block as in Minecraft,
 "but our world interactions". Snow on the ground is a layer of a block's height in eighths, not a whole block. A player sinks into layers (feet on the ground under them, slowed by their depth) and walks on top of a full snow block. It is counted water: what falls leaves the air's vapour, a layer is its units, and
 melt gives them back as water that runs off or soaks in (one ledger, ADR 0183). It builds where snow falls on
-ground under freezing and melts by the heat at the place (air, sun, a fire, lava) at ADR 0187's paces; enough
+ground under freezing and melts by the heat at the place (air, sun, a fire, lava) on the world's heat (two
+constants, 2026-11-24); enough
 layers make a snow block, and deep old snow is where glaciers come from. Replaces the bake's fixed snow cover
 in new worlds once built (roadmap, the world queue's step 7).
-
-### Weather-driven heat runs at the calendar's pace [0187, 2026-11-23]
-The developer's call, on the water-phases spike's rate question (`prototypes/water-phases/README.md`, its option 3):
-the game's year is 52 times shorter than a real one, so **heat exchanged with the air and the sky** (a pond under
-winter air, an ice block in a warm biome, snow) runs faster by that same factor (the real year over the game's,
-derived from the sky's rows, not a typed 52), and a winter grows a real winter's ice. **Heat a source drives**
-(a fire, a furnace, lava, the rock's own heat) stays at real rates. Known cost, accepted: against the air a small
-thing cools faster than a fire warms it, so a pot's loss to the air is taken at the real rate while a source
-heats it.
 
 ### Fluids are rows; lava, with no mixing [0186, 2026-11-23]
 `data/fluids.toml` (`crates/engine/src/fluids.rs`, built in): a row a fluid, its place its kind (row 0 water,
@@ -653,6 +692,13 @@ A column is under water when the water's level (`water_at`) stands over its grou
 
 ## No longer holds
 
+- 0187, "Weather-driven heat runs at the calendar's pace" (2026-11-23), both its paces: heat exchanged with the air
+  and sky faster by the real year over the game's (about 52.5, derived from the sky's rows), so a winter grew a real
+  winter's ice; heat a source drives (a fire, a furnace, lava, the rock's own heat) at real rates, a pot's loss to the
+  air taken at the real rate while a source heated it. With it 0191's "gas near a fire runs at real rates", 0193's
+  "freezes to basalt at real rates", 0195's "rock and lava at real rates", and a single 52.5 pace on every flow that
+  lived a few hours on 2026-11-24: replaced by the draft "Heat runs on two constants" (2026-11-24). The calendar's
+  factor still sets the ground water's clock (0190), which is matter, not heat.
 - 0186's "a node holds one kind": its wall between two fluids, its refused pour into another fluid, and the denser
   keeping a gap an edit joins; replaced by the draft "Fluids lie in layers by density; lava and water react".
 - 0020's blue veil over the screen under water: replaced by 0071's composite dimming and fog.

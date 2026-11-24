@@ -6,9 +6,11 @@
 //! boiling point, or under air too thin for a liquid (`wake_water`). Then, once a second on the server
 //! (`water_heat`), heat flows by real laws: to the air over an open surface (convection and radiation), up through
 //! the ice over it to cold air (Stefan's law with the air's resistance), from the sea under it (the heat that makes
-//! the bake's sea ice the rest state), from hot rock under and beside it (held at its heat: steady). Heat exchanged with the air and sky runs at ADR 0187's
-//! pace (the real year over the game's); heat a source drives at real rates. What the cold takes past the freeze
-//! point is progress (`Therm::frac`) while the water stays liquid; each whole block frozen leaves the node, booked to
+//! the bake's sea ice the rest state), from hot rock under and beside it (held at its heat: steady). Heat runs on the
+//! world's two constants (`interior::HEAT_PACE` on every flow, `interior::LIGHT` under every stored heat), so what a
+//! block's heat holds back runs 300 times real and every steady temperature is the real one. What the cold takes past
+//! the freeze point is progress (`Therm::frac`) while the water stays liquid; each whole block frozen leaves the node,
+//! booked to
 //! `Liquids::froze`, as a block of the row's `freeze` block (ice) at the water's top, through the edits as lava's
 //! basalt does. Over the boiling point at the place's pressure, where hot rock drives it, units leave for
 //! `Liquids::vapour`. Stored sea is left to the formula (the bake's sheet) in this step.
@@ -23,8 +25,6 @@ use super::*;
 
 /// One standard atmosphere, Pa.
 pub const ATM: f64 = 101_325.0;
-/// The real year, s (a Julian year): ADR 0187's pace is it over the sky's year.
-pub const REAL_YEAR: f64 = 365.25 * 86_400.0;
 const R_GAS: f64 = 8.314_462_618;
 const T0K: f64 = 273.15;
 /// Earth's air: its molar mass, kg/mol (its scale height), and heat capacity, J/(kg K) (the Lewis analogy's).
@@ -60,14 +60,15 @@ pub struct Phases {
     /// spike), over the solid that plus the freeze's latent heat.
     lv_r: f64,
     ls_r: f64,
-    /// J a unit: to freeze, to boil (the row's `vaporise`), and a kelvin of the liquid.
+    /// J a unit: to freeze, to boil (the row's `vaporise`), and a kelvin of the liquid, as the world stores them (a
+    /// `LIGHT`th of the real).
     pub lf: f64,
     pub lv: f64,
     pub c: f64,
     /// kg a unit and kg/mol.
     mu: f64,
     molar: f64,
-    /// W/(m K): the liquid's and its solid's; the open surface's emissivity.
+    /// W/(m K), the world's (at `HEAT_PACE`): the liquid's and its solid's; the open surface's emissivity.
     k: f64,
     pub ki: f64,
     e: f64,
@@ -89,7 +90,9 @@ impl Phases {
         let mu = row.density as f64 / U as f64;
         let (tf, tt, pt, molar) = (f.at as f64, f.at as f64 + T0K, h.triple as f64, h.molar as f64);
         let lv_r = (ATM / pt).ln() / (1.0 / tt - 1.0 / (b.at as f64 + T0K));
-        let (ki, e) = (h.solid_conduct as f64, h.emissivity as f64);
+        // the world's heat (`interior::HEAT_PACE`, `LIGHT`): conductivities and the air's terms paced, the heats stored a
+        // `LIGHT`th; the vapour curves keep the real latent heat (where it boils is the real place's)
+        let (ki, e) = (h.solid_conduct as f64 * HEAT_PACE, h.emissivity as f64);
         let ts = crate::bake::life::LifeParams::default().t_sea_ice as f64;
         Some(Phases {
             tf,
@@ -97,15 +100,15 @@ impl Phases {
             tt,
             lv_r,
             ls_r: lv_r + h.latent as f64 * molar / R_GAS,
-            lf: h.latent as f64 * mu,
-            lv: h.vaporise as f64 * mu,
-            c: h.capacity as f64 * mu,
+            lf: h.latent as f64 * mu / LIGHT,
+            lv: h.vaporise as f64 * mu / LIGHT,
+            c: h.capacity as f64 * mu / LIGHT,
             mu,
             molar,
-            k: h.conduct as f64,
+            k: h.conduct as f64 * HEAT_PACE,
             ki,
             e,
-            sea: (tf - ts) / (1.0 / ki + 1.0 / h_air(ts, e, true)),
+            sea: (tf - ts) / (1.0 / ki + 1.0 / (h_air(ts, e, true) * HEAT_PACE)),
         })
     }
     /// Water's (`data/fluids.toml` row 0).
@@ -125,9 +128,9 @@ impl Phases {
         let a = if p >= self.pt { self.lv_r } else { self.ls_r };
         1.0 / (1.0 / self.tt - (p / self.pt).ln() / a) - T0K
     }
-    /// `h_air` of its surface.
+    /// `h_air` of its surface, the world's (at `HEAT_PACE`).
     pub fn h(&self, t: f64, p: f64) -> f64 {
-        h_air(t, self.e, p > 0.0)
+        h_air(t, self.e, p > 0.0) * HEAT_PACE
     }
     /// The formula for untouched sea (the state stored sea settles to): its ice's thickness at rest under air at `t`
     /// C, m, where the heat up through the ice, (tf - t) / (d / ki + 1 / h), is the sea's from below.
@@ -209,7 +212,8 @@ impl Liquids {
 
     /// What drives node a's heat: its held rock (`Ground::held`), steady through `ROCK_LAYER` of rock and through half
     /// its own depth (the floor) or half a block (each wall cell, by the share of the water's depth beside it), and
-    /// the open air over it at the real rate, `open`. Every flow is linear in the water's heat, so they settle it at
+    /// the open air over it, `open` (all at `HEAT_PACE`, which cancels in T*). Every flow is linear in the water's
+    /// heat, so they settle it at
     /// T* = (sum G T) / (sum G); it boils where T* passes its boiling point by `REST_K` with held rock among them.
     /// Returns (it boils, T*, the hottest held rock's heat, the held rock's (sum G, sum G T)).
     #[allow(clippy::too_many_arguments)]
@@ -217,7 +221,7 @@ impl Liquids {
         let n = &self.nodes[a as usize];
         let (c, lo, hi) = (n.col, n.bottom(), n.surface());
         let deep = n.water.min(n.cap()) as f64 / U as f64;
-        let r = ROCK_LAYER / ROCK_K;
+        let r = ROCK_LAYER / (ROCK_K * HEAT_PACE);
         let (mut gs, mut gt, mut top) = (0.0, 0.0, f64::MIN);
         let mut add = |k: f64, t: f64| {
             gs += k;
@@ -293,9 +297,7 @@ impl Liquids {
             boiled = w - blocks * U;
             (h.t, h.frac) = (ph.tf, 0.0);
         } else {
-            let pace = g.pace();
-            // ADR 0187: a source heating it, its loss to the air is taken at the real rate
-            let ap = if boils { 1.0 } else { pace };
+            // (every conductance here is the world's, at `HEAT_PACE`; the rock's as the air's)
             let ha = ph.h(ta, p);
             let d = iced as f64 + ice / U as f64;
             let mut q = 0.0;
@@ -306,13 +308,13 @@ impl Liquids {
             if aired && d > 0.0 {
                 if ta < ph.tf {
                     // up through the ice (its bottom at the freeze point) and the air's own resistance: Stefan's law
-                    q -= (ph.tf - ta) / (d / ph.ki + 1.0 / ha) * ap;
+                    q -= (ph.tf - ta) / (d / ph.ki + 1.0 / ha);
                 } else if open {
                     // warm air melts its skin; a lid gives it nothing (its own melt is `thaw`'s)
-                    q += ha * (ta - ph.tf) * ap;
+                    q += ha * (ta - ph.tf);
                 }
             } else if open {
-                q -= ha * (h.t - ta) * ap;
+                q -= ha * (h.t - ta);
             }
             let mut e = q * dt;
             if e < 0.0 {
@@ -391,7 +393,7 @@ impl Liquids {
     }
 
     /// One heat step of `dt` s for every ice block followed: its open faces (air beside, over or under it) take heat
-    /// from the air at the pace, a hot fluid beside it (lava) gives it through half a block of itself at real rates.
+    /// from the air, a hot fluid beside it (lava) gives it through half a block of itself, both at `HEAT_PACE`.
     /// Over the triple point's pressure what it takes melts it at the latent heat; under it, it sublimates, its
     /// surface where the heat it takes pays for the vapour leaving. The melt is held in the block (its area shrinking
     /// as a cube's, the last half unit at that cube's) until all of it went: the block is then its U units of water
@@ -404,7 +406,6 @@ impl Liquids {
         }
         let water = crate::fluids::WATER;
         let rows = crate::fluids::FLUIDS.now();
-        let pace = g.pace();
         let mut cells: Vec<(Col, i32)> = self.ice.keys().copied().collect();
         cells.sort_unstable();
         for (c, z) in cells {
@@ -423,7 +424,7 @@ impl Liquids {
                     None => open += 1,
                     Some((k, t)) if k != water => {
                         if let Some(hr) = rows.get(k).heat.as_ref() {
-                            src += (t - ph.tf).max(0.0) / (0.5 / hr.conduct as f64);
+                            src += (t - ph.tf).max(0.0) / (0.5 / (hr.conduct as f64 * HEAT_PACE));
                         }
                     }
                     Some(_) => {}
@@ -434,19 +435,22 @@ impl Liquids {
             let area = open as f64 * s * s;
             let ha = ph.h(ta, p);
             let gone = if p >= ph.pt {
-                (ha * area * (ta - ph.tf) * pace + src).max(0.0) * dt / ph.lf
+                (ha * area * (ta - ph.tf) + src).max(0.0) * dt / ph.lf
             } else {
-                let ls = (ph.lf + ph.lv) / ph.mu;
+                // units a second leaving its surface at ts: what carries the real latent heat away at the pace, paid
+                // for from the block's stored (a `LIGHT`th), so HEAT_PACE x LIGHT times the real mass flux; the surface
+                // where it balances the heat coming in is the real one
+                let vap = |ts: f64| ph.flux(ts, p) * area * HEAT_PACE * LIGHT / ph.mu;
                 let (mut lo, mut hi) = (1.0 - T0K, ph.tf);
                 for _ in 0..48 {
                     let ts = 0.5 * (lo + hi);
-                    if ha * area * (ta - ts) * pace + src > ph.flux(ts, p) * area * pace * ls {
+                    if ha * area * (ta - ts) + src > vap(ts) * (ph.lf + ph.lv) {
                         lo = ts;
                     } else {
                         hi = ts;
                     }
                 }
-                ph.flux(0.5 * (lo + hi), p) * area * pace * dt / ph.mu
+                vap(0.5 * (lo + hi)) * dt
             };
             let m = m + gone;
             if m < U as f64 {
