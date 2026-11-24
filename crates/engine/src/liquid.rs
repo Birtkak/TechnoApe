@@ -492,6 +492,12 @@ pub struct Liquids {
     /// Ice blocks gone since the caller last took them, (column, layer, units): the cell is air again and `units` of
     /// water are poured there (0: it sublimated, its units are in `vapour`).
     pub thawed: Vec<(Col, i32, i64)>,
+    /// The chamber of each of the home's craters (`Body::craters`' order; `World::erupt`): the units of melt over its
+    /// rest, and whether its conduit is open (erupting). Empty until the first step of a world with a live one.
+    pub chambers: Vec<(f64, bool)>,
+    /// Units of lava the chambers poured (`World::erupt`): carried in from below, so `counted_of(lava)` plus what of
+    /// it `froze` and boiled to `vapour` is this plus what buckets brought.
+    pub erupted: i64,
 }
 
 fn window(a: &Node, b: &Node) -> (i64, i64) {

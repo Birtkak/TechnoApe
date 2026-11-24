@@ -7,7 +7,10 @@
 - **Built (2026-11-23, generation 10, map version 9):** steps 1 and 2 of "What is made": the cones, the heat field,
   chamber, conduit and crater lake of generated lava, the burn (draft entry in `bake-and-landforms.md`). Not yet:
   layered basalt and tuff of the cone's own (it is the arc's tuff with its basalt flows), vents,
-  new rock, eruptions; a dead crater holds no rain lake.
+  new rock; a dead crater holds no rain lake.
+- **Built (2026-11-24): eruptions** (draft entry "Eruptions: a chamber fills, bursts its plug and pours counted lava"
+  in `bake-and-landforms.md`): the chamber's fill, its plug, the pour of counted lava from the crater's lip, the
+  ledger's `erupted`, the save's tail, `/erupt`, the report's chambers, chat lines as the warning.
 
 ## The rule
 
@@ -54,8 +57,15 @@ So a cone grows by its own flows, a flow can bury a base, and what erupted is in
 - **Warning before harm:** pressure shows first (fumaroles strengthen, the lake rises, rumble), so a player can
   read a volcano and leave or build a channel.
 - **Order of building:** after the landform, the inside and lava's freezing; before ash and bombs.
-- **Open:** how often (a rate that gives one eruption a volcano every few game years is the first guess, from
-  the supply rate, not a timer); explosive eruptions (gas in the melt: ash, pumice, bombs) after gases.
+- **As built:** the overpressure is `bulk` x fill / volume (1 GPa), the plug bears 10 MPa, so an eruption is 1 %
+  of the chamber; melt arrives at 1/300 of the chamber a game year, so one comes every 3 game years (`data/rocks.toml`
+  the arc's `eruption`). It pours at 1 m3/s on the outer lip of the rim's lowest column, where a risen lake would
+  spill, and ends when the melt over the chamber's rest is spent. Each chamber starts a seeded share of the way
+  full, so they do not erupt together. It is poured whether a player is near or not.
+- **Open:** how often and how much (the numbers above are defaults, not the developer's call); the lake's level
+  following the chamber's pressure (the lake is still generation's formula, so it does not rise before an eruption);
+  fumaroles strengthening, rumble, ash and glow (the warning is a chat line); explosive eruptions (gas in the melt:
+  ash, pumice, bombs) after gases.
 
 ## Open
 

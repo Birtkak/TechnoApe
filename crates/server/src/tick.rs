@@ -429,6 +429,20 @@ impl Server {
             for (at, kind) in self.world.take_boils() {
                 self.events.push(Event::Boil { at, kind });
             }
+            // the volcanoes' chambers fill and erupt by the same clock (draft eruptions): their lava is poured in
+            // the water's columns, which the step below runs and sends; the warning and the eruption are chat lines
+            // shortcut: a chat line to everyone, no sound, ash or glow, until an `Event` of its own has effects
+            for (k, stage) in self.world.erupt(self.warp as f64) {
+                let b = &self.world.bodies[0];
+                let c = &b.craters()[k];
+                let d = b.dir(c.face as usize, c.at.0, c.at.1);
+                let at = format!("the volcano at {:.3},{:.3},{:.3}", d.x, d.y, d.z);
+                self.say(match stage {
+                    engine::world::Stage::Stirs => format!("{at} stirs: its chamber is near bursting"),
+                    engine::world::Stage::Erupts => format!("{at} erupts"),
+                    engine::world::Stage::Ends => format!("{at} is quiet again"),
+                });
+            }
         }
         // water finds the new gaps of every column an edit changed, then flows: as many steps as the physics
         // took, fewer when that would spend more than WATER_BUDGET

@@ -119,6 +119,8 @@ impl Server {
                 "  /weather <what>      clear cloudy rain storm snow, or auto",
                 "  /fluid <name>        what creative's bucket pours (water,",
                 "                       lava, oil: data/fluids.toml)",
+                "  /erupt               fills the nearest live volcano's",
+                "                       chamber to bursting: it erupts",
                 "  /heal, /feed [n]     full health, full hunger (or n)",
                 "  /thirst [n]          full thirst (or n)",
                 "  /hurt <points>       takes health: 2 points a segment",
@@ -301,6 +303,13 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                 let (day, year) = (sky::DAY / to as f64, self.world.sky.year / to as f64);
                 format!("time warp {to}x: a day in {day:.0} s, a year in {year:.0} s")
             }
+            Some("erupt") => match self.world.force_eruption(self.clients[i].phys.pos) {
+                Some(k) => {
+                    let ch = self.world.chamber(k).expect("a live chamber");
+                    format!("the nearest live volcano's chamber is full: {:.0} m3 of lava will pour from its crater", ch.holds / engine::liquid::U as f64)
+                }
+                None => "no live volcano on this world".into(),
+            },
             Some("fluid") => {
                 let f = engine::fluids::FLUIDS.now();
                 let c = &mut self.clients[i];

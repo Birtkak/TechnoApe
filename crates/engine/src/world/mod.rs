@@ -27,7 +27,7 @@ pub use water::*;
 mod generate;
 pub use generate::*;
 mod volcano;
-pub use volcano::Crater;
+pub use volcano::{Chamber, Crater, Stage};
 
 pub const BLOCK: f64 = 1.0;
 /// The planet's sea lies this far under its nominal radius (ADR 0020); the continents decide how much of it

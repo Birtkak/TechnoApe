@@ -79,6 +79,16 @@ flow = { rock = "basalt", share = 0.5, thick = 30.0, width = 700.0 }
 # rising from the sinking plate; the rock round it is warmer by conduction, (chamber - far) * R / r. An arc's
 # andesite melt is about 1000 to 1200 C; it must be over lava's freeze point (data/fluids.toml).
 chamber = 1150.0
+# How a live chamber erupts (docs/design/volcanoes.md "Eruptions", World::erupt): melt arrives from below at `supply`
+# chamber volumes a game year; the chamber's overpressure is `bulk` (MPa: the melt's and the chamber walls' stiffness
+# together, about 1 GPa for a melt with gas bubbles in it) times the melt over its rest over its volume; past `plug`
+# (MPa: what the frozen plug in the conduit and the rock round it bear, some 10 MPa, rock's tensile strength) the
+# conduit opens and the melt over its rest pours from the crater at `effuse` m3/s (a small basaltic eruption's) until
+# it is spent. So an eruption is plug / bulk = 1 % of the chamber (64 m3 on the small planet, 1,650 on the 4 km one;
+# real chambers give some 0.1 %, exaggerated as the landforms are) and comes every plug / bulk / supply = 3 game years.
+# shortcut: `supply` stands in for the mantle's melt supply under the arc (a share of the chamber's volume, so a larger
+# chamber is fed more), until a melt supply rule from the interior.
+eruption = { supply = 0.003333, plug = 10.0, bulk = 1000.0, effuse = 1.0 }
 
 [[province]]
 name = "rift"

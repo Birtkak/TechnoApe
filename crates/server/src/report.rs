@@ -33,7 +33,7 @@ pub fn report(w: &World) -> String {
     let crust: Vec<engine::ore::OreBody> = b.ores.iter().copied().filter(|o| !engine::ore::MINERALS.kinds[o.kind as usize].deep()).collect();
     let out = format!(
         "{{\"seed\": {}, \"planet\": {}, \"gen\": {}, \"spawn\": [{:.5}, {:.5}, {:.5}], \"made_hash\": \"{:016x}\", \"made_hash_crust\": \"{:016x}\", \"provinces\": {{{}}}, \"flows\": {{{}}}, \"limestone\": {}, \"caves\": {{\"balls\": {}, \"in_limestone\": {}, \"in_basalt\": {}, \"depth_m\": [{:.1}, {:.1}], \"open_to_the_sky\": {}, \"kinds\": {{{}}}}}, \"heat_c_under_the_spawn\": [{:.1}, {:.1}], \"pressure_mpa_under_the_spawn\": [{:.3}, {:.3}], \"deep\": {{{}}}, \"interior\": {{{}}}, \"minerals\": {{{}}}, \"volcanoes\": [{}]}}",
-        map.seed, map.n, b.gen, b.spawn.x, b.spawn.y, b.spawn.z, made_hash(&b.caves, &b.ores), made_hash(&b.caves, &crust), provinces.join(", "), flows(b).join(", "), limestone(b), b.caves.len(), in_lime, b.caves.len() - in_lime, dmin, dmax, open, kinds(b).join(", "), heat(ground), heat(0.0), pressure(ground), pressure(0.0), deep.join(", "), interior(w).join(", "), minerals(b).join(", "), volcanoes(b).join(", ")
+        map.seed, map.n, b.gen, b.spawn.x, b.spawn.y, b.spawn.z, made_hash(&b.caves, &b.ores), made_hash(&b.caves, &crust), provinces.join(", "), flows(b).join(", "), limestone(b), b.caves.len(), in_lime, b.caves.len() - in_lime, dmin, dmax, open, kinds(b).join(", "), heat(ground), heat(0.0), pressure(ground), pressure(0.0), deep.join(", "), interior(w).join(", "), minerals(b).join(", "), volcanoes(w).join(", ")
     );
     // the home's first moon after it (0166-luna-ore-and-caves): her rock field's ore and caves, from generation 4
     let moon = &w.bodies[w.moon];
@@ -388,13 +388,19 @@ fn samples(b: &engine::world::Body, k: usize) -> usize {
 /// The caves and ore bodies as made, as one number: a Linux server and a Windows client must print the same
 /// (ADR 0063: both make them from the map with the platform's float functions).
 /// Terra's volcanoes (generation 10 on): where each stands (`at`, a direction for `run=stand at=`), its rim over the
-/// sea, its crater's radius, whether it is alive and the layer of its lava lake's level.
-fn volcanoes(b: &engine::world::Body) -> Vec<String> {
+/// sea, its crater's radius, whether it is alive and the layer of its lava lake's level; a live one's chamber (draft
+/// eruptions): the melt over its rest and what its plug bears, m3, its overpressure, MPa, and the game years to its
+/// next eruption.
+fn volcanoes(w: &World) -> Vec<String> {
+    let b = &w.bodies[0];
     b.craters()
         .iter()
-        .map(|c| {
+        .enumerate()
+        .map(|(k, c)| {
             let d = b.dir(c.face as usize, c.at.0, c.at.1);
-            format!("{{\"at\": [{:.5}, {:.5}, {:.5}], \"summit_m\": {:.1}, \"crater_m\": {:.1}, \"alive\": {}, \"lake_layer\": {}}}", d.x, d.y, d.z, c.v.summit, c.v.crater, c.heat > 0.0, c.lake.map_or("null".into(), |l| l.to_string()))
+            let m3 = |u: f64| u / engine::liquid::U as f64;
+            let chamber = w.chamber(k).map_or(String::new(), |ch| format!(", \"chamber\": {{\"fill_m3\": {:.1}, \"holds_m3\": {:.1}, \"pressure_mpa\": {:.2}, \"next_years\": {:.2}}}", m3(ch.fill), m3(ch.holds), ch.pressure(), ch.next() / w.sky.year));
+            format!("{{\"at\": [{:.5}, {:.5}, {:.5}], \"summit_m\": {:.1}, \"crater_m\": {:.1}, \"alive\": {}, \"lake_layer\": {}{chamber}}}", d.x, d.y, d.z, c.v.summit, c.v.crater, c.heat > 0.0, c.lake.map_or("null".into(), |l| l.to_string()))
         })
         .collect()
 }
