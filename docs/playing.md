@@ -24,7 +24,9 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   10 km/s (ADR 0073); `/playmode spectator` (draft "Spectator mode", 2026-11-24; `/playmode survival` or `creative` leaves it,
   `/playmode` alone names your mode): you fly through blocks and fluids along the look, no gravity, no harm, hunger or
   breath, the wheel sets the speed; you cannot dig, place, pick up, use or move items, the herds ignore you and no other
-  player is sent you; leaving inside rock puts you on the ground above; the HUD drops the bars and the held block;
+  player is sent you, nor `/give`, `/place` or `/structure`; leaving it (or quitting in it) stands you on the open ground of
+  your column, out of a cave or the air, unhurt (over a gas body or in space: where you went in); the HUD drops the bars,
+  the held block and the hand;
   off-screen `acts="0.5:say:/playmode spectator"`, a bot `say /playmode spectator` (its `report` gains `"spectator"`); F3 the overlay of
   numbers in groups: Performance, Simulation, Position, Ground (biome, rock province, the rock's heat at the feet's layer,
   the fluid at feet and eye, snow in eighths, the generation and map version, the tide on Terra), Sky (the clock, the local

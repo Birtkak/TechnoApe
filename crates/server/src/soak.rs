@@ -276,7 +276,8 @@ fn check(s: &Server) -> Result<(), String> {
         if !((0.0..=max).contains(&c.vitals.hunger) && (0.0..=max).contains(&c.vitals.thirst) && (0.0..=max).contains(&c.breath.left)) {
             return Err(format!("player {id}'s needs out of range: {:?} breath {}", c.vitals, c.breath.left));
         }
-        if c.input.is_some() {
+        // a spectator flies through rock (draft ADR spectator-and-sky); the core holds it (`phys::GHOST_FLOOR`, above)
+        if c.input.is_some() && !c.spectator {
             // (sand and gravel fall on players and bury them: ADR 0079)
             // (only sand that came there by an edit, a fall: generated dunes still count as blocks)
             let loose = |b| s.world.edit(b).map_or(!BLOCKS.solid(s.world.block(b)), |m| !BLOCKS.solid(m) || BLOCKS.get(m).is_some_and(|d| d.falls));

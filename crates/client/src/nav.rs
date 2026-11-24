@@ -190,7 +190,8 @@ pub fn season_name(up: DVec3, t: f64, year: f64) -> &'static str {
 }
 
 /// The local solar time at body-frame direction `up` on the home, hours 0 to 24 (12 when Sol is due south or north).
-/// Sol as the world poses the home (ADR 0177), not the sky's old turning (`Sky::hour_angle`), which drifts off it.
+/// Sol as the world poses the home (ADR 0177); the same angle as `Sky::hour_angle`, since body 0's pose is
+/// `Sky::planet` (the review: an earlier note here said that one drifted; it does not).
 pub fn local_hour(w: &engine::world::World, t: f64, up: DVec3) -> f64 {
     let p = w.pose(0, t);
     let s = p.rot.inverse() * (w.sky.sun(t) - p.centre);
@@ -220,7 +221,8 @@ mod tests {
 
     #[test]
     fn local_noon_is_where_sol_stands_overhead_in_the_world_s_own_orbits() {
-        // F3 said 15:57 local with Sol 25 degrees under the horizon (2026-11-24): the time must be the posed sun's
+        // local noon under Sol and midnight opposite it, by the poses (F3's 15:57 with Sol 25 degrees down, 2026-11-24,
+        // was not a drift of the hour: this held before the rewrite too, which changed nothing it computes)
         let w = engine::world::World::new(256, 32, 1);
         for t in [0.0, 5000.0, 40190.0, 123456.0] {
             let p = w.pose(0, t);

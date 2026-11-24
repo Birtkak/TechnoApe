@@ -156,12 +156,16 @@ pub(crate) fn parse_acts(s: &str) -> Vec<(f64, String)> {
     v
 }
 
+/// How long an F10 row's tilt waits for its jump to land (`App::sight_pitch`): a later teleport is level.
+const SIGHT_S: f64 = 3.0;
+
 /// One predicted step, as the server takes it (ADR 0118): the sprint refused at the floor by the `hunger`
 /// carried, the step, then that step's drain (`drains`: survival and alive). True when it sprinted. A spectator
-/// (`ghost`) steps as the server steps it, through everything (`phys::ghost`, draft ADR spectator-and-sky), and drains nothing.
+/// (`ghost`) steps as the server steps it, through everything at the input's time (`phys::ghost_at`, draft ADR
+/// spectator-and-sky), and drains nothing.
 pub(crate) fn predict(world: &mut World, me: &mut phys::Player, hunger: &mut f64, (creative, ghost): (bool, bool), drains: bool, inp: &Input) -> bool {
     if ghost {
-        phys::ghost(world, me, inp, phys::DT);
+        phys::ghost_at(world, me, inp, phys::DT);
         return false;
     }
     let g = engine::vitals::gate(*inp, *hunger, creative);
@@ -705,6 +709,10 @@ impl App {
     /// player stood where it is seen and turned to it, and a line saying what and when. Nothing is posed by hand.
     pub(crate) fn playtest(&mut self, k: usize) {
         let (name, e) = PLAYTEST[k];
+        // (the review) a dead player's click would move everyone's clock and nobody
+        if self.dead.is_some() {
+            return self.note(format!("{name}: you are dead, respawn first"));
+        }
         let e = match e {
             sights::Event::Solar { body: GIANT, kind } => match (0..self.world.bodies.len()).find(|&b| self.world.bodies[b].gas) {
                 Some(g) => sights::Event::Solar { body: g, kind },
@@ -722,19 +730,17 @@ impl App {
             return self.note(format!("{name}: the orbits give none in the next {:.0} years", sights::YEARS));
         };
         let b = &w.bodies[s.body];
-        let (pose, d) = (w.pose(s.body, s.t), s.dir);
-        // over the ground and over the sea (a gas body's cloud tops, `stand_point`); a creative player hovers there
-        let r = (b.stand_point(d) - b.centre).length();
-        // a spectator or a creative flyer hovers 40 m up, over the trees that would hide the sky
-        let feet = b.centre + d * if b.gas { r } else { r.max(b.top(d) + 0.6) + 40.0 };
-        let eye = pose.to_inertial(b.centre, feet + d * 1.7);
+        // a spectator or a creative flyer hovers 40 m over the ground or the sea (a gas body's cloud tops), over the
+        // trees that would hide the sky; an eclipse's eye on the shadow's axis at that height (`sights::stand`)
+        let (feet, eye, share) = sights::stand(w, &s);
+        let (pose, d) = (w.pose(s.body, s.t), (feet - b.centre).normalize());
         let look = pose.rot.inverse() * (s.look - eye).normalize();
         let (up_deg, bearing) = (look.dot(d).clamp(-1.0, 1.0).asin().to_degrees(), nav::bearing(d, look));
         let lead = if e == (sights::Event::Solar { body: 0, kind: sights::Cover::Total }) { 20.0 } else { 0.0 };
         let what = match e {
             sights::Event::Phase(_) => format!("{:.0}% lit", s.share * 100.0),
             sights::Event::Lunar { .. } => format!("{:.0} of 5 points of her disc in the umbra", s.share * 5.0),
-            _ => format!("{:.1}% of Sol hidden here", s.share * 100.0),
+            _ => format!("{:.1}% of Sol hidden from the eye", share * 100.0),
         };
         let (day, h) = engine::sky::clock(s.t);
         let m = (h * 60.0).round() as u32 % (24 * 60);
@@ -748,12 +754,19 @@ impl App {
             b.name
         );
         self.link.send(ToServer::Chat(format!("/time set {:.2}", s.t - lead)));
-        self.link.send(ToServer::Move { pos: feet.to_array(), fwd: look.as_vec3().to_array(), pitch: 0.0 });
-        // the server turns the body to the bearing; the head tilts up to the sight when the jump lands. A survival
-        // player watches as a spectator: hovering there, not sinking into the sea or drowning
-        self.sight_pitch = Some(up_deg.to_radians().clamp(-1.55, 1.55));
+        // a survival player watches as a spectator: hovering there, not sinking into the sea or drowning; put in it
+        // before the jump, so that leaving it lands it where it was (the server's `landing`)
         if !self.creative && !self.spectator {
             self.link.send(ToServer::Chat("/playmode spectator".into()));
+        }
+        self.link.send(ToServer::Move { pos: feet.to_array(), fwd: look.as_vec3().to_array(), pitch: 0.0 });
+        // the server turns the body to the bearing; the head tilts up to the sight when the jump lands (a jump
+        // too short to be seen as one tilts it now); a pitch the jump never took is dropped after a few seconds
+        let pitch = up_deg.to_radians().clamp(-1.55, 1.55);
+        if s.body == self.world.frame_at(self.me.pos) && (feet - self.me.pos).length() < 2.0 {
+            self.pitch = pitch;
+        } else {
+            self.sight_pitch = Some((pitch, Instant::now()));
         }
         self.flying |= self.creative;
         self.note(line);
@@ -1905,7 +1918,8 @@ impl App {
         if off.length() >= 2.0 {
             // a teleport (/goto, a respawn): the look is the server's, in the frame it lands in, level; the
             // steps not answered yet only turn it (an F10 row's jump tilts up to its sight)
-            (self.pitch, self.tilt, self.roll) = (self.sight_pitch.take().unwrap_or(0.0), 0.0, 0.0);
+            let sight = self.sight_pitch.take().filter(|(_, at)| at.elapsed().as_secs_f64() < SIGHT_S);
+            (self.pitch, self.tilt, self.roll) = (sight.map_or(0.0, |(p, _)| p), 0.0, 0.0);
         }
         self.drift_max = self.drift_max.max(off.length());
         if off.length() > 0.001 {

@@ -97,7 +97,12 @@ impl Server {
         let mode = |creative: bool| if creative { "creative" } else { "survival" };
         let block_named = |name: &str| BLOCKS.placeable().find(|d| d.name.eq_ignore_ascii_case(name));
         let blocks = || BLOCKS.placeable().map(|d| d.name.as_str()).collect::<Vec<&str>>().join(", ");
-        match w.first().map(|s| s.to_lowercase()).as_deref() {
+        let verb = w.first().map(|s| s.to_lowercase());
+        // a spectator acts on nothing (draft ADR spectator-and-sky): no blocks, no structures, nothing given
+        if self.clients[i].spectator && matches!(verb.as_deref(), Some("give" | "place" | "structure")) {
+            return "a spectator changes nothing: /playmode survival or creative first".into();
+        }
+        match verb.as_deref() {
             Some("help") | None => [
                 "Commands:",
                 "  /time                the time of day at the spawn",
@@ -328,7 +333,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                 }
             }
             Some("playmode") | Some("gamemode") => {
-                let c = &mut self.clients[i];
+                let c = &self.clients[i];
                 let now = if c.spectator { "spectator" } else { mode(c.creative) };
                 // (the developer, 2026-11-24: spectator is a mode of /playmode, draft ADR spectator-and-sky)
                 let (creative, spectator) = match w.get(1).map(|s| s.to_lowercase()).as_deref() {
@@ -341,16 +346,25 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                 if c.vitals.dead.is_some() && spectator {
                     return "you are dead: respawn first".into();
                 }
-                if c.spectator && !spectator {
-                    // out of it where it is, or inside rock at the nearest free place above (`phys::onto_ground`)
-                    phys::onto_ground(&self.world, &mut c.phys);
-                    c.phys.vel = DVec3::ZERO;
-                    c.player.pos = c.phys.pos.to_array();
+                let was = c.spectator;
+                if !was && spectator {
+                    // a dig held ends, the others' cracks with it, and a drink; where it went in is kept (`landing`)
+                    self.tell_dig(i, None);
+                    let c = &mut self.clients[i];
+                    c.hold.done();
+                    (c.drink, c.entered) = (None, c.phys.pos);
                 }
-                if c.spectator != spectator {
+                if was && !spectator {
+                    // out of it standing on the open ground (`landing`); the input is cleared here only, as a
+                    // teleport's is, since the steps the client predicted were from the old place
+                    let (to, look) = (landing(&self.clients[i], &self.world), self.clients[i].phys.fwd);
+                    self.put(i, to, look);
+                }
+                let c = &mut self.clients[i];
+                if was != spectator {
                     c.link.send(ToClient::Spectator(spectator));
                 }
-                (c.creative, c.spectator, c.inv_dirty, c.input) = (creative, spectator, true, None);
+                (c.creative, c.spectator, c.inv_dirty) = (creative, spectator, true);
                 format!("play mode: {}", if spectator { "spectator" } else { mode(creative) })
             }
             Some("give") => {
@@ -403,7 +417,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                 if !Shape::one(b).fits(world) {
                     return format!("no such block on {}: face 0 to 5, then i j layer as F3 shows them", world.bodies[body].name);
                 }
-                if BLOCKS.solid(d.id) && self.clients.iter().any(|c| phys::holds(world, &c.phys, b)) {
+                if BLOCKS.solid(d.id) && self.clients.iter().any(|c| !c.spectator && phys::holds(world, &c.phys, b)) {
                     return "a player stands there: a solid block would trap them".into();
                 }
                 let was = self.world.block(b);
@@ -484,7 +498,7 @@ usage: /timewarp <1 to {MAX_WARP}|up|down>"),
                     return format!("{name} is {} blocks: /structure places {MOST} at most", cells.len());
                 }
                 // where the players are, gathered once (not once a block)
-                let held: std::collections::HashSet<Block> = self.clients.iter().flat_map(|c| phys::cells(world, c.phys.pos)).collect();
+                let held: std::collections::HashSet<Block> = self.clients.iter().filter(|c| !c.spectator).flat_map(|c| phys::cells(world, c.phys.pos)).collect();
                 // x along j, z along i, y up the layers: as `structure=` stands one and the Studio shows it
                 let put: Vec<(Block, u16)> = cells
                     .into_iter()

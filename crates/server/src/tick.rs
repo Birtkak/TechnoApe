@@ -94,6 +94,7 @@ impl Server {
                 credit: 0,
                 creative: false,
                 spectator: false,
+                entered: DVec3::ZERO,
                 slots: items::ape(),
                 water: 0,
                 tiles: FxMap::default(),
@@ -174,7 +175,7 @@ impl Server {
                             self.tell_dig(j, None);
                             self.uncraft(j);
                             let g = &mut self.clients[j];
-                            self.absent.insert(g.player.name.clone(), saved(g));
+                            self.absent.insert(g.player.name.clone(), saved_in(g, &self.world));
                             let line = format!("{} left", std::mem::take(&mut g.player.name));
                             g.slots.iter_mut().for_each(|s| *s = None);
                             g.water = 0;
@@ -239,7 +240,9 @@ impl Server {
                         self.clients[i].done.push((seq, false));
                         self.clients[i].inv_dirty = true;
                     }
-                    Recv::Msg(ToServer::Dig(_) | ToServer::Strike(_) | ToServer::Craft { .. } | ToServer::Use(_) | ToServer::Choose { .. } | ToServer::Drink(_)) if self.clients[i].spectator => {}
+                    // (creative too: it would change the mode it leaves to. Kept: Move, for F10 and a teleport; Hand, the
+                    // hotbar slot only)
+                    Recv::Msg(ToServer::Dig(_) | ToServer::Strike(_) | ToServer::Craft { .. } | ToServer::Use(_) | ToServer::Choose { .. } | ToServer::Drink(_) | ToServer::Creative(_)) if self.clients[i].spectator => {}
                     Recv::Msg(ToServer::Edit { seq, shape, material }) => {
                         // the steps the client took before this edit came before it: they are taken first, so the
                         // edit falls between the same two steps here as in its prediction (ADR 0015, 0019). Taken
@@ -425,6 +428,10 @@ impl Server {
         // the animals (ADR 0083): woken by the players on Terra, stepped as far as the players were
         let players = self.herd_players();
         let t = self.herds.clock;
+        // a spectator keeps the herds near it awake, but none of them sees it (draft ADR spectator-and-sky)
+        for c in self.clients.iter().filter(|c| c.spectator && self.world.frame_at(c.phys.pos) == 0) {
+            self.herds.wake(&self.world, c.phys.pos, t);
+        }
         self.herds.tick(&self.world, &players, t, steps as f64 * phys::DT);
         self.send_animals(t);
         // once a second stored lava gives its heat to the air and rock round it, and what froze through is basalt
@@ -434,7 +441,7 @@ impl Server {
             // shortcut: the cells over the feet's column only (a 0.6 m body can lean into the next one) and no
             // animals, until a body standing at a freezing edge is seen caught
             let world = &self.world;
-            let taken: Vec<Block> =self.clients.iter()
+            let taken: Vec<Block> = self.clients.iter().filter(|c| !c.spectator)
                 .flat_map(|c| [0.2, 1.0, phys::HEIGHT - 0.1].map(|h| world.block_at(c.phys.pos + phys::up(world, c.phys.pos) * h)))
                 .collect();
             // the air water's phases go by: the live air grid's on the planet; the heat step runs by the world's clock
@@ -766,20 +773,20 @@ impl Server {
 /// A death's line for everyone goes to `deaths`.
 /// Takes client `c`'s next queued step, if any (`dead`: as it was when the tick's steps began).
 fn queued_step(c: &mut Client, world: &mut World, warp: u64, dead: bool, deaths: &mut Vec<String>) -> bool {
-    let Some((seq, inp)) = c.queue.pop_front() else { return false };
-    if c.spectator {
-        phys::ghost(world, &mut c.phys, &inp, phys::DT);
-        (c.acked, c.player.pitch) = (seq, inp.pitch);
-        return true;
-    }
-    let inp = if c.creative { inp } else { Input { fly: 0.0, ..inp } };
-    let inp = if dead { vitals::still(inp) } else { inp };
-    let mut inp = vitals::gate(inp, c.vitals.hunger, c.creative);
+    let Some((seq, mut inp)) = c.queue.pop_front() else { return false };
     // at the client's time when it is near this clock (it predicted the step then), else at this one
     let near = 2.0 * warp as f64; // two seconds of real time
     if (inp.t - world.time).abs() > near {
         inp.t = 0.0;
     }
+    if c.spectator {
+        phys::ghost_at(world, &mut c.phys, &inp, phys::DT);
+        (c.acked, c.player.pitch) = (seq, inp.pitch);
+        return true;
+    }
+    let inp = if c.creative { inp } else { Input { fly: 0.0, ..inp } };
+    let inp = if dead { vitals::still(inp) } else { inp };
+    let inp = vitals::gate(inp, c.vitals.hunger, c.creative);
     let before = c.phys;
     let sprinted = phys::step_at(world, &mut c.phys, &inp, phys::DT);
     live(c, world, &before, &inp, sprinted, deaths);

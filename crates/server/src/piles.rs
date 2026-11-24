@@ -56,9 +56,9 @@ impl Server {
                 return false;
             }
         }
-        // a solid block never goes where it would trap a player
+        // a solid block never goes where it would trap a player (a spectator is in no cell: it passes through)
         let (world, clients) = (&self.world, &self.clients);
-        let cells = edit::changes(world, shape, m, |b| clients.iter().any(|c| phys::holds(world, &c.phys, b)));
+        let cells = edit::changes(world, shape, m, |b| clients.iter().any(|c| !c.spectator && phys::holds(world, &c.phys, b)));
         // a block that hangs (a torch, ADR 0117) goes only where a floor or a wall holds it, and never into water
         if BLOCKS.get(m).is_some_and(|d| d.hangs) && cells.iter().any(|&(b, _)| engine::fall::held_from(world, b).is_none() || world.water_surface(world.block_centre(b)).is_some()) {
             return false;

@@ -150,15 +150,20 @@ fn saved(c: &Client) -> Saved {
 }
 
 /// `saved` in `world`: a spectator (not saved itself, draft ADR spectator-and-sky) is kept where leaving the mode would
-/// put it, at the nearest free place above when it is inside rock.
+/// put it (`landing`).
 fn saved_in(c: &Client, world: &World) -> Saved {
     let mut s = saved(c);
     if c.spectator {
-        let mut p = c.phys;
-        phys::onto_ground(world, &mut p);
-        s.pos = p.pos.to_array();
+        s.pos = landing(c, world).to_array();
     }
     s
+}
+
+/// Where a spectator leaving the mode stands (by command, by a save, by a takeover; draft ADR spectator-and-sky): on
+/// the open ground of its column (`phys::open_ground`: not in a cave, not in the air, not in lava); over a gas body,
+/// in space or over lava, on the open ground where it went in, else just there.
+fn landing(c: &Client, world: &World) -> DVec3 {
+    phys::open_ground(world, c.phys.pos).or_else(|| phys::open_ground(world, c.entered)).unwrap_or(c.entered)
 }
 
 /// A pile's cell as a key that sorts (by body, face, column, layer: the piles' fixed order, items.md).
@@ -210,8 +215,10 @@ struct Client {
     creative: bool,
     /// Spectator mode (draft ADR spectator-and-sky, `/playmode spectator`): it flies through everything (`phys::ghost`), takes no harm,
     /// acts on nothing, and no other client is sent it. Not saved: a save keeps where leaving it would put the
-    /// player (`saved`), so a world where nobody is one saves and hashes as before.
+    /// player (`saved_in`), so a world where nobody is one saves and hashes as before.
     spectator: bool,
+    /// Where it went into spectator mode: where it lands if its own column has no ground to stand on (`landing`).
+    entered: DVec3,
     /// Its slots (`items::SLOTS`): the hotbar, the worn pack, the rows the pack opens, the crafting grid's cells.
     slots: Vec<Slot>,
     /// The workbench it opened (`ToServer::Use`, ADR 0140): its grid's 3 x 3 counts while that is

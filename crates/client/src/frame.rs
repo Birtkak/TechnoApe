@@ -1109,7 +1109,8 @@ impl App {
         let proxy_tris = crate::proxy::triangles(&self.models.list.iter().find(|l| l.0.name == crate::models::FIGURE).map_or_else(crate::proxy::plain, |l| crate::proxy::boxes(&l.0.model)));
         // the models (ADR 0047): the watcher's newest, then this frame's pieces (timed under "table")
         self.models.take(&gpu.queue, &gpu.mquads);
-        let hand = hand_shown(self.run == "play", self.hammer || self.bucket, self.f3, self.home(), self.menu)
+        // (a spectator has no hand: it holds and strikes nothing, draft ADR spectator-and-sky)
+        let hand = (hand_shown(self.run == "play", self.hammer || self.bucket, self.f3, self.home(), self.menu) && !self.spectator)
             .then(|| self.inv.get(self.slot).copied().flatten().map(|s| engine::items::ITEMS.name(s.item).to_string()));
         let swing = engine::hand::HAND.curve(self.start.elapsed().as_secs_f64() - self.dip.tween.start);
         let now = Instant::now();

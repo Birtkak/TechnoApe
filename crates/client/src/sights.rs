@@ -178,6 +178,46 @@ pub fn find(w: &engine::world::World, from: f64, e: Event) -> Option<Sight> {
     }
 }
 
+/// How far over the ground (or the sea; a gas body's cloud tops, none) F10 stands a player: over the trees.
+pub const OVER: f64 = 40.0;
+/// The eye's height over the feet.
+const EYE: f64 = 1.7;
+
+/// Where F10 stands the player for sight `s`: `OVER` metres over the ground in its direction, and for an eclipse of
+/// the sun on the shadow's axis at the eye's own height, not on the sphere of `radius` (the review: with Sol 45
+/// degrees up that was some 70 m off the axis, outside a 50 m umbra). The feet (body frame), the eye (inertial)
+/// and the share seen from the eye: of Sol hidden for an eclipse of the sun, else the sight's own.
+pub fn stand(w: &engine::world::World, s: &Sight) -> (DVec3, DVec3, f64) {
+    let b = &w.bodies[s.body];
+    let pose = w.pose(s.body, s.t);
+    let eye_r = |d: DVec3| {
+        let r = (b.stand_point(d) - b.centre).length();
+        if b.gas { r } else { r.max(b.top(d) + 0.6) + OVER }
+    };
+    let solar = s.look == w.sky.sun(s.t);
+    let moon = (0..w.bodies.len()).find(|&m| w.bodies[m].parent == s.body && m != s.body).filter(|_| solar);
+    // where the line from Sol through the moon's centre meets the sphere of radius r, in the body's frame
+    let axis = |m: usize, r: f64| {
+        let c = w.pose(m, s.t).centre;
+        let (dir, q) = ((c - w.sky.sun(s.t)).normalize(), c - pose.centre);
+        let k = q.dot(dir);
+        let disc = k * k - (q.length_squared() - r * r);
+        (disc > 0.0).then(|| (pose.rot.inverse() * (q + dir * (-k - disc.sqrt()))).normalize())
+    };
+    let mut d = s.dir;
+    // a total or a ring is found on the axis (`find`); the ground under the axis at height is not the ground
+    // under the old spot, so a few rounds settle it
+    if let Some(m) = moon.filter(|&m| axis(m, b.radius).is_some()) {
+        for _ in 0..3 {
+            d = axis(m, eye_r(d) + EYE).unwrap_or(d);
+        }
+    }
+    let feet = b.centre + d * eye_r(d);
+    let eye = pose.to_inertial(b.centre, feet + d * EYE);
+    let share = moon.map_or(s.share, |m| w.sky.covered(s.t, eye, w.pose(m, s.t).centre, w.bodies[m].radius));
+    (feet, eye, share)
+}
+
 /// How many degrees `to` stands over the horizon of a place whose up is `up`.
 pub fn altitude(up: DVec3, to: DVec3) -> f64 {
     up.normalize().dot(to.normalize()).clamp(-1.0, 1.0).asin().to_degrees()
@@ -231,6 +271,15 @@ mod tests {
         let largest_sol = (sky.sun_radius / (sky.sun_dist - r)).asin();
         assert!(smallest_luna > largest_sol, "{smallest_luna} {largest_sol}");
         // Luna in Terra's shadow: wholly, at her centre and four points of her limb; in part, some of them
+        // (the review) and from where F10 stands the eye, 40 m over the ground: still wholly hidden, Sol well up
+        let (_, eye, share) = stand(&w, &total);
+        let up = eye - w.pose(0, total.t).centre;
+        assert!(sky.covered(total.t, eye, moon(total.t), m.radius) >= 0.999 && share >= 0.999, "{share} from the eye");
+        assert!(altitude(up, total.look - eye) > 5.0);
+        // on the shadow's axis itself, not beside it (the umbra here is some 50 m across)
+        let axis = (moon(total.t) - total.look).normalize();
+        let off = (eye - moon(total.t)).reject_from_normalized(axis).length();
+        assert!(off < 1.0, "the eye {off:.1} m off the axis");
         let lunar = find(&w, from, Event::Lunar { kind: Cover::Total }).expect("a total eclipse of Luna");
         assert!(sky.covered(lunar.t, moon(lunar.t), w.pose(0, lunar.t).centre, r) >= 0.999 && lunar.share == 1.0);
         let lpart = find(&w, from, Event::Lunar { kind: Cover::Partial }).expect("a partial eclipse of Luna");
@@ -253,16 +302,22 @@ mod tests {
         let w = world();
         for (k, name) in PHASES.iter().enumerate() {
             let s = find(&w, 5000.0, Event::Phase(k)).unwrap_or_else(|| panic!("no {name}"));
-            let e = elongation(&w.sky, s.t);
-            assert!(((e - k as f64 * 45.0 + 540.0).rem_euclid(360.0) - 180.0).abs() < 0.01, "{name}: {e}");
-            assert_eq!(phase_name(e), *name);
-            // the place has her 20 degrees up or more; full is all lit, new none
+            assert_eq!(phase_name(elongation(&w.sky, s.t)), *name);
+            // (the review) by the poses, not by `elongation`: the angle at Terra between Sol and her is the phase's,
+            // within her orbit's lean, on the side she waxes on; and her lit share is the one that angle gives
             let p = w.pose(0, s.t);
+            let (to_sol, to_her) = ((w.sky.sun(s.t) - p.centre).normalize(), (w.pose(w.moon, s.t).centre - p.centre).normalize());
+            let apart = to_sol.dot(to_her).clamp(-1.0, 1.0).acos().to_degrees();
+            let want = (k as f64 * 45.0).min(360.0 - k as f64 * 45.0);
+            assert!((apart - want).abs() < 2.5, "{name}: {apart} degrees apart");
+            if k % 4 != 0 {
+                assert_eq!(to_sol.cross(to_her).z > 0.0, k < 4, "{name}: on the side she waxes on");
+            }
+            let lit = (1.0 - want.to_radians().cos()) / 2.0;
+            assert!((s.share - lit).abs() < 0.03, "{name}: {} lit, {lit} by the angle", s.share);
+            // the place has her 20 degrees up or more
             let at = p.centre + p.rot * s.dir * w.bodies[0].radius;
             assert!(altitude(p.rot * s.dir, s.look - at) >= 19.9, "{name}");
-            if k == 0 || k == 4 {
-                assert!((s.share - if k == 0 { 0.0 } else { 1.0 }).abs() < 0.01, "{name}: {}", s.share);
-            }
             // (a shot, 2026-11-24: the first full Luna found was the total eclipse's) never one in an eclipse
             let (t, c) = (s.t, w.pose(w.moon, s.t).centre);
             assert!(w.sky.covered(t, c, p.centre, w.bodies[0].radius) == 0.0 && w.sky.covered(t, p.centre, c, w.bodies[w.moon].radius) == 0.0, "{name} at {t}");

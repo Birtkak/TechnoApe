@@ -519,18 +519,26 @@ with most of Sol hidden where Sol is 5 degrees up); Luna totally or partly in Te
 points; seen from under her); Terra over Sol from Luna's near side; the gas giant's moon over Sol from the giant's
 cloud tops (a ring if its disc is the smaller); each phase at its elongation (0, 45 ... 315 degrees), from the darkest
 sky with Luna 20 degrees up, a month whose phase falls in an eclipse passed over. A row puts the player 40 m over the
-place (over the trees), the head tilted up to the sight, and a survival player into spectator mode, so the sea does
+place (over the trees; an eclipse of the sun's eye on the shadow's axis at that height, `sights::stand`, and its line
+gives the share hidden from the eye), the head tilted up to the sight, and a survival player into spectator mode, so the sea does
 not drown and the ground does not hide it (Claude's call, from the shots: a survival player sank under the sea and a
 lunar eclipse was watched from inside a tree). No annular row for Luna: from no ground on Terra does she look smaller than Sol (the
 sun is sized for a perfect total, ADR 0041). And spectator mode, as Minecraft's, a mode of `/playmode` (the developer:
 `/playmode spectator`, back with `/playmode survival` or `creative`; anyone may, as every command): the server's state per
 player, not saved (a save keeps where leaving would put the player, so no format, save or hash changes); its steps are
-`phys::ghost` (along the look at the flight speed, the wheel's, through blocks and fluids, no gravity, no box); its
-edits, digs, bucket, takes and item moves are refused, it picks up nothing, takes no harm, hunger, thirst or breath,
-learns nothing, the herds do not see it, and no other client is sent it in `Players`. It is told with
-`ToClient::Spectator(bool)` (the last variant). Leaving it inside rock puts it at the nearest free place above
-(`phys::onto_ground`). The HUD drops the bars, the held block, the aimed block's outline and look-at panel, and footsteps; the crosshair and
-hotbar stay (the bare hand is still drawn: open).
+`phys::ghost_at` (along the look at the flight speed, the wheel's, through blocks and fluids, no gravity, no box, at
+the input's own time on both sides; held `GHOST_FLOOR` over the body's bottom layer); its edits, digs, bucket, takes,
+item moves, strikes, crafts, uses, choices, drinks, creative toggle, `/give`, `/place` and `/structure` are refused
+(kept: `Move`, which F10 and teleports use, and `Hand`, the hotbar slot only); going into it ends a held dig and a
+drink. It is in no cell (an edit, `/place`, `/structure` or a fall may fill where it hangs), picks up nothing, takes
+no harm, hunger, thirst or breath, learns nothing, and no other client is sent it in `Players`. The world round it is
+kept loaded and simulated as round a player, and the herds near it are kept awake, but they do not react to it (no
+fleeing, no targeting: it is not one of their players; the overseer's call, 2026-11-24). It is told with
+`ToClient::Spectator(bool)` (the last variant). Leaving it (by command, and what a save or a takeover by its own name
+keeps) puts the player standing on the open ground of its column (`phys::open_ground`: the first solid from the sky
+down, so not in a cave nor in the air, swimming on water, unhurt); over lava, a gas body or in space (over two body
+radii out), the open ground where it went in, else that place. The HUD drops the bars, the held block, the hand, the
+aimed block's outline and look-at panel, and footsteps; the crosshair and hotbar stay.
 Alternatives rejected: `/spectator` as its own command (the developer chose a mode of `/playmode`).
 Replaces: 0036's eclipse rows on `nav::next_eclipse` and the playtest set-ups (light, bars, death, flight, Luna).
 
