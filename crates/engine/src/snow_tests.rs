@@ -36,7 +36,7 @@ fn snow_builds_under_falling_snow_at_the_rate_by_hand_and_holds_when_it_stops() 
     let (g, ph) = (ground(-6.0, ATM), Phases::water());
     let (mut s, mut vap) = (Snow::default(), 0);
     let mut fall = mm_h(3.0);
-    let here = |f: f64| move |_: Col, _: i32| Some(Here { cell: 7, formula: 30.4, fall: f });
+    let here = |f: f64| move |_: Col, _: i32| Some(Here { cell: 7, formula: 30.4, fall: f, has: 1 << 40, room: true, fresh: true });
     s.step(&g, 0.0, &one(), &here(fall), &ph, &mut vap);
     assert_eq!(s.cols[&col(1, 1)].units, 30, "it joins with the formula's whole units");
     let (mut t, mut first) = (0.0, None);
@@ -76,7 +76,7 @@ fn snow_builds_under_falling_snow_at_the_rate_by_hand_and_holds_when_it_stops() 
 fn an_eighth_of_snow_melts_at_plus_five_in_the_time_by_hand() {
     let (g, ph) = (ground(5.0, ATM), Phases::water());
     let (mut s, mut vap) = (Snow::default(), 0);
-    let here = |_: Col, _: i32| Some(Here { cell: 7, formula: EIGHTH as f64, fall: 0.0 });
+    let here = |_: Col, _: i32| Some(Here { cell: 7, formula: EIGHTH as f64, fall: 0.0, has: 1 << 40, room: true, fresh: true });
     s.step(&g, 0.0, &one(), &here, &ph, &mut vap);
     assert_eq!(s.seen[&col(1, 1)].eighths, 1);
     let mut t = 0.0;
@@ -102,7 +102,7 @@ fn the_ledger_balances_through_fall_melt_and_sublimation() {
     let ph = Phases::water();
     let (mut s, mut vap) = (Snow::default(), 0i64);
     let mut g = ground(-3.0, ATM);
-    let here = |f: f64| move |_: Col, _: i32| Some(Here { cell: 3, formula: 100.7, fall: f });
+    let here = |f: f64| move |_: Col, _: i32| Some(Here { cell: 3, formula: 100.7, fall: f, has: 1 << 40, room: true, fresh: true });
     for k in 0..4000 {
         let f = if k < 1000 { 0.37 } else { 0.0 };
         if k == 1000 {
@@ -129,7 +129,7 @@ fn the_ledger_balances_through_fall_melt_and_sublimation() {
 fn a_column_leaving_and_rejoining_the_live_set_keeps_the_water() {
     let (g, ph) = (ground(-8.0, ATM), Phases::water());
     let (mut s, mut vap) = (Snow::default(), 0);
-    let here = |_: Col, _: i32| Some(Here { cell: 5, formula: 70.0, fall: 0.05 });
+    let here = |_: Col, _: i32| Some(Here { cell: 5, formula: 70.0, fall: 0.05, has: 1 << 40, room: true, fresh: true });
     for _ in 0..600 {
         s.step(&g, 1.0, &one(), &here, &ph, &mut vap);
     }
@@ -149,11 +149,11 @@ fn eight_eighths_of_snow_are_a_block_and_melt_back_into_eighths() {
     let ph = Phases::water();
     let mut g = ground(-8.0, ATM);
     let (mut s, mut vap) = (Snow::default(), 0);
-    let here = |f: f64| move |_: Col, _: i32| Some(Here { cell: 1, formula: 500.0, fall: f });
+    let here = |f: f64| move |_: Col, _: i32| Some(Here { cell: 1, formula: 500.0, fall: f, has: 1 << 40, room: true, fresh: true });
     s.step(&g, 0.0, &one(), &here(1.0), &ph, &mut vap);
     let edits = s.step(&g, 20.0, &one(), &here(1.0), &ph, &mut vap);
     let snow = BLOCKS.id("snow");
-    assert_eq!(edits, vec![(col(1, 1), 1, snow)], "the block set in the floor's cell");
+    assert_eq!(edits, vec![(col(1, 1), 1, Some(snow))], "the block set in the floor's cell");
     g.set(1, 1, 1, true);
     s.touch(col(1, 1));
     assert_eq!((s.cols[&col(1, 1)].floor, s.cols[&col(1, 1)].units, s.held()), (2, 8, 520));
@@ -162,7 +162,77 @@ fn eight_eighths_of_snow_are_a_block_and_melt_back_into_eighths() {
     for _ in 0..200 {
         back.extend(s.step(&g, 1.0, &one(), &here(0.0), &ph, &mut vap));
     }
-    assert_eq!(back, vec![(col(1, 1), 1, crate::blocks::AIR)], "melted down to it, the block taken back");
+    assert_eq!(back, vec![(col(1, 1), 1, None)], "melted down to it, the block taken back, the cell generation's again");
     assert!(s.packed.is_empty() && s.cols[&col(1, 1)].floor == 1);
     assert_eq!(books(&s, vap), (0, 0));
+}
+
+/// Eight eighths are set as a block only in empty air with no one in it (the review: a plant, a torch or a player's
+/// feet in the floor's cell): with no room the layer stops at seven eighths and takes no more of the fall, every unit
+/// still booked; given room it packs.
+#[test]
+fn a_layer_with_no_room_for_a_block_stays_at_seven_eighths_and_takes_no_more() {
+    let (g, ph) = (ground(-8.0, ATM), Phases::water());
+    let (mut s, mut vap) = (Snow::default(), 0);
+    let here = |room: bool| move |_: Col, _: i32| Some(Here { cell: 1, formula: 500.0, fall: 1.0, has: 1 << 40, room, fresh: true });
+    s.step(&g, 0.0, &one(), &here(false), &ph, &mut vap);
+    let mut edits = Vec::new();
+    for _ in 0..100 {
+        edits.extend(s.step(&g, 1.0, &one(), &here(false), &ph, &mut vap));
+    }
+    assert_eq!((edits.len(), s.cols[&col(1, 1)].units, s.seen[&col(1, 1)].eighths), (0, BLOCK - 1, 7), "seven eighths, no block");
+    assert_eq!((books(&s, vap), s.lent), ((0, 0), BLOCK - 1), "nothing taken past it");
+    let edits = s.step(&g, 1.0, &one(), &here(true), &ph, &mut vap);
+    assert_eq!(edits, vec![(col(1, 1), 1, Some(BLOCKS.id("snow")))], "with room it packs");
+    assert_eq!(books(&s, vap), (0, 0));
+}
+
+/// A column takes no more than its air column can give (the review: snowfall judged at a cold peak, taken from a cell
+/// with little lying): what all its columns took since the landing stays under `has`, so `owed` is always paid.
+#[test]
+fn a_column_takes_no_more_than_its_air_column_has() {
+    let (g, ph) = (ground(-8.0, ATM), Phases::water());
+    let (mut s, mut vap) = (Snow::default(), 0);
+    let two: BTreeSet<Col> = [col(1, 1), col(0, 1)].into_iter().collect();
+    let here = |_: Col, _: i32| Some(Here { cell: 4, formula: 30.0, fall: 1.0, has: 100, room: true, fresh: true });
+    for _ in 0..200 {
+        s.step(&g, 1.0, &two, &here, &ph, &mut vap);
+    }
+    assert_eq!((s.owed[&4].0, s.held()), (100, 100), "it took what the air column had, no debt past it");
+    assert_eq!(books(&s, vap), (0, 0));
+}
+
+/// A column under water holds no snow; once the water is gone (`here` gives it air again) it is live again from the
+/// formula, without waiting for an edit.
+#[test]
+fn a_column_under_water_is_live_again_when_the_water_goes() {
+    let (g, ph) = (ground(-8.0, ATM), Phases::water());
+    let (mut s, mut vap) = (Snow::default(), 0);
+    let dry = |_: Col, _: i32| Some(Here { cell: 2, formula: 70.0, fall: 0.0, has: 1 << 40, room: true, fresh: true });
+    s.step(&g, 1.0, &one(), &|_, _| None, &ph, &mut vap);
+    assert_eq!(s.cols[&col(1, 1)].floor, NOWHERE);
+    s.step(&g, 1.0, &one(), &dry, &ph, &mut vap);
+    assert_eq!((s.cols[&col(1, 1)].floor, s.cols[&col(1, 1)].units), (1, 70), "live again, from the formula");
+    assert_eq!(books(&s, vap), (0, 0));
+}
+
+/// Only fluid in the gap open to the sky keeps snow off a column: a pool in a cave under it does not.
+#[test]
+fn only_water_open_to_the_sky_keeps_the_snow_off() {
+    let mut g = Box3::new(1, 1, 6);
+    g.set(0, 0, 0, true);
+    g.set(0, 0, 2, true);
+    let mut w = crate::liquid::test_ground::stored(&g);
+    assert!(w.pour(&g, col(0, 0), 1, U / 2));
+    assert!(!w.open_water(col(0, 0)), "a cave pool");
+    assert!(w.pour(&g, col(0, 0), 3, U / 2));
+    assert!(w.open_water(col(0, 0)), "a pond on the ground");
+}
+
+/// One layer shown a column, the topmost: an underground puddle's ice never hides the surface pond's.
+#[test]
+fn the_topmost_layer_of_a_column_is_shown() {
+    let ice = |z: i32| Seen { z, top: 0.5, eighths: 3, block: 1 };
+    let v = topmost(vec![(col(0, 0), ice(-20)), (col(0, 0), ice(5)), (col(1, 0), ice(2))]);
+    assert_eq!(v, vec![(col(0, 0), ice(5)), (col(1, 0), ice(2))]);
 }

@@ -65,21 +65,30 @@ pub struct Here {
     pub cell: u32,
     pub formula: f64,
     pub fall: f64,
+    /// Units the air column can give at the last landing (`Weather::has`: its lying snow, soil and the sea term): what all
+    /// its columns take before the next landing stays under it, so `owed` is always paid.
+    pub has: i64,
+    /// The cell asked about is empty air with no player in it: eight eighths may be set there as a block of snow.
+    pub room: bool,
+    /// It holds no edit (generation's air, perhaps a clutter plant): a block packed there gives it back when it goes.
+    pub fresh: bool,
 }
 
 /// What the snow owes each air column (`Weather::tick_owing` settles it when a job lands): units its lying snow gives
 /// (positive: the snow took them) and units its soil gets back (never positive: melt and digging soak in).
 pub type Owed = BTreeMap<u32, (i64, i64)>;
 
-/// The snow store's saved part: the live columns, the blocks it packed (with their air column), `lent`, `owed`.
-pub type State = (Vec<(Col, Lay)>, Vec<((Col, i32), u32)>, i64, Vec<(u32, (i64, i64))>);
+/// The snow store's saved part: the live columns, the blocks it packed (with their air column and whether the cell
+/// was generation's), `lent`, `owed`.
+pub type State = (Vec<(Col, Lay)>, Vec<((Col, i32), (u32, bool))>, i64, Vec<(u32, (i64, i64))>);
 
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct Snow {
     /// The live columns (the server's).
     pub cols: BTreeMap<Col, Lay>,
     /// Blocks of snow eight eighths made, (column, cell): `BLOCK` units each, with the air column they owe.
-    pub packed: BTreeMap<(Col, i32), u32>,
+    /// (true: the cell held no edit, so a plant growing there, a clutter one, comes back when the block goes.)
+    pub packed: BTreeMap<(Col, i32), (u32, bool)>,
     /// Units taken from the air's account less those given back (the server's): its lying snow and packed blocks plus
     /// what of it sublimated to vapour. The water ledger counts `held - lent`, the air's `lent - owed`.
     pub lent: i64,
@@ -106,14 +115,18 @@ impl Snow {
     pub fn held(&self) -> i64 {
         self.cols.values().map(|l| l.units).sum::<i64>() + BLOCK * self.packed.len() as i64
     }
-    /// No unit held, lent or owed: live columns with nothing on them are not saved or hashed, so a world without snow
-    /// keeps its bytes and its recordings' hashes.
+    /// No unit held, lent or owed and no part of one fallen: live columns with nothing on them are not saved or hashed,
+    /// so a world without snow keeps its bytes and its recordings' hashes.
     pub fn bare(&self) -> bool {
-        self.held() == 0 && self.lent == 0 && self.owed.values().all(|o| o.0 == 0 && o.1 == 0)
+        self.held() == 0 && self.lent == 0 && self.owed.values().all(|o| o.0 == 0 && o.1 == 0) && self.cols.values().all(|l| l.part == 0.0)
     }
     /// Units owed the air in all.
     pub fn owing(&self) -> i64 {
         self.owed.values().map(|o| o.0 + o.1).sum()
+    }
+    /// What air column `cell` can still give before its next landing, of `has` (`Here::has`).
+    fn left(&self, cell: u32, has: i64) -> i64 {
+        (has - self.owed.get(&cell).map_or(0, |o| o.0)).max(0)
     }
     fn take(&mut self, cell: u32, n: i64) {
         if n == 0 {
@@ -137,10 +150,11 @@ impl Snow {
     }
     /// The block at cell z of column c was taken away by an edit (dug, or set over): a packed block of snow's units
     /// soak in (its block, if dug, is an item, outside the ledger as ice's is).
-    pub fn unpacked(&mut self, c: Col, z: i32) {
-        if let Some(cell) = self.packed.remove(&(c, z)) {
-            self.soak(cell, BLOCK);
-        }
+    /// Some(true): the cell was generation's before the block, and is again if it was dug (its plant back).
+    pub fn unpacked(&mut self, c: Col, z: i32) -> Option<bool> {
+        let (cell, fresh) = self.packed.remove(&(c, z))?;
+        self.soak(cell, BLOCK);
+        Some(fresh)
     }
     /// A dig at cell z of column c: the snow lying on it goes (its water soaks in), and true, if there is an eighth or
     /// more; the block is left. shortcut: a layer dug gives no item (there is no snowball; a block of snow dug does).
@@ -212,8 +226,9 @@ impl Snow {
     /// what it held soaks in. Each live column takes the snowfall `here` gives, and loses by the heat at its place
     /// (`Ground::air`): over its freeze point h (T - 0) / Lf units a second (melt, soaking in), under the triple point's
     /// pressure its sublimation (to `vapour`). Eight eighths become a block of snow, set; one melting down takes back
-    /// the packed block under it. Returns the cells to set, (column, cell, block).
-    pub fn step(&mut self, g: &impl Ground, dt: f64, live: &BTreeSet<Col>, here: &dyn Fn(Col, i32) -> Option<Here>, ph: &Phases, vapour: &mut i64) -> Vec<(Col, i32, u16)> {
+    /// the packed block under it. Returns the cells to set, (column, cell, block), None: back to generation's (the plant
+    /// it buried grows there again).
+    pub fn step(&mut self, g: &impl Ground, dt: f64, live: &BTreeSet<Col>, here: &dyn Fn(Col, i32) -> Option<Here>, ph: &Phases, vapour: &mut i64) -> Vec<(Col, i32, Option<u16>)> {
         let snow = BLOCKS.id("snow");
         let mut edits = Vec::new();
         let gone: Vec<Col> = self.cols.keys().filter(|c| !live.contains(c)).copied().collect();
@@ -223,13 +238,14 @@ impl Snow {
             self.reshow(c);
         }
         for &c in live {
-            if self.cols.contains_key(&c) {
+            // (a column with no place for snow, under water, tries again each step: it is live once the water goes)
+            if self.cols.get(&c).is_some_and(|l| l.floor != NOWHERE) {
                 continue;
             }
             // shortcut: a column joins with the formula's snow short of a block; what the air holds over that stays its
             let lay = match open_floor(g, c).and_then(|f| here(c, f).map(|h| (f, h))) {
                 Some((floor, h)) => {
-                    let units = (h.formula.max(0.0) as i64).min(BLOCK - 1);
+                    let units = (h.formula.max(0.0) as i64).min(BLOCK - 1).min(self.left(h.cell, h.has));
                     self.take(h.cell, units);
                     Lay { floor, units, part: 0.0, cell: h.cell }
                 }
@@ -283,16 +299,20 @@ impl Snow {
             l.part += (h.fall.max(0.0) - lose) * dt;
             let n = l.part.trunc() as i64;
             l.part -= n as f64;
+            // no more than a block's room in the floor's cell allows (seven eighths where a placed block such as a torch or
+            // a player is in it; a clutter plant is buried and comes back) and its air column can give
+            let room = if h.room { 2 * BLOCK - 1 } else { BLOCK - 1 };
+            let n = if n > 0 { n.min(room - l.units).min(self.left(l.cell, h.has)).max(0) } else { n };
             if n > 0 {
                 self.take(l.cell, n);
                 l.units += n;
             } else if n < 0 {
                 // melting down to a block it packed takes the block back
                 while -n > l.units {
-                    let Some(cell) = self.packed.remove(&(c, l.floor - 1)) else { break };
+                    let Some((cell, fresh)) = self.packed.remove(&(c, l.floor - 1)) else { break };
                     l.floor -= 1;
                     l.units += BLOCK;
-                    edits.push((c, l.floor, crate::blocks::AIR));
+                    edits.push((c, l.floor, (!fresh).then_some(crate::blocks::AIR)));
                     // (its units came back from `packed` to the layer: still lent to that air column)
                     if cell != l.cell {
                         self.take(cell, -BLOCK);
@@ -312,9 +332,9 @@ impl Snow {
                 // nothing lies there to lose
                 l.part = l.part.max(0.0);
             }
-            while l.units >= BLOCK {
-                self.packed.insert((c, l.floor), l.cell);
-                edits.push((c, l.floor, snow));
+            if l.units >= BLOCK && h.room {
+                self.packed.insert((c, l.floor), (l.cell, h.fresh));
+                edits.push((c, l.floor, Some(snow)));
                 l.floor += 1;
                 l.units -= BLOCK;
             }
@@ -361,9 +381,9 @@ pub fn near(world: &crate::world::World, players: &[glam::DVec3]) -> BTreeSet<Co
 impl crate::world::World {
     /// `dt` seconds of the snow on the live columns `live` (`Snow::step`), the air's temperature at a place given by
     /// `temp` as `cool_fluids_in` takes it, the snow's air by `here`; every cell eight eighths packed (or a melt took
-    /// back) is set through the edits, as (cell, what was there, the block). Then the ice and rock the liquids hold short
-    /// of a block are shown.
-    pub fn step_snow(&mut self, dt: f64, live: &BTreeSet<Col>, temp: Option<&dyn Fn(Col, f64) -> Option<f64>>, here: &dyn Fn(Col, i32) -> Option<Here>) -> Vec<(crate::world::Block, u16, u16)> {
+    /// back) is set through the edits, as (cell, what was there, the block; None: its edit taken away, generation's
+    /// again, `put_edit`). Then the ice and rock the liquids hold short of a block are shown.
+    pub fn step_snow(&mut self, dt: f64, live: &BTreeSet<Col>, temp: Option<&dyn Fn(Col, f64) -> Option<f64>>, here: &dyn Fn(Col, i32) -> Option<Here>) -> Vec<(crate::world::Block, u16, Option<u16>)> {
         let ph = Phases::water();
         let water = crate::fluids::WATER;
         let cells = {
@@ -381,7 +401,7 @@ impl crate::world::World {
         for (c, z, m) in cells {
             let b = crate::world::Block { body: c.body(), face: c.face(), pos: glam::IVec3::new(c.i(), c.j(), z) };
             let was = self.block(b);
-            self.set_block(b, m);
+            self.put_edit(b, m);
             self.regap(b);
             out.push((b, was, m));
         }
@@ -408,10 +428,15 @@ impl crate::world::World {
                 v.push((c, Seen { z: floor, top: e as f32 / 8.0, eighths: e, block: BLOCKS.id(&f.into) }));
             }
         }
-        v.sort_by_key(|x| x.0);
-        v.dedup_by_key(|x| x.0);
-        v
+        topmost(v)
     }
+}
+
+/// One `Seen` a column, the topmost: a cave puddle's ice never hides the surface pond's.
+fn topmost(mut v: Vec<(Col, Seen)>) -> Vec<(Col, Seen)> {
+    v.sort_by_key(|x| (x.0, std::cmp::Reverse(x.1.z)));
+    v.dedup_by_key(|x| x.0);
+    v
 }
 
 #[cfg(test)]

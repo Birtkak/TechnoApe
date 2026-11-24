@@ -326,6 +326,13 @@ impl Bot {
                         }
                     }
                 }
+                Recv::Msg(ToClient::Unedit(v)) => {
+                    if let Some(w) = self.world.as_mut() {
+                        for b in v {
+                            w.put_edit(b, None);
+                        }
+                    }
+                }
                 // the list comes when it changes; this bot's own place every tick in `You`
                 Recv::Msg(ToClient::Players(p)) => self.players = p.len(),
                 Recv::Msg(ToClient::You { me, .. }) => {
