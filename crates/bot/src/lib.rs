@@ -326,6 +326,13 @@ impl Bot {
                         }
                     }
                 }
+                Recv::Msg(ToClient::Unedit(v)) => {
+                    if let Some(w) = self.world.as_mut() {
+                        for b in v {
+                            w.put_edit(b, None);
+                        }
+                    }
+                }
                 // the list comes when it changes; this bot's own place every tick in `You`
                 Recv::Msg(ToClient::Players(p)) => self.players = p.len(),
                 Recv::Msg(ToClient::You { me, .. }) => {
@@ -368,7 +375,7 @@ impl Bot {
                     }
                     self.animals.extend(seen.into_iter().map(|a| (a.id, a)));
                 }
-                Recv::Msg(ToClient::Sky { .. } | ToClient::Fires(_) | ToClient::Events(_)) => {}
+                Recv::Msg(ToClient::Sky { .. } | ToClient::Fires(_) | ToClient::Events(_) | ToClient::Layers(_)) => {}
                 Recv::Msg(ToClient::Furnace { at, f }) => self.furnace = Some((at, f)),
                 Recv::Msg(ToClient::Prospect(v)) => {
                     let heard: Vec<String> = v.iter().map(|(e, b)| format!("[{e:?},{:?}]", engine::ore::BANDS.get(*b as usize).unwrap_or(&"?"))).collect();

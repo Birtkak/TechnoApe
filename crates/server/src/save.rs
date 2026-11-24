@@ -87,8 +87,13 @@ pub struct Save {
     /// written (with the four before it) only when there is any.
     #[serde(skip)]
     pub crust: Vec<(engine::liquid::Col, u8, i32, i64)>,
-    /// Ground water off its rest (ADR 0190: `Liquids::ground_extra`, `Liquids::rim` and the touched cells): a sixth
-    /// tail, written (with the five before it) only when there is any, so a world without a table writes the bytes it
+    /// Snow in eighths (ADR 0189, `engine::snow::State`: the live columns, the blocks it packed, what it took
+    /// from the air and still owes it): a sixth tail, written (with the five before it) only when there is any, so a
+    /// world without snow writes the bytes it did.
+    #[serde(skip)]
+    pub snow: engine::snow::State,
+    /// Ground water off its rest (ADR 0190: `Liquids::ground_extra`, `Liquids::rim` and the touched cells): a seventh
+    /// tail, written (with the six before it) only when there is any, so a world without a table writes the bytes it
     /// did; a save without it loads with the aquifer at rest.
     #[serde(skip)]
     pub ground: GroundTail,
@@ -108,7 +113,7 @@ impl From<Save21> for Save {
     /// Terra and Luna, as a 21 or older names them.
     fn from(s: Save21) -> Save {
         let Save21 { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, gen } = s;
-        Save { version, seed, bodies: vec![(planet_n, map), (moon_n, luna)], blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen, heat: Heat::default(), booked: Booked::default(), kinds: Vec::new(), chambers: Chambers::default(), crust: Vec::new(), ground: GroundTail::default() }
+        Save { version, seed, bodies: vec![(planet_n, map), (moon_n, luna)], blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen, heat: Heat::default(), booked: Booked::default(), kinds: Vec::new(), chambers: Chambers::default(), crust: Vec::new(), snow: Default::default(), ground: GroundTail::default() }
     }
 }
 
@@ -370,7 +375,8 @@ impl Save {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut b = postcard::to_allocvec(self).expect("a save serialises");
         let ground = self.ground != GroundTail::default();
-        let crust = !self.crust.is_empty() || ground;
+        let snow = self.snow != engine::snow::State::default() || ground;
+        let crust = !self.crust.is_empty() || snow;
         let chambers = self.chambers != Chambers::default() || crust;
         let kinds = !self.kinds.is_empty() || chambers;
         let booked = self.booked != Booked::default() || kinds;
@@ -388,6 +394,9 @@ impl Save {
         }
         if crust {
             b.extend(postcard::to_allocvec(&self.crust).expect("the crust serialises"));
+        }
+        if snow {
+            b.extend(postcard::to_allocvec(&self.snow).expect("the snow serialises"));
         }
         if ground {
             b.extend(postcard::to_allocvec(&self.ground).expect("the ground water serialises"));
@@ -419,12 +428,20 @@ impl Save {
                                                                 s.chambers = c;
                                                                 if !end.is_empty() {
                                                                     match postcard::take_from_bytes(end) {
-                                                                        Ok((c, aq)) => {
+                                                                        Ok((c, snow)) => {
                                                                             s.crust = c;
-                                                                            if !aq.is_empty() {
-                                                                                match postcard::from_bytes(aq) {
-                                                                                    Ok(g) => s.ground = g,
-                                                                                    Err(e) => eprintln!("the save's ground water ({} bytes) unread, loaded at rest: {e}", aq.len()),
+                                                                            if !snow.is_empty() {
+                                                                                match postcard::take_from_bytes(snow) {
+                                                                                    Ok((v, aq)) => {
+                                                                                        s.snow = v;
+                                                                                        if !aq.is_empty() {
+                                                                                            match postcard::from_bytes(aq) {
+                                                                                                Ok(g) => s.ground = g,
+                                                                                                Err(e) => eprintln!("the save's ground water ({} bytes) unread, loaded at rest: {e}", aq.len()),
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                    Err(e) => eprintln!("the save's snow ({} bytes) unread, loaded without it: {e}", snow.len()),
                                                                                 }
                                                                             }
                                                                         }

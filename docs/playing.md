@@ -27,7 +27,9 @@ Moved out of CLAUDE.md (principle 15) so a feature's keys do not touch the file 
   operative temperature of the air and the heat of lava in sight within 48 m, by 384 rays a few a frame, a set in about half a second;
   a wall blocks it; in lava, the lava's), worked out four times a second; the look-at panel
   under the compass names the block or the fluid (the sea's water, a river, lava, oil) the crosshair meets first, with its
-  temperature and, for a block, its hardness and tool, for a fluid its depth; a run's JSON carries `"felt"` and `"look"`, a
+  temperature and, for a block, its hardness and tool, for a fluid its depth; a layer of snow (or ice short of a block) on the ground is named with its depth, "3 eighths deep, on grass"; snow
+  in layers (ADR 0189, "Snow and ice in eighths") builds where snow falls under freezing air within 16 m of a player, eight eighths a snow block stood on; in a
+  layer one sinks to the ground and walks slower (half its depth's share: 3 eighths 0.81 of the pace); digging the cell over a layer takes the layer, no item; `/weather snow` and `/timewarp 1800` build eighths in seconds (an eighth in about 11 s at that warp); a run's JSON carries `"felt"` and `"look"`, a
   bot's `report` `"felt"`; F9 a bug report; F10 the playtest menu (an eclipse of the sun or of Luna, ADR 0036); Esc the menu: settings in pages (Display, Graphics, Controls, Keys, Sound,
   Accessibility), every key rebindable (Keys: grouped, searchable, a shared key red), kept in `settings.txt`, ADR 0023 and 0028; `dump=1` prints a
   settings file's meaning as JSON). `acts="t:action,..."`

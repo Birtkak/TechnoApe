@@ -737,6 +737,8 @@ fn session(mut args: Args, el: &mut EventLoop<()>, threads: usize, window: Optio
         inv: engine::items::ape(),
         items_pending: Vec::new(),
         piles: Default::default(),
+        slabs: Vec::new(),
+        slabs_at: None,
         lifted: None,
         inv_tab: 0,
         inv_query: String::new(),

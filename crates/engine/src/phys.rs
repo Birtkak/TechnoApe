@@ -427,7 +427,11 @@ pub fn step(world: &World, p: &mut Player, inp: &Input, dt: f64) -> bool {
         let dir = dir + fwd * sprint_share * (SPRINT - 1.0);
         // shortcut: a thick fluid slows the walk by 1 + (visc - 1) sub / 16 (lava at the float line: about half again),
         // a taste default; from a drag law on the body once something else wades
-        let wish = dir * WALK * (1.0 - 0.5 * sub) / (1.0 + (visc - 1.0) * sub / 16.0);
+        // snow short of a block is no floor: the feet sink through it to the ground and the walk is slower by its depth
+        // (ADR 0189, `snow::DRAG`); a full block of it is a block, stood on
+        let feet = world.block_at(p.pos + up * 0.05);
+        let sunk = world.snow.sunk(World::col(feet), feet.pos.z);
+        let wish = dir * WALK * (1.0 - 0.5 * sub) / (1.0 + (visc - 1.0) * sub / 16.0) * (1.0 - crate::snow::DRAG * sunk);
         // climbing OUT: jump held (or a stroke) in real water near the surface, the look not down, against a
         // bank whose top is at or over the surface and within reach; elsewhere a stroke slides along a wall
         // (real water: a third of the body in, or still in with water, not a floor, under the feet; a puddle's
@@ -1180,6 +1184,43 @@ mod tests {
         let next = Block { pos: b0.pos + glam::IVec3::X, ..b0 };
         let way = (w.block_centre(next) - w.block_centre(b0)).reject_from(d).normalize();
         (w.block_centre(b0) + d * 0.5, top.map_or(0.0, |t| layer_r(w, t) - r), way)
+    }
+
+    /// Snow in eighths (ADR 0189): three eighths are no floor, the feet sink through to the ground and the walk
+    /// is slower by `DRAG` x 3/8 (19 %); a full block of snow is stood on.
+    #[test]
+    fn a_body_sinks_in_three_eighths_of_snow_walks_slower_and_stands_on_a_block_of_it() {
+        let mut w = world();
+        let g = ground(&w);
+        let u = up(&w, g);
+        let dir = tangent(DVec3::X, u, DVec3::Z);
+        let f = dir.as_vec3().to_array();
+        let walk = |w: &World| {
+            let mut p = Player::at(g, dir);
+            run(w, &mut p, &Input { fwd: f, ..Default::default() }, 1.0);
+            let (s, z) = (p.pos, w.block_at(p.pos + u * 0.05).pos.z);
+            for _ in 0..20 {
+                step(w, &mut p, &Input { mv: [1.0, 0.0], fwd: f, ..Default::default() }, DT);
+            }
+            (s, z, (p.pos - s).reject_from(u).length(), p.on_ground)
+        };
+        let (s0, z0, clear, _) = walk(&w);
+        let b = w.block_at(s0 + u * 0.05);
+        let snow = BLOCKS.id("snow");
+        let cols: Vec<_> = (-8..=8).flat_map(|i| (-8..=8).map(move |j| (i, j))).map(|(i, j)| crate::liquid::Col::new(b.body, b.face, b.pos.x + i, b.pos.y + j)).collect();
+        // three eighths on the cell the feet stand in, wherever the walk goes
+        let seen: Vec<_> = cols.iter().map(|&c| (c, Some(crate::snow::Seen { z: z0, top: 0.375, eighths: 3, block: snow }))).collect();
+        w.snow.apply(&seen);
+        let (s1, z1, sunk, on) = walk(&w);
+        eprintln!("walked {clear:.3} m clear, {sunk:.3} m in three eighths ({:.3})", sunk / clear);
+        assert!(on && z1 == z0 && (s1 - s0).dot(u).abs() < 1e-6, "the feet on the ground under the snow");
+        assert!((sunk / clear - (1.0 - crate::snow::DRAG * 0.375)).abs() < 0.01, "slowed by the factor: {}", sunk / clear);
+        // a full block of snow where the feet stood: stood on, a block higher
+        w.snow.apply(&cols.iter().map(|&c| (c, None)).collect::<Vec<_>>());
+        w.set_block(b, snow);
+        let mut p = Player::at(s0 + u * 1.5, dir);
+        run(&w, &mut p, &Input { fwd: f, ..Default::default() }, 2.0);
+        assert!(p.on_ground && w.block_at(p.pos + u * 0.05).pos.z == z0 + 1, "on top of the snow block");
     }
 
     /// Wading (ADR 0118): on the bottom with the feet in and the head out, it is a walk, slower than on land.

@@ -598,6 +598,10 @@ impl Liquids {
     pub fn column(&self, c: Col) -> Option<impl Iterator<Item = &Node>> {
         self.cols.get(&c).map(|ids| ids.iter().map(|&i| &self.nodes[i as usize]))
     }
+    /// Column c holds stored fluid in its gap open to the sky (where snow would lie), not in a cave under it.
+    pub fn open_water(&self, c: Col) -> bool {
+        self.column(c).is_some_and(|mut n| n.any(|n| n.water > 0 && n.ceil == OPEN))
+    }
     /// All water that differs from generation, sorted: for saves, hashes and a joining client.
     pub fn all(&self) -> Vec<ColWater> {
         let mut v: Vec<ColWater> = self.cols.keys().map(|&c| self.col_water(c)).collect();

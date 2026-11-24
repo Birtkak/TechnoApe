@@ -4936,3 +4936,177 @@ fn a_chamber_survives_a_save_and_a_save_without_it_loads() {
     let snap = quiet.snapshot();
     assert!(snap.chambers == save::Chambers::default() && snap.to_bytes() == postcard::to_allocvec(&snap).unwrap(), "no live volcano: the layout's bytes");
 }
+
+/// Lays three eighths on every live column of `s` with a place, taken from its air column's account as a snowfall
+/// takes them (the test's stand-in for an hour's heavy snow at a cold place).
+fn snow_on(s: &mut Server) -> Vec<Col> {
+    let e = 3 * engine::snow::EIGHTH;
+    let cols: Vec<Col> = s.world.snow.cols.iter().filter(|(_, l)| l.floor != engine::snow::NOWHERE).map(|(c, _)| *c).collect();
+    for &k in &cols {
+        let l = s.world.snow.cols.get_mut(&k).unwrap();
+        l.units += e;
+        let cell = l.cell;
+        s.world.snow.lent += e;
+        s.world.snow.owed.entry(cell).or_default().0 += e;
+    }
+    cols
+}
+
+/// Snow in eighths on the server (ADR 0189): the columns round a player are live, three eighths laid on them
+/// are sent to the client, survive a save and a load, and leave the live set with every unit back to the air on a
+/// server with no player; two runs of one seed agree to the hash; both ledgers hold every tick; a dig on the ground
+/// under three eighths takes the snow and leaves the block.
+#[test]
+fn live_snow_is_sent_saved_reloaded_and_replays_to_the_same_hash() {
+    let start = || {
+        let (tx, rx) = channel();
+        let mut s = Server::baked(1536, 32, 7, rx);
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
+        for _ in 0..TICK_HZ as u64 + 1 {
+            s.tick();
+        }
+        (s, c)
+    };
+    let (mut s, c) = start();
+    assert_eq!(s.world.snow.cols.len(), 33 * 33, "the live square round the player");
+    let cols = snow_on(&mut s);
+    drain(&c);
+    s.tick();
+    while s.tick % TICK_HZ as u64 != 1 {
+        s.tick();
+    }
+    assert_eq!((s.air_ledger(), s.water_ledger()), (Some(0), 0));
+    let sent: Vec<_> = drain(&c).into_iter().filter_map(|m| if let ToClient::Layers(v) = m { Some(v) } else { None }).flatten().collect();
+    assert!(sent.len() >= cols.len() * 9 / 10 && sent.iter().all(|(_, x)| x.is_some_and(|x| x.eighths >= 2)), "{} of {} columns sent", sent.len(), cols.len());
+    let snap = s.snapshot();
+    assert!(snap.snow != engine::snow::State::default() && snap.to_bytes().len() > postcard::to_allocvec(&snap).unwrap().len(), "a tail");
+    let mut back = Server::from_save(Save::from_bytes(&snap.to_bytes()).unwrap(), channel().1);
+    assert_eq!(back.world.snow.state(), s.world.snow.state(), "the snow through the save");
+    assert_eq!(back.world.snow.seen, s.world.snow.seen, "and what it shows");
+    assert_eq!((back.air_ledger(), back.water_ledger()), (Some(0), 0));
+    for _ in 0..3 * TICK_HZ as u64 {
+        back.tick();
+        assert_eq!((back.air_ledger(), back.water_ledger()), (Some(0), 0), "tick {}", back.tick);
+    }
+    assert!(back.world.snow.cols.is_empty() && back.world.snow.lent == back.world.snow.owing(), "no player: all of it given back");
+    // two runs of one seed agree
+    let (mut again, _c2) = start();
+    snow_on(&mut again);
+    while again.tick < s.tick {
+        again.tick();
+    }
+    for _ in 0..30 * TICK_HZ as u64 {
+        s.tick();
+        again.tick();
+        assert_eq!((s.air_ledger(), s.water_ledger()), (Some(0), 0), "tick {}", s.tick);
+    }
+    assert_eq!((again.hash(), again.world.snow.state()), (s.hash(), s.world.snow.state()), "two runs of one seed");
+    // a dig of the ground under three eighths takes the snow, not the block
+    let me = s.world.block_at(s.clients[0].phys.pos);
+    let (&k, l) = s.world.snow.cols.iter().filter(|(_, l)| l.units >= engine::snow::EIGHTH).min_by_key(|(k, _)| (k.i() - me.pos.x).abs() + (k.j() - me.pos.y).abs() + 1000 * (k.i() == me.pos.x && k.j() == me.pos.y) as i32).expect("snow left after 30 s");
+    let b = Block { body: 0, face: k.face(), pos: glam::IVec3::new(k.i(), k.j(), l.floor - 1) };
+    let was = s.world.block(b);
+    let mut changed = Vec::new();
+    assert!(s.edit(0, &engine::edit::Shape::one(b), AIR, &mut changed));
+    assert_eq!((s.world.block(b), s.world.snow.cols[&k].units, changed.len()), (was, 0, 0), "the snow went, the block stayed");
+    assert_eq!(s.water_ledger(), 0);
+}
+
+/// A snapshot early in a snowfall, when the columns hold only parts of a unit, keeps them (the review: a bare save
+/// dropped `Lay::part`, so a reload parted from the run): the snow through the save is the snow.
+#[test]
+fn a_save_keeps_the_snow_short_of_a_unit() {
+    let (tx, rx) = channel();
+    let mut s = Server::baked(1536, 32, 7, rx);
+    let (_c, sv) = local();
+    tx.send(sv).unwrap();
+    for _ in 0..TICK_HZ as u64 + 1 {
+        s.tick();
+    }
+    let k = *s.world.snow.cols.keys().next().expect("live columns");
+    s.world.snow.cols.get_mut(&k).unwrap().part = 0.5;
+    let back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
+    assert_eq!(back.world.snow.state(), s.world.snow.state(), "the part of a unit through the save");
+}
+
+/// Snow through `Server::tick` (the review; plants under snow, the developer's call 2026-11-24): `/weather snow` at a
+/// time warp lays eighths round a player until a column with a clutter plant is a block of snow, the plant not drawn
+/// while buried; a torch's cell and the player's own feet keep theirs at seven eighths (nothing erased, no one buried).
+/// The world is saved and loaded while the plant is buried, a player joins it, and warm air melts it all back: the
+/// cell generation's again (no edit), the same plant there, the torch still there. Both ledgers hold at every tick.
+#[test]
+fn snow_buries_a_plant_through_a_save_and_melts_back_to_the_same_plant() {
+    use engine::clutter::{thing_at, VEGETATION};
+    let (tx, rx) = channel();
+    let mut s = Server::baked(1536, 32, 7, rx);
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    for _ in 0..TICK_HZ as u64 + 1 {
+        s.tick();
+    }
+    let me = s.world.block_at(s.clients[0].phys.pos + engine::phys::up(&s.world, s.clients[0].phys.pos) * 0.2);
+    let plant = |s: &Server, b: Block| thing_at(&s.world, b, 0.0, VEGETATION[2], false, |_, _| true).map(|t| (t.row, t.h));
+    let cols: Vec<(Col, Block)> = (-12..=12)
+        .flat_map(|i| (-12..=12).map(move |j| (i, j)))
+        .filter(|&(i, j)| i * i + j * j <= 144 && (i, j) != (0, 0))
+        .filter_map(|(i, j)| {
+            let k = Col::new(0, me.face, me.pos.x + i, me.pos.y + j);
+            let z = s.world.snow.cols.get(&k)?.floor;
+            let b = Block { body: 0, face: me.face, pos: glam::IVec3::new(k.i(), k.j(), z) };
+            (z != engine::snow::NOWHERE && s.world.block(b) == AIR && s.world.edit(b).is_none()).then_some((k, b))
+        })
+        .collect();
+    let &(green, green_b) = cols.iter().find(|(_, b)| plant(&s, *b).is_some()).expect("a column with a plant");
+    let grows = plant(&s, green_b);
+    let mut bare = cols.iter().filter(|(k, _)| *k != green);
+    let (lit, lit_b) = *bare.next().unwrap();
+    let (mine, mine_b) = *bare.next().unwrap();
+    let torch = BLOCKS.id("torch");
+    s.world.set_block(lit_b, torch);
+    // the player stands on another open column, feet in its floor's cell
+    let up = engine::phys::up(&s.world, s.world.block_centre(mine_b));
+    s.clients[0].phys.pos = s.world.block_centre(mine_b) - up * 0.45;
+    for _ in 0..TICK_HZ as u64 {
+        s.tick();
+    }
+    assert_eq!(s.world.block_at(s.clients[0].phys.pos + up * 0.2), mine_b, "the feet stand in the floor's cell");
+    c.send(ToServer::Chat("/weather snow".into()));
+    c.send(ToServer::Chat("/timewarp 10000".into()));
+    let snow = BLOCKS.id("snow");
+    let mut t = 0;
+    while s.world.block(green_b) != snow && t < 120 * TICK_HZ as u64 {
+        s.tick();
+        t += 1;
+        assert_eq!((s.air_ledger(), s.water_ledger()), (Some(0), 0), "tick {}", s.tick);
+    }
+    assert_eq!((s.world.block(green_b), plant(&s, green_b)), (snow, None), "a block of snow over the plant, the plant not drawn");
+    for _ in 0..20 * TICK_HZ as u64 {
+        s.tick();
+    }
+    let l = |s: &Server, k: Col| s.world.snow.cols[&k];
+    assert_eq!((s.world.block(lit_b), l(&s, lit).units), (torch, engine::snow::BLOCK - 1), "the torch kept, the snow at seven eighths");
+    assert_eq!((l(&s, mine).floor, l(&s, mine).units, s.world.block(mine_b)), (mine_b.pos.z, engine::snow::BLOCK - 1, AIR), "no one buried");
+    assert_eq!((s.air_ledger(), s.water_ledger()), (Some(0), 0));
+    // saved and loaded while buried; a player joins the loaded world
+    let (tx, rx) = channel();
+    let mut s = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), rx);
+    assert_eq!((s.world.block(green_b), s.world.snow.packed.get(&(green, green_b.pos.z)).map(|p| p.1)), (snow, Some(true)), "buried through the save");
+    let (c, sv) = local();
+    tx.send(sv).unwrap();
+    s.tick();
+    drain(&c);
+    // warm air melts it back
+    s.force = Some(engine::weather::Force { temp: Some(20.0), ..engine::weather::Force::named("clear").unwrap().unwrap() });
+    c.send(ToServer::Chat("/timewarp 10000".into()));
+    let mut t = 0;
+    // (blocks packed out of this player's live square stay blocks: only live columns melt)
+    while s.world.block(green_b) != AIR && t < 60 * TICK_HZ as u64 {
+        s.tick();
+        t += 1;
+        assert_eq!((s.air_ledger(), s.water_ledger()), (Some(0), 0), "tick {}", s.tick);
+    }
+    assert!(drain(&c).iter().any(|m| matches!(m, ToClient::Unedit(v) if v.contains(&green_b))), "the client is told the cell is generation's again");
+    assert_eq!((s.world.block(green_b), s.world.edit(green_b), plant(&s, green_b)), (AIR, None, grows), "melted back, the same plant there");
+    assert_eq!((s.world.block(lit_b), s.world.snow.cols[&lit].units), (torch, 0), "the torch still there, its snow melted");
+}

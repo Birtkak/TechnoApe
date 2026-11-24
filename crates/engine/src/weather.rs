@@ -187,6 +187,15 @@ pub struct Weather {
     /// Each column's lying snow, mm of water, as of the last landing (not in the view: the saves keep the
     /// view's layout; a loaded grid has it from its state).
     snow: Vec<f32>,
+    /// What each column can give the live snow, units, as of the last landing: its lying snow and soil, and the water
+    /// outside the grid (`snow::Here::has`; settled in that order).
+    has: Vec<i64>,
+}
+
+fn has(a: &Air) -> Vec<i64> {
+    // shortcut: every column counts the whole of the sea term, which dwarfs what live snow takes; a share each if a
+    // world's sea is ever small enough to run dry
+    (0..a.n).map(|c| a.snow[c] as i64 + a.soil[c] as i64 + a.sea.max(0)).collect()
 }
 
 fn snow_mm(a: &Air) -> Vec<f32> {
@@ -207,8 +216,8 @@ impl Weather {
         let view = View::of(&a, vec![0; a.n], &vec![0; a.n], 0);
         let land = (0..a.n).map(|c| a.area[c] as f64 * (1.0 - a.water[c] as f64).max(0.0)).collect();
         let ledger = view.ledger;
-        let snow = snow_mm(&a);
-        Ok(Weather { grid: c.grid(), p: a.p.clone(), job: Mutex::new(Some(Job::Idle(Box::new(a)))), view, land, split: Vec::new(), ledger, snow })
+        let (snow, has) = (snow_mm(&a), has(&a));
+        Ok(Weather { grid: c.grid(), p: a.p.clone(), job: Mutex::new(Some(Job::Idle(Box::new(a)))), view, land, split: Vec::new(), ledger, snow, has })
     }
 
     /// Feeds `map`'s reaches from the runoff (W5, ADR 0059): a river cell's own catchment (its drained area less
@@ -269,6 +278,14 @@ impl Weather {
     /// What it returns is the runoff handed to the reaches at this landing, (reach, units), already taken out
     /// of the air's sea term: the caller rains it into them.
     pub fn tick(&mut self, tick: u64, time: f64) -> Vec<(u32, i64)> {
+        self.tick_owing(tick, time, &mut Default::default())
+    }
+
+    /// `tick`, and at a landing what the live snow owes each column (`snow::Owed`, ADR 0189) settled with the
+    /// grid on the tick it is taken back: units the snow took come out of the column's lying snow (then its soil), and
+    /// what it gave back goes to the lying snow and the soil. What a column cannot give yet stays owed. The air's ledger
+    /// moves by what was settled, so it plus the snow's `lent` less `owed` never changes.
+    pub fn tick_owing(&mut self, tick: u64, time: f64, owed: &mut crate::snow::Owed) -> Vec<(u32, i64)> {
         let job = self.job.get_mut().unwrap();
         let ready = match job.take() {
             Some(Job::Busy { back, due }) if tick >= due => {
@@ -297,9 +314,28 @@ impl Weather {
             }
             let handed: i64 = fed.values().sum();
             air.sea -= handed;
-            self.ledger = view.ledger - handed as i128;
+            let mut settled = 0i64;
+            for (&c, o) in owed.iter_mut().filter(|(&c, _)| (c as usize) < air.n) {
+                let c = c as usize;
+                let from_snow = o.0.clamp(-(1 << 30), air.snow[c] as i64);
+                air.snow[c] = (air.snow[c] as i64 - from_snow) as u32;
+                let from_soil = (o.0 - from_snow).clamp(0, air.soil[c] as i64);
+                air.soil[c] -= from_soil as u32;
+                // (what the column's lying snow and soil cannot give comes from the water outside the grid: snow
+                // falling on a dry place, a forced weather's, is the sea's vapour)
+                let from_sea = (o.0 - from_snow - from_soil).clamp(0, air.sea.max(0));
+                air.sea -= from_sea;
+                let from_soil = from_soil + from_sea;
+                let to_soil = (-o.1).clamp(0, 1 << 30);
+                air.soil[c] += to_soil as u32;
+                settled += from_snow + from_soil - to_soil;
+                *o = (o.0 - from_snow - from_soil, o.1 + to_soil);
+            }
+            owed.retain(|_, o| *o != (0, 0));
+            self.ledger = view.ledger - handed as i128 - settled as i128;
             self.view = view;
             self.snow = snow_mm(&air);
+            self.has = has(&air);
             *job = Some(Job::Idle(air));
         }
         let fed: Vec<(u32, i64)> = fed.into_iter().collect();
@@ -367,6 +403,14 @@ impl Weather {
                 Some(f) => encode(f.cover, f.rain, f.wind(v.wind[c]), f.snow.map_or(self.snow[c], |s| s * SNOW_TOP), f.temp.unwrap_or(v.theta[c])),
             })
             .collect()
+    }
+    /// Air column `c`'s lying snow, mm of water, as of the last landing: the snow's formula where no column is live.
+    pub fn lying(&self, c: usize) -> f32 {
+        self.snow.get(c).copied().unwrap_or(0.0)
+    }
+    /// What air column `c` can give the live snow, units, as of the last landing (`snow::Here::has`).
+    pub fn has(&self, c: usize) -> i64 {
+        self.has.get(c).copied().unwrap_or(0)
     }
     /// The columns per face edge.
     pub fn m(&self) -> usize {

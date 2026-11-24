@@ -103,9 +103,40 @@ pub(crate) fn shade(at: &fx::At, off: (f32, f32), half: f32, open: bool) -> Opti
     (open && r > 0.0).then(|| FxGpu { p: p.to_array(), size: r, info: fx::body_bits(at.body), angle: 0.0, a: fx::pack_dir(at.axes[1]), b: 0 })
 }
 
+/// Slabs of snow, ice or rock in eighths farther than this are not laid (the live snow's square is 33 columns).
+const SLAB_DRAWN: f64 = 48.0;
+/// Laid again when the player has moved this far from where they were laid.
+const SLAB_MOVE: f64 = 8.0;
+/// Ice's slab stands this much (cells) over its water's top, so the two surfaces never fight.
+const ICE_LIFT: f32 = 0.004;
+
+/// Every column's eighths within `SLAB_DRAWN` of `me` as a slab (ADR 0189): its block's own cell look, moved in
+/// cells (bit 19) and squashed to its height (`angle`, `vs_fx`): snow's from its cell's floor, ice's down from its
+/// water's top. Laid once a change or a move of `SLAB_MOVE`, not each frame.
+pub(crate) fn slabs(world: &World, me: DVec3) -> Vec<FxGpu> {
+    let mut out = Vec::new();
+    for (c, s) in &world.snow.seen {
+        let b = Block { body: c.body(), face: c.face(), pos: glam::IVec3::new(c.i(), c.j(), s.z) };
+        if (c.body() as usize) >= world.bodies.len() || world.block_centre(b).distance(me) > SLAB_DRAWN {
+            continue;
+        }
+        let h = s.eighths as f32 / 8.0;
+        let mid = s.top - h / 2.0 + if s.top > h { ICE_LIFT } else { 0.0 };
+        let info = fx::block_bits(s.block) | fx::body_bits(b.body) | fx::look_bits(fx::Look::Block as u32) | 1 << 19;
+        let (a, code) = fx::cell_code(fx::gpu_cell(world, b));
+        out.push(FxGpu { p: [0.0, 0.0, mid - 0.5], size: 1.0, info, angle: h, a, b: code });
+    }
+    out
+}
+
 impl App {
     /// This frame's piles: the models to `Models::frame`, the cubes laid among the particles.
     pub(crate) fn lay_piles(&mut self) {
+        if self.slabs_at.is_none_or(|p| p.distance(self.me.pos) > SLAB_MOVE) {
+            self.slabs = slabs(&self.world, self.me.pos);
+            self.slabs_at = Some(self.me.pos);
+        }
+        self.fx.lay(self.slabs.iter().copied());
         let models = &self.models;
         let (lying, still, shades) = lay(&self.world, &self.piles, self.me.pos, &|n, item, tool| models.lying_half(n, item, tool));
         self.models.piles = lying;

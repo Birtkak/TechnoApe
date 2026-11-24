@@ -39,6 +39,11 @@ impl Server {
         if self.clients[i].vitals.dead.is_some() || !self.valid_shape(shape, m, DVec3::from_array(self.clients[i].player.pos)) {
             return false;
         }
+        // a dig of one cell with snow in eighths on it takes the snow, not the block (ADR 0189)
+        // shortcut: at once, whatever the block's dig time; the snow's own once a layer is a cell a ray can hit
+        if m == AIR && shape.min == shape.max && self.world.snow.dig(Col::new(shape.body, shape.face, shape.min.x, shape.min.y), shape.min.z) {
+            return true;
+        }
         // a survival dig is taken once it was held for its time (ADR 0034), with the tool in hand (ADR 0110).
         // shortcut: the time held counts whatever was in hand meanwhile, so a tool taken up at the end of a
         // bare-hand hold digs at once; a hold per tool when that matters
