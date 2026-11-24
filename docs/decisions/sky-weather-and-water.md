@@ -144,6 +144,48 @@ constants, 2026-11-24); enough
 layers make a snow block, and deep old snow is where glaciers come from. Replaces the bake's fixed snow cover
 in new worlds once built (roadmap, the world queue's step 7).
 
+### Snow and ice in eighths: live columns near players, the formula elsewhere [draft, 2026-11-24]
+ADR 0189 built (`crates/engine/src/snow.rs`, `liquid::phases`). **Store:** a column's layer is its units of water
+(U = 4096 a block) at a density of 125 kg/m^3: an eighth is 64 units (15.6 mm of water), a block of snow 512; it
+lies on the column's top solid (`floor`) and shows `units / 64` eighths, 1 to 7. Eight eighths set the existing
+`snow` block in the floor's cell (its 512 units still the layer's, `packed`) and the next layer lies on it; melting
+down to a packed block takes it back. Only the server keeps it, and only where it differs from the formula: the
+**live set** is every column within 16 (`LIVE`) of a player's feet on body 0 (33 x 33 = 1089 a player); elsewhere the
+depth is the formula, the live air grid's lying snow (`Weather::snow`, mm of water a 128 m cell). Joining, a column
+takes the formula's whole units (under a block) from that cell's lying snow; leaving, it gives back its layer (a
+packed block stays a block, still lent). **Counted water:** fall takes `rain` (mm/h, where the column's air is under 0 C) from the same
+cell's lying snow, then its soil; melt soaks into the cell's soil (not stored water: a layer melts to no puddle);
+sublimation goes to `vapour`. A forced weather (`/weather snow`, for filming) lays and melts the live columns'
+snow by its rain and temperature too; the grid and the water's heat stay the air's own. What a column takes or gives is booked `owed` to its air cell and settled at the
+weather's next landing (`Weather::tick_owing`), so the water ledger adds held less lent and the air's ledger lent
+less owed, both 0 through fall, melt, sublimation, leaving and joining (`snow_tests.rs`). **Heat** (the two
+constants, no pace of its own): melt is h(T_air) (T_air - 0) / L_f a second (L_f a unit as the water's), with no sun,
+shade or ground term; under the triple point it sublimates as open ice does (`Phases::sublimation`, factored out of
+`thaw`). By hand: an eighth at +5 C in still air goes in 64 x 1631 / (87.8 x 5) = 238 s of play (real heat is 300
+times slower: 20 h); an hour of the grid's heavy snowfall (3 mm/h) lays 12.3 units, a fifth of an eighth, so the
+first eighth shows after 5.2 h (falling snow on the live grid is a matter of hours to an eighth). **Ice in eighths:**
+a water node under freezing air shows its freezing progress as ice eighths on its surface (`Liquids::ice_layers`,
+floor(frac / 512), at most 7, its units still water in the node) and eight become the ice block as before; so 0195's
+"less than a block never freezes" no longer holds: a third of a block freezes in eighths and melts back to exactly its
+units. Lava's crust is not shown in layers (it needs its own store; not a few lines). **The player:** feet in a
+layer sink to the ground under it and walk slower by `DRAG` = 0.5 of its depth (3 eighths: 0.81 of the pace); a
+packed block is solid and stood on; a dig of the cell over a layer takes the layer, its water soaking in, and gives no
+item; the look-at panel names "Snow" (or "Ice") and "N eighths deep, on <block>". **Wire:** `ToClient::Layers` (the
+last variant) carries the changed columns once a second, every shown one on join; an older client never gets it from
+an older server and a newer client joining an older server simply sees none. **Save:** a sixth tail after the crust,
+written only when something is held, so a world without snow writes the bytes it did. **Drawing:** a slab of the
+layer's height through the fx particle pipeline (Look::Block, the layer's block texture, z scaled), the 48 nearest,
+rebuilt when a change arrives or the player moves 8 m; no remesh. Per second the server looks at the live columns
+(a `here` per column: the weather at its air cell) and steps each; work is a few hundred nanoseconds a column.
+Alternatives rejected: layers as blocks with a height (a block id per eighth: 8 rows a material, and the mesher's
+cube faces); snow as stored fluid (`Liquids` is a gap fluid that flows; snow stays put); a live set as large as the
+streamed view (the per-second work would grow with the view, not the players).
+Shortcuts named in the code: the face edge cuts the live set (columns over a cube-face seam are not live); fall is judged by the column's air but taken from the cell's lying snow
+then its soil; no sun, shade, wind or slope; the join is capped under a block (a deep formula drift shows as 7
+eighths); partial ice is not walked on; slabs are not in the ray-traced scene; a packed block buries a plant there;
+a dig takes a whole layer at once.
+Open: the formula's own snow (the bake's fixed cover) stays as it is until the formula follows the live grid.
+
 ### Fluids are rows; lava, with no mixing [0186, 2026-11-23]
 `data/fluids.toml` (`crates/engine/src/fluids.rs`, built in): a row a fluid, its place its kind (row 0 water,
 rows only added at the end): `name`, `density` (kg/m3), `viscosity` (a whole number), `colour`, `light` (as a
@@ -349,8 +391,8 @@ different fluids, the denser keeps the gap".
   ice block's melt so far is not saved (a reload starts it again, its units kept; every ice edit and its neighbours
   are followed again on load). No version moves; a world where water neither froze nor boiled writes the very bytes
   it did, and its water steps to the bit as before (a hashed trace). Clients see the ice through the edits.
-- **Shortcuts named in the code:** a block of ice is U units (real ice 1.09 blocks); less than a block of water never
-  freezes (until partial layers, ADR 0189), and in no air what is short of a block boils at once; stored sea does not
+- **Shortcuts named in the code:** a block of ice is U units (real ice 1.09 blocks); less than a block of water froze
+  unseen until the draft "Snow and ice in eighths" (now it shows in eighths), and in no air what is short of a block boils at once; stored sea does not
   freeze (until ice by physics); water under a cave's roof or under another layer takes no part; the water under ice
   is one temperature; no heat between columns or layers; water's heat is not mixed as it flows; water beside an ice
   block gives it no heat; ice under freezing air keeps; Earth's air on every body; every stored water node is looked at

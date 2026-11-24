@@ -120,7 +120,8 @@ the debt is `docs/perf-debt.md`. The story is `docs/design/lore.md`.
      (fumaroles, hot springs) and their rocks (obsidian, scoria, pumice, sulfur).
   6. Ground water: a water table, wet caves (rivers, lakes, dripstone), springs (spike: `prototypes/ground-water`).
   7. Ice by physics (the sheet's thickness, glaciers) and snow that falls and lies as counted water, in thin
-     layers of a block that build and melt (ADR 0189).
+     layers of a block that build and melt (ADR 0189). Snow and ice in eighths built (draft "Snow and ice in
+     eighths", 2026-11-24: live columns near players, the formula elsewhere); the sheet's thickness and glaciers open.
   8. Gases near the ground (steam, smoke, heavy gas in hollows; spike: `prototypes/near-gas`), then fire that
      spreads. With it, heat in materials (the developer, 2026-11-24): each block's row says how well it
      conducts, stores and radiates heat; a wall stops or leaks a source's heat by its material, the air of a

@@ -60,6 +60,16 @@ const FORGET_M: f64 = 32.0;
 /// temperature, hardness, the tool it wants and what else it is; a fluid's name (sea water by the sea's salt), its
 /// temperature and depth.
 pub(crate) fn looked(w: &World, look: edit::Look, live: Option<f64>) -> Looked {
+    // snow, ice or rock in eighths lying on the block aimed at, or on the fluid's cell (ADR 0189's draft): named first,
+    // with its depth in eighths and what it lies on
+    let (b, on, under) = match look {
+        edit::Look::Block(b) => (b, 1, BLOCKS.get(w.block(b)).map_or("?".to_string(), |d| d.name.clone())),
+        edit::Look::Fluid(b, k) => (b, 0, engine::fluids::FLUIDS.now().get(k).name.clone()),
+    };
+    if let Some(s) = w.snow.seen.get(&World::col(b)).filter(|s| s.z == b.pos.z + on) {
+        let name = BLOCKS.get(s.block).map_or("?".to_string(), |d| capital(&d.name));
+        return Looked { what: look, name, note: format!("{} eighths deep, on {under}", s.eighths) };
+    }
     match look {
         edit::Look::Block(b) => {
             let m = w.block(b);
