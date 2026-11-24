@@ -10,9 +10,9 @@ impl Server {
     pub fn baked(planet_n: i32, moon_n: i32, seed: i32, accept: Receiver<ServerLink>) -> Server {
         Server::with_world(World::baked(planet_n, moon_n, seed), seed, accept)
     }
-    /// `baked` on the block grid warped by `warp` (the conformal grid's trial, ADR 0131; `warp=`). The warp is in
-    /// no save and no message: a client must be given the same `warp=`. `gen`: the world's generation (`Body::gen`),
-    /// the newest unless `gen=` or `mantle=0` (`gen_arg`); the save and the welcome say it.
+    /// `baked`, the world of generation `gen` (`Body::gen`): the newest unless `gen=` or `mantle=0` (`gen_arg`); the
+    /// save and the welcome say it, and the block grid follows from it (`world::grid_warp`, ADR 0131). `warp`
+    /// warps the grid of a world of an earlier generation (tests; it is in no save).
     pub fn baked_warp(planet_n: i32, moon_n: i32, seed: i32, warp: f64, gen: u8, accept: Receiver<ServerLink>) -> Server {
         let lazy = World::with_grid_lazy(planet_n, moon_n, seed, Some(engine::bake::get_at(seed, planet_n, gen)), Some(engine::bake::luna::get(seed, moon_n)), warp, gen, true);
         Server::with_world(lazy, seed, accept)

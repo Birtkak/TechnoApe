@@ -113,7 +113,9 @@ fn baked_tubes(b: &engine::world::Body) -> String {
     let at = |c: u32| {
         let c = c as usize;
         let (f, i, j) = (c / (m * m), c % m, (c / m) % m);
-        b.dir(f, (i as f64 + 0.5) * k, (j as f64 + 0.5) * k) * b.radius
+        // (the map's cell in the block grid, which the warp moves, ADR 0131)
+        let (ci, cj) = b.unwarp_col((i as f64 + 0.5) * k, (j as f64 + 0.5) * k);
+        b.dir(f, ci, cj) * b.radius
     };
     // a chain breaks where the next ball is farther than three of its radii (the next tube)
     let (mut lengths, mut len, mut pits) = (Vec::new(), 0.0, 0);

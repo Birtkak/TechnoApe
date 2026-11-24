@@ -1514,6 +1514,50 @@ fn a_client_told_generation_1_2_or_3_builds_that_worlds_rock() {
     assert!(arc > 50 && other > 10_000, "{arc} arc columns differ, {other} others the same");
 }
 
+/// The grid follows from the generation (ADR 0131, `world::CONFORMAL`): a world of 13 is on the conformal grid, one of
+/// 12 on the old one; a client told the generation builds the server's grid (the same block at the same place, the
+/// same ground), and a save and its reload keep it.
+#[test]
+fn the_grid_follows_the_generation_through_the_welcome_and_the_save() {
+    use engine::world::{grid_warp, CONFORMAL};
+    for gen in [CONFORMAL - 1, CONFORMAL] {
+        let (tx, rx) = channel();
+        let mut s = Server::baked_warp(256, 64, 3, 0.0, gen, rx);
+        let (c, sv) = local();
+        tx.send(sv).unwrap();
+        s.tick();
+        let (seed, bodies, told) = drain(&c)
+            .into_iter()
+            .find_map(|m| match m {
+                ToClient::Welcome { seed, bodies, gen, .. } => Some((seed, bodies, gen)),
+                _ => None,
+            })
+            .expect("a welcome");
+        assert_eq!(told, gen);
+        // as the client does on a welcome (lib.rs): every body of its size and map, by the generation told
+        let rows = engine::bodies::of(told);
+        let list = bodies.iter().enumerate().map(|(i, &(n, _))| (n, (i == 0).then(|| engine::bake::get_at(seed, n, told)))).collect();
+        let w = World::of(rows, list, seed, 0.0, told);
+        let back = Server::from_save(Save::from_bytes(&s.snapshot().to_bytes()).unwrap(), channel().1);
+        for (k, b) in s.world.bodies.iter().enumerate() {
+            assert_eq!(b.warp, grid_warp(gen), "generation {gen}: body {k}'s warp");
+            assert_eq!((w.bodies[k].warp, back.world.bodies[k].warp), (b.warp, b.warp), "generation {gen}: body {k}: the client's and the reload's warp");
+        }
+        // the same place is the same block, the same ground under it, on the server, the client and the reload
+        let b = &s.world.bodies[0];
+        let n = b.n as f64;
+        for (f, i, j) in [(0, n / 2.0, n / 2.0), (1, n - 0.7, n / 2.0), (2, n * 0.8, n * 0.3), (4, 3.3, 2.6)] {
+            let d = b.dir(f, i, j);
+            let p = b.centre + d * b.top(d);
+            let at = s.world.block_at(p);
+            assert_eq!((w.block_at(p), back.world.block_at(p)), (at, at), "generation {gen}: at face {f} ({i}, {j})");
+            assert_eq!((w.block(at), back.world.block(at)), (s.world.block(at), s.world.block(at)));
+            assert_eq!(w.bodies[0].col_height(at.face, at.pos.x, at.pos.y).to_bits(), b.col_height(at.face, at.pos.x, at.pos.y).to_bits());
+        }
+        assert_eq!(back.world.hash(), s.world.hash(), "generation {gen}: the reload is the same world");
+    }
+}
+
 /// A recording from the seed replays on the grid and by the generation it was made by (ADR 0152; ADR 0160-generation-number-and-arc-basalt):
 /// generation 0 on the old floor, 1 and 2 on the deep grid, 2 with its own ground; a dig in each at the same cell.
 #[test]

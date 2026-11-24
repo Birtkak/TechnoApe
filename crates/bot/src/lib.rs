@@ -150,8 +150,6 @@ pub struct Bot {
     pub name: String,
     pub link: Link<ToServer, ToClient>,
     pub world: Option<World>,
-    /// The block grid's warp (ADR 0131's trial): the server's, given by hand (`warp=`), set before the welcome.
-    pub warp: f64,
     /// The feet: where the server has this bot, or where it put itself with `spawn`.
     pub pos: DVec3,
     pub players: usize,
@@ -202,15 +200,15 @@ pub struct Bot {
     /// Its journal's entries not unknown, as the server last told them (draft ADR journal-data).
     pub journal: std::collections::BTreeMap<String, engine::journal::State>,
     /// What it shares with the bots of its driver (`Shared`), and the welcome it had (`Welcome`'s seed, bodies,
-    /// generation, and the warp)
+    /// generation, which says the grid)
     shared: Shared,
     welcome: Option<Welcome>,
     /// Bodies loaded on approach whose map this build cannot make (another build's): they stay stubs
     failed: Vec<usize>,
 }
 
-/// A world told apart by its welcome: seed, every body's columns and map hash, generation, warp's bits.
-type Welcome = (i32, Vec<(i32, Option<u64>)>, u8, u64);
+/// A world told apart by its welcome: seed, every body's columns and map hash, generation (the grid's too, ADR 0131).
+type Welcome = (i32, Vec<(i32, Option<u64>)>, u8);
 
 /// What the bots of one driver share (run=sim's 50, technoape-bot's n=): the world of the last welcome, kept
 /// fresh, so a bot welcomed to the same starts from its bodies (`World::fresh`) instead of building them again,
@@ -251,7 +249,7 @@ impl Bot {
     /// A bot sharing its world's bodies with the others of `shared` (one driver's bots)
     pub fn sharing(name: &str, link: Link<ToServer, ToClient>, shared: &Shared) -> Bot {
         link.send(ToServer::Hello { name: name.to_string() });
-        Bot { name: name.into(), link, world: None, warp: 0.0, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default(), furnace: None, vitals: (20, 20, 20, 20), marks: (None, None), drinking: None, journal: Default::default(), shared: shared.clone(), welcome: None, failed: Vec::new() }
+        Bot { name: name.into(), link, world: None, pos: DVec3::ZERO, players: 0, edits_applied: 0, refused: 0, slots: Vec::new(), seq: 0, id: 0, flying: false, ticks: 0, heard: Instant::now(), target: None, last_dist: 0.0, notes: Vec::new(), air: None, idle_until: None, start: Instant::now(), creative: true, digging: None, hand: 0, sprint: false, asking: None, kinds: Vec::new(), animals: Default::default(), furnace: None, vitals: (20, 20, 20, 20), marks: (None, None), drinking: None, journal: Default::default(), shared: shared.clone(), welcome: None, failed: Vec::new() }
     }
 
     /// The tick `s` seconds of the server's time from now.
@@ -290,7 +288,7 @@ impl Bot {
                     // client does once a bot on a remote server goes to a body this PC has no map of
                     // bots of one driver welcomed to the same world share its bodies (`Shared`): run=sim's 50 built
                     // them 50 times, 0.7 s each on their thread, with the frames being timed
-                    let key = (seed, bodies.clone(), gen, self.warp.to_bits());
+                    let key = (seed, bodies.clone(), gen);
                     let w = match self.shared.world(&key) {
                         Some(w) => w,
                         None => {
@@ -303,7 +301,7 @@ impl Bot {
                                     h => (n, engine::world::Source::Now(h.map(|h| engine::net::fetch_map(&mut self.link, seed, n, h).unwrap_or_else(|e| panic!("{e}"))))),
                                 })
                                 .collect();
-                            let w = World::of_sources(rows, list, seed, self.warp, gen);
+                            let w = World::of_sources(rows, list, seed, 0.0, gen);
                             self.shared.keep(key.clone(), &w);
                             w
                         }
@@ -1165,6 +1163,68 @@ mod tests {
         eprintln!("swam {crossed:.2} m in {n} ticks ({secs:.2} s)");
         assert!(bot.notes.iter().all(|l| !l.contains("gave up")) && crossed > 14.0, "{crossed} m in {n} ticks: {:?}", bot.notes);
         assert!(secs < 15.0 / phys::SWIM_SLOW, "faster than the slow swim: {secs} s");
+    }
+
+    /// On the conformal grid (generation 13, ADR 0131) a bot walks over a face edge and through a cube corner, where
+    /// three faces meet and the blocks are smallest: it gets there, stands in no block and is on the ground.
+    #[test]
+    fn a_bot_walks_over_a_face_edge_and_through_a_corner_on_the_conformal_grid() {
+        let world = Server::baked_warp(256, 64, 3, 0.0, engine::world::CONFORMAL, channel().1).world;
+        let b = &world.bodies[0];
+        assert_eq!(b.warp, 1.0);
+        let n = b.n as f64;
+        // a way through a point of the grid's edges, from `inside` columns in on face f to as far past it, on land
+        let sea = b.radius - engine::world::SEA_DEPTH + 1.0;
+        let dry = |d: DVec3| b.top(d) > sea;
+        let way = |f: usize, at: (f64, f64), from: (f64, f64)| {
+            let (p, a) = (b.dir(f, at.0, at.1), b.dir(f, from.0, from.1));
+            let to = (p * 2.0 - a).normalize();
+            // (and gentle: no ledge over a jump on the way)
+            let tops: Vec<f64> = (0..=12).map(|k| b.top(a.lerp(to, k as f64 / 12.0).normalize())).collect();
+            let level = tops.iter().fold(f64::MIN, |m, &t| m.max(t)) - tops.iter().fold(f64::MAX, |m, &t| m.min(t)) < 2.0 && tops.windows(2).all(|w| (w[1] - w[0]).abs() < 0.8);
+            (dry(a) && dry(p) && dry(to) && level).then_some((a, to))
+        };
+        // over a face edge, 6 columns either side, near some edge's middle; through a cube corner diagonally, from 5
+        // columns inside both of a face's edges there to as far beyond (where the corner's other two faces meet)
+        let edge = (0..6)
+            .flat_map(|f| (0..b.n - 32).flat_map(move |k| {
+                // (from the edge's middle out)
+                let k = n / 2.0 + if k % 2 == 0 { 1.0 } else { -1.0 } * (k / 2) as f64;
+                [((n, k), (n - 6.0, k)), ((0.0, k), (6.0, k)), ((k, n), (k, n - 6.0)), ((k, 0.0), (k, 6.0))].map(move |e| (f, e))
+            }))
+            .find_map(|(f, (at, from))| way(f, at, from))
+            .expect("land over an edge");
+        let corner = (0..6).flat_map(|f| [(0.0, 0.0), (n, 0.0), (0.0, n), (n, n)].map(move |c| (f, c))).find_map(|(f, (ci, cj))| way(f, (ci, cj), (ci + if ci == 0.0 { 5.0 } else { -5.0 }, cj + if cj == 0.0 { 5.0 } else { -5.0 }))).expect("land at a corner");
+        for (name, (from, to)) in [("edge", edge), ("corner", corner)] {
+            let (tx, rx) = channel();
+            let mut s = Server::baked_warp(256, 64, 3, 0.0, engine::world::CONFORMAL, rx);
+            let (c, sv) = local();
+            tx.send(sv).unwrap();
+            let mut bot = Bot::new(name, c);
+            let tick = |b: &mut Bot, s: &mut Server, n: usize| {
+                for _ in 0..n {
+                    b.tick();
+                    s.tick();
+                }
+            };
+            tick(&mut bot, &mut s, 20);
+            let at = b.centre + from * (b.top(from) + 1.0);
+            let goal = b.centre + to * b.top(to);
+            bot.exec(&Cmd::Spawn(at));
+            tick(&mut bot, &mut s, 40);
+            bot.exec(&Cmd::Walk(goal - bot.pos));
+            let mut k = 0;
+            while bot.target.is_some() && k < 2000 {
+                tick(&mut bot, &mut s, 1);
+                k += 1;
+            }
+            tick(&mut bot, &mut s, 30);
+            let w = bot.world.as_ref().unwrap();
+            let up = phys::up(w, bot.pos);
+            let off = (bot.pos - goal).reject_from(up).length();
+            assert!(bot.notes.iter().all(|l| !l.contains("gave up")) && off < 1.5, "{name}: {off:.2} m short of the goal after {k} ticks: {:?}", bot.notes);
+            assert!(!phys::blocked(w, bot.pos) && phys::blocked(w, bot.pos - up * 0.05), "{name}: feet on the ground at {:?}", bot.pos);
+        }
     }
 
     #[test]
