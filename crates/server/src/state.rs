@@ -146,6 +146,7 @@ impl Server {
         water.froze = save.heat.1.iter().copied().collect();
         (water.vapour, water.spilt, water.waiting) = (save.booked.0.iter().copied().collect(), save.booked.1.iter().copied().collect(), save.booked.2.clone());
         (water.chambers, water.erupted) = save.chambers.clone();
+        water.crust = save.crust.iter().map(|&(c, k, f, u)| ((c, k), (f, u))).collect();
         (s.made, s.removed, water.sea_extra) = (save.made, save.removed, save.sea_extra);
         water.rained = save.reaches.0;
         water.reach_extra = save.reaches.1.iter().copied().collect();
@@ -245,6 +246,7 @@ impl Server {
             booked: (self.world.water.vapour.iter().map(|(&k, &u)| (k, u)).collect(), self.world.water.spilt.iter().map(|(&k, &u)| (k, u)).collect(), self.world.water.waiting.clone()),
             kinds: self.world.water.heat_kinds(),
             chambers: (self.world.water.chambers.clone(), self.world.water.erupted),
+            crust: self.world.water.crust.iter().map(|(&(c, k), &(f, u))| (c, k, f, u)).collect(),
         }
     }
 
@@ -339,6 +341,9 @@ impl Server {
         // the same for the volcanoes' chambers (a world without a live one keeps the hashes it had)
         if !w.chambers.is_empty() {
             h = fnv(h, &postcard::to_allocvec(&(&w.chambers, w.erupted)).unwrap());
+        }
+        if !w.crust.is_empty() {
+            h = fnv(h, &postcard::to_allocvec(&w.crust).unwrap());
         }
         for c in &self.clients {
             let p = &c.phys;

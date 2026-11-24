@@ -424,7 +424,7 @@ impl Liquids {
                     None => open += 1,
                     Some((k, t)) if k != water => {
                         if let Some(hr) = rows.get(k).heat.as_ref() {
-                            src += (t - ph.tf).max(0.0) / (0.5 / (hr.conduct as f64 * HEAT_PACE));
+                            src += super::ice_face(t, ph.tf, hr.conduct);
                         }
                     }
                     Some(_) => {}

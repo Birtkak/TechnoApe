@@ -490,7 +490,7 @@ fn water_under_oil_boiled_dry_leaves_no_dry_water_layer() {
 /// Water alone, where nothing freezes or boils, is given no heat: its maths and its save are what they were.
 #[test]
 fn water_at_rest_in_mild_air_carries_nothing() {
-    let mut g = Box3::new(3, 3, 3);
+    let g = Box3::new(3, 3, 3);
     let mut w = stored(&g);
     assert!(w.pour(&g, col(1, 1), 0, U));
     for _ in 0..100 {

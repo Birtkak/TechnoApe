@@ -859,6 +859,14 @@ mod tests {
         let lava_left = w.water.counted_of(lava().0);
         eprintln!("{basalt} blocks of basalt, {:.1} m3 still lava, {:.1} m3 froze", lava_left as f64 / U as f64, w.water.froze.get(&lava().0).copied().unwrap_or(0) as f64 / U as f64);
         assert!(basalt > 0, "the flow froze to basalt");
+        // nothing frozen vanishes (the review): every unit that froze is a block set, a block waiting for its cell, or
+        // a column's remainder under a block
+        let froze = w.water.froze.get(&lava().0).copied().unwrap_or(0);
+        let waiting = w.water.waiting.iter().filter(|x| x.2 == lava().0).count() as i64;
+        let rest: Vec<i64> = w.water.crust.iter().filter(|x| x.0 .1 == lava().0).map(|x| x.1 .1).collect();
+        eprintln!("{} columns hold {} units short of a block", rest.len(), rest.iter().sum::<i64>());
+        assert!(rest.iter().all(|&u| 0 < u && u < U), "each under a block: {rest:?}");
+        assert_eq!((basalt as i64 + waiting) * U + rest.iter().sum::<i64>(), froze, "blocks and remainders are what froze, to the unit");
     }
 
     /// It ends because the melt is spent, not on a timer: twice the melt over its rest pours twice as long.
@@ -1076,7 +1084,14 @@ mod tests {
         }).collect();
         // the basin's floor two layers over the highest ground of it and its four neighbours
         let floor = |i: i32, j: i32| ring(i, j).iter().map(|&(a, e)| air(a, e)).fold(air(i, j), i32::max) + 2;
-        let &(bi, bj) = near.iter().find(|&&(i, j)| b.heat(f, i, j, floor(i, j) as f64 + 1.5).unwrap() > 150.0).expect("air over the flank heated over 150 C");
+        // (on ground that holds no generated water, itself or its ring: water on its own hot ground beside the basin
+        // would boil by right, and the proof is that none boils by the basin)
+        let g0 = Solid::at(&w0.bodies, &w0.edits, &w0.sky, w0.time);
+        let wet = |i: i32, j: i32| std::iter::once((i, j)).chain(ring(i, j)).any(|(a, e)| {
+            let (lo, hi) = crate::liquid::Ground::generated(&g0, Col::new(0, f, a, e));
+            lo < hi
+        });
+        let &(bi, bj) = near.iter().find(|&&(i, j)| !wet(i, j) && b.heat(f, i, j, floor(i, j) as f64 + 1.5).unwrap() > 150.0).expect("air over the flank heated over 150 C");
         let dry = |i: i32, j: i32| std::iter::once((i, j)).chain(ring(i, j)).all(|(a, e)| b.col_caves(f, a, e).is_empty() && b.lava_col(f, a, e).is_empty());
         let deep = |i: i32, j: i32| b.heat(f, i, j, air(i, j) as f64 - 2.5).unwrap();
         let &(di, dj) = near.iter().filter(|&&(i, j)| dry(i, j)).max_by(|x, y| deep(x.0, x.1).total_cmp(&deep(y.0, y.1))).unwrap();
@@ -1111,19 +1126,45 @@ mod tests {
                 let h = crate::liquid::Therm { t: 95.0, age: 0.0, frac: 0.0, solid: 0 };
                 water.restore_heat(&g, &[(col, z0, h)], &[crate::fluids::WATER]);
             }
-            // (its own node and heat: generated water the edits cut off under the basin is stored too, and on the hot
-            // flank's own rock boils at the pace, so only this column's water is judged)
-            let mut held = Vec::new();
+            // (generated water the edits cut off is stored too; where it lies on the flank's own hot rock it boils, and
+            // every unit of vapour must be shown to come from such a column, none from the basin or its ring)
+            let water_of = |w: &World| -> std::collections::BTreeMap<Col, (i64, i32)> {
+                let mut m = std::collections::BTreeMap::new();
+                for (c, gaps) in w.water.all() {
+                    for (floor, _, v) in gaps {
+                        let (kind, units) = ((v >> 56) as u8, v & ((1 << 56) - 1));
+                        if kind == crate::fluids::WATER && units > 0 {
+                            let e = m.entry(c).or_insert((0, floor));
+                            e.0 += units;
+                        }
+                    }
+                }
+                m
+            };
+            let before = water_of(&w);
+            let (mut held, mut boiled_at) = (Vec::new(), std::collections::BTreeSet::new());
             for _ in 0..300 {
                 w.cool_fluids_in(600.0, |_| false, Some(&mild));
                 held.push(w.water.heats().iter().filter(|h| h.0 == col && h.1 == z0).count());
+                boiled_at.extend(w.water.boils.drain(..).map(|b| b.0));
             }
             let vapour = w.water.vapour.get(&crate::fluids::WATER).copied().unwrap_or(0);
+            let after = water_of(&w);
+            let lost: Vec<(Col, i64, i32)> = before.iter().map(|(&c, &(u, fl))| (c, u - after.get(&c).map_or(0, |x| x.0), fl)).filter(|x| x.1 > 0).collect();
+            let near: Vec<(i32, i32)> = std::iter::once((col.i(), col.j())).chain(ring(col.i(), col.j())).collect();
+            for &(c, units, fl) in &lost {
+                let rock = w.bodies[0].heat(f, c.i(), c.j(), fl as f64 - 0.5).unwrap();
+                let generated = w.edit(Block { body: 0, face: f, pos: IVec3::new(c.i(), c.j(), fl - 1) }).is_none();
+                eprintln!("  column {},{}: {units} units boiled off rock at {rock:.0} C (generated: {generated})", c.i(), c.j());
+                assert!(boiled_at.contains(&c) && generated && rock > 100.0 && !(basin && near.contains(&(c.i(), c.j()))), "basin {basin}: column {},{} lost {units} units on {rock} C rock, generated {generated}, boiled there {}, by the basin {}", c.i(), c.j(), boiled_at.contains(&c), near.contains(&(c.i(), c.j())));
+            }
+            assert_eq!(lost.iter().map(|x| x.1).sum::<i64>(), vapour, "every unit of vapour is from those columns");
             let t = w.bodies[0].heat(f, col.i(), col.j(), z0 as f64 + 0.5).unwrap();
             eprintln!("{}: {t:.0} C where the water is, {vapour} units boiled", if basin { "the basin" } else { "the pit" });
             let here: i64 = w.water.column(col).map_or(0, |c| c.filter(|n| n.kind == crate::fluids::WATER && n.floor == z0).map(|n| n.water).sum());
             if basin {
                 assert_eq!((here, held.iter().sum::<usize>()), (units, 0), "the basin at {t} C: nothing boils, no heat held");
+                assert!(!lost.iter().any(|x| near.contains(&(x.0.i(), x.0.j()))), "nothing boiled in or beside the basin");
             } else {
                 assert!(vapour > 0 && here < units, "the pit in rock at {t} C boils: {here} units left");
             }

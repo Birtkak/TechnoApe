@@ -83,6 +83,10 @@ pub struct Save {
     /// writes the bytes it did; a save without it loads with every chamber where the seed starts it.
     #[serde(skip)]
     pub chambers: Chambers,
+    /// Frozen rock short of a block held by a column (`Liquids::crust`: (column, fluid, floor, units)): a fifth tail,
+    /// written (with the four before it) only when there is any.
+    #[serde(skip)]
+    pub crust: Vec<(engine::liquid::Col, u8, i32, i64)>,
 }
 
 /// `Liquids::chambers` and `Liquids::erupted`.
@@ -97,7 +101,7 @@ impl From<Save21> for Save {
     /// Terra and Luna, as a 21 or older names them.
     fn from(s: Save21) -> Save {
         let Save21 { version, seed, planet_n, moon_n, blocks, edits, players, water, made, removed, sea_extra, tick, map, air, reaches, luna, rain, held, gen } = s;
-        Save { version, seed, bodies: vec![(planet_n, map), (moon_n, luna)], blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen, heat: Heat::default(), booked: Booked::default(), kinds: Vec::new(), chambers: Chambers::default() }
+        Save { version, seed, bodies: vec![(planet_n, map), (moon_n, luna)], blocks, edits, players, water, made, removed, sea_extra, tick, air, reaches, rain, held, gen, heat: Heat::default(), booked: Booked::default(), kinds: Vec::new(), chambers: Chambers::default(), crust: Vec::new() }
     }
 }
 
@@ -358,7 +362,8 @@ impl Save21 {
 impl Save {
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut b = postcard::to_allocvec(self).expect("a save serialises");
-        let chambers = self.chambers != Chambers::default();
+        let crust = !self.crust.is_empty();
+        let chambers = self.chambers != Chambers::default() || crust;
         let kinds = !self.kinds.is_empty() || chambers;
         let booked = self.booked != Booked::default() || kinds;
         if self.heat != Heat::default() || booked {
@@ -372,6 +377,9 @@ impl Save {
         }
         if chambers {
             b.extend(postcard::to_allocvec(&self.chambers).expect("the chambers serialise"));
+        }
+        if crust {
+            b.extend(postcard::to_allocvec(&self.crust).expect("the crust serialises"));
         }
         b
     }
@@ -395,8 +403,16 @@ impl Save {
                                                 Ok((k, tail)) => {
                                                     s.kinds = k;
                                                     if !tail.is_empty() {
-                                                        match postcard::from_bytes(tail) {
-                                                            Ok(c) => s.chambers = c,
+                                                        match postcard::take_from_bytes(tail) {
+                                                            Ok((c, end)) => {
+                                                                s.chambers = c;
+                                                                if !end.is_empty() {
+                                                                    match postcard::from_bytes(end) {
+                                                                        Ok(c) => s.crust = c,
+                                                                        Err(e) => eprintln!("the save's frozen crust ({} bytes) unread, loaded without it: {e}", end.len()),
+                                                                    }
+                                                                }
+                                                            }
                                                             Err(e) => eprintln!("the save's volcano chambers ({} bytes) unread, loaded without them: {e}", tail.len()),
                                                         }
                                                     }

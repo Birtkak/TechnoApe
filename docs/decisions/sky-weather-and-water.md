@@ -103,10 +103,18 @@ against 0.9 m in a real three-month winter (2.6 times; it was a real winter's at
 
 Replaces: 0187 (both its paces) and the single 52.5 pace on every flow drafted earlier on 2026-11-24; 0191's "gas
 near a fire runs at real rates"; the real rates of 0193 and 0195 for lava and rock.
-Open: an eruption's 64 m3 on the small planet's cone (poured in 64 s) is 22 % frozen at 80 s, half at
-110 s and all basalt by 190 s; thin edges freeze within a minute, so a flow runs a short way down the cone; a sheet
-frozen short of a block makes no block (6 of 64 m3 there); `react` runs once a call, not by `dt`, so under `/timewarp` lava meeting water reacts slower
-than the rest; a block of ice is still U units, and its stored heat is its row's over `LIGHT` like every block's.
+A coarse step never carries a fluid's heat past its place's temperature, and it freezes only from heat taken below
+its freeze point (a thin sheet on ground over the freeze point stays liquid at any step). A fluid beside another
+fluid loses nothing through that face (the exchange is `react`'s alone); through a face on an ice block it loses
+exactly what `thaw` melts by (one function, `liquid::ice_face`, at the plain pace). A sheet frozen short of a block
+is kept by its column (`Liquids::crust`, under a block, saved as a fifth tail) and joins the next freeze there.
+Limits: `react` runs once a call, not by `dt`, so under `/timewarp` lava meeting water reacts slower than the rest.
+An eruption's flow crusts in minutes at lava's 0.5: its 64 m3 on the small planet's cone (poured in 64 s) is 22 %
+frozen at 80 s, half at 110 s and all by 190 s, so a flow runs a short way down the cone; the row's number is the
+developer's knob. Rock frozen short of a block is held unseen (shortcut until layers in eighths, ADR 0189, can show
+it). Stefan's growth in `phases` steps on the ice's thickness at the step's start, so a coarse step grows a thin
+sheet too fast (shortcut: the closed form across a step when the warp makes it matter). A block of ice is still U
+units, and its stored heat is its row's over `LIGHT` like every block's.
 
 ### Gas near the ground and fire that spreads [0191, 2026-11-23]
 The developer's calls on the near-gas spike (`prototypes/near-gas/README.md`), not built yet (roadmap, the world
