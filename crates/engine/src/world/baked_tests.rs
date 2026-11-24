@@ -2028,8 +2028,37 @@ fn air_down_a_shaft_is_the_rocks_and_at_the_ground_the_open_airs() {
     let z = b.layer_of(ground - 600.0);
     let (rock, open) = (b.heat(c.face(), c.i(), c.j(), z).unwrap() as f64, g.open_air(&a, c, z));
     let (t, p) = Ground::air(&g, c, z);
+    let want = open.0 + (rock - open.0) * (1.0 - (-(ground - b.layer_r(z)) / 30.0).exp());
     eprintln!("600 m down: the air {t:.2} C, the rock {rock:.2} C, the open air {:.2} C", open.0);
-    assert!((t - rock).abs() < 1e-9 && p == open.1, "600 m down the air is {t} C, the rock {rock} C");
+    assert!((t - want).abs() < 1e-9 && (t - rock).abs() < 1e-6 && p == open.1, "600 m down the air is {t} C, the blend {want}, the rock {rock} C");
+}
+
+/// Air in a shallow pit is the open air's, near enough (the blend's 30 m): a pond of two blocks whose top is 2 m down a
+/// pit, under -20 C air, grows its first ice block within 10 % of the time the same pond takes with its top at the
+/// ground, on the coldest dry column (where the rock's year is coldest, the pit's air is nearest the open air's).
+#[test]
+fn a_pond_two_metres_down_a_pit_freezes_as_one_at_the_surface_does() {
+    let (w0, _, _) = rock_at_least(0.0);
+    let b = w0.bodies[0].clone();
+    let n = b.n;
+    let dry = |f: u8, i: i32, j: i32| b.water_at(f, i, j).is_none_or(|w| b.layer_r(w.0) < b.col_height(f, i, j)) && b.col_caves(f, i, j).is_empty();
+    let (f, i, j) = (0..6u8).flat_map(|f| (8..n - 8).step_by(16).flat_map(move |i| (8..n - 8).step_by(16).map(move |j| (f, i, j)))).filter(|&(f, i, j)| dry(f, i, j)).min_by(|x, y| b.year_air(x.0 as usize, x.1, x.2).unwrap().total_cmp(&b.year_air(y.0 as usize, y.1, y.2).unwrap())).unwrap();
+    let c = Col::new(0, f, i, j);
+    let top = b.first_air(b.col_height(f, i, j));
+    let cold = |_: Col, _: f64| Some(-20.0);
+    let mut first = Vec::new();
+    for deep in [2, 4] {
+        let mut w = World::with_grid(1536, 32, 5, Some(MAP_1536.clone()), None, 0.0, GENERATION);
+        shaft(&mut w, c, top - deep, 2 * U);
+        let mut t = 0.0f64;
+        while w.water.froze.get(&crate::fluids::WATER).copied().unwrap_or(0) < U && t < 1e7 {
+            w.cool_fluids_in(600.0, |_| false, Some(&cold));
+            t += 600.0;
+        }
+        first.push(t);
+    }
+    eprintln!("year's air {:.1} C: the first block at the surface in {:.0} s, 2 m down a pit in {:.0} s", b.year_air(f as usize, i, j).unwrap(), first[0], first[1]);
+    assert!(first[0] < 1e7 && (first[1] / first[0] - 1.0).abs() < 0.1, "{first:?}");
 }
 
 /// Open water down a shaft on rock over its boiling point boils dry (`phases`), every unit to `vapour`, at the rate

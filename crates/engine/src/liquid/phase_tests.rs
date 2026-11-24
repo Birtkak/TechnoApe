@@ -146,6 +146,78 @@ fn water_sealed_in_on_held_rock_boils_dry_at_the_floor_and_walls_steady_rate() {
     assert!((t / hand - 1.0).abs() < 0.1, "dry in {t} s, by hand {hand} s");
 }
 
+/// A 3 x 3 box of rock held at `rock` C with a shaft down its middle, open to air at `air` C: its floor and four walls
+/// rock, `units` of water poured at its foot.
+fn shaft(rock: f32, air: f64, units: i64) -> (Box3, Liquids) {
+    let mut g = Box3::new(3, 3, 4);
+    g.fill(0..3, 0..3, 0..4, true);
+    g.fill(1..2, 1..2, 0..4, false);
+    (g.heat, g.air, g.pace) = (rock, (air, ATM), pace());
+    let mut w = stored(&g);
+    assert!(w.pour(&g, col(1, 1), 0, units));
+    (g, w)
+}
+
+/// The held rock's conductance to water d m deep in `shaft`'s, W/K: the floor's and the four walls' (half a block of
+/// rock, 0.25 m^2 K/W, and half the water's depth or half a block of it).
+fn held(ph: &Phases, d: f64) -> f64 {
+    1.0 / (0.25 + d * 0.5 / ph.k) + 4.0 * d / (0.25 + 0.5 / ph.k)
+}
+
+/// Water on rock held over its boiling point that cannot reach it: in a shaft on 120 C rock under open air at -5 C its
+/// steady heat, (G_rock 120 + h (-5)) / (G_rock + h), is about 30 C, so it rests there: no heat entry is ever held
+/// (it is not stepped every second for ever), nothing boils, nothing freezes.
+#[test]
+fn water_on_held_rock_whose_steady_heat_is_under_boiling_rests_with_no_heat() {
+    let units = U + U / 3;
+    let (g, mut w) = shaft(120.0, -5.0, units);
+    let ph = Phases::water();
+    let (gr, ga) = (held(&ph, units as f64 / U as f64), ph.h(-5.0, ATM));
+    eprintln!("its steady heat {:.1} C", (gr * 120.0 - ga * 5.0) / (gr + ga));
+    for k in 0..310 {
+        assert!(w.cool(&g, 600.0).is_empty(), "nothing freezes");
+        assert!(k < 10 || w.heats().is_empty(), "settled, it holds no heat at step {k}: {:?}", w.heats());
+    }
+    assert_eq!((w.total(), w.vapour.get(&0).copied().unwrap_or(0)), (units, 0), "nothing boiled");
+}
+
+/// Open water in a shaft on rock held at 400 C under 20 C air boils at the rate its steady heat T* gives,
+/// (G_rock(d) + h) (T* - 100) with h at the real rate (a source drives it), down to the depth where T* is its boiling
+/// point (with `REST_K`): there it rests and drops its heat. By hand: from 4/3 to 1 block in the integral of
+/// rho Lv / ((G_rock + h)(T* - 100)) over d, and the rest at G_rock(d) (400 - 100.5) = h (100.5 - 20), about 0.83 m.
+#[test]
+fn open_water_on_held_rock_boils_at_its_steady_heats_rate_down_to_where_it_rests() {
+    let units = U + U / 3;
+    let (g, mut w) = shaft(400.0, 20.0, units);
+    let ph = Phases::water();
+    let ga = ph.h(20.0, ATM);
+    let net = |d: f64| held(&ph, d) * (400.0 - 100.0) - ga * (100.0 - 20.0);
+    let (n, d0) = (10_000, units as f64 / U as f64);
+    // (it comes at the air's 20 C and warms first: rho c d / G ln((T* - 20) / (T* - 100)), G = G_rock + h)
+    let (gs, ts) = (held(&ph, d0) + ga, (held(&ph, d0) * 400.0 + ga * 20.0) / (held(&ph, d0) + ga));
+    let warm = d0 * U as f64 * ph.c / gs * ((ts - 20.0) / (ts - 100.0)).ln();
+    let hand: f64 = warm + (0..n).map(|k| U as f64 * ph.lv / net(1.0 + (k as f64 + 0.5) * (d0 - 1.0) / n as f64) * (d0 - 1.0) / n as f64).sum::<f64>();
+    let rest = (0..100_000).map(|k| k as f64 * 1e-5 * d0).find(|&d| held(&ph, d) * (400.0 - 100.5) >= ga * (100.5 - 20.0)).unwrap();
+    let (dt, mut t, mut at) = (600.0, 0.0, None);
+    while (w.total() == units || !w.heats().is_empty()) && t < 1e8 {
+        assert!(w.cool(&g, dt).is_empty(), "nothing freezes");
+        assert_eq!(ledger(&w), units, "every unit booked at {t} s");
+        t += dt;
+        if at.is_none() && w.total() <= U {
+            at = Some(t);
+        }
+    }
+    let at = at.expect("it boiled down to a block");
+    let left = w.total() as f64 / U as f64;
+    eprintln!("to a block in {at:.0} s, by hand {hand:.0} s; at rest at {left:.3} m after {t:.0} s, by hand {rest:.3} m");
+    assert!((at / hand - 1.0).abs() < 0.1, "to a block in {at} s, by hand {hand} s");
+    assert!(w.heats().is_empty() && (left - rest).abs() < 0.02, "at rest {left} m deep, by hand {rest} m, heats {:?}", w.heats());
+    for _ in 0..300 {
+        w.cool(&g, dt);
+        assert!(w.heats().is_empty(), "at rest it stays so");
+    }
+}
+
 /// The boiling point by the place's pressure (the spike's table): 100 C at one atmosphere, 93.75 on a 1 km peak of
 /// Terra at 19.62 m/s^2 (79,9 kPa), 1.96 at 700 Pa; under the triple point (Mars's 608 Pa) ice goes straight to gas
 /// under its freeze point; in no air at absolute zero.

@@ -102,9 +102,11 @@ spans the three: a block is U units, and ice + water + vapour of a world is one 
   a heat source beside it (fire, furnace, lava, the deep rock's heat: `Body::heat`, the geotherm of generation 11,
   about 300 C at 650 m under an arc on the 4 km planet), and pressure for the boiling point (thin air
   on Mars or a peak boils water colder; no air boils it at once, so ice there goes straight to vapour). The air in a
-  shaft or cave is the rock's round it, blending from the open air's over the first few metres (the damping depth of
-  the year's wave, 2.9 m), and rock held at its heat gives water steadily through its floor and walls (ADR 0195, "Open
-  water boils on held rock"): a pool down a shaft below the depth where rock passes 100 C boils off.
+  shaft or cave is the rock's round it, blending from the open air's with depth (1 - exp(-depth / 30 m): a pit keeps
+  the open air's weather, a deep shaft the rock's), and the planet's own rock held at its heat gives water steadily
+  through its floor and walls (ADR 0195, "Open water boils on held rock"): water boils only where those flows and the
+  open air's settle it over its boiling point, else it rests; a pool down a shaft below the depth where rock passes
+  100 C boils off.
 - **Rates, not switches:** a change moves units a step by how far the temperature is past the point and how much
   heat can flow, so a lake freezes from the top over nights, an ice block drips, a pot takes time to boil.
 - **Two paces** (ADR 0187): heat exchanged with the air and sky runs faster by the year's compression (a real

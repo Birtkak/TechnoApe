@@ -12,10 +12,12 @@ pub struct Solid<'a> {
     pub air: Option<Air<'a>>,
 }
 
-/// The damping depth of the year's heat wave in rock, m: sqrt(kappa P / pi) with the rock's diffusivity kappa =
-/// k / (rho c) = 2.0 / (2700 x 900) m^2/s (`liquid::ROCK_EFFUSIVITY`'s rock) and the real year P (heat with the air
-/// runs at the real year's rates, ADR 0187): 2.87 m. Three of it down, the air in a hollow is 95 % the rock's.
-const DAMP_M: f64 = 2.875;
+/// How far down a hollow the open air's reach runs, m: the air there is 1 - exp(-depth / this) the rock's (2 m down
+/// 6 %, 100 m down 96 %). Air in a hole open upward trades with the sky by convection far deeper than the rock's own
+/// seasonal wave (2.9 m), so a pond in a pit or a quarry keeps the open air's weather.
+/// shortcut: one length standing in for the shaft's convection with the open air; a rule of the hollow's width and
+/// depth once near-ground gas (ADR 0191) is built.
+const AIR_REACH_M: f64 = 30.0;
 
 /// The air over the ground at a moment, for water's phases: the sky (its year sets ADR 0187's pace, its sun the
 /// season and the hour), and the temperature at a place where a live air grid gives it (the server's weather), else
@@ -36,10 +38,8 @@ impl<'a> Solid<'a> {
         Solid { bodies, edits, tide, air: None }
     }
     /// The air at layer z of column c, C and Pa (`Ground::air`): over the ground the weather's (`open_air`); in a
-    /// hollow under it the rock's round it (`Body::heat`), blended from the open air's as the year's wave in the rock
-    /// dies down with depth, 1 - exp(-depth / `DAMP_M`). The pressure is the open air's at that height.
-    /// shortcut: the air in a shaft or cave is taken at its walls'; its convection with the open air through the
-    /// shaft's mouth is not followed (an air grid under the ground, liquids.md step 6).
+    /// hollow under it the rock's round it (`Body::heat`), blended from the open air's by depth under the column's
+    /// generated ground, 1 - exp(-depth / `AIR_REACH_M`). The pressure is the open air's at that height.
     pub(super) fn air_at(&self, a: &Air, c: Col, z: f64) -> (f64, f64) {
         let (t, p) = self.open_air(a, c, z);
         let b = &self.bodies[c.body() as usize];
@@ -47,7 +47,7 @@ impl<'a> Solid<'a> {
         if !b.air || under <= 0.0 {
             return (t, p);
         }
-        b.heat(c.face(), c.i(), c.j(), z).map_or((t, p), |rock| (t + (rock as f64 - t) * (1.0 - (-under / DAMP_M).exp()), p))
+        b.heat(c.face(), c.i(), c.j(), z).map_or((t, p), |rock| (t + (rock as f64 - t) * (1.0 - (-under / AIR_REACH_M).exp()), p))
     }
     /// The open air at layer z of column c, C and Pa: the weather's, or the baked climate's (the air at every layer
     /// before ADR 0195's open water on held rock, 2026-11-24).
@@ -146,6 +146,10 @@ impl Ground for Solid<'_> {
     }
     fn heat(&self, c: Col, z: f64) -> f32 {
         self.bodies[c.body() as usize].rest_heat(c.face(), c.i(), c.j(), z)
+    }
+    fn held(&self, c: Col, z: i32) -> bool {
+        // generated ground only: a block placed over it, a plant or ice is not held at the rock's heat
+        z < self.gen_floor(c) && !self.ice(c, z)
     }
     fn air(&self, c: Col, z: f64) -> (f64, f64) {
         match &self.air {
