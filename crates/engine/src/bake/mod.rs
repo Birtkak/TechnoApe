@@ -854,7 +854,7 @@ mod tests {
     use super::*;
 
     fn small() -> Map {
-        let mut m = Map { seed: 1, n: 64, m: 8, h: (0..384).map(|c| (c % 8) as f32).collect(), biome: vec![3; 384], rock: vec![1; 384], ..Map::empty() };
+        let mut m = Map { seed: 1, n: 64, m: 8, h: (0..384).map(|c| (c % 8) as f32).collect(), biome: vec![3; 384], rock: vec![1; 384], table: (0..384).map(|c| (c % 8) as f32 - 1.0).collect(), ..Map::empty() };
         m.finish(&m.to_bytes());
         m
     }

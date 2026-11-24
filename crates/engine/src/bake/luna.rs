@@ -642,9 +642,9 @@ mod tests {
         let back = Map::from_bytes(&a.to_bytes()).unwrap();
         assert_eq!((back.hash, back.version, &back.tubes, &back.biome), (a.hash, VERSION, &a.tubes, &a.biome));
         assert_ne!(VERSION, super::super::VERSION);
-        // a Terra map's bytes hold no tubes field (its volcanoes, from version 9)
-        let t = Map { version: super::super::VERSION, n: 64, m: 8, h: vec![1.0; 384], biome: vec![4; 384], ..Map::empty() };
-        assert_eq!(t.to_bytes(), postcard::to_stdvec(&(&t, &t.volcanoes)).unwrap());
+        // a Terra map's bytes hold no tubes field (its volcanoes, from version 9, then its water table, from 10)
+        let t = Map { version: super::super::VERSION, n: 64, m: 8, h: vec![1.0; 384], biome: vec![4; 384], table: vec![0.0; 384], ..Map::empty() };
+        assert_eq!(t.to_bytes(), postcard::to_stdvec(&(&t, &t.volcanoes, &t.table)).unwrap());
     }
 
     /// A deep bowl at the north pole lies in shadow the whole year, flat ground there does not, and a moon too
